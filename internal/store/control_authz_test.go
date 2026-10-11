@@ -105,6 +105,12 @@ func TestControlAccess(t *testing.T) {
 		{name: "alice makes bob a member of a again", actor: alice, run: memberSet("bob", projA, RoleMember)},
 		{name: "alice adds erin to a", actor: alice, run: memberSet("erin", projA, RoleMember)},
 		{name: "alice removes erin from a", actor: alice, run: memberRemove("erin", projA)},
+		// An unassigned principal the actor did not create is placed by a
+		// server admin only; one already in a project may be added.
+		{name: "alice adds frank, in no project and created by a server admin, to a", actor: alice, run: memberSet("frank", projA, RoleMember),
+			want: AccessUnassigned, op: OpMemberSet, principal: "frank", project: projA},
+		{name: "ivy adds frank to b", actor: ivy, run: memberSet("frank", projB, RoleAdmin),
+			want: AccessUnassigned, op: OpMemberSet, principal: "frank", project: projB},
 		{name: "alice adds bob to b", actor: alice, run: memberSet("bob", projB, RoleMember), want: AccessAdmin, op: OpMemberSet, principal: "bob", project: projB},
 		{name: "alice removes carol from b", actor: alice, run: memberRemove("carol", projB), want: AccessAdmin, op: OpMemberRemove, principal: "carol", project: projB},
 		{name: "alice adds bob to a project that does not exist", actor: alice, run: memberSet("bob", projC[:35]+"d", RoleMember),
@@ -276,6 +282,48 @@ func TestControlReachFollowsMemberships(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// An unassigned principal alice did not create is not hers to place:
+	// she could otherwise bring it within reach and manage its keys.
+	mustPrincipal(t, c, "frank")
+	mustPrincipal(t, c, "erin", projB+"=admin")
+	if _, err := c.AddPrincipal(ctx, erin, "hank", projB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.RemoveMember(ctx, erin, "hank", projB); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"frank", "hank"} {
+		seq := controlSeq(t, c)
+		if _, err := c.SetMember(ctx, alice, name, projA, RoleMember); reason(err) != AccessUnassigned {
+			t.Errorf("alice adds %s, in no project and created by another, to a = %v, want refused: unassigned", name, err)
+		}
+		wantEvents(t, c, seq)
+	}
+	// Its creator may place hank again, and a server admin anyone.
+	if _, err := c.SetMember(ctx, erin, "hank", projB, RoleMember); err != nil {
+		t.Errorf("erin adds the unassigned principal she created to b: %v", err)
+	}
+	if _, err := c.SetMember(ctx, dana, "frank", projB, RoleMember); err != nil {
+		t.Errorf("a server admin adds an unassigned principal to b: %v", err)
+	}
+	// Once in a project, a principal may be added to alice's too, and
+	// its other project keeps it out of her reach.
+	for _, name := range []string{"frank", "hank"} {
+		if _, err := c.SetMember(ctx, alice, name, projA, RoleMember); err != nil {
+			t.Errorf("alice adds %s, in b only, to a: %v", name, err)
+		}
+		if err := addKey(alice, name); reason(err) != AccessReach {
+			t.Errorf("alice adds a key to %s, in a and b = %v, want refused: out of reach", name, err)
+		}
+	}
+	// A role change of a member is not an addition.
+	if _, err := c.RemoveMember(ctx, dana, "frank", projB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.SetMember(ctx, alice, "frank", projA, RoleAdmin); err != nil {
+		t.Errorf("alice changes the role of frank, in a only: %v", err)
+	}
+
 	// Demoted, alice administers nothing.
 	if _, err := c.SetMember(ctx, dana, "alice", projA, RoleMember); err != nil {
 		t.Fatal(err)
@@ -322,6 +370,8 @@ func TestAccessErrorMessages(t *testing.T) {
 			"bob may not key.add hal: it is for project admins and server admins"},
 		{AccessError{Actor: "alice", Op: OpKeyAdd, Principal: "carol", Reason: AccessReach},
 			"alice may not key.add carol: carol belongs to a project alice does not administer, or to none, so it is for server admins"},
+		{AccessError{Actor: "alice", Op: OpMemberSet, Principal: "frank", Project: projA, Reason: AccessUnassigned},
+			"alice may not member.set frank in project " + projA + ": frank belongs to no project and alice did not create it, so it is for server admins"},
 		{AccessError{Actor: "alice", Op: OpPrincipalDisable, Principal: "dana", Reason: AccessServerAdminPrincipal},
 			"alice may not principal.disable dana: dana is a server admin, so it is for server admins"},
 	} {

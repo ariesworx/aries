@@ -14,7 +14,11 @@ import (
 //   - A server admin (ControlOptions.Admins) may make every change.
 //   - A project admin (role admin on the project, while active) may set
 //     and remove that project's members and their roles, and may create
-//     a principal as a member of a project they administer.
+//     a principal as a member of a project they administer. They may
+//     add to it only a principal that already belongs to a project, or
+//     that they created (decision 17): an unassigned principal someone
+//     else created is placed by a server admin, or a project admin could
+//     bring it within their reach, below, and manage its keys.
 //   - A project admin may add or remove a principal's keys, or disable
 //     or enable it, only while every project the principal belongs to is
 //     one they administer. A principal in no project is outside every
@@ -42,6 +46,12 @@ const (
 	// Principal is a server admin, whose keys and state only a server
 	// admin changes.
 	AccessServerAdminPrincipal AccessReason = "server admin principal"
+	// AccessUnassigned: the actor is a project admin adding Principal to
+	// Project, and Principal belongs to no project and was not created
+	// by the actor. Only a server admin places such a principal: a
+	// project admin who could would bring it within reach and manage
+	// its keys (decision 17).
+	AccessUnassigned AccessReason = "unassigned"
 )
 
 // AccessError refuses a change to the control store that Actor, the
@@ -79,6 +89,8 @@ func (e *AccessError) Error() string {
 		why = fmt.Sprintf("%s belongs to a project %s does not administer, or to none, so it is for server admins", e.Principal, e.Actor)
 	case AccessServerAdminPrincipal:
 		why = e.Principal + " is a server admin, so it is for server admins"
+	case AccessUnassigned:
+		why = fmt.Sprintf("%s belongs to no project and %s did not create it, so it is for server admins", e.Principal, e.Actor)
 	}
 	return fmt.Sprintf("%s may not %s: %s", e.Actor, what, why)
 }
@@ -187,6 +199,22 @@ func (w *cwtx) within(ctx context.Context, sc scope, op Op, principal string) er
 	}
 	if len(of) == 0 || slices.ContainsFunc(of, func(p string) bool { return !slices.Contains(sc.projects, p) }) {
 		return w.denied(op, principal, "", AccessReach)
+	}
+	return nil
+}
+
+// placeable refuses a project admin adding p to project unless p already
+// belongs to a project or the actor created it (decision 17).
+func (w *cwtx) placeable(ctx context.Context, p Principal, project string) error {
+	if w.admin || p.CreatedBy == w.actor.Principal {
+		return nil
+	}
+	var n int
+	if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM members WHERE principal = ?`, p.Name).Scan(&n); err != nil {
+		return fmt.Errorf("read projects of %s: %w", p.Name, err)
+	}
+	if n == 0 {
+		return w.denied(OpMemberSet, p.Name, project, AccessUnassigned)
 	}
 	return nil
 }

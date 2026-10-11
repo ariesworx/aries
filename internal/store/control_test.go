@@ -250,11 +250,20 @@ func TestControlProjects(t *testing.T) {
 	}
 	wantEvents(t, c, seq, ev{OpProjectArchive, projA, dana, `"state":"archived"`})
 
+	// A server admin activates an archived project again; the event's
+	// before state says it was archived.
 	seq = controlSeq(t, c)
-	if _, err := c.ActivateProject(ctx, dana, projA); !errors.Is(err, ErrInvalid) {
-		t.Errorf("ActivateProject of an archived project = %v, want ErrInvalid", err)
+	p, err = c.ActivateProject(ctx, sam, projA)
+	if err != nil || p.State != ProjectActive || p.Rev != 4 {
+		t.Errorf("ActivateProject of an archived project = %+v, %v; want active at rev 4", p, err)
 	}
-	wantEvents(t, c, seq)
+	wantEvents(t, c, seq, ev{OpProjectActivate, projA, sam, `"state":"active"`})
+	if evs, err := c.Events(ctx, seq, 0); err != nil || len(evs) != 1 || !strings.Contains(string(evs[0].Before), `"state":"archived"`) {
+		t.Errorf("the reactivation's event = %+v, %v; want a before state that is archived", evs, err)
+	}
+	if _, err := c.ActivateProject(ctx, alice, projA); !errors.Is(err, ErrForbidden) {
+		t.Errorf("ActivateProject by someone who is no server admin = %v, want ErrForbidden", err)
+	}
 
 	// A project never activated can be archived, which abandons it.
 	if _, err := c.AddProject(ctx, dana, newProject(projB)); err != nil {

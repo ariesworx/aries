@@ -56,7 +56,11 @@ func validMember(principal, project string) error {
 
 // SetMember gives a principal a role in a project: it adds the
 // membership, or changes its role. A server admin may in any project; a
-// project admin in the projects they administer.
+// project admin in the projects they administer, and may add to them
+// only a principal that already belongs to some project or that they
+// created. An unassigned principal someone else created is placed by a
+// server admin: a project admin who could would bring it within their
+// reach and manage its keys ([Control.AddKey]).
 //
 // The principal must exist and be active (a disabled one is refused
 // with ErrInvalid), and the project must exist; either missing is
@@ -88,6 +92,9 @@ func (c *Control) SetMember(ctx context.Context, actor Actor, principal, project
 		cur, err := readMember(ctx, w.tx, principal, project)
 		switch {
 		case errors.Is(err, ErrNotFound):
+			if err := w.placeable(ctx, p, project); err != nil {
+				return err
+			}
 			if err := w.memberRoom(ctx, project); err != nil {
 				return err
 			}

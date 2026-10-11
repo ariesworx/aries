@@ -14,7 +14,8 @@ type ProjectState string
 
 // Project states. A project is added as creating, before its database
 // exists; it is active once the database is migrated; and an archived
-// project is kept, with its database, and served to no one.
+// project is kept, with its database, and served to no one until it is
+// activated again.
 const (
 	ProjectCreating ProjectState = "creating"
 	ProjectActive   ProjectState = "active"
@@ -168,10 +169,10 @@ func (c *Control) AddProject(ctx context.Context, actor Actor, in NewProject) (P
 	return out, nil
 }
 
-// ActivateProject marks a project active, once its database is created
-// and migrated. Only a server admin may. A project already active is
-// returned as it is, so creating one can be run again; an archived one
-// is refused with ErrInvalid.
+// ActivateProject marks a project active: once its database is created
+// and migrated, or again after it was archived (decision 18), which the
+// event's before state shows. Only a server admin may. A project already
+// active is returned as it is, so creating one can be run again.
 func (c *Control) ActivateProject(ctx context.Context, actor Actor, id string) (Project, error) {
 	return c.setProjectState(ctx, actor, id, OpProjectActivate, ProjectActive)
 }
@@ -199,11 +200,8 @@ func (c *Control) setProjectState(ctx context.Context, actor Actor, id string, o
 			return err
 		}
 		out = cur
-		switch cur.State {
-		case to:
+		if cur.State == to {
 			return nil
-		case ProjectArchived:
-			return fmt.Errorf("%w: project %s is archived", ErrInvalid, id)
 		}
 		n, err := w.exec(ctx, `UPDATE projects SET state = ?, updated_at = ?, rev = rev + 1, write_id = ? WHERE id = ? AND rev = ?`,
 			string(to), w.now, randomInt63(), id, cur.Rev)
