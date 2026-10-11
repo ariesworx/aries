@@ -520,6 +520,10 @@ Maintainer, 9 Oct 2026, on projects and access (§15):
 14. Two admin tiers: server admins with total control, and project admins, a role a principal may hold on one or more projects.
 15. A project admin may add new people.
 
+Maintainer, 11 Oct 2026, after the measurements of §15.5:
+
+16. A project's database is created by `sfx admin project add`, from a block of database names the operator grants starfixd's account at setup. No command on the server is needed for each project.
+
 ## 15. Projects and access
 
 Designed 9 Oct 2026; nothing here is built. Until it is, one server holds one project, a principal is a line in `authorized_keys`, and admins are a list in the config file.
@@ -529,14 +533,14 @@ Designed 9 Oct 2026; nothing here is built. Until it is, one server holds one pr
 ### 15.1 Databases
 
 - **One Dolt database per project**, all in the one `dolt sql-server`, on the one machine. A project's database is exactly today's schema, so the migrations and the store's queries do not change, and the `project` column §3 planned for `issues` is not needed.
-- **One `Store` per project** inside the one `starfixd`: its own writer connection, its own readers, its own event log, reaper and event push. A busy project does not queue another's writes; they still share the machine's CPU, memory and disk. A project's store opens on first use and closes when idle, so connections and memory follow the projects in use, not the projects that exist.
+- **One `Store` per project** inside the one `starfixd`: its own writer connection, its own readers, its own event log, reaper and event push. A busy project does not queue another's writes; they still share the machine's CPU, memory and disk. A project's store opens on first use and closes when idle, so connections follow the projects in use, not the projects that exist. Dolt's memory does not: it follows the data written and is not given back when a store closes (§15.5, 2).
 - **A control database** holds what is not a project's: `projects`, `principals`, `principal_keys`, `members`, and its own event log, so that every grant, revocation and key change is history (rule 7). It has its own writer.
 - **Routing.** The hello already names the project (`proj`), so a current client and its `.starfix.yaml` work unchanged: the daemon looks the project up instead of comparing it to the one it was started with. `sfx admin` opens a control connection, which names no project; that, and the admin ops, raise the protocol version (rule 10).
 - **Limits** become per principal per project where they protect a project (connections, registry rows, write rate, inbox), with the server totals kept. New caps (rule 18): projects, open stores, principals, keys per principal, members per project.
 
 | Table | Columns |
 |---|---|
-| `projects` | `id` (UUID), `name`, `prefix`, `account`, `db_name`, `state` (`active` / `archived`), `rev` |
+| `projects` | `id` (UUID), `name`, `prefix`, `account`, `db_name`, `state` (`creating` / `active` / `archived`), `rev` |
 | `principals` | `name`, `state` (`active` / `disabled`), `created_by`, `rev` |
 | `principal_keys` | `fingerprint` (SHA-256), `principal`, `key` (the public key line), `comment`, `added_by`, `added_at` |
 | `members` | (`principal`, `project`), `role` (`member` / `admin`), `added_by`, `rev` |
@@ -574,7 +578,7 @@ Open, to check on those VMs: sshd runs the command only if the file and every di
 
 | Role | Where | May |
 |---|---|---|
-| Server admin | The whole server | Archive projects (creating one is the operator's, §15.5); create and disable any principal; add and remove any key; set any membership and role; act as admin in every project |
+| Server admin | The whole server | Create and archive projects; create and disable any principal; add and remove any key; set any membership and role; act as admin in every project |
 | Project admin | Each project where `members.role` is `admin` | Add and remove the project's members and set their roles; create a principal and its keys; override a held issue and `close --force`, as an admin does today |
 | Member | Each project it belongs to | Work |
 
@@ -588,8 +592,8 @@ Open, to check on those VMs: sshd runs the command only if the file and every di
 CLI only (rule 12). Sketch:
 
 ```text
-starfixd project create NAME [--prefix P] [--account A]   on the server (§15.5, 1)
-sfx admin project list | archive PROJECT                  server admin
+sfx admin project add NAME [--prefix P] [--account A]     server admin (§15.5, 1)
+sfx admin project list | archive PROJECT
 sfx admin status                                          server admin: every project; project admin: theirs
 sfx admin principal add NAME --key FILE [--project P]     project admin: --project is theirs
 sfx admin principal list | disable NAME
@@ -598,14 +602,14 @@ sfx admin member add NAME [--project P] [--role admin]    default project: this 
 sfx admin member list | remove NAME
 ```
 
-`project create` prints the UUID and the `.starfix.yaml` to commit.
+`project add` prints the UUID and the `.starfix.yaml` to commit.
 
 `status` reports, per project: whether its store is open, connections, sessions seen, writes a minute, write latency and the database's size on disk; and for the server: starfixd's own memory and goroutines, the machine's free memory and disk, and Dolt's memory where starfixd can read it. Dolt is one process, so its memory cannot be split by project.
 
 ### 15.5 Open questions
 
-1. **Creating a database.** starfixd's Dolt account may hold no privilege on `*.*` (§7, S-2), and Dolt lets no other account create one: tried on Dolt 2.3.3 on 9 Oct 2026 (to be repeated at `version.Dolt`), an account with `GRANT ALL` on a name pattern (`starfix\_%`), or on the exact name ahead of time, is still refused `CREATE DATABASE`. So a project's database is made on the server, by the operator: `starfixd project create NAME` runs `CREATE DATABASE IF NOT EXISTS`, grants starfixd's account that one database, migrates it and records the project, with a privileged Dolt account whose password is read from a 0600 file or a prompt, never argv (rule 2). Each step is safe to repeat, so a run that failed halfway is run again. If creating projects without a shell on the server is wanted later, the operator can make spare databases ahead of time for `sfx admin` to claim.
-2. **Memory.** One project reached 1.4 GB in the load test. How memory grows with several open databases in one Dolt process is not measured, and it decides the machine size. To be measured at `version.Dolt`, with the idle close above. `sfx admin status` (§15.4) is how an admin watches it afterward.
+1. **Creating a database.** Settled (decision 16). Measured 11 Oct 2026 at Dolt 2.4.2 ([spike/multidb](../../spike/multidb/RESULTS.md)), which corrects the test of 9 Oct: starfixd's account, which holds nothing on `*.*` (§7, S-2), can `CREATE DATABASE`, because Dolt checks that statement against the connection's current database. It can use the new database only if root granted it that exact name, which root may do before the database exists; a grant on a name pattern does nothing. So at setup the operator grants starfixd's account a block of database names (`starfix_p001` to `starfix_p100`, say), and `sfx admin project add` creates the next free one from anywhere, with no shell on the server. A server that runs out is granted more, and the refusal says so. Creating is safe to repeat: the project's row is written first, then `CREATE DATABASE IF NOT EXISTS`, then the migrations, then the row is marked active, so a run that failed halfway is run again.
+2. **Memory.** Measured the same day. Dolt's memory follows the data written across all databases, not their number: an open or existing database adds nothing measurable, and one database given five projects' writes costs what five databases do. A project of 300 issues cost about 100 MiB, or 50 MiB with Dolt under a Go memory limit, at four times the write latency when the limit is too low. Closing stores returns none of it, so the idle close of §15.1 saves connections only. Still to measure, on Linux: what a restart gives back, a memory limit set with room to spare, and projects written to at the same time. `sfx admin status` (§15.4) is how an admin watches it afterward.
 3. **Moving an existing server.** Its database becomes the first project's, unchanged; the control database is created beside it; the config file's `project:` names the project to adopt.
 4. **A principal's own keys.** Whether a principal may add a key for itself (a new laptop). Not at first: an agent holding the developer's key could add one of its own.
 5. **Stage 6's cross-project edges** become reads across databases, checked against the reader's memberships.
