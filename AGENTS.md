@@ -26,8 +26,8 @@ stage is in progress.
 |---|---|
 | `cmd/sfx` | `sfx` entry point: builds a `cli.Env` from the process and calls `cli.Run` |
 | `cmd/starfixd` | `starfixd` entry point: `serve`, `stdio`, `upgrade`, and the admin `import-bd` and `export-bd` |
-| `internal/store` | Typed store over Dolt: single writer, CAS updates, event log, ready and blocked queries |
-| `internal/store/migrations` | Embedded schema migrations, `NNNN_name.sql`, numbered 1..n without gaps |
+| `internal/store` | Typed store over Dolt: single writer, CAS updates, event log, ready and blocked queries. Also `Control` (`control*.go`), the same machinery over a second database for what is the server's: projects, principals, their public keys and memberships with roles. Nothing calls `Control` yet |
+| `internal/store/migrations`, `internal/store/controlmigrations` | Embedded schema migrations for a project's database and for the control database, two separate sets: `NNNN_name.sql`, each numbered 1..n without gaps |
 | `internal/proto` | Wire protocol: NDJSON frames, handshake, `Op` constants, `*Args` and `*Result` types, typed errors |
 | `internal/server` | Daemon: socket, peer check, sshd bridge, dispatch of ops to the store, error mapping, settings |
 | `internal/client` | In-process SSH client with a pinned host key, over TCP or a Google Cloud IAP tunnel; `.starfix.yaml` discovery, session ids |
@@ -48,6 +48,7 @@ stage is in progress.
 | `deploy/docker` | The Docker test server ([docs/deploy/docker.md](docs/deploy/docker.md)): image, entrypoint, compose file and `smoke.sh`, which drives it end to end and is not part of CI. It mirrors docs/server.md's setup steps; `internal/version` keeps its Dolt at the pin |
 | `install.sh` | The one-line installer for `sfx` and `starfixd`; `internal/release/install_test.go` runs it and checks that its key is in `keys.go` |
 | `spike/dolt` | Stage 0 measurements, kept as evidence; not maintained and excluded from lint |
+| `spike/multidb` | Stage 3a measurements of many databases in one Dolt, kept as evidence; not maintained and excluded from lint |
 | `docs` | User guides: concepts, `sfx`, agents, running a server, deployment examples, install, moving from bd, the security model |
 | `docs/design` | Design documents |
 | `.claude/agents`, `.codex/agents`, `.gemini/agents` | Agent specifications (below); `internal/agentspec` keeps them in step |
@@ -135,8 +136,8 @@ skip without it too.
    and never stored.
 8. **Write closures must be safe to rerun.** A write that loses to a
    concurrent transaction is retried from the start.
-9. **Migrations are append-only.** Add the next `NNNN_name.sql`; never edit,
-   renumber or delete one that has merged. They only go forward: an older
+9. **Migrations are append-only**, in both sets. Add the next
+   `NNNN_name.sql`; never edit, renumber or delete one that has merged. They only go forward: an older
    `starfixd` refuses a database a newer one migrated (`ErrSchemaTooNew`).
 10. **The protocol is versioned.** Frames are NDJSON (`internal/proto`). The
     server decodes `*Args` with `DisallowUnknownFields`, so a new argument
