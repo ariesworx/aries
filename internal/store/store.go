@@ -96,6 +96,13 @@ type Store struct {
 // with an [*UnsafeAccountError] unless opts.AllowUnsafeAccount is set,
 // and a database a newer binary migrated with [ErrSchemaTooNew].
 func Open(ctx context.Context, dsn string, opts Options) (*Store, error) {
+	return open(ctx, dsn, opts, projectSchema)
+}
+
+// open is Open for the database sc describes: a project's, or the
+// control database, whose store ([Control]) wraps the Store it returns
+// for its writer, committer and event log.
+func open(ctx context.Context, dsn string, opts Options, sc schema) (*Store, error) {
 	cfg, err := mysql.ParseDSN(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("parse dsn: %w", err)
@@ -162,7 +169,7 @@ func Open(ctx context.Context, dsn string, opts Options) (*Store, error) {
 		}
 		opts.Logger.Warn("dolt account is unsafe; allowed for development", "account", ua.User, "problems", strings.Join(ua.Problems, "; "))
 	}
-	n, err := migrate(ctx, s.w, s.now())
+	n, err := migrate(ctx, s.w, s.now(), sc)
 	if err != nil {
 		return nil, errors.Join(err, s.w.Close(), s.r.Close())
 	}

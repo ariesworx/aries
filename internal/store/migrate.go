@@ -16,7 +16,33 @@ import (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-// migration is one migrations/NNNN_name.sql file: its version (NNNN),
+//go:embed controlmigrations/*.sql
+var controlMigrationFiles embed.FS
+
+// schema is one embedded migration set and where a database records how
+// far it has run: a project's database ([Open]) or the control database
+// ([OpenControl]).
+type schema struct {
+	// kind names what the database holds, for refusals.
+	kind string
+	fsys fs.FS
+	// dir is the directory of fsys holding NNNN_name.sql.
+	dir string
+	// table records the versions applied.
+	table string
+	// foreign is the other schema's table. A database that has it holds
+	// the other kind, and migrating it as this one would mix the two.
+	foreign string
+}
+
+var (
+	projectSchema = schema{kind: "a project", fsys: migrationFiles, dir: "migrations",
+		table: "schema_migrations", foreign: "control_migrations"}
+	controlSchema = schema{kind: "the control store", fsys: controlMigrationFiles, dir: "controlmigrations",
+		table: "control_migrations", foreign: "schema_migrations"}
+)
+
+// migration is one NNNN_name.sql file of a schema: its version (NNNN),
 // its file name without .sql, and its statements.
 type migration struct {
 	version int
@@ -24,9 +50,9 @@ type migration struct {
 	stmts   []string
 }
 
-// loadMigrations parses migrations/NNNN_name.sql in version order.
-func loadMigrations(fsys fs.FS) ([]migration, error) {
-	names, err := fs.Glob(fsys, "migrations/*.sql")
+// loadMigrations parses dir/NNNN_name.sql in version order.
+func loadMigrations(fsys fs.FS, dir string) ([]migration, error) {
+	names, err := fs.Glob(fsys, path.Join(dir, "*.sql"))
 	if err != nil {
 		return nil, fmt.Errorf("list migrations: %w", err)
 	}
@@ -75,21 +101,31 @@ func splitSQL(src string) []string {
 	return stmts
 }
 
-// migrate applies pending migrations and returns how many ran. DDL is not
-// transactional, so a migration that fails halfway needs repair by hand;
-// each is small and runs once.
-func migrate(ctx context.Context, db *sql.DB, now time.Time) (int, error) {
-	ms, err := loadMigrations(migrationFiles)
+// migrate applies sc's pending migrations and returns how many ran. It
+// refuses, with ErrInvalid and before changing anything, a database that
+// holds the other schema. DDL is not transactional, so a migration that
+// fails halfway needs repair by hand; each is small and runs once.
+func migrate(ctx context.Context, db *sql.DB, now time.Time, sc schema) (int, error) {
+	ms, err := loadMigrations(sc.fsys, sc.dir)
 	if err != nil {
 		return 0, err
 	}
-	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
+	var foreign int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.tables
+  WHERE table_schema = DATABASE() AND table_name = ?`, sc.foreign).Scan(&foreign); err != nil {
+		return 0, fmt.Errorf("read tables: %w", err)
+	}
+	if foreign > 0 {
+		return 0, fmt.Errorf("%w: the database does not hold %s: it has the table %s; check the dsn", ErrInvalid, sc.kind, sc.foreign)
+	}
+	// sc.table is one of two constants (projectSchema, controlSchema).
+	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS `+sc.table+` (
   version    INT          NOT NULL PRIMARY KEY,
   name       VARCHAR(255) NOT NULL,
   applied_at DATETIME(6)  NOT NULL)`); err != nil {
-		return 0, fmt.Errorf("create schema_migrations: %w", err)
+		return 0, fmt.Errorf("create %s: %w", sc.table, err)
 	}
-	cur, err := lastKey(ctx, db, `SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1`)
+	cur, err := lastKey(ctx, db, `SELECT version FROM `+sc.table+` ORDER BY version DESC LIMIT 1`)
 	if err != nil {
 		return 0, fmt.Errorf("read schema version: %w", err)
 	}
@@ -103,8 +139,8 @@ func migrate(ctx context.Context, db *sql.DB, now time.Time) (int, error) {
 				return n, fmt.Errorf("migration %s: %w", m.name, err)
 			}
 		}
-		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)`,
-			m.version, m.name, now); err != nil {
+		record := `INSERT INTO ` + sc.table + ` (version, name, applied_at) VALUES (?, ?, ?)` //nolint:gosec // sc.table is a constant
+		if _, err := db.ExecContext(ctx, record, m.version, m.name, now); err != nil {
 			return n, fmt.Errorf("record migration %s: %w", m.name, err)
 		}
 		n++
