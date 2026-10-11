@@ -48,6 +48,7 @@ stage is in progress.
 | `deploy/docker` | The Docker test server ([docs/deploy/docker.md](docs/deploy/docker.md)): image, entrypoint, compose file and `smoke.sh`, which drives it end to end and is not part of CI. It mirrors docs/server.md's setup steps; `internal/version` keeps its Dolt at the pin |
 | `install.sh` | The one-line installer for `sfx` and `starfixd`; `internal/release/install_test.go` runs it and checks that its key is in `keys.go` |
 | `spike/dolt` | Stage 0 measurements, kept as evidence; not maintained and excluded from lint |
+| `spike/multidb` | Stage 3a measurements of many databases in one Dolt, kept as evidence; not maintained and excluded from lint |
 | `docs` | User guides: concepts, `sfx`, agents, running a server, deployment examples, install, moving from bd, the security model |
 | `docs/design` | Design documents |
 | `.claude/agents`, `.codex/agents`, `.gemini/agents` | Agent specifications (below); `internal/agentspec` keeps them in step |
