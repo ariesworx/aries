@@ -90,7 +90,7 @@ func TestBatchedCommits(t *testing.T) {
 func TestMigrations(t *testing.T) {
 	dsn := newDSN(t)
 	s := openStore(t, dsn, Options{})
-	if n, err := migrate(t.Context(), s.w, s.now()); err != nil || n != 0 {
+	if n, err := migrate(t.Context(), s.w, s.now(), projectSchema); err != nil || n != 0 {
 		t.Errorf("second migrate ran %d (err %v), want 0", n, err)
 	}
 	if _, err := s.w.ExecContext(t.Context(), `INSERT INTO schema_migrations VALUES (99, 'future', NOW())`); err != nil {
@@ -102,7 +102,7 @@ func TestMigrations(t *testing.T) {
 }
 
 func TestLoadMigrations(t *testing.T) {
-	ms, err := loadMigrations(migrationFiles)
+	ms, err := loadMigrations(migrationFiles, "migrations")
 	if err != nil || len(ms) == 0 || ms[0].version != 1 || len(ms[0].stmts) != 6 {
 		t.Fatalf("embedded migrations: %v %+v", err, ms)
 	}
@@ -116,7 +116,7 @@ func TestLoadMigrations(t *testing.T) {
 	}
 	for _, tc := range bad {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := loadMigrations(tc.fs); err == nil {
+			if _, err := loadMigrations(tc.fs, "migrations"); err == nil {
 				t.Error("accepted")
 			}
 		})

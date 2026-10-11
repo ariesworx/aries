@@ -20,6 +20,14 @@
 // ([Store.CostReport]), are computed at read time, with recursive CTEs where they follow the graph; nothing derived
 // is stored.
 //
+// [OpenControl] returns a [Control], the store of what belongs to the
+// server rather than to one project, in a database of its own: projects
+// ([Project]), principals ([Principal]), their public SSH keys
+// ([PrincipalKey]) and memberships with roles ([Member]). It is built on
+// a Store, so everything below about errors, concurrency and commits
+// holds for it; its own migrations are in controlmigrations, and design
+// §15 describes it.
+//
 // The design is docs/design/starfix.md: §3 for the data model, §6 for
 // memory, §7 for claims, the registry, inboxes, handoffs, idempotency and authorization,
 // §8 for how concurrent changes resolve, and §12.1 for tokens and cost. docs/design/database.md says
@@ -35,7 +43,9 @@
 // [*MemoryConflictError] wrap ErrConflict, [*ForbiddenError] wraps
 // [ErrForbidden], and [*AcceptanceError], [*SecretError] and
 // [*MemoryLimitError] wrap ErrInvalid; read their fields with
-// [errors.As]. [Open] refuses an unsafe database account with an
+// [errors.As]. The control store adds [*AccessError], which wraps
+// ErrForbidden, [*TakenError], which wraps ErrConflict, and
+// [*ControlLimitError], which wraps ErrInvalid. [Open] refuses an unsafe database account with an
 // [*UnsafeAccountError].
 //
 // # Authorization
@@ -46,6 +56,11 @@
 // before anything is written. Comments, labels and dependencies stay open
 // to everyone. An admin's change to an issue another principal holds is
 // recorded as an [OpAdminOverride] event ahead of the change's own events.
+//
+// The control store authorizes each write inside its transaction: a
+// server admin ([ControlOptions.Admins]) may make every change, a
+// project admin some, and only over principals whose every project they
+// administer ([Control.AddKey]). Its reads are not guarded.
 //
 // # Concurrency
 //
