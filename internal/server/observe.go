@@ -22,7 +22,13 @@ import (
 // through the Telemetry, which knows the ops of [Ops] and records any
 // other as unknown; a project is one a connection was admitted to; a
 // result is a protocol code; and the principal, session, machine and
-// issue of a request are never attributes.
+// issue of a request are never attributes of a metric.
+//
+// Spans (design §16.4) are started here and in the files that do the
+// work, always through the Telemetry, which decides what a span may
+// carry (telemetry/trace.go has the rule): ids, codes and small
+// numbers. A span is never given a request's arguments, a result, or an
+// error. It may say who (Span.SetWho), as telemetry: principals: allows.
 
 // Ops returns every operation the server answers, sorted: the values
 // the op attribute of a metric may take (telemetry.Config.Ops).
@@ -70,11 +76,32 @@ func (s *Server) observeRequest(sess *session, op string, perr *proto.Error, sta
 	}
 }
 
+// endRequest ends the server span of a request on sess that was
+// answered with perr. Only a request the server could not serve is
+// marked failed: a refusal is the request's doing, and its code is the
+// span's result.
+func (s *Server) endRequest(span telemetry.Span, sess *session, perr *proto.Error) {
+	if span.Recording() {
+		// Ids and a code, and never the request's arguments, its result
+		// or the refusal's message (telemetry/trace.go, THE RULE).
+		res := resultOf(perr)
+		span.Set(telemetry.KeyResult, res)
+		span.Set(telemetry.KeyProject, sess.proj.id)
+		span.SetInt(telemetry.KeyProtocol, sess.proto)
+		span.SetWho(sess.actor.Principal, sess.actor.Session)
+		if classOf(perr) == telemetry.ClassError {
+			span.Fail(res)
+		}
+	}
+	span.End()
+}
+
 // observeHandshake counts a handshake that returned sess and err, by
 // how it ended: ok, the refusal's code, or failed when it ended with no
-// protocol error to name. A stale key lookup, closed unanswered, is no
-// handshake and is not counted.
-func (s *Server) observeHandshake(sess *session, err error) {
+// protocol error to name, and says the same on its span, which the
+// caller ends. A stale key lookup, closed unanswered, is no handshake:
+// it is not counted, and its span says nothing of how it ended.
+func (s *Server) observeHandshake(span telemetry.Span, sess *session, err error) {
 	if sess == nil && err == nil {
 		return
 	}
@@ -86,6 +113,36 @@ func (s *Server) observeHandshake(sess *session, err error) {
 		}
 	}
 	s.cfg.Telemetry.Count(telemetry.Handshakes, res)
+	if !span.Recording() {
+		return
+	}
+	span.Set(telemetry.KeyResult, res)
+	if res == telemetry.ResultFailed || res == string(proto.CodeUnavailable) {
+		span.Fail(res)
+	}
+	if sess == nil {
+		return
+	}
+	// The principal is the one sshd authenticated; the session and the
+	// protocol are set only once the hello was read and checked.
+	if sess.proj != nil {
+		span.Set(telemetry.KeyProject, sess.proj.id)
+	}
+	if sess.proto > 0 {
+		span.SetInt(telemetry.KeyProtocol, sess.proto)
+	}
+	span.SetWho(sess.actor.Principal, sess.actor.Session)
+}
+
+// withIDs returns log with the ids of the span ctx carries, so that a
+// line and a trace can be joined, and log itself when ctx carries none.
+// It is for the lines of background work and of a handshake; a
+// request's line takes its ids from the request's span.
+func withIDs(ctx context.Context, log *slog.Logger) *slog.Logger {
+	if traceID, spanID, ok := telemetry.IDs(ctx); ok {
+		return log.With("trace_id", traceID, "span_id", spanID)
+	}
+	return log
 }
 
 // dropReason is the reason attribute for connections drop closed
@@ -163,6 +220,61 @@ func (o storeObserver) Committed(took time.Duration, _ error) {
 func (o storeObserver) ClaimChanged(change store.ClaimChange, reason string) {
 	o.tel.Count(telemetry.Claims, string(change), claimReason(reason))
 }
+
+// storeTracer is a store's [store.Tracer]: a span for each attempt of a
+// write, for its wait for the writer, for each Dolt commit and for the
+// migrations of an open, under the span of whatever asked for the work.
+type storeTracer struct {
+	tel     *telemetry.Telemetry
+	project string
+}
+
+// StoreTracer returns the tracer to open project's store with
+// (store.Options.Tracer), so that where its writes spend their time
+// shows in tel's traces. project is empty for the control store. A tel
+// that traces nothing returns nil: the store then calls nothing.
+func StoreTracer(tel *telemetry.Telemetry, project string) store.Tracer {
+	if !tel.Tracing() {
+		return nil
+	}
+	return storeTracer{tel: tel, project: project}
+}
+
+// stageSpans names the span of each stage.
+var stageSpans = map[store.Stage]telemetry.SpanName{
+	store.StageAttempt: telemetry.SpanWriteAttempt,
+	store.StageWait:    telemetry.SpanWriteWait,
+	store.StageCommit:  telemetry.SpanStoreCommit,
+	store.StageMigrate: telemetry.SpanStoreMigrate,
+}
+
+func (o storeTracer) Begin(ctx context.Context, stage store.Stage, attempt int) (context.Context, func(store.Outcome)) {
+	ctx, span := o.tel.Start(ctx, stageSpans[stage])
+	if !span.Recording() {
+		// The context still carries the decision not to sample, for the
+		// stages begun inside this one.
+		return ctx, unsampled
+	}
+	if o.project != "" {
+		span.Set(telemetry.KeyProject, o.project)
+	}
+	if stage == store.StageAttempt {
+		span.SetInt(telemetry.KeyAttempt, attempt)
+	}
+	return ctx, func(out store.Outcome) {
+		span.Set(telemetry.KeyOutcome, string(out))
+		// An attempt that ends in an error is most often the request's
+		// own refusal, which its span's result names; any other stage
+		// that does is the server's failure.
+		if out == store.OutcomeError && stage != store.StageAttempt {
+			span.Fail(string(out))
+		}
+		span.End()
+	}
+}
+
+// unsampled ends a stage whose span records nothing.
+func unsampled(store.Outcome) {}
 
 // claimReason is the reason attribute for a claim released for reason,
 // which is empty or one of the lost* reasons the server gives EndClaims.

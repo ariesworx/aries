@@ -13,6 +13,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/ariesworx/starfix/internal/client"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
 )
@@ -32,11 +33,14 @@ type fakeConn struct {
 type call struct {
 	op   string
 	args any
+	// trace is the trace context the call's context carried
+	// (client.WithTrace), or the zero value for none.
+	trace proto.TraceContext
 }
 
 var errLost = proto.Errf(proto.CodeUnavailable, "retry; if it persists, check the server", "the server closed the connection")
 
-func (f *fakeConn) Call(_ context.Context, op string, args, result any) error {
+func (f *fakeConn) Call(ctx context.Context, op string, args, result any) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.lost != nil {
@@ -46,7 +50,8 @@ func (f *fakeConn) Call(_ context.Context, op string, args, result any) error {
 		f.watches++
 		return nil
 	}
-	f.calls = append(f.calls, call{op, args})
+	tc, _ := client.TraceFrom(ctx)
+	f.calls = append(f.calls, call{op, args, tc})
 	res, err := f.reply(op, args)
 	if errors.Is(err, errLost) {
 		f.lost = err

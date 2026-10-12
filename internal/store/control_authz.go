@@ -143,6 +143,10 @@ func (c *Control) IsServerAdmin(principal string) bool {
 // What the principal may do itself is [Control.IsServerAdmin].
 func (c *Control) ConfigAdmin(principal string) bool { return c.s.IsAdmin(principal) }
 
+// Admins returns the principals the config file names server admins
+// (ControlOptions.Admins), whether or not each has a row.
+func (c *Control) Admins() []string { return slices.Clone(c.s.opts.Admins) }
+
 // serverAdmin is IsServerAdmin for a caller that holds ix.mu.
 func (c *Control) serverAdmin(principal string) bool {
 	return c.ConfigAdmin(principal) && !c.ix.disabled[principal]

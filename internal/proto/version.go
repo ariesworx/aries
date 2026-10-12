@@ -103,6 +103,13 @@ import (
 // never sends accept_keys, so against this server it cannot add a
 // principal who has keys, and reads "pending" as no change.
 //
+// Traces (design §16.4, decision 32) joined 5 the same way, while no
+// release spoke it: the principal.whois op, which resolves the stand-in
+// a server's spans carry in place of a principal's name. A server built
+// from main before it refuses the op as unknown, with code invalid. The
+// trace context a tool call brings `sfx mcp` rides tp and ts as the
+// environment's does, so the wire did not change for it.
+//
 // The bridge frame is not part of this protocol: it passes between two
 // starfixd processes on the server (frame.go), and carries no version.
 // It is read leniently, so a bridge from before a binary swap works

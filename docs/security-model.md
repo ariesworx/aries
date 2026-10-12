@@ -440,6 +440,52 @@ off by default.
 
 Metrics pushed over OTLP carry the same instruments and nothing more.
 
+## Traces
+
+With an endpoint for traces in its environment, starfixd exports spans
+over OTLP/HTTP ([Traces](server.md#traces)): to a collector on the
+machine in the guide's first setup, and to wherever that collector, or
+the endpoint, sends them. They leave the machine, so what a span may
+hold is narrow, and decided in one place.
+
+- **A span carries ids, codes and small numbers.** The operation, the
+  result's code, the project's UUID, the protocol version, an attempt's
+  number, and how a part of the work ended. It carries no issue's title
+  or body, no memory's text, no comment, no handoff, no key, no DSN, no
+  token and no error's message, and it has no events and no links.
+- **This is enforced where spans are made** (`internal/telemetry`), not
+  by each caller's care: a span's name, its attribute keys and each
+  key's values come from lists in the code, and anything else given to
+  a span is dropped or recorded as `unknown` or `other`. Tests send
+  requests with marked text in every field of every operation, served
+  and refused, and search what is exported.
+- **Of a caller's trace context a span takes the ids and the sampled
+  flag.** They are hex, and checked. The `tracestate`, which is the
+  caller's text, is put on no span and no log line.
+- **Who did it is a setting**, `telemetry: principals:`. By default a
+  span names the principal and the session by stand-ins: `p_` or `s_`
+  and 16 hex digits, the start of an HMAC-SHA-256 under a key that only
+  starfixd holds. `name` sends the names; `omit` sends nothing about
+  who. A metric never says who, whatever this is set to.
+- **A stand-in hides a name from the backend, and that is all it does.**
+  It is stable on purpose, so that one person's requests can be followed
+  and counted: what they did, when and in which project is all there,
+  and on a small team that can be enough to tell who it is. It is not
+  anonymity. Use `omit` where a backend must not be able to follow a
+  person at all.
+- **The key is a secret of the server's.** It is in a file of mode 0600
+  that starfixd makes and that only its user reads; starfixd refuses one
+  that others can read. Whoever holds it can test a name against a
+  stand-in. `sfx admin principal whois` does that for a server admin
+  and for nobody else, and the server never sends the key anywhere.
+- **Deleting the key file, and restarting starfixd, makes every earlier
+  stand-in unlinkable**, to the operator too, which is what a retention
+  rule may want. A backup of the file undoes that for as long as it
+  exists.
+- **The setting does not change starfixd's log**, which names
+  principals and sessions. Whoever reads the journal can read the
+  databases.
+
 ## Confinement on the server
 
 Three things limit what starfixd can do on its machine, and they cover
@@ -603,13 +649,17 @@ caps, their settings and what a refusal past each one says.
 - No password goes on a command line, and a config file that holds one
   must be mode 0600 ([Settings](server.md#settings)).
 - `.starfix.yaml` holds no secrets, and is meant to be committed.
-- **A token for a metrics backend** is read from starfixd's environment
-  only (`OTEL_EXPORTER_OTLP_HEADERS`), from a unit's `EnvironmentFile` of
-  mode 0600: no flag and no config key takes it. starfixd never logs it:
-  not at start, and not in an export error, from which every header's
-  value is removed even when the backend's answer repeats it. Sending to
-  a collector on the same machine needs no token at all
+- **A token for a metrics or traces backend** is read from starfixd's
+  environment only (`OTEL_EXPORTER_OTLP_HEADERS`, and the two for one
+  signal), from a unit's `EnvironmentFile` of mode 0600: no flag and no
+  config key takes it. starfixd never logs it: not at start, and not in
+  an export error of either signal, from which every header's value is
+  removed even when the backend's answer repeats it. Sending to a
+  collector on the same machine needs no token at all
   ([Observability](server.md#observability)).
+- **The key of the stand-ins in traces** is made by starfixd, kept in a
+  file of mode 0600 that it refuses when others can read it, and never
+  logged or sent ([Traces](#traces)).
 - **Memories refuse secrets.** A memory that looks like it holds a
   credential is refused in every scope, `user` included, and by
   `import-bd`: private keys, AWS access key ids, GitHub, GitLab, Slack and
@@ -654,7 +704,8 @@ hand](install.md#verify-a-download-by-hand) the commands.
 
 The dependency list is kept small on purpose, and a new dependency needs a
 stated reason. The largest is starfixd's alone: the OpenTelemetry Go SDK,
-its OTLP/HTTP and Prometheus exporters and what they bring, which one
+its OTLP/HTTP exporters for metrics and traces, its Prometheus exporter
+and what they bring, which one
 package (`internal/telemetry`) imports. `sfx`, which runs on every
 developer's machine and inside every agent's harness, links none of it,
 and a test fails if it ever does. Dependencies are not vendored. `go.sum` pins each module's

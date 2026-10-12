@@ -145,7 +145,25 @@ type TelemetrySettings struct {
 	// false leaves the project off every instrument, for a server with
 	// many projects.
 	PerProject *bool `yaml:"per_project"`
+	// Principals is how a person appears on a span (design §16.4,
+	// decision 32): telemetry.PrincipalsPseudonym, the default, a stable
+	// stand-in for the principal's name and for the session's id;
+	// PrincipalsName, the names themselves; or PrincipalsOmit, nothing.
+	// It does not change the daemon's log.
+	Principals string `yaml:"principals"`
+	// PrincipalsKey is the file that holds the key the stand-ins are
+	// made with. starfixd makes it, mode 0600, the first time it exports
+	// traces with stand-ins. A relative path is under the home directory
+	// of the user starfixd runs as ([Settings.PrincipalsKey]). Default
+	// DefaultPrincipalsKey.
+	PrincipalsKey string `yaml:"principals_key"`
 }
+
+// DefaultPrincipalsKey is where the stand-in key is kept, under the home
+// directory of the user starfixd runs as: a directory of its own, so
+// that the unit can let the daemon write there and nowhere else in the
+// home, where authorized_keys is.
+const DefaultPrincipalsKey = "telemetry/principals.key"
 
 // ByProject reports whether metrics name the project: unless
 // per_project is false.
@@ -200,7 +218,8 @@ const (
 // a forced command; a keys file that is the authorized_keys file; a
 // telemetry listen address that is not HOST:PORT or is an IP address
 // that is not loopback (a host name is resolved, and checked, when the
-// daemon starts); a
+// daemon starts); a telemetry principals that is not pseudonym, name or
+// omit; a
 // clock_behind that is not stop or warn; a clock tolerance out of its
 // range; and an unknown log level or format. The clock tolerances come
 // from the file only.
@@ -262,6 +281,16 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 		if err := telemetry.CheckAddr(out.Telemetry.Listen); err != nil {
 			return Settings{}, err
 		}
+	}
+	if out.Telemetry.Principals == "" {
+		out.Telemetry.Principals = telemetry.PrincipalsPseudonym
+	}
+	if !telemetry.ValidPrincipals(out.Telemetry.Principals) {
+		return Settings{}, fmt.Errorf("telemetry: principals: %q is not %s, %s or %s; fix: set it to one of them, or leave it out for %s, a stable stand-in for each name",
+			out.Telemetry.Principals, telemetry.PrincipalsPseudonym, telemetry.PrincipalsName, telemetry.PrincipalsOmit, telemetry.PrincipalsPseudonym)
+	}
+	if out.Telemetry.PrincipalsKey == "" {
+		out.Telemetry.PrincipalsKey = DefaultPrincipalsKey
 	}
 	out.Admins = file.Admins
 	if v := getenv(EnvAdmins); v != "" {
@@ -385,6 +414,16 @@ func (s Settings) KeyFiles(home string) (keysFile, authorizedKeys string) {
 		return filepath.Join(home, p)
 	}
 	return abs(s.KeysFile), abs(s.AuthorizedKeys)
+}
+
+// PrincipalsKey returns the absolute path of the stand-in key's file
+// (telemetry: principals_key:): a relative setting is under home, the
+// home directory of the user starfixd runs as.
+func (s Settings) PrincipalsKey(home string) string {
+	if p := s.Telemetry.PrincipalsKey; filepath.IsAbs(p) {
+		return filepath.Clean(p)
+	}
+	return filepath.Join(home, s.Telemetry.PrincipalsKey)
 }
 
 // ControlDSN returns the DSN of the control database (ControlDB), which

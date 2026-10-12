@@ -131,9 +131,11 @@ func TestOffByDefault(t *testing.T) {
 			}
 			return tel
 		}},
-		{"OTEL_METRICS_EXPORTER=none", func(t *testing.T) *Telemetry {
+		// Each signal has its own switch: with an endpoint set, metrics
+		// alone set to none leaves traces on (TestReadEnvTraces).
+		{"OTEL_METRICS_EXPORTER=none and OTEL_TRACES_EXPORTER=none", func(t *testing.T) *Telemetry {
 			tel, err := New(t.Context(), Config{
-				Getenv: env{"OTEL_METRICS_EXPORTER": "none", "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:1"}.get})
+				Getenv: env{"OTEL_METRICS_EXPORTER": "none", "OTEL_TRACES_EXPORTER": "none", "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:1"}.get})
 			if err != nil {
 				t.Fatalf("New = %v", err)
 			}
@@ -736,7 +738,7 @@ func TestTokenIsNeverLogged(t *testing.T) {
 func TestExportErrorsAreSampled(t *testing.T) {
 	log := &syncBuffer{}
 	now := time.Unix(1_700_000_000, 0)
-	e := newErrlog(logTo(log), []string{"hunter2"})
+	e := newErrlog(logTo(log), []string{"hunter2"}, "metrics")
 	e.now = func() time.Time { return now }
 	fail := func() { e.failed("export failed", fmt.Errorf("dial: refused (password hunter2)")) }
 	for range 100 {

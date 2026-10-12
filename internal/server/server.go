@@ -282,18 +282,14 @@ func New(cfg Config) (*Server, error) {
 // a request it ends the claims that lapsed and prunes what aged while it
 // was closed: a closed store has no reaper.
 func (s *Server) openProject(ctx context.Context, p store.Project) (*served, error) {
-	octx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
-	defer cancel()
-	start := time.Now()
-	st, err := s.cfg.Open(octx, p)
+	st, err := s.openStore(ctx, p)
 	if err != nil {
 		return nil, err
 	}
-	s.cfg.Telemetry.Since(telemetry.StoreOpenDuration, start, strconv.FormatBool(st.Migrated() > 0))
 	pr := &served{id: p.ID, db: p.DBName, store: st, account: p.Account, log: s.cfg.Logger.With("project", p.ID), timeout: s.cfg.RequestTimeout,
 		tel: s.cfg.Telemetry}
 	pr.used.Store(s.now().UnixNano())
-	pr.log.Info("project store opened", "name", p.Name, "database", p.DBName)
+	withIDs(ctx, pr.log).Info("project store opened", "name", p.Name, "database", p.DBName)
 	s.mu.Lock()
 	delete(s.unopened, p.ID)
 	s.mu.Unlock()
@@ -301,6 +297,27 @@ func (s *Server) openProject(ctx context.Context, p store.Project) (*served, err
 	s.sweep(ctx, pr)
 	pr.prune(ctx, s.cfg.Limits)
 	return pr, nil
+}
+
+// openStore opens p's store with Config.Open, within RequestTimeout. It
+// is a store.open span, with the store's migrations beneath it, and one
+// observation of starfix.store.open.duration when it succeeds.
+func (s *Server) openStore(ctx context.Context, p store.Project) (*store.Store, error) {
+	ctx, span := s.cfg.Telemetry.Start(ctx, telemetry.SpanStoreOpen)
+	defer span.End()
+	span.Set(telemetry.KeyProject, p.ID)
+	octx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
+	defer cancel()
+	start := time.Now()
+	st, err := s.cfg.Open(octx, p)
+	if err != nil {
+		span.Fail(telemetry.OutcomeError)
+		return nil, err
+	}
+	migrated := strconv.FormatBool(st.Migrated() > 0)
+	span.Set(telemetry.KeyMigrated, migrated)
+	s.cfg.Telemetry.Since(telemetry.StoreOpenDuration, start, migrated)
+	return st, nil
 }
 
 // each runs fn for the server's project, or for every project whose
@@ -343,10 +360,15 @@ func (s *Server) refresh(ctx context.Context) {
 	}
 	rctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
 	defer cancel()
-	if err := s.cfg.Control.Reload(rctx); err != nil && ctx.Err() == nil {
-		s.cfg.Logger.Error("reload the control store", "err", err)
+	rctx, span := s.cfg.Telemetry.Start(rctx, telemetry.SpanControlReload)
+	if err := s.cfg.Control.Reload(rctx); err != nil {
+		span.Fail(telemetry.OutcomeError)
+		if ctx.Err() == nil {
+			withIDs(rctx, s.cfg.Logger).Error("reload the control store", "err", err)
+		}
 	}
-	s.syncKeys()
+	span.End()
+	s.syncKeys(ctx)
 }
 
 // Serve accepts connections on l until ctx is done, then closes l and every
@@ -490,20 +512,35 @@ func (s *Server) reapLoop(ctx context.Context) {
 		case <-beat:
 			s.cfg.Heartbeat()
 		case <-t.C:
-			start := time.Now()
-			s.CheckClock(ctx)
-			s.refresh(ctx)
-			s.CloseIdleStores()
-			s.Reap(ctx)
-			s.Sweep(ctx)
-			if time.Since(pruned) >= pruneEvery {
-				s.Prune(ctx)
+			prune := time.Since(pruned) >= pruneEvery
+			s.tick(ctx, prune)
+			if prune {
 				pruned = time.Now()
 			}
-			s.cfg.Telemetry.Since(telemetry.ReaperDuration, start)
-			s.cfg.Telemetry.Record(telemetry.ReaperLastRun, float64(time.Now().Unix()))
 		}
 	}
+}
+
+// tick is one tick of the reaper: it looks at the clock, rereads the
+// control store and writes the keys file if it is out of date, closes
+// idle stores, ends expired claims and those of holders who lost their
+// access, and with prune set also prunes. The tick is one trace: the
+// reaper's span, with the parts that have a span of their own beneath
+// it, so a slow tick shows which part was slow.
+func (s *Server) tick(ctx context.Context, prune bool) {
+	start := time.Now()
+	ctx, span := s.cfg.Telemetry.Start(ctx, telemetry.SpanReaper)
+	s.CheckClock(ctx)
+	s.refresh(ctx)
+	s.CloseIdleStores()
+	s.Reap(ctx)
+	s.Sweep(ctx)
+	if prune {
+		s.Prune(ctx)
+	}
+	span.End()
+	s.cfg.Telemetry.Since(telemetry.ReaperDuration, start)
+	s.cfg.Telemetry.Record(telemetry.ReaperLastRun, float64(time.Now().Unix()))
 }
 
 // Prune deletes registry rows and read inbox items older than the limits
@@ -578,6 +615,9 @@ type session struct {
 	// that authenticated, when sshd took its line from the keys file, and
 	// empty for a line of the hand-maintained authorized_keys file.
 	fingerprint string
+	// proto is the protocol version the hello gave, once it was read; a
+	// span names it.
+	proto int
 	// proj is the project the hello named. held is its entry in the
 	// registry of a server of many projects, set while the session
 	// counts as one of the store's connections.
@@ -608,8 +648,16 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		s.refusals.log(log, "", s.now(), slog.LevelWarn, "refused socket peer", "err", err)
 		return
 	}
-	sess, err := s.handshake(ctx, c)
-	s.observeHandshake(sess, err)
+	// The handshake is a trace of its own: a hello brings no trace
+	// context. Opening the project's store, when this connection is the
+	// one that does, and noting the session in the registry show
+	// beneath it. The span ends before the first request is read; the
+	// deferred End is for the returns before that, and does nothing
+	// once the span has ended.
+	hctx, hspan := s.cfg.Telemetry.StartServer(ctx, telemetry.SpanHandshake)
+	defer hspan.End()
+	sess, err := s.handshake(hctx, c)
+	s.observeHandshake(hspan, sess, err)
 	if sess != nil && sess.slot {
 		defer s.slots.release(sess.key)
 	}
@@ -621,7 +669,7 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		if sess != nil {
 			key = sess.key
 		}
-		s.refusals.log(log, key, s.now(), slog.LevelInfo, "handshake failed", "err", err)
+		s.refusals.log(withIDs(hctx, log), key, s.now(), slog.LevelInfo, "handshake failed", "err", err)
 		return
 	}
 	if sess == nil {
@@ -630,6 +678,7 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 	if sess.proj == nil {
 		// The health probe of a server of many projects: the welcome was
 		// its answer. `starfixd status` asks on.
+		hspan.End()
 		s.serveStatus(ctx, sess)
 		return
 	}
@@ -650,8 +699,9 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		return
 	}
 	if principal != ProbePrincipal { // a health check, not an agent to list in who
-		sess.proj.touch(ctx, log, sess.actor, sess.harness)
+		sess.proj.touch(hctx, log, sess.actor, sess.harness)
 	}
+	hspan.End()
 	idle := time.Duration(s.cfg.Limits.IdleTimeout)
 	for {
 		if sess.watching() {
@@ -686,17 +736,19 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		start := time.Now()
 		sess.proj.used.Store(s.now().UnixNano())
 		rctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
-		// The caller's trace context rides the request's context, for
-		// whatever later starts a span from it. One that does not parse
-		// is ignored: it never fails the request, and nothing of it is
-		// logged.
-		if tc, ok := proto.ParseTraceContext(f.Traceparent, f.Tracestate); ok {
+		// The caller's trace context rides the request's context. One
+		// that does not parse is ignored: it never fails the request,
+		// and nothing of it is logged.
+		tc, traced := proto.ParseTraceContext(f.Traceparent, f.Tracestate)
+		if traced {
 			rctx = withTrace(rctx, tc)
 		}
-		// Slice O2 starts the request's server span here, named for the
-		// op, with s.cfg.Telemetry.Start(rctx, ...): its parent is
-		// TraceFrom(rctx) when the frame carried one, and it ends beside
-		// observeRequest below, which measures the same stretch.
+		// The request's server span, named for its op: a child of the
+		// caller's span when the frame brought one, and the parent of
+		// whatever the store does for the request. It ends beside
+		// observeRequest below, which measures the same stretch. With
+		// traces off it is the zero Span, and costs nothing.
+		rctx, span := s.cfg.Telemetry.StartRequest(rctx, f.Op, tc)
 		var res any
 		var perr *proto.Error
 		ok, wait := true, time.Duration(0)
@@ -723,13 +775,19 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		}
 		cancel()
 		s.observeRequest(sess, f.Op, perr, start)
+		s.endRequest(span, sess, perr)
 		if p := sess.push; p != nil {
 			s.flush(sess, p) // what was committed before this answer goes first
 		}
 		attrs := []any{"op", f.Op, "ms", time.Since(start).Milliseconds()}
-		if tc, ok := TraceFrom(rctx); ok {
-			// Hex, checked: safe on a log line. span_id is the caller's
-			// span, the parent of any the server would start.
+		if traceID, spanID, ok := span.IDs(); ok {
+			// The request's own span, sampled or not, so that this line
+			// and the trace can be joined.
+			attrs = append(attrs, "trace_id", traceID, "span_id", spanID)
+		} else if traced {
+			// With traces off there is no span of the server's: the ids
+			// are the caller's, hex and checked, and span_id the span
+			// that sent the request.
 			attrs = append(attrs, "trace_id", tc.TraceID, "span_id", tc.SpanID)
 		}
 		if perr != nil {
@@ -878,6 +936,7 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 		if e := proto.CheckProto(f.Proto, s.cfg.ProtoMin, s.cfg.ProtoMax, s.cfg.Version); e != nil {
 			return refuse(e)
 		}
+		sess.proto = f.Proto
 	}
 	if sess.actor.Principal == StatusPrincipal {
 		// `starfixd status` asks about the server, whichever project it
@@ -943,7 +1002,7 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 				fmt.Sprintf("the server has its limit of %d projects open, each with a connection", s.cfg.Limits.OpenStores)))
 		case err != nil:
 			if ctx.Err() == nil {
-				s.cfg.Logger.Error("open project store", "project", row.ID, "database", row.DBName, "err", err)
+				withIDs(ctx, s.cfg.Logger).Error("open project store", "project", row.ID, "database", row.DBName, "err", err)
 			}
 			return refuse(proto.Errf(proto.CodeUnavailable, "retry; if it persists, the server admin should check the starfixd log",
 				fmt.Sprintf("the server could not open project %q", row.ID)))

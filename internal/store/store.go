@@ -68,6 +68,9 @@ type Options struct {
 	// Observer, when set, is told of each write, retry, Dolt commit and
 	// change of a claim, for the daemon's metrics. See [Observer].
 	Observer Observer
+	// Tracer, when set, is told where a write's time goes, under the
+	// caller's context, for the daemon's traces. See [Tracer].
+	Tracer Tracer
 	// NoMigrate opens the database only as it is: one that this binary's
 	// migrations have not all been applied to is refused with
 	// [ErrSchemaOld], and nothing in it is changed. starfixd sets it for
@@ -217,7 +220,9 @@ func open(ctx context.Context, dsn string, opts Options, sc schema) (*Store, err
 		}
 		opts.Logger.Warn("dolt account is unsafe; allowed for development", "account", ua.User, "problems", strings.Join(ua.Problems, "; "))
 	}
-	n, err := migrate(ctx, s.w, s.now(), sc, !opts.NoMigrate)
+	mctx, migrated := s.begin(ctx, StageMigrate, 0)
+	n, err := migrate(mctx, s.w, s.now(), sc, !opts.NoMigrate)
+	migrated(outcomeOf(err))
 	if err != nil {
 		return nil, errors.Join(err, s.w.Close(), s.r.Close())
 	}
@@ -296,7 +301,9 @@ func (s *Store) Flush(ctx context.Context) error {
 		return nil
 	}
 	start := time.Now()
-	err := s.commit(ctx)
+	cctx, committed := s.begin(ctx, StageCommit, 0)
+	err := s.commit(cctx)
+	committed(outcomeOf(err))
 	if err != nil {
 		s.dirty.Store(true)
 	}
@@ -644,7 +651,9 @@ func (s *Store) write(ctx context.Context, actor Actor, fn func(*wtx) error) err
 func (s *Store) writeRetry(ctx context.Context, actor Actor, fn func(*wtx) error) error {
 	start := time.Now()
 	for attempt := 1; ; attempt++ {
-		changed, err := s.writeOnce(ctx, actor, fn)
+		actx, attempted := s.begin(ctx, StageAttempt, attempt)
+		changed, err := s.writeOnce(actx, actor, fn)
+		attempted(outcomeOf(err))
 		if err == nil {
 			if changed {
 				took := time.Since(start)
@@ -679,7 +688,11 @@ func (s *Store) writeRetry(ctx context.Context, actor Actor, fn func(*wtx) error
 // the store dirty, invalidate the similar-title cache and push inbox
 // items and issue events, so a rolled-back attempt leaves no trace.
 func (s *Store) writeOnce(ctx context.Context, actor Actor, fn func(*wtx) error) (changed bool, err error) {
+	// The writer is one connection, so this is where a write waits for
+	// the writes ahead of it.
+	_, waited := s.begin(ctx, StageWait, 0)
 	tx, err := s.w.BeginTx(ctx, nil)
+	waited(outcomeOf(err))
 	if err != nil {
 		return false, fmt.Errorf("begin: %w", err)
 	}

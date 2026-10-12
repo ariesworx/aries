@@ -1,15 +1,18 @@
 package server
 
 import (
+	"cmp"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// The telemetry: settings: a loopback listen address or none, and
-// per_project, on unless it is set false. Nothing else is accepted, so a
-// setting that does nothing yet cannot be mistaken for one that works.
+// The telemetry: settings: a loopback listen address or none,
+// per_project, on unless it is set false, and how a person appears on a
+// span, with the file of the key that makes the stand-ins. Nothing else
+// is accepted, so a setting that does nothing yet cannot be mistaken for
+// one that works.
 func TestResolveSettingsTelemetry(t *testing.T) {
 	dir := t.TempDir()
 	for _, tc := range []struct {
@@ -18,9 +21,19 @@ func TestResolveSettingsTelemetry(t *testing.T) {
 		env        map[string]string
 		listen     string
 		perProject bool
+		principals string // default pseudonym
+		key        string // default the file under the home directory
 		err        string
 	}{
 		{name: "nothing set", perProject: true},
+		{name: "principals by stand-in", body: "telemetry:\n  principals: pseudonym\n", perProject: true},
+		{name: "principals by name", body: "telemetry:\n  principals: name\n", perProject: true, principals: "name"},
+		{name: "principals left out", body: "telemetry:\n  principals: omit\n", perProject: true, principals: "omit"},
+		{name: "principals of another kind", body: "telemetry:\n  principals: hashed\n", err: "is not pseudonym, name or omit; fix: "},
+		{name: "principals in capitals", body: "telemetry:\n  principals: Name\n", err: "is not pseudonym, name or omit; fix: "},
+		{name: "a key file of its own", body: "telemetry:\n  principals_key: /srv/starfix/standins.key\n", perProject: true, key: "/srv/starfix/standins.key"},
+		{name: "a key file under the home directory", body: "telemetry:\n  principals_key: state/standins.key\n", perProject: true,
+			key: "/var/lib/starfix/state/standins.key"},
 		{name: "listen on loopback", body: "telemetry:\n  listen: 127.0.0.1:9464\n", listen: "127.0.0.1:9464", perProject: true},
 		{name: "listen on IPv6 loopback", body: "telemetry:\n  listen: \"[::1]:9464\"\n", listen: "[::1]:9464", perProject: true},
 		{name: "a name is resolved when the daemon starts", body: "telemetry:\n  listen: localhost:9464\n", listen: "localhost:9464", perProject: true},
@@ -38,7 +51,6 @@ func TestResolveSettingsTelemetry(t *testing.T) {
 		{name: "port zero", body: "telemetry:\n  listen: 127.0.0.1:0\n", err: "no port from 1 to 65535"},
 		// Settings of later slices, and a secret that belongs in the
 		// environment, are refused as unknown keys.
-		{name: "principals is not built", body: "telemetry:\n  principals: name\n", err: "principals"},
 		{name: "audit_log is not built", body: "telemetry:\n  audit_log: true\n", err: "audit_log"},
 		{name: "dolt_metrics_url is not built", body: "telemetry:\n  dolt_metrics_url: http://127.0.0.1:11228/metrics\n", err: "dolt_metrics_url"},
 		{name: "no headers in the file", body: "telemetry:\n  headers: Authorization=token\n", err: "headers"},
@@ -62,6 +74,12 @@ func TestResolveSettingsTelemetry(t *testing.T) {
 			if s.Telemetry.Listen != tc.listen || s.Telemetry.ByProject() != tc.perProject {
 				t.Errorf("ResolveSettings(%q, %v).Telemetry = listen %q, by project %t; want %q, %t",
 					tc.body, tc.env, s.Telemetry.Listen, s.Telemetry.ByProject(), tc.listen, tc.perProject)
+			}
+			if want := cmp.Or(tc.principals, "pseudonym"); s.Telemetry.Principals != want {
+				t.Errorf("ResolveSettings(%q).Telemetry.Principals = %q, want %q", tc.body, s.Telemetry.Principals, want)
+			}
+			if got, want := s.PrincipalsKey("/var/lib/starfix"), cmp.Or(tc.key, "/var/lib/starfix/telemetry/principals.key"); got != want {
+				t.Errorf("ResolveSettings(%q).PrincipalsKey(/var/lib/starfix) = %q, want %q", tc.body, got, want)
 			}
 		})
 	}

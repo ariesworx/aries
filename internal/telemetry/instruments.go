@@ -62,7 +62,9 @@ const (
 	// ClockSteps counts the steps of the server's clock the daemon
 	// detected: direction.
 	ClockSteps
-	// Dropped counts telemetry that could not be exported: signal.
+	// Dropped counts telemetry that could not be exported: signal. For
+	// SignalMetrics it counts exports that failed, whose totals the next
+	// export carries; for SignalTraces it counts spans, which are lost.
 	Dropped
 
 	numInstruments
@@ -141,8 +143,9 @@ const (
 	StepForward  = "forward"
 	StepBackward = "backward"
 
-	// SignalMetrics is the one signal this slice exports.
+	// The signals exported.
 	SignalMetrics = "metrics"
+	SignalTraces  = "traces"
 )
 
 // The limits a refusal is counted under, by the name of the setting
@@ -207,7 +210,7 @@ var (
 	attrEvent    = attr{key: KeyEvent, values: []string{ClaimTake, ClaimRenew, ClaimRelease, ClaimExpire}, fallback: Other}
 	attrWhy      = attr{key: KeyReason, values: []string{ReasonNone, ReasonMembership, ReasonDisabled, ReasonArchived}, fallback: Other}
 	attrWrote    = attr{key: KeyResult, values: []string{ResultOK, ResultFailed}, fallback: Other}
-	attrSignal   = attr{key: KeySignal, values: []string{SignalMetrics}, fallback: Other}
+	attrSignal   = attr{key: KeySignal, values: []string{SignalMetrics, SignalTraces}, fallback: Other}
 	attrStep     = attr{key: KeyDirection, values: []string{StepForward, StepBackward}, fallback: Other}
 )
 
@@ -243,7 +246,7 @@ var specs = [numInstruments]spec{
 	ReaperLastRun:       {name: "starfix.reaper.last_run.time", unit: "s", kind: Gauge, desc: "When the reaper's last tick ended, in Unix seconds."},
 	ClockBehind:         {name: "starfix.clock.behind", unit: "s", kind: Gauge, desc: "How far the server's clock is behind its own history; zero when it is not."},
 	ClockSteps:          {name: "starfix.clock.steps", kind: Counter, attrs: []attr{attrStep}, desc: "Steps of the server's clock detected."},
-	Dropped:             {name: "starfix.telemetry.dropped", kind: Counter, attrs: []attr{attrSignal}, desc: "Exports that failed."},
+	Dropped:             {name: "starfix.telemetry.dropped", kind: Counter, attrs: []attr{attrSignal}, desc: "Telemetry that could not be exported: failed exports of metrics, and spans lost."},
 }
 
 // Description is one instrument as the documentation and the tests list

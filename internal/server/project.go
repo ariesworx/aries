@@ -46,12 +46,12 @@ func (pr *served) reap(ctx context.Context) {
 	cs, err := pr.store.ReapClaims(rctx)
 	if err != nil {
 		if ctx.Err() == nil {
-			pr.log.Error("reap claims", "err", err)
+			withIDs(ctx, pr.log).Error("reap claims", "err", err)
 		}
 		return
 	}
 	for _, c := range cs {
-		pr.log.Info("claim expired", "issue", c.Issue, "principal", c.Holder.Principal,
+		withIDs(ctx, pr.log).Info("claim expired", "issue", c.Issue, "principal", c.Holder.Principal,
 			"session", c.Holder.Session, "epoch", c.Epoch)
 	}
 }
@@ -64,12 +64,12 @@ func (pr *served) prune(ctx context.Context, lim Limits) {
 	n, err := pr.store.Prune(pctx, time.Duration(lim.AgentKeep), time.Duration(lim.InboxKeep))
 	if err != nil {
 		if ctx.Err() == nil {
-			pr.log.Error("prune", "err", err)
+			withIDs(ctx, pr.log).Error("prune", "err", err)
 		}
 		return
 	}
 	if n != (store.Pruned{}) {
-		pr.log.Info("pruned", "agents", n.Agents, "inbox", n.Inbox)
+		withIDs(ctx, pr.log).Info("pruned", "agents", n.Agents, "inbox", n.Inbox)
 	}
 }
 
@@ -96,7 +96,7 @@ func DatabaseDSN(dsn, name string) (string, error) {
 // ([DatabaseDSN]), with opts, the project's prefix, and admins that
 // follow ctl as it changes: a server admin, or an active principal whose
 // role in the project is admin (design §15.3). Each store is measured
-// by tel ([StoreObserver]), which may be nil.
+// and traced by tel ([StoreObserver], [StoreTracer]), which may be nil.
 func ProjectOpener(dsn string, ctl *store.Control, opts store.Options, tel *telemetry.Telemetry) func(context.Context, store.Project) (*store.Store, error) {
 	return func(ctx context.Context, p store.Project) (*store.Store, error) {
 		d, err := DatabaseDSN(dsn, p.DBName)
@@ -107,6 +107,7 @@ func ProjectOpener(dsn string, ctl *store.Control, opts store.Options, tel *tele
 		o.Prefix = p.Prefix
 		o.IsAdmin = func(principal string) bool { return ctl.Access(principal, p.ID).Role == store.RoleAdmin }
 		o.Observer = StoreObserver(tel, p.ID)
+		o.Tracer = StoreTracer(tel, p.ID)
 		return store.Open(ctx, d, o)
 	}
 }

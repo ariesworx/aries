@@ -44,8 +44,8 @@ func snapshot(t *testing.T, m *telemetry.Manual) telemetry.Snapshot {
 	return snap
 }
 
-// newServerTel is newServerWith on a server and a store measured by tel,
-// as `starfixd serve` builds them for one project.
+// newServerTel is newServerWith on a server and a store measured and
+// traced by tel, as `starfixd serve` builds them for one project.
 func newServerTel(t *testing.T, lim Limits, tel *telemetry.Telemetry) *Server {
 	t.Helper()
 	if errors.Is(doltErr, dolttest.ErrNoDolt) {
@@ -59,7 +59,7 @@ func newServerTel(t *testing.T, lim Limits, tel *telemetry.Telemetry) *Server {
 		t.Fatal(err)
 	}
 	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "sf", CommitInterval: -1, Admins: []string{dana.Principal},
-		Limits: lim.Limits, Observer: StoreObserver(tel, project)})
+		Limits: lim.Limits, Observer: StoreObserver(tel, project), Tracer: StoreTracer(tel, project)})
 	if err != nil {
 		t.Fatal(err)
 	}

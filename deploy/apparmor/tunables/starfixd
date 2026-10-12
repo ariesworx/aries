@@ -36,3 +36,8 @@
 @{starfixd_keys_dir}=@{starfixd_home}/.ssh
 @{starfixd_keys_name}=starfix_keys
 @{starfixd_authorized_keys}=@{starfixd_home}/.ssh/authorized_keys
+
+# The file that holds the key principals' stand-ins in traces are made
+# with (`telemetry: principals_key`). starfixd makes it, in a directory
+# the operator made for it, when it first exports traces.
+@{starfixd_principals_key}=@{starfixd_home}/telemetry/principals.key

@@ -113,7 +113,8 @@ func adminWorld(t *testing.T, lim Limits) *multi {
 
 // adminRequests lists every admin op with arguments that a server admin's
 // request would succeed with in adminWorld, apart from project.add,
-// which needs a block of names.
+// which needs a block of names, and principal.whois, which needs a
+// server that has made stand-ins (TestWhois).
 func adminRequests() []struct {
 	op   string
 	args any
@@ -130,6 +131,7 @@ func adminRequests() []struct {
 		{proto.OpPrincipals, proto.AdminListArgs{}},
 		{proto.OpPrincipalDisable, proto.PrincipalArgs{Name: "bob"}},
 		{proto.OpPrincipalEnable, proto.PrincipalArgs{Name: "bob"}},
+		{proto.OpPrincipalWhois, proto.PrincipalWhoisArgs{StandIn: "p_0123456789abcdef"}},
 		{proto.OpMemberSet, proto.MemberSetArgs{Name: "frank"}},
 		{proto.OpMembers, proto.MembersArgs{}},
 		{proto.OpMemberRemove, proto.MemberArgs{Name: "bob"}},
@@ -835,9 +837,10 @@ func TestAdminOpsClassified(t *testing.T) {
 		if !adminOp(op) {
 			t.Errorf("adminOp(%s) = false for an op with a handler", op)
 		}
-		read := op == proto.OpProjects || op == proto.OpPrincipals || op == proto.OpMembers || op == proto.OpKeys || op == proto.OpStatus
+		read := op == proto.OpProjects || op == proto.OpPrincipals || op == proto.OpMembers || op == proto.OpKeys || op == proto.OpStatus ||
+			op == proto.OpPrincipalWhois
 		if readOps[op] != read || controlWrites[op] == read {
-			t.Errorf("%s: read op %t, control write %t; a list and the status are reads and everything else a control write", op, readOps[op], controlWrites[op])
+			t.Errorf("%s: read op %t, control write %t; a list, the status and a stand-in's lookup are reads and everything else a control write", op, readOps[op], controlWrites[op])
 		}
 	}
 	for op := range handlers {

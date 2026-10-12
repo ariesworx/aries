@@ -11,6 +11,13 @@
 // dials with (`sfx mcp` takes the harness's, from client.SessionEnv, or
 // picks one for the process). No tool takes an identity.
 //
+// A tool call may bring the agent's W3C trace context in its request's
+// metadata (_meta's traceparent and tracestate, which the MCP
+// specification reserves for it): the requests that call makes of
+// starfixd then carry it, in place of the one `sfx mcp` was started with
+// in its environment. It is metadata, checked and ignored when it is not
+// valid: no tool's schema or arguments know of it.
+//
 // # Tools and results
 //
 // The exported types named *In are the tools' inputs; Issue, Issues,

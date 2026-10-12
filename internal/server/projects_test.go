@@ -121,7 +121,7 @@ func newMultiTel(t *testing.T, lim Limits, ck *clock, tel *telemetry.Telemetry, 
 		now = ck.now
 	}
 	ctl, err := store.OpenControl(t.Context(), dsn, store.ControlOptions{Admins: admins, CommitInterval: -1, Now: now,
-		Limits: lim.Control})
+		Limits: lim.Control, Tracer: StoreTracer(tel, "")})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -51,8 +51,10 @@
 // with neither id all zeros, and a tracestate of one line of printable
 // ASCII of at most 512 bytes (ParseTraceContext). Anything else is
 // ignored, never refused. The server carries the context with the
-// request and names its ids in its debug log; it makes and exports no
-// spans.
+// request and names the trace in the request's log line. A server that
+// traces starts its span for the request under the caller's (design
+// §16.4), and takes the ids and the flags of the context and nothing
+// else: the tracestate is never put on a span or a log line.
 //
 // A client whose protocol version is outside [min,max] gets a welcome
 // carrying err with code "version", whose fix says which side to upgrade

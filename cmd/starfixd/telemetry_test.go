@@ -106,6 +106,10 @@ type running struct {
 	sock string
 	log  *logBuffer
 	stop func() error
+	// key is where the daemon keeps the key of principals' stand-ins: a
+	// directory of the test's, made as the guide has the operator make
+	// it, and never the home directory of whoever runs the tests.
+	key string
 }
 
 func runSite(t *testing.T, s *site, env map[string]string) *running {
@@ -118,7 +122,13 @@ func runSite(t *testing.T, s *site, env map[string]string) *running {
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	set := s.settings(t)
 	set.Socket = filepath.Join(dir, "run", "d.sock")
-	r := &running{sock: set.Socket, log: &logBuffer{}}
+	if !filepath.IsAbs(set.Telemetry.PrincipalsKey) {
+		set.Telemetry.PrincipalsKey = filepath.Join(dir, "telemetry", "principals.key")
+		if err := os.Mkdir(filepath.Dir(set.Telemetry.PrincipalsKey), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := &running{sock: set.Socket, log: &logBuffer{}, key: set.Telemetry.PrincipalsKey}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
@@ -156,8 +166,9 @@ func status(t *testing.T, s *site, sock string, args ...string) result {
 
 const secretToken = "Bearer-s3cr3t-T0KEN-fedcba9876543210"
 
-// The daemon as serve runs it, with both ways out for metrics: it pushes
-// to the collector the environment names, serves /metrics, /healthz and
+// The daemon as serve runs it, with both ways out for metrics and with
+// traces: it pushes both to the collector the environment names, makes
+// the key of principals' stand-ins, serves /metrics, /healthz and
 // /readyz on the loopback listener, answers `starfixd status`, logs no
 // token, and stops cleanly, leaving nothing running.
 func TestRunDaemonWithTelemetry(t *testing.T) {
@@ -190,7 +201,7 @@ func TestRunDaemonWithTelemetry(t *testing.T) {
 	addr := freeAddr(t)
 	rewrite(t, s, "project: "+adopted+"\nadmins: [dana]\ntelemetry:\n  listen: "+addr+"\nlimits:\n  telemetry_requests: 4\n")
 	d := runSite(t, s, map[string]string{
-		"OTEL_EXPORTER_OTLP_ENDPOINT": col.URL, "OTEL_METRIC_EXPORT_INTERVAL": "50",
+		"OTEL_EXPORTER_OTLP_ENDPOINT": col.URL, "OTEL_METRIC_EXPORT_INTERVAL": "50", "OTEL_BSP_SCHEDULE_DELAY": "50",
 		"OTEL_EXPORTER_OTLP_HEADERS": "Authorization=" + secretToken,
 	})
 	base := "http://" + addr
@@ -217,6 +228,7 @@ func TestRunDaemonWithTelemetry(t *testing.T) {
 		`starfix_handshakes_total{result="not_found"} 1`,
 		"starfix_stores_open 1",
 		`starfix_telemetry_dropped_total{signal="metrics"}`,
+		`starfix_telemetry_dropped_total{signal="traces"}`,
 		"go_goroutine_count",
 		`service_name="starfixd"`,
 	} {
@@ -232,6 +244,15 @@ func TestRunDaemonWithTelemetry(t *testing.T) {
 		t.Errorf("GET /debug/vars = %d, want 404", code)
 	}
 	waitFor(t, "an export of the handshakes to reach the collector", func() bool { return exported("starfix.handshakes") })
+	// The handshakes' spans went too, under a stand-in for alice, made
+	// with a key the daemon keeps where it was told to, for itself alone.
+	waitFor(t, "an export of the handshake's span to reach the collector", func() bool { return exported("handshake") && exported("p_") })
+	if exported("alice") {
+		t.Errorf("an export names alice, with telemetry: principals: at its default")
+	}
+	if fi, err := os.Stat(d.key); err != nil || fi.Mode().Perm() != 0o600 || fi.Size() != 65 {
+		t.Errorf("the stand-in key %s: %v, %v; want a file of mode 0600 holding 64 hex digits", d.key, fi, err)
+	}
 	mu.Lock()
 	sent := auth
 	mu.Unlock()
@@ -264,7 +285,8 @@ func TestRunDaemonWithTelemetry(t *testing.T) {
 		t.Errorf("GET /healthz after the stop = %d, want the listener closed", code)
 	}
 	out := d.log.String()
-	for _, want := range []string{`msg="telemetry on"`, "telemetry listener serving", "a metrics export failed", "starfixd serving"} {
+	for _, want := range []string{`msg="telemetry on"`, " traces=" + col.URL + "/v1/traces ", " sampler=parentbased_always_on ", " principals=pseudonym ",
+		"telemetry listener serving", "a metrics export failed", "a trace export failed", "starfixd serving"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the log lacks %q:\n%s", want, out)
 		}
@@ -274,6 +296,9 @@ func TestRunDaemonWithTelemetry(t *testing.T) {
 	}
 	if n := strings.Count(out, "a metrics export failed"); n != 1 {
 		t.Errorf("%d export failures logged, want 1:\n%s", n, out)
+	}
+	if n := strings.Count(out, "a trace export failed"); n != 1 {
+		t.Errorf("%d trace export failures logged, want 1:\n%s", n, out)
 	}
 
 	// With no daemon, status says so, and with --json as one document.
@@ -305,6 +330,65 @@ func TestRunDaemonTelemetryOffByDefault(t *testing.T) {
 	}
 	if out := d.log.String(); strings.Contains(out, "telemetry") || strings.Contains(out, "systemd") {
 		t.Errorf("a daemon with nothing configured logged about telemetry or systemd:\n%s", out)
+	}
+	// It made no key: nothing it exports needs one.
+	if _, err := os.Stat(d.key); !os.IsNotExist(err) {
+		t.Errorf("a daemon that exports no trace made the stand-in key %s (stat: %v)", d.key, err)
+	}
+}
+
+// The key of principals' stand-ins is made only when traces are
+// exported with stand-ins; a daemon that then cannot make it does not
+// start, and says what to do.
+func TestRunDaemonStandInKey(t *testing.T) {
+	traces := map[string]string{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://127.0.0.1:1/v1/traces", "OTEL_BSP_SCHEDULE_DELAY": "60000"}
+	t.Run("nowhere to make it", func(t *testing.T) {
+		noLeak(t)
+		set := server.Settings{DSN: "nobody@tcp(127.0.0.1:1)/nowhere", Project: adopted, Socket: filepath.Join(t.TempDir(), "d.sock")}
+		set.Limits = server.DefaultLimits
+		set.Telemetry.Principals = "pseudonym"
+		set.Telemetry.PrincipalsKey = filepath.Join(t.TempDir(), "telemetry", "principals.key")
+		err := runDaemon(t.Context(), set, slog.New(slog.DiscardHandler), func(k string) string { return traces[k] })
+		if err == nil || !strings.Contains(err.Error(), set.Telemetry.PrincipalsKey) {
+			t.Fatalf("runDaemon with no directory for the stand-in key = %v, want a refusal naming the file", err)
+		}
+		for _, fix := range []string{"fix: create its directory", "ReadWritePaths=", "principals: to name or omit", "OTEL_TRACES_EXPORTER=none"} {
+			if !strings.Contains(err.Error(), fix) {
+				t.Errorf("the refusal does not say %q: %v", fix, err)
+			}
+		}
+	})
+	for _, tc := range []struct {
+		name, principals string
+		env              map[string]string
+		wantKey          bool
+	}{
+		{"traces with stand-ins", "", traces, true},
+		{"traces with names", "name", traces, false},
+		{"traces with nobody", "omit", traces, false},
+		{"metrics alone", "", map[string]string{"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "http://127.0.0.1:1/v1/metrics"}, false},
+		{"traces set to none", "", map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:1", "OTEL_TRACES_EXPORTER": "none"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			noLeak(t)
+			s := newSite(t, "")
+			body := "project: " + adopted + "\nadmins: [dana]\n"
+			if tc.principals != "" {
+				body += "telemetry:\n  principals: " + tc.principals + "\n"
+			}
+			rewrite(t, s, body)
+			d := runSite(t, s, tc.env)
+			waitFor(t, "the daemon to answer its socket", func() bool {
+				_, err := server.Probe(t.Context(), d.sock, adopted, "test")
+				return err == nil
+			})
+			if _, err := os.Stat(d.key); (err == nil) != tc.wantKey {
+				t.Errorf("the stand-in key exists: %t (stat: %v), want %t", err == nil, err, tc.wantKey)
+			}
+			if err := d.stop(); err != nil {
+				t.Fatalf("runDaemon = %v, want nil", err)
+			}
+		})
 	}
 }
 

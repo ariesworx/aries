@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 
@@ -40,6 +41,28 @@ const (
 func TraceFromEnv(getenv func(string) string) proto.TraceContext {
 	tc, _ := proto.ParseTraceContext(getenv(TraceparentEnv), getenv(TracestateEnv))
 	return tc
+}
+
+// traceKey is the context key of a call's own trace context.
+type traceKey struct{}
+
+// WithTrace returns ctx carrying tc for the calls made under it: a
+// [Conn.Call] under the returned context sends tc on its request in
+// place of the connection's own ([Options.Trace]). It is how a process
+// that serves many pieces of work on one connection, as `sfx mcp` does,
+// gives each its caller's trace. The zero value carries nothing, so the
+// connection's is sent.
+func WithTrace(ctx context.Context, tc proto.TraceContext) context.Context {
+	if tc == (proto.TraceContext{}) {
+		return ctx
+	}
+	return context.WithValue(ctx, traceKey{}, tc)
+}
+
+// TraceFrom returns the trace context [WithTrace] put on ctx.
+func TraceFrom(ctx context.Context) (proto.TraceContext, bool) {
+	tc, ok := ctx.Value(traceKey{}).(proto.TraceContext)
+	return tc, ok
 }
 
 // HarnessFromEnv names the agent harness this process runs under, as an

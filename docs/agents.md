@@ -275,22 +275,42 @@ The harness name comes from `STARFIX_HARNESS`, which setup writes into the
 MCP entry; failing that, `claude-code` when `CLAUDECODE=1` and `gemini`
 when `GEMINI_CLI=1`.
 
-`sfx` also reads `TRACEPARENT` and `TRACESTATE`, the environment
-variables that carry a [W3C trace context](https://www.w3.org/TR/trace-context/),
-and passes them to the server with each request, so that a harness or a
-script that traces its own work can later tie starfix's part to it. Only
-a valid version-00 `traceparent` is sent, and a `tracestate` only with
-one; anything else is left out, and never fails a command. `sfx mcp`
-reads them once, when it starts, so every tool call of that process
-carries the same context. The server records the trace and span ids in
-its debug log and does nothing else with them: it does not create or
-export traces yet.
-
 The hooks take the session id from their input, unless `STARFIX_SESSION`
 is set. In Claude Code that id is `CLAUDE_CODE_SESSION_ID`, the session
 `sfx mcp` claims issues under, so the usage hooks' tokens go to the
 issues that session held. If you set `STARFIX_SESSION` for `sfx mcp`, set
 it for the hooks too.
+
+### Trace context
+
+A harness or a script that traces its own work can tie starfix's part to
+it. `sfx` passes a
+[W3C trace context](https://www.w3.org/TR/trace-context/) to the server
+with each request, and a server that exports traces
+([Traces](server.md#traces)) starts its span for the request as a child
+of the caller's. A server that does not still names the trace in its log
+line for the request. `sfx` itself starts no span and exports nothing.
+
+| From | Read | Applies to |
+|---|---|---|
+| The environment: `TRACEPARENT` and `TRACESTATE` | Once, when `sfx` starts | Every request of an `sfx` command; in `sfx mcp`, every request of a tool call that brings none of its own, and the renewals it makes between calls |
+| A tool call's metadata: `traceparent` and `tracestate` in the request's `_meta` | At each call | The requests that one tool call makes of the server |
+
+- **The metadata keys are the Model Context Protocol's own**: its
+  specification reserves `traceparent`, `tracestate` and `baggage` in
+  `_meta` for trace context, from the 2026-07-28 version on, after
+  OpenTelemetry's convention for MCP. `sfx mcp` reads the first two.
+  `baggage` is not read or passed on.
+- **Only a valid one is sent**: a version-00 `traceparent`, in lowercase
+  hex, and a `tracestate` only with one. Anything else is left out, and
+  never fails a command or a tool call: a call whose metadata is
+  malformed falls back to the environment's.
+- **No tool's schema or arguments changed.** It is metadata of the
+  request, which a harness that traces adds by itself; an agent does
+  not pass it, and cannot.
+- **Of what `sfx` sends, the server keeps the ids and the sampled
+  flag.** The `tracestate` goes with the request and is put on no span
+  and no log line.
 
 ## Give an agent its own identity
 

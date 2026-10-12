@@ -250,8 +250,12 @@ const telemetryStop = 5 * time.Second
 // until it listens on its socket. A listener that cannot be bound fails
 // the start.
 func runDaemon(ctx context.Context, s server.Settings, log *slog.Logger, getenv func(string) string) error {
+	// Where the stand-in key is kept is only an error when a key is
+	// needed: a daemon that exports no trace starts without one.
+	keyFile, keyErr := principalsKey(s)
 	tel, err := telemetry.New(ctx, telemetry.Config{Version: version.Version, Getenv: getenv, Logger: log,
-		Pull: s.Telemetry.Listen != "", PerProject: s.Telemetry.ByProject(), Ops: server.Ops(), Projects: s.Limits.Control.Projects})
+		Pull: s.Telemetry.Listen != "", PerProject: s.Telemetry.ByProject(), Ops: server.Ops(), Projects: s.Limits.Control.Projects,
+		Principals: s.Telemetry.Principals, KeyFile: keyFile})
 	if err != nil {
 		return err
 	}
@@ -262,6 +266,9 @@ func runDaemon(ctx context.Context, s server.Settings, log *slog.Logger, getenv 
 			log.Warn("telemetry did not stop cleanly", "err", err)
 		}
 	}()
+	if keyErr != nil && tel.Tracing() && s.Telemetry.Principals == telemetry.PrincipalsPseudonym {
+		return keyErr
+	}
 	// srv is the server once it is built; /readyz asks it.
 	var srv atomic.Pointer[server.Server]
 	if s.Telemetry.Listen != "" {
@@ -383,6 +390,7 @@ func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h 
 		}
 		opts.Prefix, opts.Admins = s.Prefix, s.Admins
 		opts.Observer = server.StoreObserver(h.tel, s.Project)
+		opts.Tracer = server.StoreTracer(h.tel, s.Project)
 		st, err := store.Open(ctx, s.DSN, opts)
 		if err != nil {
 			return nil, fmt.Errorf("open store: %w", err)
@@ -394,7 +402,7 @@ func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h 
 		}
 		return &daemon{srv: srv, st: st}, nil
 	}
-	ctl, err := openControl(ctx, s, store.ControlOptions{Logger: log, Clock: clk})
+	ctl, err := openControl(ctx, s, store.ControlOptions{Logger: log, Clock: clk, Tracer: server.StoreTracer(h.tel, "")})
 	if err != nil {
 		return nil, err
 	}
@@ -448,17 +456,39 @@ func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h 
 func keyFiles(s server.Settings) (keysFile, authorizedKeys string, err error) {
 	home := ""
 	if !filepath.IsAbs(s.KeysFile) || !filepath.IsAbs(s.AuthorizedKeys) {
-		u, err := user.Current()
-		if err == nil && !filepath.IsAbs(u.HomeDir) {
-			err = errors.New("the account has no home directory")
+		if home, err = accountHome(); err != nil {
+			return "", "", fmt.Errorf("%w; fix: set keys_file: and authorized_keys: to absolute paths in the config file", err)
 		}
-		if err != nil {
-			return "", "", fmt.Errorf("find the home directory of the user starfixd runs as: %w; fix: set keys_file: and authorized_keys: to absolute paths in the config file", err)
-		}
-		home = u.HomeDir
 	}
 	keysFile, authorizedKeys = s.KeyFiles(home)
 	return keysFile, authorizedKeys, nil
+}
+
+// principalsKey returns the absolute path of the file that holds the
+// key principals' stand-ins are made with (telemetry: principals_key:),
+// which is under the account's home directory when the setting is
+// relative, as it is by default.
+func principalsKey(s server.Settings) (string, error) {
+	home := ""
+	if !filepath.IsAbs(s.Telemetry.PrincipalsKey) {
+		var err error
+		if home, err = accountHome(); err != nil {
+			return "", fmt.Errorf("%w, where the key for principals' stand-ins in traces is kept; fix: set telemetry: principals_key: to an absolute path in the config file, or telemetry: principals: to name or omit, which need no key", err)
+		}
+	}
+	return s.PrincipalsKey(home), nil
+}
+
+// accountHome returns the home directory of the user starfixd runs as.
+func accountHome() (string, error) {
+	u, err := user.Current()
+	if err == nil && !filepath.IsAbs(u.HomeDir) {
+		err = errors.New("the account has no home directory")
+	}
+	if err != nil {
+		return "", fmt.Errorf("find the home directory of the user starfixd runs as: %w", err)
+	}
+	return u.HomeDir, nil
 }
 
 // warnOfAdmins logs, for each server admin the config file names, a row
