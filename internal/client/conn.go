@@ -34,6 +34,9 @@ type Options struct {
 	Machine string
 	// Harness names the agent harness, or is empty (HarnessFromEnv).
 	Harness string
+	// Trace is the caller's W3C trace context, sent on every request of
+	// the connection, or the zero value for none (TraceFromEnv).
+	Trace proto.TraceContext
 	// Getenv reads SSH_AUTH_SOCK. Default os.Getenv.
 	Getenv func(string) string
 	// Timeout bounds connecting and the handshake. Default 15s.
@@ -63,6 +66,8 @@ type Conn struct {
 	// kill closes the transport, ending the reader and any call.
 	kill   func() error
 	onPush func(proto.Push)
+	// trace goes on every request (Options.Trace).
+	trace proto.TraceContext
 
 	res     chan *proto.Frame // responses, from the reader to Call
 	done    chan struct{}     // closed when the reader stops
@@ -228,7 +233,7 @@ func start(ctx context.Context, client *ssh.Client, cfg *Config, opts Options) (
 		return nil, fmt.Errorf("ssh stdout: %w", err)
 	}
 	c := newConn(proto.NewEncoder(stdin), proto.NewDecoder(stdout), client.Close, opts.OnPush)
-	c.ssh, c.sess, c.stdin = client, sess, stdin
+	c.ssh, c.sess, c.stdin, c.trace = client, sess, stdin, opts.Trace
 	sess.Stderr = c.stderr
 	if err := sess.Start(RemoteCommand); err != nil {
 		return nil, proto.Errf(proto.CodeUnavailable, "check that this key's authorized_keys line forces `starfixd stdio --principal NAME`",
@@ -355,6 +360,7 @@ func (c *Conn) Call(ctx context.Context, op string, args, result any) error {
 	if err != nil {
 		return err
 	}
+	f.Traceparent, f.Tracestate = c.trace.Traceparent(), c.trace.State
 	stop := context.AfterFunc(ctx, func() { _ = c.kill() })
 	defer stop()
 	if err := c.enc.Encode(f); err != nil {

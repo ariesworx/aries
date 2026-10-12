@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -409,7 +410,10 @@ func (m *multi) writeByHand(t *testing.T, content string) {
 
 // TestKeyAlsoInAuthorizedKeys is a key in the store whose material is
 // also a line of the hand-maintained file: `keys` marks it, and its
-// removal from the store says that sshd still accepts it there.
+// removal from the store closes the connections that named it, as sshd
+// lets it in while the store holds it (decision 26), leaves one that
+// the other file let in, and says that sshd will still accept the key
+// there.
 func TestKeyAlsoInAuthorizedKeys(t *testing.T) {
 	m := adminWorld(t, Limits{}) // carol has a key in the store
 	d := mustDialTo(t, m.Server, dana, projA)
@@ -446,16 +450,23 @@ func TestKeyAlsoInAuthorizedKeys(t *testing.T) {
 		t.Errorf("keys of bob does not mark his key, a line of authorized_keys under another principal, as in it")
 	}
 
-	byHand := mustDialTo(t, m.Server, carol, projA) // sshd took the hand-maintained line: no key named
-	if !byHand.alive() {
-		t.Fatal("carol's connection is not open")
+	// sshd reads the keys file first, so the key comes in by the store's
+	// line, which names it. A connection from before the key was in the
+	// store came in by the hand-maintained line, and names none.
+	_, byStore, _ := dialKey(t, m.Server, carol, projA, carols)
+	byHand := mustDialTo(t, m.Server, carol, projA)
+	if !byStore.alive() || !byHand.alive() {
+		t.Fatal("carol's connections are not open")
 	}
 	rm := mustAsk[proto.KeyResult](d, proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: carols})
-	want := "sshd still accepts key " + carols + ": it is also a line of the server's authorized_keys file, which starfixd never edits. " +
-		"That line's forced command names no key, so a connection it let in was not closed by this removal, and the next is let in as before. " +
+	want := "sshd will still accept key " + carols + ": the connections it had signed in were closed, but it is also a line of the server's authorized_keys file, " +
+		"which starfixd never edits and sshd reads after starfixd's keys file. Its next connection comes in by that line, as the principal the line names, and names no key. " +
 		"Ask the server's operator to delete the line (docs/server.md, Keys from the store); until then, disabling the principal that line names is what keeps the key out"
-	if !rm.InAuthorizedKeys || rm.Warning != want || rm.Dropped != 0 {
-		t.Errorf("key.remove of a key also in authorized_keys = %+v\nwant it marked, nothing dropped, and the warning\n%s", rm, want)
+	if !rm.InAuthorizedKeys || rm.Warning != want || rm.Dropped != 1 {
+		t.Errorf("key.remove of a key also in authorized_keys = %+v\nwant it marked, the one connection it signed in dropped, and the warning\n%s", rm, want)
+	}
+	if !byStore.dropped() {
+		t.Error("the removal left open a connection the key had signed in by the store's line")
 	}
 	if !byHand.alive() {
 		t.Error("the removal closed a connection the hand-maintained file let in")
@@ -567,4 +578,171 @@ func FuzzByHand(f *testing.F) {
 			t.Errorf("byHand does not find a key on a line of its own after %q", before)
 		}
 	})
+}
+
+// TestKeyOfAuthorizedKeysKeepsItsPrincipal pins what follows from sshd
+// reading the keys file first (decision 26). A key that is only a line
+// of the hand-maintained file belongs, by that line's forced command, to
+// a principal the store knows nothing of. If the store took it for
+// another principal, the store's line would be read first and its owner
+// would sign in as someone else: a project admin could shut the only
+// server admin out with nothing but her public key. So the store's rule,
+// a key belongs to one principal, covers that file too.
+func TestKeyOfAuthorizedKeysKeepsItsPrincipal(t *testing.T) {
+	m := adminWorld(t, Limits{})
+	d, a := mustDialTo(t, m.Server, dana, projA), mustDialTo(t, m.Server, alice, projA) // a server admin, and a's project admin
+	typ, danas, danasFP, _ := testKey(t, "dana's new laptop")
+	_, bobs, bobsFP, _ := testKey(t, "bob by hand")
+	_, plain, _, _ := testKey(t, "no forced command")
+	m.writeByHand(t, `restrict,command="/usr/local/bin/starfixd stdio --principal dana" `+typ+" "+danas+" dana@example.com\n"+
+		`command="/usr/local/bin/starfixd stdio --principal bob",restrict `+typ+" "+bobs+"\n"+
+		typ+" "+plain+" someone@example.com\n")
+	// A server admin, who can read that file on the server anyway, is
+	// told where the key is. A project admin is refused in the words used
+	// for a key another principal has in the store, which since the
+	// security review of stage 3a (F-6) do not say that the key is
+	// anyone's: TestRefusalsDoNotSayWhatExists compares the two.
+	taken := func(name string) string {
+		return "alice may not add that key to " + name + ": it is no key alice may give a principal"
+	}
+	inFile := func(fp string) string {
+		return "key " + fp + " is a line of the server's authorized_keys file, for another principal"
+	}
+
+	tests := []struct {
+		name string
+		by   *conn
+		op   string
+		args any
+		want string // the refusal's message, or "" for none
+	}{
+		{"a project admin gives a new principal the server admin's key", a, proto.OpPrincipalAdd,
+			proto.PrincipalAddArgs{Name: "mallory", Keys: []string{typ + " " + danas}}, taken("mallory")},
+		{"a project admin gives a member the server admin's key", a, proto.OpKeyAdd,
+			proto.KeyAddArgs{Name: "bob", Key: typ + " " + danas}, taken("bob")},
+		{"a server admin gives it to another principal", d, proto.OpKeyAdd,
+			proto.KeyAddArgs{Name: "carol", Key: typ + " " + danas + " a-comment"}, inFile(danasFP)},
+		{"one of several keys of a new principal", d, proto.OpPrincipalAdd,
+			proto.PrincipalAddArgs{Name: "mallory", Keys: []string{keyLine(t, "mallory"), typ + " " + bobs}}, inFile(bobsFP)},
+		{"the principal the line names", d, proto.OpKeyAdd, proto.KeyAddArgs{Name: "bob", Key: typ + " " + bobs}, ""},
+		{"a line that names no principal", d, proto.OpKeyAdd, proto.KeyAddArgs{Name: "carol", Key: typ + " " + plain}, ""},
+		{"a key the file does not hold", a, proto.OpPrincipalAdd,
+			proto.PrincipalAddArgs{Name: "nina", Keys: []string{keyLine(t, "nina")}}, ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, perr := ask[json.RawMessage](tc.by, tc.op, tc.args)
+			switch {
+			case tc.want == "" && perr != nil:
+				t.Errorf("%s %+v refused: %v", tc.op, tc.args, perr)
+			case tc.want != "" && (perr == nil || perr.Message != tc.want || perr.Fix == "" ||
+				perr.Code != map[bool]proto.Code{true: proto.CodeForbidden, false: proto.CodeExists}[tc.by == a]):
+				t.Errorf("%s %+v = %+v, want %q with a fix: forbidden for the project admin, exists for the server admin", tc.op, tc.args, perr, tc.want)
+			}
+		})
+	}
+	if _, err := m.ctl.Principal(t.Context(), "mallory"); err == nil {
+		t.Error("the refused principal add left the principal mallory")
+	}
+	if who, _, ok := m.ctl.AuthorizedKey(danasFP); ok {
+		t.Errorf("the store holds the server admin's hand-maintained key, for %q", who)
+	}
+	// A refusal records nothing.
+	evs, err := m.ctl.Events(t.Context(), 0, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range evs {
+		if e.Target == danasFP || e.Target == "mallory" {
+			t.Errorf("a refused key left the event %s on %s", e.Op, e.Target)
+		}
+	}
+}
+
+// TestHandLineAddedLaterHoldsTheStoreKeyBack is the other order: the
+// store holds a key for one principal, and then the operator's file gets
+// a line that gives the same key to another. sshd reads the keys file
+// first, so the store's line would shadow the operator's. The daemon
+// holds that key back from the keys file, so that sshd reaches the
+// operator's line, refuses a connection that an older keys file let in
+// by the store's line, and says so in its log and in status.
+func TestHandLineAddedLaterHoldsTheStoreKeyBack(t *testing.T) {
+	m := adminWorld(t, Limits{}) // carol has a key in the store
+	typ, blob, carols, _ := testKey(t, "carol")
+	d := mustDialTo(t, m.Server, dana, projA)
+	heldBack := func() int {
+		t.Helper()
+		st := mustAsk[proto.StatusResult](d, proto.OpStatus, proto.StatusArgs{})
+		if st.Server == nil || st.Server.KeysFile == nil {
+			t.Fatalf("status shows no keys file: %+v", st.Server)
+		}
+		return st.Server.KeysFile.HeldBack
+	}
+	inFile := func() bool {
+		t.Helper()
+		b, err := os.ReadFile(m.keysFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Contains(string(b), " --key "+carols+`"`)
+	}
+	if !inFile() || heldBack() != 0 {
+		t.Fatalf("before any line by hand: carol's key in the keys file %t, %d held back; want it there and none", inFile(), heldBack())
+	}
+	if w, _, _ := dialKey(t, m.Server, carol, projA, carols); w.Err != nil {
+		t.Fatalf("carol by her key: %v", w.Err)
+	}
+
+	// The same principal by hand changes nothing.
+	m.writeByHand(t, `restrict,command="/usr/local/bin/starfixd stdio --principal carol" `+typ+" "+blob+"\n")
+	m.refresh(t.Context())
+	if !inFile() || heldBack() != 0 {
+		t.Errorf("a line by hand for the same principal: in the keys file %t, %d held back; want it there and none", inFile(), heldBack())
+	}
+
+	// The operator gives the key to dana.
+	m.writeByHand(t, "# the operator's break-glass line, added after the store had the key\n"+
+		`restrict,command="/usr/local/bin/starfixd stdio --principal dana" `+typ+" "+blob+"\n")
+	// Before the next tick the keys file still has the store's line: a
+	// connection by it is refused, as one by any stale line is.
+	if w, _, _ := dialKey(t, m.Server, carol, projA, carols); w.Err == nil || w.Err.Code != proto.CodeAuth {
+		t.Errorf("carol by the store's line for a key authorized_keys now gives to dana = %+v, want an auth refusal", w.Err)
+	}
+	m.refresh(t.Context())
+	if inFile() {
+		t.Error("the keys file still has the store's line for a key authorized_keys gives to another principal")
+	}
+	if got := heldBack(); got != 1 {
+		t.Errorf("status counts %d keys held back, want 1", got)
+	}
+	if !strings.Contains(m.log.String(), `msg="a key of the control store is held back from the keys file: the authorized_keys file gives it to another principal, and sshd reads the keys file first" fingerprint=`+carols+" principal=carol") {
+		t.Errorf("the log does not say the key is held back:\n%s", m.log.String())
+	}
+	// The key now reaches the operator's line: dana, with no key named.
+	mustDialTo(t, m.Server, dana, projA)
+	for _, secret := range []string{blob} {
+		if strings.Contains(m.log.String(), secret) {
+			t.Errorf("a line of authorized_keys is echoed in the log")
+		}
+	}
+
+	// The line deleted, the store's line is written again.
+	m.writeByHand(t, "# nothing now\n")
+	m.refresh(t.Context())
+	if !inFile() || heldBack() != 0 {
+		t.Errorf("after the line was deleted: in the keys file %t, %d held back; want it back and none", inFile(), heldBack())
+	}
+	if w, _, _ := dialKey(t, m.Server, carol, projA, carols); w.Err != nil {
+		t.Errorf("carol by her key once the line is deleted: %v", w.Err)
+	}
+	// So is it when the file itself is gone.
+	m.writeByHand(t, `restrict,command="/usr/local/bin/starfixd stdio --principal dana" `+typ+" "+blob+"\n")
+	m.refresh(t.Context())
+	if err := os.Remove(m.byHand); err != nil {
+		t.Fatal(err)
+	}
+	m.refresh(t.Context())
+	if !inFile() || heldBack() != 0 {
+		t.Errorf("after authorized_keys was removed: in the keys file %t, %d held back; want it back and none", inFile(), heldBack())
+	}
 }

@@ -101,6 +101,25 @@ than your `sfx`, each command prints a one-line notice, and `prime`, which
 starts an agent's session, includes it. To upgrade the server, see
 [Upgrades](server.md#upgrades).
 
+`sfx upgrade` reads the release from GitHub and asks your starfix server
+nothing, so it works when the server refuses your `sfx` as too old.
+
+**Coming from v0.4.x or earlier.** A server of this release refuses every
+earlier `sfx`, once, on purpose ([Upgrades](server.md#upgrades)). Each
+command then exits 3 and says:
+
+```text
+sfx: starfix speaks protocol 4; the server (v0.5.0) needs protocol 5
+fix: upgrade this client: run `sfx upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `sfx mcp`
+```
+
+Run `sfx upgrade`, or the install script above, on each machine. Then
+restart your agents: the MCP server an agent's harness started is the
+old `sfx` until the harness starts it again, and its tools go on failing
+with code `version` until then. If your `sfx` is the new one and the
+server is not yet, you are told to have the server upgraded instead, and
+`sfx upgrade --rollback` puts your previous `sfx` back meanwhile.
+
 ## Uninstall
 
 1. In each repository you set up, run `sfx setup --all --remove`. Add

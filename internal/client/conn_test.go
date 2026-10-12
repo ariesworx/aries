@@ -202,3 +202,40 @@ func TestCapBuffer(t *testing.T) {
 		})
 	}
 }
+
+// Every request of a connection carries the trace context the client was
+// given, and none carries one when it was given none.
+func TestCallCarriesTheTraceContext(t *testing.T) {
+	tests := []struct {
+		name          string
+		trace         proto.TraceContext
+		parent, state string
+	}{
+		{name: "none"},
+		{name: "a traceparent", trace: proto.TraceContext{TraceID: "4bf92f3577b34da6a3ce929d0e0e4736", SpanID: "00f067aa0ba902b7", Flags: "01"},
+			parent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"},
+		{name: "with a tracestate", trace: proto.TraceContext{TraceID: "4bf92f3577b34da6a3ce929d0e0e4736", SpanID: "00f067aa0ba902b7", Flags: "00", State: "vendor=opaque"},
+			parent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00", state: "vendor=opaque"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c, s := pipeConn(t, nil)
+			c.trace = tc.trace
+			for _, op := range []string{proto.OpReady, proto.OpShow} {
+				done := make(chan error, 1)
+				go func() { done <- c.Call(t.Context(), op, proto.LimitArgs{}, nil) }()
+				f := s.req()
+				if f == nil {
+					t.Fatal("no request")
+				}
+				if f.Op != op || f.Traceparent != tc.parent || f.Tracestate != tc.state {
+					t.Errorf("the %s request carries tp %q, ts %q; want %q, %q", f.Op, f.Traceparent, f.Tracestate, tc.parent, tc.state)
+				}
+				s.send(&proto.Frame{T: proto.FrameRes, ID: f.ID, OK: []byte(`{}`)})
+				if err := <-done; err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
+	}
+}

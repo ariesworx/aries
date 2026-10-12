@@ -130,6 +130,10 @@ const (
 type TakenError struct {
 	Kind  TakenKind
 	Value string
+	// Elsewhere says the key is another principal's outside the store
+	// (Control.KeysElsewhere), not by a row of it. The message is the
+	// same either way.
+	Elsewhere bool
 }
 
 func (e *TakenError) Error() string {

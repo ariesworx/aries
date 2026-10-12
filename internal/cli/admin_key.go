@@ -274,7 +274,7 @@ func printKeys(w io.Writer, res proto.KeysResult) {
 	}
 	_ = tw.Flush()
 	if byHand {
-		_, _ = fmt.Fprintln(w, "ALSO IN authorized_keys: the key is also a line of the server's hand-maintained authorized_keys file, where sshd accepts it whatever the store holds; `sfx admin key remove` does not keep it out until that line is deleted on the server")
+		_, _ = fmt.Fprintln(w, "ALSO IN authorized_keys: the key is also a line of the server's hand-maintained authorized_keys file, which sshd reads after the store's keys; `sfx admin key remove` closes the key's connections, and sshd still accepts it by that line until the line is deleted on the server")
 	}
 }
 

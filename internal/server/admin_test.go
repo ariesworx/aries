@@ -930,51 +930,73 @@ func TestOpenProjectsRecovers(t *testing.T) {
 	}
 }
 
-// A protocol 4 client, as v0.4.x speaks, still works against this
-// server: it sends no admin op, and every op it has is answered as
-// before.
-func TestProtocol4ClientStillServed(t *testing.T) {
+// A released client is refused at the handshake, before any request: its
+// protocol is below ProtoMin (decision 25). What it reads is the server's
+// to choose, since a released client prints the welcome's error as it
+// is: that the client is the side to upgrade, and how.
+func TestReleasedClientsRefused(t *testing.T) {
 	s := newServer(t)
-	w, c := handshakeProto(t, s, alice, 4)
-	if w.T != proto.FrameWelcome || w.Err != nil || w.Min != 2 || w.Max != proto.ProtoMax {
-		t.Fatalf("a protocol 4 hello = %+v (%v), want a welcome", w, w.Err)
+	const fix = "upgrade this client: run `sfx upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `sfx mcp`"
+	for _, tc := range []struct {
+		release string
+		proto   int
+	}{{"v0.2.x", 2}, {"v0.3.x", 3}, {"v0.4.x", 4}} {
+		t.Run(tc.release, func(t *testing.T) {
+			w, err := handshake(t, s, &proto.Frame{T: proto.FrameBridge, Principal: "alice"},
+				&proto.Frame{T: proto.FrameHello, Version: "v0.4.0", Proto: tc.proto, Project: project, Session: "s", Machine: "m"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := fmt.Sprintf("starfix speaks protocol %d; the server (v0.2.0) needs protocol %d", tc.proto, proto.ProtoMin)
+			if w.T != proto.FrameWelcome || w.Err == nil || w.Err.Code != proto.CodeVersion || w.Err.Message != want || w.Err.Fix != fix ||
+				w.Min != proto.ProtoMin || w.Max != proto.ProtoMax {
+				t.Fatalf("a protocol %d hello = %+v (%+v)\nwant a welcome refusing it with code version, %q\nfix %q", tc.proto, w, w.Err, want, fix)
+			}
+		})
 	}
-	is := mustAsk[proto.CreateResult](c, proto.OpCreate, proto.CreateArgs{Title: "work"})
-	for _, r := range []struct {
-		op   string
-		args any
-	}{
-		{proto.OpStart, proto.StartArgs{ID: is.ID}},
-		{proto.OpShow, proto.ShowArgs{ID: is.ID}},
-		{proto.OpRemember, proto.RememberArgs{Key: "k", Body: "about it"}},
-		{proto.OpRecall, proto.RecallArgs{}},
-		{proto.OpPrices, proto.PricesArgs{}},
-		{proto.OpPlans, proto.PlansArgs{}},
-		{proto.OpHours, proto.HoursArgs{}},
-		{proto.OpCost, proto.CostArgs{By: "account", Since: "7d"}},
-		{proto.OpList, proto.ListArgs{}},
-		{proto.OpWho, proto.WhoArgs{}},
-	} {
-		if _, perr := ask[json.RawMessage](c, r.op, r.args); perr != nil {
-			t.Errorf("protocol 4 %s: %v", r.op, perr)
+}
+
+// The health check of `starfixd upgrade` is run by the binary being
+// replaced, which speaks its own protocol to the daemon that replaced
+// it. The daemon answers it whatever it speaks: a v0.4.0 starfixd that
+// was refused would take the new daemon for dead and put itself back.
+func TestProbeOfAnOlderStarfixdIsAnswered(t *testing.T) {
+	s := newServer(t)
+	for _, p := range []int{2, 4, proto.Proto, proto.ProtoMax + 1} {
+		f, err := handshake(t, s, &proto.Frame{T: proto.FrameBridge, Principal: ProbePrincipal},
+			&proto.Frame{T: proto.FrameHello, Version: "v0.4.0", Proto: p, Project: project, Session: "upgrade-probe", Machine: "localhost"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if f.T != proto.FrameWelcome || f.Err != nil || f.Version != "v0.2.0" {
+			t.Errorf("the upgrade probe speaking protocol %d = %+v (%v), want a welcome with the daemon's version", p, f, f.Err)
 		}
 	}
 }
 
-// A protocol 4 server, as v0.4.x runs, refuses this client at the
-// handshake, telling it to have the server upgraded, before an admin op
-// could fail as unknown.
-func TestHandshakeProtocol4ServerRefusesNewClient(t *testing.T) {
-	s := newServer(t)
-	s.cfg.ProtoMin, s.cfg.ProtoMax = 2, 4
-	f, err := handshake(t, s, &proto.Frame{T: proto.FrameBridge, Principal: "alice"},
-		&proto.Frame{T: proto.FrameHello, Version: "v0.5.0", Proto: proto.Proto, Project: project, Session: "s", Machine: "m"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if f.Err == nil || f.Err.Code != proto.CodeVersion || !strings.Contains(f.Err.Message, "accepts 2 to 4") ||
-		!strings.Contains(f.Err.Fix, "starfixd upgrade") {
-		t.Fatalf("a protocol %d client to a protocol 4 server = %+v, want a version refusal naming starfixd upgrade", proto.Proto, f.Err)
+// An older server refuses this client at the handshake, telling it to
+// have the server upgraded, before a request could fail on an op or a
+// field the server does not know. v0.4.x accepts 2 to 4.
+func TestHandshakeOlderServerRefusesThisClient(t *testing.T) {
+	for _, tc := range []struct {
+		release string
+		lo, hi  int
+		accepts string
+	}{{"v0.2.x", 2, 2, "accepts protocol 2"}, {"v0.3.x", 2, 3, "accepts protocols 2 to 3"}, {"v0.4.x", 2, 4, "accepts protocols 2 to 4"}} {
+		t.Run(tc.release, func(t *testing.T) {
+			s := newServer(t)
+			s.cfg.ProtoMin, s.cfg.ProtoMax = tc.lo, tc.hi
+			f, err := handshake(t, s, &proto.Frame{T: proto.FrameBridge, Principal: "alice"},
+				&proto.Frame{T: proto.FrameHello, Version: "v0.5.0", Proto: proto.Proto, Project: project, Session: "s", Machine: "m"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if f.Err == nil || f.Err.Code != proto.CodeVersion || !strings.Contains(f.Err.Message, tc.accepts) ||
+				!strings.Contains(f.Err.Fix, "starfixd upgrade") || strings.Contains(f.Err.Fix, "sfx upgrade") {
+				t.Fatalf("a protocol %d client to a %s server = %+v, want a version refusal that says it %s and names starfixd upgrade alone",
+					proto.Proto, tc.release, f.Err, tc.accepts)
+			}
+		})
 	}
 }
 

@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,7 +16,7 @@ import (
 )
 
 // keysWorld is a server of many projects whose sshd reads the keys file
-// starfixd writes, after the authorized_keys file kept by hand, as an
+// starfixd writes, before the authorized_keys file kept by hand, as an
 // sshd with the AuthorizedKeysFile of the server guide does. dana and
 // sam are its server admins.
 func keysWorld(t *testing.T, lim server.Limits) *world {
@@ -123,6 +122,13 @@ func TestKeysFromTheStore(t *testing.T) {
 // the handshake. The file is made stale twice: by a daemon that cannot
 // write it, which also shows what the admin and `status` are told, and
 // by hand.
+//
+// sshd reads the keys file before the authorized_keys file kept by hand
+// (decision 26), so a stale line also shadows the hand-kept line of the
+// same key: frank's removed key, which that file would let in, is
+// refused while the stale line stands, and let in by the hand-kept line
+// once the keys file is written again. Stale, the file is never more
+// permissive than the store, and for a key in both it is stricter.
 func TestStaleKeysFileIsNotAHole(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("needs a directory this user cannot write to")
@@ -132,8 +138,12 @@ func TestStaleKeysFileIsNotAHole(t *testing.T) {
 	bob, carol := w.newUser("", ""), w.newUser("", "") // keys only the store holds
 	dana.ok("admin", "principal", "add", "bob", "--key", bob.pub())
 	dana.ok("admin", "principal", "add", "carol", "--key", carol.pub())
+	frank := w.newUser("frank", "") // a line of authorized_keys, and a key of the store
+	w.member("frank", project, store.RoleMember)
+	dana.ok("admin", "key", "add", "frank", frank.pub())
 	bob.ok("list")
 	carol.ok("list")
+	frank.ok("list")
 	fresh := readFile(t, w.keysFile)
 	sshdLetsIn := func(u *user) bool {
 		t.Helper()
@@ -159,11 +169,22 @@ func TestStaleKeysFileIsNotAHole(t *testing.T) {
 	if r.code != cli.ExitOK || r.stdout != "carol: disabled\n" || !strings.HasPrefix(r.stderr, stale) {
 		t.Errorf("principal disable with the keys file unwritable: exit %d\nstdout %q\nstderr %q\nwant her disabled, and the warning", r.code, r.stdout, r.stderr)
 	}
+	r = dana.run("v0.2.0", "admin", "key", "remove", frank.fingerprint())
+	if r.code != cli.ExitOK || !strings.HasPrefix(r.stderr, "sfx: warning: sshd will still accept key "+frank.fingerprint()) ||
+		!strings.Contains(r.stderr, "; and the change is recorded, but starfixd could not write the keys file sshd reads") {
+		t.Errorf("key remove of a key also in authorized_keys, with the keys file unwritable: exit %d\nstderr %q\nwant both warnings in the one line", r.code, r.stderr)
+	}
 	if got := readFile(t, w.keysFile); got != fresh {
 		t.Fatalf("the keys file changed though its directory is read-only:\n%s", got)
 	}
-	if !sshdLetsIn(bob) || !sshdLetsIn(carol) {
-		t.Fatal("the stale keys file no longer lets the two keys past sshd; the test needs it to")
+	if !sshdLetsIn(bob) || !sshdLetsIn(carol) || !sshdLetsIn(frank) {
+		t.Fatal("the stale keys file no longer lets the three keys past sshd; the test needs it to")
+	}
+	// frank's key is still a line of authorized_keys, and sshd does not
+	// reach it: the stale line comes first, and names a key the store no
+	// longer holds.
+	if e := frank.refused(proto.CodeAuth, "list"); e.Message != "the key that signed in is no longer one the server holds for frank" {
+		t.Errorf("a removed key that a stale keys file and authorized_keys both hold: %+v; want the daemon's auth refusal", e)
 	}
 	// Past sshd, and no further.
 	if e := bob.refused(proto.CodeAuth, "list"); e.Message != "the key that signed in is no longer one the server holds for bob" || e.Fix == "" {
@@ -187,9 +208,12 @@ func TestStaleKeysFileIsNotAHole(t *testing.T) {
 	if r := dana.run("v0.2.0", "admin", "principal", "add", "erin", "--key", w.newUser("", "").pub()); r.code != cli.ExitOK || r.stderr != "" {
 		t.Fatalf("principal add once the keys file can be written: exit %d, stderr %q; want no warning", r.code, r.stderr)
 	}
-	if sshdLetsIn(bob) || sshdLetsIn(carol) {
+	if sshdLetsIn(bob) || sshdLetsIn(carol) || sshdLetsIn(frank) {
 		t.Error("the keys file, written again, still has a line for a removed key or a disabled principal's")
 	}
+	// With no line in the keys file, frank's key reaches its line of
+	// authorized_keys, as the removal's warning said it would.
+	frank.ok("list")
 	if st := decode[proto.StatusResult](t, dana.ok("admin", "status", "--json")); st.Server.KeysFile.Failed || st.Server.KeysFile.Keys != 1 {
 		t.Errorf("status of the keys file once written again = %+v; want it current, with erin's key", st.Server.KeysFile)
 	}
@@ -207,6 +231,9 @@ func TestStaleKeysFileIsNotAHole(t *testing.T) {
 	}
 	if e := carol.refused(proto.CodeForbidden, "list"); e.Message != "carol is disabled on this server" {
 		t.Errorf("a disabled principal's key in a keys file written by hand: %+v; want the daemon's refusal", e)
+	}
+	if e := frank.refused(proto.CodeAuth, "list"); e.Message != "the key that signed in is no longer one the server holds for frank" {
+		t.Errorf("a removed key in a keys file written by hand, and in authorized_keys: %+v; want the daemon's auth refusal", e)
 	}
 }
 
@@ -470,19 +497,6 @@ func TestLosingAccessReleasesClaims(t *testing.T) {
 	bob.ok("start", bob2)
 	if got := decode[proto.PrincipalResult](t, dana.ok("--json", "admin", "principal", "disable", "bob")); got.State != "disabled" || got.Released != 1 {
 		t.Errorf("principal disable --json of someone holding an issue: %+v, want 1 released", got)
-	}
-}
-
-// A server that speaks the previous protocol refuses this client's key
-// commands at the handshake, with exit code 3.
-func TestAdminKeyOldServer(t *testing.T) {
-	w := newWorld(t, daemonOpts{protoMin: 2, protoMax: proto.Proto - 1})
-	u := w.newUser("dana", "")
-	r := u.run("v0.2.0", "admin", "key", "list", "dana")
-	want := fmt.Sprintf("sfx: starfix speaks protocol %d; the server (v0.2.0) is older and accepts 2 to %d\n", proto.Proto, proto.Proto-1) +
-		"fix: ask the server admin to run `starfixd upgrade`, or install the starfix release that matches the server\n"
-	if r.code != cli.ExitVersion || r.stderr != want {
-		t.Errorf("exit %d, stderr %q\nwant exit %d, %q", r.code, r.stderr, cli.ExitVersion, want)
 	}
 }
 

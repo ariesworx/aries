@@ -111,6 +111,16 @@ func parseKey(line string) (fingerprint, key, comment string, err error) {
 // [AccessKey], whoever has it. A project admin can still tell that a key
 // is on the server, since a new key for a principal within reach is
 // added and this one is not; the refusal only does not say so.
+//
+// The order of the checks holds two things at once. Who the actor is,
+// and whether the principal is within their reach, are decided first, so
+// that nothing about a name or a key is said to someone who may not act
+// on it. Then, in the same write and before the row is inserted, the key
+// is looked for in the store and in the keys held elsewhere
+// ([Control.KeysElsewhere], the hand-maintained authorized_keys): neither
+// lookup can be skipped or raced, and a project admin gets the one
+// [AccessKey] refusal for either, so it cannot tell a key in that file
+// from a key in the store.
 func (c *Control) AddKey(ctx context.Context, actor Actor, principal, line string) (PrincipalKey, error) {
 	if err := validPrincipal(principal); err != nil {
 		return PrincipalKey{}, err
@@ -150,7 +160,8 @@ type parsedKey struct{ fingerprint, key, comment string }
 
 // addKey gives principal the key k and records it, or returns the key as
 // it is when principal has it already. It refuses a key another
-// principal has, and one past ControlLimits.Keys. The caller has checked
+// principal has, in the store or elsewhere (Control.KeysElsewhere), and
+// one past ControlLimits.Keys. The caller has checked
 // the actor and that the principal exists.
 func (w *cwtx) addKey(ctx context.Context, principal string, k parsedKey) (PrincipalKey, error) {
 	switch cur, err := readKey(ctx, w.tx, k.fingerprint); {
@@ -163,6 +174,16 @@ func (w *cwtx) addKey(ctx context.Context, principal string, k parsedKey) (Princ
 		return PrincipalKey{}, &TakenError{Kind: TakenKey, Value: k.fingerprint}
 	case !errors.Is(err, ErrNotFound):
 		return PrincipalKey{}, err
+	}
+	if w.elsewhere != nil {
+		if owner, ok := w.elsewhere(k.fingerprint); ok && owner != principal {
+			if !w.admin {
+				// As for a key the store holds: not told that it is
+				// anyone's, or where.
+				return PrincipalKey{}, w.denied(OpKeyAdd, principal, "", AccessKey)
+			}
+			return PrincipalKey{}, &TakenError{Kind: TakenKey, Value: k.fingerprint, Elsewhere: true}
+		}
 	}
 	if err := w.room(ctx, limitKeys, w.lim.Keys, `SELECT COUNT(*) FROM principal_keys WHERE principal = ?`, principal); err != nil {
 		return PrincipalKey{}, err

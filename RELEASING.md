@@ -19,6 +19,28 @@ does not list, so a release clients would refuse is never published.
 The release notes name the Dolt version the release was tested with
 (`version.Dolt`, which a test keeps equal to CI's `DOLT_VERSION`).
 
+They also say, first, when the release changes the protocol
+(`internal/proto/version.go`): the version it speaks and the range it
+accepts, and which earlier releases keep working. Normally all of the
+one before do, since `ProtoMin` stays one version behind. **The first
+release after v0.4.0 is the exception:** it speaks and accepts protocol
+5 alone, so every earlier `sfx` is refused by it, and it is refused by
+every earlier server. Its notes must lead with that, give the order
+(server, then every `sfx`, then restart the agents) and link
+[Upgrades](docs/server.md#upgrades), which has the text each side
+prints.
+
+**The same release changes which key `sfx` signs in with, and its notes
+must say so beside the protocol.** A key named for `sfx` is now the only
+key it offers the server, and `key:` in `.starfix.yaml` may name only a
+file inside the repository. A `.starfix.yaml` with a line such as `key:
+~/.ssh/id_ed25519`, which every earlier release accepted, is refused:
+`sfx` says so, names the line to remove, and gives the replacement, the
+environment variable `STARFIX_KEY=~/.ssh/id_ed25519`. The notes give
+that one step, say that `sfx whoami` shows which principal and key a
+connection used, and link [Your key is your
+identity](docs/cli.md#your-key-is-your-identity).
+
 ## Changing the Dolt pin
 
 The Dolt release is pinned in five files, and one pull request changes

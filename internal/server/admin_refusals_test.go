@@ -73,6 +73,21 @@ func TestRefusalsDoNotSayWhatExists(t *testing.T) {
 		if said := elsewhere.Message + elsewhere.Fix; strings.Contains(said, "belongs to another") || strings.Contains(said, fingerprintOf(t, "carol")) {
 			t.Errorf("the refusal says the key is someone's: %+v", elsewhere)
 		}
+		// A key that the operator's authorized_keys gives to another
+		// principal (F-5) is refused in the same words: a project admin
+		// cannot tell that file from the store, or either from the other.
+		typ, blob, handFP, _ := testKey(t, "dana by hand")
+		m.writeByHand(t, `restrict,command="/usr/local/bin/starfixd stdio --principal dana" `+typ+" "+blob+" dana@example.com\n")
+		byHand := refusal(t, a, proto.OpKeyAdd, proto.KeyAddArgs{Name: "bob", Key: typ + " " + blob}, "bob")
+		if byHand != elsewhere {
+			t.Errorf("key.add of a key that authorized_keys gives to another principal = %+v\nof a key the store holds for one = %+v\nwant the same refusal", byHand, elsewhere)
+		}
+		if said := byHand.Message + byHand.Fix; strings.Contains(said, "authorized_keys") || strings.Contains(said, handFP) {
+			t.Errorf("the refusal tells a project admin of the server's authorized_keys file: %+v", byHand)
+		}
+		if who, _, ok := m.ctl.AuthorizedKey(handFP); ok {
+			t.Errorf("the store took the hand-maintained key, for %q", who)
+		}
 		// To a principal out of reach, a new key and someone's key are
 		// refused alike.
 		fresh := refusal(t, a, proto.OpKeyAdd, proto.KeyAddArgs{Name: "carol", Key: keyLine(t, "fresh")}, "carol")

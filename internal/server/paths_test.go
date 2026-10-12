@@ -64,15 +64,15 @@ func TestDispatchPaths(t *testing.T) {
 	}
 }
 
-// A protocol 2 client sends none of the new fields; every op it uses
-// still works, and records no paths.
-func TestDispatchPathsProtocol2(t *testing.T) {
+// The path fields are optional: a client that sends none of them is
+// served by every op that takes them, and no paths are recorded.
+func TestDispatchWithoutPaths(t *testing.T) {
 	s := newServer(t)
 	raw := func(a store.Actor, op, args string) json.RawMessage {
 		t.Helper()
 		res, perr := s.Dispatch(t.Context(), a, op, json.RawMessage(args))
 		if perr != nil {
-			t.Fatalf("protocol 2 %s %s: %v", op, args, perr)
+			t.Fatalf("%s %s: %v", op, args, perr)
 		}
 		b, err := json.Marshal(res)
 		if err != nil {

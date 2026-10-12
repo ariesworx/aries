@@ -212,8 +212,8 @@ func TestPrintKeys(t *testing.T) {
 			"FINGERPRINT                                         TYPE         COMMENT     ADDED BY  ADDED                 ALSO IN\n" +
 			fp1 + "  ssh-ed25519  bob@laptop  import    2026-10-11 09:30 UTC  authorized_keys\n" +
 			fp2 + "  ssh-rsa                  dana      2026-10-11 09:30 UTC  -\n" +
-			"ALSO IN authorized_keys: the key is also a line of the server's hand-maintained authorized_keys file, where sshd accepts it whatever the store holds; " +
-			"`sfx admin key remove` does not keep it out until that line is deleted on the server\n"},
+			"ALSO IN authorized_keys: the key is also a line of the server's hand-maintained authorized_keys file, which sshd reads after the store's keys; " +
+			"`sfx admin key remove` closes the key's connections, and sshd still accepts it by that line until the line is deleted on the server\n"},
 		{"key added", func(w *bytes.Buffer) {
 			printKeyAdded(w, proto.KeyResult{ID: fp1, Principal: "bob", Type: "ssh-ed25519", Comment: "bob@laptop", Change: "added"})
 		}, "key " + fp1 + " (ssh-ed25519, bob@laptop) added to bob\n"},

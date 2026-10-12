@@ -12,11 +12,11 @@ import "time"
 // Who may run each is the control store's to decide; a refusal is
 // forbidden, with a fix that says who can.
 //
-// Protocol 6 adds a principal's public SSH keys, which the daemon writes
-// to a file sshd reads (design §15.2): key.add, keys and key.remove, and
-// Keys on principal.add. It also has status, a read for an admin
-// watching the server, added before protocol 6 shipped in a release
-// (version.go).
+// The same protocol has a principal's public SSH keys, which the daemon
+// writes to a file sshd reads (design §15.2): key.add, keys and
+// key.remove, and Keys on principal.add; and status, a read for an admin
+// watching the server. They joined protocol 5 before it shipped in a
+// release (version.go).
 const (
 	OpProjectAdd       = "project.add"       // ProjectAddArgs → ProjectAddResult; server admins
 	OpProjects         = "projects"          // AdminListArgs → ProjectsResult
@@ -110,7 +110,7 @@ type ProjectsResult struct {
 
 // PrincipalAddArgs adds a principal named Name as a member of Project
 // (empty: the connection's). Unassigned, for server admins only, adds
-// it to no project instead. Keys (protocol 6) are its first public keys,
+// it to no project instead. Keys are its first public keys,
 // each one line as KeyAddArgs.Key is, at most MaxKeysPerAdd; the
 // principal and its keys are added together or not at all.
 type PrincipalAddArgs struct {
@@ -312,8 +312,9 @@ type KeyAddArgs struct {
 // authenticated.
 //
 // InAuthorizedKeys is set by a removal when the key is also a line of
-// the authorized_keys file the server's operator maintains by hand,
-// where sshd still accepts it. Warning then says so, and what to do. It
+// the authorized_keys file the server's operator maintains by hand:
+// its connections were closed, and sshd will still accept it by that
+// line until the line is deleted. Warning then says so, and what to do. It
 // also says when the change is committed and the server could not write
 // the keys file sshd reads, which may then be out of date.
 type KeyResult struct {
@@ -339,9 +340,11 @@ type KeysArgs struct {
 
 // Key is one public key in a list: its fingerprint, type and comment.
 // InAuthorizedKeys says the key is also a line of the authorized_keys
-// file the server's operator maintains by hand, so that removing it
-// from the store does not keep it out. Principal is whose key it is, in
-// a list of the keys someone added.
+// file the server's operator maintains by hand. sshd reads the server's
+// keys file first, so the key signs in by the store's line while the
+// store holds it; removing it from the store closes its connections
+// and does not keep it out, since sshd then takes the other line.
+// Principal is whose key it is, in a list of the keys someone added.
 type Key struct {
 	Fingerprint      string    `json:"fingerprint"`
 	Type             string    `json:"type"`
@@ -420,12 +423,16 @@ type ServerStatus struct {
 // keys the daemon last put in it, and when the file was last written.
 // Failed says the latest attempt to write it failed, so that sshd may
 // be reading an older list than the store holds; the daemon tries again
-// every half minute, and its log says why.
+// every half minute, and its log says why. HeldBack counts the store's
+// keys left out of the file because the server's hand-maintained
+// authorized_keys file gives them to another principal: sshd reads the
+// daemon's file first, and that line must not be shadowed.
 type KeysFile struct {
 	Path      string     `json:"path"`
 	Keys      int        `json:"keys"`
 	WrittenAt *time.Time `json:"written_at,omitempty"`
 	Failed    bool       `json:"failed,omitempty"`
+	HeldBack  int        `json:"held_back,omitempty"`
 }
 
 // ProjectStatus is one project. Open says whether its store is open;
