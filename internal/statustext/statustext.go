@@ -44,6 +44,9 @@ func Print(w io.Writer, res proto.StatusResult) {
 			p("%s", clockLines(*c))
 		}
 		p("starfixd's memory %d MiB in use, %d MiB from the system; %d goroutines\n", mib(s.HeapBytes), mib(s.SysBytes), s.Goroutines)
+		if d := s.Dolt; d != nil {
+			p("%s", doltLines(*d))
+		}
 		p("projects: %s; principals: %s\n\n", byState(s.Projects), byState(s.Principals))
 	}
 	if len(res.Projects) == 0 {
@@ -186,4 +189,88 @@ func clockLines(c proto.ClockStatus) string {
 			(time.Duration(h.Seconds) * time.Second).String(), esc(h.Log), when(h.History), when(h.Since), restart)
 	}
 	return b.String()
+}
+
+// What the collector's cycles for each 100 writes said of a Go memory
+// limit in one set of measurements (spike/multidb/RESULTS.md, section
+// 5: Linux on arm64 in a container, synthetic issues of one shape):
+// every run whose limit cost at most twice the CPU made fewer than
+// gcRoom, and every run past the cliff more than gcTooLow.
+const (
+	gcRoom   = 3
+	gcTooLow = 14
+	// gcMinWrites is how many writes a window needs before the cycles
+	// are set against them. An idle Dolt still collects about every two
+	// minutes, five times in a window of ten: against fewer writes than
+	// this, those alone would be more than one for each 100.
+	gcMinWrites = 500
+)
+
+// doltLines says what starfixd last read of Dolt's own metrics: one
+// line of Dolt's figures, with "unknown" for each it did not give, and
+// one of its collector's cycles against starfixd's writes, once two
+// reads have succeeded. When the latest read failed it is one line
+// saying so, with the last read that succeeded.
+func doltLines(d proto.DoltStatus) string {
+	if d.Unknown {
+		if d.ReadAt == nil {
+			return "Dolt: unknown: starfixd has not read Dolt's metrics since it started; see starfixd's log\n"
+		}
+		return fmt.Sprintf("Dolt: unknown: starfixd could not read Dolt's metrics, and last could at %s; see starfixd's log\n", when(*d.ReadAt))
+	}
+	parts := []string{"Dolt, version unknown", "uptime unknown", "connections unknown", "memory unknown", "memory limit unknown"}
+	if d.Version != "" {
+		parts[0] = "Dolt " + esc(d.Version)
+	}
+	if d.UptimeSeconds != nil {
+		parts[1] = "up " + uptime(*d.UptimeSeconds)
+	}
+	if d.Conns != nil {
+		parts[2] = plural(int64(*d.Conns), "connection")
+	}
+	if d.ResidentBytes != nil {
+		parts[3] = fmt.Sprintf("%d MiB resident", mib(*d.ResidentBytes))
+	}
+	limited := false
+	if l := d.MemLimitBytes; l != nil {
+		parts[4] = "no memory limit"
+		if limited = *l > 0; limited {
+			parts[4] = fmt.Sprintf("memory limit %d MiB", mib(*l))
+		}
+	}
+	out := strings.Join(parts, ", ") + "\n"
+	g := d.GC
+	if g == nil {
+		return out
+	}
+	out += fmt.Sprintf("Dolt's collector: %s for %s in %s", plural(g.Cycles, "cycle"), plural(g.Writes, "write"), uptime(g.WindowSeconds))
+	switch {
+	case g.Writes < gcMinWrites || g.Per100Writes == nil:
+		if limited {
+			out += fmt.Sprintf(": too few writes to judge the memory limit by (it takes %d)", gcMinWrites)
+		}
+		return out + "\n"
+	case *g.Per100Writes < 10:
+		out += fmt.Sprintf(", %.1f for each 100 writes", *g.Per100Writes)
+	default:
+		out += fmt.Sprintf(", %.0f for each 100 writes", *g.Per100Writes)
+	}
+	switch r := *g.Per100Writes; {
+	case !limited:
+	case r < gcRoom:
+		out += fmt.Sprintf(": under %d, as with a memory limit that had room in the measurements (over %d was one too low)", gcRoom, gcTooLow)
+	case r > gcTooLow:
+		out += fmt.Sprintf(": OVER %d, AS WITH A MEMORY LIMIT TOO LOW in the measurements: Dolt is spending its CPU collecting. Raise GOMEMLIMIT or restart Dolt (docs/server.md, Dolt's memory)", gcTooLow)
+	default:
+		out += fmt.Sprintf(": between the %d of a memory limit with room and the %d of one too low, in the measurements", gcRoom, gcTooLow)
+	}
+	return out + "\n"
+}
+
+// plural prints n and noun, with an s unless n is 1.
+func plural(n int64, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return strconv.FormatInt(n, 10) + " " + noun + "s"
 }

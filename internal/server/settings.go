@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/doltmetrics"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
 	"github.com/ariesworx/starfix/internal/telemetry"
@@ -145,6 +146,12 @@ type TelemetrySettings struct {
 	// false leaves the project off every instrument, for a server with
 	// many projects.
 	PerProject *bool `yaml:"per_project"`
+	// DoltMetricsURL is where the daemon reads Dolt's own figures for
+	// the status report (design §16.5): the http:// URL of Dolt's
+	// Prometheus endpoint, on a loopback address. Empty, the default,
+	// reads nothing, and the report says nothing of Dolt. Any other URL
+	// is refused: the endpoint has no authentication.
+	DoltMetricsURL string `yaml:"dolt_metrics_url"`
 }
 
 // ByProject reports whether metrics name the project: unless
@@ -181,6 +188,8 @@ const (
 	EnvClockBehind = "STARFIXD_CLOCK_BEHIND"
 	// EnvTelemetryListen sets Telemetry.Listen.
 	EnvTelemetryListen = "STARFIXD_TELEMETRY_LISTEN"
+	// EnvDoltMetricsURL sets Telemetry.DoltMetricsURL.
+	EnvDoltMetricsURL = "STARFIXD_TELEMETRY_DOLT_METRICS_URL"
 )
 
 // ResolveSettings merges, highest precedence first: flags, the environment,
@@ -188,7 +197,8 @@ const (
 // DefaultConfigFile if it exists; a named file must exist. Limits and
 // ProjectDBs come from the file only, Admins from the file unless STARFIXD_ADMINS replaces
 // them, Telemetry from the file with its listen address from
-// STARFIXD_TELEMETRY_LISTEN when that is set, and AllowUnsafeDolt from
+// STARFIXD_TELEMETRY_LISTEN and the URL of Dolt's metrics from
+// STARFIXD_TELEMETRY_DOLT_METRICS_URL when those are set, and AllowUnsafeDolt from
 // flags only. It refuses a password in
 // flags.DSN, which the process list would show; a config file with an
 // unknown key, or with a password and any access for group or others; an
@@ -200,7 +210,8 @@ const (
 // a forced command; a keys file that is the authorized_keys file; a
 // telemetry listen address that is not HOST:PORT or is an IP address
 // that is not loopback (a host name is resolved, and checked, when the
-// daemon starts); a
+// daemon starts); a URL of Dolt's metrics that doltmetrics.CheckURL
+// refuses, which is any but http:// to a loopback address with a path; a
 // clock_behind that is not stop or warn; a clock tolerance out of its
 // range; and an unknown log level or format. The clock tolerances come
 // from the file only.
@@ -260,6 +271,14 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 	}
 	if out.Telemetry.Listen != "" {
 		if err := telemetry.CheckAddr(out.Telemetry.Listen); err != nil {
+			return Settings{}, err
+		}
+	}
+	if v := getenv(EnvDoltMetricsURL); v != "" {
+		out.Telemetry.DoltMetricsURL = v
+	}
+	if out.Telemetry.DoltMetricsURL != "" {
+		if err := doltmetrics.CheckURL(out.Telemetry.DoltMetricsURL); err != nil {
 			return Settings{}, err
 		}
 	}

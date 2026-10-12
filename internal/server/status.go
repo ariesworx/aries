@@ -16,9 +16,11 @@ import (
 // sessions seen lately). It opens no store, reads no control table and
 // writes nothing.
 //
-// It says nothing of Dolt, which is another process under another user:
-// not its memory, and not a database's size on disk. Dolt gives its
-// least-privileged account no table or function for the size on disk
+// Of Dolt, which is another process under another user, it says what
+// the daemon last read from Dolt's own metrics endpoint, when it is
+// told where that is (doltwatch.go): the report itself reads nothing.
+// It does not say a database's size on disk. Dolt gives its
+// least-privileged account no table or function for that
 // (information_schema.tables estimates the current rows and leaves out
 // the history, which is most of a Dolt database), and the files are
 // Dolt's user's to read.
@@ -123,6 +125,7 @@ func (s *Server) serverStatus() *proto.ServerStatus {
 		Projects: map[string]int{}, Principals: map[string]int{},
 		KeysFile: s.keysStatus(),
 		Clock:    s.clockStatus(),
+		Dolt:     s.doltStatus(),
 	}
 	if s.cfg.Control == nil {
 		out.OpenStoresMax = 1
