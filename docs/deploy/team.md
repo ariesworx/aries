@@ -164,9 +164,10 @@ CI runners: ci-bot ────────────────┘          
   ([Logs](../server.md#logs)). If the server holds several projects,
   `sfx admin status` shows each one's connections and writes
   ([Watching a server](../server.md#watching-a-server)), and the memory
-  to watch is Dolt's, on the VM: it follows the data in all the projects
-  together, so a second project on the same 2 GB shares what the first
-  has left.
+  to watch is Dolt's, on the VM: it grows with what every project writes
+  until Dolt is restarted, so a second project on the same 2 GB shares
+  what the first has left ([Dolt's memory](../server.md#dolts-memory)
+  says how much to expect and how to get it back).
 - **Upgrades:** the server first, then each person runs `sfx upgrade`
   ([Upgrades](../server.md#upgrades)).
 
