@@ -474,10 +474,24 @@ hold is narrow, and decided in one place.
   anonymity. Use `omit` where a backend must not be able to follow a
   person at all.
 - **The key is a secret of the server's.** It is in a file of mode 0600
-  that starfixd makes and that only its user reads; starfixd refuses one
-  that others can read. Whoever holds it can test a name against a
-  stand-in. `sfx admin principal whois` does that for a server admin
-  and for nobody else, and the server never sends the key anywhere.
+  that starfixd makes and that only its user reads. Whoever holds it
+  can test a name against a stand-in. `sfx admin principal whois` does
+  that for a server admin and for nobody else, and the server never
+  sends the key anywhere.
+- **Without the key a span says nothing about who.** When starfixd
+  cannot make or read the key, it does not stop, since a server that is
+  down for want of a label in its telemetry would be worse; it does not
+  make a key up in memory, whose stand-ins would change at each start
+  and that nobody could resolve; and it never sends the name in its
+  place. Spans carry no principal and no session, as with `omit`, until
+  the key is there, and the log, the status report and `whois` say so
+  and why.
+- **A key file others can read is not used.** With any mode looser than
+  0600, or content that is not a key, starfixd treats the key as one
+  that may have been read or changed: it says exactly that, names
+  nobody, and leaves the choice to the operator, who replaces the file
+  (earlier stand-ins then resolve to nobody) or, knowing nobody read
+  it, tightens its mode.
 - **Deleting the key file, and restarting starfixd, makes every earlier
   stand-in unlinkable**, to the operator too, which is what a retention
   rule may want. A backup of the file undoes that for as long as it

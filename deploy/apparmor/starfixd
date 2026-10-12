@@ -148,9 +148,9 @@ profile starfixd-serve flags=(attach_disconnected) {
   # (telemetry: principals: pseudonym, the default). The daemon makes
   # the file once, the first time it exports traces, and reads it at
   # each start; it writes no other file there, so the rule names the
-  # one file and not its directory. Without it a daemon whose
-  # environment names an endpoint for traces does not start, and says
-  # why.
+  # one file and not its directory. Without it the daemon still runs:
+  # its traces say nothing about who, and its log and its status say
+  # that the key cannot be made.
   owner @{starfixd_principals_key} rw,
 
   # systemd's notify socket. With Type=notify in the unit the daemon

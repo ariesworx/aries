@@ -486,20 +486,26 @@ What that showed:
   ([Observability](#observability)).
 - **Traces work as written** ([Traces](#traces)), on the same machine
   on the same day with the profiles enforced. With the guide's one
-  variable and nothing else starfixd does not start, and names the key
-  file and its fix: for want of the directory (`no such file or
-  directory`), of the unit's `ReadWritePaths` (`read-only file system`),
-  and of the AppArmor rule for the file (`permission denied`, with the
-  denial in the kernel's log). With all three it starts, makes the key
-  with mode 0600, and posts spans to a receiver on the machine that
-  hold a stand-in and no name. `sfx admin principal whois` resolves the
-  stand-in for a server admin and for nobody else; a restart keeps the
-  key; deleting the file gives the same person another stand-in, and the
-  old one resolves to nobody. With `principals: name`, or
-  `OTEL_TRACES_EXPORTER=none`, it starts with no key and no directory.
-  Neither another user, nor the `starfix` user under the bridge's or the
-  operator's profile, can read the key. The 76 checks of the earlier
-  runs passed with traces on, with no denial.
+  variable and nothing else starfixd starts and serves, posts spans to
+  a receiver on the machine that hold no stand-in and no name, and says
+  why at error level, in its status report and in `whois`: `it cannot
+  be made: no such file or directory`. With the directory made and no
+  restart, half a minute later: `read-only file system`. With the
+  drop-in and a restart, under a profile without the rule for the file:
+  `permission denied`, with the denial in the kernel's log. With the
+  rule loaded and no restart, half a minute later: `made the key`,
+  mode 0600, `spans name people by stand-ins from now on`, and spans
+  with a stand-in. `sfx admin principal whois` then resolves it for a
+  server admin. With the file made readable by others and a restart:
+  no stand-in again, `CANNOT BE TRUSTED` in the status; after `chmod
+  600` and no restart, the same stand-in as before. An earlier build of
+  the same day, which still refused to start without the key, showed
+  that a restart keeps the key, that deleting the file gives the same
+  person another stand-in and leaves the old one resolving to nobody,
+  that `principals: name` and `OTEL_TRACES_EXPORTER=none` need no key,
+  and that neither another user, nor the `starfix` user under the
+  bridge's or the operator's profile, can read the key. The 76 checks
+  of the earlier runs passed with traces on, with no denial.
 - **The clock's unit lines and settings work** ([The server's
   clock](#the-servers-clock)), on the same machine on the same day with
   the profiles enforced and no denial in the kernel's log: the refusal
@@ -1702,7 +1708,7 @@ the config file (`/etc/starfix/starfixd.yaml`, or `--config FILE`, or
 | `telemetry.listen` | The loopback address, `HOST:PORT`, of the listener for `/metrics`, `/healthz` and `/readyz` ([Observability](#observability)). An address that is not loopback is refused | none: no listener | `STARFIXD_TELEMETRY_LISTEN` |
 | `telemetry.per_project` | Whether metrics name the project. `false` leaves it off every instrument | `true` | |
 | `telemetry.principals` | How a person appears on a span ([Traces](#traces), People): `pseudonym`, a stable stand-in; `name`; or `omit`, nothing. It does not change the log. Any other value is refused | `pseudonym` | |
-| `telemetry.principals_key` | The file that holds the key the stand-ins are made with. starfixd makes it, mode 0600, the first time it exports traces with stand-ins. A relative path is under the home directory of the user starfixd runs as | `telemetry/principals.key` | |
+| `telemetry.principals_key` | The file that holds the key the stand-ins are made with. starfixd makes it, mode 0600, when it exports traces with stand-ins. A relative path is under the home directory of the user starfixd runs as. A file that cannot be read or made does not stop starfixd, whether the path is this default or one you set: its spans then say nothing about who, and its log and status say why ([Traces](#traces), People) | `telemetry/principals.key` | |
 | `telemetry.dolt_metrics_url` | The URL of Dolt's own metrics endpoint, which starfixd reads every 15 seconds for the status report ([Dolt's figures](#dolts-figures)): `http://`, a loopback address or a name whose every address is loopback, a port and a path, such as `http://127.0.0.1:11228/metrics`. Anything else is refused at start | none: nothing is read, and the report says nothing of Dolt | `STARFIXD_TELEMETRY_DOLT_METRICS_URL` |
 
 - **A clock tolerance is more than zero, and has a ceiling.** Zero, a
@@ -2038,7 +2044,7 @@ configured, starfixd exports nothing and opens no port.
 | What | How it is turned on |
 |---|---|
 | Metrics pushed over OTLP/HTTP | `OTEL_EXPORTER_OTLP_ENDPOINT` in starfixd's environment |
-| Traces pushed over OTLP/HTTP ([Traces](#traces)) | The same variable, after one directory is made for a key |
+| Traces pushed over OTLP/HTTP ([Traces](#traces)) | The same variable. They say who did what, by a stand-in, once a directory is made for a key |
 | Metrics for a scraper, in Prometheus's text format | `telemetry: listen:` in the config file |
 | `/healthz` and `/readyz` | The same listener |
 | Readiness and a watchdog under systemd | `Type=notify` and `WatchdogSec` in the unit ([step 5](#5-run-starfixd-under-systemd)), which the guide's unit has |
@@ -2063,45 +2069,67 @@ your vendor's or cloud's own agent, runs on the server, receives OTLP on
 loopback and forwards to your backend. starfixd then holds no credential
 and knows no vendor, and the collector does the retrying.
 
-The one variable sends both metrics and [traces](#traces). Traces name
-people by a stand-in, made with a key starfixd keeps in a file, so give
-it a directory to keep it in first, as root:
-
-```sh
-install -d -m 0700 -o starfix -g starfix /var/lib/starfix/telemetry
-mkdir -p /etc/systemd/system/starfixd.service.d
-printf '[Service]\nReadWritePaths=/var/lib/starfix/telemetry\n' > /etc/systemd/system/starfixd.service.d/telemetry.conf
-```
-
-Then add to the unit, `systemctl daemon-reload` and restart starfixd:
+Add to the unit, then `systemctl daemon-reload` and restart starfixd:
 
 ```ini
 [Service]
 Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
 ```
 
-The log says what is on:
+The one variable sends both metrics and [traces](#traces), and that is
+all it takes. The log says what is on:
 
 ```text
-level=INFO msg="telemetry: made the key that principals' stand-ins are derived from" path=/var/lib/starfix/telemetry/principals.key
 level=INFO msg="telemetry on" push=http://127.0.0.1:4318/v1/metrics push_interval=1m0s push_headers=0 pull=false per_project=true traces=http://127.0.0.1:4318/v1/traces trace_headers=0 sampler=parentbased_always_on principals=pseudonym service=starfixd
 ```
 
-- **Without the directory starfixd does not start**, and says why: it
-  will not export a trace that names people in a way you did not choose.
-  The refusal's `fix:` gives the three ways on: make the directory, set
-  `telemetry: principals:` to `name` or `omit`, which need no key, or
-  send no traces.
+**Until you make one directory, the traces say nothing about who.**
+Traces name people by a stand-in, made with a key that starfixd keeps
+in a file, and the guide's unit gives it nowhere to write one. starfixd
+starts and serves all the same, sends spans with no principal and no
+session on them, exactly as `telemetry: principals: omit` does, and
+says so at error level:
+
+```text
+level=ERROR msg="telemetry: spans say nothing about who: the key for principals' stand-ins is unavailable"
+level=ERROR msg="the key's file: /var/lib/starfix/telemetry/principals.key"
+level=ERROR msg="cause: it cannot be made: no such file or directory"
+level=ERROR msg="fix: make its directory, owned by the user starfixd runs as: install -d -m 0700 -o starfix -g starfix /var/lib/starfix/telemetry"
+level=ERROR msg="fix: under systemd, let starfixd write there with a drop-in: ReadWritePaths=/var/lib/starfix/telemetry (docs/server.md, Traces)"
+```
+
+To have the stand-ins, as root:
+
+```sh
+install -d -m 0700 -o starfix -g starfix /var/lib/starfix/telemetry
+mkdir -p /etc/systemd/system/starfixd.service.d
+printf '[Service]\nReadWritePaths=/var/lib/starfix/telemetry\n' > /etc/systemd/system/starfixd.service.d/telemetry.conf
+systemctl daemon-reload
+systemctl restart starfixd
+```
+
+```text
+level=INFO msg="telemetry: made the key that principals' stand-ins are derived from" path=/var/lib/starfix/telemetry/principals.key
+```
+
+- **The restart is for the drop-in**, which systemd applies when the
+  unit starts. Where starfixd may already write to the directory's
+  parent, making the directory is enough: it looks for the key again
+  every 30 seconds, and logs `spans name people by stand-ins from now
+  on` when it has it.
+- **`sfx admin status` and `starfixd status` say which it is**
+  ([Traces](#traces), People), so it is not only in the log.
+- **To leave people out on purpose**, set `telemetry: principals: omit`:
+  no key is wanted, and nothing is logged as wrong.
 - **To send metrics and no traces**, add
-  `Environment=OTEL_TRACES_EXPORTER=none`. No directory is then needed,
-  and no key is made.
+  `Environment=OTEL_TRACES_EXPORTER=none`. No key is then made.
 
 ### Send metrics straight to a hosted backend
 
 Where running a collector is not wanted, starfixd can post to a backend
-that takes OTLP over HTTP: metrics and traces alike, so the directory
-for the key above is needed here too, unless `OTEL_TRACES_EXPORTER` is
-`none`. That usually needs a token, which is a secret:
+that takes OTLP over HTTP: metrics and traces alike, and the traces
+say who by a stand-in once the key's directory above is made. That
+usually needs a token, which is a secret:
 
 ```sh
 install -m 0600 -o root -g root /dev/null /etc/starfix/telemetry.env
@@ -2395,9 +2423,28 @@ is exported.
   time it exports traces with stand-ins, and keeps it in
   `telemetry: principals_key:`, by default
   `/var/lib/starfix/telemetry/principals.key`, mode 0600. It reads the
-  file at each start, and refuses one that others can read or that does
-  not hold a key, with a `fix:`. The backend never sees the key or a
-  name.
+  file at each start. The backend never sees the key or a name.
+- **Without the key, spans say nothing about who, and starfixd says
+  so.** A key that cannot be made or read never stops starfixd, and it
+  never makes one up in memory or sends the name in its place: spans
+  carry no principal and no session until the key is there. That holds
+  for the default path and for one you set. The log has it at error
+  level, with the cause and each fix on a line of its own; the status
+  report has `TRACES SAY NOTHING ABOUT WHO` with the cause; `whois`
+  answers that the server has no key, and why. starfixd looks for the
+  key again every 30 seconds and logs one line when stand-ins begin.
+- **A key file that is there and cannot be trusted is said to be exactly
+  that.** One that others can read (any mode but 0600 or stricter), or
+  that does not hold a key, is not used: someone may have read or
+  changed it. The log and the status say `others can read it`, or that
+  it `does not hold a key`. Replace it by deleting it, which makes every
+  earlier stand-in unlinkable; or, if nobody can have read it, `chmod
+  600` it.
+- **The status report says how people appear:** `traces: people are
+  named by stand-ins`, `by name`, `nothing says who (telemetry:
+  principals: omit)`, or the line in capitals above. `--json` has it as
+  `traces.people`: `pseudonym`, `name`, `omit` or `unavailable`, with
+  `cause`, `key_file` and `damaged`.
 - **A server admin can resolve one:** `sfx admin principal whois
   p_0123456789abcdef` prints the principal's name
   ([`sfx admin principal`](cli.md#agents-and-maintenance)). The server tries its key against
@@ -2890,9 +2937,9 @@ Dolt's collector: 1762 cycles for 12000 writes in 10m, 15 for each 100 writes: O
 | `sfx: … accepted no key`, for a key added with `sfx admin` | sshd is not reading starfixd's keys file, or the file has no line for the key | On the server: `sshd -T -C user=starfix \| grep -i authorizedkeysfile` must name `.ssh/starfix_keys`; `grep -c NAME /var/lib/starfix/.ssh/starfix_keys` shows whether the line is there; `journalctl -u ssh` says when sshd would not read the file for its owner or mode |
 | `sfx admin` warns that starfixd `could not write the keys file sshd reads`, or `sfx admin status` says `THE LAST WRITE FAILED` | starfixd cannot replace its keys file. The change itself is recorded | `journalctl -u starfixd` has `the keys file is out of date` with the cause and a fix: usually the unit's `ReadWritePaths` ([Keys from the store](#keys-from-the-store), step 1), or the owner or mode of `.ssh`. starfixd tries again every 30 seconds |
 | starfixd does not start: `write the keys file …` | With `control_db`: it cannot write its keys file | The error's `fix:` names the change; see [Keys from the store](#keys-from-the-store), step 1 |
-| starfixd does not start: `telemetry: make the stand-in key …` | Its environment names an endpoint for traces, and it cannot make the key its traces name people with: the directory is missing, is not the `starfix` user's, or is not in the unit's `ReadWritePaths` | Make the directory and add the drop-in ([Send metrics to a collector on the machine](#send-metrics-to-a-collector-on-the-machine)); or set `telemetry: principals:` to `name` or `omit`; or set `OTEL_TRACES_EXPORTER=none` |
-| starfixd does not start: `telemetry: the stand-in key … is mode 0644`, or `does not hold a key` | The key file can be read by others, or was cut short or edited | `chmod 600` it; or delete it, and starfixd makes a new one: stand-ins made with the old key can then no longer be resolved ([Traces](#traces), People) |
-| `sfx admin principal whois` answers `this server has no stand-in key` | The server has no key file: it has never exported traces with stand-ins, or the file was deleted and it exports none now | Nothing resolves a stand-in made under a key that is gone. Check that the stand-in is from this server's traces |
+| The log has `telemetry: spans say nothing about who: the key for principals' stand-ins is unavailable`, or the status report says `TRACES SAY NOTHING ABOUT WHO` | starfixd exports traces and cannot make or read the key it names people with. It serves as before; its spans carry no principal and no session. The `cause:` line says which: `it cannot be made: no such file or directory` (no directory), `read-only file system` (the unit's `ReadWritePaths`), `permission denied` (the directory's owner, or the AppArmor profile) | The `fix:` lines beside it: make the directory and add the drop-in ([Send metrics to a collector on the machine](#send-metrics-to-a-collector-on-the-machine)). starfixd looks again every 30 seconds; a new drop-in needs a restart. Or set `telemetry: principals: omit` to leave people out on purpose |
+| The same, with `cause: its file is mode 0644: others can read it`, or `its file does not hold a key`; the status report says the key `CANNOT BE TRUSTED` | The key's file is there and is not safe to use: someone else may have read it, or it was cut short or changed | If someone may have read it, delete it: starfixd makes a new one within 30 seconds, and stand-ins made with the old key can no longer be resolved. If nobody can have, `chmod 600` it ([Traces](#traces), People) |
+| `sfx admin principal whois` answers `this server has no key for stand-ins: …` | What follows the colon says why: the key is unavailable, as in the two rows above; or the server exports no traces, or names people by `name` or `omit`, and has no key file from before | For an unavailable key, the rows above. Nothing resolves a stand-in made under a key that is gone |
 | `the file there was not generated by starfixd` | `keys_file` names a file that holds something else, such as `authorized_keys` | Set `keys_file` to a file of its own, or move the other file away |
 | A key removed with `sfx admin key remove` still signs in | Its line is still in `authorized_keys`, as the command warned | Delete the line ([Keys from the store](#keys-from-the-store), step 5) |
 | `… may not add a key to …: nobody adds a key to their own account` | `sfx admin key add` for one's own principal | Ask another admin with reach; for a server admin, another server admin or a line in `authorized_keys` |

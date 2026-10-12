@@ -161,12 +161,14 @@ a throwaway OTLP receiver (Python's `http.server`) on the machine.
 | What starfixd does | Needs |
 |---|---|
 | Posts traces to a collector | Nothing new: the rules that carry metrics carry them. A hosted backend needs the same three lines in `local/starfixd-serve` as for metrics; that was not run again for traces |
-| Makes the stand-in key once, and reads it at each start | **A new rule**, `owner @{starfixd_principals_key} rw,` in `starfixd-serve`, and the tunable it names, `/var/lib/starfix/telemetry/principals.key`. The rule names the one file, not its directory. Without it the daemon does not start when its environment names an endpoint for traces: `telemetry: make the stand-in key …: permission denied`, with a fix, and the kernel log has `operation="mknod" … name="/var/lib/starfix/telemetry/principals.key" … requested_mask="c"` |
+| Makes the stand-in key once, and reads it at each start | **A new rule**, `owner @{starfixd_principals_key} rw,` in `starfixd-serve`, and the tunable it names, `/var/lib/starfix/telemetry/principals.key`. The rule names the one file, not its directory. Without it the daemon runs as before and its traces say nothing about who: its log has `telemetry: spans say nothing about who …` with `cause: it cannot be made: permission denied`, its status report says the same, and the kernel log has `operation="mknod" … name="/var/lib/starfix/telemetry/principals.key" … requested_mask="c"` |
 
-With the rule the daemon started under `starfixd-serve (enforce)`, made
-the key with mode 0600, read it again at a restart, made a new one
-after the file was deleted, and posted spans; the 76 checks of the runs
-above passed with traces on, and nothing was denied.
+With the rule loaded, by `apparmor_parser -r` and with no restart, the
+daemon made the key at its next look, half a minute later, with mode
+0600, and its spans carried stand-ins from then on. In an earlier run
+of the same day it read the key again at a restart and made a new one
+after the file was deleted. The 76 checks of the runs above passed with
+traces on, and nothing was denied.
 
 The bridge's and the operator's profiles have no rule for the file, so
 neither can read it: the operator's allows the top of the home
