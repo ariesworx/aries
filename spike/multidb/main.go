@@ -6,7 +6,7 @@
 //
 //	go run ./spike/multidb -exp grants
 //	go run ./spike/multidb -exp table      [-projects 1,5,20,50] [-issues 300]
-//	go run ./spike/multidb -exp restart    [-stores 5] [-issues 300] [-every 0] [-budget 30m]
+//	go run ./spike/multidb -exp restart    [-stores 5] [-issues 300] [-every 0] [-budget 30m] [-gc]
 //	go run ./spike/multidb -exp limit      [-stores 10] [-issues 300] [-limits 0,2048,1024] [-repeat 2]
 //	go run ./spike/multidb -exp concurrent [-concurrency 1,2,5,10,20] [-issues 300] [-repeat 3]
 //
@@ -25,7 +25,9 @@
 //     with comments of a sample of issues) and after a few new writes. With
 //     -stores 1 and a large -issues it is the measurement of a large
 //     project; -every prints memory as the load goes, and -budget stops the
-//     load, not the run, when it has taken that long.
+//     load, not the run, when it has taken that long. -gc then runs Dolt's
+//     own garbage collection (CALL DOLT_GC()) in each database, restarts
+//     again and reads memory once more.
 //   - limit: the same load into a fresh server under each Go memory limit
 //     in -limits (MiB; 0 is none), with the latency of each write, Dolt's
 //     CPU and its collector's cycles.
@@ -36,7 +38,8 @@
 // Memory is read three ways and printed side by side (mem.go): the
 // process's resident set from the operating system (on Linux split into
 // anonymous and file-backed pages, from /proc), the container's cgroup
-// where there is one, and Dolt's own metrics. -deadline bounds a whole run.
+// where there is one, and Dolt's own metrics. -deadline bounds a whole run,
+// and -doltlog keeps Dolt's log, which otherwise goes with its directory.
 package main
 
 import (
@@ -45,6 +48,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strconv"
@@ -65,11 +69,13 @@ var (
 	settle      = flag.Duration("settle", 5*time.Second, "pause before each memory reading")
 	stores      = flag.Int("stores", 5, "restart, limit: stores loaded, one after another")
 	every       = flag.Int("every", 0, "restart: print memory every this many issues of the load (0: never)")
+	gc          = flag.Bool("gc", false, "restart: then run Dolt's garbage collection in each database and restart again")
 	budget      = flag.Duration("budget", 30*time.Minute, "restart: stop loading, and go on with what is written, after this long")
 	limits      = flag.String("limits", "0", "limit: Go memory limits for Dolt, in MiB (0: none)")
 	concurrency = flag.String("concurrency", "1,2,5,10,20", "concurrent: numbers of stores loaded at the same time")
 	repeat      = flag.Int("repeat", 1, "limit, concurrent: runs of each setting")
 	deadline    = flag.Duration("deadline", 2*time.Hour, "give the whole run up after this long")
+	keepLog     = flag.String("doltlog", "", "copy Dolt's log to this file when its server stops (the last server's, for limit and concurrent)")
 	tmp         = flag.String("tmp", "", "directory for Dolt's data (default: the system's temporary directory)")
 )
 
@@ -133,7 +139,32 @@ func withServer(ctx context.Context, memlimit string, f func(srv *dolttest.Serve
 		return err
 	}
 	defer func() { _ = srv.Stop() }()
+	defer doltLog(dir)
 	return f(srv, dir)
+}
+
+// doltLog prints what Dolt's log says of its own garbage collection, which
+// it starts by itself (behavior.auto_gc_behavior) and which shows in the
+// readings as data on disk shrinking: the first twenty such lines.
+func doltLog(dir string) {
+	b, err := os.ReadFile(filepath.Join(dir, "server.log"))
+	if err != nil {
+		return
+	}
+	if *keepLog != "" {
+		if err := os.WriteFile(*keepLog, b, 0o600); err != nil {
+			fmt.Printf("  dolt's log: not kept: %v\n", err)
+		}
+	}
+	n := 0
+	for line := range strings.SplitSeq(string(b), "\n") {
+		if l := strings.ToLower(line); strings.Contains(l, "gc") || strings.Contains(l, "garbage") {
+			if n++; n <= 20 {
+				fmt.Printf("  dolt's log: %s\n", line)
+			}
+		}
+	}
+	fmt.Printf("  dolt's log: %d lines about garbage collection\n", n)
 }
 
 // grants reports whether the least-privileged account may create a
@@ -447,7 +478,63 @@ func restart(ctx context.Context, srv *dolttest.Server, dir string) error {
 	if err := pause(ctx, 30*time.Second); err != nil {
 		return err
 	}
-	return read(ctx, srv, dir, "30s later", len(open))
+	if err := read(ctx, srv, dir, "30s later", len(open)); err != nil {
+		return err
+	}
+	if !*gc {
+		return nil
+	}
+
+	// Dolt's own garbage collection of its storage, in each database, as
+	// root, with the stores closed; then a second restart on what is left.
+	if err := closeAll(); err != nil {
+		return err
+	}
+	t = time.Now()
+	for _, dsn := range dsns {
+		root, err := sql.Open("mysql", srv.RootDSN(dsn[strings.LastIndex(dsn, "/")+1:]))
+		if err != nil {
+			return err
+		}
+		_, err = root.ExecContext(ctx, "CALL DOLT_GC()")
+		_ = root.Close()
+		if err != nil {
+			return fmt.Errorf("dolt_gc: %w", err)
+		}
+	}
+	fmt.Printf("  CALL DOLT_GC() in %d databases: %v each\n", len(dsns), (time.Since(t) / time.Duration(len(dsns))).Round(time.Millisecond))
+	if err := read(ctx, srv, dir, "after dolt_gc, stores closed", 0); err != nil {
+		return err
+	}
+	if err := srv.Restart(ctx); err != nil {
+		return err
+	}
+	if err := read(ctx, srv, dir, "restarted again, at rest", 0); err != nil {
+		return err
+	}
+	for _, dsn := range dsns {
+		s, err := store.Open(ctx, dsn, store.Options{})
+		if err != nil {
+			return err
+		}
+		open = append(open, s)
+	}
+	lat = nil
+	for i, s := range open {
+		if _, err := s.List(ctx, store.Filter{}); err != nil {
+			return err
+		}
+		for _, id := range sample[i] {
+			if _, err := s.GetIssue(ctx, id); err != nil {
+				return err
+			}
+		}
+		if _, err := load(ctx, s, 10, &lat, nil); err != nil {
+			return err
+		}
+	}
+	fmt.Printf("  reopened, read and wrote 10 more issues a store; writes %s\n", summary(lat))
+	return read(ctx, srv, dir, "open, read and written again", len(open))
 }
 
 // limit loads the same data into a fresh Dolt under each memory limit in
