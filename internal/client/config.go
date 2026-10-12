@@ -345,11 +345,11 @@ func (c *Config) KeyPath() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("key: %w", err)
 	}
-	real, err := resolveExisting(path)
+	resolved, err := resolveExisting(path)
 	if err != nil {
 		return "", fmt.Errorf("key: %w", err)
 	}
-	if rel, err := filepath.Rel(root, real); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	if rel, err := filepath.Rel(root, resolved); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", outside
 	}
 	return path, nil
@@ -365,9 +365,9 @@ func resolveExisting(path string) (string, error) {
 	}
 	rest := ""
 	for {
-		real, err := filepath.EvalSymlinks(path)
+		resolved, err := filepath.EvalSymlinks(path)
 		if err == nil {
-			return filepath.Join(real, rest), nil
+			return filepath.Join(resolved, rest), nil
 		}
 		parent := filepath.Dir(path)
 		if !errors.Is(err, fs.ErrNotExist) || parent == path {
