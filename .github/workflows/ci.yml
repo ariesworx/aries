@@ -16,6 +16,9 @@ env:
   DOLT_VERSION: 2.4.2
   DOLT_SHA256: 5d95a271149dc6ea97f47157af7ba9a0df5e8d4e9bbac4d79c169f2faa3cfb9e
 
+# AGENTS.md's Commands block lists this gate, and scripts/gate.sh runs it
+# on a contributor's machine: change all three together. Tests in
+# scripts/ and internal/version fail when their commands or pins differ.
 jobs:
   lint:
     runs-on: ubuntu-24.04
@@ -33,8 +36,9 @@ jobs:
         # The module cache still matches go.sum.
         run: go mod download && go mod verify
       - name: shellcheck
-        # Preinstalled on GitHub's Ubuntu runners.
-        run: shellcheck install.sh
+        # Every shell script in the repository. shellcheck is preinstalled
+        # on GitHub's Ubuntu runners.
+        run: git ls-files -co --exclude-standard -z "*.sh" | xargs -0 shellcheck
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
       - name: cross-platform build

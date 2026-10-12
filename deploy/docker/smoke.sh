@@ -45,11 +45,14 @@ fail() {
 }
 
 # sfx_as WHO ARGS... runs sfx in WHO's scratch repository, with its own
-# session and a home inside the work directory.
+# session and a home inside the work directory. It hides ssh-agent: sfx
+# offers the agent's keys before the key file's, and sshd hangs up after
+# six keys it does not know, so a contributor's own keys could fail the
+# test.
 sfx_as() {
   local who=$1
   shift
-  (cd "$work/$who" && HOME="$work/home" XDG_CACHE_HOME="$work/home/.cache" STARFIX_SESSION="smoke-$who" "$sfx" "$@")
+  (cd "$work/$who" && HOME="$work/home" XDG_CACHE_HOME="$work/home/.cache" SSH_AUTH_SOCK='' STARFIX_SESSION="smoke-$who" "$sfx" "$@")
 }
 
 # expect NAME PATTERN WHO ARGS... runs sfx as WHO, and fails unless it
