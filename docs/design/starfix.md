@@ -518,7 +518,7 @@ Agreed 6 Oct 2026. Extends item 10.
 | 3a | Projects and access (§15): many projects on one server with a database and a writer each, principals, keys and memberships in a control database, server and project admins, `sfx admin` | Two projects on one server; a principal refused in a project it is not a member of; the soak test run across both. **Met in the test stack** (§15.4, As built, status and the soak), against starfix's stand-in for sshd; what no real machine has run yet is listed there |
 | 3b | Observability (§16): OpenTelemetry traces and metrics from starfixd, a loopback endpoint for metrics and health, a log schema and audit stream, Dolt's metrics, and a Collector harness | The Docker harness receives every signal from starfixd and Dolt; the soak's counters equal its event logs; a dead collector changes no request |
 | 4 | Memory with scopes and tags, migrated from bd `kv.memory.*`; prices, `sfx cost` and `sfx log` (§12.1) | |
-| 5 | Offline cache, outbox, conflict parking and resolution | Partition tests |
+| 5 | Offline cache, outbox, conflict parking and resolution (§8; a design in slices is proposed in §18) | Partition tests |
 | 6 | Locks, reservations, gates, molecules/formulas, swarm, cross-project | |
 | 7 | Scheduled digests (draft only), GitHub sync, compaction, duplicate check, vectors, other trackers | |
 
@@ -1534,3 +1534,144 @@ So the exposure is the server's clock, and the certificate design must say what 
 What the certificate design can rely on once it is built, from decision 37 as built (§7): a time that does not go backward in a running daemon or across a restart, shared by every store of the server, against which expiry and pruning can be read; a detected and reported step, so that an operator learns of a clock that moved; and a refusal to start with the clock behind history. What it cannot rely on: sshd's own check, which follows the wall clock; a jump forward, which expires certificates early (the safe direction, and an outage); and anything about the authority's clock, which starfix never sees. If the authority's clock is ahead, its certificates are not yet valid at the server; if behind, they expire early.
 
 This subsection is part of the proposal, like the rest of §17: it changes no decision of §17.12 and builds nothing.
+
+## 18. Working without the server: the stage 5 design
+
+Designed 12 Oct 2026, from §8 and what stages 1 to 3b built. **Proposed, not decided, and nothing here is built.** The questions for the maintainer are in §18.11. Where this differs from §8, it says so and why; §8 stays as the plan it was.
+
+In short: stage 5 is built in three layers, each useful without the next. An **outbox** makes sure nothing an agent or a person meant to write is lost when the server cannot be reached. A **cache** lets a session keep the context of the work it already holds. **Conflicts** are parked on the server, with base, mine and theirs, when an operation written against an old state meets a newer one. The first cut is narrower than §8: no claims are made offline, the cache holds what a session read and not a copy of the project, and there is no hybrid logical clock.
+
+### 18.1 What "offline" is, here
+
+§8 was written with a laptop on a plane in mind. For an AI coding agent that is the rare case: most models are themselves reached over the network, so a session with no network does no work at all. The cases that happen are these, in the order they are expected:
+
+| Case | How long | What still works |
+|---|---|---|
+| The server is restarting or upgrading, or Dolt is slow | Seconds to minutes | The model, git, the session |
+| The path to the server is down: a VPN, an IAP token, a firewall, sshd | Minutes to hours | The model, git, the session |
+| The server is down | Hours | The model, git, the session |
+| No network, with a model that runs on the machine | Hours to days | An open-source model run locally, git |
+| No network, a person at the CLI | Hours to days | Reading, writing notes and issues |
+
+In the first three the session goes on producing work, and today what it tries to write is refused: a handoff, the `finish` of an issue, a comment, a memory, token usage. `sfx mcp` redials and retries with the same idempotency key (§7, As built), which covers seconds; past that the write is gone when the session ends. That loss is the first thing stage 5 fixes, and it is the larger part of the value: a handoff that did not arrive is context the next session pays for again.
+
+So the design is judged by the server being unreachable while work continues, for up to a day, and it must not be wrong for longer. It is not judged by how much of the tracker can be used on a plane.
+
+### 18.2 Principles kept, and what they rule out
+
+- **One authority (principle 2).** The client never applies an operation to its own copy as if it had happened. What is queued is shown as queued. There is no merge between clients, and no client-side derivation of ready or blocked from a partial copy.
+- **Fail closed and loud (principle 6).** Every answer from the cache says it is from the cache and how old it is, on stdout for a person and in the result for an agent. An operation that was queued returns that, never `{id, rev}` as if written. An outbox that cannot be written refuses the operation: nothing is queued in memory alone.
+- **Every claim is fenced (principle 4), and time comes from the store (rule 19, decision 37).** A client's clock decides nothing. A queued operation carries when the client says it was made, which the server records as a claim and bounds; the event's time is the server's, at replay.
+- **Non-invasive (principle 8).** One local store for each project on a machine, under the user's data directory, shared by every worktree and session. Nothing in the working tree.
+- **Small binaries (rule 4).** `sfx` is 11.9 MB today (linux/amd64, release flags) and links 12 modules. §2 names SQLite. Release builds have no cgo, so that would be a Go translation of SQLite, which is several megabytes and dozens of packages of generated code nobody here will audit. §18.4 proposes not to use it.
+
+### 18.3 The outbox
+
+**What may be queued.** An operation is queued only if replaying it later cannot do harm that the person or agent did not ask for:
+
+| Queued when the server cannot be reached | Never queued: refused, with the reason |
+|---|---|
+| `create`, `comment`, `handoff`, `remember`, `usage`, `hours.log`, `label.add`, `label.rm`, `dep.add`, `accept` | `start`, and anything else that takes a claim (§18.6) |
+| `update` of fields, with the `rev` it was based on | `close`, `reopen`, `forget`, `dep.rm`, `hours.delete`: they undo or end something, on a state the client cannot see |
+| `finish`, as its parts (below) | Every admin op, and `renew` (the client's own chore) |
+
+`finish` closes an issue, writes the handoff and files discovered work. Offline it is queued whole and replayed whole, and it succeeds only if the session still holds the claim at the epoch it had; otherwise its handoff is kept as a comment and its discovered issues are still created, as §8's "close vs. edit" rule has it, and the session's inbox says so.
+
+**What an entry holds.** The op and its arguments exactly as they would have been sent; an idempotency key, made when the operation was first attempted; the `rev` and claim epoch it was based on, where the op has them; the session and machine that made it; the client's time; and a sequence number, which is the order of replay for that principal on that machine. It holds no secret: the same secrets lint that the store runs on memories runs before an entry is written.
+
+**Replay.** On the next successful connection, before the request that caused it, the client replays the outbox in order, one operation at a time, each with its key. The server answers each as it would any request, plus two outcomes that are new: `parked` (§18.7) and `stale` (too old, §18.5). An entry leaves the outbox when the server has answered it, whatever the answer; a refusal is moved to a `refused` list the person can read, retry by hand or drop (`sfx outbox`), and is never retried by itself. A connection lost mid-replay resumes at the same entry with the same key. Replay never blocks the session's own request for longer than a bound; what is left goes on in the background of `sfx mcp`, and at the next command for the CLI.
+
+**Who it runs as.** The principal is whoever's key authenticates at replay, as always. An entry written under one principal is not replayed by another: the outbox is keyed by server, project and principal. If access ended meanwhile, the entries are refused as `forbidden`, kept in the refused list, and nothing is lost from the machine.
+
+**Bounds (rule 18).** An outbox has caps on entries, on bytes and on age, with defaults in the client and server-side caps on what one replay may bring. Past a cap, the operation is refused with a fix (`sfx outbox`, or reach the server), not queued.
+
+**Many processes.** A machine may run hundreds of sessions. Appends are serialized by a lock file held for the write only; replay is done by one process at a time under a second lock with a lease, so a session that dies mid-replay does not hold the rest back.
+
+### 18.4 The local store, without SQLite
+
+The outbox is an append-only file of NDJSON entries, synced on each append, with a second file of what has been answered; compaction rewrites both under the lock. It needs no index: it is read in order and is small by its caps.
+
+The cache (§18.6) is a directory of files, one for each thing cached, named by a hash of what it is, written whole and renamed into place. Both are mode 0600 in a 0700 directory, as the token-usage state already is (`internal/capture`).
+
+This is standard library only and adds nothing to the binary. What it gives up is querying: there is no offline `list` with filters over the whole project, and no offline search. §18.6 argues the first cut does not need them. If the maintainer wants a full local copy (§18.11, question 2), an embedded store is needed and the choice is between a small pure-Go key-value store and translated SQLite; a spike would measure both for size, module count and behavior with many processes on Linux, macOS and Windows before either is chosen, as stage 0 did for Dolt.
+
+### 18.5 Idempotency over a long gap
+
+Stage 3 built idempotency keys for `create`, `finish`, `comment` and `handoff`, later `remember` and `hours.log`: per principal, kept on the operation's last event, and a key older than 24 hours is refused. An outbox changes two things.
+
+- **Every queued op needs a key.** `update`, `label.add`, `label.rm`, `dep.add`, `accept` and `usage` gain an `idem` argument. That is a new argument field, so the protocol goes to 6 (rule 10), with 5 still accepted; a server at 5 is never sent a queued op it cannot deduplicate, so against an old server the client queues only the ops that server can.
+- **The window.** A key that is replayed after its window must not be applied twice and must not be mistaken for a clash. The server keeps keys for a setting's length, proposed 7 days by default, and refuses an entry older than that as `stale`, with the fix that the person replays it by hand from `sfx outbox` if they still want it. The client refuses to queue past the same age. The window is a server setting because it is the server's table that grows.
+
+### 18.6 The cache, and why claims are not made offline
+
+**What is cached.** What a session was given: the result of `prime`, of `start` and `show` for the issues the session holds or looked at (with acceptance items, the last handoff and the memories that came with them), the session's inbox, and `digest`. Each is stored as the server returned it, with when. That is the context a session needs to go on with work it has, and to write a good handoff.
+
+**What is not.** The rest of the project. `ready`, `blocked`, `list`, `who` and `claims` are answers about what everyone is doing now; from a cache they would be wrong in the way that makes two agents take the same work. Offline they are refused, saying when the server was last reached, except that `ready` and `list` may be shown from the cache to a person who asks for it by flag, marked stale on every line.
+
+**Reads while connected are unchanged.** The cache is written on the way past and read only when the server cannot be reached, or cannot be reached within a short bound. It is never served in place of a server that answers.
+
+**No offline claims, in the first cut.** §8 allows a provisional claim that loses on return. The cost of that rule is exactly what starfix exists to prevent: two sessions doing the same issue for hours, one of whose work is then a comment. An agent that cannot reach the server may finish what it holds and may file new issues; it may not start something new. This is the largest departure from §8 and is question 1 of §18.11.
+
+**Work a session holds.** A lease is renewed by the client (principle 5); while the server cannot be reached, renewals fail and the lease runs out on the server's clock, after which the reaper returns the issue to open and another session may take it. Two things soften that. `sfx away DURATION`, from §8, extends the caller's leases before a planned absence, within a cap the server sets. And a `finish` or `handoff` replayed after the lease ran out is not thrown away: if nobody else took the issue it applies, with an event that says the lease had lapsed; if somebody did, it is kept as a comment and both sessions' inboxes say so.
+
+**What a cache means for access.** A cache is a copy of what a person could read, on their machine, and it stays there after their access ends: starfix cannot take back what it has shown. The cache is deleted by the client at the first connection that is refused as `forbidden` for the project, and `sfx cache clear` removes it. It never holds another principal's private memories, because the server never sent them. This goes in the security model.
+
+### 18.7 Conflicts, parked on the server
+
+A conflict is an operation that was written against one state and arrives at another. Only `update` (and the edit inside a `finish`) can be one; every other queued op is an addition, which merges.
+
+- **Detection.** `update` already carries `rev` and is refused when it is stale. A replayed `update` instead asks the server to compare field by field against the state at that `rev`, which the event log gives (principle 3): a field the op changes that nobody changed since applies; a field somebody did change is a conflict.
+- **Parking.** The parts that apply are written. Each field in conflict becomes a row in a new `conflicts` table of the project's database: the issue, the field, base, mine and theirs, who and when, and the operation it came from. The server's value stays until someone resolves it. Parking is a write like any other: through `Store.write`, with a `conflict.park` event.
+- **Resolving.** `mine`, `theirs`, or new text; a normal operation, guarded like any change to the issue, with a `conflict.resolve` event. A conflict nobody resolves is closed by a later change to the same field, with a note in the issue's history, and conflicts older than a setting are reported by `digest`.
+- **Who is told.** The author's inbox, and the claim holder's when it is someone else. `prime` gives the count.
+- **The rules of §8's table**, as kept: additions merge; different fields both apply; the same scalar field parks; status and claim, the server wins; close wins over edit, with the edit kept as a comment; delete wins over edit, with the edit kept on the tombstone. **Changed:** long text parks whole in the first cut, with no automatic three-way merge of hunks. A merge of text that is wrong is worse than a question, there is no diff3 in the standard library, and the resolver can show a diff. Merging hunks that do not overlap can follow once there are real conflicts to measure it against.
+- **The recommendation** of §8 ("theirs is newer and from the claim holder; take theirs") is kept as text computed at read time from who holds the claim and the order of the two changes. It is advice, and never applied by itself.
+- **Bounds.** Open conflicts for each issue and for each principal are capped; past the cap the op is refused with a fix, not parked.
+
+### 18.8 What people and agents see
+
+- **CLI.** `sfx outbox` (list, retry, drop), `sfx conflicts` and `sfx resolve ID --mine|--theirs|--text`, `sfx away DURATION`, `sfx cache clear`. A queued write prints `queued (server unreachable since …)` and exits 0, because it was accepted for delivery; `--no-queue` makes it fail as today, for scripts that must know. `--json` says `"queued": true`.
+- **MCP.** A queued tool call returns one terse line saying so, and what the agent should do: carry on. The agent is never asked to manage the outbox. Conflicts reach an agent through `prime` and the inbox. Whether agents also get `conflicts` and `resolve` tools is question 4: two more schemas against a cap of about 2,700 tokens, and resolving a conflict is a judgment between two people's intent.
+- **Status.** `sfx whoami` and `prime` say when the server was last reached and how many operations wait.
+
+### 18.9 What changes on the server
+
+- Protocol 6: `idem` on the ops of §18.5; a replay marker on a request (the client's sequence and time), so the server knows to park and not refuse; the outcomes `parked` and `stale`; the ops `conflicts`, `resolve` and `away`.
+- A migration for `conflicts`, and one for the idempotency window if the key's table needs it.
+- Events: `conflict.park`, `conflict.resolve`, and the client's claimed time on a replayed operation's event, bounded by a setting as `clock_client_tolerance` bounds it today, and marked when it is out of bounds.
+- Limits: the idempotency window, replayed operations for each connection, open conflicts.
+- Telemetry and logs: counters for replayed, parked and stale operations, with events in the log schema.
+
+### 18.10 Plan
+
+| Slice | Delivers | Gate |
+|---|---|---|
+| F0 | Measurements: how often and how long sessions lose the server today (from the logs of real use), and the local store's behavior with 100 processes on three systems | The numbers, and the choice of §18.4 confirmed or changed |
+| F1 | The outbox for the ops that have keys today, replay, `sfx outbox`, the refused list | A session's handoff written during an outage arrives once, after restarts and dropped connections |
+| F2 | Protocol 6: keys on the remaining ops, the window, `stale` | A replay after 24 hours applies once; one past the window is refused and kept |
+| F3 | The cache of a session's own context; cached answers marked | `prime` and `show` of held work answer with the server down, and say so |
+| F4 | Conflict parking and resolving, inbox, `digest` | Two edits of one field park; two of different fields both apply |
+| F5 | `sfx away`, and a late `finish` after a lapsed lease | Partition tests: the soak with the client cut from the server for minutes at a time, and its event log still equal to what the sessions were told |
+
+F1 alone is worth releasing. F3 and F4 do not depend on each other.
+
+### 18.11 Decisions for the maintainer
+
+1. **Offline claims.** Proposed: none in the first cut; a session finishes what it holds and files new work, and starts nothing new without the server. §8 allows provisional claims.
+2. **How much is cached.** Proposed: what a session read, in files, with no new dependency. The alternative is §8's copy of everything a person can see, which needs an embedded store in `sfx` and a spike first.
+3. **The idempotency window.** Proposed: 7 days, a server setting. It is how long an outbox entry can wait and still be delivered without a person.
+4. **Conflicts over MCP.** Proposed: agents are told of conflicts and people resolve them; no MCP tools for it yet.
+5. **Long text.** Proposed: park whole; no automatic merge of hunks until real conflicts show what it would save.
+6. **Does a queued write exit 0?** Proposed: yes, with `--no-queue` for scripts.
+7. **No hybrid logical clock.** Proposed: drop it. With one authority the order is the server's, a client's order is its outbox's, and decision 37 already says a client's clock is a claim.
+
+### 18.12 What this does not solve
+
+- Two machines of one person, both offline, editing the same issue: both replay, and the second parks. Nothing reconciles the two outboxes with each other.
+- A machine that is lost with a full outbox loses it. The outbox is durable on its disk, not replicated.
+- An agent that works for a day against a stale picture of the project still wasted the day if the issue was closed meanwhile. The cache marks its age; it cannot know what changed.
+- Bearings, the orchestrator, is a client like any other here. Whether it may queue is its design's question.
+
+### 18.13 Not tested
+
+Everything: this is a design. In particular, file locking with hundreds of processes on Windows, the cost of comparing a field against the state at an old `rev` on a long history, and how often real sessions lose the server at all, which F0 measures before anything is built.
