@@ -434,7 +434,12 @@ type ServerStatus struct {
 	Principals    map[string]int `json:"principals"`
 	KeysFile      *KeysFile      `json:"keys_file,omitempty"`
 	Clock         *ClockStatus   `json:"clock,omitempty"`
-	Traces        *TracesStatus  `json:"traces,omitempty"`
+	// Dolt is what starfixd last read from Dolt's own metrics endpoint;
+	// nil when it reads none (telemetry.dolt_metrics_url is not set).
+	Dolt *DoltStatus `json:"dolt,omitempty"`
+	// Traces is how people appear in the traces the server exports;
+	// nil when it exports none.
+	Traces *TracesStatus `json:"traces,omitempty"`
 }
 
 // TracesStatus is how people appear in the traces the server exports;
@@ -450,6 +455,50 @@ type TracesStatus struct {
 	Cause   string `json:"cause,omitempty"`
 	Damaged bool   `json:"damaged,omitempty"`
 	KeyFile string `json:"key_file,omitempty"`
+}
+
+// DoltStatus is Dolt as its own metrics endpoint describes it (design
+// §16.5), read by starfixd on a timer and never for a request. Unknown
+// means the latest read failed: the figures are then left out, and
+// ReadAt is the last read that succeeded, or nil when none has since
+// starfixd started. Otherwise each figure Dolt did not give is left out
+// on its own.
+type DoltStatus struct {
+	Unknown bool       `json:"unknown,omitempty"`
+	ReadAt  *time.Time `json:"read_at,omitempty"`
+	Version string     `json:"version,omitempty"`
+	// StartedAt is when Dolt's process started, and UptimeSeconds how
+	// long before ReadAt that was.
+	StartedAt     *time.Time `json:"started_at,omitempty"`
+	UptimeSeconds *int64     `json:"uptime_seconds,omitempty"`
+	// ResidentBytes is the resident memory of Dolt's process.
+	ResidentBytes *uint64 `json:"resident_bytes,omitempty"`
+	// Conns is how many clients are connected to Dolt: starfixd's own
+	// pooled connections, and anyone else's.
+	Conns *int `json:"conns,omitempty"`
+	// MemLimitBytes is Dolt's Go memory limit (GOMEMLIMIT); zero says it
+	// runs without one.
+	MemLimitBytes *uint64 `json:"mem_limit_bytes,omitempty"`
+	// GC is left out until two reads of the same Dolt process have
+	// succeeded.
+	GC *DoltGC `json:"gc,omitempty"`
+}
+
+// DoltGC is how often Dolt's garbage collector ran against how much
+// starfixd wrote, over the latest window of up to ten minutes: what
+// tells a Go memory limit with room from one that is too low
+// (spike/multidb/RESULTS.md, section 5).
+type DoltGC struct {
+	// WindowSeconds is how long the window is: less than ten minutes
+	// soon after starfixd or Dolt started.
+	WindowSeconds int64 `json:"window_seconds"`
+	// Cycles is the collector's cycles in the window, and Writes the
+	// transactions starfixd's project stores committed in it.
+	Cycles int64 `json:"cycles"`
+	Writes int64 `json:"writes"`
+	// Per100Writes is Cycles for each 100 of Writes; left out when
+	// there were no writes.
+	Per100Writes *float64 `json:"cycles_per_100_writes,omitempty"`
 }
 
 // ClockStatus is the server's clock as the daemon has seen it since it

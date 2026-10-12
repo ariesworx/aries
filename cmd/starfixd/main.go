@@ -53,6 +53,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/doltmetrics"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/sdnotify"
 	"github.com/ariesworx/starfix/internal/server"
@@ -107,10 +108,15 @@ is set, and telemetry: listen: (a loopback HOST:PORT, or
 $STARFIXD_TELEMETRY_LISTEN) serves /metrics, /healthz and /readyz to this
 machine. Traces name people by a stand-in (telemetry: principals:
 pseudonym, name or omit), made with a key serve keeps in telemetry:
-principals_key: (default telemetry/principals.key in its home directory,
-which must exist); $OTEL_TRACES_EXPORTER=none sends metrics alone. status
-prints what the running daemon knows of itself and its projects; run it
-as the user starfixd runs as.
+principals_key: (default telemetry/principals.key in its home directory).
+Until serve can make that file its traces say nothing about who, and its
+log and its status say why; $OTEL_TRACES_EXPORTER=none sends metrics
+alone. status prints what the running daemon knows of itself and its
+projects; run it as the user starfixd runs as. With telemetry:
+dolt_metrics_url: (an http:// URL on a loopback address, or
+$STARFIXD_TELEMETRY_DOLT_METRICS_URL) set to Dolt's own metrics endpoint,
+serve reads it every 15 seconds and status shows Dolt's memory,
+connections, uptime and collector.
 
 Every command that opens the store refuses a Dolt account that is root,
 holds rights beyond its database, or a server whose secure_file_priv is
@@ -278,6 +284,17 @@ func runDaemon(ctx context.Context, s server.Settings, log *slog.Logger, getenv 
 			log.Warn("telemetry did not stop cleanly", "err", err)
 		}
 	}()
+	// Dolt's own metrics, for the status report (design §16.5). A URL
+	// that is not on loopback fails the start here, with its fix: a host
+	// that is a name is resolved now.
+	var dolt *doltmetrics.Reader
+	if u := s.Telemetry.DoltMetricsURL; u != "" {
+		if dolt, err = doltmetrics.New(ctx, u); err != nil {
+			return err
+		}
+		defer dolt.Close()
+		log.Info("reading Dolt's metrics for the status report", "url", dolt.URL(), "every", server.DefaultDoltMetricsEvery)
+	}
 	// srv is the server once it is built; /readyz asks it.
 	var srv atomic.Pointer[server.Server]
 	if s.Telemetry.Listen != "" {
@@ -311,7 +328,7 @@ func runDaemon(ctx context.Context, s server.Settings, log *slog.Logger, getenv 
 		log.Info(serving, "addr", tl.Addr().String())
 	}
 	note := sdnotify.New(getenv, os.Getpid())
-	d, err := openDaemonWith(ctx, s, log, hooks{tel: tel, heartbeatEvery: note.WatchdogEvery(), heartbeat: func() {
+	d, err := openDaemonWith(ctx, s, log, hooks{tel: tel, dolt: dolt, heartbeatEvery: note.WatchdogEvery(), heartbeat: func() {
 		if err := note.Watchdog(); err != nil {
 			log.Warn("could not feed systemd's watchdog", "err", err)
 		}
@@ -356,6 +373,9 @@ func refusalLines(err error) []string {
 type hooks struct {
 	// tel measures the server and its stores.
 	tel *telemetry.Telemetry
+	// dolt reads Dolt's own metrics for the status report; nil reads
+	// none.
+	dolt *doltmetrics.Reader
 	// heartbeat is called every heartbeatEvery from the server's reaper,
 	// for systemd's watchdog; zero calls nothing.
 	heartbeat      func()
@@ -396,7 +416,7 @@ func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h 
 	// of a step whichever noticed it, and the server reports them.
 	clk := store.NewClock(store.ClockOptions{StepTolerance: time.Duration(s.ClockStepTolerance)})
 	cfg := server.Config{Version: version.Version, Latest: s.Latest, Logger: log, Limits: s.Limits, Account: s.Account,
-		Telemetry: h.tel, Heartbeat: h.heartbeat, HeartbeatEvery: h.heartbeatEvery,
+		Telemetry: h.tel, Heartbeat: h.heartbeat, HeartbeatEvery: h.heartbeatEvery, DoltMetrics: h.dolt,
 		Clock: clk, ClockBehind: s.ClockBehind, BehindTolerance: time.Duration(s.ClockBehindTolerance), AcceptHistory: s.AcceptClockBehind}
 	opts := store.Options{Logger: log, AllowUnsafeAccount: s.AllowUnsafeDolt, Limits: s.Limits.Limits,
 		Clock: clk, ClientAhead: time.Duration(s.ClockClientTolerance)}

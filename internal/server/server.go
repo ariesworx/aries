@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/doltmetrics"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/safetext"
 	"github.com/ariesworx/starfix/internal/store"
@@ -112,6 +113,14 @@ type Config struct {
 	// ReapInterval above zero.
 	Heartbeat      func()
 	HeartbeatEvery time.Duration
+	// DoltMetrics, when set, reads Dolt's own metrics endpoint for the
+	// status report (doltwatch.go): Serve reads it every
+	// DoltMetricsEvery, which defaults to DefaultDoltMetricsEvery;
+	// negative turns the timer off (tests call ReadDolt). Nil reads
+	// nothing, and the report says nothing of Dolt. The caller closes it
+	// after Serve returns.
+	DoltMetrics      *doltmetrics.Reader
+	DoltMetricsEvery time.Duration
 }
 
 // Server serves the protocol. Create it with New.
@@ -161,6 +170,9 @@ type Server struct {
 	// last check of Dolt: what /readyz answers from (Ready).
 	listening atomic.Bool
 	dolt      doltCheck
+	// doltm is what was last read of Dolt's own metrics
+	// (Config.DoltMetrics), for the status report.
+	doltm doltWatch
 
 	// single is the project of a server of one (Config.Store); stores
 	// holds the open projects of a server of many (Config.Control).
@@ -213,6 +225,9 @@ func New(cfg Config) (*Server, error) {
 	}
 	if cfg.ReapInterval == 0 {
 		cfg.ReapInterval = 30 * time.Second
+	}
+	if cfg.DoltMetricsEvery == 0 {
+		cfg.DoltMetricsEvery = DefaultDoltMetricsEvery
 	}
 	if err := cfg.Limits.Validate(); err != nil {
 		return nil, fmt.Errorf("server: %w", err)
@@ -402,6 +417,9 @@ func (s *Server) Serve(ctx context.Context, l net.Listener) error {
 	}()
 	if s.cfg.ReapInterval > 0 {
 		s.wg.Go(func() { s.reapLoop(ctx) })
+	}
+	if s.cfg.DoltMetrics != nil && s.cfg.DoltMetricsEvery > 0 {
+		s.wg.Go(func() { s.doltLoop(ctx) })
 	}
 	s.listening.Store(true)
 	defer s.listening.Store(false)

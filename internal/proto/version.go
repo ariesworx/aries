@@ -67,7 +67,8 @@ import (
 // key.add, keys and key.remove ops and principal.add's keys; and the
 // status op (design §15.4, `sfx admin status`). Results carry released
 // (on the ops that end access), warning, in_authorized_keys, file_conns
-// and status's keys_file. It also adds the trace context on a request
+// and status's keys_file, clock, dolt and traces. It also adds the trace
+// context on a request
 // frame, tp and ts (decision 27): frames are read leniently, so the
 // fields needed no version of their own, and were added while 5 was
 // unreleased so that every protocol 5 server reads them.
@@ -105,8 +106,10 @@ import (
 //
 // Traces (design §16.4, decision 32) joined 5 the same way, while no
 // release spoke it: the principal.whois op, which resolves the stand-in
-// a server's spans carry in place of a principal's name. A server built
-// from main before it refuses the op as unknown, with code invalid. The
+// a server's spans carry in place of a principal's name, and the status
+// result's traces, which says how people appear in those spans. A server
+// built from main before it refuses the op as unknown, with code
+// invalid, and leaves the field out. The
 // trace context a tool call brings `sfx mcp` rides tp and ts as the
 // environment's does, so the wire did not change for it.
 //

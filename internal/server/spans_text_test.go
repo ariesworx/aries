@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -184,7 +185,8 @@ func TestExportedSpansCarryNoText(t *testing.T) {
 	}))
 	t.Cleanup(col.Close)
 	env := map[string]string{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": col.URL + "/v1/traces", "OTEL_BSP_SCHEDULE_DELAY": "50"}
-	tel, err := telemetry.New(t.Context(), telemetry.Config{Version: "v0.2.0", PerProject: true, Ops: Ops(), Getenv: func(k string) string { return env[k] }})
+	tel, err := telemetry.New(t.Context(), telemetry.Config{Version: "v0.2.0", PerProject: true, Ops: Ops(), Getenv: func(k string) string { return env[k] },
+		KeyFile: filepath.Join(t.TempDir(), "principals.key")})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -103,6 +104,7 @@ func TestDeadCollector(t *testing.T) {
 				"OTEL_BSP_SCHEDULE_DELAY": "20", "OTEL_BSP_EXPORT_TIMEOUT": "150", "OTEL_BSP_MAX_QUEUE_SIZE": "64", "OTEL_BSP_MAX_EXPORT_BATCH_SIZE": "16"}
 		}
 		tel, err := telemetry.New(t.Context(), telemetry.Config{Version: "v0.2.0", PerProject: true, Ops: Ops(), Logger: slogTo(log),
+			KeyFile: filepath.Join(t.TempDir(), "principals.key"),
 			Getenv: func(k string) string { return env[k] }})
 		if err != nil {
 			t.Fatal(err)
