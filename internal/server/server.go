@@ -9,10 +9,10 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -72,6 +72,18 @@ type Config struct {
 	// is taken from (Control only). The zero value has none, and adding
 	// a project is refused.
 	ProjectDBs ProjectDBs
+	// KeysFile is the absolute path of the file the server writes the
+	// control store's keys to, in authorized_keys form, for sshd to read
+	// (Control only; see [Server.WriteKeys]). Empty writes none.
+	KeysFile string
+	// AuthorizedKeys is the absolute path of the authorized_keys file the
+	// operator maintains by hand, which sshd reads beside KeysFile. The
+	// server only reads it, to say which of the store's keys are in it
+	// too. Empty reads none. It is never KeysFile.
+	AuthorizedKeys string
+	// Bridge is the path of starfixd in the forced command of each line
+	// of KeysFile ([ValidBridge]). Empty takes DefaultBridge.
+	Bridge string
 }
 
 // Server serves the protocol. Create it with New.
@@ -92,8 +104,8 @@ type Server struct {
 	writes    buckets
 	ctlWrites buckets
 	refusals  sampler
-	// lookups counts the key lookups in flight (Limits.KeyLookups).
-	lookups atomic.Int64
+	// keys is the state of the keys file (Config.KeysFile).
+	keys keysFile
 	// adding serializes `project add`, so that two do not take the same
 	// database name.
 	adding sync.Mutex
@@ -173,6 +185,19 @@ func New(cfg Config) (*Server, error) {
 	if err := cfg.ProjectDBs.Validate(); err != nil {
 		return nil, fmt.Errorf("server: %w", err)
 	}
+	if cfg.Bridge == "" {
+		cfg.Bridge = DefaultBridge
+	}
+	switch {
+	case !ValidBridge(cfg.Bridge):
+		return nil, fmt.Errorf("server: the path of starfixd for the forced command, %q, must be absolute, of letters, digits and ._+-", cfg.Bridge)
+	case cfg.KeysFile != "" && (!multi || !filepath.IsAbs(cfg.KeysFile)):
+		return nil, fmt.Errorf("server: a keys file needs a control store and an absolute path, not %q", cfg.KeysFile)
+	case cfg.AuthorizedKeys != "" && !filepath.IsAbs(cfg.AuthorizedKeys):
+		return nil, fmt.Errorf("server: the authorized_keys file needs an absolute path, not %q", cfg.AuthorizedKeys)
+	case cfg.KeysFile != "" && filepath.Clean(cfg.KeysFile) == filepath.Clean(cfg.AuthorizedKeys):
+		return nil, fmt.Errorf("server: the keys file %s is the authorized_keys file, which starfixd never writes", cfg.KeysFile)
+	}
 	s := &Server{cfg: cfg, conns: map[net.Conn]owner{}, now: time.Now, started: time.Now(), unopened: map[string]store.Project{}}
 	s.writes = buckets{rate: cfg.Limits.WriteRate, burst: float64(cfg.Limits.WriteBurst)}
 	s.ctlWrites = buckets{rate: cfg.Limits.ControlWriteRate, burst: float64(cfg.Limits.ControlWriteBurst)}
@@ -245,7 +270,9 @@ func (s *Server) OpenStores() int {
 
 // refresh reads the control store's index again, so that what the
 // operator's `starfixd control init` wrote beside the daemon counts
-// without a restart.
+// without a restart, and writes the keys file if it no longer holds what
+// the index does: after such a change, after a write that failed, or
+// after someone edited the file.
 func (s *Server) refresh(ctx context.Context) {
 	if s.cfg.Control == nil {
 		return
@@ -255,6 +282,7 @@ func (s *Server) refresh(ctx context.Context) {
 	if err := s.cfg.Control.Reload(rctx); err != nil && ctx.Err() == nil {
 		s.cfg.Logger.Error("reload the control store", "err", err)
 	}
+	s.syncKeys()
 }
 
 // Serve accepts connections on l until ctx is done, then closes l and every
@@ -361,9 +389,9 @@ const pruneEvery = 10 * time.Minute
 
 // reapLoop ends expired claims every ReapInterval until ctx is done. It
 // prunes on the first tick, then every pruneEvery. A server of many
-// projects also closes its idle stores, rereads the control store, and
-// ends the claims of holders who lost their access (Sweep), on each
-// tick.
+// projects also closes its idle stores, rereads the control store,
+// writes the keys file if it is out of date, and ends the claims of
+// holders who lost their access (Sweep), on each tick.
 func (s *Server) reapLoop(ctx context.Context) {
 	t := time.NewTicker(s.cfg.ReapInterval)
 	defer t.Stop()
@@ -403,6 +431,15 @@ const (
 	helloTimeout  = 30 * time.Second
 )
 
+// staleKeysFrame is the type of the first frame `starfixd keys` sent,
+// when sshd asked the daemon about each key through that command. The
+// command is gone (design §14, decision 22) and was never in a release.
+// A root-owned copy of an unreleased build may still be some sshd's
+// AuthorizedKeysCommand while its server is upgraded, so its question is
+// expected: the connection is closed without an answer, which that copy
+// reads as no key, and nothing is logged above debug.
+const staleKeysFrame = "keys"
+
 // session is one connection's state, from the handshake on.
 type session struct {
 	// actor is the principal from the bridge frame, and the session and
@@ -431,8 +468,8 @@ type session struct {
 	// refusal log lines are counted under (limitKey).
 	key string
 	// fingerprint is the bridge frame's key: the fingerprint of the key
-	// that authenticated, when the control store served it to sshd, and
-	// empty for a line of the authorized_keys file.
+	// that authenticated, when sshd took its line from the keys file, and
+	// empty for a line of the hand-maintained authorized_keys file.
 	fingerprint string
 	// proj is the project the hello named. held is its entry in the
 	// registry of a server of many projects, set while the session
@@ -480,7 +517,7 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		return
 	}
 	if sess == nil {
-		return // a key lookup: the keys frame was its answer
+		return // a stale key lookup, closed unanswered
 	}
 	if sess.proj == nil {
 		return // the health probe of a server of many projects: the welcome was its answer
@@ -622,8 +659,8 @@ func (s *Server) busyControlWrites(principal string, wait time.Duration) *proto.
 
 // handshake reads the bridge frame and the client's hello, and answers with
 // a welcome, or a refusal and an error. A connection whose first frame is
-// a keys frame is sshd's key lookup instead: it is answered and nothing
-// is returned (lookup). On success the session holds a
+// a keys frame is closed unanswered, and nothing is returned
+// (staleKeysFrame). On success the session holds a
 // connection slot (sess.slot) and, in a server of many projects, counts
 // as a connection of its project's store (sess.held). A refusal after a
 // valid bridge frame also returns the session, so the caller can say
@@ -637,8 +674,8 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("bridge frame: %w", err)
 	}
-	if f.T == proto.FrameKeys {
-		s.lookup(c, sess.enc, f.Key)
+	if f.T == staleKeysFrame {
+		s.cfg.Logger.Debug("key lookup closed unanswered: keys reach sshd by the keys file now")
 		return nil, nil
 	}
 	// The upgrade's probe, alone of the reserved names, is welcomed: it
@@ -647,7 +684,7 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 		(store.Reserved(f.Principal) && f.Principal != ProbePrincipal) {
 		return nil, fmt.Errorf("first frame is %q, not a bridge frame with a valid, unreserved principal", f.T)
 	}
-	// A bridge from before keys were served from the store sends none.
+	// A line of the hand-maintained authorized_keys file names none.
 	if f.Key != "" && !store.ValidFingerprint(f.Key) {
 		return nil, errors.New("the bridge frame's key is not a SHA256 fingerprint")
 	}

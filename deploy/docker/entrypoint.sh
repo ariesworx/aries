@@ -2,7 +2,8 @@
 # The starfix test server's entrypoint (deploy/docker/Dockerfile), doing
 # what docs/server.md's steps 2 to 6 do on a machine, and then what its
 # "Serving many projects" does: the server holds many projects, and sshd
-# asks starfixd for keys.
+# reads the keys of its control database from a file starfixd writes,
+# /state/ssh/starfix_keys, beside authorized_keys.
 #
 # On the first start it makes the sshd host key, gives Dolt's starfix
 # account a random password, which only the 0600 config file holds, and

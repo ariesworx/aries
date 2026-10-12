@@ -10,9 +10,9 @@ import (
 
 // owner says whose a connection is, once its handshake is done: the
 // principal, the project it connected to, and the fingerprint of the key
-// that authenticated it when the control store served that key (empty
-// for a line of the authorized_keys file, which names none). The zero
-// value is a connection still in its handshake.
+// that authenticated it when sshd took the key's line from the keys file
+// (empty for a line of the hand-maintained authorized_keys file, which
+// names none). The zero value is a connection still in its handshake.
 type owner struct {
 	principal string
 	project   string
@@ -40,8 +40,11 @@ func (s *Server) track(c net.Conn, sess *session) bool {
 
 // keyHolds refuses a connection that says the control store's key
 // fingerprint let principal in when the store, now, holds no such key
-// for it: the key was removed after sshd asked, or the forced command
-// was written by hand. A connection that names no key came in by the
+// for an active principal of that name: the key was removed, or its
+// principal disabled, and sshd read a keys file from before that; or
+// the forced command was written by hand. It is what makes the keys
+// file a cache: whatever a stale file lets past sshd, the store decides
+// here. A connection that names no key came in by the hand-maintained
 // authorized_keys file, and is not checked.
 func (s *Server) keyHolds(principal, fingerprint string) *proto.Error {
 	if fingerprint == "" {
@@ -96,7 +99,7 @@ func (s *Server) drop(from *session, why string, match func(owner) bool) int {
 
 // fileConns returns how many of principal's connections past the
 // handshake named no key of the store: sshd let them in by a line of the
-// authorized_keys file.
+// hand-maintained authorized_keys file.
 func (s *Server) fileConns(principal string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()

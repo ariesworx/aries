@@ -56,22 +56,24 @@ server can write.
 
 On a server of [many projects](server.md#serving-many-projects) whose
 sshd is set up for it ([Keys from the store](server.md#keys-from-the-store)),
-a key authenticates if either holds:
+sshd reads two files for the `starfix` account, and a key authenticates
+if either has a line for it:
 
-- **The control database has it, for a principal that is not disabled.**
-  sshd runs `starfixd keys TYPE BASE64` for the key, which asks the
-  running daemon and prints that key's line: `restrict`, and a forced
-  command naming the principal and the key's fingerprint.
-- **It has a line in `authorized_keys`**, as before. sshd reads the file
-  whenever starfixd prints no line, so the file is still a way in: for
-  the first admin, and when starfixd is down. A key in the file is not
-  revoked by removing it from the control database, and starfixd cannot
-  see the file. Keep the file to the keys that must work without
-  starfixd. What starfixd can see is whether a connection named a key of
-  the control database or came in by the file: `sfx admin status` and
-  `sfx admin key list` count the connections that came in by the file,
-  and `sfx admin key remove` warns when the key's principal has one
-  open. It cannot say which key such a connection used.
+- **The keys file starfixd writes**, `~starfix/.ssh/starfix_keys`, which
+  holds a line for each key the control database has for a principal
+  that is not disabled: `restrict`, and a forced command naming the
+  principal and the key's fingerprint.
+- **`authorized_keys`**, maintained by hand as before, which only
+  someone with a shell on the server can write. It is still a way in:
+  for the first admin, and to replace a server admin's own key. A key in
+  it is not revoked by removing it from the control database. starfixd
+  runs as the account whose file it is, so it reads the file, to tell
+  admins which keys are in both: `sfx admin key list` marks them, and
+  `sfx admin key remove` of one warns that sshd still accepts it and
+  that its line must be deleted on the server. starfixd never writes to
+  that file, and never prints or logs a line of it. A connection that
+  came in by it names no key, and `sfx admin status` and `sfx admin key
+  list` count those.
 
 Either way the key only names a principal. What that principal reaches
 is decided afterward, by its memberships.
@@ -85,32 +87,50 @@ person's. Every key added and removed is an event in the control
 database, under the admin who did it. Only public keys are stored, and
 `sfx` refuses to send a file that holds a private key.
 
-**The lookup runs before authentication**, for every key any stranger
-offers the `starfix` account. So it is built to cost nothing and to say
-nothing:
+**Nothing of starfix runs before authentication.** sshd reads files; it
+runs no program of starfix's and opens no connection to starfixd until a
+key has authenticated and its forced command starts. A stranger who
+offers keys to the `starfix` account reaches sshd and nothing behind it.
+(An earlier, unreleased build had sshd ask starfixd about each key
+offered, through an `AuthorizedKeysCommand`. That path is gone.)
 
-- It reads the daemon's memory only: no database, no store opened, no
-  connection slot taken, nothing written. The daemon gives an asker two
-  seconds to take its answer, and at most `key_lookups` are in flight
-  ([Limits](server.md#limits)); sshd's `MaxStartups` bounds how many it
-  starts.
-- It is reached only through the daemon's socket, which admits only the
-  daemon's own user, so sshd runs it as `starfix`.
-- **The line it prints holds nothing the stranger chose.** The
-  fingerprint is computed from the key sshd parsed. The principal comes
-  from the control database and must be a principal name. The key
-  printed is the stored one, and must be the key that was asked about.
-  Arguments that are not one key's type and base64 print nothing.
-- It always exits 0 and prints nothing for a key it has no line for,
-  whatever the reason, so its answer tells a stranger only what failing
-  to sign in already does.
-- It is logged at `debug` only, by fingerprint, never the key.
+**The keys file is a cache, and the control database decides.** What
+keeps a removed key out is not the file:
 
-sshd runs the command only from a file that root owns, in directories
-that root owns. The binary starfix upgrades in place is owned by
-`starfix`, so the server guide gives sshd a root-owned copy. That, and
-the `Match` block that scopes the command to the `starfix` account, have
-not yet been checked against sshd on each cloud provider's image.
+- Each line starfixd writes carries its key's fingerprint, which the
+  forced command passes to starfixd. At the handshake starfixd refuses a
+  connection that names a key the control database does not hold for
+  that principal, and one whose principal is disabled.
+- So a key that was removed, or a disabled principal's, that is still
+  in the file sshd reads, gets past sshd and is refused by starfixd.
+  The file can be stale because starfixd could not rewrite it, because
+  it was restored from a backup, or because someone edited it. A test
+  states this directly: it removes a key while the file cannot be
+  written, and again with the old file put back by hand, and the
+  connection is refused each time.
+- Anyone who can write the file can already write `authorized_keys`
+  beside it, which is the stronger position: a line there names no
+  fingerprint, and starfixd cannot check it. Both are in a directory
+  only the `starfix` account can write to.
+- **Every line holds only what the control database holds.** The
+  principal must be a principal name that is not reserved, the
+  fingerprint must be the stored key's own, and the key written is the
+  stored one, with no options and no comment. The path of starfixd in
+  the forced command is the operator's setting, and must need no
+  quoting.
+- starfixd writes the file as a new file of mode 0600, renamed into
+  place, and refuses a path that is a symbolic link, a directory that
+  group or others can write to, and a file it did not generate.
+- A failed write does not undo the admin's change. The admin is warned,
+  starfixd logs it and tries again every 30 seconds, and `sfx admin
+  status` shows it until a write succeeds.
+
+This was run with a real sshd, OpenSSH 9.6 on Ubuntu 24.04, in the
+Docker test server. It has not been run on a cloud provider's image
+([Keys from the store](server.md#keys-from-the-store) lists what was
+checked). The supported platform for a server is Ubuntu LTS; systems
+that run SELinux are not supported yet
+([What a server needs](server.md#what-a-server-needs)).
 
 ## The server's host key is pinned
 
@@ -228,8 +248,8 @@ variable can set it.
 0700 and owned by the daemon's user. On Linux it also checks each
 connecting process's user ID and refuses any but its own, which is why
 `serve` runs only on Linux. `starfixd stdio` runs as that same user,
-because sshd runs every forced command as the `starfix` account, and so
-does `starfixd keys`, by sshd's `AuthorizedKeysCommandUser`.
+because sshd runs every forced command as the `starfix` account.
+Nothing else connects to the socket: sshd itself never does.
 
 ## Untrusted text
 

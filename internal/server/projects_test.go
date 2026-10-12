@@ -59,6 +59,9 @@ type multi struct {
 	ctl *store.Control
 	dsn string
 	log *syncBuffer
+	// keysFile is the file the server writes the store's keys to, and
+	// byHand the authorized_keys file it only reads.
+	keysFile, byHand string
 
 	mu    sync.Mutex
 	opens map[string]int
@@ -113,9 +116,17 @@ func newMultiAdmins(t *testing.T, lim Limits, ck *clock, admins ...string) *mult
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ctl.Close() })
-	m := &multi{ctl: ctl, dsn: dsn, log: &syncBuffer{}, opens: map[string]int{}}
+	// What sshd reads for the account: the keys file the server writes,
+	// and the authorized_keys file a test may write by hand.
+	sshDir := filepath.Join(t.TempDir(), ".ssh")
+	if err := os.Mkdir(sshDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	m := &multi{ctl: ctl, dsn: dsn, log: &syncBuffer{}, opens: map[string]int{},
+		keysFile: filepath.Join(sshDir, "starfix_keys"), byHand: filepath.Join(sshDir, "authorized_keys")}
 	open := ProjectOpener(dsn, ctl, store.Options{CommitInterval: -1, Limits: lim.Limits, Now: now})
 	m.Server, err = New(Config{Control: ctl, Version: "v0.2.0", PeerCheck: func(net.Conn) error { return nil }, Limits: lim,
+		KeysFile: m.keysFile, AuthorizedKeys: m.byHand,
 		ReapInterval: -1, Logger: slog.New(slog.NewTextHandler(m.log, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		Open: func(ctx context.Context, p store.Project) (*store.Store, error) {
 			m.mu.Lock()
@@ -128,6 +139,10 @@ func newMultiAdmins(t *testing.T, lim Limits, ck *clock, admins ...string) *mult
 	}
 	if ck != nil {
 		m.now, m.started = ck.now, ck.now()
+	}
+	// As a daemon does before it listens.
+	if err := m.WriteKeys(); err != nil {
+		t.Fatal(err)
 	}
 	// Runs after each connection's cleanup, which ends its handler.
 	t.Cleanup(m.stores.closeAll)
@@ -862,12 +877,28 @@ func TestResolveSettingsControl(t *testing.T) {
 		{name: "negative control_write_rate", body: "limits:\n  control_write_rate: -1\n", err: "limit control_write_rate must be zero or a positive number; fix:"},
 		{name: "control_write_rate not a number", body: "limits:\n  control_write_rate: .nan\n", err: "limit control_write_rate must be zero or a positive number; fix:"},
 		{name: "negative control_write_burst", body: "limits:\n  control_write_burst: -1\n", err: "limit control_write_burst must be zero or a positive number; fix:"},
-		{name: "key lookups default", body: dsn, check: func(l Settings) bool { return l.Limits.KeyLookups == 64 }},
-		{name: "key lookups set", body: "limits:\n  key_lookups: 8\n",
-			check: func(l Settings) bool { return l.Limits.KeyLookups == 8 && l.Limits.Conns == DefaultLimits.Conns }},
-		{name: "key lookups zero takes the default", body: "limits:\n  key_lookups: 0\n",
-			check: func(l Settings) bool { return l.Limits == DefaultLimits }},
-		{name: "negative key_lookups", body: "limits:\n  key_lookups: -1\n", err: "limit key_lookups must be zero or a positive number; fix:"},
+		{name: "the keys file, the hand-maintained file and the bridge by default", body: dsn + "control_db: starfix_control\n",
+			check: func(s Settings) bool {
+				return s.KeysFile == ".ssh/starfix_keys" && s.AuthorizedKeys == ".ssh/authorized_keys" && s.Bridge == "/usr/local/bin/starfixd"
+			}},
+		{name: "the three set in the file", body: "keys_file: /srv/starfix/keys\nauthorized_keys: /srv/starfix/authorized_keys\nbridge: /opt/starfix/bin/starfixd\n",
+			check: func(s Settings) bool {
+				return s.KeysFile == "/srv/starfix/keys" && s.AuthorizedKeys == "/srv/starfix/authorized_keys" && s.Bridge == "/opt/starfix/bin/starfixd"
+			}},
+		{name: "the environment wins over the file", body: "keys_file: /srv/starfix/keys\nbridge: /opt/starfix/bin/starfixd\n",
+			env: map[string]string{EnvKeysFile: "keys/starfix", EnvAuthorizedKeys: "keys/by_hand", EnvBridge: "/usr/bin/starfixd"},
+			check: func(s Settings) bool {
+				return s.KeysFile == "keys/starfix" && s.AuthorizedKeys == "keys/by_hand" && s.Bridge == "/usr/bin/starfixd"
+			}},
+		{name: "a bridge that is not absolute", body: "bridge: starfixd\n", err: `bridge "starfixd" cannot be written into a forced command; fix:`},
+		{name: "a bridge that needs quoting", body: "bridge: '/usr/local/bin/starfixd --socket /tmp/x'\n",
+			err: `cannot be written into a forced command; fix:`},
+		{name: "a bridge that closes the quotes", body: `bridge: '/usr/local/bin/starfixd" ssh-ed25519 AAAA'` + "\n",
+			err: `cannot be written into a forced command; fix:`},
+		{name: "a keys file that is the authorized_keys file", body: "keys_file: .ssh/authorized_keys\n",
+			err: `keys_file ".ssh/authorized_keys" is the authorized_keys file, which starfixd reads and never writes; fix:`},
+		{name: "the same file under another spelling", body: "keys_file: /srv/keys\nauthorized_keys: /srv/x/../keys\n",
+			err: `is the authorized_keys file, which starfixd reads and never writes; fix:`},
 		{name: "no block of project databases by default", body: dsn + "control_db: starfix_control\n",
 			check: func(s Settings) bool { return s.ProjectDBs == ProjectDBs{} }},
 		{name: "a block of project databases", body: dsn + "control_db: starfix_control\nproject_dbs:\n  prefix: starfix_p\n  count: 100\n",

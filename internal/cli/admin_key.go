@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"text/tabwriter"
 
@@ -140,6 +141,7 @@ func adminKey(ctx context.Context, r *runner, args []string) error {
 			return nil
 		}
 		printKeyAdded(r.env.Stdout, out)
+		r.warn(out.Warning)
 		return nil
 	case "list":
 		if len(pos) != 2 {
@@ -171,9 +173,7 @@ func adminKey(ctx context.Context, r *runner, args []string) error {
 			return nil
 		}
 		printKeyRemoved(r.env.Stdout, out)
-		if out.Warning != "" {
-			_, _ = fmt.Fprintf(r.env.Stderr, "sfx: warning: %s\n", esc(out.Warning))
-		}
+		r.warn(out.Warning)
 		return nil
 	}
 	return usagef(usage, "unknown key action %q", pos[0])
@@ -195,10 +195,11 @@ func printKeyAdded(w io.Writer, k proto.KeyResult) {
 	_, _ = fmt.Fprintf(w, "key %s %s added to %s\n", esc(k.ID), keyLabel(k), esc(k.Principal))
 }
 
-// printKeyRemoved says a key is gone, and how many connections went
-// with it: those the key had signed in. A connection that came in by a
-// line of the server's authorized_keys file is not among them; the
-// server's warning, printed after, says when the principal has any.
+// printKeyRemoved says a key is gone from the store, and how many
+// connections went with it: those the key had signed in by its line of
+// the server's keys file. The server's warning, printed after, says when
+// the key is also a line of the hand-maintained authorized_keys file,
+// which still lets it in.
 func printKeyRemoved(w io.Writer, k proto.KeyResult) {
 	_, _ = fmt.Fprintf(w, "key %s removed from %s\n", esc(k.ID), esc(k.Principal))
 	switch {
@@ -209,19 +210,37 @@ func printKeyRemoved(w io.Writer, k proto.KeyResult) {
 	}
 }
 
+// printKeys lists a principal's keys. When any of them is also a line of
+// the server's hand-maintained authorized_keys file, a last column marks
+// those, and a line after the table says what the mark means.
 func printKeys(w io.Writer, res proto.KeysResult) {
 	defer printFileConns(w, res.Principal, res.FileConns)
 	if len(res.Keys) == 0 {
 		_, _ = fmt.Fprintf(w, "no keys recorded for %s\n", esc(res.Principal))
 		return
 	}
+	byHand := slices.ContainsFunc(res.Keys, func(k proto.Key) bool { return k.InAuthorizedKeys })
 	_, _ = fmt.Fprintf(w, "keys of %s\n", esc(res.Principal))
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "FINGERPRINT\tTYPE\tCOMMENT\tADDED BY\tADDED")
+	header := "FINGERPRINT\tTYPE\tCOMMENT\tADDED BY\tADDED"
+	if byHand {
+		header += "\tALSO IN"
+	}
+	_, _ = fmt.Fprintln(tw, header)
 	for _, k := range res.Keys {
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", esc(k.Fingerprint), esc(k.Type), esc(k.Comment), esc(k.AddedBy), when(k.AddedAt))
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s", esc(k.Fingerprint), esc(k.Type), esc(k.Comment), esc(k.AddedBy), when(k.AddedAt))
+		switch {
+		case k.InAuthorizedKeys:
+			_, _ = fmt.Fprint(tw, "\tauthorized_keys")
+		case byHand:
+			_, _ = fmt.Fprint(tw, "\t-")
+		}
+		_, _ = fmt.Fprintln(tw)
 	}
 	_ = tw.Flush()
+	if byHand {
+		_, _ = fmt.Fprintln(w, "ALSO IN authorized_keys: the key is also a line of the server's hand-maintained authorized_keys file, where sshd accepts it whatever the store holds; `sfx admin key remove` does not keep it out until that line is deleted on the server")
+	}
 }
 
 // printReleased says how many claims ended with the access of who, when

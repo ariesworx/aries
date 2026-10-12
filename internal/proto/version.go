@@ -80,10 +80,22 @@ import (
 // status refuses it as an unknown operation, with code invalid, and
 // serves everything else.
 //
-// The bridge frame and the keys frame are not part of this protocol:
-// they pass between two starfixd processes on the server (frame.go), and
-// carry no version. Each is read leniently, so a bridge from before a
-// binary swap works against the daemon after it, and the reverse.
+// Still before protocol 6 shipped, keys stopped reaching sshd through a
+// command that asked the daemon and now reach it through a file the
+// daemon writes (design §14, decision 22). Results changed with that,
+// without another bump: status lost key_lookups and key_lookups_max and
+// gained keys_file; key.remove lost file_conns and gained
+// in_authorized_keys, as each key of keys did; and the results of
+// principal.add, principal.disable and principal.enable gained warning.
+// A client built from main before the change reads the fields it knows.
+//
+// The bridge frame is not part of this protocol: it passes between two
+// starfixd processes on the server (frame.go), and carries no version.
+// It is read leniently, so a bridge from before a binary swap works
+// against the daemon after it, and the reverse. The keys frame, with
+// which `starfixd keys` asked the daemon about a key, went with that
+// command and never shipped in a release; a daemon closes a connection
+// that opens with one, unanswered, as a daemon from before it did.
 const (
 	Proto    = 6
 	ProtoMin = 2

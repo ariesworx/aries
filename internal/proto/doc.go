@@ -16,7 +16,7 @@
 // The stream is newline-delimited JSON, one Frame per line, at most
 // MaxFrame bytes. Empty fields are omitted. The short keys are:
 //
-//	t       frame type: bridge, keys, hello, welcome, req, res, evt
+//	t       frame type: bridge, hello, welcome, req, res, evt
 //	id      request id, chosen by the client; a res echoes it
 //	op      operation name (req); see the Op constants
 //	a       operation arguments (req), one of the *Args types
@@ -31,8 +31,7 @@
 //	h       agent harness, such as claude-code (hello; may be empty)
 //	latest  latest release the server knows of (welcome; may be empty)
 //	pr      principal: the bridge's claim, and the welcome's echo of it
-//	k       a public key's SHA-256 fingerprint (bridge, keys)
-//	pk      a public key in authorized_keys form (the daemon's keys frame)
+//	k       the SHA-256 fingerprint of the key that authenticated (bridge)
 //	e       payload of an evt frame, such as a pushed inbox item
 //
 // # Sequence
@@ -48,17 +47,13 @@
 //
 // # Keys
 //
-// On a server of many projects sshd asks which principal a key belongs
-// to before it authenticates anyone, by running `starfixd keys`, which
-// asks the daemon on the same socket with a first frame of its own:
-//
-//	keys → daemon:    {"t":"keys","k":"SHA256:…"}
-//	daemon → keys:    {"t":"keys","pr":"alice","pk":"ssh-ed25519 AAAA…"}
-//
-// The answer for a key no active principal has is {"t":"keys"}. The
-// bridge of a key served this way names it, {"t":"bridge","pr":"alice",
-// "k":"SHA256:…"}, so the daemon can close the connection when the key
-// is removed. Neither frame is versioned; see FrameBridge.
+// On a server of many projects the daemon writes the keys the control
+// store holds to a file sshd reads, one authorized_keys line each. The
+// forced command of such a line names the key, so its bridge frame does,
+// {"t":"bridge","pr":"alice","k":"SHA256:…"}: the daemon refuses the
+// handshake when the store no longer holds that key for that principal,
+// and closes the connection when the key is removed. The bridge frame is
+// not versioned; see FrameBridge.
 //
 // Frame type "evt" is a server-pushed event: no id, an op naming the
 // event (EvInbox, EvEvent, EvResync) and its payload in e. The server

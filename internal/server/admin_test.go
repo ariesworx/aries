@@ -105,6 +105,9 @@ func adminWorld(t *testing.T, lim Limits) *multi {
 	if _, err := m.ctl.AddKey(t.Context(), dana, "carol", keyLine(t, "carol")); err != nil {
 		t.Fatal(err)
 	}
+	// These writes went behind the server, as an operator's do; a tick
+	// brings them to the keys file.
+	m.refresh(t.Context())
 	return m
 }
 

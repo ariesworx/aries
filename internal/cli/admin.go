@@ -247,6 +247,7 @@ func adminPrincipal(ctx context.Context, r *runner, args []string) error {
 		for _, k := range out.Keys {
 			_, _ = fmt.Fprintf(r.env.Stdout, "key %s added to %s\n", esc(k), esc(out.ID))
 		}
+		r.warn(out.Warning)
 		return nil
 	case "list":
 		if err := only(fs, usage, "principal list", "n", "after"); err != nil {
@@ -286,6 +287,7 @@ func adminPrincipal(ctx context.Context, r *runner, args []string) error {
 		}
 		_, _ = fmt.Fprintf(r.env.Stdout, "%s: %s\n", esc(out.ID), esc(out.State))
 		printReleased(r.env.Stdout, out.Released, out.ID)
+		r.warn(out.Warning)
 		return nil
 	}
 	return usagef(usage, "unknown principal action %q", pos[0])
@@ -373,9 +375,7 @@ func adminMember(ctx context.Context, r *runner, args []string) error {
 		}
 		_, _ = fmt.Fprintf(r.env.Stdout, "%s removed from project %s\n", esc(out.ID), esc(out.ProjectName))
 		printReleased(r.env.Stdout, out.Released, out.ID)
-		if out.Warning != "" {
-			_, _ = fmt.Fprintf(r.env.Stderr, "sfx: warning: %s\n", esc(out.Warning))
-		}
+		r.warn(out.Warning)
 		return nil
 	}
 	return usagef(usage, "unknown member action %q", pos[0])

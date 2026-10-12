@@ -25,7 +25,9 @@ import (
 // store's refusal. The store does not guard reads, so the lists apply
 // the read rules here. When a write ends someone's access, their open
 // connections are closed once it has committed (drop), and the claims
-// they held are ended (release, decision 21).
+// they held are ended (release, decision 21). A write that changes
+// which keys sign in is followed by a write of the keys file sshd reads
+// (syncKeys), before the admin is answered.
 
 // adminHandler runs one admin op for the session sess.
 type adminHandler func(ctx context.Context, s *Server, sess *session, args json.RawMessage) (any, *proto.Error)
@@ -411,6 +413,7 @@ func principalAdd(ctx context.Context, s *Server, sess *session, in proto.Princi
 	out := proto.PrincipalAddResult{PrincipalResult: proto.PrincipalResult{ID: p.Name, Rev: int64(p.Rev), State: string(p.State),
 		Project: proj.ID, ProjectName: proj.Name}}
 	if len(in.Keys) > 0 {
+		out.Warning = s.syncKeys()
 		// A failure here shows no fingerprints: the keys were added.
 		added, err := s.cfg.Control.Keys(ctx, p.Name)
 		if err != nil {
@@ -445,26 +448,29 @@ func principals(ctx context.Context, s *Server, sess *session, in proto.AdminLis
 	return out, nil
 }
 
-// principalDisable disables a principal, then closes every connection
-// it has, to every project, and ends the claims it holds in every store
-// that is open. A server admin's too: disabled wins over the config
-// file (decision 20).
+// principalDisable disables a principal, then takes its keys out of the
+// keys file, closes every connection it has, to every project, and ends
+// the claims it holds in every store that is open. A server admin's
+// too: disabled wins over the config file (decision 20).
 func principalDisable(ctx context.Context, s *Server, sess *session, in proto.PrincipalArgs) (any, *proto.Error) {
 	p, err := s.cfg.Control.DisablePrincipal(ctx, sess.actor, in.Name)
 	if err != nil {
 		return nil, s.ctlErr(ctx, sess, proto.OpPrincipalDisable, err)
 	}
+	warning := s.syncKeys()
 	s.drop(sess, "principal disabled", func(o owner) bool { return o.principal == p.Name })
 	released := s.release(ctx, sess.actor, "", p.Name, lostDisabled)
-	return proto.PrincipalResult{ID: p.Name, Rev: int64(p.Rev), State: string(p.State), Released: released}, nil
+	return proto.PrincipalResult{ID: p.Name, Rev: int64(p.Rev), State: string(p.State), Released: released, Warning: warning}, nil
 }
 
+// principalEnable makes a disabled principal active again, and its keys
+// with it.
 func principalEnable(ctx context.Context, s *Server, sess *session, in proto.PrincipalArgs) (any, *proto.Error) {
 	p, err := s.cfg.Control.EnablePrincipal(ctx, sess.actor, in.Name)
 	if err != nil {
 		return nil, s.ctlErr(ctx, sess, proto.OpPrincipalEnable, err)
 	}
-	return proto.PrincipalResult{ID: p.Name, Rev: int64(p.Rev), State: string(p.State)}, nil
+	return proto.PrincipalResult{ID: p.Name, Rev: int64(p.Rev), State: string(p.State), Warning: s.syncKeys()}, nil
 }
 
 // memberSet adds a membership or changes its role. Taking the admin
@@ -587,8 +593,9 @@ func memberRemove(ctx context.Context, s *Server, sess *session, in proto.Member
 	return out, nil
 }
 
-// keyAdd adds a public key to a principal. The control store decides
-// who may, and refuses anyone their own account's (decision 19).
+// keyAdd adds a public key to a principal, and writes the keys file, so
+// that the key signs in once the admin is answered. The control store
+// decides who may, and refuses anyone their own account's (decision 19).
 func keyAdd(ctx context.Context, s *Server, sess *session, in proto.KeyAddArgs) (any, *proto.Error) {
 	const op = proto.OpKeyAdd
 	ctl := s.cfg.Control
@@ -603,7 +610,7 @@ func keyAdd(ctx context.Context, s *Server, sess *session, in proto.KeyAddArgs) 
 		return nil, s.ctlErr(ctx, sess, op, err)
 	}
 	out := wireKeyResult(k)
-	out.Change = "added"
+	out.Change, out.Warning = "added", s.syncKeys()
 	if slices.ContainsFunc(before, func(b store.PrincipalKey) bool { return b.Fingerprint == k.Fingerprint }) {
 		out.Change = "unchanged"
 	}
@@ -643,44 +650,39 @@ func keys(ctx context.Context, s *Server, sess *session, in proto.KeysArgs) (any
 		return nil, s.ctlErr(ctx, sess, op, err)
 	}
 	out := proto.KeysResult{Principal: in.Name, Keys: []proto.Key{}, FileConns: s.fileConns(in.Name)}
+	hand := s.byHand()
 	for _, k := range all {
-		out.Keys = append(out.Keys, proto.Key{Fingerprint: k.Fingerprint, Type: keyType(k.Key), Comment: k.Comment, AddedBy: k.AddedBy, AddedAt: k.AddedAt})
+		out.Keys = append(out.Keys, proto.Key{Fingerprint: k.Fingerprint, Type: keyType(k.Key), Comment: k.Comment, AddedBy: k.AddedBy, AddedAt: k.AddedAt,
+			InAuthorizedKeys: hand[k.Fingerprint]})
 	}
 	return out, nil
 }
 
-// keyRemove removes a key, then closes the connections it had
-// authenticated: those whose bridge named its fingerprint, because the
-// store served the key to sshd. A connection that came in by a line of
-// the authorized_keys file names no key, and is not closed here: when
-// the key's principal has any, the result counts them and warns that
-// the file may still hold this key.
+// keyRemove removes a key, takes it out of the keys file, and closes
+// the connections it had authenticated: those whose bridge named its
+// fingerprint, because sshd took the key's line from that file.
+//
+// A key that is also a line of the hand-maintained authorized_keys file
+// is not kept out by this: sshd still accepts it there, by a line that
+// names no fingerprint, so its connections are not closed either. The
+// result says so, and that the line must be deleted on the server.
 func keyRemove(ctx context.Context, s *Server, sess *session, in proto.KeyRemoveArgs) (any, *proto.Error) {
 	k, err := s.cfg.Control.RemoveKey(ctx, sess.actor, in.Fingerprint)
 	if err != nil {
 		return nil, s.ctlErr(ctx, sess, proto.OpKeyRemove, err)
 	}
 	out := wireKeyResult(k)
+	out.Warning = s.syncKeys()
 	out.Dropped = s.drop(sess, "key removed", func(o owner) bool { return o.key == k.Fingerprint })
-	if n := s.fileConns(k.Principal); n > 0 {
-		out.FileConns, out.Warning = n, fileWarning(k.Principal, n)
+	if s.byHand()[k.Fingerprint] {
+		out.InAuthorizedKeys = true
+		// One line: a warning is printed as one.
+		if out.Warning != "" {
+			out.Warning = "; and " + out.Warning
+		}
+		out.Warning = handWarning(k.Fingerprint) + out.Warning
 	}
 	return out, nil
-}
-
-// fileWarning tells the admin who removed a key of principal that n of
-// its connections came in by the authorized_keys file, and what follows.
-// It says only what the daemon knows: that those connections named no
-// key of the store, not which key sshd took for them.
-func fileWarning(principal string, n int) string {
-	conns, stay := "1 open connection", "It stays open, and starfixd cannot tell which key it used"
-	if n > 1 {
-		conns, stay = fmt.Sprintf("%d open connections", n), "They stay open, and starfixd cannot tell which key they used"
-	}
-	return fmt.Sprintf("%s still has %s that sshd let in by the server's authorized_keys file, not by a key from the store. "+
-		"%s: if the key just removed has a line in that file, it still lets %s in. "+
-		"Delete the line on the server; `sfx admin principal disable %s` closes every connection %s has",
-		principal, conns, stay, principal, principal, principal)
 }
 
 // OpenProjects opens the store of every active project in turn and

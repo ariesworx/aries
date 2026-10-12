@@ -22,16 +22,14 @@ makes every check it makes on a real server. The files are in
 It is a server of [many projects](../server.md#serving-many-projects):
 it has a control database and eight database names granted for new
 projects, the project it starts with is adopted under the name `first`,
-and sshd asks starfixd for keys
+and sshd reads the keys file starfixd writes
 ([Keys from the store](../server.md#keys-from-the-store)). So you can
 try `sfx admin project add`, and add a person with `sfx admin principal
 add NAME --key FILE` and no restart.
 
 If a key added with `sfx admin` is refused, `docker compose logs` shows
-what sshd and starfixd said. In this image root owns `starfixd`, so sshd
-runs it as its key command directly; a server set up by the guide gives
-sshd a root-owned copy instead
-([Keys from the store](../server.md#keys-from-the-store)).
+what sshd and starfixd said, and [Look inside](#look-inside) shows the
+keys file.
 
 ## What you need
 
@@ -164,11 +162,54 @@ token usage and cost, plans and the digest, and checks that a non-admin
 is refused admin commands. Then it adds a second project with `sfx admin
 project add` and uses it, checks that someone who is no member of it is
 refused, adds a third principal whose key is in no `authorized_keys`
-file and connects as it, removes that key and checks that it is
-refused, and restarts the server to check that nothing changed. It removes its server and volume, prints one line, and exits
-non-zero on the first failure. CI does not run it. Arguments go to
-`docker build`; behind a proxy that intercepts TLS, pass its CA with
-`--secret id=ca,src=FILE`, which never reaches the image.
+file and connects as it with no restart, removes that key and checks
+that it is refused, and restarts the server to check that nothing
+changed. Along the way it checks the keys file inside the container: a
+regular file of mode 0600 owned by `starfix`, with a line for each key
+added and none for a key removed or a disabled principal's; that a key
+in both files is marked, comes in by `authorized_keys`, and warns when
+it is removed from the control database; and that starfixd's log has no
+failed write. It removes its server and volume, prints one line (84
+checks on 12 October 2026), and exits non-zero on the first failure. CI
+does not run it. Arguments go to `docker build`; behind a proxy that
+intercepts TLS, pass its CA with `--secret id=ca,src=FILE`, which never
+reaches the image.
+
+`STARFIX_IMAGE=NAME` tests an image you built instead of building
+`starfix-dev:local`, and `STARFIX_SMOKE_LOG=FILE` saves the server's log
+before the server is removed.
+
+### What was checked with variants of the image
+
+The keys file replaced an sshd `AuthorizedKeysCommand` that asked
+starfixd about each key. Three things that mechanism could not do were
+checked on 12 October 2026, each in a throwaway image built `FROM
+starfix-dev:local`. The images are not in the repository; each is a few
+lines, described here so that you can build it again.
+
+| Variant | How | Result |
+|---|---|---|
+| **The guide's install.** starfixd owned by `starfix` in `/opt/starfix/bin`, linked from `/usr/local/bin`, with no file of that name owned by root | `mv` the binary, `chown starfix:starfix`, `ln -sfn`; then `STARFIX_IMAGE=… deploy/docker/smoke.sh` | All 84 checks pass. With the old mechanism sshd refused this layout (`Unsafe AuthorizedKeysCommand … bad ownership or modes`) |
+| **A provider-style global command.** `/etc/ssh/sshd_config.d/00-provider.conf`, read before starfix's file and outside any `Match` block, with `AuthorizedKeysCommand /usr/local/sbin/provider-keys %u` and `AuthorizedKeysCommandUser nobody`; the script, owned by root, notes each call in a file and prints nothing | The smoke test, then one sign-in at a time with the note file counted | All 84 checks pass, with no override. `sshd -T -C user=starfix` shows the global command and `authorizedkeysfile .ssh/authorized_keys .ssh/starfix_keys` together. sshd ran the script twice for each sign-in by `sfx`, whichever file held the key, and three times for a refused one. With `AuthorizedKeysCommand none` added to the `Match` block, it ran it no times, and keys from both files still signed in |
+| **starfixd stopped.** An entrypoint that starts sshd again, alone, after the image's entrypoint ends | A principal added with a key only the control database holds; `kill` starfixd in the container; `sfx ready` as that principal | sshd logs `Accepted publickey for starfix`, the keys file is still there (0600, `starfix`), and `sfx` prints `starfixd is not running on the server`, with the fix `ask the server admin to start it`, and exits 1: with `--json`, code `unavailable`. A key from `authorized_keys` gets the same answer, and a key in neither file is refused by sshd as before |
+
+**What the stand-in for a provider does not show.** It is a command
+that is asked and answers with no key. Google Cloud's OS Login, AWS's
+EC2 Instance Connect and Azure's Entra ID extension were not run: not
+what else they set in sshd's configuration or in PAM, not what their
+commands print for an account named `starfix`, and not how long they
+take. sshd accepts a key that such a command prints, so
+`AuthorizedKeysCommand none` in the `Match` block, which this image and
+the server guide both set, is what limits the account to the two files.
+With it, sshd did not run the stand-in at all and both files still
+worked.
+
+**Not checked here at all:** systemd, which a container does not have,
+so the unit's `ReadWritePaths`
+([Keys from the store](../server.md#keys-from-the-store), step 1); and
+mandatory access control. Docker Desktop's kernel loads neither
+AppArmor nor SELinux, so nothing here says anything about either
+([What a server needs](../server.md#what-a-server-needs)).
 
 ## Look inside
 
@@ -177,7 +218,8 @@ non-zero on the first failure. CI does not run it. Arguments go to
 | Follow the logs of all three programs | `docker compose logs -f` |
 | Open a shell | `docker compose exec starfix bash` |
 | Query Dolt as its own user | `docker compose exec -u dolt -w /var/lib/dolt/data/starfix starfix dolt sql` |
-| Ask what sshd is told about a key | `docker compose exec -u starfix starfix starfixd keys ssh-ed25519 AAAA…` (nothing printed means no line; standard error says why) |
+| Read the keys file starfixd writes for sshd | `docker compose exec starfix cat /var/lib/starfix/.ssh/starfix_keys` (public keys only) |
+| See which files sshd reads for the account | `docker compose exec starfix sshd -T -C user=starfix \| grep -i authorizedkeys` |
 | Read the config | `docker compose exec starfix cat /etc/starfix/starfixd.yaml` (it holds the password) |
 
 ## Stop and wipe
@@ -198,7 +240,7 @@ update `.starfix.yaml`.
 |---|---|---|
 | Ubuntu 24.04 with systemd units for Dolt and starfixd | Ubuntu 24.04; the entrypoint starts the three programs and stops all of them when one exits | A container has no systemd. Each program still runs as its own user with a bare environment, `umask 077` and no way to gain privileges |
 | starfixd installed from a signed release into `/opt/starfix/bin` | Built from the checkout into `/usr/local/bin`; no `systemd_unit` and no sudo rule | It tests what is checked out. Rebuild the image instead of running `starfixd upgrade` |
-| sshd runs a root-owned copy, `/usr/local/sbin/starfixd-keys`, as its `AuthorizedKeysCommand` | sshd runs `/usr/local/bin/starfixd keys` itself | Root owns the image's binary, and nothing upgrades it in place, so no copy is needed |
+| starfixd may write to `~starfix/.ssh` by a `ReadWritePaths` line in its unit | Nothing confines it | A container has no systemd. sshd's `AuthorizedKeysFile` line is the guide's |
 | You opt in to many projects, grant 100 database names and run `control init` once | Opted in from the first start, with 8 names; `control init` runs at every start | So there is nothing to set up. A volume made by an older image is moved at its next start |
 | The host key in `/etc/ssh`; `/var/lib/dolt`, `/etc/starfix` and `~starfix/.ssh` on the disk | The same paths, linked into the `/state` volume, with the host key in `/state/hostkeys` | Everything survives a rebuild, and `down -v` wipes it |
 | sshd serves every account | `AllowUsers starfix`, with passwords off | Nobody else signs in |

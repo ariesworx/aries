@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"os/user"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -39,6 +40,7 @@ type site struct {
 	db        string // its name
 	controlDB string
 	cfg       string // the config file
+	keysFile  string // the file the daemon writes the store's keys to
 	env       map[string]string
 }
 
@@ -54,7 +56,15 @@ func newSite(t *testing.T, extra string) *site {
 	if err := os.WriteFile(s.cfg, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	s.env = map[string]string{server.EnvDSN: s.dsn}
+	// The keys file and the hand-maintained one are the site's own, never
+	// those of whoever runs the tests.
+	sshDir := filepath.Join(t.TempDir(), ".ssh")
+	if err := os.Mkdir(sshDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s.keysFile = filepath.Join(sshDir, "starfix_keys")
+	s.env = map[string]string{server.EnvDSN: s.dsn, server.EnvKeysFile: s.keysFile,
+		server.EnvAuthorizedKeys: filepath.Join(sshDir, "authorized_keys")}
 	return s
 }
 
@@ -221,7 +231,7 @@ func TestControlInit(t *testing.T) {
 	}
 	wantOut := fmt.Sprintf("project acme (%s) adopted from database %s: active\n", adopted, s.db) +
 		"principals: 3 added, 0 already there; keys: 4 added, 0 already there; members: 2 added, 0 already there; 7 lines skipped\n" +
-		"4 keys in the store are also lines of " + keys + ": sshd falls back to that file, so `sfx admin key remove` does not keep such a key out until its line is deleted too\n"
+		"4 keys in the store are also lines of " + keys + ": sshd reads that file too, so `sfx admin key remove` does not keep such a key out until its line is deleted too\n"
 	if got.stdout != wantOut {
 		t.Errorf("stdout = %q\nwant     %q", got.stdout, wantOut)
 	}
@@ -291,7 +301,7 @@ func TestControlInit(t *testing.T) {
 		got := s.run(t, "", controlCmd, "init", "--name", "acme", "--authorized-keys", keys)
 		want := fmt.Sprintf("project acme (%s) adopted from database %s: active\n", adopted, s.db) +
 			"principals: 0 added, 3 already there; keys: 0 added, 4 already there; members: 0 added, 2 already there; 7 lines skipped\n" +
-			"4 keys in the store are also lines of " + keys + ": sshd falls back to that file, so `sfx admin key remove` does not keep such a key out until its line is deleted too\n"
+			"4 keys in the store are also lines of " + keys + ": sshd reads that file too, so `sfx admin key remove` does not keep such a key out until its line is deleted too\n"
 		if got.err != nil || got.stdout != want {
 			t.Errorf("second run = %q, %v\nwant       %q", got.stdout, got.err, want)
 		}
@@ -314,7 +324,7 @@ func TestControlInit(t *testing.T) {
 		got := s.run(t, "", controlCmd, "init", "--name", "acme", "--authorized-keys", more)
 		want := fmt.Sprintf("project acme (%s) adopted from database %s: archived\n", adopted, s.db) +
 			"principals: 1 added, 1 already there; keys: 1 added, 1 already there; members: 1 added, 1 already there; 0 lines skipped\n" +
-			"2 keys in the store are also lines of " + more + ": sshd falls back to that file, so `sfx admin key remove` does not keep such a key out until its line is deleted too\n"
+			"2 keys in the store are also lines of " + more + ": sshd reads that file too, so `sfx admin key remove` does not keep such a key out until its line is deleted too\n"
 		if got.err != nil || got.stdout != want || got.stderr != "" {
 			t.Errorf("run with a new line = %q, %v, stderr %q\nwant %q", got.stdout, got.err, got.stderr, want)
 		}
@@ -349,7 +359,7 @@ func TestControlInitLimits(t *testing.T) {
 	// The two keys that were stored are counted as still in the file; the
 	// two lines skipped are not.
 	if want := "principals: 2 added, 0 already there; keys: 2 added, 0 already there; members: 2 added, 0 already there; 2 lines skipped\n" +
-		"2 keys in the store are also lines of " + keys + ": sshd falls back to that file, so `sfx admin key remove` does not keep such a key out until its line is deleted too\n"; !strings.HasSuffix(got.stdout, want) {
+		"2 keys in the store are also lines of " + keys + ": sshd reads that file too, so `sfx admin key remove` does not keep such a key out until its line is deleted too\n"; !strings.HasSuffix(got.stdout, want) {
 		t.Errorf("stdout = %q, want it to end %q", got.stdout, want)
 	}
 	for _, want := range []string{
@@ -490,6 +500,85 @@ func TestServeManyProjects(t *testing.T) {
 	// The upgrade's health check still passes, for the config's project.
 	if v, err := server.Probe(t.Context(), sock, adopted, "v0.0.0"); err != nil || v == "" {
 		t.Errorf("Probe = %q, %v; want the daemon's version", v, err)
+	}
+}
+
+// TestServeWritesTheKeysFile checks that the daemon serve builds writes
+// the control store's keys where the settings say before it can listen,
+// that a server of one project writes nothing, and that a daemon that
+// cannot write the file does not start, and says what to change.
+func TestServeWritesTheKeysFile(t *testing.T) {
+	s := newSite(t, "bridge: /opt/starfix/bin/starfixd\n")
+	keys := writeKeys(t, forced(t, "alice", "alice-1"), forced(t, "dana", "dana-1"))
+	if got := s.run(t, "", controlCmd, "init", "--name", "acme", "--authorized-keys", keys); got.err != nil {
+		t.Fatalf("control init: %v\n%s", got.err, got.stderr)
+	}
+	if _, err := os.Lstat(s.keysFile); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("control init left a keys file (%v); only the daemon writes it", err)
+	}
+	d, err := openDaemon(t.Context(), s.settings(t), slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("open daemon: %v", err)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatal(err)
+	}
+	aliceKey, aliceFP := pubKey(t, "alice-1")
+	danaKey, danaFP := pubKey(t, "dana-1")
+	want := "restrict,command=\"/opt/starfix/bin/starfixd stdio --principal alice --key " + aliceFP + "\" " + aliceKey + "\n" +
+		"restrict,command=\"/opt/starfix/bin/starfixd stdio --principal dana --key " + danaFP + "\" " + danaKey + "\n"
+	b, err := os.ReadFile(s.keysFile)
+	if err != nil {
+		t.Fatalf("the daemon opened and wrote no keys file: %v", err)
+	}
+	if header, lines, _ := strings.Cut(string(b), "\n"); !strings.HasPrefix(header, "# Generated by starfixd") || lines != want {
+		t.Errorf("keys file =\n%s\nwant a comment that starfixd generates it, then\n%s", b, want)
+	}
+	if fi, err := os.Stat(s.keysFile); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("keys file mode = %v (%v), want 0600", fi.Mode().Perm(), err)
+	}
+
+	t.Run("a directory that is not there", func(t *testing.T) {
+		s.env[server.EnvKeysFile] = filepath.Join(t.TempDir(), "missing", "starfix_keys")
+		defer func() { s.env[server.EnvKeysFile] = s.keysFile }()
+		_, err := openDaemon(t.Context(), s.settings(t), slog.New(slog.DiscardHandler))
+		if err == nil || !strings.Contains(err.Error(), "write the keys file "+s.env[server.EnvKeysFile]) || !strings.Contains(err.Error(), "; fix: create it as the user starfixd runs as") {
+			t.Errorf("openDaemon with no directory for the keys file = %v; want a refusal naming the file, with a fix", err)
+		}
+	})
+
+	t.Run("a server of one project", func(t *testing.T) {
+		one := newSite(t, "")
+		rewrite(t, one, "project: "+adopted+"\nadmins: [dana]\n")
+		d, err := openDaemon(t.Context(), one.settings(t), slog.New(slog.DiscardHandler))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := d.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Lstat(one.keysFile); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("a server of one project wrote a keys file (%v)", err)
+		}
+	})
+}
+
+// TestKeyFiles checks where the daemon puts the keys file: an absolute
+// setting is taken as it is, and a relative one is under the home
+// directory of the user it runs as.
+func TestKeyFiles(t *testing.T) {
+	abs := filepath.Join(t.TempDir(), "keys")
+	keys, hand, err := keyFiles(server.Settings{KeysFile: abs, AuthorizedKeys: abs + ".hand"})
+	if err != nil || keys != abs || hand != abs+".hand" {
+		t.Errorf("keyFiles(absolute) = %q, %q, %v; want them unchanged", keys, hand, err)
+	}
+	u, err := user.Current()
+	if err != nil {
+		t.Skipf("no current user: %v", err)
+	}
+	keys, hand, err = keyFiles(server.Settings{KeysFile: server.DefaultKeysFile, AuthorizedKeys: server.DefaultAuthorizedKeys})
+	if err != nil || keys != filepath.Join(u.HomeDir, ".ssh", "starfix_keys") || hand != filepath.Join(u.HomeDir, ".ssh", "authorized_keys") {
+		t.Errorf("keyFiles(defaults) = %q, %q, %v; want them under %s/.ssh", keys, hand, err, u.HomeDir)
 	}
 }
 

@@ -71,8 +71,10 @@ run, and at random in a long one. The test checks that:
   memory of them is the same at the end, and `sfx admin status` counts
   the same.
 
-Some principals' keys are served to the in-process SSH server from the
-control store, as sshd is served by `starfixd keys`.
+Some principals' keys reach the in-process SSH server from the control
+store, through the keys file the daemon writes, as they reach sshd; at
+the end that file holds a line for exactly the keys the control tables
+give an active principal.
 
 A short run of about 12 seconds of work, 23 in all, is part of `go
 test`. Run a long one before changing

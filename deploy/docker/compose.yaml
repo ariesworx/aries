@@ -5,14 +5,15 @@
 # STARFIX_KEYS holds "NAME TYPE KEY" lines, one principal key each;
 # STARFIX_ADMINS (comma-separated) defaults to the first name;
 # STARFIX_PROJECT fixes the project UUID on the first start;
-# STARFIX_PORT is the port on 127.0.0.1, 2222 by default.
+# STARFIX_PORT is the port on 127.0.0.1, 2222 by default;
+# STARFIX_IMAGE is the image to run, starfix-dev:local by default.
 name: starfix-dev
 services:
   starfix:
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile
-    image: starfix-dev:local
+    image: ${STARFIX_IMAGE:-starfix-dev:local}
     # docker-init reaps the processes sshd leaves behind and forwards stop
     # signals to the entrypoint.
     init: true

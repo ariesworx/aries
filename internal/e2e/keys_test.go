@@ -16,10 +16,10 @@ import (
 	"github.com/ariesworx/starfix/internal/store"
 )
 
-// keysWorld is a server of many projects whose sshd asks starfixd for
-// each key before it reads authorized_keys, as an sshd with the
-// AuthorizedKeysCommand of the server guide does. dana and sam are its
-// server admins.
+// keysWorld is a server of many projects whose sshd reads the keys file
+// starfixd writes, after the authorized_keys file kept by hand, as an
+// sshd with the AuthorizedKeysFile of the server guide does. dana and
+// sam are its server admins.
 func keysWorld(t *testing.T, lim server.Limits) *world {
 	t.Helper()
 	if lim.ControlWriteBurst == 0 {
@@ -57,9 +57,9 @@ func (w *world) controlEvents() int {
 
 // TestKeysFromTheStore is the whole path of this stage's keys: an admin
 // adds a person and their key with `sfx admin`, with no line in
-// authorized_keys; the person connects with that key, because sshd asked
-// starfixd; the admin removes the key; the person's open connection
-// closes and the next is refused.
+// authorized_keys; the person connects with that key, because starfixd
+// wrote it to the file sshd reads; the admin removes the key; the
+// person's open connection closes and the next is refused.
 func TestKeysFromTheStore(t *testing.T) {
 	w := keysWorld(t, server.Limits{})
 	dana := w.newUser("dana", "") // the first admin: a line in authorized_keys
@@ -103,7 +103,7 @@ func TestKeysFromTheStore(t *testing.T) {
 	dana.ok("admin", "principal", "disable", "bob")
 	bw.closedByServer(t, "bob, disabled,")
 	if r := bob.run("v0.2.0", "list"); r.code != cli.ExitFailure || !strings.Contains(r.stderr, "send your public key") {
-		t.Errorf("a disabled principal's key: exit %d, stderr %q; want an auth refusal: sshd is given no line for it", r.code, r.stderr)
+		t.Errorf("a disabled principal's key: exit %d, stderr %q; want an auth refusal: the keys file has no line for it", r.code, r.stderr)
 	}
 	dana.ok("admin", "principal", "enable", "bob")
 	bob.ok("list")
@@ -113,6 +113,100 @@ func TestKeysFromTheStore(t *testing.T) {
 	dana.ok("admin", "principal", "add", "carol", "--no-project", "--key", carol.pub())
 	if e := carol.refused(proto.CodeForbidden, "list"); !strings.Contains(e.Message, "carol is not a member of project") {
 		t.Errorf("a principal with a key and no membership: %+v", e)
+	}
+}
+
+// TestStaleKeysFileIsNotAHole states the property the keys file rests
+// on: the file is a cache, and the store decides. A key that was removed
+// from the store, or whose principal was disabled, and that is still in
+// the file sshd reads, gets past sshd and is refused by the daemon at
+// the handshake. The file is made stale twice: by a daemon that cannot
+// write it, which also shows what the admin and `status` are told, and
+// by hand.
+func TestStaleKeysFileIsNotAHole(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("needs a directory this user cannot write to")
+	}
+	w := keysWorld(t, server.Limits{})
+	dana := w.newUser("dana", "")
+	bob, carol := w.newUser("", ""), w.newUser("", "") // keys only the store holds
+	dana.ok("admin", "principal", "add", "bob", "--key", bob.pub())
+	dana.ok("admin", "principal", "add", "carol", "--key", carol.pub())
+	bob.ok("list")
+	carol.ok("list")
+	fresh := readFile(t, w.keysFile)
+	sshdLetsIn := func(u *user) bool {
+		t.Helper()
+		pub, _, _, _, err := ssh.ParseAuthorizedKey([]byte(readFile(t, u.pub())))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return w.fileLine(pub) != nil
+	}
+
+	// The daemon can no longer replace its file.
+	dir := filepath.Dir(w.keysFile)
+	if err := os.Chmod(dir, 0o500); err != nil { //nolint:gosec // a directory the daemon cannot write to
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) }) //nolint:gosec // back to what it was
+	const stale = "sfx: warning: the change is recorded, but starfixd could not write the keys file sshd reads, so sshd may still be reading the old one: "
+	r := dana.run("v0.2.0", "admin", "key", "remove", bob.fingerprint())
+	if r.code != cli.ExitOK || r.stdout != "key "+bob.fingerprint()+" removed from bob\n" || !strings.HasPrefix(r.stderr, stale) {
+		t.Fatalf("key remove with the keys file unwritable: exit %d\nstdout %q\nstderr %q\nwant the key removed, and a warning that sshd may read the old file", r.code, r.stdout, r.stderr)
+	}
+	r = dana.run("v0.2.0", "admin", "principal", "disable", "carol")
+	if r.code != cli.ExitOK || r.stdout != "carol: disabled\n" || !strings.HasPrefix(r.stderr, stale) {
+		t.Errorf("principal disable with the keys file unwritable: exit %d\nstdout %q\nstderr %q\nwant her disabled, and the warning", r.code, r.stdout, r.stderr)
+	}
+	if got := readFile(t, w.keysFile); got != fresh {
+		t.Fatalf("the keys file changed though its directory is read-only:\n%s", got)
+	}
+	if !sshdLetsIn(bob) || !sshdLetsIn(carol) {
+		t.Fatal("the stale keys file no longer lets the two keys past sshd; the test needs it to")
+	}
+	// Past sshd, and no further.
+	if e := bob.refused(proto.CodeAuth, "list"); e.Message != "the key that signed in is no longer one the server holds for bob" || e.Fix == "" {
+		t.Errorf("a removed key that a stale keys file still holds: %+v; want the daemon's auth refusal, with a fix", e)
+	}
+	if e := carol.refused(proto.CodeForbidden, "list"); e.Message != "carol is disabled on this server" {
+		t.Errorf("a disabled principal's key that a stale keys file still holds: %+v; want the daemon's refusal", e)
+	}
+	st := decode[proto.StatusResult](t, dana.ok("admin", "status", "--json"))
+	if k := st.Server.KeysFile; k == nil || !k.Failed || k.Path != w.keysFile {
+		t.Errorf("status --json of the keys file after a failed write = %+v, want it failed", k)
+	}
+	if text := dana.ok("admin", "status"); !strings.Contains(text, "keys file "+w.keysFile+": THE LAST WRITE FAILED, so sshd may be reading an older list") {
+		t.Errorf("status does not say the keys file is out of date:\n%s", text)
+	}
+
+	// Writable again: the next change is written, and sshd refuses both.
+	if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // back to what it was
+		t.Fatal(err)
+	}
+	if r := dana.run("v0.2.0", "admin", "principal", "add", "erin", "--key", w.newUser("", "").pub()); r.code != cli.ExitOK || r.stderr != "" {
+		t.Fatalf("principal add once the keys file can be written: exit %d, stderr %q; want no warning", r.code, r.stderr)
+	}
+	if sshdLetsIn(bob) || sshdLetsIn(carol) {
+		t.Error("the keys file, written again, still has a line for a removed key or a disabled principal's")
+	}
+	if st := decode[proto.StatusResult](t, dana.ok("admin", "status", "--json")); st.Server.KeysFile.Failed || st.Server.KeysFile.Keys != 1 {
+		t.Errorf("status of the keys file once written again = %+v; want it current, with erin's key", st.Server.KeysFile)
+	}
+
+	// The old file put back by hand, as a restored backup would be: the
+	// same two keys get past sshd again, and the daemon refuses them.
+	if err := os.WriteFile(w.keysFile, []byte(fresh), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !sshdLetsIn(bob) {
+		t.Fatal("the keys file written by hand does not let bob's key past sshd; the test needs it to")
+	}
+	if e := bob.refused(proto.CodeAuth, "list"); e.Message != "the key that signed in is no longer one the server holds for bob" {
+		t.Errorf("a removed key in a keys file written by hand: %+v; want the daemon's auth refusal", e)
+	}
+	if e := carol.refused(proto.CodeForbidden, "list"); e.Message != "carol is disabled on this server" {
+		t.Errorf("a disabled principal's key in a keys file written by hand: %+v; want the daemon's refusal", e)
 	}
 }
 

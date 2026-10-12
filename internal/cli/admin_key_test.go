@@ -203,6 +203,17 @@ func TestPrintKeys(t *testing.T) {
 			fp1 + "  ssh-ed25519  bob@laptop  dana      2026-10-11 09:30 UTC\n" +
 			fp2 + "  ssh-rsa                  import    2026-10-11 09:30 UTC\n"},
 		{"no keys", func(w *bytes.Buffer) { printKeys(w, proto.KeysResult{Principal: "bob"}) }, "no keys recorded for bob\n"},
+		// A key that is also a line of the hand-maintained file is marked.
+		{"a key also in authorized_keys", func(w *bytes.Buffer) {
+			printKeys(w, proto.KeysResult{Principal: "bob", Keys: []proto.Key{
+				{Fingerprint: fp1, Type: "ssh-ed25519", Comment: "bob@laptop", AddedBy: "import", AddedAt: at, InAuthorizedKeys: true},
+				{Fingerprint: fp2, Type: "ssh-rsa", AddedBy: "dana", AddedAt: at}}})
+		}, "keys of bob\n" +
+			"FINGERPRINT                                         TYPE         COMMENT     ADDED BY  ADDED                 ALSO IN\n" +
+			fp1 + "  ssh-ed25519  bob@laptop  import    2026-10-11 09:30 UTC  authorized_keys\n" +
+			fp2 + "  ssh-rsa                  dana      2026-10-11 09:30 UTC  -\n" +
+			"ALSO IN authorized_keys: the key is also a line of the server's hand-maintained authorized_keys file, where sshd accepts it whatever the store holds; " +
+			"`sfx admin key remove` does not keep it out until that line is deleted on the server\n"},
 		{"key added", func(w *bytes.Buffer) {
 			printKeyAdded(w, proto.KeyResult{ID: fp1, Principal: "bob", Type: "ssh-ed25519", Comment: "bob@laptop", Change: "added"})
 		}, "key " + fp1 + " (ssh-ed25519, bob@laptop) added to bob\n"},

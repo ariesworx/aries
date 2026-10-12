@@ -17,6 +17,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/crypto/ssh"
+
 	"github.com/ariesworx/starfix/internal/client"
 	"github.com/ariesworx/starfix/internal/mcpserver"
 	"github.com/ariesworx/starfix/internal/proto"
@@ -34,9 +36,10 @@ import (
 //	quiet   frank, when the conductor connects as him
 //
 // dave and root are server admins. alice's and bob's keys are only in
-// the control store, so sshd's question to the daemon is what lets them
-// in; erin's is in the store and in authorized_keys, as `starfixd control
-// init` leaves a key; the others' are lines of authorized_keys.
+// the control store, so the keys file the daemon writes is what lets
+// them in; erin's is in the store and in authorized_keys, as `starfixd
+// control init` leaves a key, and sshd takes its line there; the others'
+// are lines of authorized_keys.
 
 // How a principal's key reaches sshd.
 const (
@@ -266,7 +269,8 @@ type accessStats struct {
 	// slowest is the longest, in nanoseconds, a principal still held a
 	// claim after the change that ended its access was acknowledged.
 	slowest atomic.Int64
-	// warned counts key removals that warned of connections by the file.
+	// warned counts the removals of a key still in authorized_keys that
+	// warned of it.
 	warned atomic.Int64
 }
 
@@ -586,8 +590,8 @@ func (cd *conductor) disable(principal string) {
 	cd.closes(why, conns)
 	in := slices.DeleteFunc([]*sproj{s.a, s.b}, func(p *sproj) bool { return s.user(principal, p) == nil })
 	for _, p := range in {
-		// sshd is given no line for a key of the store whose principal is
-		// disabled; a key in authorized_keys reaches the daemon's refusal.
+		// The keys file has no line for a key of the store whose principal
+		// is disabled; a key in authorized_keys reaches the daemon's refusal.
 		want := proto.CodeForbidden
 		if s.storeKey[principal] != "" {
 			want = proto.CodeAuth
@@ -625,8 +629,9 @@ func (cd *conductor) key(principal string, p *sproj) {
 		return
 	}
 	s.acc.keyRemovals.Add(1)
-	if out == acked && (res.Warning != "" || res.FileConns != 0) {
-		s.mon.fail("", "%s: warned of %d connections by authorized_keys (%q), which holds no key of %s", why, res.FileConns, res.Warning, principal)
+	if out == acked && (res.Warning != "" || res.InAuthorizedKeys) {
+		s.mon.fail("", "%s: warned %q (in authorized_keys: %t), when the keys file was written and authorized_keys holds no key of %s",
+			why, res.Warning, res.InAuthorizedKeys, principal)
 	}
 	cd.closes(why, conns)
 	cd.dial(principal, p, proto.CodeAuth, why)
@@ -643,22 +648,30 @@ func (cd *conductor) key(principal string, p *sproj) {
 
 // fileKey removes erin's key from the store while authorized_keys still
 // has its line, as after `starfixd control init`: the key is not revoked,
-// and the daemon says what it can see of that. A connection made after
-// the removal names no key, so `key list` and `status` count it as one
-// by the file, and a second removal warns of it.
+// and the daemon, which reads that file, says so on every removal. sshd
+// takes the line of authorized_keys, so erin's connections name no key:
+// a removal closes none of them, and `key list` and `status` count them
+// as let in by that file.
 func (cd *conductor) fileKey() {
 	s := cd.s
 	const principal = "erin"
 	fp := s.user(principal, s.b).fingerprint()
 	line := strings.TrimSpace(readFile(s.t, s.user(principal, s.b).pub()))
 	why := fmt.Sprintf("%s removed the key of %s from the store, and authorized_keys still holds it", s.cfg.root, principal)
-	remove := func() (proto.KeyResult, bool) {
+	// remove removes the key, and checks the warning of a removal that
+	// was answered and not sent twice (a second sending finds no key).
+	remove := func() {
 		var res proto.KeyResult
 		out, perr, resent := cd.root.do(proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: fp}, &res)
-		if !answered(out, perr, resent, proto.CodeNotFound) {
+		switch {
+		case !answered(out, perr, resent, proto.CodeNotFound):
 			s.mon.fail("", "%s: %v, %v", why, out, perr)
+		case out != acked || resent:
+		case !res.InAuthorizedKeys || !strings.HasPrefix(res.Warning, "sshd still accepts key "+fp+": it is also a line of the server's authorized_keys file"):
+			s.mon.fail("", "%s: the removal answered in authorized_keys %t and the warning %q", why, res.InAuthorizedKeys, res.Warning)
+		default:
+			s.acc.warned.Add(1)
 		}
-		return res, out == acked && !resent
 	}
 	add := func() {
 		var res proto.KeyResult
@@ -668,7 +681,7 @@ func (cd *conductor) fileKey() {
 	}
 	remove()
 	s.acc.fileKeys.Add(1)
-	// The store has no line for the key now, so sshd reads the file.
+	// The store no longer has the key, and authorized_keys lets erin in.
 	byFile := cd.dial(principal, s.b, "", why)
 	if byFile == nil {
 		add()
@@ -677,25 +690,23 @@ func (cd *conductor) fileKey() {
 	defer func() { _ = byFile.Close() }()
 	var ks proto.KeysResult
 	if out, _, _ := cd.root.do(proto.OpKeys, proto.KeysArgs{Name: principal}, &ks); out == acked && byFile.Err() == nil && ks.FileConns < 1 {
-		s.mon.fail("", "%s: key list counts %d connections of %s by the file, with one open", why, ks.FileConns, principal)
+		s.mon.fail("", "%s: key list counts %d connections of %s by authorized_keys, with one open", why, ks.FileConns, principal)
 	}
 	var st proto.StatusResult
 	if out, _, _ := cd.root.do(proto.OpStatus, proto.StatusArgs{}, &st); out == acked && byFile.Err() == nil {
 		for _, ps := range st.Projects {
 			if ps.ID == s.b.id && ps.FileConns < 1 {
-				s.mon.fail("", "%s: status counts %d connections to project %s by the file, with one of %s's open", why, ps.FileConns, s.b.name, principal)
+				s.mon.fail("", "%s: status counts %d connections to project %s by authorized_keys, with one of %s's open", why, ps.FileConns, s.b.name, principal)
 			}
 		}
 	}
 	add()
-	res, sure := remove()
-	if sure && byFile.Err() == nil {
-		if res.FileConns < 1 || !strings.Contains(res.Warning, principal+" still has") {
-			s.mon.fail("", "%s: a removal with a connection of %s by the file open answered %d such connections and the warning %q", why, principal, res.FileConns, res.Warning)
-		} else {
-			s.acc.warned.Add(1)
-		}
+	// In the store again, the key is marked as also in authorized_keys.
+	if out, _, _ := cd.root.do(proto.OpKeys, proto.KeysArgs{Name: principal}, &ks); out == acked &&
+		!slices.ContainsFunc(ks.Keys, func(k proto.Key) bool { return k.Fingerprint == fp && k.InAuthorizedKeys }) {
+		s.mon.fail("", "%s: key list does not mark the key as also in authorized_keys: %+v", why, ks.Keys)
 	}
+	remove()
 	add()
 }
 
@@ -943,9 +954,12 @@ func (cd *conductor) status() {
 		s.mon.fail("", "status for a server admin has no server part")
 		return
 	}
-	if sv.OpenStores > sv.OpenStoresMax || sv.Conns > sv.ConnsMax || sv.KeyLookups > sv.KeyLookupsMax || sv.OpenStores < 1 || sv.Conns < 1 {
-		s.mon.fail("", "status: %d of %d stores, %d of %d connections, %d of %d key lookups", sv.OpenStores, sv.OpenStoresMax, sv.Conns, sv.ConnsMax,
-			sv.KeyLookups, sv.KeyLookupsMax)
+	if sv.OpenStores > sv.OpenStoresMax || sv.Conns > sv.ConnsMax || sv.OpenStores < 1 || sv.Conns < 1 {
+		s.mon.fail("", "status: %d of %d stores, %d of %d connections", sv.OpenStores, sv.OpenStoresMax, sv.Conns, sv.ConnsMax)
+	}
+	// Nothing in the run stops the daemon writing its keys file.
+	if k := sv.KeysFile; k == nil || k.Failed || k.Path != s.w.keysFile || k.WrittenAt == nil {
+		s.mon.fail("", "status: the keys file is %+v; want %s, written, and its last write not failed", k, s.w.keysFile)
 	}
 	seen := map[string]bool{}
 	for _, ps := range st.Projects {
@@ -1005,11 +1019,32 @@ func (s *soak) checkLost(p *sproj) {
 	}
 }
 
+// keysFileLines reads the keys file the daemon wrote, as sshd does, and
+// returns the principal each key's line forces, by fingerprint.
+func (s *soak) keysFileLines() map[string]string {
+	out := map[string]string{}
+	for line := range strings.Lines(readFile(s.t, s.w.keysFile)) {
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(line))
+		if err != nil {
+			s.mon.fail("", "the keys file holds a line that is no key: %q", line)
+			continue
+		}
+		if perms := s.w.fileLine(key); perms != nil {
+			out[ssh.FingerprintSHA256(key)] = perms.Extensions["principal"]
+		}
+	}
+	return out
+}
+
 // checkDials: no session was let into a project while the control log
 // says it had no access to it, and none was refused one it had access
 // to. A handshake that overlaps a change, give or take eps, proves
-// nothing either way. sshd's own refusals are not judged: it finds no
-// key for a principal of the store while the daemon restarts.
+// nothing either way. A refusal with auth is not judged: it is sshd's,
+// which has no line for the key, or the daemon's of a key the store no
+// longer holds.
 func (s *soak) checkDials() {
 	c := s.ctl
 	c.mu.Lock()
@@ -1072,6 +1107,9 @@ func (s *soak) checkControl(ctx context.Context) {
 			}
 		}
 	}
+	// The keys file sshd reads holds a line for exactly the keys the
+	// tables give an active principal, each forcing that principal.
+	inFile := s.keysFileLines()
 	for fp, h := range c.keyOf {
 		want := h.at(now)
 		if want != "" && c.prinState[want].at(now) != string(store.PrincipalActive) {
@@ -1080,6 +1118,13 @@ func (s *soak) checkControl(ctx context.Context) {
 		if got, _, _ := ctl.AuthorizedKey(fp); got != want {
 			s.mon.fail("", "the daemon's index authorizes key %s for %q; the control tables say %q", fp, got, want)
 		}
+		if got := inFile[fp]; got != want {
+			s.mon.fail("", "the keys file lets key %s in as %q; the control tables say %q", fp, got, want)
+		}
+		delete(inFile, fp)
+	}
+	for fp, who := range inFile {
+		s.mon.fail("", "the keys file lets key %s in as %q; the control log never held that key", fp, who)
 	}
 
 	root, err := mcpserver.DialRepo(ctx, s.user(s.cfg.root, s.a).repo, s.eveOptions("root-check"))

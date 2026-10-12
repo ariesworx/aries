@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -253,5 +254,51 @@ func TestIsAdminHook(t *testing.T) {
 	}
 	if got := strings.Join(overrides, ","); got != "erin,dana" {
 		t.Errorf("admin.override events by %q, want erin,dana", got)
+	}
+}
+
+// TestAuthorizedKeys checks the list the daemon writes sshd's file from:
+// every key AuthorizedKey answers for and no other, in an order that
+// does not depend on the order of the writes.
+func TestAuthorizedKeys(t *testing.T) {
+	dsn := newDSN(t)
+	c := openControl(t, dsn, ControlOptions{})
+	ctx := t.Context()
+	if got := c.AuthorizedKeys(); len(got) != 0 {
+		t.Errorf("AuthorizedKeys() of an empty store = %+v, want none", got)
+	}
+	want := map[string][]PrincipalKey{}
+	for _, tc := range []struct{ principal, seed string }{{"bob", "bob-2"}, {"alice", "alice-1"}, {"bob", "bob-1"}, {"carol", "carol-1"}, {"erin", "erin-1"}} {
+		if _, err := c.Principal(ctx, tc.principal); err != nil {
+			mustPrincipal(t, c, tc.principal)
+		}
+		line, fp := testKey(t, tc.seed)
+		if _, err := c.AddKey(ctx, dana, tc.principal, line+" a comment"); err != nil {
+			t.Fatal(err)
+		}
+		want[tc.principal] = append(want[tc.principal], PrincipalKey{Fingerprint: fp, Principal: tc.principal, Key: line})
+	}
+	if _, err := c.DisablePrincipal(ctx, dana, "carol"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.RemoveKey(ctx, dana, want["erin"][0].Fingerprint); err != nil {
+		t.Fatal(err)
+	}
+	bobs := want["bob"]
+	slices.SortFunc(bobs, func(a, b PrincipalKey) int { return strings.Compare(a.Fingerprint, b.Fingerprint) })
+	all := append(slices.Clone(want["alice"]), bobs...)
+
+	got := c.AuthorizedKeys()
+	if !slices.Equal(got, all) {
+		t.Errorf("AuthorizedKeys() = %+v\nwant %+v: the keys of alice and bob, by principal and then fingerprint, without carol's (disabled) or erin's (removed)", got, all)
+	}
+	for _, k := range got {
+		if p, key, ok := c.AuthorizedKey(k.Fingerprint); !ok || p != k.Principal || key != k.Key {
+			t.Errorf("AuthorizedKey(%s) = %q, %q, %v; AuthorizedKeys lists it as %+v", k.Fingerprint, p, key, ok, k)
+		}
+	}
+	// What another store on the database loads is the same list.
+	if again := openControl(t, dsn, ControlOptions{}).AuthorizedKeys(); !slices.Equal(again, all) {
+		t.Errorf("AuthorizedKeys() of a second store = %+v, want %+v", again, all)
 	}
 }

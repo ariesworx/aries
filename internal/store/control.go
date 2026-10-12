@@ -1,10 +1,13 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -231,12 +234,12 @@ func refusal(err error) bool {
 	return false
 }
 
-// index is what the daemon asks the control store on every handshake,
-// every issue write and every key a stranger offers, in memory: the
-// keys, the active principals, the projects and the roles. sshd asks
-// about each key before authentication, and a project's store asks who
-// its admins are on each write, so neither answer may cost a database
-// read (design §15.2, §15.3).
+// index is what the daemon asks the control store on every handshake
+// and every issue write, in memory: the keys, the active principals, the
+// projects and the roles. A handshake checks the key that signed in, and
+// a project's store asks who its admins are on each write, so neither
+// answer may cost a database read (design §15.2, §15.3). The file of
+// keys the daemon writes for sshd is built from it too.
 type index struct {
 	mu sync.RWMutex
 	// byFingerprint holds every key, of disabled principals too.
@@ -263,8 +266,8 @@ type indexedKey struct{ principal, key string }
 // answers only for a key of an active principal: ok is false for a key
 // that is unknown or removed, or whose principal is disabled.
 //
-// It reads memory only, never the database, so it is safe to call for
-// every key offered before authentication. The index is loaded when the
+// It reads memory only, never the database, so every handshake can ask
+// it. The index is loaded when the
 // store opens and follows this store's writes; a change another process
 // makes to the database is not seen until [Control.Reload] or the next
 // open.
@@ -276,6 +279,26 @@ func (c *Control) AuthorizedKey(fingerprint string) (principal, key string, ok b
 		return "", "", false
 	}
 	return k.principal, k.key, true
+}
+
+// AuthorizedKeys returns every key [Control.AuthorizedKey] answers for,
+// the keys of the active principals, by principal and then fingerprint:
+// what the daemon writes sshd's keys file from. Only Fingerprint,
+// Principal and Key are set. It reads memory only, as AuthorizedKey
+// does.
+func (c *Control) AuthorizedKeys() []PrincipalKey {
+	c.ix.mu.RLock()
+	defer c.ix.mu.RUnlock()
+	var out []PrincipalKey
+	for fp, k := range c.ix.byFingerprint {
+		if c.ix.active[k.principal] {
+			out = append(out, PrincipalKey{Fingerprint: fp, Principal: k.principal, Key: k.key})
+		}
+	}
+	slices.SortFunc(out, func(a, b PrincipalKey) int {
+		return cmp.Or(strings.Compare(a.Principal, b.Principal), strings.Compare(a.Fingerprint, b.Fingerprint))
+	})
+	return out
 }
 
 // Access is what a principal may do in a project, as [Control.Access]
