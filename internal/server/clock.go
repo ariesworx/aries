@@ -31,9 +31,12 @@ const (
 )
 
 // DefaultBehindTolerance is how far the clock may be behind a database's
-// history before Config.ClockBehind applies. It covers a clock that is
-// corrected by a few seconds between two starts; it is far below any
-// restore, rollback or reset, which are what the setting is for.
+// history before Config.ClockBehind applies. With stop as the default a
+// false refusal is an outage, so it covers the worst a healthy machine
+// does: one that boots without a working real-time clock starts from
+// the time its time service last saved, which systemd-timesyncd does
+// every 60 seconds. It is far below any restore, rollback or reset,
+// which are what the setting is for.
 const DefaultBehindTolerance = 2 * time.Minute
 
 // Bounds of the clock tolerances a settings file may set.
