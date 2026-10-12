@@ -753,8 +753,8 @@ func update(ctx context.Context, c Conn, in UpdateIn) (proto.WriteResult, error)
 const maxCommentBody = 1000
 
 // omitted is how many of total a page of n left out, keeping the newest
-// keep: a protocol 1 server returns every entry and no total.
-func omitted(n, total, keep int) int { return max(n, total) - min(n, keep) }
+// keep.
+func omitted(n, total, keep int) int { return total - min(n, keep) }
 
 // comments is the comments tool: the newest in.Limit (DefaultLimit if
 // unset), oldest first, each cut to maxCommentBody, with the oldest

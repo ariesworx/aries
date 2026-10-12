@@ -38,8 +38,9 @@ import (
 // dave and root are server admins. alice's and bob's keys are only in
 // the control store, so the keys file the daemon writes is what lets
 // them in; erin's is in the store and in authorized_keys, as `starfixd
-// control init` leaves a key, and sshd takes its line there; the others'
-// are lines of authorized_keys.
+// control init` leaves a key, and sshd takes the keys file's line while
+// the store holds it, since it reads that file first (decision 26); the
+// others' are lines of authorized_keys.
 
 // How a principal's key reaches sshd.
 const (
@@ -260,9 +261,11 @@ func (s *soak) eps() time.Duration { return time.Duration(float64(time.Second) *
 // accessStats counts what the conductor did, for the report.
 type accessStats struct {
 	removals, disables, keyRemovals, fileKeys, demotions, archives, quiet, statuses atomic.Int64
-	// archivesLate counts the archives whose claims were left to end at
-	// the activation: the daemon restarted, or had the store closed.
-	archivesLate atomic.Int64
+	// archivesHard counts the archives made the hard way: the daemon
+	// restarted meanwhile, the answer was lost and the archive sent
+	// again, or the project's store was closed or had no connection.
+	// Their claims end as promptly as any other's (decision 24).
+	archivesHard atomic.Int64
 	// closed counts the connections seen to close as access ended, and
 	// refusals and admissions the handshakes tried right after a change.
 	closed, refusals, admissions atomic.Int64
@@ -316,7 +319,20 @@ func (ac *acall) do(op string, args, res any) (out outcome, perr *proto.Error, r
 		if res != nil {
 			reflect.ValueOf(res).Elem().SetZero()
 		}
+		restarts := ac.s.restarting.Load()
 		out, perr = ac.s.do(ac.ss, ac.conn, op, args, res)
+		// A daemon that is stopping cancels the requests in flight, and
+		// one of them may still be answered before its connection
+		// closes: `unavailable`, with a fix to retry, which is the
+		// daemon saying it does not know whether the change was made
+		// (seeds 14245368110280542215 and 15006515746959414509, where
+		// it was canceled reading the project, before any write). That
+		// is an answer lost, not a refusal, and only while a restart is
+		// under way: at any other time it fails the run as before.
+		if out == refused && perr.Code == proto.CodeUnavailable &&
+			(ac.s.restarting.Load() != restarts || ac.s.restarting.Load() > ac.s.stats.restarts.Load()) {
+			out, perr = lost, nil
+		}
 		if out != lost {
 			return out, perr, resent
 		}
@@ -647,11 +663,13 @@ func (cd *conductor) key(principal string, p *sproj) {
 }
 
 // fileKey removes erin's key from the store while authorized_keys still
-// has its line, as after `starfixd control init`: the key is not revoked,
-// and the daemon, which reads that file, says so on every removal. sshd
-// takes the line of authorized_keys, so erin's connections name no key:
-// a removal closes none of them, and `key list` and `status` count them
-// as let in by that file.
+// has its line, as after `starfixd control init`. sshd reads the keys
+// file first (decision 26), so while the store holds the key erin's
+// connections name it, and the removal closes them. The key is not
+// revoked: sshd then takes the line of authorized_keys, and the daemon,
+// which reads that file, says so on every removal. A connection made
+// then names no key: `key list` and `status` count it as let in by that
+// file, and a second removal leaves it open.
 func (cd *conductor) fileKey() {
 	s := cd.s
 	const principal = "erin"
@@ -667,7 +685,7 @@ func (cd *conductor) fileKey() {
 		case !answered(out, perr, resent, proto.CodeNotFound):
 			s.mon.fail("", "%s: %v, %v", why, out, perr)
 		case out != acked || resent:
-		case !res.InAuthorizedKeys || !strings.HasPrefix(res.Warning, "sshd still accepts key "+fp+": it is also a line of the server's authorized_keys file"):
+		case !res.InAuthorizedKeys || !strings.HasPrefix(res.Warning, "sshd will still accept key "+fp+": the connections it had signed in were closed, but it is also a line of the server's authorized_keys file"):
 			s.mon.fail("", "%s: the removal answered in authorized_keys %t and the warning %q", why, res.InAuthorizedKeys, res.Warning)
 		default:
 			s.acc.warned.Add(1)
@@ -679,8 +697,16 @@ func (cd *conductor) fileKey() {
 			s.mon.fail("", "%s, and could not add it again: %v, %v", why, out, perr)
 		}
 	}
+	// The store holds the key and the keys file its line, so this
+	// connection names the key, and the removal closes it. When the
+	// daemon restarts meanwhile it closes anyway, which proves less.
+	byStore := cd.dial(principal, s.b, "", "before "+why)
 	remove()
 	s.acc.fileKeys.Add(1)
+	if byStore != nil {
+		cd.closes(why, []*mcpserver.RepoConn{byStore})
+		_ = byStore.Close() // the server closed its end; this ends the SSH connection under it
+	}
 	// The store no longer has the key, and authorized_keys lets erin in.
 	byFile := cd.dial(principal, s.b, "", why)
 	if byFile == nil {
@@ -688,6 +714,7 @@ func (cd *conductor) fileKey() {
 		return
 	}
 	defer func() { _ = byFile.Close() }()
+	shaken := s.shaken.Load()
 	var ks proto.KeysResult
 	if out, _, _ := cd.root.do(proto.OpKeys, proto.KeysArgs{Name: principal}, &ks); out == acked && byFile.Err() == nil && ks.FileConns < 1 {
 		s.mon.fail("", "%s: key list counts %d connections of %s by authorized_keys, with one open", why, ks.FileConns, principal)
@@ -706,7 +733,16 @@ func (cd *conductor) fileKey() {
 		!slices.ContainsFunc(ks.Keys, func(k proto.Key) bool { return k.Fingerprint == fp && k.InAuthorizedKeys }) {
 		s.mon.fail("", "%s: key list does not mark the key as also in authorized_keys: %+v", why, ks.Keys)
 	}
+	// The connection authorized_keys let in names no key: the removal
+	// leaves it, unless the chaos dropped every connection meanwhile.
 	remove()
+	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+	var r proto.BlockedResult
+	err := byFile.Call(ctx, proto.OpBlocked, proto.LimitArgs{Limit: 1}, &r)
+	cancel()
+	if err != nil && s.shaken.Load() == shaken {
+		s.mon.fail("", "%s, and the second removal closed the connection authorized_keys had let in: %v", why, err)
+	}
 	add()
 }
 
@@ -773,12 +809,16 @@ func (cd *conductor) role() {
 // it closes, that nobody is let in, a server admin included, that every
 // claim in it ends and its store closes, and activates it again.
 //
-// The claims end at once when the daemon has the project's store open
-// as the archive commits, which it has while the sessions work. A daemon
-// that restarted meanwhile has no store open for a project no one may
-// connect to, and does not open one to release (decision 21): the claims
-// then end when the project is activated, as its store opens. Either
-// way, no claim from before the archive outlives the activation.
+// The claims end at once, whatever happened meanwhile (decisions 21 and
+// 24). When the daemon has the project's store open as the archive
+// commits, the admin's release ends them, and the sweep as the store
+// closes ends one taken by a request in flight. When the store is
+// closed, the archive opens it to end them. And a daemon that restarted
+// between the archive's control write and its release ends them before
+// it listens again, though no one may connect to the project and so
+// nothing else opens its store. So once the archive is answered and the
+// daemon reports the store closed, the project's table holds no claim,
+// with the project still archived.
 func (cd *conductor) archive() {
 	s, p := cd.s, cd.s.b
 	why := fmt.Sprintf("%s archived project %s", s.cfg.root, p.name)
@@ -799,14 +839,15 @@ func (cd *conductor) archive() {
 	cd.dial(s.cfg.admin, p, proto.CodeNotFound, why)
 	cd.storeCloses(why, p)
 	closed := s.clock.now()
-	// The store was open with connections, and the one daemon made the
-	// change and answered: every claim has ended, the one a request in
-	// flight took after the admin's release included.
-	if wasOpen && before.Open && before.Conns > 0 && !resent && s.restarting.Load() == restarts {
-		cd.noClaims(why, p, "", since)
-	} else {
-		s.acc.archivesLate.Add(1)
+	// Every claim has ended, the one a request in flight took after the
+	// admin's release included. Before decision 24 this was asked only
+	// when the store was open with connections and the one daemon made
+	// the change and answered; the other cases were left to the
+	// activation (seed 16755269619008477475).
+	if !wasOpen || !before.Open || before.Conns == 0 || resent || s.restarting.Load() != restarts {
+		s.acc.archivesHard.Add(1)
 	}
+	cd.noClaims(why, p, "", since)
 	cd.hold()
 	if out, perr, _ := cd.root.do(proto.OpProjectActivate, proto.ProjectArgs{Project: p.id}, &res); out != acked {
 		s.mon.fail("", "%s, and could not activate it again: %v, %v", why, out, perr)
@@ -1186,8 +1227,8 @@ func (s *soak) reportAccess(b *bytes.Buffer) {
 		}
 	}
 	s.mon.mu.Unlock()
-	fmt.Fprintf(b, "\n  access: %d memberships removed and added, %d principals disabled and enabled, %d keys removed and added, %d removals of a key still in authorized_keys (%d warned), %d demotions and promotions, %d archives and activations (%d with the claims left to the activation), %d removals with the store closed; %d status reports\n",
-		a.removals.Load(), a.disables.Load(), a.keyRemovals.Load(), a.fileKeys.Load(), a.warned.Load(), a.demotions.Load(), a.archives.Load(), a.archivesLate.Load(), a.quiet.Load(), a.statuses.Load())
+	fmt.Fprintf(b, "\n  access: %d memberships removed and added, %d principals disabled and enabled, %d keys removed and added, %d removals of a key still in authorized_keys (%d warned), %d demotions and promotions, %d archives and activations (%d across a restart, a lost answer or a closed store), %d removals with the store closed; %d status reports\n",
+		a.removals.Load(), a.disables.Load(), a.keyRemovals.Load(), a.fileKeys.Load(), a.warned.Load(), a.demotions.Load(), a.archives.Load(), a.archivesHard.Load(), a.quiet.Load(), a.statuses.Load())
 	fmt.Fprintf(b, "  access: %d connections seen to close as access ended, %d handshakes refused and %d admitted right after a change; %d session handshakes, %d let in; claims released for lost access %v, %d of them by the server's sweep; slowest release %s after the change was acknowledged\n",
 		a.closed.Load(), a.refusals.Load(), a.admissions.Load(), dials, welcomed, byReason, byServer, time.Duration(a.slowest.Load()).Round(time.Millisecond))
 }

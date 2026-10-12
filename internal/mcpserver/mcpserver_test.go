@@ -376,6 +376,12 @@ func TestErrorsNameTheNextStep(t *testing.T) {
 			"not_found: nothing is ready to start\nfix: nothing is ready: call blocked to see why, or create an issue"},
 		{"dial", &dialError{err: proto.Errf(proto.CodeAuth, "send your public key to the starfix admin", "refused your SSH key")},
 			"auth: refused your SSH key\nfix: tell the user starfix cannot connect, quoting the server: \"send your public key to the starfix admin\""},
+		// An `sfx mcp` older than the server's protocol: the refusal is
+		// the server's CheckProto, and only a person can act on it.
+		{"dial, client too old", &dialError{err: proto.CheckProto(4, 5, 5, "v0.5.0")},
+			"version: starfix speaks protocol 4; the server (v0.5.0) needs protocol 5\n" +
+				"fix: tell the user starfix cannot connect, quoting the server: " +
+				"\"upgrade this client: run `sfx upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `sfx mcp`\""},
 		// The handshake's refusal names an admin command: it is for a
 		// person, and an agent is told to ask one, never to run it.
 		{"dial, not a member", &dialError{err: proto.Errf(proto.CodeForbidden,
@@ -852,7 +858,6 @@ func TestWho(t *testing.T) {
 func TestOmitted(t *testing.T) {
 	tests := []struct{ n, total, keep, want int }{
 		{n: 10, total: 25, keep: 10, want: 15}, // a page of the newest 10
-		{n: 25, total: 0, keep: 10, want: 15},  // protocol 1: every entry, no total
 		{n: 3, total: 3, keep: 10, want: 0},
 		{n: 0, total: 0, keep: 10, want: 0},
 	}

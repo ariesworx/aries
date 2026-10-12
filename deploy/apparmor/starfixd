@@ -1,0 +1,258 @@
+# AppArmor profiles for starfixd, the starfix server (docs/server.md,
+# "Confine starfixd with AppArmor"). Install this file as
+# /etc/apparmor.d/starfixd and tunables/starfixd beside it as
+# /etc/apparmor.d/tunables/starfixd. README.md says how they were tested.
+#
+# One binary does three jobs, and each gets the profile that fits it:
+#
+#   starfixd          the bridge, `starfixd stdio`, which sshd runs for
+#                     every connection. Attached to the binary's path, so
+#                     it is also what any run gets that asks for nothing
+#                     else: `starfixd status`, which needs the same two
+#                     things, runs under it as the starfix user.
+#   starfixd-serve    the daemon, `starfixd serve`. The systemd unit asks
+#                     for it with AppArmorProfile=starfixd-serve.
+#   starfixd-admin    the operator's commands: control init, import-bd,
+#                     export-bd and upgrade. The operator asks for it:
+#                     sudo -u starfix -H aa-exec -p starfixd-admin -- starfixd upgrade
+#
+# AppArmor chooses a profile by the path of the program, never by its
+# arguments, so the one path can carry only one profile by itself. It
+# carries the smallest, because sshd starts the bridge with no way to
+# ask for another, outside the systemd unit and its sandbox. The daemon
+# alone may reach Dolt and write the keys file; the operator's profile
+# alone may reach the network, replace the binary and run sudo. No
+# profile may change to another, and the first two run no program at
+# all.
+#
+# The paths are tunables/starfixd's. Rules of your own go in
+# /etc/apparmor.d/local/starfixd, local/starfixd-serve and
+# local/starfixd-admin, which upgrades of this file leave alone. A deny
+# rule here wins over anything those files allow.
+
+abi <abi/4.0>,
+
+include <tunables/global>
+include <tunables/starfixd>
+
+# The bridge: sshd's forced command for the starfix account. It reads
+# the config file to find the socket, connects, and copies bytes between
+# the SSH session and the daemon. `starfixd version` and `help` need no
+# more, and neither does `starfixd status`, which asks the daemon for its
+# report over the same socket (sudo -u starfix -H starfixd status). root
+# gets no capability here, so root runs it as the starfix user too.
+#
+# attach_disconnected: the daemon binds its socket inside the mount
+# namespace systemd gives the unit (ProtectSystem, PrivateTmp), so from
+# out here the socket's path does not start at the root, and AppArmor
+# refuses such a path, in complain mode too, unless this flag has it
+# looked up from the root.
+profile starfixd @{starfixd_bin}/starfixd flags=(attach_disconnected) {
+  include <abstractions/base>
+
+  @{starfixd_bin}/starfixd mr,
+
+  # The config file, read only. It holds the socket's path, and also
+  # Dolt's password, which this profile gives no way to use: it has no
+  # network rule but for unix sockets.
+  @{starfixd_config} r,
+
+  # The daemon's socket: connect, send and receive.
+  @{starfixd_run}/starfixd.sock rw,
+
+  # The Go runtime sizes itself from the cgroup's CPU limit.
+  owner @{PROC}/@{pid}/cgroup r,
+  owner @{PROC}/@{pid}/mountinfo r,
+  @{sys}/fs/cgroup/** r,
+
+  # What it must never do. An explicit deny documents the intent,
+  # outlasts a careless rule in local/, and with `audit` is still logged.
+  audit deny @{starfixd_bin}/** w,
+  audit deny @{starfixd_config} w,
+  audit deny @{starfixd_keys_dir}/** w,
+  audit deny @{HOMEDIRS}/** mrwklx,
+  audit deny /root/** mrwklx,
+  audit deny /** x,
+  audit deny capability,
+  audit deny ptrace (trace),
+  audit deny mount,
+  audit deny umount,
+  audit deny pivot_root,
+  audit deny network inet,
+  audit deny network inet6,
+  audit deny network netlink,
+  audit deny network packet,
+  audit deny network raw,
+
+  include if exists <local/starfixd>
+}
+
+# The daemon. It reads the config file, listens on its socket, talks to
+# Dolt over TCP, and on a server of many projects writes the keys file
+# sshd reads and reads the hand-maintained authorized_keys beside it.
+# When it is configured to (docs/server.md, Observability) it also
+# listens on a loopback TCP port for /metrics and health, posts metrics
+# to a collector over HTTP, and tells systemd it is ready and alive.
+profile starfixd-serve flags=(attach_disconnected) {
+  include <abstractions/base>
+
+  @{starfixd_bin}/starfixd mr,
+  @{starfixd_config} r,
+
+  # The account's home directory, from the account database.
+  /etc/passwd r,
+
+  # The socket: its directory is checked, a stale socket removed, a new
+  # one bound and made 0600.
+  @{starfixd_run}/ r,
+  @{starfixd_run}/starfixd.sock rw,
+  @{PROC}/sys/net/core/somaxconn r,
+
+  # Dolt, over TCP, to any address: this profile does not rely on rules
+  # that name an address or a port, which were not tested. The guide's
+  # Dolt listens on 127.0.0.1, and the unit can hold the daemon to that
+  # (IPAddressDeny=any with IPAddressAllow=localhost, in a drop-in).
+  #
+  # The same two rules are all the telemetry needs on this machine: the
+  # listener (telemetry: listen:, which starfixd itself holds to a
+  # loopback address) and OTLP over HTTP to a collector at an address
+  # (OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318).
+  network inet stream,
+  network inet6 stream,
+
+  # A dsn, the listener's address or the collector's endpoint may give
+  # a host by name. Go resolves names itself, from these files. There is
+  # no UDP here, so a name /etc/hosts does not hold, which needs DNS,
+  # also needs these in local/starfixd-serve:
+  #   network inet dgram,
+  #   network inet6 dgram,
+  # Metrics sent straight to a hosted backend need those two, since its
+  # endpoint is a name, and the certificate authorities that vouch for
+  # it, which this profile does not read:
+  #   include <abstractions/ssl_certs>
+  /etc/hosts r,
+  /etc/nsswitch.conf r,
+  /etc/resolv.conf r,
+  @{run}/systemd/resolve/resolv.conf r,
+  @{run}/systemd/resolve/stub-resolv.conf r,
+
+  # The keys file: a temporary file beside it, written, synced and
+  # renamed over it. authorized_keys is only ever read.
+  owner @{starfixd_keys_dir}/ r,
+  owner @{starfixd_keys_dir}/@{starfixd_keys_name} rw,
+  owner @{starfixd_keys_dir}/.@{starfixd_keys_name}.tmp-* rw,
+  owner @{starfixd_authorized_keys} r,
+
+  # systemd's notify socket. With Type=notify in the unit the daemon
+  # says when it is ready and when it stops, and with WatchdogSec that
+  # it is alive: one datagram each, to a socket that is a file to
+  # AppArmor. Without this rule a unit with Type=notify never counts as
+  # started, and systemd kills it when TimeoutStartSec runs out.
+  @{run}/systemd/notify w,
+
+  owner @{PROC}/@{pid}/cgroup r,
+  owner @{PROC}/@{pid}/mountinfo r,
+  @{sys}/fs/cgroup/** r,
+
+  audit deny @{starfixd_bin}/** w,
+  audit deny @{starfixd_config} w,
+  audit deny @{starfixd_authorized_keys} w,
+  audit deny @{HOMEDIRS}/** mrwklx,
+  audit deny /root/** mrwklx,
+  audit deny /** x,
+  audit deny capability,
+  audit deny ptrace (trace),
+  audit deny mount,
+  audit deny umount,
+  audit deny pivot_root,
+  audit deny network netlink,
+  audit deny network packet,
+  audit deny network raw,
+
+  include if exists <local/starfixd-serve>
+}
+
+# The operator's commands, run as the starfix user through aa-exec:
+# control init, import-bd, export-bd, and upgrade with --check, --to and
+# --rollback. (`starfixd status` is not one of them: it runs under the
+# bridge's profile, and would also run under this one.) They open the store as the daemon does; upgrade also
+# downloads a release, replaces the binary, asks systemd for a restart
+# through sudo, and asks the daemon whether it is healthy.
+profile starfixd-admin flags=(attach_disconnected) {
+  include <abstractions/base>
+  # The certificate authorities that vouch for the release's host.
+  include <abstractions/ssl_certs>
+
+  @{starfixd_config} r,
+  /etc/passwd r,
+
+  # Dolt, the release (HTTPS, or HTTPS_PROXY), and DNS for its host. Go
+  # resolves names itself, so the files it reads are listed here and
+  # abstractions/nameservice, which allows far more, is left out.
+  network inet stream,
+  network inet6 stream,
+  network inet dgram,
+  network inet6 dgram,
+  /etc/hosts r,
+  /etc/nsswitch.conf r,
+  /etc/resolv.conf r,
+  @{run}/systemd/resolve/resolv.conf r,
+  @{run}/systemd/resolve/stub-resolv.conf r,
+
+  # control init reads authorized_keys. Nothing here writes it, or the
+  # keys file: the daemon does that.
+  owner @{starfixd_keys_dir}/ r,
+  owner @{starfixd_authorized_keys} r,
+
+  # import-bd reads the file it is given and export-bd -o writes one,
+  # through a temporary file beside it. Both stay in the top of the
+  # account's home directory; anything else goes through a pipe
+  # (`starfixd import-bd -`, `starfixd export-bd | ...`).
+  owner @{starfixd_home}/ r,
+  owner @{starfixd_home}/* rw,
+
+  # upgrade finds its own file through the links that lead to it, stages
+  # the new binary beside it and runs `version` in it under this same
+  # profile, keeps the old binary as starfixd.prev, and renames.
+  # --rollback renames starfixd.prev back.
+  @{starfixd_bin_above}/ r,
+  @{starfixd_bin}/ r,
+  @{starfixd_bin}/starfixd mr,
+  owner @{starfixd_bin}/starfixd rw,
+  owner @{starfixd_bin}/starfixd.prev rw,
+  owner @{starfixd_bin}/.starfixd.prev-* rw,
+  owner @{starfixd_bin}/.starfixd.new-* mrwix,
+
+  # The restart: `sudo -n systemctl restart UNIT`. sudo runs unconfined,
+  # with a scrubbed environment (Ux), and does what sudoers lets the
+  # starfix user do: with the guide's rule, that one command. If it
+  # hangs for two minutes, upgrade kills it.
+  /usr/bin/sudo rUx,
+  signal (send) set=(kill) peer=unconfined,
+
+  # The health check: a handshake on the daemon's socket.
+  @{starfixd_run}/starfixd.sock rw,
+
+  owner @{PROC}/@{pid}/cgroup r,
+  owner @{PROC}/@{pid}/mountinfo r,
+  @{sys}/fs/cgroup/** r,
+
+  # root may run `starfixd upgrade --check`, and is told so when it runs
+  # anything else here. The config file is the starfix user's, mode
+  # 0600, so root reads it by this capability and has no other.
+  capability dac_read_search,
+
+  audit deny @{starfixd_config} w,
+  audit deny @{starfixd_keys_dir}/** w,
+  audit deny @{HOMEDIRS}/** mrwklx,
+  audit deny /root/** mrwklx,
+  audit deny ptrace (trace),
+  audit deny mount,
+  audit deny umount,
+  audit deny pivot_root,
+  audit deny network netlink,
+  audit deny network packet,
+  audit deny network raw,
+
+  include if exists <local/starfixd-admin>
+}

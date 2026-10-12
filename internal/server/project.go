@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/starfix/internal/telemetry"
 	"github.com/go-sql-driver/mysql"
 )
 
@@ -32,6 +33,9 @@ type served struct {
 	// it has answered none, in Unix nanoseconds on the server's clock:
 	// what `sfx admin status` shows as last used.
 	used atomic.Int64
+	// tel counts the refusals at the store's caps (observeLimit); nil
+	// counts none.
+	tel *telemetry.Telemetry
 }
 
 // reap ends the project's expired claims now and logs each.
@@ -90,8 +94,9 @@ func DatabaseDSN(dsn, name string) (string, error) {
 // it opens a project's store on the project's own database
 // ([DatabaseDSN]), with opts, the project's prefix, and admins that
 // follow ctl as it changes: a server admin, or an active principal whose
-// role in the project is admin (design §15.3).
-func ProjectOpener(dsn string, ctl *store.Control, opts store.Options) func(context.Context, store.Project) (*store.Store, error) {
+// role in the project is admin (design §15.3). Each store is measured
+// by tel ([StoreObserver]), which may be nil.
+func ProjectOpener(dsn string, ctl *store.Control, opts store.Options, tel *telemetry.Telemetry) func(context.Context, store.Project) (*store.Store, error) {
 	return func(ctx context.Context, p store.Project) (*store.Store, error) {
 		d, err := DatabaseDSN(dsn, p.DBName)
 		if err != nil {
@@ -100,6 +105,7 @@ func ProjectOpener(dsn string, ctl *store.Control, opts store.Options) func(cont
 		o := opts
 		o.Prefix = p.Prefix
 		o.IsAdmin = func(principal string) bool { return ctl.Access(principal, p.ID).Role == store.RoleAdmin }
+		o.Observer = StoreObserver(tel, p.ID)
 		return store.Open(ctx, d, o)
 	}
 }

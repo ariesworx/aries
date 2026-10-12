@@ -505,66 +505,6 @@ func TestDisabledServerAdmin(t *testing.T) {
 	}
 }
 
-// A protocol 5 client, as the build before the key commands speaks,
-// still works against this server: it sends no key op, and its
-// principal.add, which has no keys field, adds a principal without
-// keys as it did.
-func TestProtocol5ClientStillServed(t *testing.T) {
-	m := adminWorld(t, Limits{})
-	srv, cli := net.Pipe()
-	c := &conn{t: t, enc: proto.NewEncoder(cli), dec: proto.NewDecoder(cli), nc: cli}
-	t.Cleanup(c.hangUp)
-	c.wg.Go(func() { m.handle(t.Context(), srv) })
-	c.wg.Go(func() {
-		_ = c.enc.Encode(&proto.Frame{T: proto.FrameBridge, Principal: dana.Principal})
-		_ = c.enc.Encode(&proto.Frame{T: proto.FrameHello, Proto: 5, Project: projA, Session: dana.Session, Machine: dana.Machine})
-	})
-	if w := c.read(); w.T != proto.FrameWelcome || w.Err != nil || w.Min != 2 || w.Max != proto.ProtoMax {
-		t.Fatalf("a protocol 5 hello = %+v (%v), want a welcome", w, w.Err)
-	}
-	// The arguments as a protocol 5 client encodes them.
-	hal := mustAsk[proto.PrincipalResult](c, proto.OpPrincipalAdd, json.RawMessage(`{"name":"hal"}`))
-	if hal != (proto.PrincipalResult{ID: "hal", Rev: 1, State: "active", Project: projA, ProjectName: "proj-a"}) {
-		t.Errorf("a protocol 5 principal.add = %+v", hal)
-	}
-	if ks, err := m.ctl.Keys(t.Context(), "hal"); err != nil || len(ks) != 0 {
-		t.Errorf("hal's keys = %v, %v; want none", ks, err)
-	}
-	for _, r := range []struct {
-		op   string
-		args string
-	}{
-		{proto.OpMemberSet, `{"name":"hal","role":"admin"}`},
-		{proto.OpMembers, `{}`},
-		{proto.OpPrincipalDisable, `{"name":"hal"}`},
-		{proto.OpPrincipalEnable, `{"name":"hal"}`},
-		{proto.OpMemberRemove, `{"name":"hal"}`},
-		{proto.OpProjects, `{}`},
-		{proto.OpList, `{}`},
-	} {
-		if _, perr := ask[json.RawMessage](c, r.op, json.RawMessage(r.args)); perr != nil {
-			t.Errorf("protocol 5 %s: %v", r.op, perr)
-		}
-	}
-}
-
-// A protocol 5 server, as the build before the key commands runs,
-// refuses this client at the handshake, telling it to have the server
-// upgraded, before a key op could fail as unknown.
-func TestHandshakeProtocol5ServerRefusesNewClient(t *testing.T) {
-	s := newServer(t)
-	s.cfg.ProtoMin, s.cfg.ProtoMax = 2, 5
-	f, err := handshake(t, s, &proto.Frame{T: proto.FrameBridge, Principal: "alice"},
-		&proto.Frame{T: proto.FrameHello, Version: "v0.5.0", Proto: proto.Proto, Project: project, Session: "s", Machine: "m"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if f.Err == nil || f.Err.Code != proto.CodeVersion || !strings.Contains(f.Err.Message, "accepts 2 to 5") ||
-		!strings.Contains(f.Err.Fix, "starfixd upgrade") {
-		t.Fatalf("a protocol %d client to a protocol 5 server = %+v, want a version refusal naming starfixd upgrade", proto.Proto, f.Err)
-	}
-}
-
 // TestBridgeKey checks what the bridge sends: the fingerprint its forced
 // command named, in a frame an older daemon reads as it always did, and
 // nothing at all for a key that is no fingerprint.

@@ -6,6 +6,7 @@ import (
 
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/starfix/internal/telemetry"
 )
 
 // owner says whose a connection is, once its handshake is done: the
@@ -29,6 +30,7 @@ func (s *Server) track(c net.Conn, sess *session) bool {
 	s.mu.Lock()
 	s.conns[c] = owner{principal: sess.actor.Principal, project: sess.proj.id, key: sess.fingerprint}
 	s.mu.Unlock()
+	s.cfg.Telemetry.Record(telemetry.Connections, 1, sess.proj.id)
 	if s.stores == nil {
 		return true
 	}
@@ -50,7 +52,11 @@ func (s *Server) keyHolds(principal, fingerprint string) *proto.Error {
 	if fingerprint == "" {
 		return nil
 	}
-	if p, _, ok := s.cfg.Control.AuthorizedKey(fingerprint); ok && p == principal {
+	// A key the operator's authorized_keys file gives to another
+	// principal is not the store's to let in, whatever an older keys
+	// file says: the next one written has no line for it (keyLines).
+	owner, byHand := s.handOwner(fingerprint)
+	if p, _, ok := s.cfg.Control.AuthorizedKey(fingerprint); ok && p == principal && (!byHand || owner == principal) {
 		return nil
 	}
 	return proto.Errf(proto.CodeAuth,
@@ -61,8 +67,12 @@ func (s *Server) keyHolds(principal, fingerprint string) *proto.Error {
 // untrack forgets c when its handler returns.
 func (s *Server) untrack(c net.Conn) {
 	s.mu.Lock()
+	o := s.conns[c]
 	delete(s.conns, c)
 	s.mu.Unlock()
+	if o.principal != "" { // track counted it
+		s.cfg.Telemetry.Record(telemetry.Connections, -1, o.project)
+	}
 }
 
 // drop closes the connections whose owner match selects, because the
@@ -92,6 +102,11 @@ func (s *Server) drop(from *session, why string, match func(owner) bool) int {
 		_ = c.Close()
 	}
 	if n := len(closing); n > 0 || from.ended {
+		dropped := n
+		if from.ended {
+			dropped++ // the admin's own, closed once it is answered
+		}
+		s.cfg.Telemetry.Record(telemetry.ConnectionsDropped, float64(dropped), dropReason(why))
 		s.cfg.Logger.Info("connections dropped", "reason", why, "by", from.actor.Principal, "connections", n, "own", from.ended)
 	}
 	return len(closing)

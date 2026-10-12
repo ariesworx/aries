@@ -65,6 +65,28 @@ func (c *Control) CreateDatabase(ctx context.Context, actor Actor, project strin
 	return nil
 }
 
+// HeldClaims returns how many claims are held in the project database
+// named db, by one read through the control store's own connection: the
+// account reaches every project's database, and no store is opened for
+// it. starfixd asks it of each archived project at start, so that one
+// with nothing to end costs a query and not a store.
+//
+// It reads the claims table as this binary's schema has it, without
+// checking the database's version. An error therefore says only that
+// the caller must open the database to learn more: it may not exist, may
+// not be granted, or may hold another version's schema.
+func (c *Control) HeldClaims(ctx context.Context, db string) (int, error) {
+	// The statement takes no placeholder for a database name.
+	if !ValidDBName(db) {
+		return 0, fmt.Errorf("%w: database name %q", ErrInvalid, db)
+	}
+	var n int
+	if err := c.s.r.QueryRowContext(ctx, "SELECT COUNT(*) FROM `"+db+"`.claims WHERE principal IS NOT NULL").Scan(&n); err != nil {
+		return 0, fmt.Errorf("count the claims held in %s: %w", db, err)
+	}
+	return n, nil
+}
+
 // DatabaseDenied reports whether err is Dolt refusing the account a
 // database: one that root never granted it by name, whether or not the
 // database exists.

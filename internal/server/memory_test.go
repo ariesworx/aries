@@ -162,28 +162,31 @@ func TestRecallIsARead(t *testing.T) {
 	}
 }
 
-// A protocol 3 client, as v0.3.0 speaks, still works against this server:
-// it knows no memory op, and decodes start's result without its memories.
-func TestProtocol3ClientStillServed(t *testing.T) {
+// A client ignores the result fields it does not know (rule 10), so a
+// result may gain a field without a protocol bump: start's result,
+// decoded as a client from before its memories would.
+func TestClientIgnoresUnknownResultFields(t *testing.T) {
 	s := newServer(t)
 	is := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work"})
 	mustCall[proto.WriteResult](t, s, bob, proto.OpRemember, proto.RememberArgs{Key: "k", Body: "about it", Issue: ptr(is.ID)})
-	w, c := handshakeProto(t, s, alice, 3)
+	w, c := handshakeProto(t, s, alice, proto.Proto)
 	if w.T != proto.FrameWelcome || w.Err != nil {
-		t.Fatalf("a protocol 3 hello = %+v, want a welcome", w)
+		t.Fatalf("hello = %+v, want a welcome", w)
 	}
 	id := c.send(proto.OpStart, json.RawMessage(`{"id":"`+string(is.ID)+`","lease":"15m"}`))
 	f := c.read()
 	if f.T != proto.FrameRes || f.ID != id || f.Err != nil {
-		t.Fatalf("a protocol 3 start = %+v", f)
+		t.Fatalf("start = %+v", f)
 	}
-	// What v0.3.0's client decodes: StartResult as it was, without
-	// memories; its decoder ignores the field it does not know.
+	if !strings.Contains(string(f.OK), `"memories"`) {
+		t.Fatalf("start's result %s has no memories; the test needs a field the narrow type lacks", f.OK)
+	}
+	// StartResult as it was before memories.
 	var old struct {
 		Issue proto.Issue  `json:"issue"`
 		Claim *proto.Claim `json:"claim"`
 	}
 	if err := json.Unmarshal(f.OK, &old); err != nil || old.Issue.ID != is.ID || old.Claim == nil {
-		t.Errorf("protocol 3 start result %s: %+v, %v", f.OK, old, err)
+		t.Errorf("start's result %s decoded without its newer field: %+v, %v", f.OK, old, err)
 	}
 }

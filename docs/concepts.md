@@ -20,7 +20,8 @@ The [CLI reference](cli.md) and the [agent guide](agents.md) build on it.
 
 The names `starfixd` (the server's own actions, such as ending expired
 claims), `import` (the bd importer and `starfixd control init`) and
-`starfixd-upgrade` (the health check `starfixd upgrade` runs) are
+`starfixd-upgrade` (the health check `starfixd upgrade` runs) and
+`starfixd-status` (`starfixd status`, run on the server) are
 reserved.
 
 ## Issues

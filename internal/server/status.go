@@ -42,12 +42,18 @@ func status(ctx context.Context, s *Server, sess *session, in proto.StatusArgs) 
 			"ask a server admin, or an admin of the project you want to know about, to run `sfx admin status`",
 			fmt.Sprintf("%s may not see the server's status: it is for server admins, and for project admins about their own projects", actor))
 	}
+	return s.report(ctx, rows, admin, in)
+}
+
+// report is the status of the projects rows, sorted by name, as in pages
+// them, and of the server itself when server is set.
+func (s *Server) report(ctx context.Context, rows []store.Project, server bool, in proto.StatusArgs) (any, *proto.Error) {
 	rows, more, perr := page(rows, func(p store.Project) string { return p.Name }, in.AdminListArgs)
 	if perr != nil {
 		return nil, perr
 	}
 	out := proto.StatusResult{Projects: make([]proto.ProjectStatus, 0, len(rows)), More: more}
-	if admin {
+	if server {
 		out.Server = s.serverStatus()
 	}
 
@@ -72,7 +78,7 @@ func status(ctx context.Context, s *Server, sess *session, in proto.StatusArgs) 
 		at[p.ID] = len(out.Projects)
 		out.Projects = append(out.Projects, proto.ProjectStatus{ID: p.ID, Name: p.Name, State: string(p.State), Conns: c.conns, FileConns: c.file})
 	}
-	s.stores.each(func(pr *served) {
+	s.each(func(pr *served) {
 		i, ok := at[pr.id]
 		if !ok {
 			return
@@ -98,7 +104,9 @@ func status(ctx context.Context, s *Server, sess *session, in proto.StatusArgs) 
 }
 
 // serverStatus is the daemon as a whole, from its own counters, the Go
-// runtime and the control store's memory.
+// runtime and the control store's memory. A server of one project has no
+// control store, so it counts no projects or principals, and its one
+// store is the most it can have open.
 func (s *Server) serverStatus() *proto.ServerStatus {
 	lim := s.cfg.Limits
 	var ms runtime.MemStats
@@ -109,11 +117,15 @@ func (s *Server) serverStatus() *proto.ServerStatus {
 	out := &proto.ServerStatus{
 		Version: s.cfg.Version, ProtoMin: s.cfg.ProtoMin, ProtoMax: s.cfg.ProtoMax,
 		UptimeSeconds: int64(s.now().Sub(s.started) / time.Second),
-		OpenStores:    s.stores.size(), OpenStoresMax: lim.OpenStores,
+		OpenStores:    s.OpenStores(), OpenStoresMax: lim.OpenStores,
 		Conns: conns, ConnsMax: lim.Conns,
 		HeapBytes: ms.HeapAlloc, SysBytes: ms.Sys, Goroutines: runtime.NumGoroutine(),
 		Projects: map[string]int{}, Principals: map[string]int{},
 		KeysFile: s.keysStatus(),
+	}
+	if s.cfg.Control == nil {
+		out.OpenStoresMax = 1
+		return out
 	}
 	counts := s.cfg.Control.Counts()
 	for state, n := range counts.Projects {

@@ -76,7 +76,7 @@ func TestDoltVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got != version.Dolt {
-		t.Errorf("Version() = %q, want version.Dolt %q", got, version.Dolt)
+		t.Errorf("Version() = %q, want version.Dolt %q; scripts/install-dolt.sh installs that release and prints the directory to put first on PATH", got, version.Dolt)
 	}
 }
 

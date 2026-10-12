@@ -89,7 +89,7 @@ func lookDolt() (string, error) {
 		return bin, nil
 	}
 	if required() {
-		return "", fmt.Errorf("dolttest: %s is set but dolt is not on PATH: install the Dolt release in internal/version.Dolt", RequireEnv)
+		return "", fmt.Errorf("dolttest: %s is set but dolt is not on PATH: scripts/install-dolt.sh installs the Dolt release in internal/version.Dolt and prints the directory to add", RequireEnv)
 	}
 	return "", ErrNoDolt
 }
