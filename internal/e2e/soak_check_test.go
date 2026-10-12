@@ -368,6 +368,8 @@ type replay struct {
 	access   map[string]rIssue
 	// tookAt is when each claim was taken.
 	tookAt map[issueEpoch]time.Time
+	// stepped counts the leases that clock.step events extended.
+	stepped int
 
 	mu        sync.Mutex // guards the replay between snapshots
 	openCount int        // issues not closed, as of the last snapshot
@@ -442,6 +444,10 @@ func (r *replay) apply(tx []sevent) {
 	r.released, r.access = map[string]rClaim{}, map[string]rIssue{}
 	defer r.reopened(tx)
 	for _, e := range tx {
+		if e.op == "clock.step" {
+			r.clockStep(e)
+			continue
+		}
 		if e.op != "usage.add" {
 			r.causes[causeKey(e.target, e.at)] = true
 			if _, ok := r.issues[e.target]; !ok && e.op != "issue.create" {

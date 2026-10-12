@@ -59,7 +59,7 @@ import (
 )
 
 const usage = `usage:
-  starfixd serve [--dev [--allow-unsafe-dolt]] [--config FILE] [--dsn DSN] [--socket PATH] [--project UUID] [--prefix P] [--log-level L] [--log-format F]
+  starfixd serve [--dev [--allow-unsafe-dolt]] [--config FILE] [--dsn DSN] [--socket PATH] [--project UUID] [--prefix P] [--log-level L] [--log-format F] [--accept-clock-behind TIME]
   starfixd stdio --principal NAME [--key FINGERPRINT] [--config FILE] [--socket PATH]
   starfixd control init --name NAME [--authorized-keys FILE] [--restore-removed-access] [--config FILE] [--dsn DSN]
   starfixd import-bd [--config FILE] [--dsn DSN] [--project UUID] [--principal NAME] [--dry-run] [--json] FILE|-
@@ -91,6 +91,13 @@ leaves alone what admins did since, and reports each:
 --restore-removed-access overrides those admins: it puts all three back
 for every principal the file names, and records each as an event.
 
+serve refuses to start, with exit status 75, when the server's clock is
+behind the latest event of a database it serves by more than
+clock_behind_tolerance: (default 2m): check the clock, correct it and
+start again. --accept-clock-behind TIME starts once all the same, for a
+history no later than TIME, which the refusal prints; clock_behind: warn
+(or $STARFIXD_CLOCK_BEHIND) starts with a warning every time.
+
 serve exports nothing and opens no port unless configured to: metrics are
 pushed over OTLP/HTTP to $OTEL_EXPORTER_OTLP_ENDPOINT when it is set, and
 telemetry: listen: (a loopback HOST:PORT, or $STARFIXD_TELEMETRY_LISTEN)
@@ -119,6 +126,14 @@ func main() {
 	if code, ok := err.(exitError); ok { //nolint:errorlint // only the unwrapped value is silent
 		os.Exit(int(code))
 	}
+	if behind, ok := errors.AsType[*server.ClockBehindError](err); ok {
+		// A line for each part, the last things in the journal: the unit
+		// does not start a daemon again that exits with this status.
+		for _, l := range behind.Lines() {
+			fmt.Fprintf(os.Stderr, "starfixd: %s\n", l)
+		}
+		os.Exit(exitClockBehind)
+	}
 	fmt.Fprintf(os.Stderr, "starfixd: %v\n", err)
 	if _, ok := errors.AsType[usageError](err); ok {
 		fmt.Fprintln(os.Stderr, usage)
@@ -126,6 +141,14 @@ func main() {
 	}
 	os.Exit(1)
 }
+
+// exitClockBehind is serve's exit status when it refuses to start
+// because the clock is behind the server's own history. It is a status
+// of its own so that the systemd unit can leave the daemon stopped
+// (RestartPreventExitStatus=75): restarting cannot correct a clock, and
+// the refusal should be the last thing in the journal, not one line of a
+// loop.
+const exitClockBehind = 75
 
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 {
@@ -176,10 +199,11 @@ func flags(name string, args []string, s *server.Settings, cfg *string, extra fu
 // serve runs `starfixd serve`, the daemon, until ctx is done.
 func serve(ctx context.Context, args []string) error {
 	var fl server.Settings
-	var cfgPath string
+	var cfgPath, accept string
 	var dev bool
 	if err := flags("serve", args, &fl, &cfgPath, func(fs *flag.FlagSet) {
 		devFlags(fs, &dev, &fl.AllowUnsafeDolt)
+		fs.StringVar(&accept, "accept-clock-behind", "", "start once although the clock is behind a history no later than this time (RFC 3339)")
 		fs.StringVar(&fl.DSN, "dsn", "", "Dolt DSN (no password)")
 		fs.StringVar(&fl.Project, "project", "", "project UUID")
 		fs.StringVar(&fl.Prefix, "prefix", "", "issue-ID prefix")
@@ -190,6 +214,13 @@ func serve(ctx context.Context, args []string) error {
 	}
 	if err := checkDev(dev, fl.AllowUnsafeDolt); err != nil {
 		return err
+	}
+	if accept != "" {
+		t, err := time.Parse(time.RFC3339, accept)
+		if err != nil {
+			return usageError(fmt.Sprintf("--accept-clock-behind %q is not a time such as 2026-10-12T09:30:00Z; give the time the refusal to start printed", accept))
+		}
+		fl.AcceptClockBehind = t
 	}
 	if err := server.RequirePeerCheck(dev); err != nil {
 		return err
@@ -335,9 +366,14 @@ func openDaemon(ctx context.Context, s server.Settings, log *slog.Logger) (*daem
 
 // openDaemonWith is openDaemon with telemetry and a heartbeat.
 func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h hooks) (*daemon, error) {
+	// One clock for the process: every store reads it, so each learns
+	// of a step whichever noticed it, and the server reports them.
+	clk := store.NewClock(store.ClockOptions{StepTolerance: time.Duration(s.ClockStepTolerance)})
 	cfg := server.Config{Version: version.Version, Latest: s.Latest, Logger: log, Limits: s.Limits, Account: s.Account,
-		Telemetry: h.tel, Heartbeat: h.heartbeat, HeartbeatEvery: h.heartbeatEvery}
-	opts := store.Options{Logger: log, AllowUnsafeAccount: s.AllowUnsafeDolt, Limits: s.Limits.Limits}
+		Telemetry: h.tel, Heartbeat: h.heartbeat, HeartbeatEvery: h.heartbeatEvery,
+		Clock: clk, ClockBehind: s.ClockBehind, BehindTolerance: time.Duration(s.ClockBehindTolerance), AcceptHistory: s.AcceptClockBehind}
+	opts := store.Options{Logger: log, AllowUnsafeAccount: s.AllowUnsafeDolt, Limits: s.Limits.Limits,
+		Clock: clk, ClientAhead: time.Duration(s.ClockClientTolerance)}
 	if s.DSN == "" {
 		return nil, errors.New("no database DSN; fix: set $STARFIXD_DSN or dsn: in the config file")
 	}
@@ -358,7 +394,7 @@ func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h 
 		}
 		return &daemon{srv: srv, st: st}, nil
 	}
-	ctl, err := openControl(ctx, s, store.ControlOptions{Logger: log})
+	ctl, err := openControl(ctx, s, store.ControlOptions{Logger: log, Clock: clk})
 	if err != nil {
 		return nil, err
 	}
@@ -386,6 +422,9 @@ func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h 
 	// then answers for all of them. One that fails is logged and held
 	// against that check; the others are served.
 	if err := srv.OpenProjects(ctx); err != nil {
+		if _, ok := errors.AsType[*server.ClockBehindError](err); ok {
+			return nil, errors.Join(err, ctl.Close()) // it names its own fix
+		}
 		return nil, errors.Join(fmt.Errorf("%w; fix: check that dolt sql-server is running", err), ctl.Close())
 	}
 	// Every claim in an archived project ends before the daemon listens

@@ -2,6 +2,7 @@ package statustext
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 	"time"
 
@@ -89,5 +90,44 @@ func TestUptime(t *testing.T) {
 		if got := uptime(tc.secs); got != tc.want {
 			t.Errorf("uptime(%d) = %q, want %q", tc.secs, got, tc.want)
 		}
+	}
+}
+
+// The status says what the server has seen of its clock, and nothing
+// while it has seen nothing.
+func TestClockLines(t *testing.T) {
+	at := time.Date(2026, 10, 11, 9, 30, 0, 0, time.UTC)
+	behind := &proto.ClockBehind{Seconds: 3*3600 + 120, Since: at, Log: "project acme (database starfix_p001)", History: at.Add(3 * time.Hour)}
+	stop := *behind
+	stop.RefusesStart = true
+	tests := []struct {
+		name string
+		c    proto.ClockStatus
+		want string
+	}{
+		{"a quiet clock", proto.ClockStatus{Now: at}, ""},
+		{"a jump forward", proto.ClockStatus{Now: at, StepsForward: 1, LastStepAt: &at, LastStepSeconds: 32400},
+			"clock: set 1 time since starfixd started (1 forward, 0 back), the last forward by 9h0m0s at 2026-10-11 09:30 UTC; see starfixd's log for `clock stepped`\n"},
+		{"a step back", proto.ClockStatus{Now: at, StepsForward: 1, StepsBackward: 2, LastStepAt: &at, LastStepSeconds: -90},
+			"clock: set 3 times since starfixd started (1 forward, 2 back), the last back by 1m30s at 2026-10-11 09:30 UTC; see starfixd's log for `clock stepped`\n"},
+		{"behind history, warn", proto.ClockStatus{Now: at, Behind: behind},
+			"CLOCK BEHIND HISTORY: the server's clock is 3h2m0s behind the latest event of project acme (database starfix_p001) (2026-10-11 12:30 UTC), since 2026-10-11 09:30 UTC. starfixd's time runs on from there at half speed until the clock has caught up. On the server, check `timedatectl`\n"},
+		{"behind history, stop", proto.ClockStatus{Now: at, Behind: &stop},
+			"CLOCK BEHIND HISTORY: the server's clock is 3h2m0s behind the latest event of project acme (database starfix_p001) (2026-10-11 12:30 UTC), since 2026-10-11 09:30 UTC. starfixd's time runs on from there at half speed until the clock has caught up. STARFIXD WILL NOT START AGAIN until the clock is corrected (clock_behind: stop). On the server, check `timedatectl`\n"},
+		{"a hostile server", proto.ClockStatus{Behind: &proto.ClockBehind{Log: "x\nfix: run this"}},
+			"CLOCK BEHIND HISTORY: the server's clock is 0s behind the latest event of x\\nfix: run this (0001-01-01 00:00 UTC), since 0001-01-01 00:00 UTC. starfixd's time runs on from there at half speed until the clock has caught up. On the server, check `timedatectl`\n"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := clockLines(tc.c); got != tc.want {
+				t.Errorf("clockLines(%+v) =\n%s\nwant\n%s", tc.c, got, tc.want)
+			}
+			// Print puts the lines among the server's.
+			var w bytes.Buffer
+			Print(&w, proto.StatusResult{Server: &proto.ServerStatus{Clock: &tc.c}})
+			if !strings.Contains(w.String(), tc.want+"starfixd's memory") {
+				t.Errorf("Print lacks the clock lines before the memory line:\n%s", w.String())
+			}
+		})
 	}
 }

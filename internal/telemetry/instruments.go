@@ -56,6 +56,12 @@ const (
 	// ReaperLastRun is when the reaper's last tick ended, in Unix
 	// seconds.
 	ReaperLastRun
+	// ClockBehind is how far the server's clock is behind the history
+	// its time is held against, in seconds; zero when it is not behind.
+	ClockBehind
+	// ClockSteps counts the steps of the server's clock the daemon
+	// detected: direction.
+	ClockSteps
 	// Dropped counts telemetry that could not be exported: signal.
 	Dropped
 
@@ -84,6 +90,7 @@ const (
 	KeyMigrated    = "migrated"
 	KeyEvent       = "event"
 	KeySignal      = "signal"
+	KeyDirection   = "direction"
 )
 
 // Attribute values that are not a protocol code or an op.
@@ -129,6 +136,10 @@ const (
 	ReasonMembership = "membership"
 	ReasonDisabled   = "disabled"
 	ReasonArchived   = "archived"
+
+	// Which way the clock stepped.
+	StepForward  = "forward"
+	StepBackward = "backward"
 
 	// SignalMetrics is the one signal this slice exports.
 	SignalMetrics = "metrics"
@@ -197,6 +208,7 @@ var (
 	attrWhy      = attr{key: KeyReason, values: []string{ReasonNone, ReasonMembership, ReasonDisabled, ReasonArchived}, fallback: Other}
 	attrWrote    = attr{key: KeyResult, values: []string{ResultOK, ResultFailed}, fallback: Other}
 	attrSignal   = attr{key: KeySignal, values: []string{SignalMetrics}, fallback: Other}
+	attrStep     = attr{key: KeyDirection, values: []string{StepForward, StepBackward}, fallback: Other}
 )
 
 // spec declares one instrument.
@@ -229,6 +241,8 @@ var specs = [numInstruments]spec{
 	KeysFileLastWrite:   {name: "starfix.keys_file.last_write.time", unit: "s", kind: Gauge, desc: "When the keys file last took its content, in Unix seconds."},
 	ReaperDuration:      {name: "starfix.reaper.duration", unit: "s", kind: Histogram, desc: "Time for one tick of the reaper."},
 	ReaperLastRun:       {name: "starfix.reaper.last_run.time", unit: "s", kind: Gauge, desc: "When the reaper's last tick ended, in Unix seconds."},
+	ClockBehind:         {name: "starfix.clock.behind", unit: "s", kind: Gauge, desc: "How far the server's clock is behind its own history; zero when it is not."},
+	ClockSteps:          {name: "starfix.clock.steps", kind: Counter, attrs: []attr{attrStep}, desc: "Steps of the server's clock detected."},
 	Dropped:             {name: "starfix.telemetry.dropped", kind: Counter, attrs: []attr{attrSignal}, desc: "Exports that failed."},
 }
 

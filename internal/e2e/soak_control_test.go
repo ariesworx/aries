@@ -203,6 +203,8 @@ func (c *ctlReplay) apply(e sevent) {
 			delete(c.members, k)
 			c.roles[k] = append(c.roles[k], cstamp{e.at, ""})
 		}
+	case store.OpClockStep:
+		// The daemon settled a forward step of its clock: no row changes.
 	default:
 		bad("an op the soak does not expect")
 	}

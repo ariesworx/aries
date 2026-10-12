@@ -591,9 +591,11 @@ func amortizedText(gs []CostGroup, ids map[string]IssueID) string {
 // at 7 Oct 12:00.
 func amortizedFixture(t *testing.T) (*Store, *clock, map[string]IssueID) {
 	t.Helper()
-	s, clk := clockStore(t) // 2026-10-07 12:00
+	// The holds below are in September, and a store's time only moves
+	// forward, so the clock starts there.
+	s, clk := clockStoreAt(t, month("2026-09"))
 	ctx := t.Context()
-	now := clk.now()
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	mustSetPlan(t, s, NewPlan{Name: "team", From: month("2026-09"), Fee: 10_000_000, Seats: 3, Principals: []string{"alice", "bob"}})
 	a := mustCreate(t, s, NewIssue{Title: "a", Account: "acme"})
 	b, c := mustCreate(t, s, NewIssue{Title: "b"}), mustCreate(t, s, NewIssue{Title: "c"})
@@ -756,7 +758,7 @@ func TestCostReportAmortizedLargeMonth(t *testing.T) {
 		// but the one token, so A's share of the 10¹⁸ picodollar fee is
 		// 10¹⁸ × 9.2×10¹⁵ / (9.2×10¹⁵ + 1), short of the whole fee by
 		// 108 and the remainder that wins the last picodollar.
-		s, clk := clockStore(t)
+		s, clk := clockStoreAt(t, month("2026-09")) // before the hold: a store's time only moves forward
 		ctx := t.Context()
 		mustSetPlan(t, s, NewPlan{Name: "max", From: month("2026-09"), Fee: MaxPlanFee, Seats: 1, Principals: []string{"alice"}})
 		a := mustCreate(t, s, NewIssue{Title: "a"})

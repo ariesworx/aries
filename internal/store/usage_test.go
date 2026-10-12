@@ -165,7 +165,7 @@ func TestAddUsageRefusesInvalidRecords(t *testing.T) {
 		{"model with a newline", set(func(r *UsageRecord) { r.Model = "gpt\nx" }), "model"},
 		{"model too long", set(func(r *UsageRecord) { r.Model = strings.Repeat("m", 129) }), "model"},
 		{"no time", set(func(r *UsageRecord) { r.At = time.Time{} }), "at"},
-		{"time in the future", set(func(r *UsageRecord) { r.At = now.Add(UsageSkew + time.Second) }), "at"},
+		{"time in the future", set(func(r *UsageRecord) { r.At = now.Add(DefaultClientAhead + time.Second) }), "at"},
 		{"time before 2020", set(func(r *UsageRecord) { r.At = time.Date(2019, 12, 31, 0, 0, 0, 0, time.UTC) }), "at"},
 		{"no granularity", set(func(r *UsageRecord) { r.Granularity = "" }), "granularity"},
 		{"unknown granularity", set(func(r *UsageRecord) { r.Granularity = "minute" }), "granularity"},

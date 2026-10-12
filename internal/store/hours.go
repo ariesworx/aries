@@ -114,7 +114,12 @@ func (s *Store) LogHours(ctx context.Context, actor Actor, in NewHours) (HoursEn
 	if err := in.Issue.Validate(); err != nil {
 		return HoursEntry{}, err
 	}
-	now := s.now()
+	// The day is checked against today, so a forward step of the clock is
+	// settled first.
+	now, err := s.settledNow(ctx)
+	if err != nil {
+		return HoursEntry{}, err
+	}
 	today := startDay(now)
 	on := cmp.Or(in.On, today)
 	switch {
@@ -136,7 +141,7 @@ func (s *Store) LogHours(ctx context.Context, actor Actor, in NewHours) (HoursEn
 	}
 	on = on.UTC()
 	var out HoursEntry
-	err := s.write(ctx, actor, func(w *wtx) error {
+	err = s.write(ctx, actor, func(w *wtx) error {
 		// The request as sent, with no day for today, so a retry after
 		// midnight is the same request.
 		done, err := replay(ctx, w, in.Idem, "hours.log", struct {

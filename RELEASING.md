@@ -50,6 +50,19 @@ file and sets `STARFIX_KEY_FILE` to its path. And `sfx whoami` shows
 which principal and key a connection used. The notes link [Your key is your
 identity](docs/cli.md#your-key-is-your-identity).
 
+**That same release is the first whose starfixd refuses to start with
+its clock behind its own history** (`clock_behind: stop`, design §14,
+decision 37). Its notes must say so under the protocol change: a server
+whose clock once ran ahead holds events dated in the future and will not
+start after the upgrade; how to find out beforehand (the query in
+[Upgrades](docs/server.md#upgrades)); the three ways on (wait, set
+`clock_behind: warn`, or start once with `--accept-clock-behind`); the
+unit lines to add (`RestartPreventExitStatus=75`, `time-sync.target`);
+and that a usage record may now be 5 minutes past the server's clock,
+not an hour. The upgrade from v0.4.0 cannot ask the question itself,
+since the binary that runs it predates the check: it puts the old
+binary back and reports the new one unhealthy.
+
 ## Changing the Dolt pin
 
 The Dolt release is pinned in five files, and one pull request changes

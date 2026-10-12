@@ -43,8 +43,16 @@ const (
 	// overflow. A request is far smaller; a whole session's cumulative
 	// record fits.
 	MaxUsageCount = 1_000_000_000_000
-	// UsageSkew is how far past the server's clock a record's time may be.
-	UsageSkew = time.Hour
+	// DefaultClientAhead is how far past the server's clock a time a
+	// client supplies may be ([Options.ClientAhead]): a usage record's.
+	// Nobody's synchronized clock is minutes ahead of another's, and a
+	// record dated ahead would be priced, attributed and windowed as if
+	// it had not happened yet. A time in the past has no such bound:
+	// records are legitimately sent late, and the daily cap counts by
+	// when the server stored a record, not by the time it claims.
+	DefaultClientAhead = 5 * time.Minute
+	// MaxClientAhead is the most Options.ClientAhead may be.
+	MaxClientAhead = 24 * time.Hour
 	// MaxUsageSpan bounds a turn's or session's span, so attribution
 	// finds the spans that reach into a hold within that much of its end.
 	// A longer session reports in parts.
@@ -87,9 +95,9 @@ type UsageAdded struct {
 }
 
 // validate refuses, with ErrInvalid, a record with a field out of
-// pattern or range, at the server time now. n numbers it in the message,
-// from 1.
-func (r UsageRecord) validate(n int, now time.Time) error {
+// pattern or range, at the server time now, past which its time may be
+// at most ahead. n numbers it in the message, from 1.
+func (r UsageRecord) validate(n int, now time.Time, ahead time.Duration) error {
 	bad := func(field, rule string) error {
 		return fmt.Errorf("%w: usage record %d: %s %s", ErrInvalid, n, field, rule)
 	}
@@ -102,8 +110,9 @@ func (r UsageRecord) validate(n int, now time.Time) error {
 		return bad("model", "must be 1-128 ASCII letters, digits or _.:/+@-, starting with a letter or digit")
 	case r.At.Before(usageEpoch):
 		return bad("at", "must be the request's time, after 2020")
-	case r.At.After(now.Add(UsageSkew)):
-		return bad("at", fmt.Sprintf("%s is more than an hour past the server's clock", r.At.UTC().Format(time.RFC3339)))
+	case r.At.After(now.Add(ahead)):
+		return bad("at", fmt.Sprintf("%s is more than %s past the server's clock, %s: check the clock of the machine that recorded it",
+			r.At.UTC().Format(time.RFC3339), ahead, now.Format(time.RFC3339)))
 	}
 	switch r.Granularity {
 	case GranularityRequest:
@@ -167,16 +176,21 @@ func (s *Store) AddUsage(ctx context.Context, actor Actor, recs []UsageRecord) (
 	if limit := s.opts.Limits.UsageRecords; len(recs) > limit {
 		return UsageAdded{}, &UsageBatchError{Max: limit, Got: len(recs)}
 	}
-	now := s.now()
+	// A client's time is checked against now, so a forward step of the
+	// clock is settled first: a record made since is not in the future.
+	now, err := s.settledNow(ctx)
+	if err != nil {
+		return UsageAdded{}, err
+	}
 	from, to := recs[0].At.UTC(), recs[0].At.UTC()
 	for i, r := range recs {
-		if err := r.validate(i+1, now); err != nil {
+		if err := r.validate(i+1, now, s.opts.ClientAhead); err != nil {
 			return UsageAdded{}, err
 		}
 		from, to = minTime(from, r.At.UTC()), maxTime(to, r.At.UTC())
 	}
 	var out UsageAdded
-	err := s.write(ctx, actor, func(w *wtx) error {
+	err = s.write(ctx, actor, func(w *wtx) error {
 		out = UsageAdded{}
 		args := make([]any, 0, len(recs)*15)
 		for _, r := range recs {

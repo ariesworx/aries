@@ -35,6 +35,15 @@ type Options struct {
 	Readers int
 	// Now is the server clock. Default time.Now.
 	Now func() time.Time
+	// Clock, when set, is the server clock in place of Now: the one
+	// [Clock] a process shares among its stores, so that each learns of
+	// the clock's steps (clock.go). Unset, the store makes its own from
+	// Now.
+	Clock *Clock
+	// ClientAhead is how far past the store's time a time a client
+	// supplies may be. Default [DefaultClientAhead], at most
+	// [MaxClientAhead].
+	ClientAhead time.Duration
 	// Logger receives background committer errors, and the warning that
 	// AllowUnsafeAccount let an unsafe account through. Default discards.
 	Logger *slog.Logger
@@ -94,6 +103,14 @@ type Store struct {
 	similar similarCache
 	// stats counts the writes that committed (stats.go).
 	stats writeStats
+	// clock is the server clock, and tm the store's own time, which the
+	// clock cannot move backward (clock.go). hasClaims is false for the
+	// control database, which has no leases to settle; settling
+	// serializes SettleClock.
+	clock     *Clock
+	tm        storeTime
+	hasClaims bool
+	settling  sync.Mutex
 	// migrated is how many migrations Open applied.
 	migrated int
 
@@ -150,6 +167,12 @@ func open(ctx context.Context, dsn string, opts Options, sc schema) (*Store, err
 		return nil, err
 	}
 	opts.Limits = opts.Limits.withDefaults()
+	if opts.ClientAhead < 0 || opts.ClientAhead > MaxClientAhead {
+		return nil, fmt.Errorf("%w: client times may be up to %s ahead, not %s", ErrInvalid, MaxClientAhead, opts.ClientAhead)
+	}
+	if opts.ClientAhead == 0 {
+		opts.ClientAhead = DefaultClientAhead
+	}
 	opts.Admins = slices.Clone(opts.Admins)
 	if opts.CommitInterval == 0 {
 		opts.CommitInterval = time.Second
@@ -173,6 +196,11 @@ func open(ctx context.Context, dsn string, opts Options, sc schema) (*Store, err
 		opts: opts,
 		stop: make(chan struct{}),
 		done: make(chan struct{}),
+
+		clock: opts.Clock, hasClaims: sc.table == projectSchema.table,
+	}
+	if s.clock == nil {
+		s.clock = NewClock(ClockOptions{Now: opts.Now})
 	}
 	// One writer connection: writes are serialized in this process, so the
 	// event sequence is gapless without contention (stage 0: one writer
@@ -196,6 +224,9 @@ func open(ctx context.Context, dsn string, opts Options, sc schema) (*Store, err
 	s.migrated = n
 	if n > 0 {
 		s.dirty.Store(true)
+	}
+	if err := s.initTime(ctx); err != nil {
+		return nil, errors.Join(err, s.w.Close(), s.r.Close())
 	}
 	if opts.CommitInterval > 0 {
 		go s.commitLoop(opts.CommitInterval) //nolint:gosec // outlives Open's ctx; stopped by Close
@@ -296,12 +327,12 @@ func (s *Store) commit(ctx context.Context) error {
 	return nil
 }
 
-// Now reads the server clock (Options.Now), in UTC to the microsecond.
+// Now reads the store's time, in UTC to the microsecond: the server
+// clock (Options.Clock, or Options.Now), which the store keeps from going
+// backward and from jumping forward unsettled (clock.go).
 func (s *Store) Now() time.Time { return s.now() }
 
-func (s *Store) now() time.Time {
-	return s.opts.Now().UTC().Truncate(time.Microsecond)
-}
+func (s *Store) now() time.Time { return s.readTime().at }
 
 // beginRead starts a read of several queries on one read-only
 // transaction, so that they see one snapshot: a write that commits while
@@ -602,6 +633,15 @@ func (s *Store) write(ctx context.Context, actor Actor, fn func(*wtx) error) err
 	if err := actor.validate(); err != nil {
 		return err
 	}
+	if err := s.SettleClock(ctx); err != nil {
+		return err
+	}
+	return s.writeRetry(ctx, actor, fn)
+}
+
+// writeRetry is write for an actor already checked, without settling the
+// clock first: SettleClock's own write.
+func (s *Store) writeRetry(ctx context.Context, actor Actor, fn func(*wtx) error) error {
 	start := time.Now()
 	for attempt := 1; ; attempt++ {
 		changed, err := s.writeOnce(ctx, actor, fn)

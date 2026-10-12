@@ -237,6 +237,16 @@ the inbox and event pushes, token usage, rule 18's caps, and that the
 daemon leaks nothing: for each project, from that project's own event
 log and tables.
 
+It also moves the server's clock (`soak_clock_test.go`): forward by 5 to
+30 minutes on the store's clock, more than most leases have left, and
+back by seconds, while the sessions work; and back by 10 to 15 minutes
+at each restart, which the daemon must refuse (`clock_behind: stop`)
+until the clock is corrected or that history accepted for one start. A
+claim with lease left when the clock jumps forward must not be reaped
+for it, and every other check holds unchanged, event time that never
+decreases among them. The run's own reckoning of the store's time
+follows the same rule the store does (`vclock.now`).
+
 Meanwhile an admin changes who may reach what, over the protocol as
 `sfx admin` does and under the same failures: a membership removed and
 added, a principal disabled and enabled, a key removed and added (one

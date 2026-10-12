@@ -243,6 +243,17 @@ skip without it too.
     Limits table in `docs/server.md`.
     A refusal past a cap is `invalid` or `busy` with a `Fix`. Tests run
     against a locked-down Dolt account (`dolttest`), as `starfixd` does.
+19. **Time comes from the store.** The server's clock is relied on and
+    not trusted to be right (design §14, decision 37). Anything the
+    store writes or compares takes its time from `wtx.now` or
+    `Store.now`, never from `time.Now`: that time does not go backward,
+    and does not jump forward until the store has added the jump to
+    every live lease (`store/clock.go`). A daemon gives every store it
+    opens the one `store.Clock` of its process. A test that builds
+    history at several times starts its clock before the earliest and
+    only moves it forward. `time.Now` is for measuring how long
+    something took, and for the server's own timers, which run on its
+    monotonic reading.
 
 ## Agent specifications
 

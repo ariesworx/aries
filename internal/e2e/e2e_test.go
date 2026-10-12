@@ -122,6 +122,10 @@ type world struct {
 	// block is the daemon's block of database names for new projects
 	// (daemonOpts.dbs).
 	block server.ProjectDBs
+	// acceptHistory is the next daemon's --accept-clock-behind: the
+	// history it may start behind (server.Config.AcceptHistory). The
+	// caller holds daemonMu.
+	acceptHistory time.Time
 }
 
 // daemonOpts configures a world's daemon; the zero value takes the
@@ -136,6 +140,11 @@ type daemonOpts struct {
 	// now, if set, is the store's clock. The reaper and the agents'
 	// renewals are then off, so claims expire only when the test says.
 	now func() time.Time
+	// clock, if set, is the machine's two clocks, in place of now: the
+	// wall clock and the monotonic time elapsed, from one reading. Each
+	// daemon makes its process's store.Clock from it, as serve does, so
+	// its stores and the server see the clock's steps.
+	clock func() (time.Time, time.Duration)
 	// admins are the store's admins.
 	admins []string
 	// limits are the daemon's limits, the store's included.
@@ -229,7 +238,8 @@ func (w *world) startDaemon() error {
 		return w.startMany()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	st, err := store.Open(ctx, w.dsn, store.Options{Prefix: "sf", CommitInterval: o.commit, Now: o.now, Admins: o.admins,
+	clk := w.processClock()
+	st, err := store.Open(ctx, w.dsn, store.Options{Prefix: "sf", CommitInterval: o.commit, Now: o.now, Clock: clk, Admins: o.admins,
 		Limits: o.limits.Limits, Logger: o.logger})
 	if err != nil {
 		cancel()
@@ -237,7 +247,7 @@ func (w *world) startDaemon() error {
 	}
 	srv, err := server.New(server.Config{Store: st, Project: project, Version: "v0.2.0",
 		ProtoMin: o.protoMin, ProtoMax: o.protoMax, Latest: o.latest, ReapInterval: o.reap, Limits: o.limits,
-		Logger: o.logger})
+		Logger: o.logger, Clock: clk, AcceptHistory: w.acceptHistory})
 	if err != nil {
 		cancel()
 		return errors.Join(err, st.Close())
@@ -259,6 +269,16 @@ func (w *world) startDaemon() error {
 		}
 	}
 	return nil
+}
+
+// processClock returns the clock of a daemon about to start: a new
+// store.Clock on the machine's clocks (daemonOpts.clock), as each
+// process makes one, or nil, when the stores make their own from now.
+func (w *world) processClock() *store.Clock {
+	if w.opts.clock == nil {
+		return nil
+	}
+	return store.NewClock(store.ClockOptions{Read: w.opts.clock})
 }
 
 // adopt makes the control database and records the world's database in
@@ -315,7 +335,8 @@ func (w *world) startMany() error {
 			return err
 		}
 	}
-	ctl, err := store.OpenControl(ctx, w.controlDSN, store.ControlOptions{Admins: o.admins, CommitInterval: o.commit, Now: o.now,
+	clk := w.processClock()
+	ctl, err := store.OpenControl(ctx, w.controlDSN, store.ControlOptions{Admins: o.admins, CommitInterval: o.commit, Now: o.now, Clock: clk,
 		Limits: o.limits.Control, Logger: o.logger})
 	if err != nil {
 		cancel()
@@ -326,9 +347,9 @@ func (w *world) startMany() error {
 		return errors.Join(err, ctl.Close())
 	}
 	srv, err := server.New(server.Config{Control: ctl, Version: "v0.2.0", ProjectDBs: w.block,
-		Open:     server.ProjectOpener(w.dsn, ctl, store.Options{CommitInterval: o.commit, Now: o.now, Limits: o.limits.Limits, Logger: o.logger}, nil),
+		Open:     server.ProjectOpener(w.dsn, ctl, store.Options{CommitInterval: o.commit, Now: o.now, Clock: clk, Limits: o.limits.Limits, Logger: o.logger}, nil),
 		ProtoMin: o.protoMin, ProtoMax: o.protoMax, Latest: o.latest, ReapInterval: o.reap, Limits: o.limits, Logger: o.logger,
-		KeysFile: w.keysFile, AuthorizedKeys: w.handFile})
+		KeysFile: w.keysFile, AuthorizedKeys: w.handFile, Clock: clk, AcceptHistory: w.acceptHistory})
 	if err != nil {
 		return fail(err)
 	}
@@ -336,8 +357,14 @@ func (w *world) startMany() error {
 	if err := srv.WriteKeys(); err != nil {
 		return fail(err)
 	}
+	// Every active project's database is opened once before the daemon
+	// listens, which is also where it checks its clock against each
+	// one's history and may refuse to start (*server.ClockBehindError).
+	if err := srv.OpenProjects(ctx); err != nil {
+		return fail(err)
+	}
 	if err := srv.ReleaseArchived(ctx, server.ProjectOpener(w.dsn, ctl,
-		store.Options{CommitInterval: o.commit, Now: o.now, Limits: o.limits.Limits, Logger: o.logger, NoMigrate: true}, nil)); err != nil {
+		store.Options{CommitInterval: o.commit, Now: o.now, Clock: clk, Limits: o.limits.Limits, Logger: o.logger, NoMigrate: true}, nil)); err != nil {
 		return fail(err)
 	}
 	l, err := server.Listen(w.socket)

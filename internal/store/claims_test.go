@@ -28,7 +28,15 @@ func (c *clock) add(d time.Duration) {
 
 func clockStore(t *testing.T) (*Store, *clock) {
 	t.Helper()
-	c := &clock{t: time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)}
+	return clockStoreAt(t, time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC))
+}
+
+// clockStoreAt is clockStore with the clock starting at start. A store's
+// time never goes backward, so a test that writes history at several
+// times starts its clock before the earliest and only moves it forward.
+func clockStoreAt(t *testing.T, start time.Time) (*Store, *clock) {
+	t.Helper()
+	c := &clock{t: start}
 	return openStore(t, newDSN(t), Options{Now: c.now}), c
 }
 

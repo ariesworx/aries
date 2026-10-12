@@ -122,6 +122,7 @@ func (s *Server) serverStatus() *proto.ServerStatus {
 		HeapBytes: ms.HeapAlloc, SysBytes: ms.Sys, Goroutines: runtime.NumGoroutine(),
 		Projects: map[string]int{}, Principals: map[string]int{},
 		KeysFile: s.keysStatus(),
+		Clock:    s.clockStatus(),
 	}
 	if s.cfg.Control == nil {
 		out.OpenStoresMax = 1

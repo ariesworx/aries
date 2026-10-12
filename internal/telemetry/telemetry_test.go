@@ -231,7 +231,7 @@ func TestRecord(t *testing.T) {
 // allKeys is every attribute key an instrument may have. A new key is a
 // new dimension of every series: add it here only with a fixed list of
 // values (AGENTS.md rule 18).
-var allKeys = []string{"op", "result", "result_class", "project", "reason", "limit", "migrated", "event", "signal"}
+var allKeys = []string{"op", "result", "result_class", "project", "reason", "limit", "migrated", "event", "signal", "direction"}
 
 // wantKeys is each instrument's attribute keys (design §16.4).
 var wantKeys = map[string][]string{
@@ -252,6 +252,8 @@ var wantKeys = map[string][]string{
 	"starfix.keys_file.last_write.time": nil,
 	"starfix.reaper.duration":           nil,
 	"starfix.reaper.last_run.time":      nil,
+	"starfix.clock.behind":              nil,
+	"starfix.clock.steps":               {"direction"},
 	"starfix.telemetry.dropped":         {"signal"},
 }
 
@@ -501,6 +503,8 @@ func TestPrometheusNames(t *testing.T) {
 		"starfix.keys_file.last_write.time": "starfix_keys_file_last_write_time_seconds",
 		"starfix.reaper.duration":           "starfix_reaper_duration_seconds",
 		"starfix.reaper.last_run.time":      "starfix_reaper_last_run_time_seconds",
+		"starfix.clock.behind":              "starfix_clock_behind_seconds",
+		"starfix.clock.steps":               "starfix_clock_steps_total",
 		"starfix.telemetry.dropped":         "starfix_telemetry_dropped_total",
 	}
 	promType := map[Kind]string{Counter: "counter", UpDownCounter: "gauge", Gauge: "gauge", Histogram: "histogram"}

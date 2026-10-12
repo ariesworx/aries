@@ -826,6 +826,10 @@ func (s *Server) OpenProjects(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("open projects: %w", err)
 	}
+	// The clock is checked against every history the daemon will write
+	// to: the control store's, and each active project's as it is opened
+	// here anyway.
+	behind := []*behindLog{s.startBehind(ControlLog, s.cfg.Control.ClockState())}
 	for _, p := range all {
 		if p.State != store.ProjectActive {
 			continue
@@ -835,6 +839,7 @@ func (s *Server) OpenProjects(ctx context.Context) error {
 		st, err := s.cfg.Open(octx, p)
 		cancel()
 		if err == nil {
+			behind = append(behind, s.startBehind(ProjectLog(p.ID, p.DBName), st.ClockState()))
 			// This is where an upgrade's migrations run, so it is measured
 			// as any opening is.
 			s.cfg.Telemetry.Since(telemetry.StoreOpenDuration, start, strconv.FormatBool(st.Migrated() > 0))
@@ -850,7 +855,7 @@ func (s *Server) OpenProjects(ctx context.Context) error {
 			s.mu.Unlock()
 		}
 	}
-	return nil
+	return s.startClock(behind)
 }
 
 // ReleaseArchived ends every claim in every archived project (decision
