@@ -26,7 +26,7 @@ import (
 // in the directory stays, and so does the directory.
 const watchScript = `trap '' INT TERM HUP QUIT
 read -r pid || exit 0
-case $pid in '' | *[!0-9]*) exit 0 ;; esac
+case $pid in '' | *[!0-9]* | 0 | 1) exit 0 ;; esac
 if read -r stopped; then exit 0; fi
 kill -s KILL -- "-$pid" 2>/dev/null
 n=0
