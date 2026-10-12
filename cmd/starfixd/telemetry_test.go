@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,7 +13,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -338,24 +341,60 @@ func TestRunDaemonTelemetryOffByDefault(t *testing.T) {
 }
 
 // The key of principals' stand-ins is made only when traces are
-// exported with stand-ins; a daemon that then cannot make it does not
-// start, and says what to do.
+// exported with stand-ins. A daemon that cannot make it starts and
+// serves all the same (design §16: telemetry never fails the server):
+// its spans say nothing about who, and its log and its status say why
+// and what to do.
 func TestRunDaemonStandInKey(t *testing.T) {
 	traces := map[string]string{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://127.0.0.1:1/v1/traces", "OTEL_BSP_SCHEDULE_DELAY": "60000"}
 	t.Run("nowhere to make it", func(t *testing.T) {
 		noLeak(t)
-		set := server.Settings{DSN: "nobody@tcp(127.0.0.1:1)/nowhere", Project: adopted, Socket: filepath.Join(t.TempDir(), "d.sock")}
-		set.Limits = server.DefaultLimits
-		set.Telemetry.Principals = "pseudonym"
-		set.Telemetry.PrincipalsKey = filepath.Join(t.TempDir(), "telemetry", "principals.key")
-		err := runDaemon(t.Context(), set, slog.New(slog.DiscardHandler), func(k string) string { return traces[k] })
-		if err == nil || !strings.Contains(err.Error(), set.Telemetry.PrincipalsKey) {
-			t.Fatalf("runDaemon with no directory for the stand-in key = %v, want a refusal naming the file", err)
+		var mu sync.Mutex
+		var posted []byte
+		col := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			b, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			posted = append(posted, b...)
+			mu.Unlock()
+		}))
+		t.Cleanup(col.Close)
+		exported := func(re string) bool {
+			mu.Lock()
+			defer mu.Unlock()
+			return regexp.MustCompile(re).Match(posted)
 		}
-		for _, fix := range []string{"fix: create its directory", "ReadWritePaths=", "principals: to name or omit", "OTEL_TRACES_EXPORTER=none"} {
-			if !strings.Contains(err.Error(), fix) {
-				t.Errorf("the refusal does not say %q: %v", fix, err)
+		key := filepath.Join(t.TempDir(), "telemetry", "principals.key")
+		s := newSite(t, "")
+		rewrite(t, s, "project: "+adopted+"\nadmins: [dana]\ntelemetry:\n  principals_key: "+key+"\n")
+		// The guide's one variable, and nothing else done.
+		d := runSite(t, s, map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": col.URL, "OTEL_BSP_SCHEDULE_DELAY": "50", "OTEL_METRICS_EXPORTER": "none"})
+		waitFor(t, "the daemon to answer its socket", func() bool {
+			_, err := server.Probe(t.Context(), d.sock, adopted, "test")
+			return err == nil
+		})
+		if w := hello(t, d.sock, "alice", adopted); w.Err != nil {
+			t.Fatalf("hello: %v", w.Err)
+		}
+		waitFor(t, "the handshake's span to reach the collector", func() bool { return exported("handshake") })
+		if exported(`[ps]_[0-9a-f]{16}`) || exported("alice") {
+			t.Errorf("with the key unavailable an export names someone, by a stand-in or by name")
+		}
+		res := status(t, s, d.sock)
+		if res.err != nil || !strings.Contains(res.stdout, "TRACES SAY NOTHING ABOUT WHO: the key for stand-ins, "+key+", is unavailable: it cannot be made: no such file or directory") {
+			t.Errorf("starfixd status = %v, and does not say the key is unavailable:\n%s", res.err, res.stdout)
+		}
+		if err := d.stop(); err != nil {
+			t.Fatalf("runDaemon = %v, want nil", err)
+		}
+		out := d.log.String()
+		for _, want := range []string{`level=ERROR msg="telemetry: spans say nothing about who`, "the key's file: " + key, "cause: it cannot be made: no such file or directory",
+			`msg="fix: make its directory`, "ReadWritePaths=" + filepath.Dir(key), "principals: omit", "OTEL_TRACES_EXPORTER=none", "starfixd serving"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("the log lacks %q:\n%s", want, out)
 			}
+		}
+		if _, err := os.Stat(filepath.Dir(key)); !os.IsNotExist(err) {
+			t.Errorf("the daemon made the key's directory itself (stat: %v)", err)
 		}
 	})
 	for _, tc := range []struct {
@@ -477,5 +516,49 @@ func TestStatusUnreadableConfig(t *testing.T) {
 	var doc map[string]proto.Error
 	if jerr := json.Unmarshal(out.Bytes(), &doc); jerr != nil || err != exitError(1) || !strings.Contains(doc["error"].Message, "fix: run it as the user starfixd runs as") {
 		t.Errorf("starfixd status --json with an unreadable config = %v, printed %q; want one {\"error\"} document naming the fix", err, out.String())
+	}
+}
+
+// A refusal is printed with its fix on a line of its own, since
+// `systemctl status` cuts a long line and the fix is at its end.
+func TestRefusalLines(t *testing.T) {
+	for _, tc := range []struct {
+		err  string
+		want []string
+	}{
+		{"no fix here", []string{"no fix here"}},
+		{"the cause; fix: do this", []string{"the cause", "fix: do this"}},
+		{"the cause; fix: do this; fix: or that", []string{"the cause", "fix: do this", "fix: or that"}},
+	} {
+		if got := refusalLines(errors.New(tc.err)); !slices.Equal(got, tc.want) {
+			t.Errorf("refusalLines(%q) = %q, want %q", tc.err, got, tc.want)
+		}
+	}
+	// The start refusals of the OTEL_* variables, as they are printed.
+	set := server.Settings{DSN: "nobody@tcp(127.0.0.1:1)/nowhere", Project: adopted, Socket: filepath.Join(t.TempDir(), "d.sock")}
+	set.Limits = server.DefaultLimits
+	for _, env := range []map[string]string{
+		{"OTEL_TRACES_SAMPLER": "jaeger_remote"},
+		{"OTEL_TRACES_SAMPLER": "traceidratio", "OTEL_TRACES_SAMPLER_ARG": "half"},
+		{"OTEL_TRACES_EXPORTER": "zipkin"},
+		{"OTEL_BSP_MAX_QUEUE_SIZE": "0"},
+		{"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "grpc", "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:4317"},
+		{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "collector:4318"},
+		{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:4318", "OTEL_EXPORTER_OTLP_TRACES_HEADERS": "nonsense"},
+	} {
+		err := runDaemon(t.Context(), set, slog.New(slog.DiscardHandler), func(k string) string { return env[k] })
+		if err == nil {
+			t.Errorf("runDaemon with %v started, want a refusal", env)
+			continue
+		}
+		lines := refusalLines(err)
+		if len(lines) < 2 || !strings.HasPrefix(lines[len(lines)-1], "fix: ") {
+			t.Errorf("the refusal for %v is not a cause and a fix on lines of their own: %q", env, lines)
+		}
+		for _, l := range lines {
+			if len(l) > 200 {
+				t.Errorf("a line of %d bytes in the refusal for %v, which `systemctl status` would cut:\n%s", len(l), env, l)
+			}
+		}
 	}
 }

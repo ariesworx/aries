@@ -1,6 +1,8 @@
 package telemetry
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -149,35 +151,71 @@ func TestStandInKey(t *testing.T) {
 	}
 }
 
-// A key file that cannot be trusted or made stops a start that needs
-// it, with a fix, and never repeats the key.
-func TestStandInKeyRefusals(t *testing.T) {
+// A key that cannot be read or made never stops a start (design §16:
+// telemetry must not fail the server). While it is unavailable a span
+// says nothing about who, exactly as with omit: no in-memory key, and
+// never the name. The log says so once, at error level, with the cause
+// on one short line and each fix on its own; the state says why; and
+// once the cause is gone a retry starts the stand-ins and says so once.
+func TestStandInKeyUnavailable(t *testing.T) {
 	const key = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
 	for _, tc := range []struct {
 		name    string
 		prepare func(t *testing.T, path string)
-		want    string
+		// repair removes the cause, as the fix says to.
+		repair  func(t *testing.T, path string)
+		cause   string
+		damaged bool
+		fix     string
 	}{
-		{"readable by others", func(t *testing.T, path string) {
-			if err := os.WriteFile(path, []byte(key+"\n"), 0o644); err != nil { //nolint:gosec // the mode under test
-				t.Fatal(err)
-			}
-		}, "chmod 600"},
-		{"not a key", func(t *testing.T, path string) {
-			if err := os.WriteFile(path, []byte(key[:40]+"\n"), 0o600); err != nil {
-				t.Fatal(err)
-			}
-		}, "does not hold a key"},
-		{"a directory", func(t *testing.T, path string) {
-			if err := os.Mkdir(path, 0o700); err != nil {
-				t.Fatal(err)
-			}
-		}, "not a regular file"},
 		{"no directory to make it in", func(t *testing.T, path string) {
 			if err := os.Remove(filepath.Dir(path)); err != nil {
 				t.Fatal(err)
 			}
-		}, "ReadWritePaths"},
+		}, func(t *testing.T, path string) {
+			if err := os.Mkdir(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}, "no such file or directory", false, "ReadWritePaths="},
+		{"a directory it may not write in", func(t *testing.T, path string) {
+			if os.Geteuid() == 0 {
+				t.Skip("root writes anywhere")
+			}
+			if err := os.Chmod(filepath.Dir(path), 0o500); err != nil { //nolint:gosec // the mode under test
+				t.Fatal(err)
+			}
+		}, func(t *testing.T, path string) {
+			if err := os.Chmod(filepath.Dir(path), 0o700); err != nil { //nolint:gosec // a directory
+				t.Fatal(err)
+			}
+		}, "permission denied", false, "ReadWritePaths="},
+		{"readable by others", func(t *testing.T, path string) {
+			if err := os.WriteFile(path, []byte(key+"\n"), 0o644); err != nil { //nolint:gosec // the mode under test
+				t.Fatal(err)
+			}
+		}, func(t *testing.T, path string) {
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+		}, "others can read it", true, "delete it"},
+		{"not a key", func(t *testing.T, path string) {
+			if err := os.WriteFile(path, []byte(key[:40]+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, func(t *testing.T, path string) {
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+		}, "does not hold a key", true, "delete it"},
+		{"a directory", func(t *testing.T, path string) {
+			if err := os.Mkdir(path, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}, func(t *testing.T, path string) {
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+		}, "not a regular file", true, "move it away"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "telemetry", "principals.key")
@@ -185,25 +223,114 @@ func TestStandInKeyRefusals(t *testing.T) {
 				t.Fatal(err)
 			}
 			tc.prepare(t, path)
-			_, _, err := NewManual(Config{KeyFile: path})
-			if err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "fix: ") {
-				t.Fatalf("NewManual = %v, want a refusal containing %q and a fix", err, tc.want)
-			}
-			if strings.Contains(err.Error(), key[:40]) {
-				t.Errorf("the refusal repeats the key: %v", err)
-			}
-			// With names in place of stand-ins no key is needed, and the
-			// file is not looked at.
 			log := &syncBuffer{}
-			tel, _, err := NewManual(Config{KeyFile: path, Principals: PrincipalsName, Logger: logTo(log)})
+			tel, m, err := NewManual(Config{KeyFile: path, Logger: logTo(log), Ops: testOps})
 			if err != nil {
-				t.Fatalf("NewManual(principals name) = %v, want it to start: no key is needed", err)
+				t.Fatalf("NewManual = %v; a key that is unavailable must not stop a start", err)
 			}
-			_ = tel.Shutdown(t.Context())
-			if strings.Contains(log.String(), key[:40]) {
-				t.Errorf("the log repeats the key:\n%s", log)
+			t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
+			if p, s := who(t, tel, m, "alice", "s-abcdefgh"); p != "" || s != "" {
+				t.Errorf("with the key unavailable a span carries principal %q and session %q, want nothing about who", p, s)
+			}
+			if got, ok := tel.StandIn("alice"); ok {
+				t.Errorf("StandIn = %q with the key unavailable: no key may be made up", got)
+			}
+			st := tel.People()
+			if st.Mode != PrincipalsPseudonym || st.StandIns || !strings.Contains(st.Cause, tc.cause) || st.Damaged != tc.damaged || st.KeyFile != path {
+				t.Errorf("People() = %+v; want pseudonym, no stand-ins, a cause containing %q, damaged %t", st, tc.cause, tc.damaged)
+			}
+			out := log.String()
+			if n := strings.Count(out, "level=ERROR msg=\"telemetry: spans say nothing about who"); n != 1 {
+				t.Errorf("%d error lines saying spans say nothing about who, want 1:\n%s", n, out)
+			}
+			for _, want := range []string{tc.cause, "msg=\"fix: ", tc.fix, "principals: omit", "OTEL_TRACES_EXPORTER=none"} {
+				if !strings.Contains(out, want) {
+					t.Errorf("the log lacks %q:\n%s", want, out)
+				}
+			}
+			for line := range strings.Lines(out) {
+				// Short enough for `systemctl status` to show whole.
+				if len(line) > 320 {
+					t.Errorf("a log line of %d bytes; the cause and each fix must be a short line of its own:\n%s", len(line), line)
+				}
+			}
+			if strings.Contains(out, key[:40]) || strings.Contains(st.Cause, key[:40]) {
+				t.Errorf("the log or the state repeats the key:\n%s", out)
+			}
+
+			// Looked at again and still unavailable: nothing more is said.
+			tel.RetryKey()
+			if n := strings.Count(log.String(), "spans say nothing about who"); n != 1 {
+				t.Errorf("%d lines after a retry that found the same cause, want 1", n)
+			}
+			// The cause removed: the next look makes or reads the key.
+			tc.repair(t, path)
+			tel.RetryKey()
+			tel.RetryKey()
+			p, s := who(t, tel, m, "alice", "s-abcdefgh")
+			if !principalStandIn.MatchString(p) || !sessionStandIn.MatchString(s) {
+				t.Errorf("after the fix a span carries principal %q and session %q, want stand-ins", p, s)
+			}
+			if st := tel.People(); !st.StandIns || st.Cause != "" || st.Damaged {
+				t.Errorf("People() after the fix = %+v, want stand-ins and no cause", st)
+			}
+			if n := strings.Count(log.String(), "spans name people by stand-ins from now on"); n != 1 {
+				t.Errorf("%d lines saying the stand-ins began, want 1:\n%s", n, log)
+			}
+			if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o600 {
+				t.Errorf("the key file after the fix: %v, %v; want mode 0600", fi, err)
 			}
 		})
+	}
+}
+
+// With names in place of stand-ins, or nothing, no key is needed: a key
+// file that could not be used is not looked at as a fault, and nothing
+// is said of it at error level.
+func TestNoKeyNeeded(t *testing.T) {
+	for _, mode := range []string{PrincipalsName, PrincipalsOmit} {
+		path := filepath.Join(t.TempDir(), "missing", "principals.key")
+		log := &syncBuffer{}
+		tel, m, err := NewManual(Config{KeyFile: path, Principals: mode, Logger: logTo(log), Ops: testOps})
+		if err != nil {
+			t.Fatalf("NewManual(principals %s) = %v", mode, err)
+		}
+		t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
+		p, _ := who(t, tel, m, "alice", "s-abcdefgh")
+		if (p == "alice") != (mode == PrincipalsName) {
+			t.Errorf("principals %s: span carries principal %q", mode, p)
+		}
+		tel.RetryKey()
+		if st := tel.People(); st.Mode != mode || st.StandIns || st.Cause != "" {
+			t.Errorf("principals %s: People() = %+v, want no cause: no key is wanted", mode, st)
+		}
+		if strings.Contains(log.String(), "level=ERROR") {
+			t.Errorf("principals %s: an error was logged:\n%s", mode, log)
+		}
+		if _, err := os.Stat(filepath.Dir(path)); !os.IsNotExist(err) {
+			t.Errorf("principals %s: the key's directory was made", mode)
+		}
+	}
+}
+
+// The daemon's Telemetry never makes a key up: with no file named for
+// it, the key is unavailable, for the reason it was given.
+func TestNoKeyFileNamed(t *testing.T) {
+	log := &syncBuffer{}
+	tel, err := New(t.Context(), Config{Logger: logTo(log), Ops: testOps, KeyFileErr: errors.New("the account has no home directory"),
+		Getenv: env{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://127.0.0.1:1/v1/traces", "OTEL_BSP_SCHEDULE_DELAY": "60000"}.get})
+	if err != nil {
+		t.Fatalf("New = %v, want a start", err)
+	}
+	t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
+	if _, ok := tel.StandIn("alice"); ok {
+		t.Errorf("a stand-in was made with no key file")
+	}
+	if st := tel.People(); st.StandIns || !strings.Contains(st.Cause, "the account has no home directory") {
+		t.Errorf("People() = %+v, want the reason no file is named", st)
+	}
+	if !strings.Contains(log.String(), "principals_key") {
+		t.Errorf("the log does not say to set telemetry: principals_key:\n%s", log)
 	}
 }
 

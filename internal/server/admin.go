@@ -527,10 +527,12 @@ func principalWhois(ctx context.Context, s *Server, sess *session, in proto.Prin
 			"that is not a principal's stand-in")
 	}
 	tel := s.cfg.Telemetry
-	if _, ok := tel.StandIn(sess.actor.Principal); !ok {
-		return nil, proto.Errf(proto.CodeNotFound,
-			"nothing can resolve it: the server makes its key when it first exports traces with `telemetry: principals: pseudonym`, and a stand-in made before a key file was deleted is unlinkable for good (docs/server.md, Traces)",
-			"this server has no stand-in key, so it has made no stand-in that still resolves")
+	if why := tel.NoKey(); why != "" {
+		// The server cannot answer; that is not the same as a stand-in
+		// that is nobody's.
+		return nil, proto.Errf(proto.CodeUnavailable,
+			"the server's operator finds the cause and its fix in starfixd's log (`telemetry: spans say nothing about who`) and in `starfixd status`; a stand-in made under a key file that was since deleted cannot be resolved by anyone (docs/server.md, Traces)",
+			"this server has no key for stand-ins: "+why)
 	}
 	all, err := s.cfg.Control.Principals(ctx)
 	if err != nil {

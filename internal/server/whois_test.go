@@ -1,6 +1,8 @@
 package server
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -81,17 +83,117 @@ func TestWhois(t *testing.T) {
 		})
 	}
 
-	// A server that never made a stand-in has no key to resolve one
-	// with, and says so rather than answering that nobody matches.
+	// A server with no key says so, and why, rather than answering that
+	// nobody matches: it is the server that cannot answer, not the
+	// stand-in that is wrong.
 	t.Run("a server with no key", func(t *testing.T) {
-		for name, tel := range map[string]*telemetry.Telemetry{"no telemetry": nil, "traces off": mustTelemetry(t, telemetry.Config{})} {
-			plain := adminWorldTel(t, Limits{}, tel)
+		for name, tc := range map[string]struct {
+			tel *telemetry.Telemetry
+			why string
+		}{
+			"no telemetry": {nil, "it exports no telemetry"},
+			"traces off":   {mustTelemetry(t, telemetry.Config{}), "it exports no traces"},
+		} {
+			plain := adminWorldTel(t, Limits{}, tc.tel)
 			_, perr := whois(mustDialTo(t, plain.Server, dana, projA), alices)
-			if perr == nil || perr.Code != proto.CodeNotFound || !strings.Contains(perr.Message, "no stand-in key") || !strings.Contains(perr.Fix, "unlinkable") {
-				t.Errorf("%s: whois = %+v; want not_found, saying the server has no key and that an old stand-in is unlinkable", name, perr)
+			if perr == nil || perr.Code != proto.CodeUnavailable || !strings.Contains(perr.Message, "has no key for stand-ins: "+tc.why) || perr.Fix == "" {
+				t.Errorf("%s: whois = %+v; want unavailable, saying the server has no key because %s, with a fix", name, perr, tc.why)
 			}
 		}
 	})
+}
+
+// A key that cannot be made does not stop the server, and is not papered
+// over: requests are served, their spans say nothing about who (no
+// stand-in, and never the name), the status report says people are left
+// out because the key is unavailable and why, and whois says the same.
+// Once the cause is gone the reaper's next tick finds the key, with no
+// restart, and spans name people by stand-ins from then on.
+func TestSpansWithoutTheKey(t *testing.T) {
+	key := filepath.Join(t.TempDir(), "telemetry", "principals.key")
+	tel, m := spanned(t, telemetry.Config{KeyFile: key})
+	mu := adminWorldTel(t, Limits{}, tel)
+	d := mustDialTo(t, mu.Server, dana, projA)
+	a := mustDialTo(t, mu.Server, alice, projA)
+	whoOn := func(op string, c *conn) (string, string) {
+		t.Helper()
+		m.ResetSpans()
+		traced(c, op, proto.LimitArgs{}, sampledTP, "")
+		for _, sp := range m.Spans() {
+			if sp.Name == op {
+				return sp.Attrs["principal"], sp.Attrs["session"]
+			}
+		}
+		t.Fatalf("no %s span", op)
+		return "", ""
+	}
+
+	for _, sp := range m.Spans() {
+		for k, v := range sp.Attrs {
+			if k == "principal" || k == "session" || strings.Contains(v, "alice") || strings.Contains(v, "dana") || principalAlias.MatchString(v) {
+				t.Errorf("with the key unavailable, span %s carries %s=%q", sp.Name, k, v)
+			}
+		}
+	}
+	if p, sess := whoOn(proto.OpReady, a); p != "" || sess != "" {
+		t.Errorf("with the key unavailable a request's span carries principal %q and session %q, want neither", p, sess)
+	}
+	st := mustAsk[proto.StatusResult](d, proto.OpStatus, proto.StatusArgs{})
+	if tr := st.Server.Traces; tr == nil || tr.People != "unavailable" || !strings.Contains(tr.Cause, "no such file or directory") || tr.KeyFile != key || tr.Damaged {
+		t.Errorf("status: traces = %+v; want people unavailable, the cause and the key's file", st.Server.Traces)
+	}
+	_, perr := ask[proto.PrincipalWhoisResult](d, proto.OpPrincipalWhois, proto.PrincipalWhoisArgs{StandIn: "p_0123456789abcdef"})
+	if perr == nil || perr.Code != proto.CodeUnavailable || !strings.Contains(perr.Message, "the key is unavailable") ||
+		!strings.Contains(perr.Message, "no such file or directory") || !strings.Contains(perr.Fix, "starfixd's log") {
+		t.Errorf("whois with the key unavailable = %+v; want unavailable, with the cause, and a fix that points at the log", perr)
+	}
+
+	// The operator makes the directory, and does nothing else.
+	if err := os.Mkdir(filepath.Dir(key), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mu.tick(t.Context(), false)
+	p, sess := whoOn(proto.OpBlocked, a)
+	if !principalAlias.MatchString(p) || !sessionAlias.MatchString(sess) {
+		t.Fatalf("after the directory was made and the reaper ticked, the span carries principal %q and session %q, want stand-ins", p, sess)
+	}
+	st = mustAsk[proto.StatusResult](d, proto.OpStatus, proto.StatusArgs{})
+	if tr := st.Server.Traces; tr == nil || tr.People != "pseudonym" || tr.Cause != "" {
+		t.Errorf("status after the fix: traces = %+v, want people pseudonym and no cause", st.Server.Traces)
+	}
+	if got, perr := ask[proto.PrincipalWhoisResult](d, proto.OpPrincipalWhois, proto.PrincipalWhoisArgs{StandIn: p}); perr != nil || got.Name != "alice" {
+		t.Errorf("whois after the fix = %+v, %v; want alice", got, perr)
+	}
+}
+
+// The status report says how people appear in traces, and nothing of it
+// when the server exports none.
+func TestStatusTraces(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		tel  func(t *testing.T) *telemetry.Telemetry
+		want *proto.TracesStatus
+	}{
+		{"no telemetry", func(*testing.T) *telemetry.Telemetry { return nil }, nil},
+		{"traces off", func(t *testing.T) *telemetry.Telemetry { return mustTelemetry(t, telemetry.Config{}) }, nil},
+		{"stand-ins", func(t *testing.T) *telemetry.Telemetry { tel, _ := spanned(t, telemetry.Config{}); return tel }, &proto.TracesStatus{People: "pseudonym"}},
+		{"names", func(t *testing.T) *telemetry.Telemetry {
+			tel, _ := spanned(t, telemetry.Config{Principals: telemetry.PrincipalsName})
+			return tel
+		}, &proto.TracesStatus{People: "name"}},
+		{"nobody, by the setting", func(t *testing.T) *telemetry.Telemetry {
+			tel, _ := spanned(t, telemetry.Config{Principals: telemetry.PrincipalsOmit})
+			return tel
+		}, &proto.TracesStatus{People: "omit"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mu := adminWorldTel(t, Limits{}, tc.tel(t))
+			got := mustAsk[proto.StatusResult](mustDialTo(t, mu.Server, dana, projA), proto.OpStatus, proto.StatusArgs{}).Server.Traces
+			if (got == nil) != (tc.want == nil) || (got != nil && *got != *tc.want) {
+				t.Errorf("status: traces = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
 }
 
 // mustTelemetry makes a Telemetry as the daemon does, from cfg alone.

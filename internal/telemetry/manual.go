@@ -29,7 +29,8 @@ type Manual struct {
 // same instruments, attributes, buckets and spans, and is read through
 // the Manual. cfg.Getenv is read for the resource and the sampler;
 // cfg.Pull also offers the Prometheus handler; and the stand-in key is
-// cfg.KeyFile's, made if it is not there, as when spans are exported.
+// cfg.KeyFile's, made if it is not there, as when spans are exported,
+// or, with no file named, one kept in memory for the test's life.
 // The process's SDK error handler is left alone.
 func NewManual(cfg Config) (*Telemetry, *Manual, error) {
 	env, err := readEnv(cfg.Getenv)
@@ -37,7 +38,7 @@ func NewManual(cfg Config) (*Telemetry, *Manual, error) {
 		return nil, nil, err
 	}
 	t := newTelemetry(cfg, env)
-	if t.who, err = openPeople(cfg, true, t.log); err != nil {
+	if t.who, err = openPeople(cfg, true, true, t.log); err != nil {
 		return nil, nil, err
 	}
 	m := &Manual{r: sdkmetric.NewManualReader()}

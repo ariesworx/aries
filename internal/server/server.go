@@ -530,6 +530,9 @@ func (s *Server) reapLoop(ctx context.Context) {
 func (s *Server) tick(ctx context.Context, prune bool) {
 	start := time.Now()
 	ctx, span := s.cfg.Telemetry.Start(ctx, telemetry.SpanReaper)
+	// A key for stand-ins that could not be read or made at start is
+	// looked for again: making its directory is all an operator does.
+	s.cfg.Telemetry.RetryKey()
 	s.CheckClock(ctx)
 	s.refresh(ctx)
 	s.CloseIdleStores()

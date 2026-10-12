@@ -62,9 +62,11 @@ type Config struct {
 	// KeyFile is the file that holds the key the stand-ins of
 	// PrincipalsPseudonym are made with. It is made, mode 0600, the
 	// first time spans are exported with stand-ins, and never without
-	// that. Empty keeps the key in memory: stand-ins then do not outlast
-	// the process.
-	KeyFile string
+	// that. When it cannot be read or made, spans say nothing about who
+	// until it can ([Telemetry.RetryKey]); that never stops a start.
+	// KeyFileErr is why no file could be named, when KeyFile is empty.
+	KeyFile    string
+	KeyFileErr error
 }
 
 // Telemetry records starfixd's measurements and exports them. A nil
@@ -91,8 +93,8 @@ type Telemetry struct {
 	tp        *sdktrace.TracerProvider
 	tracer    trace.Tracer
 	traceErrs *errlog
-	// who is how a principal and a session appear on a span.
-	who people
+	// who is how a principal and a session appear on a span; never nil.
+	who *people
 }
 
 // instrument is one instrument of the SDK's, by its kind.
@@ -109,8 +111,9 @@ type instrument struct {
 // variables name an endpoint for them, offers the metrics for pull when
 // cfg.Pull is set, and does none of it, starting no goroutine and
 // writing no file, when nothing is configured or OTEL_SDK_DISABLED is
-// true. It refuses, with a fix, a variable it cannot honor, and a key
-// file it needs and cannot read or make. The caller calls Shutdown.
+// true. It refuses, with a fix, a variable it cannot honor. A key for
+// stand-ins that it cannot read or make does not stop it: spans then
+// say nothing about who. The caller calls Shutdown.
 //
 // A Telemetry that exports sets the SDK's process-wide error handler and
 // logger to cfg.Logger's, so a process makes one.
@@ -122,7 +125,7 @@ func New(ctx context.Context, cfg Config) (*Telemetry, error) {
 	t := newTelemetry(cfg, env)
 	log := t.log
 	tracing := !env.disabled && env.traces.endpoint != ""
-	if t.who, err = openPeople(cfg, tracing, log); err != nil {
+	if t.who, err = openPeople(cfg, tracing, false, log); err != nil {
 		return nil, err
 	}
 	if env.disabled {
@@ -205,7 +208,8 @@ func newTelemetry(cfg Config, env envConfig) *Telemetry {
 		log = slog.New(slog.DiscardHandler)
 	}
 	t := &Telemetry{log: log, errs: newErrlog(log, env.secrets(), "metrics"), traceErrs: newErrlog(log, env.secrets(), "trace"),
-		perProject: cfg.PerProject, ops: make(map[string]struct{}, len(cfg.Ops))}
+		perProject: cfg.PerProject, ops: make(map[string]struct{}, len(cfg.Ops)), who: &people{mode: PrincipalsOmit, log: log}}
+	t.who.state.Store(&keyState{})
 	for _, op := range cfg.Ops {
 		t.ops[op] = struct{}{}
 	}

@@ -43,6 +43,9 @@ func Print(w io.Writer, res proto.StatusResult) {
 		if c := s.Clock; c != nil {
 			p("%s", clockLines(*c))
 		}
+		if tr := s.Traces; tr != nil {
+			p("%s", tracesLine(*tr))
+		}
 		p("starfixd's memory %d MiB in use, %d MiB from the system; %d goroutines\n", mib(s.HeapBytes), mib(s.SysBytes), s.Goroutines)
 		p("projects: %s; principals: %s\n\n", byState(s.Projects), byState(s.Principals))
 	}
@@ -159,6 +162,28 @@ func byState(counts map[string]int) string {
 
 // clockLines says what the server has seen of its clock, and nothing
 // when it has seen no step and is not behind its history.
+// tracesLine says how people appear in the server's traces: loudly when
+// they are left out because the stand-in key is unavailable, which
+// nobody chose.
+func tracesLine(tr proto.TracesStatus) string {
+	switch tr.People {
+	case "pseudonym":
+		return "traces: people are named by stand-ins (telemetry: principals: pseudonym)\n"
+	case "name":
+		return "traces: people are named by name (telemetry: principals: name)\n"
+	case "omit":
+		return "traces: nothing says who (telemetry: principals: omit)\n"
+	case "unavailable":
+		state := "is unavailable"
+		if tr.Damaged {
+			state = "CANNOT BE TRUSTED"
+		}
+		return fmt.Sprintf("TRACES SAY NOTHING ABOUT WHO: the key for stand-ins, %s, %s: %s. starfixd's log has the fix (`telemetry: spans say nothing about who`), and starfixd looks again every half minute\n",
+			esc(tr.KeyFile), state, esc(tr.Cause))
+	}
+	return "traces: " + esc(tr.People) + "\n"
+}
+
 func clockLines(c proto.ClockStatus) string {
 	var b strings.Builder
 	if n := c.StepsForward + c.StepsBackward; n > 0 {

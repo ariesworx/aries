@@ -362,3 +362,17 @@ func (s *Server) checkDolt(ctx context.Context) error {
 	}
 	return d.err
 }
+
+// tracesStatus is how people appear in the server's traces, for the
+// status report; nil for a server that exports none.
+func (s *Server) tracesStatus() *proto.TracesStatus {
+	tel := s.cfg.Telemetry
+	if !tel.Tracing() {
+		return nil
+	}
+	p := tel.People()
+	if p.Mode == telemetry.PrincipalsPseudonym && !p.StandIns {
+		return &proto.TracesStatus{People: "unavailable", Cause: p.Cause, Damaged: p.Damaged, KeyFile: p.KeyFile}
+	}
+	return &proto.TracesStatus{People: p.Mode}
+}

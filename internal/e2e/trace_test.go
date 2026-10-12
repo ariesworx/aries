@@ -232,7 +232,7 @@ func TestTracesEndToEnd(t *testing.T) {
 
 	// A daemon that traces nothing has made no stand-in to resolve.
 	plain := adminWorld(t, 0, 0)
-	if e := plain.newUser("dana", "").refused(proto.CodeNotFound, "admin", "principal", "whois", alias); !strings.Contains(e.Message, "no stand-in key") {
+	if e := plain.newUser("dana", "").refused(proto.CodeUnavailable, "admin", "principal", "whois", alias); !strings.Contains(e.Message, "has no key for stand-ins: it exports no telemetry") {
 		t.Errorf("whois on a server with no key: %q", e.Message)
 	}
 }

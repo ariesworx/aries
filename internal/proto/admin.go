@@ -434,6 +434,22 @@ type ServerStatus struct {
 	Principals    map[string]int `json:"principals"`
 	KeysFile      *KeysFile      `json:"keys_file,omitempty"`
 	Clock         *ClockStatus   `json:"clock,omitempty"`
+	Traces        *TracesStatus  `json:"traces,omitempty"`
+}
+
+// TracesStatus is how people appear in the traces the server exports;
+// a server that exports none has none. People is "pseudonym" (a stable
+// stand-in for each name), "name" or "omit", as `telemetry: principals:`
+// has it, or "unavailable": the setting is pseudonym, and spans say
+// nothing about who because the key the stand-ins are made with cannot
+// be read or made. Cause then says why, KeyFile names the key's file,
+// and Damaged says the file is there and cannot be trusted (others can
+// read it, or it does not hold a key).
+type TracesStatus struct {
+	People  string `json:"people"`
+	Cause   string `json:"cause,omitempty"`
+	Damaged bool   `json:"damaged,omitempty"`
+	KeyFile string `json:"key_file,omitempty"`
 }
 
 // ClockStatus is the server's clock as the daemon has seen it since it

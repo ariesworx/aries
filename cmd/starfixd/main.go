@@ -48,6 +48,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -140,7 +141,11 @@ func main() {
 		}
 		os.Exit(exitClockBehind)
 	}
-	fmt.Fprintf(os.Stderr, "starfixd: %v\n", err)
+	// The cause, then each fix, on a line of its own: `systemctl status`
+	// cuts a long line, and the fix is at its end.
+	for _, l := range refusalLines(err) {
+		fmt.Fprintf(os.Stderr, "starfixd: %s\n", l)
+	}
 	if _, ok := errors.AsType[usageError](err); ok {
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
@@ -256,12 +261,13 @@ const telemetryStop = 5 * time.Second
 // until it listens on its socket. A listener that cannot be bound fails
 // the start.
 func runDaemon(ctx context.Context, s server.Settings, log *slog.Logger, getenv func(string) string) error {
-	// Where the stand-in key is kept is only an error when a key is
-	// needed: a daemon that exports no trace starts without one.
+	// A stand-in key that cannot be found, read or made never stops the
+	// daemon: its spans then say nothing about who, and its log and its
+	// status say why (telemetry.Config.KeyFile).
 	keyFile, keyErr := principalsKey(s)
 	tel, err := telemetry.New(ctx, telemetry.Config{Version: version.Version, Getenv: getenv, Logger: log,
 		Pull: s.Telemetry.Listen != "", PerProject: s.Telemetry.ByProject(), Ops: server.Ops(), Projects: s.Limits.Control.Projects,
-		Principals: s.Telemetry.Principals, KeyFile: keyFile})
+		Principals: s.Telemetry.Principals, KeyFile: keyFile, KeyFileErr: keyErr})
 	if err != nil {
 		return err
 	}
@@ -272,9 +278,6 @@ func runDaemon(ctx context.Context, s server.Settings, log *slog.Logger, getenv 
 			log.Warn("telemetry did not stop cleanly", "err", err)
 		}
 	}()
-	if keyErr != nil && tel.Tracing() && s.Telemetry.Principals == telemetry.PrincipalsPseudonym {
-		return keyErr
-	}
 	// srv is the server once it is built; /readyz asks it.
 	var srv atomic.Pointer[server.Server]
 	if s.Telemetry.Listen != "" {
@@ -336,6 +339,16 @@ func runDaemon(ctx context.Context, s server.Settings, log *slog.Logger, getenv 
 	defer stopping()
 	err = d.srv.Serve(ctx, l)
 	return errors.Join(err, d.Close())
+}
+
+// refusalLines is err as the lines main prints: what went wrong, then
+// each "fix: " the error names, a line each.
+func refusalLines(err error) []string {
+	parts := strings.Split(err.Error(), "; fix: ")
+	for i := 1; i < len(parts); i++ {
+		parts[i] = "fix: " + parts[i]
+	}
+	return parts
 }
 
 // hooks are what runDaemon adds to the daemon openDaemonWith builds.
@@ -479,7 +492,7 @@ func principalsKey(s server.Settings) (string, error) {
 	if !filepath.IsAbs(s.Telemetry.PrincipalsKey) {
 		var err error
 		if home, err = accountHome(); err != nil {
-			return "", fmt.Errorf("%w, where the key for principals' stand-ins in traces is kept; fix: set telemetry: principals_key: to an absolute path in the config file, or telemetry: principals: to name or omit, which need no key", err)
+			return "", fmt.Errorf("no file is named for it: %w", err)
 		}
 	}
 	return s.PrincipalsKey(home), nil
