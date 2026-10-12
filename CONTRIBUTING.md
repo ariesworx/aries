@@ -105,6 +105,7 @@ that describes it, in the same pull request.
 | Agent setup, hooks or MCP tools | [docs/agents.md](docs/agents.md) |
 | A server setting, limit or `starfixd` command | [docs/server.md](docs/server.md) |
 | A setup step in docs/server.md, or the Docker test server | [docs/deploy/docker.md](docs/deploy/docker.md) and `deploy/docker` |
+| A file `starfixd` reads or writes, a socket or address it connects to, or a program it runs | `deploy/apparmor`, and a run on a machine with AppArmor ([deploy/apparmor/README.md](deploy/apparmor/README.md)) |
 | A security property | [docs/security-model.md](docs/security-model.md) |
 | The release process | [RELEASING.md](RELEASING.md) |
 | Something that departs from a design | an **As built** note in [docs/design](docs/design/README.md) |

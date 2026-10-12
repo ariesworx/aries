@@ -209,7 +209,9 @@ so the unit's `ReadWritePaths`
 ([Keys from the store](../server.md#keys-from-the-store), step 1); and
 mandatory access control. Docker Desktop's kernel loads neither
 AppArmor nor SELinux, so nothing here says anything about either
-([What a server needs](../server.md#what-a-server-needs)).
+([What a server needs](../server.md#what-a-server-needs)). The units
+and the AppArmor profiles were run on an Ubuntu 24.04 virtual machine
+instead ([What was run, and where](../server.md#what-was-run-and-where)).
 
 ## Look inside
 
