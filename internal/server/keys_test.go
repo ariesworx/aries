@@ -262,7 +262,7 @@ func TestKeyOps(t *testing.T) {
 	carols := fingerprintOf(t, "carol")
 	const (
 		ownFix   = "ask another admin to run it: a server admin, or a project admin who administers every project you belong to; the server's operator can also change authorized_keys on the server"
-		reachFix = "ask a server admin to run it; a project admin may only while every project the principal belongs to is one they administer"
+		reachFix = "check the name, or ask a server admin to run it; a project admin may only while every project the principal belongs to is one they administer"
 		listFix  = "ask a server admin, or a project admin who administers every project the principal belongs to; `sfx admin key list %s` lists your own"
 	)
 	seq := func() int {
@@ -293,7 +293,7 @@ func TestKeyOps(t *testing.T) {
 			"bob may not add a key to carol: it is for project admins and server admins",
 			"ask a server admin to run it, or a project admin who administers every project the principal belongs to"},
 		{"a project admin adds a key out of reach", "alice", proto.OpKeyAdd, proto.KeyAddArgs{Name: "carol", Key: keyLine(t, "x")}, proto.CodeForbidden,
-			"alice may not add a key to carol: carol belongs to a project alice does not administer, or to none", reachFix},
+			"alice may not add a key to carol: carol does not exist, or belongs to a project alice does not administer, or to none", reachFix},
 		{"a project admin adds a key to a server admin", "alice", proto.OpKeyAdd, proto.KeyAddArgs{Name: "dana", Key: keyLine(t, "x")}, proto.CodeForbidden,
 			"alice may not add a key to dana: dana is a server admin", "ask a server admin to run it"},
 		// The same refusal for a key out of reach as for one no one has.
@@ -398,7 +398,11 @@ func TestKeyOps(t *testing.T) {
 		code proto.Code
 		msg  string
 	}{
-		{"with a key another has", "alice", proto.PrincipalAddArgs{Name: "gus", Keys: []string{keyLine(t, "carol")}}, proto.CodeExists, "already belongs to another principal"},
+		// A project admin is not told the key is anyone's (review F-6); a
+		// server admin is.
+		{"with a key another has, by a project admin", "alice", proto.PrincipalAddArgs{Name: "gus", Keys: []string{keyLine(t, "carol")}}, proto.CodeForbidden,
+			"alice may not add that key to gus: it is no key alice may give a principal"},
+		{"with a key another has", "dana", proto.PrincipalAddArgs{Name: "gus", Project: projA, Keys: []string{keyLine(t, "carol")}}, proto.CodeExists, "already belongs to another principal"},
 		{"with a line that is no key", "alice", proto.PrincipalAddArgs{Name: "gus", Keys: []string{"nonsense"}}, proto.CodeInvalid, "the key must be one public key"},
 		{"with more keys than a principal keeps", "alice", proto.PrincipalAddArgs{Name: "gus", Keys: []string{keyLine(t, "g1"), keyLine(t, "g2"), keyLine(t, "g3")}},
 			proto.CodeInvalid, "a principal keeps at most 2 keys"},

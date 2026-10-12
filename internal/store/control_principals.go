@@ -182,11 +182,12 @@ func (c *Control) setPrincipalState(ctx context.Context, actor Actor, name strin
 		if err != nil {
 			return err
 		}
-		cur, err := readPrincipal(ctx, w.tx, name)
-		if err != nil {
+		// Reach before existence, as in AddKey.
+		if err := w.within(ctx, sc, op, name); err != nil {
 			return err
 		}
-		if err := w.within(ctx, sc, op, name); err != nil {
+		cur, err := readPrincipal(ctx, w.tx, name)
+		if err != nil {
 			return err
 		}
 		out = cur

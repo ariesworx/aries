@@ -372,7 +372,7 @@ func TestAccessErrorMessages(t *testing.T) {
 		{AccessError{Actor: "bob", Op: OpKeyAdd, Principal: "hal", Reason: AccessAdmin},
 			"bob may not key.add hal: it is for project admins and server admins"},
 		{AccessError{Actor: "alice", Op: OpKeyAdd, Principal: "carol", Reason: AccessReach},
-			"alice may not key.add carol: carol belongs to a project alice does not administer, or to none, so it is for server admins"},
+			"alice may not key.add carol: carol does not exist, or belongs to a project alice does not administer, or to none, so it is for server admins"},
 		{AccessError{Actor: "alice", Op: OpMemberSet, Principal: "frank", Project: projA, Reason: AccessUnassigned},
 			"alice may not member.set frank in project " + projA + ": frank belongs to no project and alice did not create it, so it is for server admins"},
 		{AccessError{Actor: "alice", Op: OpPrincipalDisable, Principal: "dana", Reason: AccessServerAdminPrincipal},

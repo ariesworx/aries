@@ -181,7 +181,7 @@ func TestAdminRoles(t *testing.T) {
 	const (
 		forServer   = "ask a server admin (admins: in starfixd's config) to run it"
 		forProject  = "ask one of the project's admins, or a server admin, to run it"
-		forReach    = "ask a server admin to run it; a project admin may only while every project the principal belongs to is one they administer"
+		forReach    = "check the name, or ask a server admin to run it; a project admin may only while every project the principal belongs to is one they administer"
 		forAnyAdmin = "ask a server admin to run it, or a project admin who administers every project the principal belongs to"
 	)
 	tests := []struct {
@@ -226,9 +226,9 @@ func TestAdminRoles(t *testing.T) {
 		{"admin of another project adds a principal there", "erin", proto.OpPrincipalAdd, proto.PrincipalAddArgs{Name: "hal", Project: projA},
 			"erin may not add principal hal in project " + projA, forProject},
 		{"project admin outside reach disables", "alice", proto.OpPrincipalDisable, proto.PrincipalArgs{Name: "carol"},
-			"alice may not disable carol: carol belongs to a project alice does not administer, or to none", forReach},
+			"alice may not disable carol: carol does not exist, or belongs to a project alice does not administer, or to none", forReach},
 		{"project admin outside reach enables", "erin", proto.OpPrincipalEnable, proto.PrincipalArgs{Name: "bob"},
-			"erin may not enable bob: bob belongs to a project erin does not administer, or to none", forReach},
+			"erin may not enable bob: bob does not exist, or belongs to a project erin does not administer, or to none", forReach},
 		{"project admin disables a server admin", "alice", proto.OpPrincipalDisable, proto.PrincipalArgs{Name: "dana"},
 			"alice may not disable dana: dana is a server admin", "ask a server admin to run it"},
 		{"project admin places someone else's unassigned principal", "alice", proto.OpMemberSet, proto.MemberSetArgs{Name: "frank"},

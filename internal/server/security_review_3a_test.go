@@ -229,28 +229,6 @@ func TestReviewF5StoreShadowsAHandMaintainedKey(t *testing.T) {
 		"and the generated file now maps dana's key to bob. Whichever file sshd reads first decides who dana is")
 }
 
-// F-6: what a project admin learns from refusals. `key remove` is careful
-// to answer alike for a key that does not exist and one out of reach;
-// `key add` is not: a key some principal already has is refused as
-// taken, and a principal that does not exist as not found, where one out
-// of reach is forbidden.
-func TestReviewF6KeyAddTellsWhatExists(t *testing.T) {
-	m := adminWorld(t, Limits{}) // carol, in a and b, has a key; frank is in no project
-	a := mustDialTo(t, m.Server, alice, projA)
-	_, taken := ask[proto.KeyResult](a, proto.OpKeyAdd, proto.KeyAddArgs{Name: "bob", Key: keyLine(t, "carol")})
-	_, fresh := ask[proto.KeyResult](a, proto.OpKeyAdd, proto.KeyAddArgs{Name: "bob", Key: keyLine(t, "nobodys")})
-	_, exists := ask[proto.KeyResult](a, proto.OpKeyAdd, proto.KeyAddArgs{Name: "frank", Key: keyLine(t, "x1")})
-	_, absent := ask[proto.KeyResult](a, proto.OpKeyAdd, proto.KeyAddArgs{Name: "zed", Key: keyLine(t, "x2")})
-	if taken == nil || fresh != nil || exists == nil || absent == nil {
-		t.Fatalf("key.add: taken %v, fresh %v, out of reach %v, no such principal %v", taken, fresh, exists, absent)
-	}
-	if taken.Code == proto.CodeForbidden && exists.Code == absent.Code {
-		return
-	}
-	reviewFinding(t, "F-6", "a project admin learns whether a public key is registered to anyone on the server (\""+taken.Message+
-		"\") and whether a principal name exists outside their projects (\""+exists.Message+"\" against \""+absent.Message+"\")")
-}
-
 // F-8: principals are never deleted, their names are one namespace for
 // the server, and the cap on them is the server's. A project admin can
 // add principals to their own project until the cap is reached; after

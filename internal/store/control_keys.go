@@ -99,11 +99,18 @@ func parseKey(line string) (fingerprint, key, comment string, err error) {
 // Nobody adds a key to their own account (decision 19): the refusal is
 // an [*AccessError] whose reason is [AccessOwnKeys].
 //
-// A key the principal already has is returned as it is. A key another
-// principal has is refused with a [*TakenError], which does not say
-// whose; a line that is not one public key with ErrInvalid, without
-// repeating it; and a key past ControlLimits.Keys with a
-// [*ControlLimitError].
+// A key the principal already has is returned as it is. A line that is
+// not one public key is refused with ErrInvalid, without repeating it,
+// and a key past ControlLimits.Keys with a [*ControlLimitError].
+//
+// A server admin is told with ErrNotFound that no principal has the
+// name, and with a [*TakenError], which does not say whose, that another
+// principal has the key. A project admin is told neither: a name no one
+// has is refused as one out of reach is ([AccessReach]), and a key
+// another principal has with an [*AccessError] whose reason is
+// [AccessKey], whoever has it. A project admin can still tell that a key
+// is on the server, since a new key for a principal within reach is
+// added and this one is not; the refusal only does not say so.
 func (c *Control) AddKey(ctx context.Context, actor Actor, principal, line string) (PrincipalKey, error) {
 	if err := validPrincipal(principal); err != nil {
 		return PrincipalKey{}, err
@@ -121,10 +128,12 @@ func (c *Control) AddKey(ctx context.Context, actor Actor, principal, line strin
 		if err != nil {
 			return err
 		}
-		if _, err := readPrincipal(ctx, w.tx, principal); err != nil {
+		// Reach before existence: a project admin is refused alike for a
+		// name no one has and for one out of reach.
+		if err := w.within(ctx, sc, OpKeyAdd, principal); err != nil {
 			return err
 		}
-		if err := w.within(ctx, sc, OpKeyAdd, principal); err != nil {
+		if _, err := readPrincipal(ctx, w.tx, principal); err != nil {
 			return err
 		}
 		out, err = w.addKey(ctx, principal, parsedKey{fp, key, comment})
@@ -147,6 +156,9 @@ func (w *cwtx) addKey(ctx context.Context, principal string, k parsedKey) (Princ
 	switch cur, err := readKey(ctx, w.tx, k.fingerprint); {
 	case err == nil && cur.Principal == principal:
 		return cur, nil
+	case err == nil && !w.admin:
+		// A project admin is not told that the key is anyone's.
+		return PrincipalKey{}, w.denied(OpKeyAdd, principal, "", AccessKey)
 	case err == nil:
 		return PrincipalKey{}, &TakenError{Kind: TakenKey, Value: k.fingerprint}
 	case !errors.Is(err, ErrNotFound):

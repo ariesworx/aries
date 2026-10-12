@@ -268,9 +268,16 @@ func accessErr(e *store.AccessError) *proto.Error {
 				"check the fingerprint with `sfx admin key list NAME`, or ask a server admin to run it",
 				msg+fmt.Sprintf("it is no key of a principal %s may manage", e.Actor))
 		}
+		// The same for a name no one has as for a principal out of reach.
 		return proto.Errf(proto.CodeForbidden,
-			"ask a server admin to run it; a project admin may only while every project the principal belongs to is one they administer",
-			msg+fmt.Sprintf("%s belongs to a project %s does not administer, or to none", e.Principal, e.Actor))
+			"check the name, or ask a server admin to run it; a project admin may only while every project the principal belongs to is one they administer",
+			msg+fmt.Sprintf("%s does not exist, or belongs to a project %s does not administer, or to none", e.Principal, e.Actor))
+	case store.AccessKey:
+		// The same whoever has the key, and it does not say that anyone
+		// does.
+		return proto.Errf(proto.CodeForbidden,
+			fmt.Sprintf("make a new key for %s and add that, or ask a server admin to run it", e.Principal),
+			fmt.Sprintf("%s may not add that key to %s: it is no key %s may give a principal", e.Actor, e.Principal, e.Actor))
 	case store.AccessServerAdminPrincipal:
 		return proto.Errf(proto.CodeForbidden, "ask a server admin to run it",
 			msg+e.Principal+" is a server admin")

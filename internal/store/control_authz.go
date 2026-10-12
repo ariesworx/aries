@@ -49,8 +49,13 @@ const (
 	// error names no project, of any project.
 	AccessAdmin AccessReason = "admin"
 	// AccessReach: the actor is a project admin, and Principal belongs
-	// to a project the actor does not administer, or to none.
+	// to a project the actor does not administer, or to none, or does
+	// not exist: the refusal does not say which.
 	AccessReach AccessReason = "reach"
+	// AccessKey: the actor is a project admin adding a key to Principal
+	// that another principal has. The refusal does not say that anyone
+	// has it.
+	AccessKey AccessReason = "key"
 	// AccessServerAdminPrincipal: the actor is a project admin, and
 	// Principal is a server admin, whose keys and state only a server
 	// admin changes.
@@ -98,11 +103,13 @@ func (e *AccessError) Error() string {
 			why = "it is for the project's admins and server admins"
 		}
 	case AccessReach:
-		why = fmt.Sprintf("%s belongs to a project %s does not administer, or to none, so it is for server admins", e.Principal, e.Actor)
+		why = fmt.Sprintf("%s does not exist, or belongs to a project %s does not administer, or to none, so it is for server admins", e.Principal, e.Actor)
 		if e.Principal == "" {
 			// A key named by its fingerprint: whose it is, is not said.
 			why = fmt.Sprintf("it is no key of a principal %s may manage, so it is for server admins", e.Actor)
 		}
+	case AccessKey:
+		why = fmt.Sprintf("it is no key %s may give a principal, so it is for server admins", e.Actor)
 	case AccessServerAdminPrincipal:
 		why = e.Principal + " is a server admin, so it is for server admins"
 	case AccessUnassigned:
