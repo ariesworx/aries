@@ -1,16 +1,20 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -47,6 +51,8 @@ type Options struct {
 type Conn struct {
 	// Welcome is the server's handshake reply.
 	Welcome proto.Frame
+	// key is the key that signed in (Key).
+	key KeyInfo
 
 	ssh    *ssh.Client
 	sess   *ssh.Session
@@ -124,17 +130,17 @@ func Dial(ctx context.Context, cfg *Config, opts Options) (*Conn, error) {
 	ctx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
 
-	signers, closeAgent, err := signers(cfg, opts.Getenv)
+	id, err := loadIdentity(cfg, opts.Getenv)
 	if err != nil {
 		return nil, err
 	}
-	defer closeAgent()
+	defer id.close()
 
 	addr := net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port))
 	var hostKeyErr *proto.Error
 	sc := &ssh.ClientConfig{
 		User:              cfg.Server.User,
-		Auth:              []ssh.AuthMethod{ssh.PublicKeys(signers...)},
+		Auth:              []ssh.AuthMethod{ssh.PublicKeys(id.signers...)},
 		HostKeyAlgorithms: []string{ssh.KeyAlgoED25519},
 		HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
 			if got := ssh.FingerprintSHA256(key); got != cfg.Server.HostKey {
@@ -161,12 +167,8 @@ func Dial(ctx context.Context, cfg *Config, opts Options) (*Conn, error) {
 		if hostKeyErr != nil {
 			return nil, hostKeyErr
 		}
-		// x/crypto/ssh reports a refused key only as text: it has no
-		// error value to match with errors.Is.
-		if strings.Contains(err.Error(), "unable to authenticate") {
-			return nil, proto.Errf(proto.CodeAuth,
-				"send your public key (`ssh-add -L`, or the .pub next to your key file) to the starfix admin",
-				fmt.Sprintf("%s refused your SSH key%s", addr, plural(len(signers))))
+		if e := id.refusedKeys(addr, err); e != nil {
+			return nil, e
 		}
 		var timeout time.Duration
 		if ctx.Err() != nil {
@@ -187,8 +189,12 @@ func Dial(ctx context.Context, cfg *Config, opts Options) (*Conn, error) {
 	if err != nil {
 		return nil, errors.Join(err, client.Close())
 	}
+	c.key = id.used()
 	return c, nil
 }
+
+// Key says which key signed this connection in.
+func (c *Conn) Key() KeyInfo { return c.key }
 
 // dialTransport opens the byte stream SSH runs over: a TCP connection to
 // addr, or, when cfg sets server.iap, a Google Cloud IAP tunnel.
@@ -203,15 +209,6 @@ func dialTransport(ctx context.Context, cfg *Config, addr string) (net.Conn, err
 			fmt.Sprintf("cannot reach %s: %v", addr, err))
 	}
 	return nc, nil
-}
-
-// plural ends "refused your SSH key" for n keys tried: "" for one, else
-// "s (tried n)".
-func plural(n int) string {
-	if n == 1 {
-		return ""
-	}
-	return fmt.Sprintf("s (tried %d)", n)
 }
 
 // start opens the SSH session that runs the bridge and completes the
@@ -417,53 +414,272 @@ func (c *Conn) Close() error {
 	return nil
 }
 
-// signers collects the keys to offer: ssh-agent's, then the key file's. A
-// passphrase-protected key file is skipped when the agent has keys. The
-// caller calls the returned func, which closes the agent connection, once
-// the SSH handshake is done.
-func signers(cfg *Config, getenv func(string) string) ([]ssh.Signer, func(), error) {
-	var out []ssh.Signer
-	closeAgent := func() {}
-	if ac, err := dialAgent(getenv); err == nil {
-		closeAgent = func() { _ = ac.Close() }
-		if ss, err := agent.NewClient(ac).Signers(); err == nil {
-			out = append(out, ss...)
-		}
+// KeyInfo says which key signed a connection in: its SHA-256
+// fingerprint, whether a key file signed ("file") or ssh-agent did
+// ("agent"), and the file that named the key, when one did.
+type KeyInfo struct {
+	Fingerprint string `json:"fingerprint"`
+	Source      string `json:"source"`
+	Path        string `json:"path,omitempty"`
+}
+
+// identity is the keys a connection offers the server, in order, and
+// which of them signed.
+type identity struct {
+	signers []ssh.Signer
+	keys    []KeyInfo // what each signer is, by index
+	// from names what configured the one key ("STARFIX_KEY", or key: in
+	// the config file), and is empty when the keys are ssh-agent's.
+	from string
+	// signed is the index of the signer that last signed, or -1. The
+	// server asks for a signature only from a key it accepts.
+	signed atomic.Int32
+	// closeAgent closes the agent connection, if one is open.
+	closeAgent func()
+}
+
+// close ends the agent connection. The caller calls it once the SSH
+// handshake is done.
+func (id *identity) close() {
+	if id.closeAgent != nil {
+		id.closeAgent()
 	}
-	path, err := cfg.KeyPath()
+}
+
+// used returns the key that signed, or the zero KeyInfo when none did.
+func (id *identity) used() KeyInfo {
+	if i := int(id.signed.Load()); i >= 0 && i < len(id.keys) {
+		return id.keys[i]
+	}
+	return KeyInfo{}
+}
+
+// add appends a key to offer.
+func (id *identity) add(s ssh.Signer, source, path string) {
+	i := int32(len(id.signers)) //nolint:gosec // a handful of keys
+	id.signers = append(id.signers, noteSigner(s, func() { id.signed.Store(i) }))
+	id.keys = append(id.keys, KeyInfo{Fingerprint: ssh.FingerprintSHA256(s.PublicKey()), Source: source, Path: path})
+}
+
+// fingerprints lists the keys offered, at most eight of them.
+func (id *identity) fingerprints() string {
+	var fps []string
+	for _, k := range id.keys[:min(len(id.keys), 8)] {
+		fps = append(fps, k.Fingerprint)
+	}
+	out := strings.Join(fps, ", ")
+	if more := len(id.keys) - len(fps); more > 0 {
+		out += fmt.Sprintf(" and %d more", more)
+	}
+	return out
+}
+
+// noting is a signer that calls note before it signs. The three forms
+// keep what the wrapped signer can do: ssh picks the signature algorithm
+// by which of these interfaces a signer has.
+type (
+	noting struct {
+		ssh.Signer
+		note func()
+	}
+	notingAlgorithm struct {
+		ssh.AlgorithmSigner
+		note func()
+	}
+	notingMulti struct {
+		ssh.MultiAlgorithmSigner
+		note func()
+	}
+)
+
+func (n noting) Sign(rand io.Reader, data []byte) (*ssh.Signature, error) {
+	n.note()
+	return n.Signer.Sign(rand, data)
+}
+
+func (n notingAlgorithm) Sign(rand io.Reader, data []byte) (*ssh.Signature, error) {
+	n.note()
+	return n.AlgorithmSigner.Sign(rand, data)
+}
+
+func (n notingAlgorithm) SignWithAlgorithm(rand io.Reader, data []byte, algorithm string) (*ssh.Signature, error) {
+	n.note()
+	return n.AlgorithmSigner.SignWithAlgorithm(rand, data, algorithm)
+}
+
+func (n notingMulti) Sign(rand io.Reader, data []byte) (*ssh.Signature, error) {
+	n.note()
+	return n.MultiAlgorithmSigner.Sign(rand, data)
+}
+
+func (n notingMulti) SignWithAlgorithm(rand io.Reader, data []byte, algorithm string) (*ssh.Signature, error) {
+	n.note()
+	return n.MultiAlgorithmSigner.SignWithAlgorithm(rand, data, algorithm)
+}
+
+// noteSigner wraps s so that note runs whenever it signs.
+func noteSigner(s ssh.Signer, note func()) ssh.Signer {
+	switch s := s.(type) {
+	case ssh.MultiAlgorithmSigner:
+		return notingMulti{s, note}
+	case ssh.AlgorithmSigner:
+		return notingAlgorithm{s, note}
+	}
+	return noting{s, note}
+}
+
+// loadIdentity decides which keys to offer (design §14, decision 35).
+//
+// A configured key (Config.KeyFile) is the only key offered, as with
+// OpenSSH's IdentitiesOnly: whatever ssh-agent holds, the server is
+// shown that key and no other, so a process given a narrow principal's
+// key cannot sign in as whoever's agent socket it inherited. The file
+// signs when it is a private key sfx can read. ssh-agent signs for that
+// one key, found by its public half, when the file is
+// passphrase-protected, when it is the public key (a .pub file), and
+// when the private key is missing and its .pub is there, which is how
+// OpenSSH treats an IdentityFile whose key is in the agent.
+//
+// With no key configured, ssh-agent's keys are offered, in its order.
+func loadIdentity(cfg *Config, getenv func(string) string) (*identity, error) {
+	path, from, err := cfg.KeyFile(getenv)
 	if err != nil {
-		return nil, closeAgent, err
+		return nil, err
 	}
-	if path != "" {
-		b, err := os.ReadFile(path) //nolint:gosec // the configured key file
-		if err != nil {
-			closeAgent()
-			return nil, func() {}, proto.Errf(proto.CodeAuth, "fix key: in "+ConfigFile+", or remove it to use ssh-agent",
-				fmt.Sprintf("cannot read key file: %v", err))
-		}
-		s, err := ssh.ParsePrivateKey(b)
-		var pm *ssh.PassphraseMissingError
-		switch {
-		case errors.As(err, &pm):
-			if len(out) == 0 {
-				closeAgent()
-				return nil, func() {}, proto.Errf(proto.CodeAuth, "add it to ssh-agent: `ssh-add "+path+"`",
-					"key file "+path+" is passphrase-protected and ssh-agent has no keys")
+	id := &identity{}
+	id.signed.Store(-1)
+	if path == "" {
+		ac, err := dialAgent(getenv)
+		if err == nil {
+			id.closeAgent = func() { _ = ac.Close() }
+			if ss, err := agent.NewClient(ac).Signers(); err == nil {
+				for _, s := range ss {
+					id.add(s, "agent", "")
+				}
 			}
-		case err != nil:
-			closeAgent()
-			return nil, func() {}, proto.Errf(proto.CodeAuth, "point key: at an OpenSSH private key, or remove it to use ssh-agent",
-				fmt.Sprintf("cannot parse key file %s: %v", path, err))
-		default:
-			out = append(out, s)
+		}
+		if len(id.signers) == 0 {
+			id.close()
+			return nil, proto.Errf(proto.CodeAuth,
+				fmt.Sprintf("start ssh-agent and `ssh-add` your key, or name your key file with %s in your environment", EnvKey),
+				"no SSH key available")
+		}
+		return id, nil
+	}
+	id.from = from
+	signer, pub, why, perr := readKeyFile(path, from)
+	if perr != nil {
+		return nil, perr
+	}
+	if signer != nil {
+		id.add(signer, "file", path)
+		return id, nil
+	}
+	// Only the key's public half is to hand: the agent signs, with that
+	// key alone.
+	missing := proto.Errf(proto.CodeAuth, "add it to ssh-agent: `ssh-add "+strings.TrimSuffix(path, ".pub")+"`",
+		fmt.Sprintf("key file %s %s, and ssh-agent does not hold it (%s)", path, why, ssh.FingerprintSHA256(pub)))
+	ac, err := dialAgent(getenv)
+	if err != nil {
+		return nil, missing
+	}
+	id.closeAgent = func() { _ = ac.Close() }
+	ss, _ := agent.NewClient(ac).Signers() // an agent that cannot list holds nothing to sign with
+	for _, s := range ss {
+		if bytes.Equal(s.PublicKey().Marshal(), pub.Marshal()) {
+			id.add(s, "agent", path)
+			return id, nil
 		}
 	}
-	if len(out) == 0 {
-		closeAgent()
-		return nil, func() {}, proto.Errf(proto.CodeAuth, "start ssh-agent and `ssh-add` your key, or set key: in "+ConfigFile,
-			"no SSH key available")
+	id.close()
+	return nil, missing
+}
+
+// readKeyFile reads the configured key file. It returns a signer when
+// the file is a private key that needs no passphrase; otherwise the
+// key's public half and why the file itself cannot sign; or a refusal.
+// from is what named the file. It never repeats what the file holds.
+func readKeyFile(path, from string) (signer ssh.Signer, pub ssh.PublicKey, why string, refusal *proto.Error) {
+	unreadable := func(err error) *proto.Error {
+		// The cause alone: the path is named already.
+		cause := err
+		if pe, ok := errors.AsType[*fs.PathError](err); ok {
+			cause = pe.Err
+		}
+		return proto.Errf(proto.CodeAuth,
+			fmt.Sprintf("fix key: in %s, or set %s to your key file, or remove both to use ssh-agent", ConfigFile, EnvKey),
+			fmt.Sprintf("cannot read key file %s, which %s names: %v", path, from, cause))
 	}
-	return out, closeAgent, nil
+	b, err := os.ReadFile(path) //nolint:gosec // the configured key file
+	if errors.Is(err, fs.ErrNotExist) {
+		// As OpenSSH does for an IdentityFile whose key is in the agent.
+		pb, perr := os.ReadFile(path + ".pub") //nolint:gosec // beside the configured key file
+		if perr != nil {
+			return nil, nil, "", unreadable(err)
+		}
+		if k, _, _, _, kerr := ssh.ParseAuthorizedKey(pb); kerr == nil {
+			return nil, k, "is not there, only " + filepath.Base(path) + ".pub, the public half", nil
+		}
+		return nil, nil, "", unreadable(err)
+	}
+	if err != nil {
+		return nil, nil, "", unreadable(err)
+	}
+	if k, _, _, _, kerr := ssh.ParseAuthorizedKey(b); kerr == nil {
+		return nil, k, "holds only the public half", nil
+	}
+	s, err := ssh.ParsePrivateKey(b)
+	if pm, locked := errors.AsType[*ssh.PassphraseMissingError](err); locked {
+		// An OpenSSH key file carries its public half unencrypted; an
+		// older format needs the .pub beside it.
+		pub := pm.PublicKey
+		if pub == nil {
+			if pb, perr := os.ReadFile(path + ".pub"); perr == nil { //nolint:gosec // beside the configured key file
+				pub, _, _, _, _ = ssh.ParseAuthorizedKey(pb)
+			}
+		}
+		if pub == nil {
+			return nil, nil, "", proto.Errf(proto.CodeAuth,
+				fmt.Sprintf("put its public key beside it as %s.pub and add the key to ssh-agent: `ssh-add %s`", path, path),
+				fmt.Sprintf("key file %s is passphrase-protected, and its public half is not known, so ssh-agent cannot be asked for it", path))
+		}
+		return nil, pub, "is passphrase-protected", nil
+	}
+	if err != nil {
+		return nil, nil, "", proto.Errf(proto.CodeAuth,
+			fmt.Sprintf("point %s at an OpenSSH private key or its .pub file, or remove it to use ssh-agent", from),
+			fmt.Sprintf("cannot parse key file %s: %v", path, err))
+	}
+	return s, nil, "", nil
+}
+
+// refusedKeys words the server's refusal of every key offered, or of so
+// many that it hung up, and returns nil when err is neither. ssh reports
+// both only as text: it has no error value to match with errors.Is.
+func (id *identity) refusedKeys(addr string, err error) *proto.Error {
+	text := strings.ToLower(err.Error())
+	n := len(id.keys)
+	const whoami = "; once a key is accepted, `sfx whoami` says which key and principal you are"
+	switch {
+	case id.from != "" && (strings.Contains(text, "unable to authenticate") || strings.Contains(text, "too many authentication failures")):
+		return proto.Errf(proto.CodeAuth,
+			fmt.Sprintf("send your public key, the .pub of that file, to the starfix admin, who adds it with `sfx admin key add NAME FILE.pub`; while %s names a key, sfx offers no other, so unset it to offer ssh-agent's keys instead", id.from),
+			fmt.Sprintf("%s accepted no key: sfx offered %s, the one key %s names (%s)", addr, id.keys[0].Fingerprint, id.from, id.keys[0].Path))
+	case strings.Contains(text, "too many authentication failures"):
+		// sshd's MaxAuthTries, six by default, counts every key refused.
+		return proto.Errf(proto.CodeAuth,
+			fmt.Sprintf("name your key, so that sfx offers it alone: set %s in your environment to its file, the private key or its .pub; `ssh-add -L` lists what ssh-agent holds", EnvKey),
+			fmt.Sprintf("%s closed the connection after too many refused keys: ssh-agent holds %d keys (%s), more than sshd tries, so yours may never have been offered", addr, n, id.fingerprints()))
+	case strings.Contains(text, "unable to authenticate") && n == 1:
+		return proto.Errf(proto.CodeAuth,
+			fmt.Sprintf("send your public key (`ssh-add -L`) to the starfix admin, who adds it with `sfx admin key add NAME FILE.pub`, or name another key file with %s%s", EnvKey, whoami),
+			fmt.Sprintf("%s accepted no key: sfx offered the one key ssh-agent holds, %s", addr, id.fingerprints()))
+	case strings.Contains(text, "unable to authenticate"):
+		return proto.Errf(proto.CodeAuth,
+			fmt.Sprintf("send your public key (`ssh-add -L` lists them) to the starfix admin, who adds it with `sfx admin key add NAME FILE.pub`, or name your key file with %s%s", EnvKey, whoami),
+			fmt.Sprintf("%s accepted none of the %d keys ssh-agent holds (%s)", addr, n, id.fingerprints()))
+	}
+	return nil
 }
 
 // quoteStderr is " (who said: …)" quoting what a program printed on

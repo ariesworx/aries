@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -38,8 +39,9 @@ type Config struct {
 		// forwarding instead of dialing Host directly.
 		IAP *IAP `yaml:"iap"`
 	} `yaml:"server"`
-	// Key is an optional private key file, absolute, ~/-relative, or
-	// relative to the repository root. Without it, ssh-agent is used.
+	// Key is an optional key file inside the repository, relative to its
+	// root (KeyPath). It is then the only key offered; without it, and
+	// without EnvKey, ssh-agent's keys are.
 	Key string `yaml:"key"`
 
 	// Root is the directory holding the config file (not read from YAML).
@@ -285,21 +287,92 @@ func (c *Config) ForProject(project string) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// KeyPath resolves Key: "~/" is the home directory, and a relative path is
-// relative to the repository root. It returns "" when no key is set.
-func (c *Config) KeyPath() (string, error) {
-	k := c.Key
-	switch {
-	case k == "":
-		return "", nil
-	case k == "~" || strings.HasPrefix(k, "~/"):
+// EnvKey is the environment variable that names the key file sfx offers,
+// by any path. It wins over Key, and is how one person chooses a key
+// without editing the committed file.
+const EnvKey = "STARFIX_KEY"
+
+// KeyFile returns the key file sfx is to offer, and no other key with it
+// (design §14, decision 35), and what named it, for a refusal: EnvKey's
+// value, any path on the machine ("~/" is the home directory, and a
+// relative path is relative to the working directory), or else
+// [Config.KeyPath]. It returns "" when neither names one: ssh-agent's
+// keys are then offered.
+func (c *Config) KeyFile(getenv func(string) string) (path, from string, err error) {
+	k := getenv(EnvKey)
+	if k == "" {
+		path, err = c.KeyPath()
+		return path, "key: in " + ConfigFile, err
+	}
+	if k == "~" || strings.HasPrefix(k, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return "", fmt.Errorf("key: %w", err)
+			return "", EnvKey, fmt.Errorf("%s: %w", EnvKey, err)
 		}
-		return filepath.Join(home, strings.TrimPrefix(k, "~")), nil
-	case filepath.IsAbs(k):
-		return k, nil
+		return filepath.Join(home, strings.TrimPrefix(k, "~")), EnvKey, nil
 	}
-	return filepath.Join(c.Root, k), nil
+	path, err = filepath.Abs(k)
+	if err != nil {
+		return "", EnvKey, fmt.Errorf("%s: %w", EnvKey, err)
+	}
+	return path, EnvKey, nil
+}
+
+// KeyPath resolves Key, a path relative to the repository root, and
+// returns "" when no key is set.
+//
+// The config file is committed, so in a cloned repository someone else
+// chose Key. It may therefore name only a file inside the repository: a
+// relative path that, with symbolic links resolved, stays under Root.
+// Otherwise a cloned file could make sfx read a key anywhere on the
+// machine and show its public half to the server the same file names.
+// An absolute path, one under "~", and one that climbs or links out are
+// refused with CodeInvalid; a key elsewhere is named with EnvKey. The
+// file need not exist: reading it is the caller's.
+func (c *Config) KeyPath() (string, error) {
+	k := c.Key
+	if k == "" {
+		return "", nil
+	}
+	outside := proto.Errf(proto.CodeInvalid,
+		fmt.Sprintf("to use a key outside the repository, set %s=%s in your environment and remove key: from %s", EnvKey, k, ConfigFile),
+		fmt.Sprintf("key: in %s names %s, outside the repository; the file is committed, so it may name only a key inside the repository", ConfigFile, k))
+	if filepath.IsAbs(k) || k == "~" || strings.HasPrefix(k, "~/") || filepath.VolumeName(k) != "" {
+		return "", outside
+	}
+	path := filepath.Join(c.Root, k)
+	root, err := filepath.EvalSymlinks(cmp.Or(c.Root, "."))
+	if err != nil {
+		return "", fmt.Errorf("key: %w", err)
+	}
+	real, err := resolveExisting(path)
+	if err != nil {
+		return "", fmt.Errorf("key: %w", err)
+	}
+	if rel, err := filepath.Rel(root, real); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", outside
+	}
+	return path, nil
+}
+
+// resolveExisting is filepath.EvalSymlinks for a path whose last
+// elements may not exist yet: the links of the part that does exist are
+// resolved, and the rest is kept as it is.
+func resolveExisting(path string) (string, error) {
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	rest := ""
+	for {
+		real, err := filepath.EvalSymlinks(path)
+		if err == nil {
+			return filepath.Join(real, rest), nil
+		}
+		parent := filepath.Dir(path)
+		if !errors.Is(err, fs.ErrNotExist) || parent == path {
+			return "", err
+		}
+		rest, path = filepath.Join(filepath.Base(path), rest), parent
+	}
 }

@@ -856,7 +856,7 @@ func TestRefusals(t *testing.T) {
 		{name: "wrong host key", u: pinnedWrong, args: []string{"ready"}, code: cli.ExitFailure,
 			want: []string{"host key mismatch for 127.0.0.1", w.hostFpr, "fix: if the server was rebuilt"}},
 		{name: "unknown key", u: other, args: []string{"ready"}, code: cli.ExitFailure,
-			want: []string{"refused your SSH key", "fix: send your public key"}},
+			want: []string{"accepted no key: sfx offered SHA256:", "fix: send your public key"}},
 		{name: "not found", u: w.newUser("dave", ""), args: []string{"show", "sf-zzzzzzzz"}, code: cli.ExitFailure,
 			want: []string{"sfx: issue sf-zzzzzzzz not found\nfix: find the id with `sfx list`"}},
 		{name: "usage", u: other, args: []string{"show"}, code: cli.ExitUsage,

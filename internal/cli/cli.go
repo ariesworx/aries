@@ -132,6 +132,7 @@ func init() {
 		{"away", "away DURATION", "extend all your claims, e.g. before going offline (1m to 7d)", cmdAway},
 		{"digest", "digest [--since 24h|7d|DATE|TIME] [--by PRINCIPAL] [--label L]", "summarize what closed, started, stalled, is blocked and was handed off", cmdDigest},
 		{"who", "who [--since DURATION] [-n N]", "list the agents at work and the issues each holds (seen in the last 5m)", cmdWho},
+		{"whoami", "whoami", "say which principal the server takes you for, and which key signed in", cmdWhoami},
 		{"cost", "cost --since 7d|DATE|TIME [--until DATE|TIME] [--by account|issue|epic|person|model] [-n N]", "report the list-price and amortized cost of tokens, and the hours logged, by account, issue, epic, person or model", cmdCost},
 		{"log", "log DURATION ID [--on DATE] [--note TEXT] | log --undo ENTRY | log [--issue ID] [--by PRINCIPAL] [-n N]", "log your hours on an issue (1.5h, 90m), undo an entry, or list entries", cmdLog},
 		{"remember", "remember KEY TEXT...|- [--scope S] [--tag T]... [--issue ID] [--rev N] [--pin]", "keep a memory for later sessions; --rev replaces one", cmdRemember},
