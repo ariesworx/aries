@@ -546,6 +546,10 @@ Maintainer, 12 Oct 2026, on observability (§16). Decision 27, that requests car
 28. starfixd is instrumented with the OpenTelemetry Go SDK, for traces and metrics, exported with OTLP over HTTP. The maintainer chose the SDK over open formats written by hand, accepting what it costs (§16.2), for a standard, complete implementation. The SDK is starfixd's alone: `sfx` passes trace context on and links none of it.
 29. starfixd may open one HTTP listener, on a loopback address only, off by default, for metrics and health. This narrows the earlier position that starfixd opens no port: it still opens none that another machine can reach.
 30. The first version includes metrics broken down by project, an audit stream of access changes in the logs, Dolt's own figures in `sfx admin status`, and an OpenTelemetry Collector configuration, alert rules and a dashboard in the repository, exercised by the Docker harness.
+31. Metrics are both pushed (OTLP) and offered for pull (Prometheus), so that whoever deploys starfix chooses.
+32. A setting decides how a person appears in telemetry: by name, by a pseudonym, or not at all (§16.4). How people are identified at all, beyond one SSH key at a time, is under investigation (§15.6).
+33. A dependency for the Go runtime's metrics is acceptable. The cost of the standard library's own was measured first (§16.4).
+34. A token for a hosted backend is allowed where one is needed, and the guide gives sending to a collector on the machine as the way to avoid holding one.
 
 ## 15. Projects and access
 
@@ -724,6 +728,35 @@ sfx admin member list | remove NAME
 4. **A principal's own keys.** Settled (decision 19): nobody adds or removes a key of their own account, since an agent holding the developer's key could add one of its own. A new laptop's key is added by another admin.
 5. **Stage 6's cross-project edges** become reads across databases, checked against the reader's memberships.
 
+### 15.6 Identity beyond one key at a time (investigation, 12 Oct 2026)
+
+Not designed and not decided: what was looked at, what was tried, and what would have to be chosen.
+
+**The concern.** A person is a principal, and gets in by a public key that an admin adds for each of their machines (decision 19 keeps people from adding their own). That is right for a team. In a company of hundreds of developers, each with several machines and agents, it means: every joiner, leaver and new laptop is an admin's manual step; a key never expires; nothing ties starfix to the company's single sign-on, its second factor or its groups; and a leaver keeps access until someone remembers. The name of a principal is also the name everywhere: in every event of every project's log, which Dolt keeps forever, in claims, in `who`, and now in telemetry.
+
+**SSH certificates fit what is built, and were tried.** Many companies already issue short-lived SSH certificates from a single sign-on login, through a certificate authority (several open-source and commercial ones exist, and cloud providers have their own). sshd can admit an account by certificate, and map each certificate principal to a forced command, from a file: `TrustedUserCAKeys` and `AuthorizedPrincipalsFile`, whose lines take the same options as `authorized_keys`. That file has the shape of the keys file starfixd already writes (decision 22). Tried on 12 Oct 2026 with OpenSSH 9.6p1 on Ubuntu 24.04, in the test server's image, with a throwaway authority:
+
+| Offered | Result |
+|---|---|
+| A certificate for `alice@example.com`, valid five minutes, with a line for that principal in the file | Admitted, and the line's forced command ran, not the command asked for |
+| A valid certificate from the same authority for a principal with no line | Refused: `Certificate does not contain an authorized principal` |
+| An expired certificate for `alice@example.com` | Refused: `Certificate invalid: expired` |
+| alice's bare key, with no certificate | Refused |
+
+So starfix could hold, for a principal, the identity the authority puts in its certificates, write a principals file beside or in place of the keys file, and hold no key at all for such a person. Joining is one `sfx admin` command, or none if membership follows a group; a new laptop is nothing, since the person signs in again; leaving is the authority no longer issuing, within hours, and `principal disable` at once. Expiry and the second factor are the authority's.
+
+Not tried, and needed before a design: that `sfx`'s in-process SSH client offers a certificate (it takes its signers from ssh-agent, which can hold certificates; a `key:` file would need its `-cert.pub` read beside it); a real authority; what replaces the key's fingerprint on a connection (the certificate's serial or key id), so that revoking and dropping still work; and groups in a certificate mapped to memberships.
+
+**Other routes.** Provisioning principals and memberships from a directory (SCIM, or a job that reads the directory and runs `sfx admin`) is complementary: it answers who is a member, not how they prove who they are. Signing in to starfix itself with OpenID Connect needs an HTTPS transport, which decision 9 defers.
+
+**Hiding who a person is.** Three depths, each a different amount of work:
+
+1. **In telemetry only:** the stand-ins of §16.4. Designed there.
+2. **A name that is not a person's name.** Nothing stops an operator naming principals `u-7f3a2c` today, but then every list shows only that. A display name and an external identity (the single sign-on subject) on the principal's row in the control store, shown by `sfx` to those who may list principals, would let the name in every project's log be an opaque handle while people still see who is who. Forgetting a person is then deleting one row. This is a small change to the control store and the clients, and none to a project's database.
+3. **Renaming, or erasing a name already written.** A project's event log is its history and Dolt keeps it; a principal's name is in it as text. Changing that means an id in place of the name throughout a project's schema, and a migration of every log. Large, and only worth it if 2 does not satisfy a legal requirement.
+
+**What would have to be chosen:** whether certificates become a second way in beside keys or the way for servers above some size; whether membership may follow a group; and which of the depths above is wanted. Until then, keys and names work as §15.2 and §15.3 describe.
+
 ## 16. Observability
 
 Designed 12 Oct 2026; nothing here is built. Today starfixd has structured logs (text or JSON) on stderr, `sfx admin status`, and nothing else: no metrics a monitor can collect, no traces, no health check, and no way to read status on the server without an admin's SSH key.
@@ -766,7 +799,7 @@ starfixd is 10.1 MB today with about 11 modules, so it roughly doubles. That is 
 - **Off by default.** With nothing configured starfixd exports nothing, listens on nothing new and behaves as now.
 - **The standard `OTEL_*` environment variables** configure export, as for any OpenTelemetry program, so an operator's existing knowledge and tooling apply: `OTEL_EXPORTER_OTLP_ENDPOINT` (a collector on the machine, `http://127.0.0.1:4318`, is the documented setup), `OTEL_SERVICE_NAME` (default `starfixd`), `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_TRACES_SAMPLER`, `OTEL_SDK_DISABLED`. The resource carries `service.name`, `service.version` and `service.instance.id`.
 - **`OTEL_EXPORTER_OTLP_HEADERS` can hold a token** for a hosted backend. It is a secret (rule 2): it comes from the unit's `EnvironmentFile`, mode 0600, never from argv, and starfixd never logs it. Sending to a collector on the machine needs none, which is one more reason to prefer that.
-- **`telemetry:` in starfixd's settings** holds what is starfix's own: `listen` (the loopback listener, below), `per_project` (on by default), `audit_log` (on by default), `dolt_metrics_url` (§16.5).
+- **`telemetry:` in starfixd's settings** holds what is starfix's own: `listen` (the loopback listener, below), `per_project` (on by default), `principals` (how a person appears, §16.4), `audit_log` (on by default), `dolt_metrics_url` (§16.5).
 - **The listener** (decision 29): `telemetry.listen: 127.0.0.1:9464`, say. An address that is not loopback is refused at start with a fix. It serves `/metrics`, `/healthz` and `/readyz` and nothing else, with a cap on requests in flight and a deadline on each (rule 18). It has no authentication: any user on the machine can read it, and it carries project ids, names and counts, and no secret, principal name or issue text. A failure to bind at start fails the start, with a fix, as a keys file that cannot be written does.
 
 ### 16.4 What is measured
@@ -799,7 +832,7 @@ starfixd is 10.1 MB today with about 11 modules, so it roughly doubles. That is 
 - **Histograms have a short fixed list of buckets,** 5 ms to 10 s, the same everywhere.
 
 **Traces.**
-- One server span for each request, named for its op, with the op, result code, project, protocol version, and the principal and session (which a trace may carry and a metric may not). Its parent is the client's trace context when the request carries a valid one (decision 27).
+- One server span for each request, named for its op, with the op, result code, project and protocol version, and the principal and session as `telemetry.principals` allows (below). A trace may carry them; a metric never does. Its parent is the client's trace context when the request carries a valid one (decision 27).
 - Child spans where time goes: the wait for the writer, each attempt of a write (a retry is a new one), the Dolt commit, a store's open and migration.
 - A span for a handshake, and root spans for the reaper, the sweep, a keys file write and a control index reload, so background work is visible.
 - No span carries an issue's title or body, a memory's text, a comment, a key or a DSN. Ids only.
@@ -812,6 +845,20 @@ starfixd is 10.1 MB today with about 11 modules, so it roughly doubles. That is 
 - **`req`** is an id for each request, on every line about it and in the refusal the client sees, so a person's report finds the server's lines.
 - **Audit stream** (decision 30): each event of the control store's log (a project added or archived, a principal added, disabled or enabled, a key added or removed, a membership set or removed) is also written as a log line with `audit=true`, the actor, the op and the target, after the write commits. Fingerprints, never keys. The event log stays the record; the line is a copy for a SIEM that reads the journal.
 - With `OTEL_LOGS_EXPORTER=otlp` the same records also go out over OTLP, through the `slog` bridge. Stderr is never turned off.
+
+**People in telemetry** (decision 32). `telemetry.principals` is one of:
+
+| Value | A span or an exported log record carries |
+|---|---|
+| `pseudonym` (default) | A stable stand-in, `p_` and 16 hex characters: an HMAC-SHA-256 of the principal's name under a key that starfixd generates and keeps in a 0600 file. The same person is the same stand-in in every trace and line, so their requests can still be followed and counted; the backend never learns who. `sfx admin principal whois p_…`, for a server admin, gives the name. Deleting the key file makes every earlier stand-in unlinkable to anyone, which is what a retention rule may want. |
+| `name` | The principal's name |
+| `omit` | Nothing about who |
+
+- It governs what leaves the machine through telemetry: spans, and log records exported over OTLP. Sessions are stand-ins or omitted with the principal, since a session id can name a person's machine.
+- **It does not change the journal or the audit stream.** Those are the server's own records, an access change with no actor is not an audit record, and whoever can read the journal can read the databases. An operator who ships the journal to a third party filters it in the collector, and the guide shows how.
+- A stand-in hides a name from the backend. It does not make a person anonymous: what they did, when and in which project is still there. The guide says so.
+
+**The Go runtime's metrics** (decision 33). Measured 12 Oct 2026 on an Apple M4 Max with Go 1.27.1: reading the fifteen an operator wants (heap, GC, goroutines, scheduler latency, CPU, the memory limit) from the standard library's `runtime/metrics` takes 0.45 µs and allocates nothing; reading every metric the runtime has takes 1.6 µs. Done once for each export or scrape, that is nothing. The older `runtime.ReadMemStats` takes 22 µs and stops the world, and is not used. So the cost of the standard library is about sixty lines of code and names of our own choosing. The contrib module that does the same reading (`go.opentelemetry.io/contrib/instrumentation/runtime`) adds 86 KB and one module, and gives the names of OpenTelemetry's semantic conventions, which ready-made dashboards expect. starfixd uses the module, for the names; it is below version 1, so if it breaks, the sixty lines replace it.
 
 **Health.**
 - `/healthz` answers while the process serves. `/readyz` answers only when the daemon is listening, its last check of Dolt (a cheap query, cached a few seconds, never run per request) passed, and the keys file's last write did not fail; otherwise it says which, in one line.
@@ -864,9 +911,9 @@ What starfix does with it:
 | O4 | Dolt: its endpoint on in the guide and the image, and its figures in `sfx admin status` |
 | O5 | The harness: Collector configuration, Compose profiles, smoke checks, alert rules, dashboard, the soak's cross-check, and the tests of §16.6 |
 
-### 16.9 Open questions
+### 16.9 Settled since the first draft
 
-1. **Push, pull or both for metrics.** §16.1 offers both, which costs the Prometheus exporter's six modules. Push alone would do for anyone who runs a collector, and a collector can itself expose a Prometheus endpoint.
-2. **The principal in traces.** A span carries the principal and session, which makes a trace useful and puts a person's name in the tracing backend. A setting could leave them out.
-3. **Go runtime metrics** from the standard library's `runtime/metrics` by hand, or the contrib module that does it, which is one more dependency.
-4. **A token for a hosted backend** in the unit's environment file is the only secret this adds. The guide could say to send to a collector on the machine and nowhere else, and keep starfixd free of it.
+1. **Push and pull for metrics** (decision 31): both, as §16.1 has it.
+2. **People in traces** (decision 32): the `telemetry.principals` setting of §16.4, defaulting to a pseudonym.
+3. **Go runtime metrics** (decision 33): the contrib module, after measuring the standard library (§16.4).
+4. **A token for a hosted backend** (decision 34): allowed, from a 0600 environment file. The guide's first setup sends to a collector on the machine, which needs none and keeps the secret, the retries and the vendor's address out of starfixd; sending straight to a hosted backend is the second, for a server where running a collector is not wanted.
