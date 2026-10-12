@@ -25,13 +25,16 @@ stage is in progress.
 | Path | Holds |
 |---|---|
 | `cmd/sfx` | `sfx` entry point: builds a `cli.Env` from the process and calls `cli.Run` |
-| `cmd/starfixd` | `starfixd` entry point: `serve` (which, on a server of many projects, also writes the keys file sshd reads), `stdio`, `upgrade`, and the admin `control init`, `import-bd` and `export-bd` |
+| `cmd/starfixd` | `starfixd` entry point: `serve` (which, on a server of many projects, also writes the keys file sshd reads), `stdio`, `upgrade`, `status` (the running daemon's report, over its socket), and the admin `control init`, `import-bd` and `export-bd`. `serve` also wires the telemetry, the loopback listener and systemd's notifications (`runDaemon`) |
 | `internal/store` | Typed store over Dolt: single writer, CAS updates, event log, ready and blocked queries. Also `Control` (`control*.go`), the same machinery over a second database for what is the server's: projects, principals, their public keys and memberships with roles, and the in-memory index the daemon reads at each handshake and each project store asks for its admins. `stats.go` holds what `sfx admin status` reads from memory: a store's write counters, and the control index's counts |
 | `internal/store/migrations`, `internal/store/controlmigrations` | Embedded schema migrations for a project's database and for the control database, two separate sets: `NNNN_name.sql`, each numbered 1..n without gaps |
 | `internal/proto` | Wire protocol: NDJSON frames, handshake, `Op` constants, `*Args` and `*Result` types, typed errors; and the bridge frame, which passes between two `starfixd` processes on the server, carries no version and only ever gains fields |
 | `internal/server` | Daemon: socket, peer check, sshd bridge, dispatch of ops to the connection's project's store, error mapping, settings; with `control_db`, the membership check at the handshake, the registry of open project stores (`registry.go`), the `sfx admin` ops over the control store (`admin.go`), the closing of connections whose access ended (`conns.go`), keys for sshd (`keys.go`): the `authorized_keys`-format file it writes from the control store (`Server.WriteKeys`), the hand-maintained `authorized_keys` it only reads, and the ending of claims whose holder lost access; and the report `sfx admin status` reads (`status.go`) |
 | `internal/client` | In-process SSH client with a pinned host key, over TCP or a Google Cloud IAP tunnel; `.starfix.yaml` discovery, and the one printed for a new project; session ids |
 | `internal/safetext` | Unsafe characters (controls, bidi): the store's validation, bd import cleaning, and the escaping of everything clients print |
+| `internal/telemetry` | starfixd's metrics, and the only importer of the OpenTelemetry SDK, its exporters and the Prometheus client (design §16): the instruments and their fixed attribute values (`instruments.go`), OTLP/HTTP push from the `OTEL_*` variables, the Prometheus handler, the loopback listener with `/metrics`, `/healthz` and `/readyz`, and `Manual`, which reads the instruments in process for tests. A nil `*Telemetry` does nothing. Its tests fail if `cmd/sfx` links any of the SDK or another package imports it |
+| `internal/sdnotify` | systemd's notify socket with the standard library: ready, stopping and the watchdog; a no-op off Linux and without `NOTIFY_SOCKET` |
+| `internal/statustext` | The status report as text, shared by `sfx admin status` and `starfixd status` |
 | `internal/secretscan` | Text that looks like a credential (private keys, service and bearer tokens, JWTs, passwords in URLs and commands, secret assignments, long random tokens): the store's secrets lint for memories |
 | `internal/cli` | `sfx` commands, `sfx admin` among them; writes only to the `Env` it is given |
 | `internal/board` | `sfx tui`, the live board: the model and its golden-tested frames, `Live` (event push, debounced rereads, reconnects), and the terminal loop over `golang.org/x/term` |
@@ -92,8 +95,10 @@ golangci-lint is at the version CI pins. `mise.toml` pins both for
 contributors who use mise, and tests in `internal/version` keep it equal
 to `go.mod` and `ci.yml`.
 
-CI also runs `TestCheckPeerOtherUID` (`internal/server`) under `sudo`,
-because it starts a socket peer as another user; it skips when not root.
+CI also runs the tests named `TestCheckPeer…` (`internal/server`) under
+`sudo`, because `TestCheckPeerOtherUID` and
+`TestCheckPeerKeepsStatusFromOtherUsers` start a socket peer as another
+user; they skip when not root.
 CI also checks the syntax of the AppArmor profiles in `deploy/apparmor`
 with `apparmor_parser -Q -K`, which needs Linux with AppArmor and is not
 in the gate above; it does not check that `starfixd` works when confined
@@ -136,6 +141,10 @@ skip without it too.
    dependency needs a stated reason in the pull request. Release builds are
    `CGO_ENABLED=0`, `-trimpath`, `-ldflags "-s -w"`, so code must build
    without cgo. Pin GitHub Actions by commit SHA with a version comment.
+   The OpenTelemetry SDK is `starfixd`'s alone (design §16.2, decision
+   28): only `internal/telemetry` imports it, its exporters or the
+   Prometheus client, `sfx` links none of it, and tests enforce both. Use
+   that package's interface from anywhere else.
 5. **Store writes go through `Store.write`**, on the store's single writer
    connection, one SQL transaction per operation. There is one store, and
    so one writer, for each database: each project's, and the control

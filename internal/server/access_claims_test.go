@@ -240,7 +240,7 @@ func TestSweep(t *testing.T) {
 // asIs opens a project's database without migrating it, as a daemon
 // opens an archived project's at its start.
 func (m *multi) asIs() func(context.Context, store.Project) (*store.Store, error) {
-	return ProjectOpener(m.dsn, m.ctl, store.Options{CommitInterval: -1, NoMigrate: true})
+	return ProjectOpener(m.dsn, m.ctl, store.Options{CommitInterval: -1, NoMigrate: true}, m.tel)
 }
 
 // inStore opens the database of the project named name directly, as the

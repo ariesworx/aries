@@ -122,6 +122,9 @@ up in a Linux VM you can throw away.
 | What an issue, claim, handoff, memory or cost is or does | [docs/concepts.md](docs/concepts.md) |
 | A server setting or `starfixd` command | [Settings](docs/server.md#settings) and [starfixd commands](docs/server.md#starfixd-commands) in docs/server.md |
 | A cap on what a client can grow (rule 18) | The [Limits](docs/server.md#limits) table in docs/server.md |
+| A metric: an instrument, an attribute or a value an attribute may take | `internal/telemetry/instruments.go` and the tables of [What is measured](docs/server.md#what-is-measured) together; tests in `internal/telemetry` fail until they agree, and until every attribute's values come from a list in the code (rule 18) |
+| The telemetry listener, a health check, an `OTEL_*` variable starfixd reads, or `starfixd status` | [Observability](docs/server.md#observability) in docs/server.md, and [The telemetry listener](docs/security-model.md#the-telemetry-listener) for what it reveals |
+| The systemd unit, or what starfixd tells systemd | The unit and its table in [step 5](docs/server.md#5-run-starfixd-under-systemd), and a run under a real systemd ([What was run, and where](docs/server.md#what-was-run-and-where)): the tests reach only a socket that stands in for systemd's |
 | Projects, principals, members, keys, the control store or the keys file | [Serving many projects](docs/server.md#serving-many-projects) in docs/server.md, and [Who can authenticate](docs/security-model.md#who-can-authenticate) |
 | A message an operator sees when something is wrong | [Troubleshooting](docs/server.md#troubleshooting) in docs/server.md |
 | A setup step in docs/server.md, or the Docker test server | [docs/deploy/docker.md](docs/deploy/docker.md), `deploy/docker`, and `smoke.sh` with its count of checks |

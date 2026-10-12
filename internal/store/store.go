@@ -65,6 +65,9 @@ type Options struct {
 	// Limits bound requests and per-principal rows. Zero fields take
 	// [DefaultLimits].
 	Limits Limits
+	// Observer, when set, is told of each write, retry, Dolt commit and
+	// change of a claim, for the daemon's metrics. See [Observer].
+	Observer Observer
 	// NoMigrate opens the database only as it is: one that this binary's
 	// migrations have not all been applied to is refused with
 	// [ErrSchemaOld], and nothing in it is changed. starfixd sets it for
@@ -108,6 +111,8 @@ type Store struct {
 	tm        storeTime
 	hasClaims bool
 	settling  sync.Mutex
+	// migrated is how many migrations Open applied.
+	migrated int
 
 	// beforeCommit, when set by tests, runs inside every write transaction
 	// just before COMMIT.
@@ -216,6 +221,7 @@ func open(ctx context.Context, dsn string, opts Options, sc schema) (*Store, err
 	if err != nil {
 		return nil, errors.Join(err, s.w.Close(), s.r.Close())
 	}
+	s.migrated = n
 	if n > 0 {
 		s.dirty.Store(true)
 	}
@@ -228,6 +234,19 @@ func open(ctx context.Context, dsn string, opts Options, sc schema) (*Store, err
 		close(s.done)
 	}
 	return s, nil
+}
+
+// Migrated returns how many migrations opening the store applied: zero
+// for a database that was already at this binary's schema.
+func (s *Store) Migrated() int { return s.migrated }
+
+// Ping checks that Dolt answers, on a connection of the read pool. It is
+// what a health check asks: cheap, and it reads no table.
+func (s *Store) Ping(ctx context.Context) error {
+	if err := s.r.PingContext(ctx); err != nil {
+		return fmt.Errorf("ping dolt: %w", err)
+	}
+	return nil
 }
 
 // Close stops the committer, makes a final Dolt commit of pending writes
@@ -276,9 +295,13 @@ func (s *Store) Flush(ctx context.Context) error {
 	if !s.dirty.Swap(false) {
 		return nil
 	}
+	start := time.Now()
 	err := s.commit(ctx)
 	if err != nil {
 		s.dirty.Store(true)
+	}
+	if o := s.opts.Observer; o != nil {
+		o.Committed(time.Since(start), err)
 	}
 	return err
 }
@@ -373,6 +396,9 @@ type wtx struct {
 	// or changed a closed one, so the similar-title cache is stale once
 	// it commits.
 	closedChanged bool
+	// claims are the changes of a claim the attempt made, told to the
+	// store's observer once it commits (observe.go).
+	claims []claimChange
 }
 
 // exec runs a mutating statement. It refuses an UPDATE that does not set
@@ -621,7 +647,11 @@ func (s *Store) writeRetry(ctx context.Context, actor Actor, fn func(*wtx) error
 		changed, err := s.writeOnce(ctx, actor, fn)
 		if err == nil {
 			if changed {
-				s.stats.record(time.Now(), time.Since(start))
+				took := time.Since(start)
+				s.stats.record(time.Now(), took)
+				if o := s.opts.Observer; o != nil {
+					o.Wrote(took)
+				}
 			}
 			return nil
 		}
@@ -630,6 +660,9 @@ func (s *Store) writeRetry(ctx context.Context, actor Actor, fn func(*wtx) error
 		}
 		if attempt >= s.opts.MaxAttempts {
 			return fmt.Errorf("%w: gave up after %d attempts: %w", ErrConflict, attempt, err)
+		}
+		if o := s.opts.Observer; o != nil {
+			o.Retried()
 		}
 		d := time.Duration(rand.Int64N(int64(5*time.Millisecond) << min(attempt, 5))) //nolint:gosec // jitter, not security
 		select {
@@ -674,6 +707,11 @@ func (s *Store) writeOnce(ctx context.Context, actor Actor, fn func(*wtx) error)
 	}
 	if w.closedChanged {
 		s.similar.invalidate()
+	}
+	if o := s.opts.Observer; o != nil {
+		for _, c := range w.claims {
+			o.ClaimChanged(c.change, c.reason)
+		}
 	}
 	// Counted after the commit: every watch subscribed before it is
 	// counted, and one subscribed later is not owed this write's events.

@@ -169,6 +169,7 @@ func endClaimFor(ctx context.Context, w *wtx, c claimRow, reason string) error {
 	if reason != "" {
 		after = map[string]string{"reason": reason}
 	}
+	w.claimed(ClaimReleased, reason)
 	return w.event(ctx, OpClaimRelease, string(c.Issue),
 		map[string]any{"holder": c.Holder, "epoch": c.Epoch, "expires_at": c.ExpiresAt}, after)
 }
@@ -227,6 +228,7 @@ func takeClaim(ctx context.Context, w *wtx, c claimRow, lease time.Duration) (Cl
 		return Claim{}, err
 	}
 	if !same {
+		w.claimed(ClaimTaken, "")
 		if err := w.event(ctx, OpClaimTake, string(c.Issue), replaced,
 			map[string]any{"epoch": c.Epoch, "expires_at": c.ExpiresAt}); err != nil {
 			return Claim{}, err
@@ -371,6 +373,7 @@ func (s *Store) RenewClaims(ctx context.Context, actor Actor, lease time.Duratio
 			}
 			out[i].ExpiresAt = want
 			w.quiet = true
+			w.claimed(ClaimRenewed, "")
 		}
 		// The claims are the actor's own, so wtx.guard would pass each.
 		budget := w.lim.Paths
@@ -410,6 +413,7 @@ func (s *Store) ReapClaims(ctx context.Context) ([]Claim, error) {
 			if err := releaseClaim(ctx, w, row); err != nil {
 				return err
 			}
+			w.claimed(ClaimExpired, "")
 			if err := w.event(ctx, OpClaimExpire, string(c.Issue),
 				map[string]any{"holder": c.Holder, "epoch": c.Epoch, "expires_at": c.ExpiresAt}, nil); err != nil {
 				return err

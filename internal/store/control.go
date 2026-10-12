@@ -147,6 +147,9 @@ func OpenControl(ctx context.Context, dsn string, opts ControlOptions) (*Control
 // call returns the first one's error.
 func (c *Control) Close() error { return c.s.Close() }
 
+// Ping checks that Dolt answers, as [Store.Ping] does.
+func (c *Control) Ping(ctx context.Context) error { return c.s.Ping(ctx) }
+
 // Flush makes a Dolt commit now if any write happened since the last one.
 func (c *Control) Flush(ctx context.Context) error { return c.s.Flush(ctx) }
 

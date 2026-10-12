@@ -8,6 +8,7 @@ import (
 
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/starfix/internal/telemetry"
 )
 
 // The server's clock (design §14, decision 37). Each store keeps its own
@@ -80,8 +81,10 @@ func (e *ClockBehindError) Error() string {
 // clockWatch is what the daemon has seen of its clock.
 type clockWatch struct {
 	mu sync.Mutex
-	// steps is how many steps had been logged.
-	steps int
+	// steps is how many steps had been logged, and forward and backward
+	// how many of each had been counted (telemetry.ClockSteps).
+	steps             int
+	forward, backward int
 	// behind is the database furthest ahead of the clock at the last
 	// look, if any was past the tolerance; warned is when the log last
 	// said so, by Server.now.
@@ -190,8 +193,15 @@ func (s *Server) CheckClock(ctx context.Context) {
 	w.mu.Lock()
 	seen := steps.Forward + steps.Backward
 	fresh := seen - w.steps
-	w.steps = seen
+	fwd, back := steps.Forward-w.forward, steps.Backward-w.backward
+	w.steps, w.forward, w.backward = seen, steps.Forward, steps.Backward
 	w.mu.Unlock()
+	if fwd > 0 {
+		s.cfg.Telemetry.Record(telemetry.ClockSteps, float64(fwd), telemetry.StepForward)
+	}
+	if back > 0 {
+		s.cfg.Telemetry.Record(telemetry.ClockSteps, float64(back), telemetry.StepBackward)
+	}
 	if fresh > 0 {
 		dir, effect := "forward", "every live lease is extended by the step, so no claim ends for it (a clock.step event in each log)"
 		if steps.LastBy < 0 {
@@ -218,6 +228,15 @@ func (s *Server) CheckClock(ctx context.Context) {
 		}
 	}
 	s.reportBehind(worst)
+	// A monitor sees the clock behind its history here, and alerts on
+	// it; /readyz does not answer for it, since the daemon serves
+	// correctly meanwhile and a daemon reported unready may be taken out
+	// of service, which would hand whoever set the clock an outage.
+	var by float64
+	if worst != nil {
+		by = worst.by.Seconds()
+	}
+	s.cfg.Telemetry.Record(telemetry.ClockBehind, by)
 }
 
 // ControlLog names the control database's history in a report.

@@ -304,7 +304,46 @@ variable can set it.
 connecting process's user ID and refuses any but its own, which is why
 `serve` runs only on Linux. `starfixd stdio` runs as that same user,
 because sshd runs every forced command as the `starfix` account.
-Nothing else connects to the socket: sshd itself never does.
+sshd itself never connects to the socket.
+
+Two commands connect to it directly, as the daemon's user and under
+reserved principals that no key can sign in as: the health check of
+`starfixd upgrade`, and `starfixd status`, which prints the report `sfx
+admin status` gives a server admin. The directory's mode and the peer
+check are what keep both from every other local user; a test connects as
+another user and is answered nothing.
+
+## The telemetry listener
+
+With `telemetry: listen:` set, `starfixd serve` opens one HTTP listener
+for metrics and health ([Observability](server.md#observability)). It is
+off by default.
+
+- **Loopback only.** starfixd refuses, at start, an address that is not
+  loopback, and a host name with any address that is not; it binds the
+  address it checked, not the name. No other machine can reach it.
+- **No authentication.** Any user on the server can read it. Do not
+  forward the port, and do not put a proxy in front of it that listens
+  elsewhere, without adding authentication there.
+- **What it reveals:** how busy the server is, by operation and result;
+  the UUIDs of the projects it serves and how busy each is
+  (`telemetry: per_project: false` leaves the projects out); how many
+  connections, handshakes, refusals, claims and access changes there
+  were; when the keys file was last written and whether Dolt answers;
+  the starfixd version; and the Go runtime's memory and goroutines.
+- **What it does not:** no principal, session, machine or key, no issue
+  id, title or text, no memory, no project's name, no setting and no
+  secret. An attribute's values come from fixed lists in the code, so a
+  client cannot put a string of its own into a metric.
+- **It only answers.** `GET /metrics`, `/healthz` and `/readyz`; nothing
+  changes the server. It serves a mux of its own with those three paths:
+  the debug pages that libraries linked into starfixd register on Go's
+  default HTTP mux (`/debug/vars`, `/debug/requests`, `/debug/events`) are
+  not reachable, and a test asks for them. Requests in flight, connections and the time each
+  may take are capped, so a local user cannot hold the daemon's file
+  descriptors or goroutines with it.
+
+Metrics pushed over OTLP carry the same instruments and nothing more.
 
 ## Confinement on the server
 
@@ -465,6 +504,13 @@ caps, their settings and what a refusal past each one says.
 - No password goes on a command line, and a config file that holds one
   must be mode 0600 ([Settings](server.md#settings)).
 - `.starfix.yaml` holds no secrets, and is meant to be committed.
+- **A token for a metrics backend** is read from starfixd's environment
+  only (`OTEL_EXPORTER_OTLP_HEADERS`), from a unit's `EnvironmentFile` of
+  mode 0600: no flag and no config key takes it. starfixd never logs it:
+  not at start, and not in an export error, from which every header's
+  value is removed even when the backend's answer repeats it. Sending to
+  a collector on the same machine needs no token at all
+  ([Observability](server.md#observability)).
 - **Memories refuse secrets.** A memory that looks like it holds a
   credential is refused in every scope, `user` included, and by
   `import-bd`: private keys, AWS access key ids, GitHub, GitLab, Slack and
@@ -508,7 +554,11 @@ hand](install.md#verify-a-download-by-hand) the commands.
 ## Dependencies
 
 The dependency list is kept small on purpose, and a new dependency needs a
-stated reason. Dependencies are not vendored. `go.sum` pins each module's
+stated reason. The largest is starfixd's alone: the OpenTelemetry Go SDK,
+its OTLP/HTTP and Prometheus exporters and what they bring, which one
+package (`internal/telemetry`) imports. `sfx`, which runs on every
+developer's machine and inside every agent's harness, links none of it,
+and a test fails if it ever does. Dependencies are not vendored. `go.sum` pins each module's
 content hash, the Go checksum database rejects a module changed after
 publication, and `go mod verify` checks that the local module cache has not
 changed since download. Every GitHub Action is pinned by commit SHA.

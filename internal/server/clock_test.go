@@ -257,8 +257,9 @@ func TestClockBehindWhileRunning(t *testing.T) {
 			}
 			t.Cleanup(func() { _ = st.Close() })
 			log := &syncBuffer{}
+			tel, m := measured(t, true)
 			s, err := New(Config{Store: st, Project: project, PeerCheck: func(net.Conn) error { return nil }, Clock: clk,
-				ClockBehind: mode, ReapInterval: -1, Logger: slog.New(slog.NewTextHandler(log, nil))})
+				ClockBehind: mode, ReapInterval: -1, Logger: slog.New(slog.NewTextHandler(log, nil)), Telemetry: tel})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -316,11 +317,26 @@ func TestClockBehindWhileRunning(t *testing.T) {
 			if cs := s.clockStatus(); cs.StepsBackward != 1 || cs.StepsForward != 0 || cs.LastStepSeconds != -3600 {
 				t.Errorf("clockStatus() = %+v, want one step back of an hour", cs)
 			}
+			// A monitor sees both; the daemon stays ready to serve, since
+			// an unready daemon may be taken out of service.
+			snap := snapshot(t, m)
+			check(t, snap, []want{{name: "starfix.clock.steps", attrs: []string{"direction", "backward"}, value: 1},
+				{name: "starfix.clock.steps", attrs: []string{"direction", "forward"}, value: 0}})
+			if by := snap.Value("starfix.clock.behind"); by < 50*60 || by > 3600 {
+				t.Errorf("starfix.clock.behind = %vs, want about 55 minutes", by)
+			}
+			s.listening.Store(true)
+			if why := s.Ready(ctx); why != "" {
+				t.Errorf("Ready() with the clock behind history = %q, want ready: it is reported, not a reason to take the daemon out of service", why)
+			}
 			// At half speed the hour is made up in two.
 			c.run(2 * time.Hour)
 			s.CheckClock(ctx)
 			if count("clock caught up with history") != 1 || s.clockStatus().Behind != nil {
 				t.Errorf("two hours on, want one `clock caught up with history` and a status that is no longer behind:\n%s", log)
+			}
+			if by := snapshot(t, m).Value("starfix.clock.behind"); by != 0 {
+				t.Errorf("starfix.clock.behind = %vs once the clock has caught up, want 0", by)
 			}
 			if !st.Now().Equal(c.now()) {
 				t.Errorf("the store's time is %s and the clock's %s, want them equal again", st.Now(), c.now())

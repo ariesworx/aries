@@ -341,7 +341,7 @@ func (w *world) startMany() error {
 		return errors.Join(err, ctl.Close())
 	}
 	srv, err := server.New(server.Config{Control: ctl, Version: "v0.2.0", ProjectDBs: w.block,
-		Open:     server.ProjectOpener(w.dsn, ctl, store.Options{CommitInterval: o.commit, Now: o.now, Clock: clk, Limits: o.limits.Limits, Logger: o.logger}),
+		Open:     server.ProjectOpener(w.dsn, ctl, store.Options{CommitInterval: o.commit, Now: o.now, Clock: clk, Limits: o.limits.Limits, Logger: o.logger}, nil),
 		ProtoMin: o.protoMin, ProtoMax: o.protoMax, Latest: o.latest, ReapInterval: o.reap, Limits: o.limits, Logger: o.logger,
 		KeysFile: w.keysFile, AuthorizedKeys: w.handFile, Clock: clk, AcceptHistory: w.acceptHistory})
 	if err != nil {
@@ -358,7 +358,7 @@ func (w *world) startMany() error {
 		return fail(err)
 	}
 	if err := srv.ReleaseArchived(ctx, server.ProjectOpener(w.dsn, ctl,
-		store.Options{CommitInterval: o.commit, Now: o.now, Clock: clk, Limits: o.limits.Limits, Logger: o.logger, NoMigrate: true})); err != nil {
+		store.Options{CommitInterval: o.commit, Now: o.now, Clock: clk, Limits: o.limits.Limits, Logger: o.logger, NoMigrate: true}, nil)); err != nil {
 		return fail(err)
 	}
 	l, err := server.Listen(w.socket)
