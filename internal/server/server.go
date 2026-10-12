@@ -100,7 +100,10 @@ type Server struct {
 	// ConnsPerPrincipal); writes is each principal's write bucket, and
 	// ctlWrites its bucket for writes to the control store; refusals
 	// samples refusal log lines.
-	slots     conns
+	slots conns
+	// hellos counts each principal's connections between the bridge
+	// frame and the hello (Limits.Handshakes).
+	hellos    waiting
 	writes    buckets
 	ctlWrites buckets
 	refusals  sampler
@@ -345,16 +348,28 @@ func (s *Server) Serve(ctx context.Context, l net.Listener) error {
 			_ = c.Close()
 			return nil
 		}
-		full := len(s.conns) >= 2*s.cfg.Limits.Conns
-		if !full {
-			s.conns[c] = owner{}
+		// At twice the cap, the connection that has waited longest
+		// without a hello is closed to make room: whoever arrives now is
+		// more likely to be someone at work than one that has said
+		// nothing for longest. The cap itself is refused cleanly, in the
+		// handshake. Connections past their hello number at most Conns,
+		// so one without is always there to close.
+		closing := c
+		if len(s.conns) < 2*s.cfg.Limits.Conns {
+			closing = nil
+		} else if oldest := s.oldestWaiting(); oldest != nil {
+			closing = oldest
+			delete(s.conns, oldest)
+		}
+		if closing != c {
+			s.conns[c] = owner{since: time.Now()}
 		}
 		s.mu.Unlock()
-		if full {
-			// Past twice the cap, sockets still in the handshake are
-			// closed unread; the cap itself is refused cleanly there.
-			s.refusals.log(s.cfg.Logger, "", s.now(), slog.LevelWarn, "refused connection", "reason", "connection limit")
-			_ = c.Close()
+		if closing != nil {
+			s.refusals.log(s.cfg.Logger, "", s.now(), slog.LevelWarn, "closed a connection without a hello", "reason", "connection limit", "oldest", closing != c)
+			_ = closing.Close() // an older one's handler ends with it, and frees what it held
+		}
+		if closing == c {
 			continue
 		}
 		s.wg.Go(func() {
@@ -424,11 +439,25 @@ func (s *Server) Reap(ctx context.Context) {
 	s.each(func(pr *served) { pr.reap(ctx) })
 }
 
-// Handshake timeouts: the bridge frame comes at once; the hello follows the
-// SSH session start.
+// Handshake timeouts: the bridge frame comes at once, from `starfixd
+// stdio` on this machine; the hello follows the SSH session start.
+//
+// helloTimeout is how long a connection that has said who it is may hold
+// a socket, and a place among its principal's Limits.Handshakes, without
+// saying what it wants. It was 30 seconds, which nothing needed. The
+// bridge starts when sshd answers the client's exec request, and the
+// client (client.start) writes its hello as soon as that answer reaches
+// it, so the hello trails the bridge frame by one round trip. The client
+// gives its whole connection 15 seconds (client.Options.Timeout, which
+// no caller raises), and the TCP connect, key exchange, authentication,
+// channel and exec before the hello cost at least five round trips: a
+// client whose round trip is over 2.5 seconds has given up before its
+// hello could arrive. Ten seconds is four times that, so it closes no
+// connection a client is still waiting on, through a slow tunnel
+// included.
 const (
 	bridgeTimeout = 5 * time.Second
-	helloTimeout  = 30 * time.Second
+	helloTimeout  = 10 * time.Second
 )
 
 // staleKeysFrame is the type of the first frame `starfixd keys` sent,
@@ -664,9 +693,16 @@ func (s *Server) busyControlWrites(principal string, wait time.Duration) *proto.
 // connection slot (sess.slot) and, in a server of many projects, counts
 // as a connection of its project's store (sess.held). A refusal after a
 // valid bridge frame also returns the session, so the caller can say
-// whose it was and free what it holds, and so does a welcome that could
-// not be written; other failures return nil. ctx bounds the opening of a
-// project's store.
+// whose it was and free what it holds, and so do a hello that did not
+// come and a welcome that could not be written; other failures return
+// nil. ctx bounds the opening of a project's store.
+//
+// Two things are decided on the bridge frame alone, before the hello is
+// waited for (standing, Limits.Handshakes): a server of many projects
+// refuses a principal it would let into no project, and any server
+// refuses one with too many connections that have not said hello. What
+// depends on the project, membership and the key that signed in, is
+// decided at the hello (admit, keyHolds).
 func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 	sess := &session{conn: c, enc: proto.NewEncoder(c), dec: proto.NewDecoder(c)}
 	_ = c.SetReadDeadline(time.Now().Add(bridgeTimeout))
@@ -692,12 +728,6 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 	sess.key = f.Principal
 	sess.fingerprint = f.Key
 
-	_ = c.SetReadDeadline(time.Now().Add(helloTimeout))
-	f, err = sess.dec.Decode()
-	if err != nil {
-		return nil, fmt.Errorf("hello: %w", err)
-	}
-	_ = c.SetReadDeadline(time.Time{})
 	w := &proto.Frame{T: proto.FrameWelcome, Version: s.cfg.Version, Min: s.cfg.ProtoMin, Max: s.cfg.ProtoMax, Latest: s.cfg.Latest}
 	// A refusal past the bridge frame returns sess, so the caller knows
 	// whose it is.
@@ -705,6 +735,29 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 		w.Err = e
 		return sess, errors.Join(e, sess.enc.Encode(w))
 	}
+	// From here the connection is somebody's, so it is refused or
+	// counted as theirs before it is waited on. The upgrade's probe is
+	// the daemon's own, and neither.
+	if f.Principal != ProbePrincipal {
+		if e := s.standing(f.Principal); e != nil {
+			return refuse(e)
+		}
+		if most := s.cfg.Limits.Handshakes; !s.hellos.enter(f.Principal, most) {
+			return refuse(proto.Errf(proto.CodeBusy,
+				"wait for your other starfix sessions to finish connecting, or close them, and retry; the server's operator can raise handshakes_per_principal under limits: in starfixd's config",
+				fmt.Sprintf("%s has %d connections that have not said hello, the most a principal may (%d)", f.Principal, most, most)))
+		}
+	}
+	_ = c.SetReadDeadline(time.Now().Add(helloTimeout))
+	f, err = sess.dec.Decode()
+	if sess.actor.Principal != ProbePrincipal {
+		s.hellos.leave(sess.actor.Principal)
+	}
+	if err != nil {
+		return sess, fmt.Errorf("hello: %w", err)
+	}
+	_ = c.SetReadDeadline(time.Time{})
+	s.greeted(c)
 	if f.T != proto.FrameHello {
 		return refuse(proto.Errf(proto.CodeInvalid, proto.FixUpgrade+" starfix to match the server",
 			fmt.Sprintf("expected a hello, got a %q frame", f.T)))
@@ -787,6 +840,35 @@ func notServed(project string) *proto.Error {
 		fmt.Sprintf("project %q is not served by this server", project))
 }
 
+// disabledErr refuses a principal whose row is disabled.
+func disabledErr(principal string) *proto.Error {
+	return proto.Errf(proto.CodeForbidden,
+		fmt.Sprintf("ask a server admin, or a project admin who administers every project you belong to, to run `sfx admin principal enable %s`", principal),
+		fmt.Sprintf("%s is disabled on this server", principal))
+}
+
+// standing refuses, on the bridge frame alone, a principal that a server
+// of many projects lets into no project: one whose row is disabled, a
+// server admin's included (decision 20), and one that has no row and is
+// no server admin in the config file. Its key is still a line sshd
+// accepts, so without this it could hold connections open until each
+// hello timed out. A server of one project has no control store, and
+// refuses no one here.
+func (s *Server) standing(principal string) *proto.Error {
+	if s.cfg.Control == nil {
+		return nil
+	}
+	switch known, disabled := s.cfg.Control.Standing(principal); {
+	case disabled:
+		return disabledErr(principal)
+	case !known:
+		return proto.Errf(proto.CodeForbidden,
+			fmt.Sprintf("ask a server admin, or an admin of the project, to add you: `sfx admin principal add %s`, run in the project's repository", principal),
+			fmt.Sprintf("%s is not a principal of this server", principal))
+	}
+	return nil
+}
+
 // admit decides a handshake in a server of many projects, from the
 // control store's memory. A project that is unknown, archived or still
 // being created is not served to anyone. An active one is served to a
@@ -801,9 +883,7 @@ func (s *Server) admit(principal, project string) (store.Access, *proto.Error) {
 		return acc, notServed(project)
 	}
 	if acc.Disabled {
-		return acc, proto.Errf(proto.CodeForbidden,
-			fmt.Sprintf("ask a server admin, or a project admin who administers every project you belong to, to run `sfx admin principal enable %s`", principal),
-			fmt.Sprintf("%s is disabled on this server", principal))
+		return acc, disabledErr(principal)
 	}
 	if acc.Role == "" {
 		return acc, proto.Errf(proto.CodeForbidden,

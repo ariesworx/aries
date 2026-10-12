@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
@@ -12,11 +13,39 @@ import (
 // principal, the project it connected to, and the fingerprint of the key
 // that authenticated it when sshd took the key's line from the keys file
 // (empty for a line of the hand-maintained authorized_keys file, which
-// names none). The zero value is a connection still in its handshake.
+// names none). A connection still in its handshake has no principal
+// here: for it, since is when it was accepted, and hello whether its
+// hello has been read.
 type owner struct {
 	principal string
 	project   string
 	key       string
+	since     time.Time
+	hello     bool
+}
+
+// oldestWaiting returns the connection accepted longest ago whose hello
+// has not been read, or nil when there is none. The caller holds s.mu.
+func (s *Server) oldestWaiting() net.Conn {
+	var oldest net.Conn
+	var since time.Time
+	for c, o := range s.conns {
+		if o.principal == "" && !o.hello && (oldest == nil || o.since.Before(since)) {
+			oldest, since = c, o.since
+		}
+	}
+	return oldest
+}
+
+// greeted records that c's hello has been read, so that it is no longer
+// one to close when the server runs out of sockets.
+func (s *Server) greeted(c net.Conn) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if o, ok := s.conns[c]; ok { // a test may hand a connection straight to the handler
+		o.hello = true
+		s.conns[c] = o
+	}
 }
 
 // track records whose c is, so that it can be found when that access

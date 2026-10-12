@@ -42,6 +42,12 @@ func TestResolveSettingsLimits(t *testing.T) {
 			}},
 		{name: "zero takes the default", body: "limits:\n  labels_per_issue: 0\n  write_burst: 0\n  write_rate: 0\n",
 			want: func(l Limits) bool { return l == DefaultLimits }},
+		{name: "handshakes default", body: "limits:\n  handshakes_per_principal: 0\n", want: func(l Limits) bool { return l.Handshakes == 16 }},
+		{name: "handshakes set", body: "limits:\n  handshakes_per_principal: 4\n",
+			want: func(l Limits) bool {
+				return l.Handshakes == 4 && l.ConnsPerPrincipal == DefaultLimits.ConnsPerPrincipal
+			}},
+		{name: "negative handshakes", body: "limits:\n  handshakes_per_principal: -1\n", err: "limit handshakes_per_principal must be zero or a positive number"},
 		{name: "usage limits", body: "limits:\n  usage_records: 50\n  usage_per_day: 900\n",
 			want: func(l Limits) bool {
 				return l.UsageRecords == 50 && l.UsagePerDay == 900 && l.Labels == DefaultLimits.Labels

@@ -7,10 +7,7 @@ package server
 // passes, and can then be turned into a regression test or deleted.
 
 import (
-	"context"
-	"net"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -125,72 +122,6 @@ func TestReviewF3PlantedKeyRidesIntoAnotherProject(t *testing.T) {
 	}
 	reviewFinding(t, "F-3", "alice, admin of project a only, added a key of her own to victor while victor was in a alone; erin then added victor to project b, "+
 		"was shown no key (member.set: "+set.Change+", keys: none) and is refused `key list victor`; alice's key now reads and writes project b as victor")
-}
-
-// F-4: a connection takes a per-principal slot only after its hello. One
-// principal, even one the server would refuse (disabled, or in no
-// project), can hold twice Limits.Conns connections between the bridge
-// frame and the hello for 30 seconds each, and while it does every other
-// connection is closed unread, an admin's included.
-func TestReviewF4HalfOpenConnectionsShutEveryoneOut(t *testing.T) {
-	m := newMulti(t, Limits{Conns: 3, ConnsPerPrincipal: 1}, nil)
-	m.project(t, projA, "alice=admin", "mallory")
-	if _, err := m.ctl.DisablePrincipal(t.Context(), dana, "mallory"); err != nil {
-		t.Fatal(err)
-	}
-	dir, err := os.MkdirTemp("", "sfr")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	sock := filepath.Join(dir, "d.sock")
-	l, err := Listen(sock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- m.Serve(ctx, l) }()
-	t.Cleanup(func() { cancel(); <-done })
-
-	// mallory is disabled and limited to one connection; she opens six
-	// and sends each one's bridge frame, as six SSH sessions would.
-	for range 2 * 3 {
-		c, err := net.Dial("unix", sock)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = c.Close() })
-		if err := proto.NewEncoder(c).Encode(&proto.Frame{T: proto.FrameBridge, Principal: "mallory"}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	waitUntil(t, "the server to hold mallory's connections", func() bool {
-		m.mu.Lock()
-		defer m.mu.Unlock()
-		return len(m.conns) >= 6
-	})
-	// The server admin now tries to connect, to see what is going on.
-	c, err := net.Dial("unix", sock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = c.Close() }()
-	enc := proto.NewEncoder(c)
-	_ = enc.Encode(&proto.Frame{T: proto.FrameBridge, Principal: "dana"})
-	_ = enc.Encode(&proto.Frame{T: proto.FrameHello, Proto: proto.Proto, Project: projA, Session: "s-d", Machine: "m"})
-	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
-	w, err := proto.NewDecoder(c).Decode()
-	if err == nil && w.Err == nil {
-		t.Logf("the admin was welcomed past %d half-open connections", 6)
-		return
-	}
-	if err == nil {
-		t.Fatalf("the admin was refused with %v, not closed unread", w.Err)
-	}
-	reviewFinding(t, "F-4", "six connections of one disabled principal, each past its bridge frame and none past its hello, "+
-		"filled the server (conns: 3, conns_per_principal: 1); the server admin's connection was then closed without an answer ("+err.Error()+"). "+
-		"Each lasts 30 seconds and can be reopened, so one key holder keeps every person and admin out")
 }
 
 // F-5: a project admin adds the public key of a server admin, whose key

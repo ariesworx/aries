@@ -355,6 +355,13 @@ func TestMultiHandshake(t *testing.T) {
 				if w.Err.Message != "frank is disabled on this server" || !strings.Contains(w.Err.Fix, "`sfx admin principal enable frank`") {
 					t.Errorf("forbidden = %q, fix %q; want the principal told it is disabled, and the command that enables it", w.Err.Message, w.Err.Fix)
 				}
+			case tc.name == "no principal row":
+				// Refused on the bridge frame, before a project is named
+				// (review F-4): it is told it has no principal, and the
+				// command that makes one.
+				if w.Err.Message != "ivy is not a principal of this server" || !strings.Contains(w.Err.Fix, "`sfx admin principal add ivy`") {
+					t.Errorf("forbidden = %q, fix %q; want the principal told the server does not know it, and the command that adds it", w.Err.Message, w.Err.Fix)
+				}
 			default:
 				if !strings.HasPrefix(w.Err.Fix, "ask a server admin, or one of the project's admins, to add you: `sfx admin member add "+tc.principal+"`") ||
 					!strings.Contains(w.Err.Message, tc.principal+" is not a member of project") {
