@@ -9,6 +9,7 @@ import (
 	"maps"
 	"math"
 	"math/big"
+	"math/bits"
 	"slices"
 	"strings"
 	"time"
@@ -774,46 +775,108 @@ func (d division) share(t Tokens, buckets ...int) Tokens {
 	return out
 }
 
-// apportion divides n into parts in proportion to weights, which are not
-// negative and not all zero, by the largest-remainder method: each part
-// is its quota rounded down, and what that leaves goes one each to the
-// parts with the largest remainders, ties to the earlier part. The parts
-// sum to n, and a part with no weight gets nothing.
+// apportion divides n, which is not negative, into parts in proportion
+// to weights, which are not negative and not all zero, by the
+// largest-remainder method: each part is its quota rounded down, and what
+// that leaves goes one each to the parts with the largest remainders,
+// ties to the earlier part. The parts sum to n, and a part with no weight
+// gets nothing.
+//
+// The arithmetic is exact in the weights as given, so every platform
+// gives the same parts. In float64 it was not: where the compiler fuses
+// a multiply and a subtract into one instruction, as on arm64, a
+// remainder's last bit differed and two equal remainders no longer tied.
+// A float64 is a whole number times a power of two, so the weights are
+// scaled by one power of two to whole numbers (wholeWeights), and a
+// quota is n × weight ÷ their sum in 128 bits. Weights too far apart for
+// 64 bits take the same steps in math/big (apportionBig).
 func apportion(n int64, weights []float64) []int64 {
-	var total float64
-	for _, w := range weights {
-		total += w
-	}
 	parts := make([]int64, len(weights))
-	rems := make([]float64, len(weights))
-	var order []int // the parts with weight, by remainder, largest first
+	whole, total, ok := wholeWeights(weights)
+	if !ok {
+		return apportionBig(n, weights, parts)
+	}
+	if total == 0 {
+		return parts
+	}
+	rems := make([]uint64, len(weights))
+	order := make([]int, 0, len(weights)) // the parts with weight, by remainder, largest first
+	left := n
+	for i, w := range whole {
+		if w == 0 {
+			continue
+		}
+		// w is at most total, so the quotient is at most n.
+		hi, lo := bits.Mul64(uint64(n), w) //nolint:gosec // n is not negative
+		q, r := bits.Div64(hi, lo, total)
+		parts[i], rems[i] = int64(q), r //nolint:gosec // at most n
+		left -= parts[i]
+		order = append(order, i)
+	}
+	slices.SortStableFunc(order, func(a, b int) int { return cmp.Compare(rems[b], rems[a]) })
+	// The remainders are each under total and sum to left × total, so
+	// fewer tokens are left than there are parts.
+	for _, i := range order[:left] {
+		parts[i]++
+	}
+	return parts
+}
+
+// wholeWeights scales weights by the one power of two that makes them
+// the smallest whole numbers, which keeps their proportions exactly, and
+// gives those and their sum. It reports false if the sum would not fit
+// in 63 bits.
+func wholeWeights(weights []float64) (whole []uint64, total uint64, ok bool) {
+	low := math.MaxInt // the exponent of the weights' lowest set bit
+	for _, w := range weights {
+		if w > 0 {
+			frac, exp := math.Frexp(w) // frac × 2^53 is the mantissa, whole
+			low = min(low, exp-53+bits.TrailingZeros64(uint64(math.Ldexp(frac, 53))))
+		}
+	}
+	whole = make([]uint64, len(weights))
+	for i, w := range weights {
+		if w <= 0 {
+			continue
+		}
+		s := math.Ldexp(w, -low) // exact: a power of two only moves the exponent
+		if s >= 1<<62 {
+			return nil, 0, false
+		}
+		whole[i] = uint64(s)
+		if total += whole[i]; total >= 1<<63 {
+			return nil, 0, false
+		}
+	}
+	return whole, total, true
+}
+
+// apportionBig is apportion for weights that wholeWeights cannot scale,
+// in exact rationals, into parts, which are zero.
+func apportionBig(n int64, weights []float64, parts []int64) []int64 {
+	total := new(big.Rat)
+	for _, w := range weights {
+		if w > 0 {
+			total.Add(total, new(big.Rat).SetFloat64(w))
+		}
+	}
+	rems := make([]*big.Rat, len(weights))
+	var order []int
 	left := n
 	for i, w := range weights {
 		if w <= 0 {
 			continue
 		}
-		q := float64(n) * (w / total)
-		f := math.Floor(q)
-		parts[i], rems[i] = int64(f), q-f
+		q := new(big.Rat).SetFloat64(w)
+		q.Mul(q, new(big.Rat).SetInt64(n)).Quo(q, total)
+		f := new(big.Int).Quo(q.Num(), q.Denom())
+		parts[i], rems[i] = f.Int64(), q.Sub(q, new(big.Rat).SetInt(f))
 		left -= parts[i]
 		order = append(order, i)
 	}
-	if len(order) == 0 {
-		return parts
-	}
-	slices.SortStableFunc(order, func(a, b int) int { return cmp.Compare(rems[b], rems[a]) })
-	// Exact quotas leave fewer tokens than there are parts. Float error
-	// can leave one more, or take one too many; the loops settle either.
-	for i := 0; left > 0; i, left = i+1, left-1 {
-		parts[order[i%len(order)]]++
-	}
-	for left < 0 {
-		for _, j := range slices.Backward(order) {
-			if left < 0 && parts[j] > 0 {
-				parts[j]--
-				left++
-			}
-		}
+	slices.SortStableFunc(order, func(a, b int) int { return rems[b].Cmp(rems[a]) })
+	for _, i := range order[:left] {
+		parts[i]++
 	}
 	return parts
 }
