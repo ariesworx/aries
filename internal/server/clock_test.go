@@ -25,11 +25,11 @@ func TestResolveSettingsClock(t *testing.T) {
 		want Settings
 		err  []string // what the refusal must name
 	}{
-		{name: "defaults", want: Settings{ClockBehind: ClockStop, ClockBehindTolerance: Tolerance(time.Minute),
+		{name: "defaults", want: Settings{ClockBehind: ClockStop, ClockBehindTolerance: Tolerance(2 * time.Minute),
 			ClockStepTolerance: Tolerance(5 * time.Second), ClockClientTolerance: Tolerance(5 * time.Minute)}},
-		{name: "warn", body: "clock_behind: warn\n", want: Settings{ClockBehind: ClockWarn, ClockBehindTolerance: Tolerance(time.Minute),
+		{name: "warn", body: "clock_behind: warn\n", want: Settings{ClockBehind: ClockWarn, ClockBehindTolerance: Tolerance(2 * time.Minute),
 			ClockStepTolerance: Tolerance(5 * time.Second), ClockClientTolerance: Tolerance(5 * time.Minute)}},
-		{name: "the environment wins", body: "clock_behind: warn\n", env: "stop", want: Settings{ClockBehind: ClockStop, ClockBehindTolerance: Tolerance(time.Minute),
+		{name: "the environment wins", body: "clock_behind: warn\n", env: "stop", want: Settings{ClockBehind: ClockStop, ClockBehindTolerance: Tolerance(2 * time.Minute),
 			ClockStepTolerance: Tolerance(5 * time.Second), ClockClientTolerance: Tolerance(5 * time.Minute)}},
 		{name: "tolerances", body: "clock_behind_tolerance: 10s\nclock_step_tolerance: 30s\nclock_client_tolerance: 1h\n",
 			want: Settings{ClockBehind: ClockStop, ClockBehindTolerance: Tolerance(10 * time.Second),
@@ -162,7 +162,7 @@ func TestStartClockBehind(t *testing.T) {
 		{name: "the clock was not set"},
 		{name: "ahead of history, a restart a day later", back: -24 * time.Hour},
 		{name: "30s behind is within the tolerance", back: 30 * time.Second},
-		{name: "2m behind is refused by default", back: 2 * time.Minute, refused: true},
+		{name: "3m behind is refused by default", back: 3 * time.Minute, refused: true},
 		{name: "a year behind is refused by default", back: 365 * 24 * time.Hour, refused: true},
 		{name: "stop", mode: ClockStop, back: 3 * time.Hour, refused: true},
 		{name: "stop, accepted for this history", mode: ClockStop, back: 3 * time.Hour, accept: 2 * time.Second, logged: true},

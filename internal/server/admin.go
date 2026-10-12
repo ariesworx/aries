@@ -757,7 +757,7 @@ func (s *Server) OpenProjects(ctx context.Context) error {
 	// The clock is checked against every history the daemon will write
 	// to: the control store's, and each active project's as it is opened
 	// here anyway.
-	behind := []*behindLog{s.behindOf(ControlLog, s.cfg.Control.ClockState())}
+	behind := []*behindLog{s.startBehind(ControlLog, s.cfg.Control.ClockState())}
 	for _, p := range all {
 		if p.State != store.ProjectActive {
 			continue
@@ -766,7 +766,7 @@ func (s *Server) OpenProjects(ctx context.Context) error {
 		st, err := s.cfg.Open(octx, p)
 		cancel()
 		if err == nil {
-			behind = append(behind, s.behindOf(ProjectLog(p.ID, p.DBName), st.ClockState()))
+			behind = append(behind, s.startBehind(ProjectLog(p.ID, p.DBName), st.ClockState()))
 			err = st.Close()
 		}
 		if err != nil {

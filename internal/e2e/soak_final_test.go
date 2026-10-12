@@ -31,6 +31,7 @@ func (s *soak) verify() {
 	}
 	s.checkDials()
 	s.checkControl(ctx)
+	s.checkClock()
 	for _, a := range s.all() {
 		a.close()
 	}

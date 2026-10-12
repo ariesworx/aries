@@ -349,6 +349,40 @@ forbid was tried and refused. amd64 was not tested, nor an upgrade to a
 newer release under them. Without them, stock Ubuntu confines neither
 sshd nor starfixd.
 
+## The server's clock
+
+The model relies on the server's clock and does not trust it to be
+right. A lease runs out by it, every event is dated by it, and windows
+such as the daily cap on usage records are counted back from it. Nothing
+a client says about time is enforced, with one bounded exception: the
+time a usage record claims may be at most five minutes past the server's
+(`clock_client_tolerance`). A person who changes the clock of their own
+machine changes what their records claim, within that bound in the
+future and freely in the past, and nothing else: not who holds an issue,
+not when a lease ends, not a daily cap, which counts a record by when
+the server stored it.
+
+Ordinary network time is not authenticated, so whoever controls the
+server's clock, as root on the machine or by answering for its time
+source, should be assumed able to move it. What that buys them:
+
+| With the clock, an attacker | Can | Cannot |
+|---|---|---|
+| Sets it back | Slow the server's time to half speed until the clock has caught up, so leases last longer, by at most how far it was set back: a vanished agent's issue stays held that much longer. Make the next start of starfixd refuse (`clock_behind: stop`, the default), which is an outage until someone corrects the clock | Put an event before its predecessor, reopen a daily cap or an idempotency key's day, or revive a lease that had run out: starfixd's time never goes back ([design §14, decision 37](design/starfix.md#14-decisions)). Stop a running daemon: it reports the clock and keeps serving |
+| Jumps it forward | Date events in the future and roll windows forward: a day's cap on usage records reopens, an idempotency key's day ends (its reuse is then refused, not replayed), read inbox items and old registry rows are pruned early. Leave the clock there for a while and then correct it, which is the case above with history in the future | End every claim on the server: a jump that the monotonic clock did not see is added to every live lease. Shorten a lease, while starfixd runs, by more than the step tolerance (5 seconds) and a second an hour after that: small steps made quickly add up to one that is caught |
+| Does either across a restart of starfixd | Lapse every lease by starting it with the clock far ahead: with nothing to compare the clock with but history, a restart after a jump looks like a long outage, and the claims end. Their holders are told and the issues are ready again; no work recorded is lost | Start it with the clock behind its history unnoticed |
+
+None of it touches fencing. An epoch rises with each new holder whatever
+the clock says, and a stale epoch is refused: a moved clock can change
+when a claim ends, never let two sessions hold one issue or a stale
+holder write after a takeover. The stores, the server and the soak test
+check that through steps in both directions.
+
+What an operator does about it is in
+[The server's clock](server.md#the-servers-clock): several time
+sources, authenticated where they offer it, and an alert on the clock
+being unsynchronized.
+
 ## Untrusted text
 
 Issue text comes from other people, their agents and the server. starfix

@@ -161,7 +161,7 @@ might not finish. Each run:
   response waits for the next hook; SubagentStop sends the stopped
   subagent's, and SessionEnd whatever is left;
 - drops a record the server refuses as invalid, such as one dated more
-  than an hour past the server's clock, so it cannot hold back the
+  than five minutes past the server's clock, so it cannot hold back the
   records after it, and says so. A server that is busy or unreachable
   drops nothing: the next hook sends the records again.
 

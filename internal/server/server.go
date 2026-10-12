@@ -237,7 +237,7 @@ func New(cfg Config) (*Server, error) {
 	s.refusals = sampler{n: cfg.Limits.RefusalLogs}
 	if !multi {
 		s.single = &served{id: cfg.Project, store: cfg.Store, account: cfg.Account, log: cfg.Logger, timeout: cfg.RequestTimeout}
-		if err := s.startClock([]*behindLog{s.behindOf(s.single.logName(), cfg.Store.ClockState())}); err != nil {
+		if err := s.startClock([]*behindLog{s.startBehind(s.single.logName(), cfg.Store.ClockState())}); err != nil {
 			return nil, err
 		}
 		return s, nil

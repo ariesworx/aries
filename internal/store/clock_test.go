@@ -68,6 +68,13 @@ func TestClockSteps(t *testing.T) {
 		{name: "running", moves: []move{{run: time.Hour}, {run: 30 * 24 * time.Hour}}},
 		{name: "under the tolerance either way", moves: []move{{run: time.Second, step: 4 * time.Second}, {run: time.Second, step: -5 * time.Second}}},
 		{name: "forward", moves: []move{{run: time.Second, step: 6 * time.Second}}, forward: 1, lastBy: 6 * time.Second},
+		// Before this, steps each under the tolerance went unseen however
+		// many there were: 200 of 4.9s would have run out every lease.
+		{name: "small steps made quickly add up to one", moves: []move{{step: 2 * time.Second}, {step: 2 * time.Second},
+			{step: 2 * time.Second}, {step: 2 * time.Second}}, forward: 1, lastBy: 6 * time.Second},
+		{name: "small steps back add up too", moves: []move{{step: -3 * time.Second}, {step: -3 * time.Second}}, backward: 1, lastBy: -6 * time.Second},
+		{name: "a second an hour is forgiven", moves: []move{{run: time.Hour, step: time.Second}, {run: time.Hour, step: time.Second}, {run: time.Hour, step: time.Second},
+			{run: time.Hour, step: time.Second}, {run: time.Hour, step: time.Second}, {run: time.Hour, step: time.Second}, {run: time.Hour, step: time.Second}}},
 		{name: "backward", moves: []move{{run: time.Minute, step: -time.Hour}}, backward: 1, lastBy: -time.Hour},
 		{name: "suspended overnight", moves: []move{{step: 9 * time.Hour}, {run: time.Minute}}, forward: 1, lastBy: 9 * time.Hour},
 		{name: "back and forward again", moves: []move{{step: -time.Hour}, {run: time.Minute, step: time.Hour}}, forward: 1, backward: 1, lastBy: time.Hour},
@@ -88,6 +95,102 @@ func TestClockSteps(t *testing.T) {
 					tc.moves, got.Forward, got.Backward, got.LastBy, tc.forward, tc.backward, tc.lastBy)
 			}
 		})
+	}
+}
+
+// A store's time is to the microsecond, as its columns are, whatever
+// the clocks read: a time with more would be pushed to a watch as one
+// instant and stored as another. The soak found this.
+func TestStoreTimeIsToTheMicrosecond(t *testing.T) {
+	c := newTwoClocks()
+	s, _ := steppedStore(t, "", c, Options{})
+	for _, move := range []func(){
+		func() { c.run(1234567 * time.Nanosecond) },
+		func() { c.run(1234567 * time.Nanosecond); c.step(20 * time.Minute) }, // held back until settled
+		func() { c.run(333 * time.Nanosecond); c.step(-time.Hour) },
+		func() { c.run(7777777 * time.Nanosecond) }, // running slow
+	} {
+		move()
+		if now := s.Now(); now.Nanosecond()%1000 != 0 {
+			t.Errorf("Now() = %s, finer than a microsecond", now.Format(time.RFC3339Nano))
+		}
+	}
+}
+
+// The stores of one server share one time. Each database has its own
+// latest event; after a restart with the clock behind them, a store that
+// went on from its own would be minutes apart from its neighbor, and an
+// event in the control store could no longer be placed against one in a
+// project. The soak found this: a claim released for a lost membership
+// was dated before the control event that removed it.
+func TestStoresOfOneServerShareOneTime(t *testing.T) {
+	c := newTwoClocks()
+	quiet, busy := newDSN(t), newDSN(t)
+	clk := NewClock(ClockOptions{Read: c.read})
+	a := openStore(t, quiet, Options{Clock: clk})
+	mustCreate(t, a, NewIssue{Title: "the quiet database's last event"})
+	c.run(10 * time.Minute)
+	b := openStore(t, busy, Options{Clock: clk})
+	mustCreate(t, b, NewIssue{Title: "the busy database's last event"})
+	last := b.Now()
+	for _, s := range []*Store{a, b} {
+		if err := s.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	c.step(-time.Hour) // the machine restarts with its clock an hour behind
+	clk = NewClock(ClockOptions{Read: c.read})
+	a = openStore(t, quiet, Options{Clock: clk}) // opened first, as the control store is
+	b = openStore(t, busy, Options{Clock: clk})
+	if sa, sb := a.ClockState(), b.ClockState(); !sa.Mark.Before(sb.Mark) || sb.Mark.After(last) {
+		t.Fatalf("marks %s and %s, want the quiet database's 10 minutes before the busy one's", sa.Mark, sb.Mark)
+	}
+	for range 3 {
+		c.run(time.Minute)
+		na, nb := a.Now(), b.Now()
+		if d := nb.Sub(na); d < 0 || d > time.Millisecond {
+			t.Errorf("the two stores' times are %s and %s, %s apart; want one time", na, nb, d)
+		}
+		if na.Before(last) {
+			t.Errorf("the quiet store's time is %s, before the server's latest event at %s", na, last)
+		}
+	}
+	// What the server does next in the quiet database is dated after
+	// what it last did in the busy one.
+	ev := mustCreate(t, a, NewIssue{Title: "after the restart"})
+	if !ev.CreatedAt.After(last) {
+		t.Errorf("an event in the quiet database after the restart is at %s, not after the busy database's last at %s", ev.CreatedAt, last)
+	}
+}
+
+// One store settles a jump and gives out times after it; the clock is
+// then set back before its neighbor has written anything. The neighbor
+// follows the first, to keep one time, and its leases are given the jump
+// that makes it do so: no claim ends for it.
+func TestNeighborFollowsASettledJumpWithItsLeases(t *testing.T) {
+	c := newTwoClocks()
+	clk := NewClock(ClockOptions{Read: c.read})
+	a := openStore(t, newDSN(t), Options{Clock: clk})
+	b := openStore(t, newDSN(t), Options{Clock: clk})
+	ctx := t.Context()
+	is := mustCreate(t, b, NewIssue{})
+	_, cl, err := b.StartIssue(ctx, alice, is.ID, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.step(time.Hour)
+	mustCreate(t, a, NewIssue{Title: "a writes after the jump, and settles it"})
+	c.step(-time.Hour)
+	if reaped, err := b.ReapClaims(ctx); err != nil || len(reaped) != 0 {
+		t.Fatalf("ReapClaims in the neighbor = %+v, %v; want no claim ended", reaped, err)
+	}
+	if na, nb := a.Now(), b.Now(); nb.Before(na.Add(-time.Millisecond)) || nb.After(na.Add(time.Millisecond)) {
+		t.Errorf("the two stores' times are %s and %s; want one time", na, nb)
+	}
+	got, err := b.ClaimOf(ctx, is.ID)
+	if err != nil || got == nil || !got.ExpiresAt.Equal(cl.ExpiresAt.Add(time.Hour)) {
+		t.Errorf("the neighbor's claim = %+v, %v; want it live, its lease an hour later at %s", got, err, cl.ExpiresAt.Add(time.Hour))
 	}
 }
 

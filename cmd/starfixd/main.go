@@ -68,9 +68,9 @@ the keys the control database holds to keys_file: (default
 ~/.ssh/starfix_keys of the user it runs as), which sshd reads with
 AuthorizedKeysFile before the authorized_keys you maintain by hand.
 
-serve refuses to start, with exit status 4, when the server's clock is
+serve refuses to start, with exit status 75, when the server's clock is
 behind the latest event of a database it serves by more than
-clock_behind_tolerance: (default 1m): check the clock, correct it and
+clock_behind_tolerance: (default 2m): check the clock, correct it and
 start again. --accept-clock-behind TIME starts once all the same, for a
 history no later than TIME, which the refusal prints; clock_behind: warn
 (or $STARFIXD_CLOCK_BEHIND) starts with a warning every time.
@@ -110,10 +110,10 @@ func main() {
 // exitClockBehind is serve's exit status when it refuses to start
 // because the clock is behind the server's own history. It is a status
 // of its own so that the systemd unit can leave the daemon stopped
-// (RestartPreventExitStatus=4): restarting cannot correct a clock, and
+// (RestartPreventExitStatus=75): restarting cannot correct a clock, and
 // the refusal should be the last thing in the journal, not one line of a
 // loop.
-const exitClockBehind = 4
+const exitClockBehind = 75
 
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 {

@@ -15,9 +15,10 @@ import (
 //   - Time in a log never goes backward. A store's time is the later of
 //     the clock and the store's high-water mark, which starts as the time
 //     of the database's latest event and then follows every time the store
-//     gives out. While the clock is behind the mark the store's time
-//     goes on from the mark at half speed, until the clock has caught up
-//     with it. So a clock set back cannot put an event before its
+//     gives out; a process's stores share the highest of theirs, so the
+//     logs of one server keep one time. While the clock is behind the
+//     mark the store's time goes on from the mark at half speed, until
+//     the clock has caught up with it. So a clock set back cannot put an event before its
 //     predecessor or reopen a window that is counted from now, and
 //     lengthens a lease by at most how far it was set back.
 //   - A step is detected. A [Clock] compares how far the wall clock moved
@@ -36,8 +37,8 @@ import (
 // holder whatever the clock says, and a stale epoch is refused.
 
 // DefaultStepTolerance is how far elapsed wall-clock time and elapsed
-// monotonic time may differ between two readings before a [Clock] calls
-// it a step. A healthy time service slews a running clock and does not
+// monotonic time may differ, between two readings or summed over
+// several (driftLeak), before a [Clock] calls it a step. A healthy time service slews a running clock and does not
 // step it, and the two readings of one time.Now differ by microseconds
 // on a loaded machine, so seconds of difference is never drift; a leap
 // second, and the sub-second steps systemd-timesyncd makes, stay under
@@ -87,11 +88,20 @@ type Clock struct {
 	started  bool
 	lastWall time.Time
 	lastMono time.Duration
+	// drift is how much further the wall clock has moved than the
+	// monotonic clock, over the readings since the last step, less what
+	// driftLeak has forgiven. Past the tolerance either way it is a step.
+	drift time.Duration
 	// forward is the sum of the forward steps seen; recent are the
 	// latest of them.
 	forward time.Duration
 	recent  []forwardStep
 	steps   ClockSteps
+	// floor is the latest time any store of the process has given out.
+	// No store's time is behind it, but for a forward step the store has
+	// not settled, so the logs of one server share one time, and an
+	// event in one database can be placed against an event in another.
+	floor time.Time
 }
 
 // forwardStep is one forward step: the last reading before it, and its
@@ -100,6 +110,13 @@ type forwardStep struct {
 	before time.Time
 	by     time.Duration
 }
+
+// driftLeak is how much monotonic time forgives one unit of drift: a
+// second an hour. A leap second and a time service's sub-second
+// corrections are forgotten, so they never add up to a step over the
+// months a daemon runs; small steps made quickly to stay under the
+// tolerance do add up, and are caught as one.
+const driftLeak = 3600
 
 // maxRecentSteps bounds the forward steps a Clock remembers for stores
 // opened later. Older ones are forgotten: a store opened after that many
@@ -145,19 +162,32 @@ type reading struct {
 	mono time.Duration
 	// forward is the sum of the forward steps seen up to this reading.
 	forward time.Duration
+	// floor is Clock.floor.
+	floor time.Time
 }
 
-// now reads the clock, and counts a step when the wall clock moved
-// further from the last reading than the monotonic clock did, or less
-// far, by more than the tolerance.
+// now reads the clock, and counts a step when the wall clock has moved
+// further than the monotonic clock did, or less far, by more than the
+// tolerance: between two readings, or over several.
 func (c *Clock) now() reading {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	wall, mono := c.read()
 	wall = wall.UTC().Truncate(time.Microsecond)
 	if c.started {
-		switch by := wall.Sub(c.lastWall) - (mono - c.lastMono); {
+		elapsed := mono - c.lastMono
+		// What was carried from earlier readings leaks away; what this
+		// reading adds counts in full, so one step is measured exactly.
+		if leak := max(0, elapsed) / driftLeak; c.drift > 0 {
+			c.drift = max(0, c.drift-leak)
+		} else {
+			c.drift = min(0, c.drift+leak)
+		}
+		c.drift += wall.Sub(c.lastWall) - elapsed
+		// To the microsecond, as a store's time is.
+		switch by := c.drift.Truncate(time.Microsecond); {
 		case by > c.tol:
+			c.drift = 0
 			c.forward += by
 			c.recent = append(c.recent, forwardStep{before: c.lastWall, by: by})
 			if len(c.recent) > maxRecentSteps {
@@ -166,12 +196,22 @@ func (c *Clock) now() reading {
 			c.steps.Forward++
 			c.steps.LastAt, c.steps.LastBy = wall, by
 		case by < -c.tol:
+			c.drift = 0
 			c.steps.Backward++
 			c.steps.LastAt, c.steps.LastBy = wall, by
 		}
 	}
 	c.started, c.lastWall, c.lastMono = true, wall, mono
-	return reading{wall: wall, mono: mono, forward: c.forward}
+	return reading{wall: wall, mono: mono, forward: c.forward, floor: c.floor}
+}
+
+// raise moves the floor up to t.
+func (c *Clock) raise(t time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if t.After(c.floor) {
+		c.floor = t
+	}
 }
 
 // Now reads the wall clock, in UTC to the microsecond. A store's own
@@ -213,6 +253,8 @@ type storeTime struct {
 	// high is the latest time the store gave out, or its database's
 	// latest event's if that is later.
 	high time.Time
+	// mark is the time of the latest event the database held at opening.
+	mark time.Time
 	// settled is how much of the clock's forward steps the store's leases
 	// have been given.
 	settled time.Duration
@@ -234,8 +276,9 @@ type view struct {
 	// forward is the clock's sum of forward steps, and pending the part
 	// the store has not settled.
 	forward, pending time.Duration
-	// slack is storeTime.slack.
+	// slack is storeTime.slack, and floor the clock's floor.
 	slack time.Duration
+	floor time.Time
 }
 
 // readTime reads the store's time.
@@ -250,16 +293,20 @@ func (s *Store) readTime() view {
 	// the last reading: on from the mark at half the monotonic clock's
 	// rate.
 	elapsed := max(0, r.mono-t.lastMono)
-	adv := (elapsed / behindRate).Truncate(time.Microsecond)
-	if slow := t.high.Add(adv); v.at.Before(slow) {
-		// The clock is behind what the store has already given out. Its
-		// time goes on at that rate, so the clock gains on it, leases
-		// still run out and events still get times of their own; the
-		// half not given is slack.
+	slow := t.high.Add((elapsed / behindRate).Truncate(time.Microsecond))
+	// Nor behind where another store of the server already is.
+	if f := r.floor.Add(-v.pending); f.After(slow) {
+		slow = f
+	}
+	if v.at.Before(slow) {
+		// The clock is behind what the server has already given out. The
+		// store's time goes on at that rate, so the clock gains on it,
+		// leases still run out and events still get times of their own;
+		// what it advances less than the monotonic clock is slack.
 		if !t.held {
 			t.held, t.since = true, r.wall
 		}
-		t.slack += elapsed - adv
+		t.slack += max(0, elapsed-slow.Sub(t.high))
 		t.high, v.at = slow, slow
 	} else {
 		t.high = v.at
@@ -268,6 +315,10 @@ func (s *Store) readTime() view {
 		}
 	}
 	t.lastMono, v.slack = r.mono, t.slack
+	// Only a time given out raises the floor: a jump this store has not
+	// settled may yet be undone by a step back.
+	s.clock.raise(v.at)
+	v.floor = r.floor
 	return v
 }
 
@@ -286,17 +337,20 @@ type ClockState struct {
 	// Pending is the size of the forward steps the store has not settled
 	// yet; its next write settles them.
 	Pending time.Duration
+	// Mark is the time of the latest event the database held when the
+	// store opened; zero if it held none.
+	Mark time.Time
 }
 
 // ClockState reads the store's time and the clock.
 func (s *Store) ClockState() ClockState {
 	v := s.readTime()
 	out := ClockState{Now: v.at, Clock: v.wall, Pending: v.pending}
+	s.tm.mu.Lock()
+	defer s.tm.mu.Unlock()
+	out.Mark = s.tm.mark
 	if v.pending == 0 && v.at.After(v.wall) {
-		out.Behind = v.at.Sub(v.wall)
-		s.tm.mu.Lock()
-		out.Since = s.tm.since
-		s.tm.mu.Unlock()
+		out.Behind, out.Since = v.at.Sub(v.wall), s.tm.since
 	}
 	return out
 }
@@ -325,8 +379,9 @@ func (s *Store) initTime(ctx context.Context) error {
 	t.settled = r.forward
 	if mark.Valid {
 		m := mark.Time.UTC()
-		t.high = m
+		t.high, t.mark = m, m
 		t.settled -= s.clock.forwardSince(m)
+		s.clock.raise(m)
 	}
 	t.lastMono = r.mono
 	return nil
@@ -355,9 +410,13 @@ func (s *Store) SettleClock(ctx context.Context) error {
 	if v.pending <= 0 {
 		return nil
 	}
+	// Where the store's time goes once settled: to the clock, or to
+	// where another store of the server already is, if that is later.
 	after := v.at
-	if v.wall.After(after) {
-		after = v.wall
+	for _, t := range []time.Time{v.wall, v.floor} {
+		if t.After(after) {
+			after = t
+		}
 	}
 	jump := after.Sub(v.at)
 	extend := max(0, jump-v.slack)

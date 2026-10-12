@@ -128,16 +128,43 @@ func soakConfigFrom(getenv func(string) string) (soakConfig, error) {
 	return cfg, nil
 }
 
-// vclock is the store's clock: it runs speed times faster than real time
-// from when the run starts, so a one-minute lease lapses in half a second.
+// vclock is the machine's clocks as the daemon reads them: they run
+// speed times faster than real time from when the run starts, so a
+// one-minute lease lapses in half a second. The wall clock can be set
+// (step, in soak_clock_test.go); the monotonic clock only runs.
 type vclock struct {
 	base  time.Time
 	start time.Time // real, with its monotonic reading
 	speed float64
+
+	mu sync.Mutex
+	// offset is what the wall clock has been set by, in all; lead is how
+	// far a store's time may be ahead of the wall clock, as of leadFrom
+	// on the monotonic clock.
+	offset, lead, leadFrom time.Duration
 }
 
+// elapsed is the monotonic clock: the time since the run started.
+func (c *vclock) elapsed() time.Duration {
+	return time.Duration(float64(time.Since(c.start)) * c.speed)
+}
+
+// read is both clocks from one reading, for the daemon's store.Clock.
+func (c *vclock) read() (time.Time, time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	m := c.elapsed()
+	return c.base.Add(m + c.offset).UTC().Truncate(time.Microsecond), m
+}
+
+// now is the time of the daemon's stores, as the run reckons it: the
+// wall clock, or, while that is behind what the stores had reached when
+// it was set back, where their time has run on to since.
 func (c *vclock) now() time.Time {
-	return c.base.Add(time.Duration(float64(time.Since(c.start)) * c.speed)).UTC().Truncate(time.Microsecond)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	m := c.elapsed()
+	return c.base.Add(m + c.offset + c.leadAt(m)).UTC().Truncate(time.Microsecond)
 }
 
 // real is how long d on the store's clock takes in real time.
@@ -200,10 +227,12 @@ type soak struct {
 		eventWindowsChecked, eventsChecked, eventsPushed atomic.Int64
 		claimsChecked                                    atomic.Int64
 	}
-	baseline int            // goroutines before any session started
-	connBase map[string]int // connGoroutines then
-	started  time.Time
-	ended    time.Duration // real length of the work
+	// clockStats counts the clock chaos (soak_clock_test.go).
+	clockStats clockStats
+	baseline   int            // goroutines before any session started
+	connBase   map[string]int // connGoroutines then
+	started    time.Time
+	ended      time.Duration // real length of the work
 }
 
 // user returns principal's repository for project p.
@@ -223,7 +252,7 @@ func newSoak(t *testing.T, cfg soakConfig) *soak {
 	clock := &vclock{base: time.Now().UTC().Truncate(time.Second), start: time.Now(), speed: cfg.speed}
 	s := &soak{t: t, cfg: cfg, clock: clock, mon: newMonitor(), logs: &logCounter{}, users: map[string]map[*sproj]*user{},
 		storeKey: map[string]string{}, eve: map[*sproj]*user{}}
-	s.w = newWorld(t, daemonOpts{now: clock.now, reap: 100 * time.Millisecond, commit: 500 * time.Millisecond,
+	s.w = newWorld(t, daemonOpts{now: clock.now, clock: clock.read, reap: 100 * time.Millisecond, commit: 500 * time.Millisecond,
 		admins: []string{cfg.admin, cfg.root}, limits: cfg.limits, logger: slog.New(s.logs),
 		many: true, keys: true, dbs: 4, granted: 4})
 	// Before anything connects: the stores the setup opens close again.
@@ -378,6 +407,7 @@ func (s *soak) chaos(ctx context.Context) {
 	every := s.cfg.duration / time.Duration(s.cfg.restarts+1)
 	nextRestart := time.Now().Add(every)
 	nextDropAll := time.Now().Add(time.Duration(1000+rng.IntN(2000)) * time.Millisecond)
+	nextStep := time.Now().Add(time.Duration(1000+rng.IntN(2000)) * time.Millisecond)
 	for ctx.Err() == nil {
 		pause(ctx, time.Duration(100+rng.IntN(300))*time.Millisecond)
 		if ctx.Err() != nil {
@@ -394,12 +424,16 @@ func (s *soak) chaos(ctx context.Context) {
 		if int(s.stats.restarts.Load()) < s.cfg.restarts && time.Now().After(nextRestart) {
 			s.shaken.Add(1)
 			s.restarting.Add(1)
-			if err := s.w.restartDaemon(); err != nil {
+			if err := s.restartDaemon(rng); err != nil {
 				s.mon.fail("", "restart the daemon: %v", err)
 				return
 			}
 			s.stats.restarts.Add(1)
 			nextRestart = time.Now().Add(every)
+		}
+		if time.Now().After(nextStep) && ctx.Err() == nil {
+			s.stepClock(ctx, rng)
+			nextStep = time.Now().Add(time.Duration(1500+rng.IntN(2500)) * time.Millisecond)
 		}
 	}
 }
@@ -542,6 +576,10 @@ func (s *soak) report() {
 	fmt.Fprintf(&b, "  chaos: %d dropped answers, %d connection drops, %d daemon restarts; %d sessions vanished, %d stalled; %d dial failures; retries %v\n",
 		s.stats.drops.Load(), s.stats.dropAlls.Load(), s.stats.restarts.Load(), m.vanishes, s.stats.stalls.Load(), m.dialFails, m.retries)
 	m.mu.Unlock()
+	cs := &s.clockStats
+	fmt.Fprintf(&b, "  clock: set forward %d times (5 to 30 minutes; %d claims with lease left checked, none reaped for it; %d clock.step events in the projects' logs extended %d leases; %d jumps while a store ran slow, not checked), set back %d times while running and %d at a restart; %d starts refused for a clock behind history (%d then corrected, %d accepted for one start)\n",
+		cs.forward.Load(), cs.leasesChecked.Load(), cs.stepEvents.Load(), cs.leasesExtendedInEvents.Load(), cs.forwardNotChecked.Load(),
+		cs.back.Load(), cs.backAtStart.Load(), cs.refused.Load(), cs.corrected.Load(), cs.accepted.Load())
 	fmt.Fprintf(&b, "  watches checked %d (%d for events, %d events owed; %d events pushed in all), %d ended by a resync, %d watched again; claims checked %d; snapshots compared %d; peak heap %d MiB, peak goroutines %d; daemon warnings %d\n",
 		s.stats.windowsChecked.Load(), s.stats.eventWindowsChecked.Load(), s.stats.eventsChecked.Load(), s.stats.eventsPushed.Load(), s.stats.windowsResynced.Load(),
 		s.stats.rewatches.Load(), s.stats.claimsChecked.Load(), s.stats.snapshots.Load(), s.stats.heapPeak.Load()>>20, s.stats.goroutinePeak.Load(), s.logs.count())

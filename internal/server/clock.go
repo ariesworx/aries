@@ -34,7 +34,7 @@ const (
 // history before Config.ClockBehind applies. It covers a clock that is
 // corrected by a few seconds between two starts; it is far below any
 // restore, rollback or reset, which are what the setting is for.
-const DefaultBehindTolerance = time.Minute
+const DefaultBehindTolerance = 2 * time.Minute
 
 // Bounds of the clock tolerances a settings file may set.
 const (
@@ -93,15 +93,29 @@ type behindLog struct {
 	since   time.Time
 	history time.Time
 	clock   time.Time
+	// mark is the database's latest event when its store opened.
+	mark time.Time
 }
 
-// behindOf returns st as a behindLog when the clock is behind it by more
-// than the tolerance, and nil otherwise.
+// behindOf returns st as a behindLog when the clock is behind the
+// store's time by more than the tolerance, and nil otherwise. A server's
+// stores share one time, so every open store is behind together; mark
+// tells which database's history put them there.
 func (s *Server) behindOf(log string, st store.ClockState) *behindLog {
 	if st.Behind <= s.cfg.BehindTolerance {
 		return nil
 	}
-	return &behindLog{log: log, by: st.Behind, since: st.Since, history: st.Now, clock: st.Clock}
+	return &behindLog{log: log, by: st.Behind, since: st.Since, history: st.Now, clock: st.Clock, mark: st.Mark}
+}
+
+// startBehind is behindOf for a daemon about to start, which has given
+// out no time yet: it compares the clock with the database's own latest
+// event.
+func (s *Server) startBehind(log string, st store.ClockState) *behindLog {
+	if e := BehindHistory(s.cfg.BehindTolerance, log, st); e != nil {
+		return &behindLog{log: log, by: e.History.Sub(e.Clock), since: e.Clock, history: e.History, clock: e.Clock, mark: e.History}
+	}
+	return nil
 }
 
 // accepted reports whether the operator accepted, for this start, a
@@ -196,7 +210,7 @@ func (s *Server) CheckClock(ctx context.Context) {
 	s.each(func(pr *served) { logs = append(logs, s.behindOf(pr.logName(), pr.store.ClockState())) })
 	var worst *behindLog
 	for _, b := range logs {
-		if b != nil && (worst == nil || b.history.After(worst.history)) {
+		if b != nil && (worst == nil || b.mark.After(worst.mark)) {
 			worst = b
 		}
 	}
@@ -219,14 +233,15 @@ func ProjectLog(id, db string) string {
 func (pr *served) logName() string { return ProjectLog(pr.id, pr.db) }
 
 // BehindHistory returns, as the refusal serve would give, that the
-// clock is behind st, the history named log, by more than tolerance; and
-// nil when it is not. `starfixd upgrade` asks it before it swaps
+// clock is behind the latest event of the database st was read from,
+// named log, by more than tolerance; and nil when it is not, or the
+// database holds no event. `starfixd upgrade` asks it before it swaps
 // anything.
 func BehindHistory(tolerance time.Duration, log string, st store.ClockState) *ClockBehindError {
-	if st.Behind <= tolerance {
+	if st.Mark.IsZero() || st.Mark.Sub(st.Clock) <= tolerance {
 		return nil
 	}
-	return &ClockBehindError{Log: log, Clock: st.Clock, History: st.Now}
+	return &ClockBehindError{Log: log, Clock: st.Clock, History: st.Mark}
 }
 
 // clockStatus is the clock as `sfx admin status` shows it.
