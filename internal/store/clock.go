@@ -1,0 +1,410 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"sync"
+	"time"
+)
+
+// The server's clock is relied on and not trusted to be right (design
+// §14, decision 37). Three things follow from one rule each:
+//
+//   - Time in a log never goes backward. A store's time is the later of
+//     the clock and the store's high-water mark, which starts as the time
+//     of the database's latest event and then follows every time the store
+//     gives out. While the clock is behind the mark the store's time
+//     goes on from the mark at half speed, until the clock has caught up
+//     with it. So a clock set back cannot put an event before its
+//     predecessor or reopen a window that is counted from now, and
+//     lengthens a lease by at most how far it was set back.
+//   - A step is detected. A [Clock] compares how far the wall clock moved
+//     between two readings with how far the monotonic clock did. A
+//     difference beyond its tolerance is a step: someone or something set
+//     the clock, or the machine was suspended.
+//   - A jump forward does not by itself end claims. A lease promises a
+//     duration, and a clock set forward takes that duration away from
+//     every claim at once. Until a store has settled a forward step its
+//     time stays where the monotonic clock puts it; settling, which the
+//     next write does first, adds the step to every lease that was live
+//     and records one clock.step event, and only then does the store's
+//     time follow the clock.
+//
+// Fencing does not rest on any of this: an epoch rises with each new
+// holder whatever the clock says, and a stale epoch is refused.
+
+// DefaultStepTolerance is how far elapsed wall-clock time and elapsed
+// monotonic time may differ between two readings before a [Clock] calls
+// it a step. A healthy time service slews a running clock and does not
+// step it, and the two readings of one time.Now differ by microseconds
+// on a loaded machine, so seconds of difference is never drift; a leap
+// second, and the sub-second steps systemd-timesyncd makes, stay under
+// it.
+const DefaultStepTolerance = 5 * time.Second
+
+// OpClockStep is the event a store records when it settles a forward
+// step of the clock: its before state is the store's time before, its
+// after state the time after, how far each live lease was extended and
+// how many were. Its target is [ClockTarget].
+const OpClockStep Op = "clock.step"
+
+// ClockTarget is the target of clock.step events, which no issue id can
+// be.
+const ClockTarget = "clock"
+
+// ClockActor is who a settled clock step is recorded as.
+var ClockActor = Actor{Principal: "starfixd", Session: "clock", Machine: "server"}
+
+// ClockOptions configure a [Clock]. The zero value reads time.Now.
+type ClockOptions struct {
+	// Now is the wall clock. Default time.Now. Elapsed monotonic time is
+	// taken from its readings, so a clock that returns times without one
+	// (a test's fixed time) never shows a step.
+	Now func() time.Time
+	// Read, when set, replaces Now: it returns the wall clock and the
+	// monotonic time elapsed since any fixed moment, from one reading.
+	// Tests, and clocks that run faster than real time, set it.
+	Read func() (wall time.Time, elapsed time.Duration)
+	// StepTolerance is the difference between elapsed wall-clock and
+	// monotonic time that counts as a step. Default
+	// [DefaultStepTolerance].
+	StepTolerance time.Duration
+}
+
+// Clock is a process's clock, shared by every store the process opens
+// ([Options.Clock]), so that each store learns of a step whichever
+// noticed it, and one opened later learns of the steps since its
+// database was last written. It is safe for concurrent use.
+type Clock struct {
+	read func() (time.Time, time.Duration)
+	tol  time.Duration
+
+	mu sync.Mutex
+	// started is set by the first reading; lastWall and lastMono are the
+	// latest one.
+	started  bool
+	lastWall time.Time
+	lastMono time.Duration
+	// forward is the sum of the forward steps seen; recent are the
+	// latest of them.
+	forward time.Duration
+	recent  []forwardStep
+	steps   ClockSteps
+}
+
+// forwardStep is one forward step: the last reading before it, and its
+// size.
+type forwardStep struct {
+	before time.Time
+	by     time.Duration
+}
+
+// maxRecentSteps bounds the forward steps a Clock remembers for stores
+// opened later. Older ones are forgotten: a store opened after that many
+// steps measures the oldest by the wall clock, as across a restart.
+const maxRecentSteps = 64
+
+// ClockSteps counts the steps a [Clock] has seen since it was made.
+type ClockSteps struct {
+	// Forward and Backward count the steps in each direction.
+	Forward, Backward int
+	// LastAt is the clock's time just after the latest step, and LastBy
+	// its size: positive forward, negative backward. Zero when there has
+	// been none.
+	LastAt time.Time
+	LastBy time.Duration
+}
+
+// NewClock returns a Clock for opts.
+func NewClock(opts ClockOptions) *Clock {
+	c := &Clock{read: opts.Read, tol: opts.StepTolerance}
+	if c.tol <= 0 {
+		c.tol = DefaultStepTolerance
+	}
+	if c.read == nil {
+		now := opts.Now
+		if now == nil {
+			now = time.Now
+		}
+		base := now()
+		// Sub uses the monotonic readings when both times have one, and
+		// the wall clock otherwise, which then never disagrees with
+		// itself.
+		c.read = func() (time.Time, time.Duration) { t := now(); return t, t.Sub(base) }
+	}
+	return c
+}
+
+// reading is one reading of a Clock.
+type reading struct {
+	// wall is the wall clock, in UTC to the microsecond; mono the
+	// monotonic time elapsed.
+	wall time.Time
+	mono time.Duration
+	// forward is the sum of the forward steps seen up to this reading.
+	forward time.Duration
+}
+
+// now reads the clock, and counts a step when the wall clock moved
+// further from the last reading than the monotonic clock did, or less
+// far, by more than the tolerance.
+func (c *Clock) now() reading {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	wall, mono := c.read()
+	wall = wall.UTC().Truncate(time.Microsecond)
+	if c.started {
+		switch by := wall.Sub(c.lastWall) - (mono - c.lastMono); {
+		case by > c.tol:
+			c.forward += by
+			c.recent = append(c.recent, forwardStep{before: c.lastWall, by: by})
+			if len(c.recent) > maxRecentSteps {
+				c.recent = c.recent[1:]
+			}
+			c.steps.Forward++
+			c.steps.LastAt, c.steps.LastBy = wall, by
+		case by < -c.tol:
+			c.steps.Backward++
+			c.steps.LastAt, c.steps.LastBy = wall, by
+		}
+	}
+	c.started, c.lastWall, c.lastMono = true, wall, mono
+	return reading{wall: wall, mono: mono, forward: c.forward}
+}
+
+// Now reads the wall clock, in UTC to the microsecond. A store's own
+// time ([Store.Now]) may be later: it never goes backward.
+func (c *Clock) Now() time.Time { return c.now().wall }
+
+// Steps reads the clock and returns the steps seen so far.
+func (c *Clock) Steps() ClockSteps {
+	c.now()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.steps
+}
+
+// forwardSince returns the sum of the remembered forward steps whose
+// last reading before them is after t.
+func (c *Clock) forwardSince(t time.Time) time.Duration {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var sum time.Duration
+	for _, s := range c.recent {
+		if s.before.After(t) {
+			sum += s.by
+		}
+	}
+	return sum
+}
+
+// behindRate is how many times slower than the monotonic clock a store's
+// time runs while the clock is behind it: a clock an hour behind is
+// caught up with in two.
+const behindRate = 2
+
+// storeTime is a store's own time: the clock's, kept from going backward
+// by the high-water mark, and kept from jumping forward until the store
+// has settled the step.
+type storeTime struct {
+	mu sync.Mutex
+	// high is the latest time the store gave out, or its database's
+	// latest event's if that is later.
+	high time.Time
+	// settled is how much of the clock's forward steps the store's leases
+	// have been given.
+	settled time.Duration
+	// held is set while the clock is behind high, since is the clock's
+	// time when that began, and slack how much less the store's time has
+	// advanced since than the monotonic clock: time its leases were
+	// given for nothing, which a later jump forward takes back before
+	// any is added.
+	held     bool
+	since    time.Time
+	slack    time.Duration
+	lastMono time.Duration
+}
+
+// view is one reading of a store's time.
+type view struct {
+	// at is the store's time; wall is the clock's.
+	at, wall time.Time
+	// forward is the clock's sum of forward steps, and pending the part
+	// the store has not settled.
+	forward, pending time.Duration
+	// slack is storeTime.slack.
+	slack time.Duration
+}
+
+// readTime reads the store's time.
+func (s *Store) readTime() view {
+	r := s.clock.now()
+	t := &s.tm
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	v := view{wall: r.wall, forward: r.forward, pending: max(0, r.forward-t.settled)}
+	v.at = r.wall.Add(-v.pending)
+	// Where the store's time would be had the clock been behind it since
+	// the last reading: on from the mark at half the monotonic clock's
+	// rate.
+	elapsed := max(0, r.mono-t.lastMono)
+	adv := (elapsed / behindRate).Truncate(time.Microsecond)
+	if slow := t.high.Add(adv); v.at.Before(slow) {
+		// The clock is behind what the store has already given out. Its
+		// time goes on at that rate, so the clock gains on it, leases
+		// still run out and events still get times of their own; the
+		// half not given is slack.
+		if !t.held {
+			t.held, t.since = true, r.wall
+		}
+		t.slack += elapsed - adv
+		t.high, v.at = slow, slow
+	} else {
+		t.high = v.at
+		if v.pending == 0 {
+			t.held, t.slack = false, 0
+		}
+	}
+	t.lastMono, v.slack = r.mono, t.slack
+	return v
+}
+
+// ClockState is how a store's time stands against the clock.
+type ClockState struct {
+	// Now is the store's time and Clock the wall clock's. They are equal
+	// unless the clock is behind the store's history, or a forward step
+	// is not settled yet.
+	Now, Clock time.Time
+	// Behind is how far the clock is behind the store's time, which runs
+	// at half speed until the clock has made that up. Zero when it is
+	// not behind.
+	Behind time.Duration
+	// Since is the clock's time when the store first found it behind.
+	Since time.Time
+	// Pending is the size of the forward steps the store has not settled
+	// yet; its next write settles them.
+	Pending time.Duration
+}
+
+// ClockState reads the store's time and the clock.
+func (s *Store) ClockState() ClockState {
+	v := s.readTime()
+	out := ClockState{Now: v.at, Clock: v.wall, Pending: v.pending}
+	if v.pending == 0 && v.at.After(v.wall) {
+		out.Behind = v.at.Sub(v.wall)
+		s.tm.mu.Lock()
+		out.Since = s.tm.since
+		s.tm.mu.Unlock()
+	}
+	return out
+}
+
+// ClockState reads the control store's time and the clock.
+func (c *Control) ClockState() ClockState { return c.s.ClockState() }
+
+// SettleClock settles any forward step of the clock, as the control
+// store's next write would.
+func (c *Control) SettleClock(ctx context.Context) error { return c.s.SettleClock(ctx) }
+
+// initTime starts the store's time at its database's high-water mark,
+// the time of its latest event, and counts as settled the forward steps
+// the clock saw before that event was written: a store that was closed
+// when the clock stepped settles the step with its first write.
+func (s *Store) initTime(ctx context.Context) error {
+	var mark sql.NullTime
+	err := s.r.QueryRowContext(ctx, `SELECT at FROM events ORDER BY seq DESC LIMIT 1`).Scan(&mark)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("read the latest event's time: %w", err)
+	}
+	r := s.clock.now()
+	t := &s.tm
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.settled = r.forward
+	if mark.Valid {
+		m := mark.Time.UTC()
+		t.high = m
+		t.settled -= s.clock.forwardSince(m)
+	}
+	t.lastMono = r.mono
+	return nil
+}
+
+// SettleClock settles the forward steps of the clock that the store has
+// not settled, which every write does first. In one transaction it adds
+// to each lease that is live on the store's time the part of the jump
+// its holder did not have, and records a clock.step event; the store's
+// time then follows the clock. A claim whose lease had run out before
+// the step is left to the reaper.
+//
+// The jump is how far the store's time moves, which is less than the
+// step when the clock had been behind the store's history. Of that, what
+// the store's time had fallen behind the monotonic clock while it ran
+// slow was already given to every lease, and is not given again.
+func (s *Store) SettleClock(ctx context.Context) error {
+	// A reading of its own, so that the write that first sees a step is
+	// the one that settles it.
+	if s.clock.now().forward == s.settledForward() {
+		return nil
+	}
+	s.settling.Lock()
+	defer s.settling.Unlock()
+	v := s.readTime()
+	if v.pending <= 0 {
+		return nil
+	}
+	after := v.at
+	if v.wall.After(after) {
+		after = v.wall
+	}
+	jump := after.Sub(v.at)
+	extend := max(0, jump-v.slack)
+	var n int
+	err := s.writeRetry(ctx, ClockActor, func(w *wtx) error {
+		n = 0
+		if s.hasClaims && extend > 0 {
+			live, err := s.liveClaims(ctx, w)
+			if err != nil {
+				return err
+			}
+			for _, c := range live {
+				row, err := loadClaim(ctx, w.tx, c.Issue)
+				if err != nil {
+					return err
+				}
+				row.ExpiresAt = row.ExpiresAt.Add(extend)
+				if err := writeClaim(ctx, w, row); err != nil {
+					return err
+				}
+				n++
+			}
+		}
+		return w.event(ctx, OpClockStep, ClockTarget, map[string]any{"at": w.now},
+			map[string]any{"at": after, "step_us": v.pending.Microseconds(), "extended_us": extend.Microseconds(), "claims": n})
+	})
+	if err != nil {
+		return fmt.Errorf("settle a clock step: %w", err)
+	}
+	t := &s.tm
+	t.mu.Lock()
+	t.settled = v.forward
+	t.slack = max(0, t.slack-jump)
+	t.mu.Unlock()
+	s.opts.Logger.Warn("clock step settled", "step", v.pending.String(), "from", v.at, "to", after,
+		"extended", extend.String(), "claims", n)
+	return nil
+}
+
+// liveClaims reads the claims that are live at w's time.
+func (s *Store) liveClaims(ctx context.Context, w *wtx) ([]Claim, error) {
+	return s.claims(ctx, w.tx, `principal IS NOT NULL AND expires_at > ?`, w.now)
+}
+
+// settledForward returns storeTime.settled.
+func (s *Store) settledForward() time.Duration {
+	s.tm.mu.Lock()
+	defer s.tm.mu.Unlock()
+	return s.tm.settled
+}

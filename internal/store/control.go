@@ -38,6 +38,9 @@ type ControlOptions struct {
 	Limits ControlLimits
 	// Now is the server clock. Default time.Now.
 	Now func() time.Time
+	// Clock, when set, is the server clock in place of Now, as
+	// [Options.Clock] is.
+	Clock *Clock
 	// Logger receives background committer errors, a failed reload of
 	// the key index, and the warning that AllowUnsafeAccount let an
 	// unsafe account through. Default discards.
@@ -126,7 +129,7 @@ func OpenControl(ctx context.Context, dsn string, opts ControlOptions) (*Control
 		return nil, err
 	}
 	s, err := open(ctx, dsn, Options{
-		Admins: opts.Admins, Now: opts.Now, Logger: opts.Logger, AllowUnsafeAccount: opts.AllowUnsafeAccount,
+		Admins: opts.Admins, Now: opts.Now, Clock: opts.Clock, Logger: opts.Logger, AllowUnsafeAccount: opts.AllowUnsafeAccount,
 		CommitInterval: opts.CommitInterval, MaxAttempts: opts.MaxAttempts, Readers: opts.Readers,
 	}, controlSchema)
 	if err != nil {
