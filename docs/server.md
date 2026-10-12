@@ -455,6 +455,22 @@ What that showed:
   loopback listener, `/readyz` when Dolt stops answering, metrics
   pushed to a receiver on the machine, and `starfixd status`
   ([Observability](#observability)).
+- **Traces work as written** ([Traces](#traces)), on the same machine
+  on the same day with the profiles enforced. With the guide's one
+  variable and nothing else starfixd does not start, and names the key
+  file and its fix: for want of the directory (`no such file or
+  directory`), of the unit's `ReadWritePaths` (`read-only file system`),
+  and of the AppArmor rule for the file (`permission denied`, with the
+  denial in the kernel's log). With all three it starts, makes the key
+  with mode 0600, and posts spans to a receiver on the machine that
+  hold a stand-in and no name. `sfx admin principal whois` resolves the
+  stand-in for a server admin and for nobody else; a restart keeps the
+  key; deleting the file gives the same person another stand-in, and the
+  old one resolves to nobody. With `principals: name`, or
+  `OTEL_TRACES_EXPORTER=none`, it starts with no key and no directory.
+  Neither another user, nor the `starfix` user under the bridge's or the
+  operator's profile, can read the key. The 76 checks of the earlier
+  runs passed with traces on, with no denial.
 - **The clock's unit lines and settings work** ([The server's
   clock](#the-servers-clock)), on the same machine on the same day with
   the profiles enforced and no denial in the kernel's log: the refusal
@@ -473,8 +489,10 @@ What that showed:
   writes its file.
 
 Not run: amd64; a cloud provider's image or network; a real
-OpenTelemetry Collector or hosted backend, in place of which a few lines
-of Python received the pushes; `install.sh` on the server; an upgrade to a newer release, which a build from source refuses
+OpenTelemetry Collector on this machine, or a hosted backend, in place
+of which a few lines of Python received the pushes (an OpenTelemetry
+Collector, 0.162.0, did receive and decode the spans of a starfixd run
+by hand on a developer's machine); `install.sh` on the server; an upgrade to a newer release, which a build from source refuses
 (`a development build … never upgrades itself`), so the download, the
 signature check and the swap to a new binary were not run here; a
 restore from a dump. For the clock: a machine with a real-time clock of

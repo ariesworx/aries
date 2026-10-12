@@ -145,22 +145,26 @@ store, not against a real backend.
 
 Slice O2 of the observability work has the daemon export traces to the
 same collector, and name people on them by a stand-in made with a key
-it keeps in a file ([Traces](../../docs/server.md#traces)).
+it keeps in a file ([Traces](../../docs/server.md#traces)). It was run
+on the same machine on 12 October 2026, with the three profiles
+enforced, the guide's unit and its drop-in for the key's directory, and
+a throwaway OTLP receiver (Python's `http.server`) on the machine.
 
 | What starfixd does | Needs |
 |---|---|
-| Posts traces to a collector | Nothing new: the rules that carry metrics carry them, with the same three lines in `local/starfixd-serve` for a hosted backend |
-| Makes the stand-in key once, and reads it at each start | **A new rule**, `owner @{starfixd_principals_key} rw,` in `starfixd-serve`, and the tunable it names, `/var/lib/starfix/telemetry/principals.key`. The rule names the one file, not its directory. Without it the daemon does not start when its environment names an endpoint for traces: `telemetry: make the stand-in key …: permission denied`, with a fix |
+| Posts traces to a collector | Nothing new: the rules that carry metrics carry them. A hosted backend needs the same three lines in `local/starfixd-serve` as for metrics; that was not run again for traces |
+| Makes the stand-in key once, and reads it at each start | **A new rule**, `owner @{starfixd_principals_key} rw,` in `starfixd-serve`, and the tunable it names, `/var/lib/starfix/telemetry/principals.key`. The rule names the one file, not its directory. Without it the daemon does not start when its environment names an endpoint for traces: `telemetry: make the stand-in key …: permission denied`, with a fix, and the kernel log has `operation="mknod" … name="/var/lib/starfix/telemetry/principals.key" … requested_mask="c"` |
+
+With the rule the daemon started under `starfixd-serve (enforce)`, made
+the key with mode 0600, read it again at a restart, made a new one
+after the file was deleted, and posted spans; the 76 checks of the runs
+above passed with traces on, and nothing was denied.
 
 The bridge's and the operator's profiles have no rule for the file, so
 neither can read it: the operator's allows the top of the home
-directory, and the key is one level down.
-
-**This rule was not run under AppArmor.** `apparmor_parser` accepts
-the profile; the rule follows the keys file's, which was run. A server
-that enforces the profiles should check, after turning traces on, that
-the daemon starts, that the key file appears with mode 0600, and that
-`journalctl -k | grep DENIED` shows nothing for `starfixd-serve`.
+directory, and the key is one level down. Both were tried as the
+`starfix` user, who owns the file, and both were refused and logged as
+`DENIED`.
 
 ## What is not covered
 
