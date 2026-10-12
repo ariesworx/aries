@@ -354,6 +354,8 @@ The client keeps a SQLite read cache of everything you can see, plus an outbox o
 
 ## 10. Search and vectors (later)
 
+A design that builds this in slices, with an endpoint in place of a model on the server and the vectors kept outside Dolt, is proposed in §19.
+
 - An `embeddings` table keyed by (kind, id, model), filled when an issue, comment or memory changes, and skipped when its content hash is unchanged.
 - The model runs locally on the server (nomic-embed-text by default), configurable per deployment to a hosted model. Store and model trade-offs: [database.md](database.md#vectors-later).
 - Below about 50k rows, brute-force cosine in Go is fast enough. Above that, a Dolt vector index, or pgvector on the Postgres fallback.
@@ -1675,3 +1677,94 @@ F1 alone is worth releasing. F3 and F4 do not depend on each other.
 ### 18.13 Not tested
 
 Everything: this is a design. In particular, file locking with hundreds of processes on Windows, the cost of comparing a field against the state at an old `rev` on a long history, and how often real sessions lose the server at all, which F0 measures before anything is built.
+
+## 19. Search by meaning: a design for vectors
+
+Designed 12 Oct 2026, from §10 and [database.md](database.md#vectors-later). **Proposed, not decided, and nothing here is built.** The questions for the maintainer are in §19.8. It is planned for stage 7; this section says how it could be built sooner and smaller, and what would have to be measured first.
+
+In short: starfixd runs no model. An operator points it at an embedding endpoint, by default one on the same machine, and starfixd asks it for vectors in the background, after a write and never during one. The vectors are derived data: kept beside the database and not in it, and rebuilt from the text at any time. Search is a plain comparison in Go. Every use falls back to what starfix does today when the endpoint is off, slow or behind, so nothing an agent or a person does can fail because of it.
+
+### 19.1 What it is for, in order of worth
+
+| Use | Today | What a vector adds |
+|---|---|---|
+| Memories in `prime` and `start` | Pinned, then linked to or sharing a label with the caller's issues, then newest (§6) | The memories that are about the work, whatever they were tagged. Every session pays for `prime`, so a better ten is fewer tokens spent finding the rest |
+| The duplicate check at `create`, and similar closed issues in `show` | Shared words in titles of the 2,000 most recently closed issues (§7, As built) | Issues that say the same thing in other words, and open ones |
+| Search | `list` filters; no search by text | `sfx search TEXT` and `recall` by meaning |
+
+The first is the reason to build it early: it bears on cost for every session. The third is the only one that needs something new on the wire.
+
+### 19.2 The endpoint, not a model
+
+`sfx` and `starfixd` stay as they are: no model, no runtime for one, no new dependency (rule 4). A server setting names an HTTP endpoint that takes text and returns vectors in the request and response shape most model servers share, which a local server (Ollama, llama.cpp, a text-embeddings server) and the hosted ones all speak. starfixd calls it with the standard library.
+
+- **Off by default.** With no endpoint set, nothing below exists and starfix behaves as it does now.
+- **Loopback by default.** An endpoint that is not on the loopback interface is refused unless `embeddings.allow_remote: true` is also set, because it sends the text of every issue, comment and memory to another machine, and for a hosted model to another company. Memories pass the secrets lint (`internal/secretscan`); issues and comments do not, and the guide says so beside the setting.
+- **A token**, where the endpoint needs one, comes from the 0600 environment file, never the settings file or argv (rule 2), as decision 34 has it for telemetry.
+- **The model's name and dimensions** are settings. A vector is kept with the model that made it, and one made by another model is never compared with it.
+
+### 19.3 Embedding happens after the write
+
+A worker in the daemon, one for each open project, reads the project's event log from where it last stopped, as the audit stream reads the control store's (§16, slice O3), and for each issue, comment or memory that changed asks the endpoint for a vector of its text, in batches. Text whose hash is unchanged is skipped. Long text is cut at a bound.
+
+- **No write waits for a vector, and none fails for want of one.** The endpoint is not in the write path at all.
+- **Behind is normal.** A new or changed item has no vector for a moment, or for as long as the endpoint is down. Every use says what it covers and falls back for the rest (§19.5).
+- **A dead endpoint costs nothing.** Calls are bounded in time and in number at once; failures back off, are counted and logged with an event, and `sfx admin status` says how far behind each project is.
+- **What is embedded follows visibility.** A vector carries its item's scope. A private memory's vector is compared only for its owner, by filtering before scoring, never after.
+
+### 19.4 Where the vectors live
+
+Proposed: **in files beside the database, not in Dolt.** One file for each project and model under starfixd's state directory, mode 0600, appended to and compacted, and read into memory when a project's first search needs it and dropped when its store closes for idleness.
+
+- A vector is derived from text the event log already holds. It is not history, so it needs no event (rule 7), no place in backups, and no migration: delete the file and the worker rebuilds it.
+- Kept in Dolt, every re-embedding would be a write through the project's single writer and a row in Dolt's history, which is most of a Dolt database's size, for data that can be recomputed. The memory measurements of stage 3a and the collector's behavior under writes (§16.5) both argue for keeping avoidable writes out.
+- At 768 dimensions, a vector is 3 KB as float32 and under 1 KB as int8. A project of 50,000 items is about 40 MB in memory as int8. A cap on items for each project and on projects with vectors loaded bounds the total (rule 18).
+- The cost: a second place for state on the server, which the AppArmor profiles and the guide must name, and a rebuild after a restore from backup.
+
+database.md proposed the `embeddings` table in Dolt, and a Dolt vector index past about 50,000 rows. This is question 1.
+
+### 19.5 Search, and falling back
+
+Comparison is exact cosine over the project's vectors in Go: tens of milliseconds at the sizes above, with no index to tune. Past the cap, the oldest closed issues are left out, as today's scorer leaves out all but the newest 2,000.
+
+- **Ranking for `prime` and `start`** needs no query from a person: the query is the caller's in-progress issues, whose vectors are already there, so the endpoint is not called during the request. Pins still come first. Memories with no vector yet are ranked as today and merged in.
+- **The duplicate check** compares the new title and body once the worker has embedded them, so `create` returns at once with today's word-overlap matches, and a better match found a moment later reaches the author's inbox. `create` never calls the endpoint.
+- **Search by text** is the one use that embeds at request time. It is bounded (proposed 500 ms); past the bound, or with the endpoint down, it answers by word overlap and says so.
+- **Results say how they were found**, by meaning or by words, and over how much of the project.
+
+### 19.6 What changes
+
+- Settings: `embeddings.endpoint`, `model`, `dimensions`, `allow_remote`, and limits for items, text length, batch, concurrency and the search bound.
+- No migration, if §19.4 stands.
+- The protocol: none for ranking and the duplicate check. A `search` op, and a query on `recall` if it has none that fits, are new and raise the protocol (rule 10); they can come last.
+- MCP: no new tool for ranking or duplicates, so the schema budget is untouched. Whether agents get `search` is question 4.
+- Telemetry and logs: items embedded, behind, failed; the endpoint's latency; events in the log schema. Exported records carry no text, as now.
+- Docs: the server guide, the security model (what an endpoint is sent, and that vectors are as sensitive as the text they came from), and the AppArmor profiles.
+
+### 19.7 Plan
+
+| Slice | Delivers | Gate |
+|---|---|---|
+| V0 | A measurement, with no server change: on a real project's export, how often today's ranking and duplicate check miss what a person would call related, against two local models and one hosted | Numbers that say whether to go on, and with which default model |
+| V1 | The endpoint setting, the worker, the files, status and telemetry | Vectors appear for a project, survive a restart, rebuild after deletion; a dead endpoint changes no request's result or timing |
+| V2 | Memory ranking in `prime` and `start` | The measurement's gain holds in the test stack, within the token cap |
+| V3 | The duplicate check and similar issues | A reworded duplicate is found; `create` is no slower |
+| V4 | `search`, and `recall` by meaning | Protocol bump; falls back within the bound |
+
+V0 decides whether any of the rest is built. If word overlap already finds what matters at the sizes real projects have, the answer is to leave it.
+
+### 19.8 Decisions for the maintainer
+
+1. **Where vectors live.** Proposed: files beside the database, rebuilt at need. database.md proposed a table in Dolt.
+2. **Pull it forward.** Proposed: V0 now, since it costs nothing and decides the rest; V1 and V2 after the observability and stage 5 work in flight; V3 and V4 stay with stage 7.
+3. **Remote endpoints.** Proposed: allowed, behind an explicit setting, with a warning at start naming what is sent.
+4. **Search over MCP.** Proposed: not at first. Agents gain from better `prime` and `start` without a new tool.
+5. **A default model.** Proposed: none named until V0. The guide then recommends one that is openly licensed and runs on a CPU.
+6. **One setting for the server, or one for each project.** Proposed: the server's, with a project able to opt out. A portfolio (the unit above a project) may want its own; that waits for portfolios.
+
+### 19.9 What this does not solve, and what is not tested
+
+- It does not search across projects. Each project's vectors are its own, as its database is.
+- It does not work offline: the client holds no vectors (§18).
+- A person who could read an item can recover much of its text from its vector. The files are protected as the database is, and a remote endpoint sees the text itself.
+- Not tested: everything. In particular the claim that 50,000 vectors compare in tens of milliseconds on the smallest server the guide sizes, the memory of many projects with vectors loaded beside Dolt's, and whether any model beats word overlap on real starfix data, which is V0.
