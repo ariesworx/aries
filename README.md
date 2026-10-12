@@ -55,14 +55,15 @@ what. starfix makes that safe:
 | See the time and tokens each issue took, by account (tokens from Claude Code so far) | `show`, `digest`, `usage --hook` | [Accounts, time and tokens](docs/concepts.md#accounts-time-and-tokens) |
 | Report what the tokens cost at list price, and amortized over subscription plans, by account, issue, epic, person or model | `cost`, `admin prices`, `admin plans` | [Cost](docs/concepts.md#cost), [Prices](docs/server.md#prices), [Plans](docs/server.md#plans) |
 | Log the hours people spend on an issue | `log` | [Human hours](docs/concepts.md#human-hours) |
+| Serve many projects from one server, and manage projects, people, keys and memberships from any machine | `admin project`, `admin principal`, `admin key`, `admin member`, `admin status` | [Serving many projects](docs/server.md#serving-many-projects) |
 | Set up Claude Code, Codex, Gemini CLI, Cursor, VS Code, Junie, JetBrains AI Assistant or Claude Desktop | `setup` | [Agents](docs/agents.md) |
 | Move a bd (beads) backlog over, keeping its IDs | `starfixd import-bd` | [Moving from bd](docs/migrate-from-bd.md) |
 | Reach a server that has no public address, through Google Cloud IAP | `iap:` in `.starfix.yaml` | [Using sfx](docs/cli.md#servers-without-a-public-ip-google-cloud-iap) |
 | Upgrade clients and the server from signed releases | `upgrade` | [Installing starfix](docs/install.md#upgrade-and-roll-back) |
 
-Planned: token prices and cost reports, an offline cache,
-and **Bearings**, an orchestrator that runs and supervises many agents on
-top of starfix ([design](docs/design/bearings.md)).
+Planned: an offline cache, and **Bearings**, an orchestrator that runs
+and supervises many agents on top of starfix
+([design](docs/design/bearings.md)).
 
 ## How it works
 
@@ -156,7 +157,7 @@ binary, building from source and verifying a download by hand.
 | [Moving from bd](docs/migrate-from-bd.md) | Importing a beads backlog, and exporting it back |
 | [Security model](docs/security-model.md) | Identity, host keys, the Dolt account, untrusted text, releases, CI checks |
 | [Design documents](docs/design/README.md) | Principles, architecture, data model, the Dolt spike, Bearings |
-| [Contributing](CONTRIBUTING.md) | Building, testing and opening a pull request |
+| [Contributing](CONTRIBUTING.md) | From a clone to a passing gate, trying a change against a real server, opening a pull request, troubleshooting |
 | [Releasing](RELEASING.md) | How releases are built, signed and published |
 
 ## Roadmap
@@ -179,8 +180,8 @@ The Bearings stages (B0 to B5) start once starfix stage 3 lands; see the
 
 ## Contributing
 
-[CONTRIBUTING.md](CONTRIBUTING.md) explains how to build and test starfix
-and how pull requests work. [AGENTS.md](AGENTS.md) holds the rules every
+[CONTRIBUTING.md](CONTRIBUTING.md) gets you from a clone to a passing
+gate (`scripts/gate.sh` runs what CI runs) and to a pull request. [AGENTS.md](AGENTS.md) holds the rules every
 contributor follows, person or agent.
 
 ## Relationship to beads

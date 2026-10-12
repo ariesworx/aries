@@ -27,15 +27,16 @@ and sshd reads the keys file starfixd writes
 try `sfx admin project add`, and add a person with `sfx admin principal
 add NAME --key FILE` and no restart.
 
-If a key added with `sfx admin` is refused, `docker compose logs` shows
-what sshd and starfixd said, and [Look inside](#look-inside) shows the
-keys file.
+[Troubleshooting](#troubleshooting) has what to do when a build fails
+or a key is refused.
 
 ## What you need
 
 - **Docker Desktop or OrbStack** on a Mac, Apple silicon or Intel, or
   Docker Engine 25 or later with Compose v2 on Linux. On Apple silicon the
-  image is built for arm64, so nothing is emulated.
+  image is built for arm64, so nothing is emulated. With Docker Desktop,
+  `~/.docker/bin` must be on your `PATH`
+  ([Troubleshooting](#troubleshooting)).
 - **Go**, at the `go` line in [go.mod](../../go.mod), to build `sfx` from
   the same checkout, so client and server speak the same protocol.
 - **An SSH key**, such as `~/.ssh/id_ed25519`, loaded into ssh-agent
@@ -95,14 +96,15 @@ it.
 
 ## Connect a scratch repository
 
-Build `sfx` into a scratch repository and paste the printed block into
-its `.starfix.yaml`:
+Build `sfx` into a scratch repository, and save the printed block as
+its `.starfix.yaml`; the third command copies the newest one from the
+log:
 
 ```sh
 mkdir -p ~/sfx-scratch
 go build -o ~/sfx-scratch/sfx ./cmd/sfx
+docker compose logs --no-log-prefix starfix | grep -A 4 '^project:' | tail -n 5 > ~/sfx-scratch/.starfix.yaml
 cd ~/sfx-scratch && git init -q
-pbpaste > .starfix.yaml        # or paste it in an editor
 ./sfx ready
 ./sfx create "Try the test server" -p 2 -t task
 ./sfx ready
@@ -122,15 +124,26 @@ cd ~/sfx-scratch && ./sfx admin principal add bob --key ~/sfx-scratch/bob.pub
 ```
 
 Then give bob a repository of his own, with the same `.starfix.yaml`
-plus `key: ~/sfx-scratch/bob`, and run `~/sfx-scratch/sfx` there. bob is
-a member of the first project and no admin. `./sfx admin key remove
-FINGERPRINT` takes his key away again, and `./sfx admin key list bob`
-shows the fingerprint.
+plus `key: ~/sfx-scratch/bob`, and run `sfx` there with ssh-agent
+hidden:
+
+```sh
+SSH_AUTH_SOCK= ~/sfx-scratch/sfx ready
+```
+
+`sfx` offers ssh-agent's keys before the key file's, so with your own
+key in the agent you would still be alice, whatever `key:` says. bob is
+a member of the first project and no admin, which tells the two apart:
+`sfx admin project list` shows bob his `ROLE` in each project, and
+alice each project's `DATABASE`. `./sfx admin key remove FINGERPRINT`
+takes his key away again, and `./sfx admin key list bob` shows the
+fingerprint.
 
 **To try a second project**, run `./sfx admin project add web` as alice.
 It prints the `.starfix.yaml` for the new project: save it in another
 scratch repository, add your `key:` line if you use one, and add bob to
-it there with `./sfx admin member add bob`.
+it there with `~/sfx-scratch/sfx admin member add bob`. `sfx admin
+status` then shows the server and a row for each project.
 
 Giving a second key in `STARFIX_KEYS` and starting again still works,
 as before, and puts the key in `authorized_keys` as well.
@@ -171,7 +184,9 @@ in both files is marked, comes in by `authorized_keys`, and warns when
 it is removed from the control database; and that starfixd's log has no
 failed write. It removes its server and volume, prints one line (84
 checks on 12 October 2026), and exits non-zero on the first failure. CI
-does not run it. Arguments go to `docker build`; behind a proxy that
+does not run it; `scripts/gate.sh --smoke` runs it after the gate. It
+hides ssh-agent from `sfx`, so the keys you hold play no part. Arguments
+go to `docker build`; behind a proxy that
 intercepts TLS, pass its CA with `--secret id=ca,src=FILE`, which never
 reaches the image.
 
@@ -212,6 +227,19 @@ AppArmor nor SELinux, so nothing here says anything about either
 ([What a server needs](../server.md#what-a-server-needs)). The units
 and the AppArmor profiles were run on an Ubuntu 24.04 virtual machine
 instead ([What was run, and where](../server.md#what-was-run-and-where)).
+
+## Troubleshooting
+
+[Troubleshooting](../server.md#troubleshooting) in the server guide
+covers what `sfx` and starfixd say. These are the test server's own:
+
+| What you see | Cause | Fix |
+|---|---|---|
+| `docker build` or `docker compose up --build` fails with `exec: "docker-credential-desktop": executable file not found in $PATH` | Docker Desktop's configuration (`~/.docker/config.json`, `"credsStore": "desktop"`) names a helper program that Docker Desktop keeps in `~/.docker/bin`, and that directory is not on your `PATH`: usually because another `docker`, such as a package manager's, comes first. Docker runs the helper whenever it asks a registry for a base image, public ones included, so a build whose base images are already cached does not show it | `export PATH="$HOME/.docker/bin:$PATH"`, in your shell's profile to keep it |
+| You are alice in a repository whose `.starfix.yaml` has `key:` for someone else | `sfx` offers ssh-agent's keys first, and the agent holds alice's | Run that `sfx` with `SSH_AUTH_SOCK=` in front; `sfx admin project list` shows a `ROLE` column to a member and a `DATABASE` column to a server admin |
+| `sfx: ssh handshake with localhost:2222 failed: … "Too many authentication failures"` | ssh-agent holds six or more keys the server does not know, and sshd hangs up before `sfx` reaches the one in `key:` | The same: `SSH_AUTH_SOCK=` in front, or `ssh-add` the key so the agent holds it |
+| `sfx: localhost:2222 refused your SSH key` for a key added with `sfx admin` | sshd did not find the key in either file | `docker compose logs` shows what sshd and starfixd said, and [Look inside](#look-inside) shows the keys file |
+| `sfx: host key mismatch for localhost` after `docker compose down -v` | The volume held the host key and the project, and the next start made new ones | Save the newly printed block as `.starfix.yaml` |
 
 ## Look inside
 
