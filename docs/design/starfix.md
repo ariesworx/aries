@@ -1308,6 +1308,8 @@ Each slice leaves `main` working, and every one is off until configured. The pro
 
 I0 and I1 can go now. I2 is worth having without certificates. I3 needs I2 for the external identity.
 
+**Since this was written (12 Oct 2026).** I0's configuration is done: the guide's `Match` blocks and the Docker image set `TrustedUserCAKeys none` and `AuthorizedPrincipalsFile none` (§15.2, "A globally trusted certificate authority"); the smoke test does not yet offer a certificate that must be refused. Of I1, the maintainer has decided that a configured `key:` is the only key `sfx` offers and that `sfx whoami` says who you are; that is being built with the fixes for the security review of stage 3a. Decision 26 has sshd read the generated file before `authorized_keys`, which the `cert-authority` lines of §17.3 would follow. The rest of this section is undecided: it is a design for the maintainer to accept, change or put aside, and its questions are in §17.12.
+
 ### 17.12 Decisions for the maintainer
 
 1. **Do certificates become a way in?** Recommended: yes, a second way beside keys on the same server, never required. *Cost of yes:* slices I2 to I4, and a mode to test, document and secure, though it reuses decision 22's file. *Cost of no:* keys only, and the concern of §15.6 stands. *Cost of certificates only:* small teams need an authority to try starfix.
