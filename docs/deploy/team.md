@@ -113,7 +113,12 @@ CI runners: ci-bot ────────────────┘          
   agent to summarize.
 - **Keep an eye on it.** The provider's console shows the VM's CPU,
   memory and disk, and `journalctl -u starfixd` shows refusals and errors
-  ([Logs](../server.md#logs)).
+  ([Logs](../server.md#logs)). If the server holds several projects,
+  `sfx admin status` shows each one's connections and writes
+  ([Watching a server](../server.md#watching-a-server)), and the memory
+  to watch is Dolt's, on the VM: it follows the data in all the projects
+  together, so a second project on the same 2 GB shares what the first
+  has left.
 - **Upgrades:** the server first, then each person runs `sfx upgrade`
   ([Upgrades](../server.md#upgrades)).
 

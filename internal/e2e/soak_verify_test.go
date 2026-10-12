@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -135,17 +136,33 @@ func readTables(ctx context.Context, q querier) (tables, error) {
 	return tb, nil
 }
 
-// snapshot reads the events since the last snapshot and the tables in
-// one read-only transaction, replays the events and compares.
+// snapshot compares every project's event log with its tables, each in
+// a snapshot of its own, and then the control store's: last, so that the
+// control log read holds every change a project's event answered to.
 func (s *soak) snapshot() error {
+	var errs []error
+	for _, p := range s.projs {
+		errs = append(errs, s.snapshotOf(p))
+	}
+	errs = append(errs, s.snapshotControl())
+	if err := errors.Join(errs...); err != nil {
+		return err
+	}
+	s.stats.snapshots.Add(1)
+	return nil
+}
+
+// snapshotOf reads p's events since the last snapshot and its tables in
+// one read-only transaction, replays the events and compares.
+func (s *soak) snapshotOf(p *sproj) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := p.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	r := s.rep
+	r := p.rep
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	evs, err := readEvents(ctx, tx, r.seq)
@@ -166,7 +183,6 @@ func (s *soak) snapshot() error {
 			r.openCount++
 		}
 	}
-	s.stats.snapshots.Add(1)
 	return nil
 }
 
@@ -257,12 +273,13 @@ func (s *soak) checkCaps(tb tables) {
 	}
 }
 
-// awaitReaped waits for every lease to lapse and the reaper to end it.
-func (s *soak) awaitReaped() {
+// awaitReaped waits for every lease in p to lapse and the reaper to end
+// it.
+func (s *soak) awaitReaped(p *sproj) {
 	deadline := time.Now().Add(s.clock.real(15*time.Minute) + 30*time.Second)
 	for {
 		var held []string
-		err := scan(context.Background(), s.db, `SELECT issue_id FROM claims WHERE principal IS NOT NULL`, nil,
+		err := scan(context.Background(), p.db, `SELECT issue_id FROM claims WHERE principal IS NOT NULL`, nil,
 			func(rows *sql.Rows) error {
 				var id string
 				held = append(held, id)
@@ -289,7 +306,7 @@ func (s *soak) awaitReaped() {
 // for every inbox item and issue event committed so far that its watch is
 // owed.
 func (s *soak) checkWindow(ss *session, ln *line, c *mcpserver.RepoConn) {
-	top, err := topIDs(context.Background(), s.db)
+	top, err := topIDs(context.Background(), ss.p.db)
 	if err != nil {
 		s.t.Errorf("read inbox: %v", err)
 		return
@@ -329,7 +346,7 @@ func (s *soak) awaitWindow(ss *session, ln *line, c *mcpserver.RepoConn, upTo bo
 		args = append(args, upTo.item)
 	}
 	var owed []int64
-	err := scan(ctx, s.db, query, args, func(rows *sql.Rows) error {
+	err := scan(ctx, ss.p.db, query, args, func(rows *sql.Rows) error {
 		var id int64
 		owed = append(owed, id)
 		return rows.Scan(&owed[len(owed)-1])
@@ -345,7 +362,7 @@ func (s *soak) awaitWindow(ss *session, ln *line, c *mcpserver.RepoConn, upTo bo
 			query += ` AND seq <= ?`
 			args = append(args, upTo.seq)
 		}
-		err := scan(ctx, s.db, query, args, func(rows *sql.Rows) error {
+		err := scan(ctx, ss.p.db, query, args, func(rows *sql.Rows) error {
 			var seq int64
 			var target string
 			if err := rows.Scan(&seq, &target); err != nil {
@@ -416,12 +433,12 @@ func readClaimRows(ctx context.Context, q querier) (map[string]claimRow, error) 
 	return out, err
 }
 
-// checkClaimsOp checks what the claims op lists against the claims table,
-// once the sessions have stopped renewing, so that only the reaper still
-// changes claims. The table is read before and after the op; when the two
-// reads agree, they are what the op read too.
-func (s *soak) checkClaimsOp(ctx context.Context) {
-	c, err := mcpserver.DialRepo(ctx, s.eve.repo, s.eveOptions("eve-claims"))
+// checkClaimsOp checks what the claims op lists in p against its claims
+// table, once the sessions have stopped renewing, so that only the reaper
+// still changes claims. The table is read before and after the op; when
+// the two reads agree, they are what the op read too.
+func (s *soak) checkClaimsOp(ctx context.Context, p *sproj) {
+	c, err := mcpserver.DialRepo(ctx, s.eve[p].repo, s.eveOptions("eve-claims"))
 	if err != nil {
 		s.t.Errorf("dial as eve: %v", err)
 		return
@@ -431,7 +448,7 @@ func (s *soak) checkClaimsOp(ctx context.Context) {
 	// that runs out between the two may be listed or not.
 	slack := time.Duration(float64(500*time.Millisecond) * s.cfg.speed).Microseconds()
 	for range 50 {
-		before, err := readClaimRows(ctx, s.db)
+		before, err := readClaimRows(ctx, p.db)
 		if err != nil {
 			s.t.Errorf("read claims: %v", err)
 			return
@@ -441,7 +458,7 @@ func (s *soak) checkClaimsOp(ctx context.Context) {
 			s.t.Errorf("claims: %v", err)
 			return
 		}
-		after, err := readClaimRows(ctx, s.db)
+		after, err := readClaimRows(ctx, p.db)
 		if err != nil {
 			s.t.Errorf("read claims: %v", err)
 			return
@@ -484,5 +501,5 @@ func (s *soak) checkClaimsOp(ctx context.Context) {
 		s.stats.claimsChecked.Add(int64(len(r.Claims)))
 		return
 	}
-	s.t.Logf("soak: the claims table kept changing; claims was not checked")
+	s.t.Logf("soak: the claims table of project %s kept changing; claims was not checked", p.name)
 }

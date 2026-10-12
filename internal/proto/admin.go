@@ -14,7 +14,8 @@ import "time"
 //
 // Protocol 6 adds a principal's public SSH keys, which sshd asks the
 // daemon for (design §15.2): key.add, keys and key.remove, and Keys on
-// principal.add.
+// principal.add. It also has status, a read for an admin watching the
+// server, added before protocol 6 shipped in a release (version.go).
 const (
 	OpProjectAdd       = "project.add"       // ProjectAddArgs → ProjectAddResult; server admins
 	OpProjects         = "projects"          // AdminListArgs → ProjectsResult
@@ -30,6 +31,7 @@ const (
 	OpKeyAdd           = "key.add"           // KeyAddArgs → KeyResult
 	OpKeys             = "keys"              // KeysArgs → KeysResult
 	OpKeyRemove        = "key.remove"        // KeyRemoveArgs → KeyResult
+	OpStatus           = "status"            // StatusArgs → StatusResult; server admins, and project admins for their projects
 )
 
 // Bounds on what the admin lists return.
@@ -246,6 +248,12 @@ type KeyAddArgs struct {
 // it was added or the principal had it already (unchanged). Dropped
 // counts the connections a removal closed: those the key had
 // authenticated.
+//
+// FileConns and Warning are set by a removal when the principal still
+// has open connections that named no key of the store, so that sshd let
+// them in by a line of the server's authorized_keys file: how many, and
+// what that means for the key just removed. The server knows that such a
+// connection came in by the file, not which key it used.
 type KeyResult struct {
 	ID        string `json:"id"`
 	Principal string `json:"principal"`
@@ -253,6 +261,8 @@ type KeyResult struct {
 	Comment   string `json:"comment,omitempty"`
 	Change    string `json:"change,omitempty"`
 	Dropped   int    `json:"dropped,omitempty"`
+	FileConns int    `json:"file_conns,omitempty"`
+	Warning   string `json:"warning,omitempty"`
 }
 
 // KeysArgs lists the keys of the principal Name.
@@ -269,14 +279,94 @@ type Key struct {
 	AddedAt     time.Time `json:"added_at"`
 }
 
-// KeysResult lists a principal's keys, oldest first.
+// KeysResult lists a principal's keys, oldest first. FileConns counts
+// the principal's open connections that named no key of the store: sshd
+// let them in by a line of the server's authorized_keys file, which
+// removing a key from the store does not close or prevent.
 type KeysResult struct {
 	Principal string `json:"principal"`
 	Keys      []Key  `json:"keys"`
+	FileConns int    `json:"file_conns,omitempty"`
 }
 
 // KeyRemoveArgs names the key to remove by its SHA-256 fingerprint, as
 // `sfx admin key list` and `ssh-keygen -lf FILE.pub` print it.
 type KeyRemoveArgs struct {
 	Fingerprint string `json:"fingerprint"`
+}
+
+// StatusArgs page the projects of a status report, as AdminListArgs
+// pages a list.
+type StatusArgs struct {
+	AdminListArgs
+}
+
+// StatusResult is what the daemon knows of itself and of its projects
+// now, from memory: for a server admin, Server and every project, in
+// every state; for a project admin, the active projects they administer
+// and no Server. Projects are by name, and More counts those after the
+// last one listed. Dolt is another process, so nothing here is its
+// memory or its disk.
+type StatusResult struct {
+	Server   *ServerStatus   `json:"server,omitempty"`
+	Projects []ProjectStatus `json:"projects"`
+	More     int             `json:"more,omitempty"`
+}
+
+// ServerStatus is the daemon as a whole. Each count stands beside the
+// limit that caps it. HeapBytes is the memory starfixd's own heap holds
+// in live and not yet collected objects, and SysBytes all the memory it
+// has from the operating system (Go's runtime.MemStats HeapAlloc and
+// Sys). Projects and Principals count the control store's rows by state.
+type ServerStatus struct {
+	Version       string         `json:"version"`
+	ProtoMin      int            `json:"proto_min"`
+	ProtoMax      int            `json:"proto_max"`
+	UptimeSeconds int64          `json:"uptime_seconds"`
+	OpenStores    int            `json:"open_stores"`
+	OpenStoresMax int            `json:"open_stores_max"`
+	Conns         int            `json:"conns"`
+	ConnsMax      int            `json:"conns_max"`
+	KeyLookups    int            `json:"key_lookups"`
+	KeyLookupsMax int            `json:"key_lookups_max"`
+	HeapBytes     uint64         `json:"heap_bytes"`
+	SysBytes      uint64         `json:"sys_bytes"`
+	Goroutines    int            `json:"goroutines"`
+	Projects      map[string]int `json:"projects"`
+	Principals    map[string]int `json:"principals"`
+}
+
+// ProjectStatus is one project. Open says whether its store is open;
+// the daemon opens none to answer. Conns counts the connections to it
+// past their handshake, and FileConns those among them that named no key
+// of the store, which sshd let in by the authorized_keys file.
+//
+// The rest is set only while the store is open, and starts afresh each
+// time it opens: Sessions, how many sessions were seen in the last five
+// minutes, as `sfx who` lists them; Writes; and LastUsed, when the store
+// last answered a request, or was opened if it has answered none.
+type ProjectStatus struct {
+	ID        string       `json:"id"`
+	Name      string       `json:"name"`
+	State     string       `json:"state"`
+	Open      bool         `json:"open"`
+	Conns     int          `json:"conns"`
+	FileConns int          `json:"file_conns,omitempty"`
+	Sessions  *int         `json:"sessions,omitempty"`
+	Writes    *WriteStatus `json:"writes,omitempty"`
+	LastUsed  *time.Time   `json:"last_used,omitempty"`
+}
+
+// WriteStatus is how busy a project's one writer is. A write is a
+// transaction that changed a row and committed; a refused request is not
+// one. LastMinute counts the writes of the last 60 seconds. P50Micros
+// and P99Micros are the median and the 99th percentile, by nearest rank,
+// of the latency of the latest Samples writes (at most 256, however old),
+// in microseconds: from the request reaching the store to its commit,
+// the wait for the writer and any retry included.
+type WriteStatus struct {
+	LastMinute int   `json:"last_minute"`
+	Samples    int   `json:"samples"`
+	P50Micros  int64 `json:"p50_us"`
+	P99Micros  int64 `json:"p99_us"`
 }

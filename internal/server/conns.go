@@ -94,6 +94,21 @@ func (s *Server) drop(from *session, why string, match func(owner) bool) int {
 	return len(closing)
 }
 
+// fileConns returns how many of principal's connections past the
+// handshake named no key of the store: sshd let them in by a line of the
+// authorized_keys file.
+func (s *Server) fileConns(principal string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, o := range s.conns {
+		if o.principal == principal && o.key == "" {
+			n++
+		}
+	}
+	return n
+}
+
 // unopenedProjects returns the projects OpenProjects could not open and
 // nothing has opened since, in no order.
 func (s *Server) unopenedProjects() []store.Project {

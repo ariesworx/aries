@@ -395,13 +395,18 @@ What works today:
   starfixd closes the connections it had let in, once the change is
   committed. The first three also end the claims the lost access held,
   so the issues are ready for someone else.
+- **`sfx admin status`** shows an admin the server and each project as
+  they are now: open stores, connections, sessions, writes and their
+  latency, and starfixd's own memory ([Watching a server](#watching-a-server)).
 - **`import-bd` and `export-bd`** act on the config file's `project`, or
   on another with `--project UUID`.
 
-What does not exist yet:
-
-- **`sfx admin status`**, to see each project's connections and the
-  server's memory, does not exist.
+Everything above is built and tested against a real Dolt and starfix's
+own stand-in for sshd, including a soak test across two projects
+([CONTRIBUTING.md](../CONTRIBUTING.md#the-soak-test)). What has not been
+done is to check the sshd setup of [Keys from the store](#keys-from-the-store)
+on a real sshd and on each cloud's images; that section says what to
+keep until you have.
 
 ### Opt in
 
@@ -434,7 +439,12 @@ What does not exist yet:
    ```text
    project acme (6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f) adopted from database starfix: active
    principals: 2 added, 0 already there; keys: 3 added, 0 already there; members: 1 added, 0 already there; 0 lines skipped
+   3 keys in the store are also lines of /var/lib/starfix/.ssh/authorized_keys: sshd falls back to that file, so `sfx admin key remove` does not keep such a key out until its line is deleted too
    ```
+
+   The last line counts the keys that are now in both places. It is a
+   reminder, and `control init` never edits `authorized_keys`: see
+   [Keys from the store](#keys-from-the-store), step 4.
 
 4. To let admins create further projects, grant starfixd's account a
    block of database names now, and name the block in the config file.
@@ -580,6 +590,16 @@ in for the first admin, and the way in when starfixd is down.
      `key remove`**, since starfixd does not know which key it used. One
      that came in by the store's line is: its forced command names the
      key.
+   - **starfixd shows what it can see of this.** It knows whether a
+     connection named a key of the store or came in by the file, and
+     nothing about which line of the file let it in. `sfx admin key list
+     NAME` says how many of NAME's open connections came in by the file,
+     `sfx admin status` counts them for each project (BY FILE), and `key
+     remove` warns when the key's principal has any open. sshd asks the
+     store first, so while a key is in both places its connections name
+     the key and nothing warns: the count appears once the key is gone
+     from the store and its owner connects again. A person who only ever
+     shows up under BY FILE still has a line to delete.
    - **Keep one line for a server admin.** It is how you get in when
      starfixd is down, and how a server admin's own key is replaced,
      since nobody changes the keys of their own account with `sfx admin`.
@@ -617,6 +637,7 @@ person.
 | `sfx admin member list` | Server admins; the project's admins |
 | `sfx admin principal add NAME --key FILE`, `key add NAME FILE`, `key remove FINGERPRINT` | Server admins; a project admin, for a principal within their reach. Never for one's own account |
 | `sfx admin key list NAME` | Server admins; a project admin with reach over NAME; NAME themselves |
+| `sfx admin status` | Server admins, for the server and every project; a project admin, for the active projects they administer ([Watching a server](#watching-a-server)) |
 
 - **A server admin** is a principal named under `admins:`. They are let
   into every active project and may do everything above. Nothing over
@@ -638,7 +659,10 @@ person.
   file itself and refuses a private key before it sends anything. A key
   belongs to one principal; one that another principal has is refused,
   without saying whose. `key remove` takes the fingerprint `key list`
-  prints, and closes the connections that key had signed in.
+  prints, and closes the connections that key had signed in. It warns
+  when the principal has connections that came in by `authorized_keys`
+  instead, which it cannot close and whose key it cannot name
+  ([Keys from the store](#keys-from-the-store), step 4).
 - **Losing access releases claims.** When a membership is removed, the
   principal's claims in that project end; when a principal is disabled,
   its claims in every project; when a project is archived, every claim
@@ -677,12 +701,66 @@ person.
   `sfx admin member add NAME --project NAME`.
 - **Archiving** keeps the project's database, members and name, and
   serves it to no one: its connections are closed, its claims end, and
-  its store closes with them. The server's last active project cannot be archived, since
+  its store closes with them, after one more sweep for a claim that a
+  request in flight took meanwhile. The server's last active project cannot be archived, since
   `sfx admin` needs a project to connect to. `activate` opens the
   database, which applies any migration it missed while archived, and
   serves it again.
 - **Everything is on the record** in the control database's event log,
   under the principal who ran the command.
+
+One case in the above is slower than "at once". A project whose store is
+closed has nothing running in it: when its member is removed, or when it
+is archived by a starfixd that restarted before it released the claims,
+the claims stay in its database until the store next opens, which for an
+archived project is when it is activated. Nobody can use them meanwhile,
+and they end before the first request is answered.
+
+### Watching a server
+
+`sfx admin status` reports what starfixd knows of itself and of its
+projects now. A server admin sees the server and every project; a project
+admin sees the active projects they administer and nothing of the
+server; anyone else is refused. It reads memory, plus one count on an
+index for each open project listed, opens no store and writes nothing.
+
+```text
+starfixd v0.5.0, protocol 2 to 6, up 3d 4h
+stores 2 of 64, connections 14 of 1024, key lookups 0 of 64
+starfixd's memory 42 MiB in use, 78 MiB from the system; 112 goroutines
+projects: 2 active, 1 archived; principals: 12 active, 1 disabled
+
+PROJECT  STATE     STORE   CONNS  BY FILE  SESSIONS  WRITES/MIN  P50    P99    LAST USED
+acme     active    open    9      2        14        212         4.2ms  31ms   2026-10-11 09:30 UTC
+web      active    open    5      0        6         40          3.9ms  18ms   2026-10-11 09:29 UTC
+old      archived  closed  0      -        -         -           -      -      -
+```
+
+| Figure | What it is |
+|---|---|
+| stores, connections, key lookups | How many are open or in flight, beside the limit that caps each (`open_stores`, `conns`, `key_lookups`) |
+| starfixd's memory | The Go heap in use and all the memory starfixd has from the operating system (`HeapAlloc` and `Sys`). Not Dolt's |
+| projects, principals | The control database's rows, by state |
+| STORE | Whether the project's store is open. The figures after it exist only while it is, and start from zero each time it opens |
+| CONNS, BY FILE | Connections past their handshake, and those among them that named no key of the store, which sshd let in by `authorized_keys` |
+| SESSIONS | Sessions seen in the last five minutes, as `sfx who` lists them |
+| WRITES/MIN | Transactions that changed something and committed in the last 60 seconds. A refused request is not one; a lease renewal is |
+| P50, P99 | The median and 99th percentile of the latest 256 writes' latency, however old they are: from the request reaching the project's store to its commit, the wait for the one writer included |
+| LAST USED | When the project last answered a request, or was opened |
+
+`-n` and `--after NAME` page the projects as the admin lists do, 200 at a
+time. `--json` gives the same figures, with latency in microseconds.
+
+**Dolt's memory is not in it.** Dolt is another process under another
+user, and starfixd has no portable way to read its memory, so read it
+from the machine: `systemctl status dolt`, `ps -o rss= -C dolt` or your
+monitoring. It follows the data written across all projects, not their
+number, and closing a store gives none of it back
+([measurements](../spike/multidb/RESULTS.md)). Nor is a database's size
+on disk: Dolt offers its least-privileged account no table or function
+for it, and the files belong to Dolt's user. Read it with `du -sh
+/var/lib/dolt/data/starfix/*` as root or `dolt`
+([Storage growth](#storage-growth)).
 
 Each project's store is opened by its first connection and closed after
 `store_idle` without one ([Limits](#limits)). Closing gives back the

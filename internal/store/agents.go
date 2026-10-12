@@ -153,6 +153,24 @@ func (s *Store) Who(ctx context.Context, since time.Duration) ([]Agent, error) {
 	return out, nil
 }
 
+// SessionsSeen returns how many sessions were seen within since of the
+// server's now (0 means AgentActiveFor): how many rows [Store.Who] would
+// list, counted on the index by last_seen without reading them. A window
+// below 0 or past MaxAgentWindow is refused with ErrInvalid.
+func (s *Store) SessionsSeen(ctx context.Context, since time.Duration) (int, error) {
+	if since == 0 {
+		since = AgentActiveFor
+	}
+	if since < 0 || since > MaxAgentWindow {
+		return 0, fmt.Errorf("%w: who's window must be up to 7d", ErrInvalid)
+	}
+	var n int
+	if err := s.r.QueryRowContext(ctx, `SELECT COUNT(*) FROM agents WHERE last_seen >= ?`, s.now().Add(-since)).Scan(&n); err != nil {
+		return 0, fmt.Errorf("sessions seen: %w", err)
+	}
+	return n, nil
+}
+
 // capSessions deletes principal's least recently seen registry rows past
 // the Sessions limit (S-6): each handshake with a fresh session id adds a
 // row, and nothing else would bound them.

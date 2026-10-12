@@ -45,7 +45,9 @@ func (o outcome) String() string { return [...]string{"acked", "refused", "lost"
 
 // call is one protocol request, as the client saw it.
 type call struct {
-	who  sessKey
+	who sessKey
+	// p is the project the request was sent to.
+	p    *sproj
 	op   string
 	args any          // the *Args value sent
 	res  any          // the *Result value received, when acked
@@ -88,10 +90,24 @@ type line struct {
 	conn int
 	cur  *window // guarded by log.mu
 	mon  *monitor
+	// p is the project the connection is to, when the run has several.
+	p *sproj
 }
 
-func (l *inboxLog) newLine(key sessKey, conn int, mon *monitor) *line {
-	return &line{log: l, key: key, conn: conn, mon: mon}
+func (l *inboxLog) newLine(key sessKey, conn int, mon *monitor, p *sproj) *line {
+	return &line{log: l, key: key, conn: conn, mon: mon, p: p}
+}
+
+// foreign fails the run when text pushed on the line names an issue of
+// another project: nothing of one project is ever pushed to a connection
+// to another.
+func (ln *line) foreign(issue, text, what string) {
+	if ln.p == nil || ln.p.foreign == nil {
+		return
+	}
+	if m := ln.p.foreign.FindString(text); m != "" {
+		ln.mon.fail(issue, "%s, connected to project %s, was pushed %s naming %s, an issue of another project", ln.key, ln.p.name, what, m)
+	}
 }
 
 // push records a pushed event. It runs on the client's reader goroutine.
@@ -104,6 +120,7 @@ func (ln *line) push(p proto.Push) {
 			ln.cur.resync = true
 		}
 	case p.Item != nil:
+		ln.foreign(p.Item.Issue, p.Item.Issue+" "+p.Item.Body, fmt.Sprintf("inbox item %d", p.Item.ID))
 		if ln.log.got == nil {
 			ln.log.got = map[int64]proto.InboxItem{}
 		}
@@ -115,6 +132,7 @@ func (ln *line) push(p proto.Push) {
 			ln.mon.fail(p.Item.Issue, "%s was pushed item %d addressed to session %s", ln.key, p.Item.ID, p.Item.Session)
 		}
 	case p.Event != nil:
+		ln.foreign(p.Event.Issue, p.Event.Issue, fmt.Sprintf("event %d", p.Event.Seq))
 		w := ln.cur
 		switch {
 		case w == nil || !w.events:
@@ -236,7 +254,9 @@ func (l *inboxLog) pushed() map[int64]proto.InboxItem {
 
 // session is what both kinds of session share.
 type session struct {
-	s     *soak
+	s *soak
+	// p is the project the session works in.
+	p     *sproj
 	key   sessKey
 	tag   string // the session's part of every marker and idempotency key
 	u     *user
@@ -282,7 +302,7 @@ func (s *soak) do(ss *session, c *mcpserver.RepoConn, op string, args, res any) 
 	defer cancel()
 	sent, t0 := s.clock.now(), time.Now()
 	err := c.Call(ctx, op, args, res)
-	cl := call{who: ss.key, op: op, args: args, sent: sent, recv: s.clock.now(), took: time.Since(t0)}
+	cl := call{who: ss.key, p: ss.p, op: op, args: args, sent: sent, recv: s.clock.now(), took: time.Since(t0)}
 	pe, isProto := errors.AsType[*proto.Error](err)
 	switch {
 	case err == nil:
@@ -302,6 +322,7 @@ func (s *soak) do(ss *session, c *mcpserver.RepoConn, op string, args, res any) 
 		s.mon.fail("", "%s: %s failed without a protocol error on a live connection: %v", ss.key, op, err)
 	}
 	s.mon.record(cl)
+	s.checkForeign(cl)
 	return cl.out, cl.err
 }
 
@@ -368,13 +389,14 @@ type heldIssue struct {
 func (ls *libSession) connect(ctx context.Context) bool {
 	for ctx.Err() == nil {
 		ls.conns++
-		ln := ls.inbox.newLine(ls.key, ls.conns, ls.s.mon)
+		ln := ls.inbox.newLine(ls.key, ls.conns, ls.s.mon, ls.p)
 		dctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+		start := ls.s.clock.now()
 		c, err := mcpserver.DialRepo(dctx, ls.u.repo, ls.options(ln))
 		cancel()
+		ls.s.dialed(ls.session, start, c, err)
 		if err != nil {
-			ls.s.mon.dialFailed(ls.key, err)
-			pause(ctx, time.Duration(20+ls.rng.IntN(60))*time.Millisecond)
+			pause(ctx, time.Duration(20+ls.rng.IntN(60))*time.Millisecond+refusedPause(err))
 			continue
 		}
 		var wr proto.WatchResult
@@ -461,7 +483,7 @@ func (ls *libSession) step(ctx context.Context) {
 		w  int
 		fn func(context.Context)
 	}{
-		{ls.s.createWeight(), ls.create},
+		{ls.s.createWeight(ls.p), ls.create},
 		{6, ls.startTop},
 		{5, ls.startNamed},
 		{3, ls.takeOver},
@@ -477,6 +499,7 @@ func (ls *libSession) step(ctx context.Context) {
 		{3, ls.usage},
 		{2, ls.readInbox},
 		{4, ls.read},
+		{1, ls.peek},
 	}
 	total := 0
 	for _, o := range ops {
@@ -550,7 +573,7 @@ func (ls *libSession) create(ctx context.Context) {
 		}
 	}
 	if ls.chance(0.15) {
-		if id, ok := ls.s.pool.pick(ls.rng); ok {
+		if id, ok := ls.p.pool.pick(ls.rng); ok {
 			args.Parent = id
 		}
 	}
@@ -559,7 +582,7 @@ func (ls *libSession) create(ctx context.Context) {
 	}
 	var r proto.CreateResult
 	if out, _ := ls.call(ctx, proto.OpCreate, args, &r, true); out == acked {
-		ls.s.pool.add(r.ID)
+		ls.p.pool.add(r.ID)
 		ls.revs[r.ID] = r.Rev
 	}
 }
@@ -569,7 +592,7 @@ func (ls *libSession) startTop(ctx context.Context) {
 }
 
 func (ls *libSession) startNamed(ctx context.Context) {
-	id, ok := ls.s.pool.pick(ls.rng)
+	id, ok := ls.p.pool.pick(ls.rng)
 	if !ok {
 		return
 	}
@@ -584,7 +607,7 @@ func (ls *libSession) start(ctx context.Context, id string, take bool) {
 	if out, _ := ls.call(ctx, proto.OpStart, args, &r, true); out == acked && r.Claim != nil {
 		ls.held[r.Issue.ID] = heldIssue{epoch: r.Claim.Epoch, items: len(r.Items)}
 		ls.revs[r.Issue.ID] = r.Issue.Rev
-		ls.s.holding.took(r.Issue.ID, ls.key)
+		ls.p.holding.took(r.Issue.ID, ls.key)
 	}
 }
 
@@ -603,7 +626,7 @@ func (ls *libSession) rewatch(ctx context.Context) {
 // knows: one of its own principal's, which it may take when it asks to,
 // or another principal's, which it must be refused.
 func (ls *libSession) takeOver(ctx context.Context) {
-	if id, ok := ls.s.holding.pick(ls.rng, ls.key, ls.chance(0.7)); ok {
+	if id, ok := ls.p.holding.pick(ls.rng, ls.key, ls.chance(0.7)); ok {
 		ls.start(ctx, id, ls.chance(0.8))
 	}
 }
@@ -654,9 +677,9 @@ func (ls *libSession) finish(ctx context.Context) {
 	switch {
 	case out == acked:
 		delete(ls.held, id)
-		ls.s.holding.left(id, ls.key)
+		ls.p.holding.left(id, ls.key)
 		for _, c := range r.Created {
-			ls.s.pool.add(c)
+			ls.p.pool.add(c)
 		}
 	case out == refused && perr.Code != proto.CodeAcceptance && perr.Code != proto.CodeBusy:
 		delete(ls.held, id) // lost it, or it is closed
@@ -680,13 +703,13 @@ func (ls *libSession) handoff(ctx context.Context) {
 	var r proto.WriteResult
 	if out, _ := ls.call(ctx, proto.OpHandoff, args, &r, true); out == acked && args.Release {
 		delete(ls.held, id)
-		ls.s.holding.left(id, ls.key)
+		ls.p.holding.left(id, ls.key)
 	}
 }
 
 func (ls *libSession) dep(ctx context.Context) {
-	from, ok1 := ls.s.pool.pick(ls.rng)
-	to, ok2 := ls.s.pool.pick(ls.rng)
+	from, ok1 := ls.p.pool.pick(ls.rng)
+	to, ok2 := ls.p.pool.pick(ls.rng)
 	if !ok1 || !ok2 {
 		return
 	}
@@ -703,7 +726,7 @@ func (ls *libSession) dep(ctx context.Context) {
 }
 
 func (ls *libSession) comment(ctx context.Context) {
-	id, ok := ls.s.pool.pick(ls.rng)
+	id, ok := ls.p.pool.pick(ls.rng)
 	if !ok {
 		return
 	}
@@ -716,7 +739,7 @@ func (ls *libSession) comment(ctx context.Context) {
 }
 
 func (ls *libSession) label(ctx context.Context) {
-	id, ok := ls.s.pool.pick(ls.rng)
+	id, ok := ls.p.pool.pick(ls.rng)
 	if !ok {
 		return
 	}
@@ -730,7 +753,7 @@ func (ls *libSession) label(ctx context.Context) {
 // update edits an issue at a revision it read, now or earlier: an old
 // one is usually stale, and refused.
 func (ls *libSession) update(ctx context.Context) {
-	id, ok := ls.s.pool.pick(ls.rng)
+	id, ok := ls.p.pool.pick(ls.rng)
 	if h, held := ls.someHeldID(); held && ls.chance(0.5) {
 		id, ok = h, true
 	}
@@ -759,7 +782,7 @@ func (ls *libSession) update(ctx context.Context) {
 		a := ls.other()
 		args.Assignee = &a
 	case ls.chance(0.05):
-		if p, ok := ls.s.pool.pick(ls.rng); ok {
+		if p, ok := ls.p.pool.pick(ls.rng); ok {
 			args.Parent = &p
 		}
 	case ls.chance(0.1):
@@ -780,7 +803,7 @@ func (ls *libSession) someHeldID() (string, bool) {
 // closeIssue ticks an issue's items and closes it, held or not: an admin
 // may close what another principal holds; anyone else is refused.
 func (ls *libSession) closeIssue(ctx context.Context) {
-	id, ok := ls.s.pool.pick(ls.rng)
+	id, ok := ls.p.pool.pick(ls.rng)
 	if !ok {
 		return
 	}
@@ -804,7 +827,7 @@ func (ls *libSession) closeIssue(ctx context.Context) {
 }
 
 func (ls *libSession) reopen(ctx context.Context) {
-	id, ok := ls.s.pool.pick(ls.rng)
+	id, ok := ls.p.pool.pick(ls.rng)
 	if !ok {
 		return
 	}
@@ -877,7 +900,7 @@ func (ls *libSession) readInbox(ctx context.Context) {
 
 // read runs one of the reads people and agents make all the time.
 func (ls *libSession) read(ctx context.Context) {
-	id, ok := ls.s.pool.pick(ls.rng)
+	id, ok := ls.p.pool.pick(ls.rng)
 	switch r := ls.rng.IntN(5); {
 	case r == 0:
 		var res proto.ListResult
@@ -896,6 +919,27 @@ func (ls *libSession) read(ctx context.Context) {
 	default:
 		var res proto.WhoResult
 		_, _ = ls.call(ctx, proto.OpWho, proto.WhoArgs{}, &res, true)
+	}
+}
+
+// peek asks for an issue of another project by its id, which this
+// project's connection must not find: by show, and by a start that
+// would take it.
+func (ls *libSession) peek(ctx context.Context) {
+	id, ok := ls.s.foreignIssue(ls.p, ls.rng)
+	if !ok {
+		return
+	}
+	var out outcome
+	if ls.chance(0.5) {
+		var r proto.ShowResult
+		out, _ = ls.call(ctx, proto.OpShow, proto.ShowArgs{ID: id}, &r, true)
+	} else {
+		var r proto.StartResult
+		out, _ = ls.call(ctx, proto.OpStart, proto.StartArgs{ID: id, Lease: proto.Span(ls.lease)}, &r, true)
+	}
+	if out == acked {
+		ls.s.mon.fail(id, "%s, connected to project %s, was answered for %s, an issue of another project", ls.key, ls.p.name, id)
 	}
 }
 
@@ -970,16 +1014,17 @@ func (ms *mcpSession) open() error {
 		Dial: func(ctx context.Context) (mcpserver.Conn, error) {
 			ms.mu.Lock()
 			ms.conns++
-			ln := ms.inbox.newLine(ms.key, ms.conns, ms.s.mon)
+			ln := ms.inbox.newLine(ms.key, ms.conns, ms.s.mon, ms.p)
 			ms.mu.Unlock()
 			opts := ms.options(ln)
 			opts.OnPush = func(p proto.Push) {
 				ln.push(p)
 				ms.srv.Push(p)
 			}
+			start := ms.s.clock.now()
 			c, err := mcpserver.DialRepo(ctx, ms.u.repo, opts)
+			ms.s.dialed(ms.session, start, c, err)
 			if err != nil {
-				ms.s.mon.dialFailed(ms.key, err)
 				return nil, err
 			}
 			tc := &tracedConn{RepoConn: c, ss: ms.session, ln: ln}
@@ -1051,11 +1096,11 @@ func (ms *mcpSession) step() {
 	case n < 18:
 		ms.start("", false)
 	case n < 25:
-		if id, ok := ms.s.pool.pick(ms.rng); ok {
+		if id, ok := ms.p.pool.pick(ms.rng); ok {
 			ms.start(id, ms.chance(0.3))
 		}
 	case n < 28:
-		if id, ok := ms.s.holding.pick(ms.rng, ms.key, ms.chance(0.7)); ok {
+		if id, ok := ms.p.holding.pick(ms.rng, ms.key, ms.chance(0.7)); ok {
 			ms.start(id, ms.chance(0.8))
 		}
 	case n < 42:
@@ -1065,7 +1110,7 @@ func (ms *mcpSession) step() {
 	case n < 58:
 		ms.create()
 	case n < 66:
-		if id, ok := ms.s.pool.pick(ms.rng); ok {
+		if id, ok := ms.p.pool.pick(ms.rng); ok {
 			body, _ := ms.next("note")
 			if ms.chance(0.3) {
 				body += " @" + ms.other()
@@ -1073,7 +1118,7 @@ func (ms *mcpSession) step() {
 			ms.tool("comment", map[string]any{"id": id, "body": body})
 		}
 	case n < 71:
-		if id, ok := ms.s.pool.pick(ms.rng); ok {
+		if id, ok := ms.p.pool.pick(ms.rng); ok {
 			action := "add"
 			if ms.chance(0.35) {
 				action = "rm"
@@ -1081,8 +1126,8 @@ func (ms *mcpSession) step() {
 			ms.tool("label", map[string]any{"action": action, "id": id, "labels": []any{soakLabels[ms.rng.IntN(len(soakLabels))]}})
 		}
 	case n < 76:
-		from, ok1 := ms.s.pool.pick(ms.rng)
-		to, ok2 := ms.s.pool.pick(ms.rng)
+		from, ok1 := ms.p.pool.pick(ms.rng)
+		to, ok2 := ms.p.pool.pick(ms.rng)
 		if ok1 && ok2 {
 			action := "add"
 			if ms.chance(0.3) {
@@ -1091,14 +1136,14 @@ func (ms *mcpSession) step() {
 			ms.tool("dep", map[string]any{"action": action, "id": from, "depends_on": to})
 		}
 	case n < 84:
-		if id, ok := ms.s.pool.pick(ms.rng); ok {
+		if id, ok := ms.p.pool.pick(ms.rng); ok {
 			title, _ := ms.next("retitled")
 			ms.tool("update", map[string]any{"id": id, "title": title})
 		}
 	case n < 90:
 		ms.readInbox()
 	case n < 95:
-		if id, ok := ms.s.pool.pick(ms.rng); ok {
+		if id, ok := ms.p.pool.pick(ms.rng); ok {
 			ms.tool("show", map[string]any{"id": id})
 		}
 	default:
@@ -1121,7 +1166,7 @@ func (ms *mcpSession) create() {
 	}
 	var c mcpserver.Created
 	if json.Unmarshal([]byte(text), &c) == nil && c.ID != "" {
-		ms.s.pool.add(c.ID)
+		ms.p.pool.add(c.ID)
 	}
 }
 
@@ -1140,7 +1185,7 @@ func (ms *mcpSession) start(id string, take bool) {
 	var st mcpserver.Started
 	if json.Unmarshal([]byte(text), &st) == nil && st.ID != "" {
 		ms.held[st.ID] = len(st.Items)
-		ms.s.holding.took(st.ID, ms.key)
+		ms.p.holding.took(st.ID, ms.key)
 	}
 }
 
@@ -1188,7 +1233,7 @@ func (ms *mcpSession) finish() {
 	var r proto.FinishResult
 	if json.Unmarshal([]byte(text), &r) == nil {
 		for _, c := range r.Created {
-			ms.s.pool.add(c)
+			ms.p.pool.add(c)
 		}
 	}
 }

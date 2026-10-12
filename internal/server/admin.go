@@ -46,6 +46,7 @@ var adminHandlers = map[string]adminHandler{
 	proto.OpKeyAdd:           adminTyped(keyAdd),
 	proto.OpKeys:             adminTyped(keys),
 	proto.OpKeyRemove:        adminTyped(keyRemove),
+	proto.OpStatus:           adminTyped(status),
 }
 
 // adminTyped decodes args strictly into A and calls fn.
@@ -641,7 +642,7 @@ func keys(ctx context.Context, s *Server, sess *session, in proto.KeysArgs) (any
 	if err != nil {
 		return nil, s.ctlErr(ctx, sess, op, err)
 	}
-	out := proto.KeysResult{Principal: in.Name, Keys: []proto.Key{}}
+	out := proto.KeysResult{Principal: in.Name, Keys: []proto.Key{}, FileConns: s.fileConns(in.Name)}
 	for _, k := range all {
 		out.Keys = append(out.Keys, proto.Key{Fingerprint: k.Fingerprint, Type: keyType(k.Key), Comment: k.Comment, AddedBy: k.AddedBy, AddedAt: k.AddedAt})
 	}
@@ -651,7 +652,9 @@ func keys(ctx context.Context, s *Server, sess *session, in proto.KeysArgs) (any
 // keyRemove removes a key, then closes the connections it had
 // authenticated: those whose bridge named its fingerprint, because the
 // store served the key to sshd. A connection that came in by a line of
-// the authorized_keys file names no key, and is not closed here.
+// the authorized_keys file names no key, and is not closed here: when
+// the key's principal has any, the result counts them and warns that
+// the file may still hold this key.
 func keyRemove(ctx context.Context, s *Server, sess *session, in proto.KeyRemoveArgs) (any, *proto.Error) {
 	k, err := s.cfg.Control.RemoveKey(ctx, sess.actor, in.Fingerprint)
 	if err != nil {
@@ -659,7 +662,25 @@ func keyRemove(ctx context.Context, s *Server, sess *session, in proto.KeyRemove
 	}
 	out := wireKeyResult(k)
 	out.Dropped = s.drop(sess, "key removed", func(o owner) bool { return o.key == k.Fingerprint })
+	if n := s.fileConns(k.Principal); n > 0 {
+		out.FileConns, out.Warning = n, fileWarning(k.Principal, n)
+	}
 	return out, nil
+}
+
+// fileWarning tells the admin who removed a key of principal that n of
+// its connections came in by the authorized_keys file, and what follows.
+// It says only what the daemon knows: that those connections named no
+// key of the store, not which key sshd took for them.
+func fileWarning(principal string, n int) string {
+	conns, stay := "1 open connection", "It stays open, and starfixd cannot tell which key it used"
+	if n > 1 {
+		conns, stay = fmt.Sprintf("%d open connections", n), "They stay open, and starfixd cannot tell which key they used"
+	}
+	return fmt.Sprintf("%s still has %s that sshd let in by the server's authorized_keys file, not by a key from the store. "+
+		"%s: if the key just removed has a line in that file, it still lets %s in. "+
+		"Delete the line on the server; `sfx admin principal disable %s` closes every connection %s has",
+		principal, conns, stay, principal, principal, principal)
 }
 
 // OpenProjects opens the store of every active project in turn and

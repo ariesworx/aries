@@ -154,7 +154,9 @@ func (c tally) String() string { return fmt.Sprintf("%d added, %d already there"
 // many. It adopts the server's database as the first project, without
 // touching what is in it, and imports the principals and keys of the
 // starfix account's authorized_keys as members of that project. It is
-// safe to run again: what is there already is left as it is.
+// safe to run again: what is there already is left as it is. It says how
+// many keys are then both in the store and in the file, where removing
+// one from the store does not revoke it; it never edits the file.
 //
 // Its writes are the operator's: it opens the control database itself,
 // as the daemon's account, and records them under store.OperatorPrincipal
@@ -246,6 +248,14 @@ func controlInit(ctx context.Context, env adminEnv, args []string) (err error) {
 	}
 	_, _ = fmt.Fprintf(env.stdout, "project %s (%s) adopted from database %s: %s\n", p.Name, p.ID, p.DBName, p.State)
 	_, _ = fmt.Fprintf(env.stdout, "principals: %s; keys: %s; members: %s; %d lines skipped\n", principals, keys, members, len(problems))
+	// Every key this run added or found is a line of the file it read,
+	// and sshd still reads that file. Nothing here edits it.
+	switch n := keys.added + keys.already; {
+	case n == 1:
+		_, _ = fmt.Fprintf(env.stdout, "1 key in the store is also a line of %s: sshd falls back to that file, so `sfx admin key remove` does not keep the key out until its line is deleted too\n", keysFile)
+	case n > 1:
+		_, _ = fmt.Fprintf(env.stdout, "%d keys in the store are also lines of %s: sshd falls back to that file, so `sfx admin key remove` does not keep such a key out until its line is deleted too\n", n, keysFile)
+	}
 	return nil
 }
 

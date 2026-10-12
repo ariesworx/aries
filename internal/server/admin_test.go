@@ -133,6 +133,7 @@ func adminRequests() []struct {
 		{proto.OpKeyAdd, proto.KeyAddArgs{Name: "bob", Key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOzBtYcn8/ErMZSIGp7LneCyjOeyByMNjpMP4bznXiVs"}},
 		{proto.OpKeys, proto.KeysArgs{Name: "bob"}},
 		{proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: "SHA256:pOFYONeRL07H3T9tf0FhwK1slkJs5kvkcnOnf+vGgXA"}},
+		{proto.OpStatus, proto.StatusArgs{}},
 	}
 }
 
@@ -825,9 +826,9 @@ func TestAdminOpsClassified(t *testing.T) {
 		if !adminOp(op) {
 			t.Errorf("adminOp(%s) = false for an op with a handler", op)
 		}
-		read := op == proto.OpProjects || op == proto.OpPrincipals || op == proto.OpMembers || op == proto.OpKeys
+		read := op == proto.OpProjects || op == proto.OpPrincipals || op == proto.OpMembers || op == proto.OpKeys || op == proto.OpStatus
 		if readOps[op] != read || controlWrites[op] == read {
-			t.Errorf("%s: read op %t, control write %t; a list is a read and everything else a control write", op, readOps[op], controlWrites[op])
+			t.Errorf("%s: read op %t, control write %t; a list and the status are reads and everything else a control write", op, readOps[op], controlWrites[op])
 		}
 	}
 	for op := range handlers {

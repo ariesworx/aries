@@ -23,32 +23,42 @@ import (
 // journal against the event log, the inbox, usage, ready and blocked,
 // then closes every session and checks for leaks.
 func (s *soak) verify() {
-	calls := s.mon.calls()
-	r := s.rep
-	r.mu.Lock()
-	s.checkMarkers(calls)
-	s.checkFencing(calls)
-	s.checkGuards()
-	s.checkTakeovers(calls)
-	s.checkRenewals()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	s.checkNotices(ctx)
-	s.checkPushes(ctx)
-	eve, err := mcpserver.DialRepo(ctx, s.eve.repo, s.eveOptions("eve-check"))
-	if err != nil {
-		r.mu.Unlock()
-		s.t.Errorf("dial as eve: %v", err)
-		return
+	all := s.mon.calls()
+	for _, p := range s.projs {
+		s.verifyProject(ctx, p, slices.DeleteFunc(slices.Clone(all), func(c call) bool { return c.p != p }))
 	}
-	s.checkReady(ctx, eve)
-	s.checkUsage(ctx, eve, calls)
-	r.mu.Unlock()
-	_ = eve.Close()
+	s.checkDials()
+	s.checkControl(ctx)
 	for _, a := range s.all() {
 		a.close()
 	}
 	s.checkLeaks(15 * time.Second)
+}
+
+// verifyProject runs the checks of one project, each from its own event
+// log and tables: calls are the requests sent to it.
+func (s *soak) verifyProject(ctx context.Context, p *sproj, calls []call) {
+	r := p.rep
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s.checkMarkers(p, calls)
+	s.checkFencing(p, calls)
+	s.checkGuards(p)
+	s.checkTakeovers(p, calls)
+	s.checkRenewals(p)
+	s.checkLost(p)
+	s.checkNotices(ctx, p)
+	s.checkPushes(ctx, p)
+	eve, err := mcpserver.DialRepo(ctx, s.eve[p].repo, s.eveOptions("eve-check"))
+	if err != nil {
+		s.t.Errorf("dial as eve to project %s: %v", p.name, err)
+		return
+	}
+	defer func() { _ = eve.Close() }()
+	s.checkReady(ctx, p, eve)
+	s.checkUsage(ctx, p, eve, calls)
 }
 
 // attempts gathers the requests that carried one marker, or one batch.
@@ -104,7 +114,7 @@ func markersOf(args any) []string {
 // every refused one not at all, every one whose answer was lost at most
 // once, and nothing else is there. Retries carry the same marker, so a
 // retry applied twice shows here.
-func (s *soak) checkMarkers(calls []call) {
+func (s *soak) checkMarkers(p *sproj, calls []call) {
 	byMarker := map[string]*attempts{}
 	for _, c := range calls {
 		for _, m := range markersOf(c.args) {
@@ -124,30 +134,30 @@ func (s *soak) checkMarkers(calls []call) {
 		}
 	}
 	for m, a := range byMarker {
-		n := s.rep.markers[m]
+		n := p.rep.markers[m]
 		if lo, hi := a.want(); n < lo || n > hi {
-			s.mon.fail(s.issueOf(m), "%s by %s %q is in the event log %d times; acked %t, refused %t, lost %t",
+			s.mon.fail(p.issueOf(m), "%s by %s %q is in the event log %d times; acked %t, refused %t, lost %t",
 				a.op, a.who, m, n, a.acked, a.refused, a.lost)
 		}
 	}
-	for m, n := range s.rep.markers {
+	for m, n := range p.rep.markers {
 		if _, ok := byMarker[m]; !ok && n > 0 {
-			s.mon.fail(s.issueOf(m), "%q is in the event log %d times, but no session sent it", m, n)
+			s.mon.fail(p.issueOf(m), "%q is in the event log %d times, but no session sent it", m, n)
 		}
 	}
 }
 
 // issueOf finds the issue a marker landed on, for the failure's story.
-func (s *soak) issueOf(marker string) string {
-	for id, is := range s.rep.issues {
+func (p *sproj) issueOf(marker string) string {
+	for id, is := range p.rep.issues {
 		if is.title == marker || is.closeReason == marker {
 			return id
 		}
 	}
-	if e, ok := s.rep.closedAt[marker]; ok {
+	if e, ok := p.rep.closedAt[marker]; ok {
 		return e.issue
 	}
-	if e, ok := s.rep.handedAt[marker]; ok {
+	if e, ok := p.rep.handedAt[marker]; ok {
 		return e.issue
 	}
 	return ""
@@ -157,7 +167,7 @@ func (s *soak) issueOf(marker string) string {
 // took effect acted under that epoch, and was the holder's. It looks at
 // every call, not only those acknowledged: a call whose answer was lost
 // may have been applied, and its marker says whether it was.
-func (s *soak) checkFencing(calls []call) {
+func (s *soak) checkFencing(p *sproj, calls []call) {
 	for _, c := range calls {
 		var at atEpoch
 		var ok bool
@@ -165,13 +175,13 @@ func (s *soak) checkFencing(calls []call) {
 		var id string
 		switch a := c.args.(type) {
 		case proto.FinishArgs:
-			at, ok = s.rep.closedAt[a.Reason]
+			at, ok = p.rep.closedAt[a.Reason]
 			epoch, id = a.Epoch, a.ID
 		case proto.HandoffArgs:
 			if !a.Release {
 				continue
 			}
-			at, ok = s.rep.handedAt[a.Note]
+			at, ok = p.rep.handedAt[a.Note]
 			epoch, id = a.Epoch, a.ID
 		default:
 			continue
@@ -192,23 +202,23 @@ func (s *soak) checkFencing(calls []call) {
 // not an admin's, came after the lease ran out. The lease's end is known
 // from the event that ended the claim, or bounded below by the last
 // expiry a client was told.
-func (s *soak) checkGuards() {
-	for _, g := range s.rep.guards {
+func (s *soak) checkGuards(p *sproj) {
+	for _, g := range p.rep.guards {
 		k := issueEpoch{g.issue, g.epoch}
-		exp := s.rep.ends[k].exp
+		exp := p.rep.ends[k].exp
 		if exp.IsZero() {
 			exp = s.mon.maxExp(k)
 		}
 		if exp.After(g.at) {
 			s.mon.fail(g.issue, "%s made %s (event %d) at %s, while %s held epoch %d until %s",
-				g.actor, g.op, g.seq, stamp(g.at), s.rep.takers[k], g.epoch, stamp(exp))
+				g.actor, g.op, g.seq, stamp(g.at), p.rep.takers[k], g.epoch, stamp(exp))
 		}
 	}
 }
 
 // checkTakeovers: a session took a live claim from another session of
 // its principal only when its start asked to.
-func (s *soak) checkTakeovers(calls []call) {
+func (s *soak) checkTakeovers(p *sproj, calls []call) {
 	type key struct {
 		who   sessKey
 		issue string
@@ -219,7 +229,7 @@ func (s *soak) checkTakeovers(calls []call) {
 			took[key{c.who, a.ID}] = true
 		}
 	}
-	for _, o := range s.rep.overs {
+	for _, o := range p.rep.overs {
 		if !took[key{o.actor, o.issue}] {
 			s.mon.fail(o.issue, "%s took epoch %d of %s from another session of its principal (event %d) without asking to take it",
 				o.actor, o.epoch, o.issue, o.seq)
@@ -230,11 +240,14 @@ func (s *soak) checkTakeovers(calls []call) {
 // checkRenewals: every claim a client was told of is the one the log
 // records, and a lease the client was told of was never cut short: the
 // claim's recorded end is no earlier.
-func (s *soak) checkRenewals() {
+func (s *soak) checkRenewals(p *sproj) {
 	s.mon.mu.Lock()
 	defer s.mon.mu.Unlock()
 	for k, rec := range s.mon.takes {
-		who, ok := s.rep.takers[k]
+		if rec.p != p {
+			continue
+		}
+		who, ok := p.rep.takers[k]
 		switch {
 		case !ok:
 			s.mon.failLocked(k.issue, "%s was told it holds epoch %d of %s, which no claim.take records", rec.who, k.epoch, k.issue)
@@ -242,7 +255,7 @@ func (s *soak) checkRenewals() {
 		case who != rec.who:
 			s.mon.failLocked(k.issue, "%s was told it holds epoch %d of %s, which %s took", rec.who, k.epoch, k.issue, who)
 		}
-		if end := s.rep.ends[k]; !end.exp.IsZero() && end.exp.Before(rec.maxExp) {
+		if end := p.rep.ends[k]; !end.exp.IsZero() && end.exp.Before(rec.maxExp) {
 			s.mon.failLocked(k.issue, "%s was told epoch %d of %s runs to %s, but the claim ended (%s, event at %s) recording %s: a renewal was lost",
 				rec.who, k.epoch, k.issue, stamp(rec.maxExp), end.op, stamp(end.at), stamp(end.exp))
 		}
@@ -255,9 +268,9 @@ type inboxRow struct {
 	to string
 }
 
-func (s *soak) inboxRows(ctx context.Context) (map[int64]inboxRow, error) {
+func (p *sproj) inboxRows(ctx context.Context) (map[int64]inboxRow, error) {
 	out := map[int64]inboxRow{}
-	err := scan(ctx, s.db, `SELECT id, to_principal, COALESCE(to_session, ''), kind, COALESCE(issue_id, ''), body, from_principal, at
+	err := scan(ctx, p.db, `SELECT id, to_principal, COALESCE(to_session, ''), kind, COALESCE(issue_id, ''), body, from_principal, at
   FROM inbox`, nil, func(rows *sql.Rows) error {
 		var r inboxRow
 		if err := rows.Scan(&r.ID, &r.to, &r.Session, &r.Kind, &r.Issue, &r.Body, &r.From, &r.At); err != nil {
@@ -273,8 +286,8 @@ func (s *soak) inboxRows(ctx context.Context) (map[int64]inboxRow, error) {
 // checkNotices: every claim a session lost to a takeover or the reaper
 // put a claim.lost item in its inbox, in the same transaction, and every
 // claim.lost item has a cause in the log.
-func (s *soak) checkNotices(ctx context.Context) {
-	rows, err := s.inboxRows(ctx)
+func (s *soak) checkNotices(ctx context.Context, p *sproj) {
+	rows, err := p.inboxRows(ctx)
 	if err != nil {
 		s.t.Errorf("read inbox: %v", err)
 		return
@@ -290,11 +303,11 @@ func (s *soak) checkNotices(ctx context.Context) {
 			continue
 		}
 		have[key{r.Issue, sessKey{r.to, r.Session}, r.At}] = true
-		if !s.rep.causes[causeKey(r.Issue, r.At)] {
+		if !p.rep.causes[causeKey(r.Issue, r.At)] {
 			s.mon.fail(r.Issue, "claim.lost item %d to %s/%s at %s has no event on %s at that time", r.ID, r.to, r.Session, stamp(r.At), r.Issue)
 		}
 	}
-	for _, n := range s.rep.notices {
+	for _, n := range p.rep.notices {
 		if !have[key{n.issue, n.to, n.at}] {
 			s.mon.fail(n.issue, "%s lost its claim on %s (event %d) and was not told: no claim.lost item", n.to, n.issue, n.seq)
 		}
@@ -310,14 +323,17 @@ func (s *soak) all() []worker {
 
 // checkPushes: every item pushed to a session is in the inbox table as it
 // was pushed, and addressed to that session or its principal.
-func (s *soak) checkPushes(ctx context.Context) {
-	rows, err := s.inboxRows(ctx)
+func (s *soak) checkPushes(ctx context.Context, p *sproj) {
+	rows, err := p.inboxRows(ctx)
 	if err != nil {
 		s.t.Errorf("read inbox: %v", err)
 		return
 	}
 	for _, a := range s.all() {
 		ss := a.base()
+		if ss.p != p {
+			continue
+		}
 		for id, it := range ss.inbox.pushed() {
 			r, ok := rows[id]
 			switch {
@@ -330,13 +346,13 @@ func (s *soak) checkPushes(ctx context.Context) {
 			}
 		}
 	}
-	s.checkPushedEvents(ctx)
+	s.checkPushedEvents(ctx, p)
 }
 
 // checkPushedEvents: every issue event pushed to a watch is in the event
 // log as it was pushed, and is an issue's.
-func (s *soak) checkPushedEvents(ctx context.Context) {
-	evs, err := readEvents(ctx, s.db, 0)
+func (s *soak) checkPushedEvents(ctx context.Context, p *sproj) {
+	evs, err := readEvents(ctx, p.db, 0)
 	if err != nil {
 		s.t.Errorf("read events: %v", err)
 		return
@@ -347,6 +363,9 @@ func (s *soak) checkPushedEvents(ctx context.Context) {
 	}
 	for _, a := range s.all() {
 		ss := a.base()
+		if ss.p != p {
+			continue
+		}
 		for _, got := range ss.inbox.events() {
 			for seq, p := range got {
 				s.stats.eventsPushed.Add(1)
@@ -368,8 +387,8 @@ func (s *soak) checkPushedEvents(ctx context.Context) {
 // checkReady: ready and blocked, as the server answers them, are what the
 // event log says they are. At rest no claim is held, so ready's order is
 // priority, then age, then id.
-func (s *soak) checkReady(ctx context.Context, eve *mcpserver.RepoConn) {
-	ready, blocked := s.rep.derive()
+func (s *soak) checkReady(ctx context.Context, p *sproj, eve *mcpserver.RepoConn) {
+	ready, blocked := p.rep.derive()
 	var got proto.ListResult
 	if err := eve.Call(ctx, proto.OpReady, proto.LimitArgs{Limit: 500}, &got); err != nil {
 		s.t.Errorf("ready: %v", err)
@@ -576,9 +595,9 @@ func modelsString(ms []proto.ModelTokens) string {
 // in a day than its cap; and each issue's tokens, and the digest's, are
 // the records divided among the issues their sessions held at the
 // records' times (design §12.1), recomputed here from the event log.
-func (s *soak) checkUsage(ctx context.Context, eve *mcpserver.RepoConn, calls []call) {
+func (s *soak) checkUsage(ctx context.Context, p *sproj, eve *mcpserver.RepoConn, calls []call) {
 	var rows []usageRow
-	err := scan(ctx, s.db, `SELECT principal, session, request_id, model, at, added_at, input, output, cache_write, cache_write_1h, cache_read
+	err := scan(ctx, p.db, `SELECT principal, session, request_id, model, at, added_at, input, output, cache_write, cache_write_1h, cache_read
   FROM token_usage`, nil, func(rs *sql.Rows) error {
 		var u usageRow
 		var c [5]sql.NullInt64
@@ -665,7 +684,7 @@ func (s *soak) checkUsage(ctx context.Context, eve *mcpserver.RepoConn, calls []
 		}
 	}
 	s.checkUsageCap(rows)
-	s.checkAttribution(ctx, eve, rows)
+	s.checkAttribution(ctx, p, eve, rows)
 }
 
 // countsString prints counts, with "-" for a count not reported.
@@ -717,10 +736,10 @@ func (s *soak) checkUsageCap(rows []usageRow) {
 
 // checkAttribution recomputes each issue's tokens and time from the
 // replayed holds and compares show's answer, and the digest's totals.
-func (s *soak) checkAttribution(ctx context.Context, eve *mcpserver.RepoConn, rows []usageRow) {
+func (s *soak) checkAttribution(ctx context.Context, p *sproj, eve *mcpserver.RepoConn, rows []usageRow) {
 	bySession := map[sessKey][]*hold{}
 	held := map[string]time.Duration{}
-	for id, hs := range s.rep.holds {
+	for id, hs := range p.rep.holds {
 		for _, h := range hs {
 			if h.open {
 				s.mon.fail(id, "%s's hold on %s from %s never ended, with every claim reaped", h.who, id, stamp(h.start))
@@ -887,12 +906,17 @@ func (s *soak) explain() {
 	}
 }
 
-// story is an issue's events, one a line.
+// story is an issue's events, one a line, from the log of the project
+// whose prefix its id has.
 func (s *soak) story(id string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
+	p := s.projectOf(id)
+	if p == nil {
+		return "  (an id of no project of the run)\n"
+	}
 	var b strings.Builder
-	err := scan(ctx, s.db, `SELECT seq, at, principal, session, op, COALESCE(before_state, ''), COALESCE(after_state, '')
+	err := scan(ctx, p.db, `SELECT seq, at, principal, session, op, COALESCE(before_state, ''), COALESCE(after_state, '')
   FROM events WHERE target = ? ORDER BY seq`, []any{id}, func(rows *sql.Rows) error {
 		var seq int64
 		var at time.Time

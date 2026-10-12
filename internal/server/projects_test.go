@@ -127,7 +127,7 @@ func newMultiAdmins(t *testing.T, lim Limits, ck *clock, admins ...string) *mult
 		t.Fatal(err)
 	}
 	if ck != nil {
-		m.now = ck.now
+		m.now, m.started = ck.now, ck.now()
 	}
 	// Runs after each connection's cleanup, which ends its handler.
 	t.Cleanup(m.stores.closeAll)

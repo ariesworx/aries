@@ -35,15 +35,49 @@ run it.
 
 ### The soak test
 
-`TestSoak` in `internal/e2e` is stage 3's gate: four principals with
-five sessions each work one backlog at once through the in-process SSH
-server, a real daemon and Dolt, while the test drops answers and
-connections, restarts the daemon, and lets sessions vanish or stall past
-their leases. It checks claims, fencing, the event log, idempotent
-retries, the inbox and event pushes, token usage, rule 18's caps, and
-that the daemon leaks nothing. A short run of about 12 seconds is part of
-`go test`. Run a long one before changing claims, the reaper, the event
-log, pushes or the write path:
+`TestSoak` in `internal/e2e` is the gate of stages 3 and 3a: five
+principals with five sessions each work the backlogs of two projects on
+one server at once, through the in-process SSH server, a real daemon and
+Dolt, while the test drops answers and connections, restarts the daemon,
+and lets sessions vanish or stall past their leases. It checks claims,
+fencing, the event log, idempotent retries, the inbox and event pushes,
+token usage, rule 18's caps, and that the daemon leaks nothing: for each
+project, from that project's own event log and tables.
+
+Meanwhile an admin changes who may reach what, over the protocol as
+`sfx admin` does and under the same failures: a membership removed and
+added, a principal disabled and enabled, a key removed and added (one
+that only the control store holds, and one that is also in
+`authorized_keys`), a project admin demoted and promoted, a project
+archived and activated, and a membership of a third, quiet project
+removed while its store is closed. Each kind happens once in the short
+run, and at random in a long one. The test checks that:
+
+- the connections the lost access had let in are closed, the next
+  handshake is refused, and the one after the access is back is let in;
+- no session was ever let into a project while the control log gave it
+  no access, or refused one it had access to;
+- the claims of whoever lost access end, each with a `claim.release`
+  that gives a reason the control log bears out, by the admin who made
+  the change or by the server's own sweep, and the issues are open
+  again; a demotion releases nothing, and a store that is closed is not
+  opened to release;
+- nothing of one project shows through a connection to another: no
+  answer or push names another project's issue, a request for one by
+  its id is refused, and no marker or usage record of one project's
+  sessions is in another's log or tables;
+- the control database's own event log has no gap and explains every
+  project, principal, membership and key in its tables, the daemon's
+  memory of them is the same at the end, and `sfx admin status` counts
+  the same.
+
+Some principals' keys are served to the in-process SSH server from the
+control store, as sshd is served by `starfixd keys`.
+
+A short run of about 12 seconds of work, 23 in all, is part of `go
+test`. Run a long one before changing
+claims, the reaper, the event log, pushes, the write path, the control
+store, or what happens when access ends:
 
 ```sh
 STARFIX_REQUIRE_DOLT=1 STARFIX_SOAK=10m go test -race -timeout 45m -run 'TestSoak$' -v ./internal/e2e/
@@ -53,7 +87,8 @@ The run prints its seed first and with any failure, followed by the
 events of each issue involved. `STARFIX_SOAK_SEED=<seed>` repeats a
 run's choices; the interleaving of sessions still differs. With `-v` the
 report lists each op's count, outcome and p50 and p99 latency, the
-refusals by code, and what the chaos did. Latency is reported, not
+refusals by code, each project's events and claims, the control log, what
+the admin changed, and what the chaos did. Latency is reported, not
 asserted: only a request with no answer in 60 seconds fails the run.
 
 ## Before you open a pull request

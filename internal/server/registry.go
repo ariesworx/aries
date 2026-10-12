@@ -26,6 +26,10 @@ type registry struct {
 	idle time.Duration
 	// now is the clock idleness is measured by.
 	now func() time.Time
+	// retiring, when set, runs on the store of a project that was
+	// archived, once nothing uses it and before it is closed: the last
+	// chance to change it, when no request can still be in flight.
+	retiring func(*served)
 
 	mu      sync.Mutex
 	entries map[string]*entry // by project id, guarded by mu
@@ -154,6 +158,9 @@ func (r *registry) close(id string, e *entry, why string) {
 	e.gone = make(chan struct{})
 	go func() {
 		defer close(e.gone)
+		if e.retired && r.retiring != nil {
+			r.retiring(e.pr)
+		}
 		if err := e.pr.store.Close(); err != nil {
 			e.pr.log.Error("close project store", "err", err)
 		} else {

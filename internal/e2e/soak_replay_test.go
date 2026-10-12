@@ -410,11 +410,11 @@ func TestCheckMarkers(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			s := &soak{mon: newMonitor(), rep: newReplay(func(string, string, ...any) {}, nil)}
+			s, p := &soak{mon: newMonitor()}, &sproj{rep: newReplay(func(string, string, ...any) {}, nil)}
 			if tc.times > 0 {
-				s.rep.markers["note alice-1"] = tc.times
+				p.rep.markers["note alice-1"] = tc.times
 			}
-			s.checkMarkers(tc.calls)
+			s.checkMarkers(p, tc.calls)
 			got := s.mon.violations()
 			switch {
 			case tc.want == "" && len(got) > 0:
@@ -446,10 +446,10 @@ func TestCheckFencing(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			s := &soak{mon: newMonitor(), rep: newReplay(func(string, string, ...any) {}, nil)}
+			s, p := &soak{mon: newMonitor()}, &sproj{rep: newReplay(func(string, string, ...any) {}, nil)}
 			tc.at.issue = "sf-1"
-			s.rep.closedAt["done alice-1"] = tc.at
-			s.checkFencing([]call{tc.call})
+			p.rep.closedAt["done alice-1"] = tc.at
+			s.checkFencing(p, []call{tc.call})
 			got := s.mon.violations()
 			switch {
 			case tc.want == "" && len(got) > 0:
@@ -526,7 +526,7 @@ func TestCheckLeaksBaseline(t *testing.T) {
 	}
 
 	s = newSoak(t, cfg)
-	dial(s.users["alice"], "leaked")
+	dial(s.user("alice", s.a), "leaked")
 	s.checkLeaks(2 * time.Second)
 	if vs := s.mon.violations(); len(vs) != 1 || !strings.Contains(vs[0].msg, "after every session closed") {
 		t.Errorf("checkLeaks with the run's own connection left open = %v, want one leak", vs)

@@ -14,20 +14,21 @@ import (
 )
 
 // Access management (design §15.4): `sfx admin project`, `principal`,
-// `member` and `key` (admin_key.go), for the admins of a server of many
-// projects. Each command
+// `member`, `key` (admin_key.go) and `status` (admin_status.go), for the
+// admins of a server of many projects. Each command
 // rides the connection of the repository it is run in, and acts on that
 // repository's project unless --project names another, by UUID or name.
 // The server decides who may run what.
 
 // adminGroups are the first words `sfx admin` takes.
-var adminGroups = []string{"prices", "plans", "project", "principal", "member", "key"}
+var adminGroups = []string{"prices", "plans", "project", "principal", "member", "key", "status"}
 
 // adminUsage is the usage of the access commands, for the command table.
 const adminUsage = "admin project add NAME [--prefix P] [--account A] | list | archive PROJECT | activate PROJECT" +
 	" | admin principal add NAME [--key FILE]... [--project P | --no-project] | list | disable NAME | enable NAME" +
 	" | admin member add NAME [--project P] [--role admin] | list [--project P] | remove NAME [--project P]" +
-	" | admin key add NAME FILE|- | list NAME | remove FINGERPRINT"
+	" | admin key add NAME FILE|- | list NAME | remove FINGERPRINT" +
+	" | admin status [-n N] [--after NAME]"
 
 // only refuses a flag the action does not take: any that was given and
 // is not among allowed. --json is always allowed.

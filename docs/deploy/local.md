@@ -20,7 +20,9 @@ your machine
   address. To try starfix or test a change on a Mac, the
   [Docker test server](docker.md) runs a server in a container instead.
 - **An SSH server**: `apt install openssh-server` on Ubuntu.
-- **About 200 MB of free memory.**
+- **About 200 MB of free memory** to start with. Dolt's share grows with
+  the data written, whether it is in one project or several
+  ([What every deployment shares](README.md#what-every-deployment-shares)).
 
 ## Build it
 

@@ -67,7 +67,11 @@ a key authenticates if either holds:
   the first admin, and when starfixd is down. A key in the file is not
   revoked by removing it from the control database, and starfixd cannot
   see the file. Keep the file to the keys that must work without
-  starfixd.
+  starfixd. What starfixd can see is whether a connection named a key of
+  the control database or came in by the file: `sfx admin status` and
+  `sfx admin key list` count the connections that came in by the file,
+  and `sfx admin key remove` warns when the key's principal has one
+  open. It cannot say which key such a connection used.
 
 Either way the key only names a principal. What that principal reaches
 is decided afterward, by its memberships.
@@ -157,6 +161,10 @@ pinned](cli.md#the-host-key-is-pinned)).
   bring someone within reach and act on them. Removing a membership can
   put a principal within reach of the admins of the projects that
   remain; `sfx admin member remove` says so when it does.
+- **`sfx admin status` shows a project admin their own projects only:**
+  the connections, sessions and writes of the active projects they
+  administer, and nothing of the server or of any other project. A
+  server admin sees all of it. No one else is shown anything.
 - **A refusal does not say what exists elsewhere.** Someone who is no
   server admin gets the same `forbidden` for a project they have no role
   in as for one that does not exist. A principal name is the exception:

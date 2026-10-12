@@ -171,6 +171,9 @@ func adminKey(ctx context.Context, r *runner, args []string) error {
 			return nil
 		}
 		printKeyRemoved(r.env.Stdout, out)
+		if out.Warning != "" {
+			_, _ = fmt.Fprintf(r.env.Stderr, "sfx: warning: %s\n", esc(out.Warning))
+		}
 		return nil
 	}
 	return usagef(usage, "unknown key action %q", pos[0])
@@ -194,7 +197,8 @@ func printKeyAdded(w io.Writer, k proto.KeyResult) {
 
 // printKeyRemoved says a key is gone, and how many connections went
 // with it: those the key had signed in. A connection that came in by a
-// line of the server's authorized_keys file is not among them.
+// line of the server's authorized_keys file is not among them; the
+// server's warning, printed after, says when the principal has any.
 func printKeyRemoved(w io.Writer, k proto.KeyResult) {
 	_, _ = fmt.Fprintf(w, "key %s removed from %s\n", esc(k.ID), esc(k.Principal))
 	switch {
@@ -206,6 +210,7 @@ func printKeyRemoved(w io.Writer, k proto.KeyResult) {
 }
 
 func printKeys(w io.Writer, res proto.KeysResult) {
+	defer printFileConns(w, res.Principal, res.FileConns)
 	if len(res.Keys) == 0 {
 		_, _ = fmt.Fprintf(w, "no keys recorded for %s\n", esc(res.Principal))
 		return
