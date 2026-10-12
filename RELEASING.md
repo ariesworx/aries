@@ -19,6 +19,17 @@ does not list, so a release clients would refuse is never published.
 The release notes name the Dolt version the release was tested with
 (`version.Dolt`, which a test keeps equal to CI's `DOLT_VERSION`).
 
+They also say, first, when the release changes the protocol
+(`internal/proto/version.go`): the version it speaks and the range it
+accepts, and which earlier releases keep working. Normally all of the
+one before do, since `ProtoMin` stays one version behind. **The first
+release after v0.4.0 is the exception:** it speaks and accepts protocol
+5 alone, so every earlier `sfx` is refused by it, and it is refused by
+every earlier server. Its notes must lead with that, give the order
+(server, then every `sfx`, then restart the agents) and link
+[Upgrades](docs/server.md#upgrades), which has the text each side
+prints.
+
 ## Cutting a release
 
 When to cut the first one is the maintainer's call.

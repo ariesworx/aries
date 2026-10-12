@@ -37,7 +37,7 @@ func TestPrintStatus(t *testing.T) {
 	at := time.Date(2026, 10, 11, 9, 30, 0, 0, time.UTC)
 	n := func(v int) *int { return &v }
 	const a, b = "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f", "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
-	server := &proto.ServerStatus{Version: "v0.5.0", ProtoMin: 2, ProtoMax: 6, UptimeSeconds: 3*86400 + 4*3600 + 59,
+	server := &proto.ServerStatus{Version: "v0.5.0", ProtoMin: 5, ProtoMax: 5, UptimeSeconds: 3*86400 + 4*3600 + 59,
 		OpenStores: 1, OpenStoresMax: 64, Conns: 9, ConnsMax: 1024,
 		HeapBytes: 41<<20 + 600<<10, SysBytes: 78 << 20, Goroutines: 112,
 		Projects: map[string]int{"active": 2, "archived": 1}, Principals: map[string]int{"active": 12, "disabled": 1},
@@ -51,7 +51,7 @@ func TestPrintStatus(t *testing.T) {
 	}{
 		{"a server admin's", proto.StatusResult{Server: server, More: 1, Projects: []proto.ProjectStatus{busy,
 			{ID: b, Name: "web", State: "archived"}}},
-			"starfixd v0.5.0, protocol 2 to 6, up 3d 4h\n" +
+			"starfixd v0.5.0, protocol 5 to 5, up 3d 4h\n" +
 				"stores 1 of 64, connections 9 of 1024\n" +
 				"keys file /var/lib/starfix/.ssh/starfix_keys: 31 keys, written 2026-10-11 09:30 UTC\n" +
 				"starfixd's memory 42 MiB in use, 78 MiB from the system; 112 goroutines\n" +
@@ -71,10 +71,10 @@ func TestPrintStatus(t *testing.T) {
 			{ID: a, Name: "acme", State: "active", Open: true, Conns: 1, Writes: &proto.WriteStatus{LastMinute: 1, Samples: 1, P50Micros: 80, P99Micros: 80}, LastUsed: &at}}},
 			"PROJECT  STATE   STORE  CONNS  BY HAND  SESSIONS  WRITES/MIN  P50   P99   LAST USED\n" +
 				"acme     active  open   1      0        -         1           80µs  80µs  2026-10-11 09:30 UTC\n"},
-		{"no projects on this page", proto.StatusResult{Server: &proto.ServerStatus{Version: "dev", ProtoMin: 2, ProtoMax: 6, UptimeSeconds: 42,
+		{"no projects on this page", proto.StatusResult{Server: &proto.ServerStatus{Version: "dev", ProtoMin: 5, ProtoMax: 5, UptimeSeconds: 42,
 			OpenStoresMax: 64, ConnsMax: 1024,
 			KeysFile: &proto.KeysFile{Path: "/var/lib/starfix/.ssh/starfix_keys", Keys: 1, WrittenAt: &at, Failed: true}}},
-			"starfixd dev, protocol 2 to 6, up 42s\n" +
+			"starfixd dev, protocol 5 to 5, up 42s\n" +
 				"stores 0 of 64, connections 0 of 1024\n" +
 				"keys file /var/lib/starfix/.ssh/starfix_keys: THE LAST WRITE FAILED, so sshd may be reading an older list (1 key, written 2026-10-11 09:30 UTC); see starfixd's log\n" +
 				"starfixd's memory 0 MiB in use, 0 MiB from the system; 0 goroutines\n" +

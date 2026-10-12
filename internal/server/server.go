@@ -710,8 +710,16 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 		return refuse(proto.Errf(proto.CodeInvalid, proto.FixUpgrade+" starfix to match the server",
 			fmt.Sprintf("expected a hello, got a %q frame", f.T)))
 	}
-	if e := proto.CheckProto(f.Proto, s.cfg.ProtoMin, s.cfg.ProtoMax, s.cfg.Version); e != nil {
-		return refuse(e)
+	// The health check of `starfixd upgrade` is run by the binary being
+	// replaced, so it speaks that binary's protocol. It asks only whether
+	// this daemon answers and sends no request, so it is welcomed whatever
+	// it speaks: otherwise no upgrade could cross a raised ProtoMin, since
+	// the old binary would take the refusal for a daemon that failed, and
+	// put itself back. Only the daemon's own user can be the probe.
+	if sess.actor.Principal != ProbePrincipal {
+		if e := proto.CheckProto(f.Proto, s.cfg.ProtoMin, s.cfg.ProtoMax, s.cfg.Version); e != nil {
+			return refuse(e)
+		}
 	}
 	var row store.Project
 	if s.stores == nil {

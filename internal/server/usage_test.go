@@ -20,23 +20,6 @@ func usageRec(id string, at time.Time, in int64) proto.UsageRecord {
 		Tokens: proto.Tokens{Input: i64(in), Output: i64(0)}}
 }
 
-// A protocol 2 server, as v0.2.x runs, refuses a protocol 3 client at the
-// handshake, telling it to have the server upgraded, before any request
-// could fail on an op or field it does not know.
-func TestHandshakeProtocol2ServerRefusesNewClient(t *testing.T) {
-	s := newServer(t)
-	s.cfg.ProtoMin, s.cfg.ProtoMax = 2, 2
-	f, err := handshake(t, s, &proto.Frame{T: proto.FrameBridge, Principal: "alice"},
-		&proto.Frame{T: proto.FrameHello, Version: "v0.3.0", Proto: proto.Proto, Project: project, Session: "s", Machine: "m"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if f.Err == nil || f.Err.Code != proto.CodeVersion || !strings.Contains(f.Err.Message, "accepts 2 to 2") ||
-		!strings.Contains(f.Err.Fix, "starfixd upgrade") {
-		t.Fatalf("protocol %d client to a protocol 2 server: %+v, want a version refusal naming starfixd upgrade", proto.Proto, f.Err)
-	}
-}
-
 func TestDispatchUsage(t *testing.T) {
 	s := newServer(t)
 	now := time.Now().UTC()
@@ -102,8 +85,8 @@ func TestDispatchShowUsageAndAccount(t *testing.T) {
 	s := newServer(t)
 	epic := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "epic", Type: "epic", Account: "acme"})
 	task := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "task", Parent: epic.ID})
-	// A protocol 2 client sends no account; the issue inherits the default.
-	raw, perr := s.Dispatch(t.Context(), alice, proto.OpCreate, json.RawMessage(`{"title":"from an old client"}`))
+	// Account is optional: without one, the issue inherits the default.
+	raw, perr := s.Dispatch(t.Context(), alice, proto.OpCreate, json.RawMessage(`{"title":"with no account"}`))
 	if perr != nil {
 		t.Fatalf("create without account: %v", perr)
 	}

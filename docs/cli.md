@@ -229,7 +229,7 @@ the server is escaped (below).
 | 0 | Success |
 | 1 | Failure. stderr ends with a `fix:` line saying what to do next |
 | 2 | Usage error: an unknown flag or a missing argument |
-| 3 | The server refused this client's protocol version; upgrade one side |
+| 3 | The server refused this client's protocol version; the `fix:` line says which side to upgrade |
 
 A refusal exits 1 like any other failure, and `--json` gives its code.
 When another principal holds an issue, a change to it is refused with

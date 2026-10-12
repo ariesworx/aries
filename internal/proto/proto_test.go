@@ -154,27 +154,59 @@ func TestCheckProto(t *testing.T) {
 	}
 }
 
-// TestReleasedClients pins which released clients this server's range
-// serves: v0.2.x speaks protocol 2, v0.3.x speaks 3 and v0.4.x speaks 4,
-// and all are still in use, so raising ProtoMin past 2 must be a
-// deliberate change.
+// TestReleasedClients pins what this server tells each released client.
+// Every release so far is refused: v0.2.x speaks protocol 2, v0.3.x
+// speaks 3 and v0.4.x speaks 4, and ProtoMin was raised past them all,
+// once, while nobody ran starfix in production (design §14, decision
+// 25). A released client prints the message and the fix the server sends
+// as they are, so these are the words its user reads, with exit code 3:
+// which side is too old, the version the server needs, and that the
+// client is the one to upgrade. After this, ProtoMin moves only one
+// version behind Proto, and a release that is then refused must be added
+// here deliberately.
 func TestReleasedClients(t *testing.T) {
+	const fix = "upgrade this client: run `sfx upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `sfx mcp`"
 	tests := []struct {
 		release string
 		proto   int
-		served  bool
+		want    string // the refusal's message, or "" when the client is served
 	}{
-		{"v0.1.x", 1, false},
-		{"v0.2.x", 2, true},
-		{"v0.3.x", 3, true},
-		{"v0.4.x", 4, true},
-		{"this release", Proto, true},
+		{"v0.1.x", 1, "starfix speaks protocol 1; the server (v0.5.0) needs protocol 5"},
+		{"v0.2.x", 2, "starfix speaks protocol 2; the server (v0.5.0) needs protocol 5"},
+		{"v0.3.x", 3, "starfix speaks protocol 3; the server (v0.5.0) needs protocol 5"},
+		{"v0.4.x", 4, "starfix speaks protocol 4; the server (v0.5.0) needs protocol 5"},
+		{"this build", Proto, ""},
 	}
 	for _, tc := range tests {
-		if e := CheckProto(tc.proto, ProtoMin, ProtoMax, "v1.0.0"); (e == nil) != tc.served {
-			t.Errorf("CheckProto(%d, %d, %d) for a %s client = %v, want served %t",
-				tc.proto, ProtoMin, ProtoMax, tc.release, e, tc.served)
-		}
+		t.Run(tc.release, func(t *testing.T) {
+			e := CheckProto(tc.proto, ProtoMin, ProtoMax, "v0.5.0")
+			switch {
+			case tc.want == "" && e != nil:
+				t.Errorf("CheckProto(%d, %d, %d) for a %s client = %v, want it served", tc.proto, ProtoMin, ProtoMax, tc.release, e)
+			case tc.want != "" && (e == nil || e.Code != CodeVersion || e.Message != tc.want || e.Fix != fix):
+				t.Errorf("CheckProto(%d, %d, %d) for a %s client = %+v\nwant code version, %q\nfix %q", tc.proto, ProtoMin, ProtoMax, tc.release, e, tc.want, fix)
+			}
+		})
+	}
+	if Proto != 5 || ProtoMin != 5 || ProtoMax != 5 {
+		t.Errorf("Proto, ProtoMin, ProtoMax = %d, %d, %d; want 5, 5, 5. A bump raises Proto and ProtoMax and leaves ProtoMin one behind: update this test with it", Proto, ProtoMin, ProtoMax)
+	}
+}
+
+// TestCheckProtoBothDirections pins the two refusals at this build's
+// numbers: an older client is sent to upgrade itself, and this client is
+// told by an older server's range to have the server upgraded. The second
+// is what a v0.4.x server, which accepts 2 to 4, makes this client say.
+func TestCheckProtoBothDirections(t *testing.T) {
+	old := CheckProto(Proto-1, ProtoMin, ProtoMax, "v0.5.0")
+	if old == nil || old.Code != CodeVersion || !strings.HasPrefix(old.Fix, "upgrade this client: run `sfx upgrade`") ||
+		strings.Contains(old.Fix, "starfixd upgrade") || !strings.Contains(old.Message, "needs protocol 5") {
+		t.Errorf("an older client against this server = %+v; want it told to upgrade the client, and the version the server needs", old)
+	}
+	const want = "starfix speaks protocol 5; the server (v0.4.0) is older and accepts protocols 2 to 4"
+	const fix = "ask the server admin to run `starfixd upgrade`, or install the starfix release that matches the server"
+	if e := CheckProto(Proto, 2, 4, "v0.4.0"); e == nil || e.Code != CodeVersion || e.Message != want || e.Fix != fix {
+		t.Errorf("this client against a v0.4.0 server = %+v\nwant %q\nfix %q", e, want, fix)
 	}
 }
 

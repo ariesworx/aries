@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -491,19 +490,6 @@ func TestLosingAccessReleasesClaims(t *testing.T) {
 	bob.ok("start", bob2)
 	if got := decode[proto.PrincipalResult](t, dana.ok("--json", "admin", "principal", "disable", "bob")); got.State != "disabled" || got.Released != 1 {
 		t.Errorf("principal disable --json of someone holding an issue: %+v, want 1 released", got)
-	}
-}
-
-// A server that speaks the previous protocol refuses this client's key
-// commands at the handshake, with exit code 3.
-func TestAdminKeyOldServer(t *testing.T) {
-	w := newWorld(t, daemonOpts{protoMin: 2, protoMax: proto.Proto - 1})
-	u := w.newUser("dana", "")
-	r := u.run("v0.2.0", "admin", "key", "list", "dana")
-	want := fmt.Sprintf("sfx: starfix speaks protocol %d; the server (v0.2.0) is older and accepts 2 to %d\n", proto.Proto, proto.Proto-1) +
-		"fix: ask the server admin to run `starfixd upgrade`, or install the starfix release that matches the server\n"
-	if r.code != cli.ExitVersion || r.stderr != want {
-		t.Errorf("exit %d, stderr %q\nwant exit %d, %q", r.code, r.stderr, cli.ExitVersion, want)
 	}
 }
 

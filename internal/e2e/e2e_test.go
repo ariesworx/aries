@@ -889,8 +889,8 @@ func TestProtocolRangeRefusal(t *testing.T) {
 	if r.code != cli.ExitVersion {
 		t.Fatalf("exit %d, want %d\n%s", r.code, cli.ExitVersion, r.stderr)
 	}
-	want := fmt.Sprintf("sfx: starfix speaks protocol %d; the server (v0.2.0) needs %d to %d\n", proto.Proto, proto.Proto+1, proto.Proto+2) +
-		"fix: upgrade this client: `sfx upgrade`\n"
+	want := fmt.Sprintf("sfx: starfix speaks protocol %d; the server (v0.2.0) needs protocols %d to %d\n", proto.Proto, proto.Proto+1, proto.Proto+2) +
+		"fix: upgrade this client: run `sfx upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `sfx mcp`\n"
 	if r.stderr != want {
 		t.Fatalf("stderr %q\nwant   %q", r.stderr, want)
 	}

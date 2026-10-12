@@ -878,7 +878,7 @@ server; anyone else is refused. It reads memory, plus one count on an
 index for each open project listed, opens no store and writes nothing.
 
 ```text
-starfixd v0.5.0, protocol 2 to 6, up 3d 4h
+starfixd v0.5.0, protocol 5 to 5, up 3d 4h
 stores 2 of 64, connections 14 of 1024
 keys file /var/lib/starfix/.ssh/starfix_keys: 31 keys, written 2026-10-11 09:12 UTC
 starfixd's memory 42 MiB in use, 78 MiB from the system; 112 goroutines
@@ -1132,14 +1132,43 @@ error and exits 1, and the unit's `Restart=on-failure` starts it again.
 
 ## Upgrades
 
-Upgrade the server first, then the clients. A newer server accepts older
-clients. A newer client that needs a newer protocol is refused by an older
-server at the handshake, with exit code 3 and a fix that says to upgrade
-the server. This release speaks protocol 6 (`sfx admin` for projects,
-principals, members and keys) and accepts clients that speak 2 to 6, so
-v0.2.x clients (protocol 2), v0.3.x clients (protocol 3) and v0.4.x
-clients (protocol 4) keep working, without what came after them, and
-v0.1.x clients, which speak 1, must upgrade.
+This release speaks protocol 5 and accepts only protocol 5. **It refuses
+every earlier release's `sfx`**: v0.2.x (protocol 2), v0.3.x (protocol
+3) and v0.4.x (protocol 4). That is a break made once, on purpose,
+while nobody runs starfix in production and it changes quickly
+([design §14, decision 25](design/starfix.md#14-decisions)). From here
+on the rule holds again: a release that changes the protocol still
+accepts the one before it, so the server is upgraded first and the
+clients after, at their own pace.
+
+Crossing this one boundary, both sides must be upgraded, and until both
+are, the one upgraded first cannot talk to the other:
+
+1. **Tell everyone first.** Once the server is upgraded, every `sfx`
+   older than this release is refused until it is upgraded.
+2. **Upgrade the server,** as below. `starfixd upgrade` run by v0.4.0
+   works across the boundary: its health check is answered by the new
+   starfixd whatever protocol the old binary speaks.
+3. **Everyone upgrades `sfx`:** `sfx upgrade`, on each machine. It reads
+   the release from GitHub and asks the server nothing, so it works
+   while the server refuses that `sfx`. Someone without it runs the
+   install script again ([Installing](install.md)).
+4. **Everyone restarts their agents.** The MCP server in an agent's
+   harness is an `sfx mcp` process, started from the old binary, and it
+   stays the old one until the harness starts it again.
+
+What each side sees meanwhile, with exit code 3:
+
+| Who | Is told |
+|---|---|
+| An older `sfx` against this server | `sfx: starfix speaks protocol 4; the server (v0.5.0) needs protocol 5` and `fix: upgrade this client: run `sfx upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `sfx mcp``. The old `sfx` prints the server's words, so it says this whatever its version |
+| An agent on an older `sfx mcp` | Every tool call fails with code `version` and that message, and the fix `tell the user starfix cannot connect, quoting the server:` followed by the line above. The session's start says the same in one line. The agent cannot fix it: the person upgrades `sfx` and restarts the agent |
+| This `sfx` against an older server | `sfx: starfix speaks protocol 5; the server (v0.4.0) is older and accepts protocols 2 to 4` and `fix: ask the server admin to run `starfixd upgrade`, or install the starfix release that matches the server` |
+
+Upgrading the clients first works too, in the sense that nothing is
+lost: each new `sfx` is refused, as in the last row, until the server is
+upgraded. Server first is shorter, because step 3 is then one command
+that the refusal itself names.
 
 On the server, as the `starfix` user:
 
@@ -1160,7 +1189,10 @@ sudo -u starfix -H starfixd upgrade
 4. With `systemd_unit:` set, or `--restart`, restarts the unit through the
    sudo rule from [step 5](#5-run-starfixd-under-systemd). It then checks
    that the new version answers on the socket within 30 seconds. If it does
-   not, upgrade puts the old binary back and restarts it.
+   not, upgrade puts the old binary back and restarts it. The check is
+   made by the binary that ran the upgrade, the old one, and starfixd
+   answers it whatever protocol that binary speaks, so an upgrade across
+   a protocol change is not mistaken for a failed one.
 
 With `control_db`, starfixd opens the database of every active project
 once before it listens, which applies the new version's migrations to

@@ -317,9 +317,9 @@ func TestHandshake(t *testing.T) {
 		session string
 	}{
 		{name: "welcome with client session", frames: []*proto.Frame{bridge, hello(proto.Proto, project, "s-mine")}, session: "s-mine"},
-		{name: "protocol 4 still welcome", frames: []*proto.Frame{bridge, hello(4, project, "s-4")}, session: "s-4"},
-		{name: "protocol 3 still welcome", frames: []*proto.Frame{bridge, hello(3, project, "s-3")}, session: "s-3"},
-		{name: "protocol 2 still welcome", frames: []*proto.Frame{bridge, hello(2, project, "s-old")}, session: "s-old"},
+		{name: "protocol 4 too old", frames: []*proto.Frame{bridge, hello(4, project, "s-4")}, code: proto.CodeVersion},
+		{name: "protocol 3 too old", frames: []*proto.Frame{bridge, hello(3, project, "s-3")}, code: proto.CodeVersion},
+		{name: "protocol 2 too old", frames: []*proto.Frame{bridge, hello(2, project, "s-old")}, code: proto.CodeVersion},
 		{name: "welcome assigns a session", frames: []*proto.Frame{bridge, hello(proto.Proto, project, "")}, session: "s-"},
 		{name: "protocol too new", frames: []*proto.Frame{bridge, hello(proto.ProtoMax+1, project, "")}, code: proto.CodeVersion},
 		{name: "protocol 1 too old", frames: []*proto.Frame{bridge, hello(1, project, "")}, code: proto.CodeVersion},
@@ -351,7 +351,7 @@ func TestHandshake(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if f.T != proto.FrameWelcome || f.Version != "v0.2.0" || f.Min != 2 || f.Max != proto.ProtoMax {
+			if f.T != proto.FrameWelcome || f.Version != "v0.2.0" || f.Min != proto.ProtoMin || f.Max != proto.ProtoMax {
 				t.Fatalf("welcome: %+v", f)
 			}
 			if tc.code == "" {

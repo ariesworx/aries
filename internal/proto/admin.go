@@ -12,11 +12,11 @@ import "time"
 // Who may run each is the control store's to decide; a refusal is
 // forbidden, with a fix that says who can.
 //
-// Protocol 6 adds a principal's public SSH keys, which the daemon writes
-// to a file sshd reads (design §15.2): key.add, keys and key.remove, and
-// Keys on principal.add. It also has status, a read for an admin
-// watching the server, added before protocol 6 shipped in a release
-// (version.go).
+// The same protocol has a principal's public SSH keys, which the daemon
+// writes to a file sshd reads (design §15.2): key.add, keys and
+// key.remove, and Keys on principal.add; and status, a read for an admin
+// watching the server. They joined protocol 5 before it shipped in a
+// release (version.go).
 const (
 	OpProjectAdd       = "project.add"       // ProjectAddArgs → ProjectAddResult; server admins
 	OpProjects         = "projects"          // AdminListArgs → ProjectsResult
@@ -110,7 +110,7 @@ type ProjectsResult struct {
 
 // PrincipalAddArgs adds a principal named Name as a member of Project
 // (empty: the connection's). Unassigned, for server admins only, adds
-// it to no project instead. Keys (protocol 6) are its first public keys,
+// it to no project instead. Keys are its first public keys,
 // each one line as KeyAddArgs.Key is, at most MaxKeysPerAdd; the
 // principal and its keys are added together or not at all.
 type PrincipalAddArgs struct {

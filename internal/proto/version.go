@@ -9,116 +9,124 @@ import (
 
 // Protocol versions. A client speaks Proto; a server accepts any client in
 // [ProtoMin, ProtoMax]. Principle 9 keeps the range one version back and
-// one forward once there is more than one.
+// one forward once there is more than one: a change to the protocol
+// raises Proto and ProtoMax and leaves ProtoMin at the version before, so
+// that a new server still serves the clients people already have
+// (AGENTS.md, rule 10).
 //
-// Protocol 2 adds claims: start's lease and claim, the epoch on finish and
-// handoff, show's claim, renew, and who (the agents registry); then the
-// inbox (inbox, ack, watch and the evt frames it pushes) and the handoff
-// fields on finish and handoff; then idempotency keys on comment, finish
-// and handoff, the acceptance checklist (accept, finish's ticked and
-// waived, close's force) and similar closed issues in create's and
-// show's results; then start's take and the forbidden code (the
-// authorization review). Everything after claims was added before protocol 2
-// shipped in a release (v0.1.0 speaks 1), so without another bump. A
-// protocol 1 client sends none of them and gets the default lease.
+// Protocol 5 is the only version this build speaks and the only one it
+// accepts. Making it the minimum was a reset, made once, on 12 Oct 2026
+// (design §14, decision 25): nobody ran starfix in production yet and it
+// was under active development, so the maintainer chose to refuse every
+// released client (v0.2.x to v0.4.x, protocols 2 to 4) rather than go on
+// carrying them. It is not a change to the rule above, which holds for
+// every bump after this one: the next makes Proto and ProtoMax 6 and
+// leaves ProtoMin at 5. TestReleasedClients pins which releases are
+// refused, and what each is told.
 //
-// Protocol 3 adds token capture (design §12.1): the usage op, and account
-// on create and update. Protocol 2 shipped in v0.2.x, so ProtoMin moves
-// to 2 and protocol 1 clients are refused. A protocol 2 client never
-// sends usage and omits account, which leaves an issue inheriting its
-// account; show's usage and digest's usage are result fields, which it
-// ignores. Then files to issues (design §12 item 3): paths on renew,
-// finish and handoff (the client's git), and declared paths on create and
-// update; ready's overlaps and show's files are result fields. Protocol 3
-// had not shipped in a release (v0.2.2 speaks 2), so they join it without
-// another bump; a protocol 2 client sends no paths, and nothing is
-// recorded for it. The live board's reads join it the same way: watch's
-// events, the event push (EvEvent) and the claims op, none of which a
-// protocol 2 client sends.
+// A refused client is told which side to upgrade (CheckProto). A client
+// older than the server prints the message and fix the server sends, as
+// they are, so those words are all a released client can be told; a
+// client newer than the server writes its own. `starfixd upgrade` is run
+// by the old binary, whose health check then speaks the old protocol to
+// the new daemon: the daemon answers that check whatever protocol it
+// speaks (server.ProbePrincipal), or no upgrade could cross a raised
+// minimum.
 //
-// Protocol 4 adds memory (design §6): the remember, recall, forget and
-// pin ops, and start's memories, a result field older clients ignore;
-// then prices and cost reports (design §12.1): the price.set, prices and
-// cost ops, and show's and digest's cost, result fields; then human hours
-// and subscription plans: the hours.log, hours.delete, hours, plan.set
-// and plans ops, and the logged time and amortized cost in show, digest
-// and cost, result fields. Protocol 4 had not shipped in a release
-// (v0.3.0 speaks 3), so they join it without another bump. ProtoMin stays at 2: v0.2.x clients speak 2 and v0.3.x
-// clients speak 3, and this server accepts both. Neither sends a memory,
-// price, cost, hours or plan op, and both ignore start's memories and the
-// cost and hours fields, so a protocol 3 client keeps working against a protocol 4
-// server exactly as against a protocol 3 one, and a protocol 2 client as
-// it did before protocol 3. Raising ProtoMin to 3 would refuse v0.2.x
-// clients; TestReleasedClients pins the range.
+// What each version added, kept as history:
 //
-// Protocol 5 adds access management on a server of many projects (design
-// §15, admin.go): the project.add, projects, project.archive,
-// project.activate, principal.add, principals, principal.disable,
-// principal.enable, member.set, members and member.remove ops. Protocol 4
-// shipped in v0.4.x, so these are a bump. ProtoMin stays at 2 for the
-// same reason as before: v0.2.x, v0.3.x and v0.4.x clients are in use,
-// none of them sends an admin op, and no existing op or result changed,
-// so each keeps working against a protocol 5 server exactly as it did. A
-// protocol 5 client against an older server is refused at the handshake,
-// rather than at its first admin op.
+// 1 (v0.1.0) is the first protocol.
 //
-// Protocol 6 adds keys in the control store (design §15.2, admin.go):
-// the key.add, keys and key.remove ops, and principal.add's keys, an
-// argument. Protocol 5 has not shipped in a release (v0.4.0 speaks 4),
-// so these could have joined it, as later additions joined protocols 3
-// and 4. They are a bump all the same, so that a client with the key
-// commands is refused at the handshake by a server built before them,
-// rather than at its first key op. ProtoMin stays at 2: no older client
-// sends a key op or the new argument, and the server adds a principal
-// without keys when it is omitted, as it did. The results that gained
-// fields (released, on the ops that end access) are read by older
-// clients as before. Then the status op (design §15.4, `sfx admin
-// status`), and file_conns and warning in the results of keys and
-// key.remove. Protocol 6 has not shipped in a release (v0.4.0 speaks 4),
-// so status joins it without another bump, as later additions joined
-// protocols 3 and 4: a server built from main between the key ops and
-// status refuses it as an unknown operation, with code invalid, and
-// serves everything else.
+// 2 (v0.2.x) added claims: start's lease and claim, the epoch on finish
+// and handoff, show's claim, renew, and who (the agents registry); then
+// the inbox (inbox, ack, watch and the evt frames it pushes) and the
+// handoff fields on finish and handoff; then idempotency keys on
+// comment, finish and handoff, the acceptance checklist (accept,
+// finish's ticked and waived, close's force) and similar closed issues in
+// create's and show's results; then start's take and the forbidden code
+// (the authorization review).
 //
-// Still before protocol 6 shipped, keys stopped reaching sshd through a
-// command that asked the daemon and now reach it through a file the
-// daemon writes (design §14, decision 22). Results changed with that,
-// without another bump: status lost key_lookups and key_lookups_max and
-// gained keys_file; key.remove lost file_conns and gained
-// in_authorized_keys, as each key of keys did; and the results of
-// principal.add, principal.disable and principal.enable gained warning.
-// A client built from main before the change reads the fields it knows.
+// 3 (v0.3.0) added token capture (design §12.1): the usage op, and
+// account on create and update; then files to issues (design §12 item
+// 3): paths on renew, finish and handoff, declared paths on create and
+// update, ready's overlaps and show's files; then the live board's
+// reads: watch's events, the event push (EvEvent) and the claims op.
+//
+// 4 (v0.4.0) added memory (design §6): the remember, recall, forget and
+// pin ops, and start's memories; then prices and cost reports (design
+// §12.1): the price.set, prices and cost ops, and show's and digest's
+// cost; then human hours and subscription plans: the hours.log,
+// hours.delete, hours, plan.set and plans ops, and the logged time and
+// amortized cost in show, digest and cost.
+//
+// 5 (not yet released) adds access management on a server of many
+// projects (design §15, admin.go): the project.add, projects,
+// project.archive, project.activate, principal.add, principals,
+// principal.disable, principal.enable, member.set, members and
+// member.remove ops; keys in the control store (design §15.2): the
+// key.add, keys and key.remove ops and principal.add's keys; and the
+// status op (design §15.4, `sfx admin status`). Results carry released
+// (on the ops that end access), warning, in_authorized_keys, file_conns
+// and status's keys_file.
+//
+// Within each version, everything after its first addition joined it
+// before it shipped in a release, so without another bump. That is the
+// practice for a version no release speaks: an addition joins it. For a
+// few days main called the key ops and status protocol 6, a bump made so
+// that a client with the key commands was refused at the handshake by a
+// server built from main before them. No release ever spoke 5 or 6, and
+// the maintainer wanted as few versions as possible at this stage, so 6
+// was folded into 5 (decision 25): a server built from main between the
+// admin ops and the fold refuses what it does not know as an unknown
+// operation or argument, with code invalid, and serves everything else.
+// The keys frame, with which an sshd command asked the daemon about a
+// key, came and went in the same days (decision 22) and was never client
+// protocol; a daemon closes a connection that opens with one,
+// unanswered.
 //
 // The bridge frame is not part of this protocol: it passes between two
 // starfixd processes on the server (frame.go), and carries no version.
 // It is read leniently, so a bridge from before a binary swap works
-// against the daemon after it, and the reverse. The keys frame, with
-// which `starfixd keys` asked the daemon about a key, went with that
-// command and never shipped in a release; a daemon closes a connection
-// that opens with one, unanswered, as a daemon from before it did.
+// against the daemon after it, and the reverse.
 const (
-	Proto    = 6
-	ProtoMin = 2
-	ProtoMax = 6
+	Proto    = 5
+	ProtoMin = 5
+	ProtoMax = 5
 )
 
 // CheckProto returns nil when the client protocol version p is in
 // [lo, hi], and otherwise a CodeVersion error that tells the person which
 // side to upgrade. A range that is empty, or starts below 1, refuses every
 // client.
+//
+// The server runs it on a hello and sends the error in its welcome; the
+// client runs it on the welcome's range. A client below the range is
+// therefore told by the server, in words a released client prints as
+// they are: its fix names `sfx upgrade`, which asks the releases and not
+// the server, so it works for a client the server refuses; the install
+// script, for one too old to have it; and the agent to restart, since
+// the `sfx mcp` an agent's harness started is the old binary until then.
 func CheckProto(p, lo, hi int, serverVersion string) *Error {
 	switch {
 	case lo < 1 || hi < lo:
 		return Errf(CodeVersion, "ask the server admin to check starfixd's protocol range",
 			fmt.Sprintf("server advertises an empty protocol range [%d,%d]", lo, hi))
 	case p < lo:
-		return Errf(CodeVersion, "upgrade this client: `sfx upgrade`",
-			fmt.Sprintf("starfix speaks protocol %d; the server (%s) needs %d to %d", p, orDev(serverVersion), lo, hi))
+		return Errf(CodeVersion, "upgrade this client: run `sfx upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `sfx mcp`",
+			fmt.Sprintf("starfix speaks protocol %d; the server (%s) needs %s", p, orDev(serverVersion), protoRange(lo, hi)))
 	case p > hi:
 		return Errf(CodeVersion, "ask the server admin to run `starfixd upgrade`, or install the starfix release that matches the server",
-			fmt.Sprintf("starfix speaks protocol %d; the server (%s) is older and accepts %d to %d", p, orDev(serverVersion), lo, hi))
+			fmt.Sprintf("starfix speaks protocol %d; the server (%s) is older and accepts %s", p, orDev(serverVersion), protoRange(lo, hi)))
 	}
 	return nil
+}
+
+// protoRange names the versions lo to hi in a message.
+func protoRange(lo, hi int) string {
+	if lo == hi {
+		return fmt.Sprintf("protocol %d", lo)
+	}
+	return fmt.Sprintf("protocols %d to %d", lo, hi)
 }
 
 // orDev names a server version in a message. A string that is neither a
