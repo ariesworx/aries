@@ -10,6 +10,7 @@ import (
 
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/starfix/internal/telemetry"
 )
 
 // Limits bound what one principal can make the daemon do: how many
@@ -69,6 +70,11 @@ type Limits struct {
 	// from its write bucket in each project.
 	ControlWriteRate  float64 `yaml:"control_write_rate"`
 	ControlWriteBurst int     `yaml:"control_write_burst"`
+
+	// TelemetryRequests caps the requests the telemetry listener
+	// (telemetry: listen:) serves at once; one more is answered 503.
+	// Twice it caps the connections the listener holds open.
+	TelemetryRequests int `yaml:"telemetry_requests"`
 }
 
 // DefaultLimits are the limits a zero field takes.
@@ -78,6 +84,7 @@ var DefaultLimits = Limits{
 	AgentKeep: Duration(store.MaxAgentWindow), InboxKeep: Duration(30 * 24 * time.Hour),
 	Control: store.DefaultControlLimits, OpenStores: 64, StoreIdle: Duration(10 * time.Minute),
 	ControlWriteRate: 1, ControlWriteBurst: 30,
+	TelemetryRequests: telemetry.DefaultRequests,
 }
 
 // Duration is a YAML duration such as 90s, 10m, 8h or 7d.
@@ -108,7 +115,7 @@ func (l Limits) WithDefaults() Limits {
 		{&l.Control.Projects, &d.Control.Projects}, {&l.Control.Principals, &d.Control.Principals},
 		{&l.Control.PrincipalsPerCreator, &d.Control.PrincipalsPerCreator},
 		{&l.Control.Keys, &d.Control.Keys}, {&l.Control.Members, &d.Control.Members}, {&l.OpenStores, &d.OpenStores},
-		{&l.ControlWriteBurst, &d.ControlWriteBurst},
+		{&l.ControlWriteBurst, &d.ControlWriteBurst}, {&l.TelemetryRequests, &d.TelemetryRequests},
 	} {
 		if *f.v == 0 {
 			*f.v = *f.d
@@ -149,7 +156,7 @@ func (l Limits) Validate() error {
 		{"agent_keep", l.AgentKeep < 0}, {"inbox_keep", l.InboxKeep < 0},
 		{"open_stores", l.OpenStores < 0}, {"store_idle", l.StoreIdle < 0},
 		{"control_write_rate", l.ControlWriteRate < 0 || math.IsNaN(l.ControlWriteRate) || math.IsInf(l.ControlWriteRate, 0)},
-		{"control_write_burst", l.ControlWriteBurst < 0},
+		{"control_write_burst", l.ControlWriteBurst < 0}, {"telemetry_requests", l.TelemetryRequests < 0},
 	} {
 		if f.bad {
 			return fmt.Errorf("limit %s must be zero or a positive number; fix: correct limits: in the config file, or leave it out for the default", f.name)
@@ -235,6 +242,8 @@ type conns struct {
 	mu    sync.Mutex // guards total and by
 	total int
 	by    map[string]int
+	// tel counts the refusals at each cap; nil counts none.
+	tel *telemetry.Telemetry
 }
 
 // acquire takes a slot for key, a principal or a principal in a project
@@ -244,8 +253,10 @@ func (c *conns) acquire(key string, total, per int) (bool, string) {
 	defer c.mu.Unlock()
 	switch {
 	case c.total >= total:
+		c.tel.Count(telemetry.LimitRefusals, telemetry.LimitConns)
 		return false, fmt.Sprintf("the server is at its connection limit (%d)", total)
 	case c.by[key] >= per:
+		c.tel.Count(telemetry.LimitRefusals, telemetry.LimitConnsPerPrincipal)
 		return false, fmt.Sprintf("%s is at its connection limit (%d)", keyPrincipal(key), per)
 	}
 	if c.by == nil {

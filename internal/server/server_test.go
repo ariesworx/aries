@@ -39,8 +39,15 @@ func TestMain(m *testing.M) {
 // needs no Dolt.
 const peerHelperEnv = "STARFIX_PEER_HELPER"
 
+// statusHelperEnv, when set to a socket address, makes this test binary
+// a child that asks that socket for the daemon's status as whatever user
+// it runs as (TestCheckPeerKeepsStatusFromOtherUsers); it needs no Dolt
+// either.
+const statusHelperEnv = "STARFIX_STATUS_HELPER"
+
 func run(m *testing.M) int {
-	if os.Getenv(peerHelperEnv) != "" {
+	// A helper process is a child of one test and needs no Dolt.
+	if os.Getenv(peerHelperEnv) != "" || os.Getenv(statusHelperEnv) != "" {
 		return m.Run()
 	}
 	dir, err := os.MkdirTemp("", "starfix-server-")

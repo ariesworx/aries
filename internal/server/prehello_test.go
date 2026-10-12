@@ -230,6 +230,23 @@ func TestHandshakesPerPrincipal(t *testing.T) {
 	}
 }
 
+// A refusal at handshakes_per_principal is counted under the setting's
+// name, like the other caps on connections.
+func TestHandshakesPerPrincipalIsCounted(t *testing.T) {
+	tel, m := measured(t, true)
+	s := newServerTel(t, Limits{Handshakes: 1}, tel)
+	sock := serveOn(t, s)
+	openHalf(t, sock, "alice")
+	waitUntil(t, "alice's connection to be counted", func() bool { return s.hellos.count("alice") == 1 })
+	if f, closed := openHalf(t, sock, "alice").answer(); closed || f.Err == nil || f.Err.Code != proto.CodeBusy {
+		t.Fatalf("alice's second connection before a hello = %+v (closed unread: %v), want busy", f, closed)
+	}
+	const name, limit = "starfix.limit.refusals", "handshakes_per_principal"
+	waitUntil(t, "the refusal to be counted as "+name+"{limit="+limit+"}", func() bool {
+		return snapshot(t, m).Value(name, "limit", limit) == 1
+	})
+}
+
 // TestConnectionCapClosesTheOldestHandshake pins what happens at the cap
 // on sockets (twice conns): the connection that has waited longest
 // without a hello is closed to make room, not the one that just arrived.

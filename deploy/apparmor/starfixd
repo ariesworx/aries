@@ -8,7 +8,8 @@
 #   starfixd          the bridge, `starfixd stdio`, which sshd runs for
 #                     every connection. Attached to the binary's path, so
 #                     it is also what any run gets that asks for nothing
-#                     else.
+#                     else: `starfixd status`, which needs the same two
+#                     things, runs under it as the starfix user.
 #   starfixd-serve    the daemon, `starfixd serve`. The systemd unit asks
 #                     for it with AppArmorProfile=starfixd-serve.
 #   starfixd-admin    the operator's commands: control init, import-bd,
@@ -37,7 +38,9 @@ include <tunables/starfixd>
 # The bridge: sshd's forced command for the starfix account. It reads
 # the config file to find the socket, connects, and copies bytes between
 # the SSH session and the daemon. `starfixd version` and `help` need no
-# more.
+# more, and neither does `starfixd status`, which asks the daemon for its
+# report over the same socket (sudo -u starfix -H starfixd status). root
+# gets no capability here, so root runs it as the starfix user too.
 #
 # attach_disconnected: the daemon binds its socket inside the mount
 # namespace systemd gives the unit (ProtectSystem, PrivateTmp), so from
@@ -87,6 +90,9 @@ profile starfixd @{starfixd_bin}/starfixd flags=(attach_disconnected) {
 # The daemon. It reads the config file, listens on its socket, talks to
 # Dolt over TCP, and on a server of many projects writes the keys file
 # sshd reads and reads the hand-maintained authorized_keys beside it.
+# When it is configured to (docs/server.md, Observability) it also
+# listens on a loopback TCP port for /metrics and health, posts metrics
+# to a collector over HTTP, and tells systemd it is ready and alive.
 profile starfixd-serve flags=(attach_disconnected) {
   include <abstractions/base>
 
@@ -106,14 +112,24 @@ profile starfixd-serve flags=(attach_disconnected) {
   # that name an address or a port, which were not tested. The guide's
   # Dolt listens on 127.0.0.1, and the unit can hold the daemon to that
   # (IPAddressDeny=any with IPAddressAllow=localhost, in a drop-in).
+  #
+  # The same two rules are all the telemetry needs on this machine: the
+  # listener (telemetry: listen:, which starfixd itself holds to a
+  # loopback address) and OTLP over HTTP to a collector at an address
+  # (OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318).
   network inet stream,
   network inet6 stream,
 
-  # A dsn may name Dolt's host. Go resolves names itself, from these
-  # files. There is no UDP here, so a name /etc/hosts does not hold,
-  # which needs DNS, also needs these in local/starfixd-serve:
+  # A dsn, the listener's address or the collector's endpoint may give
+  # a host by name. Go resolves names itself, from these files. There is
+  # no UDP here, so a name /etc/hosts does not hold, which needs DNS,
+  # also needs these in local/starfixd-serve:
   #   network inet dgram,
   #   network inet6 dgram,
+  # Metrics sent straight to a hosted backend need those two, since its
+  # endpoint is a name, and the certificate authorities that vouch for
+  # it, which this profile does not read:
+  #   include <abstractions/ssl_certs>
   /etc/hosts r,
   /etc/nsswitch.conf r,
   /etc/resolv.conf r,
@@ -126,6 +142,13 @@ profile starfixd-serve flags=(attach_disconnected) {
   owner @{starfixd_keys_dir}/@{starfixd_keys_name} rw,
   owner @{starfixd_keys_dir}/.@{starfixd_keys_name}.tmp-* rw,
   owner @{starfixd_authorized_keys} r,
+
+  # systemd's notify socket. With Type=notify in the unit the daemon
+  # says when it is ready and when it stops, and with WatchdogSec that
+  # it is alive: one datagram each, to a socket that is a file to
+  # AppArmor. Without this rule a unit with Type=notify never counts as
+  # started, and systemd kills it when TimeoutStartSec runs out.
+  @{run}/systemd/notify w,
 
   owner @{PROC}/@{pid}/cgroup r,
   owner @{PROC}/@{pid}/mountinfo r,
@@ -151,7 +174,8 @@ profile starfixd-serve flags=(attach_disconnected) {
 
 # The operator's commands, run as the starfix user through aa-exec:
 # control init, import-bd, export-bd, and upgrade with --check, --to and
-# --rollback. They open the store as the daemon does; upgrade also
+# --rollback. (`starfixd status` is not one of them: it runs under the
+# bridge's profile, and would also run under this one.) They open the store as the daemon does; upgrade also
 # downloads a release, replaces the binary, asks systemd for a restart
 # through sudo, and asks the daemon whether it is healthy.
 profile starfixd-admin flags=(attach_disconnected) {
