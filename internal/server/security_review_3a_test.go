@@ -58,7 +58,8 @@ func TestReviewF2ServerAdminKeyOutlivesTheAdmin(t *testing.T) {
 		t.Fatalf("principal.add ghost: %v", perr)
 	}
 	for _, p := range []string{projA, projB} {
-		mustAsk[proto.MemberSetResult](d, proto.OpMemberSet, proto.MemberSetArgs{Name: "ghost", Project: p, Role: "admin"})
+		// As a script must since decision 36: ghost has a key.
+		mustAsk[proto.MemberSetResult](d, proto.OpMemberSet, proto.MemberSetArgs{Name: "ghost", Project: p, Role: "admin", AcceptKeys: true})
 	}
 	// dana's own access ends: the other server admin disables her.
 	dv := mustDialTo(t, m.Server, store.Actor{Principal: "dave", Session: "s-dave", Machine: "m"}, projA)
@@ -83,45 +84,6 @@ func TestReviewF2ServerAdminKeyOutlivesTheAdmin(t *testing.T) {
 	reviewFinding(t, "F-2", "with dana's key alone, a key was added to server admin dave's account and a new principal was made admin of every project; "+
 		"both still sign in after dana is disabled, the first as a server admin. Decision 19 stops only the admin's own account, "+
 		"so docs/security-model.md's \"its access ends with the key it was given\" does not hold")
-}
-
-// F-3: a project admin plants a key on a principal within reach; when the
-// admin of another project later adds that principal, the key reaches
-// that project too. The notice that lists the keys a new member brings
-// (keysCarried) is shown only to an admin with reach over the principal,
-// which the admin of the second project never has, and `key list` refuses
-// them. So nobody on the receiving side is shown the key.
-func TestReviewF3PlantedKeyRidesIntoAnotherProject(t *testing.T) {
-	m := newMulti(t, Limits{}, nil)
-	m.project(t, projA, "alice=admin", "victor")
-	m.project(t, projB, "erin=admin")
-	a := mustDialTo(t, m.Server, alice, projA)
-	add, perr := ask[proto.KeyResult](a, proto.OpKeyAdd, proto.KeyAddArgs{Name: "victor", Key: keyLine(t, "alice-second")})
-	if perr != nil {
-		t.Fatalf("alice adds a key to victor, a member of her project only: %v", perr)
-	}
-	// erin, who administers b and nothing else, adds victor to b.
-	e := mustDialTo(t, m.Server, erin, projB)
-	set := mustAsk[proto.MemberSetResult](e, proto.OpMemberSet, proto.MemberSetArgs{Name: "victor"})
-	_, listErr := ask[proto.KeysResult](e, proto.OpKeys, proto.KeysArgs{Name: "victor"})
-	if len(set.Keys) > 0 || listErr == nil {
-		t.Logf("erin was shown victor's keys: member.set %+v, key list error %v", set, listErr)
-		return
-	}
-	// alice, who is in no way a member of b, reads b as victor.
-	asVictor := store.Actor{Principal: "victor", Session: "s-alice", Machine: "alices-laptop"}
-	w, c, closed := dialKey(t, m.Server, asVictor, projB, add.ID)
-	if closed || w.Err != nil {
-		t.Fatalf("the planted key was refused in b: %+v", w)
-	}
-	if _, perr := ask[proto.ListResult](c, proto.OpList, proto.ListArgs{}); perr != nil {
-		t.Fatalf("list in b with the planted key: %v", perr)
-	}
-	if w, _ := dialTo(t, m.Server, alice, projB); w.Err == nil {
-		t.Fatal("alice herself was let into b")
-	}
-	reviewFinding(t, "F-3", "alice, admin of project a only, added a key of her own to victor while victor was in a alone; erin then added victor to project b, "+
-		"was shown no key (member.set: "+set.Change+", keys: none) and is refused `key list victor`; alice's key now reads and writes project b as victor")
 }
 
 // F-5: a project admin adds the public key of a server admin, whose key

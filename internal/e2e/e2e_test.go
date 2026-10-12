@@ -620,6 +620,9 @@ type user struct {
 	now func() time.Time
 	// stdin, if set, is what the CLI reads from standard input.
 	stdin string
+	// terminal says a person is at the CLI's input and output, so that it
+	// may ask them something.
+	terminal bool
 	// pubFile is the user's public key file, for `sfx admin key add`.
 	pubFile string
 }
@@ -708,6 +711,7 @@ func (u *user) runTo(ctx context.Context, stdout, stderr io.Writer, version stri
 		Hostname: func() (string, error) { return "laptop-test", nil },
 		Version:  version,
 		Now:      u.now,
+		Terminal: func() bool { return u.terminal },
 	})
 }
 

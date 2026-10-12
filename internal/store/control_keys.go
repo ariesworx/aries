@@ -232,21 +232,32 @@ func (c *Control) Keys(ctx context.Context, principal string) ([]PrincipalKey, e
 	if err := validPrincipal(principal); err != nil {
 		return nil, err
 	}
-	rows, err := c.s.r.QueryContext(ctx, keySelect+` WHERE principal = ? ORDER BY added_at, fingerprint`, principal)
+	return keysOf(ctx, c.s.r, principal)
+}
+
+// keysOf reads principal's keys, oldest first.
+func keysOf(ctx context.Context, q querier, principal string) ([]PrincipalKey, error) {
+	return queryKeys(ctx, q, "keys of "+principal, ` WHERE principal = ? ORDER BY added_at, fingerprint`, principal)
+}
+
+// queryKeys reads the keys that where, a constant clause with a
+// placeholder for arg, selects. what names them in an error.
+func queryKeys(ctx context.Context, q querier, what, where, arg string) ([]PrincipalKey, error) {
+	rows, err := q.QueryContext(ctx, keySelect+where, arg) //nolint:gosec // where is a constant from the callers
 	if err != nil {
-		return nil, fmt.Errorf("keys of %s: %w", principal, err)
+		return nil, fmt.Errorf("%s: %w", what, err)
 	}
 	defer func() { _ = rows.Close() }()
 	var out []PrincipalKey
 	for rows.Next() {
 		k, err := scanKey(rows)
 		if err != nil {
-			return nil, fmt.Errorf("keys of %s: %w", principal, err)
+			return nil, fmt.Errorf("%s: %w", what, err)
 		}
 		out = append(out, k)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("keys of %s: %w", principal, err)
+		return nil, fmt.Errorf("%s: %w", what, err)
 	}
 	return out, nil
 }

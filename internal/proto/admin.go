@@ -170,29 +170,58 @@ type PrincipalsResult struct {
 // MemberSetArgs gives the principal Name the role Role (member or admin;
 // empty is member) in Project (empty: the connection's): it adds the
 // membership or changes its role.
+//
+// A key signs in to every project its principal is in, so a new
+// membership brings the principal's keys with it (design §14, decision
+// 36). Without AcceptKeys, a request that would add a principal who has
+// any key adds nothing, and answers with the keys (MemberSetResult's
+// Change is pending); the same request with AcceptKeys adds it. A
+// principal with no key is added either way, and so is a role changed.
 type MemberSetArgs struct {
-	Name    string `json:"name"`
-	Project string `json:"project,omitempty"`
-	Role    string `json:"role,omitempty"`
+	Name       string `json:"name"`
+	Project    string `json:"project,omitempty"`
+	Role       string `json:"role,omitempty"`
+	AcceptKeys bool   `json:"accept_keys,omitempty"`
 }
 
 // MemberSetResult is a membership after a write: the principal as ID,
 // the membership's revision, its project and role, and whether it was
 // added, changed (another role) or unchanged.
 //
-// Projects and Keys are set when the principal was added and now
-// belongs to more than one project, and the caller may see its keys:
-// how many projects it is in, and the fingerprints of the keys recorded
-// for it, each of which now reaches this project too.
+// Change is pending, and Rev 0, when nothing was written because the
+// principal has keys the request did not accept. Carried then lists
+// every key the principal has, and Role the role asked for. Carried is
+// also set when the principal was added: the keys that now sign in to
+// the project. Projects is how many projects the principal belongs to,
+// counting this one once it is added. Every caller is shown these,
+// whether or not they may change the principal's keys.
 type MemberSetResult struct {
-	ID          string   `json:"id"`
-	Rev         int64    `json:"rev"`
-	Project     string   `json:"project"`
-	ProjectName string   `json:"project_name"`
-	Role        string   `json:"role"`
-	Change      string   `json:"change"`
-	Projects    int      `json:"projects,omitempty"`
-	Keys        []string `json:"keys,omitempty"`
+	ID          string       `json:"id"`
+	Rev         int64        `json:"rev"`
+	Project     string       `json:"project"`
+	ProjectName string       `json:"project_name"`
+	Role        string       `json:"role"`
+	Change      string       `json:"change"`
+	Projects    int          `json:"projects,omitempty"`
+	Carried     []CarriedKey `json:"carried,omitempty"`
+}
+
+// MemberPending is MemberSetResult's Change when the principal was not
+// added because its keys were not accepted.
+const MemberPending = "pending"
+
+// CarriedKey is one key of a principal joining a project: its
+// fingerprint, type and comment, who added it and when.
+// AdderAdministers says whether whoever added it is, now, an admin of
+// the project being joined or a server admin: a key added by anyone
+// else was put there by someone with no say over this project.
+type CarriedKey struct {
+	Fingerprint      string    `json:"fingerprint"`
+	Type             string    `json:"type"`
+	Comment          string    `json:"comment,omitempty"`
+	AddedBy          string    `json:"added_by"`
+	AddedAt          time.Time `json:"added_at"`
+	AdderAdministers bool      `json:"adder_administers,omitempty"`
 }
 
 // MembersArgs lists the members of Project (empty: the connection's), as

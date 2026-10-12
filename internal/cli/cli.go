@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/board"
 	"github.com/ariesworx/starfix/internal/client"
 	"github.com/ariesworx/starfix/internal/mcpserver"
 	"github.com/ariesworx/starfix/internal/proto"
@@ -65,6 +66,10 @@ type Env struct {
 	// Now is the time in the user's time zone, whose date `log` sends as
 	// the day worked. Default time.Now.
 	Now func() time.Time
+	// Terminal reports whether a person is at Stdin and Stdout, so that a
+	// command may ask them something. Default: whether both are
+	// terminals.
+	Terminal func() bool
 }
 
 // usageError is a mistake on the command line. usage is the usage line
@@ -72,6 +77,18 @@ type Env struct {
 type usageError struct{ msg, usage string }
 
 func (e *usageError) Error() string { return e.msg }
+
+// refusedWith is a refusal that has something to show with it. With
+// --json the one document printed holds the error and, under key, value.
+type refusedWith struct {
+	err   *proto.Error
+	key   string
+	value any
+}
+
+func (e *refusedWith) Error() string { return e.err.Error() }
+
+func (e *refusedWith) Unwrap() error { return e.err }
 
 // usagef returns a usageError with a formatted message.
 func usagef(usage, format string, a ...any) error {
@@ -247,6 +264,10 @@ func Run(ctx context.Context, args []string, env Env) int {
 	if env.Stdin == nil {
 		env.Stdin = strings.NewReader("")
 	}
+	if env.Terminal == nil {
+		in, out := env.Stdin, env.Stdout
+		env.Terminal = func() bool { return board.IsTerminal(in, out) }
+	}
 	r := &runner{env: env, dir: "."}
 	r.wrapOutput()
 	defer r.flush()
@@ -346,7 +367,11 @@ func (r *runner) fail(err error) int {
 		}
 	}
 	if r.json {
-		r.emit(map[string]*proto.Error{"error": {Code: code, Message: msg, Fix: fix}})
+		doc := map[string]any{"error": &proto.Error{Code: code, Message: msg, Fix: fix}}
+		if rw, ok := errors.AsType[*refusedWith](err); ok {
+			doc[rw.key] = rw.value
+		}
+		r.emit(doc)
 	} else {
 		// The message and fix may be the server's: one line each.
 		_, _ = fmt.Fprintf(r.env.Stderr, "sfx: %s\n", safetext.Line(msg))

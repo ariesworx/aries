@@ -291,7 +291,7 @@ func TestAdminKeyCommands(t *testing.T) {
 	before := w.controlEvents()
 	const ownFix = "ask another admin to run it: a server admin, or a project admin who administers every project you belong to; the server's operator can also change authorized_keys on the server"
 	listFix := func(who string) string {
-		return "ask a server admin, or a project admin who administers every project the principal belongs to; `sfx admin key list " + who + "` lists your own"
+		return "ask a server admin, or an admin of a project the principal belongs to; `sfx admin key list " + who + "` lists your own"
 	}
 	for _, tc := range []struct {
 		name string
@@ -302,11 +302,13 @@ func TestAdminKeyCommands(t *testing.T) {
 		fix  string
 	}{
 		{"a member lists another's keys", carol, []string{"admin", "key", "list", "bob"}, proto.CodeForbidden,
-			"carol may not list the keys of bob: it is for the principal, for an admin who manages it, and for server admins", listFix("carol")},
+			"carol may not list the keys of bob: it is for the principal, for an admin of a project it belongs to, and for server admins", listFix("carol")},
 		{"an admin of another project lists them", erin, []string{"admin", "key", "list", "bob"}, proto.CodeForbidden,
-			"erin may not list the keys of bob: it is for the principal, for an admin who manages it, and for server admins", listFix("erin")},
-		{"an admin without reach lists them", alice, []string{"admin", "key", "list", "carol"}, proto.CodeForbidden,
-			"alice may not list the keys of carol: it is for the principal, for an admin who manages it, and for server admins", listFix("alice")},
+			"erin may not list the keys of bob: it is for the principal, for an admin of a project it belongs to, and for server admins", listFix("erin")},
+		// An admin of a project the principal is in lists them, with or
+		// without reach (decision 36): alice and carol, below the table.
+		{"an admin lists the keys of someone the server has never heard of", alice, []string{"admin", "key", "list", "nobody"}, proto.CodeForbidden,
+			"alice may not list the keys of nobody: it is for the principal, for an admin of a project it belongs to, and for server admins", listFix("alice")},
 		{"a member adds a key to another", carol, []string{"admin", "key", "add", "bob", fourth.pub()}, proto.CodeForbidden,
 			"carol may not add a key to bob: it is for project admins and server admins",
 			"ask a server admin to run it, or a project admin who administers every project the principal belongs to"},
@@ -352,6 +354,11 @@ func TestAdminKeyCommands(t *testing.T) {
 	}
 	if _, err := w.ctl.Principal(t.Context(), "hal"); err == nil {
 		t.Error("principal add with a private key file added the principal")
+	}
+	// alice administers a project carol is in, and has no reach over her:
+	// she may list carol's keys, which sign in to her project too.
+	if got := alice.ok("admin", "key", "list", "carol"); !strings.Contains(got, "carol") {
+		t.Errorf("key list carol by an admin of one of her projects:\n%s", got)
 	}
 
 	// key remove, by an admin with reach, in text and --json.

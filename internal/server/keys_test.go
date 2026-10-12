@@ -263,7 +263,7 @@ func TestKeyOps(t *testing.T) {
 	const (
 		ownFix   = "ask another admin to run it: a server admin, or a project admin who administers every project you belong to; the server's operator can also change authorized_keys on the server"
 		reachFix = "check the name, or ask a server admin to run it; a project admin may only while every project the principal belongs to is one they administer"
-		listFix  = "ask a server admin, or a project admin who administers every project the principal belongs to; `sfx admin key list %s` lists your own"
+		listFix  = "ask a server admin, or an admin of a project the principal belongs to; `sfx admin key list %s` lists your own"
 	)
 	seq := func() int {
 		t.Helper()
@@ -307,12 +307,12 @@ func TestKeyOps(t *testing.T) {
 			"bob may not remove that key: it is for project admins and server admins",
 			"ask a server admin to run it, or a project admin who administers every project the principal belongs to"},
 		{"a member lists another's keys", "bob", proto.OpKeys, proto.KeysArgs{Name: "carol"}, proto.CodeForbidden,
-			"bob may not list the keys of carol: it is for the principal, for an admin who manages it, and for server admins", strings.ReplaceAll(listFix, "%s", "bob")},
-		{"a project admin lists keys out of reach", "alice", proto.OpKeys, proto.KeysArgs{Name: "carol"}, proto.CodeForbidden,
-			"alice may not list the keys of carol: it is for the principal, for an admin who manages it, and for server admins", strings.ReplaceAll(listFix, "%s", "alice")},
+			"bob may not list the keys of carol: it is for the principal, for an admin of a project it belongs to, and for server admins", strings.ReplaceAll(listFix, "%s", "bob")},
+		{"a project admin lists the keys of someone in none of their projects", "alice", proto.OpKeys, proto.KeysArgs{Name: "frank"}, proto.CodeForbidden,
+			"alice may not list the keys of frank: it is for the principal, for an admin of a project it belongs to, and for server admins", strings.ReplaceAll(listFix, "%s", "alice")},
 		// A name no one has is refused as one out of reach is.
 		{"a project admin lists the keys of no one", "alice", proto.OpKeys, proto.KeysArgs{Name: "zed"}, proto.CodeForbidden,
-			"alice may not list the keys of zed: it is for the principal, for an admin who manages it, and for server admins", strings.ReplaceAll(listFix, "%s", "alice")},
+			"alice may not list the keys of zed: it is for the principal, for an admin of a project it belongs to, and for server admins", strings.ReplaceAll(listFix, "%s", "alice")},
 		{"a server admin lists the keys of no one", "dana", proto.OpKeys, proto.KeysArgs{Name: "zed"}, proto.CodeNotFound,
 			"principal zed not found", "check the name; a server admin lists them with `sfx admin principal list`"},
 		{"a server admin removes a key no one has", "dana", proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: fingerprintOf(t, "nobody")}, proto.CodeNotFound,

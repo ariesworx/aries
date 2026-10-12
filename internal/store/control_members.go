@@ -67,7 +67,45 @@ func validMember(principal, project string) error {
 // ErrNotFound. A membership that already has the role is returned as it
 // is, and a new one past ControlLimits.Members is refused with a
 // [*ControlLimitError].
+//
+// A key reaches every project its principal is in, so a new membership
+// brings the principal's keys with it. SetMember adds whatever keys the
+// principal has: it is for a caller that has accepted them, or acts for
+// the operator. [Control.ProposeMember] is for one that has not.
 func (c *Control) SetMember(ctx context.Context, actor Actor, principal, project string, role Role) (Member, error) {
+	return c.setMember(ctx, actor, principal, project, role, true)
+}
+
+// ProposeMember is [Control.SetMember] for a caller that has not been
+// shown the principal's keys (decision 36). When the write would make a
+// new membership and the principal has any key, it writes nothing and
+// returns a [*CarriedKeysError] with every one of them; the caller shows
+// them and, once they are accepted, calls SetMember. Who may is decided
+// first, as SetMember decides it, so a caller who may not add the
+// principal is shown no key. A principal with no key is added, and a
+// role is changed, at once.
+func (c *Control) ProposeMember(ctx context.Context, actor Actor, principal, project string, role Role) (Member, error) {
+	return c.setMember(ctx, actor, principal, project, role, false)
+}
+
+// CarriedKeysError refuses to make Principal a member of Project until
+// the caller accepts Keys, every key Principal has, oldest first: each
+// would sign in to Project too (decision 36). It wraps ErrConflict.
+type CarriedKeysError struct {
+	Principal string
+	Project   string
+	Keys      []PrincipalKey
+}
+
+func (e *CarriedKeysError) Error() string {
+	return fmt.Sprintf("%v: %s has %d keys that would reach project %s, and they were not accepted", ErrConflict, e.Principal, len(e.Keys), e.Project)
+}
+
+// Unwrap makes errors.Is(err, ErrConflict) hold.
+func (e *CarriedKeysError) Unwrap() error { return ErrConflict }
+
+// setMember is SetMember, and ProposeMember when accepted is false.
+func (c *Control) setMember(ctx context.Context, actor Actor, principal, project string, role Role, accepted bool) (Member, error) {
 	if err := validMember(principal, project); err != nil {
 		return Member{}, err
 	}
@@ -97,6 +135,17 @@ func (c *Control) SetMember(ctx context.Context, actor Actor, principal, project
 			}
 			if err := w.memberRoom(ctx, project); err != nil {
 				return err
+			}
+			if !accepted {
+				// Read in the write's transaction: the keys shown are
+				// the keys there when it was decided.
+				keys, err := keysOf(ctx, w.tx, principal)
+				if err != nil {
+					return err
+				}
+				if len(keys) > 0 {
+					return &CarriedKeysError{Principal: principal, Project: project, Keys: keys}
+				}
 			}
 			out, err = w.addMember(ctx, principal, project, role)
 			return err

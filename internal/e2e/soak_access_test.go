@@ -141,7 +141,8 @@ func (s *soak) setup() {
 			call(proto.OpMemberSet, proto.MemberSetArgs{Name: name, Project: first.id, Role: string(store.RoleAdmin)}, nil)
 		}
 		for i := 1; i < len(in); i++ {
-			call(proto.OpMemberSet, proto.MemberSetArgs{Name: name, Project: byLetter[in[i]].id}, nil)
+			// The setup, as a script: the keys it just gave are accepted.
+			call(proto.OpMemberSet, proto.MemberSetArgs{Name: name, Project: byLetter[in[i]].id, AcceptKeys: true}, nil)
 		}
 		return users
 	}
@@ -272,6 +273,9 @@ type accessStats struct {
 	// warned counts the removals of a key still in authorized_keys that
 	// warned of it.
 	warned atomic.Int64
+	// shown counts the times a principal was added again only after its
+	// keys were shown and accepted (decision 36).
+	shown atomic.Int64
 }
 
 // acall is the conductor's or a probe's connection as one principal:
@@ -563,14 +567,54 @@ func (cd *conductor) membership(principal string, p *sproj, by *acall) {
 
 	// By a server admin: a project admin may not place a principal that
 	// is left in no project and that they did not create (decision 17).
-	var set proto.MemberSetResult
-	if out, perr, _ := cd.root.do(proto.OpMemberSet, proto.MemberSetArgs{Name: principal, Project: p.id}, &set); out != acked {
-		s.mon.fail("", "%s, and could not add it again: %v, %v", why, out, perr)
+	// Shown its keys and not yet accepted, it is still refused.
+	if !cd.join(principal, p, why, func() {
+		cd.dial(principal, p, proto.CodeForbidden, why+", and was shown its keys without accepting them")
+	}) {
 		return
 	}
 	if c := cd.dial(principal, p, "", why+", and added it again"); c != nil {
 		_ = c.Close()
 	}
+}
+
+// join adds principal to p as root, the way an admin at a terminal does
+// (decision 36). The first request accepts no keys: it must add a
+// principal that has none, and must not add one that has any, answering
+// with every key instead, the one the soak gave it among them. unaccepted,
+// if set, runs then, before the second request accepts. It reports
+// whether principal was added.
+func (cd *conductor) join(principal string, p *sproj, why string, unaccepted func()) bool {
+	s := cd.s
+	args := proto.MemberSetArgs{Name: principal, Project: p.id}
+	var set proto.MemberSetResult
+	if out, perr, _ := cd.root.do(proto.OpMemberSet, args, &set); out != acked {
+		s.mon.fail("", "%s, and could not add it again: %v, %v", why, out, perr)
+		return false
+	}
+	fp := s.storeKey[principal]
+	if set.Change != proto.MemberPending {
+		if fp != "" {
+			s.mon.fail("", "%s: %s, who has key %s in the store, was added again (%s) by a request that accepted no keys", why, principal, fp, set.Change)
+		}
+		return true
+	}
+	s.acc.shown.Add(1)
+	if fp != "" && !slices.ContainsFunc(set.Carried, func(k proto.CarriedKey) bool { return k.Fingerprint == fp && k.AddedBy != "" }) {
+		s.mon.fail("", "%s: adding it again showed %+v, without its key %s and who added it", why, set.Carried, fp)
+	}
+	if len(set.Carried) == 0 {
+		s.mon.fail("", "%s: adding it again is pending on keys, and none was shown", why)
+	}
+	if unaccepted != nil {
+		unaccepted()
+	}
+	args.AcceptKeys = true
+	if out, perr, _ := cd.root.do(proto.OpMemberSet, args, &set); out != acked {
+		s.mon.fail("", "%s, and could not add it again, accepting its keys: %v, %v", why, out, perr)
+		return false
+	}
+	return true
 }
 
 // disable disables principal, checks that every connection it has
@@ -896,13 +940,7 @@ func (cd *conductor) closedStore() {
 		return
 	}
 	s.acc.quiet.Add(1)
-	restore := func() {
-		var set proto.MemberSetResult
-		if out, perr, _ := cd.root.do(proto.OpMemberSet, proto.MemberSetArgs{Name: "frank", Project: p.id}, &set); out != acked {
-			s.mon.fail("", "%s, and could not add him again: %v, %v", why, out, perr)
-		}
-	}
-	defer restore()
+	defer cd.join("frank", p, why, nil)
 	if !resent && rm.Released != 0 {
 		s.mon.fail(id, "%s: the removal says it released %d claims, in a store that was closed", why, rm.Released)
 	}
@@ -1186,7 +1224,8 @@ func (s *soak) reportAccess(b *bytes.Buffer) {
 		}
 	}
 	s.mon.mu.Unlock()
-	fmt.Fprintf(b, "\n  access: %d memberships removed and added, %d principals disabled and enabled, %d keys removed and added, %d removals of a key still in authorized_keys (%d warned), %d demotions and promotions, %d archives and activations (%d with the claims left to the activation), %d removals with the store closed; %d status reports\n",
+	fmt.Fprintf(b, "\n  access: %d members added only once their keys were shown and accepted\n", a.shown.Load())
+	fmt.Fprintf(b, "  access: %d memberships removed and added, %d principals disabled and enabled, %d keys removed and added, %d removals of a key still in authorized_keys (%d warned), %d demotions and promotions, %d archives and activations (%d with the claims left to the activation), %d removals with the store closed; %d status reports\n",
 		a.removals.Load(), a.disables.Load(), a.keyRemovals.Load(), a.fileKeys.Load(), a.warned.Load(), a.demotions.Load(), a.archives.Load(), a.archivesLate.Load(), a.quiet.Load(), a.statuses.Load())
 	fmt.Fprintf(b, "  access: %d connections seen to close as access ended, %d handshakes refused and %d admitted right after a change; %d session handshakes, %d let in; claims released for lost access %v, %d of them by the server's sweep; slowest release %s after the change was acknowledged\n",
 		a.closed.Load(), a.refusals.Load(), a.admissions.Load(), dials, welcomed, byReason, byServer, time.Duration(a.slowest.Load()).Round(time.Millisecond))

@@ -489,7 +489,22 @@ func memberSet(ctx context.Context, s *Server, sess *session, in proto.MemberSet
 	if err != nil {
 		return nil, s.ctlErr(ctx, sess, op, err)
 	}
-	m, err := ctl.SetMember(ctx, a, in.Name, p.ID, role)
+	// A key signs in to every project its principal is in. So a new
+	// member's keys are shown to whoever adds them, reach or no reach,
+	// and the membership is made only once they are accepted (decision
+	// 36). The store decides who may add the principal before it shows
+	// anything.
+	set := ctl.ProposeMember
+	if in.AcceptKeys {
+		set = ctl.SetMember
+	}
+	m, err := set(ctx, a, in.Name, p.ID, role)
+	if unseen, ok := errors.AsType[*store.CarriedKeysError](err); ok {
+		out := proto.MemberSetResult{ID: in.Name, Project: p.ID, ProjectName: p.Name, Role: string(role), Change: proto.MemberPending,
+			Carried: s.wireCarried(unseen.Keys, p.ID)}
+		out.Projects, _ = s.carried(ctx, in.Name, "")
+		return out, nil
+	}
 	if err != nil {
 		return nil, s.ctlErr(ctx, sess, op, err)
 	}
@@ -497,40 +512,45 @@ func memberSet(ctx context.Context, s *Server, sess *session, in proto.MemberSet
 	switch {
 	case !was:
 		out.Change = "added"
-		out.Projects, out.Keys = s.keysCarried(ctx, a.Principal, m.Principal)
+		// Read after the write: a key added since the keys were shown is
+		// in the answer.
+		out.Projects, out.Carried = s.carried(ctx, m.Principal, p.ID)
 	case had != m.Role:
 		out.Change = "changed"
 	}
 	return out, nil
 }
 
-// keysCarried returns, for a principal just added to a project, how
-// many projects it now belongs to and the fingerprints of the keys
-// recorded for it, when that is more than one project and admin may see
-// its keys: a server admin, or a project admin with reach over it. A
-// key reaches every project its principal is in, so the admin who adds
-// someone from another project should see what comes with them. A
-// failure is logged and shows nothing: the membership was added.
-func (s *Server) keysCarried(ctx context.Context, admin, principal string) (int, []string) {
+// carried returns how many projects principal belongs to and, when
+// joined names the project it was just added to, the keys that came with
+// it. A failure is logged and shows nothing: the membership was added.
+func (s *Server) carried(ctx context.Context, principal, joined string) (int, []proto.CarriedKey) {
 	ctl := s.cfg.Control
 	of, err := ctl.ProjectsOf(ctx, principal)
 	if err != nil {
 		s.cfg.Logger.Error("read the projects of a new member", "principal", principal, "err", err)
 		return 0, nil
 	}
-	if len(of) < 2 || !ctl.Reaches(admin, principal) {
-		return 0, nil
+	if joined == "" {
+		return len(of), nil
 	}
 	keys, err := ctl.Keys(ctx, principal)
 	if err != nil {
 		s.cfg.Logger.Error("read the keys of a new member", "principal", principal, "err", err)
-		return 0, nil
+		return len(of), nil
 	}
-	fps := make([]string, 0, len(keys))
+	return len(of), s.wireCarried(keys, joined)
+}
+
+// wireCarried is the keys of a principal joining project, each with
+// whether whoever added it has an admin's rights in project now.
+func (s *Server) wireCarried(keys []store.PrincipalKey, project string) []proto.CarriedKey {
+	var out []proto.CarriedKey
 	for _, k := range keys {
-		fps = append(fps, k.Fingerprint)
+		out = append(out, proto.CarriedKey{Fingerprint: k.Fingerprint, Type: keyType(k.Key), Comment: k.Comment, AddedBy: k.AddedBy, AddedAt: k.AddedAt,
+			AdderAdministers: s.cfg.Control.Access(k.AddedBy, project).Role == store.RoleAdmin})
 	}
-	return len(of), fps
+	return out
 }
 
 // members lists a project's members, for its admins and server admins.
@@ -629,17 +649,20 @@ func keyType(key string) string {
 	return t
 }
 
-// keys lists a principal's keys: for a server admin, for an admin with
-// reach over the principal, and for the principal itself. Anyone else
-// is refused the same way whether or not the principal exists.
+// keys lists a principal's keys: for a server admin, for the principal
+// itself, and for an admin of an active project the principal belongs
+// to. Each of a member's keys signs in to the project, so its admin may
+// see them all, though only an admin with reach over the principal may
+// change them (decision 36). Anyone else is refused the same way whether
+// or not the principal exists.
 func keys(ctx context.Context, s *Server, sess *session, in proto.KeysArgs) (any, *proto.Error) {
 	const op = proto.OpKeys
 	ctl, actor := s.cfg.Control, sess.actor.Principal
 	admin := ctl.IsServerAdmin(actor)
-	if !admin && actor != in.Name && !ctl.Reaches(actor, in.Name) {
+	if !admin && actor != in.Name && !ctl.AdministersProjectOf(actor, in.Name) {
 		return nil, proto.Errf(proto.CodeForbidden,
-			"ask a server admin, or a project admin who administers every project the principal belongs to; `sfx admin key list "+actor+"` lists your own",
-			fmt.Sprintf("%s may not list the keys of %s: it is for the principal, for an admin who manages it, and for server admins", actor, in.Name))
+			"ask a server admin, or an admin of a project the principal belongs to; `sfx admin key list "+actor+"` lists your own",
+			fmt.Sprintf("%s may not list the keys of %s: it is for the principal, for an admin of a project it belongs to, and for server admins", actor, in.Name))
 	}
 	all, err := ctl.Keys(ctx, in.Name)
 	if err == nil && admin && len(all) == 0 {

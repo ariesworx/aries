@@ -134,7 +134,7 @@ func TestAdminCommands(t *testing.T) {
 	}
 	set := decode[proto.MemberSetResult](t, dana.ok("admin", "member", "add", "ci-bot", "--project", "first", "--json"))
 	if set.ID != "ci-bot" || set.Rev != 1 || set.Project != project || set.ProjectName != "first" || set.Role != "member" || set.Change != "added" ||
-		set.Projects != 0 || set.Keys != nil {
+		set.Projects != 1 || set.Carried != nil {
 		t.Errorf("member add --json: %+v", set)
 	}
 	members := dana.ok("admin", "member", "list")
@@ -335,8 +335,8 @@ func TestAdminProjectAdd(t *testing.T) {
 	if e := aliceWeb.refused(proto.CodeForbidden, "list"); !strings.Contains(e.Fix, "`sfx admin member add alice`") {
 		t.Errorf("alice in the new project before she is a member: %+v", e)
 	}
-	if got := inWeb.ok("admin", "member", "add", "alice"); got != "alice added to project web as member\n"+
-		"alice belongs to 2 projects; no key is recorded for alice\n" {
+	// alice has no key in the store, so there is nothing to accept.
+	if got := inWeb.ok("admin", "member", "add", "alice"); got != "alice added to project web as member\n" {
 		t.Errorf("member add in the new project, from its repository: %q", got)
 	}
 	if l := decode[proto.ListResult](t, aliceWeb.ok("list", "--json")); len(l.Issues) != 1 || l.Issues[0].ID != issue.ID {
@@ -543,26 +543,82 @@ func TestAdminPrompts(t *testing.T) {
 	erin.ok("admin", "principal", "disable", "carol")
 	erin.ok("admin", "principal", "enable", "carol")
 
-	// Back in a second project, her keys come with her.
-	if got := d.ok("admin", "member", "add", "carol"); got != "carol added to project first as member\n"+
-		"carol belongs to 2 projects, and each key recorded for carol now reaches this one too:\n  "+fp+"\n" {
-		t.Errorf("member add of someone from another project: %q", got)
+	// Back in a second project, her keys would come with her: they are
+	// shown, and she is not added until they are accepted (decision 36).
+	// A project admin who does not administer her other project, and so
+	// may not change her keys, is shown them all the same.
+	w.member("alice", project, store.RoleAdmin)
+	alice := w.newUser("alice", "")
+	isMember := func() bool {
+		t.Helper()
+		_, ok, err := w.ctl.Role(t.Context(), "carol", project)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ok
 	}
-	// In --json the warning and the keys are in the one document.
+	header := "carol has 1 key, and each would sign in to project first too:\n"
+	row := regexp.MustCompile(`^FINGERPRINT +TYPE +COMMENT +ADDED BY +ADDED +ADMIN HERE\n` +
+		regexp.QuoteMeta(fp) + ` +ssh-ed25519 +carol@example\.com +dana +\d{4}-\d\d-\d\d \d\d:\d\d UTC +yes\n$`)
+	const notAdded = "sfx: carol was not added to project first: it has 1 key, and each would sign in to the project too\n" +
+		"fix: check each key with carol, then run `sfx admin member add carol --accept-keys`; on a terminal, without --json, sfx shows the keys and asks\n"
+
+	// Without a terminal: the keys, and a refusal that names the flag.
+	r = alice.run("v0.2.0", "admin", "member", "add", "carol")
+	table, found := strings.CutPrefix(r.stdout, header)
+	if r.code != cli.ExitFailure || !found || !row.MatchString(table) || r.stderr != notAdded || isMember() {
+		t.Errorf("member add of someone with a key, with no terminal: exit %d, carol a member %t\nstdout %q\nstderr %q", r.code, isMember(), r.stdout, r.stderr)
+	}
+	// With --json: one document, the refusal and the keys.
+	r = alice.run("v0.2.0", "--json", "admin", "member", "add", "carol")
+	doc := decode[struct {
+		Error  proto.Error           `json:"error"`
+		Member proto.MemberSetResult `json:"member"`
+	}](t, r.stdout)
+	if r.code != cli.ExitFailure || r.stderr != "" || doc.Error.Code != proto.CodeConflict || !strings.Contains(doc.Error.Fix, "--accept-keys") ||
+		doc.Member.Change != proto.MemberPending || len(doc.Member.Carried) != 1 || doc.Member.Carried[0].Fingerprint != fp ||
+		doc.Member.Carried[0].AddedBy != "dana" || !doc.Member.Carried[0].AdderAdministers || isMember() {
+		t.Errorf("member add --json of someone with a key: exit %d, carol a member %t\nstdout %q\nstderr %q", r.code, isMember(), r.stdout, r.stderr)
+	}
+	// On a terminal it asks. Anything but yes adds nothing.
+	alice.terminal = true
+	for _, answer := range []string{"n\n", "\n", "sure\n", "y"} { // the last has no newline: the input ended mid-line
+		alice.stdin = answer
+		r = alice.run("v0.2.0", "admin", "member", "add", "carol")
+		if r.code != cli.ExitFailure || !strings.HasSuffix(r.stdout, "Add carol to project first with these keys? [y/N] ") ||
+			r.stderr != "sfx: carol was not added to project first\nfix: nothing changed; run the command again to add them\n" || isMember() {
+			t.Errorf("member add on a terminal, answering %q: exit %d, carol a member %t\nstdout %q\nstderr %q", answer, r.code, isMember(), r.stdout, r.stderr)
+		}
+	}
+	alice.stdin = "y\n"
+	r = alice.run("v0.2.0", "admin", "member", "add", "carol")
+	asked, added, found := strings.Cut(r.stdout, "Add carol to project first with these keys? [y/N] ")
+	now, foundNow := strings.CutPrefix(added, "carol added to project first as member\ncarol now signs in to project first with 1 key:\n")
+	if r.code != cli.ExitOK || !found || !strings.HasPrefix(asked, header) || !foundNow || !row.MatchString(now) || r.stderr != "" || !isMember() {
+		t.Errorf("member add on a terminal, answering y: exit %d, carol a member %t\nstdout %q\nstderr %q", r.code, isMember(), r.stdout, r.stderr)
+	}
+	alice.terminal, alice.stdin = false, ""
+
+	// A script adds on purpose with --accept-keys, and is never asked.
 	rm := decode[proto.MemberRemoveResult](t, d.ok("--json", "admin", "member", "remove", "carol"))
 	if rm.Warning != warning {
 		t.Errorf("member remove --json: %+v", rm)
 	}
-	set := decode[proto.MemberSetResult](t, d.ok("--json", "admin", "member", "add", "carol"))
-	if set.Projects != 2 || !slices.Equal(set.Keys, []string{fp}) {
-		t.Errorf("member add --json: %+v, want 2 projects and the key %s", set, fp)
+	set := decode[proto.MemberSetResult](t, d.ok("--json", "admin", "member", "add", "carol", "--accept-keys"))
+	if set.Change != "added" || set.Projects != 2 || len(set.Carried) != 1 || set.Carried[0].Fingerprint != fp {
+		t.Errorf("member add --accept-keys --json: %+v, want added, 2 projects and the key %s", set, fp)
 	}
-	// A project admin who does not administer her other project is not
-	// shown them.
-	w.member("alice", project, store.RoleAdmin)
-	d.ok("admin", "member", "remove", "carol")
-	if got := w.newUser("alice", "").ok("admin", "member", "add", "carol"); got != "carol added to project first as member\n" {
-		t.Errorf("member add by an admin without reach over her: %q", got)
+	// A role change of a member asks nothing.
+	if got := d.ok("admin", "member", "add", "carol", "--role", "admin"); got != "carol is now admin in project first\n" {
+		t.Errorf("member add --role admin of a member with a key: %q", got)
+	}
+	// alice may now list carol's keys, as an admin of a project carol is
+	// in, and still may not change them.
+	if got := alice.ok("admin", "key", "list", "carol"); !strings.Contains(got, fp) {
+		t.Errorf("key list carol by an admin of one of her projects:\n%s", got)
+	}
+	if e := alice.refused(proto.CodeForbidden, "admin", "key", "remove", fp); !strings.Contains(e.Message, "alice may not remove that key") {
+		t.Errorf("key remove of carol's key by alice: %+v", e)
 	}
 }
 

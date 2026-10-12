@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -26,7 +27,7 @@ var adminGroups = []string{"prices", "plans", "project", "principal", "member", 
 // adminUsage is the usage of the access commands, for the command table.
 const adminUsage = "admin project add NAME [--prefix P] [--account A] | list | archive PROJECT | activate PROJECT" +
 	" | admin principal add NAME [--key FILE]... [--project P | --no-project] | list | disable NAME | enable NAME" +
-	" | admin member add NAME [--project P] [--role admin] | list [--project P] | remove NAME [--project P]" +
+	" | admin member add NAME [--project P] [--role admin] [--accept-keys] | list [--project P] | remove NAME [--project P]" +
 	" | admin key add NAME FILE|- | list NAME | remove FINGERPRINT" +
 	" | admin status [-n N] [--after NAME]"
 
@@ -308,10 +309,11 @@ func printPrincipals(w io.Writer, res proto.PrincipalsResult) {
 }
 
 func adminMember(ctx context.Context, r *runner, args []string) error {
-	const usage = "admin member add NAME [--project P] [--role member|admin] | list [--project P] [-n N] [--after NAME] | remove NAME [--project P]"
+	const usage = "admin member add NAME [--project P] [--role member|admin] [--accept-keys] | list [--project P] [-n N] [--after NAME] | remove NAME [--project P]"
 	fs := r.newFlags("admin member")
 	project := fs.String("project", "", "the project: a UUID or a name (default: this repository's)")
 	role := fs.String("role", "member", "member or admin")
+	accept := fs.Bool("accept-keys", false, "add a principal who has keys without being shown them and asked: each of its keys signs in to the project too")
 	list := listFlags(fs)
 	pos, err := parse(fs, args, usage)
 	if err != nil {
@@ -322,7 +324,7 @@ func adminMember(ctx context.Context, r *runner, args []string) error {
 	}
 	switch pos[0] {
 	case "add":
-		if err := only(fs, usage, "member add", "project", "role"); err != nil {
+		if err := only(fs, usage, "member add", "project", "role", "accept-keys"); err != nil {
 			return err
 		}
 		switch {
@@ -331,9 +333,13 @@ func adminMember(ctx context.Context, r *runner, args []string) error {
 		case *role != "member" && *role != "admin":
 			return usagef(usage, "--role must be member or admin")
 		}
+		in := proto.MemberSetArgs{Name: pos[1], Project: *project, Role: *role, AcceptKeys: *accept}
 		var out proto.MemberSetResult
-		if err := r.call(ctx, proto.OpMemberSet, proto.MemberSetArgs{Name: pos[1], Project: *project, Role: *role}, &out); err != nil {
+		if err := r.call(ctx, proto.OpMemberSet, in, &out); err != nil {
 			return err
+		}
+		if out.Change == proto.MemberPending {
+			return memberPending(ctx, r, in, out)
 		}
 		if r.json {
 			r.emit(out)
@@ -381,9 +387,87 @@ func adminMember(ctx context.Context, r *runner, args []string) error {
 	return usagef(usage, "unknown member action %q", pos[0])
 }
 
-// printMemberSet says what member add did, and, when the principal came
-// from another project, which keys came with it: a key reaches every
-// project its principal is in.
+// memberPending handles a `member add` the server did not make, because
+// the principal has keys and each would sign in to the project too
+// (design §14, decision 36). It shows the keys. On a terminal it asks,
+// and adds the principal on a yes. Anywhere else it refuses, naming
+// --accept-keys, so that a script never adds by accident and can add on
+// purpose; with --json the one document holds the refusal and the keys.
+func memberPending(ctx context.Context, r *runner, in proto.MemberSetArgs, shown proto.MemberSetResult) error {
+	again := "sfx admin member add " + in.Name
+	if in.Project != "" {
+		again += " --project " + in.Project
+	}
+	if in.Role == "admin" {
+		again += " --role admin"
+	}
+	refusal := proto.Errf(proto.CodeConflict,
+		fmt.Sprintf("check each key with %s, then run `%s --accept-keys`; on a terminal, without --json, sfx shows the keys and asks", in.Name, again),
+		fmt.Sprintf("%s was not added to project %s: it has %s, and each would sign in to the project too", shown.ID, shown.ProjectName, count(len(shown.Carried), "key")))
+	if r.json {
+		return &refusedWith{err: refusal, key: "member", value: shown}
+	}
+	out := r.env.Stdout
+	_, _ = fmt.Fprintf(out, "%s has %s, and each would sign in to project %s too:\n", esc(shown.ID), count(len(shown.Carried), "key"), esc(shown.ProjectName))
+	printCarried(out, shown)
+	if !r.env.Terminal() {
+		return refusal
+	}
+	_, _ = fmt.Fprintf(out, "Add %s to project %s with these keys? [y/N] ", esc(shown.ID), esc(shown.ProjectName))
+	r.flush()
+	// A line that was not finished, or could not be read, is a no.
+	line, err := bufio.NewReader(r.env.Stdin).ReadString('\n')
+	if a := strings.ToLower(strings.TrimSpace(line)); err != nil || (a != "y" && a != "yes") {
+		return proto.Errf(proto.CodeConflict, "nothing changed; run the command again to add them",
+			fmt.Sprintf("%s was not added to project %s", shown.ID, shown.ProjectName))
+	}
+	in.AcceptKeys = true
+	var added proto.MemberSetResult
+	if err := r.call(ctx, proto.OpMemberSet, in, &added); err != nil {
+		return err
+	}
+	printMemberSet(out, added)
+	// A key added between the question and the answer came in unseen.
+	for _, k := range added.Carried {
+		if !slices.ContainsFunc(shown.Carried, func(s proto.CarriedKey) bool { return s.Fingerprint == k.Fingerprint }) {
+			r.warn(fmt.Sprintf("key %s was added to %s by %s after you were asked, and signs in to project %s too; check it, or undo with `sfx admin member remove %s`",
+				k.Fingerprint, added.ID, k.AddedBy, added.ProjectName, added.ID))
+		}
+	}
+	return nil
+}
+
+// count is "1 key" or "3 keys".
+func count(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+// printCarried lists the keys of a principal joining a project: who
+// added each and when, and whether that was an admin of the project. A
+// line after the table says what a "no" means.
+func printCarried(w io.Writer, m proto.MemberSetResult) {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "FINGERPRINT\tTYPE\tCOMMENT\tADDED BY\tADDED\tADMIN HERE")
+	other := false
+	for _, k := range m.Carried {
+		here := "yes"
+		if !k.AdderAdministers {
+			here, other = "no", true
+		}
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", esc(k.Fingerprint), esc(k.Type), esc(k.Comment), esc(k.AddedBy), when(k.AddedAt), here)
+	}
+	_ = tw.Flush()
+	if other {
+		_, _ = fmt.Fprintf(w, "ADMIN HERE no: whoever added the key is no admin of project %s; ask %s whether the key is theirs\n", esc(m.ProjectName), esc(m.ID))
+	}
+}
+
+// printMemberSet says what member add did, and which keys came with a
+// principal it added: a key signs in to every project its principal is
+// in.
 func printMemberSet(w io.Writer, m proto.MemberSetResult) {
 	p := func(format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }
 	switch m.Change {
@@ -394,15 +478,9 @@ func printMemberSet(w io.Writer, m proto.MemberSetResult) {
 	default:
 		p("%s is already %s in project %s\n", esc(m.ID), esc(m.Role), esc(m.ProjectName))
 	}
-	switch {
-	case m.Projects < 2:
-	case len(m.Keys) == 0:
-		p("%s belongs to %d projects; no key is recorded for %s\n", esc(m.ID), m.Projects, esc(m.ID))
-	default:
-		p("%s belongs to %d projects, and each key recorded for %s now reaches this one too:\n", esc(m.ID), m.Projects, esc(m.ID))
-		for _, k := range m.Keys {
-			p("  %s\n", esc(k))
-		}
+	if len(m.Carried) > 0 {
+		p("%s now signs in to project %s with %s:\n", esc(m.ID), esc(m.ProjectName), count(len(m.Carried), "key"))
+		printCarried(w, m)
 	}
 }
 
