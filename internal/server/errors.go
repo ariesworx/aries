@@ -73,8 +73,11 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 
 	case errors.As(err, &controlCap):
 		fix := fmt.Sprintf("ask the server's operator to raise %s under limits: in starfixd's config", controlCap.Limit)
-		if controlCap.Limit == "keys_per_principal" {
+		switch controlCap.Limit {
+		case "keys_per_principal":
 			fix = "remove a key the principal no longer uses with `sfx admin key remove FINGERPRINT`, or " + fix
+		case "principals_per_creator":
+			fix = "ask a server admin to add the principal, or the server's operator to raise principals_per_creator under limits: in starfixd's config"
 		}
 		return proto.Errf(proto.CodeInvalid, fix, strings.TrimPrefix(text, store.ErrInvalid.Error()+": "))
 

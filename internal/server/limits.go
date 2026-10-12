@@ -45,7 +45,8 @@ type Limits struct {
 	// The rest apply to a server of many projects (control_db) only.
 
 	// Control bounds the rows of the control store: projects,
-	// principals, keys a principal and members a project.
+	// principals, principals one creator who is no server admin makes,
+	// keys a principal and members a project.
 	Control store.ControlLimits `yaml:",inline"`
 	// OpenStores caps the project stores open at once. At the cap, a
 	// handshake for another project closes the longest-idle store with
@@ -100,6 +101,7 @@ func (l Limits) WithDefaults() Limits {
 		{&l.Prices, &d.Prices}, {&l.HoursPerDay, &d.HoursPerDay}, {&l.HoursNote, &d.HoursNote}, {&l.Plans, &d.Plans},
 		{&l.PlanPrincipals, &d.PlanPrincipals},
 		{&l.Control.Projects, &d.Control.Projects}, {&l.Control.Principals, &d.Control.Principals},
+		{&l.Control.PrincipalsPerCreator, &d.Control.PrincipalsPerCreator},
 		{&l.Control.Keys, &d.Control.Keys}, {&l.Control.Members, &d.Control.Members}, {&l.OpenStores, &d.OpenStores},
 		{&l.ControlWriteBurst, &d.ControlWriteBurst},
 	} {

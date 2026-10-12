@@ -60,7 +60,8 @@ func validPrincipal(name string) error {
 // admin's name. A name in use is refused with a [*TakenError], which
 // tells the caller that it exists; a project that does not exist with
 // ErrNotFound; and a row past ControlLimits.Principals,
-// ControlLimits.Members or ControlLimits.Keys with a
+// ControlLimits.Members or ControlLimits.Keys, or, for an actor who is
+// no server admin, past ControlLimits.PrincipalsPerCreator, with a
 // [*ControlLimitError]. Keys are refused as AddKey refuses them, and an
 // actor who names themselves with keys is refused too (decision 19): a
 // server admin the config file names may have no row yet.
@@ -114,6 +115,14 @@ func (c *Control) AddPrincipal(ctx context.Context, actor Actor, name, project s
 		}
 		if err := w.room(ctx, limitPrincipals, w.lim.Principals, `SELECT COUNT(*) FROM principals`); err != nil {
 			return err
+		}
+		if !w.admin {
+			// No op deletes a principal, so each creator who is no server
+			// admin has an allowance of their own within the server's.
+			if err := w.room(ctx, limitPerCreator, w.lim.PrincipalsPerCreator,
+				`SELECT COUNT(*) FROM principals WHERE created_by = ?`, w.actor.Principal); err != nil {
+				return err
+			}
 		}
 		if project != "" {
 			if err := w.memberRoom(ctx, project); err != nil {

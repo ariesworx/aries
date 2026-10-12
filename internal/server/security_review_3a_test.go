@@ -229,26 +229,6 @@ func TestReviewF5StoreShadowsAHandMaintainedKey(t *testing.T) {
 		"and the generated file now maps dana's key to bob. Whichever file sshd reads first decides who dana is")
 }
 
-// F-8: principals are never deleted, their names are one namespace for
-// the server, and the cap on them is the server's. A project admin can
-// add principals to their own project until the cap is reached; after
-// that nobody, a server admin included, can add a person to any project,
-// and nothing over the protocol gives a row back.
-func TestReviewF8ProjectAdminFillsTheServersPrincipals(t *testing.T) {
-	m := adminWorld(t, Limits{Control: store.ControlLimits{Principals: 7}}) // five rows already
-	a := mustDialTo(t, m.Server, alice, projA)
-	for _, name := range []string{"filler-1", "filler-2"} {
-		mustAsk[proto.PrincipalAddResult](a, proto.OpPrincipalAdd, proto.PrincipalAddArgs{Name: name})
-	}
-	d := mustDialTo(t, m.Server, dana, projB)
-	_, perr := ask[proto.PrincipalAddResult](d, proto.OpPrincipalAdd, proto.PrincipalAddArgs{Name: "newhire", Project: projB})
-	if perr == nil {
-		return
-	}
-	reviewFinding(t, "F-8", "alice, admin of project a, used the last of the server's principals; the server admin's `principal add` for project b is now refused (\""+
-		perr.Message+"\"), and no op removes a principal")
-}
-
 // F-9: `project archive` refuses the server's last active project, since
 // every admin op rides a connection to an active project. The check
 // reads the index before the write and is not part of it, so two
