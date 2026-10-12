@@ -194,8 +194,16 @@ func TestIssuePaths(t *testing.T) {
 	long := strings.Repeat("d/", proto.MaxPathLen/2) + "x.go"
 	dir := newRepo(t)
 	repoGit(t, dir, "switch", "-q", "-c", "feature/sf-a1b2-thing")
-	for _, f := range []string{"a b.go", "dir/c.go", long} {
+	for _, f := range []string{"a b.go", "dir/c.go"} {
 		write(t, dir, f, "x")
+	}
+	// The path too long for the server is staged and never written:
+	// macOS has no file whose path is over 1024 bytes, and git reports a
+	// staged path all the same.
+	blob := strings.TrimSpace(repoGit(t, dir, "hash-object", "-w", "a b.go"))
+	repoGit(t, dir, "update-index", "--add", "--cacheinfo", "100644,"+blob+","+long)
+	if ps, err := uncommitted(t.Context(), dir); err != nil || !slices.Contains(ps, long) {
+		t.Fatalf("uncommitted = %d paths, %v, want the staged path of %d bytes among them", len(ps), err, len(long))
 	}
 	tests := []struct {
 		name string

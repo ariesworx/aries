@@ -2,7 +2,10 @@ package store
 
 import (
 	"fmt"
+	"math"
 	"math/big"
+	"math/rand/v2"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -139,5 +142,106 @@ func TestSplitExact(t *testing.T) {
 		if strings.Join(got, " ") != tc.want {
 			t.Errorf("splitExact(%s, %v) = %v, want %s", tc.total, tc.weights, got, tc.want)
 		}
+	}
+}
+
+// apportion is exact in the weights it is given, so two parts whose
+// quotas leave the same remainder tie, and the tie goes to the earlier
+// part, on every platform. Computed in floating point, a remainder's last
+// bit depended on whether the compiler fused a multiply and a subtract
+// (arm64 does, amd64 does not), and weights 3:1:10 gave 7 as 1, 1 and 5
+// on one and 2, 0 and 5 on the other.
+func TestApportionTies(t *testing.T) {
+	third := float64(time.Hour) / 3
+	tests := []struct {
+		name    string
+		n       int64
+		weights []float64
+		want    []int64
+	}{
+		{"quotas 1.5, 0.5 and 5", 7, []float64{3, 1, 10}, []int64{2, 0, 5}},
+		{"the same, later part first", 7, []float64{1, 3, 10}, []int64{1, 1, 5}},
+		{"halves of a nanosecond", 7, []float64{1.5, 0.5, 5}, []int64{2, 0, 5}},
+		{"three equal parts", 10, []float64{1, 1, 1}, []int64{4, 3, 3}},
+		{"three equal thirds of an hour", 10, []float64{third, third, third}, []int64{4, 3, 3}},
+		{"two leftovers among four ties", 6, []float64{7, 7, 7, 7}, []int64{2, 2, 1, 1}},
+		{"a tie after a larger remainder", 9, []float64{1, 1, 6, 4}, []int64{1, 1, 4, 3}},
+		{"a part with no weight between ties", 1, []float64{5, 0, 5}, []int64{1, 0, 0}},
+		{"no weight first", 3, []float64{0, 1, 1}, []int64{0, 2, 1}},
+		{"one part", 7, []float64{0, 2.5, 0}, []int64{0, 7, 0}},
+		{"nothing to divide", 0, []float64{3, 1}, []int64{0, 0}},
+		{"no weight at all", 9, []float64{0, 0}, []int64{0, 0}},
+		{"an hour beside a nanosecond", 2, []float64{float64(time.Hour), 1}, []int64{2, 0}},
+		{"more than float64 holds exactly", 1<<62 + 1, []float64{1, 1}, []int64{1<<61 + 1, 1 << 61}},
+		{"weights too far apart for 64 bits", 3, []float64{0x1p70, 0x1p70, 0x1p-70}, []int64{2, 1, 0}},
+		{"a tie among tiny weights", 7, []float64{3 * 0x1p-80, 0x1p-80, 10 * 0x1p-80}, []int64{2, 0, 5}},
+		{"ties among weights too far apart", 5, []float64{0x1p80, 0x1p80, 0x1p-80, 0x1p-80}, []int64{3, 2, 0, 0}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := apportion(tc.n, tc.weights); !slices.Equal(got, tc.want) {
+				t.Errorf("apportion(%d, %v) = %v, want %v", tc.n, tc.weights, got, tc.want)
+			}
+		})
+	}
+}
+
+// Whichever arithmetic apportion picks for its weights, it gives what
+// exact rationals give: each part its quota rounded down, and the rest
+// one each to the largest remainders, the earlier part first in a tie.
+func TestApportionMatchesRationals(t *testing.T) {
+	rng := rand.New(rand.NewPCG(1, 2)) //nolint:gosec // a fixed seed: the same cases every run
+	exact := func(n int64, weights []float64) []int64 {
+		total := new(big.Rat)
+		for _, w := range weights {
+			total.Add(total, new(big.Rat).SetFloat64(w))
+		}
+		parts := make([]int64, len(weights))
+		rems := make([]*big.Rat, len(weights))
+		order := make([]int, len(weights))
+		left := n
+		for i, w := range weights {
+			q := new(big.Rat).SetFloat64(w)
+			q.Mul(q, new(big.Rat).SetInt64(n)).Quo(q, total)
+			f := new(big.Int).Quo(q.Num(), q.Denom())
+			parts[i], rems[i], order[i] = f.Int64(), q.Sub(q, new(big.Rat).SetInt(f)), i
+			left -= parts[i]
+		}
+		slices.SortStableFunc(order, func(a, b int) int { return rems[b].Cmp(rems[a]) })
+		for _, i := range order[:left] {
+			parts[i]++
+		}
+		return parts
+	}
+	for range 2000 {
+		weights := make([]float64, 1+rng.IntN(6))
+		for i := range weights {
+			switch rng.IntN(5) {
+			case 0: // none
+			case 1: // whole and small, so remainders tie
+				weights[i] = float64(1 + rng.IntN(4))
+			case 2: // a duration shared
+				weights[i] = float64(rng.Int64N(int64(time.Hour))) / float64(1+rng.IntN(5))
+			case 3: // far from the others
+				weights[i] = math.Ldexp(float64(1+rng.IntN(7)), rng.IntN(300)-150)
+			default:
+				weights[i] = float64(rng.Int64N(int64(24 * time.Hour)))
+			}
+		}
+		if !slices.ContainsFunc(weights, func(w float64) bool { return w > 0 }) {
+			continue
+		}
+		n := rng.Int64N(1 << rng.IntN(62))
+		if got, want := apportion(n, weights), exact(n, weights); !slices.Equal(got, want) {
+			t.Fatalf("apportion(%d, %v) = %v, want %v", n, weights, got, want)
+		}
+	}
+}
+
+func BenchmarkApportion(b *testing.B) {
+	holds, r := manyHolds()
+	d := divide(r, newHoldIndex(holds))
+	for b.Loop() {
+		d.parts(*r.Input)
 	}
 }
