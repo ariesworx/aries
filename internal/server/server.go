@@ -227,6 +227,7 @@ func New(cfg Config) (*Server, error) {
 	s.slots.tel = cfg.Telemetry
 	if !multi {
 		s.single = &served{id: cfg.Project, store: cfg.Store, account: cfg.Account, log: cfg.Logger, timeout: cfg.RequestTimeout, tel: cfg.Telemetry}
+		s.single.used.Store(s.now().UnixNano()) // opened now, as openProject notes for a project of many
 		cfg.Telemetry.Watch(telemetry.StoresOpen, func() float64 { return float64(s.OpenStores()) })
 		return s, nil
 	}

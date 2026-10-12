@@ -241,7 +241,10 @@ func TestRunDaemonWithTelemetry(t *testing.T) {
 
 	// `starfixd status`, as text and as one JSON document.
 	res := status(t, s, d.sock)
-	if res.err != nil || !strings.HasPrefix(res.stdout, "starfixd ") || !strings.Contains(res.stdout, "stores 1 of 1, connections 0 of ") ||
+	// How many connections it counts depends on whether the daemon has
+	// yet seen the hellos above hang up, so the count is not checked.
+	if res.err != nil || !strings.HasPrefix(res.stdout, "starfixd ") || !strings.Contains(res.stdout, "stores 1 of 1, connections ") ||
+		strings.Contains(res.stdout, "1970-01-01") ||
 		!strings.Contains(res.stdout, "PROJECT") || !strings.Contains(res.stdout, adopted) {
 		t.Errorf("starfixd status = %v, printed:\n%s", res.err, res.stdout)
 	}

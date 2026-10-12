@@ -728,7 +728,10 @@ func TestLocalStatus(t *testing.T) {
 			t.Errorf("Status().Server = %+v, want one store of one, one connection and no keys file", got.Server)
 		}
 		if len(got.Projects) != 1 || got.Projects[0].ID != project || !got.Projects[0].Open || got.Projects[0].Conns != 1 || got.Projects[0].Writes == nil {
-			t.Errorf("Status().Projects = %+v, want the one project, open, with alice's connection", got.Projects)
+			t.Fatalf("Status().Projects = %+v, want the one project, open, with alice's connection", got.Projects)
+		}
+		if used := got.Projects[0].LastUsed; used == nil || time.Since(*used) > time.Hour {
+			t.Errorf("Status().Projects[0].LastUsed = %v, want when the project was opened or last answered, not the zero time", used)
 		}
 	})
 
