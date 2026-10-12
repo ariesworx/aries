@@ -181,7 +181,7 @@ func TestAdminRoles(t *testing.T) {
 	const (
 		forServer   = "ask a server admin (admins: in starfixd's config) to run it"
 		forProject  = "ask one of the project's admins, or a server admin, to run it"
-		forReach    = "ask a server admin to run it; a project admin may only while every project the principal belongs to is one they administer"
+		forReach    = "check the name, or ask a server admin to run it; a project admin may only while every project the principal belongs to is one they administer"
 		forAnyAdmin = "ask a server admin to run it, or a project admin who administers every project the principal belongs to"
 	)
 	tests := []struct {
@@ -226,9 +226,9 @@ func TestAdminRoles(t *testing.T) {
 		{"admin of another project adds a principal there", "erin", proto.OpPrincipalAdd, proto.PrincipalAddArgs{Name: "hal", Project: projA},
 			"erin may not add principal hal in project " + projA, forProject},
 		{"project admin outside reach disables", "alice", proto.OpPrincipalDisable, proto.PrincipalArgs{Name: "carol"},
-			"alice may not disable carol: carol belongs to a project alice does not administer, or to none", forReach},
+			"alice may not disable carol: carol does not exist, or belongs to a project alice does not administer, or to none", forReach},
 		{"project admin outside reach enables", "erin", proto.OpPrincipalEnable, proto.PrincipalArgs{Name: "bob"},
-			"erin may not enable bob: bob belongs to a project erin does not administer, or to none", forReach},
+			"erin may not enable bob: bob does not exist, or belongs to a project erin does not administer, or to none", forReach},
 		{"project admin disables a server admin", "alice", proto.OpPrincipalDisable, proto.PrincipalArgs{Name: "dana"},
 			"alice may not disable dana: dana is a server admin", "ask a server admin to run it"},
 		{"project admin places someone else's unassigned principal", "alice", proto.OpMemberSet, proto.MemberSetArgs{Name: "frank"},
@@ -767,28 +767,34 @@ func TestAdminPrompts(t *testing.T) {
 	}
 
 	// carol joins a second project again: the keys that come with her
-	// are shown to a server admin.
+	// are shown first, and she is added once they are accepted (decision
+	// 36; member_keys_test.go has the cases).
 	set := mustAsk[proto.MemberSetResult](d, proto.OpMemberSet, proto.MemberSetArgs{Name: "carol"})
-	if set.Change != "added" || set.Projects != 2 || !slices.Equal(set.Keys, []string{keys[0].Fingerprint}) {
-		t.Errorf("member.set carol into a second project = %+v; want 2 projects and her key %s", set, keys[0].Fingerprint)
+	if set.Change != proto.MemberPending || set.Projects != 1 || !slices.Equal(carried(set), []string{keys[0].Fingerprint}) {
+		t.Errorf("member.set carol into a second project = %+v; want pending, the 1 project she is in and her key %s", set, keys[0].Fingerprint)
+	}
+	set = mustAsk[proto.MemberSetResult](d, proto.OpMemberSet, proto.MemberSetArgs{Name: "carol", AcceptKeys: true})
+	if set.Change != "added" || set.Projects != 2 || !slices.Equal(carried(set), []string{keys[0].Fingerprint}) {
+		t.Errorf("member.set carol, accepting = %+v; want added, 2 projects and her key %s", set, keys[0].Fingerprint)
 	}
 	// A role change is no new membership, and shows none.
-	if set := mustAsk[proto.MemberSetResult](d, proto.OpMemberSet, proto.MemberSetArgs{Name: "carol", Role: "admin"}); set.Projects != 0 || set.Keys != nil {
+	if set := mustAsk[proto.MemberSetResult](d, proto.OpMemberSet, proto.MemberSetArgs{Name: "carol", Role: "admin"}); set.Projects != 0 || set.Carried != nil {
 		t.Errorf("member.set carol admin = %+v, want no keys for a role change", set)
 	}
-	// A first membership shows none either.
-	if set := mustAsk[proto.MemberSetResult](d, proto.OpMemberSet, proto.MemberSetArgs{Name: "frank"}); set.Projects != 0 || set.Keys != nil {
-		t.Errorf("member.set frank into his first project = %+v, want no keys", set)
+	// Someone with no key is added at once.
+	if set := mustAsk[proto.MemberSetResult](d, proto.OpMemberSet, proto.MemberSetArgs{Name: "frank"}); set.Change != "added" || set.Projects != 1 || set.Carried != nil {
+		t.Errorf("member.set frank, who has no key, into his first project = %+v, want added and no keys", set)
 	}
-	// A project admin without reach over the principal is not shown its
-	// keys: erin administers b, and bob, once back in a, is in a too.
+	// A project admin without reach over the principal is shown its keys
+	// all the same: erin administers b, and bob, once back in a, is in a.
 	mustAsk[proto.MemberSetResult](d, proto.OpMemberSet, proto.MemberSetArgs{Name: "bob"})
 	if _, err := m.ctl.AddKey(t.Context(), dana, "bob", keyLine(t, "bob")); err != nil {
 		t.Fatal(err)
 	}
 	e := mustDialTo(t, m.Server, erin, projB)
-	if set := mustAsk[proto.MemberSetResult](e, proto.OpMemberSet, proto.MemberSetArgs{Name: "bob"}); set.Change != "added" || set.Projects != 0 || set.Keys != nil {
-		t.Errorf("member.set bob into b by erin, who does not administer a = %+v; want added, and no keys shown", set)
+	if set := mustAsk[proto.MemberSetResult](e, proto.OpMemberSet, proto.MemberSetArgs{Name: "bob"}); set.Change != proto.MemberPending ||
+		!slices.Equal(carried(set), []string{fingerprintOf(t, "bob")}) {
+		t.Errorf("member.set bob into b by erin, who does not administer a = %+v; want pending, and his key shown", set)
 	}
 }
 

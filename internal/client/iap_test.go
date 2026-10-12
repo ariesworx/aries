@@ -20,13 +20,18 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/ariesworx/starfix/internal/clienttest"
 	"github.com/ariesworx/starfix/internal/iaptest"
 	"github.com/ariesworx/starfix/internal/proto"
 )
 
 func TestMain(m *testing.M) {
 	iaptest.Main()
-	os.Exit(m.Run())
+	// No test here reads the real ~/.ssh or ssh-agent.
+	restore := clienttest.Isolate()
+	code := m.Run()
+	restore()
+	os.Exit(code)
 }
 
 // sshServer runs an SSH server on loopback that accepts any key and
@@ -93,12 +98,15 @@ func serveHandshake(nc net.Conn, cfg *ssh.ServerConfig) {
 // iapConfig is a config that reaches port through IAP, pinning fpr.
 func iapConfig(t *testing.T, port int, fpr string) *Config {
 	t.Helper()
-	key := writeKey(t, t.TempDir(), "id", nil)
 	c, err := ParseConfig(fmt.Appendf(nil, "project: %s\nserver:\n  host: starfix-1\n  port: %d\n  host_key: %s\n"+
-		"  iap:\n    project: example-project\n    zone: us-central1-a\nkey: %s\n", testProject, port, fpr, key))
+		"  iap:\n    project: example-project\n    zone: us-central1-a\nkey: id\n", testProject, port, fpr))
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The repository, which holds the key: a committed key: names a file
+	// inside it.
+	c.Root = t.TempDir()
+	writeKey(t, c.Root, "id", nil)
 	return c
 }
 

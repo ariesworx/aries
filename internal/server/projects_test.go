@@ -365,6 +365,13 @@ func TestMultiHandshake(t *testing.T) {
 				if w.Err.Message != "frank is disabled on this server" || !strings.Contains(w.Err.Fix, "`sfx admin principal enable frank`") {
 					t.Errorf("forbidden = %q, fix %q; want the principal told it is disabled, and the command that enables it", w.Err.Message, w.Err.Fix)
 				}
+			case tc.name == "no principal row":
+				// Refused on the bridge frame, before a project is named
+				// (review F-4): it is told it has no principal, and the
+				// command that makes one.
+				if w.Err.Message != "ivy is not a principal of this server" || !strings.Contains(w.Err.Fix, "`sfx admin principal add ivy`") {
+					t.Errorf("forbidden = %q, fix %q; want the principal told the server does not know it, and the command that adds it", w.Err.Message, w.Err.Fix)
+				}
 			default:
 				if !strings.HasPrefix(w.Err.Fix, "ask a server admin, or one of the project's admins, to add you: `sfx admin member add "+tc.principal+"`") ||
 					!strings.Contains(w.Err.Message, tc.principal+" is not a member of project") {
@@ -863,15 +870,17 @@ func TestResolveSettingsControl(t *testing.T) {
 		{name: "limits default", body: dsn, check: func(l Settings) bool {
 			return l.Limits.Control == store.DefaultControlLimits && l.Limits.OpenStores == 64 && l.Limits.StoreIdle == Duration(10*time.Minute)
 		}},
-		{name: "limits set", body: "limits:\n  projects: 9\n  principals: 99\n  keys_per_principal: 3\n  members_per_project: 12\n  open_stores: 5\n  store_idle: 90s\n",
+		{name: "limits set", body: "limits:\n  projects: 9\n  principals: 99\n  principals_per_creator: 7\n  keys_per_principal: 3\n  members_per_project: 12\n  open_stores: 5\n  store_idle: 90s\n",
 			check: func(l Settings) bool {
-				return l.Limits.Control == store.ControlLimits{Projects: 9, Principals: 99, Keys: 3, Members: 12} &&
+				return l.Limits.Control == store.ControlLimits{Projects: 9, Principals: 99, PrincipalsPerCreator: 7, Keys: 3, Members: 12} &&
 					l.Limits.OpenStores == 5 && l.Limits.StoreIdle == Duration(90*time.Second) && l.Limits.Conns == DefaultLimits.Conns
 			}},
 		{name: "zero takes the default", body: "limits:\n  projects: 0\n  open_stores: 0\n",
 			check: func(l Settings) bool { return l.Limits == DefaultLimits }},
 		{name: "negative projects", body: "limits:\n  projects: -1\n", err: "limit projects is -1"},
 		{name: "negative principals", body: "limits:\n  principals: -1\n", err: "limit principals is -1"},
+		{name: "principals_per_creator default", body: dsn, check: func(l Settings) bool { return l.Limits.Control.PrincipalsPerCreator == 500 }},
+		{name: "negative principals_per_creator", body: "limits:\n  principals_per_creator: -1\n", err: "limit principals_per_creator is -1"},
 		{name: "negative keys_per_principal", body: "limits:\n  keys_per_principal: -1\n", err: "limit keys_per_principal is -1"},
 		{name: "negative members_per_project", body: "limits:\n  members_per_project: -1\n", err: "limit members_per_project is -1"},
 		{name: "negative open_stores", body: "limits:\n  open_stores: -1\n", err: "limit open_stores must be zero or a positive number; fix:"},

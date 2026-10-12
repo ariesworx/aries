@@ -74,8 +74,11 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 
 	case errors.As(err, &controlCap):
 		fix := fmt.Sprintf("ask the server's operator to raise %s under limits: in starfixd's config", controlCap.Limit)
-		if controlCap.Limit == "keys_per_principal" {
+		switch controlCap.Limit {
+		case "keys_per_principal":
 			fix = "remove a key the principal no longer uses with `sfx admin key remove FINGERPRINT`, or " + fix
+		case "principals_per_creator":
+			fix = "ask a server admin to add the principal, or the server's operator to raise principals_per_creator under limits: in starfixd's config"
 		}
 		return proto.Errf(proto.CodeInvalid, fix, strings.TrimPrefix(text, store.ErrInvalid.Error()+": "))
 
@@ -260,7 +263,7 @@ func accessErr(e *store.AccessError) *proto.Error {
 	case store.AccessOwnKeys:
 		return proto.Errf(proto.CodeForbidden,
 			"ask another admin to run it: a server admin, or a project admin who administers every project you belong to; the server's operator can also change authorized_keys on the server",
-			msg+"nobody changes the keys of their own account")
+			msg+"nobody adds a key to their own account")
 	case store.AccessReach:
 		if e.Principal == "" {
 			// A key named by its fingerprint. The refusal is the same
@@ -269,9 +272,16 @@ func accessErr(e *store.AccessError) *proto.Error {
 				"check the fingerprint with `sfx admin key list NAME`, or ask a server admin to run it",
 				msg+fmt.Sprintf("it is no key of a principal %s may manage", e.Actor))
 		}
+		// The same for a name no one has as for a principal out of reach.
 		return proto.Errf(proto.CodeForbidden,
-			"ask a server admin to run it; a project admin may only while every project the principal belongs to is one they administer",
-			msg+fmt.Sprintf("%s belongs to a project %s does not administer, or to none", e.Principal, e.Actor))
+			"check the name, or ask a server admin to run it; a project admin may only while every project the principal belongs to is one they administer",
+			msg+fmt.Sprintf("%s does not exist, or belongs to a project %s does not administer, or to none", e.Principal, e.Actor))
+	case store.AccessKey:
+		// The same whoever has the key, and it does not say that anyone
+		// does.
+		return proto.Errf(proto.CodeForbidden,
+			fmt.Sprintf("make a new key for %s and add that, or ask a server admin to run it", e.Principal),
+			fmt.Sprintf("%s may not add that key to %s: it is no key %s may give a principal", e.Actor, e.Principal, e.Actor))
 	case store.AccessServerAdminPrincipal:
 		return proto.Errf(proto.CodeForbidden, "ask a server admin to run it",
 			msg+e.Principal+" is a server admin")

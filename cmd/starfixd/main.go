@@ -2,7 +2,7 @@
 //
 //	starfixd serve [--dev [--allow-unsafe-dolt]] [--config FILE] [--dsn DSN] [--socket PATH] [--project UUID] [--prefix P] [--log-level L] [--log-format F]
 //	starfixd stdio --principal NAME [--key FINGERPRINT] [--config FILE] [--socket PATH]
-//	starfixd control init --name NAME [--authorized-keys FILE] [--config FILE] [--dsn DSN]
+//	starfixd control init --name NAME [--authorized-keys FILE] [--restore-removed-access] [--config FILE] [--dsn DSN]
 //	starfixd import-bd [--config FILE] [--dsn DSN] [--project UUID] [--principal NAME] [--dry-run] [--json] FILE|-
 //	starfixd export-bd [--config FILE] [--dsn DSN] [--project UUID] [-o FILE]
 //	starfixd upgrade [--check] [--to vX.Y.Z] [--rollback] [--restart] [--config FILE] [--dsn DSN] [--socket PATH]
@@ -45,6 +45,7 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -60,7 +61,7 @@ import (
 const usage = `usage:
   starfixd serve [--dev [--allow-unsafe-dolt]] [--config FILE] [--dsn DSN] [--socket PATH] [--project UUID] [--prefix P] [--log-level L] [--log-format F]
   starfixd stdio --principal NAME [--key FINGERPRINT] [--config FILE] [--socket PATH]
-  starfixd control init --name NAME [--authorized-keys FILE] [--config FILE] [--dsn DSN]
+  starfixd control init --name NAME [--authorized-keys FILE] [--restore-removed-access] [--config FILE] [--dsn DSN]
   starfixd import-bd [--config FILE] [--dsn DSN] [--project UUID] [--principal NAME] [--dry-run] [--json] FILE|-
   starfixd export-bd [--config FILE] [--dsn DSN] [--project UUID] [-o FILE]
   starfixd upgrade [--check] [--to vX.Y.Z] [--rollback] [--restart] [--config FILE] [--dsn DSN] [--socket PATH]
@@ -81,6 +82,14 @@ project_dbs: names the databases granted for new projects. serve writes
 the keys the control database holds to keys_file: (default
 ~/.ssh/starfix_keys of the user it runs as), which sshd reads with
 AuthorizedKeysFile before the authorized_keys you maintain by hand.
+
+control init may be run again, to import new lines of authorized_keys. It
+leaves alone what admins did since, and reports each:
+  a key removed with            sfx admin key remove
+  a membership removed with     sfx admin member remove
+  a principal disabled with     sfx admin principal disable
+--restore-removed-access overrides those admins: it puts all three back
+for every principal the file names, and records each as an event.
 
 serve exports nothing and opens no port unless configured to: metrics are
 pushed over OTLP/HTTP to $OTEL_EXPORTER_OTLP_ENDPOINT when it is set, and
@@ -357,6 +366,7 @@ func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h 
 		return nil, errors.Join(fmt.Errorf("the control database %s holds no active project; fix: adopt this server's database as the first with `starfixd control init --name NAME`",
 			s.ControlDB), ctl.Close())
 	}
+	warnOfAdmins(ctx, ctl, s.Admins, log)
 	cfg.Control, cfg.Open, cfg.ProjectDBs = ctl, server.ProjectOpener(s.DSN, ctl, opts, h.tel), s.ProjectDBs
 	cfg.Bridge = s.Bridge
 	if cfg.KeysFile, cfg.AuthorizedKeys, err = keyFiles(s); err != nil {
@@ -412,23 +422,69 @@ func keyFiles(s server.Settings) (keysFile, authorizedKeys string, err error) {
 	return keysFile, authorizedKeys, nil
 }
 
+// warnOfAdmins logs, for each server admin the config file names, a row
+// or a key in the control store that neither a server admin nor the
+// operator put there. A project admin may create a principal of any
+// free name with a key of their own, and add keys to anyone within
+// their reach; naming such a principal under admins: later makes that
+// key a server admin's. The daemon starts all the same: the operator
+// chose the names, and is told what to check.
+func warnOfAdmins(ctx context.Context, ctl *store.Control, admins []string, log *slog.Logger) {
+	const msg = "a configured server admin was set up by someone who is no server admin"
+	trusted := func(who string) bool { return who == store.OperatorPrincipal || slices.Contains(admins, who) }
+	for _, a := range admins {
+		p, err := ctl.Principal(ctx, a)
+		if errors.Is(err, store.ErrNotFound) {
+			continue // no row, so no key in the store either
+		}
+		if err != nil {
+			log.Error("check the configured server admins", "admin", a, "err", err)
+			continue
+		}
+		if !trusted(p.CreatedBy) {
+			log.Warn(msg, "admin", a, "created_by", p.CreatedBy,
+				"fix", "check with "+a+" that every key `sfx admin key list "+a+"` shows is theirs, or take the name out of admins:")
+		}
+		keys, err := ctl.Keys(ctx, a)
+		if err != nil {
+			log.Error("check the configured server admins", "admin", a, "err", err)
+			continue
+		}
+		for _, k := range keys {
+			if !trusted(k.AddedBy) {
+				log.Warn(msg, "admin", a, "key", k.Fingerprint, "added_by", k.AddedBy,
+					"fix", "check with "+a+" that the key is theirs, or have another server admin run `sfx admin key remove "+k.Fingerprint+"`")
+			}
+		}
+	}
+}
+
 // stdio runs `starfixd stdio`, the forced command: it bridges this
 // process's stdin and stdout to the daemon's socket.
 func stdio(ctx context.Context, args []string) error {
-	var fl server.Settings
-	var cfgPath, principal, key string
-	if err := flags("stdio", args, &fl, &cfgPath, func(fs *flag.FlagSet) {
-		fs.StringVar(&principal, "principal", "", "principal this key authenticates")
-		fs.StringVar(&key, "key", "", "SHA256 fingerprint of the key, when its line is one starfixd wrote to its keys file")
-	}); err != nil {
+	fl, cfgPath, principal, key, err := stdioArgs(args)
+	if err != nil {
 		return err
-	}
-	if principal == "" {
-		return usageError("stdio needs --principal")
 	}
 	s, err := server.ResolveSettings(fl, cfgPath, os.Getenv)
 	if err != nil {
 		return err
 	}
 	return server.Bridge(ctx, s.Socket, principal, key, os.Stdin, os.Stdout)
+}
+
+// stdioArgs parses the arguments of `starfixd stdio`. `control init`
+// reads the forced command of an authorized_keys line with it too, so
+// that the two cannot disagree on whose a line is.
+func stdioArgs(args []string) (fl server.Settings, cfgPath, principal, key string, err error) {
+	if err := flags("stdio", args, &fl, &cfgPath, func(fs *flag.FlagSet) {
+		fs.StringVar(&principal, "principal", "", "principal this key authenticates")
+		fs.StringVar(&key, "key", "", "SHA256 fingerprint of the key, when its line is one starfixd wrote to its keys file")
+	}); err != nil {
+		return fl, "", "", "", err
+	}
+	if principal == "" {
+		return fl, "", "", "", usageError("stdio needs --principal")
+	}
+	return fl, cfgPath, principal, key, nil
 }

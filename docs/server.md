@@ -590,7 +590,7 @@ and what was not.
    ```text
    project acme (6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f) adopted from database starfix: active
    principals: 2 added, 0 already there; keys: 3 added, 0 already there; members: 1 added, 0 already there; 0 lines skipped
-   3 keys in the store are also lines of /var/lib/starfix/.ssh/authorized_keys: sshd falls back to that file, so `sfx admin key remove` does not keep such a key out until its line is deleted too
+   3 keys in the store are also lines of /var/lib/starfix/.ssh/authorized_keys: sshd reads that file too, so `sfx admin key remove` does not keep such a key out until its line is deleted too
    ```
 
    The last line counts the keys that are now in both places. It is a
@@ -647,6 +647,40 @@ text.
   archived project, or remove anyone. A running starfixd reads the
   control database again every 30 seconds, so the new member can connect
   within the minute.
+- **Run again, it does not undo what an admin did.** The file is not
+  edited when an admin removes someone with `sfx admin`, so its lines
+  still name them. `control init` reads the control database's event log
+  before it adds anything: a key whose newest event is its removal stays
+  out of the control database, a principal whose newest event on the
+  adopted project is its removal stays removed, and a disabled principal
+  stays disabled, with nothing of its lines imported. Each is reported on
+  stderr with its line number, who did it and when, and counted in a
+  line of the summary:
+
+  ```text
+  authorized_keys line 2: bob was removed from the project by dana on 2026-10-12; kept removed
+  left as admins set them: 0 keys removed, 1 membership removed, 0 principals disabled; to put them back from this file, run it again with --restore-removed-access
+  ```
+
+  What an admin added again after removing it is in the control
+  database, and is simply already there. A key left out of the control
+  database is still a line of the file, where sshd accepts it: delete the
+  line to keep the key out.
+- **`--restore-removed-access` overrides those admins.** With it,
+  `control init` puts back, for every principal the file names, the keys
+  removed with `sfx admin key remove`, the memberships of the adopted
+  project removed with `sfx admin member remove`, and the principals
+  disabled with `sfx admin principal disable`. Each restoration is an
+  event under `import`, and is reported. Use it when the file is what
+  you mean, for example after restoring a control database from an old
+  backup. It is an operator's command like `control init` itself: where
+  the AppArmor profiles are installed, run it through `aa-exec -p
+  starfixd-admin` ([Confine starfixd with AppArmor](#confine-starfixd-with-apparmor)). It reads the control
+  database and `authorized_keys`, and writes no file.
+- **Each line is read as `starfixd stdio` would run it.** The principal
+  is the one sshd would sign the key in as: the last `--principal` of
+  the forced command. A command that `stdio` would refuse, such as one
+  with a stray argument, is skipped.
 - **It does not remove.** Deleting a line from `authorized_keys` leaves
   the principal's row, its membership and the key in the control
   database. Where sshd reads starfixd's keys file
@@ -819,8 +853,8 @@ key the control database does not hold: the first admin's before
      `authorized_keys` cannot override the control database; it only
      lets in a key the database does not hold.
    - **Keep one line for a server admin.** It is how a server admin's
-     own key is replaced, since nobody changes the keys of their own
-     account with `sfx admin`. A key in `authorized_keys` keeps the
+     own key is replaced, since nobody adds a key to their own account
+     with `sfx admin`. A key in `authorized_keys` keeps the
      principal its line names: `sfx admin key add` and `principal add
      --key` refuse it for anyone else, as they refuse a key another
      principal has, so nobody can take a server admin's key by adding
@@ -928,11 +962,12 @@ person.
 | `sfx admin project list` | Anyone the server lets in: a server admin sees every project and its database, anyone else the active projects they belong to |
 | `sfx admin principal add NAME` | Server admins; a project admin, into a project they administer |
 | `sfx admin principal add NAME --no-project`, `principal list` | Server admins |
+| `sfx admin key list --added-by NAME`, `principal list --created-by NAME`, `member list --added-by NAME` | Server admins, for all of it; a project admin, for the keys and principals of their projects' members and for their projects' memberships |
 | `sfx admin principal disable NAME`, `enable NAME` | Server admins; a project admin, for a principal within their reach |
 | `sfx admin member add NAME`, `remove NAME` | Server admins; the project's admins |
 | `sfx admin member list` | Server admins; the project's admins |
 | `sfx admin principal add NAME --key FILE`, `key add NAME FILE`, `key remove FINGERPRINT` | Server admins; a project admin, for a principal within their reach. Never for one's own account |
-| `sfx admin key list NAME` | Server admins; a project admin with reach over NAME; NAME themselves |
+| `sfx admin key list NAME` | Server admins; an admin of an active project NAME belongs to, with or without reach over NAME; NAME themselves |
 | `sfx admin status` | Server admins, for the server and every project; a project admin, for the active projects they administer ([Watching a server](#watching-a-server)) |
 
 - **A server admin** is a principal named under `admins:`. They are let
@@ -944,12 +979,49 @@ person.
   the control database is not disabled. Only a server admin disables or
   enables a server admin, and the last server admin who is not disabled
   cannot be disabled: nobody could then enable anyone without a shell
-  on the server.
-- **Nobody changes the keys of their own account**, a server admin
-  included: an agent holding a person's key could otherwise add one of
-  its own. Another admin with reach does it. A server admin's keys are
-  changed by another server admin, or by a line in `authorized_keys` on
-  the server.
+  on the server. That rule counts every name under `admins:`, whether or
+  not it has a key, since a key may be a line of `authorized_keys` that
+  starfixd does not judge. So name only admins who can sign in: with
+  `admins: [dana, spare]` and no key for `spare`, dana can be disabled
+  and nobody is then left to sign in as a server admin.
+- **Naming an admin trusts whoever set that name up.** A project admin
+  may create a principal of any free name, with a key, and may add keys
+  to the members of their own projects. If you later put such a name
+  under `admins:`, those keys are a server admin's. starfixd warns at
+  start, in its log, of each configured admin whose row, or one of whose
+  keys, was put there by someone who is neither a server admin nor
+  `control init`, and names the key. Check it with its owner, or remove
+  it, before you rely on the name.
+- **Disabling an account does not undo what it did.** The keys it added
+  to others, the principals it created and the memberships it added all
+  keep working. `principal disable` says how many of each there are and
+  names the three commands that list them: `sfx admin key list
+  --added-by NAME`, `sfx admin principal list --created-by NAME` and
+  `sfx admin member list --added-by NAME`. A server admin sees all of
+  it, and a project admin what is within the projects they administer.
+  Review the lists when an account may have been misused, and remove
+  what should not be there; nothing is removed for you. A key planted
+  on your own account is yours to remove, below.
+- **Nobody adds a key to their own account**, a server admin included:
+  an agent holding a person's key could otherwise add one of its own.
+  Another admin with reach does it. A server admin's keys are added by
+  another server admin, or by a line in `authorized_keys` on the
+  server.
+- **Anyone may remove a key of their own account.** Removing only takes
+  access away, and it is how you clean your own account when someone
+  with rights over it added a key that is not yours: `sfx whoami` shows
+  the key you are signed in with, `sfx admin key list YOU` shows every
+  key of yours with who added it and when, and `sfx admin key remove
+  FINGERPRINT` removes one. Two limits keep you from locking yourself
+  out by accident. The key your connection signed in with is refused,
+  by fingerprint: sign in with another of your keys to remove it, or
+  ask an admin. And when your connection came in by a line of
+  `authorized_keys`, which names no key, starfixd cannot tell which key
+  you used: it removes the key and warns that it could not check. That
+  connection's key is not one the control database can take away in any
+  case. Removing the last key the control database holds for you is
+  allowed, a server admin's included: you keep the way in you are
+  using. Someone else's key still needs reach.
 - **Keys.** `key add NAME FILE` takes a public key file, such as
   `~/.ssh/id_ed25519.pub`, or `-` for standard input. `sfx` reads the
   file itself and refuses a private key before it sends anything. A key
@@ -985,6 +1057,23 @@ person.
   themselves. A principal in no project that someone else created is
   placed by a server admin. Principal names are one namespace for the
   server, so `principal add` of a name in use says that it is taken.
+- **A new member's keys are shown first.** A key signs in to every
+  project its principal is in, so whoever adds a member also lets in
+  every key that member has, whoever put it there. `member add NAME` of
+  a principal with any key therefore adds nothing at first: it lists
+  each key with its fingerprint, type and comment, who added it and
+  when, and whether that was an admin of this project (`ADMIN HERE`).
+  On a terminal `sfx` then asks, and adds the member on `y`. Without a
+  terminal, or with `--json`, it exits 1 and names `--accept-keys`,
+  which adds without asking: a script never adds by accident, and can
+  add on purpose. This is the same for a server admin. A principal with
+  no key is added at once, and a change of role asks nothing. Check a
+  key marked `no` with its owner before you accept: an admin of another
+  project may add keys to someone who belongs to that project alone, and
+  such a key would otherwise follow the person into yours unseen.
+- **An admin sees the keys of their project's members.** `key list NAME`
+  works for an admin of any active project NAME belongs to, for the same
+  reason, even where they may not add or remove NAME's keys.
 - **A new person** takes one command once sshd reads starfixd's keys file
   ([Keys from the store](#keys-from-the-store)): `sfx admin principal add
   NAME --key FILE`, with the `.pub` file they sent you. `--key` may be
@@ -1203,8 +1292,9 @@ limits:
 | `inbox_unread` | 1000 | A principal's unread inbox items; past it, the oldest are marked read (still under `inbox --all`) |
 | `notices_per_minute` | 10 | Mentions, assignments and handoffs one principal can send another a minute; the rest are not delivered. Lost claims always are |
 | `inbox_keep` | `30d` | How long a read inbox item is kept |
-| `conns` | 1024 | Connections past the handshake; twice this caps sockets still in it |
+| `conns` | 1024 | Connections past the handshake, refused with `busy` beyond it. Twice this caps the sockets the daemon holds in all; at that cap a new connection is let in and the one that has waited longest without a hello is closed |
 | `conns_per_principal` | 32 | One principal's connections |
+| `handshakes_per_principal` | 16 | One principal's connections that sshd has let in and that have not yet sent their hello, on the whole server. A connection has 10 seconds to send it. Past the cap the next is refused with `busy` at once, so one key holder cannot use up the sockets everyone else connects through. The upgrade's health probe is not counted |
 | `idle_timeout` | `10m` | A connection that sends nothing this long is closed with a note, unless it watches its inbox (`sfx mcp`, `sfx watch` and `sfx tui` do) |
 | `write_rate`, `write_burst` | 10, 100 | Each principal's write token bucket: writes a second, and how many at once. Reads are not counted |
 | `refusal_logs` | 20 | Refusal log lines per principal a minute |
@@ -1225,6 +1315,7 @@ limits:
 | `store_idle` | `10m` | With `control_db`: how long a project's store stays open with no connection. Closing it gives back its connections to Dolt, not Dolt's memory |
 | `projects` | 500 | With `control_db`: projects on the server, archived ones included |
 | `principals` | 5000 | With `control_db`: principals in the control database, disabled ones included |
+| `principals_per_creator` | 500 | With `control_db`: principals one principal who is no server admin may create, disabled ones included. No command deletes a principal and names are the whole server's, so this keeps one project admin from using up `principals`. Past it `principal add` is refused with `invalid`, and its fix says to ask a server admin, who has no such cap, or to raise the limit |
 | `keys_per_principal` | 20 | With `control_db`: public keys of one principal |
 | `members_per_project` | 1000 | With `control_db`: principals with a role in one project |
 | `telemetry_requests` | 8 | With `telemetry: listen:`: requests the listener serves at once. One more is answered `503`; twice as many connections may be open, and one more is closed |
@@ -1234,12 +1325,20 @@ On a server of [many projects](#serving-many-projects), every limit above
 that is per principal is per principal in each project: `conns_per_principal`,
 the write bucket, `refusal_logs` and the limits on rows a principal owns.
 `conns` stays the whole server's, and the `sfx admin` bucket is each
-principal's on the whole server. Past `principals`, `keys_per_principal`
-or `members_per_project`, `control init` skips the line and says which
-limit it met, and `sfx admin` refuses the row with `invalid` and names
-the limit; past `projects` it refuses a new project the same way. A key
-lookup takes none of a principal's allowances and no connection slot:
-sshd asks before anyone is authenticated.
+principal's on the whole server. So is `handshakes_per_principal`, since
+a connection has named no project before its hello. Past `principals`,
+`keys_per_principal` or `members_per_project`, `control init` skips the
+line and says which limit it met, and `sfx admin` refuses the row with
+`invalid` and names the limit; past `projects` it refuses a new project
+the same way. `principals_per_creator` applies to a principal who is no
+server admin, and never to `control init`.
+
+Before the hello, a server of many projects also refuses at once a
+principal that is disabled, or that the control database does not know
+and `admins:` does not name: its key may still be one sshd accepts, and
+it would otherwise hold a connection until the hello's deadline.
+Membership of the project, and whether the key that signed in is still
+the principal's, are decided at the hello, which names the project.
 
 A request past a per-request cap is refused with `invalid`. A write past
 the write rate, or an `sfx admin` change past its own, is refused with
@@ -1688,7 +1787,7 @@ number of series cannot grow with what clients send:
 | `result_class` | `ok`; `error` for `unavailable`, which is the server's failure; `refused` for every other refusal, which is the request's |
 | `project` | The project's UUID, only for a project a connection was admitted to. At most as many as the `projects` limit, and `other` past that |
 | `reason` of a dropped connection | `membership`, `disabled`, `archived`, `key` (the access that let it in ended), `idle` (`idle_timeout`), `limit` (a socket past twice `conns`), `access` (the access ended while the handshake ran) |
-| `limit` | `conns`, `conns_per_principal`, `handshake_sockets` (twice `conns`), `write_rate`, `control_write_rate`, `open_stores`, `telemetry_requests`, `projects`, `principals`, `keys_per_principal`, `members_per_project`, `prices`, `plans`, `hours_per_day`, `usage_per_day` |
+| `limit` | `conns`, `conns_per_principal`, `handshakes_per_principal`, `handshake_sockets` (twice `conns`), `write_rate`, `control_write_rate`, `open_stores`, `telemetry_requests`, `projects`, `principals`, `keys_per_principal`, `members_per_project`, `prices`, `plans`, `hours_per_day`, `usage_per_day` |
 | `migrated` | `true` when opening the store applied a migration |
 | `event` of a claim | `take`, `renew`, `release`, `expire` |
 | `reason` of a claim | `membership`, `disabled` or `archived` for a release that ended with the holder's access; `none` for every other change |
@@ -1954,17 +2053,26 @@ quiet hour: `cd /var/lib/dolt/data/starfix && sudo -u dolt -H dolt gc`.
 | What you see | Cause | Fix |
 |---|---|---|
 | `sfx: host key mismatch` | The server's key is not the pinned one | Check the new key with the admin, out of band, before you change `host_key` |
-| `sfx: … refused your SSH key`, though the key line is right | The `starfix` account is locked (`!` in `/etc/shadow`), or its shell is `nologin` | `usermod -p '*' starfix`; `usermod -s /bin/sh starfix` |
+| `sfx: … accepted no key: sfx offered SHA256:…, the one key STARFIX_KEY_FILE names` | A key is configured, so `sfx` offered it alone, and the server does not know it | Have an admin add that key's `.pub`, or unset the variable to offer your default identities and ssh-agent's keys |
+| `sfx: … accepted none of the N keys sfx offered: …` | No key is configured, and the server knows none of your default identities or ssh-agent's keys. The refusal lists each by fingerprint and file | Send the admin the `.pub` of the key you mean, or name your key file with `STARFIX_KEY_FILE` |
+| The same, ending `… more keys that ssh-agent holds were not offered` | `sfx` offers five keys at most, since sshd hangs up at its sixth refusal, and ssh-agent holds more | Name your key file with `STARFIX_KEY_FILE`: it is then the only key offered |
+| The same, ending `skipped ~/.ssh/id_ed25519: it is passphrase-protected, and ssh-agent does not hold its key` | A default identity needs a passphrase, which `sfx` never asks for, or is on a hardware token (`_sk`), and ssh-agent does not hold it | `ssh-add` the key |
+| `sfx: no SSH key available` | No key is configured, `~/.ssh` has no usable default identity and ssh-agent holds none | Set `STARFIX_KEY_FILE` to your key file's path, keep the key under a default name, or `ssh-add` it |
+| `sfx: STARFIX_KEY_FILE does not hold the path of a key file` | The variable holds something that is plainly a key, or is too long to be a path. `sfx` does not repeat it | Put the key in a file that only you can read and set the variable to the file's path ([CI](deploy/team.md)) |
+| A refusal that ends `STARFIX_KEY is set, and sfx does not read it` | Sign-in failed, and the environment holds a variable of the old name, whose value `sfx` never looks at | Set `STARFIX_KEY_FILE` to the key file's path, and unset `STARFIX_KEY` |
+| `sfx: --key-file is only for your own files` | `sfx setup --key-file` without `--global`: a project's files are committed | Add `--global`, or set `STARFIX_KEY_FILE` in the environment the agent starts in ([agent guide](agents.md#give-an-agent-its-own-identity)) |
+| `sfx: … accepted no key`, though the key line is right | The `starfix` account is locked (`!` in `/etc/shadow`), or its shell is `nologin` | `usermod -p '*' starfix`; `usermod -s /bin/sh starfix` |
 | `sfx: starfixd is not running on the server` | The daemon is stopped, or failed at start | `journalctl -u starfixd` shows why; `systemctl start starfixd` |
 | `project "…" is not served by this server` | `.starfix.yaml` and the config file name different projects; with `control_db`, the project is unknown or archived | Make the two `project` values match |
 | `… is not a member of project "…"` | With `control_db`: the principal has no row in the control database, or is in other projects only | An admin runs `sfx admin member add NAME` in the project's repository (`principal add NAME` for someone new) |
 | `… is disabled on this server` | With `control_db`: the principal was disabled, whatever `admins:` says | An admin with reach over it runs `sfx admin principal enable NAME` |
-| `sfx: … refused your SSH key`, for a key added with `sfx admin` | sshd is not reading starfixd's keys file, or the file has no line for the key | On the server: `sshd -T -C user=starfix \| grep -i authorizedkeysfile` must name `.ssh/starfix_keys`; `grep -c NAME /var/lib/starfix/.ssh/starfix_keys` shows whether the line is there; `journalctl -u ssh` says when sshd would not read the file for its owner or mode |
+| `sfx: … accepted no key`, for a key added with `sfx admin` | sshd is not reading starfixd's keys file, or the file has no line for the key | On the server: `sshd -T -C user=starfix \| grep -i authorizedkeysfile` must name `.ssh/starfix_keys`; `grep -c NAME /var/lib/starfix/.ssh/starfix_keys` shows whether the line is there; `journalctl -u ssh` says when sshd would not read the file for its owner or mode |
 | `sfx admin` warns that starfixd `could not write the keys file sshd reads`, or `sfx admin status` says `THE LAST WRITE FAILED` | starfixd cannot replace its keys file. The change itself is recorded | `journalctl -u starfixd` has `the keys file is out of date` with the cause and a fix: usually the unit's `ReadWritePaths` ([Keys from the store](#keys-from-the-store), step 1), or the owner or mode of `.ssh`. starfixd tries again every 30 seconds |
 | starfixd does not start: `write the keys file …` | With `control_db`: it cannot write its keys file | The error's `fix:` names the change; see [Keys from the store](#keys-from-the-store), step 1 |
 | `the file there was not generated by starfixd` | `keys_file` names a file that holds something else, such as `authorized_keys` | Set `keys_file` to a file of its own, or move the other file away |
 | A key removed with `sfx admin key remove` still signs in | Its line is still in `authorized_keys`, as the command warned | Delete the line ([Keys from the store](#keys-from-the-store), step 5) |
-| `… may not add a key to …: nobody changes the keys of their own account` | `sfx admin key add` or `remove` for one's own principal | Ask another admin with reach; for a server admin, another server admin or a line in `authorized_keys` |
+| `… may not add a key to …: nobody adds a key to their own account` | `sfx admin key add` for one's own principal | Ask another admin with reach; for a server admin, another server admin or a line in `authorized_keys` |
+| `key … is the key this connection signed in with` | `sfx admin key remove` of your own key, on a connection that key signed in | Sign in with another of your keys (`STARFIX_KEY_FILE=PATH`) and remove it from there, or ask an admin |
 | `… is the last server admin who is not disabled` | `sfx admin principal disable` of the only enabled server admin | Enable another first, or name another under `admins:` and restart |
 | `the key that signed in is no longer one the server holds for …` | The key was removed, and sshd read a keys file from before that: one starfixd could not rewrite, or one restored from a backup; or an `authorized_keys` line was given `--key` by hand, which only starfixd writes | Use another key, or have the key added again; check `sfx admin status` for a failed write; remove `--key` from a hand-written line |
 | `this server holds one project, so it has no projects, principals or members to manage` | `sfx admin project`, `principal`, `member` or `key` on a server with no `control_db` | [Opt in](#opt-in), or add people as lines of `authorized_keys` |

@@ -59,8 +59,8 @@ func TestAdminAccessUsage(t *testing.T) {
 	// Every group is in the command's help.
 	_, help, _ := runCLI(t, "help", "admin")
 	for _, want := range []string{"admin prices [set MODEL", "admin plans [set NAME", "admin project add NAME [--prefix P] [--account A] | list | archive PROJECT | activate PROJECT",
-		"admin principal add NAME [--key FILE]... [--project P | --no-project] | list | disable NAME | enable NAME",
-		"admin member add NAME [--project P] [--role admin] | list [--project P] | remove NAME [--project P]"} {
+		"admin principal add NAME [--key FILE]... [--project P | --no-project] | list [--created-by NAME] | disable NAME | enable NAME",
+		"admin member add NAME [--project P] [--role admin] [--accept-keys] | list [--project P] [--added-by NAME] | remove NAME [--project P]"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("sfx help admin lacks %q:\n%s", want, help)
 		}
@@ -113,15 +113,33 @@ func TestPrintAdminLists(t *testing.T) {
 		{"member unchanged", func(w *bytes.Buffer) {
 			printMemberSet(w, proto.MemberSetResult{ID: "bob", Rev: 2, Project: a, ProjectName: "acme", Role: "admin", Change: "unchanged"})
 		}, "bob is already admin in project acme\n"},
-		{"member added from another project, with keys", func(w *bytes.Buffer) {
+		{"member added, with the keys that came with it", func(w *bytes.Buffer) {
 			printMemberSet(w, proto.MemberSetResult{ID: "bob", Rev: 1, Project: a, ProjectName: "acme", Role: "member", Change: "added", Projects: 2,
-				Keys: []string{"SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5TqvU"}})
+				Carried: []proto.CarriedKey{
+					{Fingerprint: "SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5TqvU", Type: "ssh-ed25519", Comment: "bob@laptop", AddedBy: "dana", AddedAt: at, AdderAdministers: true},
+					{Fingerprint: "SHA256:pOFYONeRL07H3T9tf0FhwK1slkJs5kvkcnOnf+vGgXA", Type: "ssh-ed25519", AddedBy: "erin", AddedAt: at}}})
 		}, "bob added to project acme as member\n" +
-			"bob belongs to 2 projects, and each key recorded for bob now reaches this one too:\n" +
-			"  SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5TqvU\n"},
+			"bob now signs in to project acme with 2 keys:\n" +
+			"FINGERPRINT                                         TYPE         COMMENT     ADDED BY  ADDED                 ADMIN HERE\n" +
+			"SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5TqvU  ssh-ed25519  bob@laptop  dana      2026-10-11 09:30 UTC  yes\n" +
+			"SHA256:pOFYONeRL07H3T9tf0FhwK1slkJs5kvkcnOnf+vGgXA  ssh-ed25519              erin      2026-10-11 09:30 UTC  no\n" +
+			"ADMIN HERE no: whoever added the key is no admin of project acme; ask bob whether the key is theirs\n"},
 		{"member added from another project, without keys", func(w *bytes.Buffer) {
 			printMemberSet(w, proto.MemberSetResult{ID: "bob", Rev: 1, Project: a, ProjectName: "acme", Role: "member", Change: "added", Projects: 3})
-		}, "bob added to project acme as member\nbob belongs to 3 projects; no key is recorded for bob\n"},
+		}, "bob added to project acme as member\n"},
+		{"one key, every one added by an admin of the project", func(w *bytes.Buffer) {
+			printMemberSet(w, proto.MemberSetResult{ID: "bob", Rev: 1, Project: a, ProjectName: "acme", Role: "member", Change: "added", Projects: 2,
+				Carried: []proto.CarriedKey{{Fingerprint: "SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5TqvU", Type: "ssh-ed25519", AddedBy: "dana", AddedAt: at, AdderAdministers: true}}})
+		}, "bob added to project acme as member\n" +
+			"bob now signs in to project acme with 1 key:\n" +
+			"FINGERPRINT                                         TYPE         COMMENT  ADDED BY  ADDED                 ADMIN HERE\n" +
+			"SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5TqvU  ssh-ed25519           dana      2026-10-11 09:30 UTC  yes\n"},
+		// A comment from someone else cannot start a line of its own.
+		{"a hostile key comment", func(w *bytes.Buffer) {
+			printCarried(w, proto.MemberSetResult{ID: "bob", ProjectName: "acme", Carried: []proto.CarriedKey{
+				{Fingerprint: "SHA256:x", Type: "ssh-ed25519", Comment: "ok\nsfx: bob added", AddedBy: "dana", AddedAt: at, AdderAdministers: true}}})
+		}, "FINGERPRINT  TYPE         COMMENT             ADDED BY  ADDED                 ADMIN HERE\n" +
+			"SHA256:x     ssh-ed25519  ok\\nsfx: bob added  dana      2026-10-11 09:30 UTC  yes\n"},
 		// A name from the server cannot start a line of its own.
 		{"a hostile project name", func(w *bytes.Buffer) {
 			printMembers(w, proto.MembersResult{Project: a, ProjectName: "acme\nfix: run this"})

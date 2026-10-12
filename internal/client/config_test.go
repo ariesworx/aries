@@ -85,21 +85,43 @@ func TestLoadConfigWalksUp(t *testing.T) {
 	}
 }
 
-func TestKeyPath(t *testing.T) {
+// TestKeyFile pins where the key file comes from: STARFIX_KEY, by any
+// path, before the config's key:, which stays inside the repository
+// (TestKeyPathStaysInTheRepository has that rule's cases).
+func TestKeyFile(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Skip("no home directory")
 	}
-	tests := []struct{ key, want string }{
-		{"", ""},
-		{"/abs/key", "/abs/key"},
-		{"~/.ssh/k", filepath.Join(home, ".ssh/k")},
-		{"rel/k", "/repo/rel/k"},
+	root := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name, env, key string
+		want, from     string
+	}{
+		{"neither", "", "", "", "key: in .starfix.yaml"},
+		{"the config's key, in the repository", "", "rel/k", filepath.Join(root, "rel/k"), "key: in .starfix.yaml"},
+		{"STARFIX_KEY, absolute", "/abs/key", "", "/abs/key", "STARFIX_KEY_FILE"},
+		{"STARFIX_KEY, under home", "~/.ssh/k", "", filepath.Join(home, ".ssh/k"), "STARFIX_KEY_FILE"},
+		{"STARFIX_KEY, relative to the working directory", "rel/k", "", filepath.Join(wd, "rel/k"), "STARFIX_KEY_FILE"},
+		{"STARFIX_KEY wins over the config's key", "/abs/key", "rel/k", "/abs/key", "STARFIX_KEY_FILE"},
+		// A key: the config may not name is not looked at when
+		// STARFIX_KEY is set.
+		{"STARFIX_KEY wins over a key: outside the repository", "/abs/key", "/elsewhere/k", "/abs/key", "STARFIX_KEY_FILE"},
 	}
 	for _, tc := range tests {
-		c := &Config{Key: tc.key, Root: "/repo"}
-		if got, err := c.KeyPath(); err != nil || got != tc.want {
-			t.Errorf("KeyPath(%q) = %q, %v; want %q", tc.key, got, err, tc.want)
+		c := &Config{Key: tc.key, Root: root}
+		got, from, err := c.KeyFile(func(k string) string {
+			if k == EnvKeyFile {
+				return tc.env
+			}
+			return ""
+		}, os.UserHomeDir)
+		if err != nil || got != tc.want || from != tc.from {
+			t.Errorf("%s: KeyFile() = %q, %q, %v; want %q, named by %q", tc.name, got, from, err, tc.want, tc.from)
 		}
 	}
 }

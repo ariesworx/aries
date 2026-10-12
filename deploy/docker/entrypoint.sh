@@ -190,7 +190,12 @@ opt_in() {
 # again: it records the database as the first project and imports the
 # principals and keys of authorized_keys, adding what is new. It removes
 # nothing: a principal dropped from STARFIX_KEYS keeps its row and keys
-# in the control database, and is removed with sfx admin.
+# in the control database, and is removed with sfx admin. And it undoes
+# nothing an admin did with sfx admin: a member removed from the first
+# project, a key removed and a principal disabled stay so across a
+# start, each named in this log, though their lines are still in
+# STARFIX_KEYS. It is never run here with --restore-removed-access,
+# which overrides those admins; docs/deploy/docker.md says how to.
 adopt() {
   if [[ ! -f $authorized ]]; then
     install -o starfix -g starfix -m 0600 /dev/null "$authorized"

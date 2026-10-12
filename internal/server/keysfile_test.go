@@ -597,10 +597,14 @@ func TestKeyOfAuthorizedKeysKeepsItsPrincipal(t *testing.T) {
 	m.writeByHand(t, `restrict,command="/usr/local/bin/starfixd stdio --principal dana" `+typ+" "+danas+" dana@example.com\n"+
 		`command="/usr/local/bin/starfixd stdio --principal bob",restrict `+typ+" "+bobs+"\n"+
 		typ+" "+plain+" someone@example.com\n")
-	taken := func(fp string) string { return "key " + fp + " already belongs to another principal" }
 	// A server admin, who can read that file on the server anyway, is
-	// told where the key is; a project admin learns only that it is taken,
-	// in the words used for a key another principal has in the store.
+	// told where the key is. A project admin is refused in the words used
+	// for a key another principal has in the store, which since the
+	// security review of stage 3a (F-6) do not say that the key is
+	// anyone's: TestRefusalsDoNotSayWhatExists compares the two.
+	taken := func(name string) string {
+		return "alice may not add that key to " + name + ": it is no key alice may give a principal"
+	}
 	inFile := func(fp string) string {
 		return "key " + fp + " is a line of the server's authorized_keys file, for another principal"
 	}
@@ -613,9 +617,9 @@ func TestKeyOfAuthorizedKeysKeepsItsPrincipal(t *testing.T) {
 		want string // the refusal's message, or "" for none
 	}{
 		{"a project admin gives a new principal the server admin's key", a, proto.OpPrincipalAdd,
-			proto.PrincipalAddArgs{Name: "mallory", Keys: []string{typ + " " + danas}}, taken(danasFP)},
+			proto.PrincipalAddArgs{Name: "mallory", Keys: []string{typ + " " + danas}}, taken("mallory")},
 		{"a project admin gives a member the server admin's key", a, proto.OpKeyAdd,
-			proto.KeyAddArgs{Name: "bob", Key: typ + " " + danas}, taken(danasFP)},
+			proto.KeyAddArgs{Name: "bob", Key: typ + " " + danas}, taken("bob")},
 		{"a server admin gives it to another principal", d, proto.OpKeyAdd,
 			proto.KeyAddArgs{Name: "carol", Key: typ + " " + danas + " a-comment"}, inFile(danasFP)},
 		{"one of several keys of a new principal", d, proto.OpPrincipalAdd,
@@ -631,8 +635,9 @@ func TestKeyOfAuthorizedKeysKeepsItsPrincipal(t *testing.T) {
 			switch {
 			case tc.want == "" && perr != nil:
 				t.Errorf("%s %+v refused: %v", tc.op, tc.args, perr)
-			case tc.want != "" && (perr == nil || perr.Code != proto.CodeExists || perr.Message != tc.want || perr.Fix == ""):
-				t.Errorf("%s %+v = %+v, want exists, %q, with a fix", tc.op, tc.args, perr, tc.want)
+			case tc.want != "" && (perr == nil || perr.Message != tc.want || perr.Fix == "" ||
+				perr.Code != map[bool]proto.Code{true: proto.CodeForbidden, false: proto.CodeExists}[tc.by == a]):
+				t.Errorf("%s %+v = %+v, want %q with a fix: forbidden for the project admin, exists for the server admin", tc.op, tc.args, perr, tc.want)
 			}
 		})
 	}

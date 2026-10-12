@@ -18,8 +18,8 @@ import (
 // so the entry pins this checkout's root and an absolute sfx. command is
 // --command, or "" for this sfx. --global changes nothing: the config is
 // always the person's.
-func (r *runner) setupDesktop(agent agentsetup.Agent, command string, mode setupMode) error {
-	usage := "setup " + agent.Name + " [--write|--check|--remove] [--command ABSOLUTE-PATH]"
+func (r *runner) setupDesktop(agent agentsetup.Agent, command, keyFile string, mode setupMode) error {
+	usage := "setup " + agent.Name + " [--write|--check|--remove] [--key-file PATH] [--command ABSOLUTE-PATH]"
 	goos := r.env.GOOS
 	home, _ := r.env.UserHomeDir()
 	path, err := agent.ConfigPath(goos, home, r.env.Getenv("APPDATA"))
@@ -46,6 +46,9 @@ func (r *runner) setupDesktop(agent agentsetup.Agent, command string, mode setup
 		}
 	}
 	entry := agentsetup.DesktopEntry(command, root)
+	// The app starts sfx with no shell environment, so the entry is the
+	// one place the variable can come from; the config is the person's.
+	entry.KeyFile = keyFile
 	again := "sfx setup " + agent.Name
 
 	// The config is the person's: new, it is private, since it holds every
@@ -66,6 +69,7 @@ func (r *runner) setupDesktop(agent agentsetup.Agent, command string, mode setup
 			fmt.Sprintf("%s already starts %s, not this checkout (in %s)", entry.Server, dir, path))
 	}
 	plan := setupPlan{Agent: agent, files: []setupFile{{Target: agent.DesktopTarget(path), disk: d, rel: path}}}
+	r.keyFileNotes([]setupPlan{plan}, entry, mode)
 	return r.applySetup([]setupPlan{plan}, entry, mode, false, false, again, []*diskFile{d})
 }
 

@@ -72,11 +72,13 @@ func closeControl(err error, ctl *store.Control) error {
 }
 
 // keyLine is one usable line of an authorized_keys file: the principal
-// its forced command names, and the key without its options.
+// its forced command names, the key without its options, and the key's
+// fingerprint.
 type keyLine struct {
-	n         int
-	principal string
-	key       string
+	n           int
+	principal   string
+	key         string
+	fingerprint string
 }
 
 // readAuthorizedKeys reads an authorized_keys file and returns the lines
@@ -113,14 +115,17 @@ func readAuthorizedKeys(file string) (lines []keyLine, problems []string, err er
 		if comment != "" {
 			key += " " + comment
 		}
-		lines = append(lines, keyLine{n: n, principal: principal, key: key})
+		lines = append(lines, keyLine{n: n, principal: principal, key: key, fingerprint: ssh.FingerprintSHA256(pub)})
 	}
 	return lines, problems, sc.Err()
 }
 
 // forcedPrincipal returns the principal named by the forced command
 // among a key line's options, when the command is starfixd's stdio
-// bridge: `[PATH/]starfixd stdio ... --principal NAME`.
+// bridge: `[PATH/]starfixd stdio ... --principal NAME`. The arguments
+// are parsed as `starfixd stdio` parses them (stdioArgs), so the
+// principal is the one sshd would sign the key in as: the last
+// --principal of the command, and none for a command stdio would refuse.
 func forcedPrincipal(options []string) (string, bool) {
 	for _, o := range options {
 		cmd, ok := strings.CutPrefix(o, `command="`)
@@ -131,15 +136,8 @@ func forcedPrincipal(options []string) (string, bool) {
 		if len(f) < 2 || path.Base(f[0]) != "starfixd" || f[1] != "stdio" {
 			return "", false
 		}
-		for i, a := range f[2:] {
-			if name, ok := strings.CutPrefix(a, "--principal="); ok {
-				return name, name != ""
-			}
-			if a == "--principal" && i+3 < len(f) {
-				return f[i+3], true
-			}
-		}
-		return "", false
+		_, _, principal, _, err := stdioArgs(f[2:])
+		return principal, err == nil
 	}
 	return "", false
 }
@@ -149,12 +147,29 @@ type tally struct{ added, already int }
 
 func (c tally) String() string { return fmt.Sprintf("%d added, %d already there", c.added, c.already) }
 
+// undone counts what admins removed or disabled since an earlier run,
+// among what the file still names: the keys, the memberships of the
+// adopted project, and the principals.
+type undone struct{ keys, members, principals int }
+
+func (u undone) any() bool { return u.keys+u.members+u.principals > 0 }
+
+// count is "1 key" or "3 keys".
+func count(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
+}
+
 // controlInit runs `starfixd control init --name NAME [--authorized-keys
 // FILE]`: the one-time move of a server of one project to a server of
 // many. It adopts the server's database as the first project, without
 // touching what is in it, and imports the principals and keys of the
 // starfix account's authorized_keys as members of that project. It is
-// safe to run again: what is there already is left as it is. It says how
+// safe to run again: what is there already is left as it is, and so is
+// what an admin removed or disabled since (importer), unless
+// --restore-removed-access says to put it back. It says how
 // many keys are then both in the store and in the file, where removing
 // one from the store does not revoke it; it never edits the file.
 //
@@ -164,9 +179,12 @@ func (c tally) String() string { return fmt.Sprintf("%d added, %d already there"
 func controlInit(ctx context.Context, env adminEnv, args []string) (err error) {
 	var fl server.Settings
 	var cfgPath, name, keysFile string
+	var restore bool
 	fs, err := adminFlags("control init", args, &fl, &cfgPath, func(fs *flag.FlagSet) {
 		fs.StringVar(&name, "name", "", "code name of the project adopted")
 		fs.StringVar(&keysFile, "authorized-keys", defaultAuthorizedKeys, "authorized_keys file to import principals and keys from")
+		fs.BoolVar(&restore, "restore-removed-access", false, "put back from the file what admins removed since: keys removed with `sfx admin key remove`, "+
+			"memberships of the adopted project removed with `sfx admin member remove`, and principals disabled with `sfx admin principal disable`; it overrides them")
 	})
 	if err != nil {
 		return err
@@ -232,22 +250,26 @@ func controlInit(ctx context.Context, env adminEnv, args []string) (err error) {
 		}
 	}
 
-	var principals, keys, members tally
-	imp := importer{ctl: ctl, actor: actor, project: p.ID, had: map[string]map[string]bool{}}
+	imp := importer{ctl: ctl, actor: actor, project: p.ID, restore: restore, seen: map[string]*imported{}, notes: problems, skipped: len(problems)}
 	for _, l := range lines {
-		why, err := imp.line(ctx, l, &principals, &keys, &members)
-		if err != nil {
+		if err := imp.line(ctx, l); err != nil {
 			return fmt.Errorf("import authorized_keys line %d: %w; fix: check that dolt sql-server is running and run it again (it is safe to rerun)", l.n, err)
 		}
-		if why != "" {
-			problems = append(problems, fmt.Sprintf("line %d: %s; skipped", l.n, why))
-		}
 	}
-	for _, pr := range problems {
-		_, _ = fmt.Fprintf(env.stderr, "authorized_keys %s\n", pr)
+	for _, note := range imp.notes {
+		_, _ = fmt.Fprintf(env.stderr, "authorized_keys %s\n", note)
 	}
+	keys := imp.keys
 	_, _ = fmt.Fprintf(env.stdout, "project %s (%s) adopted from database %s: %s\n", p.Name, p.ID, p.DBName, p.State)
-	_, _ = fmt.Fprintf(env.stdout, "principals: %s; keys: %s; members: %s; %d lines skipped\n", principals, keys, members, len(problems))
+	_, _ = fmt.Fprintf(env.stdout, "principals: %s; keys: %s; members: %s; %d lines skipped\n", imp.principals, keys, imp.members, imp.skipped)
+	if k := imp.kept; k.any() {
+		_, _ = fmt.Fprintf(env.stdout, "left as admins set them: %s removed, %s removed, %s disabled; to put them back from this file, run it again with --restore-removed-access\n",
+			count(k.keys, "key"), count(k.members, "membership"), count(k.principals, "principal"))
+	}
+	if r := imp.restored; r.any() {
+		_, _ = fmt.Fprintf(env.stdout, "restored from this file, over what admins had set: %s, %s, %s enabled\n",
+			count(r.keys, "key"), count(r.members, "membership"), count(r.principals, "principal"))
+	}
 	// Every key this run added or found is a line of the file it read,
 	// and sshd still reads that file. Nothing here edits it.
 	switch n := keys.added + keys.already; {
@@ -260,77 +282,185 @@ func controlInit(ctx context.Context, env adminEnv, args []string) (err error) {
 }
 
 // importer adds authorized_keys lines to the control store.
+//
+// Run again, it must not undo what an admin did since: the file is not
+// edited when a member is removed, a key is removed or a principal is
+// disabled, so its lines still name them (security review of stage 3a,
+// F-7). The control store's event log says what was done. A key whose
+// newest event is its removal, and a membership of the adopted project
+// whose newest event is its removal, are left removed, and a disabled
+// principal is left disabled, with nothing of its lines imported. A key
+// or a membership an admin added again after removing it is in the
+// store, and is simply already there. restore puts all three back from
+// the file instead, each as an event of the operator's.
 type importer struct {
 	ctl     *store.Control
 	actor   store.Actor
 	project string
-	// had holds, per principal seen, the fingerprints it had before its
-	// first line was imported, and those added since.
-	had map[string]map[string]bool
+	restore bool
+	// seen holds what is known of each principal a line has named.
+	seen map[string]*imported
+
+	principals, keys, members tally
+	kept, restored            undone
+	// notes are the lines for stderr, each "line N: …", and skipped how
+	// many of them are lines that could not be used.
+	notes   []string
+	skipped int
+}
+
+// imported is one principal the file names: the fingerprints it had
+// before its first line was imported and those added since, and whether
+// it is left disabled, and why.
+type imported struct {
+	fps      map[string]bool
+	disabled string
+}
+
+func (im *importer) note(l keyLine, format string, a ...any) {
+	im.notes = append(im.notes, fmt.Sprintf("line %d: ", l.n)+fmt.Sprintf(format, a...))
+}
+
+// skip notes a line the store refused, and passes a failure on. The
+// store's refusals name the principal or the fingerprint and never
+// repeat the line.
+func (im *importer) skip(l keyLine, err error) error {
+	for _, e := range []error{store.ErrInvalid, store.ErrConflict, store.ErrForbidden, store.ErrNotFound} {
+		if errors.Is(err, e) {
+			im.note(l, "%s; skipped", strings.TrimPrefix(err.Error(), store.ErrInvalid.Error()+": "))
+			im.skipped++
+			return nil
+		}
+	}
+	return err
+}
+
+// undid reports whether the newest event on target is op, a removal or
+// a disabling, and who did it and when, for a note.
+func (im *importer) undid(ctx context.Context, target string, op store.Op) (by string, ok bool, err error) {
+	e, found, err := im.ctl.LastEvent(ctx, target)
+	if err != nil || !found || e.Op != op {
+		return "", false, err
+	}
+	return fmt.Sprintf("by %s on %s", e.Actor.Principal, e.At.Format(time.DateOnly)), true, nil
 }
 
 // line imports one line: the principal if it has no row, the key, and a
 // membership of the adopted project unless the principal is a server
-// admin, who needs none. It returns why the line was skipped, if the
-// store refused it, and an error only when the store failed.
-func (im *importer) line(ctx context.Context, l keyLine, principals, keys, members *tally) (skipped string, err error) {
-	fps, seen := im.had[l.principal]
+// admin, who needs none. It returns an error only when the store failed.
+func (im *importer) line(ctx context.Context, l keyLine) error {
+	st, seen := im.seen[l.principal]
 	if !seen {
-		switch _, err := im.ctl.Principal(ctx, l.principal); {
-		case errors.Is(err, store.ErrNotFound):
-			if _, err := im.ctl.AddPrincipal(ctx, im.actor, l.principal, ""); err != nil {
-				return refused(err)
-			}
-			principals.added++
-		case err != nil:
-			return refused(err)
-		default:
-			principals.already++
+		var ok bool
+		var err error
+		st, ok, err = im.principal(ctx, l)
+		if st != nil {
+			im.seen[l.principal] = st
 		}
-		have, err := im.ctl.Keys(ctx, l.principal)
-		if err != nil {
-			return "", err
-		}
-		fps = map[string]bool{}
-		for _, k := range have {
-			fps[k.Fingerprint] = true
-		}
-		im.had[l.principal] = fps
-		if !im.ctl.ConfigAdmin(l.principal) {
-			switch _, ok, err := im.ctl.Role(ctx, l.principal, im.project); {
-			case err != nil:
-				return "", err
-			case ok:
-				members.already++ // whatever the role: a rerun demotes no one
-			default:
-				if _, err := im.ctl.SetMember(ctx, im.actor, l.principal, im.project, store.RoleMember); err != nil {
-					return refused(err)
-				}
-				members.added++
-			}
+		if err != nil || !ok {
+			return err
 		}
 	}
-	k, err := im.ctl.AddKey(ctx, im.actor, l.principal, l.key)
+	if st.disabled != "" {
+		im.note(l, "%s was disabled %s; kept disabled, and nothing of the line imported", l.principal, st.disabled)
+		return nil
+	}
+	if st.fps[l.fingerprint] {
+		im.keys.already++
+		return nil
+	}
+	by, removed, err := im.undid(ctx, l.fingerprint, store.OpKeyRemove)
 	if err != nil {
-		return refused(err)
+		return err
 	}
-	if fps[k.Fingerprint] {
-		keys.already++
-	} else {
-		fps[k.Fingerprint] = true
-		keys.added++
+	if removed && !im.restore {
+		im.kept.keys++
+		im.note(l, "key %s of %s was removed %s; kept removed from the store, though sshd still accepts it by this line: delete the line to keep the key out",
+			l.fingerprint, l.principal, by)
+		return nil
 	}
-	return "", nil
+	if _, err := im.ctl.AddKey(ctx, im.actor, l.principal, l.key); err != nil {
+		return im.skip(l, err)
+	}
+	st.fps[l.fingerprint] = true
+	im.keys.added++
+	if removed {
+		im.restored.keys++
+		im.note(l, "key %s of %s was removed %s; added again", l.fingerprint, l.principal, by)
+	}
+	return nil
 }
 
-// refused turns the control store's refusal of a line into the reason
-// it is skipped, and passes a failure on. The store's refusals name the
-// principal or the fingerprint and never repeat the line.
-func refused(err error) (string, error) {
-	for _, e := range []error{store.ErrInvalid, store.ErrConflict, store.ErrForbidden, store.ErrNotFound} {
-		if errors.Is(err, e) {
-			return strings.TrimPrefix(err.Error(), store.ErrInvalid.Error()+": "), nil
+// principal settles the principal a line names, the first time one
+// does: its row, its state and its membership of the adopted project.
+// ok is false, with the reason noted, when the store refused something
+// and the line is to be skipped. The principal is returned once it has
+// a row, so that it is not settled again by its next line.
+func (im *importer) principal(ctx context.Context, l keyLine) (st *imported, ok bool, err error) {
+	p, err := im.ctl.Principal(ctx, l.principal)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		if _, err := im.ctl.AddPrincipal(ctx, im.actor, l.principal, ""); err != nil {
+			return nil, false, im.skip(l, err)
 		}
+		im.principals.added++
+	case err != nil:
+		return nil, false, im.skip(l, err)
+	default:
+		im.principals.already++
 	}
-	return "", err
+	st = &imported{fps: map[string]bool{}}
+	if p.State == store.PrincipalDisabled {
+		by, _, err := im.undid(ctx, l.principal, store.OpPrincipalDisable)
+		if err != nil {
+			return nil, false, err
+		}
+		if !im.restore {
+			im.kept.principals++
+			st.disabled = by
+			return st, true, nil
+		}
+		if _, err := im.ctl.EnablePrincipal(ctx, im.actor, l.principal); err != nil {
+			return nil, false, im.skip(l, err)
+		}
+		im.restored.principals++
+		im.note(l, "%s was disabled %s; enabled", l.principal, by)
+	}
+	have, err := im.ctl.Keys(ctx, l.principal)
+	if err != nil {
+		return nil, false, err
+	}
+	for _, k := range have {
+		st.fps[k.Fingerprint] = true
+	}
+	if im.ctl.ConfigAdmin(l.principal) {
+		return st, true, nil
+	}
+	_, member, err := im.ctl.Role(ctx, l.principal, im.project)
+	if err != nil {
+		return nil, false, err
+	}
+	if member {
+		im.members.already++ // whatever the role: a rerun demotes no one
+		return st, true, nil
+	}
+	// A membership's events are on PROJECT/PRINCIPAL.
+	by, removed, err := im.undid(ctx, im.project+"/"+l.principal, store.OpMemberRemove)
+	if err != nil {
+		return nil, false, err
+	}
+	if removed && !im.restore {
+		im.kept.members++
+		im.note(l, "%s was removed from the project %s; kept removed", l.principal, by)
+		return st, true, nil
+	}
+	if _, err := im.ctl.SetMember(ctx, im.actor, l.principal, im.project, store.RoleMember); err != nil {
+		return st, false, im.skip(l, err)
+	}
+	im.members.added++
+	if removed {
+		im.restored.members++
+		im.note(l, "%s was removed from the project %s; added again", l.principal, by)
+	}
+	return st, true, nil
 }
