@@ -155,7 +155,7 @@ func (w *cwtx) addKey(ctx context.Context, principal string, k parsedKey) (Princ
 	}
 	if w.elsewhere != nil {
 		if owner, ok := w.elsewhere(k.fingerprint); ok && owner != principal {
-			return PrincipalKey{}, &TakenError{Kind: TakenKey, Value: k.fingerprint}
+			return PrincipalKey{}, &TakenError{Kind: TakenKey, Value: k.fingerprint, Elsewhere: true}
 		}
 	}
 	if err := w.room(ctx, limitKeys, w.lim.Keys, `SELECT COUNT(*) FROM principal_keys WHERE principal = ?`, principal); err != nil {

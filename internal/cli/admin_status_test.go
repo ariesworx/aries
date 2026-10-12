@@ -73,10 +73,11 @@ func TestPrintStatus(t *testing.T) {
 				"acme     active  open   1      0        -         1           80µs  80µs  2026-10-11 09:30 UTC\n"},
 		{"no projects on this page", proto.StatusResult{Server: &proto.ServerStatus{Version: "dev", ProtoMin: 5, ProtoMax: 5, UptimeSeconds: 42,
 			OpenStoresMax: 64, ConnsMax: 1024,
-			KeysFile: &proto.KeysFile{Path: "/var/lib/starfix/.ssh/starfix_keys", Keys: 1, WrittenAt: &at, Failed: true}}},
+			KeysFile: &proto.KeysFile{Path: "/var/lib/starfix/.ssh/starfix_keys", Keys: 1, WrittenAt: &at, Failed: true, HeldBack: 2}}},
 			"starfixd dev, protocol 5 to 5, up 42s\n" +
 				"stores 0 of 64, connections 0 of 1024\n" +
 				"keys file /var/lib/starfix/.ssh/starfix_keys: THE LAST WRITE FAILED, so sshd may be reading an older list (1 key, written 2026-10-11 09:30 UTC); see starfixd's log\n" +
+				"keys held back from it: 2, which the server's authorized_keys file gives to another principal; sshd takes that file's line for them, and starfixd's log names each\n" +
 				"starfixd's memory 0 MiB in use, 0 MiB from the system; 0 goroutines\n" +
 				"projects: none; principals: none\n" +
 				"\n" +

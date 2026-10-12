@@ -319,7 +319,20 @@ func (ac *acall) do(op string, args, res any) (out outcome, perr *proto.Error, r
 		if res != nil {
 			reflect.ValueOf(res).Elem().SetZero()
 		}
+		restarts := ac.s.restarting.Load()
 		out, perr = ac.s.do(ac.ss, ac.conn, op, args, res)
+		// A daemon that is stopping cancels the requests in flight, and
+		// one of them may still be answered before its connection
+		// closes: `unavailable`, with a fix to retry, which is the
+		// daemon saying it does not know whether the change was made
+		// (seeds 14245368110280542215 and 15006515746959414509, where
+		// it was canceled reading the project, before any write). That
+		// is an answer lost, not a refusal, and only while a restart is
+		// under way: at any other time it fails the run as before.
+		if out == refused && perr.Code == proto.CodeUnavailable &&
+			(ac.s.restarting.Load() != restarts || ac.s.restarting.Load() > ac.s.stats.restarts.Load()) {
+			out, perr = lost, nil
+		}
 		if out != lost {
 			return out, perr, resent
 		}
@@ -692,6 +705,7 @@ func (cd *conductor) fileKey() {
 	s.acc.fileKeys.Add(1)
 	if byStore != nil {
 		cd.closes(why, []*mcpserver.RepoConn{byStore})
+		_ = byStore.Close() // the server closed its end; this ends the SSH connection under it
 	}
 	// The store no longer has the key, and authorized_keys lets erin in.
 	byFile := cd.dial(principal, s.b, "", why)

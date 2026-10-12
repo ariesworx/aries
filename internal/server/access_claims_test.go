@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -429,5 +430,39 @@ func TestReleaseArchivedDoesNotMigrate(t *testing.T) {
 	}
 	if !strings.Contains(m.log.String(), `msg="archived project not opened at start: its database awaits this starfixd's migrations, and any claim in it ends when the project is activated" project=`+projB) {
 		t.Errorf("no log line saying the archived project was left alone:\n%s", m.log.String())
+	}
+}
+
+// TestArchivesTogetherLeaveOneProject sends the archive of each of a
+// server's two projects at once. Each alone is allowed, and both would
+// leave no active project: nobody could connect again, and the daemon
+// would not start. Whatever the order, one is refused.
+func TestArchivesTogetherLeaveOneProject(t *testing.T) {
+	for range 5 {
+		m := adminWorld(t, Limits{})
+		conns := []*conn{mustDialTo(t, m.Server, dana, projA), mustDialTo(t, m.Server, dana, projB)}
+		errs := make([]*proto.Error, 2)
+		var wg sync.WaitGroup
+		for i, id := range []string{projA, projB} {
+			wg.Go(func() {
+				_, errs[i] = ask[proto.ProjectResult](conns[i], proto.OpProjectArchive, proto.ProjectArgs{Project: id})
+			})
+		}
+		wg.Wait()
+		if got := m.ctl.ActiveProjects(); got != 1 {
+			t.Fatalf("after two archives sent together the server has %d active projects, want 1 (answers: %v, %v)", got, errs[0], errs[1])
+		}
+		refused := 0
+		for _, e := range errs {
+			if e != nil {
+				refused++
+				if e.Code != proto.CodeInvalid || !strings.Contains(e.Message, "only active project") {
+					t.Errorf("the archive that lost = %+v, want invalid: the server's only active project", e)
+				}
+			}
+		}
+		if refused != 1 {
+			t.Errorf("%d of the two archives were refused, want exactly 1", refused)
+		}
 	}
 }

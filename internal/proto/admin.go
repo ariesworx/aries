@@ -353,12 +353,16 @@ type ServerStatus struct {
 // keys the daemon last put in it, and when the file was last written.
 // Failed says the latest attempt to write it failed, so that sshd may
 // be reading an older list than the store holds; the daemon tries again
-// every half minute, and its log says why.
+// every half minute, and its log says why. HeldBack counts the store's
+// keys left out of the file because the server's hand-maintained
+// authorized_keys file gives them to another principal: sshd reads the
+// daemon's file first, and that line must not be shadowed.
 type KeysFile struct {
 	Path      string     `json:"path"`
 	Keys      int        `json:"keys"`
 	WrittenAt *time.Time `json:"written_at,omitempty"`
 	Failed    bool       `json:"failed,omitempty"`
+	HeldBack  int        `json:"held_back,omitempty"`
 }
 
 // ProjectStatus is one project. Open says whether its store is open;

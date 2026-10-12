@@ -78,6 +78,10 @@ type keysFile struct {
 	keys   int
 	at     time.Time
 	failed bool
+	// held is how many of the store's keys the latest rendering left
+	// out because the hand-maintained file gives them to another
+	// principal.
+	held int
 	// hand caches the fingerprints in the hand-maintained file, as of
 	// the file's size and time, and handOwner the principal each line's
 	// forced command names, for the lines that name one.
@@ -111,7 +115,7 @@ func (s *Server) WriteKeys() error {
 	k := &s.keys
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	want, n := s.keyLines()
+	want, n, held := s.keyLines()
 	at, written, err := syncFile(path, want)
 	if err != nil {
 		k.failed = true
@@ -120,7 +124,14 @@ func (s *Server) WriteKeys() error {
 	if written {
 		s.cfg.Logger.Info("keys file written", "path", path, "keys", n)
 	}
-	k.keys, k.at, k.failed = n, at, false
+	if written || len(held) != k.held {
+		// Said when it changes, not on every tick.
+		for _, h := range held {
+			s.cfg.Logger.Warn("a key of the control store is held back from the keys file: the authorized_keys file gives it to another principal, and sshd reads the keys file first",
+				"fingerprint", h.Fingerprint, "principal", h.Principal)
+		}
+	}
+	k.keys, k.at, k.failed, k.held = n, at, false, len(held)
 	return nil
 }
 
@@ -145,11 +156,22 @@ func (s *Server) syncKeys() string {
 // fingerprint is the stored key's own, and the key is one public key
 // with no options, written back by the parser. A row that fails is left
 // out and logged, without its text.
-func (s *Server) keyLines() ([]byte, int) {
+//
+// A key that the hand-maintained file gives to another principal is
+// held back, and returned: sshd reads this file first (decision 26), so
+// its line would shadow the operator's, and sign that key's owner in as
+// the store's principal. The store refuses to take such a key
+// (Control.KeysElsewhere), so this is a line the operator added after
+// the store had the key. s.keys.mu is held.
+func (s *Server) keyLines() (lines []byte, n int, held []store.PrincipalKey) {
 	var b bytes.Buffer
 	b.WriteString(keysFileHeader)
-	n := 0
+	_, owner := s.handLocked()
 	for _, k := range s.cfg.Control.AuthorizedKeys() {
+		if o, ok := owner[k.Fingerprint]; ok && o != k.Principal {
+			held = append(held, k)
+			continue
+		}
 		pub, err := publicKey(k.Key)
 		switch {
 		case !PrincipalPattern.MatchString(k.Principal) || store.Reserved(k.Principal):
@@ -165,7 +187,7 @@ func (s *Server) keyLines() ([]byte, int) {
 			s.cfg.Bridge, k.Principal, k.Fingerprint, strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pub))))
 		n++
 	}
-	return b.Bytes(), n
+	return b.Bytes(), n, held
 }
 
 // publicKey parses line as one public key, TYPE BASE64, with no options
@@ -294,7 +316,7 @@ func (s *Server) keysStatus() *proto.KeysFile {
 	k := &s.keys
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	out := &proto.KeysFile{Path: s.cfg.KeysFile, Keys: k.keys, Failed: k.failed}
+	out := &proto.KeysFile{Path: s.cfg.KeysFile, Keys: k.keys, Failed: k.failed, HeldBack: k.held}
 	if !k.at.IsZero() {
 		at := k.at.UTC()
 		out.WrittenAt = &at
@@ -315,25 +337,36 @@ func (s *Server) keysStatus() *proto.KeysFile {
 // unreadable or no regular file. Only its first mebibyte is read. The
 // answer is kept until the file's size or time changes.
 func (s *Server) byHand() map[string]bool {
-	path := s.cfg.AuthorizedKeys
-	if path == "" {
-		return nil
-	}
-	fi, err := os.Stat(path)
-	if err != nil || !fi.Mode().IsRegular() {
-		return nil
-	}
 	k := &s.keys
 	k.mu.Lock()
 	defer k.mu.Unlock()
+	hand, _ := s.handLocked()
+	return hand
+}
+
+// handLocked is byHand with s.keys.mu held. It also returns, for each
+// line whose forced command names a principal, that principal by the
+// key's fingerprint.
+func (s *Server) handLocked() (hand map[string]bool, owner map[string]string) {
+	k := &s.keys
+	path := s.cfg.AuthorizedKeys
+	if path == "" {
+		return nil, nil
+	}
+	fi, err := os.Stat(path)
+	if err != nil || !fi.Mode().IsRegular() {
+		k.hand, k.handOwner = nil, nil
+		return nil, nil
+	}
 	if k.hand != nil && k.handSize == fi.Size() && k.handTime.Equal(fi.ModTime()) {
-		return k.hand
+		return k.hand, k.handOwner
 	}
 	b, err := readUpTo(path, maxAuthorizedKeys)
 	if err != nil {
-		return nil
+		k.hand, k.handOwner = nil, nil
+		return nil, nil
 	}
-	hand, owner := map[string]bool{}, map[string]string{}
+	hand, owner = map[string]bool{}, map[string]string{}
 	sc := bufio.NewScanner(bytes.NewReader(b))
 	sc.Buffer(nil, maxAuthorizedKeys)
 	for sc.Scan() {
@@ -351,7 +384,7 @@ func (s *Server) byHand() map[string]bool {
 		hand[fp] = true
 	}
 	k.hand, k.handOwner, k.handSize, k.handTime = hand, owner, fi.Size(), fi.ModTime()
-	return hand
+	return hand, owner
 }
 
 // forcedPrincipal returns the principal that the forced command among
@@ -379,11 +412,11 @@ func forcedPrincipal(options []string) string {
 // keys file first (decision 26), so a key of that file added to the
 // store under another name would sign its owner in as someone else.
 func (s *Server) handOwner(fingerprint string) (string, bool) {
-	s.byHand()
 	k := &s.keys
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	p, ok := k.handOwner[fingerprint]
+	_, owner := s.handLocked()
+	p, ok := owner[fingerprint]
 	return p, ok
 }
 

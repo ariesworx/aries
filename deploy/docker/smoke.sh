@@ -315,4 +315,43 @@ in_keys_file "an enabled principal's key" "stdio --principal carol --key $carol_
 expect "the control database's key after restart" "^$b " carol ready
 no_failed_write "after the restart"
 
+# A key of authorized_keys keeps the principal its line names. sshd reads
+# the keys file first, so a break-glass key that the control database
+# took for someone else would sign its owner in as that someone. dave's
+# key is a second key of alice, the server admin, added by hand on the
+# server and never imported.
+echo "smoke: a key of authorized_keys keeps its principal"
+mkdir -p "$work/dave"
+ssh-keygen -q -t ed25519 -N '' -C dave@example.com -f "$work/keys/dave"
+printf 'project: %s\nserver:\n  host: localhost\n  port: %s\n  host_key: %s\nkey: %s\n' \
+  "$project" "$port" "$host_key" "$work/keys/dave" >"$work/dave/.starfix.yaml"
+by_hand() {
+  printf 'restrict,command="/usr/local/bin/starfixd stdio --principal %s" %s\n' "$1" "$(cat "$2")" |
+    in_server sh -c 'cat >> /state/ssh/authorized_keys'
+}
+by_hand alice "$work/keys/dave.pub"
+# Listing the principals is for server admins: whoever can, is alice.
+expect "a key added by hand signs in as the admin its line names" '^alice +active' dave admin principal list
+refuse "it cannot be given to another principal" 'is a line of the server.s authorized_keys file, for another principal' \
+  alice admin key add bob "$work/keys/dave.pub"
+refuse "nor to a new principal" 'is a line of the server.s authorized_keys file, for another principal' \
+  alice admin principal add mallory --key "$work/keys/dave.pub"
+dave_re=$(ssh-keygen -lf "$work/keys/dave.pub" | cut -d' ' -f2 | sed 's/[+/.]/[&]/g')
+not_in_keys_file "the refused key" "--key $dave_re\""
+expect "and it still signs its owner in as themselves" '^alice +active' dave admin principal list
+
+# The other order: the control database holds carol's key, for carol, and
+# then the operator gives the same key to alice by hand. starfixd holds
+# carol's line back from its file, so sshd reaches the operator's.
+refuse "carol's key signs in as carol, who is no server admin" 'for server admins' carol admin principal list
+by_hand alice "$work/keys/carol.pub"
+for _ in $(seq 1 45); do
+  in_server grep -Eq 'stdio --principal carol ' "$keys_file" || break
+  sleep 1
+done
+not_in_keys_file "a key the operator's file gives to another principal" 'stdio --principal carol '
+expect "that key signs in as the principal the operator's line names" '^alice +active' carol admin principal list
+expect "status counts the key held back" '^keys held back from it: 1,' alice admin status
+no_failed_write "at the end"
+
 echo "smoke: ok, $passed checks passed"

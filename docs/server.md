@@ -676,9 +676,14 @@ key the control database does not hold: the first admin's before
      principal its line names: `sfx admin key add` and `principal add
      --key` refuse it for anyone else, as they refuse a key another
      principal has, so nobody can take a server admin's key by adding
-     it to the control database under another name. A line you add for
-     a key the control database already holds under another name does
-     nothing, since sshd reads starfixd's line first.
+     it to the control database under another name. And a line you add
+     for a key the control database already holds under another name
+     wins: starfixd leaves that key out of its file, so that sshd
+     reaches your line, says so in its log, and counts it in `sfx admin
+     status` as a key held back. It takes effect at the next key change
+     or within 30 seconds; until then that key is refused. starfixd
+     reads the first mebibyte of the file, and takes the first line for
+     a key, as sshd does.
 
 **Settings.** `keys_file` is where starfixd writes, and
 `authorized_keys` the hand-maintained file it reads; a relative path is

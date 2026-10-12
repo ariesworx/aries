@@ -106,10 +106,22 @@ starfixd therefore applies the same rule to that file: `sfx admin key
 add` and `principal add --key` refuse, in the same words and after the
 same checks of who may add a key, a key whose line of `authorized_keys`
 forces the command for another principal. A line that forces no starfix
-command names no principal and reserves nothing. The file is read as it
-is at that moment; a line added later for a key the database already
-holds under another name does not take effect, since sshd reads the
-database's line first.
+command names no principal and reserves nothing. A project admin is
+told only that the key belongs to another principal; a server admin is
+told that it is a line of `authorized_keys`. The check is made inside
+the control database's write, so it cannot be raced or skipped, and a
+refusal records nothing. `starfixd control init`, the operator's, is not
+subject to it: it imports each key for the principal its line names.
+
+A line the operator adds later, for a key the database already holds
+under another name, cannot be refused, so starfixd gives way to it: it
+leaves that key out of the file it writes, so that sshd reaches the
+operator's line, refuses meanwhile a connection that an older file let
+in by the database's line, logs the key, and counts it in `sfx admin
+status`. So in every order, a key in `authorized_keys` signs in as the
+principal its line there names. The limits are those of how starfixd
+reads the file: the first mebibyte, the first line for a key, and a
+change it notices by the file's size or time.
 
 Either way the key only names a principal. What that principal reaches
 is decided afterward, by its memberships.

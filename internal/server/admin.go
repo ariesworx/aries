@@ -326,14 +326,21 @@ func projectArchive(ctx context.Context, s *Server, sess *session, in proto.Proj
 		return nil, perr
 	}
 	// Every admin op rides a connection to an active project, so with
-	// none left nobody could connect to activate one again.
+	// none left nobody could connect to activate one again, and the
+	// daemon would not start. The check and the write are one step
+	// (s.archiving): the daemon is the only writer that archives, and the
+	// index the count comes from has taken each archive before the next
+	// is checked.
+	was := p.State
+	s.archiving.Lock()
 	if p.State == store.ProjectActive && s.cfg.Control.ActiveProjects() == 1 {
+		s.archiving.Unlock()
 		return nil, proto.Errf(proto.CodeInvalid,
 			"add another project, or bring one back with `sfx admin project activate PROJECT`, before archiving this one",
 			fmt.Sprintf("%s is the server's only active project; without one, nobody could connect to manage the server", p.Name))
 	}
-	was := p.State
 	p, err := s.cfg.Control.ArchiveProject(ctx, sess.actor, p.ID)
+	s.archiving.Unlock()
 	if err != nil {
 		return nil, s.ctlErr(ctx, sess, op, err)
 	}
@@ -432,7 +439,7 @@ func principalAdd(ctx context.Context, s *Server, sess *session, in proto.Princi
 	}
 	p, err := s.cfg.Control.AddPrincipal(ctx, sess.actor, in.Name, proj.ID, in.Keys...)
 	if err != nil {
-		return nil, s.ctlErr(ctx, sess, op, err)
+		return nil, s.keyErr(ctx, sess, op, err)
 	}
 	out := proto.PrincipalAddResult{PrincipalResult: proto.PrincipalResult{ID: p.Name, Rev: int64(p.Rev), State: string(p.State),
 		Project: proj.ID, ProjectName: proj.Name}}
@@ -631,7 +638,7 @@ func keyAdd(ctx context.Context, s *Server, sess *session, in proto.KeyAddArgs) 
 	}
 	k, err := ctl.AddKey(ctx, sess.actor, in.Name, in.Key)
 	if err != nil {
-		return nil, s.ctlErr(ctx, sess, op, err)
+		return nil, s.keyErr(ctx, sess, op, err)
 	}
 	out := wireKeyResult(k)
 	out.Change, out.Warning = "added", s.syncKeys()
@@ -639,6 +646,21 @@ func keyAdd(ctx context.Context, s *Server, sess *session, in proto.KeyAddArgs) 
 		out.Change = "unchanged"
 	}
 	return out, nil
+}
+
+// keyErr is ctlErr for an op that adds keys. A key that the server's
+// hand-maintained authorized_keys file gives to another principal is
+// refused like one another principal has in the store, in the same
+// words, so that the refusal tells a project admin nothing of that file.
+// A server admin, who can read the file on the server, is told where the
+// key is, and what to do about it there.
+func (s *Server) keyErr(ctx context.Context, sess *session, op string, err error) *proto.Error {
+	if te, ok := errors.AsType[*store.TakenError](err); ok && te.Elsewhere && s.cfg.Control.IsServerAdmin(sess.actor.Principal) {
+		return proto.Errf(proto.CodeExists,
+			"add it to the principal that line names, or have the line deleted on the server first (docs/server.md, Keys from the store): sshd reads starfixd's keys before that file, so the key would otherwise sign its owner in as someone else",
+			fmt.Sprintf("key %s is a line of the server's authorized_keys file, for another principal", te.Value))
+	}
+	return s.ctlErr(ctx, sess, op, err)
 }
 
 // wireKeyResult is a key after a write. The type is the first word of
