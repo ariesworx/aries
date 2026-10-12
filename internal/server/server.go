@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -91,6 +92,8 @@ type Server struct {
 	writes    buckets
 	ctlWrites buckets
 	refusals  sampler
+	// lookups counts the key lookups in flight (Limits.KeyLookups).
+	lookups atomic.Int64
 	// adding serializes `project add`, so that two do not take the same
 	// database name.
 	adding sync.Mutex
@@ -197,6 +200,7 @@ func (s *Server) openProject(ctx context.Context, p store.Project) (*served, err
 	delete(s.unopened, p.ID)
 	s.mu.Unlock()
 	pr.reap(ctx)
+	s.sweep(ctx, pr)
 	pr.prune(ctx, s.cfg.Limits)
 	return pr, nil
 }
@@ -348,8 +352,9 @@ const pruneEvery = 10 * time.Minute
 
 // reapLoop ends expired claims every ReapInterval until ctx is done. It
 // prunes on the first tick, then every pruneEvery. A server of many
-// projects also closes its idle stores and rereads the control store on
-// each tick.
+// projects also closes its idle stores, rereads the control store, and
+// ends the claims of holders who lost their access (Sweep), on each
+// tick.
 func (s *Server) reapLoop(ctx context.Context) {
 	t := time.NewTicker(s.cfg.ReapInterval)
 	defer t.Stop()
@@ -362,6 +367,7 @@ func (s *Server) reapLoop(ctx context.Context) {
 			s.refresh(ctx)
 			s.CloseIdleStores()
 			s.Reap(ctx)
+			s.Sweep(ctx)
 			if time.Since(pruned) >= pruneEvery {
 				s.Prune(ctx)
 				pruned = time.Now()
@@ -415,6 +421,10 @@ type session struct {
 	// key is what the session's connection slot, write bucket and
 	// refusal log lines are counted under (limitKey).
 	key string
+	// fingerprint is the bridge frame's key: the fingerprint of the key
+	// that authenticated, when the control store served it to sshd, and
+	// empty for a line of the authorized_keys file.
+	fingerprint string
 	// proj is the project the hello named. held is its entry in the
 	// registry of a server of many projects, set while the session
 	// counts as one of the store's connections.
@@ -459,6 +469,9 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		}
 		s.refusals.log(log, key, s.now(), slog.LevelInfo, "handshake failed", "err", err)
 		return
+	}
+	if sess == nil {
+		return // a key lookup: the keys frame was its answer
 	}
 	if sess.proj == nil {
 		return // the health probe of a server of many projects: the welcome was its answer
@@ -598,7 +611,9 @@ func (s *Server) busyControlWrites(principal string, wait time.Duration) *proto.
 }
 
 // handshake reads the bridge frame and the client's hello, and answers with
-// a welcome, or a refusal and an error. On success the session holds a
+// a welcome, or a refusal and an error. A connection whose first frame is
+// a keys frame is sshd's key lookup instead: it is answered and nothing
+// is returned (lookup). On success the session holds a
 // connection slot (sess.slot) and, in a server of many projects, counts
 // as a connection of its project's store (sess.held). A refusal after a
 // valid bridge frame also returns the session, so the caller can say
@@ -612,14 +627,23 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("bridge frame: %w", err)
 	}
+	if f.T == proto.FrameKeys {
+		s.lookup(c, sess.enc, f.Key)
+		return nil, nil
+	}
 	// The upgrade's probe, alone of the reserved names, is welcomed: it
 	// connects here directly, and Bridge refuses its name to every key.
 	if f.T != proto.FrameBridge || !PrincipalPattern.MatchString(f.Principal) ||
 		(store.Reserved(f.Principal) && f.Principal != ProbePrincipal) {
 		return nil, fmt.Errorf("first frame is %q, not a bridge frame with a valid, unreserved principal", f.T)
 	}
+	// A bridge from before keys were served from the store sends none.
+	if f.Key != "" && !store.ValidFingerprint(f.Key) {
+		return nil, errors.New("the bridge frame's key is not a SHA256 fingerprint")
+	}
 	sess.actor.Principal = f.Principal
 	sess.key = f.Principal
+	sess.fingerprint = f.Key
 
 	_ = c.SetReadDeadline(time.Now().Add(helloTimeout))
 	f, err = sess.dec.Decode()
@@ -659,6 +683,9 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 		}
 		acc, e := s.admit(sess.actor.Principal, f.Project)
 		if e != nil {
+			return refuse(e)
+		}
+		if e := s.keyHolds(sess.actor.Principal, sess.fingerprint); e != nil {
 			return refuse(e)
 		}
 		row = acc.Project
@@ -718,17 +745,22 @@ func notServed(project string) *proto.Error {
 // being created is not served to anyone. An active one is served to a
 // server admin and to an active principal who is a member of it; anyone
 // else is forbidden, whether they are disabled, in other projects only,
-// or unknown to the store. The upgrade's health probe never comes here:
-// the handshake answers it first.
+// or unknown to the store. A disabled principal is refused even when
+// the config file names it a server admin (decision 20). The upgrade's
+// health probe never comes here: the handshake answers it first.
 func (s *Server) admit(principal, project string) (store.Access, *proto.Error) {
 	acc := s.cfg.Control.Access(principal, project)
 	if !acc.Active {
 		return acc, notServed(project)
 	}
+	if acc.Disabled {
+		return acc, proto.Errf(proto.CodeForbidden,
+			fmt.Sprintf("ask a server admin, or a project admin who administers every project you belong to, to run `sfx admin principal enable %s`", principal),
+			fmt.Sprintf("%s is disabled on this server", principal))
+	}
 	if acc.Role == "" {
 		return acc, proto.Errf(proto.CodeForbidden,
-			fmt.Sprintf("ask a server admin, or one of the project's admins, to add you: `sfx admin member add %s`, run in this repository; "+
-				"or, if you were disabled, `sfx admin principal enable %s`", principal, principal),
+			fmt.Sprintf("ask a server admin, or one of the project's admins, to add you: `sfx admin member add %s`, run in this repository", principal),
 			fmt.Sprintf("%s is not a member of project %q", principal, project))
 	}
 	return acc, nil

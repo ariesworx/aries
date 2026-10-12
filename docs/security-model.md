@@ -6,11 +6,13 @@ setup steps that apply these rules are in [Running a server](server.md).
 
 ## Identity comes from SSH keys
 
-The server's sshd decides who connects. Each key's line in
-`~starfix/.ssh/authorized_keys` forces one command,
-`starfixd stdio --principal NAME`, so the principal comes from the key that
-matched. A client cannot claim to be anyone else, and nothing depends on
-paths or environment variables.
+The server's sshd decides who connects. Each key's `authorized_keys`
+line forces one command, `starfixd stdio --principal NAME`, so the
+principal comes from the key that matched. A client cannot claim to be
+anyone else, and nothing depends on paths or environment variables. The
+line comes from `~starfix/.ssh/authorized_keys`, or, on a server of many
+projects set up for it, from starfixd itself, which sshd asks
+([Who can authenticate](#who-can-authenticate)).
 
 - `restrict` on each line turns off forwarding and terminals, and the
   sshd `Match` block repeats that for the whole account
@@ -24,8 +26,8 @@ paths or environment variables.
   principal, so one principal's records cannot shadow another's. A
   principal can still report false counts for its own sessions; usage is
   for reporting, not billing proof.
-- To revoke someone, delete their key lines and stop their open sessions
-  ([Principals](server.md#principals)).
+- To revoke someone on a server of one project, delete their key lines
+  and stop their open sessions ([Principals](server.md#principals)).
 - On a server of [many projects](server.md#serving-many-projects) the key
   still only names the principal. Which projects that principal reaches
   is decided by the daemon at each connection, from the control
@@ -35,10 +37,76 @@ paths or environment variables.
   elsewhere. Access that ends closes the connections it had let in: when
   a membership is removed, that principal's connections to the project;
   when a principal is disabled, all of its connections; when a project is
-  archived, every connection to it. The daemon closes them once the
-  change is committed, and the control database then refuses the next
-  handshake. Keys are still lines of `authorized_keys`: a key removed
-  there is stopped as before.
+  archived, every connection to it; when a key is removed, the
+  connections that key signed in. The daemon closes them once the change
+  is committed, and the control database then refuses the next
+  handshake. The first three also end the claims the lost access held,
+  each with a `claim.release` event naming the admin and the reason, so
+  nobody without access goes on holding an issue.
+- **Disabled wins.** A disabled principal is refused at every handshake
+  and has no admin rights anywhere, even when the config file names it a
+  server admin. The last server admin who is not disabled cannot be
+  disabled.
+
+## Who can authenticate
+
+On a server of one project, a key authenticates if it has a line in
+`~starfix/.ssh/authorized_keys`, which only someone with a shell on the
+server can write.
+
+On a server of [many projects](server.md#serving-many-projects) whose
+sshd is set up for it ([Keys from the store](server.md#keys-from-the-store)),
+a key authenticates if either holds:
+
+- **The control database has it, for a principal that is not disabled.**
+  sshd runs `starfixd keys TYPE BASE64` for the key, which asks the
+  running daemon and prints that key's line: `restrict`, and a forced
+  command naming the principal and the key's fingerprint.
+- **It has a line in `authorized_keys`**, as before. sshd reads the file
+  whenever starfixd prints no line, so the file is still a way in: for
+  the first admin, and when starfixd is down. A key in the file is not
+  revoked by removing it from the control database, and starfixd cannot
+  see the file. Keep the file to the keys that must work without
+  starfixd.
+
+Either way the key only names a principal. What that principal reaches
+is decided afterward, by its memberships.
+
+**Who may add a key.** Server admins, and a project admin for a principal
+whose every project they administer; a principal in no project, and a
+server admin, are beyond a project admin's reach. Nobody adds or removes
+a key of their own account, a server admin included: an agent that holds
+a person's key could otherwise add a key of its own and outlive the
+person's. Every key added and removed is an event in the control
+database, under the admin who did it. Only public keys are stored, and
+`sfx` refuses to send a file that holds a private key.
+
+**The lookup runs before authentication**, for every key any stranger
+offers the `starfix` account. So it is built to cost nothing and to say
+nothing:
+
+- It reads the daemon's memory only: no database, no store opened, no
+  connection slot taken, nothing written. The daemon gives an asker two
+  seconds to take its answer, and at most `key_lookups` are in flight
+  ([Limits](server.md#limits)); sshd's `MaxStartups` bounds how many it
+  starts.
+- It is reached only through the daemon's socket, which admits only the
+  daemon's own user, so sshd runs it as `starfix`.
+- **The line it prints holds nothing the stranger chose.** The
+  fingerprint is computed from the key sshd parsed. The principal comes
+  from the control database and must be a principal name. The key
+  printed is the stored one, and must be the key that was asked about.
+  Arguments that are not one key's type and base64 print nothing.
+- It always exits 0 and prints nothing for a key it has no line for,
+  whatever the reason, so its answer tells a stranger only what failing
+  to sign in already does.
+- It is logged at `debug` only, by fingerprint, never the key.
+
+sshd runs the command only from a file that root owns, in directories
+that root owns. The binary starfix upgrades in place is owned by
+`starfix`, so the server guide gives sshd a root-owned copy. That, and
+the `Match` block that scopes the command to the `starfix` account, have
+not yet been checked against sshd on each cloud provider's image.
 
 ## The server's host key is pinned
 
@@ -69,7 +137,7 @@ pinned](cli.md#the-host-key-is-pinned)).
   project admin's role is read from the control database on every write,
   so taking it away counts at once.
 - **Who manages access.** On a server of many projects, `sfx admin`
-  changes projects, principals and memberships over the protocol
+  changes projects, principals, their keys and memberships over the protocol
   ([Managing access](server.md#managing-access)), and the control
   database decides inside each write's transaction whether the caller
   may. A server admin may make every change. A project admin may add and
@@ -78,7 +146,9 @@ pinned](cli.md#the-host-key-is-pinned)).
   and an agent whose principal is refused is told to ask a person. An
   agent that can run shell commands with an admin's key can still run
   `sfx admin`, with that admin's rights: give an agent that works on its
-  own a principal of its own, which is no admin.
+  own a principal of its own, which is no admin. What it cannot do, even
+  then, is add a key to the admin's own account, so its access ends with
+  the key it was given ([Who can authenticate](#who-can-authenticate)).
 - **A project admin's reach is bounded.** A project admin may disable or
   enable a principal only while every project that principal belongs to
   is one they administer; a server admin, and a principal in no project,
@@ -150,7 +220,8 @@ variable can set it.
 0700 and owned by the daemon's user. On Linux it also checks each
 connecting process's user ID and refuses any but its own, which is why
 `serve` runs only on Linux. `starfixd stdio` runs as that same user,
-because sshd runs every forced command as the `starfix` account.
+because sshd runs every forced command as the `starfix` account, and so
+does `starfixd keys`, by sshd's `AuthorizedKeysCommandUser`.
 
 ## Untrusted text
 
@@ -223,8 +294,8 @@ conversation, so it is built to take only counts from them
 
 ## Limits
 
-Every principal is bounded: write rates, `sfx admin` changes,
-connections, sessions, inbox size, labels, dependencies, acceptance items, token usage records and
+Every principal is bounded: write rates, `sfx admin` changes, a
+principal's keys, connections, sessions, inbox size, labels, dependencies, acceptance items, token usage records and
 memories each have a cap, and text
 fields and replies have fixed sizes. [Limits](server.md#limits) lists the
 caps, their settings and what a refusal past each one says.

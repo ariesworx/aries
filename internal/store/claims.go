@@ -53,8 +53,10 @@ type Claim struct {
 // of holder is: claim.take names the claim it replaced, if any;
 // claim.expire is the reaper ending a lapsed claim; claim.release is any
 // other end, by a releasing handoff, a close or finish, or an import, and
-// precedes the change that caused it. claim.expire and claim.release
-// name the claim they end in their before state.
+// precedes the change that caused it; or by the holder losing access to
+// the project (EndClaims), when its after state gives the reason.
+// claim.expire and claim.release name the claim they end in their before
+// state.
 const (
 	OpClaimTake    Op = "claim.take"
 	OpClaimExpire  Op = "claim.expire"
@@ -151,14 +153,24 @@ func releaseClaim(ctx context.Context, w *wtx, c claimRow) error {
 // naming the claim it ends, so that no claim ends without an event of its
 // own. It records nothing when c has no holder.
 func endClaim(ctx context.Context, w *wtx, c claimRow) error {
+	return endClaimFor(ctx, w, c, "")
+}
+
+// endClaimFor is endClaim for a claim that ends for a reason no other
+// event gives: the event's after state then says it.
+func endClaimFor(ctx context.Context, w *wtx, c claimRow, reason string) error {
 	if !c.exists || c.Holder.Principal == "" {
 		return nil
 	}
 	if err := releaseClaim(ctx, w, c); err != nil {
 		return err
 	}
+	var after any // nil, not a nil map, so the state is NULL
+	if reason != "" {
+		after = map[string]string{"reason": reason}
+	}
 	return w.event(ctx, OpClaimRelease, string(c.Issue),
-		map[string]any{"holder": c.Holder, "epoch": c.Epoch, "expires_at": c.ExpiresAt}, nil)
+		map[string]any{"holder": c.Holder, "epoch": c.Epoch, "expires_at": c.ExpiresAt}, after)
 }
 
 // checkLease refuses a lease outside [MinLease, most]; most is
@@ -406,22 +418,8 @@ func (s *Store) ReapClaims(ctx context.Context) ([]Claim, error) {
 				Body: fmt.Sprintf("lease expired (epoch %d): stop work on it; start it again if it is still free", c.Epoch)}); err != nil {
 				return err
 			}
-			is, err := loadIssue(ctx, w.tx, c.Issue)
-			if errors.Is(err, ErrNotFound) {
-				continue
-			}
-			if err != nil {
+			if err := reopenReleased(ctx, w, c); err != nil {
 				return err
-			}
-			if is.Status == StatusInProgress && is.Assignee == c.Holder.Principal {
-				after, err := casUpdate(ctx, w, is, []string{"status = ?", "assignee = ?"}, []any{string(StatusOpen), nil})
-				if err != nil {
-					return err
-				}
-				b, a := diff(is, after)
-				if err := w.event(ctx, OpIssueUpdate, string(c.Issue), b, a); err != nil {
-					return err
-				}
 			}
 			out = append(out, c)
 		}
@@ -431,4 +429,81 @@ func (s *Store) ReapClaims(ctx context.Context) ([]Claim, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+// EndClaims ends the claims of the holders who lost their access to the
+// project (decision 21): why is asked for each holder's principal, and a
+// reason it returns ("membership removed", say) ends that principal's
+// claims, live or lapsed, in every session; an empty one leaves them. It
+// returns the claims it ended.
+//
+// Each claim ends as the reaper ends one, with the reason on the record:
+// a claim.release event by actor whose after state gives the reason, a
+// claim.lost inbox item for the session that held it, and an issue still
+// in progress under the holder's principal back to open, unassigned, so
+// it is ready again. why runs inside the write, which may be retried, so
+// it must be fast, read no database and give the same answer again.
+//
+// EndClaims is for the daemon, when the control store has ended an
+// access, not for clients: like the reaper it does not ask whether actor
+// may change an issue someone holds (wtx.guard). The daemon passes the
+// admin whose change ended the access, or its own actor when it finds
+// the claims later.
+func (s *Store) EndClaims(ctx context.Context, actor Actor, why func(principal string) string) ([]Claim, error) {
+	var out []Claim
+	err := s.write(ctx, actor, func(w *wtx) error {
+		out = nil
+		held, err := s.claims(ctx, w.tx, `principal IS NOT NULL`)
+		if err != nil {
+			return err
+		}
+		for _, c := range held {
+			reason := why(c.Holder.Principal)
+			if reason == "" {
+				continue
+			}
+			row, err := loadClaim(ctx, w.tx, c.Issue)
+			if err != nil {
+				return err
+			}
+			if err := endClaimFor(ctx, w, row, reason); err != nil {
+				return err
+			}
+			if err := w.notify(ctx, InboxItem{To: c.Holder.Principal, Session: c.Holder.Session, Kind: InboxClaimLost, Issue: c.Issue,
+				Body: fmt.Sprintf("%s by %s (epoch %d): stop work on it", reason, w.actor.Principal, c.Epoch)}); err != nil {
+				return err
+			}
+			if err := reopenReleased(ctx, w, c); err != nil {
+				return err
+			}
+			out = append(out, c)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// reopenReleased returns the issue of c, a claim just ended, to open and
+// unassigned if it is still in progress under c's holder, and records
+// the change. An issue that is gone, or was moved on, is left as it is.
+func reopenReleased(ctx context.Context, w *wtx, c Claim) error {
+	is, err := loadIssue(ctx, w.tx, c.Issue)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if is.Status != StatusInProgress || is.Assignee != c.Holder.Principal {
+		return nil
+	}
+	after, err := casUpdate(ctx, w, is, []string{"status = ?", "assignee = ?"}, []any{string(StatusOpen), nil})
+	if err != nil {
+		return err
+	}
+	b, a := diff(is, after)
+	return w.event(ctx, OpIssueUpdate, string(c.Issue), b, a)
 }

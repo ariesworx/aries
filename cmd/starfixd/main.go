@@ -1,7 +1,8 @@
 // Command starfixd is the starfix server.
 //
 //	starfixd serve [--dev [--allow-unsafe-dolt]] [--config FILE] [--dsn DSN] [--socket PATH] [--project UUID] [--prefix P] [--log-level L] [--log-format F]
-//	starfixd stdio --principal NAME [--config FILE] [--socket PATH]
+//	starfixd stdio --principal NAME [--key FINGERPRINT] [--config FILE] [--socket PATH]
+//	starfixd keys [--config FILE] [--socket PATH] [--bridge PATH] TYPE BASE64
 //	starfixd control init --name NAME [--authorized-keys FILE] [--config FILE] [--dsn DSN]
 //	starfixd import-bd [--config FILE] [--dsn DSN] [--project UUID] [--principal NAME] [--dry-run] [--json] FILE|-
 //	starfixd export-bd [--config FILE] [--dsn DSN] [--project UUID] [-o FILE]
@@ -11,6 +12,9 @@
 // serve is the long-running daemon: it owns the Dolt store and serves the
 // protocol on a unix socket. stdio is the forced command in each developer
 // key's authorized_keys line; it bridges the SSH session to that socket.
+// keys is sshd's AuthorizedKeysCommand on a server of many projects: it
+// asks the daemon which principal a key belongs to and prints that key's
+// authorized_keys line, or nothing.
 // import-bd and export-bd are admin commands run on the server: they open
 // the store directly with the daemon's DSN settings and move a backlog in
 // and out as bd's JSONL. With control_db set the server holds many
@@ -41,7 +45,8 @@ import (
 
 const usage = `usage:
   starfixd serve [--dev [--allow-unsafe-dolt]] [--config FILE] [--dsn DSN] [--socket PATH] [--project UUID] [--prefix P] [--log-level L] [--log-format F]
-  starfixd stdio --principal NAME [--config FILE] [--socket PATH]
+  starfixd stdio --principal NAME [--key FINGERPRINT] [--config FILE] [--socket PATH]
+  starfixd keys [--config FILE] [--socket PATH] [--bridge PATH] TYPE BASE64
   starfixd control init --name NAME [--authorized-keys FILE] [--config FILE] [--dsn DSN]
   starfixd import-bd [--config FILE] [--dsn DSN] [--project UUID] [--principal NAME] [--dry-run] [--json] FILE|-
   starfixd export-bd [--config FILE] [--dsn DSN] [--project UUID] [-o FILE]
@@ -57,8 +62,10 @@ serve reads them at start.
 With control_db: (or $STARFIXD_CONTROL_DB) set, the server holds many
 projects, and who may reach each is in that database. Run control init
 once to adopt the existing database as the first project; admins then
-manage projects, principals and members from anywhere with sfx admin.
-project_dbs: names the databases granted for new projects.
+manage projects, principals, members and keys from anywhere with sfx admin.
+project_dbs: names the databases granted for new projects. keys is sshd's
+AuthorizedKeysCommand: it prints the authorized_keys line of a key the
+control database holds, or nothing, and always exits 0.
 
 Every command that opens the store refuses a Dolt account that is root,
 holds rights beyond its database, or a server whose secure_file_priv is
@@ -98,6 +105,8 @@ func run(ctx context.Context, args []string) error {
 		return serve(ctx, args[1:])
 	case "stdio":
 		return stdio(ctx, args[1:])
+	case "keys":
+		return keysCmd(ctx, osEnv(), args[1:])
 	case "control":
 		return controlCmd(ctx, osEnv(), args[1:])
 	case "import-bd":
@@ -253,9 +262,10 @@ func openDaemon(ctx context.Context, s server.Settings, log *slog.Logger) (*daem
 // process's stdin and stdout to the daemon's socket.
 func stdio(ctx context.Context, args []string) error {
 	var fl server.Settings
-	var cfgPath, principal string
+	var cfgPath, principal, key string
 	if err := flags("stdio", args, &fl, &cfgPath, func(fs *flag.FlagSet) {
 		fs.StringVar(&principal, "principal", "", "principal this key authenticates")
+		fs.StringVar(&key, "key", "", "SHA256 fingerprint of the key, when the control store served it (starfixd keys)")
 	}); err != nil {
 		return err
 	}
@@ -266,5 +276,5 @@ func stdio(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	return server.Bridge(ctx, s.Socket, principal, os.Stdin, os.Stdout)
+	return server.Bridge(ctx, s.Socket, principal, key, os.Stdin, os.Stdout)
 }

@@ -134,3 +134,18 @@ func (e *TakenError) Error() string {
 
 // Unwrap makes errors.Is(err, ErrConflict) hold.
 func (e *TakenError) Unwrap() error { return ErrConflict }
+
+// LastAdminError refuses disabling Principal, the last server admin who
+// is not disabled: nobody could then enable anyone, or do anything else
+// only a server admin may, without a shell on the server (decision 20).
+// It wraps ErrInvalid.
+type LastAdminError struct {
+	Principal string
+}
+
+func (e *LastAdminError) Error() string {
+	return fmt.Sprintf("%v: %s is the last server admin who is not disabled", ErrInvalid, e.Principal)
+}
+
+// Unwrap makes errors.Is(err, ErrInvalid) hold.
+func (e *LastAdminError) Unwrap() error { return ErrInvalid }

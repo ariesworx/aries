@@ -13,9 +13,11 @@ package e2e
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -142,6 +144,11 @@ type daemonOpts struct {
 	// its Dolt account, as an operator grants a block at setup. Zero is
 	// no block.
 	dbs, granted int
+	// keys makes the SSH server ask the daemon about each key first, with
+	// the code `starfixd keys` runs, as an sshd with that
+	// AuthorizedKeysCommand does; a key the daemon has no line for is
+	// then looked up among world.keys, the authorized_keys file.
+	keys bool
 }
 
 // newWorld starts a daemon on a new database, unless o.noDaemon, and the
@@ -334,7 +341,9 @@ func (w *world) restartDaemon() error {
 // startSSH runs the in-process sshd. Like OpenSSH with
 // restrict,command="starfixd stdio --principal NAME", it maps the key to a
 // principal, refuses pty and forwarding, and runs the bridge for any exec
-// or shell request, ignoring the command the client sent.
+// or shell request, ignoring the command the client sent. With
+// daemonOpts.keys it first asks the daemon for the key's line, as
+// OpenSSH does with AuthorizedKeysCommand (storeLine).
 func (w *world) startSSH(ctx context.Context) {
 	t := w.t
 	t.Helper()
@@ -349,6 +358,11 @@ func (w *world) startSSH(ctx context.Context) {
 	w.hostFpr = ssh.FingerprintSHA256(hostSigner.PublicKey())
 	cfg := &ssh.ServerConfig{
 		PublicKeyCallback: func(_ ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+			if w.opts.keys {
+				if perms := w.storeLine(ctx, key); perms != nil {
+					return perms, nil
+				}
+			}
 			w.keysMu.Lock()
 			defer w.keysMu.Unlock()
 			p, ok := w.keys[ssh.FingerprintSHA256(key)]
@@ -375,6 +389,30 @@ func (w *world) startSSH(ctx context.Context) {
 			wg.Go(func() { w.serveSSH(ctx, nc, cfg) })
 		}
 	})
+}
+
+// storeLine asks the daemon for key's authorized_keys line, with the code
+// `starfixd keys` runs, and reads it as sshd would: the key it names must
+// be the one offered, and its forced command gives the principal and the
+// key's fingerprint, which the bridge is then run with. It returns nil
+// when there is no line, and sshd goes on to the authorized_keys file.
+func (w *world) storeLine(ctx context.Context, key ssh.PublicKey) *ssh.Permissions {
+	line, err := server.AuthorizedKey(ctx, w.socket, server.DefaultBridge, key.Type(), base64.StdEncoding.EncodeToString(key.Marshal()))
+	if err != nil {
+		return nil
+	}
+	named, _, options, rest, err := ssh.ParseAuthorizedKey([]byte(line))
+	if err != nil || len(rest) != 0 || !bytes.Equal(named.Marshal(), key.Marshal()) || len(options) != 2 || options[0] != "restrict" {
+		w.t.Errorf("starfixd keys printed a line sshd would not take as this key's, restricted: %q (%v)", line, err)
+		return nil
+	}
+	cmd, ok := strings.CutPrefix(options[1], `command="`)
+	f := strings.Fields(strings.TrimSuffix(cmd, `"`))
+	if !ok || len(f) != 6 || f[0] != server.DefaultBridge || f[1] != "stdio" || f[2] != "--principal" || f[4] != "--key" {
+		w.t.Errorf("starfixd keys printed the forced command %q, want %s stdio --principal NAME --key FINGERPRINT", options[1], server.DefaultBridge)
+		return nil
+	}
+	return &ssh.Permissions{Extensions: map[string]string{"principal": f[3], "key": f[5]}}
 }
 
 // dropReplyTo arranges for the next request of op to be applied by the
@@ -493,7 +531,7 @@ func (w *world) serveSSH(ctx context.Context, nc net.Conn, cfg *ssh.ServerConfig
 					_ = req.Reply(true, nil)
 					status := uint32(0)
 					tp := &tap{w: w, nc: nc, in: ch, out: ch, drop: map[uint64]bool{}}
-					if err := server.Bridge(ctx, w.socket, principal, tp, tp); err != nil {
+					if err := server.Bridge(ctx, w.socket, principal, sc.Permissions.Extensions["key"], tp, tp); err != nil {
 						_, _ = fmt.Fprintf(ch.Stderr(), "starfixd: %v\n", err)
 						status = 1
 					}
@@ -516,6 +554,10 @@ type user struct {
 	// now, if set, is the CLI's clock, in the user's time zone; unset,
 	// the CLI's default.
 	now func() time.Time
+	// stdin, if set, is what the CLI reads from standard input.
+	stdin string
+	// pubFile is the user's public key file, for `sfx admin key add`.
+	pubFile string
 }
 
 // newUser makes a user with a new key, which the server maps to principal
@@ -552,6 +594,13 @@ func (w *world) newUserIn(principal, hostFpr, proj string) *user {
 	if err := os.WriteFile(filepath.Join(repo, "id_ed25519"), pem.EncodeToMemory(block), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// The public key, as ssh-keygen leaves one: outside the repository,
+	// so that git sees nothing new in it.
+	pubFile := filepath.Join(t.TempDir(), "id_ed25519.pub")
+	pub := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(signer.PublicKey()))) + " " + cmp.Or(principal, "someone") + "@example.com\n"
+	if err := os.WriteFile(pubFile, []byte(pub), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if hostFpr == "" {
 		hostFpr = w.hostFpr
 	}
@@ -560,7 +609,7 @@ func (w *world) newUserIn(principal, hostFpr, proj string) *user {
 	if err := os.WriteFile(filepath.Join(repo, ".starfix.yaml"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return &user{w: w, repo: repo, env: map[string]string{}}
+	return &user{w: w, repo: repo, env: map[string]string{}, pubFile: pubFile}
 }
 
 // result is one CLI run's exit code and output.
@@ -592,7 +641,7 @@ func (u *user) runTo(ctx context.Context, stdout, stderr io.Writer, version stri
 		return -1
 	}
 	return cli.Run(ctx, append([]string{"-C", sub}, args...), cli.Env{
-		Stdin: strings.NewReader("from stdin\n"), Stdout: stdout, Stderr: stderr,
+		Stdin: strings.NewReader(cmp.Or(u.stdin, "from stdin\n")), Stdout: stdout, Stderr: stderr,
 		Getenv:   func(k string) string { return u.env[k] }, // no SSH_AUTH_SOCK: the key file is used
 		Hostname: func() (string, error) { return "laptop-test", nil },
 		Version:  version,

@@ -128,7 +128,7 @@ func init() {
 		{"mcp", "mcp", "serve the MCP tools for an agent on stdin and stdout", cmdMCP},
 		{"setup", "setup AGENT|--all [--write|--check|--remove] [--global] [--command PATH]", "set agents up: MCP config, instruction pointer, session hook", cmdSetup},
 		{"admin", "admin prices [set MODEL --from DATE|TIME --input USD --output USD --cache-write USD --cache-write-1h USD --cache-read USD] | admin plans [set NAME --from YYYY-MM --fee USD --seats N [--principal P]...] | " + adminUsage,
-			"list model prices and subscription plans, or set one; manage a server's projects, principals and members (admins only)", cmdAdmin},
+			"list model prices and subscription plans, or set one; manage a server's projects, principals, members and keys (admins only)", cmdAdmin},
 		{"upgrade", "upgrade [--check] [--rollback]", "replace sfx with the latest verified release; --rollback undoes it", cmdUpgrade},
 		{"version", "version", "print the starfix version", cmdVersion},
 	}

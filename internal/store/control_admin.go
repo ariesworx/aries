@@ -101,16 +101,18 @@ func (c *Control) ProjectNamed(name string) (Project, bool) {
 // Reaches reports whether actor may manage principal's keys and state,
 // by the rule the writes apply (control_authz.go): a server admin
 // reaches everyone, and an active project admin a principal that is no
-// server admin, belongs to at least one project, and belongs only to
+// server admin's, belongs to at least one project, and belongs only to
 // projects the admin administers. It reads memory, so the daemon can
-// decide what of a principal to show an admin.
+// decide what of a principal to show an admin. It does not apply
+// decision 19: an admin reaches themselves here, and may still not
+// change their own keys.
 func (c *Control) Reaches(actor, principal string) bool {
-	if c.IsServerAdmin(actor) {
-		return true
-	}
 	c.ix.mu.RLock()
 	defer c.ix.mu.RUnlock()
-	return c.ix.reaches(actor, c.ix.projectsOf(principal)) && !c.IsServerAdmin(principal)
+	if c.serverAdmin(actor) {
+		return true
+	}
+	return c.ix.reaches(actor, c.ix.projectsOf(principal)) && !c.ConfigAdmin(principal)
 }
 
 // ReachGained returns the project admins who can manage principal's keys
@@ -123,7 +125,7 @@ func (c *Control) Reaches(actor, principal string) bool {
 // admin's reach, and for a principal left in no project, who is too. It
 // never names the principal itself.
 func (c *Control) ReachGained(principal, left string) []string {
-	if c.IsServerAdmin(principal) {
+	if c.ConfigAdmin(principal) {
 		return nil
 	}
 	c.ix.mu.RLock()
@@ -133,7 +135,7 @@ func (c *Control) ReachGained(principal, left string) []string {
 	for m, role := range c.ix.roles {
 		// Each admin is met once: at their role in the first remaining
 		// project, which they must administer to reach the principal.
-		if len(of) == 0 || m.project != of[0] || role != RoleAdmin || m.principal == principal || c.IsServerAdmin(m.principal) {
+		if len(of) == 0 || m.project != of[0] || role != RoleAdmin || m.principal == principal || c.ConfigAdmin(m.principal) {
 			continue
 		}
 		if c.ix.reaches(m.principal, of) && c.ix.roles[membership{m.principal, left}] != RoleAdmin {

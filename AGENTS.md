@@ -25,11 +25,11 @@ stage is in progress.
 | Path | Holds |
 |---|---|
 | `cmd/sfx` | `sfx` entry point: builds a `cli.Env` from the process and calls `cli.Run` |
-| `cmd/starfixd` | `starfixd` entry point: `serve`, `stdio`, `upgrade`, and the admin `control init`, `import-bd` and `export-bd` |
+| `cmd/starfixd` | `starfixd` entry point: `serve`, `stdio`, `keys` (sshd's `AuthorizedKeysCommand` on a server of many projects), `upgrade`, and the admin `control init`, `import-bd` and `export-bd` |
 | `internal/store` | Typed store over Dolt: single writer, CAS updates, event log, ready and blocked queries. Also `Control` (`control*.go`), the same machinery over a second database for what is the server's: projects, principals, their public keys and memberships with roles, and the in-memory index the daemon reads at each handshake and each project store asks for its admins |
 | `internal/store/migrations`, `internal/store/controlmigrations` | Embedded schema migrations for a project's database and for the control database, two separate sets: `NNNN_name.sql`, each numbered 1..n without gaps |
-| `internal/proto` | Wire protocol: NDJSON frames, handshake, `Op` constants, `*Args` and `*Result` types, typed errors |
-| `internal/server` | Daemon: socket, peer check, sshd bridge, dispatch of ops to the connection's project's store, error mapping, settings; with `control_db`, the membership check at the handshake, the registry of open project stores (`registry.go`), the `sfx admin` ops over the control store (`admin.go`) and the closing of connections whose access ended (`conns.go`) |
+| `internal/proto` | Wire protocol: NDJSON frames, handshake, `Op` constants, `*Args` and `*Result` types, typed errors; and the bridge and keys frames, which pass between two `starfixd` processes on the server, carry no version and only ever gain fields |
+| `internal/server` | Daemon: socket, peer check, sshd bridge, dispatch of ops to the connection's project's store, error mapping, settings; with `control_db`, the membership check at the handshake, the registry of open project stores (`registry.go`), the `sfx admin` ops over the control store (`admin.go`), the closing of connections whose access ended (`conns.go`), and keys for sshd (`keys.go`): the lookup `starfixd keys` asks for, the line it prints, and the ending of claims whose holder lost access |
 | `internal/client` | In-process SSH client with a pinned host key, over TCP or a Google Cloud IAP tunnel; `.starfix.yaml` discovery, and the one printed for a new project; session ids |
 | `internal/safetext` | Unsafe characters (controls, bidi): the store's validation, bd import cleaning, and the escaping of everything clients print |
 | `internal/secretscan` | Text that looks like a credential (private keys, service and bearer tokens, JWTs, passwords in URLs and commands, secret assignments, long random tokens): the store's secrets lint for memories |
@@ -44,7 +44,7 @@ stage is in progress.
 | `internal/version` | Build version, and `Dolt`, the pinned Dolt release |
 | `internal/dolttest` | Starts a throwaway `dolt sql-server` for tests, and grants its locked-down account databases by name |
 | `internal/iaptest` | A fake `gcloud` for tests of the IAP transport: the test binary, re-executed from `PATH` |
-| `internal/e2e` | End-to-end tests: CLI and MCP through an in-process SSH server to a real daemon and store |
+| `internal/e2e` | End-to-end tests: CLI and MCP through an in-process SSH server to a real daemon and store. The SSH server can ask the daemon for each key with the code `starfixd keys` runs, as sshd does |
 | `deploy/docker` | The Docker test server ([docs/deploy/docker.md](docs/deploy/docker.md)): image, entrypoint, compose file and `smoke.sh`, which drives it end to end and is not part of CI. It mirrors docs/server.md's setup steps; `internal/version` keeps its Dolt at the pin |
 | `install.sh` | The one-line installer for `sfx` and `starfixd`; `internal/release/install_test.go` runs it and checks that its key is in `keys.go` |
 | `spike/dolt` | Stage 0 measurements, kept as evidence; not maintained and excluded from lint |
@@ -118,7 +118,10 @@ skip without it too.
    `ImportIssue`, which only the operator's `starfixd import-bd` reaches,
    is exempt: it writes an issue whoever holds it, and ends the claim,
    telling the holder, when it leaves the issue anything but in progress
-   with the holder (closed, open, blocked or reassigned). The control
+   with the holder (closed, open, blocked or reassigned). `ReapClaims`
+   and `EndClaims`, which only the daemon reaches, are exempt too: they
+   end a claim whose lease ran out, or whose holder lost access to the
+   project, and return its issue to open. The control
    store's equivalent is `ControlOptions.Operator`, which only `starfixd
    control init` sets: it lets the reserved principal `import` write as a
    server admin. Who is an admin of a project's issues is `Store.IsAdmin`:
@@ -164,8 +167,8 @@ skip without it too.
     The CLI prints the message and a `fix:` line; `internal/mcpserver`
     rewords the fix as the agent's next tool call (`errors.go`).
 12. **MCP is for agents and stays small.** No admin tools over MCP: import,
-    export, setup, upgrade, settings, prices, plans, projects, principals
-    and members are CLI only. An agent refused for want of access is told
+    export, setup, upgrade, settings, prices, plans, projects, principals,
+    members and keys are CLI only. An agent refused for want of access is told
     to ask a person, never to run an admin command
     (`internal/mcpserver/errors.go`).
     Identity is implicit: the principal comes from the SSH key and the

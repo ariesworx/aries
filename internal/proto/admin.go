@@ -10,20 +10,26 @@ import "time"
 // server of one project refuses them all.
 //
 // Who may run each is the control store's to decide; a refusal is
-// forbidden, with a fix that says who can. Keys are not here: sshd still
-// reads them from authorized_keys.
+// forbidden, with a fix that says who can.
+//
+// Protocol 6 adds a principal's public SSH keys, which sshd asks the
+// daemon for (design §15.2): key.add, keys and key.remove, and Keys on
+// principal.add.
 const (
 	OpProjectAdd       = "project.add"       // ProjectAddArgs → ProjectAddResult; server admins
 	OpProjects         = "projects"          // AdminListArgs → ProjectsResult
 	OpProjectArchive   = "project.archive"   // ProjectArgs → ProjectResult; server admins
 	OpProjectActivate  = "project.activate"  // ProjectArgs → ProjectResult; server admins
-	OpPrincipalAdd     = "principal.add"     // PrincipalAddArgs → PrincipalResult
+	OpPrincipalAdd     = "principal.add"     // PrincipalAddArgs → PrincipalAddResult
 	OpPrincipals       = "principals"        // AdminListArgs → PrincipalsResult; server admins
 	OpPrincipalDisable = "principal.disable" // PrincipalArgs → PrincipalResult
 	OpPrincipalEnable  = "principal.enable"  // PrincipalArgs → PrincipalResult
 	OpMemberSet        = "member.set"        // MemberSetArgs → MemberSetResult
 	OpMembers          = "members"           // MembersArgs → MembersResult
 	OpMemberRemove     = "member.remove"     // MemberArgs → MemberRemoveResult
+	OpKeyAdd           = "key.add"           // KeyAddArgs → KeyResult
+	OpKeys             = "keys"              // KeysArgs → KeysResult
+	OpKeyRemove        = "key.remove"        // KeyRemoveArgs → KeyResult
 )
 
 // Bounds on what the admin lists return.
@@ -46,12 +52,14 @@ type ProjectAddArgs struct {
 }
 
 // ProjectResult is a project after a write: its UUID, revision, name and
-// state.
+// state. Released counts the claims an archive ended at once, in the
+// project's open store.
 type ProjectResult struct {
-	ID    string `json:"id"`
-	Rev   int64  `json:"rev"`
-	Name  string `json:"name"`
-	State string `json:"state"`
+	ID       string `json:"id"`
+	Rev      int64  `json:"rev"`
+	Name     string `json:"name"`
+	State    string `json:"state"`
+	Released int    `json:"released,omitempty"`
 }
 
 // ProjectAddResult is the project created, and the Dolt database it is
@@ -99,12 +107,19 @@ type ProjectsResult struct {
 
 // PrincipalAddArgs adds a principal named Name as a member of Project
 // (empty: the connection's). Unassigned, for server admins only, adds
-// it to no project instead.
+// it to no project instead. Keys (protocol 6) are its first public keys,
+// each one line as KeyAddArgs.Key is, at most MaxKeysPerAdd; the
+// principal and its keys are added together or not at all.
 type PrincipalAddArgs struct {
-	Name       string `json:"name"`
-	Project    string `json:"project,omitempty"`
-	Unassigned bool   `json:"unassigned,omitempty"`
+	Name       string   `json:"name"`
+	Project    string   `json:"project,omitempty"`
+	Unassigned bool     `json:"unassigned,omitempty"`
+	Keys       []string `json:"keys,omitempty"`
 }
+
+// MaxKeysPerAdd is the most keys one principal.add may carry. The
+// server's cap on a principal's keys (keys_per_principal) also applies.
+const MaxKeysPerAdd = 20
 
 // PrincipalArgs names a principal to disable or enable.
 type PrincipalArgs struct {
@@ -113,13 +128,22 @@ type PrincipalArgs struct {
 
 // PrincipalResult is a principal after a write: its name as ID, its
 // revision and state, and for an add the project it was made a member
-// of.
+// of. Released counts the claims a disable ended at once, in the stores
+// open then.
 type PrincipalResult struct {
 	ID          string `json:"id"`
 	Rev         int64  `json:"rev"`
 	State       string `json:"state"`
 	Project     string `json:"project,omitempty"`
 	ProjectName string `json:"project_name,omitempty"`
+	Released    int    `json:"released,omitempty"`
+}
+
+// PrincipalAddResult is the principal added, and the fingerprints of
+// the keys added with it.
+type PrincipalAddResult struct {
+	PrincipalResult
+	Keys []string `json:"keys,omitempty"`
 }
 
 // Principal is one principal in a list.
@@ -199,10 +223,60 @@ type MemberArgs struct {
 // MemberRemoveResult is the membership removed: the principal as ID and
 // the project. Warning, when set, tells the admin what the removal
 // changed beyond the project: that admins of the principal's remaining
-// projects can now manage its keys.
+// projects can now manage its keys. Released counts the claims the
+// removal ended.
 type MemberRemoveResult struct {
 	ID          string `json:"id"`
 	Project     string `json:"project"`
 	ProjectName string `json:"project_name"`
 	Warning     string `json:"warning,omitempty"`
+	Released    int    `json:"released,omitempty"`
+}
+
+// KeyAddArgs adds a public SSH key to the principal Name. Key is one
+// line in authorized_keys form, TYPE BASE64 [COMMENT], with no options:
+// what a .pub file holds. Only public keys are ever sent.
+type KeyAddArgs struct {
+	Name string `json:"name"`
+	Key  string `json:"key"`
+}
+
+// KeyResult is a key after a write: its SHA-256 fingerprint as ID, the
+// principal it belongs to, its type and comment, and for an add whether
+// it was added or the principal had it already (unchanged). Dropped
+// counts the connections a removal closed: those the key had
+// authenticated.
+type KeyResult struct {
+	ID        string `json:"id"`
+	Principal string `json:"principal"`
+	Type      string `json:"type"`
+	Comment   string `json:"comment,omitempty"`
+	Change    string `json:"change,omitempty"`
+	Dropped   int    `json:"dropped,omitempty"`
+}
+
+// KeysArgs lists the keys of the principal Name.
+type KeysArgs struct {
+	Name string `json:"name"`
+}
+
+// Key is one public key in a list: its fingerprint, type and comment.
+type Key struct {
+	Fingerprint string    `json:"fingerprint"`
+	Type        string    `json:"type"`
+	Comment     string    `json:"comment,omitempty"`
+	AddedBy     string    `json:"added_by"`
+	AddedAt     time.Time `json:"added_at"`
+}
+
+// KeysResult lists a principal's keys, oldest first.
+type KeysResult struct {
+	Principal string `json:"principal"`
+	Keys      []Key  `json:"keys"`
+}
+
+// KeyRemoveArgs names the key to remove by its SHA-256 fingerprint, as
+// `sfx admin key list` and `ssh-keygen -lf FILE.pub` print it.
+type KeyRemoveArgs struct {
+	Fingerprint string `json:"fingerprint"`
 }

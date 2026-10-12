@@ -49,6 +49,12 @@ const (
 // bytes.
 var fingerprintPattern = regexp.MustCompile(`^SHA256:[A-Za-z0-9+/]{43}$`)
 
+// ValidFingerprint reports whether s has the form of a key's SHA-256
+// fingerprint, as ssh.FingerprintSHA256 gives it: "SHA256:" and 43
+// characters of unpadded base64. Nothing in it needs quoting in a shell
+// or in an authorized_keys option.
+func ValidFingerprint(s string) bool { return fingerprintPattern.MatchString(s) }
+
 // errKeyForm is what parseKey says of a line that is no key. It never
 // repeats the line: what was pasted may be a private key.
 var errKeyForm = fmt.Errorf("%w: the key must be one public key in authorized_keys form: TYPE BASE64 [COMMENT], with no options", ErrInvalid)
@@ -85,11 +91,13 @@ func parseKey(line string) (fingerprint, key, comment string, err error) {
 // base64 the parser gives back, never the caller's text, and keeps the
 // comment for display only.
 //
-// A server admin may add a key to any principal. A project admin may
-// only while every project the principal belongs to is one they
-// administer; a principal in no project, and a server admin, are out of
-// their reach. Otherwise they could add a key of their own to someone
-// with access elsewhere and act as them there.
+// A server admin may add a key to any principal but themselves. A
+// project admin may only while every project the principal belongs to
+// is one they administer; a principal in no project, and a server
+// admin, are out of their reach. Otherwise they could add a key of
+// their own to someone with access elsewhere and act as them there.
+// Nobody adds a key to their own account (decision 19): the refusal is
+// an [*AccessError] whose reason is [AccessOwnKeys].
 //
 // A key the principal already has is returned as it is. A key another
 // principal has is refused with a [*TakenError], which does not say
@@ -106,6 +114,9 @@ func (c *Control) AddKey(ctx context.Context, actor Actor, principal, line strin
 	}
 	var out PrincipalKey
 	err = c.write(ctx, actor, func(w *cwtx) error {
+		if err := w.ownKeys(OpKeyAdd, principal); err != nil {
+			return err
+		}
 		sc, err := w.scope(ctx, OpKeyAdd, principal)
 		if err != nil {
 			return err
@@ -116,25 +127,8 @@ func (c *Control) AddKey(ctx context.Context, actor Actor, principal, line strin
 		if err := w.within(ctx, sc, OpKeyAdd, principal); err != nil {
 			return err
 		}
-		switch cur, err := readKey(ctx, w.tx, fp); {
-		case err == nil && cur.Principal == principal:
-			out = cur
-			return nil
-		case err == nil:
-			return &TakenError{Kind: TakenKey, Value: fp}
-		case !errors.Is(err, ErrNotFound):
-			return err
-		}
-		if err := w.room(ctx, limitKeys, w.lim.Keys, `SELECT COUNT(*) FROM principal_keys WHERE principal = ?`, principal); err != nil {
-			return err
-		}
-		out = PrincipalKey{Fingerprint: fp, Principal: principal, Key: key, Comment: comment, AddedBy: w.actor.Principal, AddedAt: w.now}
-		if _, err := w.exec(ctx, "INSERT INTO principal_keys (fingerprint, principal, `key`, comment, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?)",
-			fp, principal, key, comment, out.AddedBy, w.now); err != nil {
-			return fmt.Errorf("add key %s: %w", fp, err)
-		}
-		w.indexed(func(ix *index) { ix.byFingerprint[fp] = indexedKey{principal: principal, key: key} })
-		return w.event(ctx, OpKeyAdd, fp, nil, out)
+		out, err = w.addKey(ctx, principal, parsedKey{fp, key, comment})
+		return err
 	})
 	if err != nil {
 		return PrincipalKey{}, err
@@ -142,9 +136,43 @@ func (c *Control) AddKey(ctx context.Context, actor Actor, principal, line strin
 	return out, nil
 }
 
+// parsedKey is a key as parseKey read it.
+type parsedKey struct{ fingerprint, key, comment string }
+
+// addKey gives principal the key k and records it, or returns the key as
+// it is when principal has it already. It refuses a key another
+// principal has, and one past ControlLimits.Keys. The caller has checked
+// the actor and that the principal exists.
+func (w *cwtx) addKey(ctx context.Context, principal string, k parsedKey) (PrincipalKey, error) {
+	switch cur, err := readKey(ctx, w.tx, k.fingerprint); {
+	case err == nil && cur.Principal == principal:
+		return cur, nil
+	case err == nil:
+		return PrincipalKey{}, &TakenError{Kind: TakenKey, Value: k.fingerprint}
+	case !errors.Is(err, ErrNotFound):
+		return PrincipalKey{}, err
+	}
+	if err := w.room(ctx, limitKeys, w.lim.Keys, `SELECT COUNT(*) FROM principal_keys WHERE principal = ?`, principal); err != nil {
+		return PrincipalKey{}, err
+	}
+	out := PrincipalKey{Fingerprint: k.fingerprint, Principal: principal, Key: k.key, Comment: k.comment, AddedBy: w.actor.Principal, AddedAt: w.now}
+	if _, err := w.exec(ctx, "INSERT INTO principal_keys (fingerprint, principal, `key`, comment, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?)",
+		out.Fingerprint, principal, out.Key, out.Comment, out.AddedBy, w.now); err != nil {
+		return PrincipalKey{}, fmt.Errorf("add key %s: %w", out.Fingerprint, err)
+	}
+	w.indexed(func(ix *index) { ix.byFingerprint[out.Fingerprint] = indexedKey{principal: principal, key: out.Key} })
+	return out, w.event(ctx, OpKeyAdd, out.Fingerprint, nil, out)
+}
+
 // RemoveKey removes the key with the given fingerprint and returns it.
-// Who may is as for [Control.AddKey], by the key's principal. A
-// fingerprint no principal has is ErrNotFound.
+// Who may is as for [Control.AddKey], by the key's principal, and nobody
+// removes a key of their own account.
+//
+// A server admin is told with ErrNotFound that no principal has the
+// fingerprint. A project admin is refused the same way, with an
+// [*AccessError] that names no principal, for a key that does not exist
+// as for one of a principal out of reach: the refusal does not say
+// whether a key is on the server, or whose it is.
 func (c *Control) RemoveKey(ctx context.Context, actor Actor, fingerprint string) (PrincipalKey, error) {
 	if !fingerprintPattern.MatchString(fingerprint) {
 		return PrincipalKey{}, fmt.Errorf("%w: a key is named by its SHA256: fingerprint", ErrInvalid)
@@ -156,10 +184,20 @@ func (c *Control) RemoveKey(ctx context.Context, actor Actor, fingerprint string
 			return err
 		}
 		cur, err := readKey(ctx, w.tx, fingerprint)
-		if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound) && !sc.server:
+			return w.denied(OpKeyRemove, "", "", AccessReach)
+		case err != nil:
+			return err
+		}
+		// The actor's own key is theirs to know of.
+		if err := w.ownKeys(OpKeyRemove, cur.Principal); err != nil {
 			return err
 		}
 		if err := w.within(ctx, sc, OpKeyRemove, cur.Principal); err != nil {
+			if _, refused := errors.AsType[*AccessError](err); refused {
+				return w.denied(OpKeyRemove, "", "", AccessReach)
+			}
 			return err
 		}
 		if _, err := w.exec(ctx, `DELETE FROM principal_keys WHERE fingerprint = ?`, fingerprint); err != nil {

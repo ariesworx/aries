@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 )
@@ -26,6 +27,14 @@ import (
 //     project admin could add a key of their own to someone with access
 //     elsewhere, and act as them there.
 //   - Only a server admin adds, activates or archives a project.
+//   - Nobody adds or removes a key of their own account, a server admin
+//     included (decision 19): an agent that holds a person's key could
+//     otherwise add one of its own. Another admin does it, or the
+//     operator, in authorized_keys on the server.
+//   - A principal whose row is disabled has none of these rights, even
+//     when the config file names it a server admin (decision 20). It is
+//     still a server admin's principal to everyone else: only a server
+//     admin enables it or changes its keys.
 //   - Anyone else is refused.
 
 // AccessReason says which rule an [*AccessError] applied.
@@ -52,6 +61,9 @@ const (
 	// project admin who could would bring it within reach and manage
 	// its keys (decision 17).
 	AccessUnassigned AccessReason = "unassigned"
+	// AccessOwnKeys: the actor is Principal, and nobody adds or removes
+	// a key of their own account, whatever their rights (decision 19).
+	AccessOwnKeys AccessReason = "own keys"
 )
 
 // AccessError refuses a change to the control store that Actor, the
@@ -87,10 +99,16 @@ func (e *AccessError) Error() string {
 		}
 	case AccessReach:
 		why = fmt.Sprintf("%s belongs to a project %s does not administer, or to none, so it is for server admins", e.Principal, e.Actor)
+		if e.Principal == "" {
+			// A key named by its fingerprint: whose it is, is not said.
+			why = fmt.Sprintf("it is no key of a principal %s may manage, so it is for server admins", e.Actor)
+		}
 	case AccessServerAdminPrincipal:
 		why = e.Principal + " is a server admin, so it is for server admins"
 	case AccessUnassigned:
 		why = fmt.Sprintf("%s belongs to no project and %s did not create it, so it is for server admins", e.Principal, e.Actor)
+	case AccessOwnKeys:
+		why = "nobody changes the keys of their own account, so it is for another admin"
 	}
 	return fmt.Sprintf("%s may not %s: %s", e.Actor, what, why)
 }
@@ -98,16 +116,44 @@ func (e *AccessError) Error() string {
 // Unwrap makes errors.Is(err, ErrForbidden) hold.
 func (e *AccessError) Unwrap() error { return ErrForbidden }
 
-// IsServerAdmin reports whether principal is one of the server admins
-// (ControlOptions.Admins). It reads no database.
-func (c *Control) IsServerAdmin(principal string) bool { return c.s.IsAdmin(principal) }
+// IsServerAdmin reports whether principal has a server admin's rights
+// now: the config file names it (ControlOptions.Admins) and its row, if
+// it has one, is not disabled (decision 20). It reads memory only.
+func (c *Control) IsServerAdmin(principal string) bool {
+	if !c.ConfigAdmin(principal) {
+		return false
+	}
+	c.ix.mu.RLock()
+	defer c.ix.mu.RUnlock()
+	return !c.ix.disabled[principal]
+}
+
+// ConfigAdmin reports whether the config file names principal a server
+// admin (ControlOptions.Admins), whatever its row says. It is what
+// protects a principal as the target of a change: a server admin's
+// principal is outside every project admin's reach, disabled or not.
+// What the principal may do itself is [Control.IsServerAdmin].
+func (c *Control) ConfigAdmin(principal string) bool { return c.s.IsAdmin(principal) }
+
+// serverAdmin is IsServerAdmin for a caller that holds ix.mu.
+func (c *Control) serverAdmin(principal string) bool {
+	return c.ConfigAdmin(principal) && !c.ix.disabled[principal]
+}
 
 // IsAdminOf reports whether principal may act as an admin in project: it
-// is a server admin, or it is active and its role there is admin. It is
-// the check for a handshake and for an issue store's admin rights.
+// is a server admin, or its role there is admin, and in either case it
+// is not disabled. It reads the database; [Control.Access] answers the
+// same from memory.
 func (c *Control) IsAdminOf(ctx context.Context, principal, project string) (bool, error) {
-	if c.IsServerAdmin(principal) {
-		return true, nil
+	if c.ConfigAdmin(principal) {
+		switch p, err := readPrincipal(ctx, c.s.r, principal); {
+		case errors.Is(err, ErrNotFound):
+			return true, nil
+		case err != nil:
+			return false, err
+		default:
+			return p.State == PrincipalActive, nil
+		}
 	}
 	projects, err := administered(ctx, c.s.r, principal)
 	if err != nil {
@@ -182,10 +228,20 @@ func (w *cwtx) scope(ctx context.Context, op Op, principal string) (scope, error
 	return scope{projects: projects}, nil
 }
 
+// ownKeys refuses op, a change to principal's keys, when the actor is
+// principal (decision 19). The operator's principal is no one's account,
+// so `starfixd control init` is never refused here.
+func (w *cwtx) ownKeys(op Op, principal string) error {
+	if w.actor.Principal == principal {
+		return w.denied(op, principal, "", AccessOwnKeys)
+	}
+	return nil
+}
+
 // within refuses op on principal unless it is within sc: a project
 // admin reaches a principal only while every project it belongs to is
-// one they administer, and never a server admin or a principal in no
-// project.
+// one they administer, and never a server admin, disabled or not, or a
+// principal in no project.
 func (w *cwtx) within(ctx context.Context, sc scope, op Op, principal string) error {
 	if sc.server {
 		return nil

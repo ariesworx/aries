@@ -126,10 +126,16 @@ func mustPrincipal(t *testing.T, c *Control, name string, memberships ...string)
 	}
 }
 
+// mustKey adds the key seed gives to principal, as dana; dana's own are
+// added by sam, since nobody changes their own keys (decision 19).
 func mustKey(t *testing.T, c *Control, principal, seed string) PrincipalKey {
 	t.Helper()
 	line, _ := testKey(t, seed)
-	k, err := c.AddKey(t.Context(), dana, principal, line)
+	by := dana
+	if principal == by.Principal {
+		by = sam
+	}
+	k, err := c.AddKey(t.Context(), by, principal, line)
 	if err != nil {
 		t.Fatalf("add key %s to %s: %v", seed, principal, err)
 	}

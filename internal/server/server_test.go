@@ -351,7 +351,7 @@ func TestHandshake(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if f.T != proto.FrameWelcome || f.Version != "v0.2.0" || f.Min != 2 || f.Max != 5 {
+			if f.T != proto.FrameWelcome || f.Version != "v0.2.0" || f.Min != 2 || f.Max != proto.ProtoMax {
 				t.Fatalf("welcome: %+v", f)
 			}
 			if tc.code == "" {
@@ -716,7 +716,7 @@ func mustDial(t *testing.T, path string, l net.Listener) net.Conn {
 
 func TestBridgeUnavailable(t *testing.T) {
 	var out strings.Builder
-	err := Bridge(t.Context(), filepath.Join(t.TempDir(), "none.sock"), "alice", strings.NewReader(""), &out)
+	err := Bridge(t.Context(), filepath.Join(t.TempDir(), "none.sock"), "alice", "", strings.NewReader(""), &out)
 	if err == nil {
 		t.Fatal("bridged to nothing")
 	}
@@ -726,7 +726,7 @@ func TestBridgeUnavailable(t *testing.T) {
 		t.Fatalf("refusal: %+v %v", f, derr)
 	}
 	out.Reset()
-	if err := Bridge(t.Context(), "/nonexistent", "Bad Name", strings.NewReader(""), &out); err == nil {
+	if err := Bridge(t.Context(), "/nonexistent", "Bad Name", "", strings.NewReader(""), &out); err == nil {
 		t.Fatal("bad principal accepted")
 	}
 	if !strings.Contains(out.String(), `"c":"auth"`) {
@@ -736,7 +736,7 @@ func TestBridgeUnavailable(t *testing.T) {
 	// upgrade's probe among them.
 	for _, p := range append([]string{ProbePrincipal}, store.ReservedPrincipals...) {
 		out.Reset()
-		if err := Bridge(t.Context(), "/nonexistent", p, strings.NewReader(""), &out); err == nil {
+		if err := Bridge(t.Context(), "/nonexistent", p, "", strings.NewReader(""), &out); err == nil {
 			t.Fatalf("reserved principal %q accepted", p)
 		}
 		if !strings.Contains(out.String(), `"c":"auth"`) || !strings.Contains(out.String(), "reserved") {

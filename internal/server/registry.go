@@ -230,10 +230,18 @@ func (r *registry) closeWhere(why string, match func(*entry) bool) {
 
 // each runs fn for every open store, one after another. A store is not
 // closed while fn runs on it.
-func (r *registry) each(fn func(*served)) {
+func (r *registry) each(fn func(*served)) { r.eachOf("", fn) }
+
+// eachOf is each for the open store of project id alone, or for every
+// open store when id is empty. A project whose store is not open is
+// passed over: fn does not open one.
+func (r *registry) eachOf(id string, fn func(*served)) {
 	r.mu.Lock()
 	var open []*entry
-	for _, e := range r.entries {
+	for k, e := range r.entries {
+		if id != "" && k != id {
+			continue
+		}
 		if e.pr != nil && e.gone == nil {
 			e.pins++
 			open = append(open, e)

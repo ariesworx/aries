@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 # The starfix test server's entrypoint (deploy/docker/Dockerfile), doing
-# what docs/server.md's steps 2 to 6 do on a machine.
+# what docs/server.md's steps 2 to 6 do on a machine, and then what its
+# "Serving many projects" does: the server holds many projects, and sshd
+# asks starfixd for keys.
 #
 # On the first start it makes the sshd host key, gives Dolt's starfix
 # account a random password, which only the 0600 config file holds, and
-# writes the config. On every start it installs the principals given in
-# STARFIX_KEYS or /etc/starfix-keys, runs dolt, starfixd and sshd, and
-# prints the .starfix.yaml a client needs. When one of the three exits,
-# it stops the other two and exits 1.
+# writes the config. Then, once, it creates the control database, grants
+# a block of database names for new projects, and names both in the
+# config. On every start it installs the principals given in
+# STARFIX_KEYS or /etc/starfix-keys, runs `starfixd control init`, which
+# adopts the project and imports those principals and keys, runs dolt,
+# starfixd and sshd, and prints the .starfix.yaml a client needs. When
+# one of the three exits, it stops the other two and exits 1.
 set -euo pipefail
 umask 077
 
@@ -18,6 +23,13 @@ hostkey=$state/hostkeys/ssh_host_ed25519_key
 keys_file=/etc/starfix-keys
 ready=/run/starfix-ready
 port=${STARFIX_PORT:-2222}
+# The server of many projects: its control database, the name the
+# project it starts with is adopted under, and the block of database
+# names `sfx admin project add` takes from.
+control_db=starfix_control
+first_project=first
+project_dbs_prefix=starfix_p
+project_dbs_count=8
 
 name_re='^[a-z][a-z0-9._-]{0,63}$'
 uuid_re='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
@@ -91,11 +103,21 @@ random_hex() { od -An -N24 -tx1 /dev/urandom | tr -d ' \n'; }
 
 setting() { sed -n "s/^$1: //p" "$config"; }
 
-# write_config DSN PROJECT ADMINS writes the config file, mode 0600, from
-# stdin so the password is never an argument.
+# write_config DSN PROJECT ADMINS [many] writes the config file, mode
+# 0600, from stdin so the password is never an argument. With many, or
+# when the config it replaces names a control database, it also names
+# the control database and the block of project databases (opt_in).
 write_config() {
-  printf 'dsn: %s\nproject: %s\nadmins: [%s]\n' "$1" "$2" "$3" |
-    install -o starfix -g starfix -m 0600 /dev/stdin "$config"
+  local many=${4:-}
+  if [[ -f $config && -n $(setting control_db) ]]; then
+    many=many
+  fi
+  {
+    printf 'dsn: %s\nproject: %s\nadmins: [%s]\n' "$1" "$2" "$3"
+    if [[ -n $many ]]; then
+      printf 'control_db: %s\nproject_dbs:\n  prefix: %s\n  count: %s\n' "$control_db" "$project_dbs_prefix" "$project_dbs_count"
+    fi
+  } | install -o starfix -g starfix -m 0600 /dev/stdin "$config"
 }
 
 prepare() {
@@ -110,8 +132,22 @@ prepare() {
   fi
 }
 
+# many_sql prints the SQL of "Serving many projects, Opt in", steps 1 and
+# 4: the control database, and a block of database names for the
+# projects `sfx admin project add` creates, each granted to starfixd's
+# account by its exact name, since Dolt ignores a grant on a pattern.
+many_sql() {
+  local i
+  printf "CREATE DATABASE IF NOT EXISTS %s;\nGRANT ALL ON %s.* TO 'starfix'@'localhost';\n" "$control_db" "$control_db"
+  for ((i = 1; i <= project_dbs_count; i++)); do
+    printf "GRANT ALL ON %s%03d.* TO 'starfix'@'localhost';\n" "$project_dbs_prefix" "$i"
+  done
+}
+
 # init_store is step 4: the database, an account with rights on it alone,
 # a random password for Dolt's root that nobody keeps, and the config.
+# The control database and the block of project databases are made in
+# the same pass, before root's password is set and forgotten.
 init_store() {
   if [[ -d $state/dolt/data/starfix ]]; then
     die "the volume holds a database but no config, from a first start that failed" \
@@ -120,11 +156,44 @@ init_store() {
   local dbpw rootpw project=${STARFIX_PROJECT:-$(cat /proc/sys/kernel/random/uuid)}
   dbpw=$(random_hex)
   rootpw=$(random_hex)
-  printf "CREATE DATABASE starfix;\nCREATE USER 'starfix'@'localhost' IDENTIFIED BY '%s';\nGRANT ALL ON starfix.* TO 'starfix'@'localhost';\nALTER USER 'root'@'localhost' IDENTIFIED BY '%s';\n" "$dbpw" "$rootpw" |
+  {
+    printf "CREATE DATABASE starfix;\nCREATE USER 'starfix'@'localhost' IDENTIFIED BY '%s';\nGRANT ALL ON starfix.* TO 'starfix'@'localhost';\n" "$dbpw"
+    many_sql
+    printf "ALTER USER 'root'@'localhost' IDENTIFIED BY '%s';\n" "$rootpw"
+  } |
     (run_as dolt /var/lib/dolt env DOLT_CLI_PASSWORD= dolt --host 127.0.0.1 --port 3306 --no-tls -u root sql >/dev/null) ||
-    die "could not create the database and its account" "read Dolt's log above"
-  write_config "starfix:$dbpw@tcp(127.0.0.1:3306)/starfix" "$project" ""
-  log "created project $project"
+    die "could not create the databases and the account" "read Dolt's log above"
+  write_config "starfix:$dbpw@tcp(127.0.0.1:3306)/starfix" "$project" "" many
+  log "created project $project, the control database $control_db and $project_dbs_count database names for new projects"
+}
+
+# opt_in moves a volume that an image from before many projects made: its
+# config names no control database. Nobody kept the password of Dolt's
+# root, so the SQL is run as the server guide runs it on a machine: by
+# Dolt's own user, from the data directory. A new volume never comes
+# here: init_store did the same as root.
+opt_in() {
+  if [[ -n $(setting control_db) ]]; then
+    return 0
+  fi
+  many_sql | (run_as dolt /var/lib/dolt/data/starfix dolt sql >/dev/null) ||
+    die "could not create the control database on a volume from an older image" \
+      "read Dolt's log above, or remove the volume (docker compose down -v) and start again"
+  write_config "$(setting dsn)" "$(setting project)" "$(setting admins | tr -d '[]')" many
+  log "this volume now serves many projects: control database $control_db, $project_dbs_count database names for new projects"
+}
+
+# adopt is "Opt in" step 3, run on every start because it is safe to run
+# again: it records the database as the first project and imports the
+# principals and keys of authorized_keys, adding what is new. It removes
+# nothing: a principal dropped from STARFIX_KEYS keeps its row and keys
+# in the control database, and is removed with sfx admin.
+adopt() {
+  if [[ ! -f $authorized ]]; then
+    install -o starfix -g starfix -m 0600 /dev/null "$authorized"
+  fi
+  (run_as starfix /var/lib/starfix starfixd control init --name "$first_project" >&2) ||
+    die "starfixd control init failed" "read the error above"
 }
 
 # parse_principals reads STARFIX_KEYS and /etc/starfix-keys, one
@@ -181,7 +250,7 @@ report() {
   admins=$(setting admins | tr -d '[]"')
   principals=$( (sed -n 's/.*--principal \([^"]*\)".*/\1/p' "$authorized" 2>/dev/null || true) | sort -u | paste -sd, - | sed 's/,/, /g')
   if [[ -z $principals ]]; then
-    log "no principals, so no one can connect"
+    log "no principals in authorized_keys, so only those an admin added with sfx admin can connect"
     log "fix: set STARFIX_KEYS to \"alice \$(cat ~/.ssh/id_ed25519.pub)\" and start again"
   fi
   cat <<EOF
@@ -191,6 +260,7 @@ starfix test server ready (not for production)
   project     $project
   principals  ${principals:-none}
   admins      ${admins}
+  more        sfx admin project add NAME ($project_dbs_count database names granted); sfx admin principal add NAME --key FILE
 
 Save this as .starfix.yaml in a scratch repository:
 
@@ -226,7 +296,9 @@ main() {
     die "STARFIX_PROJECT is not the project this volume holds, $(setting project)" \
       "unset STARFIX_PROJECT, or remove the volume (docker compose down -v) for a new project"
   fi
+  opt_in
   install_principals
+  adopt
 
   start starfixd run_as starfix /var/lib/starfix starfixd serve
   wait_for starfixd test -S /run/starfix/starfixd.sock
