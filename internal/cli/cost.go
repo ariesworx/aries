@@ -173,20 +173,30 @@ func isZero(usd string) bool { return strings.Trim(usd, "0.") == "" }
 // usage gives them.
 var rateFlags = []string{"input", "output", "cache-write", "cache-write-1h", "cache-read"}
 
-// cmdAdmin runs the first of its arguments that is prices or plans, with
-// the rest, so flags given before the subcommand are the subcommand's.
+// cmdAdmin runs the first of its arguments that names a group (prices,
+// plans, project, principal or member), with the rest, so flags given
+// before the group are its own.
 func cmdAdmin(ctx context.Context, r *runner, args []string) error {
-	const usage = "admin prices|plans ..."
-	i := slices.IndexFunc(args, func(a string) bool { return a == "prices" || a == "plans" })
-	switch {
-	case i >= 0 && args[i] == "prices":
-		return adminPrices(ctx, r, slices.Delete(slices.Clone(args), i, i+1))
-	case i >= 0:
-		return adminPlans(ctx, r, slices.Delete(slices.Clone(args), i, i+1))
-	case len(args) > 0 && !strings.HasPrefix(args[0], "-"):
-		return usagef(usage, "unknown admin command %q", args[0])
+	const usage = "admin prices|plans|project|principal|member ..."
+	i := slices.IndexFunc(args, func(a string) bool { return slices.Contains(adminGroups, a) })
+	if i < 0 {
+		if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+			return usagef(usage, "unknown admin command %q", args[0])
+		}
+		return usagef(usage, "%s", adminNeeds)
 	}
-	return usagef(usage, "admin needs prices or plans")
+	rest := slices.Delete(slices.Clone(args), i, i+1)
+	switch args[i] {
+	case "prices":
+		return adminPrices(ctx, r, rest)
+	case "plans":
+		return adminPlans(ctx, r, rest)
+	case "project":
+		return adminProject(ctx, r, rest)
+	case "principal":
+		return adminPrincipal(ctx, r, rest)
+	}
+	return adminMember(ctx, r, rest)
 }
 
 func adminPrices(ctx context.Context, r *runner, args []string) error {

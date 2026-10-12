@@ -28,6 +28,17 @@ func command(op string) string {
 		return "admin plans set"
 	case proto.OpPlans:
 		return "admin plans"
+	case proto.OpProjects:
+		return "admin project list"
+	case proto.OpPrincipals:
+		return "admin principal list"
+	case proto.OpMemberSet:
+		return "admin member add"
+	case proto.OpMembers:
+		return "admin member list"
+	}
+	if adminOp(op) {
+		return "admin " + strings.ReplaceAll(op, ".", " ")
 	}
 	return strings.ReplaceAll(op, ".", " ")
 }
@@ -47,7 +58,29 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 	var planCap *store.PlanLimitError
 	var hoursCap *store.HoursLimitError
 	var dayFull *store.HoursDayError
+	var access *store.AccessError
+	var taken *store.TakenError
+	var controlCap *store.ControlLimitError
 	switch {
+	case errors.As(err, &access):
+		return accessErr(access)
+
+	case errors.As(err, &taken):
+		return takenErr(taken)
+
+	case errors.As(err, &controlCap):
+		return proto.Errf(proto.CodeInvalid,
+			fmt.Sprintf("ask the server's operator to raise %s under limits: in starfixd's config", controlCap.Limit),
+			strings.TrimPrefix(text, store.ErrInvalid.Error()+": "))
+
+	case errors.Is(err, store.ErrNotFound) && adminOp(op):
+		return proto.Errf(proto.CodeNotFound, adminNotFoundFix(op),
+			strings.Replace(text, ": "+store.ErrNotFound.Error(), " not found", 1))
+
+	case errors.Is(err, store.ErrInvalid) && adminOp(op):
+		return proto.Errf(proto.CodeInvalid, fmt.Sprintf("correct it and retry; `sfx %s -h` shows the usage", command(op)),
+			strings.TrimPrefix(text, store.ErrInvalid.Error()+": "))
+
 	case errors.Is(err, store.ErrNotFound) && op == proto.OpHoursDelete:
 		return proto.Errf(proto.CodeNotFound, "find the entry id with `sfx log --issue ID` or `sfx log --by PRINCIPAL`",
 			strings.Replace(text, ": "+store.ErrNotFound.Error(), " not found", 1))
@@ -154,6 +187,99 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 	pr.log.Error("request failed", "op", op, "err", err)
 	return proto.Errf(proto.CodeUnavailable, "retry; if it persists, the server admin should check the starfixd log",
 		fmt.Sprintf("the server could not complete %s", op))
+}
+
+// accessPhrase says what an AccessError refused, in the words of the
+// `sfx admin` command, naming only what the request named.
+func accessPhrase(e *store.AccessError) string {
+	in := ""
+	if e.Project != "" {
+		in = " in project " + e.Project
+	}
+	switch string(e.Op) {
+	case proto.OpProjectAdd:
+		return "add a project"
+	case proto.OpProjectArchive:
+		return "archive project " + e.Project
+	case proto.OpProjectActivate:
+		return "activate project " + e.Project
+	case proto.OpPrincipalAdd:
+		return "add principal " + e.Principal + in
+	case proto.OpPrincipals:
+		return "list the principals"
+	case proto.OpPrincipalDisable:
+		return "disable " + e.Principal
+	case proto.OpPrincipalEnable:
+		return "enable " + e.Principal
+	case proto.OpMemberSet:
+		return "set the role of " + e.Principal + in
+	case proto.OpMemberRemove:
+		return "remove " + e.Principal + " from project " + e.Project
+	case proto.OpMembers:
+		return "list the members of project " + e.Project
+	}
+	return strings.TrimSpace(string(e.Op) + " " + e.Principal + in)
+}
+
+// accessErr refuses a change to the control store the caller may not
+// make (store.AccessError): forbidden, with the rule that applied and a
+// fix that names who can.
+func accessErr(e *store.AccessError) *proto.Error {
+	msg := fmt.Sprintf("%s may not %s: ", e.Actor, accessPhrase(e))
+	switch e.Reason {
+	case store.AccessAdmin:
+		if e.Project != "" {
+			return proto.Errf(proto.CodeForbidden, "ask one of the project's admins, or a server admin, to run it",
+				msg+"it is for the project's admins and server admins")
+		}
+		return proto.Errf(proto.CodeForbidden,
+			"ask a server admin to run it, or a project admin who administers every project the principal belongs to",
+			msg+"it is for project admins and server admins")
+	case store.AccessReach:
+		return proto.Errf(proto.CodeForbidden,
+			"ask a server admin to run it; a project admin may only while every project the principal belongs to is one they administer",
+			msg+fmt.Sprintf("%s belongs to a project %s does not administer, or to none", e.Principal, e.Actor))
+	case store.AccessServerAdminPrincipal:
+		return proto.Errf(proto.CodeForbidden, "ask a server admin to run it",
+			msg+e.Principal+" is a server admin")
+	case store.AccessUnassigned:
+		return proto.Errf(proto.CodeForbidden,
+			fmt.Sprintf("ask a server admin to add %s to the project; a project admin adds only a principal that already belongs to a project, or one they created", e.Principal),
+			msg+fmt.Sprintf("%s belongs to no project and %s did not create it", e.Principal, e.Actor))
+	}
+	return proto.Errf(proto.CodeForbidden, "ask a server admin (admins: in starfixd's config) to run it", msg+"it is for server admins")
+}
+
+// takenErr refuses a new project or principal whose name is in use, or a
+// key another principal has, without saying whose.
+func takenErr(e *store.TakenError) *proto.Error {
+	switch e.Kind {
+	case store.TakenProjectName:
+		return proto.Errf(proto.CodeExists, "choose another name; `sfx admin project list` shows the projects you can see",
+			fmt.Sprintf("a project named %q already exists", e.Value))
+	case store.TakenPrincipal:
+		return proto.Errf(proto.CodeExists,
+			fmt.Sprintf("choose another name, or if %s is the person you mean, add them with `sfx admin member add %s`", e.Value, e.Value),
+			fmt.Sprintf("a principal named %q already exists", e.Value))
+	case store.TakenKey:
+		return proto.Errf(proto.CodeExists, "use another key; a key belongs to one principal",
+			fmt.Sprintf("key %s already belongs to another principal", e.Value))
+	}
+	return proto.Errf(proto.CodeConflict, "retry; if it persists, the server admin should check the starfixd log", e.Error())
+}
+
+// adminNotFoundFix is the next step when an admin op names a project,
+// principal or membership that does not exist.
+func adminNotFoundFix(op string) string {
+	switch op {
+	case proto.OpMemberRemove:
+		return "see who is a member with `sfx admin member list`"
+	case proto.OpMemberSet:
+		return "add the principal first with `sfx admin principal add NAME`"
+	case proto.OpPrincipalDisable, proto.OpPrincipalEnable:
+		return "check the name; a server admin lists them with `sfx admin principal list`"
+	}
+	return "list the projects with `sfx admin project list`"
 }
 
 // unmetErr refuses a close or finish with acceptance items open, naming

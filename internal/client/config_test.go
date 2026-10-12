@@ -271,3 +271,62 @@ func TestParseConfigIAP(t *testing.T) {
 		t.Errorf("ParseConfig without iap: IAP = %+v, %v; want nil", c.Server.IAP, err)
 	}
 }
+
+// TestConfigForProject pins the .starfix.yaml `sfx admin project add`
+// prints for a new project: this repository's server, the new project,
+// and nothing private to this machine.
+func TestConfigForProject(t *testing.T) {
+	const other = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+	base := "project: " + testProject + "\nserver:\n  host: starfix.example.com\n  host_key: " + testFpr + "\n"
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"minimal", base,
+			"project: " + other + "\nserver:\n  host: starfix.example.com\n  host_key: " + testFpr + "\n"},
+		{"the defaults written out are left out", base + "  port: 22\n  user: starfix\n",
+			"project: " + other + "\nserver:\n  host: starfix.example.com\n  host_key: " + testFpr + "\n"},
+		{"a port and a user", base + "  port: 2222\n  user: tracker\n",
+			"project: " + other + "\nserver:\n  host: starfix.example.com\n  port: 2222\n  user: tracker\n  host_key: " + testFpr + "\n"},
+		{"the key path is never printed", base + "key: ~/.ssh/id_ed25519_work\n",
+			"project: " + other + "\nserver:\n  host: starfix.example.com\n  host_key: " + testFpr + "\n"},
+		{"iap", "project: " + testProject + "\nserver:\n  host: starfix-1\n  host_key: " + testFpr +
+			"\n  iap:\n    project: example-project\n    zone: us-central1-a\n",
+			"project: " + other + "\nserver:\n  host: starfix-1\n  host_key: " + testFpr +
+				"\n  iap:\n    project: example-project\n    zone: us-central1-a\n"},
+		{"iap with its own instance", "project: " + testProject + "\nserver:\n  host: starfix-1\n  host_key: " + testFpr +
+			"\n  iap:\n    project: example-project\n    zone: us-central1-a\n    instance: tracker-2\n",
+			"project: " + other + "\nserver:\n  host: starfix-1\n  host_key: " + testFpr +
+				"\n  iap:\n    project: example-project\n    zone: us-central1-a\n    instance: tracker-2\n"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c, err := ParseConfig([]byte(tc.in))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := c.ForProject(other)
+			if err != nil || string(got) != tc.want {
+				t.Fatalf("ForProject = %v\n%s\nwant\n%s", err, got, tc.want)
+			}
+			// What is printed is a config: it parses, to the same server.
+			back, err := ParseConfig(got)
+			if err != nil {
+				t.Fatalf("the printed config does not parse: %v", err)
+			}
+			if back.Project != other || back.Server.Host != c.Server.Host || back.Server.Port != c.Server.Port ||
+				back.Server.User != c.Server.User || back.Server.HostKey != c.Server.HostKey || back.Key != "" ||
+				(back.Server.IAP == nil) != (c.Server.IAP == nil) || (c.Server.IAP != nil && *back.Server.IAP != *c.Server.IAP) {
+				t.Errorf("the printed config parses to %+v, want the server of %+v and no key", back, c)
+			}
+		})
+	}
+	c, err := ParseConfig([]byte(base))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ForProject("not-a-uuid"); err == nil {
+		t.Error("ForProject accepted a project that is no UUID")
+	}
+}

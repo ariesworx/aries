@@ -67,22 +67,38 @@ type Config struct {
 	// neither sets one nor inherits one. Empty takes DefaultAccount. With
 	// Control each project's own account is used instead.
 	Account string
+	// ProjectDBs is the block of database names a new project's database
+	// is taken from (Control only). The zero value has none, and adding
+	// a project is refused.
+	ProjectDBs ProjectDBs
 }
 
 // Server serves the protocol. Create it with New.
 type Server struct {
 	cfg Config
 
-	mu    sync.Mutex
-	conns map[net.Conn]struct{} // open connections, guarded by mu
-	wg    sync.WaitGroup        // the reaper and each connection's handler
+	mu sync.Mutex
+	// conns holds the open connections, and for each one past its
+	// handshake whose it is; guarded by mu.
+	conns map[net.Conn]owner
+	wg    sync.WaitGroup // the reaper and each connection's handler
 
 	// slots counts connections past the handshake (Limits.Conns and
-	// ConnsPerPrincipal); writes is each principal's write bucket;
-	// refusals samples refusal log lines.
-	slots    conns
-	writes   buckets
-	refusals sampler
+	// ConnsPerPrincipal); writes is each principal's write bucket, and
+	// ctlWrites its bucket for writes to the control store; refusals
+	// samples refusal log lines.
+	slots     conns
+	writes    buckets
+	ctlWrites buckets
+	refusals  sampler
+	// adding serializes `project add`, so that two do not take the same
+	// database name.
+	adding sync.Mutex
+	// unopened holds the active projects whose databases the last
+	// OpenProjects could not open, by id, until one opens or is
+	// archived; guarded by mu. While it holds any, the upgrade's health
+	// probe is refused.
+	unopened map[string]store.Project
 	// now is the clock for the limits above, and for how long a project
 	// store has been idle; tests replace it.
 	now func() time.Time
@@ -149,8 +165,12 @@ func New(cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("server: account %q is not a code name", cfg.Account)
 	}
 	cfg.Limits = cfg.Limits.WithDefaults()
-	s := &Server{cfg: cfg, conns: map[net.Conn]struct{}{}, now: time.Now}
+	if err := cfg.ProjectDBs.Validate(); err != nil {
+		return nil, fmt.Errorf("server: %w", err)
+	}
+	s := &Server{cfg: cfg, conns: map[net.Conn]owner{}, now: time.Now, unopened: map[string]store.Project{}}
 	s.writes = buckets{rate: cfg.Limits.WriteRate, burst: float64(cfg.Limits.WriteBurst)}
+	s.ctlWrites = buckets{rate: cfg.Limits.ControlWriteRate, burst: float64(cfg.Limits.ControlWriteBurst)}
 	s.refusals = sampler{n: cfg.Limits.RefusalLogs}
 	if !multi {
 		s.single = &served{id: cfg.Project, store: cfg.Store, account: cfg.Account, log: cfg.Logger, timeout: cfg.RequestTimeout}
@@ -173,6 +193,9 @@ func (s *Server) openProject(ctx context.Context, p store.Project) (*served, err
 	}
 	pr := &served{id: p.ID, store: st, account: p.Account, log: s.cfg.Logger.With("project", p.ID), timeout: s.cfg.RequestTimeout}
 	pr.log.Info("project store opened", "name", p.Name, "database", p.DBName)
+	s.mu.Lock()
+	delete(s.unopened, p.ID)
+	s.mu.Unlock()
 	pr.reap(ctx)
 	pr.prune(ctx, s.cfg.Limits)
 	return pr, nil
@@ -283,7 +306,7 @@ func (s *Server) Serve(ctx context.Context, l net.Listener) error {
 		}
 		full := len(s.conns) >= 2*s.cfg.Limits.Conns
 		if !full {
-			s.conns[c] = struct{}{}
+			s.conns[c] = owner{}
 		}
 		s.mu.Unlock()
 		if full {
@@ -384,6 +407,11 @@ type session struct {
 	pushMu sync.Mutex
 	// slot is set when the session holds a connection slot (s.slots).
 	slot bool
+	// conn is the session's connection. ended is set, by the request
+	// loop alone, when a request of its own ended its access: the
+	// connection closes once the reply is sent.
+	conn  net.Conn
+	ended bool
 	// key is what the session's connection slot, write bucket and
 	// refusal log lines are counted under (limitKey).
 	key string
@@ -432,6 +460,9 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		s.refusals.log(log, key, s.now(), slog.LevelInfo, "handshake failed", "err", err)
 		return
 	}
+	if sess.proj == nil {
+		return // the health probe of a server of many projects: the welcome was its answer
+	}
 	principal, key := sess.actor.Principal, sess.key
 	if s.stores != nil {
 		log = log.With("project", sess.proj.id)
@@ -442,6 +473,11 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		_ = c.Close() // unblocks a pusher stuck writing to a client that stopped reading
 		s.unwatch(sess)
 	}()
+	defer s.untrack(c)
+	if !s.track(c, sess) {
+		log.Info("connection closed: access ended during the handshake")
+		return
+	}
 	if principal != ProbePrincipal { // a health check, not an agent to list in who
 		sess.proj.touch(ctx, log, sess.actor, sess.harness)
 	}
@@ -480,14 +516,24 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		var res any
 		var perr *proto.Error
 		ok, wait := true, time.Duration(0)
-		if !readOps[f.Op] {
-			ok, wait = s.writes.take(key, s.now())
+		switch {
+		case controlWrites[f.Op]:
+			// The control store is the whole server's, so its bucket is
+			// the principal's, whichever project the connection is to.
+			if ok, wait = s.ctlWrites.take(principal, s.now()); !ok {
+				perr = s.busyControlWrites(principal, wait)
+			}
+		case !readOps[f.Op]:
+			if ok, wait = s.writes.take(key, s.now()); !ok {
+				perr = s.busyWrites(principal, wait)
+			}
 		}
 		switch {
 		case !ok:
-			perr = s.busyWrites(principal, wait)
 		case f.Op == proto.OpWatch:
 			res, perr = s.watch(rctx, sess, f.Args)
+		case adminOp(f.Op):
+			res, perr = s.admin(rctx, sess, f.Op, f.Args)
 		default:
 			res, perr = sess.proj.dispatch(rctx, sess.actor, f.Op, f.Args)
 		}
@@ -506,6 +552,10 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		}
 		if err := s.send(sess, f.ID, res, perr); err != nil {
 			log.Info("write failed", "err", err)
+			return
+		}
+		if sess.ended {
+			log.Info("connection closed: the request ended its own access")
 			return
 		}
 	}
@@ -538,6 +588,15 @@ func (s *Server) busyWrites(principal string, wait time.Duration) *proto.Error {
 		fmt.Sprintf("%s is over the write limit (%g a second, bursts of %d)", principal, l.WriteRate, l.WriteBurst))
 }
 
+// busyControlWrites refuses a write to the control store over
+// principal's rate, saying when to retry.
+func (s *Server) busyControlWrites(principal string, wait time.Duration) *proto.Error {
+	l := s.cfg.Limits
+	return proto.Errf(proto.CodeBusy,
+		fmt.Sprintf("wait %s and retry; the server's operator can raise control_write_rate and control_write_burst under limits: in starfixd's config", wait),
+		fmt.Sprintf("%s is over the limit on access changes (%g a second, bursts of %d)", principal, l.ControlWriteRate, l.ControlWriteBurst))
+}
+
 // handshake reads the bridge frame and the client's hello, and answers with
 // a welcome, or a refusal and an error. On success the session holds a
 // connection slot (sess.slot) and, in a server of many projects, counts
@@ -547,7 +606,7 @@ func (s *Server) busyWrites(principal string, wait time.Duration) *proto.Error {
 // not be written; other failures return nil. ctx bounds the opening of a
 // project's store.
 func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
-	sess := &session{enc: proto.NewEncoder(c), dec: proto.NewDecoder(c)}
+	sess := &session{conn: c, enc: proto.NewEncoder(c), dec: proto.NewDecoder(c)}
 	_ = c.SetReadDeadline(time.Now().Add(bridgeTimeout))
 	f, err := sess.dec.Decode()
 	if err != nil {
@@ -589,6 +648,15 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 		}
 		sess.proj = s.single
 	} else {
+		if sess.actor.Principal == ProbePrincipal {
+			// The upgrade's health check asks about the server, not
+			// about a project: whichever it names, archived or not.
+			if e := s.unopenedErr(); e != nil {
+				return refuse(e)
+			}
+			w.Session, w.Principal = "upgrade-probe", ProbePrincipal
+			return sess, sess.enc.Encode(w)
+		}
 		acc, e := s.admit(sess.actor.Principal, f.Project)
 		if e != nil {
 			return refuse(e)
@@ -648,18 +716,19 @@ func notServed(project string) *proto.Error {
 // admit decides a handshake in a server of many projects, from the
 // control store's memory. A project that is unknown, archived or still
 // being created is not served to anyone. An active one is served to a
-// server admin, to an active principal who is a member of it, and to
-// the upgrade's health probe, which no key can be; anyone else is
-// forbidden, whether they are disabled, in other projects only, or
-// unknown to the store.
+// server admin and to an active principal who is a member of it; anyone
+// else is forbidden, whether they are disabled, in other projects only,
+// or unknown to the store. The upgrade's health probe never comes here:
+// the handshake answers it first.
 func (s *Server) admit(principal, project string) (store.Access, *proto.Error) {
 	acc := s.cfg.Control.Access(principal, project)
 	if !acc.Active {
 		return acc, notServed(project)
 	}
-	if acc.Role == "" && principal != ProbePrincipal {
+	if acc.Role == "" {
 		return acc, proto.Errf(proto.CodeForbidden,
-			"ask a server admin, or one of the project's admins, to add you to the project",
+			fmt.Sprintf("ask a server admin, or one of the project's admins, to add you: `sfx admin member add %s`, run in this repository; "+
+				"or, if you were disabled, `sfx admin principal enable %s`", principal, principal),
 			fmt.Sprintf("%s is not a member of project %q", principal, project))
 	}
 	return acc, nil

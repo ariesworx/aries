@@ -655,3 +655,141 @@ func TestUpgradeBackupManyProjects(t *testing.T) {
 		t.Errorf("backupStore with a project's database gone = %v, want an error naming the project", err)
 	}
 }
+
+// tables returns how many tables named table the database db holds.
+func tables(t *testing.T, db, table string) int {
+	t.Helper()
+	root, err := sql.Open("mysql", dolt.RootDSN(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	var n int
+	if err := root.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = ? AND table_name = ?`,
+		db, table).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// TestServeMigratesEveryProject starts the daemon on a server whose
+// second project has a database no starfixd ever opened: it is migrated
+// before the daemon listens, with no connection to it, as every active
+// project's is after an upgrade. An archived project's is left alone.
+func TestServeMigratesEveryProject(t *testing.T) {
+	s := newSite(t, "")
+	if got := s.run(t, "", controlCmd, "init", "--name", "acme", "--authorized-keys", writeKeys(t)); got.err != nil {
+		t.Fatalf("control init: %v", got.err)
+	}
+	other := addSecond(t, s)
+	c := s.control(t)
+	dana := store.Actor{Principal: "dana", Session: "s", Machine: "m"}
+	const third = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+	archived := dbName(t, newDSN(t))
+	if _, err := c.AddProject(t.Context(), dana, store.NewProject{ID: third, Name: "shelved", Prefix: "sh", Account: "internal", DBName: archived}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ArchiveProject(t.Context(), dana, third); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if n := tables(t, other.DBName, "issues"); n != 0 {
+		t.Fatalf("the second project's database has an issues table before any starfixd opened it")
+	}
+
+	sock := serveSite(t, s)
+	if n := tables(t, other.DBName, "issues"); n != 1 {
+		t.Errorf("the second project's database has %d issues tables once the daemon serves, want it migrated at start", n)
+	}
+	if n := tables(t, archived, "issues"); n != 0 {
+		t.Errorf("the archived project's database was migrated at start; it is migrated when it is activated")
+	}
+	if v, err := server.Probe(t.Context(), sock, adopted, "v0.0.0"); err != nil || v == "" {
+		t.Errorf("Probe = %q, %v; want the daemon's version", v, err)
+	}
+}
+
+// siteRig is an upgrade of the daemon a site configures: the release,
+// the binary and systemd are the rig's fakes, and the health check is
+// the real one, against the site's running daemon.
+func siteRig(t *testing.T, s *site, sock string) *upgradeRig {
+	t.Helper()
+	r := newRig(t, "v0.2.0", "v0.3.0", "")
+	body := fmt.Sprintf("project: %s\ncontrol_db: %s\nadmins: [dana]\nsystemd_unit: starfixd\nsocket: %s\n", adopted, s.controlDB, sock)
+	if err := os.WriteFile(r.cfg, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r.dsn = s.dsn
+	r.d.healthWait, r.d.healthEvery = 0, time.Millisecond
+	r.d.probe = func(ctx context.Context, socket, project string) (string, error) {
+		if _, err := server.Probe(ctx, socket, project, "v0.3.0"); err != nil {
+			return "", err
+		}
+		return r.running, nil // the test daemon is one build; the rig says which release it stands for
+	}
+	return r
+}
+
+// TestUpgradeChecksEveryProject runs `starfixd upgrade` against a real
+// daemon of many projects. A project whose database cannot be opened
+// fails the health check, so the upgrade puts the old binary back; and
+// the check does not need the config file's project to be active.
+func TestUpgradeChecksEveryProject(t *testing.T) {
+	dana := store.Actor{Principal: "dana", Session: "s", Machine: "m"}
+	t.Run("a project that cannot be opened fails the upgrade", func(t *testing.T) {
+		s := newSite(t, "")
+		if got := s.run(t, "", controlCmd, "init", "--name", "acme", "--authorized-keys", writeKeys(t)); got.err != nil {
+			t.Fatalf("control init: %v", got.err)
+		}
+		c := s.control(t)
+		if _, err := c.AddProject(t.Context(), dana, store.NewProject{ID: second, Name: "broken", Prefix: "br", Account: "internal",
+			DBName: "not_made_yet"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.ActivateProject(t.Context(), dana, second); err != nil {
+			t.Fatal(err)
+		}
+		if err := c.Close(); err != nil {
+			t.Fatal(err)
+		}
+		sock := serveSite(t, s)
+		// The project that opened is served all the same.
+		if w := hello(t, sock, "dana", adopted); w.Err != nil {
+			t.Errorf("hello to the healthy project, beside a broken one: %v", w.Err)
+		}
+		r := siteRig(t, s, sock)
+		_, err := r.run(t)
+		if err == nil || !strings.Contains(err.Error(), "starfixd v0.3.0 is unhealthy") ||
+			!strings.Contains(err.Error(), "could not open the database of an active project: broken (database not_made_yet)") {
+			t.Fatalf("upgrade with a project that cannot be opened = %v\nwant it unhealthy, naming the project and its database", err)
+		}
+		if r.exeHolds(t) != "v0.2.0" || len(r.restarts) != 2 {
+			t.Errorf("after the failed upgrade the binary is %q after %d restarts; want v0.2.0 put back and restarted", r.exeHolds(t), len(r.restarts))
+		}
+	})
+	t.Run("the config file's project archived", func(t *testing.T) {
+		s := newSite(t, "")
+		if got := s.run(t, "", controlCmd, "init", "--name", "acme", "--authorized-keys", writeKeys(t)); got.err != nil {
+			t.Fatalf("control init: %v", got.err)
+		}
+		addSecond(t, s)
+		c := s.control(t)
+		if _, err := c.ArchiveProject(t.Context(), dana, adopted); err != nil {
+			t.Fatal(err)
+		}
+		if err := c.Close(); err != nil {
+			t.Fatal(err)
+		}
+		sock := serveSite(t, s)
+		if w := hello(t, sock, "dana", adopted); w.Err == nil || w.Err.Code != proto.CodeNotFound {
+			t.Fatalf("hello to the archived project = %+v, want not found", w.Err)
+		}
+		r := siteRig(t, s, sock)
+		out, err := r.run(t)
+		if err != nil || !strings.Contains(out, "starfixd upgraded v0.2.0 -> v0.3.0") || !strings.Contains(out, "restarted and healthy") {
+			t.Errorf("upgrade with the config file's project archived = %q, %v; want it healthy", out, err)
+		}
+	})
+}

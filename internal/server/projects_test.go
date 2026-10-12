@@ -101,7 +101,8 @@ func newMulti(t *testing.T, lim Limits, ck *clock) *multi {
 	if ck != nil {
 		now = ck.now
 	}
-	ctl, err := store.OpenControl(t.Context(), dsn, store.ControlOptions{Admins: []string{dana.Principal}, CommitInterval: -1, Now: now})
+	ctl, err := store.OpenControl(t.Context(), dsn, store.ControlOptions{Admins: []string{dana.Principal}, CommitInterval: -1, Now: now,
+		Limits: lim.Control})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,12 +328,9 @@ func TestMultiHandshake(t *testing.T) {
 				t.Errorf("handshake(%s, %s) = %+v; want refusal %s with a fix", tc.principal, tc.project, w.Err, tc.code)
 			}
 			if tc.code == proto.CodeForbidden && w.Err != nil {
-				if !strings.Contains(w.Err.Fix, "ask a server admin, or one of the project's admins") ||
+				if !strings.HasPrefix(w.Err.Fix, "ask a server admin, or one of the project's admins, to add you: `sfx admin member add "+tc.principal+"`") ||
 					!strings.Contains(w.Err.Message, tc.principal+" is not a member of project") {
-					t.Errorf("forbidden = %q, fix %q; want the principal named and whom to ask", w.Err.Message, w.Err.Fix)
-				}
-				if strings.Contains(w.Err.Fix, "sfx admin") {
-					t.Errorf("fix %q names an sfx admin command, and none exists yet", w.Err.Fix)
+					t.Errorf("forbidden = %q, fix %q; want the principal named, whom to ask and the command they run", w.Err.Message, w.Err.Fix)
 				}
 			}
 			if tc.code == proto.CodeNotFound && w.Err != nil && !strings.Contains(w.Err.Message, "is not served by this server") {
@@ -839,6 +837,36 @@ func TestResolveSettingsControl(t *testing.T) {
 		{name: "negative keys_per_principal", body: "limits:\n  keys_per_principal: -1\n", err: "limit keys_per_principal is -1"},
 		{name: "negative members_per_project", body: "limits:\n  members_per_project: -1\n", err: "limit members_per_project is -1"},
 		{name: "negative open_stores", body: "limits:\n  open_stores: -1\n", err: "limit open_stores must be zero or a positive number; fix:"},
+		{name: "control write limits default", body: dsn, check: func(l Settings) bool {
+			return l.Limits.ControlWriteRate == 1 && l.Limits.ControlWriteBurst == 30
+		}},
+		{name: "control write limits set", body: "limits:\n  control_write_rate: 0.5\n  control_write_burst: 7\n",
+			check: func(l Settings) bool {
+				return l.Limits.ControlWriteRate == 0.5 && l.Limits.ControlWriteBurst == 7 && l.Limits.WriteRate == DefaultLimits.WriteRate
+			}},
+		{name: "control write limits zero take the default", body: "limits:\n  control_write_rate: 0\n  control_write_burst: 0\n",
+			check: func(l Settings) bool { return l.Limits == DefaultLimits }},
+		{name: "negative control_write_rate", body: "limits:\n  control_write_rate: -1\n", err: "limit control_write_rate must be zero or a positive number; fix:"},
+		{name: "control_write_rate not a number", body: "limits:\n  control_write_rate: .nan\n", err: "limit control_write_rate must be zero or a positive number; fix:"},
+		{name: "negative control_write_burst", body: "limits:\n  control_write_burst: -1\n", err: "limit control_write_burst must be zero or a positive number; fix:"},
+		{name: "no block of project databases by default", body: dsn + "control_db: starfix_control\n",
+			check: func(s Settings) bool { return s.ProjectDBs == ProjectDBs{} }},
+		{name: "a block of project databases", body: dsn + "control_db: starfix_control\nproject_dbs:\n  prefix: starfix_p\n  count: 100\n",
+			check: func(s Settings) bool {
+				return s.ProjectDBs == ProjectDBs{Prefix: "starfix_p", Count: 100} && s.ProjectDBs.Name(100) == "starfix_p100"
+			}},
+		{name: "a block that holds the DSN's database", body: "dsn: starfix@tcp(127.0.0.1:3306)/starfix_p001\ncontrol_db: starfix_control\nproject_dbs:\n  prefix: starfix_p\n  count: 9\n",
+			check: func(s Settings) bool { return s.ProjectDBs.Count == 9 }},
+		{name: "a block without a control database", body: dsn + "project_dbs:\n  prefix: starfix_p\n  count: 100\n",
+			err: "project_dbs is set without control_db; fix:"},
+		{name: "a block that holds the control database", body: dsn + "control_db: starfix_p007\nproject_dbs:\n  prefix: starfix_p\n  count: 100\n",
+			err: "project_dbs holds starfix_p007, the control database; fix:"},
+		{name: "a block with a bad prefix", body: dsn + "control_db: starfix_control\nproject_dbs:\n  prefix: Starfix-P\n  count: 100\n",
+			err: `project_dbs prefix "Starfix-P" does not start a database name; fix:`},
+		{name: "a block with no count", body: dsn + "control_db: starfix_control\nproject_dbs:\n  prefix: starfix_p\n",
+			err: "project_dbs count 0 must be 1 to 999; fix:"},
+		{name: "a block past the most", body: dsn + "control_db: starfix_control\nproject_dbs:\n  prefix: starfix_p\n  count: 1000\n",
+			err: "project_dbs count 1000 must be 1 to 999; fix:"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

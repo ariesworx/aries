@@ -85,6 +85,14 @@ change an issue another principal holds, which is recorded as an
 `admin.override` event naming the holder, or force a close past open
 acceptance items. See [Admins](server.md#admins).
 
+A server may hold **many projects**, each with its own issues, memories
+and members. You reach a project only as a member of it, or as one of
+the server's admins. A member whose role in a project is `admin` has an
+admin's rights in that project, and adds and removes its members with
+`sfx admin member`; the server's admins also create and archive
+projects. When your membership is removed, your sessions in that project
+end ([Managing access](server.md#managing-access)).
+
 ## A session: start and finish
 
 A unit of work is two steps:

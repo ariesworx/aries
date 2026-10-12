@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ariesworx/starfix/internal/store"
@@ -95,4 +97,61 @@ func ProjectOpener(dsn string, ctl *store.Control, opts store.Options) func(cont
 		o.IsAdmin = func(principal string) bool { return ctl.Access(principal, p.ID).Role == store.RoleAdmin }
 		return store.Open(ctx, d, o)
 	}
+}
+
+// ProjectDBs is the block of database names the operator granted
+// starfixd's account for new projects (design §15.5, 1, decision 16):
+// Prefix followed by a number of three digits, from 001 to Count, so
+// {starfix_p, 100} is starfix_p001 to starfix_p100. Dolt honors a grant
+// only on an exact name, so the names are fixed and listed, not matched.
+// The zero value is no block: `sfx admin project add` is then refused.
+type ProjectDBs struct {
+	// Prefix starts each name: a lowercase letter, then lowercase
+	// letters, digits and underscores.
+	Prefix string `yaml:"prefix"`
+	// Count is how many names the block holds, at most MaxProjectDBs.
+	Count int `yaml:"count"`
+}
+
+// MaxProjectDBs is the most names a block may hold: what three digits
+// number.
+const MaxProjectDBs = 999
+
+// Name returns the block's i-th name, counting from 1.
+func (b ProjectDBs) Name(i int) string { return fmt.Sprintf("%s%03d", b.Prefix, i) }
+
+// Validate refuses a block whose names would not be database names, or
+// that holds no name or more than MaxProjectDBs. The zero value is
+// valid.
+func (b ProjectDBs) Validate() error {
+	switch {
+	case b == ProjectDBs{}:
+		return nil
+	case !store.ValidDBName(b.Name(MaxProjectDBs)):
+		return fmt.Errorf("project_dbs prefix %q does not start a database name; fix: set it to a lowercase letter, then lowercase letters, digits and underscores, at most 61, such as starfix_p", b.Prefix)
+	case b.Count < 1 || b.Count > MaxProjectDBs:
+		return fmt.Errorf("project_dbs count %d must be 1 to %d; fix: set it to how many names you granted starfixd's account", b.Count, MaxProjectDBs)
+	}
+	return nil
+}
+
+// holds reports whether name is one of the block's names.
+func (b ProjectDBs) holds(name string) bool {
+	num, ok := strings.CutPrefix(name, b.Prefix)
+	if !ok || b.Prefix == "" || len(num) != 3 {
+		return false
+	}
+	n, err := strconv.Atoi(num)
+	return err == nil && n >= 1 && n <= b.Count
+}
+
+// free returns the block's lowest name that is not in used, or false
+// when every name is.
+func (b ProjectDBs) free(used map[string]bool) (string, bool) {
+	for i := 1; i <= b.Count; i++ {
+		if n := b.Name(i); !used[n] {
+			return n, true
+		}
+	}
+	return "", false
 }

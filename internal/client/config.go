@@ -236,6 +236,55 @@ func (c *Config) validate() error {
 	return nil
 }
 
+// ForProject returns the .starfix.yaml of another project on the same
+// server: this config's server block with project in place of its own.
+// It is what an admin commits to a new project's repository, so it holds
+// only what a committed config may: never Key, which is a path on this
+// machine, and no value this config left to its default.
+func (c *Config) ForProject(project string) ([]byte, error) {
+	if !uuidRE.MatchString(project) {
+		return nil, errors.New("project must be the project's lowercase UUID")
+	}
+	type iap struct {
+		Project  string `yaml:"project"`
+		Zone     string `yaml:"zone"`
+		Instance string `yaml:"instance,omitempty"`
+	}
+	var out struct {
+		Project string `yaml:"project"`
+		Server  struct {
+			Host    string `yaml:"host"`
+			Port    int    `yaml:"port,omitempty"`
+			User    string `yaml:"user,omitempty"`
+			HostKey string `yaml:"host_key"`
+			IAP     *iap   `yaml:"iap,omitempty"`
+		} `yaml:"server"`
+	}
+	out.Project, out.Server.Host, out.Server.HostKey = project, c.Server.Host, c.Server.HostKey
+	if c.Server.Port != 22 {
+		out.Server.Port = c.Server.Port
+	}
+	if c.Server.User != "starfix" {
+		out.Server.User = c.Server.User
+	}
+	if p := c.Server.IAP; p != nil {
+		out.Server.IAP = &iap{Project: p.Project, Zone: p.Zone}
+		if p.Instance != c.Server.Host {
+			out.Server.IAP.Instance = p.Instance
+		}
+	}
+	var b bytes.Buffer
+	enc := yaml.NewEncoder(&b)
+	enc.SetIndent(2)
+	if err := enc.Encode(out); err != nil {
+		return nil, fmt.Errorf("config: %w", err)
+	}
+	if err := enc.Close(); err != nil {
+		return nil, fmt.Errorf("config: %w", err)
+	}
+	return b.Bytes(), nil
+}
+
 // KeyPath resolves Key: "~/" is the home directory, and a relative path is
 // relative to the repository root. It returns "" when no key is set.
 func (c *Config) KeyPath() (string, error) {

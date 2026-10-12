@@ -32,8 +32,13 @@ paths or environment variables.
   database: a server admin reaches every project, a member reaches the
   projects it belongs to, and anyone else is refused with `forbidden`,
   whether disabled, unknown to the control database, or a member
-  elsewhere. A connection already open when a membership ends stays open
-  until it closes; stop it as you would a revoked key's.
+  elsewhere. Access that ends closes the connections it had let in: when
+  a membership is removed, that principal's connections to the project;
+  when a principal is disabled, all of its connections; when a project is
+  archived, every connection to it. The daemon closes them once the
+  change is committed, and the control database then refuses the next
+  handshake. Keys are still lines of `authorized_keys`: a key removed
+  there is stopped as before.
 
 ## The server's host key is pinned
 
@@ -63,6 +68,30 @@ pinned](cli.md#the-host-key-is-pinned)).
   role there is `admin`, with an admin's rights in that project alone. A
   project admin's role is read from the control database on every write,
   so taking it away counts at once.
+- **Who manages access.** On a server of many projects, `sfx admin`
+  changes projects, principals and memberships over the protocol
+  ([Managing access](server.md#managing-access)), and the control
+  database decides inside each write's transaction whether the caller
+  may. A server admin may make every change. A project admin may add and
+  remove their project's members and set their roles, and may create a
+  principal as a member of their project. No MCP tool does any of it,
+  and an agent whose principal is refused is told to ask a person. An
+  agent that can run shell commands with an admin's key can still run
+  `sfx admin`, with that admin's rights: give an agent that works on its
+  own a principal of its own, which is no admin.
+- **A project admin's reach is bounded.** A project admin may disable or
+  enable a principal only while every project that principal belongs to
+  is one they administer; a server admin, and a principal in no project,
+  are out of reach. They may add to their project only a principal that
+  already belongs to a project, or one they created. Otherwise they could
+  bring someone within reach and act on them. Removing a membership can
+  put a principal within reach of the admins of the projects that
+  remain; `sfx admin member remove` says so when it does.
+- **A refusal does not say what exists elsewhere.** Someone who is no
+  server admin gets the same `forbidden` for a project they have no role
+  in as for one that does not exist. A principal name is the exception:
+  names are one namespace for the server, so adding one that is taken
+  says so.
 - **Every change is an event**, written in the same transaction as the
   change, with its principal, session and time. Clients cannot edit or
   delete events.
@@ -98,6 +127,15 @@ as. It refuses to continue, with the SQL to fix it, when the account:
 - is `root`;
 - holds any privilege on `*.*`, or `GRANT OPTION`;
 - is on a server whose `secure_file_priv` is empty.
+
+On a server of [many projects](server.md#serving-many-projects) the
+account holds every right on the control database, on each project's
+database and on each name of `project_dbs`, all granted by exact name,
+and still nothing on `*.*`. It can create a database, because Dolt checks
+`CREATE DATABASE` against the connection's current database; it can use
+one only where root granted that name, so `sfx admin project add` cannot
+reach a database outside the block
+([measurements](../spike/multidb/RESULTS.md)).
 
 A passwordless `root` cannot be seen from a least-privileged account, so
 starfixd cannot check for it. [Step
@@ -185,8 +223,8 @@ conversation, so it is built to take only counts from them
 
 ## Limits
 
-Every principal is bounded: write rates, connections, sessions, inbox
-size, labels, dependencies, acceptance items, token usage records and
+Every principal is bounded: write rates, `sfx admin` changes,
+connections, sessions, inbox size, labels, dependencies, acceptance items, token usage records and
 memories each have a cap, and text
 fields and replies have fixed sizes. [Limits](server.md#limits) lists the
 caps, their settings and what a refusal past each one says.
