@@ -87,6 +87,22 @@ import (
 // protocol; a daemon closes a connection that opens with one,
 // unanswered.
 //
+// The security review of stage 3a (design §14, decisions 35, 36 and 38)
+// joined 5 the same way, while no release spoke it. member.set's
+// arguments gained accept_keys, and its result lost keys, a list of
+// fingerprints, and gained carried, the keys with who added each, and
+// the change "pending". For the lists of what one account left behind,
+// keys gained the arguments added_by, limit and after, and name became
+// optional beside them; principals gained created_by; and members gained
+// added_by. Their results gained fields (a key's principal, a member's
+// project and project_name, keys' added_by and more), and
+// principal.disable's gained keys_added, principals_created and
+// members_added. A server built from main before these refuses the new
+// arguments as unknown, with code invalid, and adds a principal without
+// showing its keys, as it did; a client built from main before them
+// never sends accept_keys, so against this server it cannot add a
+// principal who has keys, and reads "pending" as no change.
+//
 // The bridge frame is not part of this protocol: it passes between two
 // starfixd processes on the server (frame.go), and carries no version.
 // It is read leniently, so a bridge from before a binary swap works

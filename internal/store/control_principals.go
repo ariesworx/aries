@@ -60,7 +60,8 @@ func validPrincipal(name string) error {
 // admin's name. A name in use is refused with a [*TakenError], which
 // tells the caller that it exists; a project that does not exist with
 // ErrNotFound; and a row past ControlLimits.Principals,
-// ControlLimits.Members or ControlLimits.Keys with a
+// ControlLimits.Members or ControlLimits.Keys, or, for an actor who is
+// no server admin, past ControlLimits.PrincipalsPerCreator, with a
 // [*ControlLimitError]. Keys are refused as AddKey refuses them, and an
 // actor who names themselves with keys is refused too (decision 19): a
 // server admin the config file names may have no row yet.
@@ -114,6 +115,14 @@ func (c *Control) AddPrincipal(ctx context.Context, actor Actor, name, project s
 		}
 		if err := w.room(ctx, limitPrincipals, w.lim.Principals, `SELECT COUNT(*) FROM principals`); err != nil {
 			return err
+		}
+		if !w.admin {
+			// No op deletes a principal, so each creator who is no server
+			// admin has an allowance of their own within the server's.
+			if err := w.room(ctx, limitPerCreator, w.lim.PrincipalsPerCreator,
+				`SELECT COUNT(*) FROM principals WHERE created_by = ?`, w.actor.Principal); err != nil {
+				return err
+			}
 		}
 		if project != "" {
 			if err := w.memberRoom(ctx, project); err != nil {
@@ -182,11 +191,12 @@ func (c *Control) setPrincipalState(ctx context.Context, actor Actor, name strin
 		if err != nil {
 			return err
 		}
-		cur, err := readPrincipal(ctx, w.tx, name)
-		if err != nil {
+		// Reach before existence, as in AddKey.
+		if err := w.within(ctx, sc, op, name); err != nil {
 			return err
 		}
-		if err := w.within(ctx, sc, op, name); err != nil {
+		cur, err := readPrincipal(ctx, w.tx, name)
+		if err != nil {
 			return err
 		}
 		out = cur
@@ -252,7 +262,35 @@ func (c *Control) Principal(ctx context.Context, name string) (Principal, error)
 // Principals returns every principal, disabled ones included, by name.
 // Reads are not guarded: the caller decides who may list them.
 func (c *Control) Principals(ctx context.Context) ([]Principal, error) {
-	rows, err := c.s.r.QueryContext(ctx, principalSelect+` ORDER BY name`)
+	return c.principals(ctx, ` ORDER BY name`)
+}
+
+// validActorName refuses, with ErrInvalid, a name no actor of an event
+// or a row can have. Unlike validPrincipal it allows a [Reserved] name:
+// the operator's `starfixd control init` writes as one.
+func validActorName(name string) error {
+	if !PrincipalPattern.MatchString(name) {
+		return fmt.Errorf("%w: %q is not a principal's name", ErrInvalid, name)
+	}
+	return nil
+}
+
+// PrincipalsCreatedBy returns the principals that creator created,
+// disabled ones included, by name. With [Control.KeysAddedBy] and
+// [Control.MembersAddedBy] it is what an account left behind: disabling
+// the account ends its own access, and none of these. Reads are not
+// guarded: the caller decides who may list them.
+func (c *Control) PrincipalsCreatedBy(ctx context.Context, creator string) ([]Principal, error) {
+	if err := validActorName(creator); err != nil {
+		return nil, err
+	}
+	return c.principals(ctx, ` WHERE created_by = ? ORDER BY name`, creator)
+}
+
+// principals reads the principals that where, a constant clause with
+// placeholders for args, selects.
+func (c *Control) principals(ctx context.Context, where string, args ...any) ([]Principal, error) {
+	rows, err := c.s.r.QueryContext(ctx, principalSelect+where, args...) //nolint:gosec // where is a constant from the callers
 	if err != nil {
 		return nil, fmt.Errorf("principals: %w", err)
 	}

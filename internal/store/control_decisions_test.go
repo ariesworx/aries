@@ -5,9 +5,75 @@ import (
 	"testing"
 )
 
-// TestControlOwnKeys pins decision 19: nobody changes the keys of their
-// own account, whatever their rights, and a refusal records nothing.
-// Another admin with reach may, and so may the operator.
+// TestControlOwnKeyRemoval pins decision 38, which amends decision 19:
+// anyone may remove a key of their own account, whatever they are, and
+// nobody may add one. Removing only ever takes access away, and without
+// it the owner of an account someone planted a key on could not clean
+// it. A key that is not one's own still needs reach, and is refused
+// without saying whether it exists.
+func TestControlOwnKeyRemoval(t *testing.T) {
+	c := accessWorld(t) // bob, hal, carol, frank and dana have a key each
+	ctx := t.Context()
+	mustKey(t, c, "alice", "alice")
+	fp := func(seed string) string { _, f := testKey(t, seed); return f }
+	line := func(seed string) string { l, _ := testKey(t, seed); return l }
+	for _, tc := range []struct {
+		name  string
+		actor Actor
+	}{
+		{"a member", bob},
+		{"a member of nothing", frank},
+		{"a project admin", alice},
+		{"a server admin", dana},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			me := tc.actor.Principal
+			seq := controlSeq(t, c)
+			_, err := c.AddKey(ctx, tc.actor, me, line(me+" 2"))
+			if ae, ok := errors.AsType[*AccessError](err); !ok || ae.Reason != AccessOwnKeys {
+				t.Errorf("AddKey(%s) by %s = %v, want an *AccessError for own keys", me, me, err)
+			}
+			wantEvents(t, c, seq)
+			k, err := c.RemoveKey(ctx, tc.actor, fp(me))
+			if err != nil || k.Principal != me || k.Fingerprint != fp(me) {
+				t.Fatalf("RemoveKey of %s's own key by %s = %+v, %v; want it removed", me, me, k, err)
+			}
+			wantEvents(t, c, seq, ev{OpKeyRemove, fp(me), tc.actor, ""})
+			if _, _, ok := c.AuthorizedKey(fp(me)); ok {
+				t.Errorf("AuthorizedKey still answers for the key %s removed from their own account", me)
+			}
+		})
+	}
+	t.Run("a key that is not one's own", func(t *testing.T) {
+		for _, tc := range []struct {
+			name   string
+			actor  Actor
+			key    string
+			reason AccessReason
+		}{
+			{"a member, of another's key", bob, fp("carol"), AccessAdmin},
+			{"a member, of a key no one has", bob, fp("nobody"), AccessAdmin},
+			{"a project admin, of a key out of reach", alice, fp("carol"), AccessReach},
+			{"a project admin, of a key no one has", alice, fp("nobody"), AccessReach},
+		} {
+			seq := controlSeq(t, c)
+			_, err := c.RemoveKey(ctx, tc.actor, tc.key)
+			if ae, ok := errors.AsType[*AccessError](err); !ok || ae.Reason != tc.reason || ae.Principal != "" {
+				t.Errorf("%s: RemoveKey = %v, want an *AccessError with reason %q that names no principal", tc.name, err, tc.reason)
+			}
+			wantEvents(t, c, seq)
+		}
+		// With reach it is allowed, as before.
+		if _, err := c.RemoveKey(ctx, alice, fp("hal")); err != nil {
+			t.Errorf("RemoveKey of hal's key by alice, who has reach over him: %v", err)
+		}
+	})
+}
+
+// TestControlOwnKeys pins decision 19 as decision 38 left it: nobody
+// adds a key to their own account, whatever their rights, and a refusal
+// records nothing. Another admin with reach may, and so may the
+// operator. Removing one's own is TestControlOwnKeyRemoval's.
 func TestControlOwnKeys(t *testing.T) {
 	c := accessWorld(t)
 	ctx := t.Context()
@@ -23,13 +89,8 @@ func TestControlOwnKeys(t *testing.T) {
 		reason AccessReason
 	}{
 		{"a member adds a key to themselves", func() error { _, err := c.AddKey(ctx, bob, "bob", line("bob 2")); return err }, AccessOwnKeys},
-		// Who a key belongs to is not said to someone who administers
-		// nothing, so a member's own key is refused as any other is.
-		{"a member removes their own key", func() error { _, err := c.RemoveKey(ctx, bob, bobsKey); return err }, AccessAdmin},
 		{"a project admin with reach over themselves adds", func() error { _, err := c.AddKey(ctx, alice, "alice", line("alice 2")); return err }, AccessOwnKeys},
-		{"a project admin with reach over themselves removes", func() error { _, err := c.RemoveKey(ctx, alice, alicesKey); return err }, AccessOwnKeys},
 		{"a server admin adds", func() error { _, err := c.AddKey(ctx, dana, "dana", line("dana 2")); return err }, AccessOwnKeys},
-		{"a server admin removes", func() error { _, err := c.RemoveKey(ctx, dana, danasKey); return err }, AccessOwnKeys},
 		{"a server admin with no row adds", func() error { _, err := c.AddKey(ctx, sam, "sam", line("sam")); return err }, AccessOwnKeys},
 		{"a server admin with no row adds themselves with a key", func() error { _, err := c.AddPrincipal(ctx, sam, "sam", "", line("sam")); return err }, AccessOwnKeys},
 	}

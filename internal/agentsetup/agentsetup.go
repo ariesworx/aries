@@ -1,6 +1,7 @@
 package agentsetup
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -147,6 +148,40 @@ type Entry struct {
 	// ServerName. Only a desktop app's entry has its own (DesktopEntry),
 	// and only the JSON formats honor it.
 	Server string
+	// KeyFile, when set, is written into the entry's environment as
+	// KeyFileEnv: the key file the agent's sfx signs in with, and then
+	// the only key it offers (design §14, decision 35). It is a path on
+	// one person's machine, so the caller sets it only for a file that is
+	// that person's own, never for one a repository commits.
+	KeyFile string
+}
+
+// KeyFileEnv is the environment variable that names the key file sfx
+// signs in with (client.EnvKeyFile). Beside HarnessEnv it is the one
+// variable a starfix entry may hold.
+const KeyFileEnv = "STARFIX_KEY_FILE"
+
+// KeyFile returns the key file that the entry in content under e's name
+// sets, or "" when it sets none or there is no such entry.
+func (a Agent) KeyFile(content []byte, e Entry) string {
+	if a.format == tomlCodex {
+		return tomlKeyFile(content)
+	}
+	entry, ok := jsonEntry(content, a.format, e.server())
+	if !ok {
+		return ""
+	}
+	raw, _ := entry.get("env")
+	env, err := parseObject(raw)
+	if err != nil {
+		return ""
+	}
+	raw, _ = env.get(KeyFileEnv)
+	var path string
+	if json.Unmarshal(raw, &path) != nil {
+		return ""
+	}
+	return path
 }
 
 // server is the name e is registered under.

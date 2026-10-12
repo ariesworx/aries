@@ -38,6 +38,15 @@ On Windows, download the zip from the
 [releases page](https://github.com/ariesworx/starfix/releases) and put
 `sfx.exe` on your `PATH`, or run the script inside WSL.
 
+**First run.** `sfx` needs no configuration of its own beyond the
+repository's `.starfix.yaml`. It signs in with the SSH key `ssh` would
+use: a default file in `~/.ssh` (`%USERPROFILE%\.ssh` on Windows), such
+as `id_ed25519`, and then the keys in ssh-agent. Send the admin that
+key's `.pub`, then run `sfx whoami` in the repository: it prints your
+principal and which key signed in. To sign in with another key, set
+`STARFIX_KEY_FILE` to the file's path
+([Your key is your identity](cli.md#your-key-is-your-identity)).
+
 ## Download by hand
 
 Each [release](https://github.com/ariesworx/starfix/releases) carries:

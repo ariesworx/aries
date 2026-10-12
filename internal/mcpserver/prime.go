@@ -1,12 +1,14 @@
 package mcpserver
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/ariesworx/starfix/internal/client"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/safetext"
 )
@@ -17,7 +19,11 @@ type Prime struct {
 	// Project names the project: its repository directory's name.
 	Project string `json:"project"`
 	// You is the principal the server knows this key as.
-	You     string `json:"you,omitempty"`
+	You string `json:"you,omitempty"`
+	// Key is the key that signed in, by fingerprint, and where it came
+	// from: with no key configured the server's first match among those
+	// offered decides who You is, so an agent is told which it was.
+	Key     string `json:"key,omitempty"`
 	Session string `json:"session"`
 	// Working are your in_progress issues (assigned to you).
 	Working []proto.Summary `json:"in_progress"`
@@ -62,6 +68,11 @@ const (
 func BuildPrime(ctx context.Context, c Conn, clientVersion string) (*Prime, error) {
 	p := &Prime{Project: c.Project(), You: c.Principal(), Session: c.Session(),
 		Working: []proto.Summary{}, Ready: []proto.Summary{}, Notices: c.Notices(clientVersion)}
+	if k, ok := c.(interface{ Key() client.KeyInfo }); ok {
+		if key := k.Key(); key.Fingerprint != "" {
+			p.Key = key.Fingerprint + " from " + cmp.Or(key.Path, "ssh-agent")
+		}
+	}
 	if p.You != "" {
 		var r proto.ListResult
 		if err := c.Call(ctx, proto.OpList, proto.ListArgs{Status: []string{"in_progress"}, Assignee: p.You,
@@ -170,6 +181,9 @@ func (p *Prime) Text() string {
 	}
 	esc := safetext.Line
 	fmt.Fprintf(&b, "starfix: project %s, you are %s, session %s\n", esc(p.Project), esc(who), esc(p.Session))
+	if p.Key != "" {
+		fmt.Fprintf(&b, "signed in with key %s\n", esc(p.Key))
+	}
 	for _, n := range p.Notices {
 		fmt.Fprintf(&b, "notice: %s\n", esc(n))
 	}

@@ -20,8 +20,9 @@ import (
 
 // `sfx admin key`: a principal's public SSH keys, which the server's
 // sshd asks starfixd for (design §15.2). An admin adds and removes
-// them; nobody changes the keys of their own account, which the server
-// decides. Only a public key ever leaves this machine: the file is read
+// them; nobody adds a key to their own account, though anyone may
+// remove one of their own that their connection did not sign in with,
+// which the server decides. Only a public key ever leaves this machine: the file is read
 // and checked here, and what is sent is the key as the parser writes it
 // back, never the file's bytes.
 
@@ -113,14 +114,21 @@ func readUpTo(path string, n int64) ([]byte, error) {
 }
 
 func adminKey(ctx context.Context, r *runner, args []string) error {
-	const usage = "admin key add NAME FILE|- | list NAME | remove FINGERPRINT"
+	const usage = "admin key add NAME FILE|- | list NAME | list --added-by NAME [-n N] [--after FINGERPRINT] | remove FINGERPRINT"
 	fs := r.newFlags("admin key")
+	addedBy := fs.String("added-by", "", "list the keys this principal added, whoever each belongs to")
+	list := listFlags(fs)
 	pos, err := parse(fs, args, usage)
 	if err != nil {
 		return err
 	}
 	if len(pos) == 0 {
 		return usagef(usage, "admin key needs add, list or remove")
+	}
+	if pos[0] != "list" || *addedBy == "" {
+		if err := only(fs, usage, "key "+pos[0]+", without --added-by,"); err != nil {
+			return err
+		}
 	}
 	switch pos[0] {
 	case "add":
@@ -144,15 +152,25 @@ func adminKey(ctx context.Context, r *runner, args []string) error {
 		r.warn(out.Warning)
 		return nil
 	case "list":
-		if len(pos) != 2 {
-			return usagef(usage, "key list needs one principal, such as bob")
+		in := proto.KeysArgs{AddedBy: *addedBy, AdminListArgs: *list}
+		switch {
+		case *addedBy != "" && len(pos) != 1:
+			return usagef(usage, "key list takes a principal, or --added-by NAME, not both")
+		case *addedBy == "" && len(pos) != 2:
+			return usagef(usage, "key list needs one principal, such as bob, or --added-by NAME")
+		case *addedBy == "":
+			in.Name = pos[1]
 		}
 		var out proto.KeysResult
-		if err := r.call(ctx, proto.OpKeys, proto.KeysArgs{Name: pos[1]}, &out); err != nil {
+		if err := r.call(ctx, proto.OpKeys, in, &out); err != nil {
 			return err
 		}
 		if r.json {
 			r.emit(out)
+			return nil
+		}
+		if *addedBy != "" {
+			printKeysAddedBy(r.env.Stdout, out)
 			return nil
 		}
 		printKeys(r.env.Stdout, out)
@@ -208,6 +226,24 @@ func printKeyRemoved(w io.Writer, k proto.KeyResult) {
 	case k.Dropped > 1:
 		_, _ = fmt.Fprintf(w, "%d connections it had signed in were closed\n", k.Dropped)
 	}
+}
+
+// printKeysAddedBy lists the keys one principal added, each with whose
+// it is: what that principal's account left behind, which disabling it
+// does not remove.
+func printKeysAddedBy(w io.Writer, res proto.KeysResult) {
+	if len(res.Keys) == 0 {
+		_, _ = fmt.Fprintf(w, "no keys added by %s\n", esc(res.AddedBy))
+		return
+	}
+	_, _ = fmt.Fprintf(w, "keys added by %s\n", esc(res.AddedBy))
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "FINGERPRINT\tPRINCIPAL\tTYPE\tCOMMENT\tADDED")
+	for _, k := range res.Keys {
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", esc(k.Fingerprint), esc(k.Principal), esc(k.Type), esc(k.Comment), when(k.AddedAt))
+	}
+	_ = tw.Flush()
+	more(w, res.More, res.Keys[len(res.Keys)-1].Fingerprint)
 }
 
 // printKeys lists a principal's keys. When any of them is also a line of

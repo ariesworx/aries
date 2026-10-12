@@ -3,6 +3,7 @@ package agentsetup
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -498,9 +499,39 @@ func tomlTable(e Entry, harness string) []string {
 	for i, a := range e.Args {
 		quoted[i] = tomlString(a)
 	}
-	return []string{"[mcp_servers." + ServerName + "]", "command = " + tomlString(e.Command),
+	out := []string{"[mcp_servers." + ServerName + "]", "command = " + tomlString(e.Command),
 		"args = [" + strings.Join(quoted, ", ") + "]", "",
 		"[mcp_servers." + ServerName + ".env]", harnessLine(harness)}
+	if e.KeyFile != "" {
+		out = append(out, KeyFileEnv+" = "+tomlString(e.KeyFile))
+	}
+	return out
+}
+
+// tomlKeyFile returns the key file the starfix entry's env table sets,
+// or "" when it sets none, or as anything but a basic string, which is
+// how setup writes it.
+func tomlKeyFile(content []byte) string {
+	items, err := scanTOML(content)
+	if err != nil {
+		return ""
+	}
+	want := []string{"mcp_servers", ServerName, "env", KeyFileEnv}
+	for _, it := range items {
+		if it.kind != tomlPair || !slices.Equal(it.path, want) {
+			continue
+		}
+		_, value, ok := strings.Cut(string(content[it.start:it.end]), "=")
+		if !ok {
+			return ""
+		}
+		path, err := unquoteBasic(strings.TrimSpace(value))
+		if err != nil {
+			return ""
+		}
+		return path
+	}
+	return ""
 }
 
 // starfixPath reports whether a table or key path is inside the starfix

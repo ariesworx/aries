@@ -171,10 +171,20 @@ func applyJSON(content []byte, f format, e Entry, harness string) ([]byte, error
 		}
 	}
 	// The entry is replaced wholesale, in its place among the servers.
-	entry := owned(f, e).set("env", object{}.set(HarnessEnv, mustJSON(harness)).marshal())
+	entry := owned(f, e).set("env", entryEnv(e, harness).marshal())
 	servers = servers.set(e.server(), entry.marshal())
 	root = root.set(key, servers.marshal())
 	return indent(root.marshal())
+}
+
+// entryEnv is the environment setup writes for the entry: the harness's
+// name and, when the entry has one, its key file. Nothing else.
+func entryEnv(e Entry, harness string) object {
+	env := object{}.set(HarnessEnv, mustJSON(harness))
+	if e.KeyFile != "" {
+		env = env.set(KeyFileEnv, mustJSON(e.KeyFile))
+	}
+	return env
 }
 
 // removeJSON takes out the named server; found is false when there is
@@ -249,11 +259,17 @@ func jsonRegistered(content []byte, f format, e Entry, harness string) bool {
 	}
 	raw, _ = entry.get("env")
 	env, err := parseObject(raw)
-	if err != nil || len(raw) == 0 || len(env) != 1 {
+	wantEnv := entryEnv(e, harness)
+	if err != nil || len(raw) == 0 || len(env) != len(wantEnv) {
 		return false
 	}
-	got, ok := env.get(HarnessEnv)
-	return ok && sameJSON(got, mustJSON(harness))
+	for _, m := range wantEnv {
+		got, ok := env.get(m.key)
+		if !ok || !sameJSON(got, m.val) {
+			return false
+		}
+	}
+	return true
 }
 
 // sameJSON reports whether a and b decode to the same value.

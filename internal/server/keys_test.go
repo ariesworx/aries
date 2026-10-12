@@ -262,8 +262,8 @@ func TestKeyOps(t *testing.T) {
 	carols := fingerprintOf(t, "carol")
 	const (
 		ownFix   = "ask another admin to run it: a server admin, or a project admin who administers every project you belong to; the server's operator can also change authorized_keys on the server"
-		reachFix = "ask a server admin to run it; a project admin may only while every project the principal belongs to is one they administer"
-		listFix  = "ask a server admin, or a project admin who administers every project the principal belongs to; `sfx admin key list %s` lists your own"
+		reachFix = "check the name, or ask a server admin to run it; a project admin may only while every project the principal belongs to is one they administer"
+		listFix  = "ask a server admin, or an admin of a project the principal belongs to; `sfx admin key list %s` lists your own"
 	)
 	seq := func() int {
 		t.Helper()
@@ -284,16 +284,16 @@ func TestKeyOps(t *testing.T) {
 		fix  string
 	}{
 		{"a member adds their own key", "bob", proto.OpKeyAdd, proto.KeyAddArgs{Name: "bob", Key: keyLine(t, "bob")}, proto.CodeForbidden,
-			"bob may not add a key to bob: nobody changes the keys of their own account", ownFix},
+			"bob may not add a key to bob: nobody adds a key to their own account", ownFix},
 		{"a project admin adds their own key", "alice", proto.OpKeyAdd, proto.KeyAddArgs{Name: "alice", Key: keyLine(t, "alice")}, proto.CodeForbidden,
-			"alice may not add a key to alice: nobody changes the keys of their own account", ownFix},
+			"alice may not add a key to alice: nobody adds a key to their own account", ownFix},
 		{"a server admin adds their own key", "dana", proto.OpKeyAdd, proto.KeyAddArgs{Name: "dana", Key: keyLine(t, "dana")}, proto.CodeForbidden,
-			"dana may not add a key to dana: nobody changes the keys of their own account", ownFix},
+			"dana may not add a key to dana: nobody adds a key to their own account", ownFix},
 		{"a member adds a key to another", "bob", proto.OpKeyAdd, proto.KeyAddArgs{Name: "carol", Key: keyLine(t, "x")}, proto.CodeForbidden,
 			"bob may not add a key to carol: it is for project admins and server admins",
 			"ask a server admin to run it, or a project admin who administers every project the principal belongs to"},
 		{"a project admin adds a key out of reach", "alice", proto.OpKeyAdd, proto.KeyAddArgs{Name: "carol", Key: keyLine(t, "x")}, proto.CodeForbidden,
-			"alice may not add a key to carol: carol belongs to a project alice does not administer, or to none", reachFix},
+			"alice may not add a key to carol: carol does not exist, or belongs to a project alice does not administer, or to none", reachFix},
 		{"a project admin adds a key to a server admin", "alice", proto.OpKeyAdd, proto.KeyAddArgs{Name: "dana", Key: keyLine(t, "x")}, proto.CodeForbidden,
 			"alice may not add a key to dana: dana is a server admin", "ask a server admin to run it"},
 		// The same refusal for a key out of reach as for one no one has.
@@ -307,12 +307,12 @@ func TestKeyOps(t *testing.T) {
 			"bob may not remove that key: it is for project admins and server admins",
 			"ask a server admin to run it, or a project admin who administers every project the principal belongs to"},
 		{"a member lists another's keys", "bob", proto.OpKeys, proto.KeysArgs{Name: "carol"}, proto.CodeForbidden,
-			"bob may not list the keys of carol: it is for the principal, for an admin who manages it, and for server admins", strings.ReplaceAll(listFix, "%s", "bob")},
-		{"a project admin lists keys out of reach", "alice", proto.OpKeys, proto.KeysArgs{Name: "carol"}, proto.CodeForbidden,
-			"alice may not list the keys of carol: it is for the principal, for an admin who manages it, and for server admins", strings.ReplaceAll(listFix, "%s", "alice")},
+			"bob may not list the keys of carol: it is for the principal, for an admin of a project it belongs to, and for server admins", strings.ReplaceAll(listFix, "%s", "bob")},
+		{"a project admin lists the keys of someone in none of their projects", "alice", proto.OpKeys, proto.KeysArgs{Name: "frank"}, proto.CodeForbidden,
+			"alice may not list the keys of frank: it is for the principal, for an admin of a project it belongs to, and for server admins", strings.ReplaceAll(listFix, "%s", "alice")},
 		// A name no one has is refused as one out of reach is.
 		{"a project admin lists the keys of no one", "alice", proto.OpKeys, proto.KeysArgs{Name: "zed"}, proto.CodeForbidden,
-			"alice may not list the keys of zed: it is for the principal, for an admin who manages it, and for server admins", strings.ReplaceAll(listFix, "%s", "alice")},
+			"alice may not list the keys of zed: it is for the principal, for an admin of a project it belongs to, and for server admins", strings.ReplaceAll(listFix, "%s", "alice")},
 		{"a server admin lists the keys of no one", "dana", proto.OpKeys, proto.KeysArgs{Name: "zed"}, proto.CodeNotFound,
 			"principal zed not found", "check the name; a server admin lists them with `sfx admin principal list`"},
 		{"a server admin removes a key no one has", "dana", proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: fingerprintOf(t, "nobody")}, proto.CodeNotFound,
@@ -398,14 +398,18 @@ func TestKeyOps(t *testing.T) {
 		code proto.Code
 		msg  string
 	}{
-		{"with a key another has", "alice", proto.PrincipalAddArgs{Name: "gus", Keys: []string{keyLine(t, "carol")}}, proto.CodeExists, "already belongs to another principal"},
+		// A project admin is not told the key is anyone's (review F-6); a
+		// server admin is.
+		{"with a key another has, by a project admin", "alice", proto.PrincipalAddArgs{Name: "gus", Keys: []string{keyLine(t, "carol")}}, proto.CodeForbidden,
+			"alice may not add that key to gus: it is no key alice may give a principal"},
+		{"with a key another has", "dana", proto.PrincipalAddArgs{Name: "gus", Project: projA, Keys: []string{keyLine(t, "carol")}}, proto.CodeExists, "already belongs to another principal"},
 		{"with a line that is no key", "alice", proto.PrincipalAddArgs{Name: "gus", Keys: []string{"nonsense"}}, proto.CodeInvalid, "the key must be one public key"},
 		{"with more keys than a principal keeps", "alice", proto.PrincipalAddArgs{Name: "gus", Keys: []string{keyLine(t, "g1"), keyLine(t, "g2"), keyLine(t, "g3")}},
 			proto.CodeInvalid, "a principal keeps at most 2 keys"},
 		{"with more keys than one request carries", "dana", proto.PrincipalAddArgs{Name: "gus", Keys: make([]string, proto.MaxKeysPerAdd+1)},
 			proto.CodeInvalid, "more than one principal add carries"},
 		{"a server admin with no row, of themselves", "sam", proto.PrincipalAddArgs{Name: "sam", Unassigned: true, Keys: []string{keyLine(t, "sam")}},
-			proto.CodeForbidden, "sam may not add a key to sam: nobody changes the keys of their own account"},
+			proto.CodeForbidden, "sam may not add a key to sam: nobody adds a key to their own account"},
 	} {
 		t.Run("principal.add "+tc.name, func(t *testing.T) {
 			c := conns[tc.who]

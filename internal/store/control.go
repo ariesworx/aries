@@ -375,6 +375,21 @@ func (c *Control) Access(principal, project string) Access {
 	return a
 }
 
+// Standing reports what the server knows of principal whatever project
+// it asks for: known, when it has a row or the config file names it a
+// server admin, and disabled, when its row is disabled. A principal that
+// is not known, or is disabled, is let into no project, so the daemon
+// can refuse its connection before a hello names one. It reads memory
+// only, as [Control.Access] does.
+func (c *Control) Standing(principal string) (known, disabled bool) {
+	c.ix.mu.RLock()
+	defer c.ix.mu.RUnlock()
+	if c.ix.disabled[principal] {
+		return true, true
+	}
+	return c.ix.active[principal] || c.ConfigAdmin(principal), false
+}
+
 // ActiveProjects returns how many projects are active, from memory.
 func (c *Control) ActiveProjects() int {
 	c.ix.mu.RLock()
