@@ -45,8 +45,8 @@ To try starfix, or test a branch, on any machine with Docker, use the
   one or ten in regular use
   ([Dolt's memory](../server.md#dolts-memory) has the detail, a memory
   limit and the limits of the evidence). `sfx admin status` shows
-  starfixd's side; read Dolt's memory from the machine
-  ([Watching a server](../server.md#watching-a-server)).
+  starfixd's side, and Dolt's memory as Dolt's own metrics give it
+  ([Dolt's figures](../server.md#dolts-figures)).
 - **No high availability.** While the server is down, agents keep working
   on code but cannot claim or finish issues. Recovery is a restart, or a
   [restore](../server.md#backups-and-restore) that loses what changed

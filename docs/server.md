@@ -494,6 +494,28 @@ What that showed:
   answering; `upgrade --check`'s `clock:` line and the query of
   [Upgrades](#upgrades). The 76 checks of the earlier runs passed
   afterwards.
+- **Dolt's metrics and the status report's lines about Dolt work**
+  ([Dolt's figures](#dolts-figures)), on the same machine on the same
+  day, set up by the block for a server set up before, with the
+  profiles enforced and no denial in the kernel's log. The endpoint
+  answered on 127.0.0.1 and not on the machine's other address. `MiB
+  resident` was within a mebibyte of `VmRSS` in `/proc`, the start time was
+  `ps`'s, and the connections were starfixd's own, counted with `ss`.
+  The collector's line gave the same cycles and writes as Dolt's counter
+  and starfixd's own metric did over a burst. With the port refused by
+  a firewall rule for 50 seconds the report said `Dolt: unknown` with
+  the last read, `/readyz` stayed ready and `sfx` worked, with one
+  warning in the log and one line when the reads came back; a URL with
+  the wrong port, one that is not loopback and one with `https://` did
+  what [Dolt's figures](#dolts-figures) says. [Dolt's
+  memory](#dolts-memory) has what the line showed under a memory limit
+  too low and one with room. The 76 checks passed afterwards, once
+  their script was brought up to date with this release in three
+  places: each user's
+  key is named by `STARFIX_KEY_FILE` in place of a `key:` line outside
+  the repository, `member add` for someone with a key takes
+  `--accept-keys`, and the refusal to add a key to one's own account
+  has new words.
 - **`starfixd upgrade --rollback` works for the `starfix` user**: it
   renames the binaries in `/opt/starfix/bin`, restarts the unit through
   the sudo rule and finds the daemon healthy. `upgrade --check` reaches
@@ -1235,7 +1257,8 @@ admin does not, since they are the server's and not a project's.
 | `memory limit` | `go_gc_gomemlimit_bytes` | The Go memory limit Dolt runs under (`GOMEMLIMIT`), or `no memory limit` |
 | `Dolt's collector:` | `go_gc_duration_seconds_count`, and starfixd's own count of writes | The cycles of Dolt's garbage collector, the writes starfixd's project stores committed, and the first for each 100 of the second, over the last ten minutes or since either started. It is what tells whether a memory limit has room ([Dolt's memory](#dolts-memory)) |
 
-- **`Dolt: unknown`** means the latest read failed: Dolt is stopped, the
+- **`Dolt: unknown`** means the latest read failed: nothing answers
+  there, the
   port or the path is wrong, the answer took more than 5 seconds, was
   more than 1 MiB or was not Dolt's metrics, or it was a redirect, which
   starfixd does not follow. The line gives the last read that worked,
@@ -1252,7 +1275,16 @@ admin does not, since they are the server's and not a project's.
 - **The ratio is shown from 500 writes in the window**, and judged
   against the measurements only when a memory limit is set. An idle Dolt
   still collects about every two minutes, so against a few writes the
-  ratio would be large and say nothing.
+  ratio would be large and say nothing. With fewer writes the line says
+  `too few writes to judge the memory limit by`, unless the cycles are
+  past 14 for each 100 even when counted against 500 writes, more than
+  70 in the window: a limit far too low has Dolt collecting without
+  pause whether or not anything is written, and the line then says so.
+- **A Dolt that hangs whole** stops more than this: while a project's
+  store is open, the report itself waits on the one query it makes for
+  that store's sessions, and `starfixd status` gives up after 30
+  seconds. `/readyz` says `the last check of Dolt failed` within a few
+  seconds.
 - **The writes are those of the project stores**, as `WRITES/MIN` counts
   them, summed at each read. A store that closes between two reads takes
   with it the writes it made since the earlier one, and writes to the
@@ -1807,7 +1839,7 @@ as a user that owns its own binary, its config file and its
 | Profile | Runs | May |
 |---|---|---|
 | `starfixd` | `starfixd stdio`, `starfixd status`, and anything else run from the binary's path with no profile asked for | Read the config file and connect to the daemon's socket. No network, no other file, no program |
-| `starfixd-serve` | `starfixd serve`, because the unit asks for it | Read the config file, listen on the socket, reach Dolt over TCP, write the keys file and read `authorized_keys`; listen on the loopback port for metrics and health, post metrics to a collector over TCP, and write to systemd's notify socket ([Observability](#observability)). No program |
+| `starfixd-serve` | `starfixd serve`, because the unit asks for it | Read the config file, listen on the socket, reach Dolt over TCP, for SQL and for [its metrics](#dolts-figures), write the keys file and read `authorized_keys`; listen on the loopback port for metrics and health, post metrics to a collector over TCP, and write to systemd's notify socket ([Observability](#observability)). No program |
 | `starfixd-admin` | `control init`, `import-bd`, `export-bd` and `upgrade`, when the operator asks for it | Open the store, read and write files in the top of `/var/lib/starfix`, read `authorized_keys`, reach the network, replace the binary in `/opt/starfix/bin`, and run `sudo` |
 
 AppArmor picks a profile by the program's path and never by its
@@ -1930,7 +1962,8 @@ What they do not do:
   tested, and the profile does not rely on them. The unit can hold the
   daemon to this machine instead: `IPAddressDeny=any` and
   `IPAddressAllow=localhost` in a drop-in, as Dolt's unit has, were run
-  on the machine above with the guide's Dolt on 127.0.0.1. Leave them
+  on the machine above with the guide's Dolt on 127.0.0.1, and starfixd
+  still read Dolt's metrics there. Leave them
   out if `dsn` names another machine.
 - **They do not hold the listener to loopback.** starfixd does that
   itself, refusing any other address at start; to AppArmor the listener
@@ -1938,7 +1971,9 @@ What they do not do:
 - **They confine neither sshd nor Dolt.** Ubuntu ships no profile for
   sshd, and both of its keys files worked with the bridge confined.
   [deploy/apparmor](../deploy/apparmor/README.md) says what a profile
-  for Dolt would need.
+  for Dolt would need. Dolt's metrics endpoint is one more socket Dolt
+  listens on, kept on loopback by Dolt's own config
+  ([security model](security-model.md#dolts-metrics-endpoint)).
 
 What was tested, with the profiles enforced: a sequence taken from the
 [Docker smoke test](deploy/docker.md#run-the-smoke-test) (issues, a
@@ -1950,7 +1985,10 @@ attempts to do what the profiles forbid, each refused and logged. The
 with the unit's `Type=notify` and watchdog, the listener and metrics
 pushed to a receiver on the machine; each of the three lines above was
 shown to be needed, and to be enough, against a receiver named through
-DNS and one behind TLS on the same machine. What
+DNS and one behind TLS on the same machine. They were run a third time,
+and passed with no line in the kernel log, with Dolt's metrics on and
+starfixd reading them every 15 seconds, which needed no rule added:
+to AppArmor it is one more TCP connection. What
 was not: an upgrade to a newer release (its `--check` and `--rollback`
 were run), and amd64.
 
@@ -2591,6 +2629,17 @@ Dolt's collector: 1762 cycles for 12000 writes in 10m, 15 for each 100 writes: O
   writes to judge the memory limit by`, and Dolt's CPU
   (`process_cpu_seconds_total` in its metrics, or `top`) is then what
   to watch.
+- **What the line showed on this guide's machine**
+  ([What was run, and where](#what-was-run-and-where)), with fourteen
+  small projects and a burst of writes at about twenty a second: with no
+  limit, 4 cycles for 342 writes, and with a limit of 2 GiB, 7 for 562,
+  which is 1.2 for each 100 both times, at 4.2 ms of Dolt's CPU a write;
+  with a limit of 120 MiB, under half of the 265 MiB Dolt held at rest,
+  3441 cycles for 562 writes, 612 for each 100, at 55 ms of CPU a write,
+  and a median write of 20 ms where it had been 5 to 8 ms. Under that
+  limit Dolt also made 500 cycles in 15 seconds with nothing written,
+  which is why the line judges a window of few writes when its cycles
+  are past what 500 writes would excuse.
 - **Without a limit** the line gives the figures and no verdict: there
   is no limit to be too low, and every run without one made fewer than
   3 for each 100 writes.
@@ -2659,4 +2708,7 @@ Dolt's collector: 1762 cycles for 12000 writes in 10m, 15 for each 100 writes: O
 | `Watchdog timeout (limit 2min)!` in the journal, then goroutine stacks and a restart | starfixd did not tell systemd it was alive for `WatchdogSec`: it hung, or one tick of its reaper took that long, as it can when Dolt stops answering | Read the stacks, which say where it was; check Dolt. If the machine is merely slow, raise `WatchdogSec` |
 | `starfixd status`: `config: open /etc/starfix/starfixd.yaml: permission denied` | It was run as a user who cannot read the config file, or as root with the AppArmor profiles loaded | `sudo -u starfix -H starfixd status` |
 | `telemetry: a metrics export failed` with `socket: permission denied` or `failed to load system roots` | With the AppArmor profiles: the collector's endpoint is a name that needs DNS, or is HTTPS, and the daemon's profile allows neither as shipped | Add the three lines of [Confine starfixd with AppArmor](#confine-starfixd-with-apparmor) to `local/starfixd-serve`, or send to a collector on the machine |
+| `Dolt: unknown` in `sfx admin status`, and `could not read Dolt's metrics` in the log | starfixd cannot read Dolt's own metrics: Dolt is stopped, its config has no `metrics:` block, or `telemetry: dolt_metrics_url:` names another port or path. Nothing else is affected | The log line has the URL and the cause. `curl -s http://127.0.0.1:11228/metrics \| head -3` on the server shows whether Dolt answers; then [Dolt's figures](#dolts-figures) |
+| starfixd does not start: `telemetry dolt_metrics_url … is not a loopback address`, `is not an http:// URL` or `has no path` | The setting names something other than Dolt's endpoint on this machine | Set it to `http://127.0.0.1:11228/metrics`, or remove it |
+| `Dolt's collector: … OVER 14, AS WITH A MEMORY LIMIT TOO LOW` in `sfx admin status` | Dolt's garbage collector runs far more often than its writes explain, as it did in the measurements under a `GOMEMLIMIT` that was too low | Raise the limit, or restart Dolt, or `dolt gc` and restart it ([Dolt's memory](#dolts-memory)) |
 | `/readyz` answers `not ready: the last check of Dolt failed` | Dolt hangs or cannot be reached | `systemctl status dolt`, `journalctl -u dolt`; starfixd's log has the ping's error |

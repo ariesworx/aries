@@ -2,6 +2,7 @@ package statustext
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -181,6 +182,18 @@ func TestDoltLines(t *testing.T) {
 		{"no writes", with(gc(5, 0), u(900<<20)),
 			head + "memory limit 900 MiB\n" +
 				"Dolt's collector: 5 cycles for 0 writes in 10m: too few writes to judge the memory limit by (it takes 500)\n"},
+		// A limit far too low has Dolt collecting without pause whether or
+		// not anything is written: more cycles than 500 writes would
+		// excuse is a verdict by itself.
+		{"few writes, and cycles past what 500 would excuse", with(gc(502, 0), u(120<<20)),
+			head + "memory limit 120 MiB\n" +
+				"Dolt's collector: 502 cycles for 0 writes in 10m: over 14 for each 100 even counted against 500 writes, AS WITH A MEMORY LIMIT TOO LOW in the measurements: Dolt is spending its CPU collecting. Raise GOMEMLIMIT or restart Dolt (docs/server.md, Dolt's memory)\n"},
+		{"few writes, and exactly what 500 would excuse", with(gc(70, 499), u(900<<20)),
+			head + "memory limit 900 MiB\n" +
+				"Dolt's collector: 70 cycles for 499 writes in 10m: too few writes to judge the memory limit by (it takes 500)\n"},
+		{"few writes, cycles past that, and no limit", with(gc(502, 0), u(0)),
+			head + "no memory limit\n" +
+				"Dolt's collector: 502 cycles for 0 writes in 10m\n"},
 		{"no limit, so no verdict", with(gc(1762, 6000), u(0)),
 			head + "no memory limit\n" +
 				"Dolt's collector: 1762 cycles for 6000 writes in 10m, 29 for each 100 writes\n"},
@@ -208,7 +221,8 @@ func TestDoltLines(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := doltLines(tc.d); got != tc.want {
-				t.Errorf("doltLines(%+v) =\n%s\nwant\n%s", tc.d, got, tc.want)
+				b, _ := json.Marshal(tc.d)
+				t.Errorf("doltLines(%s) =\n%s\nwant\n%s", b, got, tc.want)
 			}
 			// Print puts the lines after starfixd's own memory.
 			var w bytes.Buffer

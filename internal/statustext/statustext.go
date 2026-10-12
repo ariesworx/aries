@@ -202,7 +202,11 @@ const (
 	// gcMinWrites is how many writes a window needs before the cycles
 	// are set against them. An idle Dolt still collects about every two
 	// minutes, five times in a window of ten: against fewer writes than
-	// this, those alone would be more than one for each 100.
+	// this, those alone would be more than one for each 100. Cycles
+	// past gcTooLow for each 100 of this many writes are judged whatever
+	// was written: on the guide's virtual machine a Dolt of 168 MiB
+	// under a limit of 120 MiB made 500 cycles in 15 seconds while
+	// nothing wrote to it.
 	gcMinWrites = 500
 )
 
@@ -244,9 +248,17 @@ func doltLines(d proto.DoltStatus) string {
 		return out
 	}
 	out += fmt.Sprintf("Dolt's collector: %s for %s in %s", plural(g.Cycles, "cycle"), plural(g.Writes, "write"), uptime(g.WindowSeconds))
+	const tooLow = "AS WITH A MEMORY LIMIT TOO LOW in the measurements: Dolt is spending its CPU collecting. Raise GOMEMLIMIT or restart Dolt (docs/server.md, Dolt's memory)"
 	switch {
 	case g.Writes < gcMinWrites || g.Per100Writes == nil:
-		if limited {
+		switch {
+		case !limited:
+		// A limit far too low has Dolt collecting without pause even
+		// when nothing is written: past what gcMinWrites writes would
+		// excuse, the writes are not needed to say so.
+		case g.Cycles*100 > gcTooLow*gcMinWrites:
+			out += fmt.Sprintf(": over %d for each 100 even counted against %d writes, %s", gcTooLow, gcMinWrites, tooLow)
+		default:
 			out += fmt.Sprintf(": too few writes to judge the memory limit by (it takes %d)", gcMinWrites)
 		}
 		return out + "\n"
@@ -260,7 +272,7 @@ func doltLines(d proto.DoltStatus) string {
 	case r < gcRoom:
 		out += fmt.Sprintf(": under %d, as with a memory limit that had room in the measurements (over %d was one too low)", gcRoom, gcTooLow)
 	case r > gcTooLow:
-		out += fmt.Sprintf(": OVER %d, AS WITH A MEMORY LIMIT TOO LOW in the measurements: Dolt is spending its CPU collecting. Raise GOMEMLIMIT or restart Dolt (docs/server.md, Dolt's memory)", gcTooLow)
+		out += fmt.Sprintf(": OVER %d, %s", gcTooLow, tooLow)
 	default:
 		out += fmt.Sprintf(": between the %d of a memory limit with room and the %d of one too low, in the measurements", gcRoom, gcTooLow)
 	}

@@ -452,8 +452,13 @@ all that governs it.
 - **No authentication, so loopback only.** As the guide configures it,
   Dolt answers anyone who can connect, over plain HTTP. The guide binds
   it to `127.0.0.1`, where any user on the server can read it and no
-  other machine can. That `host` line is what keeps it there, and no
-  AppArmor profile confines Dolt. Do not forward the port. Dolt 2.4.2's
+  other machine can. That `host` line is what keeps it there: with
+  `host: 0.0.0.0` Dolt listened on every address, and no AppArmor
+  profile confines Dolt. Dolt's unit, as the guide writes it, lets Dolt
+  exchange packets with loopback addresses only (`IPAddressDeny=any`,
+  `IPAddressAllow=localhost`), and with it a request to the machine's
+  other address, made from the machine itself, got no answer; a request
+  from another machine was not tried. Do not forward the port. Dolt 2.4.2's
   configuration also has TLS and token settings for this endpoint
   (`tls_cert`, `tls_key`, `tls_ca`, `jwt_required_for_localhost`);
   starfix does not use them and has not tested them, and starfixd reads
