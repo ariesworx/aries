@@ -27,11 +27,21 @@ compose=(docker compose -p starfix-smoke -f "$root/deploy/docker/compose.yaml")
 passed=0
 last=
 
+# The test's own ssh-agent (start_agent), never the caller's: its socket,
+# on a short path, since a socket's is limited to about 100 bytes, and
+# its pid.
+agent_sock=/tmp/sfx-smoke-$$.sock
+agent_pid=
+
 cleanup() {
   if [[ -n ${STARFIX_SMOKE_LOG:-} ]]; then
     "${compose[@]}" logs --no-log-prefix starfix >"$STARFIX_SMOKE_LOG" 2>&1 || true
   fi
   "${compose[@]}" down -v >/dev/null 2>&1 || true
+  if [[ -n $agent_pid ]]; then
+    kill "$agent_pid" 2>/dev/null || true
+  fi
+  rm -f "$agent_sock"
   rm -rf "$work"
 }
 trap cleanup EXIT
@@ -45,14 +55,37 @@ fail() {
 }
 
 # sfx_as WHO ARGS... runs sfx in WHO's scratch repository, with its own
-# session and a home inside the work directory. It hides ssh-agent: sfx
-# offers the agent's keys before the key file's, and sshd hangs up after
-# six keys it does not know, so a contributor's own keys could fail the
-# test.
+# session and a home inside the work directory. WHO's key is named with
+# STARFIX_KEY, so it is the only key sfx offers (design, decision 35):
+# the caller's own ssh-agent, which sfx inherits, is never asked. Two
+# variables change that for the checks of the rule itself: smoke_key
+# names another key file, or none when it is empty, and smoke_agent is
+# the ssh-agent socket to pass on in place of the caller's.
 sfx_as() {
   local who=$1
   shift
-  (cd "$work/$who" && HOME="$work/home" XDG_CACHE_HOME="$work/home/.cache" SSH_AUTH_SOCK='' STARFIX_SESSION="smoke-$who" "$sfx" "$@")
+  local key=${smoke_key-$work/keys/${who%-web}}
+  (cd "$work/$who" && HOME="$work/home" XDG_CACHE_HOME="$work/home/.cache" SSH_AUTH_SOCK="${smoke_agent-${SSH_AUTH_SOCK:-}}" \
+    STARFIX_KEY="$key" STARFIX_SESSION="smoke-$who" "$sfx" "$@")
+}
+
+# start_agent runs an ssh-agent of the test's own on agent_sock, and
+# agent_add KEYFILE... gives it keys. Neither touches the caller's agent:
+# every ssh-add here names the test's socket, after checking that it
+# answers.
+start_agent() {
+  local out
+  out=$(ssh-agent -a "$agent_sock") || fail "could not start an ssh-agent on $agent_sock" "$out"
+  agent_pid=$(sed -n 's/^SSH_AGENT_PID=\([0-9]*\);.*/\1/p' <<<"$out")
+  [[ -n $agent_pid && -S $agent_sock ]] || fail "ssh-agent printed no pid, or made no socket at $agent_sock" "$out"
+}
+
+agent_add() {
+  local status=0
+  SSH_AUTH_SOCK=$agent_sock ssh-add -l >/dev/null 2>&1 || status=$?
+  # 0: it holds keys; 1: it holds none; anything else: it did not answer.
+  ((status <= 1)) || fail "the test's ssh-agent on $agent_sock does not answer (ssh-add -l exited $status)"
+  SSH_AUTH_SOCK=$agent_sock ssh-add -q "$@" 2>/dev/null || fail "could not add a key to the test's ssh-agent"
 }
 
 # expect NAME PATTERN WHO ARGS... runs sfx as WHO, and fails unless it
@@ -152,7 +185,8 @@ else
   (cd "$root" && CGO_ENABLED=0 go build -trimpath -o "$sfx" ./cmd/sfx)
 fi
 
-mkdir -p "$work/keys" "$work/home" "$work/alice" "$work/bob" "$work/carol" "$work/alice-web" "$work/bob-web" "$work/transcripts"
+mkdir -p "$work/keys" "$work/home" "$work/alice" "$work/bob" "$work/carol" "$work/alice-web" "$work/bob-web" "$work/transcripts" \
+  "$work/bob-key" "$work/bob-out"
 keys=
 for who in alice bob; do
   ssh-keygen -q -t ed25519 -N '' -C "$who@example.com" -f "$work/keys/$who"
@@ -167,9 +201,40 @@ host_key=$(server_setting host_key)
 [[ $project =~ ^[0-9a-f-]{36}$ && $host_key == SHA256:* ]] ||
   fail "the server printed no .starfix.yaml" "$("${compose[@]}" logs --no-log-prefix 2>&1 | tail -n 20)"
 for who in alice bob; do
-  printf 'project: %s\nserver:\n  host: localhost\n  port: %s\n  host_key: %s\nkey: %s\n' \
-    "$project" "$port" "$host_key" "$work/keys/$who" >"$work/$who/.starfix.yaml"
+  printf 'project: %s\nserver:\n  host: localhost\n  port: %s\n  host_key: %s\n' \
+    "$project" "$port" "$host_key" >"$work/$who/.starfix.yaml"
 done
+
+# Which key sfx offers. alice is the server admin and bob a member; an
+# agent that holds alice's key behind six the server does not know is in
+# the environment throughout.
+echo "smoke: a configured key is the only key offered"
+start_agent
+for i in 1 2 3 4 5 6; do
+  ssh-keygen -q -t ed25519 -N '' -C "stray-$i@example.com" -f "$work/keys/stray-$i"
+  agent_add "$work/keys/stray-$i"
+done
+agent_add "$work/keys/alice"
+bob_key_fp=$(ssh-keygen -lf "$work/keys/bob.pub" | cut -d' ' -f2 | sed 's/[+/.]/[&]/g')
+smoke_agent=$agent_sock expect "STARFIX_KEY wins over the agent's keys" '^principal +bob$' bob whoami
+grep -Eq -- "^key +$bob_key_fp, from the file $work/keys/bob\$" <<<"$last" || fail "whoami does not name bob's key and its file" "$last"
+passed=$((passed + 1))
+# The same with the key in the checkout, named by key: in .starfix.yaml.
+cp "$work/keys/bob" "$work/bob-key/id" && cp "$work/bob/.starfix.yaml" "$work/bob-key/.starfix.yaml"
+printf 'key: id\n' >>"$work/bob-key/.starfix.yaml"
+smoke_agent=$agent_sock smoke_key='' expect "key: in .starfix.yaml wins over the agent's keys" '^principal +bob$' bob-key whoami
+# A key: that leads out of the checkout is not followed.
+sed "s|^key: .*|key: $work/keys/alice|" "$work/bob-key/.starfix.yaml" >"$work/bob-out/.starfix.yaml"
+smoke_agent=$agent_sock smoke_key='' refuse "key: outside the repository" 'outside the repository' bob-out whoami
+# The .pub alone: the agent signs with that one key, and offers no other.
+smoke_agent=$agent_sock smoke_key="$work/keys/alice.pub" expect "a .pub names one of the agent's keys" '^principal +alice$' alice whoami
+grep -Eq -- '^key +SHA256:.*, signed by ssh-agent for ' <<<"$last" || fail "whoami does not say the agent signed" "$last"
+passed=$((passed + 1))
+# With no key named, the agent's seven are offered in turn and sshd
+# hangs up after six: the refusal says so, and what to do.
+smoke_agent=$agent_sock smoke_key='' refuse "more agent keys than sshd tries" 'too many refused keys: ssh-agent holds 7 keys' alice whoami
+grep -q 'STARFIX_KEY' <<<"$last" || fail "the refusal does not name STARFIX_KEY" "$last"
+passed=$((passed + 1))
 
 echo "smoke: driving sfx"
 expect "create" '^sf-[a-z0-9]+$' alice create "Fix the login redirect" -p 1 -t bug
@@ -235,8 +300,8 @@ expect "project add" '^project web \([0-9a-f-]{36}\) created in database starfix
 web=$(sed -n 's/^project: //p' <<<"$last")
 [[ $web =~ ^[0-9a-f-]{36}$ && $web != "$project" ]] || fail "project add printed no .starfix.yaml for the new project" "$last"
 for who in alice bob; do
-  printf 'project: %s\nserver:\n  host: localhost\n  port: %s\n  host_key: %s\nkey: %s\n' \
-    "$web" "$port" "$host_key" "$work/keys/$who" >"$work/$who-web/.starfix.yaml"
+  printf 'project: %s\nserver:\n  host: localhost\n  port: %s\n  host_key: %s\n' \
+    "$web" "$port" "$host_key" >"$work/$who-web/.starfix.yaml"
 done
 expect "create in the second project" '^web-[a-z0-9]+$' alice-web create "First in web" -p 2 -t task
 w=$last
@@ -245,7 +310,15 @@ expect "the first project does not" '' alice ready
 absent "the first project does not" "^$w "
 # bob is a member of the first project only.
 refuse "a non-member of the second project" 'bob is not a member of project' bob-web ready
-expect "member add" '^bob added to project web as member$' alice-web admin member add bob
+# bob has a key in the control database, which would sign in to web too:
+# it is shown, and he is added only once it is accepted (decision 36).
+refuse "member add shows the keys first" '^sfx: bob was not added to project web: it has 1 key' alice-web admin member add bob
+grep -Eq -- '^SHA256:[A-Za-z0-9+/]{43} +ssh-ed25519 +bob +import +.* +yes$' <<<"$last" ||
+  fail "member add did not list bob's key, who added it and that the operator did" "$last"
+grep -q -- '--accept-keys' <<<"$last" || fail "the refusal does not name --accept-keys" "$last"
+passed=$((passed + 2))
+refuse "and bob is not a member yet" 'bob is not a member of project' bob-web ready
+expect "member add --accept-keys" '^bob added to project web as member$' alice-web admin member add bob --accept-keys
 expect "a member of the second project" "^$w " bob-web ready
 
 # The keys file is written before the server listens, with the keys
@@ -270,9 +343,9 @@ ssh-keygen -q -t ed25519 -N '' -C carol@example.com -f "$work/keys/carol"
 carol_fp=$(ssh-keygen -lf "$work/keys/carol.pub" | cut -d' ' -f2)
 # A fingerprint is base64, whose + and / mean something in a pattern.
 carol_re=$(sed 's/[+/.]/[&]/g' <<<"$carol_fp")
-printf 'project: %s\nserver:\n  host: localhost\n  port: %s\n  host_key: %s\nkey: %s\n' \
-  "$project" "$port" "$host_key" "$work/keys/carol" >"$work/carol/.starfix.yaml"
-refuse "a key nobody added" 'send your public key' carol ready
+printf 'project: %s\nserver:\n  host: localhost\n  port: %s\n  host_key: %s\n' \
+  "$project" "$port" "$host_key" >"$work/carol/.starfix.yaml"
+refuse "a key nobody added" 'accepted no key: sfx offered SHA256:' carol ready
 expect "principal add --key" "^key $carol_re added to carol\$" alice admin principal add carol --key "$work/keys/carol.pub"
 if "${compose[@]}" exec -T starfix grep -q carol /state/ssh/authorized_keys; then
   fail "carol has a line in authorized_keys; her key was to be in the control database alone"
@@ -288,14 +361,19 @@ refuse "nobody changes their own keys" 'nobody changes the keys of their own acc
 expect "key remove" "^key $carol_re removed from carol\$" alice admin key remove "$carol_fp"
 absent "removing a key only the store holds warns of nothing" 'warning'
 not_in_keys_file "a removed key" 'stdio --principal carol '
-refuse "a removed key" 'send your public key' carol ready
+refuse "a removed key" 'accepted no key' carol ready
 expect "key add" "^key $carol_re .* added to carol\$" alice admin key add carol "$work/keys/carol.pub"
 expect "the key added again" "^$b " carol ready
 expect "principal disable" '^carol: disabled$' alice admin principal disable carol
 not_in_keys_file "a disabled principal's key" 'stdio --principal carol '
-refuse "a disabled principal's key" 'send your public key' carol ready
+refuse "a disabled principal's key" 'accepted no key' carol ready
 expect "status shows the keys file" "^keys file $keys_file: 2 keys, written " alice admin status
 no_failed_write "before the restart"
+
+# What a restart must not undo. The container runs `starfixd control
+# init` at every start, and bob's line is still in STARFIX_KEYS.
+expect "member remove before the restart" '^bob removed from project first$' alice admin member remove bob
+refuse "a removed member" 'bob is not a member of project' bob ready
 
 echo "smoke: restarting the server"
 "${compose[@]}" restart >/dev/null 2>&1
@@ -311,5 +389,29 @@ expect "principal enable after restart" '^carol: active$' alice admin principal 
 in_keys_file "an enabled principal's key" "stdio --principal carol --key $carol_re\" "
 expect "the control database's key after restart" "^$b " carol ready
 no_failed_write "after the restart"
+
+# The start's `control init` left bob as the admin left him, and said so.
+refuse "a restart does not put a removed member back" 'bob is not a member of project' bob ready
+# The log is read whole first: under pipefail, a grep that stops at its
+# first match would fail the pipeline that feeds it.
+last=$("${compose[@]}" logs --no-log-prefix starfix 2>&1)
+grep -Eq 'authorized_keys line [0-9]+: bob was removed from the project by alice on .*; kept removed' <<<"$last" ||
+  fail "the start did not report bob's membership as kept removed" "$(grep -E 'authorized_keys|left as admins' <<<"$last" | tail -n 10)"
+passed=$((passed + 1))
+# The operator puts him back on purpose, as docs/deploy/docker.md says
+# to; the running server reads the control database again within half a
+# minute.
+last=$("${compose[@]}" exec -T -u starfix -w /var/lib/starfix starfix starfixd control init --name first --restore-removed-access 2>&1) ||
+  fail "control init --restore-removed-access failed" "$last"
+grep -Eq '^restored from this file, over what admins had set: 0 keys, 1 membership, 0 principals enabled$' <<<"$last" ||
+  fail "control init --restore-removed-access did not say it restored bob's membership" "$last"
+passed=$((passed + 1))
+for ((i = 0; i < 90; i++)); do
+  if sfx_as bob ready >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.5
+done
+expect "the restored member" "^$b " bob ready
 
 echo "smoke: ok, $passed checks passed"
