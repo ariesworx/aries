@@ -78,6 +78,30 @@ func (e *ClockBehindError) Error() string {
 		e.History.Sub(e.Clock).Round(time.Second), accept)
 }
 
+// Lines is the refusal as serve prints it: what happened, the two
+// times, and each way on, a short line each, so that the ten lines
+// `systemctl status` shows of a unit's journal hold all of it at a
+// terminal's width.
+func (e *ClockBehindError) Lines() []string {
+	also := ""
+	switch {
+	case e.More == 1:
+		also = ", and 1 more database is ahead of the clock too"
+	case e.More > 1:
+		also = fmt.Sprintf(", and %d more databases are ahead of the clock too", e.More)
+	}
+	accept := e.History.UTC().Truncate(time.Second).Add(2 * time.Second).Format(time.RFC3339)
+	return []string{
+		"not starting: the server's clock is behind its own history (clock_behind: stop)",
+		fmt.Sprintf("  the clock reads   %s", e.Clock.UTC().Format(time.RFC3339)),
+		fmt.Sprintf("  the latest event  %s, %s later", e.History.UTC().Format(time.RFC3339), e.History.Sub(e.Clock).Round(time.Second)),
+		fmt.Sprintf("  is in %s%s", e.Log, also),
+		"fix: if the clock is wrong, correct it (`timedatectl` must say synchronized: yes), then `systemctl start starfixd`",
+		fmt.Sprintf("fix: if the clock is right and the history is ahead, start once with: starfixd serve --accept-clock-behind %s", accept),
+		"fix: or set clock_behind: warn in the config file, to start with a warning (docs/server.md, The server's clock)",
+	}
+}
+
 // clockWatch is what the daemon has seen of its clock.
 type clockWatch struct {
 	mu sync.Mutex
@@ -104,11 +128,11 @@ type behindLog struct {
 }
 
 // behindOf returns st as a behindLog when the clock is behind the
-// store's time by more than the tolerance, and nil otherwise. A server's
-// stores share one time, so every open store is behind together; mark
-// tells which database's history put them there.
+// store's time at all, and nil otherwise. A server's stores share one
+// time, so every open store is behind together; mark tells which
+// database's history put them there.
 func (s *Server) behindOf(log string, st store.ClockState) *behindLog {
-	if st.Behind <= s.cfg.BehindTolerance {
+	if st.Behind <= 0 {
 		return nil
 	}
 	return &behindLog{log: log, by: st.Behind, since: st.Since, history: st.Now, clock: st.Clock, mark: st.Mark}
@@ -227,16 +251,27 @@ func (s *Server) CheckClock(ctx context.Context) {
 			worst = b
 		}
 	}
-	s.reportBehind(worst)
-	// A monitor sees the clock behind its history here, and alerts on
-	// it; /readyz does not answer for it, since the daemon serves
-	// correctly meanwhile and a daemon reported unready may be taken out
-	// of service, which would hand whoever set the clock an outage.
+	// A monitor sees the clock behind its history here, to the second,
+	// and alerts on it; /readyz does not answer for it, since the daemon
+	// serves correctly meanwhile and a daemon reported unready may be
+	// taken out of service, which would hand whoever set the clock an
+	// outage.
 	var by float64
 	if worst != nil {
 		by = worst.by.Seconds()
 	}
 	s.cfg.Telemetry.Record(telemetry.ClockBehind, by)
+	// The log and the status start to say so past the tolerance, and
+	// then go on until the clock has caught up altogether: a report
+	// that ended at the tolerance would call the clock caught up while
+	// it was still that far behind.
+	w.mu.Lock()
+	reported := w.behind != nil
+	w.mu.Unlock()
+	if worst != nil && worst.by <= s.cfg.BehindTolerance && !reported {
+		worst = nil
+	}
+	s.reportBehind(worst)
 }
 
 // ControlLog names the control database's history in a report.

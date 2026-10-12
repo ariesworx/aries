@@ -225,6 +225,34 @@ func TestStartClockBehind(t *testing.T) {
 	}
 }
 
+// serve prints the refusal a line at a time. `systemctl status` shows a
+// unit's last ten journal lines cut at the terminal's width, and under a
+// real systemd the one-line refusal lost its fix there, which is the
+// part an operator needs: each way on is a short line of its own.
+func TestClockBehindErrorLines(t *testing.T) {
+	e := &ClockBehindError{Log: "project 6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f (database starfix_p001)", More: 2,
+		Clock: time.Date(2026, 10, 12, 6, 0, 4, 0, time.UTC), History: time.Date(2026, 10, 12, 9, 30, 11, 500, time.UTC)}
+	lines := e.Lines()
+	if len(lines) < 4 || len(lines) > 8 {
+		t.Fatalf("Lines() = %d lines, want 4 to 8: they must fit in the ten `systemctl status` shows\n%s", len(lines), strings.Join(lines, "\n"))
+	}
+	if !strings.Contains(lines[0], "not starting") || !strings.Contains(lines[0], "clock is behind its own history") {
+		t.Errorf("Lines()[0] = %q, want it to say starfixd is not starting and why", lines[0])
+	}
+	all := strings.Join(lines, "\n")
+	for _, w := range []string{"2026-10-12T06:00:04Z", "2026-10-12T09:30:11Z", "3h30m7s", "starfix_p001", "2 more",
+		"timedatectl", "systemctl start starfixd", "--accept-clock-behind 2026-10-12T09:30:13Z", "clock_behind: warn"} {
+		if !strings.Contains(all, w) {
+			t.Errorf("Lines() lack %q:\n%s", w, all)
+		}
+	}
+	for _, l := range lines {
+		if len(l) > 150 {
+			t.Errorf("a line of the refusal is %d bytes, too long for a terminal: %q", len(l), l)
+		}
+	}
+}
+
 // A database with no history has nothing for the clock to be behind,
 // whatever the clock says.
 func TestStartFreshDatabaseWithAnyClock(t *testing.T) {
@@ -329,8 +357,17 @@ func TestClockBehindWhileRunning(t *testing.T) {
 			if why := s.Ready(ctx); why != "" {
 				t.Errorf("Ready() with the clock behind history = %q, want ready: it is reported, not a reason to take the daemon out of service", why)
 			}
-			// At half speed the hour is made up in two.
-			c.run(2 * time.Hour)
+			// At half speed the hour is made up in two. A minute short
+			// of that the clock is behind by less than the tolerance,
+			// and still behind: on the Ubuntu VM the report said caught
+			// up, and the gauge read zero, two minutes early.
+			c.run(107 * time.Minute)
+			s.CheckClock(ctx)
+			if by := snapshot(t, m).Value("starfix.clock.behind"); count("clock caught up with history") != 0 || s.clockStatus().Behind == nil || by < 50 || by > 70 {
+				t.Errorf("a minute before the clock catches up: %d `caught up` lines, status %+v, gauge %vs; want none, still behind, about 60s",
+					count("clock caught up with history"), s.clockStatus().Behind, by)
+			}
+			c.run(3 * time.Minute)
 			s.CheckClock(ctx)
 			if count("clock caught up with history") != 1 || s.clockStatus().Behind != nil {
 				t.Errorf("two hours on, want one `clock caught up with history` and a status that is no longer behind:\n%s", log)

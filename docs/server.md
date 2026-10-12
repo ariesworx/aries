@@ -253,15 +253,15 @@ WantedBy=multi-user.target
 | `NotifyAccess=main` | Only starfixd's own process may send those notifications |
 | `TimeoutStartSec=600` | How long systemd waits for that. Its default is 90 seconds, after which it fails the start and `Restart=on-failure` tries again; an upgrade that migrates many projects can take longer than that, so the unit gives it 10 minutes |
 | `WatchdogSec=120` | starfixd must say it is alive at least every 120 seconds, or systemd kills it and `Restart=on-failure` starts it again. starfixd says so every 60, half the interval, from the goroutine that runs its 30-second reaper, so a daemon whose reaper hangs is restarted. One tick of the reaper that takes longer than `WatchdogSec` is a hang too, and a Dolt that has stopped answering can cause one: each of the reaper's writes waits up to a minute |
-| `Wants=time-sync.target` and `time-sync.target` in `After=` | Order starfixd after the clock is set ([Start starfixd after the clock is set](#start-starfixd-after-the-clock-is-set)) |
-| `RestartPreventExitStatus=75` | Leaves starfixd stopped when it refuses to start because the clock is behind its own history, which no restart can correct ([The server's clock](#the-servers-clock)). It exits with that status at once, before it would tell systemd it is ready, so the start fails then and not when `TimeoutStartSec` runs out. Every other failure is still restarted |
+| `Wants=time-sync.target` and `time-sync.target` in `After=` | Order starfixd after the clock is synchronized, on a machine where something provides that target. Stock Ubuntu 24.04 reaches it at once, so there the lines wait for nothing ([Start starfixd after the clock is set](#start-starfixd-after-the-clock-is-set)) |
+| `RestartPreventExitStatus=75` | Leaves starfixd stopped when it refuses to start because the clock is behind its own history, which no restart can correct ([The server's clock](#the-servers-clock)). It exits with that status 0.13 seconds after systemd starts it, before it would tell systemd it is ready, so the start fails then and not when `TimeoutStartSec` runs out. Every other failure is still restarted |
 
 Without the first four lines starfixd runs as before: it sends a
 notification only when systemd asks for one.
 
-The first four lines were run on the machine of
-[What was run, and where](#what-was-run-and-where); the two for the
-clock were not:
+The lines were run on the machine of
+[What was run, and where](#what-was-run-and-where); what the two for
+the clock showed is in [The server's clock](#the-servers-clock):
 
 - **The unit is active only once starfixd serves.** systemd logs
   `Started starfixd.service` within a millisecond of starfixd's own
@@ -454,6 +454,16 @@ What that showed:
   loopback listener, `/readyz` when Dolt stops answering, metrics
   pushed to a receiver on the machine, and `starfixd status`
   ([Observability](#observability)).
+- **The clock's unit lines and settings work** ([The server's
+  clock](#the-servers-clock)), on the same machine on the same day with
+  the profiles enforced and no denial in the kernel's log: the refusal
+  to start and exit status 75 under `Type=notify`, with and without
+  `RestartPreventExitStatus=75`; each way on from it; the clock set
+  back and forward under a running daemon with claims held; boots with
+  and without `systemd-time-wait-sync`, and with no time server
+  answering; `upgrade --check`'s `clock:` line and the query of
+  [Upgrades](#upgrades). The 76 checks of the earlier runs passed
+  afterwards.
 - **`starfixd upgrade --rollback` works for the `starfix` user**: it
   renames the binaries in `/opt/starfix/bin`, restarts the unit through
   the sudo rule and finds the daemon healthy. `upgrade --check` reaches
@@ -466,7 +476,11 @@ OpenTelemetry Collector or hosted backend, in place of which a few lines
 of Python received the pushes; `install.sh` on the server; an upgrade to a newer release, which a build from source refuses
 (`a development build … never upgrades itself`), so the download, the
 signature check and the swap to a new binary were not run here; a
-restore from a dump.
+restore from a dump. For the clock: a machine with a real-time clock of
+its own, working or dead (this guest's comes from the hypervisor at
+every boot and was always right); a boot with the clock wrong; a
+virtual machine paused and resumed, or restored from a snapshot; a
+provider's time service; `chrony`.
 
 ## Principals
 
@@ -1230,18 +1244,23 @@ monotonic clock running: starfixd sees time pass, not a step.
 
 The unit in [step 5](#5-run-starfixd-under-systemd) has
 `Wants=time-sync.target` and `After=time-sync.target`. What that waits
-for depends on the machine:
+for depends on the machine. Each of these was run on the virtual
+machine of [What was run, and where](#what-was-run-and-where), with a
+cold boot each time:
 
-- **On stock Ubuntu 24.04 it waits for little.** `time-sync.target`
-  follows `time-set.target`, which `systemd-timesyncd` reaches as it
-  starts, before it has heard from any server. The unit that waits for a
-  synchronized clock, `systemd-time-wait-sync.service`, ships disabled
-  (checked on Ubuntu 24.04, systemd 255.4: its preset is `disable`, and
-  on a running server `time-sync.target` was not even active, since
-  nothing asked for it).
-- **To wait for synchronization, enable it with a timeout.** As shipped
-  it has `TimeoutStartSec=infinity`, so a machine that boots with no
-  network would never start what is ordered after it:
+| Machine | `time-sync.target` reached | starfixd serving | Boot |
+|---|---|---|---|
+| Stock Ubuntu 24.04 | 1.7 s after the kernel started, 37 microseconds after `time-set.target`, before the network was up or any time server heard from | 9.7 s (its first start loses the race with Dolt, as before) | 4.6 s |
+| `systemd-time-wait-sync` enabled, a time server reachable | 33.4 s, as `systemd-timesyncd` logged `Initial clock synchronization` | 33.5 s | 33.7 s |
+| The same, no time server answering | 91.5 s, when the wait unit's 90 second timeout failed it (`Failed with result 'timeout'`) | 91.6 s | 1 min 32 s |
+
+- **On stock Ubuntu 24.04 the two lines wait for nothing.**
+  `time-sync.target` follows `time-set.target`, which
+  `systemd-timesyncd` reaches as it starts. The unit that waits for a
+  synchronized clock, `systemd-time-wait-sync.service`, ships disabled.
+  The lines are in the unit so that it waits once something on the
+  machine provides the target.
+- **Waiting for synchronization is optional, and needs a timeout.**
 
   ```sh
   mkdir -p /etc/systemd/system/systemd-time-wait-sync.service.d
@@ -1250,37 +1269,42 @@ for depends on the machine:
   systemctl enable systemd-time-wait-sync.service
   ```
 
-  With the network up, starfixd then starts once the clock is
-  synchronized, a few seconds into the boot. With none, the wait gives
-  up after 90 seconds and starfixd starts with the clock as it is.
-  **These four lines were not run for this guide**; that a unit which
-  times out still lets `time-sync.target` be reached is systemd's
-  documented ordering, not something measured here. `chrony` ships its
-  own `chrony-wait.service` for the same purpose, with a timeout of 180
-  seconds.
+  **Never enable it without the drop-in.** As shipped it has
+  `TimeoutStartSec=infinity`. With no time server answering, starfixd's
+  start was then still `waiting` after 130 seconds, and would have
+  stayed so; so would everything else ordered after the target, which
+  on Ubuntu is every timer and `cloud-final.service`. With the drop-in
+  the wait fails after 90 seconds, the target is reached all the same,
+  and starfixd starts with the clock as it is.
+- **What it costs, and when it is worth it.** With a time server
+  reachable it added 24 seconds to this machine's boot, since
+  `systemd-timesyncd`'s first try comes before the network is up and
+  its next is 30 seconds later; with none it adds the 90 seconds. It
+  delays the timers too. It is worth that on a machine whose clock at
+  boot cannot be trusted: one with no battery-backed real-time clock,
+  or one that has come up with a wrong date before. On a virtual
+  machine whose hypervisor supplies the time at boot, as this one's
+  does (the kernel logged `rtc-efi: setting system clock` 0.05 s into
+  every boot, and it was right each time), it buys little.
+  `chrony` ships `chrony-wait.service` for the same purpose, with a
+  timeout of 180 seconds (not run).
 
-Why it matters: a daemon that starts with the clock **ahead** writes
-events in the future, and once the clock is corrected it is behind its
-own history, which the next start refuses. A clock that is behind at
-start is caught by the check below, whatever the unit waited for.
+Why the order matters at all: a daemon that starts with the clock
+**ahead** writes events in the future, and once the clock is corrected
+it is behind its own history, which the next start refuses. A clock that
+is behind at start is caught by the check below, whatever the unit
+waited for.
 
 What each boot does, with the defaults:
 
 | Boot | Result |
 |---|---|
-| Normal | The clock is ahead of the last event written before the shutdown. starfixd starts |
-| The real-time clock is a few seconds slow | The clock is behind the history by less than the time the reboot took, or by seconds: within `clock_behind_tolerance`. starfixd starts; if the time service then steps the clock forward by more than 5 seconds, leases are extended by the step |
-| The real-time clock was reset (a dead battery), with network | `systemd-timesyncd` first sets the clock to the time it last saved, which it does every 60 seconds (`SaveIntervalSec`), then synchronizes. The clock is at most about a minute behind the history: within the tolerance of 2 minutes, which is set with this case in mind. starfixd starts |
-| The same, without network | As above, and the clock stays behind real time until the network returns; the forward step then extends every lease |
-| A virtual machine restored from an older snapshot | The disk's history is as old as the snapshot and the clock is the present: not behind. starfixd starts. If the snapshot held the running machine, the daemon sees a jump forward and extends its leases |
-| A database restored from a backup written by a machine whose clock ran ahead | The clock is behind the history. starfixd refuses to start and says how to start once anyway |
-| The clock is hours or years behind (a reset with no saved time, a wrong date set by hand) | starfixd refuses to start |
-
-The rows about the real-time clock and the snapshot follow from the
-rule and from `systemd-timesyncd`'s configuration; no machine was booted
-with a wrong clock for this guide. The rule itself is tested: a start
-with the clock behind by less and by more than the tolerance, ahead by a
-day, and on a database with no history.
+| Normal | The clock is ahead of the last event written before the shutdown. starfixd starts. Run: three cold boots and one after the hypervisor's process died, which is a power loss to the guest |
+| The real-time clock is a few seconds slow | The clock is behind the history by less than the time the reboot took, or by seconds: within `clock_behind_tolerance`. starfixd starts; if the time service then steps the clock forward by more than 5 seconds, leases are extended by the step. Not run: this machine's clock at boot was always right |
+| The machine has no working real-time clock (a dead battery) | `systemd-timesyncd` advances the clock to the time it last saved, then synchronizes if it can. Imitated, not booted: with the clock set back a day and `systemd-timesyncd` started, it logged `System clock time unset or jumped backwards, restored from recorded timestamp`, the clock read the saved time, and starfixd started. It saves that time every 60 to 70 seconds, synchronized or not (measured, with the poll interval at 4 minutes), and when it stops, so after a power loss the clock comes up at most about 70 seconds behind the history. That is why the tolerance is 2 minutes and not 1 |
+| A virtual machine restored from an older snapshot | The disk's history is as old as the snapshot and the clock is the present: not behind. starfixd starts. Not run |
+| A database restored from a backup written by a machine whose clock ran ahead | The clock is behind the history. starfixd refuses to start and says how to start once anyway. Run, as the clock set forward under a running daemon and then put back |
+| The clock is hours or years behind (a reset with no saved time, a wrong date set by hand) | starfixd refuses to start. Run with the clock set back one and two hours |
 
 ### When the clock is behind the server's history
 
@@ -1291,35 +1315,60 @@ extra query. A database with no events has nothing to be behind. If the
 clock is behind any by more than `clock_behind_tolerance`:
 
 - **`clock_behind: stop`**, the default: starfixd does not start. It
-  prints the refusal and exits with status 75:
+  prints the refusal and exits with status 75, a seventh of a second
+  after systemd started it, long before `TimeoutStartSec`:
 
   ```text
-  starfixd: the server's clock is behind its own history: the clock reads 2026-10-12T06:00:04Z, and the latest event of project 6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f (database starfix_p001) is at 2026-10-12T09:30:11Z, 3h30m7s later; fix: check the clock (`timedatectl` must say "System clock synchronized: yes"; `timedatectl timesync-status` names the source), correct it, and start starfixd again. If the clock is right and the history is ahead of it, as after restoring a database written by a machine whose clock ran ahead, start once with `starfixd serve --accept-clock-behind 2026-10-12T09:30:13Z`: starfixd's time then runs on from the history at half speed until the clock has caught up. To start with a warning whenever the clock is behind, set clock_behind: warn
+  # systemctl status starfixd
+  × starfixd.service - starfix server
+       Active: failed (Result: exit-code) since Mon 2026-10-12 17:26:10 UTC; 3ms ago
+      Process: 5116 ExecStart=/opt/starfix/bin/starfixd serve (code=exited, status=75)
+     Main PID: 5116 (code=exited, status=75)
+
+  starfixd[5116]: starfixd: not starting: the server's clock is behind its own history (clock_behind: stop)
+  starfixd[5116]: starfixd:   the clock reads   2026-10-12T17:26:10Z
+  starfixd[5116]: starfixd:   the latest event  2026-10-12T17:35:32Z, 9m21s later
+  starfixd[5116]: starfixd:   is in project 5d6b7c84-0ce6-4b09-abcf-e0a10c8bcc78 (database starfix), and 1 more database is ahead of the clock too
+  starfixd[5116]: starfixd: fix: if the clock is wrong, correct it (`timedatectl` must say synchronized: yes), then `systemctl start starfixd`
+  starfixd[5116]: starfixd: fix: if the clock is right and the history is ahead, start once with: starfixd serve --accept-clock-behind 2026-10-12T17:35:34Z
+  starfixd[5116]: starfixd: fix: or set clock_behind: warn in the config file, to start with a warning (docs/server.md, The server's clock)
+  systemd[1]: starfixd.service: Main process exited, code=exited, status=75/TEMPFAIL
+  systemd[1]: starfixd.service: Failed with result 'exit-code'.
+  systemd[1]: Failed to start starfixd.service - starfix server.
   ```
 
   The unit's `RestartPreventExitStatus=75` keeps systemd from starting
-  it again, since a restart cannot correct a clock: the refusal is the
-  last line starfixd wrote to the journal, and `systemctl status
-  starfixd` shows the unit `failed` with `status=75` (systemd's
-  documented behavior; not run under systemd for this guide). Every
-  other failure to start still exits 1 and is retried every five
-  seconds, as before.
+  it again, since a restart cannot correct a clock: 20 seconds later the
+  journal held that one start and the unit was still `failed`, with
+  `NRestarts=0`. Without the line the same refusal was retried every
+  five seconds, 7 starts in 32 seconds, each adding its lines to the
+  journal. systemd names status 75 `TEMPFAIL`, which is what it is:
+  nothing is wrong with starfixd or its data. Every other failure to
+  start still exits 1 and is retried, as before. `sfx` answers
+  `starfixd is not running on the server` meanwhile.
 - **Correct the clock** and `systemctl start starfixd`.
 - **Or, when the history is what is wrong, start once anyway,** with
-  the flag the refusal printed, in a drop-in that you then remove. The
-  flag names the history it accepts, so if it is left in place it
-  accepts nothing later: once the clock has passed that time it does
-  nothing. (Not run under systemd for this guide.)
+  the flag the refusal printed, in a drop-in that you then remove:
 
   ```sh
   mkdir -p /etc/systemd/system/starfixd.service.d
-  printf '[Service]\nExecStart=\nExecStart=/opt/starfix/bin/starfixd serve --accept-clock-behind 2026-10-12T09:30:13Z\n' > /etc/systemd/system/starfixd.service.d/accept-clock.conf
+  printf '[Service]\nExecStart=\nExecStart=/opt/starfix/bin/starfixd serve --accept-clock-behind 2026-10-12T17:35:34Z\n' > /etc/systemd/system/starfixd.service.d/accept-clock.conf
   systemctl daemon-reload
   systemctl start starfixd
   rm /etc/systemd/system/starfixd.service.d/accept-clock.conf
   systemctl daemon-reload
   ```
 
+  The daemon keeps the unit's confinement, its
+  [AppArmor profile](#confine-starfixd-with-apparmor) included, since
+  only its command line changes. It logs `clock behind history` and
+  serves, with its time running on from the history. The flag answers
+  that history and no later one: left in place it did nothing at a
+  start with the clock right, and when the clock was set back again
+  past newer events the start was refused with the flag still there.
+  It also answers for that start only. A restart before the clock has
+  caught up is refused again, and prints a later time, because the
+  history has moved on.
 - **`clock_behind: warn`** starts whatever the clock says, and logs
   `clock behind history` at `error` at start and every ten minutes
   until the clock has caught up, when it logs `clock caught up with
@@ -1336,16 +1385,50 @@ either setting: a daemon that exits when its clock moves would give
 whoever can set the clock, or answer for its time source, a way to take
 the server down. It is reported instead, and with `clock_behind: stop`
 the report says `THIS SERVER WILL NOT START AGAIN until the clock is
-corrected`. `sfx admin status` and `starfixd status` show the same, so
-look there before a planned restart.
+corrected`. `sfx admin status`, `starfixd status` and
+`starfixd upgrade --check` show the same, so look there before a
+planned restart. Run on the same machine with the clock set back seven
+minutes: an event written two seconds after another was dated one
+second after it, `starfix_clock_behind_seconds` fell from 390 to 0 by
+30 a minute, the `error` line came again at ten minutes, `clock caught
+up with history` at fourteen, and through sixteen minutes, eight of the
+watchdog's intervals, the unit stayed `active` with no restart.
 
 **`/readyz` stays ready through it,** for the same reason: the daemon
 is serving correctly, and whatever watches readiness may take an
 unready daemon out of service, which is the outage a moved clock must
 not buy. A monitor sees it in the metrics instead
 ([Observability](#observability)): alert when
-`starfix_clock_behind_seconds` is above zero, and on any increase of
-`starfix_clock_steps_total`.
+`starfix_clock_behind_seconds` is above zero for longer than a boot
+takes, and on any increase of `starfix_clock_steps_total`. The gauge
+is the lag to the second, under the tolerance too; the log and the
+status start at the tolerance and go on until the lag is zero.
+
+**A jump forward under a running daemon,** run with four claims held
+in two projects, a minute into leases of 4, 5 and 6 minutes and 8 hours,
+and the clock set forward ten minutes: the daemon logged `clock step
+settled … claims=3` and `claims=1`, every `expires_at` moved on by the
+jump, each database's log gained a `clock.step` event, and no claim
+ended. The three short leases were then reaped 270, 330 and 390 seconds
+after they were taken, at the reaper's first tick past 4, 5 and 6
+minutes: a holder who goes silent loses the claim after the time it
+was given, no sooner and no later. A restart with the clock still ahead
+started as usual.
+
+**Nothing on a virtual machine need put a clock back for you.** With
+`timedatectl set-ntp false` the clock of this guest stayed where it was
+set for as long as it was watched, twenty minutes at a time. The
+hypervisor gave the time once, at boot; `systemd-timesyncd` corrected a
+six-minute error with one step, the moment it was turned on again.
+
+**A paused virtual machine was not run.** Lima 2.2.1 has no pause, and
+stopping the hypervisor's process to imitate one ended the guest (the
+framework reported the machine in error a minute later). How starfixd
+fares across a pause depends on whether the guest's monotonic clock
+stops with it: if it does, the daemon sees a jump forward and extends
+its leases, as above; if it keeps running, the daemon sees time pass
+and ends the claims whose leases ran out, as after an outage of that
+length.
 
 ## Settings
 
@@ -2233,7 +2316,8 @@ quiet hour: `cd /var/lib/dolt/data/starfix && sudo -u dolt -H dolt gc`.
 | `… may not …: it is for …` | An `sfx admin` command by someone who may not run it ([Managing access](#managing-access)) | Ask the admin the fix names |
 | `starfixd could not open the database of an active project` from `starfixd upgrade` | A project's database is gone, not granted, or failed to migrate | `journalctl -u starfixd` names it and why; fix it or archive the project, then restart |
 | `the control database … holds no active project` at start | `control_db` is set and `control init` has not run | `sudo -u starfix -H starfixd control init --name NAME` |
-| starfixd does not start, exit status 75: `the server's clock is behind its own history` | The clock is behind the latest event of the database named, by more than `clock_behind_tolerance`: the clock was reset or set back, the machine booted without its time, or the database was written by a clock that ran ahead | `timedatectl`; correct the clock and `systemctl start starfixd`. If the history is what is wrong, start once with the `--accept-clock-behind` the refusal prints, or set `clock_behind: warn` ([The server's clock](#the-servers-clock)). systemd does not retry this exit |
+| starfixd does not start, and `systemctl status starfixd` shows `status=75/TEMPFAIL` under `not starting: the server's clock is behind its own history` | The clock is behind the latest event of the database named, by more than `clock_behind_tolerance`: the clock was reset or set back, the machine booted without its time, or the database was written by a clock that ran ahead | `timedatectl`; correct the clock and `systemctl start starfixd`. If the history is what is wrong, start once with the `--accept-clock-behind` the refusal prints, or set `clock_behind: warn` ([The server's clock](#the-servers-clock)). systemd does not retry this exit |
+| After a boot, starfixd and every timer wait for good; `systemctl list-jobs` shows `time-sync.target start waiting` | `systemd-time-wait-sync` is enabled with its shipped `TimeoutStartSec=infinity`, and no time server answers | Add the drop-in of [Start starfixd after the clock is set](#start-starfixd-after-the-clock-is-set), which bounds the wait at 90 seconds; `systemctl stop systemd-time-wait-sync` lets this boot go on |
 | `clock behind history` in the log, or `CLOCK BEHIND HISTORY` in `sfx admin status` | The clock went back under a running starfixd, or it started with `clock_behind: warn` or `--accept-clock-behind` | Correct the clock. Until it has caught up, timestamps are ahead of it and leases run at half speed; with `clock_behind: stop`, starfixd will not start again while this lasts |
 | `clock stepped` in the log, or a `clock:` line in `sfx admin status` | The clock was set while starfixd ran, or the machine was suspended and resumed | Nothing for the data: leases were extended by a jump forward, and time did not go back for a step back. Find what set the clock, and whether the time service is synchronized |
 | `starfixd upgrade` stops with `nothing was changed: starfixd would not start again after this upgrade` | The clock is behind the server's history, so the restarted daemon would refuse to start | As for exit status 75 above; then run the upgrade again |

@@ -117,13 +117,18 @@ func main() {
 	if code, ok := err.(exitError); ok { //nolint:errorlint // only the unwrapped value is silent
 		os.Exit(int(code))
 	}
+	if behind, ok := errors.AsType[*server.ClockBehindError](err); ok {
+		// A line for each part, the last things in the journal: the unit
+		// does not start a daemon again that exits with this status.
+		for _, l := range behind.Lines() {
+			fmt.Fprintf(os.Stderr, "starfixd: %s\n", l)
+		}
+		os.Exit(exitClockBehind)
+	}
 	fmt.Fprintf(os.Stderr, "starfixd: %v\n", err)
 	if _, ok := errors.AsType[usageError](err); ok {
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
-	}
-	if _, ok := errors.AsType[*server.ClockBehindError](err); ok {
-		os.Exit(exitClockBehind)
 	}
 	os.Exit(1)
 }

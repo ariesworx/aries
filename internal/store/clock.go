@@ -419,7 +419,8 @@ func (s *Store) SettleClock(ctx context.Context) error {
 		}
 	}
 	jump := after.Sub(v.at)
-	extend := max(0, jump-v.slack)
+	// To the microsecond, as the column that holds a lease is.
+	extend := max(0, jump-v.slack).Truncate(time.Microsecond)
 	var n int
 	err := s.writeRetry(ctx, ClockActor, func(w *wtx) error {
 		n = 0
