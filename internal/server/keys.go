@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -26,9 +27,10 @@ import (
 // Keys from the control store (design §15.2, decision 22). The daemon
 // writes every key of an active principal to a file in authorized_keys
 // form (Config.KeysFile), and sshd reads it with AuthorizedKeysFile,
-// beside the authorized_keys file the operator maintains by hand. sshd
-// asks the daemon nothing, so nothing reaches the daemon before sshd has
-// authenticated a key.
+// before the authorized_keys file the operator maintains by hand
+// (decision 26), so a key in both comes in by the line that names its
+// fingerprint. sshd asks the daemon nothing, so nothing reaches the
+// daemon before sshd has authenticated a key.
 //
 // The file is a cache, and the store decides: each line's forced command
 // names its key's fingerprint, and the handshake refuses a bridge that
@@ -77,11 +79,17 @@ type keysFile struct {
 	keys   int
 	at     time.Time
 	failed bool
+	// held is how many of the store's keys the latest rendering left
+	// out because the hand-maintained file gives them to another
+	// principal.
+	held int
 	// hand caches the fingerprints in the hand-maintained file, as of
-	// the file's size and time.
-	hand     map[string]bool
-	handSize int64
-	handTime time.Time
+	// the file's size and time, and handOwner the principal each line's
+	// forced command names, for the lines that name one.
+	hand      map[string]bool
+	handOwner map[string]string
+	handSize  int64
+	handTime  time.Time
 }
 
 // WriteKeys writes the keys file from the control store's memory, unless
@@ -108,7 +116,7 @@ func (s *Server) WriteKeys() error {
 	k := &s.keys
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	want, n := s.keyLines()
+	want, n, held := s.keyLines()
 	at, written, err := syncFile(path, want)
 	if err != nil {
 		k.failed = true
@@ -120,7 +128,14 @@ func (s *Server) WriteKeys() error {
 		s.cfg.Telemetry.Count(telemetry.KeysFileWrites, telemetry.ResultOK)
 	}
 	s.cfg.Telemetry.Record(telemetry.KeysFileLastWrite, float64(at.Unix()))
-	k.keys, k.at, k.failed = n, at, false
+	if written || len(held) != k.held {
+		// Said when it changes, not on every tick.
+		for _, h := range held {
+			s.cfg.Logger.Warn("a key of the control store is held back from the keys file: the authorized_keys file gives it to another principal, and sshd reads the keys file first",
+				"fingerprint", h.Fingerprint, "principal", h.Principal)
+		}
+	}
+	k.keys, k.at, k.failed, k.held = n, at, false, len(held)
 	return nil
 }
 
@@ -145,11 +160,22 @@ func (s *Server) syncKeys() string {
 // fingerprint is the stored key's own, and the key is one public key
 // with no options, written back by the parser. A row that fails is left
 // out and logged, without its text.
-func (s *Server) keyLines() ([]byte, int) {
+//
+// A key that the hand-maintained file gives to another principal is
+// held back, and returned: sshd reads this file first (decision 26), so
+// its line would shadow the operator's, and sign that key's owner in as
+// the store's principal. The store refuses to take such a key
+// (Control.KeysElsewhere), so this is a line the operator added after
+// the store had the key. s.keys.mu is held.
+func (s *Server) keyLines() (lines []byte, n int, held []store.PrincipalKey) {
 	var b bytes.Buffer
 	b.WriteString(keysFileHeader)
-	n := 0
+	_, owner := s.handLocked()
 	for _, k := range s.cfg.Control.AuthorizedKeys() {
+		if o, ok := owner[k.Fingerprint]; ok && o != k.Principal {
+			held = append(held, k)
+			continue
+		}
 		pub, err := publicKey(k.Key)
 		switch {
 		case !PrincipalPattern.MatchString(k.Principal) || store.Reserved(k.Principal):
@@ -165,7 +191,7 @@ func (s *Server) keyLines() ([]byte, int) {
 			s.cfg.Bridge, k.Principal, k.Fingerprint, strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pub))))
 		n++
 	}
-	return b.Bytes(), n
+	return b.Bytes(), n, held
 }
 
 // publicKey parses line as one public key, TYPE BASE64, with no options
@@ -294,7 +320,7 @@ func (s *Server) keysStatus() *proto.KeysFile {
 	k := &s.keys
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	out := &proto.KeysFile{Path: s.cfg.KeysFile, Keys: k.keys, Failed: k.failed}
+	out := &proto.KeysFile{Path: s.cfg.KeysFile, Keys: k.keys, Failed: k.failed, HeldBack: k.held}
 	if !k.at.IsZero() {
 		at := k.at.UTC()
 		out.WrittenAt = &at
@@ -304,9 +330,9 @@ func (s *Server) keysStatus() *proto.KeysFile {
 
 // byHand returns the fingerprints of the keys in the authorized_keys
 // file the operator maintains by hand (Config.AuthorizedKeys), which
-// sshd reads beside the keys file: a key in both is still accepted there
-// after it is removed from the store, by a line whose forced command
-// names no fingerprint. The daemon runs as the account whose file it is,
+// sshd reads after the keys file: a key in both is accepted there once
+// it is removed from the store, by a line whose forced command names no
+// fingerprint. The daemon runs as the account whose file it is,
 // so it can read it. It never writes to it, and nothing read from it is
 // logged or sent anywhere but as the answer "this key is in it".
 //
@@ -315,41 +341,97 @@ func (s *Server) keysStatus() *proto.KeysFile {
 // unreadable or no regular file. Only its first mebibyte is read. The
 // answer is kept until the file's size or time changes.
 func (s *Server) byHand() map[string]bool {
-	path := s.cfg.AuthorizedKeys
-	if path == "" {
-		return nil
-	}
-	fi, err := os.Stat(path)
-	if err != nil || !fi.Mode().IsRegular() {
-		return nil
-	}
 	k := &s.keys
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	if k.hand != nil && k.handSize == fi.Size() && k.handTime.Equal(fi.ModTime()) {
-		return k.hand
-	}
-	b, err := readUpTo(path, maxAuthorizedKeys)
-	if err != nil {
-		return nil
-	}
-	hand := map[string]bool{}
-	sc := bufio.NewScanner(bytes.NewReader(b))
-	sc.Buffer(nil, maxAuthorizedKeys)
-	for sc.Scan() {
-		if pub, _, _, _, err := ssh.ParseAuthorizedKey(sc.Bytes()); err == nil {
-			hand[ssh.FingerprintSHA256(pub)] = true
-		}
-	}
-	k.hand, k.handSize, k.handTime = hand, fi.Size(), fi.ModTime()
+	hand, _ := s.handLocked()
 	return hand
 }
 
+// handLocked is byHand with s.keys.mu held. It also returns, for each
+// line whose forced command names a principal, that principal by the
+// key's fingerprint.
+func (s *Server) handLocked() (hand map[string]bool, owner map[string]string) {
+	k := &s.keys
+	path := s.cfg.AuthorizedKeys
+	if path == "" {
+		return nil, nil
+	}
+	fi, err := os.Stat(path)
+	if err != nil || !fi.Mode().IsRegular() {
+		k.hand, k.handOwner = nil, nil
+		return nil, nil
+	}
+	if k.hand != nil && k.handSize == fi.Size() && k.handTime.Equal(fi.ModTime()) {
+		return k.hand, k.handOwner
+	}
+	b, err := readUpTo(path, maxAuthorizedKeys)
+	if err != nil {
+		k.hand, k.handOwner = nil, nil
+		return nil, nil
+	}
+	hand, owner = map[string]bool{}, map[string]string{}
+	sc := bufio.NewScanner(bytes.NewReader(b))
+	sc.Buffer(nil, maxAuthorizedKeys)
+	for sc.Scan() {
+		pub, _, options, _, err := ssh.ParseAuthorizedKey(sc.Bytes())
+		if err != nil {
+			continue
+		}
+		fp := ssh.FingerprintSHA256(pub)
+		// sshd takes the first line that matches a key.
+		if !hand[fp] {
+			if p := forcedPrincipal(options); p != "" {
+				owner[fp] = p
+			}
+		}
+		hand[fp] = true
+	}
+	k.hand, k.handOwner, k.handSize, k.handTime = hand, owner, fi.Size(), fi.ModTime()
+	return hand, owner
+}
+
+// forcedPrincipal returns the principal that the forced command among
+// the options of an authorized_keys line names, `command="… stdio
+// --principal NAME"` as the server guide writes it, or "" when the line
+// forces no such command or names nothing a principal may be called.
+func forcedPrincipal(options []string) string {
+	for _, o := range options {
+		cmd, ok := strings.CutPrefix(o, `command="`)
+		if !ok {
+			continue
+		}
+		f := strings.Fields(strings.TrimSuffix(cmd, `"`))
+		if i := slices.Index(f, "--principal"); i >= 0 && i+1 < len(f) && PrincipalPattern.MatchString(f[i+1]) {
+			return f[i+1]
+		}
+	}
+	return ""
+}
+
+// handOwner returns the principal that the hand-maintained file's line
+// for the key with a fingerprint names, and false when the file has no
+// such line or the line names none. The control store asks it of every
+// key it is about to add (store.Control.KeysElsewhere): sshd reads the
+// keys file first (decision 26), so a key of that file added to the
+// store under another name would sign its owner in as someone else.
+func (s *Server) handOwner(fingerprint string) (string, bool) {
+	k := &s.keys
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	_, owner := s.handLocked()
+	p, ok := owner[fingerprint]
+	return p, ok
+}
+
 // handWarning tells the admin who removed a key from the store that the
-// hand-maintained file still lets it in.
+// hand-maintained file still lets it in. sshd reads the keys file
+// first (decision 26), so while the store held the key its connections
+// came in by the store's line and the removal closed them; with that
+// line gone, sshd finds the hand-maintained one.
 func handWarning(fingerprint string) string {
-	return fmt.Sprintf("sshd still accepts key %s: it is also a line of the server's authorized_keys file, which starfixd never edits. "+
-		"That line's forced command names no key, so a connection it let in was not closed by this removal, and the next is let in as before. "+
+	return fmt.Sprintf("sshd will still accept key %s: the connections it had signed in were closed, but it is also a line of the server's authorized_keys file, "+
+		"which starfixd never edits and sshd reads after starfixd's keys file. Its next connection comes in by that line, as the principal the line names, and names no key. "+
 		"Ask the server's operator to delete the line (docs/server.md, Keys from the store); until then, disabling the principal that line names is what keeps the key out", fingerprint)
 }
 

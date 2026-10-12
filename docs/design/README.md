@@ -8,6 +8,7 @@ These documents say why starfix is built the way it is. The user guides in
 | [starfix.md](starfix.md) | The plan: principles, architecture, data model, bd parity, MCP tools, memory, coordination, offline use, upgrades, developer experience, cost tracking, the stages and the decisions |
 | [database.md](database.md) | Why Dolt; the Postgres fallback; vector search and embeddings |
 | [bearings.md](bearings.md) | Bearings, the orchestrator planned on top of starfix, for Linux and macOS (Windows through WSL2): components, defaults, plan, decisions and open questions |
+| [enterprise-review.md](enterprise-review.md) | A review of `sfx`, `starfixd` and Bearings against the goal of a tool a team or an enterprise can use, as of 12 October 2026: what is built, what is only designed, what is missing, and what to do first. It decides nothing |
 | [spike/dolt/RESULTS.md](../../spike/dolt/RESULTS.md) | Stage 0: how Dolt behaves under concurrent writers, and the rules starfixd follows because of it |
 
 ## How the documents change

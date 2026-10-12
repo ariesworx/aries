@@ -59,6 +59,12 @@ type Options struct {
 	// Observer, when set, is told of each write, retry, Dolt commit and
 	// change of a claim, for the daemon's metrics. See [Observer].
 	Observer Observer
+	// NoMigrate opens the database only as it is: one that this binary's
+	// migrations have not all been applied to is refused with
+	// [ErrSchemaOld], and nothing in it is changed. starfixd sets it for
+	// the database of an archived project, which is migrated when the
+	// project is activated and not before.
+	NoMigrate bool
 
 	// tick, when set by tests, replaces the committer's CommitInterval
 	// ticker, so a test decides when each commit happens.
@@ -107,7 +113,8 @@ type Store struct {
 // Open refuses, with [ErrInvalid], a dsn that names no database and an
 // invalid prefix, admin or limit in opts. It refuses an unsafe account
 // with an [*UnsafeAccountError] unless opts.AllowUnsafeAccount is set,
-// and a database a newer binary migrated with [ErrSchemaTooNew].
+// a database a newer binary migrated with [ErrSchemaTooNew], and, with
+// opts.NoMigrate, one with migrations pending with [ErrSchemaOld].
 func Open(ctx context.Context, dsn string, opts Options) (*Store, error) {
 	return open(ctx, dsn, opts, projectSchema)
 }
@@ -182,7 +189,7 @@ func open(ctx context.Context, dsn string, opts Options, sc schema) (*Store, err
 		}
 		opts.Logger.Warn("dolt account is unsafe; allowed for development", "account", ua.User, "problems", strings.Join(ua.Problems, "; "))
 	}
-	n, err := migrate(ctx, s.w, s.now(), sc)
+	n, err := migrate(ctx, s.w, s.now(), sc, !opts.NoMigrate)
 	if err != nil {
 		return nil, errors.Join(err, s.w.Close(), s.r.Close())
 	}

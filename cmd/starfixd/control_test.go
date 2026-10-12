@@ -806,6 +806,62 @@ func TestServeMigratesEveryProject(t *testing.T) {
 	}
 }
 
+// TestServeEndsClaimsOfArchivedProjects starts the daemon on a server
+// whose archived project still holds a claim, as a daemon that stopped
+// between an archive's control write and its release leaves it: the
+// claim has ended before the daemon listens, with no connection to the
+// project and without activating it (decision 24).
+func TestServeEndsClaimsOfArchivedProjects(t *testing.T) {
+	s := newSite(t, "")
+	if got := s.run(t, "", controlCmd, "init", "--name", "acme", "--authorized-keys", writeKeys(t)); got.err != nil {
+		t.Fatalf("control init: %v", got.err)
+	}
+	other := addSecond(t, s)
+	dsn, err := server.DatabaseDSN(s.dsn, other.DBName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(t.Context(), dsn, store.Options{CommitInterval: -1, Prefix: other.Prefix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	alice := store.Actor{Principal: "alice", Session: "s-a", Machine: "m"}
+	is, err := st.CreateIssue(t.Context(), alice, store.NewIssue{Title: "held as the daemon stopped"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.StartIssue(t.Context(), alice, is.ID, time.Hour, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	c := s.control(t)
+	if _, err := c.ArchiveProject(t.Context(), store.Actor{Principal: "dana", Session: "s", Machine: "m"}, second); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	serveSite(t, s)
+	root, err := sql.Open("mysql", dolt.RootDSN(other.DBName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	var held, released int
+	if err := root.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM claims WHERE principal IS NOT NULL`).Scan(&held); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM events WHERE op = 'claim.release' AND principal = 'starfixd'`).Scan(&released); err != nil {
+		t.Fatal(err)
+	}
+	if held != 0 || released != 1 {
+		t.Errorf("once the daemon serves, the archived project holds %d claims and %d releases by the server; want 0 and 1", held, released)
+	}
+}
+
 // siteRig is an upgrade of the daemon a site configures: the release,
 // the binary and systemd are the rig's fakes, and the health check is
 // the real one, against the site's running daemon.

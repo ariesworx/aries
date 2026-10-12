@@ -153,10 +153,11 @@ type daemonOpts struct {
 	// no block.
 	dbs, granted int
 	// keys makes the daemon write its keys file and the SSH server read
-	// it, as an sshd does whose AuthorizedKeysFile names the hand-kept
-	// authorized_keys (world.keys) and then that file: a key with no line
-	// in the first is looked up in the second, and let in as its forced
-	// command says.
+	// it, as an sshd does whose AuthorizedKeysFile names that file and
+	// then the hand-kept authorized_keys (world.keys), the order of
+	// decision 26: a key with a line in the first is let in as its
+	// forced command says, with its fingerprint, and one with none is
+	// looked up in the second.
 	keys bool
 }
 
@@ -329,6 +330,10 @@ func (w *world) startMany() error {
 	if err := srv.WriteKeys(); err != nil {
 		return fail(err)
 	}
+	if err := srv.ReleaseArchived(ctx, server.ProjectOpener(w.dsn, ctl,
+		store.Options{CommitInterval: o.commit, Now: o.now, Limits: o.limits.Limits, Logger: o.logger, NoMigrate: true}, nil)); err != nil {
+		return fail(err)
+	}
 	l, err := server.Listen(w.socket)
 	if err != nil {
 		return fail(err)
@@ -363,9 +368,9 @@ func (w *world) restartDaemon() error {
 // restrict,command="starfixd stdio --principal NAME", it maps the key to a
 // principal, refuses pty and forwarding, and runs the bridge for any exec
 // or shell request, ignoring the command the client sent. With
-// daemonOpts.keys a key it has no principal for is looked up in the
-// keys file the daemon writes, as OpenSSH reads the second file of its
-// AuthorizedKeysFile (fileLine).
+// daemonOpts.keys a key is first looked up in the keys file the daemon
+// writes, as OpenSSH reads the first file of its AuthorizedKeysFile
+// (fileLine), and only then among its own keys, the second file.
 func (w *world) startSSH(ctx context.Context) {
 	t := w.t
 	t.Helper()
@@ -381,15 +386,17 @@ func (w *world) startSSH(ctx context.Context) {
 	cfg := &ssh.ServerConfig{
 		PublicKeyCallback: func(_ ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 			// sshd takes the first line that matches, in the order of its
-			// AuthorizedKeysFile: the file kept by hand, then the daemon's.
+			// AuthorizedKeysFile: the daemon's file, then the one kept by
+			// hand (decision 26). A stale line of the first therefore
+			// shadows the second's line for the same key.
+			if perms := w.fileLine(key); perms != nil {
+				return perms, nil
+			}
 			w.keysMu.Lock()
 			p, ok := w.keys[ssh.FingerprintSHA256(key)]
 			w.keysMu.Unlock()
 			if ok {
 				return &ssh.Permissions{Extensions: map[string]string{"principal": p}}, nil
-			}
-			if perms := w.fileLine(key); perms != nil {
-				return perms, nil
 			}
 			return nil, errors.New("unknown key")
 		},
@@ -882,8 +889,8 @@ func TestProtocolRangeRefusal(t *testing.T) {
 	if r.code != cli.ExitVersion {
 		t.Fatalf("exit %d, want %d\n%s", r.code, cli.ExitVersion, r.stderr)
 	}
-	want := fmt.Sprintf("sfx: starfix speaks protocol %d; the server (v0.2.0) needs %d to %d\n", proto.Proto, proto.Proto+1, proto.Proto+2) +
-		"fix: upgrade this client: `sfx upgrade`\n"
+	want := fmt.Sprintf("sfx: starfix speaks protocol %d; the server (v0.2.0) needs protocols %d to %d\n", proto.Proto, proto.Proto+1, proto.Proto+2) +
+		"fix: upgrade this client: run `sfx upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `sfx mcp`\n"
 	if r.stderr != want {
 		t.Fatalf("stderr %q\nwant   %q", r.stderr, want)
 	}

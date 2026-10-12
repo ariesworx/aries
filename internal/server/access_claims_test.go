@@ -1,8 +1,11 @@
 package server
 
 import (
+	"context"
+	"database/sql"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -178,13 +181,32 @@ func TestAccessEndsClaimsOfAClosedStore(t *testing.T) {
 		t.Errorf("the log lacks the release of bob's claim:\n%s", m.log.String())
 	}
 
-	// Archived while its store is closed, a project's claims end when it
-	// is activated, which opens it.
+	// An archive is the exception (decision 24): nobody can connect to
+	// an archived project, so its store would not open again until it
+	// was activated. The archive opens a closed store, which ends the
+	// claims as every opening does, under the server's name, and closes
+	// it again. They are gone before the project is activated.
 	r.hangUp()
 	ck.advance(2 * time.Minute)
 	m.CloseIdleStores()
+	opened = m.opened(projB)
+	// The result counts the claims the admin's own release ended.
 	if arch := mustAsk[proto.ProjectResult](d, proto.OpProjectArchive, proto.ProjectArgs{Project: projB}); arch.Released != 0 {
-		t.Errorf("project.archive with the store closed released %d claims, want 0", arch.Released)
+		t.Errorf("project.archive with the store closed released %d claims as the admin's, want 0: the opening ends them as the server's", arch.Released)
+	}
+	m.stores.closeWhere("test", func(*entry) bool { return false }) // waits for the store to close
+	if got := m.opened(projB) - opened; got != 1 {
+		t.Errorf("the archive opened the closed store %d times, want once", got)
+	}
+	if n := m.OpenStores(); n != 1 {
+		t.Errorf("%d stores open after the archive, want only a's", n)
+	}
+	st := m.inStore(t, "proj-b")
+	if cl, err := st.ClaimOf(t.Context(), store.IssueID(ids[2])); err != nil || cl != nil {
+		t.Errorf("after the archive, with the project still archived, the claim on %s is %+v (err %v), want none", ids[2], cl, err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
 	}
 	mustAsk[proto.ProjectResult](d, proto.OpProjectActivate, proto.ProjectArgs{Project: projB})
 	released(t, mustDialTo(t, m.Server, dana, projB), ids[2], "erin", "starfixd", "access", "project archived")
@@ -213,4 +235,234 @@ func TestSweep(t *testing.T) {
 	}
 	// A server of one project has nothing to sweep.
 	newServer(t).Sweep(t.Context())
+}
+
+// asIs opens a project's database without migrating it, as a daemon
+// opens an archived project's at its start.
+func (m *multi) asIs() func(context.Context, store.Project) (*store.Store, error) {
+	return ProjectOpener(m.dsn, m.ctl, store.Options{CommitInterval: -1, NoMigrate: true}, m.tel)
+}
+
+// inStore opens the database of the project named name directly, as the
+// next open will find it, whatever the project's state.
+func (m *multi) inStore(t *testing.T, name string) *store.Store {
+	t.Helper()
+	p, ok := m.ctl.ProjectNamed(name)
+	if !ok {
+		t.Fatalf("no project %s", name)
+	}
+	st, err := m.asIs()(t.Context(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	return st
+}
+
+// historyOps returns the events of issue id as "OP by PRINCIPAL/SESSION".
+func historyOps(t *testing.T, st *store.Store, id string) []string {
+	t.Helper()
+	evs, err := st.History(t.Context(), store.IssueID(id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ops []string
+	for _, e := range evs {
+		ops = append(ops, string(e.Op)+" by "+e.Actor.Principal+"/"+e.Actor.Session)
+	}
+	return ops
+}
+
+// TestReleaseArchived pins decision 24: before it listens, a daemon ends
+// every claim in every archived project, as the server's own release for
+// "project archived", so that a daemon that stopped between an archive's
+// control write and its release leaves no claim behind once it is back.
+func TestReleaseArchived(t *testing.T) {
+	m := adminWorld(t, Limits{})
+	a, c, e := mustDialTo(t, m.Server, alice, projA), mustDialTo(t, m.Server, carol, projB), mustDialTo(t, m.Server, erin, projB)
+	alices, carols, erins := held(a, "alice's"), held(c, "carol's"), held(e, "erin's")
+
+	// With nothing archived there is nothing to end, and no store is opened.
+	opens := 0
+	open := func(ctx context.Context, p store.Project) (*store.Store, error) {
+		opens++
+		return m.asIs()(ctx, p)
+	}
+	if err := m.ReleaseArchived(t.Context(), open); err != nil {
+		t.Fatal(err)
+	}
+	if opens != 0 {
+		t.Errorf("ReleaseArchived with no archived project opened %d stores, want 0", opens)
+	}
+
+	// The daemon stops after the archive's control write and before its
+	// release: the archive is in the control store alone, and the stores
+	// close with the claims in place.
+	if _, err := m.ctl.ArchiveProject(t.Context(), dana, projB); err != nil {
+		t.Fatal(err)
+	}
+	// An archived project whose database cannot be opened is logged and
+	// does not stop the others. It sorts before proj-b.
+	const projC = "00000000-0000-4000-8000-00000000000c"
+	if _, err := m.ctl.AddProject(t.Context(), dana, store.NewProject{ID: projC, Name: "proj-0", Prefix: "pc",
+		Account: "internal", DBName: "never_granted"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.ctl.ArchiveProject(t.Context(), dana, projC); err != nil {
+		t.Fatal(err)
+	}
+	c.hangUp()
+	e.hangUp()
+	m.stores.closeAll()
+
+	if err := m.ReleaseArchived(t.Context(), open); err != nil {
+		t.Fatal(err)
+	}
+	if opens != 2 {
+		t.Errorf("ReleaseArchived opened %d stores, want 2: one for each archived project, none for an active one", opens)
+	}
+	if !strings.Contains(m.log.String(), `msg="end the claims of an archived project at start" project=`+projC) {
+		t.Errorf("no log line for the archived project that could not be opened:\n%s", m.log.String())
+	}
+	st := m.inStore(t, "proj-b")
+	for id, who := range map[string]string{carols: "carol", erins: "erin"} {
+		cl, err := st.ClaimOf(t.Context(), store.IssueID(id))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cl != nil {
+			t.Errorf("%s is still claimed by %s in the archived project after ReleaseArchived", id, cl.Holder.Principal)
+		}
+		want := []string{"issue.create by " + who + "/s-" + who[:1], "claim.take by " + who + "/s-" + who[:1], "issue.update by " + who + "/s-" + who[:1],
+			"claim.release by starfixd/access", "issue.update by starfixd/access"}
+		if got := historyOps(t, st, id); !slices.Equal(got, want) {
+			t.Errorf("the history of %s:\n%v\nwant\n%v", id, got, want)
+		}
+	}
+	if !strings.Contains(m.log.String(), "issue="+carols+` principal=carol session=s-c epoch=1 by=starfixd reason="project archived"`) {
+		t.Errorf("the log lacks the release of carol's claim:\n%s", m.log.String())
+	}
+	if got := claimOf(a, alices); got != "alice" {
+		t.Errorf("the claim in an active project is held by %q after ReleaseArchived, want alice", got)
+	}
+
+	// It is safe to repeat: a second run ends nothing and records
+	// nothing, and does not open the store of a project with no claim.
+	// The one that could not be read is tried again.
+	if err := m.ReleaseArchived(t.Context(), open); err != nil {
+		t.Fatal(err)
+	}
+	if opens != 3 {
+		t.Errorf("after a second ReleaseArchived %d stores were opened in all, want 3: the unreadable project's again, and not proj-b's", opens)
+	}
+	want := []string{"issue.create by carol/s-c", "claim.take by carol/s-c", "issue.update by carol/s-c",
+		"claim.release by starfixd/access", "issue.update by starfixd/access"}
+	if got := historyOps(t, st, carols); !slices.Equal(got, want) {
+		t.Errorf("after a second ReleaseArchived the history of %s is\n%v\nwant\n%v", carols, got, want)
+	}
+
+	// The holder is told, where she reads it once the project is back.
+	d := mustDialTo(t, m.Server, dana, projA)
+	mustAsk[proto.ProjectResult](d, proto.OpProjectActivate, proto.ProjectArgs{Project: projB})
+	released(t, mustDialTo(t, m.Server, dana, projB), carols, "carol", "starfixd", "access", "project archived")
+	in := mustAsk[proto.InboxResult](mustDialTo(t, m.Server, carol, projB), proto.OpInbox, proto.InboxArgs{})
+	if len(in.Items) != 1 || in.Items[0].Kind != "claim.lost" || in.Items[0].Issue != carols ||
+		!strings.Contains(in.Items[0].Body, "project archived by starfixd") {
+		t.Errorf("carol's inbox = %+v; want one claim.lost for %s saying project archived by starfixd", in.Items, carols)
+	}
+
+	// A server of one project has nothing archived.
+	if err := newServer(t).ReleaseArchived(t.Context(), open); err != nil {
+		t.Errorf("ReleaseArchived on a server of one project: %v", err)
+	}
+}
+
+// TestReleaseArchivedDoesNotMigrate pins the other half of decision 24:
+// the database of an archived project that an older starfixd last
+// migrated is left exactly as it is, claims included. Activating the
+// project migrates it and ends them, as before.
+func TestReleaseArchivedDoesNotMigrate(t *testing.T) {
+	m := adminWorld(t, Limits{})
+	e := mustDialTo(t, m.Server, erin, projB)
+	erins := held(e, "erin's")
+	if _, err := m.ctl.ArchiveProject(t.Context(), dana, projB); err != nil {
+		t.Fatal(err)
+	}
+	e.hangUp()
+	m.stores.closeAll()
+
+	// One migration behind, as an older binary left it. Deleting the
+	// record leaves the tables, so the claim can still be read.
+	p, _ := m.ctl.ProjectNamed("proj-b")
+	dsn, err := DatabaseDSN(m.dsn, p.DBName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	version := func() (n int) {
+		t.Helper()
+		if err := db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM schema_migrations`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	last := version()
+	if _, err := db.ExecContext(t.Context(), `DELETE FROM schema_migrations WHERE version = ?`, last); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.ReleaseArchived(t.Context(), m.asIs()); err != nil {
+		t.Fatal(err)
+	}
+	if got := version(); got != last-1 {
+		t.Errorf("ReleaseArchived left the archived project's database at version %d, want %d: it must not migrate", got, last-1)
+	}
+	var claims int
+	if err := db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM claims WHERE principal IS NOT NULL`).Scan(&claims); err != nil {
+		t.Fatal(err)
+	}
+	if claims != 1 {
+		t.Errorf("%d claims in the database ReleaseArchived must not touch, want erin's 1 (%s)", claims, erins)
+	}
+	if !strings.Contains(m.log.String(), `msg="archived project not opened at start: its database awaits this starfixd's migrations, and any claim in it ends when the project is activated" project=`+projB) {
+		t.Errorf("no log line saying the archived project was left alone:\n%s", m.log.String())
+	}
+}
+
+// TestArchivesTogetherLeaveOneProject sends the archive of each of a
+// server's two projects at once. Each alone is allowed, and both would
+// leave no active project: nobody could connect again, and the daemon
+// would not start. Whatever the order, one is refused.
+func TestArchivesTogetherLeaveOneProject(t *testing.T) {
+	for range 5 {
+		m := adminWorld(t, Limits{})
+		conns := []*conn{mustDialTo(t, m.Server, dana, projA), mustDialTo(t, m.Server, dana, projB)}
+		errs := make([]*proto.Error, 2)
+		var wg sync.WaitGroup
+		for i, id := range []string{projA, projB} {
+			wg.Go(func() {
+				_, errs[i] = ask[proto.ProjectResult](conns[i], proto.OpProjectArchive, proto.ProjectArgs{Project: id})
+			})
+		}
+		wg.Wait()
+		if got := m.ctl.ActiveProjects(); got != 1 {
+			t.Fatalf("after two archives sent together the server has %d active projects, want 1 (answers: %v, %v)", got, errs[0], errs[1])
+		}
+		refused := 0
+		for _, e := range errs {
+			if e != nil {
+				refused++
+				if e.Code != proto.CodeInvalid || !strings.Contains(e.Message, "only active project") {
+					t.Errorf("the archive that lost = %+v, want invalid: the server's only active project", e)
+				}
+			}
+		}
+		if refused != 1 {
+			t.Errorf("%d of the two archives were refused, want exactly 1", refused)
+		}
+	}
 }

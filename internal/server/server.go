@@ -122,6 +122,11 @@ type Server struct {
 	// adding serializes `project add`, so that two do not take the same
 	// database name.
 	adding sync.Mutex
+	// archiving serializes `project archive` from its check that the
+	// project is not the last active one to its control write, so that
+	// two archives sent together cannot each see the other's project
+	// still active and leave the server with none.
+	archiving sync.Mutex
 	// unopened holds the active projects whose databases the last
 	// OpenProjects could not open, by id, until one opens or is
 	// archived; guarded by mu. While it holds any, the upgrade's health
@@ -225,6 +230,7 @@ func New(cfg Config) (*Server, error) {
 		cfg.Telemetry.Watch(telemetry.StoresOpen, func() float64 { return float64(s.OpenStores()) })
 		return s, nil
 	}
+	cfg.Control.KeysElsewhere(s.handOwner)
 	s.stores = &registry{open: s.openProject, max: cfg.Limits.OpenStores, idle: time.Duration(cfg.Limits.StoreIdle),
 		now: func() time.Time { return s.now() }, entries: map[string]*entry{}}
 	// An archive ends every claim in the project while requests may
@@ -618,6 +624,17 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		start := time.Now()
 		sess.proj.used.Store(s.now().UnixNano())
 		rctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
+		// The caller's trace context rides the request's context, for
+		// whatever later starts a span from it. One that does not parse
+		// is ignored: it never fails the request, and nothing of it is
+		// logged.
+		if tc, ok := proto.ParseTraceContext(f.Traceparent, f.Tracestate); ok {
+			rctx = withTrace(rctx, tc)
+		}
+		// Slice O2 starts the request's server span here, named for the
+		// op, with s.cfg.Telemetry.Start(rctx, ...): its parent is
+		// TraceFrom(rctx) when the frame carried one, and it ends beside
+		// observeRequest below, which measures the same stretch.
 		var res any
 		var perr *proto.Error
 		ok, wait := true, time.Duration(0)
@@ -648,6 +665,11 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 			s.flush(sess, p) // what was committed before this answer goes first
 		}
 		attrs := []any{"op", f.Op, "ms", time.Since(start).Milliseconds()}
+		if tc, ok := TraceFrom(rctx); ok {
+			// Hex, checked: safe on a log line. span_id is the caller's
+			// span, the parent of any the server would start.
+			attrs = append(attrs, "trace_id", tc.TraceID, "span_id", tc.SpanID)
+		}
 		if perr != nil {
 			// A refusal is worth seeing at the default level, sampled per
 			// principal (S-20); a success is one line per request, so only
@@ -758,12 +780,23 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 		return refuse(proto.Errf(proto.CodeInvalid, proto.FixUpgrade+" starfix to match the server",
 			fmt.Sprintf("expected a hello, got a %q frame", f.T)))
 	}
-	if e := proto.CheckProto(f.Proto, s.cfg.ProtoMin, s.cfg.ProtoMax, s.cfg.Version); e != nil {
-		return refuse(e)
+	// The health check of `starfixd upgrade` is run by the binary being
+	// replaced, so it speaks that binary's protocol. It asks only whether
+	// this daemon answers and sends no request, so it is welcomed whatever
+	// it speaks: otherwise no upgrade could cross a raised ProtoMin, since
+	// the old binary would take the refusal for a daemon that failed, and
+	// put itself back. Only the daemon's own user can be the probe.
+	if sess.actor.Principal != ProbePrincipal {
+		if e := proto.CheckProto(f.Proto, s.cfg.ProtoMin, s.cfg.ProtoMax, s.cfg.Version); e != nil {
+			return refuse(e)
+		}
 	}
 	if sess.actor.Principal == StatusPrincipal {
 		// `starfixd status` asks about the server, whichever project it
-		// names, and holds no connection slot (serveStatus).
+		// names, and holds no connection slot (serveStatus). Unlike the
+		// probe it sends a request and reads a result, so it has passed
+		// the protocol check above: a `starfixd status` of another
+		// version is refused with `version`, as any client is.
 		w.Session, w.Principal = statusSession, StatusPrincipal
 		return sess, sess.enc.Encode(w)
 	}

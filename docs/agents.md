@@ -272,6 +272,17 @@ The harness name comes from `STARFIX_HARNESS`, which setup writes into the
 MCP entry; failing that, `claude-code` when `CLAUDECODE=1` and `gemini`
 when `GEMINI_CLI=1`.
 
+`sfx` also reads `TRACEPARENT` and `TRACESTATE`, the environment
+variables that carry a [W3C trace context](https://www.w3.org/TR/trace-context/),
+and passes them to the server with each request, so that a harness or a
+script that traces its own work can later tie starfix's part to it. Only
+a valid version-00 `traceparent` is sent, and a `tracestate` only with
+one; anything else is left out, and never fails a command. `sfx mcp`
+reads them once, when it starts, so every tool call of that process
+carries the same context. The server records the trace and span ids in
+its debug log and does nothing else with them: it does not create or
+export traces yet.
+
 The hooks take the session id from their input, unless `STARFIX_SESSION`
 is set. In Claude Code that id is `CLAUDE_CODE_SESSION_ID`, the session
 `sfx mcp` claims issues under, so the usage hooks' tokens go to the

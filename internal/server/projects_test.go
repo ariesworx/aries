@@ -63,6 +63,8 @@ type multi struct {
 	// keysFile is the file the server writes the store's keys to, and
 	// byHand the authorized_keys file it only reads.
 	keysFile, byHand string
+	// tel measures the server and its stores; nil in most tests.
+	tel *telemetry.Telemetry
 
 	mu    sync.Mutex
 	opens map[string]int
@@ -130,7 +132,7 @@ func newMultiTel(t *testing.T, lim Limits, ck *clock, tel *telemetry.Telemetry, 
 	if err := os.Mkdir(sshDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	m := &multi{ctl: ctl, dsn: dsn, log: &syncBuffer{}, opens: map[string]int{},
+	m := &multi{ctl: ctl, dsn: dsn, log: &syncBuffer{}, opens: map[string]int{}, tel: tel,
 		keysFile: filepath.Join(sshDir, "starfix_keys"), byHand: filepath.Join(sshDir, "authorized_keys")}
 	open := ProjectOpener(dsn, ctl, store.Options{CommitInterval: -1, Limits: lim.Limits, Now: now}, tel)
 	m.Server, err = New(Config{Control: ctl, Version: "v0.2.0", PeerCheck: func(net.Conn) error { return nil }, Limits: lim,

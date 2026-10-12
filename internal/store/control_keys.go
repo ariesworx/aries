@@ -141,7 +141,8 @@ type parsedKey struct{ fingerprint, key, comment string }
 
 // addKey gives principal the key k and records it, or returns the key as
 // it is when principal has it already. It refuses a key another
-// principal has, and one past ControlLimits.Keys. The caller has checked
+// principal has, in the store or elsewhere (Control.KeysElsewhere), and
+// one past ControlLimits.Keys. The caller has checked
 // the actor and that the principal exists.
 func (w *cwtx) addKey(ctx context.Context, principal string, k parsedKey) (PrincipalKey, error) {
 	switch cur, err := readKey(ctx, w.tx, k.fingerprint); {
@@ -151,6 +152,11 @@ func (w *cwtx) addKey(ctx context.Context, principal string, k parsedKey) (Princ
 		return PrincipalKey{}, &TakenError{Kind: TakenKey, Value: k.fingerprint}
 	case !errors.Is(err, ErrNotFound):
 		return PrincipalKey{}, err
+	}
+	if w.elsewhere != nil {
+		if owner, ok := w.elsewhere(k.fingerprint); ok && owner != principal {
+			return PrincipalKey{}, &TakenError{Kind: TakenKey, Value: k.fingerprint, Elsewhere: true}
+		}
 	}
 	if err := w.room(ctx, limitKeys, w.lim.Keys, `SELECT COUNT(*) FROM principal_keys WHERE principal = ?`, principal); err != nil {
 		return PrincipalKey{}, err

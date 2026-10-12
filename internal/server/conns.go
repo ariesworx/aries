@@ -52,7 +52,11 @@ func (s *Server) keyHolds(principal, fingerprint string) *proto.Error {
 	if fingerprint == "" {
 		return nil
 	}
-	if p, _, ok := s.cfg.Control.AuthorizedKey(fingerprint); ok && p == principal {
+	// A key the operator's authorized_keys file gives to another
+	// principal is not the store's to let in, whatever an older keys
+	// file says: the next one written has no line for it (keyLines).
+	owner, byHand := s.handOwner(fingerprint)
+	if p, _, ok := s.cfg.Control.AuthorizedKey(fingerprint); ok && p == principal && (!byHand || owner == principal) {
 		return nil
 	}
 	return proto.Errf(proto.CodeAuth,

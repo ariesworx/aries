@@ -55,14 +55,15 @@ what. starfix makes that safe:
 | See the time and tokens each issue took, by account (tokens from Claude Code so far) | `show`, `digest`, `usage --hook` | [Accounts, time and tokens](docs/concepts.md#accounts-time-and-tokens) |
 | Report what the tokens cost at list price, and amortized over subscription plans, by account, issue, epic, person or model | `cost`, `admin prices`, `admin plans` | [Cost](docs/concepts.md#cost), [Prices](docs/server.md#prices), [Plans](docs/server.md#plans) |
 | Log the hours people spend on an issue | `log` | [Human hours](docs/concepts.md#human-hours) |
+| Serve many projects from one server, and manage projects, people, keys and memberships from any machine | `admin project`, `admin principal`, `admin key`, `admin member`, `admin status` | [Serving many projects](docs/server.md#serving-many-projects) |
 | Set up Claude Code, Codex, Gemini CLI, Cursor, VS Code, Junie, JetBrains AI Assistant or Claude Desktop | `setup` | [Agents](docs/agents.md) |
 | Move a bd (beads) backlog over, keeping its IDs | `starfixd import-bd` | [Moving from bd](docs/migrate-from-bd.md) |
 | Reach a server that has no public address, through Google Cloud IAP | `iap:` in `.starfix.yaml` | [Using sfx](docs/cli.md#servers-without-a-public-ip-google-cloud-iap) |
 | Upgrade clients and the server from signed releases | `upgrade` | [Installing starfix](docs/install.md#upgrade-and-roll-back) |
 
-Planned: token prices and cost reports, an offline cache,
-and **Bearings**, an orchestrator that runs and supervises many agents on
-top of starfix ([design](docs/design/bearings.md)).
+Planned: an offline cache, and **Bearings**, an orchestrator that runs
+and supervises many agents on top of starfix
+([design](docs/design/bearings.md)).
 
 ## How it works
 
@@ -156,7 +157,7 @@ binary, building from source and verifying a download by hand.
 | [Moving from bd](docs/migrate-from-bd.md) | Importing a beads backlog, and exporting it back |
 | [Security model](docs/security-model.md) | Identity, host keys, the Dolt account, untrusted text, releases, CI checks |
 | [Design documents](docs/design/README.md) | Principles, architecture, data model, the Dolt spike, Bearings |
-| [Contributing](CONTRIBUTING.md) | Building, testing and opening a pull request |
+| [Contributing](CONTRIBUTING.md) | From a clone to a passing gate, trying a change against a real server, opening a pull request, troubleshooting |
 | [Releasing](RELEASING.md) | How releases are built, signed and published |
 
 ## Roadmap
@@ -167,7 +168,7 @@ binary, building from source and verifying a download by hand.
 | 1 | Store, server, SSH transport, version handshake, issue CLI, bd import | Done |
 | 2 | MCP server, `start`/`finish`, `digest`, `prime`, `upgrade`, agent setup | Done |
 | 3 | Claims with leases, agents registry, inbox, event push, handoff, files to issues, live board, token capture | In progress. Built: claims, agents registry, inbox, event push, structured handoffs, idempotency, files to issues, acceptance checklists, similar closed issues, the live board, accounts, time and token reporting, and token capture for Claude Code. The stage's gate, a multi-session soak test, passes. Left: token capture for Codex and Gemini CLI, held until the maintainer uses them and their formats can be checked against real files |
-| 3a | Many projects on one server, each with its own database and writer; keys and project memberships in the store; server and project admins; `sfx admin` | Built, and its gate passes in the test stack and against a real sshd in Docker; not yet checked on real machines ([§15](docs/design/starfix.md#15-projects-and-access)). Built: the control store; a server that holds many projects when `control_db` is set, with membership checked at connection, project admins, and `starfixd control init` to adopt the existing project and import `authorized_keys`; `sfx admin` to create, archive and activate projects and to manage principals, members and keys from anywhere, with connections closed and claims released when access ends; keys written from the store to a file sshd reads, so adding a person needs no shell on the server; `sfx admin status` to watch the server and each project; and the soak test across two projects ([Serving many projects](docs/server.md#serving-many-projects)). To verify: the setup under systemd and on a machine of each cloud provider, which only the Docker test server and a stand-in for a provider's login agent have run; and Dolt's memory with several projects on Linux. The supported server platform is Ubuntu LTS; systems that run SELinux are not supported yet |
+| 3a | Many projects on one server, each with its own database and writer; keys and project memberships in the store; server and project admins; `sfx admin` | Built, and its gate passes in the test stack, against a real sshd in Docker, and under systemd on an Ubuntu 24.04 virtual machine; not yet checked on a cloud provider's machine ([§15](docs/design/starfix.md#15-projects-and-access)). Built: the control store; a server that holds many projects when `control_db` is set, with membership checked at connection, project admins, and `starfixd control init` to adopt the existing project and import `authorized_keys`; `sfx admin` to create, archive and activate projects and to manage principals, members and keys from anywhere, with connections closed and claims released when access ends; keys written from the store to a file sshd reads, so adding a person needs no shell on the server; `sfx admin status` to watch the server and each project; and the soak test across two projects ([Serving many projects](docs/server.md#serving-many-projects)). To verify: the setup on a machine of each cloud provider, which only the Docker test server, that virtual machine (arm64) and a stand-in for a provider's login agent have run; and Dolt's memory with several projects on Linux. The supported server platform is Ubuntu LTS, with optional AppArmor profiles for starfixd ([Confine starfixd with AppArmor](docs/server.md#confine-starfixd-with-apparmor)); systems that run SELinux are not supported yet |
 | 3b | Observability: OpenTelemetry traces and metrics from `starfixd`, a loopback endpoint for metrics and health, a log schema and audit stream, Dolt's metrics, and a Collector harness | In progress ([§16](docs/design/starfix.md#16-observability)). Built: metrics, pushed over OTLP/HTTP and offered to a Prometheus scraper; the loopback listener with `/metrics`, `/healthz` and `/readyz`; readiness and a watchdog for systemd, not yet run under a real systemd; and `starfixd status` ([Observability](docs/server.md#observability)). Not built: traces, the log schema and audit stream, Dolt's figures, and the Collector harness |
 | 4 | Team and personal memory with tags; prices and `sfx cost` | Done. Built: scoped, tagged memory with pins and issue links (`remember`, `recall`, `forget`, `memories`, `pin`), ranked in `prime` and `start`, private user scope, a secrets lint, and import of bd's memories; prices (`sfx admin prices`), `sfx cost` and the MCP `cost` tool, and the cost in `show` and `digest`; human hours (`sfx log`) in `show`, `digest` and `sfx cost`; subscription plans (`sfx admin plans`) and their amortized cost in `sfx cost` |
 | 5 | Offline cache, outbox, conflict resolution | |
@@ -179,8 +180,8 @@ The Bearings stages (B0 to B5) start once starfix stage 3 lands; see the
 
 ## Contributing
 
-[CONTRIBUTING.md](CONTRIBUTING.md) explains how to build and test starfix
-and how pull requests work. [AGENTS.md](AGENTS.md) holds the rules every
+[CONTRIBUTING.md](CONTRIBUTING.md) gets you from a clone to a passing
+gate (`scripts/gate.sh` runs what CI runs) and to a pull request. [AGENTS.md](AGENTS.md) holds the rules every
 contributor follows, person or agent.
 
 ## Relationship to beads
