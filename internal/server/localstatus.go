@@ -93,10 +93,13 @@ func Status(ctx context.Context, socket, clientVersion string) (proto.StatusResu
 	}
 	enc, dec := proto.NewEncoder(c), proto.NewDecoder(c)
 	// A daemon that refuses the peer closes the connection unanswered,
-	// which may fail a write here or the read of the welcome.
-	err = errors.Join(
-		enc.Encode(&proto.Frame{T: proto.FrameBridge, Principal: StatusPrincipal}),
-		enc.Encode(&proto.Frame{T: proto.FrameHello, Proto: proto.Proto, Version: clientVersion, Session: statusSession, Machine: "localhost"}))
+	// which may fail either write here or the read of the welcome. The
+	// first failure is the one reported: joined, two failed writes made
+	// an error of two lines, with the fix on the second.
+	err = enc.Encode(&proto.Frame{T: proto.FrameBridge, Principal: StatusPrincipal})
+	if err == nil {
+		err = enc.Encode(&proto.Frame{T: proto.FrameHello, Proto: proto.Proto, Version: clientVersion, Session: statusSession, Machine: "localhost"})
+	}
 	var w *proto.Frame
 	if err == nil {
 		w, err = dec.Decode()
