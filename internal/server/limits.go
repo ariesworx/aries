@@ -173,7 +173,7 @@ var readOps = map[string]bool{
 	proto.OpClaims: true, proto.OpRecall: true, proto.OpPrices: true, proto.OpCost: true,
 	proto.OpHours: true, proto.OpPlans: true,
 	proto.OpProjects: true, proto.OpPrincipals: true, proto.OpMembers: true, proto.OpKeys: true,
-	proto.OpStatus: true,
+	proto.OpStatus: true, proto.OpPrincipalWhois: true,
 }
 
 // controlWrites are the operations that write to the control store.
@@ -187,11 +187,11 @@ var controlWrites = map[string]bool{
 }
 
 // adminOp reports whether op manages access (proto's admin.go): one of
-// controlWrites, a list of projects, principals, members or keys, or
-// the status report.
+// controlWrites, a list of projects, principals, members or keys, the
+// status report, or the lookup of a stand-in.
 func adminOp(op string) bool {
 	switch op {
-	case proto.OpProjects, proto.OpPrincipals, proto.OpMembers, proto.OpKeys, proto.OpStatus:
+	case proto.OpProjects, proto.OpPrincipals, proto.OpMembers, proto.OpKeys, proto.OpStatus, proto.OpPrincipalWhois:
 		return true
 	}
 	return controlWrites[op]

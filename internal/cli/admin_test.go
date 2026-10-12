@@ -28,7 +28,10 @@ func TestAdminAccessUsage(t *testing.T) {
 		{"project archive needs a project", []string{"admin", "project", "archive"}, "project archive needs one project"},
 		{"project activate needs a project", []string{"admin", "project", "activate"}, "project activate needs one project"},
 		{"project archive takes no flags", []string{"admin", "project", "archive", "acme", "--account", "x"}, "project archive does not take --account"},
-		{"principal needs an action", []string{"admin", "principal"}, "admin principal needs add, list, disable or enable"},
+		{"principal needs an action", []string{"admin", "principal"}, "admin principal needs add, list, disable, enable or whois"},
+		{"principal whois needs a stand-in", []string{"admin", "principal", "whois"}, "principal whois needs one stand-in, such as p_0123456789abcdef"},
+		{"principal whois takes one stand-in", []string{"admin", "principal", "whois", "p_0123456789abcdef", "p_fedcba9876543210"}, "principal whois needs one stand-in"},
+		{"principal whois takes no flags", []string{"admin", "principal", "whois", "p_0123456789abcdef", "--project", "acme"}, "principal whois does not take --project"},
 		{"principal unknown action", []string{"admin", "principal", "rm", "bob"}, `unknown principal action "rm"`},
 		{"principal add needs a name", []string{"admin", "principal", "add"}, "principal add needs one name"},
 		{"principal add, a project and none", []string{"admin", "principal", "add", "bob", "--project", "acme", "--no-project"}, "--project or --no-project, not both"},
@@ -59,7 +62,7 @@ func TestAdminAccessUsage(t *testing.T) {
 	// Every group is in the command's help.
 	_, help, _ := runCLI(t, "help", "admin")
 	for _, want := range []string{"admin prices [set MODEL", "admin plans [set NAME", "admin project add NAME [--prefix P] [--account A] | list | archive PROJECT | activate PROJECT",
-		"admin principal add NAME [--key FILE]... [--project P | --no-project] | list [--created-by NAME] | disable NAME | enable NAME",
+		"admin principal add NAME [--key FILE]... [--project P | --no-project] | list [--created-by NAME] | disable NAME | enable NAME | whois STAND-IN",
 		"admin member add NAME [--project P] [--role admin] [--accept-keys] | list [--project P] [--added-by NAME] | remove NAME [--project P]"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("sfx help admin lacks %q:\n%s", want, help)
@@ -95,6 +98,18 @@ func TestPrintAdminLists(t *testing.T) {
 			"alice  active    import    2026-10-11 09:30 UTC\n" +
 			"bob    disabled  alice     2026-10-11 09:30 UTC\n"},
 		{"no principals", func(w *bytes.Buffer) { printPrincipals(w, proto.PrincipalsResult{}) }, "no principals\n"},
+		{"whose a stand-in is", func(w *bytes.Buffer) {
+			printWhois(w, proto.PrincipalWhoisResult{StandIn: "p_0123456789abcdef", Name: "alice", State: "active"})
+		}, "p_0123456789abcdef is alice\n"},
+		{"a disabled principal's stand-in", func(w *bytes.Buffer) {
+			printWhois(w, proto.PrincipalWhoisResult{StandIn: "p_0123456789abcdef", Name: "bob", State: "disabled"})
+		}, "p_0123456789abcdef is bob (disabled)\n"},
+		{"a server admin's, who has no row", func(w *bytes.Buffer) {
+			printWhois(w, proto.PrincipalWhoisResult{StandIn: "p_0123456789abcdef", Name: "dana"})
+		}, "p_0123456789abcdef is dana\n"},
+		{"a name from a server that sent control characters", func(w *bytes.Buffer) {
+			printWhois(w, proto.PrincipalWhoisResult{StandIn: "p_\x1b[2K", Name: "ali\x1b[31mce", State: "active"})
+		}, "p_\\x1b[2K is ali\\x1b[31mce\n"},
 		{"members", func(w *bytes.Buffer) {
 			printMembers(w, proto.MembersResult{Project: a, ProjectName: "acme", More: 1, Members: []proto.Member{
 				{Principal: "alice", Role: "admin", AddedBy: "dana", AddedAt: at}, {Principal: "bob", Role: "member", AddedBy: "alice", AddedAt: at}}})

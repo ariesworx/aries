@@ -126,6 +126,7 @@ func (s *Server) serverStatus() *proto.ServerStatus {
 		KeysFile: s.keysStatus(),
 		Clock:    s.clockStatus(),
 		Dolt:     s.doltStatus(),
+		Traces:   s.tracesStatus(),
 	}
 	if s.cfg.Control == nil {
 		out.OpenStoresMax = 1

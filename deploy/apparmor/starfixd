@@ -92,7 +92,8 @@ profile starfixd @{starfixd_bin}/starfixd flags=(attach_disconnected) {
 # sshd reads and reads the hand-maintained authorized_keys beside it.
 # When it is configured to (docs/server.md, Observability) it also
 # listens on a loopback TCP port for /metrics and health, posts metrics
-# to a collector over HTTP, and tells systemd it is ready and alive.
+# and traces to a collector over HTTP, keeps the key of the stand-ins
+# its traces name people by, and tells systemd it is ready and alive.
 profile starfixd-serve flags=(attach_disconnected) {
   include <abstractions/base>
 
@@ -142,6 +143,15 @@ profile starfixd-serve flags=(attach_disconnected) {
   owner @{starfixd_keys_dir}/@{starfixd_keys_name} rw,
   owner @{starfixd_keys_dir}/.@{starfixd_keys_name}.tmp-* rw,
   owner @{starfixd_authorized_keys} r,
+
+  # The key that principals' stand-ins in traces are made with
+  # (telemetry: principals: pseudonym, the default). The daemon makes
+  # the file once, the first time it exports traces, and reads it at
+  # each start; it writes no other file there, so the rule names the
+  # one file and not its directory. Without it the daemon still runs:
+  # its traces say nothing about who, and its log and its status say
+  # that the key cannot be made.
+  owner @{starfixd_principals_key} rw,
 
   # systemd's notify socket. With Type=notify in the unit the daemon
   # says when it is ready and when it stops, and with WatchdogSec that

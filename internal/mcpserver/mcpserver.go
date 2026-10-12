@@ -15,6 +15,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/ariesworx/starfix/internal/client"
 	"github.com/ariesworx/starfix/internal/gitx"
 	"github.com/ariesworx/starfix/internal/proto"
 )
@@ -411,7 +412,11 @@ func add[In, Out any](s *Server, t tool, h func(context.Context, Conn, In) (Out,
 		p.Minimum = new(1.0) // the server clamps the maximum
 	}
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: t.name, Description: t.desc, Annotations: t.ann, InputSchema: schema},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
+		func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
+			// The agent's trace context for this call, when its harness
+			// sent one, goes on every request the call makes of the
+			// server; otherwise the connection's does.
+			ctx = client.WithTrace(ctx, callTrace(req))
 			if p, ok := any(&in).(preparer); ok {
 				if err := p.prepare(); err != nil {
 					return toolError(err), nil, nil
@@ -452,6 +457,31 @@ func add[In, Out any](s *Server, t tool, h func(context.Context, Conn, In) (Out,
 			}
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(b)}, &mcp.TextContent{Text: line}}}, out, nil
 		})
+}
+
+// The keys of a tool call's _meta that carry a W3C trace context: the
+// names of the two HTTP headers, as OpenTelemetry's convention for MCP
+// gives them. The MCP SDK has no helper for them; it hands over _meta as
+// a map.
+const (
+	metaTraceparent = "traceparent"
+	metaTracestate  = "tracestate"
+)
+
+// callTrace returns the trace context a tool call brought in its
+// metadata, or the zero value when it brought none or one that is not
+// valid ([proto.ParseTraceContext]). The metadata is the harness's, so
+// it is checked as a request frame is; what does not parse is ignored,
+// never refused, and a tool's arguments and schema know nothing of it.
+func callTrace(req *mcp.CallToolRequest) proto.TraceContext {
+	if req == nil || req.Params == nil {
+		return proto.TraceContext{}
+	}
+	meta := req.Params.GetMeta()
+	parent, _ := meta[metaTraceparent].(string)
+	state, _ := meta[metaTracestate].(string)
+	tc, _ := proto.ParseTraceContext(parent, state)
+	return tc
 }
 
 // notNull makes nullable properties, at any depth, plain.

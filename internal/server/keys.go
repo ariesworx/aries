@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -108,11 +109,18 @@ type keysFile struct {
 // answered, and on each reaper tick, which is also how a `starfixd
 // control init` run beside the daemon reaches the file and how a failed
 // write is tried again. A server with no Config.KeysFile writes nothing.
-func (s *Server) WriteKeys() error {
+func (s *Server) WriteKeys() error { return s.writeKeys(context.Background()) }
+
+// writeKeys is WriteKeys under ctx's span: a keys_file.write span of its
+// own, which says whether the file was changed.
+func (s *Server) writeKeys(ctx context.Context) error {
 	path := s.cfg.KeysFile
 	if path == "" {
 		return nil
 	}
+	ctx, span := s.cfg.Telemetry.Start(ctx, telemetry.SpanKeysFile)
+	defer span.End()
+	log := withIDs(ctx, s.cfg.Logger)
 	k := &s.keys
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -121,17 +129,21 @@ func (s *Server) WriteKeys() error {
 	if err != nil {
 		k.failed = true
 		s.cfg.Telemetry.Count(telemetry.KeysFileWrites, telemetry.ResultFailed)
+		span.Set(telemetry.KeyResult, telemetry.ResultFailed)
+		span.Fail(telemetry.ResultFailed)
 		return fmt.Errorf("write the keys file %s: %w", path, err)
 	}
+	span.Set(telemetry.KeyResult, telemetry.ResultOK)
+	span.Set(telemetry.KeyChanged, strconv.FormatBool(written))
 	if written {
-		s.cfg.Logger.Info("keys file written", "path", path, "keys", n)
+		log.Info("keys file written", "path", path, "keys", n)
 		s.cfg.Telemetry.Count(telemetry.KeysFileWrites, telemetry.ResultOK)
 	}
 	s.cfg.Telemetry.Record(telemetry.KeysFileLastWrite, float64(at.Unix()))
 	if written || len(held) != k.held {
 		// Said when it changes, not on every tick.
 		for _, h := range held {
-			s.cfg.Logger.Warn("a key of the control store is held back from the keys file: the authorized_keys file gives it to another principal, and sshd reads the keys file first",
+			log.Warn("a key of the control store is held back from the keys file: the authorized_keys file gives it to another principal, and sshd reads the keys file first",
 				"fingerprint", h.Fingerprint, "principal", h.Principal)
 		}
 	}
@@ -143,12 +155,12 @@ func (s *Server) WriteKeys() error {
 // it returns is the warning for the admin whose change the file does not
 // show, or "" when the file is current. The control write has committed,
 // so it is neither failed nor undone.
-func (s *Server) syncKeys() string {
-	err := s.WriteKeys()
+func (s *Server) syncKeys(ctx context.Context) string {
+	err := s.writeKeys(ctx)
 	if err == nil {
 		return ""
 	}
-	s.cfg.Logger.Error("the keys file is out of date; sshd reads the old one until a write succeeds", "err", err)
+	withIDs(ctx, s.cfg.Logger).Error("the keys file is out of date; sshd reads the old one until a write succeeds", "err", err)
 	return "the change is recorded, but starfixd could not write the keys file sshd reads, so sshd may still be reading the old one: " +
 		"a key just added does not sign in yet, and a key just removed, or a disabled principal's, still passes sshd and is then refused by starfixd. " +
 		"starfixd tries again every half minute; ask the server's operator to check its log, and see the keys file line of `sfx admin status`"
@@ -477,14 +489,25 @@ func (s *Server) Sweep(ctx context.Context) {
 	if s.stores == nil {
 		return
 	}
-	s.stores.each(func(pr *served) { s.sweep(ctx, pr) })
+	ctx, span := s.cfg.Telemetry.Start(ctx, telemetry.SpanSweep)
+	defer span.End()
+	s.stores.each(func(pr *served) { s.sweepStore(ctx, pr) })
 }
 
-// sweep is Sweep for one project's store.
+// sweep is Sweep for one project's store, as it opens or is retired: an
+// access.sweep span that names the project.
 func (s *Server) sweep(ctx context.Context, pr *served) {
 	if s.cfg.Control == nil {
 		return
 	}
+	ctx, span := s.cfg.Telemetry.Start(ctx, telemetry.SpanSweep)
+	defer span.End()
+	span.Set(telemetry.KeyProject, pr.id)
+	s.sweepStore(ctx, pr)
+}
+
+// sweepStore ends the claims in pr whose holders lost their access.
+func (s *Server) sweepStore(ctx context.Context, pr *served) {
 	s.endClaims(ctx, pr, accessActor, func(holder string) string { return s.lost(holder, pr.id) })
 }
 
@@ -516,12 +539,12 @@ func (s *Server) endClaims(ctx context.Context, pr *served, by store.Actor, why 
 	cs, err := pr.store.EndClaims(ectx, by, why)
 	if err != nil {
 		if ctx.Err() == nil {
-			pr.log.Error("end the claims of holders without access", "err", err)
+			withIDs(ctx, pr.log).Error("end the claims of holders without access", "err", err)
 		}
 		return 0
 	}
 	for _, c := range cs {
-		pr.log.Info("claim released: access ended", "issue", c.Issue, "principal", c.Holder.Principal,
+		withIDs(ctx, pr.log).Info("claim released: access ended", "issue", c.Issue, "principal", c.Holder.Principal,
 			"session", c.Holder.Session, "epoch", c.Epoch, "by", by.Principal, "reason", why(c.Holder.Principal))
 	}
 	return len(cs)

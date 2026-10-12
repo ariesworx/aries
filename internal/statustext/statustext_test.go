@@ -133,6 +133,41 @@ func TestClockLines(t *testing.T) {
 	}
 }
 
+// The status says how people appear in the server's traces, and loudly
+// when they are left out because the stand-in key is unavailable.
+func TestTracesLine(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		tr   proto.TracesStatus
+		want string
+	}{
+		{"stand-ins", proto.TracesStatus{People: "pseudonym"}, "traces: people are named by stand-ins (telemetry: principals: pseudonym)\n"},
+		{"names", proto.TracesStatus{People: "name"}, "traces: people are named by name (telemetry: principals: name)\n"},
+		{"nobody, by the setting", proto.TracesStatus{People: "omit"}, "traces: nothing says who (telemetry: principals: omit)\n"},
+		{"the key cannot be made", proto.TracesStatus{People: "unavailable", Cause: "it cannot be made: no such file or directory", KeyFile: "/var/lib/starfix/telemetry/principals.key"},
+			"TRACES SAY NOTHING ABOUT WHO: the key for stand-ins, /var/lib/starfix/telemetry/principals.key, is unavailable: it cannot be made: no such file or directory. starfixd's log has the fix (`telemetry: spans say nothing about who`), and starfixd looks again every half minute\n"},
+		{"the key's file cannot be trusted", proto.TracesStatus{People: "unavailable", Damaged: true, Cause: "its file is mode 0644: others can read it", KeyFile: "/var/lib/starfix/telemetry/principals.key"},
+			"TRACES SAY NOTHING ABOUT WHO: the key for stand-ins, /var/lib/starfix/telemetry/principals.key, CANNOT BE TRUSTED: its file is mode 0644: others can read it. starfixd's log has the fix (`telemetry: spans say nothing about who`), and starfixd looks again every half minute\n"},
+		{"a hostile server", proto.TracesStatus{People: "x\nfix: run this", Cause: "y\x1b[2K"}, "traces: x\\nfix: run this\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tracesLine(tc.tr); got != tc.want {
+				t.Errorf("tracesLine(%+v) =\n%s\nwant\n%s", tc.tr, got, tc.want)
+			}
+			var b strings.Builder
+			Print(&b, proto.StatusResult{Server: &proto.ServerStatus{Version: "v0.5.0", Traces: &tc.tr}})
+			if !strings.Contains(b.String(), tc.want) {
+				t.Errorf("Print does not show the line %q:\n%s", tc.want, b.String())
+			}
+		})
+	}
+	var b strings.Builder
+	Print(&b, proto.StatusResult{Server: &proto.ServerStatus{Version: "v0.5.0"}})
+	if strings.Contains(strings.ToLower(b.String()), "traces") {
+		t.Errorf("a server that exports no traces has a line about them:\n%s", b.String())
+	}
+}
+
 // The status says what starfixd last read of Dolt's own metrics: nothing
 // when it reads none, "unknown" with the last success when the latest
 // read failed, and otherwise each figure, with "unknown" for one Dolt

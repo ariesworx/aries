@@ -1,6 +1,9 @@
 package store
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // Observer is told what a store's writer did, as it does it, so that the
 // daemon can measure a store without the store knowing how (design
@@ -25,6 +28,79 @@ type Observer interface {
 	// reason ([Store.EndClaims]), and empty for every other change.
 	ClaimChanged(change ClaimChange, reason string)
 }
+
+// Tracer is told where a write's time goes, as it goes, under the
+// context of the request that asked for it, so that the daemon can
+// trace a store without the store knowing how (design §16.4): starfixd's
+// spans below a request's are built on it. It is told of nothing an
+// [Observer] measures, and changes none of those figures.
+type Tracer interface {
+	// Begin marks the start of stage, under ctx. It returns the context
+	// the stage's work runs under, which a stage begun inside it is
+	// given, and a func the store calls once, when the stage ends, with
+	// how it ended. attempt numbers a write's attempts from 1, and is 0
+	// for every other stage.
+	//
+	// Both are called on the goroutine doing the work, with the writer
+	// held for part of it, so an implementation must return at once,
+	// read no database, and be safe for concurrent use. It is given
+	// nothing of what is written, and no error: an error's text may
+	// quote a row.
+	Begin(ctx context.Context, stage Stage, attempt int) (context.Context, func(Outcome))
+}
+
+// Stage is a part of the store's work a [Tracer] is told of.
+type Stage string
+
+// The stages.
+const (
+	// StageAttempt is one attempt of a write, from the wait for the
+	// writer to its commit or rollback. A write that loses to a
+	// concurrent transaction is attempted again, as a new stage.
+	StageAttempt Stage = "write.attempt"
+	// StageWait is, within an attempt, the wait for the store's one
+	// writer connection and the start of its transaction.
+	StageWait Stage = "write.wait"
+	// StageCommit is a Dolt commit of pending writes.
+	StageCommit Stage = "commit"
+	// StageMigrate is, within an open, the check of the schema and the
+	// migrations it applies.
+	StageMigrate Stage = "migrate"
+)
+
+// Outcome is how a [Stage] ended.
+type Outcome string
+
+// The outcomes. OutcomeRetry is an attempt that lost to a concurrent
+// transaction. OutcomeError is every other error, which for an attempt
+// is most often the request's own refusal.
+const (
+	OutcomeOK    Outcome = "ok"
+	OutcomeRetry Outcome = "retry"
+	OutcomeError Outcome = "error"
+)
+
+// outcomeOf is how a stage that returned err ended.
+func outcomeOf(err error) Outcome {
+	switch {
+	case err == nil:
+		return OutcomeOK
+	case retryable(err):
+		return OutcomeRetry
+	}
+	return OutcomeError
+}
+
+// begin tells the store's tracer, if it has one, that stage starts.
+func (s *Store) begin(ctx context.Context, stage Stage, attempt int) (context.Context, func(Outcome)) {
+	if s.opts.Tracer == nil {
+		return ctx, untraced
+	}
+	return s.opts.Tracer.Begin(ctx, stage, attempt)
+}
+
+// untraced ends a stage nobody was told of.
+func untraced(Outcome) {}
 
 // ClaimChange is what happened to a claim, as an [Observer] is told.
 type ClaimChange string

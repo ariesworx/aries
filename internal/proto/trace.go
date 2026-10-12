@@ -9,8 +9,9 @@ const MaxTracestate = 512
 // sent it, which is the parent of whatever span the receiver starts.
 // The zero value is no trace context.
 //
-// Requests only carry it (design §14, decision 27). Nothing here or in
-// the server makes a span or exports one.
+// Requests carry it (design §14, decision 27), and a server that traces
+// starts its span for the request under it (design §16.4). Nothing here,
+// and nothing in the client, makes a span.
 type TraceContext struct {
 	// TraceID is the trace's id: 32 lowercase hex digits, not all zero.
 	TraceID string

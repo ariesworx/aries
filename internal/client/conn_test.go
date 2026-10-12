@@ -204,11 +204,15 @@ func TestCapBuffer(t *testing.T) {
 }
 
 // Every request of a connection carries the trace context the client was
-// given, and none carries one when it was given none.
+// given, and none carries one when it was given none. A call whose
+// context carries one of its own (WithTrace) sends that one instead,
+// for that call alone.
 func TestCallCarriesTheTraceContext(t *testing.T) {
+	theCall := proto.TraceContext{TraceID: "0af7651916cd43dd8448eb211c80319c", SpanID: "b7ad6b7169203331", Flags: "01", State: "call=1"}
 	tests := []struct {
 		name          string
 		trace         proto.TraceContext
+		call          *proto.TraceContext
 		parent, state string
 	}{
 		{name: "none"},
@@ -216,14 +220,23 @@ func TestCallCarriesTheTraceContext(t *testing.T) {
 			parent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"},
 		{name: "with a tracestate", trace: proto.TraceContext{TraceID: "4bf92f3577b34da6a3ce929d0e0e4736", SpanID: "00f067aa0ba902b7", Flags: "00", State: "vendor=opaque"},
 			parent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00", state: "vendor=opaque"},
+		{name: "the call's own, on a connection with none", call: &theCall,
+			parent: "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01", state: "call=1"},
+		{name: "the call's own wins over the connection's, tracestate and all",
+			trace: proto.TraceContext{TraceID: "4bf92f3577b34da6a3ce929d0e0e4736", SpanID: "00f067aa0ba902b7", Flags: "00", State: "vendor=opaque"},
+			call:  &theCall, parent: "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01", state: "call=1"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			c, s := pipeConn(t, nil)
 			c.trace = tc.trace
+			ctx := t.Context()
+			if tc.call != nil {
+				ctx = WithTrace(ctx, *tc.call)
+			}
 			for _, op := range []string{proto.OpReady, proto.OpShow} {
 				done := make(chan error, 1)
-				go func() { done <- c.Call(t.Context(), op, proto.LimitArgs{}, nil) }()
+				go func() { done <- c.Call(ctx, op, proto.LimitArgs{}, nil) }()
 				f := s.req()
 				if f == nil {
 					t.Fatal("no request")
@@ -236,6 +249,36 @@ func TestCallCarriesTheTraceContext(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			// The next call, without one of its own, is the connection's again.
+			if tc.call != nil {
+				done := make(chan error, 1)
+				go func() { done <- c.Call(t.Context(), proto.OpReady, proto.LimitArgs{}, nil) }()
+				f := s.req()
+				if f == nil {
+					t.Fatal("no request")
+				}
+				if f.Traceparent != tc.trace.Traceparent() || f.Tracestate != tc.trace.State {
+					t.Errorf("the call after carries tp %q, ts %q; want the connection's %q, %q", f.Traceparent, f.Tracestate, tc.trace.Traceparent(), tc.trace.State)
+				}
+				s.send(&proto.Frame{T: proto.FrameRes, ID: f.ID, OK: []byte(`{}`)})
+				if err := <-done; err != nil {
+					t.Fatal(err)
+				}
+			}
 		})
+	}
+}
+
+func TestTraceFromContext(t *testing.T) {
+	if tc, ok := TraceFrom(t.Context()); ok {
+		t.Errorf("TraceFrom of a context with none = %+v, true", tc)
+	}
+	want := proto.TraceContext{TraceID: "0af7651916cd43dd8448eb211c80319c", SpanID: "b7ad6b7169203331", Flags: "01"}
+	if got, ok := TraceFrom(WithTrace(t.Context(), want)); !ok || got != want {
+		t.Errorf("TraceFrom(WithTrace(ctx, %+v)) = %+v, %t", want, got, ok)
+	}
+	// The zero value is no trace context, and carries none.
+	if tc, ok := TraceFrom(WithTrace(t.Context(), proto.TraceContext{})); ok {
+		t.Errorf("TraceFrom(WithTrace(ctx, zero)) = %+v, true", tc)
 	}
 }

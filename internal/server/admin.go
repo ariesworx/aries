@@ -9,9 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
@@ -45,6 +43,7 @@ var adminHandlers = map[string]adminHandler{
 	proto.OpPrincipals:       adminTyped(principals),
 	proto.OpPrincipalDisable: adminTyped(principalDisable),
 	proto.OpPrincipalEnable:  adminTyped(principalEnable),
+	proto.OpPrincipalWhois:   adminTyped(principalWhois),
 	proto.OpMemberSet:        adminTyped(memberSet),
 	proto.OpMembers:          adminTyped(members),
 	proto.OpMemberRemove:     adminTyped(memberRemove),
@@ -448,7 +447,7 @@ func principalAdd(ctx context.Context, s *Server, sess *session, in proto.Princi
 	out := proto.PrincipalAddResult{PrincipalResult: proto.PrincipalResult{ID: p.Name, Rev: int64(p.Rev), State: string(p.State),
 		Project: proj.ID, ProjectName: proj.Name}}
 	if len(in.Keys) > 0 {
-		out.Warning = s.syncKeys()
+		out.Warning = s.syncKeys(ctx)
 		// A failure here shows no fingerprints: the keys were added.
 		added, err := s.cfg.Control.Keys(ctx, p.Name)
 		if err != nil {
@@ -492,7 +491,7 @@ func principalDisable(ctx context.Context, s *Server, sess *session, in proto.Pr
 	if err != nil {
 		return nil, s.ctlErr(ctx, sess, proto.OpPrincipalDisable, err)
 	}
-	warning := s.syncKeys()
+	warning := s.syncKeys(ctx)
 	s.drop(sess, "principal disabled", func(o owner) bool { return o.principal == p.Name })
 	released := s.release(ctx, sess.actor, "", p.Name, lostDisabled)
 	out := proto.PrincipalResult{ID: p.Name, Rev: int64(p.Rev), State: string(p.State), Released: released, Warning: warning}
@@ -508,7 +507,52 @@ func principalEnable(ctx context.Context, s *Server, sess *session, in proto.Pri
 	if err != nil {
 		return nil, s.ctlErr(ctx, sess, proto.OpPrincipalEnable, err)
 	}
-	return proto.PrincipalResult{ID: p.Name, Rev: int64(p.Rev), State: string(p.State), Warning: s.syncKeys()}, nil
+	return proto.PrincipalResult{ID: p.Name, Rev: int64(p.Rev), State: string(p.State), Warning: s.syncKeys(ctx)}, nil
+}
+
+// principalWhois says whose stand-in a span carries (design §16.4,
+// decision 32): for server admins only, since it undoes what the
+// stand-in is for. It tries the key against every principal of the
+// control store and every server admin of the config file, which is at
+// most the principals limit of them; a principal that was never on this
+// server, and a stand-in made under a key that has since been deleted,
+// match nobody.
+func principalWhois(ctx context.Context, s *Server, sess *session, in proto.PrincipalWhoisArgs) (any, *proto.Error) {
+	const op = proto.OpPrincipalWhois
+	if perr := s.serverOnly(sess, op, ""); perr != nil {
+		return nil, perr
+	}
+	if !telemetry.ValidStandIn(in.StandIn) {
+		return nil, proto.Errf(proto.CodeInvalid, "copy the principal attribute of a span: p_ and 16 hex digits, such as p_0123456789abcdef",
+			"that is not a principal's stand-in")
+	}
+	tel := s.cfg.Telemetry
+	if why := tel.NoKey(); why != "" {
+		// The server cannot answer; that is not the same as a stand-in
+		// that is nobody's.
+		return nil, proto.Errf(proto.CodeUnavailable,
+			"the server's operator finds the cause and its fix in starfixd's log (`telemetry: spans say nothing about who`) and in `starfixd status`; a stand-in made under a key file that was since deleted cannot be resolved by anyone (docs/server.md, Traces)",
+			"this server has no key for stand-ins: "+why)
+	}
+	all, err := s.cfg.Control.Principals(ctx)
+	if err != nil {
+		return nil, s.ctlErr(ctx, sess, op, err)
+	}
+	states := make(map[string]string, len(all))
+	names := make([]string, 0, len(all))
+	for _, p := range all {
+		names = append(names, p.Name)
+		states[p.Name] = string(p.State)
+	}
+	// A server admin of the config file signs in without a row.
+	names = append(names, s.cfg.Control.Admins()...)
+	name, ok := tel.Whois(in.StandIn, slices.Values(names))
+	if !ok {
+		return nil, proto.Errf(proto.CodeNotFound,
+			"check that the stand-in is from this server's traces; one made under a key file that was since deleted cannot be resolved by anyone",
+			fmt.Sprintf("%s is the stand-in of no principal of this server under its current key", in.StandIn))
+	}
+	return proto.PrincipalWhoisResult{StandIn: in.StandIn, Name: name, State: states[name]}, nil
 }
 
 // memberSet adds a membership or changes its role. Taking the admin
@@ -673,7 +717,7 @@ func keyAdd(ctx context.Context, s *Server, sess *session, in proto.KeyAddArgs) 
 		return nil, s.keyErr(ctx, sess, op, err)
 	}
 	out := wireKeyResult(k)
-	out.Change, out.Warning = "added", s.syncKeys()
+	out.Change, out.Warning = "added", s.syncKeys(ctx)
 	if slices.ContainsFunc(before, func(b store.PrincipalKey) bool { return b.Fingerprint == k.Fingerprint }) {
 		out.Change = "unchanged"
 	}
@@ -784,7 +828,7 @@ func keyRemove(ctx context.Context, s *Server, sess *session, in proto.KeyRemove
 		return nil, s.ctlErr(ctx, sess, proto.OpKeyRemove, err)
 	}
 	out := wireKeyResult(k)
-	out.Warning = s.syncKeys()
+	out.Warning = s.syncKeys(ctx)
 	if k.Principal == me && sess.fingerprint == "" {
 		unchecked := fmt.Sprintf("starfixd could not check that key %s is not the one this connection signed in with: the connection came in by the server's authorized_keys file, which names no key; `sfx whoami` shows the key in use",
 			k.Fingerprint)
@@ -834,15 +878,11 @@ func (s *Server) OpenProjects(ctx context.Context) error {
 		if p.State != store.ProjectActive {
 			continue
 		}
-		octx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
-		start := time.Now()
-		st, err := s.cfg.Open(octx, p)
-		cancel()
+		// This is where an upgrade's migrations run, so it is measured
+		// and traced as any opening is.
+		st, err := s.openStore(ctx, p)
 		if err == nil {
 			behind = append(behind, s.startBehind(ProjectLog(p.ID, p.DBName), st.ClockState()))
-			// This is where an upgrade's migrations run, so it is measured
-			// as any opening is.
-			s.cfg.Telemetry.Since(telemetry.StoreOpenDuration, start, strconv.FormatBool(st.Migrated() > 0))
 			err = st.Close()
 		}
 		if err != nil {

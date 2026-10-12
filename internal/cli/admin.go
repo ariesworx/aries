@@ -26,7 +26,7 @@ var adminGroups = []string{"prices", "plans", "project", "principal", "member", 
 
 // adminUsage is the usage of the access commands, for the command table.
 const adminUsage = "admin project add NAME [--prefix P] [--account A] | list | archive PROJECT | activate PROJECT" +
-	" | admin principal add NAME [--key FILE]... [--project P | --no-project] | list [--created-by NAME] | disable NAME | enable NAME" +
+	" | admin principal add NAME [--key FILE]... [--project P | --no-project] | list [--created-by NAME] | disable NAME | enable NAME | whois STAND-IN" +
 	" | admin member add NAME [--project P] [--role admin] [--accept-keys] | list [--project P] [--added-by NAME] | remove NAME [--project P]" +
 	" | admin key add NAME FILE|- | list NAME | list --added-by NAME | remove FINGERPRINT" +
 	" | admin status [-n N] [--after NAME]"
@@ -195,7 +195,7 @@ func printProjects(w io.Writer, res proto.ProjectsResult) {
 }
 
 func adminPrincipal(ctx context.Context, r *runner, args []string) error {
-	const usage = "admin principal add NAME [--key FILE]... [--project P | --no-project] | list [--created-by NAME] [-n N] [--after NAME] | disable NAME | enable NAME"
+	const usage = "admin principal add NAME [--key FILE]... [--project P | --no-project] | list [--created-by NAME] [-n N] [--after NAME] | disable NAME | enable NAME | whois STAND-IN"
 	fs := r.newFlags("admin principal")
 	var add proto.PrincipalAddArgs
 	var keyFiles fileFlag
@@ -209,7 +209,7 @@ func adminPrincipal(ctx context.Context, r *runner, args []string) error {
 		return err
 	}
 	if len(pos) == 0 {
-		return usagef(usage, "admin principal needs add, list, disable or enable")
+		return usagef(usage, "admin principal needs add, list, disable, enable or whois")
 	}
 	switch action := pos[0]; action {
 	case "add":
@@ -291,8 +291,38 @@ func adminPrincipal(ctx context.Context, r *runner, args []string) error {
 		printReleased(r.env.Stdout, out.Released, out.ID)
 		r.warn(out.Warning)
 		return nil
+	case "whois":
+		// The stand-in a trace carries in place of a principal's name
+		// (the server's `telemetry: principals: pseudonym`), resolved by
+		// the server, which holds the key: for server admins.
+		if err := only(fs, usage, "principal whois"); err != nil {
+			return err
+		}
+		if len(pos) != 2 {
+			return usagef(usage, "principal whois needs one stand-in, such as p_0123456789abcdef")
+		}
+		var out proto.PrincipalWhoisResult
+		if err := r.call(ctx, proto.OpPrincipalWhois, proto.PrincipalWhoisArgs{StandIn: pos[1]}, &out); err != nil {
+			return err
+		}
+		if r.json {
+			r.emit(out)
+			return nil
+		}
+		printWhois(r.env.Stdout, out)
+		return nil
 	}
 	return usagef(usage, "unknown principal action %q", pos[0])
+}
+
+// printWhois says whose a stand-in is, and that the principal is
+// disabled when it is.
+func printWhois(w io.Writer, res proto.PrincipalWhoisResult) {
+	note := ""
+	if res.State != "" && res.State != "active" {
+		note = " (" + esc(res.State) + ")"
+	}
+	_, _ = fmt.Fprintf(w, "%s is %s%s\n", esc(res.StandIn), esc(res.Name), note)
 }
 
 func printPrincipals(w io.Writer, res proto.PrincipalsResult) {

@@ -57,6 +57,9 @@ type ControlOptions struct {
 	MaxAttempts int
 	// Readers caps the read pool. Default 8.
 	Readers int
+	// Tracer, when set, is told where a write's time goes, as
+	// [Options.Tracer] is.
+	Tracer Tracer
 	// Operator marks a store opened by a command the operator runs on
 	// the server (`starfixd control init`), not by the daemon: its writes
 	// by [OperatorPrincipal] are allowed as a server admin's are. The
@@ -130,7 +133,7 @@ func OpenControl(ctx context.Context, dsn string, opts ControlOptions) (*Control
 	}
 	s, err := open(ctx, dsn, Options{
 		Admins: opts.Admins, Now: opts.Now, Clock: opts.Clock, Logger: opts.Logger, AllowUnsafeAccount: opts.AllowUnsafeAccount,
-		CommitInterval: opts.CommitInterval, MaxAttempts: opts.MaxAttempts, Readers: opts.Readers,
+		CommitInterval: opts.CommitInterval, MaxAttempts: opts.MaxAttempts, Readers: opts.Readers, Tracer: opts.Tracer,
 	}, controlSchema)
 	if err != nil {
 		return nil, err

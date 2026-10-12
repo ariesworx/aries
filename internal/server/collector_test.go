@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -62,8 +63,9 @@ func mix(t *testing.T, c *conn, rounds int) {
 // A collector that is down, and one that accepts connections and never
 // answers, change nothing a client can see (design §16.6): requests are
 // no slower than with telemetry off, memory does not grow with the
-// failures, no goroutine is left, the failures are logged once, and the
-// stop is not held.
+// failures, no goroutine is left, the failures are logged once for each
+// signal, and the stop is not held. Metrics and traces both go to the
+// dead collector: every request ends spans that can never be exported.
 //
 // The thresholds are loose, since the machine may be busy: they catch a
 // request that waits for an export, which would cost a timeout each, not
@@ -95,17 +97,20 @@ func TestDeadCollector(t *testing.T) {
 		env := map[string]string{}
 		if endpoint != "" {
 			// Exports every 20 ms, each given 150 ms: many fail, or time
-			// out, while the requests run.
+			// out, while the requests run. The queue of spans is small,
+			// so that it fills.
 			env = map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://" + endpoint, "OTEL_METRIC_EXPORT_INTERVAL": "20",
-				"OTEL_METRIC_EXPORT_TIMEOUT": "150", "OTEL_EXPORTER_OTLP_TIMEOUT": "150"}
+				"OTEL_METRIC_EXPORT_TIMEOUT": "150", "OTEL_EXPORTER_OTLP_TIMEOUT": "150",
+				"OTEL_BSP_SCHEDULE_DELAY": "20", "OTEL_BSP_EXPORT_TIMEOUT": "150", "OTEL_BSP_MAX_QUEUE_SIZE": "64", "OTEL_BSP_MAX_EXPORT_BATCH_SIZE": "16"}
 		}
 		tel, err := telemetry.New(t.Context(), telemetry.Config{Version: "v0.2.0", PerProject: true, Ops: Ops(), Logger: slogTo(log),
-			Getenv: func(k string) string { return env[k] }})
+			KeyFile: filepath.Join(t.TempDir(), "principals.key"),
+			Getenv:  func(k string) string { return env[k] }})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if tel.Enabled() != (endpoint != "") {
-			t.Fatalf("telemetry enabled = %t with endpoint %q", tel.Enabled(), endpoint)
+		if on := endpoint != ""; tel.Enabled() != on || tel.Tracing() != on {
+			t.Fatalf("metrics on = %t and traces on = %t with endpoint %q", tel.Enabled(), tel.Tracing(), endpoint)
 		}
 		s := newServerTel(t, Limits{WriteBurst: 100000, WriteRate: 100000}, tel)
 		c := dialPipe(t, s, alice)
@@ -144,6 +149,9 @@ func TestDeadCollector(t *testing.T) {
 			}
 			if n := strings.Count(got.log, "a metrics export failed"); n != 1 {
 				t.Errorf("%d export failures logged, want exactly 1 for a collector that stays dead:\n%s", n, got.log)
+			}
+			if n := strings.Count(got.log, "a trace export failed"); n != 1 {
+				t.Errorf("%d trace export failures logged, want exactly 1 for a collector that stays dead:\n%s", n, got.log)
 			}
 			if strings.Contains(got.log, "level=ERROR") {
 				t.Errorf("an error was logged:\n%s", got.log)

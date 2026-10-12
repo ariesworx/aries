@@ -26,13 +26,13 @@ stage is in progress.
 |---|---|
 | `cmd/sfx` | `sfx` entry point: builds a `cli.Env` from the process and calls `cli.Run` |
 | `cmd/starfixd` | `starfixd` entry point: `serve` (which, on a server of many projects, also writes the keys file sshd reads), `stdio`, `upgrade`, `status` (the running daemon's report, over its socket), and the admin `control init`, `import-bd` and `export-bd`. `serve` also wires the telemetry, the loopback listener and systemd's notifications (`runDaemon`) |
-| `internal/store` | Typed store over Dolt: single writer, CAS updates, event log, ready and blocked queries. Also `Control` (`control*.go`), the same machinery over a second database for what is the server's: projects, principals, their public keys and memberships with roles, and the in-memory index the daemon reads at each handshake and each project store asks for its admins. `stats.go` holds what `sfx admin status` reads from memory: a store's write counters, and the control index's counts |
+| `internal/store` | Typed store over Dolt: single writer, CAS updates, event log, ready and blocked queries. Also `Control` (`control*.go`), the same machinery over a second database for what is the server's: projects, principals, their public keys and memberships with roles, and the in-memory index the daemon reads at each handshake and each project store asks for its admins. `stats.go` holds what `sfx admin status` reads from memory: a store's write counters, and the control index's counts. `observe.go` holds the two hooks the daemon measures and traces a store through, `Observer` and `Tracer`; the store imports nothing of telemetry |
 | `internal/store/migrations`, `internal/store/controlmigrations` | Embedded schema migrations for a project's database and for the control database, two separate sets: `NNNN_name.sql`, each numbered 1..n without gaps |
 | `internal/proto` | Wire protocol: NDJSON frames, handshake, `Op` constants, `*Args` and `*Result` types, typed errors; and the bridge frame, which passes between two `starfixd` processes on the server, carries no version and only ever gains fields |
 | `internal/server` | Daemon: socket, peer check, sshd bridge, dispatch of ops to the connection's project's store, error mapping, settings; with `control_db`, the membership check at the handshake, the registry of open project stores (`registry.go`), the `sfx admin` ops over the control store (`admin.go`), the closing of connections whose access ended (`conns.go`), keys for sshd (`keys.go`): the `authorized_keys`-format file it writes from the control store (`Server.WriteKeys`), the hand-maintained `authorized_keys` it only reads, and the ending of claims whose holder lost access; and the report `sfx admin status` reads (`status.go`) |
 | `internal/client` | In-process SSH client with a pinned host key, over TCP or a Google Cloud IAP tunnel; which key it offers (`STARFIX_KEY_FILE`, or `key:`, and then no other; with neither, the default identities of `~/.ssh` and then ssh-agent's keys); `.starfix.yaml` discovery, and the one printed for a new project; session ids |
 | `internal/safetext` | Unsafe characters (controls, bidi): the store's validation, bd import cleaning, and the escaping of everything clients print |
-| `internal/telemetry` | starfixd's metrics, and the only importer of the OpenTelemetry SDK, its exporters and the Prometheus client (design §16): the instruments and their fixed attribute values (`instruments.go`), OTLP/HTTP push from the `OTEL_*` variables, the Prometheus handler, the loopback listener with `/metrics`, `/healthz` and `/readyz`, and `Manual`, which reads the instruments in process for tests. A nil `*Telemetry` does nothing. Its tests fail if `cmd/sfx` links any of the SDK or another package imports it |
+| `internal/telemetry` | starfixd's metrics and traces, and the only importer of the OpenTelemetry SDK, its exporters and the Prometheus client (design §16): the instruments and their fixed attribute values (`instruments.go`), spans with their fixed names, keys and values (`trace.go`, whose rule is that a span carries ids, codes and small numbers and never text), how a person appears on a span and the key of the stand-ins (`people.go`), OTLP/HTTP push of both from the `OTEL_*` variables, the Prometheus handler, the loopback listener with `/metrics`, `/healthz` and `/readyz`, and `Manual`, which reads the instruments and the spans in process for tests. A nil `*Telemetry` does nothing. Its tests fail if `cmd/sfx` links any of the SDK or another package imports it |
 | `internal/doltmetrics` | Dolt's own figures for the status report (design §16.5), with the standard library alone: a reader of Dolt's Prometheus endpoint that connects to loopback only, follows no redirect and gives up after 5 seconds, and a parser of its own for the six series starfixd shows, which trusts nothing in the body and has a fuzz target. `internal/server` reads it on a timer (`doltwatch.go`) and sets the collector's cycles against its stores' writes |
 | `internal/sdnotify` | systemd's notify socket with the standard library: ready, stopping and the watchdog; a no-op off Linux and without `NOTIFY_SOCKET` |
 | `internal/statustext` | The status report as text, shared by `sfx admin status` and `starfixd status` |
@@ -40,7 +40,7 @@ stage is in progress.
 | `internal/cli` | `sfx` commands, `sfx admin` among them; writes only to the `Env` it is given |
 | `internal/board` | `sfx tui`, the live board: the model and its golden-tested frames, `Live` (event push, debounced rereads, reconnects), and the terminal loop over `golang.org/x/term` |
 | `internal/capture` | Token usage read from a harness's local records (Claude Code transcripts) for `sfx usage --hook`, with per-file offsets in a 0600 state file |
-| `internal/mcpserver` | MCP tools, `prime`, token budgets, agent-facing error rewording |
+| `internal/mcpserver` | MCP tools, `prime`, token budgets, agent-facing error rewording; and the trace context a tool call brings in its request's metadata, which its requests then carry |
 | `internal/agentsetup` | `sfx setup AGENT` and `--all`: per harness, the MCP config, pointer block, SessionStart hook (and Claude Code's usage hooks) and the hook's output format; per-project entries in a desktop app's config (`desktop.go`); `STARFIX_KEY_FILE` in an entry of the person's own files (`--key-file`), never a project's |
 | `internal/clienttest` | `Isolate`, which keeps a test binary from the developer's `~/.ssh`, ssh-agent and key variables; every package whose tests connect calls it from `TestMain` |
 | `internal/gitx` | Branch names from issues, issue ids from branches and `Starfix:` trailers |
@@ -139,7 +139,12 @@ Dolt for a test through `dolttest`, never directly.
    `bob` and invented UUIDs (design principle 10).
 2. **No secret in argv, logs, output or the repository.** `starfixd` refuses
    a DSN password on the command line, and a config file holding one must be
-   mode 0600. Follow that pattern for anything new.
+   mode 0600. Follow that pattern for anything new. **And no text in
+   telemetry:** a span carries ids, codes and small numbers, never an
+   issue's or a memory's text, a comment, a key, a DSN, a token or an
+   error's message (design §16.4). `internal/telemetry` enforces it for
+   whatever a caller passes, so start spans through it and add a key
+   only with a rule for its values.
 3. **Agents never handle release signing keys.** Releases are signed by the
    maintainer's gated `release` environment ([RELEASING.md](RELEASING.md)).
    Do not edit `internal/release/keys.go` or the release workflow's signing
@@ -218,7 +223,8 @@ Dolt for a test through `dolttest`, never directly.
     to ask a person, never to run an admin command
     (`internal/mcpserver/errors.go`).
     Identity is implicit: the principal comes from the SSH key and the
-    session from the environment, never from a tool argument. Results are capped
+    session from the environment, never from a tool argument. A trace
+    context is the request's metadata (`_meta`), never an argument. Results are capped
     (`budget.go`: 2,000 tokens, prime and digest 1,500) and the whole tool
     schema set at about 2,700 estimated tokens; the tests enforce both and
     pin the tool list. Keep schema descriptions terse.

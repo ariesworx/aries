@@ -3,38 +3,44 @@ package telemetry
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"maps"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
-// Manual reads a Telemetry's instruments in process, on demand: what a
-// test asserts values with, and what a soak compares against the event
-// log. It exports nothing.
+// Manual reads a Telemetry's instruments and spans in process, on
+// demand: what a test asserts values and structure with, and what a soak
+// compares against the event log. It exports nothing.
 type Manual struct {
-	r *sdkmetric.ManualReader
+	r     *sdkmetric.ManualReader
+	spans recorder
 }
 
 // NewManual makes a Telemetry that records as [New]'s does, with the
-// same instruments, attributes and buckets, and is read through the
-// Manual. cfg.Getenv is read only for the resource; cfg.Pull also
-// offers the Prometheus handler. The process's SDK error handler is left
-// alone.
+// same instruments, attributes, buckets and spans, and is read through
+// the Manual. cfg.Getenv is read for the resource and the sampler;
+// cfg.Pull also offers the Prometheus handler; and the stand-in key is
+// cfg.KeyFile's, made if it is not there, as when spans are exported,
+// or, with no file named, one kept in memory for the test's life.
+// The process's SDK error handler is left alone.
 func NewManual(cfg Config) (*Telemetry, *Manual, error) {
 	env, err := readEnv(cfg.Getenv)
 	if err != nil {
 		return nil, nil, err
 	}
-	log := cfg.Logger
-	if log == nil {
-		log = slog.New(slog.DiscardHandler)
+	t := newTelemetry(cfg, env)
+	if t.who, err = openPeople(cfg, true, true, t.log); err != nil {
+		return nil, nil, err
 	}
-	t := &Telemetry{log: log, errs: newErrlog(log, env.secrets())}
 	m := &Manual{r: sdkmetric.NewManualReader()}
 	readers := []sdkmetric.Reader{m.r}
 	if cfg.Pull {
@@ -45,10 +51,116 @@ func NewManual(cfg Config) (*Telemetry, *Manual, error) {
 		t.pull = pull
 		readers = append(readers, reader)
 	}
-	if err := t.build(cfg, env, readers...); err != nil {
+	res := resource.NewSchemaless(env.resource(cfg.Version)...)
+	if err := t.build(res, readers...); err != nil {
 		return nil, nil, err
 	}
+	t.trace(res, env.traces, &m.spans)
 	return t, m, nil
+}
+
+// recorder keeps the spans that ended, in the order they ended.
+type recorder struct {
+	mu    sync.Mutex
+	spans []sdktrace.ReadOnlySpan
+}
+
+func (*recorder) OnStart(context.Context, sdktrace.ReadWriteSpan) {}
+
+func (r *recorder) OnEnd(s sdktrace.ReadOnlySpan) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.spans = append(r.spans, s)
+}
+
+func (*recorder) Shutdown(context.Context) error   { return nil }
+func (*recorder) ForceFlush(context.Context) error { return nil }
+
+// SpanData is one span that ended and was sampled.
+type SpanData struct {
+	// Name is the span's name: an op, or one of the SpanNames.
+	Name string
+	// Kind is "server" for a request's or a handshake's span, and
+	// "internal" for every other.
+	Kind string
+	// TraceID and SpanID are the span's ids, in hex. ParentID is its
+	// parent's span id, or empty for the root of a trace, and
+	// RemoteParent says the parent is the caller's span, from the trace
+	// context a request brought.
+	TraceID, SpanID, ParentID string
+	RemoteParent              bool
+	// Attrs are the span's attributes.
+	Attrs map[string]string
+	// Status is "error" for a span marked failed and StatusNote its
+	// description; both are empty otherwise.
+	Status, StatusNote string
+	// Events and Links count what the span carries beyond attributes,
+	// and TraceState is its tracestate; starfixd's spans carry none.
+	Events, Links int
+	TraceState    string
+	// Start and End are when the span began and ended.
+	Start, End time.Time
+}
+
+// Spans returns the sampled spans that have ended, in the order they
+// ended: a child before its parent.
+func (m *Manual) Spans() []SpanData {
+	m.spans.mu.Lock()
+	defer m.spans.mu.Unlock()
+	out := make([]SpanData, 0, len(m.spans.spans))
+	for _, s := range m.spans.spans {
+		d := SpanData{Name: s.Name(), Kind: s.SpanKind().String(), TraceID: s.SpanContext().TraceID().String(),
+			SpanID: s.SpanContext().SpanID().String(), RemoteParent: s.Parent().IsRemote(),
+			Attrs: make(map[string]string, len(s.Attributes())), Events: len(s.Events()), Links: len(s.Links()),
+			TraceState: s.SpanContext().TraceState().String(),
+			Start:      s.StartTime(), End: s.EndTime()}
+		if s.Parent().IsValid() {
+			d.ParentID = s.Parent().SpanID().String()
+		}
+		for _, kv := range s.Attributes() {
+			d.Attrs[string(kv.Key)] = kv.Value.String()
+		}
+		if st := s.Status(); st.Code == codes.Error {
+			d.Status, d.StatusNote = "error", st.Description
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+// ResetSpans forgets the spans that have ended so far.
+func (m *Manual) ResetSpans() {
+	m.spans.mu.Lock()
+	defer m.spans.mu.Unlock()
+	m.spans.spans = nil
+}
+
+// SpanNames returns the names of spans, in order.
+func SpanNames(spans []SpanData) []string {
+	out := make([]string, len(spans))
+	for i, s := range spans {
+		out[i] = s.Name
+	}
+	return out
+}
+
+// SpanList lists spans, one a line, for a test's failure message.
+func SpanList(spans []SpanData) string {
+	var b strings.Builder
+	for _, s := range spans {
+		fmt.Fprintf(&b, "%s (%s) trace=%s span=%s parent=%s", s.Name, s.Kind, s.TraceID, s.SpanID, s.ParentID)
+		if s.RemoteParent {
+			b.WriteString(" (remote)")
+		}
+		for _, k := range slices.Sorted(maps.Keys(s.Attrs)) {
+			fmt.Fprintf(&b, " %s=%s", k, s.Attrs[k])
+		}
+		if s.Status != "" {
+			fmt.Fprintf(&b, " status=%s:%s", s.Status, s.StatusNote)
+		}
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 // Point is one series of an instrument as last collected.

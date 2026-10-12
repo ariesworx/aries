@@ -16,12 +16,14 @@ func withTrace(ctx context.Context, tc proto.TraceContext) context.Context {
 }
 
 // TraceFrom returns the W3C trace context of the request ctx belongs to:
-// the caller's trace, and the caller's span as the parent of any span
-// started for the request. It reports false for a request that brought
-// none, or none that was valid, and outside a request.
+// the caller's trace, and the caller's span, which is the parent of the
+// server's span for the request (design §14, decision 27; §16.4). It
+// reports false for a request that brought none, or none that was valid,
+// and outside a request.
 //
-// The server only carries it (design §14, decision 27): it starts and
-// exports no spans, and nothing but the request's log line reads it yet.
+// It is the caller's context as the frame carried it. The server's own
+// span, when it traces, is on the same context: telemetry.IDs reads its
+// ids.
 func TraceFrom(ctx context.Context) (proto.TraceContext, bool) {
 	tc, ok := ctx.Value(traceKey{}).(proto.TraceContext)
 	return tc, ok

@@ -149,6 +149,33 @@ them. HTTPS was run against a receiver on the machine with a
 certificate from a private authority added to the machine's trust
 store, not against a real backend.
 
+## What traces need
+
+Slice O2 of the observability work has the daemon export traces to the
+same collector, and name people on them by a stand-in made with a key
+it keeps in a file ([Traces](../../docs/server.md#traces)). It was run
+on the same machine on 12 October 2026, with the three profiles
+enforced, the guide's unit and its drop-in for the key's directory, and
+a throwaway OTLP receiver (Python's `http.server`) on the machine.
+
+| What starfixd does | Needs |
+|---|---|
+| Posts traces to a collector | Nothing new: the rules that carry metrics carry them. A hosted backend needs the same three lines in `local/starfixd-serve` as for metrics; that was not run again for traces |
+| Makes the stand-in key once, and reads it at each start | **A new rule**, `owner @{starfixd_principals_key} rw,` in `starfixd-serve`, and the tunable it names, `/var/lib/starfix/telemetry/principals.key`. The rule names the one file, not its directory. Without it the daemon runs as before and its traces say nothing about who: its log has `telemetry: spans say nothing about who …` with `cause: it cannot be made: permission denied`, its status report says the same, and the kernel log has `operation="mknod" … name="/var/lib/starfix/telemetry/principals.key" … requested_mask="c"` |
+
+With the rule loaded, by `apparmor_parser -r` and with no restart, the
+daemon made the key at its next look, half a minute later, with mode
+0600, and its spans carried stand-ins from then on. In an earlier run
+of the same day it read the key again at a restart and made a new one
+after the file was deleted. The 76 checks of the runs above passed with
+traces on, and nothing was denied.
+
+The bridge's and the operator's profiles have no rule for the file, so
+neither can read it: the operator's allows the top of the home
+directory, and the key is one level down. Both were tried as the
+`starfix` user, who owns the file, and both were refused and logged as
+`DENIED`.
+
 ## What is not covered
 
 - **A real upgrade.** A build from source refuses to upgrade itself, so

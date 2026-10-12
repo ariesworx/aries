@@ -37,7 +37,8 @@ type Options struct {
 	// Harness names the agent harness, or is empty (HarnessFromEnv).
 	Harness string
 	// Trace is the caller's W3C trace context, sent on every request of
-	// the connection, or the zero value for none (TraceFromEnv).
+	// the connection whose call brings none of its own ([WithTrace]), or
+	// the zero value for none (TraceFromEnv).
 	Trace proto.TraceContext
 	// Getenv reads SSH_AUTH_SOCK and EnvKeyFile. Default os.Getenv.
 	Getenv func(string) string
@@ -75,7 +76,8 @@ type Conn struct {
 	// kill closes the transport, ending the reader and any call.
 	kill   func() error
 	onPush func(proto.Push)
-	// trace goes on every request (Options.Trace).
+	// trace goes on every request whose call has none of its own
+	// (Options.Trace).
 	trace proto.TraceContext
 
 	res     chan *proto.Frame // responses, from the reader to Call
@@ -376,7 +378,13 @@ func (c *Conn) Call(ctx context.Context, op string, args, result any) error {
 	if err != nil {
 		return err
 	}
-	f.Traceparent, f.Tracestate = c.trace.Traceparent(), c.trace.State
+	// The call's own trace context, when its caller gave one, and the
+	// connection's otherwise.
+	tc := c.trace
+	if own, ok := TraceFrom(ctx); ok {
+		tc = own
+	}
+	f.Traceparent, f.Tracestate = tc.Traceparent(), tc.State
 	stop := context.AfterFunc(ctx, func() { _ = c.kill() })
 	defer stop()
 	if err := c.enc.Encode(f); err != nil {

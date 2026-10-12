@@ -15,8 +15,9 @@ import "time"
 // The same protocol has a principal's public SSH keys, which the daemon
 // writes to a file sshd reads (design §15.2): key.add, keys and
 // key.remove, and Keys on principal.add; and status, a read for an admin
-// watching the server. They joined protocol 5 before it shipped in a
-// release (version.go).
+// watching the server; and principal.whois, which resolves the stand-in
+// a trace carries in place of a principal's name (design §16.4). They
+// joined protocol 5 before it shipped in a release (version.go).
 const (
 	OpProjectAdd       = "project.add"       // ProjectAddArgs → ProjectAddResult; server admins
 	OpProjects         = "projects"          // AdminListArgs → ProjectsResult
@@ -26,6 +27,7 @@ const (
 	OpPrincipals       = "principals"        // AdminListArgs → PrincipalsResult; server admins
 	OpPrincipalDisable = "principal.disable" // PrincipalArgs → PrincipalResult
 	OpPrincipalEnable  = "principal.enable"  // PrincipalArgs → PrincipalResult
+	OpPrincipalWhois   = "principal.whois"   // PrincipalWhoisArgs → PrincipalWhoisResult; server admins
 	OpMemberSet        = "member.set"        // MemberSetArgs → MemberSetResult
 	OpMembers          = "members"           // MembersArgs → MembersResult
 	OpMemberRemove     = "member.remove"     // MemberArgs → MemberRemoveResult
@@ -151,6 +153,21 @@ type PrincipalResult struct {
 	PrincipalsCreated int    `json:"principals_created,omitempty"`
 	MembersAdded      int    `json:"members_added,omitempty"`
 	Warning           string `json:"warning,omitempty"`
+}
+
+// PrincipalWhoisArgs asks whose stand-in StandIn is: "p_" and 16 hex
+// digits, as a span of the server's traces carries it in place of a
+// principal's name (`telemetry: principals: pseudonym`).
+type PrincipalWhoisArgs struct {
+	StandIn string `json:"stand_in"`
+}
+
+// PrincipalWhoisResult is the principal a stand-in is for, and its
+// state.
+type PrincipalWhoisResult struct {
+	StandIn string `json:"stand_in"`
+	Name    string `json:"name"`
+	State   string `json:"state,omitempty"`
 }
 
 // PrincipalsArgs lists principals, as AdminListArgs pages them: all of
@@ -420,6 +437,24 @@ type ServerStatus struct {
 	// Dolt is what starfixd last read from Dolt's own metrics endpoint;
 	// nil when it reads none (telemetry.dolt_metrics_url is not set).
 	Dolt *DoltStatus `json:"dolt,omitempty"`
+	// Traces is how people appear in the traces the server exports;
+	// nil when it exports none.
+	Traces *TracesStatus `json:"traces,omitempty"`
+}
+
+// TracesStatus is how people appear in the traces the server exports;
+// a server that exports none has none. People is "pseudonym" (a stable
+// stand-in for each name), "name" or "omit", as `telemetry: principals:`
+// has it, or "unavailable": the setting is pseudonym, and spans say
+// nothing about who because the key the stand-ins are made with cannot
+// be read or made. Cause then says why, KeyFile names the key's file,
+// and Damaged says the file is there and cannot be trusted (others can
+// read it, or it does not hold a key).
+type TracesStatus struct {
+	People  string `json:"people"`
+	Cause   string `json:"cause,omitempty"`
+	Damaged bool   `json:"damaged,omitempty"`
+	KeyFile string `json:"key_file,omitempty"`
 }
 
 // DoltStatus is Dolt as its own metrics endpoint describes it (design

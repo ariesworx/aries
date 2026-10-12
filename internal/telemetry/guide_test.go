@@ -65,3 +65,44 @@ func TestGuideListsEveryInstrument(t *testing.T) {
 		}
 	}
 }
+
+// The server guide's Traces section is the code's: every span has a row
+// with its name, every attribute key a span may have has a row with
+// what it holds, and every outcome, every sampler and every value of
+// telemetry: principals: is named.
+func TestGuideListsEverySpan(t *testing.T) {
+	b, err := os.ReadFile("../../docs/server.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, section, ok := strings.Cut(string(b), "\n### Traces\n")
+	if !ok {
+		t.Fatal("docs/server.md has no section headed ### Traces")
+	}
+	section, _, _ = strings.Cut(section, "\n### ")
+	// The first cell of each table row, which may name several things.
+	rows := map[string]bool{}
+	for line := range strings.Lines(section) {
+		if cells := strings.Split(line, "|"); len(cells) >= 3 {
+			for name := range strings.SplitSeq(cells[1], ",") {
+				rows[strings.Trim(strings.TrimSpace(name), "`")] = true
+			}
+		}
+	}
+	for _, name := range Spans() {
+		if !rows[name] {
+			t.Errorf("docs/server.md, Traces: no row for the span %s", name)
+		}
+	}
+	for _, key := range SpanKeys() {
+		if !rows[key] {
+			t.Errorf("docs/server.md, Traces: no row for the attribute %s", key)
+		}
+	}
+	for _, word := range slices.Concat(outcomes, []string{Unknown, Other, PrincipalsPseudonym, PrincipalsName, PrincipalsOmit,
+		samplerAlwaysOn, samplerAlwaysOff, samplerRatio, samplerParentOn, samplerParentOff, samplerParentRatio}) {
+		if !strings.Contains(section, "`"+word+"`") {
+			t.Errorf("docs/server.md, Traces does not name `%s`", word)
+		}
+	}
+}

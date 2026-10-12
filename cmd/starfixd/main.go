@@ -26,12 +26,14 @@
 // asks the running daemon, over its socket and as its own user, for the
 // report `sfx admin status` gives a server admin.
 //
-// serve exports metrics when it is configured to (docs/server.md,
-// Observability): pushed over OTLP/HTTP to the endpoint the standard
-// OTEL_* environment variables name, and offered to a scraper, with
-// /healthz and /readyz, on the loopback listener telemetry: listen:
-// sets. Under systemd with Type=notify it says when it is ready, and
-// feeds the unit's watchdog.
+// serve exports metrics and traces when it is configured to
+// (docs/server.md, Observability): pushed over OTLP/HTTP to the endpoint
+// the standard OTEL_* environment variables name, and the metrics
+// offered to a scraper, with /healthz and /readyz, on the loopback
+// listener telemetry: listen: sets. Its traces name people by a
+// stand-in unless telemetry: principals: says otherwise, made with a
+// key it keeps in a file of its own. Under systemd with Type=notify it
+// says when it is ready, and feeds the unit's watchdog.
 package main
 
 import (
@@ -46,6 +48,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -99,15 +102,21 @@ start again. --accept-clock-behind TIME starts once all the same, for a
 history no later than TIME, which the refusal prints; clock_behind: warn
 (or $STARFIXD_CLOCK_BEHIND) starts with a warning every time.
 
-serve exports nothing and opens no port unless configured to: metrics are
-pushed over OTLP/HTTP to $OTEL_EXPORTER_OTLP_ENDPOINT when it is set, and
-telemetry: listen: (a loopback HOST:PORT, or $STARFIXD_TELEMETRY_LISTEN)
-serves /metrics, /healthz and /readyz to this machine. status prints what
-the running daemon knows of itself and its projects; run it as the user
-starfixd runs as. With telemetry: dolt_metrics_url: (an http:// URL on a
-loopback address, or $STARFIXD_TELEMETRY_DOLT_METRICS_URL) set to Dolt's
-own metrics endpoint, serve reads it every 15 seconds and status shows
-Dolt's memory, connections, uptime and collector.
+serve exports nothing and opens no port unless configured to: metrics and
+traces are pushed over OTLP/HTTP to $OTEL_EXPORTER_OTLP_ENDPOINT when it
+is set, and telemetry: listen: (a loopback HOST:PORT, or
+$STARFIXD_TELEMETRY_LISTEN) serves /metrics, /healthz and /readyz to this
+machine. Traces name people by a stand-in (telemetry: principals:
+pseudonym, name or omit), made with a key serve keeps in telemetry:
+principals_key: (default telemetry/principals.key in its home directory).
+Until serve can make that file its traces say nothing about who, and its
+log and its status say why; $OTEL_TRACES_EXPORTER=none sends metrics
+alone. status prints what the running daemon knows of itself and its
+projects; run it as the user starfixd runs as. With telemetry:
+dolt_metrics_url: (an http:// URL on a loopback address, or
+$STARFIXD_TELEMETRY_DOLT_METRICS_URL) set to Dolt's own metrics endpoint,
+serve reads it every 15 seconds and status shows Dolt's memory,
+connections, uptime and collector.
 
 Every command that opens the store refuses a Dolt account that is root,
 holds rights beyond its database, or a server whose secure_file_priv is
@@ -138,7 +147,11 @@ func main() {
 		}
 		os.Exit(exitClockBehind)
 	}
-	fmt.Fprintf(os.Stderr, "starfixd: %v\n", err)
+	// The cause, then each fix, on a line of its own: `systemctl status`
+	// cuts a long line, and the fix is at its end.
+	for _, l := range refusalLines(err) {
+		fmt.Fprintf(os.Stderr, "starfixd: %s\n", l)
+	}
 	if _, ok := errors.AsType[usageError](err); ok {
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
@@ -254,8 +267,13 @@ const telemetryStop = 5 * time.Second
 // until it listens on its socket. A listener that cannot be bound fails
 // the start.
 func runDaemon(ctx context.Context, s server.Settings, log *slog.Logger, getenv func(string) string) error {
+	// A stand-in key that cannot be found, read or made never stops the
+	// daemon: its spans then say nothing about who, and its log and its
+	// status say why (telemetry.Config.KeyFile).
+	keyFile, keyErr := principalsKey(s)
 	tel, err := telemetry.New(ctx, telemetry.Config{Version: version.Version, Getenv: getenv, Logger: log,
-		Pull: s.Telemetry.Listen != "", PerProject: s.Telemetry.ByProject(), Ops: server.Ops(), Projects: s.Limits.Control.Projects})
+		Pull: s.Telemetry.Listen != "", PerProject: s.Telemetry.ByProject(), Ops: server.Ops(), Projects: s.Limits.Control.Projects,
+		Principals: s.Telemetry.Principals, KeyFile: keyFile, KeyFileErr: keyErr})
 	if err != nil {
 		return err
 	}
@@ -340,6 +358,16 @@ func runDaemon(ctx context.Context, s server.Settings, log *slog.Logger, getenv 
 	return errors.Join(err, d.Close())
 }
 
+// refusalLines is err as the lines main prints: what went wrong, then
+// each "fix: " the error names, a line each.
+func refusalLines(err error) []string {
+	parts := strings.Split(err.Error(), "; fix: ")
+	for i := 1; i < len(parts); i++ {
+		parts[i] = "fix: " + parts[i]
+	}
+	return parts
+}
+
 // hooks are what runDaemon adds to the daemon openDaemonWith builds.
 // The zero value adds nothing.
 type hooks struct {
@@ -401,6 +429,7 @@ func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h 
 		}
 		opts.Prefix, opts.Admins = s.Prefix, s.Admins
 		opts.Observer = server.StoreObserver(h.tel, s.Project)
+		opts.Tracer = server.StoreTracer(h.tel, s.Project)
 		st, err := store.Open(ctx, s.DSN, opts)
 		if err != nil {
 			return nil, fmt.Errorf("open store: %w", err)
@@ -412,7 +441,7 @@ func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h 
 		}
 		return &daemon{srv: srv, st: st}, nil
 	}
-	ctl, err := openControl(ctx, s, store.ControlOptions{Logger: log, Clock: clk})
+	ctl, err := openControl(ctx, s, store.ControlOptions{Logger: log, Clock: clk, Tracer: server.StoreTracer(h.tel, "")})
 	if err != nil {
 		return nil, err
 	}
@@ -466,17 +495,39 @@ func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h 
 func keyFiles(s server.Settings) (keysFile, authorizedKeys string, err error) {
 	home := ""
 	if !filepath.IsAbs(s.KeysFile) || !filepath.IsAbs(s.AuthorizedKeys) {
-		u, err := user.Current()
-		if err == nil && !filepath.IsAbs(u.HomeDir) {
-			err = errors.New("the account has no home directory")
+		if home, err = accountHome(); err != nil {
+			return "", "", fmt.Errorf("%w; fix: set keys_file: and authorized_keys: to absolute paths in the config file", err)
 		}
-		if err != nil {
-			return "", "", fmt.Errorf("find the home directory of the user starfixd runs as: %w; fix: set keys_file: and authorized_keys: to absolute paths in the config file", err)
-		}
-		home = u.HomeDir
 	}
 	keysFile, authorizedKeys = s.KeyFiles(home)
 	return keysFile, authorizedKeys, nil
+}
+
+// principalsKey returns the absolute path of the file that holds the
+// key principals' stand-ins are made with (telemetry: principals_key:),
+// which is under the account's home directory when the setting is
+// relative, as it is by default.
+func principalsKey(s server.Settings) (string, error) {
+	home := ""
+	if !filepath.IsAbs(s.Telemetry.PrincipalsKey) {
+		var err error
+		if home, err = accountHome(); err != nil {
+			return "", fmt.Errorf("no file is named for it: %w", err)
+		}
+	}
+	return s.PrincipalsKey(home), nil
+}
+
+// accountHome returns the home directory of the user starfixd runs as.
+func accountHome() (string, error) {
+	u, err := user.Current()
+	if err == nil && !filepath.IsAbs(u.HomeDir) {
+		err = errors.New("the account has no home directory")
+	}
+	if err != nil {
+		return "", fmt.Errorf("find the home directory of the user starfixd runs as: %w", err)
+	}
+	return u.HomeDir, nil
 }
 
 // warnOfAdmins logs, for each server admin the config file names, a row

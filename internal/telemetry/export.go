@@ -53,6 +53,9 @@ const errEvery = 10 * time.Minute
 type errlog struct {
 	log     *slog.Logger
 	secrets []string
+	// what names the exports in the line that says they succeed again:
+	// "metrics" or "trace".
+	what string
 	// now is the clock; tests replace it.
 	now func() time.Time
 
@@ -64,8 +67,8 @@ type errlog struct {
 	failing    int
 }
 
-func newErrlog(log *slog.Logger, secrets []string) *errlog {
-	return &errlog{log: log, secrets: secrets, now: time.Now}
+func newErrlog(log *slog.Logger, secrets []string, what string) *errlog {
+	return &errlog{log: log, secrets: secrets, what: what, now: time.Now}
 }
 
 // redact removes every secret from s: a header's value may be a token,
@@ -108,7 +111,7 @@ func (e *errlog) ok() {
 	e.failing, e.suppressed, e.last = 0, 0, time.Time{}
 	e.mu.Unlock()
 	if n > 0 {
-		e.log.Info("telemetry: metrics exports succeed again", "failed", n)
+		e.log.Info("telemetry: "+e.what+" exports succeed again", "failed", n)
 	}
 }
 

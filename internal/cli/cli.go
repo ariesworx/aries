@@ -442,9 +442,10 @@ func (r *runner) clientOptions() client.Options {
 	}
 	// The trace context is the environment's, read once for the process:
 	// right for a command, which is one piece of work. `sfx mcp` lives
-	// for many agent turns, and a context for each tool call, from the
-	// MCP request's metadata, belongs to the tracing work (decision 27);
-	// until then every request of its connection carries this one.
+	// for many agent turns: a tool call that brings a trace context of
+	// its own, in its request's metadata, sends that one instead
+	// (mcpserver, client.WithTrace), and every other request of the
+	// connection carries this one.
 	return client.Options{Version: r.env.Version, Session: session,
 		Machine: host, Harness: client.HarnessFromEnv(r.env.Getenv), Getenv: r.env.Getenv, UserHomeDir: r.env.UserHomeDir,
 		Trace: client.TraceFromEnv(r.env.Getenv), OnPush: r.onPush}

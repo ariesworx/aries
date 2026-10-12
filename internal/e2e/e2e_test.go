@@ -44,6 +44,7 @@ import (
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/server"
 	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/starfix/internal/telemetry"
 )
 
 var (
@@ -157,6 +158,9 @@ type daemonOpts struct {
 	commit time.Duration
 	// logger, if set, receives the daemon's and the store's log.
 	logger *slog.Logger
+	// telemetry, if set, measures and traces the daemon and its stores,
+	// as `starfixd serve` wires them.
+	telemetry *telemetry.Telemetry
 	// many makes the daemon a server of many projects: the world's
 	// database is adopted as project, in a control store (world.ctl)
 	// whose server admins are admins. No one else may connect until a
@@ -240,14 +244,15 @@ func (w *world) startDaemon() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	clk := w.processClock()
 	st, err := store.Open(ctx, w.dsn, store.Options{Prefix: "sf", CommitInterval: o.commit, Now: o.now, Clock: clk, Admins: o.admins,
-		Limits: o.limits.Limits, Logger: o.logger})
+		Limits: o.limits.Limits, Logger: o.logger,
+		Observer: server.StoreObserver(o.telemetry, project), Tracer: server.StoreTracer(o.telemetry, project)})
 	if err != nil {
 		cancel()
 		return err
 	}
 	srv, err := server.New(server.Config{Store: st, Project: project, Version: "v0.2.0",
 		ProtoMin: o.protoMin, ProtoMax: o.protoMax, Latest: o.latest, ReapInterval: o.reap, Limits: o.limits,
-		Logger: o.logger, Clock: clk, AcceptHistory: w.acceptHistory})
+		Logger: o.logger, Clock: clk, AcceptHistory: w.acceptHistory, Telemetry: o.telemetry})
 	if err != nil {
 		cancel()
 		return errors.Join(err, st.Close())
@@ -337,7 +342,7 @@ func (w *world) startMany() error {
 	}
 	clk := w.processClock()
 	ctl, err := store.OpenControl(ctx, w.controlDSN, store.ControlOptions{Admins: o.admins, CommitInterval: o.commit, Now: o.now, Clock: clk,
-		Limits: o.limits.Control, Logger: o.logger})
+		Limits: o.limits.Control, Logger: o.logger, Tracer: server.StoreTracer(o.telemetry, "")})
 	if err != nil {
 		cancel()
 		return err
@@ -347,9 +352,9 @@ func (w *world) startMany() error {
 		return errors.Join(err, ctl.Close())
 	}
 	srv, err := server.New(server.Config{Control: ctl, Version: "v0.2.0", ProjectDBs: w.block,
-		Open:     server.ProjectOpener(w.dsn, ctl, store.Options{CommitInterval: o.commit, Now: o.now, Clock: clk, Limits: o.limits.Limits, Logger: o.logger}, nil),
+		Open:     server.ProjectOpener(w.dsn, ctl, store.Options{CommitInterval: o.commit, Now: o.now, Clock: clk, Limits: o.limits.Limits, Logger: o.logger}, o.telemetry),
 		ProtoMin: o.protoMin, ProtoMax: o.protoMax, Latest: o.latest, ReapInterval: o.reap, Limits: o.limits, Logger: o.logger,
-		KeysFile: w.keysFile, AuthorizedKeys: w.handFile, Clock: clk, AcceptHistory: w.acceptHistory})
+		KeysFile: w.keysFile, AuthorizedKeys: w.handFile, Clock: clk, AcceptHistory: w.acceptHistory, Telemetry: o.telemetry})
 	if err != nil {
 		return fail(err)
 	}
