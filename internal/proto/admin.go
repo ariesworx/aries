@@ -346,6 +346,38 @@ type ServerStatus struct {
 	Projects      map[string]int `json:"projects"`
 	Principals    map[string]int `json:"principals"`
 	KeysFile      *KeysFile      `json:"keys_file,omitempty"`
+	Clock         *ClockStatus   `json:"clock,omitempty"`
+}
+
+// ClockStatus is the server's clock as the daemon has seen it since it
+// started. Now is the clock's reading. StepsForward and StepsBackward
+// count the times it was set, or the machine suspended: a difference
+// between elapsed wall-clock and monotonic time past the server's
+// tolerance. LastStepAt is the clock's time just after the latest, and
+// LastStepSeconds its size, negative for a step back. Behind is set
+// while the clock is behind the history of a database the server
+// serves.
+type ClockStatus struct {
+	Now             time.Time    `json:"now"`
+	StepsForward    int          `json:"steps_forward"`
+	StepsBackward   int          `json:"steps_backward"`
+	LastStepAt      *time.Time   `json:"last_step_at,omitempty"`
+	LastStepSeconds float64      `json:"last_step_seconds,omitempty"`
+	Behind          *ClockBehind `json:"behind,omitempty"`
+}
+
+// ClockBehind says the server's clock is behind its own history: by
+// Seconds, as the daemon last saw it, since Since, against the latest
+// event of Log, the database furthest ahead, which is at History. The
+// server's time runs on from the history at half speed until the clock
+// has caught up. RefusesStart says the daemon would refuse to start as
+// things are (clock_behind: stop).
+type ClockBehind struct {
+	Seconds      int64     `json:"seconds"`
+	Since        time.Time `json:"since"`
+	Log          string    `json:"log"`
+	History      time.Time `json:"history"`
+	RefusesStart bool      `json:"refuses_start,omitempty"`
 }
 
 // KeysFile is the authorized_keys-format file the daemon writes from

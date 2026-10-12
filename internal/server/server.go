@@ -84,6 +84,21 @@ type Config struct {
 	// Bridge is the path of starfixd in the forced command of each line
 	// of KeysFile ([ValidBridge]). Empty takes DefaultBridge.
 	Bridge string
+	// Clock is the process's clock, the one its stores were opened with
+	// (store.Options.Clock): the server reports its steps. Nil makes one
+	// of its own, which sees the steps but shares them with no store.
+	Clock *store.Clock
+	// ClockBehind is what the server does at start when its clock is
+	// behind the history of a database it serves by more than
+	// BehindTolerance: ClockStop, the default, or ClockWarn (clock.go).
+	// BehindTolerance defaults to DefaultBehindTolerance.
+	ClockBehind     string
+	BehindTolerance time.Duration
+	// AcceptHistory, when set, lets a server whose ClockBehind is
+	// ClockStop start although its clock is behind its history, as long
+	// as that history is no later than this: the operator's answer, for
+	// one start, to a [*ClockBehindError], which names the time to give.
+	AcceptHistory time.Time
 }
 
 // Server serves the protocol. Create it with New.
@@ -124,6 +139,8 @@ type Server struct {
 	now func() time.Time
 	// started is when the server was made, for its uptime.
 	started time.Time
+	// clock is what the server has seen of Config.Clock (clock.go).
+	clock clockWatch
 
 	// single is the project of a server of one (Config.Store); stores
 	// holds the open projects of a server of many (Config.Control).
@@ -193,7 +210,18 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Bridge == "" {
 		cfg.Bridge = DefaultBridge
 	}
+	if cfg.Clock == nil {
+		cfg.Clock = store.NewClock(store.ClockOptions{})
+	}
+	if cfg.ClockBehind == "" {
+		cfg.ClockBehind = ClockStop
+	}
+	if cfg.BehindTolerance <= 0 {
+		cfg.BehindTolerance = DefaultBehindTolerance
+	}
 	switch {
+	case cfg.ClockBehind != ClockStop && cfg.ClockBehind != ClockWarn:
+		return nil, fmt.Errorf("server: clock_behind %q is not %s or %s", cfg.ClockBehind, ClockStop, ClockWarn)
 	case !ValidBridge(cfg.Bridge):
 		return nil, fmt.Errorf("server: the path of starfixd for the forced command, %q, must be absolute, of letters, digits and ._+-", cfg.Bridge)
 	case cfg.KeysFile != "" && (!multi || !filepath.IsAbs(cfg.KeysFile)):
@@ -209,6 +237,9 @@ func New(cfg Config) (*Server, error) {
 	s.refusals = sampler{n: cfg.Limits.RefusalLogs}
 	if !multi {
 		s.single = &served{id: cfg.Project, store: cfg.Store, account: cfg.Account, log: cfg.Logger, timeout: cfg.RequestTimeout}
+		if err := s.startClock([]*behindLog{s.behindOf(s.single.logName(), cfg.Store.ClockState())}); err != nil {
+			return nil, err
+		}
 		return s, nil
 	}
 	cfg.Control.KeysElsewhere(s.handOwner)
@@ -233,7 +264,7 @@ func (s *Server) openProject(ctx context.Context, p store.Project) (*served, err
 	if err != nil {
 		return nil, err
 	}
-	pr := &served{id: p.ID, store: st, account: p.Account, log: s.cfg.Logger.With("project", p.ID), timeout: s.cfg.RequestTimeout}
+	pr := &served{id: p.ID, db: p.DBName, store: st, account: p.Account, log: s.cfg.Logger.With("project", p.ID), timeout: s.cfg.RequestTimeout}
 	pr.used.Store(s.now().UnixNano())
 	pr.log.Info("project store opened", "name", p.Name, "database", p.DBName)
 	s.mu.Lock()
@@ -407,6 +438,7 @@ func (s *Server) reapLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			s.CheckClock(ctx)
 			s.refresh(ctx)
 			s.CloseIdleStores()
 			s.Reap(ctx)

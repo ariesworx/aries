@@ -18,8 +18,9 @@ import (
 // (Config.Store) has one for its whole life; a server of many
 // (Config.Control) has one for each store its registry holds open.
 type served struct {
-	// id is the project's UUID.
-	id      string
+	// id is the project's UUID, and db its database's name, which a
+	// server of one project is not told.
+	id, db  string
 	store   *store.Store
 	account string
 	// log is the daemon's logger, naming the project when the server

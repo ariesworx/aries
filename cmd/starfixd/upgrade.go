@@ -41,6 +41,10 @@ type upgradeDeps struct {
 	check func(ctx context.Context, path, tag string) error
 	// backup tags the store before the swap and returns the tag made.
 	backup func(ctx context.Context, env adminEnv, fl server.Settings, cfgPath, tag string) (string, error)
+	// clock says, with a *server.ClockBehindError, that the clock is
+	// behind the server's history, so that serve may refuse to start.
+	// Nil skips the question.
+	clock func(ctx context.Context, env adminEnv, fl server.Settings, cfgPath string) error
 	// restart restarts the systemd unit.
 	restart func(ctx context.Context, unit string) error
 	// probe handshakes with the daemon and returns its version.
@@ -61,6 +65,7 @@ func osUpgradeDeps() upgradeDeps {
 			return release.VersionCheck(tag)(ctx, path)
 		},
 		backup:  backupStore,
+		clock:   clockPreflight,
 		restart: systemctlRestart,
 		probe: func(ctx context.Context, socket, project string) (string, error) {
 			return server.Probe(ctx, socket, project, version.Version)
@@ -141,6 +146,21 @@ func upgradeCmd(ctx context.Context, env adminEnv, d upgradeDeps, args []string)
 			state = "run starfixd upgrade"
 		}
 		_, _ = fmt.Fprintf(env.stdout, "starfixd %s, %s %s: %s\n", cur, targetWord(to), rel.Tag, state)
+		if d.clock != nil {
+			// What the next start would find, upgraded or not.
+			err := d.clock(ctx, env, fl, cfgPath)
+			behind, isBehind := errors.AsType[*server.ClockBehindError](err)
+			switch {
+			case isBehind && s.ClockBehind == server.ClockStop:
+				_, _ = fmt.Fprintf(env.stdout, "clock: STARFIXD WILL NOT START AGAIN as things are: %v\n", behind)
+			case isBehind:
+				_, _ = fmt.Fprintf(env.stdout, "clock: starfixd will start with a warning (clock_behind: warn): %v\n", behind)
+			case err != nil:
+				_, _ = fmt.Fprintf(env.stdout, "clock: not checked against the server's history: %v\n", err)
+			default:
+				_, _ = fmt.Fprintln(env.stdout, "clock: not behind the server's history")
+			}
+		}
 		return nil
 	}
 	switch {
@@ -159,6 +179,21 @@ func upgradeCmd(ctx context.Context, env adminEnv, d upgradeDeps, args []string)
 	bin, err := d.releases.Fetch(ctx, rel, "starfixd", d.goos, d.goarch)
 	if err != nil {
 		return fetchFailure(rel.Tag, err)
+	}
+	if d.clock != nil {
+		err := d.clock(ctx, env, fl, cfgPath)
+		behind, isBehind := errors.AsType[*server.ClockBehindError](err)
+		switch {
+		case isBehind && s.ClockBehind == server.ClockStop:
+			// The restarted daemon would refuse to start, and the health
+			// check would then blame the release and put the old binary
+			// back.
+			return fmt.Errorf("nothing was changed: starfixd would not start again after this upgrade, whatever its version: %w", behind)
+		case isBehind:
+			_, _ = fmt.Fprintf(env.stderr, "starfixd: warning: %v\n", behind)
+		case err != nil:
+			return fmt.Errorf("check the clock against the server's history before upgrading: %w; fix: nothing was changed; make sure dolt sql-server is running and retry", err)
+		}
 	}
 	tag, err := d.backup(ctx, env, fl, cfgPath, "starfix-"+cur)
 	if err != nil {

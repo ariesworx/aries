@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -12,7 +13,9 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
+	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
 	"github.com/go-sql-driver/mysql"
 	"go.yaml.in/yaml/v3"
@@ -87,6 +90,42 @@ type Settings struct {
 	// ancestor sets one. A code name: lowercase letters, digits and inner
 	// hyphens. Default DefaultAccount.
 	Account string `yaml:"account"`
+	// ClockBehind is what serve does when it finds its clock behind the
+	// history of a database it serves by more than ClockBehindTolerance
+	// (design §14, decision 37): ClockStop, the default, refuses to
+	// start, and ClockWarn starts with a warning that repeats.
+	// ClockBehindTolerance defaults to DefaultBehindTolerance.
+	ClockBehind          string    `yaml:"clock_behind"`
+	ClockBehindTolerance Tolerance `yaml:"clock_behind_tolerance"`
+	// ClockStepTolerance is how far elapsed wall-clock time and elapsed
+	// monotonic time may differ before the daemon calls it a step of the
+	// clock. Default store.DefaultStepTolerance.
+	ClockStepTolerance Tolerance `yaml:"clock_step_tolerance"`
+	// ClockClientTolerance is how far past the server's clock a time a
+	// client supplies, a usage record's, may be. Default
+	// store.DefaultClientAhead.
+	ClockClientTolerance Tolerance `yaml:"clock_client_tolerance"`
+	// AcceptClockBehind lets serve start once although its clock is
+	// behind a history no later than this (Config.AcceptHistory). Only a
+	// command-line flag sets it: an answer to one refusal must not be
+	// left in a file to answer the next.
+	AcceptClockBehind time.Time `yaml:"-"`
+}
+
+// Tolerance is a YAML duration that must be more than zero: a tolerance
+// of nothing would call every reading of the clock wrong. Left out, it
+// takes its default.
+type Tolerance time.Duration
+
+// UnmarshalText reads a duration in proto.ParseDuration's form, which
+// refuses one that is not positive.
+func (t *Tolerance) UnmarshalText(b []byte) error {
+	v, err := proto.ParseDuration(string(b))
+	if err != nil {
+		return fmt.Errorf("a clock tolerance of %q is not a duration of more than zero; fix: set it to one such as 5s or 1m, or leave it out for the default", b)
+	}
+	*t = Tolerance(v)
+	return nil
 }
 
 // DefaultAccount is the account an issue reports against when nothing
@@ -115,6 +154,8 @@ const (
 	EnvKeysFile       = "STARFIXD_KEYS_FILE"
 	EnvAuthorizedKeys = "STARFIXD_AUTHORIZED_KEYS"
 	EnvBridge         = "STARFIXD_BRIDGE"
+	// EnvClockBehind sets ClockBehind.
+	EnvClockBehind = "STARFIXD_CLOCK_BEHIND"
 )
 
 // ResolveSettings merges, highest precedence first: flags, the environment,
@@ -129,8 +170,10 @@ const (
 // name, or is the DSN's own; a block of project database names that is
 // invalid, set without a control database, or holds its name; a systemd
 // unit that is not a unit name; a bridge path that would need quoting in
-// a forced command; a keys file that is the authorized_keys file; and
-// an unknown log level or format.
+// a forced command; a keys file that is the authorized_keys file; a
+// clock_behind that is not stop or warn; a clock tolerance out of its
+// range; and an unknown log level or format. The clock tolerances come
+// from the file only.
 func ResolveSettings(flags Settings, configPath string, getenv func(string) string) (Settings, error) {
 	if flags.DSN != "" {
 		cfg, err := mysql.ParseDSN(flags.DSN)
@@ -154,9 +197,10 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 	}
 	env := Settings{DSN: getenv(EnvDSN), Socket: getenv(EnvSocket), Project: getenv(EnvProject),
 		LogLevel: getenv(EnvLogLevel), LogFormat: getenv(EnvLogFormat), ControlDB: getenv(EnvControlDB),
-		KeysFile: getenv(EnvKeysFile), AuthorizedKeys: getenv(EnvAuthorizedKeys), Bridge: getenv(EnvBridge)}
+		KeysFile: getenv(EnvKeysFile), AuthorizedKeys: getenv(EnvAuthorizedKeys), Bridge: getenv(EnvBridge),
+		ClockBehind: getenv(EnvClockBehind)}
 	out := Settings{Socket: DefaultSocket, Prefix: "sf", LogLevel: "info", LogFormat: "text", Account: DefaultAccount,
-		KeysFile: DefaultKeysFile, AuthorizedKeys: DefaultAuthorizedKeys, Bridge: DefaultBridge}
+		KeysFile: DefaultKeysFile, AuthorizedKeys: DefaultAuthorizedKeys, Bridge: DefaultBridge, ClockBehind: ClockStop}
 	for _, s := range []Settings{file, env, flags} {
 		for _, f := range []struct {
 			dst *string
@@ -166,7 +210,7 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 			{&out.Prefix, s.Prefix}, {&out.Latest, s.Latest}, {&out.SystemdUnit, s.SystemdUnit},
 			{&out.LogLevel, s.LogLevel}, {&out.LogFormat, s.LogFormat}, {&out.Account, s.Account},
 			{&out.ControlDB, s.ControlDB}, {&out.KeysFile, s.KeysFile}, {&out.AuthorizedKeys, s.AuthorizedKeys},
-			{&out.Bridge, s.Bridge},
+			{&out.Bridge, s.Bridge}, {&out.ClockBehind, s.ClockBehind},
 		} {
 			if f.v != "" {
 				*f.dst = f.v
@@ -174,6 +218,10 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 		}
 	}
 	out.AllowUnsafeDolt = flags.AllowUnsafeDolt
+	out.AcceptClockBehind = flags.AcceptClockBehind
+	if err := out.resolveClock(file); err != nil {
+		return Settings{}, err
+	}
 	out.Limits = file.Limits
 	out.ProjectDBs = file.ProjectDBs
 	out.Admins = file.Admins
@@ -218,6 +266,35 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 		return Settings{}, err
 	}
 	return out, nil
+}
+
+// resolveClock takes the clock tolerances from file, each with its
+// default, and refuses a clock_behind that is not stop or warn and a
+// tolerance past its bound. A bound is refused, not warned about: a
+// tolerance of days turns its check off without saying so, and
+// clock_behind: warn is the way to start whatever the clock says.
+func (s *Settings) resolveClock(file Settings) error {
+	if s.ClockBehind != ClockStop && s.ClockBehind != ClockWarn {
+		return fmt.Errorf("clock_behind %q is not %s or %s; fix: set clock_behind: or %s to %s, to refuse to start when the clock is behind the server's own history, or to %s, to start with a warning",
+			s.ClockBehind, ClockStop, ClockWarn, EnvClockBehind, ClockStop, ClockWarn)
+	}
+	for _, f := range []struct {
+		name     string
+		dst      *Tolerance
+		v        Tolerance
+		def, max time.Duration
+	}{
+		{"clock_behind_tolerance", &s.ClockBehindTolerance, file.ClockBehindTolerance, DefaultBehindTolerance, maxBehindTolerance},
+		{"clock_step_tolerance", &s.ClockStepTolerance, file.ClockStepTolerance, store.DefaultStepTolerance, maxStepTolerance},
+		{"clock_client_tolerance", &s.ClockClientTolerance, file.ClockClientTolerance, store.DefaultClientAhead, store.MaxClientAhead},
+	} {
+		*f.dst = cmp.Or(f.v, Tolerance(f.def))
+		if d := time.Duration(*f.dst); d < minClockTolerance || d > f.max {
+			return fmt.Errorf("%s is %s; it must be from %s to %s; fix: set it within that range in the config file, or leave it out for the default, %s",
+				f.name, d, minClockTolerance, f.max, f.def)
+		}
+	}
+	return nil
 }
 
 // checkControlDB refuses a control database that is not a database name,

@@ -754,6 +754,10 @@ func (s *Server) OpenProjects(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("open projects: %w", err)
 	}
+	// The clock is checked against every history the daemon will write
+	// to: the control store's, and each active project's as it is opened
+	// here anyway.
+	behind := []*behindLog{s.behindOf(ControlLog, s.cfg.Control.ClockState())}
 	for _, p := range all {
 		if p.State != store.ProjectActive {
 			continue
@@ -762,6 +766,7 @@ func (s *Server) OpenProjects(ctx context.Context) error {
 		st, err := s.cfg.Open(octx, p)
 		cancel()
 		if err == nil {
+			behind = append(behind, s.behindOf(ProjectLog(p.ID, p.DBName), st.ClockState()))
 			err = st.Close()
 		}
 		if err != nil {
@@ -774,7 +779,7 @@ func (s *Server) OpenProjects(ctx context.Context) error {
 			s.mu.Unlock()
 		}
 	}
-	return nil
+	return s.startClock(behind)
 }
 
 // ReleaseArchived ends every claim in every archived project (decision

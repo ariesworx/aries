@@ -236,6 +236,112 @@ func isStale(err error) bool {
 	return errors.As(err, &se)
 }
 
+// Fencing is by epoch, and no step of the clock weakens it: while a
+// claim is live nobody else takes the issue, once another has taken it
+// the old holder's epoch is refused everywhere, and the epoch only
+// rises. The steps are tried at every point of a takeover.
+func TestFencingAcrossClockSteps(t *testing.T) {
+	steps := []struct {
+		name string
+		by   []time.Duration // the clock is set by each in turn, a reading between
+	}{
+		{"none", nil},
+		{"back an hour", []time.Duration{-time.Hour}},
+		{"back a year", []time.Duration{-365 * 24 * time.Hour}},
+		{"forward an hour", []time.Duration{time.Hour}},
+		{"forward a year", []time.Duration{365 * 24 * time.Hour}},
+		{"back and forward", []time.Duration{-time.Hour, time.Hour}},
+		{"forward and back", []time.Duration{time.Hour, -time.Hour}},
+	}
+	for _, when := range []string{"while alice holds it", "after bob took it"} {
+		for _, st := range steps {
+			t.Run(when+", "+st.name, func(t *testing.T) {
+				c := newTwoClocks()
+				s, _ := steppedStore(t, "", c, Options{})
+				ctx := t.Context()
+				step := func() {
+					for _, d := range st.by {
+						c.step(d)
+						s.Now()
+					}
+				}
+				is := mustCreate(t, s, NewIssue{})
+				rev := func() Rev {
+					t.Helper()
+					cur, err := s.GetIssue(ctx, is.ID)
+					if err != nil {
+						t.Fatal(err)
+					}
+					return cur.Rev
+				}
+				_, ca, err := s.StartIssue(ctx, alice, is.ID, 0, false)
+				if err != nil {
+					t.Fatal(err)
+				}
+				c.run(time.Minute)
+				s.Now()
+				if when == "while alice holds it" {
+					step()
+				}
+				// A minute into a 15m lease, whatever the clock now says,
+				// the claim is alice's and nobody else's.
+				if _, cb, err := s.StartIssue(ctx, bob, is.ID, 0, false); err == nil {
+					t.Fatalf("StartIssue(bob) a minute into alice's lease = epoch %d, no error: two holders", cb.Epoch)
+				}
+				if _, err := s.UpdateIssue(ctx, bob, is.ID, rev(), IssuePatch{Title: ptr("bob's")}); !errors.Is(err, ErrForbidden) {
+					t.Errorf("UpdateIssue(bob) of the issue alice holds = %v, want ErrForbidden", err)
+				}
+				// Alice vanishes. However long the lease then lasts, it
+				// ends, and bob takes the issue under the next epoch.
+				var cb Claim
+				for i := 0; ; i++ {
+					c.run(5 * time.Minute)
+					if _, err := s.ReapClaims(ctx); err != nil {
+						t.Fatal(err)
+					}
+					if _, cb, err = s.StartIssue(ctx, bob, is.ID, time.Hour, false); err == nil {
+						break
+					}
+					if i > 12 {
+						t.Fatalf("an hour on, alice's 15m lease still holds the issue: %v", err)
+					}
+				}
+				if cb.Epoch != ca.Epoch+1 || cb.Holder != bob {
+					t.Fatalf("bob's claim = %+v, want epoch %d", cb, ca.Epoch+1)
+				}
+				if when == "after bob took it" {
+					step()
+				}
+				// The stale holder writes nothing, whatever the clock says.
+				if _, _, err := s.FinishIssue(ctx, alice, is.ID, ca.Epoch, Finish{}); err == nil {
+					t.Error("FinishIssue(alice, her old epoch) after bob took the issue succeeded")
+				}
+				if _, _, err := s.FinishIssue(ctx, alice, is.ID, 0, Finish{}); !errors.Is(err, ErrForbidden) {
+					t.Errorf("FinishIssue(alice, no epoch) after bob took the issue = %v, want ErrForbidden", err)
+				}
+				if _, err := s.UpdateIssue(ctx, alice, is.ID, rev(), IssuePatch{Title: ptr("alice's")}); !errors.Is(err, ErrForbidden) {
+					t.Errorf("UpdateIssue(alice) after bob took the issue = %v, want ErrForbidden", err)
+				}
+				if held, err := s.RenewClaims(ctx, alice, DefaultLease, false, nil); err != nil || len(held) != 0 {
+					t.Errorf("RenewClaims(alice) after bob took the issue = %+v, %v; want none", held, err)
+				}
+				if _, c2, err := s.StartIssue(ctx, alice, is.ID, 0, false); err == nil {
+					t.Errorf("StartIssue(alice) while bob's hour-long lease is a few minutes old = epoch %d, no error: two holders", c2.Epoch)
+				}
+				got, err := s.ClaimOf(ctx, is.ID)
+				if err != nil || got == nil || got.Holder != bob || got.Epoch != cb.Epoch {
+					t.Errorf("ClaimOf after it all = %+v, %v; want bob's, epoch %d", got, err, cb.Epoch)
+				}
+				// And bob's own epoch still works.
+				if _, _, err := s.FinishIssue(ctx, bob, is.ID, cb.Epoch, Finish{}); err != nil {
+					t.Errorf("FinishIssue(bob, his epoch) = %v", err)
+				}
+				eventTimes(t, s)
+			})
+		}
+	}
+}
+
 // clockStep is a clock.step event's after state.
 type clockStep struct {
 	At       time.Time `json:"at"`
@@ -496,6 +602,26 @@ func TestClientAhead(t *testing.T) {
 		if _, err := Open(t.Context(), newDSN(t), Options{ClientAhead: bad}); !errors.Is(err, ErrInvalid) {
 			t.Errorf("Open(ClientAhead %s) = %v, want ErrInvalid", bad, err)
 		}
+	}
+}
+
+// A write that checks a client's time against now settles a forward step
+// first: a record made after the machine resumed is not "in the future"
+// because the store had not yet followed the clock.
+func TestClientTimeAfterForwardStep(t *testing.T) {
+	c := newTwoClocks()
+	s, _ := steppedStore(t, "", c, Options{})
+	ctx := t.Context()
+	is := mustCreate(t, s, NewIssue{})
+	c.step(9 * time.Hour)
+	n := int64(1)
+	if _, err := s.AddUsage(ctx, alice, []UsageRecord{{RequestID: "r", Model: "m", Harness: "h", At: c.now(),
+		Granularity: GranularityRequest, Input: &n}}); err != nil {
+		t.Errorf("AddUsage(a record at the clock's time) first after a 9h jump = %v, want it stored", err)
+	}
+	c.step(48 * time.Hour)
+	if _, err := s.LogHours(ctx, alice, NewHours{Issue: is.ID, Duration: time.Hour, On: startDay(c.now())}); err != nil {
+		t.Errorf("LogHours(on the clock's today) first after a 2d jump = %v, want it logged", err)
 	}
 }
 

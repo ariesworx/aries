@@ -176,7 +176,12 @@ func (s *Store) AddUsage(ctx context.Context, actor Actor, recs []UsageRecord) (
 	if limit := s.opts.Limits.UsageRecords; len(recs) > limit {
 		return UsageAdded{}, &UsageBatchError{Max: limit, Got: len(recs)}
 	}
-	now := s.now()
+	// A client's time is checked against now, so a forward step of the
+	// clock is settled first: a record made since is not in the future.
+	now, err := s.settledNow(ctx)
+	if err != nil {
+		return UsageAdded{}, err
+	}
 	from, to := recs[0].At.UTC(), recs[0].At.UTC()
 	for i, r := range recs {
 		if err := r.validate(i+1, now, s.opts.ClientAhead); err != nil {
@@ -185,7 +190,7 @@ func (s *Store) AddUsage(ctx context.Context, actor Actor, recs []UsageRecord) (
 		from, to = minTime(from, r.At.UTC()), maxTime(to, r.At.UTC())
 	}
 	var out UsageAdded
-	err := s.write(ctx, actor, func(w *wtx) error {
+	err = s.write(ctx, actor, func(w *wtx) error {
 		out = UsageAdded{}
 		args := make([]any, 0, len(recs)*15)
 		for _, r := range recs {

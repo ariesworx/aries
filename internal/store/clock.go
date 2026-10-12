@@ -397,6 +397,16 @@ func (s *Store) SettleClock(ctx context.Context) error {
 	return nil
 }
 
+// settledNow settles any forward step of the clock and then reads the
+// store's time, for a write that checks a client's time against now
+// before its transaction begins.
+func (s *Store) settledNow(ctx context.Context) (time.Time, error) {
+	if err := s.SettleClock(ctx); err != nil {
+		return time.Time{}, err
+	}
+	return s.now(), nil
+}
+
 // liveClaims reads the claims that are live at w's time.
 func (s *Store) liveClaims(ctx context.Context, w *wtx) ([]Claim, error) {
 	return s.claims(ctx, w.tx, `principal IS NOT NULL AND expires_at > ?`, w.now)

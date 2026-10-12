@@ -36,6 +36,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/server"
@@ -44,7 +45,7 @@ import (
 )
 
 const usage = `usage:
-  starfixd serve [--dev [--allow-unsafe-dolt]] [--config FILE] [--dsn DSN] [--socket PATH] [--project UUID] [--prefix P] [--log-level L] [--log-format F]
+  starfixd serve [--dev [--allow-unsafe-dolt]] [--config FILE] [--dsn DSN] [--socket PATH] [--project UUID] [--prefix P] [--log-level L] [--log-format F] [--accept-clock-behind TIME]
   starfixd stdio --principal NAME [--key FINGERPRINT] [--config FILE] [--socket PATH]
   starfixd control init --name NAME [--authorized-keys FILE] [--config FILE] [--dsn DSN]
   starfixd import-bd [--config FILE] [--dsn DSN] [--project UUID] [--principal NAME] [--dry-run] [--json] FILE|-
@@ -66,6 +67,13 @@ project_dbs: names the databases granted for new projects. serve writes
 the keys the control database holds to keys_file: (default
 ~/.ssh/starfix_keys of the user it runs as), which sshd reads with
 AuthorizedKeysFile before the authorized_keys you maintain by hand.
+
+serve refuses to start, with exit status 4, when the server's clock is
+behind the latest event of a database it serves by more than
+clock_behind_tolerance: (default 1m): check the clock, correct it and
+start again. --accept-clock-behind TIME starts once all the same, for a
+history no later than TIME, which the refusal prints; clock_behind: warn
+(or $STARFIXD_CLOCK_BEHIND) starts with a warning every time.
 
 Every command that opens the store refuses a Dolt account that is root,
 holds rights beyond its database, or a server whose secure_file_priv is
@@ -93,8 +101,19 @@ func main() {
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
 	}
+	if _, ok := errors.AsType[*server.ClockBehindError](err); ok {
+		os.Exit(exitClockBehind)
+	}
 	os.Exit(1)
 }
+
+// exitClockBehind is serve's exit status when it refuses to start
+// because the clock is behind the server's own history. It is a status
+// of its own so that the systemd unit can leave the daemon stopped
+// (RestartPreventExitStatus=4): restarting cannot correct a clock, and
+// the refusal should be the last thing in the journal, not one line of a
+// loop.
+const exitClockBehind = 4
 
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 {
@@ -143,10 +162,11 @@ func flags(name string, args []string, s *server.Settings, cfg *string, extra fu
 // serve runs `starfixd serve`, the daemon, until ctx is done.
 func serve(ctx context.Context, args []string) error {
 	var fl server.Settings
-	var cfgPath string
+	var cfgPath, accept string
 	var dev bool
 	if err := flags("serve", args, &fl, &cfgPath, func(fs *flag.FlagSet) {
 		devFlags(fs, &dev, &fl.AllowUnsafeDolt)
+		fs.StringVar(&accept, "accept-clock-behind", "", "start once although the clock is behind a history no later than this time (RFC 3339)")
 		fs.StringVar(&fl.DSN, "dsn", "", "Dolt DSN (no password)")
 		fs.StringVar(&fl.Project, "project", "", "project UUID")
 		fs.StringVar(&fl.Prefix, "prefix", "", "issue-ID prefix")
@@ -157,6 +177,13 @@ func serve(ctx context.Context, args []string) error {
 	}
 	if err := checkDev(dev, fl.AllowUnsafeDolt); err != nil {
 		return err
+	}
+	if accept != "" {
+		t, err := time.Parse(time.RFC3339, accept)
+		if err != nil {
+			return usageError(fmt.Sprintf("--accept-clock-behind %q is not a time such as 2026-10-12T09:30:00Z; give the time the refusal to start printed", accept))
+		}
+		fl.AcceptClockBehind = t
 	}
 	if err := server.RequirePeerCheck(dev); err != nil {
 		return err
@@ -212,8 +239,13 @@ func (d *daemon) Close() error {
 // after opening each active project's once to migrate it. A server of
 // one project opens no control store.
 func openDaemon(ctx context.Context, s server.Settings, log *slog.Logger) (*daemon, error) {
-	cfg := server.Config{Version: version.Version, Latest: s.Latest, Logger: log, Limits: s.Limits, Account: s.Account}
-	opts := store.Options{Logger: log, AllowUnsafeAccount: s.AllowUnsafeDolt, Limits: s.Limits.Limits}
+	// One clock for the process: every store reads it, so each learns
+	// of a step whichever noticed it, and the server reports them.
+	clk := store.NewClock(store.ClockOptions{StepTolerance: time.Duration(s.ClockStepTolerance)})
+	cfg := server.Config{Version: version.Version, Latest: s.Latest, Logger: log, Limits: s.Limits, Account: s.Account,
+		Clock: clk, ClockBehind: s.ClockBehind, BehindTolerance: time.Duration(s.ClockBehindTolerance), AcceptHistory: s.AcceptClockBehind}
+	opts := store.Options{Logger: log, AllowUnsafeAccount: s.AllowUnsafeDolt, Limits: s.Limits.Limits,
+		Clock: clk, ClientAhead: time.Duration(s.ClockClientTolerance)}
 	if s.DSN == "" {
 		return nil, errors.New("no database DSN; fix: set $STARFIXD_DSN or dsn: in the config file")
 	}
@@ -233,7 +265,7 @@ func openDaemon(ctx context.Context, s server.Settings, log *slog.Logger) (*daem
 		}
 		return &daemon{srv: srv, st: st}, nil
 	}
-	ctl, err := openControl(ctx, s, store.ControlOptions{Logger: log})
+	ctl, err := openControl(ctx, s, store.ControlOptions{Logger: log, Clock: clk})
 	if err != nil {
 		return nil, err
 	}
@@ -260,6 +292,9 @@ func openDaemon(ctx context.Context, s server.Settings, log *slog.Logger) (*daem
 	// then answers for all of them. One that fails is logged and held
 	// against that check; the others are served.
 	if err := srv.OpenProjects(ctx); err != nil {
+		if _, ok := errors.AsType[*server.ClockBehindError](err); ok {
+			return nil, errors.Join(err, ctl.Close()) // it names its own fix
+		}
 		return nil, errors.Join(fmt.Errorf("%w; fix: check that dolt sql-server is running", err), ctl.Close())
 	}
 	// Every claim in an archived project ends before the daemon listens

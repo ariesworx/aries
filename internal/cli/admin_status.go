@@ -57,6 +57,9 @@ func printStatus(w io.Writer, res proto.StatusResult) {
 				p("keys held back from it: %d, which the server's authorized_keys file gives to another principal; sshd takes that file's line for them, and starfixd's log names each\n", k.HeldBack)
 			}
 		}
+		if c := s.Clock; c != nil {
+			p("%s", clockLines(*c))
+		}
 		p("starfixd's memory %d MiB in use, %d MiB from the system; %d goroutines\n", mib(s.HeapBytes), mib(s.SysBytes), s.Goroutines)
 		p("projects: %s; principals: %s\n\n", byState(s.Projects), byState(s.Principals))
 	}
@@ -111,6 +114,37 @@ func keysFile(k proto.KeysFile) string {
 		return keys
 	}
 	return fmt.Sprintf("%s, written %s", keys, when(*k.WrittenAt))
+}
+
+// clockLines says what the server has seen of its clock, and nothing
+// when it has seen no step and is not behind its history.
+func clockLines(c proto.ClockStatus) string {
+	var b strings.Builder
+	if n := c.StepsForward + c.StepsBackward; n > 0 {
+		last := ""
+		if c.LastStepAt != nil {
+			dir, by := "forward", c.LastStepSeconds
+			if by < 0 {
+				dir, by = "back", -by
+			}
+			last = fmt.Sprintf(", the last %s by %s at %s", dir, time.Duration(by*float64(time.Second)).Round(time.Second), when(*c.LastStepAt))
+		}
+		times := "times"
+		if n == 1 {
+			times = "time"
+		}
+		fmt.Fprintf(&b, "clock: set %d %s since starfixd started (%d forward, %d back)%s; see starfixd's log for `clock stepped`\n",
+			n, times, c.StepsForward, c.StepsBackward, last)
+	}
+	if h := c.Behind; h != nil {
+		restart := ""
+		if h.RefusesStart {
+			restart = " STARFIXD WILL NOT START AGAIN until the clock is corrected (clock_behind: stop)."
+		}
+		fmt.Fprintf(&b, "CLOCK BEHIND HISTORY: the server's clock is %s behind the latest event of %s (%s), since %s. starfixd's time runs on from there at half speed until the clock has caught up.%s On the server, check `timedatectl`\n",
+			(time.Duration(h.Seconds) * time.Second).String(), esc(h.Log), when(h.History), when(h.Since), restart)
+	}
+	return b.String()
 }
 
 // mib is n bytes in mebibytes, to the nearest one.

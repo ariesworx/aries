@@ -114,6 +114,7 @@ func (s *Server) serverStatus() *proto.ServerStatus {
 		HeapBytes: ms.HeapAlloc, SysBytes: ms.Sys, Goroutines: runtime.NumGoroutine(),
 		Projects: map[string]int{}, Principals: map[string]int{},
 		KeysFile: s.keysStatus(),
+		Clock:    s.clockStatus(),
 	}
 	counts := s.cfg.Control.Counts()
 	for state, n := range counts.Projects {
