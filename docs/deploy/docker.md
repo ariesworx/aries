@@ -27,11 +27,11 @@ and sshd asks starfixd for keys
 try `sfx admin project add`, and add a person with `sfx admin principal
 add NAME --key FILE` and no restart.
 
-**The many-projects setup of this image, and the smoke test's steps for
-it, have not been run yet:** they were written on a machine with no
-Docker. If the container does not start, or a key added with `sfx admin`
-is refused, that is the first thing to suspect; `docker compose logs`
-shows what sshd and starfixd said.
+If a key added with `sfx admin` is refused, `docker compose logs` shows
+what sshd and starfixd said. In this image root owns `starfixd`, so sshd
+runs it as its key command directly; a server set up by the guide gives
+sshd a root-owned copy instead
+([Keys from the store](../server.md#keys-from-the-store)).
 
 ## What you need
 
@@ -165,8 +165,7 @@ is refused admin commands. Then it adds a second project with `sfx admin
 project add` and uses it, checks that someone who is no member of it is
 refused, adds a third principal whose key is in no `authorized_keys`
 file and connects as it, removes that key and checks that it is
-refused, and restarts the server to check that nothing changed. The
-steps from the second project on have not been run yet, as said above. It removes its server and volume, prints one line, and exits
+refused, and restarts the server to check that nothing changed. It removes its server and volume, prints one line, and exits
 non-zero on the first failure. CI does not run it. Arguments go to
 `docker build`; behind a proxy that intercepts TLS, pass its CA with
 `--secret id=ca,src=FILE`, which never reaches the image.

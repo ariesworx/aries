@@ -608,14 +608,22 @@ in for the first admin, and the way in when starfixd is down.
 does, and `--bridge PATH` for the path of starfixd in the line it prints,
 `/usr/local/bin/starfixd` by default. Put them before `%t`.
 
-This setup has been tested only against starfix's own stand-in for sshd.
-Whether a real sshd accepts the command's ownership, and whether the
-`Match` block overrides a cloud image's global `AuthorizedKeysCommand`
-(Google Cloud's OS Login, AWS's EC2 Instance Connect, Azure's Entra ID
-login), has not been checked on those machines yet. On an image with
-SELinux enforcing, sshd may also need a policy that lets it run the
-command. Until you have seen step 3's key sign in, keep every line in
-`authorized_keys`.
+Step 1 was checked on 12 October 2026 with OpenSSH 9.6 on Ubuntu 24.04,
+in the [Docker test server](deploy/docker.md) with starfixd installed as
+[step 3](#3-install-starfixd) installs it. Pointed at
+`/usr/local/bin/starfixd`, sshd refuses to run the command, logs
+`Unsafe AuthorizedKeysCommand "/usr/local/bin/starfixd": bad ownership or
+modes for file /opt/starfix/bin/starfixd`, and falls back to
+`authorized_keys`, so only keys from the store are refused. Pointed at
+the root-owned copy, it serves them.
+
+Whether the `Match` block overrides a cloud image's global
+`AuthorizedKeysCommand` (Google Cloud's OS Login, AWS's EC2 Instance
+Connect, Azure's Entra ID login) has not been checked on those machines
+yet. On an image with SELinux enforcing, sshd may also need a policy
+that lets it run the command and reach starfixd's socket; that has not
+been checked either. Until you have seen step 3's key sign in, keep
+every line in `authorized_keys`.
 
 ### Managing access
 
