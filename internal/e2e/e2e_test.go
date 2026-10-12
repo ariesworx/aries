@@ -38,6 +38,7 @@ import (
 
 	"github.com/ariesworx/starfix/internal/cli"
 	"github.com/ariesworx/starfix/internal/client"
+	"github.com/ariesworx/starfix/internal/clienttest"
 	"github.com/ariesworx/starfix/internal/dolttest"
 	"github.com/ariesworx/starfix/internal/iaptest"
 	"github.com/ariesworx/starfix/internal/proto"
@@ -52,7 +53,12 @@ var (
 
 func TestMain(m *testing.M) {
 	iaptest.Main()
-	os.Exit(run(m))
+	// No test here, the soak included, reads the real ~/.ssh or
+	// ssh-agent: each user's key is in its own checkout.
+	restore := clienttest.Isolate()
+	code := run(m)
+	restore()
+	os.Exit(code)
 }
 
 func run(m *testing.M) int {
@@ -654,6 +660,9 @@ type user struct {
 	now func() time.Time
 	// stdin, if set, is what the CLI reads from standard input.
 	stdin string
+	// terminal says a person is at the CLI's input and output, so that it
+	// may ask them something.
+	terminal bool
 	// pubFile is the user's public key file, for `sfx admin key add`.
 	pubFile string
 }
@@ -742,6 +751,7 @@ func (u *user) runTo(ctx context.Context, stdout, stderr io.Writer, version stri
 		Hostname: func() (string, error) { return "laptop-test", nil },
 		Version:  version,
 		Now:      u.now,
+		Terminal: func() bool { return u.terminal },
 	})
 }
 
@@ -886,7 +896,7 @@ func TestRefusals(t *testing.T) {
 		{name: "wrong host key", u: pinnedWrong, args: []string{"ready"}, code: cli.ExitFailure,
 			want: []string{"host key mismatch for 127.0.0.1", w.hostFpr, "fix: if the server was rebuilt"}},
 		{name: "unknown key", u: other, args: []string{"ready"}, code: cli.ExitFailure,
-			want: []string{"refused your SSH key", "fix: send your public key"}},
+			want: []string{"accepted no key: sfx offered SHA256:", "fix: send your public key"}},
 		{name: "not found", u: w.newUser("dave", ""), args: []string{"show", "sf-zzzzzzzz"}, code: cli.ExitFailure,
 			want: []string{"sfx: issue sf-zzzzzzzz not found\nfix: find the id with `sfx list`"}},
 		{name: "usage", u: other, args: []string{"show"}, code: cli.ExitUsage,

@@ -137,6 +137,27 @@ func (c *Control) Reaches(actor, principal string) bool {
 	return c.ix.reaches(actor, c.ix.projectsOf(principal)) && !c.ConfigAdmin(principal)
 }
 
+// AdministersProjectOf reports whether actor is an active admin of an
+// active project that principal belongs to. Such an admin may see
+// principal's keys, since each of them signs in to that project
+// (decision 36), though only one with reach ([Control.Reaches]) may
+// change them. It does not count a server admin's rights: the caller
+// asks [Control.IsServerAdmin] too. It reads memory.
+func (c *Control) AdministersProjectOf(actor, principal string) bool {
+	c.ix.mu.RLock()
+	defer c.ix.mu.RUnlock()
+	if !c.ix.active[actor] {
+		return false
+	}
+	for m := range c.ix.roles {
+		if m.principal == principal && c.ix.projects[m.project].State == ProjectActive &&
+			c.ix.roles[membership{actor, m.project}] == RoleAdmin {
+			return true
+		}
+	}
+	return false
+}
+
 // ReachGained returns the project admins who can manage principal's keys
 // and state now and could not before it left the project left, by name:
 // those who administer every project it still belongs to and do not

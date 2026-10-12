@@ -462,9 +462,13 @@ func principalAdd(ctx context.Context, s *Server, sess *session, in proto.Princi
 }
 
 // principals lists every principal, for server admins only: the names
-// are the whole server's, whatever project the caller administers.
-func principals(ctx context.Context, s *Server, sess *session, in proto.AdminListArgs) (any, *proto.Error) {
+// are the whole server's, whatever project the caller administers. With
+// created_by it lists those one principal created (trail.go).
+func principals(ctx context.Context, s *Server, sess *session, in proto.PrincipalsArgs) (any, *proto.Error) {
 	const op = proto.OpPrincipals
+	if in.CreatedBy != "" {
+		return s.principalsCreatedBy(ctx, sess, in)
+	}
 	if perr := s.serverOnly(sess, op, ""); perr != nil {
 		return nil, perr
 	}
@@ -472,15 +476,11 @@ func principals(ctx context.Context, s *Server, sess *session, in proto.AdminLis
 	if err != nil {
 		return nil, s.ctlErr(ctx, sess, op, err)
 	}
-	all, more, perr := page(all, func(p store.Principal) string { return p.Name }, in)
+	all, more, perr := page(all, func(p store.Principal) string { return p.Name }, in.AdminListArgs)
 	if perr != nil {
 		return nil, perr
 	}
-	out := proto.PrincipalsResult{Principals: []proto.Principal{}, More: more}
-	for _, p := range all {
-		out.Principals = append(out.Principals, proto.Principal{Name: p.Name, State: string(p.State), CreatedBy: p.CreatedBy, CreatedAt: p.CreatedAt})
-	}
-	return out, nil
+	return wirePrincipals(all, more), nil
 }
 
 // principalDisable disables a principal, then takes its keys out of the
@@ -495,7 +495,10 @@ func principalDisable(ctx context.Context, s *Server, sess *session, in proto.Pr
 	warning := s.syncKeys()
 	s.drop(sess, "principal disabled", func(o owner) bool { return o.principal == p.Name })
 	released := s.release(ctx, sess.actor, "", p.Name, lostDisabled)
-	return proto.PrincipalResult{ID: p.Name, Rev: int64(p.Rev), State: string(p.State), Released: released, Warning: warning}, nil
+	out := proto.PrincipalResult{ID: p.Name, Rev: int64(p.Rev), State: string(p.State), Released: released, Warning: warning}
+	// Disabling ends the account's own access, and nothing it set up.
+	s.left(ctx, sess, &out)
+	return out, nil
 }
 
 // principalEnable makes a disabled principal active again, and its keys
@@ -524,7 +527,22 @@ func memberSet(ctx context.Context, s *Server, sess *session, in proto.MemberSet
 	if err != nil {
 		return nil, s.ctlErr(ctx, sess, op, err)
 	}
-	m, err := ctl.SetMember(ctx, a, in.Name, p.ID, role)
+	// A key signs in to every project its principal is in. So a new
+	// member's keys are shown to whoever adds them, reach or no reach,
+	// and the membership is made only once they are accepted (decision
+	// 36). The store decides who may add the principal before it shows
+	// anything.
+	set := ctl.ProposeMember
+	if in.AcceptKeys {
+		set = ctl.SetMember
+	}
+	m, err := set(ctx, a, in.Name, p.ID, role)
+	if unseen, ok := errors.AsType[*store.CarriedKeysError](err); ok {
+		out := proto.MemberSetResult{ID: in.Name, Project: p.ID, ProjectName: p.Name, Role: string(role), Change: proto.MemberPending,
+			Carried: s.wireCarried(unseen.Keys, p.ID)}
+		out.Projects, _ = s.carried(ctx, in.Name, "")
+		return out, nil
+	}
 	if err != nil {
 		return nil, s.ctlErr(ctx, sess, op, err)
 	}
@@ -532,45 +550,55 @@ func memberSet(ctx context.Context, s *Server, sess *session, in proto.MemberSet
 	switch {
 	case !was:
 		out.Change = "added"
-		out.Projects, out.Keys = s.keysCarried(ctx, a.Principal, m.Principal)
+		// Read after the write: a key added since the keys were shown is
+		// in the answer.
+		out.Projects, out.Carried = s.carried(ctx, m.Principal, p.ID)
 	case had != m.Role:
 		out.Change = "changed"
 	}
 	return out, nil
 }
 
-// keysCarried returns, for a principal just added to a project, how
-// many projects it now belongs to and the fingerprints of the keys
-// recorded for it, when that is more than one project and admin may see
-// its keys: a server admin, or a project admin with reach over it. A
-// key reaches every project its principal is in, so the admin who adds
-// someone from another project should see what comes with them. A
-// failure is logged and shows nothing: the membership was added.
-func (s *Server) keysCarried(ctx context.Context, admin, principal string) (int, []string) {
+// carried returns how many projects principal belongs to and, when
+// joined names the project it was just added to, the keys that came with
+// it. A failure is logged and shows nothing: the membership was added.
+func (s *Server) carried(ctx context.Context, principal, joined string) (int, []proto.CarriedKey) {
 	ctl := s.cfg.Control
 	of, err := ctl.ProjectsOf(ctx, principal)
 	if err != nil {
 		s.cfg.Logger.Error("read the projects of a new member", "principal", principal, "err", err)
 		return 0, nil
 	}
-	if len(of) < 2 || !ctl.Reaches(admin, principal) {
-		return 0, nil
+	if joined == "" {
+		return len(of), nil
 	}
 	keys, err := ctl.Keys(ctx, principal)
 	if err != nil {
 		s.cfg.Logger.Error("read the keys of a new member", "principal", principal, "err", err)
-		return 0, nil
+		return len(of), nil
 	}
-	fps := make([]string, 0, len(keys))
+	return len(of), s.wireCarried(keys, joined)
+}
+
+// wireCarried is the keys of a principal joining project, each with
+// whether whoever added it has an admin's rights in project now, or was
+// the server's operator (`starfixd control init`), whose say over every
+// project is beyond an admin's.
+func (s *Server) wireCarried(keys []store.PrincipalKey, project string) []proto.CarriedKey {
+	var out []proto.CarriedKey
 	for _, k := range keys {
-		fps = append(fps, k.Fingerprint)
+		out = append(out, proto.CarriedKey{Fingerprint: k.Fingerprint, Type: keyType(k.Key), Comment: k.Comment, AddedBy: k.AddedBy, AddedAt: k.AddedAt,
+			AdderAdministers: k.AddedBy == store.OperatorPrincipal || s.cfg.Control.Access(k.AddedBy, project).Role == store.RoleAdmin})
 	}
-	return len(of), fps
+	return out
 }
 
 // members lists a project's members, for its admins and server admins.
 func members(ctx context.Context, s *Server, sess *session, in proto.MembersArgs) (any, *proto.Error) {
 	const op = proto.OpMembers
+	if in.AddedBy != "" {
+		return s.membersAddedBy(ctx, sess, in)
+	}
 	ctl, actor := s.cfg.Control, sess.actor.Principal
 	p, perr := s.project(ctx, sess, op, in.Project, "")
 	if perr != nil {
@@ -679,17 +707,27 @@ func keyType(key string) string {
 	return t
 }
 
-// keys lists a principal's keys: for a server admin, for an admin with
-// reach over the principal, and for the principal itself. Anyone else
-// is refused the same way whether or not the principal exists.
+// keys lists a principal's keys: for a server admin, for the principal
+// itself, and for an admin of an active project the principal belongs
+// to. Each of a member's keys signs in to the project, so its admin may
+// see them all, though only an admin with reach over the principal may
+// change them (decision 36). Anyone else is refused the same way whether
+// or not the principal exists.
 func keys(ctx context.Context, s *Server, sess *session, in proto.KeysArgs) (any, *proto.Error) {
 	const op = proto.OpKeys
+	switch {
+	case (in.Name == "") == (in.AddedBy == ""):
+		return nil, proto.Errf(proto.CodeInvalid, "give `sfx admin key list NAME`, or `sfx admin key list --added-by NAME`, not both",
+			"key list shows a principal's keys, or the keys someone added")
+	case in.AddedBy != "":
+		return s.keysAddedBy(ctx, sess, in)
+	}
 	ctl, actor := s.cfg.Control, sess.actor.Principal
 	admin := ctl.IsServerAdmin(actor)
-	if !admin && actor != in.Name && !ctl.Reaches(actor, in.Name) {
+	if !admin && actor != in.Name && !ctl.AdministersProjectOf(actor, in.Name) {
 		return nil, proto.Errf(proto.CodeForbidden,
-			"ask a server admin, or a project admin who administers every project the principal belongs to; `sfx admin key list "+actor+"` lists your own",
-			fmt.Sprintf("%s may not list the keys of %s: it is for the principal, for an admin who manages it, and for server admins", actor, in.Name))
+			"ask a server admin, or an admin of a project the principal belongs to; `sfx admin key list "+actor+"` lists your own",
+			fmt.Sprintf("%s may not list the keys of %s: it is for the principal, for an admin of a project it belongs to, and for server admins", actor, in.Name))
 	}
 	all, err := ctl.Keys(ctx, in.Name)
 	if err == nil && admin && len(all) == 0 {
@@ -718,13 +756,43 @@ func keys(ctx context.Context, s *Server, sess *session, in proto.KeysArgs) (any
 // too. It is not kept out, though: with its line gone from the keys
 // file, sshd accepts it by the other, which names no fingerprint. The
 // result says so, and that the line must be deleted on the server.
+//
+// Anyone may remove a key of their own account (decision 38), but not
+// the one this connection signed in with: the handshake checked that
+// the bridge's fingerprint is the store's key for this principal, so a
+// request that names it is a person about to lock themselves out, and
+// is refused with what to do instead. A connection that came in by the
+// hand-maintained file names no key. The daemon cannot then tell which
+// key it used, and that key is not the store's to revoke anyway, since
+// sshd reads the store's line first and did not take it; so the removal
+// is allowed, with a warning that it could not be checked.
+//
+// No guard is added for the last key of the last server admin. Whoever
+// removes their own key keeps the way in they are using, the key in use
+// or their line of authorized_keys, and what the store holds is no
+// measure of whether a server admin can sign in (decision 20's rule
+// counts names, not keys, for the same reason).
 func keyRemove(ctx context.Context, s *Server, sess *session, in proto.KeyRemoveArgs) (any, *proto.Error) {
+	me := sess.actor.Principal
+	if in.Fingerprint != "" && in.Fingerprint == sess.fingerprint {
+		return nil, proto.Errf(proto.CodeInvalid,
+			fmt.Sprintf("sign in with another of your keys and remove this one from there, or ask an admin to; `sfx whoami` shows the key in use and `sfx admin key list %s` the others", me),
+			fmt.Sprintf("key %s is the key this connection signed in with, and removing it here would lock %s out", in.Fingerprint, me))
+	}
 	k, err := s.cfg.Control.RemoveKey(ctx, sess.actor, in.Fingerprint)
 	if err != nil {
 		return nil, s.ctlErr(ctx, sess, proto.OpKeyRemove, err)
 	}
 	out := wireKeyResult(k)
 	out.Warning = s.syncKeys()
+	if k.Principal == me && sess.fingerprint == "" {
+		unchecked := fmt.Sprintf("starfixd could not check that key %s is not the one this connection signed in with: the connection came in by the server's authorized_keys file, which names no key; `sfx whoami` shows the key in use",
+			k.Fingerprint)
+		if out.Warning != "" {
+			unchecked += "; and " + out.Warning
+		}
+		out.Warning = unchecked
+	}
 	out.Dropped = s.drop(sess, keyRemoved, func(o owner) bool { return o.key == k.Fingerprint })
 	if s.byHand()[k.Fingerprint] {
 		out.InAuthorizedKeys = true

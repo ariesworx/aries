@@ -27,6 +27,11 @@ type Limits struct {
 	Conns int `yaml:"conns"`
 	// ConnsPerPrincipal caps one principal's connections.
 	ConnsPerPrincipal int `yaml:"conns_per_principal"`
+	// Handshakes caps one principal's connections that have sent their
+	// bridge frame and not yet a hello, on the whole server: the project
+	// is not known until the hello. Without it one key holder could fill
+	// the sockets twice Conns allows and keep everyone else out.
+	Handshakes int `yaml:"handshakes_per_principal"`
 	// IdleTimeout closes a connection that sends nothing for this long,
 	// unless it watches its inbox.
 	IdleTimeout Duration `yaml:"idle_timeout"`
@@ -46,7 +51,8 @@ type Limits struct {
 	// The rest apply to a server of many projects (control_db) only.
 
 	// Control bounds the rows of the control store: projects,
-	// principals, keys a principal and members a project.
+	// principals, principals one creator who is no server admin makes,
+	// keys a principal and members a project.
 	Control store.ControlLimits `yaml:",inline"`
 	// OpenStores caps the project stores open at once. At the cap, a
 	// handshake for another project closes the longest-idle store with
@@ -73,7 +79,7 @@ type Limits struct {
 
 // DefaultLimits are the limits a zero field takes.
 var DefaultLimits = Limits{
-	Limits: store.DefaultLimits, Conns: 1024, ConnsPerPrincipal: 32, IdleTimeout: Duration(10 * time.Minute),
+	Limits: store.DefaultLimits, Conns: 1024, ConnsPerPrincipal: 32, Handshakes: 16, IdleTimeout: Duration(10 * time.Minute),
 	WriteRate: 10, WriteBurst: 100, RefusalLogs: 20,
 	AgentKeep: Duration(store.MaxAgentWindow), InboxKeep: Duration(30 * 24 * time.Hour),
 	Control: store.DefaultControlLimits, OpenStores: 64, StoreIdle: Duration(10 * time.Minute),
@@ -101,12 +107,13 @@ func (l Limits) WithDefaults() Limits {
 		{&l.Labels, &d.Labels}, {&l.AcceptanceItems, &d.AcceptanceItems}, {&l.Deps, &d.Deps},
 		{&l.Sessions, &d.Sessions}, {&l.InboxUnread, &d.InboxUnread}, {&l.Notices, &d.Notices},
 		{&l.UsageRecords, &d.UsageRecords}, {&l.UsagePerDay, &d.UsagePerDay}, {&l.Paths, &d.Paths},
-		{&l.Conns, &d.Conns}, {&l.ConnsPerPrincipal, &d.ConnsPerPrincipal}, {&l.WriteBurst, &d.WriteBurst},
+		{&l.Conns, &d.Conns}, {&l.ConnsPerPrincipal, &d.ConnsPerPrincipal}, {&l.Handshakes, &d.Handshakes}, {&l.WriteBurst, &d.WriteBurst},
 		{&l.RefusalLogs, &d.RefusalLogs}, {&l.MemoryBody, &d.MemoryBody}, {&l.MemoryTags, &d.MemoryTags},
 		{&l.MemoryTagLength, &d.MemoryTagLength}, {&l.Memories, &d.Memories}, {&l.MemoryKeyLength, &d.MemoryKeyLength},
 		{&l.Prices, &d.Prices}, {&l.HoursPerDay, &d.HoursPerDay}, {&l.HoursNote, &d.HoursNote}, {&l.Plans, &d.Plans},
 		{&l.PlanPrincipals, &d.PlanPrincipals},
 		{&l.Control.Projects, &d.Control.Projects}, {&l.Control.Principals, &d.Control.Principals},
+		{&l.Control.PrincipalsPerCreator, &d.Control.PrincipalsPerCreator},
 		{&l.Control.Keys, &d.Control.Keys}, {&l.Control.Members, &d.Control.Members}, {&l.OpenStores, &d.OpenStores},
 		{&l.ControlWriteBurst, &d.ControlWriteBurst}, {&l.TelemetryRequests, &d.TelemetryRequests},
 	} {
@@ -142,7 +149,8 @@ func (l Limits) Validate() error {
 		name string
 		bad  bool
 	}{
-		{"conns", l.Conns < 0}, {"conns_per_principal", l.ConnsPerPrincipal < 0}, {"idle_timeout", l.IdleTimeout < 0},
+		{"conns", l.Conns < 0}, {"conns_per_principal", l.ConnsPerPrincipal < 0}, {"handshakes_per_principal", l.Handshakes < 0},
+		{"idle_timeout", l.IdleTimeout < 0},
 		{"write_rate", l.WriteRate < 0 || math.IsNaN(l.WriteRate) || math.IsInf(l.WriteRate, 0)},
 		{"write_burst", l.WriteBurst < 0}, {"refusal_logs", l.RefusalLogs < 0},
 		{"agent_keep", l.AgentKeep < 0}, {"inbox_keep", l.InboxKeep < 0},
@@ -267,6 +275,44 @@ func (c *conns) release(key string) {
 	if c.by[key]--; c.by[key] <= 0 {
 		delete(c.by, key)
 	}
+}
+
+// waiting counts, per principal, the connections that have sent their
+// bridge frame and not yet a hello (Limits.Handshakes).
+type waiting struct {
+	mu sync.Mutex
+	by map[string]int // guarded by mu
+}
+
+// enter counts one more such connection of principal, unless it has most
+// already.
+func (w *waiting) enter(principal string, most int) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.by[principal] >= most {
+		return false
+	}
+	if w.by == nil {
+		w.by = map[string]int{}
+	}
+	w.by[principal]++
+	return true
+}
+
+// leave uncounts a connection enter counted.
+func (w *waiting) leave(principal string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.by[principal]--; w.by[principal] <= 0 {
+		delete(w.by, principal)
+	}
+}
+
+// count returns how many of principal's connections are counted.
+func (w *waiting) count(principal string) int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.by[principal]
 }
 
 // sampler logs at most n refusal lines per principal a minute (S-20), so

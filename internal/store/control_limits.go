@@ -15,6 +15,11 @@ type ControlLimits struct {
 	// Principals caps the principals on the server, disabled ones
 	// included.
 	Principals int `yaml:"principals"`
+	// PrincipalsPerCreator caps the principals one principal who is no
+	// server admin may create, disabled ones included. Principals are
+	// never deleted and their names are the whole server's, so without it
+	// one project admin could use up Principals.
+	PrincipalsPerCreator int `yaml:"principals_per_creator"`
 	// Keys caps the public keys of one principal.
 	Keys int `yaml:"keys_per_principal"`
 	// Members caps the principals with a role in one project.
@@ -22,12 +27,13 @@ type ControlLimits struct {
 }
 
 // DefaultControlLimits are the limits a zero field takes.
-var DefaultControlLimits = ControlLimits{Projects: 500, Principals: 5000, Keys: 20, Members: 1000}
+var DefaultControlLimits = ControlLimits{Projects: 500, Principals: 5000, PrincipalsPerCreator: 500, Keys: 20, Members: 1000}
 
 // The limits' names, as a [*ControlLimitError] gives them.
 const (
 	limitProjects   = "projects"
 	limitPrincipals = "principals"
+	limitPerCreator = "principals_per_creator"
 	limitKeys       = "keys_per_principal"
 	limitMembers    = "members_per_project"
 )
@@ -37,7 +43,8 @@ const (
 func (l ControlLimits) withDefaults() ControlLimits {
 	d := DefaultControlLimits
 	for _, f := range []struct{ v, d *int }{
-		{&l.Projects, &d.Projects}, {&l.Principals, &d.Principals}, {&l.Keys, &d.Keys}, {&l.Members, &d.Members},
+		{&l.Projects, &d.Projects}, {&l.Principals, &d.Principals}, {&l.PrincipalsPerCreator, &d.PrincipalsPerCreator},
+		{&l.Keys, &d.Keys}, {&l.Members, &d.Members},
 	} {
 		if *f.v == 0 {
 			*f.v = *f.d
@@ -53,7 +60,8 @@ func (l ControlLimits) Validate() error {
 		name string
 		v    int
 	}{
-		{limitProjects, l.Projects}, {limitPrincipals, l.Principals}, {limitKeys, l.Keys}, {limitMembers, l.Members},
+		{limitProjects, l.Projects}, {limitPrincipals, l.Principals}, {limitPerCreator, l.PrincipalsPerCreator},
+		{limitKeys, l.Keys}, {limitMembers, l.Members},
 	} {
 		if f.v < 0 {
 			return fmt.Errorf("%w: limit %s is %d; give a positive number, or leave it out for the default", ErrInvalid, f.name, f.v)
@@ -64,8 +72,8 @@ func (l ControlLimits) Validate() error {
 
 // ControlLimitError refuses a new row when the control store holds Max
 // of them already. Limit names the limit as starfixd's settings will
-// (projects, principals, keys_per_principal, members_per_project). It
-// wraps ErrInvalid.
+// (projects, principals, principals_per_creator, keys_per_principal,
+// members_per_project). It wraps ErrInvalid.
 type ControlLimitError struct {
 	Limit string
 	Max   int
@@ -73,6 +81,8 @@ type ControlLimitError struct {
 
 func (e *ControlLimitError) Error() string {
 	switch e.Limit {
+	case limitPerCreator:
+		return fmt.Sprintf("%v: a principal who is no server admin creates at most %d principals", ErrInvalid, e.Max)
 	case limitKeys:
 		return fmt.Sprintf("%v: a principal keeps at most %d keys", ErrInvalid, e.Max)
 	case limitMembers:

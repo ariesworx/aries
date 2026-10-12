@@ -25,7 +25,7 @@ server:
 | `server.user` | The account starfixd runs as | `starfix` |
 | `server.host_key` | The server's ED25519 host key fingerprint, `SHA256:…` | required |
 | `server.iap` | Reach the server through Google Cloud IAP ([below](#servers-without-a-public-ip-google-cloud-iap)) | off |
-| `key` | A private key file, absolute, `~/`-relative or relative to the repository root | ssh-agent |
+| `key` | A key file inside the repository, relative to its root: the only key `sfx` then offers ([below](#your-key-is-your-identity)). The file is committed and shared, so most people leave this out; set `STARFIX_KEY_FILE` to name a key of your own | your default identities, then ssh-agent |
 
 ### The host key is pinned
 
@@ -45,9 +45,75 @@ network.
 
 The server's admin adds your public key with your principal name
 ([Principals](server.md#principals)): send them the `.pub` file, never
-the file beside it. `sfx` signs in with a key from
-ssh-agent (the OpenSSH agent's named pipe on Windows), or with the file in
-`key:`. It runs its own SSH client, so it does not use your `~/.ssh/config`.
+the file beside it. `sfx` runs its own SSH client, so it does not use
+your `~/.ssh/config`. Which keys it offers the server is decided in this
+order, and nowhere else:
+
+| | Where the key comes from | What `sfx` offers |
+|---|---|---|
+| 1 | **`STARFIX_KEY_FILE`**, an environment variable that holds the *path* of a key file, any path (`~/` is your home directory). It is yours alone, since `.starfix.yaml` is committed and shared | That key and no other |
+| 2 | **`key:`** in `.starfix.yaml`, which may name only a file inside the repository: a relative path that, with symbolic links resolved, stays under the repository's root. A path outside it is refused, and the fix says to use `STARFIX_KEY_FILE` | That key and no other |
+| 3 | **Your default identities**, when neither is set: `~/.ssh/id_rsa`, `id_ecdsa`, `id_ecdsa_sk`, `id_ed25519` and `id_ed25519_sk`, the files `ssh` tries, in its order, and only those that exist | Each one it can use |
+| 4 | **ssh-agent** (the OpenSSH agent's named pipe on Windows), after those | The keys it holds that are not already offered, in its order, until five keys are offered in all |
+
+A key named by 1 or 2 is the only key offered, whatever your `~/.ssh` and
+ssh-agent hold, as with OpenSSH's `IdentitiesOnly`. The file may be the
+private key, or its `.pub`: for a `.pub`, for a private key that is
+passphrase-protected, and for a private key that is missing while its
+`.pub` is there, ssh-agent signs with that one key, which `sfx` finds by
+its public half, and offers no other. This is how an agent is given an
+identity of its own
+([agent guide](agents.md#give-an-agent-its-own-identity)).
+
+With neither set (3 and 4) `sfx` does what `ssh` does, so that a person
+whose key is `~/.ssh/id_ed25519` has nothing to configure:
+
+- A default file that is passphrase-protected is used through ssh-agent
+  when the agent holds its key, and is otherwise skipped. `sfx` never
+  asks for a passphrase.
+- An `_sk` file is a key held on a hardware token. It is used only
+  through ssh-agent, found by the `.pub` beside it, and is otherwise
+  skipped.
+- A certificate beside a key (`id_ed25519-cert.pub`) is not read:
+  certificates are not supported.
+- sshd counts every key it refuses and closes the connection at
+  `MaxAuthTries`, six by default. So `sfx` offers five keys at most. The
+  default files come first, and the rest of ssh-agent's keys fill what
+  is left; any beyond that are not offered, and a refusal says how many.
+- The server takes the first key it knows. With more than one of your
+  keys registered, to different principals, that decides who you are;
+  name the key you mean with `STARFIX_KEY_FILE`.
+
+The home directory is `HOME` (`USERPROFILE` on Windows), from the
+process's environment. Nothing in a repository changes where `sfx` looks
+for default identities.
+
+`sfx whoami` shows the result: the principal the server took you for, the
+project and server, the fingerprint of the key that signed, where the key
+came from (the file, and what named it, or ssh-agent), and any default
+file that was skipped, with the reason. `sfx prime`, which every agent
+session starts with, says the same in its second line. When the server
+accepts no key, the refusal lists each key `sfx` offered, by fingerprint
+and file, says what was skipped or left out, and names
+`STARFIX_KEY_FILE`.
+
+**`STARFIX_KEY_FILE` holds a path, never a key.** A value that is plainly
+a key (more than one line, or the opening of a private key) is refused
+without being repeated. `sfx` reads no variable named `STARFIX_KEY`:
+earlier instructions for continuous integration put a private key's
+contents in one. `sfx` never looks at its value. When it is set and
+sign-in fails, the refusal says once that it is not read.
+
+### Environment variables
+
+| Variable | Holds |
+|---|---|
+| `STARFIX_KEY_FILE` | The path of the key file to sign in with: then the only key offered (above). Never the key itself |
+| `SSH_AUTH_SOCK` | ssh-agent's socket |
+| `HOME`, or `USERPROFILE` on Windows | Your home directory: `~/` in `STARFIX_KEY_FILE`, and `~/.ssh` for the default identities |
+| `STARFIX_SESSION`, `STARFIX_HARNESS`, `TRACEPARENT`, `TRACESTATE` | The session id, the agent harness's name and the caller's trace context ([agent guide](agents.md#sessions)) |
+
+`sfx` reads no other variable to decide who you are.
 
 ### Where sfx looks for the file
 
@@ -141,6 +207,7 @@ in DIR. `--json` prints exactly one JSON document, errors included.
 | `inbox` | List your unread inbox, newest first: 20 items, or `-n N` (at most 100). `--all` includes read items; `--ack ID` (repeatable or comma-separated) or `--ack-all` marks items read |
 | `watch` | Print inbox items as they arrive, until ctrl-c (exit 0). With `--json`, one object per line: `{"op":"inbox","item":{…}}`, or `{"op":"resync"}` when it missed items (`sfx inbox` lists them) |
 | `tui` | Show the [live board](#the-live-board) until `q` |
+| `whoami` | Say who the server takes you for: your principal, the project and server, the session id, and the fingerprint of the key that signed in, with whether it came from a key file or from ssh-agent. `--json` gives the same as one document. Run it when a command acts as someone you did not expect |
 | `who` | List the sessions seen in the last 5 minutes (`--since 2h`, up to 7d) and the issues each holds; at most 100 (`-n N`, up to 500), then a count of the rest |
 | `digest` | Summarize a window: `--since 24h` (default), `7d`, a date or a time; filter with `--by PRINCIPAL` or `--label L`. Under its header it prints the time issues were held (saying when some tokens were split by time), their cost at list price, the hours logged on the days the window overlaps, the tokens reported by model, and those no issue was held for |
 | `cost` | Report the list-price cost of the tokens reported in a window, their amortized cost once an admin has recorded a plan, and the hours logged ([Cost](concepts.md#cost)): `--since 7d`, a date or a time (required), `--until` a date or a time (not included; default now), grouped `--by account` (default), `issue`, `epic`, `person` or `model`. It lists 50 groups, largest first, or `-n N` (at most 500), the rest summed as `(other)`, then the total. `split` marks a group whose tokens came partly from records shared by time with other work, and `unpriced` one with tokens no price covers; a group with no priced token shows `unpriced` for its cost, never $0.00. With plans, each group shows `$X amortized` after its list price; with hours, `1.5h logged` after its tokens (by `model`, people's hours are the group `(human)`) |
@@ -165,14 +232,14 @@ Memories are notes kept across sessions, in `project` (the default),
 | Command | Does |
 |---|---|
 | `mcp` | Serve the MCP tools for an agent on stdin and stdout ([agent guide](agents.md)) |
-| `setup AGENT` | Set an agent up for this repository; see [Set up an agent](agents.md#set-up-an-agent) |
+| `setup AGENT` | Set an agent up for this repository; see [Set up an agent](agents.md#set-up-an-agent). With `--global`, or for Claude Desktop, `--key-file PATH` also names the key file the agent signs in with, in your own files only ([Give an agent its own identity](agents.md#give-an-agent-its-own-identity)) |
 | `usage --hook[=AGENT]` | Send the token counts in the session's transcripts that earlier runs have not sent. Run by Claude Code's Stop, SubagentStop and SessionEnd hooks, which `setup claude-code` installs, with the hook's JSON on stdin; bare `--hook` is Claude Code's, the only agent captured so far. It always exits 0 and sends only counts ([Token usage hooks](agents.md#token-usage-hooks-claude-code)) |
 | `admin prices` | List the model prices, in US dollars per million tokens. `admin prices set MODEL --from DATE --input USD --output USD --cache-write USD --cache-write-1h USD --cache-read USD` sets a model's rates from a date (midnight UTC) or an RFC 3339 time, and prints `added`, `replaced` (the same model and `--from`) or `unchanged`. Every rate must be given, 0 where the model charges nothing, with at most six decimals. Setting is for admins ([Prices](server.md#prices)) |
 | `admin plans` | List the subscription plans, in US dollars a seat a month, with each row's monthly total. `admin plans set NAME --from YYYY-MM --fee USD --seats N --principal P...` sets a plan's terms from a month until a later `--from` of the same name, the principals being those whose usage it pays for (repeatable or comma-separated), and prints `added`, `replaced` (the same name and `--from`) or `unchanged`. `--fee 0 --seats 0` ends a plan. Setting is for admins ([Plans](server.md#plans)) |
 | `admin project` | On a server of [many projects](server.md#serving-many-projects). `admin project add NAME [--prefix P] [--account A]` creates a project, in a database the server takes from the names its operator granted, and prints its UUID and the `.starfix.yaml` to commit to its repository: this repository's server with the new project, never your key path. NAME is a code name; the prefix of its issue ids defaults to NAME and its account to `internal`. Run again after a failure, it finishes the same project. `admin project list` lists every project for a server admin, and for anyone else the active projects they belong to, with their role; `admin project archive PROJECT` stops serving a project, closes every connection to it and releases every claim in it, keeping its data; `admin project activate PROJECT` serves it again. PROJECT is a UUID or a name. Adding, archiving and activating are for server admins ([Managing access](server.md#managing-access)) |
-| `admin principal` | `admin principal add NAME [--key FILE]... [--project P]` adds a principal as a member of this repository's project, or of `--project` (a UUID or a name); `--no-project`, for server admins, adds it to none. Each `--key` is a public key file to add with it, as `admin key add` takes one; the principal and its keys are added together or not at all. `admin principal list` lists them all, for server admins. `admin principal disable NAME` stops a principal's access everywhere, closes its connections and releases its claims, and says how many; a disabled principal is refused even if it is a server admin, and the last enabled server admin cannot be disabled. `admin principal enable NAME` restores it. A project admin may add a principal to a project they administer, and disable or enable one that belongs only to projects they administer |
-| `admin key` | A principal's public SSH keys, on a server whose sshd reads the keys file starfixd writes ([Keys from the store](server.md#keys-from-the-store)). `admin key add NAME FILE` adds the key in FILE, a `.pub` file such as `~/.ssh/id_ed25519.pub`, or `-` to read it from standard input, and prints its fingerprint. `sfx` reads the file here and sends the public key alone: a file that holds a private key, more than one line, or anything that is not one public key is refused before anything is sent. A key the principal already has changes nothing; one another principal has is refused, and so is one that the server's hand-maintained `authorized_keys` gives to another principal. `admin key list NAME` lists a principal's keys by fingerprint, type and comment: for server admins, an admin with reach over NAME, and NAME themselves. `admin key list` marks a key that is also a line of the server's hand-maintained `authorized_keys` file, and says how many of NAME's open connections came in by that file. `admin key remove FINGERPRINT` removes the key with that `SHA256:…` fingerprint and closes the connections it had signed in; it warns on stderr when the key is also a line of the server's `authorized_keys`: its connections were closed, and sshd, which reads that file after the server's own, still accepts the key by that line until the line is deleted on the server. Any of these commands that changes which keys sign in also warns when the server recorded the change and could not write its keys file, so that sshd may still be reading the old one. Adding and removing are for server admins and for a project admin with reach over the principal, and never for your own account: another admin changes your keys |
-| `admin member` | `admin member add NAME [--project P] [--role admin]` makes a principal a member of the project, or changes its role (`member`, the default, or `admin`), and prints `added`, the new role, or that nothing changed; when the principal already belonged to another project it lists the fingerprints of the keys recorded for it, each of which now reaches this project too. `admin member list [--project P]` lists the project's members. `admin member remove NAME [--project P]` ends a membership, closes that principal's connections to the project and releases the claims it held there, saying how many; it warns on stderr when that leaves the principal within reach of project admins who could not manage it before. For the project's admins and server admins. Each `admin` list of projects, principals or members is by name, 200 rows or `-n N` (at most 1000), then a count of the rest, which `--after NAME` lists |
+| `admin principal` | `admin principal add NAME [--key FILE]... [--project P]` adds a principal as a member of this repository's project, or of `--project` (a UUID or a name); `--no-project`, for server admins, adds it to none. Each `--key` is a public key file to add with it, as `admin key add` takes one; the principal and its keys are added together or not at all. `admin principal list` lists them all, for server admins; `--created-by NAME` lists those NAME created, which a project admin may also ask, and is shown the ones in their projects. `admin principal disable NAME` stops a principal's access everywhere, closes its connections and releases its claims, and says how many; a disabled principal is refused even if it is a server admin, and the last enabled server admin cannot be disabled. Disabling undoes nothing the principal did: when NAME added keys that are still in the store, created principals or added memberships, a warning on stderr counts them and names the lists that show them (`key list --added-by`, `principal list --created-by`, `member list --added-by`), and `--json` carries the counts as `keys_added`, `principals_created` and `members_added`. `admin principal enable NAME` restores it. A project admin may add a principal to a project they administer, and disable or enable one that belongs only to projects they administer |
+| `admin key` | A principal's public SSH keys, on a server whose sshd reads the keys file starfixd writes ([Keys from the store](server.md#keys-from-the-store)). `admin key add NAME FILE` adds the key in FILE, a `.pub` file such as `~/.ssh/id_ed25519.pub`, or `-` to read it from standard input, and prints its fingerprint. `sfx` reads the file here and sends the public key alone: a file that holds a private key, more than one line, or anything that is not one public key is refused before anything is sent. A key the principal already has changes nothing; one another principal has is refused, and so is one that the server's hand-maintained `authorized_keys` gives to another principal. `admin key list NAME` lists a principal's keys by fingerprint, type and comment: for server admins, an admin of any active project NAME belongs to (they may see the keys even where they may not change them), and NAME themselves. `admin key list` marks a key that is also a line of the server's hand-maintained `authorized_keys` file, and says how many of NAME's open connections came in by that file. `admin key list --added-by NAME` lists instead the keys NAME added, whoever each belongs to, by fingerprint (`-n N`, `--after FINGERPRINT`): everything for a server admin, and for a project admin the keys of their projects' members. `admin key remove FINGERPRINT` removes the key with that `SHA256:…` fingerprint and closes the connections it had signed in; it warns on stderr when the key is also a line of the server's `authorized_keys`: its connections were closed, and sshd, which reads that file after the server's own, still accepts the key by that line until the line is deleted on the server. Any of these commands that changes which keys sign in also warns when the server recorded the change and could not write its keys file, so that sshd may still be reading the old one. Adding is for server admins and for a project admin with reach over the principal, and never for your own account: another admin adds your keys. Removing is for the same admins, and for yourself: you may remove any key of your own except the one this connection signed in with, which is refused by fingerprint (`sfx whoami` shows it; `admin key list YOU` shows the rest, with who added each). On a connection that came in by the server's `authorized_keys`, which names no key, the removal goes ahead with a warning that it could not be checked |
+| `admin member` | `admin member add NAME [--project P] [--role admin] [--accept-keys]` makes a principal a member of the project, or changes its role (`member`, the default, or `admin`), and prints `added`, the new role, or that nothing changed. A key signs in to every project its principal is in, so when NAME has any key and is not yet a member, nothing is added at first: `sfx` lists every key NAME has, with who added it, when, and whether that was an admin of this project, and on a terminal asks before it adds. Without a terminal it exits 1 with a fix naming `--accept-keys`, which adds without asking; with `--json` the one document holds the refusal under `error` and the keys under `member`. Someone with no key is added at once, and a change of role asks nothing. `admin member list [--project P]` lists the project's members; with `--added-by NAME` it lists the memberships NAME added, in every project you may list the members of, or in `--project`, by project and principal (`--after PROJECT/PRINCIPAL` continues). `admin member remove NAME [--project P]` ends a membership, closes that principal's connections to the project and releases the claims it held there, saying how many; it warns on stderr when that leaves the principal within reach of project admins who could not manage it before. For the project's admins and server admins. Each `admin` list of projects, principals or members is by name, 200 rows or `-n N` (at most 1000), then a count of the rest, which `--after NAME` lists |
 | `admin status` | What the server knows of itself and its projects now ([Watching a server](server.md#watching-a-server)). A server admin sees the server (version and protocol range, uptime, open stores and connections beside their limits, the keys file it writes for sshd and whether its last write failed, the times its clock was set and whether it is behind the server's own history ([The server's clock](server.md#the-servers-clock)), starfixd's own memory and goroutines, projects and principals by state) and a row for every project; a project admin sees the rows of the active projects they administer; anyone else is refused. A row gives the project's state, whether its store is open, its connections and how many of them came in by the hand-maintained `authorized_keys`, the sessions seen in five minutes, the writes of the last minute, and the median and 99th percentile latency of its latest 256 writes. `-n N` and `--after NAME` page the projects. It changes nothing, and reports nothing of Dolt's memory or disk |
 | `upgrade` | Replace `sfx` with the latest release after checking its signature and checksum. `--check` reports and changes nothing; `--rollback` restores the binary the last upgrade replaced. It never runs on its own |
 | `version` | Print the version and protocol |

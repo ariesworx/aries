@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -38,8 +39,9 @@ type Config struct {
 		// forwarding instead of dialing Host directly.
 		IAP *IAP `yaml:"iap"`
 	} `yaml:"server"`
-	// Key is an optional private key file, absolute, ~/-relative, or
-	// relative to the repository root. Without it, ssh-agent is used.
+	// Key is an optional key file inside the repository, relative to its
+	// root (KeyPath). It is then the only key offered; without it, and
+	// without EnvKeyFile, ssh-agent's keys are.
 	Key string `yaml:"key"`
 
 	// Root is the directory holding the config file (not read from YAML).
@@ -220,7 +222,7 @@ func (c *Config) validate() error {
 		return fmt.Errorf("server.user %q is not a Unix account name", c.Server.User)
 	case !fprRE.MatchString(c.Server.HostKey):
 		return errors.New("server.host_key must be the server's ED25519 fingerprint (SHA256:…, from `ssh-keyscan -t ed25519 HOST | ssh-keygen -lf -`)")
-	case strings.ContainsAny(c.Key, "\x00\n"):
+	case notAPath(c.Key) != "":
 		return errors.New("key is not a file path")
 	}
 	if iap := c.Server.IAP; iap != nil {
@@ -285,21 +287,127 @@ func (c *Config) ForProject(project string) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// KeyPath resolves Key: "~/" is the home directory, and a relative path is
-// relative to the repository root. It returns "" when no key is set.
+// EnvKeyFile is the environment variable that names the key file sfx
+// offers, by any path. It wins over Key, and is how one person chooses a
+// key without editing the committed file. It holds a path, as ssh's
+// IdentityFile does, never a key.
+const EnvKeyFile = "STARFIX_KEY_FILE"
+
+// EnvNotRead is a variable sfx never reads. Deployments used the name
+// for a secret holding a private key's text, which they piped to
+// ssh-add, so its value is never a path, and never printed: a refusal
+// may say only that the variable is set and not read.
+const EnvNotRead = "STARFIX_KEY"
+
+// maxKeyPath bounds a path that names a key file: PATH_MAX on Linux.
+const maxKeyPath = 4096
+
+// notAPath says why s cannot be the path of a key file, or returns "".
+// What is checked for is a key put where a path belongs, which a
+// refusal must not repeat: more than one line, the armor of a private
+// key or the marker inside an OpenSSH one (plain, and as its base64
+// begins), and more bytes than a path has.
+func notAPath(s string) string {
+	switch {
+	case strings.ContainsAny(s, "\r\n\x00"):
+		return "it spans more than one line"
+	case strings.Contains(s, "-----BEGIN"), strings.Contains(s, "openssh-key-v1"), strings.Contains(s, "b3BlbnNzaC1rZXktdjE"):
+		return "it holds key material"
+	case len(s) > maxKeyPath:
+		return "it is longer than a path can be"
+	}
+	return ""
+}
+
+// KeyFile returns the key file sfx is to offer, and no other key with it
+// (design §14, decision 35), and what named it, for a refusal:
+// EnvKeyFile's value, any path on the machine ("~/" is the home
+// directory home gives, and a relative path is relative to the working
+// directory), or else [Config.KeyPath]. It returns "" when neither names
+// one: the default identities and ssh-agent's keys are then offered.
+//
+// EnvKeyFile's value is not trusted to be a path: one that is plainly a
+// key is refused with CodeInvalid, and never repeated.
+func (c *Config) KeyFile(getenv func(string) string, home func() (string, error)) (path, from string, err error) {
+	k := getenv(EnvKeyFile)
+	if k == "" {
+		path, err = c.KeyPath()
+		return path, "key: in " + ConfigFile, err
+	}
+	if why := notAPath(k); why != "" {
+		return "", EnvKeyFile, proto.Errf(proto.CodeInvalid,
+			fmt.Sprintf("set %s to the path of your key file, such as ~/.ssh/id_ed25519: it takes the file's path, never the key itself", EnvKeyFile),
+			fmt.Sprintf("%s does not hold the path of a key file: %s", EnvKeyFile, why))
+	}
+	if k == "~" || strings.HasPrefix(k, "~/") {
+		dir, err := home()
+		if err != nil {
+			return "", EnvKeyFile, fmt.Errorf("%s: %w", EnvKeyFile, err)
+		}
+		return filepath.Join(dir, strings.TrimPrefix(k, "~")), EnvKeyFile, nil
+	}
+	path, err = filepath.Abs(k)
+	if err != nil {
+		return "", EnvKeyFile, fmt.Errorf("%s: %w", EnvKeyFile, err)
+	}
+	return path, EnvKeyFile, nil
+}
+
+// KeyPath resolves Key, a path relative to the repository root, and
+// returns "" when no key is set.
+//
+// The config file is committed, so in a cloned repository someone else
+// chose Key. It may therefore name only a file inside the repository: a
+// relative path that, with symbolic links resolved, stays under Root.
+// Otherwise a cloned file could make sfx read a key anywhere on the
+// machine and show its public half to the server the same file names.
+// An absolute path, one under "~", and one that climbs or links out are
+// refused with CodeInvalid; a key elsewhere is named with EnvKeyFile. The
+// file need not exist: reading it is the caller's.
 func (c *Config) KeyPath() (string, error) {
 	k := c.Key
-	switch {
-	case k == "":
+	if k == "" {
 		return "", nil
-	case k == "~" || strings.HasPrefix(k, "~/"):
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("key: %w", err)
-		}
-		return filepath.Join(home, strings.TrimPrefix(k, "~")), nil
-	case filepath.IsAbs(k):
-		return k, nil
 	}
-	return filepath.Join(c.Root, k), nil
+	outside := proto.Errf(proto.CodeInvalid,
+		fmt.Sprintf("set %s=%s in your environment, and delete the line `key: %s` from %s", EnvKeyFile, k, k, ConfigFile),
+		fmt.Sprintf("key: in %s names %s, outside the repository; the file is committed, so it may name only a key inside the repository", ConfigFile, k))
+	if filepath.IsAbs(k) || k == "~" || strings.HasPrefix(k, "~/") || filepath.VolumeName(k) != "" {
+		return "", outside
+	}
+	path := filepath.Join(c.Root, k)
+	root, err := filepath.EvalSymlinks(cmp.Or(c.Root, "."))
+	if err != nil {
+		return "", fmt.Errorf("key: %w", err)
+	}
+	resolved, err := resolveExisting(path)
+	if err != nil {
+		return "", fmt.Errorf("key: %w", err)
+	}
+	if rel, err := filepath.Rel(root, resolved); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", outside
+	}
+	return path, nil
+}
+
+// resolveExisting is filepath.EvalSymlinks for a path whose last
+// elements may not exist yet: the links of the part that does exist are
+// resolved, and the rest is kept as it is.
+func resolveExisting(path string) (string, error) {
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	rest := ""
+	for {
+		resolved, err := filepath.EvalSymlinks(path)
+		if err == nil {
+			return filepath.Join(resolved, rest), nil
+		}
+		parent := filepath.Dir(path)
+		if !errors.Is(err, fs.ErrNotExist) || parent == path {
+			return "", err
+		}
+		rest, path = filepath.Join(filepath.Base(path), rest), parent
+	}
 }

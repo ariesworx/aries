@@ -151,6 +151,9 @@ const (
 const (
 	LimitConns             = "conns"
 	LimitConnsPerPrincipal = "conns_per_principal"
+	// LimitHandshakes is the cap on one principal's connections that
+	// have not yet said hello.
+	LimitHandshakes = "handshakes_per_principal"
 	// LimitSockets is the cap on sockets still in their handshake.
 	LimitSockets           = "handshake_sockets"
 	LimitWriteRate         = "write_rate"
@@ -179,7 +182,7 @@ var results = []string{ResultOK, ResultFailed,
 	string(proto.CodeVersion), string(proto.CodeAuth), string(proto.CodeBusy)}
 
 // limits are the values of KeyLimit.
-var limits = []string{LimitConns, LimitConnsPerPrincipal, LimitSockets, LimitWriteRate, LimitControlWriteRate,
+var limits = []string{LimitConns, LimitConnsPerPrincipal, LimitHandshakes, LimitSockets, LimitWriteRate, LimitControlWriteRate,
 	LimitOpenStores, LimitTelemetryRequests, LimitProjects, LimitPrincipals, LimitKeys, LimitMembers, LimitPrices,
 	LimitPlans, LimitHoursPerDay, LimitUsagePerDay}
 

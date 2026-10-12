@@ -101,9 +101,9 @@ func TestTwoProjects(t *testing.T) {
 		!strings.Contains(r.stderr, "fix: ask a server admin, or one of the project's admins, to add you: `sfx admin member add bob`, run in this repository") {
 		t.Errorf("bob in the second project: exit %d\n%s", r.code, r.stderr)
 	}
-	// So is someone the control store has never heard of, the same way.
+	// So is someone the control store has never heard of, before a project is named.
 	r = w.newUser("mallory", "").run("v0.2.0", "list")
-	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "mallory is not a member of project") {
+	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "mallory is not a principal of this server") {
 		t.Errorf("mallory, in no project: exit %d\n%s", r.code, r.stderr)
 	}
 	// A project the server does not hold is refused as it always was.

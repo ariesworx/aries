@@ -64,9 +64,12 @@ CI runners: ci-bot ────────────────┘          
    ```
 
    Add `ci-bot.pub` on the server under the principal `ci-bot`, store the
-   contents of `ci-bot` as the repository secret `STARFIX_KEY`, then
-   delete both files. Do the same for a cloud agent's sandbox, with its
-   own name.
+   contents of `ci-bot` as the repository secret `STARFIX_CI_PRIVATE_KEY`,
+   then delete both files. Do the same for a cloud agent's sandbox, with
+   its own name. The secret's name is yours to choose, with one
+   exception: do not call it `STARFIX_KEY_FILE`, which `sfx` reads as the
+   *path* of a key file and never as the key
+   ([Your key is your identity](../cli.md#your-key-is-your-identity)).
 
 5. **Connect the repositories.** Commit a `.starfix.yaml` to each:
 
@@ -80,24 +83,69 @@ CI runners: ci-bot ────────────────┘          
    Then run `sfx setup --all --write` and commit what it writes
    ([agent guide](../agents.md)).
 
-6. **Load the key in CI.** In GitHub Actions, one step installs `sfx` and
-   loads the key into ssh-agent for the steps after it, whether they run
-   `sfx` or an agent:
+6. **Give CI the key as a file.** In GitHub Actions, one step installs
+   `sfx`, writes the secret to a file only the job's user can read, and
+   sets `STARFIX_KEY_FILE` to that file's path for the steps after it,
+   whether they run `sfx` or an agent. A last step deletes the file:
 
    ```yaml
    - name: Connect to starfix
      env:
-       STARFIX_KEY: ${{ secrets.STARFIX_KEY }}
+       STARFIX_CI_PRIVATE_KEY: ${{ secrets.STARFIX_CI_PRIVATE_KEY }}
      run: |
        curl -fsSL https://raw.githubusercontent.com/ariesworx/starfix/main/install.sh | sh
        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-       eval "$(ssh-agent -s)"
-       printf '%s\n' "$STARFIX_KEY" | ssh-add -
-       echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> "$GITHUB_ENV"
+       umask 077
+       key="$RUNNER_TEMP/starfix-ci-key"
+       printf '%s\n' "$STARFIX_CI_PRIVATE_KEY" > "$key"
+       echo "STARFIX_KEY_FILE=$key" >> "$GITHUB_ENV"
+
+   # … the steps that run sfx or an agent …
+
+   - name: Remove the starfix key
+     if: always()
+     run: rm -f "$STARFIX_KEY_FILE"
    ```
 
-   A cloud sandbox does the same in its setup script, with the key from
-   its own secret store.
+   `umask 077` comes before the file is written, so it is never readable
+   by another user, even for a moment. `printf` is the shell's own, so the
+   key is in no command line; nothing prints it, and only the path goes
+   into `GITHUB_ENV`. The secret itself is in the environment of that one
+   step alone.
+
+   With `STARFIX_KEY_FILE` set, `sfx` offers that key and no other, so
+   the job is `ci-bot` and nothing else, whatever other keys a runner or
+   a later step has loaded. A key loaded into ssh-agent with nothing
+   naming it is one key among those the agent holds, and the server takes
+   the first it knows.
+
+   **When a step runs code that must not read the key**, such as an agent
+   working on a pull request, keep the private key out of the file
+   system: load it into an ssh-agent, and give `STARFIX_KEY_FILE` the
+   *public* key's path. `sfx` then has the agent sign with that one key
+   and still offers no other. The steps after can use the key, and cannot
+   copy it:
+
+   ```yaml
+   - name: Connect to starfix
+     env:
+       STARFIX_CI_PRIVATE_KEY: ${{ secrets.STARFIX_CI_PRIVATE_KEY }}
+     run: |
+       curl -fsSL https://raw.githubusercontent.com/ariesworx/starfix/main/install.sh | sh
+       echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+       eval "$(ssh-agent -s)" > /dev/null
+       printf '%s\n' "$STARFIX_CI_PRIVATE_KEY" | ssh-add -q -
+       ssh-add -L > "$RUNNER_TEMP/starfix-ci-key.pub"
+       echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> "$GITHUB_ENV"
+       echo "STARFIX_KEY_FILE=$RUNNER_TEMP/starfix-ci-key.pub" >> "$GITHUB_ENV"
+   ```
+
+   Either way, check with `sfx whoami` as the next step: it prints the
+   principal, and the key's fingerprint and file, and never the key.
+
+   A cloud sandbox does the same in its setup script: the key from its
+   own secret store, written under `umask 077` to a file outside the
+   checkout, and `STARFIX_KEY_FILE` set to that path for the agent.
 
 ## Day to day
 

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/board"
 	"github.com/ariesworx/starfix/internal/client"
 	"github.com/ariesworx/starfix/internal/mcpserver"
 	"github.com/ariesworx/starfix/internal/proto"
@@ -45,7 +46,7 @@ type Env struct {
 	Getenv func(string) string
 	// Hostname names this machine to the server. Default os.Hostname.
 	Hostname func() (string, error)
-	// UserHomeDir finds the home directory, for `setup --global` and a
+	// UserHomeDir finds the home directory, for the default SSH identities, `setup --global` and a
 	// desktop app's config. Default os.UserHomeDir.
 	UserHomeDir func() (string, error)
 	// UserCacheDir finds the cache directory, where `usage --hook` keeps
@@ -65,6 +66,10 @@ type Env struct {
 	// Now is the time in the user's time zone, whose date `log` sends as
 	// the day worked. Default time.Now.
 	Now func() time.Time
+	// Terminal reports whether a person is at Stdin and Stdout, so that a
+	// command may ask them something. Default: whether both are
+	// terminals.
+	Terminal func() bool
 }
 
 // usageError is a mistake on the command line. usage is the usage line
@@ -72,6 +77,18 @@ type Env struct {
 type usageError struct{ msg, usage string }
 
 func (e *usageError) Error() string { return e.msg }
+
+// refusedWith is a refusal that has something to show with it. With
+// --json the one document printed holds the error and, under key, value.
+type refusedWith struct {
+	err   *proto.Error
+	key   string
+	value any
+}
+
+func (e *refusedWith) Error() string { return e.err.Error() }
+
+func (e *refusedWith) Unwrap() error { return e.err }
 
 // usagef returns a usageError with a formatted message.
 func usagef(usage, format string, a ...any) error {
@@ -115,6 +132,7 @@ func init() {
 		{"away", "away DURATION", "extend all your claims, e.g. before going offline (1m to 7d)", cmdAway},
 		{"digest", "digest [--since 24h|7d|DATE|TIME] [--by PRINCIPAL] [--label L]", "summarize what closed, started, stalled, is blocked and was handed off", cmdDigest},
 		{"who", "who [--since DURATION] [-n N]", "list the agents at work and the issues each holds (seen in the last 5m)", cmdWho},
+		{"whoami", "whoami", "say which principal the server takes you for, and which key signed in", cmdWhoami},
 		{"cost", "cost --since 7d|DATE|TIME [--until DATE|TIME] [--by account|issue|epic|person|model] [-n N]", "report the list-price and amortized cost of tokens, and the hours logged, by account, issue, epic, person or model", cmdCost},
 		{"log", "log DURATION ID [--on DATE] [--note TEXT] | log --undo ENTRY | log [--issue ID] [--by PRINCIPAL] [-n N]", "log your hours on an issue (1.5h, 90m), undo an entry, or list entries", cmdLog},
 		{"remember", "remember KEY TEXT...|- [--scope S] [--tag T]... [--issue ID] [--rev N] [--pin]", "keep a memory for later sessions; --rev replaces one", cmdRemember},
@@ -247,6 +265,10 @@ func Run(ctx context.Context, args []string, env Env) int {
 	if env.Stdin == nil {
 		env.Stdin = strings.NewReader("")
 	}
+	if env.Terminal == nil {
+		in, out := env.Stdin, env.Stdout
+		env.Terminal = func() bool { return board.IsTerminal(in, out) }
+	}
 	r := &runner{env: env, dir: "."}
 	r.wrapOutput()
 	defer r.flush()
@@ -346,7 +368,11 @@ func (r *runner) fail(err error) int {
 		}
 	}
 	if r.json {
-		r.emit(map[string]*proto.Error{"error": {Code: code, Message: msg, Fix: fix}})
+		doc := map[string]any{"error": &proto.Error{Code: code, Message: msg, Fix: fix}}
+		if rw, ok := errors.AsType[*refusedWith](err); ok {
+			doc[rw.key] = rw.value
+		}
+		r.emit(doc)
 	} else {
 		// The message and fix may be the server's: one line each.
 		_, _ = fmt.Fprintf(r.env.Stderr, "sfx: %s\n", safetext.Line(msg))
@@ -420,7 +446,7 @@ func (r *runner) clientOptions() client.Options {
 	// MCP request's metadata, belongs to the tracing work (decision 27);
 	// until then every request of its connection carries this one.
 	return client.Options{Version: r.env.Version, Session: session,
-		Machine: host, Harness: client.HarnessFromEnv(r.env.Getenv), Getenv: r.env.Getenv,
+		Machine: host, Harness: client.HarnessFromEnv(r.env.Getenv), Getenv: r.env.Getenv, UserHomeDir: r.env.UserHomeDir,
 		Trace: client.TraceFromEnv(r.env.Getenv), OnPush: r.onPush}
 }
 

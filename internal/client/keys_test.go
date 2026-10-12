@@ -114,8 +114,10 @@ func TestDialKeyRefusals(t *testing.T) {
 		{name: "key path is a directory", key: ".", code: proto.CodeAuth, msg: "cannot read key file", fix: "fix key:"},
 		{name: "unparsable key file", key: "id_garbage", code: proto.CodeAuth, msg: "cannot parse key file", fix: "OpenSSH private key"},
 		{name: "passphrase key without agent", key: "id_locked", code: proto.CodeAuth, msg: "passphrase-protected", fix: "ssh-add"},
+		// The agent signs for the configured key alone (decision 35), and
+		// here holds another: its key is not offered in the file's place.
+		{name: "passphrase key the agent does not hold", key: "id_locked", agent: true, code: proto.CodeAuth, msg: "ssh-agent does not hold it", fix: "ssh-add"},
 		// With a key to offer, Dial goes on to connect.
-		{name: "passphrase key with agent keys", key: "id_locked", agent: true, code: proto.CodeUnavailable, msg: "cannot reach"},
 		{name: "plain key", key: "id_plain", code: proto.CodeUnavailable, msg: "cannot reach"},
 		{name: "agent only", agent: true, code: proto.CodeUnavailable, msg: "cannot reach"},
 	}

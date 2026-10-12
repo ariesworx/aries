@@ -159,7 +159,8 @@ func TestControlAccess(t *testing.T) {
 		{name: "a member adds a key to hal", actor: bob, run: keyAdd("hal"), want: AccessAdmin, op: OpKeyAdd, principal: "hal"},
 		// Nobody adds a key to their own account (decision 19).
 		{name: "a member adds a key to itself", actor: bob, run: keyAdd("bob"), want: AccessOwnKeys, op: OpKeyAdd, principal: "bob"},
-		{name: "a member removes its own key", actor: bob, run: keyRemove("bob"), want: AccessAdmin, op: OpKeyRemove},
+		// Its own it may remove (decision 38; TestControlOwnKeyRemoval).
+		{name: "a member removes another member's key", actor: bob, run: keyRemove("hal"), want: AccessAdmin, op: OpKeyRemove},
 		{name: "a member disables hal", actor: bob, run: disable("hal"), want: AccessAdmin, op: OpPrincipalDisable, principal: "hal"},
 		{name: "a member of nothing adds a key to itself", actor: frank, run: keyAdd("frank"), want: AccessOwnKeys, op: OpKeyAdd, principal: "frank"},
 		{name: "a stranger adds a key to bob", actor: zed, run: keyAdd("bob"), want: AccessAdmin, op: OpKeyAdd, principal: "bob"},
@@ -372,7 +373,7 @@ func TestAccessErrorMessages(t *testing.T) {
 		{AccessError{Actor: "bob", Op: OpKeyAdd, Principal: "hal", Reason: AccessAdmin},
 			"bob may not key.add hal: it is for project admins and server admins"},
 		{AccessError{Actor: "alice", Op: OpKeyAdd, Principal: "carol", Reason: AccessReach},
-			"alice may not key.add carol: carol belongs to a project alice does not administer, or to none, so it is for server admins"},
+			"alice may not key.add carol: carol does not exist, or belongs to a project alice does not administer, or to none, so it is for server admins"},
 		{AccessError{Actor: "alice", Op: OpMemberSet, Principal: "frank", Project: projA, Reason: AccessUnassigned},
 			"alice may not member.set frank in project " + projA + ": frank belongs to no project and alice did not create it, so it is for server admins"},
 		{AccessError{Actor: "alice", Op: OpPrincipalDisable, Principal: "dana", Reason: AccessServerAdminPrincipal},
@@ -380,7 +381,7 @@ func TestAccessErrorMessages(t *testing.T) {
 		{AccessError{Actor: "alice", Op: OpKeyRemove, Reason: AccessReach},
 			"alice may not key.remove: it is no key of a principal alice may manage, so it is for server admins"},
 		{AccessError{Actor: "dana", Op: OpKeyAdd, Principal: "dana", Reason: AccessOwnKeys},
-			"dana may not key.add dana: nobody changes the keys of their own account, so it is for another admin"},
+			"dana may not key.add dana: nobody adds a key to their own account, so it is for another admin"},
 	} {
 		if got := tc.err.Error(); got != tc.want {
 			t.Errorf("%+v.Error() = %q, want %q", tc.err, got, tc.want)
@@ -392,7 +393,7 @@ func TestAccessErrorMessages(t *testing.T) {
 // refused with a *ControlLimitError, that nothing was written, and that
 // changing a row already there is still allowed.
 func TestControlLimits(t *testing.T) {
-	lim := ControlLimits{Projects: 2, Principals: 4, Keys: 2, Members: 2}
+	lim := ControlLimits{Projects: 2, Principals: 4, PrincipalsPerCreator: 9, Keys: 2, Members: 2}
 	c := openControl(t, newDSN(t), ControlOptions{Limits: lim})
 	ctx := t.Context()
 	if got := c.Limits(); got != lim {
@@ -458,8 +459,55 @@ func TestControlLimits(t *testing.T) {
 	}
 }
 
+// TestControlPrincipalsPerCreator pins the cap on the principals one
+// principal who is no server admin may create (security review of stage
+// 3a, F-8): principals are never deleted and their names are the whole
+// server's, so without it one project admin could use up the server's.
+func TestControlPrincipalsPerCreator(t *testing.T) {
+	c := openControl(t, newDSN(t), ControlOptions{Limits: ControlLimits{Principals: 12, PrincipalsPerCreator: 2}})
+	ctx := t.Context()
+	mustProject(t, c, projA)
+	mustProject(t, c, projB)
+	mustPrincipal(t, c, "alice", projA+"=admin")
+	mustPrincipal(t, c, "erin", projB+"=admin")
+	add := func(by Actor, name, project string) error {
+		_, err := c.AddPrincipal(ctx, by, name, project)
+		return err
+	}
+	for _, name := range []string{"a1", "a2"} {
+		if err := add(alice, name, projA); err != nil {
+			t.Fatalf("AddPrincipal(%s) by alice, within the cap: %v", name, err)
+		}
+	}
+	// A disabled principal still has its row, and its name.
+	if _, err := c.DisablePrincipal(ctx, alice, "a1"); err != nil {
+		t.Fatal(err)
+	}
+	seq := controlSeq(t, c)
+	err := add(alice, "a3", projA)
+	if le, ok := errors.AsType[*ControlLimitError](err); !ok || !errors.Is(err, ErrInvalid) || le.Limit != "principals_per_creator" || le.Max != 2 {
+		t.Errorf("AddPrincipal(a3) by alice, who created 2 = %v, want a *ControlLimitError for principals_per_creator at 2, wrapping ErrInvalid", err)
+	}
+	if err != nil && !strings.Contains(err.Error(), "2") {
+		t.Errorf("refusal %q does not give the cap, 2", err)
+	}
+	wantEvents(t, c, seq)
+	if _, err := c.Principal(ctx, "a3"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Principal(a3) = %v, want ErrNotFound: the refused add left nothing", err)
+	}
+	// The cap is each creator's own, and a server admin has none.
+	if err := add(erin, "e1", projB); err != nil {
+		t.Errorf("AddPrincipal(e1) by erin, another project admin: %v", err)
+	}
+	for _, name := range []string{"d1", "d2", "d3"} {
+		if err := add(dana, name, ""); err != nil {
+			t.Errorf("AddPrincipal(%s) by a server admin, past a project admin's cap: %v", name, err)
+		}
+	}
+}
+
 func TestControlLimitsDefaults(t *testing.T) {
-	want := ControlLimits{Projects: 500, Principals: 5000, Keys: 20, Members: 1000}
+	want := ControlLimits{Projects: 500, Principals: 5000, PrincipalsPerCreator: 500, Keys: 20, Members: 1000}
 	if DefaultControlLimits != want {
 		t.Errorf("DefaultControlLimits = %+v, want %+v", DefaultControlLimits, want)
 	}
@@ -475,6 +523,7 @@ func TestControlLimitsDefaults(t *testing.T) {
 	}{
 		{ControlLimits{Projects: -1}, "projects"},
 		{ControlLimits{Principals: -1}, "principals"},
+		{ControlLimits{PrincipalsPerCreator: -1}, "principals_per_creator"},
 		{ControlLimits{Keys: -1}, "keys_per_principal"},
 		{ControlLimits{Members: -1}, "members_per_project"},
 	} {
