@@ -105,7 +105,7 @@ func TestDeadCollector(t *testing.T) {
 		}
 		tel, err := telemetry.New(t.Context(), telemetry.Config{Version: "v0.2.0", PerProject: true, Ops: Ops(), Logger: slogTo(log),
 			KeyFile: filepath.Join(t.TempDir(), "principals.key"),
-			Getenv: func(k string) string { return env[k] }})
+			Getenv:  func(k string) string { return env[k] }})
 		if err != nil {
 			t.Fatal(err)
 		}
