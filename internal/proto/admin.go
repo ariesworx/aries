@@ -559,6 +559,11 @@ type KeysFile struct {
 // time it opens: Sessions, how many sessions were seen in the last five
 // minutes, as `sfx who` lists them; Writes; and LastUsed, when the store
 // last answered a request, or was opened if it has answered none.
+//
+// Sessions is the one figure read from the database, within a bound.
+// When it could not be read it is left out, never given as zero, and
+// SessionsUnknown says why in a few words, such as "database did not
+// answer in 2s". A server from before the field leaves both out.
 type ProjectStatus struct {
 	ID        string       `json:"id"`
 	Name      string       `json:"name"`
@@ -569,6 +574,8 @@ type ProjectStatus struct {
 	Sessions  *int         `json:"sessions,omitempty"`
 	Writes    *WriteStatus `json:"writes,omitempty"`
 	LastUsed  *time.Time   `json:"last_used,omitempty"`
+
+	SessionsUnknown string `json:"sessions_unknown,omitempty"`
 }
 
 // WriteStatus is how busy a project's one writer is. A write is a

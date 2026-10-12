@@ -345,6 +345,15 @@ func (s *Server) each(fn func(*served)) {
 	s.stores.each(fn)
 }
 
+// eachAtOnce is each with fn run for every open store at the same time.
+func (s *Server) eachAtOnce(fn func(*served)) {
+	if s.single != nil {
+		fn(s.single)
+		return
+	}
+	s.stores.atOnce(fn)
+}
+
 // CloseIdleStores closes the store of every project that has had no
 // connection for Limits.StoreIdle, as the reaper does on each tick. It
 // gives back connections to Dolt and nothing else. A server of one

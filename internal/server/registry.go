@@ -243,7 +243,31 @@ func (r *registry) each(fn func(*served)) { r.eachOf("", fn) }
 // open store when id is empty. A project whose store is not open is
 // passed over: fn does not open one.
 func (r *registry) eachOf(id string, fn func(*served)) {
+	for _, e := range r.pin(id) {
+		fn(e.pr)
+		r.unpin(e)
+	}
+}
+
+// atOnce is each with fn run for every open store at the same time, for
+// what waits on the database and must not wait on one store after
+// another. It returns when every fn has.
+func (r *registry) atOnce(fn func(*served)) {
+	var wg sync.WaitGroup
+	for _, e := range r.pin("") {
+		wg.Go(func() {
+			defer r.unpin(e)
+			fn(e.pr)
+		})
+	}
+	wg.Wait()
+}
+
+// pin returns the entry of project id if its store is open, or of every
+// open store when id is empty, each pinned until unpin.
+func (r *registry) pin(id string) []*entry {
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	var open []*entry
 	for k, e := range r.entries {
 		if id != "" && k != id {
@@ -254,14 +278,15 @@ func (r *registry) eachOf(id string, fn func(*served)) {
 			open = append(open, e)
 		}
 	}
-	r.mu.Unlock()
-	for _, e := range open {
-		fn(e.pr)
-		r.mu.Lock()
-		e.pins--
-		r.closeRetired(e)
-		r.mu.Unlock()
-	}
+	return open
+}
+
+// unpin ends one pin of e.
+func (r *registry) unpin(e *entry) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	e.pins--
+	r.closeRetired(e)
 }
 
 // size returns how many stores are open, opening or closing.

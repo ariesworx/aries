@@ -48,6 +48,20 @@ func TestPrint(t *testing.T) {
 			{ID: a, Name: "acme", State: "active", Open: true, Conns: 1, Writes: &proto.WriteStatus{LastMinute: 1, Samples: 1, P50Micros: 80, P99Micros: 80}, LastUsed: &at}}},
 			"PROJECT  STATE   STORE  CONNS  BY HAND  SESSIONS  WRITES/MIN  P50   P99   LAST USED\n" +
 				"acme     active  open   1      0        -         1           80µs  80µs  2026-10-11 09:30 UTC\n"},
+		// The database did not answer: unknown, never zero or a dash, and
+		// one line for each cause.
+		{"sessions unknown", proto.StatusResult{Projects: []proto.ProjectStatus{
+			{ID: a, Name: "acme", State: "active", Open: true, Conns: 1, SessionsUnknown: "database did not answer in 2s", Writes: &proto.WriteStatus{}, LastUsed: &at},
+			{ID: b, Name: "web", State: "active", Open: true, SessionsUnknown: "database did not answer in 2s", Writes: &proto.WriteStatus{}, LastUsed: &at},
+			{ID: b, Name: "zed", State: "active", Open: true, SessionsUnknown: "the read failed;\nsee starfixd's log", Writes: &proto.WriteStatus{}, LastUsed: &at},
+			{ID: b, Name: "zoo", State: "active", Open: true, Sessions: n(3), SessionsUnknown: "stale", Writes: &proto.WriteStatus{}, LastUsed: &at}}},
+			"PROJECT  STATE   STORE  CONNS  BY HAND  SESSIONS  WRITES/MIN  P50  P99  LAST USED\n" +
+				"acme     active  open   1      0        unknown   0           -    -    2026-10-11 09:30 UTC\n" +
+				"web      active  open   0      0        unknown   0           -    -    2026-10-11 09:30 UTC\n" +
+				"zed      active  open   0      0        unknown   0           -    -    2026-10-11 09:30 UTC\n" +
+				"zoo      active  open   0      0        3         0           -    -    2026-10-11 09:30 UTC\n" +
+				"sessions: unknown for 2 projects (database did not answer in 2s); the rest is what starfixd holds in memory. Check Dolt on the server (docs/server.md, Troubleshooting)\n" +
+				"sessions: unknown for 1 project (the read failed;\\nsee starfixd's log); the rest is what starfixd holds in memory. Check Dolt on the server (docs/server.md, Troubleshooting)\n"},
 		{"no projects on this page", proto.StatusResult{Server: &proto.ServerStatus{Version: "dev", ProtoMin: 5, ProtoMax: 5, UptimeSeconds: 42,
 			OpenStoresMax: 64, ConnsMax: 1024,
 			KeysFile: &proto.KeysFile{Path: "/var/lib/starfix/.ssh/starfix_keys", Keys: 1, WrittenAt: &at, Failed: true, HeldBack: 2}}},
