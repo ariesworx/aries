@@ -44,7 +44,7 @@ stage is in progress.
 | `internal/version` | Build version, and `Dolt`, the pinned Dolt release |
 | `internal/dolttest` | Starts a throwaway `dolt sql-server` for tests, and grants its locked-down account databases by name |
 | `internal/iaptest` | A fake `gcloud` for tests of the IAP transport: the test binary, re-executed from `PATH` |
-| `internal/e2e` | End-to-end tests: CLI and MCP through an in-process SSH server to a real daemon and store. The SSH server can read the keys file the daemon writes, after its own keys, as sshd reads its `AuthorizedKeysFile`. `TestSoak` (`soak*_test.go`) is the gate of stages 3 and 3a ([CONTRIBUTING.md](CONTRIBUTING.md#the-soak-test)) |
+| `internal/e2e` | End-to-end tests: CLI and MCP through an in-process SSH server to a real daemon and store. The SSH server can read the keys file the daemon writes, before its own keys, as sshd reads its `AuthorizedKeysFile`. `TestSoak` (`soak*_test.go`) is the gate of stages 3 and 3a ([CONTRIBUTING.md](CONTRIBUTING.md#the-soak-test)) |
 | `deploy/docker` | The Docker test server ([docs/deploy/docker.md](docs/deploy/docker.md)): image, entrypoint, compose file and `smoke.sh`, which drives it end to end and is not part of CI. It mirrors docs/server.md's setup steps; `internal/version` keeps its Dolt at the pin |
 | `install.sh` | The one-line installer for `sfx` and `starfixd`; `internal/release/install_test.go` runs it and checks that its key is in `keys.go` |
 | `spike/dolt` | Stage 0 measurements, kept as evidence; not maintained and excluded from lint |

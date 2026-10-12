@@ -246,19 +246,25 @@ expect "member add" '^bob added to project web as member$' alice-web admin membe
 expect "a member of the second project" "^$w " bob-web ready
 
 # The keys file is written before the server listens, with the keys
-# `control init` imported. Those are lines of authorized_keys too, which
-# sshd reads first: alice's own connection came in by that file, and
-# starfixd, which reads it, marks her key as in both.
+# `control init` imported. Those are lines of authorized_keys too. sshd
+# reads the keys file first, so alice's own connection came in by its
+# line, which names her key: starfixd counts no connection of hers as let
+# in by authorized_keys, which it reads, and marks her key as in both.
+# With bob's key out of the store, sshd falls back to its line of
+# authorized_keys, and his own connection is then counted as by hand.
 check_keys_file "the keys file at the start"
 in_keys_file "an imported key" '^restrict,command="/usr/local/bin/starfixd stdio --principal alice --key SHA256:[A-Za-z0-9+/]{43}" ssh-ed25519 [A-Za-z0-9+/=]+$'
 in_keys_file "an imported key" 'stdio --principal bob --key SHA256:'
 expect "a key in both files is marked" ' +import +.* +authorized_keys$' alice admin key list alice
-expect "sshd took the line of authorized_keys" "^1 open connection of alice came in by a line of the server's hand-maintained authorized_keys file" alice admin key list alice
+absent "sshd took the line of the keys file, not of authorized_keys" 'came in by a line of the server.s hand-maintained authorized_keys file'
+expect "bob lists his own key, in both files" ' +import +.* +authorized_keys$' bob admin key list bob
+absent "sshd took the line of the keys file for bob too" 'came in by a line of the server.s hand-maintained authorized_keys file'
 bob_fp=$(ssh-keygen -lf "$work/keys/bob.pub" | cut -d' ' -f2)
-expect "removing a key that authorized_keys still holds warns" '^sfx: warning: sshd still accepts key SHA256:.*: it is also a line of the server.s authorized_keys file' \
+expect "removing a key that authorized_keys still holds warns" '^sfx: warning: sshd will still accept key SHA256:.*: the connections it had signed in were closed, but it is also a line of the server.s authorized_keys file' \
   alice admin key remove "$bob_fp"
 not_in_keys_file "the removed key" 'stdio --principal bob '
 expect "and the key still signs in, by authorized_keys" "^$b " bob ready
+expect "sshd then takes the line of authorized_keys" "^1 open connection of bob came in by a line of the server's hand-maintained authorized_keys file" bob admin key list bob
 expect "key add, back in both files" ' added to bob$' alice admin key add bob "$work/keys/bob.pub"
 
 # carol's key is in no authorized_keys file: sshd reads it from the keys

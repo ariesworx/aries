@@ -687,8 +687,10 @@ func keys(ctx context.Context, s *Server, sess *session, in proto.KeysArgs) (any
 // fingerprint, because sshd took the key's line from that file.
 //
 // A key that is also a line of the hand-maintained authorized_keys file
-// is not kept out by this: sshd still accepts it there, by a line that
-// names no fingerprint, so its connections are not closed either. The
+// came in by the keys file's line while the store held it, since sshd
+// reads that file first (decision 26), so its connections are closed
+// too. It is not kept out, though: with its line gone from the keys
+// file, sshd accepts it by the other, which names no fingerprint. The
 // result says so, and that the line must be deleted on the server.
 func keyRemove(ctx context.Context, s *Server, sess *session, in proto.KeyRemoveArgs) (any, *proto.Error) {
 	k, err := s.cfg.Control.RemoveKey(ctx, sess.actor, in.Fingerprint)

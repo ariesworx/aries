@@ -65,7 +65,7 @@ manage projects, principals, members and keys from anywhere with sfx admin.
 project_dbs: names the databases granted for new projects. serve writes
 the keys the control database holds to keys_file: (default
 ~/.ssh/starfix_keys of the user it runs as), which sshd reads with
-AuthorizedKeysFile beside the authorized_keys you maintain by hand.
+AuthorizedKeysFile before the authorized_keys you maintain by hand.
 
 Every command that opens the store refuses a Dolt account that is root,
 holds rights beyond its database, or a server whose secure_file_priv is

@@ -254,8 +254,9 @@ type KeyAddArgs struct {
 // authenticated.
 //
 // InAuthorizedKeys is set by a removal when the key is also a line of
-// the authorized_keys file the server's operator maintains by hand,
-// where sshd still accepts it. Warning then says so, and what to do. It
+// the authorized_keys file the server's operator maintains by hand:
+// its connections were closed, and sshd will still accept it by that
+// line until the line is deleted. Warning then says so, and what to do. It
 // also says when the change is committed and the server could not write
 // the keys file sshd reads, which may then be out of date.
 type KeyResult struct {
@@ -276,8 +277,10 @@ type KeysArgs struct {
 
 // Key is one public key in a list: its fingerprint, type and comment.
 // InAuthorizedKeys says the key is also a line of the authorized_keys
-// file the server's operator maintains by hand, so that removing it
-// from the store does not keep it out.
+// file the server's operator maintains by hand. sshd reads the server's
+// keys file first, so the key signs in by the store's line while the
+// store holds it; removing it from the store closes its connections
+// and does not keep it out, since sshd then takes the other line.
 type Key struct {
 	Fingerprint      string    `json:"fingerprint"`
 	Type             string    `json:"type"`

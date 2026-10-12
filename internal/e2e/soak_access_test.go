@@ -38,8 +38,9 @@ import (
 // dave and root are server admins. alice's and bob's keys are only in
 // the control store, so the keys file the daemon writes is what lets
 // them in; erin's is in the store and in authorized_keys, as `starfixd
-// control init` leaves a key, and sshd takes its line there; the others'
-// are lines of authorized_keys.
+// control init` leaves a key, and sshd takes the keys file's line while
+// the store holds it, since it reads that file first (decision 26); the
+// others' are lines of authorized_keys.
 
 // How a principal's key reaches sshd.
 const (
@@ -649,11 +650,13 @@ func (cd *conductor) key(principal string, p *sproj) {
 }
 
 // fileKey removes erin's key from the store while authorized_keys still
-// has its line, as after `starfixd control init`: the key is not revoked,
-// and the daemon, which reads that file, says so on every removal. sshd
-// takes the line of authorized_keys, so erin's connections name no key:
-// a removal closes none of them, and `key list` and `status` count them
-// as let in by that file.
+// has its line, as after `starfixd control init`. sshd reads the keys
+// file first (decision 26), so while the store holds the key erin's
+// connections name it, and the removal closes them. The key is not
+// revoked: sshd then takes the line of authorized_keys, and the daemon,
+// which reads that file, says so on every removal. A connection made
+// then names no key: `key list` and `status` count it as let in by that
+// file, and a second removal leaves it open.
 func (cd *conductor) fileKey() {
 	s := cd.s
 	const principal = "erin"
@@ -669,7 +672,7 @@ func (cd *conductor) fileKey() {
 		case !answered(out, perr, resent, proto.CodeNotFound):
 			s.mon.fail("", "%s: %v, %v", why, out, perr)
 		case out != acked || resent:
-		case !res.InAuthorizedKeys || !strings.HasPrefix(res.Warning, "sshd still accepts key "+fp+": it is also a line of the server's authorized_keys file"):
+		case !res.InAuthorizedKeys || !strings.HasPrefix(res.Warning, "sshd will still accept key "+fp+": the connections it had signed in were closed, but it is also a line of the server's authorized_keys file"):
 			s.mon.fail("", "%s: the removal answered in authorized_keys %t and the warning %q", why, res.InAuthorizedKeys, res.Warning)
 		default:
 			s.acc.warned.Add(1)
@@ -681,8 +684,15 @@ func (cd *conductor) fileKey() {
 			s.mon.fail("", "%s, and could not add it again: %v, %v", why, out, perr)
 		}
 	}
+	// The store holds the key and the keys file its line, so this
+	// connection names the key, and the removal closes it. When the
+	// daemon restarts meanwhile it closes anyway, which proves less.
+	byStore := cd.dial(principal, s.b, "", "before "+why)
 	remove()
 	s.acc.fileKeys.Add(1)
+	if byStore != nil {
+		cd.closes(why, []*mcpserver.RepoConn{byStore})
+	}
 	// The store no longer has the key, and authorized_keys lets erin in.
 	byFile := cd.dial(principal, s.b, "", why)
 	if byFile == nil {
@@ -690,6 +700,7 @@ func (cd *conductor) fileKey() {
 		return
 	}
 	defer func() { _ = byFile.Close() }()
+	shaken := s.shaken.Load()
 	var ks proto.KeysResult
 	if out, _, _ := cd.root.do(proto.OpKeys, proto.KeysArgs{Name: principal}, &ks); out == acked && byFile.Err() == nil && ks.FileConns < 1 {
 		s.mon.fail("", "%s: key list counts %d connections of %s by authorized_keys, with one open", why, ks.FileConns, principal)
@@ -708,7 +719,16 @@ func (cd *conductor) fileKey() {
 		!slices.ContainsFunc(ks.Keys, func(k proto.Key) bool { return k.Fingerprint == fp && k.InAuthorizedKeys }) {
 		s.mon.fail("", "%s: key list does not mark the key as also in authorized_keys: %+v", why, ks.Keys)
 	}
+	// The connection authorized_keys let in names no key: the removal
+	// leaves it, unless the chaos dropped every connection meanwhile.
 	remove()
+	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+	var r proto.BlockedResult
+	err := byFile.Call(ctx, proto.OpBlocked, proto.LimitArgs{Limit: 1}, &r)
+	cancel()
+	if err != nil && s.shaken.Load() == shaken {
+		s.mon.fail("", "%s, and the second removal closed the connection authorized_keys had let in: %v", why, err)
+	}
 	add()
 }
 

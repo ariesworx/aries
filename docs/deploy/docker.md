@@ -167,9 +167,10 @@ that it is refused, and restarts the server to check that nothing
 changed. Along the way it checks the keys file inside the container: a
 regular file of mode 0600 owned by `starfix`, with a line for each key
 added and none for a key removed or a disabled principal's; that a key
-in both files is marked, comes in by `authorized_keys`, and warns when
-it is removed from the control database; and that starfixd's log has no
-failed write. It removes its server and volume, prints one line (84
+in both files is marked, comes in by starfixd's file, which sshd reads
+first, warns when it is removed from the control database, and then
+comes in by `authorized_keys`; and that starfixd's log has no
+failed write. It removes its server and volume, prints one line (87
 checks on 12 October 2026), and exits non-zero on the first failure. CI
 does not run it. Arguments go to `docker build`; behind a proxy that
 intercepts TLS, pass its CA with `--secret id=ca,src=FILE`, which never

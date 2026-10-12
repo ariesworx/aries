@@ -524,7 +524,7 @@ text.
 ### Keys from the store
 
 On a server of many projects starfixd writes the keys its control
-database holds to a file, and sshd reads that file beside
+database holds to a file, and sshd reads that file before
 `authorized_keys`. An admin adds and removes keys with `sfx admin`, from
 anywhere, and nobody edits a file on the server. The file is
 `~starfix/.ssh/starfix_keys`, in the format of `authorized_keys`: a
@@ -536,10 +536,11 @@ the key's fingerprint added:
 restrict,command="/usr/local/bin/starfixd stdio --principal alice --key SHA256:…" ssh-ed25519 AAAA…
 ```
 
-sshd asks starfixd nothing. It reads two files, and nothing of starfix
-runs before sshd has authenticated a key. `authorized_keys`, which you
-maintain by hand, stays the way in for the first admin and the way to
-replace a server admin's own key.
+sshd asks starfixd nothing. It reads two files, starfixd's first, and
+nothing of starfix runs before sshd has authenticated a key.
+`authorized_keys`, which you maintain by hand, stays the way in for a
+key the control database does not hold: the first admin's before
+`control init`, and a server admin's own new key.
 
 - **When it is written.** At start, before starfixd listens; after every
   `sfx admin` change that alters which keys sign in (a key added or
@@ -558,7 +559,10 @@ replace a server admin's own key.
   key the database no longer holds for that principal, and one whose
   principal is disabled. So a key that was removed, in a file that
   could not be rewritten or was restored from a backup, gets past sshd
-  and is refused by starfixd.
+  and is refused by starfixd. sshd reads this file first, so that
+  refusal stands even when the key is also a line of `authorized_keys`:
+  an out-of-date file can refuse a key the other file would have let
+  in, and never lets in one the database has dropped.
 - **A server of one project writes no file.**
 
 1. **Let starfixd write to the account's `.ssh`.** The unit of
@@ -592,7 +596,7 @@ replace a server admin's own key.
        AuthenticationMethods publickey
        DisableForwarding yes
        PermitTTY no
-       AuthorizedKeysFile .ssh/authorized_keys .ssh/starfix_keys
+       AuthorizedKeysFile .ssh/starfix_keys .ssh/authorized_keys
        AuthorizedKeysCommand none
    ```
 
@@ -602,8 +606,13 @@ replace a server admin's own key.
    ```
 
    sshd takes the first line that matches the key, in the order the
-   files are named, so a key in both files is let in by its line of
-   `authorized_keys`.
+   files are named, so the order matters: starfixd's file comes first.
+   A key in both files is then let in by starfixd's line, which names
+   its fingerprint and the principal the control database gives it, so
+   `sfx admin key remove` closes its connections and starfixd can
+   refuse it. With the files the other way round, such a key would come
+   in by its line of `authorized_keys`, which names no fingerprint, and
+   removing it would neither close its connections nor show.
 
 3. **Restart starfixd and check the file:**
 
@@ -628,30 +637,48 @@ replace a server admin's own key.
    from `authorized_keys` that you want `sfx admin` to govern, and keep
    the first admin's:
 
-   - **A key whose line is still in `authorized_keys` cannot be revoked
-     with `sfx admin key remove`.** sshd finds the line in that file
-     and lets the key in, by a forced command that names no
-     fingerprint, so starfixd cannot refuse the key or close the
-     connections it made. Its principal can still be disabled, and its
-     memberships removed, which starfixd enforces whatever let the key
-     in.
+   - **A key whose line is still in `authorized_keys` is not kept out
+     by `sfx admin key remove`.** While the control database holds the
+     key, sshd lets it in by starfixd's line, so the removal closes the
+     connections it had signed in. But the removal also takes that line
+     out of starfixd's file, and sshd then finds the key's line of
+     `authorized_keys` and lets it in again, by a forced command that
+     names no fingerprint: starfixd cannot refuse that key, or close a
+     connection it makes from then on. The key is revoked when its line
+     of `authorized_keys` is deleted too. Meanwhile its principal can
+     be disabled, and its memberships removed, which starfixd enforces
+     whatever let the key in.
    - **starfixd tells you which keys those are.** It runs as the
      account whose `authorized_keys` it is, so it reads the file: it
      never writes to it, and never prints or logs a line of it. `sfx
      admin key list NAME` marks each key that is also in
      `authorized_keys`, and `sfx admin key remove` of such a key warns
-     that sshd still accepts it there and that its line must be deleted
-     on the server. A line starfixd cannot read as a key is skipped,
-     and only the first mebibyte of the file is read.
-   - **It also counts who still comes in that way.** A connection whose
-     forced command named no fingerprint came in by `authorized_keys`.
+     that its connections were closed, that sshd will still accept it
+     by that line, and that the line must be deleted on the server. A
+     line starfixd cannot read as a key is skipped, and only the first
+     mebibyte of the file is read.
+   - **It also counts who comes in that way.** A connection whose
+     forced command named no fingerprint came in by `authorized_keys`:
+     its key is not in the control database, or was removed from it.
      `sfx admin status` counts those for each project (BY HAND), and
-     `sfx admin key list NAME` for NAME. A line of `authorized_keys`
-     whose key was never put in the control database shows up only
-     there.
+     `sfx admin key list NAME` for NAME. `sfx admin key remove` does not
+     close them.
+   - **The control database's line wins for a key in both.** The key
+     signs in as the principal the control database gives it, whatever
+     principal its line of `authorized_keys` names, and a disabled
+     principal's key has no line in starfixd's file, so it reaches its
+     line of `authorized_keys` and is refused by starfixd as disabled.
+     `authorized_keys` cannot override the control database; it only
+     lets in a key the database does not hold.
    - **Keep one line for a server admin.** It is how a server admin's
      own key is replaced, since nobody changes the keys of their own
-     account with `sfx admin`.
+     account with `sfx admin`. A key in `authorized_keys` keeps the
+     principal its line names: `sfx admin key add` and `principal add
+     --key` refuse it for anyone else, as they refuse a key another
+     principal has, so nobody can take a server admin's key by adding
+     it to the control database under another name. A line you add for
+     a key the control database already holds under another name does
+     nothing, since sshd reads starfixd's line first.
 
 **Settings.** `keys_file` is where starfixd writes, and
 `authorized_keys` the hand-maintained file it reads; a relative path is
@@ -666,7 +693,10 @@ command sshd runs. If you move `keys_file`, change sshd's
 **When starfixd is stopped,** sshd still reads both files and accepts
 their keys, and every command then fails with `starfixd is not running
 on the server` until it is started. Neither file is a way to work
-without the daemon.
+without the daemon, so the order of the two changes nothing then.
+starfixd writes its file before it listens, and does not start if it
+cannot, so a file left out of date by a stopped daemon is replaced
+before anyone is answered.
 
 **When a write fails after the start,** the change an admin made is
 already recorded, and stays. The admin's command succeeds and prints a
@@ -675,7 +705,13 @@ warning that sshd may still be reading the old file; starfixd logs
 tries again every 30 seconds; and `sfx admin status` says `THE LAST
 WRITE FAILED` on its `keys file` line until a write succeeds. Meanwhile
 a key just added does not sign in, and a key just removed is refused by
-starfixd rather than by sshd.
+starfixd rather than by sshd. That holds for a removed key that is also
+a line of `authorized_keys`: sshd finds the old line of starfixd's file
+first, so the key is refused until the file is written, and let in by
+`authorized_keys` after. If the file cannot be written for long and
+someone is shut out who should not be, fix what the log names, or move
+the file aside on the server: sshd then reads `authorized_keys` alone,
+and starfixd writes a new file when it can.
 
 **On an image whose sshd already has a global `AuthorizedKeysCommand`**
 for its provider's login service (Google Cloud's OS Login, AWS's EC2
@@ -695,7 +731,8 @@ in the [Docker test server](deploy/docker.md), which has no systemd:
 | starfixd installed as [step 3](#3-install-starfixd) installs it: owned by `starfix` in `/opt/starfix/bin`, linked from `/usr/local/bin`, and no copy that root owns | Keys from the control database sign in. sshd runs no program of starfix's before authentication, so who owns the binary does not matter to it |
 | A global `AuthorizedKeysCommand`, outside any `Match` block, set to a root-owned script that prints nothing, with `AuthorizedKeysCommandUser nobody` | Keys from both files sign in, with no override. sshd ran the script twice for each sign-in by `sfx`. With `AuthorizedKeysCommand none` in the `Match` block it did not run it |
 | starfixd killed, sshd left running | sshd accepts a key from either file, and the client gets `starfixd is not running on the server` |
-| A key in both files | sshd lets it in by its line of `authorized_keys` |
+| A key in both files, with `authorized_keys` named first, as this guide had it until that day | sshd let it in by its line of `authorized_keys`, which names no fingerprint |
+| A key in both files, with starfixd's file named first, as above | sshd lets it in by starfixd's line: starfixd counts no connection of that key as let in by `authorized_keys`. With the key removed from the control database, the same key signs in by `authorized_keys`, and its connection is counted so |
 
 Not checked:
 

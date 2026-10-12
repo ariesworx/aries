@@ -206,6 +206,7 @@ func New(cfg Config) (*Server, error) {
 		s.single = &served{id: cfg.Project, store: cfg.Store, account: cfg.Account, log: cfg.Logger, timeout: cfg.RequestTimeout}
 		return s, nil
 	}
+	cfg.Control.KeysElsewhere(s.handOwner)
 	s.stores = &registry{open: s.openProject, max: cfg.Limits.OpenStores, idle: time.Duration(cfg.Limits.StoreIdle),
 		now: func() time.Time { return s.now() }, entries: map[string]*entry{}}
 	// An archive ends every claim in the project while requests may
