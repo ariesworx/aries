@@ -235,6 +235,16 @@ func (c *Control) Keys(ctx context.Context, principal string) ([]PrincipalKey, e
 	return keysOf(ctx, c.s.r, principal)
 }
 
+// KeysAddedBy returns the keys that adder added and that are still in
+// the store, whatever principal each belongs to, by fingerprint. Reads
+// are not guarded: the caller decides who may list them.
+func (c *Control) KeysAddedBy(ctx context.Context, adder string) ([]PrincipalKey, error) {
+	if err := validActorName(adder); err != nil {
+		return nil, err
+	}
+	return queryKeys(ctx, c.s.r, "keys added by "+adder, ` WHERE added_by = ? ORDER BY fingerprint`, adder)
+}
+
 // keysOf reads principal's keys, oldest first.
 func keysOf(ctx context.Context, q querier, principal string) ([]PrincipalKey, error) {
 	return queryKeys(ctx, q, "keys of "+principal, ` WHERE principal = ? ORDER BY added_at, fingerprint`, principal)

@@ -241,6 +241,17 @@ func (c *Control) ProjectsOf(ctx context.Context, principal string) ([]Member, e
 	return c.members(ctx, ` WHERE principal = ? ORDER BY project`, principal)
 }
 
+// MembersAddedBy returns the memberships that adder added, in every
+// project, by project id and then principal. A role changed since by
+// someone else is still listed: the row keeps who added it. Reads are
+// not guarded: the caller decides who may list them.
+func (c *Control) MembersAddedBy(ctx context.Context, adder string) ([]Member, error) {
+	if err := validActorName(adder); err != nil {
+		return nil, err
+	}
+	return c.members(ctx, ` WHERE added_by = ? ORDER BY project, principal`, adder)
+}
+
 // Role returns the role principal has in project; ok is false when it is
 // not a member. It reports the membership as stored: it does not say
 // whether the principal is active or the project is, nor that a server

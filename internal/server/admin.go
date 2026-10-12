@@ -427,9 +427,13 @@ func principalAdd(ctx context.Context, s *Server, sess *session, in proto.Princi
 }
 
 // principals lists every principal, for server admins only: the names
-// are the whole server's, whatever project the caller administers.
-func principals(ctx context.Context, s *Server, sess *session, in proto.AdminListArgs) (any, *proto.Error) {
+// are the whole server's, whatever project the caller administers. With
+// created_by it lists those one principal created (trail.go).
+func principals(ctx context.Context, s *Server, sess *session, in proto.PrincipalsArgs) (any, *proto.Error) {
 	const op = proto.OpPrincipals
+	if in.CreatedBy != "" {
+		return s.principalsCreatedBy(ctx, sess, in)
+	}
 	if perr := s.serverOnly(sess, op, ""); perr != nil {
 		return nil, perr
 	}
@@ -437,15 +441,11 @@ func principals(ctx context.Context, s *Server, sess *session, in proto.AdminLis
 	if err != nil {
 		return nil, s.ctlErr(ctx, sess, op, err)
 	}
-	all, more, perr := page(all, func(p store.Principal) string { return p.Name }, in)
+	all, more, perr := page(all, func(p store.Principal) string { return p.Name }, in.AdminListArgs)
 	if perr != nil {
 		return nil, perr
 	}
-	out := proto.PrincipalsResult{Principals: []proto.Principal{}, More: more}
-	for _, p := range all {
-		out.Principals = append(out.Principals, proto.Principal{Name: p.Name, State: string(p.State), CreatedBy: p.CreatedBy, CreatedAt: p.CreatedAt})
-	}
-	return out, nil
+	return wirePrincipals(all, more), nil
 }
 
 // principalDisable disables a principal, then takes its keys out of the
@@ -460,7 +460,10 @@ func principalDisable(ctx context.Context, s *Server, sess *session, in proto.Pr
 	warning := s.syncKeys()
 	s.drop(sess, "principal disabled", func(o owner) bool { return o.principal == p.Name })
 	released := s.release(ctx, sess.actor, "", p.Name, lostDisabled)
-	return proto.PrincipalResult{ID: p.Name, Rev: int64(p.Rev), State: string(p.State), Released: released, Warning: warning}, nil
+	out := proto.PrincipalResult{ID: p.Name, Rev: int64(p.Rev), State: string(p.State), Released: released, Warning: warning}
+	// Disabling ends the account's own access, and nothing it set up.
+	s.left(ctx, sess, &out)
+	return out, nil
 }
 
 // principalEnable makes a disabled principal active again, and its keys
@@ -543,12 +546,14 @@ func (s *Server) carried(ctx context.Context, principal, joined string) (int, []
 }
 
 // wireCarried is the keys of a principal joining project, each with
-// whether whoever added it has an admin's rights in project now.
+// whether whoever added it has an admin's rights in project now, or was
+// the server's operator (`starfixd control init`), whose say over every
+// project is beyond an admin's.
 func (s *Server) wireCarried(keys []store.PrincipalKey, project string) []proto.CarriedKey {
 	var out []proto.CarriedKey
 	for _, k := range keys {
 		out = append(out, proto.CarriedKey{Fingerprint: k.Fingerprint, Type: keyType(k.Key), Comment: k.Comment, AddedBy: k.AddedBy, AddedAt: k.AddedAt,
-			AdderAdministers: s.cfg.Control.Access(k.AddedBy, project).Role == store.RoleAdmin})
+			AdderAdministers: k.AddedBy == store.OperatorPrincipal || s.cfg.Control.Access(k.AddedBy, project).Role == store.RoleAdmin})
 	}
 	return out
 }
@@ -556,6 +561,9 @@ func (s *Server) wireCarried(keys []store.PrincipalKey, project string) []proto.
 // members lists a project's members, for its admins and server admins.
 func members(ctx context.Context, s *Server, sess *session, in proto.MembersArgs) (any, *proto.Error) {
 	const op = proto.OpMembers
+	if in.AddedBy != "" {
+		return s.membersAddedBy(ctx, sess, in)
+	}
 	ctl, actor := s.cfg.Control, sess.actor.Principal
 	p, perr := s.project(ctx, sess, op, in.Project, "")
 	if perr != nil {
@@ -657,6 +665,13 @@ func keyType(key string) string {
 // or not the principal exists.
 func keys(ctx context.Context, s *Server, sess *session, in proto.KeysArgs) (any, *proto.Error) {
 	const op = proto.OpKeys
+	switch {
+	case (in.Name == "") == (in.AddedBy == ""):
+		return nil, proto.Errf(proto.CodeInvalid, "give `sfx admin key list NAME`, or `sfx admin key list --added-by NAME`, not both",
+			"key list shows a principal's keys, or the keys someone added")
+	case in.AddedBy != "":
+		return s.keysAddedBy(ctx, sess, in)
+	}
 	ctl, actor := s.cfg.Control, sess.actor.Principal
 	admin := ctl.IsServerAdmin(actor)
 	if !admin && actor != in.Name && !ctl.AdministersProjectOf(actor, in.Name) {

@@ -135,14 +135,31 @@ type PrincipalArgs struct {
 // open then. Warning is set when the change is committed and the server
 // could not write the keys file sshd reads, which may then be out of
 // date.
+//
+// A disable also says what the principal left behind, among what the
+// caller may list: KeysAdded, the keys it added that are still in the
+// store, PrincipalsCreated and MembersAdded. Disabling ends none of
+// them, and Warning then names the commands that list them.
 type PrincipalResult struct {
-	ID          string `json:"id"`
-	Rev         int64  `json:"rev"`
-	State       string `json:"state"`
-	Project     string `json:"project,omitempty"`
-	ProjectName string `json:"project_name,omitempty"`
-	Released    int    `json:"released,omitempty"`
-	Warning     string `json:"warning,omitempty"`
+	ID                string `json:"id"`
+	Rev               int64  `json:"rev"`
+	State             string `json:"state"`
+	Project           string `json:"project,omitempty"`
+	ProjectName       string `json:"project_name,omitempty"`
+	Released          int    `json:"released,omitempty"`
+	KeysAdded         int    `json:"keys_added,omitempty"`
+	PrincipalsCreated int    `json:"principals_created,omitempty"`
+	MembersAdded      int    `json:"members_added,omitempty"`
+	Warning           string `json:"warning,omitempty"`
+}
+
+// PrincipalsArgs lists principals, as AdminListArgs pages them: all of
+// them, for server admins, or with CreatedBy those that principal
+// created, which a project admin may also ask for, and is shown the ones
+// that belong to a project they administer.
+type PrincipalsArgs struct {
+	CreatedBy string `json:"created_by,omitempty"`
+	AdminListArgs
 }
 
 // PrincipalAddResult is the principal added, and the fingerprints of
@@ -213,8 +230,9 @@ const MemberPending = "pending"
 // CarriedKey is one key of a principal joining a project: its
 // fingerprint, type and comment, who added it and when.
 // AdderAdministers says whether whoever added it is, now, an admin of
-// the project being joined or a server admin: a key added by anyone
-// else was put there by someone with no say over this project.
+// the project being joined or a server admin, or was the server's
+// operator: a key added by anyone else was put there by someone with no
+// say over this project.
 type CarriedKey struct {
 	Fingerprint      string    `json:"fingerprint"`
 	Type             string    `json:"type"`
@@ -226,21 +244,32 @@ type CarriedKey struct {
 
 // MembersArgs lists the members of Project (empty: the connection's), as
 // AdminListArgs pages them.
+//
+// With AddedBy it lists instead the memberships that principal added:
+// in Project when one is named, and otherwise in every project the
+// caller may list the members of, each row naming its project. Those
+// rows are by project name and then principal, and After is then the
+// last row's PROJECT/PRINCIPAL.
 type MembersArgs struct {
 	Project string `json:"project,omitempty"`
+	AddedBy string `json:"added_by,omitempty"`
 	AdminListArgs
 }
 
-// Member is one principal's role in a project.
+// Member is one principal's role in a project. Project and ProjectName
+// are set in a list that spans projects.
 type Member struct {
-	Principal string    `json:"principal"`
-	Role      string    `json:"role"`
-	AddedBy   string    `json:"added_by"`
-	AddedAt   time.Time `json:"added_at"`
+	Principal   string    `json:"principal"`
+	Role        string    `json:"role"`
+	AddedBy     string    `json:"added_by"`
+	AddedAt     time.Time `json:"added_at"`
+	Project     string    `json:"project,omitempty"`
+	ProjectName string    `json:"project_name,omitempty"`
 }
 
 // MembersResult lists a project's members by principal. More counts
-// those after the last one listed.
+// those after the last one listed. Project and ProjectName are empty for
+// a list that spans projects.
 type MembersResult struct {
 	Project     string   `json:"project"`
 	ProjectName string   `json:"project_name"`
@@ -298,15 +327,21 @@ type KeyResult struct {
 	Warning          string `json:"warning,omitempty"`
 }
 
-// KeysArgs lists the keys of the principal Name.
+// KeysArgs lists the keys of the principal Name. With AddedBy, and no
+// Name, it lists instead the keys that principal added, whoever each
+// belongs to, among those the caller may list, by fingerprint and paged
+// as AdminListArgs pages a list.
 type KeysArgs struct {
-	Name string `json:"name"`
+	Name    string `json:"name,omitempty"`
+	AddedBy string `json:"added_by,omitempty"`
+	AdminListArgs
 }
 
 // Key is one public key in a list: its fingerprint, type and comment.
 // InAuthorizedKeys says the key is also a line of the authorized_keys
 // file the server's operator maintains by hand, so that removing it
-// from the store does not keep it out.
+// from the store does not keep it out. Principal is whose key it is, in
+// a list of the keys someone added.
 type Key struct {
 	Fingerprint      string    `json:"fingerprint"`
 	Type             string    `json:"type"`
@@ -314,6 +349,7 @@ type Key struct {
 	AddedBy          string    `json:"added_by"`
 	AddedAt          time.Time `json:"added_at"`
 	InAuthorizedKeys bool      `json:"in_authorized_keys,omitempty"`
+	Principal        string    `json:"principal,omitempty"`
 }
 
 // KeysResult lists a principal's keys, oldest first. FileConns counts
@@ -321,10 +357,15 @@ type Key struct {
 // let them in by a line of the hand-maintained authorized_keys file,
 // which removing a key from the store does not close or prevent. Such a
 // line may hold a key that is not listed here.
+//
+// For a list of the keys someone added, Principal is empty, AddedBy
+// names who, and More counts the keys after the last one listed.
 type KeysResult struct {
-	Principal string `json:"principal"`
+	Principal string `json:"principal,omitempty"`
+	AddedBy   string `json:"added_by,omitempty"`
 	Keys      []Key  `json:"keys"`
 	FileConns int    `json:"file_conns,omitempty"`
+	More      int    `json:"more,omitempty"`
 }
 
 // KeyRemoveArgs names the key to remove by its SHA-256 fingerprint, as

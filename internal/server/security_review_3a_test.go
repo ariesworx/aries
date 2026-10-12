@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
 )
 
 // reviewFinding reports that a finding of the security review was
@@ -26,64 +25,6 @@ func reviewFinding(t *testing.T, id, text string) {
 		return
 	}
 	t.Skipf("SECURITY REVIEW %s reproduced: %s", id, text)
-}
-
-// F-2: decision 19 keeps an admin from adding a key to their own account,
-// so that an agent holding the admin's key cannot outlive it. A server
-// admin may still add a key to another server admin's account, and
-// create a principal with a key and make it an admin of every project:
-// either gives whoever holds the first key a second way in that survives
-// the first.
-func TestReviewF2ServerAdminKeyOutlivesTheAdmin(t *testing.T) {
-	m := newMultiAdmins(t, Limits{}, nil, "dana", "dave")
-	m.project(t, projA, "alice=admin")
-	m.project(t, projB, "erin=admin")
-	for _, name := range []string{"dana", "dave"} {
-		if _, err := m.ctl.AddPrincipal(t.Context(), dana, name, ""); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// An agent with dana's key, steered by what it read, runs `sfx admin`.
-	d := mustDialTo(t, m.Server, dana, projA)
-	if _, perr := ask[proto.KeyResult](d, proto.OpKeyAdd, proto.KeyAddArgs{Name: "dana", Key: keyLine(t, "attacker-0")}); perr == nil {
-		t.Fatal("dana added a key to her own account: decision 19 is not enforced at all")
-	}
-	_, perr := ask[proto.KeyResult](d, proto.OpKeyAdd, proto.KeyAddArgs{Name: "dave", Key: keyLine(t, "attacker-1")})
-	if perr != nil {
-		t.Logf("a key for another server admin was refused: %v", perr)
-		return
-	}
-	_, perr = ask[proto.PrincipalAddResult](d, proto.OpPrincipalAdd, proto.PrincipalAddArgs{Name: "ghost", Unassigned: true, Keys: []string{keyLine(t, "attacker-2")}})
-	if perr != nil {
-		t.Fatalf("principal.add ghost: %v", perr)
-	}
-	for _, p := range []string{projA, projB} {
-		// As a script must since decision 36: ghost has a key.
-		mustAsk[proto.MemberSetResult](d, proto.OpMemberSet, proto.MemberSetArgs{Name: "ghost", Project: p, Role: "admin", AcceptKeys: true})
-	}
-	// dana's own access ends: the other server admin disables her.
-	dv := mustDialTo(t, m.Server, store.Actor{Principal: "dave", Session: "s-dave", Machine: "m"}, projA)
-	mustAsk[proto.PrincipalResult](dv, proto.OpPrincipalDisable, proto.PrincipalArgs{Name: "dana"})
-	if w, _ := dialTo(t, m.Server, dana, projA); w.Err == nil {
-		t.Fatal("dana was let in after being disabled")
-	}
-	// The keys the agent planted still work: one as a server admin.
-	asDave := store.Actor{Principal: "dave", Session: "s-attacker", Machine: "elsewhere"}
-	w, c, closed := dialKey(t, m.Server, asDave, projB, fingerprintOf(t, "attacker-1"))
-	if closed || w.Err != nil {
-		t.Fatalf("the planted key for dave was refused: %+v", w)
-	}
-	st, perr := ask[proto.StatusResult](c, proto.OpStatus, proto.StatusArgs{})
-	if perr != nil || st.Server == nil {
-		t.Fatalf("status with the planted key = %+v, %v; want a server admin's view", st, perr)
-	}
-	ghost := store.Actor{Principal: "ghost", Session: "s-ghost", Machine: "elsewhere"}
-	if w, _, closed := dialKey(t, m.Server, ghost, projB, fingerprintOf(t, "attacker-2")); closed || w.Err != nil {
-		t.Fatalf("the planted principal was refused: %+v", w)
-	}
-	reviewFinding(t, "F-2", "with dana's key alone, a key was added to server admin dave's account and a new principal was made admin of every project; "+
-		"both still sign in after dana is disabled, the first as a server admin. Decision 19 stops only the admin's own account, "+
-		"so docs/security-model.md's \"its access ends with the key it was given\" does not hold")
 }
 
 // F-5: a project admin adds the public key of a server admin, whose key

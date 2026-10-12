@@ -100,6 +100,15 @@ import (
 // cannot add a principal who has keys, and reads "pending" as no change.
 // Both are builds of an unreleased protocol.
 //
+// The same review added, the same way, the lists of what one account
+// left behind: keys gained the arguments added_by, limit and after, and
+// name became optional beside them; principals gained created_by; and
+// members gained added_by. Their results gained fields (a key's
+// principal, a member's project and project_name, keys' added_by and
+// more), and principal.disable's gained keys_added, principals_created
+// and members_added. A server built from main before this refuses the
+// new arguments as unknown, with code invalid.
+//
 // The bridge frame is not part of this protocol: it passes between two
 // starfixd processes on the server (frame.go), and carries no version.
 // It is read leniently, so a bridge from before a binary swap works

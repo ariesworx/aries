@@ -26,9 +26,9 @@ var adminGroups = []string{"prices", "plans", "project", "principal", "member", 
 
 // adminUsage is the usage of the access commands, for the command table.
 const adminUsage = "admin project add NAME [--prefix P] [--account A] | list | archive PROJECT | activate PROJECT" +
-	" | admin principal add NAME [--key FILE]... [--project P | --no-project] | list | disable NAME | enable NAME" +
-	" | admin member add NAME [--project P] [--role admin] [--accept-keys] | list [--project P] | remove NAME [--project P]" +
-	" | admin key add NAME FILE|- | list NAME | remove FINGERPRINT" +
+	" | admin principal add NAME [--key FILE]... [--project P | --no-project] | list [--created-by NAME] | disable NAME | enable NAME" +
+	" | admin member add NAME [--project P] [--role admin] [--accept-keys] | list [--project P] [--added-by NAME] | remove NAME [--project P]" +
+	" | admin key add NAME FILE|- | list NAME | list --added-by NAME | remove FINGERPRINT" +
 	" | admin status [-n N] [--after NAME]"
 
 // only refuses a flag the action does not take: any that was given and
@@ -195,10 +195,11 @@ func printProjects(w io.Writer, res proto.ProjectsResult) {
 }
 
 func adminPrincipal(ctx context.Context, r *runner, args []string) error {
-	const usage = "admin principal add NAME [--key FILE]... [--project P | --no-project] | list [-n N] [--after NAME] | disable NAME | enable NAME"
+	const usage = "admin principal add NAME [--key FILE]... [--project P | --no-project] | list [--created-by NAME] [-n N] [--after NAME] | disable NAME | enable NAME"
 	fs := r.newFlags("admin principal")
 	var add proto.PrincipalAddArgs
 	var keyFiles fileFlag
+	createdBy := fs.String("created-by", "", "list the principals this principal created")
 	fs.StringVar(&add.Project, "project", "", "the project the new principal joins: a UUID or a name (default: this repository's)")
 	fs.BoolVar(&add.Unassigned, "no-project", false, "add the principal to no project (server admins only)")
 	fs.Var(&keyFiles, "key", "a public key file to add with the principal, such as ~/.ssh/id_ed25519.pub, or - for standard input (repeatable)")
@@ -251,14 +252,14 @@ func adminPrincipal(ctx context.Context, r *runner, args []string) error {
 		r.warn(out.Warning)
 		return nil
 	case "list":
-		if err := only(fs, usage, "principal list", "n", "after"); err != nil {
+		if err := only(fs, usage, "principal list", "n", "after", "created-by"); err != nil {
 			return err
 		}
 		if len(pos) != 1 {
 			return usagef(usage, "principal list takes no arguments")
 		}
 		var out proto.PrincipalsResult
-		if err := r.call(ctx, proto.OpPrincipals, *list, &out); err != nil {
+		if err := r.call(ctx, proto.OpPrincipals, proto.PrincipalsArgs{CreatedBy: *createdBy, AdminListArgs: *list}, &out); err != nil {
 			return err
 		}
 		if r.json {
@@ -309,8 +310,9 @@ func printPrincipals(w io.Writer, res proto.PrincipalsResult) {
 }
 
 func adminMember(ctx context.Context, r *runner, args []string) error {
-	const usage = "admin member add NAME [--project P] [--role member|admin] [--accept-keys] | list [--project P] [-n N] [--after NAME] | remove NAME [--project P]"
+	const usage = "admin member add NAME [--project P] [--role member|admin] [--accept-keys] | list [--project P] [--added-by NAME] [-n N] [--after NAME] | remove NAME [--project P]"
 	fs := r.newFlags("admin member")
+	addedBy := fs.String("added-by", "", "list the memberships this principal added, in every project you may list, or in --project")
 	project := fs.String("project", "", "the project: a UUID or a name (default: this repository's)")
 	role := fs.String("role", "member", "member or admin")
 	accept := fs.Bool("accept-keys", false, "add a principal who has keys without being shown them and asked: each of its keys signs in to the project too")
@@ -348,18 +350,22 @@ func adminMember(ctx context.Context, r *runner, args []string) error {
 		printMemberSet(r.env.Stdout, out)
 		return nil
 	case "list":
-		if err := only(fs, usage, "member list", "project", "n", "after"); err != nil {
+		if err := only(fs, usage, "member list", "project", "n", "after", "added-by"); err != nil {
 			return err
 		}
 		if len(pos) != 1 {
 			return usagef(usage, "member list takes no arguments; name a project with --project")
 		}
 		var out proto.MembersResult
-		if err := r.call(ctx, proto.OpMembers, proto.MembersArgs{Project: *project, AdminListArgs: *list}, &out); err != nil {
+		if err := r.call(ctx, proto.OpMembers, proto.MembersArgs{Project: *project, AddedBy: *addedBy, AdminListArgs: *list}, &out); err != nil {
 			return err
 		}
 		if r.json {
 			r.emit(out)
+			return nil
+		}
+		if *addedBy != "" {
+			printMembersAddedBy(r.env.Stdout, *addedBy, out)
 			return nil
 		}
 		printMembers(r.env.Stdout, out)
@@ -482,6 +488,24 @@ func printMemberSet(w io.Writer, m proto.MemberSetResult) {
 		p("%s now signs in to project %s with %s:\n", esc(m.ID), esc(m.ProjectName), count(len(m.Carried), "key"))
 		printCarried(w, m)
 	}
+}
+
+// printMembersAddedBy lists the memberships one principal added, across
+// projects: what that principal's account left behind.
+func printMembersAddedBy(w io.Writer, by string, res proto.MembersResult) {
+	if len(res.Members) == 0 {
+		_, _ = fmt.Fprintf(w, "no memberships added by %s\n", esc(by))
+		return
+	}
+	_, _ = fmt.Fprintf(w, "memberships added by %s\n", esc(by))
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "PROJECT\tPRINCIPAL\tROLE\tADDED")
+	for _, m := range res.Members {
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", esc(m.ProjectName), esc(m.Principal), esc(m.Role), when(m.AddedAt))
+	}
+	_ = tw.Flush()
+	last := res.Members[len(res.Members)-1]
+	more(w, res.More, last.ProjectName+"/"+last.Principal)
 }
 
 func printMembers(w io.Writer, res proto.MembersResult) {

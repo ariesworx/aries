@@ -59,8 +59,8 @@ func TestAdminAccessUsage(t *testing.T) {
 	// Every group is in the command's help.
 	_, help, _ := runCLI(t, "help", "admin")
 	for _, want := range []string{"admin prices [set MODEL", "admin plans [set NAME", "admin project add NAME [--prefix P] [--account A] | list | archive PROJECT | activate PROJECT",
-		"admin principal add NAME [--key FILE]... [--project P | --no-project] | list | disable NAME | enable NAME",
-		"admin member add NAME [--project P] [--role admin] [--accept-keys] | list [--project P] | remove NAME [--project P]"} {
+		"admin principal add NAME [--key FILE]... [--project P | --no-project] | list [--created-by NAME] | disable NAME | enable NAME",
+		"admin member add NAME [--project P] [--role admin] [--accept-keys] | list [--project P] [--added-by NAME] | remove NAME [--project P]"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("sfx help admin lacks %q:\n%s", want, help)
 		}

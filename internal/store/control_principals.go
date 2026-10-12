@@ -262,7 +262,35 @@ func (c *Control) Principal(ctx context.Context, name string) (Principal, error)
 // Principals returns every principal, disabled ones included, by name.
 // Reads are not guarded: the caller decides who may list them.
 func (c *Control) Principals(ctx context.Context) ([]Principal, error) {
-	rows, err := c.s.r.QueryContext(ctx, principalSelect+` ORDER BY name`)
+	return c.principals(ctx, ` ORDER BY name`)
+}
+
+// validActorName refuses, with ErrInvalid, a name no actor of an event
+// or a row can have. Unlike validPrincipal it allows a [Reserved] name:
+// the operator's `starfixd control init` writes as one.
+func validActorName(name string) error {
+	if !PrincipalPattern.MatchString(name) {
+		return fmt.Errorf("%w: %q is not a principal's name", ErrInvalid, name)
+	}
+	return nil
+}
+
+// PrincipalsCreatedBy returns the principals that creator created,
+// disabled ones included, by name. With [Control.KeysAddedBy] and
+// [Control.MembersAddedBy] it is what an account left behind: disabling
+// the account ends its own access, and none of these. Reads are not
+// guarded: the caller decides who may list them.
+func (c *Control) PrincipalsCreatedBy(ctx context.Context, creator string) ([]Principal, error) {
+	if err := validActorName(creator); err != nil {
+		return nil, err
+	}
+	return c.principals(ctx, ` WHERE created_by = ? ORDER BY name`, creator)
+}
+
+// principals reads the principals that where, a constant clause with
+// placeholders for args, selects.
+func (c *Control) principals(ctx context.Context, where string, args ...any) ([]Principal, error) {
+	rows, err := c.s.r.QueryContext(ctx, principalSelect+where, args...) //nolint:gosec // where is a constant from the callers
 	if err != nil {
 		return nil, fmt.Errorf("principals: %w", err)
 	}
