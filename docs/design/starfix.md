@@ -799,7 +799,7 @@ sfx admin member list | remove NAME
 
 ### 15.6 Identity beyond one key at a time (investigation, 12 Oct 2026)
 
-Not designed and not decided: what was looked at, what was tried, and what would have to be chosen.
+Not designed and not decided: what was looked at, what was tried, and what would have to be chosen. **Since designed in §17,** which tried what this section lists as not tried and puts the choices as questions (§17.12). This section is left as the investigation it was; where §17 measured something differently, §17 is right. In particular, "forgetting a person is then deleting one row" below is not true of a Dolt table as it stands, since Dolt keeps the deleted row (§17.1, §17.7).
 
 **The concern.** A person is a principal, and gets in by a public key that an admin adds for each of their machines (decision 19 keeps people from adding their own). That is right for a team. In a company of hundreds of developers, each with several machines and agents, it means: every joiner, leaver and new laptop is an admin's manual step; a key never expires; nothing ties starfix to the company's single sign-on, its second factor or its groups; and a leaver keeps access until someone remembers. The name of a principal is also the name everywhere: in every event of every project's log, which Dolt keeps forever, in claims, in `who`, and now in telemetry.
 
@@ -986,3 +986,353 @@ What starfix does with it:
 2. **People in traces** (decision 32): the `telemetry.principals` setting of §16.4, defaulting to a pseudonym.
 3. **Go runtime metrics** (decision 33): the contrib module, after measuring the standard library (§16.4).
 4. **A token for a hosted backend** (decision 34): allowed, from a 0600 environment file. The guide's first setup sends to a collector on the machine, which needs none and keeps the secret, the retries and the vendor's address out of starfixd; sending straight to a hosted backend is the second, for a server where running a collector is not wanted.
+
+## 17. Identity: certificates, handles and provisioning
+
+Designed 12 Oct 2026, from the investigation of §15.6. **Proposed, not decided, and nothing here is built.** The questions for the maintainer are in §17.12. It answers two concerns: that one public key for each machine, added by an admin, will not scale or fit a company's sign-on; and whether people's names should be hidden.
+
+In short: a principal stops being a set of keys and becomes a permanent **handle** with, beside it and outside every history, a display name and the identity a company's certificate authority asserts. A short-lived SSH certificate becomes a second way in, through the file starfixd already writes, with no new sshd mechanism and no connection from starfix to the authority. The control store still decides everything. Membership follows a directory through a job that runs `sfx admin`, not through what a certificate claims.
+
+### 17.1 What was measured
+
+All of it on 12 Oct 2026, on one Apple silicon Mac under Docker Desktop. The scripts and their output are not in the repository.
+
+| Part | Version |
+|---|---|
+| sshd and the `ssh` client used against it | OpenSSH 9.6p1 (Ubuntu 3ubuntu13.19) on Ubuntu 24.04, in the Docker test server's image built from `main` that day |
+| `sfx` | built from `main` at `ea749e5` with Go 1.27.1 and `golang.org/x/crypto` v0.57.0; run on macOS against the container's port |
+| `ssh-agent`, `ssh-add`, and `ssh-keygen` where it signed on the Mac | OpenSSH 10.3p1; an agent started for the tests on a socket of its own |
+| The certificate authority | step-ca 0.30.2 with its `step` CLI 0.30.2, `smallstep/step-ca@sha256:a2b17872915c193259b75a5474c398326f41bd199f0842093e52cf4182bc8270` |
+| Dolt | 2.4.2, the `dolt` command on a throwaway repository, not `dolt sql-server` |
+
+step-ca was chosen for the experiment because it is open source (Apache-2.0), widely used, publishes an image that can be pinned, issues SSH user certificates, and has both an OpenID Connect provisioner and a simpler one (a shared secret, "JWK") that needs no identity provider to test with. That is a reason to test with it, not a recommendation: starfix would depend on no authority's API, only on OpenSSH certificates, which every such product issues. Only the JWK provisioner was run. **No OpenID Connect sign-in was run.**
+
+In every test below the forced command named the principal and no key (`starfixd stdio --principal NAME`, reached through a small script that first recorded its environment), which today's daemon takes as a line of the hand-maintained file. So the daemon ran unchanged.
+
+**1. `sfx` and a certificate.**
+
+| Setup | Result |
+|---|---|
+| The agent holds a key and its certificate (`ssh-add KEY` loads `KEY-cert.pub` itself); sshd admits the certificate only; unmodified `sfx` | Admitted as the right principal. `sfx` offered the bare key, which sshd refused, then the certificate |
+| The agent holds the bare key only | Refused, as it should be |
+| No agent; `key:` names the key, `KEY-cert.pub` beside it; unmodified `sfx` | Refused: `sfx` reads the private key and never looks for the certificate |
+| The same, with `sfx` patched to read `KEY-cert.pub` (`ssh.NewCertSigner`) | Admitted |
+| The agent holds another principal's key; `key:` names alice's | **Signed in as the other principal.** `sfx` offers every key of the agent, in the agent's order, before the `key:` file, and the first one sshd accepts decides who it is |
+| The agent holds five or more keys ahead of the right one (5 decoys, then the key, then its certificate) | `Too many authentication failures`: sshd's `MaxAuthTries` is 6 and every offer it refuses counts. With four decoys the certificate is the sixth offer and is admitted. `sfx` reports this as `ssh handshake … failed` with the fix `check server.host and server.port`, which is wrong |
+| One key is in the store for bob and has a certificate for alice; the agent lists the key, then the certificate | Unmodified: signed in as bob. With certificates offered first: as alice |
+| An expired certificate | sshd: `Certificate invalid: expired`. `sfx`: `refused your SSH keys (tried 2)`, with a fix about sending a public key to the admin, which is also wrong |
+
+The patch, kept outside the repository, is about thirty lines in `signers` (`internal/client/conn.go`): read `KEY-cert.pub` beside a `key:` file; with `key:` set, offer only that key (the agent's signers are kept only where they are the same public key); offer certificates before bare keys. One thing cost a wrong first attempt: a signer from `agent.NewClient(...).Signers()` holds an `*agent.Key`, so a type assertion to `*ssh.Certificate` never sees an agent's certificate. The key's bytes have to be parsed.
+
+**2. A real authority, the whole path.** A person asked step-ca for a certificate (`step ssh certificate alice@example.com KEYFILE`); it came back valid 90 seconds, the lifetime set on the provisioner, with key id `alice@example.com`, principals `alice` and `alice@example.com`, a random 64-bit serial, no critical options and the five default extensions. The unmodified `sfx` used it from the agent and the issue it created is recorded under `alice`. After it expired, the same command was refused. `step ssh renew` does not renew a user certificate (`sshpop certificate must be a host ssh certificate`): a person signs in again, which gave a new certificate, on the same key, with a new serial, and `sfx` was admitted again. What starfix would rely on in a certificate:
+
+| Field | Seen | Use |
+|---|---|---|
+| Principals | The authority's choice. With the JWK provisioner the *requester* chooses them: a request for key id `bob@example.com` with principals `alice@example.com` and `root` was signed | The only field sshd matches. Whoever can make the authority sign a principal is that person |
+| Key id | Free text, the authority's | sshd logs it. Audit only, never authorization |
+| Serial | Random per certificate from step-ca; whatever `-z` says from `ssh-keygen` | Names one certificate, for revoking and for the log |
+| Validity | Enforced by sshd at authentication only (below) | The window |
+| Signing key | The authority's | Which authority |
+| Critical options | `force-command` and `source-address` are honored by sshd; an unknown one is refused (`is not supported`) | starfix sets none and needs none. A certificate whose `force-command` differs from the line's command is refused by sshd; one equal to it is admitted. `source-address` that does not match: `Refused by certificate options` |
+| Extensions | `permit-pty` and the rest by default; an unknown extension is admitted and reaches the forced command | Ignored: the line's `restrict` already removes them. A certificate with none (`-O clear`) is admitted |
+
+The authority's own revocation (`step ssh revoke SERIAL`) changed nothing at sshd: the certificate was admitted until it expired. A host certificate offered as a user's, and a certificate from another authority, were refused.
+
+**3. What identifies a connection.** With `ExposeAuthInfo yes`, sshd gives the forced command `SSH_USER_AUTH`, the path of a file (mode 0600, the account's) holding `publickey TYPE BASE64`: **the whole certificate**, from which the key id, serial, validity, principals and signing key are read. It is there with `restrict` on the line. A client that sent `SetEnv SSH_USER_AUTH=…` did not change it, with `ExposeAuthInfo` on or off (off, the variable is simply unset); a client's `LC_*` variable did arrive, since Ubuntu accepts those. sshd passes the forced command nothing else about the certificate: which principal matched is known only from the line's own `command=`.
+
+| Tried | Result |
+|---|---|
+| A certificate expires while its connection is open (`sfx watch`, 100 seconds past expiry) | The connection stays open and still receives pushed events. sshd checks validity once |
+| A principal is disabled while its certificate is valid and its line still in the file | Today's daemon, unchanged: the open connection closed at once, and the next sign-in passed sshd and was refused by the daemon, `alice is disabled on this server` |
+| The line is removed from the file | The next sign-in is refused by sshd; nothing happens to an open connection |
+| `RevokedKeys` naming a file that is missing, or that is not a key list | **Every key is refused, the break-glass key in `authorized_keys` included** |
+| `RevokedKeys`: a KRL made by `ssh-keygen -k` revoking a serial, a range of serials, or a key id | That certificate is refused; the same person's other device and other people are admitted |
+| `RevokedKeys`: a text file holding one device's public key, or its certificate | The key and every certificate on it are refused, a certificate issued afterwards too |
+
+**4. Groups.** A certificate carried a person's principal and a group's. sshd takes **the first line of the file that matches any of the certificate's principals**: the file's order decides, not the certificate's. The forced command is not told which matched, but reads the whole certificate from `SSH_USER_AUTH`, so a line for a group could still learn the person. A line naming two principals separated by a comma matches nothing.
+
+**5. Agents.** A launcher that held the provisioner's secret minted a one-time token for `ci-nightly@agents.example.com` (`step ca token --ssh`); the agent, holding only the token, made a key and exchanged it for a certificate; the patched `sfx`, with no ssh-agent, signed in with the key and certificate files, and its issue is recorded under `ci-nightly`. The token was refused a second time, refused for another principal (`principals does not match`), and refused for a lifetime over the provisioner's maximum.
+
+**Three more findings that shape the design.**
+
+- **`cert-authority` lines work in an `AuthorizedKeysFile`, and so in the file starfixd writes.** With neither `TrustedUserCAKeys` nor `AuthorizedPrincipalsFile` configured, a line `cert-authority,principals="alice@example.com",restrict,command="…" CAKEY` admitted alice's certificate and ran its command, refused a certificate for anyone else, and gave the command the same `SSH_USER_AUTH`. It worked appended to `starfix_keys` too, until starfixd's next tick rewrote the file. Where both mechanisms could admit a certificate, the `authorized_keys` line was the one used.
+- **A line with no `command=` is a shell.** A principals-file line that was only `restrict alice@example.com` ran the command the client asked for.
+- **A certificate authority trusted for the whole machine opens the `starfix` account, today.** With `TrustedUserCAKeys` set outside the `Match` block, as a company that already uses SSH certificates has it, and the guide's block as it is, a certificate from that authority whose principal is the account's name, `starfix`, was admitted with no forced command. `TrustedUserCAKeys none` in the block refused it and left the `cert-authority` lines working; `AuthorizedPrincipalsFile none` and `AuthorizedPrincipalsCommand none` are accepted there. This is a gap in the server guide's block whatever is decided here, of the kind `AuthorizedKeysCommand none` already closes.
+
+**Dolt and forgetting.** A row deleted from a Dolt table is still read back from history (`AS OF`, `dolt_history_…`), and its bytes are still in the repository's files after `dolt_gc`, full or not. A table named in `dolt_ignore` is left out of `DOLT_COMMIT('-Am', …)`, which is how the store commits: it has no history, and after its row was deleted and `dolt_gc` run the bytes were gone from disk (before the collection they were still there). It keeps its rows across processes, in the working set.
+
+### 17.2 The model
+
+A principal is one row of the control store, as now. What changes is what its columns mean and what hangs beside it.
+
+| Thing | What it is | Changes? |
+|---|---|---|
+| **Name** (the handle) | What starfix calls the principal, everywhere: the forced command, every project's event log, claims, assignments, inboxes, memories, usage, hours. The existing `principals.name`, pattern unchanged. `alice` on a small team; a generated handle, `u-` and eight characters (`u-7f3a2c9d`), where names are to be hidden | Never, and never reused: a reused handle would inherit a stranger's history |
+| **External identity** | The subject an authority asserts: the certificate principal sshd matches, such as `alice@example.com`. Unique on the server. Optional: a principal with none has keys only | Yes (a new address, another authority), with no trace in any project |
+| **Display name** | How people see the principal: `Alice Example`. Optional, not unique | Yes |
+| **Kind** and **owner** | `person` or `agent`; for an agent, the principal that answers for it (§17.6) | Owner yes |
+
+The name is the only one of the three that is ever written into a project's database or the control store's event log. The other two are personal data in the plain sense, and live in one table that has no history (§17.7).
+
+| Place | Shows |
+|---|---|
+| A project's event log and every table in it | The name. No project schema changes |
+| The control store's event log | The name. An identity change records that it happened, who made it and which fields are now set, never their values |
+| `sfx` printing to a person (`who`, `list`, `show`, `history`, the board, `cost --by person`) | The name, with the display name beside it where the caller may see it (§17.7): `u-7f3a2c9d (Alice Example)`. `--json` prints names only |
+| MCP results | The name only. A display name costs tokens, and a tool result is sent to a model provider, which is one more place a person's name would be kept |
+| Telemetry (§16.4) | `telemetry.principals` applies to the name: a pseudonym of it by default, the name itself, or nothing. Never the display name or the external identity |
+| The journal and the audit stream (§16) | The name |
+| The file starfixd writes for sshd | The external identity, in a `principals="…"` option. It is rewritten without it when the identity is removed |
+| sshd's own log | The certificate's key id and serial, which are the authority's choice and usually an address. Outside starfix's control; the guide says so |
+| `sfx admin principal list` and `show` | All three, to those who may see them |
+
+### 17.3 Certificates, a second way in
+
+Keys stay exactly as they are (§15.2). A certificate is another kind of line in the same file, for the same account, on the same port.
+
+**The line.** For each active principal that has an external identity, and each authority the server trusts, starfixd writes:
+
+```text
+cert-authority,principals="alice@example.com",restrict,command="/usr/local/bin/starfixd stdio --principal u-7f3a2c9d --cert" ecdsa-sha2-nistp256 AAAA…
+```
+
+after the key lines, by principal and then authority, so an unchanged store still gives identical bytes. An external identity is restricted to letters, digits and `._@+-`, 255 at most, so that it needs no quoting inside `principals="…"` and cannot be a pattern. Every line has a `command=`: the writer refuses to produce one without, since such a line is a shell (§17.1).
+
+This is preferred to `TrustedUserCAKeys` with an `AuthorizedPrincipalsFile`, which was also measured and also works, because it adds no file, no writer and no sshd directive to what decision 22 built, and because `sfx admin status`, the write-on-change and the stale-file property carry over unchanged. Its cost is that the trust in an authority is written by the `starfix` account, not by root in sshd's configuration. That account already writes every key line, so nothing is lost.
+
+**Settings** (`starfixd.yaml`, the operator's file, read at start; nothing over the protocol names an authority, as nothing over it names a server admin):
+
+```yaml
+certificates:
+  authorities:               # public keys of the authorities trusted to name principals; two while one is rotated
+    - ecdsa-sha2-nistp256 AAAA…
+  max_lifetime: 24h          # a certificate valid for longer is refused by the daemon
+  drop_at_expiry: true       # close a connection when its certificate expires
+  expiry_grace: 60s
+```
+
+With no `authorities`, no certificate line is written and `--external` is still stored: a server can record identities before it trusts an authority.
+
+**sshd.** The guide's block gains three lines, and the Docker image the same:
+
+```text
+Match User starfix
+    AuthenticationMethods publickey
+    DisableForwarding yes
+    PermitTTY no
+    AuthorizedKeysFile .ssh/authorized_keys .ssh/starfix_keys
+    AuthorizedKeysCommand none
+    TrustedUserCAKeys none
+    AuthorizedPrincipalsFile none
+    ExposeAuthInfo yes
+```
+
+The two `none` lines close the gap of §17.1 and belong in the guide now, with or without certificates. `ExposeAuthInfo yes` is what lets the daemon see the certificate.
+
+**The bridge and the handshake.** `starfixd stdio --principal NAME --cert` reads the file `SSH_USER_AUTH` names, takes the `publickey` line's certificate, and puts it in the bridge frame (a new field; the bridge frame is not client protocol and is read leniently, §15.2). It reads nothing else from its environment. With `--cert` and no such file, it refuses with `auth`, and the fix says to add `ExposeAuthInfo yes`. The daemon, before a connection slot or a store is taken and again as the connection is recorded, refuses unless:
+
+- the certificate parses, is a user certificate of at most 16 KiB, and its signature verifies under one of `authorities`;
+- the store holds, for an active principal of that name, an external identity that is among the certificate's principals. This is what keeps the file a cache (§15.2): a stale line gets past sshd and no further;
+- none of its other principals is the external identity of a *different* principal of the server. step-ca's default certificate carried `alice` and `alice@example.com`; if both were identities here, sshd would pick whichever line came first, so the daemon refuses the certificate rather than guess;
+- now is within its validity, and its validity is no longer than `max_lifetime`;
+- neither its serial nor its key is revoked (§17.4).
+
+It then records on the connection, beside the principal and the project: the authority's fingerprint, the serial, the key id, the key's fingerprint and the expiry. What it cannot check is that this certificate is the one that authenticated this connection: that rests on sshd writing `SSH_USER_AUTH`, as a key's fingerprint rests on sshd choosing the line. The signature check means a file's content cannot invent a certificate.
+
+**Moving a server, person by person.** A principal may have keys, an external identity, or both.
+
+1. The operator adds the authority to the config, the three lines to sshd, and restarts.
+2. `sfx admin principal set NAME --external alice@example.com`: alice's certificate now works, beside her keys.
+3. Once she has signed in with it (`sfx admin cert list` shows the connection), `sfx admin key remove` each of her keys. She is now certificate-only: a new laptop is nothing, and leaving is the authority no longer issuing.
+4. Optionally, `certificates.keys: admins` (or `none`) makes starfixd write key lines only for the principals an admin marks, for the machines that cannot get a certificate.
+
+Decision 19 extends: nobody sets their own external identity, since an agent holding a developer's credentials could point their principal at an identity it controls. Who may set another's is the rule for keys (§15.3): a server admin, or a project admin with reach.
+
+**The first admin, break-glass, and the authority being down.** Nothing changes for the first admin: a bare key in the hand-maintained `authorized_keys`, which sshd reads first. It is also the way in when the authority is down, and the reason starfixd writes no `RevokedKeys` file (§17.4). starfix never contacts the authority, so its outage stops nobody who holds a valid certificate; it stops renewal. Connections then end as certificates expire, so `max_lifetime` is both the revocation window and how long a team survives the outage. A server admin should keep one key in `authorized_keys`.
+
+**`sfx admin` gains:**
+
+```text
+sfx admin principal add [NAME] [--display D] [--external ID] [--kind agent --owner NAME] [--key FILE]
+sfx admin principal set NAME [--display D] [--external ID] [--owner NAME]     "" clears a field
+sfx admin principal show NAME | forget NAME
+sfx admin cert list [NAME]            connections that signed in by certificate: key id, serial, key, expires
+sfx admin cert revoke --serial N | --key FINGERPRINT [--until TIME]
+sfx admin cert revoked | unrevoke ID
+```
+
+`principal add` with no NAME generates a handle. `status` gains the authorities' fingerprints, and its BY HAND column is joined by KEY and CERT.
+
+### 17.4 What identifies a connection, and how access ends
+
+A key's fingerprint is replaced by what §17.3 records: the authority, the serial, and the fingerprint of the key the certificate certifies. The serial names one sign-in; the key names one device, for as long as the person's tool keeps the key (step-ca's `--sign` reuses it; a tool that makes a new key each sign-in gives a device no lasting name, and then only the principal can be cut off).
+
+| To end | Do | Takes effect |
+|---|---|---|
+| A person's access | `principal disable`, as today | At once: connections closed, claims released (decisions 20 and 21), the line gone from the file. Measured with a certificate and today's daemon |
+| A person's access, by doing nothing in starfix | The authority stops issuing | When the last certificate expires: at most `max_lifetime`. With `drop_at_expiry`, the connection too |
+| One device or one sign-in | `sfx admin cert revoke --key …` or `--serial …` | At once: matching connections closed, the next handshake refused |
+| A membership | `member remove`, as today | At once |
+| An authority | Remove it from `authorities` and restart | At the restart |
+
+- **Revocations live in the control store** (a table, an event each, a cap of 10,000 under rule 18). One by serial is kept until the certificate it names would have expired and is then pruned, which is bookkeeping (rule 7, `wtx.quiet`); so that list is bounded by the lifetime. One by key lasts until `--until`, or until it is removed.
+- **starfixd writes no `RevokedKeys` file.** sshd refuses every key while that file is missing or malformed, the break-glass key included (§17.1), so a failed write would lock out the people who could repair it. Revocation is the daemon's, at the handshake, like every other decision of the store. An operator whose company publishes a KRL may name it in sshd themselves.
+- **The daemon closes a connection when its certificate expires** (`drop_at_expiry`, after `expiry_grace`), because sshd does not. Without this a long `sfx mcp` session would outlive its sign-in by days. The client reconnects, with whatever certificate it then finds. Claims are the store's and are untouched: a lease the client no longer renews expires as it always has.
+- **The window.** A certificate whose principal is active and unrevoked works until it expires, whatever the authority has since learned. starfix does not read the authority's revocations (step-ca's had no effect at sshd). The lifetime the authority issues, capped by `max_lifetime`, is the whole of that window: 8 to 16 hours for people and an hour or less for agents are the usual choices (general knowledge, not measured).
+
+### 17.5 Groups
+
+A line for a group principal can admit a connection, and the daemon could learn the person from the certificate (§17.1, 4). The design does not use this. **Membership stays a row in the control store, and a certificate's other principals are ignored.** A company's groups reach starfix through provisioning (§17.8), which turns them into the same rows an admin would write.
+
+What membership by a certificate's group would cost:
+
+| Rule today | With membership read from a certificate |
+|---|---|
+| The control store decides access | The authority does, at each sign-in. `member list` no longer says who can reach a project |
+| Every grant and revocation is an event (rule 7) | Joining or leaving a group writes nothing. The audit trail of access is the directory's |
+| Losing access releases claims at once (decision 21) | Leaving a group is seen only when a certificate expires and the next one lacks the group: no moment to release at, and up to a lifetime late |
+| A project admin's reach is computed from memberships (§15.3, decision 17) | Reach would depend on certificates not yet presented |
+| Disabled wins (decision 20) | Still holds, if every person keeps a row |
+
+If groups are wanted in starfix itself later, the form that keeps these rules is a group as a control-store object (a named set of principals with a role on projects), written by admins or by the provisioning job, never read from a credential.
+
+### 17.6 Agents
+
+**An agent a person runs at their desk** signs in with that person's certificate, from their ssh-agent, as their principal, as it does with their key today. Its sessions are told apart by session id and harness. Nothing changes, except that the credential now expires overnight.
+
+**An unattended agent** (CI, a cloud sandbox, a Bearings worker) is a principal of its own, as the server guide already advises and decision 8 requires:
+
+- `kind: agent`, with an `owner`: the principal that answers for it. Its handle is what every event of its work carries, so its work is attributable to it; the control store says who owns it.
+- Its external identity is one the authority issues only to that workload, such as `ci-nightly@agents.example.com`. It gets a certificate by exchanging an identity its platform already gives it (a CI system's OpenID Connect token, a cloud instance's identity document, a Kubernetes service account) at the authority. That exchange is the authority's feature and was not run; what was run is its shape, a one-time token for a certificate (§17.1, 5), in which the token fixed the principal and could not be used twice.
+- It holds no long-lived secret. The key is made for the run, the certificate lasts the run (an hour or less), and `sfx` reads both from files (`key:` and `KEY-cert.pub`), since such a machine has no ssh-agent. This needs the client change of §17.9.
+- **Which launch it was** (the run, and who or what started it) belongs in the certificate's key id, which the authority writes. The daemon records the key id and serial for the connection and writes them to the audit stream with the session id (§16), so a session's work in a project's log joins to the launch. An extension is not used for this: sshd admits unknown extensions, but an authority's template has to add them, and the key id is already logged by sshd.
+- Where no authority can issue to a workload, a key of its own remains the way, as today.
+
+This is what makes decision 8's "distinct agent identities" cheap: an identity is a row, made by the provisioning job or by `principal add --kind agent`, with no key to distribute. `kind` is also where decision 8's narrower default rights attach; those rights are that decision's work, not this section's.
+
+### 17.7 Hiding who a person is
+
+§15.6's three depths. The first is §16.4. This is the second, and an honest account of the third.
+
+**The schema** (one control migration, `0002`, described, not written):
+
+- `principals` gains `kind` (`person` by default), `owner` (empty for a person) and `source` (empty, or the principal of the provisioning job that created the row, §17.8). The states gain `forgotten`.
+- A new table `principal_identities`: `name` (primary key), `display_name`, `external_id` (unique where set), `updated_by`, `updated_at`, `write_id`. **It is named in `dolt_ignore`,** so Dolt commits no version of it (§17.1). It is written through `Store.write` like any table, in the same transaction as its event, and the event (`identity.set`, `identity.clear`) carries the target and the names of the fields set, no values.
+- The index gains the map from external identity to name, for the handshake.
+
+**Who may see the mapping.**
+
+| Caller | Sees |
+|---|---|
+| A server admin | Every principal's display name and external identity |
+| A project admin | Both, for principals in a project they administer |
+| A member | The display names of principals they share an active project with, if `directory: members` (the default). With `directory: admins`, names only |
+| A principal | Its own |
+| An agent over MCP | Names only, always |
+
+A new read, `names`, takes up to 200 names and returns the display names the caller may see; `sfx` asks it once per command, on the connection it already has, when it prints to a person, and keeps nothing on disk. So a member sees `u-7f3a2c9d (Alice Example)` in `who` and `list`; an admin sees the address as well in `sfx admin principal list`. A mention is typed as `@u-7f3a2c9d`, or as a display name that `sfx` resolves when it is unique among what the caller can see; the text stored holds the handle.
+
+**Forgetting a person:** `sfx admin principal forget NAME`, a server admin's. In one control write it disables the principal if it is not already (so decisions 20 and 21 apply: connections closed, claims released), removes its keys, its memberships and its row of `principal_identities`, and sets its state to `forgotten`, which is final: it cannot be enabled, and its name is never given out again. What that leaves behind, which the guide must say plainly:
+
+- The handle, in every project's log, with everything it did and when. If handles were generated, nothing in starfix now says whose it was.
+- Anything typed about or by the person: titles, comments, handoff notes, memories. starfix cannot find a name in free text.
+- The session's machine name, which every event carries and which often contains a person's name (`alices-macbook`). A setting, `record_machine: name | hash | off`, should come with this work.
+- The comments of keys already removed (`alice@laptop`), which are in the control database's Dolt history. A server that hides names should add keys without comments, or use certificates.
+- The deleted identity row's bytes, until Dolt next collects garbage; and every backup taken before.
+- Outside starfix: sshd's log (key ids), the telemetry backend (pseudonyms, which deleting the key file of §16.4 unlinks), agent transcripts, git history.
+
+**An existing server's names.** Names already written stay: `alice` is a handle that happens to be a name, and nothing breaks. An existing principal can be given a display name and an external identity at once. To stop adding to a name-like handle, an admin creates a new principal with a generated handle, moves the memberships, and disables the old one; the old history stays under the old name, and starfix records no link between the two. Only the third depth removes the old name.
+
+**The third depth: erasing a name already written.** What it would take, honestly:
+
+- A principal's name is text in about a dozen tables of every project (the event log and its JSON before and after states, claims, the agents registry, inboxes, handoffs, acceptance, issue paths, usage, hours, plans, memories, and the issues and comments themselves). Rewriting it means editing the event log, which principle 3 and every replay test treat as append-only.
+- Rewriting the rows erases nothing by itself, because Dolt keeps every earlier version (measured, §17.1). The history has to go too: in practice, the project's current state exported into a new database with no history, the old database dropped and collected, and every backup aged out. That loses the second audit trail (§2) for everyone in the project, not only for the person.
+- It is the opposite of what an audit log is for, which is the usual ground for keeping one.
+
+When it is needed, in the terms of obligations a company commonly has (this is not legal advice, and a company's own counsel decides): when a handle still identifies the person, as a name-like handle or a handle on a team of three does, and an erasure duty applies that no retention ground outweighs; or when a contract requires a customer's data gone at the end of an engagement, which is better met by **deleting the project** than by rewriting it. `sfx admin project delete` does not exist; archiving is all there is. It would be the cheaper thing to build first. Pseudonymous records generally remain personal data while a mapping exists, which is the reason the mapping here can be destroyed without touching any history. Two further things an enterprise will ask about and this design only notes: `sfx cost --by person` and hours are per-person measurement, which some works agreements restrict; and what is sent to processors (telemetry, model providers) is covered by §16.4 and by keeping display names out of MCP.
+
+### 17.8 Provisioning
+
+Who is a member is a separate question from how they prove who they are. It is answered by a job the company runs, from anywhere `sfx` can reach the server, on a schedule: it reads the directory and runs `sfx admin`. starfixd gains no HTTP endpoint (decision 9), and no knowledge of any directory.
+
+```text
+directory ──(the company's own query: SCIM, LDAP, an export)──> desired.yaml
+desired.yaml ──> sfx admin apply -f desired.yaml [--dry-run] [--prune] ──ssh──> starfixd
+```
+
+`desired.yaml` lists principals by external identity, each with a display name, a kind, and the projects and roles it should have. Only producing that file is specific to a company; the guide gives an example that builds it from a CSV. What `sfx admin` needs so that the job is safe to rerun and safe to leave alone:
+
+- **Idempotent verbs.** `principal add` for a principal that exists as asked, `member add` for a membership that exists, and a removal of what is absent all succeed and write nothing. Several control writes already behave so (§15.1); the rest are made to.
+- **Lookup by external identity** (`--external`), since the job never knows a handle. A new person gets a generated one.
+- **`apply`**: read the current state, print or perform the difference. `--dry-run` performs nothing. `--json` prints one document either way: what was added, changed, disabled and left alone, and what was refused and why. Exit 0 only if nothing was refused.
+- **Guards against a bad export.** Nothing is disabled or removed without `--prune`. With it, a run that would disable more than `--max-remove` principals (10 by default) does nothing and exits 1: an empty file from a failed directory query must not lock out a company. A leaver is disabled, never forgotten; forgetting is a person's decision.
+- **A principal for the job with only the rights it needs:** a new server-level role, `provisioners:` in the config beside `admins:`. A provisioner may create principals, set their display name and external identity, and add them as plain members to the projects the config lists for it; it may disable, and change, only principals whose `source` is itself. It may not add a key, grant an admin role, touch a server admin or a principal someone else created, or create or archive a project. So a stolen job credential can admit people the authority will vouch for, to listed projects, and no more. It cannot sign in as anyone: it sets identities, and a certificate still has to come from the authority. The job is an agent (§17.6) and gets its own certificate or key.
+- **Rate.** Control writes are limited to one a second with a burst of 30 (§15.4), so a first run for 500 people takes about eight minutes. That is acceptable for a job; a batch op is a later optimization, not a need.
+
+A directory's groups become memberships here, in the file, where the mapping is visible and reviewable, and every resulting change is an event with the job's principal on it.
+
+### 17.9 The client
+
+Independent of everything above, and useful today, since a `cert-authority` line written by hand into `authorized_keys` already works with today's daemon (§17.1).
+
+- **Which credential.** With `key:` set, `sfx` offers only that key: its certificate first (the file `KEY-cert.pub` beside it, or the agent's certificate for the same key), then the bare key. The agent is still used to sign when the key file has a passphrase. With no `key:`, it offers the agent's certificates first, then its bare keys, in the agent's order. A certificate is tried before a bare key of the same person because it is the newer, shorter-lived proof, and because a key that is also in the store for another principal must not win by accident (§17.1). `key:` may also be a `SHA256:` fingerprint, which selects that key from the agent, for a person whose agent holds many.
+- **A certificate that has expired is not offered,** and if nothing else gets in, the refusal says so: when it expired, and to sign in again. A committed, optional `server.sign_in_hint` in `.starfix.yaml` is quoted in that fix (`run: step ssh login`), escaped like all server text. It is words for a person, never a command `sfx` runs: a command in a committed file is code execution from a cloned repository (§2).
+- **`Too many authentication failures`** becomes an `auth` refusal that names the cause and the fix (`set key:`), in place of today's advice to check the host and port.
+- **`sfx whoami`** prints the principal the server took this connection for (the welcome already carries it), its display name, how it signed in (key fingerprint, or the certificate's key id, serial and expiry), and the server. `prime` and the MCP notices gain one line when the certificate expires within ten minutes. These read new fields of the welcome, which a client ignores if it does not know them.
+- **`sfx` does not obtain certificates.** The company's tool does. `sfx` only finds what that tool left in the agent or beside the key.
+
+### 17.10 What this does not solve
+
+- **Signing in to starfix itself in a browser, a device-code flow, or SCIM pushed by the directory.** Each needs an HTTPS endpoint (decision 9 defers it). Here the authority does the single sign-on and starfix sees only its certificate; the directory is pulled by a job.
+- **The second factor.** starfix cannot tell whether one was used. It trusts the authority's policy.
+- **An authority that signs what it should not.** Whoever can make it sign a principal is that person; the JWK provisioner signed any principal its secret's holder asked for. Trusting an authority is trusting everyone who can configure it.
+- **Instant removal with no action in starfix.** Without `principal disable` or the job, a leaver has until their certificate expires.
+- **The authority's own revocations,** which starfix does not read.
+- **Anonymity.** A handle hides a name, not a pattern of work, and not what people type.
+- **Machines that cannot reach SSH,** such as hosted sandboxes behind HTTP proxies ([bearings.md §3.14](bearings.md#314-unattended-operation)).
+
+### 17.11 Plan
+
+Each slice leaves `main` working, and every one is off until configured. The protocol is being reset to a single version on another branch; until that lands, "protocol" below means a change under rule 10 (a new op or argument, refused by an older server), and after it, whatever that branch makes of such a change. New fields of the welcome and of results need none.
+
+| Slice | Delivers | Protocol |
+|---|---|---|
+| I0 | The guide's `Match` block and the Docker image gain `TrustedUserCAKeys none` and `AuthorizedPrincipalsFile none`; the smoke test offers a certificate naming `starfix` from a globally trusted authority and expects a refusal | None. Documentation and the image |
+| I1 | The client of §17.9: the certificate beside `key:`, one key when `key:` is set, certificates first, the two refusals reworded, `sfx whoami` | None |
+| I2 | Control migration `0002`; `display_name`, `external_id`, `kind`, `owner`; `principal add` arguments, `principal set` and `show`; the `names` read and the CLI's display; `directory:` | New ops and arguments |
+| I3 | Certificates in the server: the settings, `cert-authority` lines in the keys file, `--cert` and the bridge frame's field, the handshake's checks, the connection's record, `drop_at_expiry`, `status`; the image and smoke test with a throwaway authority; the guide | None for clients: the bridge frame is not client protocol, and the welcome only gains fields |
+| I4 | `cert list`, `revoke`, `revoked`, `unrevoke`; the revocation table and its cap | New ops |
+| I5 | `principal forget` and the `forgotten` state; `record_machine`; the guide's account of what forgetting leaves | A new op |
+| I6 | Provisioning: idempotent verbs, `--external` lookup, `apply` with `--dry-run`, `--prune` and `--max-remove`, the `provisioners:` role and `source` | New arguments; the role is the server's |
+| I7 | Agents: `kind: agent` in the audit stream with the certificate's key id and serial; with decision 8's work, the narrower rights | With decision 8 |
+
+I0 and I1 can go now. I2 is worth having without certificates. I3 needs I2 for the external identity.
+
+**Since this was written (12 Oct 2026).** I0's configuration is done: the guide's `Match` blocks and the Docker image set `TrustedUserCAKeys none` and `AuthorizedPrincipalsFile none` (§15.2, "A globally trusted certificate authority"); the smoke test does not yet offer a certificate that must be refused. Of I1, the maintainer has decided that a configured `key:` is the only key `sfx` offers and that `sfx whoami` says who you are; that is being built with the fixes for the security review of stage 3a. Decision 26 has sshd read the generated file before `authorized_keys`, which the `cert-authority` lines of §17.3 would follow. The rest of this section is undecided: it is a design for the maintainer to accept, change or put aside, and its questions are in §17.12.
+
+### 17.12 Decisions for the maintainer
+
+1. **Do certificates become a way in?** Recommended: yes, a second way beside keys on the same server, never required. *Cost of yes:* slices I2 to I4, and a mode to test, document and secure, though it reuses decision 22's file. *Cost of no:* keys only, and the concern of §15.6 stands. *Cost of certificates only:* small teams need an authority to try starfix.
+2. **Which sshd mechanism?** Recommended: `cert-authority` lines in the file starfixd writes. *Cost:* the trust in an authority is written by the `starfix` account. *The alternative,* `TrustedUserCAKeys` and a principals file starfixd writes: root owns the trust, at the price of a second generated file, two more sshd directives, and a second stale-file case.
+3. **Who names an authority?** Recommended: the operator, in the config file, only. *Cost:* a restart to rotate. *The alternative,* `sfx admin authority add`: a server admin could mint a way in as anyone, where today decision 19 at least stops them adding their own key.
+4. **May membership follow a group in a certificate?** Recommended: no; groups arrive through provisioning as rows (§17.5). *Cost of no:* a company must run the job. *Cost of yes:* the table of §17.5.
+5. **Is the second depth of hiding wanted, and are handles the default?** Recommended: build it (I2, I5); names stay free by default, with `principal_names: generated` for servers that want handles. *Cost of generated by default:* every small team reads `u-7f3a2c9d` until it sets display names.
+6. **Where does the mapping live?** Recommended: a table named in `dolt_ignore`, pending one check that starfixd's locked-down account may write `dolt_ignore` and that the server collects garbage. *Costs:* it is outside the backup tag `starfixd upgrade` makes, so the guide must say how it is backed up; and a deleted row's bytes last until a collection. *Alternatives:* a 0600 file beside the telemetry key (no SQL, a second store to keep consistent), or an encrypted column whose per-person key is what gets deleted (history keeps only ciphertext; more machinery).
+7. **Who sees display names?** Recommended: members who share a project, by default, with `directory: admins` to restrict. *Cost of admins only by default:* a team cannot tell who holds an issue.
+8. **Does the daemon close a connection when its certificate expires?** Recommended: yes by default. *Cost:* every long session reconnects once a lifetime, and an authority outage ends sessions as certificates lapse. *Cost of no:* a session outlives its sign-in without limit.
+9. **Should `key:` mean only that key?** Recommended: yes, with certificates offered first. *Cost:* someone whose `key:` file is wrong and who has been getting in by their agent stops getting in, with a refusal that says why. It also fixes signing in as the wrong principal, which happens today.
+10. **What is an unattended agent's identity?** Recommended: a principal of its own for each worker, `kind: agent` with an owner, the launch in the certificate's key id. *Cost:* more rows (cheap with provisioning), and the audit stream is needed to join a session to a launch. *The alternative,* one principal for a fleet: fewer rows, and decision 8's concern returns.
+11. **A provisioner role, or does the job run as a server admin?** Recommended: the role. *Cost:* a third tier to explain and test. *Cost of an admin:* a stolen job credential is total control.
+12. **Does starfixd ever write sshd's `RevokedKeys`?** Recommended: no. *Cost:* revocation depends on the daemon running, which every sign-in already does.
+13. **Is erasing a name from history (the third depth) wanted?** Recommended: not now; build `project delete` first if a contract requires data gone. *Cost of not:* a server that already has name-like handles cannot remove them from its logs.
+
+### 17.13 Not tested
+
+- An OpenID Connect sign-in at any authority, a workload identity exchanged for a certificate, and any authority other than step-ca.
+- Everything of §17.3 to §17.9 as code: only the sshd behavior they rest on, the client patch, and today's daemon behind a line that names no key.
+- `cert-authority` lines at scale (thousands of lines in the file), and sshd's time to scan them.
+- `dolt_ignore` and `dolt_gc` through `dolt sql-server` as starfixd's locked-down account; whether a backup or a clone carries an ignored table (the one attempt gave no output either way).
+- ssh-agent on Windows, FIDO (`sk-`) keys with certificates, and an RSA authority.
+- OpenSSH other than 9.6p1 as the server. 9.8 and later penalize an address for failed authentications (`PerSourcePenalties`), which a client that offers many keys would meet sooner.
+- Whether `sfx mcp` reconnects by itself when the daemon closes its connection, which `drop_at_expiry` relies on.
+- systemd, the providers' images and SELinux, as for the rest of §15.
