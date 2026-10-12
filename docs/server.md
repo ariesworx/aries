@@ -37,8 +37,9 @@ For complete deployments with costs, see the
   about 13 MB. Under the stage 0 load test Dolt reached 1.4 GB and about
   250 writes a second on 4 vCPUs
   ([results](../spike/dolt/RESULTS.md)), roughly ten times what a busy
-  team of agents needs. 2 GB of memory suits a team; the data starts at
-  under 1 MB.
+  team of agents needs. 2 GB of memory suits a team with one project of
+  a few thousand issues; [Dolt's memory](#dolts-memory) says how it grows
+  and how to get it back. The data starts at under 1 MB.
 
 ## Set up a server
 
@@ -854,9 +855,9 @@ time. `--json` gives the same figures, with latency in microseconds.
 **Dolt's memory is not in it.** Dolt is another process under another
 user, and starfixd has no portable way to read its memory, so read it
 from the machine: `systemctl status dolt`, `ps -o rss= -C dolt` or your
-monitoring. It follows the data written across all projects, not their
-number, and closing a store gives none of it back
-([measurements](../spike/multidb/RESULTS.md)). Nor is a database's size
+monitoring. It follows what has been written since Dolt started, in
+every project; closing a store gives none of it back, and a restart of
+Dolt gives back most ([Dolt's memory](#dolts-memory)). Nor is a database's size
 on disk: Dolt offers its least-privileged account no table or function
 for it, and the files belong to Dolt's user. Read it with `du -sh
 /var/lib/dolt/data/starfix/*` as root or `dolt`
@@ -864,10 +865,9 @@ for it, and the files belong to Dolt's user. Read it with `du -sh
 
 Each project's store is opened by its first connection and closed after
 `store_idle` without one ([Limits](#limits)). Closing gives back the
-store's connections to Dolt. It does not give back Dolt's memory, which
-follows the data written across all projects
-([measurements](../spike/multidb/RESULTS.md)), so size the machine by the
-data in all its projects together. A store that reopens ends the claims
+store's connections to Dolt. It does not give back Dolt's memory
+([Dolt's memory](#dolts-memory)), so size the machine by what all its
+projects write, not by how many are open. A store that reopens ends the claims
 that expired while it was closed, and those of anyone who lost their
 access meanwhile, before it serves its first request.
 
@@ -1209,6 +1209,74 @@ past either it is refused with `invalid`.
 
 Watch the size of `/var/lib/dolt/data`. If it grows, run `dolt gc` in a
 quiet hour: `cd /var/lib/dolt/data/starfix && sudo -u dolt -H dolt gc`.
+It grows faster than the rows suggest: in
+[the measurements](../spike/multidb/RESULTS.md) Dolt's files took 28 to
+56 KiB for each write, 6.5 GiB for a project of 30,000 small issues, and
+its garbage collection made them 7 to 47 times smaller. It is also how
+to get Dolt's memory back ([Dolt's memory](#dolts-memory)).
+
+## Dolt's memory
+
+Dolt, not starfixd, is what the machine's memory goes to. These figures
+are from [one set of measurements](../spike/multidb/RESULTS.md): Linux
+on arm64, in a container on a laptop, with synthetic issues of one shape
+written as fast as a writer can. Take the shape from them, and check the
+sizes on your own server.
+
+- **It grows as Dolt writes, not with what it holds.** An empty Dolt
+  took about 80 MiB. With no restart, one project took 300 MiB after
+  300 issues, 1.1 GiB after 3,000, 1.4 GiB after 10,000 and 2.1 GiB
+  after 30,000. Each further project of 300 issues that was written to
+  added 95 to 180 MiB, up to 5.1 GiB for fifty. A project that is only
+  opened and read costs far less: about 15 MiB each, for twenty of them
+  after a restart.
+- **A restart gives most of it back.** Restarted on the same data, Dolt
+  took 14 to 42% of what it had before, and a fifth to a half once
+  every project was open, read and written to again. `systemctl restart
+  dolt` restarts starfixd with it, since starfixd's unit requires
+  Dolt's, so connections drop: pick a quiet hour.
+- **`dolt gc` and then a restart give back nearly all of it:** 110 to
+  200 MiB at rest in every case measured, up to the project of 30,000
+  issues, which a restart alone left at 895 MiB. The collection took
+  from under a second to 13 seconds a project. It was measured as
+  `CALL DOLT_GC()` in each database, as root, with starfixd's
+  connections closed; stop starfixd first if you want to match that.
+- **So size the machine for what is written between restarts.** 2 GB
+  holds one project of a few thousand issues. Give it 4 GB for a
+  project past about 10,000 issues or for ten or more projects in
+  regular use, or restart Dolt on a schedule, weekly say, and after a
+  bulk import.
+- **Read Dolt's own figure.** `ps -o rss= -C dolt`, or
+  `process_resident_memory_bytes` if you turn on Dolt's metrics (a
+  `metrics:` block with `host: 127.0.0.1` and a `port` in its config;
+  it has no authentication, so keep it on loopback). A container's or a
+  unit's total also counts the page cache of Dolt's files, which the
+  kernel drops when it must: one measured Dolt of 2.1 GiB sat in a
+  container showing 5.7 GiB.
+
+**A Go memory limit** is optional. `Environment=GOMEMLIMIT=1500MiB` in
+`dolt.service` makes Dolt collect its garbage sooner. It is a target,
+not a cap: Dolt went past it in every run where it was too low, and
+nothing was refused or killed.
+
+- **Set it from the running server:** no lower than 0.6 of the memory
+  Dolt reaches without a limit by the time you would restart it (its
+  resident memory, or `go_memstats_next_gc_bytes` from its metrics), and
+  0.75 for room. At 0.6 Dolt used up to twice the CPU for the same
+  writes and kept to about 60% of the memory.
+- **Too low is expensive.** At 0.5, Dolt's CPU for the same writes went
+  up 1.5 to 25 times, and at 0.2, 100 times: 7 to 8 of the machine's
+  16 cores, the collector running without pause, with writes still
+  served, more slowly. The step from costing nothing to costing nine times was
+  between 0.59 and 0.52.
+- **It moves.** What Dolt holds grows as it writes, so a limit with room
+  after a restart is too low later. Watch Dolt's CPU, and its collector
+  against starfixd's writes (`go_gc_duration_seconds_count` from Dolt's
+  metrics; writes from `sfx admin status`): fewer than 3 collections for
+  each 100 writes was normal, and more than 14 meant the limit was too
+  low. Then restart Dolt or raise the limit.
+- **Not measured:** a limit together with systemd's `MemoryMax`, which
+  is the way to a hard cap, and a limit on a server that mostly reads.
 
 ## starfixd commands
 

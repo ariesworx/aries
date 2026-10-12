@@ -34,14 +34,18 @@ To try starfix, or test a branch, on any machine with Docker, use the
   ([Serving many projects](../server.md#serving-many-projects)). Read
   what that section says is not yet checked on real machines before you
   rely on it.
-- **Size the machine by the data, not by the number of projects.** Dolt's
-  memory follows what has been written across every project, and a
-  project that merely exists or sits idle adds nothing measurable: about
-  100 MB for a project of 300 issues in
-  [the measurements](../../spike/multidb/RESULTS.md), on macOS, with
-  projects loaded one after another. Five small projects cost what one
-  project five times the size does. `sfx admin status` shows starfixd's
-  side; read Dolt's memory from the machine
+- **Size the machine by what is written between restarts of Dolt.** Dolt's
+  memory grows as it writes and a restart gives most of it back; a
+  project that merely exists or sits idle adds nothing measurable. In
+  [the measurements](../../spike/multidb/RESULTS.md), on macOS and then
+  on Linux in a container, one project took about 1.1 GB by 3,000 issues
+  and 2.1 GB by 30,000, and each further small project that was written
+  to added 100 to 180 MB; after a restart Dolt took 14 to 42% of that.
+  So 2 GB suits one project of a few thousand issues, and 4 GB a larger
+  one or ten in regular use
+  ([Dolt's memory](../server.md#dolts-memory) has the detail, a memory
+  limit and the limits of the evidence). `sfx admin status` shows
+  starfixd's side; read Dolt's memory from the machine
   ([Watching a server](../server.md#watching-a-server)).
 - **No high availability.** While the server is down, agents keep working
   on code but cannot claim or finish issues. Recovery is a restart, or a
