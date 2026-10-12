@@ -124,7 +124,12 @@ the `dolt` on `PATH` is another version. Without
 store test proves nothing, so install Dolt before changing the store,
 server or protocol. With `STARFIX_REQUIRE_DOLT=1`, as CI sets it, a missing
 `dolt` fails those tests instead of skipping them. Tests that need `git`
-skip without it too.
+skip without it too. A server `dolttest` starts does not outlive the
+process that started it, on Linux and macOS: a test binary that is killed
+(a `go test` timeout, a canceled run, a stopped agent) runs no deferred
+`Stop`, so each launch has a watcher, a `/bin/sh` that kills dolt and
+removes its files from the directory once that process is gone. Start
+Dolt for a test through `dolttest`, never directly.
 
 ## Rules
 

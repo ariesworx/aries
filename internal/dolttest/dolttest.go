@@ -1,7 +1,7 @@
 // Package dolttest starts a throwaway dolt sql-server for tests.
 //
 // [Start] launches a [Server] in a directory the caller owns, usually
-// t.TempDir(), and the caller must [Server.Stop] it. Tests reach it
+// t.TempDir(), and the caller should [Server.Stop] it. Tests reach it
 // through its unix socket: [Server.NewDatabase] makes an empty database
 // for each test, with the DSN of the least-privileged account [User], and
 // [Server.RootDSN] gives Dolt's superuser, for tests of the store's
@@ -13,6 +13,20 @@
 // Measurements (spike/multidb) also use [StartWith], for Dolt's metrics
 // endpoint and extra environment, [Server.Restart], for a new dolt process
 // on the same data, and [Server.PID].
+//
+// A server does not outlive the process that started it. A test binary
+// that is killed (a go test timeout, a canceled run, a stopped agent)
+// runs no deferred Stop, and its dolt, a child of no one, once ran on for
+// hours. So on Linux and macOS each launch has a watcher (watch_unix.go):
+// a /bin/sh in a session of its own, reading a pipe that only the
+// starting process holds the other end of. When that process is gone,
+// however it went, the pipe closes; the watcher then kills dolt's process
+// group, removes from the directory what this package and dolt put there,
+// removes the directory if that emptied it, and exits. Stop, or dolt
+// exiting by itself, ends the watcher first, and then the directory is
+// left to the caller. Nothing looks for the directories of earlier runs:
+// that would mean guessing which are in use. On Windows the package
+// builds but there is no watcher.
 package dolttest
 
 import (
@@ -116,8 +130,10 @@ func Version(ctx context.Context) (string, error) {
 
 // Start runs dolt sql-server with its data and config under dir, on a free
 // port, and waits until it accepts connections, trying up to three ports.
-// ctx bounds only the startup. The caller must Stop the server, which
-// otherwise outlives the test process.
+// ctx bounds only the startup: if it ends first, the server is stopped.
+// The caller should Stop the server. One that is not stopped runs until
+// the process that started it is gone, and is then killed, and what it
+// had in dir removed (the package comment says how).
 func Start(ctx context.Context, dir string) (*Server, error) {
 	return StartWith(ctx, dir, Options{})
 }
@@ -130,7 +146,7 @@ func StartWith(ctx context.Context, dir string, opts Options) (*Server, error) {
 	}
 	root := filepath.Join(dir, "home")
 	for _, d := range []string{root, filepath.Join(dir, "data")} {
-		if err := os.MkdirAll(d, 0o700); err != nil {
+		if err := os.MkdirAll(d, 0o700); err != nil { //nolint:gosec // under the directory the caller chose for the server
 			return nil, fmt.Errorf("dolttest: %w", err)
 		}
 	}
@@ -249,13 +265,27 @@ func (s *Server) launch(ctx context.Context) error {
 	cmd.Env = s.env
 	cmd.Stdout = logf
 	cmd.Stderr = logf
+	ownGroup(cmd)
+	// The watcher first, so dolt never runs without one.
+	w, err := startWatcher(s.dir)
+	if err != nil {
+		_ = logf.Close()
+		return err
+	}
 	if err := cmd.Start(); err != nil {
+		w.dismiss()
 		_ = logf.Close()
 		return fmt.Errorf("dolttest: start dolt: %w", err)
 	}
 	exit := make(chan error, 1)
 	s.Port, s.metrics, s.cmd, s.exit = port, metrics, cmd, exit
-	go func() { exit <- cmd.Wait(); _ = logf.Close() }()
+	watched := w.watch(cmd.Process.Pid)
+	// The watcher goes before exit is sent, so nothing of this launch
+	// runs once Stop has returned.
+	go func() { err := cmd.Wait(); w.dismiss(); _ = logf.Close(); exit <- err }()
+	if watched != nil {
+		return errors.Join(watched, s.Stop())
+	}
 
 	db, err := sql.Open("mysql", s.rootDSN(""))
 	if err != nil {
@@ -344,10 +374,11 @@ func (s *Server) Grant(ctx context.Context, names ...string) error {
 	return nil
 }
 
-// Stop interrupts the server and waits for it to exit, killing it after
-// 10 seconds. Once it returns, nothing the server started still runs, so
-// the caller can remove its directory. Call it once: a second call waits
-// 10 seconds and fails.
+// Stop interrupts the server and waits for it to exit, killing it and its
+// process group after 10 seconds. Once it returns, nothing the server or
+// its launch started still runs, the watcher included, so the caller can
+// remove its directory. Call it once: a second call waits 10 seconds and
+// fails.
 func (s *Server) Stop() error {
 	if s.cmd.Process == nil {
 		return nil
@@ -357,7 +388,7 @@ func (s *Server) Stop() error {
 	case <-s.exit:
 		return nil
 	case <-time.After(10 * time.Second):
-		if err := s.cmd.Process.Kill(); err != nil {
+		if err := killGroup(s.cmd); err != nil {
 			return fmt.Errorf("dolttest: kill: %w", err)
 		}
 		<-s.exit
