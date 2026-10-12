@@ -54,6 +54,7 @@ import (
 	"time"
 
 	"github.com/ariesworx/starfix/internal/doltmetrics"
+	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/sdnotify"
 	"github.com/ariesworx/starfix/internal/server"
@@ -277,11 +278,22 @@ func runDaemon(ctx context.Context, s server.Settings, log *slog.Logger, getenv 
 	if err != nil {
 		return err
 	}
+	// With OTEL_LOGS_EXPORTER=otlp every line the journal gets from here
+	// on is also exported (design §16.4). The journal never depends on
+	// it: the export is taken off before telemetry stops, so the lines
+	// of the stop itself are the journal's alone.
+	tap, _ := log.Handler().(*logs.Handler)
+	if h := tel.LogHandler(); h != nil && tap != nil {
+		tap.Tap(h)
+	}
 	defer func() {
+		if tap != nil {
+			tap.Tap(nil)
+		}
 		sctx, cancel := context.WithTimeout(context.Background(), telemetryStop)
 		defer cancel()
 		if err := tel.Shutdown(sctx); err != nil {
-			log.Warn("telemetry did not stop cleanly", "err", err)
+			log.Warn("telemetry did not stop cleanly", "event", logs.TelemetryStopFailed, "err", err)
 		}
 	}()
 	// Dolt's own metrics, for the status report (design §16.5). A URL
@@ -293,7 +305,7 @@ func runDaemon(ctx context.Context, s server.Settings, log *slog.Logger, getenv 
 			return err
 		}
 		defer dolt.Close()
-		log.Info("reading Dolt's metrics for the status report", "url", dolt.URL(), "every", server.DefaultDoltMetricsEvery)
+		log.Info("reading Dolt's metrics for the status report", "event", logs.DoltMetricsReading, "url", dolt.URL(), "every", server.DefaultDoltMetricsEvery)
 	}
 	// srv is the server once it is built; /readyz asks it.
 	var srv atomic.Pointer[server.Server]
@@ -314,23 +326,23 @@ func runDaemon(ctx context.Context, s server.Settings, log *slog.Logger, getenv 
 					return "starfixd is starting"
 				}})
 			if err != nil {
-				log.Error("the telemetry listener stopped; metrics and health are not served until starfixd restarts", "err", err)
+				log.Error("the telemetry listener stopped; metrics and health are not served until starfixd restarts", "event", logs.TelemetryListenerStopped, "err", err)
 			}
 		}()
 		defer func() {
 			stop()
 			<-done
 		}()
-		serving := "telemetry listener serving /metrics, /healthz and /readyz"
-		if !tel.Enabled() {
-			serving = "telemetry listener serving /healthz and /readyz; metrics are off"
+		if tel.Enabled() {
+			log.Info("telemetry listener serving /metrics, /healthz and /readyz", "event", logs.TelemetryListening, "addr", tl.Addr().String())
+		} else {
+			log.Info("telemetry listener serving /healthz and /readyz; metrics are off", "event", logs.TelemetryListening, "addr", tl.Addr().String())
 		}
-		log.Info(serving, "addr", tl.Addr().String())
 	}
 	note := sdnotify.New(getenv, os.Getpid())
 	d, err := openDaemonWith(ctx, s, log, hooks{tel: tel, dolt: dolt, heartbeatEvery: note.WatchdogEvery(), heartbeat: func() {
 		if err := note.Watchdog(); err != nil {
-			log.Warn("could not feed systemd's watchdog", "err", err)
+			log.Warn("could not feed systemd's watchdog", "event", logs.SystemdNotify, "err", err)
 		}
 	}})
 	if err != nil {
@@ -342,15 +354,15 @@ func runDaemon(ctx context.Context, s server.Settings, log *slog.Logger, getenv 
 	}
 	srv.Store(d.srv)
 	if d.ctl != nil {
-		log.Info("starfixd serving", "version", version.Version, "socket", s.Socket, "control_db", s.ControlDB,
+		log.Info("starfixd serving", "event", logs.DaemonServing, "version", version.Version, "socket", s.Socket, "control_db", s.ControlDB,
 			"projects", d.ctl.ActiveProjects(), "admins", s.Admins)
 	} else {
-		log.Info("starfixd serving", "version", version.Version, "socket", s.Socket, "project", s.Project, "admins", s.Admins)
+		log.Info("starfixd serving", "event", logs.DaemonServing, "version", version.Version, "socket", s.Socket, "project", s.Project, "admins", s.Admins)
 	}
 	// The socket takes connections from here on, so a unit with
 	// Type=notify is started now, and told when the stop begins.
 	if err := note.Ready(); err != nil {
-		log.Warn("could not tell systemd the daemon is ready", "err", err)
+		log.Warn("could not tell systemd the daemon is ready", "event", logs.SystemdNotify, "err", err)
 	}
 	stopping := context.AfterFunc(ctx, func() { _ = note.Stopping() })
 	defer stopping()
@@ -416,7 +428,7 @@ func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h 
 	// of a step whichever noticed it, and the server reports them.
 	clk := store.NewClock(store.ClockOptions{StepTolerance: time.Duration(s.ClockStepTolerance)})
 	cfg := server.Config{Version: version.Version, Latest: s.Latest, Logger: log, Limits: s.Limits, Account: s.Account,
-		Telemetry: h.tel, Heartbeat: h.heartbeat, HeartbeatEvery: h.heartbeatEvery, DoltMetrics: h.dolt,
+		Telemetry: h.tel, Heartbeat: h.heartbeat, HeartbeatEvery: h.heartbeatEvery, DoltMetrics: h.dolt, NoAudit: !s.Telemetry.Audit(),
 		Clock: clk, ClockBehind: s.ClockBehind, BehindTolerance: time.Duration(s.ClockBehindTolerance), AcceptHistory: s.AcceptClockBehind}
 	opts := store.Options{Logger: log, AllowUnsafeAccount: s.AllowUnsafeDolt, Limits: s.Limits.Limits,
 		Clock: clk, ClientAhead: time.Duration(s.ClockClientTolerance)}
@@ -538,7 +550,6 @@ func accountHome() (string, error) {
 // key a server admin's. The daemon starts all the same: the operator
 // chose the names, and is told what to check.
 func warnOfAdmins(ctx context.Context, ctl *store.Control, admins []string, log *slog.Logger) {
-	const msg = "a configured server admin was set up by someone who is no server admin"
 	trusted := func(who string) bool { return who == store.OperatorPrincipal || slices.Contains(admins, who) }
 	for _, a := range admins {
 		p, err := ctl.Principal(ctx, a)
@@ -546,21 +557,21 @@ func warnOfAdmins(ctx context.Context, ctl *store.Control, admins []string, log 
 			continue // no row, so no key in the store either
 		}
 		if err != nil {
-			log.Error("check the configured server admins", "admin", a, "err", err)
+			log.ErrorContext(ctx, "check the configured server admins", "event", logs.AdminCheck, "admin", a, "err", err)
 			continue
 		}
 		if !trusted(p.CreatedBy) {
-			log.Warn(msg, "admin", a, "created_by", p.CreatedBy,
+			log.WarnContext(ctx, "a configured server admin was set up by someone who is no server admin", "event", logs.AdminWarning, "admin", a, "created_by", p.CreatedBy,
 				"fix", "check with "+a+" that every key `sfx admin key list "+a+"` shows is theirs, or take the name out of admins:")
 		}
 		keys, err := ctl.Keys(ctx, a)
 		if err != nil {
-			log.Error("check the configured server admins", "admin", a, "err", err)
+			log.ErrorContext(ctx, "check the configured server admins", "event", logs.AdminCheck, "admin", a, "err", err)
 			continue
 		}
 		for _, k := range keys {
 			if !trusted(k.AddedBy) {
-				log.Warn(msg, "admin", a, "key", k.Fingerprint, "added_by", k.AddedBy,
+				log.WarnContext(ctx, "a configured server admin was set up by someone who is no server admin", "event", logs.AdminWarning, "admin", a, "fingerprint", k.Fingerprint, "added_by", k.AddedBy,
 					"fix", "check with "+a+" that the key is theirs, or have another server admin run `sfx admin key remove "+k.Fingerprint+"`")
 			}
 		}

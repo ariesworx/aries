@@ -219,11 +219,12 @@ first, warns when it is removed from the control database, and then
 comes in by `authorized_keys`; that a key added to `authorized_keys`
 by hand keeps its principal, whoever tries to add it to the control
 database and whichever was there first; and that starfixd's log has no
-failed write. It checks that Dolt's metrics endpoint answers on
+failed write, names an event on every line, has the audit stream's line
+for a key an admin added, and holds no key's text. It checks that Dolt's metrics endpoint answers on
 loopback in the container and not on the container's own address, and
 that `sfx admin status` shows Dolt's figures and its collector's cycles
 against the writes, as text and as JSON, to a server admin and not to
-anyone else. It removes its server and volume, prints one line (134
+anyone else. It removes its server and volume, prints one line (137
 checks on 12 October 2026), and exits non-zero on the first failure. CI
 does not run it; `scripts/gate.sh --smoke` runs it after the gate. It
 hides ssh-agent from `sfx`, so the keys you hold play no part. Arguments

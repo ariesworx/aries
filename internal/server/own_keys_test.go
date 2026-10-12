@@ -97,6 +97,11 @@ func TestOwnKeyRemoval(t *testing.T) {
 		c := mustDialTo(t, m.Server, bob, projA)
 		before := events()
 		theirs, none := refusalOf(t, c, fingerprintOf(t, "alice-1")), refusalOf(t, c, fingerprintOf(t, "nobody"))
+		// Each refusal names its own request, and is otherwise the same.
+		if theirs.Req == "" || theirs.Req == none.Req {
+			t.Errorf("the refusals carry the request ids %q and %q, want one each", theirs.Req, none.Req)
+		}
+		theirs.Req, none.Req = "", ""
 		if theirs != none || theirs.Code != proto.CodeForbidden {
 			t.Errorf("key.remove by bob of alice's key = %+v\nof a key no one has = %+v\nwant the same forbidden refusal", theirs, none)
 		}

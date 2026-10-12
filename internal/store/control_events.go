@@ -1,6 +1,21 @@
 package store
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
+
+// LastEventSeq returns the seq of the newest event of the control
+// database, or 0 when its log is empty: where a reader that wants only
+// what happens from now on starts ([Control.Events]). starfixd's audit
+// stream starts there.
+func (c *Control) LastEventSeq(ctx context.Context) (int64, error) {
+	seq, err := lastEventSeq(ctx, c.s.r)
+	if err != nil {
+		return 0, fmt.Errorf("events: %w", err)
+	}
+	return seq, nil
+}
 
 // LastEvent returns the newest event of the control database on target:
 // a principal's name, a key's fingerprint, or PROJECT/PRINCIPAL for a

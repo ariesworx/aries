@@ -321,7 +321,7 @@ func TestReleaseArchived(t *testing.T) {
 	if opens != 2 {
 		t.Errorf("ReleaseArchived opened %d stores, want 2: one for each archived project, none for an active one", opens)
 	}
-	if !strings.Contains(m.log.String(), `msg="end the claims of an archived project at start" project=`+projC) {
+	if !strings.Contains(m.log.String(), `msg="end the claims of an archived project at start" event=access.sweep_failed project=`+projC) {
 		t.Errorf("no log line for the archived project that could not be opened:\n%s", m.log.String())
 	}
 	st := m.inStore(t, "proj-b")
@@ -428,7 +428,7 @@ func TestReleaseArchivedDoesNotMigrate(t *testing.T) {
 	if claims != 1 {
 		t.Errorf("%d claims in the database ReleaseArchived must not touch, want erin's 1 (%s)", claims, erins)
 	}
-	if !strings.Contains(m.log.String(), `msg="archived project not opened at start: its database awaits this starfixd's migrations, and any claim in it ends when the project is activated" project=`+projB) {
+	if !strings.Contains(m.log.String(), `msg="archived project not opened at start: its database awaits this starfixd's migrations, and any claim in it ends when the project is activated" event=project.not_opened project=`+projB) {
 		t.Errorf("no log line saying the archived project was left alone:\n%s", m.log.String())
 	}
 }

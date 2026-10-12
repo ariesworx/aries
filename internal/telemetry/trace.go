@@ -12,6 +12,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/ariesworx/starfix/internal/proto"
 )
 
@@ -447,7 +448,7 @@ func (e *guardedSpans) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnl
 		g.t.Record(Dropped, float64(len(spans)), SignalTraces)
 	default:
 		g.t.Record(Dropped, float64(len(spans)), SignalTraces)
-		g.t.traceErrs.failed("telemetry: a trace export failed; its spans are lost", err)
+		g.t.traceErrs.failed(logs.TelemetryExportFailed, "telemetry: a trace export failed; its spans are lost", err)
 	}
 	return nil
 }

@@ -3,10 +3,10 @@ package server
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sync"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
 	"github.com/ariesworx/starfix/internal/telemetry"
@@ -179,14 +179,15 @@ func (s *Server) startClock(logs []*behindLog) error {
 	if s.cfg.ClockBehind == ClockStop && !s.accepted(worst) {
 		return &ClockBehindError{Log: worst.log, More: n - 1, Clock: worst.clock, History: worst.history}
 	}
-	s.reportBehind(s.cfg.Logger, worst)
+	s.reportBehind(context.Background(), worst)
 	return nil
 }
 
 // reportBehind records that the clock is behind b's history, or behind
 // none when b is nil, and logs it: at error when it is first seen, and
 // again every clockWarnEvery; at info when it clears.
-func (s *Server) reportBehind(log *slog.Logger, b *behindLog) {
+func (s *Server) reportBehind(ctx context.Context, b *behindLog) {
+	log := s.cfg.Logger
 	w := &s.clock
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -194,14 +195,14 @@ func (s *Server) reportBehind(log *slog.Logger, b *behindLog) {
 	w.behind = b
 	switch {
 	case b == nil && was != nil:
-		log.Info("clock caught up with history", "log", was.log, "was_behind_since", was.since)
+		log.InfoContext(ctx, "clock caught up with history", "event", logs.ClockCaughtUp, "log", was.log, "was_behind_since", was.since)
 	case b != nil && (was == nil || s.now().Sub(w.warned) >= clockWarnEvery):
 		w.warned = s.now()
 		restart := "it will start again as it is (clock_behind: warn)"
 		if s.cfg.ClockBehind == ClockStop {
 			restart = "THIS SERVER WILL NOT START AGAIN until the clock is corrected (clock_behind: stop)"
 		}
-		log.Error("clock behind history", "log", b.log, "clock", b.clock, "history", b.history,
+		log.ErrorContext(ctx, "clock behind history", "event", logs.ClockBehind, "log", b.log, "clock", b.clock, "history", b.history,
 			"behind", b.by.Round(time.Second).String(), "since", b.since,
 			"effect", "starfixd's time runs on from the history at half speed until the clock has caught up; "+restart,
 			"fix", "check the clock with `timedatectl` and `timedatectl timesync-status`, and correct it; if the history is what is wrong, do nothing: the clock catches up")
@@ -216,7 +217,7 @@ func (s *Server) reportBehind(log *slog.Logger, b *behindLog) {
 func (s *Server) CheckClock(ctx context.Context) {
 	ctx, span := s.cfg.Telemetry.Start(ctx, telemetry.SpanClockCheck)
 	defer span.End()
-	log := withIDs(ctx, s.cfg.Logger)
+	log := s.cfg.Logger
 	steps := s.cfg.Clock.Steps()
 	w := &s.clock
 	w.mu.Lock()
@@ -236,22 +237,22 @@ func (s *Server) CheckClock(ctx context.Context) {
 		if steps.LastBy < 0 {
 			dir, effect = "backward", "starfixd's time does not go back: it runs on at half speed until the clock has caught up"
 		}
-		log.Warn("clock stepped", "direction", dir, "by", steps.LastBy.Round(time.Millisecond).String(), "clock", steps.LastAt,
+		log.WarnContext(ctx, "clock stepped", "event", logs.ClockStepped, "direction", dir, "step", steps.LastBy.Round(time.Millisecond).String(), "clock", steps.LastAt,
 			"steps", fresh, "forward_since_start", steps.Forward, "backward_since_start", steps.Backward, "effect", effect,
 			"fix", "find what set the clock: a suspend or a restored snapshot of the machine, an operator, or the time service (`timedatectl timesync-status`, `journalctl -u systemd-timesyncd`)")
 	}
-	var logs []*behindLog
+	var behinds []*behindLog
 	if ctl := s.cfg.Control; ctl != nil {
 		sctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
 		if err := ctl.SettleClock(sctx); err != nil && ctx.Err() == nil {
-			log.Error("settle a clock step in the control store", "err", err)
+			log.ErrorContext(ctx, "settle a clock step in the control store", "event", logs.ClockSettleFailed, "err", err)
 		}
 		cancel()
-		logs = append(logs, s.behindOf(ControlLog, ctl.ClockState()))
+		behinds = append(behinds, s.behindOf(ControlLog, ctl.ClockState()))
 	}
-	s.each(func(pr *served) { logs = append(logs, s.behindOf(pr.logName(), pr.store.ClockState())) })
+	s.each(func(pr *served) { behinds = append(behinds, s.behindOf(pr.logName(), pr.store.ClockState())) })
 	var worst *behindLog
-	for _, b := range logs {
+	for _, b := range behinds {
 		if b != nil && (worst == nil || b.mark.After(worst.mark)) {
 			worst = b
 		}
@@ -276,7 +277,7 @@ func (s *Server) CheckClock(ctx context.Context) {
 	if worst != nil && worst.by <= s.cfg.BehindTolerance && !reported {
 		worst = nil
 	}
-	s.reportBehind(log, worst)
+	s.reportBehind(ctx, worst)
 }
 
 // ControlLog names the control database's history in a report.

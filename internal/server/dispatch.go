@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
 )
@@ -126,7 +127,7 @@ func create(ctx context.Context, pr *served, a store.Actor, in proto.CreateArgs)
 func (pr *served) similar(ctx context.Context, is store.Issue) []proto.Summary {
 	sim, err := pr.store.SimilarClosed(ctx, is.Title, is.ID, store.MaxSimilar)
 	if err != nil {
-		pr.log.Error("similar issues", "issue", is.ID, "err", err)
+		pr.log.ErrorContext(ctx, "similar issues", "event", logs.RequestPart, "issue", is.ID, "err", err)
 		return nil
 	}
 	var out []proto.Summary
@@ -461,11 +462,11 @@ func start(ctx context.Context, pr *served, a store.Actor, in proto.StartArgs) (
 	// The issue is taken: a failed read of its items or its handoff is
 	// logged rather than failing the start.
 	if out.Items, err = pr.items(ctx, is); err != nil {
-		pr.log.Error("read acceptance items", "issue", is.ID, "err", err)
+		pr.log.ErrorContext(ctx, "read acceptance items", "event", logs.RequestPart, "issue", is.ID, "err", err)
 	}
 	h, err := pr.store.LastHandoff(ctx, is.ID)
 	if err != nil {
-		pr.log.Error("read handoff", "issue", is.ID, "err", err)
+		pr.log.ErrorContext(ctx, "read handoff", "event", logs.RequestPart, "issue", is.ID, "err", err)
 	} else if h != nil {
 		w := wireHandoff(*h, a)
 		out.Handoff = &w

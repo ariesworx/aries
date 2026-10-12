@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/ariesworx/starfix/internal/dolttest"
+	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
 	"github.com/ariesworx/starfix/internal/telemetry"
@@ -625,7 +626,7 @@ func TestReaperMetricsAndHeartbeat(t *testing.T) {
 }
 
 func slogTo(w io.Writer) *slog.Logger {
-	return slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	return slog.New(logs.NewHandler(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelDebug}), LogIDs))
 }
 
 // `starfixd status` gets the report a server admin gets, over the

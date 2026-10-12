@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/ariesworx/starfix/internal/logs"
 )
 
 // The server's clock is relied on and not trusted to be right (design
@@ -452,7 +454,7 @@ func (s *Store) SettleClock(ctx context.Context) error {
 	t.settled = v.forward
 	t.slack = max(0, t.slack-jump)
 	t.mu.Unlock()
-	s.opts.Logger.Warn("clock step settled", "step", v.pending.String(), "from", v.at, "to", after,
+	s.opts.Logger.Warn("clock step settled", "event", logs.ClockStepSettled, "step", v.pending.String(), "from", v.at, "to", after,
 		"extended", extend.String(), "claims", n)
 	return nil
 }

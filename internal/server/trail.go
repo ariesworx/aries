@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
 )
@@ -84,7 +85,7 @@ func (s *Server) administers(actor, project string) bool {
 func (s *Server) left(ctx context.Context, sess *session, out *proto.PrincipalResult) {
 	t, perr, err := s.trailOf(ctx, sess.actor.Principal, out.ID, "")
 	if err != nil {
-		s.cfg.Logger.Error("read what a disabled principal added", "principal", out.ID, "err", err)
+		s.cfg.Logger.ErrorContext(ctx, "read what a disabled principal added", "event", logs.RequestPart, "subject", out.ID, "err", err)
 		return
 	}
 	if perr != nil {

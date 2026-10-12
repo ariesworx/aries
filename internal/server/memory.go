@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
 )
@@ -71,7 +72,7 @@ func pin(ctx context.Context, pr *served, a store.Actor, in proto.PinArgs) (any,
 func (pr *served) issueMemories(ctx context.Context, a store.Actor, id store.IssueID) []proto.Memory {
 	ms, err := pr.store.IssueMemories(ctx, a, id, startMemories)
 	if err != nil {
-		pr.log.Error("read memories", "issue", id, "err", err)
+		pr.log.ErrorContext(ctx, "read memories", "event", logs.RequestPart, "issue", id, "err", err)
 		return nil
 	}
 	return wireMemories(ms)

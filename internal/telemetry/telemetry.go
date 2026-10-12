@@ -10,14 +10,18 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	otelprom "go.opentelemetry.io/otel/exporters/prometheus"
+	otellog "go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/metric"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -93,8 +97,15 @@ type Telemetry struct {
 	tp        *sdktrace.TracerProvider
 	tracer    trace.Tracer
 	traceErrs *errlog
-	// who is how a principal and a session appear on a span; never nil.
+	// who is how a principal and a session appear on a span and on an
+	// exported log record; never nil.
 	who *people
+
+	// lp and logger are nil when no log record is exported (logs.go);
+	// logErrs logs the log exporter's failures.
+	lp      *sdklog.LoggerProvider
+	logger  otellog.Logger
+	logErrs *errlog
 }
 
 // instrument is one instrument of the SDK's, by its kind.
@@ -125,12 +136,15 @@ func New(ctx context.Context, cfg Config) (*Telemetry, error) {
 	t := newTelemetry(cfg, env)
 	log := t.log
 	tracing := !env.disabled && env.traces.endpoint != ""
-	if t.who, err = openPeople(cfg, tracing, false, log); err != nil {
+	logging := !env.disabled && env.logs.endpoint != ""
+	// Spans and exported log records both say who by stand-ins, so
+	// either wants the key.
+	if t.who, err = openPeople(cfg, tracing || logging, false, log); err != nil {
 		return nil, err
 	}
 	if env.disabled {
-		if env.endpoint != "" || env.traces.endpoint != "" || cfg.Pull {
-			log.Info("telemetry is off: OTEL_SDK_DISABLED is true")
+		if env.endpoint != "" || env.traces.endpoint != "" || env.logs.endpoint != "" || cfg.Pull {
+			log.Info("telemetry is off: OTEL_SDK_DISABLED is true", "event", logs.TelemetryOff)
 		}
 		return t, nil
 	}
@@ -163,7 +177,7 @@ func New(ctx context.Context, cfg Config) (*Telemetry, error) {
 		t.pull = pull
 		readers = append(readers, reader)
 	}
-	if len(readers) == 0 && !tracing {
+	if len(readers) == 0 && !tracing && !logging {
 		return t, nil
 	}
 	// One resource, so that metrics and spans carry the one instance id.
@@ -175,8 +189,8 @@ func New(ctx context.Context, cfg Config) (*Telemetry, error) {
 	}
 	// The headers' names and values are never logged: a value may be a
 	// token (design §16.3), and a name alone can say whose.
-	line := []any{"push", shown(env.endpoint), "push_interval", env.interval.String(), "push_headers", len(env.headers),
-		"pull", cfg.Pull, "per_project", cfg.PerProject, "traces", shown(env.traces.endpoint)}
+	line := []any{"event", logs.TelemetryOn, "push", shown(env.endpoint), "push_interval", env.interval.String(), "push_headers", len(env.headers),
+		"pull", cfg.Pull, "per_project", cfg.PerProject, "traces", shown(env.traces.endpoint), "logs", shown(env.logs.endpoint)}
 	if tracing {
 		te := env.traces
 		opts := []otlptracehttp.Option{otlptracehttp.WithEndpointURL(te.endpoint), otlptracehttp.WithTimeout(te.requestTimeout)}
@@ -194,7 +208,29 @@ func New(ctx context.Context, cfg Config) (*Telemetry, error) {
 				t.stopMetrics(context.WithoutCancel(ctx)))
 		}
 		t.trace(res, te, t.batcher(exp, te))
-		line = append(line, "trace_headers", len(te.headers), "sampler", te.shownSampler(), "principals", t.who.mode)
+		line = append(line, "trace_headers", len(te.headers), "sampler", te.shownSampler())
+	}
+	if logging {
+		le := env.logs
+		opts := []otlploghttp.Option{otlploghttp.WithEndpointURL(le.endpoint), otlploghttp.WithTimeout(le.requestTimeout)}
+		if len(le.headers) > 0 {
+			opts = append(opts, otlploghttp.WithHeaders(le.headers))
+		}
+		// The exporter's retries are left on, as for traces: they end
+		// with the export's timeout.
+		exp, err := otlploghttp.New(ctx, opts...)
+		if err != nil {
+			stop := context.WithoutCancel(ctx)
+			return nil, errors.Join(
+				fmt.Errorf("telemetry: %s; fix: correct the OTEL_EXPORTER_OTLP_* variables in starfixd's environment, or unset %s to leave the logs in the journal alone",
+					t.errs.redact(err.Error()), envLogsExporter),
+				t.stopTraces(stop), t.stopMetrics(stop))
+		}
+		t.logging(res, t.logBatcher(exp, le))
+		line = append(line, "log_headers", len(le.headers))
+	}
+	if tracing || logging {
+		line = append(line, "principals", t.who.mode)
 	}
 	setSDKLogging(t.errs)
 	log.Info("telemetry on", append(line, "service", env.service)...)
@@ -207,7 +243,8 @@ func newTelemetry(cfg Config, env envConfig) *Telemetry {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	t := &Telemetry{log: log, errs: newErrlog(log, env.secrets(), "metrics"), traceErrs: newErrlog(log, env.secrets(), "trace"),
+	t := &Telemetry{log: log, errs: newErrlog(log, env.secrets(), SignalMetrics), traceErrs: newErrlog(log, env.secrets(), SignalTraces),
+		logErrs:    newErrlog(log, env.secrets(), SignalLogs),
 		perProject: cfg.PerProject, ops: make(map[string]struct{}, len(cfg.Ops)), who: &people{mode: PrincipalsOmit, log: log}}
 	t.who.state.Store(&keyState{})
 	for _, op := range cfg.Ops {
@@ -345,7 +382,7 @@ func (t *Telemetry) Watch(i Instrument, fn func() float64) {
 			return nil
 		}))
 	if err != nil {
-		t.errs.failed("telemetry: watch "+sp.name, err)
+		t.errs.failed(logs.TelemetrySDKError, "telemetry: an instrument could not be watched", fmt.Errorf("%s: %w", sp.name, err))
 	}
 }
 
@@ -370,14 +407,14 @@ func (t *Telemetry) value(a attr, v string) string {
 
 // Shutdown exports what is pending and stops the exporters, giving up
 // when ctx ends, so a collector that is down or silent holds a stop for
-// no longer than ctx allows. Give it a deadline. The spans go first, so
-// that the last export of metrics counts those that were lost. A
-// Telemetry that exports nothing has nothing to stop.
+// no longer than ctx allows. Give it a deadline. The log records and the
+// spans go first, so that the last export of metrics counts those that
+// were lost. A Telemetry that exports nothing has nothing to stop.
 func (t *Telemetry) Shutdown(ctx context.Context) error {
 	if t == nil {
 		return nil
 	}
-	return errors.Join(t.stopTraces(ctx), t.stopMetrics(ctx))
+	return errors.Join(t.stopLogs(ctx), t.stopTraces(ctx), t.stopMetrics(ctx))
 }
 
 // stopTraces exports the spans that are queued and stops the tracer's

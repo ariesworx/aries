@@ -349,9 +349,14 @@ func (r *runner) help(w io.Writer) {
 // command's usage line; a *proto.Error keeps its code, message and fix,
 // and prints no fix: line when the fix is empty; any other error is
 // reported as unavailable, with a fix to retry and check the config.
+//
+// A refusal the server answers with unavailable is the server's own
+// failure, and prints a third line, req:, the id the server gave the
+// request: its log has the cause under that id. --json carries the id
+// of any refusal that has one.
 func (r *runner) fail(err error) int {
 	code, exit := proto.CodeUnavailable, ExitFailure
-	msg, fix := err.Error(), "retry; if it persists, run with -C pointing at the repository and check "+client.ConfigFile
+	msg, fix, req := err.Error(), "retry; if it persists, run with -C pointing at the repository and check "+client.ConfigFile, ""
 	var ue *usageError
 	var pe *proto.Error
 	switch {
@@ -362,13 +367,13 @@ func (r *runner) fail(err error) int {
 			fix = "usage: sfx " + ue.usage
 		}
 	case errors.As(err, &pe):
-		code, msg, fix = pe.Code, pe.Message, pe.Fix
+		code, msg, fix, req = pe.Code, pe.Message, pe.Fix, pe.Req
 		if pe.Code == proto.CodeVersion {
 			exit = ExitVersion
 		}
 	}
 	if r.json {
-		doc := map[string]any{"error": &proto.Error{Code: code, Message: msg, Fix: fix}}
+		doc := map[string]any{"error": &proto.Error{Code: code, Message: msg, Fix: fix, Req: req}}
 		if rw, ok := errors.AsType[*refusedWith](err); ok {
 			doc[rw.key] = rw.value
 		}
@@ -378,6 +383,9 @@ func (r *runner) fail(err error) int {
 		_, _ = fmt.Fprintf(r.env.Stderr, "sfx: %s\n", safetext.Line(msg))
 		if fix != "" {
 			_, _ = fmt.Fprintf(r.env.Stderr, "fix: %s\n", safetext.Line(fix))
+		}
+		if req != "" && code == proto.CodeUnavailable {
+			_, _ = fmt.Fprintf(r.env.Stderr, "req: %s\n", safetext.Line(req))
 		}
 	}
 	return exit

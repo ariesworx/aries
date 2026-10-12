@@ -305,8 +305,9 @@ func TestDoltUnknown(t *testing.T) {
 	if n := elsewhere.Load(); n != 0 {
 		t.Errorf("the redirect's target was asked %d times, want 0", n)
 	}
-	if n := strings.Count(log.String(), "could not read Dolt's metrics"); n != 1 {
-		t.Errorf("%d failures logged for six in a row, want 1:\n%s", n, log)
+	// The failure has a name an alert can match (design §16.4).
+	if n := strings.Count(log.String(), "unknown until a read succeeds\" event=dolt_metrics.read_failed url="); n != 1 {
+		t.Errorf("%d dolt_metrics.read_failed lines logged for six failures in a row, want 1:\n%s", n, log)
 	}
 	if strings.Contains(log.String(), "level=ERROR") {
 		t.Errorf("a failed read was logged as an error of starfixd's:\n%s", log)
@@ -324,7 +325,7 @@ func TestDoltUnknown(t *testing.T) {
 	if !strings.Contains(text, "Dolt 2.4.2, up 3m 17s, ") {
 		t.Errorf("the status after a read that worked again lacks Dolt's figures:\n%s", text)
 	}
-	if n := strings.Count(log.String(), "reading Dolt's metrics again"); n != 1 {
+	if n := strings.Count(log.String(), `msg="reading Dolt's metrics again" event=dolt_metrics.read_recovered url=`); n != 1 {
 		t.Errorf("%d lines say the reads work again, want 1:\n%s", n, log)
 	}
 }

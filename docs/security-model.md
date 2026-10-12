@@ -496,9 +496,10 @@ hold is narrow, and decided in one place.
   stand-in unlinkable**, to the operator too, which is what a retention
   rule may want. A backup of the file undoes that for as long as it
   exists.
-- **The setting does not change starfixd's log**, which names
-  principals and sessions. Whoever reads the journal can read the
-  databases.
+- **The setting does not change starfixd's log on stderr**, which
+  names principals and sessions. Whoever reads the journal can read the
+  databases. It does govern the log records starfixd exports over OTLP
+  ([Logs](#logs)).
 - **Traces are not a record of who did what.** Under the default
   sampler a caller's own trace context decides whether its request is
   recorded: a client that marks its requests unsampled leaves no span,
@@ -509,6 +510,51 @@ hold is narrow, and decided in one place.
 - **A client cannot make the server hold spans without bound.** Spans
   wait for export in a queue of a fixed size; one more is dropped and
   counted.
+
+## Logs
+
+starfixd's log is on stderr, for the journal ([Logs](server.md#logs)).
+It is the server's own record, and whoever can read the journal can
+read the databases.
+
+- **No log line holds what a person or an agent wrote, or a secret:**
+  no issue's title or body, no memory's text, no comment, no handoff,
+  no key's text and no DSN. A refusal is logged by its code, not its
+  message. A line does carry the ids a client gave itself, as they
+  came: its session, its machine, its harness and the op it sent; and
+  an `err` is the server's own error, which may name an issue's id, a
+  principal or a project. Tests send requests with marked text in every
+  field of every operation and search every line.
+- **The audit stream is a copy, and the event log is the record.** Each
+  access change in the control database's log is also a log line with
+  `audit=true`, read from that log after the change committed. It names
+  who made the change, and a key by its fingerprint, never its text.
+  The journal is not tamper-evident, and the lines are written only
+  while starfixd runs: an auditor's source is the control database.
+- **A request's id is not a secret and grants nothing.** `req` is 16
+  random hex digits that the server puts on its lines and in the
+  refusal it sends. It lets a person's report find the lines. A client
+  that repeats one learns nothing by it.
+- **Exported log records are held to the rule of spans.** With
+  `OTEL_LOGS_EXPORTER=otlp`, off by default, each line also leaves the
+  machine as an OTLP record ([Logs over OTLP](server.md#logs-over-otlp)).
+  The record has the line's message, which is fixed text in the code,
+  its event, and the fields that are ids, codes, numbers or fixed
+  words, each only in its own shape. It never has an error's text, a
+  path, a name, a machine or any field the schema does not list, under
+  any setting. This is enforced where records are made
+  (`internal/telemetry`), by each field's kind in `internal/logs`, and
+  a test fails when a log call's message is not a string literal.
+- **Who a record is about follows `telemetry: principals:`**, in every
+  field that names a person, exactly as a span does: a stand-in by
+  default, under the same key; the name with `name`; nothing with
+  `omit`; and nothing, never the name, while the key is unavailable.
+  The audit stream's records are no exception, so by default a backend
+  sees who changed whose access only as stand-ins.
+- **A client cannot make the server hold log records without bound.**
+  Refusal lines are capped per principal a minute (`refusal_logs`), and
+  records wait for export in a queue of a fixed size; one more is
+  dropped and counted. A collector that is down never slows a request.
 
 ## Dolt's metrics endpoint
 
@@ -783,7 +829,7 @@ hand](install.md#verify-a-download-by-hand) the commands.
 
 The dependency list is kept small on purpose, and a new dependency needs a
 stated reason. The largest is starfixd's alone: the OpenTelemetry Go SDK,
-its OTLP/HTTP exporters for metrics and traces, its Prometheus exporter
+its OTLP/HTTP exporters for metrics, traces and logs, its Prometheus exporter
 and what they bring, which one
 package (`internal/telemetry`) imports. `sfx`, which runs on every
 developer's machine and inside every agent's harness, links none of it,

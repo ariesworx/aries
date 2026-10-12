@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -137,7 +136,7 @@ func newMultiTel(t *testing.T, lim Limits, ck *clock, tel *telemetry.Telemetry, 
 	open := ProjectOpener(dsn, ctl, store.Options{CommitInterval: -1, Limits: lim.Limits, Now: now}, tel)
 	m.Server, err = New(Config{Control: ctl, Version: "v0.2.0", PeerCheck: func(net.Conn) error { return nil }, Limits: lim,
 		KeysFile: m.keysFile, AuthorizedKeys: m.byHand, Telemetry: tel,
-		ReapInterval: -1, Logger: slog.New(slog.NewTextHandler(m.log, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		ReapInterval: -1, Logger: slogTo(m.log),
 		Open: func(ctx context.Context, p store.Project) (*store.Store, error) {
 			m.mu.Lock()
 			m.opens[p.ID]++
@@ -572,7 +571,7 @@ func TestRegistryIdleClose(t *testing.T) {
 		t.Fatalf("after 11 idle minutes, %d stores are open; want 1: a closed, b kept by its connection", got)
 	}
 	mustAsk[proto.ListResult](b, proto.OpList, proto.ListArgs{})
-	if !strings.Contains(m.log.String(), `msg="project store closed" project=`+projA+` reason=idle`) {
+	if !strings.Contains(m.log.String(), `msg="project store closed" project=`+projA+` event=project.closed reason=idle`) {
 		t.Errorf("no log line for the idle close of a:\n%s", m.log.String())
 	}
 
@@ -626,7 +625,7 @@ func TestRegistryCap(t *testing.T) {
 	if got := m.OpenStores(); got != 2 {
 		t.Errorf("OpenStores() = %d, want 2", got)
 	}
-	if !strings.Contains(m.log.String(), `msg="project store closed" project=`+projB+` reason="to make room"`) {
+	if !strings.Contains(m.log.String(), `msg="project store closed" project=`+projB+` event=project.closed reason="to make room"`) {
 		t.Errorf("no log line for closing b, idle longest, to make room:\n%s", m.log.String())
 	}
 	// a was not closed: its next connection opens nothing.
@@ -745,7 +744,7 @@ func TestMultiLogsNameTheProject(t *testing.T) {
 	c.hangUp()
 	got := m.log.String()
 	for _, want := range []string{
-		`msg="project store opened" project=` + projA + ` name=proj-a database=` + p.DBName,
+		`msg="project store opened" project=` + projA + ` event=project.opened name=proj-a database=` + p.DBName,
 		`msg=connected project=` + projA + ` principal=alice`,
 		`msg=request project=` + projA + ` principal=alice`,
 	} {
@@ -787,7 +786,7 @@ func TestMultiOpenFailure(t *testing.T) {
 	if total != 0 {
 		t.Errorf("%d connection slots held after the refusals, want 0", total)
 	}
-	if !strings.Contains(m.log.String(), `msg="open project store" project=`+projA+` database=never_granted`) {
+	if !strings.Contains(m.log.String(), `msg="open project store" event=project.open_failed project=`+projA+` database=never_granted`) {
 		t.Errorf("no log line for the operator:\n%s", m.log.String())
 	}
 }

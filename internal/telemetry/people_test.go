@@ -243,7 +243,8 @@ func TestStandInKeyUnavailable(t *testing.T) {
 			if n := strings.Count(out, "level=ERROR msg=\"telemetry: spans say nothing about who"); n != 1 {
 				t.Errorf("%d error lines saying spans say nothing about who, want 1:\n%s", n, out)
 			}
-			for _, want := range []string{tc.cause, "msg=\"fix: ", tc.fix, "principals: omit", "OTEL_TRACES_EXPORTER=none"} {
+			for _, want := range []string{tc.cause, "msg=cause event=telemetry.key_unavailable cause=", "msg=fix event=telemetry.key_unavailable fix=",
+				tc.fix, "principals: omit", "OTEL_TRACES_EXPORTER=none"} {
 				if !strings.Contains(out, want) {
 					t.Errorf("the log lacks %q:\n%s", want, out)
 				}

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
 	"github.com/ariesworx/starfix/internal/telemetry"
@@ -132,17 +133,6 @@ func (s *Server) observeHandshake(span telemetry.Span, sess *session, err error)
 		span.SetInt(telemetry.KeyProtocol, sess.proto)
 	}
 	span.SetWho(sess.actor.Principal, sess.actor.Session)
-}
-
-// withIDs returns log with the ids of the span ctx carries, so that a
-// line and a trace can be joined, and log itself when ctx carries none.
-// It is for the lines of background work and of a handshake; a
-// request's line takes its ids from the request's span.
-func withIDs(ctx context.Context, log *slog.Logger) *slog.Logger {
-	if traceID, spanID, ok := telemetry.IDs(ctx); ok {
-		return log.With("trace_id", traceID, "span_id", spanID)
-	}
-	return log
 }
 
 // dropReason is the reason attribute for connections drop closed
@@ -358,7 +348,7 @@ func (s *Server) checkDolt(ctx context.Context) error {
 	}
 	d.at = now()
 	if d.err != nil {
-		s.refusals.log(s.cfg.Logger, "", s.now(), slog.LevelError, "the check of Dolt failed; /readyz answers not ready", "err", d.err)
+		s.refusals.line(ctx, s.cfg.Logger, "", s.now(), slog.LevelError, logs.DoltCheckFailed, "the check of Dolt failed; /readyz answers not ready", "err", d.err)
 	}
 	return d.err
 }

@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/ariesworx/starfix/internal/logs"
 )
 
 // The control store (design §15). One server serves many projects, each
@@ -256,7 +258,7 @@ func (c *Control) write(ctx context.Context, actor Actor, fn func(*cwtx) error) 
 		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
 		if lerr := c.load(rctx); lerr != nil {
-			c.log.Error("reload of the control index failed; it may be stale until starfixd restarts", "err", lerr)
+			c.log.ErrorContext(ctx, "reload of the control index failed; it may be stale until starfixd restarts", "event", logs.ControlIndexStale, "err", lerr)
 		}
 	}
 	return err

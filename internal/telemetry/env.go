@@ -20,18 +20,23 @@ const (
 	envDisabled        = "OTEL_SDK_DISABLED"
 	envMetricsExporter = "OTEL_METRICS_EXPORTER"
 	envTracesExporter  = "OTEL_TRACES_EXPORTER"
+	envLogsExporter    = "OTEL_LOGS_EXPORTER"
 	envEndpoint        = "OTEL_EXPORTER_OTLP_ENDPOINT"
 	envMetricsEndpoint = "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
 	envTracesEndpoint  = "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
+	envLogsEndpoint    = "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
 	envProtocol        = "OTEL_EXPORTER_OTLP_PROTOCOL"
 	envMetricsProtocol = "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL"
 	envTracesProtocol  = "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL"
+	envLogsProtocol    = "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL"
 	envHeaders         = "OTEL_EXPORTER_OTLP_HEADERS"
 	envMetricsHeaders  = "OTEL_EXPORTER_OTLP_METRICS_HEADERS"
 	envTracesHeaders   = "OTEL_EXPORTER_OTLP_TRACES_HEADERS"
+	envLogsHeaders     = "OTEL_EXPORTER_OTLP_LOGS_HEADERS"
 	envTimeout         = "OTEL_EXPORTER_OTLP_TIMEOUT"
 	envMetricsTimeout  = "OTEL_EXPORTER_OTLP_METRICS_TIMEOUT"
 	envTracesTimeout   = "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT"
+	envLogsTimeout     = "OTEL_EXPORTER_OTLP_LOGS_TIMEOUT"
 	envExportInterval  = "OTEL_METRIC_EXPORT_INTERVAL"
 	envExportTimeout   = "OTEL_METRIC_EXPORT_TIMEOUT"
 	envSampler         = "OTEL_TRACES_SAMPLER"
@@ -40,6 +45,10 @@ const (
 	envBatchTimeout    = "OTEL_BSP_EXPORT_TIMEOUT"
 	envBatchQueue      = "OTEL_BSP_MAX_QUEUE_SIZE"
 	envBatchSize       = "OTEL_BSP_MAX_EXPORT_BATCH_SIZE"
+	envLogDelay        = "OTEL_BLRP_SCHEDULE_DELAY"
+	envLogTimeout      = "OTEL_BLRP_EXPORT_TIMEOUT"
+	envLogQueue        = "OTEL_BLRP_MAX_QUEUE_SIZE"
+	envLogBatch        = "OTEL_BLRP_MAX_EXPORT_BATCH_SIZE"
 	envServiceName     = "OTEL_SERVICE_NAME"
 	envResourceAttrs   = "OTEL_RESOURCE_ATTRIBUTES"
 )
@@ -56,13 +65,16 @@ const (
 	samplerDefault     = samplerParentOn
 )
 
-// How spans are batched unless the OTEL_BSP_* variables say otherwise:
-// the SDK's defaults. maxQueue bounds what OTEL_BSP_MAX_QUEUE_SIZE may
-// ask for, since the queue is memory a dead collector fills.
+// How spans are batched unless the OTEL_BSP_* variables say otherwise,
+// and log records unless the OTEL_BLRP_* variables do: the SDK's
+// defaults, which differ only in the delay. maxQueue bounds what
+// OTEL_BSP_MAX_QUEUE_SIZE and OTEL_BLRP_MAX_QUEUE_SIZE may ask for,
+// since a queue is memory a dead collector fills.
 const (
 	defaultQueue      = 2048
 	defaultBatch      = 512
 	defaultBatchDelay = 5 * time.Second
+	defaultLogDelay   = time.Second
 	maxQueue          = 1 << 16
 )
 
@@ -75,6 +87,7 @@ const (
 	protocolHTTP        = "http/protobuf"
 	metricsPath         = "/v1/metrics"
 	tracesPath          = "/v1/traces"
+	logsPath            = "/v1/logs"
 	defaultInterval     = 60 * time.Second
 	defaultExportTime   = 30 * time.Second
 	defaultRequestTime  = 10 * time.Second
@@ -95,8 +108,10 @@ type envConfig struct {
 	// interval is how often metrics are pushed; exportTimeout bounds one
 	// collection and export, and requestTimeout its HTTP request.
 	interval, exportTimeout, requestTimeout time.Duration
-	// traces is where and how spans are exported.
+	// traces is where and how spans are exported, and logs the same of
+	// log records.
 	traces traceEnv
+	logs   logEnv
 	// service is the resource's service.name, and named says
 	// OTEL_SERVICE_NAME set it; attrs are the resource attributes of
 	// OTEL_RESOURCE_ATTRIBUTES, in order.
@@ -125,6 +140,22 @@ type traceEnv struct {
 	delay, exportTimeout time.Duration
 }
 
+// logEnv is what the variables configure of logs over OTLP. Unlike the
+// other signals, an endpoint alone exports none: OTEL_LOGS_EXPORTER must
+// be otlp (design §16.2).
+type logEnv struct {
+	// endpoint is the URL records are posted to, or empty to export
+	// none.
+	endpoint string
+	// headers go with every export of records; a value may be a token.
+	headers map[string]string
+	// requestTimeout bounds one export's HTTP request.
+	requestTimeout time.Duration
+	// queue, batch, delay and exportTimeout are as traceEnv's.
+	queue, batch         int
+	delay, exportTimeout time.Duration
+}
+
 // readEnv reads the variables above. A nil getenv reads none. Each
 // refusal names the variable and a fix, and never repeats a header's
 // value.
@@ -143,7 +174,8 @@ func readEnv(getenv func(string) string) (envConfig, error) {
 	}
 	c := envConfig{service: defaultService, interval: defaultInterval, exportTimeout: defaultExportTime, requestTimeout: defaultRequestTime,
 		traces: traceEnv{requestTimeout: defaultRequestTime, sampler: samplerDefault, ratio: 1,
-			queue: defaultQueue, batch: defaultBatch, delay: defaultBatchDelay, exportTimeout: defaultExportTime}}
+			queue: defaultQueue, batch: defaultBatch, delay: defaultBatchDelay, exportTimeout: defaultExportTime},
+		logs: logEnv{requestTimeout: defaultRequestTime, queue: defaultQueue, batch: defaultBatch, delay: defaultLogDelay, exportTimeout: defaultExportTime}}
 	c.disabled = strings.EqualFold(get(envDisabled), "true")
 	if v := get(envServiceName); v != "" {
 		c.service, c.named = v, true
@@ -165,6 +197,9 @@ func readEnv(getenv func(string) string) (envConfig, error) {
 		{&c.traces.requestTimeout, []string{envTracesTimeout, envTimeout}},
 		{&c.traces.delay, []string{envBatchDelay}},
 		{&c.traces.exportTimeout, []string{envBatchTimeout}},
+		{&c.logs.requestTimeout, []string{envLogsTimeout, envTimeout}},
+		{&c.logs.delay, []string{envLogDelay}},
+		{&c.logs.exportTimeout, []string{envLogTimeout}},
 	} {
 		name, v := first(d.names...)
 		if v == "" {
@@ -176,13 +211,16 @@ func readEnv(getenv func(string) string) (envConfig, error) {
 		}
 		*d.dst = time.Duration(ms) * time.Millisecond
 	}
-	if err := c.traces.readBatch(get); err != nil {
+	if err := readBatch(get, envBatchQueue, envBatchSize, &c.traces.queue, &c.traces.batch); err != nil {
+		return c, err
+	}
+	if err := readBatch(get, envLogQueue, envLogBatch, &c.logs.queue, &c.logs.batch); err != nil {
 		return c, err
 	}
 	if err := c.traces.readSampler(get); err != nil {
 		return c, err
 	}
-	metrics, traces := true, true
+	metrics, traces, logging := true, true, false
 	switch exp := get(envMetricsExporter); exp {
 	case "", exporterOTLP:
 	case exporterNone:
@@ -197,6 +235,16 @@ func readEnv(getenv func(string) string) (envConfig, error) {
 		traces = false
 	default:
 		return c, fmt.Errorf("telemetry: %s is %q, and starfixd exports traces with otlp only; fix: set it to otlp or none", envTracesExporter, exp)
+	}
+	// Logs are exported only when asked for: the exporter is
+	// experimental upstream, and the journal is the logs' home.
+	switch exp := get(envLogsExporter); exp {
+	case "", exporterNone:
+	case exporterOTLP:
+		logging = true
+	default:
+		return c, fmt.Errorf("telemetry: %s is %q, and starfixd exports logs with otlp only; fix: set it to otlp, or to none or nothing to leave the logs in the journal alone",
+			envLogsExporter, exp)
 	}
 	// endpoint reads one signal's endpoint and headers: the signal's own
 	// variables, then the general ones.
@@ -241,13 +289,23 @@ func readEnv(getenv func(string) string) (envConfig, error) {
 			return c, err
 		}
 	}
+	if logging {
+		if c.logs.endpoint, c.logs.headers, err = endpoint(envLogsEndpoint, envLogsProtocol, envLogsHeaders, logsPath); err != nil {
+			return c, err
+		}
+		if c.logs.endpoint == "" {
+			return c, fmt.Errorf("telemetry: %s is otlp, and nothing names a collector to send logs to: neither %s nor %s is set; fix: set %s to the collector's address, such as http://127.0.0.1:4318, or unset %s",
+				envLogsExporter, envLogsEndpoint, envEndpoint, envEndpoint, envLogsExporter)
+		}
+	}
 	return c, nil
 }
 
-// readBatch reads the queue's and the batch's sizes. A queue is refused
-// past maxQueue and a batch past its queue; a batch that was not set is
-// at most its queue, as in the SDK.
-func (te *traceEnv) readBatch(get func(string) string) error {
+// readBatch reads a queue's and its batch's sizes from the variables
+// queueVar and batchVar. A queue is refused past maxQueue and a batch
+// past its queue; a batch that was not set is at most its queue, as in
+// the SDK.
+func readBatch(get func(string) string, queueVar, batchVar string, queue, batch *int) error {
 	size := func(name string, dst *int, most int) (set bool, err error) {
 		v := get(name)
 		if v == "" {
@@ -260,15 +318,15 @@ func (te *traceEnv) readBatch(get func(string) string) error {
 		*dst = n
 		return true, nil
 	}
-	if _, err := size(envBatchQueue, &te.queue, maxQueue); err != nil {
+	if _, err := size(queueVar, queue, maxQueue); err != nil {
 		return err
 	}
-	set, err := size(envBatchSize, &te.batch, te.queue)
+	set, err := size(batchVar, batch, *queue)
 	if err != nil {
 		return err
 	}
 	if !set {
-		te.batch = min(te.batch, te.queue)
+		*batch = min(*batch, *queue)
 	}
 	return nil
 }
@@ -372,12 +430,12 @@ func shown(endpoint string) string {
 // and each endpoint's password and query.
 func (c envConfig) secrets() []string {
 	var out []string
-	for _, hs := range []map[string]string{c.headers, c.traces.headers} {
+	for _, hs := range []map[string]string{c.headers, c.traces.headers, c.logs.headers} {
 		for v := range maps.Values(hs) {
 			out = append(out, v)
 		}
 	}
-	for _, e := range []string{c.endpoint, c.traces.endpoint} {
+	for _, e := range []string{c.endpoint, c.traces.endpoint, c.logs.endpoint} {
 		if u, err := url.Parse(e); err == nil {
 			if p, ok := u.User.Password(); ok {
 				out = append(out, p)

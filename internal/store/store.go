@@ -18,6 +18,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/go-sql-driver/mysql"
 )
 
@@ -153,6 +154,12 @@ func open(ctx context.Context, dsn string, opts Options, sc schema) (*Store, err
 	cfg.ParseTime = true
 	cfg.Loc = time.UTC
 	cfg.InterpolateParams = false
+	if opts.Logger == nil {
+		opts.Logger = slog.New(slog.DiscardHandler)
+	}
+	// What the driver says of a connection that died goes to the
+	// store's logger; its own prints to the process's stderr.
+	cfg.Logger = driverLog{opts.Logger}
 	conn, err := mysql.NewConnector(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("connector: %w", err)
@@ -189,9 +196,6 @@ func open(ctx context.Context, dsn string, opts Options, sc schema) (*Store, err
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
-	if opts.Logger == nil {
-		opts.Logger = slog.New(slog.DiscardHandler)
-	}
 
 	s := &Store{
 		w:    sql.OpenDB(conn),
@@ -218,7 +222,8 @@ func open(ctx context.Context, dsn string, opts Options, sc schema) (*Store, err
 		if !opts.AllowUnsafeAccount || !errors.As(err, &ua) {
 			return nil, errors.Join(err, s.w.Close(), s.r.Close())
 		}
-		opts.Logger.Warn("dolt account is unsafe; allowed for development", "account", ua.User, "problems", strings.Join(ua.Problems, "; "))
+		opts.Logger.Warn("dolt account is unsafe; allowed for development", "event", logs.StoreUnsafeAccount,
+			"account", ua.User, "problems", strings.Join(ua.Problems, "; "))
 	}
 	mctx, migrated := s.begin(ctx, StageMigrate, 0)
 	n, err := migrate(mctx, s.w, s.now(), sc, !opts.NoMigrate)
@@ -286,7 +291,7 @@ func (s *Store) commitLoop(every time.Duration) {
 		case <-tick:
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			if err := s.Flush(ctx); err != nil {
-				s.opts.Logger.Error("dolt commit failed", "err", err)
+				s.opts.Logger.Error("dolt commit failed", "event", logs.StoreCommitFailed, "err", err)
 			}
 			cancel()
 		}

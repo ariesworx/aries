@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
 	"github.com/ariesworx/starfix/internal/telemetry"
@@ -331,8 +332,9 @@ type window struct {
 	suppressed int
 }
 
-// log writes the line through log unless key is over its allowance.
-func (s *sampler) log(log *slog.Logger, key string, now time.Time, level slog.Level, msg string, attrs ...any) {
+// line writes the line through log, as the event ev, unless key is over
+// its allowance. ctx is the line's: a request's has its id.
+func (s *sampler) line(ctx context.Context, log *slog.Logger, key string, now time.Time, level slog.Level, ev logs.Event, msg string, attrs ...any) {
 	s.mu.Lock()
 	if s.m == nil {
 		s.m = map[string]*window{}
@@ -340,7 +342,7 @@ func (s *sampler) log(log *slog.Logger, key string, now time.Time, level slog.Le
 	w := s.m[key]
 	if w == nil || now.Sub(w.start) >= time.Minute || now.Before(w.start) {
 		if w != nil && w.suppressed > 0 {
-			log.Warn("refusal lines suppressed", "key", key, "lines", w.suppressed, "per_minute", s.n)
+			log.Warn("refusal lines suppressed", "event", logs.LogSuppressed, "principal", keyPrincipal(key), "lines", w.suppressed, "per_minute", s.n)
 		}
 		w = &window{start: now}
 		s.m[key] = w
@@ -361,6 +363,6 @@ func (s *sampler) log(log *slog.Logger, key string, now time.Time, level slog.Le
 	}
 	s.mu.Unlock()
 	if ok {
-		log.Log(context.Background(), level, msg, attrs...)
+		log.With("event", ev).Log(ctx, level, msg, attrs...)
 	}
 }

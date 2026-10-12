@@ -67,8 +67,8 @@ func TestServeWarnsOfAnAdminSomeoneElseMade(t *testing.T) {
 	}
 	log := start("dana, zoe, yan")
 	for _, want := range []string{
-		what, "admin=zoe", "created_by=alice", "key=" + zoesFP, "added_by=alice",
-		"admin=yan", "key=" + yansFP,
+		what, "event=admin.unvouched", "admin=zoe", "created_by=alice", "fingerprint=" + zoesFP, "added_by=alice",
+		"admin=yan", "fingerprint=" + yansFP,
 	} {
 		if !strings.Contains(log, want) {
 			t.Errorf("with zoe and yan named admins, the daemon's log lacks %q:\n%s", want, log)

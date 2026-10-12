@@ -225,7 +225,7 @@ func TestKeyRemoveDrops(t *testing.T) {
 	if w, _, closed := dialKey(t, m.Server, carol, projA, carols); closed || w.Err == nil || w.Err.Code != proto.CodeAuth {
 		t.Errorf("a handshake naming the removed key = %+v, closed %v; want an auth refusal", w, closed)
 	}
-	if !strings.Contains(m.log.String(), `msg="connections dropped" reason="key removed" by=dana connections=2`) {
+	if !strings.Contains(m.log.String(), `msg="connections dropped" event=conn.dropped reason="key removed" by=dana connections=2`) {
 		t.Errorf("the log lacks the drop:\n%s", m.log.String())
 	}
 

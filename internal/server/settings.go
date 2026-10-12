@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ariesworx/starfix/internal/doltmetrics"
+	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
 	"github.com/ariesworx/starfix/internal/telemetry"
@@ -146,11 +147,12 @@ type TelemetrySettings struct {
 	// false leaves the project off every instrument, for a server with
 	// many projects.
 	PerProject *bool `yaml:"per_project"`
-	// Principals is how a person appears on a span (design §16.4,
-	// decision 32): telemetry.PrincipalsPseudonym, the default, a stable
-	// stand-in for the principal's name and for the session's id;
-	// PrincipalsName, the names themselves; or PrincipalsOmit, nothing.
-	// It does not change the daemon's log.
+	// Principals is how a person appears on a span and on a log record
+	// exported over OTLP (design §16.4, decision 32):
+	// telemetry.PrincipalsPseudonym, the default, a stable stand-in for
+	// the principal's name and for the session's id; PrincipalsName, the
+	// names themselves; or PrincipalsOmit, nothing. It does not change
+	// the daemon's log on stderr, nor the audit stream there.
 	Principals string `yaml:"principals"`
 	// PrincipalsKey is the file that holds the key the stand-ins are
 	// made with. starfixd makes it, mode 0600, the first time it exports
@@ -158,6 +160,11 @@ type TelemetrySettings struct {
 	// of the user starfixd runs as ([Settings.PrincipalsKey]). Default
 	// DefaultPrincipalsKey.
 	PrincipalsKey string `yaml:"principals_key"`
+	// AuditLog says whether each event of the control store's log that
+	// changes who has access to what is also written as a log line with
+	// audit=true (design §16.4, decision 30). Nil, the default, is on.
+	// The event log is the record whatever this says.
+	AuditLog *bool `yaml:"audit_log"`
 	// DoltMetricsURL is where the daemon reads Dolt's own figures for
 	// the status report (design §16.5): the http:// URL of Dolt's
 	// Prometheus endpoint, on a loopback address. Empty, the default,
@@ -175,6 +182,10 @@ const DefaultPrincipalsKey = "telemetry/principals.key"
 // ByProject reports whether metrics name the project: unless
 // per_project is false.
 func (t TelemetrySettings) ByProject() bool { return t.PerProject == nil || *t.PerProject }
+
+// Audit reports whether the audit stream is written: unless audit_log
+// is false.
+func (t TelemetrySettings) Audit() bool { return t.AuditLog == nil || *t.AuditLog }
 
 // DefaultAccount is the account an issue reports against when nothing
 // sets one.
@@ -449,8 +460,11 @@ func (s Settings) PrincipalsKey(home string) string {
 // must be set.
 func (s Settings) ControlDSN() (string, error) { return DatabaseDSN(s.DSN, s.ControlDB) }
 
-// NewLogger returns a logger writing to w at level (debug, info, warn or
-// error) in format (text or json).
+// NewLogger returns starfixd's logger, writing to w at level (debug,
+// info, warn or error) in format (text or json). Its handler is a
+// [*logs.Handler]: a line logged with a request's context has the
+// request's id and the ids of its span, and the lines can be given to a
+// second handler ([logs.Handler.Tap]), which is how they are exported.
 func NewLogger(w io.Writer, level, format string) (*slog.Logger, error) {
 	var l slog.Level
 	if err := l.UnmarshalText([]byte(level)); err != nil || !slices.Contains([]string{"debug", "info", "warn", "error"}, level) {
@@ -459,9 +473,9 @@ func NewLogger(w io.Writer, level, format string) (*slog.Logger, error) {
 	opts := &slog.HandlerOptions{Level: l}
 	switch format {
 	case "text":
-		return slog.New(slog.NewTextHandler(w, opts)), nil
+		return slog.New(logs.NewHandler(slog.NewTextHandler(w, opts), LogIDs)), nil
 	case "json":
-		return slog.New(slog.NewJSONHandler(w, opts)), nil
+		return slog.New(logs.NewHandler(slog.NewJSONHandler(w, opts), LogIDs)), nil
 	}
 	return nil, fmt.Errorf("log format %q is not text or json; fix: set log_format: or %s to text or json", format, EnvLogFormat)
 }

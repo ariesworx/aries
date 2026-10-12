@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
 )
@@ -128,7 +129,7 @@ func (s *Server) report(ctx context.Context, rows []store.Project, server bool, 
 		case rctx.Err() != nil:
 			st.SessionsUnknown = sessionsUnanswered
 		default:
-			pr.log.Error("count the sessions seen, for status", "err", err)
+			pr.log.ErrorContext(ctx, "count the sessions seen, for status", "event", logs.RequestPart, "err", err)
 			st.SessionsUnknown = sessionsFailed
 		}
 	})

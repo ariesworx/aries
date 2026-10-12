@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+
+	"github.com/ariesworx/starfix/internal/logs"
 )
 
 // How a person appears in what leaves the machine through telemetry: a
@@ -162,7 +164,7 @@ func (p *people) load() *keyState {
 			p.orDoWithout(),
 		}}}
 	}
-	p.log.Info("telemetry: made the key that principals' stand-ins are derived from", "path", p.path)
+	p.log.Info("telemetry: made the key that principals' stand-ins are derived from", "event", logs.TelemetryKeyMade, "path", p.path)
 	return &keyState{key: key}
 }
 
@@ -171,19 +173,21 @@ func (p *people) orDoWithout() string {
 	return fmt.Sprintf("or do without: telemetry: principals: %s says nothing about who on purpose, and %s=%s exports no traces", PrincipalsOmit, envTracesExporter, exporterNone)
 }
 
-// report logs, at error level, that spans say nothing about who and
-// why, then each fix: a short line each, so that `systemctl status`,
-// which cuts a long line, shows them.
+// report logs, at error level, that spans and exported log records say
+// nothing about who and why, then each fix: a short line each, so that
+// `systemctl status`, which cuts a long line, shows them. Every line is
+// the one event, and what varies is in a field: a message is fixed text
+// (internal/logs).
 func (p *people) report(prob *keyProblem) {
-	p.log.Error("telemetry: spans say nothing about who: the key for principals' stand-ins is unavailable")
+	p.log.Error("telemetry: spans say nothing about who: the key for principals' stand-ins is unavailable", "event", logs.TelemetryKeyUnavailable)
 	if p.path != "" {
-		p.log.Error("the key's file: " + p.path)
+		p.log.Error("the key's file", "event", logs.TelemetryKeyUnavailable, "path", p.path)
 	}
-	p.log.Error("cause: " + prob.cause)
+	p.log.Error("cause", "event", logs.TelemetryKeyUnavailable, logs.KeyCause, prob.cause)
 	for _, fix := range prob.fixes {
-		p.log.Error("fix: " + fix)
+		p.log.Error("fix", "event", logs.TelemetryKeyUnavailable, logs.KeyFix, fix)
 	}
-	p.log.Error("starfixd serves as it is, and looks for the key again at each tick of its reaper: no restart is needed")
+	p.log.Error("starfixd serves as it is, and looks for the key again at each tick of its reaper: no restart is needed", "event", logs.TelemetryKeyUnavailable)
 }
 
 // RetryKey looks for the stand-in key again when spans are to carry
@@ -205,7 +209,7 @@ func (t *Telemetry) RetryKey() {
 	p.state.Store(st)
 	switch {
 	case st.key != nil:
-		p.log.Info("telemetry: the key for principals' stand-ins is there; spans name people by stand-ins from now on", "key", p.path)
+		p.log.Info("telemetry: the key for principals' stand-ins is there; spans name people by stand-ins from now on", "event", logs.TelemetryKeyFound, "path", p.path)
 	case st.problem != nil && (old.problem == nil || old.problem.cause != st.problem.cause):
 		p.report(st.problem)
 	}
