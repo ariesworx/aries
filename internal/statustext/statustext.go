@@ -28,7 +28,8 @@ func when(t time.Time) string { return t.UTC().Format("2006-01-02 15:04 UTC") }
 // Print renders a status report on w: the server's lines, when the
 // caller was shown them, then a row for each project. A figure the
 // server left out, as it does for a project whose store is closed, is a
-// dash.
+// dash. Sessions the server could not read are "unknown", with a line
+// below the rows that says why.
 func Print(w io.Writer, res proto.StatusResult) {
 	p := func(format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }
 	if s := res.Server; s != nil {
@@ -59,14 +60,25 @@ func Print(w io.Writer, res proto.StatusResult) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(tw, "PROJECT\tSTATE\tSTORE\tCONNS\tBY HAND\tSESSIONS\tWRITES/MIN\tP50\tP99\tLAST USED")
 	byFile := false
+	// Why sessions are unknown, in the order met, and for how many
+	// projects each.
+	var causes []string
+	unknown := map[string]int64{}
 	for _, pr := range res.Projects {
 		store, file, sessions, writes, p50, p99, used := "closed", "-", "-", "-", "-", "-", "-"
 		if pr.Open {
 			store, file = "open", strconv.Itoa(pr.FileConns)
 		}
 		byFile = byFile || pr.FileConns > 0
-		if pr.Sessions != nil {
+		switch {
+		case pr.Sessions != nil:
 			sessions = strconv.Itoa(*pr.Sessions)
+		case pr.SessionsUnknown != "":
+			sessions = "unknown"
+			if unknown[pr.SessionsUnknown] == 0 {
+				causes = append(causes, pr.SessionsUnknown)
+			}
+			unknown[pr.SessionsUnknown]++
 		}
 		if ws := pr.Writes; ws != nil {
 			writes = strconv.Itoa(ws.LastMinute)
@@ -82,6 +94,9 @@ func Print(w io.Writer, res proto.StatusResult) {
 	_ = tw.Flush()
 	if res.More > 0 {
 		p("and %d more; list them with --after %s\n", res.More, esc(res.Projects[len(res.Projects)-1].Name))
+	}
+	for _, cause := range causes {
+		p("sessions: unknown for %s (%s); the rest is what starfixd holds in memory. Check Dolt on the server (docs/server.md, Troubleshooting)\n", plural(unknown[cause], "project"), esc(cause))
 	}
 	if byFile {
 		p("BY HAND: connections sshd let in by the server's hand-maintained authorized_keys file, not by a key from the store; `sfx admin key remove` does not close them\n")

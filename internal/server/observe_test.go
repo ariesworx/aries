@@ -755,6 +755,18 @@ func TestLocalStatus(t *testing.T) {
 		}
 	})
 
+	// The report is bounded, so this is a daemon that is itself stuck or
+	// went away: the error says where to look.
+	t.Run("a daemon that welcomes and then does not answer", func(t *testing.T) {
+		sock := fakeDaemon(t, func(*proto.Frame) *proto.Frame {
+			return &proto.Frame{T: proto.FrameWelcome, Principal: StatusPrincipal}
+		})
+		_, err := Status(t.Context(), sock, "v0.2.0")
+		if err == nil || !strings.Contains(err.Error(), "the daemon did not answer") || !strings.Contains(err.Error(), "fix: see starfixd's log") {
+			t.Errorf("Status() from a daemon that does not answer = %v, want an error that says so, with a fix", err)
+		}
+	})
+
 	// No SSH key reaches it: the bridge refuses the name to every key.
 	t.Run("the bridge refuses the name", func(t *testing.T) {
 		var out strings.Builder

@@ -119,12 +119,16 @@ func Status(ctx context.Context, socket, clientVersion string) (proto.StatusResu
 		if err != nil {
 			return out, err
 		}
+		// The daemon bounds the report's reads of Dolt
+		// (statusReadTimeout), so one that welcomes and then does not
+		// answer is itself stuck, or went away.
+		const noAnswer = "status: the daemon did not answer: %w; fix: see starfixd's log (`journalctl -u starfixd`) for what it waits on, and restart it if that does not end (`systemctl restart starfixd`)"
 		if err := enc.Encode(req); err != nil {
-			return out, err
+			return out, fmt.Errorf(noAnswer, err)
 		}
 		f, err := dec.Decode()
 		if err != nil {
-			return out, fmt.Errorf("status: %w", err)
+			return out, fmt.Errorf(noAnswer, err)
 		}
 		if f.Err != nil {
 			return out, f.Err

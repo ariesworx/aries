@@ -1225,6 +1225,8 @@ projects now. A server admin sees the server and every project; a project
 admin sees the active projects they administer and nothing of the
 server; anyone else is refused. It reads memory, plus one count on an
 index for each open project listed, opens no store and writes nothing.
+It does not wait for a database that does not answer
+([When Dolt does not answer](#when-dolt-does-not-answer)).
 
 ```text
 starfixd v0.5.0, protocol 5 to 5, up 3d 4h
@@ -1252,7 +1254,7 @@ old      archived  closed  0      -        -         -           -      -      -
 | projects, principals | The control database's rows, by state |
 | STORE | Whether the project's store is open. The figures after it exist only while it is, and start from zero each time it opens |
 | CONNS, BY HAND | Connections past their handshake, and those among them that named no key of the store, which sshd let in by the hand-maintained `authorized_keys` |
-| SESSIONS | Sessions seen in the last five minutes, as `sfx who` lists them |
+| SESSIONS | Sessions seen in the last five minutes, as `sfx who` lists them. `unknown` when the database did not give the count ([below](#when-dolt-does-not-answer)) |
 | WRITES/MIN | Transactions that changed something and committed in the last 60 seconds. A refused request is not one; a lease renewal is |
 | P50, P99 | The median and 99th percentile of the latest 256 writes' latency, however old they are: from the request reaching the project's store to its commit, the wait for the one writer included |
 | LAST USED | When the project last answered a request, or was opened |
@@ -1263,6 +1265,43 @@ time. `--json` gives the same figures, with latency in microseconds.
 On the server itself, [`starfixd status`](#starfixd-status) prints the
 same report with no admin key, and the same measurements are exported as
 metrics ([Observability](#observability)).
+
+#### When Dolt does not answer
+
+The report is there to be read when the database is in trouble, so it
+does not wait for the database. Its one read, the count of each open
+project's sessions, is made for every project at once and given 2
+seconds in all, the bound `/readyz` gives its own check of Dolt: the
+count is on an index and takes milliseconds when Dolt answers at all.
+What did not come back is `unknown`, never 0, and a line under the
+projects says why:
+
+```text
+PROJECT  STATE   STORE  CONNS  BY HAND  SESSIONS  WRITES/MIN  P50    P99   LAST USED
+acme     active  open   9      2        unknown   0           4.2ms  31ms  2026-10-11 09:30 UTC
+web      active  open   5      0        unknown   0           3.9ms  18ms  2026-10-11 09:29 UTC
+sessions: unknown for 2 projects (database did not answer in 2s); the rest is what starfixd holds in memory. Check Dolt on the server (docs/server.md, Troubleshooting)
+```
+
+- **Everything else is still there**, since starfixd holds it in memory:
+  the server's lines, the stores and connections, the clock, the
+  writes and their latency as they last were, and
+  [Dolt's line](#dolts-figures), which says `unknown` by itself once a
+  read of Dolt's metrics has failed.
+- **`--json`** leaves `sessions` out for such a project and gives
+  `sessions_unknown`, the cause as text: `database did not answer in 2s`,
+  or `the read failed; see starfixd's log` for any other failure, which
+  the log has as `count the sessions seen, for status`. A project whose
+  store is closed has neither.
+- **One project's database that does not answer** costs that project's
+  figure and no other's.
+- **Use `starfixd status` on the server** when Dolt hangs. It answers in
+  about 2 seconds. `sfx admin status` is answered as fast on a
+  connection that is already open, but `sfx` opens a new one for each
+  command, and a new connection waits on Dolt before its first request
+  is read: to note the session in the project's registry, for up to a
+  minute, and to open the project's store if it is closed, after which
+  the connection is refused with `the server could not open project`.
 
 #### Dolt's figures
 
@@ -1304,11 +1343,10 @@ admin does not, since they are the server's and not a project's.
   past 14 for each 100 even when counted against 500 writes, more than
   70 in the window: a limit far too low has Dolt collecting without
   pause whether or not anything is written, and the line then says so.
-- **A Dolt that hangs whole** stops more than this: while a project's
-  store is open, the report itself waits on the one query it makes for
-  that store's sessions, and `starfixd status` gives up after 30
-  seconds. `/readyz` says `the last check of Dolt failed` within a few
-  seconds.
+- **A Dolt that hangs whole** stops more than this, though not the
+  report: each open project's sessions are then `unknown`
+  ([When Dolt does not answer](#when-dolt-does-not-answer)), and
+  `/readyz` says `the last check of Dolt failed` within a few seconds.
 - **The writes are those of the project stores**, as `WRITES/MIN` counts
   them, summed at each read. A store that closes between two reads takes
   with it the writes it made since the earlier one, and writes to the
@@ -2561,6 +2599,11 @@ document: the report, or `{"error": …}` and exit code 1.
 - On a server of one project it lists that project by its UUID, since
   only a control database gives projects names, and counts no projects
   or principals.
+- It answers in about 2 seconds when Dolt does not answer at all, with
+  each open project's sessions as `unknown`
+  ([When Dolt does not answer](#when-dolt-does-not-answer)). It waits 30
+  seconds for the daemon and no longer: `the daemon did not answer`
+  then means starfixd itself is stuck, which its log explains.
 
 ## Upgrades
 
@@ -2973,4 +3016,7 @@ Dolt's collector: 1762 cycles for 12000 writes in 10m, 15 for each 100 writes: O
 | `Dolt: unknown` in `sfx admin status`, and `could not read Dolt's metrics` in the log | starfixd cannot read Dolt's own metrics: Dolt is stopped, its config has no `metrics:` block, or `telemetry: dolt_metrics_url:` names another port or path. Nothing else is affected | The log line has the URL and the cause. `curl -s http://127.0.0.1:11228/metrics \| head -3` on the server shows whether Dolt answers; then [Dolt's figures](#dolts-figures) |
 | starfixd does not start: `telemetry dolt_metrics_url … is not a loopback address`, `is not an http:// URL` or `has no path` | The setting names something other than Dolt's endpoint on this machine | Set it to `http://127.0.0.1:11228/metrics`, or remove it |
 | `Dolt's collector: … OVER 14, AS WITH A MEMORY LIMIT TOO LOW` in `sfx admin status` | Dolt's garbage collector runs far more often than its writes explain, as it did in the measurements under a `GOMEMLIMIT` that was too low | Raise the limit, or restart Dolt, or `dolt gc` and restart it ([Dolt's memory](#dolts-memory)) |
+| `SESSIONS` is `unknown` in `sfx admin status` or `starfixd status`, with `sessions: unknown for … (database did not answer in 2s)` | Dolt did not answer a count within 2 seconds: it hangs, is stopped (`SIGSTOP`), swaps, or is collecting without pause under a memory limit too low. The rest of the report is starfixd's own memory and stands | On the server: `systemctl status dolt`, `journalctl -u dolt`, and the report's `Dolt` lines ([Dolt's memory](#dolts-memory)). With `(the read failed; see starfixd's log)` instead, the log's `count the sessions seen, for status` has the error |
+| `sfx admin status` waits a minute, or ends with `the server could not open project`, while `starfixd status` answers | Dolt does not answer, and a new connection waits on it before its first request is read ([When Dolt does not answer](#when-dolt-does-not-answer)) | Run `sudo -u starfix -H starfixd status` on the server, then see to Dolt |
+| `starfixd status`: `status: the daemon did not answer` | starfixd welcomed the connection and then sent no report for 30 seconds, or closed it: the daemon itself is stuck or stopping, since the report does not wait on Dolt | `journalctl -u starfixd` for what it waits on; `systemctl restart starfixd` if that does not end |
 | `/readyz` answers `not ready: the last check of Dolt failed` | Dolt hangs or cannot be reached | `systemctl status dolt`, `journalctl -u dolt`; starfixd's log has the ping's error |

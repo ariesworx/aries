@@ -16,6 +16,11 @@ import (
 // sessions seen lately). It opens no store, reads no control table and
 // writes nothing.
 //
+// It answers when Dolt does not: those counts are bounded
+// (statusReadTimeout), and one that does not come back is reported as
+// unknown with the cause, never as zero. Nothing else in it waits on
+// Dolt, or on a lock held by something that does.
+//
 // Of Dolt, which is another process under another user, it says what
 // the daemon last read from Dolt's own metrics endpoint, when it is
 // told where that is (doltwatch.go): the report itself reads nothing.
@@ -24,6 +29,23 @@ import (
 // (information_schema.tables estimates the current rows and leaves out
 // the history, which is most of a Dolt database), and the files are
 // Dolt's user's to read.
+
+// statusReadTimeout bounds the report's reads of the database, all of
+// them together: they run at once and share the one deadline, so the
+// report takes this long at most however many stores are open and
+// whatever Dolt is doing. It is the bound /readyz gives its own check of
+// Dolt (doltCheckTimeout): a count on an index that has not come back
+// in two seconds is not coming, and someone asking why the server is
+// slow should not wait longer than that to be told.
+const statusReadTimeout = 2 * time.Second
+
+// Why a project's sessions are unknown (proto.ProjectStatus): the read
+// ran out of statusReadTimeout, or failed, which the log explains. The
+// error itself is not sent: a project admin reads this too.
+var (
+	sessionsUnanswered = fmt.Sprintf("database did not answer in %s", statusReadTimeout)
+	sessionsFailed     = "the read failed; see starfixd's log"
+)
 
 // status reports the server and every project to a server admin, and to
 // a project admin the active projects they administer. Anyone else is
@@ -80,7 +102,11 @@ func (s *Server) report(ctx context.Context, rows []store.Project, server bool, 
 		at[p.ID] = len(out.Projects)
 		out.Projects = append(out.Projects, proto.ProjectStatus{ID: p.ID, Name: p.Name, State: string(p.State), Conns: c.conns, FileConns: c.file})
 	}
-	s.each(func(pr *served) {
+	// The reads share one deadline and run at once, each writing its own
+	// project's row.
+	rctx, cancel := context.WithTimeout(ctx, statusReadTimeout)
+	defer cancel()
+	s.eachAtOnce(func(pr *served) {
 		i, ok := at[pr.id]
 		if !ok {
 			return
@@ -92,15 +118,19 @@ func (s *Server) report(ctx context.Context, rows []store.Project, server bool, 
 		w := pr.store.WriteStats()
 		st.Writes = &proto.WriteStatus{LastMinute: w.LastMinute, Samples: w.Samples, P50Micros: w.P50.Microseconds(), P99Micros: w.P99.Microseconds()}
 		// The one read: a count on the registry's index by last_seen. A
-		// failure leaves the figure out and is logged; the rest stands.
-		n, err := pr.store.SessionsSeen(ctx, 0)
-		if err != nil {
-			if ctx.Err() == nil {
-				pr.log.Error("count the sessions seen, for status", "err", err)
-			}
-			return
+		// failure leaves the figure out and says why; the rest stands.
+		n, err := pr.store.SessionsSeen(rctx, 0)
+		switch {
+		case err == nil:
+			st.Sessions = &n
+		case ctx.Err() != nil:
+			// The caller left, or the daemon is stopping: nobody reads this.
+		case rctx.Err() != nil:
+			st.SessionsUnknown = sessionsUnanswered
+		default:
+			pr.log.Error("count the sessions seen, for status", "err", err)
+			st.SessionsUnknown = sessionsFailed
 		}
-		st.Sessions = &n
 	})
 	return out, nil
 }
