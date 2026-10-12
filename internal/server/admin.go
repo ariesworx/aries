@@ -752,13 +752,43 @@ func keys(ctx context.Context, s *Server, sess *session, in proto.KeysArgs) (any
 // too. It is not kept out, though: with its line gone from the keys
 // file, sshd accepts it by the other, which names no fingerprint. The
 // result says so, and that the line must be deleted on the server.
+//
+// Anyone may remove a key of their own account (decision 38), but not
+// the one this connection signed in with: the handshake checked that
+// the bridge's fingerprint is the store's key for this principal, so a
+// request that names it is a person about to lock themselves out, and
+// is refused with what to do instead. A connection that came in by the
+// hand-maintained file names no key. The daemon cannot then tell which
+// key it used, and that key is not the store's to revoke anyway, since
+// sshd reads the store's line first and did not take it; so the removal
+// is allowed, with a warning that it could not be checked.
+//
+// No guard is added for the last key of the last server admin. Whoever
+// removes their own key keeps the way in they are using, the key in use
+// or their line of authorized_keys, and what the store holds is no
+// measure of whether a server admin can sign in (decision 20's rule
+// counts names, not keys, for the same reason).
 func keyRemove(ctx context.Context, s *Server, sess *session, in proto.KeyRemoveArgs) (any, *proto.Error) {
+	me := sess.actor.Principal
+	if in.Fingerprint != "" && in.Fingerprint == sess.fingerprint {
+		return nil, proto.Errf(proto.CodeInvalid,
+			fmt.Sprintf("sign in with another of your keys and remove this one from there, or ask an admin to; `sfx whoami` shows the key in use and `sfx admin key list %s` the others", me),
+			fmt.Sprintf("key %s is the key this connection signed in with, and removing it here would lock %s out", in.Fingerprint, me))
+	}
 	k, err := s.cfg.Control.RemoveKey(ctx, sess.actor, in.Fingerprint)
 	if err != nil {
 		return nil, s.ctlErr(ctx, sess, proto.OpKeyRemove, err)
 	}
 	out := wireKeyResult(k)
 	out.Warning = s.syncKeys()
+	if k.Principal == me && sess.fingerprint == "" {
+		unchecked := fmt.Sprintf("starfixd could not check that key %s is not the one this connection signed in with: the connection came in by the server's authorized_keys file, which names no key; `sfx whoami` shows the key in use",
+			k.Fingerprint)
+		if out.Warning != "" {
+			unchecked += "; and " + out.Warning
+		}
+		out.Warning = unchecked
+	}
 	out.Dropped = s.drop(sess, "key removed", func(o owner) bool { return o.key == k.Fingerprint })
 	if s.byHand()[k.Fingerprint] {
 		out.InAuthorizedKeys = true

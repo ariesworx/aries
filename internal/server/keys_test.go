@@ -284,11 +284,11 @@ func TestKeyOps(t *testing.T) {
 		fix  string
 	}{
 		{"a member adds their own key", "bob", proto.OpKeyAdd, proto.KeyAddArgs{Name: "bob", Key: keyLine(t, "bob")}, proto.CodeForbidden,
-			"bob may not add a key to bob: nobody changes the keys of their own account", ownFix},
+			"bob may not add a key to bob: nobody adds a key to their own account", ownFix},
 		{"a project admin adds their own key", "alice", proto.OpKeyAdd, proto.KeyAddArgs{Name: "alice", Key: keyLine(t, "alice")}, proto.CodeForbidden,
-			"alice may not add a key to alice: nobody changes the keys of their own account", ownFix},
+			"alice may not add a key to alice: nobody adds a key to their own account", ownFix},
 		{"a server admin adds their own key", "dana", proto.OpKeyAdd, proto.KeyAddArgs{Name: "dana", Key: keyLine(t, "dana")}, proto.CodeForbidden,
-			"dana may not add a key to dana: nobody changes the keys of their own account", ownFix},
+			"dana may not add a key to dana: nobody adds a key to their own account", ownFix},
 		{"a member adds a key to another", "bob", proto.OpKeyAdd, proto.KeyAddArgs{Name: "carol", Key: keyLine(t, "x")}, proto.CodeForbidden,
 			"bob may not add a key to carol: it is for project admins and server admins",
 			"ask a server admin to run it, or a project admin who administers every project the principal belongs to"},
@@ -409,7 +409,7 @@ func TestKeyOps(t *testing.T) {
 		{"with more keys than one request carries", "dana", proto.PrincipalAddArgs{Name: "gus", Keys: make([]string, proto.MaxKeysPerAdd+1)},
 			proto.CodeInvalid, "more than one principal add carries"},
 		{"a server admin with no row, of themselves", "sam", proto.PrincipalAddArgs{Name: "sam", Unassigned: true, Keys: []string{keyLine(t, "sam")}},
-			proto.CodeForbidden, "sam may not add a key to sam: nobody changes the keys of their own account"},
+			proto.CodeForbidden, "sam may not add a key to sam: nobody adds a key to their own account"},
 	} {
 		t.Run("principal.add "+tc.name, func(t *testing.T) {
 			c := conns[tc.who]

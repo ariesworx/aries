@@ -24,7 +24,7 @@ import (
 // dana is disabled; both still sign in. dave is told what dana left,
 // lists it, removes it, and then neither signs in.
 func TestWhatADisabledAdminAddedIsFoundAndRemoved(t *testing.T) {
-	m := newMultiAdmins(t, Limits{}, nil, "dana", "dave", "sam")
+	m := newMultiAdmins(t, Limits{}, nil, "dana", "dave")
 	m.project(t, projA, "alice=admin")
 	m.project(t, projB, "erin=admin")
 	dave := store.Actor{Principal: "dave", Session: "s-dave", Machine: "m"}
@@ -103,15 +103,19 @@ func TestWhatADisabledAdminAddedIsFoundAndRemoved(t *testing.T) {
 	}
 
 	// And what should not be there is removed. Nothing was removed for
-	// him, and the key planted on his own account is not his to remove:
-	// nobody changes the keys of their own account (decision 19), so that
-	// takes another server admin, or the operator.
-	if _, perr := ask[proto.KeyResult](dv, proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: fingerprintOf(t, "attacker-1")}); perr == nil ||
-		perr.Code != proto.CodeForbidden || !strings.Contains(perr.Fix, "ask another admin") {
-		t.Errorf("key.remove by dave of the key planted on his own account = %v, want forbidden, with a fix that says to ask another admin", perr)
+	// him. The key planted on his own account is his to remove, with
+	// nobody's help (decision 38): he lists his keys, sees one that dana
+	// added, and takes it out. He still may not add one.
+	own := mustAsk[proto.KeysResult](dv, proto.OpKeys, proto.KeysArgs{Name: "dave"})
+	if len(own.Keys) != 1 || own.Keys[0].Fingerprint != fingerprintOf(t, "attacker-1") || own.Keys[0].AddedBy != "dana" || own.Keys[0].AddedAt.IsZero() {
+		t.Errorf("dave's own keys = %+v, want the planted one, with who added it and when", own.Keys)
 	}
-	sm := mustDialTo(t, m.Server, sam, projA)
-	mustAsk[proto.KeyResult](sm, proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: fingerprintOf(t, "attacker-1")})
+	if rm := mustAsk[proto.KeyResult](dv, proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: fingerprintOf(t, "attacker-1")}); rm.Principal != "dave" {
+		t.Errorf("key.remove by dave of the key planted on his own account = %+v, want it removed", rm)
+	}
+	if _, perr := ask[proto.KeyResult](dv, proto.OpKeyAdd, proto.KeyAddArgs{Name: "dave", Key: keyLine(t, "daves-new")}); perr == nil || perr.Code != proto.CodeForbidden {
+		t.Errorf("key.add dave by dave = %v, want forbidden", perr)
+	}
 	mustAsk[proto.PrincipalResult](dv, proto.OpPrincipalDisable, proto.PrincipalArgs{Name: "ghost"})
 	if signsIn(asDave, "attacker-1") || signsIn(ghost, "attacker-2") {
 		t.Error("a planted key still signs in after dave removed one and disabled the other's principal")

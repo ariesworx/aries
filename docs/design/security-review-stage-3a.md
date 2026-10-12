@@ -530,11 +530,11 @@ was built.
 | F-2 | Fixed as visibility, not as a rule: a server admin has total control (decision 14), so nothing refuses the scenario. The security model no longer claims that disabling ends it; `principal disable` counts what the account left; three lists show it | `2ae5aae`. `internal/server`: `TestWhatADisabledAdminAddedIsFoundAndRemoved`, `TestTrailReadRules`. `internal/store`: `TestControlTrail`. `internal/e2e`: `TestAdminTrail` |
 | F-3 | Fixed (decision 36). `member add` of a principal with any key adds nothing until the keys, shown to every caller, are accepted; an admin of a project may list its members' keys | `1302d99`. `internal/server`: `TestPlantedKeyIsShownBeforeItReachesAnotherProject`, `TestMemberSetAcceptance`, `TestKeysReadableByAProjectsAdmin`. `internal/store`: `TestProposeMember`, `TestControlAdministersProjectOf`. `internal/e2e`: `TestAdminPrompts`, and the soak's `join` |
 | F-4 | Fixed. A principal's connections without a hello are counted and capped (`handshakes_per_principal`); a server of many projects refuses a disabled or unknown principal on the bridge frame; the hello's deadline is 10 seconds; at the socket cap the oldest connection without a hello is closed | `1f39cc5`. `internal/server`: `TestHalfOpenConnectionsDoNotShutOthersOut`, `TestBridgeFrameRefusals`, `TestHandshakesPerPrincipal`, `TestConnectionCapClosesTheOldestHandshake`, `TestHelloDeadline`. `internal/store`: `TestControlStanding` |
-| F-5 | Being fixed on another branch, with the change to the order sshd reads the two keys files in. Its review test is unchanged here, and still skips | `internal/server`: `TestReviewF5StoreShadowsAHandMaintainedKey` |
+| F-5 | Fixed on `main`, in pull request 67, with the change to the order sshd reads the two keys files in: the store refuses a key that `authorized_keys` gives to another principal, and holds back a store key that a later hand line gives to another. Merged here, a project admin is refused such a key in the words used for a key the store holds (F-6), so the refusal says nothing of that file. The review's test was removed as a duplicate | `internal/server`: `TestKeyOfAuthorizedKeysKeepsItsPrincipal`, `TestHandLineAddedLaterHoldsTheStoreKeyBack`, `TestRefusalsDoNotSayWhatExists` |
 | F-6 | Fixed for what a refusal says. For a caller who is no server admin, a name no one has is refused as one out of reach is, by `key add`, `principal disable` and `principal enable`, and a key some principal has is refused the same way whoever has it. Not removed: someone who may add keys can still infer that a key is on the server, because a new key is added and a held one is not | `3dac290`. `internal/server`: `TestRefusalsDoNotSayWhatExists` |
 | F-7 | Fixed. `control init`, run again, leaves a removed key, a removed membership and a disabled principal as an admin set them, and reports each; `--restore-removed-access` overrides | `964e973`. `cmd/starfixd`: `TestControlInitRerunKeepsWhatAdminsRemoved`, `TestControlInitRestoreRemovedAccess`, `TestControlInitRestoreFlagIsExplained`. `internal/store`: `TestControlLastEvent`. `deploy/docker/smoke.sh`, across a restart |
 | F-8 | Fixed. A principal who is no server admin creates at most `principals_per_creator` principals (500). Removing a principal is not built | `62aa15e`. `internal/store`: `TestControlPrincipalsPerCreator`. `internal/server`: `TestProjectAdminCannotFillTheServersPrincipals` |
-| F-9 | Being fixed on another branch. Its review test is unchanged here | `internal/server`: `TestReviewF9TwoArchivesLeaveNoActiveProject` |
+| F-9 | Fixed on `main`, in pull request 67: the check for the last active project and the archive are one step, under a lock. The review's test was removed as a duplicate | `internal/server`: `TestArchivesTogetherLeaveOneProject` |
 
 The notes read from the code:
 
@@ -562,13 +562,16 @@ The notes read from the code:
 
 Found while fixing, and not in the review:
 
-- **A server admin cannot remove a key planted on their own account.**
-  Decision 19 refuses removal as well as adding. In F-2's scenario the
-  admin whose account was given a second key has to ask another server
-  admin, or the operator; with one server admin left it is the operator.
-  Left as decided, pinned by
-  `TestWhatADisabledAdminAddedIsFoundAndRemoved`, and said in the server
-  guide.
+- **A server admin could not remove a key planted on their own
+  account.** Decision 19 refused removal as well as adding, so in F-2's
+  scenario the admin whose account was given a second key had to ask
+  another server admin, or the operator. The maintainer amended it the
+  same day (decision 38): anyone may remove a key of their own account,
+  and nobody may add one; the daemon refuses removing the key the
+  connection itself signed in with. F-2's test now ends with the victim
+  cleaning their own account (`internal/server`:
+  `TestWhatADisabledAdminAddedIsFoundAndRemoved`, `TestOwnKeyRemoval`;
+  `internal/store`: `TestControlOwnKeyRemoval`).
 - **The review's F-4 test raced.** It read the server's connection map
   under the test fixture's mutex, not the server's, and so failed under
   `-race` whether or not the finding reproduced. Its replacement uses

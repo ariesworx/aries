@@ -335,7 +335,7 @@ func (c *Config) KeyPath() (string, error) {
 		return "", nil
 	}
 	outside := proto.Errf(proto.CodeInvalid,
-		fmt.Sprintf("to use a key outside the repository, set %s=%s in your environment and remove key: from %s", EnvKey, k, ConfigFile),
+		fmt.Sprintf("set %s=%s in your environment, and delete the line `key: %s` from %s", EnvKey, k, k, ConfigFile),
 		fmt.Sprintf("key: in %s names %s, outside the repository; the file is committed, so it may name only a key inside the repository", ConfigFile, k))
 	if filepath.IsAbs(k) || k == "~" || strings.HasPrefix(k, "~/") || filepath.VolumeName(k) != "" {
 		return "", outside

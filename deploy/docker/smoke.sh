@@ -363,7 +363,11 @@ expect "a key from the control database" "^$b " carol ready
 expect "it signs in as its principal" '^[a-z0-9]+$' carol comment "$b" "carol was here"
 expect "key list" "^$carol_re +ssh-ed25519 +carol@example.com +alice " alice admin key list carol
 refuse "a private key file is not sent" 'holds a private key, which never leaves this machine' alice admin key add carol "$work/keys/bob"
-refuse "nobody changes their own keys" 'nobody changes the keys of their own account' alice admin key add alice "$work/keys/carol.pub"
+refuse "nobody adds a key to their own account" 'nobody adds a key to their own account' alice admin key add alice "$work/keys/carol.pub"
+# Anyone may remove a key of their own (decision 38), but not the one
+# the connection signed in with: sshd took carol's line from the keys
+# file, so starfixd knows which key that is.
+refuse "the key in use is not removed by its own connection" "^sfx: key $carol_re is the key this connection signed in with" carol admin key remove "$carol_fp"
 expect "key remove" "^key $carol_re removed from carol\$" alice admin key remove "$carol_fp"
 absent "removing a key only the store holds warns of nothing" 'warning'
 not_in_keys_file "a removed key" 'stdio --principal carol '

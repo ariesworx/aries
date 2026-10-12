@@ -262,7 +262,7 @@ func accessErr(e *store.AccessError) *proto.Error {
 	case store.AccessOwnKeys:
 		return proto.Errf(proto.CodeForbidden,
 			"ask another admin to run it: a server admin, or a project admin who administers every project you belong to; the server's operator can also change authorized_keys on the server",
-			msg+"nobody changes the keys of their own account")
+			msg+"nobody adds a key to their own account")
 	case store.AccessReach:
 		if e.Principal == "" {
 			// A key named by its fingerprint. The refusal is the same

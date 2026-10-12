@@ -136,10 +136,23 @@ is decided afterward, by its memberships.
 
 **Who may add a key.** Server admins, and a project admin for a principal
 whose every project they administer; a principal in no project, and a
-server admin, are beyond a project admin's reach. Nobody adds or removes
-a key of their own account, a server admin included: an agent that holds
-a person's key could otherwise add a key of its own and outlive the
-person's. Every key added and removed is an event in the control
+server admin, are beyond a project admin's reach. Nobody adds a key to
+their own account, a server admin included: an agent that holds a
+person's key could otherwise add a key of its own and outlive the
+person's.
+
+**Who may remove a key.** Whoever may add one to that principal, and the
+principal itself: anyone may remove a key of their own account, except
+the key their connection signed in with. Removing only ever takes access
+away, and without it the owner of an account that someone planted a key
+on could not clean it; for the last server admin that would have meant a
+shell on the server. What this costs is on the record here. An agent
+that runs shell commands with a person's key can run `sfx admin key
+remove` as that person. It can remove the person's other keys, which is
+a nuisance that the person, signed in with the key the agent holds, has
+another admin undo with `key add`. It cannot remove the key it is
+using, cannot add a key, and gains no access by any of it; each removal
+is an event under the person's name. No MCP tool removes a key. Every key added and removed is an event in the control
 database, under the admin who did it. Only public keys are stored, and
 `sfx` refuses to send a file that holds a private key.
 

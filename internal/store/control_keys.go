@@ -198,8 +198,12 @@ func (w *cwtx) addKey(ctx context.Context, principal string, k parsedKey) (Princ
 }
 
 // RemoveKey removes the key with the given fingerprint and returns it.
-// Who may is as for [Control.AddKey], by the key's principal, and nobody
-// removes a key of their own account.
+// Anyone may remove a key of their own account, whatever they are
+// (decision 38, which amends decision 19): removing only ever takes
+// access away, so whoever holds a person's key gains nothing by it, and
+// without it the owner of an account someone planted a key on could not
+// clean it. For anyone else's key, who may is as for [Control.AddKey],
+// by the key's principal.
 //
 // A server admin is told with ErrNotFound that no principal has the
 // fingerprint. A project admin is refused the same way, with an
@@ -212,26 +216,30 @@ func (c *Control) RemoveKey(ctx context.Context, actor Actor, fingerprint string
 	}
 	var out PrincipalKey
 	err := c.write(ctx, actor, func(w *cwtx) error {
-		sc, err := w.scope(ctx, OpKeyRemove, "")
-		if err != nil {
-			return err
-		}
 		cur, err := readKey(ctx, w.tx, fingerprint)
-		switch {
-		case errors.Is(err, ErrNotFound) && !sc.server:
-			return w.denied(OpKeyRemove, "", "", AccessReach)
-		case err != nil:
+		if err != nil && !errors.Is(err, ErrNotFound) {
 			return err
 		}
-		// The actor's own key is theirs to know of.
-		if err := w.ownKeys(OpKeyRemove, cur.Principal); err != nil {
-			return err
-		}
-		if err := w.within(ctx, sc, OpKeyRemove, cur.Principal); err != nil {
-			if _, refused := errors.AsType[*AccessError](err); refused {
-				return w.denied(OpKeyRemove, "", "", AccessReach)
+		// The actor's own key is theirs to know of, and to remove. Any
+		// other is decided as before, and the read above changes nothing
+		// of what the actor is told.
+		if found := err == nil; !found || cur.Principal != w.actor.Principal {
+			sc, serr := w.scope(ctx, OpKeyRemove, "")
+			if serr != nil {
+				return serr
 			}
-			return err
+			switch {
+			case !found && !sc.server:
+				return w.denied(OpKeyRemove, "", "", AccessReach)
+			case !found:
+				return err
+			}
+			if err := w.within(ctx, sc, OpKeyRemove, cur.Principal); err != nil {
+				if _, refused := errors.AsType[*AccessError](err); refused {
+					return w.denied(OpKeyRemove, "", "", AccessReach)
+				}
+				return err
+			}
 		}
 		if _, err := w.exec(ctx, `DELETE FROM principal_keys WHERE fingerprint = ?`, fingerprint); err != nil {
 			return fmt.Errorf("remove key %s: %w", fingerprint, err)

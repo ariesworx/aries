@@ -159,7 +159,8 @@ func TestControlAccess(t *testing.T) {
 		{name: "a member adds a key to hal", actor: bob, run: keyAdd("hal"), want: AccessAdmin, op: OpKeyAdd, principal: "hal"},
 		// Nobody adds a key to their own account (decision 19).
 		{name: "a member adds a key to itself", actor: bob, run: keyAdd("bob"), want: AccessOwnKeys, op: OpKeyAdd, principal: "bob"},
-		{name: "a member removes its own key", actor: bob, run: keyRemove("bob"), want: AccessAdmin, op: OpKeyRemove},
+		// Its own it may remove (decision 38; TestControlOwnKeyRemoval).
+		{name: "a member removes another member's key", actor: bob, run: keyRemove("hal"), want: AccessAdmin, op: OpKeyRemove},
 		{name: "a member disables hal", actor: bob, run: disable("hal"), want: AccessAdmin, op: OpPrincipalDisable, principal: "hal"},
 		{name: "a member of nothing adds a key to itself", actor: frank, run: keyAdd("frank"), want: AccessOwnKeys, op: OpKeyAdd, principal: "frank"},
 		{name: "a stranger adds a key to bob", actor: zed, run: keyAdd("bob"), want: AccessAdmin, op: OpKeyAdd, principal: "bob"},
@@ -380,7 +381,7 @@ func TestAccessErrorMessages(t *testing.T) {
 		{AccessError{Actor: "alice", Op: OpKeyRemove, Reason: AccessReach},
 			"alice may not key.remove: it is no key of a principal alice may manage, so it is for server admins"},
 		{AccessError{Actor: "dana", Op: OpKeyAdd, Principal: "dana", Reason: AccessOwnKeys},
-			"dana may not key.add dana: nobody changes the keys of their own account, so it is for another admin"},
+			"dana may not key.add dana: nobody adds a key to their own account, so it is for another admin"},
 	} {
 		if got := tc.err.Error(); got != tc.want {
 			t.Errorf("%+v.Error() = %q, want %q", tc.err, got, tc.want)

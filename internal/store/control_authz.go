@@ -27,10 +27,11 @@ import (
 //     project admin could add a key of their own to someone with access
 //     elsewhere, and act as them there.
 //   - Only a server admin adds, activates or archives a project.
-//   - Nobody adds or removes a key of their own account, a server admin
-//     included (decision 19): an agent that holds a person's key could
-//     otherwise add one of its own. Another admin does it, or the
-//     operator, in authorized_keys on the server.
+//   - Nobody adds a key to their own account, a server admin included
+//     (decision 19): an agent that holds a person's key could otherwise
+//     add one of its own. Another admin does it, or the operator, in
+//     authorized_keys on the server. Anyone may remove a key of their
+//     own account (decision 38): that only ever takes access away.
 //   - A principal whose row is disabled has none of these rights, even
 //     when the config file names it a server admin (decision 20). It is
 //     still a server admin's principal to everyone else: only a server
@@ -66,8 +67,8 @@ const (
 	// project admin who could would bring it within reach and manage
 	// its keys (decision 17).
 	AccessUnassigned AccessReason = "unassigned"
-	// AccessOwnKeys: the actor is Principal, and nobody adds or removes
-	// a key of their own account, whatever their rights (decision 19).
+	// AccessOwnKeys: the actor is Principal, and nobody adds a key to
+	// their own account, whatever their rights (decisions 19 and 38).
 	AccessOwnKeys AccessReason = "own keys"
 )
 
@@ -115,7 +116,7 @@ func (e *AccessError) Error() string {
 	case AccessUnassigned:
 		why = fmt.Sprintf("%s belongs to no project and %s did not create it, so it is for server admins", e.Principal, e.Actor)
 	case AccessOwnKeys:
-		why = "nobody changes the keys of their own account, so it is for another admin"
+		why = "nobody adds a key to their own account, so it is for another admin"
 	}
 	return fmt.Sprintf("%s may not %s: %s", e.Actor, what, why)
 }
@@ -235,7 +236,7 @@ func (w *cwtx) scope(ctx context.Context, op Op, principal string) (scope, error
 	return scope{projects: projects}, nil
 }
 
-// ownKeys refuses op, a change to principal's keys, when the actor is
+// ownKeys refuses op, adding a key to principal, when the actor is
 // principal (decision 19). The operator's principal is no one's account,
 // so `starfixd control init` is never refused here.
 func (w *cwtx) ownKeys(op Op, principal string) error {

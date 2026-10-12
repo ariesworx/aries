@@ -20,8 +20,9 @@ import (
 
 // `sfx admin key`: a principal's public SSH keys, which the server's
 // sshd asks starfixd for (design §15.2). An admin adds and removes
-// them; nobody changes the keys of their own account, which the server
-// decides. Only a public key ever leaves this machine: the file is read
+// them; nobody adds a key to their own account, though anyone may
+// remove one of their own that their connection did not sign in with,
+// which the server decides. Only a public key ever leaves this machine: the file is read
 // and checked here, and what is sent is the key as the parser writes it
 // back, never the file's bytes.
 
