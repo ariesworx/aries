@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -166,6 +168,90 @@ func running(root string) ([]string, error) {
 		found = append(found, e.Name()+" "+strings.TrimSpace(strings.ReplaceAll(string(cmd), "\x00", " ")))
 	}
 	return found, nil
+}
+
+// TestRestartKeepsData checks that Restart brings up a new dolt process on
+// the same data, and that a DSN handed out before it still works after.
+func TestRestartKeepsData(t *testing.T) {
+	s := startOrSkip(t)
+	ctx := t.Context()
+	dsn, err := s.NewDatabase(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	for _, q := range []string{"CREATE TABLE kept (id INT PRIMARY KEY)", "INSERT INTO kept VALUES (7)"} {
+		if _, err := db.ExecContext(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	before := s.PID()
+	if before <= 0 {
+		t.Fatalf("PID() = %d before Restart, want a process id", before)
+	}
+	if err := s.Restart(ctx); err != nil {
+		t.Fatalf("Restart: %v", err)
+	}
+	if got := s.PID(); got == before || got <= 0 {
+		t.Errorf("PID() = %d after Restart, want a new process, not %d", got, before)
+	}
+	var id int
+	if err := db.QueryRowContext(ctx, "SELECT id FROM kept").Scan(&id); err != nil {
+		t.Fatalf("read the row written before Restart, through the DSN from before: %v", err)
+	}
+	if id != 7 {
+		t.Errorf("row after Restart = %d, want 7", id)
+	}
+	// A database made after the restart must not reuse a name from before.
+	if _, err := s.NewDatabase(ctx); err != nil {
+		t.Errorf("NewDatabase after Restart: %v", err)
+	}
+}
+
+// TestStartWithOptions checks that Metrics turns on Dolt's Prometheus
+// endpoint and that Env reaches the server, by reading back a Go memory
+// limit set in it, before and after a restart; and that Start alone turns
+// the endpoint off.
+func TestStartWithOptions(t *testing.T) {
+	if plain := startOrSkip(t); plain.MetricsURL() != "" {
+		t.Errorf("Start: MetricsURL() = %q, want none", plain.MetricsURL())
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	s, err := StartWith(ctx, t.TempDir(), Options{Metrics: true, Env: []string{"GOMEMLIMIT=3GiB"}})
+	if err != nil {
+		t.Fatalf("StartWith: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Stop() })
+	want := "go_gc_gomemlimit_bytes " + strconv.FormatFloat(3<<30, 'e', -1, 64)
+	check := func(when string) {
+		t.Helper()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.MetricsURL(), nil)
+		if err != nil {
+			t.Fatalf("%s: MetricsURL() = %q: %v", when, s.MetricsURL(), err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("%s: GET %s: %v", when, s.MetricsURL(), err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(body), "\n"+want+"\n") {
+			t.Errorf("%s: GET %s has no line %q, so GOMEMLIMIT did not reach dolt", when, s.MetricsURL(), want)
+		}
+	}
+	check("after StartWith")
+	if err := s.Restart(ctx); err != nil {
+		t.Fatalf("Restart: %v", err)
+	}
+	check("after Restart")
 }
 
 // TestLockedDown checks that the test server is configured as
