@@ -124,7 +124,7 @@ You asked to port every feature. Every bd feature is listed here as **Port** (sa
 | Audit, journal, provenance | Port | One `events` table, always on; provenance links kept |
 | Jira, Linear, ADO, Notion, GitLab sync | Port, later | One sync engine; GitHub first |
 | `doctor`, `recompute-blocked`, repair migrations | Replace | Nothing derived is stored, so nothing drifts; `sfx check` verifies connection and schema |
-| OTEL metrics | Port, later | |
+| OTEL metrics | Port, later | Designed in §16 |
 
 ## 5. Agent interface (MCP)
 
@@ -487,6 +487,7 @@ Agreed 6 Oct 2026. Extends item 10.
 | 2 | MCP server (work and issue tools), `start`/`finish`, git awareness, next-step errors, `starfixd --dev`, token budget in CI, `digest` (MCP and CLI), prime, `sfx upgrade` and `starfixd upgrade`, `setup` for Claude Code, Codex, Gemini, Cursor, VS Code | Agents use it daily on a real project |
 | 3 | Claims with leases, epochs, reaper, agents registry, inbox, event push, handoff, idempotency, files to issues, acceptance checklist, similar closed issues (full-text), live board, time and token reporting, `account` and token capture (§12.1) | Multi-session soak test |
 | 3a | Projects and access (§15): many projects on one server with a database and a writer each, principals, keys and memberships in a control database, server and project admins, `sfx admin` | Two projects on one server; a principal refused in a project it is not a member of; the soak test run across both. **Met in the test stack** (§15.4, As built, status and the soak), against starfix's stand-in for sshd; what no real machine has run yet is listed there |
+| 3b | Observability (§16): OpenTelemetry traces and metrics from starfixd, a loopback endpoint for metrics and health, a log schema and audit stream, Dolt's metrics, and a Collector harness | The Docker harness receives every signal from starfixd and Dolt; the soak's counters equal its event logs; a dead collector changes no request |
 | 4 | Memory with scopes and tags, migrated from bd `kv.memory.*`; prices, `sfx cost` and `sfx log` (§12.1) | |
 | 5 | Offline cache, outbox, conflict parking and resolution | Partition tests |
 | 6 | Locks, reservations, gates, molecules/formulas, swarm, cross-project | |
@@ -539,6 +540,12 @@ Maintainer, 12 Oct 2026, after keys from the store were run on a real sshd (§15
 
 22. Keys reach sshd through a file that starfixd writes. The daemon writes an `authorized_keys`-format file from the control store, one line for each key of an active principal, and sshd reads it with `AuthorizedKeysFile`, beside the hand-maintained `authorized_keys`, which stays the way in for the first admin and for break-glass: `AuthorizedKeysFile .ssh/authorized_keys .ssh/starfix_keys`, in the `Match User starfix` block. `starfixd keys`, the daemon's `keys` first frame and the `key_lookups` limit are removed, not kept as an option: one mechanism to test, document and secure. The file is a cache and the store decides: every line carries its key's fingerprint, and the daemon refuses, at the handshake, a key the store does not hold for that principal, and a disabled principal. A write of the file that fails after the start does not fail or undo the control write: it is logged, retried, shown in `sfx admin status` and returned to the admin as a warning.
 23. The supported platform for a starfix server is Ubuntu LTS; the server guide is written for and tested on 24.04. Ubuntu's mandatory access control is AppArmor, and an AppArmor profile for starfixd will ship for it. Servers on SELinux distributions (RHEL, Rocky Linux, AlmaLinux, Fedora) are not supported yet. SELinux support, meaning labels and a policy module if one is needed, will follow once there is a test harness that boots such a VM.
+
+Maintainer, 12 Oct 2026, on observability (§16). Decision 27, that requests carry W3C trace context in protocol 5, is recorded with the change that adds the field:
+
+28. starfixd is instrumented with the OpenTelemetry Go SDK, for traces and metrics, exported with OTLP over HTTP. The maintainer chose the SDK over open formats written by hand, accepting what it costs (§16.2), for a standard, complete implementation. The SDK is starfixd's alone: `sfx` passes trace context on and links none of it.
+29. starfixd may open one HTTP listener, on a loopback address only, off by default, for metrics and health. This narrows the earlier position that starfixd opens no port: it still opens none that another machine can reach.
+30. The first version includes metrics broken down by project, an audit stream of access changes in the logs, Dolt's own figures in `sfx admin status`, and an OpenTelemetry Collector configuration, alert rules and a dashboard in the repository, exercised by the Docker harness.
 
 ## 15. Projects and access
 
@@ -716,3 +723,150 @@ sfx admin member list | remove NAME
 3. **Moving an existing server.** Its database becomes the first project's, unchanged; the control database is created beside it; the config file's `project:` names the project to adopt.
 4. **A principal's own keys.** Settled (decision 19): nobody adds or removes a key of their own account, since an agent holding the developer's key could add one of its own. A new laptop's key is added by another admin.
 5. **Stage 6's cross-project edges** become reads across databases, checked against the reader's memberships.
+
+## 16. Observability
+
+Designed 12 Oct 2026; nothing here is built. Today starfixd has structured logs (text or JSON) on stderr, `sfx admin status`, and nothing else: no metrics a monitor can collect, no traces, no health check, and no way to read status on the server without an admin's SSH key.
+
+**Goal.** An operator can wire starfixd, and the Dolt behind it, into whatever they already run, on any cloud or none, by configuration alone. Telemetry must never slow, block or fail a request.
+
+### 16.1 Principle
+
+starfixd speaks open formats on the machine it runs on, and **a collector on the same machine is the vendor adapter**. The OpenTelemetry Collector, and every vendor's and cloud's own agent, read these formats and forward to their backend. Nothing in starfixd names a vendor, and starfixd sends nothing anywhere unless it is configured to.
+
+| Signal | From starfixd | From Dolt |
+|---|---|---|
+| Metrics | OTLP push to a collector, and the same instruments on a Prometheus endpoint for pull | Its own Prometheus endpoint (§16.5) |
+| Traces | OTLP push | None: Dolt has no tracing |
+| Logs | JSON lines on stderr, to the journal, as now, with a stable schema; OTLP push as an option | JSON lines, to the journal |
+| Health | `/healthz` and `/readyz` on the loopback listener; systemd readiness and watchdog | The unit's state; its metrics endpoint answering |
+
+Both pull and push are offered because operators differ: a Prometheus shop scrapes and runs no collector, an OTLP shop does not scrape, and Dolt can only be scraped, so most servers will have something that scrapes anyway.
+
+### 16.2 The SDK, and what it costs
+
+Measured 12 Oct 2026 with the release build flags (`CGO_ENABLED=0 -trimpath -ldflags "-s -w"`), in a program of a few lines, against a baseline of `log/slog` and `net/http`:
+
+| Linked | Binary | Third-party modules |
+|---|---|---|
+| Baseline | 6.3 MB | 0 |
+| SDK, traces and metrics, OTLP over HTTP (`otel` v1.47.0) | +9.3 MB | 24, among them `google.golang.org/grpc` and `google.golang.org/protobuf` |
+| The above, the SDK's Prometheus exporter, OTLP logs and the `slog` bridge | +10.6 MB | 34, adding `prometheus/client_golang` and its own |
+
+starfixd is 10.1 MB today with about 11 modules, so it roughly doubles. That is against rule 4's grain, and decision 28 accepts it for starfixd. To keep the cost where it was accepted:
+
+- **`sfx` links none of it.** The client is on every developer's machine and inside every agent's harness. It passes trace context on (decision 27) and starts no span. A test fails if `cmd/sfx`, or any package it imports, imports `go.opentelemetry.io`.
+- **One package owns it.** `internal/telemetry` is the only importer of the SDK and exporters. The server, the store and the commands see a small interface of starfix's own (start a span, record a measurement), so the SDK can be replaced, or compiled to nothing for a test, in one place.
+- **OTLP over HTTP only.** No gRPC exporter: it would add more of gRPC than the HTTP exporter already drags in.
+- **Each module added is named, with its reason, in the pull request** that adds it (rule 4), and the weekly `govulncheck` covers them.
+- **The logs exporter is experimental** upstream (the Logs API and SDK reached release candidate in 2026; the exporters are outside that). So OTLP logs are an option, off by default, and the journal stays the logs' home.
+
+### 16.3 Configuration
+
+- **Off by default.** With nothing configured starfixd exports nothing, listens on nothing new and behaves as now.
+- **The standard `OTEL_*` environment variables** configure export, as for any OpenTelemetry program, so an operator's existing knowledge and tooling apply: `OTEL_EXPORTER_OTLP_ENDPOINT` (a collector on the machine, `http://127.0.0.1:4318`, is the documented setup), `OTEL_SERVICE_NAME` (default `starfixd`), `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_TRACES_SAMPLER`, `OTEL_SDK_DISABLED`. The resource carries `service.name`, `service.version` and `service.instance.id`.
+- **`OTEL_EXPORTER_OTLP_HEADERS` can hold a token** for a hosted backend. It is a secret (rule 2): it comes from the unit's `EnvironmentFile`, mode 0600, never from argv, and starfixd never logs it. Sending to a collector on the machine needs none, which is one more reason to prefer that.
+- **`telemetry:` in starfixd's settings** holds what is starfix's own: `listen` (the loopback listener, below), `per_project` (on by default), `audit_log` (on by default), `dolt_metrics_url` (§16.5).
+- **The listener** (decision 29): `telemetry.listen: 127.0.0.1:9464`, say. An address that is not loopback is refused at start with a fix. It serves `/metrics`, `/healthz` and `/readyz` and nothing else, with a cap on requests in flight and a deadline on each (rule 18). It has no authentication: any user on the machine can read it, and it carries project ids, names and counts, and no secret, principal name or issue text. A failure to bind at start fails the start, with a fix, as a keys file that cannot be written does.
+
+### 16.4 What is measured
+
+**Metrics.** Named in OpenTelemetry's style; on the Prometheus endpoint the exporter writes them with underscores and unit suffixes.
+
+| Instrument | Kind | Attributes |
+|---|---|---|
+| `starfix.request.duration` | histogram, seconds | `op`, `result` |
+| `starfix.project.requests` | counter | `project`, `result_class` (ok, refused, error) |
+| `starfix.connections` | up-down counter | `project` |
+| `starfix.handshakes` | counter | `result` (the refusal's code, or ok) |
+| `starfix.connections.dropped` | counter | `reason` (membership, disabled, key, archived, idle, limit) |
+| `starfix.limit.refusals` | counter | `limit` |
+| `starfix.store.write.duration` | histogram, seconds | `project` |
+| `starfix.store.write.retries` | counter | `project` |
+| `starfix.store.commit.duration` | histogram, seconds | none |
+| `starfix.stores.open` | gauge | none |
+| `starfix.store.open.duration` | histogram, seconds | `migrated` |
+| `starfix.claims` | counter | `event` (take, renew, release, expire), `reason` |
+| `starfix.control.writes` | counter | `op`, `result` |
+| `starfix.keys_file.writes` | counter | `result` |
+| `starfix.keys_file.last_write.time` | gauge, unix seconds | none |
+| `starfix.reaper.duration`, `starfix.reaper.last_run.time` | histogram, gauge | none |
+| `starfix.telemetry.dropped` | counter | `signal` |
+| Go runtime and process | from `runtime/metrics` | none |
+
+- **Bounded (rule 18).** An attribute's values come from a fixed list in the code: ops, codes, reasons, limits. An op the server does not know is `unknown`. A principal, session, machine, issue id or anything else a client chooses is never an attribute of a metric; those are for traces and logs.
+- **`project` is on few instruments, and never beside `op`.** 500 projects by 60 ops by 10 results by a histogram's buckets would be hundreds of thousands of series. So one instrument has `op` and `result`, and separate, coarser ones have `project`. `telemetry.per_project: false` drops the attribute everywhere, for a server near the project cap.
+- **Histograms have a short fixed list of buckets,** 5 ms to 10 s, the same everywhere.
+
+**Traces.**
+- One server span for each request, named for its op, with the op, result code, project, protocol version, and the principal and session (which a trace may carry and a metric may not). Its parent is the client's trace context when the request carries a valid one (decision 27).
+- Child spans where time goes: the wait for the writer, each attempt of a write (a retry is a new one), the Dolt commit, a store's open and migration.
+- A span for a handshake, and root spans for the reaper, the sweep, a keys file write and a control index reload, so background work is visible.
+- No span carries an issue's title or body, a memory's text, a comment, a key or a DSN. Ids only.
+- Sampling is the SDK's, by `OTEL_TRACES_SAMPLER`; the default follows the parent and otherwise samples everything, since a tracker's request volume is small.
+- `sfx` reads `TRACEPARENT` and `TRACESTATE` from its environment and sends them, so a trace begun by an agent's harness continues into starfix. Per-call context from an MCP request's metadata is part of this stage.
+
+**Logs.**
+- The JSON schema becomes a documented contract: `time`, `level`, `msg`, and where they apply `event`, `project`, `principal`, `session`, `op`, `code`, `dur_ms`, `req`, `trace_id`, `span_id`.
+- **`event` is a stable name** for anything worth an alert (`keys_file.write_failed`, `project.open_failed`, `conn.cap_refused`), so an alert matches a name, not a sentence that may be reworded.
+- **`req`** is an id for each request, on every line about it and in the refusal the client sees, so a person's report finds the server's lines.
+- **Audit stream** (decision 30): each event of the control store's log (a project added or archived, a principal added, disabled or enabled, a key added or removed, a membership set or removed) is also written as a log line with `audit=true`, the actor, the op and the target, after the write commits. Fingerprints, never keys. The event log stays the record; the line is a copy for a SIEM that reads the journal.
+- With `OTEL_LOGS_EXPORTER=otlp` the same records also go out over OTLP, through the `slog` bridge. Stderr is never turned off.
+
+**Health.**
+- `/healthz` answers while the process serves. `/readyz` answers only when the daemon is listening, its last check of Dolt (a cheap query, cached a few seconds, never run per request) passed, and the keys file's last write did not fail; otherwise it says which, in one line.
+- systemd: `Type=notify` with readiness sent once the daemon listens, and a watchdog fed by the reaper tick, so a daemon that hangs is restarted. On other systems neither is sent.
+- `starfixd status [--json]`, run on the server as the daemon's user over its socket, prints what `sfx admin status` prints, for a script or an agent that has no admin key.
+
+### 16.5 Dolt
+
+Measured 12 Oct 2026 at Dolt 2.4.2. A `metrics:` block (`host`, `port`, `labels`) in Dolt's config turns on a Prometheus endpoint at `/metrics`, with no authentication, so it is bound to loopback:
+
+| Group | Metrics |
+|---|---|
+| Server | `dss_concurrent_connections`, `dss_concurrent_queries`, `dss_connects`, `dss_disconnects`, `dss_query_duration` (histogram; buckets 0.01, 0.1, 1, 10, 100, 1000 s), `dss_dolt_version` |
+| Process | `process_resident_memory_bytes`, `process_cpu_seconds_total`, `process_open_fds`, `process_max_fds`, `process_start_time_seconds` |
+| Go runtime | `go_memstats_*`, `go_gc_*` (among them `go_gc_gomemlimit_bytes`), `go_goroutines` |
+| System | `sys_cpu_usage`, `sys_mem_usage`, `sys_disk_usage` |
+
+- **Nothing is per database.** Dolt cannot tell one project from another; starfixd's own per-project instruments (§16.4) are the only such view.
+- **No tracing,** in its flags, its config or its documentation. A trace ends at starfixd's span around the SQL it ran.
+- **Logs** are text or JSON (`log_format`), to the journal.
+- Over SQL, starfixd's least-privileged account can read `SHOW STATUS`, the process list and a table's estimated rows and size. None of it is needed for what follows.
+
+What starfix does with it:
+- **The server guide and the Docker image turn Dolt's endpoint on,** on loopback, and the collector configuration scrapes it beside starfixd's. Dolt's metrics reach the backend under Dolt's own names; starfixd does not re-export them, which would count them twice.
+- **`sfx admin status` shows Dolt's memory, connections and uptime** (decision 30), closing the gap §15.4 left. With `telemetry.dolt_metrics_url` set (loopback only), starfixd reads that endpoint on a timer, with a deadline and a size limit, parses the handful of lines it needs with a parser of its own, and shows when it last succeeded. A failure shows as "unknown", never as an error of starfixd's.
+- **Dolt's memory limit.** `go_gc_gomemlimit_bytes` beside `process_resident_memory_bytes` is what tells an operator whether the `GOMEMLIMIT` of §15.5, 2 is set with room to spare. The alert rules include it.
+
+### 16.6 Robustness
+
+- **A request never waits for telemetry.** Recording a measurement or ending a span is memory only. Export happens on the SDK's own goroutines, in batches, with bounded queues and a timeout; a full queue drops, and `starfix.telemetry.dropped` counts it.
+- **A collector that is down, slow or refusing changes nothing** but the drop counter and one sampled warning. A test points the exporter at a closed port and at a server that never answers, runs the soak's mix of work, and checks latency, goroutines and memory against a run with telemetry off.
+- **Export errors go to starfixd's log, sampled,** through the SDK's error handler, never to stderr unformatted and never once a second forever.
+- **Stopping flushes with a deadline,** so a stop is not held up by a dead collector.
+- **Cardinality is bounded by construction** (§16.4), and a test fails if an instrument gains an attribute that is not on the list.
+
+### 16.7 The harness
+
+- **`deploy/observability/`**: an OpenTelemetry Collector configuration (OTLP in; Prometheus scrapes of starfixd and Dolt; out to whatever the operator names), alert rules in Prometheus's rule format, which most systems read or translate, and one dashboard. They are examples that are tested, not a product.
+- **A Compose profile** beside the Docker test server runs a Collector, pinned by digest, wired to starfixd and Dolt and writing what it receives to a file. The smoke test, asked for it, then checks that each expected metric arrived from both, that a trace arrived whose root is the trace id the test put in `TRACEPARENT` with the server's spans beneath it, that an access change produced its audit line, and that `/readyz` turns unready when Dolt is stopped. A second profile adds a metrics store, a trace store and the dashboard, for a person to look at.
+- **The soak checks the numbers.** It already replays every project's event log. At the end it reads the instruments in process and asserts that they say what the log says: requests by result, claims taken, released by reason and expired, connections dropped by reason, control writes. A metric that is present and wrong fails the gate.
+- **Alerts shipped:** starfixd not ready; a keys file write failing; an active project that cannot be opened; the reaper not having run; refusals at a connection or store cap; write latency; Dolt's memory against its limit and against the machine's; disk.
+
+### 16.8 Plan
+
+| Slice | Delivers |
+|---|---|
+| O1 | `internal/telemetry`, the SDK and OTLP export of metrics, the settings, the loopback listener with `/metrics`, `/healthz` and `/readyz`, systemd readiness and watchdog, `starfixd status`, the instruments of §16.4, and the test that keeps the SDK out of `sfx` |
+| O2 | Traces: the spans of §16.4 from the context decision 27 carries, per-call context in `sfx mcp`, and trace ids in the logs |
+| O3 | The log schema, `event` names, `req`, the audit stream, and OTLP logs as an option |
+| O4 | Dolt: its endpoint on in the guide and the image, and its figures in `sfx admin status` |
+| O5 | The harness: Collector configuration, Compose profiles, smoke checks, alert rules, dashboard, the soak's cross-check, and the tests of §16.6 |
+
+### 16.9 Open questions
+
+1. **Push, pull or both for metrics.** §16.1 offers both, which costs the Prometheus exporter's six modules. Push alone would do for anyone who runs a collector, and a collector can itself expose a Prometheus endpoint.
+2. **The principal in traces.** A span carries the principal and session, which makes a trace useful and puts a person's name in the tracing backend. A setting could leave them out.
+3. **Go runtime metrics** from the standard library's `runtime/metrics` by hand, or the contrib module that does it, which is one more dependency.
+4. **A token for a hosted backend** in the unit's environment file is the only secret this adds. The guide could say to send to a collector on the machine and nowhere else, and keep starfixd free of it.
