@@ -369,6 +369,7 @@ hand](install.md#verify-a-download-by-hand) the commands.
 | golangci-lint, with gosec, staticcheck, errcheck, govet and revive | Every pull request and push to `main` |
 | `govulncheck`, against the Go vulnerability database | Every pull request and push, weekly on `main` (Mondays), and before every release build |
 | `go mod download && go mod verify` | Every pull request and push, and before every release build |
+| shellcheck, on every shell script in the repository | Every pull request and push, and before every release build |
 | CodeQL, with the `security-extended` queries | Every pull request and push, and weekly |
 | Dependabot, for Go modules and GitHub Actions | Weekly; minor and patch updates grouped |
 

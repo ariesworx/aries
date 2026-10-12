@@ -41,11 +41,13 @@ stage is in progress.
 | `internal/gitx` | Branch names from issues, issue ids from branches and `Starfix:` trailers |
 | `internal/bdimport` | bd JSONL import and export |
 | `internal/release`, `internal/tools/releasekey` | Release download, signature and checksum checks, binary swap; the signing tool |
-| `internal/version` | Build version, and `Dolt`, the pinned Dolt release |
+| `internal/version` | Build version, and `Dolt`, the pinned Dolt release, with the SHA-256 of its archives (`dolt.sha256`); its tests keep every copy of a tool pin in step |
 | `internal/dolttest` | Starts a throwaway `dolt sql-server` for tests, and grants its locked-down account databases by name |
 | `internal/iaptest` | A fake `gcloud` for tests of the IAP transport: the test binary, re-executed from `PATH` |
 | `internal/e2e` | End-to-end tests: CLI and MCP through an in-process SSH server to a real daemon and store. The SSH server can read the keys file the daemon writes, after its own keys, as sshd reads its `AuthorizedKeysFile`. `TestSoak` (`soak*_test.go`) is the gate of stages 3 and 3a ([CONTRIBUTING.md](CONTRIBUTING.md#the-soak-test)) |
 | `deploy/docker` | The Docker test server ([docs/deploy/docker.md](docs/deploy/docker.md)): image, entrypoint, compose file and `smoke.sh`, which drives it end to end and is not part of CI. It mirrors docs/server.md's setup steps; `internal/version` keeps its Dolt at the pin |
+| `scripts` | For contributors, in POSIX shell: `gate.sh` runs the gate (Commands, below), and `install-dolt.sh` installs the pinned Dolt, verified, under the user's cache directory. The tests beside them run both against stand-ins |
+| `mise.toml` | Go, golangci-lint and shellcheck versions for contributors who use mise; optional |
 | `install.sh` | The one-line installer for `sfx` and `starfixd`; `internal/release/install_test.go` runs it and checks that its key is in `keys.go` |
 | `spike/dolt` | Stage 0 measurements, kept as evidence; not maintained and excluded from lint |
 | `spike/multidb` | Stage 3a measurements of many databases in one Dolt, kept as evidence; not maintained and excluded from lint |
@@ -55,35 +57,58 @@ stage is in progress.
 
 ## Commands
 
-The gate, as CI runs it (`.github/workflows/ci.yml`). Run all of it before
-opening a pull request:
+`scripts/gate.sh` runs the gate: the commands below, which are what CI
+runs (`.github/workflows/ci.yml`), in this order. Run it before opening a
+pull request, and report what its summary says a run on your machine did
+not cover. This block is the list of record; a test in `scripts/` fails
+when the script and the block differ, so change them together, and
+`ci.yml` with them.
 
 ```sh
 gofmt -l .                       # must print nothing
 go vet ./...
 golangci-lint run ./...          # CI pins v2.14.0; config in .golangci.yml
 go mod verify                    # module cache still matches go.sum
-STARFIX_REQUIRE_DOLT=1 go test -race -shuffle=on ./...
-for os in darwin windows; do     # sfx must build and vet on every developer OS
-  GOOS=$os GOARCH=amd64 go vet ./...
-  GOOS=$os GOARCH=amd64 go build ./cmd/...
-done
+git ls-files -co --exclude-standard -z "*.sh" | xargs -0 shellcheck
 go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
-shellcheck install.sh
+GOOS=darwin GOARCH=amd64 go vet ./...          # sfx must build and vet
+GOOS=darwin GOARCH=amd64 go build ./cmd/...    # on every developer OS
+GOOS=windows GOARCH=amd64 go vet ./...
+GOOS=windows GOARCH=amd64 go build ./cmd/...
+STARFIX_REQUIRE_DOLT=1 go test -race -shuffle=on ./...
 ```
 
-The Go version is the `go` line in `go.mod`. CI also runs
-`TestCheckPeerOtherUID` (`internal/server`) under `sudo`, because it starts
-a socket peer as another user; it skips when not root. The `release`
-workflow runs this whole gate (`ci.yml`, as a reusable workflow) on the
-tagged commit before it builds anything ([RELEASING.md](RELEASING.md)).
+The script stops at the first failure (`--keep-going` does not), and
+away from Linux it also vets, builds and lints for Linux, which CI does
+natively. `scripts/gate.sh --quick` is for the loop between edits and is
+not the gate: it skips `go mod verify`, govulncheck and the builds for
+other systems, and runs the tests without `-race` or `-shuffle`.
+
+**Tools.** Go is at the `go` line in `go.mod`, at its newest patch
+release, as CI installs it: on an older one govulncheck reports standard
+library findings that are not the change's, which the script says.
+golangci-lint is at the version CI pins. `mise.toml` pins both for
+contributors who use mise, and tests in `internal/version` keep it equal
+to `go.mod` and `ci.yml`.
+
+CI also runs `TestCheckPeerOtherUID` (`internal/server`) under `sudo`,
+because it starts a socket peer as another user; it skips when not root.
+`deploy/docker/smoke.sh` is not part of the gate, and CI does not run it.
+The `release` workflow runs this whole gate (`ci.yml`, as a reusable
+workflow) on the tagged commit before it builds anything
+([RELEASING.md](RELEASING.md)).
 
 **Dolt.** The store, server, bdimport, `cmd/starfixd` and e2e tests start a
 real `dolt sql-server` through `internal/dolttest`. They need `dolt` on
-`PATH`, at the version in `version.Dolt` (`internal/version`; CI's `DOLT_VERSION`; a
-test keeps the two equal, so change them together, and `TestDoltVersion`
-checks the `dolt` on `PATH`). Get it from
-[Dolt's releases](https://github.com/dolthub/dolt/releases). Without
+`PATH`, at the version in `version.Dolt` (`internal/version`; tests keep
+CI's `DOLT_VERSION`, the Docker test server's and the checksums in
+`internal/version/dolt.sha256` equal to it, so change them together as
+[RELEASING.md](RELEASING.md#changing-the-dolt-pin) says, and
+`TestDoltVersion` checks the `dolt` on `PATH`). `scripts/install-dolt.sh`
+downloads that release for Linux or macOS, verifies its SHA-256 against
+the pinned one, installs it under the user's cache directory and prints
+the directory to put on `PATH`; `scripts/gate.sh` uses it by itself when
+the `dolt` on `PATH` is another version. Without
 `dolt` those tests skip with a message, and the rest still run; a skipped
 store test proves nothing, so install Dolt before changing the store,
 server or protocol. With `STARFIX_REQUIRE_DOLT=1`, as CI sets it, a missing
@@ -222,4 +247,24 @@ adds working method only; repository facts and rules belong here.
 - Title the pull request the same way: `fix: …`, `feature: …`.
 - Commit subjects are imperative; the body says why. Note "No new
   dependencies" or justify the one you added.
+- A pull request's description follows
+  `.github/pull_request_template.md`: why, what, tests, the gate with
+  what was not run, docs, dependencies.
+- **Stacked pull requests** (one whose base is another's branch). `main`
+  takes squash merges, so the base's commits never reach `main` as
+  themselves:
+  - Before the base's branch is deleted, retarget the stacked pull
+    request to `main` (`gh pr edit N --base main`). Deleting a base
+    branch with `gh` or the API closes the pull requests stacked on it,
+    and a closed pull request cannot be retargeted.
+  - Then bring the stacked branch up to date. If it was never pushed,
+    replay its own commits onto `main`: `git rebase --onto origin/main
+    OLD`, where OLD is the last commit of the base that the branch was
+    built on (`git merge-base BASE-BRANCH HEAD`). If it was pushed,
+    merge instead, keeping the branch's side wherever the squash
+    conflicts with the commits it replaced: `git merge -X ours
+    origin/main`. Then check the result: `git diff HEAD^1 HEAD` is what
+    the merge changed, and must be only what `main` gained;
+    `git diff origin/main HEAD` is the pull request, and must be only
+    the branch's own work.
 - Do not push, open pull requests or merge unless asked.
