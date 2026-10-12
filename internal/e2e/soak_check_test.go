@@ -32,6 +32,8 @@ type issueEpoch struct {
 // takeRec is what the clients were told of one claim.
 type takeRec struct {
 	who sessKey
+	// p is the project the claim is in.
+	p *sproj
 	// at is when the store took it, from the expiry it answered less the
 	// lease asked for; zero when only a renewal reported the claim.
 	at time.Time
@@ -56,6 +58,8 @@ type monitor struct {
 	retries   map[string]int
 	vanishes  int
 	forgotten int
+	// dials is every handshake a session tried, for the access checks.
+	dials []dialRec
 }
 
 func newMonitor() *monitor {
@@ -69,10 +73,14 @@ func (m *monitor) fail(issue, format string, args ...any) {
 	m.fails = append(m.fails, violation{issue: issue, msg: fmt.Sprintf(format, args...)})
 }
 
-func (m *monitor) dialFailed(sessKey, error) {
+// dialed records one handshake a session tried.
+func (m *monitor) dialed(d dialRec) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.dialFails++
+	m.dials = append(m.dials, d)
+	if !d.welcomed {
+		m.dialFails++
+	}
 }
 
 func (m *monitor) retried(op string) {
@@ -128,7 +136,7 @@ func (m *monitor) record(cl call) {
 		rec := m.takes[k]
 		switch {
 		case rec == nil:
-			m.takes[k] = &takeRec{who: cl.who, at: c.ExpiresAt.Add(-leaseOf(a.Lease)), maxExp: c.ExpiresAt, take: a.Take}
+			m.takes[k] = &takeRec{who: cl.who, p: cl.p, at: c.ExpiresAt.Add(-leaseOf(a.Lease)), maxExp: c.ExpiresAt, take: a.Take}
 		case rec.who != cl.who:
 			m.failLocked(c.ID, "epoch %d acknowledged to two sessions: %s and %s", c.Epoch, rec.who, cl.who)
 		default:
@@ -145,7 +153,7 @@ func (m *monitor) record(cl call) {
 			rec := m.takes[k]
 			switch {
 			case rec == nil:
-				m.takes[k] = &takeRec{who: cl.who, maxExp: c.ExpiresAt}
+				m.takes[k] = &takeRec{who: cl.who, p: cl.p, maxExp: c.ExpiresAt}
 			case rec.who != cl.who:
 				m.failLocked(c.ID, "%s renewed epoch %d, which %s took", cl.who, c.Epoch, rec.who)
 			default:
@@ -319,6 +327,16 @@ type atEpoch struct {
 type replay struct {
 	fail   func(issue, format string, args ...any)
 	admins map[string]bool
+	// roles is set when the project's admins change during the run, as
+	// project admins do on a server of many projects: an override by a
+	// principal who is not one of admins is then kept in overrides, to be
+	// checked against the control store's log once that is read.
+	roles     bool
+	overrides []override
+	// lost are the claims that ended because their holder lost access to
+	// the project (decision 21), to be checked against the control
+	// store's log too.
+	lost []lostClaim
 
 	seq    int64
 	lastAt time.Time
@@ -344,8 +362,12 @@ type replay struct {
 
 	// released holds, for the transaction being applied, the claims a
 	// claim.release in it ended, as they were: the change that caused the
-	// release was made under them.
+	// release was made under them. access holds those of them that ended
+	// because the holder lost access, with the issue as it was.
 	released map[string]rClaim
+	access   map[string]rIssue
+	// tookAt is when each claim was taken.
+	tookAt map[issueEpoch]time.Time
 
 	mu        sync.Mutex // guards the replay between snapshots
 	openCount int        // issues not closed, as of the last snapshot
@@ -356,7 +378,7 @@ func newReplay(fail func(string, string, ...any), admins []string) *replay {
 		claims: map[string]*rClaim{}, holds: map[string][]*hold{}, takers: map[issueEpoch]sessKey{},
 		ends: map[issueEpoch]ended{}, markers: map[string]int{}, closedAt: map[string]atEpoch{},
 		handedAt: map[string]atEpoch{}, usage: map[sessKey]int{}, causes: map[string]bool{}, ops: map[string]int{},
-		created: map[string]time.Time{}}
+		created: map[string]time.Time{}, tookAt: map[issueEpoch]time.Time{}}
 	for _, a := range admins {
 		r.admins[a] = true
 	}
@@ -417,7 +439,8 @@ func factsOf(tx []sevent) txFacts {
 
 func (r *replay) apply(tx []sevent) {
 	f := factsOf(tx)
-	r.released = map[string]rClaim{}
+	r.released, r.access = map[string]rClaim{}, map[string]rIssue{}
+	defer r.reopened(tx)
 	for _, e := range tx {
 		if e.op != "usage.add" {
 			r.causes[causeKey(e.target, e.at)] = true
@@ -692,6 +715,7 @@ func (r *replay) take(e sevent) {
 	r.endHold(e.target, e.at, end)
 	c.holder, c.epoch = e.actor, after.Epoch
 	r.takers[issueEpoch{e.target, after.Epoch}] = e.actor
+	r.tookAt[issueEpoch{e.target, after.Epoch}] = e.at
 	r.holds[e.target] = append(r.holds[e.target], &hold{issue: e.target, who: e.actor, start: e.at, open: true})
 }
 
@@ -735,6 +759,17 @@ func (r *replay) release(e sevent) {
 		r.fail(e.target, "event %d releases %s at epoch %d, but %s held epoch %d", e.seq, who, b.Epoch, c.holder, c.epoch)
 	}
 	r.released[e.target] = *c
+	var why struct {
+		Reason string `json:"reason"`
+	}
+	if len(e.after) > 0 {
+		_ = json.Unmarshal(e.after, &why)
+	}
+	if why.Reason != "" {
+		r.access[e.target] = *r.issues[e.target]
+		r.lost = append(r.lost, lostClaim{issue: e.target, holder: who, epoch: b.Epoch, reason: why.Reason, by: e.actor,
+			took: r.tookAt[issueEpoch{e.target, b.Epoch}], at: e.at, seq: e.seq})
+	}
 	r.ends[issueEpoch{e.target, b.Epoch}] = ended{at: e.at, exp: b.ExpiresAt, op: "release"}
 	if who != e.actor {
 		r.notices = append(r.notices, notice{issue: e.target, to: who, at: e.at, seq: e.seq})
@@ -754,7 +789,11 @@ func (r *replay) override(e sevent) {
 		Epoch  int64
 	}
 	_ = json.Unmarshal(e.after, &a)
-	if !r.admins[e.actor.principal] {
+	switch {
+	case r.admins[e.actor.principal]:
+	case r.roles:
+		r.overrides = append(r.overrides, override{issue: e.target, by: e.actor, at: e.at, seq: e.seq})
+	default:
 		r.fail(e.target, "event %d: admin.override by %s, who is not an admin", e.seq, e.actor)
 	}
 	if (sessKey{a.Holder.Principal, a.Holder.Session} != c.holder) || a.Epoch != c.epoch {
@@ -772,8 +811,11 @@ func (r *replay) guard(e sevent, f txFacts) {
 	if c.holder == (sessKey{}) || c.holder.principal == e.actor.principal || e.actor == reaper {
 		return
 	}
-	if f.override[e.target] && r.admins[e.actor.principal] {
-		return
+	if f.override[e.target] && (r.admins[e.actor.principal] || r.roles) {
+		return // by an admin; override checks who
+	}
+	if _, lost := r.access[e.target]; lost && e.op == "issue.update" {
+		return // the issue returned to open as its holder lost access
 	}
 	r.guards = append(r.guards, guardCheck{issue: e.target, epoch: c.epoch, at: e.at, actor: e.actor, op: e.op, seq: e.seq})
 }
@@ -789,4 +831,45 @@ func (r *replay) endHold(issue string, at, end time.Time) {
 	}
 	h := hs[len(hs)-1]
 	h.end, h.open = maxTime(h.start, end), false
+}
+
+// override is an admin.override by a principal whose admin role comes
+// from the control store.
+type override struct {
+	issue string
+	by    sessKey
+	at    time.Time
+	seq   int64
+}
+
+// lostClaim is a claim that a claim.release ended for a reason: its
+// holder lost access to the project.
+type lostClaim struct {
+	issue  string
+	holder sessKey
+	epoch  int64
+	reason string
+	by     sessKey
+	// took is when the claim was taken, and at when it was released.
+	took, at time.Time
+	seq      int64
+}
+
+// reopened checks, once a transaction is applied, each issue whose claim
+// it ended for lost access: one that was in progress under the holder is
+// open and unassigned again, ready for someone else, and any other is as
+// it was.
+func (r *replay) reopened(tx []sevent) {
+	for id, was := range r.access {
+		is, c := r.issues[id], r.released[id]
+		held := was.status == "in_progress" && was.assignee == c.holder.principal
+		switch {
+		case held && (is.status != "open" || is.assignee != ""):
+			r.fail(id, "event %d ended %s's claim on %s for lost access and left the issue %s, assigned to %q; want it open and unassigned",
+				tx[0].seq, c.holder, id, is.status, is.assignee)
+		case !held && (is.status != was.status || is.assignee != was.assignee):
+			r.fail(id, "event %d ended %s's claim on %s for lost access and changed the issue from %s (%q) to %s (%q), though it was not in progress under the holder",
+				tx[0].seq, c.holder, id, was.status, was.assignee, is.status, is.assignee)
+		}
+	}
 }

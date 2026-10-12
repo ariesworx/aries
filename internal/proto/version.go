@@ -72,7 +72,13 @@ import (
 // sends a key op or the new argument, and the server adds a principal
 // without keys when it is omitted, as it did. The results that gained
 // fields (released, on the ops that end access) are read by older
-// clients as before.
+// clients as before. Then the status op (design §15.4, `sfx admin
+// status`), and file_conns and warning in the results of keys and
+// key.remove. Protocol 6 has not shipped in a release (v0.4.0 speaks 4),
+// so status joins it without another bump, as later additions joined
+// protocols 3 and 4: a server built from main between the key ops and
+// status refuses it as an unknown operation, with code invalid, and
+// serves everything else.
 //
 // The bridge frame and the keys frame are not part of this protocol:
 // they pass between two starfixd processes on the server (frame.go), and

@@ -10,6 +10,7 @@ import (
 	"maps"
 	"math/rand/v2"
 	"os"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -26,13 +27,20 @@ import (
 	"github.com/ariesworx/starfix/internal/store"
 )
 
-// TestSoak is stage 3's gate (design §13): many agent sessions, across
-// several principals, work one backlog at once through the real stack,
-// under churn and failure, and every stage 3 guarantee must hold
-// throughout. Sessions vanish without finishing, connections drop between
-// a request being applied and its answer arriving, and the daemon
+// TestSoak is the gate of stages 3 and 3a (design §13): many agent
+// sessions, across several principals, work the backlogs of two projects
+// on one server at once through the real stack, under churn and failure,
+// and every stage 3 guarantee must hold throughout, in each project from
+// its own event log. Sessions vanish without finishing, connections drop
+// between a request being applied and its answer arriving, and the daemon
 // restarts mid-run. The store's clock runs fast, so leases lapse and the
 // reaper ends them many times over.
+//
+// Meanwhile an admin ends and restores access (soak_access_test.go):
+// memberships, principals, keys, a project admin's role and a whole
+// project, and a membership of a third, quiet project while its store is
+// closed. Whoever loses access must lose their connections and their
+// claims, and nothing of one project may show through another.
 //
 // A short run is part of `go test`. Set STARFIX_SOAK to a duration, such
 // as 10m, for a long one, and STARFIX_SOAK_SEED to replay a run's choices;
@@ -43,7 +51,7 @@ func TestSoak(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("soak: seed %d, %s of work, %d principals × %d sessions, store clock ×%g; replay with STARFIX_SOAK_SEED=%d",
+	t.Logf("soak: seed %d, %s of work, %d principals × %d sessions in 2 projects, store clock ×%g; replay with STARFIX_SOAK_SEED=%d",
 		cfg.seed, cfg.duration, len(cfg.principals), cfg.sessions, cfg.speed, cfg.seed)
 	s := newSoak(t, cfg)
 	s.run()
@@ -57,7 +65,9 @@ type soakConfig struct {
 	seed       uint64
 	duration   time.Duration // how long the sessions work
 	principals []string
-	admin      string
+	// admin is the server admin who works beside the others, and root
+	// the one who manages access while they do.
+	admin, root string
 	// sessions per principal; the first of each is an agent running `sfx
 	// mcp`, the others use the client library directly.
 	sessions int
@@ -88,13 +98,16 @@ type soakConfig struct {
 func soakConfigFrom(getenv func(string) string) (soakConfig, error) {
 	cfg := soakConfig{
 		seed:     rand.Uint64(), //nolint:gosec // a seed to print and replay, not a secret
-		duration: 12 * time.Second, principals: []string{"alice", "bob", "carol", "dave"},
-		admin: "dave", sessions: 5, speed: 120, leaseMin: time.Minute, leaseMax: 3 * time.Minute,
+		duration: 12 * time.Second, principals: []string{"alice", "bob", "carol", "dave", "erin"},
+		admin: "dave", root: "root", sessions: 5, speed: 120, leaseMin: time.Minute, leaseMax: 3 * time.Minute,
 		vanish: 0.004, stall: 0.004, think: 20 * time.Millisecond, restarts: 1, target: 120,
 		limits: server.Limits{
 			Limits: store.Limits{Labels: 6, AcceptanceItems: 5, Deps: 6, Sessions: 10, InboxUnread: 40,
 				UsageRecords: 20, UsagePerDay: 4000, Paths: 12},
-			WriteRate: 100, WriteBurst: 100,
+			WriteRate: 100, WriteBurst: 100, ControlWriteRate: 100, ControlWriteBurst: 100,
+			// A store with no connection closes soon, so the quiet
+			// project's does, and every store does once the run is over.
+			StoreIdle: server.Duration(300 * time.Millisecond),
 		},
 	}
 	if v := getenv("STARFIX_SOAK"); v != "" {
@@ -130,20 +143,50 @@ func (c *vclock) now() time.Time {
 // real is how long d on the store's clock takes in real time.
 func (c *vclock) real(d time.Duration) time.Duration { return time.Duration(float64(d) / c.speed) }
 
+// sproj is one project of the run: its database as the checker reads
+// it, the replay of its own event log, and what the workload knows of
+// it.
+type sproj struct {
+	id, name, prefix string
+	db               *sql.DB // the checker's own read-only use of the project's database
+	rep              *replay
+	pool             pool
+	holding          holding
+	// foreign matches an issue id of another project of the run.
+	foreign *regexp.Regexp
+}
+
 // soak is one run.
 type soak struct {
-	t       *testing.T
-	cfg     soakConfig
-	clock   *vclock
-	w       *world
-	db      *sql.DB // the checker's own read-only use of the store's database
-	mon     *monitor
-	rep     *replay
-	pool    pool
-	holding holding
-	logs    *logCounter
-	users   map[string]*user
-	eve     *user // reads for the checks, and does nothing else
+	t     *testing.T
+	cfg   soakConfig
+	clock *vclock
+	w     *world
+	// a and b are the two projects the sessions work in, and c the quiet
+	// one, which has a connection only when the admin gives it one;
+	// projs is all three.
+	a, b, c *sproj
+	projs   []*sproj
+	// cdb is the checker's read-only use of the control database, and
+	// ctl the replay of its event log.
+	cdb  *sql.DB
+	ctl  *ctlReplay
+	mon  *monitor
+	logs *logCounter
+	// users holds each principal's repository for each project it may
+	// reach, all with the principal's one key; storeKey is the
+	// fingerprint of a key that only the control store holds.
+	users    map[string]map[*sproj]*user
+	storeKey map[string]string
+	eve      map[*sproj]*user // reads for the checks, and does nothing else
+	// open holds the sessions' connections, for the access checks.
+	open connSet
+	acc  accessStats
+	// shaken counts the times the chaos was about to close connections
+	// that no admin's change closed: a drop of them all, and a restart.
+	shaken atomic.Int64
+	// restarting counts the daemon restarts begun.
+	restarting atomic.Int64
 
 	mu    sync.Mutex // guards live and every
 	live  []worker   // the sessions still at work when the run ended
@@ -163,18 +206,29 @@ type soak struct {
 	ended    time.Duration // real length of the work
 }
 
+// user returns principal's repository for project p.
+func (s *soak) user(principal string, p *sproj) *user { return s.users[principal][p] }
+
+// projectOf returns the project whose prefix an issue id has.
+func (s *soak) projectOf(id string) *sproj {
+	for _, p := range s.projs {
+		if strings.HasPrefix(id, p.prefix+"-") {
+			return p
+		}
+	}
+	return nil
+}
+
 func newSoak(t *testing.T, cfg soakConfig) *soak {
 	clock := &vclock{base: time.Now().UTC().Truncate(time.Second), start: time.Now(), speed: cfg.speed}
-	s := &soak{t: t, cfg: cfg, clock: clock, mon: newMonitor(), logs: &logCounter{}, users: map[string]*user{}}
-	s.rep = newReplay(s.mon.fail, []string{cfg.admin})
+	s := &soak{t: t, cfg: cfg, clock: clock, mon: newMonitor(), logs: &logCounter{}, users: map[string]map[*sproj]*user{},
+		storeKey: map[string]string{}, eve: map[*sproj]*user{}}
 	s.w = newWorld(t, daemonOpts{now: clock.now, reap: 100 * time.Millisecond, commit: 500 * time.Millisecond,
-		admins: []string{cfg.admin}, limits: cfg.limits, logger: slog.New(s.logs)})
-	for _, p := range cfg.principals {
-		s.users[p] = s.w.newUser(p, "")
-	}
-	s.eve = s.w.newUser("eve", "")
-	s.db = openCheckerDB(t, s.w.dsn)
+		admins: []string{cfg.admin, cfg.root}, limits: cfg.limits, logger: slog.New(s.logs),
+		many: true, keys: true, dbs: 4, granted: 4})
+	// Before anything connects: the stores the setup opens close again.
 	s.baseline, s.connBase = runtime.NumGoroutine(), connGoroutines()
+	s.setup()
 	return s
 }
 
@@ -206,15 +260,24 @@ func (s *soak) run() {
 	defer stop()
 	s.started = time.Now()
 	var wg sync.WaitGroup
-	for i, p := range s.cfg.principals {
+	for i, name := range s.cfg.principals {
+		// A principal's sessions take its projects in turn.
+		var in []*sproj
+		for _, p := range []*sproj{s.a, s.b} {
+			if s.user(name, p) != nil {
+				in = append(in, p)
+			}
+		}
 		for slot := range s.cfg.sessions {
 			seed := s.cfg.seed + uint64(i*100+slot)
-			wg.Go(func() { s.slot(ctx, p, slot, seed) })
+			p := in[slot%len(in)]
+			wg.Go(func() { s.slot(ctx, name, p, slot, seed) })
 		}
 	}
 	var side sync.WaitGroup
 	side.Go(func() { s.chaos(ctx) })
 	side.Go(func() { s.sample(ctx) })
+	side.Go(func() { s.conduct(ctx) })
 	wg.Wait()
 	side.Wait()
 	s.ended = time.Since(s.started)
@@ -225,8 +288,10 @@ func (s *soak) run() {
 	for _, a := range s.agents() {
 		a.settle(settle)
 	}
-	s.checkClaimsOp(settle)
-	s.awaitReaped()
+	for _, p := range s.projs {
+		s.checkClaimsOp(settle, p)
+		s.awaitReaped(p)
+	}
 	for _, a := range s.agents() {
 		if ln, c := a.liveLine(); ln != nil {
 			s.awaitWindow(a.base(), ln, c, bound{})
@@ -237,14 +302,14 @@ func (s *soak) run() {
 	}
 }
 
-// slot keeps one session of principal p at work: when it vanishes, a new
-// session, with a new id, takes its place.
-func (s *soak) slot(ctx context.Context, p string, slot int, seed uint64) {
+// slot keeps one session of principal p at work in project proj: when it
+// vanishes, a new session, with a new id, takes its place.
+func (s *soak) slot(ctx context.Context, p string, proj *sproj, slot int, seed uint64) {
 	rng := rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)) //nolint:gosec // a reproducible workload, not security
 	for gen := 0; ctx.Err() == nil; gen++ {
 		tag := fmt.Sprintf("%s-%dg%d", p, slot, gen)
 		sub := rand.New(rand.NewPCG(rng.Uint64(), rng.Uint64())) //nolint:gosec // a reproducible workload, not security
-		base := &session{s: s, tag: tag, u: s.users[p], rng: sub,
+		base := &session{s: s, p: proj, tag: tag, u: s.user(p, proj), rng: sub,
 			lease: s.cfg.leaseMin + time.Duration(rng.Int64N(int64(s.cfg.leaseMax-s.cfg.leaseMin)+1)).Truncate(time.Minute)}
 		var a interface {
 			worker
@@ -263,7 +328,7 @@ func (s *soak) slot(ctx context.Context, p string, slot int, seed uint64) {
 		} else {
 			base.key = sessKey{p, "lib-" + tag}
 			base.renewEvery = s.clock.real(base.lease) / 4
-			base.events = slot == 1
+			base.events = slot == 1 || slot == 2 // one board in each of the principal's projects
 			a = &libSession{session: base, held: map[string]heldIssue{}, revs: map[string]int64{}}
 		}
 		s.mu.Lock()
@@ -284,12 +349,12 @@ func (s *soak) agents() []worker {
 	return slices.Clone(s.live)
 }
 
-// createWeight steers creates so the backlog stays near its target.
-func (s *soak) createWeight() int {
+// createWeight steers creates so p's backlog stays near its target.
+func (s *soak) createWeight(p *sproj) int {
 	open := 0
-	s.rep.mu.Lock()
-	open = s.rep.openCount
-	s.rep.mu.Unlock()
+	p.rep.mu.Lock()
+	open = p.rep.openCount
+	p.rep.mu.Unlock()
 	switch {
 	case open < s.cfg.target/2:
 		return 16
@@ -305,7 +370,11 @@ func (s *soak) chaos(ctx context.Context) {
 	rng := rand.New(rand.NewPCG(s.cfg.seed, 7)) //nolint:gosec // reproducible chaos, not security
 	ops := []string{proto.OpCreate, proto.OpComment, proto.OpFinish, proto.OpHandoff, proto.OpStart, proto.OpRenew,
 		proto.OpUsage, proto.OpUpdate, proto.OpLabelAdd, proto.OpDepAdd, proto.OpAccept, proto.OpClose,
-		proto.OpWatch, proto.OpInbox, proto.OpAck, proto.OpReady, proto.OpShow}
+		proto.OpWatch, proto.OpInbox, proto.OpAck, proto.OpReady, proto.OpShow,
+		// What the admin sends too: an access change whose answer is lost
+		// was made all the same.
+		proto.OpMemberRemove, proto.OpMemberSet, proto.OpPrincipalDisable, proto.OpPrincipalEnable, proto.OpKeyRemove,
+		proto.OpKeyAdd, proto.OpProjectArchive, proto.OpProjectActivate, proto.OpStatus}
 	every := s.cfg.duration / time.Duration(s.cfg.restarts+1)
 	nextRestart := time.Now().Add(every)
 	nextDropAll := time.Now().Add(time.Duration(1000+rng.IntN(2000)) * time.Millisecond)
@@ -317,11 +386,14 @@ func (s *soak) chaos(ctx context.Context) {
 		s.w.dropReplyTo(ops[rng.IntN(len(ops))])
 		s.stats.drops.Add(1)
 		if time.Now().After(nextDropAll) {
+			s.shaken.Add(1)
 			s.w.dropAll()
 			s.stats.dropAlls.Add(1)
 			nextDropAll = time.Now().Add(time.Duration(1000+rng.IntN(2000)) * time.Millisecond)
 		}
 		if int(s.stats.restarts.Load()) < s.cfg.restarts && time.Now().After(nextRestart) {
+			s.shaken.Add(1)
+			s.restarting.Add(1)
 			if err := s.w.restartDaemon(); err != nil {
 				s.mon.fail("", "restart the daemon: %v", err)
 				return
@@ -451,11 +523,20 @@ func (s *soak) report() {
 		fmt.Fprintf(&b, " %s %d;", k, codes[k])
 	}
 	b.WriteString("\n")
-	r := s.rep
-	r.mu.Lock()
-	fmt.Fprintf(&b, "  events %d in %d transactions; issues %d; claims taken %d, reaped %d, released %d; takeovers of a live claim %d\n",
-		r.seq, r.txs, len(r.issues), r.ops["claim.take"], r.ops["claim.expire"], r.ops["claim.release"], len(r.overs))
-	r.mu.Unlock()
+	for _, p := range s.projs {
+		r := p.rep
+		r.mu.Lock()
+		n := 0
+		for _, c := range calls {
+			if c.p == p {
+				n++
+			}
+		}
+		fmt.Fprintf(&b, "  project %s: %d requests; events %d in %d transactions; issues %d; claims taken %d, reaped %d, released %d (%d for lost access); takeovers of a live claim %d; admin overrides by a project admin %d\n",
+			p.name, n, r.seq, r.txs, len(r.issues), r.ops["claim.take"], r.ops["claim.expire"], r.ops["claim.release"], len(r.lost), len(r.overs), len(r.overrides))
+		r.mu.Unlock()
+	}
+	s.reportAccess(&b)
 	m := s.mon
 	m.mu.Lock()
 	fmt.Fprintf(&b, "  chaos: %d dropped answers, %d connection drops, %d daemon restarts; %d sessions vanished, %d stalled; %d dial failures; retries %v\n",

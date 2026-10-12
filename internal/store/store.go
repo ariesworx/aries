@@ -83,6 +83,8 @@ type Store struct {
 	watch watchers
 	// similar caches closed titles for SimilarClosed (similar.go).
 	similar similarCache
+	// stats counts the writes that committed (stats.go).
+	stats writeStats
 
 	// beforeCommit, when set by tests, runs inside every write transaction
 	// just before COMMIT.
@@ -567,9 +569,13 @@ func (s *Store) write(ctx context.Context, actor Actor, fn func(*wtx) error) err
 	if err := actor.validate(); err != nil {
 		return err
 	}
+	start := time.Now()
 	for attempt := 1; ; attempt++ {
-		err := s.writeOnce(ctx, actor, fn)
+		changed, err := s.writeOnce(ctx, actor, fn)
 		if err == nil {
+			if changed {
+				s.stats.record(time.Now(), time.Since(start))
+			}
 			return nil
 		}
 		if !retryable(err) {
@@ -592,30 +598,31 @@ func (s *Store) write(ctx context.Context, actor Actor, fn func(*wtx) error) err
 // buffered events and commits. Only once the commit succeeds does it mark
 // the store dirty, invalidate the similar-title cache and push inbox
 // items and issue events, so a rolled-back attempt leaves no trace.
-func (s *Store) writeOnce(ctx context.Context, actor Actor, fn func(*wtx) error) error {
+func (s *Store) writeOnce(ctx context.Context, actor Actor, fn func(*wtx) error) (changed bool, err error) {
 	tx, err := s.w.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin: %w", err)
+		return false, fmt.Errorf("begin: %w", err)
 	}
 	w := &wtx{tx: tx, actor: actor, admin: s.IsAdmin(actor.Principal), now: s.now(), lim: s.opts.Limits}
 	if err := fn(w); err != nil {
-		return errors.Join(err, rollback(tx))
+		return false, errors.Join(err, rollback(tx))
 	}
 	if w.mutated && w.events == 0 && !w.quiet {
-		return errors.Join(errors.New("store: mutation without an event"), rollback(tx))
+		return false, errors.Join(errors.New("store: mutation without an event"), rollback(tx))
 	}
 	if err := w.flush(ctx); err != nil {
-		return errors.Join(err, rollback(tx))
+		return false, errors.Join(err, rollback(tx))
 	}
 	if s.beforeCommit != nil {
 		if err := s.beforeCommit(ctx); err != nil {
-			return errors.Join(err, rollback(tx))
+			return false, errors.Join(err, rollback(tx))
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit: %w", err)
+		return false, fmt.Errorf("commit: %w", err)
 	}
-	if w.mutated || w.touched {
+	changed = w.mutated || w.touched
+	if changed {
 		s.dirty.Store(true)
 	}
 	if w.closedChanged {
@@ -630,7 +637,7 @@ func (s *Store) writeOnce(ctx context.Context, actor Actor, fn func(*wtx) error)
 	if len(w.inbox) > 0 || len(evs) > 0 {
 		s.publish(w.inbox, evs)
 	}
-	return nil
+	return changed, nil
 }
 
 // rollback rolls tx back; a transaction already done is not an error.

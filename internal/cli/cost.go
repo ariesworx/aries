@@ -174,10 +174,10 @@ func isZero(usd string) bool { return strings.Trim(usd, "0.") == "" }
 var rateFlags = []string{"input", "output", "cache-write", "cache-write-1h", "cache-read"}
 
 // cmdAdmin runs the first of its arguments that names a group (prices,
-// plans, project, principal, member or key), with the rest, so flags
-// given before the group are its own.
+// plans, project, principal, member, key or status), with the rest, so
+// flags given before the group are its own.
 func cmdAdmin(ctx context.Context, r *runner, args []string) error {
-	const usage = "admin prices|plans|project|principal|member|key ..."
+	const usage = "admin prices|plans|project|principal|member|key|status ..."
 	i := slices.IndexFunc(args, func(a string) bool { return slices.Contains(adminGroups, a) })
 	if i < 0 {
 		if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -197,6 +197,8 @@ func cmdAdmin(ctx context.Context, r *runner, args []string) error {
 		return adminPrincipal(ctx, r, rest)
 	case "key":
 		return adminKey(ctx, r, rest)
+	case "status":
+		return adminStatus(ctx, r, rest)
 	}
 	return adminMember(ctx, r, rest)
 }

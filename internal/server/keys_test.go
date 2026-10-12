@@ -525,8 +525,10 @@ func TestKeyRemoveDrops(t *testing.T) {
 	}
 
 	res := mustAsk[proto.KeyResult](d, proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: carols})
-	if res != (proto.KeyResult{ID: carols, Principal: "carol", Type: "ssh-ed25519", Comment: "carol@example.com", Dropped: 2}) {
-		t.Errorf("key.remove = %+v; want carol's key, and 2 connections dropped", res)
+	// carol's connection by the file stays, and the admin is told so.
+	if want := (proto.KeyResult{ID: carols, Principal: "carol", Type: "ssh-ed25519", Comment: "carol@example.com", Dropped: 2,
+		FileConns: 1, Warning: fileWarning("carol", 1)}); res != want {
+		t.Errorf("key.remove = %+v\nwant %+v: carol's key, 2 connections dropped and 1 by the file", res, want)
 	}
 	if !byKeyA.dropped() || !byKeyB.dropped() {
 		t.Error("a connection the removed key authenticated is still open")

@@ -105,6 +105,8 @@ type Server struct {
 	// now is the clock for the limits above, and for how long a project
 	// store has been idle; tests replace it.
 	now func() time.Time
+	// started is when the server was made, for its uptime.
+	started time.Time
 
 	// single is the project of a server of one (Config.Store); stores
 	// holds the open projects of a server of many (Config.Control).
@@ -171,7 +173,7 @@ func New(cfg Config) (*Server, error) {
 	if err := cfg.ProjectDBs.Validate(); err != nil {
 		return nil, fmt.Errorf("server: %w", err)
 	}
-	s := &Server{cfg: cfg, conns: map[net.Conn]owner{}, now: time.Now, unopened: map[string]store.Project{}}
+	s := &Server{cfg: cfg, conns: map[net.Conn]owner{}, now: time.Now, started: time.Now(), unopened: map[string]store.Project{}}
 	s.writes = buckets{rate: cfg.Limits.WriteRate, burst: float64(cfg.Limits.WriteBurst)}
 	s.ctlWrites = buckets{rate: cfg.Limits.ControlWriteRate, burst: float64(cfg.Limits.ControlWriteBurst)}
 	s.refusals = sampler{n: cfg.Limits.RefusalLogs}
@@ -181,6 +183,12 @@ func New(cfg Config) (*Server, error) {
 	}
 	s.stores = &registry{open: s.openProject, max: cfg.Limits.OpenStores, idle: time.Duration(cfg.Limits.StoreIdle),
 		now: func() time.Time { return s.now() }, entries: map[string]*entry{}}
+	// An archive ends every claim in the project while requests may
+	// still be in flight on the connections it closes, and one of those
+	// may take a claim after. No tick sweeps a closed store, so an
+	// archived project's is swept as it closes (decision 21). Each
+	// write is bounded by RequestTimeout.
+	s.stores.retiring = func(pr *served) { s.sweep(context.Background(), pr) }
 	return s, nil
 }
 
@@ -195,6 +203,7 @@ func (s *Server) openProject(ctx context.Context, p store.Project) (*served, err
 		return nil, err
 	}
 	pr := &served{id: p.ID, store: st, account: p.Account, log: s.cfg.Logger.With("project", p.ID), timeout: s.cfg.RequestTimeout}
+	pr.used.Store(s.now().UnixNano())
 	pr.log.Info("project store opened", "name", p.Name, "database", p.DBName)
 	s.mu.Lock()
 	delete(s.unopened, p.ID)
@@ -525,6 +534,7 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 			return
 		}
 		start := time.Now()
+		sess.proj.used.Store(s.now().UnixNano())
 		rctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
 		var res any
 		var perr *proto.Error

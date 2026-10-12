@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/ariesworx/starfix/internal/store"
@@ -27,6 +28,10 @@ type served struct {
 	// timeout bounds each reap, prune and presence update
 	// (Config.RequestTimeout).
 	timeout time.Duration
+	// used is when the project last answered a request, or was opened if
+	// it has answered none, in Unix nanoseconds on the server's clock:
+	// what `sfx admin status` shows as last used.
+	used atomic.Int64
 }
 
 // reap ends the project's expired claims now and logs each.

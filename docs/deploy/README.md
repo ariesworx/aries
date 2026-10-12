@@ -24,10 +24,21 @@ To try starfix, or test a branch, on any machine with Docker, use the
 
 ## What every deployment shares
 
-- **One server holds one project** as these examples set it up. A server
-  can be switched to hold many, each in its own database, but only the
-  first can be created today, so several projects still need several
-  servers ([Serving many projects](../server.md#serving-many-projects)).
+- **One server holds one project** as these examples set it up. You can
+  switch a server to hold many, each in its own database, with access by
+  membership and admins who add projects and people from anywhere
+  ([Serving many projects](../server.md#serving-many-projects)). Read
+  what that section says is not yet checked on real machines before you
+  rely on it.
+- **Size the machine by the data, not by the number of projects.** Dolt's
+  memory follows what has been written across every project, and a
+  project that merely exists or sits idle adds nothing measurable: about
+  100 MB for a project of 300 issues in
+  [the measurements](../../spike/multidb/RESULTS.md), on macOS, with
+  projects loaded one after another. Five small projects cost what one
+  project five times the size does. `sfx admin status` shows starfixd's
+  side; read Dolt's memory from the machine
+  ([Watching a server](../server.md#watching-a-server)).
 - **No high availability.** While the server is down, agents keep working
   on code but cannot claim or finish issues. Recovery is a restart, or a
   [restore](../server.md#backups-and-restore) that loses what changed

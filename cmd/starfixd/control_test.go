@@ -220,7 +220,8 @@ func TestControlInit(t *testing.T) {
 		t.Fatalf("control init: %v\n%s", got.err, got.stderr)
 	}
 	wantOut := fmt.Sprintf("project acme (%s) adopted from database %s: active\n", adopted, s.db) +
-		"principals: 3 added, 0 already there; keys: 4 added, 0 already there; members: 2 added, 0 already there; 7 lines skipped\n"
+		"principals: 3 added, 0 already there; keys: 4 added, 0 already there; members: 2 added, 0 already there; 7 lines skipped\n" +
+		"4 keys in the store are also lines of " + keys + ": sshd falls back to that file, so `sfx admin key remove` does not keep such a key out until its line is deleted too\n"
 	if got.stdout != wantOut {
 		t.Errorf("stdout = %q\nwant     %q", got.stdout, wantOut)
 	}
@@ -289,7 +290,8 @@ func TestControlInit(t *testing.T) {
 	t.Run("again changes nothing", func(t *testing.T) {
 		got := s.run(t, "", controlCmd, "init", "--name", "acme", "--authorized-keys", keys)
 		want := fmt.Sprintf("project acme (%s) adopted from database %s: active\n", adopted, s.db) +
-			"principals: 0 added, 3 already there; keys: 0 added, 4 already there; members: 0 added, 2 already there; 7 lines skipped\n"
+			"principals: 0 added, 3 already there; keys: 0 added, 4 already there; members: 0 added, 2 already there; 7 lines skipped\n" +
+			"4 keys in the store are also lines of " + keys + ": sshd falls back to that file, so `sfx admin key remove` does not keep such a key out until its line is deleted too\n"
 		if got.err != nil || got.stdout != want {
 			t.Errorf("second run = %q, %v\nwant       %q", got.stdout, got.err, want)
 		}
@@ -311,7 +313,8 @@ func TestControlInit(t *testing.T) {
 		more := writeKeys(t, forced(t, "alice", "alice-1"), forced(t, "carol", "carol-1"))
 		got := s.run(t, "", controlCmd, "init", "--name", "acme", "--authorized-keys", more)
 		want := fmt.Sprintf("project acme (%s) adopted from database %s: archived\n", adopted, s.db) +
-			"principals: 1 added, 1 already there; keys: 1 added, 1 already there; members: 1 added, 1 already there; 0 lines skipped\n"
+			"principals: 1 added, 1 already there; keys: 1 added, 1 already there; members: 1 added, 1 already there; 0 lines skipped\n" +
+			"2 keys in the store are also lines of " + more + ": sshd falls back to that file, so `sfx admin key remove` does not keep such a key out until its line is deleted too\n"
 		if got.err != nil || got.stdout != want || got.stderr != "" {
 			t.Errorf("run with a new line = %q, %v, stderr %q\nwant %q", got.stdout, got.err, got.stderr, want)
 		}
@@ -343,7 +346,10 @@ func TestControlInitLimits(t *testing.T) {
 	if got.err != nil {
 		t.Fatalf("control init: %v\n%s", got.err, got.stderr)
 	}
-	if want := "principals: 2 added, 0 already there; keys: 2 added, 0 already there; members: 2 added, 0 already there; 2 lines skipped\n"; !strings.HasSuffix(got.stdout, want) {
+	// The two keys that were stored are counted as still in the file; the
+	// two lines skipped are not.
+	if want := "principals: 2 added, 0 already there; keys: 2 added, 0 already there; members: 2 added, 0 already there; 2 lines skipped\n" +
+		"2 keys in the store are also lines of " + keys + ": sshd falls back to that file, so `sfx admin key remove` does not keep such a key out until its line is deleted too\n"; !strings.HasSuffix(got.stdout, want) {
 		t.Errorf("stdout = %q, want it to end %q", got.stdout, want)
 	}
 	for _, want := range []string{
