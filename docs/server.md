@@ -8,8 +8,11 @@ A starfix server is one Linux machine running three programs:
 | `starfixd serve` | The daemon. It owns the data and applies every change in order |
 | Dolt | The database, listening on loopback for starfixd alone |
 
-One server holds one project. This page sets a server up step by step, then
-covers principals, settings, limits, upgrades, backups and troubleshooting.
+A server holds one project, as the steps below set it up. It can be
+switched to hold many, each in its own database ([Serving many
+projects](#serving-many-projects)). This page sets a server up step by
+step, then covers principals, settings, limits, upgrades, backups and
+troubleshooting.
 For complete deployments with costs, see the
 [deployment examples](deploy/README.md).
 
@@ -343,6 +346,113 @@ subscription plan ([Plans](#plans)), or undo another person's hours.
 Nothing over the protocol or MCP reads or changes the list, and a
 reserved name cannot be an admin.
 
+On a server of [many projects](#serving-many-projects) these are the
+server admins: admins in every project, and let into every project.
+
+## Serving many projects
+
+A server can hold many projects, each in a Dolt database of its own with
+its own writer, so a busy project does not queue another's writes. They
+share the one Dolt, the one starfixd and the machine. A second database,
+the control database, records the projects, the principals and their
+keys, and which principal is a member of which project. You opt in: a
+server with no `control_db` setting is the server of one project it was.
+
+What works today:
+
+- **Opting in, and adopting the project the server holds**, below.
+- **Membership is enforced at connection.** A principal reaches a project
+  only as a member of it, or as a server admin (`admins:`). Anyone else is
+  refused with `forbidden` and told to ask an admin. A project that is
+  unknown or archived is refused as not served.
+- **Project admins.** A member whose role in a project is `admin` may
+  override a held issue and force a close in that project, and set its
+  prices and plans, as a server admin may in every project. A role that
+  changes counts on the next request.
+- **`import-bd` and `export-bd`** act on the config file's `project`, or
+  on another with `--project UUID`.
+
+What does not exist yet:
+
+- **Creating further projects, and adding or removing members,** have no
+  command. They come with `sfx admin`. Until then the only project is the
+  one adopted, and its members are the principals `control init` imports.
+- **Keys still come from `authorized_keys`.** sshd reads that file as
+  before. The control database holds a copy of each key for the release
+  that will serve them from there; today nothing reads the copy.
+- **Open connections are not dropped** when access ends. A principal who
+  loses a membership, or whose project is archived, is refused at the
+  next connection; end open sessions as under [Principals](#principals).
+
+### Opt in
+
+1. Create the control database and grant it to starfixd's account, as
+   Dolt's own user, the way step 4 says to administer Dolt:
+
+   ```sh
+   cd /var/lib/dolt/data/starfix
+   sudo -u dolt -H dolt sql -q "CREATE DATABASE IF NOT EXISTS starfix_control; GRANT ALL ON starfix_control.* TO 'starfix'@'localhost';"
+   ```
+
+   The grant names the database exactly. Dolt ignores a grant on a name
+   pattern.
+
+2. Name it in `/etc/starfix/starfixd.yaml`, leaving `dsn`, `project`,
+   `prefix` and `account` as they are. They now describe the project to
+   adopt:
+
+   ```yaml
+   control_db: starfix_control
+   ```
+
+3. Adopt the existing database as the first project, and import the
+   principals and keys of `authorized_keys`:
+
+   ```sh
+   sudo -u starfix -H starfixd control init --name acme
+   ```
+
+   ```text
+   project acme (6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f) adopted from database starfix: active
+   principals: 2 added, 0 already there; keys: 3 added, 0 already there; members: 1 added, 0 already there; 0 lines skipped
+   ```
+
+4. Restart starfixd: `systemctl restart starfixd`.
+
+`control init` records the database in `dsn` as a project, with the
+config file's `project` UUID, `prefix` and `account` and the name you
+give, and changes nothing in that database. Then, for each line of
+`/var/lib/starfix/.ssh/authorized_keys` (or `--authorized-keys FILE`)
+whose forced command is `starfixd stdio --principal NAME`, it adds the
+principal if it is new, adds the key, and makes the principal a member
+of the project. A principal named under `admins:` gets its row and keys
+and no membership, since a server admin needs none. A line it cannot use
+is skipped and reported on stderr by number and reason, never by its
+text.
+
+- **Run it again whenever `authorized_keys` gains a line.** It adds what
+  is new and leaves the rest: it does not demote an admin, re-activate an
+  archived project, or remove anyone. A running starfixd reads the
+  control database again every 30 seconds, so the new member can connect
+  within the minute.
+- **It does not remove.** Deleting a line from `authorized_keys` stops
+  that key at sshd, as before, and leaves the principal's row and
+  membership in the control database.
+- **Its changes are on the record** in the control database's event log,
+  under the reserved principal `import`.
+- **`serve` refuses to start** while the control database holds no active
+  project, and says to run `control init`.
+- **To go back,** remove `control_db` and restart. The project's database
+  was never changed, and the control database is left unused.
+
+Each project's store is opened by its first connection and closed after
+`store_idle` without one ([Limits](#limits)). Closing gives back the
+store's connections to Dolt. It does not give back Dolt's memory, which
+follows the data written across all projects
+([measurements](../spike/multidb/RESULTS.md)), so size the machine by the
+data in all its projects together. A store that reopens ends the claims
+that expired while it was closed before it serves its first request.
+
 ## Prices
 
 `sfx cost`, `show` and `digest` price tokens at each model's list rates,
@@ -402,7 +512,8 @@ the config file (`/etc/starfix/starfixd.yaml`, or `--config FILE`, or
 | Key | Holds | Default | Flag and variable |
 |---|---|---|---|
 | `dsn` | Dolt's address and account, in [go-sql-driver/mysql](https://github.com/go-sql-driver/mysql#dsn-data-source-name) form | required | `--dsn`, `STARFIXD_DSN` |
-| `project` | The project's UUID, in lowercase. A client naming another project is refused | required | `--project`, `STARFIXD_PROJECT` |
+| `project` | The project's UUID, in lowercase. A client naming another project is refused. With `control_db`: the project `control init` adopts, and the one `import-bd`, `export-bd` and the health check of `upgrade` use by default | required | `--project`, `STARFIXD_PROJECT` |
+| `control_db` | The name of the control database, on the same Dolt server and account as `dsn`. Setting it makes this a server of [many projects](#serving-many-projects). A lowercase letter, then lowercase letters, digits and underscores; not the database in `dsn` | none: one project | `STARFIXD_CONTROL_DB` |
 | `socket` | The daemon's unix socket | `/run/starfix/starfixd.sock` | `--socket`, `STARFIXD_SOCKET` |
 | `prefix` | The prefix of new issue ids | `sf` | `--prefix` |
 | `admins` | [Admins](#admins) | none | `STARFIXD_ADMINS` |
@@ -417,7 +528,7 @@ the config file (`/etc/starfix/starfixd.yaml`, or `--config FILE`, or
   refused, because it would show in the process list. A config file that
   holds one must be mode 0600.
 - **The Dolt account is checked** by every command that opens the store:
-  `serve`, `import-bd`, `export-bd` and `upgrade`. [The Dolt
+  `serve`, `control init`, `import-bd`, `export-bd` and `upgrade`. [The Dolt
   account](security-model.md#the-dolt-account) lists what they refuse.
 - **`--dev`** is for a developer's own machine. It lets `serve` run off
   Linux. With `--dev`, the commands that open the store also accept
@@ -463,6 +574,19 @@ limits:
 | `plan_principals` | 100 | Principals one plan row names (at most 1000). `plans` times `plan_principals` is at most 100000, the principals a cost report may read, so raising one past its default means lowering the other; the server refuses to start otherwise |
 | `hours_per_day` | 50 | Hours entries one principal may have on one day. Past it a new entry is refused with `invalid`, and its fix says to undo some and log their sum, or raise the limit |
 | `hours_note` | 500 | Bytes in an hours entry's note (at most 65535) |
+| `open_stores` | 64 | With `control_db`: project stores open at once. Each holds one connection to Dolt when idle and up to nine under load. At the cap, a connection to another project closes the store that has been without connections longest; when every open store has one, it is refused with `busy` |
+| `store_idle` | `10m` | With `control_db`: how long a project's store stays open with no connection. Closing it gives back its connections to Dolt, not Dolt's memory |
+| `projects` | 500 | With `control_db`: projects on the server, archived ones included |
+| `principals` | 5000 | With `control_db`: principals in the control database, disabled ones included |
+| `keys_per_principal` | 20 | With `control_db`: public keys of one principal |
+| `members_per_project` | 1000 | With `control_db`: principals with a role in one project |
+
+On a server of [many projects](#serving-many-projects), every limit above
+that is per principal is per principal in each project: `conns_per_principal`,
+the write bucket, `refusal_logs` and the limits on rows a principal owns.
+`conns` stays the whole server's. Past `principals`, `keys_per_principal`
+or `members_per_project`, `control init` skips the line and says which
+limit it met.
 
 A request past a per-request cap is refused with `invalid`. A write past
 the write rate is refused with `busy`, and its fix says how long to wait.
@@ -510,8 +634,8 @@ starfixd logs to stderr, which systemd sends to the journal
 
 | Level | Logs |
 |---|---|
-| `debug` | Connections and each successful request |
-| `info` | Startup, refusals, handshake failures and expired claims. Refusals are capped at `refusal_logs` a minute per principal |
+| `debug` | Connections and each successful request. With `control_db`, each names its `project` |
+| `info` | Startup, refusals, handshake failures and expired claims. Refusals are capped at `refusal_logs` a minute per principal. With `control_db`: each project store opened and closed, and the `project` of every line about one |
 | `warn` | Connections refused at the connection cap, socket peers refused, how many refusal lines the cap left out, and failures to accept a connection that may pass, such as running out of file descriptors, which starfixd retries after a pause of up to a second |
 | `error` | Internal errors |
 
@@ -540,12 +664,20 @@ sudo -u starfix -H starfixd upgrade
 
 1. Downloads the release and checks its signature and checksum.
 2. Commits the database and tags it `starfix-<old version>`, a point to go
-   back to.
+   back to. With `control_db`, it does so in the control database and in
+   every project's database, and stops, changing nothing, if one cannot
+   be reached.
 3. Swaps the binary.
 4. With `systemd_unit:` set, or `--restart`, restarts the unit through the
    sudo rule from [step 5](#5-run-starfixd-under-systemd). It then checks
    that the new version answers on the socket within 30 seconds. If it does
    not, upgrade puts the old binary back and restarts it.
+
+With `control_db`, the check connects to the config file's `project`,
+which must be active, so it shows that the control database and that
+project's database open under the new version. Another project's database is migrated when its store
+next opens; if that fails, connections to that project are refused with
+`unavailable` and the log says why.
 
 It refuses to run as root, except with `--check`. `--to vX.Y.Z` installs a given release, but
 never an older one, because migrations only go forward. `--rollback`
@@ -564,7 +696,7 @@ Back up three things:
 
 | What | Holds | How |
 |---|---|---|
-| The database | Every issue, comment and event | A daily `dolt dump`, below |
+| The database | Every issue, comment and event | A daily `dolt dump`, below. With `control_db`: one dump for the control database and one for each project's, each from its own directory under `/var/lib/dolt/data` |
 | `/etc/starfix/starfixd.yaml` | The project UUID and Dolt's password | With your other secrets |
 | `~starfix/.ssh/authorized_keys` and `/etc/ssh/ssh_host_ed25519_key*` | Who may connect, and the host key every `.starfix.yaml` pins | With your other secrets |
 
@@ -633,8 +765,9 @@ quiet hour: `cd /var/lib/dolt/data/starfix && sudo -u dolt -H dolt gc`.
 |---|---|
 | `serve` | Run the daemon. Flags: `--config`, `--dsn`, `--socket`, `--project`, `--prefix`, `--log-level`, `--log-format`, `--dev`, `--allow-unsafe-dolt` |
 | `stdio --principal NAME` | The sshd forced command: bridge one SSH session to the daemon |
-| `import-bd [--principal NAME] [--dry-run] [--json] FILE` | Import a bd export (`-` for stdin); see [Moving from bd](migrate-from-bd.md) |
-| `export-bd [-o FILE]` | Write the store in bd's JSONL format |
+| `control init --name NAME [--authorized-keys FILE]` | Once, after setting `control_db`: adopt the server's database as the first project and import principals and keys from `authorized_keys` ([Serving many projects](#serving-many-projects)). Safe to run again |
+| `import-bd [--project UUID] [--principal NAME] [--dry-run] [--json] FILE` | Import a bd export (`-` for stdin); see [Moving from bd](migrate-from-bd.md). `--project` picks a project on a server of many |
+| `export-bd [--project UUID] [-o FILE]` | Write the store in bd's JSONL format |
 | `upgrade [--check] [--to vX.Y.Z] [--rollback] [--restart]` | Replace the binary with a verified release ([Upgrades](#upgrades)) |
 | `version` | Print the version and protocol range |
 
@@ -645,7 +778,9 @@ quiet hour: `cd /var/lib/dolt/data/starfix && sudo -u dolt -H dolt gc`.
 | `sfx: host key mismatch` | The server's key is not the pinned one | Check the new key with the admin, out of band, before you change `host_key` |
 | `sfx: … refused your SSH key`, though the key line is right | The `starfix` account is locked (`!` in `/etc/shadow`), or its shell is `nologin` | `usermod -p '*' starfix`; `usermod -s /bin/sh starfix` |
 | `sfx: starfixd is not running on the server` | The daemon is stopped, or failed at start | `journalctl -u starfixd` shows why; `systemctl start starfixd` |
-| `project "…" is not served by this server` | `.starfix.yaml` and the config file name different projects | Make the two `project` values match |
+| `project "…" is not served by this server` | `.starfix.yaml` and the config file name different projects; with `control_db`, the project is unknown or archived | Make the two `project` values match |
+| `… is not a member of project "…"` | With `control_db`: the principal has no row in the control database, is disabled, or is in other projects only | Add their line to `authorized_keys` and run `starfixd control init` again |
+| `the control database … holds no active project` at start | `control_db` is set and `control init` has not run | `sudo -u starfix -H starfixd control init --name NAME` |
 | starfixd refuses the Dolt account | The account is `root` or has too many rights, or `secure_file_priv` is empty | Run the SQL its fix names, or redo [step 4](#4-create-the-database-and-the-config-file) |
 | `sfx` exits with code 3 | Client and server speak incompatible protocols | Upgrade the server, then the client |
 | `busy` | A [limit](#limits) | Wait as the fix says, or raise the limit |

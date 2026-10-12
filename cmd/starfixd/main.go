@@ -2,8 +2,9 @@
 //
 //	starfixd serve [--dev [--allow-unsafe-dolt]] [--config FILE] [--dsn DSN] [--socket PATH] [--project UUID] [--prefix P] [--log-level L] [--log-format F]
 //	starfixd stdio --principal NAME [--config FILE] [--socket PATH]
-//	starfixd import-bd [--config FILE] [--dsn DSN] [--principal NAME] [--dry-run] [--json] FILE|-
-//	starfixd export-bd [--config FILE] [--dsn DSN] [-o FILE]
+//	starfixd control init --name NAME [--authorized-keys FILE] [--config FILE] [--dsn DSN]
+//	starfixd import-bd [--config FILE] [--dsn DSN] [--project UUID] [--principal NAME] [--dry-run] [--json] FILE|-
+//	starfixd export-bd [--config FILE] [--dsn DSN] [--project UUID] [-o FILE]
 //	starfixd upgrade [--check] [--to vX.Y.Z] [--rollback] [--restart] [--config FILE] [--dsn DSN] [--socket PATH]
 //	starfixd version
 //
@@ -12,7 +13,10 @@
 // key's authorized_keys line; it bridges the SSH session to that socket.
 // import-bd and export-bd are admin commands run on the server: they open
 // the store directly with the daemon's DSN settings and move a backlog in
-// and out as bd's JSONL. upgrade replaces this binary with a verified
+// and out as bd's JSONL. With control_db set the server holds many
+// projects, each in a database of its own: control init adopts the
+// existing database as the first and imports authorized_keys, and
+// import-bd and export-bd take --project. upgrade replaces this binary with a verified
 // release, after tagging the database, and restarts and health-checks the
 // daemon when a systemd unit is configured or --restart is given.
 package main
@@ -23,6 +27,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -36,8 +41,9 @@ import (
 const usage = `usage:
   starfixd serve [--dev [--allow-unsafe-dolt]] [--config FILE] [--dsn DSN] [--socket PATH] [--project UUID] [--prefix P] [--log-level L] [--log-format F]
   starfixd stdio --principal NAME [--config FILE] [--socket PATH]
-  starfixd import-bd [--config FILE] [--dsn DSN] [--principal NAME] [--dry-run] [--json] FILE|-
-  starfixd export-bd [--config FILE] [--dsn DSN] [-o FILE]
+  starfixd control init --name NAME [--authorized-keys FILE] [--config FILE] [--dsn DSN]
+  starfixd import-bd [--config FILE] [--dsn DSN] [--project UUID] [--principal NAME] [--dry-run] [--json] FILE|-
+  starfixd export-bd [--config FILE] [--dsn DSN] [--project UUID] [-o FILE]
   starfixd upgrade [--check] [--to vX.Y.Z] [--rollback] [--restart] [--config FILE] [--dsn DSN] [--socket PATH]
   starfixd version
 
@@ -46,6 +52,10 @@ or dsn: in the config file (default /etc/starfix/starfixd.yaml, mode 0600).
 Admins, who may change issues others hold and force a close, are listed
 under admins: in the config file or in $STARFIXD_ADMINS (comma-separated);
 serve reads them at start.
+
+With control_db: (or $STARFIXD_CONTROL_DB) set, the server holds many
+projects, and who may reach each is in that database. Run control init
+once to adopt the existing database as the first project.
 
 Every command that opens the store refuses a Dolt account that is root,
 holds rights beyond its database, or a server whose secure_file_priv is
@@ -85,6 +95,8 @@ func run(ctx context.Context, args []string) error {
 		return serve(ctx, args[1:])
 	case "stdio":
 		return stdio(ctx, args[1:])
+	case "control":
+		return controlCmd(ctx, osEnv(), args[1:])
 	case "import-bd":
 		return importBD(ctx, osEnv(), args[1:])
 	case "export-bd":
@@ -143,33 +155,87 @@ func serve(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	switch {
-	case s.DSN == "":
-		return errors.New("no database DSN; fix: set $STARFIXD_DSN or dsn: in the config file")
-	case s.Project == "":
-		return errors.New("no project; fix: set --project, $STARFIXD_PROJECT or project: in the config file")
-	}
 	log, err := server.NewLogger(os.Stderr, s.LogLevel, s.LogFormat)
 	if err != nil {
 		return err
 	}
-	st, err := store.Open(ctx, s.DSN, store.Options{Prefix: s.Prefix, Logger: log, Admins: s.Admins,
-		AllowUnsafeAccount: s.AllowUnsafeDolt, Limits: s.Limits.Limits})
+	d, err := openDaemon(ctx, s, log)
 	if err != nil {
-		return fmt.Errorf("open store: %w", err)
-	}
-	srv, err := server.New(server.Config{Store: st, Project: s.Project, Version: version.Version,
-		Latest: s.Latest, Logger: log, Limits: s.Limits, Account: s.Account})
-	if err != nil {
-		return errors.Join(err, st.Close())
+		return err
 	}
 	l, err := server.Listen(s.Socket)
 	if err != nil {
-		return errors.Join(err, st.Close())
+		return errors.Join(err, d.Close())
 	}
-	log.Info("starfixd serving", "version", version.Version, "socket", s.Socket, "project", s.Project, "admins", s.Admins)
-	err = srv.Serve(ctx, l)
-	return errors.Join(err, st.Close())
+	if d.ctl != nil {
+		log.Info("starfixd serving", "version", version.Version, "socket", s.Socket, "control_db", s.ControlDB,
+			"projects", d.ctl.ActiveProjects(), "admins", s.Admins)
+	} else {
+		log.Info("starfixd serving", "version", version.Version, "socket", s.Socket, "project", s.Project, "admins", s.Admins)
+	}
+	err = d.srv.Serve(ctx, l)
+	return errors.Join(err, d.Close())
+}
+
+// daemon is what serve runs: the server, and what it must close when
+// the server has stopped.
+type daemon struct {
+	srv *server.Server
+	// st is the store of a server of one project, and ctl the control
+	// store of a server of many (control_db). Exactly one is set.
+	st  *store.Store
+	ctl *store.Control
+}
+
+// Close closes the daemon's store or control store. The server closes
+// the project stores it opened itself.
+func (d *daemon) Close() error {
+	if d.ctl != nil {
+		return d.ctl.Close()
+	}
+	return d.st.Close()
+}
+
+// openDaemon opens what s configures: the store of the one project in
+// the DSN, or, with control_db set, the control store of a server of
+// many projects, whose stores the server opens as they are asked for. A
+// server of one project opens no control store.
+func openDaemon(ctx context.Context, s server.Settings, log *slog.Logger) (*daemon, error) {
+	cfg := server.Config{Version: version.Version, Latest: s.Latest, Logger: log, Limits: s.Limits, Account: s.Account}
+	opts := store.Options{Logger: log, AllowUnsafeAccount: s.AllowUnsafeDolt, Limits: s.Limits.Limits}
+	if s.DSN == "" {
+		return nil, errors.New("no database DSN; fix: set $STARFIXD_DSN or dsn: in the config file")
+	}
+	if s.ControlDB == "" {
+		if s.Project == "" {
+			return nil, errors.New("no project; fix: set --project, $STARFIXD_PROJECT or project: in the config file")
+		}
+		opts.Prefix, opts.Admins = s.Prefix, s.Admins
+		st, err := store.Open(ctx, s.DSN, opts)
+		if err != nil {
+			return nil, fmt.Errorf("open store: %w", err)
+		}
+		cfg.Store, cfg.Project = st, s.Project
+		srv, err := server.New(cfg)
+		if err != nil {
+			return nil, errors.Join(err, st.Close())
+		}
+		return &daemon{srv: srv, st: st}, nil
+	}
+	ctl, err := openControl(ctx, s, store.ControlOptions{Logger: log})
+	if err != nil {
+		return nil, err
+	}
+	if ctl.ActiveProjects() == 0 {
+		return nil, errors.Join(fmt.Errorf("the control database %s holds no active project; fix: adopt this server's database as the first with `starfixd control init --name NAME`",
+			s.ControlDB), ctl.Close())
+	}
+	cfg.Control, cfg.Open = ctl, server.ProjectOpener(s.DSN, ctl, opts)
+	srv, err := server.New(cfg)
+	if err != nil {
+		return nil, errors.Join(err, ctl.Close())
+	}
+	return &daemon{srv: srv, ctl: ctl}, nil
 }
 
 // stdio runs `starfixd stdio`, the forced command: it bridges this

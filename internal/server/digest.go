@@ -34,14 +34,14 @@ func parseSince(s string) (time.Time, time.Duration, error) {
 	return time.Time{}, d, nil
 }
 
-func digest(ctx context.Context, s *Server, _ store.Actor, in proto.DigestArgs) (any, *proto.Error) {
+func digest(ctx context.Context, pr *served, _ store.Actor, in proto.DigestArgs) (any, *proto.Error) {
 	since, window, err := parseSince(in.Since)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpDigest, "", 0, err)
+		return nil, pr.mapErr(ctx, proto.OpDigest, "", 0, err)
 	}
-	d, err := s.cfg.Store.Digest(ctx, store.DigestFilter{Since: since, Window: window, By: in.By, Label: in.Label})
+	d, err := pr.store.Digest(ctx, store.DigestFilter{Since: since, Window: window, By: in.By, Label: in.Label})
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpDigest, "", 0, err)
+		return nil, pr.mapErr(ctx, proto.OpDigest, "", 0, err)
 	}
 	return wireDigest(d), nil
 }

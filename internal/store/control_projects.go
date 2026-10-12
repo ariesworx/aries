@@ -161,6 +161,8 @@ func (c *Control) AddProject(ctx context.Context, actor Actor, in NewProject) (P
 			out.ID, out.Name, out.Prefix, out.Account, out.DBName, string(out.State), out.CreatedBy, w.now, w.now, randomInt63()); err != nil {
 			return fmt.Errorf("add project %s: %w", in.ID, err)
 		}
+		added := out
+		w.indexed(func(ix *index) { ix.projects[added.ID] = added })
 		return w.event(ctx, OpProjectAdd, out.ID, nil, out)
 	})
 	if err != nil {
@@ -212,6 +214,8 @@ func (c *Control) setProjectState(ctx context.Context, actor Actor, id string, o
 			return fmt.Errorf("%w: project %s changed during %s", errRetry, id, op)
 		}
 		out.State, out.UpdatedAt, out.Rev = to, w.now, cur.Rev+1
+		moved := out
+		w.indexed(func(ix *index) { ix.projects[id] = moved })
 		return w.event(ctx, op, id, cur, out)
 	})
 	if err != nil {

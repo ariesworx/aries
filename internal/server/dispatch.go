@@ -20,17 +20,30 @@ import (
 // store's error as mapErr words it. Dispatch is safe for concurrent use.
 // It applies no write rate limit, and refuses watch, which needs a
 // connection to push to.
+//
+// Dispatch is for a server of one project (Config.Store). A server of
+// many (Config.Control) knows a request's project only from its
+// connection, and refuses here with unavailable.
 func (s *Server) Dispatch(ctx context.Context, actor store.Actor, op string, args json.RawMessage) (any, *proto.Error) {
+	if s.single == nil {
+		return nil, proto.Errf(proto.CodeUnavailable, "send the request on a connection, which names its project",
+			"this server holds many projects, and the request names none")
+	}
+	return s.single.dispatch(ctx, actor, op, args)
+}
+
+// dispatch runs one operation for actor in pr, as Dispatch describes.
+func (pr *served) dispatch(ctx context.Context, actor store.Actor, op string, args json.RawMessage) (any, *proto.Error) {
 	h, ok := handlers[op]
 	if !ok {
 		return nil, proto.Errf(proto.CodeInvalid, proto.FixUpgrade+" starfix to match the server, or check the operation name",
 			fmt.Sprintf("unknown operation %q", op))
 	}
-	return h(ctx, s, actor, args)
+	return h(ctx, pr, actor, args)
 }
 
-// handler runs one op, as Dispatch does, for actor a.
-type handler func(ctx context.Context, s *Server, a store.Actor, args json.RawMessage) (any, *proto.Error)
+// handler runs one op, as Dispatch does, for actor a in project pr.
+type handler func(ctx context.Context, pr *served, a store.Actor, args json.RawMessage) (any, *proto.Error)
 
 // handlers maps each op to its handler.
 var handlers = map[string]handler{
@@ -76,8 +89,8 @@ var handlers = map[string]handler{
 }
 
 // typed decodes args strictly into A and calls fn.
-func typed[A any](fn func(ctx context.Context, s *Server, a store.Actor, args A) (any, *proto.Error)) handler {
-	return func(ctx context.Context, s *Server, a store.Actor, raw json.RawMessage) (any, *proto.Error) {
+func typed[A any](fn func(ctx context.Context, pr *served, a store.Actor, args A) (any, *proto.Error)) handler {
+	return func(ctx context.Context, pr *served, a store.Actor, raw json.RawMessage) (any, *proto.Error) {
 		var args A
 		if len(raw) > 0 {
 			dec := json.NewDecoder(bytes.NewReader(raw))
@@ -87,11 +100,11 @@ func typed[A any](fn func(ctx context.Context, s *Server, a store.Actor, args A)
 					fmt.Sprintf("bad arguments: %v", err))
 			}
 		}
-		return fn(ctx, s, a, args)
+		return fn(ctx, pr, a, args)
 	}
 }
 
-func create(ctx context.Context, s *Server, a store.Actor, in proto.CreateArgs) (any, *proto.Error) {
+func create(ctx context.Context, pr *served, a store.Actor, in proto.CreateArgs) (any, *proto.Error) {
 	n := store.NewIssue{
 		ID: store.IssueID(in.ID), IdempotencyKey: in.Idem, ParentID: store.IssueID(in.Parent),
 		Title: in.Title, Body: in.Body, Design: in.Design, Acceptance: in.Acceptance, Notes: in.Notes,
@@ -102,20 +115,20 @@ func create(ctx context.Context, s *Server, a store.Actor, in proto.CreateArgs) 
 		p := store.Priority(*in.Priority)
 		n.Priority = &p
 	}
-	is, err := s.cfg.Store.CreateIssue(ctx, a, n)
+	is, err := pr.store.CreateIssue(ctx, a, n)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpCreate, in.ID, 0, err)
+		return nil, pr.mapErr(ctx, proto.OpCreate, in.ID, 0, err)
 	}
 	return proto.CreateResult{WriteResult: proto.WriteResult{ID: string(is.ID), Rev: int64(is.Rev)},
-		Similar: s.similar(ctx, is)}, nil
+		Similar: pr.similar(ctx, is)}, nil
 }
 
 // similar lists the closed issues like is, for create and show. A failure
 // is logged and lists none: the request itself succeeded.
-func (s *Server) similar(ctx context.Context, is store.Issue) []proto.Summary {
-	sim, err := s.cfg.Store.SimilarClosed(ctx, is.Title, is.ID, store.MaxSimilar)
+func (pr *served) similar(ctx context.Context, is store.Issue) []proto.Summary {
+	sim, err := pr.store.SimilarClosed(ctx, is.Title, is.ID, store.MaxSimilar)
 	if err != nil {
-		s.cfg.Logger.Error("similar issues", "issue", is.ID, "err", err)
+		pr.log.Error("similar issues", "issue", is.ID, "err", err)
 		return nil
 	}
 	var out []proto.Summary
@@ -126,8 +139,8 @@ func (s *Server) similar(ctx context.Context, is store.Issue) []proto.Summary {
 }
 
 // items reads is's acceptance items for start and show.
-func (s *Server) items(ctx context.Context, is store.Issue) ([]proto.AcceptanceItem, error) {
-	items, err := s.cfg.Store.AcceptanceItems(ctx, is.ID)
+func (pr *served) items(ctx context.Context, is store.Issue) ([]proto.AcceptanceItem, error) {
+	items, err := pr.store.AcceptanceItems(ctx, is.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -146,37 +159,37 @@ func wireItems(items []store.AcceptanceItem) []proto.AcceptanceItem {
 // compactText is how much of each long text field compact show returns.
 const compactText = 500
 
-func show(ctx context.Context, s *Server, a store.Actor, in proto.ShowArgs) (any, *proto.Error) {
+func show(ctx context.Context, pr *served, a store.Actor, in proto.ShowArgs) (any, *proto.Error) {
 	id := store.IssueID(in.ID)
-	is, err := s.cfg.Store.GetIssue(ctx, id)
+	is, err := pr.store.GetIssue(ctx, id)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpShow, in.ID, 0, err)
+		return nil, pr.mapErr(ctx, proto.OpShow, in.ID, 0, err)
 	}
-	deps, err := s.cfg.Store.Deps(ctx, id)
+	deps, err := pr.store.Deps(ctx, id)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpShow, in.ID, 0, err)
+		return nil, pr.mapErr(ctx, proto.OpShow, in.ID, 0, err)
 	}
-	claim, err := s.cfg.Store.ClaimOf(ctx, id)
+	claim, err := pr.store.ClaimOf(ctx, id)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpShow, in.ID, 0, err)
+		return nil, pr.mapErr(ctx, proto.OpShow, in.ID, 0, err)
 	}
-	h, err := s.cfg.Store.LastHandoff(ctx, id)
+	h, err := pr.store.LastHandoff(ctx, id)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpShow, in.ID, 0, err)
+		return nil, pr.mapErr(ctx, proto.OpShow, in.ID, 0, err)
 	}
-	items, err := s.items(ctx, is)
+	items, err := pr.items(ctx, is)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpShow, in.ID, 0, err)
+		return nil, pr.mapErr(ctx, proto.OpShow, in.ID, 0, err)
 	}
-	u, err := s.cfg.Store.IssueUsage(ctx, id)
+	u, err := pr.store.IssueUsage(ctx, id)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpShow, in.ID, 0, err)
+		return nil, pr.mapErr(ctx, proto.OpShow, in.ID, 0, err)
 	}
-	files, err := s.cfg.Store.IssueFiles(ctx, a, id, proto.MaxShowPaths)
+	files, err := pr.store.IssueFiles(ctx, a, id, proto.MaxShowPaths)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpShow, in.ID, 0, err)
+		return nil, pr.mapErr(ctx, proto.OpShow, in.ID, 0, err)
 	}
-	out := proto.ShowResult{Issue: wireIssue(is), Items: items, Similar: s.similar(ctx, is), Usage: s.wireIssueUsage(u),
+	out := proto.ShowResult{Issue: wireIssue(is), Items: items, Similar: pr.similar(ctx, is), Usage: pr.wireIssueUsage(u),
 		Files: wireFiles(files)}
 	if claim != nil {
 		c := wireClaim(*claim)
@@ -216,7 +229,7 @@ func truncate(s string, n int) (string, bool) {
 	return s[:n] + "…", true
 }
 
-func list(ctx context.Context, s *Server, _ store.Actor, in proto.ListArgs) (any, *proto.Error) {
+func list(ctx context.Context, pr *served, _ store.Actor, in proto.ListArgs) (any, *proto.Error) {
 	f := store.Filter{Assignee: in.Assignee, ParentID: store.IssueID(in.Parent), Labels: in.Labels,
 		Limit: in.Limit, Cursor: store.Cursor(in.Cursor)}
 	for _, st := range in.Status {
@@ -228,17 +241,17 @@ func list(ctx context.Context, s *Server, _ store.Actor, in proto.ListArgs) (any
 	for _, p := range in.Priority {
 		f.Priorities = append(f.Priorities, store.Priority(p))
 	}
-	page, err := s.cfg.Store.List(ctx, f)
+	page, err := pr.store.List(ctx, f)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpList, "", 0, err)
+		return nil, pr.mapErr(ctx, proto.OpList, "", 0, err)
 	}
 	return proto.ListResult{Issues: summaries(page.Issues), Next: string(page.Next)}, nil
 }
 
-func ready(ctx context.Context, s *Server, a store.Actor, in proto.LimitArgs) (any, *proto.Error) {
-	rs, err := s.cfg.Store.Ready(ctx, a, in.Limit)
+func ready(ctx context.Context, pr *served, a store.Actor, in proto.LimitArgs) (any, *proto.Error) {
+	rs, err := pr.store.Ready(ctx, a, in.Limit)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpReady, "", 0, err)
+		return nil, pr.mapErr(ctx, proto.OpReady, "", 0, err)
 	}
 	out := proto.ListResult{Issues: make([]proto.Summary, 0, len(rs))}
 	for _, r := range rs {
@@ -267,10 +280,10 @@ func wireFiles(f store.Files) *proto.Files {
 	return out
 }
 
-func blocked(ctx context.Context, s *Server, _ store.Actor, in proto.LimitArgs) (any, *proto.Error) {
-	bs, err := s.cfg.Store.Blocked(ctx, in.Limit)
+func blocked(ctx context.Context, pr *served, _ store.Actor, in proto.LimitArgs) (any, *proto.Error) {
+	bs, err := pr.store.Blocked(ctx, in.Limit)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpBlocked, "", 0, err)
+		return nil, pr.mapErr(ctx, proto.OpBlocked, "", 0, err)
 	}
 	out := proto.BlockedResult{Issues: []proto.BlockedIssue{}}
 	for _, b := range bs {
@@ -286,7 +299,7 @@ func blocked(ctx context.Context, s *Server, _ store.Actor, in proto.LimitArgs) 
 	return out, nil
 }
 
-func update(ctx context.Context, s *Server, a store.Actor, in proto.UpdateArgs) (any, *proto.Error) {
+func update(ctx context.Context, pr *served, a store.Actor, in proto.UpdateArgs) (any, *proto.Error) {
 	p := store.IssuePatch{Title: in.Title, Body: in.Body, Design: in.Design, Acceptance: in.Acceptance,
 		Notes: in.Notes, Assignee: in.Assignee, Owner: in.Owner, Account: in.Account}
 	if in.Status != nil {
@@ -294,8 +307,8 @@ func update(ctx context.Context, s *Server, a store.Actor, in proto.UpdateArgs) 
 		p.Status = &st
 	}
 	if in.Priority != nil {
-		pr := store.Priority(*in.Priority)
-		p.Priority = &pr
+		prio := store.Priority(*in.Priority)
+		p.Priority = &prio
 	}
 	if in.Type != nil {
 		t := store.IssueType(*in.Type)
@@ -306,29 +319,29 @@ func update(ctx context.Context, s *Server, a store.Actor, in proto.UpdateArgs) 
 		p.ParentID = &pid
 	}
 	p.Paths = in.Paths
-	is, err := s.cfg.Store.UpdateIssue(ctx, a, store.IssueID(in.ID), store.Rev(in.Rev), p)
+	is, err := pr.store.UpdateIssue(ctx, a, store.IssueID(in.ID), store.Rev(in.Rev), p)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpUpdate, in.ID, in.Rev, err)
+		return nil, pr.mapErr(ctx, proto.OpUpdate, in.ID, in.Rev, err)
 	}
 	return proto.WriteResult{ID: string(is.ID), Rev: int64(is.Rev)}, nil
 }
 
-func closeIssue(ctx context.Context, s *Server, a store.Actor, in proto.CloseArgs) (any, *proto.Error) {
-	closer := s.cfg.Store.CloseIssue
+func closeIssue(ctx context.Context, pr *served, a store.Actor, in proto.CloseArgs) (any, *proto.Error) {
+	closer := pr.store.CloseIssue
 	if in.Force {
-		closer = s.cfg.Store.ForceClose
+		closer = pr.store.ForceClose
 	}
 	is, err := closer(ctx, a, store.IssueID(in.ID), store.Rev(in.Rev), in.Reason)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpClose, in.ID, in.Rev, err)
+		return nil, pr.mapErr(ctx, proto.OpClose, in.ID, in.Rev, err)
 	}
 	return proto.WriteResult{ID: string(is.ID), Rev: int64(is.Rev)}, nil
 }
 
-func reopen(ctx context.Context, s *Server, a store.Actor, in proto.ReopenArgs) (any, *proto.Error) {
-	is, err := s.cfg.Store.ReopenIssue(ctx, a, store.IssueID(in.ID), store.Rev(in.Rev))
+func reopen(ctx context.Context, pr *served, a store.Actor, in proto.ReopenArgs) (any, *proto.Error) {
+	is, err := pr.store.ReopenIssue(ctx, a, store.IssueID(in.ID), store.Rev(in.Rev))
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpReopen, in.ID, in.Rev, err)
+		return nil, pr.mapErr(ctx, proto.OpReopen, in.ID, in.Rev, err)
 	}
 	return proto.WriteResult{ID: string(is.ID), Rev: int64(is.Rev)}, nil
 }
@@ -341,50 +354,50 @@ func depType(t string) store.DepType {
 	return store.DepType(t)
 }
 
-func depAdd(ctx context.Context, s *Server, a store.Actor, in proto.DepArgs) (any, *proto.Error) {
-	if err := s.cfg.Store.AddDep(ctx, a, store.IssueID(in.From), store.IssueID(in.To), depType(in.Type)); err != nil {
-		return nil, s.mapErr(ctx, proto.OpDepAdd, in.From, 0, err)
+func depAdd(ctx context.Context, pr *served, a store.Actor, in proto.DepArgs) (any, *proto.Error) {
+	if err := pr.store.AddDep(ctx, a, store.IssueID(in.From), store.IssueID(in.To), depType(in.Type)); err != nil {
+		return nil, pr.mapErr(ctx, proto.OpDepAdd, in.From, 0, err)
 	}
 	return proto.Empty{}, nil
 }
 
-func depRm(ctx context.Context, s *Server, a store.Actor, in proto.DepArgs) (any, *proto.Error) {
-	if err := s.cfg.Store.RemoveDep(ctx, a, store.IssueID(in.From), store.IssueID(in.To), depType(in.Type)); err != nil {
-		return nil, s.mapErr(ctx, proto.OpDepRm, in.From, 0, err)
+func depRm(ctx context.Context, pr *served, a store.Actor, in proto.DepArgs) (any, *proto.Error) {
+	if err := pr.store.RemoveDep(ctx, a, store.IssueID(in.From), store.IssueID(in.To), depType(in.Type)); err != nil {
+		return nil, pr.mapErr(ctx, proto.OpDepRm, in.From, 0, err)
 	}
 	return proto.Empty{}, nil
 }
 
-func labelAdd(ctx context.Context, s *Server, a store.Actor, in proto.LabelArgs) (any, *proto.Error) {
-	if err := s.cfg.Store.AddLabel(ctx, a, store.IssueID(in.ID), in.Label); err != nil {
-		return nil, s.mapErr(ctx, proto.OpLabelAdd, in.ID, 0, err)
+func labelAdd(ctx context.Context, pr *served, a store.Actor, in proto.LabelArgs) (any, *proto.Error) {
+	if err := pr.store.AddLabel(ctx, a, store.IssueID(in.ID), in.Label); err != nil {
+		return nil, pr.mapErr(ctx, proto.OpLabelAdd, in.ID, 0, err)
 	}
 	return proto.Empty{}, nil
 }
 
-func labelRm(ctx context.Context, s *Server, a store.Actor, in proto.LabelArgs) (any, *proto.Error) {
-	if err := s.cfg.Store.RemoveLabel(ctx, a, store.IssueID(in.ID), in.Label); err != nil {
-		return nil, s.mapErr(ctx, proto.OpLabelRm, in.ID, 0, err)
+func labelRm(ctx context.Context, pr *served, a store.Actor, in proto.LabelArgs) (any, *proto.Error) {
+	if err := pr.store.RemoveLabel(ctx, a, store.IssueID(in.ID), in.Label); err != nil {
+		return nil, pr.mapErr(ctx, proto.OpLabelRm, in.ID, 0, err)
 	}
 	return proto.Empty{}, nil
 }
 
-func comment(ctx context.Context, s *Server, a store.Actor, in proto.CommentArgs) (any, *proto.Error) {
-	c, err := s.cfg.Store.AddComment(ctx, a, store.IssueID(in.ID), in.Body, in.Idem)
+func comment(ctx context.Context, pr *served, a store.Actor, in proto.CommentArgs) (any, *proto.Error) {
+	c, err := pr.store.AddComment(ctx, a, store.IssueID(in.ID), in.Body, in.Idem)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpComment, in.ID, 0, err)
+		return nil, pr.mapErr(ctx, proto.OpComment, in.ID, 0, err)
 	}
 	return proto.CommentResult{ID: c.ID}, nil
 }
 
-func comments(ctx context.Context, s *Server, _ store.Actor, in proto.PageArgs) (any, *proto.Error) {
+func comments(ctx context.Context, pr *served, _ store.Actor, in proto.PageArgs) (any, *proto.Error) {
 	id := store.IssueID(in.ID)
-	page, err := s.cfg.Store.CommentsPage(ctx, id, store.Cursor(in.Before), in.Limit)
+	page, err := pr.store.CommentsPage(ctx, id, store.Cursor(in.Before), in.Limit)
 	if err == nil && page.Total == 0 {
-		_, err = s.cfg.Store.GetIssue(ctx, id) // no comments, or no issue?
+		_, err = pr.store.GetIssue(ctx, id) // no comments, or no issue?
 	}
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpComments, in.ID, 0, err)
+		return nil, pr.mapErr(ctx, proto.OpComments, in.ID, 0, err)
 	}
 	out := proto.CommentsResult{Comments: []proto.Comment{}, Earlier: string(page.Earlier), Total: page.Total}
 	for _, c := range page.Comments {
@@ -393,13 +406,13 @@ func comments(ctx context.Context, s *Server, _ store.Actor, in proto.PageArgs) 
 	return out, nil
 }
 
-func history(ctx context.Context, s *Server, a store.Actor, in proto.PageArgs) (any, *proto.Error) {
-	page, err := s.cfg.Store.HistoryPage(ctx, store.IssueID(in.ID), store.Cursor(in.Before), in.Limit)
+func history(ctx context.Context, pr *served, a store.Actor, in proto.PageArgs) (any, *proto.Error) {
+	page, err := pr.store.HistoryPage(ctx, store.IssueID(in.ID), store.Cursor(in.Before), in.Limit)
 	if err == nil && page.Total == 0 {
-		_, err = s.cfg.Store.GetIssue(ctx, store.IssueID(in.ID))
+		_, err = pr.store.GetIssue(ctx, store.IssueID(in.ID))
 	}
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpHistory, in.ID, 0, err)
+		return nil, pr.mapErr(ctx, proto.OpHistory, in.ID, 0, err)
 	}
 	out := proto.HistoryResult{Events: []proto.Event{}, Earlier: string(page.Earlier), Total: page.Total}
 	for _, e := range page.Events {
@@ -429,41 +442,41 @@ func lease(op, s string, most time.Duration) (time.Duration, *proto.Error) {
 	return d, nil
 }
 
-func start(ctx context.Context, s *Server, a store.Actor, in proto.StartArgs) (any, *proto.Error) {
+func start(ctx context.Context, pr *served, a store.Actor, in proto.StartArgs) (any, *proto.Error) {
 	d, perr := lease(proto.OpStart, in.Lease, store.MaxClaimLease)
 	if perr != nil {
 		return nil, perr
 	}
-	is, claim, err := s.cfg.Store.StartIssue(ctx, a, store.IssueID(in.ID), d, in.Take)
+	is, claim, err := pr.store.StartIssue(ctx, a, store.IssueID(in.ID), d, in.Take)
 	if errors.Is(err, store.ErrNothingReady) {
 		return nil, proto.Errf(proto.CodeNotFound, proto.FixSeeBlocked+" with `sfx blocked`, or create an issue",
 			"nothing is ready to start")
 	}
 	if held, ok := errors.AsType[*store.HeldError](err); ok {
-		return nil, s.held(ctx, a, held)
+		return nil, pr.held(ctx, a, held)
 	}
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpStart, in.ID, 0, err)
+		return nil, pr.mapErr(ctx, proto.OpStart, in.ID, 0, err)
 	}
 	c := wireClaim(claim)
 	out := proto.StartResult{Issue: wireIssue(is), Claim: &c}
 	// The issue is taken: a failed read of its items or its handoff is
 	// logged rather than failing the start.
-	if out.Items, err = s.items(ctx, is); err != nil {
-		s.cfg.Logger.Error("read acceptance items", "issue", is.ID, "err", err)
+	if out.Items, err = pr.items(ctx, is); err != nil {
+		pr.log.Error("read acceptance items", "issue", is.ID, "err", err)
 	}
-	h, err := s.cfg.Store.LastHandoff(ctx, is.ID)
+	h, err := pr.store.LastHandoff(ctx, is.ID)
 	if err != nil {
-		s.cfg.Logger.Error("read handoff", "issue", is.ID, "err", err)
+		pr.log.Error("read handoff", "issue", is.ID, "err", err)
 	} else if h != nil {
 		w := wireHandoff(*h, a)
 		out.Handoff = &w
 	}
-	out.Memories = s.issueMemories(ctx, a, is.ID)
+	out.Memories = pr.issueMemories(ctx, a, is.ID)
 	return out, nil
 }
 
-func finish(ctx context.Context, s *Server, a store.Actor, in proto.FinishArgs) (any, *proto.Error) {
+func finish(ctx context.Context, pr *served, a store.Actor, in proto.FinishArgs) (any, *proto.Error) {
 	f := store.Finish{Reason: in.Reason, Handoff: storeHandoff(in.Handoff, in.HandoffFields), IdempotencyKey: in.Idem,
 		Accept: store.Acceptance{Tick: in.Ticked, Waive: in.Waived}, Paths: in.Paths}
 	for _, d := range in.Discovered {
@@ -474,9 +487,9 @@ func finish(ctx context.Context, s *Server, a store.Actor, in proto.FinishArgs) 
 		}
 		f.Discovered = append(f.Discovered, n)
 	}
-	is, ids, err := s.cfg.Store.FinishIssue(ctx, a, store.IssueID(in.ID), in.Epoch, f)
+	is, ids, err := pr.store.FinishIssue(ctx, a, store.IssueID(in.ID), in.Epoch, f)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpFinish, in.ID, 0, err)
+		return nil, pr.mapErr(ctx, proto.OpFinish, in.ID, 0, err)
 	}
 	out := proto.FinishResult{ID: string(is.ID), Rev: int64(is.Rev)}
 	for _, id := range ids {
@@ -485,18 +498,18 @@ func finish(ctx context.Context, s *Server, a store.Actor, in proto.FinishArgs) 
 	return out, nil
 }
 
-func handoff(ctx context.Context, s *Server, a store.Actor, in proto.HandoffArgs) (any, *proto.Error) {
-	is, err := s.cfg.Store.HandoffIssue(ctx, a, store.IssueID(in.ID), in.Epoch, storeHandoff(in.Note, in.HandoffFields), in.Release, in.Idem, in.Paths)
+func handoff(ctx context.Context, pr *served, a store.Actor, in proto.HandoffArgs) (any, *proto.Error) {
+	is, err := pr.store.HandoffIssue(ctx, a, store.IssueID(in.ID), in.Epoch, storeHandoff(in.Note, in.HandoffFields), in.Release, in.Idem, in.Paths)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpHandoff, in.ID, 0, err)
+		return nil, pr.mapErr(ctx, proto.OpHandoff, in.ID, 0, err)
 	}
 	return proto.WriteResult{ID: string(is.ID), Rev: int64(is.Rev)}, nil
 }
 
-func accept(ctx context.Context, s *Server, a store.Actor, in proto.AcceptArgs) (any, *proto.Error) {
-	items, err := s.cfg.Store.Accept(ctx, a, store.IssueID(in.ID), store.Acceptance{Tick: in.Tick, Untick: in.Untick, Waive: in.Waive})
+func accept(ctx context.Context, pr *served, a store.Actor, in proto.AcceptArgs) (any, *proto.Error) {
+	items, err := pr.store.Accept(ctx, a, store.IssueID(in.ID), store.Acceptance{Tick: in.Tick, Untick: in.Untick, Waive: in.Waive})
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpAccept, in.ID, 0, err)
+		return nil, pr.mapErr(ctx, proto.OpAccept, in.ID, 0, err)
 	}
 	out := proto.AcceptResult{ID: in.ID, Items: wireItems(items)}
 	for _, it := range items {
@@ -507,7 +520,7 @@ func accept(ctx context.Context, s *Server, a store.Actor, in proto.AcceptArgs) 
 	return out, nil
 }
 
-func renew(ctx context.Context, s *Server, a store.Actor, in proto.RenewArgs) (any, *proto.Error) {
+func renew(ctx context.Context, pr *served, a store.Actor, in proto.RenewArgs) (any, *proto.Error) {
 	most := store.MaxClaimLease
 	if in.All {
 		// Renewing every session's claims is a person's call before going
@@ -531,13 +544,13 @@ func renew(ctx context.Context, s *Server, a store.Actor, in proto.RenewArgs) (a
 			paths[store.IssueID(id)] = ps
 		}
 	}
-	cs, err := s.cfg.Store.RenewClaims(ctx, a, d, in.All, paths)
+	cs, err := pr.store.RenewClaims(ctx, a, d, in.All, paths)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpRenew, "", 0, err)
+		return nil, pr.mapErr(ctx, proto.OpRenew, "", 0, err)
 	}
 	// A running agent renews every minute, which keeps it in `who`. The
 	// harness was recorded at the handshake; empty keeps it.
-	s.touch(ctx, s.cfg.Logger.With("principal", a.Principal, "session", a.Session), a, "")
+	pr.touch(ctx, pr.log.With("principal", a.Principal, "session", a.Session), a, "")
 	out := proto.ClaimsResult{Claims: []proto.Claim{}}
 	for _, c := range cs {
 		out.Claims = append(out.Claims, wireClaim(c))
@@ -546,11 +559,11 @@ func renew(ctx context.Context, s *Server, a store.Actor, in proto.RenewArgs) (a
 }
 
 // claims lists every live claim, for a board of who holds what.
-func claims(ctx context.Context, s *Server, _ store.Actor, in proto.LimitArgs) (any, *proto.Error) {
-	now := s.cfg.Store.Now()
-	cs, more, err := s.cfg.Store.ActiveClaims(ctx, in.Limit)
+func claims(ctx context.Context, pr *served, _ store.Actor, in proto.LimitArgs) (any, *proto.Error) {
+	now := pr.store.Now()
+	cs, more, err := pr.store.ActiveClaims(ctx, in.Limit)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpClaims, "", 0, err)
+		return nil, pr.mapErr(ctx, proto.OpClaims, "", 0, err)
 	}
 	out := proto.ClaimsResult{Claims: []proto.Claim{}, Now: now, More: more}
 	for _, c := range cs {

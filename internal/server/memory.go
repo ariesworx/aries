@@ -14,7 +14,7 @@ import (
 // issue it takes.
 const startMemories = 5
 
-func remember(ctx context.Context, s *Server, a store.Actor, in proto.RememberArgs) (any, *proto.Error) {
+func remember(ctx context.Context, pr *served, a store.Actor, in proto.RememberArgs) (any, *proto.Error) {
 	nm := store.NewMemory{Scope: store.Scope(in.Scope), Key: in.Key, Body: in.Body, Tags: in.Tags,
 		Pinned: in.Pinned, Rev: store.Rev(in.Rev), IdempotencyKey: in.Idem}
 	var issue string
@@ -23,55 +23,55 @@ func remember(ctx context.Context, s *Server, a store.Actor, in proto.RememberAr
 		id := store.IssueID(issue)
 		nm.Issue = &id
 	}
-	m, err := s.cfg.Store.Remember(ctx, a, nm)
+	m, err := pr.store.Remember(ctx, a, nm)
 	if err != nil {
-		return nil, s.memoryErr(ctx, proto.OpRemember, issue, err)
+		return nil, pr.memoryErr(ctx, proto.OpRemember, issue, err)
 	}
 	return proto.WriteResult{ID: m.ID, Rev: int64(m.Rev)}, nil
 }
 
-func recall(ctx context.Context, s *Server, a store.Actor, in proto.RecallArgs) (any, *proto.Error) {
+func recall(ctx context.Context, pr *served, a store.Actor, in proto.RecallArgs) (any, *proto.Error) {
 	if in.Prime {
 		if in.Scope != "" || in.Key != "" || in.Tag != "" || in.Text != "" {
 			return nil, proto.Errf(proto.CodeInvalid, "send prime with only a limit, or recall without prime",
 				"prime ranks every memory, so it takes no scope, key, tag or text")
 		}
-		ms, err := s.cfg.Store.PrimeMemories(ctx, a, in.Limit)
+		ms, err := pr.store.PrimeMemories(ctx, a, in.Limit)
 		if err != nil {
-			return nil, s.memoryErr(ctx, proto.OpRecall, "", err)
+			return nil, pr.memoryErr(ctx, proto.OpRecall, "", err)
 		}
 		return proto.RecallResult{Memories: wireMemories(ms)}, nil
 	}
-	ms, more, err := s.cfg.Store.Recall(ctx, a, store.MemoryQuery{Scope: store.Scope(in.Scope), Key: in.Key, Tag: in.Tag,
+	ms, more, err := pr.store.Recall(ctx, a, store.MemoryQuery{Scope: store.Scope(in.Scope), Key: in.Key, Tag: in.Tag,
 		Text: in.Text, Limit: in.Limit})
 	if err != nil {
-		return nil, s.memoryErr(ctx, proto.OpRecall, "", err)
+		return nil, pr.memoryErr(ctx, proto.OpRecall, "", err)
 	}
 	return proto.RecallResult{Memories: wireMemories(ms), More: more}, nil
 }
 
-func forget(ctx context.Context, s *Server, a store.Actor, in proto.ForgetArgs) (any, *proto.Error) {
-	m, err := s.cfg.Store.Forget(ctx, a, store.Scope(in.Scope), in.Key, store.Rev(in.Rev), in.Idem)
+func forget(ctx context.Context, pr *served, a store.Actor, in proto.ForgetArgs) (any, *proto.Error) {
+	m, err := pr.store.Forget(ctx, a, store.Scope(in.Scope), in.Key, store.Rev(in.Rev), in.Idem)
 	if err != nil {
-		return nil, s.memoryErr(ctx, proto.OpForget, "", err)
+		return nil, pr.memoryErr(ctx, proto.OpForget, "", err)
 	}
 	return proto.WriteResult{ID: m.ID, Rev: int64(m.Rev)}, nil
 }
 
-func pin(ctx context.Context, s *Server, a store.Actor, in proto.PinArgs) (any, *proto.Error) {
-	m, err := s.cfg.Store.PinMemory(ctx, a, store.Scope(in.Scope), in.Key, in.Pinned)
+func pin(ctx context.Context, pr *served, a store.Actor, in proto.PinArgs) (any, *proto.Error) {
+	m, err := pr.store.PinMemory(ctx, a, store.Scope(in.Scope), in.Key, in.Pinned)
 	if err != nil {
-		return nil, s.memoryErr(ctx, proto.OpPin, "", err)
+		return nil, pr.memoryErr(ctx, proto.OpPin, "", err)
 	}
 	return proto.WriteResult{ID: m.ID, Rev: int64(m.Rev)}, nil
 }
 
 // issueMemories lists the memories relevant to the issue start took. A
 // failure is logged and lists none: the issue is taken.
-func (s *Server) issueMemories(ctx context.Context, a store.Actor, id store.IssueID) []proto.Memory {
-	ms, err := s.cfg.Store.IssueMemories(ctx, a, id, startMemories)
+func (pr *served) issueMemories(ctx context.Context, a store.Actor, id store.IssueID) []proto.Memory {
+	ms, err := pr.store.IssueMemories(ctx, a, id, startMemories)
 	if err != nil {
-		s.cfg.Logger.Error("read memories", "issue", id, "err", err)
+		pr.log.Error("read memories", "issue", id, "err", err)
 		return nil
 	}
 	return wireMemories(ms)
@@ -80,7 +80,7 @@ func (s *Server) issueMemories(ctx context.Context, a store.Actor, id store.Issu
 // memoryErr words the refusals particular to memories, and leaves the
 // rest to mapErr. issue is the issue a remember links, so a missing one
 // is named as mapErr names any missing issue.
-func (s *Server) memoryErr(ctx context.Context, op, issue string, err error) *proto.Error {
+func (pr *served) memoryErr(ctx context.Context, op, issue string, err error) *proto.Error {
 	if c, ok := errors.AsType[*store.MemoryConflictError](err); ok {
 		return proto.Errf(proto.CodeConflict,
 			fmt.Sprintf(proto.FixRecall+" with `sfx recall --key %s --scope %s`, merge, and retry with --rev %d", c.Key, c.Scope, c.Current),
@@ -101,7 +101,7 @@ func (s *Server) memoryErr(ctx context.Context, op, issue string, err error) *pr
 			fmt.Sprintf(proto.FixForgetSome+" no longer needed with `sfx forget KEY --scope %s`, or ask the server admin to raise memories_per_scope under limits: in starfixd's config", le.Scope),
 			invalidText(le))
 	}
-	return s.mapErr(ctx, op, issue, 0, err)
+	return pr.mapErr(ctx, op, issue, 0, err)
 }
 
 // invalidText is err's message without the store's ErrInvalid prefix.

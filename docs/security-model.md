@@ -26,6 +26,14 @@ paths or environment variables.
   for reporting, not billing proof.
 - To revoke someone, delete their key lines and stop their open sessions
   ([Principals](server.md#principals)).
+- On a server of [many projects](server.md#serving-many-projects) the key
+  still only names the principal. Which projects that principal reaches
+  is decided by the daemon at each connection, from the control
+  database: a server admin reaches every project, a member reaches the
+  projects it belongs to, and anyone else is refused with `forbidden`,
+  whether disabled, unknown to the control database, or a member
+  elsewhere. A connection already open when a membership ends stays open
+  until it closes; stop it as you would a revoked key's.
 
 ## The server's host key is pinned
 
@@ -50,7 +58,11 @@ pinned](cli.md#the-host-key-is-pinned)).
   only as themselves and undoes only their own; an admin may undo
   anyone's, on the record.
   Only the server's config file or environment lists admins
-  ([Admins](server.md#admins)).
+  ([Admins](server.md#admins)). On a server of many projects those are
+  the server admins, and a project has admins of its own: members whose
+  role there is `admin`, with an admin's rights in that project alone. A
+  project admin's role is read from the control database on every write,
+  so taking it away counts at once.
 - **Every change is an event**, written in the same transaction as the
   change, with its principal, session and time. Clients cannot edit or
   delete events.

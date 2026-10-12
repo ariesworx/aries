@@ -133,7 +133,7 @@ func (c *Control) AddKey(ctx context.Context, actor Actor, principal, line strin
 			fp, principal, key, comment, out.AddedBy, w.now); err != nil {
 			return fmt.Errorf("add key %s: %w", fp, err)
 		}
-		w.index = func(ix *keyIndex) { ix.byFingerprint[fp] = indexedKey{principal: principal, key: key} }
+		w.indexed(func(ix *index) { ix.byFingerprint[fp] = indexedKey{principal: principal, key: key} })
 		return w.event(ctx, OpKeyAdd, fp, nil, out)
 	})
 	if err != nil {
@@ -166,7 +166,7 @@ func (c *Control) RemoveKey(ctx context.Context, actor Actor, fingerprint string
 			return fmt.Errorf("remove key %s: %w", fingerprint, err)
 		}
 		out = cur
-		w.index = func(ix *keyIndex) { delete(ix.byFingerprint, fingerprint) }
+		w.indexed(func(ix *index) { delete(ix.byFingerprint, fingerprint) })
 		return w.event(ctx, OpKeyRemove, fingerprint, cur, nil)
 	})
 	if err != nil {

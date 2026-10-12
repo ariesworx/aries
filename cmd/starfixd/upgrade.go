@@ -10,12 +10,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/release"
 	"github.com/ariesworx/starfix/internal/server"
+	"github.com/ariesworx/starfix/internal/store"
 	"github.com/ariesworx/starfix/internal/version"
 )
 
@@ -271,10 +273,68 @@ func systemctlRestart(ctx context.Context, unit string) error {
 // the commit tag (starfix-<old version>). It returns the tag made: tag, or
 // tag-<UTC time> when tag already marks an older commit
 // (store.Store.BackupTag).
+//
+// On a server of many projects (control_db) it does so in every database
+// the new binary may migrate: the control database, and the database of
+// every project that has one, archived projects included, since one can
+// be activated again. A project still being created may have no
+// database yet and is left out. It stops at the first failure, before
+// the binary is replaced. The tags made are returned together; they
+// differ only when a database already held tag at an older commit.
 func backupStore(ctx context.Context, env adminEnv, fl server.Settings, cfgPath, tag string) (string, error) {
-	st, err := openAdminStore(ctx, env, fl, cfgPath)
+	s, err := server.ResolveSettings(fl, cfgPath, env.getenv)
 	if err != nil {
 		return "", err
+	}
+	if s.ControlDB == "" {
+		st, err := openAdminStore(ctx, env, fl, cfgPath, "")
+		if err != nil {
+			return "", err
+		}
+		name, err := st.BackupTag(ctx, tag)
+		return name, closeStore(err, st)
+	}
+	if s.DSN == "" {
+		return "", errors.New("no database DSN; fix: set $STARFIXD_DSN or dsn: in the config file")
+	}
+	ctl, err := openControl(ctx, s, store.ControlOptions{CommitInterval: -1})
+	if err != nil {
+		return "", err
+	}
+	name, err := ctl.BackupTag(ctx, tag)
+	var projects []store.Project
+	if err == nil {
+		projects, err = ctl.Projects(ctx)
+	}
+	if err = closeControl(err, ctl); err != nil {
+		return "", fmt.Errorf("control database %s: %w", s.ControlDB, err)
+	}
+	tags := []string{name}
+	for _, p := range projects {
+		if p.State == store.ProjectCreating {
+			continue
+		}
+		name, err := backupProject(ctx, s, p, tag)
+		if err != nil {
+			return "", fmt.Errorf("project %s (database %s): %w", p.Name, p.DBName, err)
+		}
+		if !slices.Contains(tags, name) {
+			tags = append(tags, name)
+		}
+	}
+	return strings.Join(tags, ", "), nil
+}
+
+// backupProject tags project p's database, as backupStore describes.
+func backupProject(ctx context.Context, s server.Settings, p store.Project, tag string) (string, error) {
+	dsn, err := server.DatabaseDSN(s.DSN, p.DBName)
+	if err != nil {
+		return "", err
+	}
+	st, err := store.Open(ctx, dsn, store.Options{Prefix: p.Prefix, CommitInterval: -1, AllowUnsafeAccount: s.AllowUnsafeDolt,
+		Limits: s.Limits.Limits})
+	if err != nil {
+		return "", fmt.Errorf("open store: %w", err)
 	}
 	name, err := st.BackupTag(ctx, tag)
 	return name, closeStore(err, st)

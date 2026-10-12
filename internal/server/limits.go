@@ -41,6 +41,20 @@ type Limits struct {
 	// item is.
 	AgentKeep Duration `yaml:"agent_keep"`
 	InboxKeep Duration `yaml:"inbox_keep"`
+
+	// The rest apply to a server of many projects (control_db) only.
+
+	// Control bounds the rows of the control store: projects,
+	// principals, keys a principal and members a project.
+	Control store.ControlLimits `yaml:",inline"`
+	// OpenStores caps the project stores open at once. At the cap, a
+	// handshake for another project closes the longest-idle store with
+	// no connection, and is refused when every store has one.
+	OpenStores int `yaml:"open_stores"`
+	// StoreIdle closes a project's store once it has had no connection
+	// for this long. That gives back its connections to Dolt, not Dolt's
+	// memory.
+	StoreIdle Duration `yaml:"store_idle"`
 }
 
 // DefaultLimits are the limits a zero field takes.
@@ -48,6 +62,7 @@ var DefaultLimits = Limits{
 	Limits: store.DefaultLimits, Conns: 1024, ConnsPerPrincipal: 32, IdleTimeout: Duration(10 * time.Minute),
 	WriteRate: 10, WriteBurst: 100, RefusalLogs: 20,
 	AgentKeep: Duration(store.MaxAgentWindow), InboxKeep: Duration(30 * 24 * time.Hour),
+	Control: store.DefaultControlLimits, OpenStores: 64, StoreIdle: Duration(10 * time.Minute),
 }
 
 // Duration is a YAML duration such as 90s, 10m, 8h or 7d.
@@ -75,12 +90,15 @@ func (l Limits) WithDefaults() Limits {
 		{&l.MemoryTagLength, &d.MemoryTagLength}, {&l.Memories, &d.Memories}, {&l.MemoryKeyLength, &d.MemoryKeyLength},
 		{&l.Prices, &d.Prices}, {&l.HoursPerDay, &d.HoursPerDay}, {&l.HoursNote, &d.HoursNote}, {&l.Plans, &d.Plans},
 		{&l.PlanPrincipals, &d.PlanPrincipals},
+		{&l.Control.Projects, &d.Control.Projects}, {&l.Control.Principals, &d.Control.Principals},
+		{&l.Control.Keys, &d.Control.Keys}, {&l.Control.Members, &d.Control.Members}, {&l.OpenStores, &d.OpenStores},
 	} {
 		if *f.v == 0 {
 			*f.v = *f.d
 		}
 	}
-	for _, f := range []struct{ v, d *Duration }{{&l.IdleTimeout, &d.IdleTimeout}, {&l.AgentKeep, &d.AgentKeep}, {&l.InboxKeep, &d.InboxKeep}} {
+	for _, f := range []struct{ v, d *Duration }{{&l.IdleTimeout, &d.IdleTimeout}, {&l.AgentKeep, &d.AgentKeep}, {&l.InboxKeep, &d.InboxKeep},
+		{&l.StoreIdle, &d.StoreIdle}} {
 		if *f.v == 0 {
 			*f.v = *f.d
 		}
@@ -97,6 +115,9 @@ func (l Limits) Validate() error {
 	if err := l.Limits.Validate(); err != nil {
 		return fmt.Errorf("%w; fix: correct limits: in the config file", err)
 	}
+	if err := l.Control.Validate(); err != nil {
+		return fmt.Errorf("%w; fix: correct limits: in the config file", err)
+	}
 	for _, f := range []struct {
 		name string
 		bad  bool
@@ -105,6 +126,7 @@ func (l Limits) Validate() error {
 		{"write_rate", l.WriteRate < 0 || math.IsNaN(l.WriteRate) || math.IsInf(l.WriteRate, 0)},
 		{"write_burst", l.WriteBurst < 0}, {"refusal_logs", l.RefusalLogs < 0},
 		{"agent_keep", l.AgentKeep < 0}, {"inbox_keep", l.InboxKeep < 0},
+		{"open_stores", l.OpenStores < 0}, {"store_idle", l.StoreIdle < 0},
 	} {
 		if f.bad {
 			return fmt.Errorf("limit %s must be zero or a positive number; fix: correct limits: in the config file, or leave it out for the default", f.name)
@@ -161,38 +183,40 @@ func (b *buckets) take(key string, now time.Time) (bool, time.Duration) {
 	return false, time.Duration(math.Ceil((1-k.tokens)/b.rate)) * time.Second
 }
 
-// conns counts connections past the handshake, in all and per principal.
+// conns counts connections past the handshake, in all and per principal:
+// per principal per project in a server of many.
 type conns struct {
 	mu    sync.Mutex // guards total and by
 	total int
 	by    map[string]int
 }
 
-// acquire takes a slot for principal, or says which cap is full.
-func (c *conns) acquire(principal string, total, per int) (bool, string) {
+// acquire takes a slot for key, a principal or a principal in a project
+// (limitKey), or says which cap is full.
+func (c *conns) acquire(key string, total, per int) (bool, string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	switch {
 	case c.total >= total:
 		return false, fmt.Sprintf("the server is at its connection limit (%d)", total)
-	case c.by[principal] >= per:
-		return false, fmt.Sprintf("%s is at its connection limit (%d)", principal, per)
+	case c.by[key] >= per:
+		return false, fmt.Sprintf("%s is at its connection limit (%d)", keyPrincipal(key), per)
 	}
 	if c.by == nil {
 		c.by = map[string]int{}
 	}
 	c.total++
-	c.by[principal]++
+	c.by[key]++
 	return true, ""
 }
 
-// release frees a slot acquire took for principal.
-func (c *conns) release(principal string) {
+// release frees a slot acquire took for key.
+func (c *conns) release(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.total--
-	if c.by[principal]--; c.by[principal] <= 0 {
-		delete(c.by, principal)
+	if c.by[key]--; c.by[key] <= 0 {
+		delete(c.by, key)
 	}
 }
 

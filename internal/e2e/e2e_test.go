@@ -30,6 +30,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/ariesworx/starfix/internal/cli"
@@ -96,6 +97,12 @@ type world struct {
 	opts       daemonOpts
 	daemonMu   sync.Mutex
 	stopDaemon func()
+
+	// controlDSN is the control database of a server of many projects
+	// (daemonOpts.many), and ctl the daemon's own control store, through
+	// which tests add projects and members until `sfx admin` can.
+	controlDSN string
+	ctl        *store.Control
 }
 
 // daemonOpts configures a world's daemon; the zero value takes the
@@ -122,6 +129,11 @@ type daemonOpts struct {
 	commit time.Duration
 	// logger, if set, receives the daemon's and the store's log.
 	logger *slog.Logger
+	// many makes the daemon a server of many projects: the world's
+	// database is adopted as project, in a control store (world.ctl)
+	// whose server admins are admins. No one else may connect until a
+	// test makes them a member.
+	many bool
 }
 
 // newWorld starts a daemon on a new database, unless o.noDaemon, and the
@@ -175,6 +187,9 @@ func newWorld(t *testing.T, o daemonOpts) *world {
 // daemonMu, or is newWorld before anything else can run.
 func (w *world) startDaemon() error {
 	o := w.opts
+	if o.many {
+		return w.startMany()
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	st, err := store.Open(ctx, w.dsn, store.Options{Prefix: "sf", CommitInterval: o.commit, Now: o.now, Admins: o.admins,
 		Limits: o.limits.Limits, Logger: o.logger})
@@ -203,6 +218,82 @@ func (w *world) startDaemon() error {
 		}
 		if err := st.Close(); err != nil {
 			w.t.Errorf("close store: %v", err)
+		}
+	}
+	return nil
+}
+
+// adopt makes the control database and records the world's database in
+// it as project, as the operator's `starfixd control init` does before
+// the daemon first serves many projects.
+func (w *world) adopt(ctx context.Context) error {
+	dsn, err := dolt.NewDatabase(ctx)
+	if err != nil {
+		return err
+	}
+	cfg, err := mysql.ParseDSN(w.dsn)
+	if err != nil {
+		return err
+	}
+	ctl, err := store.OpenControl(ctx, dsn, store.ControlOptions{CommitInterval: -1, Operator: true})
+	if err != nil {
+		return err
+	}
+	operator := store.Actor{Principal: store.OperatorPrincipal, Session: "e2e", Machine: "server"}
+	_, err = ctl.AddProject(ctx, operator, store.NewProject{ID: project, Name: "first", Prefix: "sf", Account: "internal",
+		DBName: cfg.DBName})
+	if err == nil {
+		_, err = ctl.ActivateProject(ctx, operator, project)
+	}
+	if err = errors.Join(err, ctl.Close()); err != nil {
+		return err
+	}
+	w.controlDSN = dsn
+	return nil
+}
+
+// startMany is startDaemon for a server of many projects: at the first
+// start it adopts the world's database as project, and then it serves
+// every project the control store holds.
+func (w *world) startMany() error {
+	o := w.opts
+	ctx, cancel := context.WithCancel(context.Background())
+	if w.controlDSN == "" {
+		if err := w.adopt(ctx); err != nil {
+			cancel()
+			return err
+		}
+	}
+	ctl, err := store.OpenControl(ctx, w.controlDSN, store.ControlOptions{Admins: o.admins, CommitInterval: o.commit, Now: o.now,
+		Limits: o.limits.Control, Logger: o.logger})
+	if err != nil {
+		cancel()
+		return err
+	}
+	fail := func(err error) error {
+		cancel()
+		return errors.Join(err, ctl.Close())
+	}
+	srv, err := server.New(server.Config{Control: ctl, Version: "v0.2.0",
+		Open:     server.ProjectOpener(w.dsn, ctl, store.Options{CommitInterval: o.commit, Now: o.now, Limits: o.limits.Limits, Logger: o.logger}),
+		ProtoMin: o.protoMin, ProtoMax: o.protoMax, Latest: o.latest, ReapInterval: o.reap, Limits: o.limits, Logger: o.logger})
+	if err != nil {
+		return fail(err)
+	}
+	l, err := server.Listen(w.socket)
+	if err != nil {
+		return fail(err)
+	}
+	w.ctl = ctl
+	done := make(chan error, 1)
+	go func() { done <- srv.Serve(ctx, l) }()
+	w.stopDaemon = func() {
+		cancel()
+		if err := <-done; err != nil {
+			w.t.Errorf("serve: %v", err)
+		}
+		if err := ctl.Close(); err != nil {
+			w.t.Errorf("close control store: %v", err)
 		}
 	}
 	return nil
@@ -410,6 +501,13 @@ type user struct {
 // ("" leaves the key unknown to it). The user's .starfix.yaml pins the
 // server's host key, or hostFpr if it is set.
 func (w *world) newUser(principal, hostFpr string) *user {
+	w.t.Helper()
+	return w.newUserIn(principal, hostFpr, project)
+}
+
+// newUserIn is newUser for a repository whose .starfix.yaml names
+// project proj.
+func (w *world) newUserIn(principal, hostFpr, proj string) *user {
 	t := w.t
 	t.Helper()
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -437,7 +535,7 @@ func (w *world) newUser(principal, hostFpr string) *user {
 		hostFpr = w.hostFpr
 	}
 	cfg := fmt.Sprintf("project: %s\nserver:\n  host: 127.0.0.1\n  port: %d\n  user: starfix\n  host_key: %s\nkey: id_ed25519\n",
-		project, w.addr.Port, hostFpr)
+		proj, w.addr.Port, hostFpr)
 	if err := os.WriteFile(filepath.Join(repo, ".starfix.yaml"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}

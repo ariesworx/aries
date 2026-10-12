@@ -35,7 +35,7 @@ func command(op string) string {
 // mapErr turns a store error into a typed protocol error whose message
 // names the cause and whose fix names the next action. id and rev are the
 // request's target and expected revision, when it has them.
-func (s *Server) mapErr(ctx context.Context, op, id string, rev int64, err error) *proto.Error {
+func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err error) *proto.Error {
 	text := err.Error()
 	var stale *store.StaleEpochError
 	var idem *store.IdemError
@@ -80,7 +80,7 @@ func (s *Server) mapErr(ctx context.Context, op, id string, rev int64, err error
 		return unmetErr(op, unmet)
 
 	case errors.Is(err, store.ErrConflict):
-		return s.conflict(ctx, id, rev)
+		return pr.conflict(ctx, id, rev)
 
 	case errors.Is(err, store.ErrExists):
 		return proto.Errf(proto.CodeExists, "omit --id to have one generated, or read it with `sfx show "+id+"`",
@@ -143,7 +143,7 @@ func (s *Server) mapErr(ctx context.Context, op, id string, rev int64, err error
 		return proto.Errf(proto.CodeInvalid, fmt.Sprintf("correct it and retry; `sfx %s -h` lists the options", command(op)), text)
 
 	case errors.Is(err, store.ErrSchemaTooNew):
-		s.cfg.Logger.Error("schema too new", "op", op, "err", err)
+		pr.log.Error("schema too new", "op", op, "err", err)
 		return proto.Errf(proto.CodeUnavailable, "the server admin should run the starfixd release that migrated it",
 			"the database was migrated by a newer starfixd")
 
@@ -151,7 +151,7 @@ func (s *Server) mapErr(ctx context.Context, op, id string, rev int64, err error
 		return proto.Errf(proto.CodeUnavailable, "retry; if it persists, the server admin should check the starfixd log",
 			fmt.Sprintf("the server timed out on %s", op))
 	}
-	s.cfg.Logger.Error("request failed", "op", op, "err", err)
+	pr.log.Error("request failed", "op", op, "err", err)
 	return proto.Errf(proto.CodeUnavailable, "retry; if it persists, the server admin should check the starfixd log",
 		fmt.Sprintf("the server could not complete %s", op))
 }
@@ -199,18 +199,18 @@ func forbiddenErr(e *store.ForbiddenError) *proto.Error {
 
 // conflict explains a failed compare-and-swap: who moved the issue to
 // which revision, or that concurrent writers kept winning.
-func (s *Server) conflict(ctx context.Context, id string, rev int64) *proto.Error {
+func (pr *served) conflict(ctx context.Context, id string, rev int64) *proto.Error {
 	reread := fmt.Sprintf(proto.FixReread+" with `sfx show %s`", id)
 	if id == "" || rev < 1 {
 		return proto.Errf(proto.CodeConflict, "retry", "the change lost to concurrent writes")
 	}
-	cur, err := s.cfg.Store.GetIssue(ctx, store.IssueID(id))
+	cur, err := pr.store.GetIssue(ctx, store.IssueID(id))
 	if err != nil || int64(cur.Rev) == rev {
 		return proto.Errf(proto.CodeConflict, "retry", fmt.Sprintf("%s kept changing under concurrent writes", id))
 	}
 	// Only issue.* events move rev; labels, deps and comments do not.
 	by := ""
-	if page, err := s.cfg.Store.HistoryPage(ctx, store.IssueID(id), "", 50); err == nil {
+	if page, err := pr.store.HistoryPage(ctx, store.IssueID(id), "", 50); err == nil {
 		for _, ev := range slices.Backward(page.Events) {
 			if strings.HasPrefix(string(ev.Op), "issue.") {
 				by = " by " + ev.Actor.Principal
@@ -227,14 +227,14 @@ func (s *Server) conflict(ctx context.Context, id string, rev int64) *proto.Erro
 // does, and the next ready issue is named instead (design §12 item 5), as
 // the caller a's own ready would rank it. Only start returns a HeldError,
 // so start calls held rather than mapErr, which has no caller.
-func (s *Server) held(ctx context.Context, a store.Actor, h *store.HeldError) *proto.Error {
+func (pr *served) held(ctx context.Context, a store.Actor, h *store.HeldError) *proto.Error {
 	if h.Own {
 		return proto.Errf(proto.CodeConflict,
 			fmt.Sprintf(proto.FixTakeOver+" with `sfx start %s --take` only if that session has stopped; it loses the claim", h.ID),
 			fmt.Sprintf("%s is held by your session %s", h.ID, h.Session))
 	}
 	msg := fmt.Sprintf("%s is in progress by %s", h.ID, h.By)
-	next, err := s.cfg.Store.Ready(ctx, a, 1)
+	next, err := pr.store.Ready(ctx, a, 1)
 	if err != nil || len(next) == 0 {
 		return proto.Errf(proto.CodeConflict, fmt.Sprintf(proto.FixLeaveIt+" %s; nothing else is ready, so see `sfx blocked`", h.By),
 			msg+"; nothing else is ready")

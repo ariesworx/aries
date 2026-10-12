@@ -15,7 +15,9 @@ import (
 // admin.override event, naming the holder, ahead of the change's own
 // events. Admins are a list of principals in starfixd's settings
 // (decision D2), passed in Options.Admins; nothing over the protocol
-// reads or changes it.
+// reads or changes it. In a server of many projects a project also has
+// admins of its own, a role in the control store, which the daemon
+// answers for through Options.IsAdmin (design §15.3).
 
 // OpAdminOverride records an admin changing an issue another principal
 // holds. Its after state names the holder, the claim's epoch and the
@@ -27,7 +29,16 @@ const OpAdminOverride Op = "admin.override"
 // health probe of `starfixd upgrade` connects as the last, recording
 // nothing. No key may authenticate as one, and none may be an admin, so
 // the audit trail cannot be forged.
-var ReservedPrincipals = []string{ReaperActor.Principal, "import", "starfixd-upgrade"}
+var ReservedPrincipals = []string{ReaperActor.Principal, OperatorPrincipal, "starfixd-upgrade"}
+
+// OperatorPrincipal is the reserved principal under which the commands
+// the operator runs on the server record their writes: `starfixd
+// import-bd` by default, and `starfixd control init` always. Such a
+// command opens the database itself, as the daemon's account, so what it
+// may do is decided where it is built, not by a list of admins:
+// [Store.ImportIssue] skips the claim guard, and a [Control] opened with
+// ControlOptions.Operator lets this principal write as a server admin.
+const OperatorPrincipal = "import"
 
 // Reserved reports whether p is a reserved principal name.
 func Reserved(p string) bool { return slices.Contains(ReservedPrincipals, p) }
@@ -43,8 +54,11 @@ func checkAdmins(admins []string) error {
 	return nil
 }
 
-// IsAdmin reports whether principal is one of the store's admins.
-func (s *Store) IsAdmin(principal string) bool { return slices.Contains(s.opts.Admins, principal) }
+// IsAdmin reports whether principal is one of the store's admins: named
+// in Options.Admins, or an admin by Options.IsAdmin as it answers now.
+func (s *Store) IsAdmin(principal string) bool {
+	return slices.Contains(s.opts.Admins, principal) || (s.opts.IsAdmin != nil && s.opts.IsAdmin(principal))
+}
 
 // guard refuses w's actor a change (op, for the record) to the issue
 // whose claim is c when another principal holds it, unless the actor is

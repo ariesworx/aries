@@ -52,13 +52,13 @@ func (s *Server) watch(ctx context.Context, sess *session, raw json.RawMessage) 
 		ended := p.ended
 		sess.pushMu.Unlock()
 		if !ended && p.events == in.Events {
-			return s.unread(ctx, sess.actor)
+			return sess.proj.unread(ctx, sess.actor)
 		}
 		s.unwatch(sess)
 	}
-	subscribe := s.cfg.Store.Watch
+	subscribe := sess.proj.store.Watch
 	if in.Events {
-		subscribe = s.cfg.Store.WatchEvents
+		subscribe = sess.proj.store.WatchEvents
 	}
 	p := &pusher{w: subscribe(sess.actor.Principal, sess.actor.Session), events: in.Events,
 		stop: make(chan struct{}), done: make(chan struct{})}
@@ -77,14 +77,14 @@ func (s *Server) watch(ctx context.Context, sess *session, raw json.RawMessage) 
 		}
 	}()
 	// Subscribed first, then counted: nothing falls between the two.
-	return s.unread(ctx, sess.actor)
+	return sess.proj.unread(ctx, sess.actor)
 }
 
 // unread answers watch with a's unread count.
-func (s *Server) unread(ctx context.Context, a store.Actor) (any, *proto.Error) {
-	page, err := s.cfg.Store.Inbox(ctx, a, false, 1)
+func (pr *served) unread(ctx context.Context, a store.Actor) (any, *proto.Error) {
+	page, err := pr.store.Inbox(ctx, a, false, 1)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpWatch, "", 0, err)
+		return nil, pr.mapErr(ctx, proto.OpWatch, "", 0, err)
 	}
 	return proto.WatchResult{Unread: page.Unread}, nil
 }
@@ -147,10 +147,10 @@ func (s *Server) unwatch(sess *session) {
 	sess.push = nil
 }
 
-func inbox(ctx context.Context, s *Server, a store.Actor, in proto.InboxArgs) (any, *proto.Error) {
-	page, err := s.cfg.Store.Inbox(ctx, a, in.All, in.Limit)
+func inbox(ctx context.Context, pr *served, a store.Actor, in proto.InboxArgs) (any, *proto.Error) {
+	page, err := pr.store.Inbox(ctx, a, in.All, in.Limit)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpInbox, "", 0, err)
+		return nil, pr.mapErr(ctx, proto.OpInbox, "", 0, err)
 	}
 	out := proto.InboxResult{Items: []proto.InboxItem{}, Unread: page.Unread}
 	for _, it := range page.Items {
@@ -159,16 +159,16 @@ func inbox(ctx context.Context, s *Server, a store.Actor, in proto.InboxArgs) (a
 	return out, nil
 }
 
-func ack(ctx context.Context, s *Server, a store.Actor, in proto.AckArgs) (any, *proto.Error) {
-	n, err := s.cfg.Store.AckInbox(ctx, a, in.IDs, in.All)
+func ack(ctx context.Context, pr *served, a store.Actor, in proto.AckArgs) (any, *proto.Error) {
+	n, err := pr.store.AckInbox(ctx, a, in.IDs, in.All)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpAck, "", 0, err)
+		return nil, pr.mapErr(ctx, proto.OpAck, "", 0, err)
 	}
 	return proto.AckResult{Acked: n}, nil
 }
 
 // watchOp answers watch sent where there is no connection to push to.
-func watchOp(context.Context, *Server, store.Actor, proto.WatchArgs) (any, *proto.Error) {
+func watchOp(context.Context, *served, store.Actor, proto.WatchArgs) (any, *proto.Error) {
 	return nil, proto.Errf(proto.CodeInvalid, "send watch on a connection: `sfx watch`",
 		"watch pushes to a connection, and this request has none")
 }

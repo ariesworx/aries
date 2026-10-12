@@ -24,7 +24,10 @@ To try starfix, or test a branch, on any machine with Docker, use the
 
 ## What every deployment shares
 
-- **One server holds one project.** Several projects need several servers.
+- **One server holds one project** as these examples set it up. A server
+  can be switched to hold many, each in its own database, but only the
+  first can be created today, so several projects still need several
+  servers ([Serving many projects](../server.md#serving-many-projects)).
 - **No high availability.** While the server is down, agents keep working
   on code but cannot claim or finish issues. Recovery is a restart, or a
   [restore](../server.md#backups-and-restore) that loses what changed
