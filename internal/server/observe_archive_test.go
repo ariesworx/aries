@@ -95,7 +95,11 @@ func TestStatusPrincipalSpeaksTheProtocol(t *testing.T) {
 			_ = c.enc.Encode(&proto.Frame{T: proto.FrameBridge, Principal: principal})
 			_ = c.enc.Encode(&proto.Frame{T: proto.FrameHello, Proto: p, Project: project})
 		})
-		return c.read()
+		w := c.read()
+		// The handshake is counted once the server has written its
+		// answer, which the client may read first: wait for the handler.
+		c.hangUp()
+		return w
 	}
 	for _, tc := range []struct {
 		name      string

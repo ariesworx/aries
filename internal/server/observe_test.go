@@ -299,9 +299,13 @@ func TestMetricsOfLimits(t *testing.T) {
 		}
 	}
 	dialPipe(t, s, bob)
-	if w, _ := handshakeAs(t, s, dana); w.Err == nil || w.Err.Code != proto.CodeBusy {
+	w, refused := handshakeAs(t, s, dana)
+	if w.Err == nil || w.Err.Code != proto.CodeBusy {
 		t.Fatalf("a third connection with conns: 2 = %+v, want busy", w.Err)
 	}
+	// The handshake is counted once the server has written its answer,
+	// which the client may read first: wait for the handler.
+	refused.hangUp()
 	check(t, snapshot(t, m), []want{
 		{"starfix.limit.refusals", []string{"limit", "write_rate"}, 3},
 		{"starfix.limit.refusals", []string{"limit", "conns"}, 1},
