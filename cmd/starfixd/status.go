@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/safetext"
@@ -71,6 +72,12 @@ func statusCmd(ctx context.Context, env adminEnv, args []string) error {
 // the daemon there for its status.
 func localStatus(ctx context.Context, env adminEnv, fl server.Settings, cfgPath string) (proto.StatusResult, error) {
 	s, err := server.ResolveSettings(fl, cfgPath, env.getenv)
+	if errors.Is(err, fs.ErrPermission) {
+		// The config file is the daemon's user's alone. root is refused it
+		// too where the AppArmor profiles are loaded, which give this
+		// command no capability.
+		return proto.StatusResult{}, fmt.Errorf("%w; fix: run it as the user starfixd runs as, for example `sudo -u starfix -H starfixd status`", err)
+	}
 	if err != nil {
 		return proto.StatusResult{}, err
 	}

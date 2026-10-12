@@ -38,7 +38,9 @@ For complete deployments with costs, see the
   [internal/version](../internal/version/version.go), 2.4.2 for starfix
   v0.2.0. Each release's notes name it.
 - **Little hardware.** Idle, Dolt used about 90 MB of memory and starfixd
-  about 13 MB. Under the stage 0 load test Dolt reached 1.4 GB and about
+  about 20 MB, or 22 MB with metrics pushed and scraped (resident
+  memory on arm64, a minute after its start; about 14 MB of either is
+  the program itself, mapped from its file). Under the stage 0 load test Dolt reached 1.4 GB and about
   250 writes a second on 4 vCPUs
   ([results](../spike/dolt/RESULTS.md)), roughly ten times what a busy
   team of agents needs. 2 GB of memory suits a team; the data starts at
@@ -249,11 +251,27 @@ WantedBy=multi-user.target
 Without these four lines starfixd runs as before: it sends a
 notification only when systemd asks for one.
 
-**This part of the unit has not been run under a real systemd yet.** The
-notifications are tested against a socket that stands in for systemd's;
-`Type=notify`, `NotifyAccess`, `TimeoutStartSec` and `WatchdogSec`
-themselves are to be checked on an Ubuntu 24.04 machine. If the unit
-fails to start with them, remove the four lines and report it.
+These lines were run on the machine of
+[What was run, and where](#what-was-run-and-where):
+
+- **The unit is active only once starfixd serves.** systemd logs
+  `Started starfixd.service` within a millisecond of starfixd's own
+  `starfixd serving`, and until then the unit is `activating`.
+- **A daemon that hangs is restarted.** With the daemon frozen
+  (`SIGSTOP`), systemd logged `Watchdog timeout (limit 2min)!` 120
+  seconds after the last sign of life, killed it with `SIGABRT` and
+  started it again five seconds later. Go answers `SIGABRT` by printing
+  every goroutine's stack, so the journal then holds what the daemon was
+  doing. A healthy daemon was left alone.
+- **`systemctl stop` is clean**: starfixd tells systemd it is stopping,
+  closes its stores and exits with status 0.
+- **If you use the [AppArmor profiles](#confine-starfixd-with-apparmor),
+  install this release's with the unit.** The daemon's profile from
+  before these lines existed does not let it write to systemd's socket:
+  the daemon then serves, logs `could not tell systemd the daemon is
+  ready`, and the unit stays `activating` until `TimeoutStartSec` runs
+  out, when systemd stops it and starts it again
+  ([Troubleshooting](#troubleshooting)).
 
 Then let `starfixd upgrade` restart the unit, and start it:
 
@@ -275,8 +293,20 @@ about a second before Dolt listens, so starfixd finds no database
 (`dial tcp 127.0.0.1:3306: connect: connection refused`) and exits. The
 unit's `Restart=on-failure` starts it again five seconds later, and that
 start succeeds. The journal of every boot therefore holds one failed
-start, and `sfx` answers `starfixd is not running on the server` for
-those seconds.
+start (`Failed to start starfixd.service`), and `sfx` answers `starfixd
+is not running on the server` for those seconds.
+
+`Type=notify` does not remove that race, since it is Dolt's unit that
+is counted as started too early, and Dolt sends systemd no
+notification. It does make the unit's state true: starfixd is
+`activating` through the failed start and the wait, and `active` only
+from the start that serves, so anything ordered after `starfixd.service`
+no longer starts against a daemon that is about to exit.
+
+**The same happens whenever Dolt's unit restarts**, by `systemctl
+restart dolt` or after a crash: `Requires=dolt.service` has systemd stop
+starfixd with it and start both together, the race is lost the same
+way, and starfixd is back about five seconds after Dolt.
 
 ### 6. Let the first principal in
 
@@ -409,6 +439,12 @@ What that showed:
   (`open failed: administratively prohibited`).
 - **The first start after a boot fails**, and the next one works
   ([step 5](#5-run-starfixd-under-systemd)).
+- **The unit's `Type=notify`, start timeout and watchdog work**
+  ([step 5](#5-run-starfixd-under-systemd)), on the same machine with
+  the AppArmor profiles enforced, across a cold boot. So do the
+  loopback listener, `/readyz` when Dolt stops answering, metrics
+  pushed to a receiver on the machine, and `starfixd status`
+  ([Observability](#observability)).
 - **`starfixd upgrade --rollback` works for the `starfix` user**: it
   renames the binaries in `/opt/starfix/bin`, restarts the unit through
   the sudo rule and finds the daemon healthy. `upgrade --check` reaches
@@ -416,8 +452,9 @@ What that showed:
 - **The daily dump** of [Backups and restore](#backups-and-restore)
   writes its file.
 
-Not run: amd64; a cloud provider's image or network; `install.sh` on the
-server; an upgrade to a newer release, which a build from source refuses
+Not run: amd64; a cloud provider's image or network; a real
+OpenTelemetry Collector or hosted backend, in place of which a few lines
+of Python received the pushes; `install.sh` on the server; an upgrade to a newer release, which a build from source refuses
 (`a development build … never upgrades itself`), so the download, the
 signature check and the swap to a new binary were not run here; a
 restore from a dump.
@@ -1268,8 +1305,8 @@ as a user that owns its own binary, its config file and its
 
 | Profile | Runs | May |
 |---|---|---|
-| `starfixd` | `starfixd stdio`, and anything else run from the binary's path with no profile asked for | Read the config file and connect to the daemon's socket. No network, no other file, no program |
-| `starfixd-serve` | `starfixd serve`, because the unit asks for it | Read the config file, listen on the socket, reach Dolt over TCP, write the keys file and read `authorized_keys`. No program |
+| `starfixd` | `starfixd stdio`, `starfixd status`, and anything else run from the binary's path with no profile asked for | Read the config file and connect to the daemon's socket. No network, no other file, no program |
+| `starfixd-serve` | `starfixd serve`, because the unit asks for it | Read the config file, listen on the socket, reach Dolt over TCP, write the keys file and read `authorized_keys`; listen on the loopback port for metrics and health, post metrics to a collector over TCP, and write to systemd's notify socket ([Observability](#observability)). No program |
 | `starfixd-admin` | `control init`, `import-bd`, `export-bd` and `upgrade`, when the operator asks for it | Open the store, read and write files in the top of `/var/lib/starfix`, read `authorized_keys`, reach the network, replace the binary in `/opt/starfix/bin`, and run `sudo` |
 
 AppArmor picks a profile by the program's path and never by its
@@ -1323,6 +1360,11 @@ sudo -u starfix -H aa-exec -p starfixd-admin -- starfixd export-bd -o back.jsonl
   opens is not limited: `starfixd import-bd - < FILE`, `starfixd
   export-bd > FILE`, or a pipe.
 - `aa-exec` is in Ubuntu's `apparmor` package, which is installed.
+- **`starfixd status` needs no `aa-exec`**: `sudo -u starfix -H starfixd
+  status` runs under the bridge's profile, which allows the two things
+  it does. root cannot run it directly here, because that profile gives
+  root no way past the config file's mode; the refusal says to run it
+  as `starfix`.
 
 **If you moved a path** (the binary, the config file, the socket, the
 home directory, `keys_file` or `authorized_keys`), change it in
@@ -1333,6 +1375,24 @@ load the profiles again with `apparmor_parser -r
 `local/starfixd-admin`. A `dsn` that names Dolt's host by a name that
 needs DNS, where the guide's has an address, needs UDP allowed in
 `local/starfixd-serve`; the profile's comments give the two lines.
+
+**Metrics sent straight to a hosted backend need three lines** in
+`/etc/apparmor.d/local/starfixd-serve`, then `apparmor_parser -r
+/etc/apparmor.d/starfixd` and a restart. The daemon otherwise speaks to
+no machine by name and reads no certificate, so the profile as shipped
+has neither DNS nor the certificate authorities:
+
+```text
+network inet dgram,
+network inet6 dgram,
+include <abstractions/ssl_certs>
+```
+
+A collector on the machine, at an address or at a name `/etc/hosts`
+holds, needs none of them, and neither does the listener. Without the
+first two, the export fails on `lookup … dial udp …: socket: permission
+denied`; without the third, on `x509: failed to load system roots`. Each
+is logged once and changes nothing else.
 
 **To see what was refused:**
 
@@ -1371,6 +1431,9 @@ What they do not do:
   `IPAddressAllow=localhost` in a drop-in, as Dolt's unit has, were run
   on the machine above with the guide's Dolt on 127.0.0.1. Leave them
   out if `dsn` names another machine.
+- **They do not hold the listener to loopback.** starfixd does that
+  itself, refusing any other address at start; to AppArmor the listener
+  is one more TCP socket.
 - **They confine neither sshd nor Dolt.** Ubuntu ships no profile for
   sshd, and both of its keys files worked with the bridge confined.
   [deploy/apparmor](../deploy/apparmor/README.md) says what a profile
@@ -1381,7 +1444,12 @@ What was tested, with the profiles enforced: a sequence taken from the
 second project, keys from the control database, a key removed and a
 principal disabled, restarts) and the operator's commands above, 76
 checks, before and after a reboot, with no line in the kernel log; then
-attempts to do what the profiles forbid, each refused and logged. What
+attempts to do what the profiles forbid, each refused and logged. The
+76 checks were run again, and passed with no line in the kernel log,
+with the unit's `Type=notify` and watchdog, the listener and metrics
+pushed to a receiver on the machine; each of the three lines above was
+shown to be needed, and to be enough, against a receiver named through
+DNS and one behind TLS on the same machine. What
 was not: an upgrade to a newer release (its `--check` and `--rollback`
 were run), and amd64.
 
@@ -1411,7 +1479,7 @@ configured, starfixd exports nothing and opens no port.
 | Metrics pushed over OTLP/HTTP | `OTEL_EXPORTER_OTLP_ENDPOINT` in starfixd's environment |
 | Metrics for a scraper, in Prometheus's text format | `telemetry: listen:` in the config file |
 | `/healthz` and `/readyz` | The same listener |
-| Readiness and a watchdog under systemd | `Type=notify` and `WatchdogSec` in the unit ([step 5](#5-run-starfixd-under-systemd)) |
+| Readiness and a watchdog under systemd | `Type=notify` and `WatchdogSec` in the unit ([step 5](#5-run-starfixd-under-systemd)), which the guide's unit has |
 | `starfixd status` | Always there, for the user starfixd runs as |
 
 Push and pull are independent: turn on either, both or neither. The
@@ -1464,6 +1532,10 @@ OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20REPLACE_WITH_THE_TOKEN
 EnvironmentFile=/etc/starfix/telemetry.env
 ```
 
+- **With the [AppArmor profiles](#confine-starfixd-with-apparmor)**
+  this setup needs three lines added for the daemon, which that section
+  gives: DNS, and the machine's certificate authorities. A collector on
+  the machine needs none.
 - **The token is read from the environment only.** There is no flag and
   no config key for it, so it cannot reach the process list or a config
   file that is not 0600. systemd reads the file as root before it drops
@@ -1541,7 +1613,7 @@ that does not:
 |---|---|
 | `starfixd is starting` | The store is not open yet, or the socket not yet listening |
 | `starfixd is not listening on its socket` | The daemon is stopping, or could no longer accept connections |
-| `the last check of Dolt failed` | Dolt did not answer a ping within 2 seconds. The ping is on a pooled connection to the control database, or to the one project's; it is made at most every 5 seconds, however often `/readyz` is asked, and its answer stands until the next. starfixd's log has the error |
+| `the last check of Dolt failed` | Dolt did not answer a ping within 2 seconds: it hangs, or cannot be reached. The ping is on a pooled connection to the control database, or to the one project's; it is made at most every 5 seconds, however often `/readyz` is asked, and its answer stands until the next. starfixd's log has the error. A Dolt whose unit stops or restarts takes starfixd down with it ([step 5](#5-run-starfixd-under-systemd)), so then nothing answers on the listener at all until both are back |
 | `the last write of the keys file failed` | With `control_db`: sshd may be reading an older list of keys ([Keys from the store](#keys-from-the-store)) |
 
 `/healthz` says only that the process answers. A daemon that is healthy
@@ -1598,7 +1670,7 @@ What each counts:
 | `store.write.retries` | Each attempt of a write that lost to a concurrent transaction and was tried again |
 | `store.commit.duration` | Each Dolt commit of pending writes, about one a second while a project is written to, failed ones included |
 | `stores.open` | Project stores open, opening or closing; always 1 on a server of one project |
-| `store.open.duration` | With `control_db`: opening a project's store, migrations included |
+| `store.open.duration` | With `control_db`: opening a project's store, migrations included: once for each active project before the daemon listens, which is where an upgrade's migrations run, then whenever a connection or an archive opens one that was closed |
 | `claims` | Changes of a claim, as the event log records them, and renewals |
 | `control.writes` | With `control_db`: each `sfx admin` change, refused ones included |
 | `keys_file.writes` | With `control_db`: each time the keys file was written, or could not be. A file that already held the right keys is not a write |
@@ -1670,9 +1742,14 @@ the server that has no admin key. `--json` prints exactly one JSON
 document: the report, or `{"error": …}` and exit code 1.
 
 - It asks the running daemon over its unix socket, so it works only for
-  **the user starfixd runs as**: the socket's directory is mode 0700, and
-  on Linux the daemon also checks that whoever connects runs as its own
-  user. Anyone else gets a refusal with a `fix:`.
+  **the user starfixd runs as**: the config file and the socket's
+  directory are that user's alone, and on Linux the daemon also checks
+  that whoever connects runs as its own user. Anyone else gets a refusal
+  with a `fix:`. So does root where the
+  [AppArmor profiles](#confine-starfixd-with-apparmor) are loaded: run
+  it with `sudo -u starfix -H`, as above. It needs no `aa-exec`.
+- It must be the same build as the daemon, since it speaks the daemon's
+  protocol: one of another protocol version is refused with `version`.
 - It connects under the reserved principal `starfixd-status`, which no
   key can sign in as. The connection is in no project, is not listed by
   `sfx who`, and is answered nothing but the report.
@@ -1904,3 +1981,8 @@ quiet hour: `cd /var/lib/dolt/data/starfix && sudo -u dolt -H dolt gc`.
 | starfixd does not start: `Failed to prepare AppArmor profile change to starfixd-serve` | The unit asks for a profile that is not loaded | `apparmor_parser -r /etc/apparmor.d/starfixd`, or remove the unit's `apparmor.conf` ([Confine starfixd with AppArmor](#confine-starfixd-with-apparmor)) |
 | starfixd does not start: `dial tcp 127.0.0.1:3306: socket: permission denied` | The AppArmor profiles are loaded and the unit does not ask for `starfixd-serve`, so the daemon has the bridge's profile | Add the unit's `AppArmorProfile=starfixd-serve` line, `systemctl daemon-reload`, and restart |
 | One failed start of starfixd in the journal of every boot, `connect: connection refused` | Dolt was not listening yet | Nothing: systemd starts it again five seconds later ([step 5](#5-run-starfixd-under-systemd)) |
+| starfixd answers `sfx`, yet `systemctl status starfixd` says `activating`, and every ten minutes `start operation timed out` restarts it; its log has `could not tell systemd the daemon is ready` | The unit has `Type=notify` and the daemon cannot write to systemd's socket: the AppArmor profiles loaded are from before the unit had that line | Install this release's profiles and `apparmor_parser -r /etc/apparmor.d/starfixd` ([Confine starfixd with AppArmor](#confine-starfixd-with-apparmor)); `journalctl -k -g 'apparmor="DENIED"'` names `/run/systemd/notify` |
+| `Watchdog timeout (limit 2min)!` in the journal, then goroutine stacks and a restart | starfixd did not tell systemd it was alive for `WatchdogSec`: it hung, or one tick of its reaper took that long, as it can when Dolt stops answering | Read the stacks, which say where it was; check Dolt. If the machine is merely slow, raise `WatchdogSec` |
+| `starfixd status`: `config: open /etc/starfix/starfixd.yaml: permission denied` | It was run as a user who cannot read the config file, or as root with the AppArmor profiles loaded | `sudo -u starfix -H starfixd status` |
+| `telemetry: a metrics export failed` with `socket: permission denied` or `failed to load system roots` | With the AppArmor profiles: the collector's endpoint is a name that needs DNS, or is HTTPS, and the daemon's profile allows neither as shipped | Add the three lines of [Confine starfixd with AppArmor](#confine-starfixd-with-apparmor) to `local/starfixd-serve`, or send to a collector on the machine |
+| `/readyz` answers `not ready: the last check of Dolt failed` | Dolt hangs or cannot be reached | `systemctl status dolt`, `journalctl -u dolt`; starfixd's log has the ping's error |

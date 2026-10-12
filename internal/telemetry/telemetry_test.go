@@ -3,6 +3,7 @@ package telemetry
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -16,6 +17,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 // Invented projects.
@@ -896,6 +900,47 @@ func TestDeadCollector(t *testing.T) {
 			}
 			if n := strings.Count(log.String(), "export failed"); n > 1 {
 				t.Errorf("%d export failures logged, want at most 1:\n%s", n, log)
+			}
+		})
+	}
+}
+
+// failing is an exporter whose every export fails with err.
+type failing struct {
+	sdkmetric.Exporter
+	err error
+}
+
+func (f failing) Export(context.Context, *metricdata.ResourceMetrics) error { return f.err }
+
+// An export cut short because the daemon is stopping is not a failure of
+// the collector's: it is neither logged nor counted. Any other is both.
+func TestExportCanceledAtStop(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		err     error
+		dropped float64
+	}{
+		{"canceled", fmt.Errorf("post: %w", context.Canceled), 0},
+		{"a deadline", fmt.Errorf("post: %w", context.DeadlineExceeded), 1},
+		{"refused", errors.New("connection refused"), 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			log := &syncBuffer{}
+			tel, m, err := NewManual(Config{Logger: logTo(log), Ops: testOps})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
+			g := &guarded{Exporter: failing{err: tc.err}, t: tel}
+			if err := g.Export(t.Context(), &metricdata.ResourceMetrics{}); err != nil {
+				t.Errorf("Export = %v, want nil: the failure is handled here", err)
+			}
+			if got := collect(t, m).Value("starfix.telemetry.dropped", "signal", "metrics"); got != tc.dropped {
+				t.Errorf("starfix.telemetry.dropped = %v, want %v", got, tc.dropped)
+			}
+			if logged := strings.Contains(log.String(), "export failed"); logged != (tc.dropped > 0) {
+				t.Errorf("export failure logged = %t, want %t:\n%s", logged, tc.dropped > 0, log)
 			}
 		})
 	}

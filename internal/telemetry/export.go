@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -27,6 +28,12 @@ type guarded struct {
 // are cumulative, and the next export carries them.
 func (g *guarded) Export(ctx context.Context, rm *metricdata.ResourceMetrics) error {
 	if err := g.Exporter.Export(ctx, rm); err != nil {
+		if errors.Is(err, context.Canceled) {
+			// The daemon is stopping, and cut short an export that was
+			// under way: no failure of the collector's, and the last
+			// export, which follows, carries the totals.
+			return nil
+		}
 		g.t.Count(Dropped, SignalMetrics)
 		g.t.errs.failed("telemetry: a metrics export failed; the next one carries the same totals", err)
 		return nil

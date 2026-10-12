@@ -366,3 +366,29 @@ func TestStatusUsage(t *testing.T) {
 		}
 	}
 }
+
+// Whoever cannot read the daemon's config file is told who can run the
+// command, as text and as the one JSON document.
+func TestStatusUnreadableConfig(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a file this user cannot read")
+	}
+	cfg := filepath.Join(t.TempDir(), "starfixd.yaml")
+	if err := os.WriteFile(cfg, []byte("socket: /nonexistent/d.sock\n"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	env := func(out io.Writer) adminEnv {
+		return adminEnv{stdout: out, stderr: io.Discard, getenv: func(string) string { return "" }}
+	}
+	var out bytes.Buffer
+	err := statusCmd(t.Context(), env(&out), []string{"--config", cfg})
+	if err == nil || !strings.Contains(err.Error(), "permission denied") || !strings.Contains(err.Error(), "fix: run it as the user starfixd runs as") || out.Len() != 0 {
+		t.Errorf("starfixd status with an unreadable config = %v, printed %q; want the refusal with a fix, and nothing printed", err, out.String())
+	}
+	out.Reset()
+	err = statusCmd(t.Context(), env(&out), []string{"--json", "--config", cfg})
+	var doc map[string]proto.Error
+	if jerr := json.Unmarshal(out.Bytes(), &doc); jerr != nil || err != exitError(1) || !strings.Contains(doc["error"].Message, "fix: run it as the user starfixd runs as") {
+		t.Errorf("starfixd status --json with an unreadable config = %v, printed %q; want one {\"error\"} document naming the fix", err, out.String())
+	}
+}

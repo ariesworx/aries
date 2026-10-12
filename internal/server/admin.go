@@ -9,7 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
@@ -761,9 +763,13 @@ func (s *Server) OpenProjects(ctx context.Context) error {
 			continue
 		}
 		octx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
+		start := time.Now()
 		st, err := s.cfg.Open(octx, p)
 		cancel()
 		if err == nil {
+			// This is where an upgrade's migrations run, so it is measured
+			// as any opening is.
+			s.cfg.Telemetry.Since(telemetry.StoreOpenDuration, start, strconv.FormatBool(st.Migrated() > 0))
 			err = st.Close()
 		}
 		if err != nil {

@@ -18,7 +18,7 @@ arguments.
 
 | Profile | Chosen by | For |
 |---|---|---|
-| `starfixd` | The binary's path, `/opt/starfix/bin/starfixd`, which `/usr/local/bin/starfixd` links to: AppArmor resolves the link | `starfixd stdio`, the bridge sshd runs for every connection |
+| `starfixd` | The binary's path, `/opt/starfix/bin/starfixd`, which `/usr/local/bin/starfixd` links to: AppArmor resolves the link | `starfixd stdio`, the bridge sshd runs for every connection, and `starfixd status` |
 | `starfixd-serve` | The unit's `AppArmorProfile=starfixd-serve` | `starfixd serve`, the daemon |
 | `starfixd-admin` | The operator: `aa-exec -p starfixd-admin -- starfixd …` | `control init`, `import-bd`, `export-bd`, `upgrade` |
 
@@ -28,6 +28,15 @@ arguments.
   may read the config file and connect to the daemon's socket.
 - **The daemon gets its own**, because only it reaches Dolt and writes
   the keys file. With one profile for both, the bridge could do both.
+  It is also what listens on the loopback port for metrics and health,
+  posts metrics to a collector, and writes to systemd's notify socket
+  ([Observability](../../docs/server.md#observability)).
+- **`starfixd status` runs under the bridge's**, by the path alone: it
+  reads the config file and connects to the daemon's socket, which is
+  all the bridge may do, so it needs no rule and no `aa-exec`. It is run
+  as the `starfix` user (`sudo -u starfix -H starfixd status`). root
+  cannot run it directly: the config file is the `starfix` user's, mode
+  0600, and the bridge's profile gives root no capability to read it.
 - **The operator's commands get the widest**, because `upgrade` reaches
   the network, replaces the binary and runs `sudo`, which nothing that
   listens should be able to do. A command run without `aa-exec` gets the
@@ -93,6 +102,44 @@ What complain mode taught:
   root's capabilities, so the operator's profile runs it unconfined
   (`Ux`): what it may then do is what sudoers allows the `starfix`
   user, in the guide one `systemctl restart`.
+
+## What the telemetry needed
+
+Slice O1 of the observability work was run on the same machine on 12
+October 2026, with the three profiles enforced, the unit of the guide
+(`Type=notify`, `WatchdogSec=120`), a listener on `127.0.0.1:9464` and
+a throwaway OTLP receiver (Python's `http.server`) on the machine.
+
+| What starfixd does | Needs |
+|---|---|
+| Tells systemd it is ready, stopping and alive | **A new rule**, `@{run}/systemd/notify w,` in `starfixd-serve`. Without it the daemon serves, logs `could not tell systemd the daemon is ready … permission denied`, and the unit stays `activating` until `TimeoutStartSec`, when systemd stops it and starts it again. The kernel log has `operation="sendmsg" … name="/run/systemd/notify"` |
+| Listens on a loopback TCP port | Nothing new: `network inet stream` already covered it |
+| Posts metrics to a collector at an address, or at a name `/etc/hosts` holds | Nothing new |
+| Posts metrics to a collector whose name needs DNS | The two UDP lines in `local/starfixd-serve`, as for a `dsn` that names Dolt's host. Without them the export fails (`lookup … dial udp 127.0.0.53:53: socket: permission denied`), is logged once, and nothing else is affected |
+| Posts metrics over HTTPS | `include <abstractions/ssl_certs>` in `local/starfixd-serve`, so that it can read the machine's certificate authorities. Without it the export fails (`x509: failed to load system roots and no roots provided; open /etc/ssl/certs/ca-certificates.crt: permission denied`), and the kernel log has the denied read |
+| `starfixd status` | Nothing new, under the bridge's profile |
+
+The 76 checks of the run above passed again with all of this on, across
+a cold boot, with no line in the kernel log; the two refusals that are
+logged are root, and another user with a config file of her own, running
+`starfixd status`.
+
+So metrics sent **straight to a hosted backend** need three lines the
+shipped profile leaves out, since the daemon otherwise speaks to no
+machine by name and reads no certificate:
+
+```text
+# /etc/apparmor.d/local/starfixd-serve
+network inet dgram,
+network inet6 dgram,
+include <abstractions/ssl_certs>
+```
+
+then `apparmor_parser -r /etc/apparmor.d/starfixd` and a restart. A
+collector on the machine, which the guide gives first, needs none of
+them. HTTPS was run against a receiver on the machine with a
+certificate from a private authority added to the machine's trust
+store, not against a real backend.
 
 ## What is not covered
 
