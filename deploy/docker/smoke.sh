@@ -55,18 +55,20 @@ fail() {
 }
 
 # sfx_as WHO ARGS... runs sfx in WHO's scratch repository, with its own
-# session and a home inside the work directory. WHO's key is named with
-# STARFIX_KEY, so it is the only key sfx offers (design, decision 35):
-# the caller's own ssh-agent, which sfx inherits, is never asked. Two
-# variables change that for the checks of the rule itself: smoke_key
-# names another key file, or none when it is empty, and smoke_agent is
-# the ssh-agent socket to pass on in place of the caller's.
+# session. WHO's key is named with STARFIX_KEY_FILE, so it is the only
+# key sfx offers (design, decision 35). Nothing of the caller's can sign
+# in: the home is a directory of the test's own, with no .ssh, and the
+# caller's ssh-agent socket is never passed on. Four variables change
+# that for the checks of the rule itself: smoke_key names another key
+# file, or none when it is empty; smoke_agent is an ssh-agent socket of
+# the test's own; smoke_home is another home directory; and smoke_old is
+# a value for STARFIX_KEY, the variable sfx never reads.
 sfx_as() {
   local who=$1
   shift
   local key=${smoke_key-$work/keys/${who%-web}}
-  (cd "$work/$who" && HOME="$work/home" XDG_CACHE_HOME="$work/home/.cache" SSH_AUTH_SOCK="${smoke_agent-${SSH_AUTH_SOCK:-}}" \
-    STARFIX_KEY="$key" STARFIX_SESSION="smoke-$who" "$sfx" "$@")
+  (cd "$work/$who" && HOME="${smoke_home-$work/home}" XDG_CACHE_HOME="$work/home/.cache" SSH_AUTH_SOCK="${smoke_agent-}" \
+    STARFIX_KEY_FILE="$key" STARFIX_KEY="${smoke_old-}" STARFIX_SESSION="smoke-$who" "$sfx" "$@")
 }
 
 # start_agent runs an ssh-agent of the test's own on agent_sock, and
@@ -216,13 +218,15 @@ for i in 1 2 3 4 5 6; do
 done
 agent_add "$work/keys/alice"
 bob_key_fp=$(ssh-keygen -lf "$work/keys/bob.pub" | cut -d' ' -f2 | sed 's/[+/.]/[&]/g')
-smoke_agent=$agent_sock expect "STARFIX_KEY wins over the agent's keys" '^principal +bob$' bob whoami
-grep -Eq -- "^key +$bob_key_fp, from the file $work/keys/bob\$" <<<"$last" || fail "whoami does not name bob's key and its file" "$last"
+smoke_agent=$agent_sock expect "STARFIX_KEY_FILE wins over the agent's keys" '^principal +bob$' bob whoami
+grep -Eq -- "^key +$bob_key_fp, from the file $work/keys/bob, which STARFIX_KEY_FILE names\$" <<<"$last" || fail "whoami does not name bob's key, its file and what named it" "$last"
 passed=$((passed + 1))
 # The same with the key in the checkout, named by key: in .starfix.yaml.
 cp "$work/keys/bob" "$work/bob-key/id" && cp "$work/bob/.starfix.yaml" "$work/bob-key/.starfix.yaml"
 printf 'key: id\n' >>"$work/bob-key/.starfix.yaml"
 smoke_agent=$agent_sock smoke_key='' expect "key: in .starfix.yaml wins over the agent's keys" '^principal +bob$' bob-key whoami
+# The variable comes before key:, which names bob's key here.
+smoke_agent=$agent_sock smoke_key="$work/keys/alice" expect "STARFIX_KEY_FILE wins over key:" '^principal +alice$' bob-key whoami
 # A key: that leads out of the checkout is not followed.
 sed "s|^key: .*|key: $work/keys/alice|" "$work/bob-key/.starfix.yaml" >"$work/bob-out/.starfix.yaml"
 smoke_agent=$agent_sock smoke_key='' refuse "key: outside the repository" 'outside the repository' bob-out whoami
@@ -230,11 +234,43 @@ smoke_agent=$agent_sock smoke_key='' refuse "key: outside the repository" 'outsi
 smoke_agent=$agent_sock smoke_key="$work/keys/alice.pub" expect "a .pub names one of the agent's keys" '^principal +alice$' alice whoami
 grep -Eq -- '^key +SHA256:.*, signed by ssh-agent for ' <<<"$last" || fail "whoami does not say the agent signed" "$last"
 passed=$((passed + 1))
-# With no key named, the agent's seven are offered in turn and sshd
-# hangs up after six: the refusal says so, and what to do.
-smoke_agent=$agent_sock smoke_key='' refuse "more agent keys than sshd tries" 'too many refused keys: ssh-agent holds 7 keys' alice whoami
-grep -q 'STARFIX_KEY' <<<"$last" || fail "the refusal does not name STARFIX_KEY" "$last"
+
+echo "smoke: with no key configured, the default identities and then ssh-agent"
+# A default identity file, in a home of its own, comes before the
+# agent's keys: bob's file wins though the agent holds alice's key.
+mkdir -p "$work/home-bob/.ssh" "$work/home-locked/.ssh"
+chmod 700 "$work/home-bob/.ssh" "$work/home-locked/.ssh"
+cp "$work/keys/bob" "$work/home-bob/.ssh/id_ed25519"
+smoke_home="$work/home-bob" smoke_agent=$agent_sock smoke_key='' expect "a default identity comes before the agent's keys" '^principal +bob$' bob whoami
+grep -Eq -- "^key +$bob_key_fp, from the file $work/home-bob/[.]ssh/id_ed25519, a default identity\$" <<<"$last" || fail "whoami does not say bob's key is a default identity" "$last"
 passed=$((passed + 1))
+# The agent holds seven keys, alice's last. sfx offers five, one fewer
+# than sshd tries, so the server answers instead of hanging up, and the
+# refusal says what was left out and what to do.
+smoke_agent=$agent_sock smoke_key='' refuse "no more keys are offered than sshd tries" 'accepted none of the 5 keys sfx offered' alice whoami
+grep -q '2 more keys that ssh-agent holds were not offered' <<<"$last" || fail "the refusal does not say how many keys were left out" "$last"
+grep -q 'STARFIX_KEY_FILE' <<<"$last" || fail "the refusal does not name STARFIX_KEY_FILE" "$last"
+absent "sshd did not hang up" 'too many refused keys'
+passed=$((passed + 2))
+# A default identity that needs a passphrase is skipped, and said to be.
+ssh-keygen -q -t ed25519 -N 'smoke passphrase' -C locked@example.com -f "$work/home-locked/.ssh/id_ed25519"
+smoke_home="$work/home-locked" smoke_key='' refuse "a passphrase-protected default identity is skipped" 'no SSH key available; skipped .*/id_ed25519: it is passphrase-protected' alice whoami
+# The agent alone, holding only alice's key.
+SSH_AUTH_SOCK=$agent_sock ssh-add -q -D 2>/dev/null || fail "could not empty the test's ssh-agent"
+agent_add "$work/keys/alice"
+smoke_agent=$agent_sock smoke_key='' expect "the agent's key, with nothing configured" '^principal +alice$' alice whoami
+grep -Eq -- '^key +SHA256:.*, from ssh-agent; no key is configured' <<<"$last" || fail "whoami does not say the key came from ssh-agent" "$last"
+passed=$((passed + 1))
+# STARFIX_KEY is never read: holding a private key, as an earlier CI
+# recipe had it, it signs nobody in, and no part of it is printed.
+old_value=$(cat "$work/keys/alice")
+smoke_old=$old_value smoke_key='' refuse "STARFIX_KEY is not read" 'STARFIX_KEY is set, and sfx does not read it' alice whoami
+if grep -qF -- "$(sed -n 2p "$work/keys/alice")" <<<"$last"; then
+  fail "the refusal repeats what STARFIX_KEY holds"
+fi
+passed=$((passed + 1))
+smoke_old=$old_value expect "STARFIX_KEY beside STARFIX_KEY_FILE changes nothing" '^principal +bob$' bob whoami
+absent "a set STARFIX_KEY is not mentioned when sign-in works" 'STARFIX_KEY is set'
 
 echo "smoke: driving sfx"
 expect "create" '^sf-[a-z0-9]+$' alice create "Fix the login redirect" -p 1 -t bug

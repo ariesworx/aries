@@ -217,31 +217,46 @@ pinned](cli.md#the-host-key-is-pinned)).
 The server takes the first key it knows among those a client offers, so
 which keys `sfx` offers decides who you are.
 
-- **A configured key is the only key offered.** When `STARFIX_KEY` in
-  the environment, or `key:` in `.starfix.yaml`, names a key, `sfx`
-  offers that key and no other, whatever ssh-agent holds, as OpenSSH
-  does with `IdentitiesOnly`. ssh-agent may still sign for that one key,
-  which `sfx` finds by its public half, when the file is
-  passphrase-protected or is the `.pub` file. So a process that was
-  given a narrow principal's key acts as that principal, even with a
-  server admin's agent socket in its environment.
-- **With no key configured, ssh-agent's keys are offered**, in the
-  agent's order, and the server's first match wins. sshd closes the
-  connection after a few refused keys (six by default), so with many
-  keys in the agent, name yours.
+- **A configured key is the only key offered.** When
+  `STARFIX_KEY_FILE` in the environment, or `key:` in `.starfix.yaml`,
+  names a key, `sfx` offers that key and no other, whatever `~/.ssh` and
+  ssh-agent hold, as OpenSSH does with `IdentitiesOnly`. ssh-agent may
+  still sign for that one key, which `sfx` finds by its public half,
+  when the file is passphrase-protected or is the `.pub` file. So a
+  process that was given a narrow principal's key acts as that
+  principal, even with a server admin's agent socket in its environment.
+- **With no key configured, `sfx` does as `ssh` does**: the default
+  identity files of `~/.ssh` that exist, in `ssh`'s order, then the keys
+  in ssh-agent, and the server's first match wins. Nothing is exclusive
+  here: a process with your home directory or your agent socket is you.
+  That is the convenient default for a person and the wrong one for an
+  agent with a principal of its own, which is why an agent's key is
+  configured. sshd closes the connection after a few refused keys (six
+  by default), so `sfx` offers five at most and says how many it left
+  out. A passphrase-protected or hardware-backed default file is used
+  only through ssh-agent, and `sfx` never asks for a passphrase.
+- **The variable holds a path, and `sfx` never prints a key.**
+  `STARFIX_KEY_FILE` is not trusted to be a path: a value that is
+  plainly key material is refused without being repeated. `sfx` reads no
+  variable named `STARFIX_KEY`, which earlier instructions for CI filled
+  with a private key's contents; it notes only that one is set, when
+  sign-in fails. No refusal, `whoami` line or log line holds what a key
+  file or either variable contains, only paths and fingerprints.
 - **`sfx whoami` says who you are**: the principal the server took the
   connection for, the project and server, and the fingerprint of the key
-  that signed and where it came from. `prime`, which an agent reads at
-  the start of a session, names the principal on its first line.
+  that signed and where it came from, with any default file that was
+  skipped. `prime`, which an agent reads at the start of a session,
+  names the principal on its first line and the key on its second.
 - **A committed `key:` stays inside the repository.** `.starfix.yaml` is
   committed, so a cloned repository's file chooses its `key:`. `sfx`
   follows it only to a file inside that repository, after resolving
   symbolic links; a path outside, absolute or under `~`, is refused. A
-  key elsewhere on your machine is named with `STARFIX_KEY`, which only
-  you set. A cloned file can therefore not make `sfx` read a key of
+  key elsewhere on your machine is named with `STARFIX_KEY_FILE`, which
+  only you set. A cloned file can therefore not make `sfx` read a key of
   yours and show its public half to a server of its choosing. It still
   names the server, so with no key configured the server it names is
-  offered the public keys in your agent, as any host you `ssh` to is;
+  offered the public keys of your default identities and your agent, as
+  any host you `ssh` to is;
   signatures are bound to the session and cannot be replayed.
 
 ## Who may change what

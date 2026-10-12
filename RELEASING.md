@@ -36,9 +36,18 @@ key it offers the server, and `key:` in `.starfix.yaml` may name only a
 file inside the repository. A `.starfix.yaml` with a line such as `key:
 ~/.ssh/id_ed25519`, which every earlier release accepted, is refused:
 `sfx` says so, names the line to remove, and gives the replacement, the
-environment variable `STARFIX_KEY=~/.ssh/id_ed25519`. The notes give
-that one step, say that `sfx whoami` shows which principal and key a
-connection used, and link [Your key is your
+environment variable `STARFIX_KEY_FILE=~/.ssh/id_ed25519`, which holds
+the key file's path. The notes give that one step and three more
+things. With no key named, `sfx` now tries the default identity files of
+`~/.ssh` before ssh-agent's keys, as `ssh` does, and offers five keys at
+most, so a person whose key is `~/.ssh/id_ed25519` needs no ssh-agent,
+and one with several registered keys may sign in by a different one
+than before. A CI job that followed the team guide's earlier recipe has
+a secret named `STARFIX_KEY` holding a private key: `sfx` never reads
+it, and the notes link the new recipe
+([docs/deploy/team.md](docs/deploy/team.md)), which writes the key to a
+file and sets `STARFIX_KEY_FILE` to its path. And `sfx whoami` shows
+which principal and key a connection used. The notes link [Your key is your
 identity](docs/cli.md#your-key-is-your-identity).
 
 ## Changing the Dolt pin

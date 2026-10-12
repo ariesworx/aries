@@ -103,9 +103,11 @@ Costs are Google Cloud list prices for us-central1, read in October 2026.
 **To join a project that has a server:**
 
 1. [Install `sfx`](#install).
-2. Load your SSH key into ssh-agent with `ssh-add`; `sfx` signs in
-   through the agent. Send the public key that `ssh-add -L` prints to the
-   server's admin.
+2. Send your public SSH key, such as `~/.ssh/id_ed25519.pub`, to the
+   server's admin. `sfx` signs in with the key `ssh` would use: a default
+   file in `~/.ssh`, or a key in ssh-agent. To use another, set
+   `STARFIX_KEY_FILE` to its path
+   ([Your key is your identity](docs/cli.md#your-key-is-your-identity)).
 3. In the repository, which has a committed `.starfix.yaml`, check the
    connection:
 

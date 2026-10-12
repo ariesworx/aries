@@ -25,7 +25,7 @@ server:
 | `server.user` | The account starfixd runs as | `starfix` |
 | `server.host_key` | The server's ED25519 host key fingerprint, `SHA256:…` | required |
 | `server.iap` | Reach the server through Google Cloud IAP ([below](#servers-without-a-public-ip-google-cloud-iap)) | off |
-| `key` | A key file inside the repository, relative to its root: the only key `sfx` then offers ([below](#your-key-is-your-identity)). The file is committed and shared, so most people leave this out and set `STARFIX_KEY` instead | ssh-agent |
+| `key` | A key file inside the repository, relative to its root: the only key `sfx` then offers ([below](#your-key-is-your-identity)). The file is committed and shared, so most people leave this out; set `STARFIX_KEY_FILE` to name a key of your own | your default identities, then ssh-agent |
 
 ### The host key is pinned
 
@@ -47,33 +47,73 @@ The server's admin adds your public key with your principal name
 ([Principals](server.md#principals)): send them the `.pub` file, never
 the file beside it. `sfx` runs its own SSH client, so it does not use
 your `~/.ssh/config`. Which keys it offers the server is decided in this
-order:
+order, and nowhere else:
 
-1. **`STARFIX_KEY`**, an environment variable that names a key file by
-   any path (`~/` is your home directory). It is yours alone, since
-   `.starfix.yaml` is committed and shared.
-2. **`key:`** in `.starfix.yaml`, which may name only a file inside the
-   repository: a relative path that, with symbolic links resolved, stays
-   under the repository's root. A path outside it is refused, and the
-   fix says to use `STARFIX_KEY`.
-3. **ssh-agent** (the OpenSSH agent's named pipe on Windows), when
-   neither is set: every key it holds is offered, in its order.
+| | Where the key comes from | What `sfx` offers |
+|---|---|---|
+| 1 | **`STARFIX_KEY_FILE`**, an environment variable that holds the *path* of a key file, any path (`~/` is your home directory). It is yours alone, since `.starfix.yaml` is committed and shared | That key and no other |
+| 2 | **`key:`** in `.starfix.yaml`, which may name only a file inside the repository: a relative path that, with symbolic links resolved, stays under the repository's root. A path outside it is refused, and the fix says to use `STARFIX_KEY_FILE` | That key and no other |
+| 3 | **Your default identities**, when neither is set: `~/.ssh/id_rsa`, `id_ecdsa`, `id_ecdsa_sk`, `id_ed25519` and `id_ed25519_sk`, the files `ssh` tries, in its order, and only those that exist | Each one it can use |
+| 4 | **ssh-agent** (the OpenSSH agent's named pipe on Windows), after those | The keys it holds that are not already offered, in its order, until five keys are offered in all |
 
-A key named by 1 or 2 is the only key offered, whatever ssh-agent holds,
-as with OpenSSH's `IdentitiesOnly`. The file may be the private key, or
-its `.pub`: for a `.pub`, for a private key that is passphrase-protected,
-and for a private key that is missing while its `.pub` is there,
-ssh-agent signs with that one key, which `sfx` finds by its public half,
-and offers no other. This is how an agent is given an identity of its own
+A key named by 1 or 2 is the only key offered, whatever your `~/.ssh` and
+ssh-agent hold, as with OpenSSH's `IdentitiesOnly`. The file may be the
+private key, or its `.pub`: for a `.pub`, for a private key that is
+passphrase-protected, and for a private key that is missing while its
+`.pub` is there, ssh-agent signs with that one key, which `sfx` finds by
+its public half, and offers no other. This is how an agent is given an
+identity of its own
 ([agent guide](agents.md#give-an-agent-its-own-identity)).
 
+With neither set (3 and 4) `sfx` does what `ssh` does, so that a person
+whose key is `~/.ssh/id_ed25519` has nothing to configure:
+
+- A default file that is passphrase-protected is used through ssh-agent
+  when the agent holds its key, and is otherwise skipped. `sfx` never
+  asks for a passphrase.
+- An `_sk` file is a key held on a hardware token. It is used only
+  through ssh-agent, found by the `.pub` beside it, and is otherwise
+  skipped.
+- A certificate beside a key (`id_ed25519-cert.pub`) is not read:
+  certificates are not supported.
+- sshd counts every key it refuses and closes the connection at
+  `MaxAuthTries`, six by default. So `sfx` offers five keys at most. The
+  default files come first, and the rest of ssh-agent's keys fill what
+  is left; any beyond that are not offered, and a refusal says how many.
+- The server takes the first key it knows. With more than one of your
+  keys registered, to different principals, that decides who you are;
+  name the key you mean with `STARFIX_KEY_FILE`.
+
+The home directory is `HOME` (`USERPROFILE` on Windows), from the
+process's environment. Nothing in a repository changes where `sfx` looks
+for default identities.
+
 `sfx whoami` shows the result: the principal the server took you for, the
-project and server, and the fingerprint of the key that signed, with
-where it came from. When the server accepts no key, the refusal lists
-the fingerprints `sfx` offered. sshd closes a connection after a few
-refused keys, six by default, so with many keys in ssh-agent the server
-may hang up before yours is tried; the refusal then says so, and to name
-your key with `STARFIX_KEY`.
+project and server, the fingerprint of the key that signed, where the key
+came from (the file, and what named it, or ssh-agent), and any default
+file that was skipped, with the reason. `sfx prime`, which every agent
+session starts with, says the same in its second line. When the server
+accepts no key, the refusal lists each key `sfx` offered, by fingerprint
+and file, says what was skipped or left out, and names
+`STARFIX_KEY_FILE`.
+
+**`STARFIX_KEY_FILE` holds a path, never a key.** A value that is plainly
+a key (more than one line, or the opening of a private key) is refused
+without being repeated. `sfx` reads no variable named `STARFIX_KEY`:
+earlier instructions for continuous integration put a private key's
+contents in one. `sfx` never looks at its value. When it is set and
+sign-in fails, the refusal says once that it is not read.
+
+### Environment variables
+
+| Variable | Holds |
+|---|---|
+| `STARFIX_KEY_FILE` | The path of the key file to sign in with: then the only key offered (above). Never the key itself |
+| `SSH_AUTH_SOCK` | ssh-agent's socket |
+| `HOME`, or `USERPROFILE` on Windows | Your home directory: `~/` in `STARFIX_KEY_FILE`, and `~/.ssh` for the default identities |
+| `STARFIX_SESSION`, `STARFIX_HARNESS`, `TRACEPARENT`, `TRACESTATE` | The session id, the agent harness's name and the caller's trace context ([agent guide](agents.md#sessions)) |
+
+`sfx` reads no other variable to decide who you are.
 
 ### Where sfx looks for the file
 
@@ -192,7 +232,7 @@ Memories are notes kept across sessions, in `project` (the default),
 | Command | Does |
 |---|---|
 | `mcp` | Serve the MCP tools for an agent on stdin and stdout ([agent guide](agents.md)) |
-| `setup AGENT` | Set an agent up for this repository; see [Set up an agent](agents.md#set-up-an-agent) |
+| `setup AGENT` | Set an agent up for this repository; see [Set up an agent](agents.md#set-up-an-agent). With `--global`, or for Claude Desktop, `--key-file PATH` also names the key file the agent signs in with, in your own files only ([Give an agent its own identity](agents.md#give-an-agent-its-own-identity)) |
 | `usage --hook[=AGENT]` | Send the token counts in the session's transcripts that earlier runs have not sent. Run by Claude Code's Stop, SubagentStop and SessionEnd hooks, which `setup claude-code` installs, with the hook's JSON on stdin; bare `--hook` is Claude Code's, the only agent captured so far. It always exits 0 and sends only counts ([Token usage hooks](agents.md#token-usage-hooks-claude-code)) |
 | `admin prices` | List the model prices, in US dollars per million tokens. `admin prices set MODEL --from DATE --input USD --output USD --cache-write USD --cache-write-1h USD --cache-read USD` sets a model's rates from a date (midnight UTC) or an RFC 3339 time, and prints `added`, `replaced` (the same model and `--from`) or `unchanged`. Every rate must be given, 0 where the model charges nothing, with at most six decimals. Setting is for admins ([Prices](server.md#prices)) |
 | `admin plans` | List the subscription plans, in US dollars a seat a month, with each row's monthly total. `admin plans set NAME --from YYYY-MM --fee USD --seats N --principal P...` sets a plan's terms from a month until a later `--from` of the same name, the principals being those whose usage it pays for (repeatable or comma-separated), and prints `added`, `replaced` (the same name and `--from`) or `unchanged`. `--fee 0 --seats 0` ends a plan. Setting is for admins ([Plans](server.md#plans)) |

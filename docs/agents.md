@@ -50,6 +50,9 @@ Setup prints the "you still" step after it adds a part.
   env (and `"type": "stdio"` for Claude Code and VS Code), and nothing
   else. `--check` fails on any extra key or variable
   (`cwd`, `PATH`, `LD_PRELOAD` and the like), and `--write` drops them.
+  The one exception is `STARFIX_KEY_FILE`, which `--key-file PATH` adds
+  to an entry in your own files and never to a project's
+  ([Give an agent its own identity](#give-an-agent-its-own-identity)).
 - **Existing files** keep their other keys, their order and their mode, and
   a second run changes nothing. A JSON file with a duplicate key is refused,
   since the harness would run the last copy, and so is one with comments
@@ -291,33 +294,75 @@ it for the hooks too.
 
 ## Give an agent its own identity
 
-An agent started from your terminal has your environment, your ssh-agent
-socket included, so by default it signs in as you, with your rights. An
+An agent started from your terminal has your environment: your home
+directory, with its `~/.ssh`, and your ssh-agent socket. So by default it
+signs in as you, with your rights, by the same
+[order of keys](cli.md#your-key-is-your-identity) as your own `sfx`. An
 agent that works on its own should be a principal of its own that is no
 admin ([Security](security-model.md#who-may-change-what)). To set that
 up:
 
 1. Make a key pair for the agent, with no passphrase, readable by you
-   alone: `ssh-keygen -t ed25519 -N '' -f ~/.ssh/starfix_agent`.
+   alone: `ssh-keygen -t ed25519 -N '' -f ~/.ssh/starfix_agent`. Give it
+   a name of its own, not a default one such as `id_ed25519`.
 2. Have an admin add a principal for it with the public half: `sfx admin
    principal add alice-agent --key ~/.ssh/starfix_agent.pub`
    ([Managing access](server.md#managing-access)).
-3. Start the agent with `STARFIX_KEY` naming the private key:
+3. Start the agent with `STARFIX_KEY_FILE` holding the private key's
+   path:
 
    ```sh
-   STARFIX_KEY=~/.ssh/starfix_agent claude
+   STARFIX_KEY_FILE=~/.ssh/starfix_agent claude
    ```
 
-`sfx` then offers that key and no other, whatever ssh-agent holds
-([Your key is your identity](cli.md#your-key-is-your-identity)), so every
-tool call and hook of that agent is the agent's principal's. The harness
-passes its environment to `sfx mcp` and to the hooks it runs, which is
-how they see `STARFIX_KEY`; `sfx setup` writes no key into any file. To
-check, read the first line of `prime`, which names the principal (`you
-are alice-agent`), or run `sfx whoami` in the same environment. If the
-harness does not pass its environment on, `prime` shows your own name:
-then put the key inside the agent's checkout and name it with `key:` in
-that checkout's `.starfix.yaml`, uncommitted.
+`sfx` then offers that key and no other, whatever your `~/.ssh` and
+ssh-agent hold, so every tool call and hook of that agent is the agent's
+principal's. The variable holds the file's path, never the key.
+
+### Where each harness gets the variable
+
+`sfx mcp` and the hooks are separate programs that the harness starts.
+Each signs in with whatever `STARFIX_KEY_FILE` its own environment
+holds:
+
+| Agent | `sfx mcp` sees the variable | The hooks see it |
+|---|---|---|
+| Claude Code, Codex, Gemini CLI, Junie | when the harness was started with it (step 3, or your shell's profile), or from the entry `sfx setup AGENT --global --key-file PATH` writes | only when the harness was started with it |
+| Cursor, VS Code, AI Assistant | when the IDE was started with it. An IDE opened from the desktop does not read your shell's profile: start it from a terminal, or for Cursor use `sfx setup cursor --global --key-file PATH` | only when the IDE was started with it |
+| Claude Desktop | only from `sfx setup claude-desktop --write --key-file PATH`: the app passes no environment on | it has no hooks |
+
+The files setup writes into a repository are committed and shared, and a
+key file's path is one person's, so setup never writes the variable
+there: `--key-file` without `--global` is refused, except for Claude
+Desktop, whose config is yours. In a project that commits its `.mcp.json`
+and the like, each person sets the variable in the environment the
+harness starts in.
+
+`sfx setup AGENT --global --write --key-file PATH` writes
+`STARFIX_KEY_FILE` into the `env` of your own MCP entry, beside
+`STARFIX_HARNESS`. The path is made absolute, must be a file, and is
+refused unrepeated when it is plainly a key. `--check --key-file PATH`
+checks for it; `--check` without the option fails on an entry that has
+one and says which file it names. `--write` without the option replaces
+the entry, and so takes the variable out, saying that it did. `--remove`
+removes the entry and the variable with it.
+
+**Hooks do not read the MCP entry.** With the variable only in the entry,
+the agent's tool calls are the agent's principal's, while the
+session-start and usage hooks sign in by your default keys, as you.
+Nothing fails: the hook's `prime` text says `you are alice` where the
+`prime` tool says `you are alice-agent`, `sfx who` shows a session under
+each, and the usage hooks send their token counts as you.
+Setup says this when it writes the variable for an agent that has hooks.
+To have both agree, start the harness with the variable set (step 3).
+
+To check, read the first two lines of `prime`: the first names the
+principal (`you are alice-agent`) and the second the key that signed in
+and the file it came from. `sfx whoami`, run in the same environment,
+shows the same and more. If the harness does not pass its environment
+on, `prime` shows your own name: then use setup's `--key-file`, or put
+the key inside the agent's checkout and name it with `key:` in that
+checkout's `.starfix.yaml`, uncommitted.
 
 ## Sessions and hooks in harnesses other than Claude Code
 

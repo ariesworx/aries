@@ -54,8 +54,10 @@ your machine
      host_key: SHA256:…
    ```
 
-5. [Install sfx](../install.md#install-sfx), make sure your key is in
-   ssh-agent (`ssh-add -l`), and set your agents up:
+5. [Install sfx](../install.md#install-sfx). It signs in with the key
+   `ssh` would use, a default file in `~/.ssh` or a key in ssh-agent
+   ([Your key is your identity](../cli.md#your-key-is-your-identity));
+   `sfx whoami` says which. Then set your agents up:
 
    ```sh
    sfx ready

@@ -39,8 +39,8 @@ or a key is refused.
   ([Troubleshooting](#troubleshooting)).
 - **Go**, at the `go` line in [go.mod](../../go.mod), to build `sfx` from
   the same checkout, so client and server speak the same protocol.
-- **An SSH key**, such as `~/.ssh/id_ed25519`, loaded into ssh-agent
-  (`ssh-add -l` lists it).
+- **An SSH key**, such as `~/.ssh/id_ed25519`. If it has a passphrase,
+  load it into ssh-agent (`ssh-add -l` lists it).
 
 ## Start it
 
@@ -110,8 +110,9 @@ cd ~/sfx-scratch && git init -q
 ./sfx ready
 ```
 
-`sfx` signs in through ssh-agent. If your key is not in it, name its
-file: `export STARFIX_KEY=~/.ssh/id_ed25519`. The rest of
+`sfx` signs in with the key `ssh` would use: a default file in `~/.ssh`,
+then the keys in ssh-agent. If yours is neither, name its file by its
+path: `export STARFIX_KEY_FILE=~/keys/mine`. The rest of
 [Using sfx](../cli.md) and the [agent guide](../agents.md) work as on any
 server.
 
@@ -126,12 +127,12 @@ cd ~/sfx-scratch && ./sfx admin principal add bob --key ~/sfx-scratch/bob.pub
 Then run `sfx` as bob by naming his key:
 
 ```sh
-STARFIX_KEY=~/sfx-scratch/bob ./sfx whoami
-STARFIX_KEY=~/sfx-scratch/bob ./sfx ready
+STARFIX_KEY_FILE=~/sfx-scratch/bob ./sfx whoami
+STARFIX_KEY_FILE=~/sfx-scratch/bob ./sfx ready
 ```
 
 A key named this way is the only key `sfx` offers, so you are bob even
-with your own key, alice's, in ssh-agent
+with your own key, alice's, in `~/.ssh` and in ssh-agent
 ([Your key is your identity](../cli.md#your-key-is-your-identity)).
 `sfx whoami` says which principal the server took you for and which key
 signed. bob is a member of the first project and no admin: `sfx admin
@@ -263,9 +264,9 @@ covers what `sfx` and starfixd say. These are the test server's own:
 | What you see | Cause | Fix |
 |---|---|---|
 | `docker build` or `docker compose up --build` fails with `exec: "docker-credential-desktop": executable file not found in $PATH` | Docker Desktop's configuration (`~/.docker/config.json`, `"credsStore": "desktop"`) names a helper program that Docker Desktop keeps in `~/.docker/bin`, and that directory is not on your `PATH`: usually because another `docker`, such as a package manager's, comes first. Docker runs the helper whenever it asks a registry for a base image, public ones included, so a build whose base images are already cached does not show it | `export PATH="$HOME/.docker/bin:$PATH"`, in your shell's profile to keep it |
-| You are not who you meant to be | With no key named, `sfx` offers every key in ssh-agent and the server takes the first it knows | `sfx whoami` says who you are and by which key. Name the key you mean with `STARFIX_KEY=FILE`: it is then the only one offered |
-| `sfx: localhost:2222 closed the connection after too many refused keys` | ssh-agent holds more keys than sshd tries, six by default, and yours is not among the first | Name your key with `STARFIX_KEY=FILE`, the private key or its `.pub` |
-| `sfx: key: in .starfix.yaml names …, outside the repository` | `.starfix.yaml` is committed, so its `key:` may name only a file inside the repository | Remove the line and set `STARFIX_KEY` to the file instead |
+| You are not who you meant to be | With no key named, `sfx` offers your default identities and then ssh-agent's keys, and the server takes the first it knows | `sfx whoami` says who you are and by which key. Name the key you mean with `STARFIX_KEY_FILE=PATH`: it is then the only one offered |
+| `sfx: localhost:2222 accepted none of the 5 keys sfx offered: … more keys that ssh-agent holds were not offered` | You have more keys than `sfx` offers, five, which is one fewer than sshd tries, and yours is not among them | Name your key with `STARFIX_KEY_FILE=PATH`, the private key or its `.pub` |
+| `sfx: key: in .starfix.yaml names …, outside the repository` | `.starfix.yaml` is committed, so its `key:` may name only a file inside the repository | Remove the line and set `STARFIX_KEY_FILE` to the file's path instead |
 | `sfx: localhost:2222 accepted no key` for a key added with `sfx admin` | sshd did not find the key in either file | `docker compose logs` shows what sshd and starfixd said, and [Look inside](#look-inside) shows the keys file |
 | `sfx: host key mismatch for localhost` after `docker compose down -v` | The volume held the host key and the project, and the next start made new ones | Save the newly printed block as `.starfix.yaml` |
 

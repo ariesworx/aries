@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -21,7 +22,7 @@ import (
 // every agent. It edits the project's own files unless --global says the
 // person's home ones may be touched.
 func cmdSetup(_ context.Context, r *runner, args []string) error {
-	const usage = "setup AGENT|--all [--write|--check|--remove] [--global] [--command PATH]"
+	const usage = "setup AGENT|--all [--write|--check|--remove] [--global [--key-file PATH]] [--command PATH]"
 	fs := r.newFlags("setup")
 	write := fs.Bool("write", false, "edit the files")
 	check := fs.Bool("check", false, "fail unless everything is in place")
@@ -30,9 +31,18 @@ func cmdSetup(_ context.Context, r *runner, args []string) error {
 	all := fs.Bool("all", false, "every supported agent")
 	entry := agentsetup.DefaultEntry
 	fs.StringVar(&entry.Command, "command", entry.Command, "how the agent runs starfix")
+	keyFile := fs.String("key-file", "", "the key file the agent's sfx signs in with (STARFIX_KEY_FILE in its entry); only for your own files: --global, or a desktop app")
 	pos, err := parse(fs, args, usage)
 	if err != nil {
 		return err
+	}
+	if set(fs, "key-file") {
+		if *remove {
+			return usagef(usage, "--remove takes no --key-file: it takes the entry out, and the key file's path with it")
+		}
+		if entry.KeyFile, err = r.keyFileOption(*keyFile); err != nil {
+			return err
+		}
 	}
 	names := pos
 	switch {
@@ -70,10 +80,11 @@ func cmdSetup(_ context.Context, r *runner, args []string) error {
 			return usagef(usage, "unknown agent %q; supported: %s", name, strings.Join(agentsetup.Names(), ", "))
 		}
 		if agent.Desktop {
+			command := ""
 			if set(fs, "command") {
-				return r.setupDesktop(agent, entry.Command, mode)
+				command = entry.Command
 			}
-			return r.setupDesktop(agent, "", mode)
+			return r.setupDesktop(agent, command, entry.KeyFile, mode)
 		}
 		p := setupPlan{Agent: agent}
 		if *global && agent.Global == "" {
@@ -85,6 +96,13 @@ func cmdSetup(_ context.Context, r *runner, args []string) error {
 		plans = append(plans, p)
 	}
 
+	if entry.KeyFile != "" && !*global {
+		// A project's files are committed, and a path on one person's
+		// machine does not belong in them.
+		return proto.Errf(proto.CodeInvalid,
+			fmt.Sprintf("add --global to write it into your own files, or set %s in the environment the agent starts in, such as your shell's profile", agentsetup.KeyFileEnv),
+			"--key-file is only for your own files: the project's are committed and shared, and a key file's path is yours alone")
+	}
 	root, err := r.setupRoot(*global)
 	if err != nil {
 		return err
@@ -127,7 +145,68 @@ func cmdSetup(_ context.Context, r *runner, args []string) error {
 			p.files = append(p.files, f)
 		}
 	}
+	r.keyFileNotes(plans, entry, mode)
 	return r.applySetup(plans, entry, mode, *all, *global, again, order)
+}
+
+// keyFileOption checks --key-file and returns the path to write: the
+// file's absolute path, with "~/" resolved. What was given is not
+// trusted to be a path, and is never repeated when it is plainly a key.
+func (r *runner) keyFileOption(value string) (string, error) {
+	if value == "" {
+		return "", nil
+	}
+	path, _, err := (&client.Config{}).KeyFile(func(k string) string {
+		if k == client.EnvKeyFile {
+			return value
+		}
+		return ""
+	}, r.env.UserHomeDir)
+	if pe, ok := errors.AsType[*proto.Error](err); ok {
+		return "", proto.Errf(proto.CodeInvalid, "give --key-file the path of your key file, such as ~/.ssh/id_ed25519: it takes the file's path, never the key itself",
+			strings.Replace(pe.Message, client.EnvKeyFile, "--key-file", 1))
+	}
+	if err != nil {
+		return "", err
+	}
+	if fi, err := os.Stat(path); err != nil || !fi.Mode().IsRegular() {
+		return "", proto.Errf(proto.CodeInvalid, "give --key-file the path of the key file the agent is to sign in with",
+			fmt.Sprintf("--key-file %s is not a file", path))
+	}
+	return path, nil
+}
+
+// keyFileNotes says, on stderr, what setup's files hold of the key file
+// beyond what was asked: an entry that sets one when --key-file was not
+// given, since the entry is replaced whole and --check compares it
+// whole; and, when one is written, that an agent's hooks do not see it.
+func (r *runner) keyFileNotes(plans []setupPlan, entry agentsetup.Entry, mode setupMode) {
+	if mode.remove {
+		return
+	}
+	for _, p := range plans {
+		hooks := false
+		for _, f := range p.files {
+			hooks = hooks || f.Kind == agentsetup.KindHook
+			if f.Kind != agentsetup.KindMCP || mode == (setupMode{}) {
+				continue
+			}
+			had := p.KeyFile(f.disk.orig, entry)
+			switch {
+			case had == "" || had == entry.KeyFile:
+			case mode.write:
+				_, _ = fmt.Fprintf(r.env.Stderr, "sfx: note: %s set %s=%s for %s, and this run replaces the entry: pass --key-file to keep or change it\n",
+					esc(f.rel), agentsetup.KeyFileEnv, esc(had), p.Name)
+			default:
+				_, _ = fmt.Fprintf(r.env.Stderr, "sfx: note: %s sets %s=%s for %s: pass --key-file %s to check for it\n",
+					esc(f.rel), agentsetup.KeyFileEnv, esc(had), p.Name, esc(had))
+			}
+		}
+		if entry.KeyFile != "" && hooks && mode.write {
+			_, _ = fmt.Fprintf(r.env.Stderr, "sfx: note: %s's hooks run with its own environment, not the MCP entry's: set %s there too (your shell's profile), or the hooks sign in as whoever your default keys are; `sfx prime` names the principal and the key\n",
+				p.Title, agentsetup.KeyFileEnv)
+		}
+	}
 }
 
 // setupMode is what setup was asked to do; none set means print.
