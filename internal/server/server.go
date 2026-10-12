@@ -109,6 +109,11 @@ type Server struct {
 	// adding serializes `project add`, so that two do not take the same
 	// database name.
 	adding sync.Mutex
+	// archiving serializes `project archive` from its check that the
+	// project is not the last active one to its control write, so that
+	// two archives sent together cannot each see the other's project
+	// still active and leave the server with none.
+	archiving sync.Mutex
 	// unopened holds the active projects whose databases the last
 	// OpenProjects could not open, by id, until one opens or is
 	// archived; guarded by mu. While it holds any, the upgrade's health
@@ -574,6 +579,13 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		start := time.Now()
 		sess.proj.used.Store(s.now().UnixNano())
 		rctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
+		// The caller's trace context rides the request's context, for
+		// whatever later starts a span from it. One that does not parse
+		// is ignored: it never fails the request, and nothing of it is
+		// logged.
+		if tc, ok := proto.ParseTraceContext(f.Traceparent, f.Tracestate); ok {
+			rctx = withTrace(rctx, tc)
+		}
 		var res any
 		var perr *proto.Error
 		ok, wait := true, time.Duration(0)
@@ -603,6 +615,11 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 			s.flush(sess, p) // what was committed before this answer goes first
 		}
 		attrs := []any{"op", f.Op, "ms", time.Since(start).Milliseconds()}
+		if tc, ok := TraceFrom(rctx); ok {
+			// Hex, checked: safe on a log line. span_id is the caller's
+			// span, the parent of any the server would start.
+			attrs = append(attrs, "trace_id", tc.TraceID, "span_id", tc.SpanID)
+		}
 		if perr != nil {
 			// A refusal is worth seeing at the default level, sampled per
 			// principal (S-20); a success is one line per request, so only

@@ -67,7 +67,10 @@ import (
 // key.add, keys and key.remove ops and principal.add's keys; and the
 // status op (design §15.4, `sfx admin status`). Results carry released
 // (on the ops that end access), warning, in_authorized_keys, file_conns
-// and status's keys_file.
+// and status's keys_file. It also adds the trace context on a request
+// frame, tp and ts (decision 27): frames are read leniently, so the
+// fields needed no version of their own, and were added while 5 was
+// unreleased so that every protocol 5 server reads them.
 //
 // Within each version, everything after its first addition joined it
 // before it shipped in a release, so without another bump. That is the
