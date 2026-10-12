@@ -97,7 +97,9 @@ wait_for() {
   die "$name did not start within 30s" "read its log above"
 }
 
-# shellcheck disable=SC2329 # called through wait_for
+# Called through wait_for, which shellcheck cannot see: 0.11 reports
+# that as SC2329, and the 0.9 on CI's runner as SC2317.
+# shellcheck disable=SC2317,SC2329
 port_open() { (: <"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 
 random_hex() { od -An -N24 -tx1 /dev/urandom | tr -d ' \n'; }
