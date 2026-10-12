@@ -35,6 +35,10 @@ type Settings struct {
 	// control init` adopts, which the admin commands act on by default.
 	// Empty, the default, is a server of the one project in DSN.
 	ControlDB string `yaml:"control_db"`
+	// ProjectDBs is the block of database names granted to DSN's account
+	// for the projects `sfx admin project add` creates. It needs
+	// ControlDB.
+	ProjectDBs ProjectDBs `yaml:"project_dbs"`
 	// Project is the UUID of the project served.
 	Project string `yaml:"project"`
 	// Prefix is the issue-ID prefix for generated IDs. Default "sf".
@@ -96,14 +100,16 @@ const (
 
 // ResolveSettings merges, highest precedence first: flags, the environment,
 // the config file, and defaults. configPath "" means STARFIXD_CONFIG, else
-// DefaultConfigFile if it exists; a named file must exist. Limits come from
-// the file only, Admins from the file unless STARFIXD_ADMINS replaces
+// DefaultConfigFile if it exists; a named file must exist. Limits and
+// ProjectDBs come from the file only, Admins from the file unless STARFIXD_ADMINS replaces
 // them, and AllowUnsafeDolt from flags only. It refuses a password in
 // flags.DSN, which the process list would show; a config file with an
 // unknown key, or with a password and any access for group or others; an
 // admin name that is invalid or reserved; an invalid limit; an account
 // that is not a code name; a control database that is not a database
-// name, or is the DSN's own; a systemd unit that is not a unit name; and
+// name, or is the DSN's own; a block of project database names that is
+// invalid, set without a control database, or holds its name; a systemd
+// unit that is not a unit name; and
 // an unknown log level or format.
 func ResolveSettings(flags Settings, configPath string, getenv func(string) string) (Settings, error) {
 	if flags.DSN != "" {
@@ -146,6 +152,7 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 	}
 	out.AllowUnsafeDolt = flags.AllowUnsafeDolt
 	out.Limits = file.Limits
+	out.ProjectDBs = file.ProjectDBs
 	out.Admins = file.Admins
 	if v := getenv(EnvAdmins); v != "" {
 		out.Admins = nil
@@ -170,6 +177,9 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 	if err := out.checkControlDB(); err != nil {
 		return Settings{}, err
 	}
+	if err := out.checkProjectDBs(); err != nil {
+		return Settings{}, err
+	}
 	if out.SystemdUnit != "" && !UnitPattern.MatchString(out.SystemdUnit) {
 		return Settings{}, fmt.Errorf("systemd_unit %q is not a unit name; fix: set it to the service's name, for example starfixd.service", out.SystemdUnit)
 	}
@@ -192,6 +202,26 @@ func (s Settings) checkControlDB() error {
 	if cfg, err := mysql.ParseDSN(s.DSN); err == nil && cfg.DBName == s.ControlDB {
 		return fmt.Errorf("control_db %q is the database in the DSN, which holds a project; fix: set control_db: to a database of its own, such as starfix_control",
 			s.ControlDB)
+	}
+	return nil
+}
+
+// checkProjectDBs refuses a block of project database names that is not
+// valid, that is set on a server of one project, or that holds the
+// control database's name. It may hold the DSN's database: that one is
+// the adopted project's, and a name a project has is never given again.
+func (s Settings) checkProjectDBs() error {
+	b := s.ProjectDBs
+	if err := b.Validate(); err != nil {
+		return err
+	}
+	switch {
+	case b == ProjectDBs{}:
+		return nil
+	case s.ControlDB == "":
+		return errors.New("project_dbs is set without control_db; fix: set control_db: to serve many projects, or remove project_dbs: (docs/server.md, Serving many projects)")
+	case b.holds(s.ControlDB):
+		return fmt.Errorf("project_dbs holds %s, the control database; fix: choose a prefix of its own, such as starfix_p", s.ControlDB)
 	}
 	return nil
 }

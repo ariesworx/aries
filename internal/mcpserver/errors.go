@@ -32,6 +32,12 @@ func explain(err error) toolErr {
 		e.Fix = "starfix reconnected and the retry failed too; try again later, and if it persists tell the user" + personFix(pe)
 	case errors.As(err, &lost):
 		e.Fix = "the connection dropped and the next call reconnects; this write may have applied, so check with show before repeating it"
+	case errors.As(err, &dial) && pe != nil && pe.Code == proto.CodeForbidden:
+		// The principal is no member of the project, or was removed or
+		// disabled while connected. The server's fix names the admin's
+		// command; an agent may hold an admin's key, so it is told
+		// outright to leave that to a person.
+		e.Fix = "you have no access to this project: stop and tell the user, who must ask one of its admins; never run an admin command yourself" + personFix(pe)
 	case errors.As(err, &dial):
 		if pe == nil || pe.Fix == "" {
 			e.Fix = "tell the user starfix cannot connect: check " + client.ConfigFile + " and the network"

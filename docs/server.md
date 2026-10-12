@@ -333,6 +333,11 @@ It comes from the key line that matched, never from the client.
   To end their open sessions too, stop their bridges:
   `pkill -f -- 'stdio --principal bob$'`.
 
+On a server of [many projects](#serving-many-projects) a key line still
+lets the key in, and what the principal may reach is managed with `sfx
+admin` ([Managing access](#managing-access)): removing a membership or
+disabling a principal there ends its open sessions too, with no `pkill`.
+
 ## Admins
 
 Admins are principals named under `admins:` in the config file, or in
@@ -363,26 +368,33 @@ What works today:
 - **Opting in, and adopting the project the server holds**, below.
 - **Membership is enforced at connection.** A principal reaches a project
   only as a member of it, or as a server admin (`admins:`). Anyone else is
-  refused with `forbidden` and told to ask an admin. A project that is
-  unknown or archived is refused as not served.
+  refused with `forbidden`, and the fix names the command an admin runs.
+  A project that is unknown or archived is refused as not served.
 - **Project admins.** A member whose role in a project is `admin` may
   override a held issue and force a close in that project, and set its
   prices and plans, as a server admin may in every project. A role that
   changes counts on the next request.
+- **Projects, principals and members are managed from anywhere** with
+  `sfx admin`, over the same SSH connection as every other command
+  ([Managing access](#managing-access)). A new project needs no shell on
+  the server: its database comes from a block of names you grant once.
+- **Access that ends, ends at once.** When a membership is removed, a
+  principal is disabled or a project is archived, starfixd closes the
+  connections it had let in, once the change is committed.
 - **`import-bd` and `export-bd`** act on the config file's `project`, or
   on another with `--project UUID`.
 
 What does not exist yet:
 
-- **Creating further projects, and adding or removing members,** have no
-  command. They come with `sfx admin`. Until then the only project is the
-  one adopted, and its members are the principals `control init` imports.
 - **Keys still come from `authorized_keys`.** sshd reads that file as
-  before. The control database holds a copy of each key for the release
-  that will serve them from there; today nothing reads the copy.
-- **Open connections are not dropped** when access ends. A principal who
-  loses a membership, or whose project is archived, is refused at the
-  next connection; end open sessions as under [Principals](#principals).
+  before, so a new person still needs a line there
+  ([step 6](#6-let-the-first-principal-in)) besides their membership, and
+  removing a key still means deleting its line. The control database
+  holds a copy of each key `control init` imported, for the release that
+  will serve keys from there; today it is only shown, when a member is
+  added from another project. No `sfx admin key` command exists.
+- **`sfx admin status`**, to see each project's connections and the
+  server's memory, does not exist.
 
 ### Opt in
 
@@ -417,7 +429,33 @@ What does not exist yet:
    principals: 2 added, 0 already there; keys: 3 added, 0 already there; members: 1 added, 0 already there; 0 lines skipped
    ```
 
-4. Restart starfixd: `systemctl restart starfixd`.
+4. To let admins create further projects, grant starfixd's account a
+   block of database names now, and name the block in the config file.
+   Dolt honors a grant on a database that does not exist yet, and only on
+   an exact name, so the names are listed one by one:
+
+   ```sh
+   cd /var/lib/dolt/data/starfix
+   for i in $(seq 1 100); do
+     printf "GRANT ALL ON starfix_p%03d.* TO 'starfix'@'localhost';\n" "$i"
+   done | sudo -u dolt -H dolt sql
+   ```
+
+   ```yaml
+   project_dbs:
+     prefix: starfix_p
+     count: 100
+   ```
+
+   The names are the prefix and a number of three digits, here
+   `starfix_p001` to `starfix_p100`; `count` is at most 999, and the
+   prefix a lowercase letter, then lowercase letters, digits and
+   underscores. `sfx admin project add` takes the lowest name no project
+   has. To add more later, grant them the same way (`seq 101 200`)
+   and raise `count`. Without `project_dbs` the server serves the
+   projects it has and refuses to create one.
+
+5. Restart starfixd: `systemctl restart starfixd`.
 
 `control init` records the database in `dsn` as a project, with the
 config file's `project` UUID, `prefix` and `account` and the name you
@@ -444,6 +482,63 @@ text.
   project, and says to run `control init`.
 - **To go back,** remove `control_db` and restart. The project's database
   was never changed, and the control database is left unused.
+
+### Managing access
+
+Admins manage a server of many projects with `sfx admin`, from any
+repository connected to it ([commands](cli.md#agents-and-maintenance)).
+A command acts on that repository's project unless `--project` names
+another, by UUID or by name. Nothing here is an MCP tool: an agent
+cannot run it, and one whose principal is refused is told to ask a
+person.
+
+| Command | Who may |
+|---|---|
+| `sfx admin project add NAME`, `archive`, `activate` | Server admins |
+| `sfx admin project list` | Anyone the server lets in: a server admin sees every project and its database, anyone else the active projects they belong to |
+| `sfx admin principal add NAME` | Server admins; a project admin, into a project they administer |
+| `sfx admin principal add NAME --no-project`, `principal list` | Server admins |
+| `sfx admin principal disable NAME`, `enable NAME` | Server admins; a project admin, for a principal within their reach |
+| `sfx admin member add NAME`, `remove NAME` | Server admins; the project's admins |
+| `sfx admin member list` | Server admins; the project's admins |
+
+- **A server admin** is a principal named under `admins:`. They are let
+  into every active project and may do everything above. Nothing over
+  the protocol makes one. Disabling a server admin's principal closes
+  their connections and does not keep them out while `admins:` names
+  them; remove the name and restart to do that.
+- **A project admin** is a member whose role in a project is `admin`
+  (`sfx admin member add NAME --role admin`).
+- **Reach.** A project admin may disable or enable a principal only
+  while every project that principal belongs to is one they administer.
+  A principal in no project, and a server admin, are out of every
+  project admin's reach. So when `member remove` leaves someone only in
+  projects another admin runs, that admin gains reach over them, and the
+  command says so.
+- **Adding someone.** A project admin may add to their project a
+  principal that already belongs to some project, or one they created
+  themselves. A principal in no project that someone else created is
+  placed by a server admin. Principal names are one namespace for the
+  server, so `principal add` of a name in use says that it is taken.
+- **A new person** therefore takes two steps today: their key line in
+  `authorized_keys`, as before, and `sfx admin principal add NAME` (or
+  `member add NAME` for someone the server already knows).
+- **A new project.** `sfx admin project add NAME` records the project,
+  creates its database under the next free name of `project_dbs`, applies
+  the schema and marks it active, then prints the `.starfix.yaml` for its
+  repository. If a step fails, run the same command again: it finishes
+  the same project. If the name was never granted, the refusal gives the
+  `GRANT` statement to run as Dolt's root, and the command then resumes.
+  The project is served at once to server admins; add its members with
+  `sfx admin member add NAME --project NAME`.
+- **Archiving** keeps the project's database, members and name, and
+  serves it to no one: its connections are closed and its store with
+  them. The server's last active project cannot be archived, since
+  `sfx admin` needs a project to connect to. `activate` opens the
+  database, which applies any migration it missed while archived, and
+  serves it again.
+- **Everything is on the record** in the control database's event log,
+  under the principal who ran the command.
 
 Each project's store is opened by its first connection and closed after
 `store_idle` without one ([Limits](#limits)). Closing gives back the
@@ -514,6 +609,7 @@ the config file (`/etc/starfix/starfixd.yaml`, or `--config FILE`, or
 | `dsn` | Dolt's address and account, in [go-sql-driver/mysql](https://github.com/go-sql-driver/mysql#dsn-data-source-name) form | required | `--dsn`, `STARFIXD_DSN` |
 | `project` | The project's UUID, in lowercase. A client naming another project is refused. With `control_db`: the project `control init` adopts, and the one `import-bd`, `export-bd` and the health check of `upgrade` use by default | required | `--project`, `STARFIXD_PROJECT` |
 | `control_db` | The name of the control database, on the same Dolt server and account as `dsn`. Setting it makes this a server of [many projects](#serving-many-projects). A lowercase letter, then lowercase letters, digits and underscores; not the database in `dsn` | none: one project | `STARFIXD_CONTROL_DB` |
+| `project_dbs` | With `control_db`: the block of database names granted for new projects, as `prefix` and `count` ([Opt in](#opt-in), step 4). The names are `prefix` and three digits, `001` to `count` (at most 999) | none: no project can be added | |
 | `socket` | The daemon's unix socket | `/run/starfix/starfixd.sock` | `--socket`, `STARFIXD_SOCKET` |
 | `prefix` | The prefix of new issue ids | `sf` | `--prefix` |
 | `admins` | [Admins](#admins) | none | `STARFIXD_ADMINS` |
@@ -580,16 +676,20 @@ limits:
 | `principals` | 5000 | With `control_db`: principals in the control database, disabled ones included |
 | `keys_per_principal` | 20 | With `control_db`: public keys of one principal |
 | `members_per_project` | 1000 | With `control_db`: principals with a role in one project |
+| `control_write_rate`, `control_write_burst` | 1, 30 | With `control_db`: each principal's token bucket for `sfx admin` changes to projects, principals and members: changes a second, and how many at once. It is the principal's on the whole server, apart from its write bucket in each project; the lists are not counted |
 
 On a server of [many projects](#serving-many-projects), every limit above
 that is per principal is per principal in each project: `conns_per_principal`,
 the write bucket, `refusal_logs` and the limits on rows a principal owns.
-`conns` stays the whole server's. Past `principals`, `keys_per_principal`
+`conns` stays the whole server's, and the `sfx admin` bucket is each
+principal's on the whole server. Past `principals`, `keys_per_principal`
 or `members_per_project`, `control init` skips the line and says which
-limit it met.
+limit it met, and `sfx admin` refuses the row with `invalid` and names
+the limit; past `projects` it refuses a new project the same way.
 
 A request past a per-request cap is refused with `invalid`. A write past
-the write rate is refused with `busy`, and its fix says how long to wait.
+the write rate, or an `sfx admin` change past its own, is refused with
+`busy`, and its fix says how long to wait.
 A `usage` call past `usage_per_day` is refused with `busy`, and stores
 none of its records. A
 connection past a connection cap is also refused with `busy`, and its fix
@@ -601,7 +701,10 @@ Fixed caps that no setting changes:
 - **Pages:** no reply may pass the 4 MiB frame. `comments` and `history`
   return the newest page (up to 100 entries, 500 with a limit, about 1 MiB
   of text) and a cursor to the page before, which `sfx` follows.
-- **Lists:** `who` lists at most 100 sessions and counts the rest; `show`
+- **Lists:** the `sfx admin` lists of projects, principals and members
+  show 200 rows, or up to 1000 with `-n`, and count the rest, which
+  `--after NAME` lists. `who` lists at most 100 sessions and counts the
+  rest; `show`
   lists at most 200 edges and `blocked` 50 blockers an issue, each with a
   count of the rest. `show` and `digest` list tokens for at most 20
   models, summing the rest as `(other)`.
@@ -635,9 +738,9 @@ starfixd logs to stderr, which systemd sends to the journal
 | Level | Logs |
 |---|---|
 | `debug` | Connections and each successful request. With `control_db`, each names its `project` |
-| `info` | Startup, refusals, handshake failures and expired claims. Refusals are capped at `refusal_logs` a minute per principal. With `control_db`: each project store opened and closed, and the `project` of every line about one |
+| `info` | Startup, refusals, handshake failures and expired claims. Refusals are capped at `refusal_logs` a minute per principal. With `control_db`: each project store opened and closed, each project added, the connections closed when an `sfx admin` change ends someone's access, and the `project` of every line about one |
 | `warn` | Connections refused at the connection cap, socket peers refused, how many refusal lines the cap left out, and failures to accept a connection that may pass, such as running out of file descriptors, which starfixd retries after a pause of up to a second |
-| `error` | Internal errors |
+| `error` | Internal errors. With `control_db`: an active project whose database could not be opened at start |
 
 Any other failure to accept connections stops starfixd: it prints the
 error and exits 1, and the unit's `Restart=on-failure` starts it again.
@@ -647,10 +750,11 @@ error and exits 1, and the unit's `Restart=on-failure` starts it again.
 Upgrade the server first, then the clients. A newer server accepts older
 clients. A newer client that needs a newer protocol is refused by an older
 server at the handshake, with exit code 3 and a fix that says to upgrade
-the server. This release speaks protocol 4 (memory) and accepts clients
-that speak 2 to 4, so v0.2.x clients (protocol 2) and v0.3.x clients
-(protocol 3) keep working, without memory, and v0.1.x clients, which
-speak 1, must upgrade.
+the server. This release speaks protocol 5 (`sfx admin` for projects,
+principals and members) and accepts clients that speak 2 to 5, so v0.2.x
+clients (protocol 2), v0.3.x clients (protocol 3) and v0.4.x clients
+(protocol 4) keep working, without what came after them, and v0.1.x
+clients, which speak 1, must upgrade.
 
 On the server, as the `starfix` user:
 
@@ -673,11 +777,23 @@ sudo -u starfix -H starfixd upgrade
    that the new version answers on the socket within 30 seconds. If it does
    not, upgrade puts the old binary back and restarts it.
 
-With `control_db`, the check connects to the config file's `project`,
-which must be active, so it shows that the control database and that
-project's database open under the new version. Another project's database is migrated when its store
-next opens; if that fails, connections to that project are refused with
-`unavailable` and the log says why.
+With `control_db`, starfixd opens the database of every active project
+once before it listens, which applies the new version's migrations to
+each (a few milliseconds for a database already current), and the check
+answers for all of them: it does not depend on the config file's
+`project` being active. If a project's database cannot be opened, the
+check is refused and names the project, so upgrade puts the old binary
+back; the log says why. An archived project's database is migrated when
+the project is activated.
+
+The same happens at every start. A project whose database cannot be
+opened does not stop the others from being served: it is logged at
+`error`, its connections are refused with `unavailable`, and each new
+connection tries it again. Fix its database, or archive the project.
+As on a server of one project, the old binary refuses a database the new
+one has already migrated, since migrations only go forward. So after an
+upgrade that failed partway, the restored version may not serve the
+databases the new one reached; the tag of step 2 marks each as it was.
 
 It refuses to run as root, except with `--check`. `--to vX.Y.Z` installs a given release, but
 never an older one, because migrations only go forward. `--rollback`
@@ -779,7 +895,13 @@ quiet hour: `cd /var/lib/dolt/data/starfix && sudo -u dolt -H dolt gc`.
 | `sfx: … refused your SSH key`, though the key line is right | The `starfix` account is locked (`!` in `/etc/shadow`), or its shell is `nologin` | `usermod -p '*' starfix`; `usermod -s /bin/sh starfix` |
 | `sfx: starfixd is not running on the server` | The daemon is stopped, or failed at start | `journalctl -u starfixd` shows why; `systemctl start starfixd` |
 | `project "…" is not served by this server` | `.starfix.yaml` and the config file name different projects; with `control_db`, the project is unknown or archived | Make the two `project` values match |
-| `… is not a member of project "…"` | With `control_db`: the principal has no row in the control database, is disabled, or is in other projects only | Add their line to `authorized_keys` and run `starfixd control init` again |
+| `… is not a member of project "…"` | With `control_db`: the principal has no row in the control database, is disabled, or is in other projects only | An admin runs `sfx admin member add NAME` in the project's repository (`principal add NAME` for someone new, `principal enable NAME` for someone disabled) |
+| `this server holds one project, so it has no projects, principals or members to manage` | `sfx admin project`, `principal` or `member` on a server with no `control_db` | [Opt in](#opt-in), or add people as lines of `authorized_keys` |
+| `the server has no database names for new projects` | `sfx admin project add` on a server with no `project_dbs` | Grant a block of names and set `project_dbs` ([Opt in](#opt-in), step 4) |
+| `starfixd's Dolt account was never granted database …` | `project add` took a name in `project_dbs` that was never granted | As Dolt's root, run the `GRANT` statement in the fix, then run the same `sfx admin project add NAME` again |
+| `every database name for new projects is in use` | Every name in `project_dbs` has a project, archived ones included | Grant more names and raise `count` |
+| `… may not …: it is for …` | An `sfx admin` command by someone who may not run it ([Managing access](#managing-access)) | Ask the admin the fix names |
+| `starfixd could not open the database of an active project` from `starfixd upgrade` | A project's database is gone, not granted, or failed to migrate | `journalctl -u starfixd` names it and why; fix it or archive the project, then restart |
 | `the control database … holds no active project` at start | `control_db` is set and `control init` has not run | `sudo -u starfix -H starfixd control init --name NAME` |
 | starfixd refuses the Dolt account | The account is `root` or has too many rights, or `secure_file_priv` is empty | Run the SQL its fix names, or redo [step 4](#4-create-the-database-and-the-config-file) |
 | `sfx` exits with code 3 | Client and server speak incompatible protocols | Upgrade the server, then the client |

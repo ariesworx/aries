@@ -376,6 +376,15 @@ func TestErrorsNameTheNextStep(t *testing.T) {
 			"not_found: nothing is ready to start\nfix: nothing is ready: call blocked to see why, or create an issue"},
 		{"dial", &dialError{err: proto.Errf(proto.CodeAuth, "send your public key to the starfix admin", "refused your SSH key")},
 			"auth: refused your SSH key\nfix: tell the user starfix cannot connect, quoting the server: \"send your public key to the starfix admin\""},
+		// The handshake's refusal names an admin command: it is for a
+		// person, and an agent is told to ask one, never to run it.
+		{"dial, not a member", &dialError{err: proto.Errf(proto.CodeForbidden,
+			"ask a server admin, or one of the project's admins, to add you: `sfx admin member add alice`, run in this repository; or, if you were disabled, `sfx admin principal enable alice`",
+			`alice is not a member of project "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"`)},
+			"forbidden: alice is not a member of project \"6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f\"\n" +
+				"fix: you have no access to this project: stop and tell the user, who must ask one of its admins; never run an admin command yourself, " +
+				"quoting the server: \"ask a server admin, or one of the project's admins, to add you: `sfx admin member add alice`, run in this repository; " +
+				"or, if you were disabled, `sfx admin principal enable alice`\""},
 		{"lost write", &lostError{err: errLost},
 			"unavailable: the server closed the connection\nfix: the connection dropped and the next call reconnects; this write may have applied, so check with show before repeating it"},
 		{"lost read", &lostError{err: errLost, retried: true},

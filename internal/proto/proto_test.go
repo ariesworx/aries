@@ -155,8 +155,9 @@ func TestCheckProto(t *testing.T) {
 }
 
 // TestReleasedClients pins which released clients this server's range
-// serves: v0.2.x speaks protocol 2 and v0.3.x speaks 3, and both are
-// still in use, so raising ProtoMin past 2 must be a deliberate change.
+// serves: v0.2.x speaks protocol 2, v0.3.x speaks 3 and v0.4.x speaks 4,
+// and all are still in use, so raising ProtoMin past 2 must be a
+// deliberate change.
 func TestReleasedClients(t *testing.T) {
 	tests := []struct {
 		release string
@@ -166,6 +167,7 @@ func TestReleasedClients(t *testing.T) {
 		{"v0.1.x", 1, false},
 		{"v0.2.x", 2, true},
 		{"v0.3.x", 3, true},
+		{"v0.4.x", 4, true},
 		{"this release", Proto, true},
 	}
 	for _, tc := range tests {

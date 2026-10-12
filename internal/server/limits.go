@@ -55,6 +55,14 @@ type Limits struct {
 	// for this long. That gives back its connections to Dolt, not Dolt's
 	// memory.
 	StoreIdle Duration `yaml:"store_idle"`
+	// ControlWriteRate is how many writes to the control store a second
+	// a principal's token bucket refills, and ControlWriteBurst how many
+	// it holds: adding, archiving and activating projects, adding,
+	// disabling and enabling principals, and setting and removing
+	// members. The bucket is the principal's on the whole server, apart
+	// from its write bucket in each project.
+	ControlWriteRate  float64 `yaml:"control_write_rate"`
+	ControlWriteBurst int     `yaml:"control_write_burst"`
 }
 
 // DefaultLimits are the limits a zero field takes.
@@ -63,6 +71,7 @@ var DefaultLimits = Limits{
 	WriteRate: 10, WriteBurst: 100, RefusalLogs: 20,
 	AgentKeep: Duration(store.MaxAgentWindow), InboxKeep: Duration(30 * 24 * time.Hour),
 	Control: store.DefaultControlLimits, OpenStores: 64, StoreIdle: Duration(10 * time.Minute),
+	ControlWriteRate: 1, ControlWriteBurst: 30,
 }
 
 // Duration is a YAML duration such as 90s, 10m, 8h or 7d.
@@ -92,6 +101,7 @@ func (l Limits) WithDefaults() Limits {
 		{&l.PlanPrincipals, &d.PlanPrincipals},
 		{&l.Control.Projects, &d.Control.Projects}, {&l.Control.Principals, &d.Control.Principals},
 		{&l.Control.Keys, &d.Control.Keys}, {&l.Control.Members, &d.Control.Members}, {&l.OpenStores, &d.OpenStores},
+		{&l.ControlWriteBurst, &d.ControlWriteBurst},
 	} {
 		if *f.v == 0 {
 			*f.v = *f.d
@@ -105,6 +115,9 @@ func (l Limits) WithDefaults() Limits {
 	}
 	if l.WriteRate == 0 {
 		l.WriteRate = d.WriteRate
+	}
+	if l.ControlWriteRate == 0 {
+		l.ControlWriteRate = d.ControlWriteRate
 	}
 	return l
 }
@@ -127,6 +140,8 @@ func (l Limits) Validate() error {
 		{"write_burst", l.WriteBurst < 0}, {"refusal_logs", l.RefusalLogs < 0},
 		{"agent_keep", l.AgentKeep < 0}, {"inbox_keep", l.InboxKeep < 0},
 		{"open_stores", l.OpenStores < 0}, {"store_idle", l.StoreIdle < 0},
+		{"control_write_rate", l.ControlWriteRate < 0 || math.IsNaN(l.ControlWriteRate) || math.IsInf(l.ControlWriteRate, 0)},
+		{"control_write_burst", l.ControlWriteBurst < 0},
 	} {
 		if f.bad {
 			return fmt.Errorf("limit %s must be zero or a positive number; fix: correct limits: in the config file, or leave it out for the default", f.name)
@@ -142,6 +157,22 @@ var readOps = map[string]bool{
 	proto.OpHistory: true, proto.OpDigest: true, proto.OpWho: true, proto.OpInbox: true, proto.OpWatch: true,
 	proto.OpClaims: true, proto.OpRecall: true, proto.OpPrices: true, proto.OpCost: true,
 	proto.OpHours: true, proto.OpPlans: true,
+	proto.OpProjects: true, proto.OpPrincipals: true, proto.OpMembers: true,
+}
+
+// controlWrites are the operations that write to the control store.
+// Each counts against the principal's control bucket
+// (Limits.ControlWriteRate), not its write bucket in the project.
+var controlWrites = map[string]bool{
+	proto.OpProjectAdd: true, proto.OpProjectArchive: true, proto.OpProjectActivate: true,
+	proto.OpPrincipalAdd: true, proto.OpPrincipalDisable: true, proto.OpPrincipalEnable: true,
+	proto.OpMemberSet: true, proto.OpMemberRemove: true,
+}
+
+// adminOp reports whether op manages access (proto's admin.go): one of
+// controlWrites, or a list of projects, principals or members.
+func adminOp(op string) bool {
+	return controlWrites[op] || op == proto.OpProjects || op == proto.OpPrincipals || op == proto.OpMembers
 }
 
 // buckets is a token bucket per principal: each holds up to burst tokens,

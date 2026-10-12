@@ -5,7 +5,8 @@
 // through its unix socket: [Server.NewDatabase] makes an empty database
 // for each test, with the DSN of the least-privileged account [User], and
 // [Server.RootDSN] gives Dolt's superuser, for tests of the store's
-// account check. Without dolt on PATH, Start returns [ErrNoDolt] and
+// account check. [Server.Grant] grants User a database by name before it
+// exists. Without dolt on PATH, Start returns [ErrNoDolt] and
 // callers skip, unless [RequireEnv] makes that a failure. NewDatabase is
 // safe for concurrent use.
 package dolttest
@@ -248,6 +249,28 @@ func (s *Server) NewDatabase(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("dolttest: grant: %w", err)
 	}
 	return fmt.Sprintf("%s@unix(%s)/%s", User, s.socket, name), nil
+}
+
+// Grant gives User every right on each database named, whether or not it
+// exists yet: Dolt honors a grant on an exact name made beforehand, which
+// is how an operator lets starfixd create a project's database later
+// (design §15.5, 1). Each name must be lowercase letters, digits and
+// underscores, since it is written into the statement.
+func (s *Server) Grant(ctx context.Context, names ...string) error {
+	db, err := sql.Open("mysql", s.rootDSN(""))
+	if err != nil {
+		return fmt.Errorf("dolttest: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	for _, name := range names {
+		if strings.Trim(name, "abcdefghijklmnopqrstuvwxyz0123456789_") != "" || name == "" {
+			return fmt.Errorf("dolttest: grant: %q is not a plain database name", name)
+		}
+		if _, err := db.ExecContext(ctx, "GRANT ALL ON "+name+".* TO '"+User+"'@'localhost'"); err != nil {
+			return fmt.Errorf("dolttest: grant: %w", err)
+		}
+	}
+	return nil
 }
 
 // Stop interrupts the server and waits for it to exit, killing it after

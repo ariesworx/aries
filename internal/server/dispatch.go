@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,7 +18,8 @@ import (
 // or a refusal: invalid for an unknown op or bad arguments, else the
 // store's error as mapErr words it. Dispatch is safe for concurrent use.
 // It applies no write rate limit, and refuses watch, which needs a
-// connection to push to.
+// connection to push to, and the ops that manage access (proto's
+// admin.go), which need a server of many projects.
 //
 // Dispatch is for a server of one project (Config.Store). A server of
 // many (Config.Control) knows a request's project only from its
@@ -28,6 +28,9 @@ func (s *Server) Dispatch(ctx context.Context, actor store.Actor, op string, arg
 	if s.single == nil {
 		return nil, proto.Errf(proto.CodeUnavailable, "send the request on a connection, which names its project",
 			"this server holds many projects, and the request names none")
+	}
+	if adminOp(op) {
+		return nil, oneProject()
 	}
 	return s.single.dispatch(ctx, actor, op, args)
 }
@@ -91,14 +94,9 @@ var handlers = map[string]handler{
 // typed decodes args strictly into A and calls fn.
 func typed[A any](fn func(ctx context.Context, pr *served, a store.Actor, args A) (any, *proto.Error)) handler {
 	return func(ctx context.Context, pr *served, a store.Actor, raw json.RawMessage) (any, *proto.Error) {
-		var args A
-		if len(raw) > 0 {
-			dec := json.NewDecoder(bytes.NewReader(raw))
-			dec.DisallowUnknownFields()
-			if err := dec.Decode(&args); err != nil {
-				return nil, proto.Errf(proto.CodeInvalid, proto.FixUpgrade+" starfix to match the server",
-					fmt.Sprintf("bad arguments: %v", err))
-			}
+		args, perr := decodeArgs[A](raw)
+		if perr != nil {
+			return nil, perr
 		}
 		return fn(ctx, pr, a, args)
 	}

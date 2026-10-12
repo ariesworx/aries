@@ -29,11 +29,11 @@ stage is in progress.
 | `internal/store` | Typed store over Dolt: single writer, CAS updates, event log, ready and blocked queries. Also `Control` (`control*.go`), the same machinery over a second database for what is the server's: projects, principals, their public keys and memberships with roles, and the in-memory index the daemon reads at each handshake and each project store asks for its admins |
 | `internal/store/migrations`, `internal/store/controlmigrations` | Embedded schema migrations for a project's database and for the control database, two separate sets: `NNNN_name.sql`, each numbered 1..n without gaps |
 | `internal/proto` | Wire protocol: NDJSON frames, handshake, `Op` constants, `*Args` and `*Result` types, typed errors |
-| `internal/server` | Daemon: socket, peer check, sshd bridge, dispatch of ops to the connection's project's store, error mapping, settings; with `control_db`, the membership check at the handshake and the registry of open project stores (`registry.go`) |
-| `internal/client` | In-process SSH client with a pinned host key, over TCP or a Google Cloud IAP tunnel; `.starfix.yaml` discovery, session ids |
+| `internal/server` | Daemon: socket, peer check, sshd bridge, dispatch of ops to the connection's project's store, error mapping, settings; with `control_db`, the membership check at the handshake, the registry of open project stores (`registry.go`), the `sfx admin` ops over the control store (`admin.go`) and the closing of connections whose access ended (`conns.go`) |
+| `internal/client` | In-process SSH client with a pinned host key, over TCP or a Google Cloud IAP tunnel; `.starfix.yaml` discovery, and the one printed for a new project; session ids |
 | `internal/safetext` | Unsafe characters (controls, bidi): the store's validation, bd import cleaning, and the escaping of everything clients print |
 | `internal/secretscan` | Text that looks like a credential (private keys, service and bearer tokens, JWTs, passwords in URLs and commands, secret assignments, long random tokens): the store's secrets lint for memories |
-| `internal/cli` | `sfx` commands; writes only to the `Env` it is given |
+| `internal/cli` | `sfx` commands, `sfx admin` among them; writes only to the `Env` it is given |
 | `internal/board` | `sfx tui`, the live board: the model and its golden-tested frames, `Live` (event push, debounced rereads, reconnects), and the terminal loop over `golang.org/x/term` |
 | `internal/capture` | Token usage read from a harness's local records (Claude Code transcripts) for `sfx usage --hook`, with per-file offsets in a 0600 state file |
 | `internal/mcpserver` | MCP tools, `prime`, token budgets, agent-facing error rewording |
@@ -42,7 +42,7 @@ stage is in progress.
 | `internal/bdimport` | bd JSONL import and export |
 | `internal/release`, `internal/tools/releasekey` | Release download, signature and checksum checks, binary swap; the signing tool |
 | `internal/version` | Build version, and `Dolt`, the pinned Dolt release |
-| `internal/dolttest` | Starts a throwaway `dolt sql-server` for tests |
+| `internal/dolttest` | Starts a throwaway `dolt sql-server` for tests, and grants its locked-down account databases by name |
 | `internal/iaptest` | A fake `gcloud` for tests of the IAP transport: the test binary, re-executed from `PATH` |
 | `internal/e2e` | End-to-end tests: CLI and MCP through an in-process SSH server to a real daemon and store |
 | `deploy/docker` | The Docker test server ([docs/deploy/docker.md](docs/deploy/docker.md)): image, entrypoint, compose file and `smoke.sh`, which drives it end to end and is not part of CI. It mirrors docs/server.md's setup steps; `internal/version` keeps its Dolt at the pin |
@@ -164,7 +164,10 @@ skip without it too.
     The CLI prints the message and a `fix:` line; `internal/mcpserver`
     rewords the fix as the agent's next tool call (`errors.go`).
 12. **MCP is for agents and stays small.** No admin tools over MCP: import,
-    export, setup, upgrade, settings, prices and plans are CLI only.
+    export, setup, upgrade, settings, prices, plans, projects, principals
+    and members are CLI only. An agent refused for want of access is told
+    to ask a person, never to run an admin command
+    (`internal/mcpserver/errors.go`).
     Identity is implicit: the principal comes from the SSH key and the
     session from the environment, never from a tool argument. Results are capped
     (`budget.go`: 2,000 tokens, prime and digest 1,500) and the whole tool

@@ -50,10 +50,21 @@ import (
 // server exactly as against a protocol 3 one, and a protocol 2 client as
 // it did before protocol 3. Raising ProtoMin to 3 would refuse v0.2.x
 // clients; TestReleasedClients pins the range.
+//
+// Protocol 5 adds access management on a server of many projects (design
+// §15, admin.go): the project.add, projects, project.archive,
+// project.activate, principal.add, principals, principal.disable,
+// principal.enable, member.set, members and member.remove ops. Protocol 4
+// shipped in v0.4.x, so these are a bump. ProtoMin stays at 2 for the
+// same reason as before: v0.2.x, v0.3.x and v0.4.x clients are in use,
+// none of them sends an admin op, and no existing op or result changed,
+// so each keeps working against a protocol 5 server exactly as it did. A
+// protocol 5 client against an older server is refused at the handshake,
+// rather than at its first admin op.
 const (
-	Proto    = 4
+	Proto    = 5
 	ProtoMin = 2
-	ProtoMax = 4
+	ProtoMax = 5
 )
 
 // CheckProto returns nil when the client protocol version p is in

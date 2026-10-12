@@ -15,8 +15,9 @@
 // the store directly with the daemon's DSN settings and move a backlog in
 // and out as bd's JSONL. With control_db set the server holds many
 // projects, each in a database of its own: control init adopts the
-// existing database as the first and imports authorized_keys, and
-// import-bd and export-bd take --project. upgrade replaces this binary with a verified
+// existing database as the first and imports authorized_keys,
+// import-bd and export-bd take --project, and serve opens every active
+// project's database once before it listens, which migrates it. upgrade replaces this binary with a verified
 // release, after tagging the database, and restarts and health-checks the
 // daemon when a systemd unit is configured or --restart is given.
 package main
@@ -55,7 +56,9 @@ serve reads them at start.
 
 With control_db: (or $STARFIXD_CONTROL_DB) set, the server holds many
 projects, and who may reach each is in that database. Run control init
-once to adopt the existing database as the first project.
+once to adopt the existing database as the first project; admins then
+manage projects, principals and members from anywhere with sfx admin.
+project_dbs: names the databases granted for new projects.
 
 Every command that opens the store refuses a Dolt account that is root,
 holds rights beyond its database, or a server whose secure_file_priv is
@@ -198,8 +201,9 @@ func (d *daemon) Close() error {
 
 // openDaemon opens what s configures: the store of the one project in
 // the DSN, or, with control_db set, the control store of a server of
-// many projects, whose stores the server opens as they are asked for. A
-// server of one project opens no control store.
+// many projects, whose stores the server opens as they are asked for,
+// after opening each active project's once to migrate it. A server of
+// one project opens no control store.
 func openDaemon(ctx context.Context, s server.Settings, log *slog.Logger) (*daemon, error) {
 	cfg := server.Config{Version: version.Version, Latest: s.Latest, Logger: log, Limits: s.Limits, Account: s.Account}
 	opts := store.Options{Logger: log, AllowUnsafeAccount: s.AllowUnsafeDolt, Limits: s.Limits.Limits}
@@ -230,10 +234,17 @@ func openDaemon(ctx context.Context, s server.Settings, log *slog.Logger) (*daem
 		return nil, errors.Join(fmt.Errorf("the control database %s holds no active project; fix: adopt this server's database as the first with `starfixd control init --name NAME`",
 			s.ControlDB), ctl.Close())
 	}
-	cfg.Control, cfg.Open = ctl, server.ProjectOpener(s.DSN, ctl, opts)
+	cfg.Control, cfg.Open, cfg.ProjectDBs = ctl, server.ProjectOpener(s.DSN, ctl, opts), s.ProjectDBs
 	srv, err := server.New(cfg)
 	if err != nil {
 		return nil, errors.Join(err, ctl.Close())
+	}
+	// Every active project's database is opened, and so migrated,
+	// before the daemon listens: after an upgrade, the health check
+	// then answers for all of them. One that fails is logged and held
+	// against that check; the others are served.
+	if err := srv.OpenProjects(ctx); err != nil {
+		return nil, errors.Join(fmt.Errorf("%w; fix: check that dolt sql-server is running", err), ctl.Close())
 	}
 	return &daemon{srv: srv, ctl: ctl}, nil
 }

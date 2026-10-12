@@ -51,6 +51,10 @@ type entry struct {
 	// project waits, so the project never has two stores, and so two
 	// writers.
 	gone chan struct{}
+	// retired is set when the project was archived while its store was
+	// in use: the store is closed as soon as nothing uses it, without
+	// waiting to be idle.
+	retired bool
 }
 
 // closable reports whether e's store is open and unused.
@@ -168,6 +172,28 @@ func (r *registry) release(e *entry) {
 	if e.conns--; e.conns == 0 {
 		e.since = r.now()
 	}
+	r.closeRetired(e)
+}
+
+// retire closes the store of project id, which is no longer served: at
+// once when nothing uses it, and otherwise when its last connection and
+// background run end. A project with no store open has nothing to
+// close.
+func (r *registry) retire(id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if e := r.entries[id]; e != nil && e.gone == nil {
+		e.retired = true
+		r.closeRetired(e)
+	}
+}
+
+// closeRetired starts closing e if it was retired and is now unused.
+// r.mu is held.
+func (r *registry) closeRetired(e *entry) {
+	if e.retired && e.closable() {
+		r.close(e.pr.id, e, "archived")
+	}
 }
 
 // closeIdle closes every store that has had no connection for r.idle,
@@ -218,6 +244,7 @@ func (r *registry) each(fn func(*served)) {
 		fn(e.pr)
 		r.mu.Lock()
 		e.pins--
+		r.closeRetired(e)
 		r.mu.Unlock()
 	}
 }

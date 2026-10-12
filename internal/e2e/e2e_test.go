@@ -103,6 +103,9 @@ type world struct {
 	// which tests add projects and members until `sfx admin` can.
 	controlDSN string
 	ctl        *store.Control
+	// block is the daemon's block of database names for new projects
+	// (daemonOpts.dbs).
+	block server.ProjectDBs
 }
 
 // daemonOpts configures a world's daemon; the zero value takes the
@@ -134,6 +137,11 @@ type daemonOpts struct {
 	// whose server admins are admins. No one else may connect until a
 	// test makes them a member.
 	many bool
+	// dbs is how many database names the daemon may take for new
+	// projects (world.block), of which the first granted are granted to
+	// its Dolt account, as an operator grants a block at setup. Zero is
+	// no block.
+	dbs, granted int
 }
 
 // newWorld starts a daemon on a new database, unless o.noDaemon, and the
@@ -249,6 +257,19 @@ func (w *world) adopt(ctx context.Context) error {
 		return err
 	}
 	w.controlDSN = dsn
+	if w.opts.dbs > 0 {
+		ccfg, err := mysql.ParseDSN(dsn)
+		if err != nil {
+			return err
+		}
+		// Named for the control database, which no other world has.
+		w.block = server.ProjectDBs{Prefix: ccfg.DBName + "_p", Count: w.opts.dbs}
+		for i := 1; i <= w.opts.granted; i++ {
+			if err := dolt.Grant(ctx, w.block.Name(i)); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
@@ -274,7 +295,7 @@ func (w *world) startMany() error {
 		cancel()
 		return errors.Join(err, ctl.Close())
 	}
-	srv, err := server.New(server.Config{Control: ctl, Version: "v0.2.0",
+	srv, err := server.New(server.Config{Control: ctl, Version: "v0.2.0", ProjectDBs: w.block,
 		Open:     server.ProjectOpener(w.dsn, ctl, store.Options{CommitInterval: o.commit, Now: o.now, Limits: o.limits.Limits, Logger: o.logger}),
 		ProtoMin: o.protoMin, ProtoMax: o.protoMax, Latest: o.latest, ReapInterval: o.reap, Limits: o.limits, Logger: o.logger})
 	if err != nil {
