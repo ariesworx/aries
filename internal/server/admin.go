@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
 	"github.com/ariesworx/starfix/internal/telemetry"
@@ -173,7 +174,7 @@ func (s *Server) open(ctx context.Context, op string, p store.Project) *proto.Er
 			fmt.Sprintf("starfixd's Dolt account was never granted database %s, so project %s cannot use it", p.DBName, p.Name))
 	}
 	if ctx.Err() == nil {
-		s.cfg.Logger.Error("open project store", "project", p.ID, "database", p.DBName, "err", err)
+		s.cfg.Logger.ErrorContext(ctx, "open project store", "event", logs.ProjectOpenFailed, "project", p.ID, "database", p.DBName, "err", err)
 	}
 	return proto.Errf(proto.CodeUnavailable,
 		fmt.Sprintf("run `sfx %s %s` again; if it persists, the server admin should check the starfixd log", command(op), p.Name),
@@ -252,7 +253,7 @@ func projectAdd(ctx context.Context, s *Server, sess *session, in proto.ProjectA
 	if p, err = ctl.ActivateProject(ctx, a, p.ID); err != nil {
 		return nil, s.ctlErr(ctx, sess, op, err)
 	}
-	s.cfg.Logger.Info("project added", "project", p.ID, "name", p.Name, "database", p.DBName, "by", a.Principal, "resumed", resumed)
+	s.cfg.Logger.InfoContext(ctx, "project added", "event", logs.ProjectAdded, "project", p.ID, "name", p.Name, "database", p.DBName, "by", a.Principal, "resumed", resumed)
 	return proto.ProjectAddResult{ProjectResult: wireProjectResult(p), Database: p.DBName, Resumed: resumed}, nil
 }
 
@@ -372,7 +373,7 @@ func projectArchive(ctx context.Context, s *Server, sess *session, in proto.Proj
 	defer cancel()
 	held, err := s.stores.acquire(rctx, p)
 	if err != nil {
-		s.cfg.Logger.Error("open the store of an archived project to end its claims", "project", p.ID, "database", p.DBName, "err", err)
+		s.cfg.Logger.ErrorContext(ctx, "open the store of an archived project to end its claims", "event", logs.ProjectOpenFailed, "project", p.ID, "database", p.DBName, "err", err)
 	}
 	out.Released = s.release(rctx, sess.actor, p.ID, "", lostArchived)
 	s.stores.retire(p.ID)
@@ -451,7 +452,7 @@ func principalAdd(ctx context.Context, s *Server, sess *session, in proto.Princi
 		// A failure here shows no fingerprints: the keys were added.
 		added, err := s.cfg.Control.Keys(ctx, p.Name)
 		if err != nil {
-			s.cfg.Logger.Error("read the keys of a new principal", "principal", p.Name, "err", err)
+			s.cfg.Logger.ErrorContext(ctx, "read the keys of a new principal", "event", logs.RequestPart, "subject", p.Name, "err", err)
 		}
 		for _, k := range added {
 			out.Keys = append(out.Keys, k.Fingerprint)
@@ -610,7 +611,7 @@ func (s *Server) carried(ctx context.Context, principal, joined string) (int, []
 	ctl := s.cfg.Control
 	of, err := ctl.ProjectsOf(ctx, principal)
 	if err != nil {
-		s.cfg.Logger.Error("read the projects of a new member", "principal", principal, "err", err)
+		s.cfg.Logger.ErrorContext(ctx, "read the projects of a new member", "event", logs.RequestPart, "subject", principal, "err", err)
 		return 0, nil
 	}
 	if joined == "" {
@@ -618,7 +619,7 @@ func (s *Server) carried(ctx context.Context, principal, joined string) (int, []
 	}
 	keys, err := ctl.Keys(ctx, principal)
 	if err != nil {
-		s.cfg.Logger.Error("read the keys of a new member", "principal", principal, "err", err)
+		s.cfg.Logger.ErrorContext(ctx, "read the keys of a new member", "event", logs.RequestPart, "subject", principal, "err", err)
 		return len(of), nil
 	}
 	return len(of), s.wireCarried(keys, joined)
@@ -889,7 +890,7 @@ func (s *Server) OpenProjects(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return fmt.Errorf("open projects: %w", ctx.Err())
 			}
-			s.cfg.Logger.Error("open project store at start", "project", p.ID, "name", p.Name, "database", p.DBName, "err", err)
+			s.cfg.Logger.ErrorContext(ctx, "open project store at start", "event", logs.ProjectOpenFailed, "project", p.ID, "name", p.Name, "database", p.DBName, "err", err)
 			s.mu.Lock()
 			s.unopened[p.ID] = p
 			s.mu.Unlock()
@@ -941,10 +942,10 @@ func (s *Server) ReleaseArchived(ctx context.Context, open func(context.Context,
 		case ctx.Err() != nil:
 			return fmt.Errorf("release the claims of archived projects: %w", ctx.Err())
 		case errors.Is(err, store.ErrSchemaOld):
-			s.cfg.Logger.Info("archived project not opened at start: its database awaits this starfixd's migrations, and any claim in it ends when the project is activated",
-				"project", p.ID, "name", p.Name, "database", p.DBName)
+			s.cfg.Logger.InfoContext(ctx, "archived project not opened at start: its database awaits this starfixd's migrations, and any claim in it ends when the project is activated",
+				"event", logs.ProjectNotOpened, "project", p.ID, "name", p.Name, "database", p.DBName)
 		default:
-			s.cfg.Logger.Error("end the claims of an archived project at start", "project", p.ID, "name", p.Name, "database", p.DBName, "err", err)
+			s.cfg.Logger.ErrorContext(ctx, "end the claims of an archived project at start", "event", logs.SweepFailed, "project", p.ID, "name", p.Name, "database", p.DBName, "err", err)
 		}
 	}
 	return nil
@@ -966,7 +967,7 @@ func (s *Server) releaseArchived(ctx context.Context, p store.Project, open func
 	}
 	cs, err := st.EndClaims(octx, accessActor, func(string) string { return lostArchived })
 	for _, c := range cs {
-		s.cfg.Logger.Info("claim released: access ended", "project", p.ID, "issue", c.Issue, "principal", c.Holder.Principal,
+		s.cfg.Logger.InfoContext(ctx, "claim released: access ended", "event", logs.ClaimReleased, "project", p.ID, "issue", c.Issue, "principal", c.Holder.Principal,
 			"session", c.Holder.Session, "epoch", c.Epoch, "by", accessActor.Principal, "reason", lostArchived)
 	}
 	return errors.Join(err, st.Close())

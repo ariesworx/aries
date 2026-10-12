@@ -342,6 +342,35 @@ func TestErrorString(t *testing.T) {
 	}
 }
 
+// A refusal carries the id of the request it answers, which is a result
+// field: an older client ignores it, an older server sends none, and
+// neither is a protocol change (rule 10). It is no part of the message.
+func TestErrorReq(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  Error
+		want string
+	}{
+		{"with the request's id", Error{Code: CodeUnavailable, Message: "it failed", Fix: "retry", Req: "00000000000000aa"},
+			`{"c":"unavailable","m":"it failed","fix":"retry","req":"00000000000000aa"}`},
+		{"without one, as an older server sends it", Error{Code: CodeInvalid, Message: "bad"}, `{"c":"invalid","m":"bad"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, err := json.Marshal(&tc.err)
+			if err != nil || string(b) != tc.want {
+				t.Fatalf("Marshal(%+v) = %s, %v, want %s", tc.err, b, err, tc.want)
+			}
+			var back Error
+			if err := json.Unmarshal(b, &back); err != nil || back != tc.err {
+				t.Errorf("Unmarshal(%s) = %+v, %v, want %+v", b, back, err, tc.err)
+			}
+			if strings.Contains(tc.err.Error(), "00000000000000aa") {
+				t.Errorf("Error() = %q: the id is not part of the message", tc.err.Error())
+			}
+		})
+	}
+}
+
 func TestOlderServerWarning(t *testing.T) {
 	tests := []struct{ server, latest, want string }{
 		{"v0.1.0", "v0.2.0", "the server runs starfixd v0.1.0; v0.2.0 is out: ask the admin to run `starfixd upgrade`"},

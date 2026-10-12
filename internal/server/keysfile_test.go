@@ -715,7 +715,7 @@ func TestHandLineAddedLaterHoldsTheStoreKeyBack(t *testing.T) {
 	if got := heldBack(); got != 1 {
 		t.Errorf("status counts %d keys held back, want 1", got)
 	}
-	if !strings.Contains(m.log.String(), `msg="a key of the control store is held back from the keys file: the authorized_keys file gives it to another principal, and sshd reads the keys file first" fingerprint=`+carols+" principal=carol") {
+	if !strings.Contains(m.log.String(), `msg="a key of the control store is held back from the keys file: the authorized_keys file gives it to another principal, and sshd reads the keys file first" event=keys_file.key_held_back fingerprint=`+carols+" subject=carol") {
 		t.Errorf("the log does not say the key is held back:\n%s", m.log.String())
 	}
 	// The key now reaches the operator's line: dana, with no key named.

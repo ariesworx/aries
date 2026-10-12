@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
 )
@@ -15,13 +16,13 @@ import (
 // caused it.
 func (pr *served) touch(ctx context.Context, log *slog.Logger, a store.Actor, harness string) {
 	if !store.ValidHarness(harness) {
-		log.Info("ignored harness", "harness", fmt.Sprintf("%.40q", harness))
+		log.InfoContext(ctx, "ignored harness", "event", logs.AgentHarness, "harness", fmt.Sprintf("%.40q", harness))
 		harness = ""
 	}
 	tctx, cancel := context.WithTimeout(ctx, pr.timeout)
 	defer cancel()
 	if err := pr.store.TouchAgent(tctx, a, harness); err != nil && ctx.Err() == nil {
-		log.Error("register agent", "err", err)
+		log.ErrorContext(ctx, "register agent", "event", logs.AgentRegister, "err", err)
 	}
 }
 

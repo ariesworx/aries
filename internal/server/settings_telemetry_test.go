@@ -73,9 +73,8 @@ func TestResolveSettingsTelemetry(t *testing.T) {
 		{name: "Dolt's metrics as an address alone", body: "telemetry:\n  dolt_metrics_url: 127.0.0.1:11228\n", err: "not an http:// URL"},
 		{name: "Dolt's metrics with a password", body: "telemetry:\n  dolt_metrics_url: http://dolt:" + urlSecret + "@127.0.0.1:11228/metrics\n",
 			err: "holds a user, a query or a fragment"},
-		// Settings of later slices, and a secret that belongs in the
-		// environment, are refused as unknown keys.
-		{name: "audit_log is not built", body: "telemetry:\n  audit_log: true\n", err: "audit_log"},
+		// A secret that belongs in the environment is refused as an
+		// unknown key.
 		{name: "no headers in the file", body: "telemetry:\n  headers: Authorization=token\n", err: "headers"},
 		{name: "no endpoint in the file", body: "telemetry:\n  endpoint: http://127.0.0.1:4318\n", err: "endpoint"},
 	} {
@@ -106,6 +105,41 @@ func TestResolveSettingsTelemetry(t *testing.T) {
 			}
 			if got, want := s.PrincipalsKey("/var/lib/starfix"), cmp.Or(tc.key, "/var/lib/starfix/telemetry/principals.key"); got != want {
 				t.Errorf("ResolveSettings(%q).PrincipalsKey(/var/lib/starfix) = %q, want %q", tc.body, got, want)
+			}
+		})
+	}
+}
+
+// audit_log is on unless it is set false (design §16.3).
+func TestResolveSettingsAuditLog(t *testing.T) {
+	dir := t.TempDir()
+	for _, tc := range []struct {
+		name, body string
+		want       bool
+		err        string
+	}{
+		{name: "nothing set", want: true},
+		{name: "on", body: "telemetry:\n  audit_log: true\n", want: true},
+		{name: "off", body: "telemetry:\n  audit_log: false\n", want: false},
+		{name: "neither", body: "telemetry:\n  audit_log: sometimes\n", err: "cannot unmarshal !!str `sometimes` into bool"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(dir, strings.ReplaceAll(tc.name, " ", "-")+".yaml")
+			if err := os.WriteFile(path, []byte(tc.body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			s, err := ResolveSettings(Settings{}, path, func(string) string { return "" })
+			if tc.err != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.err) {
+					t.Fatalf("ResolveSettings(%q) = %v, want an error containing %q", tc.body, err, tc.err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ResolveSettings(%q) = %v", tc.body, err)
+			}
+			if got := s.Telemetry.Audit(); got != tc.want {
+				t.Errorf("ResolveSettings(%q).Telemetry.Audit() = %t, want %t", tc.body, got, tc.want)
 			}
 		})
 	}

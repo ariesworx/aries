@@ -11,6 +11,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -23,6 +24,7 @@ import (
 type Manual struct {
 	r     *sdkmetric.ManualReader
 	spans recorder
+	logs  logRecorder
 }
 
 // NewManual makes a Telemetry that records as [New]'s does, with the
@@ -56,7 +58,67 @@ func NewManual(cfg Config) (*Telemetry, *Manual, error) {
 		return nil, nil, err
 	}
 	t.trace(res, env.traces, &m.spans)
+	t.logging(res, &m.logs)
 	return t, m, nil
+}
+
+// logRecorder keeps the log records that were exported, in order.
+type logRecorder struct {
+	mu   sync.Mutex
+	recs []sdklog.Record
+}
+
+func (*logRecorder) Enabled(context.Context, sdklog.EnabledParameters) bool { return true }
+
+func (r *logRecorder) OnEmit(_ context.Context, rec *sdklog.Record) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.recs = append(r.recs, rec.Clone())
+	return nil
+}
+
+func (*logRecorder) Shutdown(context.Context) error   { return nil }
+func (*logRecorder) ForceFlush(context.Context) error { return nil }
+
+// LogData is one log record as it would leave the machine.
+type LogData struct {
+	// Body is the line's message, Event its event's name, and Severity
+	// its level: DEBUG, INFO, WARN or ERROR.
+	Body, Event, Severity string
+	// TraceID and SpanID are the ids of the span the line was logged
+	// under, in hex, or empty.
+	TraceID, SpanID string
+	// Attrs are the record's attributes.
+	Attrs map[string]string
+	// Time is the line's time.
+	Time time.Time
+}
+
+// Logs returns the log records exported so far, in order: every record
+// given to [Telemetry.LogHandler], as [New]'s Telemetry would send it.
+func (m *Manual) Logs() []LogData {
+	m.logs.mu.Lock()
+	defer m.logs.mu.Unlock()
+	out := make([]LogData, 0, len(m.logs.recs))
+	for _, r := range m.logs.recs {
+		d := LogData{Body: r.Body().AsString(), Event: r.EventName(), Severity: r.SeverityText(), Time: r.Timestamp(), Attrs: map[string]string{}}
+		if id := r.TraceID(); id.IsValid() {
+			d.TraceID, d.SpanID = id.String(), r.SpanID().String()
+		}
+		r.WalkAttributes(func(kv attribute.KeyValue) bool {
+			d.Attrs[string(kv.Key)] = kv.Value.String()
+			return true
+		})
+		out = append(out, d)
+	}
+	return out
+}
+
+// ResetLogs forgets the log records exported so far.
+func (m *Manual) ResetLogs() {
+	m.logs.mu.Lock()
+	defer m.logs.mu.Unlock()
+	m.logs.recs = nil
 }
 
 // recorder keeps the spans that ended, in the order they ended.

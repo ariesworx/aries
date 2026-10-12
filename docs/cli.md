@@ -294,7 +294,7 @@ the server is escaped (below).
 | Code | Means |
 |---|---|
 | 0 | Success |
-| 1 | Failure. stderr ends with a `fix:` line saying what to do next |
+| 1 | Failure. stderr has a `fix:` line saying what to do next. When the server itself failed the request (`unavailable`), a last line, `req:`, gives the id the server logged it under: quote it to whoever runs the server. `--json` has it as `error.req` |
 | 2 | Usage error: an unknown flag or a missing argument |
 | 3 | The server refused this client's protocol version; the `fix:` line says which side to upgrade |
 

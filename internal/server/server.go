@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/ariesworx/starfix/internal/doltmetrics"
+	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/safetext"
 	"github.com/ariesworx/starfix/internal/store"
@@ -103,6 +104,10 @@ type Config struct {
 	// as that history is no later than this: the operator's answer, for
 	// one start, to a [*ClockBehindError], which names the time to give.
 	AcceptHistory time.Time
+	// NoAudit turns off the audit stream: the log lines with audit=true
+	// that copy each access change of Control's event log (audit.go).
+	// The zero value writes them.
+	NoAudit bool
 	// Telemetry records the daemon's measurements (design §16.4). Nil
 	// records none. A store the caller opens itself is measured when it
 	// is opened with [StoreObserver].
@@ -173,6 +178,9 @@ type Server struct {
 	// doltm is what was last read of Dolt's own metrics
 	// (Config.DoltMetrics), for the status report.
 	doltm doltWatch
+	// audited is how far the audit stream has read the control store's
+	// log (audit.go).
+	audited auditor
 
 	// single is the project of a server of one (Config.Store); stores
 	// holds the open projects of a server of many (Config.Control).
@@ -290,6 +298,8 @@ func New(cfg Config) (*Server, error) {
 	// write is bounded by RequestTimeout.
 	s.stores.retiring = func(pr *served) { s.sweep(context.Background(), pr) }
 	cfg.Telemetry.Watch(telemetry.StoresOpen, func() float64 { return float64(s.OpenStores()) })
+	// The audit stream starts at the newest event there is now.
+	s.auditStart(context.Background())
 	return s, nil
 }
 
@@ -304,7 +314,7 @@ func (s *Server) openProject(ctx context.Context, p store.Project) (*served, err
 	pr := &served{id: p.ID, db: p.DBName, store: st, account: p.Account, log: s.cfg.Logger.With("project", p.ID), timeout: s.cfg.RequestTimeout,
 		tel: s.cfg.Telemetry}
 	pr.used.Store(s.now().UnixNano())
-	withIDs(ctx, pr.log).Info("project store opened", "name", p.Name, "database", p.DBName)
+	pr.log.InfoContext(ctx, "project store opened", "event", logs.ProjectOpened, "name", p.Name, "database", p.DBName)
 	s.mu.Lock()
 	delete(s.unopened, p.ID)
 	s.mu.Unlock()
@@ -388,7 +398,7 @@ func (s *Server) refresh(ctx context.Context) {
 	if err := s.cfg.Control.Reload(rctx); err != nil {
 		span.Fail(telemetry.OutcomeError)
 		if ctx.Err() == nil {
-			withIDs(rctx, s.cfg.Logger).Error("reload the control store", "err", err)
+			s.cfg.Logger.ErrorContext(rctx, "reload the control store", "event", logs.ControlReload, "err", err)
 		}
 	}
 	span.End()
@@ -443,7 +453,7 @@ func (s *Server) Serve(ctx context.Context, l net.Listener) error {
 				return fmt.Errorf("accept: %w", err)
 			}
 			pause = min(max(2*pause, 5*time.Millisecond), time.Second)
-			s.cfg.Logger.Warn("accept failed; retrying", "err", err, "after", pause)
+			s.cfg.Logger.Warn("accept failed; retrying", "event", logs.ConnAccept, "err", err, "after", pause)
 			select {
 			case <-ctx.Done():
 				return nil
@@ -478,7 +488,7 @@ func (s *Server) Serve(ctx context.Context, l net.Listener) error {
 		}
 		s.mu.Unlock()
 		if closing != nil {
-			s.refusals.log(s.cfg.Logger, "", s.now(), slog.LevelWarn, "closed a connection without a hello", "reason", "connection limit", "oldest", closing != c)
+			s.refusals.line(ctx, s.cfg.Logger, "", s.now(), slog.LevelWarn, logs.ConnCapRefused, "closed a connection without a hello", "reason", "connection limit", "oldest", closing != c)
 			s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitSockets)
 			s.cfg.Telemetry.Count(telemetry.ConnectionsDropped, telemetry.DropLimit)
 			_ = closing.Close() // an older one's handler ends with it, and frees what it held
@@ -562,6 +572,9 @@ func (s *Server) tick(ctx context.Context, prune bool) {
 	s.cfg.Telemetry.RetryKey()
 	s.CheckClock(ctx)
 	s.refresh(ctx)
+	// What was written to the control store beside the daemon reaches
+	// the audit stream here.
+	s.Audit(ctx)
 	s.CloseIdleStores()
 	s.Reap(ctx)
 	s.Sweep(ctx)
@@ -675,7 +688,7 @@ func (sess *session) watching() bool {
 func (s *Server) handle(ctx context.Context, c net.Conn) {
 	log := s.cfg.Logger
 	if err := s.cfg.PeerCheck(c); err != nil {
-		s.refusals.log(log, "", s.now(), slog.LevelWarn, "refused socket peer", "err", err)
+		s.refusals.line(ctx, log, "", s.now(), slog.LevelWarn, logs.ConnPeerRefused, "refused socket peer", "err", err)
 		return
 	}
 	// The handshake is a trace of its own: a hello brings no trace
@@ -699,7 +712,7 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		if sess != nil {
 			key = sess.key
 		}
-		s.refusals.log(withIDs(hctx, log), key, s.now(), slog.LevelInfo, "handshake failed", "err", err)
+		s.refusals.line(hctx, log, key, s.now(), slog.LevelInfo, logs.HandshakeFailed, "handshake failed", "err", err)
 		return
 	}
 	if sess == nil {
@@ -717,14 +730,14 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		log = log.With("project", sess.proj.id)
 	}
 	log = log.With("principal", principal, "session", sess.actor.Session, "machine", sess.actor.Machine)
-	log.Debug("connected")
+	log.DebugContext(hctx, "connected", "event", logs.ConnOpened)
 	defer func() {
 		_ = c.Close() // unblocks a pusher stuck writing to a client that stopped reading
 		s.unwatch(sess)
 	}()
 	defer s.untrack(c)
 	if !s.track(c, sess) {
-		log.Info("connection closed: access ended during the handshake")
+		log.InfoContext(hctx, "connection closed: access ended during the handshake", "event", logs.ConnAccessEnded)
 		s.cfg.Telemetry.Count(telemetry.ConnectionsDropped, telemetry.DropAccess)
 		return
 	}
@@ -745,12 +758,12 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 			switch {
 			case errors.Is(err, io.EOF) || ctx.Err() != nil:
 			case errors.As(err, &ne) && ne.Timeout():
-				log.Debug("idle connection closed", "after", idle)
+				log.Debug("idle connection closed", "event", logs.ConnIdleClosed, "after", idle)
 				s.cfg.Telemetry.Count(telemetry.ConnectionsDropped, telemetry.DropIdle)
 				_ = s.send(sess, 0, nil, proto.Errf(proto.CodeUnavailable, "reconnect; starfix does so on the next command",
 					fmt.Sprintf("connection closed after %s idle", proto.Span(idle))))
 			default:
-				s.refusals.log(log, key, s.now(), slog.LevelInfo, "read failed", "err", err)
+				s.refusals.line(ctx, log, key, s.now(), slog.LevelInfo, logs.ConnReadFailed, "read failed", "err", err)
 				if errors.Is(err, proto.ErrFrameTooLarge) {
 					_ = s.send(sess, 0, nil, proto.Errf(proto.CodeInvalid, "send large text in smaller parts",
 						"request larger than 4 MiB"))
@@ -765,7 +778,11 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		}
 		start := time.Now()
 		sess.proj.used.Store(s.now().UnixNano())
-		rctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
+		// The request's id is on every line logged for it, here and in
+		// the store's hooks, and in the refusal the client is sent, so
+		// that a person's report finds the server's lines.
+		req := logs.NewReq()
+		rctx, cancel := context.WithTimeout(logs.WithReq(ctx, req), s.cfg.RequestTimeout)
 		// The caller's trace context rides the request's context. One
 		// that does not parse is ignored: it never fails the request,
 		// and nothing of it is logged.
@@ -804,36 +821,41 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 			res, perr = sess.proj.dispatch(rctx, sess.actor, f.Op, f.Args)
 		}
 		cancel()
+		if ok && controlWrites[f.Op] {
+			// The change has committed, or was refused: its line of the
+			// audit stream, if it made an event, precedes its answer.
+			s.Audit(ctx)
+		}
+		if perr != nil {
+			// A copy: a refusal may be a value shared between requests.
+			named := *perr
+			named.Req = req
+			perr = &named
+		}
 		s.observeRequest(sess, f.Op, perr, start)
 		s.endRequest(span, sess, perr)
 		if p := sess.push; p != nil {
 			s.flush(sess, p) // what was committed before this answer goes first
 		}
-		attrs := []any{"op", f.Op, "ms", time.Since(start).Milliseconds()}
-		if traceID, spanID, ok := span.IDs(); ok {
-			// The request's own span, sampled or not, so that this line
-			// and the trace can be joined.
-			attrs = append(attrs, "trace_id", traceID, "span_id", spanID)
-		} else if traced {
-			// With traces off there is no span of the server's: the ids
-			// are the caller's, hex and checked, and span_id the span
-			// that sent the request.
-			attrs = append(attrs, "trace_id", tc.TraceID, "span_id", tc.SpanID)
-		}
+		// The line's req and the ids of the request's span, sampled or
+		// not, come from rctx through the log's handler; with traces off
+		// the ids are the caller's, hex and checked, and span_id the
+		// span that sent the request (LogIDs).
+		ms := time.Since(start).Milliseconds()
 		if perr != nil {
 			// A refusal is worth seeing at the default level, sampled per
 			// principal (S-20); a success is one line per request, so only
 			// at debug.
-			s.refusals.log(log, key, s.now(), slog.LevelInfo, "request", append(attrs, "code", string(perr.Code))...)
+			s.refusals.line(rctx, log, key, s.now(), slog.LevelInfo, logs.RequestRefused, "request", "op", f.Op, "dur_ms", ms, "code", string(perr.Code))
 		} else {
-			log.Debug("request", attrs...)
+			log.DebugContext(rctx, "request", "event", logs.RequestDone, "op", f.Op, "dur_ms", ms)
 		}
 		if err := s.send(sess, f.ID, res, perr); err != nil {
-			log.Info("write failed", "err", err)
+			log.InfoContext(rctx, "write failed", "event", logs.ConnWriteFailed, "err", err)
 			return
 		}
 		if sess.ended {
-			log.Info("connection closed: the request ended its own access")
+			log.InfoContext(rctx, "connection closed: the request ended its own access", "event", logs.ConnAccessEnded)
 			return
 		}
 	}
@@ -902,7 +924,7 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 		return nil, fmt.Errorf("bridge frame: %w", err)
 	}
 	if f.T == staleKeysFrame {
-		s.cfg.Logger.Debug("key lookup closed unanswered: keys reach sshd by the keys file now")
+		s.cfg.Logger.DebugContext(ctx, "key lookup closed unanswered: keys reach sshd by the keys file now", "event", logs.ConnKeyLookup)
 		return nil, nil
 	}
 	// The upgrade's probe and `starfixd status`, alone of the reserved
@@ -1032,7 +1054,7 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 				fmt.Sprintf("the server has its limit of %d projects open, each with a connection", s.cfg.Limits.OpenStores)))
 		case err != nil:
 			if ctx.Err() == nil {
-				withIDs(ctx, s.cfg.Logger).Error("open project store", "project", row.ID, "database", row.DBName, "err", err)
+				s.cfg.Logger.ErrorContext(ctx, "open project store", "event", logs.ProjectOpenFailed, "project", row.ID, "database", row.DBName, "err", err)
 			}
 			return refuse(proto.Errf(proto.CodeUnavailable, "retry; if it persists, the server admin should check the starfixd log",
 				fmt.Sprintf("the server could not open project %q", row.ID)))

@@ -48,6 +48,10 @@ func (u *user) in(config string) *user {
 	return &user{w: u.w, repo: repo, env: map[string]string{}}
 }
 
+// reqLine is the line sfx prints for the id of a request the server
+// failed.
+var reqLine = regexp.MustCompile(`^req: [0-9a-f]{16}\n$`)
+
 // refused runs the CLI, which must fail with code, and returns the
 // refusal as --json prints it, after checking that the text form says
 // the same on stderr and nothing on stdout.
@@ -62,9 +66,17 @@ func (u *user) refused(code proto.Code, args ...string) proto.Error {
 	if e.Code != code || e.Fix == "" {
 		t.Fatalf("sfx %s refused with %+v, want code %s and a fix", strings.Join(args, " "), e, code)
 	}
+	// A refusal the server sent names its request; the text form prints
+	// that id, of its own request, only when the server itself failed.
+	if e.Req != "" && !reqLine.MatchString("req: "+e.Req+"\n") {
+		t.Fatalf("sfx %s refused with the request id %q, want 16 hex digits", strings.Join(args, " "), e.Req)
+	}
 	text := u.run("v0.2.0", args...)
-	if want := "sfx: " + e.Message + "\nfix: " + e.Fix + "\n"; text.code != cli.ExitFailure || text.stderr != want || text.stdout != "" {
-		t.Fatalf("sfx %s: exit %d, stdout %q\nstderr %q\nwant   %q", strings.Join(args, " "), text.code, text.stdout, text.stderr, want)
+	want := "sfx: " + e.Message + "\nfix: " + e.Fix + "\n"
+	rest, ok := strings.CutPrefix(text.stderr, want)
+	if wantReq := code == proto.CodeUnavailable && e.Req != ""; text.code != cli.ExitFailure || !ok || text.stdout != "" ||
+		wantReq != reqLine.MatchString(rest) || (!wantReq && rest != "") {
+		t.Fatalf("sfx %s: exit %d, stdout %q\nstderr %q\nwant   %q, and a req: line only for the server's own failure", strings.Join(args, " "), text.code, text.stdout, text.stderr, want)
 	}
 	return e
 }

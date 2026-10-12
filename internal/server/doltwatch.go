@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ariesworx/starfix/internal/doltmetrics"
+	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/ariesworx/starfix/internal/proto"
 )
 
@@ -142,13 +143,13 @@ func (s *Server) ReadDolt(ctx context.Context) {
 		w.failures++
 		if w.failures == 1 || now.Sub(w.warned) >= doltWarnEvery {
 			w.warned = now
-			s.cfg.Logger.Warn("could not read Dolt's metrics; the status report shows Dolt as unknown until a read succeeds",
-				"url", r.URL(), "failures", w.failures, "err", err)
+			s.cfg.Logger.WarnContext(ctx, "could not read Dolt's metrics; the status report shows Dolt as unknown until a read succeeds",
+				"event", logs.DoltMetricsFailed, "url", r.URL(), "failures", w.failures, "err", err)
 		}
 		return
 	}
 	if w.failures > 0 {
-		s.cfg.Logger.Info("reading Dolt's metrics again", "url", r.URL(), "after_failures", w.failures)
+		s.cfg.Logger.InfoContext(ctx, "reading Dolt's metrics again", "event", logs.DoltMetricsRecovered, "url", r.URL(), "after_failures", w.failures)
 	}
 	w.failed, w.failures = false, 0
 	w.readAt, w.sample = now, sample

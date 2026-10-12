@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/ariesworx/starfix/internal/store"
 )
 
@@ -162,9 +163,9 @@ func (r *registry) close(id string, e *entry, why string) {
 			r.retiring(e.pr)
 		}
 		if err := e.pr.store.Close(); err != nil {
-			e.pr.log.Error("close project store", "err", err)
+			e.pr.log.Error("close project store", "event", logs.ProjectCloseFailed, "err", err)
 		} else {
-			e.pr.log.Info("project store closed", "reason", why)
+			e.pr.log.Info("project store closed", "event", logs.ProjectClosed, "reason", why)
 		}
 		r.mu.Lock()
 		delete(r.entries, id)

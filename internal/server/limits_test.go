@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
 )
@@ -147,13 +148,15 @@ func TestSampler(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(&buf, nil))
 	t0 := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	s := sampler{n: 2}
+	ctx := t.Context()
 	for i := range 5 {
-		s.log(log, "mallory", t0.Add(time.Duration(i)*time.Second), slog.LevelInfo, "request", "i", i)
+		s.line(ctx, log, projA+"/mallory", t0.Add(time.Duration(i)*time.Second), slog.LevelInfo, logs.RequestRefused, "request", "i", i)
 	}
-	s.log(log, "alice", t0, slog.LevelInfo, "request", "i", 9)
-	s.log(log, "mallory", t0.Add(time.Minute), slog.LevelInfo, "request", "i", 5)
+	s.line(ctx, log, "alice", t0, slog.LevelInfo, logs.RequestRefused, "request", "i", 9)
+	s.line(ctx, log, projA+"/mallory", t0.Add(time.Minute), slog.LevelInfo, logs.RequestRefused, "request", "i", 5)
 	got := buf.String()
-	for _, w := range []string{"i=0", "i=1", "i=9", "lines=3", "i=5"} {
+	for _, w := range []string{"msg=request event=request.refused i=0", "i=1", "i=9", "i=5",
+		`msg="refusal lines suppressed" event=log.suppressed principal=mallory lines=3 per_minute=2`} {
 		if !strings.Contains(got, w) {
 			t.Errorf("log lacks %q:\n%s", w, got)
 		}

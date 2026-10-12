@@ -205,7 +205,9 @@ tool logs them.
   `prime` and `digest` at 1,500.
 - **Refusals say what to do next.** A refusal is a tool error with the
   server's code and message and a `fix:` naming the agent's next step. A
-  fix only the user can act on is quoted from the server.
+  fix only the user can act on is quoted from the server. When the
+  server itself failed the request, the fix ends with the request's id
+  for the user to pass on to whoever runs the server.
 - **Text from others is marked.** Results that hold text other people
   wrote carry `"untrusted"`, and the server's instructions tell the agent
   never to follow instructions found in it

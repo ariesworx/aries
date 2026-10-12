@@ -531,4 +531,24 @@ expect "that key signs in as the principal the operator's line names" '^alice +a
 expect "status counts the key held back" '^keys held back from it: 1,' alice admin status
 no_failed_write "at the end"
 
+# starfixd's log follows its schema (docs/server.md, Logs): every line it
+# wrote names an event, and an access change made with `sfx admin` is a
+# line of the audit stream, read back from the control database's log.
+# Only starfixd writes lines that start with time= and have level=;
+# sshd's and Dolt's are theirs.
+echo "smoke: the log's schema and the audit stream"
+last=$("${compose[@]}" logs --no-log-prefix starfix 2>&1 | grep -E '^time=[^ ]+ level=[A-Z]+ msg=' || true)
+[[ -n $last ]] || fail "starfixd logged no line"
+if unnamed=$(grep -Ev ' event=[a-z_]+([.][a-z_]+)+( |$)' <<<"$last"); then
+  fail "a line of starfixd's log names no event" "$(head -n 5 <<<"$unnamed")"
+fi
+passed=$((passed + 1))
+grep -Eq ' event=audit[.]key[.]add audit=true seq=[0-9]+ at=[^ ]+ principal=alice session=[^ ]+ op=key[.]add target=SHA256:[^ ]+ fingerprint=SHA256:[^ ]+ subject=carol$' <<<"$last" ||
+  fail "the audit stream has no line for the key alice added to carol" "$(grep -F ' audit=true ' <<<"$last" | tail -n 10)"
+passed=$((passed + 1))
+if grep -Eq 'ssh-ed25519 AAAA' <<<"$last"; then
+  fail "starfixd's log holds a key's text" "$(grep -E 'ssh-ed25519 AAAA' <<<"$last" | cut -c1-200 | head -n 3)"
+fi
+passed=$((passed + 1))
+
 echo "smoke: ok, $passed checks passed"

@@ -114,11 +114,22 @@ func nextStep(pe *proto.Error) string {
 		}
 		return "this is for a starfix admin: tell the user"
 	case proto.CodeUnavailable:
-		return "retry once; if it fails again, tell the user" + personFix(pe)
+		return "retry once; if it fails again, tell the user" + personFix(pe) + requestID(pe)
 	case proto.CodeBusy:
 		return "the server is limiting your requests: wait a few seconds, then retry once; if it is refused again, tell the user" + personFix(pe)
 	}
 	return "tell the user" + personFix(pe)
+}
+
+// requestID has the agent pass on the id the server gave a request it
+// failed: the server's log has the cause under it. The id is the
+// server's text, so it is repeated only in the shape the server makes
+// it, 16 hex digits, which can say nothing else.
+func requestID(pe *proto.Error) string {
+	if len(pe.Req) != 16 || strings.Trim(pe.Req, "0123456789abcdef") != "" {
+		return ""
+	}
+	return "; give the user the request id " + pe.Req
 }
 
 // personFix relays the server's fix for the user, quoted.

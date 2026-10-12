@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
 )
@@ -194,7 +195,7 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 		return proto.Errf(proto.CodeInvalid, fmt.Sprintf("correct it and retry; `sfx %s -h` lists the options", command(op)), text)
 
 	case errors.Is(err, store.ErrSchemaTooNew):
-		pr.log.Error("schema too new", "op", op, "err", err)
+		pr.log.ErrorContext(ctx, "schema too new", "event", logs.StoreSchemaTooNew, "op", op, "err", err)
 		return proto.Errf(proto.CodeUnavailable, "the server admin should run the starfixd release that migrated it",
 			"the database was migrated by a newer starfixd")
 
@@ -202,7 +203,7 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 		return proto.Errf(proto.CodeUnavailable, "retry; if it persists, the server admin should check the starfixd log",
 			fmt.Sprintf("the server timed out on %s", op))
 	}
-	pr.log.Error("request failed", "op", op, "err", err)
+	pr.log.ErrorContext(ctx, "request failed", "event", logs.RequestFailed, "op", op, "err", err)
 	return proto.Errf(proto.CodeUnavailable, "retry; if it persists, the server admin should check the starfixd log",
 		fmt.Sprintf("the server could not complete %s", op))
 }

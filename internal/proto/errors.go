@@ -42,6 +42,12 @@ type Error struct {
 	Code    Code   `json:"c"`
 	Message string `json:"m"`
 	Fix     string `json:"fix,omitempty"`
+	// Req is the id the server gave the request it refuses: every line
+	// of the server's log about the request has it, so a report that
+	// quotes it finds them (design §16.4). It is a result field: a
+	// server that predates it sends none, and a client that does
+	// ignores it.
+	Req string `json:"req,omitempty"`
 }
 
 // Error returns Message, followed by "; " and Fix when there is one.

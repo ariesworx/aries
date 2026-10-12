@@ -135,7 +135,14 @@ func runSite(t *testing.T, s *site, env map[string]string) *running {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		done <- runDaemon(ctx, set, slog.New(slog.NewTextHandler(r.log, nil)), func(k string) string { return env[k] })
+		// The logger serve makes, so that the lines are what a daemon
+		// writes and can be exported.
+		log, err := server.NewLogger(r.log, "info", "text")
+		if err != nil {
+			done <- err
+			return
+		}
+		done <- runDaemon(ctx, set, log, func(k string) string { return env[k] })
 	}()
 	var once sync.Once
 	var stopErr error
@@ -387,8 +394,9 @@ func TestRunDaemonStandInKey(t *testing.T) {
 			t.Fatalf("runDaemon = %v, want nil", err)
 		}
 		out := d.log.String()
-		for _, want := range []string{`level=ERROR msg="telemetry: spans say nothing about who`, "the key's file: " + key, "cause: it cannot be made: no such file or directory",
-			`msg="fix: make its directory`, "ReadWritePaths=" + filepath.Dir(key), "principals: omit", "OTEL_TRACES_EXPORTER=none", "starfixd serving"} {
+		for _, want := range []string{`level=ERROR msg="telemetry: spans say nothing about who`, `msg="the key's file" event=telemetry.key_unavailable path=` + key,
+			`msg=cause event=telemetry.key_unavailable cause="it cannot be made: no such file or directory`,
+			`msg=fix event=telemetry.key_unavailable fix="make its directory`, "ReadWritePaths=" + filepath.Dir(key), "principals: omit", "OTEL_TRACES_EXPORTER=none", "starfixd serving"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("the log lacks %q:\n%s", want, out)
 			}
@@ -545,6 +553,10 @@ func TestRefusalLines(t *testing.T) {
 		{"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "grpc", "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:4317"},
 		{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "collector:4318"},
 		{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:4318", "OTEL_EXPORTER_OTLP_TRACES_HEADERS": "nonsense"},
+		{"OTEL_LOGS_EXPORTER": "console"},
+		{"OTEL_LOGS_EXPORTER": "otlp"},
+		{"OTEL_LOGS_EXPORTER": "otlp", "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:4318", "OTEL_BLRP_MAX_QUEUE_SIZE": "0"},
+		{"OTEL_LOGS_EXPORTER": "otlp", "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "grpc", "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:4317"},
 	} {
 		err := runDaemon(t.Context(), set, slog.New(slog.DiscardHandler), func(k string) string { return env[k] })
 		if err == nil {

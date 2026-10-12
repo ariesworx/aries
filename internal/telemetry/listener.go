@@ -4,12 +4,16 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"log/slog"
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/ariesworx/starfix/internal/logs"
 )
 
 // The loopback listener (design §16.3, decision 29): one HTTP listener,
@@ -157,7 +161,7 @@ func (t *Telemetry) Serve(ctx context.Context, l net.Listener, o ServeOptions) e
 		WriteTimeout:      writeTimeout,
 		IdleTimeout:       idleTimeout,
 		MaxHeaderBytes:    maxHeaderBytes,
-		ErrorLog:          slog.NewLogLogger(o.Logger.Handler(), slog.LevelWarn),
+		ErrorLog:          log.New(listenerLog{o.Logger}, "", 0),
 	}
 	// However Serve ends, the goroutine that stops the server on ctx is
 	// waited for.
@@ -236,4 +240,14 @@ func (cc *cappedConn) Close() error {
 		cc.c.mu.Unlock()
 	})
 	return cc.Conn.Close()
+}
+
+// listenerLog is the HTTP server's error log over starfixd's logger:
+// each thing it says is one line of the schema, with what it said, which
+// is the standard library's text, in one field.
+type listenerLog struct{ log *slog.Logger }
+
+func (l listenerLog) Write(p []byte) (int, error) {
+	l.log.Warn("the telemetry listener reported an error", "event", logs.TelemetryListenerError, logs.KeyDetail, strings.TrimSpace(string(p)))
+	return len(p), nil
 }

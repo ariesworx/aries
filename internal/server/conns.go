@@ -5,6 +5,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
 	"github.com/ariesworx/starfix/internal/telemetry"
@@ -136,7 +137,7 @@ func (s *Server) drop(from *session, why string, match func(owner) bool) int {
 			dropped++ // the admin's own, closed once it is answered
 		}
 		s.cfg.Telemetry.Record(telemetry.ConnectionsDropped, float64(dropped), dropReason(why))
-		s.cfg.Logger.Info("connections dropped", "reason", why, "by", from.actor.Principal, "connections", n, "own", from.ended)
+		s.cfg.Logger.Info("connections dropped", "event", logs.ConnDropped, "reason", why, "by", from.actor.Principal, "connections", n, "own", from.ended)
 	}
 	return len(closing)
 }

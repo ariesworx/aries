@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/go-logr/logr"
 	"go.opentelemetry.io/otel"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -35,7 +36,7 @@ func (g *guarded) Export(ctx context.Context, rm *metricdata.ResourceMetrics) er
 			return nil
 		}
 		g.t.Count(Dropped, SignalMetrics)
-		g.t.errs.failed("telemetry: a metrics export failed; the next one carries the same totals", err)
+		g.t.errs.failed(logs.TelemetryExportFailed, "telemetry: a metrics export failed; the next one carries the same totals", err)
 		return nil
 	}
 	g.t.errs.ok()
@@ -53,8 +54,8 @@ const errEvery = 10 * time.Minute
 type errlog struct {
 	log     *slog.Logger
 	secrets []string
-	// what names the exports in the line that says they succeed again:
-	// "metrics" or "trace".
+	// what is the signal whose exports these are, in the line that says
+	// they succeed again: one of the Signal values.
 	what string
 	// now is the clock; tests replace it.
 	now func() time.Time
@@ -83,8 +84,9 @@ func (e *errlog) redact(s string) string {
 	return s
 }
 
-// failed logs msg and err, unless one was logged within errEvery.
-func (e *errlog) failed(msg string, err error) {
+// failed logs msg and err as the event ev, unless one was logged
+// within errEvery.
+func (e *errlog) failed(ev logs.Event, msg string, err error) {
 	e.mu.Lock()
 	now := e.now()
 	e.failing++
@@ -96,11 +98,11 @@ func (e *errlog) failed(msg string, err error) {
 	left := e.suppressed
 	e.last, e.suppressed = now, 0
 	e.mu.Unlock()
-	attrs := []any{"err", e.redact(err.Error())}
+	attrs := []any{"signal", e.what, "err", e.redact(err.Error())}
 	if left > 0 {
 		attrs = append(attrs, "failures_not_logged", left)
 	}
-	e.log.Warn(msg, attrs...)
+	e.log.With("event", ev).Warn(msg, attrs...)
 }
 
 // ok notes an export that succeeded, and says so once if exports had
@@ -111,7 +113,7 @@ func (e *errlog) ok() {
 	e.failing, e.suppressed, e.last = 0, 0, time.Time{}
 	e.mu.Unlock()
 	if n > 0 {
-		e.log.Info("telemetry: "+e.what+" exports succeed again", "failed", n)
+		e.log.Info("telemetry: exports succeed again", "event", logs.TelemetryExportRecovered, "signal", e.what, "failed", n)
 	}
 }
 
@@ -123,7 +125,7 @@ func (e *errlog) ok() {
 func setSDKLogging(e *errlog) {
 	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
 		if err != nil {
-			e.failed("telemetry: the SDK reported an error", err)
+			e.failed(logs.TelemetrySDKError, "telemetry: the SDK reported an error", err)
 		}
 	}))
 	otel.SetLogger(logr.New(sdkSink{e}))
@@ -142,14 +144,16 @@ func (s sdkSink) WithName(string) logr.LogSink   { return s }
 // nothing vets what they hold.
 func (s sdkSink) Error(err error, msg string, _ ...any) {
 	if err == nil {
-		err = fmt.Errorf("%s", msg)
+		err = errors.New(msg)
+	} else {
+		err = fmt.Errorf("%s: %w", msg, err)
 	}
-	s.e.failed("telemetry: the SDK reported an error: "+s.e.redact(msg), err)
+	s.e.failed(logs.TelemetrySDKError, "telemetry: the SDK reported an error", err)
 }
 
 // promLog is the Prometheus handler's error log over an errlog.
 type promLog struct{ e *errlog }
 
 func (p promLog) Println(v ...any) {
-	p.e.failed("telemetry: a scrape failed", fmt.Errorf("%s", strings.TrimSpace(fmt.Sprintln(v...))))
+	p.e.failed(logs.TelemetryScrapeFailed, "telemetry: a scrape failed", fmt.Errorf("%s", strings.TrimSpace(fmt.Sprintln(v...))))
 }

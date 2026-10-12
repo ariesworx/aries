@@ -45,7 +45,7 @@ func (b *lockedBuffer) String() string {
 func TestTraceContextFromTheEnvironment(t *testing.T) {
 	const traceID, spanID = "4bf92f3577b34da6a3ce929d0e0e4736", "00f067aa0ba902b7"
 	logs := &lockedBuffer{}
-	w := newWorld(t, daemonOpts{logger: slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))})
+	w := newWorld(t, daemonOpts{logger: daemonLog(t, logs)})
 	alice := w.newUser("alice", "")
 	line := func(op string) string {
 		t.Helper()
@@ -92,7 +92,7 @@ func TestTraceContextPerToolCall(t *testing.T) {
 		callTrace, callSpan = "0af7651916cd43dd8448eb211c80319c", "b7ad6b7169203331"
 	)
 	logs := &lockedBuffer{}
-	w := newWorld(t, daemonOpts{logger: slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))})
+	w := newWorld(t, daemonOpts{logger: daemonLog(t, logs)})
 	alice := w.newUser("alice", "")
 	alice.env = map[string]string{"TRACEPARENT": "00-" + envTrace + "-" + envSpan + "-01", "TRACESTATE": "vendor=env-STATE"}
 	inR, inW := io.Pipe()
@@ -235,4 +235,16 @@ func TestTracesEndToEnd(t *testing.T) {
 	if e := plain.newUser("dana", "").refused(proto.CodeUnavailable, "admin", "principal", "whois", alias); !strings.Contains(e.Message, "has no key for stand-ins: it exports no telemetry") {
 		t.Errorf("whois on a server with no key: %q", e.Message)
 	}
+}
+
+// daemonLog is the logger `starfixd serve` makes, at debug, writing to
+// w: its handler is what puts a request's id and its trace's ids on a
+// line.
+func daemonLog(t *testing.T, w io.Writer) *slog.Logger {
+	t.Helper()
+	log, err := server.NewLogger(w, "debug", "text")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return log
 }

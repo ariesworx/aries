@@ -20,6 +20,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
 	"github.com/ariesworx/starfix/internal/telemetry"
@@ -120,7 +121,7 @@ func (s *Server) writeKeys(ctx context.Context) error {
 	}
 	ctx, span := s.cfg.Telemetry.Start(ctx, telemetry.SpanKeysFile)
 	defer span.End()
-	log := withIDs(ctx, s.cfg.Logger)
+	log := s.cfg.Logger
 	k := &s.keys
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -136,15 +137,15 @@ func (s *Server) writeKeys(ctx context.Context) error {
 	span.Set(telemetry.KeyResult, telemetry.ResultOK)
 	span.Set(telemetry.KeyChanged, strconv.FormatBool(written))
 	if written {
-		log.Info("keys file written", "path", path, "keys", n)
+		log.InfoContext(ctx, "keys file written", "event", logs.KeysFileWritten, "path", path, "keys", n)
 		s.cfg.Telemetry.Count(telemetry.KeysFileWrites, telemetry.ResultOK)
 	}
 	s.cfg.Telemetry.Record(telemetry.KeysFileLastWrite, float64(at.Unix()))
 	if written || len(held) != k.held {
 		// Said when it changes, not on every tick.
 		for _, h := range held {
-			log.Warn("a key of the control store is held back from the keys file: the authorized_keys file gives it to another principal, and sshd reads the keys file first",
-				"fingerprint", h.Fingerprint, "principal", h.Principal)
+			log.WarnContext(ctx, "a key of the control store is held back from the keys file: the authorized_keys file gives it to another principal, and sshd reads the keys file first",
+				"event", logs.KeysFileHeldBack, "fingerprint", h.Fingerprint, "subject", h.Principal)
 		}
 	}
 	k.keys, k.at, k.failed, k.held = n, at, false, len(held)
@@ -160,7 +161,7 @@ func (s *Server) syncKeys(ctx context.Context) string {
 	if err == nil {
 		return ""
 	}
-	withIDs(ctx, s.cfg.Logger).Error("the keys file is out of date; sshd reads the old one until a write succeeds", "err", err)
+	s.cfg.Logger.ErrorContext(ctx, "the keys file is out of date; sshd reads the old one until a write succeeds", "event", logs.KeysFileWriteFailed, "err", err)
 	return "the change is recorded, but starfixd could not write the keys file sshd reads, so sshd may still be reading the old one: " +
 		"a key just added does not sign in yet, and a key just removed, or a disabled principal's, still passes sshd and is then refused by starfixd. " +
 		"starfixd tries again every half minute; ask the server's operator to check its log, and see the keys file line of `sfx admin status`"
@@ -196,7 +197,7 @@ func (s *Server) keyLines() (lines []byte, n int, held []store.PrincipalKey) {
 			err = errors.New("its fingerprint is not the stored key's")
 		}
 		if err != nil {
-			s.cfg.Logger.Error("a key of the control store is left out of the keys file", "fingerprint", k.Fingerprint, "err", err)
+			s.cfg.Logger.Error("a key of the control store is left out of the keys file", "event", logs.KeysFileLeftOut, "fingerprint", k.Fingerprint, "err", err)
 			continue
 		}
 		fmt.Fprintf(&b, "restrict,command=\"%s stdio --principal %s --key %s\" %s\n",
@@ -539,12 +540,12 @@ func (s *Server) endClaims(ctx context.Context, pr *served, by store.Actor, why 
 	cs, err := pr.store.EndClaims(ectx, by, why)
 	if err != nil {
 		if ctx.Err() == nil {
-			withIDs(ctx, pr.log).Error("end the claims of holders without access", "err", err)
+			pr.log.ErrorContext(ctx, "end the claims of holders without access", "event", logs.SweepFailed, "err", err)
 		}
 		return 0
 	}
 	for _, c := range cs {
-		withIDs(ctx, pr.log).Info("claim released: access ended", "issue", c.Issue, "principal", c.Holder.Principal,
+		pr.log.InfoContext(ctx, "claim released: access ended", "event", logs.ClaimReleased, "issue", c.Issue, "principal", c.Holder.Principal,
 			"session", c.Holder.Session, "epoch", c.Epoch, "by", by.Principal, "reason", why(c.Holder.Principal))
 	}
 	return len(cs)

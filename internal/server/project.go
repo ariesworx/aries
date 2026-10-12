@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/ariesworx/starfix/internal/store"
 	"github.com/ariesworx/starfix/internal/telemetry"
 	"github.com/go-sql-driver/mysql"
@@ -46,12 +47,12 @@ func (pr *served) reap(ctx context.Context) {
 	cs, err := pr.store.ReapClaims(rctx)
 	if err != nil {
 		if ctx.Err() == nil {
-			withIDs(ctx, pr.log).Error("reap claims", "err", err)
+			pr.log.ErrorContext(ctx, "reap claims", "event", logs.ReaperFailed, "err", err)
 		}
 		return
 	}
 	for _, c := range cs {
-		withIDs(ctx, pr.log).Info("claim expired", "issue", c.Issue, "principal", c.Holder.Principal,
+		pr.log.InfoContext(ctx, "claim expired", "event", logs.ClaimExpired, "issue", c.Issue, "principal", c.Holder.Principal,
 			"session", c.Holder.Session, "epoch", c.Epoch)
 	}
 }
@@ -64,12 +65,12 @@ func (pr *served) prune(ctx context.Context, lim Limits) {
 	n, err := pr.store.Prune(pctx, time.Duration(lim.AgentKeep), time.Duration(lim.InboxKeep))
 	if err != nil {
 		if ctx.Err() == nil {
-			withIDs(ctx, pr.log).Error("prune", "err", err)
+			pr.log.ErrorContext(ctx, "prune", "event", logs.ReaperPruneFailed, "err", err)
 		}
 		return
 	}
 	if n != (store.Pruned{}) {
-		withIDs(ctx, pr.log).Info("pruned", "agents", n.Agents, "inbox", n.Inbox)
+		pr.log.InfoContext(ctx, "pruned", "event", logs.ReaperPruned, "agents", n.Agents, "inbox", n.Inbox)
 	}
 }
 

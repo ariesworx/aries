@@ -1745,7 +1745,8 @@ the config file (`/etc/starfix/starfixd.yaml`, or `--config FILE`, or
 | `limits` | [Limits](#limits) | defaults | |
 | `telemetry.listen` | The loopback address, `HOST:PORT`, of the listener for `/metrics`, `/healthz` and `/readyz` ([Observability](#observability)). An address that is not loopback is refused | none: no listener | `STARFIXD_TELEMETRY_LISTEN` |
 | `telemetry.per_project` | Whether metrics name the project. `false` leaves it off every instrument | `true` | |
-| `telemetry.principals` | How a person appears on a span ([Traces](#traces), People): `pseudonym`, a stable stand-in; `name`; or `omit`, nothing. It does not change the log. Any other value is refused | `pseudonym` | |
+| `telemetry.principals` | How a person appears on a span and on a log record exported over OTLP ([Traces](#traces), People): `pseudonym`, a stable stand-in; `name`; or `omit`, nothing. It does not change the log on stderr, nor the audit stream there. Any other value is refused | `pseudonym` | |
+| `telemetry.audit_log` | Whether each access change in the control database's log is also written as a log line with `audit=true` ([The audit stream](#the-audit-stream)). `false` writes none; the event log is the record either way | `true` | |
 | `telemetry.principals_key` | The file that holds the key the stand-ins are made with. starfixd makes it, mode 0600, when it exports traces with stand-ins. A relative path is under the home directory of the user starfixd runs as. A file that cannot be read or made does not stop starfixd, whether the path is this default or one you set: its spans then say nothing about who, and its log and status say why ([Traces](#traces), People) | `telemetry/principals.key` | |
 | `telemetry.dolt_metrics_url` | The URL of Dolt's own metrics endpoint, which starfixd reads every 15 seconds for the status report ([Dolt's figures](#dolts-figures)): `http://`, a loopback address or a name whose every address is loopback, a port and a path, such as `http://127.0.0.1:11228/metrics`. Anything else is refused at start | none: nothing is read, and the report says nothing of Dolt | `STARFIXD_TELEMETRY_DOLT_METRICS_URL` |
 
@@ -2061,17 +2062,177 @@ were run), and amd64.
 ## Logs
 
 starfixd logs to stderr, which systemd sends to the journal
-(`journalctl -u starfixd`).
+(`journalctl -u starfixd`), as text (`log_format: text`, the default)
+or as one JSON object a line (`log_format: json`). Either way a line
+has the same fields, and the fields and the event names below are a
+contract: one is added, never renamed or removed, so an alert or a
+parser written against them keeps working.
 
-| Level | Logs |
+```text
+time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-8000-00000000000a principal=alice session=s-abcdefgh machine=laptop event=request.refused op=show dur_ms=2 code=not_found req=3f2a9c0e51b7d684 trace_id=4bf92f3577b34da6a3ce929d0e0e4736 span_id=00f067aa0ba902b7
+```
+
+```json
+{"time":"2026-10-12T09:30:00.123Z","level":"INFO","msg":"request","project":"0190a8a0-0000-7000-8000-00000000000a","principal":"alice","session":"s-abcdefgh","machine":"laptop","event":"request.refused","op":"show","dur_ms":2,"code":"not_found","req":"3f2a9c0e51b7d684","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"00f067aa0ba902b7"}
+```
+
+- **Match `event`, not `msg`.** `event` is a stable name for what the
+  line reports; `msg` is a sentence for a person and may be reworded.
+  Every line has an `event`.
+- **`req` is the request's id:** 16 hex digits, on every line starfixd
+  logs for one request, and in the refusal the client is sent. When a
+  request fails on the server (`unavailable`), `sfx` prints it as a
+  third line, `req:`, and `sfx --json` and an agent's tool error carry
+  it, so a report of the failure finds its lines:
+  `journalctl -u starfixd | grep 3f2a9c0e51b7d684`.
+- **`trace_id` and `span_id`** are those of the span the line was logged
+  under ([Traces](#traces)): a request's, a handshake's, or a part of
+  the reaper's tick. With traces off, a request's line has the caller's
+  ids when the request brought a valid trace context, and none
+  otherwise.
+- **The schema is flat:** no field holds an object.
+- **Nothing a person or an agent wrote is logged:** no issue's title or
+  body, no memory's text, no comment, no key and no DSN. A line does
+  carry what a client called itself and asked for, as it came:
+  `session`, `machine`, `harness` and `op`. An `err` is the server's own
+  error, which may name an issue's id, a principal or a project.
+
+### Fields
+
+| Field | Holds |
 |---|---|
-| `debug` | Connections and each successful request. With `control_db`, each names its `project` |
-| `info` | `clock caught up with history`, once a clock that was behind the server's history has passed it. Startup, with what telemetry is on, the listener's address and the URL Dolt's metrics are read from when any is set; `reading Dolt's metrics again`, after reads that failed; refusals, handshake failures and expired claims. Refusals are capped at `refusal_logs` a minute per principal. With `control_db`: each project store opened and closed, each project added, each write of the keys file, the connections closed and each claim released when an `sfx admin` change ends someone's access, and the `project` of every line about one |
-| `warn` | `clock stepped`: the clock was set, or the machine suspended, with the direction, the size and what starfixd did about it; and, for each database, `clock step settled`, with how many leases were extended and by how much ([The server's clock](#the-servers-clock)). Find what set the clock: `timedatectl timesync-status`, `journalctl -u systemd-timesyncd`, the hypervisor's log. A metrics export that failed, once and then every 10 minutes while it lasts; `could not read Dolt's metrics`, on the same schedule, with the URL and the cause ([Dolt's figures](#dolts-figures)); a notification systemd could not be sent. Connections refused at the connection cap, socket peers refused, how many refusal lines the cap left out, and failures to accept a connection that may pass, such as running out of file descriptors, which starfixd retries after a pause of up to a second |
-| `error` | `clock behind history`: the clock is behind the latest event of the database named, at start and every ten minutes while it lasts, with the fix. Correct the clock; if the history is what is wrong, nothing is needed, and the clock catches up. Internal errors, and a check of Dolt for `/readyz` that failed. With `control_db`: an active project whose database could not be opened at start, and a write of the keys file that failed (`the keys file is out of date`), every 30 seconds until one succeeds |
+| `time`, `level`, `msg` | When, `DEBUG`, `INFO`, `WARN` or `ERROR`, and a sentence for a person |
+| `event` | The line's stable name, from [Events](#events) |
+| `project` | A project's UUID. With `control_db`, on every line about one project |
+| `principal`, `session` | Whose connection or request the line is about; on a claim's line, the holder; on an audit line, who made the change |
+| `machine`, `harness` | What the client called its machine and its agent harness |
+| `op`, `code`, `dur_ms` | A request's operation, a refusal's code, and how long the request took in milliseconds |
+| `req`, `trace_id`, `span_id` | The request's id and its span's ids, above |
+| `audit`, `seq`, `at`, `target`, `subject`, `fingerprint`, `role` | The [audit stream](#the-audit-stream)'s. `subject` and `fingerprint` are also on other lines about a principal or a key that is not the line's `principal` |
+| `by`, `admin`, `created_by`, `added_by` | A principal other than the line's own: whose change caused it, a configured server admin, and who made that admin's row or added its key |
+| `err`, `detail`, `cause`, `fix`, `effect` | An error's text; what the database driver, the SDK or the HTTP server said; why something is wrong, what to do about it, and what follows meanwhile |
+| `issue`, `epoch`, `reason` | A claim's issue and number, and a few fixed words for why (`membership removed`, `principal disabled`, `project archived`, `key removed`, `idle`, `to make room`, `archived`, `connection limit`) |
+| `name`, `database`, `account`, `problems`, `resumed` | A project's name and database; the Dolt account and what is unsafe about it; whether a `project add` resumed one begun before |
+| `after`, `oldest`, `connections`, `own`, `lines`, `per_minute` | Connections: how long one idled or how long before a retry, whether the one closed was the oldest waiting, how many were dropped and whether the admin's own was one, and how many refusal lines the cap left out of how many allowed |
+| `agents`, `inbox`, `claims`, `extended` | How many registry rows and inbox items a prune removed; how many leases a clock step extended, and by how much |
+| `path`, `keys` | The keys file, or the stand-in key's file, and how many keys were written |
+| `log`, `clock`, `history`, `behind`, `since`, `was_behind_since`, `direction`, `step`, `steps`, `from`, `to`, `forward_since_start`, `backward_since_start` | [The server's clock](#the-servers-clock): which history, the two times, how far behind and since when, and a step's direction, size and count |
+| `url`, `failures`, `after_failures`, `every` | [Dolt's figures](#dolts-figures): the URL read, how many reads have failed, and how often it is read |
+| `version`, `socket`, `control_db`, `projects`, `admins`, `addr` | The start: the build, the socket, the control database, how many active projects, the configured admins, and the listener's address |
+| `push`, `push_interval`, `push_headers`, `pull`, `per_project`, `traces`, `trace_headers`, `sampler`, `logs`, `log_headers`, `principals`, `service` | What telemetry is on ([Observability](#observability)). Header counts, never their names or values |
+| `signal`, `failed`, `failures_not_logged` | An export that failed or recovered: `metrics`, `traces` or `logs`, and how many failures |
 
-Any other failure to accept connections stops starfixd: it prints the
-error and exits 1, and the unit's `Restart=on-failure` starts it again.
+### Events
+
+| Event | Level | Logged when |
+|---|---|---|
+| `daemon.serving` | info | starfixd listens on its socket |
+| `admin.unvouched` | warn | At start: a principal named under `admins:` has a row or a key that someone who is no server admin made. Check the key is theirs |
+| `admin.check_failed` | error | At start: that check could not read the control store |
+| `systemd.notify_failed` | warn | A notification could not be sent to systemd: ready, or the watchdog's |
+| `log.suppressed` | warn | A principal's refusal lines went past `refusal_logs` a minute; `lines` is how many were left out |
+| `conn.accept_failed` | warn | Accepting a connection failed in a way that may pass, such as running out of file descriptors; starfixd retries after a pause of up to a second |
+| `conn.cap_refused` | warn | A connection that had not said hello was closed at twice `conns` |
+| `conn.peer_refused` | warn | A socket peer that is not the user starfixd runs as was refused |
+| `conn.opened` | debug | A connection passed its handshake |
+| `conn.idle_closed` | debug | A connection idled past `idle_timeout` |
+| `conn.read_failed`, `conn.write_failed` | info | A connection ended on a read or a write that failed |
+| `conn.access_ended` | info | A connection was closed because its own access ended, during its handshake or by its own request |
+| `conn.dropped` | info | An `sfx admin` change closed the connections of whoever lost access; `connections` is how many |
+| `conn.key_lookup_ignored` | debug | A `starfixd` from before the keys file asked about a key; it is not answered |
+| `handshake.failed` | info | A handshake was refused or failed; `err` says why |
+| `agent.harness_ignored` | info | A client named a harness starfixd does not know |
+| `agent.register_failed` | error | A session could not be noted for `sfx who` |
+| `request.done` | debug | A request was answered |
+| `request.refused` | info | A request was refused, with its `code`. Capped at `refusal_logs` a minute per principal |
+| `request.failed` | error | A request failed on the server, and its client was answered `unavailable`. The line with the client's `req` has the cause |
+| `request.part_failed` | error | A request was answered, without a part that could not be read: an issue's similar issues, its memories, a new member's keys |
+| `project.added` | info | `sfx admin project add` made a project |
+| `project.opened`, `project.closed` | info | A project's store was opened, or closed (`reason`: `idle`, `to make room` or `archived`) |
+| `project.open_failed` | error | A project's database could not be opened: at start, at a handshake, or for an `sfx admin` change. Alert on it |
+| `project.not_opened` | info | At start: an archived project's database awaits this starfixd's migrations and was left alone |
+| `project.close_failed` | error | Closing a project's store failed |
+| `store.schema_too_new` | error | A database was migrated by a newer starfixd |
+| `store.commit_failed` | error | The Dolt commit of pending writes failed; the next tries again |
+| `store.unsafe_account` | warn | `--allow-unsafe-dolt` let an unsafe Dolt account through |
+| `control.reload_failed` | error | The reaper could not reread the control store |
+| `control.index_stale` | error | A control write failed and the reread after it failed too: what starfixd holds in memory of keys and members may be stale until a restart |
+| `claim.expired` | info | A claim's lease ran out and the reaper ended it |
+| `claim.released` | info | A claim ended because its holder lost access; `reason` says how |
+| `reaper.failed`, `reaper.prune_failed` | error | The reaper could not end expired claims, or prune, in a project |
+| `reaper.pruned` | info | The reaper removed old registry rows or read inbox items |
+| `access.sweep_failed` | error | The claims of holders without access could not be ended in a project |
+| `keys_file.written` | info | The keys file was written |
+| `keys_file.write_failed` | error | The keys file could not be written: sshd reads the old one. Every 30 seconds until a write succeeds. Alert on it |
+| `keys_file.key_held_back` | warn | A key of the store is left out of the keys file because `authorized_keys` gives it to another principal |
+| `keys_file.key_left_out` | error | A key's row in the store does not check out, and is left out of the keys file |
+| `clock.behind` | error | The clock is behind the latest event of the database named, at start and every ten minutes while it lasts, with the fix ([The server's clock](#the-servers-clock)) |
+| `clock.caught_up` | info | A clock that was behind has passed its history |
+| `clock.stepped` | warn | The clock was set, or the machine suspended: the direction, the size and what starfixd did about it |
+| `clock.step_settled` | warn | For each database, a forward step was added to every live lease |
+| `clock.settle_failed` | error | A step could not be settled in the control store |
+| `dolt.check_failed` | error | The check of Dolt for `/readyz` failed |
+| `dolt.driver` | warn | The database driver found a connection to Dolt dead (`closing bad idle connection`); the pool dials again. Many of them mean Dolt restarted or is refusing connections |
+| `dolt_metrics.reading` | info | At start, with `dolt_metrics_url` set |
+| `dolt_metrics.read_failed` | warn | Dolt's metrics could not be read: once, then every 10 minutes while it lasts ([Dolt's figures](#dolts-figures)) |
+| `dolt_metrics.read_recovered` | info | They can be read again |
+| `telemetry.on`, `telemetry.off` | info | At start: what is exported and where, or that `OTEL_SDK_DISABLED` turned it off |
+| `telemetry.listening` | info | The loopback listener serves |
+| `telemetry.listener_error` | warn | The listener's HTTP server reported an error |
+| `telemetry.listener_stopped` | error | The listener stopped; metrics and health are not served until a restart |
+| `telemetry.export_failed` | warn | An export of `signal` failed: once, then every 10 minutes while it lasts |
+| `telemetry.export_recovered` | info | Exports of `signal` succeed again |
+| `telemetry.sdk_error`, `telemetry.scrape_failed` | warn | The OpenTelemetry SDK reported an error, or a scrape of `/metrics` failed |
+| `telemetry.stop_failed` | warn | The last export at the stop did not finish in its 5 seconds |
+| `telemetry.key_made`, `telemetry.key_found` | info | The key of the stand-ins was made, or was found on a later look |
+| `telemetry.key_unavailable` | error | That key cannot be read or made, so spans and exported log records say nothing about who. A line each for the file, the `cause` and every `fix` |
+| `audit.project.add`, `audit.project.archive`, `audit.project.activate`, `audit.principal.add`, `audit.principal.disable`, `audit.principal.enable`, `audit.key.add`, `audit.key.remove`, `audit.member.set`, `audit.member.remove` | info | [The audit stream](#the-audit-stream): one line for each access change |
+| `audit.read_failed` | error | The audit stream could not read the control store's log. Its lines follow when a read succeeds; the event log has lost nothing |
+
+Any failure to accept connections that will not pass stops starfixd: it
+prints the error and exits 1, and the unit's `Restart=on-failure`
+starts it again. An error that stops a start is printed as plain lines,
+the cause and then each `fix:`, not as a log line.
+
+### The audit stream
+
+With `control_db`, every change to who has access to what is an event
+in the control database's log: a project added, archived or activated;
+a principal added, disabled or enabled; a key added or removed; a
+membership set or removed. starfixd also writes each as a log line with
+`audit=true`, for a SIEM that reads the journal:
+
+```text
+level=INFO msg=audit event=audit.key.add audit=true seq=41 at=2026-10-12T09:30:00.123456Z principal=dana session=s-d op=key.add target=SHA256:fw8YS1jLRFPv61bKxSwx+1PRkYi+gXIIutriFmX8Bic fingerprint=SHA256:fw8YS1jLRFPv61bKxSwx+1PRkYi+gXIIutriFmX8Bic subject=carol
+level=INFO msg=audit event=audit.member.set audit=true seq=42 at=2026-10-12T09:30:02.200100Z principal=dana session=s-d op=member.set target=0190a8a0-0000-7000-8000-00000000000a/carol project=0190a8a0-0000-7000-8000-00000000000a subject=carol role=member
+```
+
+| Field | Holds |
+|---|---|
+| `seq`, `at` | The event's number in the control database's log, and its time there. `seq` is what to deduplicate on, and what finds the event |
+| `principal`, `session` | Who made the change |
+| `op` | What it was: `project.add`, `key.remove` and so on |
+| `target` | What it changed, as the event log names it: a project's UUID, a principal's name, a key's fingerprint, or `PROJECT/PRINCIPAL` for a membership |
+| `project`, `subject`, `fingerprint`, `role` | The target's parts, where it has them: the project, the principal it changed, the key's fingerprint, and the role a membership was set to |
+
+- **Fingerprints, never keys.** No line holds a key's text or its
+  comment.
+- **The event log is the record; the lines are a copy.** starfixd reads
+  the lines from the log, after the change has committed, so a line can
+  say nothing the log does not, and there is a line for a change
+  whoever made it: `starfixd control init` run beside the daemon shows
+  at the reaper's next tick, within 30 seconds.
+- **A line appears once, and only while starfixd runs.** The stream
+  starts at the newest event there is when starfixd starts. What was
+  written while it was stopped (by `starfixd control init`) is in the
+  event log and not in the journal, and the journal is not a substitute
+  for backing the control database up.
+- **A line is no request's.** It carries the event's `seq` and no `req`.
+- **`telemetry: audit_log: false`** writes no audit line. The event log
+  is unchanged.
+- **To send the audit stream somewhere and nothing else**, filter on
+  `audit=true` where the journal is read; with [logs over
+  OTLP](#logs-over-otlp), on the record's `audit` attribute.
 
 ## Observability
 
@@ -2083,6 +2244,8 @@ configured, starfixd exports nothing and opens no port.
 |---|---|
 | Metrics pushed over OTLP/HTTP | `OTEL_EXPORTER_OTLP_ENDPOINT` in starfixd's environment |
 | Traces pushed over OTLP/HTTP ([Traces](#traces)) | The same variable. They say who did what, by a stand-in, once a directory is made for a key |
+| Log lines with a stable schema, and the audit stream of access changes ([Logs](#logs)) | Always there, on stderr. `telemetry: audit_log: false` leaves the audit stream out |
+| The same log lines pushed over OTLP/HTTP ([Logs over OTLP](#logs-over-otlp)) | `OTEL_LOGS_EXPORTER=otlp` beside an endpoint. Off unless asked for |
 | Metrics for a scraper, in Prometheus's text format | `telemetry: listen:` in the config file |
 | `/healthz` and `/readyz` | The same listener |
 | Readiness and a watchdog under systemd | `Type=notify` and `WatchdogSec` in the unit ([step 5](#5-run-starfixd-under-systemd)), which the guide's unit has |
@@ -2093,11 +2256,9 @@ configured, starfixd exports nothing and opens no port.
 Push and pull are independent: turn on either, both or neither. The
 instruments are the same either way.
 
-**Not built yet:** the log schema and the audit stream of access
-changes, and the tested
-Collector configuration, alert rules and dashboard. They are the next
-slices of [the design](design/starfix.md#16-observability). Until then
-`OTEL_LOGS_*` variables do nothing.
+**Not built yet:** the tested Collector configuration, alert rules and
+dashboard. They are the last slice of
+[the design](design/starfix.md#16-observability).
 
 ### Send metrics to a collector on the machine
 
@@ -2118,7 +2279,7 @@ The one variable sends both metrics and [traces](#traces), and that is
 all it takes. The log says what is on:
 
 ```text
-level=INFO msg="telemetry on" push=http://127.0.0.1:4318/v1/metrics push_interval=1m0s push_headers=0 pull=false per_project=true traces=http://127.0.0.1:4318/v1/traces trace_headers=0 sampler=parentbased_always_on principals=pseudonym service=starfixd
+level=INFO msg="telemetry on" event=telemetry.on push=http://127.0.0.1:4318/v1/metrics push_interval=1m0s push_headers=0 pull=false per_project=true traces=http://127.0.0.1:4318/v1/traces logs=off trace_headers=0 sampler=parentbased_always_on principals=pseudonym service=starfixd
 ```
 
 **Until you make one directory, the traces say nothing about who.**
@@ -2129,11 +2290,11 @@ session on them, exactly as `telemetry: principals: omit` does, and
 says so at error level:
 
 ```text
-level=ERROR msg="telemetry: spans say nothing about who: the key for principals' stand-ins is unavailable"
-level=ERROR msg="the key's file: /var/lib/starfix/telemetry/principals.key"
-level=ERROR msg="cause: it cannot be made: no such file or directory"
-level=ERROR msg="fix: make its directory, owned by the user starfixd runs as: install -d -m 0700 -o starfix -g starfix /var/lib/starfix/telemetry"
-level=ERROR msg="fix: under systemd, let starfixd write there with a drop-in: ReadWritePaths=/var/lib/starfix/telemetry (docs/server.md, Traces)"
+level=ERROR msg="telemetry: spans say nothing about who: the key for principals' stand-ins is unavailable" event=telemetry.key_unavailable
+level=ERROR msg="the key's file" event=telemetry.key_unavailable path=/var/lib/starfix/telemetry/principals.key
+level=ERROR msg=cause event=telemetry.key_unavailable cause="it cannot be made: no such file or directory"
+level=ERROR msg=fix event=telemetry.key_unavailable fix="make its directory, owned by the user starfixd runs as: install -d -m 0700 -o starfix -g starfix /var/lib/starfix/telemetry"
+level=ERROR msg=fix event=telemetry.key_unavailable fix="under systemd, let starfixd write there with a drop-in: ReadWritePaths=/var/lib/starfix/telemetry (docs/server.md, Traces)"
 ```
 
 To have the stand-ins, as root:
@@ -2147,7 +2308,7 @@ systemctl restart starfixd
 ```
 
 ```text
-level=INFO msg="telemetry: made the key that principals' stand-ins are derived from" path=/var/lib/starfix/telemetry/principals.key
+level=INFO msg="telemetry: made the key that principals' stand-ins are derived from" event=telemetry.key_made path=/var/lib/starfix/telemetry/principals.key
 ```
 
 - **The restart is for the drop-in**, which systemd applies when the
@@ -2203,11 +2364,11 @@ EnvironmentFile=/etc/starfix/telemetry.env
 
 | Variable | Does |
 |---|---|
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | The collector's base URL, `http://` or `https://`. starfixd posts metrics to `/v1/metrics` and traces to `/v1/traces` under it. Unset: nothing is pushed |
-| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | The full URL for metrics, or for traces, used as it is; each wins over the one above for its signal, and either may be set alone |
-| `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_METRICS_HEADERS`, `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | Headers sent with each export, as `name=value,name=value`; a signal's own win for a name in both. A secret |
-| `OTEL_EXPORTER_OTLP_PROTOCOL`, `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL`, `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | Must be unset or `http/protobuf`. starfixd has no gRPC exporter, and refuses `grpc` at start |
-| `OTEL_EXPORTER_OTLP_TIMEOUT`, `OTEL_EXPORTER_OTLP_METRICS_TIMEOUT`, `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT` | One export request's timeout, in milliseconds. Default 10000 |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | The collector's base URL, `http://` or `https://`. starfixd posts metrics to `/v1/metrics` and traces to `/v1/traces` under it, and logs to `/v1/logs` when `OTEL_LOGS_EXPORTER` asks for them. Unset: nothing is pushed |
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | The full URL for metrics, for traces or for logs, used as it is; each wins over the one above for its signal, and any may be set alone |
+| `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_METRICS_HEADERS`, `OTEL_EXPORTER_OTLP_TRACES_HEADERS`, `OTEL_EXPORTER_OTLP_LOGS_HEADERS` | Headers sent with each export, as `name=value,name=value`; a signal's own win for a name in both. A secret |
+| `OTEL_EXPORTER_OTLP_PROTOCOL`, `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL`, `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL`, `OTEL_EXPORTER_OTLP_LOGS_PROTOCOL` | Must be unset or `http/protobuf`. starfixd has no gRPC exporter, and refuses `grpc` at start |
+| `OTEL_EXPORTER_OTLP_TIMEOUT`, `OTEL_EXPORTER_OTLP_METRICS_TIMEOUT`, `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT`, `OTEL_EXPORTER_OTLP_LOGS_TIMEOUT` | One export request's timeout, in milliseconds. Default 10000 |
 | `OTEL_METRIC_EXPORT_INTERVAL` | Milliseconds between exports of metrics. Default 60000 |
 | `OTEL_METRIC_EXPORT_TIMEOUT` | Milliseconds one collection and export of metrics may take. Default 30000 |
 | `OTEL_METRICS_EXPORTER` | `otlp` (the default) or `none`, which pushes no metrics. Anything else is refused: for Prometheus, set `telemetry: listen:` |
@@ -2217,9 +2378,14 @@ EnvironmentFile=/etc/starfix/telemetry.env
 | `OTEL_BSP_EXPORT_TIMEOUT` | Milliseconds one export of spans may take, its retries included. Default 30000 |
 | `OTEL_BSP_MAX_QUEUE_SIZE` | How many finished spans may wait for export; one more is dropped, and counted. 1 to 65536. Default 2048 |
 | `OTEL_BSP_MAX_EXPORT_BATCH_SIZE` | How many spans go in one export, at most the queue's size. Default 512 |
+| `OTEL_LOGS_EXPORTER` | `otlp` exports the log lines too ([Logs over OTLP](#logs-over-otlp)); unset, the default, or `none` leaves them in the journal alone. `otlp` with no endpoint, and anything else, is refused |
+| `OTEL_BLRP_SCHEDULE_DELAY` | Milliseconds a log record waits at most before it is exported. Default 1000 |
+| `OTEL_BLRP_EXPORT_TIMEOUT` | Milliseconds one export of log records may take, its retries included. Default 30000 |
+| `OTEL_BLRP_MAX_QUEUE_SIZE` | How many log records may wait for export; one more is dropped, and counted. 1 to 65536. Default 2048 |
+| `OTEL_BLRP_MAX_EXPORT_BATCH_SIZE` | How many log records go in one export, at most the queue's size. Default 512 |
 | `OTEL_SERVICE_NAME` | The resource's `service.name`. Default `starfixd` |
 | `OTEL_RESOURCE_ATTRIBUTES` | More resource attributes, as `name=value,name=value`, at most 64. It may set `service.instance.id`; `service.version` is always the build's |
-| `OTEL_SDK_DISABLED` | `true` turns all of it off: no push, no span, no key and no `/metrics`. The listener, if set, still answers health |
+| `OTEL_SDK_DISABLED` | `true` turns all of it off: no push, no span, no exported log record, no key and no `/metrics`. The listener, if set, still answers health, and stderr still has every log line |
 
 A variable starfixd cannot honor stops it at start, with a `fix:`. The
 OpenTelemetry SDK itself also reads the variables for TLS files
@@ -2229,7 +2395,7 @@ OpenTelemetry SDK itself also reads the variables for TLS files
 are far below) from starfixd's environment; starfixd does not check
 those.
 
-Every export, of metrics and of spans, carries the resource
+Every export, of metrics, of spans and of log records, carries the resource
 `service.name`, `service.version` (the starfixd version) and
 `service.instance.id` (a random UUID, new at each start, so one run can
 be told from the next).
@@ -2341,7 +2507,7 @@ What each counts:
 | `reaper.duration`, `reaper.last_run.time` | Each 30-second tick that ends expired claims, closes idle stores and rereads the control database, and when the last one ended. A time that stops advancing means the reaper is stuck |
 | `clock.behind` | How far the server's clock is behind the history its time is held against, as of the reaper's last tick; 0 when it is not behind. Above 0 the daemon serves, with its time running on from the history at half speed, and with `clock_behind: stop` it will not start again: alert on it ([The server's clock](#the-servers-clock)) |
 | `clock.steps` | Each time the daemon found the clock set, or the machine suspended and resumed, by more than `clock_step_tolerance`, counted at the reaper's next tick |
-| `telemetry.dropped` | For `signal="metrics"`, each OTLP export that failed; nothing is lost for good, since totals are cumulative and the next export carries them. For `signal="traces"`, each span that was lost: one the full queue had no room for, or one of an export that failed ([When the collector is down](#when-the-collector-is-down)) |
+| `telemetry.dropped` | For `signal="metrics"`, each OTLP export that failed; nothing is lost for good, since totals are cumulative and the next export carries them. For `signal="traces"`, each span that was lost: one the full queue had no room for, or one of an export that failed. For `signal="logs"`, each log record that was not exported, the same way; the journal still has its line ([When the collector is down](#when-the-collector-is-down)) |
 
 Every attribute's values come from a fixed list in the code, so the
 number of series cannot grow with what clients send:
@@ -2357,7 +2523,7 @@ number of series cannot grow with what clients send:
 | `migrated` | `true` when opening the store applied a migration |
 | `event` of a claim | `take`, `renew`, `release`, `expire` |
 | `reason` of a claim | `membership`, `disabled` or `archived` for a release that ended with the holder's access; `none` for every other change |
-| `signal` | `metrics`, `traces` |
+| `signal` | `metrics`, `traces`, `logs` |
 | `direction` | `forward`, `backward` |
 
 - **Nothing a client chooses is an attribute:** no principal, session,
@@ -2538,12 +2704,67 @@ open projects, or one where the count matters to the backend's bill,
 set `parentbased_traceidratio` and a share: requests whose caller
 sampled them are still recorded.
 
-**Log lines carry the ids,** so that a line and a trace can be joined.
-With traces on, a request's line has `trace_id` and `span_id` of
-starfixd's own span for it, whether or not the trace is sampled; a
-handshake's and the reaper's lines have those of the span they were
-logged under. With traces off, a request's line has the caller's ids,
-when the request brought a valid trace context, and none otherwise.
+**Log lines carry the ids,** so that a line and a trace can be joined
+([Logs](#logs)). With traces on, every line logged for a request has
+`trace_id` and `span_id` of starfixd's own span for it, whether or not
+the trace is sampled; a handshake's and the reaper's lines have those
+of the span they were logged under. With traces off, a request's lines
+have the caller's ids, when the request brought a valid trace context,
+and none otherwise. A log record exported over OTLP has the same ids as
+the record's own trace and span id.
+
+### Logs over OTLP
+
+The journal is the logs' home, and stderr is never turned off. With
+`OTEL_LOGS_EXPORTER=otlp` beside an endpoint, starfixd also sends each
+line it logs to the collector, as an OTLP log record, at whatever level
+`log_level` sets:
+
+```ini
+Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
+Environment=OTEL_LOGS_EXPORTER=otlp
+```
+
+It is off unless asked for, unlike metrics and traces, because
+OpenTelemetry's log exporter for Go is not yet declared stable upstream
+(version 0.23), and most servers already ship their journal.
+
+A record leaves the machine, so it carries less than the line does, by
+the rule of [Traces](#traces):
+
+| Of the line | The record has |
+|---|---|
+| `time`, `level` | Its timestamp, severity number and severity text |
+| `msg` | Its body. A message is fixed text in starfixd's code, never built from what a client sent |
+| `event` | Its event name, and the attribute `event` |
+| `trace_id`, `span_id` | Its own trace and span id |
+| `project`, `op`, `code`, `req`, `issue`, `fingerprint` | The attribute, when the value has that id's shape: a UUID, an op starfixd knows (any other is `unknown`), a code, 16 hex digits, an issue's id, a key's fingerprint |
+| Numbers, booleans, times, durations and the fixed words (`dur_ms`, `audit`, `seq`, `at`, `reason`, `role`, `connections` and the like) | The attribute |
+| `principal`, `session`, `by`, `subject`, `admin`, `created_by`, `added_by` | The attribute as `telemetry: principals:` allows, exactly as a span's (People, above): a stand-in by default, the name with `name`, nothing with `omit`, and nothing, never the name, while the key of the stand-ins is unavailable. A session is treated as a principal is |
+| `err`, `detail`, `cause`, `fix`, `effect`, `target`, `machine`, `harness`, `name`, `database`, `path`, `url` and every other field | **Nothing.** An error's text can quote what it refused or name a person, so it stays in the journal, under every setting |
+
+- **To read the rest, go to the journal.** A record's `req`, its trace
+  id, or its time and `event` find the line, which has the `err`.
+- **The audit stream is exported with the rest,** with `audit=true`,
+  `seq`, `op`, the `project`, the `fingerprint` and the `role`. Who made
+  the change and whom it changed are stand-ins by default, which a
+  server admin resolves with `sfx admin principal whois`; an audit
+  trail that must name people outside the machine needs `principals:
+  name`, or the journal.
+- **The same key makes the stand-ins** as for spans, so one person is
+  one stand-in in a trace and in a log record. Exporting logs makes the
+  key, as exporting traces does, and the same directory must exist
+  ([Send metrics to a collector on the machine](#send-metrics-to-a-collector-on-the-machine)).
+- **What it costs.** A line that is exported takes about 3 µs longer
+  to log, on the goroutine that logged it, and nothing when logs are
+  not exported (measured on an Apple M4 Max). At `log_level: info` a
+  busy server logs a few lines a second; at `debug` it logs one for
+  each request, and exports each. Records wait in a queue of
+  `OTEL_BLRP_MAX_QUEUE_SIZE`, 2048 by default, and one more is dropped
+  and counted, so memory is bounded.
+- **starfixd's own line about a failed log export is exported too,**
+  when exports work again. It is sampled, once and then every 10
+  minutes, so it cannot feed itself.
 
 ### When the collector is down
 
@@ -2552,8 +2773,10 @@ ending a span change memory only; exports run on their own goroutines.
 
 - A collector that is down, slow or refusing costs one warning in the log
   for each signal (`telemetry: a metrics export failed`, `telemetry: a
-  trace export failed`), then one every 10 minutes while it lasts, with
-  the number left out, and a line when exports succeed again.
+  trace export failed`, `telemetry: a log export failed`; the event
+  `telemetry.export_failed` with its `signal`), then one every 10
+  minutes while it lasts, with the number left out, and a line when
+  exports succeed again.
 - **Metrics lose nothing.** starfixd does not retry within an interval:
   the next export carries the same cumulative totals.
   `starfix.telemetry.dropped{signal="metrics"}` counts each failed
@@ -2567,10 +2790,17 @@ ending a span change memory only; exports run on their own goroutines.
   measured about 1.5 MB.
   `starfix.telemetry.dropped{signal="traces"}` counts every span lost,
   at the queue or with its export, exactly.
+- **Exported log records are lost, and their lines are not.** A record
+  that could not be exported is gone from the export; the journal has
+  the line. The queue and the retries are as for spans, under the
+  `OTEL_BLRP_*` variables, and
+  `starfix.telemetry.dropped{signal="logs"}` counts every record lost,
+  exactly. Logging never waits for the collector.
 - Stopping starfixd exports what is waiting and makes one last export of
-  metrics, and gives both at most 5 seconds together. Spans it could not
-  send in that time are counted as dropped, in a count that itself may
-  not reach the collector.
+  metrics, and gives all of it at most 5 seconds together. Spans and
+  log records it could not send in that time are counted as dropped, in
+  a count that itself may not reach the collector. The lines starfixd
+  logs while it stops go to the journal alone.
 
 ### starfixd status
 
@@ -2980,8 +3210,8 @@ Dolt's collector: 1762 cycles for 12000 writes in 10m, 15 for each 100 writes: O
 | `sfx: … accepted no key`, for a key added with `sfx admin` | sshd is not reading starfixd's keys file, or the file has no line for the key | On the server: `sshd -T -C user=starfix \| grep -i authorizedkeysfile` must name `.ssh/starfix_keys`; `grep -c NAME /var/lib/starfix/.ssh/starfix_keys` shows whether the line is there; `journalctl -u ssh` says when sshd would not read the file for its owner or mode |
 | `sfx admin` warns that starfixd `could not write the keys file sshd reads`, or `sfx admin status` says `THE LAST WRITE FAILED` | starfixd cannot replace its keys file. The change itself is recorded | `journalctl -u starfixd` has `the keys file is out of date` with the cause and a fix: usually the unit's `ReadWritePaths` ([Keys from the store](#keys-from-the-store), step 1), or the owner or mode of `.ssh`. starfixd tries again every 30 seconds |
 | starfixd does not start: `write the keys file …` | With `control_db`: it cannot write its keys file | The error's `fix:` names the change; see [Keys from the store](#keys-from-the-store), step 1 |
-| The log has `telemetry: spans say nothing about who: the key for principals' stand-ins is unavailable`, or the status report says `TRACES SAY NOTHING ABOUT WHO` | starfixd exports traces and cannot make or read the key it names people with. It serves as before; its spans carry no principal and no session. The `cause:` line says which: `it cannot be made: no such file or directory` (no directory), `read-only file system` (the unit's `ReadWritePaths`), `permission denied` (the directory's owner, or the AppArmor profile) | The `fix:` lines beside it: make the directory and add the drop-in ([Send metrics to a collector on the machine](#send-metrics-to-a-collector-on-the-machine)). starfixd looks again every 30 seconds; a new drop-in needs a restart. Or set `telemetry: principals: omit` to leave people out on purpose |
-| The same, with `cause: its file is mode 0644: others can read it`, or `its file does not hold a key`; the status report says the key `CANNOT BE TRUSTED` | The key's file is there and is not safe to use: someone else may have read it, or it was cut short or changed | If someone may have read it, delete it: starfixd makes a new one within 30 seconds, and stand-ins made with the old key can no longer be resolved. If nobody can have, `chmod 600` it ([Traces](#traces), People) |
+| The log has `telemetry: spans say nothing about who: the key for principals' stand-ins is unavailable`, or the status report says `TRACES SAY NOTHING ABOUT WHO` | starfixd exports traces, or logs, and cannot make or read the key it names people with. It serves as before; its spans and exported log records carry no principal and no session. The line with `cause=` says which: `it cannot be made: no such file or directory` (no directory), `read-only file system` (the unit's `ReadWritePaths`), `permission denied` (the directory's owner, or the AppArmor profile) | The lines with `fix=` beside it: make the directory and add the drop-in ([Send metrics to a collector on the machine](#send-metrics-to-a-collector-on-the-machine)). starfixd looks again every 30 seconds; a new drop-in needs a restart. Or set `telemetry: principals: omit` to leave people out on purpose |
+| The same, with `cause="its file is mode 0644: others can read it"`, or `its file does not hold a key`; the status report says the key `CANNOT BE TRUSTED` | The key's file is there and is not safe to use: someone else may have read it, or it was cut short or changed | If someone may have read it, delete it: starfixd makes a new one within 30 seconds, and stand-ins made with the old key can no longer be resolved. If nobody can have, `chmod 600` it ([Traces](#traces), People) |
 | `sfx admin principal whois` answers `this server has no key for stand-ins: …` | What follows the colon says why: the key is unavailable, as in the two rows above; or the server exports no traces, or names people by `name` or `omit`, and has no key file from before | For an unavailable key, the rows above. Nothing resolves a stand-in made under a key that is gone |
 | `the file there was not generated by starfixd` | `keys_file` names a file that holds something else, such as `authorized_keys` | Set `keys_file` to a file of its own, or move the other file away |
 | A key removed with `sfx admin key remove` still signs in | Its line is still in `authorized_keys`, as the command warned | Delete the line ([Keys from the store](#keys-from-the-store), step 5) |

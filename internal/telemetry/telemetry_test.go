@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/logs"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
@@ -740,7 +741,9 @@ func TestExportErrorsAreSampled(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	e := newErrlog(logTo(log), []string{"hunter2"}, "metrics")
 	e.now = func() time.Time { return now }
-	fail := func() { e.failed("export failed", fmt.Errorf("dial: refused (password hunter2)")) }
+	fail := func() {
+		e.failed(logs.TelemetryExportFailed, "export failed", fmt.Errorf("dial: refused (password hunter2)"))
+	}
 	for range 100 {
 		fail()
 		now = now.Add(time.Second)
@@ -751,7 +754,7 @@ func TestExportErrorsAreSampled(t *testing.T) {
 	now = now.Add(errEvery)
 	fail()
 	out := log.String()
-	if n := strings.Count(out, "export failed"); n != 2 || !strings.Contains(out, "failures_not_logged=99") {
+	if n := strings.Count(out, `msg="export failed" event=telemetry.export_failed signal=metrics`); n != 2 || !strings.Contains(out, "failures_not_logged=99") {
 		t.Errorf("after %s: %d lines, want 2, the second saying 99 were not logged:\n%s", errEvery, n, out)
 	}
 	if strings.Contains(out, "hunter2") {
@@ -759,7 +762,7 @@ func TestExportErrorsAreSampled(t *testing.T) {
 	}
 	e.ok()
 	e.ok()
-	if n := strings.Count(log.String(), "succeed again"); n != 1 {
+	if n := strings.Count(log.String(), `msg="telemetry: exports succeed again" event=telemetry.export_recovered signal=metrics`); n != 1 {
 		t.Errorf("%d recovery lines, want 1:\n%s", n, log)
 	}
 	fail()
