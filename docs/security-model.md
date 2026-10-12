@@ -17,6 +17,11 @@ reads first ([Who can authenticate](#who-can-authenticate)).
 - `restrict` on each line turns off forwarding and terminals, and the
   sshd `Match` block repeats that for the whole account
   ([step 6](server.md#6-let-the-first-principal-in)).
+- The same block turns off, for the account, every other way sshd might
+  find a key: a key command the image sets for all accounts, and a
+  certificate authority it trusts for all accounts. Either would let
+  someone in as `starfix` with no forced command, which is a shell that
+  can read starfixd's config file.
 - A `ForceCommand` would override every key's command, and so its
   principal. Never add one for the account.
 - A session id, which comes from the client's environment, only tells one
@@ -175,7 +180,8 @@ keeps a removed key out is not the file:
   status` shows it until a write succeeds.
 
 This was run with a real sshd, OpenSSH 9.6 on Ubuntu 24.04, in the
-Docker test server. It has not been run on a cloud provider's image
+Docker test server, and under systemd on an Ubuntu 24.04 virtual
+machine. It has not been run on a cloud provider's image
 ([Keys from the store](server.md#keys-from-the-store) lists what was
 checked). The supported platform for a server is Ubuntu LTS; systems
 that run SELinux are not supported yet
@@ -300,6 +306,49 @@ connecting process's user ID and refuses any but its own, which is why
 because sshd runs every forced command as the `starfix` account.
 Nothing else connects to the socket: sshd itself never does.
 
+## Confinement on the server
+
+Three things limit what starfixd can do on its machine, and they cover
+different processes.
+
+- **Its own user.** starfixd runs as `starfix`, which is not root and
+  cannot use `sudo` but for one command, the restart of its own unit.
+  That user owns the binary (so that `starfixd upgrade` can replace
+  it), the config file, which holds Dolt's password, and the account's
+  `.ssh`. So Unix permissions alone let any starfixd process rewrite
+  all three.
+- **The systemd unit**, for the daemon only: a read-only file system
+  but for its socket directory and, on a server of many projects, the
+  account's `.ssh`; no access to `/home`; private `/tmp` and devices; no
+  new privileges. The bridge, `starfixd stdio`, is started by sshd, not
+  by the unit, and has none of this.
+- **AppArmor profiles**, optional, for Ubuntu
+  ([Confine starfixd with AppArmor](server.md#confine-starfixd-with-apparmor)).
+  The bridge may read the config file and connect to the daemon's
+  socket, and nothing else: no network, no other file, no program. The
+  daemon may also reach Dolt and write the keys file. Neither may write
+  the binary, the config file or `authorized_keys`. The operator's
+  commands run under a third profile, which the operator asks for; it
+  alone may reach the network, replace the binary and run `sudo`.
+
+What the profiles do not change:
+
+- **A daemon that has been taken over can still let a key in**, by
+  writing a line of its own to the keys file, which sshd reads. Nothing
+  on the server stands between the daemon and that file; the profile
+  keeps the bridge and the operator's commands away from it.
+- **The daemon may open TCP connections to any address**, unless the
+  unit holds it to loopback.
+- **sshd and Dolt are not confined** by AppArmor: Ubuntu ships no
+  profile for sshd, and starfix none for Dolt.
+
+The profiles were tested on Ubuntu 24.04 on arm64, in a virtual machine,
+on 12 October 2026: everything the server guide sets up ran with them
+enforced and nothing was refused, and each thing above that they
+forbid was tried and refused. amd64 was not tested, nor an upgrade to a
+newer release under them. Without them, stock Ubuntu confines neither
+sshd nor starfixd.
+
 ## Untrusted text
 
 Issue text comes from other people, their agents and the server. starfix
@@ -418,6 +467,7 @@ hand](install.md#verify-a-download-by-hand) the commands.
 | golangci-lint, with gosec, staticcheck, errcheck, govet and revive | Every pull request and push to `main` |
 | `govulncheck`, against the Go vulnerability database | Every pull request and push, weekly on `main` (Mondays), and before every release build |
 | `go mod download && go mod verify` | Every pull request and push, and before every release build |
+| shellcheck, on every shell script in the repository | Every pull request and push, and before every release build |
 | CodeQL, with the `security-extended` queries | Every pull request and push, and weekly |
 | Dependabot, for Go modules and GitHub Actions | Weekly; minor and patch updates grouped |
 

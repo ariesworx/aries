@@ -124,7 +124,7 @@ You asked to port every feature. Every bd feature is listed here as **Port** (sa
 | Audit, journal, provenance | Port | One `events` table, always on; provenance links kept |
 | Jira, Linear, ADO, Notion, GitLab sync | Port, later | One sync engine; GitHub first |
 | `doctor`, `recompute-blocked`, repair migrations | Replace | Nothing derived is stored, so nothing drifts; `sfx check` verifies connection and schema |
-| OTEL metrics | Port, later | |
+| OTEL metrics | Port, later | Designed in §16 |
 
 ## 5. Agent interface (MCP)
 
@@ -503,6 +503,7 @@ Agreed 6 Oct 2026. Extends item 10.
 | 2 | MCP server (work and issue tools), `start`/`finish`, git awareness, next-step errors, `starfixd --dev`, token budget in CI, `digest` (MCP and CLI), prime, `sfx upgrade` and `starfixd upgrade`, `setup` for Claude Code, Codex, Gemini, Cursor, VS Code | Agents use it daily on a real project |
 | 3 | Claims with leases, epochs, reaper, agents registry, inbox, event push, handoff, idempotency, files to issues, acceptance checklist, similar closed issues (full-text), live board, time and token reporting, `account` and token capture (§12.1) | Multi-session soak test |
 | 3a | Projects and access (§15): many projects on one server with a database and a writer each, principals, keys and memberships in a control database, server and project admins, `sfx admin` | Two projects on one server; a principal refused in a project it is not a member of; the soak test run across both. **Met in the test stack** (§15.4, As built, status and the soak), against starfix's stand-in for sshd; what no real machine has run yet is listed there |
+| 3b | Observability (§16): OpenTelemetry traces and metrics from starfixd, a loopback endpoint for metrics and health, a log schema and audit stream, Dolt's metrics, and a Collector harness | The Docker harness receives every signal from starfixd and Dolt; the soak's counters equal its event logs; a dead collector changes no request |
 | 4 | Memory with scopes and tags, migrated from bd `kv.memory.*`; prices, `sfx cost` and `sfx log` (§12.1) | |
 | 5 | Offline cache, outbox, conflict parking and resolution | Partition tests |
 | 6 | Locks, reservations, gates, molecules/formulas, swarm, cross-project | |
@@ -571,6 +572,16 @@ Maintainer, 12 Oct 2026, on the order of the two key files (§15.2):
 Maintainer, 12 Oct 2026, while protocol 5 is unreleased (an observability design, §16, is written separately and builds on this):
 
 27. Requests carry W3C trace context from the client: the `traceparent` value and, optionally, `tracestate`, on each request frame. Adding the field after protocol 5 ships would cost a protocol bump, and adding it now is free. Only the carrying is built, not tracing: the server validates the context, carries it with the request and names its ids in its debug log, and creates and exports no spans. A trace context that is not valid is ignored and never fails a request.
+
+Maintainer, 12 Oct 2026, on observability (§16). Decision 27, that requests carry W3C trace context in protocol 5, is recorded with the change that adds the field:
+
+28. starfixd is instrumented with the OpenTelemetry Go SDK, for traces and metrics, exported with OTLP over HTTP. The maintainer chose the SDK over open formats written by hand, accepting what it costs (§16.2), for a standard, complete implementation. The SDK is starfixd's alone: `sfx` passes trace context on and links none of it.
+29. starfixd may open one HTTP listener, on a loopback address only, off by default, for metrics and health. This narrows the earlier position that starfixd opens no port: it still opens none that another machine can reach.
+30. The first version includes metrics broken down by project, an audit stream of access changes in the logs, Dolt's own figures in `sfx admin status`, and an OpenTelemetry Collector configuration, alert rules and a dashboard in the repository, exercised by the Docker harness.
+31. Metrics are both pushed (OTLP) and offered for pull (Prometheus), so that whoever deploys starfix chooses.
+32. A setting decides how a person appears in telemetry: by name, by a pseudonym, or not at all (§16.4). How people are identified at all, beyond one SSH key at a time, is under investigation (§15.6).
+33. A dependency for the Go runtime's metrics is acceptable. The cost of the standard library's own was measured first (§16.4).
+34. A token for a hosted backend is allowed where one is needed, and the guide gives sending to a collector on the machine as the way to avoid holding one.
 
 ## 15. Projects and access
 
@@ -677,6 +688,7 @@ Open, to check on those VMs: sshd runs the command only if the file and every di
 - **Removed.** `starfixd keys` and `cmd/starfixd/keys.go`; `server.AuthorizedKey`, the socket client; the keys frame, its handling, its in-flight counter and `proto.FrameKeys`; the `pk` field of a frame; the `key_lookups` limit, its setting and its row; the key lookups figure of `status`; `--bridge`; the guide's root-owned copy; the Docker image's `AuthorizedKeysCommand`. A config file that still sets `key_lookups` is refused as an unknown key. Kept: the fingerprint in the bridge frame, the connection's recorded fingerprint, the drop of a removed key's connections, the handshake's refusal, and `Control.AuthorizedKey`, which the handshake asks; `Control.AuthorizedKeys` is new, the list the file is written from.
 - **No protocol bump.** Protocol 6 has not shipped in a release, and the changes are to results, which clients read leniently; `internal/proto/version.go` records them. The keys frame was never client protocol. A daemon of this version closes a connection that opens with one, unanswered and logged at debug only: a root-owned `starfixd-keys` from an unreleased build, still configured in some sshd while its server is upgraded, reads that as no key, as it read a daemon from before the frame.
 - **Checked in Docker, 12 Oct 2026** (OpenSSH 9.6p1 on Ubuntu 24.04; `docs/deploy/docker.md` has the detail). The smoke test passes with 84 checks, among them the file's mode and owner in the container, a key added with `sfx admin` signing in with no restart, its removal locking it out, and no failed write in the daemon's log. Three variants of the image, built for the purpose and not kept: (1) starfixd installed as the guide installs it, owned by `starfix` and linked, with no root-owned copy: all 84 pass, where the command was refused. (2) A stand-in for a provider's agent, a global `AuthorizedKeysCommand` outside any `Match` block, run as `nobody`, that prints nothing: all 84 pass with no override. sshd ran that command twice for each sign-in by `sfx`, whichever file held the key; `AuthorizedKeysCommand none` in the `Match` block stopped it, and the guide says when to add it. (3) starfixd killed and sshd left running: sshd accepts a key the store alone holds (`Accepted publickey for starfix`), and the client is told `starfixd is not running on the server`, code `unavailable`, the refusal the bridge already gave. The guide's `Match` block and the image set `AuthorizedKeysCommand none`: without it a provider's global command is still run for the `starfix` account and a key it printed would be accepted with no forced command; with it the stand-in was not run and both files still worked.
+- **A globally trusted certificate authority, 12 Oct 2026.** Found while investigating certificates (§15.6) and confirmed separately: where the machine's sshd trusts a certificate authority for every account (`TrustedUserCAKeys` outside any `Match` block, as some companies' images have), a certificate from it for the principal `starfix` was let in with no forced command and ran a command as the account. The guide's first `Match` block, the one in the keys section and the image now set `TrustedUserCAKeys none` and `AuthorizedPrincipalsFile none` beside `AuthorizedKeysCommand none`, and the same certificate is refused. The first block had none of the three until now, so a server of one project was open to both.
 - **Unverified.** systemd: the guide's unit has `ProtectSystem=strict`, and the guide now adds `ReadWritePaths=/var/lib/starfix/.ssh`; that line, and that `ProtectHome=yes` does not cover `/var/lib/starfix`, are from systemd's documentation and were not run. The real provider agents, on real machines. SELinux, which is not supported yet (decision 23); from general knowledge, unverified, sshd there reads keys only from files with the label for it, which a home directory outside `/home` does not give its `.ssh` by default, as true of the hand-maintained file as of this one. AppArmor: Docker Desktop's kernel loads neither, so nothing was tested under either.
 
 **As built (stage 3a, the generated file first, 12 Oct 2026).** Decision 26 (§14) reverses the order of the two files that decision 22 and the note above give. Where that note says "Which file sshd takes" and "the safer one for break-glass", this note is what is built; the rest of it stands.
@@ -696,6 +708,16 @@ Open, to check on those VMs: sshd runs the command only if the file and every di
      - *Tests.* `TestKeyOfAuthorizedKeysKeepsItsPrincipal` and `TestHandLineAddedLaterHoldsTheStoreKeyBack` (`internal/server`), and on a real sshd, below.
 - **Checked in Docker, 12 Oct 2026** (OpenSSH 9.6p1 on Ubuntu 24.04). The smoke test passes with 97 checks, thirteen more than before. With the key in both files, neither the admin's own connection nor the member's is counted as let in by `authorized_keys`, which shows sshd took the generated line, where the same check under the old order counted one; after `key remove`, the same key signs in again and its own connection is counted as by hand. For case 5: a second key of the server admin, added to `authorized_keys` by hand in the container, signs in as the admin; `key add` and `principal add --key` of it for anyone else are refused and the generated file gains no line for it; it still signs in as the admin afterward. And for the other order: a key the store holds for a member, then given to the admin by a line added by hand, leaves the generated file within a tick, signs in as the admin, and `status` counts one key held back.
 - **The soak.** The principal whose key is in both places (`erin`) now comes in by the generated line. The check of her key's removal gained two assertions and lost none: a connection opened while the store held the key is closed by the removal, and one opened after it, by the hand-maintained line, is left open by the next removal.
+
+**As built (the guide on Ubuntu under systemd, and AppArmor profiles, 12 Oct 2026).** Decision 23's promise is kept: AppArmor profiles for starfixd ship in `deploy/apparmor`, as an optional step of the server guide. They were written while the guide was followed, step by step, for the first time on a real Ubuntu system with systemd: Ubuntu 24.04.5 (kernel 6.8.0-142, systemd 255, OpenSSH 9.6p1, AppArmor 4.0.1), arm64, in a Lima virtual machine, with `starfixd` built from source and put where the installer puts a release. This settles what the note above lists as unverified for systemd and AppArmor, on that one machine; amd64, the providers' images and SELinux are as they were.
+- **The units work as written.** Without the `ReadWritePaths` drop-in a server of many projects does not start, and its error names the line (`read-only file system`); with it the keys file is written, and `ProtectHome=yes` does not get in the way. `systemd-analyze security` scores starfixd's unit 7.2 and Dolt's 7.1. Not changed here: the units limit no system calls, capabilities or namespaces.
+- **What the guide had wrong or missing**, each now in `docs/server.md`: (1) at boot starfixd's first start fails, because systemd counts Dolt as started about a second before it listens, and `Restart=on-failure` brings it up five seconds later; (2) `AuthorizedKeysCommand none` in the `Match` block makes sshd log `error: No user for AuthorizedKeysCommand specified, skipping` for every key that is in neither file; (3) `starfixd upgrade --restart` with no `systemd_unit` asks sudo for `systemctl restart starfixd`, which the guide's rule for `starfixd.service` does not cover; (4) the Dolt download had no checksum. Confirmed as written: the sshd `Match` block on stock Ubuntu, which listens through `ssh.socket`; that a `Match` block ends with its drop-in file; the forced command, no terminal and no forwarding; `upgrade --check` and `--rollback` as the `starfix` user, with the sudo rule.
+- **Stock Ubuntu confines neither sshd nor starfixd.** `aa-status` listed 117 profiles, none for sshd; sshd, its children and starfixd ran `unconfined`. Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor (`kernel.apparmor_restrict_unprivileged_userns = 1`); neither starfixd nor Dolt asked for one.
+- **Three profiles, not one.** AppArmor attaches by path, never by argument, and the one binary is the bridge, the daemon and the operator's tool. The path carries the bridge's profile, the smallest (the config file and the daemon's socket), because sshd cannot ask for another and the bridge runs outside the unit's sandbox. The daemon's (`starfixd-serve`: Dolt over TCP, the keys file) is named by the unit's `AppArmorProfile=`. The operator's (`starfixd-admin`: the network, the binary, `sudo`) is entered with `aa-exec`, so `control init`, `import-bd`, `export-bd` and `upgrade` are run through it where the profiles are installed. With one profile the bridge could reach Dolt and write the keys file, and everything that listens could replace its own binary.
+- **What only a real system showed.** The daemon's socket is bound inside the unit's mount namespace, so AppArmor sees its path as disconnected and refuses the bridge's connection, in complain mode too, until the profiles carry `attach_disconnected`. sudo cannot run inside a profile that holds no capabilities, so the operator's profile runs it unconfined, bounded by sudoers.
+- **Tested.** Enforced: 76 checks (issues, a second project, keys from the store, lockout, the operator's commands, restarts) with nothing in the kernel log, before and after a reboot; then what the profiles forbid, each refused and logged. Not tested: an upgrade to a newer release, which a build from source refuses, so the download, the signature check and the swap to a new binary were not run; amd64.
+- **A limit.** The daemon writes the file sshd reads keys from, so a daemon that has been taken over can let a key in, and no profile changes that. The profiles keep the bridge and the operator's commands from that file, and every process from the config file, `authorized_keys` and, but for `upgrade`, the binary, all of which the `starfix` user owns.
+- **CI** checks the profiles' syntax (`apparmor_parser -Q -K`) on its Ubuntu runner. It cannot check that starfixd works when confined; that needs a machine with AppArmor and systemd, which CI's jobs do not set up.
 
 ### 15.3 Roles
 
@@ -765,7 +787,7 @@ sfx admin member list | remove NAME
   - *Two archives at once.* The check that an archive does not take the server's last active project was made before the control write and outside it, so two archives sent together could each see the other's project still active and leave none: nobody could then connect, and the daemon would not start (the security review of 12 Oct). The check and the write are now one step under a mutex of the daemon's (`Server.archiving`), which is enough because the daemon is the only writer that archives. `TestArchivesTogetherLeaveOneProject` states the property; it did not fail without the mutex in fifteen tries, the window being a few microseconds, so it guards the property and not this fix.
   - *An answer from a stopping daemon.* Two short runs failed on a conductor's op answered `unavailable` (`the server could not complete project.archive`, seed 15006515746959414509 on this branch; `member.set`, seed 14245368110280542215 on main), with `err=project …: context canceled` in the daemon's log. That is the daemon stopping for the run's restart: its context cancels the requests in flight, and one of them was answered before its connection closed. Both were canceled reading the project, before any write, so nothing was lost or half done; and where a write is cut off at its commit, `unavailable` with a fix to retry is the right answer, since the daemon does not know, and every admin op is safe to send again. The fault was the soak's: the conductor took that answer for a refusal. It now takes `unavailable` for a lost answer, and sends the op again, only while a restart is under way; at any other time it still fails the run. Neither seed reproduces the timing; the six short runs and the long run after the change passed.
   - *The soak.* The archive check was lenient when the daemon restarted meanwhile, the answer was lost and the archive resent, or the store was closed or had no connection: it then asked only that no claim outlive the activation. It now asks in every case that the project's table hold no claim once the archive is answered and the store reported closed, with the project still archived. The count once reported as "left to the activation" is now of those harder cases, held to the same rule.
-- **What stage 3a leaves unverified** (as of 12 Oct 2026, after decisions 22 and 23). The code is built and its gate passes in the test stack. Done since this note was written (§15.2, the two notes of 12 Oct): the Docker image and its smoke test run and pass on a real sshd, with keys read from the file starfixd writes; the guide's install, with no root-owned copy, works; and sshd accepts a store key with the daemon stopped, the client then being told the daemon is not running. Not done: (1) systemd: the unit with `ReadWritePaths` for the keys file has not been run; (2) the providers: a stand-in for a global `AuthorizedKeysCommand` was tested, and the real agents (OS Login, EC2 Instance Connect, the Entra ID extension) on real VMs were not, so the provider table of §15.2, for Google Cloud, AWS, Azure and DigitalOcean, is still from general knowledge; (3) SELinux is no longer an open check: it is not supported yet (decision 23), and nothing was run under AppArmor either; (4) the memory items of §15.5, 2 are unmeasured: what a restart of Dolt gives back, a memory limit set with room to spare, projects written to at the same time, and Linux. The soak's two projects were written to at once, which says the writers do not corrupt or starve each other in a 10-minute run on one Mac; it measured no memory.
+- **What stage 3a leaves unverified** (as of 12 Oct 2026, after decisions 22 and 23). The code is built and its gate passes in the test stack. Done since this note was written (§15.2, the two notes of 12 Oct): the Docker image and its smoke test run and pass on a real sshd, with keys read from the file starfixd writes; the guide's install, with no root-owned copy, works; and sshd accepts a store key with the daemon stopped, the client then being told the daemon is not running. Done on 12 Oct 2026 on one Ubuntu 24.04 virtual machine, arm64 (§15.2, the last note): (1) systemd: the units, with `ReadWritePaths` for the keys file, were run and work, and AppArmor profiles for starfixd were written and run enforced. Not done: (2) the providers: a stand-in for a global `AuthorizedKeysCommand` was tested, and the real agents (OS Login, EC2 Instance Connect, the Entra ID extension) on real VMs were not, so the provider table of §15.2, for Google Cloud, AWS, Azure and DigitalOcean, is still from general knowledge; (3) SELinux is no longer an open check: it is not supported yet (decision 23); amd64 was run under neither systemd nor AppArmor; (4) the memory items of §15.5, 2 are unmeasured: what a restart of Dolt gives back, a memory limit set with room to spare, projects written to at the same time, and Linux. The soak's two projects were written to at once, which says the writers do not corrupt or starve each other in a 10-minute run on one Mac; it measured no memory.
 
 ### 15.5 Open questions
 
@@ -774,3 +796,193 @@ sfx admin member list | remove NAME
 3. **Moving an existing server.** Its database becomes the first project's, unchanged; the control database is created beside it; the config file's `project:` names the project to adopt.
 4. **A principal's own keys.** Settled (decision 19): nobody adds or removes a key of their own account, since an agent holding the developer's key could add one of its own. A new laptop's key is added by another admin.
 5. **Stage 6's cross-project edges** become reads across databases, checked against the reader's memberships.
+
+### 15.6 Identity beyond one key at a time (investigation, 12 Oct 2026)
+
+Not designed and not decided: what was looked at, what was tried, and what would have to be chosen.
+
+**The concern.** A person is a principal, and gets in by a public key that an admin adds for each of their machines (decision 19 keeps people from adding their own). That is right for a team. In a company of hundreds of developers, each with several machines and agents, it means: every joiner, leaver and new laptop is an admin's manual step; a key never expires; nothing ties starfix to the company's single sign-on, its second factor or its groups; and a leaver keeps access until someone remembers. The name of a principal is also the name everywhere: in every event of every project's log, which Dolt keeps forever, in claims, in `who`, and now in telemetry.
+
+**SSH certificates fit what is built, and were tried.** Many companies already issue short-lived SSH certificates from a single sign-on login, through a certificate authority (several open-source and commercial ones exist, and cloud providers have their own). sshd can admit an account by certificate, and map each certificate principal to a forced command, from a file: `TrustedUserCAKeys` and `AuthorizedPrincipalsFile`, whose lines take the same options as `authorized_keys`. That file has the shape of the keys file starfixd already writes (decision 22). Tried on 12 Oct 2026 with OpenSSH 9.6p1 on Ubuntu 24.04, in the test server's image, with a throwaway authority:
+
+| Offered | Result |
+|---|---|
+| A certificate for `alice@example.com`, valid five minutes, with a line for that principal in the file | Admitted, and the line's forced command ran, not the command asked for |
+| A valid certificate from the same authority for a principal with no line | Refused: `Certificate does not contain an authorized principal` |
+| An expired certificate for `alice@example.com` | Refused: `Certificate invalid: expired` |
+| alice's bare key, with no certificate | Refused |
+
+So starfix could hold, for a principal, the identity the authority puts in its certificates, write a principals file beside or in place of the keys file, and hold no key at all for such a person. Joining is one `sfx admin` command, or none if membership follows a group; a new laptop is nothing, since the person signs in again; leaving is the authority no longer issuing, within hours, and `principal disable` at once. Expiry and the second factor are the authority's.
+
+Not tried, and needed before a design: that `sfx`'s in-process SSH client offers a certificate (it takes its signers from ssh-agent, which can hold certificates; a `key:` file would need its `-cert.pub` read beside it); a real authority; what replaces the key's fingerprint on a connection (the certificate's serial or key id), so that revoking and dropping still work; and groups in a certificate mapped to memberships.
+
+**Other routes.** Provisioning principals and memberships from a directory (SCIM, or a job that reads the directory and runs `sfx admin`) is complementary: it answers who is a member, not how they prove who they are. Signing in to starfix itself with OpenID Connect needs an HTTPS transport, which decision 9 defers.
+
+**Hiding who a person is.** Three depths, each a different amount of work:
+
+1. **In telemetry only:** the stand-ins of §16.4. Designed there.
+2. **A name that is not a person's name.** Nothing stops an operator naming principals `u-7f3a2c` today, but then every list shows only that. A display name and an external identity (the single sign-on subject) on the principal's row in the control store, shown by `sfx` to those who may list principals, would let the name in every project's log be an opaque handle while people still see who is who. Forgetting a person is then deleting one row. This is a small change to the control store and the clients, and none to a project's database.
+3. **Renaming, or erasing a name already written.** A project's event log is its history and Dolt keeps it; a principal's name is in it as text. Changing that means an id in place of the name throughout a project's schema, and a migration of every log. Large, and only worth it if 2 does not satisfy a legal requirement.
+
+**What would have to be chosen:** whether certificates become a second way in beside keys or the way for servers above some size; whether membership may follow a group; and which of the depths above is wanted. Until then, keys and names work as §15.2 and §15.3 describe.
+
+## 16. Observability
+
+Designed 12 Oct 2026; nothing here is built. Today starfixd has structured logs (text or JSON) on stderr, `sfx admin status`, and nothing else: no metrics a monitor can collect, no traces, no health check, and no way to read status on the server without an admin's SSH key.
+
+**Goal.** An operator can wire starfixd, and the Dolt behind it, into whatever they already run, on any cloud or none, by configuration alone. Telemetry must never slow, block or fail a request.
+
+### 16.1 Principle
+
+starfixd speaks open formats on the machine it runs on, and **a collector on the same machine is the vendor adapter**. The OpenTelemetry Collector, and every vendor's and cloud's own agent, read these formats and forward to their backend. Nothing in starfixd names a vendor, and starfixd sends nothing anywhere unless it is configured to.
+
+| Signal | From starfixd | From Dolt |
+|---|---|---|
+| Metrics | OTLP push to a collector, and the same instruments on a Prometheus endpoint for pull | Its own Prometheus endpoint (§16.5) |
+| Traces | OTLP push | None: Dolt has no tracing |
+| Logs | JSON lines on stderr, to the journal, as now, with a stable schema; OTLP push as an option | JSON lines, to the journal |
+| Health | `/healthz` and `/readyz` on the loopback listener; systemd readiness and watchdog | The unit's state; its metrics endpoint answering |
+
+Both pull and push are offered because operators differ: a Prometheus shop scrapes and runs no collector, an OTLP shop does not scrape, and Dolt can only be scraped, so most servers will have something that scrapes anyway.
+
+### 16.2 The SDK, and what it costs
+
+Measured 12 Oct 2026 with the release build flags (`CGO_ENABLED=0 -trimpath -ldflags "-s -w"`), in a program of a few lines, against a baseline of `log/slog` and `net/http`:
+
+| Linked | Binary | Third-party modules |
+|---|---|---|
+| Baseline | 6.3 MB | 0 |
+| SDK, traces and metrics, OTLP over HTTP (`otel` v1.47.0) | +9.3 MB | 24, among them `google.golang.org/grpc` and `google.golang.org/protobuf` |
+| The above, the SDK's Prometheus exporter, OTLP logs and the `slog` bridge | +10.6 MB | 34, adding `prometheus/client_golang` and its own |
+
+starfixd is 10.1 MB today with about 11 modules, so it roughly doubles. That is against rule 4's grain, and decision 28 accepts it for starfixd. To keep the cost where it was accepted:
+
+- **`sfx` links none of it.** The client is on every developer's machine and inside every agent's harness. It passes trace context on (decision 27) and starts no span. A test fails if `cmd/sfx`, or any package it imports, imports `go.opentelemetry.io`.
+- **One package owns it.** `internal/telemetry` is the only importer of the SDK and exporters. The server, the store and the commands see a small interface of starfix's own (start a span, record a measurement), so the SDK can be replaced, or compiled to nothing for a test, in one place.
+- **OTLP over HTTP only.** No gRPC exporter: it would add more of gRPC than the HTTP exporter already drags in.
+- **Each module added is named, with its reason, in the pull request** that adds it (rule 4), and the weekly `govulncheck` covers them.
+- **The logs exporter is experimental** upstream (the Logs API and SDK reached release candidate in 2026; the exporters are outside that). So OTLP logs are an option, off by default, and the journal stays the logs' home.
+
+### 16.3 Configuration
+
+- **Off by default.** With nothing configured starfixd exports nothing, listens on nothing new and behaves as now.
+- **The standard `OTEL_*` environment variables** configure export, as for any OpenTelemetry program, so an operator's existing knowledge and tooling apply: `OTEL_EXPORTER_OTLP_ENDPOINT` (a collector on the machine, `http://127.0.0.1:4318`, is the documented setup), `OTEL_SERVICE_NAME` (default `starfixd`), `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_TRACES_SAMPLER`, `OTEL_SDK_DISABLED`. The resource carries `service.name`, `service.version` and `service.instance.id`.
+- **`OTEL_EXPORTER_OTLP_HEADERS` can hold a token** for a hosted backend. It is a secret (rule 2): it comes from the unit's `EnvironmentFile`, mode 0600, never from argv, and starfixd never logs it. Sending to a collector on the machine needs none, which is one more reason to prefer that.
+- **`telemetry:` in starfixd's settings** holds what is starfix's own: `listen` (the loopback listener, below), `per_project` (on by default), `principals` (how a person appears, §16.4), `audit_log` (on by default), `dolt_metrics_url` (§16.5).
+- **The listener** (decision 29): `telemetry.listen: 127.0.0.1:9464`, say. An address that is not loopback is refused at start with a fix. It serves `/metrics`, `/healthz` and `/readyz` and nothing else, with a cap on requests in flight and a deadline on each (rule 18). It has no authentication: any user on the machine can read it, and it carries project ids, names and counts, and no secret, principal name or issue text. A failure to bind at start fails the start, with a fix, as a keys file that cannot be written does.
+
+### 16.4 What is measured
+
+**Metrics.** Named in OpenTelemetry's style; on the Prometheus endpoint the exporter writes them with underscores and unit suffixes.
+
+| Instrument | Kind | Attributes |
+|---|---|---|
+| `starfix.request.duration` | histogram, seconds | `op`, `result` |
+| `starfix.project.requests` | counter | `project`, `result_class` (ok, refused, error) |
+| `starfix.connections` | up-down counter | `project` |
+| `starfix.handshakes` | counter | `result` (the refusal's code, or ok) |
+| `starfix.connections.dropped` | counter | `reason` (membership, disabled, key, archived, idle, limit) |
+| `starfix.limit.refusals` | counter | `limit` |
+| `starfix.store.write.duration` | histogram, seconds | `project` |
+| `starfix.store.write.retries` | counter | `project` |
+| `starfix.store.commit.duration` | histogram, seconds | none |
+| `starfix.stores.open` | gauge | none |
+| `starfix.store.open.duration` | histogram, seconds | `migrated` |
+| `starfix.claims` | counter | `event` (take, renew, release, expire), `reason` |
+| `starfix.control.writes` | counter | `op`, `result` |
+| `starfix.keys_file.writes` | counter | `result` |
+| `starfix.keys_file.last_write.time` | gauge, unix seconds | none |
+| `starfix.reaper.duration`, `starfix.reaper.last_run.time` | histogram, gauge | none |
+| `starfix.telemetry.dropped` | counter | `signal` |
+| Go runtime and process | from `runtime/metrics` | none |
+
+- **Bounded (rule 18).** An attribute's values come from a fixed list in the code: ops, codes, reasons, limits. An op the server does not know is `unknown`. A principal, session, machine, issue id or anything else a client chooses is never an attribute of a metric; those are for traces and logs.
+- **`project` is on few instruments, and never beside `op`.** 500 projects by 60 ops by 10 results by a histogram's buckets would be hundreds of thousands of series. So one instrument has `op` and `result`, and separate, coarser ones have `project`. `telemetry.per_project: false` drops the attribute everywhere, for a server near the project cap.
+- **Histograms have a short fixed list of buckets,** 5 ms to 10 s, the same everywhere.
+
+**Traces.**
+- One server span for each request, named for its op, with the op, result code, project and protocol version, and the principal and session as `telemetry.principals` allows (below). A trace may carry them; a metric never does. Its parent is the client's trace context when the request carries a valid one (decision 27).
+- Child spans where time goes: the wait for the writer, each attempt of a write (a retry is a new one), the Dolt commit, a store's open and migration.
+- A span for a handshake, and root spans for the reaper, the sweep, a keys file write and a control index reload, so background work is visible.
+- No span carries an issue's title or body, a memory's text, a comment, a key or a DSN. Ids only.
+- Sampling is the SDK's, by `OTEL_TRACES_SAMPLER`; the default follows the parent and otherwise samples everything, since a tracker's request volume is small.
+- `sfx` reads `TRACEPARENT` and `TRACESTATE` from its environment and sends them, so a trace begun by an agent's harness continues into starfix. Per-call context from an MCP request's metadata is part of this stage.
+
+**Logs.**
+- The JSON schema becomes a documented contract: `time`, `level`, `msg`, and where they apply `event`, `project`, `principal`, `session`, `op`, `code`, `dur_ms`, `req`, `trace_id`, `span_id`.
+- **`event` is a stable name** for anything worth an alert (`keys_file.write_failed`, `project.open_failed`, `conn.cap_refused`), so an alert matches a name, not a sentence that may be reworded.
+- **`req`** is an id for each request, on every line about it and in the refusal the client sees, so a person's report finds the server's lines.
+- **Audit stream** (decision 30): each event of the control store's log (a project added or archived, a principal added, disabled or enabled, a key added or removed, a membership set or removed) is also written as a log line with `audit=true`, the actor, the op and the target, after the write commits. Fingerprints, never keys. The event log stays the record; the line is a copy for a SIEM that reads the journal.
+- With `OTEL_LOGS_EXPORTER=otlp` the same records also go out over OTLP, through the `slog` bridge. Stderr is never turned off.
+
+**People in telemetry** (decision 32). `telemetry.principals` is one of:
+
+| Value | A span or an exported log record carries |
+|---|---|
+| `pseudonym` (default) | A stable stand-in, `p_` and 16 hex characters: an HMAC-SHA-256 of the principal's name under a key that starfixd generates and keeps in a 0600 file. The same person is the same stand-in in every trace and line, so their requests can still be followed and counted; the backend never learns who. `sfx admin principal whois p_…`, for a server admin, gives the name. Deleting the key file makes every earlier stand-in unlinkable to anyone, which is what a retention rule may want. |
+| `name` | The principal's name |
+| `omit` | Nothing about who |
+
+- It governs what leaves the machine through telemetry: spans, and log records exported over OTLP. Sessions are stand-ins or omitted with the principal, since a session id can name a person's machine.
+- **It does not change the journal or the audit stream.** Those are the server's own records, an access change with no actor is not an audit record, and whoever can read the journal can read the databases. An operator who ships the journal to a third party filters it in the collector, and the guide shows how.
+- A stand-in hides a name from the backend. It does not make a person anonymous: what they did, when and in which project is still there. The guide says so.
+
+**The Go runtime's metrics** (decision 33). Measured 12 Oct 2026 on an Apple M4 Max with Go 1.27.1: reading the fifteen an operator wants (heap, GC, goroutines, scheduler latency, CPU, the memory limit) from the standard library's `runtime/metrics` takes 0.45 µs and allocates nothing; reading every metric the runtime has takes 1.6 µs. Done once for each export or scrape, that is nothing. The older `runtime.ReadMemStats` takes 22 µs and stops the world, and is not used. So the cost of the standard library is about sixty lines of code and names of our own choosing. The contrib module that does the same reading (`go.opentelemetry.io/contrib/instrumentation/runtime`) adds 86 KB and one module, and gives the names of OpenTelemetry's semantic conventions, which ready-made dashboards expect. starfixd uses the module, for the names; it is below version 1, so if it breaks, the sixty lines replace it.
+
+**Health.**
+- `/healthz` answers while the process serves. `/readyz` answers only when the daemon is listening, its last check of Dolt (a cheap query, cached a few seconds, never run per request) passed, and the keys file's last write did not fail; otherwise it says which, in one line.
+- systemd: `Type=notify` with readiness sent once the daemon listens, and a watchdog fed by the reaper tick, so a daemon that hangs is restarted. On other systems neither is sent.
+- `starfixd status [--json]`, run on the server as the daemon's user over its socket, prints what `sfx admin status` prints, for a script or an agent that has no admin key.
+
+### 16.5 Dolt
+
+Measured 12 Oct 2026 at Dolt 2.4.2. A `metrics:` block (`host`, `port`, `labels`) in Dolt's config turns on a Prometheus endpoint at `/metrics`, with no authentication, so it is bound to loopback:
+
+| Group | Metrics |
+|---|---|
+| Server | `dss_concurrent_connections`, `dss_concurrent_queries`, `dss_connects`, `dss_disconnects`, `dss_query_duration` (histogram; buckets 0.01, 0.1, 1, 10, 100, 1000 s), `dss_dolt_version` |
+| Process | `process_resident_memory_bytes`, `process_cpu_seconds_total`, `process_open_fds`, `process_max_fds`, `process_start_time_seconds` |
+| Go runtime | `go_memstats_*`, `go_gc_*` (among them `go_gc_gomemlimit_bytes`), `go_goroutines` |
+| System | `sys_cpu_usage`, `sys_mem_usage`, `sys_disk_usage` |
+
+- **Nothing is per database.** Dolt cannot tell one project from another; starfixd's own per-project instruments (§16.4) are the only such view.
+- **No tracing,** in its flags, its config or its documentation. A trace ends at starfixd's span around the SQL it ran.
+- **Logs** are text or JSON (`log_format`), to the journal.
+- Over SQL, starfixd's least-privileged account can read `SHOW STATUS`, the process list and a table's estimated rows and size. None of it is needed for what follows.
+
+What starfix does with it:
+- **The server guide and the Docker image turn Dolt's endpoint on,** on loopback, and the collector configuration scrapes it beside starfixd's. Dolt's metrics reach the backend under Dolt's own names; starfixd does not re-export them, which would count them twice.
+- **`sfx admin status` shows Dolt's memory, connections and uptime** (decision 30), closing the gap §15.4 left. With `telemetry.dolt_metrics_url` set (loopback only), starfixd reads that endpoint on a timer, with a deadline and a size limit, parses the handful of lines it needs with a parser of its own, and shows when it last succeeded. A failure shows as "unknown", never as an error of starfixd's.
+- **Dolt's memory limit.** `go_gc_gomemlimit_bytes` beside `process_resident_memory_bytes` is what tells an operator whether the `GOMEMLIMIT` of §15.5, 2 is set with room to spare. The alert rules include it.
+
+### 16.6 Robustness
+
+- **A request never waits for telemetry.** Recording a measurement or ending a span is memory only. Export happens on the SDK's own goroutines, in batches, with bounded queues and a timeout; a full queue drops, and `starfix.telemetry.dropped` counts it.
+- **A collector that is down, slow or refusing changes nothing** but the drop counter and one sampled warning. A test points the exporter at a closed port and at a server that never answers, runs the soak's mix of work, and checks latency, goroutines and memory against a run with telemetry off.
+- **Export errors go to starfixd's log, sampled,** through the SDK's error handler, never to stderr unformatted and never once a second forever.
+- **Stopping flushes with a deadline,** so a stop is not held up by a dead collector.
+- **Cardinality is bounded by construction** (§16.4), and a test fails if an instrument gains an attribute that is not on the list.
+
+### 16.7 The harness
+
+- **`deploy/observability/`**: an OpenTelemetry Collector configuration (OTLP in; Prometheus scrapes of starfixd and Dolt; out to whatever the operator names), alert rules in Prometheus's rule format, which most systems read or translate, and one dashboard. They are examples that are tested, not a product.
+- **A Compose profile** beside the Docker test server runs a Collector, pinned by digest, wired to starfixd and Dolt and writing what it receives to a file. The smoke test, asked for it, then checks that each expected metric arrived from both, that a trace arrived whose root is the trace id the test put in `TRACEPARENT` with the server's spans beneath it, that an access change produced its audit line, and that `/readyz` turns unready when Dolt is stopped. A second profile adds a metrics store, a trace store and the dashboard, for a person to look at.
+- **The soak checks the numbers.** It already replays every project's event log. At the end it reads the instruments in process and asserts that they say what the log says: requests by result, claims taken, released by reason and expired, connections dropped by reason, control writes. A metric that is present and wrong fails the gate.
+- **Alerts shipped:** starfixd not ready; a keys file write failing; an active project that cannot be opened; the reaper not having run; refusals at a connection or store cap; write latency; Dolt's memory against its limit and against the machine's; disk.
+
+### 16.8 Plan
+
+| Slice | Delivers |
+|---|---|
+| O1 | `internal/telemetry`, the SDK and OTLP export of metrics, the settings, the loopback listener with `/metrics`, `/healthz` and `/readyz`, systemd readiness and watchdog, `starfixd status`, the instruments of §16.4, and the test that keeps the SDK out of `sfx` |
+| O2 | Traces: the spans of §16.4 from the context decision 27 carries, per-call context in `sfx mcp`, and trace ids in the logs |
+| O3 | The log schema, `event` names, `req`, the audit stream, and OTLP logs as an option |
+| O4 | Dolt: its endpoint on in the guide and the image, and its figures in `sfx admin status` |
+| O5 | The harness: Collector configuration, Compose profiles, smoke checks, alert rules, dashboard, the soak's cross-check, and the tests of §16.6 |
+
+### 16.9 Settled since the first draft
+
+1. **Push and pull for metrics** (decision 31): both, as §16.1 has it.
+2. **People in traces** (decision 32): the `telemetry.principals` setting of §16.4, defaulting to a pseudonym.
+3. **Go runtime metrics** (decision 33): the contrib module, after measuring the standard library (§16.4).
+4. **A token for a hosted backend** (decision 34): allowed, from a 0600 environment file. The guide's first setup sends to a collector on the machine, which needs none and keeps the secret, the retries and the vendor's address out of starfixd; sending straight to a hosted backend is the second, for a server where running a collector is not wanted.

@@ -22,14 +22,18 @@ For complete deployments with costs, see the
   refuses to run on other systems, because only Linux lets it check which
   user connects to its socket.
 - **Ubuntu 24.04 LTS is the supported platform.** The steps below are
-  written for it and were tested on it. Other distributions may work and
+  written for it and were run on it, under systemd, in a virtual machine
+  on arm64 ([What was run, and where](#what-was-run-and-where)). amd64
+  and cloud providers' images were not. Other distributions may work and
   are untested.
 - **Systems that run SELinux are not supported yet**: RHEL, Rocky Linux,
   AlmaLinux, Fedora. Nothing here has been run on one, and this guide
   sets no SELinux label and ships no policy module. That support will
   follow once starfix has a test harness that boots such a machine.
-  Ubuntu's mandatory access control is AppArmor; an AppArmor profile for
-  starfixd is planned and does not exist yet.
+  Ubuntu's mandatory access control is AppArmor. Stock Ubuntu 24.04
+  confines neither sshd nor starfixd with it; profiles for starfixd ship
+  with starfix, as an optional step
+  ([Confine starfixd with AppArmor](#confine-starfixd-with-apparmor)).
 - **Dolt**, at the release starfix is tested with: `Dolt` in
   [internal/version](../internal/version/version.go), 2.4.2 for starfix
   v0.2.0. Each release's notes name it.
@@ -51,10 +55,20 @@ Use `arm64` in place of `amd64` on an Arm machine:
 
 ```sh
 curl -fsSLO https://github.com/dolthub/dolt/releases/download/v2.4.2/dolt-linux-amd64.tar.gz
+sha256sum dolt-linux-amd64.tar.gz
 tar -xzf dolt-linux-amd64.tar.gz
 install -m 0755 dolt-linux-amd64/bin/dolt /usr/local/bin/dolt
 dolt version
 ```
+
+Before you unpack it, compare the checksum with the one starfix's own
+tests download Dolt 2.4.2 by
+([deploy/docker/Dockerfile](../deploy/docker/Dockerfile)):
+
+| File | SHA-256 |
+|---|---|
+| `dolt-linux-amd64.tar.gz` | `5d95a271149dc6ea97f47157af7ba9a0df5e8d4e9bbac4d79c169f2faa3cfb9e` |
+| `dolt-linux-arm64.tar.gz` | `c1c610e22c6bacd4c5b2fbf5697a0f453d759d075c4abff380c6e646553e22d8` |
 
 ### 2. Run Dolt under its own account
 
@@ -234,6 +248,15 @@ journalctl -u starfixd -n 3
 The log shows `starfixd serving` with the socket, the project and the
 admins. If it shows a refusal instead, its `fix:` says what to change.
 
+**When the machine boots, starfixd's first start fails, and the second
+works.** systemd counts Dolt as started the moment its process exists,
+about a second before Dolt listens, so starfixd finds no database
+(`dial tcp 127.0.0.1:3306: connect: connection refused`) and exits. The
+unit's `Restart=on-failure` starts it again five seconds later, and that
+start succeeds. The journal of every boot therefore holds one failed
+start, and `sfx` answers `starfixd is not running on the server` for
+those seconds.
+
 ### 6. Let the first principal in
 
 Each key gets one line in `~starfix/.ssh/authorized_keys`. The line's
@@ -261,7 +284,23 @@ Match User starfix
     AuthenticationMethods publickey
     DisableForwarding yes
     PermitTTY no
+    AuthorizedKeysCommand none
+    TrustedUserCAKeys none
+    AuthorizedPrincipalsFile none
 ```
+
+The last three lines make the account's keys come from its own key
+files and nowhere else. Without them, whatever the machine's sshd trusts
+for every account applies to `starfix` too: a cloud image's own key
+command (Google Cloud's OS Login, AWS's EC2 Instance Connect, Azure's
+Entra ID login), or a certificate authority your company's images trust.
+A key such a command prints, or a certificate from such an authority
+that names `starfix`, would be let in with no forced command, which is a
+shell as the account that can read starfixd's config file. Checked on 12
+October 2026 with OpenSSH 9.6 on Ubuntu 24.04: with a certificate
+authority trusted outside the `Match` block, a certificate for the
+principal `starfix` ran a command as the account; with these lines it is
+refused.
 
 ```sh
 install -d -m 0755 /run/sshd
@@ -321,6 +360,46 @@ sf-aukz3rip  P1  open  Fix the login redirect
 
 [Using sfx](cli.md#connect-a-repository) explains every field of the file,
 and the [agent guide](agents.md) sets agents up in the repository.
+
+### What was run, and where
+
+Steps 1 to 7, then [Serving many projects](#serving-many-projects) with
+its keys file and `sfx admin`, were run in order as written on 12
+October 2026, on one machine:
+
+| | |
+|---|---|
+| Machine | A virtual machine on an Apple silicon Mac (Lima 2.2.1), arm64, 2 CPUs and 4 GiB, from Ubuntu's cloud image for 24.04 |
+| System | Ubuntu 24.04.5, kernel 6.8.0-142, systemd 255, OpenSSH 9.6p1, sudo 1.9.15p5, AppArmor 4.0.1, Dolt 2.4.2 |
+| starfixd | Built from the source tree for linux/arm64 with the release's flags, and put where step 3's installer puts a release: `/opt/starfix/bin/starfixd`, owned by `starfix`, mode 0755. The installer itself was not run |
+| Clients | `sfx` inside the same machine, against `localhost`, as three Unix users with a key each |
+
+What that showed:
+
+- **The units work as written.** `systemd-analyze verify` accepts both.
+  `systemd-analyze security` scores starfixd's 7.2 and Dolt's 7.1
+  ("medium"; lower is tighter): they run as their own users with a
+  read-only file system, and nothing limits their system calls,
+  capabilities or namespaces.
+- **sshd's `Match` block works on stock Ubuntu.** The forced command
+  runs in place of whatever command the client asks for, a terminal is
+  refused
+  (`PTY allocation request failed`), and a tunnel to Dolt is refused
+  (`open failed: administratively prohibited`).
+- **The first start after a boot fails**, and the next one works
+  ([step 5](#5-run-starfixd-under-systemd)).
+- **`starfixd upgrade --rollback` works for the `starfix` user**: it
+  renames the binaries in `/opt/starfix/bin`, restarts the unit through
+  the sudo rule and finds the daemon healthy. `upgrade --check` reaches
+  GitHub and compares versions.
+- **The daily dump** of [Backups and restore](#backups-and-restore)
+  writes its file.
+
+Not run: amd64; a cloud provider's image or network; `install.sh` on the
+server; an upgrade to a newer release, which a build from source refuses
+(`a development build … never upgrades itself`), so the download, the
+signature check and the swap to a new binary were not run here; a
+restore from a dump.
 
 ## Principals
 
@@ -416,9 +495,11 @@ own stand-in for sshd, including a soak test across two projects
 ([CONTRIBUTING.md](../CONTRIBUTING.md#the-soak-test)). The sshd setup of
 [Keys from the store](#keys-from-the-store) was also run with a real
 sshd, OpenSSH 9.6 on Ubuntu 24.04, in the
-[Docker test server](deploy/docker.md). It has not been run under
-systemd, or on a cloud provider's machine; that section says what was
-checked and what was not.
+[Docker test server](deploy/docker.md), and then under systemd on an
+Ubuntu 24.04 virtual machine
+([What was run, and where](#what-was-run-and-where)). It has not been
+run on a cloud provider's machine; that section says what was checked
+and what was not.
 
 ### Opt in
 
@@ -598,6 +679,8 @@ key the control database does not hold: the first admin's before
        PermitTTY no
        AuthorizedKeysFile .ssh/starfix_keys .ssh/authorized_keys
        AuthorizedKeysCommand none
+       TrustedUserCAKeys none
+       AuthorizedPrincipalsFile none
    ```
 
    ```sh
@@ -613,6 +696,13 @@ key the control database does not hold: the first admin's before
    refuse it. With the files the other way round, such a key would come
    in by its line of `authorized_keys`, which names no fingerprint, and
    removing it would neither close its connections nor show.
+
+   With `AuthorizedKeysCommand none` in the `Match` block, sshd on
+   stock Ubuntu 24.04 (OpenSSH 9.6, no `AuthorizedKeysCommand` of its
+   own) logs `error: No user for AuthorizedKeysCommand specified,
+   skipping` each time it is offered a key that is in neither file. It
+   is logged as an error and is none: sshd is saying that it ran no
+   command, which is what the line is for.
 
 3. **Restart starfixd and check the file:**
 
@@ -725,8 +815,10 @@ change: `AuthorizedKeysFile` in the `Match` block is read whatever that
 command is. Left alone, sshd would still run the provider's command for
 the `starfix` account, on every sign-in, and accept a key it printed,
 with no forced command. `AuthorizedKeysCommand none` in the `Match`
-block is what stops that: the account's keys come from the two files and
-nowhere else.
+block is what stops that, and `TrustedUserCAKeys none` does the same for
+a certificate authority the machine trusts for every account
+([step 6](#6-let-the-first-principal-in)): the account's keys come from
+the two files and nowhere else.
 
 What was checked, on 12 October 2026, with OpenSSH 9.6 on Ubuntu 24.04
 in the [Docker test server](deploy/docker.md), which has no systemd:
@@ -739,12 +831,18 @@ in the [Docker test server](deploy/docker.md), which has no systemd:
 | A key in both files, with `authorized_keys` named first, as this guide had it until that day | sshd let it in by its line of `authorized_keys`, which names no fingerprint |
 | A key in both files, with starfixd's file named first, as above | sshd lets it in by starfixd's line: starfixd counts no connection of that key as let in by `authorized_keys`. With the key removed from the control database, the same key signs in by `authorized_keys`, and its connection is counted so |
 
+Checked under systemd 255, on 12 October 2026, on the Ubuntu 24.04
+virtual machine of [What was run, and where](#what-was-run-and-where):
+
+| Checked | Result |
+|---|---|
+| The unit of step 5 as written, on a server of many projects, without step 1's `ReadWritePaths` | starfixd does not start: `write the keys file …: read-only file system`, and its `fix:` names `ReadWritePaths=/var/lib/starfix/.ssh` |
+| The same with step 1's drop-in | starfixd starts and writes the file, mode 0600, owned by `starfix`. `ProtectHome=yes` does not get in the way |
+| Step 2 on stock Ubuntu's sshd, which listens through `ssh.socket` | `sshd -t` passes and `systemctl try-reload-or-restart ssh` applies it. A key the control database alone holds signs in with no restart of anything; removing it, or disabling its principal, locks it out |
+| A global setting in a later drop-in file (`PasswordAuthentication no` in Ubuntu's `60-cloudimg-settings.conf`) | Still applies to every account: the `Match` block of `00-starfix.conf` ends with its file |
+
 Not checked:
 
-- **Under systemd.** Step 1's `ReadWritePaths`, and what `ProtectHome`
-  covers, are from systemd's documentation; the unit was not run with
-  them. If the path is wrong, starfixd does not start and its error
-  names `ReadWritePaths`.
 - **A provider's own machine.** The stand-in above shows that a global
   command that prints nothing does not get in the way. It does not show
   what OS Login, EC2 Instance Connect or the Entra ID extension change
@@ -1120,6 +1218,142 @@ Fixed caps that no setting changes:
 - **Similar issues:** lookups read closed titles from a cache refreshed on
   close and reopen, or after a minute.
 
+## Confine starfixd with AppArmor
+
+This step is optional. It was tested on Ubuntu 24.04, on arm64, in a
+virtual machine, on 12 October 2026
+([What was run, and where](#what-was-run-and-where)); amd64 was not
+tested.
+
+Ubuntu 24.04 runs AppArmor, and out of the box it confines neither sshd
+nor a program it has no profile for: on the machine above, `aa-status`
+listed no profile for sshd, sshd and its children ran `unconfined`, and
+so did starfixd. starfix ships three profiles for starfixd
+([deploy/apparmor](../deploy/apparmor/README.md)). They matter most for
+the bridge, `starfixd stdio`: sshd starts it for every connection,
+outside the systemd unit and so with none of the unit's protections,
+as a user that owns its own binary, its config file and its
+`authorized_keys`.
+
+| Profile | Runs | May |
+|---|---|---|
+| `starfixd` | `starfixd stdio`, and anything else run from the binary's path with no profile asked for | Read the config file and connect to the daemon's socket. No network, no other file, no program |
+| `starfixd-serve` | `starfixd serve`, because the unit asks for it | Read the config file, listen on the socket, reach Dolt over TCP, write the keys file and read `authorized_keys`. No program |
+| `starfixd-admin` | `control init`, `import-bd`, `export-bd` and `upgrade`, when the operator asks for it | Open the store, read and write files in the top of `/var/lib/starfix`, read `authorized_keys`, reach the network, replace the binary in `/opt/starfix/bin`, and run `sudo` |
+
+AppArmor picks a profile by the program's path and never by its
+arguments, so one path can carry one profile by itself. It carries the
+smallest, since sshd has no way to ask for another. None of the three
+may write the config file or `authorized_keys`, and only the operator's
+may write the binary.
+
+**Install them**, as root:
+
+```sh
+cd "$(mktemp -d)"
+curl -fsSL -o profile https://raw.githubusercontent.com/ariesworx/starfix/main/deploy/apparmor/starfixd
+curl -fsSL -o tunables https://raw.githubusercontent.com/ariesworx/starfix/main/deploy/apparmor/tunables/starfixd
+install -m 0644 profile /etc/apparmor.d/starfixd
+install -m 0644 tunables /etc/apparmor.d/tunables/starfixd
+apparmor_parser -r /etc/apparmor.d/starfixd
+mkdir -p /etc/systemd/system/starfixd.service.d
+printf '[Service]\nAppArmorProfile=starfixd-serve\n' > /etc/systemd/system/starfixd.service.d/apparmor.conf
+systemctl daemon-reload
+systemctl restart starfixd
+cat /proc/"$(systemctl show starfixd -p MainPID --value)"/attr/current
+```
+
+The last command prints `starfixd-serve (enforce)`. The two files are
+short and are not part of a signed release, so read them before you
+install them. AppArmor loads everything in `/etc/apparmor.d` at boot.
+To watch before you enforce, load them with `apparmor_parser -r -C`
+instead: AppArmor then logs what it would have refused and refuses
+nothing.
+
+**Run the operator's commands through `aa-exec`** from then on, as the
+`starfix` user as before:
+
+```sh
+cd /var/lib/starfix
+sudo -u starfix -H aa-exec -p starfixd-admin -- starfixd upgrade --check
+sudo -u starfix -H aa-exec -p starfixd-admin -- starfixd upgrade
+sudo -u starfix -H aa-exec -p starfixd-admin -- starfixd control init --name acme
+sudo -u starfix -H aa-exec -p starfixd-admin -- starfixd import-bd bd.jsonl
+sudo -u starfix -H aa-exec -p starfixd-admin -- starfixd export-bd -o back.jsonl
+```
+
+- Without `aa-exec` such a command runs under the bridge's profile and
+  is refused with `permission denied`: `control init` on
+  `authorized_keys`, anything that opens the store on `dial tcp
+  127.0.0.1:3306: socket`, and `upgrade` on its lookup of
+  `api.github.com`.
+- `import-bd` and `export-bd -o` take files in the top of
+  `/var/lib/starfix`, not below it or elsewhere. A file your shell
+  opens is not limited: `starfixd import-bd - < FILE`, `starfixd
+  export-bd > FILE`, or a pipe.
+- `aa-exec` is in Ubuntu's `apparmor` package, which is installed.
+
+**If you moved a path** (the binary, the config file, the socket, the
+home directory, `keys_file` or `authorized_keys`), change it in
+`/etc/apparmor.d/tunables/starfixd`, which names each one once, and
+load the profiles again with `apparmor_parser -r
+/etc/apparmor.d/starfixd`. Rules of your own go in
+`/etc/apparmor.d/local/starfixd`, `local/starfixd-serve` and
+`local/starfixd-admin`. A `dsn` that names Dolt's host by a name that
+needs DNS, where the guide's has an address, needs UDP allowed in
+`local/starfixd-serve`; the profile's comments give the two lines.
+
+**To see what was refused:**
+
+```sh
+journalctl -k -g 'apparmor="DENIED"'
+```
+
+Each line names the profile, the operation and the path or the kind of
+socket. In correct use there are none.
+
+**To remove them:**
+
+```sh
+apparmor_parser -R /etc/apparmor.d/starfixd
+rm /etc/apparmor.d/starfixd /etc/apparmor.d/tunables/starfixd
+rm /etc/systemd/system/starfixd.service.d/apparmor.conf
+systemctl daemon-reload
+systemctl restart starfixd
+```
+
+Unload the profiles and remove the unit's line together. With the line
+and no profile, starfixd does not start (`Failed to prepare AppArmor
+profile change to starfixd-serve`). With the profiles and no line, the
+daemon gets the bridge's profile and cannot reach Dolt.
+
+What they do not do:
+
+- **They do not keep a daemon that has been taken over away from the
+  keys file.** `starfixd-serve` must write the file sshd reads keys
+  from, and sshd accepts any line in it. The bridge and the operator's
+  commands cannot write it.
+- **They do not name Dolt's address.** `starfixd-serve` may open TCP
+  connections anywhere: rules that name an address or a port were not
+  tested, and the profile does not rely on them. The unit can hold the
+  daemon to this machine instead: `IPAddressDeny=any` and
+  `IPAddressAllow=localhost` in a drop-in, as Dolt's unit has, were run
+  on the machine above with the guide's Dolt on 127.0.0.1. Leave them
+  out if `dsn` names another machine.
+- **They confine neither sshd nor Dolt.** Ubuntu ships no profile for
+  sshd, and both of its keys files worked with the bridge confined.
+  [deploy/apparmor](../deploy/apparmor/README.md) says what a profile
+  for Dolt would need.
+
+What was tested, with the profiles enforced: a sequence taken from the
+[Docker smoke test](deploy/docker.md#run-the-smoke-test) (issues, a
+second project, keys from the control database, a key removed and a
+principal disabled, restarts) and the operator's commands above, 76
+checks, before and after a reboot, with no line in the kernel log; then
+attempts to do what the profiles forbid, each refused and logged. What
+was not: an upgrade to a newer release (its `--check` and `--rollback`
+were run), and amd64.
+
 ## Logs
 
 starfixd logs to stderr, which systemd sends to the journal
@@ -1199,6 +1433,13 @@ sudo -u starfix -H starfixd upgrade
    answers it whatever protocol that binary speaks, so an upgrade across
    a protocol change is not mistaken for a failed one.
 
+   sudo compares the whole command with its rule, so the rule must spell
+   the unit as `systemd_unit` does: `starfixd.service` in both, as steps
+   4 and 5 write them. `--restart` with no `systemd_unit` asks for
+   `systemctl restart starfixd`, which that rule does not cover: sudo
+   answers `a password is required`, nothing is restarted, and upgrade
+   reports the daemon as not healthy (seen with `--rollback --restart`).
+
 With `control_db`, starfixd opens the database of every active project
 once before it listens, which applies the new version's migrations to
 each (a few milliseconds for a database already current), and the check
@@ -1223,6 +1464,9 @@ databases the new one reached; the tag of step 2 marks each as it was.
 ([Keys from the store](#keys-from-the-store)), so an upgrade has no
 copy of the binary to refresh for it. The new starfixd writes the keys
 file again as it starts.
+
+Where the [AppArmor profiles](#confine-starfixd-with-apparmor) are
+installed, run each of these through `aa-exec -p starfixd-admin --`.
 
 It refuses to run as root, except with `--check`. `--to vX.Y.Z` installs a given release, but
 never an older one, because migrations only go forward. `--rollback`
@@ -1344,3 +1588,7 @@ quiet hour: `cd /var/lib/dolt/data/starfix && sudo -u dolt -H dolt gc`.
 | starfixd refuses the Dolt account | The account is `root` or has too many rights, or `secure_file_priv` is empty | Run the SQL its fix names, or redo [step 4](#4-create-the-database-and-the-config-file) |
 | `sfx` exits with code 3 | Client and server speak incompatible protocols | Upgrade the server, then the client |
 | `busy` | A [limit](#limits) | Wait as the fix says, or raise the limit |
+| `permission denied` on a file or socket the `starfix` user owns, after you moved a path; or from `control init`, `import-bd`, `export-bd` or `upgrade` | With the [AppArmor profiles](#confine-starfixd-with-apparmor): the path is not the one the profiles name, or the command ran without `aa-exec` | `journalctl -k -g 'apparmor="DENIED"'` names the profile and the path. Change the path in `/etc/apparmor.d/tunables/starfixd` and run `apparmor_parser -r /etc/apparmor.d/starfixd`; run an operator's command through `aa-exec -p starfixd-admin --` |
+| starfixd does not start: `Failed to prepare AppArmor profile change to starfixd-serve` | The unit asks for a profile that is not loaded | `apparmor_parser -r /etc/apparmor.d/starfixd`, or remove the unit's `apparmor.conf` ([Confine starfixd with AppArmor](#confine-starfixd-with-apparmor)) |
+| starfixd does not start: `dial tcp 127.0.0.1:3306: socket: permission denied` | The AppArmor profiles are loaded and the unit does not ask for `starfixd-serve`, so the daemon has the bridge's profile | Add the unit's `AppArmorProfile=starfixd-serve` line, `systemctl daemon-reload`, and restart |
+| One failed start of starfixd in the journal of every boot, `connect: connection refused` | Dolt was not listening yet | Nothing: systemd starts it again five seconds later ([step 5](#5-run-starfixd-under-systemd)) |
