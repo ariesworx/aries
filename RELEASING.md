@@ -19,6 +19,41 @@ does not list, so a release clients would refuse is never published.
 The release notes name the Dolt version the release was tested with
 (`version.Dolt`, which a test keeps equal to CI's `DOLT_VERSION`).
 
+## Changing the Dolt pin
+
+The Dolt release is pinned in five files, and one pull request changes
+them all. Tests in `internal/version` fail until they agree:
+
+| File | Change |
+|---|---|
+| `internal/version/version.go` | `Dolt` |
+| `internal/version/dolt.sha256` | All four lines: the SHA-256 of the linux and darwin archives, amd64 and arm64, each named `vVERSION/ARCHIVE`. `scripts/install-dolt.sh` verifies a contributor's download against it |
+| `.github/workflows/ci.yml` | `DOLT_VERSION`, and `DOLT_SHA256`, the linux-amd64 checksum |
+| `deploy/docker/Dockerfile` | `DOLT_VERSION`, `DOLT_SHA256_AMD64` and `DOLT_SHA256_ARM64` |
+| `docs/server.md` | The download in step 1, and the version under "What a server needs" |
+
+GitHub records each archive's digest. This prints the four lines of
+`dolt.sha256` for a release; put the new version in both places:
+
+```sh
+gh api repos/dolthub/dolt/releases/tags/v2.4.2 --jq '.assets[]
+  | select(.name | test("^dolt-(linux|darwin)-(amd64|arm64)\\.tar\\.gz$"))
+  | "\(.digest | ltrimstr("sha256:"))  v2.4.2/\(.name)"'
+```
+
+Then check the pins against each other and against a real download:
+
+```sh
+go test ./internal/version ./scripts
+scripts/install-dolt.sh
+```
+
+The digests come from the same place as the archives, so the pin
+protects against an archive that changes after it was pinned, not
+against a release that was bad when it was pinned. Run the whole gate
+against the new Dolt before merging: a Dolt release can change behavior
+the store depends on (`spike/dolt/RESULTS.md`).
+
 ## Cutting a release
 
 When to cut the first one is the maintainer's call.

@@ -17,6 +17,11 @@ projects set up for it, from starfixd itself, which sshd asks
 - `restrict` on each line turns off forwarding and terminals, and the
   sshd `Match` block repeats that for the whole account
   ([step 6](server.md#6-let-the-first-principal-in)).
+- The same block turns off, for the account, every other way sshd might
+  find a key: a key command the image sets for all accounts, and a
+  certificate authority it trusts for all accounts. Either would let
+  someone in as `starfix` with no forced command, which is a shell that
+  can read starfixd's config file.
 - A `ForceCommand` would override every key's command, and so its
   principal. Never add one for the account.
 - A session id, which comes from the client's environment, only tells one
@@ -369,6 +374,7 @@ hand](install.md#verify-a-download-by-hand) the commands.
 | golangci-lint, with gosec, staticcheck, errcheck, govet and revive | Every pull request and push to `main` |
 | `govulncheck`, against the Go vulnerability database | Every pull request and push, weekly on `main` (Mondays), and before every release build |
 | `go mod download && go mod verify` | Every pull request and push, and before every release build |
+| shellcheck, on every shell script in the repository | Every pull request and push, and before every release build |
 | CodeQL, with the `security-extended` queries | Every pull request and push, and weekly |
 | Dependabot, for Go modules and GitHub Actions | Weekly; minor and patch updates grouped |
 
