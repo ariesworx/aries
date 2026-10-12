@@ -20,13 +20,18 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/ariesworx/starfix/internal/clienttest"
 	"github.com/ariesworx/starfix/internal/iaptest"
 	"github.com/ariesworx/starfix/internal/proto"
 )
 
 func TestMain(m *testing.M) {
 	iaptest.Main()
-	os.Exit(m.Run())
+	// No test here reads the real ~/.ssh or ssh-agent.
+	restore := clienttest.Isolate()
+	code := m.Run()
+	restore()
+	os.Exit(code)
 }
 
 // sshServer runs an SSH server on loopback that accepts any key and

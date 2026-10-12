@@ -38,6 +38,7 @@ import (
 
 	"github.com/ariesworx/starfix/internal/cli"
 	"github.com/ariesworx/starfix/internal/client"
+	"github.com/ariesworx/starfix/internal/clienttest"
 	"github.com/ariesworx/starfix/internal/dolttest"
 	"github.com/ariesworx/starfix/internal/iaptest"
 	"github.com/ariesworx/starfix/internal/proto"
@@ -52,7 +53,12 @@ var (
 
 func TestMain(m *testing.M) {
 	iaptest.Main()
-	os.Exit(run(m))
+	// No test here, the soak included, reads the real ~/.ssh or
+	// ssh-agent: each user's key is in its own checkout.
+	restore := clienttest.Isolate()
+	code := run(m)
+	restore()
+	os.Exit(code)
 }
 
 func run(m *testing.M) int {

@@ -46,7 +46,7 @@ type Env struct {
 	Getenv func(string) string
 	// Hostname names this machine to the server. Default os.Hostname.
 	Hostname func() (string, error)
-	// UserHomeDir finds the home directory, for `setup --global` and a
+	// UserHomeDir finds the home directory, for the default SSH identities, `setup --global` and a
 	// desktop app's config. Default os.UserHomeDir.
 	UserHomeDir func() (string, error)
 	// UserCacheDir finds the cache directory, where `usage --hook` keeps
@@ -446,7 +446,7 @@ func (r *runner) clientOptions() client.Options {
 	// MCP request's metadata, belongs to the tracing work (decision 27);
 	// until then every request of its connection carries this one.
 	return client.Options{Version: r.env.Version, Session: session,
-		Machine: host, Harness: client.HarnessFromEnv(r.env.Getenv), Getenv: r.env.Getenv,
+		Machine: host, Harness: client.HarnessFromEnv(r.env.Getenv), Getenv: r.env.Getenv, UserHomeDir: r.env.UserHomeDir,
 		Trace: client.TraceFromEnv(r.env.Getenv), OnPush: r.onPush}
 }
 

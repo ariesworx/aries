@@ -120,6 +120,7 @@ func agentWith(t *testing.T, keys ...keyPair) string {
 // hangs up after six refused keys.
 type fakeSSHD struct {
 	root     string // the repository: where .starfix.yaml would be
+	home     string // the home directory of whoever runs sfx: empty, unless a test fills it
 	port     int
 	hostKey  string
 	signedIn chan string
@@ -135,7 +136,7 @@ func newFakeSSHD(t *testing.T, principals map[string]keyPair) *fakeSSHD {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := &fakeSSHD{root: t.TempDir(), hostKey: host.fingerprint(), signedIn: make(chan string, 4)}
+	d := &fakeSSHD{root: t.TempDir(), home: t.TempDir(), hostKey: host.fingerprint(), signedIn: make(chan string, 4)}
 	//nolint:gosec // G408: a test stand-in; it records every key offered on purpose
 	sc := &ssh.ServerConfig{PublicKeyCallback: func(_ ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 		fp := ssh.FingerprintSHA256(key)
@@ -191,7 +192,8 @@ func (d *fakeSSHD) dial(t *testing.T, key string, env map[string]string) (who st
 	d.mu.Lock()
 	d.offered = nil
 	d.mu.Unlock()
-	c, err := Dial(t.Context(), cfg, Options{Timeout: 10 * time.Second, Getenv: func(k string) string { return env[k] }})
+	c, err := Dial(t.Context(), cfg, Options{Timeout: 10 * time.Second, Getenv: func(k string) string { return env[k] },
+		UserHomeDir: func() (string, error) { return d.home, nil }})
 	if err == nil {
 		_ = c.Close()
 		t.Fatal("Dial succeeded against a stand-in that runs no starfixd")
@@ -264,9 +266,9 @@ func TestWhichKeysAreOffered(t *testing.T) {
 			who: "me", offered: []keyPair{mine}},
 		{name: "a private key that is missing, with its .pub there", key: "only", env: map[string]string{"SSH_AUTH_SOCK": both},
 			who: "me", offered: []keyPair{mine}},
-		{name: "STARFIX_KEY, a file anywhere, wins over key:", key: "unknown", env: map[string]string{EnvKey: envKey, "SSH_AUTH_SOCK": both},
+		{name: "STARFIX_KEY, a file anywhere, wins over key:", key: "unknown", env: map[string]string{EnvKeyFile: envKey, "SSH_AUTH_SOCK": both},
 			who: "me", offered: []keyPair{mine}},
-		{name: "STARFIX_KEY naming a .pub", env: map[string]string{EnvKey: envPub, "SSH_AUTH_SOCK": both},
+		{name: "STARFIX_KEY naming a .pub", env: map[string]string{EnvKeyFile: envPub, "SSH_AUTH_SOCK": both},
 			who: "me", offered: []keyPair{mine}},
 		{name: "a configured key the server does not know, with one it knows in ssh-agent", key: "unknown", env: map[string]string{"SSH_AUTH_SOCK": both},
 			who: "", offered: []keyPair{third}},
@@ -322,32 +324,32 @@ func TestKeyRefusals(t *testing.T) {
 			code: proto.CodeAuth, msg: []string{"accepted no key", stranger.fingerprint(), "key: in .starfix.yaml"},
 			fix: []string{"sfx admin key add", "offers no other"}, offered: 1},
 		{name: "none of ssh-agent's keys is known", env: map[string]string{"SSH_AUTH_SOCK": none},
-			code: proto.CodeAuth, msg: []string{"accepted no key", "the one key ssh-agent holds", stranger.fingerprint()},
-			fix: []string{"ssh-add -L", "sfx admin key add", EnvKey}, offered: 1},
+			code: proto.CodeAuth, msg: []string{"accepted no key", "the one key it found", stranger.fingerprint() + " (ssh-agent)"},
+			fix: []string{"ssh-add -L", "sfx admin key add", EnvKeyFile}, offered: 1},
 		{name: "ssh-agent holds more keys than sshd tries", env: map[string]string{"SSH_AUTH_SOCK": many},
-			code: proto.CodeAuth, msg: []string{"too many", "ssh-agent holds 8 keys", crowd[0].fingerprint()},
-			fix: []string{EnvKey, "ssh-add -L"}, offered: 6},
-		{name: "no key and no agent", code: proto.CodeAuth, msg: []string{"no SSH key available"}, fix: []string{"ssh-add", EnvKey}},
+			code: proto.CodeAuth, msg: []string{"accepted none of the 5 keys sfx offered", crowd[0].fingerprint(), "3 more keys that ssh-agent holds were not offered"},
+			fix: []string{EnvKeyFile, "ssh-add -L"}, offered: 5},
+		{name: "no key and no agent", code: proto.CodeAuth, msg: []string{"no SSH key available"}, fix: []string{"ssh-add", EnvKeyFile}},
 		{name: "a passphrase-protected key that ssh-agent does not hold", key: "locked", env: map[string]string{"SSH_AUTH_SOCK": none},
 			code: proto.CodeAuth, msg: []string{"passphrase-protected", "ssh-agent does not hold it", mine.fingerprint()}, fix: []string{"ssh-add " + filepath.Join(d.root, "locked")}},
 		{name: "a passphrase-protected key and no agent", key: "locked",
 			code: proto.CodeAuth, msg: []string{"passphrase-protected", "ssh-agent does not hold it"}, fix: []string{"ssh-add"}},
 		{name: "a .pub whose key ssh-agent does not hold", key: "only.pub", env: map[string]string{"SSH_AUTH_SOCK": none},
 			code: proto.CodeAuth, msg: []string{"only the public half", "ssh-agent does not hold it"}, fix: []string{"ssh-add"}},
-		{name: "a key file that is not there", key: "missing", code: proto.CodeAuth, msg: []string{"cannot read key file"}, fix: []string{"key:", EnvKey}},
+		{name: "a key file that is not there", key: "missing", code: proto.CodeAuth, msg: []string{"cannot read key file"}, fix: []string{"key:", EnvKeyFile}},
 		{name: "a key path that is a directory", key: ".", code: proto.CodeAuth, msg: []string{"cannot read key file"}, fix: []string{"key:"}},
 		{name: "a file that is no key", key: "garbage", code: proto.CodeAuth, msg: []string{"cannot parse key file"}, fix: []string{"OpenSSH"}},
-		{name: "STARFIX_KEY naming a file that is not there", env: map[string]string{EnvKey: filepath.Join(outside, "nope")},
-			code: proto.CodeAuth, msg: []string{"cannot read key file"}, fix: []string{EnvKey}},
+		{name: "STARFIX_KEY naming a file that is not there", env: map[string]string{EnvKeyFile: filepath.Join(outside, "nope")},
+			code: proto.CodeAuth, msg: []string{"cannot read key file"}, fix: []string{EnvKeyFile}},
 		// What a committed file may name: a file inside the repository.
 		{name: "key: with an absolute path", key: elsewhere, env: map[string]string{"SSH_AUTH_SOCK": none},
-			code: proto.CodeInvalid, msg: []string{"outside the repository"}, fix: []string{EnvKey + "=" + elsewhere}},
+			code: proto.CodeInvalid, msg: []string{"outside the repository"}, fix: []string{EnvKeyFile + "=" + elsewhere}},
 		{name: "key: under the home directory", key: "~/.ssh/id_ed25519", env: map[string]string{"SSH_AUTH_SOCK": none},
-			code: proto.CodeInvalid, msg: []string{"outside the repository"}, fix: []string{EnvKey + "=~/.ssh/id_ed25519"}},
+			code: proto.CodeInvalid, msg: []string{"outside the repository"}, fix: []string{EnvKeyFile + "=~/.ssh/id_ed25519"}},
 		{name: "key: climbing out of the repository", key: "../" + filepath.Base(outside) + "/id_mine",
-			code: proto.CodeInvalid, msg: []string{"outside the repository"}, fix: []string{EnvKey}},
+			code: proto.CodeInvalid, msg: []string{"outside the repository"}, fix: []string{EnvKeyFile}},
 		{name: "key: naming a link that leads out of the repository", key: "link",
-			code: proto.CodeInvalid, msg: []string{"outside the repository"}, fix: []string{EnvKey}},
+			code: proto.CodeInvalid, msg: []string{"outside the repository"}, fix: []string{EnvKeyFile}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -413,8 +415,8 @@ func TestKeyPathStaysInTheRepository(t *testing.T) {
 		c := &Config{Key: tc.key, Root: root}
 		got, err := c.KeyPath()
 		if tc.want == "" {
-			if pe, ok := errors.AsType[*proto.Error](err); !ok || pe.Code != proto.CodeInvalid || !strings.Contains(pe.Fix, EnvKey) {
-				t.Errorf("KeyPath(%q) = %q, %v; want it refused as invalid, with a fix naming %s", tc.key, got, err, EnvKey)
+			if pe, ok := errors.AsType[*proto.Error](err); !ok || pe.Code != proto.CodeInvalid || !strings.Contains(pe.Fix, EnvKeyFile) {
+				t.Errorf("KeyPath(%q) = %q, %v; want it refused as invalid, with a fix naming %s", tc.key, got, err, EnvKeyFile)
 			}
 			continue
 		}
@@ -440,13 +442,13 @@ func TestKeyOfAConnection(t *testing.T) {
 		env  map[string]string
 		want KeyInfo
 	}{
-		{"a key file", map[string]string{EnvKey: file, "SSH_AUTH_SOCK": sock}, KeyInfo{Fingerprint: mine.fingerprint(), Source: "file", Path: file}},
-		{"ssh-agent, for a configured key", map[string]string{EnvKey: pub, "SSH_AUTH_SOCK": sock}, KeyInfo{Fingerprint: mine.fingerprint(), Source: "agent", Path: pub}},
-		{"ssh-agent, the second of its keys", map[string]string{"SSH_AUTH_SOCK": sock}, KeyInfo{Fingerprint: mine.fingerprint(), Source: "agent"}},
+		{"a key file", map[string]string{EnvKeyFile: file, "SSH_AUTH_SOCK": sock}, KeyInfo{Fingerprint: mine.fingerprint(), Source: "file", Path: file, By: EnvKeyFile}},
+		{"ssh-agent, for a configured key", map[string]string{EnvKeyFile: pub, "SSH_AUTH_SOCK": sock}, KeyInfo{Fingerprint: mine.fingerprint(), Source: "agent", Path: pub, By: EnvKeyFile}},
+		{"ssh-agent, the second of its keys", map[string]string{"SSH_AUTH_SOCK": sock}, KeyInfo{Fingerprint: mine.fingerprint(), Source: "agent", By: "ssh-agent"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			id, err := loadIdentity(&Config{Root: dir}, func(k string) string { return tc.env[k] })
+			id, err := loadIdentity(&Config{Root: dir}, func(k string) string { return tc.env[k] }, func() (string, error) { return t.TempDir(), nil })
 			if err != nil {
 				t.Fatal(err)
 			}

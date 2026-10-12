@@ -19,6 +19,9 @@ type whoami struct {
 	Session string       `json:"session"`
 	// Key is the key that signed in: a fingerprint, never the key.
 	Key client.KeyInfo `json:"key"`
+	// Skipped names each default identity file that was found and could
+	// not be used, with the reason.
+	Skipped []string `json:"skipped,omitempty"`
 }
 
 type whoamiServer struct {
@@ -51,7 +54,7 @@ func cmdWhoami(ctx context.Context, r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
-	out := whoami{Principal: c.Principal(), Project: cfg.Project, Session: c.Session(), Key: c.Key(),
+	out := whoami{Principal: c.Principal(), Project: cfg.Project, Session: c.Session(), Key: c.Key(), Skipped: c.SkippedKeys(),
 		Server: whoamiServer{Host: cfg.Server.Host, Port: cfg.Server.Port, User: cfg.Server.User, HostKey: cfg.Server.HostKey}}
 	if r.json {
 		r.emit(out)
@@ -73,14 +76,23 @@ func printWhoami(w io.Writer, me whoami) {
 	p("project", "%s", esc(me.Project))
 	p("server", "%s@%s:%d, host key %s", esc(me.Server.User), esc(me.Server.Host), me.Server.Port, esc(me.Server.HostKey))
 	p("session", "%s", esc(me.Session))
+	// How the key was chosen: named, and so the only one offered, or
+	// found, among the default identities and ssh-agent's keys.
+	chosen := ", which " + esc(me.Key.By) + " names"
+	if me.Key.By == "default identity" {
+		chosen = ", a default identity"
+	}
 	switch {
 	case me.Key.Fingerprint == "":
 		p("key", "unknown")
 	case me.Key.Source == "file":
-		p("key", "%s, from the file %s", esc(me.Key.Fingerprint), esc(me.Key.Path))
+		p("key", "%s, from the file %s%s", esc(me.Key.Fingerprint), esc(me.Key.Path), chosen)
 	case me.Key.Path != "":
-		p("key", "%s, signed by ssh-agent for %s", esc(me.Key.Fingerprint), esc(me.Key.Path))
+		p("key", "%s, signed by ssh-agent for %s%s", esc(me.Key.Fingerprint), esc(me.Key.Path), chosen)
 	default:
-		p("key", "%s, from ssh-agent, which offered every key it holds", esc(me.Key.Fingerprint))
+		p("key", "%s, from ssh-agent; no key is configured, so sfx offered your default identities and then ssh-agent's keys", esc(me.Key.Fingerprint))
+	}
+	for _, s := range me.Skipped {
+		p("skipped", "%s", esc(s))
 	}
 }
