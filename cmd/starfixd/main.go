@@ -6,6 +6,7 @@
 //	starfixd import-bd [--config FILE] [--dsn DSN] [--project UUID] [--principal NAME] [--dry-run] [--json] FILE|-
 //	starfixd export-bd [--config FILE] [--dsn DSN] [--project UUID] [-o FILE]
 //	starfixd upgrade [--check] [--to vX.Y.Z] [--rollback] [--restart] [--config FILE] [--dsn DSN] [--socket PATH]
+//	starfixd status [--json] [--config FILE] [--socket PATH]
 //	starfixd version
 //
 // serve is the long-running daemon: it owns the Dolt store and serves the
@@ -21,7 +22,16 @@
 // every active project's database once before it listens, which
 // migrates it. upgrade replaces this binary with a verified
 // release, after tagging the database, and restarts and health-checks the
-// daemon when a systemd unit is configured or --restart is given.
+// daemon when a systemd unit is configured or --restart is given. status
+// asks the running daemon, over its socket and as its own user, for the
+// report `sfx admin status` gives a server admin.
+//
+// serve exports metrics when it is configured to (docs/server.md,
+// Observability): pushed over OTLP/HTTP to the endpoint the standard
+// OTEL_* environment variables name, and offered to a scraper, with
+// /healthz and /readyz, on the loopback listener telemetry: listen:
+// sets. Under systemd with Type=notify it says when it is ready, and
+// feeds the unit's watchdog.
 package main
 
 import (
@@ -35,11 +45,15 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
+	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/starfix/internal/sdnotify"
 	"github.com/ariesworx/starfix/internal/server"
 	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/starfix/internal/telemetry"
 	"github.com/ariesworx/starfix/internal/version"
 )
 
@@ -50,6 +64,7 @@ const usage = `usage:
   starfixd import-bd [--config FILE] [--dsn DSN] [--project UUID] [--principal NAME] [--dry-run] [--json] FILE|-
   starfixd export-bd [--config FILE] [--dsn DSN] [--project UUID] [-o FILE]
   starfixd upgrade [--check] [--to vX.Y.Z] [--rollback] [--restart] [--config FILE] [--dsn DSN] [--socket PATH]
+  starfixd status [--json] [--config FILE] [--socket PATH]
   starfixd version
 
 The database DSN comes from --dsn (no password allowed there), $STARFIXD_DSN,
@@ -66,6 +81,13 @@ project_dbs: names the databases granted for new projects. serve writes
 the keys the control database holds to keys_file: (default
 ~/.ssh/starfix_keys of the user it runs as), which sshd reads with
 AuthorizedKeysFile before the authorized_keys you maintain by hand.
+
+serve exports nothing and opens no port unless configured to: metrics are
+pushed over OTLP/HTTP to $OTEL_EXPORTER_OTLP_ENDPOINT when it is set, and
+telemetry: listen: (a loopback HOST:PORT, or $STARFIXD_TELEMETRY_LISTEN)
+serves /metrics, /healthz and /readyz to this machine. status prints what
+the running daemon knows of itself and its projects; run it as the user
+starfixd runs as.
 
 Every command that opens the store refuses a Dolt account that is root,
 holds rights beyond its database, or a server whose secure_file_priv is
@@ -113,6 +135,8 @@ func run(ctx context.Context, args []string) error {
 		return exportBD(ctx, osEnv(), args[1:])
 	case "upgrade":
 		return upgradeCmd(ctx, osEnv(), osUpgradeDeps(), args[1:])
+	case "status":
+		return statusCmd(ctx, osEnv(), args[1:])
 	case "version", "--version":
 		fmt.Printf("starfixd %s (protocol %d-%d)\n", version.Version, proto.ProtoMin, proto.ProtoMax)
 		return nil
@@ -169,7 +193,73 @@ func serve(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	d, err := openDaemon(ctx, s, log)
+	return runDaemon(ctx, s, log, os.Getenv)
+}
+
+// telemetryStop bounds the last export when the daemon stops, so a
+// collector that is down or silent does not hold the stop.
+const telemetryStop = 5 * time.Second
+
+// runDaemon runs the daemon s configures until ctx is done: its
+// telemetry, the loopback listener if one is set, the store or stores,
+// and the socket. getenv looks up the OTEL_* variables and systemd's.
+//
+// The loopback listener is opened first, so that a monitor can watch a
+// start that takes a while, as one that migrates many projects does:
+// /healthz answers at once, and /readyz says the daemon is starting
+// until it listens on its socket. A listener that cannot be bound fails
+// the start.
+func runDaemon(ctx context.Context, s server.Settings, log *slog.Logger, getenv func(string) string) error {
+	tel, err := telemetry.New(ctx, telemetry.Config{Version: version.Version, Getenv: getenv, Logger: log,
+		Pull: s.Telemetry.Listen != "", PerProject: s.Telemetry.ByProject(), Ops: server.Ops(), Projects: s.Limits.Control.Projects})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		sctx, cancel := context.WithTimeout(context.Background(), telemetryStop)
+		defer cancel()
+		if err := tel.Shutdown(sctx); err != nil {
+			log.Warn("telemetry did not stop cleanly", "err", err)
+		}
+	}()
+	// srv is the server once it is built; /readyz asks it.
+	var srv atomic.Pointer[server.Server]
+	if s.Telemetry.Listen != "" {
+		tl, err := telemetry.Listen(ctx, s.Telemetry.Listen)
+		if err != nil {
+			return err
+		}
+		tctx, stop := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			err := tel.Serve(tctx, tl, telemetry.ServeOptions{Requests: s.Limits.TelemetryRequests, Logger: log,
+				Ready: func(ctx context.Context) string {
+					if p := srv.Load(); p != nil {
+						return p.Ready(ctx)
+					}
+					return "starfixd is starting"
+				}})
+			if err != nil {
+				log.Error("the telemetry listener stopped; metrics and health are not served until starfixd restarts", "err", err)
+			}
+		}()
+		defer func() {
+			stop()
+			<-done
+		}()
+		serving := "telemetry listener serving /metrics, /healthz and /readyz"
+		if !tel.Enabled() {
+			serving = "telemetry listener serving /healthz and /readyz; metrics are off"
+		}
+		log.Info(serving, "addr", tl.Addr().String())
+	}
+	note := sdnotify.New(getenv, os.Getpid())
+	d, err := openDaemonWith(ctx, s, log, hooks{tel: tel, heartbeatEvery: note.WatchdogEvery(), heartbeat: func() {
+		if err := note.Watchdog(); err != nil {
+			log.Warn("could not feed systemd's watchdog", "err", err)
+		}
+	}})
 	if err != nil {
 		return err
 	}
@@ -177,14 +267,33 @@ func serve(ctx context.Context, args []string) error {
 	if err != nil {
 		return errors.Join(err, d.Close())
 	}
+	srv.Store(d.srv)
 	if d.ctl != nil {
 		log.Info("starfixd serving", "version", version.Version, "socket", s.Socket, "control_db", s.ControlDB,
 			"projects", d.ctl.ActiveProjects(), "admins", s.Admins)
 	} else {
 		log.Info("starfixd serving", "version", version.Version, "socket", s.Socket, "project", s.Project, "admins", s.Admins)
 	}
+	// The socket takes connections from here on, so a unit with
+	// Type=notify is started now, and told when the stop begins.
+	if err := note.Ready(); err != nil {
+		log.Warn("could not tell systemd the daemon is ready", "err", err)
+	}
+	stopping := context.AfterFunc(ctx, func() { _ = note.Stopping() })
+	defer stopping()
 	err = d.srv.Serve(ctx, l)
 	return errors.Join(err, d.Close())
+}
+
+// hooks are what runDaemon adds to the daemon openDaemonWith builds.
+// The zero value adds nothing.
+type hooks struct {
+	// tel measures the server and its stores.
+	tel *telemetry.Telemetry
+	// heartbeat is called every heartbeatEvery from the server's reaper,
+	// for systemd's watchdog; zero calls nothing.
+	heartbeat      func()
+	heartbeatEvery time.Duration
 }
 
 // daemon is what serve runs: the server, and what it must close when
@@ -212,7 +321,13 @@ func (d *daemon) Close() error {
 // after opening each active project's once to migrate it. A server of
 // one project opens no control store.
 func openDaemon(ctx context.Context, s server.Settings, log *slog.Logger) (*daemon, error) {
-	cfg := server.Config{Version: version.Version, Latest: s.Latest, Logger: log, Limits: s.Limits, Account: s.Account}
+	return openDaemonWith(ctx, s, log, hooks{})
+}
+
+// openDaemonWith is openDaemon with telemetry and a heartbeat.
+func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h hooks) (*daemon, error) {
+	cfg := server.Config{Version: version.Version, Latest: s.Latest, Logger: log, Limits: s.Limits, Account: s.Account,
+		Telemetry: h.tel, Heartbeat: h.heartbeat, HeartbeatEvery: h.heartbeatEvery}
 	opts := store.Options{Logger: log, AllowUnsafeAccount: s.AllowUnsafeDolt, Limits: s.Limits.Limits}
 	if s.DSN == "" {
 		return nil, errors.New("no database DSN; fix: set $STARFIXD_DSN or dsn: in the config file")
@@ -222,6 +337,7 @@ func openDaemon(ctx context.Context, s server.Settings, log *slog.Logger) (*daem
 			return nil, errors.New("no project; fix: set --project, $STARFIXD_PROJECT or project: in the config file")
 		}
 		opts.Prefix, opts.Admins = s.Prefix, s.Admins
+		opts.Observer = server.StoreObserver(h.tel, s.Project)
 		st, err := store.Open(ctx, s.DSN, opts)
 		if err != nil {
 			return nil, fmt.Errorf("open store: %w", err)
@@ -241,7 +357,7 @@ func openDaemon(ctx context.Context, s server.Settings, log *slog.Logger) (*daem
 		return nil, errors.Join(fmt.Errorf("the control database %s holds no active project; fix: adopt this server's database as the first with `starfixd control init --name NAME`",
 			s.ControlDB), ctl.Close())
 	}
-	cfg.Control, cfg.Open, cfg.ProjectDBs = ctl, server.ProjectOpener(s.DSN, ctl, opts), s.ProjectDBs
+	cfg.Control, cfg.Open, cfg.ProjectDBs = ctl, server.ProjectOpener(s.DSN, ctl, opts, h.tel), s.ProjectDBs
 	cfg.Bridge = s.Bridge
 	if cfg.KeysFile, cfg.AuthorizedKeys, err = keyFiles(s); err != nil {
 		return nil, errors.Join(err, ctl.Close())
@@ -269,7 +385,7 @@ func openDaemon(ctx context.Context, s server.Settings, log *slog.Logger) (*daem
 	// and never migrated here; activating the project does that.
 	asIs := opts
 	asIs.NoMigrate = true
-	if err := srv.ReleaseArchived(ctx, server.ProjectOpener(s.DSN, ctl, asIs)); err != nil {
+	if err := srv.ReleaseArchived(ctx, server.ProjectOpener(s.DSN, ctl, asIs, h.tel)); err != nil {
 		return nil, errors.Join(fmt.Errorf("%w; fix: check that dolt sql-server is running", err), ctl.Close())
 	}
 	return &daemon{srv: srv, ctl: ctl}, nil

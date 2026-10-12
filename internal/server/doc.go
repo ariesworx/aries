@@ -62,8 +62,17 @@
 // [ResolveSettings] builds the starfixd commands' [Settings] from flags,
 // the environment and a config file. [Bridge] is `starfixd stdio`, and
 // [Probe] the health check `starfixd upgrade` runs after a restart.
+// [Status] is `starfixd status`: the status report, asked for over the
+// socket by the daemon's own user under a reserved principal, as Probe
+// connects.
+//
+// The daemon measures itself through Config.Telemetry (observe.go): its
+// requests, handshakes, connections, limits, stores, claims and reaper,
+// with attributes whose values a client cannot choose. [Server.Ready] is
+// what /readyz answers from. With no Telemetry nothing is recorded.
 //
 // The design is docs/design/starfix.md: §2 for the transport and the
 // trust model, the "As built" notes in §7 for claims, the inbox,
-// authorization and the limits, and §15 for many projects.
+// authorization and the limits, §15 for many projects, and §16 for
+// observability.
 package server

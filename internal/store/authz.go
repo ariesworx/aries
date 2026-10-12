@@ -26,10 +26,10 @@ const OpAdminOverride Op = "admin.override"
 
 // ReservedPrincipals are the names the server uses itself: the claim
 // reaper and the bd importer record their changes under theirs, and the
-// health probe of `starfixd upgrade` connects as the last, recording
-// nothing. No key may authenticate as one, and none may be an admin, so
-// the audit trail cannot be forged.
-var ReservedPrincipals = []string{ReaperActor.Principal, OperatorPrincipal, "starfixd-upgrade"}
+// health probe of `starfixd upgrade` and `starfixd status` connect as
+// the last two, recording nothing. No key may authenticate as one, and
+// none may be an admin, so the audit trail cannot be forged.
+var ReservedPrincipals = []string{ReaperActor.Principal, OperatorPrincipal, "starfixd-upgrade", "starfixd-status"}
 
 // OperatorPrincipal is the reserved principal under which the commands
 // the operator runs on the server record their writes: `starfixd

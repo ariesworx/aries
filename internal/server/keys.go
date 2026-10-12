@@ -21,6 +21,7 @@ import (
 
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/starfix/internal/telemetry"
 )
 
 // Keys from the control store (design §15.2, decision 22). The daemon
@@ -119,11 +120,14 @@ func (s *Server) WriteKeys() error {
 	at, written, err := syncFile(path, want)
 	if err != nil {
 		k.failed = true
+		s.cfg.Telemetry.Count(telemetry.KeysFileWrites, telemetry.ResultFailed)
 		return fmt.Errorf("write the keys file %s: %w", path, err)
 	}
 	if written {
 		s.cfg.Logger.Info("keys file written", "path", path, "keys", n)
+		s.cfg.Telemetry.Count(telemetry.KeysFileWrites, telemetry.ResultOK)
 	}
+	s.cfg.Telemetry.Record(telemetry.KeysFileLastWrite, float64(at.Unix()))
 	if written || len(held) != k.held {
 		// Said when it changes, not on every tick.
 		for _, h := range held {
