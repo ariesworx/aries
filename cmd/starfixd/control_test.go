@@ -190,17 +190,22 @@ func hello(t *testing.T, sock, principal, project string) *proto.Frame {
 	defer func() { _ = c.Close() }()
 	_ = c.SetDeadline(time.Now().Add(20 * time.Second))
 	enc := proto.NewEncoder(c)
+	// A daemon that refuses may answer and close before it has read
+	// both frames, and the write of the second then fails: what it
+	// answered is still there to read, so a failed write only counts
+	// when there is no answer.
+	var werr error
 	for _, f := range []*proto.Frame{
 		{T: proto.FrameBridge, Principal: principal},
 		{T: proto.FrameHello, Proto: proto.Proto, Project: project, Session: "s-" + principal, Machine: "laptop"},
 	} {
-		if err := enc.Encode(f); err != nil {
-			t.Fatal(err)
+		if werr = enc.Encode(f); werr != nil {
+			break
 		}
 	}
 	w, err := proto.NewDecoder(c).Decode()
 	if err != nil {
-		t.Fatalf("handshake as %s: %v", principal, err)
+		t.Fatalf("handshake as %s: %v", principal, errors.Join(werr, err))
 	}
 	return w
 }

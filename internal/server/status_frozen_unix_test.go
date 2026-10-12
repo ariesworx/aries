@@ -47,12 +47,20 @@ func freeze(t *testing.T, d *dolttest.Server, ping func(context.Context) error) 
 	if err := syscall.Kill(-pid, syscall.SIGSTOP); err != nil {
 		t.Fatalf("stop dolt (process group %d): %v", pid, err)
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 250*time.Millisecond)
-	defer cancel()
-	if err := ping(ctx); err == nil {
-		t.Fatal("dolt answered a ping after SIGSTOP")
+	// kill returns before every thread of the group has stopped, on
+	// Linux by long enough for a ping to be answered: wait for one that
+	// is not.
+	for end := time.Now().Add(5 * time.Second); ; {
+		ctx, cancel := context.WithTimeout(t.Context(), 250*time.Millisecond)
+		err := ping(ctx)
+		cancel()
+		if err != nil {
+			return thaw
+		}
+		if time.Now().After(end) {
+			t.Fatal("dolt still answered a ping 5s after SIGSTOP")
+		}
 	}
-	return thaw
 }
 
 // timed runs report and returns how long it took. Should it take twice
