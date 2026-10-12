@@ -440,6 +440,56 @@ off by default.
 
 Metrics pushed over OTLP carry the same instruments and nothing more.
 
+## Dolt's metrics endpoint
+
+The server guide turns on Dolt's own Prometheus endpoint
+([step 2](server.md#2-run-dolt-under-its-own-account)), so that
+starfixd can show Dolt's memory, connections and uptime in its status
+report and a collector on the machine can scrape Dolt. It is Dolt's
+listener, not starfixd's, and the `metrics:` block of Dolt's config is
+all that governs it.
+
+- **No authentication, so loopback only.** As the guide configures it,
+  Dolt answers anyone who can connect, over plain HTTP. The guide binds
+  it to `127.0.0.1`, where any user on the server can read it and no
+  other machine can. That `host` line is what keeps it there, and no
+  AppArmor profile confines Dolt. Do not forward the port. Dolt 2.4.2's
+  configuration also has TLS and token settings for this endpoint
+  (`tls_cert`, `tls_key`, `tls_ca`, `jwt_required_for_localhost`);
+  starfix does not use them and has not tested them, and starfixd reads
+  the endpoint over plain HTTP only.
+- **What it reveals** (Dolt 2.4.2): how many connections and queries
+  Dolt has now and has had, a histogram of how long queries took, its
+  version, the Go runtime's version, memory and garbage collection, the
+  process's CPU time, memory, start time and open files, and how much of
+  the machine's CPU, memory and disk is in use.
+- **What it does not:** no database's or table's name, no query's text,
+  no account, no row and no setting. Nothing in it is per database, so
+  it does not tell one project from another.
+- **It serves its metrics at `/metrics`** and answers any other path
+  with 404.
+- **starfixd reads it only from loopback.** `telemetry:
+  dolt_metrics_url:` is refused at start unless it is `http://` to a
+  loopback address, or to a name whose every address is loopback, and
+  each connection is checked again against the address it actually
+  reaches, so a name that changes later leads nowhere else. The URL may
+  hold no user, password or query, so no secret can be put in it, and
+  it is logged whole. starfixd uses no proxy for it and follows no
+  redirect.
+- **starfixd does not trust the answer.** Whatever listens on that port
+  is another process, and any local user could listen there while Dolt
+  is stopped. starfixd gives a read 5 seconds, takes at most 1 MiB, and
+  reads six numbers out of it with a parser of its own that passes over
+  every other line; a number that cannot be the figure is left out. So
+  the most a process answering in Dolt's place can do is make the
+  status report's two lines about Dolt wrong, or `unknown`. It cannot
+  make starfixd unready, slow a request or put text of its own on an
+  admin's terminal: the version is printed from a number, and the rest
+  are numbers.
+- **It is read on a timer**, every 15 seconds, never because a client
+  asked: no request waits for it, and a client cannot make starfixd
+  fetch.
+
 ## Confinement on the server
 
 Three things limit what starfixd can do on its machine, and they cover

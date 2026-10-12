@@ -148,6 +148,15 @@ project too, so `sfx` lists it and asks before it adds him
 ([Managing access](../server.md#managing-access)). `sfx admin status`
 then shows the server and a row for each project.
 
+**Dolt's own metrics are on**, as the guide's setup has them: Dolt
+serves them at `http://127.0.0.1:11228/metrics` inside the container,
+on loopback only, since the endpoint has no authentication, and the
+compose file publishes no port but sshd's. starfixd reads them every 15
+seconds, so `sfx admin status` has a `Dolt` line with its memory,
+connections and uptime, and a `Dolt's collector:` line
+([Dolt's figures](../server.md#dolts-figures)). A volume made by an
+older image gains the setting at its next start.
+
 Giving a second key in `STARFIX_KEYS` and starting again still works,
 as before, and puts the key in `authorized_keys` as well.
 
@@ -210,7 +219,11 @@ first, warns when it is removed from the control database, and then
 comes in by `authorized_keys`; that a key added to `authorized_keys`
 by hand keeps its principal, whoever tries to add it to the control
 database and whichever was there first; and that starfixd's log has no
-failed write. It removes its server and volume, prints one line (97
+failed write. It checks that Dolt's metrics endpoint answers on
+loopback in the container and not on the container's own address, and
+that `sfx admin status` shows Dolt's figures and its collector's cycles
+against the writes, as text and as JSON, to a server admin and not to
+anyone else. It removes its server and volume, prints one line (134
 checks on 12 October 2026), and exits non-zero on the first failure. CI
 does not run it; `scripts/gate.sh --smoke` runs it after the gate. It
 hides ssh-agent from `sfx`, so the keys you hold play no part. Arguments
@@ -277,6 +290,7 @@ covers what `sfx` and starfixd say. These are the test server's own:
 | Follow the logs of all three programs | `docker compose logs -f` |
 | Open a shell | `docker compose exec starfix bash` |
 | Query Dolt as its own user | `docker compose exec -u dolt -w /var/lib/dolt/data/starfix starfix dolt sql` |
+| Read Dolt's own metrics | `docker compose exec starfix bash -c 'exec 3<>/dev/tcp/127.0.0.1/11228; printf "GET /metrics HTTP/1.0\r\n\r\n" >&3; cat <&3'` (the image has no `curl`) |
 | Read the keys file starfixd writes for sshd | `docker compose exec starfix cat /var/lib/starfix/.ssh/starfix_keys` (public keys only) |
 | See which files sshd reads for the account | `docker compose exec starfix sshd -T -C user=starfix \| grep -i authorizedkeys` |
 | Read the config | `docker compose exec starfix cat /etc/starfix/starfixd.yaml` (it holds the password) |

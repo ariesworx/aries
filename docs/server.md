@@ -90,6 +90,10 @@ log_level: info
 listener:
   host: 127.0.0.1
   port: 3306
+metrics:
+  host: 127.0.0.1
+  port: 11228
+  labels: {}
 data_dir: /var/lib/dolt/data
 cfg_dir: /var/lib/dolt/cfg
 system_variables:
@@ -105,6 +109,23 @@ sudo -u dolt -H dolt config --global --add metrics.disabled true
   can read or write files through Dolt, whatever its grants. starfixd
   refuses to start when it is empty ([why](security-model.md#the-dolt-account)).
 - `cfg_dir` keeps Dolt's accounts outside the data directory.
+- **`metrics:` turns on Dolt's own metrics**, in Prometheus's text
+  format, at `http://127.0.0.1:11228/metrics`. starfixd reads them for
+  [the status report](#watching-a-server), and a collector on the
+  machine can scrape them. **Set up this way the endpoint has no
+  authentication, so `host` must stay a loopback address:** any user on
+  the machine can read it, and with any other address so could the
+  network. It says how
+  much memory and CPU Dolt uses, how many connections and queries it
+  has, how long queries take, its version and the Go runtime's figures,
+  and the machine's CPU, memory and disk in use; no database's name, no
+  query's text, no account and no row
+  ([security model](security-model.md#dolts-metrics-endpoint)). The port
+  is one this guide chose: Dolt has no default, 11228 is free on stock
+  Ubuntu, and it is neither Dolt's SQL port nor the 9464 the guide gives
+  [starfixd's own listener](#the-listener-metrics-to-scrape-and-health).
+  Leave the block out to run without it; the status report then says
+  nothing of Dolt.
 - Run `dolt` commands from a directory the `dolt` user can read, such as
   `/var/lib/dolt`, or it fails to load its config.
 
@@ -142,9 +163,13 @@ WantedBy=multi-user.target
 systemctl daemon-reload
 systemctl enable --now dolt
 journalctl -u dolt -n 3
+curl -s --retry 5 --retry-connrefused http://127.0.0.1:11228/metrics | grep -c '^dss_'
 ```
 
-The log ends with `Server ready. Accepting connections.`
+The log ends with `Server ready. Accepting connections.`, and the last
+command counts the lines of Dolt's metrics about its SQL server: 14 at
+Dolt 2.4.2. A 0 means the endpoint does not answer: check the `metrics:`
+block and `journalctl -u dolt`.
 
 ### 3. Install starfixd
 
@@ -188,7 +213,7 @@ cd /var/lib/dolt
   printf "CREATE DATABASE starfix;\nCREATE USER 'starfix'@'localhost' IDENTIFIED BY '%s';\nGRANT ALL ON starfix.* TO 'starfix'@'localhost';\nALTER USER 'root'@'localhost' IDENTIFIED BY '%s';\n" "$dbpw" "$rootpw" |
     sudo -u dolt -H env DOLT_CLI_PASSWORD= dolt --host 127.0.0.1 --port 3306 --no-tls -u root sql
   install -d -o root -g starfix -m 0750 /etc/starfix
-  printf 'dsn: starfix:%s@tcp(127.0.0.1:3306)/starfix\nproject: %s\nsystemd_unit: starfixd.service\nadmins: [alice]\n' "$dbpw" "$(cat /proc/sys/kernel/random/uuid)" |
+  printf 'dsn: starfix:%s@tcp(127.0.0.1:3306)/starfix\nproject: %s\nsystemd_unit: starfixd.service\nadmins: [alice]\ntelemetry:\n  dolt_metrics_url: http://127.0.0.1:11228/metrics\n' "$dbpw" "$(cat /proc/sys/kernel/random/uuid)" |
     install -o starfix -g starfix -m 0600 /dev/stdin /etc/starfix/starfixd.yaml
 )
 grep project /etc/starfix/starfixd.yaml
@@ -206,6 +231,10 @@ grep project /etc/starfix/starfixd.yaml
   names it.
 - **`admins`** lists the first principal, `alice`, who you let in at step
   6. [Settings](#settings) lists every other key.
+- **`telemetry: dolt_metrics_url:`** is where starfixd reads Dolt's own
+  metrics, which step 2 turned on, for
+  [the status report](#watching-a-server). Leave the two lines out if
+  you left `metrics:` out of Dolt's config.
 
 The step runs once: a second run finds `root` protected and stops.
 
@@ -1156,6 +1185,8 @@ starfixd v0.5.0, protocol 5 to 5, up 3d 4h
 stores 2 of 64, connections 14 of 1024
 keys file /var/lib/starfix/.ssh/starfix_keys: 31 keys, written 2026-10-11 09:12 UTC
 starfixd's memory 42 MiB in use, 78 MiB from the system; 112 goroutines
+Dolt 2.4.2, up 3d 4h, 9 connections, 1234 MiB resident, memory limit 1500 MiB
+Dolt's collector: 37 cycles for 2051 writes in 10m, 1.8 for each 100 writes: under 3, as with a memory limit that had room in the measurements (over 14 was one too low)
 projects: 2 active, 1 archived; principals: 12 active, 1 disabled
 
 PROJECT  STATE     STORE   CONNS  BY HAND  SESSIONS  WRITES/MIN  P50    P99    LAST USED
@@ -1171,6 +1202,7 @@ old      archived  closed  0      -        -         -           -      -      -
 | `clock:` | Shown once the clock has been set while starfixd ran: how many times, in which direction, and the last step's size and time. Each is a `clock stepped` line in the log ([The server's clock](#the-servers-clock)) |
 | `CLOCK BEHIND HISTORY` | The clock is behind the latest event of the database named, by how much and since when. starfixd's time runs on from the history at half speed until the clock has caught up. With `clock_behind: stop` it adds that starfixd will not start again until the clock is corrected: check `timedatectl` on the server before any restart |
 | starfixd's memory | The Go heap in use and all the memory starfixd has from the operating system (`HeapAlloc` and `Sys`). Not Dolt's |
+| `Dolt`, `Dolt's collector:` | With `telemetry: dolt_metrics_url:` set: what starfixd last read from Dolt's own metrics, and how often Dolt's garbage collector ran against starfixd's writes ([Dolt's figures](#dolts-figures)). `Dolt: unknown` means the last read failed. Without the setting neither line is shown |
 | projects, principals | The control database's rows, by state |
 | STORE | Whether the project's store is open. The figures after it exist only while it is, and start from zero each time it opens |
 | CONNS, BY HAND | Connections past their handshake, and those among them that named no key of the store, which sshd let in by the hand-maintained `authorized_keys` |
@@ -1186,13 +1218,83 @@ On the server itself, [`starfixd status`](#starfixd-status) prints the
 same report with no admin key, and the same measurements are exported as
 metrics ([Observability](#observability)).
 
-**Dolt's memory is not in it.** Dolt is another process under another
-user, and starfixd has no portable way to read its memory, so read it
-from the machine: `systemctl status dolt`, `ps -o rss= -C dolt` or your
-monitoring. It follows what has been written since Dolt started, in
-every project; closing a store gives none of it back, and a restart of
-Dolt gives back most ([Dolt's memory](#dolts-memory)). Nor is a database's size
-on disk: Dolt offers its least-privileged account no table or function
+#### Dolt's figures
+
+Dolt is another process under another user, so what the report says of
+it is what Dolt says of itself: starfixd reads Dolt's own metrics
+endpoint ([step 2](#2-run-dolt-under-its-own-account)) every 15 seconds
+and shows the last answer. A server admin sees the two lines; a project
+admin does not, since they are the server's and not a project's.
+
+| Figure | From Dolt's | Why it is there |
+|---|---|---|
+| Version | `dss_dolt_version` | Which Dolt is running, which after an upgrade of Dolt is not always the one on the disk |
+| `up` | `process_start_time_seconds` | When Dolt last restarted. Its memory grows from then ([Dolt's memory](#dolts-memory)), and so does what a restart would give back |
+| connections | `dss_concurrent_connections` | Clients connected to Dolt now: starfixd's own, a few for each open store, and anyone else's, such as a `dolt sql` session or a dump |
+| `MiB resident` | `process_resident_memory_bytes` | The memory of Dolt's process, which is what the machine must hold. It is the figure `ps` gives, not a container's or a unit's total, which adds the page cache of Dolt's files |
+| `memory limit` | `go_gc_gomemlimit_bytes` | The Go memory limit Dolt runs under (`GOMEMLIMIT`), or `no memory limit` |
+| `Dolt's collector:` | `go_gc_duration_seconds_count`, and starfixd's own count of writes | The cycles of Dolt's garbage collector, the writes starfixd's project stores committed, and the first for each 100 of the second, over the last ten minutes or since either started. It is what tells whether a memory limit has room ([Dolt's memory](#dolts-memory)) |
+
+- **`Dolt: unknown`** means the latest read failed: Dolt is stopped, the
+  port or the path is wrong, the answer took more than 5 seconds, was
+  more than 1 MiB or was not Dolt's metrics, or it was a redirect, which
+  starfixd does not follow. The line gives the last read that worked,
+  and starfixd's log has `could not read Dolt's metrics` with the cause:
+  once when it starts, then every 10 minutes while it lasts, and
+  `reading Dolt's metrics again` when it ends. Nothing else changes:
+  starfixd serves as before, and `/readyz` still answers from its own
+  query of Dolt, not from this.
+- **A figure Dolt did not give is `unknown` by itself**, as a newer Dolt
+  that renamed a metric would make it.
+- **The collector line needs two reads** of the same Dolt process, so it
+  is missing for the first 15 seconds after starfixd or Dolt starts, and
+  its window is shorter than ten minutes until both have run that long.
+- **The ratio is shown from 500 writes in the window**, and judged
+  against the measurements only when a memory limit is set. An idle Dolt
+  still collects about every two minutes, so against a few writes the
+  ratio would be large and say nothing.
+- **The writes are those of the project stores**, as `WRITES/MIN` counts
+  them, summed at each read. A store that closes between two reads takes
+  with it the writes it made since the earlier one, and writes to the
+  control database are not counted.
+- **`--json`** has the same under `server.dolt`: `read_at`, `version`,
+  `started_at`, `uptime_seconds`, `resident_bytes`, `conns`,
+  `mem_limit_bytes` (0 for no limit) and `gc` with `window_seconds`,
+  `cycles`, `writes` and `cycles_per_100_writes`; or `unknown: true`
+  with `read_at`, when there was a read that worked.
+- **Query latency is not shown.** Dolt's histogram of it
+  (`dss_query_duration`) has buckets at 10 ms, 100 ms, 1 s and upward,
+  which is too coarse to say more than the report's own P50 and P99 of
+  each project's writes do.
+- **starfixd does not export Dolt's metrics again.** Have your collector
+  scrape `http://127.0.0.1:11228/metrics` beside starfixd's
+  ([Observability](#observability)).
+
+**On a server set up before this**, turn Dolt's endpoint on and tell
+starfixd where it is. Restarting Dolt restarts starfixd with it and
+drops every connection for a few seconds, so pick a quiet moment:
+
+```sh
+printf 'metrics:\n  host: 127.0.0.1\n  port: 11228\n  labels: {}\n' >> /etc/dolt/config.yaml
+systemctl restart dolt
+curl -s --retry 5 --retry-connrefused http://127.0.0.1:11228/metrics | grep -c '^dss_'
+printf 'telemetry:\n  dolt_metrics_url: http://127.0.0.1:11228/metrics\n' >> /etc/starfix/starfixd.yaml
+systemctl restart starfixd
+sleep 20
+sudo -u starfix -H starfixd status | grep '^Dolt'
+```
+
+- If `/etc/starfix/starfixd.yaml` already has a `telemetry:` block, add
+  the `dolt_metrics_url:` line under it with an editor instead of the
+  second `printf`: a key given twice stops starfixd at start.
+- The `curl` line prints 14 at Dolt 2.4.2, and the last line prints the
+  two lines above, the second only once starfixd has read twice.
+- A URL that is not `http://` on a loopback address stops starfixd at
+  start with a `fix:`. The endpoint has no authentication, and starfixd
+  will not read it from another machine.
+
+A database's size on disk is not in the report: Dolt offers its
+least-privileged account no table or function
 for it, and the files belong to Dolt's user. Read it with `du -sh
 /var/lib/dolt/data/starfix/*` as root or `dolt`
 ([Storage growth](#storage-growth)).
@@ -1549,6 +1651,7 @@ the config file (`/etc/starfix/starfixd.yaml`, or `--config FILE`, or
 | `limits` | [Limits](#limits) | defaults | |
 | `telemetry.listen` | The loopback address, `HOST:PORT`, of the listener for `/metrics`, `/healthz` and `/readyz` ([Observability](#observability)). An address that is not loopback is refused | none: no listener | `STARFIXD_TELEMETRY_LISTEN` |
 | `telemetry.per_project` | Whether metrics name the project. `false` leaves it off every instrument | `true` | |
+| `telemetry.dolt_metrics_url` | The URL of Dolt's own metrics endpoint, which starfixd reads every 15 seconds for the status report ([Dolt's figures](#dolts-figures)): `http://`, a loopback address or a name whose every address is loopback, a port and a path, such as `http://127.0.0.1:11228/metrics`. Anything else is refused at start | none: nothing is read, and the report says nothing of Dolt | `STARFIXD_TELEMETRY_DOLT_METRICS_URL` |
 
 - **A clock tolerance is more than zero, and has a ceiling.** Zero, a
   negative duration and a value past the range are refused at start
@@ -1859,8 +1962,8 @@ starfixd logs to stderr, which systemd sends to the journal
 | Level | Logs |
 |---|---|
 | `debug` | Connections and each successful request. With `control_db`, each names its `project` |
-| `info` | `clock caught up with history`, once a clock that was behind the server's history has passed it. Startup, with what telemetry is on and the listener's address when either is set, refusals, handshake failures and expired claims. Refusals are capped at `refusal_logs` a minute per principal. With `control_db`: each project store opened and closed, each project added, each write of the keys file, the connections closed and each claim released when an `sfx admin` change ends someone's access, and the `project` of every line about one |
-| `warn` | `clock stepped`: the clock was set, or the machine suspended, with the direction, the size and what starfixd did about it; and, for each database, `clock step settled`, with how many leases were extended and by how much ([The server's clock](#the-servers-clock)). Find what set the clock: `timedatectl timesync-status`, `journalctl -u systemd-timesyncd`, the hypervisor's log. A metrics export that failed, once and then every 10 minutes while it lasts; a notification systemd could not be sent. Connections refused at the connection cap, socket peers refused, how many refusal lines the cap left out, and failures to accept a connection that may pass, such as running out of file descriptors, which starfixd retries after a pause of up to a second |
+| `info` | `clock caught up with history`, once a clock that was behind the server's history has passed it. Startup, with what telemetry is on, the listener's address and the URL Dolt's metrics are read from when any is set; `reading Dolt's metrics again`, after reads that failed; refusals, handshake failures and expired claims. Refusals are capped at `refusal_logs` a minute per principal. With `control_db`: each project store opened and closed, each project added, each write of the keys file, the connections closed and each claim released when an `sfx admin` change ends someone's access, and the `project` of every line about one |
+| `warn` | `clock stepped`: the clock was set, or the machine suspended, with the direction, the size and what starfixd did about it; and, for each database, `clock step settled`, with how many leases were extended and by how much ([The server's clock](#the-servers-clock)). Find what set the clock: `timedatectl timesync-status`, `journalctl -u systemd-timesyncd`, the hypervisor's log. A metrics export that failed, once and then every 10 minutes while it lasts; `could not read Dolt's metrics`, on the same schedule, with the URL and the cause ([Dolt's figures](#dolts-figures)); a notification systemd could not be sent. Connections refused at the connection cap, socket peers refused, how many refusal lines the cap left out, and failures to accept a connection that may pass, such as running out of file descriptors, which starfixd retries after a pause of up to a second |
 | `error` | `clock behind history`: the clock is behind the latest event of the database named, at start and every ten minutes while it lasts, with the fix. Correct the clock; if the history is what is wrong, nothing is needed, and the clock catches up. Internal errors, and a check of Dolt for `/readyz` that failed. With `control_db`: an active project whose database could not be opened at start, and a write of the keys file that failed (`the keys file is out of date`), every 30 seconds until one succeeds |
 
 Any other failure to accept connections stops starfixd: it prints the
@@ -1879,12 +1982,14 @@ configured, starfixd exports nothing and opens no port.
 | `/healthz` and `/readyz` | The same listener |
 | Readiness and a watchdog under systemd | `Type=notify` and `WatchdogSec` in the unit ([step 5](#5-run-starfixd-under-systemd)), which the guide's unit has |
 | `starfixd status` | Always there, for the user starfixd runs as |
+| Dolt's own figures in the status report | `metrics:` in Dolt's config and `telemetry: dolt_metrics_url:` in starfixd's ([Dolt's figures](#dolts-figures)); the guide's setup has both |
+| Dolt's own metrics, for a scraper | The same `metrics:` block: `http://127.0.0.1:11228/metrics`. starfixd does not export them again |
 
 Push and pull are independent: turn on either, both or neither. The
 instruments are the same either way.
 
 **Not built yet:** traces, the log schema and the audit stream of access
-changes, Dolt's own figures in the status report, and the tested
+changes, and the tested
 Collector configuration, alert rules and dashboard. They are the next
 slices of [the design](design/starfix.md#16-observability). Until then
 `OTEL_TRACES_*` and `OTEL_LOGS_*` variables do nothing.
@@ -2413,10 +2518,11 @@ sizes on your own server.
   project past about 10,000 issues or for ten or more projects in
   regular use, or restart Dolt on a schedule, weekly say, and after a
   bulk import.
-- **Read Dolt's own figure.** `ps -o rss= -C dolt`, or
-  `process_resident_memory_bytes` if you turn on Dolt's metrics (a
-  `metrics:` block with `host: 127.0.0.1` and a `port` in its config;
-  it has no authentication, so keep it on loopback). A container's or a
+- **Read Dolt's own figure.** The `Dolt` line of
+  [`sfx admin status`](#dolts-figures) gives it as `MiB resident`, with
+  how long Dolt has been up; `ps -o rss= -C dolt` and
+  `process_resident_memory_bytes` in Dolt's metrics are the same number.
+  A container's or a
   unit's total also counts the page cache of Dolt's files, which the
   kernel drops when it must: one measured Dolt of 2.1 GiB sat in a
   container showing 5.7 GiB.
@@ -2438,12 +2544,56 @@ nothing was refused or killed.
   between 0.59 and 0.52.
 - **It moves.** What Dolt holds grows as it writes, so a limit with room
   after a restart is too low later. Watch Dolt's CPU, and its collector
-  against starfixd's writes (`go_gc_duration_seconds_count` from Dolt's
-  metrics; writes from `sfx admin status`): fewer than 3 collections for
-  each 100 writes was normal, and more than 14 meant the limit was too
-  low. Then restart Dolt or raise the limit.
+  against starfixd's writes.
 - **Not measured:** a limit together with systemd's `MemoryMax`, which
   is the way to a hard cap, and a limit on a server that mostly reads.
+
+**The line to read** is `Dolt's collector:` in
+[`sfx admin status`](#dolts-figures), which sets the cycles of Dolt's
+garbage collector against starfixd's writes over the last ten minutes:
+
+```text
+Dolt 2.4.2, up 12d 3h, 9 connections, 891 MiB resident, memory limit 850 MiB
+Dolt's collector: 1762 cycles for 12000 writes in 10m, 15 for each 100 writes: OVER 14, AS WITH A MEMORY LIMIT TOO LOW in the measurements: Dolt is spending its CPU collecting. Raise GOMEMLIMIT or restart Dolt (docs/server.md, Dolt's memory)
+```
+
+| For each 100 writes | In the measurements | Do |
+|---|---|---|
+| Under 3 | Every run without a limit, and every run whose limit cost at most twice the CPU | Nothing |
+| 3 to 14 | No run fell here: the step from one to the other was narrow | Watch it and Dolt's CPU. If it climbs, act as below before it is past 14 |
+| Over 14 | Every run past the cliff: 9 to about 100 times the CPU for the same writes, with the writes still served, more slowly | Raise the limit, or restart Dolt, or run `dolt gc` and then restart it |
+
+- **Raise the limit** (`Environment=GOMEMLIMIT=…` in `dolt.service`,
+  then `systemctl daemon-reload` and `systemctl restart dolt`) when the
+  machine has the memory: to no less than 0.6 of what Dolt reaches
+  without a limit, as above. If you never measured that, raise it by
+  half, and read the line again once it shows ten minutes of writes;
+  the limits past the cliff were half of that figure or less. The
+  restart it takes also empties Dolt, so the line improves either way;
+  the higher limit is what keeps it from coming back as soon.
+- **Restart Dolt** (`systemctl restart dolt`) when it does not: Dolt
+  then holds a fifth to a half of what it did, and the same limit has
+  room again for a while.
+- **`dolt gc` and then a restart** when a restart alone does not bring
+  `MiB resident` far enough below the limit
+  ([Storage growth](#storage-growth) has the command).
+- **Resident memory against the limit is a weaker sign.** Dolt was up to
+  4% over its limit in runs that cost little, and from 4.8% over in runs
+  that cost nine times the CPU or more, and one run 8% over cost only
+  1.5 times. Read the collector line.
+- **What the thresholds rest on:** one machine (Linux on arm64, in a
+  container on a laptop), one shape of load (small synthetic issues,
+  written as fast as one writer can, into 5, 10 and 20 projects), with
+  Dolt 2.4.2. No run mixed reads with writes, and none wrote at the few
+  writes a second of a real server. So the line judges only a window
+  with at least 500 writes, since an idle Dolt collects about every two
+  minutes whatever is written: on a quiet server it says `too few
+  writes to judge the memory limit by`, and Dolt's CPU
+  (`process_cpu_seconds_total` in its metrics, or `top`) is then what
+  to watch.
+- **Without a limit** the line gives the figures and no verdict: there
+  is no limit to be too low, and every run without one made fewer than
+  3 for each 100 writes.
 
 ## starfixd commands
 

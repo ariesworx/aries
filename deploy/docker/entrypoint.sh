@@ -31,6 +31,9 @@ control_db=starfix_control
 first_project=first
 project_dbs_prefix=starfix_p
 project_dbs_count=8
+# Dolt's metrics endpoint, as /etc/dolt/config.yaml sets it: loopback
+# only, since it has no authentication.
+dolt_metrics_url=http://127.0.0.1:11228/metrics
 
 name_re='^[a-z][a-z0-9._-]{0,63}$'
 uuid_re='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
@@ -109,7 +112,9 @@ setting() { sed -n "s/^$1: //p" "$config"; }
 # write_config DSN PROJECT ADMINS [many] writes the config file, mode
 # 0600, from stdin so the password is never an argument. With many, or
 # when the config it replaces names a control database, it also names
-# the control database and the block of project databases (opt_in).
+# the control database and the block of project databases (opt_in). It
+# always names Dolt's metrics endpoint, which the image's Dolt config
+# turns on, so that `sfx admin status` shows Dolt's figures.
 write_config() {
   local many=${4:-}
   if [[ -f $config && -n $(setting control_db) ]]; then
@@ -120,7 +125,19 @@ write_config() {
     if [[ -n $many ]]; then
       printf 'control_db: %s\nproject_dbs:\n  prefix: %s\n  count: %s\n' "$control_db" "$project_dbs_prefix" "$project_dbs_count"
     fi
+    printf 'telemetry:\n  dolt_metrics_url: %s\n' "$dolt_metrics_url"
   } | install -o starfix -g starfix -m 0600 /dev/stdin "$config"
+}
+
+# watch_dolt moves a volume that an image from before Dolt's metrics
+# made: its config does not say where starfixd reads them. Dolt's own
+# config is the image's, so Dolt serves them from this start on.
+watch_dolt() {
+  if grep -q '^  dolt_metrics_url: ' "$config"; then
+    return 0
+  fi
+  write_config "$(setting dsn)" "$(setting project)" "$(setting admins | tr -d '[]')"
+  log "starfixd now reads Dolt's metrics at $dolt_metrics_url, for sfx admin status"
 }
 
 prepare() {
@@ -305,6 +322,7 @@ main() {
       "unset STARFIX_PROJECT, or remove the volume (docker compose down -v) for a new project"
   fi
   opt_in
+  watch_dolt
   install_principals
   adopt
 
