@@ -416,6 +416,38 @@ refuse "a disabled principal's key" 'accepted no key' carol ready
 expect "status shows the keys file" "^keys file $keys_file: 2 keys, written " alice admin status
 no_failed_write "before the restart"
 
+# Dolt's own metrics (docs/server.md, step 2): the endpoint answers on
+# loopback in the container and on no other address, and starfixd reads
+# it for the status report. The image has no curl, so bash asks.
+echo "smoke: Dolt's metrics, and its figures in the status"
+last=$(in_server bash -c 'exec 3<>/dev/tcp/127.0.0.1/11228 && printf "GET /metrics HTTP/1.0\r\n\r\n" >&3 && cat <&3' 2>&1) ||
+  fail "Dolt's metrics endpoint does not answer on 127.0.0.1:11228 in the server" "$last"
+for series in dss_concurrent_connections process_resident_memory_bytes go_gc_duration_seconds_count; do
+  grep -q "^$series " <<<"$last" || fail "Dolt's metrics endpoint did not serve $series" "$(head -n 20 <<<"$last")"
+done
+passed=$((passed + 1))
+# sshd listens on every address, so its port shows that the probe works.
+addr=$(in_server hostname -i | cut -d' ' -f1)
+[[ $addr =~ ^[0-9.]+$ && $addr != 127.* ]] || fail "could not find the container's own address" "$addr"
+in_server bash -c "exec 3<>/dev/tcp/$addr/22" 2>/dev/null || fail "sshd does not answer on the container's own address, $addr"
+if in_server bash -c "exec 3<>/dev/tcp/$addr/11228" 2>/dev/null; then
+  fail "Dolt's metrics endpoint answers on the container's own address, $addr, not on loopback alone"
+fi
+passed=$((passed + 1))
+expect "status shows Dolt's figures" '^Dolt 2\.[0-9]+\.[0-9]+, up [0-9a-z ]+, [0-9]+ connections?, [0-9]+ MiB resident, no memory limit$' alice admin status
+expect "status --json carries them" '"dolt":\{"read_at":"[^"]+","version":"2\.[0-9.]+","started_at":"[^"]+","uptime_seconds":[0-9]+,"resident_bytes":[0-9]+,"conns":[0-9]+,"mem_limit_bytes":0' alice --json admin status
+# The collector's cycles are set against starfixd's writes once it has
+# read twice, 15 seconds apart.
+for ((i = 0; i < 60; i++)); do
+  if sfx_as alice admin status 2>/dev/null | grep -q "^Dolt's collector: "; then
+    break
+  fi
+  sleep 0.5
+done
+expect "status shows Dolt's collector against the writes" "^Dolt's collector: [0-9]+ cycles? for [0-9]+ writes? in [0-9a-z ]+" alice admin status
+# bob is no server admin: Dolt is the server's, and he is shown none of it.
+refuse "Dolt's figures are for server admins" 'may not see the server.s status' bob admin status
+
 # What a restart must not undo. The container runs `starfixd control
 # init` at every start, and bob's line is still in STARFIX_KEYS.
 expect "member remove before the restart" '^bob removed from project first$' alice admin member remove bob

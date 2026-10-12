@@ -93,6 +93,37 @@ func TestStoreWriteStats(t *testing.T) {
 	}
 }
 
+// Writes counts every write since the store was opened, past the minute
+// and the samples WriteStats keeps, and none that changed nothing.
+func TestStoreWrites(t *testing.T) {
+	var ws writeStats
+	t0 := time.Date(2026, 10, 11, 9, 0, 0, 0, time.UTC)
+	for i := range 3 * writeSamples {
+		ws.record(t0.Add(time.Duration(i)*time.Second), time.Millisecond)
+	}
+	if got := ws.total(); got != 3*writeSamples {
+		t.Errorf("total() after %d writes over %d seconds = %d", 3*writeSamples, 3*writeSamples, got)
+	}
+
+	s := newStore(t)
+	if got := s.Writes(); got != 0 {
+		t.Fatalf("Writes() of a store just opened = %d, want 0", got)
+	}
+	is := mustCreate(t, s, NewIssue{Title: "one"})
+	if _, err := s.AddComment(t.Context(), bob, is.ID, "a note", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddComment(t.Context(), bob, "tst-nosuchid", "refused", ""); err == nil {
+		t.Fatal("a comment on an issue that is not there was accepted")
+	}
+	if _, err := s.ReapClaims(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Writes(); got != 2 {
+		t.Errorf("Writes() after two writes, a refusal and an empty reap = %d, want 2", got)
+	}
+}
+
 func TestControlCountsAndProjects(t *testing.T) {
 	c := newControl(t)
 	if got := c.Counts(); len(got.Projects) != 0 || len(got.Principals) != 0 {

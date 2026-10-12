@@ -124,6 +124,14 @@ a cold boot, with no line in the kernel log; the two refusals that are
 logged are root, and another user with a config file of her own, running
 `starfixd status`.
 
+Reading Dolt's own metrics (`telemetry: dolt_metrics_url:`, slice O4,
+run on the same machine the same day) needed nothing new either: it is
+an HTTP GET to `127.0.0.1:11228` every 15 seconds, which `network inet
+stream` covers, at an address, so no name is resolved. The 76 checks
+passed with it on and no line in the kernel log, and with the unit also
+held to loopback (`IPAddressDeny=any`, `IPAddressAllow=localhost`) the
+reads went on. Dolt, which listens on that port, is not confined.
+
 So metrics sent **straight to a hosted backend** need three lines the
 shipped profile leaves out, since the daemon otherwise speaks to no
 machine by name and reads no certificate:
@@ -160,8 +168,8 @@ store, not against a real backend.
 - **Dolt.** A profile for it would be attached to `/usr/local/bin/dolt`
   and need: its config file, read; its data directory, `cfg_dir` and
   the account's own `.dolt` directory under `/var/lib/dolt`, read,
-  write and lock; its private `/tmp`; a TCP listener; and what the Go
-  runtime reads. The same path is also the operator's tool (`dolt sql`,
+  write and lock; its private `/tmp`; its TCP listeners, for SQL and
+  for its metrics; and what the Go runtime reads. The same path is also the operator's tool (`dolt sql`,
   `dolt dump`, `dolt gc`), which reads the data directory it is run in
   and writes dumps to `/var/backups/starfix`, so it would need the same
   split as starfixd's, or a profile the unit alone asks for. None of

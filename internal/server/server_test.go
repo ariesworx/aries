@@ -57,7 +57,8 @@ func run(m *testing.M) int {
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	dolt, doltErr = dolttest.Start(ctx, dir)
+	// With its metrics endpoint, which TestDoltStatusRealDolt reads.
+	dolt, doltErr = dolttest.StartWith(ctx, dir, dolttest.Options{Metrics: true})
 	cancel()
 	if dolt != nil {
 		defer func() { _ = dolt.Stop() }()
