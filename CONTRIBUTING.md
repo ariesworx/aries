@@ -125,6 +125,7 @@ up in a Linux VM you can throw away.
 | Projects, principals, members, keys, the control store or the keys file | [Serving many projects](docs/server.md#serving-many-projects) in docs/server.md, and [Who can authenticate](docs/security-model.md#who-can-authenticate) |
 | A message an operator sees when something is wrong | [Troubleshooting](docs/server.md#troubleshooting) in docs/server.md |
 | A setup step in docs/server.md, or the Docker test server | [docs/deploy/docker.md](docs/deploy/docker.md), `deploy/docker`, and `smoke.sh` with its count of checks |
+| A file `starfixd` reads or writes, a socket or address it connects to, or a program it runs | `deploy/apparmor`, and a run on a machine with AppArmor ([deploy/apparmor/README.md](deploy/apparmor/README.md)) |
 | What a deployment needs or costs | The example under [docs/deploy](docs/deploy/README.md) |
 | How `sfx` or `starfixd` is installed or upgraded, or `install.sh` | [docs/install.md](docs/install.md) |
 | bd import or export | [docs/migrate-from-bd.md](docs/migrate-from-bd.md) |
