@@ -37,7 +37,9 @@ func osEnv() adminEnv {
 
 // openAdminStore resolves the daemon's settings and opens its store
 // directly, as the admin commands run on the server beside the daemon.
-func openAdminStore(ctx context.Context, env adminEnv, fl server.Settings, cfgPath string) (*store.Store, error) {
+// On a server of many projects (control_db) it opens the store of
+// project, or of the config file's project when project is empty.
+func openAdminStore(ctx context.Context, env adminEnv, fl server.Settings, cfgPath, project string) (*store.Store, error) {
 	s, err := server.ResolveSettings(fl, cfgPath, env.getenv)
 	if err != nil {
 		return nil, err
@@ -45,8 +47,22 @@ func openAdminStore(ctx context.Context, env adminEnv, fl server.Settings, cfgPa
 	if s.DSN == "" {
 		return nil, errors.New("no database DSN; fix: set $STARFIXD_DSN or dsn: in the config file")
 	}
+	dsn, prefix := s.DSN, s.Prefix
+	switch {
+	case s.ControlDB != "":
+		p, err := adminProject(ctx, s, project)
+		if err != nil {
+			return nil, err
+		}
+		if dsn, err = server.DatabaseDSN(s.DSN, p.DBName); err != nil {
+			return nil, err
+		}
+		prefix = p.Prefix
+	case project != "":
+		return nil, usageError("--project picks one project of a server of many; this server has no control_db and holds the one in its DSN")
+	}
 	// No background committer: Close makes the one Dolt commit.
-	st, err := store.Open(ctx, s.DSN, store.Options{Prefix: s.Prefix, CommitInterval: -1, AllowUnsafeAccount: s.AllowUnsafeDolt,
+	st, err := store.Open(ctx, dsn, store.Options{Prefix: prefix, CommitInterval: -1, AllowUnsafeAccount: s.AllowUnsafeDolt,
 		Limits: s.Limits.Limits})
 	if _, ok := errors.AsType[*store.UnsafeAccountError](err); ok {
 		return nil, fmt.Errorf("open store: %w", err) // it names its own fix
@@ -55,6 +71,31 @@ func openAdminStore(ctx context.Context, env adminEnv, fl server.Settings, cfgPa
 		return nil, fmt.Errorf("open store: %w; fix: check the DSN and that dolt sql-server is running", err)
 	}
 	return st, nil
+}
+
+// adminProject looks up, in the control store of a server of many
+// projects, the project an admin command acts on: id, or the config
+// file's project when id is empty. It may be in any state, so that an
+// archived project can still be exported.
+func adminProject(ctx context.Context, s server.Settings, id string) (store.Project, error) {
+	if id == "" {
+		id = s.Project
+	}
+	if id == "" {
+		return store.Project{}, errors.New("no project; fix: name one with --project UUID, or set project: in the config file")
+	}
+	ctl, err := openControl(ctx, s, store.ControlOptions{CommitInterval: -1})
+	if err != nil {
+		return store.Project{}, err
+	}
+	p, err := ctl.Project(ctx, id)
+	if err = closeControl(err, ctl); err != nil {
+		if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrInvalid) {
+			return store.Project{}, fmt.Errorf("project %q is not one of this server's; fix: give a project's UUID with --project, or run `starfixd control init` if none was adopted yet", id)
+		}
+		return store.Project{}, fmt.Errorf("read project %s: %w; fix: check that dolt sql-server is running", id, err)
+	}
+	return p, nil
 }
 
 // adminFlags parses an admin command's flags: --config, --dsn, --dev,
@@ -102,9 +143,10 @@ func closeStore(err error, st *store.Store) error {
 // importBD runs `starfixd import-bd [flags] FILE|-`.
 func importBD(ctx context.Context, env adminEnv, args []string) (err error) {
 	var fl server.Settings
-	var cfgPath, principal string
+	var cfgPath, principal, project string
 	var dryRun, asJSON bool
 	fs, err := adminFlags("import-bd", args, &fl, &cfgPath, func(fs *flag.FlagSet) {
+		fs.StringVar(&project, "project", "", "project UUID, on a server of many (default: the config file's)")
 		fs.StringVar(&principal, "principal", "import", "principal recorded on the import's events")
 		fs.BoolVar(&dryRun, "dry-run", false, "report what would change; write nothing")
 		fs.BoolVar(&asJSON, "json", false, "print one JSON document")
@@ -131,7 +173,7 @@ func importBD(ctx context.Context, env adminEnv, args []string) (err error) {
 	}
 	actor := store.Actor{Principal: principal, Session: "import-bd-" + time.Now().UTC().Format("20060102T150405Z"), Machine: host}
 
-	st, err := openAdminStore(ctx, env, fl, cfgPath)
+	st, err := openAdminStore(ctx, env, fl, cfgPath, project)
 	if err != nil {
 		return err
 	}
@@ -166,8 +208,9 @@ func importBD(ctx context.Context, env adminEnv, args []string) (err error) {
 // exportBD runs `starfixd export-bd [flags] [-o FILE]`.
 func exportBD(ctx context.Context, env adminEnv, args []string) (err error) {
 	var fl server.Settings
-	var cfgPath, out string
+	var cfgPath, out, project string
 	fs, err := adminFlags("export-bd", args, &fl, &cfgPath, func(fs *flag.FlagSet) {
+		fs.StringVar(&project, "project", "", "project UUID, on a server of many (default: the config file's)")
 		fs.StringVar(&out, "o", "", "write to FILE instead of stdout")
 	})
 	if err != nil {
@@ -176,7 +219,7 @@ func exportBD(ctx context.Context, env adminEnv, args []string) (err error) {
 	if fs.NArg() > 0 {
 		return usageError("export-bd takes no arguments; use -o FILE")
 	}
-	st, err := openAdminStore(ctx, env, fl, cfgPath)
+	st, err := openAdminStore(ctx, env, fl, cfgPath, project)
 	if err != nil {
 		return err
 	}

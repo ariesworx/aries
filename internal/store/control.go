@@ -50,6 +50,12 @@ type ControlOptions struct {
 	MaxAttempts int
 	// Readers caps the read pool. Default 8.
 	Readers int
+	// Operator marks a store opened by a command the operator runs on
+	// the server (`starfixd control init`), not by the daemon: its writes
+	// by [OperatorPrincipal] are allowed as a server admin's are. The
+	// daemon never sets it, so no connection gains anything from the
+	// name, which is reserved besides.
+	Operator bool
 }
 
 // Control is the server's control store: projects, principals, their
@@ -65,18 +71,20 @@ type Control struct {
 	s   *Store
 	lim ControlLimits
 	log *slog.Logger
+	// operator is ControlOptions.Operator.
+	operator bool
 
-	// wmu serializes writes from the transaction's start until the key
-	// index has taken its change, so the index changes in commit order:
-	// a key added and then removed is never left in it.
+	// wmu serializes writes from the transaction's start until the index
+	// has taken its change, so the index changes in commit order: a key
+	// added and then removed is never left in it.
 	wmu sync.Mutex
-	// keys answers AuthorizedKey from memory.
-	keys keyIndex
+	// ix answers AuthorizedKey and Access from memory.
+	ix index
 }
 
 // OpenControl connects to the control database named in dsn
 // (go-sql-driver/mysql format), checks the account as [Open] does,
-// applies pending migrations, loads the key index and starts the
+// applies pending migrations, loads the index and starts the
 // committer. ctx bounds only the opening; the caller must Close the
 // store.
 //
@@ -96,8 +104,8 @@ func OpenControl(ctx context.Context, dsn string, opts ControlOptions) (*Control
 	if err != nil {
 		return nil, err
 	}
-	c := &Control{s: s, lim: opts.Limits.withDefaults(), log: s.opts.Logger}
-	if err := c.loadKeys(ctx); err != nil {
+	c := &Control{s: s, lim: opts.Limits.withDefaults(), log: s.opts.Logger, operator: opts.Operator}
+	if err := c.load(ctx); err != nil {
 		return nil, errors.Join(err, s.Close())
 	}
 	return c, nil
@@ -110,6 +118,12 @@ func (c *Control) Close() error { return c.s.Close() }
 
 // Flush makes a Dolt commit now if any write happened since the last one.
 func (c *Control) Flush(ctx context.Context) error { return c.s.Flush(ctx) }
+
+// BackupTag commits everything written to the control database so far
+// and tags the commit name, as [Store.BackupTag] does for a project's.
+func (c *Control) BackupTag(ctx context.Context, name string) (string, error) {
+	return c.s.BackupTag(ctx, name)
+}
 
 // Now reads the server clock (ControlOptions.Now), in UTC to the
 // microsecond.
@@ -127,20 +141,28 @@ func (c *Control) Events(ctx context.Context, after int64, limit int) ([]Event, 
 }
 
 // cwtx is one attempt at a control write: the store's write transaction,
-// with the control store's limits and the change the attempt makes to
-// the key index.
+// with the control store's limits and the changes the attempt makes to
+// the index.
 type cwtx struct {
 	*wtx
 	lim ControlLimits
 	// admins reports whether a principal is a server admin.
 	admins func(string) bool
-	// index, when set, is applied to the key index once the attempt
-	// commits.
-	index func(*keyIndex)
+	// index holds the changes to apply to the index, in order, once the
+	// attempt commits.
+	index []func(*index)
 }
 
+// indexed records a change for the index to take when the attempt
+// commits.
+func (w *cwtx) indexed(fn func(*index)) { w.index = append(w.index, fn) }
+
 // write runs fn through the store's write loop as actor, so fn must be
-// safe to rerun, and then applies the change fn made to the key index.
+// safe to rerun, and then applies the changes fn made to the index.
+//
+// In the operator's store (ControlOptions.Operator) the operator's
+// principal writes as a server admin does: the equivalent of
+// [Store.ImportIssue]'s exemption, for `starfixd control init`.
 //
 // A write that fails, rather than being refused, may have committed all
 // the same (a connection lost during COMMIT does not say), so the index
@@ -149,30 +171,35 @@ type cwtx struct {
 func (c *Control) write(ctx context.Context, actor Actor, fn func(*cwtx) error) error {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
-	var index func(*keyIndex)
+	var changes []func(*index)
 	err := c.s.write(ctx, actor, func(w *wtx) error {
-		index = nil
+		changes = nil
+		if c.operator && actor.Principal == OperatorPrincipal {
+			w.admin = true
+		}
 		cw := &cwtx{wtx: w, lim: c.lim, admins: c.IsServerAdmin}
 		if err := fn(cw); err != nil {
 			return err
 		}
-		index = cw.index
+		changes = cw.index
 		return nil
 	})
 	switch {
 	case err == nil:
-		if index != nil {
-			c.keys.mu.Lock()
-			index(&c.keys)
-			c.keys.mu.Unlock()
+		if len(changes) > 0 {
+			c.ix.mu.Lock()
+			for _, change := range changes {
+				change(&c.ix)
+			}
+			c.ix.mu.Unlock()
 		}
 	case !refusal(err):
 		// The caller's ctx may be what failed the write; the reload gets
 		// its own.
 		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
-		if lerr := c.loadKeys(rctx); lerr != nil {
-			c.log.Error("reload of the key index failed; it may be stale until starfixd restarts", "err", lerr)
+		if lerr := c.load(rctx); lerr != nil {
+			c.log.Error("reload of the control index failed; it may be stale until starfixd restarts", "err", lerr)
 		}
 	}
 	return err
@@ -189,16 +216,27 @@ func refusal(err error) bool {
 	return false
 }
 
-// keyIndex is every key and whether its principal is active, in memory.
-// sshd asks about each key a stranger offers, before authentication, so
-// the answer must cost no database read (design §15.2).
-type keyIndex struct {
+// index is what the daemon asks the control store on every handshake,
+// every issue write and every key a stranger offers, in memory: the
+// keys, the active principals, the projects and the roles. sshd asks
+// about each key before authentication, and a project's store asks who
+// its admins are on each write, so neither answer may cost a database
+// read (design §15.2, §15.3).
+type index struct {
 	mu sync.RWMutex
 	// byFingerprint holds every key, of disabled principals too.
 	byFingerprint map[string]indexedKey
 	// active holds the principals whose state is active.
 	active map[string]bool
+	// projects holds every project, in every state, by id.
+	projects map[string]Project
+	// roles holds every membership, of disabled principals and of
+	// projects in every state too.
+	roles map[membership]Role
 }
+
+// membership names one principal in one project.
+type membership struct{ principal, project string }
 
 // indexedKey is a key in the index: its principal and its text.
 type indexedKey struct{ principal, key string }
@@ -212,20 +250,80 @@ type indexedKey struct{ principal, key string }
 // It reads memory only, never the database, so it is safe to call for
 // every key offered before authentication. The index is loaded when the
 // store opens and follows this store's writes; a change another process
-// makes to the database is not seen until the next open.
+// makes to the database is not seen until [Control.Reload] or the next
+// open.
 func (c *Control) AuthorizedKey(fingerprint string) (principal, key string, ok bool) {
-	c.keys.mu.RLock()
-	defer c.keys.mu.RUnlock()
-	k, found := c.keys.byFingerprint[fingerprint]
-	if !found || !c.keys.active[k.principal] {
+	c.ix.mu.RLock()
+	defer c.ix.mu.RUnlock()
+	k, found := c.ix.byFingerprint[fingerprint]
+	if !found || !c.ix.active[k.principal] {
 		return "", "", false
 	}
 	return k.principal, k.key, true
 }
 
-// loadKeys replaces the key index with what the database holds, read in
-// one snapshot.
-func (c *Control) loadKeys(ctx context.Context) error {
+// Access is what a principal may do in a project, as [Control.Access]
+// reads it from memory.
+type Access struct {
+	// Project is the project, when Active.
+	Project Project
+	// Active reports whether the project exists and is active. A project
+	// that is unknown, still being created or archived is served to no
+	// one.
+	Active bool
+	// Role is what the principal is in the project: RoleAdmin for a
+	// server admin and for an active principal whose role there is
+	// admin, RoleMember for an active member, and empty for anyone else,
+	// a disabled principal included. It does not depend on Active.
+	Role Role
+}
+
+// Access reports whether project is active and what principal is in it:
+// the one check of a handshake, and of a project store's admin rights
+// ([Options.IsAdmin]). It reads memory only, as [Control.AuthorizedKey]
+// does, and follows this store's writes the same way.
+func (c *Control) Access(principal, project string) Access {
+	c.ix.mu.RLock()
+	defer c.ix.mu.RUnlock()
+	var a Access
+	if p, ok := c.ix.projects[project]; ok && p.State == ProjectActive {
+		a.Project, a.Active = p, true
+	}
+	switch {
+	case c.IsServerAdmin(principal):
+		a.Role = RoleAdmin
+	case c.ix.active[principal]:
+		a.Role = c.ix.roles[membership{principal, project}]
+	}
+	return a
+}
+
+// ActiveProjects returns how many projects are active, from memory.
+func (c *Control) ActiveProjects() int {
+	c.ix.mu.RLock()
+	defer c.ix.mu.RUnlock()
+	n := 0
+	for _, p := range c.ix.projects {
+		if p.State == ProjectActive {
+			n++
+		}
+	}
+	return n
+}
+
+// Reload reads the index again from the database, so that it holds what
+// another process wrote: `starfixd control init` run beside the daemon.
+// It waits for a write in progress, so no change of this store's is
+// lost.
+func (c *Control) Reload(ctx context.Context) error {
+	c.wmu.Lock()
+	defer c.wmu.Unlock()
+	return c.load(ctx)
+}
+
+// load replaces the index with what the database holds, read in one
+// snapshot. The caller holds wmu, or is OpenControl.
+func (c *Control) load(ctx context.Context) error {
 	q, end, err := c.s.beginRead(ctx)
 	if err != nil {
 		return err
@@ -234,14 +332,14 @@ func (c *Control) loadKeys(ctx context.Context) error {
 	active := map[string]bool{}
 	names, err := queryStrings(ctx, q, `SELECT name FROM principals WHERE state = ?`, string(PrincipalActive))
 	if err != nil {
-		return fmt.Errorf("load key index: %w", err)
+		return fmt.Errorf("load index: %w", err)
 	}
 	for _, n := range names {
 		active[n] = true
 	}
 	rows, err := q.QueryContext(ctx, "SELECT fingerprint, principal, `key` FROM principal_keys")
 	if err != nil {
-		return fmt.Errorf("load key index: %w", err)
+		return fmt.Errorf("load index: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 	keys := map[string]indexedKey{}
@@ -249,17 +347,56 @@ func (c *Control) loadKeys(ctx context.Context) error {
 		var fp string
 		var k indexedKey
 		if err := rows.Scan(&fp, &k.principal, &k.key); err != nil {
-			return fmt.Errorf("load key index: %w", err)
+			return fmt.Errorf("load index: %w", err)
 		}
 		keys[fp] = k
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("load key index: %w", err)
+		return fmt.Errorf("load index: %w", err)
 	}
-	c.keys.mu.Lock()
-	c.keys.byFingerprint, c.keys.active = keys, active
-	c.keys.mu.Unlock()
+	projects, roles, err := loadProjects(ctx, q)
+	if err != nil {
+		return fmt.Errorf("load index: %w", err)
+	}
+	c.ix.mu.Lock()
+	c.ix.byFingerprint, c.ix.active, c.ix.projects, c.ix.roles = keys, active, projects, roles
+	c.ix.mu.Unlock()
 	return nil
+}
+
+// loadProjects reads every project and every membership for the index.
+func loadProjects(ctx context.Context, q querier) (map[string]Project, map[membership]Role, error) {
+	projects := map[string]Project{}
+	prows, err := q.QueryContext(ctx, projectSelect)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = prows.Close() }()
+	for prows.Next() {
+		p, err := scanProject(prows)
+		if err != nil {
+			return nil, nil, err
+		}
+		projects[p.ID] = p
+	}
+	if err := prows.Err(); err != nil {
+		return nil, nil, err
+	}
+	roles := map[membership]Role{}
+	mrows, err := q.QueryContext(ctx, `SELECT principal, project, role FROM members`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = mrows.Close() }()
+	for mrows.Next() {
+		var m membership
+		var r Role
+		if err := mrows.Scan(&m.principal, &m.project, &r); err != nil {
+			return nil, nil, err
+		}
+		roles[m] = r
+	}
+	return projects, roles, mrows.Err()
 }
 
 // queryStrings runs query, which selects one string column, and returns

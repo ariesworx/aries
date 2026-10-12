@@ -13,19 +13,19 @@ import (
 // touch records that a's session is present. Presence is best effort: a
 // failure is logged and never fails the connection or the request that
 // caused it.
-func (s *Server) touch(ctx context.Context, log *slog.Logger, a store.Actor, harness string) {
+func (pr *served) touch(ctx context.Context, log *slog.Logger, a store.Actor, harness string) {
 	if !store.ValidHarness(harness) {
 		log.Info("ignored harness", "harness", fmt.Sprintf("%.40q", harness))
 		harness = ""
 	}
-	tctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
+	tctx, cancel := context.WithTimeout(ctx, pr.timeout)
 	defer cancel()
-	if err := s.cfg.Store.TouchAgent(tctx, a, harness); err != nil && ctx.Err() == nil {
+	if err := pr.store.TouchAgent(tctx, a, harness); err != nil && ctx.Err() == nil {
 		log.Error("register agent", "err", err)
 	}
 }
 
-func who(ctx context.Context, s *Server, _ store.Actor, in proto.WhoArgs) (any, *proto.Error) {
+func who(ctx context.Context, pr *served, _ store.Actor, in proto.WhoArgs) (any, *proto.Error) {
 	var since time.Duration
 	if in.Since != "" {
 		d, err := proto.ParseDuration(in.Since)
@@ -35,10 +35,10 @@ func who(ctx context.Context, s *Server, _ store.Actor, in proto.WhoArgs) (any, 
 		}
 		since = d
 	}
-	now := s.cfg.Store.Now()
-	agents, more, err := s.cfg.Store.WhoPage(ctx, since, in.Limit)
+	now := pr.store.Now()
+	agents, more, err := pr.store.WhoPage(ctx, since, in.Limit)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpWho, "", 0, err)
+		return nil, pr.mapErr(ctx, proto.OpWho, "", 0, err)
 	}
 	out := proto.WhoResult{Now: now, Agents: []proto.Agent{}, More: more}
 	for _, a := range agents {

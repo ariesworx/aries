@@ -51,8 +51,8 @@
 // # Authorization
 //
 // While a live claim holds an issue, only the holder's principal and the
-// admins named in [Options.Admins] may update, close, reopen, finish,
-// hand off or accept it. Anyone else is refused with a [*ForbiddenError]
+// admins ([Options.Admins], and whoever [Options.IsAdmin] says is one
+// when asked) may update, close, reopen, finish, hand off or accept it. Anyone else is refused with a [*ForbiddenError]
 // before anything is written. Comments, labels and dependencies stay open
 // to everyone. An admin's change to an issue another principal holds is
 // recorded as an [OpAdminOverride] event ahead of the change's own events.
@@ -60,7 +60,9 @@
 // The control store authorizes each write inside its transaction: a
 // server admin ([ControlOptions.Admins]) may make every change, a
 // project admin some, and only over principals whose every project they
-// administer ([Control.AddKey]). Its reads are not guarded.
+// administer ([Control.AddKey]). Its reads are not guarded. The daemon
+// asks [Control.Access], which reads memory, whom to let into a project
+// and who its admins are.
 //
 // # Concurrency
 //

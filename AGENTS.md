@@ -25,11 +25,11 @@ stage is in progress.
 | Path | Holds |
 |---|---|
 | `cmd/sfx` | `sfx` entry point: builds a `cli.Env` from the process and calls `cli.Run` |
-| `cmd/starfixd` | `starfixd` entry point: `serve`, `stdio`, `upgrade`, and the admin `import-bd` and `export-bd` |
-| `internal/store` | Typed store over Dolt: single writer, CAS updates, event log, ready and blocked queries. Also `Control` (`control*.go`), the same machinery over a second database for what is the server's: projects, principals, their public keys and memberships with roles. Nothing calls `Control` yet |
+| `cmd/starfixd` | `starfixd` entry point: `serve`, `stdio`, `upgrade`, and the admin `control init`, `import-bd` and `export-bd` |
+| `internal/store` | Typed store over Dolt: single writer, CAS updates, event log, ready and blocked queries. Also `Control` (`control*.go`), the same machinery over a second database for what is the server's: projects, principals, their public keys and memberships with roles, and the in-memory index the daemon reads at each handshake and each project store asks for its admins |
 | `internal/store/migrations`, `internal/store/controlmigrations` | Embedded schema migrations for a project's database and for the control database, two separate sets: `NNNN_name.sql`, each numbered 1..n without gaps |
 | `internal/proto` | Wire protocol: NDJSON frames, handshake, `Op` constants, `*Args` and `*Result` types, typed errors |
-| `internal/server` | Daemon: socket, peer check, sshd bridge, dispatch of ops to the store, error mapping, settings |
+| `internal/server` | Daemon: socket, peer check, sshd bridge, dispatch of ops to the connection's project's store, error mapping, settings; with `control_db`, the membership check at the handshake and the registry of open project stores (`registry.go`) |
 | `internal/client` | In-process SSH client with a pinned host key, over TCP or a Google Cloud IAP tunnel; `.starfix.yaml` discovery, session ids |
 | `internal/safetext` | Unsafe characters (controls, bidi): the store's validation, bd import cleaning, and the escaping of everything clients print |
 | `internal/secretscan` | Text that looks like a credential (private keys, service and bearer tokens, JWTs, passwords in URLs and commands, secret assignments, long random tokens): the store's secrets lint for memories |
@@ -106,16 +106,24 @@ skip without it too.
    dependency needs a stated reason in the pull request. Release builds are
    `CGO_ENABLED=0`, `-trimpath`, `-ldflags "-s -w"`, so code must build
    without cgo. Pin GitHub Actions by commit SHA with a version comment.
-5. **Store writes go through `Store.write`**, on the single writer
-   connection, one SQL transaction per operation. Do not open another
-   writer or write to Dolt from anywhere else. A write that changes an
+5. **Store writes go through `Store.write`**, on the store's single writer
+   connection, one SQL transaction per operation. There is one store, and
+   so one writer, for each database: each project's, and the control
+   database's (`Control.write`). Do not open another writer on a
+   database or write to Dolt from anywhere else; the daemon's registry
+   never opens a project's store beside one still closing. A write that changes an
    issue (its fields, status, handoffs or acceptance) first calls
    `wtx.guard` with the issue's claim (`store/authz.go`), so only the
    holder's principal or an admin may change an issue someone holds.
    `ImportIssue`, which only the operator's `starfixd import-bd` reaches,
    is exempt: it writes an issue whoever holds it, and ends the claim,
    telling the holder, when it leaves the issue anything but in progress
-   with the holder (closed, open, blocked or reassigned).
+   with the holder (closed, open, blocked or reassigned). The control
+   store's equivalent is `ControlOptions.Operator`, which only `starfixd
+   control init` sets: it lets the reserved principal `import` write as a
+   server admin. Who is an admin of a project's issues is `Store.IsAdmin`:
+   `Options.Admins`, and in a server of many projects `Options.IsAdmin`,
+   which the daemon answers from the control store.
 6. **Every `UPDATE` sets `write_id = ?`** to a value unique to that write.
    Dolt detects conflicts per cell, not per row, so `rev = rev + 1` alone
    lets two concurrent writers both succeed silently (stage 0,
@@ -184,9 +192,9 @@ skip without it too.
     `docs/design/starfix.md` rather than rewriting the plan.
 18. **Bound what a client can grow.** Anything a principal can add to
     without limit (rows, items, connections, writes) gets a cap in
-    `store.Limits` or `server.Limits`, with a default, a `limits:`
-    setting, a table-driven test and a row in the Limits table in
-    `docs/server.md`.
+    `store.Limits`, `store.ControlLimits` or `server.Limits`, with a
+    default, a `limits:` setting, a table-driven test and a row in the
+    Limits table in `docs/server.md`.
     A refusal past a cap is `invalid` or `busy` with a `Fix`. Tests run
     against a locked-down Dolt account (`dolttest`), as `starfixd` does.
 

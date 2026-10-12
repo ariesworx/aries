@@ -110,7 +110,7 @@ func (c *Control) AddPrincipal(ctx context.Context, actor Actor, name, project s
 		if err := w.event(ctx, OpPrincipalAdd, name, nil, out); err != nil {
 			return err
 		}
-		w.index = func(ix *keyIndex) { ix.active[name] = true }
+		w.indexed(func(ix *index) { ix.active[name] = true })
 		if project == "" {
 			return nil
 		}
@@ -170,13 +170,13 @@ func (c *Control) setPrincipalState(ctx context.Context, actor Actor, name strin
 			return fmt.Errorf("%w: principal %s changed during %s", errRetry, name, op)
 		}
 		out.State, out.UpdatedAt, out.Rev = to, w.now, cur.Rev+1
-		w.index = func(ix *keyIndex) {
+		w.indexed(func(ix *index) {
 			if to == PrincipalActive {
 				ix.active[name] = true
 			} else {
 				delete(ix.active, name)
 			}
-		}
+		})
 		return w.event(ctx, op, name, cur, out)
 	})
 	if err != nil {

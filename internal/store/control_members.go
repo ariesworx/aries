@@ -116,6 +116,7 @@ func (c *Control) SetMember(ctx context.Context, actor Actor, principal, project
 			return fmt.Errorf("%w: member %s of %s changed during the write", errRetry, principal, project)
 		}
 		out.Role, out.UpdatedAt, out.Rev = role, w.now, cur.Rev+1
+		w.indexed(func(ix *index) { ix.roles[membership{principal, project}] = role })
 		return w.event(ctx, OpMemberSet, memberTarget(principal, project), cur, out)
 	})
 	if err != nil {
@@ -137,6 +138,7 @@ func (w *cwtx) addMember(ctx context.Context, principal, project string, role Ro
   VALUES (?, ?, ?, ?, ?, ?, 1, ?)`, principal, project, string(role), m.AddedBy, w.now, w.now, randomInt63()); err != nil {
 		return Member{}, fmt.Errorf("add member %s to %s: %w", principal, project, err)
 	}
+	w.indexed(func(ix *index) { ix.roles[membership{principal, project}] = role })
 	return m, w.event(ctx, OpMemberSet, memberTarget(principal, project), nil, m)
 }
 
@@ -160,6 +162,7 @@ func (c *Control) RemoveMember(ctx context.Context, actor Actor, principal, proj
 			return fmt.Errorf("remove member %s from %s: %w", principal, project, err)
 		}
 		out = cur
+		w.indexed(func(ix *index) { delete(ix.roles, membership{principal, project}) })
 		return w.event(ctx, OpMemberRemove, memberTarget(principal, project), cur, nil)
 	})
 	if err != nil {

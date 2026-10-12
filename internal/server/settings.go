@@ -21,13 +21,20 @@ import (
 const DefaultConfigFile = "/etc/starfix/starfixd.yaml"
 
 // Settings configure the starfixd commands: serve, stdio, upgrade, and the
-// admin commands import-bd and export-bd.
+// admin commands control init, import-bd and export-bd.
 type Settings struct {
 	// DSN is the Dolt database (go-sql-driver/mysql form). It may hold a
 	// password, so it never comes from a command-line flag with one.
 	DSN string `yaml:"dsn"`
 	// Socket is the daemon's unix socket. Default DefaultSocket.
 	Socket string `yaml:"socket"`
+	// ControlDB names the control database, on the same Dolt server and
+	// account as DSN, and makes this a server of many projects (design
+	// §15): each project's database is then named by its row there, and
+	// DSN's, Project, Prefix and Account describe the project `starfixd
+	// control init` adopts, which the admin commands act on by default.
+	// Empty, the default, is a server of the one project in DSN.
+	ControlDB string `yaml:"control_db"`
 	// Project is the UUID of the project served.
 	Project string `yaml:"project"`
 	// Prefix is the issue-ID prefix for generated IDs. Default "sf".
@@ -83,6 +90,8 @@ const (
 	EnvLogFormat = "STARFIXD_LOG_FORMAT"
 	// EnvAdmins sets Admins, comma-separated.
 	EnvAdmins = "STARFIXD_ADMINS"
+	// EnvControlDB sets ControlDB.
+	EnvControlDB = "STARFIXD_CONTROL_DB"
 )
 
 // ResolveSettings merges, highest precedence first: flags, the environment,
@@ -93,8 +102,9 @@ const (
 // flags.DSN, which the process list would show; a config file with an
 // unknown key, or with a password and any access for group or others; an
 // admin name that is invalid or reserved; an invalid limit; an account
-// that is not a code name; a systemd unit that is not a unit name; and an
-// unknown log level or format.
+// that is not a code name; a control database that is not a database
+// name, or is the DSN's own; a systemd unit that is not a unit name; and
+// an unknown log level or format.
 func ResolveSettings(flags Settings, configPath string, getenv func(string) string) (Settings, error) {
 	if flags.DSN != "" {
 		cfg, err := mysql.ParseDSN(flags.DSN)
@@ -117,7 +127,7 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 		return Settings{}, err
 	}
 	env := Settings{DSN: getenv(EnvDSN), Socket: getenv(EnvSocket), Project: getenv(EnvProject),
-		LogLevel: getenv(EnvLogLevel), LogFormat: getenv(EnvLogFormat)}
+		LogLevel: getenv(EnvLogLevel), LogFormat: getenv(EnvLogFormat), ControlDB: getenv(EnvControlDB)}
 	out := Settings{Socket: DefaultSocket, Prefix: "sf", LogLevel: "info", LogFormat: "text", Account: DefaultAccount}
 	for _, s := range []Settings{file, env, flags} {
 		for _, f := range []struct {
@@ -127,6 +137,7 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 			{&out.DSN, s.DSN}, {&out.Socket, s.Socket}, {&out.Project, s.Project},
 			{&out.Prefix, s.Prefix}, {&out.Latest, s.Latest}, {&out.SystemdUnit, s.SystemdUnit},
 			{&out.LogLevel, s.LogLevel}, {&out.LogFormat, s.LogFormat}, {&out.Account, s.Account},
+			{&out.ControlDB, s.ControlDB},
 		} {
 			if f.v != "" {
 				*f.dst = f.v
@@ -156,6 +167,9 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 	if !store.ValidAccount(out.Account) {
 		return Settings{}, fmt.Errorf("account %q is not a code name; fix: set account: to 1-64 lowercase letters, digits and inner hyphens, such as %s", out.Account, DefaultAccount)
 	}
+	if err := out.checkControlDB(); err != nil {
+		return Settings{}, err
+	}
 	if out.SystemdUnit != "" && !UnitPattern.MatchString(out.SystemdUnit) {
 		return Settings{}, fmt.Errorf("systemd_unit %q is not a unit name; fix: set it to the service's name, for example starfixd.service", out.SystemdUnit)
 	}
@@ -164,6 +178,27 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 	}
 	return out, nil
 }
+
+// checkControlDB refuses a control database that is not a database name,
+// or that is the database the DSN names: that one holds a project.
+func (s Settings) checkControlDB() error {
+	if s.ControlDB == "" {
+		return nil
+	}
+	if !store.ValidDBName(s.ControlDB) {
+		return fmt.Errorf("control_db %q is not a database name; fix: set control_db: or %s to a lowercase letter, then lowercase letters, digits and underscores, such as starfix_control",
+			s.ControlDB, EnvControlDB)
+	}
+	if cfg, err := mysql.ParseDSN(s.DSN); err == nil && cfg.DBName == s.ControlDB {
+		return fmt.Errorf("control_db %q is the database in the DSN, which holds a project; fix: set control_db: to a database of its own, such as starfix_control",
+			s.ControlDB)
+	}
+	return nil
+}
+
+// ControlDSN returns the DSN of the control database (ControlDB), which
+// must be set.
+func (s Settings) ControlDSN() (string, error) { return DatabaseDSN(s.DSN, s.ControlDB) }
 
 // NewLogger returns a logger writing to w at level (debug, info, warn or
 // error) in format (text or json).

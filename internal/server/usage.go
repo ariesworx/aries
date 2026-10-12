@@ -13,26 +13,26 @@ import (
 // usage stores the usage records a client sends for its own session
 // (design §12.1); the principal, session and machine are the
 // connection's.
-func usage(ctx context.Context, s *Server, a store.Actor, in proto.UsageArgs) (any, *proto.Error) {
+func usage(ctx context.Context, pr *served, a store.Actor, in proto.UsageArgs) (any, *proto.Error) {
 	recs := make([]store.UsageRecord, len(in.Records))
 	for i, r := range in.Records {
 		recs[i] = store.UsageRecord{Harness: r.Harness, RequestID: r.RequestID, Model: r.Model, At: r.At,
 			Granularity: store.Granularity(r.Granularity), SpanStart: r.SpanStart, Tokens: store.Tokens(r.Tokens)}
 	}
-	added, err := s.cfg.Store.AddUsage(ctx, a, recs)
+	added, err := pr.store.AddUsage(ctx, a, recs)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpUsage, "", 0, err)
+		return nil, pr.mapErr(ctx, proto.OpUsage, "", 0, err)
 	}
 	return proto.UsageResult{Added: added.Added, Duplicates: added.Duplicates}, nil
 }
 
 // wireIssueUsage is show's usage, with the server's default account when
 // nothing in the issue's chain sets one.
-func (s *Server) wireIssueUsage(u store.IssueUsage) *proto.IssueUsage {
+func (pr *served) wireIssueUsage(u store.IssueUsage) *proto.IssueUsage {
 	out := &proto.IssueUsage{Account: u.Account, AccountFrom: string(u.AccountFrom), HeldSeconds: seconds(u.Held),
 		Split: u.Split, Models: wireModels(u.Models), Capped: u.Capped}
 	if out.Account == "" {
-		out.Account = s.cfg.Account
+		out.Account = pr.account
 	}
 	out.CostUSD, out.Unpriced = wireCost(u.UsageSummary)
 	out.LoggedSeconds, out.Logged = seconds(u.Logged), wirePeople(u.LoggedBy)

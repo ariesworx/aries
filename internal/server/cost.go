@@ -22,22 +22,22 @@ func parseTime(what, s string) (time.Time, error) {
 }
 
 // priceSet sets a model's rates; the store refuses anyone but an admin.
-func priceSet(ctx context.Context, s *Server, a store.Actor, in proto.PriceSetArgs) (any, *proto.Error) {
+func priceSet(ctx context.Context, pr *served, a store.Actor, in proto.PriceSetArgs) (any, *proto.Error) {
 	from, err := parseTime("from", in.From)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpPriceSet, "", 0, err)
+		return nil, pr.mapErr(ctx, proto.OpPriceSet, "", 0, err)
 	}
-	c, err := s.cfg.Store.SetPrice(ctx, a, in.Model, from, store.Rates(in.Rates))
+	c, err := pr.store.SetPrice(ctx, a, in.Model, from, store.Rates(in.Rates))
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpPriceSet, "", 0, err)
+		return nil, pr.mapErr(ctx, proto.OpPriceSet, "", 0, err)
 	}
 	return proto.PriceSetResult{Change: string(c)}, nil
 }
 
-func prices(ctx context.Context, s *Server, _ store.Actor, _ proto.PricesArgs) (any, *proto.Error) {
-	ps, err := s.cfg.Store.Prices(ctx)
+func prices(ctx context.Context, pr *served, _ store.Actor, _ proto.PricesArgs) (any, *proto.Error) {
+	ps, err := pr.store.Prices(ctx)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpPrices, "", 0, err)
+		return nil, pr.mapErr(ctx, proto.OpPrices, "", 0, err)
 	}
 	out := proto.PricesResult{Prices: []proto.Price{}}
 	for _, p := range ps {
@@ -47,14 +47,14 @@ func prices(ctx context.Context, s *Server, _ store.Actor, _ proto.PricesArgs) (
 }
 
 // cost reports the list-price equivalent of a window's tokens by group.
-func cost(ctx context.Context, s *Server, _ store.Actor, in proto.CostArgs) (any, *proto.Error) {
-	f, err := s.costFilter(in)
+func cost(ctx context.Context, pr *served, _ store.Actor, in proto.CostArgs) (any, *proto.Error) {
+	f, err := pr.costFilter(in)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpCost, "", 0, err)
+		return nil, pr.mapErr(ctx, proto.OpCost, "", 0, err)
 	}
-	r, err := s.cfg.Store.CostReport(ctx, f)
+	r, err := pr.store.CostReport(ctx, f)
 	if err != nil {
-		return nil, s.mapErr(ctx, proto.OpCost, "", 0, err)
+		return nil, pr.mapErr(ctx, proto.OpCost, "", 0, err)
 	}
 	out := proto.CostResult{By: in.By, Since: r.Since, Until: r.Until, Groups: []proto.CostGroup{}, Total: wireCostGroup(r.Total),
 		Truncated: r.Capped}
@@ -67,8 +67,8 @@ func cost(ctx context.Context, s *Server, _ store.Actor, in proto.CostArgs) (any
 }
 
 // costFilter reads a cost report's arguments; since is required.
-func (s *Server) costFilter(in proto.CostArgs) (store.CostFilter, error) {
-	f := store.CostFilter{By: store.CostBy(in.By), Account: s.cfg.Account, Limit: in.Limit}
+func (pr *served) costFilter(in proto.CostArgs) (store.CostFilter, error) {
+	f := store.CostFilter{By: store.CostBy(in.By), Account: pr.account, Limit: in.Limit}
 	if in.Since == "" {
 		return f, fmt.Errorf("%w: a cost report needs since: a date, a time or a duration such as 7d", store.ErrInvalid)
 	}

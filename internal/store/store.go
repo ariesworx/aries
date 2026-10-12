@@ -41,6 +41,12 @@ type Options struct {
 	// Admins are the principals who may change issues others hold and
 	// force a close. None may be a [Reserved] name.
 	Admins []string
+	// IsAdmin, when set, is asked as well as Admins, on every write and
+	// admin-only request, so its answer may change while the store is
+	// open: a multi-project starfixd answers from the control store's
+	// project admins ([Control.Access]). It must be fast, read no
+	// database, and be safe for concurrent use.
+	IsAdmin func(principal string) bool
 	// AllowUnsafeAccount opens the store even when the database account
 	// is root, holds rights beyond its database, or the server leaves
 	// secure_file_priv empty. Off, Open refuses such an account with an

@@ -32,6 +32,18 @@
 // ends expired claims and prunes old rows ([Server.Reap], [Server.Prune]).
 // Serve waits for all of them before it returns.
 //
+// # Many projects
+//
+// A server is given one store and the project it holds ([Config.Store]),
+// or a control store ([Config.Control]) and holds many, each in a
+// database and a store of its own. Then the hello's project is looked up
+// in the control store, and the principal must be a server admin or an
+// active member of it. A project's store is opened by its first
+// connection and shared by the rest; a registry closes it when it has
+// had none for a while, and caps how many are open. The reaper works
+// through every open store, and a store is reaped as it opens. Limits
+// per principal are then per principal in each project.
+//
 // [Limits] bound what one principal can make the daemon do: its
 // connections, their idle time, its write rate and its refusal log lines,
 // besides the store's limits. They are counted in memory, per daemon.
@@ -41,6 +53,6 @@
 // [Probe] the health check `starfixd upgrade` runs after a restart.
 //
 // The design is docs/design/starfix.md: §2 for the transport and the
-// trust model, and the "As built" notes in §7 for claims, the inbox,
-// authorization and the limits.
+// trust model, the "As built" notes in §7 for claims, the inbox,
+// authorization and the limits, and §15 for many projects.
 package server

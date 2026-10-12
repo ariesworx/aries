@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"regexp"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -21,11 +22,23 @@ import (
 
 // Config configures a Server.
 type Config struct {
-	// Store is the issue store. Required.
+	// Store is the issue store of a server of one project. Required,
+	// unless Control is set.
 	Store *store.Store
-	// Project is the UUID this daemon serves; a hello naming another is
-	// refused. Required.
+	// Project is the UUID a server of one project serves; a hello naming
+	// another is refused. Required with Store.
 	Project string
+	// Control, when set, makes this a server of many projects (design
+	// §15): a hello's project is looked up in it, the principal must be
+	// a server admin or an active member of that project, and each
+	// project's store is opened with Open on its first connection and
+	// closed when idle (Limits.OpenStores, Limits.StoreIdle). Store and
+	// Project are then left unset. The caller closes Control after Serve
+	// returns.
+	Control *store.Control
+	// Open opens the store of one of Control's projects; the server
+	// closes it. Required with Control. See [ProjectOpener].
+	Open func(context.Context, store.Project) (*store.Store, error)
 	// Version is the server's build version, reported in the handshake.
 	Version string
 	// ProtoMin and ProtoMax bound the client protocol versions accepted.
@@ -51,7 +64,8 @@ type Config struct {
 	// store's to apply (store.Options.Limits), and only shown here.
 	Limits Limits
 	// Account is the project's default account, shown for an issue that
-	// neither sets one nor inherits one. Empty takes DefaultAccount.
+	// neither sets one nor inherits one. Empty takes DefaultAccount. With
+	// Control each project's own account is used instead.
 	Account string
 }
 
@@ -69,8 +83,15 @@ type Server struct {
 	slots    conns
 	writes   buckets
 	refusals sampler
-	// now is the clock for the limits above; tests replace it.
+	// now is the clock for the limits above, and for how long a project
+	// store has been idle; tests replace it.
 	now func() time.Time
+
+	// single is the project of a server of one (Config.Store); stores
+	// holds the open projects of a server of many (Config.Control).
+	// Exactly one is set.
+	single *served
+	stores *registry
 }
 
 var (
@@ -88,10 +109,13 @@ func validActorPart(s string) bool { return len(s) <= 255 && s != "" && safetext
 
 // New checks cfg and returns a Server.
 func New(cfg Config) (*Server, error) {
-	if cfg.Store == nil {
+	multi := cfg.Control != nil
+	switch {
+	case multi && (cfg.Store != nil || cfg.Open == nil):
+		return nil, errors.New("server: a control store needs Open, and no Store")
+	case !multi && cfg.Store == nil:
 		return nil, errors.New("server: no store")
-	}
-	if !uuidPattern.MatchString(cfg.Project) {
+	case !multi && !uuidPattern.MatchString(cfg.Project):
 		return nil, fmt.Errorf("server: project %q is not a lowercase UUID", cfg.Project)
 	}
 	if cfg.ProtoMin == 0 {
@@ -128,12 +152,78 @@ func New(cfg Config) (*Server, error) {
 	s := &Server{cfg: cfg, conns: map[net.Conn]struct{}{}, now: time.Now}
 	s.writes = buckets{rate: cfg.Limits.WriteRate, burst: float64(cfg.Limits.WriteBurst)}
 	s.refusals = sampler{n: cfg.Limits.RefusalLogs}
+	if !multi {
+		s.single = &served{id: cfg.Project, store: cfg.Store, account: cfg.Account, log: cfg.Logger, timeout: cfg.RequestTimeout}
+		return s, nil
+	}
+	s.stores = &registry{open: s.openProject, max: cfg.Limits.OpenStores, idle: time.Duration(cfg.Limits.StoreIdle),
+		now: func() time.Time { return s.now() }, entries: map[string]*entry{}}
 	return s, nil
 }
 
+// openProject opens p's store for the registry. Before the store serves
+// a request it ends the claims that lapsed and prunes what aged while it
+// was closed: a closed store has no reaper.
+func (s *Server) openProject(ctx context.Context, p store.Project) (*served, error) {
+	octx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
+	defer cancel()
+	st, err := s.cfg.Open(octx, p)
+	if err != nil {
+		return nil, err
+	}
+	pr := &served{id: p.ID, store: st, account: p.Account, log: s.cfg.Logger.With("project", p.ID), timeout: s.cfg.RequestTimeout}
+	pr.log.Info("project store opened", "name", p.Name, "database", p.DBName)
+	pr.reap(ctx)
+	pr.prune(ctx, s.cfg.Limits)
+	return pr, nil
+}
+
+// each runs fn for the server's project, or for every project whose
+// store is open.
+func (s *Server) each(fn func(*served)) {
+	if s.single != nil {
+		fn(s.single)
+		return
+	}
+	s.stores.each(fn)
+}
+
+// CloseIdleStores closes the store of every project that has had no
+// connection for Limits.StoreIdle, as the reaper does on each tick. It
+// gives back connections to Dolt and nothing else. A server of one
+// project has nothing to close.
+func (s *Server) CloseIdleStores() {
+	if s.stores != nil {
+		s.stores.closeIdle()
+	}
+}
+
+// OpenStores returns how many project stores a server of many projects
+// holds open, and 1 for a server of one.
+func (s *Server) OpenStores() int {
+	if s.stores == nil {
+		return 1
+	}
+	return s.stores.size()
+}
+
+// refresh reads the control store's index again, so that what the
+// operator's `starfixd control init` wrote beside the daemon counts
+// without a restart.
+func (s *Server) refresh(ctx context.Context) {
+	if s.cfg.Control == nil {
+		return
+	}
+	rctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
+	defer cancel()
+	if err := s.cfg.Control.Reload(rctx); err != nil && ctx.Err() == nil {
+		s.cfg.Logger.Error("reload the control store", "err", err)
+	}
+}
+
 // Serve accepts connections on l until ctx is done, then closes l and every
-// open connection, waits for their handlers and the reaper to return, and
-// returns nil. An Accept error that may pass, such as running out of file
+// open connection, waits for their handlers and the reaper to return,
+// closes the project stores it opened (Config.Control), and returns nil. An Accept error that may pass, such as running out of file
 // descriptors, is logged at warn and retried after a pause that doubles
 // from 5ms to at most a second. Any other Accept error ends Serve the same
 // way, and Serve returns it.
@@ -156,6 +246,9 @@ func (s *Server) Serve(ctx context.Context, l net.Listener) error {
 		cancel()
 		<-closed
 		s.wg.Wait()
+		if s.stores != nil {
+			s.stores.closeAll()
+		}
 	}()
 	if s.cfg.ReapInterval > 0 {
 		s.wg.Go(func() { s.reapLoop(ctx) })
@@ -231,7 +324,9 @@ func transient(err error) bool {
 const pruneEvery = 10 * time.Minute
 
 // reapLoop ends expired claims every ReapInterval until ctx is done. It
-// prunes on the first tick, then every pruneEvery.
+// prunes on the first tick, then every pruneEvery. A server of many
+// projects also closes its idle stores and rereads the control store on
+// each tick.
 func (s *Server) reapLoop(ctx context.Context) {
 	t := time.NewTicker(s.cfg.ReapInterval)
 	defer t.Stop()
@@ -241,6 +336,8 @@ func (s *Server) reapLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			s.refresh(ctx)
+			s.CloseIdleStores()
 			s.Reap(ctx)
 			if time.Since(pruned) >= pruneEvery {
 				s.Prune(ctx)
@@ -251,37 +348,14 @@ func (s *Server) reapLoop(ctx context.Context) {
 }
 
 // Prune deletes registry rows and read inbox items older than the limits
-// keep them (S-6, S-7), and logs what it removed.
+// keep them (S-6, S-7), in every open store, and logs what it removed.
 func (s *Server) Prune(ctx context.Context) {
-	pctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
-	defer cancel()
-	n, err := s.cfg.Store.Prune(pctx, time.Duration(s.cfg.Limits.AgentKeep), time.Duration(s.cfg.Limits.InboxKeep))
-	if err != nil {
-		if ctx.Err() == nil {
-			s.cfg.Logger.Error("prune", "err", err)
-		}
-		return
-	}
-	if n != (store.Pruned{}) {
-		s.cfg.Logger.Info("pruned", "agents", n.Agents, "inbox", n.Inbox)
-	}
+	s.each(func(pr *served) { pr.prune(ctx, s.cfg.Limits) })
 }
 
-// Reap ends expired claims now and logs each.
+// Reap ends expired claims now, in every open store, and logs each.
 func (s *Server) Reap(ctx context.Context) {
-	rctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
-	defer cancel()
-	cs, err := s.cfg.Store.ReapClaims(rctx)
-	if err != nil {
-		if ctx.Err() == nil {
-			s.cfg.Logger.Error("reap claims", "err", err)
-		}
-		return
-	}
-	for _, c := range cs {
-		s.cfg.Logger.Info("claim expired", "issue", c.Issue, "principal", c.Holder.Principal,
-			"session", c.Holder.Session, "epoch", c.Epoch)
-	}
+	s.each(func(pr *served) { pr.reap(ctx) })
 }
 
 // Handshake timeouts: the bridge frame comes at once; the hello follows the
@@ -310,6 +384,14 @@ type session struct {
 	pushMu sync.Mutex
 	// slot is set when the session holds a connection slot (s.slots).
 	slot bool
+	// key is what the session's connection slot, write bucket and
+	// refusal log lines are counted under (limitKey).
+	key string
+	// proj is the project the hello named. held is its entry in the
+	// registry of a server of many projects, set while the session
+	// counts as one of the store's connections.
+	proj *served
+	held *entry
 }
 
 // watching reports whether sess's watch is running, which exempts it
@@ -335,19 +417,25 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		s.refusals.log(log, "", s.now(), slog.LevelWarn, "refused socket peer", "err", err)
 		return
 	}
-	sess, err := s.handshake(c)
+	sess, err := s.handshake(ctx, c)
 	if sess != nil && sess.slot {
-		defer s.slots.release(sess.actor.Principal)
+		defer s.slots.release(sess.key)
+	}
+	if sess != nil && sess.held != nil {
+		defer s.stores.release(sess.held)
 	}
 	if err != nil {
 		key := ""
 		if sess != nil {
-			key = sess.actor.Principal
+			key = sess.key
 		}
 		s.refusals.log(log, key, s.now(), slog.LevelInfo, "handshake failed", "err", err)
 		return
 	}
-	principal := sess.actor.Principal
+	principal, key := sess.actor.Principal, sess.key
+	if s.stores != nil {
+		log = log.With("project", sess.proj.id)
+	}
 	log = log.With("principal", principal, "session", sess.actor.Session, "machine", sess.actor.Machine)
 	log.Debug("connected")
 	defer func() {
@@ -355,7 +443,7 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		s.unwatch(sess)
 	}()
 	if principal != ProbePrincipal { // a health check, not an agent to list in who
-		s.touch(ctx, log, sess.actor, sess.harness)
+		sess.proj.touch(ctx, log, sess.actor, sess.harness)
 	}
 	idle := time.Duration(s.cfg.Limits.IdleTimeout)
 	for {
@@ -374,7 +462,7 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 				_ = s.send(sess, 0, nil, proto.Errf(proto.CodeUnavailable, "reconnect; starfix does so on the next command",
 					fmt.Sprintf("connection closed after %s idle", proto.Span(idle))))
 			default:
-				s.refusals.log(log, principal, s.now(), slog.LevelInfo, "read failed", "err", err)
+				s.refusals.log(log, key, s.now(), slog.LevelInfo, "read failed", "err", err)
 				if errors.Is(err, proto.ErrFrameTooLarge) {
 					_ = s.send(sess, 0, nil, proto.Errf(proto.CodeInvalid, "send large text in smaller parts",
 						"request larger than 4 MiB"))
@@ -393,7 +481,7 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		var perr *proto.Error
 		ok, wait := true, time.Duration(0)
 		if !readOps[f.Op] {
-			ok, wait = s.writes.take(principal, s.now())
+			ok, wait = s.writes.take(key, s.now())
 		}
 		switch {
 		case !ok:
@@ -401,7 +489,7 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		case f.Op == proto.OpWatch:
 			res, perr = s.watch(rctx, sess, f.Args)
 		default:
-			res, perr = s.Dispatch(rctx, sess.actor, f.Op, f.Args)
+			res, perr = sess.proj.dispatch(rctx, sess.actor, f.Op, f.Args)
 		}
 		cancel()
 		if p := sess.push; p != nil {
@@ -412,7 +500,7 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 			// A refusal is worth seeing at the default level, sampled per
 			// principal (S-20); a success is one line per request, so only
 			// at debug.
-			s.refusals.log(log, principal, s.now(), slog.LevelInfo, "request", append(attrs, "code", string(perr.Code))...)
+			s.refusals.log(log, key, s.now(), slog.LevelInfo, "request", append(attrs, "code", string(perr.Code))...)
 		} else {
 			log.Debug("request", attrs...)
 		}
@@ -452,11 +540,13 @@ func (s *Server) busyWrites(principal string, wait time.Duration) *proto.Error {
 
 // handshake reads the bridge frame and the client's hello, and answers with
 // a welcome, or a refusal and an error. On success the session holds a
-// connection slot (sess.slot). A refusal after a valid bridge frame also
-// returns the session, so the caller can say whose it was, and so does a
-// welcome that could not be written, so the caller frees its slot; other
-// failures return nil.
-func (s *Server) handshake(c net.Conn) (*session, error) {
+// connection slot (sess.slot) and, in a server of many projects, counts
+// as a connection of its project's store (sess.held). A refusal after a
+// valid bridge frame also returns the session, so the caller can say
+// whose it was and free what it holds, and so does a welcome that could
+// not be written; other failures return nil. ctx bounds the opening of a
+// project's store.
+func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 	sess := &session{enc: proto.NewEncoder(c), dec: proto.NewDecoder(c)}
 	_ = c.SetReadDeadline(time.Now().Add(bridgeTimeout))
 	f, err := sess.dec.Decode()
@@ -470,6 +560,7 @@ func (s *Server) handshake(c net.Conn) (*session, error) {
 		return nil, fmt.Errorf("first frame is %q, not a bridge frame with a valid, unreserved principal", f.T)
 	}
 	sess.actor.Principal = f.Principal
+	sess.key = f.Principal
 
 	_ = c.SetReadDeadline(time.Now().Add(helloTimeout))
 	f, err = sess.dec.Decode()
@@ -491,9 +582,21 @@ func (s *Server) handshake(c net.Conn) (*session, error) {
 	if e := proto.CheckProto(f.Proto, s.cfg.ProtoMin, s.cfg.ProtoMax, s.cfg.Version); e != nil {
 		return refuse(e)
 	}
-	if f.Project != s.cfg.Project {
-		return refuse(proto.Errf(proto.CodeNotFound, "check `project` in .starfix.yaml, or the server address",
-			fmt.Sprintf("project %q is not served by this server", f.Project)))
+	var row store.Project
+	if s.stores == nil {
+		if f.Project != s.cfg.Project {
+			return refuse(notServed(f.Project))
+		}
+		sess.proj = s.single
+	} else {
+		acc, e := s.admit(sess.actor.Principal, f.Project)
+		if e != nil {
+			return refuse(e)
+		}
+		row = acc.Project
+		// Each project has its own allowance of a principal's
+		// connections, writes and refusal lines.
+		sess.key = limitKey(row.ID, sess.actor.Principal)
 	}
 	sess.actor.Session = f.Session
 	if sess.actor.Session == "" {
@@ -508,16 +611,72 @@ func (s *Server) handshake(c net.Conn) (*session, error) {
 			"session and machine must be 1-255 printable characters, without control or bidirectional characters"))
 	}
 	sess.harness = f.Harness
-	if ok, why := s.slots.acquire(sess.actor.Principal, s.cfg.Limits.Conns, s.cfg.Limits.ConnsPerPrincipal); !ok {
+	if ok, why := s.slots.acquire(sess.key, s.cfg.Limits.Conns, s.cfg.Limits.ConnsPerPrincipal); !ok {
 		return refuse(proto.Errf(proto.CodeBusy, "close other starfix sessions, or wait for them to end, and retry", why))
 	}
 	sess.slot = true
+	if s.stores != nil {
+		held, err := s.stores.acquire(ctx, row)
+		switch {
+		case errors.Is(err, errStoresFull):
+			return refuse(proto.Errf(proto.CodeBusy,
+				"retry in a minute; the server admin can raise open_stores under limits: in starfixd's config",
+				fmt.Sprintf("the server has its limit of %d projects open, each with a connection", s.cfg.Limits.OpenStores)))
+		case err != nil:
+			if ctx.Err() == nil {
+				s.cfg.Logger.Error("open project store", "project", row.ID, "database", row.DBName, "err", err)
+			}
+			return refuse(proto.Errf(proto.CodeUnavailable, "retry; if it persists, the server admin should check the starfixd log",
+				fmt.Sprintf("the server could not open project %q", row.ID)))
+		}
+		sess.held, sess.proj = held, held.pr
+	}
 	w.Session = sess.actor.Session
 	w.Principal = sess.actor.Principal
 	if err := sess.enc.Encode(w); err != nil {
 		return sess, err // sess holds a slot, which the caller frees
 	}
 	return sess, nil
+}
+
+// notServed refuses a hello for a project the server does not serve.
+func notServed(project string) *proto.Error {
+	return proto.Errf(proto.CodeNotFound, "check `project` in .starfix.yaml, or the server address",
+		fmt.Sprintf("project %q is not served by this server", project))
+}
+
+// admit decides a handshake in a server of many projects, from the
+// control store's memory. A project that is unknown, archived or still
+// being created is not served to anyone. An active one is served to a
+// server admin, to an active principal who is a member of it, and to
+// the upgrade's health probe, which no key can be; anyone else is
+// forbidden, whether they are disabled, in other projects only, or
+// unknown to the store.
+func (s *Server) admit(principal, project string) (store.Access, *proto.Error) {
+	acc := s.cfg.Control.Access(principal, project)
+	if !acc.Active {
+		return acc, notServed(project)
+	}
+	if acc.Role == "" && principal != ProbePrincipal {
+		return acc, proto.Errf(proto.CodeForbidden,
+			"ask a server admin, or one of the project's admins, to add you to the project",
+			fmt.Sprintf("%s is not a member of project %q", principal, project))
+	}
+	return acc, nil
+}
+
+// limitKey is what a principal's connections, writes and refusal log
+// lines are counted under in a server of many projects: the project and
+// the principal, so that each project has its own allowance. A server of
+// one project counts under the principal alone.
+func limitKey(project, principal string) string { return project + "/" + principal }
+
+// keyPrincipal returns the principal a limit key names.
+func keyPrincipal(key string) string {
+	if _, p, ok := strings.Cut(key, "/"); ok {
+		return p
+	}
+	return key
 }
 
 var sessionEncoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)

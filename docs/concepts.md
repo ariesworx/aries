@@ -223,11 +223,11 @@ the server pushes, `prime` or `start`. The digest's count of events does
 include a change to one, without saying what it was. Two people's `user`
 memories with the same key are two records.
 
-One starfix server serves one project, so today `team` and `project`
-reach the same people. `team` is for what holds across the team's
-projects, such as a review rule, and will reach further once one server
-holds several projects; the scope is stored, and `recall --scope`
-filters by it, now. An agent remembers in `project` scope unless the
+Each project's memories are in its own database, whether its server
+holds one project or several, so today `team` and `project` reach the
+same people: the project's. `team` is for what holds across the team's
+projects, such as a review rule, and will reach further in a later
+release; the scope is stored, and `recall --scope` filters by it, now. An agent remembers in `project` scope unless the
 memory is the person's own preference, when it uses `user` and asks if
 unsure, and uses `team` only when someone chose it.
 
