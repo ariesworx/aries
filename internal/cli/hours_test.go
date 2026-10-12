@@ -141,7 +141,7 @@ func TestLogUsage(t *testing.T) {
 		{"bad seats", []string{"-C", empty, "admin", "plans", "set", "team", "--fee", "25", "--seats", "x", "--from", "2026-09"}, "seats"},
 		{"bad month", []string{"-C", empty, "admin", "plans", "set", "team", "--fee", "25", "--seats", "3", "--from", "2026-09-01"},
 			`--from "2026-09-01" must be a month`},
-		{"admin needs a command", []string{"-C", empty, "admin"}, "admin needs prices, plans, project, principal or member"},
+		{"admin needs a command", []string{"-C", empty, "admin"}, "admin needs prices, plans, project, principal, member or key"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

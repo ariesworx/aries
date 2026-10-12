@@ -146,8 +146,12 @@ func (c *Control) Events(ctx context.Context, after int64, limit int) ([]Event, 
 type cwtx struct {
 	*wtx
 	lim ControlLimits
-	// admins reports whether a principal is a server admin.
+	// admins reports whether the config file names a principal a server
+	// admin (Control.ConfigAdmin): what protects it as a target.
 	admins func(string) bool
+	// configAdmins are the principals the config file names server
+	// admins.
+	configAdmins []string
 	// index holds the changes to apply to the index, in order, once the
 	// attempt commits.
 	index []func(*index)
@@ -174,10 +178,21 @@ func (c *Control) write(ctx context.Context, actor Actor, fn func(*cwtx) error) 
 	var changes []func(*index)
 	err := c.s.write(ctx, actor, func(w *wtx) error {
 		changes = nil
-		if c.operator && actor.Principal == OperatorPrincipal {
+		switch {
+		case c.operator && actor.Principal == OperatorPrincipal:
 			w.admin = true
+		case w.admin:
+			// Named in the config file. Disabled wins (decision 20),
+			// read here so that it holds when the write commits.
+			switch p, err := readPrincipal(ctx, w.tx, actor.Principal); {
+			case errors.Is(err, ErrNotFound):
+			case err != nil:
+				return err
+			default:
+				w.admin = p.State == PrincipalActive
+			}
 		}
-		cw := &cwtx{wtx: w, lim: c.lim, admins: c.IsServerAdmin}
+		cw := &cwtx{wtx: w, lim: c.lim, admins: c.ConfigAdmin, configAdmins: c.s.opts.Admins}
 		if err := fn(cw); err != nil {
 			return err
 		}
@@ -226,8 +241,9 @@ type index struct {
 	mu sync.RWMutex
 	// byFingerprint holds every key, of disabled principals too.
 	byFingerprint map[string]indexedKey
-	// active holds the principals whose state is active.
-	active map[string]bool
+	// active holds the principals whose state is active, and disabled
+	// those whose state is disabled. A name in neither has no row.
+	active, disabled map[string]bool
 	// projects holds every project, in every state, by id.
 	projects map[string]Project
 	// roles holds every membership, of disabled principals and of
@@ -273,9 +289,12 @@ type Access struct {
 	Active bool
 	// Role is what the principal is in the project: RoleAdmin for a
 	// server admin and for an active principal whose role there is
-	// admin, RoleMember for an active member, and empty for anyone else,
-	// a disabled principal included. It does not depend on Active.
+	// admin, RoleMember for an active member, and empty for anyone else.
+	// A disabled principal has none, a server admin included (decision
+	// 20). It does not depend on Active.
 	Role Role
+	// Disabled reports whether the principal has a row that is disabled.
+	Disabled bool
 }
 
 // Access reports whether project is active and what principal is in it:
@@ -290,7 +309,9 @@ func (c *Control) Access(principal, project string) Access {
 		a.Project, a.Active = p, true
 	}
 	switch {
-	case c.IsServerAdmin(principal):
+	case c.ix.disabled[principal]:
+		a.Disabled = true
+	case c.ConfigAdmin(principal):
 		a.Role = RoleAdmin
 	case c.ix.active[principal]:
 		a.Role = c.ix.roles[membership{principal, project}]
@@ -329,13 +350,15 @@ func (c *Control) load(ctx context.Context) error {
 		return err
 	}
 	defer end()
-	active := map[string]bool{}
-	names, err := queryStrings(ctx, q, `SELECT name FROM principals WHERE state = ?`, string(PrincipalActive))
-	if err != nil {
-		return fmt.Errorf("load index: %w", err)
-	}
-	for _, n := range names {
-		active[n] = true
+	active, disabled := map[string]bool{}, map[string]bool{}
+	for state, set := range map[PrincipalState]map[string]bool{PrincipalActive: active, PrincipalDisabled: disabled} {
+		names, err := queryStrings(ctx, q, `SELECT name FROM principals WHERE state = ?`, string(state))
+		if err != nil {
+			return fmt.Errorf("load index: %w", err)
+		}
+		for _, n := range names {
+			set[n] = true
+		}
 	}
 	rows, err := q.QueryContext(ctx, "SELECT fingerprint, principal, `key` FROM principal_keys")
 	if err != nil {
@@ -359,7 +382,7 @@ func (c *Control) load(ctx context.Context) error {
 		return fmt.Errorf("load index: %w", err)
 	}
 	c.ix.mu.Lock()
-	c.ix.byFingerprint, c.ix.active, c.ix.projects, c.ix.roles = keys, active, projects, roles
+	c.ix.byFingerprint, c.ix.active, c.ix.disabled, c.ix.projects, c.ix.roles = keys, active, disabled, projects, roles
 	c.ix.mu.Unlock()
 	return nil
 }

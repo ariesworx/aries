@@ -13,19 +13,21 @@ import (
 	"github.com/ariesworx/starfix/internal/proto"
 )
 
-// Access management (design §15.4): `sfx admin project`, `principal` and
-// `member`, for the admins of a server of many projects. Each command
+// Access management (design §15.4): `sfx admin project`, `principal`,
+// `member` and `key` (admin_key.go), for the admins of a server of many
+// projects. Each command
 // rides the connection of the repository it is run in, and acts on that
 // repository's project unless --project names another, by UUID or name.
 // The server decides who may run what.
 
 // adminGroups are the first words `sfx admin` takes.
-var adminGroups = []string{"prices", "plans", "project", "principal", "member"}
+var adminGroups = []string{"prices", "plans", "project", "principal", "member", "key"}
 
 // adminUsage is the usage of the access commands, for the command table.
 const adminUsage = "admin project add NAME [--prefix P] [--account A] | list | archive PROJECT | activate PROJECT" +
-	" | admin principal add NAME [--project P | --no-project] | list | disable NAME | enable NAME" +
-	" | admin member add NAME [--project P] [--role admin] | list [--project P] | remove NAME [--project P]"
+	" | admin principal add NAME [--key FILE]... [--project P | --no-project] | list | disable NAME | enable NAME" +
+	" | admin member add NAME [--project P] [--role admin] | list [--project P] | remove NAME [--project P]" +
+	" | admin key add NAME FILE|- | list NAME | remove FINGERPRINT"
 
 // only refuses a flag the action does not take: any that was given and
 // is not among allowed. --json is always allowed.
@@ -116,6 +118,7 @@ func adminProject(ctx context.Context, r *runner, args []string) error {
 			return nil
 		}
 		_, _ = fmt.Fprintf(r.env.Stdout, "project %s (%s): %s\n", esc(out.Name), esc(out.ID), esc(out.State))
+		printReleased(r.env.Stdout, out.Released, "its members")
 		return nil
 	}
 	return usagef(usage, "unknown project action %q", pos[0])
@@ -190,11 +193,13 @@ func printProjects(w io.Writer, res proto.ProjectsResult) {
 }
 
 func adminPrincipal(ctx context.Context, r *runner, args []string) error {
-	const usage = "admin principal add NAME [--project P | --no-project] | list [-n N] [--after NAME] | disable NAME | enable NAME"
+	const usage = "admin principal add NAME [--key FILE]... [--project P | --no-project] | list [-n N] [--after NAME] | disable NAME | enable NAME"
 	fs := r.newFlags("admin principal")
 	var add proto.PrincipalAddArgs
+	var keyFiles fileFlag
 	fs.StringVar(&add.Project, "project", "", "the project the new principal joins: a UUID or a name (default: this repository's)")
 	fs.BoolVar(&add.Unassigned, "no-project", false, "add the principal to no project (server admins only)")
+	fs.Var(&keyFiles, "key", "a public key file to add with the principal, such as ~/.ssh/id_ed25519.pub, or - for standard input (repeatable)")
 	list := listFlags(fs)
 	pos, err := parse(fs, args, usage)
 	if err != nil {
@@ -205,7 +210,7 @@ func adminPrincipal(ctx context.Context, r *runner, args []string) error {
 	}
 	switch action := pos[0]; action {
 	case "add":
-		if err := only(fs, usage, "principal add", "project", "no-project"); err != nil {
+		if err := only(fs, usage, "principal add", "project", "no-project", "key"); err != nil {
 			return err
 		}
 		switch {
@@ -213,9 +218,19 @@ func adminPrincipal(ctx context.Context, r *runner, args []string) error {
 			return usagef(usage, "principal add needs one name, such as bob")
 		case add.Unassigned && add.Project != "":
 			return usagef(usage, "give --project or --no-project, not both")
+		case len(keyFiles) > proto.MaxKeysPerAdd:
+			return usagef(usage, "principal add takes at most %d keys; add the rest with `sfx admin key add %s FILE`", proto.MaxKeysPerAdd, pos[1])
 		}
 		add.Name = pos[1]
-		var out proto.PrincipalResult
+		// Every file is read before anything is sent.
+		for _, f := range keyFiles {
+			line, err := r.publicKey(f)
+			if err != nil {
+				return err
+			}
+			add.Keys = append(add.Keys, line)
+		}
+		var out proto.PrincipalAddResult
 		if err := r.call(ctx, proto.OpPrincipalAdd, add, &out); err != nil {
 			return err
 		}
@@ -225,9 +240,12 @@ func adminPrincipal(ctx context.Context, r *runner, args []string) error {
 		}
 		if out.Project == "" {
 			_, _ = fmt.Fprintf(r.env.Stdout, "principal %s added, in no project\n", esc(out.ID))
-			return nil
+		} else {
+			_, _ = fmt.Fprintf(r.env.Stdout, "principal %s added, a member of project %s\n", esc(out.ID), esc(out.ProjectName))
 		}
-		_, _ = fmt.Fprintf(r.env.Stdout, "principal %s added, a member of project %s\n", esc(out.ID), esc(out.ProjectName))
+		for _, k := range out.Keys {
+			_, _ = fmt.Fprintf(r.env.Stdout, "key %s added to %s\n", esc(k), esc(out.ID))
+		}
 		return nil
 	case "list":
 		if err := only(fs, usage, "principal list", "n", "after"); err != nil {
@@ -266,6 +284,7 @@ func adminPrincipal(ctx context.Context, r *runner, args []string) error {
 			return nil
 		}
 		_, _ = fmt.Fprintf(r.env.Stdout, "%s: %s\n", esc(out.ID), esc(out.State))
+		printReleased(r.env.Stdout, out.Released, out.ID)
 		return nil
 	}
 	return usagef(usage, "unknown principal action %q", pos[0])
@@ -352,6 +371,7 @@ func adminMember(ctx context.Context, r *runner, args []string) error {
 			return nil
 		}
 		_, _ = fmt.Fprintf(r.env.Stdout, "%s removed from project %s\n", esc(out.ID), esc(out.ProjectName))
+		printReleased(r.env.Stdout, out.Released, out.ID)
 		if out.Warning != "" {
 			_, _ = fmt.Fprintf(r.env.Stderr, "sfx: warning: %s\n", esc(out.Warning))
 		}

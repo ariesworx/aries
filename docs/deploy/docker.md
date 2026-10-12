@@ -19,6 +19,20 @@ sshd with a forced command per key. starfixd runs without `--dev`, so it
 makes every check it makes on a real server. The files are in
 [deploy/docker](../../deploy/docker).
 
+It is a server of [many projects](../server.md#serving-many-projects):
+it has a control database and eight database names granted for new
+projects, the project it starts with is adopted under the name `first`,
+and sshd asks starfixd for keys
+([Keys from the store](../server.md#keys-from-the-store)). So you can
+try `sfx admin project add`, and add a person with `sfx admin principal
+add NAME --key FILE` and no restart.
+
+**The many-projects setup of this image, and the smoke test's steps for
+it, have not been run yet:** they were written on a machine with no
+Docker. If the container does not start, or a key added with `sfx admin`
+is refused, that is the first thing to suspect; `docker compose logs`
+shows what sshd and starfixd said.
+
 ## What you need
 
 - **Docker Desktop or OrbStack** on a Mac, Apple silicon or Intel, or
@@ -38,14 +52,16 @@ Run everything from the repository root, on the branch you want to test.
 export COMPOSE_FILE=deploy/docker/compose.yaml
 export STARFIX_KEYS="alice $(cat ~/.ssh/id_ed25519.pub)"
 docker compose up -d --build --wait
-docker compose logs --no-log-prefix starfix | grep -A 12 'test server ready' | tail -n 13
+docker compose logs --no-log-prefix starfix | grep -A 13 'test server ready' | tail -n 14
 ```
 
 The build compiles `starfixd` and `sfx` from your checkout and downloads
 Dolt at the release starfix pins, checking its SHA-256. The first start
-makes the host key, the project and Dolt's password, which only the
-config file holds (mode 0600) and nothing prints. The log ends with what
-a client needs (these values are invented):
+makes the host key, the project, the control database and Dolt's
+password, which only the config file holds (mode 0600) and nothing
+prints. Every start then runs `starfixd control init`, which records the
+project and the principals and keys you gave. The log ends with what a
+client needs (these values are invented):
 
 ```text
 starfix test server ready (not for production)
@@ -53,6 +69,7 @@ starfix test server ready (not for production)
   project     6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f
   principals  alice
   admins      alice
+  more        sfx admin project add NAME (8 database names granted); sfx admin principal add NAME --key FILE
 
 Save this as .starfix.yaml in a scratch repository:
 
@@ -70,8 +87,8 @@ so there is nothing to verify out of band.
 
 | Variable | Default | Sets |
 |---|---|---|
-| `STARFIX_KEYS` | none | The principals: one `NAME TYPE KEY` line per key, such as `alice ssh-ed25519 AAAA…`. A file mounted at `/etc/starfix-keys` adds lines. A start that gives keys replaces those installed before; one that gives none keeps them |
-| `STARFIX_ADMINS` | the first name | The [admins](../server.md#admins), comma-separated |
+| `STARFIX_KEYS` | none | The principals: one `NAME TYPE KEY` line per key, such as `alice ssh-ed25519 AAAA…`. A file mounted at `/etc/starfix-keys` adds lines. A start that gives keys rewrites `authorized_keys` with them, and one that gives none keeps the file. Each start also copies them into the control database, where they stay: dropping a name here no longer removes it, so remove it with `sfx admin principal disable NAME` or `sfx admin key remove FINGERPRINT`. Everyone but the admins becomes a member of the first project |
+| `STARFIX_ADMINS` | the first name | The server [admins](../server.md#admins), comma-separated. They reach every project and need no membership |
 | `STARFIX_PROJECT` | random | The project UUID, used on the first start only |
 | `STARFIX_PORT` | `2222` | The port on 127.0.0.1, also printed in `.starfix.yaml` |
 
@@ -98,20 +115,27 @@ pbpaste > .starfix.yaml        # or paste it in an editor
 [Using sfx](../cli.md) and the [agent guide](../agents.md) work as on any
 server.
 
-**To act as a second principal**, such as a non-admin, give it a key and
-start the server again with both keys. Compose recreates the container,
-and the volume keeps the data. alice stays the only admin, as the first
-name:
+**To act as a second principal**, such as a non-admin, make it a key
+and add it as alice, the admin. Nothing restarts:
 
 ```sh
 ssh-keygen -q -t ed25519 -N '' -C bob@example.com -f ~/sfx-scratch/bob
-export STARFIX_KEYS="alice $(cat ~/.ssh/id_ed25519.pub)
-bob $(cat ~/sfx-scratch/bob.pub)"
-docker compose up -d --wait
+cd ~/sfx-scratch && ./sfx admin principal add bob --key ~/sfx-scratch/bob.pub
 ```
 
 Then give bob a repository of his own, with the same `.starfix.yaml`
-plus `key: ~/sfx-scratch/bob`, and run `~/sfx-scratch/sfx` there.
+plus `key: ~/sfx-scratch/bob`, and run `~/sfx-scratch/sfx` there. bob is
+a member of the first project and no admin. `./sfx admin key remove
+FINGERPRINT` takes his key away again, and `./sfx admin key list bob`
+shows the fingerprint.
+
+**To try a second project**, run `./sfx admin project add web` as alice.
+It prints the `.starfix.yaml` for the new project: save it in another
+scratch repository, add your `key:` line if you use one, and add bob to
+it there with `./sfx admin member add bob`.
+
+Giving a second key in `STARFIX_KEYS` and starting again still works,
+as before, and puts the key in `authorized_keys` as well.
 
 ## Test a change
 
@@ -136,9 +160,13 @@ It builds the image and `sfx` from the checkout and starts its own
 server, on port 2223 with two invented principals, so a server on 2222
 is left alone. It drives `sfx` through create, ready, start, comment,
 hours, memory, finish with discovered work, dependencies, show, prices,
-token usage and cost, plans and the digest, checks that a non-admin is
-refused admin commands, and restarts the server to check that nothing
-changed. It removes its server and volume, prints one line, and exits
+token usage and cost, plans and the digest, and checks that a non-admin
+is refused admin commands. Then it adds a second project with `sfx admin
+project add` and uses it, checks that someone who is no member of it is
+refused, adds a third principal whose key is in no `authorized_keys`
+file and connects as it, removes that key and checks that it is
+refused, and restarts the server to check that nothing changed. The
+steps from the second project on have not been run yet, as said above. It removes its server and volume, prints one line, and exits
 non-zero on the first failure. CI does not run it. Arguments go to
 `docker build`; behind a proxy that intercepts TLS, pass its CA with
 `--secret id=ca,src=FILE`, which never reaches the image.
@@ -150,6 +178,7 @@ non-zero on the first failure. CI does not run it. Arguments go to
 | Follow the logs of all three programs | `docker compose logs -f` |
 | Open a shell | `docker compose exec starfix bash` |
 | Query Dolt as its own user | `docker compose exec -u dolt -w /var/lib/dolt/data/starfix starfix dolt sql` |
+| Ask what sshd is told about a key | `docker compose exec -u starfix starfix starfixd keys ssh-ed25519 AAAA…` (nothing printed means no line; standard error says why) |
 | Read the config | `docker compose exec starfix cat /etc/starfix/starfixd.yaml` (it holds the password) |
 
 ## Stop and wipe
@@ -170,6 +199,8 @@ update `.starfix.yaml`.
 |---|---|---|
 | Ubuntu 24.04 with systemd units for Dolt and starfixd | Ubuntu 24.04; the entrypoint starts the three programs and stops all of them when one exits | A container has no systemd. Each program still runs as its own user with a bare environment, `umask 077` and no way to gain privileges |
 | starfixd installed from a signed release into `/opt/starfix/bin` | Built from the checkout into `/usr/local/bin`; no `systemd_unit` and no sudo rule | It tests what is checked out. Rebuild the image instead of running `starfixd upgrade` |
+| sshd runs a root-owned copy, `/usr/local/sbin/starfixd-keys`, as its `AuthorizedKeysCommand` | sshd runs `/usr/local/bin/starfixd keys` itself | Root owns the image's binary, and nothing upgrades it in place, so no copy is needed |
+| You opt in to many projects, grant 100 database names and run `control init` once | Opted in from the first start, with 8 names; `control init` runs at every start | So there is nothing to set up. A volume made by an older image is moved at its next start |
 | The host key in `/etc/ssh`; `/var/lib/dolt`, `/etc/starfix` and `~starfix/.ssh` on the disk | The same paths, linked into the `/state` volume, with the host key in `/state/hostkeys` | Everything survives a rebuild, and `down -v` wipes it |
 | sshd serves every account | `AllowUsers starfix`, with passwords off | Nobody else signs in |
 | A daily dump | No backups | It is for testing |

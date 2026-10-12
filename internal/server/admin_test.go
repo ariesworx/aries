@@ -130,6 +130,9 @@ func adminRequests() []struct {
 		{proto.OpMemberSet, proto.MemberSetArgs{Name: "frank"}},
 		{proto.OpMembers, proto.MembersArgs{}},
 		{proto.OpMemberRemove, proto.MemberArgs{Name: "bob"}},
+		{proto.OpKeyAdd, proto.KeyAddArgs{Name: "bob", Key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOzBtYcn8/ErMZSIGp7LneCyjOeyByMNjpMP4bznXiVs"}},
+		{proto.OpKeys, proto.KeysArgs{Name: "bob"}},
+		{proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: "SHA256:pOFYONeRL07H3T9tf0FhwK1slkJs5kvkcnOnf+vGgXA"}},
 	}
 }
 
@@ -689,11 +692,13 @@ func TestAdminDrops(t *testing.T) {
 		mustAsk[proto.PrincipalResult](d, proto.OpPrincipalEnable, proto.PrincipalArgs{Name: "carol"})
 		mustDialTo(t, m.Server, carol, projA)
 	})
-	// Server admins are named in the config file, not in the store: a
-	// disabled one loses the connections they had, and is let in again.
+	// Disabled wins over the config file (decision 20): a disabled server
+	// admin loses the connections they had, and the next is refused.
+	// TestDisabledServerAdmin has the rest.
 	t.Run("a server admin disabled", func(t *testing.T) {
-		m := adminWorld(t, Limits{})
-		m.member(t, projA, "dana")
+		m := newMultiAdmins(t, Limits{}, nil, dana.Principal, "sam")
+		m.project(t, projA, "dana")
+		m.project(t, projB)
 		d, other := mustDialTo(t, m.Server, dana, projA), mustDialTo(t, m.Server, dana, projB)
 		if res := mustAsk[proto.PrincipalResult](d, proto.OpPrincipalDisable, proto.PrincipalArgs{Name: "dana"}); res.State != "disabled" {
 			t.Errorf("principal.disable of oneself = %+v, want the answer before the connection closes", res)
@@ -701,7 +706,9 @@ func TestAdminDrops(t *testing.T) {
 		if !d.dropped() || !other.dropped() {
 			t.Error("a disabled server admin's connections are still open")
 		}
-		mustDialTo(t, m.Server, dana, projA)
+		if w, _ := dialTo(t, m.Server, dana, projA); w.Err == nil || w.Err.Code != proto.CodeForbidden {
+			t.Errorf("a disabled server admin's next handshake = %+v, want forbidden", w.Err)
+		}
 	})
 	t.Run("a refused removal closes nothing", func(t *testing.T) {
 		m := adminWorld(t, Limits{})
@@ -818,7 +825,7 @@ func TestAdminOpsClassified(t *testing.T) {
 		if !adminOp(op) {
 			t.Errorf("adminOp(%s) = false for an op with a handler", op)
 		}
-		read := op == proto.OpProjects || op == proto.OpPrincipals || op == proto.OpMembers
+		read := op == proto.OpProjects || op == proto.OpPrincipals || op == proto.OpMembers || op == proto.OpKeys
 		if readOps[op] != read || controlWrites[op] == read {
 			t.Errorf("%s: read op %t, control write %t; a list is a read and everything else a control write", op, readOps[op], controlWrites[op])
 		}

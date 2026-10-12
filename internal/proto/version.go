@@ -61,10 +61,27 @@ import (
 // so each keeps working against a protocol 5 server exactly as it did. A
 // protocol 5 client against an older server is refused at the handshake,
 // rather than at its first admin op.
+//
+// Protocol 6 adds keys in the control store (design §15.2, admin.go):
+// the key.add, keys and key.remove ops, and principal.add's keys, an
+// argument. Protocol 5 has not shipped in a release (v0.4.0 speaks 4),
+// so these could have joined it, as later additions joined protocols 3
+// and 4. They are a bump all the same, so that a client with the key
+// commands is refused at the handshake by a server built before them,
+// rather than at its first key op. ProtoMin stays at 2: no older client
+// sends a key op or the new argument, and the server adds a principal
+// without keys when it is omitted, as it did. The results that gained
+// fields (released, on the ops that end access) are read by older
+// clients as before.
+//
+// The bridge frame and the keys frame are not part of this protocol:
+// they pass between two starfixd processes on the server (frame.go), and
+// carry no version. Each is read leniently, so a bridge from before a
+// binary swap works against the daemon after it, and the reverse.
 const (
-	Proto    = 5
+	Proto    = 6
 	ProtoMin = 2
-	ProtoMax = 5
+	ProtoMax = 6
 )
 
 // CheckProto returns nil when the client protocol version p is in

@@ -16,14 +16,24 @@ import (
 // (fixed by sshd from the key that authenticated), then copies in to the
 // daemon and the daemon to out until the daemon closes the connection.
 //
+// key is the fingerprint of the key that authenticated, when the line
+// that let it in came from the control store (`starfixd keys` writes it
+// into the forced command), and empty for a line of the authorized_keys
+// file. The daemon closes the connection when that key is removed.
+//
 // When the daemon cannot be reached, Bridge writes a refusing welcome to
 // out, so the client reports a typed error rather than a dropped session.
-// An invalid or reserved principal is refused the same way, before
-// connecting.
-func Bridge(ctx context.Context, socket, principal string, in io.Reader, out io.Writer) error {
+// An invalid or reserved principal, and a key that is no fingerprint,
+// are refused the same way, before connecting.
+func Bridge(ctx context.Context, socket, principal, key string, in io.Reader, out io.Writer) error {
 	if !PrincipalPattern.MatchString(principal) || store.Reserved(principal) {
 		e := proto.Errf(proto.CodeAuth, "the server admin should fix this key's authorized_keys line",
 			"this key's forced command names an invalid or reserved principal")
+		return errors.Join(e, refuse(out, e))
+	}
+	if key != "" && !store.ValidFingerprint(key) {
+		e := proto.Errf(proto.CodeAuth, "the server admin should fix this key's authorized_keys line: --key takes the key's SHA256: fingerprint, or is left out",
+			"this key's forced command names a key that is not a fingerprint")
 		return errors.Join(e, refuse(out, e))
 	}
 	var d net.Dialer
@@ -36,7 +46,7 @@ func Bridge(ctx context.Context, socket, principal string, in io.Reader, out io.
 	defer func() { _ = c.Close() }()
 	stop := context.AfterFunc(ctx, func() { _ = c.Close() })
 	defer stop()
-	if err := proto.NewEncoder(c).Encode(&proto.Frame{T: proto.FrameBridge, Principal: principal}); err != nil {
+	if err := proto.NewEncoder(c).Encode(&proto.Frame{T: proto.FrameBridge, Principal: principal, Key: key}); err != nil {
 		return err
 	}
 	// Not waited for: Bridge returns when the daemon closes the

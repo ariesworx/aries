@@ -1,33 +1,58 @@
 package server
 
 import (
+	"fmt"
 	"net"
 
+	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
 )
 
 // owner says whose a connection is, once its handshake is done: the
-// principal, and the project it connected to. The zero value is a
-// connection still in its handshake.
+// principal, the project it connected to, and the fingerprint of the key
+// that authenticated it when the control store served that key (empty
+// for a line of the authorized_keys file, which names none). The zero
+// value is a connection still in its handshake.
 type owner struct {
 	principal string
 	project   string
+	key       string
 }
 
 // track records whose c is, so that it can be found when that access
 // ends, and reports whether the access still holds. A server of many
-// projects asks the control store again here: a membership that ended
-// while the handshake ran was not seen by drop, which looks only at
-// connections already recorded, so one of the two always sees it.
+// projects asks the control store again here: a membership that ended,
+// or a key that was removed, while the handshake ran was not seen by
+// drop, which looks only at connections already recorded, so one of the
+// two always sees it.
 func (s *Server) track(c net.Conn, sess *session) bool {
 	s.mu.Lock()
-	s.conns[c] = owner{principal: sess.actor.Principal, project: sess.proj.id}
+	s.conns[c] = owner{principal: sess.actor.Principal, project: sess.proj.id, key: sess.fingerprint}
 	s.mu.Unlock()
 	if s.stores == nil {
 		return true
 	}
-	_, refused := s.admit(sess.actor.Principal, sess.proj.id)
-	return refused == nil
+	if _, refused := s.admit(sess.actor.Principal, sess.proj.id); refused != nil {
+		return false
+	}
+	return s.keyHolds(sess.actor.Principal, sess.fingerprint) == nil
+}
+
+// keyHolds refuses a connection that says the control store's key
+// fingerprint let principal in when the store, now, holds no such key
+// for it: the key was removed after sshd asked, or the forced command
+// was written by hand. A connection that names no key came in by the
+// authorized_keys file, and is not checked.
+func (s *Server) keyHolds(principal, fingerprint string) *proto.Error {
+	if fingerprint == "" {
+		return nil
+	}
+	if p, _, ok := s.cfg.Control.AuthorizedKey(fingerprint); ok && p == principal {
+		return nil
+	}
+	return proto.Errf(proto.CodeAuth,
+		fmt.Sprintf("use another of your keys, or ask an admin to add this one again: `sfx admin key add %s FILE.pub`", principal),
+		fmt.Sprintf("the key that signed in is no longer one the server holds for %s", principal))
 }
 
 // untrack forgets c when its handler returns.

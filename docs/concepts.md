@@ -10,14 +10,18 @@ The [CLI reference](cli.md) and the [agent guide](agents.md) build on it.
 - A **principal** is a person or an agent identity, such as `alice`. The
   server decides it from the SSH key that connected, so a client cannot
   claim to be anyone else
-  ([Security](security-model.md#identity-comes-from-ssh-keys)).
+  ([Security](security-model.md#identity-comes-from-ssh-keys)). A key
+  belongs to one principal, and a principal may have several. Nobody adds
+  or removes a key of their own account: an admin does
+  ([Principals](server.md#principals)).
 - A **session** is one run of an agent, or a person's terminal on one
   machine. Its id comes from the environment
   ([Sessions](agents.md#sessions)).
 
 The names `starfixd` (the server's own actions, such as ending expired
-claims), `import` (the bd importer) and `starfixd-upgrade` (the health
-check `starfixd upgrade` runs) are reserved.
+claims), `import` (the bd importer and `starfixd control init`) and
+`starfixd-upgrade` (the health check `starfixd upgrade` runs) are
+reserved.
 
 ## Issues
 
@@ -69,7 +73,9 @@ it or link it.
 
 When a lease runs out, the server returns the issue to `open`. So a
 session that crashes lets its work go within 15 minutes, and nothing stays
-stuck.
+stuck. A claim also ends at once, the same way, when its holder loses
+access to the project: the session is told in its inbox (`claim.lost`),
+and the issue is ready for someone else.
 
 A claim's **epoch** is a number that rises with each new holder, and
 `show` prints it.
@@ -91,7 +97,10 @@ the server's admins. A member whose role in a project is `admin` has an
 admin's rights in that project, and adds and removes its members with
 `sfx admin member`; the server's admins also create and archive
 projects. When your membership is removed, your sessions in that project
-end ([Managing access](server.md#managing-access)).
+end and your claims there are released; when your principal is
+disabled, that happens in every project, and you are refused everywhere
+until it is enabled, whoever you are
+([Managing access](server.md#managing-access)).
 
 ## A session: start and finish
 

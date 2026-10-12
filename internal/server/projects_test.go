@@ -87,6 +87,12 @@ func (b *syncBuffer) String() string {
 // store.
 func newMulti(t *testing.T, lim Limits, ck *clock) *multi {
 	t.Helper()
+	return newMultiAdmins(t, lim, ck, dana.Principal)
+}
+
+// newMultiAdmins is newMulti with the server admins given.
+func newMultiAdmins(t *testing.T, lim Limits, ck *clock, admins ...string) *multi {
+	t.Helper()
 	if errors.Is(doltErr, dolttest.ErrNoDolt) {
 		t.Skip("dolt is not on PATH: install dolt to run the server tests")
 	}
@@ -101,7 +107,7 @@ func newMulti(t *testing.T, lim Limits, ck *clock) *multi {
 	if ck != nil {
 		now = ck.now
 	}
-	ctl, err := store.OpenControl(t.Context(), dsn, store.ControlOptions{Admins: []string{dana.Principal}, CommitInterval: -1, Now: now,
+	ctl, err := store.OpenControl(t.Context(), dsn, store.ControlOptions{Admins: admins, CommitInterval: -1, Now: now,
 		Limits: lim.Control})
 	if err != nil {
 		t.Fatal(err)
@@ -327,7 +333,14 @@ func TestMultiHandshake(t *testing.T) {
 			case tc.code != "" && (w.Err == nil || w.Err.Code != tc.code || w.Err.Fix == ""):
 				t.Errorf("handshake(%s, %s) = %+v; want refusal %s with a fix", tc.principal, tc.project, w.Err, tc.code)
 			}
-			if tc.code == proto.CodeForbidden && w.Err != nil {
+			switch {
+			case tc.code != proto.CodeForbidden || w.Err == nil:
+			case tc.name == "disabled member":
+				// A disabled principal is told so, and what undoes it.
+				if w.Err.Message != "frank is disabled on this server" || !strings.Contains(w.Err.Fix, "`sfx admin principal enable frank`") {
+					t.Errorf("forbidden = %q, fix %q; want the principal told it is disabled, and the command that enables it", w.Err.Message, w.Err.Fix)
+				}
+			default:
 				if !strings.HasPrefix(w.Err.Fix, "ask a server admin, or one of the project's admins, to add you: `sfx admin member add "+tc.principal+"`") ||
 					!strings.Contains(w.Err.Message, tc.principal+" is not a member of project") {
 					t.Errorf("forbidden = %q, fix %q; want the principal named, whom to ask and the command they run", w.Err.Message, w.Err.Fix)
@@ -849,6 +862,12 @@ func TestResolveSettingsControl(t *testing.T) {
 		{name: "negative control_write_rate", body: "limits:\n  control_write_rate: -1\n", err: "limit control_write_rate must be zero or a positive number; fix:"},
 		{name: "control_write_rate not a number", body: "limits:\n  control_write_rate: .nan\n", err: "limit control_write_rate must be zero or a positive number; fix:"},
 		{name: "negative control_write_burst", body: "limits:\n  control_write_burst: -1\n", err: "limit control_write_burst must be zero or a positive number; fix:"},
+		{name: "key lookups default", body: dsn, check: func(l Settings) bool { return l.Limits.KeyLookups == 64 }},
+		{name: "key lookups set", body: "limits:\n  key_lookups: 8\n",
+			check: func(l Settings) bool { return l.Limits.KeyLookups == 8 && l.Limits.Conns == DefaultLimits.Conns }},
+		{name: "key lookups zero takes the default", body: "limits:\n  key_lookups: 0\n",
+			check: func(l Settings) bool { return l.Limits == DefaultLimits }},
+		{name: "negative key_lookups", body: "limits:\n  key_lookups: -1\n", err: "limit key_lookups must be zero or a positive number; fix:"},
 		{name: "no block of project databases by default", body: dsn + "control_db: starfix_control\n",
 			check: func(s Settings) bool { return s.ProjectDBs == ProjectDBs{} }},
 		{name: "a block of project databases", body: dsn + "control_db: starfix_control\nproject_dbs:\n  prefix: starfix_p\n  count: 100\n",

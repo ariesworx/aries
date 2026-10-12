@@ -36,6 +36,8 @@ func command(op string) string {
 		return "admin member add"
 	case proto.OpMembers:
 		return "admin member list"
+	case proto.OpKeys:
+		return "admin key list"
 	}
 	if adminOp(op) {
 		return "admin " + strings.ReplaceAll(op, ".", " ")
@@ -61,6 +63,7 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 	var access *store.AccessError
 	var taken *store.TakenError
 	var controlCap *store.ControlLimitError
+	var lastAdmin *store.LastAdminError
 	switch {
 	case errors.As(err, &access):
 		return accessErr(access)
@@ -69,8 +72,19 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 		return takenErr(taken)
 
 	case errors.As(err, &controlCap):
+		fix := fmt.Sprintf("ask the server's operator to raise %s under limits: in starfixd's config", controlCap.Limit)
+		if controlCap.Limit == "keys_per_principal" {
+			fix = "remove a key the principal no longer uses with `sfx admin key remove FINGERPRINT`, or " + fix
+		}
+		return proto.Errf(proto.CodeInvalid, fix, strings.TrimPrefix(text, store.ErrInvalid.Error()+": "))
+
+	case errors.As(err, &lastAdmin):
 		return proto.Errf(proto.CodeInvalid,
-			fmt.Sprintf("ask the server's operator to raise %s under limits: in starfixd's config", controlCap.Limit),
+			"enable another server admin first with `sfx admin principal enable NAME`, or ask the server's operator to name another under admins: in starfixd's config",
+			fmt.Sprintf("%s is the last server admin who is not disabled; without one, nobody could enable anyone from here", lastAdmin.Principal))
+
+	case errors.Is(err, store.ErrInvalid) && op == proto.OpKeyAdd:
+		return proto.Errf(proto.CodeInvalid, "give the public key file, such as ~/.ssh/id_ed25519.pub: `sfx admin key add NAME FILE`",
 			strings.TrimPrefix(text, store.ErrInvalid.Error()+": "))
 
 	case errors.Is(err, store.ErrNotFound) && adminOp(op):
@@ -217,6 +231,13 @@ func accessPhrase(e *store.AccessError) string {
 		return "remove " + e.Principal + " from project " + e.Project
 	case proto.OpMembers:
 		return "list the members of project " + e.Project
+	case proto.OpKeyAdd:
+		return "add a key to " + e.Principal
+	case proto.OpKeyRemove:
+		if e.Principal == "" {
+			return "remove that key"
+		}
+		return "remove a key of " + e.Principal
 	}
 	return strings.TrimSpace(string(e.Op) + " " + e.Principal + in)
 }
@@ -235,7 +256,18 @@ func accessErr(e *store.AccessError) *proto.Error {
 		return proto.Errf(proto.CodeForbidden,
 			"ask a server admin to run it, or a project admin who administers every project the principal belongs to",
 			msg+"it is for project admins and server admins")
+	case store.AccessOwnKeys:
+		return proto.Errf(proto.CodeForbidden,
+			"ask another admin to run it: a server admin, or a project admin who administers every project you belong to; the server's operator can also change authorized_keys on the server",
+			msg+"nobody changes the keys of their own account")
 	case store.AccessReach:
+		if e.Principal == "" {
+			// A key named by its fingerprint. The refusal is the same
+			// for a key that does not exist, and says nothing of whose.
+			return proto.Errf(proto.CodeForbidden,
+				"check the fingerprint with `sfx admin key list NAME`, or ask a server admin to run it",
+				msg+fmt.Sprintf("it is no key of a principal %s may manage", e.Actor))
+		}
 		return proto.Errf(proto.CodeForbidden,
 			"ask a server admin to run it; a project admin may only while every project the principal belongs to is one they administer",
 			msg+fmt.Sprintf("%s belongs to a project %s does not administer, or to none", e.Principal, e.Actor))
@@ -262,7 +294,7 @@ func takenErr(e *store.TakenError) *proto.Error {
 			fmt.Sprintf("choose another name, or if %s is the person you mean, add them with `sfx admin member add %s`", e.Value, e.Value),
 			fmt.Sprintf("a principal named %q already exists", e.Value))
 	case store.TakenKey:
-		return proto.Errf(proto.CodeExists, "use another key; a key belongs to one principal",
+		return proto.Errf(proto.CodeExists, "use another key: a key belongs to one principal, and an agent or a machine that needs less access gets a key and a principal of its own",
 			fmt.Sprintf("key %s already belongs to another principal", e.Value))
 	}
 	return proto.Errf(proto.CodeConflict, "retry; if it persists, the server admin should check the starfixd log", e.Error())
@@ -276,8 +308,10 @@ func adminNotFoundFix(op string) string {
 		return "see who is a member with `sfx admin member list`"
 	case proto.OpMemberSet:
 		return "add the principal first with `sfx admin principal add NAME`"
-	case proto.OpPrincipalDisable, proto.OpPrincipalEnable:
+	case proto.OpPrincipalDisable, proto.OpPrincipalEnable, proto.OpKeyAdd, proto.OpKeys:
 		return "check the name; a server admin lists them with `sfx admin principal list`"
+	case proto.OpKeyRemove:
+		return "list a principal's keys, with their fingerprints, with `sfx admin key list NAME`"
 	}
 	return "list the projects with `sfx admin project list`"
 }

@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Smoke test of the Docker test server (docs/deploy/docker.md). It builds
 # the image and sfx from this checkout, starts a throwaway server with two
-# principals, drives sfx through the main surfaces end to end, restarts the
-# server to check that its state persists, then removes the server and its
-# volume. It exits non-zero on the first failure.
+# principals, drives sfx through the main surfaces end to end, then
+# through a server of many projects (a second project, and a person
+# whose key only the control database holds, served to sshd by `starfixd
+# keys`), restarts the server to check that its state persists, then
+# removes the server and its volume. It exits non-zero on the first
+# failure.
 #
 #   deploy/docker/smoke.sh [DOCKER BUILD FLAGS...]
 #
@@ -92,7 +95,7 @@ else
   (cd "$root" && CGO_ENABLED=0 go build -trimpath -o "$sfx" ./cmd/sfx)
 fi
 
-mkdir -p "$work/keys" "$work/home" "$work/alice" "$work/bob" "$work/transcripts"
+mkdir -p "$work/keys" "$work/home" "$work/alice" "$work/bob" "$work/carol" "$work/alice-web" "$work/bob-web" "$work/transcripts"
 keys=
 for who in alice bob; do
   ssh-keygen -q -t ed25519 -N '' -C "$who@example.com" -f "$work/keys/$who"
@@ -167,6 +170,53 @@ refuse "prices set as bob" '"c":"forbidden"' bob --json admin prices set example
 refuse "plans set as bob" '"c":"forbidden"' bob --json admin plans set team --from "$(date -u +%Y-%m)" \
   --fee 1 --seats 1 --principal bob
 
+# Many projects, and keys from the control database. alice is the server
+# admin; `starfixd control init` made bob a member of the first project.
+echo "smoke: a second project, and a key the control database holds"
+expect "project list" '^first +[0-9a-f-]{36} +sf +internal +active +starfix$' alice admin project list
+expect "project add" '^project web \([0-9a-f-]{36}\) created in database starfix_p001: active$' alice admin project add web
+web=$(sed -n 's/^project: //p' <<<"$last")
+[[ $web =~ ^[0-9a-f-]{36}$ && $web != "$project" ]] || fail "project add printed no .starfix.yaml for the new project" "$last"
+for who in alice bob; do
+  printf 'project: %s\nserver:\n  host: localhost\n  port: %s\n  host_key: %s\nkey: %s\n' \
+    "$web" "$port" "$host_key" "$work/keys/$who" >"$work/$who-web/.starfix.yaml"
+done
+expect "create in the second project" '^web-[a-z0-9]+$' alice-web create "First in web" -p 2 -t task
+w=$last
+expect "the second project holds it" "^$w " alice-web ready
+expect "the first project does not" '' alice ready
+absent "the first project does not" "^$w "
+# bob is a member of the first project only.
+refuse "a non-member of the second project" 'bob is not a member of project' bob-web ready
+expect "member add" '^bob added to project web as member$' alice-web admin member add bob
+expect "a member of the second project" "^$w " bob-web ready
+
+# carol's key is in no authorized_keys file: sshd learns of it from
+# starfixd keys, which reads the control database.
+ssh-keygen -q -t ed25519 -N '' -C carol@example.com -f "$work/keys/carol"
+carol_fp=$(ssh-keygen -lf "$work/keys/carol.pub" | cut -d' ' -f2)
+# A fingerprint is base64, whose + and / mean something in a pattern.
+carol_re=$(sed 's/[+/.]/[&]/g' <<<"$carol_fp")
+printf 'project: %s\nserver:\n  host: localhost\n  port: %s\n  host_key: %s\nkey: %s\n' \
+  "$project" "$port" "$host_key" "$work/keys/carol" >"$work/carol/.starfix.yaml"
+refuse "a key nobody added" 'send your public key' carol ready
+expect "principal add --key" "^key $carol_re added to carol\$" alice admin principal add carol --key "$work/keys/carol.pub"
+if "${compose[@]}" exec -T starfix grep -q carol /state/ssh/authorized_keys; then
+  fail "carol has a line in authorized_keys; her key was to be in the control database alone"
+fi
+passed=$((passed + 1))
+expect "a key from the control database" "^$b " carol ready
+expect "it signs in as its principal" '^[a-z0-9]+$' carol comment "$b" "carol was here"
+expect "key list" "^$carol_re +ssh-ed25519 +carol@example.com +alice " alice admin key list carol
+refuse "a private key file is not sent" 'holds a private key, which never leaves this machine' alice admin key add carol "$work/keys/bob"
+refuse "nobody changes their own keys" 'nobody changes the keys of their own account' alice admin key add alice "$work/keys/carol.pub"
+expect "key remove" "^key $carol_re removed from carol\$" alice admin key remove "$carol_fp"
+refuse "a removed key" 'send your public key' carol ready
+expect "key add" "^key $carol_re .* added to carol\$" alice admin key add carol "$work/keys/carol.pub"
+expect "the key added again" "^$b " carol ready
+expect "principal disable" '^carol: disabled$' alice admin principal disable carol
+refuse "a disabled principal's key" 'send your public key' carol ready
+
 echo "smoke: restarting the server"
 "${compose[@]}" restart >/dev/null 2>&1
 up
@@ -175,5 +225,8 @@ up
 passed=$((passed + 2))
 expect "show after restart" "^$a .*closed" alice show "$a"
 expect "admins after restart" ': unchanged$' alice admin prices set "${price[@]}"
+expect "the second project after restart" "^$w " bob-web ready
+expect "principal enable after restart" '^carol: active$' alice admin principal enable carol
+expect "the control database's key after restart" "^$b " carol ready
 
 echo "smoke: ok, $passed checks passed"

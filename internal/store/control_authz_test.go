@@ -139,15 +139,17 @@ func TestControlAccess(t *testing.T) {
 		{name: "alice disables hal", actor: alice, run: disable("hal")},
 		{name: "alice enables hal", actor: alice, run: enable("hal")},
 		{name: "alice adds a key to carol, also in b", actor: alice, run: keyAdd("carol"), want: AccessReach, op: OpKeyAdd, principal: "carol"},
-		{name: "alice removes a key of carol", actor: alice, run: keyRemove("carol"), want: AccessReach, op: OpKeyRemove, principal: "carol"},
+		// A refused removal names no principal: a fingerprint does not say
+		// whose key it is, and neither does the refusal.
+		{name: "alice removes a key of carol", actor: alice, run: keyRemove("carol"), want: AccessReach, op: OpKeyRemove},
 		{name: "alice disables carol", actor: alice, run: disable("carol"), want: AccessReach, op: OpPrincipalDisable, principal: "carol"},
 		{name: "alice enables carol", actor: alice, run: enable("carol"), want: AccessReach, op: OpPrincipalEnable, principal: "carol"},
 		{name: "alice adds a key to frank, in no project", actor: alice, run: keyAdd("frank"), want: AccessReach, op: OpKeyAdd, principal: "frank"},
-		{name: "alice removes a key of frank", actor: alice, run: keyRemove("frank"), want: AccessReach, op: OpKeyRemove, principal: "frank"},
+		{name: "alice removes a key of frank", actor: alice, run: keyRemove("frank"), want: AccessReach, op: OpKeyRemove},
 		{name: "alice disables frank", actor: alice, run: disable("frank"), want: AccessReach, op: OpPrincipalDisable, principal: "frank"},
 		{name: "alice adds a key to erin, in b only", actor: alice, run: keyAdd("erin"), want: AccessReach, op: OpKeyAdd, principal: "erin"},
 		{name: "alice adds a key to a server admin in a only", actor: alice, run: keyAdd("dana"), want: AccessServerAdminPrincipal, op: OpKeyAdd, principal: "dana"},
-		{name: "alice removes a server admin's key", actor: alice, run: keyRemove("dana"), want: AccessServerAdminPrincipal, op: OpKeyRemove, principal: "dana"},
+		{name: "alice removes a server admin's key", actor: alice, run: keyRemove("dana"), want: AccessReach, op: OpKeyRemove},
 		{name: "alice disables a server admin", actor: alice, run: disable("dana"), want: AccessServerAdminPrincipal, op: OpPrincipalDisable, principal: "dana"},
 		{name: "ivy, admin of both, adds a key to carol", actor: ivy, run: keyAdd("carol")},
 		{name: "ivy disables carol", actor: ivy, run: disable("carol")},
@@ -155,10 +157,11 @@ func TestControlAccess(t *testing.T) {
 		{name: "ivy adds a key to frank, in no project", actor: ivy, run: keyAdd("frank"), want: AccessReach, op: OpKeyAdd, principal: "frank"},
 		{name: "erin adds a key to bob, in a only", actor: erin, run: keyAdd("bob"), want: AccessReach, op: OpKeyAdd, principal: "bob"},
 		{name: "a member adds a key to hal", actor: bob, run: keyAdd("hal"), want: AccessAdmin, op: OpKeyAdd, principal: "hal"},
-		{name: "a member adds a key to itself", actor: bob, run: keyAdd("bob"), want: AccessAdmin, op: OpKeyAdd, principal: "bob"},
+		// Nobody adds a key to their own account (decision 19).
+		{name: "a member adds a key to itself", actor: bob, run: keyAdd("bob"), want: AccessOwnKeys, op: OpKeyAdd, principal: "bob"},
 		{name: "a member removes its own key", actor: bob, run: keyRemove("bob"), want: AccessAdmin, op: OpKeyRemove},
 		{name: "a member disables hal", actor: bob, run: disable("hal"), want: AccessAdmin, op: OpPrincipalDisable, principal: "hal"},
-		{name: "a member of nothing adds a key to itself", actor: frank, run: keyAdd("frank"), want: AccessAdmin, op: OpKeyAdd, principal: "frank"},
+		{name: "a member of nothing adds a key to itself", actor: frank, run: keyAdd("frank"), want: AccessOwnKeys, op: OpKeyAdd, principal: "frank"},
 		{name: "a stranger adds a key to bob", actor: zed, run: keyAdd("bob"), want: AccessAdmin, op: OpKeyAdd, principal: "bob"},
 		{name: "a stranger enables bob", actor: zed, run: enable("bob"), want: AccessAdmin, op: OpPrincipalEnable, principal: "bob"},
 		{name: "a server admin adds a key to carol", actor: dana, run: keyAdd("carol")},
@@ -374,6 +377,10 @@ func TestAccessErrorMessages(t *testing.T) {
 			"alice may not member.set frank in project " + projA + ": frank belongs to no project and alice did not create it, so it is for server admins"},
 		{AccessError{Actor: "alice", Op: OpPrincipalDisable, Principal: "dana", Reason: AccessServerAdminPrincipal},
 			"alice may not principal.disable dana: dana is a server admin, so it is for server admins"},
+		{AccessError{Actor: "alice", Op: OpKeyRemove, Reason: AccessReach},
+			"alice may not key.remove: it is no key of a principal alice may manage, so it is for server admins"},
+		{AccessError{Actor: "dana", Op: OpKeyAdd, Principal: "dana", Reason: AccessOwnKeys},
+			"dana may not key.add dana: nobody changes the keys of their own account, so it is for another admin"},
 	} {
 		if got := tc.err.Error(); got != tc.want {
 			t.Errorf("%+v.Error() = %q, want %q", tc.err, got, tc.want)

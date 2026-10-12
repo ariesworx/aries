@@ -286,7 +286,7 @@ func (im *importer) line(ctx context.Context, l keyLine, principals, keys, membe
 			fps[k.Fingerprint] = true
 		}
 		im.had[l.principal] = fps
-		if !im.ctl.IsServerAdmin(l.principal) {
+		if !im.ctl.ConfigAdmin(l.principal) {
 			switch _, ok, err := im.ctl.Role(ctx, l.principal, im.project); {
 			case err != nil:
 				return "", err
