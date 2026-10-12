@@ -603,13 +603,17 @@ func TestAdminControlWriteRate(t *testing.T) {
 	w.newUser("alice", "").ok("create", "another")
 }
 
-// A server that speaks the previous protocol refuses this client at the
-// handshake, with exit code 3, before an admin command could fail as an
-// unknown operation.
+// A server of the last release, v0.4.x, which accepts protocols 2 to 4,
+// refuses this client at the handshake, with exit code 3, before an
+// admin or a key command could fail as an unknown operation.
 func TestAdminOldServer(t *testing.T) {
-	w := newWorld(t, daemonOpts{protoMin: 2, protoMax: proto.Proto - 1})
-	r := w.newUser("dana", "").run("v0.2.0", "admin", "project", "list")
-	want := fmt.Sprintf("sfx: starfix speaks protocol %d; the server (v0.2.0) is older and accepts 2 to %d\n", proto.Proto, proto.Proto-1) +
+	w := newWorld(t, daemonOpts{protoMin: 2, protoMax: 4})
+	dana := w.newUser("dana", "")
+	if r := dana.run("v0.2.0", "admin", "key", "list", "dana"); r.code != cli.ExitVersion {
+		t.Errorf("a key command against an older server: exit %d, stderr %q; want exit %d", r.code, r.stderr, cli.ExitVersion)
+	}
+	r := dana.run("v0.2.0", "admin", "project", "list")
+	want := fmt.Sprintf("sfx: starfix speaks protocol %d; the server (v0.2.0) is older and accepts protocols 2 to 4\n", proto.Proto) +
 		"fix: ask the server admin to run `starfixd upgrade`, or install the starfix release that matches the server\n"
 	if r.code != cli.ExitVersion || r.stderr != want {
 		t.Errorf("exit %d, stderr %q\nwant exit %d, %q", r.code, r.stderr, cli.ExitVersion, want)

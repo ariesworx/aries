@@ -33,17 +33,32 @@
 //	pr      principal: the bridge's claim, and the welcome's echo of it
 //	k       the SHA-256 fingerprint of the key that authenticated (bridge)
 //	e       payload of an evt frame, such as a pushed inbox item
+//	tp      W3C traceparent of the caller (req; optional), such as
+//	        00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+//	ts      W3C tracestate of the caller (req; optional, with tp)
 //
 // # Sequence
 //
 //	bridge → daemon:  {"t":"bridge","pr":"alice"}
-//	client → daemon:  {"t":"hello","v":"v0.2.0","p":2,"proj":"…","s":"…","m":"laptop"}
-//	daemon → client:  {"t":"welcome","v":"v0.2.0","min":1,"max":2,"s":"…","pr":"alice"}
+//	client → daemon:  {"t":"hello","v":"v0.5.0","p":5,"proj":"…","s":"…","m":"laptop"}
+//	daemon → client:  {"t":"welcome","v":"v0.5.0","min":5,"max":5,"s":"…","pr":"alice"}
 //	client → daemon:  {"t":"req","id":1,"op":"show","a":{"id":"sf-a1b2c3d4"}}
 //	daemon → client:  {"t":"res","id":1,"ok":{…}}
 //
+// A request may carry the caller's trace context in tp and ts, so that
+// what the server does for it can later be tied to the caller's trace.
+// The server accepts only a version-00 traceparent, in lowercase hex
+// with neither id all zeros, and a tracestate of one line of printable
+// ASCII of at most 512 bytes (ParseTraceContext). Anything else is
+// ignored, never refused. The server carries the context with the
+// request and names its ids in its debug log; it makes and exports no
+// spans.
+//
 // A client whose protocol version is outside [min,max] gets a welcome
-// carrying err with code "version", and the connection closes.
+// carrying err with code "version", whose fix says which side to upgrade
+// (CheckProto), and the connection closes. The health check of `starfixd
+// upgrade`, which only the daemon's own user can send, is welcomed
+// whatever version it speaks.
 //
 // # Keys
 //

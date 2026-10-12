@@ -21,7 +21,9 @@ const ProbePrincipal = "starfixd-upgrade"
 // answers a welcome has opened its store and applied its migrations. A
 // server of many projects answers for all of them (Server.OpenProjects),
 // whichever project is named, and refuses with the projects it could not
-// open. Probe gives up after 10 seconds.
+// open. The daemon welcomes the probe whatever protocol it speaks, since
+// the binary that runs an upgrade is the old one. Probe gives up after 10
+// seconds.
 func Probe(ctx context.Context, socket, project, clientVersion string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()

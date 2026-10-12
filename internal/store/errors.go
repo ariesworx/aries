@@ -36,6 +36,9 @@ var (
 	ErrNothingReady = fmt.Errorf("nothing is ready to start: %w", ErrNotFound)
 	// ErrSchemaTooNew means a newer starfixd migrated the database.
 	ErrSchemaTooNew = errors.New("database schema is newer than this binary")
+	// ErrSchemaOld means this binary has migrations the database lacks,
+	// and was asked not to apply them (Options.NoMigrate).
+	ErrSchemaOld = errors.New("database schema is older than this binary")
 	// ErrForbidden means the actor may not make this change: another
 	// principal holds the issue, or the change is for admins.
 	ErrForbidden = errors.New("forbidden")

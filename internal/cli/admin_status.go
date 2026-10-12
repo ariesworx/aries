@@ -53,6 +53,9 @@ func printStatus(w io.Writer, res proto.StatusResult) {
 		p("stores %d of %d, connections %d of %d\n", s.OpenStores, s.OpenStoresMax, s.Conns, s.ConnsMax)
 		if k := s.KeysFile; k != nil {
 			p("keys file %s: %s\n", esc(k.Path), keysFile(*k))
+			if k.HeldBack > 0 {
+				p("keys held back from it: %d, which the server's authorized_keys file gives to another principal; sshd takes that file's line for them, and starfixd's log names each\n", k.HeldBack)
+			}
 		}
 		p("starfixd's memory %d MiB in use, %d MiB from the system; %d goroutines\n", mib(s.HeapBytes), mib(s.SysBytes), s.Goroutines)
 		p("projects: %s; principals: %s\n\n", byState(s.Projects), byState(s.Principals))

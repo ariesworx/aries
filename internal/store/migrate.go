@@ -105,7 +105,10 @@ func splitSQL(src string) []string {
 // refuses, with ErrInvalid and before changing anything, a database that
 // holds the other schema. DDL is not transactional, so a migration that
 // fails halfway needs repair by hand; each is small and runs once.
-func migrate(ctx context.Context, db *sql.DB, now time.Time, sc schema) (int, error) {
+//
+// With apply false it changes nothing: a database with migrations
+// pending, or with none ever applied, is refused with ErrSchemaOld.
+func migrate(ctx context.Context, db *sql.DB, now time.Time, sc schema, apply bool) (int, error) {
 	ms, err := loadMigrations(sc.fsys, sc.dir)
 	if err != nil {
 		return 0, err
@@ -118,8 +121,16 @@ func migrate(ctx context.Context, db *sql.DB, now time.Time, sc schema) (int, er
 	if foreign > 0 {
 		return 0, fmt.Errorf("%w: the database does not hold %s: it has the table %s; check the dsn", ErrInvalid, sc.kind, sc.foreign)
 	}
-	// sc.table is one of two constants (projectSchema, controlSchema).
-	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS `+sc.table+` (
+	if !apply {
+		var versioned int
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.tables
+  WHERE table_schema = DATABASE() AND table_name = ?`, sc.table).Scan(&versioned); err != nil {
+			return 0, fmt.Errorf("read tables: %w", err)
+		}
+		if versioned == 0 {
+			return 0, fmt.Errorf("%w: database was never migrated, binary knows %d", ErrSchemaOld, len(ms))
+		}
+	} else if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS `+sc.table+` (
   version    INT          NOT NULL PRIMARY KEY,
   name       VARCHAR(255) NOT NULL,
   applied_at DATETIME(6)  NOT NULL)`); err != nil {
@@ -131,6 +142,9 @@ func migrate(ctx context.Context, db *sql.DB, now time.Time, sc schema) (int, er
 	}
 	if cur > int64(len(ms)) {
 		return 0, fmt.Errorf("%w: database at version %d, binary knows %d", ErrSchemaTooNew, cur, len(ms))
+	}
+	if !apply && cur < int64(len(ms)) {
+		return 0, fmt.Errorf("%w: database at version %d, binary knows %d", ErrSchemaOld, cur, len(ms))
 	}
 	n := 0
 	for _, m := range ms[cur:] { //nolint:gosec // 0 <= cur <= len(ms)

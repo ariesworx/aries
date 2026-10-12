@@ -65,7 +65,7 @@ manage projects, principals, members and keys from anywhere with sfx admin.
 project_dbs: names the databases granted for new projects. serve writes
 the keys the control database holds to keys_file: (default
 ~/.ssh/starfix_keys of the user it runs as), which sshd reads with
-AuthorizedKeysFile beside the authorized_keys you maintain by hand.
+AuthorizedKeysFile before the authorized_keys you maintain by hand.
 
 Every command that opens the store refuses a Dolt account that is root,
 holds rights beyond its database, or a server whose secure_file_priv is
@@ -260,6 +260,16 @@ func openDaemon(ctx context.Context, s server.Settings, log *slog.Logger) (*daem
 	// then answers for all of them. One that fails is logged and held
 	// against that check; the others are served.
 	if err := srv.OpenProjects(ctx); err != nil {
+		return nil, errors.Join(fmt.Errorf("%w; fix: check that dolt sql-server is running", err), ctl.Close())
+	}
+	// Every claim in an archived project ends before the daemon listens
+	// (decision 24): one left by a daemon that stopped between an
+	// archive and its release would otherwise wait for the project to
+	// be activated. An archived project's database is opened as it is
+	// and never migrated here; activating the project does that.
+	asIs := opts
+	asIs.NoMigrate = true
+	if err := srv.ReleaseArchived(ctx, server.ProjectOpener(s.DSN, ctl, asIs)); err != nil {
 		return nil, errors.Join(fmt.Errorf("%w; fix: check that dolt sql-server is running", err), ctl.Close())
 	}
 	return &daemon{srv: srv, ctl: ctl}, nil
