@@ -11,8 +11,8 @@ A starfix server is one Linux machine running three programs:
 A server holds one project, as the steps below set it up. It can be
 switched to hold many, each in its own database ([Serving many
 projects](#serving-many-projects)). This page sets a server up step by
-step, then covers principals, settings, limits, upgrades, backups and
-troubleshooting.
+step, then covers principals, settings, limits, logs, metrics and health
+([Observability](#observability)), upgrades, backups and troubleshooting.
 For complete deployments with costs, see the
 [deployment examples](deploy/README.md).
 
@@ -199,6 +199,10 @@ After=network.target dolt.service
 Requires=dolt.service
 
 [Service]
+Type=notify
+NotifyAccess=main
+TimeoutStartSec=600
+WatchdogSec=120
 User=starfix
 Group=starfix
 ExecStart=/opt/starfix/bin/starfixd serve
@@ -219,8 +223,25 @@ WantedBy=multi-user.target
 ```
 
 `RuntimeDirectory` makes `/run/starfix` with mode 0700, so only the
-`starfix` user reaches the daemon's socket. Then let `starfixd upgrade`
-restart the unit, and start it:
+`starfix` user reaches the daemon's socket.
+
+| Line | Does |
+|---|---|
+| `Type=notify` | systemd counts the unit as started when starfixd says it is ready, which it does once it listens on its socket: after the database is open and, on a server of many projects, every project migrated. Until then `systemctl start` waits, and units ordered after this one do not start |
+| `NotifyAccess=main` | Only starfixd's own process may send those notifications |
+| `TimeoutStartSec=600` | How long systemd waits for that. Its default is 90 seconds, after which it fails the start and `Restart=on-failure` tries again; an upgrade that migrates many projects can take longer than that, so the unit gives it 10 minutes |
+| `WatchdogSec=120` | starfixd must say it is alive at least every 120 seconds, or systemd kills it and `Restart=on-failure` starts it again. starfixd says so every 60, half the interval, from the goroutine that runs its 30-second reaper, so a daemon whose reaper hangs is restarted. One tick of the reaper that takes longer than `WatchdogSec` is a hang too, and a Dolt that has stopped answering can cause one: each of the reaper's writes waits up to a minute |
+
+Without these four lines starfixd runs as before: it sends a
+notification only when systemd asks for one.
+
+**This part of the unit has not been run under a real systemd yet.** The
+notifications are tested against a socket that stands in for systemd's;
+`Type=notify`, `NotifyAccess`, `TimeoutStartSec` and `WatchdogSec`
+themselves are to be checked on an Ubuntu 24.04 machine. If the unit
+fails to start with them, remove the four lines and report it.
+
+Then let `starfixd upgrade` restart the unit, and start it:
 
 ```sh
 echo 'starfix ALL=(root) NOPASSWD: /usr/bin/systemctl restart starfixd.service' > /etc/sudoers.d/starfix
@@ -331,9 +352,9 @@ change that.
 
 - **Name rules:** lowercase, starting with a letter, then letters, digits,
   `.`, `_` or `-`, up to 64 characters. `starfixd` (the claim reaper and
-  the daemon's own changes), `import` (the bd importer and `control init`)
-  and `starfixd-upgrade` (the health check of `starfixd upgrade`) are
-  reserved.
+  the daemon's own changes), `import` (the bd importer and `control init`),
+  `starfixd-upgrade` (the health check of `starfixd upgrade`) and
+  `starfixd-status` ([`starfixd status`](#starfixd-status)) are reserved.
 - **Agents on someone's machine** use that person's key, so their work is
   theirs. Give an agent that runs on its own, in CI or in a cloud sandbox,
   its own principal and key (for example `ci-bot`). Its work then shows
@@ -851,6 +872,10 @@ old      archived  closed  0      -        -         -           -      -      -
 `-n` and `--after NAME` page the projects as the admin lists do, 200 at a
 time. `--json` gives the same figures, with latency in microseconds.
 
+On the server itself, [`starfixd status`](#starfixd-status) prints the
+same report with no admin key, and the same measurements are exported as
+metrics ([Observability](#observability)).
+
 **Dolt's memory is not in it.** Dolt is another process under another
 user, and starfixd has no portable way to read its memory, so read it
 from the machine: `systemctl status dolt`, `ps -o rss= -C dolt` or your
@@ -945,10 +970,15 @@ the config file (`/etc/starfix/starfixd.yaml`, or `--config FILE`, or
 | `latest` | The newest starfix release, set by hand. Clients' `prime` notes when this server is older | none | |
 | `account` | The project's account: what an issue's time and tokens report against when neither it nor an ancestor sets one ([Accounts, time and tokens](concepts.md#accounts-time-and-tokens)). A code name: lowercase letters, digits and inner hyphens | `internal` | |
 | `limits` | [Limits](#limits) | defaults | |
+| `telemetry.listen` | The loopback address, `HOST:PORT`, of the listener for `/metrics`, `/healthz` and `/readyz` ([Observability](#observability)). An address that is not loopback is refused | none: no listener | `STARFIXD_TELEMETRY_LISTEN` |
+| `telemetry.per_project` | Whether metrics name the project. `false` leaves it off every instrument | `true` | |
 
 - **A password never goes on the command line.** `--dsn` with a password is
   refused, because it would show in the process list. A config file that
   holds one must be mode 0600.
+- **Where metrics are pushed is not a setting here.** It comes from the
+  standard `OTEL_*` environment variables ([Observability](#observability)),
+  and a token for a hosted backend from the environment only.
 - **The Dolt account is checked** by every command that opens the store:
   `serve`, `control init`, `import-bd`, `export-bd` and `upgrade`. [The Dolt
   account](security-model.md#the-dolt-account) lists what they refuse.
@@ -1002,6 +1032,7 @@ limits:
 | `principals` | 5000 | With `control_db`: principals in the control database, disabled ones included |
 | `keys_per_principal` | 20 | With `control_db`: public keys of one principal |
 | `members_per_project` | 1000 | With `control_db`: principals with a role in one project |
+| `telemetry_requests` | 8 | With `telemetry: listen:`: requests the listener serves at once. One more is answered `503`; twice as many connections may be open, and one more is closed |
 | `control_write_rate`, `control_write_burst` | 1, 30 | With `control_db`: each principal's token bucket for `sfx admin` changes to projects, principals, members and keys: changes a second, and how many at once. It is the principal's on the whole server, apart from its write bucket in each project; the lists are not counted |
 
 On a server of [many projects](#serving-many-projects), every limit above
@@ -1068,12 +1099,292 @@ starfixd logs to stderr, which systemd sends to the journal
 | Level | Logs |
 |---|---|
 | `debug` | Connections and each successful request. With `control_db`, each names its `project` |
-| `info` | Startup, refusals, handshake failures and expired claims. Refusals are capped at `refusal_logs` a minute per principal. With `control_db`: each project store opened and closed, each project added, each write of the keys file, the connections closed and each claim released when an `sfx admin` change ends someone's access, and the `project` of every line about one |
-| `warn` | Connections refused at the connection cap, socket peers refused, how many refusal lines the cap left out, and failures to accept a connection that may pass, such as running out of file descriptors, which starfixd retries after a pause of up to a second |
-| `error` | Internal errors. With `control_db`: an active project whose database could not be opened at start, and a write of the keys file that failed (`the keys file is out of date`), every 30 seconds until one succeeds |
+| `info` | Startup, with what telemetry is on and the listener's address when either is set, refusals, handshake failures and expired claims. Refusals are capped at `refusal_logs` a minute per principal. With `control_db`: each project store opened and closed, each project added, each write of the keys file, the connections closed and each claim released when an `sfx admin` change ends someone's access, and the `project` of every line about one |
+| `warn` | A metrics export that failed, once and then every 10 minutes while it lasts; a notification systemd could not be sent. Connections refused at the connection cap, socket peers refused, how many refusal lines the cap left out, and failures to accept a connection that may pass, such as running out of file descriptors, which starfixd retries after a pause of up to a second |
+| `error` | Internal errors, and a check of Dolt for `/readyz` that failed. With `control_db`: an active project whose database could not be opened at start, and a write of the keys file that failed (`the keys file is out of date`), every 30 seconds until one succeeds |
 
 Any other failure to accept connections stops starfixd: it prints the
 error and exits 1, and the unit's `Restart=on-failure` starts it again.
+
+## Observability
+
+starfixd can report on itself in open formats, so that whatever you
+already monitor with can read it. **It is off by default:** with nothing
+configured, starfixd exports nothing and opens no port.
+
+| What | How it is turned on |
+|---|---|
+| Metrics pushed over OTLP/HTTP | `OTEL_EXPORTER_OTLP_ENDPOINT` in starfixd's environment |
+| Metrics for a scraper, in Prometheus's text format | `telemetry: listen:` in the config file |
+| `/healthz` and `/readyz` | The same listener |
+| Readiness and a watchdog under systemd | `Type=notify` and `WatchdogSec` in the unit ([step 5](#5-run-starfixd-under-systemd)) |
+| `starfixd status` | Always there, for the user starfixd runs as |
+
+Push and pull are independent: turn on either, both or neither. The
+instruments are the same either way.
+
+**Not built yet:** traces, the log schema and the audit stream of access
+changes, Dolt's own figures in the status report, and the tested
+Collector configuration, alert rules and dashboard. They are the next
+slices of [the design](design/starfix.md#16-observability). Until then
+`OTEL_TRACES_*` and `OTEL_LOGS_*` variables do nothing.
+
+### Send metrics to a collector on the machine
+
+This is the setup to start with. An
+[OpenTelemetry Collector](https://opentelemetry.io/docs/collector/), or
+your vendor's or cloud's own agent, runs on the server, receives OTLP on
+loopback and forwards to your backend. starfixd then holds no credential
+and knows no vendor, and the collector does the retrying.
+
+Add to the unit, then `systemctl daemon-reload` and restart starfixd:
+
+```ini
+[Service]
+Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
+```
+
+The log says what is on:
+
+```text
+level=INFO msg="telemetry on" push=http://127.0.0.1:4318/v1/metrics push_interval=1m0s push_headers=0 pull=false per_project=true service=starfixd
+```
+
+### Send metrics straight to a hosted backend
+
+Where running a collector is not wanted, starfixd can post to a backend
+that takes OTLP over HTTP. That usually needs a token, which is a secret:
+
+```sh
+install -m 0600 -o root -g root /dev/null /etc/starfix/telemetry.env
+```
+
+```sh
+# /etc/starfix/telemetry.env
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.example.com
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20REPLACE_WITH_THE_TOKEN
+```
+
+```ini
+[Service]
+EnvironmentFile=/etc/starfix/telemetry.env
+```
+
+- **The token is read from the environment only.** There is no flag and
+  no config key for it, so it cannot reach the process list or a config
+  file that is not 0600. systemd reads the file as root before it drops
+  to the `starfix` user.
+- **starfixd never logs it.** The start-up line gives the number of
+  headers, not their names or values, and the endpoint without any user,
+  password or query. An export error is logged with every header's value
+  removed, even when the backend's answer repeats it.
+- A space in a header's value is written `%20`: the variable is a
+  comma-separated list of `name=value` pairs, percent-encoded.
+
+### The variables starfixd reads
+
+| Variable | Does |
+|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | The collector's base URL, `http://` or `https://`. starfixd posts metrics to `/v1/metrics` under it. Unset: nothing is pushed |
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | The full URL for metrics, used as it is; wins over the one above |
+| `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_METRICS_HEADERS` | Headers sent with each export, as `name=value,name=value`; the second wins for a name in both. A secret |
+| `OTEL_EXPORTER_OTLP_PROTOCOL`, `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL` | Must be unset or `http/protobuf`. starfixd has no gRPC exporter, and refuses `grpc` at start |
+| `OTEL_EXPORTER_OTLP_TIMEOUT`, `OTEL_EXPORTER_OTLP_METRICS_TIMEOUT` | One export request's timeout, in milliseconds. Default 10000 |
+| `OTEL_METRIC_EXPORT_INTERVAL` | Milliseconds between exports. Default 60000 |
+| `OTEL_METRIC_EXPORT_TIMEOUT` | Milliseconds one collection and export may take. Default 30000 |
+| `OTEL_METRICS_EXPORTER` | `otlp` (the default) or `none`, which pushes nothing. Anything else is refused: for Prometheus, set `telemetry: listen:` |
+| `OTEL_SERVICE_NAME` | The resource's `service.name`. Default `starfixd` |
+| `OTEL_RESOURCE_ATTRIBUTES` | More resource attributes, as `name=value,name=value`, at most 64. It may set `service.instance.id`; `service.version` is always the build's |
+| `OTEL_SDK_DISABLED` | `true` turns all of it off: no push and no `/metrics`. The listener, if set, still answers health |
+
+A variable starfixd cannot honor stops it at start, with a `fix:`. The
+OpenTelemetry SDK itself also reads the variables for TLS files
+(`OTEL_EXPORTER_OTLP_CERTIFICATE` and the client key and certificate) and
+`OTEL_EXPORTER_OTLP_COMPRESSION` from starfixd's environment; starfixd
+does not check those.
+
+Every export carries the resource `service.name`, `service.version` (the
+starfixd version) and `service.instance.id` (a random UUID, new at each
+start, so one run can be told from the next).
+
+### The listener: metrics to scrape, and health
+
+```yaml
+# /etc/starfix/starfixd.yaml
+telemetry:
+  listen: 127.0.0.1:9464
+```
+
+| Path | Answers |
+|---|---|
+| `GET /metrics` | The instruments below, in Prometheus's text format |
+| `GET /healthz` | `200 ok` while the process serves |
+| `GET /readyz` | `200 ready`, or `503 not ready: ` and one line saying why |
+
+Any other path is 404, and any method but GET and HEAD is 405.
+
+- **Loopback only.** The address must be a loopback one: `127.0.0.1`,
+  `[::1]` or a name such as `localhost` whose every address is loopback.
+  `0.0.0.0`, `[::]` and any routable address are refused at start. The
+  listener has **no authentication**: any user on the machine can read
+  it. [What it reveals](security-model.md#the-telemetry-listener) is in
+  the security model. To collect from another machine, run a collector
+  on this one.
+- **It starts before the database is opened**, so a monitor can watch a
+  slow start, such as an upgrade that migrates many projects: `/healthz`
+  answers at once, and `/readyz` says `starfixd is starting`.
+- **A port that cannot be bound stops starfixd at start**, with a `fix:`.
+- **It is bounded.** At most `telemetry_requests` requests are served at
+  once ([Limits](#limits)); one more is answered `503` with
+  `Retry-After: 1`. Twice that many connections may be open, and one more
+  is closed. A request's headers must arrive within 5 seconds and its
+  answer be read within 30.
+
+`/readyz` is ready when all of these hold, and otherwise names the first
+that does not:
+
+| Line | Means |
+|---|---|
+| `starfixd is starting` | The store is not open yet, or the socket not yet listening |
+| `starfixd is not listening on its socket` | The daemon is stopping, or could no longer accept connections |
+| `the last check of Dolt failed` | Dolt did not answer a ping within 2 seconds. The ping is on a pooled connection to the control database, or to the one project's; it is made at most every 5 seconds, however often `/readyz` is asked, and its answer stands until the next. starfixd's log has the error |
+| `the last write of the keys file failed` | With `control_db`: sshd may be reading an older list of keys ([Keys from the store](#keys-from-the-store)) |
+
+`/healthz` says only that the process answers. A daemon that is healthy
+and not ready is usually waiting for Dolt.
+
+To have Prometheus scrape it:
+
+```yaml
+scrape_configs:
+  - job_name: starfixd
+    static_configs:
+      - targets: ["127.0.0.1:9464"]
+```
+
+### What is measured
+
+Names are OpenTelemetry's, as OTLP carries them. On `/metrics` the
+exporter writes dots as underscores, adds `_seconds` for a unit of
+seconds and `_total` to a counter, and gives a histogram `_bucket`,
+`_sum` and `_count`.
+
+| Instrument | On `/metrics` | Kind | Attributes |
+|---|---|---|---|
+| `starfix.request.duration` | `starfix_request_duration_seconds` | histogram, seconds | `op`, `result` |
+| `starfix.project.requests` | `starfix_project_requests_total` | counter | `project`, `result_class` |
+| `starfix.connections` | `starfix_connections` | up-down counter (a gauge on `/metrics`) | `project` |
+| `starfix.handshakes` | `starfix_handshakes_total` | counter | `result` |
+| `starfix.connections.dropped` | `starfix_connections_dropped_total` | counter | `reason` |
+| `starfix.limit.refusals` | `starfix_limit_refusals_total` | counter | `limit` |
+| `starfix.store.write.duration` | `starfix_store_write_duration_seconds` | histogram, seconds | `project` |
+| `starfix.store.write.retries` | `starfix_store_write_retries_total` | counter | `project` |
+| `starfix.store.commit.duration` | `starfix_store_commit_duration_seconds` | histogram, seconds | none |
+| `starfix.stores.open` | `starfix_stores_open` | gauge | none |
+| `starfix.store.open.duration` | `starfix_store_open_duration_seconds` | histogram, seconds | `migrated` |
+| `starfix.claims` | `starfix_claims_total` | counter | `event`, `reason` |
+| `starfix.control.writes` | `starfix_control_writes_total` | counter | `op`, `result` |
+| `starfix.keys_file.writes` | `starfix_keys_file_writes_total` | counter | `result` |
+| `starfix.keys_file.last_write.time` | `starfix_keys_file_last_write_time_seconds` | gauge, Unix seconds | none |
+| `starfix.reaper.duration` | `starfix_reaper_duration_seconds` | histogram, seconds | none |
+| `starfix.reaper.last_run.time` | `starfix_reaper_last_run_time_seconds` | gauge, Unix seconds | none |
+| `starfix.telemetry.dropped` | `starfix_telemetry_dropped_total` | counter | `signal` |
+
+What each counts:
+
+| Instrument | Counts |
+|---|---|
+| `request.duration` | Each request on a connection, from its frame being read to its answer being ready, refusals and rate-limited requests included |
+| `project.requests` | The same requests, by project and by class |
+| `connections` | Connections past the handshake |
+| `handshakes` | Each handshake, by how it ended; those of `starfixd upgrade`'s health check and `starfixd status` among them. A connection refused before its handshake is not one: a socket past twice `conns`, or a peer that is not the daemon's user |
+| `connections.dropped` | Connections starfixd closed for a reason of its own, not those a client closed |
+| `limit.refusals` | Refusals at a limit that starfixd can name |
+| `store.write.duration` | A write that changed a row and committed: the same measurement as P50 and P99 in the status report, the wait for the project's one writer and any retry included |
+| `store.write.retries` | Each attempt of a write that lost to a concurrent transaction and was tried again |
+| `store.commit.duration` | Each Dolt commit of pending writes, about one a second while a project is written to, failed ones included |
+| `stores.open` | Project stores open, opening or closing; always 1 on a server of one project |
+| `store.open.duration` | With `control_db`: opening a project's store, migrations included |
+| `claims` | Changes of a claim, as the event log records them, and renewals |
+| `control.writes` | With `control_db`: each `sfx admin` change, refused ones included |
+| `keys_file.writes` | With `control_db`: each time the keys file was written, or could not be. A file that already held the right keys is not a write |
+| `keys_file.last_write.time` | When the keys file took its current content |
+| `reaper.duration`, `reaper.last_run.time` | Each 30-second tick that ends expired claims, closes idle stores and rereads the control database, and when the last one ended. A time that stops advancing means the reaper is stuck |
+| `telemetry.dropped` | Each OTLP export that failed. Nothing is lost for good: totals are cumulative, and the next export carries them |
+
+Every attribute's values come from a fixed list in the code, so the
+number of series cannot grow with what clients send:
+
+| Attribute | Values |
+|---|---|
+| `op` | An operation of the protocol, such as `create`, `start` or `member.set`; `unknown` for any other |
+| `result` | `ok`, or the refusal's code: `not_found`, `conflict`, `exists`, `cycle`, `invalid`, `acceptance`, `forbidden`, `unavailable`, `version`, `auth`, `busy`. For a handshake also `failed`: it ended without a refusal to name, as when a frame could not be read. For the keys file: `ok` or `failed` |
+| `result_class` | `ok`; `error` for `unavailable`, which is the server's failure; `refused` for every other refusal, which is the request's |
+| `project` | The project's UUID, only for a project a connection was admitted to. At most as many as the `projects` limit, and `other` past that |
+| `reason` of a dropped connection | `membership`, `disabled`, `archived`, `key` (the access that let it in ended), `idle` (`idle_timeout`), `limit` (a socket past twice `conns`), `access` (the access ended while the handshake ran) |
+| `limit` | `conns`, `conns_per_principal`, `handshake_sockets` (twice `conns`), `write_rate`, `control_write_rate`, `open_stores`, `telemetry_requests`, `projects`, `principals`, `keys_per_principal`, `members_per_project`, `prices`, `plans`, `hours_per_day`, `usage_per_day` |
+| `migrated` | `true` when opening the store applied a migration |
+| `event` of a claim | `take`, `renew`, `release`, `expire` |
+| `reason` of a claim | `membership`, `disabled` or `archived` for a release that ended with the holder's access; `none` for every other change |
+| `signal` | `metrics` |
+
+- **Nothing a client chooses is an attribute:** no principal, session,
+  machine or issue id, and no project the server does not serve.
+- **`project` is never beside `op`.** One instrument has the operation
+  and its result; separate, coarser ones have the project.
+- **`telemetry: per_project: false`** removes `project` from every
+  instrument, for a server with many projects. The numbers are then the
+  server's as a whole.
+- **Histograms share one list of buckets:** 5, 10, 25, 50, 100, 250 and
+  500 ms, then 1, 2.5, 5 and 10 s.
+- **Limits not counted by name.** A request past one of the other limits
+  ([Limits](#limits)), such as `labels_per_issue`, is refused as
+  `invalid` like any other invalid request, and shows only under
+  `result="invalid"`.
+- **The Go runtime's metrics** come with these, under the names of
+  OpenTelemetry's semantic conventions: `go.memory.used`,
+  `go.memory.allocated`, `go.memory.allocations`, `go.memory.gc.goal`,
+  `go.goroutine.count`, `go.processor.limit`, `go.config.gogc`, and
+  `go.memory.limit` when `GOMEMLIMIT` is set. At `/metrics` they are
+  `go_memory_used_bytes`, `go_goroutine_count` and so on. Garbage
+  collection pauses and scheduler latency are not among them.
+
+### When the collector is down
+
+Telemetry never slows or fails a request. Recording a measurement
+changes memory only; exports run on their own goroutine.
+
+- A collector that is down, slow or refusing costs one warning in the log
+  (`telemetry: a metrics export failed`), then one every 10 minutes while
+  it lasts, with the number left out, and a line when exports succeed
+  again. `starfix.telemetry.dropped` counts each failed export.
+- starfixd does not retry within an interval: the next export carries the
+  same cumulative totals.
+- Stopping starfixd makes one last export, and gives it at most 5
+  seconds.
+
+### starfixd status
+
+```sh
+sudo -u starfix starfixd status
+sudo -u starfix starfixd status --json
+```
+
+It prints [the status report](#watching-a-server) that `sfx admin status`
+gives a server admin, with every project, for a script or an agent on
+the server that has no admin key. `--json` prints exactly one JSON
+document: the report, or `{"error": …}` and exit code 1.
+
+- It asks the running daemon over its unix socket, so it works only for
+  **the user starfixd runs as**: the socket's directory is mode 0700, and
+  on Linux the daemon also checks that whoever connects runs as its own
+  user. Anyone else gets a refusal with a `fix:`.
+- It connects under the reserved principal `starfixd-status`, which no
+  key can sign in as. The connection is in no project, is not listed by
+  `sfx who`, and is answered nothing but the report.
+- On a server of one project it lists that project by its UUID, since
+  only a control database gives projects names, and counts no projects
+  or principals.
 
 ## Upgrades
 
@@ -1220,6 +1531,7 @@ quiet hour: `cd /var/lib/dolt/data/starfix && sudo -u dolt -H dolt gc`.
 | `import-bd [--project UUID] [--principal NAME] [--dry-run] [--json] FILE` | Import a bd export (`-` for stdin); see [Moving from bd](migrate-from-bd.md). `--project` picks a project on a server of many |
 | `export-bd [--project UUID] [-o FILE]` | Write the store in bd's JSONL format |
 | `upgrade [--check] [--to vX.Y.Z] [--rollback] [--restart]` | Replace the binary with a verified release ([Upgrades](#upgrades)) |
+| `status [--json] [--config FILE] [--socket PATH]` | Print the running daemon's [status report](#starfixd-status), as the user starfixd runs as |
 | `version` | Print the version and protocol range |
 
 ## Troubleshooting

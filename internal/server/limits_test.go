@@ -84,6 +84,11 @@ func TestResolveSettingsLimits(t *testing.T) {
 		{name: "negative server limit", body: "limits:\n  write_burst: -1\n", err: "limit write_burst must be zero or a positive number"},
 		{name: "write rate not a number", body: "limits:\n  write_rate: .nan\n", err: "limit write_rate must be zero or a positive number"},
 		{name: "infinite write rate", body: "limits:\n  write_rate: .inf\n", err: "limit write_rate must be zero or a positive number"},
+		{name: "telemetry requests", body: "limits:\n  telemetry_requests: 3\n",
+			want: func(l Limits) bool { return l.TelemetryRequests == 3 && l.Conns == DefaultLimits.Conns }},
+		{name: "telemetry requests default", body: "limits:\n  telemetry_requests: 0\n",
+			want: func(l Limits) bool { return l.TelemetryRequests == 8 }},
+		{name: "negative telemetry requests", body: "limits:\n  telemetry_requests: -1\n", err: "limit telemetry_requests must be zero or a positive number"},
 		{name: "bad duration", body: "limits:\n  idle_timeout: soon\n", err: "soon"},
 		{name: "unknown limit", body: "limits:\n  lables: 3\n", err: "lables"},
 	}

@@ -11,14 +11,17 @@ import (
 	"net"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/safetext"
 	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/starfix/internal/telemetry"
 )
 
 // Config configures a Server.
@@ -84,6 +87,16 @@ type Config struct {
 	// Bridge is the path of starfixd in the forced command of each line
 	// of KeysFile ([ValidBridge]). Empty takes DefaultBridge.
 	Bridge string
+	// Telemetry records the daemon's measurements (design §16.4). Nil
+	// records none. A store the caller opens itself is measured when it
+	// is opened with [StoreObserver].
+	Telemetry *telemetry.Telemetry
+	// Heartbeat, when set, is called every HeartbeatEvery by the reaper's
+	// goroutine, between its ticks, so it stops being called when that
+	// goroutine hangs: what feeds systemd's watchdog. It needs a
+	// ReapInterval above zero.
+	Heartbeat      func()
+	HeartbeatEvery time.Duration
 }
 
 // Server serves the protocol. Create it with New.
@@ -119,6 +132,10 @@ type Server struct {
 	now func() time.Time
 	// started is when the server was made, for its uptime.
 	started time.Time
+	// listening is set while Serve accepts connections, and dolt is the
+	// last check of Dolt: what /readyz answers from (Ready).
+	listening atomic.Bool
+	dolt      doltCheck
 
 	// single is the project of a server of one (Config.Store); stores
 	// holds the open projects of a server of many (Config.Control).
@@ -202,8 +219,10 @@ func New(cfg Config) (*Server, error) {
 	s.writes = buckets{rate: cfg.Limits.WriteRate, burst: float64(cfg.Limits.WriteBurst)}
 	s.ctlWrites = buckets{rate: cfg.Limits.ControlWriteRate, burst: float64(cfg.Limits.ControlWriteBurst)}
 	s.refusals = sampler{n: cfg.Limits.RefusalLogs}
+	s.slots.tel = cfg.Telemetry
 	if !multi {
-		s.single = &served{id: cfg.Project, store: cfg.Store, account: cfg.Account, log: cfg.Logger, timeout: cfg.RequestTimeout}
+		s.single = &served{id: cfg.Project, store: cfg.Store, account: cfg.Account, log: cfg.Logger, timeout: cfg.RequestTimeout, tel: cfg.Telemetry}
+		cfg.Telemetry.Watch(telemetry.StoresOpen, func() float64 { return float64(s.OpenStores()) })
 		return s, nil
 	}
 	s.stores = &registry{open: s.openProject, max: cfg.Limits.OpenStores, idle: time.Duration(cfg.Limits.StoreIdle),
@@ -214,6 +233,7 @@ func New(cfg Config) (*Server, error) {
 	// archived project's is swept as it closes (decision 21). Each
 	// write is bounded by RequestTimeout.
 	s.stores.retiring = func(pr *served) { s.sweep(context.Background(), pr) }
+	cfg.Telemetry.Watch(telemetry.StoresOpen, func() float64 { return float64(s.OpenStores()) })
 	return s, nil
 }
 
@@ -223,11 +243,14 @@ func New(cfg Config) (*Server, error) {
 func (s *Server) openProject(ctx context.Context, p store.Project) (*served, error) {
 	octx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
 	defer cancel()
+	start := time.Now()
 	st, err := s.cfg.Open(octx, p)
 	if err != nil {
 		return nil, err
 	}
-	pr := &served{id: p.ID, store: st, account: p.Account, log: s.cfg.Logger.With("project", p.ID), timeout: s.cfg.RequestTimeout}
+	s.cfg.Telemetry.Since(telemetry.StoreOpenDuration, start, strconv.FormatBool(st.Migrated() > 0))
+	pr := &served{id: p.ID, store: st, account: p.Account, log: s.cfg.Logger.With("project", p.ID), timeout: s.cfg.RequestTimeout,
+		tel: s.cfg.Telemetry}
 	pr.used.Store(s.now().UnixNano())
 	pr.log.Info("project store opened", "name", p.Name, "database", p.DBName)
 	s.mu.Lock()
@@ -317,6 +340,8 @@ func (s *Server) Serve(ctx context.Context, l net.Listener) error {
 	if s.cfg.ReapInterval > 0 {
 		s.wg.Go(func() { s.reapLoop(ctx) })
 	}
+	s.listening.Store(true)
+	defer s.listening.Store(false)
 	var pause time.Duration
 	for {
 		c, err := l.Accept()
@@ -354,6 +379,8 @@ func (s *Server) Serve(ctx context.Context, l net.Listener) error {
 			// Past twice the cap, sockets still in the handshake are
 			// closed unread; the cap itself is refused cleanly there.
 			s.refusals.log(s.cfg.Logger, "", s.now(), slog.LevelWarn, "refused connection", "reason", "connection limit")
+			s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitSockets)
+			s.cfg.Telemetry.Count(telemetry.ConnectionsDropped, telemetry.DropLimit)
 			_ = c.Close()
 			continue
 		}
@@ -395,12 +422,22 @@ const pruneEvery = 10 * time.Minute
 func (s *Server) reapLoop(ctx context.Context) {
 	t := time.NewTicker(s.cfg.ReapInterval)
 	defer t.Stop()
+	// beat stays nil, and so never fires, with no heartbeat to send.
+	var beat <-chan time.Time
+	if s.cfg.Heartbeat != nil && s.cfg.HeartbeatEvery > 0 {
+		bt := time.NewTicker(s.cfg.HeartbeatEvery)
+		defer bt.Stop()
+		beat = bt.C
+	}
 	var pruned time.Time
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-beat:
+			s.cfg.Heartbeat()
 		case <-t.C:
+			start := time.Now()
 			s.refresh(ctx)
 			s.CloseIdleStores()
 			s.Reap(ctx)
@@ -409,6 +446,8 @@ func (s *Server) reapLoop(ctx context.Context) {
 				s.Prune(ctx)
 				pruned = time.Now()
 			}
+			s.cfg.Telemetry.Since(telemetry.ReaperDuration, start)
+			s.cfg.Telemetry.Record(telemetry.ReaperLastRun, float64(time.Now().Unix()))
 		}
 	}
 }
@@ -502,6 +541,7 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		return
 	}
 	sess, err := s.handshake(ctx, c)
+	s.observeHandshake(sess, err)
 	if sess != nil && sess.slot {
 		defer s.slots.release(sess.key)
 	}
@@ -520,7 +560,10 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		return // a stale key lookup, closed unanswered
 	}
 	if sess.proj == nil {
-		return // the health probe of a server of many projects: the welcome was its answer
+		// The health probe of a server of many projects: the welcome was
+		// its answer. `starfixd status` asks on.
+		s.serveStatus(ctx, sess)
+		return
 	}
 	principal, key := sess.actor.Principal, sess.key
 	if s.stores != nil {
@@ -535,6 +578,7 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 	defer s.untrack(c)
 	if !s.track(c, sess) {
 		log.Info("connection closed: access ended during the handshake")
+		s.cfg.Telemetry.Count(telemetry.ConnectionsDropped, telemetry.DropAccess)
 		return
 	}
 	if principal != ProbePrincipal { // a health check, not an agent to list in who
@@ -554,6 +598,7 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 			case errors.Is(err, io.EOF) || ctx.Err() != nil:
 			case errors.As(err, &ne) && ne.Timeout():
 				log.Debug("idle connection closed", "after", idle)
+				s.cfg.Telemetry.Count(telemetry.ConnectionsDropped, telemetry.DropIdle)
 				_ = s.send(sess, 0, nil, proto.Errf(proto.CodeUnavailable, "reconnect; starfix does so on the next command",
 					fmt.Sprintf("connection closed after %s idle", proto.Span(idle))))
 			default:
@@ -598,6 +643,7 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 			res, perr = sess.proj.dispatch(rctx, sess.actor, f.Op, f.Args)
 		}
 		cancel()
+		s.observeRequest(sess, f.Op, perr, start)
 		if p := sess.push; p != nil {
 			s.flush(sess, p) // what was committed before this answer goes first
 		}
@@ -644,6 +690,7 @@ func (s *Server) send(sess *session, id uint64, res any, perr *proto.Error) erro
 // busyWrites refuses a write over principal's rate, saying when to retry.
 func (s *Server) busyWrites(principal string, wait time.Duration) *proto.Error {
 	l := s.cfg.Limits
+	s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitWriteRate)
 	return proto.Errf(proto.CodeBusy, fmt.Sprintf("wait %s and retry", wait),
 		fmt.Sprintf("%s is over the write limit (%g a second, bursts of %d)", principal, l.WriteRate, l.WriteBurst))
 }
@@ -652,6 +699,7 @@ func (s *Server) busyWrites(principal string, wait time.Duration) *proto.Error {
 // principal's rate, saying when to retry.
 func (s *Server) busyControlWrites(principal string, wait time.Duration) *proto.Error {
 	l := s.cfg.Limits
+	s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitControlWriteRate)
 	return proto.Errf(proto.CodeBusy,
 		fmt.Sprintf("wait %s and retry; the server's operator can raise control_write_rate and control_write_burst under limits: in starfixd's config", wait),
 		fmt.Sprintf("%s is over the limit on access changes (%g a second, bursts of %d)", principal, l.ControlWriteRate, l.ControlWriteBurst))
@@ -678,10 +726,11 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 		s.cfg.Logger.Debug("key lookup closed unanswered: keys reach sshd by the keys file now")
 		return nil, nil
 	}
-	// The upgrade's probe, alone of the reserved names, is welcomed: it
-	// connects here directly, and Bridge refuses its name to every key.
+	// The upgrade's probe and `starfixd status`, alone of the reserved
+	// names, are welcomed: they connect here directly, and Bridge refuses
+	// their names to every key.
 	if f.T != proto.FrameBridge || !PrincipalPattern.MatchString(f.Principal) ||
-		(store.Reserved(f.Principal) && f.Principal != ProbePrincipal) {
+		(store.Reserved(f.Principal) && f.Principal != ProbePrincipal && f.Principal != StatusPrincipal) {
 		return nil, fmt.Errorf("first frame is %q, not a bridge frame with a valid, unreserved principal", f.T)
 	}
 	// A line of the hand-maintained authorized_keys file names none.
@@ -711,6 +760,12 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 	}
 	if e := proto.CheckProto(f.Proto, s.cfg.ProtoMin, s.cfg.ProtoMax, s.cfg.Version); e != nil {
 		return refuse(e)
+	}
+	if sess.actor.Principal == StatusPrincipal {
+		// `starfixd status` asks about the server, whichever project it
+		// names, and holds no connection slot (serveStatus).
+		w.Session, w.Principal = statusSession, StatusPrincipal
+		return sess, sess.enc.Encode(w)
 	}
 	var row store.Project
 	if s.stores == nil {
@@ -761,6 +816,7 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 		held, err := s.stores.acquire(ctx, row)
 		switch {
 		case errors.Is(err, errStoresFull):
+			s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitOpenStores)
 			return refuse(proto.Errf(proto.CodeBusy,
 				"retry in a minute; the server admin can raise open_stores under limits: in starfixd's config",
 				fmt.Sprintf("the server has its limit of %d projects open, each with a connection", s.cfg.Limits.OpenStores)))

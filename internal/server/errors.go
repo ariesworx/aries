@@ -49,6 +49,7 @@ func command(op string) string {
 // names the cause and whose fix names the next action. id and rev are the
 // request's target and expected revision, when it has them.
 func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err error) *proto.Error {
+	pr.observeLimit(op, err)
 	text := err.Error()
 	var stale *store.StaleEpochError
 	var idem *store.IdemError

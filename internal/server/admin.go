@@ -13,6 +13,7 @@ import (
 
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/starfix/internal/telemetry"
 )
 
 // Access management over the protocol (design §15.4, protocols 5 and 6):
@@ -156,6 +157,7 @@ func (s *Server) open(ctx context.Context, op string, p store.Project) *proto.Er
 	}
 	switch {
 	case errors.Is(err, errStoresFull):
+		s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitOpenStores)
 		return proto.Errf(proto.CodeBusy,
 			"retry in a minute; the server admin can raise open_stores under limits: in starfixd's config",
 			fmt.Sprintf("the server has its limit of %d projects open, each with a connection", s.cfg.Limits.OpenStores))
@@ -673,7 +675,7 @@ func keyRemove(ctx context.Context, s *Server, sess *session, in proto.KeyRemove
 	}
 	out := wireKeyResult(k)
 	out.Warning = s.syncKeys()
-	out.Dropped = s.drop(sess, "key removed", func(o owner) bool { return o.key == k.Fingerprint })
+	out.Dropped = s.drop(sess, keyRemoved, func(o owner) bool { return o.key == k.Fingerprint })
 	if s.byHand()[k.Fingerprint] {
 		out.InAuthorizedKeys = true
 		// One line: a warning is printed as one.

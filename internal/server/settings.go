@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/starfix/internal/telemetry"
 	"github.com/go-sql-driver/mysql"
 	"go.yaml.in/yaml/v3"
 )
@@ -87,7 +88,29 @@ type Settings struct {
 	// ancestor sets one. A code name: lowercase letters, digits and inner
 	// hyphens. Default DefaultAccount.
 	Account string `yaml:"account"`
+	// Telemetry is what is starfix's own of the daemon's telemetry
+	// (design §16.3); where metrics are pushed is in the standard OTEL_*
+	// environment variables, not here.
+	Telemetry TelemetrySettings `yaml:"telemetry"`
 }
+
+// TelemetrySettings are the telemetry: settings of starfixd's config.
+type TelemetrySettings struct {
+	// Listen is the loopback address, HOST:PORT, of the listener that
+	// serves /metrics, /healthz and /readyz. Empty, the default, opens no
+	// listener. An address that is not loopback is refused: the listener
+	// has no authentication.
+	Listen string `yaml:"listen"`
+	// PerProject says whether metrics name the project on the
+	// instruments that have that attribute. Nil, the default, is on;
+	// false leaves the project off every instrument, for a server with
+	// many projects.
+	PerProject *bool `yaml:"per_project"`
+}
+
+// ByProject reports whether metrics name the project: unless
+// per_project is false.
+func (t TelemetrySettings) ByProject() bool { return t.PerProject == nil || *t.PerProject }
 
 // DefaultAccount is the account an issue reports against when nothing
 // sets one.
@@ -115,13 +138,17 @@ const (
 	EnvKeysFile       = "STARFIXD_KEYS_FILE"
 	EnvAuthorizedKeys = "STARFIXD_AUTHORIZED_KEYS"
 	EnvBridge         = "STARFIXD_BRIDGE"
+	// EnvTelemetryListen sets Telemetry.Listen.
+	EnvTelemetryListen = "STARFIXD_TELEMETRY_LISTEN"
 )
 
 // ResolveSettings merges, highest precedence first: flags, the environment,
 // the config file, and defaults. configPath "" means STARFIXD_CONFIG, else
 // DefaultConfigFile if it exists; a named file must exist. Limits and
 // ProjectDBs come from the file only, Admins from the file unless STARFIXD_ADMINS replaces
-// them, and AllowUnsafeDolt from flags only. It refuses a password in
+// them, Telemetry from the file with its listen address from
+// STARFIXD_TELEMETRY_LISTEN when that is set, and AllowUnsafeDolt from
+// flags only. It refuses a password in
 // flags.DSN, which the process list would show; a config file with an
 // unknown key, or with a password and any access for group or others; an
 // admin name that is invalid or reserved; an invalid limit; an account
@@ -129,8 +156,10 @@ const (
 // name, or is the DSN's own; a block of project database names that is
 // invalid, set without a control database, or holds its name; a systemd
 // unit that is not a unit name; a bridge path that would need quoting in
-// a forced command; a keys file that is the authorized_keys file; and
-// an unknown log level or format.
+// a forced command; a keys file that is the authorized_keys file; a
+// telemetry listen address that is not HOST:PORT or is an IP address
+// that is not loopback (a host name is resolved, and checked, when the
+// daemon starts); and an unknown log level or format.
 func ResolveSettings(flags Settings, configPath string, getenv func(string) string) (Settings, error) {
 	if flags.DSN != "" {
 		cfg, err := mysql.ParseDSN(flags.DSN)
@@ -176,6 +205,15 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 	out.AllowUnsafeDolt = flags.AllowUnsafeDolt
 	out.Limits = file.Limits
 	out.ProjectDBs = file.ProjectDBs
+	out.Telemetry = file.Telemetry
+	if v := getenv(EnvTelemetryListen); v != "" {
+		out.Telemetry.Listen = v
+	}
+	if out.Telemetry.Listen != "" {
+		if err := telemetry.CheckAddr(out.Telemetry.Listen); err != nil {
+			return Settings{}, err
+		}
+	}
 	out.Admins = file.Admins
 	if v := getenv(EnvAdmins); v != "" {
 		out.Admins = nil

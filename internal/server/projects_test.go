@@ -18,6 +18,7 @@ import (
 	"github.com/ariesworx/starfix/internal/dolttest"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/starfix/internal/telemetry"
 	"github.com/go-sql-driver/mysql"
 )
 
@@ -96,6 +97,13 @@ func newMulti(t *testing.T, lim Limits, ck *clock) *multi {
 // newMultiAdmins is newMulti with the server admins given.
 func newMultiAdmins(t *testing.T, lim Limits, ck *clock, admins ...string) *multi {
 	t.Helper()
+	return newMultiTel(t, lim, ck, nil, admins...)
+}
+
+// newMultiTel is newMultiAdmins with the server and its stores measured
+// by tel, which may be nil.
+func newMultiTel(t *testing.T, lim Limits, ck *clock, tel *telemetry.Telemetry, admins ...string) *multi {
+	t.Helper()
 	if errors.Is(doltErr, dolttest.ErrNoDolt) {
 		t.Skip("dolt is not on PATH: install dolt to run the server tests")
 	}
@@ -124,9 +132,9 @@ func newMultiAdmins(t *testing.T, lim Limits, ck *clock, admins ...string) *mult
 	}
 	m := &multi{ctl: ctl, dsn: dsn, log: &syncBuffer{}, opens: map[string]int{},
 		keysFile: filepath.Join(sshDir, "starfix_keys"), byHand: filepath.Join(sshDir, "authorized_keys")}
-	open := ProjectOpener(dsn, ctl, store.Options{CommitInterval: -1, Limits: lim.Limits, Now: now})
+	open := ProjectOpener(dsn, ctl, store.Options{CommitInterval: -1, Limits: lim.Limits, Now: now}, tel)
 	m.Server, err = New(Config{Control: ctl, Version: "v0.2.0", PeerCheck: func(net.Conn) error { return nil }, Limits: lim,
-		KeysFile: m.keysFile, AuthorizedKeys: m.byHand,
+		KeysFile: m.keysFile, AuthorizedKeys: m.byHand, Telemetry: tel,
 		ReapInterval: -1, Logger: slog.New(slog.NewTextHandler(m.log, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		Open: func(ctx context.Context, p store.Project) (*store.Store, error) {
 			m.mu.Lock()
