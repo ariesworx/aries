@@ -261,7 +261,23 @@ Match User starfix
     AuthenticationMethods publickey
     DisableForwarding yes
     PermitTTY no
+    AuthorizedKeysCommand none
+    TrustedUserCAKeys none
+    AuthorizedPrincipalsFile none
 ```
+
+The last three lines make the account's keys come from its own key
+files and nowhere else. Without them, whatever the machine's sshd trusts
+for every account applies to `starfix` too: a cloud image's own key
+command (Google Cloud's OS Login, AWS's EC2 Instance Connect, Azure's
+Entra ID login), or a certificate authority your company's images trust.
+A key such a command prints, or a certificate from such an authority
+that names `starfix`, would be let in with no forced command, which is a
+shell as the account that can read starfixd's config file. Checked on 12
+October 2026 with OpenSSH 9.6 on Ubuntu 24.04: with a certificate
+authority trusted outside the `Match` block, a certificate for the
+principal `starfix` ran a command as the account; with these lines it is
+refused.
 
 ```sh
 install -d -m 0755 /run/sshd
@@ -594,6 +610,8 @@ replace a server admin's own key.
        PermitTTY no
        AuthorizedKeysFile .ssh/authorized_keys .ssh/starfix_keys
        AuthorizedKeysCommand none
+       TrustedUserCAKeys none
+       AuthorizedPrincipalsFile none
    ```
 
    ```sh
@@ -684,8 +702,10 @@ change: `AuthorizedKeysFile` in the `Match` block is read whatever that
 command is. Left alone, sshd would still run the provider's command for
 the `starfix` account, on every sign-in, and accept a key it printed,
 with no forced command. `AuthorizedKeysCommand none` in the `Match`
-block is what stops that: the account's keys come from the two files and
-nowhere else.
+block is what stops that, and `TrustedUserCAKeys none` does the same for
+a certificate authority the machine trusts for every account
+([step 6](#6-let-the-first-principal-in)): the account's keys come from
+the two files and nowhere else.
 
 What was checked, on 12 October 2026, with OpenSSH 9.6 on Ubuntu 24.04
 in the [Docker test server](deploy/docker.md), which has no systemd:
