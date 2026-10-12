@@ -767,10 +767,13 @@ person.
   in it. Each ends with a `claim.release` event that names the admin and
   the reason, the session that held it is told in its inbox, and the
   issue goes back to open and ready. The command says how many it
-  released. Taking the admin role away releases nothing. A project
-  whose store is closed at that moment has nothing running to release
-  them: its claims end when the store next opens, before its first
-  request, recorded under `starfixd` with the same reason.
+  released. Taking the admin role away releases nothing. When a member
+  is removed or a principal disabled, a project whose store is closed at
+  that moment has nothing running to release them: its claims end when
+  the store next opens, before its first request, recorded under
+  `starfixd` with the same reason. An archive does not wait: it opens a
+  closed store to end the claims, which are then recorded under
+  `starfixd` and not counted in what the command says it released.
 - **A project admin** is a member whose role in a project is `admin`
   (`sfx admin member add NAME --role admin`).
 - **Reach.** A project admin may disable or enable a principal only
@@ -800,7 +803,9 @@ person.
 - **Archiving** keeps the project's database, members and name, and
   serves it to no one: its connections are closed, its claims end, and
   its store closes with them, after one more sweep for a claim that a
-  request in flight took meanwhile. The server's last active project cannot be archived, since
+  request in flight took meanwhile. A starfixd that stopped before it
+  had released them ends them when it starts, before it listens. The
+  server's last active project cannot be archived, since
   `sfx admin` needs a project to connect to. `activate` opens the
   database, which applies any migration it missed while archived, and
   serves it again.
@@ -808,11 +813,24 @@ person.
   under the principal who ran the command.
 
 One case in the above is slower than "at once". A project whose store is
-closed has nothing running in it: when its member is removed, or when it
-is archived by a starfixd that restarted before it released the claims,
-the claims stay in its database until the store next opens, which for an
-archived project is when it is activated. Nobody can use them meanwhile,
-and they end before the first request is answered.
+closed has nothing running in it: when its member is removed or disabled,
+the claims stay in its database until the store next opens. Nobody can
+use them meanwhile, and they end before the first request is answered.
+
+An archived project's store never opens for a connection, so starfixd
+does not leave its claims to that. The archive opens a closed store to
+end them, and at every start, before it listens, starfixd asks each
+archived project's database whether it holds a claim, and opens the ones
+that do, ends every claim, recorded under `starfixd` for `project
+archived`, and closes them. A project with nothing to end costs that one
+read, a fraction of a millisecond, and nothing is written. It does not
+migrate: a database that an older starfixd last migrated is left as it
+is, with a line in the log at `info`, and a claim in it ends when the
+project is activated, as before. One that cannot be opened is logged at
+`error` and does not stop the server or the other projects. Nothing
+runs for archived projects on the 30-second tick: a running starfixd
+leaves a claim in one only if the release itself failed, which it logs,
+and the next start or the activation ends it.
 
 ### Watching a server
 
@@ -1114,7 +1132,9 @@ answers for all of them: it does not depend on the config file's
 `project` being active. If a project's database cannot be opened, the
 check is refused and names the project, so upgrade puts the old binary
 back; the log says why. An archived project's database is migrated when
-the project is activated.
+the project is activated, and not at start: starfixd opens it then only
+as it is, to end a claim left in it
+([Managing access](#managing-access)).
 
 The same happens at every start. A project whose database cannot be
 opened does not stop the others from being served: it is logged at

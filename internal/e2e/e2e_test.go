@@ -329,6 +329,10 @@ func (w *world) startMany() error {
 	if err := srv.WriteKeys(); err != nil {
 		return fail(err)
 	}
+	if err := srv.ReleaseArchived(ctx, server.ProjectOpener(w.dsn, ctl,
+		store.Options{CommitInterval: o.commit, Now: o.now, Limits: o.limits.Limits, Logger: o.logger, NoMigrate: true})); err != nil {
+		return fail(err)
+	}
 	l, err := server.Listen(w.socket)
 	if err != nil {
 		return fail(err)

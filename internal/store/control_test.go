@@ -881,7 +881,7 @@ func TestOpenControl(t *testing.T) {
 		dsn := newDSN(t)
 		c := openControl(t, dsn, ControlOptions{})
 		mustProject(t, c, projA)
-		if n, err := migrate(t.Context(), c.s.w, c.s.now(), controlSchema); err != nil || n != 0 {
+		if n, err := migrate(t.Context(), c.s.w, c.s.now(), controlSchema, true); err != nil || n != 0 {
 			t.Errorf("second migrate ran %d (err %v), want 0", n, err)
 		}
 		if err := c.Close(); err != nil {

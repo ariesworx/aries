@@ -332,6 +332,7 @@ func projectArchive(ctx context.Context, s *Server, sess *session, in proto.Proj
 			"add another project, or bring one back with `sfx admin project activate PROJECT`, before archiving this one",
 			fmt.Sprintf("%s is the server's only active project; without one, nobody could connect to manage the server", p.Name))
 	}
+	was := p.State
 	p, err := s.cfg.Control.ArchiveProject(ctx, sess.actor, p.ID)
 	if err != nil {
 		return nil, s.ctlErr(ctx, sess, op, err)
@@ -340,11 +341,34 @@ func projectArchive(ctx context.Context, s *Server, sess *session, in proto.Proj
 	delete(s.unopened, p.ID)
 	s.mu.Unlock()
 	s.drop(sess, "project archived", func(o owner) bool { return o.project == p.ID })
-	// Every claim in it ends now, while its store is open; a store that
-	// is closed ends them when it next opens, which is at activation.
 	out := wireProjectResult(p)
-	out.Released = s.release(ctx, sess.actor, p.ID, "", lostArchived)
+	if was != store.ProjectActive {
+		// Never served, or archived before, when its claims ended.
+		s.stores.retire(p.ID)
+		return out, nil
+	}
+	// Every claim in it ends now (decisions 21 and 24). A store that is
+	// closed is opened for it, through the registry so that the project
+	// never has two writers: nobody can connect to an archived project,
+	// so nothing else would open it before its activation or the
+	// daemon's next start. The opening ends the claims as every opening
+	// does, under the server's name; the count is of the admin's own.
+	// One project is opened for one admin's request, which the control
+	// write bucket bounds. The archive is committed, so the release goes
+	// on if the admin's connection drops. A store that cannot be opened
+	// is logged, and its claims end at the daemon's next start
+	// (ReleaseArchived) or when the project is activated.
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.cfg.RequestTimeout)
+	defer cancel()
+	held, err := s.stores.acquire(rctx, p)
+	if err != nil {
+		s.cfg.Logger.Error("open the store of an archived project to end its claims", "project", p.ID, "database", p.DBName, "err", err)
+	}
+	out.Released = s.release(rctx, sess.actor, p.ID, "", lostArchived)
 	s.stores.retire(p.ID)
+	if err == nil {
+		s.stores.release(held)
+	}
 	return out, nil
 }
 
@@ -727,6 +751,80 @@ func (s *Server) OpenProjects(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// ReleaseArchived ends every claim in every archived project (decision
+// 24). A daemon runs it once, after OpenProjects and before it listens.
+// An archive ends its project's claims as it commits (projectArchive),
+// but a daemon that stopped between the control write and the release
+// left them in a project nobody may connect to, whose store therefore
+// never opens and is never swept. Each claim ends as the sweep ends one:
+// a claim.release of the server's own for "project archived", the
+// holder's claim.lost, and the issue open again.
+//
+// open opens an archived project's database as it is, without migrating
+// it ([store.Options.NoMigrate]): a database an older starfixd last
+// migrated is left untouched, with a line in the log, and any claim in
+// it ends when the project is activated, which migrates it and sweeps
+// it before its first request. So an upgrade changes no database that
+// nobody can use, and a rollback finds the archived ones as they were.
+//
+// A project that cannot be opened is logged and does not stop the
+// others, or the server. ReleaseArchived returns an error only when the
+// projects cannot be read or ctx ends. It opens each store beside the
+// registry, so it must not run once the server accepts connections.
+//
+// A project that holds no claim costs one read through the control
+// store's connection ([store.Control.HeldClaims]) and opens no store, so
+// a server with hundreds of archived projects starts as fast as one with
+// none. A server of one project has nothing archived.
+func (s *Server) ReleaseArchived(ctx context.Context, open func(context.Context, store.Project) (*store.Store, error)) error {
+	if s.cfg.Control == nil {
+		return nil
+	}
+	all, err := s.cfg.Control.Projects(ctx)
+	if err != nil {
+		return fmt.Errorf("release the claims of archived projects: %w", err)
+	}
+	for _, p := range all {
+		if p.State != store.ProjectArchived {
+			continue
+		}
+		err := s.releaseArchived(ctx, p, open)
+		switch {
+		case err == nil:
+		case ctx.Err() != nil:
+			return fmt.Errorf("release the claims of archived projects: %w", ctx.Err())
+		case errors.Is(err, store.ErrSchemaOld):
+			s.cfg.Logger.Info("archived project not opened at start: its database awaits this starfixd's migrations, and any claim in it ends when the project is activated",
+				"project", p.ID, "name", p.Name, "database", p.DBName)
+		default:
+			s.cfg.Logger.Error("end the claims of an archived project at start", "project", p.ID, "name", p.Name, "database", p.DBName, "err", err)
+		}
+	}
+	return nil
+}
+
+// releaseArchived ends every claim in the archived project p, whose
+// store it opens with open and closes again.
+func (s *Server) releaseArchived(ctx context.Context, p store.Project, open func(context.Context, store.Project) (*store.Store, error)) error {
+	octx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
+	defer cancel()
+	// Nearly every archived project holds no claim, and one read says
+	// so without a store. When the read fails, opening says why.
+	if n, err := s.cfg.Control.HeldClaims(octx, p.DBName); err == nil && n == 0 {
+		return nil
+	}
+	st, err := open(octx, p)
+	if err != nil {
+		return err
+	}
+	cs, err := st.EndClaims(octx, accessActor, func(string) string { return lostArchived })
+	for _, c := range cs {
+		s.cfg.Logger.Info("claim released: access ended", "project", p.ID, "issue", c.Issue, "principal", c.Holder.Principal,
+			"session", c.Holder.Session, "epoch", c.Epoch, "by", accessActor.Principal, "reason", lostArchived)
+	}
+	return errors.Join(err, st.Close())
 }
 
 // unopenedErr refuses the upgrade's health probe while a project that
