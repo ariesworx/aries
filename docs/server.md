@@ -605,7 +605,7 @@ text.
 ### Keys from the store
 
 On a server of many projects starfixd writes the keys its control
-database holds to a file, and sshd reads that file beside
+database holds to a file, and sshd reads that file before
 `authorized_keys`. An admin adds and removes keys with `sfx admin`, from
 anywhere, and nobody edits a file on the server. The file is
 `~starfix/.ssh/starfix_keys`, in the format of `authorized_keys`: a
@@ -617,10 +617,11 @@ the key's fingerprint added:
 restrict,command="/usr/local/bin/starfixd stdio --principal alice --key SHA256:…" ssh-ed25519 AAAA…
 ```
 
-sshd asks starfixd nothing. It reads two files, and nothing of starfix
-runs before sshd has authenticated a key. `authorized_keys`, which you
-maintain by hand, stays the way in for the first admin and the way to
-replace a server admin's own key.
+sshd asks starfixd nothing. It reads two files, starfixd's first, and
+nothing of starfix runs before sshd has authenticated a key.
+`authorized_keys`, which you maintain by hand, stays the way in for a
+key the control database does not hold: the first admin's before
+`control init`, and a server admin's own new key.
 
 - **When it is written.** At start, before starfixd listens; after every
   `sfx admin` change that alters which keys sign in (a key added or
@@ -639,7 +640,10 @@ replace a server admin's own key.
   key the database no longer holds for that principal, and one whose
   principal is disabled. So a key that was removed, in a file that
   could not be rewritten or was restored from a backup, gets past sshd
-  and is refused by starfixd.
+  and is refused by starfixd. sshd reads this file first, so that
+  refusal stands even when the key is also a line of `authorized_keys`:
+  an out-of-date file can refuse a key the other file would have let
+  in, and never lets in one the database has dropped.
 - **A server of one project writes no file.**
 
 1. **Let starfixd write to the account's `.ssh`.** The unit of
@@ -673,7 +677,7 @@ replace a server admin's own key.
        AuthenticationMethods publickey
        DisableForwarding yes
        PermitTTY no
-       AuthorizedKeysFile .ssh/authorized_keys .ssh/starfix_keys
+       AuthorizedKeysFile .ssh/starfix_keys .ssh/authorized_keys
        AuthorizedKeysCommand none
        TrustedUserCAKeys none
        AuthorizedPrincipalsFile none
@@ -685,8 +689,13 @@ replace a server admin's own key.
    ```
 
    sshd takes the first line that matches the key, in the order the
-   files are named, so a key in both files is let in by its line of
-   `authorized_keys`.
+   files are named, so the order matters: starfixd's file comes first.
+   A key in both files is then let in by starfixd's line, which names
+   its fingerprint and the principal the control database gives it, so
+   `sfx admin key remove` closes its connections and starfixd can
+   refuse it. With the files the other way round, such a key would come
+   in by its line of `authorized_keys`, which names no fingerprint, and
+   removing it would neither close its connections nor show.
 
    With `AuthorizedKeysCommand none` in the `Match` block, sshd on
    stock Ubuntu 24.04 (OpenSSH 9.6, no `AuthorizedKeysCommand` of its
@@ -718,30 +727,53 @@ replace a server admin's own key.
    from `authorized_keys` that you want `sfx admin` to govern, and keep
    the first admin's:
 
-   - **A key whose line is still in `authorized_keys` cannot be revoked
-     with `sfx admin key remove`.** sshd finds the line in that file
-     and lets the key in, by a forced command that names no
-     fingerprint, so starfixd cannot refuse the key or close the
-     connections it made. Its principal can still be disabled, and its
-     memberships removed, which starfixd enforces whatever let the key
-     in.
+   - **A key whose line is still in `authorized_keys` is not kept out
+     by `sfx admin key remove`.** While the control database holds the
+     key, sshd lets it in by starfixd's line, so the removal closes the
+     connections it had signed in. But the removal also takes that line
+     out of starfixd's file, and sshd then finds the key's line of
+     `authorized_keys` and lets it in again, by a forced command that
+     names no fingerprint: starfixd cannot refuse that key, or close a
+     connection it makes from then on. The key is revoked when its line
+     of `authorized_keys` is deleted too. Meanwhile its principal can
+     be disabled, and its memberships removed, which starfixd enforces
+     whatever let the key in.
    - **starfixd tells you which keys those are.** It runs as the
      account whose `authorized_keys` it is, so it reads the file: it
      never writes to it, and never prints or logs a line of it. `sfx
      admin key list NAME` marks each key that is also in
      `authorized_keys`, and `sfx admin key remove` of such a key warns
-     that sshd still accepts it there and that its line must be deleted
-     on the server. A line starfixd cannot read as a key is skipped,
-     and only the first mebibyte of the file is read.
-   - **It also counts who still comes in that way.** A connection whose
-     forced command named no fingerprint came in by `authorized_keys`.
+     that its connections were closed, that sshd will still accept it
+     by that line, and that the line must be deleted on the server. A
+     line starfixd cannot read as a key is skipped, and only the first
+     mebibyte of the file is read.
+   - **It also counts who comes in that way.** A connection whose
+     forced command named no fingerprint came in by `authorized_keys`:
+     its key is not in the control database, or was removed from it.
      `sfx admin status` counts those for each project (BY HAND), and
-     `sfx admin key list NAME` for NAME. A line of `authorized_keys`
-     whose key was never put in the control database shows up only
-     there.
+     `sfx admin key list NAME` for NAME. `sfx admin key remove` does not
+     close them.
+   - **The control database's line wins for a key in both.** The key
+     signs in as the principal the control database gives it, whatever
+     principal its line of `authorized_keys` names, and a disabled
+     principal's key has no line in starfixd's file, so it reaches its
+     line of `authorized_keys` and is refused by starfixd as disabled.
+     `authorized_keys` cannot override the control database; it only
+     lets in a key the database does not hold.
    - **Keep one line for a server admin.** It is how a server admin's
      own key is replaced, since nobody changes the keys of their own
-     account with `sfx admin`.
+     account with `sfx admin`. A key in `authorized_keys` keeps the
+     principal its line names: `sfx admin key add` and `principal add
+     --key` refuse it for anyone else, as they refuse a key another
+     principal has, so nobody can take a server admin's key by adding
+     it to the control database under another name. And a line you add
+     for a key the control database already holds under another name
+     wins: starfixd leaves that key out of its file, so that sshd
+     reaches your line, says so in its log, and counts it in `sfx admin
+     status` as a key held back. It takes effect at the next key change
+     or within 30 seconds; until then that key is refused. starfixd
+     reads the first mebibyte of the file, and takes the first line for
+     a key, as sshd does.
 
 **Settings.** `keys_file` is where starfixd writes, and
 `authorized_keys` the hand-maintained file it reads; a relative path is
@@ -756,7 +788,10 @@ command sshd runs. If you move `keys_file`, change sshd's
 **When starfixd is stopped,** sshd still reads both files and accepts
 their keys, and every command then fails with `starfixd is not running
 on the server` until it is started. Neither file is a way to work
-without the daemon.
+without the daemon, so the order of the two changes nothing then.
+starfixd writes its file before it listens, and does not start if it
+cannot, so a file left out of date by a stopped daemon is replaced
+before anyone is answered.
 
 **When a write fails after the start,** the change an admin made is
 already recorded, and stays. The admin's command succeeds and prints a
@@ -765,7 +800,13 @@ warning that sshd may still be reading the old file; starfixd logs
 tries again every 30 seconds; and `sfx admin status` says `THE LAST
 WRITE FAILED` on its `keys file` line until a write succeeds. Meanwhile
 a key just added does not sign in, and a key just removed is refused by
-starfixd rather than by sshd.
+starfixd rather than by sshd. That holds for a removed key that is also
+a line of `authorized_keys`: sshd finds the old line of starfixd's file
+first, so the key is refused until the file is written, and let in by
+`authorized_keys` after. If the file cannot be written for long and
+someone is shut out who should not be, fix what the log names, or move
+the file aside on the server: sshd then reads `authorized_keys` alone,
+and starfixd writes a new file when it can.
 
 **On an image whose sshd already has a global `AuthorizedKeysCommand`**
 for its provider's login service (Google Cloud's OS Login, AWS's EC2
@@ -787,7 +828,8 @@ in the [Docker test server](deploy/docker.md), which has no systemd:
 | starfixd installed as [step 3](#3-install-starfixd) installs it: owned by `starfix` in `/opt/starfix/bin`, linked from `/usr/local/bin`, and no copy that root owns | Keys from the control database sign in. sshd runs no program of starfix's before authentication, so who owns the binary does not matter to it |
 | A global `AuthorizedKeysCommand`, outside any `Match` block, set to a root-owned script that prints nothing, with `AuthorizedKeysCommandUser nobody` | Keys from both files sign in, with no override. sshd ran the script twice for each sign-in by `sfx`. With `AuthorizedKeysCommand none` in the `Match` block it did not run it |
 | starfixd killed, sshd left running | sshd accepts a key from either file, and the client gets `starfixd is not running on the server` |
-| A key in both files | sshd lets it in by its line of `authorized_keys` |
+| A key in both files, with `authorized_keys` named first, as this guide had it until that day | sshd let it in by its line of `authorized_keys`, which names no fingerprint |
+| A key in both files, with starfixd's file named first, as above | sshd lets it in by starfixd's line: starfixd counts no connection of that key as let in by `authorized_keys`. With the key removed from the control database, the same key signs in by `authorized_keys`, and its connection is counted so |
 
 Checked under systemd 255, on 12 October 2026, on the Ubuntu 24.04
 virtual machine of [What was run, and where](#what-was-run-and-where):
@@ -865,10 +907,13 @@ person.
   in it. Each ends with a `claim.release` event that names the admin and
   the reason, the session that held it is told in its inbox, and the
   issue goes back to open and ready. The command says how many it
-  released. Taking the admin role away releases nothing. A project
-  whose store is closed at that moment has nothing running to release
-  them: its claims end when the store next opens, before its first
-  request, recorded under `starfixd` with the same reason.
+  released. Taking the admin role away releases nothing. When a member
+  is removed or a principal disabled, a project whose store is closed at
+  that moment has nothing running to release them: its claims end when
+  the store next opens, before its first request, recorded under
+  `starfixd` with the same reason. An archive does not wait: it opens a
+  closed store to end the claims, which are then recorded under
+  `starfixd` and not counted in what the command says it released.
 - **A project admin** is a member whose role in a project is `admin`
   (`sfx admin member add NAME --role admin`).
 - **Reach.** A project admin may disable or enable a principal only
@@ -898,7 +943,9 @@ person.
 - **Archiving** keeps the project's database, members and name, and
   serves it to no one: its connections are closed, its claims end, and
   its store closes with them, after one more sweep for a claim that a
-  request in flight took meanwhile. The server's last active project cannot be archived, since
+  request in flight took meanwhile. A starfixd that stopped before it
+  had released them ends them when it starts, before it listens. The
+  server's last active project cannot be archived, since
   `sfx admin` needs a project to connect to. `activate` opens the
   database, which applies any migration it missed while archived, and
   serves it again.
@@ -906,11 +953,24 @@ person.
   under the principal who ran the command.
 
 One case in the above is slower than "at once". A project whose store is
-closed has nothing running in it: when its member is removed, or when it
-is archived by a starfixd that restarted before it released the claims,
-the claims stay in its database until the store next opens, which for an
-archived project is when it is activated. Nobody can use them meanwhile,
-and they end before the first request is answered.
+closed has nothing running in it: when its member is removed or disabled,
+the claims stay in its database until the store next opens. Nobody can
+use them meanwhile, and they end before the first request is answered.
+
+An archived project's store never opens for a connection, so starfixd
+does not leave its claims to that. The archive opens a closed store to
+end them, and at every start, before it listens, starfixd asks each
+archived project's database whether it holds a claim, and opens the ones
+that do, ends every claim, recorded under `starfixd` for `project
+archived`, and closes them. A project with nothing to end costs that one
+read, a fraction of a millisecond, and nothing is written. It does not
+migrate: a database that an older starfixd last migrated is left as it
+is, with a line in the log at `info`, and a claim in it ends when the
+project is activated, as before. One that cannot be opened is logged at
+`error` and does not stop the server or the other projects. Nothing
+runs for archived projects on the 30-second tick: a running starfixd
+leaves a claim in one only if the release itself failed, which it logs,
+and the next start or the activation ends it.
 
 ### Watching a server
 
@@ -921,7 +981,7 @@ server; anyone else is refused. It reads memory, plus one count on an
 index for each open project listed, opens no store and writes nothing.
 
 ```text
-starfixd v0.5.0, protocol 2 to 6, up 3d 4h
+starfixd v0.5.0, protocol 5 to 5, up 3d 4h
 stores 2 of 64, connections 14 of 1024
 keys file /var/lib/starfix/.ssh/starfix_keys: 31 keys, written 2026-10-11 09:12 UTC
 starfixd's memory 42 MiB in use, 78 MiB from the system; 112 goroutines
@@ -1311,14 +1371,43 @@ error and exits 1, and the unit's `Restart=on-failure` starts it again.
 
 ## Upgrades
 
-Upgrade the server first, then the clients. A newer server accepts older
-clients. A newer client that needs a newer protocol is refused by an older
-server at the handshake, with exit code 3 and a fix that says to upgrade
-the server. This release speaks protocol 6 (`sfx admin` for projects,
-principals, members and keys) and accepts clients that speak 2 to 6, so
-v0.2.x clients (protocol 2), v0.3.x clients (protocol 3) and v0.4.x
-clients (protocol 4) keep working, without what came after them, and
-v0.1.x clients, which speak 1, must upgrade.
+This release speaks protocol 5 and accepts only protocol 5. **It refuses
+every earlier release's `sfx`**: v0.2.x (protocol 2), v0.3.x (protocol
+3) and v0.4.x (protocol 4). That is a break made once, on purpose,
+while nobody runs starfix in production and it changes quickly
+([design §14, decision 25](design/starfix.md#14-decisions)). From here
+on the rule holds again: a release that changes the protocol still
+accepts the one before it, so the server is upgraded first and the
+clients after, at their own pace.
+
+Crossing this one boundary, both sides must be upgraded, and until both
+are, the one upgraded first cannot talk to the other:
+
+1. **Tell everyone first.** Once the server is upgraded, every `sfx`
+   older than this release is refused until it is upgraded.
+2. **Upgrade the server,** as below. `starfixd upgrade` run by v0.4.0
+   works across the boundary: its health check is answered by the new
+   starfixd whatever protocol the old binary speaks.
+3. **Everyone upgrades `sfx`:** `sfx upgrade`, on each machine. It reads
+   the release from GitHub and asks the server nothing, so it works
+   while the server refuses that `sfx`. Someone without it runs the
+   install script again ([Installing](install.md)).
+4. **Everyone restarts their agents.** The MCP server in an agent's
+   harness is an `sfx mcp` process, started from the old binary, and it
+   stays the old one until the harness starts it again.
+
+What each side sees meanwhile, with exit code 3:
+
+| Who | Is told |
+|---|---|
+| An older `sfx` against this server | `sfx: starfix speaks protocol 4; the server (v0.5.0) needs protocol 5` and `fix: upgrade this client: run `sfx upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `sfx mcp``. The old `sfx` prints the server's words, so it says this whatever its version |
+| An agent on an older `sfx mcp` | Every tool call fails with code `version` and that message, and the fix `tell the user starfix cannot connect, quoting the server:` followed by the line above. The session's start says the same in one line. The agent cannot fix it: the person upgrades `sfx` and restarts the agent |
+| This `sfx` against an older server | `sfx: starfix speaks protocol 5; the server (v0.4.0) is older and accepts protocols 2 to 4` and `fix: ask the server admin to run `starfixd upgrade`, or install the starfix release that matches the server` |
+
+Upgrading the clients first works too, in the sense that nothing is
+lost: each new `sfx` is refused, as in the last row, until the server is
+upgraded. Server first is shorter, because step 3 is then one command
+that the refusal itself names.
 
 On the server, as the `starfix` user:
 
@@ -1339,7 +1428,10 @@ sudo -u starfix -H starfixd upgrade
 4. With `systemd_unit:` set, or `--restart`, restarts the unit through the
    sudo rule from [step 5](#5-run-starfixd-under-systemd). It then checks
    that the new version answers on the socket within 30 seconds. If it does
-   not, upgrade puts the old binary back and restarts it.
+   not, upgrade puts the old binary back and restarts it. The check is
+   made by the binary that ran the upgrade, the old one, and starfixd
+   answers it whatever protocol that binary speaks, so an upgrade across
+   a protocol change is not mistaken for a failed one.
 
    sudo compares the whole command with its rule, so the rule must spell
    the unit as `systemd_unit` does: `starfixd.service` in both, as steps
@@ -1355,7 +1447,9 @@ answers for all of them: it does not depend on the config file's
 `project` being active. If a project's database cannot be opened, the
 check is refused and names the project, so upgrade puts the old binary
 back; the log says why. An archived project's database is migrated when
-the project is activated.
+the project is activated, and not at start: starfixd opens it then only
+as it is, to end a claim left in it
+([Managing access](#managing-access)).
 
 The same happens at every start. A project whose database cannot be
 opened does not stop the others from being served: it is logged at

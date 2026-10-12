@@ -26,6 +26,22 @@ func SessionFromEnv(getenv func(string) string) string {
 	return ""
 }
 
+// The environment variables that carry a W3C trace context into a
+// process, by the OpenTelemetry convention for environment carriers.
+const (
+	TraceparentEnv = "TRACEPARENT"
+	TracestateEnv  = "TRACESTATE"
+)
+
+// TraceFromEnv returns the trace context the process was started with,
+// from TRACEPARENT and TRACESTATE, or the zero value when there is none
+// or it is not a valid one ([proto.ParseTraceContext]): the environment
+// is checked as a request frame is, and what does not parse is not sent.
+func TraceFromEnv(getenv func(string) string) proto.TraceContext {
+	tc, _ := proto.ParseTraceContext(getenv(TraceparentEnv), getenv(TracestateEnv))
+	return tc
+}
+
 // HarnessFromEnv names the agent harness this process runs under, as an
 // `sfx setup` agent name, for the agents registry: STARFIX_HARNESS (which
 // setup writes into every MCP config) wins; else CLAUDECODE=1 means

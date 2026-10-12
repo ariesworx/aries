@@ -65,6 +65,15 @@ type Frame struct {
 
 	// E is an evt frame's payload, such as the inbox item it pushes.
 	E json.RawMessage `json:"e,omitempty"`
+
+	// Traceparent and Tracestate are, on a req frame, the caller's W3C
+	// trace context: the traceparent value and, optionally, the
+	// tracestate. They are per request, since one connection of `sfx mcp`
+	// serves many agent turns. The server reads them with
+	// ParseTraceContext, which ignores what is malformed: a bad trace
+	// context never fails a request.
+	Traceparent string `json:"tp,omitempty"`
+	Tracestate  string `json:"ts,omitempty"`
 }
 
 // Encoder writes frames. It is safe for concurrent use.

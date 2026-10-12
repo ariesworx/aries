@@ -11,8 +11,8 @@ line forces one command, `starfixd stdio --principal NAME`, so the
 principal comes from the key that matched. A client cannot claim to be
 anyone else, and nothing depends on paths or environment variables. The
 line comes from `~starfix/.ssh/authorized_keys`, or, on a server of many
-projects set up for it, from starfixd itself, which sshd asks
-([Who can authenticate](#who-can-authenticate)).
+projects set up for it, from the keys file starfixd writes, which sshd
+reads first ([Who can authenticate](#who-can-authenticate)).
 
 - `restrict` on each line turns off forwarding and terminals, and the
   sshd `Match` block repeats that for the whole account
@@ -61,24 +61,72 @@ server can write.
 
 On a server of [many projects](server.md#serving-many-projects) whose
 sshd is set up for it ([Keys from the store](server.md#keys-from-the-store)),
-sshd reads two files for the `starfix` account, and a key authenticates
-if either has a line for it:
+sshd reads two files for the `starfix` account, in this order, and a
+key authenticates by the first line that matches it:
 
 - **The keys file starfixd writes**, `~starfix/.ssh/starfix_keys`, which
   holds a line for each key the control database has for a principal
   that is not disabled: `restrict`, and a forced command naming the
   principal and the key's fingerprint.
 - **`authorized_keys`**, maintained by hand as before, which only
-  someone with a shell on the server can write. It is still a way in:
-  for the first admin, and to replace a server admin's own key. A key in
-  it is not revoked by removing it from the control database. starfixd
-  runs as the account whose file it is, so it reads the file, to tell
-  admins which keys are in both: `sfx admin key list` marks them, and
-  `sfx admin key remove` of one warns that sshd still accepts it and
-  that its line must be deleted on the server. starfixd never writes to
-  that file, and never prints or logs a line of it. A connection that
-  came in by it names no key, and `sfx admin status` and `sfx admin key
-  list` count those.
+  someone with a shell on the server can write. sshd reaches it only
+  for a key with no line in the first file, so it is the way in for a
+  key the control database does not hold: the first admin's, and a
+  server admin's own new key. A line of it names no fingerprint, so
+  starfixd cannot check the key it let in or close its connections
+  when a key is removed.
+
+**A key in both files** signs in by starfixd's line while the control
+database holds it, as the principal the database gives it. `sfx admin
+key remove` then closes its connections and takes its line out of
+starfixd's file, after which sshd finds its line of `authorized_keys`
+and lets it in again. So removing such a key from the control database
+does not revoke it until that line is deleted on the server. starfixd
+runs as the account whose file it is, so it reads `authorized_keys`, to
+tell admins which keys are in both: `sfx admin key list` marks them, and
+`sfx admin key remove` of one warns that its connections were closed,
+that sshd will still accept it, and that its line must be deleted.
+starfixd never writes to that file, and never prints or logs a line of
+it. A connection that came in by it names no key, and `sfx admin status`
+and `sfx admin key list` count those.
+
+**The order has a cost, taken on purpose.** A line of starfixd's file
+that is out of date is matched before the same key's line of
+`authorized_keys`, and starfixd refuses it at the handshake. So while
+starfixd cannot write its file, a removed key that `authorized_keys`
+would let in is refused, and is let in again once the file is written.
+The out-of-date file is stricter than the two files in step, never
+looser. With `authorized_keys` first, as an earlier, unreleased build
+had it, such a key came in by the line with no fingerprint, and its
+removal closed nothing and showed nowhere.
+
+**A key in `authorized_keys` keeps its principal.** The control
+database refuses a key that another principal already has, and sshd
+reads its keys first. So a key that is only a line of `authorized_keys`,
+such as a server admin's own new key, must not be added to the control
+database under another name: its owner would then sign in as that
+principal, and a project admin, who may create a principal with keys,
+could shut a server admin out with nothing but their public key.
+starfixd therefore applies the same rule to that file: `sfx admin key
+add` and `principal add --key` refuse, in the same words and after the
+same checks of who may add a key, a key whose line of `authorized_keys`
+forces the command for another principal. A line that forces no starfix
+command names no principal and reserves nothing. A project admin is
+told only that the key belongs to another principal; a server admin is
+told that it is a line of `authorized_keys`. The check is made inside
+the control database's write, so it cannot be raced or skipped, and a
+refusal records nothing. `starfixd control init`, the operator's, is not
+subject to it: it imports each key for the principal its line names.
+
+A line the operator adds later, for a key the database already holds
+under another name, cannot be refused, so starfixd gives way to it: it
+leaves that key out of the file it writes, so that sshd reaches the
+operator's line, refuses meanwhile a connection that an older file let
+in by the database's line, logs the key, and counts it in `sfx admin
+status`. So in every order, a key in `authorized_keys` signs in as the
+principal its line there names. The limits are those of how starfixd
+reads the file: the first mebibyte, the first line for a key, and a
+change it notices by the file's size or time.
 
 Either way the key only names a principal. What that principal reaches
 is decided afterward, by its memberships.
@@ -114,8 +162,9 @@ keeps a removed key out is not the file:
   written, and again with the old file put back by hand, and the
   connection is refused each time.
 - Anyone who can write the file can already write `authorized_keys`
-  beside it, which is the stronger position: a line there names no
-  fingerprint, and starfixd cannot check it. Both are in a directory
+  beside it, which is the stronger position for a key the control
+  database does not hold: a line there names no fingerprint, and
+  starfixd cannot check it. Both are in a directory
   only the `starfix` account can write to.
 - **Every line holds only what the control database holds.** The
   principal must be a principal name that is not reserved, the

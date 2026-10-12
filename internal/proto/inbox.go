@@ -147,9 +147,8 @@ type HandoffFields struct {
 	To       string `json:"to,omitempty"`
 }
 
-// Handoff is the latest handoff note on an issue and its fields. It is a
-// Comment plus fields, so a protocol 1 client reading start's handoff as
-// a Comment still decodes it.
+// Handoff is the latest handoff note on an issue and its fields: a
+// Comment plus fields, flat on the wire.
 type Handoff struct {
 	Comment
 	HandoffFields

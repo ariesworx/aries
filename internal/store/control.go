@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -83,6 +84,30 @@ type Control struct {
 	wmu sync.Mutex
 	// ix answers AuthorizedKey and Access from memory.
 	ix index
+	// elsewhere, when set, names the principal of a key the store holds
+	// no row for (KeysElsewhere).
+	elsewhere atomic.Pointer[func(fingerprint string) (principal string, ok bool)]
+}
+
+// KeysElsewhere tells the store of keys that belong to a principal
+// though it holds no row for them: owner returns the principal of the
+// key with a fingerprint, and false for a key it does not know. A key
+// belongs to one principal, so [Control.AddKey] and
+// [Control.AddPrincipal] then refuse such a key for any other principal,
+// with the [*TakenError] of a key another principal has, after the
+// checks of who may add one.
+//
+// starfixd gives it the keys of the authorized_keys file its operator
+// maintains by hand. sshd reads the keys file written from this store
+// before that file (design §14, decision 26), so a key of that file
+// added here under another name would sign its owner in as someone
+// else. The operator's `starfixd control init`, which imports that file,
+// sets none.
+//
+// owner runs inside a write, which may be retried: it must be fast, safe
+// for concurrent use, and give the same answer again.
+func (c *Control) KeysElsewhere(owner func(fingerprint string) (principal string, ok bool)) {
+	c.elsewhere.Store(&owner)
 }
 
 // OpenControl connects to the control database named in dsn
@@ -158,6 +183,8 @@ type cwtx struct {
 	// index holds the changes to apply to the index, in order, once the
 	// attempt commits.
 	index []func(*index)
+	// elsewhere is Control.elsewhere, or nil.
+	elsewhere func(fingerprint string) (principal string, ok bool)
 }
 
 // indexed records a change for the index to take when the attempt
@@ -196,6 +223,9 @@ func (c *Control) write(ctx context.Context, actor Actor, fn func(*cwtx) error) 
 			}
 		}
 		cw := &cwtx{wtx: w, lim: c.lim, admins: c.ConfigAdmin, configAdmins: c.s.opts.Admins}
+		if fn := c.elsewhere.Load(); fn != nil {
+			cw.elsewhere = *fn
+		}
 		if err := fn(cw); err != nil {
 			return err
 		}

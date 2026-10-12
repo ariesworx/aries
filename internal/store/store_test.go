@@ -90,7 +90,7 @@ func TestBatchedCommits(t *testing.T) {
 func TestMigrations(t *testing.T) {
 	dsn := newDSN(t)
 	s := openStore(t, dsn, Options{})
-	if n, err := migrate(t.Context(), s.w, s.now(), projectSchema); err != nil || n != 0 {
+	if n, err := migrate(t.Context(), s.w, s.now(), projectSchema, true); err != nil || n != 0 {
 		t.Errorf("second migrate ran %d (err %v), want 0", n, err)
 	}
 	if _, err := s.w.ExecContext(t.Context(), `INSERT INTO schema_migrations VALUES (99, 'future', NOW())`); err != nil {
@@ -98,6 +98,59 @@ func TestMigrations(t *testing.T) {
 	}
 	if _, err := Open(t.Context(), dsn, Options{CommitInterval: -1}); !errors.Is(err, ErrSchemaTooNew) {
 		t.Errorf("open newer schema: %v, want ErrSchemaTooNew", err)
+	}
+}
+
+// TestOpenNoMigrate pins Options.NoMigrate: a database this binary's
+// migrations have all been applied to opens, and one that is behind is
+// refused with ErrSchemaOld and left exactly as it was.
+func TestOpenNoMigrate(t *testing.T) {
+	dsn := newDSN(t)
+	// A database nothing has migrated: it is behind, and stays empty.
+	if _, err := Open(t.Context(), dsn, Options{CommitInterval: -1, NoMigrate: true}); !errors.Is(err, ErrSchemaOld) {
+		t.Fatalf("Open(NoMigrate) of an empty database: %v, want ErrSchemaOld", err)
+	}
+	s := openStore(t, dsn, Options{})
+	count := func(q string) int {
+		t.Helper()
+		var n int
+		if err := s.r.QueryRowContext(t.Context(), q).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	const tables = `SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE()`
+	const version = `SELECT COUNT(*) FROM schema_migrations`
+
+	cur, err := Open(t.Context(), dsn, Options{CommitInterval: -1, NoMigrate: true})
+	if err != nil {
+		t.Fatalf("Open(NoMigrate) of a migrated database: %v", err)
+	}
+	if err := cur.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// One migration behind, as an older binary left it.
+	last := count(version)
+	if _, err := s.w.ExecContext(t.Context(), `DELETE FROM schema_migrations WHERE version = ?`, last); err != nil {
+		t.Fatal(err)
+	}
+	before := count(tables)
+	if _, err := Open(t.Context(), dsn, Options{CommitInterval: -1, NoMigrate: true}); !errors.Is(err, ErrSchemaOld) {
+		t.Errorf("Open(NoMigrate) of a database one migration behind: %v, want ErrSchemaOld", err)
+	}
+	if got := count(version); got != last-1 {
+		t.Errorf("after the refused Open the database is at version %d, want %d: it must not migrate", got, last-1)
+	}
+	if got := count(tables); got != before {
+		t.Errorf("after the refused Open the database has %d tables, want %d", got, before)
+	}
+	// Newer is still its own refusal.
+	if _, err := s.w.ExecContext(t.Context(), `INSERT INTO schema_migrations VALUES (99, 'future', NOW())`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(t.Context(), dsn, Options{CommitInterval: -1, NoMigrate: true}); !errors.Is(err, ErrSchemaTooNew) {
+		t.Errorf("Open(NoMigrate) of a newer schema: %v, want ErrSchemaTooNew", err)
 	}
 }
 

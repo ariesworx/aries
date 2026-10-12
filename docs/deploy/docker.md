@@ -180,9 +180,12 @@ that it is refused, and restarts the server to check that nothing
 changed. Along the way it checks the keys file inside the container: a
 regular file of mode 0600 owned by `starfix`, with a line for each key
 added and none for a key removed or a disabled principal's; that a key
-in both files is marked, comes in by `authorized_keys`, and warns when
-it is removed from the control database; and that starfixd's log has no
-failed write. It removes its server and volume, prints one line (84
+in both files is marked, comes in by starfixd's file, which sshd reads
+first, warns when it is removed from the control database, and then
+comes in by `authorized_keys`; that a key added to `authorized_keys`
+by hand keeps its principal, whoever tries to add it to the control
+database and whichever was there first; and that starfixd's log has no
+failed write. It removes its server and volume, prints one line (97
 checks on 12 October 2026), and exits non-zero on the first failure. CI
 does not run it; `scripts/gate.sh --smoke` runs it after the gate. It
 hides ssh-agent from `sfx`, so the keys you hold play no part. Arguments
