@@ -9,6 +9,10 @@
 // exists. Without dolt on PATH, Start returns [ErrNoDolt] and
 // callers skip, unless [RequireEnv] makes that a failure. NewDatabase is
 // safe for concurrent use.
+//
+// Measurements (spike/multidb) also use [StartWith], for Dolt's metrics
+// endpoint and extra environment, [Server.Restart], for a new dolt process
+// on the same data, and [Server.PID].
 package dolttest
 
 import (
@@ -53,12 +57,26 @@ func required() bool {
 type Server struct {
 	// Port is the loopback TCP port the server listens on. Connections
 	// use the socket instead.
-	Port   int
-	socket string
-	dir    string
-	cmd    *exec.Cmd
-	exit   chan error   // receives cmd.Wait's result, once, when dolt exits
-	n      atomic.Int64 // databases made, for unique names
+	Port    int
+	metrics int // the metrics endpoint's loopback port; 0 for none
+	socket  string
+	dir     string
+	bin     string
+	env     []string
+	opts    Options
+	cmd     *exec.Cmd
+	exit    chan error   // receives cmd.Wait's result, once, when dolt exits
+	n       atomic.Int64 // databases made, for unique names
+}
+
+// Options are what [StartWith] adds to [Start]. The zero value adds nothing.
+type Options struct {
+	// Env is added to the server's environment, each entry "KEY=value":
+	// GOMEMLIMIT, say, to run Dolt under a Go memory limit.
+	Env []string
+	// Metrics turns on Dolt's Prometheus endpoint, on a loopback port of
+	// its own, at [Server.MetricsURL].
+	Metrics bool
 }
 
 // pickPort chooses the TCP port for the next launch; tests replace it.
@@ -101,13 +119,17 @@ func Version(ctx context.Context) (string, error) {
 // ctx bounds only the startup. The caller must Stop the server, which
 // otherwise outlives the test process.
 func Start(ctx context.Context, dir string) (*Server, error) {
+	return StartWith(ctx, dir, Options{})
+}
+
+// StartWith is Start with opts.
+func StartWith(ctx context.Context, dir string, opts Options) (*Server, error) {
 	bin, err := lookDolt()
 	if err != nil {
 		return nil, err
 	}
 	root := filepath.Join(dir, "home")
-	data := filepath.Join(dir, "data")
-	for _, d := range []string{root, data} {
+	for _, d := range []string{root, filepath.Join(dir, "data")} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			return nil, fmt.Errorf("dolttest: %w", err)
 		}
@@ -128,19 +150,48 @@ func Start(ctx context.Context, dir string) (*Server, error) {
 	// take it before dolt binds it (T-8). Dolt then exits, and the next
 	// attempt picks another port. Readiness is checked over this launch's
 	// own socket, so another server on the port is never mistaken for it.
+	s := &Server{dir: dir, bin: bin, env: append(env, opts.Env...), opts: opts}
 	var lastErr error
 	for i := range 3 {
-		port, err := pickPort()
-		if err != nil {
-			return nil, err
-		}
-		s, err := launch(ctx, bin, env, data, port, dir, filepath.Join(dir, fmt.Sprintf("dolt%d.sock", i)))
-		if err == nil {
+		s.socket = filepath.Join(dir, fmt.Sprintf("dolt%d.sock", i))
+		if lastErr = s.launch(ctx); lastErr == nil {
 			return s, nil
 		}
-		lastErr = err
 	}
 	return nil, lastErr
+}
+
+// Restart stops the server and starts dolt again on the same data, with
+// the same options and socket, so the DSNs handed out before still work.
+// The ports change. ctx bounds only the startup.
+func (s *Server) Restart(ctx context.Context) error {
+	if err := s.Stop(); err != nil {
+		return err
+	}
+	var lastErr error
+	for range 3 {
+		// A dolt that was killed leaves its socket behind.
+		if err := os.Remove(s.socket); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("dolttest: %w", err)
+		}
+		if lastErr = s.launch(ctx); lastErr == nil {
+			return nil
+		}
+	}
+	return lastErr
+}
+
+// PID is the process id of the running dolt sql-server. It changes at
+// each Restart.
+func (s *Server) PID() int { return s.cmd.Process.Pid }
+
+// MetricsURL is the URL of Dolt's Prometheus endpoint, or empty when
+// [Options.Metrics] was not set. It changes at each Restart.
+func (s *Server) MetricsURL() string {
+	if s.metrics == 0 {
+		return ""
+	}
+	return fmt.Sprintf("http://127.0.0.1:%d/metrics", s.metrics)
 }
 
 // User is the least-privileged account NewDatabase's DSNs log in as.
@@ -160,54 +211,74 @@ system_variables:
   secure_file_priv: %q
 `
 
-// launch starts dolt on port and socket, waits up to 30 seconds for root
-// to connect over the socket, and creates User. If it fails, the server is
-// stopped.
-func launch(ctx context.Context, bin string, env []string, data string, port int, dir, socket string) (*Server, error) {
-	logf, err := os.Create(filepath.Join(dir, "server.log")) //nolint:gosec // test temp dir
+// metricsConfig turns on the Prometheus endpoint, which has no
+// authentication, on loopback.
+const metricsConfig = `metrics:
+  host: 127.0.0.1
+  port: %d
+`
+
+// launch starts dolt on s.socket and on ports picked now, waits up to 30
+// seconds for root to connect over the socket, and creates User. If it
+// fails, the server is stopped.
+func (s *Server) launch(ctx context.Context) error {
+	port, err := pickPort()
 	if err != nil {
-		return nil, fmt.Errorf("dolttest: %w", err)
+		return err
 	}
-	cfg := filepath.Join(dir, "config.yaml")
-	body := fmt.Sprintf(config, data, filepath.Join(dir, "doltcfg"), port, socket, filepath.Join(dir, "no-such-dir"))
+	body := fmt.Sprintf(config, filepath.Join(s.dir, "data"), filepath.Join(s.dir, "doltcfg"), port, s.socket, filepath.Join(s.dir, "no-such-dir"))
+	metrics := 0
+	if s.opts.Metrics {
+		if metrics, err = pickPort(); err != nil {
+			return err
+		}
+		body += fmt.Sprintf(metricsConfig, metrics)
+	}
+	// Appended to, so a restart keeps what the server logged before it.
+	logf, err := os.OpenFile(filepath.Join(s.dir, "server.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) //nolint:gosec // test temp dir
+	if err != nil {
+		return fmt.Errorf("dolttest: %w", err)
+	}
+	cfg := filepath.Join(s.dir, "config.yaml")
 	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
 		_ = logf.Close()
-		return nil, fmt.Errorf("dolttest: %w", err)
+		return fmt.Errorf("dolttest: %w", err)
 	}
 	// Not CommandContext: the server runs until Stop, not until ctx ends.
-	cmd := exec.Command(bin, "sql-server", "--config", cfg) //nolint:gosec // dolt from PATH
-	cmd.Env = env
+	cmd := exec.Command(s.bin, "sql-server", "--config", cfg) //nolint:gosec // dolt from PATH
+	cmd.Env = s.env
 	cmd.Stdout = logf
 	cmd.Stderr = logf
 	if err := cmd.Start(); err != nil {
 		_ = logf.Close()
-		return nil, fmt.Errorf("dolttest: start dolt: %w", err)
+		return fmt.Errorf("dolttest: start dolt: %w", err)
 	}
-	s := &Server{Port: port, socket: socket, dir: dir, cmd: cmd, exit: make(chan error, 1)}
-	go func() { s.exit <- cmd.Wait(); _ = logf.Close() }()
+	exit := make(chan error, 1)
+	s.Port, s.metrics, s.cmd, s.exit = port, metrics, cmd, exit
+	go func() { exit <- cmd.Wait(); _ = logf.Close() }()
 
 	db, err := sql.Open("mysql", s.rootDSN(""))
 	if err != nil {
-		return nil, errors.Join(fmt.Errorf("dolttest: %w", err), s.Stop())
+		return errors.Join(fmt.Errorf("dolttest: %w", err), s.Stop())
 	}
 	defer func() { _ = db.Close() }()
 	deadline := time.Now().Add(30 * time.Second)
 	for {
 		if err := db.PingContext(ctx); err == nil {
 			if _, err := db.ExecContext(ctx, "CREATE USER IF NOT EXISTS '"+User+"'@'localhost'"); err != nil {
-				return nil, errors.Join(fmt.Errorf("dolttest: create user: %w", err), s.Stop())
+				return errors.Join(fmt.Errorf("dolttest: create user: %w", err), s.Stop())
 			}
-			return s, nil
+			return nil
 		}
 		select {
-		case err := <-s.exit:
-			return nil, fmt.Errorf("dolttest: dolt exited early (see %s/server.log): %v", dir, err)
+		case err := <-exit:
+			return fmt.Errorf("dolttest: dolt exited early (see %s/server.log): %v", s.dir, err)
 		case <-ctx.Done():
-			return nil, errors.Join(ctx.Err(), s.Stop())
+			return errors.Join(ctx.Err(), s.Stop())
 		case <-time.After(100 * time.Millisecond):
 		}
 		if time.Now().After(deadline) {
-			return nil, errors.Join(errors.New("dolttest: server not ready after 30s"), s.Stop())
+			return errors.Join(errors.New("dolttest: server not ready after 30s"), s.Stop())
 		}
 	}
 }
