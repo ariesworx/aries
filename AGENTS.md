@@ -46,6 +46,7 @@ stage is in progress.
 | `internal/iaptest` | A fake `gcloud` for tests of the IAP transport: the test binary, re-executed from `PATH` |
 | `internal/e2e` | End-to-end tests: CLI and MCP through an in-process SSH server to a real daemon and store. The SSH server can read the keys file the daemon writes, after its own keys, as sshd reads its `AuthorizedKeysFile`. `TestSoak` (`soak*_test.go`) is the gate of stages 3 and 3a ([CONTRIBUTING.md](CONTRIBUTING.md#the-soak-test)) |
 | `deploy/docker` | The Docker test server ([docs/deploy/docker.md](docs/deploy/docker.md)): image, entrypoint, compose file and `smoke.sh`, which drives it end to end and is not part of CI. It mirrors docs/server.md's setup steps; `internal/version` keeps its Dolt at the pin |
+| `deploy/apparmor` | AppArmor profiles for `starfixd` on Ubuntu, and their tunables. A change to what `starfixd` reads, writes, connects to or runs changes them too |
 | `scripts` | For contributors, in POSIX shell: `gate.sh` runs the gate (Commands, below), and `install-dolt.sh` installs the pinned Dolt, verified, under the user's cache directory. The tests beside them run both against stand-ins |
 | `mise.toml` | Go, golangci-lint and shellcheck versions for contributors who use mise; optional |
 | `install.sh` | The one-line installer for `sfx` and `starfixd`; `internal/release/install_test.go` runs it and checks that its key is in `keys.go` |
@@ -93,6 +94,10 @@ to `go.mod` and `ci.yml`.
 
 CI also runs `TestCheckPeerOtherUID` (`internal/server`) under `sudo`,
 because it starts a socket peer as another user; it skips when not root.
+CI also checks the syntax of the AppArmor profiles in `deploy/apparmor`
+with `apparmor_parser -Q -K`, which needs Linux with AppArmor and is not
+in the gate above; it does not check that `starfixd` works when confined
+([deploy/apparmor/README.md](deploy/apparmor/README.md)).
 `deploy/docker/smoke.sh` is not part of the gate, and CI does not run it.
 The `release` workflow runs this whole gate (`ci.yml`, as a reusable
 workflow) on the tagged commit before it builds anything

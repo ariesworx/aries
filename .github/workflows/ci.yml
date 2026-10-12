@@ -39,6 +39,13 @@ jobs:
         # Every shell script in the repository. shellcheck is preinstalled
         # on GitHub's Ubuntu runners.
         run: git ls-files -co --exclude-standard -z "*.sh" | xargs -0 shellcheck
+      - name: AppArmor profile syntax
+        # apparmor_parser is part of Ubuntu and of GitHub's Ubuntu runners.
+        # -Q compiles without loading and -K skips the cache, so it needs
+        # no root and changes nothing; -I finds this checkout's tunables.
+        # It checks syntax only, not that starfixd works when confined
+        # (deploy/apparmor/README.md).
+        run: /usr/sbin/apparmor_parser -Q -K -I deploy/apparmor deploy/apparmor/starfixd
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
       - name: cross-platform build
