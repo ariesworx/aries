@@ -485,6 +485,16 @@ hold is narrow, and decided in one place.
 - **The setting does not change starfixd's log**, which names
   principals and sessions. Whoever reads the journal can read the
   databases.
+- **Traces are not a record of who did what.** Under the default
+  sampler a caller's own trace context decides whether its request is
+  recorded: a client that marks its requests unsampled leaves no span,
+  and one that marks them sampled has every one recorded, up to what
+  the queue holds. The event log is the record, and no client decides
+  what goes in it. To record a fixed share whatever callers say, set
+  `OTEL_TRACES_SAMPLER=traceidratio`.
+- **A client cannot make the server hold spans without bound.** Spans
+  wait for export in a queue of a fixed size; one more is dropped and
+  counted.
 
 ## Confinement on the server
 

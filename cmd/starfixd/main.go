@@ -26,12 +26,14 @@
 // asks the running daemon, over its socket and as its own user, for the
 // report `sfx admin status` gives a server admin.
 //
-// serve exports metrics when it is configured to (docs/server.md,
-// Observability): pushed over OTLP/HTTP to the endpoint the standard
-// OTEL_* environment variables name, and offered to a scraper, with
-// /healthz and /readyz, on the loopback listener telemetry: listen:
-// sets. Under systemd with Type=notify it says when it is ready, and
-// feeds the unit's watchdog.
+// serve exports metrics and traces when it is configured to
+// (docs/server.md, Observability): pushed over OTLP/HTTP to the endpoint
+// the standard OTEL_* environment variables name, and the metrics
+// offered to a scraper, with /healthz and /readyz, on the loopback
+// listener telemetry: listen: sets. Its traces name people by a
+// stand-in unless telemetry: principals: says otherwise, made with a
+// key it keeps in a file of its own. Under systemd with Type=notify it
+// says when it is ready, and feeds the unit's watchdog.
 package main
 
 import (
@@ -98,12 +100,16 @@ start again. --accept-clock-behind TIME starts once all the same, for a
 history no later than TIME, which the refusal prints; clock_behind: warn
 (or $STARFIXD_CLOCK_BEHIND) starts with a warning every time.
 
-serve exports nothing and opens no port unless configured to: metrics are
-pushed over OTLP/HTTP to $OTEL_EXPORTER_OTLP_ENDPOINT when it is set, and
-telemetry: listen: (a loopback HOST:PORT, or $STARFIXD_TELEMETRY_LISTEN)
-serves /metrics, /healthz and /readyz to this machine. status prints what
-the running daemon knows of itself and its projects; run it as the user
-starfixd runs as.
+serve exports nothing and opens no port unless configured to: metrics and
+traces are pushed over OTLP/HTTP to $OTEL_EXPORTER_OTLP_ENDPOINT when it
+is set, and telemetry: listen: (a loopback HOST:PORT, or
+$STARFIXD_TELEMETRY_LISTEN) serves /metrics, /healthz and /readyz to this
+machine. Traces name people by a stand-in (telemetry: principals:
+pseudonym, name or omit), made with a key serve keeps in telemetry:
+principals_key: (default telemetry/principals.key in its home directory,
+which must exist); $OTEL_TRACES_EXPORTER=none sends metrics alone. status
+prints what the running daemon knows of itself and its projects; run it
+as the user starfixd runs as.
 
 Every command that opens the store refuses a Dolt account that is root,
 holds rights beyond its database, or a server whose secure_file_priv is
