@@ -248,11 +248,11 @@ func TestAdminForbidden(t *testing.T) {
 		{"an admin of another project adds a principal there", erin, []string{"admin", "principal", "add", "hal", "--project", "first"},
 			"erin may not add principal hal in project first: it is for the project's admins and server admins", forProject},
 		{"a project admin outside reach disables", alice, []string{"admin", "principal", "disable", "carol"},
-			"alice may not disable carol: carol belongs to a project alice does not administer, or to none",
-			"ask a server admin to run it; a project admin may only while every project the principal belongs to is one they administer"},
+			"alice may not disable carol: carol does not exist, or belongs to a project alice does not administer, or to none",
+			"check the name, or ask a server admin to run it; a project admin may only while every project the principal belongs to is one they administer"},
 		{"a project admin outside reach enables", erin, []string{"admin", "principal", "enable", "bob"},
-			"erin may not enable bob: bob belongs to a project erin does not administer, or to none",
-			"ask a server admin to run it; a project admin may only while every project the principal belongs to is one they administer"},
+			"erin may not enable bob: bob does not exist, or belongs to a project erin does not administer, or to none",
+			"check the name, or ask a server admin to run it; a project admin may only while every project the principal belongs to is one they administer"},
 		{"a project admin disables a server admin", alice, []string{"admin", "principal", "disable", "dana"},
 			"alice may not disable dana: dana is a server admin", "ask a server admin to run it"},
 		{"a project admin places an unassigned principal", alice, []string{"admin", "member", "add", "frank"},
@@ -634,7 +634,7 @@ func TestMCPNotAMember(t *testing.T) {
 		}
 	}
 	out, isErr := ag.call("ready", nil)
-	if !isErr || !strings.HasPrefix(out, "forbidden: mallory is not a member of project") ||
+	if !isErr || !strings.HasPrefix(out, "forbidden: mallory is not a principal of this server") ||
 		!strings.Contains(out, "\nfix: you have no access to this project: stop and tell the user, who must ask one of its admins; never run an admin command yourself, quoting the server: \"") {
 		t.Errorf("ready as a principal who is no member: error %t\n%s", isErr, out)
 	}
