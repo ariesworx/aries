@@ -11,20 +11,15 @@ import (
 
 // Frame types.
 //
-// FrameBridge and FrameKeys are a connection's first frame, and say what
-// it is for. Both come from another starfixd process on the server, never
-// from a client: the bridge (`starfixd stdio`), ahead of a client's
-// hello, and sshd's key lookup (`starfixd keys`), which the daemon
-// answers with one keys frame and closes. Neither has a version. The
+// FrameBridge is a connection's first frame. It comes from another
+// starfixd process on the server, never from a client: the bridge
+// (`starfixd stdio`), ahead of a client's hello. It has no version. The
 // binary is swapped while old bridges run, so either side may be the
-// older: fields are only ever added to them, a reader ignores a field it
+// older: fields are only ever added to it, a reader ignores a field it
 // does not know, and a missing one means what it meant before it existed
 // (a bridge frame without k is a key line of the authorized_keys file).
-// A daemon from before the keys frame closes the connection unanswered,
-// which the lookup reads as no key.
 const (
 	FrameBridge  = "bridge"
-	FrameKeys    = "keys"
 	FrameHello   = "hello"
 	FrameWelcome = "welcome"
 	FrameReq     = "req"
@@ -62,15 +57,11 @@ type Frame struct {
 	Harness string `json:"h,omitempty"`
 
 	Principal string `json:"pr,omitempty"`
-	// Key is a public key's SHA-256 fingerprint ("SHA256:…"): on a bridge
-	// frame, the key that authenticated, when the control store served
-	// it; on a keys frame, the key sshd asks about.
+	// Key is, on a bridge frame, the SHA-256 fingerprint ("SHA256:…") of
+	// the key that authenticated, when its line came from the control
+	// store: the daemon writes it into the forced command of each line of
+	// the keys file sshd reads.
 	Key string `json:"k,omitempty"`
-	// PublicKey is, on the daemon's keys frame, the key the store holds
-	// for a fingerprint, in authorized_keys form (type and base64), with
-	// Principal its owner. Both are empty when no active principal has
-	// the key.
-	PublicKey string `json:"pk,omitempty"`
 
 	// E is an evt frame's payload, such as the inbox item it pushes.
 	E json.RawMessage `json:"e,omitempty"`

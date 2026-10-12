@@ -17,16 +17,17 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -78,8 +79,15 @@ type world struct {
 	socket  string
 	addr    *net.TCPAddr
 	hostFpr string
-	keysMu  sync.Mutex        // guards keys
+	keysMu  sync.Mutex        // guards keys, and writes of handFile
 	keys    map[string]string // authorized key fingerprint → principal
+	// keysFile is the file the daemon writes the control store's keys to
+	// and the SSH server reads, and handFile the authorized_keys file kept
+	// by hand, which holds a line for each of keys and which the daemon
+	// only reads (daemonOpts.keys).
+	keysFile, handFile string
+	// hand holds handFile's lines, by fingerprint.
+	hand map[string]string
 
 	// fixedClock says the store runs on the test's clock (daemonOpts.now).
 	fixedClock bool
@@ -144,10 +152,11 @@ type daemonOpts struct {
 	// its Dolt account, as an operator grants a block at setup. Zero is
 	// no block.
 	dbs, granted int
-	// keys makes the SSH server ask the daemon about each key first, with
-	// the code `starfixd keys` runs, as an sshd with that
-	// AuthorizedKeysCommand does; a key the daemon has no line for is
-	// then looked up among world.keys, the authorized_keys file.
+	// keys makes the daemon write its keys file and the SSH server read
+	// it, as an sshd does whose AuthorizedKeysFile names the hand-kept
+	// authorized_keys (world.keys) and then that file: a key with no line
+	// in the first is looked up in the second, and let in as its forced
+	// command says.
 	keys bool
 }
 
@@ -170,7 +179,14 @@ func newWorld(t *testing.T, o daemonOpts) *world {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(base) })
 	w := &world{t: t, socket: filepath.Join(base, "run", "starfixd.sock"), keys: map[string]string{},
-		conns: map[net.Conn]struct{}{}, opts: o}
+		conns: map[net.Conn]struct{}{}, opts: o, hand: map[string]string{}}
+	if o.keys {
+		dir := filepath.Join(base, ".ssh")
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		w.keysFile, w.handFile = filepath.Join(dir, "starfix_keys"), filepath.Join(dir, "authorized_keys")
+	}
 
 	if o.now != nil && o.reap == 0 {
 		w.fixedClock, w.opts.reap = true, -1
@@ -304,8 +320,13 @@ func (w *world) startMany() error {
 	}
 	srv, err := server.New(server.Config{Control: ctl, Version: "v0.2.0", ProjectDBs: w.block,
 		Open:     server.ProjectOpener(w.dsn, ctl, store.Options{CommitInterval: o.commit, Now: o.now, Limits: o.limits.Limits, Logger: o.logger}),
-		ProtoMin: o.protoMin, ProtoMax: o.protoMax, Latest: o.latest, ReapInterval: o.reap, Limits: o.limits, Logger: o.logger})
+		ProtoMin: o.protoMin, ProtoMax: o.protoMax, Latest: o.latest, ReapInterval: o.reap, Limits: o.limits, Logger: o.logger,
+		KeysFile: w.keysFile, AuthorizedKeys: w.handFile})
 	if err != nil {
+		return fail(err)
+	}
+	// As `starfixd serve` does before it listens.
+	if err := srv.WriteKeys(); err != nil {
 		return fail(err)
 	}
 	l, err := server.Listen(w.socket)
@@ -342,8 +363,9 @@ func (w *world) restartDaemon() error {
 // restrict,command="starfixd stdio --principal NAME", it maps the key to a
 // principal, refuses pty and forwarding, and runs the bridge for any exec
 // or shell request, ignoring the command the client sent. With
-// daemonOpts.keys it first asks the daemon for the key's line, as
-// OpenSSH does with AuthorizedKeysCommand (storeLine).
+// daemonOpts.keys a key it has no principal for is looked up in the
+// keys file the daemon writes, as OpenSSH reads the second file of its
+// AuthorizedKeysFile (fileLine).
 func (w *world) startSSH(ctx context.Context) {
 	t := w.t
 	t.Helper()
@@ -358,18 +380,18 @@ func (w *world) startSSH(ctx context.Context) {
 	w.hostFpr = ssh.FingerprintSHA256(hostSigner.PublicKey())
 	cfg := &ssh.ServerConfig{
 		PublicKeyCallback: func(_ ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
-			if w.opts.keys {
-				if perms := w.storeLine(ctx, key); perms != nil {
-					return perms, nil
-				}
-			}
+			// sshd takes the first line that matches, in the order of its
+			// AuthorizedKeysFile: the file kept by hand, then the daemon's.
 			w.keysMu.Lock()
-			defer w.keysMu.Unlock()
 			p, ok := w.keys[ssh.FingerprintSHA256(key)]
-			if !ok {
-				return nil, errors.New("unknown key")
+			w.keysMu.Unlock()
+			if ok {
+				return &ssh.Permissions{Extensions: map[string]string{"principal": p}}, nil
 			}
-			return &ssh.Permissions{Extensions: map[string]string{"principal": p}}, nil
+			if perms := w.fileLine(key); perms != nil {
+				return perms, nil
+			}
+			return nil, errors.New("unknown key")
 		},
 	}
 	cfg.AddHostKey(hostSigner)
@@ -391,28 +413,70 @@ func (w *world) startSSH(ctx context.Context) {
 	})
 }
 
-// storeLine asks the daemon for key's authorized_keys line, with the code
-// `starfixd keys` runs, and reads it as sshd would: the key it names must
-// be the one offered, and its forced command gives the principal and the
-// key's fingerprint, which the bridge is then run with. It returns nil
-// when there is no line, and sshd goes on to the authorized_keys file.
-func (w *world) storeLine(ctx context.Context, key ssh.PublicKey) *ssh.Permissions {
-	line, err := server.AuthorizedKey(ctx, w.socket, server.DefaultBridge, key.Type(), base64.StdEncoding.EncodeToString(key.Marshal()))
+// fileLine looks key up in the keys file the daemon writes, and reads
+// its line as sshd would: the first line whose key is the one offered,
+// whose forced command gives the principal and the key's fingerprint,
+// which the bridge is then run with. It returns nil when the world has
+// no keys file, or the file no line for the key. A line that is not what
+// the daemon may write fails the test.
+func (w *world) fileLine(key ssh.PublicKey) *ssh.Permissions {
+	if w.keysFile == "" {
+		return nil
+	}
+	b, err := os.ReadFile(w.keysFile)
 	if err != nil {
 		return nil
 	}
-	named, _, options, rest, err := ssh.ParseAuthorizedKey([]byte(line))
-	if err != nil || len(rest) != 0 || !bytes.Equal(named.Marshal(), key.Marshal()) || len(options) != 2 || options[0] != "restrict" {
-		w.t.Errorf("starfixd keys printed a line sshd would not take as this key's, restricted: %q (%v)", line, err)
-		return nil
+	for line := range bytes.Lines(b) {
+		if text := bytes.TrimSpace(line); len(text) == 0 || text[0] == '#' {
+			continue
+		}
+		named, comment, options, rest, err := ssh.ParseAuthorizedKey(line)
+		if err != nil || comment != "" || len(rest) != 0 || len(options) != 2 || options[0] != "restrict" {
+			w.t.Errorf("the keys file holds a line sshd would not take as one restricted key: %q (%v)", line, err)
+			continue
+		}
+		if !bytes.Equal(named.Marshal(), key.Marshal()) {
+			continue
+		}
+		cmd, ok := strings.CutPrefix(options[1], `command="`)
+		f := strings.Fields(strings.TrimSuffix(cmd, `"`))
+		if !ok || len(f) != 6 || f[0] != server.DefaultBridge || f[1] != "stdio" || f[2] != "--principal" || f[4] != "--key" || f[5] != ssh.FingerprintSHA256(key) {
+			w.t.Errorf("the keys file forces %q for a key, want %s stdio --principal NAME --key and its fingerprint", options[1], server.DefaultBridge)
+			return nil
+		}
+		return &ssh.Permissions{Extensions: map[string]string{"principal": f[3], "key": f[5]}}
 	}
-	cmd, ok := strings.CutPrefix(options[1], `command="`)
-	f := strings.Fields(strings.TrimSuffix(cmd, `"`))
-	if !ok || len(f) != 6 || f[0] != server.DefaultBridge || f[1] != "stdio" || f[2] != "--principal" || f[4] != "--key" {
-		w.t.Errorf("starfixd keys printed the forced command %q, want %s stdio --principal NAME --key FINGERPRINT", options[1], server.DefaultBridge)
-		return nil
+	return nil
+}
+
+// byHand gives key a line in the authorized_keys file kept by hand,
+// forcing the bridge for principal, or takes its line out when principal
+// is "": the SSH server reads world.keys, and the daemon the file.
+func (w *world) byHand(key ssh.PublicKey, principal string) {
+	w.t.Helper()
+	w.keysMu.Lock()
+	defer w.keysMu.Unlock()
+	fp := ssh.FingerprintSHA256(key)
+	if principal == "" {
+		delete(w.keys, fp)
+		delete(w.hand, fp)
+	} else {
+		w.keys[fp] = principal
+		w.hand[fp] = fmt.Sprintf("restrict,command=\"%s stdio --principal %s\" %s %s@example.com\n", server.DefaultBridge, principal,
+			strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key))), principal)
 	}
-	return &ssh.Permissions{Extensions: map[string]string{"principal": f[3], "key": f[5]}}
+	if w.handFile == "" {
+		return
+	}
+	var b strings.Builder
+	b.WriteString("# kept by hand: the first admin, and whoever was here before the store\n")
+	for _, k := range slices.Sorted(maps.Keys(w.hand)) {
+		b.WriteString(w.hand[k])
+	}
+	if err := os.WriteFile(w.handFile, []byte(b.String()), 0o600); err != nil {
+		w.t.Fatal(err)
+	}
 }
 
 // dropReplyTo arranges for the next request of op to be applied by the
@@ -582,9 +646,7 @@ func (w *world) newUserIn(principal, hostFpr, proj string) *user {
 		t.Fatal(err)
 	}
 	if principal != "" {
-		w.keysMu.Lock()
-		w.keys[ssh.FingerprintSHA256(signer.PublicKey())] = principal
-		w.keysMu.Unlock()
+		w.byHand(signer.PublicKey(), principal)
 	}
 	block, err := ssh.MarshalPrivateKey(priv, principal+"@example.com")
 	if err != nil {

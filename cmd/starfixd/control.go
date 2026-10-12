@@ -252,9 +252,9 @@ func controlInit(ctx context.Context, env adminEnv, args []string) (err error) {
 	// and sshd still reads that file. Nothing here edits it.
 	switch n := keys.added + keys.already; {
 	case n == 1:
-		_, _ = fmt.Fprintf(env.stdout, "1 key in the store is also a line of %s: sshd falls back to that file, so `sfx admin key remove` does not keep the key out until its line is deleted too\n", keysFile)
+		_, _ = fmt.Fprintf(env.stdout, "1 key in the store is also a line of %s: sshd reads that file too, so `sfx admin key remove` does not keep the key out until its line is deleted too\n", keysFile)
 	case n > 1:
-		_, _ = fmt.Fprintf(env.stdout, "%d keys in the store are also lines of %s: sshd falls back to that file, so `sfx admin key remove` does not keep such a key out until its line is deleted too\n", n, keysFile)
+		_, _ = fmt.Fprintf(env.stdout, "%d keys in the store are also lines of %s: sshd reads that file too, so `sfx admin key remove` does not keep such a key out until its line is deleted too\n", n, keysFile)
 	}
 	return nil
 }

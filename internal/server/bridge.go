@@ -17,9 +17,11 @@ import (
 // daemon and the daemon to out until the daemon closes the connection.
 //
 // key is the fingerprint of the key that authenticated, when the line
-// that let it in came from the control store (`starfixd keys` writes it
-// into the forced command), and empty for a line of the authorized_keys
-// file. The daemon closes the connection when that key is removed.
+// that let it in came from the control store (the daemon writes it into
+// the forced command of each line of its keys file), and empty for a
+// line of the hand-maintained authorized_keys file. The daemon refuses
+// the handshake unless the store holds that key for principal, and
+// closes the connection when the key is removed.
 //
 // When the daemon cannot be reached, Bridge writes a refusing welcome to
 // out, so the client reports a typed error rather than a dropped session.

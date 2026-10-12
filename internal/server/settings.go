@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -39,6 +40,19 @@ type Settings struct {
 	// for the projects `sfx admin project add` creates. It needs
 	// ControlDB.
 	ProjectDBs ProjectDBs `yaml:"project_dbs"`
+	// KeysFile is the file a server of many projects writes the control
+	// database's keys to, in authorized_keys form, for sshd to read
+	// (design §15.2). AuthorizedKeys is the file of that form the
+	// operator maintains by hand, which the server reads to say which
+	// keys are in both, and never writes. A relative path is under the
+	// home directory of the user starfixd runs as ([Settings.KeyFiles]).
+	// Defaults DefaultKeysFile and DefaultAuthorizedKeys. A server of
+	// one project uses neither.
+	KeysFile       string `yaml:"keys_file"`
+	AuthorizedKeys string `yaml:"authorized_keys"`
+	// Bridge is the path of starfixd in the forced command of each line
+	// of KeysFile. Default DefaultBridge.
+	Bridge string `yaml:"bridge"`
 	// Project is the UUID of the project served.
 	Project string `yaml:"project"`
 	// Prefix is the issue-ID prefix for generated IDs. Default "sf".
@@ -96,6 +110,11 @@ const (
 	EnvAdmins = "STARFIXD_ADMINS"
 	// EnvControlDB sets ControlDB.
 	EnvControlDB = "STARFIXD_CONTROL_DB"
+	// EnvKeysFile, EnvAuthorizedKeys and EnvBridge set KeysFile,
+	// AuthorizedKeys and Bridge.
+	EnvKeysFile       = "STARFIXD_KEYS_FILE"
+	EnvAuthorizedKeys = "STARFIXD_AUTHORIZED_KEYS"
+	EnvBridge         = "STARFIXD_BRIDGE"
 )
 
 // ResolveSettings merges, highest precedence first: flags, the environment,
@@ -109,7 +128,8 @@ const (
 // that is not a code name; a control database that is not a database
 // name, or is the DSN's own; a block of project database names that is
 // invalid, set without a control database, or holds its name; a systemd
-// unit that is not a unit name; and
+// unit that is not a unit name; a bridge path that would need quoting in
+// a forced command; a keys file that is the authorized_keys file; and
 // an unknown log level or format.
 func ResolveSettings(flags Settings, configPath string, getenv func(string) string) (Settings, error) {
 	if flags.DSN != "" {
@@ -133,8 +153,10 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 		return Settings{}, err
 	}
 	env := Settings{DSN: getenv(EnvDSN), Socket: getenv(EnvSocket), Project: getenv(EnvProject),
-		LogLevel: getenv(EnvLogLevel), LogFormat: getenv(EnvLogFormat), ControlDB: getenv(EnvControlDB)}
-	out := Settings{Socket: DefaultSocket, Prefix: "sf", LogLevel: "info", LogFormat: "text", Account: DefaultAccount}
+		LogLevel: getenv(EnvLogLevel), LogFormat: getenv(EnvLogFormat), ControlDB: getenv(EnvControlDB),
+		KeysFile: getenv(EnvKeysFile), AuthorizedKeys: getenv(EnvAuthorizedKeys), Bridge: getenv(EnvBridge)}
+	out := Settings{Socket: DefaultSocket, Prefix: "sf", LogLevel: "info", LogFormat: "text", Account: DefaultAccount,
+		KeysFile: DefaultKeysFile, AuthorizedKeys: DefaultAuthorizedKeys, Bridge: DefaultBridge}
 	for _, s := range []Settings{file, env, flags} {
 		for _, f := range []struct {
 			dst *string
@@ -143,7 +165,8 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 			{&out.DSN, s.DSN}, {&out.Socket, s.Socket}, {&out.Project, s.Project},
 			{&out.Prefix, s.Prefix}, {&out.Latest, s.Latest}, {&out.SystemdUnit, s.SystemdUnit},
 			{&out.LogLevel, s.LogLevel}, {&out.LogFormat, s.LogFormat}, {&out.Account, s.Account},
-			{&out.ControlDB, s.ControlDB},
+			{&out.ControlDB, s.ControlDB}, {&out.KeysFile, s.KeysFile}, {&out.AuthorizedKeys, s.AuthorizedKeys},
+			{&out.Bridge, s.Bridge},
 		} {
 			if f.v != "" {
 				*f.dst = f.v
@@ -179,6 +202,14 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 	}
 	if err := out.checkProjectDBs(); err != nil {
 		return Settings{}, err
+	}
+	if !ValidBridge(out.Bridge) {
+		return Settings{}, fmt.Errorf("bridge %q cannot be written into a forced command; fix: set bridge: or %s to the absolute path of starfixd, of letters, digits and ._+-, such as %s",
+			out.Bridge, EnvBridge, DefaultBridge)
+	}
+	if filepath.Clean(out.KeysFile) == filepath.Clean(out.AuthorizedKeys) {
+		return Settings{}, fmt.Errorf("keys_file %q is the authorized_keys file, which starfixd reads and never writes; fix: set keys_file: or %s to a file of its own beside it, such as %s",
+			out.KeysFile, EnvKeysFile, DefaultKeysFile)
 	}
 	if out.SystemdUnit != "" && !UnitPattern.MatchString(out.SystemdUnit) {
 		return Settings{}, fmt.Errorf("systemd_unit %q is not a unit name; fix: set it to the service's name, for example starfixd.service", out.SystemdUnit)
@@ -224,6 +255,20 @@ func (s Settings) checkProjectDBs() error {
 		return fmt.Errorf("project_dbs holds %s, the control database; fix: choose a prefix of its own, such as starfix_p", s.ControlDB)
 	}
 	return nil
+}
+
+// KeyFiles returns the absolute paths of the keys file and of the
+// hand-maintained authorized_keys file: a relative setting is under
+// home, the home directory of the user starfixd runs as, whose
+// authorized_keys sshd reads.
+func (s Settings) KeyFiles(home string) (keysFile, authorizedKeys string) {
+	abs := func(p string) string {
+		if filepath.IsAbs(p) {
+			return filepath.Clean(p)
+		}
+		return filepath.Join(home, p)
+	}
+	return abs(s.KeysFile), abs(s.AuthorizedKeys)
 }
 
 // ControlDSN returns the DSN of the control database (ControlDB), which

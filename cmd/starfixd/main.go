@@ -2,7 +2,6 @@
 //
 //	starfixd serve [--dev [--allow-unsafe-dolt]] [--config FILE] [--dsn DSN] [--socket PATH] [--project UUID] [--prefix P] [--log-level L] [--log-format F]
 //	starfixd stdio --principal NAME [--key FINGERPRINT] [--config FILE] [--socket PATH]
-//	starfixd keys [--config FILE] [--socket PATH] [--bridge PATH] TYPE BASE64
 //	starfixd control init --name NAME [--authorized-keys FILE] [--config FILE] [--dsn DSN]
 //	starfixd import-bd [--config FILE] [--dsn DSN] [--project UUID] [--principal NAME] [--dry-run] [--json] FILE|-
 //	starfixd export-bd [--config FILE] [--dsn DSN] [--project UUID] [-o FILE]
@@ -12,16 +11,15 @@
 // serve is the long-running daemon: it owns the Dolt store and serves the
 // protocol on a unix socket. stdio is the forced command in each developer
 // key's authorized_keys line; it bridges the SSH session to that socket.
-// keys is sshd's AuthorizedKeysCommand on a server of many projects: it
-// asks the daemon which principal a key belongs to and prints that key's
-// authorized_keys line, or nothing.
 // import-bd and export-bd are admin commands run on the server: they open
 // the store directly with the daemon's DSN settings and move a backlog in
 // and out as bd's JSONL. With control_db set the server holds many
 // projects, each in a database of its own: control init adopts the
 // existing database as the first and imports authorized_keys,
-// import-bd and export-bd take --project, and serve opens every active
-// project's database once before it listens, which migrates it. upgrade replaces this binary with a verified
+// import-bd and export-bd take --project, and serve writes the keys the
+// control database holds to a file sshd reads (keys_file) and opens
+// every active project's database once before it listens, which
+// migrates it. upgrade replaces this binary with a verified
 // release, after tagging the database, and restarts and health-checks the
 // daemon when a systemd unit is configured or --restart is given.
 package main
@@ -35,6 +33,8 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"os/user"
+	"path/filepath"
 	"syscall"
 
 	"github.com/ariesworx/starfix/internal/proto"
@@ -46,7 +46,6 @@ import (
 const usage = `usage:
   starfixd serve [--dev [--allow-unsafe-dolt]] [--config FILE] [--dsn DSN] [--socket PATH] [--project UUID] [--prefix P] [--log-level L] [--log-format F]
   starfixd stdio --principal NAME [--key FINGERPRINT] [--config FILE] [--socket PATH]
-  starfixd keys [--config FILE] [--socket PATH] [--bridge PATH] TYPE BASE64
   starfixd control init --name NAME [--authorized-keys FILE] [--config FILE] [--dsn DSN]
   starfixd import-bd [--config FILE] [--dsn DSN] [--project UUID] [--principal NAME] [--dry-run] [--json] FILE|-
   starfixd export-bd [--config FILE] [--dsn DSN] [--project UUID] [-o FILE]
@@ -63,9 +62,10 @@ With control_db: (or $STARFIXD_CONTROL_DB) set, the server holds many
 projects, and who may reach each is in that database. Run control init
 once to adopt the existing database as the first project; admins then
 manage projects, principals, members and keys from anywhere with sfx admin.
-project_dbs: names the databases granted for new projects. keys is sshd's
-AuthorizedKeysCommand: it prints the authorized_keys line of a key the
-control database holds, or nothing, and always exits 0.
+project_dbs: names the databases granted for new projects. serve writes
+the keys the control database holds to keys_file: (default
+~/.ssh/starfix_keys of the user it runs as), which sshd reads with
+AuthorizedKeysFile beside the authorized_keys you maintain by hand.
 
 Every command that opens the store refuses a Dolt account that is root,
 holds rights beyond its database, or a server whose secure_file_priv is
@@ -105,8 +105,6 @@ func run(ctx context.Context, args []string) error {
 		return serve(ctx, args[1:])
 	case "stdio":
 		return stdio(ctx, args[1:])
-	case "keys":
-		return keysCmd(ctx, osEnv(), args[1:])
 	case "control":
 		return controlCmd(ctx, osEnv(), args[1:])
 	case "import-bd":
@@ -244,8 +242,17 @@ func openDaemon(ctx context.Context, s server.Settings, log *slog.Logger) (*daem
 			s.ControlDB), ctl.Close())
 	}
 	cfg.Control, cfg.Open, cfg.ProjectDBs = ctl, server.ProjectOpener(s.DSN, ctl, opts), s.ProjectDBs
+	cfg.Bridge = s.Bridge
+	if cfg.KeysFile, cfg.AuthorizedKeys, err = keyFiles(s); err != nil {
+		return nil, errors.Join(err, ctl.Close())
+	}
 	srv, err := server.New(cfg)
 	if err != nil {
+		return nil, errors.Join(err, ctl.Close())
+	}
+	// sshd reads the keys from this file, so it holds what the store
+	// does before anyone can connect, or the daemon does not start.
+	if err := srv.WriteKeys(); err != nil {
 		return nil, errors.Join(err, ctl.Close())
 	}
 	// Every active project's database is opened, and so migrated,
@@ -258,6 +265,27 @@ func openDaemon(ctx context.Context, s server.Settings, log *slog.Logger) (*daem
 	return &daemon{srv: srv, ctl: ctl}, nil
 }
 
+// keyFiles returns the absolute paths of the keys file a server of many
+// projects writes and of the authorized_keys file it reads. A relative
+// setting is under the home directory of the user starfixd runs as,
+// taken from the account database, not from $HOME, which a daemon
+// started by hand may have inherited from someone else.
+func keyFiles(s server.Settings) (keysFile, authorizedKeys string, err error) {
+	home := ""
+	if !filepath.IsAbs(s.KeysFile) || !filepath.IsAbs(s.AuthorizedKeys) {
+		u, err := user.Current()
+		if err == nil && !filepath.IsAbs(u.HomeDir) {
+			err = errors.New("the account has no home directory")
+		}
+		if err != nil {
+			return "", "", fmt.Errorf("find the home directory of the user starfixd runs as: %w; fix: set keys_file: and authorized_keys: to absolute paths in the config file", err)
+		}
+		home = u.HomeDir
+	}
+	keysFile, authorizedKeys = s.KeyFiles(home)
+	return keysFile, authorizedKeys, nil
+}
+
 // stdio runs `starfixd stdio`, the forced command: it bridges this
 // process's stdin and stdout to the daemon's socket.
 func stdio(ctx context.Context, args []string) error {
@@ -265,7 +293,7 @@ func stdio(ctx context.Context, args []string) error {
 	var cfgPath, principal, key string
 	if err := flags("stdio", args, &fl, &cfgPath, func(fs *flag.FlagSet) {
 		fs.StringVar(&principal, "principal", "", "principal this key authenticates")
-		fs.StringVar(&key, "key", "", "SHA256 fingerprint of the key, when the control store served it (starfixd keys)")
+		fs.StringVar(&key, "key", "", "SHA256 fingerprint of the key, when its line is one starfixd wrote to its keys file")
 	}); err != nil {
 		return err
 	}

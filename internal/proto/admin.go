@@ -12,10 +12,11 @@ import "time"
 // Who may run each is the control store's to decide; a refusal is
 // forbidden, with a fix that says who can.
 //
-// Protocol 6 adds a principal's public SSH keys, which sshd asks the
-// daemon for (design §15.2): key.add, keys and key.remove, and Keys on
-// principal.add. It also has status, a read for an admin watching the
-// server, added before protocol 6 shipped in a release (version.go).
+// Protocol 6 adds a principal's public SSH keys, which the daemon writes
+// to a file sshd reads (design §15.2): key.add, keys and key.remove, and
+// Keys on principal.add. It also has status, a read for an admin
+// watching the server, added before protocol 6 shipped in a release
+// (version.go).
 const (
 	OpProjectAdd       = "project.add"       // ProjectAddArgs → ProjectAddResult; server admins
 	OpProjects         = "projects"          // AdminListArgs → ProjectsResult
@@ -131,7 +132,9 @@ type PrincipalArgs struct {
 // PrincipalResult is a principal after a write: its name as ID, its
 // revision and state, and for an add the project it was made a member
 // of. Released counts the claims a disable ended at once, in the stores
-// open then.
+// open then. Warning is set when the change is committed and the server
+// could not write the keys file sshd reads, which may then be out of
+// date.
 type PrincipalResult struct {
 	ID          string `json:"id"`
 	Rev         int64  `json:"rev"`
@@ -139,6 +142,7 @@ type PrincipalResult struct {
 	Project     string `json:"project,omitempty"`
 	ProjectName string `json:"project_name,omitempty"`
 	Released    int    `json:"released,omitempty"`
+	Warning     string `json:"warning,omitempty"`
 }
 
 // PrincipalAddResult is the principal added, and the fingerprints of
@@ -249,20 +253,20 @@ type KeyAddArgs struct {
 // counts the connections a removal closed: those the key had
 // authenticated.
 //
-// FileConns and Warning are set by a removal when the principal still
-// has open connections that named no key of the store, so that sshd let
-// them in by a line of the server's authorized_keys file: how many, and
-// what that means for the key just removed. The server knows that such a
-// connection came in by the file, not which key it used.
+// InAuthorizedKeys is set by a removal when the key is also a line of
+// the authorized_keys file the server's operator maintains by hand,
+// where sshd still accepts it. Warning then says so, and what to do. It
+// also says when the change is committed and the server could not write
+// the keys file sshd reads, which may then be out of date.
 type KeyResult struct {
-	ID        string `json:"id"`
-	Principal string `json:"principal"`
-	Type      string `json:"type"`
-	Comment   string `json:"comment,omitempty"`
-	Change    string `json:"change,omitempty"`
-	Dropped   int    `json:"dropped,omitempty"`
-	FileConns int    `json:"file_conns,omitempty"`
-	Warning   string `json:"warning,omitempty"`
+	ID               string `json:"id"`
+	Principal        string `json:"principal"`
+	Type             string `json:"type"`
+	Comment          string `json:"comment,omitempty"`
+	Change           string `json:"change,omitempty"`
+	Dropped          int    `json:"dropped,omitempty"`
+	InAuthorizedKeys bool   `json:"in_authorized_keys,omitempty"`
+	Warning          string `json:"warning,omitempty"`
 }
 
 // KeysArgs lists the keys of the principal Name.
@@ -271,18 +275,23 @@ type KeysArgs struct {
 }
 
 // Key is one public key in a list: its fingerprint, type and comment.
+// InAuthorizedKeys says the key is also a line of the authorized_keys
+// file the server's operator maintains by hand, so that removing it
+// from the store does not keep it out.
 type Key struct {
-	Fingerprint string    `json:"fingerprint"`
-	Type        string    `json:"type"`
-	Comment     string    `json:"comment,omitempty"`
-	AddedBy     string    `json:"added_by"`
-	AddedAt     time.Time `json:"added_at"`
+	Fingerprint      string    `json:"fingerprint"`
+	Type             string    `json:"type"`
+	Comment          string    `json:"comment,omitempty"`
+	AddedBy          string    `json:"added_by"`
+	AddedAt          time.Time `json:"added_at"`
+	InAuthorizedKeys bool      `json:"in_authorized_keys,omitempty"`
 }
 
 // KeysResult lists a principal's keys, oldest first. FileConns counts
 // the principal's open connections that named no key of the store: sshd
-// let them in by a line of the server's authorized_keys file, which
-// removing a key from the store does not close or prevent.
+// let them in by a line of the hand-maintained authorized_keys file,
+// which removing a key from the store does not close or prevent. Such a
+// line may hold a key that is not listed here.
 type KeysResult struct {
 	Principal string `json:"principal"`
 	Keys      []Key  `json:"keys"`
@@ -318,6 +327,7 @@ type StatusResult struct {
 // in live and not yet collected objects, and SysBytes all the memory it
 // has from the operating system (Go's runtime.MemStats HeapAlloc and
 // Sys). Projects and Principals count the control store's rows by state.
+// KeysFile is the file of keys the daemon writes for sshd.
 type ServerStatus struct {
 	Version       string         `json:"version"`
 	ProtoMin      int            `json:"proto_min"`
@@ -327,19 +337,32 @@ type ServerStatus struct {
 	OpenStoresMax int            `json:"open_stores_max"`
 	Conns         int            `json:"conns"`
 	ConnsMax      int            `json:"conns_max"`
-	KeyLookups    int            `json:"key_lookups"`
-	KeyLookupsMax int            `json:"key_lookups_max"`
 	HeapBytes     uint64         `json:"heap_bytes"`
 	SysBytes      uint64         `json:"sys_bytes"`
 	Goroutines    int            `json:"goroutines"`
 	Projects      map[string]int `json:"projects"`
 	Principals    map[string]int `json:"principals"`
+	KeysFile      *KeysFile      `json:"keys_file,omitempty"`
+}
+
+// KeysFile is the authorized_keys-format file the daemon writes from
+// the control store, which sshd reads: its path on the server, how many
+// keys the daemon last put in it, and when the file was last written.
+// Failed says the latest attempt to write it failed, so that sshd may
+// be reading an older list than the store holds; the daemon tries again
+// every half minute, and its log says why.
+type KeysFile struct {
+	Path      string     `json:"path"`
+	Keys      int        `json:"keys"`
+	WrittenAt *time.Time `json:"written_at,omitempty"`
+	Failed    bool       `json:"failed,omitempty"`
 }
 
 // ProjectStatus is one project. Open says whether its store is open;
 // the daemon opens none to answer. Conns counts the connections to it
 // past their handshake, and FileConns those among them that named no key
-// of the store, which sshd let in by the authorized_keys file.
+// of the store, which sshd let in by the hand-maintained authorized_keys
+// file.
 //
 // The rest is set only while the store is open, and starts afresh each
 // time it opens: Sessions, how many sessions were seen in the last five

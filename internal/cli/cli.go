@@ -373,6 +373,15 @@ func (r *runner) emit(v any) {
 	_, _ = fmt.Fprintf(out, "%s\n", safetext.JSON(b))
 }
 
+// warn prints a warning the server sent with a result, on standard
+// error; an empty one prints nothing. With --json the warning is in the
+// document, and this is not called.
+func (r *runner) warn(warning string) {
+	if warning != "" {
+		_, _ = fmt.Fprintf(r.env.Stderr, "sfx: warning: %s\n", esc(warning))
+	}
+}
+
 // connect dials the server on first use, and prints the server's version
 // warning, if it has one, on Stderr.
 func (r *runner) connect(ctx context.Context) (*mcpserver.RepoConn, error) {

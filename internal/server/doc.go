@@ -44,13 +44,13 @@
 // through every open store, and a store is reaped as it opens. Limits
 // per principal are then per principal in each project.
 //
-// Keys then come from the control store too. sshd runs `starfixd keys`
-// for each key offered ([AuthorizedKey]), which asks the daemon with a
-// keys frame in place of the bridge frame; the daemon answers from
-// memory, with no slot taken and no store opened, since the asker is
-// anyone who can reach sshd. The line sshd is given names the key's
-// fingerprint, the bridge passes it on, and the daemon closes the
-// connections of a key that is removed. When access ends (a membership,
+// Keys then come from the control store too. The daemon writes them to a
+// file in authorized_keys form ([Server.WriteKeys]), which sshd reads
+// beside the authorized_keys file kept by hand; sshd asks the daemon
+// nothing. Each line names its key's fingerprint, the bridge passes it
+// on, and the daemon refuses a key the store no longer holds, whatever
+// the file says, and closes the connections of a key that is removed.
+// When access ends (a membership,
 // a principal disabled, a project archived) the daemon closes the
 // connections it had let in and ends the claims it held, in the stores
 // that are open, and in the others as they open ([Server.Sweep]).
@@ -60,9 +60,8 @@
 // besides the store's limits. They are counted in memory, per daemon.
 //
 // [ResolveSettings] builds the starfixd commands' [Settings] from flags,
-// the environment and a config file. [Bridge] is `starfixd stdio`,
-// [AuthorizedKey] `starfixd keys`, and [Probe] the health check
-// `starfixd upgrade` runs after a restart.
+// the environment and a config file. [Bridge] is `starfixd stdio`, and
+// [Probe] the health check `starfixd upgrade` runs after a restart.
 //
 // The design is docs/design/starfix.md: §2 for the transport and the
 // trust model, the "As built" notes in §7 for claims, the inbox,

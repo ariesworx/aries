@@ -14,7 +14,11 @@ your machine
 
 ## What you need
 
-- **Linux with systemd.** A Linux desktop or laptop works. So does WSL2 on
+- **Linux with systemd.** Ubuntu 24.04 LTS is the supported platform;
+  other distributions may work and are untested, and those that run
+  SELinux are not supported yet
+  ([What a server needs](../server.md#what-a-server-needs)). A Linux
+  desktop or laptop works. So does WSL2 on
   Windows, once systemd is turned on in `/etc/wsl.conf`. On a Mac, use a
   Linux VM and run your agents inside it, or point `host` at the VM's
   address. To try starfix or test a change on a Mac, the

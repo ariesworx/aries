@@ -1,9 +1,7 @@
 package server
 
 import (
-	"context"
 	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -45,145 +43,6 @@ func fingerprintOf(t *testing.T, owner string) string {
 	return fp
 }
 
-// lookup asks s about fingerprint as `starfixd keys` does, over a pipe,
-// and returns the daemon's answer; closed is true when it closed the
-// connection without one.
-func lookup(t *testing.T, s *Server, fingerprint string) (f *proto.Frame, closed bool) {
-	t.Helper()
-	srv, cli := net.Pipe()
-	var wg sync.WaitGroup
-	defer func() { _ = cli.Close(); wg.Wait() }()
-	wg.Go(func() {
-		defer func() { _ = srv.Close() }()
-		s.handle(t.Context(), srv)
-	})
-	wg.Go(func() { _ = proto.NewEncoder(cli).Encode(&proto.Frame{T: proto.FrameKeys, Key: fingerprint}) })
-	_ = cli.SetReadDeadline(time.Now().Add(10 * time.Second))
-	f, err := proto.NewDecoder(cli).Decode()
-	if err != nil {
-		return nil, true
-	}
-	return f, false
-}
-
-// TestKeyLookup is the daemon's side of sshd's question: it answers for
-// a key of an active principal and for nothing else, from memory, with
-// no connection slot taken and no store opened.
-func TestKeyLookup(t *testing.T) {
-	m := adminWorld(t, Limits{}) // carol has a key
-	ctx := t.Context()
-	carols := fingerprintOf(t, "carol")
-	if _, err := m.ctl.AddKey(ctx, dana, "bob", keyLine(t, "bob")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := m.ctl.AddKey(ctx, dana, "frank", keyLine(t, "frank")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := m.ctl.DisablePrincipal(ctx, dana, "bob"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := m.ctl.RemoveKey(ctx, dana, fingerprintOf(t, "frank")); err != nil {
-		t.Fatal(err)
-	}
-	_, blob, _, _ := testKey(t, "carol")
-
-	tests := []struct {
-		name        string
-		fingerprint string
-		principal   string // "" means no answer for the key
-	}{
-		{"a key of an active principal", carols, "carol"},
-		{"a key no one has", fingerprintOf(t, "nobody"), ""},
-		{"a key of a disabled principal", fingerprintOf(t, "bob"), ""},
-		{"a key that was removed", fingerprintOf(t, "frank"), ""},
-		{"no fingerprint", "", ""},
-		{"an MD5 fingerprint", "MD5:aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99", ""},
-		{"the key itself", "ssh-ed25519 " + blob, ""},
-		{"a fingerprint with a newline", carols + "\n", ""},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			f, closed := lookup(t, m.Server, tc.fingerprint)
-			if closed {
-				t.Fatal("the daemon closed the connection without an answer")
-			}
-			if f.T != proto.FrameKeys || f.Principal != tc.principal {
-				t.Fatalf("lookup = %q frame naming %q, want a keys frame naming %q", f.T, f.Principal, tc.principal)
-			}
-			if want := ""; tc.principal == "" && f.PublicKey != want {
-				t.Errorf("lookup returned the key %q with no principal", f.PublicKey)
-			}
-			if tc.principal != "" && f.PublicKey != "ssh-ed25519 "+blob {
-				t.Errorf("lookup returned the key %q, want the stored one", f.PublicKey)
-			}
-		})
-	}
-	if m.slots.total != 0 || len(m.slots.by) != 0 {
-		t.Errorf("the lookups hold %d connection slots (%v), want none", m.slots.total, m.slots.by)
-	}
-	if n := m.OpenStores(); n != 0 || m.opened(projA) != 0 || m.opened(projB) != 0 {
-		t.Errorf("the lookups opened stores: %d open, a %d times, b %d times; want none", n, m.opened(projA), m.opened(projB))
-	}
-	if n := m.lookups.Load(); n != 0 {
-		t.Errorf("%d lookups still counted in flight, want 0", n)
-	}
-	// Logged at debug, and never the key.
-	log := m.log.String()
-	if !strings.Contains(log, `level=DEBUG msg="key lookup" found=true fingerprint=`+carols+" principal=carol") {
-		t.Errorf("the log lacks the debug line of the lookup that found carol:\n%s", log)
-	}
-	if strings.Contains(log, blob) || strings.Contains(log, "MD5:") {
-		t.Errorf("the log holds a key, or a stranger's text:\n%s", log)
-	}
-
-	// A server of one project serves no keys.
-	if f, closed := lookup(t, newServer(t), carols); closed || f.T != proto.FrameKeys || f.Principal != "" || f.PublicKey != "" {
-		t.Errorf("lookup on a server of one project = %+v, closed %v; want an empty keys frame", f, closed)
-	}
-}
-
-// TestKeyLookupLimit holds key_lookups lookups in flight and checks the
-// next is closed unanswered, and that the cap frees as they end.
-func TestKeyLookupLimit(t *testing.T) {
-	m := adminWorld(t, Limits{KeyLookups: 2})
-	carols := fingerprintOf(t, "carol")
-	// A lookup whose asker does not read stays in flight: a pipe's write
-	// waits for the read.
-	var held []net.Conn
-	var wg sync.WaitGroup
-	for range 2 {
-		srv, cli := net.Pipe()
-		held = append(held, cli)
-		wg.Go(func() {
-			defer func() { _ = srv.Close() }()
-			m.handle(t.Context(), srv)
-		})
-		if err := proto.NewEncoder(cli).Encode(&proto.Frame{T: proto.FrameKeys, Key: carols}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	waitUntil(t, "two lookups in flight", func() bool { return m.lookups.Load() == 2 })
-
-	if f, closed := lookup(t, m.Server, carols); !closed {
-		t.Errorf("a lookup past key_lookups was answered: %+v; want the connection closed", f)
-	}
-	if !strings.Contains(m.log.String(), `msg="key lookup refused" reason="key_lookups limit" limit=2`) {
-		t.Errorf("the log lacks the refusal:\n%s", m.log.String())
-	}
-
-	for _, cli := range held {
-		_ = cli.SetReadDeadline(time.Now().Add(10 * time.Second))
-		if f, err := proto.NewDecoder(cli).Decode(); err != nil || f.Principal != "carol" {
-			t.Errorf("a held lookup, read at last = %+v, %v; want carol", f, err)
-		}
-		_ = cli.Close()
-	}
-	wg.Wait()
-	if f, closed := lookup(t, m.Server, carols); closed || f.Principal != "carol" {
-		t.Errorf("a lookup after the others ended = %+v, closed %v; want carol", f, closed)
-	}
-}
-
 // waitUntil polls cond for up to 10 seconds.
 func waitUntil(t *testing.T, what string, cond func() bool) {
 	t.Helper()
@@ -196,36 +55,8 @@ func waitUntil(t *testing.T, what string, cond func() bool) {
 	}
 }
 
-// listen serves s on a unix socket until the test ends, and returns the
-// socket's path.
-func listen(t *testing.T, s *Server) string {
-	t.Helper()
-	// Not t.TempDir, whose path can be too long for a unix socket.
-	dir, err := os.MkdirTemp("", "sfk")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	sock := filepath.Join(dir, "run", "d.sock")
-	l, err := Listen(sock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- s.Serve(ctx, l) }()
-	t.Cleanup(func() {
-		cancel()
-		if err := <-done; err != nil {
-			t.Error(err)
-		}
-	})
-	return sock
-}
-
 // fakeDaemon answers every connection to a unix socket with the frame
-// answer returns, or closes it unanswered when answer returns nil, as a
-// daemon from before key lookups does.
+// answer returns, or closes it unanswered when answer returns nil.
 func fakeDaemon(t *testing.T, answer func(asked *proto.Frame) *proto.Frame) string {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "sff")
@@ -259,157 +90,6 @@ func fakeDaemon(t *testing.T, answer func(asked *proto.Frame) *proto.Frame) stri
 		}
 	})
 	return sock
-}
-
-// TestAuthorizedKey is `starfixd keys`: the one line sshd is given for a
-// key of an active principal, exactly, and no line for anything else.
-func TestAuthorizedKey(t *testing.T) {
-	m := adminWorld(t, Limits{}) // carol has a key
-	ctx := t.Context()
-	if _, err := m.ctl.AddKey(ctx, dana, "bob", keyLine(t, "bob")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := m.ctl.DisablePrincipal(ctx, dana, "bob"); err != nil {
-		t.Fatal(err)
-	}
-	sock := listen(t, m.Server)
-	typ, blob, fp, pub := testKey(t, "carol")
-
-	line, err := AuthorizedKey(ctx, sock, DefaultBridge, typ, blob)
-	if err != nil {
-		t.Fatalf("AuthorizedKey(carol's key): %v", err)
-	}
-	if want := `restrict,command="/usr/local/bin/starfixd stdio --principal carol --key ` + fp + `" ssh-ed25519 ` + blob; line != want {
-		t.Errorf("AuthorizedKey(carol's key) =\n%s\nwant\n%s", line, want)
-	}
-	// sshd reads it as one key with exactly two options.
-	got, comment, options, rest, err := ssh.ParseAuthorizedKey([]byte(line + "\n"))
-	if err != nil {
-		t.Fatalf("the line does not parse as an authorized_keys line: %v", err)
-	}
-	wantOptions := []string{"restrict", `command="/usr/local/bin/starfixd stdio --principal carol --key ` + fp + `"`}
-	if !slices.Equal(options, wantOptions) || comment != "" || len(rest) != 0 || string(got.Marshal()) != string(pub.Marshal()) {
-		t.Errorf("the line parses to options %q, comment %q, rest %q; want options %q and carol's key alone", options, comment, rest, wantOptions)
-	}
-	if other, err := AuthorizedKey(ctx, sock, "/opt/starfix/bin/starfixd", typ, blob); err != nil ||
-		!strings.HasPrefix(other, `restrict,command="/opt/starfix/bin/starfixd stdio --principal carol `) {
-		t.Errorf("AuthorizedKey with another path = %q, %v; want that path in the forced command", other, err)
-	}
-
-	bobType, bobBlob, _, _ := testKey(t, "bob")
-	_, nobodyBlob, _, _ := testKey(t, "nobody")
-	rsaBlob := "AAAAB3NzaC1yc2EAAAADAQABAAAAQQC7"
-	single := listen(t, newServer(t))
-	none := []struct {
-		name      string
-		socket    string
-		bridge    string
-		typ, blob string
-	}{
-		{"a key no one has", sock, DefaultBridge, typ, nobodyBlob},
-		{"a key of a disabled principal", sock, DefaultBridge, bobType, bobBlob},
-		{"no daemon", filepath.Join(filepath.Dir(sock), "none.sock"), DefaultBridge, typ, blob},
-		{"a server of one project", single, DefaultBridge, typ, blob},
-		{"a type that is not the key's", sock, DefaultBridge, "ssh-rsa", blob},
-		{"base64 that is no key", sock, DefaultBridge, typ, rsaBlob},
-		{"not base64", sock, DefaultBridge, typ, `"; touch /tmp/owned; "`},
-		{"an empty key", sock, DefaultBridge, typ, ""},
-		{"an empty type", sock, DefaultBridge, "", blob},
-		{"options before the type", sock, DefaultBridge, `command="sh" ` + typ, blob},
-		{"a second line", sock, DefaultBridge, typ, blob + "\n" + typ + " " + nobodyBlob},
-		{"a comment after the key", sock, DefaultBridge, typ, blob + ` x" evil`},
-		{"a certificate", sock, DefaultBridge, "ssh-ed25519-cert-v01@openssh.com", certBlob(t)},
-		{"a path with a space", sock, "/usr/local/bin/starfixd --config /tmp/x", typ, blob},
-		{"a path with a quote", sock, `/usr/local/bin/starfixd"`, typ, blob},
-		{"a relative path", sock, "starfixd", typ, blob},
-	}
-	for _, tc := range none {
-		t.Run(tc.name, func(t *testing.T) {
-			line, err := AuthorizedKey(ctx, tc.socket, tc.bridge, tc.typ, tc.blob)
-			if err == nil || line != "" {
-				t.Fatalf("AuthorizedKey = %q, %v; want no line and an error", line, err)
-			}
-			for _, arg := range []string{tc.blob, tc.typ} {
-				if len(arg) > 12 && strings.Contains(err.Error(), arg) {
-					t.Errorf("the error repeats an argument: %v", err)
-				}
-			}
-		})
-	}
-}
-
-// certBlob is the base64 of an OpenSSH user certificate.
-func certBlob(t *testing.T) string {
-	t.Helper()
-	_, _, _, pub := testKey(t, "certified")
-	sum := sha256.Sum256([]byte("authority"))
-	ca, err := ssh.NewSignerFromKey(ed25519.NewKeyFromSeed(sum[:]))
-	if err != nil {
-		t.Fatal(err)
-	}
-	cert := &ssh.Certificate{Key: pub, CertType: ssh.UserCert, KeyId: "carol", ValidBefore: ssh.CertTimeInfinity}
-	if err := cert.SignCert(rand.Reader, ca); err != nil {
-		t.Fatal(err)
-	}
-	return base64.StdEncoding.EncodeToString(cert.Marshal())
-}
-
-// TestAuthorizedKeyDistrustsTheAnswer checks that no line is built from
-// an answer that is not a principal and the very key that was asked
-// about, and that a daemon from before key lookups gives no line.
-func TestAuthorizedKeyDistrustsTheAnswer(t *testing.T) {
-	typ, blob, fp, _ := testKey(t, "carol")
-	_, otherBlob, _, _ := testKey(t, "mallory")
-	stored := "ssh-ed25519 " + blob
-	tests := []struct {
-		name   string
-		answer func(*proto.Frame) *proto.Frame
-	}{
-		{"a daemon from before key lookups, which closes", func(*proto.Frame) *proto.Frame { return nil }},
-		{"a principal that would end the forced command", func(*proto.Frame) *proto.Frame {
-			return &proto.Frame{T: proto.FrameKeys, Principal: `carol" ssh-ed25519 ` + otherBlob + ` #`, PublicKey: stored}
-		}},
-		{"a principal with a space", func(*proto.Frame) *proto.Frame {
-			return &proto.Frame{T: proto.FrameKeys, Principal: "carol --socket /tmp/x", PublicKey: stored}
-		}},
-		{"a reserved principal", func(*proto.Frame) *proto.Frame {
-			return &proto.Frame{T: proto.FrameKeys, Principal: store.OperatorPrincipal, PublicKey: stored}
-		}},
-		{"another key", func(*proto.Frame) *proto.Frame {
-			return &proto.Frame{T: proto.FrameKeys, Principal: "carol", PublicKey: "ssh-ed25519 " + otherBlob}
-		}},
-		{"the key with options", func(*proto.Frame) *proto.Frame {
-			return &proto.Frame{T: proto.FrameKeys, Principal: "carol", PublicKey: `command="sh" ` + stored}
-		}},
-		{"the key and a second line", func(*proto.Frame) *proto.Frame {
-			return &proto.Frame{T: proto.FrameKeys, Principal: "carol", PublicKey: stored + "\nssh-ed25519 " + otherBlob}
-		}},
-		{"a principal and no key", func(*proto.Frame) *proto.Frame { return &proto.Frame{T: proto.FrameKeys, Principal: "carol"} }},
-		{"a welcome", func(*proto.Frame) *proto.Frame {
-			return &proto.Frame{T: proto.FrameWelcome, Principal: "carol", PublicKey: stored}
-		}},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if line, err := AuthorizedKey(t.Context(), fakeDaemon(t, tc.answer), DefaultBridge, typ, blob); err == nil || line != "" {
-				t.Errorf("AuthorizedKey = %q, %v; want no line and an error", line, err)
-			}
-		})
-	}
-	// What it asks is the fingerprint it computed, and an honest answer
-	// gives the line, whatever comment the daemon's key carries.
-	var asked *proto.Frame
-	sock := fakeDaemon(t, func(f *proto.Frame) *proto.Frame {
-		asked = f
-		return &proto.Frame{T: proto.FrameKeys, Principal: "carol", PublicKey: stored + " a comment"}
-	})
-	line, err := AuthorizedKey(t.Context(), sock, DefaultBridge, typ, blob)
-	if err != nil || line != `restrict,command="/usr/local/bin/starfixd stdio --principal carol --key `+fp+`" `+stored {
-		t.Errorf("AuthorizedKey with an honest answer = %q, %v", line, err)
-	}
-	if asked == nil || asked.T != proto.FrameKeys || asked.Key != fp {
-		t.Errorf("AuthorizedKey asked %+v, want a keys frame with the fingerprint %s", asked, fp)
-	}
 }
 
 // dialKey connects a to project proj as a bridge whose forced command
@@ -524,11 +204,14 @@ func TestKeyRemoveDrops(t *testing.T) {
 		}
 	}
 
+	if got := m.sshd(t, carols); got != "carol" {
+		t.Fatalf("the keys file gives carol's key to %q before its removal, want carol", got)
+	}
 	res := mustAsk[proto.KeyResult](d, proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: carols})
-	// carol's connection by the file stays, and the admin is told so.
-	if want := (proto.KeyResult{ID: carols, Principal: "carol", Type: "ssh-ed25519", Comment: "carol@example.com", Dropped: 2,
-		FileConns: 1, Warning: fileWarning("carol", 1)}); res != want {
-		t.Errorf("key.remove = %+v\nwant %+v: carol's key, 2 connections dropped and 1 by the file", res, want)
+	// carol's connection by the hand-maintained file stays. Nothing warns:
+	// that file does not hold this key.
+	if want := (proto.KeyResult{ID: carols, Principal: "carol", Type: "ssh-ed25519", Comment: "carol@example.com", Dropped: 2}); res != want {
+		t.Errorf("key.remove = %+v\nwant %+v: carol's key, and 2 connections dropped", res, want)
 	}
 	if !byKeyA.dropped() || !byKeyB.dropped() {
 		t.Error("a connection the removed key authenticated is still open")
@@ -536,8 +219,8 @@ func TestKeyRemoveDrops(t *testing.T) {
 	if !byFile.alive() || !other.alive() || !d.alive() {
 		t.Error("removing the key closed a connection it had not authenticated")
 	}
-	if f, closed := lookup(t, m.Server, carols); closed || f.Principal != "" {
-		t.Errorf("lookup of the removed key = %+v, closed %v; want no principal", f, closed)
+	if got := m.sshd(t, carols); got != "" {
+		t.Errorf("the keys file still gives the removed key to %q once the admin is answered", got)
 	}
 	if w, _, closed := dialKey(t, m.Server, carol, projA, carols); closed || w.Err == nil || w.Err.Code != proto.CodeAuth {
 		t.Errorf("a handshake naming the removed key = %+v, closed %v; want an auth refusal", w, closed)
@@ -705,8 +388,8 @@ func TestKeyOps(t *testing.T) {
 	if hal.ID != "hal" || hal.Project != projA || !slices.Equal(hal.Keys, []string{fingerprintOf(t, "hal"), fingerprintOf(t, "hal 2")}) {
 		t.Errorf("principal.add hal with two keys = %+v", hal)
 	}
-	if f, closed := lookup(t, m.Server, fingerprintOf(t, "hal")); closed || f.Principal != "hal" {
-		t.Errorf("lookup of hal's new key = %+v, closed %v; want hal", f, closed)
+	if got := m.sshd(t, fingerprintOf(t, "hal")); got != "hal" {
+		t.Errorf("the keys file gives hal's new key to %q once the admin is answered, want hal", got)
 	}
 	for _, tc := range []struct {
 		name string
@@ -928,60 +611,4 @@ func TestBridgeKey(t *testing.T) {
 		default:
 		}
 	}
-}
-
-// FuzzAuthorizedKey gives `starfixd keys` arbitrary arguments, as a
-// stranger's client might make sshd pass, against a daemon that always
-// answers with carol's key. Whatever the arguments, either there is no
-// line, or they were exactly carol's key and the line is exactly hers.
-func FuzzAuthorizedKey(f *testing.F) {
-	dir, err := os.MkdirTemp("", "sfz")
-	if err != nil {
-		f.Fatal(err)
-	}
-	f.Cleanup(func() { _ = os.RemoveAll(dir) })
-	sum := sha256.Sum256([]byte("carol"))
-	pub, err := ssh.NewPublicKey(ed25519.NewKeyFromSeed(sum[:]).Public())
-	if err != nil {
-		f.Fatal(err)
-	}
-	typ, blob, fp := pub.Type(), base64.StdEncoding.EncodeToString(pub.Marshal()), ssh.FingerprintSHA256(pub)
-	sock := filepath.Join(dir, "d.sock")
-	l, err := net.Listen("unix", sock)
-	if err != nil {
-		f.Fatal(err)
-	}
-	var wg sync.WaitGroup
-	f.Cleanup(func() { _ = l.Close(); wg.Wait() })
-	wg.Go(func() {
-		for {
-			c, err := l.Accept()
-			if err != nil {
-				return
-			}
-			wg.Go(func() {
-				defer func() { _ = c.Close() }()
-				if _, err := proto.NewDecoder(c).Decode(); err == nil {
-					_ = proto.NewEncoder(c).Encode(&proto.Frame{T: proto.FrameKeys, Principal: "carol", PublicKey: typ + " " + blob})
-				}
-			})
-		}
-	})
-	want := `restrict,command="/usr/local/bin/starfixd stdio --principal carol --key ` + fp + `" ` + typ + " " + blob
-	for _, seed := range [][2]string{
-		{typ, blob}, {"ssh-rsa", blob}, {typ, blob + " comment"}, {typ, blob + "\n" + typ + " " + blob}, {`command="sh" ` + typ, blob},
-		{typ, ""}, {"", blob}, {typ, `x" ssh-ed25519 AAAA`}, {typ + "\x00", blob}, {typ, blob[:len(blob)-4]}, {typ, "=" + blob},
-		{"ssh-ed25519-cert-v01@openssh.com", blob}, {typ, strings.Repeat("A", 4096)},
-	} {
-		f.Add(seed[0], seed[1])
-	}
-	f.Fuzz(func(t *testing.T, keyType, keyBlob string) {
-		line, err := AuthorizedKey(t.Context(), sock, DefaultBridge, keyType, keyBlob)
-		switch {
-		case err != nil && line != "":
-			t.Errorf("AuthorizedKey(%q, %q) = %q with error %v; want no line with an error", keyType, keyBlob, line, err)
-		case err == nil && (keyType != typ || keyBlob != blob || line != want):
-			t.Errorf("AuthorizedKey(%q, %q) = %q; want a line only for the key itself, and then exactly %q", keyType, keyBlob, line, want)
-		}
-	})
 }

@@ -50,7 +50,10 @@ func printStatus(w io.Writer, res proto.StatusResult) {
 	p := func(format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }
 	if s := res.Server; s != nil {
 		p("starfixd %s, protocol %d to %d, up %s\n", esc(s.Version), s.ProtoMin, s.ProtoMax, uptime(s.UptimeSeconds))
-		p("stores %d of %d, connections %d of %d, key lookups %d of %d\n", s.OpenStores, s.OpenStoresMax, s.Conns, s.ConnsMax, s.KeyLookups, s.KeyLookupsMax)
+		p("stores %d of %d, connections %d of %d\n", s.OpenStores, s.OpenStoresMax, s.Conns, s.ConnsMax)
+		if k := s.KeysFile; k != nil {
+			p("keys file %s: %s\n", esc(k.Path), keysFile(*k))
+		}
 		p("starfixd's memory %d MiB in use, %d MiB from the system; %d goroutines\n", mib(s.HeapBytes), mib(s.SysBytes), s.Goroutines)
 		p("projects: %s; principals: %s\n\n", byState(s.Projects), byState(s.Principals))
 	}
@@ -59,7 +62,7 @@ func printStatus(w io.Writer, res proto.StatusResult) {
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "PROJECT\tSTATE\tSTORE\tCONNS\tBY FILE\tSESSIONS\tWRITES/MIN\tP50\tP99\tLAST USED")
+	_, _ = fmt.Fprintln(tw, "PROJECT\tSTATE\tSTORE\tCONNS\tBY HAND\tSESSIONS\tWRITES/MIN\tP50\tP99\tLAST USED")
 	byFile := false
 	for _, pr := range res.Projects {
 		store, file, sessions, writes, p50, p99, used := "closed", "-", "-", "-", "-", "-", "-"
@@ -84,8 +87,27 @@ func printStatus(w io.Writer, res proto.StatusResult) {
 	_ = tw.Flush()
 	more(w, res.More, res.Projects[len(res.Projects)-1].Name)
 	if byFile {
-		p("BY FILE: connections sshd let in by the server's authorized_keys file, not by a key from the store; `sfx admin key remove` does not close them\n")
+		p("BY HAND: connections sshd let in by the server's hand-maintained authorized_keys file, not by a key from the store; `sfx admin key remove` does not close them\n")
 	}
+}
+
+// keysFile says what the server last did with the file of keys it
+// writes for sshd: how many keys it holds and when it was written, or
+// that the latest write failed and sshd may be reading an older list.
+func keysFile(k proto.KeysFile) string {
+	keys := fmt.Sprintf("%d keys", k.Keys)
+	if k.Keys == 1 {
+		keys = "1 key"
+	}
+	switch {
+	case k.Failed && k.WrittenAt != nil:
+		return fmt.Sprintf("THE LAST WRITE FAILED, so sshd may be reading an older list (%s, written %s); see starfixd's log", keys, when(*k.WrittenAt))
+	case k.Failed:
+		return "THE LAST WRITE FAILED, so sshd may be reading an older list; see starfixd's log"
+	case k.WrittenAt == nil:
+		return keys
+	}
+	return fmt.Sprintf("%s, written %s", keys, when(*k.WrittenAt))
 }
 
 // mib is n bytes in mebibytes, to the nearest one.
@@ -145,12 +167,13 @@ func byState(counts map[string]int) string {
 }
 
 // printFileConns says, under a principal's keys, how many of its open
-// connections came in by the server's authorized_keys file.
+// connections came in by the server's hand-maintained authorized_keys
+// file.
 func printFileConns(w io.Writer, principal string, n int) {
 	switch {
 	case n == 1:
-		_, _ = fmt.Fprintf(w, "1 open connection of %s came in by the server's authorized_keys file, not by a key listed here; removing a key does not close it\n", esc(principal))
+		_, _ = fmt.Fprintf(w, "1 open connection of %s came in by a line of the server's hand-maintained authorized_keys file; removing a key from the store does not close it\n", esc(principal))
 	case n > 1:
-		_, _ = fmt.Fprintf(w, "%d open connections of %s came in by the server's authorized_keys file, not by a key listed here; removing a key does not close them\n", n, esc(principal))
+		_, _ = fmt.Fprintf(w, "%d open connections of %s came in by a line of the server's hand-maintained authorized_keys file; removing a key from the store does not close them\n", n, esc(principal))
 	}
 }

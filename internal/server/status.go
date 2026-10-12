@@ -111,9 +111,9 @@ func (s *Server) serverStatus() *proto.ServerStatus {
 		UptimeSeconds: int64(s.now().Sub(s.started) / time.Second),
 		OpenStores:    s.stores.size(), OpenStoresMax: lim.OpenStores,
 		Conns: conns, ConnsMax: lim.Conns,
-		KeyLookups: int(s.lookups.Load()), KeyLookupsMax: lim.KeyLookups,
 		HeapBytes: ms.HeapAlloc, SysBytes: ms.Sys, Goroutines: runtime.NumGoroutine(),
 		Projects: map[string]int{}, Principals: map[string]int{},
+		KeysFile: s.keysStatus(),
 	}
 	counts := s.cfg.Control.Counts()
 	for state, n := range counts.Projects {

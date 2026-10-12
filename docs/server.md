@@ -18,9 +18,18 @@ For complete deployments with costs, see the
 
 ## What a server needs
 
-- **Linux**, amd64 or arm64, with systemd and OpenSSH. The steps below were
-  tested on Ubuntu 24.04. `starfixd serve` refuses to run on other systems,
-  because only Linux lets it check which user connects to its socket.
+- **Linux**, amd64 or arm64, with systemd and OpenSSH. `starfixd serve`
+  refuses to run on other systems, because only Linux lets it check which
+  user connects to its socket.
+- **Ubuntu 24.04 LTS is the supported platform.** The steps below are
+  written for it and were tested on it. Other distributions may work and
+  are untested.
+- **Systems that run SELinux are not supported yet**: RHEL, Rocky Linux,
+  AlmaLinux, Fedora. Nothing here has been run on one, and this guide
+  sets no SELinux label and ships no policy module. That support will
+  follow once starfix has a test harness that boots such a machine.
+  Ubuntu's mandatory access control is AppArmor; an AppArmor profile for
+  starfixd is planned and does not exist yet.
 - **Dolt**, at the release starfix is tested with: `Dolt` in
   [internal/version](../internal/version/version.go), 2.4.2 for starfix
   v0.2.0. Each release's notes name it.
@@ -335,7 +344,7 @@ Where the key and its principal are recorded depends on the server:
 
 | | A server of one project | A server of [many projects](#serving-many-projects) |
 |---|---|---|
-| A key is | A line of `~starfix/.ssh/authorized_keys` whose forced command names the principal ([step 6](#6-let-the-first-principal-in)) | A row of the control database, which sshd asks starfixd for ([Keys from the store](#keys-from-the-store)). A line of `authorized_keys` still works too |
+| A key is | A line of `~starfix/.ssh/authorized_keys` whose forced command names the principal ([step 6](#6-let-the-first-principal-in)) | A row of the control database, which starfixd writes to a file sshd reads ([Keys from the store](#keys-from-the-store)). A line of `authorized_keys` still works too |
 | Add someone | Append a line, on the server. A principal may have several, one per key | `sfx admin principal add NAME --key FILE`, from anywhere |
 | Add a key | Append a line | `sfx admin key add NAME FILE` |
 | Remove a key | Delete its line. That stops new connections; to end open sessions too, stop the bridges: `pkill -f -- 'stdio --principal bob$'` | `sfx admin key remove FINGERPRINT`, which also closes the connections that key signed in |
@@ -389,7 +398,8 @@ What works today:
   ([Managing access](#managing-access)). A new project needs no shell on
   the server: its database comes from a block of names you grant once.
   Nor does a new person: an admin adds them and their public key, and
-  sshd asks starfixd whose key it is ([Keys from the store](#keys-from-the-store)).
+  starfixd writes the key to a file sshd reads
+  ([Keys from the store](#keys-from-the-store)).
 - **Access that ends, ends at once.** When a membership is removed, a
   principal is disabled, a project is archived or a key is removed,
   starfixd closes the connections it had let in, once the change is
@@ -403,10 +413,12 @@ What works today:
 
 Everything above is built and tested against a real Dolt and starfix's
 own stand-in for sshd, including a soak test across two projects
-([CONTRIBUTING.md](../CONTRIBUTING.md#the-soak-test)). What has not been
-done is to check the sshd setup of [Keys from the store](#keys-from-the-store)
-on a real sshd and on each cloud's images; that section says what to
-keep until you have.
+([CONTRIBUTING.md](../CONTRIBUTING.md#the-soak-test)). The sshd setup of
+[Keys from the store](#keys-from-the-store) was also run with a real
+sshd, OpenSSH 9.6 on Ubuntu 24.04, in the
+[Docker test server](deploy/docker.md). It has not been run under
+systemd, or on a cloud provider's machine; that section says what was
+checked and what was not.
 
 ### Opt in
 
@@ -444,7 +456,7 @@ keep until you have.
 
    The last line counts the keys that are now in both places. It is a
    reminder, and `control init` never edits `authorized_keys`: see
-   [Keys from the store](#keys-from-the-store), step 4.
+   [Keys from the store](#keys-from-the-store), step 5.
 
 4. To let admins create further projects, grant starfixd's account a
    block of database names now, and name the block in the config file.
@@ -472,10 +484,13 @@ keep until you have.
    and raise `count`. Without `project_dbs` the server serves the
    projects it has and refuses to create one.
 
-5. Restart starfixd: `systemctl restart starfixd`.
+5. Let starfixd write its keys file and have sshd read it, which is
+   also what lets you add people from anywhere, with no line in
+   `authorized_keys`: [Keys from the store](#keys-from-the-store), steps
+   1 and 2. starfixd does not start on a server of many projects until
+   it can write that file.
 
-6. To add people from anywhere, with no line in `authorized_keys`, let
-   sshd ask starfixd for keys: [Keys from the store](#keys-from-the-store).
+6. Restart starfixd: `systemctl restart starfixd`.
 
 `control init` records the database in `dsn` as a project, with the
 config file's `project` UUID, `prefix` and `account` and the name you
@@ -495,7 +510,7 @@ text.
   within the minute.
 - **It does not remove.** Deleting a line from `authorized_keys` leaves
   the principal's row, its membership and the key in the control
-  database. Where sshd asks starfixd for keys
+  database. Where sshd reads starfixd's keys file
   ([Keys from the store](#keys-from-the-store)) the key therefore still
   signs in, until `sfx admin key remove` takes it out; where sshd does
   not, deleting the line stops the key, as before.
@@ -508,40 +523,68 @@ text.
 
 ### Keys from the store
 
-On a server of many projects sshd can ask starfixd which principal a key
-belongs to, so that an admin adds and removes keys with `sfx admin` and
-nobody edits `authorized_keys`. sshd runs `starfixd keys TYPE BASE64` for
-each key offered to the `starfix` account, before it has authenticated
-anyone. For a key of an active principal the command prints the line
-sshd needs, the same line you would have written by hand, with the key's
-fingerprint added:
+On a server of many projects starfixd writes the keys its control
+database holds to a file, and sshd reads that file beside
+`authorized_keys`. An admin adds and removes keys with `sfx admin`, from
+anywhere, and nobody edits a file on the server. The file is
+`~starfix/.ssh/starfix_keys`, in the format of `authorized_keys`: a
+first line that says starfixd generates it, then one line for each key
+of each active principal, the line you would have written by hand with
+the key's fingerprint added:
 
 ```text
 restrict,command="/usr/local/bin/starfixd stdio --principal alice --key SHA256:…" ssh-ed25519 AAAA…
 ```
 
-For any other key it prints nothing and exits 0: a key nobody added, a
-disabled principal's, a server with no `control_db`, starfixd stopped.
-sshd then reads `authorized_keys` as before. So that file stays the way
-in for the first admin, and the way in when starfixd is down.
+sshd asks starfixd nothing. It reads two files, and nothing of starfix
+runs before sshd has authenticated a key. `authorized_keys`, which you
+maintain by hand, stays the way in for the first admin and the way to
+replace a server admin's own key.
 
-1. **Give sshd a copy of starfixd that root owns.** sshd runs an
-   `AuthorizedKeysCommand` only if the file, and every directory above
-   it, is owned by root and not writable by group or others. The binary
-   of [step 3](#3-install-starfixd) is not: `starfix` owns it and its
-   directory, so that `starfixd upgrade` can replace it without root,
-   and `/usr/local/bin/starfixd` is a link to it. So copy it:
+- **When it is written.** At start, before starfixd listens; after every
+  `sfx admin` change that alters which keys sign in (a key added or
+  removed, a principal added with keys, disabled or enabled), before
+  the admin is answered; and every 30 seconds if it no longer holds
+  what the control database does, which is how a `starfixd control
+  init` run beside the daemon reaches it, and how an edit to the file
+  is undone. A key added with `sfx admin` signs in at once, with no
+  restart of anything. When nothing changed, nothing is written.
+- **How it is written.** A new file beside it, mode 0600, synced, then
+  renamed over it, so sshd never reads half a file and a crash leaves
+  the old one or the new one. The lines are in a fixed order, so the
+  same keys give the same bytes.
+- **The file is a cache, and the control database decides.** Each line
+  names its key's fingerprint, and starfixd refuses a connection whose
+  key the database no longer holds for that principal, and one whose
+  principal is disabled. So a key that was removed, in a file that
+  could not be rewritten or was restored from a backup, gets past sshd
+  and is refused by starfixd.
+- **A server of one project writes no file.**
+
+1. **Let starfixd write to the account's `.ssh`.** The unit of
+   [step 5](#5-run-starfixd-under-systemd) has `ProtectSystem=strict`,
+   which makes the file system read-only for starfixd, apart from
+   `/run/starfix` and its private `/tmp`. Its `ProtectHome=yes` does not matter here: it
+   covers `/home`, `/root` and `/run/user`, and the account's home is
+   `/var/lib/starfix`. Add the one directory:
 
    ```sh
-   install -o root -g root -m 0755 /opt/starfix/bin/starfixd /usr/local/sbin/starfixd-keys
+   mkdir -p /etc/systemd/system/starfixd.service.d
+   printf '[Service]\nReadWritePaths=/var/lib/starfix/.ssh\n' > /etc/systemd/system/starfixd.service.d/keys.conf
+   systemctl daemon-reload
    ```
 
-   The copy only asks the running starfixd, over its socket, and prints
-   the answer. It keeps working as starfixd is upgraded; copy it again
-   after an upgrade to keep the two the same ([Upgrades](#upgrades)).
+   The directory is the one [step 6](#6-let-the-first-principal-in)
+   made: owned by `starfix`, mode 0700. starfixd refuses to write into
+   a directory that group or others may write to, as sshd refuses to
+   read keys from one. It also refuses a path that is a symbolic link
+   or anything but a regular file, and a file it did not generate, so
+   pointing `keys_file` at `authorized_keys` by mistake cannot replace
+   it.
 
-2. **Tell sshd to ask it,** for the `starfix` account only. Add the two
-   lines to the `Match` block of `/etc/ssh/sshd_config.d/00-starfix.conf`
+2. **Tell sshd to read the file,** for the `starfix` account only. Add
+   one line to the `Match` block of
+   `/etc/ssh/sshd_config.d/00-starfix.conf`
    ([step 6](#6-let-the-first-principal-in)):
 
    ```text
@@ -549,8 +592,8 @@ in for the first admin, and the way in when starfixd is down.
        AuthenticationMethods publickey
        DisableForwarding yes
        PermitTTY no
-       AuthorizedKeysCommand /usr/local/sbin/starfixd-keys keys %t %k
-       AuthorizedKeysCommandUser starfix
+       AuthorizedKeysFile .ssh/authorized_keys .ssh/starfix_keys
+       AuthorizedKeysCommand none
    ```
 
    ```sh
@@ -558,64 +601,119 @@ in for the first admin, and the way in when starfixd is down.
    systemctl try-reload-or-restart ssh
    ```
 
-   The command runs as `starfix` because only that user reaches
-   starfixd's socket and its config file. On an image whose sshd already
-   has a global `AuthorizedKeysCommand` for its own login service, the
-   `Match` block is meant to replace it for the `starfix` account alone.
+   sshd takes the first line that matches the key, in the order the
+   files are named, so a key in both files is let in by its line of
+   `authorized_keys`.
 
-3. **Check it** with a key the control database holds, as sshd runs it:
+3. **Restart starfixd and check the file:**
 
    ```sh
-   sudo -u starfix /usr/local/sbin/starfixd-keys keys ssh-ed25519 AAAA…
+   systemctl restart starfixd
+   ls -l /var/lib/starfix/.ssh/starfix_keys
+   journalctl -u starfixd -n 5
    ```
 
-   It prints the line above. When it prints nothing, standard error says
-   why in one line. If a key that prints a line here is still refused,
-   sshd's log (`journalctl -u ssh`) says whether it refused to run the
-   command, and names the file or directory whose owner or mode it did
-   not accept.
+   The file is mode 0600 and owned by `starfix`, and the log has
+   `keys file written`. If starfixd cannot write it at start, it does
+   not start, and the error's `fix:` says what to change.
 
-4. **Move the keys.** `control init` has already copied every key of
+4. **Add someone**, from any repository connected to the server, and
+   have them run a command: `sfx admin principal add bob --key
+   bob.pub`, then `sfx ready` as bob. `sfx admin status` shows the file,
+   how many keys it holds and when it was written.
+
+5. **Move the keys.** `control init` has already copied every key of
    `authorized_keys` into the control database
-   ([Opt in](#opt-in)), so each is now let in twice. Remove the lines
+   ([Opt in](#opt-in)), so each is now in both files. Remove the lines
    from `authorized_keys` that you want `sfx admin` to govern, and keep
    the first admin's:
 
    - **A key whose line is still in `authorized_keys` cannot be revoked
-     with `sfx admin key remove`.** sshd finds the line in the file and
-     lets the key in. Its principal can still be disabled, and its
+     with `sfx admin key remove`.** sshd finds the line in that file
+     and lets the key in, by a forced command that names no
+     fingerprint, so starfixd cannot refuse the key or close the
+     connections it made. Its principal can still be disabled, and its
      memberships removed, which starfixd enforces whatever let the key
      in.
-   - **A connection that came in by a line of the file is not closed by
-     `key remove`**, since starfixd does not know which key it used. One
-     that came in by the store's line is: its forced command names the
-     key.
-   - **starfixd shows what it can see of this.** It knows whether a
-     connection named a key of the store or came in by the file, and
-     nothing about which line of the file let it in. `sfx admin key list
-     NAME` says how many of NAME's open connections came in by the file,
-     `sfx admin status` counts them for each project (BY FILE), and `key
-     remove` warns when the key's principal has any open. sshd asks the
-     store first, so while a key is in both places its connections name
-     the key and nothing warns: the count appears once the key is gone
-     from the store and its owner connects again. A person who only ever
-     shows up under BY FILE still has a line to delete.
-   - **Keep one line for a server admin.** It is how you get in when
-     starfixd is down, and how a server admin's own key is replaced,
-     since nobody changes the keys of their own account with `sfx admin`.
+   - **starfixd tells you which keys those are.** It runs as the
+     account whose `authorized_keys` it is, so it reads the file: it
+     never writes to it, and never prints or logs a line of it. `sfx
+     admin key list NAME` marks each key that is also in
+     `authorized_keys`, and `sfx admin key remove` of such a key warns
+     that sshd still accepts it there and that its line must be deleted
+     on the server. A line starfixd cannot read as a key is skipped,
+     and only the first mebibyte of the file is read.
+   - **It also counts who still comes in that way.** A connection whose
+     forced command named no fingerprint came in by `authorized_keys`.
+     `sfx admin status` counts those for each project (BY HAND), and
+     `sfx admin key list NAME` for NAME. A line of `authorized_keys`
+     whose key was never put in the control database shows up only
+     there.
+   - **Keep one line for a server admin.** It is how a server admin's
+     own key is replaced, since nobody changes the keys of their own
+     account with `sfx admin`.
 
-`starfixd keys` takes `--config FILE` and `--socket PATH` as `stdio`
-does, and `--bridge PATH` for the path of starfixd in the line it prints,
-`/usr/local/bin/starfixd` by default. Put them before `%t`.
+**Settings.** `keys_file` is where starfixd writes, and
+`authorized_keys` the hand-maintained file it reads; a relative path is
+under the home directory of the user starfixd runs as, taken from the
+account database and not from `$HOME`. `bridge` is the path of starfixd
+in each line's forced command, `/usr/local/bin/starfixd` by default: an
+absolute path of letters, digits and `._+-`, since it is written into a
+command sshd runs. If you move `keys_file`, change sshd's
+`AuthorizedKeysFile` and the unit's `ReadWritePaths` with it
+([Settings](#settings)).
 
-This setup has been tested only against starfix's own stand-in for sshd.
-Whether a real sshd accepts the command's ownership, and whether the
-`Match` block overrides a cloud image's global `AuthorizedKeysCommand`
-(Google Cloud's OS Login, AWS's EC2 Instance Connect, Azure's Entra ID
-login), has not been checked on those machines yet. On an image with
-SELinux enforcing, sshd may also need a policy that lets it run the
-command. Until you have seen step 3's key sign in, keep every line in
-`authorized_keys`.
+**When starfixd is stopped,** sshd still reads both files and accepts
+their keys, and every command then fails with `starfixd is not running
+on the server` until it is started. Neither file is a way to work
+without the daemon.
+
+**When a write fails after the start,** the change an admin made is
+already recorded, and stays. The admin's command succeeds and prints a
+warning that sshd may still be reading the old file; starfixd logs
+`the keys file is out of date` at `error` with the cause and a fix, and
+tries again every 30 seconds; and `sfx admin status` says `THE LAST
+WRITE FAILED` on its `keys file` line until a write succeeds. Meanwhile
+a key just added does not sign in, and a key just removed is refused by
+starfixd rather than by sshd.
+
+**On an image whose sshd already has a global `AuthorizedKeysCommand`**
+for its provider's login service (Google Cloud's OS Login, AWS's EC2
+Instance Connect, Azure's Entra ID login), nothing above needs to
+change: `AuthorizedKeysFile` in the `Match` block is read whatever that
+command is. Left alone, sshd would still run the provider's command for
+the `starfix` account, on every sign-in, and accept a key it printed,
+with no forced command. `AuthorizedKeysCommand none` in the `Match`
+block is what stops that: the account's keys come from the two files and
+nowhere else.
+
+What was checked, on 12 October 2026, with OpenSSH 9.6 on Ubuntu 24.04
+in the [Docker test server](deploy/docker.md), which has no systemd:
+
+| Checked | Result |
+|---|---|
+| starfixd installed as [step 3](#3-install-starfixd) installs it: owned by `starfix` in `/opt/starfix/bin`, linked from `/usr/local/bin`, and no copy that root owns | Keys from the control database sign in. sshd runs no program of starfix's before authentication, so who owns the binary does not matter to it |
+| A global `AuthorizedKeysCommand`, outside any `Match` block, set to a root-owned script that prints nothing, with `AuthorizedKeysCommandUser nobody` | Keys from both files sign in, with no override. sshd ran the script twice for each sign-in by `sfx`. With `AuthorizedKeysCommand none` in the `Match` block it did not run it |
+| starfixd killed, sshd left running | sshd accepts a key from either file, and the client gets `starfixd is not running on the server` |
+| A key in both files | sshd lets it in by its line of `authorized_keys` |
+
+Not checked:
+
+- **Under systemd.** Step 1's `ReadWritePaths`, and what `ProtectHome`
+  covers, are from systemd's documentation; the unit was not run with
+  them. If the path is wrong, starfixd does not start and its error
+  names `ReadWritePaths`.
+- **A provider's own machine.** The stand-in above shows that a global
+  command that prints nothing does not get in the way. It does not show
+  what OS Login, EC2 Instance Connect or the Entra ID extension change
+  besides that one setting, or what their commands print for an account
+  named `starfix`.
+- **SELinux**, which is not supported yet
+  ([What a server needs](#what-a-server-needs)). From general knowledge
+  of it, unverified: sshd reads keys only from files labeled for it,
+  and a home directory outside `/home`, such as `/var/lib/starfix`,
+  does not get that label on its `.ssh` by default. That is as true of
+  `authorized_keys` as of the keys file.
 
 ### Managing access
 
@@ -660,9 +758,9 @@ person.
   belongs to one principal; one that another principal has is refused,
   without saying whose. `key remove` takes the fingerprint `key list`
   prints, and closes the connections that key had signed in. It warns
-  when the principal has connections that came in by `authorized_keys`
-  instead, which it cannot close and whose key it cannot name
-  ([Keys from the store](#keys-from-the-store), step 4).
+  when the key is also a line of `authorized_keys` on the server, where
+  sshd still accepts it
+  ([Keys from the store](#keys-from-the-store), step 5).
 - **Losing access releases claims.** When a membership is removed, the
   principal's claims in that project end; when a principal is disabled,
   its claims in every project; when a project is archived, every claim
@@ -686,7 +784,7 @@ person.
   themselves. A principal in no project that someone else created is
   placed by a server admin. Principal names are one namespace for the
   server, so `principal add` of a name in use says that it is taken.
-- **A new person** takes one command once sshd asks starfixd for keys
+- **A new person** takes one command once sshd reads starfixd's keys file
   ([Keys from the store](#keys-from-the-store)): `sfx admin principal add
   NAME --key FILE`, with the `.pub` file they sent you. `--key` may be
   given more than once. Someone the server already knows joins another
@@ -726,11 +824,12 @@ index for each open project listed, opens no store and writes nothing.
 
 ```text
 starfixd v0.5.0, protocol 2 to 6, up 3d 4h
-stores 2 of 64, connections 14 of 1024, key lookups 0 of 64
+stores 2 of 64, connections 14 of 1024
+keys file /var/lib/starfix/.ssh/starfix_keys: 31 keys, written 2026-10-11 09:12 UTC
 starfixd's memory 42 MiB in use, 78 MiB from the system; 112 goroutines
 projects: 2 active, 1 archived; principals: 12 active, 1 disabled
 
-PROJECT  STATE     STORE   CONNS  BY FILE  SESSIONS  WRITES/MIN  P50    P99    LAST USED
+PROJECT  STATE     STORE   CONNS  BY HAND  SESSIONS  WRITES/MIN  P50    P99    LAST USED
 acme     active    open    9      2        14        212         4.2ms  31ms   2026-10-11 09:30 UTC
 web      active    open    5      0        6         40          3.9ms  18ms   2026-10-11 09:29 UTC
 old      archived  closed  0      -        -         -           -      -      -
@@ -738,11 +837,12 @@ old      archived  closed  0      -        -         -           -      -      -
 
 | Figure | What it is |
 |---|---|
-| stores, connections, key lookups | How many are open or in flight, beside the limit that caps each (`open_stores`, `conns`, `key_lookups`) |
+| stores, connections | How many are open, beside the limit that caps each (`open_stores`, `conns`) |
+| keys file | The file starfixd writes for sshd ([Keys from the store](#keys-from-the-store)): its path, how many keys starfixd last put in it, and when it was last written. `THE LAST WRITE FAILED` means sshd may be reading an older list than the control database holds; starfixd's log says why |
 | starfixd's memory | The Go heap in use and all the memory starfixd has from the operating system (`HeapAlloc` and `Sys`). Not Dolt's |
 | projects, principals | The control database's rows, by state |
 | STORE | Whether the project's store is open. The figures after it exist only while it is, and start from zero each time it opens |
-| CONNS, BY FILE | Connections past their handshake, and those among them that named no key of the store, which sshd let in by `authorized_keys` |
+| CONNS, BY HAND | Connections past their handshake, and those among them that named no key of the store, which sshd let in by the hand-maintained `authorized_keys` |
 | SESSIONS | Sessions seen in the last five minutes, as `sfx who` lists them |
 | WRITES/MIN | Transactions that changed something and committed in the last 60 seconds. A refused request is not one; a lease renewal is |
 | P50, P99 | The median and 99th percentile of the latest 256 writes' latency, however old they are: from the request reaching the project's store to its commit, the wait for the one writer included |
@@ -833,6 +933,9 @@ the config file (`/etc/starfix/starfixd.yaml`, or `--config FILE`, or
 | `project` | The project's UUID, in lowercase. A client naming another project is refused. With `control_db`: the project `control init` adopts, and the one `import-bd`, `export-bd` and the health check of `upgrade` use by default | required | `--project`, `STARFIXD_PROJECT` |
 | `control_db` | The name of the control database, on the same Dolt server and account as `dsn`. Setting it makes this a server of [many projects](#serving-many-projects). A lowercase letter, then lowercase letters, digits and underscores; not the database in `dsn` | none: one project | `STARFIXD_CONTROL_DB` |
 | `project_dbs` | With `control_db`: the block of database names granted for new projects, as `prefix` and `count` ([Opt in](#opt-in), step 4). The names are `prefix` and three digits, `001` to `count` (at most 999) | none: no project can be added | |
+| `keys_file` | With `control_db`: the file starfixd writes the control database's keys to, for sshd ([Keys from the store](#keys-from-the-store)). A relative path is under the home directory of the user starfixd runs as | `.ssh/starfix_keys` | `STARFIXD_KEYS_FILE` |
+| `authorized_keys` | With `control_db`: the hand-maintained file sshd reads beside it. starfixd only reads it, to say which keys are in both. Never the same file as `keys_file` | `.ssh/authorized_keys` | `STARFIXD_AUTHORIZED_KEYS` |
+| `bridge` | With `control_db`: the path of starfixd in the forced command of each line of `keys_file`. Absolute, of letters, digits and `._+-` | `/usr/local/bin/starfixd` | `STARFIXD_BRIDGE` |
 | `socket` | The daemon's unix socket | `/run/starfix/starfixd.sock` | `--socket`, `STARFIXD_SOCKET` |
 | `prefix` | The prefix of new issue ids | `sf` | `--prefix` |
 | `admins` | [Admins](#admins) | none | `STARFIXD_ADMINS` |
@@ -900,7 +1003,6 @@ limits:
 | `keys_per_principal` | 20 | With `control_db`: public keys of one principal |
 | `members_per_project` | 1000 | With `control_db`: principals with a role in one project |
 | `control_write_rate`, `control_write_burst` | 1, 30 | With `control_db`: each principal's token bucket for `sfx admin` changes to projects, principals, members and keys: changes a second, and how many at once. It is the principal's on the whole server, apart from its write bucket in each project; the lists are not counted |
-| `key_lookups` | 64 | With `control_db`: the questions sshd may have in flight at once about keys offered to it ([Keys from the store](#keys-from-the-store)). Each reads memory, and its asker has two seconds to take the answer; one past the cap is closed unanswered, which sshd reads as no key. sshd's `MaxStartups` already bounds how many it asks |
 
 On a server of [many projects](#serving-many-projects), every limit above
 that is per principal is per principal in each project: `conns_per_principal`,
@@ -965,10 +1067,10 @@ starfixd logs to stderr, which systemd sends to the journal
 
 | Level | Logs |
 |---|---|
-| `debug` | Connections and each successful request. With `control_db`, each names its `project`; and sshd's key lookups, with the fingerprint asked and the principal found, never the key, capped at `refusal_logs` a minute in all |
-| `info` | Startup, refusals, handshake failures and expired claims. Refusals are capped at `refusal_logs` a minute per principal. With `control_db`: each project store opened and closed, each project added, the connections closed and each claim released when an `sfx admin` change ends someone's access, and the `project` of every line about one |
+| `debug` | Connections and each successful request. With `control_db`, each names its `project` |
+| `info` | Startup, refusals, handshake failures and expired claims. Refusals are capped at `refusal_logs` a minute per principal. With `control_db`: each project store opened and closed, each project added, each write of the keys file, the connections closed and each claim released when an `sfx admin` change ends someone's access, and the `project` of every line about one |
 | `warn` | Connections refused at the connection cap, socket peers refused, how many refusal lines the cap left out, and failures to accept a connection that may pass, such as running out of file descriptors, which starfixd retries after a pause of up to a second |
-| `error` | Internal errors. With `control_db`: an active project whose database could not be opened at start |
+| `error` | Internal errors. With `control_db`: an active project whose database could not be opened at start, and a write of the keys file that failed (`the keys file is out of date`), every 30 seconds until one succeeds |
 
 Any other failure to accept connections stops starfixd: it prints the
 error and exits 1, and the unit's `Restart=on-failure` starts it again.
@@ -1023,18 +1125,10 @@ one has already migrated, since migrations only go forward. So after an
 upgrade that failed partway, the restored version may not serve the
 databases the new one reached; the tag of step 2 marks each as it was.
 
-**The copy sshd runs.** Where sshd asks starfixd for keys
-([Keys from the store](#keys-from-the-store)), it runs a copy of the
-binary that root owns, which `starfixd upgrade`, run as `starfix`, does
-not and cannot replace. An older copy goes on working with a newer
-starfixd, and a newer copy with an older one: what the two say to each
-other is kept compatible across releases, as it is for the bridges of
-sessions open during the swap. Copy it again as root after an upgrade,
-so that a fix to it reaches sshd:
-
-```sh
-install -o root -g root -m 0755 /opt/starfix/bin/starfixd /usr/local/sbin/starfixd-keys
-```
+**Keys and the upgrade.** sshd runs nothing of starfix's to find a key
+([Keys from the store](#keys-from-the-store)), so an upgrade has no
+copy of the binary to refresh for it. The new starfixd writes the keys
+file again as it starts.
 
 It refuses to run as root, except with `--check`. `--to vX.Y.Z` installs a given release, but
 never an older one, because migrations only go forward. `--rollback`
@@ -1121,8 +1215,7 @@ quiet hour: `cd /var/lib/dolt/data/starfix && sudo -u dolt -H dolt gc`.
 | Command | Does |
 |---|---|
 | `serve` | Run the daemon. Flags: `--config`, `--dsn`, `--socket`, `--project`, `--prefix`, `--log-level`, `--log-format`, `--dev`, `--allow-unsafe-dolt` |
-| `stdio --principal NAME [--key FINGERPRINT]` | The sshd forced command: bridge one SSH session to the daemon. `--key` is written by `starfixd keys`, never by hand: it names the key that signed in, so removing that key closes the session |
-| `keys [--bridge PATH] TYPE BASE64` | sshd's `AuthorizedKeysCommand` on a server of many projects: print the `authorized_keys` line of a key the control database holds for an active principal, or nothing; always exits 0 ([Keys from the store](#keys-from-the-store)) |
+| `stdio --principal NAME [--key FINGERPRINT]` | The sshd forced command: bridge one SSH session to the daemon. `--key` is written by starfixd, into each line of its keys file, never by hand: it names the key that signed in, so starfixd refuses the session unless the control database holds that key for NAME, and closes it when the key is removed |
 | `control init --name NAME [--authorized-keys FILE]` | Once, after setting `control_db`: adopt the server's database as the first project and import principals and keys from `authorized_keys` ([Serving many projects](#serving-many-projects)). Safe to run again |
 | `import-bd [--project UUID] [--principal NAME] [--dry-run] [--json] FILE` | Import a bd export (`-` for stdin); see [Moving from bd](migrate-from-bd.md). `--project` picks a project on a server of many |
 | `export-bd [--project UUID] [-o FILE]` | Write the store in bd's JSONL format |
@@ -1139,11 +1232,14 @@ quiet hour: `cd /var/lib/dolt/data/starfix && sudo -u dolt -H dolt gc`.
 | `project "…" is not served by this server` | `.starfix.yaml` and the config file name different projects; with `control_db`, the project is unknown or archived | Make the two `project` values match |
 | `… is not a member of project "…"` | With `control_db`: the principal has no row in the control database, or is in other projects only | An admin runs `sfx admin member add NAME` in the project's repository (`principal add NAME` for someone new) |
 | `… is disabled on this server` | With `control_db`: the principal was disabled, whatever `admins:` says | An admin with reach over it runs `sfx admin principal enable NAME` |
-| `sfx: … refused your SSH key`, for a key added with `sfx admin` | sshd is not asking starfixd, or refuses to run the command, or starfixd has no line for the key | On the server, run step 3 of [Keys from the store](#keys-from-the-store); `journalctl -u ssh` says when sshd would not run the command |
-| A key removed with `sfx admin key remove` still signs in | Its line is still in `authorized_keys` | Delete the line ([Keys from the store](#keys-from-the-store), step 4) |
+| `sfx: … refused your SSH key`, for a key added with `sfx admin` | sshd is not reading starfixd's keys file, or the file has no line for the key | On the server: `sshd -T -C user=starfix \| grep -i authorizedkeysfile` must name `.ssh/starfix_keys`; `grep -c NAME /var/lib/starfix/.ssh/starfix_keys` shows whether the line is there; `journalctl -u ssh` says when sshd would not read the file for its owner or mode |
+| `sfx admin` warns that starfixd `could not write the keys file sshd reads`, or `sfx admin status` says `THE LAST WRITE FAILED` | starfixd cannot replace its keys file. The change itself is recorded | `journalctl -u starfixd` has `the keys file is out of date` with the cause and a fix: usually the unit's `ReadWritePaths` ([Keys from the store](#keys-from-the-store), step 1), or the owner or mode of `.ssh`. starfixd tries again every 30 seconds |
+| starfixd does not start: `write the keys file …` | With `control_db`: it cannot write its keys file | The error's `fix:` names the change; see [Keys from the store](#keys-from-the-store), step 1 |
+| `the file there was not generated by starfixd` | `keys_file` names a file that holds something else, such as `authorized_keys` | Set `keys_file` to a file of its own, or move the other file away |
+| A key removed with `sfx admin key remove` still signs in | Its line is still in `authorized_keys`, as the command warned | Delete the line ([Keys from the store](#keys-from-the-store), step 5) |
 | `… may not add a key to …: nobody changes the keys of their own account` | `sfx admin key add` or `remove` for one's own principal | Ask another admin with reach; for a server admin, another server admin or a line in `authorized_keys` |
 | `… is the last server admin who is not disabled` | `sfx admin principal disable` of the only enabled server admin | Enable another first, or name another under `admins:` and restart |
-| `the key that signed in is no longer one the server holds for …` | The key was removed between sshd's question and starfixd's handshake; or an `authorized_keys` line was given `--key` by hand, which only `starfixd keys` writes | Use another key, or have the key added again; remove `--key` from a hand-written line |
+| `the key that signed in is no longer one the server holds for …` | The key was removed, and sshd read a keys file from before that: one starfixd could not rewrite, or one restored from a backup; or an `authorized_keys` line was given `--key` by hand, which only starfixd writes | Use another key, or have the key added again; check `sfx admin status` for a failed write; remove `--key` from a hand-written line |
 | `this server holds one project, so it has no projects, principals or members to manage` | `sfx admin project`, `principal`, `member` or `key` on a server with no `control_db` | [Opt in](#opt-in), or add people as lines of `authorized_keys` |
 | `the server has no database names for new projects` | `sfx admin project add` on a server with no `project_dbs` | Grant a block of names and set `project_dbs` ([Opt in](#opt-in), step 4) |
 | `starfixd's Dolt account was never granted database …` | `project add` took a name in `project_dbs` that was never granted | As Dolt's root, run the `GRANT` statement in the fix, then run the same `sfx admin project add NAME` again |

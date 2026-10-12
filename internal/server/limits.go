@@ -63,13 +63,6 @@ type Limits struct {
 	// from its write bucket in each project.
 	ControlWriteRate  float64 `yaml:"control_write_rate"`
 	ControlWriteBurst int     `yaml:"control_write_burst"`
-	// KeyLookups caps the key lookups in flight: the questions sshd asks,
-	// through `starfixd keys`, about each key offered before anyone is
-	// authenticated. One past the cap is closed unanswered, which sshd
-	// reads as no key, so the person retries. A lookup reads memory and
-	// takes no connection slot, and sshd's MaxStartups bounds how many
-	// it starts.
-	KeyLookups int `yaml:"key_lookups"`
 }
 
 // DefaultLimits are the limits a zero field takes.
@@ -78,7 +71,7 @@ var DefaultLimits = Limits{
 	WriteRate: 10, WriteBurst: 100, RefusalLogs: 20,
 	AgentKeep: Duration(store.MaxAgentWindow), InboxKeep: Duration(30 * 24 * time.Hour),
 	Control: store.DefaultControlLimits, OpenStores: 64, StoreIdle: Duration(10 * time.Minute),
-	ControlWriteRate: 1, ControlWriteBurst: 30, KeyLookups: 64,
+	ControlWriteRate: 1, ControlWriteBurst: 30,
 }
 
 // Duration is a YAML duration such as 90s, 10m, 8h or 7d.
@@ -108,7 +101,7 @@ func (l Limits) WithDefaults() Limits {
 		{&l.PlanPrincipals, &d.PlanPrincipals},
 		{&l.Control.Projects, &d.Control.Projects}, {&l.Control.Principals, &d.Control.Principals},
 		{&l.Control.Keys, &d.Control.Keys}, {&l.Control.Members, &d.Control.Members}, {&l.OpenStores, &d.OpenStores},
-		{&l.ControlWriteBurst, &d.ControlWriteBurst}, {&l.KeyLookups, &d.KeyLookups},
+		{&l.ControlWriteBurst, &d.ControlWriteBurst},
 	} {
 		if *f.v == 0 {
 			*f.v = *f.d
@@ -148,7 +141,7 @@ func (l Limits) Validate() error {
 		{"agent_keep", l.AgentKeep < 0}, {"inbox_keep", l.InboxKeep < 0},
 		{"open_stores", l.OpenStores < 0}, {"store_idle", l.StoreIdle < 0},
 		{"control_write_rate", l.ControlWriteRate < 0 || math.IsNaN(l.ControlWriteRate) || math.IsInf(l.ControlWriteRate, 0)},
-		{"control_write_burst", l.ControlWriteBurst < 0}, {"key_lookups", l.KeyLookups < 0},
+		{"control_write_burst", l.ControlWriteBurst < 0},
 	} {
 		if f.bad {
 			return fmt.Errorf("limit %s must be zero or a positive number; fix: correct limits: in the config file, or leave it out for the default", f.name)

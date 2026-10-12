@@ -26,7 +26,7 @@ func byName(res proto.StatusResult) map[string]proto.ProjectStatus {
 // opens no store to do so.
 func TestStatus(t *testing.T) {
 	ck := newClock()
-	m := newMulti(t, Limits{OpenStores: 8, Conns: 50, KeyLookups: 9}, ck)
+	m := newMulti(t, Limits{OpenStores: 8, Conns: 50}, ck)
 	m.project(t, projA, "alice=admin", "bob", "carol")
 	m.project(t, projB, "erin=admin", "carol")
 	m.project(t, projC, "erin=admin")
@@ -63,9 +63,12 @@ func TestStatus(t *testing.T) {
 		if sv.Version != "v0.2.0" || sv.ProtoMin != proto.ProtoMin || sv.ProtoMax != proto.ProtoMax {
 			t.Errorf("status names %s, protocol %d to %d; want v0.2.0, %d to %d", sv.Version, sv.ProtoMin, sv.ProtoMax, proto.ProtoMin, proto.ProtoMax)
 		}
-		if sv.OpenStores != 1 || sv.OpenStoresMax != 8 || sv.Conns != 4 || sv.ConnsMax != 50 || sv.KeyLookups != 0 || sv.KeyLookupsMax != 9 {
-			t.Errorf("status = %d/%d stores, %d/%d connections, %d/%d key lookups; want 1/8, 4/50 and 0/9", sv.OpenStores, sv.OpenStoresMax,
-				sv.Conns, sv.ConnsMax, sv.KeyLookups, sv.KeyLookupsMax)
+		if sv.OpenStores != 1 || sv.OpenStoresMax != 8 || sv.Conns != 4 || sv.ConnsMax != 50 {
+			t.Errorf("status = %d/%d stores, %d/%d connections; want 1/8 and 4/50", sv.OpenStores, sv.OpenStoresMax, sv.Conns, sv.ConnsMax)
+		}
+		// The file was written at the start, before carol had her key.
+		if k := sv.KeysFile; k == nil || k.Path != m.keysFile || k.Keys != 0 || k.Failed || k.WrittenAt == nil {
+			t.Errorf("status of the keys file = %+v; want %s, written with no key yet", k, m.keysFile)
 		}
 		if sv.UptimeSeconds != 90*60 {
 			t.Errorf("uptime %ds, want 90 minutes on the server's clock", sv.UptimeSeconds)
@@ -195,9 +198,11 @@ func TestStatusIsARead(t *testing.T) {
 }
 
 // TestFileConnections pins what the daemon says of connections that
-// named no key of the store: sshd let them in by the authorized_keys
-// file, so removing a key from the store neither closes them nor keeps
-// their owner out.
+// named no key of the store: sshd let them in by the hand-maintained
+// authorized_keys file, so removing a key from the store does not close
+// them. `keys` counts them for a principal and `status` for a project.
+// Whether the key removed is itself in that file is another question,
+// which the daemon answers by reading it (TestKeyAlsoInAuthorizedKeys).
 func TestFileConnections(t *testing.T) {
 	m := adminWorld(t, Limits{}) // carol has a key in the store
 	carols := fingerprintOf(t, "carol")
@@ -211,60 +216,45 @@ func TestFileConnections(t *testing.T) {
 		return mustAsk[proto.KeysResult](d, proto.OpKeys, proto.KeysArgs{Name: "carol"})
 	}
 
-	// Only connections by the store's keys: nothing to say.
+	// Only connections by the store's keys: nothing to count.
 	if got := keys(); got.FileConns != 0 {
-		t.Errorf("keys of carol counts %d connections by the file, want none", got.FileConns)
-	}
-	rm := mustAsk[proto.KeyResult](d, proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: carols})
-	if rm.Dropped != 1 || rm.FileConns != 0 || rm.Warning != "" {
-		t.Errorf("key.remove with no connection by the file = %+v; want 1 dropped and no warning", rm)
+		t.Errorf("keys of carol counts %d connections by the hand-maintained file, want none", got.FileConns)
 	}
 
-	// Two connections by the file, to two projects, and one by the key.
-	if _, err := m.ctl.AddKey(t.Context(), dana, "carol", keyLine(t, "carol")); err != nil {
-		t.Fatal(err)
-	}
+	// Two connections by that file, to two projects, and one by the key.
 	fileA, fileB := mustDialTo(t, m.Server, carol, projA), mustDialTo(t, m.Server, carol, projB)
-	_, byKey, _ = dialKey(t, m.Server, carol, projA, carols)
-	for _, c := range []*conn{fileA, fileB, byKey, mustDialTo(t, m.Server, bob, projA)} {
+	for _, c := range []*conn{fileA, fileB, mustDialTo(t, m.Server, bob, projA)} {
 		if !c.alive() {
 			t.Fatal("a connection is not open")
 		}
 	}
 	if got := keys(); got.FileConns != 2 {
-		t.Errorf("keys of carol counts %d connections by the file, want 2", got.FileConns)
+		t.Errorf("keys of carol counts %d connections by the hand-maintained file, want 2", got.FileConns)
 	}
 	// carol sees the count for herself; it is hers.
 	if own := mustAsk[proto.KeysResult](fileA, proto.OpKeys, proto.KeysArgs{Name: "carol"}); own.FileConns != 2 {
-		t.Errorf("carol's own key list counts %d connections by the file, want 2", own.FileConns)
+		t.Errorf("carol's own key list counts %d connections by the hand-maintained file, want 2", own.FileConns)
 	}
-	rm = mustAsk[proto.KeyResult](d, proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: carols})
-	const want = "carol still has 2 open connections that sshd let in by the server's authorized_keys file, not by a key from the store. " +
-		"They stay open, and starfixd cannot tell which key they used: if the key just removed has a line in that file, it still lets carol in. " +
-		"Delete the line on the server; `sfx admin principal disable carol` closes every connection carol has"
-	if rm.Dropped != 1 || rm.FileConns != 2 || rm.Warning != want {
-		t.Errorf("key.remove = %+v\nwant 1 dropped, 2 by the file, and the warning\n%s", rm, want)
+	// The removal closes the connection the key signed in and no other,
+	// and warns of nothing: the file does not hold this key.
+	rm := mustAsk[proto.KeyResult](d, proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: carols})
+	if rm.Dropped != 1 || rm.InAuthorizedKeys || rm.Warning != "" {
+		t.Errorf("key.remove = %+v; want 1 dropped and no warning", rm)
 	}
 	if !byKey.dropped() || !fileA.alive() || !fileB.alive() {
 		t.Error("key.remove did not close exactly the connection the key had authenticated")
 	}
 
-	// One connection, in the singular.
-	if _, err := m.ctl.AddKey(t.Context(), dana, "carol", keyLine(t, "carol")); err != nil {
-		t.Fatal(err)
-	}
 	fileB.hangUp()
 	waitUntil(t, "carol's connection to b is forgotten", func() bool { return m.connections("carol", projB) == 0 })
-	rm = mustAsk[proto.KeyResult](d, proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: carols})
-	if rm.FileConns != 1 || !strings.HasPrefix(rm.Warning, "carol still has 1 open connection that sshd let in by the server's authorized_keys file, not by a key from the store. "+
-		"It stays open, and starfixd cannot tell which key it used: ") {
-		t.Errorf("key.remove with one connection by the file = %+v", rm)
+	if got := keys(); got.FileConns != 1 {
+		t.Errorf("keys of carol counts %d connections by the hand-maintained file after one hung up, want 1", got.FileConns)
 	}
 
 	// Status counts them by project.
 	res := mustAsk[proto.StatusResult](d, proto.OpStatus, proto.StatusArgs{})
 	if a, b := byName(res)["proj-a"], byName(res)["proj-b"]; a.FileConns != 3 || a.Conns != 3 || b.FileConns != 0 {
-		t.Errorf("status = proj-a %d of %d by the file, proj-b %d; want 3 of 3 (dana, carol and bob) and 0", a.FileConns, a.Conns, b.FileConns)
+		t.Errorf("status = proj-a %d of %d by the hand-maintained file, proj-b %d; want 3 of 3 (dana, carol and bob) and 0", a.FileConns, a.Conns, b.FileConns)
 	}
 }
 
