@@ -86,7 +86,7 @@ so there is nothing to verify out of band.
 
 | Variable | Default | Sets |
 |---|---|---|
-| `STARFIX_KEYS` | none | The principals: one `NAME TYPE KEY` line per key, such as `alice ssh-ed25519 AAAA…`. A file mounted at `/etc/starfix-keys` adds lines. A start that gives keys rewrites `authorized_keys` with them, and one that gives none keeps the file. Each start also copies them into the control database, where they stay: dropping a name here no longer removes it, so remove it with `sfx admin principal disable NAME` or `sfx admin key remove FINGERPRINT`. Everyone but the admins becomes a member of the first project |
+| `STARFIX_KEYS` | none | The principals: one `NAME TYPE KEY` line per key, such as `alice ssh-ed25519 AAAA…`. A file mounted at `/etc/starfix-keys` adds lines. A start that gives keys rewrites `authorized_keys` with them, and one that gives none keeps the file. Each start also copies them into the control database (`starfixd control init`), where they stay: dropping a name here does not remove it, so remove it with `sfx admin principal disable NAME` or `sfx admin key remove FINGERPRINT`. Everyone new, but the admins, becomes a member of the first project. A start does not undo what an admin did with `sfx admin`: someone removed from the first project stays removed, a disabled principal stays disabled, and a key removed from the control database stays out of it, each reported in the container's log. One thing it cannot do for you: a key still listed here is still a line of `authorized_keys`, where sshd accepts it whatever the control database holds, so to revoke a key, take it out of `STARFIX_KEYS` as well, or disable its principal ([What a restart keeps](#what-a-restart-keeps)) |
 | `STARFIX_ADMINS` | the first name | The server [admins](../server.md#admins), comma-separated. They reach every project and need no membership |
 | `STARFIX_PROJECT` | random | The project UUID, used on the first start only |
 | `STARFIX_PORT` | `2222` | The port on 127.0.0.1, also printed in `.starfix.yaml` |
@@ -110,8 +110,8 @@ cd ~/sfx-scratch && git init -q
 ./sfx ready
 ```
 
-`sfx` signs in through ssh-agent. If your key is not in it, add
-`key: ~/.ssh/id_ed25519` to `.starfix.yaml`. The rest of
+`sfx` signs in through ssh-agent. If your key is not in it, name its
+file: `export STARFIX_KEY=~/.ssh/id_ed25519`. The rest of
 [Using sfx](../cli.md) and the [agent guide](../agents.md) work as on any
 server.
 
@@ -123,30 +123,54 @@ ssh-keygen -q -t ed25519 -N '' -C bob@example.com -f ~/sfx-scratch/bob
 cd ~/sfx-scratch && ./sfx admin principal add bob --key ~/sfx-scratch/bob.pub
 ```
 
-Then give bob a repository of his own, with the same `.starfix.yaml`
-plus `key: ~/sfx-scratch/bob`, and run `sfx` there with ssh-agent
-hidden:
+Then run `sfx` as bob by naming his key:
 
 ```sh
-SSH_AUTH_SOCK= ~/sfx-scratch/sfx ready
+STARFIX_KEY=~/sfx-scratch/bob ./sfx whoami
+STARFIX_KEY=~/sfx-scratch/bob ./sfx ready
 ```
 
-`sfx` offers ssh-agent's keys before the key file's, so with your own
-key in the agent you would still be alice, whatever `key:` says. bob is
-a member of the first project and no admin, which tells the two apart:
-`sfx admin project list` shows bob his `ROLE` in each project, and
-alice each project's `DATABASE`. `./sfx admin key remove FINGERPRINT`
-takes his key away again, and `./sfx admin key list bob` shows the
-fingerprint.
+A key named this way is the only key `sfx` offers, so you are bob even
+with your own key, alice's, in ssh-agent
+([Your key is your identity](../cli.md#your-key-is-your-identity)).
+`sfx whoami` says which principal the server took you for and which key
+signed. bob is a member of the first project and no admin: `sfx admin
+project list` shows bob his `ROLE` in each project, and alice each
+project's `DATABASE`. `./sfx admin key remove FINGERPRINT` takes his key
+away again, and `./sfx admin key list bob` shows the fingerprint.
 
 **To try a second project**, run `./sfx admin project add web` as alice.
 It prints the `.starfix.yaml` for the new project: save it in another
-scratch repository, add your `key:` line if you use one, and add bob to
-it there with `~/sfx-scratch/sfx admin member add bob`. `sfx admin
-status` then shows the server and a row for each project.
+scratch repository, and add bob to it there with `~/sfx-scratch/sfx
+admin member add bob`. bob has a key, which would sign in to the new
+project too, so `sfx` lists it and asks before it adds him
+([Managing access](../server.md#managing-access)). `sfx admin status`
+then shows the server and a row for each project.
 
 Giving a second key in `STARFIX_KEYS` and starting again still works,
 as before, and puts the key in `authorized_keys` as well.
+
+### What a restart keeps
+
+The container runs `starfixd control init` at every start, to import
+what `STARFIX_KEYS` gained. It adds what is new and leaves alone what an
+admin did since ([Opt in](../server.md#opt-in)):
+
+| An admin ran | After a restart, with the name still in `STARFIX_KEYS` |
+|---|---|
+| `sfx admin member remove NAME` | NAME is still not a member of the first project |
+| `sfx admin principal disable NAME` | NAME is still disabled, and refused |
+| `sfx admin key remove FINGERPRINT` | The key is still out of the control database. sshd still accepts it, because the start wrote it to `authorized_keys` again: the removal warned of this. Take the key out of `STARFIX_KEYS` too, or disable NAME |
+
+The container's log names each line it left alone, and why. To put back
+from `STARFIX_KEYS` what admins removed, which overrides them, run it by
+hand with the flag for that; the running server takes it up within half
+a minute:
+
+```sh
+docker compose exec -u starfix -w /var/lib/starfix starfix \
+  starfixd control init --name first --restore-removed-access
+```
 
 ## Test a change
 
@@ -234,9 +258,10 @@ covers what `sfx` and starfixd say. These are the test server's own:
 | What you see | Cause | Fix |
 |---|---|---|
 | `docker build` or `docker compose up --build` fails with `exec: "docker-credential-desktop": executable file not found in $PATH` | Docker Desktop's configuration (`~/.docker/config.json`, `"credsStore": "desktop"`) names a helper program that Docker Desktop keeps in `~/.docker/bin`, and that directory is not on your `PATH`: usually because another `docker`, such as a package manager's, comes first. Docker runs the helper whenever it asks a registry for a base image, public ones included, so a build whose base images are already cached does not show it | `export PATH="$HOME/.docker/bin:$PATH"`, in your shell's profile to keep it |
-| You are alice in a repository whose `.starfix.yaml` has `key:` for someone else | `sfx` offers ssh-agent's keys first, and the agent holds alice's | Run that `sfx` with `SSH_AUTH_SOCK=` in front; `sfx admin project list` shows a `ROLE` column to a member and a `DATABASE` column to a server admin |
-| `sfx: ssh handshake with localhost:2222 failed: … "Too many authentication failures"` | ssh-agent holds six or more keys the server does not know, and sshd hangs up before `sfx` reaches the one in `key:` | The same: `SSH_AUTH_SOCK=` in front, or `ssh-add` the key so the agent holds it |
-| `sfx: localhost:2222 refused your SSH key` for a key added with `sfx admin` | sshd did not find the key in either file | `docker compose logs` shows what sshd and starfixd said, and [Look inside](#look-inside) shows the keys file |
+| You are not who you meant to be | With no key named, `sfx` offers every key in ssh-agent and the server takes the first it knows | `sfx whoami` says who you are and by which key. Name the key you mean with `STARFIX_KEY=FILE`: it is then the only one offered |
+| `sfx: localhost:2222 closed the connection after too many refused keys` | ssh-agent holds more keys than sshd tries, six by default, and yours is not among the first | Name your key with `STARFIX_KEY=FILE`, the private key or its `.pub` |
+| `sfx: key: in .starfix.yaml names …, outside the repository` | `.starfix.yaml` is committed, so its `key:` may name only a file inside the repository | Remove the line and set `STARFIX_KEY` to the file instead |
+| `sfx: localhost:2222 accepted no key` for a key added with `sfx admin` | sshd did not find the key in either file | `docker compose logs` shows what sshd and starfixd said, and [Look inside](#look-inside) shows the keys file |
 | `sfx: host key mismatch for localhost` after `docker compose down -v` | The volume held the host key and the project, and the next start made new ones | Save the newly printed block as `.starfix.yaml` |
 
 ## Look inside

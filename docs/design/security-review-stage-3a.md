@@ -512,3 +512,67 @@ caller-supplied names; the soak and its checks; the bd importer; the
 project store's own rules (claims, memories, usage) except the admin
 hook and `EndClaims`; the IAP transport; Windows. The Docker image and
 `smoke.sh` were read, not run.
+
+## Disposition
+
+Added 12 Oct 2026, with the fixes, on the branch `fix/security-review-3a`.
+The review above is left as it was written. Each fixed finding's
+`TestReviewF…` test became an ordinary test that always runs, under the
+name given here; commits are named by their short hash on that branch.
+The maintainer decided two of the fixes, recorded as decisions 35 and 36
+of the design ([§14](starfix.md#14-decisions)), and the design's As
+built note of 12 Oct 2026 ([§15.4](starfix.md#154-sfx-admin)) says what
+was built.
+
+| | Disposition | Where |
+|---|---|---|
+| F-1 | Fixed (decision 35). A configured key is the only key `sfx` offers; `STARFIX_KEY` names it by any path; a committed `key:` may name only a file inside the repository; `sfx whoami`; the refusals for no key accepted and for too many refused keys name the cause | `32c0c76`. `internal/client`: `TestConfiguredKeyIsTheOnlyKeyOffered`, `TestWhichKeysAreOffered`, `TestKeyRefusals`, `TestKeyPathStaysInTheRepository`, `TestKeyFile`, `TestKeyOfAConnection`. `internal/e2e`: `TestWhoami`. `deploy/docker/smoke.sh`, on a real sshd |
+| F-2 | Fixed as visibility, not as a rule: a server admin has total control (decision 14), so nothing refuses the scenario. The security model no longer claims that disabling ends it; `principal disable` counts what the account left; three lists show it | `2ae5aae`. `internal/server`: `TestWhatADisabledAdminAddedIsFoundAndRemoved`, `TestTrailReadRules`. `internal/store`: `TestControlTrail`. `internal/e2e`: `TestAdminTrail` |
+| F-3 | Fixed (decision 36). `member add` of a principal with any key adds nothing until the keys, shown to every caller, are accepted; an admin of a project may list its members' keys | `1302d99`. `internal/server`: `TestPlantedKeyIsShownBeforeItReachesAnotherProject`, `TestMemberSetAcceptance`, `TestKeysReadableByAProjectsAdmin`. `internal/store`: `TestProposeMember`, `TestControlAdministersProjectOf`. `internal/e2e`: `TestAdminPrompts`, and the soak's `join` |
+| F-4 | Fixed. A principal's connections without a hello are counted and capped (`handshakes_per_principal`); a server of many projects refuses a disabled or unknown principal on the bridge frame; the hello's deadline is 10 seconds; at the socket cap the oldest connection without a hello is closed | `1f39cc5`. `internal/server`: `TestHalfOpenConnectionsDoNotShutOthersOut`, `TestBridgeFrameRefusals`, `TestHandshakesPerPrincipal`, `TestConnectionCapClosesTheOldestHandshake`, `TestHelloDeadline`. `internal/store`: `TestControlStanding` |
+| F-5 | Being fixed on another branch, with the change to the order sshd reads the two keys files in. Its review test is unchanged here, and still skips | `internal/server`: `TestReviewF5StoreShadowsAHandMaintainedKey` |
+| F-6 | Fixed for what a refusal says. For a caller who is no server admin, a name no one has is refused as one out of reach is, by `key add`, `principal disable` and `principal enable`, and a key some principal has is refused the same way whoever has it. Not removed: someone who may add keys can still infer that a key is on the server, because a new key is added and a held one is not | `3dac290`. `internal/server`: `TestRefusalsDoNotSayWhatExists` |
+| F-7 | Fixed. `control init`, run again, leaves a removed key, a removed membership and a disabled principal as an admin set them, and reports each; `--restore-removed-access` overrides | `964e973`. `cmd/starfixd`: `TestControlInitRerunKeepsWhatAdminsRemoved`, `TestControlInitRestoreRemovedAccess`, `TestControlInitRestoreFlagIsExplained`. `internal/store`: `TestControlLastEvent`. `deploy/docker/smoke.sh`, across a restart |
+| F-8 | Fixed. A principal who is no server admin creates at most `principals_per_creator` principals (500). Removing a principal is not built | `62aa15e`. `internal/store`: `TestControlPrincipalsPerCreator`. `internal/server`: `TestProjectAdminCannotFillTheServersPrincipals` |
+| F-9 | Being fixed on another branch. Its review test is unchanged here | `internal/server`: `TestReviewF9TwoArchivesLeaveNoActiveProject` |
+
+The notes read from the code:
+
+- **The last-admin rule counts admins who cannot sign in.** Left as it
+  is. An admin's only key may be a line of `authorized_keys`, which
+  starfixd does not judge, so the store cannot tell an admin who can
+  sign in from one who cannot, and refusing to disable on that ground
+  would refuse the documented way an admin is set up. The server guide
+  now says to name only admins who can sign in, and what happens
+  otherwise.
+- **A name becomes a server admin after someone else made its row.**
+  Fixed as a warning: starfixd logs at start each configured admin whose
+  row, or one of whose keys, was set up by someone who is neither a
+  server admin nor `control init` (`964e973`, `cmd/starfixd`:
+  `TestServeWarnsOfAnAdminSomeoneElseMade`).
+- **`control init` and the flag parser can disagree on a line.** Fixed:
+  the importer parses a forced command with the code that parses
+  `starfixd stdio`'s arguments (`964e973`, `cmd/starfixd`:
+  `TestControlInitReadsAForcedCommandAsStdioDoes`).
+- **`key add` reads before it is authorized.** Left: as the review says,
+  nothing leaks, and the read is bounded by the control bucket.
+- **Two daemons on one control database, and a restore.** Left to the
+  operator. The server guide's `--restore-removed-access` paragraph
+  names the restore case.
+
+Found while fixing, and not in the review:
+
+- **A server admin cannot remove a key planted on their own account.**
+  Decision 19 refuses removal as well as adding. In F-2's scenario the
+  admin whose account was given a second key has to ask another server
+  admin, or the operator; with one server admin left it is the operator.
+  Left as decided, pinned by
+  `TestWhatADisabledAdminAddedIsFoundAndRemoved`, and said in the server
+  guide.
+- **The review's F-4 test raced.** It read the server's connection map
+  under the test fixture's mutex, not the server's, and so failed under
+  `-race` whether or not the finding reproduced. Its replacement uses
+  the server's.
+- **`key:` with a path outside the repository is now refused**, which
+  changes what an existing `.starfix.yaml` with `key: ~/.ssh/…` does.
+  The refusal names `STARFIX_KEY`.

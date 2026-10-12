@@ -278,6 +278,38 @@ is set. In Claude Code that id is `CLAUDE_CODE_SESSION_ID`, the session
 issues that session held. If you set `STARFIX_SESSION` for `sfx mcp`, set
 it for the hooks too.
 
+## Give an agent its own identity
+
+An agent started from your terminal has your environment, your ssh-agent
+socket included, so by default it signs in as you, with your rights. An
+agent that works on its own should be a principal of its own that is no
+admin ([Security](security-model.md#who-may-change-what)). To set that
+up:
+
+1. Make a key pair for the agent, with no passphrase, readable by you
+   alone: `ssh-keygen -t ed25519 -N '' -f ~/.ssh/starfix_agent`.
+2. Have an admin add a principal for it with the public half: `sfx admin
+   principal add alice-agent --key ~/.ssh/starfix_agent.pub`
+   ([Managing access](server.md#managing-access)).
+3. Start the agent with `STARFIX_KEY` naming the private key:
+
+   ```sh
+   STARFIX_KEY=~/.ssh/starfix_agent claude
+   ```
+
+`sfx` then offers that key and no other, whatever ssh-agent holds
+([Your key is your identity](cli.md#your-key-is-your-identity)), so every
+tool call and hook of that agent is the agent's principal's. The harness
+passes its environment to `sfx mcp` and to the hooks it runs, which is
+how they see `STARFIX_KEY`; `sfx setup` writes no key into any file. To
+check, read the first line of `prime`, which names the principal (`you
+are alice-agent`), or run `sfx whoami` in the same environment. If the
+harness does not pass its environment on, `prime` shows your own name:
+then put the key inside the agent's checkout and name it with `key:` in
+that checkout's `.starfix.yaml`, uncommitted.
+
+## Sessions and hooks in harnesses other than Claude Code
+
 One limitation affects every harness except Claude Code. The session-start
 hook learns the harness's session id from its input, but `sfx mcp` cannot,
 so it picks its own. The hook's `prime` and the agent's tool calls then

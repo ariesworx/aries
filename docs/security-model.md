@@ -34,7 +34,10 @@ projects set up for it, from starfixd itself, which sshd asks
   database: a server admin reaches every project, a member reaches the
   projects it belongs to, and anyone else is refused with `forbidden`,
   whether disabled, unknown to the control database, or a member
-  elsewhere. Access that ends closes the connections it had let in: when
+  elsewhere. The first two are refused as soon as sshd has let the key
+  in, before the client says which project it wants, so a key that
+  still authenticates and reaches nothing cannot hold connections open.
+  Access that ends closes the connections it had let in: when
   a membership is removed, that principal's connections to the project;
   when a principal is disabled, all of its connections; when a project is
   archived, every connection to it; when a key is removed, the
@@ -141,6 +144,38 @@ admin before you change the file. `sfx` runs its own SSH client, so
 nothing in `~/.ssh/config` can weaken the check ([The host key is
 pinned](cli.md#the-host-key-is-pinned)).
 
+## Which key sfx offers
+
+The server takes the first key it knows among those a client offers, so
+which keys `sfx` offers decides who you are.
+
+- **A configured key is the only key offered.** When `STARFIX_KEY` in
+  the environment, or `key:` in `.starfix.yaml`, names a key, `sfx`
+  offers that key and no other, whatever ssh-agent holds, as OpenSSH
+  does with `IdentitiesOnly`. ssh-agent may still sign for that one key,
+  which `sfx` finds by its public half, when the file is
+  passphrase-protected or is the `.pub` file. So a process that was
+  given a narrow principal's key acts as that principal, even with a
+  server admin's agent socket in its environment.
+- **With no key configured, ssh-agent's keys are offered**, in the
+  agent's order, and the server's first match wins. sshd closes the
+  connection after a few refused keys (six by default), so with many
+  keys in the agent, name yours.
+- **`sfx whoami` says who you are**: the principal the server took the
+  connection for, the project and server, and the fingerprint of the key
+  that signed and where it came from. `prime`, which an agent reads at
+  the start of a session, names the principal on its first line.
+- **A committed `key:` stays inside the repository.** `.starfix.yaml` is
+  committed, so a cloned repository's file chooses its `key:`. `sfx`
+  follows it only to a file inside that repository, after resolving
+  symbolic links; a path outside, absolute or under `~`, is refused. A
+  key elsewhere on your machine is named with `STARFIX_KEY`, which only
+  you set. A cloned file can therefore not make `sfx` read a key of
+  yours and show its public half to a server of its choosing. It still
+  names the server, so with no key configured the server it names is
+  offered the public keys in your agent, as any host you `ssh` to is;
+  signatures are bound to the session and cannot be replayed.
+
 ## Who may change what
 
 - **A claim protects an issue.** While someone holds it, only the holder's
@@ -170,9 +205,23 @@ pinned](cli.md#the-host-key-is-pinned)).
   and an agent whose principal is refused is told to ask a person. An
   agent that can run shell commands with an admin's key can still run
   `sfx admin`, with that admin's rights: give an agent that works on its
-  own a principal of its own, which is no admin. What it cannot do, even
-  then, is add a key to the admin's own account, so its access ends with
-  the key it was given ([Who can authenticate](#who-can-authenticate)).
+  own a principal of its own, which is no admin, and a key of its own
+  ([Which key sfx offers](#which-key-sfx-offers)).
+- **Disabling an account does not undo what it did.** Nobody adds a key
+  to their own account, so an agent holding an admin's key cannot give
+  that account a second key. It can do everything else the admin can: a
+  server admin may add a key to another server admin's account, and
+  create a principal with a key and make it an admin of every project; a
+  project admin may do the second in their own projects. Those keys and
+  principals keep working after the first account is disabled. Disabling
+  ends that account's own access and nothing it created. So `sfx admin
+  principal disable NAME` says how many keys NAME added that are still
+  in the store, how many principals it created and how many memberships
+  it added, and names the three commands that list them (`sfx admin key
+  list --added-by NAME`, `principal list --created-by NAME`, `member
+  list --added-by NAME`). Review them, and remove what should not be
+  there: nothing is removed for you. Each was also recorded as an event
+  under NAME when it was made.
 - **A project admin's reach is bounded.** A project admin may disable or
   enable a principal only while every project that principal belongs to
   is one they administer; a server admin, and a principal in no project,
@@ -181,15 +230,33 @@ pinned](cli.md#the-host-key-is-pinned)).
   bring someone within reach and act on them. Removing a membership can
   put a principal within reach of the admins of the projects that
   remain; `sfx admin member remove` says so when it does.
+- **A new member's keys are shown before they count.** Reach decides who
+  may add a key at the moment it is added. A key then signs in to every
+  project its principal later joins, and a project admin may add keys to
+  someone who belongs to their project alone. So `sfx admin member add`
+  of a principal who has any key adds nothing until whoever runs it has
+  been shown every key, with who added it, when, and whether that was an
+  admin of the project being joined, and has accepted them: on a
+  terminal by answering, in a script with `--accept-keys`. This is the
+  same for a server admin. An admin of a project may list the keys of
+  its members at any time, with or without reach over them; adding and
+  removing keys still needs reach.
 - **`sfx admin status` shows a project admin their own projects only:**
   the connections, sessions and writes of the active projects they
   administer, and nothing of the server or of any other project. A
   server admin sees all of it. No one else is shown anything.
 - **A refusal does not say what exists elsewhere.** Someone who is no
   server admin gets the same `forbidden` for a project they have no role
-  in as for one that does not exist. A principal name is the exception:
-  names are one namespace for the server, so adding one that is taken
-  says so.
+  in as for one that does not exist; for a principal that does not exist
+  as for one out of their reach, when they add a key to it, disable it,
+  enable it or list its keys; and for a key that does not exist as for
+  one out of reach, when they remove it. A key that some principal
+  already has is refused to them the same way whoever has it, without
+  saying that anyone does. Two things are still learned, by design.
+  Principal names are one namespace for the server, so `principal add`
+  of a name that is taken says so. And a key belongs to one principal,
+  so a project admin who may add keys to someone can tell that a key is
+  on the server: a new key is added, and one already there is refused.
 - **Every change is an event**, written in the same transaction as the
   change, with its principal, session and time. Clients cannot edit or
   delete events.
@@ -283,7 +350,9 @@ care:
 - **`.starfix.yaml`** must be yours and writable by no one else (on macOS
   and Linux), and `sfx` never looks for it above the repository's top
   level or your home directory ([Where sfx looks for the
-  file](cli.md#where-sfx-looks-for-the-file)).
+  file](cli.md#where-sfx-looks-for-the-file)). Its `key:` may name only
+  a file inside the repository ([Which key sfx
+  offers](#which-key-sfx-offers)).
 - **No commands in config.** A command in a committed file would run
   whatever the repository says, so there is no proxy-command setting.
   Google Cloud IAP is built in instead, and runs `gcloud` without a shell
@@ -323,7 +392,9 @@ conversation, so it is built to take only counts from them
 ## Limits
 
 Every principal is bounded: write rates, `sfx admin` changes, a
-principal's keys, connections, sessions, inbox size, labels, dependencies, acceptance items, token usage records and
+principal's keys, the principals one project admin may create,
+connections, connections that have not yet said hello, sessions, inbox
+size, labels, dependencies, acceptance items, token usage records and
 memories each have a cap, and text
 fields and replies have fixed sizes. [Limits](server.md#limits) lists the
 caps, their settings and what a refusal past each one says.
