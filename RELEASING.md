@@ -27,6 +27,12 @@ against a key in `internal/release/keys.go` and the archive's sha256 is in
 `checksums.txt`. The signing step refuses a key that `keys.go` at the tag
 does not list, so a release clients would refuse is never published.
 
+That check is all a release is trusted on. Where its files are read from
+is not: GitHub today, and a static file host once the repository is
+private ([Publishing to a static host](#publishing-to-a-static-host),
+[Before the repository is made
+private](#before-the-repository-is-made-private)).
+
 The release notes name the Dolt version the release was tested with
 (`version.Dolt`, which a test keeps equal to CI's `DOLT_VERSION`).
 
@@ -142,6 +148,170 @@ If the signing run fails after the release was created, delete the
 release (not the tag) and start the signing run again with the same
 `build_run`. The archives are kept with the build run for 7 days; after
 that, re-run the build run first and sign the new one.
+
+## Publishing to a static host
+
+`sfx upgrade`, `starfixd upgrade` and `install.sh` can read releases from
+any host that serves files over HTTPS, such as a storage bucket: no API,
+no listing, no credentials. The release workflow does not publish there
+yet; that step is the maintainer's to add. This section is what the
+clients read, and the tool that writes it.
+
+**The layout**, under a base URL `B`
+(`https://releases.example.com/starfix`):
+
+| Path | Holds |
+|---|---|
+| `B/index.json` | The releases the tree holds |
+| `B/<tag>/checksums.txt` | The sha256 of every archive of release `<tag>` (`v0.6.0`) |
+| `B/<tag>/checksums.txt.sig` | Its signature |
+| `B/<tag>/<bin>_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows) | The archives, under the names the `build` job gives them |
+
+**`index.json`** is written one release to a line, oldest first:
+
+```json
+{
+  "format": 1,
+  "releases": [
+    {"tag": "v0.5.0", "prerelease": false, "published": "2026-09-01T12:00:00Z"},
+    {"tag": "v0.6.0-rc.1", "prerelease": true, "published": "2026-09-20T12:00:00Z"},
+    {"tag": "v0.6.0", "prerelease": false, "published": "2026-10-01T12:00:00Z"}
+  ]
+}
+```
+
+| Field | Is |
+|---|---|
+| `format` | `1`. The format only gains fields, which older builds ignore. Change the number only when older builds must stop reading the file: they refuse any other |
+| `tag` | The release's tag and its directory: `vMAJOR.MINOR.PATCH`, with the optional `-prerelease` |
+| `prerelease` | Whether the tag has a `-`. It repeats the tag for readers that do not parse versions |
+| `published` | When the release was added, in UTC as RFC 3339. For people; no build reads it |
+
+Nothing in the index is trusted. A client uses it for one thing, to
+choose the tag to ask for, and then checks the release behind the tag as
+it checks any other. What it does with the file:
+
+- The latest release is the highest version that is not a prerelease,
+  by version number: not the last line, and not the newest `published`.
+- `sfx` and `starfixd` refuse the whole file when it is larger than
+  1 MiB, lists more than 4,096 releases, is another `format`, names a
+  tag that is not a release version, or gives a `prerelease` that its tag
+  contradicts. A tag is checked before it is put in a URL, so one such
+  as `../x` or a URL never is. `install.sh` refuses a file over 1 MiB or
+  with a tag that is not a release version, and never prints the tag.
+- `starfixd upgrade --to` and `install.sh --version` do not read the
+  index at all.
+- No redirect is followed, so the host named is the only one asked, and
+  over HTTPS only. Plain HTTP is accepted only to a loopback address.
+  A host that moves must go on serving the old address; it cannot send
+  clients on.
+
+**What the host can and cannot do.** It cannot get a client to install
+anything the release key did not sign, or a release other than the one
+the client asked for: `checksums.txt` names each archive with its
+version, so one release's signed files do not pass for another's. It
+cannot move a server or an `sfx` back to an older release: neither
+installs a version older than the one running. It can refuse to serve,
+and it can go on serving an old `index.json`, which keeps every client
+on the release it has and silent about newer ones. Nothing a client
+reads proves an index is fresh, and that is as true of GitHub as of a
+bucket: say so when a security release goes out, through a channel that
+is not the release host. `install.sh` has no version to compare with, so
+an old index gives a new machine an old, signed release.
+
+**The tool.** `internal/tools/releaseindex` turns the directory the
+`sign-and-publish` job ends with (the archives, `checksums.txt` and
+`checksums.txt.sig`) into that layout:
+
+```sh
+go run ./internal/tools/releaseindex --published 2026-10-01T12:00:00Z v0.6.0 dist/ tree/
+```
+
+It copies the files to `tree/v0.6.0/` and adds the release to
+`tree/index.json`, which it writes the same, byte for byte, for the same
+releases. Without `--published` a release keeps the time the index
+already gives it, or takes the present time when it is new. The tool
+signs nothing and needs no secret. Before it writes anything it checks
+what a client would: the signature on `checksums.txt`, against the
+public keys in `keys.go`, and each archive's sha256. It refuses a
+`dist/` whose files are another release's, and a `tree/` that already
+holds the release with different bytes, since a published release does
+not change. It is Go and not a shell script because it reads, orders
+and rewrites JSON, and because it then uses the same parser, the same
+bounds and the same signature check as the clients.
+
+`tree/` is then what the host serves. To publish, start from the host's
+current `index.json`, so that the releases already there stay listed,
+and upload the index last, so that it never names files that are not
+there yet:
+
+```sh
+mkdir -p tree && curl -fsS -o tree/index.json https://releases.example.com/starfix/index.json
+go run ./internal/tools/releaseindex v0.6.0 dist/ tree/
+# copy tree/v0.6.0/ to the host, then tree/index.json, with the host's own tool
+```
+
+Serve `index.json` with a short cache lifetime (`Cache-Control: max-age=300`
+or `no-cache`): a cached copy hides a new release for as long as it
+lives. Everything under `<tag>/` may be cached forever.
+
+**A mirror.** The same layout in a directory or behind another HTTPS
+host is a mirror, and `STARFIX_RELEASES` points a client at one
+([Install](docs/install.md#where-releases-are-read-from),
+[Upgrades](docs/server.md#upgrades)). Build one with the same command,
+from a release's files carried in on any medium. A mirror is trusted
+with nothing more than the bucket is.
+
+## Before the repository is made private
+
+`sfx upgrade`, `starfixd upgrade` and `install.sh` read GitHub without
+credentials. The day the repository is private, each of those requests
+fails, on every machine. The order below is the only one that leaves no
+client stranded, and its last step waits for every step before it.
+
+1. **Publish to the bucket.** Lay out every release clients may still
+   need, the current one at least, and serve it
+   ([Publishing to a static host](#publishing-to-a-static-host)). Add the
+   upload to the release workflow. Check it from outside:
+   `STARFIX_RELEASES=https://releases.example.com/starfix sfx upgrade --check`.
+2. **Switch the default, in a release.** One pull request changes
+   `DefaultSource` in `internal/release/static.go` to the bucket's URL
+   and `DEFAULT_RELEASES` in `install.sh` to the same; `TestDefaultSource`
+   fails until they agree. Publish that release to GitHub and to the
+   bucket: the clients that must install it still read GitHub.
+3. **Every client and every server upgrades to that release.** `sfx
+   upgrade` on each machine, `starfixd upgrade` on each server. From
+   then on they read the bucket.
+4. **Only then change the repository's visibility.**
+
+**A client or server older than the release of step 2 cannot upgrade
+itself once the repository is private.** It asks GitHub, is refused, and
+says it cannot read the release. It is repaired by hand, in one of two
+ways: install again with the `install.sh` of step 2 or later, or run the
+old binary once with `STARFIX_RELEASES` set to the bucket's URL, if it is
+recent enough to read that variable (every release from the one that
+introduced the static source is). A release older than that knows only
+GitHub and must be reinstalled.
+
+Before step 4, also move what else reads the public repository, none of
+which this change covers:
+
+- **`install.sh` itself.** The one-line install fetches it from
+  `raw.githubusercontent.com`, which stops with the repository. Serve it
+  from the bucket and change the command in `README.md` and
+  `docs/install.md`.
+- **Words that name GitHub.** Several `fix:` lines of `sfx upgrade` and
+  `starfixd upgrade` send people to the releases page
+  (`releasesURL` in `internal/cli/upgrade.go` and
+  `cmd/starfixd/upgrade.go`), and `install.sh` names it for Windows and
+  for reports. `go install …@latest` and `git clone`
+  ([Build from source](docs/install.md#build-from-source)) stop working
+  for anyone without access.
+- **Verifying by hand.** `gh release download` and
+  `gh attestation verify --repo` need access to the repository
+  ([Verify a download by hand](docs/install.md#verify-a-download-by-hand)).
+  The signature check does not: it needs the public key, which is in
+  every binary and in `install.sh`.
 
 ## One-time setup
 

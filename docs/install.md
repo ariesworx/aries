@@ -33,6 +33,7 @@ Options go after `sh -s --`, for example
 | `--dir DIR` | `STARFIX_DIR` | Install into DIR instead of `~/.local/bin` |
 | `--server` | | Install `starfixd` instead (Linux only) |
 | `--require-signature` | | Fail, rather than warn, when OpenSSL cannot check the signature |
+| | `STARFIX_RELEASES` | Read releases from a mirror instead of the default ([below](#where-releases-are-read-from)) |
 
 On Windows, download the zip from the
 [releases page](https://github.com/ariesworx/starfix/releases) and put
@@ -59,6 +60,57 @@ Each [release](https://github.com/ariesworx/starfix/releases) carries:
 
 Unpack the binary onto your `PATH`, after you
 [verify](#verify-a-download-by-hand) the download.
+
+## Where releases are read from
+
+`install.sh`, `sfx upgrade` and `starfixd upgrade` read releases from
+GitHub unless told otherwise. One environment variable,
+`STARFIX_RELEASES`, tells all three:
+
+| `STARFIX_RELEASES` | Reads |
+|---|---|
+| unset | The default built into the binary or the script: GitHub today |
+| `github` | GitHub |
+| `https://releases.example.com/starfix` | A static tree on a host that serves files over HTTPS |
+| `/srv/starfix-releases`, or `file:///srv/starfix-releases` | The same tree in a directory: an absolute path |
+
+A static tree is a file `index.json` and one directory for each release,
+named by its tag, holding the files listed under
+[Download by hand](#download-by-hand)
+([RELEASING.md](../RELEASING.md#publishing-to-a-static-host) has the
+layout). On a server, the config file's `releases:` does the same for
+`starfixd upgrade` ([Upgrades](server.md#upgrades)).
+
+**A mirror is not trusted, and needs no key.** Whatever the source, a
+release is installed only when the signature on its `checksums.txt`
+verifies against the release key built into the binary or the script,
+and the archive's sha256 is in that file. A mirror that serves anything
+else is refused. Over HTTP the address must be `https://`; plain `http://`
+is accepted only to `127.0.0.1` or `[::1]`. No redirect is followed, and
+the address may hold no user name, password or query.
+
+What a mirror, like any source, can do is withhold: one that goes on
+serving an old `index.json` keeps `sfx upgrade` saying `up to date`.
+`sfx` never installs a release older than the one it is. `install.sh`
+has nothing to compare with and installs the newest release the index
+lists, so pass `--version` when you know which you want.
+
+**Without a network.** Carry a release's files in on any medium: the
+archives you need, `checksums.txt` and `checksums.txt.sig`. Put them in
+a directory named by the tag, and name its parent:
+
+```sh
+mkdir -p /srv/starfix-releases/v0.6.0
+cp sfx_0.6.0_linux_amd64.tar.gz checksums.txt checksums.txt.sig /srv/starfix-releases/v0.6.0/
+STARFIX_RELEASES=/srv/starfix-releases sh install.sh --version v0.6.0
+```
+
+A release named by `--version` needs no `index.json`. `sfx upgrade`
+looks for the latest release and so needs one; from a checkout,
+`go run ./internal/tools/releaseindex v0.6.0 DIR /srv/starfix-releases`
+copies the release's files from DIR and writes it. To serve one mirror
+to many machines, put the directory behind any HTTPS file server and
+set `STARFIX_RELEASES` to its URL.
 
 ## Build from source
 
@@ -110,7 +162,9 @@ than your `sfx`, each command prints a one-line notice, and `prime`, which
 starts an agent's session, includes it. To upgrade the server, see
 [Upgrades](server.md#upgrades).
 
-`sfx upgrade` reads the release from GitHub and asks your starfix server
+`sfx upgrade` reads the release from GitHub, or from the mirror
+`STARFIX_RELEASES` names ([Where releases are read
+from](#where-releases-are-read-from)), and asks your starfix server
 nothing, so it works when the server refuses your `sfx` as too old.
 
 **Coming from v0.4.x or earlier.** A server of this release refuses every

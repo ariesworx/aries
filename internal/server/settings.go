@@ -69,6 +69,11 @@ type Settings struct {
 	// upgrade installs the binary and leaves the restart to the admin,
 	// unless --restart is given.
 	SystemdUnit string `yaml:"systemd_unit"`
+	// Releases is where `starfixd upgrade` reads releases from, when the
+	// environment's STARFIX_RELEASES does not say: a location
+	// release.Open accepts. Empty means the default compiled in. Upgrade
+	// checks it; the daemon never reads it.
+	Releases string `yaml:"releases"`
 	// LogLevel is the least severe level logged: debug, info, warn or
 	// error. Default info; debug adds a line per request.
 	LogLevel string `yaml:"log_level"`
@@ -279,6 +284,7 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 		}{
 			{&out.DSN, s.DSN}, {&out.Socket, s.Socket}, {&out.Project, s.Project},
 			{&out.Prefix, s.Prefix}, {&out.Latest, s.Latest}, {&out.SystemdUnit, s.SystemdUnit},
+			{&out.Releases, s.Releases},
 			{&out.LogLevel, s.LogLevel}, {&out.LogFormat, s.LogFormat}, {&out.Account, s.Account},
 			{&out.ControlDB, s.ControlDB}, {&out.KeysFile, s.KeysFile}, {&out.AuthorizedKeys, s.AuthorizedKeys},
 			{&out.Bridge, s.Bridge}, {&out.ClockBehind, s.ClockBehind},

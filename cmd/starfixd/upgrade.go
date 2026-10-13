@@ -33,8 +33,13 @@ type upgradeDeps struct {
 	goos, goarch string
 	// euid is the effective user id; upgrade refuses root.
 	euid func() int
-	// releases finds, downloads and verifies releases.
+	// releases finds, downloads and verifies releases. Nil reads the
+	// source that $STARFIX_RELEASES or the releases setting names, which
+	// is release.DefaultSource when neither is set, verifying with
+	// verifier.
 	releases *release.Client
+	// verifier checks a release's signature when releases is nil.
+	verifier release.Verifier
 	// exe is the binary to replace; "" means this executable.
 	exe string
 	// check runs the staged binary and wants it to report tag.
@@ -55,12 +60,12 @@ type upgradeDeps struct {
 }
 
 // osUpgradeDeps are the real upgradeDeps: this build's version and
-// platform, GitHub's releases checked against the built-in keys,
-// systemctl, and the daemon's socket.
+// platform, releases from the configured source checked against the
+// built-in keys, systemctl, and the daemon's socket.
 func osUpgradeDeps() upgradeDeps {
 	return upgradeDeps{
 		current: version.Version, goos: runtime.GOOS, goarch: runtime.GOARCH, euid: os.Geteuid,
-		releases: &release.Client{Verifier: release.Ed25519{}},
+		verifier: release.Ed25519{},
 		check: func(ctx context.Context, path, tag string) error {
 			return release.VersionCheck(tag)(ctx, path)
 		},
@@ -122,18 +127,22 @@ func upgradeCmd(ctx context.Context, env adminEnv, d upgradeDeps, args []string)
 		return upgradeRollback(ctx, env, d, s, unit, exe)
 	}
 
+	rels, err := upgradeSource(env, d, s)
+	if err != nil {
+		return err
+	}
 	cur := d.current
 	var rel *release.Release
 	if to != "" {
-		rel, err = d.releases.ByTag(ctx, to)
+		rel, err = rels.ByTag(ctx, to)
 	} else {
-		rel, err = d.releases.Latest(ctx)
+		rel, err = rels.Latest(ctx)
 	}
 	if err != nil {
 		if errors.Is(err, release.ErrNotFound) && to != "" {
-			return fmt.Errorf("no release %s: %w; fix: pick a version listed at %s", to, err, releasesURL)
+			return fmt.Errorf("no release %s: %w; fix: pick a version that %s holds", to, err, rels.Location())
 		}
-		return fmt.Errorf("read the release: %w; fix: check the server can reach api.github.com (HTTPS_PROXY is honored)", err)
+		return fmt.Errorf("read the release: %w; fix: check the server can reach %s (HTTPS_PROXY is honored)", err, rels.Location())
 	}
 	cmp, ok := proto.CompareVersions(cur, rel.Tag)
 	ok = ok && release.TagPattern.MatchString(cur)
@@ -176,7 +185,7 @@ func upgradeCmd(ctx context.Context, env adminEnv, d upgradeDeps, args []string)
 		return fmt.Errorf("%s is older than the running %s, and migrations only go forward; fix: use --rollback to return to the binary the last upgrade replaced", to, cur)
 	}
 
-	bin, err := d.releases.Fetch(ctx, rel, "starfixd", d.goos, d.goarch)
+	bin, err := rels.Fetch(ctx, rel, "starfixd", d.goos, d.goarch)
 	if err != nil {
 		return fetchFailure(rel.Tag, err)
 	}
@@ -224,6 +233,24 @@ func upgradeCmd(ctx context.Context, env adminEnv, d upgradeDeps, args []string)
 	}
 	return fmt.Errorf("starfixd %s is unhealthy (%w); restored %s, which is running; fix: check `journalctl -u %s` and report it at %s",
 		rel.Tag, herr, cur, unit, releasesURL)
+}
+
+// upgradeSource returns d.releases, or the client for the source that
+// $STARFIX_RELEASES names, then the releases setting, then
+// release.DefaultSource. The variable is the one sfx and install.sh read.
+func upgradeSource(env adminEnv, d upgradeDeps, s server.Settings) (*release.Client, error) {
+	if d.releases != nil {
+		return d.releases, nil
+	}
+	location, from := env.getenv(release.EnvReleases), "$"+release.EnvReleases
+	if location == "" {
+		location, from = s.Releases, "releases: in the config file"
+	}
+	c, err := release.Open(location, d.verifier)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w; fix: nothing was changed; remove it to read releases from the default, or set it to where your mirror is (docs/server.md, Upgrades)", from, err)
+	}
+	return c, nil
 }
 
 // targetWord names the release --check compares with: the --to target, or

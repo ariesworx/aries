@@ -114,6 +114,7 @@ sign-in fails, the refusal says once that it is not read.
 | `STARFIX_SESSION`, `STARFIX_HARNESS`, `TRACEPARENT`, `TRACESTATE` | The session id, the agent harness's name and the caller's trace context ([agent guide](agents.md#sessions), [Trace context](agents.md#trace-context)) |
 | `STARFIX_NO_QUEUE` | Set to anything but empty, `0` or `false`: a write that cannot reach the server fails and is not queued, as with `--no-queue` ([When the server cannot be reached](#when-the-server-cannot-be-reached)) |
 | `STARFIX_DATA_DIR` | The absolute path of the directory `sfx` keeps its outbox in, in place of your data directory ([Where it is kept](#where-it-is-kept)) |
+| `STARFIX_RELEASES` | Where `sfx upgrade` reads releases from, in place of the default: a mirror's `https://` URL, or the absolute path of a directory ([Where releases are read from](install.md#where-releases-are-read-from)) |
 
 `sfx` reads no other variable to decide who you are.
 

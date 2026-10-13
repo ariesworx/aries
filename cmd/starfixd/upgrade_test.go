@@ -29,6 +29,8 @@ type upgradeRig struct {
 	backups  []string
 	d        upgradeDeps
 	dsn      string
+	// vars is the rest of the environment upgrade sees.
+	vars map[string]string
 	// healthy reports whether a daemon running version v answers.
 	healthy func(v string) bool
 }
@@ -86,7 +88,7 @@ func (r *upgradeRig) run(t *testing.T, args ...string) (string, error) {
 		if k == "STARFIXD_DSN" {
 			return r.dsn
 		}
-		return ""
+		return r.vars[k]
 	}}
 	err := upgradeCmd(t.Context(), env, r.d, append([]string{"--config", r.cfg}, args...))
 	return out.String(), err
