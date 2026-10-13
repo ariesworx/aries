@@ -271,14 +271,13 @@ The run keeps its own reckoning of the stores' time (`vclock.now`), by
 the rule the store follows. It is never behind that time and is often
 ahead of it: by as long as the daemon took to stop and start after a
 restart with the clock set back, which is minutes at the soak's speed on
-a loaded machine, and by the whole jump for a write that was waiting for
-its store's writer when the clock jumped forward. So no check may fail a
+a loaded machine. So no check may fail a
 run for the difference between that reckoning and a time in a log. A
 check that asks what the server knew when it answered goes by the order
 of a log's events; one that places an event of one log against another
-log goes by the two logs' times, which one server's stores share, and by
-each log's own `clock.step` events, which say where a store had not yet
-followed a jump.
+log goes by the two logs' times, which one server's stores share, with
+no allowance for a jump of the clock: no write that begins after a jump
+is dated before it, so an effect is never dated before its cause.
 
 Meanwhile an admin changes who may reach what, over the protocol as
 `sfx admin` does and under the same failures: a membership removed and
@@ -303,10 +302,8 @@ run, and at random in a long one. The test checks that:
   the change or by the server's own sweep, and the issues are open
   again; a demotion releases nothing, and a store that is closed is not
   opened to release. A release is placed against the control log by
-  time, and one written before its project's store had settled a jump
-  of the clock that the control store had settled is dated the jump
-  earlier than its cause: the two logs' `clock.step` events show which
-  those are, and only those are allowed it (`behindJump`);
+  time, and is allowed nothing for a jump of the clock: one dated before
+  the loss of access it answers to fails the run;
 - nothing of one project shows through a connection to another: no
   answer or push names another project's issue, a request for one by
   its id is refused, and no marker or usage record of one project's

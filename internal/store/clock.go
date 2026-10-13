@@ -34,6 +34,12 @@ import (
 //     next write does first, adds the step to every lease that was live
 //     and records one clock.step event, and only then does the store's
 //     time follow the clock.
+//   - No write that begins after a jump is dated before it. A write looks
+//     for a step once more when it holds the writer, and settles it
+//     before it goes on (writeOnce), so in each log the events before a
+//     clock.step are those whose transactions had begun when the clock
+//     jumped, and an event one store records because of another's is
+//     never dated before it.
 //
 // Fencing does not rest on any of this: an epoch rises with each new
 // holder whatever the clock says, and a stale epoch is refused.
@@ -417,7 +423,8 @@ func (s *Store) initTime(ctx context.Context) error {
 }
 
 // SettleClock settles the forward steps of the clock that the store has
-// not settled, which every write does first. In one transaction it adds
+// not settled, which every write does first, and again once it holds the
+// writer if the clock stepped while it waited. In one transaction it adds
 // to each lease that is live on the store's time the part of the jump
 // its holder did not have, and records a clock.step event; the store's
 // time then follows the clock. A claim whose lease had run out before
@@ -451,7 +458,7 @@ func (s *Store) SettleClock(ctx context.Context) error {
 	// To the microsecond, as the column that holds a lease is.
 	extend := max(0, jump-v.slack).Truncate(time.Microsecond)
 	var n int
-	err := s.writeRetry(ctx, ClockActor, func(w *wtx) error {
+	err := s.writeRetry(ctx, ClockActor, true, func(w *wtx) error {
 		n = 0
 		if s.hasClaims && extend > 0 {
 			live, err := s.liveClaims(ctx, w)

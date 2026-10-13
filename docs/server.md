@@ -1526,6 +1526,31 @@ have without the jump; every lease still live is extended. The
 `clock.step` event's time is the database's time when it settled, and
 its `claims` the leases it extended.
 
+**No write that begins after a jump is dated before it,** in any
+database of the server: the control database's and every project's. A
+write looks for a jump when it arrives and again when its turn at its
+database's one writer comes, and settles the jump before it goes on, so
+a write that was waiting its turn when the clock jumped is dated after
+the jump like any other. What an operator or an auditor can rely on:
+
+- In each log, the `clock.step` event stands between the events dated
+  before the jump and those dated after it.
+- An event that one database records because of an event in another
+  (a claim released in a project for a membership removed in the control
+  database) is never dated before it, jump or no jump.
+- The one event a log may date before a jump and commit after it is
+  that of a write whose transaction had already begun when the clock
+  jumped: at most one in each database, since each has one writer, and
+  late by no more than the time that one write took. It comes before
+  its log's `clock.step`.
+
+A database that has written nothing since a jump has no `clock.step`
+for it yet, and its next event is dated after the jump. If the clock
+jumps again while a jump is being settled, the write is tried again as
+one that lost to a concurrent write is; a clock that jumps at every
+attempt has the write refused with `conflict` after five attempts, and
+nothing is dated before a jump.
+
 A database starfixd opens for the first time since it started (a
 project whose database could not be opened at start, or one added or
 restored since) follows every jump made since the start in the same

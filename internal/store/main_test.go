@@ -39,7 +39,7 @@ func run(m *testing.M) int {
 }
 
 // newDSN returns a fresh database, or skips when dolt is missing.
-func newDSN(t *testing.T) string {
+func newDSN(t testing.TB) string {
 	t.Helper()
 	if errors.Is(serverErr, dolttest.ErrNoDolt) {
 		t.Skip("dolt is not on PATH: install dolt to run the store integration tests")
@@ -54,7 +54,7 @@ func newDSN(t *testing.T) string {
 	return dsn
 }
 
-func openStore(t *testing.T, dsn string, opts Options) *Store {
+func openStore(t testing.TB, dsn string, opts Options) *Store {
 	t.Helper()
 	if opts.CommitInterval == 0 {
 		opts.CommitInterval = -1

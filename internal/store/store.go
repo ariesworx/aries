@@ -644,6 +644,11 @@ func elide(s string) string {
 // result it hands back afresh. Between attempts write waits a random,
 // growing backoff; when ctx ends first, or attempts reach
 // Options.MaxAttempts, it gives up, the latter with ErrConflict.
+//
+// It settles a forward step of the clock before it waits for the writer,
+// so that leases get the step as soon as a write knows of it, and each
+// attempt looks again once its transaction has begun (writeOnce), since
+// the clock may step while the write waits.
 func (s *Store) write(ctx context.Context, actor Actor, fn func(*wtx) error) error {
 	if err := actor.validate(); err != nil {
 		return err
@@ -651,16 +656,17 @@ func (s *Store) write(ctx context.Context, actor Actor, fn func(*wtx) error) err
 	if err := s.SettleClock(ctx); err != nil {
 		return err
 	}
-	return s.writeRetry(ctx, actor, fn)
+	return s.writeRetry(ctx, actor, false, fn)
 }
 
 // writeRetry is write for an actor already checked, without settling the
-// clock first: SettleClock's own write.
-func (s *Store) writeRetry(ctx context.Context, actor Actor, fn func(*wtx) error) error {
+// clock first. settle is set for SettleClock's own write, which is dated
+// on the time before the step it settles.
+func (s *Store) writeRetry(ctx context.Context, actor Actor, settle bool, fn func(*wtx) error) error {
 	start := time.Now()
 	for attempt := 1; ; attempt++ {
 		actx, attempted := s.begin(ctx, StageAttempt, attempt)
-		changed, err := s.writeOnce(actx, actor, fn)
+		changed, err := s.writeOnce(actx, actor, settle, fn)
 		attempted(outcomeOf(err))
 		if err == nil {
 			if changed {
@@ -690,21 +696,59 @@ func (s *Store) writeRetry(ctx context.Context, actor Actor, fn func(*wtx) error
 	}
 }
 
-// writeOnce makes one attempt: it runs fn in a new transaction, refuses a
-// mutation that recorded no event unless the attempt is quiet, writes the
-// buffered events and commits. Only once the commit succeeds does it mark
-// the store dirty, invalidate the similar-title cache and push inbox
-// items and issue events, so a rolled-back attempt leaves no trace.
-func (s *Store) writeOnce(ctx context.Context, actor Actor, fn func(*wtx) error) (changed bool, err error) {
+// beginWrite waits for the writer, begins a transaction on it and then
+// reads the store's time: the attempt's time, and whether a forward step
+// of the clock is pending now that the wait is over.
+func (s *Store) beginWrite(ctx context.Context) (*sql.Tx, view, error) {
 	// The writer is one connection, so this is where a write waits for
 	// the writes ahead of it.
 	_, waited := s.begin(ctx, StageWait, 0)
 	tx, err := s.w.BeginTx(ctx, nil)
 	waited(outcomeOf(err))
 	if err != nil {
-		return false, fmt.Errorf("begin: %w", err)
+		return nil, view{}, fmt.Errorf("begin: %w", err)
 	}
-	w := &wtx{tx: tx, actor: actor, admin: s.IsAdmin(actor.Principal), now: s.now(), lim: s.opts.Limits}
+	return tx, s.readTime(), nil
+}
+
+// writeOnce makes one attempt: it runs fn in a new transaction, refuses a
+// mutation that recorded no event unless the attempt is quiet, writes the
+// buffered events and commits. Only once the commit succeeds does it mark
+// the store dirty, invalidate the similar-title cache and push inbox
+// items and issue events, so a rolled-back attempt leaves no trace.
+//
+// No attempt goes on with a forward step of the clock pending, but the
+// settle's own (settle). A write settles the clock before it waits for
+// the writer, and the clock may step while it waits, or between two
+// attempts; dated on the time before the step, it would put what it
+// records before what caused it in another store's log. So the attempt
+// gives the writer up, settles, and begins again on the time after the
+// step. If the clock has stepped yet again by then, the attempt ends as
+// one that lost to a concurrent transaction does, and write's bound on
+// attempts is the bound on this: a clock that steps at every attempt gets
+// the write refused, and never an event dated before a step.
+func (s *Store) writeOnce(ctx context.Context, actor Actor, settle bool, fn func(*wtx) error) (changed bool, err error) {
+	tx, v, err := s.beginWrite(ctx)
+	if err != nil {
+		return false, err
+	}
+	if v.pending > 0 && !settle {
+		// Rolled back first: the settle is a write, and waits for the
+		// writer this attempt holds.
+		if err := rollback(tx); err != nil {
+			return false, err
+		}
+		if err := s.SettleClock(ctx); err != nil {
+			return false, err
+		}
+		if tx, v, err = s.beginWrite(ctx); err != nil {
+			return false, err
+		}
+		if v.pending > 0 {
+			return false, errors.Join(fmt.Errorf("%w: the clock stepped forward again while a step was settled", errRetry), rollback(tx))
+		}
+	}
+	w := &wtx{tx: tx, actor: actor, admin: s.IsAdmin(actor.Principal), now: v.at, lim: s.opts.Limits}
 	if err := fn(w); err != nil {
 		return false, errors.Join(err, rollback(tx))
 	}
