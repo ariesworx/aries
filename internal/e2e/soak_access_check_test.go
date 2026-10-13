@@ -297,50 +297,40 @@ func TestCheckLost(t *testing.T) {
 			b.add(15*time.Second, carol, "member.remove", projA+"/alice", memberState("alice", projA, "member", 1), "")
 		})
 	}
-	// The project's store settles the jump with event 50, 28 seconds
-	// after the clock jumped: until then its time is the time before.
-	late := []settled{{seq: 50, at: at(time.Hour + 19*time.Minute + 32*time.Second), after: at(time.Hour + 31*time.Minute + 7*time.Second), step: 12 * time.Minute}}
-	unsettled := func(d time.Duration) time.Time { return at(time.Hour + 19*time.Minute + d) }
+	// before is a time of the project's log d after the clock jumped, on
+	// the time before the jump, and after one on the time after it.
+	before := func(d time.Duration) time.Time { return at(time.Hour + 19*time.Minute + 4*time.Second + d) }
+	after := func(d time.Duration) time.Time { return before(12*time.Minute + d) }
 	tests := []struct {
-		name    string
-		log     *logBuilder
-		settles []settled // the project's own clock.step events
-		lost    []lostClaim
-		over    []override
-		want    string
+		name string
+		log  *logBuilder
+		lost []lostClaim
+		over []override
+		want string
 	}{
 		// Seed 264949260793903814 on a loaded machine: the sweep's write
-		// was waiting for the project's writer when the clock jumped, so
-		// its release is dated on the time before, 25 seconds past the
-		// jump, and the removal it answers to on the time after.
-		{name: "released on time the project had not settled, for a removal dated after the jump", log: removedAfter(), settles: late,
-			lost: []lostClaim{{seq: 48, issue: "sf-1", holder: alice, reason: lostMembership, by: sweep, took: unsettled(-3 * time.Minute), at: unsettled(29 * time.Second)}}},
-		{name: "released on unsettled time by the admin who removed the member after the jump", log: removedAfter(), settles: late,
-			lost: []lostClaim{{seq: 48, issue: "sf-1", holder: alice, reason: lostMembership, by: carol, took: unsettled(-3 * time.Minute), at: unsettled(29 * time.Second)}}},
-		{name: "released on unsettled time by someone who did not end the access", log: removedAfter(), settles: late,
-			lost: []lostClaim{{seq: 48, issue: "sf-1", holder: alice, reason: lostMembership, by: root, took: unsettled(-3 * time.Minute), at: unsettled(29 * time.Second)}},
-			want: `the control log says the access was last ended by "carol"`},
-		{name: "released five minutes before the jump, for a removal dated after it", log: removedAfter(), settles: late,
-			lost: []lostClaim{{seq: 40, issue: "sf-1", holder: alice, reason: lostMembership, by: sweep, took: unsettled(-10 * time.Minute), at: unsettled(-5 * time.Minute)}},
+		// was waiting for the project's writer when the clock jumped, and
+		// the store dated its release on the time before, 25 seconds past
+		// the jump, and the removal it answers to on the time after. The
+		// check allowed that while the store did it. A write now settles a
+		// jump it finds once it holds the writer, so the release is dated
+		// after the removal, and one dated before it has no cause.
+		{name: "released after a jump, for a removal dated after the jump", log: removedAfter(),
+			lost: []lostClaim{{seq: 51, issue: "sf-1", holder: alice, reason: lostMembership, by: sweep, took: before(-3 * time.Minute), at: after(16 * time.Second)}}},
+		{name: "released after a jump by the admin who removed the member after it", log: removedAfter(),
+			lost: []lostClaim{{seq: 51, issue: "sf-1", holder: alice, reason: lostMembership, by: carol, took: before(-3 * time.Minute), at: after(15*time.Second + time.Millisecond)}}},
+		{name: "released on the time before a jump, for a removal dated after it", log: removedAfter(),
+			lost: []lostClaim{{seq: 48, issue: "sf-1", holder: alice, reason: lostMembership, by: sweep, took: before(-3 * time.Minute), at: before(25 * time.Second)}},
 			want: "shows no such loss of access"},
-		{name: "released on unsettled time, for a removal made five minutes after the jump", log: jumped(func(b *logBuilder) {
-			b.add(5*time.Minute, carol, "member.remove", projA+"/alice", memberState("alice", projA, "member", 1), "")
-		}), settles: late,
-			lost: []lostClaim{{seq: 48, issue: "sf-1", holder: alice, reason: lostMembership, by: sweep, took: unsettled(-3 * time.Minute), at: unsettled(29 * time.Second)}},
+		{name: "released after a jump, for a membership that was never removed", log: jumped(func(*logBuilder) {}),
+			lost: []lostClaim{{seq: 51, issue: "sf-1", holder: alice, reason: lostMembership, by: sweep, took: before(-3 * time.Minute), at: after(16 * time.Second)}},
 			want: "shows no such loss of access"},
-		{name: "released on unsettled time, for a membership that was never removed", log: jumped(func(*logBuilder) {}), settles: late,
-			lost: []lostClaim{{seq: 48, issue: "sf-1", holder: alice, reason: lostMembership, by: sweep, took: unsettled(-3 * time.Minute), at: unsettled(29 * time.Second)}},
-			want: "shows no such loss of access"},
-		{name: "released after the project settled the jump, on a time the control log skipped", log: removedAfter(), settles: late,
-			lost: []lostClaim{{seq: 51, issue: "sf-1", holder: alice, reason: lostMembership, by: sweep, took: unsettled(-3 * time.Minute), at: unsettled(40 * time.Second)}},
-			want: "shows no such loss of access"},
-		{name: "released on unsettled time in a project whose log never settled the jump", log: removedAfter(),
-			lost: []lostClaim{{seq: 48, issue: "sf-1", holder: alice, reason: lostMembership, by: sweep, took: unsettled(-3 * time.Minute), at: unsettled(29 * time.Second)}}},
-		{name: "an override on unsettled time by an admin promoted after the jump", settles: late, log: jumped(func(b *logBuilder) {
+		{name: "an override after a jump by an admin promoted after it", log: jumped(func(b *logBuilder) {
 			b.add(10*time.Second, root, "member.set", projA+"/alice", memberState("alice", projA, "member", 1), memberState("alice", projA, "admin", 2))
-		}), over: []override{{seq: 48, issue: "sf-1", by: alice, at: unsettled(20 * time.Second)}}},
-		{name: "an override on unsettled time by a member no one promoted", settles: late, log: jumped(func(*logBuilder) {}),
-			over: []override{{seq: 48, issue: "sf-1", by: alice, at: unsettled(20 * time.Second)}}, want: "admin.override by alice/s1"},
+		}), over: []override{{seq: 51, issue: "sf-1", by: alice, at: after(20 * time.Second)}}},
+		{name: "an override on the time before a jump by an admin promoted after it", log: jumped(func(b *logBuilder) {
+			b.add(10*time.Second, root, "member.set", projA+"/alice", memberState("alice", projA, "member", 1), memberState("alice", projA, "admin", 2))
+		}), over: []override{{seq: 48, issue: "sf-1", by: alice, at: before(20 * time.Second)}}, want: "admin.override by alice/s1"},
 		{name: "released by the admin who removed the member", log: removed(),
 			lost: []lostClaim{{issue: "sf-1", holder: alice, reason: lostMembership, by: carol, took: at(30 * time.Minute), at: at(time.Hour + time.Millisecond)}}},
 		{name: "released by the server's sweep", log: removed(),
@@ -374,7 +364,7 @@ func TestCheckLost(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			s, p := accessSoak(tc.log)
-			p.rep.lost, p.rep.overrides, p.rep.settles = tc.lost, tc.over, tc.settles
+			p.rep.lost, p.rep.overrides = tc.lost, tc.over
 			s.checkLost(p)
 			got := s.mon.violations()
 			switch {

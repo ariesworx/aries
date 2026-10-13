@@ -1110,9 +1110,12 @@ func (cd *conductor) status() {
 //
 // It places an event of the project's log against the control log by
 // their times, which a server's stores share (store.Clock), give or
-// take eps; but for an event the project's store wrote before it had
-// settled a jump of the clock that the control store had, which is
-// dated the jump earlier than what caused it (behindJump).
+// take eps, and allows nothing for a jump of the clock: no write that
+// begins after a jump is dated before it, so a release is never dated
+// the jump earlier than the loss of access that caused it. It once was,
+// when the release had been waiting for its store's writer as the clock
+// jumped, and this check allowed for that until the store stopped doing
+// it.
 func (s *soak) checkLost(p *sproj) {
 	c := s.ctl
 	c.mu.Lock()
@@ -1124,7 +1127,7 @@ func (s *soak) checkLost(p *sproj) {
 		if from.IsZero() || from.After(l.at) {
 			from = l.at
 		}
-		until := l.at.Add(behindJump(l.seq, l.at, p.rep.settles, c.settles, eps) + eps)
+		until := l.at.Add(eps)
 		lacked := slices.ContainsFunc(c.instants(who, p.id, "", from, until), func(t time.Time) bool { return c.lacks(who, p.id, l.reason, t) })
 		if !lacked {
 			s.mon.fail(l.issue, "event %d released %s's claim on %s for %q, but the control log shows no such loss of access while it was held (%s to %s)",
@@ -1148,7 +1151,7 @@ func (s *soak) checkLost(p *sproj) {
 		}
 	}
 	for _, o := range p.rep.overrides {
-		until := o.at.Add(behindJump(o.seq, o.at, p.rep.settles, c.settles, eps) + eps)
+		until := o.at.Add(eps)
 		ok := slices.ContainsFunc(c.instants(o.by.principal, p.id, "", o.at.Add(-eps), until), func(t time.Time) bool {
 			return c.adminOf(o.by.principal, p.id, t)
 		})

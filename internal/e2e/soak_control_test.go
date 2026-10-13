@@ -105,8 +105,6 @@ type ctlReplay struct {
 	projState, prinState map[string]history
 	roles                map[mkey]history
 	keyOf                map[string]history
-	// settles are the log's clock.step events.
-	settles []settled
 }
 
 func newCtlReplay(fail func(string, string, ...any), admins []string) *ctlReplay {
@@ -229,7 +227,6 @@ func (c *ctlReplay) apply(e sevent) {
 		}
 	case store.OpClockStep:
 		// The daemon settled a forward step of its clock: no row changes.
-		c.settles = append(c.settles, settledOf(e))
 	default:
 		bad("an op the soak does not expect")
 	}
