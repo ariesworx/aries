@@ -78,8 +78,8 @@ type ClockOptions struct {
 
 // Clock is a process's clock, shared by every store the process opens
 // ([Options.Clock]), so that each store learns of a step whichever
-// noticed it, and one opened later learns of the steps since its
-// database was last written. It is safe for concurrent use.
+// noticed it, and one opened later learns of the steps it has not
+// settled. It is safe for concurrent use.
 type Clock struct {
 	read func() (time.Time, time.Duration)
 	tol  time.Duration
@@ -94,17 +94,17 @@ type Clock struct {
 	// monotonic clock, over the readings since the last step, less what
 	// driftLeak has forgiven. Past the tolerance either way it is a step.
 	drift time.Duration
-	// forward is the sum of the forward steps seen; recent are the
-	// latest of them.
+	// forward is the sum of the forward steps seen.
 	forward time.Duration
-	recent  []forwardStep
 	steps   ClockSteps
 	// settled is, for each database a store of the process has had open
 	// (Store.db), how much of forward that store had given its leases
-	// when it last settled, or opened. A store that opens the database
-	// again goes on from there: the process knows what it settled, and
-	// the times in the database's log cannot always say, since a store's
-	// time may be ahead of the clock that dates a step.
+	// when it last settled, or opened (open). A store that opens the
+	// database again goes on from there: the process knows what it
+	// settled, and the times in the database's log cannot say, since a
+	// store's time may be ahead of the clock that dates a step. It has
+	// one entry for each database, so the limit on a server's projects
+	// bounds it.
 	settled map[string]time.Duration
 	// floor is the latest time any store of the process has given out.
 	// No store's time is behind it, but for a forward step the store has
@@ -113,24 +113,12 @@ type Clock struct {
 	floor time.Time
 }
 
-// forwardStep is one forward step: the last reading before it, and its
-// size.
-type forwardStep struct {
-	before time.Time
-	by     time.Duration
-}
-
 // driftLeak is how much monotonic time forgives one unit of drift: a
 // second an hour. A leap second and a time service's sub-second
 // corrections are forgotten, so they never add up to a step over the
 // months a daemon runs; small steps made quickly to stay under the
 // tolerance do add up, and are caught as one.
 const driftLeak = 3600
-
-// maxRecentSteps bounds the forward steps a Clock remembers for stores
-// opened later. Older ones are forgotten: a store opened after that many
-// steps measures the oldest by the wall clock, as across a restart.
-const maxRecentSteps = 64
 
 // ClockSteps counts the steps a [Clock] has seen since it was made.
 type ClockSteps struct {
@@ -181,6 +169,11 @@ type reading struct {
 func (c *Clock) now() reading {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.readLocked()
+}
+
+// readLocked is now for a caller that holds c.mu.
+func (c *Clock) readLocked() reading {
 	wall, mono := c.read()
 	wall = wall.UTC().Truncate(time.Microsecond)
 	if c.started {
@@ -198,10 +191,6 @@ func (c *Clock) now() reading {
 		case by > c.tol:
 			c.drift = 0
 			c.forward += by
-			c.recent = append(c.recent, forwardStep{before: c.lastWall, by: by})
-			if len(c.recent) > maxRecentSteps {
-				c.recent = c.recent[1:]
-			}
 			c.steps.Forward++
 			c.steps.LastAt, c.steps.LastBy = wall, by
 		case by < -c.tol:
@@ -235,38 +224,47 @@ func (c *Clock) Steps() ClockSteps {
 	return c.steps
 }
 
-// forwardSince returns the sum of the remembered forward steps whose
-// last reading before them is after t.
-func (c *Clock) forwardSince(t time.Time) time.Duration {
+// open reads the clock for a store that is opening db, and returns with
+// the reading how much of the clock's forward steps that store starts
+// from as settled. The reading, the answer and the record of it are made
+// under one hold of the lock, so a step another goroutine sees meanwhile
+// is wholly before the opening or wholly after it, and is pending once.
+//
+// A store that opens a database again goes on from what the last one
+// settled. For a database the process has not had open, the answer does
+// not come from the times in its log, which are a store's and may be
+// ahead of the clock that dates a step. It comes from what the process
+// knows: it has written nothing to the database, so whatever claims the
+// database holds were made before the clock's first reading, and every
+// step seen since came after them and took its size from their leases.
+// None is settled. A database with no history holds no claim, and has
+// nothing to settle.
+//
+// What that cannot see is a database another process wrote after a step:
+// a restored one, or one an operator's command filled. Its claims are
+// then given a step they did not lose, but no more of it than the time
+// since the database's latest event, which the store's time never goes
+// before: a lease may live that much too long, and none ends early.
+func (c *Clock) open(db string, history bool) (reading, time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	var sum time.Duration
-	for _, s := range c.recent {
-		if s.before.After(t) {
-			sum += s.by
-		}
-	}
-	return sum
-}
-
-// settledIn returns how much of the forward steps the store that last
-// had db open had settled, and whether any store of the process has had
-// it open.
-func (c *Clock) settledIn(db string) (time.Duration, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	r := c.readLocked()
 	d, ok := c.settled[db]
-	return d, ok
-}
-
-// setSettled records that the store of db has settled d of the forward
-// steps.
-func (c *Clock) setSettled(db string, d time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	if !ok && !history {
+		d = r.forward
+	}
 	if c.settled == nil {
 		c.settled = map[string]time.Duration{}
 	}
+	c.settled[db] = d
+	return r, d
+}
+
+// setSettled records that the store of db, which open recorded, has
+// settled d of the forward steps.
+func (c *Clock) setSettled(db string, d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.settled[db] = d
 }
 
@@ -397,28 +395,23 @@ func (c *Control) SettleClock(ctx context.Context) error { return c.s.SettleCloc
 // that the store which last had the database open in this process had
 // settled: a store that was closed when the clock stepped settles the
 // step with its first write. For a database the process has not had
-// open, those are the steps the clock saw before that event was written.
+// open, that is none of the steps its clock has seen ([Clock.open]).
 func (s *Store) initTime(ctx context.Context) error {
 	var mark sql.NullTime
 	err := s.r.QueryRowContext(ctx, `SELECT at FROM events ORDER BY seq DESC LIMIT 1`).Scan(&mark)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("read the latest event's time: %w", err)
 	}
-	r := s.clock.now()
+	r, settled := s.clock.open(s.db, mark.Valid)
 	t := &s.tm
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.settled = r.forward
+	t.settled = settled
 	if mark.Valid {
 		m := mark.Time.UTC()
 		t.high, t.mark = m, m
-		t.settled -= s.clock.forwardSince(m)
 		s.clock.raise(m)
 	}
-	if d, ok := s.clock.settledIn(s.db); ok {
-		t.settled = d
-	}
-	s.clock.setSettled(s.db, t.settled)
 	t.lastMono = r.mono
 	return nil
 }
