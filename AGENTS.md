@@ -268,7 +268,11 @@ Dolt for a test through `dolttest`, never directly.
     store writes or compares takes its time from `wtx.now` or
     `Store.now`, never from `time.Now`: that time does not go backward,
     and does not jump forward until the store has added the jump to
-    every live lease (`store/clock.go`). A daemon gives every store it
+    every live lease (`store/clock.go`). A write takes its time once it
+    holds the writer, and settles a jump it finds there first
+    (`writeOnce`), so nothing that begins after a jump is dated before
+    it; a write path that takes its time anywhere else breaks that. A
+    daemon gives every store it
     opens the one `store.Clock` of its process. A test that builds
     history at several times starts its clock before the earliest and
     only moves it forward. `time.Now` is for measuring how long

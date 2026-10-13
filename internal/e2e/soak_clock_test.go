@@ -241,73 +241,6 @@ func jumpFaults(d time.Duration, leases map[leased]time.Time, events []sevent, u
 	return out
 }
 
-// settled is a clock.step event of a log: the store settled a forward
-// jump of the clock with event seq, when its time was at; its time then
-// went to after, and the clock had jumped by step.
-type settled struct {
-	seq       int64
-	at, after time.Time
-	step      time.Duration
-}
-
-// settledOf reads a clock.step event.
-func settledOf(e sevent) settled {
-	var a struct {
-		At   time.Time `json:"at"`
-		Step int64     `json:"step_us"`
-	}
-	_ = json.Unmarshal(e.after, &a)
-	return settled{seq: e.seq, at: e.at, after: a.At.UTC(), step: time.Duration(a.Step) * time.Microsecond}
-}
-
-// behindJump returns how far the time of an event of a project's log may
-// be behind the control log's, because the project's store had not yet
-// settled a jump of the clock that the control store had. The event is
-// seq, dated at; own are its log's clock.step events and ctl the control
-// log's.
-//
-// A process's stores share one time, but each settles a jump forward by
-// itself, with a write of its own, and until it has, its time is the
-// time before the jump. A write that was waiting for a project's writer
-// when the clock jumped is dated so, and may record what the control
-// store, already settled, dates after the jump: an effect dated before
-// its cause, by the size of the jump. Neither date is wrong, and the
-// two logs say which holds, with no allowance for how long anything
-// took:
-//
-//   - the control log dates nothing between a clock.step's time and
-//     where it went, so an event of a project dated there, or within eps
-//     before, is on the time before that jump;
-//   - unless the project's own log settled that jump before the event:
-//     an earlier clock.step of its own that went past the control
-//     store's.
-//
-// Such an event happened no more than the jump later than its date: the
-// step of its log's next clock.step, or of the control log's when its
-// own log has none. An event dated anywhere else is on the server's one
-// time, and is given nothing.
-func behindJump(seq int64, at time.Time, own, ctl []settled, eps time.Duration) time.Duration {
-	var reached time.Time // where the project's time had gone before the event
-	var next *settled
-	for i, s := range own {
-		if s.seq < seq {
-			reached = s.after
-		} else if next == nil {
-			next = &own[i]
-		}
-	}
-	for _, s := range ctl {
-		if at.Before(s.at.Add(-eps)) || !at.Before(s.at.Add(s.step)) || reached.After(s.at) {
-			continue
-		}
-		if next != nil {
-			return next.step
-		}
-		return s.step
-	}
-	return 0
-}
-
 // restartDaemon stops the daemon and starts another, as an operator's
 // restart does. When the stores are in step with the clock, the clock is
 // first set back by more than the tolerance while nothing runs, as on a
@@ -382,7 +315,6 @@ func (r *replay) clockStep(e sevent) {
 		r.fail(e.target, "event %d: clock.step extends %d leases by %dµs", e.seq, a.Claims, a.Extended)
 	}
 	r.stepped += a.Claims
-	r.settles = append(r.settles, settledOf(e))
 }
 
 // checkClock checks what the logs say of the clock chaos against what
