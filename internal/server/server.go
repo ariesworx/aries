@@ -666,6 +666,9 @@ type session struct {
 	// counts as one of the store's connections.
 	proj *served
 	held *entry
+	// statusBy is when the status report being answered stops waiting
+	// on Dolt: the request loop sets it before each status request.
+	statusBy time.Time
 }
 
 // watching reports whether sess's watch is running, which exempts it
@@ -694,8 +697,9 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 	// The handshake is a trace of its own: a hello brings no trace
 	// context. Opening the project's store, when this connection is the
 	// one that does, and noting the session in the registry show
-	// beneath it. The span ends before the first request is read; the
-	// deferred End is for the returns before that, and does nothing
+	// beneath it. The span ends before the first request is read, and
+	// so before the note has been made, which runs beside that read;
+	// the deferred End is for the returns before that, and does nothing
 	// once the span has ended.
 	hctx, hspan := s.cfg.Telemetry.StartServer(ctx, telemetry.SpanHandshake)
 	defer hspan.End()
@@ -741,9 +745,11 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		s.cfg.Telemetry.Count(telemetry.ConnectionsDropped, telemetry.DropAccess)
 		return
 	}
-	if principal != ProbePrincipal { // a health check, not an agent to list in who
-		sess.proj.touch(hctx, log, sess.actor, sess.harness)
-	}
+	// The session is noted for who beside the read of the first request,
+	// not before it: the note waits on Dolt for as long as a request
+	// may, and each request waits for it only as long as it may itself.
+	noted := s.present(hctx, log, sess)
+	defer noted.end()
 	hspan.End()
 	idle := time.Duration(s.cfg.Limits.IdleTimeout)
 	for {
@@ -810,6 +816,23 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 			if ok, wait = s.writes.take(key, s.now()); !ok {
 				perr = s.busyWrites(principal, wait)
 			}
+		}
+		switch {
+		case !ok:
+		case f.Op == proto.OpStatus:
+			// The report counts the sessions seen, its asker's among
+			// them, so it too comes after the note; but it waits on
+			// Dolt for statusReadTimeout in all, and its own reads have
+			// what the wait for the note leaves of that.
+			sess.statusBy = time.Now().Add(statusReadTimeout)
+			wctx, done := context.WithDeadline(rctx, sess.statusBy)
+			noted.ensure(wctx)
+			done()
+		default:
+			// Every other op reads or writes a store, the project's or
+			// the control store, and comes after the note of its
+			// session, however long that takes of the request's time.
+			noted.ensure(rctx)
 		}
 		switch {
 		case !ok:
@@ -1045,6 +1068,9 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 	}
 	sess.slot = true
 	if s.stores != nil {
+		if e := s.silentDolt(ctx, sess.key, row); e != nil {
+			return refuse(e)
+		}
 		held, err := s.stores.acquire(ctx, row)
 		switch {
 		case errors.Is(err, errStoresFull):
@@ -1067,6 +1093,32 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 		return sess, err // sess holds a slot, which the caller frees
 	}
 	return sess, nil
+}
+
+// silentDolt refuses a handshake that would open p's store while Dolt
+// does not answer a ping within doltCheckTimeout, and returns nil when
+// the store is open or being opened already, or Dolt answers. Opening a
+// store waits on Dolt for as long as a request may (openStore), and the
+// connection that waits is as likely an admin's, come to ask the
+// server's status, which opens no store: it is told now what is wrong,
+// and where the status can still be read. The ping is this handshake's
+// own, not the one /readyz shares (checkDolt), whose answer may be five
+// seconds old. key is what the log line is sampled under.
+func (s *Server) silentDolt(ctx context.Context, key string, p store.Project) *proto.Error {
+	if s.stores.has(p.ID) {
+		return nil
+	}
+	cctx, cancel := context.WithTimeout(ctx, doltCheckTimeout)
+	defer cancel()
+	err := s.cfg.Control.Ping(cctx)
+	if err == nil || ctx.Err() != nil {
+		return nil // Dolt answers, or the daemon is stopping, which the opening says
+	}
+	s.refusals.line(ctx, s.cfg.Logger, key, s.now(), slog.LevelError, logs.DoltCheckFailed, "the check of Dolt failed; project store not opened",
+		"project", p.ID, "database", p.DBName, "err", err)
+	return proto.Errf(proto.CodeUnavailable,
+		"retry in a minute; if it persists, the server's operator should run `starfixd status` on the server, which answers without the database, and see to Dolt (docs/server.md, Troubleshooting)",
+		fmt.Sprintf("the server's database does not answer, so project %q was not opened", p.ID))
 }
 
 // notServed refuses a hello for a project the server does not serve.

@@ -68,10 +68,10 @@ func (s *Server) serveStatus(ctx context.Context, sess *session) {
 // is listed by its id.
 func (s *Server) localStatus(ctx context.Context, in proto.StatusArgs) (any, *proto.Error) {
 	if s.cfg.Control != nil {
-		return s.report(ctx, s.cfg.Control.KnownProjects(), true, in)
+		return s.report(ctx, s.cfg.Control.KnownProjects(), true, in, time.Time{})
 	}
 	one := store.Project{ID: s.single.id, Name: s.single.id, State: store.ProjectActive}
-	return s.report(ctx, []store.Project{one}, true, in)
+	return s.report(ctx, []store.Project{one}, true, in, time.Time{})
 }
 
 // Status connects to the daemon's socket as the daemon's own user, as
