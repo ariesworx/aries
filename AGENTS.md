@@ -48,7 +48,7 @@ stage is in progress.
 | `internal/bdimport` | bd JSONL import and export |
 | `internal/release`, `internal/tools/releasekey` | Release download, signature and checksum checks, binary swap; the signing tool |
 | `internal/version` | Build version, and `Dolt`, the pinned Dolt release, with the SHA-256 of its archives (`dolt.sha256`); its tests keep every copy of a tool pin in step |
-| `internal/dolttest` | Starts a throwaway `dolt sql-server` for tests, and grants its locked-down account databases by name |
+| `internal/dolttest` | Starts a throwaway `dolt sql-server` for tests, grants its locked-down account databases by name, and drops a test's database when the test is done with it |
 | `internal/iaptest` | A fake `gcloud` for tests of the IAP transport: the test binary, re-executed from `PATH` |
 | `internal/e2e` | End-to-end tests: CLI and MCP through an in-process SSH server to a real daemon and store. The SSH server can read the keys file the daemon writes, before its own keys, as sshd reads its `AuthorizedKeysFile`. `TestSoak` (`soak*_test.go`) is the gate of stages 3 and 3a ([CONTRIBUTING.md](CONTRIBUTING.md#the-soak-test)); with `STARFIX_SOAK_TELEMETRY` it runs with the daemon's telemetry on, and holds the instruments, the spans and the audit stream to the event logs or gives the daemon a collector that is not there (`soak_telemetry_test.go`) |
 | `deploy/docker` | The Docker test server ([docs/deploy/docker.md](docs/deploy/docker.md)): image, entrypoint, compose file and `smoke.sh`, which drives it end to end and is not part of CI. It mirrors docs/server.md's setup steps; `internal/version` keeps its Dolt at the pin. Telemetry is off unless asked for: `STARFIX_TELEMETRY=1` turns starfixd's on, its log export included, and the compose profiles `telemetry` and `prometheus` run a Collector and a Prometheus, pinned by digest, in the server's network namespace, since what they read answers on loopback alone; `STARFIX_SMOKE_TELEMETRY=1` has `smoke.sh` check them |
@@ -133,7 +133,17 @@ process that started it, on Linux and macOS: a test binary that is killed
 (a `go test` timeout, a canceled run, a stopped agent) runs no deferred
 `Stop`, so each launch has a watcher, a `/bin/sh` that kills dolt and
 removes its files from the directory once that process is gone. Start
-Dolt for a test through `dolttest`, never directly.
+Dolt for a test through `dolttest`, never directly. A package's tests
+share one server and take a database each, and Dolt holds every database
+in memory, about 14 MB with starfix's schema, and opens each new one
+more slowly the more it holds. So the store, server and e2e tests, which
+make hundreds, drop a test's database when the test ends (the store's
+`newDSN`, the server's `newDatabase` and the e2e world's, over
+`dolttest.Server.DropDatabase`): get a test's database from those, not
+from `NewDatabase` directly.
+[CONTRIBUTING.md](CONTRIBUTING.md#tests-on-a-slow-machine) says how to
+run the tests on a slow machine, and what a test that passes there does
+not do.
 
 ## Rules
 

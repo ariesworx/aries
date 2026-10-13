@@ -192,12 +192,16 @@ esac
 		"fakebin/shellcheck":    record + failing,
 		"fakebin/git":           record + `printf 'install.sh\0'` + "\n",
 		"fakebin/dolt":          record + `echo "dolt version $(cat "$root/dolt")"` + "\n",
-		"goos":                  "linux\n",
-		"lint":                  "2.14.0\n",
-		"dolt":                  "9.8.7\n",
-		"vuln":                  "",
-		"unformatted":           "",
-		"fail":                  "",
+		// Who runs the gate, which decides one of its notes: not whoever
+		// runs this test, which in a container is often root.
+		"fakebin/id":  "#!/bin/sh\n" + `cat "$(dirname "$0")/../uid"` + "\n",
+		"uid":         "1000\n",
+		"goos":        "linux\n",
+		"lint":        "2.14.0\n",
+		"dolt":        "9.8.7\n",
+		"vuln":        "",
+		"unformatted": "",
+		"fail":        "",
 	}
 	for path, body := range files {
 		g.write(t, path, body)
@@ -280,6 +284,8 @@ func TestGateScript(t *testing.T) {
 				"gofmt -l . ... ok (", "gate: passed in ", ": 11 of 11 commands",
 				"Not covered by this run:", "TestCheckPeerOtherUID", "deploy/docker/smoke.sh", "The soak test ran its short form"},
 			not: []string{"FAILED", "golangci-lint here is", "govulncheck:", "CI runs them on linux/amd64"}},
+		{name: "as root", files: map[string]string{"uid": "0\n"}, calls: full,
+			want: []string{"gate: passed in ", ": 11 of 11 commands"}, not: []string{"TestCheckPeerOtherUID"}},
 		{name: "stops at the first failure", files: map[string]string{"unformatted": "cmd/sfx/main.go\n"}, status: 1,
 			calls: []string{"gofmt -l ."},
 			want: []string{"gofmt -l . ... FAILED (", "    cmd/sfx/main.go", "fix: these files are not formatted",

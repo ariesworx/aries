@@ -49,16 +49,7 @@ func snapshot(t *testing.T, m *telemetry.Manual) telemetry.Snapshot {
 // traced by tel, as `starfixd serve` builds them for one project.
 func newServerTel(t *testing.T, lim Limits, tel *telemetry.Telemetry) *Server {
 	t.Helper()
-	if errors.Is(doltErr, dolttest.ErrNoDolt) {
-		t.Skip("dolt is not on PATH: install dolt to run the server tests")
-	}
-	if doltErr != nil {
-		t.Fatalf("dolt sql-server: %v", doltErr)
-	}
-	dsn, err := dolt.NewDatabase(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
+	dsn := newDatabase(t)
 	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "sf", CommitInterval: -1, Admins: []string{dana.Principal},
 		Limits: lim.Limits, Observer: StoreObserver(tel, project), Tracer: StoreTracer(tel, project)})
 	if err != nil {
@@ -206,7 +197,7 @@ func TestMetricsOfHandshakes(t *testing.T) {
 				}
 			}
 		})
-		_ = cli.SetReadDeadline(time.Now().Add(10 * time.Second))
+		_ = cli.SetReadDeadline(time.Now().Add(patience))
 		_, _ = dec.Decode() // the welcome, a refusal, or the close
 		if tc.name == "ok" {
 			t.Cleanup(func() { _ = cli.Close(); wg.Wait() }) // held, so the next is at the cap

@@ -3,7 +3,6 @@ package server
 import (
 	"cmp"
 	"context"
-	"errors"
 	"maps"
 	"net"
 	"os"
@@ -12,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/dolttest"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
 	"github.com/ariesworx/starfix/internal/telemetry"
@@ -48,16 +46,7 @@ func spanned(t *testing.T, cfg telemetry.Config) (*telemetry.Telemetry, *telemet
 // newServerLogged is newServerTel with the server's log kept, at debug.
 func newServerLogged(t *testing.T, tel *telemetry.Telemetry) (*Server, *syncBuffer) {
 	t.Helper()
-	if errors.Is(doltErr, dolttest.ErrNoDolt) {
-		t.Skip("dolt is not on PATH: install dolt to run the server tests")
-	}
-	if doltErr != nil {
-		t.Fatalf("dolt sql-server: %v", doltErr)
-	}
-	dsn, err := dolt.NewDatabase(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
+	dsn := newDatabase(t)
 	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "sf", CommitInterval: -1, Admins: []string{dana.Principal},
 		Observer: StoreObserver(tel, project), Tracer: StoreTracer(tel, project)})
 	if err != nil {

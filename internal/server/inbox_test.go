@@ -118,7 +118,7 @@ func dialPipe(t *testing.T, s *Server, a store.Actor) *conn {
 
 func (c *conn) read() *proto.Frame {
 	c.t.Helper()
-	_ = c.nc.SetReadDeadline(time.Now().Add(10 * time.Second))
+	_ = c.nc.SetReadDeadline(time.Now().Add(patience))
 	f, err := c.dec.Decode()
 	if err != nil {
 		c.t.Fatalf("read frame: %v", err)

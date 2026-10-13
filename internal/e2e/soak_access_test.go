@@ -931,8 +931,10 @@ func (cd *conductor) archive() {
 	// The time of the project's latest event, which is its store's own:
 	// a claim taken later is dated later, whatever the run's reckoning of
 	// that time says, which may be minutes ahead of it after a restart.
+	// A project archived before anything was written to it has no event,
+	// and no claim either, on a run slow enough to get there first.
 	var closed time.Time
-	if err := p.db.QueryRowContext(context.Background(), `SELECT at FROM events ORDER BY seq DESC LIMIT 1`).Scan(&closed); err != nil {
+	if err := p.db.QueryRowContext(context.Background(), `SELECT at FROM events ORDER BY seq DESC LIMIT 1`).Scan(&closed); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		s.t.Errorf("read the latest event of project %s: %v", p.name, err)
 	}
 	// Every claim has ended, the one a request in flight took after the

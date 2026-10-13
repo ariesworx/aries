@@ -80,6 +80,13 @@ func run(m *testing.M) int {
 
 const project = "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
 
+// patience is how long a test waits for something that must happen. It
+// turns a hang into a failure that says what did not happen, and nothing
+// is asserted of it, so it is long: `sfx watch` took more than twenty
+// seconds to start where the tests shared a processor and Dolt was short
+// of memory.
+const patience = time.Minute
+
 // world is one daemon behind one SSH server.
 type world struct {
 	t       *testing.T
@@ -103,6 +110,10 @@ type world struct {
 	// dsn is the store's database, for tests that plant rows the store
 	// would refuse (data from before a validation, or a hostile writer).
 	dsn string
+	// made are the databases the world made (newDatabase), which it drops
+	// when its test ends.
+	madeMu sync.Mutex
+	made   []string
 	// dropOp, when set, names an op whose next response is never
 	// delivered: the connection drops after the server has answered
 	// (dropReplyTo).
@@ -200,6 +211,9 @@ func newWorld(t *testing.T, o daemonOpts) *world {
 	t.Cleanup(func() { _ = os.RemoveAll(base) })
 	w := &world{t: t, socket: filepath.Join(base, "run", "starfixd.sock"), keys: map[string]string{},
 		conns: map[net.Conn]struct{}{}, opts: o, hand: map[string]string{}}
+	// Registered before anything is opened on a database, so that it runs
+	// after the daemon has stopped and the test's own connections closed.
+	t.Cleanup(w.dropDatabases)
 	if o.keys {
 		dir := filepath.Join(base, ".ssh")
 		if err := os.Mkdir(dir, 0o700); err != nil {
@@ -215,7 +229,7 @@ func newWorld(t *testing.T, o daemonOpts) *world {
 		w.opts.commit = -1
 	}
 	if !o.noDaemon {
-		dsn, err := dolt.NewDatabase(ctx)
+		dsn, err := w.newDatabase(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -231,6 +245,31 @@ func newWorld(t *testing.T, o daemonOpts) *world {
 	}
 	w.startSSH(ctx)
 	return w
+}
+
+// newDatabase makes a database in the package's Dolt, which the world
+// drops when its test ends: Dolt holds every database in memory and slows
+// with each (dolttest.Server.DropDatabase).
+func (w *world) newDatabase(ctx context.Context) (string, error) {
+	dsn, err := dolt.NewDatabase(ctx)
+	if err != nil {
+		return "", err
+	}
+	w.madeMu.Lock()
+	defer w.madeMu.Unlock()
+	w.made = append(w.made, dsn)
+	return dsn, nil
+}
+
+// dropDatabases drops the databases newDatabase made.
+func (w *world) dropDatabases() {
+	w.madeMu.Lock()
+	defer w.madeMu.Unlock()
+	for _, dsn := range w.made {
+		if err := dolt.DropDatabase(dsn); err != nil {
+			w.t.Errorf("drop the world's database: %v", err)
+		}
+	}
 }
 
 // startDaemon opens the store on the world's database and serves it on
@@ -290,7 +329,7 @@ func (w *world) processClock() *store.Clock {
 // it as project, as the operator's `starfixd control init` does before
 // the daemon first serves many projects.
 func (w *world) adopt(ctx context.Context) error {
-	dsn, err := dolt.NewDatabase(ctx)
+	dsn, err := w.newDatabase(ctx)
 	if err != nil {
 		return err
 	}
@@ -973,7 +1012,7 @@ func TestRestartDaemonFails(t *testing.T) {
 	}()
 	select {
 	case <-stopped:
-	case <-time.After(10 * time.Second):
+	case <-time.After(patience):
 		w.stopDaemon = func() {} // let the cleanup finish; the goroutine above stays blocked
 		t.Fatal("stopDaemon after a failed restart did not return: it waits again on the daemon the restart stopped")
 	}

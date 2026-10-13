@@ -226,7 +226,9 @@ func (c *capped) Accept() (net.Conn, error) {
 	}
 }
 
-// cappedConn gives its place back when it is closed.
+// cappedConn gives its place back when it is closed, and before the
+// connection itself closes: a client that has seen the listener close a
+// connection finds its place free.
 type cappedConn struct {
 	net.Conn
 	c    *capped

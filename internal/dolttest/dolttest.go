@@ -3,7 +3,8 @@
 // [Start] launches a [Server] in a directory the caller owns, usually
 // t.TempDir(), and the caller should [Server.Stop] it. Tests reach it
 // through its unix socket: [Server.NewDatabase] makes an empty database
-// for each test, with the DSN of the least-privileged account [User], and
+// for each test, with the DSN of the least-privileged account [User],
+// which the test drops when it ends ([Server.DropDatabase]), and
 // [Server.RootDSN] gives Dolt's superuser, for tests of the store's
 // account check. [Server.Grant] grants User a database by name before it
 // exists. Without dolt on PATH, Start returns [ErrNoDolt] and
@@ -350,6 +351,38 @@ func (s *Server) NewDatabase(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("dolttest: grant: %w", err)
 	}
 	return fmt.Sprintf("%s@unix(%s)/%s", User, s.socket, name), nil
+}
+
+// dropTimeout bounds DropDatabase, which takes a moment: it is there so
+// that a Dolt that does not answer fails a cleanup instead of hanging it.
+const dropTimeout = time.Minute
+
+// DropDatabase drops the database a DSN of NewDatabase's names, whatever
+// connections to it are still open. A test calls it from a cleanup, once
+// it has closed what it opened on the database, which is why it takes no
+// context: a test's own has ended by then.
+//
+// Dolt keeps every database of a server in memory, about 14 MB for one
+// that holds starfix's schema, and takes longer to open each new one the
+// more it holds: a package that makes a database for each of several
+// hundred tests and drops none ends with a Dolt of several gigabytes, and
+// spends most of its time in it.
+func (s *Server) DropDatabase(dsn string) error {
+	_, name, ok := strings.Cut(dsn, ")/")
+	if !ok || name == "" || strings.Trim(name, "abcdefghijklmnopqrstuvwxyz0123456789_") != "" {
+		return fmt.Errorf("dolttest: drop database: %q does not end in a plain database name", dsn)
+	}
+	db, err := sql.Open("mysql", s.rootDSN(""))
+	if err != nil {
+		return fmt.Errorf("dolttest: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	ctx, cancel := context.WithTimeout(context.Background(), dropTimeout)
+	defer cancel()
+	if _, err := db.ExecContext(ctx, "DROP DATABASE "+name); err != nil {
+		return fmt.Errorf("dolttest: drop database %s: %w", name, err)
+	}
+	return nil
 }
 
 // Grant gives User every right on each database named, whether or not it

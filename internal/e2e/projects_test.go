@@ -25,7 +25,7 @@ var dana = store.Actor{Principal: "dana", Session: "e2e", Machine: "server"}
 func (w *world) addProject(id, name, prefix string) {
 	t := w.t
 	t.Helper()
-	dsn, err := dolt.NewDatabase(t.Context())
+	dsn, err := w.newDatabase(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}

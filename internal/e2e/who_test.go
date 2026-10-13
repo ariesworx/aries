@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ariesworx/starfix/internal/proto"
 )
@@ -11,7 +12,11 @@ import (
 // Two sessions of one person, under two harnesses, show up in `sfx who`
 // for another, with the claim the first holds.
 func TestWhoListsSessions(t *testing.T) {
-	w := newWorld(t, daemonOpts{})
+	// The store's clock stands still, so every session was "seen just
+	// now": on the real one, a machine that takes a minute over these
+	// commands saw the first "1m ago".
+	clk := &clock{t: time.Now().UTC()}
+	w := newWorld(t, daemonOpts{now: clk.now})
 	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
 
 	alice.env = map[string]string{"STARFIX_SESSION": "s-one", "CLAUDECODE": "1"}

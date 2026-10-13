@@ -488,8 +488,14 @@ func TestDeadCollectorLogs(t *testing.T) {
 			for range lines {
 				quiet.Info("claim expired", "event", logs.ClaimExpired, "principal", "alice", "issue", "sf-a1b2")
 			}
-			if d := time.Since(start); d > 5*time.Second {
-				t.Errorf("%d lines took %s with the collector dead, want them not to wait for it", lines, d)
+			// Lines that waited for the export of their batch would wait
+			// its timeout, 150 ms, once for each batch of 64: about 47
+			// seconds over these. Half of that is the bound. The lines
+			// themselves take well under a second, and took five where
+			// the test had a quarter of a slow processor.
+			const waited = lines / 64 * 150 * time.Millisecond
+			if d := time.Since(start); d > waited/2 {
+				t.Errorf("%d lines took %s with the collector dead, want them not to wait for it: waiting for each batch's export would take %s", lines, d, waited)
 			}
 			runtime.GC()
 			runtime.ReadMemStats(&after)

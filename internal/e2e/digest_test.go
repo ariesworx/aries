@@ -3,6 +3,7 @@ package e2e
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ariesworx/starfix/internal/cli"
 	"github.com/ariesworx/starfix/internal/mcpserver"
@@ -11,7 +12,11 @@ import (
 
 // A day's work by two people, summarized over SSH on the CLI and over MCP.
 func TestDigest(t *testing.T) {
-	w := newWorld(t, daemonOpts{})
+	// The store's clock stands still, so everything in the digest happened
+	// "0m ago": on the real one, a machine that takes a minute over these
+	// commands says "1m ago".
+	clk := &clock{t: time.Now().UTC()}
+	w := newWorld(t, daemonOpts{now: clk.now})
 	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
 	a := strings.TrimSpace(alice.ok("create", "Fix the login redirect", "-t", "bug", "-p", "1", "--label", "web"))
 	b := strings.TrimSpace(bob.ok("create", "Ship the release", "-p", "0"))

@@ -587,6 +587,25 @@ func (c *collector) wait(t *testing.T) {
 	}
 }
 
+// carrying waits for an export whose body holds want, and returns it
+// with its headers and path. Exports are cumulative, so one made after a
+// recording holds it and everything recorded before.
+func (c *collector) carrying(t *testing.T, want string) (body []byte, hdr http.Header, path string) {
+	t.Helper()
+	for seen := 0; ; {
+		c.wait(t)
+		c.mu.Lock()
+		for ; seen < len(c.bodies); seen++ {
+			if bytes.Contains(c.bodies[seen], []byte(want)) {
+				body, hdr, path = c.bodies[seen], c.headers[seen], c.paths[seen]
+				c.mu.Unlock()
+				return body, hdr, path
+			}
+		}
+		c.mu.Unlock()
+	}
+}
+
 func (c *collector) count() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -621,10 +640,11 @@ func TestPushAndPull(t *testing.T) {
 			tel.Count(Handshakes, ResultOK)
 			tel.Record(RequestDuration, 0.01, "show", ResultOK)
 			if tc.push {
-				col.wait(t)
-				col.mu.Lock()
-				body, hdr, path := col.bodies[0], col.headers[0], col.paths[0]
-				col.mu.Unlock()
+				// Not the first export whatever it holds: on a slow machine
+				// the reader's first interval, 50 ms from New, ends before
+				// the two recordings above are made, and that export has
+				// neither.
+				body, hdr, path := col.carrying(t, "starfix.handshakes")
 				if path != "/v1/metrics" {
 					t.Errorf("export posted to %q, want /v1/metrics", path)
 				}
@@ -886,8 +906,14 @@ func TestDeadCollector(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			noLeak(t)
 			log := &syncBuffer{}
+			// An export to the listener that never answers lasts its
+			// timeout, a minute here, and the first starts 20 ms in: a
+			// recording that waited for an export would wait that long.
+			const exportTimeout = time.Minute
+			ms := fmt.Sprint(exportTimeout.Milliseconds())
 			tel, err := New(t.Context(), Config{Logger: logTo(log), Ops: testOps, PerProject: true, Getenv: env{
 				"OTEL_EXPORTER_OTLP_ENDPOINT": "http://" + tc.addr, "OTEL_METRIC_EXPORT_INTERVAL": "20",
+				"OTEL_METRIC_EXPORT_TIMEOUT": ms, "OTEL_EXPORTER_OTLP_TIMEOUT": ms,
 			}.get})
 			if err != nil {
 				t.Fatal(err)
@@ -897,15 +923,21 @@ func TestDeadCollector(t *testing.T) {
 				tel.Record(RequestDuration, 0.01, "show", ResultOK)
 				tel.Count(ProjectRequests, projA, ClassOK)
 			}
-			if d := time.Since(start); d > 5*time.Second {
-				t.Errorf("40000 recordings took %s with the collector dead, want them not to wait for it", d)
+			// Half the wait for one export: far more than the recordings
+			// take by themselves, a second on a machine that is slow, and
+			// less than any of them would take if it waited.
+			if d := time.Since(start); d > exportTimeout/2 {
+				t.Errorf("40000 recordings took %s with the collector dead and exports that last %s, want them not to wait for it", d, exportTimeout)
 			}
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 			defer cancel()
 			start = time.Now()
 			_ = tel.Shutdown(ctx)
-			if d := time.Since(start); d > 4*time.Second {
-				t.Errorf("Shutdown took %s with a 1s deadline", d)
+			// The same bound: a stop that waited for the export under way
+			// instead of its own deadline would take the rest of the
+			// minute.
+			if d := time.Since(start); d > exportTimeout/2 {
+				t.Errorf("Shutdown took %s with a 1s deadline and an export that lasts %s", d, exportTimeout)
 			}
 			if n := strings.Count(log.String(), "export failed"); n > 1 {
 				t.Errorf("%d export failures logged, want at most 1:\n%s", n, log)

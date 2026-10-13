@@ -288,3 +288,65 @@ func TestLockedDown(t *testing.T) {
 		t.Errorf("%s holds %d global privileges, want none", User, n)
 	}
 }
+
+// TestDropDatabase checks that a dropped database is gone from the
+// server, that a connection a test left open does not keep it, that its
+// name is not given out again, and that the database beside it stays.
+func TestDropDatabase(t *testing.T) {
+	s := startOrSkip(t)
+	ctx := t.Context()
+	root, err := sql.Open("mysql", s.RootDSN(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	exists := func(dsn string) bool {
+		t.Helper()
+		var n int
+		name := dsn[strings.LastIndex(dsn, "/")+1:]
+		if err := root.QueryRowContext(ctx, "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = ?", name).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n == 1
+	}
+	kept, err := s.NewDatabase(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dsn, err := s.NewDatabase(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.ExecContext(ctx, "CREATE TABLE held (id INT PRIMARY KEY)"); err != nil {
+		t.Fatal(err)
+	}
+	if !exists(dsn) {
+		t.Fatalf("the database of %s is not listed before it is dropped, so this test would see nothing", dsn)
+	}
+
+	if err := s.DropDatabase(dsn); err != nil {
+		t.Fatalf("DropDatabase(%s), with a connection to it open = %v", dsn, err)
+	}
+	if exists(dsn) {
+		t.Errorf("the database of %s is still there after DropDatabase", dsn)
+	}
+	if !exists(kept) {
+		t.Errorf("DropDatabase(%s) dropped the database of %s too", dsn, kept)
+	}
+	if next, err := s.NewDatabase(ctx); err != nil || next == dsn {
+		t.Errorf("NewDatabase after DropDatabase = %q, %v; want a new name, not %q again", next, err, dsn)
+	}
+	if err := s.DropDatabase(dsn); err == nil {
+		t.Errorf("DropDatabase(%s) a second time = nil, want an error: nothing was dropped", dsn)
+	}
+	for _, bad := range []string{"", "no-database", s.RootDSN(""), "u@unix(/x)/a`; DROP DATABASE b"} {
+		if err := s.DropDatabase(bad); err == nil {
+			t.Errorf("DropDatabase(%q) = nil, want an error: it names no database", bad)
+		}
+	}
+}
