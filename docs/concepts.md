@@ -118,6 +118,18 @@ A unit of work is two steps:
 creates a worktree on it. The MCP `start` tool never runs git; the agent
 does.
 
+**When the server is away.** The server is the one authority, and
+nothing on your machine stands in for it. A session that cannot reach
+it finishes what it holds and files new work: `finish`, `handoff`,
+`comment`, `create`, `remember` and logged hours are kept in an outbox on
+the machine and sent, once each, when the server answers. It starts
+nothing new: `start` takes a claim, and no claim is made without the
+server. A lease still runs out on the server's clock while you are
+away, so a queued `finish` of an issue someone else has taken since is
+refused when it arrives, and waits in the outbox for you to read. Reads
+need the server: there is no local copy of the project
+([When the server cannot be reached](cli.md#when-the-server-cannot-be-reached)).
+
 ## Files: what an issue touches
 
 The server keeps, for each issue, the paths its work is likely to touch,

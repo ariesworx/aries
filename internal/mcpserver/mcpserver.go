@@ -17,6 +17,7 @@ import (
 
 	"github.com/ariesworx/starfix/internal/client"
 	"github.com/ariesworx/starfix/internal/gitx"
+	"github.com/ariesworx/starfix/internal/offline"
 	"github.com/ariesworx/starfix/internal/proto"
 )
 
@@ -55,6 +56,11 @@ type Options struct {
 	// PathsEvery is how often a renewal sends a held issue's paths.
 	// Default DefaultPathsEvery; negative never.
 	PathsEvery time.Duration
+	// Offline, when set, keeps a write that does not reach the server in
+	// an outbox on this machine, and sends what waits there on each new
+	// connection (design §18.3). Nil fails such a write, as before there
+	// was an outbox.
+	Offline *offline.Client
 }
 
 // Lease is how long a claim taken by an agent's start lasts. Serve renews
@@ -87,6 +93,14 @@ type Server struct {
 	pushed pushed
 	// now is the clock for the paths throttle; tests set it.
 	now func() time.Time
+	// waiting says the outbox may hold entries to send, so a renewal
+	// connects for them even when the session holds no claim.
+	waiting atomic.Bool
+	// moved is the line that says the server gave this session's key to
+	// another principal, once it has; prime shows it.
+	moved atomic.Pointer[string]
+	// drain wakes drainLoop: a connection's first replay left entries.
+	drain chan struct{}
 }
 
 // claims are the issues this session took and their epochs, so finish and
@@ -186,8 +200,9 @@ func New(opts Options) *Server {
 	if opts.PathsEvery == 0 {
 		opts.PathsEvery = DefaultPathsEvery
 	}
-	s := &Server{opts: opts, link: &link{dial: opts.Dial}, claims: claims{held: map[string]int64{}, sent: map[string]time.Time{}},
-		now: time.Now}
+	s := &Server{opts: opts, link: newLink(opts.Dial), claims: claims{held: map[string]int64{}, sent: map[string]time.Time{}},
+		now: time.Now, drain: make(chan struct{}, 1)}
+	s.link.onConnect = s.connected
 	s.mcp = mcp.NewServer(&mcp.Implementation{Name: "starfix", Version: opts.Version},
 		&mcp.ServerOptions{Instructions: Instructions, Capabilities: &mcp.ServerCapabilities{}})
 	s.register()
@@ -207,10 +222,16 @@ func (s *Server) Close() error { return s.link.close() }
 // protocol.
 func (s *Server) Serve(ctx context.Context, in io.ReadCloser, out io.WriteCloser) error {
 	defer func() { _ = s.Close() }()
+	// The loops end with Serve, which waits for them.
+	var loops sync.WaitGroup
+	defer loops.Wait()
+	lctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	if s.opts.RenewEvery > 0 {
-		rctx, cancel := context.WithCancel(ctx)
-		defer cancel()
-		go s.renewLoop(rctx)
+		loops.Go(func() { s.renewLoop(lctx) })
+	}
+	if s.opts.Offline != nil {
+		loops.Go(func() { s.drainLoop(lctx) })
 	}
 	if err := s.mcp.Run(ctx, &mcp.IOTransport{Reader: in, Writer: out}); err != nil && !errors.Is(err, context.Canceled) {
 		return fmt.Errorf("mcp: %w", err)
@@ -235,8 +256,10 @@ func (s *Server) renewLoop(ctx context.Context) {
 // Renew extends the claims this session holds, if any, and notes the ones
 // it no longer holds. It also keeps the session in the server's agents
 // registry, so it renews while connected even holding nothing; it does
-// not dial just for that. A failure is left for the next tick: the lease
-// is many ticks long.
+// not dial just for that. It does dial when the outbox may hold writes
+// to send, which a new connection sends first: so a session that makes
+// no tool call still delivers them once the server is back. A failure
+// is left for the next tick: the lease is many ticks long.
 //
 // Every PathsEvery it also sends the paths each held issue's work touched
 // (gitx.IssuePaths), for at most proto.MaxPathIssues issues at a time;
@@ -244,7 +267,7 @@ func (s *Server) renewLoop(ctx context.Context) {
 // with them, it renews again without them: paths are never worth a
 // lapsed claim.
 func (s *Server) Renew(ctx context.Context) {
-	if !s.claims.any() && !s.link.connected() {
+	if !s.claims.any() && !s.link.connected() && !s.waiting.Load() {
 		return
 	}
 	now := s.now()
@@ -274,9 +297,16 @@ func (s *Server) Renew(ctx context.Context) {
 // new connection watches the inbox, and watches again after a resync.
 type link struct {
 	dial func(ctx context.Context) (Conn, error)
-	// mu guards conn and is held for the whole of each call, so calls to
-	// starfixd go out one at a time.
-	mu   sync.Mutex
+	// onConnect, if set, runs on each new connection before the call
+	// that opened it, holding the turn.
+	onConnect func(ctx context.Context, c Conn)
+	// turn guards conn and is held for the whole of each call, so calls
+	// to starfixd go out one at a time: lock takes it and unlock gives it
+	// back. It is a channel of one, and not a sync.Mutex, because it is
+	// held across requests to the server, for seconds: a goroutine that
+	// waits for one of those is one a testing/synctest bubble can see is
+	// waiting, so the tests of the background replay run on a clock.
+	turn chan struct{}
 	conn Conn
 	// rewatch: the server stopped pushing (a resync); watch again on the
 	// next call. Set from the reader goroutine, so not under mu.
@@ -300,8 +330,15 @@ type dialError struct{ err error }
 func (e *dialError) Error() string { return e.err.Error() }
 func (e *dialError) Unwrap() error { return e.err }
 
+func newLink(dial func(ctx context.Context) (Conn, error)) *link {
+	return &link{dial: dial, turn: make(chan struct{}, 1)}
+}
+
+func (l *link) lock()   { l.turn <- struct{}{} }
+func (l *link) unlock() { <-l.turn }
+
 // get returns the open connection, dialing if there is none. The caller
-// holds l.mu.
+// holds the turn.
 func (l *link) get(ctx context.Context) (Conn, error) {
 	if l.conn != nil && l.conn.Err() == nil {
 		return l.conn, nil
@@ -314,18 +351,49 @@ func (l *link) get(ctx context.Context) (Conn, error) {
 	if err != nil {
 		return nil, &dialError{err: err}
 	}
+	if l.onConnect != nil {
+		l.onConnect(ctx, c)
+		if c.Err() != nil && ctx.Err() == nil {
+			// What onConnect sent ran out of time, which closes a
+			// connection: the caller's own request gets another.
+			_ = c.Close()
+			if c, err = l.dial(ctx); err != nil {
+				return nil, &dialError{err: err}
+			}
+		}
+	}
 	l.conn = c
 	l.rewatch.Store(false)
 	watch(ctx, c)
 	return c, nil
 }
 
+// drain runs fn, one round of the background replay, on the open
+// connection, and returns what fn does: whether another round should
+// follow. A connection fn leaves lost is closed. With no connection
+// open it dials one instead, whose onConnect is a round of its own and
+// asks for the next itself, and returns false.
+func (l *link) drain(ctx context.Context, fn func(Conn) bool) bool {
+	l.lock()
+	defer l.unlock()
+	if l.conn == nil || l.conn.Err() != nil {
+		_, _ = l.get(ctx) // a server that is away again is found by the next call, or the next renewal
+		return false
+	}
+	more := fn(l.conn)
+	if l.conn.Err() != nil {
+		_ = l.conn.Close()
+		l.conn = nil
+	}
+	return more
+}
+
 // with runs fn on the connection. When the connection is lost during fn
 // and retry is set, fn runs once more on a new connection; retry is for
 // reads and for writes that are safe to repeat.
 func (l *link) with(ctx context.Context, retry bool, fn func(Conn) error) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	l.lock()
+	defer l.unlock()
 	for attempt := 0; ; attempt++ {
 		c, err := l.get(ctx)
 		if err != nil {
@@ -348,14 +416,14 @@ func (l *link) with(ctx context.Context, retry bool, fn func(Conn) error) error 
 
 // connected reports whether a connection is open and not known lost.
 func (l *link) connected() bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	l.lock()
+	defer l.unlock()
 	return l.conn != nil && l.conn.Err() == nil
 }
 
 func (l *link) close() error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	l.lock()
+	defer l.unlock()
 	if l.conn == nil {
 		return nil
 	}
@@ -423,11 +491,22 @@ func add[In, Out any](s *Server, t tool, h func(context.Context, Conn, In) (Out,
 				}
 			}
 			var out Out
+			var wrote sent
 			err := s.link.with(ctx, t.retry, func(c Conn) error {
+				if s.opts.Offline != nil {
+					c = recorder{Conn: c, sent: &wrote}
+				}
 				var err error
 				out, err = h(ctx, c, in)
 				return err
 			})
+			if err != nil {
+				var queued *mcp.CallToolResult
+				queued, err = s.away(err, &wrote, func(c Conn) { _, _ = h(ctx, c, in) })
+				if queued != nil {
+					return queued, nil, nil
+				}
+			}
 			// Counted after the call: the server pushes what was committed
 			// before it answers, so this result reports it.
 			line := s.notice()

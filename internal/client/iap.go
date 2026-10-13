@@ -63,8 +63,8 @@ func dialIAP(cfg *Config) (*iapConn, error) {
 		return nil, fmt.Errorf("gcloud stdout: %w", err)
 	}
 	if err := c.cmd.Start(); err != nil {
-		return nil, proto.Errf(proto.CodeUnavailable, "check that `gcloud version` runs",
-			fmt.Sprintf("cannot start %s: %v", path, err))
+		return nil, &setupError{pe: proto.Errf(proto.CodeUnavailable, "check that `gcloud version` runs",
+			fmt.Sprintf("cannot start %s: %v", path, err))}
 	}
 	return c, nil
 }
@@ -73,9 +73,9 @@ func dialIAP(cfg *Config) (*iapConn, error) {
 func gcloud() (string, error) {
 	path, err := exec.LookPath("gcloud")
 	if err != nil {
-		return "", proto.Errf(proto.CodeUnavailable,
+		return "", &setupError{pe: proto.Errf(proto.CodeUnavailable,
 			"install the Google Cloud CLI (https://cloud.google.com/sdk/docs/install), then run `gcloud auth login`",
-			fmt.Sprintf("server.iap in %s needs gcloud, which is not on PATH", ConfigFile))
+			fmt.Sprintf("server.iap in %s needs gcloud, which is not on PATH", ConfigFile))}
 	}
 	return path, nil
 }

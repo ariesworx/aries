@@ -28,6 +28,16 @@ type fakeConn struct {
 	watches int
 	lost    error
 	who     string
+	// key is the fingerprint of the key that signed in, when a test
+	// gives one.
+	key string
+}
+
+func (f *fakeConn) Key() client.KeyInfo {
+	if f.key == "" {
+		return client.KeyInfo{}
+	}
+	return client.KeyInfo{Fingerprint: f.key, Source: "file", Path: "id_ed25519", By: "key: in " + client.ConfigFile}
 }
 
 type call struct {

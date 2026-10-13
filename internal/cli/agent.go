@@ -15,6 +15,7 @@ import (
 	"github.com/ariesworx/starfix/internal/agentsetup"
 	"github.com/ariesworx/starfix/internal/client"
 	"github.com/ariesworx/starfix/internal/mcpserver"
+	"github.com/ariesworx/starfix/internal/offline"
 	"github.com/ariesworx/starfix/internal/proto"
 )
 
@@ -38,7 +39,7 @@ func cmdPrime(ctx context.Context, r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
-	p, err := mcpserver.BuildPrime(ctx, c, r.env.Version)
+	p, err := mcpserver.BuildPrime(ctx, c, r.env.Version, r.outboxNotices(c)...)
 	if err != nil {
 		return err
 	}
@@ -104,6 +105,7 @@ type hookInput struct {
 // session id, else the environment, so the connection prime opens
 // registers the harness's session in the agents registry (`sfx who`).
 func (r *runner) primeHook(ctx context.Context, agent agentsetup.Agent) {
+	r.hook = true
 	in := readHookInput(r.env.Stdin)
 	if in.SessionID != "" && r.env.Getenv("STARFIX_SESSION") == "" {
 		r.session = in.SessionID
@@ -145,7 +147,7 @@ func (r *runner) primeText(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	p, err := mcpserver.BuildPrime(ctx, c, r.env.Version)
+	p, err := mcpserver.BuildPrime(ctx, c, r.env.Version, r.outboxNotices(c)...)
 	if err != nil {
 		return "", err
 	}
@@ -197,7 +199,12 @@ func cmdMCP(ctx context.Context, r *runner, args []string) error {
 	// Serve can dial, so a push never finds it nil.
 	var srv *mcpserver.Server
 	opts.OnPush = func(p proto.Push) { srv.Push(p) }
-	srv = mcpserver.New(mcpserver.Options{Version: r.env.Version, Dir: r.dir,
+	off := r.away()
+	off.Session = opts.Session
+	if r.noQueue || offline.NoQueue(r.env.Getenv) {
+		off = nil // writes that do not reach the server fail, as before there was an outbox
+	}
+	srv = mcpserver.New(mcpserver.Options{Version: r.env.Version, Dir: r.dir, Offline: off,
 		Dial: func(ctx context.Context) (mcpserver.Conn, error) {
 			return mcpserver.DialRepo(ctx, r.dir, opts)
 		}})

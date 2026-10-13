@@ -199,4 +199,9 @@ func TestDialIAPNoGcloud(t *testing.T) {
 		!strings.Contains(pe.Fix, "Google Cloud CLI") || !strings.Contains(pe.Fix, "gcloud auth login") {
 		t.Fatalf("Dial without gcloud = %#v, want unavailable, fix: install the Google Cloud CLI", err)
 	}
+	// A setup error, not an outage: no later attempt from this machine
+	// delivers a write, so none is queued for one.
+	if Unreachable(err) {
+		t.Errorf("Unreachable(%v) = true, want false", err)
+	}
 }

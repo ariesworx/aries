@@ -79,8 +79,13 @@ func cmdRemember(ctx context.Context, r *runner, args []string) error {
 		in.Pinned = pin
 	}
 	var out proto.WriteResult
-	if err := r.call(ctx, proto.OpRemember, in, &out); err != nil {
+	kept, err := r.send(ctx, proto.OpRemember, in, &out)
+	if err != nil {
 		return err
+	}
+	if kept != nil {
+		r.queued(kept)
+		return nil
 	}
 	return r.wroteMemory(in.Key, in.Scope, out)
 }

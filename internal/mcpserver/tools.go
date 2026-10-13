@@ -451,7 +451,7 @@ func (s *Server) register() {
 	add(s, tool{name: "prime", desc: "Start here: your work, inbox, top ready issues.", ann: readOnly, retry: true,
 		showsInbox: true},
 		func(ctx context.Context, c Conn, _ struct{}) (*Prime, error) {
-			return BuildPrime(ctx, c, s.opts.Version)
+			return BuildPrime(ctx, c, s.opts.Version, s.notices(c)...)
 		})
 	add(s, tool{name: "inbox", desc: "Lost claims, handoffs, mentions, assignments; ack marks read.", ann: idem, retry: true,
 		showsInbox: true},
