@@ -15,11 +15,13 @@ type workflow struct {
 	On   map[string]any `yaml:"on"`
 	Jobs map[string]struct {
 		Uses  string            `yaml:"uses"`
+		If    string            `yaml:"if"`
 		Needs any               `yaml:"needs"`
 		Env   map[string]string `yaml:"env"`
 		Steps []struct {
-			Uses string `yaml:"uses"`
-			Run  string `yaml:"run"`
+			Uses string            `yaml:"uses"`
+			Run  string            `yaml:"run"`
+			With map[string]string `yaml:"with"`
 		} `yaml:"steps"`
 	} `yaml:"jobs"`
 }
@@ -54,7 +56,7 @@ func needs(v any) []string {
 }
 
 // TestReleaseRunsGate pins the release gate: the CI gate runs on the tagged
-// commit, the build waits for it, and signing waits for the build.
+// commit and the build waits for it, in the run a pushed tag starts.
 func TestReleaseRunsGate(t *testing.T) {
 	rel := readWorkflow(t, "release.yml")
 	if got := rel.Jobs["gate"].Uses; got != "./.github/workflows/ci.yml" {
@@ -63,12 +65,67 @@ func TestReleaseRunsGate(t *testing.T) {
 	if got := needs(rel.Jobs["build"].Needs); !slices.Contains(got, "gate") {
 		t.Errorf("release.yml build needs %v, want gate", got)
 	}
-	if got := needs(rel.Jobs["sign-and-publish"].Needs); !slices.Contains(got, "build") {
-		t.Errorf("release.yml sign-and-publish needs %v, want build", got)
+	const onPush = "github.event_name == 'push'"
+	for _, job := range []string{"gate", "build"} {
+		if got := rel.Jobs[job].If; got != onPush {
+			t.Errorf("release.yml %s runs if %q, want %q: it belongs to the run a pushed tag starts", job, got, onPush)
+		}
 	}
 	ci := readWorkflow(t, "ci.yml")
 	if _, ok := ci.On["workflow_call"]; !ok {
 		t.Error("ci.yml cannot be called by release.yml: no workflow_call trigger")
+	}
+}
+
+// TestReleaseSigningIsApproved pins how a release is approved. Signing is
+// a run of its own, started by hand; it reads the key from the release
+// environment; and before anything else it checks who started it and that
+// the build run it was given is this tag's own, on this commit, and green.
+// The archives it signs are that run's and no other's.
+func TestReleaseSigningIsApproved(t *testing.T) {
+	rel := readWorkflow(t, "release.yml")
+	if _, ok := rel.On["workflow_dispatch"]; !ok {
+		t.Fatal("release.yml has no workflow_dispatch trigger: nothing starts the signing run")
+	}
+	sign, ok := rel.Jobs["sign-and-publish"]
+	if !ok {
+		t.Fatal("release.yml has no sign-and-publish job")
+	}
+	if want := "github.event_name == 'workflow_dispatch'"; sign.If != want {
+		t.Errorf("sign-and-publish runs if %q, want %q: a pushed tag must not sign by itself", sign.If, want)
+	}
+	if got := needs(sign.Needs); len(got) != 0 {
+		t.Errorf("sign-and-publish needs %v, want nothing: the build is another run, checked by its ID", got)
+	}
+	if len(sign.Steps) == 0 {
+		t.Fatal("sign-and-publish has no steps")
+	}
+	check := sign.Steps[0].Run
+	for _, want := range []string{
+		`"$ACTOR" != "$APPROVER"`, `"$TRIGGERING_ACTOR" != "$APPROVER"`, // who
+		`"$GITHUB_REF_TYPE" != tag`,                           // at a tag
+		`actions/runs/$BUILD_RUN`,                             // the run named
+		`.path, .event, .head_branch, .head_sha, .conclusion`, // what is compared
+		`.github/workflows/release.yml push $TAG $GITHUB_SHA success`,
+	} {
+		if !strings.Contains(check, want) {
+			t.Errorf("sign-and-publish's first step does not check %q", want)
+		}
+	}
+	var downloads int
+	for i, st := range sign.Steps {
+		if strings.Contains(st.Run, "STARFIX_RELEASE_KEY") && i == 0 {
+			t.Error("sign-and-publish reads the key in its first step, before its checks")
+		}
+		if strings.HasPrefix(st.Uses, "actions/download-artifact@") {
+			downloads++
+			if got, want := st.With["run-id"], "${{ inputs.build_run }}"; got != want {
+				t.Errorf("sign-and-publish downloads from run %q, want %q, the run its first step checked", got, want)
+			}
+		}
+	}
+	if downloads != 1 {
+		t.Errorf("sign-and-publish has %d download steps, want 1", downloads)
 	}
 }
 
