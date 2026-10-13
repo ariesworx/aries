@@ -41,6 +41,7 @@ import (
 	"github.com/ariesworx/starfix/internal/clienttest"
 	"github.com/ariesworx/starfix/internal/dolttest"
 	"github.com/ariesworx/starfix/internal/iaptest"
+	"github.com/ariesworx/starfix/internal/offline"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/server"
 	"github.com/ariesworx/starfix/internal/store"
@@ -118,6 +119,10 @@ type world struct {
 	// delivered: the connection drops after the server has answered
 	// (dropReplyTo).
 	dropOp string
+	// silentOp, when set, names an op whose next response is never
+	// sent, on a connection that stays open (silentAfter). connsMu
+	// guards it.
+	silentOp string
 
 	// opts are the daemon's options, kept so restartDaemon starts its
 	// successor alike; daemonMu guards stopDaemon, which stops the
@@ -430,6 +435,25 @@ func (w *world) startMany() error {
 	return nil
 }
 
+// stop stops the daemon and leaves the SSH server up, so that the bridge
+// finds no daemon: the server cannot be reached until start.
+func (w *world) stop() {
+	w.daemonMu.Lock()
+	defer w.daemonMu.Unlock()
+	w.stopDaemon()
+	w.stopDaemon = func() {} // until a new daemon starts, nothing runs to stop
+}
+
+// start starts a daemon on the world's database and socket after stop.
+func (w *world) start() {
+	w.t.Helper()
+	w.daemonMu.Lock()
+	defer w.daemonMu.Unlock()
+	if err := w.startDaemon(); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
 // restartDaemon stops the daemon, closing every connection to it, and
 // starts another on the same database and socket, as an operator's
 // restart would.
@@ -572,8 +596,19 @@ func (w *world) dropReplyTo(op string) {
 	w.dropOp = op
 }
 
-// tap watches one SSH connection's frames for dropReplyTo: reads note the
-// id of the request to drop, writes drop the connection at its response.
+// silentAfter arranges for the next request of op to be applied by the
+// server and never answered, on a connection that stays open: a server,
+// or a path to it, that stops answering. The client's own bound on the
+// request is then what ends it.
+func (w *world) silentAfter(op string) {
+	w.connsMu.Lock()
+	defer w.connsMu.Unlock()
+	w.silentOp = op
+}
+
+// tap watches one SSH connection's frames for dropReplyTo and
+// silentAfter: reads note the id of the request, writes drop the
+// connection at its response, or leave the response out.
 type tap struct {
 	w    *world
 	nc   net.Conn
@@ -581,8 +616,10 @@ type tap struct {
 	out  io.Writer
 	mu   sync.Mutex // guards drop, rbuf and wbuf
 	drop map[uint64]bool
-	rbuf []byte // partial request line
-	wbuf []byte // partial response line
+	// silent are the requests whose responses are left out.
+	silent map[uint64]bool
+	rbuf   []byte // partial request line
+	wbuf   []byte // partial response line
 }
 
 func (t *tap) Read(p []byte) (int, error) {
@@ -601,6 +638,10 @@ func (t *tap) Read(p []byte) (int, error) {
 			if f.Op == t.w.dropOp {
 				t.w.dropOp = ""
 				t.drop[f.ID] = true
+			}
+			if f.Op == t.w.silentOp {
+				t.w.silentOp = ""
+				t.silent[f.ID] = true
 			}
 			t.w.connsMu.Unlock()
 		}
@@ -623,6 +664,10 @@ func (t *tap) Write(p []byte) (int, error) {
 		if json.Unmarshal(line, &f) == nil && f.T == proto.FrameRes && t.drop[f.ID] {
 			_ = t.nc.Close()
 			return 0, errors.New("e2e: response dropped")
+		}
+		if f.T == proto.FrameRes && t.silent[f.ID] {
+			t.wbuf = t.wbuf[i+1:]
+			continue
 		}
 		if _, err := t.out.Write(line); err != nil {
 			return 0, err
@@ -678,7 +723,7 @@ func (w *world) serveSSH(ctx context.Context, nc net.Conn, cfg *ssh.ServerConfig
 				case "exec", "shell":
 					_ = req.Reply(true, nil)
 					status := uint32(0)
-					tp := &tap{w: w, nc: nc, in: ch, out: ch, drop: map[uint64]bool{}}
+					tp := &tap{w: w, nc: nc, in: ch, out: ch, drop: map[uint64]bool{}, silent: map[uint64]bool{}}
 					if err := server.Bridge(ctx, w.socket, principal, sc.Permissions.Extensions["key"], tp, tp); err != nil {
 						_, _ = fmt.Fprintf(ch.Stderr(), "starfixd: %v\n", err)
 						status = 1
@@ -709,6 +754,11 @@ type user struct {
 	terminal bool
 	// pubFile is the user's public key file, for `sfx admin key add`.
 	pubFile string
+	// queues gives the user's `sfx mcp` an outbox, as cmdMCP does.
+	queues bool
+	// key is the user's public key, for a test that has the server take
+	// it for another principal (world.byHand).
+	key ssh.PublicKey
 }
 
 // newUser makes a user with a new key, which the server maps to principal
@@ -758,7 +808,14 @@ func (w *world) newUserIn(principal, hostFpr, proj string) *user {
 	if err := os.WriteFile(filepath.Join(repo, ".starfix.yaml"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return &user{w: w, repo: repo, env: map[string]string{}, pubFile: pubFile}
+	// What the user queues while the server is away goes to a data
+	// directory of their own, as on their own machine: never to that of
+	// whoever runs the tests.
+	data := t.TempDir()
+	if err := os.Chmod(data, 0o700); err != nil { //nolint:gosec // a directory: 0700 is owner-only
+		t.Fatal(err)
+	}
+	return &user{w: w, repo: repo, env: map[string]string{offline.EnvDataDir: data}, pubFile: pubFile, key: signer.PublicKey()}
 }
 
 // result is one CLI run's exit code and output.

@@ -14,7 +14,7 @@ import (
 // keeps them from the developer's ~/.ssh and ssh-agent.
 func TestEveryConnectingPackageIsIsolated(t *testing.T) {
 	const module = `"github.com/ariesworx/starfix/internal/`
-	connects := []string{module + `client"`, module + `cli"`, module + `mcpserver"`, module + `board"`}
+	connects := []string{module + `client"`, module + `cli"`, module + `mcpserver"`, module + `board"`, module + `offline"`}
 	needs, has := map[string]string{}, map[string]bool{}
 	root := filepath.Join("..", "..")
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -64,6 +64,8 @@ func TestIsolate(t *testing.T) {
 	t.Setenv("HOME", "/somebody/else")
 	t.Setenv("SSH_AUTH_SOCK", "/tmp/somebody.sock")
 	t.Setenv("STARFIX_KEY_FILE", "/somebody/else/.ssh/id_ed25519")
+	t.Setenv("STARFIX_DATA_DIR", "/somebody/else/data")
+	t.Setenv("STARFIX_NO_QUEUE", "1")
 	restore := Isolate()
 	home, err := os.UserHomeDir()
 	if err != nil || home == "/somebody/else" {
@@ -75,7 +77,13 @@ func TestIsolate(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, ".ssh")); !os.IsNotExist(err) {
 		t.Errorf("the isolated home has a .ssh: %v", err)
 	}
-	for _, k := range []string{"SSH_AUTH_SOCK", "STARFIX_KEY_FILE", "STARFIX_KEY"} {
+	// What a test queues goes to a directory of the test binary's own,
+	// never to the outbox of whoever runs the tests.
+	data := os.Getenv("STARFIX_DATA_DIR")
+	if st, err := os.Stat(data); err != nil || !st.IsDir() || data == "/somebody/else/data" || data == home { //nolint:gosec // the directory Isolate just made
+		t.Errorf("STARFIX_DATA_DIR under Isolate = %q (%v), want a directory of the test's own, apart from its home", data, err)
+	}
+	for _, k := range []string{"SSH_AUTH_SOCK", "STARFIX_KEY_FILE", "STARFIX_KEY", "STARFIX_NO_QUEUE"} {
 		if v, ok := os.LookupEnv(k); ok {
 			t.Errorf("%s = %q under Isolate, want it unset", k, v)
 		}
@@ -87,7 +95,12 @@ func TestIsolate(t *testing.T) {
 	if got := os.Getenv("SSH_AUTH_SOCK"); got != "/tmp/somebody.sock" {
 		t.Errorf("SSH_AUTH_SOCK after restore = %q, want what it was", got)
 	}
-	if _, err := os.Stat(home); !os.IsNotExist(err) {
-		t.Errorf("the isolated home is still there after restore: %v", err)
+	if got := os.Getenv("STARFIX_DATA_DIR"); got != "/somebody/else/data" {
+		t.Errorf("STARFIX_DATA_DIR after restore = %q, want what it was", got)
+	}
+	for _, dir := range []string{home, data} {
+		if _, err := os.Stat(dir); !os.IsNotExist(err) { //nolint:gosec // the directories Isolate made
+			t.Errorf("%s is still there after restore: %v", dir, err)
+		}
 	}
 }

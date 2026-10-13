@@ -260,6 +260,50 @@ and is redialed if it drops. Reads, `create`, `comment`, `finish`,
 connection, since a retry cannot write twice. `start`, `update`, `close`, `reopen`, `dep` and
 `label` report that they may have applied.
 
+### When the server cannot be reached
+
+When `create`, `comment`, `handoff`, `remember` or `finish` cannot reach
+the server, `sfx mcp` keeps the write in the outbox on the machine
+([When the server cannot be reached](cli.md#when-the-server-cannot-be-reached))
+and the tool returns one line, which is not an error:
+
+```text
+queued: starfix cannot reach its server, so this finish waits on this machine and is sent when the server answers. Carry on, and do not repeat it.
+```
+
+Its structured content is `{"queued": true, "op": …, "entry": …}`, and
+never an `id` and a `rev`. A queued `create` adds that the issue has no id
+until then, so nothing can refer to it. The agent is told to carry on:
+it finishes what it holds and files what it finds.
+
+Nothing else is queued. `start` fails, and tells the agent that it was
+not queued and to go on with the work it holds: no claim is taken
+without the server. A write the outbox refuses (text that looks like a
+credential, an outbox that is full, a machine that has never reached the
+server with this key) is an error whose fix is the agent's next step, or
+to tell the user.
+
+The session's next connection sends what waits first, in order, before
+the call that opened it, for five seconds at most, and the rest in the
+background between calls. A session that makes no call still connects,
+when its renewal comes round each minute, if something waits. What a
+session has not sent when it ends stays in the outbox, and the next
+`sfx` command or session of the same principal on that machine sends it.
+
+There is no tool for the outbox, and the agent is never asked to manage
+it. A person hears of it through `prime`: when writes wait, or the
+server refused some, `prime` has one more notice, in the tool's result
+and in the session-start hook's context alike:
+
+```text
+outbox: 1 write made while the server was away was refused and 2 wait to be sent: tell the user to run `sfx outbox`
+```
+
+`sfx --no-queue mcp`, or `STARFIX_NO_QUEUE=1` in the server's
+environment, turns the outbox off for a session: its writes then fail
+when the server is away, as they did before. The hooks never queue and
+never send what waits.
+
 ## Sessions
 
 The server knows the principal from the SSH key. The session id comes

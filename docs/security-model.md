@@ -759,6 +759,89 @@ conversation, so it is built to take only counts from them
   file's first 4 KiB, nothing of their content. It is mode 0600 in a 0700
   directory.
 
+## The outbox
+
+A write that cannot reach the server is kept on your machine and sent
+later ([When the server cannot be reached](cli.md#when-the-server-cannot-be-reached)).
+Before this, `sfx` kept nothing of who you are and nothing you wrote on
+your disk: its only file was the offsets file above, in the cache
+directory. The outbox and the record beside it are the first.
+
+- **What it holds.** The queued writes as they would have been sent: the
+  text of handoffs, comments, new issues, memories and hours notes, with
+  the ids they name, the session and machine that wrote them, and when.
+  They are plain files, not encrypted: whoever can read your account's
+  files can read them, as they can your repository. Beside them are
+  counts (op names, numbers and durations, no text) and what the server
+  answered a refused write.
+- **Where, and for whom.** Under your data directory (`STARFIX_DATA_DIR`
+  names another), never in a repository, in files of mode 0600 in
+  directories of mode 0700: one directory for each server and project,
+  named by a hash of the server's pinned host key and the project's id,
+  and in it one outbox for each principal, named by a hash of the
+  principal's name. On Linux and macOS `sfx` checks, before every use,
+  that each of those directories is owned by you and closed to the group
+  and to others, as it checks a key file's owner; it refuses otherwise,
+  with a fix, and never changes the mode of a directory it finds open.
+  On Windows it checks nothing: ownership and access are in access
+  control lists, which `sfx` does not read, and the local application
+  data directory is your own by default.
+- **Secrets are refused before anything is written.** Every string of a
+  write is run through the check the server runs on memories
+  ([Secrets](#secrets)); one that looks like a credential is refused and
+  not queued, and the refusal names the kind, never the text. The server
+  runs that check on memories only, so the outbox refuses text in a
+  comment or a handoff that the server would have taken. The same limits
+  apply: it is a guard against mistakes.
+- **How long.** Until the server answers the write, or you drop it. A
+  delivered write is deleted from the outbox at the end of that replay.
+  A refused one stays, with the server's code, message and fix, until
+  you retry or drop it. One that waited 24 hours is not sent and stays
+  as refused. `sfx outbox drop N` deletes an entry: the outbox is
+  rewritten without it, and it is never sent. It is an ordinary delete,
+  not a secure erase: the bytes may remain on the disk, and in its
+  backups, as with any file. Nothing removes an outbox when your access
+  to a project ends; its entries are then refused when sent, and stay
+  until you drop them. At most 1,000 entries and 4 MiB wait in one.
+- **Whose it is.** Only the server says which principal a key is. So at
+  each connection `sfx` writes a record, `seen.json`, in the server and
+  project's directory. It holds the server's pinned host key
+  fingerprint, the project's id, a format version, and for each key the
+  server accepted from this machine its public fingerprint, the
+  principal's name and when that was last confirmed (at most 32 keys);
+  and which fingerprint was accepted the last time no key was
+  configured. It holds no private key, no path to one and no token.
+  Beside it, a file holds the time the server was last not reached, and
+  one small file for each outbox holds its principal's name. While the
+  server is away a write goes to the outbox of the principal recorded
+  for the configured key, or, with none configured, for the key accepted
+  last time, if `sfx` would still offer it; with no such record nothing
+  is queued.
+- **One principal's writes are never sent as another's.** An outbox is
+  sent only on a connection the server takes for the outbox's own
+  principal, whichever key `STARFIX_KEY_FILE` or `key:` names by then.
+  When the server has given a key to another principal, what the first
+  one queued with it is left unsent, and `sfx` says so. A queued write
+  is sent with the arguments it had, and the server applies it as the
+  principal of the connection, with that connection's session and
+  machine: the outbox carries no identity to the server.
+- **What the record is trusted for.** Only for choosing an outbox. A
+  record that is wrong, or that someone with your account's access
+  rewrote, can put a write in the wrong principal's outbox on your
+  machine, where it waits for a connection of that principal; it cannot
+  make the server take you for anyone, since the server decides that
+  from the key alone.
+- **Several people on one machine** are kept apart by the operating
+  system: each account has its own data directory, which the check above
+  holds to its owner. **Two accounts that share one home directory** (a
+  container or a CI runner that mounts a home it reuses) share the
+  outbox and the record, and are outside what this protects: give each
+  its own `STARFIX_DATA_DIR`, or set `STARFIX_NO_QUEUE=1`. A machine
+  that is lost takes its outbox with it; nothing replicates it.
+- **Agents.** A queued tool call tells the agent it was queued and to
+  carry on. No MCP tool lists, retries or drops entries: that is
+  `sfx outbox`, for a person.
+
 ## Limits
 
 Every principal is bounded: write rates, `sfx admin` changes, a

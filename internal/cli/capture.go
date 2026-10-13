@@ -62,7 +62,7 @@ func (r *runner) usageHook(ctx context.Context) {
 	if in.Cwd != "" && r.dir == "." {
 		r.dir = in.Cwd
 	}
-	r.quiet = true
+	r.quiet, r.hook = true, true
 	ctx, cancel := context.WithTimeout(ctx, usageTimeout(in.HookEventName))
 	defer cancel()
 	res, err := r.captureClaude(ctx, in)
