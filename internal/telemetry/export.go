@@ -35,12 +35,41 @@ func (g *guarded) Export(ctx context.Context, rm *metricdata.ResourceMetrics) er
 			// export, which follows, carries the totals.
 			return nil
 		}
-		g.t.Count(Dropped, SignalMetrics)
+		g.t.droppedMetrics()
 		g.t.errs.failed(logs.TelemetryExportFailed, "telemetry: a metrics export failed; the next one carries the same totals", err)
 		return nil
 	}
 	g.t.errs.ok()
 	return nil
+}
+
+// droppedMetrics counts one failed export of the metrics. The periodic
+// reader exports on its own goroutine from the moment New makes it, which
+// is before build has made the instruments: with a short interval and a
+// collector that is down, its first failure comes while they are being
+// made. Such a failure is kept, and counted once they are (built).
+func (t *Telemetry) droppedMetrics() {
+	t.buildMu.Lock()
+	if !t.built {
+		t.early++
+		t.buildMu.Unlock()
+		return
+	}
+	t.buildMu.Unlock()
+	t.Count(Dropped, SignalMetrics)
+}
+
+// builtInstruments says the instruments are made, and counts the exports
+// that failed while they were being made (droppedMetrics).
+func (t *Telemetry) builtInstruments() {
+	t.buildMu.Lock()
+	t.built = true
+	early := t.early
+	t.early = 0
+	t.buildMu.Unlock()
+	for range early {
+		t.Count(Dropped, SignalMetrics)
+	}
 }
 
 // errEvery is how often a failure that keeps happening is logged again.
