@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"math/rand/v2"
 	"reflect"
 	"regexp"
@@ -156,6 +157,8 @@ func (s *soak) setup() {
 	}
 	s.users["frank"] = enroll("frank", "c", keyFile, false)
 	s.eve = enroll("eve", "abc", keyFile, false)
+	// Every request above was answered.
+	s.answered()
 }
 
 // connSet is the sessions' open connections, by whose they are.
@@ -196,23 +199,63 @@ func (cs *connSet) of(match func(principal, project string) bool) []*mcpserver.R
 
 // dialRec is one handshake a session tried: when, and how it ended.
 type dialRec struct {
-	who        sessKey
-	p          *sproj
-	start, end time.Time // on the store's clock
-	welcomed   bool
-	code       proto.Code // the refusal's, when the server or sshd refused
+	who sessKey
+	p   *sproj
+	// start and end are when it was made, as the run reckons the store's
+	// time (vclock.now): for the report, and never for the verdict, since
+	// that reckoning is not the control store's own time.
+	start, end time.Time
+	// known is the last event of the control log that the server had
+	// answered for when the handshake began (soak.ctlKnown), and seen
+	// the last the log held when it ended, or unknownSeq.
+	known, seen int64
+	welcomed    bool
+	code        proto.Code // the refusal's, when the server or sshd refused
 }
+
+// unknownSeq stands for a place in the control log that could not be
+// read: later than every event.
+const unknownSeq = math.MaxInt64
 
 // dialed records a session's handshake, and its connection when it was
 // let in.
-func (s *soak) dialed(ss *session, start time.Time, c *mcpserver.RepoConn, err error) {
-	d := dialRec{who: ss.key, p: ss.p, start: start, end: s.clock.now(), welcomed: err == nil}
+func (s *soak) dialed(ss *session, known int64, start time.Time, c *mcpserver.RepoConn, err error) {
+	d := dialRec{who: ss.key, p: ss.p, start: start, end: s.clock.now(), known: known, seen: unknownSeq, welcomed: err == nil}
+	if seq, ok := s.ctlSeq(); ok {
+		d.seen = seq
+	}
 	if pe, ok := errors.AsType[*proto.Error](err); ok {
 		d.code = pe.Code
 	}
 	s.mon.dialed(d)
 	if err == nil {
 		s.open.add(ss.key.principal, ss.p, c)
+	}
+}
+
+// ctlSeq reads the last event of the control log, as it is committed
+// now.
+func (s *soak) ctlSeq() (int64, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+	defer cancel()
+	var seq int64
+	err := s.cdb.QueryRowContext(ctx, `SELECT seq FROM events ORDER BY seq DESC LIMIT 1`).Scan(&seq)
+	return seq, err == nil
+}
+
+// answered notes that the server has answered an admin's request, and
+// with it for every event the control log now holds: the server answers
+// a change once its memory has taken it, and only the conductor, one
+// request at a time, changes what a handshake is answered from. The only
+// other writes to the control store are the daemon's clock.step events,
+// which change no one's access.
+func (s *soak) answered() {
+	seq, ok := s.ctlSeq()
+	for ok {
+		cur := s.ctlKnown.Load()
+		if seq <= cur || s.ctlKnown.CompareAndSwap(cur, seq) {
+			return
+		}
 	}
 }
 
@@ -336,6 +379,9 @@ func (ac *acall) do(op string, args, res any) (out outcome, perr *proto.Error, r
 		if out == refused && perr.Code == proto.CodeUnavailable &&
 			(ac.s.restarting.Load() != restarts || ac.s.restarting.Load() > ac.s.stats.restarts.Load()) {
 			out, perr = lost, nil
+		}
+		if out == acked {
+			ac.s.answered()
 		}
 		if out != lost {
 			return out, perr, resent
@@ -882,7 +928,13 @@ func (cd *conductor) archive() {
 	cd.dial("alice", p, proto.CodeNotFound, why)
 	cd.dial(s.cfg.admin, p, proto.CodeNotFound, why)
 	cd.storeCloses(why, p)
-	closed := s.clock.now()
+	// The time of the project's latest event, which is its store's own:
+	// a claim taken later is dated later, whatever the run's reckoning of
+	// that time says, which may be minutes ahead of it after a restart.
+	var closed time.Time
+	if err := p.db.QueryRowContext(context.Background(), `SELECT at FROM events ORDER BY seq DESC LIMIT 1`).Scan(&closed); err != nil {
+		s.t.Errorf("read the latest event of project %s: %v", p.name, err)
+	}
 	// Every claim has ended, the one a request in flight took after the
 	// admin's release included. Before decision 24 this was asked only
 	// when the store was open with connections and the one daemon made
@@ -1055,6 +1107,12 @@ func (cd *conductor) status() {
 // checkLost: every claim of p that ended because its holder lost access
 // did so for a reason the control store's log bears out, at the hand of
 // the admin who ended the access or of the server itself.
+//
+// It places an event of the project's log against the control log by
+// their times, which a server's stores share (store.Clock), give or
+// take eps; but for an event the project's store wrote before it had
+// settled a jump of the clock that the control store had, which is
+// dated the jump earlier than what caused it (behindJump).
 func (s *soak) checkLost(p *sproj) {
 	c := s.ctl
 	c.mu.Lock()
@@ -1066,10 +1124,11 @@ func (s *soak) checkLost(p *sproj) {
 		if from.IsZero() || from.After(l.at) {
 			from = l.at
 		}
-		lacked := slices.ContainsFunc(c.instants(who, p.id, "", from, l.at.Add(eps)), func(t time.Time) bool { return c.lacks(who, p.id, l.reason, t) })
+		until := l.at.Add(behindJump(l.seq, l.at, p.rep.settles, c.settles, eps) + eps)
+		lacked := slices.ContainsFunc(c.instants(who, p.id, "", from, until), func(t time.Time) bool { return c.lacks(who, p.id, l.reason, t) })
 		if !lacked {
 			s.mon.fail(l.issue, "event %d released %s's claim on %s for %q, but the control log shows no such loss of access while it was held (%s to %s)",
-				l.seq, l.holder, l.issue, l.reason, stamp(from), stamp(l.at))
+				l.seq, l.holder, l.issue, l.reason, stamp(from), stamp(until.Add(-eps)))
 		}
 		if l.by == (sessKey{"starfixd", "access"}) {
 			continue
@@ -1077,11 +1136,11 @@ func (s *soak) checkLost(p *sproj) {
 		var admin string
 		switch l.reason {
 		case lostMembership:
-			admin = c.lastBy(store.OpMemberRemove, p.id+"/"+who, l.at.Add(eps))
+			admin = c.lastBy(store.OpMemberRemove, p.id+"/"+who, until)
 		case lostDisabled:
-			admin = c.lastBy(store.OpPrincipalDisable, who, l.at.Add(eps))
+			admin = c.lastBy(store.OpPrincipalDisable, who, until)
 		case lostArchived:
-			admin = c.lastBy(store.OpProjectArchive, p.id, l.at.Add(eps))
+			admin = c.lastBy(store.OpProjectArchive, p.id, until)
 		}
 		if admin != l.by.principal {
 			s.mon.fail(l.issue, "event %d: %s released %s's claim on %s for %q, but the control log says the access was last ended by %q",
@@ -1089,7 +1148,8 @@ func (s *soak) checkLost(p *sproj) {
 		}
 	}
 	for _, o := range p.rep.overrides {
-		ok := slices.ContainsFunc(c.instants(o.by.principal, p.id, "", o.at.Add(-eps), o.at.Add(eps)), func(t time.Time) bool {
+		until := o.at.Add(behindJump(o.seq, o.at, p.rep.settles, c.settles, eps) + eps)
+		ok := slices.ContainsFunc(c.instants(o.by.principal, p.id, "", o.at.Add(-eps), until), func(t time.Time) bool {
 			return c.adminOf(o.by.principal, p.id, t)
 		})
 		if !ok {
@@ -1120,33 +1180,67 @@ func (s *soak) keysFileLines() map[string]string {
 
 // checkDials: no session was let into a project while the control log
 // says it had no access to it, and none was refused one it had access
-// to. A handshake that overlaps a change, give or take eps, proves
-// nothing either way. A refusal with auth is not judged: it is sshd's,
-// which has no line for the key, or the daemon's of a key the store no
-// longer holds.
+// to. A refusal with auth is not judged: it is sshd's, which has no line
+// for the key, or the daemon's of a key the store no longer holds.
 func (s *soak) checkDials() {
 	c := s.ctl
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	eps := s.eps()
 	s.mon.mu.Lock()
 	dials := slices.Clone(s.mon.dials)
 	s.mon.mu.Unlock()
 	for _, d := range dials {
-		who := d.who.principal
-		key := s.storeKey[who]
-		at := c.instants(who, d.p.id, key, d.start.Add(-eps), d.end)
-		admitted := func(t time.Time) bool { return c.admitted(who, d.p.id, key, t) }
-		switch {
-		case d.welcomed && !slices.ContainsFunc(at, admitted):
-			s.mon.fail("", "%s was let into project %s by a handshake from %s to %s, when the control log gives it no access",
-				d.who, d.p.name, stamp(d.start), stamp(d.end))
-		case !d.welcomed && (d.code == proto.CodeForbidden || d.code == proto.CodeNotFound) &&
-			!slices.ContainsFunc(at, func(t time.Time) bool { return !admitted(t) }):
-			s.mon.fail("", "%s was refused project %s (%s) by a handshake from %s to %s, when the control log gives it access throughout",
-				d.who, d.p.name, d.code, stamp(d.start), stamp(d.end))
+		if msg := c.dialFault(d, s.storeKey[d.who.principal]); msg != "" {
+			s.mon.fail("", "%s", msg)
 		}
 	}
+}
+
+// dialFault returns what is wrong with the answer a handshake got, by
+// the control log, or "". key, when set, is the fingerprint of the only
+// key the principal signs in with, which the store must hold for it.
+//
+// It reckons on the log's order and on no time. The server answers a
+// handshake from its memory of the control store, which takes each
+// change as the change commits, in the log's order. So the memory that
+// answered held every event up to d.known, which the server had answered
+// an admin for before the handshake began, and none after d.seen, which
+// is all the log held when the handshake had ended; where it stood
+// between the two is not known. A handshake let in must have had access
+// after one of those events, and one refused must have lacked it after
+// one.
+//
+// The times of a handshake are the run's reckoning (vclock.now) and the
+// times of the log are the control store's, and the two are not one
+// clock: after a restart with the clock set back the run's is ahead by
+// as long as the daemon took to stop and start, which on a loaded
+// machine is minutes at the soak's speed. Judged by time, a session let
+// in just before a project was archived was let in after it.
+func (c *ctlReplay) dialFault(d dialRec, key string) string {
+	who := d.who.principal
+	lo, hi := d.known, max(d.known, min(d.seen, c.seq))
+	at := []int64{lo}
+	at = append(at, c.projState[d.p.id].changed(lo, hi)...)
+	at = append(at, c.prinState[who].changed(lo, hi)...)
+	at = append(at, c.roles[mkey{who, d.p.id}].changed(lo, hi)...)
+	if key != "" {
+		at = append(at, c.keyOf[key].changed(lo, hi)...)
+	}
+	admitted := func(seq int64) bool { return c.admitted(who, d.p.id, key, seq) }
+	between := fmt.Sprintf("after event %d", lo)
+	if hi > lo {
+		between = fmt.Sprintf("after any of events %d to %d", lo, hi)
+	}
+	switch {
+	case d.welcomed && !slices.ContainsFunc(at, admitted):
+		return fmt.Sprintf("%s was let into project %s by a handshake from %s to %s, when the control log gives it no access %s",
+			d.who, d.p.name, stamp(d.start), stamp(d.end), between)
+	case !d.welcomed && (d.code == proto.CodeForbidden || d.code == proto.CodeNotFound) &&
+		!slices.ContainsFunc(at, func(seq int64) bool { return !admitted(seq) }):
+		return fmt.Sprintf("%s was refused project %s (%s) by a handshake from %s to %s, when the control log gives it access %s",
+			d.who, d.p.name, d.code, stamp(d.start), stamp(d.end), between)
+	}
+	return ""
 }
 
 // checkControl: at rest, the daemon's memory of the control store, which

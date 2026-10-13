@@ -49,6 +49,7 @@ func TestJumpFaults(t *testing.T) {
 		name   string
 		lease  time.Time // of sb-1 at epoch 2, before the jump
 		events []sevent
+		slow   bool     // the clock was behind the store's time at the jump
 		want   []string // a part of each fault's message, in order
 	}{
 		{name: "a lease that ran out before the store settled the jump is reaped as it was", lease: lease,
@@ -72,11 +73,24 @@ func TestJumpFaults(t *testing.T) {
 		{name: "a settle on the jumped time", lease: lease,
 			events: []sevent{settle(3038, reaped, d), expire(3049, reaped.Add(time.Second), "sb-1", 2, lease)},
 			want:   []string{"event 3038 (clock.step on clock) is at 23:11:32.194320"}},
+		// A store whose time ran slow moves by less than the jump, and says
+		// by how much in its clock.step.
+		{name: "a store that ran slow extends a live lease by what its settle says", lease: live, slow: true,
+			events: []sevent{settle(3038, settled, d-5*time.Minute), expire(3049, reaped, "sb-1", 2, live.Add(d-5*time.Minute))}},
+		{name: "a store that ran slow and did not extend a live lease by what its settle says", lease: live, slow: true,
+			events: []sevent{settle(3038, settled, d-5*time.Minute), expire(3049, reaped, "sb-1", 2, live.Add(time.Minute))},
+			want:   []string{"event 3049: the reaper ended"}},
+		{name: "a store that ran slow is not held to a time the run cannot know", lease: lease, slow: true,
+			events: []sevent{expire(3037, reaped, "sb-1", 2, lease), settle(3038, reaped, 0)}},
 		{name: "another claim's lease, and a later epoch of the same issue", lease: live,
 			events: []sevent{settle(3038, settled, d), expire(3049, reaped, "sb-2", 2, live), expire(3051, reaped, "sb-1", 3, live)}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			unjumped := unjumped
+			if tc.slow {
+				unjumped = time.Time{}
+			}
 			got := jumpFaults(d, map[leased]time.Time{{"sb-1", 2}: tc.lease}, tc.events, unjumped)
 			ok := len(got) == len(tc.want)
 			for i := 0; ok && i < len(got); i++ {
