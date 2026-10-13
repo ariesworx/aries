@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -166,6 +167,106 @@ func TestStatusWithDoltFrozen(t *testing.T) {
 			t.Errorf("%s sessions once Dolt answers again = %s, unknown %q; want %d", name, js(p.Sessions), p.SessionsUnknown, want)
 		}
 	}
+}
+
+// `sfx` connects anew for each command, so what an admin's `sfx admin
+// status` meets while Dolt does not answer is a new connection. To a
+// project whose store is open it is welcomed and answered within the
+// status bound. To one whose store is closed it is refused as quickly,
+// told that the database does not answer and to run `starfixd status`
+// on the server, and no store is opened. Any other request is refused
+// when it runs out of time, as on an older connection, and once Dolt
+// answers again the session is in who.
+func TestNewConnectionWithDoltFrozen(t *testing.T) {
+	// Long enough for a request once Dolt answers again on a busy
+	// machine, and short enough to wait out here.
+	const timeout = 4 * time.Second
+	m := adminWorld(t, Limits{})
+	m.cfg.RequestTimeout = timeout
+	if !mustDialTo(t, m.Server, dana, projA).alive() { // project a's store is open, b's closed
+		t.Fatal("project a's first connection does not answer")
+	}
+	// Another session of a's, as each command of `sfx` outside a
+	// harness is not, but as each test connection here must be.
+	another := func(a store.Actor, suffix string) store.Actor {
+		a.Session += suffix
+		return a
+	}
+
+	thaw := freeze(t, dolt, m.ctl.Ping)
+
+	t.Run("status, store open", func(t *testing.T) {
+		start := time.Now()
+		c := mustDialTo(t, m.Server, another(dana, "-open"), projA)
+		res, perr := ask[proto.StatusResult](c, proto.OpStatus, proto.StatusArgs{})
+		took := time.Since(start)
+		t.Logf("new connection, store open: status after %s", took.Round(time.Millisecond))
+		if perr != nil {
+			t.Fatalf("status on a new connection with Dolt frozen = %v, want a report", perr)
+		}
+		if took > statusBound {
+			t.Errorf("status on a new connection with Dolt frozen took %s, want at most %s", took.Round(time.Millisecond), statusBound)
+		}
+		ps := byName(res)
+		if a, b := ps["proj-a"], ps["proj-b"]; res.Server == nil || !a.Open || a.SessionsUnknown != unanswered || b.Open {
+			t.Errorf("status on a new connection with Dolt frozen = %s; want the server, proj-a open with its sessions unknown (%q), and proj-b closed", js(res), unanswered)
+		}
+	})
+
+	t.Run("status, store closed", func(t *testing.T) {
+		start := time.Now()
+		w, _ := dialTo(t, m.Server, another(dana, "-closed"), projB)
+		took := time.Since(start)
+		t.Logf("new connection, store closed: refused after %s", took.Round(time.Millisecond))
+		if took > statusBound {
+			t.Errorf("the answer to a hello for a closed store with Dolt frozen took %s, want at most %s", took.Round(time.Millisecond), statusBound)
+		}
+		if e := w.Err; e == nil || e.Code != proto.CodeUnavailable || !strings.Contains(e.Message, "database does not answer") ||
+			!strings.Contains(e.Message, projB) || !strings.Contains(e.Fix, "`starfixd status` on the server") {
+			t.Errorf("welcome for a closed store with Dolt frozen has error %+v; want unavailable, saying the database does not answer and naming the project, with a fix naming `starfixd status` on the server", e)
+		}
+		if n := m.opened(projB); n != 0 {
+			t.Errorf("project b's store was opened %d times with Dolt frozen, want 0", n)
+		}
+		if got := m.OpenStores(); got != 1 {
+			t.Errorf("open stores = %d, want 1: nothing is left of the refused opening", got)
+		}
+		if log := m.log.String(); !strings.Contains(log, "event=dolt.check_failed") {
+			t.Errorf("the log does not say the check of Dolt failed:\n%s", log)
+		}
+	})
+
+	t.Run("another request, store open", func(t *testing.T) {
+		start := time.Now()
+		c := mustDialTo(t, m.Server, alice, projA)
+		if took := time.Since(start); took > statusBound {
+			t.Errorf("the welcome with Dolt frozen took %s, want it at once", took.Round(time.Millisecond))
+		}
+		_, perr := ask[proto.ListResult](c, proto.OpList, proto.ListArgs{})
+		took := time.Since(start)
+		t.Logf("new connection, store open: list refused after %s, of a request timeout of %s", took.Round(time.Millisecond), timeout)
+		if perr == nil || perr.Code != proto.CodeUnavailable || perr.Message != "the server timed out on list" || !strings.HasPrefix(perr.Fix, "retry") {
+			t.Errorf("list on a new connection with Dolt frozen = %+v; want unavailable, timed out, with a fix to retry", perr)
+		}
+		if took < timeout || took > timeout+statusBound {
+			t.Errorf("list on a new connection with Dolt frozen was refused after %s; want the request timeout, %s, and at most %s more", took.Round(time.Millisecond), timeout, statusBound)
+		}
+
+		thaw()
+		waitUntil(t, "dolt answers again", func() bool {
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			defer cancel()
+			return m.ctl.Ping(ctx) == nil
+		})
+		who := mustAsk[proto.WhoResult](c, proto.OpWho, proto.WhoArgs{})
+		var sessions []string
+		for _, g := range who.Agents {
+			sessions = append(sessions, g.Principal+"/"+g.Session)
+		}
+		if want := alice.Principal + "/" + alice.Session; !slices.Contains(sessions, want) {
+			t.Errorf("who once Dolt answers again lists %v, want %s among them", sessions, want)
+		}
+	})
 }
 
 // One store whose database does not answer costs the report its own

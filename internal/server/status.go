@@ -37,7 +37,9 @@ import (
 // whatever Dolt is doing. It is the bound /readyz gives its own check of
 // Dolt (doltCheckTimeout): a count on an index that has not come back
 // in two seconds is not coming, and someone asking why the server is
-// slow should not wait longer than that to be told.
+// slow should not wait longer than that to be told. On a connection it
+// covers the wait for the note of the asker's session as well
+// (presence.ensure).
 const statusReadTimeout = 2 * time.Second
 
 // Why a project's sessions are unknown (proto.ProjectStatus): the read
@@ -67,12 +69,18 @@ func status(ctx context.Context, s *Server, sess *session, in proto.StatusArgs) 
 			"ask a server admin, or an admin of the project you want to know about, to run `sfx admin status`",
 			fmt.Sprintf("%s may not see the server's status: it is for server admins, and for project admins about their own projects", actor))
 	}
-	return s.report(ctx, rows, admin, in)
+	return s.report(ctx, rows, admin, in, sess.statusBy)
 }
 
 // report is the status of the projects rows, sorted by name, as in pages
-// them, and of the server itself when server is set.
-func (s *Server) report(ctx context.Context, rows []store.Project, server bool, in proto.StatusArgs) (any, *proto.Error) {
+// them, and of the server itself when server is set. by is when its
+// reads of the database give up, for a caller that has already spent
+// part of statusReadTimeout waiting on Dolt; the zero time is
+// statusReadTimeout from now.
+func (s *Server) report(ctx context.Context, rows []store.Project, server bool, in proto.StatusArgs, by time.Time) (any, *proto.Error) {
+	if by.IsZero() {
+		by = time.Now().Add(statusReadTimeout)
+	}
 	rows, more, perr := page(rows, func(p store.Project) string { return p.Name }, in.AdminListArgs)
 	if perr != nil {
 		return nil, perr
@@ -105,7 +113,7 @@ func (s *Server) report(ctx context.Context, rows []store.Project, server bool, 
 	}
 	// The reads share one deadline and run at once, each writing its own
 	// project's row.
-	rctx, cancel := context.WithTimeout(ctx, statusReadTimeout)
+	rctx, cancel := context.WithDeadline(ctx, by)
 	defer cancel()
 	s.eachAtOnce(func(pr *served) {
 		i, ok := at[pr.id]
