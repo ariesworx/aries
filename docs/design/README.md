@@ -10,6 +10,7 @@ These documents say why starfix is built the way it is. The user guides in
 | [bearings.md](bearings.md) | Bearings, the orchestrator planned on top of starfix, for Linux and macOS (Windows through WSL2): components, defaults, plan, decisions and open questions |
 | [enterprise-review.md](enterprise-review.md) | A review of `sfx`, `starfixd` and Bearings against the goal of a tool a team or an enterprise can use, as of 12 October 2026: what is built, what is only designed, what is missing, and what to do first. It decides nothing |
 | [access-research.md](access-research.md) | Research, 13 October 2026: how people and agents could sign in to a server (keys, a company's certificates, a sign-on by `sfx login`, OpenPubkey, brokers), each identity provider, managing users, the operator's journey and the threats, with what was measured in Docker. It decides nothing and nothing in it is built |
+| [ci-analysis.md](ci-analysis.md) | Research, 13 October 2026: where CI and the test suite spend time, CPU and memory, from GitHub's records and from runs on one machine; what pull request #92 changed; what a test run leaves behind; profiles of the test binaries; and changes to the workflows, ranked. It decides nothing and nothing in it is built |
 | [spike/dolt/RESULTS.md](../../spike/dolt/RESULTS.md) | Stage 0: how Dolt behaves under concurrent writers, and the rules starfixd follows because of it |
 
 ## How the documents change
