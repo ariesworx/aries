@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -772,6 +773,208 @@ func TestTwoForwardStepsWhileStoreClosedAreSettledOnce(t *testing.T) {
 	}
 }
 
+// A process that opens a database for the first time has settled none of
+// the jumps its clock has seen for it, whatever the database's latest
+// event is dated: the claims in it were made before the process first
+// read its clock. Before this, the dates decided, and a history dated
+// ahead of the clock when it jumped (the clock had been set back, or had
+// run fast) made the jump look settled: the claims ended at opening.
+func TestForwardStepBeforeFirstOpen(t *testing.T) {
+	const jump, back = 12 * time.Hour, time.Minute
+	tests := []struct {
+		name string
+		// fast: the clock ran a minute fast under the process that wrote
+		// the history, and was corrected before this one started. setBack:
+		// it was set back a minute after this one started.
+		fast, setBack bool
+		// least is the least the lease is extended by; the most is the
+		// jump.
+		least time.Duration
+	}{
+		{name: "history behind the clock", least: jump},
+		{name: "the clock set back after the process started", setBack: true, least: jump - back},
+		{name: "the clock ran fast under the process before", fast: true, least: jump - back},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newTwoClocks()
+			dsn := newDSN(t)
+			ctx := t.Context()
+			s, _ := steppedStore(t, dsn, c, Options{}) // the process before
+			is := mustCreate(t, s, NewIssue{})
+			_, cl, err := s.StartIssue(ctx, alice, is.ID, 8*time.Hour, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if tc.fast {
+				c.step(-back)
+			}
+
+			clk := NewClock(ClockOptions{Read: c.read}) // this process starts
+			clk.Now()
+			if tc.setBack {
+				c.step(-back)
+				clk.Now()
+			}
+			c.run(10 * time.Second)
+			clk.Now() // the daemon reads its clock on every tick
+			c.step(jump)
+			clk.Now()
+			c.run(time.Second)
+
+			s = openStore(t, dsn, Options{Clock: clk})
+			if reaped, err := s.ReapClaims(ctx); err != nil || len(reaped) != 0 {
+				t.Fatalf("ReapClaims at the process's first opening, after a %s jump = %+v, %v; want none", jump, reaped, err)
+			}
+			got, err := s.ClaimOf(ctx, is.ID)
+			if err != nil || got == nil || got.ExpiresAt.Before(cl.ExpiresAt.Add(tc.least)) || got.ExpiresAt.After(cl.ExpiresAt.Add(jump)) {
+				t.Errorf("ClaimOf after the first opening = %+v, %v; want the lease extended to between %s and %s",
+					got, err, cl.ExpiresAt.Add(tc.least), cl.ExpiresAt.Add(jump))
+			}
+			if _, cs, n := lastClockStep(t, s); n != 1 || cs.Claims != 1 || time.Duration(cs.Step)*time.Microsecond != jump {
+				t.Errorf("clock.step events: %d, the last %+v; want one, of %s, that extended the claim", n, cs, jump)
+			}
+			// Opened again, it goes on from what it settled.
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+			s = openStore(t, dsn, Options{Clock: clk})
+			if _, err := s.ReapClaims(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, n := lastClockStep(t, s); n != 1 {
+				t.Errorf("%d clock.step events after one jump and two openings, want 1", n)
+			}
+		})
+	}
+}
+
+// A database with no history has no claim to extend, so a process that
+// opens it first after a jump has nothing to settle: its log does not
+// begin with a clock.step for a jump made before it held anything.
+func TestFirstOpenOfAnEmptyDatabaseSettlesNothing(t *testing.T) {
+	c := newTwoClocks()
+	clk := NewClock(ClockOptions{Read: c.read})
+	clk.Now()
+	c.step(time.Hour)
+	clk.Now()
+	c.run(time.Second)
+	s := openStore(t, newDSN(t), Options{Clock: clk})
+	if st := s.ClockState(); st.Pending != 0 || !st.Now.Equal(c.now()) {
+		t.Errorf("ClockState() of a new database opened after a jump = %+v; want the clock's time %s and nothing pending", st, c.now())
+	}
+	mustCreate(t, s, NewIssue{})
+	if _, _, n := lastClockStep(t, s); n != 0 {
+		t.Errorf("%d clock.step events in a database created after the jump, want none", n)
+	}
+}
+
+// What a first opening cannot know is whether another process wrote the
+// database after the jump: its claims then need no extension, and get
+// one. The store's time never goes before the latest event, so they get
+// at most the time since that event, however large the jump.
+func TestFirstOpenExtendsByNoMoreThanTheTimeSinceTheLatestEvent(t *testing.T) {
+	c := newTwoClocks()
+	dsn := newDSN(t)
+	ctx := t.Context()
+	clk := NewClock(ClockOptions{Read: c.read})
+	clk.Now()
+	c.step(12 * time.Hour)
+	clk.Now()
+
+	other, _ := steppedStore(t, dsn, c, Options{}) // another process, after the jump
+	is := mustCreate(t, other, NewIssue{})
+	_, cl, err := other.StartIssue(ctx, alice, is.ID, 8*time.Hour, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := other.Close(); err != nil {
+		t.Fatal(err)
+	}
+	const since = 5 * time.Minute
+	c.run(since)
+	clk.Now()
+
+	s := openStore(t, dsn, Options{Clock: clk})
+	if reaped, err := s.ReapClaims(ctx); err != nil || len(reaped) != 0 {
+		t.Fatalf("ReapClaims at the first opening = %+v, %v; want none", reaped, err)
+	}
+	got, err := s.ClaimOf(ctx, is.ID)
+	if err != nil || got == nil || got.ExpiresAt.Before(cl.ExpiresAt) || got.ExpiresAt.After(cl.ExpiresAt.Add(since)) {
+		t.Errorf("ClaimOf after the first opening, %s after the claim was made = %+v, %v; want the lease between %s and %s",
+			since, got, err, cl.ExpiresAt, cl.ExpiresAt.Add(since))
+	}
+	if now := s.Now(); !now.Equal(c.now()) {
+		t.Errorf("Now() = %s after a write, want the clock's %s", now, c.now())
+	}
+}
+
+// The clock steps while a store is opening, between the opening's reading
+// of the clock and the next thing it does. The step is the store's to
+// settle once: before this, the opening read the clock and its steps
+// under two holds of the clock's lock, counted a step seen between them
+// twice, and the leases were extended by twice the jump.
+func TestForwardStepWhileStoreOpensIsSettledOnce(t *testing.T) {
+	c := newTwoClocks()
+	// reading is closed by the first reading of the clock made once armed
+	// is set, after the reading is taken.
+	var armed atomic.Bool
+	reading := make(chan struct{})
+	clk := NewClock(ClockOptions{Read: func() (time.Time, time.Duration) {
+		wall, mono := c.read()
+		if armed.CompareAndSwap(true, false) {
+			close(reading)
+		}
+		return wall, mono
+	}})
+	s := openStore(t, newDSN(t), Options{Clock: clk})
+	ctx := t.Context()
+	is := mustCreate(t, s, NewIssue{})
+	_, cl, err := s.StartIssue(ctx, alice, is.ID, 8*time.Hour, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.run(time.Hour)
+	clk.Now()
+
+	// The store reads the clock as Open does, for a database the process
+	// has not had open. Nothing else reads this clock meanwhile: openStore
+	// starts no committer. Holding the store's time stops the opening just
+	// after its reading, which no sleep could do on a loaded machine.
+	clk.mu.Lock()
+	delete(clk.settled, s.db)
+	clk.mu.Unlock()
+	s.tm.mu.Lock()
+	armed.Store(true)
+	opened := make(chan error, 1)
+	go func() { opened <- s.initTime(ctx) }()
+	<-reading
+	const jump = 10 * time.Minute
+	c.step(jump)
+	clk.Now() // waits for the opening's reading to end, and sees the step
+	s.tm.mu.Unlock()
+	if err := <-opened; err != nil {
+		t.Fatal(err)
+	}
+
+	if st := s.ClockState(); st.Pending != jump {
+		t.Errorf("ClockState().Pending after a jump of %s made while the store opened = %s, want %s", jump, st.Pending, jump)
+	}
+	if reaped, err := s.ReapClaims(ctx); err != nil || len(reaped) != 0 {
+		t.Fatalf("ReapClaims after the opening = %+v, %v; want none", reaped, err)
+	}
+	got, err := s.ClaimOf(ctx, is.ID)
+	if err != nil || got == nil || !got.ExpiresAt.Equal(cl.ExpiresAt.Add(jump)) {
+		t.Errorf("ClaimOf after a jump of %s made while the store opened = %+v, %v; want the lease extended once, to %s", jump, got, err, cl.ExpiresAt.Add(jump))
+	}
+	if _, cs, n := lastClockStep(t, s); n != 1 || time.Duration(cs.Step)*time.Microsecond != jump || time.Duration(cs.Extended)*time.Microsecond != jump {
+		t.Errorf("clock.step events: %d, the last %+v; want one, of %s, extending by %s", n, cs, jump, jump)
+	}
+}
+
 // Across a restart there is no monotonic clock to compare with, so a
 // lease is measured by the wall clock: a daemon that comes back after
 // the lease ran out ends the claim.
@@ -808,6 +1011,65 @@ func TestControlSettlesClockStep(t *testing.T) {
 	}
 	if st := ctl.ClockState(); st.Pending != 0 || !st.Now.Equal(c.now()) {
 		t.Errorf("ClockState() after settling = %+v, want the clock's time and nothing pending", st)
+	}
+}
+
+// The control store opens as any store does. A jump made before the
+// process first opened it is recorded in its log once, though its history
+// is dated ahead of the clock at the jump; before this it followed the
+// jump with nothing in its log to say so.
+func TestControlFirstOpenRecordsAJumpBeforeIt(t *testing.T) {
+	c := newTwoClocks()
+	dsn := newDSN(t)
+	ctx := t.Context()
+	ctl := openControl(t, dsn, ControlOptions{Clock: NewClock(ClockOptions{Read: c.read})}) // the process before
+	if _, err := ctl.AddPrincipal(ctx, dana, "alice", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := ctl.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	clk := NewClock(ClockOptions{Read: c.read}) // this process starts
+	clk.Now()
+	c.step(-time.Minute)
+	clk.Now()
+	c.run(10 * time.Second)
+	clk.Now()
+	c.step(time.Hour)
+	clk.Now()
+	c.run(time.Second)
+
+	steps := func(ctl *Control) (n int) {
+		t.Helper()
+		evs, err := ctl.Events(ctx, 0, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range evs {
+			if e.Op == OpClockStep {
+				n++
+			}
+		}
+		return n
+	}
+	for opening := 1; opening <= 2; opening++ {
+		ctl = openControl(t, dsn, ControlOptions{Clock: clk})
+		if st := ctl.ClockState(); opening == 1 && st.Pending != time.Hour {
+			t.Errorf("ClockState().Pending at the process's first opening, after a jump of 1h = %s, want 1h", st.Pending)
+		}
+		if _, err := ctl.AddPrincipal(ctx, dana, []string{"bob", "carol"}[opening-1], ""); err != nil {
+			t.Fatal(err)
+		}
+		if st := ctl.ClockState(); st.Pending != 0 || !st.Now.Equal(c.now()) {
+			t.Errorf("opening %d: ClockState() after a write = %+v; want the clock's time %s and nothing pending", opening, st, c.now())
+		}
+		if n := steps(ctl); n != 1 {
+			t.Errorf("opening %d: %d clock.step events in the control log after one jump, want 1", opening, n)
+		}
+		if err := ctl.Close(); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

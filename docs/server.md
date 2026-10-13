@@ -1495,6 +1495,18 @@ have without the jump; every lease still live is extended. The
 `clock.step` event's time is the database's time when it settled, and
 its `claims` the leases it extended.
 
+A database starfixd opens for the first time since it started (a
+project whose database could not be opened at start, or one added or
+restored since) follows every jump made since the start in the same
+way, with one `clock.step` event for all of them: whatever claims it
+holds were made before starfixd started, so each of those jumps took
+time from their leases. A database with no history has nothing to
+settle and records nothing. If something other than this starfixd wrote
+to the database after a jump, as a restore or `starfixd import-bd` may
+have, its leases are extended all the same, by no more than the time
+since its latest event: a lease may then last that much too long, and
+none ends early.
+
 A step is a difference of more than `clock_step_tolerance` (5 seconds)
 between how far the wall clock and the monotonic clock moved, between
 two readings or added up over several, so that many small steps made
@@ -1511,7 +1523,9 @@ leap second and a time service's sub-second corrections go unremarked.
 **Across a restart there is nothing to compare the clock with but the
 history,** so a lease is then measured by the wall clock: a daemon that
 comes back after a lease ran out ends the claim, as it always has. The
-same holds for a virtual machine paused in a way that leaves its
+line is the start of the process: a jump made while starfixd was down is
+an outage of that length, and one made at any time after it started is
+a step, for every database. The same holds for a virtual machine paused in a way that leaves its
 monotonic clock running: starfixd sees time pass, not a step.
 
 ### Keep the clock synchronized
