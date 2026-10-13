@@ -105,7 +105,25 @@ to `go.mod` and `ci.yml`.
 CI also runs the tests named `TestCheckPeer…` (`internal/server`) under
 `sudo`, because `TestCheckPeerOtherUID` and
 `TestCheckPeerKeepsStatusFromOtherUsers` start a socket peer as another
-user; they skip when not root.
+user; they skip when not root. It builds the package's test binary as
+its own user and runs only that binary as root, and the step fails
+unless both tests passed and none was skipped. `scripts/gate.sh` prints
+the command where it could not run them, and a test in `scripts/` keeps
+the two alike.
+
+Around those commands, in `ci.yml` and not in the gate a contributor
+runs: every job of every workflow has a `timeout-minutes` (a job that
+calls a workflow cannot, so `release.yml`'s `gate` relies on those of
+`ci.yml`). `lint` and `test` each restore a Go build cache of their
+own, and one module cache between them, keyed by the Go version and the
+hash of `go.sum` with no fallback; only a push to `main` saves one, a
+pull request only reads them, and any other run, the release's gate
+among them, uses none. The tests' temporary files, Dolt's databases
+among them, are in memory when the runner's `/dev/shm` is fit for them
+(`TESTS_TMPFS`), and otherwise in `/tmp` with a warning.
+[docs/design/ci-analysis.md](docs/design/ci-analysis.md) has the
+measurements behind each.
+
 CI also checks the syntax of the AppArmor profiles in `deploy/apparmor`
 with `apparmor_parser -Q -K`, which needs Linux with AppArmor and is not
 in the gate above; it does not check that `starfixd` works when confined

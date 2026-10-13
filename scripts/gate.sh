@@ -215,7 +215,7 @@ fi
 if [ "$goos" != linux ]; then
 	note "Tests ran on $goos/$goarch; CI runs them on linux/amd64. The code only Linux builds (internal/server/peer_linux.go) was vetted, built and linted for Linux here, but its tests, TestCheckPeer*, run only on Linux: CI runs them."
 elif [ "$(id -u)" != 0 ]; then
-	note "TestCheckPeerOtherUID (internal/server) was skipped: it starts a socket peer as another user, which needs root. CI runs it under sudo, as: sudo env \"PATH=\$PATH\" \"GOCACHE=\$(mktemp -d)\" \"GOMODCACHE=\$(go env GOMODCACHE)\" STARFIX_REQUIRE_DOLT=1 go test -race -count=1 -run '^TestCheckPeer' ./internal/server"
+	note "TestCheckPeerOtherUID and TestCheckPeerKeepsStatusFromOtherUsers (internal/server) were skipped: each starts a socket peer as another user, which needs root. CI builds the package's test binary as its own user and runs only that binary under sudo, so go never runs as root, as: go test -race -c -o server.test ./internal/server && (cd internal/server && sudo env \"PATH=\$PATH\" STARFIX_REQUIRE_DOLT=1 ../../server.test -test.run '^TestCheckPeer' -test.v); rm server.test"
 fi
 if [ "$smoke" = 0 ]; then
 	note "The Docker smoke test (deploy/docker/smoke.sh, or --smoke) was not run; CI does not run it either. Run it after changing the server, the protocol, deploy/docker or the setup steps in docs/server.md."

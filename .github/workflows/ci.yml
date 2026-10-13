@@ -19,16 +19,52 @@ env:
 # AGENTS.md's Commands block lists this gate, and scripts/gate.sh runs it
 # on a contributor's machine: change all three together. Tests in
 # scripts/ and internal/version fail when their commands or pins differ.
+#
+# The caches. Each job keeps Go's build cache under a key of its own, so
+# that it holds what that job builds: objects compiled with the race
+# detector for test, and those for macOS and Windows for lint. The module
+# cache is one more, which both read. setup-go's own cache is off, because
+# it is one key for every job and the first job to finish fills it.
+# - A key names the Go version and the hash of go.sum, and there are no
+#   restore keys: a cache is used by the Go and the modules that made it,
+#   or not at all.
+# - Only a push to main saves, and only when the key is new, which is once
+#   for each go.sum. A pull request reads main's caches and writes none.
+# - Any other run, the release's gate on a tag among them (workflow_call
+#   keeps the caller's github context), neither restores nor saves: it
+#   downloads every module and compiles everything.
+# - go test never takes a result from the cache: -shuffle=on is not one of
+#   the flags go caches results for (go help test), and a test in
+#   internal/release keeps the flag.
 jobs:
   lint:
     runs-on: ubuntu-24.04
+    # A hang ends here, not at GitHub's six hours. The slowest of 78 lint
+    # jobs read took 172 s (docs/design/ci-analysis.md, §3.1).
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        id: go
         with:
           go-version-file: go.mod
+          cache: false
+      - name: restore the module cache
+        id: mod-cache
+        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/go/pkg/mod
+          key: go-mod-${{ runner.os }}-${{ runner.arch }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}
+      - name: restore the build cache
+        id: build-cache
+        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/go-build
+          key: go-build-lint-${{ runner.os }}-${{ runner.arch }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.14.0
@@ -55,21 +91,61 @@ jobs:
             GOOS=$os GOARCH=amd64 go vet ./...
             GOOS=$os GOARCH=amd64 go build ./cmd/...
           done
+      - name: save the module cache
+        # This job's, not test's: go mod download fetched every module, and
+        # govulncheck's are here too.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.mod-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ steps.mod-cache.outputs.cache-primary-key }}
+      - name: save the build cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.build-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/go-build
+          key: ${{ steps.build-cache.outputs.cache-primary-key }}
 
   # The store tests run against a real dolt sql-server, pinned and verified.
   test:
     runs-on: ubuntu-24.04
+    # A hang ends here, not at GitHub's six hours. The slowest of 78 test
+    # jobs read took 515 s, and 302 s since the tests drop their databases
+    # (docs/design/ci-analysis.md, §3.2). It is also more than go test's
+    # own ten minutes for a package on top of the build, so a test that
+    # hangs is still reported by go test, with its stacks.
+    timeout-minutes: 30
     env:
       # A Dolt-backed test fails rather than skips when dolt is missing, so
       # the job cannot pass without running them (internal/dolttest).
       STARFIX_REQUIRE_DOLT: "1"
+      # The memory file system the tests' temporary files go on, when it
+      # is fit for them ("temporary directory for the tests", below). Set
+      # it to "" to put them back on the runner's disk, in /tmp.
+      TESTS_TMPFS: /dev/shm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        id: go
         with:
           go-version-file: go.mod
+          cache: false
+      - name: restore the module cache
+        # The lint job saves it.
+        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/go/pkg/mod
+          key: go-mod-${{ runner.os }}-${{ runner.arch }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}
+      - name: restore the build cache
+        id: build-cache
+        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/go-build
+          key: go-build-test-${{ runner.os }}-${{ runner.arch }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}
       - name: Install dolt
         run: |
           cd "$RUNNER_TEMP"
@@ -77,16 +153,113 @@ jobs:
           echo "${DOLT_SHA256}  dolt.tgz" | sha256sum -c -
           tar xzf dolt.tgz && sudo install -m 0755 dolt-linux-amd64/bin/dolt /usr/local/bin/dolt
           dolt config --global --add metrics.disabled true
+      - name: temporary directory for the tests
+        id: tmp
+        # Each package's Dolt keeps its databases under the temporary
+        # directory, and most of the suite's time is Dolt waiting for the
+        # disk (docs/design/ci-analysis.md, §4.5). This picks a directory
+        # in memory for the next step, or /tmp, where they have always
+        # been, with a warning that says why.
+        #
+        # The files count as memory. A run's were a quarter of a gigabyte
+        # at their most when measured, and every Dolt and test binary
+        # together 2 GB more, of the runner's 16 GB; the mount must have
+        # 4 GB free and the machine 8 GB, or the files stay on disk. A
+        # mount that fills fails the tests' writes, and the tests with
+        # them; it does not block them.
+        run: |
+          dir=/tmp
+          if [ -z "$TESTS_TMPFS" ]; then
+            echo "TESTS_TMPFS is empty: the tests' temporary files are on disk"
+          else
+            kind=$(stat -f -c %T "$TESTS_TMPFS" 2>/dev/null) || kind=missing
+            free_mb=$(df -Pm "$TESTS_TMPFS" 2>/dev/null | awk 'NR == 2 { print $4 }')
+            mem_mb=$(awk '$1 == "MemAvailable:" { print int($2 / 1024) }' /proc/meminfo)
+            try=$TESTS_TMPFS/starfix-tests
+            # The tests run programs they write there: stand-ins for the
+            # tools scripts/gate.sh calls, and a binary to upgrade to.
+            probe() {
+              mkdir -p "$try" && printf '#!/bin/sh\nexit 0\n' >"$try/probe" &&
+                chmod +x "$try/probe" && "$try/probe" && rm "$try/probe"
+            }
+            if [ "$kind" != tmpfs ]; then
+              why="it is $kind, not a memory file system"
+            elif [ "${free_mb:-0}" -lt 4096 ]; then
+              why="it has ${free_mb:-0} MB free, and the tests are given 4096"
+            elif [ "${mem_mb:-0}" -lt 8192 ]; then
+              why="the machine has ${mem_mb:-0} MB of memory available, under 8192"
+            elif ! probe; then
+              why="a program written there does not run"
+            else
+              why=
+              dir=$try
+            fi
+            if [ -n "$why" ]; then
+              echo "::warning::The tests' temporary files are on disk, not on $TESTS_TMPFS: $why."
+            fi
+          fi
+          echo "dir=$dir" >>"$GITHUB_OUTPUT"
+          echo "The tests' temporary files go in $dir"
+          df -h "$dir"
+          free -m
       - name: go test
         # -shuffle=on randomizes test order; the seed is in the log, and
-        # -shuffle=SEED replays a failure.
+        # -shuffle=SEED replays a failure. go builds and runs the test
+        # binaries from GOTMPDIR, which stays on disk: they are half a
+        # gigabyte at a time, and gain nothing from memory.
+        env:
+          TMPDIR: ${{ steps.tmp.outputs.dir }}
+          GOTMPDIR: /tmp
         run: go test -race -shuffle=on -coverprofile=coverage.out ./...
-      - name: peer check as another user
-        # TestCheckPeerOtherUID dials the daemon's socket from a process
-        # running as nobody, which needs root; the step above skips it. A
-        # separate GOCACHE keeps root-owned files out of the runner's cache.
+      - name: temporary directory after the tests
+        # What the tests left there, and the machine's memory, whether
+        # they passed or not.
+        if: ${{ !cancelled() && steps.tmp.outputs.dir != '' }}
+        env:
+          DIR: ${{ steps.tmp.outputs.dir }}
         run: |
-          sudo env "PATH=$PATH" "GOCACHE=$RUNNER_TEMP/gocache-root" "GOMODCACHE=$(go env GOMODCACHE)" \
-            STARFIX_REQUIRE_DOLT=1 go test -race -count=1 -run '^TestCheckPeer' ./internal/server
+          df -h "$DIR"
+          free -m
+      - name: build the peer check's test binary
+        # As the runner's user, from the build cache the tests have just
+        # filled, so that go never runs as root: root would need a cache of
+        # its own, and compile the package and all it imports a second
+        # time.
+        run: go test -race -c -o "$RUNNER_TEMP/server.test" ./internal/server
+      - name: peer check as another user
+        # TestCheckPeerOtherUID and TestCheckPeerKeepsStatusFromOtherUsers
+        # dial the daemon's socket from a process running as nobody, which
+        # needs root; go test above skips them. Only the binary runs as
+        # root, in the package's directory as go test would run it. sudo
+        # does not pass TMPDIR on, so its files are in /tmp, which the
+        # user nobody can enter.
+        #
+        # A pattern that matches no test passes, and so does a test that
+        # skips, so the step fails unless the log says both tests passed
+        # and none was skipped. scripts/gate.sh prints this command for a
+        # contributor, and a test in scripts/ keeps the two alike.
+        run: |
+          log=$RUNNER_TEMP/peer-check.log
+          failed=0
+          (cd internal/server && sudo env "PATH=$PATH" STARFIX_REQUIRE_DOLT=1 \
+            "$RUNNER_TEMP/server.test" -test.run '^TestCheckPeer' -test.v) >"$log" 2>&1 || failed=1
+          cat "$log"
+          for t in TestCheckPeerOtherUID TestCheckPeerKeepsStatusFromOtherUsers; do
+            if ! grep -q "^--- PASS: $t " "$log"; then
+              echo "::error::$t did not run and pass as root"
+              failed=1
+            fi
+          done
+          if grep -q -e '--- SKIP' "$log"; then
+            echo "::error::a test of the peer check was skipped"
+            failed=1
+          fi
+          exit "$failed"
       - name: coverage
         run: go tool cover -func=coverage.out | tail -1 | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: save the build cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.build-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/go-build
+          key: ${{ steps.build-cache.outputs.cache-primary-key }}
