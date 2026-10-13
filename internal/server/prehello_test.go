@@ -75,7 +75,7 @@ func openHalf(t *testing.T, sock, principal string) *halfOpen {
 // closed the connection without one.
 func (h *halfOpen) answer() (f *proto.Frame, closed bool) {
 	h.t.Helper()
-	_ = h.nc.SetReadDeadline(time.Now().Add(10 * time.Second))
+	_ = h.nc.SetReadDeadline(time.Now().Add(patience))
 	f, err := h.dec.Decode()
 	if errors.Is(err, io.EOF) {
 		return nil, true

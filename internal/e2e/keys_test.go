@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -44,14 +45,25 @@ func (u *user) fingerprint() string {
 	return ssh.FingerprintSHA256(key)
 }
 
-// controlEvents returns how many events the control store has recorded.
-func (w *world) controlEvents() int {
+// controlEvents returns the events the control store has recorded for a
+// request, each as its op, its target and who it is recorded as. A
+// clock.step is not one of them: the daemon records it by itself when
+// the machine's clock is set forward, and a machine that was suspended
+// for some seconds while the test ran sets it forward when it wakes.
+func (w *world) controlEvents() []string {
 	w.t.Helper()
 	evs, err := w.ctl.Events(w.t.Context(), 0, 1000)
 	if err != nil {
 		w.t.Fatal(err)
 	}
-	return len(evs)
+	var out []string
+	for _, e := range evs {
+		if e.Op == store.OpClockStep {
+			continue
+		}
+		out = append(out, fmt.Sprintf("%s %s by %s", e.Op, e.Target, e.Actor.Principal))
+	}
+	return out
 }
 
 // TestKeysFromTheStore is the whole path of this stage's keys: an admin
@@ -376,8 +388,8 @@ func TestAdminKeyCommands(t *testing.T) {
 			}
 		})
 	}
-	if after := w.controlEvents(); after != before {
-		t.Errorf("the refusals recorded %d events in the control store, want none", after-before)
+	if after := w.controlEvents(); len(after) != len(before) {
+		t.Errorf("the refusals recorded %d events in the control store, want none: %q", len(after)-len(before), after[len(before):])
 	}
 	if _, err := w.ctl.Principal(t.Context(), "hal"); err == nil {
 		t.Error("principal add with a private key file added the principal")

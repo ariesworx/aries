@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/dolttest"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
 	"github.com/ariesworx/starfix/internal/telemetry"
@@ -105,16 +104,7 @@ func newMultiAdmins(t *testing.T, lim Limits, ck *clock, admins ...string) *mult
 // by tel, which may be nil.
 func newMultiTel(t *testing.T, lim Limits, ck *clock, tel *telemetry.Telemetry, admins ...string) *multi {
 	t.Helper()
-	if errors.Is(doltErr, dolttest.ErrNoDolt) {
-		t.Skip("dolt is not on PATH: install dolt to run the server tests")
-	}
-	if doltErr != nil {
-		t.Fatalf("dolt sql-server: %v", doltErr)
-	}
-	dsn, err := dolt.NewDatabase(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
+	dsn := newDatabase(t)
 	var now func() time.Time
 	if ck != nil {
 		now = ck.now
@@ -170,10 +160,7 @@ func (m *multi) opened(id string) int {
 // "NAME" or "NAME=admin".
 func (m *multi) project(t *testing.T, id string, members ...string) store.Project {
 	t.Helper()
-	dsn, err := dolt.NewDatabase(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
+	dsn := newDatabase(t)
 	cfg, err := mysql.ParseDSN(dsn)
 	if err != nil {
 		t.Fatal(err)

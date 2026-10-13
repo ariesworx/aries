@@ -11,37 +11,68 @@ import (
 	"time"
 )
 
-// manyHolds is a session that took 1000 issues in turn, each held two
+// manyHolds is a session that took n issues in turn, each held two
 // minutes and overlapping the next by one, and a turn record across all
 // of them: the first and last minutes are held by one issue, every other
 // minute by two.
-func manyHolds() ([]hold, usageRow) {
+func manyHolds(n int) ([]hold, usageRow) {
 	t0 := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	minute := func(n int) time.Time { return t0.Add(time.Duration(n) * time.Minute) }
 	key := sessionKey{"alice", "sess-a"}
-	holds := make([]hold, 1000)
+	holds := make([]hold, n)
 	for i := range holds {
 		holds[i] = hold{issue: IssueID(fmt.Sprintf("tst-%04d", i)), key: key, start: minute(i), end: minute(i + 2)}
 	}
-	return holds, usageRow{key: key, model: "opus", from: minute(0), to: minute(1001), Tokens: Tokens{Input: n64(1001 * 1000)}}
+	return holds, usageRow{key: key, model: "opus", from: minute(0), to: minute(n + 1), Tokens: Tokens{Input: n64(int64(n+1) * 1000)}}
 }
 
-// A long record over many holds divides exactly, and in time that does
-// not grow with the holds times the pieces. When every piece rescanned
-// every hold, these 200 records took 1.3s, and 15s under -race; swept,
-// they take about 50ms, and 0.4s under -race, so the bound is generous.
+// A long record over many holds divides in time that grows with the
+// holds, and not with the holds times the pieces, of which there are as
+// many. A record of 2000 holds is timed against one of 125, a sixteenth
+// as long: if the time grows with the holds, a hold costs the same in
+// both, and when every piece rescanned every hold, a hold of the long
+// record cost sixteen times as much.
+//
+// What is compared is the fastest of many divisions of each, which is
+// the one the machine did not interrupt: a division is a few
+// milliseconds at most, and the scheduler of a busy machine takes the
+// processor away for longer than that, from whichever of the two is
+// running. No number of seconds tells the two algorithms apart on every
+// machine. Rescanning, 200 records of 1000 holds took 15s under -race on
+// a laptop; swept, they take 0.4s there, and took 8s where the tests had
+// part of half a processor.
+func TestDivideTimeGrowsWithHolds(t *testing.T) {
+	const few, many = 125, 2000
+	fewHolds, fewRecord := manyHolds(few)
+	manyOf, manyRecord := manyHolds(many)
+	fewIndex, manyIndex := newHoldIndex(fewHolds), newHoldIndex(manyOf)
+	fastest := func(r usageRow, x *holdIndex, was time.Duration) time.Duration {
+		at := time.Now()
+		divide(r, x)
+		return min(was, time.Since(at))
+	}
+	fewest, most := time.Duration(math.MaxInt64), time.Duration(math.MaxInt64)
+	for range 200 {
+		most = fastest(manyRecord, manyIndex, most)
+		for range many / few {
+			fewest = fastest(fewRecord, fewIndex, fewest)
+		}
+	}
+	// Four is halfway, as ratios go, between the same cost and sixteen
+	// times it. Swept, a hold of the long record costs up to half again
+	// as much, for the sorting.
+	perHold := (float64(most) / many) / (float64(fewest) / few)
+	if perHold > 4 {
+		t.Errorf("a record of %d holds divides in %s at best and one of %d in %s: %.1f times as long for each hold, want under 4, as when the time grows with the holds alone",
+			many, most, few, fewest, perHold)
+	}
+	t.Logf("%d holds: %s; %d holds: %s; %.1f times as long for each hold", many, most, few, fewest, perHold)
+}
+
+// A long record over many holds divides exactly.
 func TestDivideManyHolds(t *testing.T) {
-	holds, r := manyHolds()
-	const records = 200
-	x := newHoldIndex(holds)
-	start := time.Now()
-	var d division
-	for range records {
-		d = divide(r, x)
-	}
-	if took := time.Since(start); took > 5*time.Second {
-		t.Errorf("dividing %d records by %d holds took %s, want under 5s", records, len(holds), took)
-	}
+	holds, r := manyHolds(1000)
+	d := divide(r, newHoldIndex(holds))
 	parts := d.parts(*r.Input)
 	if len(parts) != len(holds)+1 {
 		t.Fatalf("divide gave %d parts, want %d issues and unheld", len(parts), len(holds)+1)
@@ -61,7 +92,7 @@ func TestDivideManyHolds(t *testing.T) {
 }
 
 func BenchmarkDivide(b *testing.B) {
-	holds, r := manyHolds()
+	holds, r := manyHolds(1000)
 	x := newHoldIndex(holds)
 	for b.Loop() {
 		divide(r, x)
@@ -239,7 +270,7 @@ func TestApportionMatchesRationals(t *testing.T) {
 }
 
 func BenchmarkApportion(b *testing.B) {
-	holds, r := manyHolds()
+	holds, r := manyHolds(1000)
 	d := divide(r, newHoldIndex(holds))
 	for b.Loop() {
 		d.parts(*r.Input)

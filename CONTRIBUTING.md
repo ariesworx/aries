@@ -203,6 +203,49 @@ tests on linux/amd64 alone; for macOS and Windows it vets and builds
 So a pull request says where its gate ran, and CI's run is the one that
 counts for Linux.
 
+### Tests on a slow machine
+
+CI's runner is slower than a laptop and busier, and a test that assumes
+otherwise passes here and fails there, on someone else's pull request. To
+run the tests as a slow machine runs them, give a Linux container part
+of a processor:
+
+```sh
+docker run --rm --cpus 1 --memory 4g -e GOMAXPROCS=4 \
+  -e STARFIX_REQUIRE_DOLT=1 -e GOFLAGS=-buildvcs=false -e HOME=/tmp/h \
+  -v "$PWD":/src:ro -w /src golang:1.27-trixie sh -c '
+    mkdir -p "$HOME" && PATH="$(sh scripts/install-dolt.sh | tail -n 1):$PATH" &&
+    go test -race -shuffle=on -p 4 ./...'
+```
+
+`GOMAXPROCS=4` and `-p 4` are what CI's four processors give: four
+packages at once, each with four threads, here on one processor between
+them. `--cpus 0.5` is slower again, and `--cpus 2` with a busy loop or
+two beside the tests (`while :; do :; done &`) is a machine that is busy
+rather than slow, which finds other faults. Mount a volume at
+`/go/pkg/mod` and another as `GOCACHE` to keep the build between runs. A
+test is run many times with `-run NAME -count N`. The container runs as
+root, so `TestCheckPeer…` runs too.
+
+A test that passes there:
+
+| Does not | Does instead |
+|---|---|
+| Give up after a few seconds on something that must happen | Waits for the event: a channel, an answer, a condition it polls. Its deadline is there to turn a hang into a failure that says what did not happen, and is a minute (`patience` in `internal/server` and `internal/e2e`), not ten seconds |
+| Go on at an answer when it needs what follows the answer | Waits for that too. A server answers before it has let go of the connection: the listener's tests read each connection to its close (`try` in `internal/telemetry`) |
+| Take the first of something that repeats to be the one it caused | Waits for the one that holds what it did: the first export of a 50 ms interval may come before the test's recordings (`collector.carrying`) |
+| Give work that must succeed the short deadline it gives work that must run out of time | Keeps the short deadline for the cases that wait it out |
+| Assert that something took less than a fixed time | Bounds it by what the fault would cost with the timeouts the test set (half an export's timeout, for a recording that must not wait for the export); or times the same work beside it, in turns, so that the machine slows both alike (the dead collector's requests); or, for work of a few milliseconds, compares the fastest of many runs, which is the one the machine did not interrupt (the division of usage by holds); or, for a deadline the server sets itself, adds how late the machine was for a wait of the same length begun with it (`pace`, for the status report's two seconds) |
+| Count on a minute of the real clock not passing, or on the clock not being set | Gives the store a clock (`Options.Now`, `newServerClock`, the e2e world's `now`): `notices_per_minute` is a minute of the store's time, and "held 0m", "0m ago" and "seen just now" are true for a minute of it. A machine that was suspended sets its clock forward when it wakes, which a daemon on the real clock records as a `clock.step` |
+| Leave its database in Dolt | Takes it from `newDSN` or `newDatabase`, which drop it |
+
+The slowest packages are `internal/server`, `internal/store` and
+`internal/e2e`. With four packages at once on one processor they took
+two to three and a half minutes, one and a half to three, and one and a
+half to two and a half; on half a processor, or on two beside four busy
+loops, four to seven, two to five and a half, and two to six. `go test`
+gives a package ten minutes.
+
 ## Troubleshooting
 
 | You see | Cause and fix |
@@ -216,7 +259,7 @@ counts for Linux.
 | govulncheck: `Your code is affected by 9 vulnerabilities from the Go standard library`; the gate prints `needs Go 1.27.2` | Your Go is an older patch release than CI's. The findings are not your change's. Install the newest patch release (`mise upgrade go`) and run the gate again |
 | govulncheck fails and the gate prints `FAILED` | A finding in a dependency, or one no Go release fixes yet: a real failure, which CI will report too. Read the finding's `Fixed in:` line and update the module |
 | `docker build`: `exec: "docker-credential-desktop": executable file not found in $PATH` | Docker Desktop's helper programs are not on your `PATH`: `export PATH="$HOME/.docker/bin:$PATH"` ([Docker test server](docs/deploy/docker.md#troubleshooting)) |
-| A test passes here and fails in CI, or the reverse | [What a local run cannot tell you](#what-a-local-run-cannot-tell-you). `-shuffle=on` prints its seed; `go test -shuffle=SEED` repeats the order |
+| A test passes here and fails in CI, or the reverse | [What a local run cannot tell you](#what-a-local-run-cannot-tell-you). `-shuffle=on` prints its seed; `go test -shuffle=SEED` repeats the order. One that fails only where the machine is slow: [Tests on a slow machine](#tests-on-a-slow-machine) |
 | A pull request closed when its base branch was deleted | It cannot be retargeted or reopened onto `main`. Open a new one from the same branch, and next time follow [Stacked pull requests](#stacked-pull-requests) |
 | `git merge origin/main` conflicts in files you did not mean to change | The branch was stacked on one that was squash-merged: [Stacked pull requests](#stacked-pull-requests), step 2 |
 

@@ -43,10 +43,10 @@ func fingerprintOf(t *testing.T, owner string) string {
 	return fp
 }
 
-// waitUntil polls cond for up to 10 seconds.
+// waitUntil polls cond until it holds, failing the test after patience.
 func waitUntil(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(patience)
 	for !cond() {
 		if time.Now().After(deadline) {
 			t.Fatalf("timed out waiting for %s", what)
@@ -108,7 +108,7 @@ func dialKey(t *testing.T, s *Server, a store.Actor, proj, fingerprint string) (
 		_ = c.enc.Encode(&proto.Frame{T: proto.FrameBridge, Principal: a.Principal, Key: fingerprint})
 		_ = c.enc.Encode(&proto.Frame{T: proto.FrameHello, Proto: proto.Proto, Project: proj, Session: a.Session, Machine: a.Machine})
 	})
-	_ = cli.SetReadDeadline(time.Now().Add(10 * time.Second))
+	_ = cli.SetReadDeadline(time.Now().Add(patience))
 	f, err := c.dec.Decode()
 	if err != nil {
 		return nil, c, true

@@ -68,7 +68,7 @@ func keyLine(t *testing.T, owner string) string {
 // without a frame.
 func (c *conn) dropped() bool {
 	c.t.Helper()
-	_ = c.nc.SetReadDeadline(time.Now().Add(10 * time.Second))
+	_ = c.nc.SetReadDeadline(time.Now().Add(patience))
 	f, err := c.dec.Decode()
 	if err == nil {
 		c.t.Errorf("read a %q frame from a connection that should be closed", f.T)

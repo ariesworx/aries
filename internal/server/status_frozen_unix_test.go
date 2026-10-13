@@ -64,15 +64,34 @@ func freeze(t *testing.T, d *dolttest.Server, ping func(context.Context) error) 
 	}
 }
 
-// timed runs report and returns how long it took. Should it take twice
-// statusBound, Dolt is continued, so that a report that waits for Dolt
-// fails the test instead of hanging it.
-func timed(report func() (proto.StatusResult, *proto.Error), thaw func()) (proto.StatusResult, *proto.Error, time.Duration) {
+// pace starts a wait of d, and returns late, which waits for it to end
+// and reports how much longer than d it took on this machine. Something
+// that must end at a deadline of d is held to its bound and late() more.
+//
+// The bounds here are on a deadline the server sets itself, and a
+// machine that stops the test's process for seconds, or leaves it no
+// processor, fires the server's timer as late as it fires this one: a
+// report that took eight seconds for that, as one did under load, says
+// nothing of the server. A server that waits for Dolt is late when this
+// wait was not, and fails as before.
+func pace(d time.Duration) (late func() time.Duration) {
+	start := time.Now()
+	ended := make(chan time.Duration, 1)
+	time.AfterFunc(d, func() { ended <- time.Since(start) - d })
+	return sync.OnceValue(func() time.Duration { return max(0, <-ended) })
+}
+
+// timed runs report and returns how long it took, and how late this
+// machine was for a wait of statusReadTimeout begun with it (pace).
+// Should the report take twice statusBound, Dolt is continued, so that a
+// report that waits for Dolt fails the test instead of hanging it.
+func timed(report func() (proto.StatusResult, *proto.Error), thaw func()) (res proto.StatusResult, perr *proto.Error, took, late time.Duration) {
 	net := time.AfterFunc(2*statusBound, thaw)
 	defer net.Stop()
+	behind := pace(statusReadTimeout)
 	start := time.Now()
-	res, perr := report()
-	return res, perr, time.Since(start)
+	res, perr = report()
+	return res, perr, time.Since(start), behind()
 }
 
 // printed is a report as the two commands print it: the text, and the
@@ -117,14 +136,14 @@ func TestStatusWithDoltFrozen(t *testing.T) {
 	thaw := freeze(t, dolt, m.ctl.Ping)
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			res, perr, took := timed(tc.report, thaw)
+			res, perr, took, late := timed(tc.report, thaw)
 			if perr != nil {
 				t.Fatalf("status with Dolt frozen = %v, want a report", perr)
 			}
 			// Two stores are open: one after the other, their reads
 			// would take twice statusReadTimeout.
-			if took > statusBound {
-				t.Errorf("status with Dolt frozen took %s, want at most %s", took.Round(time.Millisecond), statusBound)
+			if took > statusBound+late {
+				t.Errorf("status with Dolt frozen took %s, want at most %s, and the %s this machine was late by", took.Round(time.Millisecond), statusBound, late.Round(time.Millisecond))
 			}
 			if sv := res.Server; sv == nil || sv.Version != "v0.2.0" || sv.OpenStores != 2 || sv.Conns != 3 || sv.Projects["active"] != 2 || sv.KeysFile == nil {
 				t.Errorf("status with Dolt frozen has the server as %s; want its version, 2 open stores, 3 connections, 2 active projects and the keys file", js(sv))
@@ -196,7 +215,7 @@ func TestNewConnectionWithDoltFrozen(t *testing.T) {
 	thaw := freeze(t, dolt, m.ctl.Ping)
 
 	t.Run("status, store open", func(t *testing.T) {
-		start := time.Now()
+		late, start := pace(statusReadTimeout), time.Now()
 		c := mustDialTo(t, m.Server, another(dana, "-open"), projA)
 		res, perr := ask[proto.StatusResult](c, proto.OpStatus, proto.StatusArgs{})
 		took := time.Since(start)
@@ -204,8 +223,8 @@ func TestNewConnectionWithDoltFrozen(t *testing.T) {
 		if perr != nil {
 			t.Fatalf("status on a new connection with Dolt frozen = %v, want a report", perr)
 		}
-		if took > statusBound {
-			t.Errorf("status on a new connection with Dolt frozen took %s, want at most %s", took.Round(time.Millisecond), statusBound)
+		if took > statusBound+late() {
+			t.Errorf("status on a new connection with Dolt frozen took %s, want at most %s, and the %s this machine was late by", took.Round(time.Millisecond), statusBound, late().Round(time.Millisecond))
 		}
 		ps := byName(res)
 		if a, b := ps["proj-a"], ps["proj-b"]; res.Server == nil || !a.Open || a.SessionsUnknown != unanswered || b.Open {
@@ -214,12 +233,12 @@ func TestNewConnectionWithDoltFrozen(t *testing.T) {
 	})
 
 	t.Run("status, store closed", func(t *testing.T) {
-		start := time.Now()
+		late, start := pace(statusReadTimeout), time.Now()
 		w, _ := dialTo(t, m.Server, another(dana, "-closed"), projB)
 		took := time.Since(start)
 		t.Logf("new connection, store closed: refused after %s", took.Round(time.Millisecond))
-		if took > statusBound {
-			t.Errorf("the answer to a hello for a closed store with Dolt frozen took %s, want at most %s", took.Round(time.Millisecond), statusBound)
+		if took > statusBound+late() {
+			t.Errorf("the answer to a hello for a closed store with Dolt frozen took %s, want at most %s, and the %s this machine was late by", took.Round(time.Millisecond), statusBound, late().Round(time.Millisecond))
 		}
 		if e := w.Err; e == nil || e.Code != proto.CodeUnavailable || !strings.Contains(e.Message, "database does not answer") ||
 			!strings.Contains(e.Message, projB) || !strings.Contains(e.Fix, "`starfixd status` on the server") {
@@ -237,8 +256,10 @@ func TestNewConnectionWithDoltFrozen(t *testing.T) {
 	})
 
 	t.Run("another request, store open", func(t *testing.T) {
-		start := time.Now()
+		late, start := pace(timeout), time.Now()
 		c := mustDialTo(t, m.Server, alice, projA)
+		// "At once" is given the whole of statusBound: the welcome waits
+		// for nothing, and a second of it is the machine's.
 		if took := time.Since(start); took > statusBound {
 			t.Errorf("the welcome with Dolt frozen took %s, want it at once", took.Round(time.Millisecond))
 		}
@@ -248,8 +269,8 @@ func TestNewConnectionWithDoltFrozen(t *testing.T) {
 		if perr == nil || perr.Code != proto.CodeUnavailable || perr.Message != "the server timed out on list" || !strings.HasPrefix(perr.Fix, "retry") {
 			t.Errorf("list on a new connection with Dolt frozen = %+v; want unavailable, timed out, with a fix to retry", perr)
 		}
-		if took < timeout || took > timeout+statusBound {
-			t.Errorf("list on a new connection with Dolt frozen was refused after %s; want the request timeout, %s, and at most %s more", took.Round(time.Millisecond), timeout, statusBound)
+		if took < timeout || took > timeout+statusBound+late() {
+			t.Errorf("list on a new connection with Dolt frozen was refused after %s; want the request timeout, %s, and at most %s more, and the %s this machine was late by", took.Round(time.Millisecond), timeout, statusBound, late().Round(time.Millisecond))
 		}
 
 		thaw()
@@ -312,7 +333,7 @@ func TestStatusOneStoreSlow(t *testing.T) {
 	mustDialTo(t, m.Server, erin, projB).alive()
 
 	thaw := freeze(t, slow, theirs.Ping)
-	res, perr, took := timed(func() (proto.StatusResult, *proto.Error) {
+	res, perr, took, late := timed(func() (proto.StatusResult, *proto.Error) {
 		out, perr := m.localStatus(t.Context(), proto.StatusArgs{})
 		res, _ := out.(proto.StatusResult)
 		return res, perr
@@ -320,8 +341,8 @@ func TestStatusOneStoreSlow(t *testing.T) {
 	if perr != nil {
 		t.Fatalf("status with one store's Dolt frozen = %v, want a report", perr)
 	}
-	if took > statusBound {
-		t.Errorf("status with one store's Dolt frozen took %s, want at most %s", took.Round(time.Millisecond), statusBound)
+	if took > statusBound+late {
+		t.Errorf("status with one store's Dolt frozen took %s, want at most %s, and the %s this machine was late by", took.Round(time.Millisecond), statusBound, late.Round(time.Millisecond))
 	}
 	ps := byName(res)
 	if p := ps["proj-a"]; p.Sessions == nil || *p.Sessions != 1 || p.SessionsUnknown != "" {

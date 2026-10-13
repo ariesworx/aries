@@ -1,8 +1,11 @@
 package telemetry
 
 import (
+	"bufio"
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -249,29 +252,46 @@ func do(t *testing.T, method, url string) (int, string) {
 // try is do for a request that the listener may not answer: err is the
 // client's, as when the connection was one past the listener's cap and
 // was closed.
+//
+// The request has a connection of its own, and try returns only once the
+// listener has closed it. An answer comes before the listener has let go
+// of the connection that carried it, so a client that went on at the
+// answer could find that connection still counted against the cap on
+// connections, and its next one closed unanswered. The listener gives a
+// connection's place back before it closes it (cappedConn.Close), so
+// after try nothing of this request counts.
 func try(t *testing.T, method, url string) (int, string, error) {
 	t.Helper()
-	tr := &http.Transport{DisableKeepAlives: true}
-	defer tr.CloseIdleConnections()
 	req, err := http.NewRequestWithContext(t.Context(), method, url, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, err := (&http.Client{Transport: tr, Timeout: 10 * time.Second}).Do(req)
+	req.Close = true // the listener closes the connection after its answer
+	var d net.Dialer
+	conn, err := d.DialContext(t.Context(), "tcp", req.URL.Host)
 	if err != nil {
 		return 0, "", err
 	}
-	defer func() { _ = resp.Body.Close() }()
-	var b strings.Builder
-	buf := make([]byte, 64<<10)
-	for {
-		n, err := resp.Body.Read(buf)
-		b.Write(buf[:n])
-		if err != nil {
-			break
-		}
+	defer func() { _ = conn.Close() }()
+	// Only so that a listener which neither answers nor closes fails the
+	// test instead of hanging it.
+	_ = conn.SetDeadline(time.Now().Add(time.Minute))
+	if err := req.Write(conn); err != nil {
+		return 0, "", err
 	}
-	return resp.StatusCode, b.String(), nil
+	br := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(br, req)
+	if err != nil {
+		return 0, "", err
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, "", err
+	}
+	if _, err := io.Copy(io.Discard, br); err != nil {
+		return 0, "", fmt.Errorf("waiting for the listener to close the connection after its answer: %w", err)
+	}
+	return resp.StatusCode, string(body), nil
 }
 
 // Requests past the cap are answered 503 at once and counted, and
@@ -303,37 +323,32 @@ func TestServeCaps(t *testing.T) {
 			}})
 			t.Cleanup(free) // before the listener stops, which waits for them
 
+			type answer struct {
+				status int
+				err    error
+			}
 			var wg sync.WaitGroup
-			held := make(chan int, tc.cap)
+			held := make(chan answer, tc.cap)
 			for range tc.cap {
 				wg.Go(func() {
-					status, _ := do(t, "GET", base+"/readyz")
-					held <- status
+					status, _, err := try(t, "GET", base+"/readyz")
+					held <- answer{status, err}
 				})
 			}
 			for range tc.cap {
 				select {
 				case <-entered:
-				case <-time.After(10 * time.Second):
+				case <-time.After(time.Minute):
 					t.Fatal("the requests under the cap did not all reach the handler")
 				}
 			}
 			// The cap is full: the next request is refused at once, whatever
-			// it asks for.
-			// The listener holds twice the cap in connections and closes
-			// one past that, and the connection of the request before
-			// this one may not have gone from its count yet: a request
-			// it closed unanswered reached no handler, counted nothing,
-			// and is made again.
+			// it asks for. The listener holds twice the cap in connections,
+			// which with a cap of one is the request held and one more: each
+			// of these is answered only because the one before it has gone
+			// from the listener's count, which try waits for.
 			for _, path := range []string{"/readyz", "/healthz", "/metrics"} {
-				status, body, err := try(t, "GET", base+path)
-				for end := time.Now().Add(10 * time.Second); err != nil && time.Now().Before(end); {
-					time.Sleep(5 * time.Millisecond)
-					status, body, err = try(t, "GET", base+path)
-				}
-				if err != nil {
-					t.Fatalf("GET %s with %d requests in flight: %v", path, tc.cap, err)
-				}
+				status, body := do(t, "GET", base+path)
 				if status != 503 || !strings.Contains(body, "busy") {
 					t.Errorf("GET %s with %d requests in flight = %d %q, want 503 busy", path, tc.cap, status, body)
 				}
@@ -341,9 +356,9 @@ func TestServeCaps(t *testing.T) {
 			free()
 			wg.Wait()
 			close(held)
-			for status := range held {
-				if status != 200 {
-					t.Errorf("a request under the cap = %d, want 200", status)
+			for a := range held {
+				if a.err != nil || a.status != 200 {
+					t.Errorf("a request under the cap = %d, %v; want 200", a.status, a.err)
 				}
 			}
 			if status, _ := do(t, "GET", base+"/healthz"); status != 200 {

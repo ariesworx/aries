@@ -633,8 +633,13 @@ func TestDeadCollectorTraces(t *testing.T) {
 				child.End()
 				sp.End()
 			}
-			if d := time.Since(start); d > 5*time.Second {
-				t.Errorf("%d spans took %s with the collector dead, want them not to wait for it", spans, d)
+			// Spans that waited for the export of their batch would wait
+			// its timeout, 150 ms, once for each batch of 64: about 47
+			// seconds over these. Half of that is the bound, which the
+			// spans themselves come nowhere near on a slow machine.
+			const waited = spans / 64 * 150 * time.Millisecond
+			if d := time.Since(start); d > waited/2 {
+				t.Errorf("%d spans took %s with the collector dead, want them not to wait for it: waiting for each batch's export would take %s", spans, d, waited)
 			}
 			runtime.GC()
 			runtime.ReadMemStats(&after)

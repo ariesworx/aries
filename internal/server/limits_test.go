@@ -278,7 +278,10 @@ func TestSecRegistry(t *testing.T) {
 }
 
 func TestSecMentions(t *testing.T) {
-	s := newServer(t)
+	// The allowance is for a minute of the store's time, so the store's
+	// clock stands still: on the real one, a machine that takes more than
+	// a minute over these requests delivers a second allowance.
+	s, _ := newServerClock(t, Limits{}, fixedNow)
 	for _, p := range []string{"v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9"} {
 		if err := s.cfg.Store.TouchAgent(t.Context(), store.Actor{Principal: p, Session: "x", Machine: "m"}, ""); err != nil {
 			t.Fatal(err)
@@ -360,7 +363,7 @@ func TestConnectionCaps(t *testing.T) {
 	}
 	// Closing one of alice's frees its slot.
 	_ = c1.nc.Close()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(patience)
 	for {
 		w, c := handshakeAs(t, s, alice)
 		if w.Err == nil {
@@ -382,7 +385,7 @@ func TestWelcomeWriteFailureFreesSlot(t *testing.T) {
 	srv, cli := net.Pipe()
 	var wg sync.WaitGroup
 	wg.Go(func() { s.handle(t.Context(), srv); _ = srv.Close() })
-	_ = cli.SetDeadline(time.Now().Add(10 * time.Second))
+	_ = cli.SetDeadline(time.Now().Add(patience))
 	// net.Pipe has no buffer: once the hello is written the server has
 	// read it, and all it does with the connection next is write the
 	// welcome, which the close makes fail.
@@ -462,7 +465,7 @@ func TestSendTooLarge(t *testing.T) {
 	defer func() { _ = srv.Close(); _ = cli.Close() }()
 	sess := &session{enc: proto.NewEncoder(srv)}
 	go func() { _ = s.send(sess, 7, map[string]string{"x": strings.Repeat("y", proto.MaxFrame)}, nil) }()
-	_ = cli.SetReadDeadline(time.Now().Add(10 * time.Second))
+	_ = cli.SetReadDeadline(time.Now().Add(patience))
 	f, err := proto.NewDecoder(cli).Decode()
 	if err != nil {
 		t.Fatal(err)

@@ -37,26 +37,32 @@ func noLeak(t *testing.T) {
 	})
 }
 
-// mix is the work one run of TestDeadCollector does: a tracker's usual
-// requests, reads and writes, some refused.
+// mix is the work the dead collector tests time: rounds of a tracker's
+// usual requests.
 func mix(t *testing.T, c *conn, rounds int) {
 	t.Helper()
 	for i := range rounds {
-		is := mustAsk[proto.CreateResult](c, proto.OpCreate, proto.CreateArgs{Title: fmt.Sprintf("issue %d", i)})
-		mustAsk[proto.ShowResult](c, proto.OpShow, proto.ShowArgs{ID: is.ID})
-		mustAsk[proto.ListResult](c, proto.OpList, proto.ListArgs{})
-		mustAsk[proto.ListResult](c, proto.OpReady, proto.LimitArgs{})
-		if _, perr := ask[proto.ShowResult](c, proto.OpShow, proto.ShowArgs{ID: "sf-none"}); perr == nil {
-			t.Fatal("show of an unknown issue succeeded")
-		}
-		if _, perr := ask[proto.WriteResult](c, "no.such.op", struct{}{}); perr == nil {
-			t.Fatal("an unknown op succeeded")
-		}
-		if i%5 == 0 {
-			mustAsk[proto.StartResult](c, proto.OpStart, proto.StartArgs{ID: is.ID})
-			mustAsk[proto.WriteResult](c, proto.OpComment, proto.CommentArgs{ID: is.ID, Body: "progress"})
-			mustAsk[proto.FinishResult](c, proto.OpFinish, proto.FinishArgs{ID: is.ID, Reason: "done"})
-		}
+		round(t, c, i)
+	}
+}
+
+// round is one round of mix, the i-th: reads and writes, some refused.
+func round(t *testing.T, c *conn, i int) {
+	t.Helper()
+	is := mustAsk[proto.CreateResult](c, proto.OpCreate, proto.CreateArgs{Title: fmt.Sprintf("issue %d", i)})
+	mustAsk[proto.ShowResult](c, proto.OpShow, proto.ShowArgs{ID: is.ID})
+	mustAsk[proto.ListResult](c, proto.OpList, proto.ListArgs{})
+	mustAsk[proto.ListResult](c, proto.OpReady, proto.LimitArgs{})
+	if _, perr := ask[proto.ShowResult](c, proto.OpShow, proto.ShowArgs{ID: "sf-none"}); perr == nil {
+		t.Fatal("show of an unknown issue succeeded")
+	}
+	if _, perr := ask[proto.WriteResult](c, "no.such.op", struct{}{}); perr == nil {
+		t.Fatal("an unknown op succeeded")
+	}
+	if i%5 == 0 {
+		mustAsk[proto.StartResult](c, proto.OpStart, proto.StartArgs{ID: is.ID})
+		mustAsk[proto.WriteResult](c, proto.OpComment, proto.CommentArgs{ID: is.ID, Body: "progress"})
+		mustAsk[proto.FinishResult](c, proto.OpFinish, proto.FinishArgs{ID: is.ID, Reason: "done"})
 	}
 }
 
@@ -69,7 +75,11 @@ func mix(t *testing.T, c *conn, rounds int) {
 //
 // The thresholds are loose, since the machine may be busy: they catch a
 // request that waits for an export, which would cost a timeout each, not
-// a few percent.
+// a few percent. And the server with the dead collector is timed against
+// one with telemetry off that takes turns with it, round by round, so
+// that whatever else the machine does slows both alike. Timed one after
+// the other, a machine that was busy for the second run only made a dead
+// collector look six times slower than none.
 func TestDeadCollector(t *testing.T) {
 	const rounds = 60
 	closed, err := net.Listen("tcp", "127.0.0.1:0")
@@ -85,14 +95,18 @@ func TestDeadCollector(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = silent.Close() })
 
-	type result struct {
+	// side is one server and a connection to it, with how long its
+	// rounds took.
+	type side struct {
+		c    *conn
+		tel  *telemetry.Telemetry
+		log  *syncBuffer
 		took time.Duration
-		heap uint64
-		log  string
 	}
-	run := func(t *testing.T, endpoint string) result {
+	// start makes a server that exports to endpoint, or has telemetry off
+	// when endpoint is empty, and warms it.
+	start := func(t *testing.T, endpoint string) *side {
 		t.Helper()
-		noLeak(t)
 		log := &syncBuffer{}
 		env := map[string]string{}
 		if endpoint != "" {
@@ -114,49 +128,76 @@ func TestDeadCollector(t *testing.T) {
 		}
 		s := newServerTel(t, Limits{WriteBurst: 100000, WriteRate: 100000}, tel)
 		c := dialPipe(t, s, alice)
-		mix(t, c, 3) // warm the connections and caches before timing
-		start := time.Now()
-		mix(t, c, rounds)
-		took := time.Since(start)
-		c.hangUp()
-
+		for i := range 3 { // the connections and caches, before any timing
+			round(t, c, i)
+		}
+		return &side{c: c, tel: tel, log: log}
+	}
+	// turns runs the rounds, each side in its turn, and times them.
+	turns := func(t *testing.T, sides ...*side) {
+		t.Helper()
+		for i := range rounds {
+			for _, s := range sides {
+				at := time.Now()
+				round(t, s.c, i)
+				s.took += time.Since(at)
+			}
+		}
+	}
+	// stop ends the side's connection and its telemetry, and returns the
+	// heap left.
+	stop := func(t *testing.T, s *side) uint64 {
+		t.Helper()
+		s.c.hangUp()
 		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 		defer cancel()
-		stop := time.Now()
-		_ = tel.Shutdown(ctx)
-		if d := time.Since(stop); d > 5*time.Second {
+		at := time.Now()
+		_ = s.tel.Shutdown(ctx)
+		if d := time.Since(at); d > 5*time.Second {
 			t.Errorf("stopping telemetry took %s with a 1s deadline", d)
 		}
 		runtime.GC()
 		var ms runtime.MemStats
 		runtime.ReadMemStats(&ms)
-		return result{took: took, heap: ms.HeapAlloc, log: log.String()}
+		return ms.HeapAlloc
 	}
 
-	var off result
-	t.Run("telemetry off", func(t *testing.T) { off = run(t, "") })
+	// The heap a server leaves with telemetry off, to compare with.
+	var offHeap uint64
+	t.Run("telemetry off", func(t *testing.T) {
+		noLeak(t)
+		off := start(t, "")
+		turns(t, off)
+		offHeap = stop(t, off)
+	})
 	for _, tc := range []struct{ name, endpoint string }{
 		{"a closed port", closedAddr},
 		{"a listener that never answers", silent.Addr().String()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := run(t, tc.endpoint)
-			if limit := 4*off.took + 5*time.Second; got.took > limit {
-				t.Errorf("%d rounds of requests took %s, and %s with telemetry off: want no more than %s", rounds, got.took, off.took, limit)
+			noLeak(t)
+			off, dead := start(t, ""), start(t, tc.endpoint)
+			turns(t, off, dead)
+			stop(t, off)
+			heap, log := stop(t, dead), dead.log.String()
+			if limit := 4*off.took + 5*time.Second; dead.took > limit {
+				t.Errorf("%d rounds of requests took %s, and %s with telemetry off: want no more than %s", rounds, dead.took, off.took, limit)
 			}
-			if limit := off.heap + 64<<20; got.heap > limit {
-				t.Errorf("the heap holds %d MiB after the run, and %d MiB with telemetry off: want no more than 64 MiB over", got.heap>>20, off.heap>>20)
+			// This run's heap holds a second server, the one with
+			// telemetry off, which is small beside the allowance.
+			if limit := offHeap + 64<<20; heap > limit {
+				t.Errorf("the heap holds %d MiB after the run, and %d MiB with telemetry off: want no more than 64 MiB over", heap>>20, offHeap>>20)
 			}
-			if n := strings.Count(got.log, "a metrics export failed"); n != 1 {
-				t.Errorf("%d export failures logged, want exactly 1 for a collector that stays dead:\n%s", n, got.log)
+			if n := strings.Count(log, "a metrics export failed"); n != 1 {
+				t.Errorf("%d export failures logged, want exactly 1 for a collector that stays dead:\n%s", n, log)
 			}
-			if n := strings.Count(got.log, "a trace export failed"); n != 1 {
-				t.Errorf("%d trace export failures logged, want exactly 1 for a collector that stays dead:\n%s", n, got.log)
+			if n := strings.Count(log, "a trace export failed"); n != 1 {
+				t.Errorf("%d trace export failures logged, want exactly 1 for a collector that stays dead:\n%s", n, log)
 			}
-			if strings.Contains(got.log, "level=ERROR") {
-				t.Errorf("an error was logged:\n%s", got.log)
+			if strings.Contains(log, "level=ERROR") {
+				t.Errorf("an error was logged:\n%s", log)
 			}
-			t.Logf("%s: %d rounds in %s (%s with telemetry off)", tc.name, rounds, got.took, off.took)
+			t.Logf("%s: %d rounds in %s (%s with telemetry off, in turns)", tc.name, rounds, dead.took, off.took)
 		})
 	}
 }

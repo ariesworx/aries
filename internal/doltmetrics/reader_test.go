@@ -159,7 +159,12 @@ func serve(t *testing.T, h http.HandlerFunc) string {
 // pointing elsewhere, a read of it ends within its deadline with an
 // error and no figure, and leaves nothing running.
 func TestRead(t *testing.T) {
-	const timeout = 300 * time.Millisecond
+	// timeout is the deadline of a read that must run out of it, which
+	// the test waits out. A read that is answered has patient instead:
+	// under timeout, a machine that took 300 ms over one request on
+	// loopback would end it with the deadline, not the answer the case is
+	// about.
+	const timeout, patient = 300 * time.Millisecond, time.Minute
 	// wait holds a handler until its client has gone.
 	wait := func(r *http.Request) {
 		select {
@@ -253,12 +258,18 @@ func TestRead(t *testing.T) {
 			if err != nil {
 				t.Fatalf("New(%q) = %v", u, err)
 			}
-			r.timeout = timeout
+			r.timeout = patient
+			if errors.Is(tc.is, context.DeadlineExceeded) {
+				r.timeout = timeout
+			}
 			defer r.Close()
 			start := time.Now()
 			got, err := r.Read(t.Context())
-			if took := time.Since(start); took > timeout+2*time.Second {
-				t.Errorf("Read took %s with a deadline of %s", took, timeout)
+			// The two seconds are for the machine, not the reader: how late
+			// a goroutine whose deadline has passed may be told so, and get
+			// to run, where the tests share a processor.
+			if took := time.Since(start); took > r.timeout+2*time.Second {
+				t.Errorf("Read took %s with a deadline of %s", took, r.timeout)
 			}
 			if tc.want == "" {
 				if err != nil || got.Conns == nil || *got.Conns != tc.conn {

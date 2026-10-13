@@ -41,7 +41,12 @@ func (r *rawSession) usageCall(id uint64, recs []proto.UsageRecord) proto.UsageR
 // An agent session works an issue under a client's epic; its harness
 // reports tokens for the session, and show, digest and MCP attribute them.
 func TestTokenUsage(t *testing.T) {
-	w := newWorld(t, daemonOpts{})
+	// The store's clock moves only when the test moves it, so the issue
+	// has been held for twenty seconds when it is shown ("held 0m"): on
+	// the real one, a machine that takes a minute over these commands
+	// shows "held 1m".
+	clk := &clock{t: time.Now().UTC()}
+	w := newWorld(t, daemonOpts{now: clk.now})
 	alice := w.newUser("alice", "")
 	alice.env["STARFIX_SESSION"] = "s-agent"
 	epic := strings.TrimSpace(alice.ok("create", "Client work", "-t", "epic", "--account", "acme"))
@@ -49,8 +54,10 @@ func TestTokenUsage(t *testing.T) {
 	other := strings.TrimSpace(alice.ok("create", "Internal chore"))
 	alice.ok("start", task)
 
-	// What PR 2's hook will send: records for the session sfx claimed in.
-	at := time.Now().UTC()
+	// What PR 2's hook will send: records for the session sfx claimed in,
+	// of requests made while it held the issue.
+	clk.add(20 * time.Second)
+	at := clk.now().Add(-10 * time.Second)
 	in, out, cw, cw1h, cr := int64(1200), int64(300), int64(5000), int64(1000), int64(90000)
 	recs := []proto.UsageRecord{
 		{Harness: "claude-code", RequestID: "msg_01:req_01", Model: "claude-opus-4-1", At: at, Granularity: "request",

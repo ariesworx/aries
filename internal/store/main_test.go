@@ -38,7 +38,10 @@ func run(m *testing.M) int {
 	return m.Run()
 }
 
-// newDSN returns a fresh database, or skips when dolt is missing.
+// newDSN returns a fresh database, or skips when dolt is missing. The
+// database is dropped when the test ends, after the cleanups of what the
+// test opened on it: Dolt holds every database in memory and slows with
+// each (dolttest.Server.DropDatabase).
 func newDSN(t testing.TB) string {
 	t.Helper()
 	if errors.Is(serverErr, dolttest.ErrNoDolt) {
@@ -51,6 +54,11 @@ func newDSN(t testing.TB) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		if err := server.DropDatabase(dsn); err != nil {
+			t.Errorf("drop the test's database: %v", err)
+		}
+	})
 	return dsn
 }
 

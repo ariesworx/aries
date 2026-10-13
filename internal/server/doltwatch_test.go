@@ -239,7 +239,6 @@ func TestDoltUnknown(t *testing.T) {
 	s.cfg.Logger = slogTo(log)
 	f := newFakeDolt(t)
 	advance := watchDolt(t, s, f.url)
-	s.doltm.timeout = 300 * time.Millisecond
 	ctx := t.Context()
 	var elsewhere atomic.Int64
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -250,6 +249,10 @@ func TestDoltUnknown(t *testing.T) {
 
 	f.serve(doltBody(3))
 	s.ReadDolt(ctx)
+	// A short deadline for the reads that fail, the last of which waits it
+	// out, and for those only: the reads that must succeed, before and
+	// after, have the reader's own, which a slow machine does not run out.
+	s.doltm.timeout = 300 * time.Millisecond
 	const readAt = "2026-10-12 20:03 UTC"
 	for _, tc := range []struct {
 		name string
@@ -315,6 +318,7 @@ func TestDoltUnknown(t *testing.T) {
 
 	advance(15 * time.Second)
 	f.serve(doltBody(7))
+	s.doltm.timeout = 0
 	s.ReadDolt(ctx)
 	res, text, _ := localReport(t, s)
 	// The readings before the failures still stand: 105 seconds, the six
@@ -402,6 +406,9 @@ func TestDoltTimer(t *testing.T) {
 			}
 			watchDolt(t, s, f.url)
 			s.cfg.DoltMetricsEvery = 10 * time.Millisecond
+			// A read's own deadline is far off, so a Serve that returns
+			// while one hangs has ended it, not waited it out.
+			s.doltm.timeout = time.Hour
 			ctx, stop := context.WithCancel(t.Context())
 			done := make(chan error, 1)
 			go func() { done <- s.Serve(ctx, newFakeListener()) }()
@@ -422,8 +429,8 @@ func TestDoltTimer(t *testing.T) {
 				if err != nil {
 					t.Errorf("Serve = %v", err)
 				}
-			case <-time.After(5 * time.Second):
-				t.Fatal("Serve did not return within 5s of its stop, with a read of Dolt's metrics under way")
+			case <-time.After(patience):
+				t.Fatalf("Serve did not return within %s of its stop, with a read of Dolt's metrics under way", patience)
 			}
 			at := f.hits.Load()
 			time.Sleep(50 * time.Millisecond)

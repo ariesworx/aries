@@ -54,7 +54,7 @@ func (l *lines) String() string {
 // waitFor polls f until it holds, or fails the test.
 func waitFor(t *testing.T, what string, f func() bool) {
 	t.Helper()
-	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); {
+	for deadline := time.Now().Add(patience); time.Now().Before(deadline); {
 		if f() {
 			return
 		}

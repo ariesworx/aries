@@ -352,11 +352,20 @@ func TestRequestIDOnEveryLineOfARequest(t *testing.T) {
 // requests are no slower, the failure is logged once, and what could not
 // be exported is counted, which the telemetry package's own test of a
 // dead collector reads to the record.
+//
+// As there, the server with the dead collector takes turns, round by
+// round, with one whose logs are not exported, so that a machine busy
+// for part of the test slows both alike.
 func TestDeadCollectorLogs(t *testing.T) {
 	const rounds = 40
-	run := func(t *testing.T, endpoint string) (time.Duration, string) {
+	// side is one server and a connection to it, with its log.
+	type side struct {
+		c   *conn
+		tel *telemetry.Telemetry
+		out *syncBuffer
+	}
+	start := func(t *testing.T, endpoint string) side {
 		t.Helper()
-		noLeak(t)
 		out := &syncBuffer{}
 		log, err := NewLogger(out, "debug", "text")
 		if err != nil {
@@ -380,25 +389,36 @@ func TestDeadCollectorLogs(t *testing.T) {
 		s := newServerTel(t, Limits{WriteBurst: 100000, WriteRate: 100000}, tel)
 		s.cfg.Logger, s.single.log = log, log
 		c := dialPipe(t, s, alice)
-		mix(t, c, 3)
-		start := time.Now()
-		mix(t, c, rounds)
-		took := time.Since(start)
-		c.hangUp()
+		mix(t, c, 3) // the connections and caches, before any timing
+		return side{c: c, tel: tel, out: out}
+	}
+	stop := func(t *testing.T, s side) {
+		t.Helper()
+		s.c.hangUp()
 		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 		defer cancel()
-		stop := time.Now()
-		_ = tel.Shutdown(ctx)
-		if d := time.Since(stop); d > 5*time.Second {
+		at := time.Now()
+		_ = s.tel.Shutdown(ctx)
+		if d := time.Since(at); d > 5*time.Second {
 			t.Errorf("stopping telemetry took %s with a 1s deadline", d)
 		}
-		return took, out.String()
 	}
-	off, _ := run(t, "")
 	closed, silent := deadCollectors(t)
 	for _, tc := range []struct{ name, endpoint string }{{"a closed port", closed}, {"a listener that never answers", silent}} {
 		t.Run(tc.name, func(t *testing.T) {
-			took, out := run(t, tc.endpoint)
+			noLeak(t)
+			plain, dead := start(t, ""), start(t, tc.endpoint)
+			var off, took time.Duration
+			for i := range rounds {
+				at := time.Now()
+				round(t, plain.c, i)
+				mid := time.Now()
+				round(t, dead.c, i)
+				off, took = off+mid.Sub(at), took+time.Since(mid)
+			}
+			stop(t, plain)
+			stop(t, dead)
+			out := dead.out.String()
 			if limit := 4*off + 5*time.Second; took > limit {
 				t.Errorf("%d rounds of requests took %s, and %s with telemetry off: want no more than %s", rounds, took, off, limit)
 			}

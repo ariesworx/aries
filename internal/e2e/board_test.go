@@ -55,7 +55,7 @@ func (b *boardView) frame() string {
 // until applies updates until the frame holds every one of want.
 func (b *boardView) until(what string, want ...string) {
 	b.t.Helper()
-	deadline := time.After(20 * time.Second)
+	deadline := time.After(patience)
 	for {
 		f := b.frame()
 		missing := false

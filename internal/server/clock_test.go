@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/dolttest"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
 )
@@ -113,23 +112,6 @@ func (c *machine) set(d time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.wall = c.wall.Add(d)
-}
-
-// newDatabase returns the DSN of a fresh database, or skips without
-// dolt.
-func newDatabase(t *testing.T) string {
-	t.Helper()
-	if errors.Is(doltErr, dolttest.ErrNoDolt) {
-		t.Skip("dolt is not on PATH: install dolt to run the server tests")
-	}
-	if doltErr != nil {
-		t.Fatalf("dolt sql-server: %v", doltErr)
-	}
-	dsn, err := dolt.NewDatabase(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return dsn
 }
 
 // earlierWork writes one event to the database at dsn, at the time of a

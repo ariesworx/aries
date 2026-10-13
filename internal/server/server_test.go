@@ -66,6 +66,40 @@ func run(m *testing.M) int {
 	return m.Run()
 }
 
+// newDatabase returns the DSN of a fresh database in the package's Dolt,
+// or skips without dolt. The database is dropped when the test ends,
+// after the cleanups of what the test opened on it: Dolt holds every
+// database in memory and slows with each (dolttest.Server.DropDatabase),
+// and this package makes several hundred.
+func newDatabase(t testing.TB) string {
+	t.Helper()
+	if errors.Is(doltErr, dolttest.ErrNoDolt) {
+		t.Skip("dolt is not on PATH: install dolt to run the server tests")
+	}
+	if doltErr != nil {
+		t.Fatalf("dolt sql-server: %v", doltErr)
+	}
+	dsn, err := dolt.NewDatabase(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := dolt.DropDatabase(dsn); err != nil {
+			t.Errorf("drop the test's database: %v", err)
+		}
+	})
+	return dsn
+}
+
+// patience is how long a test waits for something that must happen: an
+// answer to a request, a connection the server closes, a condition it
+// polls. Nothing is asserted of it. It only turns a hang into a failure
+// that says what did not happen, so it is long: a request that takes a
+// moment on an idle machine has taken more than ten seconds where the
+// tests shared a processor and Dolt was short of memory, and a test that
+// gave up then failed for the machine and not for the server.
+const patience = time.Minute
+
 const project = "00000000-0000-4000-8000-000000000001"
 
 func newServer(t *testing.T) *Server {
@@ -91,16 +125,7 @@ func newServerDSN(t *testing.T, lim Limits) (*Server, string) {
 // now, or the real clock if now is nil.
 func newServerClock(t *testing.T, lim Limits, now func() time.Time) (*Server, string) {
 	t.Helper()
-	if errors.Is(doltErr, dolttest.ErrNoDolt) {
-		t.Skip("dolt is not on PATH: install dolt to run the server tests")
-	}
-	if doltErr != nil {
-		t.Fatalf("dolt sql-server: %v", doltErr)
-	}
-	dsn, err := dolt.NewDatabase(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
+	dsn := newDatabase(t)
 	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "sf", CommitInterval: -1, Admins: []string{dana.Principal},
 		Limits: lim.Limits, Now: now})
 	if err != nil {
@@ -307,7 +332,7 @@ func handshake(t *testing.T, s *Server, frames ...*proto.Frame) (*proto.Frame, e
 			}
 		}
 	})
-	_ = cli.SetReadDeadline(time.Now().Add(10 * time.Second))
+	_ = cli.SetReadDeadline(time.Now().Add(patience))
 	return dec.Decode()
 }
 
@@ -467,13 +492,13 @@ func TestServeAcceptErrors(t *testing.T) {
 			// A Serve that hangs is ended through ctx, so that it returns
 			// before the test does.
 			t.Cleanup(func() { cancel(); wg.Wait() })
-			timeout := time.After(10 * time.Second)
+			timeout := time.After(patience)
 			for i, step := range tc.steps {
 				r := acceptResult{err: step}
 				var cli net.Conn
 				if step == nil {
 					r.c, cli = net.Pipe()
-					_ = cli.SetDeadline(time.Now().Add(10 * time.Second))
+					_ = cli.SetDeadline(time.Now().Add(patience))
 				}
 				select {
 				case l.next <- r:
@@ -602,7 +627,7 @@ func TestServeClosesConnectionAcceptedAsItStops(t *testing.T) {
 		wg.Wait()
 	})
 	for _, c := range []net.Conn{firstCli, lateCli} {
-		_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+		_ = c.SetDeadline(time.Now().Add(patience))
 	}
 	if err := welcome(firstCli, alice); err != nil {
 		t.Fatalf("first client's handshake: %v", err)
@@ -615,7 +640,7 @@ func TestServeClosesConnectionAcceptedAsItStops(t *testing.T) {
 		if err != nil {
 			t.Errorf("Serve = %v, want nil", err)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(patience):
 		t.Fatal("Serve did not return after ctx ended: it serves the connection accepted as it stopped")
 	}
 }
