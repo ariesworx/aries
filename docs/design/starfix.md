@@ -1217,7 +1217,7 @@ What starfix does with it:
 
 ## 17. Identity: certificates, handles and provisioning
 
-Designed 12 Oct 2026, from the investigation of §15.6. **Proposed, not decided, and nothing here is built.** The questions for the maintainer are in §17.12. It answers two concerns: that one public key for each machine, added by an admin, will not scale or fit a company's sign-on; and whether people's names should be hidden.
+Designed 12 Oct 2026, from the investigation of §15.6. **Proposed, not decided, and nothing here is built.** The questions for the maintainer are in §17.12. It answers two concerns: that one public key for each machine, added by an admin, will not scale or fit a company's sign-on; and whether people's names should be hidden. Signing in to starfix itself, which §17.10 leaves out, is researched in [access-research.md](access-research.md) (13 Oct 2026; research only).
 
 In short: a principal stops being a set of keys and becomes a permanent **handle** with, beside it and outside every history, a display name and the identity a company's certificate authority asserts. A short-lived SSH certificate becomes a second way in, through the file starfixd already writes, with no new sshd mechanism and no connection from starfix to the authority. The control store still decides everything. Membership follows a directory through a job that runs `sfx admin`, not through what a certificate claims.
 
