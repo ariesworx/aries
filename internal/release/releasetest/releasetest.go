@@ -1,5 +1,6 @@
-// Package releasetest serves fake GitHub releases for tests of
-// internal/release and the upgrade commands built on it.
+// Package releasetest serves fake releases for tests of internal/release
+// and the upgrade commands built on it: [Server] as GitHub's API serves
+// them, and [Tree] as a static file host does.
 //
 // A [Server] is an httptest server that answers the GitHub API's
 // release requests for one release and serves its assets: archives added

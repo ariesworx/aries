@@ -796,6 +796,7 @@ func TestResolveSettings(t *testing.T) {
 	unknown := write("unknown.yaml", "dns: typo\n", 0o600)
 	unit := write("unit.yaml", "systemd_unit: starfixd.service\n", 0o600)
 	badUnit := write("badunit.yaml", "systemd_unit: --no-block\n", 0o600)
+	releases := write("releases.yaml", "releases: https://releases.example.com/starfix\n", 0o600)
 	logs := write("logs.yaml", "log_level: warn\nlog_format: json\n", 0o600)
 	admins := write("admins.yaml", "admins: [alice, bob]\n", 0o600)
 	reserved := write("reserved.yaml", "admins: [starfixd]\n", 0o600)
@@ -830,6 +831,8 @@ func TestResolveSettings(t *testing.T) {
 		{name: "unknown key refused", path: unknown, err: "dns"},
 		{name: "systemd unit", path: unit, check: func(s Settings) bool { return s.SystemdUnit == "starfixd.service" }},
 		{name: "option-like unit refused", path: badUnit, err: "is not a unit name"},
+		{name: "releases from file", path: releases, check: func(s Settings) bool { return s.Releases == "https://releases.example.com/starfix" }},
+		{name: "no releases by default", path: empty, check: func(s Settings) bool { return s.Releases == "" }},
 		{name: "log settings default", path: empty, check: func(s Settings) bool { return s.LogLevel == "info" && s.LogFormat == "text" }},
 		{name: "log settings from file", path: logs, check: func(s Settings) bool { return s.LogLevel == "warn" && s.LogFormat == "json" }},
 		{name: "log level env beats file", path: logs, env: map[string]string{EnvLogLevel: "debug"},

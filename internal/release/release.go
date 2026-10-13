@@ -51,18 +51,50 @@ var ErrNotFound = errors.New("not found")
 // ErrMismatch means a download's sha256 differs from checksums.txt.
 var ErrMismatch = errors.New("checksum mismatch")
 
-// Client reads releases from the GitHub REST API.
+// Client reads releases from one source: the GitHub REST API, which the
+// zero value and the fields below describe, or a static tree, for the
+// Client that [Open] returns for one.
 type Client struct {
-	// BaseURL is the API root. Default https://api.github.com.
+	// BaseURL is the GitHub API's root. Default https://api.github.com.
 	BaseURL string
-	// Repo is owner/name. Default Repo.
+	// Repo is owner/name on GitHub. Default Repo.
 	Repo string
 	// HTTP makes the requests. Default: the default transport, which
 	// honors HTTPS_PROXY, with a 5-minute overall timeout.
 	HTTP *http.Client
 	// Verifier checks the signature on checksums.txt. Required by Fetch.
 	Verifier Verifier
+
+	// static is the tree Open was given; nil reads GitHub.
+	static *tree
 }
+
+// source is where a Client finds releases and reads their files. GitHub's
+// API and a static tree are the two. Everything that decides whether a
+// release is accepted is in Fetch, above both.
+type source interface {
+	// latest returns the newest release that is not a prerelease.
+	latest(ctx context.Context) (*Release, error)
+	// byTag returns the release tagged tag, which matches TagPattern.
+	byTag(ctx context.Context, tag string) (*Release, error)
+	// has returns an error wrapping ErrNotFound when the source already
+	// knows that rel has no file called name.
+	has(rel *Release, name string) error
+	// file returns rel's file called name, refusing more than limit bytes.
+	// A missing file wraps ErrNotFound.
+	file(ctx context.Context, rel *Release, name string, limit int64) ([]byte, error)
+}
+
+// source returns the static tree the Client was opened on, or GitHub.
+func (c *Client) source() source {
+	if c.static != nil {
+		return static{c}
+	}
+	return github{c}
+}
+
+// github is the source that reads c's repository through GitHub's API.
+type github struct{ c *Client }
 
 // Release is one published release.
 type Release struct {
@@ -98,25 +130,48 @@ func (c *Client) http() *http.Client {
 	return c.HTTP
 }
 
-// Latest returns the newest published release (GitHub excludes drafts and
-// prereleases). With none, the error wraps [ErrNotFound].
+// Latest returns the newest published release that is not a draft or a
+// prerelease. With none, the error wraps [ErrNotFound].
 func (c *Client) Latest(ctx context.Context) (*Release, error) {
-	return c.release(ctx, "/repos/"+c.repo()+"/releases/latest")
+	return c.source().latest(ctx)
 }
 
 // ByTag returns the release tagged tag, which must match [TagPattern].
 // With none, the error wraps [ErrNotFound].
 func (c *Client) ByTag(ctx context.Context, tag string) (*Release, error) {
 	if !TagPattern.MatchString(tag) {
-		return nil, fmt.Errorf("release tag %q is not of the form vMAJOR.MINOR.PATCH", tag)
+		return nil, fmt.Errorf("release tag %q is not of the form vMAJOR.MINOR.PATCH", clip(tag))
 	}
-	return c.release(ctx, "/repos/"+c.repo()+"/releases/tags/"+tag)
+	return c.source().byTag(ctx, tag)
+}
+
+// latest asks GitHub, which excludes drafts and prereleases.
+func (g github) latest(ctx context.Context) (*Release, error) {
+	return g.c.release(ctx, "/repos/"+g.c.repo()+"/releases/latest")
+}
+
+func (g github) byTag(ctx context.Context, tag string) (*Release, error) {
+	return g.c.release(ctx, "/repos/"+g.c.repo()+"/releases/tags/"+tag)
+}
+
+// has answers from the assets GitHub listed with the release.
+func (g github) has(rel *Release, name string) error {
+	_, err := rel.asset(name)
+	return err
+}
+
+func (g github) file(ctx context.Context, rel *Release, name string, limit int64) ([]byte, error) {
+	a, err := rel.asset(name)
+	if err != nil {
+		return nil, err
+	}
+	return g.c.downloadAsset(ctx, a, limit)
 }
 
 // release reads the release at API path p, refusing one whose tag does
 // not match TagPattern.
 func (c *Client) release(ctx context.Context, p string) (*Release, error) {
-	b, err := c.get(ctx, c.base()+p, maxMeta, "application/vnd.github+json")
+	b, err := get(ctx, c.http(), c.base()+p, maxMeta, "application/vnd.github+json")
 	if err != nil {
 		return nil, fmt.Errorf("release metadata: %w", err)
 	}
@@ -130,10 +185,10 @@ func (c *Client) release(ctx context.Context, p string) (*Release, error) {
 	return &r, nil
 }
 
-// get returns the body of URL u, refusing one over limit bytes. A
-// non-empty accept marks an API request, which also names the API version.
-// A 404 wraps ErrNotFound.
-func (c *Client) get(ctx context.Context, u string, limit int64, accept string) ([]byte, error) {
+// get returns the body of URL u, read through hc, refusing one over limit
+// bytes. A non-empty accept marks a GitHub API request, which also names
+// the API version. A 404 wraps ErrNotFound.
+func get(ctx context.Context, hc *http.Client, u string, limit int64, accept string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
@@ -143,7 +198,7 @@ func (c *Client) get(ctx context.Context, u string, limit int64, accept string) 
 		req.Header.Set("Accept", accept)
 		req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	}
-	res, err := c.http().Do(req)
+	res, err := hc.Do(req)
 	if err != nil {
 		// The error names the URL the client failed on: after a redirect,
 		// the signed download URL, whose query string is a credential.
@@ -156,6 +211,9 @@ func (c *Client) get(ctx context.Context, u string, limit int64, accept string) 
 	switch {
 	case res.StatusCode == http.StatusNotFound:
 		return nil, fmt.Errorf("%s: %w", redact(u), ErrNotFound)
+	case res.StatusCode >= 300 && res.StatusCode < 400:
+		// Only a client that follows no redirect sees one: a static tree's.
+		return nil, fmt.Errorf("%s: HTTP %d: a redirect, and none is followed", redact(u), res.StatusCode)
 	case res.StatusCode != http.StatusOK:
 		return nil, fmt.Errorf("%s: HTTP %d", redact(u), res.StatusCode)
 	}
@@ -213,16 +271,16 @@ func (c *Client) Fetch(ctx context.Context, rel *Release, bin, goos, goarch stri
 	if c.Verifier == nil {
 		return nil, errors.New("release: no signature verifier")
 	}
+	src := c.source()
 	name := ArchiveName(bin, rel.Tag, goos, goarch)
-	arch, err := rel.asset(name)
+	if err := src.has(rel, name); err != nil {
+		return nil, err
+	}
+	sums, err := src.file(ctx, rel, ChecksumsName, maxChecksums)
 	if err != nil {
 		return nil, err
 	}
-	sums, err := c.download(ctx, rel, ChecksumsName, maxChecksums)
-	if err != nil {
-		return nil, err
-	}
-	sig, err := c.download(ctx, rel, SignatureName, maxSig)
+	sig, err := src.file(ctx, rel, SignatureName, maxSig)
 	if errors.Is(err, ErrNotFound) {
 		return nil, fmt.Errorf("%w: release %s is not signed (no %s)", ErrSignature, rel.Tag, SignatureName)
 	}
@@ -236,7 +294,7 @@ func (c *Client) Fetch(ctx context.Context, rel *Release, bin, goos, goarch stri
 	if err != nil {
 		return nil, err
 	}
-	data, err := c.downloadAsset(ctx, arch, maxArchive)
+	data, err := src.file(ctx, rel, name, maxArchive)
 	if err != nil {
 		return nil, err
 	}
@@ -252,16 +310,6 @@ func (c *Client) Fetch(ctx context.Context, rel *Release, bin, goos, goarch stri
 		return fromZip(data, exe)
 	}
 	return fromTarGz(data, exe)
-}
-
-// download returns rel's asset called name, refusing more than limit
-// bytes.
-func (c *Client) download(ctx context.Context, rel *Release, name string, limit int64) ([]byte, error) {
-	a, err := rel.asset(name)
-	if err != nil {
-		return nil, err
-	}
-	return c.downloadAsset(ctx, a, limit)
 }
 
 // downloadAsset returns a's contents, refusing more than limit bytes, or
@@ -280,7 +328,7 @@ func (c *Client) downloadAsset(ctx context.Context, a Asset, limit int64) ([]byt
 	if u.Scheme != b.Scheme || u.Host == "" {
 		return nil, fmt.Errorf("asset %s: URL %s is not %s", a.Name, redact(a.URL), b.Scheme)
 	}
-	data, err := c.get(ctx, a.URL, limit, "")
+	data, err := get(ctx, c.http(), a.URL, limit, "")
 	if err != nil {
 		return nil, fmt.Errorf("download %s: %w", a.Name, err)
 	}

@@ -892,6 +892,17 @@ checksum, and the signature when OpenSSL 3 is installed; without it, the
 script warns, or fails with `--require-signature`. Every archive carries
 GitHub build provenance as well.
 
+Where a release is downloaded from is not trusted: GitHub, a static
+file host or a mirror named by `STARFIX_RELEASES`
+([Where releases are read from](install.md#where-releases-are-read-from)).
+Each is held to the same signature and checksum. From a static host no
+redirect is followed, plain HTTP is refused except to a loopback
+address, and the list of releases it serves is used only to choose a
+version, which must be a version. What any host can do is withhold: by
+serving an old list it keeps clients on the release they have, and
+nothing they read proves the list is fresh. `sfx` and `starfixd` never
+install a release older than the one running.
+
 The private key is a secret of the repository's `release` environment, so
 only release runs the maintainer approves can use it.
 [RELEASING.md](../RELEASING.md) has the details, and [Verify a download by

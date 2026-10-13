@@ -1829,6 +1829,7 @@ the config file (`/etc/starfix/starfixd.yaml`, or `--config FILE`, or
 | `prefix` | The prefix of new issue ids | `sf` | `--prefix` |
 | `admins` | [Admins](#admins) | none | `STARFIXD_ADMINS` |
 | `systemd_unit` | The unit `starfixd upgrade` restarts and health-checks | none | |
+| `releases` | Where `starfixd upgrade` reads releases from: the `https://` URL of a mirror, or the absolute path of a directory ([Upgrades](#upgrades)) | GitHub | `STARFIX_RELEASES`, the variable `sfx` and `install.sh` read |
 | `log_level` | `debug`, `info`, `warn` or `error` ([Logs](#logs)) | `info` | `--log-level`, `STARFIXD_LOG_LEVEL` |
 | `log_format` | `text` (key=value) or `json`, for a log shipper | `text` | `--log-format`, `STARFIXD_LOG_FORMAT` |
 | `latest` | The newest starfix release, set by hand. Clients' `prime` notes when this server is older | none | |
@@ -2047,8 +2048,8 @@ sudo -u starfix -H aa-exec -p starfixd-admin -- starfixd export-bd -o back.jsonl
 - Without `aa-exec` such a command runs under the bridge's profile and
   is refused with `permission denied`: `control init` on
   `authorized_keys`, anything that opens the store on `dial tcp
-  127.0.0.1:3306: socket`, and `upgrade` on its lookup of
-  `api.github.com`.
+  127.0.0.1:3306: socket`, and `upgrade` on its lookup of the release
+  host (`api.github.com`, unless `releases:` names another).
 - `import-bd` and `export-bd -o` take files in the top of
   `/var/lib/starfix`, not below it or elsewhere. A file your shell
   opens is not limited: `starfixd import-bd - < FILE`, `starfixd
@@ -3203,6 +3204,59 @@ It refuses to run as root, except with `--check`. `--to vX.Y.Z` installs a given
 never an older one, because migrations only go forward. `--rollback`
 restores the binary the last upgrade replaced. Take a
 [dump](#backups-and-restore) first if you want a copy outside Dolt.
+
+**Where the release is read from.** GitHub, unless the server is told
+otherwise, in one of two ways. Both take what `sfx upgrade` and
+`install.sh` take ([Where releases are read
+from](install.md#where-releases-are-read-from)): the `https://` URL of a
+static tree, or the absolute path of a directory that holds one.
+
+| Set | Where | Note |
+|---|---|---|
+| `releases:` | The config file | The usual way on a server |
+| `STARFIX_RELEASES` | The environment of `starfixd upgrade` | Wins over `releases:`. `sudo` does not pass your shell's variables on, so write `sudo -u starfix -H env STARFIX_RELEASES=… starfixd upgrade` |
+
+```yaml
+releases: https://releases.example.com/starfix
+```
+
+A value that is neither is refused before anything is asked of anyone,
+and so is an `http://` URL to anything but `127.0.0.1` or `[::1]`. The
+daemon never reads the setting: only `upgrade` does, and `upgrade
+--check` is how to try it.
+
+**A server with no way out.** Put the release on the server and name
+the directory. Carry in `starfixd_<version>_linux_<arch>.tar.gz`,
+`checksums.txt` and `checksums.txt.sig`, as the `starfix` user can read
+them:
+
+```sh
+sudo install -d -o starfix -g starfix /var/lib/starfix-releases/v0.6.0
+sudo install -o starfix -g starfix -m 0644 starfixd_0.6.0_linux_amd64.tar.gz checksums.txt checksums.txt.sig \
+  /var/lib/starfix-releases/v0.6.0/
+sudo -u starfix -H env STARFIX_RELEASES=/var/lib/starfix-releases starfixd upgrade --to v0.6.0
+```
+
+`--to` needs no `index.json`; an upgrade to the latest release reads
+one, which `internal/tools/releaseindex` writes
+([RELEASING.md](../RELEASING.md#publishing-to-a-static-host)). The
+directory is read as it is and nothing in it is trusted: the signature
+on `checksums.txt` is checked against the release key built into the
+running starfixd, and the archive against `checksums.txt`, exactly as
+for a download. A link in the directory that leads out of it is not
+followed.
+
+Under the [AppArmor profiles](#confine-starfixd-with-apparmor), an
+`https://` mirror needs nothing new: the operator's profile already
+reaches any host. A directory does, since that profile reads nothing
+outside what it lists: add `/var/lib/starfix-releases/{,**} r,` to
+`/etc/apparmor.d/local/starfixd-admin` and load the profiles again.
+That rule has not been run on a confined server.
+
+A mirror, like GitHub, can hold a release back: one that goes on
+serving an old `index.json` keeps `upgrade --check` saying `up to
+date`. It cannot make the server install anything the release key did
+not sign, nor a release older than the one running.
 
 Each person runs `sfx upgrade` on their own machine. It never runs by
 itself ([Install](install.md#upgrade-and-roll-back)).

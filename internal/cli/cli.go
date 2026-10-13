@@ -60,8 +60,9 @@ type Env struct {
 	Executable func() (string, error)
 	// Version is this binary's build version.
 	Version string
-	// Upgrader overrides what `upgrade` uses. Nil uses GitHub releases,
-	// the built-in release keys and this executable.
+	// Upgrader overrides what `upgrade` uses. Nil uses the releases
+	// $STARFIX_RELEASES names, or the default source, the built-in
+	// release keys and this executable.
 	Upgrader *Upgrader
 	// Now is the time in the user's time zone, whose date `log` sends as
 	// the day worked. Default time.Now.

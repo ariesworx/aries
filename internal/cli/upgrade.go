@@ -16,11 +16,15 @@ import (
 const releasesURL = "https://github.com/" + release.Repo + "/releases"
 
 // Upgrader is what `sfx upgrade` reads releases from and replaces. The zero
-// value uses GitHub, the built-in release keys and this executable.
+// value uses the source $STARFIX_RELEASES names, or release.DefaultSource,
+// the built-in release keys and this executable.
 type Upgrader struct {
-	// Releases reads and verifies releases. Default GitHub, verified with
-	// the release keys built into this binary.
+	// Releases reads and verifies releases. Default: release.Open on
+	// $STARFIX_RELEASES, verifying with Verifier.
 	Releases *release.Client
+	// Verifier checks a release's signature when Releases is not set.
+	// Default the release keys built into this binary.
+	Verifier release.Verifier
 	// Exe is the binary to replace, symlinks resolved. Default this
 	// executable.
 	Exe string
@@ -32,14 +36,15 @@ type Upgrader struct {
 }
 
 // upgrader returns Env.Upgrader, or the zero Upgrader, with its defaults
-// filled in, except Exe, which exe resolves when it is needed.
+// filled in, except Exe and Releases, which exe and releases resolve when
+// they are needed: a rollback reads no release.
 func (r *runner) upgrader() Upgrader {
 	var u Upgrader
 	if r.env.Upgrader != nil {
 		u = *r.env.Upgrader
 	}
-	if u.Releases == nil {
-		u.Releases = &release.Client{Verifier: release.Ed25519{}}
+	if u.Verifier == nil {
+		u.Verifier = release.Ed25519{}
 	}
 	if u.Check == nil {
 		u.Check = func(ctx context.Context, path, tag string) error { return release.VersionCheck(tag)(ctx, path) }
@@ -51,6 +56,21 @@ func (r *runner) upgrader() Upgrader {
 		u.GOARCH = runtime.GOARCH
 	}
 	return u
+}
+
+// releases returns u.Releases, or the client for the source that
+// $STARFIX_RELEASES names, which is release.DefaultSource when unset.
+func (r *runner) releases(u Upgrader) (*release.Client, error) {
+	if u.Releases != nil {
+		return u.Releases, nil
+	}
+	c, err := release.Open(r.env.Getenv(release.EnvReleases), u.Verifier)
+	if err != nil {
+		return nil, proto.Errf(proto.CodeInvalid,
+			"unset "+release.EnvReleases+" to read releases from the default, or set it to where your mirror is (docs/install.md)",
+			"$"+release.EnvReleases+": "+err.Error())
+	}
+	return c, nil
 }
 
 // exe returns the binary to replace: u.Exe, or this executable with
@@ -87,9 +107,14 @@ func cmdUpgrade(ctx context.Context, r *runner, args []string) error {
 	}
 
 	cur := r.env.Version
-	rel, err := u.Releases.Latest(ctx)
+	rels, err := r.releases(u)
 	if err != nil {
-		return proto.Errf(proto.CodeUnavailable, "check your network (HTTPS_PROXY is honored) and retry",
+		return err
+	}
+	rel, err := rels.Latest(ctx)
+	if err != nil {
+		return proto.Errf(proto.CodeUnavailable,
+			"check that this machine can reach "+rels.Location()+" (HTTPS_PROXY is honored) and retry",
 			"cannot read the latest starfix release: "+err.Error())
 	}
 	cmp, ok := proto.CompareVersions(cur, rel.Tag)
@@ -122,7 +147,7 @@ func cmdUpgrade(ctx context.Context, r *runner, args []string) error {
 		return nil
 	}
 
-	bin, err := u.Releases.Fetch(ctx, rel, "sfx", u.GOOS, u.GOARCH)
+	bin, err := rels.Fetch(ctx, rel, "sfx", u.GOOS, u.GOARCH)
 	if err != nil {
 		return fetchError(rel.Tag, err)
 	}

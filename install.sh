@@ -1,12 +1,14 @@
 #!/bin/sh
-# Install sfx (or, with --server, starfixd) from a GitHub release, after
-# checking the release's Ed25519 signature and the archive's sha256.
+# Install sfx (or, with --server, starfixd) from a release, after checking
+# the release's Ed25519 signature and the archive's sha256. Where the
+# release is read from is not trusted: see DEFAULT_RELEASES below.
 #
 #   curl -fsSL https://raw.githubusercontent.com/ariesworx/starfix/main/install.sh | sh
 #   curl -fsSL https://raw.githubusercontent.com/ariesworx/starfix/main/install.sh | sh -s -- --version v0.1.0
 #
-# Run with -h for the options. Needs curl or wget, tar, and sha256sum or
-# shasum; openssl 3 checks the signature. Never uses sudo.
+# Run with -h for the options. Needs curl or wget (neither, to install from
+# a directory), tar, and sha256sum or shasum; openssl 3 checks the
+# signature. Never uses sudo.
 set -eu
 
 usage() {
@@ -19,11 +21,24 @@ usage: install.sh [--version vX.Y.Z] [--dir DIR] [--server] [--require-signature
   --require-signature  fail, rather than warn, when openssl cannot check the signature
   -h, --help           show this help
 
-For testing and mirrors, STARFIX_BASE_URL replaces
+Releases are read from $STARFIX_RELEASES when it is set, as `sfx upgrade`
+and `starfixd upgrade` read them: "github", or a static tree (index.json
+and vX.Y.Z/FILE) as an https URL, a file:// URL or the absolute path of a
+directory. Plain http is accepted only to 127.0.0.1 or [::1]. A mirror is
+not trusted: the signature and the checksum are checked the same.
+
+For tests of GitHub's layout, STARFIX_BASE_URL replaces
 https://github.com/ariesworx/starfix/releases; it must serve /latest (a
 redirect to /tag/vX.Y.Z) and /download/vX.Y.Z/FILE.
 EOF
 }
+
+# Where releases are read from when STARFIX_RELEASES is not set: github,
+# or the https URL of a static tree. It is DefaultSource in
+# internal/release/static.go, and changes with it in the release that
+# precedes making the repository private (RELEASING.md). A test fails
+# until the two agree.
+DEFAULT_RELEASES=github
 
 # The release signing public key as a PEM SubjectPublicKeyInfo. It must
 # match internal/release/keys.go (Lsz75EL8k/kqkFSEtvkCB6bVC8BKiuI3zzux00wv/Gs=);
@@ -60,7 +75,38 @@ while [ $# -gt 0 ]; do
 	shift
 done
 
-base=${STARFIX_BASE_URL:-https://github.com/ariesworx/starfix/releases}
+# The layout: github (GitHub's release pages, redirects followed), static
+# (a tree over HTTP, where no redirect is followed, so that the host named
+# is the only one asked) or dir (the same tree in a directory).
+releases=${STARFIX_RELEASES:-}
+if [ -z "$releases" ]; then
+	# STARFIX_BASE_URL names a host of GitHub's layout, whatever the default.
+	if [ -n "${STARFIX_BASE_URL:-}" ]; then releases=github; else releases=$DEFAULT_RELEASES; fi
+fi
+# The refusals never repeat the value, which may hold a credential.
+case $releases in
+github)
+	layout=github
+	base=${STARFIX_BASE_URL:-https://github.com/ariesworx/starfix/releases} ;;
+https://*[@?#]* | http://*[@?#]*)
+	die "STARFIX_RELEASES must not hold a user name, a password, a query or a fragment" \
+		"set it to the plain URL of the mirror" ;;
+https://?* | http://127.0.0.1 | http://127.0.0.1[:/]* | 'http://[::1]' | 'http://[::1]'[:/]*)
+	layout=static
+	base=$releases ;;
+file://localhost/*)
+	layout=dir
+	base=${releases#file://localhost} ;;
+file:///*)
+	layout=dir
+	base=${releases#file://} ;;
+/*)
+	layout=dir
+	base=$releases ;;
+*)
+	die "STARFIX_RELEASES is not an https URL, a file:// URL or the absolute path of a directory (plain http is accepted only to 127.0.0.1 or [::1])" \
+		"unset STARFIX_RELEASES to install from the default, or set it to where your mirror is" ;;
+esac
 base=${base%/}
 pubkey=$RELEASE_PUBKEY_PEM
 if [ -n "${STARFIX_PUBKEY_PEM:-}" ]; then
@@ -88,10 +134,26 @@ if [ "$bin" = starfixd ] && [ "$os" != linux ]; then
 	die "starfixd runs on Linux only" "run --server on the Linux server, or drop --server to install sfx"
 fi
 
-if have curl; then
-	fetch() { curl -fsSL --retry 2 -o "$2" "$1"; }
+# fetch URL FILE. From a static tree, anything but the file itself is a
+# failure: a redirect is not followed, and curl would otherwise save the
+# redirect's own body and succeed.
+if [ "$layout" = dir ]; then
+	fetch() { [ -f "$1" ] && cp "$1" "$2"; }
+elif have curl; then
+	if [ "$layout" = github ]; then
+		fetch() { curl -fsSL --retry 2 -o "$2" "$1"; }
+	else
+		fetch() {
+			_code=$(curl -fsS --retry 2 --proto '=https,http' --max-filesize 268435456 -o "$2" -w '%{http_code}' "$1") &&
+				[ "$_code" = 200 ]
+		}
+	fi
 elif have wget; then
-	fetch() { wget -q -O "$2" "$1"; }
+	if [ "$layout" = github ]; then
+		fetch() { wget -q -O "$2" "$1"; }
+	else
+		fetch() { wget -q --max-redirect=0 -O "$2" "$1"; }
+	fi
 else
 	die "neither curl nor wget is installed" "install curl"
 fi
@@ -109,7 +171,29 @@ cleanup() { rm -rf "$tmp"; [ -z "${dest:-}" ] || rm -f "$dir/.$bin.tmp"; }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 
-# The latest release, from where /latest redirects (.../tag/vX.Y.Z).
+tag_re='^v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(-[0-9A-Za-z.-]{1,32})?$'
+
+# The latest release of a static tree: the highest version index.json
+# lists that is not a prerelease, whatever the file says of order or of
+# which is a prerelease. Nothing in the file is trusted or printed: it
+# only chooses the tag to ask for, and only a release version is a tag.
+if [ -z "$version" ] && [ "$layout" != github ]; then
+	fetch "$base/index.json" "$tmp/index.json" ||
+		die "cannot read $base/index.json" "check STARFIX_RELEASES, or pass --version vX.Y.Z"
+	[ "$(wc -c <"$tmp/index.json" | tr -d ' ')" -le 1048576 ] ||
+		die "$base/index.json is larger than 1048576 bytes" "check STARFIX_RELEASES, or pass --version vX.Y.Z"
+	# shellcheck disable=SC2020 # five characters, each to a newline
+	tr '{},[]' '\n\n\n\n\n' <"$tmp/index.json" | tr -d '\r' |
+		sed -n 's/^[[:space:]]*"tag"[[:space:]]*:[[:space:]]*"\([^"]*\)"[[:space:]]*$/\1/p' >"$tmp/tags"
+	if grep -Evq "$tag_re" "$tmp/tags"; then
+		die "$base/index.json names a tag that is not a release version" "check STARFIX_RELEASES, or pass --version vX.Y.Z"
+	fi
+	version=$(grep -v -e - "$tmp/tags" | sed 's/^v//' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
+	[ -n "$version" ] || die "$base/index.json lists no release" "check STARFIX_RELEASES, or pass --version vX.Y.Z"
+fi
+
+# The latest release on GitHub, from where /latest redirects
+# (.../tag/vX.Y.Z).
 if [ -z "$version" ]; then
 	if have curl; then
 		url=$(curl -fsSLI -o "$tmp/latest" -w '%{url_effective}' "$base/latest") || url=
@@ -121,16 +205,16 @@ if [ -z "$version" ]; then
 	[ -n "$version" ] || die "cannot find the latest release at $base/latest" "pass --version vX.Y.Z"
 fi
 case $version in v*) ;; *) version=v$version ;; esac
-if ! printf '%s\n' "$version" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]{1,32})?$'; then
+if ! printf '%s\n' "$version" | grep -Eq "$tag_re"; then
 	die "$version is not a release version" "pass --version vX.Y.Z"
 fi
 
 archive=${bin}_${version#v}_${os}_${arch}.tar.gz
-dl=$base/download/$version
+if [ "$layout" = github ]; then dl=$base/download/$version; else dl=$base/$version; fi
 fetch "$dl/checksums.txt" "$tmp/checksums.txt" ||
-	die "cannot download $dl/checksums.txt" "check that release $version exists at https://github.com/ariesworx/starfix/releases"
+	die "cannot download $dl/checksums.txt" "check that release $version exists at $base"
 fetch "$dl/checksums.txt.sig" "$tmp/checksums.txt.sig" ||
-	die "cannot download $dl/checksums.txt.sig" "check that release $version exists at https://github.com/ariesworx/starfix/releases"
+	die "cannot download $dl/checksums.txt.sig" "check that release $version exists at $base"
 fetch "$dl/$archive" "$tmp/$archive" ||
 	die "cannot download $dl/$archive" "check that release $version has $archive"
 
