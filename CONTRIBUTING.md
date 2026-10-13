@@ -256,7 +256,11 @@ back by seconds, while the sessions work; and back by 10 to 15 minutes
 at each restart, which the daemon must refuse (`clock_behind: stop`)
 until the clock is corrected or that history accepted for one start. A
 claim with lease left when the clock jumps forward must not be reaped
-for it, and every other check holds unchanged, event time that never
+for it: read from the project's log, on the store's time, a store's
+time follows the jump only after its `clock.step`, and a claim reaped
+after one that found its lease live has a lease extended by the jump
+(`jumpFaults`). A lease that ran out before the store settled the jump
+is not one. Every other check holds unchanged, event time that never
 decreases among them. The run's own reckoning of the store's time
 follows the same rule the store does (`vclock.now`).
 

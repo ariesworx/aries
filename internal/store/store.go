@@ -110,11 +110,13 @@ type Store struct {
 	// clock is the server clock, and tm the store's own time, which the
 	// clock cannot move backward (clock.go). hasClaims is false for the
 	// control database, which has no leases to settle; settling
-	// serializes SettleClock.
+	// serializes SettleClock. db names the database to the clock, which
+	// remembers what each has settled: its server's address and its name.
 	clock     *Clock
 	tm        storeTime
 	hasClaims bool
 	settling  sync.Mutex
+	db        string
 	// migrated is how many migrations Open applied.
 	migrated int
 
@@ -205,6 +207,7 @@ func open(ctx context.Context, dsn string, opts Options, sc schema) (*Store, err
 		done: make(chan struct{}),
 
 		clock: opts.Clock, hasClaims: sc.table == projectSchema.table,
+		db: cfg.Addr + "/" + cfg.DBName,
 	}
 	if s.clock == nil {
 		s.clock = NewClock(ClockOptions{Now: opts.Now})

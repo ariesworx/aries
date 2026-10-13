@@ -551,6 +551,49 @@ func TestForwardStepEndsNoClaim(t *testing.T) {
 	}
 }
 
+// A store settles a jump with its first write after it, which on a busy
+// server may be a while later; until then its time runs on as if the
+// clock had not moved. A lease that runs out in between had all of its
+// time, so the settle leaves it and the reaper ends it as it was, while
+// a lease still live is extended. The soak once took this for a claim
+// reaped for the jump (seed 264949260793903814).
+func TestLeaseThatRunsOutBeforeAJumpIsSettled(t *testing.T) {
+	c := newTwoClocks()
+	s, _ := steppedStore(t, "", c, Options{})
+	ctx := t.Context()
+	short, long := mustCreate(t, s, NewIssue{Title: "short"}), mustCreate(t, s, NewIssue{Title: "long"})
+	_, cs, err := s.StartIssue(ctx, alice, short.ID, time.Minute, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, cl, err := s.StartIssue(ctx, bob, long.ID, time.Hour, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.run(27 * time.Second)
+	const jump = 22 * time.Minute
+	c.step(jump) // short has 33 seconds left
+	c.run(34 * time.Second)
+	if now, want := s.Now(), cs.ExpiresAt.Add(time.Second); !now.Equal(want) {
+		t.Fatalf("Now() 34s after a jump not yet settled = %s, want %s: the store's time as if the clock had not moved", now, want)
+	}
+
+	reaped, err := s.ReapClaims(ctx) // the first write since the jump
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reaped) != 1 || reaped[0].Issue != short.ID || !reaped[0].ExpiresAt.Equal(cs.ExpiresAt) {
+		t.Errorf("ReapClaims 61s into a 1m lease, across a jump of %s = %+v; want short's claim ended with its lease as granted, %s", jump, reaped, cs.ExpiresAt)
+	}
+	if got, err := s.ClaimOf(ctx, long.ID); err != nil || got == nil || !got.ExpiresAt.Equal(cl.ExpiresAt.Add(jump)) {
+		t.Errorf("ClaimOf(long) = %+v, %v; want its lease extended by %s to %s", got, err, jump, cl.ExpiresAt.Add(jump))
+	}
+	ev, step, n := lastClockStep(t, s)
+	if n != 1 || step.Claims != 1 || !ev.At.Equal(cs.ExpiresAt.Add(time.Second)) {
+		t.Errorf("clock.step events: %d, the last at %s with %+v; want one, a second after short's lease ran out, extending 1 claim", n, ev.At, step)
+	}
+}
+
 // A clock set back and then put right is two steps. The leases already
 // had the time the store ran slow for, so the forward step gives them
 // only what the jump takes beyond that: nothing, when it only undoes the
@@ -629,6 +672,103 @@ func TestForwardStepWhileStoreClosed(t *testing.T) {
 	}
 	if _, _, n := lastClockStep(t, s); n != 1 {
 		t.Errorf("%d clock.step events after one step and two openings, want 1", n)
+	}
+}
+
+// The clock is set back, so the store's time runs ahead of it, and the
+// store's last event is dated after the clock's readings; the store then
+// closes, as an idle project's does, and the clock jumps forward. The
+// jump came after that event, whatever the wall clock read at the time:
+// the store settles it at its next opening, and no claim ends for it.
+func TestForwardStepWhileStoreClosedAndClockBehind(t *testing.T) {
+	c := newTwoClocks()
+	dsn := newDSN(t)
+	clk := NewClock(ClockOptions{Read: c.read})
+	s := openStore(t, dsn, Options{Clock: clk})
+	ctx := t.Context()
+	is := mustCreate(t, s, NewIssue{})
+	_, cl, err := s.StartIssue(ctx, alice, is.ID, 8*time.Hour, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.step(-time.Minute)
+	// The store's time does not go back, so this event is dated a minute
+	// after what the clock reads.
+	if _, err := s.AddComment(ctx, alice, is.ID, "still on it", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	c.run(10 * time.Second)
+	clk.Now() // the daemon reads its clock on every tick
+	const jump = 12 * time.Hour
+	c.step(jump)
+	clk.Now()
+	c.run(time.Second)
+
+	s = openStore(t, dsn, Options{Clock: clk})
+	if reaped, err := s.ReapClaims(ctx); err != nil || len(reaped) != 0 {
+		t.Fatalf("ReapClaims at opening, after a %s jump while the store was closed and the clock a minute behind it = %+v, %v; want none", jump, reaped, err)
+	}
+	// The store's time moves by the jump less the minute the clock was
+	// behind it; the closed store ran no slower than the clock meanwhile.
+	got, err := s.ClaimOf(ctx, is.ID)
+	if want := cl.ExpiresAt.Add(jump - time.Minute); err != nil || got == nil || got.ExpiresAt.Before(want) || got.ExpiresAt.After(cl.ExpiresAt.Add(jump)) {
+		t.Errorf("ClaimOf after reopening = %+v, %v; want the lease extended to between %s and %s", got, err, want, cl.ExpiresAt.Add(jump))
+	}
+	if _, cs, n := lastClockStep(t, s); n != 1 || cs.Claims != 1 {
+		t.Errorf("clock.step events: %d, the last %+v; want one that extended the claim", n, cs)
+	}
+}
+
+// Two jumps while the store is closed are settled by one clock.step,
+// dated on the store's time, which is before the clock's own reading at
+// the second jump. If nothing else is written before the store closes
+// again, that event is the database's latest, and its date must not make
+// the next opening take the second jump for one not settled.
+func TestTwoForwardStepsWhileStoreClosedAreSettledOnce(t *testing.T) {
+	c := newTwoClocks()
+	dsn := newDSN(t)
+	clk := NewClock(ClockOptions{Read: c.read})
+	s := openStore(t, dsn, Options{Clock: clk})
+	ctx := t.Context()
+	is := mustCreate(t, s, NewIssue{})
+	_, cl, err := s.StartIssue(ctx, alice, is.ID, 8*time.Hour, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	const first, second = 2 * time.Hour, 3 * time.Hour
+	for _, jump := range []time.Duration{first, second} {
+		c.run(time.Minute)
+		clk.Now() // the daemon reads its clock on every tick
+		c.step(jump)
+		clk.Now()
+	}
+	c.run(time.Minute)
+
+	for opening := 1; opening <= 2; opening++ {
+		s = openStore(t, dsn, Options{Clock: clk})
+		if reaped, err := s.ReapClaims(ctx); err != nil || len(reaped) != 0 {
+			t.Fatalf("opening %d: ReapClaims = %+v, %v; want none", opening, reaped, err)
+		}
+		if now := s.Now(); !now.Equal(c.now()) {
+			t.Errorf("opening %d: Now() = %s after a write, want the clock's %s", opening, now, c.now())
+		}
+		got, err := s.ClaimOf(ctx, is.ID)
+		if want := cl.ExpiresAt.Add(first + second); err != nil || got == nil || !got.ExpiresAt.Equal(want) {
+			t.Errorf("opening %d: ClaimOf = %+v, %v; want the lease extended once by both jumps, to %s", opening, got, err, want)
+		}
+		if _, _, n := lastClockStep(t, s); n != 1 {
+			t.Errorf("opening %d: %d clock.step events after two jumps settled together, want 1", opening, n)
+		}
+		if err := s.Close(); err != nil {
+			t.Fatal(err)
+		}
+		c.run(time.Minute)
 	}
 }
 
