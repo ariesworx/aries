@@ -116,8 +116,8 @@ func agentWith(t *testing.T, keys ...keyPair) string {
 // fakeSSHD stands in for the server's sshd. It lets in the keys of
 // principals, as authorized_keys lines would, writes down every key a
 // client offers, in order, and reports on signedIn the principal each
-// connection authenticated as before it closes it. Like OpenSSH, it
-// hangs up after six refused keys.
+// connection authenticated as, and refuses the session it then asks for.
+// Like OpenSSH, it hangs up after six refused keys.
 type fakeSSHD struct {
 	root     string // the repository: where .starfix.yaml would be
 	home     string // the home directory of whoever runs sfx: empty, unless a test fills it
@@ -169,12 +169,19 @@ func newFakeSSHD(t *testing.T, principals map[string]keyPair) *fakeSSHD {
 			wg.Go(func() {
 				defer func() { _ = nc.Close() }()
 				_ = nc.SetDeadline(time.Now().Add(10 * time.Second))
-				conn, _, _, err := ssh.NewServerConn(nc, sc)
+				conn, chans, reqs, err := ssh.NewServerConn(nc, sc)
 				if err != nil {
 					return
 				}
 				d.signedIn <- conn.Permissions.Extensions["principal"]
-				_ = conn.Close()
+				// It runs no starfixd, and says so as sshd would: it refuses
+				// the session, and the client hangs up. Closing the
+				// connection here instead would leave the client's error to
+				// how the close fell against its request.
+				wg.Go(func() { ssh.DiscardRequests(reqs) })
+				for ch := range chans {
+					_ = ch.Reject(ssh.Prohibited, "no starfixd here")
+				}
 			})
 		}
 	})

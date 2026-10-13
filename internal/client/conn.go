@@ -47,7 +47,8 @@ type Options struct {
 	// os.UserHomeDir, which reads HOME, or USERPROFILE on Windows: the
 	// process's environment, which no file of a repository sets.
 	UserHomeDir func() (string, error)
-	// Timeout bounds connecting and the handshake. Default 15s.
+	// Timeout bounds Dial, from connecting to the server's welcome.
+	// Default 15s.
 	Timeout time.Duration
 	// OnPush receives the events the server pushes (after a watch call),
 	// in order, on the connection's reader goroutine. It must return
@@ -176,13 +177,19 @@ func Dial(ctx context.Context, cfg *Config, opts Options) (*Conn, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The server as a message names it.
+	far := addr
+	if t, ok := nc.(*iapConn); ok {
+		far = t.String()
+	}
+	tr := &transport{Conn: nc}
 	// Closing the transport bounds the SSH handshake for both transports;
 	// the IAP tunnel's pipes have no portable deadlines.
-	stop := context.AfterFunc(ctx, func() { _ = nc.Close() })
+	stop := context.AfterFunc(ctx, func() { _ = tr.Close() })
 	defer stop()
-	cc, chans, reqs, err := ssh.NewClientConn(nc, addr, sc)
+	cc, chans, reqs, err := ssh.NewClientConn(tr, addr, sc)
 	if err != nil {
-		_ = nc.Close()
+		_ = tr.Close()
 		if hostKeyErr != nil {
 			return nil, hostKeyErr
 		}
@@ -204,9 +211,12 @@ func Dial(ctx context.Context, cfg *Config, opts Options) (*Conn, error) {
 			fmt.Sprintf("ssh handshake with %s failed: %v", addr, err))
 	}
 	client := ssh.NewClient(cc, chans, reqs)
-	c, err := start(ctx, client, cfg, opts)
+	c, err := start(ctx, client, tr, far, cfg, opts)
 	if err != nil {
-		return nil, errors.Join(err, client.Close())
+		// Why the start failed is the error; what closing says after it
+		// is nothing a caller can act on.
+		_ = client.Close()
+		return nil, err
 	}
 	c.key, c.skipped = id.used(), id.skipped
 	return c, nil
@@ -234,12 +244,106 @@ func dialTransport(ctx context.Context, cfg *Config, addr string) (net.Conn, err
 	return nc, nil
 }
 
+// transport is the connection SSH runs over, wrapped to keep one fault
+// of golang.org/x/crypto/ssh from holding a caller forever. That
+// package closes the channels it knows of once, when a read fails, and
+// a channel opened just after is never closed: its request is written,
+// nothing reads the answer, and neither closing the connection nor
+// anything else the package offers ends the wait (golang/go#82009). So
+// no channel is opened once a read has failed (open), and a read that
+// fails while one is being opened is kept from the package until the
+// request to open it is written (opened), by when the channel is one of
+// those the package closes.
+//
+// That covers a connection that ends as a transport does: closed, reset
+// or cut, by the server, the path or this client's own timeout. A server
+// that ends it with an SSH disconnect message fails no read here, and
+// could still fall into the fault, in a window of a few instructions;
+// openSession stops waiting all the same, and leaves ssh's goroutine.
+type transport struct {
+	net.Conn
+
+	mu     sync.Mutex
+	failed bool          // a read failed, or Close was called: the connection is over
+	hold   chan struct{} // non-nil while a failed read must wait; closed to let it return
+}
+
+// Read returns a failure only once no channel is being opened.
+func (t *transport) Read(p []byte) (int, error) {
+	n, err := t.Conn.Read(p)
+	if err == nil {
+		return n, nil
+	}
+	t.mu.Lock()
+	t.failed = true
+	hold := t.hold
+	t.mu.Unlock()
+	if hold != nil {
+		<-hold
+	}
+	return n, err
+}
+
+// Write ends the wait of a failed read: ssh registers a channel before
+// it writes the request to open it. Any write ends it, so one that is
+// not the request (an answer to a ping from the server, say) may let a
+// failed read through early, which openSession's own bound is for too.
+func (t *transport) Write(p []byte) (int, error) {
+	t.opened()
+	return t.Conn.Write(p)
+}
+
+// Close closes the connection and lets a failed read return.
+func (t *transport) Close() error {
+	t.mu.Lock()
+	t.failed = true
+	t.mu.Unlock()
+	t.opened()
+	return t.Conn.Close()
+}
+
+// open reports whether a channel may be opened: not once a read has
+// failed. From here until opened, a read that fails does not return.
+func (t *transport) open() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.failed {
+		return false
+	}
+	t.hold = make(chan struct{})
+	return true
+}
+
+// over reports whether the connection has ended.
+func (t *transport) over() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.failed
+}
+
+// opened lets a failed read return. It may be called at any time.
+func (t *transport) opened() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.hold != nil {
+		close(t.hold)
+		t.hold = nil
+	}
+}
+
 // start opens the SSH session that runs the bridge and completes the
-// handshake on it, within ctx. On success the Conn's reader is running;
-// on failure the caller closes client.
-func start(ctx context.Context, client *ssh.Client, cfg *Config, opts Options) (*Conn, error) {
-	sess, err := client.NewSession()
+// handshake on it, within ctx: when ctx ends it closes client, which
+// ends whichever step was waiting for the server, which a message names
+// as far. On success the Conn's reader is running; on failure the
+// caller closes client.
+func start(ctx context.Context, client *ssh.Client, nc *transport, far string, cfg *Config, opts Options) (*Conn, error) {
+	stop := context.AfterFunc(ctx, func() { _ = client.Close() })
+	defer stop()
+	sess, err := openSession(ctx, client, nc)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, gaveUp(ctx, far, "open an ssh session", opts.Timeout, "")
+		}
 		return nil, proto.Errf(proto.CodeUnavailable, "retry; if it persists, ask the server admin", fmt.Sprintf("open ssh session: %v", err))
 	}
 	stdin, err := sess.StdinPipe()
@@ -254,11 +358,12 @@ func start(ctx context.Context, client *ssh.Client, cfg *Config, opts Options) (
 	c.ssh, c.sess, c.stdin, c.trace = client, sess, stdin, opts.Trace
 	sess.Stderr = c.stderr
 	if err := sess.Start(RemoteCommand); err != nil {
+		if ctx.Err() != nil {
+			return nil, gaveUp(ctx, far, "start starfixd", opts.Timeout, c.stderr.String())
+		}
 		return nil, proto.Errf(proto.CodeUnavailable, "check that this key's authorized_keys line forces `starfixd stdio --principal NAME`",
 			fmt.Sprintf("the server would not start starfixd: %v", err))
 	}
-	stop := context.AfterFunc(ctx, func() { _ = client.Close() })
-	defer stop()
 	if err := c.enc.Encode(&proto.Frame{T: proto.FrameHello, Version: opts.Version, Proto: proto.Proto,
 		Project: cfg.Project, Session: opts.Session, Machine: opts.Machine, Harness: opts.Harness}); err != nil {
 		// The bridge may have refused and closed before reading the hello;
@@ -266,10 +371,16 @@ func start(ctx context.Context, client *ssh.Client, cfg *Config, opts Options) (
 		if w, rerr := c.next(); rerr == nil && w.T == proto.FrameWelcome && w.Err != nil {
 			return nil, w.Err
 		}
+		if ctx.Err() != nil {
+			return nil, gaveUp(ctx, far, "answer the hello", opts.Timeout, c.stderr.String())
+		}
 		return nil, c.lost(err)
 	}
 	w, err := c.next()
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, gaveUp(ctx, far, "answer the hello", opts.Timeout, c.stderr.String())
+		}
 		return nil, c.lost(err)
 	}
 	if w.T != proto.FrameWelcome {
@@ -285,6 +396,56 @@ func start(ctx context.Context, client *ssh.Client, cfg *Config, opts Options) (
 	c.Welcome = *w
 	c.run()
 	return c, nil
+}
+
+// errClosedEarly is a connection that ended between the server's
+// accepting the key and the opening of the session.
+var errClosedEarly = errors.New("the server closed the connection once it had accepted the key")
+
+// openSession opens the session channel, and stops waiting for it when
+// ctx ends. ssh cannot be told to give up on an open, so the open runs
+// on a goroutine of its own, which ends when the server answers or the
+// connection closes, as it does when ctx ends (start). Only the fault
+// that transport describes, where transport does not reach it, leaves
+// that goroutine behind: it holds memory, and no connection.
+func openSession(ctx context.Context, client *ssh.Client, nc *transport) (*ssh.Session, error) {
+	if !nc.open() {
+		return nil, errClosedEarly
+	}
+	type opened struct {
+		sess *ssh.Session
+		err  error
+	}
+	done := make(chan opened, 1)
+	go func() {
+		sess, err := client.NewSession()
+		nc.opened()
+		done <- opened{sess, err}
+	}()
+	select {
+	case o := <-done:
+		// ssh reports an open that the end of the connection cut short as
+		// an unexpected packet, which names nothing.
+		if _, refused := errors.AsType[*ssh.OpenChannelError](o.err); o.err != nil && !refused && nc.over() {
+			return nil, errClosedEarly
+		}
+		return o.sess, o.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// gaveUp is the refusal of a Dial whose ctx ended after the server had
+// accepted the key, while the client waited for far to do step. said is
+// what the server had printed on stderr.
+func gaveUp(ctx context.Context, far, step string, timeout time.Duration, said string) *proto.Error {
+	msg := fmt.Sprintf("timed out after %s waiting for %s to %s", timeout, far, step)
+	if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		msg = fmt.Sprintf("stopped waiting for %s to %s: %v", far, step, ctx.Err())
+	}
+	return proto.Errf(proto.CodeUnavailable,
+		"retry; if it persists, ask the server admin to check sshd and starfixd on the server, where `starfixd status` reports on the daemon",
+		msg+quoteStderr(said, "server"))
 }
 
 // next reads, during the handshake, the next frame the client
