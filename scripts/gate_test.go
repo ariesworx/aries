@@ -91,6 +91,33 @@ func TestGateMatchesCI(t *testing.T) {
 	}
 }
 
+// TestPeerCheckMatchesCI keeps the command the gate prints for the tests
+// that need root the one CI runs: the test binary of internal/server,
+// built with the race detector by whoever runs the gate, and only that
+// binary under sudo. Neither runs go as root.
+func TestPeerCheckMatchesCI(t *testing.T) {
+	files := map[string]string{
+		".github/workflows/ci.yml": read(t, ".github/workflows/ci.yml"),
+		"scripts/gate.sh":          read(t, "scripts/gate.sh"),
+	}
+	for _, part := range []string{
+		"go test -race -c -o ",
+		"STARFIX_REQUIRE_DOLT=1 ",
+		"-test.run '^TestCheckPeer' -test.v",
+	} {
+		for name, body := range files {
+			if !strings.Contains(body, part) {
+				t.Errorf("the peer check of %s has no %q; change scripts/gate.sh and ci.yml together", name, part)
+			}
+		}
+	}
+	for name, body := range files {
+		if regexp.MustCompile(`sudo env[^\n]*(\\\n[^\n]*)*\bgo test\b`).MatchString(body) {
+			t.Errorf("%s runs go test under sudo; build the test binary first and run only the binary as root", name)
+		}
+	}
+}
+
 // TestGovulncheckPin keeps every govulncheck in the repository at one
 // version: the gate's, CI's, the weekly scan's and the release build's.
 func TestGovulncheckPin(t *testing.T) {
@@ -282,7 +309,9 @@ func TestGateScript(t *testing.T) {
 		{name: "everything passes", calls: full,
 			want: []string{"gate: go1.27.1 linux/amd64, golangci-lint 2.14.0, Dolt 9.8.7 (on PATH)",
 				"gofmt -l . ... ok (", "gate: passed in ", ": 11 of 11 commands",
-				"Not covered by this run:", "TestCheckPeerOtherUID", "deploy/docker/smoke.sh", "The soak test ran its short form"},
+				"Not covered by this run:", "TestCheckPeerOtherUID", "deploy/docker/smoke.sh", "The soak test ran its short form",
+				// The command for the tests that need root, as a shell takes it.
+				`go test -race -c -o server.test ./internal/server && (cd internal/server && sudo env "PATH=$PATH" STARFIX_REQUIRE_DOLT=1 ../../server.test -test.run '^TestCheckPeer' -test.v); rm server.test`},
 			not: []string{"FAILED", "golangci-lint here is", "govulncheck:", "CI runs them on linux/amd64"}},
 		{name: "as root", files: map[string]string{"uid": "0\n"}, calls: full,
 			want: []string{"gate: passed in ", ": 11 of 11 commands"}, not: []string{"TestCheckPeerOtherUID"}},
