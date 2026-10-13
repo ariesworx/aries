@@ -13,6 +13,9 @@ concurrency:
 jobs:
   analyze:
     runs-on: ubuntu-24.04
+    # A hang ends here, not at GitHub's six hours. The slowest of 78
+    # analyze jobs read took 127 s (docs/design/ci-analysis.md, §3.1).
+    timeout-minutes: 15
     permissions:
       security-events: write  # upload results to code scanning
       contents: read

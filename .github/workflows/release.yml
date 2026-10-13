@@ -40,6 +40,8 @@ jobs:
     if: github.event_name == 'push'
     needs: gate
     runs-on: ubuntu-24.04
+    # A hang ends here, not at GitHub's six hours; the job takes 122 to 155 s.
+    timeout-minutes: 15
     permissions:
       contents: read
       id-token: write      # actions/attest-build-provenance

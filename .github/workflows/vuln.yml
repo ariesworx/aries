@@ -12,6 +12,10 @@ permissions:
 jobs:
   govulncheck:
     runs-on: ubuntu-24.04
+    # A hang ends here, not at GitHub's six hours. The one run read took
+    # 28 s, and the same step in ci.yml at most 39 s
+    # (docs/design/ci-analysis.md, §3.1 and §3.4).
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -196,7 +196,7 @@ tests on linux/amd64 alone; for macOS and Windows it vets and builds
 
 | On | A passing gate does not show |
 |---|---|
-| Linux | `TestCheckPeerOtherUID` (`internal/server`), which starts a socket peer as another user and so needs root. CI runs it under `sudo`; the gate's summary prints the command |
+| Linux | `TestCheckPeerOtherUID` and `TestCheckPeerKeepsStatusFromOtherUsers` (`internal/server`), which start a socket peer as another user and so need root. CI builds the package's test binary and runs that under `sudo`, so that `go` never runs as root; the gate's summary prints the command |
 | macOS | Anything about the tests on Linux. The code only Linux builds, the socket peer check behind `starfixd serve` (`internal/server/peer_linux.go`), is vetted, built and linted there but its tests, `TestCheckPeer*`, cannot run. A test that depends on the platform can pass on one system and fail on the other. On Apple silicon the amd64 builds are compiled and vetted, never run |
 | Windows, natively | The scripts, which need a POSIX shell, and the tests marked for Unix: those of the Google Cloud IAP transport, and of refusing a transcript that is a FIFO. Use WSL for the gate |
 | Any | The Docker smoke test, unless you pass `--smoke`; the long soak test, below; and, with a Go older than the newest patch release, govulncheck's verdict on the standard library, which the gate reports apart from failures |
@@ -227,6 +227,14 @@ rather than slow, which finds other faults. Mount a volume at
 `/go/pkg/mod` and another as `GOCACHE` to keep the build between runs. A
 test is run many times with `-run NAME -count N`. The container runs as
 root, so `TestCheckPeer…` runs too.
+
+CI keeps the tests' temporary files, Dolt's databases among them, in
+memory (`TESTS_TMPFS` in [ci.yml](.github/workflows/ci.yml)), so its
+tests do not wait for a disk and that command's do. For CI's way, add
+`--tmpfs /dev/shm:exec,size=3g -e TMPDIR=/dev/shm -e GOTMPDIR=/tmp`
+and a gigabyte of `--memory`: the files were a quarter of a gigabyte at
+their most. Docker's own `/dev/shm` is 64 MB and runs no program, which
+the tests need of their temporary directory.
 
 A test that passes there:
 
