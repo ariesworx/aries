@@ -133,6 +133,15 @@ func (r *registry) acquire(ctx context.Context, p store.Project) (*entry, error)
 	}
 }
 
+// has reports whether project id's store is open or being opened: a
+// handshake for it then opens nothing itself.
+func (r *registry) has(id string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	e := r.entries[id]
+	return e != nil && e.gone == nil
+}
+
 // evict makes room for one more store. It returns an entry to wait for,
 // one already closing or the longest-idle unused store, which it starts
 // closing, or nil when every store is in use. r.mu is held.
