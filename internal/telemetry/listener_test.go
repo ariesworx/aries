@@ -239,6 +239,18 @@ func TestServeWithoutMetrics(t *testing.T) {
 
 func do(t *testing.T, method, url string) (int, string) {
 	t.Helper()
+	status, body, err := try(t, method, url)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, url, err)
+	}
+	return status, body
+}
+
+// try is do for a request that the listener may not answer: err is the
+// client's, as when the connection was one past the listener's cap and
+// was closed.
+func try(t *testing.T, method, url string) (int, string, error) {
+	t.Helper()
 	tr := &http.Transport{DisableKeepAlives: true}
 	defer tr.CloseIdleConnections()
 	req, err := http.NewRequestWithContext(t.Context(), method, url, nil)
@@ -247,7 +259,7 @@ func do(t *testing.T, method, url string) (int, string) {
 	}
 	resp, err := (&http.Client{Transport: tr, Timeout: 10 * time.Second}).Do(req)
 	if err != nil {
-		t.Fatalf("%s %s: %v", method, url, err)
+		return 0, "", err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	var b strings.Builder
@@ -259,7 +271,7 @@ func do(t *testing.T, method, url string) (int, string) {
 			break
 		}
 	}
-	return resp.StatusCode, b.String()
+	return resp.StatusCode, b.String(), nil
 }
 
 // Requests past the cap are answered 503 at once and counted, and
@@ -308,8 +320,20 @@ func TestServeCaps(t *testing.T) {
 			}
 			// The cap is full: the next request is refused at once, whatever
 			// it asks for.
+			// The listener holds twice the cap in connections and closes
+			// one past that, and the connection of the request before
+			// this one may not have gone from its count yet: a request
+			// it closed unanswered reached no handler, counted nothing,
+			// and is made again.
 			for _, path := range []string{"/readyz", "/healthz", "/metrics"} {
-				status, body := do(t, "GET", base+path)
+				status, body, err := try(t, "GET", base+path)
+				for end := time.Now().Add(10 * time.Second); err != nil && time.Now().Before(end); {
+					time.Sleep(5 * time.Millisecond)
+					status, body, err = try(t, "GET", base+path)
+				}
+				if err != nil {
+					t.Fatalf("GET %s with %d requests in flight: %v", path, tc.cap, err)
+				}
 				if status != 503 || !strings.Contains(body, "busy") {
 					t.Errorf("GET %s with %d requests in flight = %d %q, want 503 busy", path, tc.cap, status, body)
 				}

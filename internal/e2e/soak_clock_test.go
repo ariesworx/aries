@@ -23,14 +23,20 @@ import (
 // its lease ran out, an event of its own for every claim that ends, and
 // event time that never decreases in a log, which only now is put to the
 // test. One is added: a claim with lease left when the clock jumps
-// forward is not reaped for it.
+// forward is not reaped for it, which is to say that the store's time
+// follows the jump only once the store has settled it, and that the
+// settle extends every lease it finds live (jumpFaults).
 
 // clockStats counts what the clock chaos did, for the report.
 type clockStats struct {
 	forward, back, backAtStart         atomic.Int64
 	refused, corrected, accepted       atomic.Int64
-	leasesChecked, forwardNotChecked   atomic.Int64
+	leasesChecked, forwardSlow         atomic.Int64
 	stepEvents, leasesExtendedInEvents atomic.Int64
+	// slowStarts counts the restarts with the clock set back that took so
+	// long that the clock was within the tolerance of the history again
+	// by the end, so that a daemon which started cannot be faulted.
+	slowStarts atomic.Int64
 }
 
 // step sets the wall clock by d, and keeps lead, how far a store's time
@@ -82,38 +88,46 @@ type leased struct {
 // stepForward sets the clock forward by more than most leases have left
 // (5 to 30 minutes, when the client library's leases are 1 to 3), then
 // checks, in each project, that no claim with lease left at the jump was
-// reaped for it: the claim.expire of any such claim in the moments after
-// must name a lease extended by the whole step.
+// reaped for it (jumpFaults): the claim.expire of any such claim in the
+// moments after must name a lease extended by the whole step, unless the
+// lease ran out, on the store's time, before the store settled the jump.
+// When the clock was behind the stores' time, which then ran slow, a
+// store's time moves by less than the step and its leases are owed less,
+// by an amount only the store knows: each claim is then held to what the
+// clock.step events of its log say they gave it, and no more.
 func (s *soak) stepForward(ctx context.Context, rng *rand.Rand) {
 	d := time.Duration(5+rng.IntN(26)) * time.Minute
-	const margin = 30 * time.Second // on the store's clock: live when the clock jumps, which is at once
-	check := s.clock.ahead() == 0   // a store running slow gives less than the whole step
+	// The run's reckoning is never behind the stores' time, so when it
+	// says the clock is not behind them, it is not.
+	whole := s.clock.ahead() == 0
 	type before struct {
 		seq    int64
 		leases map[leased]time.Time
 	}
 	held := map[*sproj]before{}
-	if check {
-		for _, p := range s.projs {
-			b := before{leases: map[leased]time.Time{}}
-			if err := p.db.QueryRowContext(ctx, `SELECT seq FROM events ORDER BY seq DESC LIMIT 1`).Scan(&b.seq); err != nil {
-				continue // no events yet, or the run is ending
-			}
-			rows, err := p.db.QueryContext(ctx, `SELECT issue_id, epoch, expires_at FROM claims WHERE principal IS NOT NULL AND expires_at > ?`,
-				s.clock.now().Add(margin))
-			if err != nil {
-				continue
-			}
-			for rows.Next() {
-				var l leased
-				var exp time.Time
-				if err := rows.Scan(&l.issue, &l.epoch, &exp); err == nil {
-					b.leases[l] = exp.UTC()
-				}
-			}
-			_ = rows.Close()
-			held[p] = b
+	for _, p := range s.projs {
+		b := before{leases: map[leased]time.Time{}}
+		if err := p.db.QueryRowContext(ctx, `SELECT seq FROM events ORDER BY seq DESC LIMIT 1`).Scan(&b.seq); err != nil {
+			continue // no events yet, or the run is ending
 		}
+		// Live by the clock, a moment before it jumps. How long a lease
+		// then has left does not matter: a store may take seconds of
+		// its own time to settle the jump, more on a loaded machine,
+		// and what the log shows of it is checked, not how soon.
+		rows, err := p.db.QueryContext(ctx, `SELECT issue_id, epoch, expires_at FROM claims WHERE principal IS NOT NULL AND expires_at > ?`,
+			s.clock.now())
+		if err != nil {
+			continue
+		}
+		for rows.Next() {
+			var l leased
+			var exp time.Time
+			if err := rows.Scan(&l.issue, &l.epoch, &exp); err == nil {
+				b.leases[l] = exp.UTC()
+			}
+		}
+		_ = rows.Close()
+		held[p] = b
 	}
 
 	s.clock.step(d)
@@ -127,35 +141,171 @@ func (s *soak) stepForward(ctx context.Context, rng *rand.Rand) {
 	if err := ctl.SettleClock(ctx); err != nil && ctx.Err() == nil {
 		s.mon.fail("", "settle the control store after the clock jumped %s: %v", d, err)
 	}
-	if !check {
-		s.clockStats.forwardNotChecked.Add(1)
-		return
+	if !whole {
+		s.clockStats.forwardSlow.Add(1)
 	}
 	// Several reaps later, on any machine.
 	pause(ctx, 400*time.Millisecond)
 	for p, b := range held {
-		rows, err := p.db.QueryContext(context.WithoutCancel(ctx), `SELECT seq, target, before_state FROM events WHERE seq > ? AND op = 'claim.expire' ORDER BY seq`, b.seq)
+		evs, err := readEvents(context.WithoutCancel(ctx), p.db, b.seq)
 		if err != nil {
 			s.mon.fail("", "read the claims reaped after the clock jumped: %v", err)
 			continue
 		}
-		for rows.Next() {
-			var seq int64
-			var target string
-			var state []byte
-			var c claimState
-			if err := rows.Scan(&seq, &target, &state); err != nil || json.Unmarshal(state, &c) != nil {
-				continue
-			}
-			was, ok := b.leases[leased{target, c.Epoch}]
-			if ok && c.ExpiresAt.Before(was.Add(d-time.Second)) {
-				s.mon.fail(target, "event %d: the reaper ended %s/%s's claim (epoch %d) with its lease at %s, after the clock jumped forward %s; the lease ran to %s before the jump, so want it extended to %s or later",
-					seq, c.Holder.Principal, c.Holder.Session, c.Epoch, stamp(c.ExpiresAt), d, stamp(was), stamp(was.Add(d)))
-			}
+		// Read after the events were, so no earlier than any of them.
+		var unjumped time.Time
+		if whole {
+			unjumped = s.clock.now().Add(-d)
 		}
-		_ = rows.Close()
+		for _, v := range jumpFaults(d, b.leases, evs, unjumped) {
+			s.mon.fail(v.issue, "%s", v.msg)
+		}
 		s.clockStats.leasesChecked.Add(int64(len(b.leases)))
 	}
+}
+
+// jumpFaults returns what a project's log says the store did wrong when
+// the clock jumped forward by d. leases are the claims that were live
+// before the jump, each with its lease then; events are the log's since;
+// and unjumped is the clock less d, read after the events were: a store
+// that has not settled the jump has given out no time after it. A zero
+// unjumped says that the clock was behind the store's time at the jump,
+// so that neither that time nor how much of d a lease is owed is known
+// outside the store; only the second rule below is then checked.
+//
+// It reckons on the store's time, as the store does, and not on how long
+// anything took. A store settles the jump with its first write after it,
+// and until then its time runs on as if the clock had not moved, so a
+// lease may run out between the jump and the settle: its holder had all
+// of it, and the reaper ends it as it was. The log must show:
+//
+//   - no event after unjumped until a clock.step: the store's time
+//     follows the clock only once the jump is settled;
+//   - for each claim reaped, a lease extended by every clock.step that
+//     found it live: one dated before the lease's end as it then was;
+//   - and by the whole jump, if every clock.step before the reap found
+//     it live and the reap is dated after unjumped.
+func jumpFaults(d time.Duration, leases map[leased]time.Time, events []sevent, unjumped time.Time) []violation {
+	type settle struct {
+		at time.Time // the store's time when it settled
+		by time.Duration
+	}
+	var out []violation
+	var settles []settle
+	whole := !unjumped.IsZero()
+	followed := false // reported once: every later event is after unjumped too
+	for _, e := range events {
+		if whole && len(settles) == 0 && !followed && e.at.After(unjumped) {
+			followed = true
+			issue := ""
+			if e.op == "claim.expire" {
+				issue = e.target
+			}
+			out = append(out, violation{issue: issue, msg: fmt.Sprintf("event %d (%s on %s) is at %s, and a store that has not settled the clock's jump forward of %s is at %s or earlier: its time followed the clock with no clock.step before it",
+				e.seq, e.op, e.target, stamp(e.at), d, stamp(unjumped))})
+		}
+		switch e.op {
+		case "clock.step":
+			var a struct {
+				Extended int64 `json:"extended_us"`
+			}
+			_ = json.Unmarshal(e.after, &a)
+			settles = append(settles, settle{at: e.at, by: time.Duration(a.Extended) * time.Microsecond})
+		case "claim.expire":
+			var c claimState
+			if json.Unmarshal(e.before, &c) != nil {
+				continue
+			}
+			was, ok := leases[leased{e.target, c.Epoch}]
+			if !ok {
+				continue
+			}
+			// A renewal in between only makes the lease later.
+			want, always := was, len(settles) > 0
+			for _, s := range settles {
+				if want.After(s.at) {
+					want = want.Add(s.by)
+				} else {
+					always = false
+				}
+			}
+			if all := was.Add(d - time.Second); whole && always && e.at.After(unjumped) && want.Before(all) {
+				want = all
+			}
+			if c.ExpiresAt.Before(want) {
+				out = append(out, violation{issue: e.target, msg: fmt.Sprintf("event %d: the reaper ended %s/%s's claim (epoch %d) with its lease at %s, after the clock jumped forward %s; the lease ran to %s before the jump and was live when the store settled it, so want it extended to %s or later",
+					e.seq, c.Holder.Principal, c.Holder.Session, c.Epoch, stamp(c.ExpiresAt), d, stamp(was), stamp(want))})
+			}
+		}
+	}
+	return out
+}
+
+// settled is a clock.step event of a log: the store settled a forward
+// jump of the clock with event seq, when its time was at; its time then
+// went to after, and the clock had jumped by step.
+type settled struct {
+	seq       int64
+	at, after time.Time
+	step      time.Duration
+}
+
+// settledOf reads a clock.step event.
+func settledOf(e sevent) settled {
+	var a struct {
+		At   time.Time `json:"at"`
+		Step int64     `json:"step_us"`
+	}
+	_ = json.Unmarshal(e.after, &a)
+	return settled{seq: e.seq, at: e.at, after: a.At.UTC(), step: time.Duration(a.Step) * time.Microsecond}
+}
+
+// behindJump returns how far the time of an event of a project's log may
+// be behind the control log's, because the project's store had not yet
+// settled a jump of the clock that the control store had. The event is
+// seq, dated at; own are its log's clock.step events and ctl the control
+// log's.
+//
+// A process's stores share one time, but each settles a jump forward by
+// itself, with a write of its own, and until it has, its time is the
+// time before the jump. A write that was waiting for a project's writer
+// when the clock jumped is dated so, and may record what the control
+// store, already settled, dates after the jump: an effect dated before
+// its cause, by the size of the jump. Neither date is wrong, and the
+// two logs say which holds, with no allowance for how long anything
+// took:
+//
+//   - the control log dates nothing between a clock.step's time and
+//     where it went, so an event of a project dated there, or within eps
+//     before, is on the time before that jump;
+//   - unless the project's own log settled that jump before the event:
+//     an earlier clock.step of its own that went past the control
+//     store's.
+//
+// Such an event happened no more than the jump later than its date: the
+// step of its log's next clock.step, or of the control log's when its
+// own log has none. An event dated anywhere else is on the server's one
+// time, and is given nothing.
+func behindJump(seq int64, at time.Time, own, ctl []settled, eps time.Duration) time.Duration {
+	var reached time.Time // where the project's time had gone before the event
+	var next *settled
+	for i, s := range own {
+		if s.seq < seq {
+			reached = s.after
+		} else if next == nil {
+			next = &own[i]
+		}
+	}
+	for _, s := range ctl {
+		if at.Before(s.at.Add(-eps)) || !at.Before(s.at.Add(s.step)) || reached.After(s.at) {
+			continue
+		}
+		if next != nil {
+			return next.step
+		}
+		return s.step
+	}
+	return 0
 }
 
 // restartDaemon stops the daemon and starts another, as an operator's
@@ -170,10 +320,12 @@ func (s *soak) restartDaemon(rng *rand.Rand) error {
 	w := s.w
 	w.daemonMu.Lock()
 	defer w.daemonMu.Unlock()
+	began := time.Now()
 	w.stopDaemon()
 	w.stopDaemon = func() {} // until a new daemon starts, nothing runs to stop
-	// Far more than the two minutes of tolerance, and than the time on the
-	// store's clock that opening the databases takes on a loaded machine.
+	// Far more than the two minutes of tolerance, and most often than the
+	// time on the store's clock that stopping the daemon and opening the
+	// databases take, which the clock makes up before the daemon reads it.
 	var back time.Duration
 	if s.clock.ahead() < 30*time.Second {
 		back = time.Duration(10+rng.IntN(6)) * time.Minute
@@ -184,7 +336,19 @@ func (s *soak) restartDaemon(rng *rand.Rand) error {
 	behind, refused := errors.AsType[*server.ClockBehindError](err)
 	switch {
 	case err == nil && back > 0:
-		return fmt.Errorf("the daemon started with its clock set back %s, behind its own history: want it to refuse (clock_behind: stop)", back)
+		// The daemon compares its clock with its history as it opens the
+		// databases, and the clock had been gaining on the history since
+		// the last event was written: on a machine loaded enough, stopping
+		// and starting take longer than the clock was set back by, less the
+		// tolerance, and a daemon that starts is right. How far behind the
+		// clock was when the daemon looked is not known here, but it has
+		// only gained since: if it is past the tolerance now, it was then.
+		if st := w.ctl.ClockState(); st.Behind > server.DefaultBehindTolerance {
+			return fmt.Errorf("the daemon started with its clock set back %s and still %s behind its own history, %s after it was stopped: want it to refuse (clock_behind: stop)",
+				back, st.Behind.Round(time.Second), time.Since(began).Round(time.Millisecond))
+		}
+		s.clockStats.slowStarts.Add(1)
+		return nil
 	case !refused:
 		return err
 	}
@@ -218,6 +382,7 @@ func (r *replay) clockStep(e sevent) {
 		r.fail(e.target, "event %d: clock.step extends %d leases by %dµs", e.seq, a.Claims, a.Extended)
 	}
 	r.stepped += a.Claims
+	r.settles = append(r.settles, settledOf(e))
 }
 
 // checkClock checks what the logs say of the clock chaos against what
@@ -237,7 +402,7 @@ func (s *soak) checkClock() {
 	if got, want := int64(s.ctl.ops["clock.step"]), cs.forward.Load(); got != want {
 		s.mon.fail("", "the control log has %d clock.step events after %d jumps forward of the clock", got, want)
 	}
-	if cs.forward.Load() > cs.forwardNotChecked.Load() && cs.leasesChecked.Load() > 0 && cs.leasesExtendedInEvents.Load() == 0 {
+	if cs.forward.Load() > cs.forwardSlow.Load() && cs.leasesChecked.Load() > 0 && cs.leasesExtendedInEvents.Load() == 0 {
 		s.mon.fail("", "%d claims had lease left when the clock jumped forward, and no clock.step event of a project extended any", cs.leasesChecked.Load())
 	}
 }

@@ -391,10 +391,10 @@ func (ls *libSession) connect(ctx context.Context) bool {
 		ls.conns++
 		ln := ls.inbox.newLine(ls.key, ls.conns, ls.s.mon, ls.p)
 		dctx, cancel := context.WithTimeout(context.Background(), callTimeout)
-		start := ls.s.clock.now()
+		known, start := ls.s.ctlKnown.Load(), ls.s.clock.now()
 		c, err := mcpserver.DialRepo(dctx, ls.u.repo, ls.options(ln))
 		cancel()
-		ls.s.dialed(ls.session, start, c, err)
+		ls.s.dialed(ls.session, known, start, c, err)
 		if err != nil {
 			pause(ctx, time.Duration(20+ls.rng.IntN(60))*time.Millisecond+refusedPause(err))
 			continue
@@ -1021,9 +1021,9 @@ func (ms *mcpSession) open() error {
 				ln.push(p)
 				ms.srv.Push(p)
 			}
-			start := ms.s.clock.now()
+			known, start := ms.s.ctlKnown.Load(), ms.s.clock.now()
 			c, err := mcpserver.DialRepo(ctx, ms.u.repo, opts)
-			ms.s.dialed(ms.session, start, c, err)
+			ms.s.dialed(ms.session, known, start, c, err)
 			if err != nil {
 				return nil, err
 			}

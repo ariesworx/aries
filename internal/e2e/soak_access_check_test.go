@@ -21,7 +21,10 @@ const (
 	projB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 )
 
-var root = sessKey{"root", "s1"}
+var (
+	root       = sessKey{"root", "s1"}
+	clockActor = sessKey{"starfixd", "clock"}
+)
 
 // The states of control rows, as the control store's events carry them.
 func projectState(id, state string, rev int) string {
@@ -276,13 +279,68 @@ func TestCheckLost(t *testing.T) {
 		b.at = time.Hour - time.Minute
 		return b.unmember(carol, "alice", projA, "member", 1)
 	}
+	// The clock jumps forward twelve minutes at 1h19m04s, where the
+	// control store settles it at once, so the control log has no time
+	// between then and 1h31m04s; then does what each case has it do.
+	jumped := func(then func(*logBuilder)) *logBuilder {
+		b := ctlWorld()
+		b.at = time.Hour + 19*time.Minute + 4*time.Second
+		b.add(0, clockActor, "clock.step", "clock", `{"at": `+b.ts(b.at)+`}`,
+			`{"at": `+b.ts(b.at+12*time.Minute)+`, "step_us": 720000000, "extended_us": 720000000, "claims": 0}`)
+		b.at += 12 * time.Minute
+		then(b)
+		return b
+	}
+	// carol removes alice 15 seconds after the jump.
+	removedAfter := func() *logBuilder {
+		return jumped(func(b *logBuilder) {
+			b.add(15*time.Second, carol, "member.remove", projA+"/alice", memberState("alice", projA, "member", 1), "")
+		})
+	}
+	// The project's store settles the jump with event 50, 28 seconds
+	// after the clock jumped: until then its time is the time before.
+	late := []settled{{seq: 50, at: at(time.Hour + 19*time.Minute + 32*time.Second), after: at(time.Hour + 31*time.Minute + 7*time.Second), step: 12 * time.Minute}}
+	unsettled := func(d time.Duration) time.Time { return at(time.Hour + 19*time.Minute + d) }
 	tests := []struct {
-		name string
-		log  *logBuilder
-		lost []lostClaim
-		over []override
-		want string
+		name    string
+		log     *logBuilder
+		settles []settled // the project's own clock.step events
+		lost    []lostClaim
+		over    []override
+		want    string
 	}{
+		// Seed 264949260793903814 on a loaded machine: the sweep's write
+		// was waiting for the project's writer when the clock jumped, so
+		// its release is dated on the time before, 25 seconds past the
+		// jump, and the removal it answers to on the time after.
+		{name: "released on time the project had not settled, for a removal dated after the jump", log: removedAfter(), settles: late,
+			lost: []lostClaim{{seq: 48, issue: "sf-1", holder: alice, reason: lostMembership, by: sweep, took: unsettled(-3 * time.Minute), at: unsettled(29 * time.Second)}}},
+		{name: "released on unsettled time by the admin who removed the member after the jump", log: removedAfter(), settles: late,
+			lost: []lostClaim{{seq: 48, issue: "sf-1", holder: alice, reason: lostMembership, by: carol, took: unsettled(-3 * time.Minute), at: unsettled(29 * time.Second)}}},
+		{name: "released on unsettled time by someone who did not end the access", log: removedAfter(), settles: late,
+			lost: []lostClaim{{seq: 48, issue: "sf-1", holder: alice, reason: lostMembership, by: root, took: unsettled(-3 * time.Minute), at: unsettled(29 * time.Second)}},
+			want: `the control log says the access was last ended by "carol"`},
+		{name: "released five minutes before the jump, for a removal dated after it", log: removedAfter(), settles: late,
+			lost: []lostClaim{{seq: 40, issue: "sf-1", holder: alice, reason: lostMembership, by: sweep, took: unsettled(-10 * time.Minute), at: unsettled(-5 * time.Minute)}},
+			want: "shows no such loss of access"},
+		{name: "released on unsettled time, for a removal made five minutes after the jump", log: jumped(func(b *logBuilder) {
+			b.add(5*time.Minute, carol, "member.remove", projA+"/alice", memberState("alice", projA, "member", 1), "")
+		}), settles: late,
+			lost: []lostClaim{{seq: 48, issue: "sf-1", holder: alice, reason: lostMembership, by: sweep, took: unsettled(-3 * time.Minute), at: unsettled(29 * time.Second)}},
+			want: "shows no such loss of access"},
+		{name: "released on unsettled time, for a membership that was never removed", log: jumped(func(*logBuilder) {}), settles: late,
+			lost: []lostClaim{{seq: 48, issue: "sf-1", holder: alice, reason: lostMembership, by: sweep, took: unsettled(-3 * time.Minute), at: unsettled(29 * time.Second)}},
+			want: "shows no such loss of access"},
+		{name: "released after the project settled the jump, on a time the control log skipped", log: removedAfter(), settles: late,
+			lost: []lostClaim{{seq: 51, issue: "sf-1", holder: alice, reason: lostMembership, by: sweep, took: unsettled(-3 * time.Minute), at: unsettled(40 * time.Second)}},
+			want: "shows no such loss of access"},
+		{name: "released on unsettled time in a project whose log never settled the jump", log: removedAfter(),
+			lost: []lostClaim{{seq: 48, issue: "sf-1", holder: alice, reason: lostMembership, by: sweep, took: unsettled(-3 * time.Minute), at: unsettled(29 * time.Second)}}},
+		{name: "an override on unsettled time by an admin promoted after the jump", settles: late, log: jumped(func(b *logBuilder) {
+			b.add(10*time.Second, root, "member.set", projA+"/alice", memberState("alice", projA, "member", 1), memberState("alice", projA, "admin", 2))
+		}), over: []override{{seq: 48, issue: "sf-1", by: alice, at: unsettled(20 * time.Second)}}},
+		{name: "an override on unsettled time by a member no one promoted", settles: late, log: jumped(func(*logBuilder) {}),
+			over: []override{{seq: 48, issue: "sf-1", by: alice, at: unsettled(20 * time.Second)}}, want: "admin.override by alice/s1"},
 		{name: "released by the admin who removed the member", log: removed(),
 			lost: []lostClaim{{issue: "sf-1", holder: alice, reason: lostMembership, by: carol, took: at(30 * time.Minute), at: at(time.Hour + time.Millisecond)}}},
 		{name: "released by the server's sweep", log: removed(),
@@ -316,7 +374,7 @@ func TestCheckLost(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			s, p := accessSoak(tc.log)
-			p.rep.lost, p.rep.overrides = tc.lost, tc.over
+			p.rep.lost, p.rep.overrides, p.rep.settles = tc.lost, tc.over, tc.settles
 			s.checkLost(p)
 			got := s.mon.violations()
 			switch {
@@ -329,12 +387,17 @@ func TestCheckLost(t *testing.T) {
 	}
 }
 
+// A handshake is judged by the control log's own order, never by its
+// times: known is the last event the server had answered for when the
+// handshake began, and seen the last the log held when it ended.
 func TestCheckDials(t *testing.T) {
 	const fp = "SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5TqvU"
 	alice := sessKey{"alice", "s1"}
 	t0 := newLog().t0
-	// alice leaves the first project at 1h and comes back at 2h; her key
-	// is recorded at 3h and removed at 4h.
+	// The world is events 1 to 9. alice leaves the first project with
+	// event 10, at 1h, and comes back with 11, at 2h; her key is recorded
+	// with 12, at 3h, and removed with 13, at 4h.
+	const world, left, back, keyed, unkeyed = 9, 10, 11, 12, 13
 	log := func() *logBuilder {
 		b := ctlWorld()
 		b.at = time.Hour - time.Minute
@@ -346,8 +409,10 @@ func TestCheckDials(t *testing.T) {
 		b.at = 4*time.Hour - time.Minute
 		return b.add(time.Minute, root, "key.remove", fp, keyState(fp, "alice"), "")
 	}
-	dial := func(start, took time.Duration, code proto.Code) dialRec {
-		return dialRec{who: alice, start: t0.Add(start), end: t0.Add(start + took), welcomed: code == "", code: code}
+	// at is when the run's own clock says the handshake was made, which
+	// the check prints and must not judge by.
+	dial := func(known, seen int64, at time.Duration, code proto.Code) dialRec {
+		return dialRec{who: alice, start: t0.Add(at), end: t0.Add(at + time.Second), known: known, seen: seen, welcomed: code == "", code: code}
 	}
 	tests := []struct {
 		name     string
@@ -355,22 +420,37 @@ func TestCheckDials(t *testing.T) {
 		storeKey bool // alice signs in with a key only the store holds
 		want     string
 	}{
-		{name: "let in as a member", d: dial(30*time.Minute, time.Second, "")},
-		{name: "refused while not a member", d: dial(90*time.Minute, time.Second, proto.CodeForbidden)},
-		{name: "let in while not a member", d: dial(90*time.Minute, time.Second, ""), want: "was let into project first"},
-		{name: "refused as a member", d: dial(30*time.Minute, time.Second, proto.CodeForbidden), want: "was refused project first (forbidden)"},
-		{name: "told the project is not served, as a member", d: dial(150*time.Minute, time.Second, proto.CodeNotFound), want: "was refused project first (not_found)"},
-		// The removal's event is at 1h; the daemon acts once it commits.
-		{name: "let in as the removal was made", d: dial(time.Hour-time.Second, 2*time.Second, "")},
-		{name: "let in half a second after the removal's event", d: dial(time.Hour+500*time.Millisecond, time.Second, "")},
-		{name: "let in two seconds after the removal's event", d: dial(time.Hour+2*time.Second, time.Second, ""), want: "was let into project first"},
-		{name: "refused as the membership came back", d: dial(2*time.Hour-time.Second, 2*time.Second, proto.CodeForbidden)},
-		{name: "sshd's refusal is not judged", d: dial(30*time.Minute, time.Second, proto.CodeAuth)},
-		{name: "a failure that is no refusal is not judged", d: dial(30*time.Minute, time.Second, proto.CodeUnavailable)},
-		{name: "let in by a key the store holds", d: dial(210*time.Minute, time.Second, ""), storeKey: true},
-		{name: "let in before the key was recorded", d: dial(150*time.Minute, time.Second, ""), storeKey: true, want: "was let into project first"},
-		{name: "let in after the key was removed", d: dial(5*time.Hour, time.Second, ""), storeKey: true, want: "was let into project first"},
-		{name: "let in by a line of authorized_keys after the store's key was removed", d: dial(5*time.Hour, time.Second, "")},
+		{name: "let in as a member", d: dial(world, world, 30*time.Minute, "")},
+		{name: "refused while not a member", d: dial(left, left, 90*time.Minute, proto.CodeForbidden)},
+		{name: "let in while not a member", d: dial(left, left, 90*time.Minute, ""), want: "was let into project first"},
+		{name: "refused as a member", d: dial(world, world, 30*time.Minute, proto.CodeForbidden), want: "was refused project first (forbidden)"},
+		{name: "told the project is not served, as a member", d: dial(back, back, 150*time.Minute, proto.CodeNotFound), want: "was refused project first (not_found)"},
+		// The server may have decided before the removal or after it.
+		{name: "let in as the removal was made", d: dial(world, left, time.Hour, "")},
+		{name: "refused as the removal was made", d: dial(world, left, time.Hour, proto.CodeForbidden)},
+		{name: "refused as the membership came back", d: dial(left, back, 2*time.Hour, proto.CodeForbidden)},
+		{name: "let in as the membership came back", d: dial(left, back, 2*time.Hour, "")},
+		// Once the server has answered for a change, no time excuses it.
+		{name: "let in half a second after the removal was answered for", d: dial(left, left, time.Hour+500*time.Millisecond, ""),
+			want: "was let into project first"},
+		{name: "refused half a second after the return was answered for", d: dial(back, back, 2*time.Hour+500*time.Millisecond, proto.CodeForbidden),
+			want: "was refused project first (forbidden)"},
+		// The run's clock is ahead of the control store's after a restart
+		// with the clock set back, by as long as the daemon was down: these
+		// handshakes were made before the change, and are dated after it.
+		{name: "let in before the removal, on a clock three minutes ahead of the log's", d: dial(world, world, time.Hour+3*time.Minute, "")},
+		{name: "refused before the return, on a clock three minutes ahead of the log's", d: dial(left, left, 2*time.Hour+3*time.Minute, proto.CodeForbidden)},
+		// And a clock that agrees with the server hides nothing.
+		{name: "let in after the removal, on a clock that says before it", d: dial(left, left, 30*time.Minute, ""), want: "was let into project first"},
+		{name: "refused after the return, on a clock that says before it", d: dial(back, back, 90*time.Minute, proto.CodeForbidden),
+			want: "was refused project first (forbidden)"},
+		{name: "the log's latest event was not read when it ended", d: dial(world, unknownSeq, 30*time.Minute, proto.CodeForbidden)},
+		{name: "sshd's refusal is not judged", d: dial(world, world, 30*time.Minute, proto.CodeAuth)},
+		{name: "a failure that is no refusal is not judged", d: dial(world, world, 30*time.Minute, proto.CodeUnavailable)},
+		{name: "let in by a key the store holds", d: dial(keyed, keyed, 210*time.Minute, ""), storeKey: true},
+		{name: "let in before the key was recorded", d: dial(back, back, 150*time.Minute, ""), storeKey: true, want: "was let into project first"},
+		{name: "let in after the key was removed", d: dial(unkeyed, unkeyed, 5*time.Hour, ""), storeKey: true, want: "was let into project first"},
+		{name: "let in by a line of authorized_keys after the store's key was removed", d: dial(unkeyed, unkeyed, 5*time.Hour, "")},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -384,9 +464,9 @@ func TestCheckDials(t *testing.T) {
 			got := s.mon.violations()
 			switch {
 			case tc.want == "" && len(got) > 0:
-				t.Errorf("checkDials found %v, want nothing", got)
+				t.Errorf("checkDials(%+v) found %v, want nothing", tc.d, got)
 			case tc.want != "" && (len(got) != 1 || !strings.Contains(got[0].msg, tc.want)):
-				t.Errorf("checkDials found %v, want one violation containing %q", got, tc.want)
+				t.Errorf("checkDials(%+v) found %v, want one violation containing %q", tc.d, got, tc.want)
 			}
 		})
 	}

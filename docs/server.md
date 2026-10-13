@@ -1486,6 +1486,15 @@ What starfixd does about a clock that is wrong or moves:
 | Is behind the server's own history when starfixd starts | By default starfixd **refuses to start** ([below](#when-the-clock-is-behind-the-servers-history)) |
 | Was ahead and has been corrected | That is the same thing, seen later: the events written while it ran ahead are now in its future, so the clock is behind its history |
 
+A database follows a jump forward only once it has settled it: with
+its next write, which is the reaper's next tick at the latest, or, for a
+project whose store was closed for idleness, when the project is next
+used. Until then its time runs on as if the clock had not moved. A lease
+that runs out meanwhile has had all of its time and ends as it would
+have without the jump; every lease still live is extended. The
+`clock.step` event's time is the database's time when it settled, and
+its `claims` the leases it extended.
+
 A step is a difference of more than `clock_step_tolerance` (5 seconds)
 between how far the wall clock and the monotonic clock moved, between
 two readings or added up over several, so that many small steps made

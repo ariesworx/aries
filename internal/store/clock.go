@@ -99,6 +99,13 @@ type Clock struct {
 	forward time.Duration
 	recent  []forwardStep
 	steps   ClockSteps
+	// settled is, for each database a store of the process has had open
+	// (Store.db), how much of forward that store had given its leases
+	// when it last settled, or opened. A store that opens the database
+	// again goes on from there: the process knows what it settled, and
+	// the times in the database's log cannot always say, since a store's
+	// time may be ahead of the clock that dates a step.
+	settled map[string]time.Duration
 	// floor is the latest time any store of the process has given out.
 	// No store's time is behind it, but for a forward step the store has
 	// not settled, so the logs of one server share one time, and an
@@ -242,6 +249,27 @@ func (c *Clock) forwardSince(t time.Time) time.Duration {
 	return sum
 }
 
+// settledIn returns how much of the forward steps the store that last
+// had db open had settled, and whether any store of the process has had
+// it open.
+func (c *Clock) settledIn(db string) (time.Duration, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	d, ok := c.settled[db]
+	return d, ok
+}
+
+// setSettled records that the store of db has settled d of the forward
+// steps.
+func (c *Clock) setSettled(db string, d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.settled == nil {
+		c.settled = map[string]time.Duration{}
+	}
+	c.settled[db] = d
+}
+
 // behindRate is how many times slower than the monotonic clock a store's
 // time runs while the clock is behind it: a clock an hour behind is
 // caught up with in two.
@@ -366,8 +394,10 @@ func (c *Control) SettleClock(ctx context.Context) error { return c.s.SettleCloc
 
 // initTime starts the store's time at its database's high-water mark,
 // the time of its latest event, and counts as settled the forward steps
-// the clock saw before that event was written: a store that was closed
-// when the clock stepped settles the step with its first write.
+// that the store which last had the database open in this process had
+// settled: a store that was closed when the clock stepped settles the
+// step with its first write. For a database the process has not had
+// open, those are the steps the clock saw before that event was written.
 func (s *Store) initTime(ctx context.Context) error {
 	var mark sql.NullTime
 	err := s.r.QueryRowContext(ctx, `SELECT at FROM events ORDER BY seq DESC LIMIT 1`).Scan(&mark)
@@ -385,6 +415,10 @@ func (s *Store) initTime(ctx context.Context) error {
 		t.settled -= s.clock.forwardSince(m)
 		s.clock.raise(m)
 	}
+	if d, ok := s.clock.settledIn(s.db); ok {
+		t.settled = d
+	}
+	s.clock.setSettled(s.db, t.settled)
 	t.lastMono = r.mono
 	return nil
 }
@@ -454,6 +488,7 @@ func (s *Store) SettleClock(ctx context.Context) error {
 	t.settled = v.forward
 	t.slack = max(0, t.slack-jump)
 	t.mu.Unlock()
+	s.clock.setSettled(s.db, v.forward)
 	s.opts.Logger.Warn("clock step settled", "event", logs.ClockStepSettled, "step", v.pending.String(), "from", v.at, "to", after,
 		"extended", extend.String(), "claims", n)
 	return nil

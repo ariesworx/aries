@@ -18,10 +18,11 @@ import (
 // the projects' checks ask of it: who had access to what, and who was an
 // admin of what, at a given time.
 
-// stamp is a value from a time on.
+// cstamp is a value from a time on, and from an event of the log on.
 type cstamp struct {
-	at time.Time
-	v  string
+	at  time.Time
+	seq int64
+	v   string
 }
 
 // history is the values something took, oldest first.
@@ -43,6 +44,27 @@ func (h history) changes(t0, t1 time.Time) []time.Time {
 	for _, c := range h {
 		if c.at.After(t0) && !c.at.After(t1) {
 			out = append(out, c.at)
+		}
+	}
+	return out
+}
+
+// asOf returns the value once the log's events up to seq were applied:
+// that of the last change no later in the log, and "" before the first.
+func (h history) asOf(seq int64) string {
+	i := sort.Search(len(h), func(i int) bool { return h[i].seq > seq })
+	if i == 0 {
+		return ""
+	}
+	return h[i-1].v
+}
+
+// changed returns the events after lo, up to hi, that changed the value.
+func (h history) changed(lo, hi int64) []int64 {
+	var out []int64
+	for _, c := range h {
+		if c.seq > lo && c.seq <= hi {
+			out = append(out, c.seq)
 		}
 	}
 	return out
@@ -83,6 +105,8 @@ type ctlReplay struct {
 	projState, prinState map[string]history
 	roles                map[mkey]history
 	keyOf                map[string]history
+	// settles are the log's clock.step events.
+	settles []settled
 }
 
 func newCtlReplay(fail func(string, string, ...any), admins []string) *ctlReplay {
@@ -136,7 +160,7 @@ func (c *ctlReplay) apply(e sevent) {
 			bad("its after state is project %q", after.ID)
 		}
 		c.projects[e.target] = after
-		c.projState[e.target] = append(c.projState[e.target], cstamp{e.at, string(after.State)})
+		c.projState[e.target] = append(c.projState[e.target], cstamp{e.at, e.seq, string(after.State)})
 	case store.OpPrincipalAdd, store.OpPrincipalDisable, store.OpPrincipalEnable:
 		var before, after store.Principal
 		_ = json.Unmarshal(e.after, &after)
@@ -154,7 +178,7 @@ func (c *ctlReplay) apply(e sevent) {
 			bad("its after state is principal %q", after.Name)
 		}
 		c.principals[e.target] = after
-		c.prinState[e.target] = append(c.prinState[e.target], cstamp{e.at, string(after.State)})
+		c.prinState[e.target] = append(c.prinState[e.target], cstamp{e.at, e.seq, string(after.State)})
 	case store.OpKeyAdd:
 		var after store.PrincipalKey
 		_ = json.Unmarshal(e.after, &after)
@@ -165,7 +189,7 @@ func (c *ctlReplay) apply(e sevent) {
 			bad("its after state is key %q", after.Fingerprint)
 		}
 		c.keys[e.target] = after
-		c.keyOf[e.target] = append(c.keyOf[e.target], cstamp{e.at, after.Principal})
+		c.keyOf[e.target] = append(c.keyOf[e.target], cstamp{e.at, e.seq, after.Principal})
 	case store.OpKeyRemove:
 		var before store.PrincipalKey
 		_ = json.Unmarshal(e.before, &before)
@@ -173,7 +197,7 @@ func (c *ctlReplay) apply(e sevent) {
 			bad("removes a key of %q, but the log left it with %q (recorded %t)", before.Principal, cur.Principal, had)
 		}
 		delete(c.keys, e.target)
-		c.keyOf[e.target] = append(c.keyOf[e.target], cstamp{e.at, ""})
+		c.keyOf[e.target] = append(c.keyOf[e.target], cstamp{e.at, e.seq, ""})
 	case store.OpMemberSet, store.OpMemberRemove:
 		var before, after store.Member
 		hasBefore := len(e.before) > 0
@@ -198,13 +222,14 @@ func (c *ctlReplay) apply(e sevent) {
 		}
 		if e.op == string(store.OpMemberSet) {
 			c.members[k] = after
-			c.roles[k] = append(c.roles[k], cstamp{e.at, string(after.Role)})
+			c.roles[k] = append(c.roles[k], cstamp{e.at, e.seq, string(after.Role)})
 		} else {
 			delete(c.members, k)
-			c.roles[k] = append(c.roles[k], cstamp{e.at, ""})
+			c.roles[k] = append(c.roles[k], cstamp{e.at, e.seq, ""})
 		}
 	case store.OpClockStep:
 		// The daemon settled a forward step of its clock: no row changes.
+		c.settles = append(c.settles, settledOf(e))
 	default:
 		bad("an op the soak does not expect")
 	}
@@ -359,22 +384,22 @@ func (c *ctlReplay) lacks(principal, project, reason string, t time.Time) bool {
 }
 
 // admitted reports whether a handshake of principal for project would be
-// let in at t: the project is active, the principal is not disabled, and
-// it is a server admin or an active member. key, when set, is the
-// fingerprint of the only key the principal signs in with, which the
-// store must then hold for it.
-func (c *ctlReplay) admitted(principal, project, key string, t time.Time) bool {
+// let in once the log's events up to seq were applied: the project is
+// active, the principal is not disabled, and it is a server admin or an
+// active member. key, when set, is the fingerprint of the only key the
+// principal signs in with, which the store must then hold for it.
+func (c *ctlReplay) admitted(principal, project, key string, seq int64) bool {
 	switch {
-	case c.projState[project].at(t) != string(store.ProjectActive):
+	case c.projState[project].asOf(seq) != string(store.ProjectActive):
 		return false
-	case c.prinState[principal].at(t) == string(store.PrincipalDisabled):
+	case c.prinState[principal].asOf(seq) == string(store.PrincipalDisabled):
 		return false
-	case key != "" && c.keyOf[key].at(t) != principal:
+	case key != "" && c.keyOf[key].asOf(seq) != principal:
 		return false
 	case c.admins[principal]:
 		return true
 	}
-	return c.prinState[principal].at(t) == string(store.PrincipalActive) && c.roles[mkey{principal, project}].at(t) != ""
+	return c.prinState[principal].asOf(seq) == string(store.PrincipalActive) && c.roles[mkey{principal, project}].asOf(seq) != ""
 }
 
 // adminOf reports whether principal was an admin in project at t: a

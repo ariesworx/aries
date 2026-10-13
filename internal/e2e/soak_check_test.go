@@ -368,8 +368,10 @@ type replay struct {
 	access   map[string]rIssue
 	// tookAt is when each claim was taken.
 	tookAt map[issueEpoch]time.Time
-	// stepped counts the leases that clock.step events extended.
+	// stepped counts the leases that clock.step events extended, and
+	// settles are those events.
 	stepped int
+	settles []settled
 
 	mu        sync.Mutex // guards the replay between snapshots
 	openCount int        // issues not closed, as of the last snapshot

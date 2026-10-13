@@ -256,9 +256,29 @@ back by seconds, while the sessions work; and back by 10 to 15 minutes
 at each restart, which the daemon must refuse (`clock_behind: stop`)
 until the clock is corrected or that history accepted for one start. A
 claim with lease left when the clock jumps forward must not be reaped
-for it, and every other check holds unchanged, event time that never
-decreases among them. The run's own reckoning of the store's time
-follows the same rule the store does (`vclock.now`).
+for it: read from the project's log, on the store's time, a store's
+time follows the jump only after its `clock.step`, and a claim reaped
+after one that found its lease live has a lease extended by the jump
+(`jumpFaults`). A lease that ran out before the store settled the jump
+is not one. A jump made while the clock is behind the stores' time is
+checked too, as far as a log can say: a store whose time ran slow gives
+its leases less than the jump, by an amount only it knows, so a claim
+reaped then is held to what its log's `clock.step` events say they gave
+it. Every other check holds unchanged, event time that never decreases
+among them.
+
+The run keeps its own reckoning of the stores' time (`vclock.now`), by
+the rule the store follows. It is never behind that time and is often
+ahead of it: by as long as the daemon took to stop and start after a
+restart with the clock set back, which is minutes at the soak's speed on
+a loaded machine, and by the whole jump for a write that was waiting for
+its store's writer when the clock jumped forward. So no check may fail a
+run for the difference between that reckoning and a time in a log. A
+check that asks what the server knew when it answered goes by the order
+of a log's events; one that places an event of one log against another
+log goes by the two logs' times, which one server's stores share, and by
+each log's own `clock.step` events, which say where a store had not yet
+followed a jump.
 
 Meanwhile an admin changes who may reach what, over the protocol as
 `sfx admin` does and under the same failures: a membership removed and
@@ -272,12 +292,21 @@ run, and at random in a long one. The test checks that:
 - the connections the lost access had let in are closed, the next
   handshake is refused, and the one after the access is back is let in;
 - no session was ever let into a project while the control log gave it
-  no access, or refused one it had access to;
+  no access, or refused one it had access to. This goes by the control
+  log's order and no clock: a handshake is answered from the server's
+  memory of the control store, which held every event the server had
+  answered an admin for before the handshake began and none that the
+  log gained after it ended, so the answer must be right after one of
+  the events between (`dialFault`);
 - the claims of whoever lost access end, each with a `claim.release`
   that gives a reason the control log bears out, by the admin who made
   the change or by the server's own sweep, and the issues are open
   again; a demotion releases nothing, and a store that is closed is not
-  opened to release;
+  opened to release. A release is placed against the control log by
+  time, and one written before its project's store had settled a jump
+  of the clock that the control store had settled is dated the jump
+  earlier than its cause: the two logs' `clock.step` events show which
+  those are, and only those are allowed it (`behindJump`);
 - nothing of one project shows through a connection to another: no
   answer or push names another project's issue, a request for one by
   its id is refused, and no marker or usage record of one project's

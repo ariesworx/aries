@@ -229,7 +229,10 @@ type soak struct {
 	eve      map[*sproj]*user // reads for the checks, and does nothing else
 	// open holds the sessions' connections, for the access checks.
 	open connSet
-	acc  accessStats
+	// ctlKnown is the last event of the control log that the server has
+	// answered an admin for (answered).
+	ctlKnown atomic.Int64
+	acc      accessStats
 	// shaken counts the times the chaos was about to close connections
 	// that no admin's change closed: a drop of them all, and a restart.
 	shaken atomic.Int64
@@ -620,9 +623,9 @@ func (s *soak) report() {
 		s.stats.drops.Load(), s.stats.dropAlls.Load(), s.stats.restarts.Load(), m.vanishes, s.stats.stalls.Load(), m.dialFails, m.retries)
 	m.mu.Unlock()
 	cs := &s.clockStats
-	fmt.Fprintf(&b, "  clock: set forward %d times (5 to 30 minutes; %d claims with lease left checked, none reaped for it; %d clock.step events in the projects' logs extended %d leases; %d jumps while a store ran slow, not checked), set back %d times while running and %d at a restart; %d starts refused for a clock behind history (%d then corrected, %d accepted for one start)\n",
-		cs.forward.Load(), cs.leasesChecked.Load(), cs.stepEvents.Load(), cs.leasesExtendedInEvents.Load(), cs.forwardNotChecked.Load(),
-		cs.back.Load(), cs.backAtStart.Load(), cs.refused.Load(), cs.corrected.Load(), cs.accepted.Load())
+	fmt.Fprintf(&b, "  clock: set forward %d times (5 to 30 minutes; %d claims with lease left checked, none reaped for it; %d clock.step events in the projects' logs extended %d leases; %d of the jumps while a store ran slow, where a lease is held to what its log says it was given), set back %d times while running and %d at a restart; %d starts refused for a clock behind history (%d then corrected, %d accepted for one start), %d too slow for the clock to be behind still\n",
+		cs.forward.Load(), cs.leasesChecked.Load(), cs.stepEvents.Load(), cs.leasesExtendedInEvents.Load(), cs.forwardSlow.Load(),
+		cs.back.Load(), cs.backAtStart.Load(), cs.refused.Load(), cs.corrected.Load(), cs.accepted.Load(), cs.slowStarts.Load())
 	fmt.Fprintf(&b, "  watches checked %d (%d for events, %d events owed; %d events pushed in all), %d ended by a resync, %d watched again; claims checked %d; snapshots compared %d; peak heap %d MiB, peak goroutines %d; daemon warnings %d\n",
 		s.stats.windowsChecked.Load(), s.stats.eventWindowsChecked.Load(), s.stats.eventsChecked.Load(), s.stats.eventsPushed.Load(), s.stats.windowsResynced.Load(),
 		s.stats.rewatches.Load(), s.stats.claimsChecked.Load(), s.stats.snapshots.Load(), s.stats.heapPeak.Load()>>20, s.stats.goroutinePeak.Load(), s.logs.count())
