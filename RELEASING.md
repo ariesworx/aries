@@ -1,13 +1,24 @@
 # Releasing starfix
 
-A release is a pushed `vMAJOR.MINOR.PATCH` tag. The `release` workflow does
-the rest in three jobs, each waiting for the one before:
+A release is a pushed `vMAJOR.MINOR.PATCH` tag, and then the maintainer's
+word. The `release` workflow does it in three jobs over two runs. The
+pushed tag starts the first run, which is `gate` and then `build`, and
+stops there. The maintainer starts the second by hand at the same tag,
+naming the first, and it is `sign-and-publish`:
 
 | Job | Secrets | Does |
 |---|---|---|
 | `gate` | none | Runs the full CI gate (`ci.yml`, called as a reusable workflow) on the tagged commit: lint, `go mod verify`, govulncheck, the cross-platform builds, and every test with `-race -shuffle=on` against the pinned Dolt, which must be present (`STARFIX_REQUIRE_DOLT=1`). A tag whose commit fails it is never built or signed |
 | `build` | none | Downloads and verifies the modules (`go mod verify`) into a clean cache and runs `govulncheck`, failing on a known vulnerability; builds `sfx` for linux, darwin and windows on amd64 and arm64, and `starfixd` for linux on amd64 and arm64 (`CGO_ENABLED=0`, `-trimpath`, `-ldflags "-s -w -X …version.Version=<tag>"`); packs each into `<bin>_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows) with the LICENSE and README; writes `checksums.txt` (sha256); attests build provenance for every archive; uploads them as a workflow artifact |
-| `sign-and-publish` | `STARFIX_RELEASE_KEY`, in the `release` environment | Waits for the maintainer's approval; checks the archives against `checksums.txt`; signs it into `checksums.txt.sig` with `internal/tools/releasekey`; creates the GitHub release with every file |
+| `sign-and-publish` | `STARFIX_RELEASE_KEY`, in the `release` environment | Runs only when started by hand (`workflow_dispatch`), and first refuses anyone but the release approver, any ref but a release tag, and any build run that is not this workflow's own for this tag and commit, and green. Then it downloads that run's archives; checks them against `checksums.txt`; signs it into `checksums.txt.sig` with `internal/tools/releasekey`; creates the GitHub release with every file |
+
+**Starting the second run is the approval.** It was once a required
+reviewer on the `release` environment. GitHub enforces required
+reviewers on a private repository only for its Enterprise plan, so on any
+other plan a private repository would sign whatever tag was pushed. A
+run that one named person must start holds on every plan and for a
+public repository alike. A test (`internal/release/workflow_test.go`)
+pins the checks that job makes before it reads the key.
 
 `checksums.txt.sig` is one line: the standard base64 of a raw Ed25519
 signature over the exact bytes of `checksums.txt`. `sfx upgrade` and
@@ -112,16 +123,25 @@ When to cut the first one is the maintainer's call.
    git push origin v0.3.0
    ```
 
-3. When `build` passes, approve the `sign-and-publish` deployment
-   (Actions → the run → Review deployments → `release`).
+3. When `build` passes, its run's summary gives the command that signs
+   and publishes; run it. It names the tag and that run:
+
+   ```sh
+   gh workflow run release.yml --ref v0.3.0 -f build_run=<the build run's id>
+   ```
+
+   Nobody else's run of it is accepted, and neither is a build run of
+   another tag or commit, or one that failed.
 4. Check the release page lists eight archives, `checksums.txt` and
    `checksums.txt.sig`, then on any machine: `sfx upgrade --check`.
 
 A tag with a `-` (`v0.3.0-rc.1`) is published as a prerelease, which
 `sfx upgrade` ignores; `starfixd upgrade --to v0.3.0-rc.1` installs it.
 
-If a run fails after the release was created, delete the release (not the
-tag) and re-run the workflow.
+If the signing run fails after the release was created, delete the
+release (not the tag) and start the signing run again with the same
+`build_run`. The archives are kept with the build run for 7 days; after
+that, re-run the build run first and sign the new one.
 
 ## One-time setup
 
@@ -137,20 +157,26 @@ maintainer's GitHub login.
    It writes the private key to `release.key` (mode 0600) and prints only
    the public key, as the line to add to `keys.go`.
 
-2. **Create the `release` environment**: the maintainer as the only
-   required reviewer, self-review allowed (he is the only reviewer), and
-   only `v*` tags may deploy to it.
+2. **Create the `release` environment**: only `v*` tags may deploy to
+   it, and it names the release approver, the one login whose run may
+   sign.
 
    ```sh
-   id=$(gh api users/<maintainer> --jq .id)
-   gh api -X PUT repos/ariesworx/starfix/environments/release --input - <<JSON
-   {"reviewers": [{"type": "User", "id": $id}],
-    "prevent_self_review": false,
-    "deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}
+   gh api -X PUT repos/ariesworx/starfix/environments/release --input - <<'JSON'
+   {"deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}
    JSON
    gh api -X POST repos/ariesworx/starfix/environments/release/deployment-branch-policies \
      -f name='v*' -f type=tag
+   gh variable set RELEASE_APPROVER --env release --body '<maintainer>'
    ```
+
+   Without `RELEASE_APPROVER` the signing run refuses to start its work
+   and says so. Changing the variable, like the environment itself,
+   takes admin rights on the repository.
+
+   On a public repository, or on GitHub's Enterprise plan, a required
+   reviewer on the environment may be kept as well: the maintainer then
+   approves the run they started. It is not what the release relies on.
 
 3. **Store the key** as an environment secret, keep an offline backup
    (for example on encrypted removable media in a safe), then delete the
@@ -185,8 +211,16 @@ maintainer's GitHub login.
 
 ### What this protects, and what it does not
 
-The key is usable only by a `release` run that the maintainer approved,
-on a `v*` tag that only the maintainer can push. Nobody can read it back
+The key is usable only by a `release` run that the release approver
+started, on a `v*` tag that only the maintainer can push. Three things
+hold that, and each needs the others: the tag ruleset, so that the
+workflow file at a `v*` tag is always one the maintainer tagged; the
+environment's branch policy, so that the key is offered to no other ref;
+and the first step of `sign-and-publish`, so that another person with
+write access cannot start the maintainer's own workflow at the
+maintainer's own tag. The last is a check inside the workflow, not one
+GitHub makes, which is why the first two matter: nobody else can put a
+different workflow where the key can be read. Nobody can read it back
 out of GitHub through the UI or API. But GitHub itself, and owners of the
 `ariesworx` organization (who can change environments, rulesets and
 workflows), can still reach it. That is the accepted trade-off for
