@@ -10,6 +10,7 @@ These documents say why starfix is built the way it is. The user guides in
 | [bearings.md](bearings.md) | Bearings, the orchestrator planned on top of starfix, for Linux and macOS (Windows through WSL2): components, defaults, plan, decisions and open questions |
 | [enterprise-review.md](enterprise-review.md) | A review of `sfx`, `starfixd` and Bearings against the goal of a tool a team or an enterprise can use, as of 12 October 2026: what is built, what is only designed, what is missing, and what to do first. It decides nothing |
 | [access-research.md](access-research.md) | Research, 13 October 2026: how people and agents could sign in to a server (keys, a company's certificates, a sign-on by `sfx login`, OpenPubkey, brokers), each identity provider, managing users, the operator's journey and the threats, with what was measured in Docker. It decides nothing and nothing in it is built |
+| [profile-starfixd.md](profile-starfixd.md) | Research, 13 October 2026: what starfixd holds in memory and what bounds it, what a request allocates and how many statements it sends Dolt, how the store's reads and writes grow with a project, what a soak retains, what the garbage collector costs, and the changes worth making, ranked, with the benchmarks that reproduce each number. It decides nothing and changes no product code |
 | [spike/dolt/RESULTS.md](../../spike/dolt/RESULTS.md) | Stage 0: how Dolt behaves under concurrent writers, and the rules starfixd follows because of it |
 
 ## How the documents change
