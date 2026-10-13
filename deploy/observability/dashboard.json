@@ -1,0 +1,425 @@
+{
+  "title": "starfix server",
+  "uid": "starfix-server",
+  "description": "One starfix server: starfixd and the Dolt behind it. An example that is tested, not a product (docs/server.md, Observability). It expects the scrape jobs starfixd and dolt.",
+  "schemaVersion": 39,
+  "editable": true,
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Prometheus",
+        "type": "datasource",
+        "query": "prometheus"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Requests a second, by result",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (result_class) (rate(starfix_project_requests_total[5m]))",
+          "legendFormat": "{{result_class}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Request latency",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(starfix_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "median"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(starfix_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "99th percentile"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Write latency, with the wait for the writer",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(starfix_store_write_duration_seconds_bucket[5m])))",
+          "legendFormat": "median write"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(starfix_store_write_duration_seconds_bucket[5m])))",
+          "legendFormat": "99th percentile write"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(starfix_store_commit_duration_seconds_bucket[5m])))",
+          "legendFormat": "99th percentile Dolt commit"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Writes a second, and those retried",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "wps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(starfix_store_write_duration_seconds_count[5m]))",
+          "legendFormat": "writes"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(starfix_store_write_retries_total[5m]))",
+          "legendFormat": "retries"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Connections and open stores",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(starfix_connections)",
+          "legendFormat": "connections"
+        },
+        {
+          "refId": "B",
+          "expr": "starfix_stores_open",
+          "legendFormat": "open stores"
+        },
+        {
+          "refId": "C",
+          "expr": "dss_concurrent_connections{job=\"dolt\"}",
+          "legendFormat": "Dolt's connections"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Refusals at a limit, and connections the server closed",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (limit) (increase(starfix_limit_refusals_total[5m]))",
+          "legendFormat": "refused at {{limit}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (reason) (increase(starfix_connections_dropped_total[5m]))",
+          "legendFormat": "closed: {{reason}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Claims",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (event) (increase(starfix_claims_total[5m]))",
+          "legendFormat": "{{event}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "The server itself: reaper, clock and telemetry dropped",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time() - starfix_reaper_last_run_time_seconds",
+          "legendFormat": "seconds since the reaper ran"
+        },
+        {
+          "refId": "B",
+          "expr": "starfix_clock_behind_seconds",
+          "legendFormat": "seconds the clock is behind history"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (signal) (increase(starfix_telemetry_dropped_total[5m]))",
+          "legendFormat": "dropped: {{signal}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Dolt's memory against its limit",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "process_resident_memory_bytes{job=\"dolt\"}",
+          "legendFormat": "resident"
+        },
+        {
+          "refId": "B",
+          "expr": "go_gc_gomemlimit_bytes{job=\"dolt\"} < 2^62",
+          "legendFormat": "GOMEMLIMIT"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Dolt's collector: cycles for each 100 writes (under 3 has room, over 14 is too low)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * sum(increase(go_gc_duration_seconds_count{job=\"dolt\"}[10m])) / sum(increase(starfix_store_write_duration_seconds_count[10m]))",
+          "legendFormat": "cycles for each 100 writes"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "The machine, as Dolt reads it",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sys_mem_usage{job=\"dolt\"}",
+          "legendFormat": "memory in use"
+        },
+        {
+          "refId": "B",
+          "expr": "sys_disk_usage{job=\"dolt\"}",
+          "legendFormat": "disk in use"
+        },
+        {
+          "refId": "C",
+          "expr": "sys_cpu_usage{job=\"dolt\"}",
+          "legendFormat": "CPU in use"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "starfixd's own memory and goroutines",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "go_memory_used_bytes{job=\"starfixd\"}",
+          "legendFormat": "bytes in use"
+        },
+        {
+          "refId": "B",
+          "expr": "go_goroutine_count{job=\"starfixd\"}",
+          "legendFormat": "goroutines"
+        }
+      ]
+    }
+  ]
+}

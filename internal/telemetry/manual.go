@@ -169,8 +169,23 @@ type SpanData struct {
 func (m *Manual) Spans() []SpanData {
 	m.spans.mu.Lock()
 	defer m.spans.mu.Unlock()
-	out := make([]SpanData, 0, len(m.spans.spans))
-	for _, s := range m.spans.spans {
+	return spanData(m.spans.spans)
+}
+
+// TakeSpans returns the sampled spans that have ended since it was last
+// called, or since [Manual.ResetSpans], and forgets them: a long run
+// counts its spans with it, a few at a time, without keeping them all.
+func (m *Manual) TakeSpans() []SpanData {
+	m.spans.mu.Lock()
+	ended := m.spans.spans
+	m.spans.spans = nil
+	m.spans.mu.Unlock()
+	return spanData(ended)
+}
+
+func spanData(spans []sdktrace.ReadOnlySpan) []SpanData {
+	out := make([]SpanData, 0, len(spans))
+	for _, s := range spans {
 		d := SpanData{Name: s.Name(), Kind: s.SpanKind().String(), TraceID: s.SpanContext().TraceID().String(),
 			SpanID: s.SpanContext().SpanID().String(), RemoteParent: s.Parent().IsRemote(),
 			Attrs: make(map[string]string, len(s.Attributes())), Events: len(s.Events()), Links: len(s.Links()),

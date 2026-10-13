@@ -2272,9 +2272,9 @@ configured, starfixd exports nothing and opens no port.
 Push and pull are independent: turn on either, both or neither. The
 instruments are the same either way.
 
-**Not built yet:** the tested Collector configuration, alert rules and
-dashboard. They are the last slice of
-[the design](design/starfix.md#16-observability).
+A collector's configuration, alert rules and a dashboard to start from
+are in [deploy/observability](../deploy/observability):
+[A collector, alert rules and a dashboard](#a-collector-alert-rules-and-a-dashboard).
 
 ### Send metrics to a collector on the machine
 
@@ -2817,6 +2817,142 @@ ending a span change memory only; exports run on their own goroutines.
   log records it could not send in that time are counted as dropped, in
   a count that itself may not reach the collector. The lines starfixd
   logs while it stops go to the journal alone.
+
+### A collector, alert rules and a dashboard
+
+[deploy/observability](../deploy/observability) holds four files to
+start from. **They are examples that are tested, not a product:** tests
+hold every metric, label and value they name to what starfixd has, and
+the [Docker test server](deploy/docker.md#telemetry) runs them against a
+real starfixd, Dolt, OpenTelemetry Collector and Prometheus. Nothing in
+them names a vendor.
+
+| File | Is |
+|---|---|
+| `collector.yaml` | An OpenTelemetry Collector's configuration: it receives what starfixd pushes on `127.0.0.1:4318` (metrics, traces and, when asked, log records), scrapes starfixd's `/metrics` and Dolt's, and sends all of it on |
+| `alerts.yaml` | Alert rules in Prometheus's rule format, which most monitoring systems read or translate |
+| `prometheus.yaml` | A Prometheus configuration that scrapes the two endpoints and loads the rules, for a server that runs Prometheus and no collector |
+| `dashboard.json` | One dashboard, in Grafana's format: requests, latency, writes, connections, claims, the server's own health, and Dolt's memory and collector |
+
+**Wire a collector.** It runs on the server itself: starfixd's listener
+and Dolt's metrics answer on loopback only and have no authentication,
+and starfixd pushes to loopback with no credential.
+
+1. Install the OpenTelemetry Collector as its own documentation says.
+   The core distribution has every component the file uses; it was
+   tested at 0.162.0.
+2. Turn on what it reads, if it is not on already: `metrics:` in Dolt's
+   config ([step 2](#2-run-dolt-under-its-own-account)),
+   `telemetry: listen: 127.0.0.1:9464` in starfixd's
+   ([The listener](#the-listener-metrics-to-scrape-and-health)) and
+   `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318` in its unit
+   ([above](#send-metrics-to-a-collector-on-the-machine)).
+3. Use `collector.yaml` as the collector's configuration, with its
+   `debug` exporter, which only prints, replaced by your backend's. For
+   one that takes OTLP over HTTP, as most do:
+
+   ```yaml
+   exporters:
+     otlp_http/backend:
+       endpoint: https://otlp.example.com
+       headers:
+         Authorization: Bearer ${env:BACKEND_TOKEN}
+   ```
+
+   Name `otlp_http/backend` in place of `debug` in each pipeline. The
+   token is a secret: give it to the collector from a file of mode 0600
+   that its unit reads (`EnvironmentFile=`), never in the configuration
+   file or on a command line.
+4. **Keep one path for starfixd's metrics.** The file receives them
+   twice, pushed and scraped, because the test server checks both. On a
+   real server take `prometheus/starfixd` out of the `metrics` pipeline,
+   or set `OTEL_METRICS_EXPORTER=none` for starfixd and keep the scrape.
+   Dolt's metrics can only be scraped.
+5. **Logs, if you want them there.** The file has a `logs` pipeline,
+   which carries nothing until starfixd is asked to export its log
+   (`OTEL_LOGS_EXPORTER=otlp`, [Logs over OTLP](#logs-over-otlp)). The
+   journal stays the log's home and has every field; a record has the
+   line's ids, codes and numbers and none of its text. To send
+   [the audit stream](#the-audit-stream) somewhere and nothing else of
+   the log, give it a logs pipeline of its own with the file's
+   `filter/audit`, which drops every record that is not the stream's:
+
+   ```yaml
+   processors:
+     filter/audit:
+       error_mode: ignore
+       logs:
+         log_record:
+           - attributes["audit"] != true
+   ```
+
+   The records name who made a change and whom it changed by stand-ins,
+   unless `telemetry: principals: name` says otherwise. **To ship the
+   journal itself to a third party,** which has the names and the
+   errors' text, filter it where it is read, on `audit=true` or on
+   `event`: starfixd does not send the journal anywhere.
+
+Pushed metrics carry their OpenTelemetry names (`starfix.request.duration`)
+and scraped ones the names on `/metrics`
+(`starfix_request_duration_seconds`); [What is measured](#what-is-measured)
+lists both. The rules and the dashboard use the second, which is also
+what most backends store the first as.
+
+**Load the rules.** With Prometheus, name the file under `rule_files:`,
+as `prometheus.yaml` does; other systems import the same format. The
+rules select by the scrape jobs `starfixd` and `dolt`, so keep those
+names or change both. Their thresholds are starting points to set
+against your server's own history.
+
+| Alert | Fires when |
+|---|---|
+| `StarfixdDown`, `DoltDown` | The endpoint has not answered a scrape for 2 minutes |
+| `StarfixReaperStalled` | The reaper has not finished a tick for 2 minutes: expired claims are not ended, and systemd's watchdog is about to restart starfixd |
+| `StarfixKeysFileWriteFailing` | A write of the keys file failed: sshd reads an older list of keys ([Keys from the store](#keys-from-the-store)) |
+| `StarfixClockBehind`, `StarfixClockStepped` | The clock is behind starfix's own history, or was set ([The server's clock](#the-servers-clock)) |
+| `StarfixProjectUnavailable`, `StarfixRequestsFailing` | Handshakes or requests are answered `unavailable`: the server's failure, most often a database that cannot be reached |
+| `StarfixWriteLatencyHigh`, `StarfixWritesQueueing` | One write in a hundred takes over a second; more than one in five is retried |
+| `StarfixWritesRateLimited`, `StarfixConnectionCapReached`, `StarfixStoreCapReached` | Requests are refused at `write_rate`, at a connection limit, or at `open_stores` ([Limits](#limits)) |
+| `StarfixTelemetryMetricsExportFailing`, `StarfixTelemetrySpansDropped`, `StarfixTelemetryLogRecordsDropped` | starfixd counts failed pushes of metrics, spans it lost, or log records it lost from the export, whose lines the journal still has ([When the collector is down](#when-the-collector-is-down)) |
+| `DoltCollectorPastTheCliff`, `DoltCollectorBusy` | With a memory limit set, Dolt's garbage collector ran more than 14 times for each 100 writes, or 3 or more: the thresholds of [Dolt's memory](#dolts-memory) and of the status report |
+| `DoltMemoryOverItsLimit`, `DoltMachineMemoryHigh`, `DoltDiskFilling` | Dolt's resident memory is over its `GOMEMLIMIT`; the machine's memory is over 90% in use, or its disk over 85%, as Dolt reads them |
+
+- **No rule asks `/readyz`,** because no metric says what it answers.
+  Probe `http://127.0.0.1:9464/readyz` from the machine with whatever
+  probes HTTP for you. `StarfixdDown`, `StarfixReaperStalled`,
+  `StarfixKeysFileWriteFailing` and `DoltDown` cover the same ground
+  from the metrics.
+- **No rule matches a log line's `event`.** These are rules over
+  metrics, and nothing in the examples turns a log record into one.
+  Match [`event`](#events) where your logs are read. Three of the events
+  worth an alert have a rule here from the metric that counts the same
+  thing: `keys_file.write_failed`, `project.open_failed` at a handshake
+  (`StarfixProjectUnavailable`) and `telemetry.export_failed`.
+- **No metric gives the wait for a project's writer alone.** A write's
+  latency includes it, and a trace shows it, in each attempt's
+  `store.write.wait` span.
+- **A counter has no series until it first counts,** and Prometheus sees
+  no increase in a series' first sample. The rules on counters that
+  should stay at nothing therefore also fire on a series that is new
+  and already above zero.
+- **For several starfixd servers in one Prometheus,** add `by (instance)`
+  to the rules' sums.
+
+**The dashboard** is imported into Grafana as it is and asks which
+Prometheus data source to read. No test loads it into Grafana: tests
+check its queries, as they do the rules', and the test server runs each
+query against a real Prometheus.
+
+**What was run.** All of it in the Docker test server, on Docker
+Desktop on a Mac (arm64), on 12 October 2026: the Collector at 0.162.0
+and Prometheus at 3.15.0, with every rule loaded and evaluated, every
+query of the dashboard run, and starfixd's metrics, traces and log
+records received, the audit stream among them. The `filter/audit`
+example and the backend's exporter were only checked by the Collector's
+`validate`: no record was sent through either. Not run: the Collector as a systemd unit on
+a server, beside the [AppArmor profiles](#confine-starfixd-with-apparmor),
+which confine starfixd and not a collector; a hosted backend; and any
+alert against days of real traffic.
 
 ### starfixd status
 

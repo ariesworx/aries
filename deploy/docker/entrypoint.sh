@@ -14,6 +14,13 @@
 # adopts the project and imports those principals and keys, runs dolt,
 # starfixd and sshd, and prints the .starfix.yaml a client needs. When
 # one of the three exits, it stops the other two and exits 1.
+#
+# With STARFIX_TELEMETRY=1 starfixd also reports on itself, set up as
+# docs/server.md's Observability sets a server up: it serves /metrics,
+# /healthz and /readyz on loopback, and pushes metrics, traces and logs over
+# OTLP to a collector on loopback, which the compose file's `telemetry`
+# profile runs in this container's network namespace. Without it none
+# of that is on.
 set -euo pipefail
 umask 077
 
@@ -34,6 +41,20 @@ project_dbs_count=8
 # Dolt's metrics endpoint, as /etc/dolt/config.yaml sets it: loopback
 # only, since it has no authentication.
 dolt_metrics_url=http://127.0.0.1:11228/metrics
+# starfixd's telemetry, with STARFIX_TELEMETRY=1: its loopback listener,
+# the collector it pushes to, and the key its stand-ins for people are
+# made with, which is on the volume so that a person keeps one stand-in
+# across a rebuild. Its log records are exported too, which a server
+# has to ask for (OTEL_LOGS_EXPORTER=otlp), so that the harness has all
+# three signals. A test server exports metrics every 5 seconds and
+# holds a finished span or log record for at most one, where a real server's defaults
+# are 60 and 5, so that what was just done can be looked at. None of
+# these values is a secret, so they may be arguments of env.
+telemetry_listen=127.0.0.1:9464
+telemetry_endpoint=http://127.0.0.1:4318
+telemetry_key=$state/telemetry/principals.key
+telemetry_env=("OTEL_EXPORTER_OTLP_ENDPOINT=$telemetry_endpoint" OTEL_LOGS_EXPORTER=otlp OTEL_METRIC_EXPORT_INTERVAL=5000
+  OTEL_BSP_SCHEDULE_DELAY=1000 OTEL_BLRP_SCHEDULE_DELAY=1000)
 
 name_re='^[a-z][a-z0-9._-]{0,63}$'
 uuid_re='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
@@ -114,7 +135,8 @@ setting() { sed -n "s/^$1: //p" "$config"; }
 # when the config it replaces names a control database, it also names
 # the control database and the block of project databases (opt_in). It
 # always names Dolt's metrics endpoint, which the image's Dolt config
-# turns on, so that `sfx admin status` shows Dolt's figures.
+# turns on, so that `sfx admin status` shows Dolt's figures; and, with
+# STARFIX_TELEMETRY=1, starfixd's own listener and the stand-ins' key.
 write_config() {
   local many=${4:-}
   if [[ -f $config && -n $(setting control_db) ]]; then
@@ -126,6 +148,9 @@ write_config() {
       printf 'control_db: %s\nproject_dbs:\n  prefix: %s\n  count: %s\n' "$control_db" "$project_dbs_prefix" "$project_dbs_count"
     fi
     printf 'telemetry:\n  dolt_metrics_url: %s\n' "$dolt_metrics_url"
+    if telemetry_on; then
+      printf '  listen: %s\n  principals_key: %s\n' "$telemetry_listen" "$telemetry_key"
+    fi
   } | install -o starfix -g starfix -m 0600 /dev/stdin "$config"
 }
 
@@ -138,6 +163,35 @@ watch_dolt() {
   fi
   write_config "$(setting dsn)" "$(setting project)" "$(setting admins | tr -d '[]')"
   log "starfixd now reads Dolt's metrics at $dolt_metrics_url, for sfx admin status"
+}
+
+telemetry_on() { [[ ${STARFIX_TELEMETRY:-} == 1 ]]; }
+
+# watch_self brings the config in step with STARFIX_TELEMETRY, which may
+# differ from the start that wrote it: on, starfixd's listener and the
+# stand-ins' key are named and the key's directory is made; off, they
+# are not named. The key is never removed here: deleting it makes every
+# earlier stand-in unlinkable, which is for whoever runs the server to
+# choose.
+watch_self() {
+  local has=0
+  if grep -q '^  listen: ' "$config"; then
+    has=1
+  fi
+  if telemetry_on; then
+    install -d -o starfix -g starfix -m 0700 "$state/telemetry"
+    if ((has)); then
+      return 0
+    fi
+  elif ((!has)); then
+    return 0
+  fi
+  write_config "$(setting dsn)" "$(setting project)" "$(setting admins | tr -d '[]')"
+  if telemetry_on; then
+    log "starfixd serves /metrics, /healthz and /readyz on $telemetry_listen, and pushes metrics, traces and log records to $telemetry_endpoint"
+  else
+    log "starfixd's telemetry is off: STARFIX_TELEMETRY is not set"
+  fi
 }
 
 prepare() {
@@ -304,6 +358,9 @@ main() {
   if [[ -n ${STARFIX_PROJECT:-} && ! ${STARFIX_PROJECT} =~ $uuid_re ]]; then
     die "STARFIX_PROJECT is not a lowercase UUID" "unset it for a random one, or give one like 6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
   fi
+  if [[ -n ${STARFIX_TELEMETRY:-} ]] && ! telemetry_on; then
+    die "STARFIX_TELEMETRY is '${STARFIX_TELEMETRY}'" "set it to 1 for starfixd's telemetry, or leave it unset for none"
+  fi
   prepare
 
   local first=0
@@ -323,10 +380,15 @@ main() {
   fi
   opt_in
   watch_dolt
+  watch_self
   install_principals
   adopt
 
-  start starfixd run_as starfix /var/lib/starfix starfixd serve
+  if telemetry_on; then
+    start starfixd run_as starfix /var/lib/starfix env "${telemetry_env[@]}" starfixd serve
+  else
+    start starfixd run_as starfix /var/lib/starfix starfixd serve
+  fi
   wait_for starfixd test -S /run/starfix/starfixd.sock
 
   /usr/sbin/sshd -t || die "sshd refuses its config" "read the error above"

@@ -44,8 +44,11 @@ import (
 //
 // A short run is part of `go test`. Set STARFIX_SOAK to a duration, such
 // as 10m, for a long one, and STARFIX_SOAK_SEED to replay a run's choices;
-// the seed is printed at the start and with any failure. See
-// CONTRIBUTING.md, "The soak test".
+// the seed is printed at the start and with any failure.
+// STARFIX_SOAK_TELEMETRY turns the daemon's telemetry on for the run
+// (soak_telemetry_test.go): check holds its instruments and spans to
+// the event logs, and refused and hang give it a collector that is not
+// there. See CONTRIBUTING.md, "The soak test".
 func TestSoak(t *testing.T) {
 	cfg, err := soakConfigFrom(os.Getenv)
 	if err != nil {
@@ -53,9 +56,14 @@ func TestSoak(t *testing.T) {
 	}
 	t.Logf("soak: seed %d, %s of work, %d principals × %d sessions in 2 projects, store clock ×%g; replay with STARFIX_SOAK_SEED=%d",
 		cfg.seed, cfg.duration, len(cfg.principals), cfg.sessions, cfg.speed, cfg.seed)
+	if cfg.telemetry != telOff {
+		t.Logf("soak: telemetry on (STARFIX_SOAK_TELEMETRY=%s)", cfg.telemetry)
+	}
 	s := newSoak(t, cfg)
 	s.run()
 	s.verify()
+	s.checkTelemetry()
+	s.checkDeadCollector()
 	s.report()
 	s.explain()
 }
@@ -91,10 +99,14 @@ type soakConfig struct {
 	limits server.Limits
 	// target is the backlog of unclosed issues the workload keeps near.
 	target int
+	// telemetry is what the daemon's telemetry does in the run: telOff,
+	// telCheck, telRefused or telHang.
+	telemetry string
 }
 
 // soakConfigFrom reads STARFIX_SOAK (a duration; empty runs the short
-// soak) and STARFIX_SOAK_SEED (empty picks one).
+// soak), STARFIX_SOAK_SEED (empty picks one) and STARFIX_SOAK_TELEMETRY
+// (check, refused or hang; empty leaves telemetry off).
 func soakConfigFrom(getenv func(string) string) (soakConfig, error) {
 	cfg := soakConfig{
 		seed:     rand.Uint64(), //nolint:gosec // a seed to print and replay, not a secret
@@ -124,6 +136,12 @@ func soakConfigFrom(getenv func(string) string) (soakConfig, error) {
 			return soakConfig{}, fmt.Errorf("STARFIX_SOAK_SEED=%q: want an unsigned integer", v)
 		}
 		cfg.seed = n
+	}
+	switch v := getenv("STARFIX_SOAK_TELEMETRY"); v {
+	case telOff, telCheck, telRefused, telHang:
+		cfg.telemetry = v
+	default:
+		return soakConfig{}, fmt.Errorf("STARFIX_SOAK_TELEMETRY=%q: want %s, %s or %s, or nothing for no telemetry", v, telCheck, telRefused, telHang)
 	}
 	return cfg, nil
 }
@@ -200,6 +218,9 @@ type soak struct {
 	ctl  *ctlReplay
 	mon  *monitor
 	logs *logCounter
+	// tel is the daemon's telemetry, which is off unless the run asks
+	// for it (soak_telemetry_test.go).
+	tel *soakTel
 	// users holds each principal's repository for each project it may
 	// reach, all with the principal's one key; storeKey is the
 	// fingerprint of a key that only the control store holds.
@@ -252,8 +273,17 @@ func newSoak(t *testing.T, cfg soakConfig) *soak {
 	clock := &vclock{base: time.Now().UTC().Truncate(time.Second), start: time.Now(), speed: cfg.speed}
 	s := &soak{t: t, cfg: cfg, clock: clock, mon: newMonitor(), logs: &logCounter{}, users: map[string]map[*sproj]*user{},
 		storeKey: map[string]string{}, eve: map[*sproj]*user{}}
+	s.logs.audit = cfg.telemetry == telCheck
+	// Before the world, so that it stops after the daemon has.
+	s.tel = newSoakTel(t, cfg.telemetry, slog.New(s.logs))
+	// A span may carry no principal's name, and no session id, which
+	// every session of the run starts with lib- or mcp-.
+	names := append([]string{cfg.admin, cfg.root, "eve"}, cfg.principals...)
+	s.tel.people = func(v string) bool {
+		return slices.Contains(names, v) || strings.HasPrefix(v, "lib-") || strings.HasPrefix(v, "mcp-")
+	}
 	s.w = newWorld(t, daemonOpts{now: clock.now, clock: clock.read, reap: 100 * time.Millisecond, commit: 500 * time.Millisecond,
-		admins: []string{cfg.admin, cfg.root}, limits: cfg.limits, logger: slog.New(s.logs),
+		admins: []string{cfg.admin, cfg.root}, limits: cfg.limits, logger: slog.New(s.logs), telemetry: s.tel.tel,
 		many: true, keys: true, dbs: 4, granted: 4})
 	// Before anything connects: the stores the setup opens close again.
 	s.baseline, s.connBase = runtime.NumGoroutine(), connGoroutines()
@@ -452,6 +482,7 @@ func (s *soak) sample(ctx context.Context) {
 		if n := int64(runtime.NumGoroutine()); n > s.stats.goroutinePeak.Load() {
 			s.stats.goroutinePeak.Store(n)
 		}
+		s.tel.drain()
 		if time.Since(last) >= 3*time.Second && ctx.Err() == nil {
 			last = time.Now()
 			if err := s.snapshot(); err != nil {
@@ -462,15 +493,27 @@ func (s *soak) sample(ctx context.Context) {
 }
 
 // logCounter is a slog handler that counts the daemon's warnings and
-// errors by line, for the report.
+// errors by line, for the report. When audit is set, before the daemon
+// starts, it also keeps the lines of the audit stream, which are at
+// info (soak_telemetry_test.go).
 type logCounter struct {
-	mu    sync.Mutex
-	n     int
-	lines map[string]int
+	audit bool
+
+	mu     sync.Mutex
+	n      int
+	lines  map[string]int
+	audits []auditLine
 }
 
-func (l *logCounter) Enabled(_ context.Context, lv slog.Level) bool { return lv >= slog.LevelWarn }
+func (l *logCounter) Enabled(_ context.Context, lv slog.Level) bool {
+	return lv >= slog.LevelWarn || l.audit && lv == slog.LevelInfo
+}
+
 func (l *logCounter) Handle(_ context.Context, r slog.Record) error {
+	if r.Level < slog.LevelWarn {
+		l.keepAudit(r)
+		return nil
+	}
 	var b strings.Builder
 	b.WriteString(r.Level.String() + " " + r.Message)
 	r.Attrs(func(a slog.Attr) bool {

@@ -369,7 +369,7 @@ func (w *world) startMany() error {
 		return fail(err)
 	}
 	if err := srv.ReleaseArchived(ctx, server.ProjectOpener(w.dsn, ctl,
-		store.Options{CommitInterval: o.commit, Now: o.now, Clock: clk, Limits: o.limits.Limits, Logger: o.logger, NoMigrate: true}, nil)); err != nil {
+		store.Options{CommitInterval: o.commit, Now: o.now, Clock: clk, Limits: o.limits.Limits, Logger: o.logger, NoMigrate: true}, o.telemetry)); err != nil {
 		return fail(err)
 	}
 	l, err := server.Listen(w.socket)
