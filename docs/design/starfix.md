@@ -523,7 +523,7 @@ Agreed 6 Oct 2026. Extends item 10.
 | 3a | Projects and access (§15): many projects on one server with a database and a writer each, principals, keys and memberships in a control database, server and project admins, `sfx admin` | Two projects on one server; a principal refused in a project it is not a member of; the soak test run across both. **Met in the test stack** (§15.4, As built, status and the soak), against starfix's stand-in for sshd; what no real machine has run yet is listed there |
 | 3b | Observability (§16): OpenTelemetry traces and metrics from starfixd, a loopback endpoint for metrics and health, a log schema and audit stream, Dolt's metrics, and a Collector harness | The Docker harness receives every signal from starfixd and Dolt; the soak's counters equal its event logs; a dead collector changes no request |
 | 4 | Memory with scopes and tags, migrated from bd `kv.memory.*`; prices, `sfx cost` and `sfx log` (§12.1) | |
-| 5 | Offline cache, outbox, conflict parking and resolution (§8; a design in slices is proposed in §18) | Partition tests |
+| 5 | Offline cache, outbox, conflict parking and resolution (§8; the design, in slices, is §18) | Partition tests |
 | 6 | Locks, reservations, gates, molecules/formulas, swarm, cross-project | |
 | 7 | Scheduled digests (draft only), GitHub sync, compaction, duplicate check, vectors, other trackers | |
 
@@ -619,6 +619,16 @@ Maintainer, 12 Oct 2026, on the server's clock. Asked whether a person adjusting
 Maintainer, 12 Oct 2026, on what fixing F-2 of that review found. It amends decision 19, whose text above is left as the history it is:
 
 38. Nobody adds a key to their own account; anyone may remove one of their own. Removing only ever reduces access, so an agent holding a person's key cannot use removal to persist or to gain anything; and without it the victim of a planted key cannot clean their own account, which for the last server admin meant that only the operator could. The rule is the control store's, in the write's transaction, for a member, a project admin and a server admin alike; removal of someone else's key follows the reach rule as before. The daemon refuses removing the key the request's own connection signed in with, so that nobody locks themselves out by accident.
+
+Maintainer, 13 Oct 2026, on the seven questions of the stage 5 design (§18.11). The answers are quoted; the rest of each entry is the proposal it answers:
+
+39. No claims are made offline in the first cut. "A session finishes what it holds and files new work, but starts nothing new without the server."
+40. The cache holds what a session read, in plain files, with no embedded store in `sfx`. "Only what a session reads."
+41. The idempotency window is 7 days by default and a server setting. "7 days is a good default and a server setting."
+42. An agent may propose how to resolve a conflict, and a person approves. "Have the agent recommend a solution to MCP conflicts", and, asked whether the agent then applies it: "I want the agent to be able to propose a solution but have the person approve." (Coordinator's note, not the maintainer's words: the proposal is stored with the conflict and applied only by a person's `sfx resolve ID --accept`; agents get no `resolve` tool. Approval is kept from agents the way admin commands are, by being absent from MCP (rule 12), which does not stop an agent that runs `sfx` in a shell with a person's key; whether the server should tell the two apart is identity's question, §17. How an agent reads the two sides, and the shape of the proposing tool, are F4's to settle.)
+43. Long text in conflict parks whole, with no automatic merge of hunks. "Makes sense."
+44. A queued write exits 0, with `--no-queue` for scripts. "Ok."
+45. There is no hybrid logical clock. "Ok."
 
 ## 15. Projects and access
 
@@ -1579,7 +1589,7 @@ This subsection is part of the proposal, like the rest of §17: it changes no de
 
 ## 18. Working without the server: the stage 5 design
 
-Designed 12 Oct 2026, from §8 and what stages 1 to 3b built. **Proposed, not decided, and nothing here is built.** The questions for the maintainer are in §18.11. Where this differs from §8, it says so and why; §8 stays as the plan it was.
+Designed 12 Oct 2026, from §8 and what stages 1 to 3b built. **Decided 13 Oct 2026 (§18.11; §14, decisions 39 to 45), and nothing here is built.** Where this differs from §8, it says so and why; §8 stays as the plan it was.
 
 In short: stage 5 is built in three layers, each useful without the next. An **outbox** makes sure nothing an agent or a person meant to write is lost when the server cannot be reached. A **cache** lets a session keep the context of the work it already holds. **Conflicts** are parked on the server, with base, mine and theirs, when an operation written against an old state meets a newer one. The first cut is narrower than §8: no claims are made offline, the cache holds what a session read and not a copy of the project, and there is no hybrid logical clock.
 
@@ -1668,19 +1678,20 @@ A conflict is an operation that was written against one state and arrives at ano
 - **Who is told.** The author's inbox, and the claim holder's when it is someone else. `prime` gives the count.
 - **The rules of §8's table**, as kept: additions merge; different fields both apply; the same scalar field parks; status and claim, the server wins; close wins over edit, with the edit kept as a comment; delete wins over edit, with the edit kept on the tombstone. **Changed:** long text parks whole in the first cut, with no automatic three-way merge of hunks. A merge of text that is wrong is worse than a question, there is no diff3 in the standard library, and the resolver can show a diff. Merging hunks that do not overlap can follow once there are real conflicts to measure it against.
 - **The recommendation** of §8 ("theirs is newer and from the claim holder; take theirs") is kept as text computed at read time from who holds the claim and the order of the two changes. It is advice, and never applied by itself.
+- **A proposal** is an agent's or a person's suggested resolution, kept on the conflict's row with who made it and why, with a `conflict.propose` event. It is a write like any other and is guarded like a change to the issue. A later proposal replaces an earlier one. It is never applied by itself either: a person accepts it, which is a `resolve` that names the proposal, or resolves otherwise, which discards it (decision 42).
 - **Bounds.** Open conflicts for each issue and for each principal are capped; past the cap the op is refused with a fix, not parked.
 
 ### 18.8 What people and agents see
 
-- **CLI.** `sfx outbox` (list, retry, drop), `sfx conflicts` and `sfx resolve ID --mine|--theirs|--text`, `sfx away DURATION`, `sfx cache clear`. A queued write prints `queued (server unreachable since …)` and exits 0, because it was accepted for delivery; `--no-queue` makes it fail as today, for scripts that must know. `--json` says `"queued": true`.
-- **MCP.** A queued tool call returns one terse line saying so, and what the agent should do: carry on. The agent is never asked to manage the outbox. Conflicts reach an agent through `prime` and the inbox. Whether agents also get `conflicts` and `resolve` tools is question 4: two more schemas against a cap of about 2,700 tokens, and resolving a conflict is a judgment between two people's intent.
+- **CLI.** `sfx outbox` (list, retry, drop), `sfx conflicts` and `sfx resolve ID --mine|--theirs|--text|--accept`, `sfx away DURATION`, `sfx cache clear`. A queued write prints `queued (server unreachable since …)` and exits 0, because it was accepted for delivery; `--no-queue` makes it fail as today, for scripts that must know. `--json` says `"queued": true`.
+- **MCP.** A queued tool call returns one terse line saying so, and what the agent should do: carry on. The agent is never asked to manage the outbox. Conflicts reach an agent through `prime` and the inbox. An agent may propose a resolution to a conflict, and a person approves it (decision 42): the proposal is `mine`, `theirs` or new text, with a reason, stored with the conflict, and it changes nothing until a person accepts it with `sfx resolve ID --accept`, or resolves another way. There is no `resolve` tool over MCP. Resolving is a judgment between two people's intent, and what the agent adds is its reading of the two sides. F4 settles how the agent reads base, mine and theirs within the result cap, and whether proposing is a new tool or an argument of one there is, against the schema cap of rule 12.
 - **Status.** `sfx whoami` and `prime` say when the server was last reached and how many operations wait.
 
 ### 18.9 What changes on the server
 
-- Protocol 6: `idem` on the ops of §18.5; a replay marker on a request (the client's sequence and time), so the server knows to park and not refuse; the outcomes `parked` and `stale`; the ops `conflicts`, `resolve` and `away`.
+- Protocol 6: `idem` on the ops of §18.5; a replay marker on a request (the client's sequence and time), so the server knows to park and not refuse; the outcomes `parked` and `stale`; the ops `conflicts`, `conflict.propose`, `resolve` and `away`.
 - A migration for `conflicts`, and one for the idempotency window if the key's table needs it.
-- Events: `conflict.park`, `conflict.resolve`, and the client's claimed time on a replayed operation's event, bounded by a setting as `clock_client_tolerance` bounds it today, and marked when it is out of bounds.
+- Events: `conflict.park`, `conflict.propose`, `conflict.resolve`, and the client's claimed time on a replayed operation's event, bounded by a setting as `clock_client_tolerance` bounds it today, and marked when it is out of bounds.
 - Limits: the idempotency window, replayed operations for each connection, open conflicts.
 - Telemetry and logs: counters for replayed, parked and stale operations, with events in the log schema.
 
@@ -1697,15 +1708,17 @@ A conflict is an operation that was written against one state and arrives at ano
 
 F1 alone is worth releasing. F3 and F4 do not depend on each other.
 
-### 18.11 Decisions for the maintainer
+### 18.11 Decisions
 
-1. **Offline claims.** Proposed: none in the first cut; a session finishes what it holds and files new work, and starts nothing new without the server. §8 allows provisional claims.
-2. **How much is cached.** Proposed: what a session read, in files, with no new dependency. The alternative is §8's copy of everything a person can see, which needs an embedded store in `sfx` and a spike first.
-3. **The idempotency window.** Proposed: 7 days, a server setting. It is how long an outbox entry can wait and still be delivered without a person.
-4. **Conflicts over MCP.** Proposed: agents are told of conflicts and people resolve them; no MCP tools for it yet.
-5. **Long text.** Proposed: park whole; no automatic merge of hunks until real conflicts show what it would save.
-6. **Does a queued write exit 0?** Proposed: yes, with `--no-queue` for scripts.
-7. **No hybrid logical clock.** Proposed: drop it. With one authority the order is the server's, a client's order is its outbox's, and decision 37 already says a client's clock is a claim.
+The maintainer answered the seven questions on 13 Oct 2026; they are decisions 39 to 45 of §14, which has his words. Six stand as proposed, and the fourth was changed.
+
+1. **Offline claims.** None in the first cut: a session finishes what it holds and files new work, and starts nothing new without the server. §8 allows provisional claims.
+2. **How much is cached.** What a session read, in files, with no new dependency. §8's copy of everything a person can see, which needs an embedded store in `sfx`, is not built.
+3. **The idempotency window.** 7 days by default, a server setting. It is how long an outbox entry can wait and still be delivered without a person.
+4. **Conflicts over MCP.** Changed from the proposal, which only told agents of a conflict. An agent may propose a resolution, which is stored with the conflict, and a person approves it; there is no `resolve` tool over MCP (§18.7, §18.8).
+5. **Long text.** Parks whole; no automatic merge of hunks until real conflicts show what it would save.
+6. **A queued write exits 0,** with `--no-queue` for scripts.
+7. **No hybrid logical clock.** With one authority the order is the server's, a client's order is its outbox's, and decision 37 already says a client's clock is a claim.
 
 ### 18.12 What this does not solve
 
