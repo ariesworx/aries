@@ -142,6 +142,7 @@ Group=dolt
 Environment=HOME=/var/lib/dolt
 WorkingDirectory=/var/lib/dolt/data
 ExecStart=/usr/local/bin/dolt sql-server --config /etc/dolt/config.yaml
+ExecStartPost=/bin/bash -c 'for _ in {1..300}; do (exec 3<>/dev/tcp/127.0.0.1/3306) 2>/dev/null && exit 0; sleep 0.2; done; echo "Dolt is not listening on 127.0.0.1:3306" >&2; exit 1'
 Restart=on-failure
 RestartSec=5
 UMask=0077
@@ -165,6 +166,18 @@ systemctl enable --now dolt
 journalctl -u dolt -n 3
 curl -s --retry 5 --retry-connrefused http://127.0.0.1:11228/metrics | grep -c '^dss_'
 ```
+
+**`ExecStartPost` makes the unit started only once Dolt listens.** Dolt
+tells systemd nothing, so without the line systemd counts the unit as
+started the moment its process exists, before Dolt accepts a
+connection, and whatever is ordered after it, starfixd first, starts
+against a port that refuses. The line tries the port five times a
+second and returns at the first connection; until then the unit is
+`activating` and nothing ordered after it starts. If Dolt does not
+listen within a minute the start fails with `Dolt is not listening on
+127.0.0.1:3306`, and `Restart=on-failure` tries again. It needs only
+bash, and runs as the `dolt` user under the unit's own restrictions. If
+you change `listener.port` in Dolt's config, change it here too.
 
 The log ends with `Server ready. Accepting connections.`, and the last
 command counts the lines of Dolt's metrics about its SQL server: 14 at
@@ -326,26 +339,29 @@ journalctl -u starfixd -n 3
 The log shows `starfixd serving` with the socket, the project and the
 admins. If it shows a refusal instead, its `fix:` says what to change.
 
-**When the machine boots, starfixd's first start fails, and the second
-works.** systemd counts Dolt as started the moment its process exists,
-about a second before Dolt listens, so starfixd finds no database
-(`dial tcp 127.0.0.1:3306: connect: connection refused`) and exits. The
-unit's `Restart=on-failure` starts it again five seconds later, and that
-start succeeds. The journal of every boot therefore holds one failed
-start (`Failed to start starfixd.service`), and `sfx` answers `starfixd
-is not running on the server` for those seconds.
+**starfixd starts once Dolt listens,** at boot and whenever Dolt's unit
+restarts. `After=dolt.service` orders it after Dolt's unit, and that
+unit is started only when Dolt accepts connections (its `ExecStartPost`,
+[step 2](#2-run-dolt-under-its-own-account)). `Requires=dolt.service`
+has systemd stop starfixd with Dolt, on `systemctl restart dolt` or
+after a crash, and start both again in that order.
 
-`Type=notify` does not remove that race, since it is Dolt's unit that
-is counted as started too early, and Dolt sends systemd no
-notification. It does make the unit's state true: starfixd is
-`activating` through the failed start and the wait, and `active` only
-from the start that serves, so anything ordered after `starfixd.service`
-no longer starts against a daemon that is about to exit.
+**A server set up from this guide before 13 October 2026 has no such
+line,** and there starfixd's first start fails at every boot and at
+every restart of Dolt: starfixd finds no database (`dial tcp
+127.0.0.1:3306: connect: connection refused`) and exits, and
+`Restart=on-failure` starts it again five seconds later, which works.
+The journal holds one failed start each time (`Failed to start
+starfixd.service`), and `sfx` answers `starfixd is not running on the
+server` for those seconds. `Type=notify` does not remove that race,
+since it is Dolt's unit that is counted as started too early. To remove
+it, add the `ExecStartPost` line of step 2 to `dolt.service` and run
+`systemctl daemon-reload`; it takes effect when Dolt next starts.
 
-**The same happens whenever Dolt's unit restarts**, by `systemctl
-restart dolt` or after a crash: `Requires=dolt.service` has systemd stop
-starfixd with it and start both together, the race is lost the same
-way, and starfixd is back about five seconds after Dolt.
+The line is in Dolt's unit, and not an `ExecStartPre` in starfixd's,
+because the [AppArmor profile](#confine-starfixd-with-apparmor) the
+daemon's unit may ask for confines every command of that unit, and it
+allows the daemon to run nothing.
 
 ### 6. Let the first principal in
 
@@ -477,7 +493,22 @@ What that showed:
   (`PTY allocation request failed`), and a tunnel to Dolt is refused
   (`open failed: administratively prohibited`).
 - **The first start after a boot fails**, and the next one works
-  ([step 5](#5-run-starfixd-under-systemd)).
+  ([step 5](#5-run-starfixd-under-systemd)). That was with Dolt's unit
+  as it then was, without its `ExecStartPost`.
+- **Dolt's unit with `ExecStartPost` is started only once Dolt
+  listens.** This was run on 13 October 2026, and not on the machine
+  above: in a container (Docker Desktop on an Apple silicon Mac, arm64)
+  of Ubuntu 24.04 with systemd 255.4 as its first process and Dolt
+  2.4.2 set up by steps 1 and 2, with a stand-in for starfixd: a unit
+  with starfixd's `After=dolt.service` and `Requires=dolt.service` that
+  tries the port once. Started from stopped five times each way,
+  without the line every attempt was refused, and with it every attempt
+  connected; the start took 0.28 seconds in place of 0.03. A connection
+  made at once after `systemctl restart dolt` succeeded three times of
+  three with the line. With a process in Dolt's place that never
+  listens, the start failed after 63 seconds and systemd tried again.
+  `systemd-analyze verify` accepts the unit. Not run: starfixd itself
+  ordered after the unit, a real boot, and the machine above.
 - **The unit's `Type=notify`, start timeout and watchdog work**
   ([step 5](#5-run-starfixd-under-systemd)), on the same machine with
   the AppArmor profiles enforced, across a cold boot. So do the
@@ -3441,7 +3472,7 @@ Dolt's collector: 1762 cycles for 12000 writes in 10m, 15 for each 100 writes: O
 | `permission denied` on a file or socket the `starfix` user owns, after you moved a path; or from `control init`, `import-bd`, `export-bd` or `upgrade` | With the [AppArmor profiles](#confine-starfixd-with-apparmor): the path is not the one the profiles name, or the command ran without `aa-exec` | `journalctl -k -g 'apparmor="DENIED"'` names the profile and the path. Change the path in `/etc/apparmor.d/tunables/starfixd` and run `apparmor_parser -r /etc/apparmor.d/starfixd`; run an operator's command through `aa-exec -p starfixd-admin --` |
 | starfixd does not start: `Failed to prepare AppArmor profile change to starfixd-serve` | The unit asks for a profile that is not loaded | `apparmor_parser -r /etc/apparmor.d/starfixd`, or remove the unit's `apparmor.conf` ([Confine starfixd with AppArmor](#confine-starfixd-with-apparmor)) |
 | starfixd does not start: `dial tcp 127.0.0.1:3306: socket: permission denied` | The AppArmor profiles are loaded and the unit does not ask for `starfixd-serve`, so the daemon has the bridge's profile | Add the unit's `AppArmorProfile=starfixd-serve` line, `systemctl daemon-reload`, and restart |
-| One failed start of starfixd in the journal of every boot, `connect: connection refused` | Dolt was not listening yet | Nothing: systemd starts it again five seconds later ([step 5](#5-run-starfixd-under-systemd)) |
+| One failed start of starfixd in the journal of every boot, `connect: connection refused` | Dolt was not listening yet: `dolt.service` has no `ExecStartPost` that waits for its port | Nothing has to be done, since systemd starts starfixd again five seconds later. To remove the failed start, add the line to Dolt's unit ([step 5](#5-run-starfixd-under-systemd)) |
 | starfixd answers `sfx`, yet `systemctl status starfixd` says `activating`, and every ten minutes `start operation timed out` restarts it; its log has `could not tell systemd the daemon is ready` | The unit has `Type=notify` and the daemon cannot write to systemd's socket: the AppArmor profiles loaded are from before the unit had that line | Install this release's profiles and `apparmor_parser -r /etc/apparmor.d/starfixd` ([Confine starfixd with AppArmor](#confine-starfixd-with-apparmor)); `journalctl -k -g 'apparmor="DENIED"'` names `/run/systemd/notify` |
 | `Watchdog timeout (limit 2min)!` in the journal, then goroutine stacks and a restart | starfixd did not tell systemd it was alive for `WatchdogSec`: it hung, or one tick of its reaper took that long, as it can when Dolt stops answering | Read the stacks, which say where it was; check Dolt. If the machine is merely slow, raise `WatchdogSec` |
 | `starfixd status`: `config: open /etc/starfix/starfixd.yaml: permission denied` | It was run as a user who cannot read the config file, or as root with the AppArmor profiles loaded | `sudo -u starfix -H starfixd status` |
