@@ -143,6 +143,7 @@ func init() {
 		{"unpin", "unpin KEY [--scope S]", "unpin a memory", cmdUnpin},
 		{"prime", "prime [--hook[=AGENT]]", "orient a session: your in-progress issues, top ready work, memories, notices", cmdPrime},
 		{"usage", "usage --hook[=AGENT]", "send the session's token counts from the agent's transcript (run by its hooks)", cmdUsage},
+		{"outbox", outboxUsage, "list the writes that wait for the server and the ones it refused; retry or drop one; show the counts", cmdOutbox},
 		{"mcp", "mcp", "serve the MCP tools for an agent on stdin and stdout", cmdMCP},
 		{"setup", "setup AGENT|--all [--write|--check|--remove] [--global] [--command PATH]", "set agents up: MCP config, instruction pointer, session hook", cmdSetup},
 		{"admin", "admin prices [set MODEL --from DATE|TIME --input USD --output USD --cache-write USD --cache-write-1h USD --cache-read USD] | admin plans [set NAME --from YYYY-MM --fee USD --seats N [--principal P]...] | " + adminUsage,
@@ -170,6 +171,18 @@ type runner struct {
 	env Env
 	// json is --json, given before or after the command name.
 	json bool
+	// noQueue is --no-queue, given before or after the command name: a
+	// write that does not reach the server fails, and is not queued.
+	noQueue bool
+	// hook says the command runs as an agent's hook (prime --hook, usage
+	// --hook), which does as it did before there was an outbox: it sends
+	// nothing that waits, and notes nothing on the disk but who the
+	// server took its key for.
+	hook bool
+	// moved is the line that says the server took this connection's key
+	// for another principal than before, whose queued writes it leaves
+	// unsent; "" when it did not.
+	moved string
 	// dir is the directory commands run in, where the search for
 	// .starfix.yaml starts: -C's, else the hook input's cwd for prime
 	// --hook, else ".".
@@ -307,26 +320,32 @@ func Run(ctx context.Context, args []string, env Env) int {
 	return ExitOK
 }
 
-// globals consumes -C DIR, --json and -h before the command name.
+// globalUsage is the usage line of a mistake before the command name.
+const globalUsage = "sfx [-C DIR] [--json] [--no-queue] COMMAND"
+
+// globals consumes -C DIR, --json, --no-queue and -h before the command
+// name.
 func (r *runner) globals(args []string) ([]string, error) {
 	for len(args) > 0 {
 		a := args[0]
 		switch {
 		case a == "-C" || a == "--C":
 			if len(args) < 2 {
-				return nil, usagef("sfx [-C DIR] [--json] COMMAND", "-C needs a directory")
+				return nil, usagef(globalUsage, "-C needs a directory")
 			}
 			r.dir, args = args[1], args[2:]
 		case strings.HasPrefix(a, "-C="):
 			r.dir, args = strings.TrimPrefix(a, "-C="), args[1:]
 		case a == "--json" || a == "-json":
 			r.json, args = true, args[1:]
+		case a == "--no-queue" || a == "-no-queue":
+			r.noQueue, args = true, args[1:]
 		case a == "-h" || a == "--help" || a == "-help":
 			return []string{"help"}, nil
 		case a == "--version" || a == "-version":
 			return []string{"version"}, nil
 		case strings.HasPrefix(a, "-"):
-			return nil, usagef("sfx [-C DIR] [--json] COMMAND", "unknown flag %s", a)
+			return nil, usagef(globalUsage, "unknown flag %s", a)
 		default:
 			return args, nil
 		}
@@ -336,13 +355,14 @@ func (r *runner) globals(args []string) ([]string, error) {
 
 // help prints the list of commands to w.
 func (r *runner) help(w io.Writer) {
-	_, _ = fmt.Fprintln(w, "usage: sfx [-C DIR] [--json] COMMAND [ARGS]")
+	_, _ = fmt.Fprintln(w, "usage: sfx [-C DIR] [--json] [--no-queue] COMMAND [ARGS]")
 	_, _ = fmt.Fprintln(w)
 	for _, c := range commands {
 		_, _ = fmt.Fprintf(w, "  %-9s %s\n", c.name, c.summary)
 	}
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "`sfx help COMMAND` shows a command's usage. --json prints one JSON document.")
+	_, _ = fmt.Fprintln(w, "A write that cannot reach the server is queued and sent later (`sfx outbox`); --no-queue makes it fail.")
 }
 
 // fail reports err and returns its exit code. A usage error's fix is the
@@ -417,20 +437,25 @@ func (r *runner) warn(warning string) {
 }
 
 // connect dials the server on first use, and prints the server's version
-// warning, if it has one, on Stderr.
+// warning, if it has one, on Stderr. A new connection first sends what
+// waits in the outbox (delivered), before the request that opened it.
 func (r *runner) connect(ctx context.Context) (*mcpserver.RepoConn, error) {
 	if r.conn != nil {
 		return r.conn, nil
 	}
 	c, err := mcpserver.DialRepo(ctx, r.dir, r.clientOptions())
 	if err != nil {
+		r.missed(err)
 		return nil, err
 	}
 	if w := c.Warning(r.env.Version); w != "" && !r.quiet {
 		_, _ = fmt.Fprintf(r.env.Stderr, "sfx: %s\n", esc(w))
 	}
 	r.conn = c
-	return c, nil
+	if err := r.delivered(ctx); err != nil {
+		return nil, err
+	}
+	return r.conn, nil
 }
 
 // clientOptions describe this machine and session to the server. The
@@ -459,13 +484,16 @@ func (r *runner) clientOptions() client.Options {
 		Trace: client.TraceFromEnv(r.env.Getenv), OnPush: r.onPush}
 }
 
-// call runs one operation.
+// call runs one operation. A write the outbox does not queue, which did
+// not reach the server, says so in its fix (unqueued).
 func (r *runner) call(ctx context.Context, op string, args, result any) error {
 	c, err := r.connect(ctx)
 	if err != nil {
-		return err
+		return r.unqueued(op, err)
 	}
-	return c.Call(ctx, op, args, result)
+	err = c.Call(ctx, op, args, result)
+	r.missed(err)
+	return r.unqueued(op, err)
 }
 
 // newFlags returns a flag set that also accepts --json after the command.
@@ -473,6 +501,7 @@ func (r *runner) newFlags(name string) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.BoolVar(&r.json, "json", r.json, "print one JSON document")
+	fs.BoolVar(&r.noQueue, "no-queue", r.noQueue, "fail, and queue nothing, when the server cannot be reached")
 	return fs
 }
 

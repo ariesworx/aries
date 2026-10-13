@@ -114,8 +114,13 @@ func cmdCreate(ctx context.Context, r *runner, args []string) error {
 		in.Priority = &p
 	}
 	var out proto.CreateResult
-	if err := r.call(ctx, proto.OpCreate, in, &out); err != nil {
+	kept, err := r.send(ctx, proto.OpCreate, in, &out)
+	if err != nil {
 		return err
+	}
+	if kept != nil {
+		r.queued(kept)
+		return nil
 	}
 	if r.json {
 		r.emit(out)
@@ -472,8 +477,13 @@ func cmdUpdate(ctx context.Context, r *runner, args []string) error {
 // write runs an issue write and prints "ID rev N".
 func (r *runner) write(ctx context.Context, op string, in any) error {
 	var out proto.WriteResult
-	if err := r.call(ctx, op, in, &out); err != nil {
+	kept, err := r.send(ctx, op, in, &out)
+	if err != nil {
 		return err
+	}
+	if kept != nil {
+		r.queued(kept)
+		return nil
 	}
 	if r.json {
 		r.emit(out)
@@ -586,8 +596,13 @@ func cmdComment(ctx context.Context, r *runner, args []string) error {
 	}
 	idem := proto.NewIdem("cli")
 	var out proto.CommentResult
-	if err := r.call(ctx, proto.OpComment, proto.CommentArgs{ID: pos[0], Body: body, Idem: idem}, &out); err != nil {
+	kept, err := r.send(ctx, proto.OpComment, proto.CommentArgs{ID: pos[0], Body: body, Idem: idem}, &out)
+	if err != nil {
 		return err
+	}
+	if kept != nil {
+		r.queued(kept)
+		return nil
 	}
 	if r.json {
 		r.emit(out)

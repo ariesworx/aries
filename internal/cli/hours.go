@@ -73,8 +73,13 @@ func cmdLog(ctx context.Context, r *runner, args []string) error {
 	}
 	in := proto.HoursLogArgs{ID: pos[1], Seconds: int64(d / time.Second), On: *on, Note: *note, Idem: proto.NewIdem("cli")}
 	var out proto.HoursLogResult
-	if err := r.call(ctx, proto.OpHoursLog, in, &out); err != nil {
+	kept, err := r.send(ctx, proto.OpHoursLog, in, &out)
+	if err != nil {
 		return err
+	}
+	if kept != nil {
+		r.queued(kept)
+		return nil
 	}
 	if r.json {
 		r.emit(out)

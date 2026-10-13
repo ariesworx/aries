@@ -112,6 +112,8 @@ sign-in fails, the refusal says once that it is not read.
 | `SSH_AUTH_SOCK` | ssh-agent's socket |
 | `HOME`, or `USERPROFILE` on Windows | Your home directory: `~/` in `STARFIX_KEY_FILE`, and `~/.ssh` for the default identities |
 | `STARFIX_SESSION`, `STARFIX_HARNESS`, `TRACEPARENT`, `TRACESTATE` | The session id, the agent harness's name and the caller's trace context ([agent guide](agents.md#sessions), [Trace context](agents.md#trace-context)) |
+| `STARFIX_NO_QUEUE` | Set to anything but empty, `0` or `false`: a write that cannot reach the server fails and is not queued, as with `--no-queue` ([When the server cannot be reached](#when-the-server-cannot-be-reached)) |
+| `STARFIX_DATA_DIR` | The absolute path of the directory `sfx` keeps its outbox in, in place of your data directory ([Where it is kept](#where-it-is-kept)) |
 
 `sfx` reads no other variable to decide who you are.
 
@@ -167,11 +169,14 @@ committed, so a command in it would run whatever a cloned repository says.
 ## Commands
 
 ```text
-sfx [-C DIR] [--json] COMMAND [ARGS]
+sfx [-C DIR] [--json] [--no-queue] COMMAND [ARGS]
 ```
 
 `sfx help COMMAND` prints a command's usage. `-C DIR` runs as if started
 in DIR. `--json` prints exactly one JSON document, errors included.
+`--no-queue` makes a write that cannot reach the server fail instead of
+waiting in the outbox
+([When the server cannot be reached](#when-the-server-cannot-be-reached)).
 
 ### Work on an issue
 
@@ -232,6 +237,7 @@ Memories are notes kept across sessions, in `project` (the default),
 | Command | Does |
 |---|---|
 | `mcp` | Serve the MCP tools for an agent on stdin and stdout ([agent guide](agents.md)) |
+| `outbox` | List the writes that wait for the server and the ones it refused, for your principal on this machine; `outbox retry N` sends a refused entry again, `outbox drop N` removes an entry for good, and `outbox stats` shows the counts. It never connects ([When the server cannot be reached](#when-the-server-cannot-be-reached)) |
 | `setup AGENT` | Set an agent up for this repository; see [Set up an agent](agents.md#set-up-an-agent). With `--global`, or for Claude Desktop, `--key-file PATH` also names the key file the agent signs in with, in your own files only ([Give an agent its own identity](agents.md#give-an-agent-its-own-identity)) |
 | `usage --hook[=AGENT]` | Send the token counts in the session's transcripts that earlier runs have not sent. Run by Claude Code's Stop, SubagentStop and SessionEnd hooks, which `setup claude-code` installs, with the hook's JSON on stdin; bare `--hook` is Claude Code's, the only agent captured so far. It always exits 0 and sends only counts ([Token usage hooks](agents.md#token-usage-hooks-claude-code)) |
 | `admin prices` | List the model prices, in US dollars per million tokens. `admin prices set MODEL --from DATE --input USD --output USD --cache-write USD --cache-write-1h USD --cache-read USD` sets a model's rates from a date (midnight UTC) or an RFC 3339 time, and prints `added`, `replaced` (the same model and `--from`) or `unchanged`. Every rate must be given, 0 where the model charges nothing, with at most six decimals. Setting is for admins ([Prices](server.md#prices)) |
@@ -289,11 +295,170 @@ honors [`NO_COLOR`](https://no-color.org): set, the board draws without
 color and marks the selection with `>` alone. Like all output, text from
 the server is escaped (below).
 
+## When the server cannot be reached
+
+A server restarts, a tunnel or a VPN drops, a database is slow. When one
+of six writes cannot reach the server, `sfx` keeps it in an **outbox** on
+your machine and sends it later: `create`, `comment`, `handoff`,
+`remember`, `log` (logging hours) and `finish`. Each carries a key that
+lets the server apply it once however often it is sent.
+
+This is the first part of working without the server. There is no cache:
+every read still needs the server. Nothing resolves a conflict: a queued
+write that no longer fits is refused when it arrives, and waits for you.
+And a write waits 24 hours at most.
+
+**What counts as not reached.** The connection could not be made (the
+network, the tunnel, sshd, or `starfixd` not running), it was lost
+before the answer came, or the server answered `unavailable`. A refusal
+is not an outage, and fails as it always has: an unknown key, a host key
+that does not match its pin, `forbidden`, `invalid`, `not_found`,
+`conflict`, a protocol version, a mistake in `.starfix.yaml`, and the
+server's rate limit (`busy`).
+
+**What you see.** One line, and exit code 0, since the write was
+accepted for delivery:
+
+```text
+$ sfx handoff sf-a1b2c3d4 "half done" --next "the tests"
+queued (server unreachable since 2026-10-13 14:02 UTC): entry 3, handoff sf-a1b2c3d4; sfx sends it when the server answers (`sfx outbox` lists what waits)
+```
+
+With `--json` it is one document, which never has the `id` and `rev` of
+a write that was made:
+
+```json
+{"queued":true,"entry":3,"op":"handoff","issue":"sf-a1b2c3d4","since":"2026-10-13T14:02:00Z"}
+```
+
+`issue` is the issue the write is about, and a `remember` has `key`
+instead. A queued `create` has neither, and a `note`: the issue has no id
+until it is sent, so nothing else you queue can refer to it.
+
+**Scripts.** A script that reads an id from `sfx create`, or that must
+know the write was made, passes `--no-queue` or sets
+`STARFIX_NO_QUEUE=1`: the write then fails with exit code 1, as it did
+before there was an outbox.
+
+**What is not queued.** Everything else fails as before, and for a write
+the `fix:` line says that it was not queued and why. `start` takes a
+claim, and no claim is made without the server: while it is away you
+finish what you hold and file new work, and start nothing new. `close`,
+`reopen`, `forget`, `dep rm` and `log --undo` end or undo something on a
+state your machine cannot see. `update`, `label`, `dep add`, `accept` and
+token usage have no such key yet. The hooks (`prime --hook`,
+`usage --hook`) queue and send nothing.
+
+The outbox itself may refuse a write, which then fails with exit code 1
+and a fix:
+
+| Refusal | Code | What to do |
+|---|---|---|
+| This machine has never reached the server with this key, so it cannot tell whose write it is | `unavailable` | Run it again when the server answers. Writes are queued once any command of yours has reached the server from this machine with this key |
+| The outbox is at its cap: 1,000 entries, or 4 MiB | `busy` | Run it again when the server answers, which sends what waits; or `sfx outbox drop N` what is no longer wanted |
+| One write is larger than 256 KiB | `invalid` | Shorten its text, or run it again when the server answers |
+| The text looks like it holds a credential | `invalid` | Remove the secret, and name where it is kept instead. The outbox is a file on your disk and keeps no secret; this check is the one the server runs on memories, here on every queued write |
+| The data directory is not yours alone, or cannot be written | `unavailable` | `chmod 700` it if it is yours, or name another with `STARFIX_DATA_DIR` |
+
+**Delivery.** The next `sfx` command that connects sends what waits
+first, in order, before its own request, for five seconds at most; what
+is left goes with the command after. When anything was sent, one line on
+stderr says so:
+
+```text
+sfx: outbox: delivered 3, refused 1 (see `sfx outbox`)
+```
+
+An answer from the server settles an entry. Applied, it is gone.
+Refused, it moves to the refused list with the server's code, message
+and fix, and is never sent again by itself. If the server still cannot be
+reached, or says `busy`, the entry stays where it is with everything
+after it. An entry that waited more than 24 hours is not sent: it moves
+to the refused list as `stale`, because the server refuses a key that
+old.
+
+An entry is sent by whichever connection of yours comes next, and the
+server records that connection's session and machine on it, not those of
+the session that wrote it. So when your terminal delivers the `finish`
+an agent's session queued, the history shows session `cli`, and the
+agent's session finds a `claim.lost` item in its inbox for the issue.
+The write itself is the one that was queued.
+
+**`sfx outbox`** lists what waits and what was refused, and works with
+the server away:
+
+```text
+$ sfx outbox
+alice's outbox: 2 waiting, 1 refused
+server unreachable since 2026-10-13 14:12 UTC; last tried 2026-10-13 14:32 UTC
+waiting:
+  N  OP       ON           AGE  FROM
+  2  handoff  sf-a1b2c3d4  25m  cli on laptop
+  3  create   -            5m   cli on laptop
+refused:
+  1  comment  sf-9z8y7x6w  35m  cli on laptop
+     not_found: issue sf-9z8y7x6w not found
+     fix: find the id with `sfx list`
+`sfx outbox retry N` sends a refused entry again; `sfx outbox drop N` removes an entry for good
+```
+
+| Command | Does |
+|---|---|
+| `outbox` | List the entries: number, op, the issue's id or the memory's key, age, and the session and machine that wrote it; for a refused one the code, message and fix. And when the server was last not reached |
+| `outbox retry N` | Make refused entry N wait again. The next command that connects sends it, with the key it always had |
+| `outbox drop N` | Remove entry N, waiting or refused, for good. It is deleted from the outbox and never sent |
+| `outbox stats` | For each op, the entries queued, delivered, refused, stale and dropped, and how long the delivered ones waited; and the outages: how many, how long in all, the longest, and the one in progress. With `--json` the durations are in nanoseconds |
+
+Each takes `--json`, and `--principal NAME` for the outbox of another
+principal this machine has queued as.
+
+### Where it is kept
+
+Under your data directory, never in the repository:
+
+| System | Directory |
+|---|---|
+| Linux | `$XDG_DATA_HOME/starfix`, or `~/.local/share/starfix` |
+| macOS | `~/Library/Application Support/starfix` |
+| Windows | `%LocalAppData%\starfix`: the local application data directory, never the roaming one |
+
+`STARFIX_DATA_DIR` names another directory, by its absolute path. It
+must be on a local disk that is not synced: the locks that keep hundreds
+of sessions from each other's writes do not cross machines.
+
+There is one outbox for each server, project and principal. The server
+says who a key is, so `sfx` notes, at each connection, the principal the
+server took the key for, and uses that while the server is away:
+
+- With a key configured (`STARFIX_KEY_FILE`, or `key:`), the write goes
+  to the outbox of the principal the server last took that key for.
+- With none configured, it goes to the outbox of the key the server
+  accepted the last time none was configured, as long as that key is
+  still among those `sfx` would offer.
+- Otherwise nothing is queued.
+
+An outbox is sent only on a connection the server takes for its own
+principal. If the server has since given your key to another principal,
+the entries stay, unsent, and `sfx` says so once on stderr, with what to
+do; `sfx outbox` goes on listing them. A new key of the same principal
+finds the same outbox.
+
+The directory must be yours alone: on Linux and macOS `sfx` refuses one
+that another user owns, or that the group or others can read or write,
+and tells you to `chmod 700` it; it does not change the mode itself.
+[The outbox](security-model.md#the-outbox) in the security model says
+what is in it.
+
+**Windows.** `sfx` builds for Windows, and the outbox has never run
+there: its file locks and renames are untested on it, and the check that
+the directory is yours alone is not made, since Windows keeps that in
+access control lists.
+
 ## Exit codes
 
 | Code | Means |
 |---|---|
-| 0 | Success |
+| 0 | Success, or a write that was queued for the server ([above](#when-the-server-cannot-be-reached)); `--no-queue` makes that a failure |
 | 1 | Failure. stderr has a `fix:` line saying what to do next. When the server itself failed the request (`unavailable`), a last line, `req:`, gives the id the server logged it under: quote it to whoever runs the server. `--json` has it as `error.req` |
 | 2 | Usage error: an unknown flag or a missing argument |
 | 3 | The server refused this client's protocol version; the `fix:` line says which side to upgrade |

@@ -456,6 +456,11 @@ type KeyInfo struct {
 	By          string `json:"chosen_by,omitempty"`
 }
 
+// Configured reports whether the key is the one EnvKeyFile or key: in
+// the config file names, and so was the only key offered, rather than
+// one found among the default identities and ssh-agent's keys.
+func (k KeyInfo) Configured() bool { return k.By != "" && k.By != byDefault && k.By != byAgent }
+
 // Ways a key is chosen when none is configured (KeyInfo.By).
 const (
 	byDefault = "default identity"

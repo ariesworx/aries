@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/ariesworx/starfix/internal/gitx"
+	"github.com/ariesworx/starfix/internal/offline"
 	"github.com/ariesworx/starfix/internal/proto"
 )
 
@@ -131,8 +132,17 @@ func cmdFinish(ctx context.Context, r *runner, args []string) error {
 	}
 	in.Idem = proto.NewIdem("cli")
 	var out proto.FinishResult
-	if err := r.withPaths(ctx, in.ID, &in.Paths, func() error { return r.call(ctx, proto.OpFinish, in, &out) }); err != nil {
+	var kept *offline.Kept
+	err = r.withPaths(ctx, in.ID, &in.Paths, func() (err error) {
+		kept, err = r.send(ctx, proto.OpFinish, in, &out)
 		return err
+	})
+	if err != nil {
+		return err
+	}
+	if kept != nil {
+		r.queued(kept)
+		return nil
 	}
 	if r.json {
 		r.emit(out)

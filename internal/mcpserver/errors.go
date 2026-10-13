@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/ariesworx/starfix/internal/client"
+	"github.com/ariesworx/starfix/internal/offline"
+	"github.com/ariesworx/starfix/internal/outbox"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/safetext"
 )
@@ -20,6 +22,7 @@ import (
 func explain(err error) toolErr {
 	var lost *lostError
 	var dial *dialError
+	var unq *unqueuedError
 	var pe *proto.Error
 	errors.As(err, &pe)
 	e := toolErr{Code: string(proto.CodeUnavailable), Message: err.Error()}
@@ -28,6 +31,19 @@ func explain(err error) toolErr {
 	}
 	e.Message = safetext.Line(e.Message)
 	switch {
+	case errors.As(err, &unq):
+		// No claim is taken, and nothing undone, without the server
+		// (design §14, decision 39): the agent goes on with what it holds.
+		e.Fix = "starfix cannot reach its server, and this was not queued (" + unq.why +
+			"): carry on with the work you hold and call it again later; if it still fails, tell the user"
+	case errors.Is(err, offline.ErrNotQueued) && errors.Is(err, outbox.ErrSecret):
+		e.Fix = nextStep(pe)
+	case errors.Is(err, offline.ErrNotQueued) && errors.Is(err, outbox.ErrTooLarge):
+		e.Fix = "starfix cannot reach its server, and this is too long to keep for later: shorten the text and call it again"
+	case errors.Is(err, offline.ErrNotQueued):
+		// The outbox is the person's to manage, never the agent's (rule
+		// 12): the person's fix is in `sfx outbox`, which says the same.
+		e.Fix = "starfix cannot reach its server and could not keep this for later: keep the text, call it again when a call succeeds, and tell the user"
 	case errors.As(err, &lost) && lost.retried:
 		e.Fix = "starfix reconnected and the retry failed too; try again later, and if it persists tell the user" + personFix(pe)
 	case errors.As(err, &lost):

@@ -31,7 +31,8 @@ type Prime struct {
 	Ready []proto.Summary `json:"ready"`
 	// More: an issue list was cut to fit the budget.
 	More bool `json:"more,omitempty"`
-	// Notices are one-line version warnings.
+	// Notices are one-line version warnings, and what waits in this
+	// machine's outbox or was refused from it.
 	Notices []string `json:"notices,omitempty"`
 	// Lost are issues whose claim this session lost, lapsed or taken
 	// over, from its unread claim.lost inbox items: stop work on them.
@@ -64,10 +65,12 @@ const (
 // Long text is cut, then items dropped from the end until it fits
 // MaxPrimeTokens (see fit). An inbox or memory read that fails while the
 // connection holds leaves it out, since an older server has none; any
-// other failure is an error.
-func BuildPrime(ctx context.Context, c Conn, clientVersion string) (*Prime, error) {
+// other failure is an error. notices follow the connection's own: the
+// one line that says what waits in this machine's outbox, or was
+// refused from it (offline.Client.Notice), when anything does.
+func BuildPrime(ctx context.Context, c Conn, clientVersion string, notices ...string) (*Prime, error) {
 	p := &Prime{Project: c.Project(), You: c.Principal(), Session: c.Session(),
-		Working: []proto.Summary{}, Ready: []proto.Summary{}, Notices: c.Notices(clientVersion)}
+		Working: []proto.Summary{}, Ready: []proto.Summary{}, Notices: append(c.Notices(clientVersion), notices...)}
 	if k, ok := c.(interface{ Key() client.KeyInfo }); ok {
 		if key := k.Key(); key.Fingerprint != "" {
 			p.Key = key.Fingerprint + " from " + cmp.Or(key.Path, "ssh-agent")

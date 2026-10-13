@@ -71,13 +71,25 @@ var never = map[string]string{
 // Queueable reports whether op is one the outbox queues.
 func Queueable(op string) bool { return queued[op] }
 
+// Unqueued reports why op, a write, is not queued, for a caller that
+// could not reach the server with it. It reports false for an op the
+// outbox queues and for one it knows nothing of, a read among them,
+// which has nothing to queue.
+func Unqueued(op string) (why string, ok bool) {
+	if w, ok := never[op]; ok {
+		return w, true
+	}
+	if later[op] {
+		return "it has no idempotency key in this version of the protocol", true
+	}
+	return "", false
+}
+
 // notQueueable is the refusal of an op the outbox does not queue.
 func notQueueable(op string) error {
-	why := "only writes that are safe to send again later are queued"
-	if w, ok := never[op]; ok {
-		why = w
-	} else if later[op] {
-		why = "it has no idempotency key in this version of the protocol"
+	why, ok := Unqueued(op)
+	if !ok {
+		why = "only writes that are safe to send again later are queued"
 	}
 	return fmt.Errorf("%w: %q is not queued while the server cannot be reached: %s", ErrNotQueueable, op, why)
 }
