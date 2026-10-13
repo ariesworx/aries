@@ -17,14 +17,38 @@
 # instead of building starfix-dev:local: a variant of it, built FROM it,
 # such as those docs/deploy/docker.md describes. STARFIX_SMOKE_LOG names
 # a file to save the server's log to (sshd's, starfixd's and Dolt's)
-# before the server is removed.
+# before the server is removed. STARFIX_SMOKE_PROJECT names the Compose
+# project, starfix-smoke by default, so that two runs on one machine,
+# each with its own STARFIX_PORT, do not remove each other's server.
+#
+# STARFIX_SMOKE_TELEMETRY=1 runs all of it with starfixd's telemetry on
+# and the compose file's `telemetry` and `prometheus` profiles, and then
+# checks the harness of deploy/observability (telemetry_checks, below):
+# what reaches the collector, the alert rules in a real Prometheus,
+# /readyz, and that a collector that is down or hangs changes nothing.
+# It pulls two more images.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 port=${STARFIX_PORT:-2223}
 work=$(mktemp -d)
-compose=(docker compose -p starfix-smoke -f "$root/deploy/docker/compose.yaml")
+compose=(docker compose -p "${STARFIX_SMOKE_PROJECT:-starfix-smoke}" -f "$root/deploy/docker/compose.yaml")
+telemetry=
+sidecars=()
+case ${STARFIX_SMOKE_TELEMETRY:-} in
+'') ;;
+1)
+  telemetry=1
+  sidecars=(collector prometheus)
+  compose+=(--profile telemetry --profile prometheus)
+  ;;
+*)
+  printf 'smoke: STARFIX_SMOKE_TELEMETRY is %s\nfix: set it to 1, or leave it unset\n' "$STARFIX_SMOKE_TELEMETRY" >&2
+  exit 2
+  ;;
+esac
 passed=0
+restart_took=0
 last=
 
 # The test's own ssh-agent (start_agent), never the caller's: its socket,
@@ -168,9 +192,434 @@ no_failed_write() {
 }
 
 up() {
-  STARFIX_IMAGE=$image STARFIX_KEYS=$keys STARFIX_ADMINS=alice STARFIX_PORT=$port \
+  STARFIX_IMAGE=$image STARFIX_KEYS=$keys STARFIX_ADMINS=alice STARFIX_PORT=$port STARFIX_TELEMETRY=$telemetry \
     "${compose[@]}" up -d --no-build --wait --wait-timeout 120 >/dev/null 2>&1 ||
     fail "the server did not become healthy" "$("${compose[@]}" logs --no-log-prefix 2>&1 | tail -n 40)"
+}
+
+# restart_server restarts the server's container and waits for it. The
+# collector and Prometheus live in its network namespace, which a
+# restart replaces, so they are restarted after it: at once, so that
+# the collector listens again before starfixd, which starts after Dolt,
+# has anything to send.
+restart_server() {
+  local t0=$SECONDS
+  "${compose[@]}" restart starfix >/dev/null 2>&1
+  restart_took=$((SECONDS - t0))
+  if ((${#sidecars[@]})); then
+    "${compose[@]}" restart "${sidecars[@]}" >/dev/null 2>&1 || fail "could not restart ${sidecars[*]} after the server"
+  fi
+  up
+}
+
+# What follows, to telemetry_checks, runs only with
+# STARFIX_SMOKE_TELEMETRY=1.
+
+# http_get PORT PATH prints what the server answers on loopback inside
+# its container, headers and all. The image has no curl, so bash asks.
+http_get() {
+  in_server bash -c "exec 3<>/dev/tcp/127.0.0.1/$1 && printf 'GET %s HTTP/1.0\r\n\r\n' '$2' >&3 && cat <&3" 2>&1
+}
+
+# collector_log prints all the collector has printed: every metric and
+# span it received, in its debug exporter's text.
+collector_log() { "${compose[@]}" logs --no-log-prefix collector 2>&1; }
+
+# starfixd_log prints the server's log since starfixd last started.
+starfixd_log() {
+  "${compose[@]}" logs --no-log-prefix starfix 2>&1 | awk '/msg="telemetry on"/ { n = 0 } { line[n++] = $0 } END { for (i = 0; i < n; i++) print line[i] }'
+}
+
+# spans reads the collector's log on stdin and prints each span it
+# received as one line: its trace, its parent, its own id, its name and
+# its attributes.
+spans() {
+  awk '
+    function emit() {
+      if (id != "") print "span trace=" trace " parent=" parent " id=" id " name=" name attrs " "
+      id = ""; attrs = ""
+    }
+    /^Span #/ { emit(); inspan = 1; next }
+    /^(Resource|Scope)(Spans|Metrics) #/ || /^Metric #/ || /^[0-9][0-9][0-9][0-9]-/ { emit(); inspan = 0 }
+    !inspan { next }
+    $1 == "Trace" && $2 == "ID" { trace = $4 }
+    $1 == "Parent" && $2 == "ID" { parent = $4 }
+    $1 == "ID" { id = $3 }
+    $1 == "Name" { name = $3 }
+    $1 == "->" {
+      key = $2; sub(/:$/, "", key)
+      value = $3; sub(/^[A-Za-z]+\(/, "", value); sub(/\)$/, "", value)
+      attrs = attrs " " key "=" value
+    }
+    END { emit() }'
+}
+
+# records reads the collector's log on stdin and prints each log record
+# it received as one line: its event, its trace and span, and its
+# attributes. The record's body, which is a fixed message of starfixd's,
+# is left out.
+records() {
+  awk '
+    function emit() {
+      if (inrecord) print "record event=" event " trace=" trace " span=" span attrs " "
+      inrecord = 0; event = ""; trace = ""; span = ""; attrs = ""
+    }
+    /^LogRecord #/ { emit(); inrecord = 1; next }
+    /^(Resource|Scope)(Spans|Metrics|Logs) #/ || /^Metric #/ || /^Span #/ || /^[0-9][0-9][0-9][0-9]-/ || /^\t\{/ { emit() }
+    !inrecord { next }
+    $1 == "EventName:" { event = $2 }
+    $1 == "Trace" && $2 == "ID:" { trace = $3 }
+    $1 == "Span" && $2 == "ID:" { span = $3 }
+    $1 == "->" {
+      key = $2; sub(/:$/, "", key)
+      value = $3; sub(/^[A-Za-z]+\(/, "", value); sub(/\)$/, "", value)
+      attrs = attrs " " key "=" value
+    }
+    END { emit() }'
+}
+
+# await LIMIT NAME TEST... runs TEST once a second until it passes, and
+# fails after LIMIT tries, with what TEST left in `last`.
+await() {
+  local limit=$1 name=$2 i
+  shift 2
+  for ((i = 0; i < limit; i++)); do
+    if "$@"; then
+      passed=$((passed + 1))
+      return 0
+    fi
+    sleep 1
+  done
+  fail "$name: not within ${limit}s" "$last"
+}
+
+# The tests await runs. shellcheck cannot see that they are called: 0.11
+# reports that as SC2329, and the 0.9 on CI's runner as SC2317.
+
+# arrived PREFIX NAME... passes once the collector has printed a metric
+# of each NAME; PREFIX is what its debug exporter writes before a name.
+# shellcheck disable=SC2317,SC2329
+arrived() {
+  local log name
+  log=$(collector_log)
+  for name in "${@:2}"; do
+    if ! grep -q -- "^$1$name\$" <<<"$log"; then
+      last="the collector has received no metric named $name"
+      return 1
+    fi
+  done
+}
+
+# span_arrived PATTERN passes once the collector has printed a span
+# whose line (spans) matches PATTERN, and leaves that line in `last`.
+# shellcheck disable=SC2317,SC2329
+span_arrived() {
+  local all
+  all=$(collector_log | spans)
+  if last=$(grep -E -m 1 -- "$1" <<<"$all"); then
+    return 0
+  fi
+  last="no span matching /$1/ among the $(grep -c '' <<<"$all") the collector received; the last of them:"$'\n'$(tail -n 5 <<<"$all")
+  return 1
+}
+
+# record_arrived PATTERN is span_arrived for a log record (records),
+# and leaves the newest record that matches in `last`.
+# shellcheck disable=SC2317,SC2329
+record_arrived() {
+  local all
+  all=$(collector_log | records)
+  if last=$(grep -E -- "$1" <<<"$all" | tail -n 1) && [[ -n $last ]]; then
+    return 0
+  fi
+  last="no log record matching /$1/ among the $(grep -c '' <<<"$all") the collector received; the last of them:"$'\n'$(tail -n 5 <<<"$all")
+  return 1
+}
+
+# dropped SIGNAL prints how many exports of metrics, or spans or log
+# records, starfixd has counted as dropped since it started.
+dropped() {
+  http_get 9464 /metrics | awk -v signal="signal=\"$1\"" '/^starfix_telemetry_dropped_total/ && index($0, signal) { n = $NF } END { print n + 0 }'
+}
+
+# shellcheck disable=SC2317,SC2329
+dropped_more() {
+  local now
+  now=$(dropped "$1")
+  last="starfix_telemetry_dropped_total{signal=\"$1\"} is $now, and was $2 before"
+  ((now > $2))
+}
+
+# logged PATTERN prints how many lines of starfixd's log, since it last
+# started, match PATTERN.
+logged() { starfixd_log | grep -c -- "$1" || true; }
+
+# shellcheck disable=SC2317,SC2329
+logged_once_more() {
+  local now
+  now=$(logged "$1")
+  last="starfixd logged /$1/ $now times since it started, and $2 times before"
+  ((now == $2 + 1))
+}
+
+# readyz_says PATTERN passes once /readyz's answer has a line matching.
+# shellcheck disable=SC2317,SC2329
+readyz_says() {
+  last=$(http_get 9464 /readyz | tr -d '\r') || true
+  grep -Eq -- "$1" <<<"$last"
+}
+
+# rules_healthy COUNT passes once Prometheus has evaluated COUNT rules
+# and found each one sound.
+# shellcheck disable=SC2317,SC2329
+rules_healthy() {
+  local body ok
+  body=$(http_get 9090 /api/v1/rules) || true
+  ok=$(grep -o '"health":"ok"' <<<"$body" | grep -c '' || true)
+  last="Prometheus reports $ok of $1 rules healthy: $(grep -o '"name":"[A-Za-z]*","query":"[^}]*"health":"[a-z]*","lastError":"[^"]*"' <<<"$body" | grep -v '"health":"ok"' || true)"
+  ((ok == $1)) && ! grep -q '"health":"err"' <<<"$body"
+}
+
+# alert_is NAME STATE passes once Prometheus gives the alert that state.
+# shellcheck disable=SC2317,SC2329
+alert_is() {
+  last=$(http_get 9090 /api/v1/rules | grep -o "\"state\":\"[a-z]*\",\"name\":\"$1\"") || true
+  [[ $last == "\"state\":\"$2\",\"name\":\"$1\"" ]]
+}
+
+# batch TAG sends the same requests every time it is called, reads and
+# writes, and prints what the reads answered.
+batch() {
+  local i
+  for i in 1 2 3 4 5 6; do
+    sfx_as alice show "$a" || fail "batch $1: sfx show exited $?"
+    sfx_as alice ready || fail "batch $1: sfx ready exited $?"
+    sfx_as alice comment "$b" "telemetry batch $1 $i" >/dev/null || fail "batch $1: sfx comment exited $?"
+  done
+}
+
+# new_traceparent sets trace_id and parent_id to random ids, and
+# traceparent to the W3C header that carries them, sampled.
+new_traceparent() {
+  trace_id=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
+  parent_id=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+  traceparent=00-$trace_id-$parent_id-01
+}
+
+# The series the harness's rules and dashboard read from Dolt, by the
+# names its endpoint serves; a test in internal/telemetry holds its own
+# list of them to this one.
+dolt_series=(dss_concurrent_connections dss_query_duration process_resident_memory_bytes process_cpu_seconds_total go_gc_duration_seconds go_gc_gomemlimit_bytes go_goroutines sys_cpu_usage sys_mem_usage sys_disk_usage)
+
+# telemetry_checks checks the harness of deploy/observability against
+# the server the checks above have used, which has run since the
+# restart with its telemetry on.
+telemetry_checks() {
+  local pushed=(starfix.request.duration starfix.project.requests starfix.connections starfix.handshakes
+    starfix.store.write.duration starfix.store.commit.duration starfix.stores.open starfix.store.open.duration
+    starfix.claims starfix.control.writes starfix.keys_file.writes starfix.keys_file.last_write.time
+    starfix.reaper.duration starfix.reaper.last_run.time starfix.clock.behind)
+  local scraped=(starfix_request_duration_seconds starfix_project_requests_total starfix_connections starfix_handshakes_total
+    starfix_store_write_duration_seconds starfix_store_commit_duration_seconds starfix_stores_open starfix_store_open_duration_seconds
+    starfix_claims_total starfix_control_writes_total starfix_keys_file_writes_total starfix_keys_file_last_write_time_seconds
+    starfix_reaper_duration_seconds starfix_reaper_last_run_time_seconds starfix_clock_behind_seconds)
+  local name='     -> Name: ' traced server_span attempt_span stand_in rules log all bad job t0 alive_took alive dead
+  local metrics0 traces0 logs0 warned_metrics warned_traces warned_logs recovered queries query refused_took frozen_took frozen_restart
+  local req seq subject
+
+  echo "smoke: telemetry: a trace from the test's own TRACEPARENT"
+  expect "status says people are named by stand-ins" '^traces: people are named by stand-ins' alice admin status
+  new_traceparent
+  TRACEPARENT=$traceparent expect "a request with a trace context" '^sf-[a-z0-9]+$' alice create "Traced by the smoke test" -p 3 -t task
+  traced=$last
+  # The server's span is a child of the test's, in the test's trace; the
+  # attempt of the write is beneath it, and the wait for the writer
+  # beneath that.
+  await 30 "the request's span arrives, under the test's span" span_arrived "^span trace=$trace_id parent=$parent_id id=[0-9a-f]{16} name=create op=create result=ok "
+  server_span=$(sed -n 's/.* id=\([0-9a-f]*\) name=create .*/\1/p' <<<"$last")
+  stand_in=$(sed -n 's/.* principal=\(p_[0-9a-f]*\) .*/\1/p' <<<"$last")
+  grep -Eq -- " project=$project .* principal=p_[0-9a-f]{16} session=s_[0-9a-f]{16} " <<<"$last" ||
+    fail "the request's span does not carry the project and stand-ins for the principal and the session" "$last"
+  passed=$((passed + 1))
+  await 10 "the write's attempt is beneath the request's span" span_arrived "^span trace=$trace_id parent=$server_span id=[0-9a-f]{16} name=store.write.attempt .* outcome=ok "
+  attempt_span=$(sed -n 's/.* id=\([0-9a-f]*\) name=store.write.attempt .*/\1/p' <<<"$last")
+  await 10 "the wait for the writer is beneath the attempt" span_arrived "^span trace=$trace_id parent=$attempt_span id=[0-9a-f]{16} name=store.write.wait "
+  # A request that brings no trace context starts a trace of its own.
+  expect "a claim, for the claims counter" "^$traced .*in_progress" alice start "$traced"
+  await 30 "a request with no trace context is the root of its own trace" span_arrived "^span trace=[0-9a-f]{32} parent= id=[0-9a-f]{16} name=start "
+
+  echo "smoke: telemetry: stand-ins, not names"
+  expect "a server admin resolves the stand-in" "^$stand_in is alice\$" alice admin principal whois "$stand_in"
+  refuse "nobody else does" '"c":"forbidden"' bob --json admin principal whois "$stand_in"
+  log=$(collector_log)
+  all=$(spans <<<"$log")
+  grep -Eq ' principal=p_[0-9a-f]{16} session=s_[0-9a-f]{16} ' <<<"$all" || fail "no span says who, by a stand-in"
+  bad=$(grep -Eo ' (principal|session)=[^ ]*' <<<"$all" | grep -Ev '^ (principal=p_|session=s_)[0-9a-f]{16}$' || true)
+  [[ -z $bad ]] || fail "a span names a principal or a session by something other than a stand-in" "$(sort -u <<<"$bad" | head -n 5)"
+  passed=$((passed + 1))
+
+  # starfixd's log, exported (docs/server.md, Logs over OTLP). A
+  # record carries the ids of the span its line was logged under: a
+  # request the test traces and the server refuses has a line at info,
+  # so a record, in the test's trace and with the id of the server's
+  # own span for the request.
+  echo "smoke: telemetry: log records, with their trace, and the audit stream"
+  new_traceparent
+  TRACEPARENT=$traceparent refuse "a traced request that is refused" 'not found' alice show sf-nosuchid
+  await 30 "the refused request's span arrives" span_arrived "^span trace=$trace_id parent=$parent_id id=[0-9a-f]{16} name=show op=show result=not_found "
+  server_span=$(sed -n 's/.* id=\([0-9a-f]*\) name=show .*/\1/p' <<<"$last")
+  await 30 "its log record arrives, in the test's trace and under the server's span" record_arrived \
+    "^record event=request.refused trace=$trace_id span=$server_span .* principal=$stand_in session=s_[0-9a-f]{16} .* op=show .* code=not_found req=[0-9a-f]{16} "
+  req=$(sed -n 's/.* req=\([0-9a-f]*\) .*/\1/p' <<<"$last")
+  # The journal has the same line, found by the request's id, with the
+  # name the record leaves out.
+  last=$("${compose[@]}" logs --no-log-prefix starfix 2>&1 | grep -F " req=$req " || true)
+  grep -Eq " principal=alice .* event=request.refused op=show .* code=not_found req=$req trace_id=$trace_id span_id=$server_span\$" <<<"$last" ||
+    fail "starfixd's own log has no line for the refused request, by its id $req, naming alice and the trace" "$last"
+  passed=$((passed + 1))
+  # An access change is a record of the audit stream at the collector:
+  # who made it and whom it changed are stand-ins, which a server admin
+  # resolves, and the line in the server's log, by the event's number,
+  # has the names.
+  expect "an access change" '^principal erin added, a member of project first$' alice admin principal add erin
+  last=$("${compose[@]}" logs --no-log-prefix starfix 2>&1 | grep -E ' event=audit[.]principal[.]add audit=true seq=[0-9]+ at=[^ ]+ principal=alice session=[^ ]+ op=principal[.]add target=erin subject=erin$' || true)
+  seq=$(sed -n 's/.* seq=\([0-9]*\) .*/\1/p' <<<"$last")
+  [[ $seq =~ ^[0-9]+$ ]] || fail "starfixd's own log has no one audit line for the principal alice added, naming alice and erin" "$last"
+  passed=$((passed + 1))
+  await 30 "its audit record arrives, with the event's number" record_arrived \
+    "^record event=audit.principal.add trace= span= event=audit.principal.add audit=true seq=$seq at=[^ ]+ principal=$stand_in session=s_[0-9a-f]{16} op=principal.add subject=p_[0-9a-f]{16} "
+  subject=$(sed -n 's/.* subject=\(p_[0-9a-f]*\) .*/\1/p' <<<"$last")
+  expect "a server admin resolves whom it changed" "^$subject is erin\$" alice admin principal whois "$subject"
+  await 10 "the membership it gave is a record too" record_arrived \
+    "^record event=audit.member.set .* audit=true seq=$((seq + 1)) .* principal=$stand_in .* op=member.set project=$project subject=$subject role=member "
+  # Every field of a record that names a person holds a stand-in, and
+  # no record has a field that holds text: an error, a target, a
+  # machine's name, a path.
+  log=$(collector_log)
+  all=$(records <<<"$log")
+  bad=$(grep -Eo ' (principal|session|by|subject|admin|created_by|added_by)=[^ ]*' <<<"$all" |
+    grep -Ev '^ ((principal|by|subject|admin|created_by|added_by)=p_|session=s_)[0-9a-f]{16}$' || true)
+  [[ -z $bad ]] || fail "a log record names a person by something other than a stand-in" "$(sort -u <<<"$bad" | head -n 5)"
+  bad=$(grep -E ' (err|detail|cause|fix|effect|target|machine|harness|name|database|path|url)=' <<<"$all" || true)
+  [[ -z $bad ]] || fail "a log record carries a field that holds text" "$(head -n 3 <<<"$bad")"
+  passed=$((passed + 2))
+  # Nothing the collector received, in a span, a metric or a log
+  # record, names a person, a session or an issue's title.
+  if last=$(grep -Ew -m 3 -- 'alice|bob|carol|dave|erin|mallory' <<<"$log") || last=$(grep -E -m 3 -- 'example[.]com|smoke-|Traced by' <<<"$log"); then
+    fail "what the collector received names a person, a session or a title" "$last"
+  fi
+  passed=$((passed + 1))
+
+  echo "smoke: telemetry: metrics from starfixd, pushed and scraped, and from Dolt"
+  await 90 "starfixd's metrics arrive over OTLP" arrived "$name" "${pushed[@]}"
+  await 60 "starfixd's metrics arrive by a scrape of /metrics" arrived "$name" "${scraped[@]}"
+  await 60 "Dolt's metrics arrive by a scrape" arrived "$name" "${dolt_series[@]}"
+  log=$(collector_log)
+  for job in starfixd dolt; do
+    grep -Fq -- "     -> service.name: Str($job)" <<<"$log" || fail "the collector received nothing whose resource is the service $job"
+  done
+  passed=$((passed + 1))
+
+  echo "smoke: telemetry: the alert rules in Prometheus, and /readyz"
+  rules=$(grep -c '^ *- alert: ' "$root/deploy/observability/alerts.yaml")
+  await 90 "Prometheus evaluates every alert rule" rules_healthy "$rules"
+  await 30 "no span has been dropped, so its alert is quiet" alert_is StarfixTelemetrySpansDropped inactive
+  # Every query of the dashboard is one that Prometheus can run.
+  queries=0
+  while IFS= read -r query; do
+    last=$("${compose[@]}" exec -T prometheus promtool query instant http://127.0.0.1:9090 "$query" 2>&1 </dev/null) ||
+      fail "Prometheus cannot run a query of the dashboard: $query" "$last"
+    queries=$((queries + 1))
+  done < <(sed -n 's/^ *"expr": "\(.*\)",$/\1/p' "$root/deploy/observability/dashboard.json" | sed 's/\\"/"/g')
+  ((queries >= 20)) || fail "found only $queries queries in the dashboard"
+  passed=$((passed + 1))
+  await 10 "/readyz says ready" readyz_says '^ready$'
+  # Dolt frozen whole, as a hang would leave it: it holds its port and
+  # answers nothing.
+  in_server pkill -STOP -x dolt || fail "could not freeze Dolt"
+  if ! (await 30 "/readyz says why not, with Dolt frozen" readyz_says '^not ready: the last check of Dolt failed$'); then
+    in_server pkill -CONT -x dolt || true
+    exit 1
+  fi
+  passed=$((passed + 1))
+  in_server pkill -CONT -x dolt || fail "could not thaw Dolt"
+  await 30 "/readyz says ready again" readyz_says '^ready$'
+  grep -q '^HTTP/1.0 200' <<<"$(http_get 9464 /healthz)" || fail "/healthz does not answer 200"
+  passed=$((passed + 1))
+
+  # design §16.6: a collector that is down, slow or refusing changes
+  # nothing but the drop counter and one warning. The same requests are
+  # sent three times: with the collector running, with it stopped, so
+  # that its port refuses, and with it frozen, so that its port accepts
+  # and never answers. An export that a request waited for would hold
+  # the frozen run for the exporter's 10 seconds, at each request.
+  echo "smoke: telemetry: a collector that is down changes nothing"
+  t0=$SECONDS
+  alive=$(batch alive)
+  alive_took=$((SECONDS - t0))
+  metrics0=$(dropped metrics)
+  traces0=$(dropped traces)
+  warned_metrics=$(logged 'a metrics export failed')
+  warned_traces=$(logged 'a trace export failed')
+  warned_logs=$(logged 'a log export failed')
+  logs0=$(dropped logs)
+  recovered=$(logged 'event=telemetry.export_recovered signal=metrics')
+  "${compose[@]}" stop collector >/dev/null 2>&1 || fail "could not stop the collector"
+  t0=$SECONDS
+  dead=$(batch refused)
+  refused_took=$((SECONDS - t0))
+  # A line at info, so that there is a record to lose.
+  refuse "a refused request, for its log line" 'not found' alice show sf-nosuchid
+  ((refused_took <= alive_took + 5)) ||
+    fail "with the collector stopped, the requests took ${refused_took}s, and ${alive_took}s with it running"
+  [[ $dead == "$alive" ]] || fail "with the collector stopped, the requests answered something else" "$(diff <(printf '%s\n' "$alive") <(printf '%s\n' "$dead"))"
+  passed=$((passed + 2))
+  await 30 "a failed export of metrics is counted" dropped_more metrics "$metrics0"
+  await 30 "the spans lost are counted" dropped_more traces "$traces0"
+  await 10 "one warning for metrics" logged_once_more 'a metrics export failed' "$warned_metrics"
+  await 10 "one warning for traces" logged_once_more 'a trace export failed' "$warned_traces"
+  await 30 "the log records lost are counted" dropped_more logs "$logs0"
+  await 10 "one warning for logs" logged_once_more 'a log export failed' "$warned_logs"
+  await 90 "the alert for dropped spans fires" alert_is StarfixTelemetrySpansDropped firing
+  await 60 "the alert for dropped log records fires" alert_is StarfixTelemetryLogRecordsDropped firing
+  "${compose[@]}" start collector >/dev/null 2>&1 || fail "could not start the collector again"
+  new_traceparent
+  TRACEPARENT=$traceparent expect "a request once the collector is back" "^$traced " alice show "$traced"
+  await 60 "its span arrives" span_arrived "^span trace=$trace_id parent=$parent_id id=[0-9a-f]{16} name=show "
+  await 30 "starfixd says its exports of metrics work again" logged_once_more 'event=telemetry.export_recovered signal=metrics' "$recovered"
+  [[ $(logged 'a metrics export failed') == $((warned_metrics + 1)) && $(logged 'a trace export failed') == $((warned_traces + 1)) &&
+    $(logged 'a log export failed') == $((warned_logs + 1)) ]] ||
+    fail "starfixd warned of failed exports more than once for each signal while the collector was stopped" "$(starfixd_log | grep 'export')"
+  passed=$((passed + 1))
+
+  echo "smoke: telemetry: a collector that never answers changes nothing, and does not hold a stop"
+  "${compose[@]}" pause collector >/dev/null 2>&1 || fail "could not freeze the collector"
+  t0=$SECONDS
+  dead=$(batch frozen)
+  frozen_took=$((SECONDS - t0))
+  ((frozen_took <= alive_took + 5)) ||
+    fail "with the collector frozen, the requests took ${frozen_took}s, and ${alive_took}s with it running"
+  [[ $dead == "$alive" ]] || fail "with the collector frozen, the requests answered something else" "$(diff <(printf '%s\n' "$alive") <(printf '%s\n' "$dead"))"
+  passed=$((passed + 2))
+  # starfixd gives its last exports 5 seconds when it stops. Docker is
+  # told to wait for 30, so that the time measured is the server's own;
+  # 3 more are for a clock read in whole seconds.
+  t0=$SECONDS
+  "${compose[@]}" restart -t 30 starfix >/dev/null 2>&1 || fail "could not restart the server with the collector frozen"
+  frozen_restart=$((SECONDS - t0))
+  ((frozen_restart <= restart_took + 5 + 3)) ||
+    fail "with the collector frozen, restarting the server took ${frozen_restart}s, and ${restart_took}s with it running: more than the 5s its last exports may take"
+  passed=$((passed + 1))
+  echo "smoke: telemetry: 18 requests took ${alive_took}s with the collector running, ${refused_took}s with it stopped and ${frozen_took}s with it frozen; a restart took ${restart_took}s and, with it frozen, ${frozen_restart}s"
+  "${compose[@]}" unpause collector >/dev/null 2>&1 || fail "could not thaw the collector"
+  "${compose[@]}" restart "${sidecars[@]}" >/dev/null 2>&1 || fail "could not restart ${sidecars[*]} after the server"
+  up
+  new_traceparent
+  TRACEPARENT=$traceparent expect "a request after the restart" "^$traced " alice show "$traced"
+  await 60 "its span arrives at the collector" span_arrived "^span trace=$trace_id parent=$parent_id id=[0-9a-f]{16} name=show .* principal=$stand_in "
+  new_traceparent
+  TRACEPARENT=$traceparent refuse "a refused request after the restart" 'not found' alice show sf-nosuchid
+  await 30 "its log record arrives at the collector" record_arrived "^record event=request.refused trace=$trace_id "
 }
 
 image=${STARFIX_IMAGE:-starfix-dev:local}
@@ -454,8 +903,7 @@ expect "member remove before the restart" '^bob removed from project first$' ali
 refuse "a removed member" 'bob is not a member of project' bob ready
 
 echo "smoke: restarting the server"
-"${compose[@]}" restart >/dev/null 2>&1
-up
+restart_server
 [[ $(server_setting project) == "$project" ]] || fail "restart: the project changed" "$(server_setting project)"
 [[ $(server_setting host_key) == "$host_key" ]] || fail "restart: the host key changed" "$(server_setting host_key)"
 passed=$((passed + 2))
@@ -550,5 +998,10 @@ if grep -Eq 'ssh-ed25519 AAAA' <<<"$last"; then
   fail "starfixd's log holds a key's text" "$(grep -E 'ssh-ed25519 AAAA' <<<"$last" | cut -c1-200 | head -n 3)"
 fi
 passed=$((passed + 1))
+
+if [[ -n $telemetry ]]; then
+  telemetry_checks
+  no_failed_write "after the telemetry checks"
+fi
 
 echo "smoke: ok, $passed checks passed"

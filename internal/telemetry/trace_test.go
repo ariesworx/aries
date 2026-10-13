@@ -816,6 +816,32 @@ func BenchmarkRequestSpans(b *testing.B) {
 	}
 }
 
+// TakeSpans hands over the spans that ended since it was last called,
+// each once, so that a long run can count its spans without keeping
+// them all.
+func TestTakeSpans(t *testing.T) {
+	tel, m := traced(t, Config{})
+	end := func(name SpanName) {
+		_, sp := tel.Start(t.Context(), name)
+		sp.End()
+	}
+	end(SpanWriteAttempt)
+	end(SpanWriteWait)
+	if got := SpanNames(m.TakeSpans()); !slices.Equal(got, []string{"store.write.attempt", "store.write.wait"}) {
+		t.Errorf("TakeSpans() after two spans ended = %v, want the attempt and the wait, in the order they ended", got)
+	}
+	if got := m.Spans(); len(got) != 0 {
+		t.Errorf("Spans() after TakeSpans() = %v, want none left", SpanNames(got))
+	}
+	end(SpanReaper)
+	if got := SpanNames(m.TakeSpans()); !slices.Equal(got, []string{"reaper"}) {
+		t.Errorf("TakeSpans() after one more span ended = %v, want only the reaper's", got)
+	}
+	if got := m.TakeSpans(); len(got) != 0 {
+		t.Errorf("TakeSpans() with nothing ended since = %v, want none", SpanNames(got))
+	}
+}
+
 // discard is a span exporter that keeps nothing.
 type discard struct{}
 

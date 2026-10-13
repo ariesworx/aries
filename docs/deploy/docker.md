@@ -90,6 +90,7 @@ so there is nothing to verify out of band.
 | `STARFIX_ADMINS` | the first name | The server [admins](../server.md#admins), comma-separated. They reach every project and need no membership |
 | `STARFIX_PROJECT` | random | The project UUID, used on the first start only |
 | `STARFIX_PORT` | `2222` | The port on 127.0.0.1, also printed in `.starfix.yaml` |
+| `STARFIX_TELEMETRY` | unset | `1` turns starfixd's telemetry on ([Telemetry](#telemetry)). Unset, starfixd exports nothing and opens no port, as on a server where nothing is configured |
 
 sshd listens on 127.0.0.1 alone, so nothing beyond your machine can reach
 it.
@@ -182,6 +183,84 @@ docker compose exec -u starfix -w /var/lib/starfix starfix \
   starfixd control init --name first --restore-removed-access
 ```
 
+## Telemetry
+
+Off unless you ask. To see what starfixd reports about itself
+([Observability](../server.md#observability)), start the server with
+its telemetry on and a collector beside it:
+
+```sh
+export STARFIX_TELEMETRY=1
+docker compose --profile telemetry up -d --build --wait
+docker compose --profile telemetry logs -f collector
+```
+
+| You set | It does |
+|---|---|
+| `STARFIX_TELEMETRY=1` | starfixd serves `/metrics`, `/healthz` and `/readyz` on `127.0.0.1:9464` inside the container, pushes metrics, traces and the records of its log lines ([Logs over OTLP](../server.md#logs-over-otlp)) to `http://127.0.0.1:4318`, and keeps the key for people's stand-ins on the volume (`/state/telemetry/principals.key`), so a rebuild keeps them |
+| `--profile telemetry` | Runs an OpenTelemetry Collector with [deploy/observability/collector.yaml](../../deploy/observability/collector.yaml): it receives what starfixd pushes, scrapes starfixd's `/metrics` and Dolt's, and prints every metric, span and log record in full |
+| `--profile prometheus` | Runs a Prometheus with [prometheus.yaml](../../deploy/observability/prometheus.yaml) and the alert rules of [alerts.yaml](../../deploy/observability/alerts.yaml), scraping the same two endpoints |
+
+- **Both run in the server's network namespace** (`network_mode:
+  service:starfix`). starfixd's listener and Dolt's metrics answer on
+  loopback alone and have no authentication, and starfixd pushes to
+  loopback; a collector in a container of its own could reach neither.
+  On a real server the collector runs on the machine, for the same
+  reason.
+- **Neither publishes a port or keeps a volume.** Prometheus keeps its
+  data in memory, and has no page you can open from your machine. Ask
+  it from inside:
+
+  ```sh
+  docker compose --profile prometheus exec prometheus promtool query instant http://127.0.0.1:9090 'starfix_stores_open'
+  docker compose --profile prometheus exec prometheus promtool query instant http://127.0.0.1:9090 'ALERTS'
+  ```
+
+- **The images are pinned by digest** in the compose file: the
+  Collector's core distribution at 0.162.0, and Prometheus at 3.15.0.
+- **A trace of your own.** Give `sfx` a W3C trace context and look for
+  its trace id in the collector's output: the server's span is under
+  yours, with the write beneath it and you named by a stand-in, which
+  `sfx admin principal whois` resolves for a server admin.
+
+  ```sh
+  TRACEPARENT=00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01 ./sfx create "Traced" -p 3 -t task
+  docker compose --profile telemetry logs collector | grep -A 20 0af7651916cd43dd8448eb211c80319c
+  ```
+
+- **The audit stream, at the collector.** Change who has access, and
+  the change is a log record with `audit: Bool(true)`, naming who made
+  it and whom it changed by stand-ins; the same line in the server's own
+  log has the names, under the same `seq`.
+
+  ```sh
+  ./sfx admin principal add erin
+  docker compose --profile telemetry logs collector | grep -B 9 -A 9 'audit: Bool(true)'
+  docker compose logs starfix | grep 'audit=true'
+  ```
+
+- **A test server exports sooner than a real one,** and exports its
+  log: metrics every 5 seconds, not 60, and a finished span within 1
+  second, not 5, so that what you just did is there to look at; and its
+  log records, which a real server sends only when asked
+  (`OTEL_LOGS_EXPORTER=otlp`).
+- **After restarting the server, restart the two beside it.** A restart
+  gives the server's container a new network namespace, and the others
+  are left in the old one: `docker compose restart starfix`, then
+  `docker compose --profile telemetry --profile prometheus restart
+  collector prometheus`. `docker compose restart` of all three at once
+  fails for those two.
+- **`STARFIX_TELEMETRY=1` without the collector** is a server whose
+  collector is down: starfixd warns once for each signal, counts what it
+  drops, and serves as before
+  ([When the collector is down](../server.md#when-the-collector-is-down)).
+- **To turn it off again,** unset the variable and run `docker compose
+  up -d`. The key for stand-ins stays on the volume.
+
+starfixd's log still goes to the container's output, whole, as before:
+`docker compose logs starfix`. What the collector receives of it is
+less, by design: ids, codes and numbers, and no text.
+
 ## Test a change
 
 After you change the code, rebuild the image and `sfx`:
@@ -234,7 +313,65 @@ reaches the image.
 
 `STARFIX_IMAGE=NAME` tests an image you built instead of building
 `starfix-dev:local`, and `STARFIX_SMOKE_LOG=FILE` saves the server's log
-before the server is removed.
+before the server is removed. `STARFIX_SMOKE_PROJECT=NAME` names the
+Compose project, `starfix-smoke` by default: give each of two runs on
+one machine its own, and its own `STARFIX_PORT`.
+
+### With the telemetry harness
+
+```sh
+STARFIX_SMOKE_TELEMETRY=1 deploy/docker/smoke.sh
+```
+
+This runs the same checks with starfixd's telemetry on and both
+profiles of [Telemetry](#telemetry), which pulls two more images, and
+then checks the harness of
+[deploy/observability](../../deploy/observability) against the server
+it has just used (194 checks in all on 12 October 2026, in about two
+and a half minutes):
+
+- **A trace.** A request sent with a `TRACEPARENT` of the test's own
+  arrives at the collector as a span in that trace, under the test's
+  span, with the attempt of its write beneath it and the wait for the
+  writer beneath that; a request that brings none is the root of its
+  own trace.
+- **Stand-ins, not names.** Every span that says who says so with a
+  stand-in, `sfx admin principal whois` resolves it for a server admin
+  and for nobody else, and nothing the collector received, in a span, a
+  metric or a log record, holds a principal's name, a session id or an
+  issue's title.
+- **A log record, with its trace.** A request the test traces and the
+  server refuses arrives as a log record in the test's trace, with the
+  id of the server's own span for it, its `code` and its `req`; and the
+  server's own log has that line, found by the `req`, with the name the
+  record leaves out.
+- **The audit stream.** A principal added with `sfx admin` is a line of
+  the audit stream in the server's log, naming who added whom, and a
+  record at the collector with the same `seq`, where both are stand-ins
+  that `whois` resolves; the membership it gave is the next record.
+- **No text in a record.** Every field of a record that names a person
+  holds a stand-in, and no record has a field that holds text: an
+  error, a target, a machine's name, a path.
+- **Metrics.** Fifteen of starfixd's instruments arrive pushed over
+  OTLP, the same fifteen by a scrape of `/metrics`, and ten of Dolt's
+  series by a scrape of its endpoint: every one a rule or the dashboard
+  reads.
+- **The alert rules and the dashboard.** Prometheus loads every rule and
+  evaluates each without error, and runs every query of the dashboard.
+- **`/readyz`** says `ready`; with Dolt frozen (`SIGSTOP`), `not ready:
+  the last check of Dolt failed`; and `ready` again once it runs.
+- **A collector that is down.** The same 18 requests are sent with the
+  collector running, with it stopped, so that its port refuses, and with
+  it frozen, so that its port accepts and never answers. They answer
+  the same, and take no more than 5 seconds longer in all. starfixd
+  counts the failed exports of metrics, the lost spans and the lost log
+  records, warns once for each signal, the alerts for dropped spans and
+  dropped log records fire, and exports work again when the collector
+  is back.
+- **A stop is not held.** With the collector frozen, restarting the
+  server takes at most 8 seconds longer than with it running: the 5
+  seconds starfixd gives its last exports, and 3 for a clock read in
+  whole seconds.
 
 ### What was checked with variants of the image
 
@@ -292,6 +429,8 @@ covers what `sfx` and starfixd say. These are the test server's own:
 | Open a shell | `docker compose exec starfix bash` |
 | Query Dolt as its own user | `docker compose exec -u dolt -w /var/lib/dolt/data/starfix starfix dolt sql` |
 | Read Dolt's own metrics | `docker compose exec starfix bash -c 'exec 3<>/dev/tcp/127.0.0.1/11228; printf "GET /metrics HTTP/1.0\r\n\r\n" >&3; cat <&3'` (the image has no `curl`) |
+| Read starfixd's own metrics, with [telemetry](#telemetry) on | `docker compose exec starfix bash -c 'exec 3<>/dev/tcp/127.0.0.1/9464; printf "GET /metrics HTTP/1.0\r\n\r\n" >&3; cat <&3'`; `/readyz` and `/healthz` the same way |
+| See what the collector received | `docker compose --profile telemetry logs collector` |
 | Read the keys file starfixd writes for sshd | `docker compose exec starfix cat /var/lib/starfix/.ssh/starfix_keys` (public keys only) |
 | See which files sshd reads for the account | `docker compose exec starfix sshd -T -C user=starfix \| grep -i authorizedkeys` |
 | Read the config | `docker compose exec starfix cat /etc/starfix/starfixd.yaml` (it holds the password) |
@@ -319,3 +458,4 @@ update `.starfix.yaml`.
 | The host key in `/etc/ssh`; `/var/lib/dolt`, `/etc/starfix` and `~starfix/.ssh` on the disk | The same paths, linked into the `/state` volume, with the host key in `/state/hostkeys` | Everything survives a rebuild, and `down -v` wipes it |
 | sshd serves every account | `AllowUsers starfix`, with passwords off | Nobody else signs in |
 | A daily dump | No backups | It is for testing |
+| Telemetry is set in starfixd's unit and config, and a collector runs on the machine | `STARFIX_TELEMETRY=1` sets both, and the collector runs in a container that shares the server's network namespace; metrics are exported every 5 seconds and spans within 1, and the log is exported too, which a real server does only when asked | One variable to try it, and something to look at soon after |

@@ -7,6 +7,17 @@
 # STARFIX_PROJECT fixes the project UUID on the first start;
 # STARFIX_PORT is the port on 127.0.0.1, 2222 by default;
 # STARFIX_IMAGE is the image to run, starfix-dev:local by default.
+#
+# Telemetry is off unless asked for (docs/deploy/docker.md, "Telemetry"):
+#
+#   STARFIX_TELEMETRY=1 docker compose --profile telemetry up -d --build --wait
+#
+# STARFIX_TELEMETRY=1 has starfixd serve /metrics and push metrics, logs and
+# traces to a collector on loopback; the `telemetry` profile runs that
+# collector, and the `prometheus` profile a Prometheus with the alert
+# rules. Both run in the server's network namespace, because starfixd's
+# listener and Dolt's metrics answer on loopback alone. Neither
+# publishes a port or keeps a volume.
 name: starfix-dev
 services:
   starfix:
@@ -22,9 +33,60 @@ services:
       STARFIX_ADMINS: ${STARFIX_ADMINS:-}
       STARFIX_PROJECT: ${STARFIX_PROJECT:-}
       STARFIX_PORT: ${STARFIX_PORT:-2222}
+      STARFIX_TELEMETRY: ${STARFIX_TELEMETRY:-}
     ports:
       - 127.0.0.1:${STARFIX_PORT:-2222}:22
     volumes:
       - state:/state
+
+  # An OpenTelemetry Collector that receives what starfixd pushes,
+  # scrapes starfixd and Dolt, and prints all of it:
+  # `docker compose logs collector`.
+  collector:
+    profiles: [telemetry]
+    # otel/opentelemetry-collector:0.162.0, the core distribution
+    image: otel/opentelemetry-collector@sha256:310a800ad69ee430e7c541796852a242c9c7db97aaad4daa5ccf843c525fbdb2
+    command: ["--config", "/etc/otelcol/config.yaml"]
+    network_mode: service:starfix
+    depends_on:
+      starfix:
+        condition: service_started
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - ../observability/collector.yaml:/etc/otelcol/config.yaml:ro
+    # It prints every data point it receives, so its log is capped.
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "2"
+
+  # A Prometheus that scrapes starfixd and Dolt and evaluates the alert
+  # rules. Its data is in memory and goes with the container. It
+  # listens on loopback in the server's namespace and publishes no port:
+  # docs/deploy/docker.md says how to ask it a question.
+  prometheus:
+    profiles: [prometheus]
+    # prom/prometheus:v3.15.0
+    image: prom/prometheus@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
+    command:
+      - --config.file=/etc/prometheus/prometheus.yaml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=2h
+      - --web.listen-address=127.0.0.1:9090
+    network_mode: service:starfix
+    depends_on:
+      starfix:
+        condition: service_started
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /prometheus:uid=65534,gid=65534,mode=0700
+    volumes:
+      - ../observability/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - ../observability/alerts.yaml:/etc/prometheus/alerts.yaml:ro
 volumes:
   state:

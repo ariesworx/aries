@@ -1,0 +1,109 @@
+# An OpenTelemetry Collector for one starfix server: an example that is
+# tested, not a product (docs/server.md, Observability). The Docker test
+# server's `telemetry` profile runs it as it is here, and its smoke test
+# reads what it prints (docs/deploy/docker.md).
+#
+# It runs on the server itself. starfixd's listener and Dolt's metrics
+# have no authentication and answer on loopback only, and starfixd sends
+# to a collector on loopback with no credential, so this is the one
+# place that knows where the telemetry goes and holds the token for it.
+#
+# Tested with the Collector's core distribution, 0.162.0. Every
+# component here is in that distribution; none needs the contrib one.
+
+receivers:
+  # starfixd pushes its metrics and traces here: in its environment,
+  # OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318. With
+  # OTEL_LOGS_EXPORTER=otlp beside it, its log records come too.
+  otlp:
+    protocols:
+      http:
+        endpoint: 127.0.0.1:4318
+
+  # Dolt can only be scraped: `metrics:` in its config, port 11228.
+  # Nothing of it is per database, and starfixd does not export it again.
+  prometheus/dolt:
+    config:
+      scrape_configs:
+        - job_name: dolt
+          scrape_interval: 15s
+          static_configs:
+            - targets: ["127.0.0.1:11228"]
+
+  # starfixd's own /metrics: `telemetry: listen: 127.0.0.1:9464` in its
+  # config. These are the instruments it also pushes, under the names
+  # Prometheus gives them, which are the names the alert rules use
+  # (alerts.yaml). KEEP ONE of the two on a real server, or every
+  # figure of starfixd's reaches the backend twice: take this receiver
+  # out of the `metrics` pipeline below, or set
+  # OTEL_METRICS_EXPORTER=none in starfixd's environment and keep the
+  # traces. Both are here because the test server checks both.
+  prometheus/starfixd:
+    config:
+      scrape_configs:
+        - job_name: starfixd
+          scrape_interval: 15s
+          static_configs:
+            - targets: ["127.0.0.1:9464"]
+
+processors:
+  # Refuses data, which starfixd then counts as dropped, before the
+  # collector's memory runs out.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+
+  # To send the audit stream of access changes somewhere and nothing
+  # else of the log, remove the comment marks and name `filter/audit`
+  # after `memory_limiter` in a logs pipeline of its own: it drops every
+  # record that is not one of the stream's. A record names people by
+  # stand-ins unless starfixd's `telemetry: principals:` says otherwise
+  # (docs/server.md, Logs over OTLP).
+  #
+  # filter/audit:
+  #   error_mode: ignore
+  #   logs:
+  #     log_record:
+  #       - attributes["audit"] != true
+
+exporters:
+  # Prints all that arrives, in full, to the collector's own output,
+  # which is what the test server's smoke test reads. On a real server
+  # replace it: see `otlp_http/backend` below.
+  debug:
+    verbosity: detailed
+
+  # To send to a backend that takes OTLP over HTTP, as most do, remove
+  # the comment marks, give the endpoint, and name `otlp_http/backend`
+  # in place of `debug` in each pipeline. The token comes from the
+  # collector's environment, from a file of mode 0600 that its unit
+  # reads (EnvironmentFile=), never from this file.
+  #
+  # otlp_http/backend:
+  #   endpoint: https://otlp.example.com
+  #   headers:
+  #     Authorization: Bearer ${env:BACKEND_TOKEN}
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp, prometheus/starfixd, prometheus/dolt]
+      processors: [memory_limiter]
+      exporters: [debug]
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [debug]
+    # The records starfixd exports of the lines it logs, when asked
+    # (OTEL_LOGS_EXPORTER=otlp). The journal stays the logs' home and
+    # has every field; a record has ids, codes and numbers, and no
+    # text. The audit stream is among them, with audit=true.
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [debug]
+  telemetry:
+    # The collector's own metrics would open one more port on the
+    # machine (8888). Turn them on when something reads them.
+    metrics:
+      level: none

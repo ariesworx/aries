@@ -97,6 +97,15 @@ protocol, `deploy/docker` or the setup steps in docs/server.md:
 deploy/docker/smoke.sh
 ```
 
+After changing telemetry, `deploy/observability` or the compose file's
+profiles, run it with the harness too, which checks what reaches a
+real Collector and Prometheus
+([With the telemetry harness](docs/deploy/docker.md#with-the-telemetry-harness)):
+
+```sh
+STARFIX_SMOKE_TELEMETRY=1 deploy/docker/smoke.sh
+```
+
 Without Docker, the [Local](docs/deploy/local.md) example sets a server
 up in a Linux VM you can throw away.
 
@@ -124,6 +133,7 @@ up in a Linux VM you can throw away.
 | A cap on what a client can grow (rule 18) | The [Limits](docs/server.md#limits) table in docs/server.md |
 | A metric: an instrument, an attribute or a value an attribute may take | `internal/telemetry/instruments.go` and the tables of [What is measured](docs/server.md#what-is-measured) together; tests in `internal/telemetry` fail until they agree, and until every attribute's values come from a list in the code (rule 18) |
 | A span: its name, an attribute or what a span may carry | `internal/telemetry/trace.go`, whose rule is that a span carries ids, codes and small numbers and never text, and the tables of [Traces](docs/server.md#traces) together; tests in `internal/telemetry` hold the two to each other, and `TestSpansCarryNoText` in `internal/server` needs a new op's arguments listed. [Traces](docs/security-model.md#traces) in the security model says what leaves the machine |
+| A metric's name, an attribute or one of its values that an alert rule or the dashboard reads; a scrape job's name or address | `deploy/observability`, whose files tests in `internal/telemetry` hold to the instruments (`harness_test.go`), and [A collector, alert rules and a dashboard](docs/server.md#a-collector-alert-rules-and-a-dashboard) in docs/server.md. A new value of the `signal` attribute needs a rule on `starfix_telemetry_dropped_total` for it. Then the smoke test with `STARFIX_SMOKE_TELEMETRY=1`, and the soak with `STARFIX_SOAK_TELEMETRY=check` |
 | A log line: its event, a field, or what of it is exported | `internal/logs` (`events.go`, `schema.go`) and the tables of [Logs](docs/server.md#logs) together; tests in `internal/logs` read every log call of the daemon's packages and fail until each names a listed event first, under a message that is a string literal, with fields the schema lists, and until the guide lists every event and field. A field's kind there decides whether a record exported over OTLP may carry it ([Logs over OTLP](docs/server.md#logs-over-otlp), and [Logs](docs/security-model.md#logs) in the security model); `TestLogLinesCarryNoText` and `TestExportedLogsCarryNoText` in `internal/server` search both for marked text |
 | The telemetry listener, a health check, an `OTEL_*` variable starfixd reads, or `starfixd status` | [Observability](docs/server.md#observability) in docs/server.md, and [The telemetry listener](docs/security-model.md#the-telemetry-listener) for what it reveals |
 | What starfixd reads of Dolt's metrics, or how the status report shows it | [Dolt's figures](docs/server.md#dolts-figures) and [Dolt's memory](docs/server.md#dolts-memory) in docs/server.md, [Dolt's metrics endpoint](docs/security-model.md#dolts-metrics-endpoint), and the fuzz target in `internal/doltmetrics` for anything the parser reads. The port, 11228, is in Dolt's config in [step 2](docs/server.md#2-run-dolt-under-its-own-account) and `deploy/docker/dolt.yaml`; a test keeps them and the examples in step |
@@ -281,6 +291,29 @@ Some principals' keys reach the in-process SSH server from the control
 store, through the keys file the daemon writes, as they reach sshd; at
 the end that file holds a line for exactly the keys the control tables
 give an active principal.
+
+### With telemetry on
+
+The daemon's telemetry is off in the soak unless
+`STARFIX_SOAK_TELEMETRY` asks for it (`soak_telemetry_test.go`), so the
+short run in the gate is as long as it was. Run it after changing an
+instrument, a span, or where either is recorded:
+
+```sh
+STARFIX_REQUIRE_DOLT=1 STARFIX_SOAK_TELEMETRY=check go test -race -run 'TestSoak$' -v ./internal/e2e/
+```
+
+| Value | The run |
+|---|---|
+| `check` | Reads the instruments and spans in process when the run is at rest, and fails if they do not say what the event logs say. The claims taken, expired and released, each release by its reason, are the projects' logs' exactly. Every change in the control log is a control write that succeeded, and the control writes are counted the same where the request is answered. Each project has at least as many writes as its log has transactions, and as many spans of a retried attempt as retries counted. Every request and handshake has one observation and one span, with one result, and the server answered at least what the sessions saw answered. No connection was closed for a reason the control log has no change for. Every span that says who says so by a stand-in. And every line of the audit stream copies the event of the control log whose `seq` it has, none comes twice, and every access change a request made has its line, but for those in flight at a restart |
+| `refused` | Exports metrics and traces to a port nothing listens on. Every other check of the soak must hold, the daemon must count what it dropped and warn once for each signal, and stopping its telemetry must take no longer than the 5 seconds its last exports are given |
+| `hang` | The same, with a collector that accepts every connection and never answers |
+
+`check` counts the spans as they end and keeps none, about 700 to 850
+for each second of work, so a long run costs no more memory than one
+without it. With `-v` it prints what it compared. The latency of a run
+with a dead collector is in the same report as any run's, to set beside
+a run with telemetry off: it is reported, not asserted.
 
 ## Working with an AI agent
 

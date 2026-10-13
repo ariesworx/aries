@@ -1,0 +1,341 @@
+# Alert rules for one starfix server, in Prometheus's rule format, which
+# most monitoring systems read or translate. They are an example that is
+# tested, not a product (docs/server.md, Observability): a test in
+# internal/telemetry fails if a rule names a metric, a label or a label
+# value that starfixd does not have, and the Docker test server's
+# `prometheus` profile loads this file into a real Prometheus.
+#
+# What they assume:
+#   - starfixd's /metrics is scraped as job "starfixd" and Dolt's as job
+#     "dolt" (prometheus.yaml and collector.yaml beside this file do).
+#   - The names are the ones on /metrics. Metrics that starfixd pushes
+#     over OTLP arrive under their OpenTelemetry names
+#     (starfix.request.duration); most backends store them under these
+#     same Prometheus names, and docs/server.md lists both.
+#   - One starfixd. For several, add `by (instance)` to each sum.
+#
+# The thresholds are starting points. Those of Dolt's collector come
+# from measurements on one machine and one shape of load (docs/server.md,
+# Dolt's memory); the rest are round numbers to be set against a
+# server's own history.
+#
+# A counter of starfixd's has no series until it first counts, and
+# Prometheus sees no increase in a series' first sample. So a rule on a
+# counter that should stay at nothing also fires when the series is new
+# and already above zero: `m > 0 unless m offset 15m`.
+#
+# Not here, because no metric says it: whether /readyz answers ready.
+# Probe http://127.0.0.1:9464/readyz from the machine with whatever
+# probes HTTP for you; StarfixdDown, StarfixReaperStalled,
+# StarfixKeysFileWriteFailing and DoltDown cover the same ground from
+# the metrics.
+
+groups:
+  - name: starfixd
+    rules:
+      - alert: StarfixdDown
+        expr: up{job="starfixd"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: starfixd's telemetry listener does not answer.
+          description: >-
+            Nobody can reach the tracker if starfixd is down. Run
+            `systemctl status starfixd` and read `journalctl -u starfixd`.
+            A Dolt whose unit stops takes starfixd down with it.
+
+      - alert: StarfixReaperStalled
+        expr: time() - starfix_reaper_last_run_time_seconds > 120
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: starfixd's reaper has not finished a tick for two minutes.
+          description: >-
+            The reaper runs every 30 seconds: it ends expired claims,
+            rereads the control database and feeds systemd's watchdog.
+            Stuck, expired claims are not returned to open, and the
+            watchdog restarts starfixd after `WatchdogSec`. Look for a
+            Dolt that hangs (DoltDown, `/readyz`).
+
+      - alert: StarfixKeysFileWriteFailing
+        expr: >-
+          increase(starfix_keys_file_writes_total{result="failed"}[5m]) > 0
+          or (starfix_keys_file_writes_total{result="failed"} > 0
+          unless starfix_keys_file_writes_total{result="failed"} offset 5m)
+        labels:
+          severity: critical
+        annotations:
+          summary: starfixd cannot write the keys file sshd reads.
+          description: >-
+            sshd is reading an older list of keys: a key that was removed
+            may still sign in, and one that was added cannot. starfixd's
+            log has the cause at error level, every 30 seconds
+            (docs/server.md, Keys from the store).
+
+      - alert: StarfixClockBehind
+        expr: starfix_clock_behind_seconds > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: The server's clock is behind starfix's own history.
+          description: >-
+            starfixd serves, with its time running on from the history
+            at half speed, and with `clock_behind: stop` it will not
+            start again. Correct the clock (docs/server.md, The server's
+            clock).
+
+      - alert: StarfixClockStepped
+        expr: >-
+          sum by (direction) (increase(starfix_clock_steps_total[15m])) > 0
+          or sum by (direction) (starfix_clock_steps_total > 0
+          unless starfix_clock_steps_total offset 15m)
+        labels:
+          severity: warning
+        annotations:
+          summary: The server's clock was set {{ $labels.direction }}, or the machine was suspended.
+          description: >-
+            starfixd extended every live lease by a forward step and
+            holds its time through a backward one. Find what set the
+            clock: `timedatectl timesync-status`, the hypervisor's log.
+
+      - alert: StarfixProjectUnavailable
+        expr: >-
+          increase(starfix_handshakes_total{result="unavailable"}[5m]) > 0
+          or (starfix_handshakes_total{result="unavailable"} > 0
+          unless starfix_handshakes_total{result="unavailable"} offset 5m)
+        labels:
+          severity: critical
+        annotations:
+          summary: Connections are refused because a project's database cannot be opened.
+          description: >-
+            starfixd's log names the project and the cause at error
+            level. Most often Dolt is unreachable, or the project's
+            database was not granted to starfixd's account.
+
+      - alert: StarfixRequestsFailing
+        expr: sum(rate(starfix_project_requests_total{result_class="error"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: starfixd is answering requests with its own failures.
+          description: >-
+            `result_class="error"` is a request answered `unavailable`:
+            the server's failure, not a refusal of what was asked. Read
+            starfixd's log at error level, and check Dolt.
+
+      - alert: StarfixWriteLatencyHigh
+        expr: >-
+          histogram_quantile(0.99, sum by (le) (rate(starfix_store_write_duration_seconds_bucket[5m]))) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: One write in a hundred takes more than a second.
+          description: >-
+            A write's time includes its wait for the project's one
+            writer and any retry, so this is what a client waits. See
+            StarfixWritesQueueing and DoltCollectorPastTheCliff, and
+            `sfx admin status` for each project's P50 and P99.
+
+      - alert: StarfixWritesQueueing
+        expr: >-
+          sum(rate(starfix_store_write_retries_total[5m]))
+          / sum(rate(starfix_store_write_duration_seconds_count[5m])) > 0.2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: More than one write in five lost to a concurrent transaction and was tried again.
+          description: >-
+            Writes are contending. No metric gives the wait for the
+            writer alone; a trace does, in the `store.write.wait` span of
+            each attempt (docs/server.md, Traces).
+
+      - alert: StarfixWritesRateLimited
+        expr: >-
+          sum by (limit) (increase(starfix_limit_refusals_total{limit=~"write_rate|control_write_rate"}[5m])) > 0
+          or sum by (limit) (starfix_limit_refusals_total{limit=~"write_rate|control_write_rate"} > 0
+          unless starfix_limit_refusals_total{limit=~"write_rate|control_write_rate"} offset 5m)
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Writes are refused at the {{ $labels.limit }} limit.
+          description: >-
+            A principal writes faster than the limit allows and is told
+            to try again. Find who in starfixd's log, and raise the
+            limit only if the load is wanted (docs/server.md, Limits).
+
+      - alert: StarfixConnectionCapReached
+        expr: >-
+          sum by (limit) (increase(starfix_limit_refusals_total{limit=~"conns|conns_per_principal|handshakes_per_principal|handshake_sockets"}[5m])) > 0
+          or sum by (limit) (starfix_limit_refusals_total{limit=~"conns|conns_per_principal|handshakes_per_principal|handshake_sockets"} > 0
+          unless starfix_limit_refusals_total{limit=~"conns|conns_per_principal|handshakes_per_principal|handshake_sockets"} offset 5m)
+        labels:
+          severity: warning
+        annotations:
+          summary: Connections are refused at the {{ $labels.limit }} limit.
+          description: >-
+            `sfx admin status` shows who holds the connections. Raise
+            the limit under `limits:` if they are wanted (docs/server.md,
+            Limits).
+
+      - alert: StarfixStoreCapReached
+        expr: >-
+          increase(starfix_limit_refusals_total{limit="open_stores"}[5m]) > 0
+          or (starfix_limit_refusals_total{limit="open_stores"} > 0
+          unless starfix_limit_refusals_total{limit="open_stores"} offset 5m)
+        labels:
+          severity: warning
+        annotations:
+          summary: Connections are refused because too many project stores are open.
+          description: >-
+            Every project with a connection holds a store open, and
+            `open_stores` caps them. Raise it under `limits:` with Dolt's
+            memory in mind (docs/server.md, Limits and Dolt's memory).
+
+      - alert: StarfixTelemetryMetricsExportFailing
+        expr: >-
+          increase(starfix_telemetry_dropped_total{signal="metrics"}[15m]) > 0
+          or (starfix_telemetry_dropped_total{signal="metrics"} > 0
+          unless starfix_telemetry_dropped_total{signal="metrics"} offset 15m)
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: starfixd's pushes of metrics to its collector are failing.
+          description: >-
+            Nothing is lost for good: totals are cumulative, and the
+            next push that works carries them. Requests are not slowed.
+            Check the collector on the machine (docs/server.md, When the
+            collector is down).
+
+      - alert: StarfixTelemetrySpansDropped
+        expr: >-
+          increase(starfix_telemetry_dropped_total{signal="traces"}[15m]) > 0
+          or (starfix_telemetry_dropped_total{signal="traces"} > 0
+          unless starfix_telemetry_dropped_total{signal="traces"} offset 15m)
+        labels:
+          severity: warning
+        annotations:
+          summary: starfixd dropped spans it could not export.
+          description: >-
+            A span that is not exported is gone: the collector was down
+            or refusing, or spans finished faster than the queue of
+            `OTEL_BSP_MAX_QUEUE_SIZE` drained. Requests are not slowed
+            (docs/server.md, When the collector is down).
+
+      - alert: StarfixTelemetryLogRecordsDropped
+        expr: >-
+          increase(starfix_telemetry_dropped_total{signal="logs"}[15m]) > 0
+          or (starfix_telemetry_dropped_total{signal="logs"} > 0
+          unless starfix_telemetry_dropped_total{signal="logs"} offset 15m)
+        labels:
+          severity: warning
+        annotations:
+          summary: starfixd dropped log records it could not export.
+          description: >-
+            The records are gone from the export and the lines are not:
+            the journal has every one (`journalctl -u starfixd`). The
+            collector was down or refusing, or starfixd logged faster
+            than the queue of `OTEL_BLRP_MAX_QUEUE_SIZE` drained. Logging
+            is not slowed (docs/server.md, When the collector is down).
+
+      # No rule here matches a log line's `event`. These are rules over
+      # metrics, and nothing in this directory turns a log record into
+      # one: the Collector's core distribution has no component that
+      # counts records. Match `event` where the logs are read, in the
+      # journal or the backend that receives the records. Three events
+      # the guide says to alert on have a rule above from the metric
+      # that counts the same thing: `keys_file.write_failed`
+      # (StarfixKeysFileWriteFailing), `project.open_failed` at a
+      # handshake (StarfixProjectUnavailable) and
+      # `telemetry.export_failed` (the three StarfixTelemetry rules).
+
+  - name: dolt
+    rules:
+      - alert: DoltDown
+        expr: up{job="dolt"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Dolt's metrics endpoint does not answer.
+          description: >-
+            Run `systemctl status dolt`. starfixd's `/readyz` says
+            whether Dolt still answers queries.
+
+      - alert: DoltCollectorPastTheCliff
+        expr: >-
+          (
+            100 * sum(increase(go_gc_duration_seconds_count{job="dolt"}[10m]))
+              / sum(increase(starfix_store_write_duration_seconds_count[10m])) > 14
+            and sum(increase(starfix_store_write_duration_seconds_count[10m])) >= 500
+            or sum(increase(go_gc_duration_seconds_count{job="dolt"}[10m])) > 70
+          )
+          and on() go_gc_gomemlimit_bytes{job="dolt"} < 2^62
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: Dolt's memory limit is too low; its garbage collector runs more than 14 times for each 100 writes.
+          description: >-
+            Past this, Dolt spent nine times the CPU or more for each
+            write where it was measured. Raise `GOMEMLIMIT` in Dolt's
+            unit, or lower `open_stores` (docs/server.md, Dolt's
+            memory). `sfx admin status` shows the same figure.
+
+      - alert: DoltCollectorBusy
+        expr: >-
+          100 * sum(increase(go_gc_duration_seconds_count{job="dolt"}[10m]))
+            / sum(increase(starfix_store_write_duration_seconds_count[10m])) >= 3
+          and sum(increase(starfix_store_write_duration_seconds_count[10m])) >= 500
+          and on() go_gc_gomemlimit_bytes{job="dolt"} < 2^62
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Dolt's garbage collector runs 3 times or more for each 100 writes.
+          description: >-
+            Under 3 the memory limit has room to spare; over 14 it is
+            too low. Between the two, watch it (docs/server.md, Dolt's
+            memory).
+
+      - alert: DoltMemoryOverItsLimit
+        expr: process_resident_memory_bytes{job="dolt"} > go_gc_gomemlimit_bytes{job="dolt"}
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Dolt's resident memory is over its GOMEMLIMIT.
+          description: >-
+            The limit is a target for the collector, not a ceiling, and
+            this separates a limit that is too low only roughly: read it
+            beside DoltCollectorBusy. With no limit set this never fires.
+
+      - alert: DoltMachineMemoryHigh
+        expr: sys_mem_usage{job="dolt"} > 90
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: The machine Dolt runs on has more than 90% of its memory in use.
+          description: >-
+            `sys_mem_usage` is Dolt's own reading of the machine, in
+            percent. Set `GOMEMLIMIT` and `MemoryMax` for Dolt
+            (docs/server.md, Dolt's memory).
+
+      - alert: DoltDiskFilling
+        expr: sys_disk_usage{job="dolt"} > 85
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: The disk Dolt writes to is more than 85% full.
+          description: >-
+            `sys_disk_usage` is Dolt's own reading, in percent. A full
+            disk stops every write (docs/server.md, Storage growth).

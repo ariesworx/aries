@@ -1,0 +1,26 @@
+# A Prometheus that scrapes one starfix server and loads the alert
+# rules: an example that is tested, not a product (docs/server.md,
+# Observability). The Docker test server's `prometheus` profile runs it
+# as it is here, which is how the rules are known to load and to
+# evaluate against a real starfixd and a real Dolt.
+#
+# It runs on the server itself, since both endpoints answer on loopback
+# only. The job names are the ones alerts.yaml selects by; a test in
+# internal/telemetry fails if they differ.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - alerts.yaml
+
+scrape_configs:
+  # `telemetry: listen: 127.0.0.1:9464` in starfixd's config.
+  - job_name: starfixd
+    static_configs:
+      - targets: ["127.0.0.1:9464"]
+  # `metrics:` in Dolt's config.
+  - job_name: dolt
+    static_configs:
+      - targets: ["127.0.0.1:11228"]
