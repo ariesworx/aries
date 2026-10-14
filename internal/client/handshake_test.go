@@ -110,8 +110,14 @@ func (w *welcomer) session(ch ssh.Channel, reqs <-chan *ssh.Request) {
 // ssh-agent.
 func (w *welcomer) dial(t *testing.T) (*Conn, error) {
 	t.Helper()
+	return w.dialPinned(t, w.hostKey)
+}
+
+// dialPinned is dial with the config pinning hostKeys, in host_keys.
+func (w *welcomer) dialPinned(t *testing.T, hostKeys ...string) (*Conn, error) {
+	t.Helper()
 	cfg := &Config{Project: testProject, Key: "id", Root: t.TempDir()}
-	cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.HostKey = "127.0.0.1", w.port, "starfix", w.hostKey
+	cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.HostKeys = "127.0.0.1", w.port, "starfix", hostKeys
 	newKeyPair(t).write(t, cfg.Root, "id", "", false)
 	c, err := Dial(t.Context(), cfg, Options{Timeout: patience, Getenv: noEnv,
 		UserHomeDir: func() (string, error) { return cfg.Root, nil }})

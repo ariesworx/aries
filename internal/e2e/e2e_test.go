@@ -538,14 +538,27 @@ func (k *swappedKey) Sign(r io.Reader, data []byte) (*ssh.Signature, error) {
 // unchanged.
 func (w *world) rekey() {
 	w.t.Helper()
+	w.useHostKey(newHostKey(w.t))
+}
+
+// newHostKey makes a host key, for a server to present later.
+func newHostKey(t *testing.T) ssh.Signer {
+	t.Helper()
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
-		w.t.Fatal(err)
+		t.Fatal(err)
 	}
 	s, err := ssh.NewSignerFromKey(priv)
 	if err != nil {
-		w.t.Fatal(err)
+		t.Fatal(err)
 	}
+	return s
+}
+
+// useHostKey has the SSH server present s from its next connection, as
+// an operator who switches sshd to another host key does, and makes it
+// the one new users pin.
+func (w *world) useHostKey(s ssh.Signer) {
 	w.hostKey.mu.Lock()
 	w.hostKey.s = s
 	w.hostKey.mu.Unlock()
@@ -1030,7 +1043,7 @@ func TestRefusals(t *testing.T) {
 		want []string
 	}{
 		{name: "wrong host key", u: pinnedWrong, args: []string{"ready"}, code: cli.ExitFailure,
-			want: []string{"host key mismatch for 127.0.0.1", w.hostFpr, "fix: if the server was rebuilt"}},
+			want: []string{"host key mismatch for 127.0.0.1", w.hostFpr, "fix: if the server's host key was changed"}},
 		{name: "unknown key", u: other, args: []string{"ready"}, code: cli.ExitFailure,
 			want: []string{"accepted no key: sfx offered SHA256:", "fix: send your public key"}},
 		{name: "not found", u: w.newUser("dave", ""), args: []string{"show", "sf-zzzzzzzz"}, code: cli.ExitFailure,

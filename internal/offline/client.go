@@ -57,7 +57,7 @@ func (c *Client) Local() (*Local, *client.Config, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return Open(root, cfg.Server.HostKey, cfg.Project, Options{Now: c.Now, Outbox: c.Outbox, Address: Address(cfg)}), cfg, nil
+	return Find(root, cfg.Pinned(), cfg.Project, Options{Now: c.Now, Outbox: c.Outbox, Address: Address(cfg)}), cfg, nil
 }
 
 // Whose returns the principal this process's writes belong to while the

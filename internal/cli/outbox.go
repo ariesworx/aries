@@ -253,8 +253,8 @@ func cmdOutbox(_ context.Context, r *runner, args []string) error {
 	}
 	who := cmp.Or(*as, off.Whose(l, cfg))
 	if *hostKey != "" {
-		if *hostKey == cfg.Server.HostKey {
-			return usagef(outboxUsage, "%s is the server's host key now: leave out --host-key", *hostKey)
+		if slices.Contains(cfg.Pinned(), *hostKey) {
+			return usagef(outboxUsage, "%s is pinned in %s now: leave out --host-key", *hostKey, client.ConfigFile)
 		}
 		f, err := former(l, *hostKey)
 		if err != nil {

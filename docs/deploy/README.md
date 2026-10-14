@@ -60,4 +60,6 @@ To try starfix, or test a branch, on any machine with Docker, use the
 
 A deployment's data moves with one dump: [back up](../server.md#backups-and-restore)
 the old server, restore on the new one, and keep its `project` setting.
-Keep the host key too, or update `host_key` in every `.starfix.yaml`.
+Keep the host key too, or change it in every `.starfix.yaml` as
+[Rotating the host key](../server.md#rotating-the-host-key) has it, so
+that no client is refused while the files catch up.

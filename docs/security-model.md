@@ -212,6 +212,16 @@ admin before you change the file. `sfx` runs its own SSH client, so
 nothing in `~/.ssh/config` can weaken the check ([The host key is
 pinned](cli.md#the-host-key-is-pinned)).
 
+While a key is rotated the file pins two, under `host_keys`, and `sfx`
+accepts a server that presents either: each key listed is trusted as
+the server, as fully as one `host_key` is, so the list is as sensitive
+as the single pin, and the old key is removed once sshd no longer
+presents it ([Rotating the host key](server.md#rotating-the-host-key)).
+Which listed key matched is kept nowhere and changes nothing else. The
+file is committed, so whoever can change it can add a key, as they could
+always replace the one; review a change to it as you would one to the
+server's address.
+
 ## Which key sfx offers
 
 The server takes the first key it knows among those a client offers, so
@@ -777,7 +787,8 @@ directory. The outbox and the record beside it are the first.
 - **Where, and for whom.** Under your data directory (`STARFIX_DATA_DIR`
   names another), never in a repository, in files of mode 0600 in
   directories of mode 0700: one directory for each server and project,
-  named by a hash of the server's pinned host key and the project's id,
+  named by a hash of a host key the config pinned when it was made and
+  the project's id,
   and in it one outbox for each principal, named by a hash of the
   principal's name. On Linux and macOS `sfx` checks, before every use,
   that each of those directories is owned by you and closed to the group
@@ -807,8 +818,10 @@ directory. The outbox and the record beside it are the first.
   entries and 4 MiB wait in one.
 - **Whose it is.** Only the server says which principal a key is. So at
   each connection `sfx` writes a record, `seen.json`, in the server and
-  project's directory. It holds the server's pinned host key
-  fingerprint, the project's id, a format version, and for each key the
+  project's directory. It holds the fingerprint of the host key the
+  directory was made under, and of the host keys `.starfix.yaml` pinned
+  at the last connection when they were others or several, the
+  project's id, a format version, and for each key the
   server accepted from this machine its public fingerprint, the
   principal's name and when that was last confirmed (at most 32 keys);
   and which fingerprint was accepted the last time no key was
@@ -831,7 +844,12 @@ directory. The outbox and the record beside it are the first.
 - **A changed host key sends nothing.** What was queued under a host
   key the server no longer has stays under it, and is never sent by
   itself, even once the new key is pinned: a changed host key is what a
-  person must look at. `sfx outbox` lists it; `sfx outbox retry N
+  person must look at. A rotation is not such a change: what was queued
+  under the old key is the new key's too when a connection was made
+  while `.starfix.yaml` pinned both, which is the file saying, and the
+  server proving by presenting one of them, that they are one server.
+  Without such a connection, the old key's outbox is left as for any
+  changed key. `sfx outbox` lists it; `sfx outbox retry N
   --host-key KEY`, a person's decision, moves an entry to the current
   server's outbox, and only when `.starfix.yaml` names the server at the
   address it had when the entry was queued.
