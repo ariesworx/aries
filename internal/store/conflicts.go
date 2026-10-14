@@ -821,46 +821,51 @@ type ConflictFilter struct {
 }
 
 // Conflicts returns the open conflicts f selects, oldest first, each
-// with its advice. An Issue that is not a valid id is ErrInvalid.
-func (s *Store) Conflicts(ctx context.Context, f ConflictFilter) ([]Conflict, error) {
+// with its advice, and whether more follow them. An Issue that is not a
+// valid id is ErrInvalid.
+func (s *Store) Conflicts(ctx context.Context, f ConflictFilter) ([]Conflict, bool, error) {
 	where, args := `resolved_at IS NULL AND id > ?`, []any{f.After}
 	if f.Issue != "" {
 		if err := f.Issue.Validate(); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		where += ` AND issue_id = ?`
 		args = append(args, string(f.Issue))
 	}
+	limit := clampLimit(f.Limit, DefaultConflictLimit, MaxConflictLimit)
 	tx, end, err := s.beginRead(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("conflicts: %w", err)
+		return nil, false, fmt.Errorf("conflicts: %w", err)
 	}
 	defer end()
+	// One more than the page says whether there is a next.
 	rows, err := tx.QueryContext(ctx, `SELECT `+conflictCols+` FROM conflicts WHERE `+where+` ORDER BY id LIMIT ?`,
-		append(args, clampLimit(f.Limit, DefaultConflictLimit, MaxConflictLimit))...)
+		append(args, limit+1)...)
 	if err != nil {
-		return nil, fmt.Errorf("conflicts: %w", err)
+		return nil, false, fmt.Errorf("conflicts: %w", err)
 	}
 	var out []Conflict
 	for rows.Next() {
 		c, err := scanConflict(rows)
 		if err != nil {
 			_ = rows.Close()
-			return nil, fmt.Errorf("conflicts: %w", err)
+			return nil, false, fmt.Errorf("conflicts: %w", err)
 		}
 		out = append(out, c)
 	}
 	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
-		return nil, fmt.Errorf("conflicts: %w", err)
+		return nil, false, fmt.Errorf("conflicts: %w", err)
 	}
+	more := len(out) > limit
+	out = out[:min(len(out), limit)]
 	ptrs := make([]*Conflict, len(out))
 	for i := range out {
 		ptrs[i] = &out[i]
 	}
 	if err := s.advise(ctx, tx, ptrs); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return out, nil
+	return out, more, nil
 }
 
 // advise sets each open conflict's Advice from who holds its issue now

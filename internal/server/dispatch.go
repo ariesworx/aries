@@ -185,7 +185,7 @@ func show(ctx context.Context, pr *served, a store.Actor, in proto.ShowArgs) (an
 			}
 		}
 	}
-	cs, err := pr.store.Conflicts(ctx, store.ConflictFilter{Issue: v.Issue.ID, Limit: proto.MaxShowConflicts})
+	cs, _, err := pr.store.Conflicts(ctx, store.ConflictFilter{Issue: v.Issue.ID, Limit: proto.MaxShowConflicts})
 	if err != nil {
 		pr.log.ErrorContext(ctx, "read conflicts", "event", logs.RequestPart, "issue", v.Issue.ID, "err", err)
 	}

@@ -34,11 +34,32 @@ func mustUpdate(t *testing.T, s *Store, a Actor, id IssueID, p IssuePatch) Issue
 
 func openConflicts(t *testing.T, s *Store, id IssueID) []Conflict {
 	t.Helper()
-	cs, err := s.Conflicts(t.Context(), ConflictFilter{Issue: id})
+	cs, _, err := s.Conflicts(t.Context(), ConflictFilter{Issue: id})
 	if err != nil {
 		t.Fatalf("Conflicts(%s) = %v", id, err)
 	}
 	return cs
+}
+
+// TestConflictsPage: open conflicts are read a page at a time, oldest
+// first, saying when there are more.
+func TestConflictsPage(t *testing.T) {
+	t.Parallel()
+	s := newStore(t)
+	var want []int64
+	for _, title := range []string{"one", "two", "three"} {
+		is := mustCreate(t, s, NewIssue{Title: title})
+		mustUpdate(t, s, bob, is.ID, IssuePatch{Title: ptr(title + ", bob's")})
+		want = append(want, merge(t, s, alice, is.ID, is.Rev, IssuePatch{Title: ptr(title + ", alice's")}).Parked[0].Conflict)
+	}
+	page, more, err := s.Conflicts(t.Context(), ConflictFilter{Limit: 2})
+	if err != nil || !more || len(page) != 2 || page[0].ID != want[0] || page[1].ID != want[1] {
+		t.Fatalf("Conflicts(limit 2) = %v, more %v, %v; want %v and more", page, more, err, want[:2])
+	}
+	page, more, err = s.Conflicts(t.Context(), ConflictFilter{Limit: 2, After: page[1].ID})
+	if err != nil || more || len(page) != 1 || page[0].ID != want[2] {
+		t.Errorf("Conflicts(after %d) = %v, more %v, %v; want %d alone", want[1], page, more, err, want[2])
+	}
 }
 
 func eventsOf(t *testing.T, s *Store, id IssueID, op Op) []Event {
@@ -246,6 +267,32 @@ func TestMergeTellsAuthorAndHolder(t *testing.T) {
 	n, err := s.OpenConflicts(t.Context(), "alice")
 	if err != nil || n != 1 {
 		t.Errorf("OpenConflicts(alice) = %d, %v; want 1", n, err)
+	}
+}
+
+// TestConflictItemsToSelfAreNotRateLimited: a replay of many updates that
+// park tells their author of each, past notices_per_minute, which bounds
+// what one principal sends another.
+func TestConflictItemsToSelfAreNotRateLimited(t *testing.T) {
+	t.Parallel()
+	s := openStore(t, newDSN(t), Options{Limits: Limits{Notices: 1}})
+	for _, title := range []string{"one", "two", "three"} {
+		is := mustCreate(t, s, NewIssue{Title: title})
+		mustUpdate(t, s, bob, is.ID, IssuePatch{Title: ptr(title + ", bob's")})
+		merge(t, s, alice, is.ID, is.Rev, IssuePatch{Title: ptr(title + ", alice's")})
+	}
+	page, err := s.Inbox(t.Context(), alice, false, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, it := range page.Items {
+		if it.Kind == InboxConflict {
+			n++
+		}
+	}
+	if n != 3 {
+		t.Errorf("alice has %d conflict items, want 3: %+v", n, page.Items)
 	}
 }
 

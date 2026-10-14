@@ -92,6 +92,25 @@ func TestShowConflicts(t *testing.T) {
 	}
 }
 
+// TestDigestListsOldConflicts: the digest tool gives the server's old
+// conflicts, as the CLI's digest does.
+func TestDigestListsOldConflicts(t *testing.T) {
+	t.Parallel()
+	until := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	conn := &fakeConn{reply: func(string, any) (any, error) {
+		return proto.DigestResult{Since: until.Add(-24 * time.Hour), Until: until, Totals: proto.DigestTotals{Conflicts: 1},
+			Conflicts: []proto.DigestItem{{ID: "sf-1", Title: "t", By: "alice", At: until.Add(-30 * time.Hour), Note: "title (conflict 3)"}}}, nil
+	}}
+	cs, _ := connect(t, conn)
+	var d Digest
+	if err := json.Unmarshal([]byte(text(t, callTool(t, cs, "digest", nil))), &d); err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Conflicts) != 1 || d.Conflicts[0].Note != "title (conflict 3)" || d.Totals.Conflicts != 1 {
+		t.Errorf("digest's conflicts = %+v, totals %+v", d.Conflicts, d.Totals)
+	}
+}
+
 // TestPrimeCountsConflicts: prime says how many conflicts concern the
 // principal, and that a person resolves them.
 func TestPrimeCountsConflicts(t *testing.T) {

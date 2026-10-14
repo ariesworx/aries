@@ -18,20 +18,13 @@ func conflicts(ctx context.Context, pr *served, _ store.Actor, in proto.Conflict
 		}
 		return proto.ConflictsResult{Conflicts: []proto.Conflict{wireConflict(c, false)}}, nil
 	}
-	limit := in.Limit
-	if limit <= 0 {
-		limit = store.DefaultConflictLimit
-	}
-	limit = min(limit, store.MaxConflictLimit)
-	// One more than asked says whether there is a next page.
-	cs, err := pr.store.Conflicts(ctx, store.ConflictFilter{Issue: store.IssueID(in.Issue), Limit: limit + 1, After: in.After})
+	cs, more, err := pr.store.Conflicts(ctx, store.ConflictFilter{Issue: store.IssueID(in.Issue), Limit: in.Limit, After: in.After})
 	if err != nil {
 		return nil, pr.mapErr(ctx, proto.OpConflicts, in.Issue, 0, err)
 	}
 	out := proto.ConflictsResult{Conflicts: []proto.Conflict{}}
-	if len(cs) > limit {
-		cs = cs[:limit]
-		out.Next = cs[limit-1].ID
+	if more {
+		out.Next = cs[len(cs)-1].ID
 	}
 	for _, c := range cs {
 		out.Conflicts = append(out.Conflicts, wireConflict(c, true))
