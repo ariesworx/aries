@@ -5,11 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
 	"golang.org/x/crypto/ssh"
+
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 )
 
 // Event operations on keys. Each one's target is the key's fingerprint;
@@ -47,7 +48,7 @@ const (
 
 // fingerprintPattern is a SHA-256 fingerprint: unpadded base64 of 32
 // bytes.
-var fingerprintPattern = regexp.MustCompile(`^SHA256:[A-Za-z0-9+/]{43}$`)
+var fingerprintPattern = lazyregexp.New(`^SHA256:[A-Za-z0-9+/]{43}$`)
 
 // ValidFingerprint reports whether s has the form of a key's SHA-256
 // fingerprint, as ssh.FingerprintSHA256 gives it: "SHA256:" and 43

@@ -4,9 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"regexp"
 	"strings"
 	"time"
+
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 )
 
 // Prices and cost reports (protocol 4, design §12.1). Rates are integer
@@ -144,7 +145,7 @@ func USD(pico *big.Int) string {
 
 // amountPattern is an amount of money that is not negative, as USD
 // writes one.
-var amountPattern = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?$`)
+var amountPattern = lazyregexp.New(`^[0-9]+(\.[0-9]+)?$`)
 
 // ParseUSD reads an amount USD wrote back into picodollars. It refuses
 // text that is not an amount, a negative one, and one finer than a
@@ -188,7 +189,7 @@ func Dollars(usd string) string {
 
 // ratePattern is a rate in US dollars per million tokens: digits, and
 // at most six decimals.
-var ratePattern = regexp.MustCompile(`^[0-9]{1,7}(\.[0-9]{1,6})?$`)
+var ratePattern = lazyregexp.New(`^[0-9]{1,7}(\.[0-9]{1,6})?$`)
 
 // ParseRate reads a rate in US dollars per million tokens, such as 3 or
 // 3.75, into micro-dollars per million tokens. It refuses a negative

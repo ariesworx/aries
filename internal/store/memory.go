@@ -5,11 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 	"github.com/ariesworx/starfix/internal/safetext"
 	"github.com/ariesworx/starfix/internal/secretscan"
 )
@@ -158,11 +158,11 @@ func MemoryTarget(id string) string { return MemoryTargetPrefix + id }
 
 // memoryKeyPattern is what a key may hold. It starts with a letter or
 // digit, so it cannot be read as an option.
-var memoryKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$`)
+var memoryKeyPattern = lazyregexp.New(`^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$`)
 
 // memoryTagPattern is what a tag may hold: what a label may, at any
 // length the limits allow.
-var memoryTagPattern = regexp.MustCompile(`^[^\s,\x00-\x1f]+$`)
+var memoryTagPattern = lazyregexp.New(`^[^\s,\x00-\x1f]+$`)
 
 // MemoryConflictError refuses a remember or forget that names a revision
 // other than the stored one: Rev 0, to create a key that exists, or a

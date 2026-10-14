@@ -5,8 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"regexp"
 	"time"
+
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 )
 
 // ProjectState is where a project is in its life.
@@ -63,11 +64,11 @@ type NewProject struct {
 
 var (
 	// projectIDPattern is a lowercase UUID.
-	projectIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	projectIDPattern = lazyregexp.New(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 	// dbNamePattern is deliberately narrower than what Dolt allows: the
 	// name is later written into CREATE DATABASE, which takes no
 	// placeholder, so it admits nothing that needs quoting.
-	dbNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
+	dbNamePattern = lazyregexp.New(`^[a-z][a-z0-9_]{0,63}$`)
 )
 
 // validProjectID refuses, with ErrInvalid, an id that is not a lowercase

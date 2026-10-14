@@ -8,8 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"time"
+
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 )
 
 // Idempotency (design §7, §8): a create-type operation (create, finish,
@@ -26,7 +27,7 @@ const IdemTTL = 24 * time.Hour
 
 // IdemPattern is what an idempotency key may look like: 1-64 letters,
 // digits and ._:-, starting with a letter or digit.
-var IdemPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`)
+var IdemPattern = lazyregexp.New(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`)
 
 // idemStamp is an operation's key, request hash and, once the closure
 // sets it, its result; flush writes them on the operation's last event.

@@ -3,9 +3,10 @@ package proto
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strconv"
 	"time"
+
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 )
 
 // Operations. Each names its argument and result types.
@@ -285,8 +286,8 @@ type UsageRecord struct {
 // are printable ASCII, so they admit no control or bidi character. One
 // record out of shape refuses its whole batch, so clients check theirs.
 var (
-	UsageRequestID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:/+=@-]{0,254}$`)
-	UsageModel     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:/+@-]{0,127}$`)
+	UsageRequestID = lazyregexp.New(`^[A-Za-z0-9][A-Za-z0-9_.:/+=@-]{0,254}$`)
+	UsageModel     = lazyregexp.New(`^[A-Za-z0-9][A-Za-z0-9_.:/+@-]{0,127}$`)
 )
 
 // UsageArgs reports usage records for the caller's session; the

@@ -888,6 +888,61 @@ func TestResolveSettings(t *testing.T) {
 	})
 }
 
+// The bridge's socket comes from where ResolveSettings takes it, and the
+// file is read as strictly, but no other setting is checked: the bridge
+// uses none, and checking them compiled expressions each `starfixd stdio`
+// then held.
+func TestResolveSocket(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	write := func(name, body string, mode os.FileMode) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(body), mode); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(p, mode); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	good := write("good.yaml", "dsn: starfix:pw@tcp(127.0.0.1:3306)/sf\nsocket: /run/x/s.sock\n", 0o600)
+	empty := write("empty.yaml", "", 0o600)
+	loose := write("loose.yaml", "dsn: starfix:pw@tcp(127.0.0.1:3306)/sf\nsocket: /run/x/s.sock\n", 0o644)
+	unknown := write("unknown.yaml", "sokcet: /run/x/s.sock\n", 0o600)
+	others := write("others.yaml", "socket: /run/x/s.sock\nsystemd_unit: --no-block\nadmins: [starfixd]\naccount: Acme Corp\nlog_level: loud\n", 0o600)
+
+	tests := []struct {
+		name, flag, path string
+		env              map[string]string
+		want, err        string
+	}{
+		{name: "file", path: good, want: "/run/x/s.sock"},
+		{name: "env beats file", path: good, env: map[string]string{EnvSocket: "/run/env.sock"}, want: "/run/env.sock"},
+		{name: "flag beats env", path: good, flag: "/run/flag.sock", env: map[string]string{EnvSocket: "/run/env.sock"}, want: "/run/flag.sock"},
+		{name: "config from env", env: map[string]string{EnvConfig: good}, want: "/run/x/s.sock"},
+		{name: "default from an empty file", path: empty, want: DefaultSocket},
+		{name: "other settings are not checked", path: others, want: "/run/x/s.sock"},
+		{name: "password in a loose file refused", path: loose, err: "chmod 600"},
+		{name: "unknown key refused", path: unknown, err: "sokcet"},
+		{name: "named file must exist", path: filepath.Join(dir, "missing.yaml"), err: "no such file"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := ResolveSocket(tc.flag, tc.path, func(k string) string { return tc.env[k] })
+			if tc.err != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.err) {
+					t.Errorf("ResolveSocket(%q, %s, %v) = %q, %v; want an error containing %q", tc.flag, tc.path, tc.env, got, err, tc.err)
+				}
+				return
+			}
+			if err != nil || got != tc.want {
+				t.Errorf("ResolveSocket(%q, %s, %v) = %q, %v; want %q, nil", tc.flag, tc.path, tc.env, got, err, tc.want)
+			}
+		})
+	}
+}
+
 func TestDispatchWork(t *testing.T) {
 	t.Parallel()
 	s := newServer(t)

@@ -5,11 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"regexp"
+
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 )
 
 // backupTagPattern bounds a backup tag name to what Dolt accepts as a ref.
-var backupTagPattern = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,99}$`)
+var backupTagPattern = lazyregexp.New(`^[a-z][a-z0-9._-]{0,99}$`)
 
 // BackupTag makes a Dolt commit of everything written so far, by this
 // store or any other session, and tags it name. It returns the tag made.

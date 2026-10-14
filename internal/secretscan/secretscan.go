@@ -13,9 +13,10 @@ package secretscan
 
 import (
 	"math"
-	"regexp"
 	"strings"
 	"unicode"
+
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 )
 
 // Kind names what a [Finding] looks like. It never holds the text found.
@@ -51,15 +52,15 @@ func (f Finding) String() string { return string(f.Kind) }
 // first.
 var tokenPatterns = []struct {
 	kind Kind
-	re   *regexp.Regexp
+	re   *lazyregexp.Regexp
 }{
-	{KindPrivateKey, regexp.MustCompile(`-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----`)},
-	{KindAWSAccessKey, regexp.MustCompile(`\b(?:A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}\b`)},
-	{KindGitHubToken, regexp.MustCompile(`\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,})`)},
-	{KindGitLabToken, regexp.MustCompile(`\bgl(?:pat|dt|rt|ptt|soat|cbt|ft)-[A-Za-z0-9_-]{20,}`)},
-	{KindSlackToken, regexp.MustCompile(`\bxox[abeoprs]-[A-Za-z0-9-]{10,}|hooks\.slack\.com/(?:services|workflows)/[A-Za-z0-9/_+-]{20,}`)},
-	{KindStripeKey, regexp.MustCompile(`\b(?:(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}|whsec_[A-Za-z0-9]{24,})`)},
-	{KindJWT, regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{10,}`)},
+	{KindPrivateKey, lazyregexp.New(`-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----`)},
+	{KindAWSAccessKey, lazyregexp.New(`\b(?:A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}\b`)},
+	{KindGitHubToken, lazyregexp.New(`\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,})`)},
+	{KindGitLabToken, lazyregexp.New(`\bgl(?:pat|dt|rt|ptt|soat|cbt|ft)-[A-Za-z0-9_-]{20,}`)},
+	{KindSlackToken, lazyregexp.New(`\bxox[abeoprs]-[A-Za-z0-9-]{10,}|hooks\.slack\.com/(?:services|workflows)/[A-Za-z0-9/_+-]{20,}`)},
+	{KindStripeKey, lazyregexp.New(`\b(?:(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}|whsec_[A-Za-z0-9]{24,})`)},
+	{KindJWT, lazyregexp.New(`\beyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{10,}`)},
 }
 
 // assignment is a name that holds a credential, then = or :, then a
@@ -67,18 +68,18 @@ var tokenPatterns = []struct {
 // closing quote (JSON); the short names pwd and pass take a prefix only
 // after a separator (SMTP_PASS), so a word such as compass is no name.
 // Group 1 is the name, 2 the separator, 3 the value, quoted or not.
-var assignment = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])([a-z0-9_.-]*(?:password|passwd|passphrase|secret|api[_-]?key|access[_-]?key|auth[_-]?token|access[_-]?token|token|private[_-]?key|credentials?)|(?:[a-z0-9_.-]*[_.-])?(?:pwd|pass))["']?[ \t]*(=|:)[ \t]*("[^"\n]*"|'[^'\n]*'|[^\s,;"'&)}\]]+)`)
+var assignment = lazyregexp.New(`(?i)(?:^|[^a-z0-9])([a-z0-9_.-]*(?:password|passwd|passphrase|secret|api[_-]?key|access[_-]?key|auth[_-]?token|access[_-]?token|token|private[_-]?key|credentials?)|(?:[a-z0-9_.-]*[_.-])?(?:pwd|pass))["']?[ \t]*(=|:)[ \t]*("[^"\n]*"|'[^'\n]*'|[^\s,;"'&)}\]]+)`)
 
 // bearer is an HTTP bearer token: group 1 is the token.
-var bearer = regexp.MustCompile(`(?i)\bbearer[ \t]+([A-Za-z0-9._~+/-]{20,}=*)`)
+var bearer = lazyregexp.New(`(?i)\bbearer[ \t]+([A-Za-z0-9._~+/-]{20,}=*)`)
 
 // urlPassword is a URL's userinfo with a password: group 1 is the
 // password.
-var urlPassword = regexp.MustCompile(`\b[A-Za-z][A-Za-z0-9+.-]*://[^\s/:@]+:([^\s/@]+)@`)
+var urlPassword = lazyregexp.New(`\b[A-Za-z][A-Za-z0-9+.-]*://[^\s/:@]+:([^\s/@]+)@`)
 
 // commandPassword is a MySQL client given its password with -p, which
 // takes the value with no space: group 1 is the password.
-var commandPassword = regexp.MustCompile(`\bmysql(?:dump|admin|import|show|check|binlog)?\b[^\n]*?[ \t]-p(\S+)`)
+var commandPassword = lazyregexp.New(`\bmysql(?:dump|admin|import|show|check|binlog)?\b[^\n]*?[ \t]-p(\S+)`)
 
 // placeholders are values that stand for a secret rather than being one.
 var placeholders = map[string]bool{
@@ -109,11 +110,11 @@ const (
 )
 
 // randomToken is a run of base64 (standard and URL-safe) characters.
-var randomToken = regexp.MustCompile(`[A-Za-z0-9+/_=-]{32,}`)
+var randomToken = lazyregexp.New(`[A-Za-z0-9+/_=-]{32,}`)
 
 // sshKeyType ends text that an SSH public key's body follows: a public
 // key is no secret, though its body looks random.
-var sshKeyType = regexp.MustCompile(`(?:ssh-(?:rsa|dss|ed25519)|ecdsa-sha2-nistp\d+|sk-(?:ssh-ed25519|ecdsa-sha2-nistp256)@openssh\.com) $`)
+var sshKeyType = lazyregexp.New(`(?:ssh-(?:rsa|dss|ed25519)|ecdsa-sha2-nistp\d+|sk-(?:ssh-ed25519|ecdsa-sha2-nistp256)@openssh\.com) $`)
 
 // Find returns the first credential-like text in s and true, or false
 // when s holds none. Formats with a known shape are checked first, then
@@ -128,7 +129,7 @@ func Find(s string) (Finding, bool) {
 	}
 	for _, c := range []struct {
 		kind Kind
-		re   *regexp.Regexp
+		re   *lazyregexp.Regexp
 		ok   func(string) bool
 	}{
 		{KindBearerToken, bearer, func(v string) bool { return strings.ContainsAny(v, "0123456789") }},
@@ -150,7 +151,7 @@ func Find(s string) (Finding, bool) {
 
 // findValue returns the offset of the first match of re whose group 1
 // passes ok.
-func findValue(s string, re *regexp.Regexp, ok func(string) bool) (int, bool) {
+func findValue(s string, re *lazyregexp.Regexp, ok func(string) bool) (int, bool) {
 	for _, m := range re.FindAllStringSubmatchIndex(s, -1) {
 		if ok(s[m[2]:m[3]]) {
 			return m[0], true

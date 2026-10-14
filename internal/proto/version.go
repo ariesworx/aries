@@ -2,9 +2,10 @@ package proto
 
 import (
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 )
 
 // Protocol versions. A client speaks Proto; a server accepts any client in
@@ -177,7 +178,7 @@ const maxVersion = 64
 // identifiers without leading zeros, prerelease and build identifiers
 // non-empty and drawn from [0-9A-Za-z-]. Anything else, including control
 // characters, spaces and non-ASCII, is not a version.
-var versionPattern = regexp.MustCompile(`^v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})` +
+var versionPattern = lazyregexp.New(`^v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})` +
 	`(?:-((?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?` +
 	`(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
 

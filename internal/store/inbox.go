@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -13,6 +12,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 )
 
 // Inbox (design §3, §7): items addressed to a principal, or to one of its
@@ -77,12 +78,12 @@ type InboxItem struct {
 
 // PrincipalPattern is what a principal name may look like. starfixd
 // refuses a bridge frame naming anything else.
-var PrincipalPattern = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,63}$`)
+var PrincipalPattern = lazyregexp.New(`^[a-z][a-z0-9._-]{0,63}$`)
 
 // mentionPattern finds @name not preceded by a character that would make
 // it part of a word or an email address (no lookbehind in RE2, so the
 // preceding character is matched and ignored).
-var mentionPattern = regexp.MustCompile(`(?:^|[^A-Za-z0-9._@+-])@([a-z][a-z0-9._-]{0,63})`)
+var mentionPattern = lazyregexp.New(`(?:^|[^A-Za-z0-9._@+-])@([a-z][a-z0-9._-]{0,63})`)
 
 // notify records an item in w's transaction and queues it to be pushed
 // once the transaction commits. Nothing is written for the actor's own

@@ -476,6 +476,61 @@ follows from a measurement of the code as it is.
   is was not profiled (the two packages compile some two dozen regular
   expressions as package variables), and nor was what removing it does
   to the resident size.
+- **Done, 14 October 2026: short of that, measured on Linux.** No second
+  binary. Every package-level regular expression of the packages
+  starfixd links is compiled on first use (`internal/lazyregexp`):
+  they were 1.5 MB of the 2.2 MB that initialization allocated, mostly
+  a handful with counted repetitions such as `{0,254}`, and starfix's
+  own packages now allocate 24 KB of the 0.67 MB. `stdio` reads only the
+  socket from the settings (`server.ResolveSocket`): checking the rest
+  compiled 0.4 MiB of expressions more in each bridge of a server with
+  a fuller config. `TestInitAllocations` (`cmd/starfixd`) holds what
+  initialization allocates to 32 KiB for starfix's packages and 1 MiB
+  in all; it counts allocations, which are the same on every run,
+  rather than measuring memory, which is not. Nothing else changed:
+  the forced command, the bridge frame, the peer check, the keys file,
+  the releases and the AppArmor profiles are as they were.
+
+  Measured in Docker on macOS (Linux 7.0, arm64, 16 processors),
+  Ubuntu 24.04 with OpenSSH 9.6p1, a real `starfixd serve --dev` and
+  sshd with the guide's `Match` block; each bridge connected through
+  sshd as alice, bob, carol or dave and idle after its welcome;
+  memory from `/proc/PID/smaps_rollup`, averaged over the processes.
+  The kernel in Docker runs transparent huge pages `always`; Ubuntu's
+  default is `madvise`, under which Go asks for none, so each run was
+  also made with THP off for sshd, starfixd and their children
+  (`prctl(PR_SET_THP_DISABLE)`, which they inherit):
+
+  | Per connection, 100 connections | THP off, before | THP off, after | THP `always`, before | THP `always`, after |
+  |---|---|---|---|---|
+  | The bridge, its own (`Private_*`) | 4.7 MiB | 2.5 MiB | 8.6 MiB | 6.0 MiB |
+  | The bridge, threads | 8.6 | 7.4 | 8.6 | 7.3 |
+  | The shell sshd runs the command with | 0.09 MiB | 0.09 MiB | 0.09 MiB | 0.09 MiB |
+  | sshd's two processes (`Pss`; 0.95 MiB is theirs alone) | 2.0 MiB | 2.0 MiB | 2.0 MiB | 2.0 MiB |
+  | Kernel: page tables, and 16 KiB of stack a thread | 0.49 MiB | 0.47 MiB | 0.49 MiB | 0.47 MiB |
+  | The daemon's share | 30 KB | 40 KB | 70 KB | 75 KB |
+  | **The connection on the server** | **7.3 MiB** | **5.1 MiB** | **11.2 MiB** | **8.6 MiB** |
+
+  At 1, 10 and 100 connections the bridge was 5.6, 4.4 and 4.9 MiB
+  before and 2.6, 2.6 and 2.5 after with THP off, and 6.7 to 11.4, 8.2
+  to 8.8 and 8.6 before and 6.6, 6.0 and 6.0 after with THP `always`; a single
+  process moves by a huge page. The machine's memory in use grew by
+  11.2 MiB a connection before and 8.4 after with THP off (14.4 and
+  12.0 with it on), the client's `ssh` and shell, in the same
+  container, included. The daemon idle held 5.6 MiB of its own before
+  and 2.7 after. With the fuller config of a server of many projects
+  (`control_db`, `project_dbs`, `admins`, `systemd_unit`, `telemetry`)
+  the bridge was 4.5 MiB before and 2.5 after with THP off, 8.3 and 6.0
+  with it on. `bridgeproto` ([§4.9](#49-the-prototypes)), built again,
+  was 1.0 MiB with THP off and 3.5 MiB with it on: a bridge of its own
+  would save 1.5 MiB more a connection on Ubuntu's default, and
+  2.5 MiB with THP `always`. What the bridge still pays for is the
+  dependencies' initialization (0.65 MB: gRPC, Prometheus, the
+  OpenTelemetry and protobuf descriptors, among others), which no
+  change inside one binary can skip. `GOMAXPROCS=1` set by the bridge
+  itself, and a forced collection with the memory given back, made no
+  difference that the runs' spread did not hide: the runtime has made
+  its threads and spread its heap before `main` runs.
 
 ### 3. Read only what a summary needs
 

@@ -44,7 +44,16 @@ For complete deployments with costs, see the
 - **Little hardware.** Idle, Dolt used about 90 MB of memory and starfixd
   about 20 MB, or 22 MB with metrics pushed and scraped (resident
   memory on arm64, a minute after its start; about 14 MB of either is
-  the program itself, mapped from its file). Under the stage 0 load test Dolt reached 1.4 GB and about
+  the program itself, mapped from its file). Each connection adds about
+  5 MiB more: 2.5 MiB for its bridge (`starfixd stdio`), 2 MiB for
+  sshd's two processes, half a MiB in the kernel and under 0.1 MiB in
+  starfixd, so 64 connections take about 320 MiB and 1,024 about
+  5 GiB. That is with transparent huge pages in `madvise` mode, Ubuntu's
+  default; with them `always` (`cat
+  /sys/kernel/mm/transparent_hugepage/enabled`) the bridge takes about
+  6 MiB, and a connection about 9 (measured on Linux, arm64, OpenSSH 9.6,
+  14 October 2026; [the profile](design/profile-starfixd.md#2-a-bridge-that-is-not-the-whole-of-starfixd)
+  has how). Under the stage 0 load test Dolt reached 1.4 GB and about
   250 writes a second on 4 vCPUs
   ([results](../spike/dolt/RESULTS.md)), roughly ten times what a busy
   team of agents needs. 2 GB of memory suits a team with one project of

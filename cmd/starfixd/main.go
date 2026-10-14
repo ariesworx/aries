@@ -579,17 +579,18 @@ func warnOfAdmins(ctx context.Context, ctl *store.Control, admins []string, log 
 }
 
 // stdio runs `starfixd stdio`, the forced command: it bridges this
-// process's stdin and stdout to the daemon's socket.
+// process's stdin and stdout to the daemon's socket. sshd starts one for
+// every connection, so it reads only the socket from the settings.
 func stdio(ctx context.Context, args []string) error {
 	fl, cfgPath, principal, key, err := stdioArgs(args)
 	if err != nil {
 		return err
 	}
-	s, err := server.ResolveSettings(fl, cfgPath, os.Getenv)
+	socket, err := server.ResolveSocket(fl.Socket, cfgPath, os.Getenv)
 	if err != nil {
 		return err
 	}
-	return server.Bridge(ctx, s.Socket, principal, key, os.Stdin, os.Stdout)
+	return server.Bridge(ctx, socket, principal, key, os.Stdin, os.Stdout)
 }
 
 // stdioArgs parses the arguments of `starfixd stdio`. `control init`

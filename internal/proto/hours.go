@@ -3,9 +3,10 @@ package proto
 import (
 	"errors"
 	"math/big"
-	"regexp"
 	"strings"
 	"time"
+
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 )
 
 // Human hours and subscription plans (protocol 4, design §12.1). A
@@ -128,7 +129,7 @@ type PlansResult struct {
 
 // hoursPattern is a duration of hours, minutes and seconds, in that
 // order, each optional: 1.5h, 90m, 1h30m, 45m30s.
-var hoursPattern = regexp.MustCompile(`^([0-9]{1,6}(\.[0-9]{1,6})?h)?([0-9]{1,6}(\.[0-9]{1,6})?m)?([0-9]{1,6}s)?$`)
+var hoursPattern = lazyregexp.New(`^([0-9]{1,6}(\.[0-9]{1,6})?h)?([0-9]{1,6}(\.[0-9]{1,6})?m)?([0-9]{1,6}s)?$`)
 
 // ParseHours reads the time a person logs: hours, minutes and seconds in
 // Go's syntax and that order (1.5h, 90m, 1h30m), a whole number of
