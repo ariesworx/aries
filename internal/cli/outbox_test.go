@@ -517,10 +517,10 @@ func TestOutboxStats(t *testing.T) {
 	a := outboxWith(t)
 	code, out, errb := a.run(t, "outbox", "stats")
 	want := "alice's outbox, since it was made:\n" +
-		"OP       QUEUED  DELIVERED  REFUSED  STALE  DROPPED  MEAN WAIT  LONGEST\n" +
-		"comment  1       0          1        0      0        -          -\n" +
-		"create   1       0          0        0      0        -          -\n" +
-		"handoff  1       0          0        0      0        -          -\n" +
+		"OP       QUEUED  DELIVERED  PARKED  REFUSED  STALE  DROPPED  MEAN WAIT  LONGEST\n" +
+		"comment  1       0          0       1        0      0        -          -\n" +
+		"create   1       0          0       0        0      0        -          -\n" +
+		"handoff  1       0          0       0        0      0        -          -\n" +
 		"outages: 1 over, 0m in all, the longest 0m; one in progress since 2026-10-13 14:12 UTC\n"
 	if code != ExitOK || out != want || errb != "" {
 		t.Errorf("sfx outbox stats = exit %d\n%s\nwant\n%s\nstderr %q", code, out, want, errb)

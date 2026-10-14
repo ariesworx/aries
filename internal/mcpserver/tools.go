@@ -132,9 +132,9 @@ type UpdateIn struct {
 	Status     *string `json:"status,omitempty"`
 	Priority   *int    `json:"priority,omitempty"`
 	Type       *string `json:"type,omitempty"`
-	Assignee   *string `json:"assignee,omitempty" jsonschema:"empty clears"`
-	Owner      *string `json:"owner,omitempty" jsonschema:"empty clears"`
-	Parent     *string `json:"parent,omitempty" jsonschema:"empty clears"`
+	Assignee   *string `json:"assignee,omitempty"`
+	Owner      *string `json:"owner,omitempty"`
+	Parent     *string `json:"parent,omitempty"`
 
 	idem string
 }
@@ -171,12 +171,31 @@ type LabelIn struct {
 	idem string
 }
 
-// CommentIn adds a comment.
+// CommentIn adds a comment; with Conflict, it proposes how to resolve
+// that conflict instead (design §18.7): Propose is mine, theirs, or the
+// new text, and Body says why. Proposing rides comment, not a tool of
+// its own, to keep the schema set within its budget (rule 12); a person
+// resolves.
 type CommentIn struct {
-	ID   string `json:"id"`
-	Body string `json:"body"`
+	ID       string `json:"id"`
+	Body     string `json:"body"`
+	Conflict int64  `json:"conflict,omitempty"`
+	Propose  string `json:"propose,omitempty" jsonschema:"mine, theirs or new text"`
 
 	idem string
+}
+
+// proposal is the conflict.propose request of a comment with a conflict:
+// propose mine or theirs is that choice, and anything else new text.
+func (in CommentIn) proposal() (proto.ProposeArgs, error) {
+	out := proto.ProposeArgs{ID: in.Conflict, Choice: proto.ChoiceText, Text: in.Propose, Why: in.Body}
+	switch in.Propose {
+	case "":
+		return out, proto.Errf(proto.CodeInvalid, "give propose: mine, theirs or the new text", "a comment with a conflict proposes, and propose is empty")
+	case proto.ChoiceMine, proto.ChoiceTheirs:
+		out.Choice, out.Text = in.Propose, ""
+	}
+	return out, nil
 }
 
 // PageIn names an issue and bounds a list of its records.
@@ -344,8 +363,39 @@ type Issue struct {
 	// Overlaps are the issues others hold now whose files overlap these:
 	// "ID by principal/session".
 	Overlaps []string `json:"overlaps,omitempty"`
+	// Conflicts are the issue's open conflicts: fields of replayed
+	// updates parked against others' changes, for a person to resolve
+	// and an agent to propose for (design §18.7).
+	Conflicts []Conflict `json:"conflicts,omitempty"`
 	// Truncated: long text was cut; full: true returns more.
 	Truncated bool `json:"truncated,omitempty"`
+}
+
+// Conflict is one open conflict, compact: base is the field at the rev
+// mine was written against, mine the replayed update's value by By, and
+// theirs the server's by TheirsBy. Proposed is the proposal waiting for a
+// person, if any.
+type Conflict struct {
+	ID       int64  `json:"id"`
+	Field    string `json:"field"`
+	Base     string `json:"base"`
+	Mine     string `json:"mine"`
+	Theirs   string `json:"theirs"`
+	By       string `json:"by"`
+	TheirsBy string `json:"theirs_by"`
+	Advice   string `json:"advice,omitempty"`
+	Proposed string `json:"proposed,omitempty"`
+}
+
+// maxConflictText is how much of each side of a conflict show gives,
+// before it cuts more to fit.
+const maxConflictText = 300
+
+// Commented is comment's result: the comment's id, or for a proposal
+// what happens next.
+type Commented struct {
+	ID   string `json:"id,omitempty"`
+	Next string `json:"next,omitempty"`
 }
 
 // Created is create's result: the write's {id, rev} and similar closed
@@ -531,7 +581,7 @@ func (s *Server) register() {
 			}
 			return out, err
 		})
-	add(s, tool{name: "handoff", desc: "Note for whoever continues, without closing.", ann: write, retry: true,
+	add(s, tool{name: "handoff", desc: "Note for whoever continues.", ann: write, retry: true,
 		enums: enums{"state": states}},
 		func(ctx context.Context, c Conn, in HandoffIn) (proto.WriteResult, error) {
 			var out proto.WriteResult
@@ -553,7 +603,7 @@ func (s *Server) register() {
 			}
 			return out, err
 		})
-	add(s, tool{name: "digest", desc: "Recent work: closed, started, stalled, blocked, handed off.",
+	add(s, tool{name: "digest", desc: "Recent work: closed, started, stalled, blocked.",
 		ann: readOnly, retry: true, cached: true},
 		func(ctx context.Context, c Conn, in DigestIn) (Digest, error) { return digest(ctx, c, in) })
 	add(s, tool{name: "who", desc: "Agents at work and what they hold.", ann: readOnly, retry: true, refused: true},
@@ -599,7 +649,7 @@ func (s *Server) register() {
 			err := c.Call(ctx, proto.OpCreate, args, &r)
 			return Created{ID: r.ID, Rev: r.Rev, Similar: similarLine(r.Similar)}, err
 		})
-	add(s, tool{name: "update", desc: "Change the fields given.", ann: write,
+	add(s, tool{name: "update", desc: "Change the fields given; empty clears assignee, owner, parent.", ann: write,
 		enums: enums{"status": setStatuses, "type": issueTypes}},
 		func(ctx context.Context, c Conn, in UpdateIn) (proto.WriteResult, error) { return update(ctx, c, in) })
 	add(s, tool{name: "close", desc: "Close a finished issue.", ann: write},
@@ -649,11 +699,21 @@ func (s *Server) register() {
 			}
 			return Ref{ID: in.ID}, nil
 		})
-	add(s, tool{name: "comment", desc: "What changed, was decided or verified.", ann: write, retry: true},
-		func(ctx context.Context, c Conn, in CommentIn) (Ref, error) {
+	// With conflict, a proposal: agents propose and a person resolves
+	// (decision 42), so there is no resolve tool.
+	add(s, tool{name: "comment", desc: "What changed, was decided or verified; with conflict, a proposal, body why.",
+		ann: write, retry: true},
+		func(ctx context.Context, c Conn, in CommentIn) (Commented, error) {
+			if in.Conflict != 0 {
+				args, err := in.proposal()
+				if err == nil {
+					err = c.Call(ctx, proto.OpPropose, args, nil)
+				}
+				return Commented{Next: "proposed; a person accepts it or resolves otherwise: carry on"}, err
+			}
 			var out proto.CommentResult
 			err := c.Call(ctx, proto.OpComment, proto.CommentArgs{ID: in.ID, Body: in.Body, Idem: in.idem}, &out)
-			return Ref{ID: out.ID}, err
+			return Commented{ID: out.ID}, err
 		})
 	add(s, tool{name: "comments", desc: "An issue's newest comments.", ann: readOnly, retry: true},
 		func(ctx context.Context, c Conn, in PageIn) (Comments, error) { return comments(ctx, c, in) })
@@ -770,6 +830,25 @@ func show(ctx context.Context, c Conn, in ShowIn) (Issue, error) {
 	if len(out.Items) > 0 {
 		out.Acceptance = ""
 	}
+	texts := []*string{&out.Body, &out.Design, &out.Acceptance, &out.Notes}
+	for _, c := range r.Conflicts {
+		mc := Conflict{ID: c.ID, Field: c.Field, By: c.By, TheirsBy: c.TheirsBy, Advice: c.Advice}
+		mc.Base, _ = cut(c.Base, maxConflictText)
+		mc.Mine, _ = cut(c.Mine, maxConflictText)
+		mc.Theirs, _ = cut(c.Theirs, maxConflictText)
+		if p := c.Proposal; p != nil {
+			mc.Proposed = p.Choice + " by " + p.By
+			if p.Choice == proto.ChoiceText {
+				t, _ := cut(p.Text, maxConflictText)
+				mc.Proposed += ": " + t
+			}
+		}
+		out.Conflicts = append(out.Conflicts, mc)
+	}
+	for i := range out.Conflicts {
+		c := &out.Conflicts[i]
+		texts = append(texts, &c.Base, &c.Mine, &c.Theirs)
+	}
 	for _, d := range r.Deps {
 		if d.From == is.ID {
 			out.DependsOn = append(out.DependsOn, d.To+" "+d.Type)
@@ -777,8 +856,11 @@ func show(ctx context.Context, c Conn, in ShowIn) (Issue, error) {
 			out.NeededBy = append(out.NeededBy, d.From+" "+d.Type)
 		}
 	}
-	if fitTexts(func() bool { return size(out) <= MaxResultTokens }, &out.Body, &out.Design, &out.Acceptance, &out.Notes) {
+	if fitTexts(func() bool { return size(out) <= MaxResultTokens }, texts...) {
 		out.Truncated = true
+	}
+	for size(out) > MaxResultTokens && len(out.Conflicts) > 0 {
+		out.Conflicts, out.Truncated = out.Conflicts[:len(out.Conflicts)-1], true
 	}
 	out.fitNeededBy()
 	// One at a time: files_more is the server's count, and one below

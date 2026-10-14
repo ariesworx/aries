@@ -42,6 +42,10 @@ type Prime struct {
 	// Unread counts your unread inbox items; Inbox is the newest few.
 	Unread int         `json:"unread,omitempty"`
 	Inbox  []InboxItem `json:"inbox,omitempty"`
+	// Conflicts counts the open conflicts your replayed updates parked,
+	// or on issues assigned to you: a person resolves them, and show
+	// lists an issue's for you to propose for (design §18.7).
+	Conflicts int `json:"conflicts,omitempty"`
 	// Memories are the pinned memories, then those relevant to your
 	// in-progress issues, then the newest (design §6).
 	Memories []Memory `json:"memories,omitempty"`
@@ -135,7 +139,7 @@ func BuildPrime(ctx context.Context, c Conn, clientVersion string, notices ...st
 	var in proto.InboxResult
 	switch err := c.Call(ctx, proto.OpInbox, proto.InboxArgs{Limit: primeLostFrom}, &in); {
 	case err == nil:
-		p.Unread = in.Unread
+		p.Unread, p.Conflicts = in.Unread, in.Conflicts
 		for _, it := range in.Items {
 			if it.Kind == "claim.lost" && it.Issue != "" && !slices.Contains(p.Lost, it.Issue) {
 				p.Lost = append(p.Lost, it.Issue)
@@ -238,6 +242,9 @@ func (p *Prime) Text() string {
 	}
 	if p.Unread > 0 {
 		fmt.Fprintf(&b, "inbox: %d unread (call inbox)\n", p.Unread)
+	}
+	if p.Conflicts > 0 {
+		fmt.Fprintf(&b, "conflicts: %d open on your work; a person resolves them (`sfx conflicts`), and show lists an issue's for propose\n", p.Conflicts)
 	}
 	if p.More {
 		b.WriteString("(more not shown: use list, ready and recall)\n")

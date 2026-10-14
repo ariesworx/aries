@@ -82,6 +82,11 @@ func printDigest(w io.Writer, d proto.DigestResult) {
 		{"discovered", t.Discovered, d.Discovered, func(it proto.DigestItem) string {
 			return ago(it) + "\tfrom " + esc(it.From)
 		}},
+		// Open past the server's conflict_age, whenever they were parked:
+		// `sfx conflicts` shows them.
+		{"old conflicts", t.Conflicts, d.Conflicts, func(it proto.DigestItem) string {
+			return "\t" + esc(it.By) + "\tparked " + proto.Span(d.Until.Sub(it.At)) + " ago\t" + esc(it.Note)
+		}},
 	} {
 		if sec.total == 0 {
 			continue

@@ -114,7 +114,7 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 			strings.TrimPrefix(text, store.ErrInvalid.Error()+": "))
 
 	case errors.Is(err, store.ErrNotFound) && (op == proto.OpConflicts || op == proto.OpPropose || op == proto.OpResolve):
-		return proto.Errf(proto.CodeNotFound, "find the conflict's number with `sfx conflicts`",
+		return proto.Errf(proto.CodeNotFound, proto.FixFindConflict+" with `sfx conflicts`",
 			strings.Replace(text, ": "+store.ErrNotFound.Error(), " not found", 1))
 
 	case errors.As(err, &conflictCap):
