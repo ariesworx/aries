@@ -139,10 +139,15 @@
 // # What the server sees
 //
 // A replayed entry is a request like any other, with the arguments and
-// the idempotency key it had when it was first sent. Its session and
-// machine are those of the connection that delivers it, not of the one
-// that made it: protocols 5 and 6 have no field for the latter, and the
-// entry keeps them only on this machine.
+// the idempotency key it had when it was first sent, but for an update,
+// which is sent with park (protocol 7): the server compares it with the
+// issue at the rev it was based on and parks what someone else changed
+// since, rather than refusing it as stale (design §18.7). One that
+// parked is delivered, and counted as parked. A server of 6 is sent it
+// without park (proto.ForProtocol), and refuses it when stale, as
+// before. Its session and machine are those of the connection that
+// delivers it, not of the one that made it: no protocol has a field for
+// the latter, and the entry keeps them only on this machine.
 //
 // # Which protocol
 //
@@ -151,7 +156,9 @@
 // them twice. At each handshake seen.json notes the protocol the
 // connection speaks ([Local.Reached]), and while the server is away a
 // write is queued only when that protocol takes its op's key
-// ([Local.Keep]; a record that names none is taken for 5). A replay
+// ([Local.Keep]; a record that names none is taken for 5, which the sfx
+// of slice F1 that wrote it spoke). This build does not speak 5 (its
+// ProtoMin is 6), so it is never sent such an entry either way. A replay
 // sends an entry only on a connection whose protocol takes its key
 // ([Local.Replay]): one queued for a server of 6 that comes back at 5 is
 // refused with code version, unsent, for a person to retry once the
