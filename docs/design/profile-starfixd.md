@@ -620,6 +620,22 @@ follows from a measurement of the code as it is.
   is answered as it was a moment earlier, as a renew that had arrived
   a moment earlier would. `wtx.quiet` and rule 7 are untouched: no
   write is made at all.
+- **Since this was written (14 October 2026): done.** `RenewClaims`
+  with no paths, and `TouchAgent`, read on a reader first, after
+  settling any step of the clock as a write would, and take the writer
+  only to change something; the write decides again on its own time.
+  A renew with nothing to extend and its note fresh: 6 statements, 8
+  round trips and 2 commits of nothing to 2, 4 and none; 10.7 KB and
+  178 allocations to 9.1 KB and 152; 0.32 ms to 0.25. The handshake of
+  a session whose note is fresh: 3 statements and a commit of nothing
+  to 1 and none. In three two-minute soaks of each, renew's median went
+  from 84 to 101 ms to 33 to 40 ms, and its wait for the writer from
+  659 to 707 s to 272 to 362 s, of which `RenewClaims` 331 to 356 s to
+  117 to 168 s. What is left is the soak's: leases of a few minutes on
+  a clock 120 times fast, and notes due at nearly every renew. On a real
+  clock the note is still mostly due at a renew a minute apart, and
+  that write remains; gathering notes into the reaper's tick was not
+  done.
 
 ### 5. Do not read an event's state where the digest does not use it
 

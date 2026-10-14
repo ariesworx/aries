@@ -204,6 +204,110 @@ func TestRenewClaims(t *testing.T) {
 	}
 }
 
+// A renew that has nothing to extend and brings no paths answers from a
+// read, and does not wait for the writer behind other sessions' writes;
+// it answers as one that took the writer would. One that extends a
+// lease, or records paths, is a write.
+func TestRenewWaitsForTheWriterOnlyToWrite(t *testing.T) {
+	t.Parallel()
+	clk := &clock{t: time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)}
+	w := &waits{}
+	s := openStore(t, newDSN(t), Options{Now: clk.now, Tracer: w})
+	ctx := t.Context()
+	a := mustCreate(t, s, NewIssue{Title: "a"})
+	b := mustCreate(t, s, NewIssue{Title: "b"})
+	if _, _, err := s.StartIssue(ctx, alice, a.ID, 0, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.StartIssue(ctx, alice2, b.ID, 0, false); err != nil {
+		t.Fatal(err)
+	}
+	start := clk.now()
+	seq := lastSeq(t, s)
+	tests := []struct {
+		name    string
+		advance time.Duration
+		actor   Actor
+		lease   time.Duration
+		all     bool
+		paths   map[IssueID][]string
+		// want is each claim's expiry, in the order returned.
+		want  map[IssueID]time.Time
+		waits int
+	}{
+		{name: "nothing held", actor: bob, lease: DefaultLease, want: map[IssueID]time.Time{}},
+		{name: "more than half left", advance: time.Minute, actor: alice, lease: DefaultLease,
+			want: map[IssueID]time.Time{a.ID: start.Add(DefaultLease)}},
+		{name: "paths are a write", actor: alice, lease: DefaultLease, paths: map[IssueID][]string{a.ID: {"go.mod"}},
+			want: map[IssueID]time.Time{a.ID: start.Add(DefaultLease)}, waits: 1},
+		{name: "a longer lease extends", actor: alice, lease: time.Hour,
+			want: map[IssueID]time.Time{a.ID: start.Add(time.Minute + time.Hour)}, waits: 1},
+		{name: "past half extends", advance: 8 * time.Minute, actor: alice2, lease: DefaultLease,
+			want: map[IssueID]time.Time{b.ID: start.Add(9*time.Minute + DefaultLease)}, waits: 1},
+		{name: "every session, nothing to extend", actor: alice, lease: DefaultLease, all: true,
+			want: map[IssueID]time.Time{b.ID: start.Add(9*time.Minute + DefaultLease), a.ID: start.Add(time.Minute + time.Hour)}},
+	}
+	for _, tc := range tests {
+		clk.add(tc.advance)
+		w.count()
+		got, err := s.RenewClaims(ctx, tc.actor, tc.lease, tc.all, tc.paths)
+		if err != nil {
+			t.Fatalf("%s: RenewClaims: %v", tc.name, err)
+		}
+		if n := w.count(); n != tc.waits {
+			t.Errorf("%s: RenewClaims waited for the writer %d times, want %d", tc.name, n, tc.waits)
+		}
+		if got == nil || len(got) != len(tc.want) {
+			t.Fatalf("%s: RenewClaims = %+v, want %d claims, and never nil", tc.name, got, len(tc.want))
+		}
+		for _, c := range got {
+			live, err := s.ClaimOf(ctx, c.Issue)
+			if err != nil || live == nil {
+				t.Fatalf("%s: ClaimOf(%s) = %v, %v", tc.name, c.Issue, live, err)
+			}
+			if !c.ExpiresAt.Equal(tc.want[c.Issue]) || c != *live {
+				t.Errorf("%s: RenewClaims has %+v, want it to expire at %s, as the claim stored is %+v", tc.name, c,
+					tc.want[c.Issue], *live)
+			}
+		}
+	}
+	// The paths recorded are an event; renewals are not.
+	if got := lastSeq(t, s); got != seq+1 {
+		t.Errorf("renews recorded %d events, want 1: the issue.paths event", got-seq)
+	}
+}
+
+// A renew that extends nothing still settles a forward step of the clock
+// first, as every write does, so its answer has the step added to each
+// lease.
+func TestRenewWithNothingToExtendSettlesAStep(t *testing.T) {
+	t.Parallel()
+	c := newTwoClocks()
+	s, _ := steppedStore(t, "", c, Options{})
+	ctx := t.Context()
+	is := mustCreate(t, s, NewIssue{Title: "a"})
+	_, claim, err := s.StartIssue(ctx, alice, is.ID, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.run(time.Minute)
+	c.step(time.Hour)
+	got, err := s.RenewClaims(ctx, alice, DefaultLease, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := claim.ExpiresAt.Add(time.Hour)
+	if len(got) != 1 || !got[0].ExpiresAt.Equal(want) {
+		t.Errorf("RenewClaims after the clock jumped an hour = %+v, want the claim to expire at %s", got, want)
+	}
+	if st := s.ClockState(); st.Pending != 0 {
+		t.Errorf("ClockState().Pending = %s after a renew, want the step settled", st.Pending)
+	}
+	if _, _, n := lastClockStep(t, s); n != 1 {
+		t.Errorf("%d clock.step events after a renew, want 1", n)
+	}
+}
+
 func TestClaimEndsOnCloseAndRelease(t *testing.T) {
 	t.Parallel()
 	s, _ := clockStore(t)

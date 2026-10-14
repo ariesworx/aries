@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/ariesworx/starfix/internal/proto"
@@ -317,7 +318,9 @@ func queryClaims(ctx context.Context, q querier, clause string, args ...any) ([]
 // range is refused with ErrInvalid. A claim with less than half of lease
 // left is extended to now+lease; one with more is not rewritten, so an
 // agent renewing every minute writes about every lease/2, and a lease is
-// never shortened. Renewals record no event.
+// never shortened. Renewals record no event. A renewal that brings no
+// paths and finds nothing to extend writes nothing, and does not wait for
+// the writer.
 //
 // paths maps an issue to the paths its work touched, most recent first:
 // they are recorded as commit paths of the claims renewed, at most the
@@ -347,22 +350,47 @@ func (s *Store) RenewClaims(ctx context.Context, actor Actor, lease time.Duratio
 			return nil, err
 		}
 	}
+	heldAt := func(ctx context.Context, q querier, now time.Time) ([]Claim, error) {
+		if allSessions {
+			return s.claims(ctx, q, `principal = ? AND expires_at > ?`, actor.Principal, now)
+		}
+		return s.claims(ctx, q, `principal = ? AND session = ? AND expires_at > ?`, actor.Principal, actor.Session, now)
+	}
+	if len(paths) == 0 {
+		// Most renewals extend nothing. Such a one is decided from a read,
+		// and does not wait for the writer behind other sessions' writes:
+		// it answers as a renewal that took the writer a moment earlier
+		// would. A lease it finds with more than half its time left
+		// cannot run out before the answer is sent. It settles a step of
+		// the clock first, as a write would, so it answers on the time
+		// after the step, with the step added to each lease.
+		if err := actor.validate(); err != nil {
+			return nil, err
+		}
+		now, err := s.settledNow(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out, err := heldAt(ctx, s.r, now)
+		if err != nil {
+			return nil, err
+		}
+		if !slices.ContainsFunc(out, func(c Claim) bool { return renewDue(c, now, lease) }) {
+			return out, nil
+		}
+	}
 	var out []Claim
 	err := s.write(ctx, actor, func(w *wtx) error {
-		where, args := `principal = ? AND session = ? AND expires_at > ?`, []any{actor.Principal, actor.Session, w.now}
-		if allSessions {
-			where, args = `principal = ? AND expires_at > ?`, []any{actor.Principal, w.now}
-		}
-		held, err := s.claims(ctx, w.tx, where, args...)
+		held, err := heldAt(ctx, w.tx, w.now)
 		if err != nil {
 			return err
 		}
 		out = held
 		for i, c := range held {
-			want := w.now.Add(lease)
-			if !c.ExpiresAt.Before(want.Add(-lease / 2)) {
+			if !renewDue(c, w.now, lease) {
 				continue
 			}
+			want := w.now.Add(lease)
 			row, err := loadClaim(ctx, w.tx, c.Issue)
 			if err != nil {
 				return err
@@ -391,6 +419,12 @@ func (s *Store) RenewClaims(ctx context.Context, actor Actor, lease time.Duratio
 		return nil, err
 	}
 	return out, nil
+}
+
+// renewDue reports whether a renewal for lease at now extends c: whether
+// c has less than half of lease left.
+func renewDue(c Claim, now time.Time, lease time.Duration) bool {
+	return c.ExpiresAt.Before(now.Add(lease).Add(-lease / 2))
 }
 
 // ReapClaims ends every claim whose lease has run out: the claim loses its
