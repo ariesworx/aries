@@ -181,13 +181,13 @@ func guideFiles(t *testing.T) map[string]string {
 	block := match(t, g, "Keys from the store's Match block", "(?s)\n   ```text\n(   Match User starfix\n.*?\n)   ```\n")
 	block = regexp.MustCompile(`(?m)^   `).ReplaceAllString(block, "")
 	return map[string]string{
-		"/etc/dolt/config.yaml":                                 match(t, g, "/etc/dolt/config.yaml", "(?s)cat > /etc/dolt/config\\.yaml <<'EOF'\n(.*?\n)EOF\n"),
-		"/etc/systemd/system/dolt.service":                      saved("/etc/systemd/system/dolt.service", "ini"),
-		"/etc/systemd/system/starfixd.service":                  saved("/etc/systemd/system/starfixd.service", "ini"),
-		"/etc/systemd/system/starfixd.service.d/keys.conf":      printed("/etc/systemd/system/starfixd.service.d/keys.conf"),
-		"/etc/systemd/system/starfixd.service.d/apparmor.conf":  printed("/etc/systemd/system/starfixd.service.d/apparmor.conf"),
-		"/etc/sudoers.d/starfix":                                match(t, g, "the sudo rule", `echo '([^']*)' > /etc/sudoers\.d/starfix`) + "\n",
-		"/etc/ssh/sshd_config.d/00-starfix.conf":                global + block,
+		"/etc/dolt/config.yaml":                                match(t, g, "/etc/dolt/config.yaml", "(?s)cat > /etc/dolt/config\\.yaml <<'EOF'\n(.*?\n)EOF\n"),
+		"/etc/systemd/system/dolt.service":                     saved("/etc/systemd/system/dolt.service", "ini"),
+		"/etc/systemd/system/starfixd.service":                 saved("/etc/systemd/system/starfixd.service", "ini"),
+		"/etc/systemd/system/starfixd.service.d/keys.conf":     printed("/etc/systemd/system/starfixd.service.d/keys.conf"),
+		"/etc/systemd/system/starfixd.service.d/apparmor.conf": printed("/etc/systemd/system/starfixd.service.d/apparmor.conf"),
+		"/etc/sudoers.d/starfix":                               match(t, g, "the sudo rule", `echo '([^']*)' > /etc/sudoers\.d/starfix`) + "\n",
+		"/etc/ssh/sshd_config.d/00-starfix.conf":               global + block,
 	}
 }
 
