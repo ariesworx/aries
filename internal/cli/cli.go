@@ -179,7 +179,8 @@ type runner struct {
 	// hook says the command runs as an agent's hook (prime --hook, usage
 	// --hook), which does as it did before there was an outbox: it sends
 	// nothing that waits, and notes nothing on the disk but who the
-	// server took its key for.
+	// server took its key for, and the cache: what it read, and the
+	// deletion of a principal's cache when access ended.
 	hook bool
 	// cacheable says the command's reads are answered from this
 	// machine's copy while the server cannot be reached (show, inbox,
