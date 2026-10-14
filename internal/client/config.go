@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -33,8 +34,14 @@ type Config struct {
 		Port int `yaml:"port"`
 		// User is the SSH account starfixd runs as. Default "starfix".
 		User string `yaml:"user"`
-		// HostKey is the server's pinned ED25519 fingerprint, SHA256:….
+		// HostKey is the server's pinned ED25519 fingerprint, SHA256:…,
+		// when one key is pinned. Pinned is what the client checks.
 		HostKey string `yaml:"host_key"`
+		// HostKeys are the fingerprints pinned when there are several,
+		// in place of HostKey: the server is taken for itself when it
+		// presents any one of them, so a new host key is listed before
+		// the server presents it, and the old one is removed after.
+		HostKeys []string `yaml:"host_keys"`
 		// IAP, when set, reaches the server through Google Cloud IAP TCP
 		// forwarding instead of dialing Host directly.
 		IAP *IAP `yaml:"iap"`
@@ -193,6 +200,9 @@ func ParseConfig(b []byte) (*Config, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(b))
 	dec.KnownFields(true)
 	if err := dec.Decode(&c); err != nil && !errors.Is(err, io.EOF) {
+		if listedHostKey(b) {
+			return nil, errors.New("server.host_key holds one fingerprint: list several under host_keys instead")
+		}
 		return nil, err
 	}
 	if c.Server.Port == 0 {
@@ -220,10 +230,11 @@ func (c *Config) validate() error {
 		return fmt.Errorf("server.port %d is out of range", c.Server.Port)
 	case !userRE.MatchString(c.Server.User):
 		return fmt.Errorf("server.user %q is not a Unix account name", c.Server.User)
-	case !fprRE.MatchString(c.Server.HostKey):
-		return errors.New("server.host_key must be the server's ED25519 fingerprint (SHA256:…, from `ssh-keyscan -t ed25519 HOST | ssh-keygen -lf -`)")
 	case notAPath(c.Key) != "":
 		return errors.New("key is not a file path")
+	}
+	if err := c.validateHostKeys(); err != nil {
+		return err
 	}
 	if iap := c.Server.IAP; iap != nil {
 		switch {
@@ -236,6 +247,64 @@ func (c *Config) validate() error {
 		}
 	}
 	return nil
+}
+
+// listedHostKey reports whether b gives host_key a list, which YAML's
+// own refusal of it does not explain.
+func listedHostKey(b []byte) bool {
+	var probe struct {
+		Server struct {
+			HostKey yaml.Node `yaml:"host_key"`
+		} `yaml:"server"`
+	}
+	return yaml.Unmarshal(b, &probe) == nil && probe.Server.HostKey.Kind == yaml.SequenceNode
+}
+
+// fingerprintHow says what a pinned host key is and where it comes
+// from, for a refusal.
+const fingerprintHow = "the server's ED25519 fingerprint (SHA256:…, from `ssh-keyscan -t ed25519 HOST | ssh-keygen -lf -`)"
+
+// validateHostKeys checks the pin: host_key, or host_keys, never both,
+// since a config that sets both says two things and nothing tells which
+// it means; each a fingerprint, and none listed twice.
+func (c *Config) validateHostKeys() error {
+	s := &c.Server
+	switch {
+	case s.HostKey != "" && len(s.HostKeys) > 0:
+		return errors.New("server.host_key and server.host_keys are both set: list every key the server may present under host_keys, and delete host_key")
+	case len(s.HostKeys) == 0:
+		if !fprRE.MatchString(s.HostKey) {
+			return errors.New("server.host_key must be " + fingerprintHow + "; host_keys, a list of them, pins several")
+		}
+		return nil
+	}
+	for i, k := range s.HostKeys {
+		if !fprRE.MatchString(k) {
+			return fmt.Errorf("server.host_keys[%d] must be %s", i, fingerprintHow)
+		}
+		if slices.Contains(s.HostKeys[:i], k) {
+			return fmt.Errorf("server.host_keys lists %s twice: delete one", k)
+		}
+	}
+	return nil
+}
+
+// Pinned returns the fingerprints of the server's host keys that the
+// config pins, in its order: host_keys, or host_key's one. A dial takes
+// the server for itself when it presents any one of them.
+func (c *Config) Pinned() []string {
+	if len(c.Server.HostKeys) > 0 {
+		return c.Server.HostKeys
+	}
+	return []string{c.Server.HostKey}
+}
+
+// andList joins items for a sentence: "a", "a and b", "a, b and c".
+func andList(items []string) string {
+	if len(items) < 2 {
+		return strings.Join(items, "")
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
 }
 
 // ForProject returns the .starfix.yaml of another project on the same
@@ -255,14 +324,22 @@ func (c *Config) ForProject(project string) ([]byte, error) {
 	var out struct {
 		Project string `yaml:"project"`
 		Server  struct {
-			Host    string `yaml:"host"`
-			Port    int    `yaml:"port,omitempty"`
-			User    string `yaml:"user,omitempty"`
-			HostKey string `yaml:"host_key"`
-			IAP     *iap   `yaml:"iap,omitempty"`
+			Host     string   `yaml:"host"`
+			Port     int      `yaml:"port,omitempty"`
+			User     string   `yaml:"user,omitempty"`
+			HostKey  string   `yaml:"host_key,omitempty"`
+			HostKeys []string `yaml:"host_keys,omitempty"`
+			IAP      *iap     `yaml:"iap,omitempty"`
 		} `yaml:"server"`
 	}
-	out.Project, out.Server.Host, out.Server.HostKey = project, c.Server.Host, c.Server.HostKey
+	out.Project, out.Server.Host = project, c.Server.Host
+	// One key is written as every config before the list had it, which
+	// an sfx that knows no list reads too.
+	if pinned := c.Pinned(); len(pinned) == 1 {
+		out.Server.HostKey = pinned[0]
+	} else {
+		out.Server.HostKeys = pinned
+	}
 	if c.Server.Port != 22 {
 		out.Server.Port = c.Server.Port
 	}

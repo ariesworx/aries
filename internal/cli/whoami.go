@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/ariesworx/starfix/internal/client"
 )
@@ -24,11 +25,15 @@ type whoami struct {
 	Skipped []string `json:"skipped,omitempty"`
 }
 
+// whoamiServer is the server as the config names it. Its pinned host
+// keys are as the config has them: host_key when one is pinned, else
+// host_keys.
 type whoamiServer struct {
-	Host    string `json:"host"`
-	Port    int    `json:"port"`
-	User    string `json:"user"`
-	HostKey string `json:"host_key"`
+	Host     string   `json:"host"`
+	Port     int      `json:"port"`
+	User     string   `json:"user"`
+	HostKey  string   `json:"host_key,omitempty"`
+	HostKeys []string `json:"host_keys,omitempty"`
 }
 
 // cmdWhoami connects and says who the server answered for. The server
@@ -55,7 +60,12 @@ func cmdWhoami(ctx context.Context, r *runner, args []string) error {
 		return err
 	}
 	out := whoami{Principal: c.Principal(), Project: cfg.Project, Session: c.Session(), Key: c.Key(), Skipped: c.SkippedKeys(),
-		Server: whoamiServer{Host: cfg.Server.Host, Port: cfg.Server.Port, User: cfg.Server.User, HostKey: cfg.Server.HostKey}}
+		Server: whoamiServer{Host: cfg.Server.Host, Port: cfg.Server.Port, User: cfg.Server.User}}
+	if pinned := cfg.Pinned(); len(pinned) == 1 {
+		out.Server.HostKey = pinned[0]
+	} else {
+		out.Server.HostKeys = pinned
+	}
 	if r.json {
 		r.emit(out)
 		return nil
@@ -74,7 +84,11 @@ func printWhoami(w io.Writer, me whoami) {
 	}
 	p("principal", "%s", esc(who))
 	p("project", "%s", esc(me.Project))
-	p("server", "%s@%s:%d, host key %s", esc(me.Server.User), esc(me.Server.Host), me.Server.Port, esc(me.Server.HostKey))
+	keys := "host key " + esc(me.Server.HostKey)
+	if n := len(me.Server.HostKeys); n > 0 {
+		keys = "host keys " + esc(strings.Join(me.Server.HostKeys[:n-1], ", ")) + " and " + esc(me.Server.HostKeys[n-1])
+	}
+	p("server", "%s@%s:%d, %s", esc(me.Server.User), esc(me.Server.Host), me.Server.Port, keys)
 	p("session", "%s", esc(me.Session))
 	// How the key was chosen: named, and so the only one offered, or
 	// found, among the default identities and ssh-agent's keys.

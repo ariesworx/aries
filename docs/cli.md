@@ -23,7 +23,8 @@ server:
 | `server.host` | The server's host name or address | required |
 | `server.port` | The SSH port | `22` |
 | `server.user` | The account starfixd runs as | `starfix` |
-| `server.host_key` | The server's ED25519 host key fingerprint, `SHA256:…` | required |
+| `server.host_key` | The server's ED25519 host key fingerprint, `SHA256:…` | required, or `host_keys` |
+| `server.host_keys` | A list of such fingerprints, in place of `host_key`, while the server's host key is rotated ([below](#the-host-key-is-pinned)) | none |
 | `server.iap` | Reach the server through Google Cloud IAP ([below](#servers-without-a-public-ip-google-cloud-iap)) | off |
 | `key` | A key file inside the repository, relative to its root: the only key `sfx` then offers ([below](#your-key-is-your-identity)). The file is committed and shared, so most people leave this out; set `STARFIX_KEY_FILE` to name a key of your own | your default identities, then ssh-agent |
 
@@ -40,6 +41,32 @@ ssh-keyscan -t ed25519 starfix.example.com | ssh-keygen -lf -
 On a cloud server, prefer a value the server publishes through its
 provider's API (for example in instance metadata) over a scan across the
 network.
+
+While the server's admin rotates its host key, the file pins both keys,
+and `sfx` connects when the server presents either one:
+
+```yaml
+server:
+  host: starfix.example.com
+  host_keys:
+    - SHA256:…   # the key the server has now
+    - SHA256:…   # the key it will have
+```
+
+Set `host_key` or `host_keys`, not both: a file with both is refused, as
+is a list that names a key twice. Once the rotation is done, the old
+key is removed and the file goes back to `host_key` ([Rotating the host
+key](server.md#rotating-the-host-key)). Only an `sfx` that knows
+`host_keys` reads a file that has it; an older one refuses the whole
+file, so upgrade `sfx` before the list is committed.
+
+A server that presents none of the pinned keys is refused, with the key
+it presented and the ones pinned:
+
+```text
+sfx: host key mismatch for starfix.example.com: the server presented SHA256:…, but .starfix.yaml pins SHA256:… and SHA256:…
+fix: if the server's host key was changed, confirm its new key with the admin out of band, then add it to server.host_keys; otherwise do not connect
+```
 
 ### Your key is your identity
 
@@ -459,11 +486,17 @@ refused:
 Each takes `--json`, and `--principal NAME` for the outbox of another
 principal this machine has queued as.
 
-**When the server's host key changes.** A server rebuilt with a new host
-key is, to `sfx`, another server until you confirm the key and pin it in
-`server.host_key`. What you queued under the old key is then left where
-it is, and nothing of it is sent by itself: a changed host key is for a
-person to look at. `sfx outbox` lists it, and `prime` has a notice:
+**When the server's host key changes.** A host key rotated as [the
+server guide](server.md#rotating-the-host-key) has it changes nothing
+here: while `.starfix.yaml` pins the old and the new key, the server is
+one server whichever it presents, and once a command of yours has
+reached it in that time, what you queued stays yours to send after the
+old key is removed. A server rebuilt with a new host key, or one whose
+new key was pinned without a command reaching it while both were
+pinned, is, to `sfx`, another server until you confirm the key and pin
+it. What you queued under the old key is then left where it is, and
+nothing of it is sent by itself: a changed host key is for a person to
+look at. `sfx outbox` lists it, and `prime` has a notice:
 
 ```text
 alice's outbox is empty

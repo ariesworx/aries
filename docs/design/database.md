@@ -91,6 +91,13 @@ Done 6 Oct 2026: Dolt is OK with the conditions above. Results: `spike/dolt/RESU
 
 If 1 or 2 fails badly, the fallback is Postgres behind the same starfixd interface. The server boundary keeps that a contained change.
 
+## Dolt behaviors to investigate
+
+Seen while building, 14 Oct 2026, and not explained. Neither is fixed; each is worked around in tests only. Both are on Dolt 2.4.2.
+
+- **`no root value found in session` from a query of `information_schema` while another database is created or dropped.** `store.Open`'s migration check (`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?`, `internal/store/migrate.go`) failed with `Error 1105 (HY000): no root value found in session` in 3 of 12 parallel subtests that opened, closed and reopened stores while sibling tests created and dropped their databases on the same server; never when the subtests ran alone or one after another. #102 met the same error reading `information_schema` beside a `DROP DATABASE` (37 of 960 reads in a 16-way reproduction), which is why each test now holds a Dolt server of its own. In production this could be `sfx admin project add` creating a project's database while the daemon opens another project's store; that case is not tested. To find out: reproduce against one server with a store opening in a loop while another connection creates and drops databases; establish whether it is the create, the drop or both; and decide whether `Open` should retry this one error, or the daemon serialize opening a store with creating a database.
+- **A prepared query on `blockedCTE` ran for minutes.** Twice, a prepared statement built on the store's `blockedCTE` (`ready`, then the digest's blocked section) ran over nine minutes at full CPU on a project of 10,000 issues, while the same SQL run directly returned at once and its plan looked sound. This was on the code before #111, which changed those queries, so it may or may not remain. A request that did this in production would hold a connection to Dolt, and the request's own timeout would end only the caller's wait. To find out: reproduce with the prepared statement and the same parameters at 10,000 issues, on the queries as they are now; compare with the statement inlined; and see whether Dolt's prepared-statement planning differs.
+
 ## Sources
 
 - Dolt as fast as MySQL (2025-12-04): https://www.dolthub.com/blog/2025-12-04-dolt-is-as-fast-as-mysql/

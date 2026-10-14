@@ -50,7 +50,7 @@ func TestIAP(t *testing.T) {
 	mallory.viaIAP()
 	r := mallory.run("v0.2.0", "list")
 	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "host key mismatch for starfix-1") ||
-		!strings.Contains(r.stderr, "fix: if the server was rebuilt") {
+		!strings.Contains(r.stderr, "fix: if the server's host key was changed") {
 		t.Fatalf("sfx list through IAP with the wrong pin: exit %d\n%s", r.code, r.stderr)
 	}
 }

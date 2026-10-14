@@ -93,10 +93,16 @@ const missEvery = time.Minute
 // the principal.
 type seen struct {
 	V int `json:"v"`
-	// Server is the server's pinned host key, and Project the project's
-	// id: what the directory, whose name is a hash of them, is for.
+	// Server is the host key the directory was made under, and Project
+	// the project's id: what the directory, whose name is a hash of
+	// them, is for.
 	Server  string `json:"server"`
 	Project string `json:"project"`
+	// HostKeys are the host keys the config pinned at the last
+	// handshake, when they were other than Server alone: a config that
+	// pins any one of them finds this directory ([Find]), which is how
+	// the server stays one server across a rotation of its host key.
+	HostKeys []string `json:"host_keys,omitempty"`
 	// Keys maps the fingerprint of a key that signed in to who the server
 	// took it for.
 	Keys map[string]keyNote `json:"keys,omitempty"`
@@ -138,18 +144,91 @@ type Options struct {
 type Local struct {
 	root, dir       string
 	server, project string
-	opts            Options
+	// pinned are the host keys the config pins, which a handshake notes.
+	pinned []string
+	opts   Options
 }
 
-// Open returns the Local for the server whose pinned host key is hostKey
-// and the project, under root ([DataDir]). It makes nothing until
-// something is kept.
+// Open returns the Local kept under exactly the host key hostKey for the
+// project, under root ([DataDir]), as when the config pins that key
+// alone and nothing was kept for the server under another. A config's
+// Local is [Find]'s. It makes nothing until something is kept.
 func Open(root, hostKey, project string, o Options) *Local {
+	return open(root, hostKey, []string{hostKey}, project, o)
+}
+
+// open is the Local kept under the host key server, for a config that
+// pins pinned.
+func open(root, server string, pinned []string, project string, o Options) *Local {
 	if o.Now == nil {
 		o.Now = time.Now
 	}
 	o.Outbox.Now = o.Now
-	return &Local{root: root, dir: filepath.Join(root, hashed("server", hostKey, project)), server: hostKey, project: project, opts: o}
+	return &Local{root: root, dir: filepath.Join(root, hashed("server", server, project)), server: server, project: project,
+		pinned: pinned, opts: o}
+}
+
+// Find returns the Local for the server whose host keys the config pins,
+// pinned, in the config's order, and the project, under root
+// ([DataDir]). The server is one server whichever of them it presents,
+// and stays one across a rotation (doc.go, "Where"): Find takes the
+// directory kept under the first pinned key that has a record, else the
+// one whose record says a handshake was made while the config pinned
+// one of these keys, else the first key's. It makes nothing.
+func Find(root string, pinned []string, project string, o Options) *Local {
+	for _, k := range pinned {
+		if _, ok := record(filepath.Join(root, hashed("server", k, project)), k, project); ok {
+			return open(root, k, pinned, project, o)
+		}
+	}
+	if anchor, ok := linked(root, pinned, project); ok {
+		return open(root, anchor, pinned, project, o)
+	}
+	return open(root, pinned[0], pinned, project, o)
+}
+
+// linked finds, among the directories of root, one kept for project
+// under another host key whose record lists one of pinned among the keys
+// pinned at its last handshake, and returns the key it is kept under.
+// Of several, the first by name is taken, so every process takes the
+// same one.
+func linked(root string, pinned []string, project string) (string, bool) {
+	if private(root) != nil {
+		return "", false
+	}
+	ents, err := os.ReadDir(root) // sorted by name
+	if err != nil {
+		return "", false
+	}
+	for _, e := range ents {
+		if !e.IsDir() {
+			continue
+		}
+		s, ok := record(filepath.Join(root, e.Name()), "", project)
+		if ok && slices.ContainsFunc(s.HostKeys, func(k string) bool { return slices.Contains(pinned, k) }) {
+			return s.Server, true
+		}
+	}
+	return "", false
+}
+
+// record reads the seen.json of dir, when dir is the user's own, and
+// the record is of this version, names project and, unless server is
+// "", that host key, and is the record of the directory it is in.
+func record(dir, server, project string) (seen, bool) {
+	if private(dir) != nil {
+		return seen{}, false
+	}
+	b, err := os.ReadFile(filepath.Join(dir, seenFile)) //nolint:gosec // sfx's own file, in a directory checked to be the user's
+	if err != nil {
+		return seen{}, false
+	}
+	var s seen
+	if json.Unmarshal(b, &s) != nil || s.V != seenVersion || s.Project != project || s.Server == "" ||
+		(server != "" && s.Server != server) || filepath.Base(dir) != hashed("server", s.Server, project) {
+		return seen{}, false
+	}
+	return s, true
 }
 
 // hashed names a directory for parts, which are other people's text (a
@@ -240,17 +319,13 @@ func (l *Local) ready(create bool, outboxOf string) error {
 // the next handshake. It reads nothing from a directory that is not the
 // user's own.
 func (l *Local) read() seen {
-	s := seen{V: seenVersion, Server: l.server, Project: l.project}
 	if l.ready(false, "") != nil {
+		return seen{V: seenVersion, Server: l.server, Project: l.project}
+	}
+	if s, ok := record(l.dir, l.server, l.project); ok {
 		return s
 	}
-	if b, err := os.ReadFile(filepath.Join(l.dir, seenFile)); err == nil {
-		var got seen
-		if json.Unmarshal(b, &got) == nil && got.V == seenVersion && got.Server == l.server && got.Project == l.project {
-			s = got
-		}
-	}
-	return s
+	return seen{V: seenVersion, Server: l.server, Project: l.project}
 }
 
 // replace writes data as the file name of the directory, through a
@@ -297,10 +372,17 @@ func (l *Local) Reached(principal, fingerprint string, configured bool, protocol
 	s, now := l.read(), l.opts.Now()
 	k, known := s.Keys[fingerprint]
 	fresh := known && k.Principal == principal && now.Sub(k.At) < 24*time.Hour && !now.Before(k.At)
-	if fresh && (configured || s.Unconfigured == fingerprint) && s.Addr == l.opts.Address && s.Proto == protocol {
+	// The keys pinned now are noted only when they are not the
+	// directory's own alone, so a config of one key writes the record
+	// it always has.
+	var pinned []string
+	if !slices.Equal(l.pinned, []string{l.server}) {
+		pinned = l.pinned
+	}
+	if fresh && (configured || s.Unconfigured == fingerprint) && s.Addr == l.opts.Address && s.Proto == protocol && slices.Equal(s.HostKeys, pinned) {
 		return "", nil
 	}
-	s.Addr, s.Proto = l.opts.Address, protocol
+	s.Addr, s.Proto, s.HostKeys = l.opts.Address, protocol, pinned
 	if known && k.Principal != principal {
 		was = k.Principal
 	}
@@ -648,9 +730,9 @@ type Former struct {
 
 // Rekeyed returns, by host key, what this machine keeps for this project
 // under other host keys of the server: each directory of the data
-// directory whose record names this project and another key. A
-// directory with no record names no project, and is left out, as is one
-// that is not the user's own.
+// directory but l's whose record names this project, which [Find] did
+// not take for the keys pinned now. A directory with no record names no
+// project, and is left out, as is one that is not the user's own.
 func (l *Local) Rekeyed() ([]Former, error) {
 	if err := private(l.root); err != nil {
 		return nil, err
@@ -665,21 +747,14 @@ func (l *Local) Rekeyed() ([]Former, error) {
 	var out []Former
 	for _, d := range dirs {
 		dir := filepath.Join(l.root, d.Name())
-		if !d.IsDir() || dir == l.dir || private(dir) != nil {
+		if !d.IsDir() || dir == l.dir {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(dir, seenFile)) //nolint:gosec // sfx's own file, in a directory checked to be the user's
-		if err != nil {
-			continue
-		}
-		var s seen
-		if json.Unmarshal(b, &s) != nil || s.V != seenVersion || s.Project != l.project || s.Server == l.server || s.Server == "" {
+		s, ok := record(dir, "", l.project)
+		if !ok {
 			continue
 		}
 		f := Open(l.root, s.Server, s.Project, Options{Now: l.opts.Now, Outbox: l.opts.Outbox, Address: s.Addr})
-		if f.dir != dir {
-			continue // a record that does not name its own directory's server
-		}
 		out = append(out, Former{HostKey: s.Server, Address: s.Addr, Local: f})
 	}
 	slices.SortFunc(out, func(a, b Former) int { return strings.Compare(a.HostKey, b.HostKey) })

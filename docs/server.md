@@ -566,7 +566,8 @@ ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
   `PasswordAuthentication no` above the `Match` line.
 
 The last command prints the host key fingerprint, `SHA256:…`. Give it to
-everyone who connects.
+everyone who connects. To change the key later without refusing every
+client at once, see [Rotating the host key](#rotating-the-host-key).
 
 **On a public port**, also rate-limit new connections at the firewall
 (`ufw limit 22/tcp`). Skip that when everyone arrives through a few shared
@@ -3409,6 +3410,82 @@ itself ([Install](install.md#upgrade-and-roll-back)).
 
 Keep Dolt at the release starfix names, and change it only with a starfix
 release that does.
+
+## Rotating the host key
+
+Every `.starfix.yaml` pins the server's ED25519 host key, and `sfx`
+refuses a server that presents another. To change the key without
+refusing every client at once, list the new key beside the old before
+sshd presents it, and remove the old one after. `sfx` connects when the
+server presents any key the file pins (`server.host_keys`, [Connect a
+repository](cli.md#the-host-key-is-pinned)). Nothing changes on
+starfixd's side: the host key is sshd's, not part of starfix's protocol.
+
+1. **Make the new key** on the server, beside the one in use, which
+   sshd keeps presenting:
+
+   ```sh
+   ssh-keygen -q -t ed25519 -N '' -C '' -f /etc/ssh/ssh_host_ed25519_key.next
+   ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.next.pub
+   ```
+
+   The second command prints the new fingerprint.
+
+2. **Pin both** in every repository whose `.starfix.yaml` names this
+   server, one for each project, and commit the change:
+
+   ```yaml
+   server:
+     host: starfix.example.com
+     host_keys:
+       - SHA256:…   # the key sshd presents now
+       - SHA256:…   # the new key, from step 1
+   ```
+
+   `host_keys` replaces `host_key`; a file with both is refused. An
+   `sfx` older than the list refuses the whole file, so everyone runs
+   `sfx upgrade` first.
+
+3. **Wait for clients to pick it up.** Everyone pulls the commit, and
+   each machine runs one `sfx` command that reaches the server, which
+   is when its outbox, the writes it keeps while the server is away,
+   becomes the new key's too ([When the server's host key
+   changes](cli.md#when-the-server-cannot-be-reached)). Nothing on the
+   server says which clients have done so; how long to wait is yours to
+   choose.
+
+4. **Switch sshd to the new key**, keeping the old file for now:
+
+   ```sh
+   cd /etc/ssh
+   mv ssh_host_ed25519_key ssh_host_ed25519_key.old
+   mv ssh_host_ed25519_key.pub ssh_host_ed25519_key.old.pub
+   mv ssh_host_ed25519_key.next ssh_host_ed25519_key
+   mv ssh_host_ed25519_key.next.pub ssh_host_ed25519_key.pub
+   sshd -t && systemctl try-reload-or-restart ssh
+   ssh-keyscan -t ed25519 localhost | ssh-keygen -lf -
+   ```
+
+   The last command prints the new fingerprint. A checkout that pins
+   both keys connects as before; one that still pins the old key alone
+   is refused, `host key mismatch`, naming the key the server presented,
+   until it pulls step 2's commit.
+
+5. **Remove the old key** from every `.starfix.yaml`, back to
+   `host_key: SHA256:…` with the new fingerprint, and commit. Once no
+   file pins it, delete `ssh_host_ed25519_key.old*` and take a new
+   backup of the host key ([Backups and restore](#backups-and-restore)).
+
+`sfx admin project add` prints the new project's `.starfix.yaml` with
+the keys the admin's own file pins: `host_key` for one, `host_keys` for
+several. A project added during a rotation therefore pins both, and
+needs step 5 too.
+
+A machine that ran no command while both keys were pinned treats the
+server as a new one once the old key is removed, as for a server
+rebuilt with a new key: what it had queued under the old key waits
+there, never sent by itself, and `sfx outbox` lists it for its owner to
+move or drop.
 
 ## Backups and restore
 

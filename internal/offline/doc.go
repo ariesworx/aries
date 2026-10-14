@@ -25,7 +25,8 @@
 // may clear files.
 //
 // In it there is one directory for each server and project, named by a
-// hash of the server's pinned host key and the project's id, with:
+// hash of a host key the config pinned when it was made and the
+// project's id, with:
 //
 //	seen.json            who the server took each key for; 0600
 //	missed               when the server was last not reached; 0600
@@ -33,10 +34,22 @@
 //	                     named by a hash of the principal's name; 0700
 //	outbox-HASH.principal  that principal's name; 0600
 //
-// The server is its host key, not its address: a server that moves keeps
+// The server is its host keys, not its address: a server that moves keeps
 // its outboxes, and a server rebuilt with a new key gets new ones. The
-// old are left where they are and never sent by themselves, since a
-// changed host key is for a person to look at: [Local.Rekeyed] finds
+// config may pin several keys, so that a key is rotated without a flag
+// day: the server is then one server whichever of them it presents.
+// [Find] takes the directory of the first pinned key that has a record;
+// failing that, the directory whose record says a handshake was made
+// while the config pinned one of the keys pinned now, which seen.json
+// notes ("host_keys") whenever they are not the directory's own key
+// alone; and failing that, the first pinned key's. So across a rotation
+// as docs/server.md has it (the old key, then the old and the new, then
+// the new) the outboxes and seen.json stay where they were, provided a
+// command reached the server while both were pinned; if none did, the
+// new key gets a directory of its own, as for a rebuilt server. What is
+// kept under a key that no handshake linked to the keys pinned now is
+// left where it is and never sent by itself, since a changed host key
+// is for a person to look at: [Local.Rekeyed] finds
 // them, by the project and the old key seen.json names, with the
 // address the config gave at the last handshake, and [Local.Adopt]
 // moves an entry to the current server's outbox when a person says so,
@@ -57,9 +70,10 @@
 // fingerprint of the key the server accepted, the principal it took it
 // for and when ([Local.Reached]); and which fingerprint was accepted the
 // last time no key was configured. The record has a version, holds
-// several keys for one principal, and the server's address as the
-// config gave it, and holds nothing else: no key, no path to one, no
-// token.
+// several keys for one principal, the server's address as the config
+// gave it and, when the config pinned several, the fingerprints of the
+// host keys it pinned, and holds nothing else: no key, no path to one,
+// no token.
 //
 // With the server away ([Local.Principal]): when a key is configured
 // (STARFIX_KEY_FILE, or key:), which is then the only key offered, a
