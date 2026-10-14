@@ -33,6 +33,38 @@
 //	outbox-HASH          one outbox for each principal (internal/outbox),
 //	                     named by a hash of the principal's name; 0700
 //	outbox-HASH.principal  that principal's name; 0600
+//	reached              when the server was last reached; 0600
+//	cache-HASH           one cache for each principal ([Cache]), named
+//	                     by a hash of the principal's name; 0700
+//
+// # The cache
+//
+// What a session read, kept so that it can be shown while the server
+// cannot be reached (design §18.6; stage 5, slice F3): a principal's
+// prime, whole; show of each issue it looked at, by the issue; the issue
+// a start took, kept as a show of it; its inbox and its digests, by
+// their arguments. Each is the server's answer as it was returned, with
+// when, in a file of its own named by a hash of what it answers, written
+// whole to a temporary file and renamed into place, and given that time
+// as its own, which is what the bounds read. A file that is not whole, or
+// not of its key, is read as absent. In it is also a file that names the
+// principal.
+//
+// A cache is written on the way past, by a connection the server let in,
+// for that connection's principal ([Client.CacheOf]), and read only when
+// the server cannot be reached, for the principal the keys this process
+// would offer belong to, by the outbox's rule ([Client.Cached]). It is
+// never shown in place of a server that answers, and never what ready,
+// blocked, list, who or claims would say ([RefusedOffline]).
+//
+// Its bounds are [CacheOptions]: 500 answers, 16 MiB and 1 MiB an answer
+// for each principal, and 7 days, the outbox's age cap. Each write
+// removes what is past them, the oldest first. They are constants of sfx,
+// as the outbox's are: what grows is on the person's own disk.
+//
+// A refusal of the handshake that says a principal's access has ended
+// deletes that principal's cache ([Client.Forget]); `sfx cache clear`
+// deletes every principal's for the project ([Local.ClearCaches]).
 //
 // The server is its host keys, not its address: a server that moves keeps
 // its outboxes, and a server rebuilt with a new key gets new ones. The

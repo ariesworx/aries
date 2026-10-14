@@ -176,6 +176,45 @@ func TestClientKeepsForWhoeverTheKeyWas(t *testing.T) {
 	}
 }
 
+// The cache served offline is chosen as an outbox is: by the key this
+// process would offer and whom the server last took it for. So a key the
+// server took for someone else, or never took, is never shown alice's
+// copy; and every handshake notes when the server was reached.
+func TestClientCacheIsWhoeverTheKeyWas(t *testing.T) {
+	t.Parallel()
+	r := newRepo(t)
+	c := r.newClient(t, nil)
+	if c.Cached() != nil {
+		t.Error("Cached before any handshake is someone's; want nobody's")
+	}
+	c.Connected(&keyedConn{fakeConn: fakeConn{who: "alice"}, key: r.mine})
+	if got := c.LastReached(); !got.Equal(t0) {
+		t.Errorf("LastReached after a handshake = %v, want %v", got, t0)
+	}
+	if err := c.CacheOf("alice").Keep(proto.OpShow, proto.ShowArgs{ID: "sf-a"}, shown("sf-a", "Alice's")); err != nil {
+		t.Fatal(err)
+	}
+	var s proto.ShowResult
+	if cache := c.Cached(); cache == nil {
+		t.Fatal("Cached with alice's key = nil, want alice's cache")
+	} else if _, ok := cache.Answer(proto.OpShow, proto.ShowArgs{ID: "sf-a"}, &s); !ok || s.Issue.Title != "Alice's" {
+		t.Errorf("alice's cache answered %+v, %v; want her copy", s, ok)
+	}
+
+	other := &Client{}
+	*other = *c // the same machine and data directory
+	other.Getenv = withEnv(c.Getenv, client.EnvKeyFile, filepath.Join(r.dir, "id_also"))
+	if other.Cached() != nil {
+		t.Error("Cached with a key the server never took is someone's; want nobody's")
+	}
+	other.Connected(&keyedConn{fakeConn: fakeConn{who: "bob"}, key: r.also})
+	if cache := other.Cached(); cache == nil {
+		t.Fatal("Cached with bob's key = nil, want bob's cache")
+	} else if _, ok := cache.Answer(proto.OpShow, proto.ShowArgs{ID: "sf-a"}, &s); ok {
+		t.Error("bob's cache answered with alice's copy")
+	}
+}
+
 // A write lost with its connection belongs to that connection's
 // principal, which the server said: no guess is made.
 func TestClientKeepsForTheConnectionsPrincipal(t *testing.T) {
