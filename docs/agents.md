@@ -260,6 +260,22 @@ and is redialed if it drops. Reads, `create`, `comment`, `finish`,
 connection, since a retry cannot write twice. `start`, `update`, `close`, `reopen`, `dep` and
 `label` report that they may have applied.
 
+A person's sessions together hold at most `conns_per_principal`
+connections, 64 unless the server says otherwise
+([Limits](server.md#limits)). A session refused past it cannot reach the
+server until one of them closes, and every tool call fails with:
+
+```text
+busy: alice is at its connection limit (64)
+fix: the user's other starfix sessions hold every connection the server allows them, so this session cannot reach it until one closes. Tell the user now: they can close some, or ask the server's operator to raise conns_per_principal. Until then, issues you hold go back to open unless renewed within their 15m lease, and writes are not kept for later; never run an admin command yourself
+```
+
+The session does not dial again for 5 seconds after such a refusal, so
+a burst of calls costs the server one refused handshake; after that,
+the next call or renewal takes a connection as soon as one is free, and
+the session goes on as before. Writes are not queued in the outbox
+here: `busy` is a refusal, not an outage.
+
 ### When the server cannot be reached
 
 When `create`, `comment`, `handoff`, `remember` or `finish` cannot reach

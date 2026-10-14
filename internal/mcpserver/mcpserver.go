@@ -91,7 +91,7 @@ type Server struct {
 	opts   Options
 	claims claims
 	pushed pushed
-	// now is the clock for the paths throttle; tests set it.
+	// now is the clock for the paths throttle and limitWait; tests set it.
 	now func() time.Time
 	// waiting says the outbox may hold entries to send, so a renewal
 	// connects for them even when the session holds no claim.
@@ -200,8 +200,9 @@ func New(opts Options) *Server {
 	if opts.PathsEvery == 0 {
 		opts.PathsEvery = DefaultPathsEvery
 	}
-	s := &Server{opts: opts, link: newLink(opts.Dial), claims: claims{held: map[string]int64{}, sent: map[string]time.Time{}},
+	s := &Server{opts: opts, claims: claims{held: map[string]int64{}, sent: map[string]time.Time{}},
 		now: time.Now, drain: make(chan struct{}, 1)}
+	s.link = newLink(opts.Dial, func() time.Time { return s.now() })
 	s.link.onConnect = s.connected
 	s.mcp = mcp.NewServer(&mcp.Implementation{Name: "starfix", Version: opts.Version},
 		&mcp.ServerOptions{Instructions: Instructions, Capabilities: &mcp.ServerCapabilities{}})
@@ -311,6 +312,13 @@ type link struct {
 	// rewatch: the server stopped pushing (a resync); watch again on the
 	// next call. Set from the reader goroutine, so not under mu.
 	rewatch atomic.Bool
+	// now is the clock limitWait is measured on.
+	now func() time.Time
+	// limited is the last dial's refusal at the principal's connection
+	// limit, which connect returns without dialing until waited; nil when the
+	// last dial was not so refused. Both are guarded by turn.
+	limited *dialError
+	waited  time.Time
 }
 
 // lostError is a call that failed because the connection dropped.
@@ -324,14 +332,42 @@ type lostError struct {
 func (e *lostError) Error() string { return e.err.Error() }
 func (e *lostError) Unwrap() error { return e.err }
 
+// limitWait is how long a session refused because its principal is at its
+// connection limit waits before it dials again. Each dial is an SSH
+// handshake and a process on the server, and an agent's turn makes its
+// tool calls seconds apart, so a burst of them costs one refusal, not one
+// each; a renewal, every minute, is never held back by its own last
+// refusal. When another session closes, this one takes the free slot at
+// most this late.
+const limitWait = 5 * time.Second
+
 // dialError is a failure to connect at all; its fix is for the person.
 type dialError struct{ err error }
 
 func (e *dialError) Error() string { return e.err.Error() }
 func (e *dialError) Unwrap() error { return e.err }
 
-func newLink(dial func(ctx context.Context) (Conn, error)) *link {
-	return &link{dial: dial, turn: make(chan struct{}, 1)}
+func newLink(dial func(ctx context.Context) (Conn, error), now func() time.Time) *link {
+	return &link{dial: dial, now: now, turn: make(chan struct{}, 1)}
+}
+
+// connect dials, unless the last dial was refused at the principal's
+// connection limit less than limitWait ago, when it returns that refusal
+// again. The caller holds the turn.
+func (l *link) connect(ctx context.Context) (Conn, error) {
+	if l.limited != nil && l.now().Before(l.waited) {
+		return nil, l.limited
+	}
+	l.limited = nil
+	c, err := l.dial(ctx)
+	if err == nil {
+		return c, nil
+	}
+	refused := &dialError{err: err}
+	if proto.AtConnLimit(err) {
+		l.limited, l.waited = refused, l.now().Add(limitWait)
+	}
+	return nil, refused
 }
 
 func (l *link) lock()   { l.turn <- struct{}{} }
@@ -347,9 +383,9 @@ func (l *link) get(ctx context.Context) (Conn, error) {
 		_ = l.conn.Close()
 		l.conn = nil
 	}
-	c, err := l.dial(ctx)
+	c, err := l.connect(ctx)
 	if err != nil {
-		return nil, &dialError{err: err}
+		return nil, err
 	}
 	if l.onConnect != nil {
 		l.onConnect(ctx, c)
@@ -357,8 +393,8 @@ func (l *link) get(ctx context.Context) (Conn, error) {
 			// What onConnect sent ran out of time, which closes a
 			// connection: the caller's own request gets another.
 			_ = c.Close()
-			if c, err = l.dial(ctx); err != nil {
-				return nil, &dialError{err: err}
+			if c, err = l.connect(ctx); err != nil {
+				return nil, err
 			}
 		}
 	}

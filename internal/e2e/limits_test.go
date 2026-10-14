@@ -3,6 +3,7 @@ package e2e
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/server"
@@ -40,14 +41,47 @@ func TestConnectionCap(t *testing.T) {
 	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
 	alice.rawDial("s-held") // holds alice's one connection
 	r := alice.run("v0.2.0", "list")
-	if r.code != 1 || !strings.Contains(r.stderr, "alice is at its connection limit (1)") || !strings.Contains(r.stderr, "fix: ") {
-		t.Fatalf("alice's second connection: exit %d\n%s", r.code, r.stderr)
+	if want := "sfx: alice is at its connection limit (1)\nfix: " + proto.FixConnLimit + "\n"; r.code != 1 || r.stderr != want {
+		t.Fatalf("alice's second connection: exit %d\n%s\nwant exit 1\n%s", r.code, r.stderr, want)
 	}
 	r = alice.run("v0.2.0", "--json", "list")
-	if e := decode[map[string]proto.Error](t, r.stdout)["error"]; e.Code != proto.CodeBusy {
-		t.Errorf("--json refusal = %+v, want code busy", e)
+	if e := decode[map[string]proto.Error](t, r.stdout)["error"]; e.Code != proto.CodeBusy || !proto.AtConnLimit(&e) {
+		t.Errorf("--json refusal = %+v, want code busy at alice's connection limit", e)
 	}
 	bob.ok("list")
+}
+
+// At its principal's connection limit, an agent's session is told why it
+// cannot reach the server, and what waiting costs; a write it makes is
+// not queued, since busy never is. Once the session holding the slot
+// ends, alice gets in again, and the write was not kept to arrive later.
+func TestConnectionCapForAnAgent(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, daemonOpts{limits: server.Limits{ConnsPerPrincipal: 1}})
+	alice := w.newUser("alice", "")
+	alice.queues = true
+	held := alice.rawDial("s-held")
+	ag := alice.mcp("v0.2.0")
+	const title = "Made at the limit"
+	out, isErr := ag.call("create", map[string]any{"title": title})
+	if !isErr || !strings.HasPrefix(out, "busy: alice is at its connection limit (1)\nfix: the user's other starfix sessions hold every connection the server allows them") ||
+		!strings.Contains(out, "15m lease") || !strings.Contains(out, "writes are not kept for later") {
+		t.Fatalf("create at the limit = %q (error %v), want the refusal at the connection limit", out, isErr)
+	}
+	if ag.dials != 1 {
+		t.Errorf("dials = %d, want 1", ag.dials)
+	}
+
+	_ = held.nc.Close()
+	deadline := time.Now().Add(30 * time.Second)
+	for r := alice.run("v0.2.0", "list"); r.code != 0; r = alice.run("v0.2.0", "list") {
+		if time.Now().After(deadline) {
+			t.Fatalf("alice is still refused once her held connection closed: %s", r.stderr)
+		}
+	}
+	if n := alice.titled(title); n != 0 {
+		t.Errorf("%d issues titled %q, want none: a write refused at the limit is not queued", n, title)
+	}
 }
 
 // Paged comments, end to end: -n shows the newest and says how many came

@@ -707,8 +707,8 @@ func TestMultiLimitsPerProject(t *testing.T) {
 		mustDialTo(t, m.Server, alice, projA)
 		mustDialTo(t, m.Server, alice, projB) // her allowance in b is her own
 		w, _ := dialTo(t, m.Server, alice, projA)
-		if w.Err == nil || w.Err.Code != proto.CodeBusy || !strings.Contains(w.Err.Message, "alice is at its connection limit (1)") {
-			t.Errorf("alice's second connection to a = %+v, want busy naming her limit", w.Err)
+		if w.Err == nil || w.Err.Code != proto.CodeBusy || !strings.Contains(w.Err.Message, "alice is at its connection limit (1)") || !proto.AtConnLimit(w.Err) {
+			t.Errorf("alice's second connection to a = %+v, want busy naming her limit, which AtConnLimit reads", w.Err)
 		}
 		mustDialTo(t, m.Server, bob, projA)
 		// The server's total is kept across projects.

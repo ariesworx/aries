@@ -470,7 +470,15 @@ When another principal holds an issue, a change to it is refused with
 project you are not a member of. `start` is refused with
 `conflict` instead, and names the next ready issue. A request past one of
 the server's limits is refused with `invalid` or `busy`
-([Limits](server.md#limits)).
+([Limits](server.md#limits)). When your sessions already hold every
+connection the server allows one principal, the command cannot connect
+at all, and nothing it writes is queued:
+
+```text
+$ sfx list
+sfx: alice is at its connection limit (64)
+fix: close some of your other starfix sessions (each running sfx mcp, sfx watch or sfx tui holds a connection), or wait for them to end, and retry; or ask the server's operator to raise conns_per_principal under limits: in starfixd's config
+```
 
 ## Text from others is shown safely
 

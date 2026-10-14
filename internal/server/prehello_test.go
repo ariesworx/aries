@@ -216,6 +216,9 @@ func TestHandshakesPerPrincipal(t *testing.T) {
 		f.Err.Message != "alice has 2 connections that have not said hello, the most a principal may (2)" {
 		t.Fatalf("alice's third connection before a hello = %+v (closed unread: %v)\nwant busy and the fix %q", f, closed, fix)
 	}
+	if proto.AtConnLimit(f.Err) {
+		t.Errorf("AtConnLimit(%+v) = true, want false: this is the cap on handshakes", f.Err)
+	}
 	if w := openHalf(t, sock, "bob").hello(project); w.Err != nil {
 		t.Errorf("bob's handshake while alice is at her cap = %v, want a welcome", w.Err)
 	}

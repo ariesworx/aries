@@ -48,6 +48,12 @@ func explain(err error) toolErr {
 		e.Fix = "starfix reconnected and the retry failed too; try again later, and if it persists tell the user" + personFix(pe)
 	case errors.As(err, &lost):
 		e.Fix = "the connection dropped and the next call reconnects; this write may have applied, so check with show before repeating it"
+	case proto.AtConnLimit(err):
+		// Only the user can free a connection. The agent learns what
+		// waiting costs: its claims lapse, and busy is never queued.
+		e.Fix = "the user's other starfix sessions hold every connection the server allows them, so this session cannot reach it until one closes. " +
+			"Tell the user now: they can close some, or ask the server's operator to raise conns_per_principal. " +
+			"Until then, issues you hold go back to open unless renewed within their " + Lease + " lease, and writes are not kept for later; never run an admin command yourself"
 	case errors.As(err, &dial) && pe != nil && pe.Code == proto.CodeForbidden:
 		// The principal is no member of the project, or was removed or
 		// disabled while connected. The server's fix names the admin's
