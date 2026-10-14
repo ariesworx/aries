@@ -70,6 +70,7 @@ started() {
 		for p in /proc/[0-9]*; do
 			pid=${p#/proc/}
 			[ "$pid" != "$$" ] || continue
+			# shellcheck disable=SC2002 # cat, so that a file that has gone is cat's complaint to drop, not the shell's
 			if cat "$p/environ" 2>/dev/null | tr '\0' '\n' | grep -qxF "TMPDIR=$dir" ||
 				cat "$p/cmdline" 2>/dev/null | tr '\0' ' ' | grep -qF "/$name"; then
 				cmd=$(cat "$p/cmdline" 2>/dev/null | tr '\0' ' ' | cut -c1-200)
