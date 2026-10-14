@@ -104,6 +104,9 @@ func (l *Local) Cache(principal string) *Cache {
 	return &Cache{l: l, principal: principal, dir: l.cacheDir(principal), opts: l.opts.Cache.withDefaults()}
 }
 
+// Principal is whose cache it is.
+func (c *Cache) Principal() string { return c.principal }
+
 // cacheDir is principal's cache: named for the principal, as an outbox
 // is, so it is never another principal's answer.
 func (l *Local) cacheDir(principal string) string {

@@ -105,7 +105,7 @@ func newAway(t *testing.T, conns ...*fakeConn) *away {
 		c.who, c.key = "alice", a.key
 	}
 	var err error
-	a.srv = New(Options{Version: "v0.2.0", Dial: a.net.dial, Offline: a.off, RenewEvery: -1})
+	a.srv = New(Options{Version: "v0.2.0", Dial: a.net.dial, Offline: a.off, Cache: a.off, RenewEvery: -1})
 	t.Cleanup(func() { _ = a.srv.Close() })
 	st, ct := mcp.NewInMemoryTransports()
 	if _, err := a.srv.MCP().Connect(t.Context(), st, nil); err != nil {

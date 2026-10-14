@@ -7,8 +7,10 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ariesworx/starfix/internal/client"
+	"github.com/ariesworx/starfix/internal/offline"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/safetext"
 )
@@ -43,6 +45,47 @@ type Prime struct {
 	// Memories are the pinned memories, then those relevant to your
 	// in-progress issues, then the newest (design §6).
 	Memories []Memory `json:"memories,omitempty"`
+
+	// cached: this prime is this machine's copy, shown while the server
+	// cannot be reached ([CachedPrime]); its first notice says so.
+	cached bool
+}
+
+// KeepPrime keeps p in cache, as this machine's copy of the principal's
+// prime, without its notices, which are said afresh when it is shown. A
+// nil cache keeps nothing.
+func KeepPrime(cache *offline.Cache, p *Prime) error {
+	if cache == nil {
+		return nil
+	}
+	kept := *p
+	kept.Notices, kept.Untrusted = nil, ""
+	return cache.Put(offline.PrimeKey, kept)
+}
+
+// CachedPrime is the prime kept in cache ([KeepPrime]), for the session
+// session, at now: with no ready issues, since none can be started
+// without the server (design §14, decision 39) and §18.6 refuses ready
+// offline; with the line that says it is this machine's copy and how
+// old as its first notice, then notices; and held under MaxPrimeTokens.
+// It also returns when it was kept, and false when nothing is.
+func CachedPrime(cache *offline.Cache, session string, now time.Time, notices ...string) (*Prime, time.Time, bool) {
+	var p Prime
+	if cache == nil {
+		return nil, time.Time{}, false
+	}
+	at, ok := cache.Get(offline.PrimeKey, &p)
+	if !ok {
+		return nil, time.Time{}, false
+	}
+	p.Session = cmp.Or(session, p.Session)
+	p.Ready, p.cached = []proto.Summary{}, true
+	if p.Working == nil {
+		p.Working = []proto.Summary{}
+	}
+	p.Notices = append([]string{offline.CachedLine(at, now)}, notices...)
+	p.fit()
+	return &p, at, true
 }
 
 // How much prime shows.
@@ -199,7 +242,11 @@ func (p *Prime) Text() string {
 	if p.More {
 		b.WriteString("(more not shown: use list, ready and recall)\n")
 	}
-	b.WriteString("next: start (the top ready issue, or an id), then finish when done\n")
+	if p.cached {
+		b.WriteString("next: carry on with the work in progress; nothing can be started until the server answers, and finish, handoff and comment are kept until then\n")
+	} else {
+		b.WriteString("next: start (the top ready issue, or an id), then finish when done\n")
+	}
 	b.WriteString(primeDataNote + "\n" + primeDataBegin + "\n")
 	section := func(name, empty string, list []proto.Summary) {
 		fmt.Fprintf(&b, "%s:\n", name)
@@ -211,7 +258,11 @@ func (p *Prime) Text() string {
 		}
 	}
 	section("in progress", "none", p.Working)
-	section("ready", "nothing ready", p.Ready)
+	if p.cached {
+		section("ready", "not shown while the server cannot be reached", nil)
+	} else {
+		section("ready", "nothing ready", p.Ready)
+	}
 	if len(p.Memories) > 0 {
 		b.WriteString("memories:\n")
 		for _, m := range p.Memories {
