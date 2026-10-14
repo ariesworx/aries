@@ -197,9 +197,12 @@ keeps a removed key out is not the file:
 
 This was run with a real sshd, OpenSSH 9.6 on Ubuntu 24.04, in the
 Docker test server, and under systemd on an Ubuntu 24.04 virtual
-machine. It has not been run on a cloud provider's image
+machine; and with OpenSSH 10.2 on Ubuntu 26.04, under systemd in a
+virtual machine set up by the server installer. It has not been run on
+a cloud provider's image
 ([Keys from the store](server.md#keys-from-the-store) lists what was
-checked). The supported platform for a server is Ubuntu LTS; systems
+checked). The supported
+platforms for a server are Ubuntu 24.04 LTS and 26.04 LTS; systems
 that run SELinux are not supported yet
 ([What a server needs](server.md#what-a-server-needs)).
 
@@ -658,7 +661,10 @@ What the profiles do not change:
   profile for sshd, and starfix none for Dolt.
 
 The profiles were tested on Ubuntu 24.04 on arm64, in a virtual machine,
-on 12 October 2026: everything the server guide sets up ran with them
+on 12 October 2026, and on Ubuntu 26.04 the same way on 14 October,
+where the kernel stacks the daemon's and the operator's profiles on
+`unconfined` and both still apply
+([Confine starfixd with AppArmor](server.md#confine-starfixd-with-apparmor)): everything the server guide sets up ran with them
 enforced and nothing was refused, and each thing above that they
 forbid was tried and refused. amd64 was not tested, nor an upgrade to a
 newer release under them. Without them, stock Ubuntu confines neither

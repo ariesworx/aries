@@ -50,7 +50,7 @@ principal and which key signed in. To sign in with another key, set
 
 ## Install a server
 
-On a fresh Ubuntu 24.04 LTS machine, `install-server.sh` sets up the
+On a fresh Ubuntu 24.04 LTS or 26.04 LTS machine, `install-server.sh` sets up the
 whole server, `starfixd` included, as root:
 
 ```sh

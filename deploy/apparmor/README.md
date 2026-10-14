@@ -176,6 +176,33 @@ directory, and the key is one level down. Both were tried as the
 `starfix` user, who owns the file, and both were refused and logged as
 `DENIED`.
 
+## On Ubuntu 26.04
+
+Run on 14 October 2026 on Ubuntu 26.04.1 (kernel 7.0.0-34, AppArmor
+5.0.2, systemd 259, OpenSSH 10.2p1, sudo-rs as `sudo`), arm64, in a
+fresh virtual machine set up by `install-server.sh --apparmor`. The
+profiles parse under AppArmor 5 with their `abi <abi/4.0>`. Two things
+differ from 24.04, and the profiles changed for both:
+
+| What differs | What it did | The change |
+|---|---|---|
+| `kernel.apparmor_restrict_unprivileged_unconfined` is 1 (0 on 24.04). A process that is not root and changes to a profile gets the profile stacked on `unconfined` | The daemon runs as `starfixd-serve//&unconfined (enforce)` (systemd changes profile after `User=starfix`), and the operator's commands as `starfixd-admin//&unconfined` (`aa-exec` as `starfix`). As root, `aa-exec` still gives a plain label, and with the sysctl at 0 so do both; `no_new_privs` and sudo-rs played no part. `abstractions/base` lets a profile signal `@{profile_name}`, which the stacked label is not, so the kernel refused the Go runtime's `SIGURG` to its own threads: `operation="signal" … signal=urg peer="starfixd-serve//&unconfined"`, three times in the daemon's first half minute | `signal peer=@{profile_name}//&unconfined,` in `starfixd-serve` and `starfixd-admin`. A throwaway pair of profiles entered as another user, alike but for that rule, showed it needed and enough: without it a signal to the process's own label was refused and logged, with it allowed |
+| `sudo` is sudo-rs: `/usr/bin/sudo` leads to `/usr/lib/cargo/bin/sudo`, or to `/usr/bin/sudo.ws` where the machine chose the original | `upgrade --rollback --restart` under `starfixd-admin` restored the binary and could not restart the unit: `exec` of `/usr/lib/cargo/bin/sudo` denied, since AppArmor names the file a link leads to | `/usr/bin/sudo.ws rUx,` and `/usr/lib/cargo/bin/sudo rUx,` beside `/usr/bin/sudo rUx,`. Then the same command restarted the unit and found it healthy with either `sudo` |
+
+The bridge, attached by its path, is a plain `starfixd (enforce)`: the
+stack comes only from a change of profile. A stack allows only what
+each of its profiles allows, and under `starfixd-admin//&unconfined` a
+write into `.ssh` was still refused. With the changed profiles, the
+installer's checks, 300 requests from three clients at a time, the
+operator's commands and two cold boots that were checked logged
+nothing of starfixd's. The same profiles were run on a fresh 24.04
+machine the same day: plain labels, the same checks, no denial.
+
+Ubuntu 26.04 also ships profiles for many of its own programs, which
+log refusals of their own (`who` and `systemd-detect-virt` at boot, on
+this machine); look for starfixd's with
+`journalctl -k -g 'apparmor="DENIED".*profile="starfixd'`.
+
 ## What is not covered
 
 - **A real upgrade.** A build from source refuses to upgrade itself, so
@@ -209,7 +236,8 @@ apparmor_parser -Q -K -I deploy/apparmor deploy/apparmor/starfixd
 ```
 
 checks the syntax without loading anything, and needs no root; CI runs
-it on its Ubuntu runner. It does not say whether starfixd still works
+it on an Ubuntu 24.04 runner (AppArmor 4) and an Ubuntu 26.04 runner
+(AppArmor 5). It does not say whether starfixd still works
 under the profiles. A change to what starfixd reads, writes, connects
 to or runs needs the profiles changed with it, and a run on a machine
 with AppArmor.

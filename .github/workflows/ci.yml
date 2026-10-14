@@ -106,6 +106,19 @@ jobs:
           path: ~/.cache/go-build
           key: ${{ steps.build-cache.outputs.cache-primary-key }}
 
+  # The AppArmor profiles' syntax under Ubuntu 26.04's parser (AppArmor
+  # 5), as lint checks it under 24.04's (AppArmor 4): docs/server.md
+  # supports both. A checkout and one command, with no Go.
+  apparmor-26-04:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: AppArmor profile syntax
+        run: /usr/sbin/apparmor_parser -Q -K -I deploy/apparmor deploy/apparmor/starfixd
+
   # The store tests run against a real dolt sql-server, pinned and verified.
   test:
     runs-on: ubuntu-24.04

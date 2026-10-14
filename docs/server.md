@@ -21,17 +21,24 @@ For complete deployments with costs, see the
 - **Linux**, amd64 or arm64, with systemd and OpenSSH. `starfixd serve`
   refuses to run on other systems, because only Linux lets it check which
   user connects to its socket.
-- **Ubuntu 24.04 LTS is the supported platform.** The steps below are
-  written for it and were run on it, under systemd, in a virtual machine
-  on arm64 ([What was run, and where](#what-was-run-and-where)). amd64
-  and cloud providers' images were not. Other distributions may work and
-  are untested.
+- **Ubuntu 24.04 LTS and 26.04 LTS are the supported platforms.** The
+  steps below are written for both and were run on both, under systemd,
+  in virtual machines on arm64 ([What was run, and
+  where](#what-was-run-and-where)). amd64 and cloud providers' images
+  were not. Other distributions, and Ubuntu's releases between the two,
+  may work and are untested. One text serves both; where 26.04 behaves
+  differently the guide says so: its `sudo` is sudo-rs, its sshd turns
+  away for a while an address that fails to log in
+  ([step 6](#6-let-the-first-principal-in)), its clock is kept by chrony
+  ([Keep the clock synchronized](#keep-the-clock-synchronized)), and its
+  AppArmor stacks a profile a service changes to
+  ([Confine starfixd with AppArmor](#confine-starfixd-with-apparmor)).
 - **Systems that run SELinux are not supported yet**: RHEL, Rocky Linux,
   AlmaLinux, Fedora. Nothing here has been run on one, and this guide
   sets no SELinux label and ships no policy module. That support will
   follow once starfix has a test harness that boots such a machine.
-  Ubuntu's mandatory access control is AppArmor. Stock Ubuntu 24.04
-  confines neither sshd nor starfixd with it; profiles for starfixd ship
+  Ubuntu's mandatory access control is AppArmor. Stock Ubuntu, 24.04 or
+  26.04, confines neither sshd nor starfixd with it; profiles for starfixd ship
   with starfix, as an optional step
   ([Confine starfixd with AppArmor](#confine-starfixd-with-apparmor)).
 - **A synchronized clock.** Leases and the order of history depend on
@@ -64,7 +71,7 @@ For complete deployments with costs, see the
 
 Run these steps as root (`sudo -i`). Each step ends with a command that
 shows it worked, and none puts a password on a command line. On a fresh
-Ubuntu 24.04 LTS machine, the installer does them for you
+Ubuntu 24.04 LTS or 26.04 LTS machine, the installer does them for you
 ([below](#with-the-installer)); the steps stay the reference for what
 it does and why.
 
@@ -73,7 +80,7 @@ it does and why.
 `install-server.sh`, beside `install.sh` at the top of the repository,
 does the steps of this section, and those of [Opt in](#opt-in) and
 [Keys from the store](#keys-from-the-store), on a fresh Ubuntu 24.04 LTS
-machine. It sets up a server of [many projects](#serving-many-projects)
+or 26.04 LTS machine. It sets up a server of [many projects](#serving-many-projects)
 from the start: admins add people and projects with `sfx admin`, from
 anywhere. Copy the first admin's public key to the machine, read the
 script, and run it as root, first with `--dry-run`:
@@ -105,7 +112,7 @@ Its steps, and the sections of this guide each one follows:
 
 | Step | | Follows |
 |---|---|---|
-| 1 | Check the machine | [What a server needs](#what-a-server-needs): Ubuntu 24.04, amd64 or arm64, systemd, OpenSSH |
+| 1 | Check the machine | [What a server needs](#what-a-server-needs): Ubuntu 24.04 or 26.04, amd64 or arm64, systemd, OpenSSH |
 | 2 | Install Dolt | [1. Install Dolt](#1-install-dolt), with the checksum compared for you |
 | 3 | Run Dolt under its own account | [2. Run Dolt under its own account](#2-run-dolt-under-its-own-account) |
 | 4 | Install starfixd | [3. Install starfixd](#3-install-starfixd), by `install.sh`, which checks the signature and the checksum; and `sfx` in `/usr/local/bin` |
@@ -150,7 +157,7 @@ Its steps, and the sections of this guide each one follows:
   `STARFIX_DOLT_BASE_URL`, and is checked against the pinned checksum
   either way.
 - **What it leaves to you:** the firewall (`ufw limit 22/tcp`, step 6),
-  `PasswordAuthentication no` and `PerSourcePenaltyExemptList`,
+  `PasswordAuthentication no` and, on 26.04, `PerSourcePenaltyExemptList`,
   [telemetry](#observability), [backups](#backups-and-restore), and
   upgrades (`starfixd upgrade`). Keep the admin's line in
   `authorized_keys`: it is the way in when nothing else is
@@ -189,6 +196,30 @@ release tree in a directory, signed with a test key
   `--apparmor`, that changed nothing; a reboot, after which both units
   were active, with no failed start and no denial, and a run changed
   nothing.
+- **On Ubuntu 26.04**, the same day, the same way: in Docker, Ubuntu
+  26.04.1 with systemd 259, sudo-rs and Rust coreutils, as the release
+  ships them: a dry run, a run (34 changes), a second run that changed
+  nothing, runs stopped by a signal in step 3, between the config file
+  and the SQL of step 5, and in step 6, each finished by the next, and
+  the three refusals above; then the same `sfx` checks from the host,
+  against the server of the full run and that of the stopped ones. In a
+  fresh virtual machine (Lima 2.2.1, Ubuntu's cloud image of 26.04.1,
+  kernel 7.0, OpenSSH 10.2p1, AppArmor 5.0.2, enforced): a run with
+  `--apparmor`, the `sfx` checks from the host, reruns with and without
+  `--apparmor` that changed nothing, and cold boots, after two of which
+  both units were checked and active, with no failed start and nothing
+  of starfixd's denied, and a run changed nothing.
+  `systemd-analyze verify` accepted both units, and `systemd-analyze
+  security` scores them as on 24.04. What differed is in the steps it
+  concerns: the profiles needed two changes
+  ([Confine starfixd with AppArmor](#confine-starfixd-with-apparmor)),
+  sshd's penalties ([step 6](#6-let-the-first-principal-in)), and the
+  time service ([Keep the clock synchronized](#keep-the-clock-synchronized)).
+  The installer itself changed only to accept 26.04, and to keep
+  sudo-rs's `visudo` from printing `parsed OK`. Then on 24.04 again, in
+  Docker and in a fresh virtual machine with `--apparmor`, a run, a
+  rerun that changed nothing and the `sfx` checks, with the changed
+  profiles, and a cold boot with no denial.
 
 Not run: amd64; a real release downloaded from GitHub, and
 `raw.githubusercontent.com` as the source of `install.sh` and the
@@ -435,7 +466,7 @@ WantedBy=multi-user.target
 | `NotifyAccess=main` | Only starfixd's own process may send those notifications |
 | `TimeoutStartSec=600` | How long systemd waits for that. Its default is 90 seconds, after which it fails the start and `Restart=on-failure` tries again; an upgrade that migrates many projects can take longer than that, so the unit gives it 10 minutes |
 | `WatchdogSec=120` | starfixd must say it is alive at least every 120 seconds, or systemd kills it and `Restart=on-failure` starts it again. starfixd says so every 60, half the interval, from the goroutine that runs its 30-second reaper, so a daemon whose reaper hangs is restarted. One tick of the reaper that takes longer than `WatchdogSec` is a hang too, and a Dolt that has stopped answering can cause one: each of the reaper's writes waits up to a minute |
-| `Wants=time-sync.target` and `time-sync.target` in `After=` | Order starfixd after the clock is synchronized, on a machine where something provides that target. Stock Ubuntu 24.04 reaches it at once, so there the lines wait for nothing ([Start starfixd after the clock is set](#start-starfixd-after-the-clock-is-set)) |
+| `Wants=time-sync.target` and `time-sync.target` in `After=` | Order starfixd after the clock is synchronized, on a machine where something provides that target. Stock Ubuntu, 24.04 or 26.04, reaches it at once, so there the lines wait for nothing ([Start starfixd after the clock is set](#start-starfixd-after-the-clock-is-set)) |
 | `RestartPreventExitStatus=75` | Leaves starfixd stopped when it refuses to start because the clock is behind its own history, which no restart can correct ([The server's clock](#the-servers-clock)). It exits with that status 0.13 seconds after systemd starts it, before it would tell systemd it is ready, so the start fails then and not when `TimeoutStartSec` runs out. Every other failure is still restarted |
 
 Without the first four lines starfixd runs as before: it sends a
@@ -545,7 +576,10 @@ shell as the account that can read starfixd's config file. Checked on 12
 October 2026 with OpenSSH 9.6 on Ubuntu 24.04: with a certificate
 authority trusted outside the `Match` block, a certificate for the
 principal `starfix` ran a command as the account; with these lines it is
-refused.
+refused. Checked again on 14 October 2026 with OpenSSH 10.2 on Ubuntu
+26.04, with the drop-in as the installer writes it: with an authority
+trusted for every account, one certificate for two principals let in
+the machine's own user and was refused for `starfix`.
 
 ```sh
 install -d -m 0755 /run/sshd
@@ -556,14 +590,15 @@ ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
 
 - `sshd -t` checks the config. It needs `/run/sshd`, which systems that
   start sshd on the first connection have not made yet.
-- The unit is `sshd` rather than `ssh` on some distributions.
+- The unit is `sshd` rather than `ssh` on some distributions; Ubuntu
+  26.04 answers to both.
 - `DisableForwarding` means no tunnel to Dolt, even from a key line that
   lacks `restrict`.
 - `MaxStartups` drops floods of unauthenticated connections early.
 - `ClientAliveInterval` keeps an agent's long session alive through
   tunnels that drop idle connections.
 - A `Match` block in a drop-in file applies to that file only (OpenSSH 9.6
-  checked).
+  and 10.2 checked).
 - On a machine whose admins all sign in with keys, also add
   `PasswordAuthentication no` above the `Match` line.
 
@@ -581,7 +616,26 @@ OpenSSH 9.8 and later also turn away, for a while, an address that fails
 to log in or crashes a session (`PerSourcePenalties`, on by default).
 Behind shared addresses, one bad client could then lock out the team, so
 list those ranges in `PerSourcePenaltyExemptList`, above the `Match` line
-(it is a global setting).
+(it is a global setting). **Ubuntu 26.04 has OpenSSH 10.2, so there this
+is on;** 24.04's OpenSSH 9.6 has no such setting, and a line naming it
+fails `sshd -t` there. What 26.04 showed, with its defaults (`sshd -T |
+grep persourcepenalties`):
+
+- A principal whose key was removed tried four times; sshd then dropped
+  every connection from that address for about 25 seconds, the admin's
+  among them (`drop connection … penalty: failed authentication` in
+  `journalctl -u ssh`). `sfx` says only `ssh handshake with HOST:PORT
+  failed: ssh: handshake failed: EOF`.
+- A connection that ends before it tries to log in counts too (`penalty:
+  connections without attempting authentication`): 16 from `sfx`
+  refusing a host key that no longer matched its pin turned the address
+  away, and each refused retry lengthened it. A client that keeps
+  retrying with an old pin, or a port check, can keep its address out.
+  Before you [rotate the host key](#rotating-the-host-key), have clients
+  pin the new key.
+- Penalties last at most 10 minutes (`max:600`). An address in
+  `PerSourcePenaltyExemptList` is not turned away by them, as
+  `sshd_config(5)` says (not run here).
 
 ### 7. Connect a repository
 
@@ -728,6 +782,40 @@ its own, working or dead (this guest's comes from the hypervisor at
 every boot and was always right); a boot with the clock wrong; a
 virtual machine paused and resumed, or restored from a snapshot; a
 provider's time service; `chrony`.
+
+**On Ubuntu 26.04**, on 14 October 2026, the installer did steps 1 to 7
+and the many-projects sections
+([With the installer](#with-the-installer)) on a second machine:
+
+| | |
+|---|---|
+| Machine | A virtual machine on an Apple silicon Mac (Lima 2.2.1), arm64, 2 CPUs and 4 GiB, from Ubuntu's cloud image for 26.04 |
+| System | Ubuntu 26.04.1, kernel 7.0.0-34, systemd 259, OpenSSH 10.2p1, sudo-rs 0.2.13 as `sudo` (the original, 1.9.17p2, installed as `sudo.ws`), Rust coreutils 0.10, chrony with NTS, AppArmor 5.0.2, Dolt 2.4.2 |
+| starfixd | Built from the source tree for linux/arm64 and installed by the installer, which ran `install.sh` against a release tree signed with a test key |
+| Clients | `sfx` on the Mac, through the port Lima forwards to sshd; and `sfx` inside the machine, against `127.0.0.1` |
+
+What that showed, beyond what the installer's run says:
+
+- **Every command the steps and the installer use works under sudo-rs
+  and Rust coreutils as under sudo and GNU coreutils**: `sudo -u USER -H`
+  with `env` and standard input, `visudo -c -f` (sudo-rs's prints
+  `parsed OK` even with `-q`), the sudo rule for `systemctl restart`
+  from the `starfix` user, and refusing anything else; `install` with
+  `-o`, `-g`, `-m` and `-d`, and from `/dev/stdin` and `/dev/null`;
+  `stat -c`, `mktemp -d`, `cut -s`, `tail -c`, `sha256sum`, `readlink`,
+  `ln -sfn`. Ubuntu keeps GNU's `mv` (and `cp` and `rm`).
+- **The units, sshd's `Match` block** and its refusals of a terminal, a
+  tunnel and a certificate, as on 24.04
+  ([step 6](#6-let-the-first-principal-in)). sshd listens through
+  `ssh.socket`, as on 24.04, and systemd 259 also makes it answer on
+  `AF_VSOCK` in a virtual machine (`sshd-vsock.socket`), with the same
+  configuration.
+- **`starfixd upgrade --rollback --restart`** under the operator's
+  profile, with sudo-rs and with `sudo.ws` as `sudo`, once the profile
+  names both ([Confine starfixd with
+  AppArmor](#confine-starfixd-with-apparmor)).
+- **The time service**: `time-sync.target` and `chrony-wait.service`
+  ([Start starfixd after the clock is set](#start-starfixd-after-the-clock-is-set)).
 
 ## Principals
 
@@ -1728,8 +1816,12 @@ monotonic clock running: starfixd sees time pass, not a step.
 
 - **Run a time service, and check it.** Ubuntu 24.04 ships
   `systemd-timesyncd`, enabled, synchronizing to `ntp.ubuntu.com`.
-  `timedatectl` must say `System clock synchronized: yes`, and
-  `timedatectl timesync-status` names the source and the offset.
+  Ubuntu 26.04 ships `chrony` in its place, enabled, with NTS to
+  Ubuntu's own pools. On either, `timedatectl` must say `System clock
+  synchronized: yes`. `timedatectl timesync-status` names the source
+  and the offset on 24.04; on 26.04 it needs `systemd-timesyncd`, and
+  `chronyc tracking` says the same (`chronyc -n authdata` shows the
+  sources answering over NTS).
 - **Use several sources, authenticated where they offer it.** Ordinary
   NTP is not authenticated: whoever can answer for the time source can
   set the server's clock. Network Time Security (NTS) authenticates the
@@ -1737,7 +1829,10 @@ monotonic clock running: starfixd sees time pass, not a step.
   speak NTS (general knowledge, not checked here). `chrony`, version 4.5
   in Ubuntu 24.04's main archive and built with NTS, combines several
   sources and can use NTS ones; its default configuration there lists
-  pools without NTS, and installing it removes `systemd-timesyncd`.
+  pools without NTS, and installing it removes `systemd-timesyncd`. On
+  26.04 that is the default: four of Ubuntu's NTS pools
+  (`/etc/chrony/sources.d/ubuntu-ntp-pools.sources`), seen answering
+  over NTS.
   Authentication matters when the network between the server and its
   time source is not yours. On a cloud virtual machine use the
   provider's own time service, which is reached without crossing the
@@ -1773,14 +1868,20 @@ cold boot each time:
 | Stock Ubuntu 24.04 | 1.7 s after the kernel started, 37 microseconds after `time-set.target`, before the network was up or any time server heard from | 9.7 s (its first start loses the race with Dolt, as before) | 4.6 s |
 | `systemd-time-wait-sync` enabled, a time server reachable | 33.4 s, as `systemd-timesyncd` logged `Initial clock synchronization` | 33.5 s | 33.7 s |
 | The same, no time server answering | 91.5 s, when the wait unit's 90 second timeout failed it (`Failed with result 'timeout'`) | 91.6 s | 1 min 32 s |
+| Stock Ubuntu 26.04 (the 26.04 machine of [What was run, and where](#what-was-run-and-where)) | 1.5 s, with `time-set.target`, before `chrony` had started | 3.6 s, with `chrony` not yet synchronized | 3.9 s |
+| 26.04 with `chrony-wait.service` enabled, the time servers reachable | 12.3 s, as `chrony-wait` finished, 3.8 s after `chronyd` logged `Selected source` | 12.4 s | 12.7 s |
 
-- **On stock Ubuntu 24.04 the two lines wait for nothing.**
-  `time-sync.target` follows `time-set.target`, which
-  `systemd-timesyncd` reaches as it starts. The unit that waits for a
-  synchronized clock, `systemd-time-wait-sync.service`, ships disabled.
-  The lines are in the unit so that it waits once something on the
-  machine provides the target.
-- **Waiting for synchronization is optional, and needs a timeout.**
+- **On stock Ubuntu, 24.04 or 26.04, the two lines wait for nothing.**
+  `time-sync.target` is reached with `time-set.target`, early in the
+  boot and before any time server is heard from. The unit that waits for a synchronized
+  clock ships disabled: `systemd-time-wait-sync.service` on 24.04,
+  `chrony-wait.service` on 26.04. The lines are in the unit so that it
+  waits once something on the machine provides the target.
+- **Waiting for synchronization is optional, and needs a timeout.** On
+  26.04, `chrony-wait.service` has one, 180 seconds, so enabling it is
+  enough: `systemctl enable chrony-wait.service`. 26.04 has no
+  `systemd-time-wait-sync.service`, which comes with
+  `systemd-timesyncd`. On 24.04:
 
   ```sh
   mkdir -p /etc/systemd/system/systemd-time-wait-sync.service.d
@@ -1805,9 +1906,9 @@ cold boot each time:
   or one that has come up with a wrong date before. On a virtual
   machine whose hypervisor supplies the time at boot, as this one's
   does (the kernel logged `rtc-efi: setting system clock` 0.05 s into
-  every boot, and it was right each time), it buys little.
-  `chrony` ships `chrony-wait.service` for the same purpose, with a
-  timeout of 180 seconds (not run).
+  every boot, and it was right each time), it buys little. On 26.04,
+  with `chrony-wait.service`, it added 9 seconds with the time servers
+  reachable; with none answering it would add up to its 180 (not run).
 
 Why the order matters at all: a daemon that starts with the clock
 **ahead** writes events in the future, and once the clock is corrected
@@ -2126,12 +2227,13 @@ Fixed caps that no setting changes:
 ## Confine starfixd with AppArmor
 
 This step is optional. It was tested on Ubuntu 24.04, on arm64, in a
-virtual machine, on 12 October 2026
+virtual machine, on 12 October 2026, and on Ubuntu 26.04 the same way
+on 14 October 2026
 ([What was run, and where](#what-was-run-and-where)); amd64 was not
 tested.
 
-Ubuntu 24.04 runs AppArmor, and out of the box it confines neither sshd
-nor a program it has no profile for: on the machine above, `aa-status`
+Ubuntu runs AppArmor, and out of the box it confines neither sshd
+nor a program it has no profile for: on the machines above, `aa-status`
 listed no profile for sshd, sshd and its children ran `unconfined`, and
 so did starfixd. starfix ships three profiles for starfixd
 ([deploy/apparmor](../deploy/apparmor/README.md)). They matter most for
@@ -2168,12 +2270,42 @@ systemctl restart starfixd
 cat /proc/"$(systemctl show starfixd -p MainPID --value)"/attr/current
 ```
 
-The last command prints `starfixd-serve (enforce)`. The two files are
+The last command prints `starfixd-serve (enforce)` on 24.04, and
+`starfixd-serve//&unconfined (enforce)` on 26.04. The two files are
 short and are not part of a signed release, so read them before you
 install them. AppArmor loads everything in `/etc/apparmor.d` at boot.
 To watch before you enforce, load them with `apparmor_parser -r -C`
 instead: AppArmor then logs what it would have refused and refuses
 nothing.
+
+**On Ubuntu 26.04 a profile changed to is stacked.** There
+`kernel.apparmor_restrict_unprivileged_unconfined` is 1 (on 24.04 it
+is 0), so when a process that is not root changes to a profile, as
+systemd does for the unit's `User=starfix` and `aa-exec` does for the
+`starfix` user, the kernel stacks the profile on `unconfined`:
+`starfixd-serve//&unconfined`, and `starfixd-admin//&unconfined`. The
+profile still decides, since a stack allows only what each of its
+profiles allows: under the operator's, `export-bd -o` into `.ssh` was
+still refused and logged. The bridge, which its path
+attaches, is a plain `starfixd`. What the stack changed, each in this
+release's profiles:
+
+- **A process could not signal its own threads.** Go preempts a
+  goroutine with `SIGURG`, and the base rules allow signals to the
+  profile's own name, which the stacked label is not. The kernel logged
+  `operation="signal" … signal=urg peer="starfixd-serve//&unconfined"`.
+  The profiles now allow that peer too.
+- Not the stack, but the same release: **`sudo` is sudo-rs**, and
+  `/usr/bin/sudo` leads to `/usr/lib/cargo/bin/sudo`, or to
+  `/usr/bin/sudo.ws` where the machine chose the original. AppArmor
+  names the file a link leads to, so the operator's profile, which
+  named only `/usr/bin/sudo`, refused it, and `starfixd upgrade` could
+  not restart the unit (`fork/exec /usr/bin/sudo: permission denied`).
+  The profile now names all three.
+
+A server whose profiles are older than 14 October 2026 needs this
+release's on 26.04: install them again as above. The installer shows
+how the installed file differs, and leaves it to you.
 
 **Run the operator's commands through `aa-exec`** from then on, as the
 `starfix` user as before:
@@ -2192,6 +2324,12 @@ sudo -u starfix -H aa-exec -p starfixd-admin -- starfixd export-bd -o back.jsonl
   `authorized_keys`, anything that opens the store on `dial tcp
   127.0.0.1:3306: socket`, and `upgrade` on its lookup of the release
   host (`api.github.com`, unless `releases:` names another).
+- A `releases:` that is a directory on the server, as the installer's
+  `--releases DIR` writes it, is refused under the operator's profile
+  too (`open DIR: permission denied`). Allow it in
+  `/etc/apparmor.d/local/starfixd-admin` with `DIR/ r,` and `DIR/** r,`,
+  then `apparmor_parser -r /etc/apparmor.d/starfixd` (run on 26.04: the
+  directory was then read).
 - `import-bd` and `export-bd -o` take files in the top of
   `/var/lib/starfix`, not below it or elsewhere. A file your shell
   opens is not limited: `starfixd import-bd - < FILE`, `starfixd
@@ -2235,11 +2373,14 @@ is logged once and changes nothing else.
 **To see what was refused:**
 
 ```sh
-journalctl -k -g 'apparmor="DENIED"'
+journalctl -k -g 'apparmor="DENIED".*profile="starfixd'
 ```
 
 Each line names the profile, the operation and the path or the kind of
-socket. In correct use there are none.
+socket. In correct use there are none. Without the profile's name the
+command also shows other programs' refusals: Ubuntu 26.04 ships
+profiles for many of its own programs, and on the 26.04 machine the
+kernel logged some at boot (`who`, `systemd-detect-virt`).
 
 **To remove them:**
 
@@ -2296,6 +2437,24 @@ starfixd reading them every 15 seconds, which needed no rule added:
 to AppArmor it is one more TCP connection. What
 was not: an upgrade to a newer release (its `--check` and `--rollback`
 were run), and amd64.
+
+On Ubuntu 26.04 (14 October 2026), with this release's profiles
+enforced: the installer's run with `--apparmor`, the `sfx` checks of
+[With the installer](#with-the-installer), 300 requests from three
+clients at a time, `starfixd status`, `control init`, `export-bd` and
+`upgrade --rollback --restart` under the operator's profile, and cold
+boots, two of them checked, with nothing of starfixd's denied; a command run without
+`aa-exec`, and a write into `.ssh` under the operator's profile, were
+each refused and logged. The two changes above were each seen needed:
+with the profiles as they were, the kernel refused `SIGURG` three times
+within half a minute of the daemon's first start, and `upgrade --rollback --restart`
+restored the binary and could not restart the unit. A throwaway
+profile entered as a user other than root could not signal itself
+without the new rule and could with it. `SIGURG` was not refused again
+under load with either profile, so the daemon's own run shows the rule
+needed, not that it suffices. The 24.04 machine ran the installer with
+these profiles too: `starfixd-serve (enforce)`, the `sfx` checks,
+`upgrade --rollback --restart`, and a cold boot, with no denial.
 
 ## Logs
 
@@ -3718,6 +3877,7 @@ Dolt's collector: 1762 cycles for 12000 writes in 10m, 15 for each 100 writes: O
 | `sfx: … accepted no key`, though the key line is right | The `starfix` account is locked (`!` in `/etc/shadow`), or its shell is `nologin` | `usermod -p '*' starfix`; `usermod -s /bin/sh starfix` |
 | `sfx: starfixd is not running on the server` | The daemon is stopped, or failed at start | `journalctl -u starfixd` shows why; `systemctl start starfixd` |
 | `sfx: timed out after 15s waiting for … to open an ssh session`, `to start starfixd` or `to answer the hello` | The server accepted the key and then did not answer within the 15 seconds `sfx` gives a connection: sshd, or something on the path to it, went quiet (the first two), or `starfixd stdio` or the daemon did not answer (the last) | Run it again. If it persists: `journalctl -u ssh` for the first two, and `starfixd status` and `journalctl -u starfixd` for the last |
+| `sfx: ssh handshake with HOST:PORT failed: ssh: handshake failed: EOF`, for everyone behind one address at once | sshd turned the address away for a while: on OpenSSH 9.8 and later, Ubuntu 26.04's among them, after failed logins or connections that ended before logging in from it, such as a removed key or a pin of an old host key retried ([step 6](#6-let-the-first-principal-in)) | It ends within 10 minutes. On the server, `journalctl -u ssh -g penalty` names the address and the cause; stop the client that fails, and list shared addresses in `PerSourcePenaltyExemptList` |
 | `sfx: open ssh session: the server closed the connection once it had accepted the key` | sshd took the key and hung up before a session was open: it was restarting, or something between the two machines cut the connection | Run it again. If it persists, `journalctl -u ssh` on the server |
 | `project "…" is not served by this server` | `.starfix.yaml` and the config file name different projects; with `control_db`, the project is unknown or archived | Make the two `project` values match |
 | `… is not a member of project "…"` | With `control_db`: the principal has no row in the control database, or is in other projects only | An admin runs `sfx admin member add NAME` in the project's repository (`principal add NAME` for someone new) |
@@ -3739,6 +3899,7 @@ Dolt's collector: 1762 cycles for 12000 writes in 10m, 15 for each 100 writes: O
 | `starfixd's Dolt account was never granted database …` | `project add` took a name in `project_dbs` that was never granted | As Dolt's root, run the `GRANT` statement in the fix, then run the same `sfx admin project add NAME` again |
 | `every database name for new projects is in use` | Every name in `project_dbs` has a project, archived ones included | Grant more names and raise `count` |
 | `… may not …: it is for …` | An `sfx admin` command by someone who may not run it ([Managing access](#managing-access)) | Ask the admin the fix names |
+| `starfixd upgrade` restores or installs the binary, then `sudo -n systemctl restart …: fork/exec /usr/bin/sudo: permission denied` | On Ubuntu 26.04, AppArmor profiles from before 14 October 2026: `sudo` is sudo-rs there, at a path the old operator's profile does not name | Install this release's profiles ([Confine starfixd with AppArmor](#confine-starfixd-with-apparmor)), then `sudo systemctl restart starfixd` |
 | `starfixd could not open the database of an active project` from `starfixd upgrade` | A project's database is gone, not granted, or failed to migrate | `journalctl -u starfixd` names it and why; fix it or archive the project, then restart |
 | `the control database … holds no active project` at start | `control_db` is set and `control init` has not run | `sudo -u starfix -H starfixd control init --name NAME` |
 | starfixd does not start, and `systemctl status starfixd` shows `status=75/TEMPFAIL` under `not starting: the server's clock is behind its own history` | The clock is behind the latest event of the database named, by more than `clock_behind_tolerance`: the clock was reset or set back, the machine booted without its time, or the database was written by a clock that ran ahead | `timedatectl`; correct the clock and `systemctl start starfixd`. If the history is what is wrong, start once with the `--accept-clock-behind` the refusal prints, or set `clock_behind: warn` ([The server's clock](#the-servers-clock)). systemd does not retry this exit |

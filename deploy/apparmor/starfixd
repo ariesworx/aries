@@ -160,6 +160,15 @@ profile starfixd-serve flags=(attach_disconnected) {
   # started, and systemd kills it when TimeoutStartSec runs out.
   @{run}/systemd/notify w,
 
+  # Signals among its own threads: Go preempts a long-running goroutine
+  # with SIGURG. abstractions/base allows a profile to signal itself
+  # (peer=@{profile_name}), but where a user other than root changes to
+  # a profile, as systemd does for User=starfix, Ubuntu 26.04 stacks the
+  # profile on unconfined (kernel.apparmor_restrict_unprivileged_unconfined
+  # is 1), and the daemon's label is starfixd-serve//&unconfined, which
+  # that rule does not match.
+  signal peer=@{profile_name}//&unconfined,
+
   owner @{PROC}/@{pid}/cgroup r,
   owner @{PROC}/@{pid}/mountinfo r,
   @{sys}/fs/cgroup/** r,
@@ -236,9 +245,18 @@ profile starfixd-admin flags=(attach_disconnected) {
   # The restart: `sudo -n systemctl restart UNIT`. sudo runs unconfined,
   # with a scrubbed environment (Ux), and does what sudoers lets the
   # starfix user do: with the guide's rule, that one command. If it
-  # hangs for two minutes, upgrade kills it.
+  # hangs for two minutes, upgrade kills it. AppArmor names the file the
+  # links lead to: on Ubuntu 26.04 /usr/bin/sudo is a link to sudo-rs,
+  # or to the original sudo, renamed sudo.ws, if the machine chose it.
   /usr/bin/sudo rUx,
+  /usr/bin/sudo.ws rUx,
+  /usr/lib/cargo/bin/sudo rUx,
   signal (send) set=(kill) peer=unconfined,
+
+  # Signals among its own threads, under the label aa-exec gives the
+  # starfix user on Ubuntu 26.04: starfixd-admin//&unconfined (see
+  # starfixd-serve).
+  signal peer=@{profile_name}//&unconfined,
 
   # The health check: a handshake on the daemon's socket.
   @{starfixd_run}/starfixd.sock rw,
