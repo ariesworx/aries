@@ -10,12 +10,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/ariesworx/starfix/internal/doltmetrics"
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
@@ -198,7 +198,7 @@ const DefaultAccount = "internal"
 
 // UnitPattern is what a systemd unit name may look like. It cannot start
 // with "-", so it never reaches systemctl as an option.
-var UnitPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9@._:-]{0,127}$`)
+var UnitPattern = lazyregexp.New(`^[A-Za-z0-9][A-Za-z0-9@._:-]{0,127}$`)
 
 // Environment variables read by ResolveSettings.
 const (
@@ -260,14 +260,7 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 			return Settings{}, fmt.Errorf("--dsn holds a password, which would show in the process list; fix: set %s or dsn: in the config file instead", EnvDSN)
 		}
 	}
-	required := true
-	if configPath == "" {
-		configPath = getenv(EnvConfig)
-	}
-	if configPath == "" {
-		configPath, required = DefaultConfigFile, false
-	}
-	file, err := loadSettings(configPath, required)
+	file, err := configFile(configPath, getenv)
 	if err != nil {
 		return Settings{}, err
 	}
@@ -484,6 +477,41 @@ func NewLogger(w io.Writer, level, format string) (*slog.Logger, error) {
 		return slog.New(logs.NewHandler(slog.NewJSONHandler(w, opts), LogIDs)), nil
 	}
 	return nil, fmt.Errorf("log format %q is not text or json; fix: set log_format: or %s to text or json", format, EnvLogFormat)
+}
+
+// ResolveSocket returns the daemon's socket for `starfixd stdio`, from
+// where ResolveSettings takes it: flag, then $STARFIXD_SOCKET, then
+// socket: in the config file, then DefaultSocket. It reads the file as
+// ResolveSettings does, and refuses what that refuses of the file itself
+// (an unknown key, a password in a file others can read), but checks no
+// other setting. The bridge uses none of them, and sshd starts one for
+// every connection: checking them compiled regular expressions that each
+// bridge then held (docs/design/profile-starfixd.md, proposal 2).
+func ResolveSocket(flag, configPath string, getenv func(string) string) (string, error) {
+	file, err := configFile(configPath, getenv)
+	if err != nil {
+		return "", err
+	}
+	for _, s := range []string{flag, getenv(EnvSocket), file.Socket} {
+		if s != "" {
+			return s, nil
+		}
+	}
+	return DefaultSocket, nil
+}
+
+// configFile reads the config file at configPath, or else at
+// $STARFIXD_CONFIG, either of which must exist, or else at
+// DefaultConfigFile, which may not.
+func configFile(configPath string, getenv func(string) string) (Settings, error) {
+	required := true
+	if configPath == "" {
+		configPath = getenv(EnvConfig)
+	}
+	if configPath == "" {
+		configPath, required = DefaultConfigFile, false
+	}
+	return loadSettings(configPath, required)
 }
 
 // loadSettings reads the config file at path, refusing unknown keys. A

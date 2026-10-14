@@ -5,8 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"regexp"
 	"unicode/utf8"
+
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 )
 
 // Structured handoffs (design §3, §7): a handoff note is still a comment
@@ -48,7 +49,7 @@ type Handoff struct {
 }
 
 // handoffBranch is a git branch name that cannot be read as an option.
-var handoffBranch = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/+@-]{0,254}$`)
+var handoffBranch = lazyregexp.New(`^[A-Za-z0-9][A-Za-z0-9._/+@-]{0,254}$`)
 
 // empty reports whether no field is given.
 func (f HandoffFields) empty() bool { return f == HandoffFields{} }
@@ -69,7 +70,7 @@ func (f HandoffFields) validate() error {
 	}
 	for _, c := range []struct {
 		name, v, rule string
-		re            *regexp.Regexp
+		re            *lazyregexp.Regexp
 		max           int
 	}{
 		{"branch", f.Branch, "a branch name of up to 255 letters, digits and ._/+@-, starting with a letter or digit", handoffBranch, 255},

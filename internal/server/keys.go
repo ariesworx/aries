@@ -10,7 +10,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -20,6 +19,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 	"github.com/ariesworx/starfix/internal/logs"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
@@ -65,7 +65,7 @@ const (
 // bridgePattern is what the path of the starfixd binary in a forced
 // command may look like: absolute, with nothing that needs quoting in an
 // authorized_keys option or in the shell sshd runs the command with.
-var bridgePattern = regexp.MustCompile(`^(/[A-Za-z0-9._+-]+)+$`)
+var bridgePattern = lazyregexp.New(`^(/[A-Za-z0-9._+-]+)+$`)
 
 // ValidBridge reports whether path may be the starfixd binary named in a
 // forced command (Config.Bridge): absolute, of letters, digits and ._+-.

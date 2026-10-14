@@ -44,7 +44,16 @@ For complete deployments with costs, see the
 - **Little hardware.** Idle, Dolt used about 90 MB of memory and starfixd
   about 20 MB, or 22 MB with metrics pushed and scraped (resident
   memory on arm64, a minute after its start; about 14 MB of either is
-  the program itself, mapped from its file). Under the stage 0 load test Dolt reached 1.4 GB and about
+  the program itself, mapped from its file). Each connection adds about
+  5 MiB more: 2.5 MiB for its bridge (`starfixd stdio`), 2 MiB for
+  sshd's two processes, half a MiB in the kernel and under 0.1 MiB in
+  starfixd, so 64 connections take about 320 MiB and 1,024 about
+  5 GiB. That is with transparent huge pages in `madvise` mode, Ubuntu's
+  default; with them `always` (`cat
+  /sys/kernel/mm/transparent_hugepage/enabled`) the bridge takes about
+  6 MiB, and a connection about 9 (measured on Linux, arm64, OpenSSH 9.6,
+  14 October 2026; [the profile](design/profile-starfixd.md#2-a-bridge-that-is-not-the-whole-of-starfixd)
+  has how). Under the stage 0 load test Dolt reached 1.4 GB and about
   250 writes a second on 4 vCPUs
   ([results](../spike/dolt/RESULTS.md)), roughly ten times what a busy
   team of agents needs. 2 GB of memory suits a team with one project of
@@ -1888,7 +1897,7 @@ limits:
 | `notices_per_minute` | 10 | Mentions, assignments and handoffs one principal can send another a minute; the rest are not delivered. Lost claims always are |
 | `inbox_keep` | `30d` | How long a read inbox item is kept |
 | `conns` | 1024 | Connections past the handshake, refused with `busy` beyond it. Twice this caps the sockets the daemon holds in all; at that cap a new connection is let in and the one that has waited longest without a hello is closed |
-| `conns_per_principal` | 32 | One principal's connections |
+| `conns_per_principal` | 64 | One principal's connections: one person's sessions on several machines, and a few unattended runs on their key. Agents that run unattended in numbers should have principals of their own, and meet `conns` instead. Each connection costs the server about 5 MiB, most of it the bridge and sshd outside starfixd ([What a server needs](#what-a-server-needs)): 64 connections about 320 MiB, and `conns`' 1,024 about 5 GiB (550 MiB and 8.6 GiB with transparent huge pages `always`) |
 | `handshakes_per_principal` | 16 | One principal's connections that sshd has let in and that have not yet sent their hello, on the whole server. A connection has 10 seconds to send it. Past the cap the next is refused with `busy` at once, so one key holder cannot use up the sockets everyone else connects through. The upgrade's health probe is not counted |
 | `idle_timeout` | `10m` | A connection that sends nothing this long is closed with a note, unless it watches its inbox (`sfx mcp`, `sfx watch` and `sfx tui` do) |
 | `write_rate`, `write_burst` | 10, 100 | Each principal's write token bucket: writes a second, and how many at once. Reads are not counted |

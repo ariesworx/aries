@@ -5,9 +5,10 @@ import (
 	"encoding/base32"
 	"encoding/binary"
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 )
 
 // IssueID is "<prefix>-<suffix>". New IDs have an 8-character suffix (40
@@ -16,8 +17,8 @@ type IssueID string
 
 var (
 	idEncoding    = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)
-	prefixPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
-	idPattern     = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*-[a-z0-9]+(\.[0-9]+)*$`)
+	prefixPattern = lazyregexp.New(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
+	idPattern     = lazyregexp.New(`^[a-z][a-z0-9]*(-[a-z0-9]+)*-[a-z0-9]+(\.[0-9]+)*$`)
 )
 
 // minShort is the shortest suffix ShortestUnique returns, so display IDs

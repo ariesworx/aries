@@ -6,12 +6,12 @@ import (
 	"encoding/base32"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 	"github.com/ariesworx/starfix/internal/safetext"
 	"github.com/ariesworx/starfix/internal/store"
 )
@@ -158,7 +158,7 @@ var coreType = map[string]store.IssueType{
 }
 
 // commentIDShape is the form starfix gives comment IDs.
-var commentIDShape = regexp.MustCompile(`^[a-z2-7]{16}$`)
+var commentIDShape = lazyregexp.New(`^[a-z2-7]{16}$`)
 
 // idEncoding spells comment IDs in commentIDShape's alphabet.
 var idEncoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)

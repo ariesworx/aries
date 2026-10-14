@@ -5,10 +5,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 )
 
 // Human hours (design §12.1). A person logs the time they spent on an
@@ -62,7 +63,7 @@ const (
 )
 
 // hoursIDPattern is an entry id as newCommentID makes one.
-var hoursIDPattern = regexp.MustCompile(`^[a-z0-9]{1,32}$`)
+var hoursIDPattern = lazyregexp.New(`^[a-z0-9]{1,32}$`)
 
 // HoursLimitError refuses an entry that would give a principal more than
 // Limits.HoursPerDay (Max) entries on one day. It wraps ErrInvalid.

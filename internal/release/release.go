@@ -16,9 +16,10 @@ import (
 	"net/http"
 	"net/url"
 	"path"
-	"regexp"
 	"strings"
 	"time"
+
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 )
 
 // Repo is the GitHub repository releases come from.
@@ -42,7 +43,7 @@ const (
 // TagPattern matches a release tag: vMAJOR.MINOR.PATCH without leading
 // zeros, then optionally a hyphen and up to 32 letters, digits, dots and
 // hyphens.
-var TagPattern = regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]{1,32})?$`)
+var TagPattern = lazyregexp.New(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]{1,32})?$`)
 
 // ErrNotFound means the release, one of its assets, the archive's line in
 // checksums.txt, or the executable in the archive does not exist.

@@ -8,9 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"regexp"
 	"slices"
 	"time"
+
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 )
 
 // ImportOutcome is what an import write did, or would do.
@@ -41,7 +42,7 @@ type ImportResult struct {
 
 // commentIDPattern bounds comment IDs to the column and to characters that
 // need no quoting anywhere.
-var commentIDPattern = regexp.MustCompile(`^[a-z0-9]{1,32}$`)
+var commentIDPattern = lazyregexp.New(`^[a-z0-9]{1,32}$`)
 
 // normalizeImport validates an imported issue and brings it to the form the
 // store reads back: UTC times at microsecond precision, labels sorted and

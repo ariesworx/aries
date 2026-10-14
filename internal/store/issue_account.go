@@ -5,7 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"regexp"
+
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 )
 
 // Accounts (design §12.1). An issue's account is what its time and tokens
@@ -17,7 +18,7 @@ import (
 
 // accountPattern is a code name: runs of lowercase letters and digits
 // joined by single hyphens.
-var accountPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+var accountPattern = lazyregexp.New(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 // maxAccount bounds an account name; the column holds 64.
 const maxAccount = 64

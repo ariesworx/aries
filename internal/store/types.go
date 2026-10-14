@@ -3,9 +3,9 @@ package store
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 	"github.com/ariesworx/starfix/internal/safetext"
 )
 
@@ -320,7 +320,7 @@ type BlockedIssue struct {
 	Via IssueID
 }
 
-var labelPattern = regexp.MustCompile(`^[^\s,\x00-\x1f]{1,64}$`)
+var labelPattern = lazyregexp.New(`^[^\s,\x00-\x1f]{1,64}$`)
 
 // ValidLabel reports whether l may be stored as a label: 1-64 characters
 // without spaces, commas, or control or bidirectional characters.

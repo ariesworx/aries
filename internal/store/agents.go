@@ -5,9 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"regexp"
 	"slices"
 	"time"
+
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 )
 
 // Agents registry (design §3, §7): who is at work, on which machine and
@@ -37,7 +38,7 @@ type Agent struct {
 
 // harnessPattern is what a harness name may look like: the `sfx setup`
 // agent names and others like them.
-var harnessPattern = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
+var harnessPattern = lazyregexp.New(`^[a-z0-9-]{1,32}$`)
 
 // ValidHarness reports whether h may be recorded: empty, or 1-32
 // lowercase letters, digits and hyphens.

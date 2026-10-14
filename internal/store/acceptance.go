@@ -8,10 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 )
 
 // The acceptance checklist (design §12 item 4): an issue's acceptance
@@ -145,7 +146,7 @@ type parsedItem struct {
 
 // listItem is a Markdown list entry: a bullet or number, then an optional
 // task box, then the text.
-var listItem = regexp.MustCompile(`^\s*(?:[-*+]|\d{1,9}[.)])(?:\s+|$)(?:\[([ xX])\](?:\s+|$))?(.*)$`)
+var listItem = lazyregexp.New(`^\s*(?:[-*+]|\d{1,9}[.)])(?:\s+|$)(?:\[([ xX])\](?:\s+|$))?(.*)$`)
 
 // parseAcceptance splits acceptance text into items. A Markdown list
 // gives one item per entry, an indented line continuing the entry above;
