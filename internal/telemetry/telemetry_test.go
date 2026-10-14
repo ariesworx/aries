@@ -15,12 +15,14 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/ariesworx/starfix/internal/logs"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	"go.opentelemetry.io/otel/sdk/resource"
 )
 
 // Invented projects.
@@ -884,6 +886,58 @@ func TestResource(t *testing.T) {
 	}
 	if a = attrs(env{"OTEL_RESOURCE_ATTRIBUTES": "service.name=from-attrs"}); a["service.name"] != "from-attrs" {
 		t.Errorf("service.name = %q, want the one OTEL_RESOURCE_ATTRIBUTES gives", a["service.name"])
+	}
+}
+
+// The periodic reader exports from the moment New makes it, on a
+// goroutine of its own, and an export that fails counts what it dropped.
+// With a short interval and a collector that is down, its first failures
+// come while New is still making the instruments, as they did on a
+// machine with no processor to spare. Such a failure must not read what
+// is being made, which the race detector fails this test for, and it is
+// counted all the same: the count of what was dropped is every failed
+// export's, those from before the instruments included.
+func TestExportFailsWhileNewMakesTheInstruments(t *testing.T) {
+	t.Parallel()
+	tel := newTelemetry(Config{Logger: logTo(&syncBuffer{}), Ops: testOps}, envConfig{})
+	m := &Manual{r: sdkmetric.NewManualReader()}
+	// The reader's goroutine: exports that fail, one after another, from
+	// before the instruments are made until after.
+	g := &guarded{Exporter: failing{err: errors.New("connection refused")}, t: tel}
+	var failed atomic.Int64
+	var stop atomic.Bool
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for !stop.Load() {
+			if err := g.Export(context.Background(), &metricdata.ResourceMetrics{}); err != nil {
+				t.Errorf("Export = %v, want nil: the failure is handled here", err)
+				return
+			}
+			failed.Add(1)
+		}
+	})
+	// more waits for that many more exports to have failed.
+	more := func(n int64) {
+		t.Helper()
+		want := failed.Load() + n
+		for end := time.Now().Add(time.Minute); failed.Load() < want; time.Sleep(time.Millisecond) {
+			if time.Now().After(end) {
+				stop.Store(true)
+				t.Fatalf("%d exports failed in a minute, want %d", failed.Load(), want)
+			}
+		}
+	}
+	more(3)
+	if err := tel.build(resource.Empty(), m.r); err != nil {
+		stop.Store(true)
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
+	more(3)
+	stop.Store(true)
+	wg.Wait()
+	if got, want := int64(collect(t, m).Value("starfix.telemetry.dropped", "signal", "metrics")), failed.Load(); got != want {
+		t.Errorf("starfix.telemetry.dropped = %d after %d exports failed, some of them before the instruments were made; want every one counted", got, want)
 	}
 }
 

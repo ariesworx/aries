@@ -80,7 +80,14 @@ type Telemetry struct {
 	log *slog.Logger
 	// mp is nil when no metric is exported; every recording then returns
 	// at once.
-	mp         *sdkmetric.MeterProvider
+	mp *sdkmetric.MeterProvider
+	// buildMu guards built, which says that build has made mp and the
+	// instruments, and early, the metric exports that failed before it
+	// had: the periodic reader's goroutine runs from the moment the
+	// reader is made, and must read neither until then.
+	buildMu    sync.Mutex
+	built      bool
+	early      int
 	meter      metric.Meter
 	perProject bool
 	ops        map[string]struct{}
@@ -311,6 +318,7 @@ func (t *Telemetry) build(res *resource.Resource, readers ...sdkmetric.Reader) e
 		return errors.Join(fmt.Errorf("telemetry: make the instruments: %w", err), mp.Shutdown(context.Background()))
 	}
 	t.mp = mp
+	t.builtInstruments()
 	return nil
 }
 
