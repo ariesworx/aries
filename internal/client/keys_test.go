@@ -93,6 +93,7 @@ func serveAgent(t *testing.T) string {
 // refusal is CodeAuth with a fix, and a usable key gets as far as the
 // network.
 func TestDialKeyRefusals(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeKey(t, root, "id_plain", nil)
 	writeKey(t, root, "id_locked", []byte("secret"))
@@ -152,6 +153,7 @@ func TestDialKeyRefusals(t *testing.T) {
 // TestNoticesIgnoreHostileVersions checks that version strings a server
 // sends reach the person only when they are plain versions (C-5).
 func TestNoticesIgnoreHostileVersions(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name            string
 		version, latest string

@@ -11,6 +11,7 @@ import (
 // more than once, and boolean mode is unsupported. When a Dolt upgrade
 // makes this fail, FULLTEXT may have become usable: reconsider it.
 func TestDoltFulltextIsUnreliable(t *testing.T) {
+	t.Parallel()
 	db, err := sql.Open("mysql", newDSN(t))
 	if err != nil {
 		t.Fatal(err)

@@ -18,6 +18,7 @@ import (
 
 // The key commands refuse bad usage before dialing.
 func TestAdminKeyUsage(t *testing.T) {
+	t.Parallel()
 	empty := t.TempDir()
 	tests := []struct {
 		name   string
@@ -82,6 +83,7 @@ func keyFiles(t *testing.T, dir string) (private, public, line string) {
 // TestReadPublicKey reads the one public key of a file, and refuses
 // everything else without repeating what the file holds.
 func TestReadPublicKey(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	private, public, line := keyFiles(t, dir)
 	privBytes, err := os.ReadFile(private) //nolint:gosec // the test's own file
@@ -154,6 +156,7 @@ func TestReadPublicKey(t *testing.T) {
 // not even a server to send to, and the refusal is the key's, not the
 // missing configuration's.
 func TestAdminKeyAddSendsNoPrivateKey(t *testing.T) {
+	t.Parallel()
 	empty := t.TempDir()
 	private, _, _ := keyFiles(t, empty)
 	for _, args := range [][]string{
@@ -187,6 +190,7 @@ func TestAdminKeyAddSendsNoPrivateKey(t *testing.T) {
 }
 
 func TestPrintKeys(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 10, 11, 9, 30, 0, 0, time.UTC)
 	const fp1, fp2 = "SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5TqvU", "SHA256:WeXpogacdCqvmaxuNZFUpT1Te6ZU/j7aPAocB0T2i8o"
 	tests := []struct {

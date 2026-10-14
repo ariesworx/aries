@@ -11,6 +11,7 @@ import (
 // ProposeMember answers with them and writes nothing; SetMember, which
 // accepts, adds. Who may is decided first, so a refusal shows no key.
 func TestProposeMember(t *testing.T) {
+	t.Parallel()
 	c := newControl(t)
 	ctx := t.Context()
 	mustProject(t, c, projA)

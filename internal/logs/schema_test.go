@@ -90,6 +90,7 @@ func declared(t *testing.T) (evs map[string]Event, keyConsts map[string]string) 
 // The list is the contract: every Event constant is in Events, once,
 // and every key constant is a field with a kind.
 func TestEventsListsEveryConstant(t *testing.T) {
+	t.Parallel()
 	evs, keyConsts := declared(t)
 	if len(evs) < 20 || len(keyConsts) < 10 {
 		t.Fatalf("found %d event and %d key constants: the test reads the source wrongly", len(evs), len(keyConsts))
@@ -122,6 +123,7 @@ func TestEventsListsEveryConstant(t *testing.T) {
 }
 
 func TestAudit(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		op   string
 		want Event
@@ -149,6 +151,7 @@ func TestAudit(t *testing.T) {
 }
 
 func TestKindOf(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		key  string
 		want Kind
@@ -183,6 +186,7 @@ var wrappers = map[string]struct{ ev, msg int }{
 // field, under a message that is fixed text, and every field it names
 // is one of the schema's (design §16.4).
 func TestLogCallsFollowTheSchema(t *testing.T) {
+	t.Parallel()
 	evs, keyConsts := declared(t)
 	fset := token.NewFileSet()
 	calls := 0
@@ -270,6 +274,7 @@ func TestLogCallsFollowTheSchema(t *testing.T) {
 
 // The guide lists every event and every field (rule 17).
 func TestGuideListsEventsAndFields(t *testing.T) {
+	t.Parallel()
 	b, err := os.ReadFile(filepath.Join(root, "docs", "server.md"))
 	if err != nil {
 		t.Fatal(err)

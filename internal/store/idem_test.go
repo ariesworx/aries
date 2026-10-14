@@ -12,6 +12,7 @@ import (
 // Each create-type operation, repeated with the same key by the same
 // principal, returns its first result and writes nothing more.
 func TestIdempotentReplay(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		// do runs the operation once with key and returns its result.
@@ -80,6 +81,7 @@ func TestIdempotentReplay(t *testing.T) {
 // nothing the failed attempt put in its result survives, not even a field
 // the stored result leaves out.
 func TestIdempotentReplayAfterRetry(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		// do runs the operation once, with the key k-1.
@@ -139,6 +141,7 @@ func TestIdempotentReplayAfterRetry(t *testing.T) {
 // expired, is refused with the key named; another principal's key of the
 // same spelling is a different key.
 func TestIdempotencyRefusals(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "work"})

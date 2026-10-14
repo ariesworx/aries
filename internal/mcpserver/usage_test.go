@@ -14,6 +14,7 @@ import (
 func n64(v int64) *int64 { return &v }
 
 func TestShowAndDigestCarryUsage(t *testing.T) {
+	t.Parallel()
 	opus := proto.ModelTokens{Model: "opus", Tokens: proto.Tokens{Input: n64(950), Output: n64(12_345), CacheWrite: n64(1_500_000),
 		CacheRead: n64(2_000_000_000)}}
 	gemini := proto.ModelTokens{Model: "gemini", Tokens: proto.Tokens{Output: n64(0)}}

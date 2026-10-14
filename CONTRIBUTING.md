@@ -188,6 +188,96 @@ themselves, and two things go wrong unless you do this in order:
      you branched, the merge kept your older side of it: take `main`'s
      version of those lines.
 
+## Writing a test
+
+### Tests run in parallel
+
+A test begins with `t.Parallel()`, so that it runs beside the other
+tests of its package, as many at once as `go test -parallel` allows (the
+number of processors). One that cannot begins with a comment that says
+why:
+
+```go
+func TestStartWithoutDolt(t *testing.T) {
+	// Serial: sets the process's environment (t.Setenv).
+```
+
+`TestEveryTestIsParallelOrSaysWhyNot` (`internal/clienttest`) fails until
+every test has one or the other. `go test` runs a package's serial tests
+first, one at a time, and its parallel tests only once the last of those
+has ended, so a serial test never runs beside another test: it may
+change what the process shares, if it puts it back (`t.Cleanup`).
+
+| A test is serial when it | Because |
+|---|---|
+| Sets the environment or the working directory (`t.Setenv`, `t.Chdir`, `iaptest.Install`) | They are the process's, and `t.Setenv` panics in a parallel test |
+| Replaces a package-level variable (`pickPort`, `usageScanRows`) | Every test reads it |
+| Counts what the process holds: goroutines (`noLeak`, the soak's `checkLeaks`) | A test beside it adds its own |
+| Bounds or compares elapsed time (`pace`, the dead collector's turns, the division of usage by holds) | A test beside it takes the processor: the table under [Tests on a slow machine](#tests-on-a-slow-machine) says how such a test is written, and it stays serial |
+| Calls `testing.AllocsPerRun` | It panics beside a parallel test |
+| Runs a program it has just written (`release.VersionCheck` on a script) | A process that another test starts at that moment holds the new file open for an instant, and running it then fails with `text file busy` |
+| Runs in a `synctest` bubble | Its time is virtual: it takes no real time, so nothing would be gained |
+
+What does not make a test serial, because each test has its own: a
+database and the Dolt server under it (below), a directory
+(`t.TempDir()`), a port (listen on `127.0.0.1:0` and read the port the
+kernel gave), a clock (`Options.Now`), a logger, a home directory and
+the keys in it (`cli.Env`, `client.Options`).
+
+What a whole package needs is set once, in `TestMain`, and never by a
+test: the empty home directory and the absence of ssh-agent
+(`clienttest.Isolate`), git that reads no configuration but the
+repository's (`clienttest.IsolateGit`), and the Dolt servers.
+
+Subtests run in turn within their test, which is usually what a table
+wants: its rows often share what the test set up. A subtest that calls
+`t.Parallel()` runs after its test's function has returned, so what it
+uses must be closed by `t.Cleanup`, not by `defer`.
+
+**Dolt.** A package's tests take their databases from a `dolttest.Pool`
+(`newDSN`, `newDatabase`, `newStore`, `newWorld`, and `doltOf` for the
+server itself). A test and its subtests hold one Dolt server, and no
+other test has it meanwhile: the pool starts a server when a test asks
+and none is free, up to one for every two processors and four at most
+(`dolttest.PoolLimit`), and hands it on when the test ends. So a test may stop its Dolt, restart it, read its
+metrics or drop a database in it, and the Dolt each test sees does one
+thing at a time, as it did when the tests ran in turn. Tests cannot
+share one server: Dolt takes one data definition statement at a time,
+which is most of what a test of the store does, and a session that
+reads `information_schema` while another drops a database fails with
+`no root value found in session`.
+
+### Tests that leave nothing behind
+
+A test run leaves no file, process, database or listening port, when it
+passes and when a test fails.
+
+| A test's | Go |
+|---|---|
+| Files | Under `t.TempDir()`. Where a unix socket's path would be too long there (104 bytes on macOS), under `os.MkdirTemp("", "sfx")` with a short prefix, removed by `t.Cleanup`. Never a fixed path, the repository, or the home directory, which `clienttest.Isolate` replaces with an empty one for the process |
+| Processes | Are stopped and waited for in `t.Cleanup`. Dolt is started through `dolttest` only: a server it starts is killed, and its directory removed, when the test binary is gone however it went, and a test binary with a pool ends when its `go test` is gone |
+| Databases | Are dropped when the test ends (`newDSN` and the others, above), and the pool drops whatever else the test left on its server, such as a database the daemon made for a new project |
+| Ports and sockets | Are closed in `t.Cleanup`; the port is the kernel's choice |
+| Shell scripts' files | `mktemp -d "${TMPDIR:-/tmp}/name.XXXXXX"`, with the template: `mktemp -d` alone ignores `TMPDIR` on macOS, so a test that gives a script a temporary directory would not get its files back |
+
+A test binary that is killed, panics or runs out of time runs no
+cleanup. Its Dolt servers go, by their watchers; the directories of the
+tests that were running stay (`TestName123` and the short ones), and the
+empty home directory. `scripts/leftovers.sh` covers that, and checks the
+rest:
+
+```sh
+scripts/leftovers.sh go test ./...
+```
+
+It gives the command a temporary directory of its own, reports what the
+command left in it and which processes it started are still running, and
+removes the directory whatever happened. A command that passed and left
+something fails; the name of a directory left is its test's. It is not
+part of the gate: to make it so, the gate's test command would run under
+it, in `scripts/gate.sh`, [Commands](AGENTS.md#commands) and `ci.yml`
+together.
+
 ## What a local run cannot tell you
 
 `scripts/gate.sh` ends with this list for the machine it ran on. CI
@@ -246,14 +336,29 @@ A test that passes there:
 | Give work that must succeed the short deadline it gives work that must run out of time | Keeps the short deadline for the cases that wait it out |
 | Assert that something took less than a fixed time | Bounds it by what the fault would cost with the timeouts the test set (half an export's timeout, for a recording that must not wait for the export); or times the same work beside it, in turns, so that the machine slows both alike (the dead collector's requests); or, for work of a few milliseconds, compares the fastest of many runs, which is the one the machine did not interrupt (the division of usage by holds); or, for a deadline the server sets itself, adds how late the machine was for a wait of the same length begun with it (`pace`, for the status report's two seconds) |
 | Count on a minute of the real clock not passing, or on the clock not being set | Gives the store a clock (`Options.Now`, `newServerClock`, the e2e world's `now`): `notices_per_minute` is a minute of the store's time, and "held 0m", "0m ago" and "seen just now" are true for a minute of it. A machine that was suspended sets its clock forward when it wakes, which a daemon on the real clock records as a `clock.step` |
-| Leave its database in Dolt | Takes it from `newDSN` or `newDatabase`, which drop it |
+| Leave its database in Dolt | Takes it from `newDSN` or `newDatabase`, which drop it ([Tests that leave nothing behind](#tests-that-leave-nothing-behind)) |
+| Run beside others when it bounds time or counts what the process holds | Stays serial, and says why ([Tests run in parallel](#tests-run-in-parallel)) |
+| Compare, by the clock, work that the machine may interrupt every time | Compares the time the work had a processor (`onProcessor` in `internal/store`): on half a processor shared by four packages' tests, not one division in two hundred went uninterrupted |
+| Take two answers given at different times to say the same of time | Leaves out what moves between them: a refusal for a rate tells of a wait that is a second shorter a second later (`refused` in `internal/e2e`) |
 
 The slowest packages are `internal/server`, `internal/store` and
-`internal/e2e`. With four packages at once on one processor they took
-two to three and a half minutes, one and a half to three, and one and a
-half to two and a half; on half a processor, or on two beside four busy
-loops, four to seven, two to five and a half, and two to six. `go test`
-gives a package ten minutes.
+`internal/e2e`. With four packages at once on one processor, and the
+machine otherwise idle, they took about three minutes, two and two and
+a half. On half a processor they took ten minutes, eight to nine and
+six and a half to eight: `go test` gives a package ten minutes, so pass
+`-timeout 20m` there, as before the tests ran in parallel, when they
+took nine and a half, eight and a half and eight. Most of
+`internal/server`'s time on such a machine is its serial tests, the dead
+collector's above all, which take their turns with the machine.
+
+Tests in parallel are for a machine with processors to spare: on four
+the suite takes a fifth less time than it took with the tests in turn,
+and on one, with `GOMAXPROCS=4`, a quarter more, since what runs at
+once only takes the processor from the rest. On a small machine, run
+the tests in turn, as they ran before: `go test -parallel 1 ./...` (with
+`-race -shuffle=on` for the gate's command), which starts one Dolt
+server for a package and runs one test at a time. On one processor that
+took the time it took before, 198 s against 205.
 
 ## Troubleshooting
 

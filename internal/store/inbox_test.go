@@ -50,6 +50,7 @@ var (
 // Each kind of inbox item is created by the change that causes it, for
 // the principal (or session) it concerns, and never for the actor itself.
 func TestInboxKinds(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		// do makes the change; it returns the issue the items name.
@@ -264,6 +265,7 @@ func mustStart(t *testing.T, s *Store, a Actor, id IssueID) {
 // An item is written with its cause or not at all: a change that fails,
 // before or at commit, leaves no item and pushes nothing.
 func TestInboxRollsBackWithItsCause(t *testing.T) {
+	t.Parallel()
 	s, _ := clockStore(t)
 	ctx := t.Context()
 	register(t, s, bob)
@@ -302,6 +304,7 @@ func TestInboxRollsBackWithItsCause(t *testing.T) {
 }
 
 func TestInboxListAndAck(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	register(t, s, alice)
@@ -395,6 +398,7 @@ func TestInboxListAndAck(t *testing.T) {
 // A watch receives each new item for its principal and session as it is
 // committed; its bounded queue overflows instead of blocking the writer.
 func TestWatch(t *testing.T) {
+	t.Parallel()
 	// More notices than one sender may send a minute by default, so the
 	// queue can overflow.
 	s := openStore(t, newDSN(t), Options{Limits: Limits{Notices: 2 * WatchQueue}})
@@ -461,6 +465,7 @@ func TestWatch(t *testing.T) {
 // Structured handoff fields are stored with the note and returned by
 // LastHandoff; each is checked against a strict pattern.
 func TestStructuredHandoff(t *testing.T) {
+	t.Parallel()
 	s, _ := clockStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "work"})

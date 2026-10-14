@@ -31,6 +31,7 @@ func lookup(hosts map[string][]string) func(context.Context, string) ([]net.IPAd
 
 // The listener binds a loopback address or nothing.
 func TestListenLoopbackOnly(t *testing.T) {
+	t.Parallel()
 	hosts := map[string][]string{
 		"localhost":        {"127.0.0.1", "::1"},
 		"metrics.internal": {"192.0.2.10"},
@@ -122,6 +123,7 @@ func listenAny(t *testing.T, addr string, look func(context.Context, string) ([]
 
 // A port that is taken fails the start, with a fix.
 func TestListenBindFailure(t *testing.T) {
+	t.Parallel()
 	held, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -176,6 +178,7 @@ func freeAddr(t *testing.T) string {
 }
 
 func TestServe(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	noLeak(t)
 	tel, _, err := NewManual(Config{Pull: true, Ops: testOps})
 	if err != nil {
@@ -229,6 +232,7 @@ func TestServe(t *testing.T) {
 
 // A nil Telemetry, and one that offers no pull, still answer health.
 func TestServeWithoutMetrics(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	noLeak(t)
 	var tel *Telemetry
 	base := served(t, tel, ServeOptions{})
@@ -297,6 +301,7 @@ func try(t *testing.T, method, url string) (int, string, error) {
 // Requests past the cap are answered 503 at once and counted, and
 // connections past twice the cap are closed.
 func TestServeCaps(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	for _, tc := range []struct {
 		name     string
 		requests int // ServeOptions.Requests; 0 takes the default
@@ -375,6 +380,7 @@ func TestServeCaps(t *testing.T) {
 // Connections past twice the cap are closed unanswered, so a client that
 // opens connections and sends nothing takes a bounded number.
 func TestServeCapsConnections(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	noLeak(t)
 	base := served(t, nil, ServeOptions{Requests: 2})
 	addr := strings.TrimPrefix(base, "http://")

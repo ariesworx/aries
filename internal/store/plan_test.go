@@ -36,6 +36,7 @@ func plansText(ps []Plan) string {
 }
 
 func TestSetPlanAddsReplacesAndLists(t *testing.T) {
+	t.Parallel()
 	s, _ := clockStore(t) // 2026-10-07
 	ctx := t.Context()
 	before := lastSeq(t, s)
@@ -94,6 +95,7 @@ func TestSetPlanAddsReplacesAndLists(t *testing.T) {
 }
 
 func TestSetPlanRefuses(t *testing.T) {
+	t.Parallel()
 	s, _ := clockStore(t) // 2026-10-07
 	ok := NewPlan{Name: "team", From: month("2026-01"), Fee: 1, Seats: 1, Principals: []string{"alice"}}
 	if _, err := s.SetPlan(t.Context(), alice, ok); !errors.Is(err, ErrForbidden) {
@@ -133,6 +135,7 @@ func TestSetPlanRefuses(t *testing.T) {
 // The plans table holds at most limits: plans rows; replacing one is no
 // new row.
 func TestSetPlanLimit(t *testing.T) {
+	t.Parallel()
 	s := openStore(t, newDSN(t), Options{Limits: Limits{Plans: 2}, Now: func() time.Time { return day("2026-10-07") }})
 	mustSetPlan(t, s, NewPlan{Name: "a", From: month("2026-01"), Fee: 1, Seats: 1})
 	mustSetPlan(t, s, NewPlan{Name: "b", From: month("2026-01"), Fee: 1, Seats: 1})

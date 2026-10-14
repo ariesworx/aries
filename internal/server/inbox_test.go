@@ -13,6 +13,7 @@ import (
 )
 
 func TestDispatchInbox(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	mustCall[proto.ClaimsResult](t, s, bob, proto.OpRenew, proto.RenewArgs{}) // bob is known: he has connected
 	a := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work"})
@@ -58,6 +59,7 @@ func TestDispatchInbox(t *testing.T) {
 // Handoff fields go in through finish and handoff and come back from
 // start and show; the worktree only to its author (TestWorktreeOnlyToItsAuthor).
 func TestDispatchStructuredHandoff(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	a := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work"})
 	mustCall[proto.StartResult](t, s, alice, proto.OpStart, proto.StartArgs{ID: a.ID})
@@ -179,6 +181,7 @@ func kinds(ps []proto.Push) []string {
 // session, and no one else's; an item committed before a response is
 // pushed before it. A connection that never watches is pushed nothing.
 func TestPushFanOut(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	b := dialPipe(t, s, bob)
 	other := dialPipe(t, s, store.Actor{Principal: "carol", Session: "s-c", Machine: "m"})
@@ -223,6 +226,7 @@ func TestPushFanOut(t *testing.T) {
 // overflows, it is sent one resync and nothing more until it watches
 // again.
 func TestPushOverflowResyncs(t *testing.T) {
+	t.Parallel()
 	// More notices than one sender may send a minute by default.
 	s := newServerWith(t, Limits{Limits: store.Limits{Notices: 4 * store.WatchQueue}})
 	b := dialPipe(t, s, bob)

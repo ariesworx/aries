@@ -12,6 +12,7 @@ import (
 
 // The access commands refuse bad usage before dialing.
 func TestAdminAccessUsage(t *testing.T) {
+	t.Parallel()
 	empty := t.TempDir()
 	tests := []struct {
 		name   string
@@ -71,6 +72,7 @@ func TestAdminAccessUsage(t *testing.T) {
 }
 
 func TestPrintAdminLists(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 10, 11, 9, 30, 0, 0, time.UTC)
 	const a, b = "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f", "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
 	tests := []struct {

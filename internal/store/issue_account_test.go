@@ -8,6 +8,7 @@ import (
 )
 
 func TestIssueAccountSetAndClear(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "billed", Account: "acme-2026"})
@@ -35,6 +36,7 @@ func TestIssueAccountSetAndClear(t *testing.T) {
 }
 
 func TestIssueAccountRefusesNonCodeNames(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	is := mustCreate(t, s, NewIssue{Title: "x"})
 	for _, a := range []string{"Acme", "acme corp", "acme_corp", "-acme", "acme-", "a--b", "acme\u202e", strings.Repeat("a", 65)} {
@@ -58,6 +60,7 @@ func TestIssueAccountRefusesNonCodeNames(t *testing.T) {
 // An issue another principal holds keeps its account: changing it is a
 // change to the issue, which only the holder or an admin may make.
 func TestIssueAccountGuarded(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	is := mustCreate(t, s, NewIssue{Title: "held"})
 	is, _, err := s.StartIssue(t.Context(), bob, is.ID, 0, false)
@@ -70,6 +73,7 @@ func TestIssueAccountGuarded(t *testing.T) {
 }
 
 func TestResolveAccountInherits(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	epic := mustCreate(t, s, NewIssue{Title: "epic", Type: TypeEpic, Account: "acme"})

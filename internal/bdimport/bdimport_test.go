@@ -2,7 +2,6 @@ package bdimport
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,42 +16,32 @@ import (
 	"github.com/ariesworx/starfix/internal/store"
 )
 
-var (
-	server    *dolttest.Server
-	serverErr error
-)
+// dolts are the package's Dolt servers: a test has one to itself while it
+// runs, so the tests can run in parallel (dolttest.Pool).
+var dolts = dolttest.NewPool("starfix-bdimport-", dolttest.Options{})
 
 func TestMain(m *testing.M) {
 	os.Exit(run(m))
 }
 
 func run(m *testing.M) int {
-	dir, err := os.MkdirTemp("", "starfix-bdimport-")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	defer func() { _ = os.RemoveAll(dir) }()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	server, serverErr = dolttest.Start(ctx, dir)
-	cancel()
-	if server != nil {
-		defer func() { _ = server.Stop() }()
-	}
+	defer func() { _ = dolts.Close() }()
+	dolts.Warm()
 	return m.Run()
 }
 
+// newStore opens a store on a new database of the test's Dolt server,
+// which is dropped when the test ends, once the store is closed: Dolt
+// holds every database in memory and slows with each
+// (dolttest.Server.DropDatabase).
 func newStore(t *testing.T) *store.Store {
 	t.Helper()
-	if errors.Is(serverErr, dolttest.ErrNoDolt) {
+	dsn, err := dolts.Database(t)
+	if errors.Is(err, dolttest.ErrNoDolt) {
 		t.Skip("dolt is not on PATH: install dolt to run the import tests")
 	}
-	if serverErr != nil {
-		t.Fatalf("dolt sql-server: %v", serverErr)
-	}
-	dsn, err := server.NewDatabase(t.Context())
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("dolt sql-server: %v", err)
 	}
 	s, err := store.Open(t.Context(), dsn, store.Options{Prefix: "sf", CommitInterval: -1})
 	if err != nil {
@@ -177,6 +166,7 @@ func problemKeys(rep *Report, level string) []string {
 }
 
 func TestImportBacklog(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	rep := importBytes(t, s, fixture(t), false)
@@ -352,6 +342,7 @@ func TestImportBacklog(t *testing.T) {
 }
 
 func TestImportIsIdempotent(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	b := fixture(t)
 	first := importBytes(t, s, b, false)
@@ -384,6 +375,7 @@ func TestImportIsIdempotent(t *testing.T) {
 }
 
 func TestDryRun(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	b := fixture(t)
 	dry := importBytes(t, s, b, true)
@@ -405,6 +397,7 @@ func TestDryRun(t *testing.T) {
 }
 
 func TestRoundTrip(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	s1 := newStore(t)
 	importBytes(t, s1, fixture(t), false)
@@ -491,6 +484,7 @@ func TestRoundTrip(t *testing.T) {
 }
 
 func TestReimportNewerAndOlder(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	base := `{"id":"ex-a1","title":"Original","status":"open","priority":2,"issue_type":"task","created_at":"2026-02-01T00:00:00Z","updated_at":"2026-02-02T00:00:00Z"}`
@@ -525,6 +519,7 @@ func TestReimportNewerAndOlder(t *testing.T) {
 }
 
 func TestImportProblems(t *testing.T) {
+	t.Parallel()
 	issue := func(id string, extra string) string {
 		return fmt.Sprintf(`{"id":%q,"title":"Issue %s","status":"open","priority":2,"issue_type":"task","created_at":"2026-02-01T00:00:00Z","updated_at":"2026-02-01T00:00:00Z"%s}`, id, id, extra)
 	}
@@ -654,6 +649,7 @@ func TestImportProblems(t *testing.T) {
 }
 
 func TestCommentIDs(t *testing.T) {
+	t.Parallel()
 	c := bdComment{Author: "sam", Text: "hi", CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
 	cases := []struct {
 		name string

@@ -28,6 +28,7 @@ func entriesText(es []HoursEntry) string {
 }
 
 func TestLogHours(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t) // 2026-10-07 12:00 UTC
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "work"})
@@ -78,6 +79,7 @@ func TestLogHours(t *testing.T) {
 // A retry with the same idempotency key logs nothing more and returns the
 // first entry, even once the day has turned.
 func TestLogHoursIdempotent(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	is := mustCreate(t, s, NewIssue{Title: "work"})
 	in := NewHours{Issue: is.ID, Duration: time.Hour, Idem: "cli-1"}
@@ -101,6 +103,7 @@ func TestLogHoursIdempotent(t *testing.T) {
 }
 
 func TestLogHoursRefuses(t *testing.T) {
+	t.Parallel()
 	s, _ := clockStore(t) // 2026-10-07 12:00 UTC
 	is := mustCreate(t, s, NewIssue{Title: "work"})
 	tests := []struct {
@@ -139,6 +142,7 @@ func TestLogHoursRefuses(t *testing.T) {
 // hours_per_day) and sum to at most 24 hours; another day, or another
 // principal, is not affected.
 func TestLogHoursPerDay(t *testing.T) {
+	t.Parallel()
 	s := openStore(t, newDSN(t), Options{Limits: Limits{HoursPerDay: 3}, Now: func() time.Time {
 		return time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	}})
@@ -167,6 +171,7 @@ func TestLogHoursPerDay(t *testing.T) {
 // undid rather than not found; and a retried log whose entry was since
 // undone says so.
 func TestHoursRetriedAfterUndo(t *testing.T) {
+	t.Parallel()
 	s, _ := clockStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "work"})
@@ -195,6 +200,7 @@ func TestHoursRetriedAfterUndo(t *testing.T) {
 // A person may undo their own entry and an admin anyone's; anyone else
 // is refused. Each undo records an event on the issue.
 func TestDeleteHours(t *testing.T) {
+	t.Parallel()
 	s, _ := clockStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "work"})
@@ -249,6 +255,7 @@ func TestDeleteHours(t *testing.T) {
 // Hours lists entries newest day first, filtered by issue and by who
 // logged them, and counts the entries past the limit.
 func TestHoursList(t *testing.T) {
+	t.Parallel()
 	s, _ := clockStore(t)
 	a, b := mustCreate(t, s, NewIssue{Title: "a"}), mustCreate(t, s, NewIssue{Title: "b"})
 	mustLogHours(t, s, alice, NewHours{Issue: a.ID, Duration: time.Hour, On: day("2026-10-05")})
@@ -288,6 +295,7 @@ func TestHoursList(t *testing.T) {
 // show's usage carries the issue's logged hours, in total and by who
 // logged them, most first; another issue's hours are not its.
 func TestIssueUsageHours(t *testing.T) {
+	t.Parallel()
 	s, _ := clockStore(t)
 	is, other := mustCreate(t, s, NewIssue{Title: "work"}), mustCreate(t, s, NewIssue{Title: "other"})
 	mustLogHours(t, s, alice, NewHours{Issue: is.ID, Duration: time.Hour})
@@ -311,6 +319,7 @@ func TestIssueUsageHours(t *testing.T) {
 // counts in a digest and in a cost report that reach now, though no UTC
 // moment of its day has come yet.
 func TestHoursAheadOfUTC(t *testing.T) {
+	t.Parallel()
 	s, _ := clockStore(t) // 2026-10-07 12:00 UTC
 	is := mustCreate(t, s, NewIssue{Title: "work"})
 	mustLogHours(t, s, alice, NewHours{Issue: is.ID, Duration: time.Hour, On: day("2026-10-08")})
@@ -343,6 +352,7 @@ func TestHoursAheadOfUTC(t *testing.T) {
 // window from mid-morning counts that whole day, filtered as its other
 // sections are: by who logged them, or by the issue's label.
 func TestDigestUsageHours(t *testing.T) {
+	t.Parallel()
 	s, _ := clockStore(t) // 2026-10-07 12:00 UTC
 	web, plain := mustCreate(t, s, NewIssue{Title: "web", Labels: []string{"web"}}), mustCreate(t, s, NewIssue{Title: "plain"})
 	mustLogHours(t, s, alice, NewHours{Issue: web.ID, Duration: time.Hour})                              // today
@@ -376,6 +386,7 @@ func TestDigestUsageHours(t *testing.T) {
 // seconds, where Dolt's SUM, a float, prints in exponent form: twelve
 // full days are 1,036,800 seconds.
 func TestHoursPastAMillionSeconds(t *testing.T) {
+	t.Parallel()
 	s, _ := clockStore(t) // 2026-10-07 12:00 UTC
 	is := mustCreate(t, s, NewIssue{Title: "long"})
 	for i := range 12 {

@@ -11,6 +11,7 @@ import (
 )
 
 func TestParseSince(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		in     string
 		at     time.Time
@@ -53,6 +54,7 @@ func TestParseSince(t *testing.T) {
 }
 
 func TestDispatchDigest(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	p1 := 1
 	a := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "first", Priority: &p1, Labels: []string{"ui"}})

@@ -14,6 +14,7 @@ import (
 // idempotency key: the agent gets the first result and the work exists
 // once.
 func TestMCPRetryAfterDropWritesOnce(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice := w.newUser("alice", "")
 	ag := alice.mcp("v0.2.0")
@@ -42,6 +43,7 @@ func TestMCPRetryAfterDropWritesOnce(t *testing.T) {
 // ticks and waives; close refuses until every item is settled, unless
 // forced.
 func TestCLIAcceptanceAndSimilar(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{admins: []string{"dana"}})
 	alice, dana := w.newUser("alice", ""), w.newUser("dana", "")
 	old := strings.TrimSpace(alice.ok("create", "Login fails with expired token"))

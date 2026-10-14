@@ -120,6 +120,7 @@ func reaped(pid int) bool { return errors.Is(syscall.Kill(pid, 0), syscall.ESRCH
 // the handshake through its stdin and stdout, and Close kills and reaps
 // it. Wait returning means os/exec's copying goroutines have ended too.
 func TestDialIAP(t *testing.T) {
+	// Serial: puts a stand-in gcloud on the process's PATH (iaptest.Install).
 	port, fpr := sshServer(t)
 	gcloud := iaptest.Install(t, iaptest.Bridge)
 	c, err := Dial(t.Context(), iapConfig(t, port, fpr), Options{Getenv: noAgent})
@@ -149,6 +150,7 @@ func TestDialIAP(t *testing.T) {
 // Every failure through the tunnel is a typed refusal with a fix, and
 // leaves no gcloud behind.
 func TestDialIAPRefusals(t *testing.T) {
+	// Serial: puts a stand-in gcloud on the process's PATH (iaptest.Install).
 	port, fpr := sshServer(t)
 	tests := []struct {
 		name    string
@@ -192,6 +194,7 @@ func TestDialIAPRefusals(t *testing.T) {
 
 // Without gcloud on PATH, Dial says to install it.
 func TestDialIAPNoGcloud(t *testing.T) {
+	// Serial: sets the process's environment (t.Setenv).
 	t.Setenv("PATH", t.TempDir())
 	_, err := Dial(t.Context(), iapConfig(t, 22, testFpr), Options{Getenv: noAgent})
 	var pe *proto.Error

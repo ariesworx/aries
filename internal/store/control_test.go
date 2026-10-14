@@ -181,6 +181,7 @@ func wantEvents(t *testing.T, c *Control, seq int64, want ...ev) {
 }
 
 func TestControlProjects(t *testing.T) {
+	t.Parallel()
 	c := newControl(t)
 	ctx := t.Context()
 	in := newProject(projA)
@@ -296,6 +297,7 @@ func TestControlProjects(t *testing.T) {
 }
 
 func TestControlProjectValidation(t *testing.T) {
+	t.Parallel()
 	c := newControl(t)
 	ok := newProject(projA)
 	with := func(f func(*NewProject)) NewProject {
@@ -348,6 +350,7 @@ func TestControlProjectValidation(t *testing.T) {
 }
 
 func TestControlPrincipals(t *testing.T) {
+	t.Parallel()
 	c := newControl(t)
 	ctx := t.Context()
 	mustProject(t, c, projA)
@@ -421,6 +424,7 @@ func TestControlPrincipals(t *testing.T) {
 }
 
 func TestControlPrincipalNames(t *testing.T) {
+	t.Parallel()
 	c := newControl(t)
 	bad := []string{"", "Alice", "9lives", "al ice", "alice\n", "al\x1bice", "-alice", strings.Repeat("a", 65), "al/ice", "álice"}
 	bad = append(bad, ReservedPrincipals...)
@@ -441,6 +445,7 @@ func TestControlPrincipalNames(t *testing.T) {
 }
 
 func TestControlKeys(t *testing.T) {
+	t.Parallel()
 	c := newControl(t)
 	ctx := t.Context()
 	mustPrincipal(t, c, "alice")
@@ -504,6 +509,7 @@ func TestControlKeys(t *testing.T) {
 }
 
 func TestControlKeyParsing(t *testing.T) {
+	t.Parallel()
 	c := newControl(t)
 	mustPrincipal(t, c, "alice")
 	line, _ := testKey(t, "k")
@@ -566,6 +572,7 @@ func TestControlKeyParsing(t *testing.T) {
 // only for a key of an active principal, follows every write, and is
 // loaded when the store opens.
 func TestAuthorizedKey(t *testing.T) {
+	t.Parallel()
 	dsn := newDSN(t)
 	c := openControl(t, dsn, ControlOptions{})
 	ctx := t.Context()
@@ -636,6 +643,7 @@ func TestAuthorizedKey(t *testing.T) {
 // TestAuthorizedKeyConcurrent reads the index while writes change it;
 // the race detector checks the locking.
 func TestAuthorizedKeyConcurrent(t *testing.T) {
+	t.Parallel()
 	c := newControl(t)
 	mustPrincipal(t, c, "alice")
 	line, fp := testKey(t, "alice-1")
@@ -676,6 +684,7 @@ func TestAuthorizedKeyConcurrent(t *testing.T) {
 // being refused, may have committed all the same, so the index is read
 // again from the database instead of trusting what it held.
 func TestAuthorizedKeyAfterFailedWrite(t *testing.T) {
+	t.Parallel()
 	c := newControl(t)
 	mustPrincipal(t, c, "alice")
 	_, fp := testKey(t, "alice-1")
@@ -699,6 +708,7 @@ func TestAuthorizedKeyAfterFailedWrite(t *testing.T) {
 }
 
 func TestControlMembers(t *testing.T) {
+	t.Parallel()
 	c := newControl(t)
 	ctx := t.Context()
 	mustProject(t, c, projA)
@@ -805,6 +815,7 @@ func TestControlMembers(t *testing.T) {
 }
 
 func TestControlAdmins(t *testing.T) {
+	t.Parallel()
 	c := newControl(t)
 	ctx := t.Context()
 	mustProject(t, c, projA)
@@ -840,6 +851,7 @@ func TestControlAdmins(t *testing.T) {
 }
 
 func TestOpenControl(t *testing.T) {
+	t.Parallel()
 	t.Run("refuses bad options", func(t *testing.T) {
 		dsn := newDSN(t)
 		for name, opts := range map[string]ControlOptions{
@@ -917,6 +929,7 @@ func TestOpenControl(t *testing.T) {
 // database before changing it, so two DSNs swapped in a config file do
 // not run one schema's migrations over the other's tables.
 func TestControlAndProjectDatabases(t *testing.T) {
+	t.Parallel()
 	tables := func(t *testing.T, dsn string) []string {
 		t.Helper()
 		db, err := sql.Open("mysql", dsn)
@@ -996,6 +1009,7 @@ func TestControlAndProjectDatabases(t *testing.T) {
 // alone says which key was let in and which was taken out; and rows and
 // events carry the store's clock.
 func TestControlEventStates(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 10, 11, 9, 30, 0, 123456000, time.UTC)
 	c := openControl(t, newDSN(t), ControlOptions{Now: func() time.Time { return at }})
 	mustPrincipal(t, c, "alice")
@@ -1062,6 +1076,7 @@ func FuzzParseKey(f *testing.F) {
 // two processes would be, write at once. The loser's write is rerun from
 // the start (rule 8), so both land, each once, on a gapless event log.
 func TestControlConcurrentWriters(t *testing.T) {
+	t.Parallel()
 	dsn := newDSN(t)
 	c1, c2 := openControl(t, dsn, ControlOptions{}), openControl(t, dsn, ControlOptions{})
 	b := newBarrier(2)

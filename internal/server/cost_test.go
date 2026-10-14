@@ -16,6 +16,7 @@ import (
 var testRates = proto.Rates{Input: 2_000_000, Output: 10_000_000, CacheWrite: 2_500_000, CacheWrite1h: 4_000_000, CacheRead: 200_000}
 
 func TestDispatchPrices(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	set := proto.PriceSetArgs{Model: "example-large", From: "2026-01-01", Rates: testRates}
 	for _, want := range []string{"added", "unchanged"} {
@@ -60,6 +61,7 @@ func TestDispatchPrices(t *testing.T) {
 
 // Rule 18: past limits: prices a new price is refused, naming the limit.
 func TestDispatchPricesLimit(t *testing.T) {
+	t.Parallel()
 	s := newServerWith(t, Limits{Limits: store.Limits{Prices: 1}})
 	mustCall[proto.PriceSetResult](t, s, dana, proto.OpPriceSet, proto.PriceSetArgs{Model: "example-large", From: "2026-01-01", Rates: testRates})
 	_, perr := call[proto.PriceSetResult](t, s, dana, proto.OpPriceSet, proto.PriceSetArgs{Model: "example-small", From: "2026-01-01", Rates: testRates})
@@ -70,6 +72,7 @@ func TestDispatchPricesLimit(t *testing.T) {
 }
 
 func TestPricesAndCostAreReads(t *testing.T) {
+	t.Parallel()
 	for _, op := range []string{proto.OpPrices, proto.OpCost} {
 		if !readOps[op] {
 			t.Errorf("%s is not a read op", op)
@@ -83,6 +86,7 @@ func TestPricesAndCostAreReads(t *testing.T) {
 // show, digest and cost carry the list-price equivalent as an exact
 // decimal of US dollars.
 func TestDispatchCost(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	mustCall[proto.PriceSetResult](t, s, dana, proto.OpPriceSet, proto.PriceSetArgs{Model: "example-large", From: "2026-01-01", Rates: testRates})
 	is := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work", Account: "acme"})
@@ -145,6 +149,7 @@ func TestDispatchCost(t *testing.T) {
 // readings, as a real one does: both ends come from one reading. Taking
 // since in the server and until in the store refused since 366d always.
 func TestDispatchCostLongestWindow(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	clock := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	s, _ := newServerClock(t, Limits{}, func() time.Time {
@@ -162,6 +167,7 @@ func TestDispatchCostLongestWindow(t *testing.T) {
 // A report names at most MaxUsageModels unpriced models and counts the
 // rest, so a client can say how many it does not list.
 func TestDispatchCostUnpricedMore(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	now := time.Now().UTC()
 	var recs []proto.UsageRecord
@@ -180,6 +186,7 @@ func TestDispatchCostUnpricedMore(t *testing.T) {
 // A server with no prices sends no cost in show and digest, rather than
 // calling every token unpriced.
 func TestDispatchUsageCostWithoutPrices(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	is := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work"})
 	mustCall[proto.StartResult](t, s, alice, proto.OpStart, proto.StartArgs{ID: is.ID})

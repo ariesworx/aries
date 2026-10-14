@@ -104,6 +104,7 @@ func (r *upgradeRig) exeHolds(t *testing.T) string {
 }
 
 func TestUpgradeServerRestarts(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, "v0.2.0", "v0.3.0", "systemd_unit: starfixd.service\n")
 	out, err := r.run(t)
 	if err != nil {
@@ -139,6 +140,7 @@ func TestUpgradeServerRestarts(t *testing.T) {
 }
 
 func TestUpgradeServerWithoutUnit(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, "v0.2.0", "v0.3.0", "")
 	out, err := r.run(t)
 	if err != nil || !strings.Contains(out, "installed starfixd v0.3.0") || !strings.Contains(out, "systemctl restart") {
@@ -158,6 +160,7 @@ func TestUpgradeServerWithoutUnit(t *testing.T) {
 }
 
 func TestUpgradeServerUnhealthyRestores(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, "v0.2.0", "v0.3.0", "systemd_unit: starfixd\n")
 	r.healthy = func(v string) bool { return v != "v0.3.0" }
 	_, err := r.run(t)
@@ -176,6 +179,7 @@ func TestUpgradeServerUnhealthyRestores(t *testing.T) {
 }
 
 func TestUpgradeServerCheck(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name, current, latest string
 		args                  []string
@@ -202,6 +206,7 @@ func TestUpgradeServerCheck(t *testing.T) {
 }
 
 func TestUpgradeServerRefusals(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		current string
@@ -261,6 +266,7 @@ func TestUpgradeServerRefusals(t *testing.T) {
 
 // TestUpgradeServerBackupDolt runs the real backup against Dolt.
 func TestUpgradeServerBackupDolt(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, "v0.2.0", "v0.3.0", "")
 	r.dsn = newDSN(t)
 	r.d.backup = backupStore

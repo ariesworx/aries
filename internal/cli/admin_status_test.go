@@ -11,6 +11,7 @@ import (
 
 // `sfx admin status` refuses bad usage before dialing.
 func TestAdminStatusUsage(t *testing.T) {
+	t.Parallel()
 	empty := t.TempDir()
 	for _, tc := range []struct {
 		name   string
@@ -36,6 +37,7 @@ func TestAdminStatusUsage(t *testing.T) {
 // The keys of a principal say when connections came in by the server's
 // hand-maintained authorized_keys file.
 func TestPrintFileConns(t *testing.T) {
+	t.Parallel()
 	const fp = "SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5TqvU"
 	at := time.Date(2026, 10, 11, 9, 30, 0, 0, time.UTC)
 	tests := []struct {

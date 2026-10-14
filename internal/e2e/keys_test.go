@@ -72,6 +72,7 @@ func (w *world) controlEvents() []string {
 // wrote it to the file sshd reads; the admin removes the key; the
 // person's open connection closes and the next is refused.
 func TestKeysFromTheStore(t *testing.T) {
+	t.Parallel()
 	w := keysWorld(t, server.Limits{})
 	dana := w.newUser("dana", "") // the first admin: a line in authorized_keys
 	bob := w.newUser("", "")      // no line anywhere
@@ -142,6 +143,7 @@ func TestKeysFromTheStore(t *testing.T) {
 // once the keys file is written again. Stale, the file is never more
 // permissive than the store, and for a key in both it is stricter.
 func TestStaleKeysFileIsNotAHole(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("needs a directory this user cannot write to")
 	}
@@ -262,6 +264,7 @@ func readFile(t *testing.T, path string) string {
 // through SSH and the daemon, in text and --json, as those who may and
 // those who may not.
 func TestAdminKeyCommands(t *testing.T) {
+	t.Parallel()
 	w := keysWorld(t, server.Limits{Control: store.ControlLimits{Keys: 3}})
 	w.addProject(second, "second", "two")
 	w.member("alice", project, store.RoleAdmin) // reaches bob, who is in her project only
@@ -436,6 +439,7 @@ var sam = store.Actor{Principal: "sam", Session: "e2e", Machine: "server"}
 // principal is disabled is refused, config file or not, until enabled,
 // and the last enabled server admin cannot be disabled.
 func TestDisabledWins(t *testing.T) {
+	t.Parallel()
 	w := keysWorld(t, server.Limits{})
 	dana, sam := w.newUser("dana", ""), w.newUser("sam", "")
 	// sam has no row, and is a server admin all the same.
@@ -473,6 +477,7 @@ func TestDisabledWins(t *testing.T) {
 // of a member who is removed ends at once, on the record, and the issue
 // is ready for the next person.
 func TestLosingAccessReleasesClaims(t *testing.T) {
+	t.Parallel()
 	w := keysWorld(t, server.Limits{})
 	w.member("alice", project, store.RoleAdmin)
 	w.member("bob", project, store.RoleMember)
@@ -515,6 +520,7 @@ func TestLosingAccessReleasesClaims(t *testing.T) {
 // A server of one project refuses the key commands, and says how a
 // server opts in.
 func TestAdminKeyOnAServerOfOneProject(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{admins: []string{"dana"}})
 	d := w.newUser("dana", "")
 	for _, args := range [][]string{

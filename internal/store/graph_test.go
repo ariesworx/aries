@@ -8,6 +8,7 @@ import (
 )
 
 func TestReadyAndBlocked(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	now := time.Now().UTC()
@@ -132,6 +133,7 @@ func readyIDs(t *testing.T, s *Store) []IssueID {
 }
 
 func TestCycleRefusal(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	type edge struct {

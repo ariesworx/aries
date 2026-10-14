@@ -264,6 +264,7 @@ func mustAsk[R any](c *conn, op string, args any) R {
 }
 
 func TestNewModes(t *testing.T) {
+	t.Parallel()
 	m := newMulti(t, Limits{}, nil)
 	single := newServer(t)
 	open := func(context.Context, store.Project) (*store.Store, error) { return nil, errors.New("unused") }
@@ -294,6 +295,7 @@ func TestNewModes(t *testing.T) {
 }
 
 func TestMultiHandshake(t *testing.T) {
+	t.Parallel()
 	m := newMulti(t, Limits{}, nil)
 	m.project(t, projA, "alice", "erin=admin", "frank")
 	m.project(t, projB, "bob")
@@ -382,6 +384,7 @@ func TestMultiHandshake(t *testing.T) {
 // connection is open: in this stage nothing over the wire ends it, so
 // the open connection goes on, and the next handshake is refused.
 func TestMultiAccessEnds(t *testing.T) {
+	t.Parallel()
 	m := newMulti(t, Limits{}, nil)
 	m.project(t, projA, "alice", "bob")
 	a := mustDialTo(t, m.Server, alice, projA)
@@ -413,6 +416,7 @@ func TestMultiAccessEnds(t *testing.T) {
 }
 
 func TestMultiProjectsApart(t *testing.T) {
+	t.Parallel()
 	m := newMulti(t, Limits{}, nil)
 	m.project(t, projA, "alice", "bob")
 	m.project(t, projB, "alice")
@@ -453,6 +457,7 @@ func TestMultiProjectsApart(t *testing.T) {
 }
 
 func TestMultiProjectAdmins(t *testing.T) {
+	t.Parallel()
 	m := newMulti(t, Limits{}, nil)
 	m.project(t, projA, "alice", "erin=admin")
 	m.project(t, projB, "alice", "erin")
@@ -504,6 +509,7 @@ func TestMultiProjectAdmins(t *testing.T) {
 }
 
 func TestRegistryOpensOnce(t *testing.T) {
+	t.Parallel()
 	m := newMulti(t, Limits{}, nil)
 	m.project(t, projA, "alice")
 	const n = 12
@@ -538,6 +544,7 @@ func TestRegistryOpensOnce(t *testing.T) {
 }
 
 func TestRegistryIdleClose(t *testing.T) {
+	t.Parallel()
 	ck := newClock()
 	m := newMulti(t, Limits{StoreIdle: Duration(10 * time.Minute)}, ck)
 	m.project(t, projA, "alice")
@@ -582,6 +589,7 @@ func TestRegistryIdleClose(t *testing.T) {
 }
 
 func TestRegistryCap(t *testing.T) {
+	t.Parallel()
 	ck := newClock()
 	m := newMulti(t, Limits{OpenStores: 2}, ck)
 	for _, id := range []string{projA, projB, projC} {
@@ -627,6 +635,7 @@ func TestRegistryCap(t *testing.T) {
 // first request: nothing ended the claims that lapsed while it was
 // closed.
 func TestReapAtOpen(t *testing.T) {
+	t.Parallel()
 	ck := newClock()
 	m := newMulti(t, Limits{StoreIdle: Duration(time.Minute)}, ck)
 	m.project(t, projA, "alice", "bob")
@@ -656,6 +665,7 @@ func TestReapAtOpen(t *testing.T) {
 // TestReapEveryOpenStore checks that the reaper and the pruner run for
 // every open store.
 func TestReapEveryOpenStore(t *testing.T) {
+	t.Parallel()
 	ck := newClock()
 	m := newMulti(t, Limits{}, ck)
 	ids := map[string]string{}
@@ -689,6 +699,7 @@ func TestReapEveryOpenStore(t *testing.T) {
 }
 
 func TestMultiLimitsPerProject(t *testing.T) {
+	t.Parallel()
 	t.Run("connections", func(t *testing.T) {
 		m := newMulti(t, Limits{ConnsPerPrincipal: 1, Conns: 3}, nil)
 		m.project(t, projA, "alice", "bob")
@@ -724,6 +735,7 @@ func TestMultiLimitsPerProject(t *testing.T) {
 }
 
 func TestMultiLogsNameTheProject(t *testing.T) {
+	t.Parallel()
 	m := newMulti(t, Limits{}, nil)
 	p := m.project(t, projA, "alice")
 	c := mustDialTo(t, m.Server, alice, projA)
@@ -742,6 +754,7 @@ func TestMultiLogsNameTheProject(t *testing.T) {
 }
 
 func TestMultiOpenFailure(t *testing.T) {
+	t.Parallel()
 	m := newMulti(t, Limits{}, nil)
 	// A project whose database the account was never granted.
 	if _, err := m.ctl.AddProject(t.Context(), dana, store.NewProject{ID: projA, Name: "proj-a", Prefix: "pa",
@@ -781,6 +794,7 @@ func TestMultiOpenFailure(t *testing.T) {
 // TestControlReloadedOnTick checks that what `starfixd control init`
 // wrote from another process counts in the daemon without a restart.
 func TestControlReloadedOnTick(t *testing.T) {
+	t.Parallel()
 	m := newMulti(t, Limits{}, nil)
 	m.project(t, projA, "alice")
 	other, err := store.OpenControl(t.Context(), m.dsn, store.ControlOptions{Admins: []string{dana.Principal}, CommitInterval: -1})
@@ -799,6 +813,7 @@ func TestControlReloadedOnTick(t *testing.T) {
 }
 
 func TestDatabaseDSN(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name, dsn, db, want string
 		err                 string
@@ -828,6 +843,7 @@ func TestDatabaseDSN(t *testing.T) {
 }
 
 func TestResolveSettingsControl(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	write := func(name, body string) string {
 		p := filepath.Join(dir, name)

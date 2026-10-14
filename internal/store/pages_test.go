@@ -10,6 +10,7 @@ import (
 // S-5: comments and history come a page at a time, newest page first, so
 // no reply grows past the frame limit however much an issue collects.
 func TestCommentsPage(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "talk"})
@@ -50,6 +51,7 @@ func TestCommentsPage(t *testing.T) {
 }
 
 func TestPagesStayUnderByteBudget(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "flood"})
@@ -81,6 +83,7 @@ func TestPagesStayUnderByteBudget(t *testing.T) {
 }
 
 func TestHistoryPage(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "v0"})
@@ -115,6 +118,7 @@ func TestHistoryPage(t *testing.T) {
 }
 
 func TestWhoPage(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	for i := range 5 {

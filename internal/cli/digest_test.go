@@ -10,6 +10,7 @@ import (
 )
 
 func TestPrintDigest(t *testing.T) {
+	t.Parallel()
 	until := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	ago := func(d time.Duration) time.Time { return until.Add(-d) }
 	tests := []struct {

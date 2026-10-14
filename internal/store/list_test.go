@@ -8,6 +8,7 @@ import (
 )
 
 func TestListPaging(t *testing.T) {
+	t.Parallel()
 	// A frozen clock gives every issue the same created_at, so ordering and
 	// the cursor fall back to the ID tie-break.
 	frozen := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
@@ -54,6 +55,7 @@ func TestListPaging(t *testing.T) {
 }
 
 func TestListFilters(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	parent := mustCreate(t, s, NewIssue{Title: "parent", Type: TypeEpic})

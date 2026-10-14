@@ -18,6 +18,7 @@ import (
 // which configured admin has a row or a key that no server admin, and
 // not the operator, put there.
 func TestServeWarnsOfAnAdminSomeoneElseMade(t *testing.T) {
+	t.Parallel()
 	s := newSite(t, "")
 	keys := writeKeys(t, forced(t, "dana", "dana-1"), forced(t, "alice", "alice-1"))
 	if got := s.run(t, "", controlCmd, "init", "--name", "acme", "--authorized-keys", keys); got.err != nil {

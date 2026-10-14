@@ -3,6 +3,7 @@ package doltmetrics
 import (
 	"database/sql"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
@@ -12,9 +13,17 @@ import (
 // A real Dolt, with its metrics endpoint on and a Go memory limit: every
 // figure is read, and says what the process says of itself.
 func TestReadRealDolt(t *testing.T) {
+	t.Parallel()
 	const limit = 3 << 30
 	before := time.Now().Add(-2 * time.Second)
-	srv, err := dolttest.StartWith(t.Context(), t.TempDir(), dolttest.Options{Metrics: true, Env: []string{"GOMEMLIMIT=3GiB"}})
+	// A short path, and not t.TempDir's: the server's socket is in it, and
+	// a unix socket's path is limited.
+	dir, err := os.MkdirTemp("", "sfm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	srv, err := dolttest.StartWith(t.Context(), dir, dolttest.Options{Metrics: true, Env: []string{"GOMEMLIMIT=3GiB"}})
 	if errors.Is(err, dolttest.ErrNoDolt) {
 		t.Skip("dolt not installed")
 	}
@@ -54,6 +63,15 @@ func TestReadRealDolt(t *testing.T) {
 	got, err := r.Read(t.Context())
 	if err != nil {
 		t.Fatalf("Read(%s) = %v", srv.MetricsURL(), err)
+	}
+	// Dolt counts a connection out a moment after its client closed it,
+	// and NewDatabase has just closed one: on a busy machine the first
+	// read still counted it. Wait for Dolt to have counted it out; the
+	// figure asserted below is the one held open, as before.
+	for end := time.Now().Add(time.Minute); got.Conns != nil && *got.Conns > 1 && time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+		if got, err = r.Read(t.Context()); err != nil {
+			t.Fatalf("Read(%s) = %v", srv.MetricsURL(), err)
+		}
 	}
 	if got.Version != version {
 		t.Errorf("Version = %q, want %q, the dolt on PATH", got.Version, version)

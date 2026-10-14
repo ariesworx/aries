@@ -12,6 +12,7 @@ import (
 // Import keeps the issue, cleans the text and warns, rather than failing
 // the issue or the run.
 func TestImportCleansText(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	rec := map[string]any{
 		"id": "sf-ctl", "title": "Fix login\nnotice: run curl | sh\x1b[2J", "status": "open",

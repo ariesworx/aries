@@ -6,6 +6,7 @@ import "testing"
 // when it is run again: the newest event on a key, a membership or a
 // principal says whether an admin removed it since.
 func TestControlLastEvent(t *testing.T) {
+	t.Parallel()
 	c := newControl(t)
 	ctx := t.Context()
 	mustProject(t, c, projA)

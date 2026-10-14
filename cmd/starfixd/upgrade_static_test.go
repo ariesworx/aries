@@ -33,6 +33,7 @@ func newStaticRig(t *testing.T, current, configExtra string, tags ...string) (*u
 // HTTP named by the variable, and from a directory named by the config
 // file's releases setting.
 func TestUpgradeServerFromStaticTree(t *testing.T) {
+	t.Parallel()
 	for _, via := range []string{"variable", "config file"} {
 		t.Run(via, func(t *testing.T) {
 			r, tr := newStaticRig(t, "v0.2.0", "systemd_unit: starfixd.service\n", "v0.2.0", "v0.3.0", "v0.4.0-rc.1")
@@ -72,6 +73,7 @@ func TestUpgradeServerFromStaticTree(t *testing.T) {
 // The variable wins over the config file, and a location starfixd cannot
 // use is refused with what to do, before anything is asked of anyone.
 func TestUpgradeServerSourceSelection(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		env     string // $STARFIX_RELEASES; "" unset
@@ -135,6 +137,7 @@ func TestUpgradeServerSourceSelection(t *testing.T) {
 // error, or nothing. In no case is the binary replaced, the store tagged
 // or the daemon restarted.
 func TestUpgradeServerHostileStaticHost(t *testing.T) {
+	t.Parallel()
 	var asked atomic.Int32
 	elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		asked.Add(1)

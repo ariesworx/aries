@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -12,19 +11,13 @@ import (
 	"github.com/ariesworx/starfix/internal/proto"
 )
 
-// gitInit makes dir a repository with one commit, isolated from the
-// user's git configuration.
+// gitInit makes dir a repository with one commit. TestMain isolates it
+// from the user's git configuration.
 func gitInit(t *testing.T, dir string) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not on PATH")
 	}
-	empty := filepath.Join(t.TempDir(), "gitconfig")
-	if err := os.WriteFile(empty, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("GIT_CONFIG_GLOBAL", empty)
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	for _, args := range [][]string{
 		{"init", "-q", "-b", "main"},
 		{"-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-q", "--allow-empty", "-m", "init"},
@@ -48,6 +41,7 @@ func gitBranch(t *testing.T, dir string) string {
 // One issue from start to finish on the CLI, passed between two people
 // with a handoff, with its branch and worktree.
 func TestStartHandoffFinish(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
 	gitInit(t, alice.repo)
@@ -155,6 +149,7 @@ func TestStartHandoffFinish(t *testing.T) {
 
 // The two-call flow over MCP: start, then finish.
 func TestMCPStartFinish(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice := w.newUser("alice", "")
 	ag := alice.mcp("v0.2.0")

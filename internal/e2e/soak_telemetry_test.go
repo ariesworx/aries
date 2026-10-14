@@ -695,6 +695,7 @@ const auditPerLook = 8
 
 // The check of the audit stream catches what it claims to.
 func TestAuditCheckCatches(t *testing.T) {
+	t.Parallel()
 	evs := []cevent{
 		{by: store.OperatorPrincipal, op: "project.add", target: "p1"},
 		{by: "root", op: "principal.add", target: "alice"},
@@ -750,6 +751,7 @@ func (l *logCounter) matching(msg string) int {
 // The check of the instruments against the logs catches what it claims
 // to: each case is a run whose telemetry is right but for one thing.
 func TestTelemetryCheckCatches(t *testing.T) {
+	t.Parallel()
 	const pa = "11111111-1111-4111-8111-111111111111"
 	point := func(name string, value float64, attrs ...string) telemetry.Point {
 		p := telemetry.Point{Name: name, Value: value, Attrs: map[string]string{}}
@@ -949,6 +951,7 @@ func TestTelemetryCheckCatches(t *testing.T) {
 
 // STARFIX_SOAK_TELEMETRY takes one of three words, and nothing else.
 func TestSoakTelemetryConfig(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		value, want string
 		refused     bool

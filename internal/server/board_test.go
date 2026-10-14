@@ -24,6 +24,7 @@ func events(ps []proto.Push) []string {
 // anyone, as history records it but without its states; a plain watch is
 // pushed none. Watching again without events stops them.
 func TestPushEvents(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	b := dialPipe(t, s, bob)
 	plain := dialPipe(t, s, store.Actor{Principal: "carol", Session: "s-c", Machine: "m"})
@@ -66,6 +67,7 @@ func TestPushEvents(t *testing.T) {
 // when it was taken, and the server's clock; a limit leaves the rest
 // counted in more.
 func TestDispatchActiveClaims(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	one := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "one"})
 	two := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "two"})

@@ -7,6 +7,7 @@ import (
 )
 
 func TestHook(t *testing.T) {
+	t.Parallel()
 	custom := Entry{Command: "/opt/star fix/sfx", Args: []string{"mcp"}}
 	tests := []struct {
 		name, in, want string
@@ -217,6 +218,7 @@ func usageHooks(program string) string {
 // synchronous with its timeout, then changes nothing. A person's own
 // timeout on a synchronous hook is kept.
 func TestHookUpgradeSyncSessionEnd(t *testing.T) {
+	t.Parallel()
 	h := hookOf(t, "claude-code", false)
 	current, _, err := h.Apply(nil, DefaultEntry)
 	if err != nil {
@@ -249,6 +251,7 @@ func TestHookUpgradeSyncSessionEnd(t *testing.T) {
 // not registered, says which hooks are missing, and a second Apply adds
 // them, keeping the prime hook as the person left it.
 func TestHookUpgradeAddsUsageHooks(t *testing.T) {
+	t.Parallel()
 	old := `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "sfx prime --hook", "timeout": 20}]}]}}`
 	h := hookOf(t, "claude-code", false)
 	if h.Registered([]byte(old), DefaultEntry) {
@@ -273,6 +276,7 @@ func TestHookUpgradeAddsUsageHooks(t *testing.T) {
 // Only Claude Code's usage is captured so far: Junie shares its hook
 // format but gets the prime hook alone.
 func TestUsageHooksAreClaudeCodes(t *testing.T) {
+	t.Parallel()
 	out, _, err := hookOf(t, "junie", true).Apply(nil, DefaultEntry)
 	if err != nil || strings.Contains(string(out), "usage") {
 		t.Fatalf("junie hooks = %v\n%s\nwant no usage hook", err, out)
@@ -283,6 +287,7 @@ func TestUsageHooksAreClaudeCodes(t *testing.T) {
 }
 
 func TestHookLeavesOthersAlone(t *testing.T) {
+	t.Parallel()
 	// Another tool's prime hook is not starfix's.
 	in := `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "bd prime --hook"}]}]}}`
 	h := hookOf(t, "claude-code", false)
@@ -296,6 +301,7 @@ func TestHookLeavesOthersAlone(t *testing.T) {
 }
 
 func TestHookRefusesBadJSON(t *testing.T) {
+	t.Parallel()
 	for _, in := range []string{"[]", `{"hooks": []}`, `{"hooks": {"SessionStart": {}}}`, `{"hooks": {"SessionStart": [1]}}`,
 		`{"hooks": {"SessionStart": [{"hooks": {}}]}}`} {
 		if _, _, err := hookOf(t, "claude-code", false).Apply([]byte(in), DefaultEntry); err == nil {
@@ -305,6 +311,7 @@ func TestHookRefusesBadJSON(t *testing.T) {
 }
 
 func TestHookCommand(t *testing.T) {
+	t.Parallel()
 	tests := []struct{ cmd, harness, want string }{
 		{"sfx", "claude-code", "sfx prime --hook"},
 		{"/usr/local/bin/sfx", "claude-code", "/usr/local/bin/sfx prime --hook"},
@@ -321,6 +328,7 @@ func TestHookCommand(t *testing.T) {
 }
 
 func TestTargets(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		agent  string
 		global bool
@@ -360,6 +368,7 @@ func TestTargets(t *testing.T) {
 }
 
 func TestTargetSnippetsRegister(t *testing.T) {
+	t.Parallel()
 	for _, name := range Names() {
 		for _, tg := range Agents[name].Targets(false) {
 			if s := tg.Snippet(DefaultEntry); !tg.Registered([]byte(s), DefaultEntry) {

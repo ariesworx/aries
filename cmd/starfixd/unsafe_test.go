@@ -11,11 +11,12 @@ import (
 // S-2, decision D3: the admin commands refuse an unsafe Dolt account, as
 // serve does; --allow-unsafe-dolt lets one through only with --dev.
 func TestUnsafeDoltAccount(t *testing.T) {
+	t.Parallel()
 	cfg, err := mysql.ParseDSN(newDSN(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := dolt.RootDSN(cfg.DBName)
+	root := doltOf(t).RootDSN(cfg.DBName)
 	tests := []struct {
 		name  string
 		args  []string
@@ -47,6 +48,7 @@ func TestUnsafeDoltAccount(t *testing.T) {
 }
 
 func TestServeUnsafeNeedsDev(t *testing.T) {
+	t.Parallel()
 	err := serve(t.Context(), []string{"--allow-unsafe-dolt"})
 	var ue usageError
 	if !errors.As(err, &ue) || !strings.Contains(err.Error(), "needs --dev") {

@@ -21,6 +21,7 @@ import (
 )
 
 func TestResolveSettingsLimits(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	write := func(name, body string) string {
 		p := filepath.Join(dir, name)
@@ -119,6 +120,7 @@ func TestResolveSettingsLimits(t *testing.T) {
 }
 
 func TestBuckets(t *testing.T) {
+	t.Parallel()
 	t0 := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	b := buckets{rate: 2, burst: 3}
 	steps := []struct {
@@ -144,6 +146,7 @@ func TestBuckets(t *testing.T) {
 }
 
 func TestSampler(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&buf, nil))
 	t0 := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
@@ -171,6 +174,7 @@ func TestSampler(t *testing.T) {
 // The reproducers of the review (S-4, S-5, S-6, S-7), as regressions.
 
 func TestSecWriterHold(t *testing.T) {
+	// Serial: bounds elapsed time, which a test running beside it would stretch.
 	s := newServer(t)
 	labels := make([]string, 20000)
 	for i := range labels {
@@ -223,6 +227,7 @@ func encodes(t *testing.T, s *Server, a store.Actor, op string, args any) json.R
 }
 
 func TestSecSizes(t *testing.T) {
+	t.Parallel()
 	s := newServerWith(t, Limits{Limits: store.Limits{Notices: 1000}})
 	c := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "x"})
 	big := strings.Repeat("A", 65535)
@@ -261,6 +266,7 @@ func TestSecSizes(t *testing.T) {
 }
 
 func TestSecRegistry(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	for i := range 300 {
 		a := store.Actor{Principal: "mallory", Session: fmt.Sprintf("%04d", i) + strings.Repeat("s", 251), Machine: strings.Repeat("m", 255)}
@@ -278,6 +284,7 @@ func TestSecRegistry(t *testing.T) {
 }
 
 func TestSecMentions(t *testing.T) {
+	t.Parallel()
 	// The allowance is for a minute of the store's time, so the store's
 	// clock stands still: on the real one, a machine that takes more than
 	// a minute over these requests delivers a second allowance.
@@ -305,6 +312,7 @@ func TestSecMentions(t *testing.T) {
 
 // S-5: show and blocked cap the edges they list and count the rest.
 func TestShowAndBlockedCapEdges(t *testing.T) {
+	t.Parallel()
 	s := newServerWith(t, Limits{Limits: store.Limits{Deps: 1000}})
 	hub := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "hub"})
 	for range proto.MaxShowDeps + 3 {
@@ -345,6 +353,7 @@ func handshakeProto(t *testing.T, s *Server, a store.Actor, p int) (*proto.Frame
 // S-11: connections are capped per principal and in all, refused with
 // busy in the welcome, and a slot frees when its connection ends.
 func TestConnectionCaps(t *testing.T) {
+	t.Parallel()
 	s := newServerWith(t, Limits{ConnsPerPrincipal: 2, Conns: 3})
 	w1, c1 := handshakeAs(t, s, alice)
 	w2, _ := handshakeAs(t, s, alice)
@@ -381,6 +390,7 @@ func TestConnectionCaps(t *testing.T) {
 // handshake took for it; otherwise enough of them would lock its
 // principal out until a restart.
 func TestWelcomeWriteFailureFreesSlot(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	srv, cli := net.Pipe()
 	var wg sync.WaitGroup
@@ -410,6 +420,7 @@ func TestWelcomeWriteFailureFreesSlot(t *testing.T) {
 // S-11: a connection that sends nothing for IdleTimeout is closed with a
 // note, unless it watches its inbox.
 func TestIdleTimeout(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	var past atomic.Bool
 	s.now = func() time.Time {
@@ -442,6 +453,7 @@ func TestIdleTimeout(t *testing.T) {
 // The write rate limit: a principal's writes past its bucket are refused
 // with busy and a wait; its reads, and others' writes, go on.
 func TestWriteRateLimit(t *testing.T) {
+	t.Parallel()
 	s := newServerWith(t, Limits{WriteBurst: 3, WriteRate: 0.001})
 	_, a := handshakeAs(t, s, alice)
 	for i := range 3 {
@@ -460,6 +472,7 @@ func TestWriteRateLimit(t *testing.T) {
 // A reply that would pass the frame limit is refused with invalid; the
 // connection stays up.
 func TestSendTooLarge(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	srv, cli := net.Pipe()
 	defer func() { _ = srv.Close(); _ = cli.Close() }()
@@ -477,6 +490,7 @@ func TestSendTooLarge(t *testing.T) {
 
 // Prune runs the store's pruning with the configured windows.
 func TestServerPrune(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	s.Prune(t.Context()) // nothing to prune, and no error logged
 }

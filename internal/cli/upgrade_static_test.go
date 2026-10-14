@@ -75,6 +75,7 @@ func (f *staticUpgrade) exeHolds(t *testing.T) string {
 // $STARFIX_RELEASES: over loopback HTTP, from a directory, and from a
 // file:// URL.
 func TestUpgradeFromStaticTree(t *testing.T) {
+	t.Parallel()
 	for _, via := range []string{"http", "directory", "file URL"} {
 		t.Run(via, func(t *testing.T) {
 			f := newStaticUpgrade(t, "v0.2.0", "v0.2.0", "v0.3.0", "v0.4.0-rc.1")
@@ -111,6 +112,7 @@ func TestUpgradeFromStaticTree(t *testing.T) {
 // Which source sfx reads is $STARFIX_RELEASES, and a value it cannot use
 // is refused before anything is asked of anyone.
 func TestUpgradeSourceSelection(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		location string
@@ -160,6 +162,7 @@ func TestUpgradeSourceSelection(t *testing.T) {
 // A test tree is signed with a test key. Without Upgrader.Verifier, sfx
 // checks it against the keys built into the binary, and refuses it.
 func TestUpgradeStaticTreeAgainstBuiltInKeys(t *testing.T) {
+	t.Parallel()
 	f := newStaticUpgrade(t, "v0.2.0", "v0.3.0")
 	f.env.Upgrader.Verifier = nil
 	code, _, errb := f.run(t, "upgrade")
@@ -174,6 +177,7 @@ func TestUpgradeStaticTreeAgainstBuiltInKeys(t *testing.T) {
 // What a hostile or broken release host gets out of sfx upgrade: an
 // error, or nothing. In no case is the binary replaced.
 func TestUpgradeHostileStaticHost(t *testing.T) {
+	t.Parallel()
 	var asked atomic.Int32
 	elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		asked.Add(1)

@@ -10,6 +10,7 @@ import (
 )
 
 func TestPrintMemories(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 10, 9, 8, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name string
@@ -45,6 +46,7 @@ func TestPrintMemories(t *testing.T) {
 
 // Memory commands refuse bad usage before dialing.
 func TestMemoryUsage(t *testing.T) {
+	t.Parallel()
 	empty := t.TempDir()
 	tests := []struct {
 		name   string

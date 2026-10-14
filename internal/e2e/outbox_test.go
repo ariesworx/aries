@@ -59,6 +59,7 @@ type queuedDoc struct {
 // of a held issue, written while the server is away, each arrive once
 // when it is back; and what is never queued fails as it always did.
 func TestOutageWritesArriveOnceCLI(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice := w.newUser("alice", "")
 	held := strings.TrimSpace(alice.ok("create", "Held through the outage"))
@@ -143,6 +144,7 @@ func TestOutageWritesArriveOnceCLI(t *testing.T) {
 // queued tool call says it was queued and to carry on, and the session's
 // next call, with the server back, sends them first.
 func TestOutageWritesArriveOnceMCP(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice := w.newUser("alice", "")
 	alice.queues = true
@@ -202,6 +204,7 @@ func TestOutageWritesArriveOnceMCP(t *testing.T) {
 // A write the server applied, whose answer was lost with the connection,
 // is queued with the key it was sent with; replayed, it applies once.
 func TestLostAnswerThenReplayAppliesOnce(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice := w.newUser("alice", "")
 	id := strings.TrimSpace(alice.ok("create", "Answered twice"))
@@ -242,6 +245,7 @@ func TestLostAnswerThenReplayAppliesOnce(t *testing.T) {
 // from the command that delivered it and from prime, and retries or
 // drops it with `sfx outbox`.
 func TestRefusedEntries(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{admins: []string{"dana"}})
 	alice, dana := w.newUser("alice", ""), w.newUser("dana", "")
 	id := strings.TrimSpace(alice.ok("create", "Closed under her"))
@@ -297,6 +301,7 @@ func TestRefusedEntries(t *testing.T) {
 // on it: protocol 5 carries no other. Another principal's connection
 // sends none of it.
 func TestAnotherSessionDeliversTheOutbox(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
 	alice.queues = true
@@ -352,6 +357,7 @@ func (u *user) comments(id string) int {
 // the person is told once, in one line with its fix, and `sfx outbox`
 // goes on listing them, where --principal reaches them.
 func TestKeyMovedLeavesTheOutbox(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
 	id := strings.TrimSpace(alice.ok("create", "Commented on while away"))
@@ -396,6 +402,7 @@ func TestKeyMovedLeavesTheOutbox(t *testing.T) {
 // An entry that waited longer than the age cap is not sent: it moves to
 // the refused list as stale, with a fix, and a person's retry sends it.
 func TestStaleEntryWaitsForAPerson(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
 	clock := time.Date(2026, 10, 13, 9, 0, 0, 0, time.UTC)
@@ -446,6 +453,7 @@ func TestStaleEntryWaitsForAPerson(t *testing.T) {
 // client giving up, never on a sleep, so a slow machine only makes it
 // slower.
 func TestReplayBudgetCLI(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
 	first := strings.TrimSpace(alice.ok("create", "Never answered"))

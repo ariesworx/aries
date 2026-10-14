@@ -72,7 +72,8 @@ goarch=$(go env GOARCH)
 # go.mod's go line, as MAJOR.MINOR: CI installs its newest patch release.
 gomod=$(sed -n 's/^go \([0-9]*\.[0-9]*\).*/\1/p' go.mod)
 
-tmp=$(mktemp -d 2>&1) || die "cannot make a temporary directory: $tmp" "set TMPDIR to a writable directory"
+# With a template: mktemp -d alone ignores TMPDIR on macOS.
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/starfix-gate.XXXXXX" 2>&1) || die "cannot make a temporary directory: $tmp" "set TMPDIR to a writable directory"
 keep_logs=0
 cleanup() { [ "$keep_logs" = 1 ] || rm -rf "$tmp"; }
 trap cleanup EXIT

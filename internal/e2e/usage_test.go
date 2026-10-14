@@ -41,6 +41,7 @@ func (r *rawSession) usageCall(id uint64, recs []proto.UsageRecord) proto.UsageR
 // An agent session works an issue under a client's epic; its harness
 // reports tokens for the session, and show, digest and MCP attribute them.
 func TestTokenUsage(t *testing.T) {
+	t.Parallel()
 	// The store's clock moves only when the test moves it, so the issue
 	// has been held for twenty seconds when it is shown ("held 0m"): on
 	// the real one, a machine that takes a minute over these commands
@@ -199,6 +200,7 @@ func toolResult(session string) map[string]any {
 // session_id, unless STARFIX_SESSION is set, as for prime --hook and sfx
 // mcp.
 func TestUsageHookCapture(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	tests := []struct {
 		name, principal string
@@ -257,6 +259,7 @@ func TestUsageHookCapture(t *testing.T) {
 // clock, and with it the whole batch. The hook drops that record, sends
 // the rest, and says so in one line; the next run sends nothing again.
 func TestUsageHookDropsRefusedRecord(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	u := w.newUser("alice", "")
 	const sess = "8d9e0f1a-2b3c-4d4e-9f5a-6b7c8d9e0f1a"

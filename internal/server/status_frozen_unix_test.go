@@ -112,6 +112,7 @@ func printed(t *testing.T, res proto.StatusResult) (text, doc string) {
 // the database, are unknown and say why, and everything the daemon
 // holds in memory is still there.
 func TestStatusWithDoltFrozen(t *testing.T) {
+	// Serial: bounds elapsed time (pace), which a test running beside it would stretch.
 	m := adminWorld(t, Limits{})
 	d := mustDialTo(t, m.Server, dana, projA)
 	a := mustDialTo(t, m.Server, alice, projA)
@@ -133,7 +134,7 @@ func TestStatusWithDoltFrozen(t *testing.T) {
 	}
 
 	// The control database is in the same Dolt, and frozen with it.
-	thaw := freeze(t, dolt, m.ctl.Ping)
+	thaw := freeze(t, doltOf(t), m.ctl.Ping)
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			res, perr, took, late := timed(tc.report, thaw)
@@ -197,6 +198,7 @@ func TestStatusWithDoltFrozen(t *testing.T) {
 // when it runs out of time, as on an older connection, and once Dolt
 // answers again the session is in who.
 func TestNewConnectionWithDoltFrozen(t *testing.T) {
+	// Serial: bounds elapsed time (pace), which a test running beside it would stretch.
 	// Long enough for a request once Dolt answers again on a busy
 	// machine, and short enough to wait out here.
 	const timeout = 4 * time.Second
@@ -212,7 +214,7 @@ func TestNewConnectionWithDoltFrozen(t *testing.T) {
 		return a
 	}
 
-	thaw := freeze(t, dolt, m.ctl.Ping)
+	thaw := freeze(t, doltOf(t), m.ctl.Ping)
 
 	t.Run("status, store open", func(t *testing.T) {
 		late, start := pace(statusReadTimeout), time.Now()
@@ -293,6 +295,7 @@ func TestNewConnectionWithDoltFrozen(t *testing.T) {
 // One store whose database does not answer costs the report its own
 // figure and no other's.
 func TestStatusOneStoreSlow(t *testing.T) {
+	// Serial: bounds elapsed time (pace), which a test running beside it would stretch.
 	// A Dolt of its own for proj-b, started before the server so that it
 	// is stopped after the server's stores have closed. Not t.TempDir,
 	// whose path can be too long for dolt's socket.

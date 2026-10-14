@@ -16,6 +16,7 @@ var dana = Actor{Principal: "dana", Session: "sess-d", Machine: "laptop-d"}
 // holder's principal and admins may change a held issue, an admin's
 // change records the override, and a refusal writes nothing (S-1, D1).
 func TestHeldIssueWrites(t *testing.T) {
+	t.Parallel()
 	type op struct {
 		name string
 		acc  string // the issue's acceptance text
@@ -140,6 +141,7 @@ func TestHeldIssueWrites(t *testing.T) {
 
 // Reopen is guarded too, and anyone may reopen an unheld closed issue.
 func TestReopenUnheld(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	is := mustCreate(t, s, NewIssue{Title: "x"})
 	if _, err := s.CloseIssue(t.Context(), alice, is.ID, 0, ""); err != nil {
@@ -152,6 +154,7 @@ func TestReopenUnheld(t *testing.T) {
 
 // Comments, labels and dependencies stay open to everyone.
 func TestHeldIssueStillTakesComments(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "x"})
@@ -171,6 +174,7 @@ func TestHeldIssueStillTakesComments(t *testing.T) {
 // An admin who closes or releases an issue another session holds tells
 // that session its claim is gone.
 func TestAdminEndTellsHolder(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	a := mustCreate(t, s, NewIssue{Title: "a"})
@@ -204,6 +208,7 @@ func TestAdminEndTellsHolder(t *testing.T) {
 // Same-principal takeover of a live claim needs take; the same session
 // (a reconnect) needs nothing, and an expired claim is free to anyone.
 func TestTakeoverNeedsTake(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "work"})
@@ -238,6 +243,7 @@ func TestTakeoverNeedsTake(t *testing.T) {
 // Holds come only from claims: update cannot set in_progress, and an
 // issue in_progress without a claim holds nothing (S-1).
 func TestUpdateCannotHold(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "x"})
@@ -258,6 +264,7 @@ func TestUpdateCannotHold(t *testing.T) {
 // S-3: acceptance text cannot tick items once the issue exists, and an
 // edit that drops an open item is refused until it is ticked or waived.
 func TestAcceptanceTextCannotTick(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "x", Acceptance: "- [ ] tests pass\n- [ ] docs"})
@@ -302,6 +309,7 @@ func TestAcceptanceTextCannotTick(t *testing.T) {
 // S-12: a start or one session's renewal leases at most a day; only a
 // renewal of every session may reach a week.
 func TestLeaseCaps(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "x"})
@@ -333,6 +341,7 @@ func TestLeaseCaps(t *testing.T) {
 
 // S-15: the server's own principals are reserved and cannot be admins.
 func TestReservedPrincipals(t *testing.T) {
+	t.Parallel()
 	for _, p := range []string{"starfixd", "import"} {
 		if !Reserved(p) {
 			t.Errorf("Reserved(%q) = false", p)

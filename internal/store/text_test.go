@@ -16,6 +16,7 @@ var hostile = []string{
 }
 
 func TestControlCharsRefused(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	// is has no acceptance items, so a close that got past validation

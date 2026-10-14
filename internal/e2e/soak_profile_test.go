@@ -40,6 +40,7 @@ const soakProfileEnv = "STARFIX_SOAK_PROFILE"
 // -base`), goroutines-*.txt the goroutines at the same moments, and
 // runtime.csv the readings.
 func TestSoakProfile(t *testing.T) {
+	// Serial: measures this process, its heap and its goroutines, which a test beside it would add to.
 	dir := os.Getenv(soakProfileEnv)
 	if dir == "" {
 		t.Skipf("set %s to a directory to profile the soak", soakProfileEnv)

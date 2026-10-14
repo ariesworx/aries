@@ -6,6 +6,7 @@ import (
 )
 
 func TestRuneWidth(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		r    rune
 		want int
@@ -26,6 +27,7 @@ func TestRuneWidth(t *testing.T) {
 // The table is sorted and its ranges neither overlap nor touch, which
 // the binary search relies on; every Han and Hiragana letter is wide.
 func TestWideRanges(t *testing.T) {
+	t.Parallel()
 	for i, rg := range wideRanges {
 		if rg[0] > rg[1] || i > 0 && rg[0] <= wideRanges[i-1][1]+1 {
 			t.Errorf("wideRanges[%d] = %U..%U is out of order after %U..%U", i, rg[0], rg[1], wideRanges[max(0, i-1)][0], wideRanges[max(0, i-1)][1])
@@ -39,6 +41,7 @@ func TestWideRanges(t *testing.T) {
 }
 
 func TestCells(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		in   string
 		n    int

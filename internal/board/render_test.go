@@ -46,6 +46,7 @@ func live() *Model {
 }
 
 func TestFrame(t *testing.T) {
+	t.Parallel()
 	now := t0.Add(30 * time.Second)
 	hostile := func() *Model {
 		m := live()
@@ -124,6 +125,7 @@ func TestFrame(t *testing.T) {
 // terminal, and nothing printed can carry a control character other than
 // the board's own color codes.
 func TestFrameFits(t *testing.T) {
+	t.Parallel()
 	now := t0.Add(time.Hour)
 	models := map[string]*Model{"board": live(), "empty": New("a long project name that will not fit")}
 	d := live()

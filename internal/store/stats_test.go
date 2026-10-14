@@ -10,6 +10,7 @@ import (
 
 // writeStats is fed the time by its caller, so nothing here waits.
 func TestWriteStatsSnapshot(t *testing.T) {
+	t.Parallel()
 	t0 := time.Date(2026, 10, 11, 9, 0, 0, 0, time.UTC)
 	ms := time.Millisecond
 	type write struct {
@@ -72,6 +73,7 @@ func TestWriteStatsSnapshot(t *testing.T) {
 // A store counts the writes that changed something, and none that were
 // refused or changed nothing.
 func TestStoreWriteStats(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	if got := s.WriteStats(); got != (WriteStats{}) {
 		t.Fatalf("WriteStats() of a store just opened = %+v, want zero", got)
@@ -96,6 +98,7 @@ func TestStoreWriteStats(t *testing.T) {
 // Writes counts every write since the store was opened, past the minute
 // and the samples WriteStats keeps, and none that changed nothing.
 func TestStoreWrites(t *testing.T) {
+	t.Parallel()
 	var ws writeStats
 	t0 := time.Date(2026, 10, 11, 9, 0, 0, 0, time.UTC)
 	for i := range 3 * writeSamples {
@@ -125,6 +128,7 @@ func TestStoreWrites(t *testing.T) {
 }
 
 func TestControlCountsAndProjects(t *testing.T) {
+	t.Parallel()
 	c := newControl(t)
 	if got := c.Counts(); len(got.Projects) != 0 || len(got.Principals) != 0 {
 		t.Fatalf("Counts() of an empty store = %+v, want none", got)
@@ -169,6 +173,7 @@ func TestControlCountsAndProjects(t *testing.T) {
 
 // SessionsSeen counts what Who lists, in the same windows.
 func TestSessionsSeen(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	if err := s.TouchAgent(ctx, Actor{Principal: "carol", Session: "sess-c", Machine: "laptop-c"}, ""); err != nil {

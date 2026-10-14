@@ -42,6 +42,7 @@ func pricesText(ps []Price) string {
 }
 
 func TestSetPriceAddsReplacesAndLists(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	before := lastSeq(t, s)
@@ -104,6 +105,7 @@ func TestSetPriceAddsReplacesAndLists(t *testing.T) {
 }
 
 func TestSetPriceRefuses(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	now := clk.now()
 	ok := rates(1, 1, 1, 1, 1)
@@ -144,6 +146,7 @@ func TestSetPriceRefuses(t *testing.T) {
 // Rule 18: prices are bounded by limits: prices; replacing a price at the
 // cap is no new row.
 func TestSetPriceLimit(t *testing.T) {
+	t.Parallel()
 	s := openStore(t, newDSN(t), Options{Limits: Limits{Prices: 2}})
 	mustSetPrice(t, s, "model-a", day("2026-01-01"), rates(1, 1, 1, 1, 1))
 	mustSetPrice(t, s, "model-a", day("2026-02-01"), rates(1, 1, 1, 1, 1))

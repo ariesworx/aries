@@ -58,6 +58,7 @@ func needs(v any) []string {
 // TestReleaseRunsGate pins the release gate: the CI gate runs on the tagged
 // commit and the build waits for it, in the run a pushed tag starts.
 func TestReleaseRunsGate(t *testing.T) {
+	t.Parallel()
 	rel := readWorkflow(t, "release.yml")
 	if got := rel.Jobs["gate"].Uses; got != "./.github/workflows/ci.yml" {
 		t.Errorf("release.yml gate job uses %q, want ./.github/workflows/ci.yml", got)
@@ -83,6 +84,7 @@ func TestReleaseRunsGate(t *testing.T) {
 // the build run it was given is this tag's own, on this commit, and green.
 // The archives it signs are that run's and no other's.
 func TestReleaseSigningIsApproved(t *testing.T) {
+	t.Parallel()
 	rel := readWorkflow(t, "release.yml")
 	if _, ok := rel.On["workflow_dispatch"]; !ok {
 		t.Fatal("release.yml has no workflow_dispatch trigger: nothing starts the signing run")
@@ -132,6 +134,7 @@ func TestReleaseSigningIsApproved(t *testing.T) {
 // TestCIRequiresDolt pins that CI runs the Dolt-backed tests rather than
 // skipping them, in random order.
 func TestCIRequiresDolt(t *testing.T) {
+	t.Parallel()
 	test := readWorkflow(t, "ci.yml").Jobs["test"]
 	if got := test.Env["STARFIX_REQUIRE_DOLT"]; got != "1" {
 		t.Errorf("ci.yml test job STARFIX_REQUIRE_DOLT = %q, want 1", got)
@@ -150,6 +153,7 @@ func TestCIRequiresDolt(t *testing.T) {
 // TestActionsPinned checks AGENTS.md rule 4: every third-party action is
 // pinned by full commit SHA, with a version comment.
 func TestActionsPinned(t *testing.T) {
+	t.Parallel()
 	pinned := regexp.MustCompile(`^\s*(?:-\s+)?uses:\s+[\w.-]+/[\w./-]+@[0-9a-f]{40} # v\S+\s*$`)
 	uses := regexp.MustCompile(`^\s*(?:-\s+)?uses:\s+(\S+)`)
 	files, err := os.ReadDir("../../.github/workflows")

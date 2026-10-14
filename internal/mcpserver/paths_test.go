@@ -34,19 +34,13 @@ func gitCommit(t *testing.T, dir, msg string, files ...string) {
 }
 
 // gitRepo makes a repository on branch with one commit on main before it,
-// and the files given left uncommitted, isolated from the user's git
-// configuration.
+// and the files given left uncommitted. TestMain isolates it from the
+// user's git configuration.
 func gitRepo(t *testing.T, branch string, files ...string) string {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not on PATH")
 	}
-	empty := filepath.Join(t.TempDir(), "gitconfig")
-	if err := os.WriteFile(empty, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("GIT_CONFIG_GLOBAL", empty)
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	dir := t.TempDir()
 	for _, args := range [][]string{
 		{"init", "-q", "-b", "main"},
@@ -153,6 +147,7 @@ func workServer(t *testing.T, dir string, refusePaths bool) (*mcp.ClientSession,
 // Renew sends the paths of the issues the session holds, read from git,
 // at most once every DefaultPathsEvery per issue.
 func TestRenewSendsPaths(t *testing.T) {
+	t.Parallel()
 	dir := gitRepo(t, "feature/sf-a1b2-thing", "a.go")
 	cs, s, f, clk := workServer(t, dir, false)
 	callTool(t, cs, "start", map[string]any{"id": "sf-a1b2"})
@@ -178,6 +173,7 @@ func TestRenewSendsPaths(t *testing.T) {
 // A server that refuses the paths does not cost the session its claims:
 // the renewal goes again without them.
 func TestRenewRefusedPaths(t *testing.T) {
+	t.Parallel()
 	dir := gitRepo(t, "feature/sf-a1b2-thing", "a.go")
 	cs, s, f, _ := workServer(t, dir, true)
 	callTool(t, cs, "start", map[string]any{"id": "sf-a1b2"})
@@ -215,6 +211,7 @@ func sentPaths(f *fakeConn, op string) [][]string {
 // gives: the tools' schemas have no such field. A server that refuses
 // the paths gets the request again without them.
 func TestFinishAndHandoffSendPaths(t *testing.T) {
+	t.Parallel()
 	want := []string{"a.go", "b/c.go"}
 	for _, refuse := range []bool{false, true} {
 		t.Run(fmt.Sprintf("refused %v", refuse), func(t *testing.T) {
@@ -255,6 +252,7 @@ func TestFinishAndHandoffSendPaths(t *testing.T) {
 // A renewal carries paths for at most proto.MaxPathIssues issues, which
 // the server accepts; the rest go with the next.
 func TestRenewPathIssuesCap(t *testing.T) {
+	t.Parallel()
 	dir := gitRepo(t, "feature/refactor")
 	cs, s, f, clk := workServer(t, dir, false)
 	n := proto.MaxPathIssues + 1
@@ -283,6 +281,7 @@ func issueCounts(rs []map[string][]string) []int {
 // show lists the likely files and the work others hold that overlaps
 // them; ready names the overlaps.
 func TestShowAndReadyFiles(t *testing.T) {
+	t.Parallel()
 	f := &fakeConn{who: "bob", reply: func(op string, _ any) (any, error) {
 		switch op {
 		case proto.OpShow:

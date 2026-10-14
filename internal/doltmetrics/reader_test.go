@@ -18,6 +18,7 @@ import (
 const secret = "hunter2"
 
 func TestCheckURL(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, url, err string
 	}{
@@ -62,6 +63,7 @@ func TestCheckURL(t *testing.T) {
 // A host that is a name is resolved when the reader is made, and
 // refused unless every address it has is loopback.
 func TestNewResolvesNames(t *testing.T) {
+	t.Parallel()
 	ips := func(addrs ...string) func(context.Context, string) ([]net.IPAddr, error) {
 		return func(context.Context, string) ([]net.IPAddr, error) {
 			var out []net.IPAddr
@@ -110,6 +112,7 @@ func TestNewResolvesNames(t *testing.T) {
 // Whatever a name resolves to later, the reader connects to loopback
 // addresses only: the check is made on each connection's own address.
 func TestConnectsToLoopbackOnly(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		addr string
 		ok   bool
@@ -159,6 +162,7 @@ func serve(t *testing.T, h http.HandlerFunc) string {
 // pointing elsewhere, a read of it ends within its deadline with an
 // error and no figure, and leaves nothing running.
 func TestRead(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	// timeout is the deadline of a read that must run out of it, which
 	// the test waits out. A read that is answered has patient instead:
 	// under timeout, a machine that took 300 ms over one request on
@@ -292,6 +296,7 @@ func TestRead(t *testing.T) {
 
 // A read ends when its context does.
 func TestReadCanceled(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	noLeak(t)
 	u := serve(t, func(_ http.ResponseWriter, r *http.Request) { <-r.Context().Done() })
 	r, err := New(t.Context(), u)

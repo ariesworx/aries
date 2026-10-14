@@ -106,6 +106,7 @@ func collect(t *testing.T, m *Manual) Snapshot {
 // With nothing configured there is no exporter, no listener and no
 // goroutine, and every method is a no-op; a nil Telemetry likewise.
 func TestOffByDefault(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	noLeak(t)
 	for _, tc := range []struct {
 		name string
@@ -174,6 +175,7 @@ func TestOffByDefault(t *testing.T) {
 }
 
 func TestRecord(t *testing.T) {
+	t.Parallel()
 	tel, m := manual(t, true)
 	tel.Count(Handshakes, ResultOK)
 	tel.Count(Handshakes, ResultOK)
@@ -285,6 +287,7 @@ func recordAll(tel *Telemetry, values []string) {
 // No instrument has an attribute key that is not on its list, whatever
 // it is recorded with, and none has both a project and an op.
 func TestAttributeKeys(t *testing.T) {
+	t.Parallel()
 	if len(wantKeys) != int(numInstruments) {
 		t.Fatalf("wantKeys lists %d instruments, the package has %d: list the new one, with its keys", len(wantKeys), numInstruments)
 	}
@@ -339,6 +342,7 @@ func TestAttributeKeys(t *testing.T) {
 // bounded by the lists in the code: an unknown op is unknown, and
 // nothing a client chooses becomes a value.
 func TestSeriesAreBounded(t *testing.T) {
+	t.Parallel()
 	tel, m, err := NewManual(Config{PerProject: true, Ops: testOps, Projects: 3})
 	if err != nil {
 		t.Fatal(err)
@@ -481,6 +485,7 @@ func parseProm(t *testing.T, text string) (types map[string]string, samples map[
 // The Prometheus endpoint's text parses, and carries every instrument
 // under the name and with the unit suffix the guide documents.
 func TestPrometheusNames(t *testing.T) {
+	t.Parallel()
 	tel, _, err := NewManual(Config{Version: "v1.2.3", PerProject: true, Ops: testOps, Pull: true})
 	if err != nil {
 		t.Fatal(err)
@@ -616,6 +621,7 @@ func (c *collector) count() int {
 
 // Push and pull are each optional, on their own.
 func TestPushAndPull(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	for _, tc := range []struct {
 		name       string
 		push, pull bool
@@ -691,6 +697,7 @@ const token = "Bearer-s3cr3t-T0KEN-0123456789abcdef"
 // refusal of the settings may hold it, even when the collector's answer
 // repeats it.
 func TestTokenIsNeverLogged(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	noLeak(t)
 	col := newCollector(t, http.StatusUnauthorized, func(r *http.Request) string {
 		return "bad credentials: " + r.Header.Get("Authorization") + " for " + r.URL.String()
@@ -759,6 +766,7 @@ func TestTokenIsNeverLogged(t *testing.T) {
 // A failure that keeps happening is logged once, then once every
 // errEvery with a count of those left out; a success says it recovered.
 func TestExportErrorsAreSampled(t *testing.T) {
+	t.Parallel()
 	log := &syncBuffer{}
 	now := time.Unix(1_700_000_000, 0)
 	e := newErrlog(logTo(log), []string{"hunter2"}, "metrics")
@@ -794,6 +802,7 @@ func TestExportErrorsAreSampled(t *testing.T) {
 }
 
 func TestReadEnv(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name     string
 		env      env
@@ -861,6 +870,7 @@ func cmpOr(a, b time.Duration) time.Duration {
 }
 
 func TestResource(t *testing.T) {
+	t.Parallel()
 	attrs := func(e env) map[string]string {
 		c, err := readEnv(e.get)
 		if err != nil {
@@ -944,6 +954,7 @@ func TestExportFailsWhileNewMakesTheInstruments(t *testing.T) {
 // A collector that is down, and one that accepts and never answers, hold
 // neither a recording nor a stop.
 func TestDeadCollector(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	closed, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -1011,6 +1022,7 @@ func (f failing) Export(context.Context, *metricdata.ResourceMetrics) error { re
 // An export cut short because the daemon is stopping is not a failure of
 // the collector's: it is neither logged nor counted. Any other is both.
 func TestExportCanceledAtStop(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name    string
 		err     error

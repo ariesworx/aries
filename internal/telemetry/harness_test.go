@@ -251,6 +251,7 @@ func checkExpr(expr string) []string {
 // The reader of expressions finds each series and its matchers, and
 // passes over functions, aggregations, label lists, ranges and numbers.
 func TestSelectors(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name, expr string
 		want       []selector
@@ -291,6 +292,7 @@ func TestSelectors(t *testing.T) {
 // never fire: a metric that was renamed, a label the series does not
 // have, a value the label never takes.
 func TestCheckExpr(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name, expr string
 		want       string // part of the one problem, or empty for none
@@ -365,6 +367,7 @@ func readAlerts(t *testing.T) []alertRule {
 // renaming an instrument, or dropping a value from an attribute's
 // list, fails here instead of leaving a rule that never fires.
 func TestAlertRulesNameWhatExists(t *testing.T) {
+	t.Parallel()
 	seen := map[string]bool{}
 	for _, r := range readAlerts(t) {
 		if r.Alert == "" || seen[r.Alert] {
@@ -413,6 +416,7 @@ func selects(rules []alertRule, name, key, value string) bool {
 // the keys file, the clock, write latency and retries, the connection
 // and store caps, and Dolt's collector against starfixd's writes.
 func TestAlertRulesCover(t *testing.T) {
+	t.Parallel()
 	rules := readAlerts(t)
 	tests := []struct{ name, series, key, value string }{
 		{"the listener answering", "up", "job", jobStarfixd},
@@ -496,6 +500,7 @@ func readDashboard(t *testing.T) []dashboardPanel {
 // exist, as every alert rule does, and no panel is tied to one
 // installation's data source.
 func TestDashboardQueriesNameWhatExists(t *testing.T) {
+	t.Parallel()
 	ids := map[int]bool{}
 	for _, p := range readDashboard(t) {
 		if ids[p.ID] || p.Title == "" {
@@ -521,6 +526,7 @@ func TestDashboardQueriesNameWhatExists(t *testing.T) {
 // arrive from a real Dolt: every series of Dolt's that a rule or the
 // dashboard reads is on its list.
 func TestSmokeChecksEveryDoltSeriesUsed(t *testing.T) {
+	t.Parallel()
 	b, err := os.ReadFile(smokeFile)
 	if err != nil {
 		t.Fatal(err)
@@ -572,6 +578,7 @@ type scrapeConfig struct {
 // and Dolt's metrics; and the collector receives OTLP on loopback, at
 // the port the guide gives starfixd.
 func TestHarnessScrapesWhatTheRulesSelect(t *testing.T) {
+	t.Parallel()
 	want := map[string]string{jobStarfixd: "127.0.0.1:9464", jobDolt: "127.0.0.1:11228"}
 	check := func(file string, jobs []scrapeConfig) {
 		t.Helper()
@@ -652,6 +659,7 @@ func readYAML(t *testing.T, file string, into any) {
 // Every image the compose file runs, but the one it builds, is pinned
 // by digest, under a comment giving the version the digest is of.
 func TestHarnessImagesArePinned(t *testing.T) {
+	t.Parallel()
 	b, err := os.ReadFile(composeFile)
 	if err != nil {
 		t.Fatal(err)

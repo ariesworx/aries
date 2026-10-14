@@ -57,6 +57,7 @@ func filePaths(t *testing.T, u *user, id string) []string {
 // is not held back by its own claim. finish records the paths, and a
 // person's `sfx away`, handoff and finish send theirs.
 func TestFilesToIssues(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
 	gitInit(t, alice.repo)

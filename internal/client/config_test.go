@@ -18,6 +18,7 @@ const (
 )
 
 func TestParseConfig(t *testing.T) {
+	t.Parallel()
 	good := "project: " + testProject + "\nserver:\n  host: starfix.example.com\n  host_key: " + testFpr + "\n"
 	tests := []struct {
 		name string
@@ -56,6 +57,7 @@ func TestParseConfig(t *testing.T) {
 }
 
 func TestLoadConfigWalksUp(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	body := "project: " + testProject + "\nserver:\n  host: starfix.example.com\n  host_key: " + testFpr + "\nkey: keys/me\n"
 	if err := os.WriteFile(filepath.Join(root, ConfigFile), []byte(body), 0o600); err != nil {
@@ -89,6 +91,7 @@ func TestLoadConfigWalksUp(t *testing.T) {
 // path, before the config's key:, which stays inside the repository
 // (TestKeyPathStaysInTheRepository has that rule's cases).
 func TestKeyFile(t *testing.T) {
+	t.Parallel()
 	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Skip("no home directory")
@@ -130,6 +133,7 @@ func TestKeyFile(t *testing.T) {
 // directory, so a config planted in a shared parent (/tmp, a drive root)
 // cannot capture a checkout without one (C-6).
 func TestLoadConfigBoundary(t *testing.T) {
+	t.Parallel()
 	body := "project: " + testProject + "\nserver:\n  host: starfix.example.com\n  host_key: " + testFpr + "\n"
 	tests := []struct {
 		name string
@@ -181,6 +185,7 @@ func TestLoadConfigBoundary(t *testing.T) {
 
 // A config another user could have written is refused, with a fix.
 func TestLoadConfigRefusesOthersFiles(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows has no Unix owner or mode bits; see LoadConfig")
 	}
@@ -238,6 +243,7 @@ func TestLoadConfigRefusesOthersFiles(t *testing.T) {
 // gcloud's argv: anything that could pass for a flag, or carry a space,
 // a newline or a shell metacharacter, is refused.
 func TestParseConfigIAP(t *testing.T) {
+	t.Parallel()
 	base := "project: " + testProject + "\nserver:\n  host: starfix-1\n  host_key: " + testFpr + "\n"
 	iap := func(project, zone, instance string) string {
 		s := base + "  iap:\n    project: " + project + "\n    zone: " + zone + "\n"
@@ -298,6 +304,7 @@ func TestParseConfigIAP(t *testing.T) {
 // prints for a new project: this repository's server, the new project,
 // and nothing private to this machine.
 func TestConfigForProject(t *testing.T) {
+	t.Parallel()
 	const other = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
 	base := "project: " + testProject + "\nserver:\n  host: starfix.example.com\n  host_key: " + testFpr + "\n"
 	tests := []struct {

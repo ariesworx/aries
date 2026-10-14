@@ -6,6 +6,7 @@ import (
 )
 
 func TestConfigPath(t *testing.T) {
+	t.Parallel()
 	a := Agents["claude-desktop"]
 	tests := []struct {
 		name, goos, home, appdata string
@@ -45,6 +46,7 @@ func TestConfigPath(t *testing.T) {
 }
 
 func TestServerKey(t *testing.T) {
+	t.Parallel()
 	tests := []struct{ root, want string }{
 		{"/Users/alice/src/widget", "starfix-widget"},
 		{"/Users/alice/src/widget/", "starfix-widget"},
@@ -66,6 +68,7 @@ func TestServerKey(t *testing.T) {
 // with -C and is keyed by it, so several projects share one file, each
 // added and removed alone, around the person's own servers and keys.
 func TestDesktopEntries(t *testing.T) {
+	t.Parallel()
 	a := Agents["claude-desktop"]
 	widget := DesktopEntry("/usr/local/bin/sfx", "/Users/alice/src/widget")
 	gadget := DesktopEntry("/usr/local/bin/sfx", "/Users/alice/src/gadget")
@@ -140,6 +143,7 @@ func TestDesktopEntries(t *testing.T) {
 }
 
 func TestDesktopAgent(t *testing.T) {
+	t.Parallel()
 	a := Agents["claude-desktop"]
 	if !a.Desktop || a.ManualMCP() || len(a.Targets(false)) != 0 || len(a.Targets(true)) != 0 {
 		t.Fatalf("claude-desktop: %+v", a)

@@ -31,6 +31,7 @@ func costReply(groups []proto.CostGroup) func(string, any) (any, error) {
 }
 
 func TestCostTool(t *testing.T) {
+	t.Parallel()
 	f := &fakeConn{reply: costReply([]proto.CostGroup{
 		{Key: "sf-1", Title: "Client work", Tokens: proto.Tokens{Input: n64(4_300_000)}, CostUSD: "8.35", Split: true},
 		{Key: proto.CostUnattributed, Tokens: proto.Tokens{Input: n64(42)}, CostUSD: "0", Unpriced: true},
@@ -65,6 +66,7 @@ func TestCostTool(t *testing.T) {
 // groups still add up to the total. It takes one call: asking again with
 // fewer groups ran up to five full reports.
 func TestCostToolFits(t *testing.T) {
+	t.Parallel()
 	var groups []proto.CostGroup
 	for i := range 60 { // principals as long as their pattern allows
 		groups = append(groups, proto.CostGroup{Key: fmt.Sprintf("p%03d%s", i, strings.Repeat("x", 251)),
@@ -105,6 +107,7 @@ func TestCostToolFits(t *testing.T) {
 // The tool names five unpriced models and counts the rest, the ones the
 // server did not name included.
 func TestCostToolUnpricedMore(t *testing.T) {
+	t.Parallel()
 	f := &fakeConn{reply: func(string, any) (any, error) {
 		return proto.CostResult{By: "model", Groups: []proto.CostGroup{}, Total: proto.CostGroup{CostUSD: "0"},
 			Unpriced: []string{"m1", "m2", "m3", "m4", "m5", "m6"}, UnpricedMore: 2}, nil
@@ -122,6 +125,7 @@ func TestCostToolUnpricedMore(t *testing.T) {
 // With plans and hours, a group's line carries its amortized cost and
 // its logged hours, and folding sums both exactly.
 func TestCostToolAmortizedAndLogged(t *testing.T) {
+	t.Parallel()
 	f := &fakeConn{reply: func(string, any) (any, error) {
 		return proto.CostResult{By: "issue", Groups: []proto.CostGroup{
 			{Key: "sf-1", Title: "work", Tokens: proto.Tokens{Input: n64(1000)}, CostUSD: "8.35", AmortizedUSD: "20.5", LoggedSeconds: 5400},

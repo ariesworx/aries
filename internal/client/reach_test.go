@@ -20,6 +20,7 @@ func noEnv(string) string { return "" }
 // this client or this person, a mistake in the request, the server's
 // rate limit and an error that is not a refusal at all are not.
 func TestUnreachableByCode(t *testing.T) {
+	t.Parallel()
 	refusal := func(c proto.Code) *proto.Error { return proto.Errf(c, "a fix", "a message") }
 	for _, tc := range []struct {
 		name string
@@ -57,6 +58,7 @@ func TestUnreachableByCode(t *testing.T) {
 // pin, and a key the server does not know, are refusals: they must never
 // pass for an outage.
 func TestUnreachableFromDial(t *testing.T) {
+	t.Parallel()
 	mine, stranger := newKeyPair(t), newKeyPair(t)
 	d := newFakeSSHD(t, map[string]keyPair{"me": mine})
 	mine.write(t, d.root, "mine", "", false)
@@ -126,6 +128,7 @@ func TestUnreachableFromDial(t *testing.T) {
 // with the request possibly applied: it is unreachable, which is what
 // lets the caller queue the write under the key it was sent with.
 func TestUnreachableWhenTheConnectionDrops(t *testing.T) {
+	t.Parallel()
 	c, srv := pipeConn(t, nil)
 	go func() {
 		srv.req()
@@ -141,6 +144,7 @@ func TestUnreachableWhenTheConnectionDrops(t *testing.T) {
 }
 
 func TestKeyInfoConfigured(t *testing.T) {
+	t.Parallel()
 	for by, want := range map[string]bool{EnvKeyFile: true, "key: in " + ConfigFile: true, byDefault: false, byAgent: false, "": false} {
 		if got := (KeyInfo{By: by}).Configured(); got != want {
 			t.Errorf("KeyInfo{By: %q}.Configured() = %v, want %v", by, got, want)
@@ -151,6 +155,7 @@ func TestKeyInfoConfigured(t *testing.T) {
 // TestOffered lists the keys Dial would offer, without connecting: the
 // one configured key, or the default identities in ssh's order.
 func TestOffered(t *testing.T) {
+	t.Parallel()
 	a, b := newKeyPair(t), newKeyPair(t)
 	root, home := t.TempDir(), t.TempDir()
 	a.write(t, root, "named", "", false)

@@ -12,6 +12,7 @@ import (
 // still matches ErrInvalid, and its text is the message these refusals
 // had as plain errors.
 func TestStateErrors(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	open := func(t *testing.T) Issue {

@@ -26,6 +26,7 @@ func adminWorldTel(t *testing.T, lim Limits, tel *telemetry.Telemetry) *multi {
 // Each way the server ends a connection is counted under its reason,
 // and a claim that ends with its holder's access under that reason too.
 func TestMetricsOfDrops(t *testing.T) {
+	t.Parallel()
 	tel, mr := measured(t, true)
 	m := adminWorldTel(t, Limits{}, tel)
 	d := mustDialTo(t, m.Server, dana, projA)
@@ -85,6 +86,7 @@ func TestMetricsOfDrops(t *testing.T) {
 
 // An idle connection the server closes is counted as such.
 func TestMetricsOfIdleConnections(t *testing.T) {
+	t.Parallel()
 	tel, mr := measured(t, true)
 	s := newServerTel(t, Limits{}, tel)
 	// Once past is set, every read deadline the server sets is already
@@ -121,6 +123,7 @@ func TestMetricsOfIdleConnections(t *testing.T) {
 // A refusal at one of the store's caps that has an error of its own is
 // counted under the limit's name.
 func TestMetricsOfStoreLimits(t *testing.T) {
+	t.Parallel()
 	tel, mr := measured(t, true)
 	lim := Limits{}
 	lim.Control.Keys = 1

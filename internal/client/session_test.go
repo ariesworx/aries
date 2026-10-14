@@ -7,6 +7,7 @@ import (
 )
 
 func TestSessionFromEnv(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		env  map[string]string
@@ -28,6 +29,7 @@ func TestSessionFromEnv(t *testing.T) {
 }
 
 func TestHarnessFromEnv(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		env  map[string]string
@@ -50,6 +52,7 @@ func TestHarnessFromEnv(t *testing.T) {
 }
 
 func TestNewSessionID(t *testing.T) {
+	t.Parallel()
 	a, b := NewSessionID(), NewSessionID()
 	if len(a) != 18 || a[:2] != "m-" || a == b {
 		t.Fatalf("NewSessionID() = %q, %q; want two distinct m-<16 hex>", a, b)
@@ -57,6 +60,7 @@ func TestNewSessionID(t *testing.T) {
 }
 
 func TestTraceFromEnv(t *testing.T) {
+	t.Parallel()
 	const parent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
 	valid := proto.TraceContext{TraceID: "4bf92f3577b34da6a3ce929d0e0e4736", SpanID: "00f067aa0ba902b7", Flags: "01"}
 	withState := valid

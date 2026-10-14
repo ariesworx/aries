@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -13,52 +12,45 @@ import (
 	"github.com/ariesworx/starfix/internal/dolttest"
 )
 
-var (
-	server    *dolttest.Server
-	serverErr error
-)
+// dolts are the package's Dolt servers: a test has one to itself while it
+// runs, so the tests can run in parallel (dolttest.Pool).
+var dolts = dolttest.NewPool("starfix-dolt-", dolttest.Options{})
 
 func TestMain(m *testing.M) {
 	os.Exit(run(m))
 }
 
 func run(m *testing.M) int {
-	dir, err := os.MkdirTemp("", "starfix-dolt-")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	defer func() { _ = os.RemoveAll(dir) }()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	server, serverErr = dolttest.Start(ctx, dir)
-	cancel()
-	if server != nil {
-		defer func() { _ = server.Stop() }()
-	}
+	defer func() { _ = dolts.Close() }()
+	dolts.Warm()
 	return m.Run()
 }
 
-// newDSN returns a fresh database, or skips when dolt is missing. The
-// database is dropped when the test ends, after the cleanups of what the
-// test opened on it: Dolt holds every database in memory and slows with
-// each (dolttest.Server.DropDatabase).
-func newDSN(t testing.TB) string {
+// doltOf returns the Dolt server t's test holds, or skips when dolt is
+// missing.
+func doltOf(t testing.TB) *dolttest.Server {
 	t.Helper()
-	if errors.Is(serverErr, dolttest.ErrNoDolt) {
+	srv, err := dolts.Server(t)
+	if errors.Is(err, dolttest.ErrNoDolt) {
 		t.Skip("dolt is not on PATH: install dolt to run the store integration tests")
 	}
-	if serverErr != nil {
-		t.Fatalf("dolt sql-server: %v", serverErr)
+	if err != nil {
+		t.Fatalf("dolt sql-server: %v", err)
 	}
-	dsn, err := server.NewDatabase(t.Context())
+	return srv
+}
+
+// newDSN returns a fresh database on the test's Dolt server, or skips
+// when dolt is missing. The database is dropped when the test ends, after
+// the cleanups of what the test opened on it: Dolt holds every database
+// in memory and slows with each (dolttest.Server.DropDatabase).
+func newDSN(t testing.TB) string {
+	t.Helper()
+	doltOf(t)
+	dsn, err := dolts.Database(t)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if err := server.DropDatabase(dsn); err != nil {
-			t.Errorf("drop the test's database: %v", err)
-		}
-	})
 	return dsn
 }
 

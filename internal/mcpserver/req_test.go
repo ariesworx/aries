@@ -13,6 +13,7 @@ import (
 // do, so only an id of the server's own shape is repeated (C-4), and a
 // refusal the agent can act on itself carries none.
 func TestExplainGivesTheRequestID(t *testing.T) {
+	t.Parallel()
 	const req = "00000000000000aa"
 	for _, tc := range []struct {
 		name string

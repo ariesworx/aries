@@ -15,6 +15,7 @@ import (
 // accepted, so a setting that does nothing yet cannot be mistaken for
 // one that works.
 func TestResolveSettingsTelemetry(t *testing.T) {
+	t.Parallel()
 	// urlSecret stands for a credential someone put in a URL.
 	const urlSecret = "hunter2"
 	dir := t.TempDir()
@@ -112,6 +113,7 @@ func TestResolveSettingsTelemetry(t *testing.T) {
 
 // audit_log is on unless it is set false (design §16.3).
 func TestResolveSettingsAuditLog(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	for _, tc := range []struct {
 		name, body string

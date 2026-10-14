@@ -41,6 +41,7 @@ func accessWorld(t *testing.T) *Control {
 // write is allowed, or refused with an *AccessError giving the reason;
 // a refusal records nothing and leaves the key index alone.
 func TestControlAccess(t *testing.T) {
+	t.Parallel()
 	c := accessWorld(t)
 	ctx := t.Context()
 	fp := func(seed string) string { _, f := testKey(t, seed); return f }
@@ -218,6 +219,7 @@ func TestControlAccess(t *testing.T) {
 // project the admin does not administer, and when the admin stops being
 // one.
 func TestControlReachFollowsMemberships(t *testing.T) {
+	t.Parallel()
 	c := newControl(t)
 	ctx := t.Context()
 	mustProject(t, c, projA)
@@ -358,6 +360,7 @@ func TestControlReachFollowsMemberships(t *testing.T) {
 }
 
 func TestAccessErrorMessages(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		err  AccessError
 		want string
@@ -393,6 +396,7 @@ func TestAccessErrorMessages(t *testing.T) {
 // refused with a *ControlLimitError, that nothing was written, and that
 // changing a row already there is still allowed.
 func TestControlLimits(t *testing.T) {
+	t.Parallel()
 	lim := ControlLimits{Projects: 2, Principals: 4, PrincipalsPerCreator: 9, Keys: 2, Members: 2}
 	c := openControl(t, newDSN(t), ControlOptions{Limits: lim})
 	ctx := t.Context()
@@ -464,6 +468,7 @@ func TestControlLimits(t *testing.T) {
 // 3a, F-8): principals are never deleted and their names are the whole
 // server's, so without it one project admin could use up the server's.
 func TestControlPrincipalsPerCreator(t *testing.T) {
+	t.Parallel()
 	c := openControl(t, newDSN(t), ControlOptions{Limits: ControlLimits{Principals: 12, PrincipalsPerCreator: 2}})
 	ctx := t.Context()
 	mustProject(t, c, projA)
@@ -507,6 +512,7 @@ func TestControlPrincipalsPerCreator(t *testing.T) {
 }
 
 func TestControlLimitsDefaults(t *testing.T) {
+	t.Parallel()
 	want := ControlLimits{Projects: 500, Principals: 5000, PrincipalsPerCreator: 500, Keys: 20, Members: 1000}
 	if DefaultControlLimits != want {
 		t.Errorf("DefaultControlLimits = %+v, want %+v", DefaultControlLimits, want)

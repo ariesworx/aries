@@ -28,6 +28,7 @@ const installScript = "../../install.sh"
 // trust a key the binaries do not. Which one it holds during a rotation
 // is RELEASING.md's concern.
 func TestInstallScriptKey(t *testing.T) {
+	t.Parallel()
 	src, err := os.ReadFile(installScript)
 	if err != nil {
 		t.Fatal(err)
@@ -148,6 +149,7 @@ func opensslEd25519(t *testing.T) bool {
 }
 
 func TestInstallScript(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("install.sh is for Linux and macOS")
 	}

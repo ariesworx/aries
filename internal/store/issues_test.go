@@ -9,6 +9,7 @@ import (
 )
 
 func TestCreateIdempotent(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 
@@ -70,6 +71,7 @@ func TestCreateIdempotent(t *testing.T) {
 // TestCreateIdempotentConcurrent retries one create from two store
 // processes at once; one issue and one event result.
 func TestCreateIdempotentConcurrent(t *testing.T) {
+	t.Parallel()
 	dsn := newDSN(t)
 	stores := []*Store{openStore(t, dsn, Options{}), openStore(t, dsn, Options{})}
 	const n = 10
@@ -102,6 +104,7 @@ func TestCreateIdempotentConcurrent(t *testing.T) {
 }
 
 func TestEventPerMutation(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	a := mustCreate(t, s, NewIssue{Title: "a"})
@@ -187,6 +190,7 @@ func TestEventPerMutation(t *testing.T) {
 }
 
 func TestUpdateCloseReopen(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "t", Assignee: "alice", Metadata: json.RawMessage(`{"k":1}`)})
@@ -248,6 +252,7 @@ func TestUpdateCloseReopen(t *testing.T) {
 }
 
 func TestComments(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{})
@@ -269,6 +274,7 @@ func TestComments(t *testing.T) {
 }
 
 func TestWriteGuards(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{})

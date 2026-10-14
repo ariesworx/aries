@@ -11,6 +11,7 @@ import (
 // the writes the outbox never takes and the ones that wait for protocol
 // 6. An op it queues, and one that writes nothing, have no reason.
 func TestUnqueued(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		op   string
 		want string // part of the reason; "" for none

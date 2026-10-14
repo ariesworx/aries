@@ -10,6 +10,7 @@ import (
 )
 
 func TestPrintPrices(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 10, 9, 8, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name string
@@ -41,6 +42,7 @@ func TestPrintPrices(t *testing.T) {
 }
 
 func TestPrintCost(t *testing.T) {
+	t.Parallel()
 	since := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name string
@@ -93,6 +95,7 @@ func TestPrintCost(t *testing.T) {
 }
 
 func TestPrintUsageCost(t *testing.T) {
+	t.Parallel()
 	opus := []proto.ModelTokens{{Model: "opus", Tokens: proto.Tokens{Input: n(950)}}}
 	tests := []struct {
 		name string
@@ -126,6 +129,7 @@ func TestPrintUsageCost(t *testing.T) {
 
 // Cost and admin commands refuse bad usage before dialing.
 func TestCostUsage(t *testing.T) {
+	t.Parallel()
 	empty := t.TempDir()
 	rates := []string{"--input", "4", "--output", "20", "--cache-write", "5", "--cache-write-1h", "8", "--cache-read", "0.4"}
 	tests := []struct {
@@ -170,6 +174,7 @@ func TestCostUsage(t *testing.T) {
 // admin --json before the subcommand prints the subcommand's one JSON
 // document, here its refusal to run outside a repository.
 func TestAdminJSONBeforeSubcommand(t *testing.T) {
+	t.Parallel()
 	empty := t.TempDir()
 	for _, sub := range []string{"prices", "plans"} {
 		code, out, errb := runCLI(t, "-C", empty, "admin", "--json", sub)

@@ -42,6 +42,7 @@ func entries(t *testing.T, dir string) []string {
 }
 
 func TestSwapInstallRollback(t *testing.T) {
+	t.Parallel()
 	for _, goos := range []string{"linux", "windows"} {
 		t.Run(goos, func(t *testing.T) {
 			dir := t.TempDir()
@@ -98,6 +99,7 @@ func TestSwapInstallRollback(t *testing.T) {
 }
 
 func TestSwapCheckFailureLeavesExe(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	exe := filepath.Join(dir, "starfixd")
 	writeExe(t, exe, "old")
@@ -125,6 +127,7 @@ func TestSwapCheckFailureLeavesExe(t *testing.T) {
 }
 
 func TestSwapMissingExe(t *testing.T) {
+	t.Parallel()
 	s := Swap{Exe: filepath.Join(t.TempDir(), "gone")}
 	if err := s.Install(t.Context(), []byte("x")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("Install = %v, want not-exist", err)
@@ -132,6 +135,7 @@ func TestSwapMissingExe(t *testing.T) {
 }
 
 func TestVersionCheck(t *testing.T) {
+	// Serial: runs a program it has just written, which fails (text file busy) if a test beside it starts a process meanwhile.
 	if runtime.GOOS == "windows" {
 		t.Skip("uses a shell script as the binary")
 	}

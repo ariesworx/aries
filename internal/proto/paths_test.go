@@ -9,6 +9,7 @@ import (
 )
 
 func TestCheckPath(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		path string
@@ -79,6 +80,7 @@ func FuzzCheckPath(f *testing.F) {
 }
 
 func TestRetryWithoutPaths(t *testing.T) {
+	t.Parallel()
 	invalid := Errf(CodeInvalid, "correct it", "path is bad")
 	busy := Errf(CodeBusy, "retry later", "busy")
 	tests := []struct {

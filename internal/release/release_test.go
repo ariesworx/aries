@@ -16,6 +16,7 @@ import (
 )
 
 func TestFetch(t *testing.T) {
+	t.Parallel()
 	bin := []byte("\x7fELF new sfx")
 	tests := []struct {
 		name     string
@@ -108,6 +109,7 @@ func TestFetch(t *testing.T) {
 // is a credential. When that request fails, the error names it without
 // the query string.
 func TestFetchRedactsSignedURL(t *testing.T) {
+	t.Parallel()
 	const secret = "sig=c2lnbmVkLXRva2Vu" //nolint:gosec // an invented stand-in for a signed URL's token
 	tests := []struct {
 		name   string
@@ -153,6 +155,7 @@ func TestFetchRedactsSignedURL(t *testing.T) {
 }
 
 func TestFetchNeedsVerifier(t *testing.T) {
+	t.Parallel()
 	g := releasetest.New(t, "v1.2.0")
 	g.AddBinary(t, "sfx", "linux", "amd64", []byte("x"))
 	c := g.Client(nil)
@@ -166,6 +169,7 @@ func TestFetchNeedsVerifier(t *testing.T) {
 }
 
 func TestReleaseMetadata(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		tag string
 		ok  bool
@@ -204,6 +208,7 @@ func TestReleaseMetadata(t *testing.T) {
 }
 
 func TestArchiveName(t *testing.T) {
+	t.Parallel()
 	tests := []struct{ bin, tag, goos, goarch, want string }{
 		{"sfx", "v1.2.3", "linux", "amd64", "sfx_1.2.3_linux_amd64.tar.gz"},
 		{"sfx", "v1.2.3", "windows", "arm64", "sfx_1.2.3_windows_arm64.zip"},
@@ -218,6 +223,7 @@ func TestArchiveName(t *testing.T) {
 
 // TestFetchEd25519 runs the real verifier end to end against the fake.
 func TestFetchEd25519(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		edit    func(t *testing.T, g *releasetest.Server)
@@ -260,6 +266,7 @@ func TestFetchEd25519(t *testing.T) {
 }
 
 func TestEd25519(t *testing.T) {
+	t.Parallel()
 	pub1, priv1, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -304,6 +311,7 @@ func TestEd25519(t *testing.T) {
 // TestReleaseKeys checks the built-in list parses, and that an empty one
 // fails closed rather than accepting anything.
 func TestReleaseKeys(t *testing.T) {
+	t.Parallel()
 	keys, err := release.Keys()
 	if err != nil {
 		t.Fatalf("keys.go: %v", err)

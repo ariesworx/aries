@@ -12,6 +12,7 @@ import (
 // The lists of what one account added (security review of stage 3a,
 // F-2): their usage, refused before dialing, and what they print.
 func TestAdminTrailUsage(t *testing.T) {
+	t.Parallel()
 	empty := t.TempDir()
 	tests := []struct {
 		name   string
@@ -44,6 +45,7 @@ func TestAdminTrailUsage(t *testing.T) {
 }
 
 func TestPrintAdminTrail(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 10, 12, 9, 30, 0, 0, time.UTC)
 	tests := []struct {
 		name  string

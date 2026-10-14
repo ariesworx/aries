@@ -44,6 +44,7 @@ func fileURL(dir string) string {
 // The static source finds and fetches releases over loopback HTTP, from a
 // directory and from a file:// URL, with the same checks over each.
 func TestStatic(t *testing.T) {
+	t.Parallel()
 	tr := newTree(t)
 	dir := t.TempDir()
 	tr.WriteDir(t, dir)
@@ -95,6 +96,7 @@ func TestStatic(t *testing.T) {
 // ByTag does not need the index: a mirror may hold one release and an
 // index that is missing or broken.
 func TestStaticByTagWithoutIndex(t *testing.T) {
+	t.Parallel()
 	tr := newTree(t)
 	tr.Delete(release.IndexName)
 	c := tr.Client(t, tr.Verifier())
@@ -111,6 +113,7 @@ func TestStaticByTagWithoutIndex(t *testing.T) {
 }
 
 func TestOpen(t *testing.T) {
+	t.Parallel()
 	abs := t.TempDir()
 	tests := []struct {
 		name     string
@@ -168,6 +171,7 @@ func TestOpen(t *testing.T) {
 // from. Changing release.DefaultSource to the bucket's URL moves sfx and
 // starfixd; install.sh has its own copy, which must say the same.
 func TestDefaultSource(t *testing.T) {
+	t.Parallel()
 	def, err := release.Open(release.DefaultSource, nil)
 	if err != nil {
 		t.Fatalf("Open(DefaultSource = %q) = %v", release.DefaultSource, err)
@@ -201,6 +205,7 @@ func TestDefaultSource(t *testing.T) {
 // transport: in every case the client refuses, or is handed a release
 // that the release key signed and that it asked for.
 func TestStaticHostileHost(t *testing.T) {
+	t.Parallel()
 	// elsewhere stands for wherever a redirect points. Nothing may ask it
 	// for anything.
 	var asked atomic.Int32
@@ -425,6 +430,7 @@ func checkErr(t *testing.T, err, want error, text string) {
 // A mirror in a directory is read through the directory alone: a tag
 // directory that is a link to somewhere outside it is not followed.
 func TestStaticDirectoryConfined(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("making a symbolic link needs a privilege on Windows")
 	}

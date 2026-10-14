@@ -5,6 +5,7 @@ import "testing"
 // TestControlAdministersProjectOf pins who may see a principal's keys as
 // an admin of a project it belongs to (decision 36), read from memory.
 func TestControlAdministersProjectOf(t *testing.T) {
+	t.Parallel()
 	c := accessWorld(t)
 	tests := []struct {
 		actor, principal string
@@ -47,6 +48,7 @@ func TestControlAdministersProjectOf(t *testing.T) {
 // TestControlStanding pins what the daemon may decide about a principal
 // from its bridge frame alone, before a hello names a project.
 func TestControlStanding(t *testing.T) {
+	t.Parallel()
 	c := newControl(t) // server admins dana and sam
 	ctx := t.Context()
 	mustProject(t, c, projA)

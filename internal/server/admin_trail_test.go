@@ -24,6 +24,7 @@ import (
 // dana is disabled; both still sign in. dave is told what dana left,
 // lists it, removes it, and then neither signs in.
 func TestWhatADisabledAdminAddedIsFoundAndRemoved(t *testing.T) {
+	t.Parallel()
 	m := newMultiAdmins(t, Limits{}, nil, "dana", "dave")
 	m.project(t, projA, "alice=admin")
 	m.project(t, projB, "erin=admin")
@@ -129,6 +130,7 @@ func TestWhatADisabledAdminAddedIsFoundAndRemoved(t *testing.T) {
 // much of it: a server admin all of it, a project admin what is within
 // the projects they administer, and nobody else anything.
 func TestTrailReadRules(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{}) // carol, in a and b, has a key; all of it is dana's work
 	ctx := t.Context()
 	for name, proj := range map[string]string{"hal": projA, "ned": projB} {

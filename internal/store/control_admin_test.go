@@ -20,7 +20,7 @@ func grantedName(t *testing.T, controlDSN string, granted bool) string {
 	}
 	name := cfg.DBName + "_p001"
 	if granted {
-		if err := server.Grant(t.Context(), name); err != nil {
+		if err := doltOf(t).Grant(t.Context(), name); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -39,6 +39,7 @@ func databaseDSN(t *testing.T, dsn, name string) string {
 }
 
 func TestControlCreateDatabase(t *testing.T) {
+	t.Parallel()
 	dsn := newDSN(t)
 	c := openControl(t, dsn, ControlOptions{})
 	ctx := t.Context()
@@ -85,6 +86,7 @@ func TestControlCreateDatabase(t *testing.T) {
 // A name root never granted can be created and not used: Open's error is
 // then one DatabaseDenied knows, so the daemon can name the grant.
 func TestDatabaseDenied(t *testing.T) {
+	t.Parallel()
 	dsn := newDSN(t)
 	c := openControl(t, dsn, ControlOptions{})
 	ctx := t.Context()
@@ -104,7 +106,7 @@ func TestDatabaseDenied(t *testing.T) {
 		t.Error("DatabaseDenied reports an error that is no refusal of a database")
 	}
 	// Granted afterward, the same database opens.
-	if err := server.Grant(ctx, p.DBName); err != nil {
+	if err := doltOf(t).Grant(ctx, p.DBName); err != nil {
 		t.Fatal(err)
 	}
 	st, err := Open(ctx, databaseDSN(t, dsn, p.DBName), Options{Prefix: p.Prefix, CommitInterval: -1})
@@ -117,6 +119,7 @@ func TestDatabaseDenied(t *testing.T) {
 }
 
 func TestControlAccount(t *testing.T) {
+	t.Parallel()
 	c := newControl(t)
 	got, err := c.Account(t.Context())
 	if want := "'starfix'@'localhost'"; err != nil || got != want {
@@ -125,6 +128,7 @@ func TestControlAccount(t *testing.T) {
 }
 
 func TestControlProjectNamed(t *testing.T) {
+	t.Parallel()
 	c := newControl(t)
 	mustProject(t, c, projA)
 	if _, err := c.AddProject(t.Context(), dana, newProject(projB)); err != nil { // still creating
@@ -147,6 +151,7 @@ func TestControlProjectNamed(t *testing.T) {
 // TestControlReach pins who is within whose reach, as AddKey and
 // DisablePrincipal apply it, read from memory.
 func TestControlReach(t *testing.T) {
+	t.Parallel()
 	c := accessWorld(t)
 	tests := []struct {
 		actor, principal string
@@ -180,6 +185,7 @@ func TestControlReach(t *testing.T) {
 // admins who could not manage a principal's keys before it left a
 // project, and can now.
 func TestControlReachGained(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		setup     func(*testing.T, *Control)

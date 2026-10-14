@@ -14,6 +14,7 @@ import (
 // 34 seconds of its own time after the clock jumped, by when a lease
 // with 33 seconds left had run out.
 func TestJumpFaults(t *testing.T) {
+	t.Parallel()
 	const d = 22 * time.Minute
 	at := func(clock string) time.Time {
 		t.Helper()

@@ -112,6 +112,7 @@ func leaseOf(t *testing.T, s *Store, id IssueID) time.Time {
 // jump, with no clock.step ahead of it, though it ran after the jump: an
 // effect could be dated before its cause in another store's log.
 func TestWriteQueuedBeforeAJumpIsDatedAfterIt(t *testing.T) {
+	t.Parallel()
 	c := newTwoClocks()
 	w := &waits{}
 	s, _ := steppedStore(t, "", c, Options{Tracer: w})
@@ -151,6 +152,7 @@ func TestWriteQueuedBeforeAJumpIsDatedAfterIt(t *testing.T) {
 // finds the step first settles it, and the other does not settle it
 // again.
 func TestTwoWritesQueuedBeforeAJumpSettleItOnce(t *testing.T) {
+	t.Parallel()
 	c := newTwoClocks()
 	w := &waits{}
 	s, _ := steppedStore(t, "", c, Options{Tracer: w})
@@ -204,6 +206,7 @@ func TestTwoWritesQueuedBeforeAJumpSettleItOnce(t *testing.T) {
 // start, and the clock may have jumped since its settle: the rerun is
 // dated after the jump too.
 func TestWriteRetriedAfterAJumpIsDatedAfterIt(t *testing.T) {
+	t.Parallel()
 	c := newTwoClocks()
 	o := &seen{}
 	s, _ := steppedStore(t, "", c, Options{Observer: o})
@@ -249,6 +252,7 @@ func TestWriteRetriedAfterAJumpIsDatedAfterIt(t *testing.T) {
 // pending: it is run again, settles the second, and each jump is settled
 // once.
 func TestSecondJumpDuringTheSettle(t *testing.T) {
+	t.Parallel()
 	c := newTwoClocks()
 	w, o := &waits{}, &seen{}
 	s, _ := steppedStore(t, "", c, Options{Tracer: w, Observer: o})
@@ -297,6 +301,7 @@ func TestSecondJumpDuringTheSettle(t *testing.T) {
 // nothing on a time before a jump, and the jumps are still each settled
 // once.
 func TestClockThatKeepsJumpingRefusesTheWrite(t *testing.T) {
+	t.Parallel()
 	c := newTwoClocks()
 	w := &waits{}
 	s, _ := steppedStore(t, "", c, Options{Tracer: w, MaxAttempts: 3})
@@ -346,6 +351,7 @@ func TestClockThatKeepsJumpingRefusesTheWrite(t *testing.T) {
 // store does: a write that waited for its writer across a jump is dated
 // after it, behind one clock.step.
 func TestControlWriteQueuedBeforeAJumpIsDatedAfterIt(t *testing.T) {
+	t.Parallel()
 	c := newTwoClocks()
 	w := &waits{}
 	ctl := openControl(t, newDSN(t), ControlOptions{Clock: NewClock(ClockOptions{Read: c.read}), Tracer: w})

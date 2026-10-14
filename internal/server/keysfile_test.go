@@ -71,6 +71,7 @@ func (m *multi) sshd(t *testing.T, fingerprint string) string {
 // what sshd should accept: it holds exactly the keys of the active
 // principals, one line each, by the time the admin is answered.
 func TestKeysFile(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{}) // carol has a key
 	d := mustDialTo(t, m.Server, dana, projA)
 	check := func(when string, owners ...string) {
@@ -150,6 +151,7 @@ func TestKeysFile(t *testing.T) {
 // TestKeysFileFollowsTheOperator checks that what `starfixd control
 // init` writes beside the daemon reaches the keys file at the next tick.
 func TestKeysFileFollowsTheOperator(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{})
 	op, err := store.OpenControl(t.Context(), m.dsn, store.ControlOptions{CommitInterval: -1, Operator: true})
 	if err != nil {
@@ -172,6 +174,7 @@ func TestKeysFileFollowsTheOperator(t *testing.T) {
 // TestKeysFileRefusals checks what the server will not write to, and
 // that each refusal names its fix and leaves what is there alone.
 func TestKeysFileRefusals(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("modes and links as sshd reads them are not Windows's")
 	}
@@ -278,6 +281,7 @@ func TestKeysFileRefusals(t *testing.T) {
 // refuses the removed key at the handshake, whatever the stale file lets
 // past sshd; and the next tick that can write puts the file right.
 func TestKeysFileWriteFails(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("needs a directory this user cannot write to")
 	}
@@ -369,6 +373,7 @@ func TestKeysFileWriteFails(t *testing.T) {
 // still some sshd's AuthorizedKeysCommand while its server is upgraded:
 // its question is closed at once, unanswered, and logged below info.
 func TestStaleKeysFrame(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{})
 	srv, cli := net.Pipe()
 	done := make(chan struct{})
@@ -415,6 +420,7 @@ func (m *multi) writeByHand(t *testing.T, content string) {
 // the other file let in, and says that sshd will still accept the key
 // there.
 func TestKeyAlsoInAuthorizedKeys(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{}) // carol has a key in the store
 	d := mustDialTo(t, m.Server, dana, projA)
 	mustAsk[proto.KeyResult](d, proto.OpKeyAdd, proto.KeyAddArgs{Name: "bob", Key: keyLine(t, "bob")})
@@ -496,6 +502,7 @@ func TestKeyAlsoInAuthorizedKeys(t *testing.T) {
 // directory, larger than the bound. None is an error, and none marks a
 // key the file does not show within the bound.
 func TestByHandIsLenient(t *testing.T) {
+	t.Parallel()
 	fp := fingerprintOf(t, "carol")
 	line := strings.TrimSpace(keyLine(t, "carol")) + "\n"
 	pad := strings.Repeat("# "+strings.Repeat("x", 1021)+"\n", maxAuthorizedKeys/1024)
@@ -589,6 +596,7 @@ func FuzzByHand(f *testing.F) {
 // server admin out with nothing but her public key. So the store's rule,
 // a key belongs to one principal, covers that file too.
 func TestKeyOfAuthorizedKeysKeepsItsPrincipal(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{})
 	d, a := mustDialTo(t, m.Server, dana, projA), mustDialTo(t, m.Server, alice, projA) // a server admin, and a's project admin
 	typ, danas, danasFP, _ := testKey(t, "dana's new laptop")
@@ -667,6 +675,7 @@ func TestKeyOfAuthorizedKeysKeepsItsPrincipal(t *testing.T) {
 // operator's line, refuses a connection that an older keys file let in
 // by the store's line, and says so in its log and in status.
 func TestHandLineAddedLaterHoldsTheStoreKeyBack(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{}) // carol has a key in the store
 	typ, blob, carols, _ := testKey(t, "carol")
 	d := mustDialTo(t, m.Server, dana, projA)

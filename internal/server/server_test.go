@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -25,10 +24,10 @@ import (
 	"github.com/ariesworx/starfix/internal/store"
 )
 
-var (
-	dolt    *dolttest.Server
-	doltErr error
-)
+// dolts are the package's Dolt servers: a test has one to itself while it
+// runs, so the tests can run in parallel (dolttest.Pool). Each has its
+// metrics endpoint, which TestDoltStatusRealDolt reads.
+var dolts = dolttest.NewPool("starfix-server-", dolttest.Options{Metrics: true})
 
 func TestMain(m *testing.M) {
 	os.Exit(run(m))
@@ -50,44 +49,36 @@ func run(m *testing.M) int {
 	if os.Getenv(peerHelperEnv) != "" || os.Getenv(statusHelperEnv) != "" {
 		return m.Run()
 	}
-	dir, err := os.MkdirTemp("", "starfix-server-")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	defer func() { _ = os.RemoveAll(dir) }()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	// With its metrics endpoint, which TestDoltStatusRealDolt reads.
-	dolt, doltErr = dolttest.StartWith(ctx, dir, dolttest.Options{Metrics: true})
-	cancel()
-	if dolt != nil {
-		defer func() { _ = dolt.Stop() }()
-	}
+	defer func() { _ = dolts.Close() }()
+	dolts.Warm()
 	return m.Run()
 }
 
-// newDatabase returns the DSN of a fresh database in the package's Dolt,
-// or skips without dolt. The database is dropped when the test ends,
-// after the cleanups of what the test opened on it: Dolt holds every
-// database in memory and slows with each (dolttest.Server.DropDatabase),
-// and this package makes several hundred.
-func newDatabase(t testing.TB) string {
+// doltOf returns the Dolt server t's test holds, or skips without dolt.
+func doltOf(t testing.TB) *dolttest.Server {
 	t.Helper()
-	if errors.Is(doltErr, dolttest.ErrNoDolt) {
+	srv, err := dolts.Server(t)
+	if errors.Is(err, dolttest.ErrNoDolt) {
 		t.Skip("dolt is not on PATH: install dolt to run the server tests")
 	}
-	if doltErr != nil {
-		t.Fatalf("dolt sql-server: %v", doltErr)
+	if err != nil {
+		t.Fatalf("dolt sql-server: %v", err)
 	}
-	dsn, err := dolt.NewDatabase(t.Context())
+	return srv
+}
+
+// newDatabase returns the DSN of a fresh database on the test's Dolt
+// server, or skips without dolt. The database is dropped when the test
+// ends, after the cleanups of what the test opened on it: Dolt holds
+// every database in memory and slows with each
+// (dolttest.Server.DropDatabase), and this package makes several hundred.
+func newDatabase(t testing.TB) string {
+	t.Helper()
+	doltOf(t)
+	dsn, err := dolts.Database(t)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if err := dolt.DropDatabase(dsn); err != nil {
-			t.Errorf("drop the test's database: %v", err)
-		}
-	})
 	return dsn
 }
 
@@ -178,6 +169,7 @@ func mustCall[R any](t *testing.T, s *Server, a store.Actor, op string, args any
 }
 
 func TestDispatchRoundTrip(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	p1 := 1
 	a := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "parent", Priority: &p1, Labels: []string{"x"}})
@@ -240,6 +232,7 @@ func TestDispatchRoundTrip(t *testing.T) {
 }
 
 func TestDispatchErrors(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	a := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "a"})
 	b := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "b"})
@@ -337,6 +330,7 @@ func handshake(t *testing.T, s *Server, frames ...*proto.Frame) (*proto.Frame, e
 }
 
 func TestHandshake(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	bridge := &proto.Frame{T: proto.FrameBridge, Principal: "alice"}
 	hello := func(p int, proj, session string) *proto.Frame {
@@ -404,6 +398,7 @@ func TestHandshake(t *testing.T) {
 // the peer check gets nothing: no welcome, and no agent row, even with a
 // valid bridge frame and hello behind it.
 func TestServeRefusesPeer(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	checked := 0
 	s.cfg.PeerCheck = func(net.Conn) error {
@@ -468,6 +463,7 @@ func (l *fakeListener) Addr() net.Addr { return &net.UnixAddr{Name: "fake.sock",
 // closes the listener and the connections, stops the reaper, and returns
 // the error.
 func TestServeAcceptErrors(t *testing.T) {
+	t.Parallel()
 	emfile := &net.OpError{Op: "accept", Net: "unix", Err: os.NewSyscallError("accept", syscall.EMFILE)}
 	broken := errors.New("listener broke")
 	tests := []struct {
@@ -609,6 +605,7 @@ func welcome(c net.Conn, a store.Actor) error {
 // it held, is closed too: Serve returns at once, rather than wait for
 // that client to leave or its connection to idle out.
 func TestServeClosesConnectionAcceptedAsItStops(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	firstSrv, firstCli := net.Pipe()
 	lateSrv, lateCli := net.Pipe()
@@ -646,6 +643,7 @@ func TestServeClosesConnectionAcceptedAsItStops(t *testing.T) {
 }
 
 func TestBridgeFrameOnlyFirst(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	srv, cli := net.Pipe()
 	var wg sync.WaitGroup
@@ -673,6 +671,7 @@ func TestBridgeFrameOnlyFirst(t *testing.T) {
 }
 
 func TestListen(t *testing.T) {
+	t.Parallel()
 	// Not t.TempDir, whose path can be too long for a unix socket.
 	base, err := os.MkdirTemp("", "sfl")
 	if err != nil {
@@ -748,6 +747,7 @@ func mustDial(t *testing.T, path string, l net.Listener) net.Conn {
 }
 
 func TestBridgeUnavailable(t *testing.T) {
+	t.Parallel()
 	var out strings.Builder
 	err := Bridge(t.Context(), filepath.Join(t.TempDir(), "none.sock"), "alice", "", strings.NewReader(""), &out)
 	if err == nil {
@@ -779,6 +779,7 @@ func TestBridgeUnavailable(t *testing.T) {
 }
 
 func TestResolveSettings(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	write := func(name, body string, mode os.FileMode) string {
 		p := filepath.Join(dir, name)
@@ -888,6 +889,7 @@ func TestResolveSettings(t *testing.T) {
 }
 
 func TestDispatchWork(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	a := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "first", Acceptance: "it works"})
 	b := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "second"})
@@ -974,6 +976,7 @@ func TestDispatchWork(t *testing.T) {
 }
 
 func TestDispatchClaims(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	a := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work"})
 
@@ -1035,6 +1038,7 @@ func TestDispatchClaims(t *testing.T) {
 // a harness the store would refuse is dropped, not fatal. The upgrade's
 // health probe is welcomed but is no agent, so it is not registered.
 func TestHandshakeRegistersAgent(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	bridge := func(p string) *proto.Frame { return &proto.Frame{T: proto.FrameBridge, Principal: p} }
 	hello := func(session, harness string) *proto.Frame {
@@ -1061,6 +1065,7 @@ func TestHandshakeRegistersAgent(t *testing.T) {
 }
 
 func TestDispatchWho(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	a := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work"})
 	mustCall[proto.StartResult](t, s, alice, proto.OpStart, proto.StartArgs{ID: a.ID})
@@ -1090,6 +1095,7 @@ func TestDispatchWho(t *testing.T) {
 }
 
 func TestNewLogger(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		level, format string

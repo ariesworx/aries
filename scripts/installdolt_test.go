@@ -103,6 +103,7 @@ func (c doltCheckout) run(t *testing.T, url string) (stdout, stderr string, ok b
 }
 
 func TestInstallDoltScript(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("scripts/install-dolt.sh is for Linux and macOS")
 	}

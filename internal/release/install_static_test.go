@@ -81,6 +81,7 @@ func skipWithoutInstallTools(t *testing.T) {
 // directory, and from a file:// URL, and trusts the host with nothing but
 // the choice of a tag.
 func TestInstallScriptStatic(t *testing.T) {
+	t.Parallel()
 	skipWithoutInstallTools(t)
 	if _, err := exec.LookPath("curl"); err != nil {
 		if _, err := exec.LookPath("wget"); err != nil {
@@ -298,6 +299,7 @@ func TestInstallScriptStatic(t *testing.T) {
 // With wget and no curl, install.sh reads a static tree the same way and
 // follows no redirect either.
 func TestInstallScriptStaticWget(t *testing.T) {
+	t.Parallel()
 	skipWithoutInstallTools(t)
 	// A PATH of links to the tools install.sh uses, wget among them and
 	// curl not.

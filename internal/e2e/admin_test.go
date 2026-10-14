@@ -52,6 +52,12 @@ func (u *user) in(config string) *user {
 // failed.
 var reqLine = regexp.MustCompile(`^req: [0-9a-f]{16}\n$`)
 
+// waitTold is the wait a refusal for a rate tells of ("wait 16m40s and
+// retry"). It is shorter at each asking, by the time since the last:
+// two refusals a second apart, as on a slow machine, do not tell of the
+// same one.
+var waitTold = regexp.MustCompile(`\bwait [0-9][0-9hmsµn.]* and retry\b`)
+
 // refused runs the CLI, which must fail with code, and returns the
 // refusal as --json prints it, after checking that the text form says
 // the same on stderr and nothing on stdout.
@@ -71,9 +77,11 @@ func (u *user) refused(code proto.Code, args ...string) proto.Error {
 	if e.Req != "" && !reqLine.MatchString("req: "+e.Req+"\n") {
 		t.Fatalf("sfx %s refused with the request id %q, want 16 hex digits", strings.Join(args, " "), e.Req)
 	}
+	// The text form is a second asking, so a wait it tells of is its own.
 	text := u.run("v0.2.0", args...)
-	want := "sfx: " + e.Message + "\nfix: " + e.Fix + "\n"
-	rest, ok := strings.CutPrefix(text.stderr, want)
+	same := func(s string) string { return waitTold.ReplaceAllString(s, "wait and retry") }
+	want := same("sfx: " + e.Message + "\nfix: " + e.Fix + "\n")
+	rest, ok := strings.CutPrefix(same(text.stderr), want)
 	if wantReq := code == proto.CodeUnavailable && e.Req != ""; text.code != cli.ExitFailure || !ok || text.stdout != "" ||
 		wantReq != reqLine.MatchString(rest) || (!wantReq && rest != "") {
 		t.Fatalf("sfx %s: exit %d, stdout %q\nstderr %q\nwant   %q, and a req: line only for the server's own failure", strings.Join(args, " "), text.code, text.stdout, text.stderr, want)
@@ -102,6 +110,7 @@ func (w *world) keyFor(principal string) string {
 // TestAdminCommands runs every `sfx admin` access command as someone
 // who may, through SSH and the daemon, with its text and its --json.
 func TestAdminCommands(t *testing.T) {
+	t.Parallel()
 	w := adminWorld(t, 0, 0)
 	dana := w.newUser("dana", "")
 
@@ -208,6 +217,7 @@ func TestAdminCommands(t *testing.T) {
 // reaches the user as forbidden, on stderr and in --json, with a fix
 // that names who can.
 func TestAdminForbidden(t *testing.T) {
+	t.Parallel()
 	w := adminWorld(t, 1, 1)
 	w.addProject(second, "second", "two")
 	w.member("alice", project, store.RoleAdmin) // admin of the first
@@ -315,6 +325,7 @@ var uuidLine = regexp.MustCompile(`(?m)^project: ([0-9a-f-]{36})$`)
 // the server: from a block of three database names of which two were
 // granted.
 func TestAdminProjectAdd(t *testing.T) {
+	t.Parallel()
 	w := adminWorld(t, 3, 2)
 	w.member("alice", project, store.RoleMember)
 	d, alice := w.newUser("dana", ""), w.newUser("alice", "")
@@ -393,7 +404,7 @@ func TestAdminProjectAdd(t *testing.T) {
 		t.Errorf("project add past the block:\n%q\nfix %q", e.Message, e.Fix)
 	}
 	// The operator runs the SQL; the same command then finishes.
-	if err := dolt.Grant(t.Context(), w.block.Name(3)); err != nil {
+	if err := w.dolt.Grant(t.Context(), w.block.Name(3)); err != nil {
 		t.Fatal(err)
 	}
 	out = d.ok("admin", "project", "add", "docs")
@@ -417,6 +428,7 @@ func TestAdminProjectAdd(t *testing.T) {
 
 // A server with no block of names says how to get one.
 func TestAdminProjectAddNeedsBlock(t *testing.T) {
+	t.Parallel()
 	w := adminWorld(t, 0, 0)
 	e := w.newUser("dana", "").refused(proto.CodeInvalid, "admin", "project", "add", "web")
 	if e.Message != "the server has no database names for new projects" || !strings.Contains(e.Fix, "set project_dbs: in its config (docs/server.md, Serving many projects)") {
@@ -473,6 +485,7 @@ func (wt *watcher) stillOpen(t *testing.T, who string) {
 // archived project's are closed, and the next is refused; a demotion
 // closes nothing.
 func TestAdminEndsAccess(t *testing.T) {
+	t.Parallel()
 	w := adminWorld(t, 0, 0)
 	w.addProject(second, "second", "two")
 	for _, name := range []string{"alice", "bob", "carol"} {
@@ -536,6 +549,7 @@ func TestAdminEndsAccess(t *testing.T) {
 // that a removal put someone within other admins' reach, and which keys
 // come with someone added from another project.
 func TestAdminPrompts(t *testing.T) {
+	t.Parallel()
 	w := adminWorld(t, 0, 0)
 	w.addProject(second, "second", "two")
 	w.member("carol", project, store.RoleMember)
@@ -637,6 +651,7 @@ func TestAdminPrompts(t *testing.T) {
 // A server of one project refuses the access commands, and says how a
 // server opts in.
 func TestAdminOnAServerOfOneProject(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{admins: []string{"dana"}})
 	d := w.newUser("dana", "")
 	for _, args := range [][]string{
@@ -656,6 +671,7 @@ func TestAdminOnAServerOfOneProject(t *testing.T) {
 // Control writes have their own rate limit, per principal: past it the
 // command is refused with busy and a wait, and says which settings.
 func TestAdminControlWriteRate(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{many: true, admins: []string{"dana"}, limits: server.Limits{ControlWriteBurst: 2, ControlWriteRate: 0.001}})
 	d := w.newUser("dana", "")
 	d.ok("admin", "principal", "add", "alice")
@@ -675,6 +691,7 @@ func TestAdminControlWriteRate(t *testing.T) {
 // refuses this client at the handshake, with exit code 3, before an
 // admin or a key command could fail as an unknown operation.
 func TestAdminOldServer(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{protoMin: 2, protoMax: 4})
 	dana := w.newUser("dana", "")
 	if r := dana.run("v0.2.0", "admin", "key", "list", "dana"); r.code != cli.ExitVersion {
@@ -691,6 +708,7 @@ func TestAdminOldServer(t *testing.T) {
 // An agent has no admin tool, and one whose principal is not a member is
 // told to ask a person, never to run the admin's command.
 func TestMCPNotAMember(t *testing.T) {
+	t.Parallel()
 	w := adminWorld(t, 0, 0)
 	ag := w.newUser("mallory", "").mcp("v0.2.0")
 	tools, err := ag.cs.ListTools(context.Background(), nil)

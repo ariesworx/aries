@@ -11,6 +11,7 @@ import (
 // entry a duplicate is not registered either, and Apply's wholesale
 // replacement leaves one copy of each key.
 func TestJSONRefusesDuplicateKeys(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name, in string
 		refused  bool
@@ -48,6 +49,7 @@ func TestJSONRefusesDuplicateKeys(t *testing.T) {
 // setup refuses it rather than call it registered, or rewrite the file
 // without it.
 func TestJSONRefusesTextAfterTheObject(t *testing.T) {
+	t.Parallel()
 	a := Agents["gemini"]
 	tests := []struct{ name, in string }{
 		{"a word", `{"mcpServers":{}} x`},
@@ -76,6 +78,7 @@ func TestJSONRefusesTextAfterTheObject(t *testing.T) {
 // An entry with the right command but extra keys runs something else:
 // --check reports it, and Apply replaces the entry wholesale (C-8).
 func TestRegisteredRefusesExtras(t *testing.T) {
+	t.Parallel()
 	const good = `"command": "sfx", "args": ["mcp"]`
 	tests := []struct {
 		name, agent, in string
@@ -119,6 +122,7 @@ func TestRegisteredRefusesExtras(t *testing.T) {
 // valid TOML in gives valid TOML out with starfix registered, and a
 // second run changes nothing (T-3, C-11).
 func TestApplyTOMLStructure(t *testing.T) {
+	t.Parallel()
 	const block = "[mcp_servers.starfix]\ncommand = \"sfx\"\nargs = [\"mcp\"]\n\n[mcp_servers.starfix.env]\nSTARFIX_HARNESS = \"codex\"\n"
 	tests := []struct{ name, in, want string }{
 		{"nested array",
@@ -185,6 +189,7 @@ func TestApplyTOMLStructure(t *testing.T) {
 // What the editor cannot place safely, it refuses; setup then prints
 // the snippet to add by hand.
 func TestApplyTOMLRefuses(t *testing.T) {
+	t.Parallel()
 	tests := []struct{ name, in string }{
 		{"unterminated multi-line string", "x = \"\"\"\n[mcp_servers.starfix]\n"},
 		{"unterminated array", "args = [\"a\",\n"},
@@ -217,6 +222,7 @@ func TestApplyTOMLRefuses(t *testing.T) {
 // TOML basic strings take only TOML's escapes; Go's \x.. and \a are not
 // among them.
 func TestTOMLString(t *testing.T) {
+	t.Parallel()
 	tests := []struct{ in, want string }{
 		{`C:\tools\sfx.exe`, `"C:\\tools\\sfx.exe"`},
 		{"a\"b", `"a\"b"`},
@@ -235,6 +241,7 @@ func TestTOMLString(t *testing.T) {
 // running prime --hook, or usage --hook: a person's compound command that
 // ends the same way is theirs (C-10).
 func TestOurHookExact(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		cmd  string
 		want bool

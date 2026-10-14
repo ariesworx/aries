@@ -33,6 +33,7 @@ func writeFile(t *testing.T, path, body string) {
 // a file the person then commits, or write their global hook without
 // --global. Setup reads and writes no project file through a link (C-1).
 func TestSetupRefusesProjectLinks(t *testing.T) {
+	t.Parallel()
 	const secret = `{"auths": {"registry.example.com": {"auth": "c2VjcmV0"}}}` //nolint:gosec // an invented stand-in for a secret
 	tests := []struct {
 		name, agent string
@@ -97,6 +98,7 @@ func TestSetupRefusesProjectLinks(t *testing.T) {
 // to a file of theirs inside their home: setup then edits the target and
 // keeps the link.
 func TestSetupGlobalLinks(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		link, target string // link relative to home; target to home, or to outside if outsideTarget
@@ -162,6 +164,7 @@ func TestSetupGlobalLinks(t *testing.T) {
 
 // A link in home to a file another user owns is refused, even inside home.
 func TestSetupGlobalLinkToOthersFile(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("no Unix owners")
 	}
@@ -181,6 +184,7 @@ func TestSetupGlobalLinkToOthersFile(t *testing.T) {
 // The person's new files are private; the project's, meant to be
 // committed, are not (C-9). An existing file keeps its mode.
 func TestSetupModes(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("no Unix modes")
 	}
@@ -220,6 +224,7 @@ func TestSetupModes(t *testing.T) {
 
 // Claude Desktop's config directory may not be a link out of home.
 func TestSetupClaudeDesktopLink(t *testing.T) {
+	t.Parallel()
 	home, outside := t.TempDir(), t.TempDir()
 	_, sub := repoWithConfig(t)
 	symlink(t, outside, filepath.Join(home, "Library", "Application Support", "Claude"))
@@ -237,6 +242,7 @@ func TestSetupClaudeDesktopLink(t *testing.T) {
 // checked from home, even under a directory whose name starts with "..":
 // a link from there out of home is refused, as on macOS.
 func TestSetupClaudeDesktopDotDotDir(t *testing.T) {
+	t.Parallel()
 	home, outside := t.TempDir(), t.TempDir()
 	_, sub := repoWithConfig(t)
 	symlink(t, outside, filepath.Join(home, "..x"))
@@ -254,6 +260,7 @@ func TestSetupClaudeDesktopDotDotDir(t *testing.T) {
 // starts with "..", and refuses the directory itself and anything
 // outside it.
 func TestResolveBelowDir(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	b := fileBase{dir: dir}
 	tests := []struct {
@@ -282,6 +289,7 @@ func TestResolveBelowDir(t *testing.T) {
 // A global hook dials whatever server a repository names, so setup says
 // so when it adds one (C-14).
 func TestSetupGlobalHookNote(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	code, out, errb := runIn(t, home, "-C", t.TempDir(), "setup", "claude-code", "--global", "--write")
 	if code != ExitOK || !strings.Contains(out, "every repository") {

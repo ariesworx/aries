@@ -12,6 +12,7 @@ import (
 // are refused with busy and a wait, on stderr and in --json; reads and
 // other principals go on.
 func TestWriteRateLimit(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{limits: server.Limits{WriteBurst: 2, WriteRate: 0.001}})
 	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
 	alice.ok("create", "one")
@@ -34,6 +35,7 @@ func TestWriteRateLimit(t *testing.T) {
 // connections is refused another at the handshake, with busy; another
 // principal is not.
 func TestConnectionCap(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{limits: server.Limits{ConnsPerPrincipal: 1}})
 	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
 	alice.rawDial("s-held") // holds alice's one connection
@@ -51,6 +53,7 @@ func TestConnectionCap(t *testing.T) {
 // Paged comments, end to end: -n shows the newest and says how many came
 // before.
 func TestCommentsNewest(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice := w.newUser("alice", "")
 	id := decode[proto.CreateResult](t, alice.ok("--json", "create", "talk")).ID

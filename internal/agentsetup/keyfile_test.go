@@ -11,6 +11,7 @@ import (
 // sfx signs in with, written only when the entry's KeyFile is set. The
 // entry is still replaced wholesale and may hold nothing else.
 func TestEntryKeyFile(t *testing.T) {
+	t.Parallel()
 	const path = `/home/alice/.ssh/starfix "agent" key`
 	for _, name := range Names() {
 		a := Agents[name]

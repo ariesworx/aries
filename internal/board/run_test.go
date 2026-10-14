@@ -75,6 +75,7 @@ func runBoard(t *testing.T, srv *fakeServer, sc *screen, term Terminal) (wait fu
 // The board draws what the server lists, asks it again on r, redraws at a
 // new size, and on q ends and restores the terminal once.
 func TestRunDrawsAndQuits(t *testing.T) {
+	// Serial: a synctest bubble's virtual time takes no real time worth sharing.
 	synctest.Test(t, func(t *testing.T) {
 		srv, sc := &fakeServer{}, newScreen(80, 12)
 		wait := runBoard(t, srv, sc, sc.terminal())
@@ -114,6 +115,7 @@ func TestRunDrawsAndQuits(t *testing.T) {
 // the terminal, so the board takes it over again and paints the whole
 // frame, though nothing in it changed.
 func TestRunResumes(t *testing.T) {
+	// Serial: a synctest bubble's virtual time takes no real time worth sharing.
 	synctest.Test(t, func(t *testing.T) {
 		srv, sc := &fakeServer{}, newScreen(80, 12)
 		wait := runBoard(t, srv, sc, sc.terminal())
@@ -140,6 +142,7 @@ func TestRunResumes(t *testing.T) {
 
 // A panic in the loop restores the terminal before it goes on up.
 func TestRunRestoresOnPanic(t *testing.T) {
+	// Serial: a synctest bubble's virtual time takes no real time worth sharing.
 	synctest.Test(t, func(t *testing.T) {
 		srv, sc := &fakeServer{}, newScreen(80, 12)
 		term := sc.terminal()
@@ -166,6 +169,7 @@ func TestRunRestoresOnPanic(t *testing.T) {
 
 // When the terminal's input ends, the board ends with an error.
 func TestRunInputEnds(t *testing.T) {
+	// Serial: a synctest bubble's virtual time takes no real time worth sharing.
 	synctest.Test(t, func(t *testing.T) {
 		srv, sc := &fakeServer{}, newScreen(80, 12)
 		wait := runBoard(t, srv, sc, sc.terminal())
@@ -184,6 +188,7 @@ func TestRunInputEnds(t *testing.T) {
 // collapse into one, and only the latest open or close of a detail is
 // kept.
 func TestRunCoalescesActions(t *testing.T) {
+	// Serial: a synctest bubble's virtual time takes no real time worth sharing.
 	synctest.Test(t, func(t *testing.T) {
 		srv, sc := &fakeServer{}, newScreen(80, 12)
 		wait := runBoard(t, srv, sc, sc.terminal())
@@ -219,6 +224,7 @@ func TestRunCoalescesActions(t *testing.T) {
 // which on xterm would clear its last cell (the pending wrap); a shorter
 // one is.
 func TestRunPaintsFullLines(t *testing.T) {
+	// Serial: a synctest bubble's virtual time takes no real time worth sharing.
 	synctest.Test(t, func(t *testing.T) {
 		srv, sc := &fakeServer{}, newScreen(30, 6)
 		wait := runBoard(t, srv, sc, sc.terminal())

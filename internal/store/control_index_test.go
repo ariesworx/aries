@@ -10,6 +10,7 @@ import (
 )
 
 func TestControlAccessIndex(t *testing.T) {
+	t.Parallel()
 	c := newControl(t)
 	mustProject(t, c, projA)
 	mustProject(t, c, projB)
@@ -98,6 +99,7 @@ func TestControlAccessIndex(t *testing.T) {
 // wrote to the control database, as `starfixd control init` does beside a
 // running daemon.
 func TestControlReload(t *testing.T) {
+	t.Parallel()
 	dsn := newDSN(t)
 	daemon := openControl(t, dsn, ControlOptions{})
 	other := openControl(t, dsn, ControlOptions{})
@@ -126,6 +128,7 @@ func TestControlReload(t *testing.T) {
 // a command on the server lets the reserved operator principal write as
 // a server admin does, and no other store does.
 func TestControlOperator(t *testing.T) {
+	t.Parallel()
 	op := Actor{Principal: OperatorPrincipal, Session: "control-init", Machine: "server"}
 	if !Reserved(OperatorPrincipal) {
 		t.Fatalf("%s is not reserved, so a key could authenticate as it", OperatorPrincipal)
@@ -184,6 +187,7 @@ func TestControlOperator(t *testing.T) {
 }
 
 func TestControlBackupTag(t *testing.T) {
+	t.Parallel()
 	c := newControl(t)
 	mustProject(t, c, projA)
 	got, err := c.BackupTag(t.Context(), "starfix-v0.1.0")
@@ -202,6 +206,7 @@ func TestControlBackupTag(t *testing.T) {
 // write, beside Options.Admins, so a role given or taken away counts at
 // once.
 func TestIsAdminHook(t *testing.T) {
+	t.Parallel()
 	var erinAdmin atomic.Bool
 	s := openStore(t, newDSN(t), Options{IsAdmin: func(p string) bool { return p == "erin" && erinAdmin.Load() }})
 	is := mustCreate(t, s, NewIssue{Title: "held by alice"})
@@ -261,6 +266,7 @@ func TestIsAdminHook(t *testing.T) {
 // every key AuthorizedKey answers for and no other, in an order that
 // does not depend on the order of the writes.
 func TestAuthorizedKeys(t *testing.T) {
+	t.Parallel()
 	dsn := newDSN(t)
 	c := openControl(t, dsn, ControlOptions{})
 	ctx := t.Context()

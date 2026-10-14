@@ -44,6 +44,7 @@ func readFile(t *testing.T, path string) string {
 // the harness. Writing, checking and removing are each idempotent, two
 // projects coexist, and the person's own servers and keys stay.
 func TestSetupClaudeDesktop(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		env  func(home string) desktopEnv
@@ -155,6 +156,7 @@ func jsonString(s string) string {
 // A new config, with its directory, is private to the person: the file
 // holds every server's env, other servers' tokens among them.
 func TestSetupClaudeDesktopNewFile(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	root, sub := repoWithConfig(t)
 	d := desktopEnv{goos: "darwin", home: home, exe: "/usr/local/bin/sfx"}
@@ -183,6 +185,7 @@ func TestSetupClaudeDesktopNewFile(t *testing.T) {
 }
 
 func TestSetupClaudeDesktopRefusals(t *testing.T) {
+	t.Parallel()
 	_, sub := repoWithConfig(t)
 	mac := desktopEnv{goos: "darwin", home: t.TempDir(), exe: "/usr/local/bin/sfx"}
 	tests := []struct {
@@ -220,6 +223,7 @@ func TestSetupClaudeDesktopRefusals(t *testing.T) {
 
 // Windows accepts an absolute --command; it is written as given.
 func TestSetupClaudeDesktopCommand(t *testing.T) {
+	t.Parallel()
 	_, sub := repoWithConfig(t)
 	d := desktopEnv{goos: "windows", home: t.TempDir(), appdata: t.TempDir(), exe: `C:\ignored.exe`}
 	code, out, errb := d.run(t, "-C", sub, "setup", "claude-desktop", "--command", `D:\tools\sfx.exe`)
@@ -231,6 +235,7 @@ func TestSetupClaudeDesktopCommand(t *testing.T) {
 // Two checkouts with the same directory name would share an entry: setup
 // refuses to repoint or remove the other one's.
 func TestSetupClaudeDesktopNameClash(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	d := desktopEnv{goos: "darwin", home: home, exe: "/usr/local/bin/sfx"}
 	one, two := filepath.Join(t.TempDir(), "widget"), filepath.Join(t.TempDir(), "widget")
@@ -259,6 +264,7 @@ func TestSetupClaudeDesktopNameClash(t *testing.T) {
 // Desktop's file is the person's, outside the repository, so --all
 // leaves it out.
 func TestSetupAllSkipsDesktop(t *testing.T) {
+	t.Parallel()
 	_, sub := repoWithConfig(t)
 	home := t.TempDir()
 	d := desktopEnv{goos: "darwin", home: home, exe: "/usr/local/bin/sfx"}

@@ -10,6 +10,7 @@ import (
 )
 
 func TestLimitsDefaultsAndValidate(t *testing.T) {
+	t.Parallel()
 	d := Limits{}.withDefaults()
 	if d != DefaultLimits {
 		t.Errorf("Limits{}.withDefaults() = %+v, want %+v", d, DefaultLimits)
@@ -70,6 +71,7 @@ func TestLimitsDefaultsAndValidate(t *testing.T) {
 // S-4: one request cannot hold the single writer with thousands of
 // labels, acceptance items, ticks or edges.
 func TestRequestCaps(t *testing.T) {
+	t.Parallel()
 	s := openStore(t, newDSN(t), Options{Limits: Limits{Labels: 3, AcceptanceItems: 4, Deps: 2}})
 	ctx := t.Context()
 	labels := func(n int) []string {
@@ -146,6 +148,7 @@ func TestRequestCaps(t *testing.T) {
 // pruned first, and Prune drops rows not seen within the window, except
 // each principal's latest, which keeps it mentionable.
 func TestAgentRegistryBounded(t *testing.T) {
+	t.Parallel()
 	clk := &clock{t: time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)}
 	s := openStore(t, newDSN(t), Options{Now: clk.now, Limits: Limits{Sessions: 3}})
 	ctx := t.Context()
@@ -210,6 +213,7 @@ func TestAgentRegistryBounded(t *testing.T) {
 // S-7: notices from one sender to one recipient are rate-limited, unread
 // items are capped (the oldest marked read), and read items are purged.
 func TestInboxBounded(t *testing.T) {
+	t.Parallel()
 	clk := &clock{t: time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)}
 	s := openStore(t, newDSN(t), Options{Now: clk.now, Limits: Limits{InboxUnread: 5, Notices: 3}})
 	ctx := t.Context()
@@ -279,6 +283,7 @@ func TestInboxBounded(t *testing.T) {
 // S-10: an event keeps a long text as its start, length and hash, not
 // the whole text, so an edit loop cannot grow the log by 256 KiB a write.
 func TestEventCompactsLongText(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	big := strings.Repeat("A", maxText)
@@ -326,6 +331,7 @@ func TestEventCompactsLongText(t *testing.T) {
 // S-13: show and create read closed titles from a cache, which a close or
 // reopen through the store refreshes.
 func TestSimilarCache(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	closeIt := func(title string) Issue {

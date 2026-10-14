@@ -7,6 +7,7 @@ import (
 )
 
 func TestNewID(t *testing.T) {
+	t.Parallel()
 	re := regexp.MustCompile(`^proj-[a-z2-7]{8}$`)
 	seen := map[IssueID]bool{}
 	for range 1000 {
@@ -33,6 +34,7 @@ func TestNewID(t *testing.T) {
 }
 
 func TestValidateID(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		id string
 		ok bool
@@ -58,6 +60,7 @@ func TestValidateID(t *testing.T) {
 }
 
 func TestShortestUnique(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		ids  []IssueID

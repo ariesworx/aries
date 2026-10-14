@@ -106,6 +106,7 @@ func writeIssues(t *testing.T, s *Server, n int) {
 // metrics, in text and in JSON, and the collector's cycles against its
 // own writes once it has read twice.
 func TestDoltStatus(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	f := newFakeDolt(t)
 	advance := watchDolt(t, s, f.url)
@@ -154,6 +155,7 @@ func TestDoltStatus(t *testing.T) {
 // that restarted, which its start time and its counter both say, starts
 // the window again.
 func TestDoltWindow(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	f := newFakeDolt(t)
 	advance := watchDolt(t, s, f.url)
@@ -233,6 +235,7 @@ func js(v any) string {
 // read that succeeded, the daemon stays ready and serves, and a read
 // that works again brings the figures back.
 func TestDoltUnknown(t *testing.T) {
+	// Serial: bounds elapsed time, which a test running beside it would stretch.
 	s := newServer(t)
 	s.listening.Store(true) // as while Serve accepts
 	log := &syncBuffer{}
@@ -338,6 +341,7 @@ func TestDoltUnknown(t *testing.T) {
 // while it lasts with the number of failures, and when it ends: never
 // once a read.
 func TestDoltUnknownLogIsSampled(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	log := &syncBuffer{}
 	s.cfg.Logger = slogTo(log)
@@ -381,6 +385,7 @@ func TestDoltUnknownLogIsSampled(t *testing.T) {
 // With no URL the daemon reads nothing and its status says nothing of
 // Dolt.
 func TestDoltNotWatched(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	s.ReadDolt(t.Context())
 	res, text, doc := localReport(t, s)
@@ -392,6 +397,7 @@ func TestDoltNotWatched(t *testing.T) {
 // Serve reads on a timer, at once and then every DoltMetricsEvery, and
 // stops with it, even while a read hangs. Nothing is left running.
 func TestDoltTimer(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	for _, tc := range []struct {
 		name  string
 		hangs bool
@@ -446,6 +452,7 @@ func TestDoltTimer(t *testing.T) {
 // opens again adds from zero. Only a server admin is shown Dolt: it is
 // the server's, not a project's.
 func TestDoltManyProjects(t *testing.T) {
+	t.Parallel()
 	m := newMulti(t, Limits{OpenStores: 8}, nil)
 	m.project(t, projA, "alice=admin")
 	m.project(t, projB, "bob")
@@ -509,7 +516,9 @@ func TestDoltManyProjects(t *testing.T) {
 // and the writes set against its collector are the ones this server
 // made.
 func TestDoltStatusRealDolt(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
+	dolt := doltOf(t)
 	if dolt.MetricsURL() == "" {
 		t.Fatal("the tests' Dolt has no metrics endpoint")
 	}

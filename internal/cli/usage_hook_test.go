@@ -60,6 +60,7 @@ func usageHook(t *testing.T, cache, stdin string, args ...string) (int, string, 
 // repository, or with nothing new to send, it says nothing at all; any
 // failure is one line on stderr with a fix, and never transcript text.
 func TestUsageHookNeverFails(t *testing.T) {
+	t.Parallel()
 	repo, _ := repoWithConfig(t) // no SSH key: connecting fails
 	broken := t.TempDir()
 	if err := os.WriteFile(filepath.Join(broken, ".starfix.yaml"), []byte("colour: blue\n"), 0o600); err != nil {
@@ -124,6 +125,7 @@ func TestUsageHookNeverFails(t *testing.T) {
 }
 
 func TestUsageRefusesArguments(t *testing.T) {
+	t.Parallel()
 	tests := []struct{ args []string }{
 		{[]string{"usage"}},
 		{[]string{"usage", "--hook", "extra"}},
@@ -143,6 +145,7 @@ func TestUsageRefusesArguments(t *testing.T) {
 // Each run gives up before Claude Code would kill it: inside the timeout
 // setup writes for its hook.
 func TestUsageTimeout(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		event string
 		hook  time.Duration

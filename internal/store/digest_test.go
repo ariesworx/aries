@@ -19,6 +19,7 @@ func ids(sec DigestSection) string {
 }
 
 func TestDigest(t *testing.T) {
+	t.Parallel()
 	t0 := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	clk := &clock{t: t0}
 	s := openStore(t, newDSN(t), Options{Now: clk.now})
@@ -169,6 +170,7 @@ func TestDigest(t *testing.T) {
 }
 
 func TestDigestCaps(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	for i := range 12 {
@@ -191,6 +193,7 @@ func TestDigestCaps(t *testing.T) {
 }
 
 func TestDigestRefuses(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	future := time.Now().Add(time.Hour)
 	for _, f := range []DigestFilter{

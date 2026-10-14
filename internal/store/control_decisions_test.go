@@ -12,6 +12,7 @@ import (
 // it. A key that is not one's own still needs reach, and is refused
 // without saying whether it exists.
 func TestControlOwnKeyRemoval(t *testing.T) {
+	t.Parallel()
 	c := accessWorld(t) // bob, hal, carol, frank and dana have a key each
 	ctx := t.Context()
 	mustKey(t, c, "alice", "alice")
@@ -75,6 +76,7 @@ func TestControlOwnKeyRemoval(t *testing.T) {
 // records nothing. Another admin with reach may, and so may the
 // operator. Removing one's own is TestControlOwnKeyRemoval's.
 func TestControlOwnKeys(t *testing.T) {
+	t.Parallel()
 	c := accessWorld(t)
 	ctx := t.Context()
 	// alice administers her only project, so she is within her own reach.
@@ -148,6 +150,7 @@ func TestControlOwnKeys(t *testing.T) {
 // who asks to remove a key learns nothing from the refusal: a key of a
 // principal out of reach is refused as a key that does not exist is.
 func TestControlKeyRemoveSaysNothingOfOthers(t *testing.T) {
+	t.Parallel()
 	c := accessWorld(t)
 	_, carols := testKey(t, "carol") // carol is in a project alice does not administer
 	_, nobodys := testKey(t, "nobody")
@@ -172,6 +175,7 @@ func TestControlKeyRemoveSaysNothingOfOthers(t *testing.T) {
 // TestControlAddPrincipalWithKeys adds a principal and its first keys
 // in one write: all of it, or nothing.
 func TestControlAddPrincipalWithKeys(t *testing.T) {
+	t.Parallel()
 	c := openControl(t, newDSN(t), ControlOptions{Limits: ControlLimits{Keys: 2}})
 	ctx := t.Context()
 	mustProject(t, c, projA)
@@ -235,6 +239,7 @@ func testKeyLine(t *testing.T, seed string) string {
 // disabled has no rights anywhere, even when the config file names it a
 // server admin; a config admin with no row is not disabled.
 func TestControlDisabledWins(t *testing.T) {
+	t.Parallel()
 	dsn := newDSN(t)
 	c := openControl(t, dsn, ControlOptions{})
 	ctx := t.Context()
@@ -323,6 +328,7 @@ func TestControlDisabledWins(t *testing.T) {
 // TestControlLastServerAdmin refuses disabling the last server admin
 // who is not disabled: nobody could then enable anyone remotely.
 func TestControlLastServerAdmin(t *testing.T) {
+	t.Parallel()
 	c := newControl(t) // server admins dana and sam
 	ctx := t.Context()
 	mustPrincipal(t, c, "dana")

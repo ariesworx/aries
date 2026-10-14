@@ -7,6 +7,7 @@ import (
 )
 
 func TestParseHours(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		in   string
 		want time.Duration // 0 for refused
@@ -46,6 +47,7 @@ func TestParseHours(t *testing.T) {
 }
 
 func TestHours(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		seconds int64
 		want    string
@@ -89,6 +91,7 @@ func FuzzParseHours(f *testing.F) {
 // A fee reads as a rate does, in US dollars to the micro-dollar, and
 // says it is an amount rather than a rate when refused.
 func TestParseFee(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		in   string
 		want int64 // -1 for refused

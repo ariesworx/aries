@@ -15,6 +15,7 @@ import (
 // gives up on a server gone quiet after it accepted the key kills and
 // reaps it, as every other failure does, and names the instance.
 func TestDialIAPGivesUpOnAQuietServer(t *testing.T) {
+	// Serial: puts a stand-in gcloud on the process's PATH (iaptest.Install), and counts its goroutines (settled).
 	d := newQuietSSHD(t, ignoresSession)
 	gcloud := iaptest.Install(t, iaptest.Bridge)
 	cfg := iapConfig(t, d.port, d.hostKey)

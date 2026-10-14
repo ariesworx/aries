@@ -138,6 +138,7 @@ func (a *away) pending(t *testing.T, principal string) []string {
 // document that says "queued": true and never an id and a rev as if it
 // had been written (design §18.2, §18.8), and exit code 0.
 func TestQueuedWrite(t *testing.T) {
+	t.Parallel()
 	const since = "queued (server unreachable since 2026-10-13 14:02 UTC): "
 	const sent = "; sfx sends it when the server answers (`sfx outbox` lists what waits)"
 	for _, tc := range []struct {
@@ -199,6 +200,7 @@ func TestQueuedWrite(t *testing.T) {
 // The outage began when its first write was queued; later ones say the
 // same time, and take the next numbers.
 func TestQueuedWritesNumberAndDate(t *testing.T) {
+	t.Parallel()
 	a := newAway(t)
 	a.reachedAs(t, "alice")
 	a.run(t, "comment", "sf-a", "one")
@@ -213,6 +215,7 @@ func TestQueuedWritesNumberAndDate(t *testing.T) {
 // it did before there was an outbox, with exit code 1, and nothing is
 // kept.
 func TestNoQueue(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		args []string
@@ -246,6 +249,7 @@ func TestNoQueue(t *testing.T) {
 // A write the outbox does not queue fails as it always has, and its fix
 // says that it was not queued and why. A read says nothing of queues.
 func TestUnqueuedWriteSaysSo(t *testing.T) {
+	t.Parallel()
 	a := newAway(t)
 	a.reachedAs(t, "alice")
 	for _, tc := range []struct {
@@ -280,6 +284,7 @@ func TestUnqueuedWriteSaysSo(t *testing.T) {
 // A machine that never reached the server with this key cannot tell
 // whose write it is: nothing is queued, and the refusal says so.
 func TestNothingQueuedBeforeTheFirstHandshake(t *testing.T) {
+	t.Parallel()
 	a := newAway(t)
 	code, out, errb := a.run(t, "handoff", "sf-a", "note")
 	if code != ExitFailure || out != "" || !strings.Contains(errb, "and this handoff was not queued: this machine has never reached the server with this key") ||
@@ -296,6 +301,7 @@ func TestNothingQueuedBeforeTheFirstHandshake(t *testing.T) {
 // What the outbox itself refuses is a refusal with a fix (rule 11), and
 // exit code 1.
 func TestOutboxRefusalsReachThePerson(t *testing.T) {
+	t.Parallel()
 	a := newAway(t)
 	a.reachedAs(t, "alice")
 	code, out, errb := a.run(t, "comment", "sf-a", "the", "token", "is", "ghp_0123456789abcdefghijABCDEFGHIJ012345")
@@ -334,6 +340,7 @@ func outboxWith(t *testing.T) *away {
 }
 
 func TestOutboxList(t *testing.T) {
+	t.Parallel()
 	a := outboxWith(t)
 	code, out, errb := a.run(t, "outbox")
 	want := "alice's outbox: 2 waiting, 1 refused\n" +
@@ -380,6 +387,7 @@ func TestOutboxList(t *testing.T) {
 }
 
 func TestOutboxListWhenNothingWaits(t *testing.T) {
+	t.Parallel()
 	a := newAway(t)
 	if code, out, errb := a.run(t, "outbox"); code != ExitOK || errb != "" ||
 		out != "nothing is queued: this machine has not reached the server with this key, so it queues nothing\n" {
@@ -399,6 +407,7 @@ func TestOutboxListWhenNothingWaits(t *testing.T) {
 
 // Text in an entry and in a refusal is other people's: it is escaped.
 func TestOutboxListEscapes(t *testing.T) {
+	t.Parallel()
 	a := newAway(t)
 	a.reachedAs(t, "alice")
 	a.run(t, "comment", "sf-\x1b[2Jx", "a note")
@@ -409,6 +418,7 @@ func TestOutboxListEscapes(t *testing.T) {
 }
 
 func TestOutboxRetryAndDrop(t *testing.T) {
+	t.Parallel()
 	a := outboxWith(t)
 	for _, tc := range []struct {
 		args   []string
@@ -450,6 +460,7 @@ func mustOutbox(t *testing.T, a *away, principal string) *outbox.Outbox {
 }
 
 func TestOutboxStats(t *testing.T) {
+	t.Parallel()
 	a := outboxWith(t)
 	code, out, errb := a.run(t, "outbox", "stats")
 	want := "alice's outbox, since it was made:\n" +
@@ -478,6 +489,7 @@ func TestOutboxStats(t *testing.T) {
 // entries that wait, and --principal shows it: a key the server has
 // since given to someone else leaves entries this key no longer sends.
 func TestOutboxOfAnotherPrincipal(t *testing.T) {
+	t.Parallel()
 	a := newAway(t)
 	a.reachedAs(t, "alice-agent")
 	a.run(t, "comment", "sf-a", "from the agent")
@@ -500,6 +512,7 @@ func TestOutboxOfAnotherPrincipal(t *testing.T) {
 // The hooks do as they always did: nothing is queued, nothing is noted
 // on the disk, and nothing new is said (CLAUDE.md, AGENTS.md).
 func TestHooksQueueNothing(t *testing.T) {
+	t.Parallel()
 	a := newAway(t)
 	a.reachedAs(t, "alice")
 	before := snapshot(t, a.data)

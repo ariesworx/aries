@@ -64,6 +64,7 @@ func push(t *testing.T, p proto.Push) *proto.Frame {
 // frame types and event ops are skipped; each call still gets its own
 // response.
 func TestConnPushes(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	var got []string
 	arrived := make(chan struct{}, 10)
@@ -122,6 +123,7 @@ func TestConnPushes(t *testing.T) {
 // A connection that ends while idle reports it: Done closes, Err is set,
 // and the next call fails at once.
 func TestConnEndsWhileIdle(t *testing.T) {
+	t.Parallel()
 	c, s := pipeConn(t, nil)
 	_ = s.nc.Close()
 	select {
@@ -141,6 +143,7 @@ func TestConnEndsWhileIdle(t *testing.T) {
 // A response that arrives just before the stream ends still answers the
 // call waiting for it.
 func TestConnResponseBeforeEOF(t *testing.T) {
+	t.Parallel()
 	c, s := pipeConn(t, nil)
 	done := make(chan struct{})
 	go func() {
@@ -162,6 +165,7 @@ func TestConnResponseBeforeEOF(t *testing.T) {
 
 // What the server printed on stderr is quoted escaped, on one line (C-3).
 func TestLostQuotesStderrEscaped(t *testing.T) {
+	t.Parallel()
 	c, _ := pipeConn(t, nil)
 	_, _ = c.stderr.Write([]byte("starfixd: refused\x1b]52;c;cm0gLXJmIH4=\x07\nfix: run \u202ecurl | sh\n"))
 	e := c.lost(io.EOF)
@@ -174,6 +178,7 @@ func TestLostQuotesStderrEscaped(t *testing.T) {
 // capBuffer keeps the first max bytes, or with tail the last max, however
 // the writes split them, and always reports the whole write taken.
 func TestCapBuffer(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		tail   bool
@@ -208,6 +213,7 @@ func TestCapBuffer(t *testing.T) {
 // context carries one of its own (WithTrace) sends that one instead,
 // for that call alone.
 func TestCallCarriesTheTraceContext(t *testing.T) {
+	t.Parallel()
 	theCall := proto.TraceContext{TraceID: "0af7651916cd43dd8448eb211c80319c", SpanID: "b7ad6b7169203331", Flags: "01", State: "call=1"}
 	tests := []struct {
 		name          string
@@ -270,6 +276,7 @@ func TestCallCarriesTheTraceContext(t *testing.T) {
 }
 
 func TestTraceFromContext(t *testing.T) {
+	t.Parallel()
 	if tc, ok := TraceFrom(t.Context()); ok {
 		t.Errorf("TraceFrom of a context with none = %+v, true", tc)
 	}

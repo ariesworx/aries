@@ -15,6 +15,7 @@ import (
 // log, so it stays two lines (rule 13). --json carries the id whenever
 // the server sent one, in the one document.
 func TestFailPrintsTheRequestID(t *testing.T) {
+	t.Parallel()
 	const req = "00000000000000aa"
 	for _, tc := range []struct {
 		name string

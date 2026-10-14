@@ -8,6 +8,7 @@ import (
 var block = strings.Join(pointerLines(""), "\n") + "\n"
 
 func TestPointer(t *testing.T) {
+	t.Parallel()
 	crlf := strings.Join(pointerLines("\r"), "\n") + "\n"
 	tests := []struct {
 		name, in, want string
@@ -52,6 +53,7 @@ func TestPointer(t *testing.T) {
 }
 
 func TestPointerRefusesBrokenMarkers(t *testing.T) {
+	t.Parallel()
 	for _, in := range []string{
 		"<!-- starfix:begin -->\nno end\n",
 		"stray\n<!-- starfix:end -->\n",
@@ -67,6 +69,7 @@ func TestPointerRefusesBrokenMarkers(t *testing.T) {
 }
 
 func TestPointerBlockIsShort(t *testing.T) {
+	t.Parallel()
 	if n := strings.Count(block, "\n"); n < 3 || n > 5 {
 		t.Fatalf("pointer block is %d lines", n)
 	}
@@ -78,6 +81,7 @@ func TestPointerBlockIsShort(t *testing.T) {
 }
 
 func TestCursorRule(t *testing.T) {
+	t.Parallel()
 	a := Agents["cursor"]
 	var rule Target
 	for _, tg := range a.Targets(false) {
@@ -109,6 +113,7 @@ func TestCursorRule(t *testing.T) {
 }
 
 func TestOnlyBlockFileEmptiesOnRemove(t *testing.T) {
+	t.Parallel()
 	out, _, _ := applyPointer(nil, markdownBlock)
 	if rm, res, err := removePointer(out, markdownBlock); err != nil || res != Removed || len(rm) != 0 {
 		t.Fatalf("%s %v %q", res, err, rm)

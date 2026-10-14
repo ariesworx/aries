@@ -36,6 +36,7 @@ func claudeLine(id, req, model, usage string) string {
 }
 
 func TestParseClaudeLine(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 10, 8, 9, 0, 5, 0, time.UTC)
 	full := `{"input_tokens":10,"output_tokens":200,"cache_creation_input_tokens":3000,"cache_read_input_tokens":15000,
 		"cache_creation":{"ephemeral_1h_input_tokens":1000,"ephemeral_5m_input_tokens":2000},
@@ -102,6 +103,7 @@ func TestParseClaudeLine(t *testing.T) {
 // A version that is not a plain version string is not repeated in the
 // note.
 func TestParseClaudeLineVersion(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ version, want string }{
 		{"2.1.300", "2.1.300"},
 		{"2.1.300-beta.1+abc", "2.1.300-beta.1+abc"},
@@ -118,6 +120,7 @@ func TestParseClaudeLineVersion(t *testing.T) {
 // Any assistant line names its message, whatever else it holds: the
 // reader needs it to tell when a response has ended.
 func TestParseClaudeLineMessageID(t *testing.T) {
+	t.Parallel()
 	tests := []struct{ name, line, want string }{
 		{"usage", claudeLine("msg_01A", "", "claude-x", `{"input_tokens":1}`), "msg_01A"},
 		{"synthetic", claudeLine("msg_01S", "", "<synthetic>", `{"input_tokens":0}`), "msg_01S"},
@@ -150,6 +153,7 @@ func show(r proto.UsageRecord) string {
 // The fixture transcript mirrors a real one: each response on one line
 // per content block, all with the same usage, among lines of other types.
 func TestReadClaudeFixture(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "session.jsonl")
 	copyFile(t, "session.jsonl", path)
 	f, err := os.Open(path) //nolint:gosec // the test's temp file
@@ -205,6 +209,7 @@ func TestReadClaudeFixture(t *testing.T) {
 // Lines of one response may carry a growing output count; the largest
 // is the response's.
 func TestReadClaudeKeepsLargestOutput(t *testing.T) {
+	t.Parallel()
 	lines := claudeLine("msg_01A", "req_01A", "claude-x", `{"input_tokens":5,"output_tokens":1}`) + "\n" +
 		claudeLine("msg_01A", "req_01A", "claude-x", `{"input_tokens":5,"output_tokens":90}`) + "\n" +
 		claudeLine("msg_01A", "req_01A", "claude-x", `{"input_tokens":5,"output_tokens":1}`) + "\n"
@@ -217,6 +222,7 @@ func TestReadClaudeKeepsLargestOutput(t *testing.T) {
 // A last line without its newline is still being written: it is left
 // for the next run.
 func TestReadClaudePartialLine(t *testing.T) {
+	t.Parallel()
 	first := claudeLine("msg_01A", "req_01A", "claude-x", `{"input_tokens":5}`) + "\n"
 	second := claudeLine("msg_01B", "req_01B", "claude-x", `{"input_tokens":6}`)
 	got, err := readClaude(strings.NewReader(first+second[:len(second)/2]), session, true)
@@ -227,6 +233,7 @@ func TestReadClaudePartialLine(t *testing.T) {
 
 // An over-long line is passed over and counted, not buffered whole.
 func TestReadClaudeLongLine(t *testing.T) {
+	t.Parallel()
 	long := `{"type":"user","message":"` + strings.Repeat("x", maxLine) + `"}` + "\n"
 	ok := claudeLine("msg_01A", "req_01A", "claude-x", `{"input_tokens":5}`) + "\n"
 	got, err := readClaude(strings.NewReader(long+ok), session, true)
@@ -237,6 +244,7 @@ func TestReadClaudeLongLine(t *testing.T) {
 
 // Lines just under and at the bound are read; one byte over is not.
 func TestScanLinesBound(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		size     int
 		lines    int
@@ -273,6 +281,7 @@ func TestScanLinesBound(t *testing.T) {
 
 // scanLines gives each line's offset, counting lines passed over.
 func TestScanLinesOffsets(t *testing.T) {
+	t.Parallel()
 	in := "ab\n" + strings.Repeat("x", 20) + "\ncde\n\nf\n"
 	var got []int64
 	if _, _, err := scanLines(strings.NewReader(in), 16, 16, func(_ []byte, at int64) { got = append(got, at) }); err != nil {
@@ -290,6 +299,7 @@ func TestScanLinesOffsets(t *testing.T) {
 // then the read ends before its first line, so the next read takes it
 // whole. A final read, at session end, sends it as it is.
 func TestReadClaudeHoldsOpenResponse(t *testing.T) {
+	t.Parallel()
 	a1 := claudeLine("msg_01A", "req_01A", "claude-x", `{"input_tokens":5,"output_tokens":5}`) + "\n"
 	a2 := claudeLine("msg_01A", "req_01A", "claude-x", `{"input_tokens":5,"output_tokens":197}`) + "\n"
 	b1 := claudeLine("msg_01B", "req_01B", "claude-x", `{"input_tokens":6,"output_tokens":3}`) + "\n"

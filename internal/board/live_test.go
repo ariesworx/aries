@@ -194,6 +194,7 @@ var refresh = []string{proto.OpReady, proto.OpBlocked, proto.OpClaims, proto.OpL
 // for a burst of relevant events, after the burst settles, and not at all
 // for a comment. Idle, it calls nothing.
 func TestLiveDebounces(t *testing.T) {
+	// Serial: a synctest bubble's virtual time takes no real time worth sharing.
 	synctest.Test(t, func(t *testing.T) {
 		r := startLive(t, &fakeServer{})
 		if got, want := r.srv.took(), append([]string{proto.OpWatch}, refresh...); !slices.Equal(got, want) {
@@ -236,6 +237,7 @@ func TestLiveDebounces(t *testing.T) {
 // After the server's resync Live watches again and rereads; after its own
 // queue overflows it rereads.
 func TestLiveResyncs(t *testing.T) {
+	// Serial: a synctest bubble's virtual time takes no real time worth sharing.
 	synctest.Test(t, func(t *testing.T) {
 		r := startLive(t, &fakeServer{})
 		r.srv.took()
@@ -270,6 +272,7 @@ func TestLiveResyncs(t *testing.T) {
 // A lost connection is reported and redialed, with a growing wait; on
 // the new one Live watches and reads afresh.
 func TestLiveReconnects(t *testing.T) {
+	// Serial: a synctest bubble's virtual time takes no real time worth sharing.
 	synctest.Test(t, func(t *testing.T) {
 		r := startLive(t, &fakeServer{})
 		r.srv.took()
@@ -293,6 +296,7 @@ func TestLiveReconnects(t *testing.T) {
 // A refused read leaves the board up with a note, rather than
 // reconnecting, which would not help.
 func TestLiveRefusal(t *testing.T) {
+	// Serial: a synctest bubble's virtual time takes no real time worth sharing.
 	synctest.Test(t, func(t *testing.T) {
 		srv := &fakeServer{refuse: map[string]*proto.Error{
 			proto.OpClaims: proto.Errf(proto.CodeInvalid, "ask the admin to run `starfixd upgrade`", "unknown operation \"claims\"")}}
@@ -320,6 +324,7 @@ func TestLiveRefusal(t *testing.T) {
 // Show reads an issue's detail; an event on it reads it again with the
 // lists; once hidden, it is not read again.
 func TestLiveDetail(t *testing.T) {
+	// Serial: a synctest bubble's virtual time takes no real time worth sharing.
 	synctest.Test(t, func(t *testing.T) {
 		r := startLive(t, &fakeServer{})
 		r.srv.took()
@@ -352,6 +357,7 @@ func TestLiveDetail(t *testing.T) {
 // live, and the header keeps saying so after each read, not only until
 // the first.
 func TestLiveWatchRefused(t *testing.T) {
+	// Serial: a synctest bubble's virtual time takes no real time worth sharing.
 	synctest.Test(t, func(t *testing.T) {
 		srv := &fakeServer{refuse: map[string]*proto.Error{
 			proto.OpWatch: proto.Errf(proto.CodeInvalid, "ask the admin to run `starfixd upgrade`", "bad arguments")}}
@@ -401,6 +407,7 @@ func (j *jitterLog) got() []time.Duration {
 // failed dial: full jitter, so many boards that lost one server do not
 // all come back at once.
 func TestLiveBackoffJitters(t *testing.T) {
+	// Serial: a synctest bubble's virtual time takes no real time worth sharing.
 	synctest.Test(t, func(t *testing.T) {
 		j := &jitterLog{}
 		r := startLive(t, &fakeServer{}, j.set)
@@ -433,6 +440,7 @@ func TestLiveBackoffJitters(t *testing.T) {
 // not when a dial merely succeeds: a server that accepts and drops at
 // once is still backed off.
 func TestLiveBackoffResetsAfterARead(t *testing.T) {
+	// Serial: a synctest bubble's virtual time takes no real time worth sharing.
 	synctest.Test(t, func(t *testing.T) {
 		j := &jitterLog{}
 		r := startLive(t, &fakeServer{}, j.set)

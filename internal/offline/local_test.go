@@ -50,6 +50,7 @@ func ownDir(t *testing.T) string {
 }
 
 func TestDataDir(t *testing.T) {
+	t.Parallel()
 	home := func() (string, error) { return filepath.FromSlash("/home/alice"), nil }
 	noHome := func() (string, error) { return "", errors.New("no home") }
 	abs := func(p string) string {
@@ -97,6 +98,7 @@ func TestDataDir(t *testing.T) {
 // that key is still among those sfx would offer. Otherwise it is
 // nobody's, and nothing is queued.
 func TestPrincipalRule(t *testing.T) {
+	t.Parallel()
 	l, clk := newLocal(t, outbox.Options{})
 	who := func(l *Local, configured bool, offered ...string) string {
 		p, ok := l.Principal(offered, configured)
@@ -178,6 +180,7 @@ func TestPrincipalRule(t *testing.T) {
 // read or write is refused, with a fix, and never chmodded: sfx did not
 // make it that way, and what it would keep there is a person's text.
 func TestDirectoryMustBeTheUsersOwn(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows has no mode bits; its ACLs are not checked")
 	}
@@ -234,6 +237,7 @@ func TestDirectoryMustBeTheUsersOwn(t *testing.T) {
 	}
 }
 func TestLocalFilesAreTheOwnersAlone(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows has no mode bits")
 	}
@@ -268,6 +272,7 @@ func TestLocalFilesAreTheOwnersAlone(t *testing.T) {
 
 // A principal's name is the server's text: it names no file.
 func TestOutboxDirectoryPerPrincipal(t *testing.T) {
+	t.Parallel()
 	l, _ := newLocal(t, outbox.Options{})
 	dirs := map[string]string{}
 	for _, p := range []string{"alice", "bob", "../../etc", "CON", "Alice"} {
@@ -306,6 +311,7 @@ func entry(op, id string) outbox.Entry {
 }
 
 func TestKeep(t *testing.T) {
+	t.Parallel()
 	l, clk := newLocal(t, outbox.Options{})
 	first, err := l.Keep("alice", entry(proto.OpHandoff, "sf-a"), errReach)
 	if err != nil {
@@ -341,6 +347,7 @@ func TestKeep(t *testing.T) {
 // is not queued either: its code, and a fix that names the next action
 // (rule 11). The message keeps why the server was not reached.
 func TestKeepRefusals(t *testing.T) {
+	t.Parallel()
 	secret := entry(proto.OpHandoff, "sf-a")
 	secret.Args = json.RawMessage(`{"id":"sf-a","note":"the token is ghp_0123456789abcdefghijABCDEFGHIJ012345","idem":"cli-1"}`)
 	big := entry(proto.OpHandoff, "sf-a")
@@ -456,6 +463,7 @@ var (
 // server's code, message and fix; and when the server was not reached,
 // or said to wait, it stays where it was, with everything after it.
 func TestReplay(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name      string
 		answers   map[string]error
@@ -523,6 +531,7 @@ func TestReplay(t *testing.T) {
 // refuses as invalid with them is sent once more without, as it is when
 // it is not replayed (proto.RetryWithoutPaths).
 func TestReplayRetriesWithoutPaths(t *testing.T) {
+	t.Parallel()
 	l, _ := newLocal(t, outbox.Options{})
 	e := outbox.Entry{Op: proto.OpHandoff, Args: json.RawMessage(`{"id":"sf-a","note":"n","idem":"cli-1","paths":["../x"]}`)}
 	if _, err := l.Keep("alice", e, errReach); err != nil {
@@ -541,6 +550,7 @@ func TestReplayRetriesWithoutPaths(t *testing.T) {
 // An outbox is delivered only on a connection the server took for its
 // principal: another principal's stays where it is, unsent.
 func TestReplayLeavesAnotherPrincipalsOutbox(t *testing.T) {
+	t.Parallel()
 	l, _ := newLocal(t, outbox.Options{})
 	if _, err := l.Keep("alice", entry(proto.OpComment, "sf-a"), errReach); err != nil {
 		t.Fatal(err)
@@ -565,6 +575,7 @@ func TestReplayLeavesAnotherPrincipalsOutbox(t *testing.T) {
 }
 
 func TestTarget(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ op, args, want string }{
 		{proto.OpComment, `{"id":"sf-a","body":"x"}`, "sf-a"},
 		{proto.OpFinish, `{"id":"sf-b"}`, "sf-b"},

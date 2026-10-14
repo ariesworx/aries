@@ -12,6 +12,7 @@ import (
 
 // A day's work by two people, summarized over SSH on the CLI and over MCP.
 func TestDigest(t *testing.T) {
+	t.Parallel()
 	// The store's clock stands still, so everything in the digest happened
 	// "0m ago": on the real one, a machine that takes a minute over these
 	// commands says "1m ago".

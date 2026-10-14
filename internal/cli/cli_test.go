@@ -19,6 +19,7 @@ func runCLI(t *testing.T, args ...string) (int, string, string) {
 
 // These need no server: they fail or finish before connecting.
 func TestRunWithoutServer(t *testing.T) {
+	t.Parallel()
 	empty := t.TempDir()
 	tests := []struct {
 		name   string
@@ -84,6 +85,7 @@ func TestRunWithoutServer(t *testing.T) {
 }
 
 func TestJSONErrorIsOneDocument(t *testing.T) {
+	t.Parallel()
 	code, out, errb := runCLI(t, "-C", t.TempDir(), "show", "sf-aaaa", "--json")
 	if code != ExitFailure || errb != "" {
 		t.Fatalf("exit %d stderr %q", code, errb)
@@ -98,6 +100,7 @@ func TestJSONErrorIsOneDocument(t *testing.T) {
 }
 
 func TestParseInterspersed(t *testing.T) {
+	t.Parallel()
 	r := &runner{}
 	fs := r.newFlags("x")
 	n := fs.Int("n", 0, "")
@@ -111,6 +114,7 @@ func TestParseInterspersed(t *testing.T) {
 }
 
 func TestPriority(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]int{"0": 0, "4": 4, "P1": 1, "p2": 2} {
 		if got, err := priority(in); err != nil || got != want {
 			t.Errorf("priority(%q) = %d, %v", in, got, err)

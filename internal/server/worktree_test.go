@@ -14,6 +14,7 @@ import (
 // A handoff's worktree is a path on its author's machine; only the author's
 // principal reads it back (S-14).
 func TestWorktreeOnlyToItsAuthor(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	const wt = "/home/alice/src/wt-secret"
 	c := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "handed on"})
@@ -78,6 +79,7 @@ func TestWorktreeOnlyToItsAuthor(t *testing.T) {
 // or one whose handoff names no worktree, goes out unchanged. The author
 // reads hers as stored.
 func TestWorktreeWithheldWhenUnreadable(t *testing.T) {
+	t.Parallel()
 	s, dsn := newServerDSN(t, Limits{})
 	const wt = "/home/alice/src/wt-secret"
 	tests := []struct {

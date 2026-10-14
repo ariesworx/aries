@@ -10,6 +10,7 @@ import (
 )
 
 func TestStart(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	low := mustCreate(t, s, NewIssue{Title: "low", Priority: prio(P3)})
@@ -86,6 +87,7 @@ func TestStart(t *testing.T) {
 // overlapping transactions: exactly one takes it, and the other is told
 // who did.
 func TestStartRace(t *testing.T) {
+	t.Parallel()
 	dsn := newDSN(t)
 	s1 := openStore(t, dsn, Options{})
 	s2 := openStore(t, dsn, Options{})
@@ -119,6 +121,7 @@ func TestStartRace(t *testing.T) {
 
 // Many sessions start without an id at once: each gets a different issue.
 func TestStartTopReadyConcurrent(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	const n = 5
 	for range n {
@@ -146,6 +149,7 @@ func TestStartTopReadyConcurrent(t *testing.T) {
 }
 
 func TestFinish(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "work"})
@@ -197,6 +201,7 @@ func TestFinish(t *testing.T) {
 // FinishIssue fills in the defaults of the issues it files without
 // changing the caller's Discovered.
 func TestFinishLeavesDiscoveredAlone(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	is := mustCreate(t, s, NewIssue{Title: "work"})
 	discovered := []NewIssue{{Title: "follow-up"}, {Title: "flaky test", Type: TypeBug, Priority: prio(P1)}}
@@ -221,6 +226,7 @@ func TestFinishLeavesDiscoveredAlone(t *testing.T) {
 
 // A finish that fails part way writes nothing.
 func TestFinishIsAtomic(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "work"})
@@ -264,6 +270,7 @@ func TestFinishIsAtomic(t *testing.T) {
 }
 
 func TestHandoff(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "work"})

@@ -1,8 +1,12 @@
 package clienttest
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,6 +17,7 @@ import (
 // or something that connects with it) must call Isolate, which is what
 // keeps them from the developer's ~/.ssh and ssh-agent.
 func TestEveryConnectingPackageIsIsolated(t *testing.T) {
+	t.Parallel()
 	const module = `"github.com/ariesworx/starfix/internal/`
 	connects := []string{module + `client"`, module + `cli"`, module + `mcpserver"`, module + `board"`, module + `offline"`}
 	needs, has := map[string]string{}, map[string]bool{}
@@ -60,7 +65,102 @@ func TestEveryConnectingPackageIsIsolated(t *testing.T) {
 	}
 }
 
+// TestEveryTestIsParallelOrSaysWhyNot reads the module's tests: each
+// begins with t.Parallel(), or with a comment that starts "Serial:" and
+// gives the reason it cannot run beside another (CONTRIBUTING.md, "Tests
+// run in parallel"). A test that says nothing is one nobody decided
+// about.
+func TestEveryTestIsParallelOrSaysWhyNot(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join("..", "..")
+	fset := token.NewFileSet()
+	parallel, serial := 0, 0
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if name := d.Name(); name == ".git" || name == "spike" || name == "testdata" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		f, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+		if err != nil {
+			return err
+		}
+		for _, decl := range f.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Recv != nil || fn.Body == nil || !strings.HasPrefix(fn.Name.Name, "Test") || fn.Name.Name == "TestMain" {
+				continue
+			}
+			params := fn.Type.Params.List
+			if len(params) != 1 || len(params[0].Names) != 1 {
+				continue // not a test: go vet says so
+			}
+			switch {
+			case startsParallel(fn, params[0].Names[0].Name):
+				parallel++
+			case saysSerial(f, fn):
+				serial++
+			default:
+				t.Errorf("%s: %s neither begins with %s.Parallel() nor says why not: begin it with a comment \"// Serial: the reason.\"",
+					fset.Position(fn.Pos()), fn.Name.Name, params[0].Names[0].Name)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parallel < 500 || serial < 10 {
+		t.Fatalf("found %d parallel tests and %d serial ones, want hundreds and tens: the search is broken", parallel, serial)
+	}
+}
+
+// startsParallel reports whether fn's first statement is t.Parallel().
+func startsParallel(fn *ast.FuncDecl, t string) bool {
+	if len(fn.Body.List) == 0 {
+		return false
+	}
+	stmt, ok := fn.Body.List[0].(*ast.ExprStmt)
+	if !ok {
+		return false
+	}
+	call, ok := stmt.X.(*ast.CallExpr)
+	if !ok || len(call.Args) != 0 {
+		return false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Parallel" {
+		return false
+	}
+	x, ok := sel.X.(*ast.Ident)
+	return ok && x.Name == t
+}
+
+// saysSerial reports whether fn's body begins with a comment that starts
+// "Serial:" and goes on to a reason.
+func saysSerial(f *ast.File, fn *ast.FuncDecl) bool {
+	end := fn.Body.Rbrace
+	if len(fn.Body.List) > 0 {
+		end = fn.Body.List[0].Pos()
+	}
+	for _, group := range f.Comments {
+		if group.Pos() < fn.Body.Lbrace || group.Pos() > end {
+			continue
+		}
+		reason, ok := strings.CutPrefix(group.Text(), "Serial:")
+		return ok && len(strings.TrimSpace(reason)) >= 10
+	}
+	return false
+}
+
 func TestIsolate(t *testing.T) {
+	// Serial: sets the process's environment (t.Setenv, Isolate).
 	t.Setenv("HOME", "/somebody/else")
 	t.Setenv("SSH_AUTH_SOCK", "/tmp/somebody.sock")
 	t.Setenv("STARFIX_KEY_FILE", "/somebody/else/.ssh/id_ed25519")
@@ -102,5 +202,48 @@ func TestIsolate(t *testing.T) {
 		if _, err := os.Stat(dir); !os.IsNotExist(err) { //nolint:gosec // the directories Isolate made
 			t.Errorf("%s is still there after restore: %v", dir, err)
 		}
+	}
+}
+
+// Under IsolateGit the git a test starts reads no configuration but the
+// repository's own: not the one in the home directory of whoever runs the
+// tests, and not one GIT_CONFIG_GLOBAL already named.
+func TestIsolateGit(t *testing.T) {
+	// Serial: sets the process's environment (t.Setenv, IsolateGit).
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not on PATH")
+	}
+	home := t.TempDir()
+	theirs := filepath.Join(home, ".gitconfig")
+	if err := os.WriteFile(theirs, []byte("[user]\n\tname = Somebody Else\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("GIT_CONFIG_GLOBAL", theirs)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "")
+	name := func() string {
+		// git config exits 1 when the key is not set.
+		cmd := exec.CommandContext(t.Context(), "git", "config", "--global", "--get", "user.name")
+		cmd.Dir = home // not the checkout, whose own repository git would read first
+		out, _ := cmd.Output()
+		return strings.TrimSpace(string(out))
+	}
+	if got := name(); got != "Somebody Else" {
+		t.Fatalf("git config --global user.name before IsolateGit = %q, want Somebody Else: the test's own setup is wrong", got)
+	}
+	restore := IsolateGit()
+	if got := name(); got != "" {
+		t.Errorf("git config --global user.name under IsolateGit = %q, want none", got)
+	}
+	if got := os.Getenv("GIT_CONFIG_NOSYSTEM"); got != "1" {
+		t.Errorf("GIT_CONFIG_NOSYSTEM under IsolateGit = %q, want 1", got)
+	}
+	restore()
+	if got := name(); got != "Somebody Else" {
+		t.Errorf("git config --global user.name after restore = %q, want what it was", got)
+	}
+	if got := os.Getenv("GIT_CONFIG_NOSYSTEM"); got != "" {
+		t.Errorf("GIT_CONFIG_NOSYSTEM after restore = %q, want what it was", got)
 	}
 }
