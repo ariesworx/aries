@@ -194,6 +194,7 @@ func cmdShow(ctx context.Context, r *runner, args []string) error {
 		return err
 	}
 	var out proto.ShowResult
+	r.cacheable = true // with the server away, this machine's copy (design §18.6)
 	if err := r.call(ctx, proto.OpShow, proto.ShowArgs{ID: id, Full: !*compact}, &out); err != nil {
 		return err
 	}

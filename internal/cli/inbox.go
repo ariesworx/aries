@@ -65,6 +65,7 @@ func cmdInbox(ctx context.Context, r *runner, args []string) error {
 		return nil
 	}
 	var out proto.InboxResult
+	r.cacheable = true // with the server away, this machine's copy (design §18.6)
 	if err := r.call(ctx, proto.OpInbox, in, &out); err != nil {
 		return err
 	}

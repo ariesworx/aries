@@ -61,6 +61,13 @@ type Options struct {
 	// connection (design §18.3). Nil fails such a write, as before there
 	// was an outbox.
 	Offline *offline.Client
+	// Cache, when set, keeps what this session reads that design §18.6
+	// keeps, and shows it while the server cannot be reached, saying so;
+	// and refuses then the reads it does not keep, saying when the server
+	// was last reached. Nil asks the server for everything, as before
+	// there was a cache. It is set apart from Offline, since a session
+	// that queues no writes may still be shown what it read.
+	Cache *offline.Client
 }
 
 // Lease is how long a claim taken by an agent's start lasts. Serve renews
@@ -489,6 +496,11 @@ type tool struct {
 	// showsInbox: the result shows the inbox, so it resets the count of
 	// pushed items instead of carrying the "inbox: N new" line.
 	showsInbox bool
+	// cached: while the server cannot be reached the tool answers from
+	// this machine's copy (design §18.6), when it holds what the tool
+	// asks; refused: it is refused then, saying when the server was last
+	// reached (offline.RefusedOffline).
+	cached, refused bool
 }
 
 // add registers one tool. The input schema is inferred from In, with
@@ -529,6 +541,7 @@ func add[In, Out any](s *Server, t tool, h func(context.Context, Conn, In) (Out,
 			var out Out
 			var wrote sent
 			err := s.link.with(ctx, t.retry, func(c Conn) error {
+				c = s.keeping(c)
 				if s.opts.Offline != nil {
 					c = recorder{Conn: c, sent: &wrote}
 				}
@@ -543,11 +556,30 @@ func add[In, Out any](s *Server, t tool, h func(context.Context, Conn, In) (Out,
 					return queued, nil, nil
 				}
 			}
+			cached := ""
+			if err != nil && client.Unreachable(err) {
+				switch {
+				case t.cached:
+					if fc := s.cached(err); fc != nil {
+						if o, cerr := h(ctx, fc, in); cerr == nil {
+							out, err = o, nil
+							if !fc.told {
+								cached = offline.CachedLine(fc.at, s.now())
+							}
+						}
+					}
+				case t.refused && s.opts.Cache != nil:
+					err = &offlineRead{err: err, tool: t.name, last: s.opts.Cache.LastReached()}
+				}
+			}
 			// Counted after the call: the server pushes what was committed
 			// before it answers, so this result reports it.
 			line := s.notice()
 			if t.showsInbox && err == nil {
 				line = ""
+			}
+			if cached != "" {
+				line = strings.TrimSpace(cached + "\n" + line)
 			}
 			if err != nil {
 				res := toolError(err)

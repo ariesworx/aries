@@ -145,6 +145,7 @@ func init() {
 		{"prime", "prime [--hook[=AGENT]]", "orient a session: your in-progress issues, top ready work, memories, notices", cmdPrime},
 		{"usage", "usage --hook[=AGENT]", "send the session's token counts from the agent's transcript (run by its hooks)", cmdUsage},
 		{"outbox", outboxUsage, "list the writes that wait for the server and the ones it refused; retry or drop one; show the counts", cmdOutbox},
+		{"cache", cacheUsage, "say what this machine keeps of what was read, shown while the server cannot be reached; clear deletes it", cmdCache},
 		{"mcp", "mcp", "serve the MCP tools for an agent on stdin and stdout", cmdMCP},
 		{"setup", "setup AGENT|--all [--write|--check|--remove] [--global] [--command PATH]", "set agents up: MCP config, instruction pointer, session hook", cmdSetup},
 		{"admin", "admin prices [set MODEL --from DATE|TIME --input USD --output USD --cache-write USD --cache-write-1h USD --cache-read USD] | admin plans [set NAME --from YYYY-MM --fee USD --seats N [--principal P]...] | " + adminUsage,
@@ -178,8 +179,15 @@ type runner struct {
 	// hook says the command runs as an agent's hook (prime --hook, usage
 	// --hook), which does as it did before there was an outbox: it sends
 	// nothing that waits, and notes nothing on the disk but who the
-	// server took its key for.
+	// server took its key for, and the cache: what it read, and the
+	// deletion of a principal's cache when access ended.
 	hook bool
+	// cacheable says the command's reads are answered from this
+	// machine's copy while the server cannot be reached (show, inbox,
+	// digest; prime has its own); cachedAt, once one was, is when that
+	// copy was kept.
+	cacheable bool
+	cachedAt  time.Time
 	// moved is the line that says the server took this connection's key
 	// for another principal than before, whose queued writes it leaves
 	// unsent; "" when it did not.
@@ -430,7 +438,7 @@ func (r *runner) emit(v any) {
 	if out == nil {
 		out = r.env.Stdout
 	}
-	_, _ = fmt.Fprintf(out, "%s\n", safetext.JSON(b))
+	_, _ = fmt.Fprintf(out, "%s\n", safetext.JSON(r.withCached(b)))
 }
 
 // warn prints a warning the server sent with a result, on standard
@@ -490,16 +498,25 @@ func (r *runner) clientOptions() client.Options {
 		Trace: client.TraceFromEnv(r.env.Getenv), OnPush: r.onPush}
 }
 
-// call runs one operation. A write the outbox does not queue, which did
-// not reach the server, says so in its fix (unqueued).
+// call runs one operation, and keeps its answer when the cache keeps
+// such answers (design §18.6). When the server is not reached, a command
+// that reads from the cache gets this machine's copy (answered); a read
+// that is never answered from it says so (refusedOffline); and a write
+// the outbox does not queue says so in its fix (unqueued).
 func (r *runner) call(ctx context.Context, op string, args, result any) error {
 	c, err := r.connect(ctx)
-	if err != nil {
-		return r.unqueued(op, err)
+	if err == nil {
+		err = c.Call(ctx, op, args, result)
+		r.missed(err)
+		if err == nil {
+			r.keep(c, op, args, result)
+			return nil
+		}
 	}
-	err = c.Call(ctx, op, args, result)
-	r.missed(err)
-	return r.unqueued(op, err)
+	if r.answered(op, args, result, err) {
+		return nil
+	}
+	return r.unqueued(op, r.refusedOffline(op, err))
 }
 
 // newFlags returns a flag set that also accepts --json after the command.
