@@ -10,18 +10,31 @@ import (
 // no-op. A blocking edge that would close a cycle of blocking edges and
 // parent links is refused with ErrCycle; an edge past the Deps limit, or
 // a non-blocking edge from an issue to itself, with ErrInvalid; and a
-// missing issue with ErrNotFound. Dependencies need no hold.
-func (s *Store) AddDep(ctx context.Context, actor Actor, from, to IssueID, typ DepType) error {
+// missing issue with ErrNotFound. Dependencies need no hold. With an
+// idempotency key (idem), a repeat of an add that added the edge writes
+// nothing, and the key reused for another request is refused with an
+// [*IdemError].
+func (s *Store) AddDep(ctx context.Context, actor Actor, from, to IssueID, typ DepType, idem string) error {
 	if err := validEdge(from, to, typ); err != nil {
 		return err
 	}
+	if err := validIdem(idem); err != nil {
+		return err
+	}
 	return s.write(ctx, actor, func(w *wtx) error {
+		var done struct{}
+		if again, err := replay(ctx, w, idem, "dep.add", Dep{From: from, To: to, Type: typ}, &done); again || err != nil {
+			return err
+		}
 		for _, id := range []IssueID{from, to} {
 			if err := mustExist(ctx, w.tx, id); err != nil {
 				return err
 			}
 		}
-		return insertDep(ctx, w, from, to, typ)
+		if err := insertDep(ctx, w, from, to, typ); err != nil {
+			return err
+		}
+		return w.settleChanged(struct{}{})
 	})
 }
 

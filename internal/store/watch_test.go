@@ -24,7 +24,7 @@ func TestWatchEvents(t *testing.T) {
 
 	is := mustCreate(t, s, NewIssue{Title: "work"})
 	mustStart(t, s, alice, is.ID)
-	if _, err := s.AddUsage(ctx, alice, []UsageRecord{req("r1", clk.now(), 1, 1)}); err != nil {
+	if _, err := s.AddUsage(ctx, alice, []UsageRecord{req("r1", clk.now(), 1, 1)}, ""); err != nil {
 		t.Fatal(err)
 	}
 	s.beforeCommit = func(context.Context) error { return errors.New("injected commit failure") }

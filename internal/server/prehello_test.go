@@ -166,6 +166,11 @@ func TestBridgeFrameRefusals(t *testing.T) {
 			if closed || f.T != proto.FrameWelcome || f.Err == nil || f.Err.Code != proto.CodeForbidden || f.Err.Message != tc.msg || f.Err.Fix != tc.fix {
 				t.Fatalf("bridge frame of %s, no hello = %+v (closed unread: %v)\nwant forbidden: %q\nfix %q", tc.principal, f, closed, tc.msg, tc.fix)
 			}
+			// The refusal names whom it refuses, so that the client
+			// knows whose outbox can no longer be sent (design §18.3).
+			if f.Principal != tc.principal {
+				t.Errorf("the refusal of %s names the principal %q, want %q", tc.principal, f.Principal, tc.principal)
+			}
 			if _, closed := h.answer(); !closed {
 				t.Errorf("the connection of %s stayed open after its refusal", tc.principal)
 			}
@@ -189,6 +194,8 @@ func TestBridgeFrameRefusals(t *testing.T) {
 				t.Errorf("handshake of %s = %v, want a welcome", tc.principal, w.Err)
 			case tc.code != "" && (w.Err == nil || w.Err.Code != tc.code || w.Err.Message != tc.msg):
 				t.Errorf("handshake of %s = %+v, want %s: %q", tc.principal, w.Err, tc.code, tc.msg)
+			case w.Principal != tc.principal:
+				t.Errorf("handshake of %s names the principal %q, want %q", tc.principal, w.Principal, tc.principal)
 			}
 		})
 	}

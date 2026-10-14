@@ -853,6 +853,7 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 			// A copy: a refusal may be a value shared between requests.
 			named := *perr
 			named.Req = req
+			named.Code = codeFor(named.Code, sess.proto)
 			perr = &named
 		}
 		s.observeRequest(sess, f.Op, perr, start)
@@ -970,6 +971,14 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 	// whose it is.
 	refuse := func(e *proto.Error) (*session, error) {
 		w.Err = e
+		// A refusal of the principal's access names them, as a welcome
+		// does: the client marks what that principal queued for this
+		// project refused, which it does only on the server's word of
+		// whose access ended (design §18.3). A client that does not
+		// know the field reads the refusal as before.
+		if e.Code == proto.CodeForbidden {
+			w.Principal = sess.actor.Principal
+		}
 		return sess, errors.Join(e, sess.enc.Encode(w))
 	}
 	// From here the connection is somebody's, so it is refused or

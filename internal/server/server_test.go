@@ -122,7 +122,7 @@ func newServerClock(t *testing.T, lim Limits, now func() time.Time) (*Server, st
 	t.Helper()
 	dsn := newDatabase(t)
 	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "sf", CommitInterval: -1, Admins: []string{dana.Principal},
-		Limits: lim.Limits, Now: now})
+		Limits: lim.Limits, Now: now, IdemWindow: time.Duration(lim.IdemWindow)})
 	if err != nil {
 		t.Fatal(err)
 	}

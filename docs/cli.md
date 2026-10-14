@@ -238,7 +238,7 @@ Memories are notes kept across sessions, in `project` (the default),
 | Command | Does |
 |---|---|
 | `mcp` | Serve the MCP tools for an agent on stdin and stdout ([agent guide](agents.md)) |
-| `outbox` | List the writes that wait for the server and the ones it refused, for your principal on this machine; `outbox retry N` sends a refused entry again, `outbox drop N` removes an entry for good, and `outbox stats` shows the counts. It never connects ([When the server cannot be reached](#when-the-server-cannot-be-reached)) |
+| `outbox` | List the writes that wait for the server and the ones it refused, for your principal on this machine; `outbox retry N` sends a refused entry again, `outbox drop N` removes an entry for good, and `outbox stats` shows the counts; `--host-key KEY` reaches what was queued under a host key the server had before. It never connects ([When the server cannot be reached](#when-the-server-cannot-be-reached)) |
 | `setup AGENT` | Set an agent up for this repository; see [Set up an agent](agents.md#set-up-an-agent). With `--global`, or for Claude Desktop, `--key-file PATH` also names the key file the agent signs in with, in your own files only ([Give an agent its own identity](agents.md#give-an-agent-its-own-identity)) |
 | `usage --hook[=AGENT]` | Send the token counts in the session's transcripts that earlier runs have not sent. Run by Claude Code's Stop, SubagentStop and SessionEnd hooks, which `setup claude-code` installs, with the hook's JSON on stdin; bare `--hook` is Claude Code's, the only agent captured so far. It always exits 0 and sends only counts ([Token usage hooks](agents.md#token-usage-hooks-claude-code)) |
 | `admin prices` | List the model prices, in US dollars per million tokens. `admin prices set MODEL --from DATE --input USD --output USD --cache-write USD --cache-write-1h USD --cache-read USD` sets a model's rates from a date (midnight UTC) or an RFC 3339 time, and prints `added`, `replaced` (the same model and `--from`) or `unchanged`. Every rate must be given, 0 where the model charges nothing, with at most six decimals. Setting is for admins ([Prices](server.md#prices)) |
@@ -298,16 +298,31 @@ the server is escaped (below).
 
 ## When the server cannot be reached
 
-A server restarts, a tunnel or a VPN drops, a database is slow. When one
-of six writes cannot reach the server, `sfx` keeps it in an **outbox** on
-your machine and sends it later: `create`, `comment`, `handoff`,
-`remember`, `log` (logging hours) and `finish`. Each carries a key that
-lets the server apply it once however often it is sent.
+A server restarts, a tunnel or a VPN drops, a database is slow. When a
+write cannot reach the server, `sfx` keeps it in an **outbox** on your
+machine and sends it later: `create`, `comment`, `handoff`, `remember`,
+`log` (logging hours), `finish`, `update`, `label add` and `label rm`,
+`dep add`, `accept`, and token usage. Each carries a key that lets the
+server apply it once however often it is sent.
 
 This is the first part of working without the server. There is no cache:
 every read still needs the server. Nothing resolves a conflict: a queued
 write that no longer fits is refused when it arrives, and waits for you.
-And a write waits 24 hours at most.
+And a write waits 7 days at most, the server's window for a key
+(`idem_window` in [the server's limits](server.md#limits)).
+
+**`update` needs its rev.** An `update` is queued only with the rev it
+was based on, which offline only you know: `sfx update ID --rev N ...`.
+Without `--rev` it first reads the issue's rev from the server, and with
+the server away it fails, saying to give `--rev`.
+
+**A server of protocol 5.** The keys on `update`, labels, `dep add`,
+`accept` and usage are protocol 6's. Against a server that speaks only
+protocol 5, `sfx` speaks 5, those writes go without a key, and while
+that server is away they are not queued, since it could apply one twice:
+the refusal says so. What was queued for a server of 6 that comes back
+at 5 is not sent either: it moves to the refused list as `version`, and
+`sfx outbox retry N` sends it once the server is upgraded.
 
 **What counts as not reached.** The connection could not be made (the
 network, the tunnel, sshd, or `starfixd` not running), it was lost
@@ -341,7 +356,9 @@ a write that was made:
 
 `issue` is the issue the write is about, and a `remember` has `key`
 instead. A queued `create` has neither, and a `note`: the issue has no id
-until it is sent, so nothing else you queue can refer to it.
+until it is sent, so nothing else you queue can refer to it. A `label`
+command of several labels queues a write for each, prints a line for
+each, and with `--json` one document, `{"queued":true,"entries":[...]}`.
 
 **Scripts.** A script that reads an id from `sfx create`, or that must
 know the write was made, passes `--no-queue` or sets
@@ -353,8 +370,7 @@ the `fix:` line says that it was not queued and why. `start` takes a
 claim, and no claim is made without the server: while it is away you
 finish what you hold and file new work, and start nothing new. `close`,
 `reopen`, `forget`, `dep rm` and `log --undo` end or undo something on a
-state your machine cannot see. `update`, `label`, `dep add`, `accept` and
-token usage have no such key yet. The hooks (`prime --hook`,
+state your machine cannot see. The hooks (`prime --hook`,
 `usage --hook`) queue and send nothing.
 
 The outbox itself may refuse a write, which then fails with exit code 1
@@ -381,9 +397,32 @@ An answer from the server settles an entry. Applied, it is gone.
 Refused, it moves to the refused list with the server's code, message
 and fix, and is never sent again by itself. If the server still cannot be
 reached, or says `busy`, the entry stays where it is with everything
-after it. An entry that waited more than 24 hours is not sent: it moves
-to the refused list as `stale`, because the server refuses a key that
-old.
+after it. An entry that waited more than 7 days is not sent: it moves to
+the refused list as `stale`, so that a write that late is sent only when
+you say so. `sfx outbox retry N` sends it, with its key: one the server
+never had applies; one it applied more than its window ago is refused
+by the server as `stale`, saying the write was applied then, and is
+never applied again. If you still want that change, make it again by
+hand. A write sent again within the window gets the answer it got the
+first time, and is not applied twice.
+
+**When your access has ended.** If the server refuses you the project
+when a command connects, as `forbidden` (you were disabled, removed from
+the server, or are no longer a member of the project), what you queued
+for it can no longer be sent. Every waiting entry moves to the refused
+list at once, with the server's message and fix, and one line on stderr
+says so:
+
+```text
+sfx: alice is not a member of project "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+sfx: outbox: 2 writes queued as alice were refused with it, and kept: `sfx outbox` lists them, to retry once access is back or drop
+```
+
+Only that refusal does this, and only when the server names you in it.
+A project that is archived is refused as not served, which the
+project's activation mends, so what you queued for it goes on waiting.
+A key the server no longer holds is a refusal of the key, not of you,
+and the entries wait for one of your other keys.
 
 An entry is sent by whichever connection of yours comes next, and the
 server records that connection's session and machine on it, not those of
@@ -412,13 +451,32 @@ refused:
 
 | Command | Does |
 |---|---|
-| `outbox` | List the entries: number, op, the issue's id or the memory's key, age, and the session and machine that wrote it; for a refused one the code, message and fix. And when the server was last not reached |
+| `outbox` | List the entries: number, op, the issue's id or the memory's key, age, and the session and machine that wrote it; for a refused one the code, message and fix. And when the server was last not reached, and what waits under host keys the server had before |
 | `outbox retry N` | Make refused entry N wait again. The next command that connects sends it, with the key it always had |
 | `outbox drop N` | Remove entry N, waiting or refused, for good. It is deleted from the outbox and never sent |
 | `outbox stats` | For each op, the entries queued, delivered, refused, stale and dropped, and how long the delivered ones waited; and the outages: how many, how long in all, the longest, and the one in progress. With `--json` the durations are in nanoseconds |
 
 Each takes `--json`, and `--principal NAME` for the outbox of another
 principal this machine has queued as.
+
+**When the server's host key changes.** A server rebuilt with a new host
+key is, to `sfx`, another server until you confirm the key and pin it in
+`server.host_key`. What you queued under the old key is then left where
+it is, and nothing of it is sent by itself: a changed host key is for a
+person to look at. `sfx outbox` lists it, and `prime` has a notice:
+
+```text
+alice's outbox is empty
+no failure to reach the server is recorded
+under the server's old host key SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5TqvU, at example.com:22: alice's outbox, 2 waiting, 0 refused
+  not sent by themselves, since the server's host key changed: `sfx outbox --host-key SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5TqvU` lists them
+```
+
+| Command | Does |
+|---|---|
+| `outbox --host-key KEY` | List what waits under the old host key `KEY`, as `outbox` lists your own |
+| `outbox retry N --host-key KEY` | Move entry N, waiting or refused, to this server's outbox, with the key it always had: the next command that connects sends it. Only when `.starfix.yaml` names the server at the address it had when the entry was queued (`server.host`, `server.port` and the IAP route); otherwise it is refused, and the entry can only be dropped |
+| `outbox drop N --host-key KEY` | Remove entry N for good |
 
 ### Where it is kept
 

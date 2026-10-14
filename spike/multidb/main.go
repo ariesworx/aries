@@ -684,7 +684,7 @@ func load(ctx context.Context, s *store.Store, n int, lat *[]time.Duration, more
 		}
 		for _, f := range []func() error{
 			func() error { _, err := s.AddComment(ctx, actor, is.ID, body, ""); return err },
-			func() error { return s.AddLabel(ctx, actor, is.ID, "spike") },
+			func() error { return s.AddLabel(ctx, actor, is.ID, "spike", "") },
 			func() error { _, _, err := s.StartIssue(ctx, actor, is.ID, time.Hour, false); return err },
 		} {
 			if err := timed(f); err != nil {

@@ -796,13 +796,15 @@ directory. The outbox and the record beside it are the first.
 - **How long.** Until the server answers the write, or you drop it. A
   delivered write is deleted from the outbox at the end of that replay.
   A refused one stays, with the server's code, message and fix, until
-  you retry or drop it. One that waited 24 hours is not sent and stays
+  you retry or drop it. One that waited 7 days is not sent and stays
   as refused. `sfx outbox drop N` deletes an entry: the outbox is
   rewritten without it, and it is never sent. It is an ordinary delete,
   not a secure erase: the bytes may remain on the disk, and in its
   backups, as with any file. Nothing removes an outbox when your access
-  to a project ends; its entries are then refused when sent, and stay
-  until you drop them. At most 1,000 entries and 4 MiB wait in one.
+  to a project ends: when the server refuses you the project as
+  `forbidden`, naming you, every entry that waits is marked refused with
+  that refusal, and stays until you retry or drop it. At most 1,000
+  entries and 4 MiB wait in one.
 - **Whose it is.** Only the server says which principal a key is. So at
   each connection `sfx` writes a record, `seen.json`, in the server and
   project's directory. It holds the server's pinned host key
@@ -810,7 +812,8 @@ directory. The outbox and the record beside it are the first.
   server accepted from this machine its public fingerprint, the
   principal's name and when that was last confirmed (at most 32 keys);
   and which fingerprint was accepted the last time no key was
-  configured. It holds no private key, no path to one and no token.
+  configured; and the server's address as `.starfix.yaml` gave it. It
+  holds no private key, no path to one and no token.
   Beside it, a file holds the time the server was last not reached, and
   one small file for each outbox holds its principal's name. While the
   server is away a write goes to the outbox of the principal recorded
@@ -825,7 +828,15 @@ directory. The outbox and the record beside it are the first.
   is sent with the arguments it had, and the server applies it as the
   principal of the connection, with that connection's session and
   machine: the outbox carries no identity to the server.
-- **What the record is trusted for.** Only for choosing an outbox. A
+- **A changed host key sends nothing.** What was queued under a host
+  key the server no longer has stays under it, and is never sent by
+  itself, even once the new key is pinned: a changed host key is what a
+  person must look at. `sfx outbox` lists it; `sfx outbox retry N
+  --host-key KEY`, a person's decision, moves an entry to the current
+  server's outbox, and only when `.starfix.yaml` names the server at the
+  address it had when the entry was queued.
+- **What the record is trusted for.** Only for choosing an outbox, and
+  for knowing an old host key's outbox as this project's. A
   record that is wrong, or that someone with your account's access
   rewrote, can put a write in the wrong principal's outbox on your
   machine, where it waits for a connection of that principal; it cannot

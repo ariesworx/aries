@@ -66,7 +66,7 @@ func TestAddUsageIgnoresResentRecords(t *testing.T) {
 		{"another principal", Actor{Principal: "bob", Session: alice.Session, Machine: "m"}, batch, UsageAdded{Added: 2}},
 	}
 	for _, st := range steps {
-		got, err := s.AddUsage(ctx, st.actor, st.recs)
+		got, err := s.AddUsage(ctx, st.actor, st.recs, "")
 		if err != nil || got != st.want {
 			t.Fatalf("%s: AddUsage = %+v, %v; want %+v", st.name, got, err, st.want)
 		}
@@ -101,7 +101,7 @@ func TestAddUsageEmptyBatchWritesNothing(t *testing.T) {
 	t.Parallel()
 	s, _ := clockStore(t)
 	seq := lastSeq(t, s)
-	if got, err := s.AddUsage(t.Context(), alice, nil); err != nil || got != (UsageAdded{}) {
+	if got, err := s.AddUsage(t.Context(), alice, nil, ""); err != nil || got != (UsageAdded{}) {
 		t.Fatalf("AddUsage(nil) = %+v, %v; want zero, nil", got, err)
 	}
 	if lastSeq(t, s) != seq {
@@ -123,7 +123,7 @@ func TestAddUsageRerun(t *testing.T) {
 		}
 		return nil
 	}
-	got, err := s.AddUsage(t.Context(), alice, []UsageRecord{req("r1", clk.now(), 1, 1), req("r2", clk.now(), 1, 1)})
+	got, err := s.AddUsage(t.Context(), alice, []UsageRecord{req("r1", clk.now(), 1, 1), req("r2", clk.now(), 1, 1)}, "")
 	if err != nil || got != (UsageAdded{Added: 2}) || attempts != 2 {
 		t.Fatalf("AddUsage = %+v, %v after %d attempts; want added 2 after 2", got, err, attempts)
 	}
@@ -188,7 +188,7 @@ func TestAddUsageRefusesInvalidRecords(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			ok := req("ok", now, 1, 1)
-			_, err := s.AddUsage(t.Context(), alice, []UsageRecord{ok, tc.rec})
+			_, err := s.AddUsage(t.Context(), alice, []UsageRecord{ok, tc.rec}, "")
 			if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "usage record 2") || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("AddUsage(%s) = %v; want ErrInvalid naming usage record 2 and %q", tc.name, err, tc.want)
 			}
@@ -211,7 +211,7 @@ func TestAddUsageAcceptsUnknownCountsAndSpans(t *testing.T) {
 		{Harness: "copilot-cli", RequestID: "session.shutdown=1", Model: "gpt-5", At: now,
 			Granularity: GranularitySession, SpanStart: ptr(now.Add(-time.Hour)), CacheWrite: n64(5), CacheWrite1h: n64(5)},
 	}
-	if got, err := s.AddUsage(t.Context(), alice, recs); err != nil || got.Added != 3 {
+	if got, err := s.AddUsage(t.Context(), alice, recs, ""); err != nil || got.Added != 3 {
 		t.Fatalf("AddUsage = %+v, %v; want 3 added", got, err)
 	}
 	var nulls, zeros int
@@ -268,7 +268,7 @@ func TestUsageLimits(t *testing.T) {
 			for i, st := range tc.steps {
 				clk.add(st.after)
 				before := usageRows(t, s, st.actor.Principal)
-				_, err := s.AddUsage(t.Context(), st.actor, st.recs)
+				_, err := s.AddUsage(t.Context(), st.actor, st.recs, "")
 				if st.err == nil && err != nil || st.err != nil && !errors.Is(err, st.err) {
 					t.Fatalf("step %d: AddUsage(%d records as %s) = %v, want %v", i, len(st.recs), st.actor.Principal, err, st.err)
 				}

@@ -9,12 +9,19 @@ import (
 
 // AddLabel adds a label to an issue. Adding a present label is a no-op. A
 // label that is not valid, or past the Labels limit, is refused with
-// ErrInvalid, and a missing issue with ErrNotFound.
-func (s *Store) AddLabel(ctx context.Context, actor Actor, id IssueID, label string) error {
-	if err := labelArgs(id, label); err != nil {
+// ErrInvalid, and a missing issue with ErrNotFound. With an idempotency
+// key (idem), a repeat of an add that added the label writes nothing,
+// and the key reused for another request is refused with an
+// [*IdemError].
+func (s *Store) AddLabel(ctx context.Context, actor Actor, id IssueID, label, idem string) error {
+	if err := labelArgs(id, label, idem); err != nil {
 		return err
 	}
 	return s.write(ctx, actor, func(w *wtx) error {
+		var done struct{}
+		if again, err := replay(ctx, w, idem, "label.add", labelReq{id, label}, &done); again || err != nil {
+			return err
+		}
 		if err := mustExist(ctx, w.tx, id); err != nil {
 			return err
 		}
@@ -32,33 +39,54 @@ func (s *Store) AddLabel(ctx context.Context, actor Actor, id IssueID, label str
 			return fmt.Errorf("insert label: %w", err)
 		}
 		if n == 0 {
-			return nil
+			return nil // no event, so no key kept (idem.go)
 		}
-		return w.event(ctx, OpLabelAdd, string(id), nil, map[string]string{"label": label})
+		if err := w.event(ctx, OpLabelAdd, string(id), nil, map[string]string{"label": label}); err != nil {
+			return err
+		}
+		return w.settle(struct{}{})
 	})
 }
 
 // RemoveLabel removes a label from an issue. Removing an absent label is a
-// no-op.
-func (s *Store) RemoveLabel(ctx context.Context, actor Actor, id IssueID, label string) error {
-	if err := labelArgs(id, label); err != nil {
+// no-op. An idempotency key (idem) works as AddLabel's does.
+func (s *Store) RemoveLabel(ctx context.Context, actor Actor, id IssueID, label, idem string) error {
+	if err := labelArgs(id, label, idem); err != nil {
 		return err
 	}
 	return s.write(ctx, actor, func(w *wtx) error {
+		var done struct{}
+		if again, err := replay(ctx, w, idem, "label.rm", labelReq{id, label}, &done); again || err != nil {
+			return err
+		}
 		n, err := w.exec(ctx, `DELETE FROM labels WHERE issue_id = ? AND label = ?`, string(id), label)
 		if err != nil {
 			return fmt.Errorf("delete label: %w", err)
 		}
 		if n == 0 {
-			return nil
+			return nil // no event, so no key kept (idem.go)
 		}
-		return w.event(ctx, OpLabelRemove, string(id), map[string]string{"label": label}, nil)
+		if err := w.event(ctx, OpLabelRemove, string(id), map[string]string{"label": label}, nil); err != nil {
+			return err
+		}
+		return w.settle(struct{}{})
 	})
 }
 
-// labelArgs validates the issue id and label of AddLabel and RemoveLabel.
-func labelArgs(id IssueID, label string) error {
+// labelReq is the request an idempotency key of AddLabel or RemoveLabel
+// stands for.
+type labelReq struct {
+	ID    IssueID
+	Label string
+}
+
+// labelArgs validates the issue id, label and key of AddLabel and
+// RemoveLabel.
+func labelArgs(id IssueID, label, idem string) error {
 	if err := id.Validate(); err != nil {
+		return err
+	}
+	if err := validIdem(idem); err != nil {
 		return err
 	}
 	return validLabel(label)

@@ -163,10 +163,10 @@ func TestHeldIssueStillTakesComments(t *testing.T) {
 	if _, err := s.AddComment(ctx, bob, is.ID, "a thought", ""); err != nil {
 		t.Errorf("comment: %v", err)
 	}
-	if err := s.AddLabel(ctx, bob, is.ID, "triage"); err != nil {
+	if err := s.AddLabel(ctx, bob, is.ID, "triage", ""); err != nil {
 		t.Errorf("label: %v", err)
 	}
-	if err := s.AddDep(ctx, bob, is.ID, other.ID, DepRelated); err != nil {
+	if err := s.AddDep(ctx, bob, is.ID, other.ID, DepRelated, ""); err != nil {
 		t.Errorf("dep: %v", err)
 	}
 }

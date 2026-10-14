@@ -1120,7 +1120,7 @@ func TestClientAhead(t *testing.T) {
 			s := openStore(t, newDSN(t), Options{Now: c.now, ClientAhead: tc.ahead})
 			n := int64(1)
 			_, err := s.AddUsage(t.Context(), alice, []UsageRecord{{RequestID: "r", Model: "m", Harness: "h",
-				At: c.now().Add(tc.at), Granularity: GranularityRequest, Input: &n}})
+				At: c.now().Add(tc.at), Granularity: GranularityRequest, Input: &n}}, "")
 			if got := errors.Is(err, ErrInvalid); got != tc.refused || (err != nil && !got) {
 				t.Errorf("AddUsage(at the server's time %+v, Options.ClientAhead %s) = %v, want refused %v", tc.at, tc.ahead, err, tc.refused)
 			}
@@ -1145,7 +1145,7 @@ func TestClientTimeAfterForwardStep(t *testing.T) {
 	c.step(9 * time.Hour)
 	n := int64(1)
 	if _, err := s.AddUsage(ctx, alice, []UsageRecord{{RequestID: "r", Model: "m", Harness: "h", At: c.now(),
-		Granularity: GranularityRequest, Input: &n}}); err != nil {
+		Granularity: GranularityRequest, Input: &n}}, ""); err != nil {
 		t.Errorf("AddUsage(a record at the clock's time) first after a 9h jump = %v, want it stored", err)
 	}
 	c.step(48 * time.Hour)
@@ -1166,13 +1166,13 @@ func TestWindowsDoNotReopenOnBackwardStep(t *testing.T) {
 		return []UsageRecord{{RequestID: id, Model: "m", Harness: "h", At: c.now().Add(-time.Minute), Granularity: GranularityRequest, Input: &n}}
 	}
 	for _, id := range []string{"r1", "r2"} {
-		if _, err := s.AddUsage(ctx, alice, rec(id)); err != nil {
+		if _, err := s.AddUsage(ctx, alice, rec(id), ""); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for _, back := range []time.Duration{-time.Hour, -48 * time.Hour} {
 		c.step(back)
-		if _, err := s.AddUsage(ctx, alice, rec("more"+back.String())); !errors.Is(err, ErrBusy) {
+		if _, err := s.AddUsage(ctx, alice, rec("more"+back.String()), ""); !errors.Is(err, ErrBusy) {
 			t.Errorf("AddUsage past the daily cap, with the clock set back %s = %v, want ErrBusy", back, err)
 		}
 	}

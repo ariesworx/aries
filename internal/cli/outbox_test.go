@@ -98,7 +98,7 @@ func (a *away) local() *offline.Local {
 // handshake before the outage did.
 func (a *away) reachedAs(t *testing.T, principal string) {
 	t.Helper()
-	if _, err := a.local().Reached(principal, a.key, true); err != nil {
+	if _, err := a.local().Reached(principal, a.key, true, proto.Proto); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -162,6 +162,18 @@ func TestQueuedWrite(t *testing.T) {
 		{"remember", []string{"remember", "style", "tabs,", "not", "spaces"},
 			since + "entry 1, remember style" + sent + "\n",
 			map[string]any{"queued": true, "entry": 1.0, "op": "remember", "key": "style", "since": "2026-10-13T14:02:00Z"}},
+		{"update, with its rev", []string{"update", "sf-a1b2", "--rev", "3", "--title", "renamed"},
+			since + "entry 1, update sf-a1b2" + sent + "\n",
+			map[string]any{"queued": true, "entry": 1.0, "op": "update", "issue": "sf-a1b2", "since": "2026-10-13T14:02:00Z"}},
+		{"dep add", []string{"dep", "add", "sf-a1b2", "sf-c3d4"},
+			since + "entry 1, dep.add sf-a1b2" + sent + "\n",
+			map[string]any{"queued": true, "entry": 1.0, "op": "dep.add", "issue": "sf-a1b2", "since": "2026-10-13T14:02:00Z"}},
+		{"label rm", []string{"label", "rm", "sf-a1b2", "old"},
+			since + "entry 1, label.rm sf-a1b2" + sent + "\n",
+			map[string]any{"queued": true, "entry": 1.0, "op": "label.rm", "issue": "sf-a1b2", "since": "2026-10-13T14:02:00Z"}},
+		{"accept", []string{"accept", "sf-a1b2", "1,2"},
+			since + "entry 1, accept sf-a1b2" + sent + "\n",
+			map[string]any{"queued": true, "entry": 1.0, "op": "accept", "issue": "sf-a1b2", "since": "2026-10-13T14:02:00Z"}},
 		{"create has no id yet", []string{"create", "A", "new", "issue"},
 			since + "entry 1, create" + sent + "; the issue has no id until then, so nothing queued can refer to it\n",
 			map[string]any{"queued": true, "entry": 1.0, "op": "create", "since": "2026-10-13T14:02:00Z",
@@ -258,7 +270,7 @@ func TestUnqueuedWriteSaysSo(t *testing.T) {
 	}{
 		{[]string{"start", "sf-a"}, "it takes a claim, and no claim is made without the server"},
 		{[]string{"close", "sf-a"}, "it ends something on a state the client cannot see"},
-		{[]string{"update", "sf-a", "--rev", "2", "--title", "t"}, "it has no idempotency key in this version of the protocol"},
+		{[]string{"dep", "rm", "sf-a", "sf-b"}, "it undoes something on a state the client cannot see"},
 		{[]string{"forget", "style"}, "it undoes something on a state the client cannot see"},
 		{[]string{"list"}, ""},
 		{[]string{"show", "sf-a"}, ""},
@@ -275,6 +287,47 @@ func TestUnqueuedWriteSaysSo(t *testing.T) {
 		} else if !strings.HasSuffix(errb, want) || strings.Count(errb, "\n") != 2 {
 			t.Errorf("sfx %s printed %q, want two lines, the fix ending %q", strings.Join(tc.args, " "), errb, want)
 		}
+	}
+	if got := a.pending(t, "alice"); len(got) != 0 {
+		t.Errorf("alice's outbox holds %v, want nothing", got)
+	}
+}
+
+// Several labels of one command are queued as a write each: a line for
+// each, or with --json one document that lists them.
+func TestQueuedLabels(t *testing.T) {
+	t.Parallel()
+	a := newAway(t)
+	a.reachedAs(t, "alice")
+	code, out, errb := a.run(t, "label", "add", "sf-a", "x", "y")
+	if code != ExitOK || strings.Count(out, "\n") != 2 || !strings.Contains(out, "entry 1, label.add sf-a;") ||
+		!strings.Contains(out, "entry 2, label.add sf-a;") || errb != "" {
+		t.Errorf("sfx label add with two labels = exit %d, stdout %q, stderr %q; want a queued line for each", code, out, errb)
+	}
+	code, out, _ = a.run(t, "label", "add", "sf-a", "z", "w", "--json")
+	var doc struct {
+		Queued  bool
+		Entries []struct{ Entry int }
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil || code != ExitOK || strings.Count(out, "\n") != 1 ||
+		!doc.Queued || len(doc.Entries) != 2 || doc.Entries[0].Entry != 3 || doc.Entries[1].Entry != 4 {
+		t.Errorf("sfx label add --json with two labels = exit %d, %q (%v); want one document listing entries 3 and 4", code, out, err)
+	}
+	if got := a.pending(t, "alice"); len(got) != 4 {
+		t.Errorf("alice's outbox holds %v, want the four labels", got)
+	}
+}
+
+// An update without --rev reads the issue's rev first, which needs the
+// server: it is not queued, and the fix says to give --rev.
+func TestUpdateWithoutRevIsNotQueued(t *testing.T) {
+	t.Parallel()
+	a := newAway(t)
+	a.reachedAs(t, "alice")
+	code, out, errb := a.run(t, "update", "sf-a", "--title", "t")
+	if code != ExitFailure || out != "" ||
+		!strings.HasSuffix(errb, "; this update was not queued, since it needs the issue's rev, which only the server knows: give --rev N, the rev you based it on, to queue it\n") {
+		t.Errorf("sfx update without --rev = exit %d, stdout %q, stderr %q; want it to fail, saying to give --rev", code, out, errb)
 	}
 	if got := a.pending(t, "alice"); len(got) != 0 {
 		t.Errorf("alice's outbox holds %v, want nothing", got)
@@ -429,9 +482,9 @@ func TestOutboxRetryAndDrop(t *testing.T) {
 		{[]string{"outbox", "retry", "2"}, ExitFailure, "",
 			"sfx: no refused entry 2 in alice's outbox\nfix: `sfx outbox` lists the entries; only a refused one is retried, and one that waits is sent by itself\n"},
 		{[]string{"outbox", "drop", "9"}, ExitFailure, "", "sfx: no entry 9 in alice's outbox\nfix: `sfx outbox` lists the entries and their numbers\n"},
-		{[]string{"outbox", "retry"}, ExitUsage, "", "sfx: retry needs an entry's number\nfix: usage: sfx outbox [retry N | drop N | stats] [--principal P]\n"},
-		{[]string{"outbox", "drop", "x"}, ExitUsage, "", "sfx: \"x\" is not an entry's number\nfix: usage: sfx outbox [retry N | drop N | stats] [--principal P]\n"},
-		{[]string{"outbox", "send"}, ExitUsage, "", "sfx: unknown outbox action \"send\"\nfix: usage: sfx outbox [retry N | drop N | stats] [--principal P]\n"},
+		{[]string{"outbox", "retry"}, ExitUsage, "", "sfx: retry needs an entry's number\nfix: usage: sfx outbox [retry N | drop N | stats] [--principal P] [--host-key FINGERPRINT]\n"},
+		{[]string{"outbox", "drop", "x"}, ExitUsage, "", "sfx: \"x\" is not an entry's number\nfix: usage: sfx outbox [retry N | drop N | stats] [--principal P] [--host-key FINGERPRINT]\n"},
+		{[]string{"outbox", "send"}, ExitUsage, "", "sfx: unknown outbox action \"send\"\nfix: usage: sfx outbox [retry N | drop N | stats] [--principal P] [--host-key FINGERPRINT]\n"},
 		{[]string{"outbox", "retry", "1"}, ExitOK, "entry 1 (comment sf-gone) waits again: the next sfx command that reaches the server sends it\n", ""},
 		{[]string{"outbox", "drop", "3"}, ExitOK, "dropped entry 3 (create): it will not be sent\n", ""},
 		{[]string{"outbox", "drop", "2", "--json"}, ExitOK, `{"entry":2,"state":"dropped"}` + "\n", ""},

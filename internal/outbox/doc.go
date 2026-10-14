@@ -12,15 +12,17 @@
 //
 // # What is queued
 //
-// Six ops: create, comment, handoff, remember, hours.log and finish
-// ([Queueable]). They are the ones that carry an idempotency key in
-// protocol 5 and whose replay cannot do harm nobody asked for. Every
-// other op is refused with [ErrNotQueueable] and why: start takes a
-// claim, and no claim is made without the server (decision 39); close,
-// reopen, forget, dep.rm and hours.delete undo or end something on a
-// state the client cannot see; update, label.add, label.rm, dep.add,
-// accept and usage wait for the key protocol 6 gives them, and move
-// from one table to the other in entry.go then.
+// Twelve ops, design §18.3's table ([Queueable]): create, comment,
+// handoff, remember, hours.log and finish, which carry an idempotency
+// key in protocol 5, and update, label.add, label.rm, dep.add, accept and
+// usage, which carry one from protocol 6 (stage 5, slice F2). Their
+// replay cannot do harm nobody asked for. Every other op is refused with
+// [ErrNotQueueable] and why: start takes a claim, and no claim is made
+// without the server (decision 39); close, reopen, forget, dep.rm and
+// hours.delete undo or end something on a state the client cannot see.
+// Which protocol the server speaks is the caller's to know: it queues,
+// and sends, an entry only for a server that takes its op's key
+// (proto.Keyed; internal/offline).
 //
 // An entry is refused before it is written when its arguments carry no
 // key ([ErrNoKey]), when any string in them looks like a credential to
@@ -99,10 +101,18 @@
 //
 // The caps are entries (pending and refused together), the bytes of the
 // outbox file, the bytes of one entry, and age, each with a default
-// constant and a field of [Options]. The age cap is 24 hours because
-// today's server refuses an idempotency key older than that. An entry
-// past it is not sent: Replay moves it to the refused list as
-// [CodeStale]. The byte cap is on the file as it is, so entries that
+// constant and a field of [Options]. The age cap is 7 days, the
+// server's idempotency window by default (idem_window, design §18.5).
+// An entry past it is not sent: Replay moves it to the refused list as
+// [CodeStale], for a person to retry or drop.
+//
+// The cap is the default window and not the server's own, which a
+// client cannot ask of a server it cannot reach. That is safe whatever
+// the server's window: the server keeps every key it applied, and never
+// applies one again, so an entry sent later than the window either
+// applies once (its key is new to the server) or is refused stale (its
+// key was applied, and the answer lost). The cap only decides when a
+// person, rather than sfx, says that a write that old still stands. The byte cap is on the file as it is, so entries that
 // were answered and not yet compacted away count until the next replay
 // ends. The answered file holds one line for an entry that waits, at
 // most, after each compaction, the text of a refusal is cut to 1,024

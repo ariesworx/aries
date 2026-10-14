@@ -17,7 +17,7 @@ func TestStart(t *testing.T) {
 	high := mustCreate(t, s, NewIssue{Title: "high", Priority: prio(P1)})
 	blocker := mustCreate(t, s, NewIssue{Title: "blocker", Priority: prio(P2)})
 	top := mustCreate(t, s, NewIssue{Title: "blocked", Priority: prio(P0)})
-	if err := s.AddDep(ctx, alice, top.ID, blocker.ID, DepBlocks); err != nil {
+	if err := s.AddDep(ctx, alice, top.ID, blocker.ID, DepBlocks, ""); err != nil {
 		t.Fatal(err)
 	}
 

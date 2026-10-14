@@ -8,8 +8,7 @@ import (
 )
 
 // TestUnqueued pins which ops a caller is told are not queued, and why:
-// the writes the outbox never takes and the ones that wait for protocol
-// 6. An op it queues, and one that writes nothing, have no reason.
+// the writes the outbox never takes. An op it queues, and one that writes nothing, have no reason.
 func TestUnqueued(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -20,10 +19,11 @@ func TestUnqueued(t *testing.T) {
 		{proto.OpClose, "cannot see"},
 		{proto.OpReopen, "cannot see"},
 		{proto.OpForget, "cannot see"},
-		{proto.OpUpdate, "no idempotency key"},
-		{proto.OpLabelAdd, "no idempotency key"},
-		{proto.OpAccept, "no idempotency key"},
-		{proto.OpUsage, "no idempotency key"},
+		{proto.OpDepRm, "cannot see"},
+		{proto.OpUpdate, ""},
+		{proto.OpLabelAdd, ""},
+		{proto.OpAccept, ""},
+		{proto.OpUsage, ""},
 		{proto.OpFinish, ""},
 		{proto.OpHandoff, ""},
 		{proto.OpList, ""},

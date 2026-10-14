@@ -1,6 +1,7 @@
 package offline
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -9,10 +10,12 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -100,6 +103,14 @@ type seen struct {
 	// Unconfigured is the fingerprint the server accepted the last time
 	// sfx connected with no key configured, having offered several.
 	Unconfigured string `json:"unconfigured,omitempty"`
+	// Addr is where the config said the server was at the last handshake
+	// ([Address]): what tells a server rebuilt with a new host key for
+	// the same one (Local.Rekeyed). Empty in a record from before it.
+	Addr string `json:"addr,omitempty"`
+	// Proto is the protocol the server spoke at the last handshake, which
+	// decides what is queued while it is away (proto.Keyed). Zero, in a
+	// record from before it, is taken for the oldest this build speaks.
+	Proto int `json:"proto,omitempty"`
 }
 
 type keyNote struct {
@@ -107,10 +118,14 @@ type keyNote struct {
 	At        time.Time `json:"at"`
 }
 
-// Options are a Local's clock and its outboxes' bounds.
+// Options are a Local's clock, its outboxes' bounds and the server's
+// address.
 type Options struct {
 	// Now is the client's clock; time.Now when nil.
 	Now func() time.Time
+	// Address is where the config says the server is ([Address]), noted
+	// at each handshake.
+	Address string
 	// Outbox bounds each outbox; its zero value takes the defaults, and
 	// its clock is Now.
 	Outbox outbox.Options
@@ -261,9 +276,10 @@ func (l *Local) replace(name string, data []byte) error {
 }
 
 // Reached notes that the server took the key with this fingerprint for
-// principal, at a handshake; configured says the key was the one
-// STARFIX_KEY_FILE or `key:` names, and not one of several offered. It
-// returns who the key was noted for before, when that was someone else:
+// principal, at a handshake, and spoke protocol; configured says the key
+// was the one STARFIX_KEY_FILE or `key:` names, and not one of several
+// offered. It returns who the key was noted for before, when that was
+// someone else:
 // the server has moved the key, and what the other principal queued with
 // it is no longer this key's to send.
 //
@@ -271,7 +287,7 @@ func (l *Local) replace(name string, data []byte) error {
 // ago, so a machine's many commands do not each write. A server that
 // names no principal, or a connection whose key is not known, is not
 // noted.
-func (l *Local) Reached(principal, fingerprint string, configured bool) (was string, err error) {
+func (l *Local) Reached(principal, fingerprint string, configured bool, protocol int) (was string, err error) {
 	if principal == "" || fingerprint == "" {
 		return "", nil
 	}
@@ -281,9 +297,10 @@ func (l *Local) Reached(principal, fingerprint string, configured bool) (was str
 	s, now := l.read(), l.opts.Now()
 	k, known := s.Keys[fingerprint]
 	fresh := known && k.Principal == principal && now.Sub(k.At) < 24*time.Hour && !now.Before(k.At)
-	if fresh && (configured || s.Unconfigured == fingerprint) {
+	if fresh && (configured || s.Unconfigured == fingerprint) && s.Addr == l.opts.Address && s.Proto == protocol {
 		return "", nil
 	}
+	s.Addr, s.Proto = l.opts.Address, protocol
 	if known && k.Principal != principal {
 		was = k.Principal
 	}
@@ -498,6 +515,12 @@ func (l *Local) Keep(principal string, e outbox.Entry, reach error) (Kept, error
 			rerun+"; a write is queued for later only once a command of yours has reached the server from this machine with this key",
 			"this machine has never reached the server with this key, so sfx cannot tell whose write it is")
 	}
+	// A server that cannot apply the op once is never sent it later
+	// (design §18.5): what it spoke last is what it is taken to speak.
+	if spoke := max(l.read().Proto, proto.ProtoMin); !proto.Keyed(e.Op, spoke) && outbox.Queueable(e.Op) {
+		return refuse(proto.CodeUnavailable, nil, rerun+"; the server's operator can run `starfixd upgrade` so that such writes are kept",
+			fmt.Sprintf("the server spoke protocol %d when last reached, which takes no idempotency key for %s, so it could apply it twice", spoke, e.Op))
+	}
 	ob, err := l.Outbox(principal)
 	var stored outbox.Entry
 	if err == nil {
@@ -571,7 +594,15 @@ func (l *Local) Replay(ctx context.Context, c Conn) (outbox.Report, error) {
 	if err != nil || !ok {
 		return outbox.Report{}, err
 	}
+	spoke := speaks(c)
 	return ob.Replay(ctx, func(ctx context.Context, e outbox.Entry) (outbox.Outcome, error) {
+		if !proto.Keyed(e.Op, spoke) {
+			// Sent at least once, it could apply twice (design §18.5).
+			return outbox.Outcome{Refused: true, Code: string(proto.CodeVersion),
+				Message: fmt.Sprintf("not sent: the server speaks protocol %d, which takes no idempotency key for %s, so it could apply it twice", spoke, e.Op),
+				Fix: fmt.Sprintf("once the server runs a starfixd of protocol %d or later, `sfx outbox retry %d` sends it; or make the change by hand now, and `sfx outbox drop %d`",
+					proto.ProtoKeys, e.Seq, e.Seq)}, nil
+		}
 		err := c.Call(ctx, e.Op, e.Args, nil)
 		if pe, ok := errors.AsType[*proto.Error](err); ok && pe.Code == proto.CodeInvalid && c.Err() == nil {
 			if bare, had := withoutPaths(e); had {
@@ -587,6 +618,162 @@ func (l *Local) Replay(ctx context.Context, c Conn) (outbox.Report, error) {
 		}
 		return outbox.Outcome{Refused: true, Code: string(pe.Code), Message: pe.Message, Fix: pe.Fix}, nil
 	})
+}
+
+// Address is where cfg says the server is, as noted with what is kept
+// for it: host and port, and the IAP project and zone when the server is
+// reached through IAP. Two configs that give the same address name the
+// same server, as far as the config can tell.
+func Address(cfg *client.Config) string {
+	addr := net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port))
+	if iap := cfg.Server.IAP; iap != nil {
+		addr += fmt.Sprintf(" through IAP (project %s, zone %s, instance %s)", iap.Project, iap.Zone, cmp.Or(iap.Instance, cfg.Server.Host))
+	}
+	return addr
+}
+
+// Former is what this machine keeps for the same project under a host
+// key the server no longer has: a server rebuilt with a new key, or a
+// checkout pointed at another server for the project. Nothing in it is
+// sent by itself: a changed host key is for a person to look at.
+type Former struct {
+	// HostKey is the host key it was kept under.
+	HostKey string
+	// Address is where the server was then, or "" when the record is
+	// from an sfx that did not note it.
+	Address string
+	// Local is what was kept, to read, and to drop from.
+	Local *Local
+}
+
+// Rekeyed returns, by host key, what this machine keeps for this project
+// under other host keys of the server: each directory of the data
+// directory whose record names this project and another key. A
+// directory with no record names no project, and is left out, as is one
+// that is not the user's own.
+func (l *Local) Rekeyed() ([]Former, error) {
+	if err := private(l.root); err != nil {
+		return nil, err
+	}
+	dirs, err := os.ReadDir(l.root)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []Former
+	for _, d := range dirs {
+		dir := filepath.Join(l.root, d.Name())
+		if !d.IsDir() || dir == l.dir || private(dir) != nil {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, seenFile)) //nolint:gosec // sfx's own file, in a directory checked to be the user's
+		if err != nil {
+			continue
+		}
+		var s seen
+		if json.Unmarshal(b, &s) != nil || s.V != seenVersion || s.Project != l.project || s.Server == l.server || s.Server == "" {
+			continue
+		}
+		f := Open(l.root, s.Server, s.Project, Options{Now: l.opts.Now, Outbox: l.opts.Outbox, Address: s.Addr})
+		if f.dir != dir {
+			continue // a record that does not name its own directory's server
+		}
+		out = append(out, Former{HostKey: s.Server, Address: s.Addr, Local: f})
+	}
+	slices.SortFunc(out, func(a, b Former) int { return strings.Compare(a.HostKey, b.HostKey) })
+	return out, nil
+}
+
+// Errors of [Local.Adopt].
+var (
+	// ErrOtherAddress: the entry was kept for a server at another
+	// address than this one's, or at one that was not noted.
+	ErrOtherAddress = errors.New("kept for a server at another address")
+	// ErrNoEntry: no entry that waits has that number.
+	ErrNoEntry = errors.New("no such entry")
+)
+
+// Adopt moves entry seq of principal's outbox in from, which is kept
+// under a host key the server no longer has ([Local.Rekeyed]), to that
+// principal's outbox here, where it waits to be sent like any other, with
+// its op, arguments and idempotency key, and returns it as stored here.
+// A person decides that, never sfx: it is [ErrOtherAddress] unless from
+// was kept for a server at this one's address, which is what says it is
+// the same server. The entry is added here before it leaves from, so a
+// failure between the two leaves it in both, and its key makes the
+// second sending of it harmless.
+func (l *Local) Adopt(from *Local, principal string, seq uint64) (outbox.Entry, error) {
+	if from.opts.Address == "" || from.opts.Address != l.opts.Address {
+		return outbox.Entry{}, ErrOtherAddress
+	}
+	ob, ok, err := from.Existing(principal)
+	if err != nil {
+		return outbox.Entry{}, err
+	}
+	if !ok {
+		return outbox.Entry{}, ErrNoEntry
+	}
+	list, err := ob.List()
+	if err != nil {
+		return outbox.Entry{}, err
+	}
+	var e *outbox.Entry
+	for i := range list.Pending {
+		if list.Pending[i].Seq == seq {
+			e = &list.Pending[i]
+		}
+	}
+	for i := range list.Refused {
+		if list.Refused[i].Entry.Seq == seq {
+			e = &list.Refused[i].Entry
+		}
+	}
+	if e == nil {
+		return outbox.Entry{}, ErrNoEntry
+	}
+	to, err := l.Outbox(principal)
+	if err != nil {
+		return outbox.Entry{}, err
+	}
+	stored, err := to.Append(outbox.Entry{Op: e.Op, Args: e.Args, Session: e.Session, Machine: e.Machine})
+	if err != nil {
+		return outbox.Entry{}, err
+	}
+	if err := ob.Drop(seq); err != nil {
+		return stored, fmt.Errorf("entry %d is now %d here, and is still there too: %w", seq, stored.Seq, err)
+	}
+	return stored, nil
+}
+
+// Ended refuses what waits in principal's outbox with the server's
+// refusal pe, which said at a handshake that principal's access to the
+// project has ended ([client.AccessEnded]), and returns how many entries
+// it refused. They go to the refused list, as a refusal of each would
+// have, where a person retries them once access is back or drops them;
+// until then each would only go stale (design §18.3, "Who it runs as").
+// It makes nothing when nothing was ever queued for principal, and does
+// nothing while another process replays that outbox, which got in.
+func (l *Local) Ended(principal string, pe *proto.Error) (int, error) {
+	ob, ok, err := l.Existing(principal)
+	if err != nil || !ok {
+		return 0, err
+	}
+	n, err := ob.RefuseAll(outbox.Outcome{Refused: true, Code: string(pe.Code), Message: pe.Message, Fix: pe.Fix})
+	if errors.Is(err, outbox.ErrBusy) {
+		return 0, nil
+	}
+	return n, err
+}
+
+// speaks is the protocol c speaks, when it says; otherwise the oldest
+// this build speaks, so that nothing is sent that it could not apply once.
+func speaks(c Conn) int {
+	if p, ok := c.(interface{ Proto() int }); ok {
+		return p.Proto()
+	}
+	return proto.ProtoMin
 }
 
 // withoutPaths returns the arguments of a finish or a handoff without
@@ -615,12 +802,16 @@ func withoutPaths(e outbox.Entry) (json.RawMessage, bool) {
 // a create does.
 func Target(e outbox.Entry) string {
 	var a struct {
-		ID  string `json:"id"`
-		Key string `json:"key"`
+		ID   string `json:"id"`
+		Key  string `json:"key"`
+		From string `json:"from"`
 	}
 	_ = json.Unmarshal(e.Args, &a) // arguments that do not parse name nothing
-	if e.Op == proto.OpRemember {
+	switch e.Op {
+	case proto.OpRemember:
 		return a.Key
+	case proto.OpDepAdd:
+		return a.From
 	}
 	return a.ID
 }

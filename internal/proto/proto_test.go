@@ -178,10 +178,11 @@ func TestReleasedClients(t *testing.T) {
 		proto   int
 		want    string // the refusal's message, or "" when the client is served
 	}{
-		{"v0.1.x", 1, "starfix speaks protocol 1; the server (v0.5.0) needs protocol 5"},
-		{"v0.2.x", 2, "starfix speaks protocol 2; the server (v0.5.0) needs protocol 5"},
-		{"v0.3.x", 3, "starfix speaks protocol 3; the server (v0.5.0) needs protocol 5"},
-		{"v0.4.x", 4, "starfix speaks protocol 4; the server (v0.5.0) needs protocol 5"},
+		{"v0.1.x", 1, "starfix speaks protocol 1; the server (v0.5.0) needs protocols 5 to 6"},
+		{"v0.2.x", 2, "starfix speaks protocol 2; the server (v0.5.0) needs protocols 5 to 6"},
+		{"v0.3.x", 3, "starfix speaks protocol 3; the server (v0.5.0) needs protocols 5 to 6"},
+		{"v0.4.x", 4, "starfix speaks protocol 4; the server (v0.5.0) needs protocols 5 to 6"},
+		{"a build of protocol 5, from before protocol 6", 5, ""},
 		{"this build", Proto, ""},
 	}
 	for _, tc := range tests {
@@ -195,8 +196,8 @@ func TestReleasedClients(t *testing.T) {
 			}
 		})
 	}
-	if Proto != 5 || ProtoMin != 5 || ProtoMax != 5 {
-		t.Errorf("Proto, ProtoMin, ProtoMax = %d, %d, %d; want 5, 5, 5. A bump raises Proto and ProtoMax and leaves ProtoMin one behind: update this test with it", Proto, ProtoMin, ProtoMax)
+	if Proto != 6 || ProtoMin != 5 || ProtoMax != 6 {
+		t.Errorf("Proto, ProtoMin, ProtoMax = %d, %d, %d; want 6, 5, 6. A bump raises Proto and ProtoMax and leaves ProtoMin one behind: update this test with it", Proto, ProtoMin, ProtoMax)
 	}
 }
 
@@ -206,15 +207,44 @@ func TestReleasedClients(t *testing.T) {
 // is what a v0.4.x server, which accepts 2 to 4, makes this client say.
 func TestCheckProtoBothDirections(t *testing.T) {
 	t.Parallel()
-	old := CheckProto(Proto-1, ProtoMin, ProtoMax, "v0.5.0")
+	old := CheckProto(ProtoMin-1, ProtoMin, ProtoMax, "v0.5.0")
 	if old == nil || old.Code != CodeVersion || !strings.HasPrefix(old.Fix, "upgrade this client: run `sfx upgrade`") ||
-		strings.Contains(old.Fix, "starfixd upgrade") || !strings.Contains(old.Message, "needs protocol 5") {
+		strings.Contains(old.Fix, "starfixd upgrade") || !strings.Contains(old.Message, "needs protocols 5 to 6") {
 		t.Errorf("an older client against this server = %+v; want it told to upgrade the client, and the version the server needs", old)
 	}
-	const want = "starfix speaks protocol 5; the server (v0.4.0) is older and accepts protocols 2 to 4"
+	const want = "starfix speaks protocol 6; the server (v0.4.0) is older and accepts protocols 2 to 4"
 	const fix = "ask the server admin to run `starfixd upgrade`, or install the starfix release that matches the server"
 	if e := CheckProto(Proto, 2, 4, "v0.4.0"); e == nil || e.Code != CodeVersion || e.Message != want || e.Fix != fix {
 		t.Errorf("this client against a v0.4.0 server = %+v\nwant %q\nfix %q", e, want, fix)
+	}
+}
+
+// TestSpeak pins which protocol this build speaks to a server that
+// accepts lo to hi: the newest both have, from ProtoMin to Proto (design
+// §18.5: a client of protocol 6 steps down to a server of 5), and none
+// when they share none.
+func TestSpeak(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		lo, hi int
+		want   int // 0 is none
+	}{
+		{"a server of this build", ProtoMin, ProtoMax, Proto},
+		{"a server of protocol 5 alone", 5, 5, 5},
+		{"a newer server, which still accepts this build", 6, 7, 6},
+		{"a server that overlaps from below", 4, 5, 5},
+		{"a server too new", 7, 8, 0},
+		{"a server too old", 2, 4, 0},
+		{"an empty range", 6, 5, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, ok := Speak(tc.lo, tc.hi)
+			if got != tc.want || ok != (tc.want != 0) {
+				t.Errorf("Speak(%d, %d) = %d, %v; want %d, %v", tc.lo, tc.hi, got, ok, tc.want, tc.want != 0)
+			}
+		})
 	}
 }
 

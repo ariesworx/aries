@@ -2,6 +2,9 @@ package e2e
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +12,7 @@ import (
 	"github.com/ariesworx/starfix/internal/cli"
 	"github.com/ariesworx/starfix/internal/mcpserver"
 	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/starfix/internal/store"
 )
 
 // ops returns the ops of an issue's events, oldest first, and the
@@ -399,6 +403,228 @@ func TestKeyMovedLeavesTheOutbox(t *testing.T) {
 	}
 }
 
+// When the server refuses a principal's access to the project at the
+// handshake, what that principal queued for it is refused as forbidden,
+// with the server's message and fix, and kept for a person (design
+// §18.3, "Who it runs as"): it is not left to go stale. A membership
+// ended and a principal disabled each prove it. A project archived
+// does not: it is refused as not served, which a project made active
+// again mends, so what waits for it goes on waiting. Access given back,
+// a person's retry sends the entry.
+func TestAccessEndedRefusesTheOutbox(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, daemonOpts{many: true, admins: []string{"dana"}})
+	w.member("alice", project, store.RoleMember)
+	w.member("bob", project, store.RoleMember)
+	w.member("carol", project, store.RoleMember)
+	alice, bob, carol := w.newUser("alice", ""), w.newUser("bob", ""), w.newUser("carol", "")
+	id := strings.TrimSpace(alice.ok("create", "Commented on while away"))
+	bob.ok("ready")
+	carol.ok("ready")
+
+	w.stop()
+	alice.ok("comment", id, "queued by alice")
+	alice.ok("comment", id, "queued by alice again")
+	bob.ok("comment", id, "queued by bob")
+	carol.ok("comment", id, "queued by carol")
+	w.start()
+	ctx := t.Context()
+	if _, err := w.ctl.RemoveMember(ctx, dana, "alice", project); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.ctl.DisablePrincipal(ctx, dana, "bob"); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		u        *user
+		name     string
+		n        string
+		msg, fix string
+	}{
+		{alice, "alice", "2 writes", `alice is not a member of project "` + project + `"`,
+			"ask a server admin, or one of the project's admins, to add you: `sfx admin member add alice`, run in this repository"},
+		{bob, "bob", "1 write", "bob is disabled on this server",
+			"ask a server admin, or a project admin who administers every project you belong to, to run `sfx admin principal enable bob`"},
+	} {
+		r := tc.u.run("v0.2.0", "ready")
+		if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "sfx: "+tc.msg+"\n") ||
+			!strings.Contains(r.stderr, "sfx: outbox: "+tc.n+" queued as "+tc.name) {
+			t.Errorf("%s's first command after access ended = exit %d, stderr:\n%s\nwant the refusal, and the outbox's line", tc.name, r.code, r.stderr)
+		}
+		out := tc.u.ok("outbox")
+		for _, want := range []string{
+			tc.name + "'s outbox: 0 waiting, ",
+			"     forbidden: " + tc.msg + "\n     fix: " + tc.fix + "\n",
+		} {
+			if !strings.Contains(out, want) {
+				t.Errorf("sfx outbox as %s lacks %q:\n%s", tc.name, want, out)
+			}
+		}
+	}
+
+	// A project archived is not the end of anyone's access.
+	if _, err := w.ctl.ArchiveProject(ctx, dana, project); err != nil {
+		t.Fatal(err)
+	}
+	if r := carol.run("v0.2.0", "ready"); r.code != cli.ExitFailure || !strings.Contains(r.stderr, "is not served by this server") ||
+		strings.Contains(r.stderr, "outbox") {
+		t.Errorf("carol's command in an archived project = exit %d, stderr:\n%s\nwant it refused, and her outbox left alone", r.code, r.stderr)
+	}
+	if out := carol.ok("outbox"); !strings.HasPrefix(out, "carol's outbox: 1 waiting, 0 refused\n") {
+		t.Errorf("sfx outbox as carol, the project archived:\n%s", out)
+	}
+	if _, err := w.ctl.ActivateProject(ctx, dana, project); err != nil {
+		t.Fatal(err)
+	}
+	if r := carol.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "sfx: outbox: delivered 1\n" {
+		t.Errorf("carol's command, the project active again = exit %d, stderr %q; want her write delivered", r.code, r.stderr)
+	}
+
+	// alice is a member again: nothing goes by itself, and a retry sends.
+	w.member("alice", project, store.RoleMember)
+	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "" {
+		t.Errorf("alice's command as a member again = exit %d, stderr %q; want nothing sent by itself", r.code, r.stderr)
+	}
+	alice.ok("outbox", "retry", "1")
+	if r := alice.run("v0.2.0", "ready"); r.stderr != "sfx: outbox: delivered 1\n" {
+		t.Errorf("alice's command after a retry said %q, want the entry delivered", r.stderr)
+	}
+	if n := carol.comments(id); n != 2 {
+		t.Errorf("the issue has %d comments, want carol's and alice's retried one", n)
+	}
+
+	// An agent's session: its tool call is refused, and tells it to ask
+	// a person; what it queued waits for that person, refused.
+	w.member("erin", project, store.RoleMember)
+	erin := w.newUser("erin", "")
+	erin.queues = true
+	ag := erin.mcp("v0.2.0")
+	ag.ok("ready", nil)
+	w.stop()
+	if out, isErr := ag.call("comment", map[string]any{"id": id, "body": "queued by erin's agent"}); isErr {
+		t.Fatalf("comment with the server away = %q, want it queued", out)
+	}
+	w.start()
+	if _, err := w.ctl.RemoveMember(ctx, dana, "erin", project); err != nil {
+		t.Fatal(err)
+	}
+	if out, isErr := ag.call("ready", nil); !isErr || !strings.Contains(out, "erin is not a member of project") {
+		t.Errorf("the agent's call after its access ended = %q (error %v); want the refusal", out, isErr)
+	}
+	if out := erin.ok("outbox"); !strings.HasPrefix(out, "erin's outbox: 0 waiting, 1 refused\n") ||
+		!strings.Contains(out, "     forbidden: erin is not a member of project") {
+		t.Errorf("sfx outbox as erin, after her agent's call was refused:\n%s", out)
+	}
+}
+
+// configure rewrites the user's .starfix.yaml, as a person who edits it
+// does: from becomes to.
+func (u *user) configure(from, to string) {
+	u.w.t.Helper()
+	p := filepath.Join(u.repo, ".starfix.yaml")
+	b, err := os.ReadFile(p) //nolint:gosec // the test's own file
+	if err != nil {
+		u.w.t.Fatal(err)
+	}
+	if !strings.Contains(string(b), from) {
+		u.w.t.Fatalf("%s has no %q:\n%s", p, from, b)
+	}
+	if err := os.WriteFile(p, []byte(strings.ReplaceAll(string(b), from, to)), 0o600); err != nil { //nolint:gosec // the test's own file
+		u.w.t.Fatal(err)
+	}
+}
+
+// A server rebuilt with a new host key leaves what was queued for it
+// under the old key. Nothing of it is sent by itself, even once the
+// person has pinned the new key: a changed host key is for a person to
+// look at. `sfx outbox` and prime say it is there; a person moves an
+// entry to the current server's outbox, which then sends it, but only
+// when the checkout names the server at the address it was queued for;
+// or drops it.
+func TestRekeyedServerKeepsTheOutbox(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, daemonOpts{})
+	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
+	id := strings.TrimSpace(alice.ok("create", "Commented on before the rebuild"))
+	w.stop()
+	alice.ok("comment", id, "first, before the rebuild")
+	alice.ok("comment", id, "second, before the rebuild")
+	w.start()
+	old := w.hostFpr
+	w.rekey()
+
+	// The pin no longer matches: refused, and nothing else happens.
+	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitFailure || !strings.Contains(r.stderr, "host key mismatch") || strings.Contains(r.stderr, "outbox") {
+		t.Fatalf("a command against the rebuilt server = exit %d, stderr:\n%s\nwant the host key refused", r.code, r.stderr)
+	}
+	// The people confirm the new key and pin it.
+	alice.configure(old, w.hostFpr)
+	bob.configure(old, w.hostFpr)
+	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "" {
+		t.Errorf("the first command with the new key pinned = exit %d, stderr %q; want nothing sent by itself", r.code, r.stderr)
+	}
+	if n := bob.comments(id); n != 0 {
+		t.Errorf("the issue has %d comments, want none sent by themselves", n)
+	}
+	addr := fmt.Sprintf("127.0.0.1:%d", w.addr.Port)
+	out := alice.ok("outbox")
+	for _, want := range []string{
+		"alice's outbox is empty\n",
+		"under the server's old host key " + old + ", at " + addr + ": alice's outbox, 2 waiting, 0 refused\n",
+		"not sent by themselves, since the server's host key changed: `sfx outbox --host-key " + old + "` lists them\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("sfx outbox lacks %q:\n%s", want, out)
+		}
+	}
+	if p := alice.ok("prime"); !strings.Contains(p,
+		"notice: outbox: 2 writes queued under the server's old host key are not sent by themselves: tell the user to run `sfx outbox`\n") {
+		t.Errorf("prime does not say what waits under the old key:\n%s", p)
+	}
+	out = alice.ok("outbox", "--host-key", old)
+	for _, want := range []string{
+		"alice's outbox under the server's old host key " + old + ", at " + addr + ": 2 waiting, 0 refused\n",
+		"  1  comment  " + id,
+		"  2  comment  " + id,
+		"`sfx outbox retry N --host-key " + old + "` moves entry N to this server's outbox, which sends it; `sfx outbox drop N --host-key " + old + "` removes it for good\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("sfx outbox --host-key lacks %q:\n%s", want, out)
+		}
+	}
+
+	// Named at another address, the server is not known to be the same.
+	alice.configure("host: 127.0.0.1", "host: localhost")
+	r := alice.run("v0.2.0", "outbox", "retry", "1", "--host-key", old)
+	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "entry 1 was queued for the server at "+addr+", and this checkout names localhost:") {
+		t.Errorf("a retry with the server named at another address = exit %d, stderr:\n%s\nwant it refused", r.code, r.stderr)
+	}
+	alice.configure("host: localhost", "host: 127.0.0.1")
+	if r := alice.run("v0.2.0", "outbox", "retry", "9", "--host-key", old); r.code != cli.ExitFailure || !strings.Contains(r.stderr, "no entry 9") {
+		t.Errorf("a retry of an entry that is not there = exit %d, stderr:\n%s", r.code, r.stderr)
+	}
+	if r := alice.run("v0.2.0", "outbox", "--host-key", w.hostFpr); r.code != cli.ExitUsage {
+		t.Errorf("sfx outbox --host-key with the current key = exit %d, stderr:\n%s\nwant a usage error", r.code, r.stderr)
+	}
+
+	if out := alice.ok("outbox", "retry", "1", "--host-key", old); !strings.HasPrefix(out,
+		"entry 1 (comment "+id+") of the outbox under the old host key is entry 1 of this server's now: the next sfx command that reaches the server sends it\n") {
+		t.Errorf("sfx outbox retry --host-key said:\n%s", out)
+	}
+	alice.ok("outbox", "drop", "2", "--host-key", old)
+	if r := alice.run("v0.2.0", "ready"); r.stderr != "sfx: outbox: delivered 1\n" {
+		t.Errorf("the command after the retry said %q, want the entry delivered", r.stderr)
+	}
+	cs := decode[proto.CommentsResult](t, bob.ok("comments", id, "--json"))
+	if len(cs.Comments) != 1 || cs.Comments[0].Body != "first, before the rebuild" {
+		t.Errorf("comments = %+v, want the one retried", cs.Comments)
+	}
+	if out := alice.ok("outbox"); strings.Contains(out, "old host key") {
+		t.Errorf("sfx outbox with the old outbox emptied still names it:\n%s", out)
+	}
+}
+
 // An entry that waited longer than the age cap is not sent: it moves to
 // the refused list as stale, with a fix, and a person's retry sends it.
 func TestStaleEntryWaitsForAPerson(t *testing.T) {
@@ -409,12 +635,12 @@ func TestStaleEntryWaitsForAPerson(t *testing.T) {
 	alice.now = func() time.Time { return clock }
 	id := strings.TrimSpace(alice.ok("create", "Commented on long ago"))
 	w.stop()
-	alice.ok("comment", id, "written a day ago")
+	alice.ok("comment", id, "written eight days ago")
 	w.start()
-	clock = clock.Add(25 * time.Hour) // alice's machine was away for more than the cap
+	clock = clock.Add(8 * 24 * time.Hour) // alice's machine was away for more than the cap
 
 	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "sfx: outbox: stale 1 (see `sfx outbox`)\n" {
-		t.Fatalf("the first command a day later = exit %d, stderr %q; want the entry found stale", r.code, r.stderr)
+		t.Fatalf("the first command eight days later = exit %d, stderr %q; want the entry found stale", r.code, r.stderr)
 	}
 	if n := bob.comments(id); n != 0 {
 		t.Errorf("the issue has %d comments, want none: a stale entry is not sent", n)
@@ -423,7 +649,7 @@ func TestStaleEntryWaitsForAPerson(t *testing.T) {
 	for _, want := range []string{
 		"alice's outbox: 0 waiting, 1 refused\n",
 		"  1  comment  " + id,
-		"     stale: it waited 25h0m0s, and an entry is sent for 24h0m0s\n     fix: retry it if it is still wanted, or drop it\n",
+		"     stale: it waited 192h0m0s, and an entry is sent for 168h0m0s\n     fix: retry it if it is still wanted, or drop it\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("sfx outbox lacks %q:\n%s", want, out)

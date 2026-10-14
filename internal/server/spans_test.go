@@ -8,6 +8,7 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -161,7 +162,7 @@ func TestRequestSpans(t *testing.T) {
 		if got, want := tree(spans, hs), "handshake(store.write.attempt(store.write.wait))"; got != want {
 			t.Errorf("handshake trace = %s, want %s: the registry's note of the session beneath the handshake", got, want)
 		}
-		want := map[string]string{"result": "ok", "project": project, "protocol": "5", "principal": alicesAlias}
+		want := map[string]string{"result": "ok", "project": project, "protocol": strconv.Itoa(proto.Proto), "principal": alicesAlias}
 		got := maps.Clone(hs.Attrs)
 		session := got["session"]
 		delete(got, "session")
@@ -252,7 +253,7 @@ func TestRequestSpans(t *testing.T) {
 			} else if sp.ParentID != "" || sp.TraceID == callerTrace {
 				t.Errorf("span is in trace %s under %q; want the root of a trace of its own", sp.TraceID, sp.ParentID)
 			}
-			want := map[string]string{"op": st.span, "result": st.result, "project": project, "protocol": "5", "principal": alicesAlias}
+			want := map[string]string{"op": st.span, "result": st.result, "project": project, "protocol": strconv.Itoa(proto.Proto), "principal": alicesAlias}
 			got := maps.Clone(sp.Attrs)
 			session := got["session"]
 			delete(got, "session")
