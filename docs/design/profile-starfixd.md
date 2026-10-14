@@ -718,6 +718,17 @@ follows from a measurement of the code as it is.
   (rule 8); the check inside the write is a query that must agree with
   the ranking. Principle 3 rules out the other way, a stored ready
   list. Worth it only for projects past a few thousand open issues.
+- **Since this was written (14 October 2026): done.** `StartIssue`
+  with no id ranks the first five ready issues on a read, and the write
+  takes the first that is still ready then (`readyNow`, a query over
+  the issue and its ancestors that a test holds to `readyFilter` on
+  every issue of a project); if none is, it ranks under the writer as
+  before. The claim, its epoch and the refusals are the same code. The
+  writer held by a start with no id (`BenchmarkScale`, `writer-ms/op`):
+  16.9, 49 and 203 ms at 1,000, 10,000 and 50,000 issues before, 9.3,
+  10.1 and 13.1 ms after; the check is 0.9 to 1.9 ms of that. The
+  request itself is no faster, and at 100 issues is 26 statements and
+  43 round trips against 23 and 39.
 
 ### 9. Reread the control store only when it has changed
 

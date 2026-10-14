@@ -40,10 +40,67 @@ func (s *Store) StartIssue(ctx context.Context, actor Actor, id IssueID, lease t
 	if err := checkLease(lease, MaxClaimLease); err != nil {
 		return Issue{}, Claim{}, err
 	}
+	if id != "" {
+		return s.start(ctx, actor, id, nil, lease, take)
+	}
+	// With no id, the ready issues are ranked on a read, so the project's
+	// writer is not held for a query that grows with the project. The
+	// write takes the first of them that is still ready then; another
+	// session may have taken one, or it may have changed, in between. If
+	// none is, the write ranks them again under the writer, as it did
+	// before, where no one can get ahead of it.
+	if err := actor.validate(); err != nil {
+		return Issue{}, Claim{}, err
+	}
+	now, err := s.settledNow(ctx)
+	if err != nil {
+		return Issue{}, Claim{}, err
+	}
+	ranked, err := s.topReady(ctx, actor, now)
+	if err != nil {
+		return Issue{}, Claim{}, err
+	}
+	if len(ranked) == 0 {
+		return Issue{}, Claim{}, ErrNothingReady
+	}
+	return s.start(ctx, actor, "", ranked, lease, take)
+}
+
+// startCandidates is how many of the issues ranked on a read StartIssue
+// with no id tries, in order, under the writer before it ranks there.
+const startCandidates = 5
+
+// topReady returns the first startCandidates issues Ready lists for
+// actor at now, from one snapshot.
+func (s *Store) topReady(ctx context.Context, actor Actor, now time.Time) ([]IssueID, error) {
+	tx, end, err := s.beginRead(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("ready: %w", err)
+	}
+	defer end()
+	ids, _, err := rankReady(ctx, tx, actor, now, startCandidates)
+	return ids, err
+}
+
+// start is StartIssue's write. With an id it takes that issue. Without
+// one it takes the first of ranked, the issues ranked on a read, that is
+// still ready, and if none is, the issue rankReady ranks first under the
+// writer.
+func (s *Store) start(ctx context.Context, actor Actor, id IssueID, ranked []IssueID, lease time.Duration, take bool) (Issue, Claim, error) {
 	var out Issue
 	var claim Claim
 	err := s.write(ctx, actor, func(w *wtx) error {
 		target := id
+		for _, c := range ranked {
+			ok, err := readyNow(ctx, w.tx, c, w.now)
+			if err != nil {
+				return err
+			}
+			if ok {
+				target = c
+				break
+			}
+		}
 		if target == "" {
 			ids, _, err := rankReady(ctx, w.tx, w.actor, w.now, 1)
 			if err != nil {
