@@ -45,12 +45,14 @@ func (u *user) mcp(version string) *agent {
 	if u.w.fixedClock {
 		renew = -1 // renewals would not move the test's clock
 	}
+	// Every `sfx mcp` has a cache, and an outbox unless --no-queue.
+	cache := &offline.Client{Dir: u.repo, GOOS: runtime.GOOS, Getenv: opts.Getenv, UserHomeDir: os.UserHomeDir,
+		Session: opts.Session, Machine: opts.Machine}
 	var off *offline.Client
 	if u.queues {
-		off = &offline.Client{Dir: u.repo, GOOS: runtime.GOOS, Getenv: opts.Getenv, UserHomeDir: os.UserHomeDir,
-			Session: opts.Session, Machine: opts.Machine}
+		off = cache
 	}
-	a.srv = mcpserver.New(mcpserver.Options{Version: version, RenewEvery: renew, Dir: u.repo, Offline: off, Dial: func(ctx context.Context) (mcpserver.Conn, error) {
+	a.srv = mcpserver.New(mcpserver.Options{Version: version, RenewEvery: renew, Dir: u.repo, Offline: off, Cache: cache, Dial: func(ctx context.Context) (mcpserver.Conn, error) {
 		a.dials++
 		return mcpserver.DialRepo(ctx, u.repo, opts)
 	}})
