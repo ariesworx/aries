@@ -391,11 +391,11 @@ LIMIT ?`, append(append([]any{q.now}, fargs...), digestRows+1)...) //nolint:gose
 	if err := rows.Close(); err != nil {
 		return fmt.Errorf("blocked: %w", err)
 	}
-	by, err := blockerMap(ctx, q.tx)
+	d.Blocked = DigestSection{Total: len(items), Items: items[:min(len(items), DigestItems)]}
+	by, err := blockerMap(ctx, q.tx, vias[:len(d.Blocked.Items)])
 	if err != nil {
 		return err
 	}
-	d.Blocked = DigestSection{Total: len(items), Items: items[:min(len(items), DigestItems)]}
 	for i := range d.Blocked.Items {
 		d.Blocked.Items[i].BlockedBy = by[vias[i]]
 	}

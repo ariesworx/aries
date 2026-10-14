@@ -240,7 +240,7 @@ func list(ctx context.Context, pr *served, _ store.Actor, in proto.ListArgs) (an
 	for _, p := range in.Priority {
 		f.Priorities = append(f.Priorities, store.Priority(p))
 	}
-	page, err := pr.store.List(ctx, f)
+	page, err := pr.store.ListSummaries(ctx, f)
 	if err != nil {
 		return nil, pr.mapErr(ctx, proto.OpList, "", 0, err)
 	}
@@ -254,7 +254,7 @@ func ready(ctx context.Context, pr *served, a store.Actor, in proto.LimitArgs) (
 	}
 	out := proto.ListResult{Issues: make([]proto.Summary, 0, len(rs))}
 	for _, r := range rs {
-		sm := summary(r.Issue)
+		sm := summary(r.Summary)
 		for _, id := range r.Overlaps {
 			sm.Overlaps = append(sm.Overlaps, string(id))
 		}
@@ -286,7 +286,7 @@ func blocked(ctx context.Context, pr *served, _ store.Actor, in proto.LimitArgs)
 	}
 	out := proto.BlockedResult{Issues: []proto.BlockedIssue{}}
 	for _, b := range bs {
-		bi := proto.BlockedIssue{Summary: summary(b.Issue), Via: string(b.Via), BlockedBy: []string{}}
+		bi := proto.BlockedIssue{Summary: summary(b.Summary), Via: string(b.Via), BlockedBy: []string{}}
 		if len(b.BlockedBy) > proto.MaxBlockers {
 			b.BlockedBy, bi.More = b.BlockedBy[:proto.MaxBlockers], len(b.BlockedBy)-proto.MaxBlockers
 		}
@@ -581,14 +581,14 @@ func wireComment(c store.Comment) proto.Comment {
 		CreatedAt: c.CreatedAt.UTC()}
 }
 
-func summary(is store.Issue) proto.Summary {
-	return proto.Summary{ID: string(is.ID), Title: is.Title, Status: string(is.Status), Priority: int(is.Priority)}
+func summary(sm store.Summary) proto.Summary {
+	return proto.Summary{ID: string(sm.ID), Title: sm.Title, Status: string(sm.Status), Priority: int(sm.Priority)}
 }
 
-func summaries(issues []store.Issue) []proto.Summary {
-	out := make([]proto.Summary, 0, len(issues))
-	for _, is := range issues {
-		out = append(out, summary(is))
+func summaries(sms []store.Summary) []proto.Summary {
+	out := make([]proto.Summary, 0, len(sms))
+	for _, sm := range sms {
+		out = append(out, summary(sm))
 	}
 	return out
 }

@@ -175,13 +175,22 @@ func BenchmarkScale(b *testing.B) {
 
 // BenchmarkLongBodies is the reads that return issues, on 1,000 issues
 // whose bodies are each 32 KiB: list, ready and blocked answer with a
-// summary of each issue, and read the whole row to make it.
+// summary of each issue, and read only that; the export reads the whole
+// row (list/full).
 func BenchmarkLongBodies(b *testing.B) {
 	s := openStore(b, newDSN(b), Options{})
 	p := seedScale(b, s, 1000, 32<<10)
 	ctx := b.Context()
 	for _, limit := range []int{50, 500} {
 		b.Run(fmt.Sprintf("list/limit=%d", limit), func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				if _, err := s.ListSummaries(ctx, Filter{Limit: limit}); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+		b.Run(fmt.Sprintf("list/full/limit=%d", limit), func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				if _, err := s.List(ctx, Filter{Limit: limit}); err != nil {
@@ -242,11 +251,12 @@ func benchStore(b *testing.B, s *Store, p benchProject) {
 		run  func() error
 	}{
 		{"get", func() error { _, err := s.GetIssue(ctx, some); return err }},
-		{"list", func() error { _, err := s.List(ctx, Filter{}); return err }},
+		{"list", func() error { _, err := s.ListSummaries(ctx, Filter{}); return err }},
 		{"list/in_progress", func() error {
-			_, err := s.List(ctx, Filter{Statuses: []Status{StatusInProgress}, Assignee: "carol"})
+			_, err := s.ListSummaries(ctx, Filter{Statuses: []Status{StatusInProgress}, Assignee: "carol"})
 			return err
 		}},
+		{"list/full", func() error { _, err := s.List(ctx, Filter{}); return err }},
 		{"ready", func() error { _, err := s.Ready(ctx, alice, 10); return err }},
 		{"blocked", func() error { _, err := s.Blocked(ctx, 50); return err }},
 		{"digest", func() error { _, err := s.Digest(ctx, DigestFilter{Window: 24 * time.Hour}); return err }},

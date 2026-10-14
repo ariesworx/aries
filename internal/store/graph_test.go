@@ -70,7 +70,7 @@ func TestReadyAndBlocked(t *testing.T) {
 	}
 	got := map[IssueID]BlockedIssue{}
 	for _, b := range blocked {
-		got[b.Issue.ID] = b
+		got[b.ID] = b
 	}
 	cases := []struct {
 		name string

@@ -21,9 +21,10 @@ type cursorPos struct {
 	ID IssueID `json:"i"`
 }
 
-// encodeCursor makes the cursor of the page after is.
-func encodeCursor(is Issue) Cursor {
-	b, _ := json.Marshal(cursorPos{At: is.CreatedAt.UnixMicro(), ID: is.ID}) //nolint:errchkjson // plain struct
+// encodeCursor makes the cursor of the page after the issue id, created
+// at at.
+func encodeCursor(at time.Time, id IssueID) Cursor {
+	b, _ := json.Marshal(cursorPos{At: at.UnixMicro(), ID: id}) //nolint:errchkjson // plain struct
 	return Cursor(base64.RawURLEncoding.EncodeToString(b))
 }
 
@@ -49,62 +50,10 @@ func decodeCursor(c Cursor) (cursorPos, error) {
 // after it. A status, type or label that is not valid, or a malformed
 // cursor, is refused with ErrInvalid.
 func (s *Store) List(ctx context.Context, f Filter) (IssuePage, error) {
-	limit := clampLimit(f.Limit, 50, 500)
-	var where []string
-	var args []any
-	in := func(col string, n int, val func(int) any) {
-		if n == 0 {
-			return
-		}
-		where = append(where, col+" IN ("+placeholders(n)+")")
-		for i := range n {
-			args = append(args, val(i))
-		}
+	q, args, limit, err := listQuery(f, issueCols)
+	if err != nil {
+		return IssuePage{}, err
 	}
-	for _, st := range f.Statuses {
-		if !st.Valid() {
-			return IssuePage{}, fmt.Errorf("%w: status %q", ErrInvalid, st)
-		}
-	}
-	for _, t := range f.Types {
-		if !t.Valid() {
-			return IssuePage{}, fmt.Errorf("%w: type %q", ErrInvalid, t)
-		}
-	}
-	in("i.status", len(f.Statuses), func(i int) any { return string(f.Statuses[i]) })
-	in("i.type", len(f.Types), func(i int) any { return string(f.Types[i]) })
-	in("i.priority", len(f.Priorities), func(i int) any { return int(f.Priorities[i]) })
-	if f.Assignee != "" {
-		where = append(where, "i.assignee = ?")
-		args = append(args, f.Assignee)
-	}
-	if f.ParentID != "" {
-		where = append(where, "i.parent_id = ?")
-		args = append(args, string(f.ParentID))
-	}
-	for _, l := range f.Labels {
-		if err := validLabel(l); err != nil {
-			return IssuePage{}, err
-		}
-		where = append(where, "EXISTS (SELECT 1 FROM labels l WHERE l.issue_id = i.id AND l.label = ?)")
-		args = append(args, l)
-	}
-	if f.Cursor != "" {
-		p, err := decodeCursor(f.Cursor)
-		if err != nil {
-			return IssuePage{}, err
-		}
-		at := time.UnixMicro(p.At).UTC()
-		where = append(where, "(i.created_at > ? OR (i.created_at = ? AND i.id > ?))")
-		args = append(args, at, at, string(p.ID))
-	}
-	q := `SELECT ` + issueCols + ` FROM issues i`
-	if len(where) > 0 {
-		q += " WHERE " + strings.Join(where, " AND ") //nolint:gosec // fixed clauses; values are placeholders
-	}
-	q += " ORDER BY i.created_at, i.id LIMIT ?"
-	args = append(args, limit+1)
-
 	tx, end, err := s.beginRead(ctx)
 	if err != nil {
 		return IssuePage{}, fmt.Errorf("list: %w", err)
@@ -128,7 +77,106 @@ func (s *Store) List(ctx context.Context, f Filter) (IssuePage, error) {
 	}
 	if len(page.Issues) > limit {
 		page.Issues = page.Issues[:limit]
-		page.Next = encodeCursor(page.Issues[limit-1])
+		last := page.Issues[limit-1]
+		page.Next = encodeCursor(last.CreatedAt, last.ID)
 	}
 	return page, withLabels(ctx, tx, page.Issues)
+}
+
+// ListSummaries is [Store.List] for a list that shows only each issue's
+// [Summary]: the same issues in the same pages, with the same cursors,
+// read in one query without their long texts or their labels.
+func (s *Store) ListSummaries(ctx context.Context, f Filter) (SummaryPage, error) {
+	q, args, limit, err := listQuery(f, `i.id, i.title, i.status, i.priority, i.created_at`)
+	if err != nil {
+		return SummaryPage{}, err
+	}
+	rows, err := s.r.QueryContext(ctx, q, args...)
+	if err != nil {
+		return SummaryPage{}, fmt.Errorf("list: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var page SummaryPage
+	var lastAt time.Time // the created_at of the page's last issue
+	for rows.Next() {
+		var sm Summary
+		var at time.Time
+		if err := rows.Scan(&sm.ID, &sm.Title, &sm.Status, &sm.Priority, &at); err != nil {
+			return SummaryPage{}, fmt.Errorf("list: %w", err)
+		}
+		if len(page.Issues) < limit {
+			lastAt = at
+		}
+		page.Issues = append(page.Issues, sm)
+	}
+	if err := rows.Err(); err != nil {
+		return SummaryPage{}, fmt.Errorf("list: %w", err)
+	}
+	if len(page.Issues) > limit {
+		page.Issues = page.Issues[:limit]
+		page.Next = encodeCursor(lastAt, page.Issues[limit-1].ID)
+	}
+	return page, nil
+}
+
+// listQuery returns the query of List and ListSummaries for f, selecting
+// cols, a constant list of columns of issues aliased i, with its
+// arguments and the page's size. The query reads one row past the page,
+// which says whether there is a next one.
+func listQuery(f Filter, cols string) (string, []any, int, error) {
+	limit := clampLimit(f.Limit, 50, 500)
+	var where []string
+	var args []any
+	in := func(col string, n int, val func(int) any) {
+		if n == 0 {
+			return
+		}
+		where = append(where, col+" IN ("+placeholders(n)+")")
+		for i := range n {
+			args = append(args, val(i))
+		}
+	}
+	for _, st := range f.Statuses {
+		if !st.Valid() {
+			return "", nil, 0, fmt.Errorf("%w: status %q", ErrInvalid, st)
+		}
+	}
+	for _, t := range f.Types {
+		if !t.Valid() {
+			return "", nil, 0, fmt.Errorf("%w: type %q", ErrInvalid, t)
+		}
+	}
+	in("i.status", len(f.Statuses), func(i int) any { return string(f.Statuses[i]) })
+	in("i.type", len(f.Types), func(i int) any { return string(f.Types[i]) })
+	in("i.priority", len(f.Priorities), func(i int) any { return int(f.Priorities[i]) })
+	if f.Assignee != "" {
+		where = append(where, "i.assignee = ?")
+		args = append(args, f.Assignee)
+	}
+	if f.ParentID != "" {
+		where = append(where, "i.parent_id = ?")
+		args = append(args, string(f.ParentID))
+	}
+	for _, l := range f.Labels {
+		if err := validLabel(l); err != nil {
+			return "", nil, 0, err
+		}
+		where = append(where, "EXISTS (SELECT 1 FROM labels l WHERE l.issue_id = i.id AND l.label = ?)")
+		args = append(args, l)
+	}
+	if f.Cursor != "" {
+		p, err := decodeCursor(f.Cursor)
+		if err != nil {
+			return "", nil, 0, err
+		}
+		at := time.UnixMicro(p.At).UTC()
+		where = append(where, "(i.created_at > ? OR (i.created_at = ? AND i.id > ?))")
+		args = append(args, at, at, string(p.ID))
+	}
+	q := `SELECT ` + cols + ` FROM issues i`
+	if len(where) > 0 {
+		q += " WHERE " + strings.Join(where, " AND ") //nolint:gosec // fixed clauses; values are placeholders
+	}
+	q += " ORDER BY i.created_at, i.id LIMIT ?"
+	return q, append(args, limit+1), limit, nil
 }

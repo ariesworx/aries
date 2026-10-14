@@ -562,6 +562,28 @@ follows from a measurement of the code as it is.
   protocol change. It is the proposal that takes the largest
   allocation a client can ask for, over 130 MB with one request, down to
   nothing.
+- **Since this was written (14 October 2026): done.** `list` reads
+  `Store.ListSummaries`, the same pages and cursors as `List` with the
+  four columns of a summary and no labels; `List` stays for the export.
+  `Ready` and `Blocked` return a `Summary` of each issue. `Blocked`
+  counts its page in issues inside the query (`DENSE_RANK` over its
+  rows, which keeps an issue's own blockers before an ancestor's), and
+  reads the blockers of the page's issues alone; a first try that
+  chose the page with `IN (SELECT id FROM blocked)` ran for over 20
+  minutes at 50,000 issues and was dropped. On the 100-issue project
+  (`BenchmarkOp`, `BenchmarkOpStatements`): `list` 186 KB and 2,075
+  allocations to 45 KB and 531, 4 statements and 6 round trips to 1 and
+  2, 0.94 ms to 0.22; `ready` 48.8 KB and 630 to 17.3 KB and 257, 6 and
+  10 to 5 and 8; `blocked` 69 KB and 731 to 25 KB and 320, 5 and 7 to 4
+  and 6, its time the same. A page of 50 (`BenchmarkScale`) is 167 KB
+  and 2,090 allocations at 1,000, 10,000 and 50,000 issues before and
+  24 KB and 504 after, 1.4 ms to 0.26. With bodies of 32 KiB
+  (`BenchmarkLongBodies`) a page of 50 is 1.82 MB and 3.7 ms before and
+  24 KB and 0.19 ms after, a page of 500 17.7 MB and 55 ms before and
+  0.21 MB and 0.5 ms after; `Ready` 0.49 MB to 0.14 MB; `Blocked` 3.6 MB
+  and 8.4 ms to 57 KB and 3.4 ms. `Blocked` at 1,000, 10,000 and 50,000
+  issues: 0.38, 3.2 and 15.5 MB before, 57 KB at each after; 3.6, 14
+  and 67 ms before, 4.7, 10.5 and 41 ms after.
 
 ### 4. A renew that extends nothing should not wait for the writer
 

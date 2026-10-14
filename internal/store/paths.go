@@ -76,10 +76,10 @@ type Files struct {
 	Overlaps []Overlap
 }
 
-// ReadyIssue is an issue Ready lists, and the issues other sessions hold
-// whose paths overlap its own.
+// ReadyIssue is the summary of an issue Ready lists, and the issues other
+// sessions hold whose paths overlap its own.
 type ReadyIssue struct {
-	Issue
+	Summary
 	Overlaps []IssueID
 }
 

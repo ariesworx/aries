@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 )
 
@@ -223,20 +224,20 @@ func (s *Store) Ready(ctx context.Context, actor Actor, limit int) ([]ReadyIssue
 	if err != nil {
 		return nil, err
 	}
-	issues, err := loadIssues(ctx, tx, ids)
+	sums, err := loadSummaries(ctx, tx, ids)
 	if err != nil {
 		return nil, fmt.Errorf("ready: %w", err)
 	}
-	out := make([]ReadyIssue, len(issues))
-	for i, is := range issues {
-		out[i] = ReadyIssue{Issue: is, Overlaps: overlaps[is.ID]}
+	out := make([]ReadyIssue, len(sums))
+	for i, sm := range sums {
+		out[i] = ReadyIssue{Summary: sm, Overlaps: overlaps[sm.ID]}
 	}
 	return out, nil
 }
 
-// loadIssues reads the issues ids, with their labels, in the order given;
-// an id with no issue is left out.
-func loadIssues(ctx context.Context, q querier, ids []IssueID) ([]Issue, error) {
+// loadSummaries reads the summaries of the issues ids, in the order
+// given; an id with no issue is left out.
+func loadSummaries(ctx context.Context, q querier, ids []IssueID) ([]Summary, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
@@ -244,34 +245,43 @@ func loadIssues(ctx context.Context, q querier, ids []IssueID) ([]Issue, error) 
 	for i, id := range ids {
 		args[i] = string(id)
 	}
-	rows, err := q.QueryContext(ctx, `SELECT `+issueCols+` FROM issues i WHERE i.id IN (`+placeholders(len(ids))+`)`, args...)
+	rows, err := q.QueryContext(ctx, `SELECT i.id, i.title, i.status, i.priority FROM issues i WHERE i.id IN (`+
+		placeholders(len(ids))+`)`, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
-	byID := make(map[IssueID]Issue, len(ids))
+	byID := make(map[IssueID]Summary, len(ids))
 	for rows.Next() {
-		is, err := scanIssue(rows)
-		if err != nil {
+		var sm Summary
+		if err := rows.Scan(&sm.ID, &sm.Title, &sm.Status, &sm.Priority); err != nil {
 			return nil, err
 		}
-		byID[is.ID] = is
+		byID[sm.ID] = sm
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	out := make([]Issue, 0, len(ids))
+	out := make([]Summary, 0, len(ids))
 	for _, id := range ids {
-		if is, ok := byID[id]; ok {
-			out = append(out, is)
+		if sm, ok := byID[id]; ok {
+			out = append(out, sm)
 		}
 	}
-	return out, withLabels(ctx, q, out)
+	return out, nil
 }
 
 // Blocked returns unclosed issues held back by unclosed blockers, their own
 // or an ancestor's, ordered by priority, then age, at most limit (0 means
 // 50, at most 500), from one snapshot.
+//
+// An issue blocked through several ancestors has a row for each, and the
+// first in the order, its own blockers before an ancestor's, says which
+// apply. So the page is counted in issues, not rows: the query numbers
+// the issues in the order (DENSE_RANK) and returns the rows of the first
+// limit, and no row past the page leaves Dolt. A query that picked the
+// page with IN (SELECT ... FROM blocked) and joined blocked again ran
+// for over 20 minutes at 50,000 issues.
 func (s *Store) Blocked(ctx context.Context, limit int) ([]BlockedIssue, error) {
 	limit = clampLimit(limit, 50, 500)
 	tx, end, err := s.beginRead(ctx)
@@ -279,10 +289,13 @@ func (s *Store) Blocked(ctx context.Context, limit int) ([]BlockedIssue, error) 
 		return nil, fmt.Errorf("blocked: %w", err)
 	}
 	defer end()
-	rows, err := tx.QueryContext(ctx, blockedCTE+`SELECT `+issueCols+`, b.via FROM issues i
-JOIN blocked b ON b.id = i.id
-WHERE i.status <> 'closed'
-ORDER BY i.priority, i.created_at, i.id, (b.via <> i.id)`, s.now())
+	rows, err := tx.QueryContext(ctx, blockedCTE+`SELECT id, title, status, priority, via FROM (
+  SELECT i.id, i.title, i.status, i.priority, i.created_at, b.via,
+    DENSE_RANK() OVER (ORDER BY i.priority, i.created_at, i.id) AS n
+  FROM issues i JOIN blocked b ON b.id = i.id
+  WHERE i.status <> 'closed'
+) x WHERE n <= ?
+ORDER BY priority, created_at, id, (via <> id)`, s.now(), limit)
 	if err != nil {
 		return nil, fmt.Errorf("blocked: %w", err)
 	}
@@ -290,63 +303,64 @@ ORDER BY i.priority, i.created_at, i.id, (b.via <> i.id)`, s.now())
 	var out []BlockedIssue
 	seen := map[IssueID]bool{}
 	for rows.Next() {
-		var via IssueID
-		is, err := scanIssue(rows, &via)
-		if err != nil {
+		var b BlockedIssue
+		if err := rows.Scan(&b.ID, &b.Title, &b.Status, &b.Priority, &b.Via); err != nil {
 			return nil, fmt.Errorf("blocked: %w", err)
 		}
-		if seen[is.ID] || len(out) >= limit {
+		if seen[b.ID] {
 			continue
 		}
-		seen[is.ID] = true
-		b := BlockedIssue{Issue: is}
-		if via != is.ID {
-			b.Via = via
+		seen[b.ID] = true
+		if b.Via == b.ID {
+			b.Via = ""
 		}
 		out = append(out, b)
 	}
-	if err := rows.Err(); err != nil {
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 		return nil, fmt.Errorf("blocked: %w", err)
 	}
-	if err := attachBlockers(ctx, tx, out); err != nil {
-		return nil, err
-	}
-	issues := make([]*Issue, len(out))
-	for i := range out {
-		issues[i] = &out[i].Issue
-	}
-	return out, attachLabels(ctx, tx, issues)
+	return out, attachBlockers(ctx, tx, out)
 }
 
 // attachBlockers fills BlockedBy for each issue: its own unclosed
 // blockers, or those of the ancestor it is blocked through (Via).
 func attachBlockers(ctx context.Context, q querier, bs []BlockedIssue) error {
-	by, err := blockerMap(ctx, q)
+	src := make([]IssueID, len(bs))
+	for i, b := range bs {
+		src[i] = b.ID
+		if b.Via != "" {
+			src[i] = b.Via
+		}
+	}
+	by, err := blockerMap(ctx, q, src)
 	if err != nil {
 		return err
 	}
 	for i := range bs {
-		src := bs[i].Issue.ID
-		if bs[i].Via != "" {
-			src = bs[i].Via
-		}
-		bs[i].BlockedBy = by[src]
+		bs[i].BlockedBy = by[src[i]]
 	}
 	return nil
 }
 
-// blockerMap maps each issue to its unclosed blocking targets, in id
-// order.
-func blockerMap(ctx context.Context, q querier) (map[IssueID][]IssueID, error) {
+// blockerMap maps each issue of from, at most 500, to its unclosed
+// blocking targets, in id order.
+func blockerMap(ctx context.Context, q querier, from []IssueID) (map[IssueID][]IssueID, error) {
+	by := map[IssueID][]IssueID{}
+	if len(from) == 0 {
+		return by, nil
+	}
+	args := make([]any, len(from))
+	for i, id := range from {
+		args[i] = string(id)
+	}
 	rows, err := q.QueryContext(ctx, `SELECT d.from_id, d.to_id FROM deps d
 JOIN issues t ON t.id = d.to_id
-WHERE d.type IN (`+readyBlocking+`) AND t.status <> 'closed'
-ORDER BY d.from_id, d.to_id`)
+WHERE d.from_id IN (`+placeholders(len(from))+`) AND d.type IN (`+readyBlocking+`) AND t.status <> 'closed'
+ORDER BY d.from_id, d.to_id`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("blockers: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
-	by := map[IssueID][]IssueID{}
 	for rows.Next() {
 		var f, t IssueID
 		if err := rows.Scan(&f, &t); err != nil {
