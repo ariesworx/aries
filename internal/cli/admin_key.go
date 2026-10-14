@@ -8,13 +8,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"text/tabwriter"
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 	"github.com/ariesworx/starfix/internal/proto"
 )
 
@@ -32,7 +32,7 @@ const maxKeyFile = 16 << 10
 
 // fingerprintForm is a key's SHA-256 fingerprint as ssh-keygen -l and
 // `sfx admin key list` print it.
-var fingerprintForm = regexp.MustCompile(`^SHA256:[A-Za-z0-9+/]{43}$`)
+var fingerprintForm = lazyregexp.New(`^SHA256:[A-Za-z0-9+/]{43}$`)
 
 // fileFlag collects a repeatable flag whose value is a file's path,
 // which may hold a comma.

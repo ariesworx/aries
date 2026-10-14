@@ -239,6 +239,20 @@ to that many states.
   link the outbox at this commit; when it does, every command pays that
   too unless those are lazy.
 
+**Since this was written (14 Oct 2026).** Done, with
+`internal/lazyregexp`. `internal/proto`'s, `release`'s and
+`secretscan`'s were already lazy, for `starfixd`'s sake; the rest that
+`sfx` links (`client`, `gitx`, `capture`, `agentsetup`, `cli`) are now
+too. The config's patterns stay patterns, compiled by the commands that
+read a config.
+Measured as above on macOS, before and after, at that later `main`:
+`sfx --version` 7,044 allocations and 1.01 MB at exit to 1,993 and
+0.57 MB, starfix's packages' `init` 446 KB to 10 KB; peak RSS 14.2 to
+13.1 MiB (minimum of 40), CPU 4.25 to 3.97 ms (minimum; median 4.48 to
+4.17); `prime --hook` outside a repository the same. `TestInitAllocations`
+(`cmd/sfx`) holds starfix's packages' `init` to 32 KiB and all of it to
+1 MiB.
+
 ### 3. Collect sooner in the long-lived commands
 
 `internal/cli/agent.go:179` (`cmdMCP`), and `sfx tui` and `sfx watch`.

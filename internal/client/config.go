@@ -9,11 +9,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 	"github.com/ariesworx/starfix/internal/proto"
 )
 
@@ -67,16 +67,16 @@ type IAP struct {
 }
 
 var (
-	gcpProjectRE  = regexp.MustCompile(`^[a-z][a-z0-9-]{4,28}[a-z0-9]$`)
-	gcpZoneRE     = regexp.MustCompile(`^[a-z]+-[a-z]+[0-9]+-[a-z]$`)
-	gcpInstanceRE = regexp.MustCompile(`^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$`)
+	gcpProjectRE  = lazyregexp.New(`^[a-z][a-z0-9-]{4,28}[a-z0-9]$`)
+	gcpZoneRE     = lazyregexp.New(`^[a-z]+-[a-z]+[0-9]+-[a-z]$`)
+	gcpInstanceRE = lazyregexp.New(`^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$`)
 )
 
 var (
-	uuidRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-	hostRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.:-]{0,252}$`)
-	userRE = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
-	fprRE  = regexp.MustCompile(`^SHA256:[A-Za-z0-9+/]{43}$`)
+	uuidRE = lazyregexp.New(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	hostRE = lazyregexp.New(`^[A-Za-z0-9][A-Za-z0-9.:-]{0,252}$`)
+	userRE = lazyregexp.New(`^[a-z_][a-z0-9_-]{0,31}$`)
+	fprRE  = lazyregexp.New(`^SHA256:[A-Za-z0-9+/]{43}$`)
 )
 
 // ErrNoConfig matches, with errors.Is, LoadConfig's error when neither

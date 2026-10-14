@@ -6,12 +6,12 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 	"github.com/ariesworx/starfix/internal/proto"
 )
 
@@ -150,7 +150,7 @@ func RepoRelative(ctx context.Context, dir string, ps []string) []string {
 }
 
 // hexHash is a commit hash as git prints it.
-var hexHash = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
+var hexHash = lazyregexp.New(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
 
 // ReadChanges reads the changes of the repository holding dir: the
 // checked-out branch, its commits since the default branch, following
