@@ -86,7 +86,9 @@ sudo sh install-server.sh --admin alice --admin-key alice.pub --host starfix.exa
 
 It prints each step as it goes, each thing it finds already done, and
 each command it runs; it ends with the `.starfix.yaml` to commit
-([step 7](#7-connect-a-repository)).
+([step 7](#7-connect-a-repository)), which pins the host key sshd
+presents now. [Rotating the host key](#rotating-the-host-key) says how
+to change that key later without refusing every client.
 
 | Option | Does |
 |---|---|
