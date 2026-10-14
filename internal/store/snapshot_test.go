@@ -46,6 +46,7 @@ func TestReadsAreOneSnapshot(t *testing.T) {
 		{"List", func(ctx context.Context, s *Store, _ fixture) (any, error) { return s.List(ctx, Filter{}) }},
 		{"Ready", func(ctx context.Context, s *Store, _ fixture) (any, error) { return s.Ready(ctx, Actor{}, 0) }},
 		{"Blocked", func(ctx context.Context, s *Store, _ fixture) (any, error) { return s.Blocked(ctx, 0) }},
+		{"ShowIssue", func(ctx context.Context, s *Store, f fixture) (any, error) { return s.ShowIssue(ctx, alice, f.a, 0) }},
 		{"AcceptanceItems", func(ctx context.Context, s *Store, f fixture) (any, error) {
 			return s.AcceptanceItems(ctx, f.a)
 		}},

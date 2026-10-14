@@ -697,6 +697,13 @@ follows from a measurement of the code as it is.
   2.9.
 - **Risk:** low to moderate: a new read in the store's API. It makes
   `show` right as well as cheaper.
+- **Since this was written (14 October 2026): done.** `Store.ShowIssue`
+  reads the issue, its edges, its claim, the latest handoff, the
+  acceptance items, the usage and the files on one read-only
+  transaction and at one time, and `TestReadsAreOneSnapshot` holds it to
+  that; the similar titles still come from the store's cache. `show`:
+  23 statements and 38 round trips to 14 and 26, 64 KB and 781
+  allocations to 51 KB and 578, 2.6 ms to 2.0.
 
 ### 8. Do not rank the ready issues inside the write
 

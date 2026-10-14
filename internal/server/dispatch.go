@@ -159,43 +159,19 @@ func wireItems(items []store.AcceptanceItem) []proto.AcceptanceItem {
 const compactText = 500
 
 func show(ctx context.Context, pr *served, a store.Actor, in proto.ShowArgs) (any, *proto.Error) {
-	id := store.IssueID(in.ID)
-	is, err := pr.store.GetIssue(ctx, id)
+	v, err := pr.store.ShowIssue(ctx, a, store.IssueID(in.ID), proto.MaxShowPaths)
 	if err != nil {
 		return nil, pr.mapErr(ctx, proto.OpShow, in.ID, 0, err)
 	}
-	deps, err := pr.store.Deps(ctx, id)
-	if err != nil {
-		return nil, pr.mapErr(ctx, proto.OpShow, in.ID, 0, err)
-	}
-	claim, err := pr.store.ClaimOf(ctx, id)
-	if err != nil {
-		return nil, pr.mapErr(ctx, proto.OpShow, in.ID, 0, err)
-	}
-	h, err := pr.store.LastHandoff(ctx, id)
-	if err != nil {
-		return nil, pr.mapErr(ctx, proto.OpShow, in.ID, 0, err)
-	}
-	items, err := pr.items(ctx, is)
-	if err != nil {
-		return nil, pr.mapErr(ctx, proto.OpShow, in.ID, 0, err)
-	}
-	u, err := pr.store.IssueUsage(ctx, id)
-	if err != nil {
-		return nil, pr.mapErr(ctx, proto.OpShow, in.ID, 0, err)
-	}
-	files, err := pr.store.IssueFiles(ctx, a, id, proto.MaxShowPaths)
-	if err != nil {
-		return nil, pr.mapErr(ctx, proto.OpShow, in.ID, 0, err)
-	}
-	out := proto.ShowResult{Issue: wireIssue(is), Items: items, Similar: pr.similar(ctx, is), Usage: pr.wireIssueUsage(u),
-		Files: wireFiles(files)}
-	if claim != nil {
-		c := wireClaim(*claim)
+	deps := v.Deps
+	out := proto.ShowResult{Issue: wireIssue(v.Issue), Items: wireItems(v.Items), Similar: pr.similar(ctx, v.Issue),
+		Usage: pr.wireIssueUsage(v.Usage), Files: wireFiles(v.Files)}
+	if v.Claim != nil {
+		c := wireClaim(*v.Claim)
 		out.Claim = &c
 	}
-	if h != nil {
-		w := wireHandoff(*h, a)
+	if v.Handoff != nil {
+		w := wireHandoff(*v.Handoff, a)
 		out.Handoff = &w
 	}
 	if !in.Full {

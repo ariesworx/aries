@@ -649,7 +649,6 @@ func (s *Store) IssueFiles(ctx context.Context, actor Actor, id IssueID, n int) 
 	if err := id.Validate(); err != nil {
 		return Files{}, err
 	}
-	n = clampLimit(n, proto.MaxShowPaths, 1000)
 	tx, end, err := s.beginRead(ctx)
 	if err != nil {
 		return Files{}, fmt.Errorf("files of %s: %w", id, err)
@@ -658,6 +657,12 @@ func (s *Store) IssueFiles(ctx context.Context, actor Actor, id IssueID, n int) 
 	if err := mustExist(ctx, tx, id); err != nil {
 		return Files{}, err
 	}
+	return issueFiles(ctx, tx, actor, id, n, s.now())
+}
+
+// issueFiles is IssueFiles on tx, as of now, for an issue that exists.
+func issueFiles(ctx context.Context, tx querier, actor Actor, id IssueID, n int, now time.Time) (Files, error) {
+	n = clampLimit(n, proto.MaxShowPaths, 1000)
 	rows, err := tx.QueryContext(ctx, `SELECT path, source, principal, session, first_at, last_at
   FROM issue_paths WHERE issue_id = ?`, string(id))
 	if err != nil {
@@ -689,7 +694,7 @@ func (s *Store) IssueFiles(ctx context.Context, actor Actor, id IssueID, n int) 
 		}
 		return cmp.Or(b.LastAt.Compare(a.LastAt), cmp.Compare(a.Path, b.Path))
 	})
-	held, err := loadHeld(ctx, tx, actor, s.now())
+	held, err := loadHeld(ctx, tx, actor, now)
 	if err != nil {
 		return Files{}, err
 	}
