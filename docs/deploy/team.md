@@ -17,7 +17,7 @@ CI runners: ci-bot ────────────────┘          
 
 | Choice | This example | Why |
 |---|---|---|
-| Server | One e2-small VM (2 shared vCPUs, 2 GB) with Ubuntu 24.04 LTS, the supported platform, and a 20 GB balanced disk | Room to spare for a team ([What a server needs](../server.md#what-a-server-needs)) |
+| Server | One e2-small VM (2 shared vCPUs, 2 GB) with Ubuntu 24.04 LTS, a supported platform, and a 20 GB balanced disk | Room to spare for a team ([What a server needs](../server.md#what-a-server-needs)) |
 | Address | A static public IPv4 address and a DNS name, `starfix.example.com` | Cloud sandboxes and CI runners cannot easily join a private network |
 | Port | 22, open to the internet, keys only, rate-limited | sshd refuses everything but the listed keys |
 | Identity | One principal per person, and one per automated agent (`ci-bot`, `cloud-agent`) | A leaked CI key is revoked without touching anyone else |

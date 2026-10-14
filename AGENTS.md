@@ -60,7 +60,7 @@ stage is in progress.
 | `deploy/apparmor` | AppArmor profiles for `starfixd` on Ubuntu, and their tunables. A change to what `starfixd` reads, writes, connects to or runs changes them too |
 | `scripts` | For contributors, in POSIX shell: `gate.sh` runs the gate (Commands, below), and `install-dolt.sh` installs the pinned Dolt, verified, under the user's cache directory. `leftovers.sh` runs a command, the tests usually, with a temporary directory of its own and fails if it leaves a file there or a process running; the gate's tests run under it. The tests beside them run all three against stand-ins |
 | `mise.toml` | Go, golangci-lint and shellcheck versions for contributors who use mise; optional |
-| `install-server.sh` | The server installer: does docs/server.md's setup, for a server of many projects, on a fresh Ubuntu 24.04 LTS machine, as root, each step checking before it acts; `--dry-run` changes nothing. It installs the binaries through `install.sh`, holds no release key, and holds the Dolt pin, which `internal/version` keeps in step. `scripts/installserver_test.go` fails when its steps, or the text of a file it writes, differ from the guide's ([With the installer](docs/server.md#with-the-installer)) |
+| `install-server.sh` | The server installer: does docs/server.md's setup, for a server of many projects, on a fresh Ubuntu 24.04 LTS or 26.04 LTS machine, as root, each step checking before it acts; `--dry-run` changes nothing. It installs the binaries through `install.sh`, holds no release key, and holds the Dolt pin, which `internal/version` keeps in step. `scripts/installserver_test.go` fails when its steps, or the text of a file it writes, differ from the guide's ([With the installer](docs/server.md#with-the-installer)) |
 | `install.sh` | The one-line installer for `sfx` and `starfixd`, from GitHub or from a static tree (`STARFIX_RELEASES`); `internal/release/install_test.go` and `install_static_test.go` run it against each, and tests check that its key is in `keys.go` and its `DEFAULT_RELEASES` is `release.DefaultSource` |
 | `spike/dolt` | Stage 0 measurements, kept as evidence; not maintained and excluded from lint |
 | `spike/multidb` | Stage 3a measurements of many databases in one Dolt, kept as evidence; not maintained and excluded from lint |
@@ -136,7 +136,8 @@ stays on disk, in `/tmp`.
 measurements behind each.
 
 CI also checks the syntax of the AppArmor profiles in `deploy/apparmor`
-with `apparmor_parser -Q -K`, which needs Linux with AppArmor and is not
+with `apparmor_parser -Q -K`, under Ubuntu 24.04's parser (in `lint`) and
+26.04's (`apparmor-26-04`), which needs Linux with AppArmor and is not
 in the gate above; it does not check that `starfixd` works when confined
 ([deploy/apparmor/README.md](deploy/apparmor/README.md)).
 `deploy/docker/smoke.sh` is not part of the gate, and CI does not run it.

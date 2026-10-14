@@ -14,7 +14,7 @@ your machine
 
 ## What you need
 
-- **Linux with systemd.** Ubuntu 24.04 LTS is the supported platform;
+- **Linux with systemd.** Ubuntu 24.04 LTS and 26.04 LTS are the supported platforms;
   other distributions may work and are untested, and those that run
   SELinux are not supported yet
   ([What a server needs](../server.md#what-a-server-needs)). A Linux

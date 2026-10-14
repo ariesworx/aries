@@ -15,8 +15,8 @@ backed up.
 | **Monitoring** | None needed | The provider's VM metrics and starfixd's log | Alerts on the VM, its disk and starfixd's errors, and a budget |
 | **Cost a month** | $0 | About $19 | About $65 to $114 |
 
-Every example's server runs Ubuntu 24.04 LTS, the supported platform
-([What a server needs](../server.md#what-a-server-needs)); systems that
+Every example's server runs Ubuntu 24.04 LTS; 26.04 LTS is supported
+too ([What a server needs](../server.md#what-a-server-needs)); systems that
 run SELinux are not supported yet.
 
 Costs are Google Cloud list prices for us-central1, on demand and before

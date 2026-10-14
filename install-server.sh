@@ -1,7 +1,8 @@
 #!/bin/sh
-# Set up a starfix server on a fresh Ubuntu 24.04 LTS machine: what the
-# steps of docs/server.md do by hand, for a server of many projects, with
-# sshd reading the keys starfixd writes from its control database.
+# Set up a starfix server on a fresh Ubuntu 24.04 LTS or 26.04 LTS
+# machine: what the steps of docs/server.md do by hand, for a server of
+# many projects, with sshd reading the keys starfixd writes from its
+# control database.
 #
 #   curl -fsSLO https://raw.githubusercontent.com/ariesworx/starfix/main/install-server.sh
 #   sudo sh install-server.sh --admin alice --admin-key alice.pub --host starfix.example.com
@@ -22,10 +23,10 @@ usage: install-server.sh --admin NAME --admin-key FILE [--host HOST] [--port POR
                          [--project NAME] [--version vX.Y.Z] [--releases SOURCE]
                          [--apparmor] [--dry-run]
 
-Sets up a starfix server on Ubuntu 24.04 LTS, as root, following
-docs/server.md: Dolt, starfixd and sfx, the database, the config file,
-the systemd units, sshd, and the first admin. Prints the .starfix.yaml
-a repository commits.
+Sets up a starfix server on Ubuntu 24.04 LTS or 26.04 LTS, as root,
+following docs/server.md: Dolt, starfixd and sfx, the database, the
+config file, the systemd units, sshd, and the first admin. Prints the
+.starfix.yaml a repository commits.
 
   --admin NAME       the first server admin's principal name
   --admin-key FILE   that admin's SSH public key (a .pub file)
@@ -161,17 +162,21 @@ case $releases in *[[:space:]\'\"\\]*)
 	usage_die "--releases holds a space or a quote" "give the plain URL or path of the mirror" ;;
 esac
 
-# The machine: Ubuntu 24.04 LTS, the platform docs/server.md was run on.
+# The machine: an Ubuntu LTS release docs/server.md was run on, which
+# scripts/installserver_test.go holds to the guide's list.
+ubuntu_versions='24.04 26.04'
+releases_text='Ubuntu 24.04 LTS or 26.04 LTS'
 os_id=$(sed -n 's/^ID=//p' /etc/os-release 2>/dev/null | tr -d '"')
 os_version=$(sed -n 's/^VERSION_ID=//p' /etc/os-release 2>/dev/null | tr -d '"')
 if [ "$os_id" != ubuntu ]; then
-	die "this installer runs on Ubuntu 24.04 LTS only, and this machine is not Ubuntu" \
-		"run it on Ubuntu 24.04 LTS, or follow docs/server.md by hand (other distributions are untested)"
+	die "this installer runs only on $releases_text, and this machine is not Ubuntu" \
+		"run it on one of those, or follow docs/server.md by hand (other distributions are untested)"
 fi
-if [ "$os_version" != 24.04 ]; then
-	die "this installer runs on Ubuntu 24.04 LTS only, and this machine is Ubuntu $os_version" \
-		"run it on Ubuntu 24.04 LTS, or follow docs/server.md by hand"
-fi
+case " $ubuntu_versions " in
+*" $os_version "*) ;;
+*) die "this installer runs only on $releases_text, and this machine is Ubuntu $os_version" \
+	"run it on one of those, or follow docs/server.md by hand" ;;
+esac
 [ "$(id -u)" = 0 ] || die "this installer must run as root" "run it with sudo: sudo sh install-server.sh ..."
 
 # Where install.sh and the AppArmor profiles come from: beside this
@@ -817,10 +822,12 @@ run_starfixd_unit() {
 	ensure_dir /etc/systemd/system/starfixd.service.d root root 755
 	put /etc/systemd/system/starfixd.service.d/keys.conf 644 root root keys_dropin
 	[ "$wrote" = 0 ] || { daemon_reload=1; restart_starfixd=1; }
-	# The sudo rule, checked by visudo before it is in place.
+	# The sudo rule, checked by visudo before it is in place. sudo-rs's
+	# visudo, Ubuntu 26.04's, says "parsed OK" despite -q; its errors go
+	# to stderr.
 	if [ ! -e /etc/sudoers.d/starfix ]; then
 		sudoers >"$tmp/sudoers"
-		visudo -c -q -f "$tmp/sudoers" || die "visudo refuses the sudo rule" "report it at https://github.com/ariesworx/starfix/issues"
+		visudo -c -q -f "$tmp/sudoers" >/dev/null || die "visudo refuses the sudo rule" "report it at https://github.com/ariesworx/starfix/issues"
 	fi
 	put /etc/sudoers.d/starfix 440 root root sudoers
 	reload_units

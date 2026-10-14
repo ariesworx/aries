@@ -451,7 +451,7 @@ update `.starfix.yaml`.
 
 | Running a server | Here | Why |
 |---|---|---|
-| Ubuntu 24.04 with systemd units for Dolt and starfixd | Ubuntu 24.04; the entrypoint starts the three programs and stops all of them when one exits | A container has no systemd. Each program still runs as its own user with a bare environment, `umask 077` and no way to gain privileges |
+| Ubuntu 24.04 or 26.04 with systemd units for Dolt and starfixd | Ubuntu 24.04; the entrypoint starts the three programs and stops all of them when one exits | A container has no systemd. Each program still runs as its own user with a bare environment, `umask 077` and no way to gain privileges. The image stays on 24.04: 26.04 was run with the [installer](../server.md#with-the-installer) instead, and its OpenSSH turns away for a while an address that fails to log in, which here is Docker's one address for every client, so the smoke test's refused keys would lock out its next steps ([step 6](../server.md#6-let-the-first-principal-in)) |
 | starfixd installed from a signed release into `/opt/starfix/bin` | Built from the checkout into `/usr/local/bin`; no `systemd_unit` and no sudo rule | It tests what is checked out. Rebuild the image instead of running `starfixd upgrade` |
 | starfixd may write to `~starfix/.ssh` by a `ReadWritePaths` line in its unit | Nothing confines it | A container has no systemd. sshd's `AuthorizedKeysFile` line is the guide's |
 | You opt in to many projects, grant 100 database names and run `control init` once | Opted in from the first start, with 8 names; `control init` runs at every start | So there is nothing to set up. A volume made by an older image is moved at its next start |

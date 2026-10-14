@@ -289,9 +289,57 @@ func TestInstallServerOptions(t *testing.T) {
 	}
 }
 
+// scriptUbuntuVersions returns the Ubuntu releases the installer accepts,
+// from its ubuntu_versions line.
+func scriptUbuntuVersions(t *testing.T) []string {
+	t.Helper()
+	m := regexp.MustCompile(`(?m)^ubuntu_versions='([0-9. ]+)'$`).FindStringSubmatch(read(t, installServer))
+	if m == nil {
+		t.Fatalf("%s has no ubuntu_versions='VERSION ...' line", installServer)
+	}
+	return strings.Fields(m[1])
+}
+
+// ubuntuReleases names versions as the guide and the installer word them,
+// joining the last with conj: "Ubuntu 24.04 LTS", or "Ubuntu 24.04 LTS
+// and 26.04 LTS".
+func ubuntuReleases(versions []string, conj string) string {
+	lts := make([]string, len(versions))
+	for i, v := range versions {
+		lts[i] = v + " LTS"
+	}
+	if len(lts) == 1 {
+		return "Ubuntu " + lts[0]
+	}
+	return "Ubuntu " + strings.Join(lts[:len(lts)-1], ", ") + " " + conj + " " + lts[len(lts)-1]
+}
+
+// TestInstallServerVersionsMatchGuide keeps the Ubuntu releases the
+// installer accepts the ones docs/server.md says are supported, and the
+// ones its table of the installer's steps says step 1 checks for.
+func TestInstallServerVersionsMatchGuide(t *testing.T) {
+	t.Parallel()
+	versions := scriptUbuntuVersions(t)
+	if want := "**" + ubuntuReleases(versions, "and") + " are the supported platforms.**"; len(versions) > 1 &&
+		!strings.Contains(guideSection(t, "## What a server needs"), want) {
+		t.Errorf("%s accepts %s, and %s's \"What a server needs\" does not say %q; change both together",
+			installServer, strings.Join(versions, " "), serverGuide, want)
+	}
+	steps, _ := guideTable(t)
+	if len(steps) == 0 {
+		t.Fatalf("%s's \"With the installer\" has no table of steps", serverGuide)
+	}
+	want := "Ubuntu " + strings.Join(versions, " or ")
+	if row := "| 1 | " + steps[0].title + " | [What a server needs](#what-a-server-needs): " + want + ","; !strings.Contains(read(t, serverGuide), row) {
+		t.Errorf("%s accepts %s, and step 1 of %s's \"With the installer\" table does not say %q; change both together",
+			installServer, strings.Join(versions, " "), serverGuide, want)
+	}
+}
+
 // TestInstallServerRefusesMachine checks that, with good options, the
-// installer refuses before it changes anything when it is not root on
-// Ubuntu 24.04: off Ubuntu for the system, and on it for want of root.
+// installer refuses before it changes anything when it is not root on a
+// release it supports: off those for the system, and on one for want of
+// root.
 func TestInstallServerRefusesMachine(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
@@ -300,10 +348,12 @@ func TestInstallServerRefusesMachine(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("running as root, where the installer would go on to set the machine up")
 	}
-	want := "this installer runs on Ubuntu 24.04 LTS only"
-	if b, err := os.ReadFile("/etc/os-release"); err == nil && regexp.MustCompile(`(?m)^ID=ubuntu$`).Match(b) &&
-		regexp.MustCompile(`(?m)^VERSION_ID="?24\.04"?$`).Match(b) {
-		want = "this installer must run as root"
+	versions := scriptUbuntuVersions(t)
+	want := "this installer runs only on " + ubuntuReleases(versions, "or")
+	if b, err := os.ReadFile("/etc/os-release"); err == nil && regexp.MustCompile(`(?m)^ID=ubuntu$`).Match(b) {
+		if m := regexp.MustCompile(`(?m)^VERSION_ID="?([0-9.]+)"?$`).FindSubmatch(b); m != nil && slices.Contains(versions, string(m[1])) {
+			want = "this installer must run as root"
+		}
 	}
 	code, stderr := runInstallServer(t, "--admin", "alice", "--admin-key", "alice.pub", "--dry-run")
 	if code != 1 || !strings.Contains(stderr, want) || !strings.Contains(stderr, "\nfix: ") {
