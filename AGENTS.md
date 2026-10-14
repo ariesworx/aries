@@ -26,7 +26,7 @@ stage is in progress.
 |---|---|
 | `cmd/sfx` | `sfx` entry point: builds a `cli.Env` from the process and calls `cli.Run` |
 | `cmd/starfixd` | `starfixd` entry point: `serve` (which, on a server of many projects, also writes the keys file sshd reads), `stdio`, `upgrade`, `status` (the running daemon's report, over its socket), and the admin `control init`, `import-bd` and `export-bd`. `serve` also wires the telemetry, the loopback listener and systemd's notifications (`runDaemon`) |
-| `internal/store` | Typed store over Dolt: single writer, CAS updates, event log, ready and blocked queries. Also `Control` (`control*.go`), the same machinery over a second database for what is the server's: projects, principals, their public keys and memberships with roles, and the in-memory index the daemon reads at each handshake and each project store asks for its admins. `stats.go` holds what `sfx admin status` reads from memory: a store's write counters, and the control index's counts. `observe.go` holds the two hooks the daemon measures and traces a store through, `Observer` and `Tracer`; the store imports nothing of telemetry |
+| `internal/store` | Typed store over Dolt: single writer, CAS updates, event log, ready and blocked queries; and conflicts (`conflicts.go`, design §18.7): a replayed update compared field by field with the state at its rev, what others changed parked for a person to resolve, and agents' proposals. Also `Control` (`control*.go`), the same machinery over a second database for what is the server's: projects, principals, their public keys and memberships with roles, and the in-memory index the daemon reads at each handshake and each project store asks for its admins. `stats.go` holds what `sfx admin status` reads from memory: a store's write counters, and the control index's counts. `observe.go` holds the two hooks the daemon measures and traces a store through, `Observer` and `Tracer`; the store imports nothing of telemetry |
 | `internal/store/migrations`, `internal/store/controlmigrations` | Embedded schema migrations for a project's database and for the control database, two separate sets: `NNNN_name.sql`, each numbered 1..n without gaps |
 | `internal/proto` | Wire protocol: NDJSON frames, handshake, `Op` constants, `*Args` and `*Result` types, typed errors; and the bridge frame, which passes between two `starfixd` processes on the server, carries no version and only ever gains fields |
 | `internal/server` | Daemon: socket, peer check, sshd bridge, dispatch of ops to the connection's project's store, error mapping, settings; with `control_db`, the membership check at the handshake, the registry of open project stores (`registry.go`), the `sfx admin` ops over the control store (`admin.go`), the closing of connections whose access ended (`conns.go`), keys for sshd (`keys.go`): the `authorized_keys`-format file it writes from the control store (`Server.WriteKeys`), the hand-maintained `authorized_keys` it only reads, and the ending of claims whose holder lost access; and the report `sfx admin status` reads (`status.go`) |
@@ -254,7 +254,11 @@ and what a test that passes there does not do.
    and deleting a principal's oldest forgotten memories to make room for
    a new one under `memories_per_scope`. The
    event log is the truth; ready, blocked and digest are derived from it
-   and never stored.
+   and never stored. The event of a write that changes an issue's row is
+   recorded with `wtx.issueEvent` (or `wtx.revEvent` for a create), which
+   puts the rev the write left on it: a replayed update reads the state
+   at the rev it was based on from those, and parks what changed since
+   (`store/conflicts.go`).
 8. **Write closures must be safe to rerun.** A write that loses to a
    concurrent transaction is retried from the start.
 9. **Migrations are append-only**, in both sets. Add the next

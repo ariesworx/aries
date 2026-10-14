@@ -41,6 +41,45 @@ func openConflicts(t *testing.T, s *Store, id IssueID) []Conflict {
 	return cs
 }
 
+// TestRowEventsCarryTheirRev: every write that changes an issue's row
+// records the rev it left on its event, which is what a merge reads the
+// state at a rev from.
+func TestRowEventsCarryTheirRev(t *testing.T) {
+	t.Parallel()
+	s := newStore(t)
+	is := mustCreate(t, s, NewIssue{Title: "revs"})
+	mustUpdate(t, s, bob, is.ID, IssuePatch{Title: ptr("renamed")})
+	if _, _, err := s.StartIssue(t.Context(), alice, is.ID, time.Hour, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.HandoffIssue(t.Context(), alice, is.ID, 0, HandoffNote{Note: "over to you"}, true, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CloseIssue(t.Context(), alice, is.ID, 0, "done"); err != nil {
+		t.Fatal(err)
+	}
+	last, err := s.ReopenIssue(t.Context(), alice, is.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := s.r.QueryContext(t.Context(), `SELECT rev FROM events WHERE target = ? AND rev IS NOT NULL ORDER BY seq`, string(is.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var got []Rev
+	for rows.Next() {
+		var r Rev
+		if err := rows.Scan(&r); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, r)
+	}
+	if want := []Rev{1, 2, 3, 4, 5, 6}; !slices.Equal(got, want) || last.Rev != 6 {
+		t.Errorf("revs on the events = %v (issue at rev %d); want %v: one for each write of the row", got, last.Rev, want)
+	}
+}
+
 // TestConflictsPage: open conflicts are read a page at a time, oldest
 // first, saying when there are more.
 func TestConflictsPage(t *testing.T) {
