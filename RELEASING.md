@@ -82,7 +82,7 @@ binary back and reports the new one unhealthy.
 
 ## Changing the Dolt pin
 
-The Dolt release is pinned in five files, and one pull request changes
+The Dolt release is pinned in six files, and one pull request changes
 them all. Tests in `internal/version` fail until they agree:
 
 | File | Change |
@@ -92,6 +92,7 @@ them all. Tests in `internal/version` fail until they agree:
 | `.github/workflows/ci.yml` | `DOLT_VERSION`, and `DOLT_SHA256`, the linux-amd64 checksum |
 | `deploy/docker/Dockerfile` | `DOLT_VERSION`, `DOLT_SHA256_AMD64` and `DOLT_SHA256_ARM64` |
 | `docs/server.md` | The download in step 1, and the version under "What a server needs" |
+| `install-server.sh` | `dolt_version`, `dolt_sha256_amd64` and `dolt_sha256_arm64` |
 
 GitHub records each archive's digest. This prints the four lines of
 `dolt.sha256` for a release; put the new version in both places:

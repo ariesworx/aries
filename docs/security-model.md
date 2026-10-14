@@ -903,6 +903,17 @@ checksum, and the signature when OpenSSL 3 is installed; without it, the
 script warns, or fails with `--require-signature`. Every archive carries
 GitHub build provenance as well.
 
+The server installer, `install-server.sh`, holds no release key: it
+installs `starfixd` and `sfx` through `install.sh` with
+`--require-signature`, and checks Dolt's archive against the SHA-256
+pinned in it, which tests keep equal to `internal/version`. Run outside
+a checkout, it downloads `install.sh` and the AppArmor profiles from the
+repository over HTTPS, as the server guide's steps do, so it trusts that
+source as far as the guide does. It puts no secret on a command line or
+in its output: the database password is generated into the 0600 config
+file, and Dolt's `root` password is generated and forgotten
+([With the installer](server.md#with-the-installer)).
+
 Where a release is downloaded from is not trusted: GitHub, a static
 file host or a mirror named by `STARFIX_RELEASES`
 ([Where releases are read from](install.md#where-releases-are-read-from)).

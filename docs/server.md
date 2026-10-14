@@ -63,7 +63,135 @@ For complete deployments with costs, see the
 ## Set up a server
 
 Run these steps as root (`sudo -i`). Each step ends with a command that
-shows it worked, and none puts a password on a command line.
+shows it worked, and none puts a password on a command line. On a fresh
+Ubuntu 24.04 LTS machine, the installer does them for you
+([below](#with-the-installer)); the steps stay the reference for what
+it does and why.
+
+### With the installer
+
+`install-server.sh`, beside `install.sh` at the top of the repository,
+does the steps of this section, and those of [Opt in](#opt-in) and
+[Keys from the store](#keys-from-the-store), on a fresh Ubuntu 24.04 LTS
+machine. It sets up a server of [many projects](#serving-many-projects)
+from the start: admins add people and projects with `sfx admin`, from
+anywhere. Copy the first admin's public key to the machine, read the
+script, and run it as root, first with `--dry-run`:
+
+```sh
+curl -fsSLO https://raw.githubusercontent.com/ariesworx/starfix/main/install-server.sh
+sudo sh install-server.sh --admin alice --admin-key alice.pub --host starfix.example.com --dry-run
+sudo sh install-server.sh --admin alice --admin-key alice.pub --host starfix.example.com
+```
+
+It prints each step as it goes, each thing it finds already done, and
+each command it runs; it ends with the `.starfix.yaml` to commit
+([step 7](#7-connect-a-repository)).
+
+| Option | Does |
+|---|---|
+| `--admin NAME` | The first server admin: named under `admins:`, and given a line of `authorized_keys` |
+| `--admin-key FILE` | That admin's public key, a `.pub` file |
+| `--host HOST`, `--port PORT` | The address clients reach sshd at, for `.starfix.yaml`. The host defaults to `hostname -f`, the port to 22 |
+| `--project NAME` | The name the first project is adopted under (`control init --name`). Default `first` |
+| `--version vX.Y.Z` | The release of `starfixd` and `sfx` to install. Default the latest |
+| `--releases SOURCE` | Where releases are read from ([Install](install.md#where-releases-are-read-from)), also written to the config file as `releases:` for `starfixd upgrade`. Default `$STARFIX_RELEASES`, or GitHub |
+| `--apparmor` | Also confine starfixd ([Confine starfixd with AppArmor](#confine-starfixd-with-apparmor)). Off unless given |
+| `--dry-run` | Print every action, and change nothing |
+
+Its steps, and the sections of this guide each one follows:
+
+| Step | | Follows |
+|---|---|---|
+| 1 | Check the machine | [What a server needs](#what-a-server-needs): Ubuntu 24.04, amd64 or arm64, systemd, OpenSSH |
+| 2 | Install Dolt | [1. Install Dolt](#1-install-dolt), with the checksum compared for you |
+| 3 | Run Dolt under its own account | [2. Run Dolt under its own account](#2-run-dolt-under-its-own-account) |
+| 4 | Install starfixd | [3. Install starfixd](#3-install-starfixd), by `install.sh`, which checks the signature and the checksum; and `sfx` in `/usr/local/bin` |
+| 5 | Create the databases and the config file | [4. Create the database and the config file](#4-create-the-database-and-the-config-file), and [Opt in](#opt-in) steps 1, 2 and 4: the control database and 100 database names for new projects |
+| 6 | Run starfixd under systemd | [5. Run starfixd under systemd](#5-run-starfixd-under-systemd), and [Keys from the store](#keys-from-the-store) step 1 |
+| 7 | Let the first admin in, and have sshd read the keys file | [6. Let the first principal in](#6-let-the-first-principal-in), and [Keys from the store](#keys-from-the-store) step 2 |
+| 8 | Confine starfixd with AppArmor | [Confine starfixd with AppArmor](#confine-starfixd-with-apparmor), with `--apparmor` |
+| 9 | Adopt the database as the first project | [Opt in](#opt-in) step 3 |
+| 10 | Start starfixd | [5. Run starfixd under systemd](#5-run-starfixd-under-systemd), and [Keys from the store](#keys-from-the-store) step 3 |
+| 11 | Connect a repository | [7. Connect a repository](#7-connect-a-repository) |
+
+- **Run it again at any time.** Each step checks before it acts, so a
+  second run changes nothing and ends `Nothing to change`, and a run
+  that was interrupted is finished by running it again. `control init`
+  runs each time, as [Opt in](#opt-in) allows, and says that it added
+  nothing.
+- **It changes no file it did not write.** Where a file it writes
+  already exists with other text, it shows the difference and stops,
+  and you choose: make it the guide's, or move it aside and run again.
+  Of the files it did not create, it only appends the admin's line to
+  `authorized_keys`, and prints the line.
+- **sshd is checked before it is reloaded.** The drop-in is checked with
+  `sshd -t`; if that fails, the new file is removed again and sshd is
+  not reloaded.
+- **No secret is on a command line or in its output.** The database
+  password is generated into the config file, mode 0600, before Dolt is
+  given it, so a run interrupted between the two reads it back. Dolt's
+  `root` gets a generated password nobody keeps. The SQL travels on
+  stdin, run as Dolt's own user from its data directory, and is printed
+  with `<generated>` in place of each password. `--dry-run` prints the
+  config file the same way.
+- **The files it writes are this guide's,** byte for byte: Dolt's config
+  and unit, starfixd's unit and its two drop-ins, the sudo rule and
+  sshd's drop-in. A test (`scripts/installserver_test.go`) fails when
+  they differ from the blocks above, or when its steps and this table
+  do.
+- **Where its parts come from.** `install.sh` and the AppArmor profiles
+  are read from beside it when it runs from a checkout of starfix, and
+  otherwise from `raw.githubusercontent.com`, as the steps download
+  them. It forwards `STARFIX_RELEASES` (or `--releases`) to `install.sh`.
+  Dolt comes from Dolt's GitHub releases, or from
+  `STARFIX_DOLT_BASE_URL`, and is checked against the pinned checksum
+  either way.
+- **What it leaves to you:** the firewall (`ufw limit 22/tcp`, step 6),
+  `PasswordAuthentication no` and `PerSourcePenaltyExemptList`,
+  [telemetry](#observability), [backups](#backups-and-restore), and
+  upgrades (`starfixd upgrade`). Keep the admin's line in
+  `authorized_keys`: it is the way in when nothing else is
+  ([Keys from the store](#keys-from-the-store), step 5).
+- **It refuses** another system, a machine without systemd, a user other
+  than root (`--dry-run` included, since it reads root's files), and a
+  machine set up some other way: a `dolt` that is not the pinned
+  release, accounts with other homes or shells, a config file it did not
+  write. Each refusal says what to do.
+
+What was run, on 14 October 2026, with `starfixd` and `sfx` built from
+the source tree for linux/arm64 and installed by `install.sh` from a
+release tree in a directory, signed with a test key
+(`STARFIX_PUBKEY_PEM`), since the installer is newer than any release:
+
+- **In Docker** (Docker Desktop on an Apple silicon Mac), Ubuntu 24.04.5
+  with systemd 255 as its first process: a dry run that changed
+  nothing; a run; a second run and a dry run, which found nothing to
+  change and modified no file; runs stopped by a signal in step 3,
+  between the config file and the SQL of step 5, and in step 6, each
+  finished by the next run; a drop-in that differed, shown and left; an
+  `sshd -t` that failed, with the new drop-in removed and sshd not
+  reloaded; `--apparmor` refused where AppArmor does not run. Then, from
+  the host, through the container's sshd: the first admin connected,
+  added a project and a member with a key, the member connected and was
+  refused the first project, and once the key was removed it was
+  refused at sshd. During one run every process's arguments were
+  sampled about 100,000 times, and neither they nor the output held the
+  generated passwords.
+- **In a virtual machine** (Lima 2.2.1, the cloud image of
+  [What was run, and where](#what-was-run-and-where), freshly made):
+  a run with `--apparmor`, after which `starfixd serve` ran as
+  `starfixd-serve (enforce)`, `systemd-analyze verify` accepted both
+  units, and the kernel's log held no denial; the same admin and member
+  checks with `sfx` from the host; a second run, with and without
+  `--apparmor`, that changed nothing; a reboot, after which both units
+  were active, with no failed start and no denial, and a run changed
+  nothing.
+
+Not run: amd64; a real release downloaded from GitHub, and
+`raw.githubusercontent.com` as the source of `install.sh` and the
+profiles (both runs read them from a checkout); a cloud provider's image;
+a machine set up by hand beforehand.
 
 ### 1. Install Dolt
 

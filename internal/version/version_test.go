@@ -27,6 +27,7 @@ const (
 	dockerFile = "../../deploy/docker/Dockerfile"
 	goModFile  = "../../go.mod"
 	guideFile  = "../../docs/server.md"
+	installer  = "../../install-server.sh"
 	miseFile   = "../../mise.toml"
 	sumsFile   = "dolt.sha256"
 )
@@ -53,6 +54,15 @@ func TestDoltMatchesServerGuide(t *testing.T) {
 	t.Parallel()
 	if got := setting(t, guideFile, `dolthub/dolt/releases/download/v([0-9.]+)/dolt-linux-amd64\.tar\.gz`); got != Dolt {
 		t.Errorf("docs/server.md downloads Dolt %s, version.Dolt is %s; change both together", got, Dolt)
+	}
+}
+
+// TestDoltMatchesServerInstaller keeps the release the server installer
+// downloads at the pin.
+func TestDoltMatchesServerInstaller(t *testing.T) {
+	t.Parallel()
+	if got := setting(t, installer, `(?m)^dolt_version=(\S+)$`); got != Dolt {
+		t.Errorf("install-server.sh installs Dolt %s, version.Dolt is %s; change both together", got, Dolt)
 	}
 }
 
@@ -84,7 +94,7 @@ func doltSums(t *testing.T) map[string]string {
 
 // TestDoltChecksums keeps dolt.sha256, which scripts/install-dolt.sh
 // verifies a download against, at the pinned release and equal to the
-// checksums CI and the Docker test server verify.
+// checksums CI, the Docker test server and the server installer verify.
 func TestDoltChecksums(t *testing.T) {
 	t.Parallel()
 	sums := doltSums(t)
@@ -96,6 +106,8 @@ func TestDoltChecksums(t *testing.T) {
 		{"linux-amd64", ciFile, `(?m)^\s*DOLT_SHA256:\s*(\S+)\s*$`},
 		{"linux-amd64", dockerFile, `(?m)^ARG DOLT_SHA256_AMD64=(\S+)$`},
 		{"linux-arm64", dockerFile, `(?m)^ARG DOLT_SHA256_ARM64=(\S+)$`},
+		{"linux-amd64", installer, `(?m)^dolt_sha256_amd64=(\S+)$`},
+		{"linux-arm64", installer, `(?m)^dolt_sha256_arm64=(\S+)$`},
 		{"darwin-amd64", "", ""},
 		{"darwin-arm64", "", ""},
 	}
