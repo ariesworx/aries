@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math/rand/v2"
 	"slices"
 	"strings"
@@ -482,11 +483,39 @@ func (w *wtx) event(_ context.Context, op Op, target string, before, after any) 
 	return nil
 }
 
-// pendingEvent is an event recorded but not yet written.
+// revEvent is event for the one event of a write that changed issue id's
+// row: it records rev, the issue's rev after the write, with it, which
+// is how a replayed update finds the state at the rev it was based on
+// (conflicts.go). before and after are the changed fields, as diff gives
+// them, or nil before a create.
+func (w *wtx) revEvent(ctx context.Context, op Op, id IssueID, rev Rev, before, after any) error {
+	if err := w.event(ctx, op, string(id), before, after); err != nil {
+		return err
+	}
+	w.pending[len(w.pending)-1].rev = rev
+	return nil
+}
+
+// issueEvent records op for a write that took an issue from before to
+// after, with the fields it changed and extra added to the after state,
+// and closes the open conflicts on those fields: a later change to a
+// field decides it (design §18.7).
+func (w *wtx) issueEvent(ctx context.Context, op Op, before, after Issue, extra map[string]any) error {
+	b, a := diff(before, after)
+	maps.Copy(a, extra)
+	if err := w.revEvent(ctx, op, after.ID, after.Rev, b, a); err != nil {
+		return err
+	}
+	return supersede(ctx, w, after.ID, b)
+}
+
+// pendingEvent is an event recorded but not yet written. rev is set on
+// the event of a change to an issue's row (revEvent).
 type pendingEvent struct {
 	op            Op
 	target        string
 	before, after any
+	rev           Rev
 }
 
 // flush writes the buffered events with the next sequence numbers. The
@@ -511,11 +540,14 @@ func (w *wtx) flush(ctx context.Context) error {
 			}
 			key, args, result = st.key, st.args, string(st.result)
 		}
-		if _, err := w.exec(ctx, `INSERT INTO events
-  (seq, at, principal, session, machine, op, target, before_state, after_state, idem_key, idem_args, idem_result)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			seq, w.now, w.actor.Principal, w.actor.Session, w.actor.Machine, string(e.op), e.target, e.before, e.after,
-			key, args, result); err != nil {
+		q, vals := insertEvent, []any{seq, w.now, w.actor.Principal, w.actor.Session, w.actor.Machine, string(e.op),
+			e.target, e.before, e.after, key, args, result}
+		if e.rev > 0 {
+			// Only a project's database has the column: the control
+			// database's events change no issue.
+			q, vals = insertRevEvent, append(vals, int64(e.rev))
+		}
+		if _, err := w.exec(ctx, q, vals...); err != nil {
 			if key != nil && isDuplicate(err) {
 				// A concurrent request with the same key committed first;
 				// the rerun replays it.
@@ -527,6 +559,16 @@ func (w *wtx) flush(ctx context.Context) error {
 	w.firstSeq = seq - int64(len(w.pending)) + 1
 	return nil
 }
+
+// The statements that write an event, without and with the issue's rev.
+const (
+	insertEvent = `INSERT INTO events
+  (seq, at, principal, session, machine, op, target, before_state, after_state, idem_key, idem_args, idem_result)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	insertRevEvent = `INSERT INTO events
+  (seq, at, principal, session, machine, op, target, before_state, after_state, idem_key, idem_args, idem_result, rev)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+)
 
 // issueEvents returns the events flush wrote on issues, without their
 // states, for the event watches.

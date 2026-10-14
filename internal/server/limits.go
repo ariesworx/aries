@@ -56,6 +56,9 @@ type Limits struct {
 	// refused as stale. It is how long an outbox entry may wait and still
 	// be delivered without a person. From an hour to a year.
 	IdemWindow Duration `yaml:"idem_window"`
+	// ConflictAge is how long a conflict stays open before digest lists
+	// it (design §18.7).
+	ConflictAge Duration `yaml:"conflict_age"`
 
 	// The rest apply to a server of many projects (control_db) only.
 
@@ -91,8 +94,8 @@ var DefaultLimits = Limits{
 	Limits: store.DefaultLimits, Conns: 1024, ConnsPerPrincipal: 64, Handshakes: 16, IdleTimeout: Duration(10 * time.Minute),
 	WriteRate: 10, WriteBurst: 100, RefusalLogs: 20,
 	AgentKeep: Duration(store.MaxAgentWindow), InboxKeep: Duration(30 * 24 * time.Hour),
-	IdemWindow: Duration(store.DefaultIdemWindow),
-	Control:    store.DefaultControlLimits, OpenStores: 64, StoreIdle: Duration(10 * time.Minute),
+	IdemWindow: Duration(store.DefaultIdemWindow), ConflictAge: Duration(store.DefaultConflictAge),
+	Control: store.DefaultControlLimits, OpenStores: 64, StoreIdle: Duration(10 * time.Minute),
 	ControlWriteRate: 1, ControlWriteBurst: 30,
 	TelemetryRequests: telemetry.DefaultRequests,
 }
@@ -122,6 +125,7 @@ func (l Limits) WithDefaults() Limits {
 		{&l.MemoryTagLength, &d.MemoryTagLength}, {&l.Memories, &d.Memories}, {&l.MemoryKeyLength, &d.MemoryKeyLength},
 		{&l.Prices, &d.Prices}, {&l.HoursPerDay, &d.HoursPerDay}, {&l.HoursNote, &d.HoursNote}, {&l.Plans, &d.Plans},
 		{&l.PlanPrincipals, &d.PlanPrincipals},
+		{&l.ConflictsPerIssue, &d.ConflictsPerIssue}, {&l.ConflictsPerPrincipal, &d.ConflictsPerPrincipal},
 		{&l.Control.Projects, &d.Control.Projects}, {&l.Control.Principals, &d.Control.Principals},
 		{&l.Control.PrincipalsPerCreator, &d.Control.PrincipalsPerCreator},
 		{&l.Control.Keys, &d.Control.Keys}, {&l.Control.Members, &d.Control.Members}, {&l.OpenStores, &d.OpenStores},
@@ -132,7 +136,7 @@ func (l Limits) WithDefaults() Limits {
 		}
 	}
 	for _, f := range []struct{ v, d *Duration }{{&l.IdleTimeout, &d.IdleTimeout}, {&l.AgentKeep, &d.AgentKeep}, {&l.InboxKeep, &d.InboxKeep},
-		{&l.StoreIdle, &d.StoreIdle}, {&l.IdemWindow, &d.IdemWindow}} {
+		{&l.StoreIdle, &d.StoreIdle}, {&l.IdemWindow, &d.IdemWindow}, {&l.ConflictAge, &d.ConflictAge}} {
 		if *f.v == 0 {
 			*f.v = *f.d
 		}
@@ -163,7 +167,7 @@ func (l Limits) Validate() error {
 		{"idle_timeout", l.IdleTimeout < 0},
 		{"write_rate", l.WriteRate < 0 || math.IsNaN(l.WriteRate) || math.IsInf(l.WriteRate, 0)},
 		{"write_burst", l.WriteBurst < 0}, {"refusal_logs", l.RefusalLogs < 0},
-		{"agent_keep", l.AgentKeep < 0}, {"inbox_keep", l.InboxKeep < 0},
+		{"agent_keep", l.AgentKeep < 0}, {"inbox_keep", l.InboxKeep < 0}, {"conflict_age", l.ConflictAge < 0},
 		{"open_stores", l.OpenStores < 0}, {"store_idle", l.StoreIdle < 0},
 		{"control_write_rate", l.ControlWriteRate < 0 || math.IsNaN(l.ControlWriteRate) || math.IsInf(l.ControlWriteRate, 0)},
 		{"control_write_burst", l.ControlWriteBurst < 0}, {"telemetry_requests", l.TelemetryRequests < 0},

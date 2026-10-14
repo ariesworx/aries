@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"reflect"
 	"strings"
 	"time"
@@ -358,7 +357,7 @@ func insertIssue(ctx context.Context, w *wtx, id IssueID, in NewIssue, meta any)
 	if err != nil {
 		return Issue{}, err
 	}
-	return out, w.event(ctx, OpIssueCreate, string(id), nil, out)
+	return out, w.revEvent(ctx, OpIssueCreate, id, out.Rev, nil, out)
 }
 
 // UpdateIssue applies patch if the issue is still at rev expected, and
@@ -395,28 +394,13 @@ func (s *Store) UpdateIssue(ctx context.Context, actor Actor, id IssueID, expect
 	if err := validIdem(patch.IdempotencyKey); err != nil {
 		return Issue{}, err
 	}
-	sets, args, err := patch.columns()
+	pp, err := s.preparePatch(patch)
 	if err != nil {
 		return Issue{}, err
 	}
-	if patch.Acceptance != nil {
-		if err := checkItems(*patch.Acceptance, s.opts.Limits.AcceptanceItems); err != nil {
-			return Issue{}, err
-		}
-	}
-	var declared []string
-	if patch.Paths != nil {
-		if declared, err = checkDeclared(*patch.Paths, s.opts.Limits.Paths); err != nil {
-			return Issue{}, err
-		}
-	}
 	var out Issue
 	err = s.write(ctx, actor, func(w *wtx) error {
-		if done, err := replay(ctx, w, patch.IdempotencyKey, "update", struct {
-			ID    IssueID
-			Rev   Rev
-			Patch IssuePatch
-		}{id, expected, patch}, &out); done || err != nil {
+		if done, err := replay(ctx, w, patch.IdempotencyKey, "update", updateRequest{id, expected, patch}, &out); done || err != nil {
 			return err
 		}
 		before, err := loadIssue(ctx, w.tx, id)
@@ -426,77 +410,125 @@ func (s *Store) UpdateIssue(ctx context.Context, actor Actor, id IssueID, expect
 		if before.Rev != expected {
 			return fmt.Errorf("issue %s at rev %d, not %d: %w", id, before.Rev, expected, ErrConflict)
 		}
-		if patch.Status != nil && before.Status == StatusClosed {
-			return &StateError{ID: id, Reason: StateClosed}
-		}
-		out = before
-		if len(sets) == 0 && patch.Paths == nil {
-			return nil
-		}
-		c, err := loadClaim(ctx, w.tx, id)
-		if err != nil {
+		if out, err = applyPatch(ctx, w, before, pp); err != nil {
 			return err
-		}
-		if err := w.guard(ctx, c, "update"); err != nil {
-			return err
-		}
-		if patch.Status != nil && *patch.Status != before.Status ||
-			patch.Assignee != nil && *patch.Assignee != before.Assignee {
-			if c.active(w.now) {
-				return &StateError{ID: id, Reason: StateClaimed, Holder: c.Holder}
-			}
-			// A lapsed claim the reaper has not reached ends here, ahead
-			// of the change, so the log says the hold ended at its lease.
-			if err := w.ended(ctx, c, "updated"); err != nil {
-				return err
-			}
-			if err := endClaim(ctx, w, c); err != nil {
-				return err
-			}
-		}
-		if patch.ParentID != nil && *patch.ParentID != "" {
-			if err := mustExist(ctx, w.tx, *patch.ParentID); err != nil {
-				return fmt.Errorf("parent: %w", err)
-			}
-			if err := checkEdge(ctx, w.tx, id, *patch.ParentID); err != nil {
-				return err
-			}
-		}
-		if patch.Acceptance != nil {
-			if err := checkDropped(ctx, w.tx, before, *patch.Acceptance); err != nil {
-				return err
-			}
-		}
-		pathsChanged := false
-		if patch.Paths != nil {
-			if pathsChanged, err = setDeclaredPaths(ctx, w, id, declared); err != nil {
-				return err
-			}
-		}
-		if len(sets) > 0 || pathsChanged {
-			// The paths live in their own table, so a paths-only change
-			// writes the issue row too: two replaces from one rev then
-			// write the same cells and conflict, rather than both
-			// committing and leaving their union.
-			if out, err = casUpdate(ctx, w, before, sets, args); err != nil {
-				return err
-			}
-		}
-		if len(sets) > 0 {
-			b, a := diff(before, out)
-			if err := w.event(ctx, OpIssueUpdate, string(id), b, a); err != nil {
-				return err
-			}
-			if out.Assignee != before.Assignee {
-				if err := w.notifyAssigned(ctx, out); err != nil {
-					return err
-				}
-			}
 		}
 		return w.settleChanged(out)
 	})
 	if err != nil {
 		return Issue{}, err
+	}
+	return out, nil
+}
+
+// updateRequest identifies an update for its idempotency key: an update
+// and a merge of the same patch at the same rev are one request.
+type updateRequest struct {
+	ID    IssueID
+	Rev   Rev
+	Patch IssuePatch
+}
+
+// prepared is a patch checked against the store's limits, with the SET
+// clauses and the declared paths it writes.
+type prepared struct {
+	patch    IssuePatch
+	sets     []string
+	args     []any
+	declared []string
+}
+
+// preparePatch checks patch, refusing with ErrInvalid fields that are
+// not valid and more acceptance items or paths than the limits allow.
+func (s *Store) preparePatch(patch IssuePatch) (prepared, error) {
+	sets, args, err := patch.columns()
+	if err != nil {
+		return prepared{}, err
+	}
+	if patch.Acceptance != nil {
+		if err := checkItems(*patch.Acceptance, s.opts.Limits.AcceptanceItems); err != nil {
+			return prepared{}, err
+		}
+	}
+	pp := prepared{patch: patch, sets: sets, args: args}
+	if patch.Paths != nil {
+		if pp.declared, err = checkDeclared(*patch.Paths, s.opts.Limits.Paths); err != nil {
+			return prepared{}, err
+		}
+	}
+	return pp, nil
+}
+
+// applyPatch writes pp to before, the issue as w read it, as UpdateIssue
+// describes, and returns the new state; a patch that sets nothing
+// returns before.
+func applyPatch(ctx context.Context, w *wtx, before Issue, pp prepared) (Issue, error) {
+	id, patch := before.ID, pp.patch
+	if patch.Status != nil && before.Status == StatusClosed {
+		return Issue{}, &StateError{ID: id, Reason: StateClosed}
+	}
+	if len(pp.sets) == 0 && patch.Paths == nil {
+		return before, nil
+	}
+	c, err := loadClaim(ctx, w.tx, id)
+	if err != nil {
+		return Issue{}, err
+	}
+	if err := w.guard(ctx, c, "update"); err != nil {
+		return Issue{}, err
+	}
+	if patch.Status != nil && *patch.Status != before.Status ||
+		patch.Assignee != nil && *patch.Assignee != before.Assignee {
+		if c.active(w.now) {
+			return Issue{}, &StateError{ID: id, Reason: StateClaimed, Holder: c.Holder}
+		}
+		// A lapsed claim the reaper has not reached ends here, ahead
+		// of the change, so the log says the hold ended at its lease.
+		if err := w.ended(ctx, c, "updated"); err != nil {
+			return Issue{}, err
+		}
+		if err := endClaim(ctx, w, c); err != nil {
+			return Issue{}, err
+		}
+	}
+	if patch.ParentID != nil && *patch.ParentID != "" {
+		if err := mustExist(ctx, w.tx, *patch.ParentID); err != nil {
+			return Issue{}, fmt.Errorf("parent: %w", err)
+		}
+		if err := checkEdge(ctx, w.tx, id, *patch.ParentID); err != nil {
+			return Issue{}, err
+		}
+	}
+	if patch.Acceptance != nil {
+		if err := checkDropped(ctx, w.tx, before, *patch.Acceptance); err != nil {
+			return Issue{}, err
+		}
+	}
+	pathsChanged := false
+	if patch.Paths != nil {
+		if pathsChanged, err = setDeclaredPaths(ctx, w, id, pp.declared); err != nil {
+			return Issue{}, err
+		}
+	}
+	out := before
+	if len(pp.sets) > 0 || pathsChanged {
+		// The paths live in their own table, so a paths-only change
+		// writes the issue row too: two replaces from one rev then
+		// write the same cells and conflict, rather than both
+		// committing and leaving their union.
+		if out, err = casUpdate(ctx, w, before, pp.sets, pp.args); err != nil {
+			return Issue{}, err
+		}
+	}
+	if len(pp.sets) > 0 {
+		if err := w.issueEvent(ctx, OpIssueUpdate, before, out, nil); err != nil {
+			return Issue{}, err
+		}
+		if out.Assignee != before.Assignee {
+			if err := w.notifyAssigned(ctx, out); err != nil {
+				return Issue{}, err
+			}
+		}
 	}
 	return out, nil
 }
@@ -758,9 +790,7 @@ func setStatus(ctx context.Context, w *wtx, before Issue, op Op, args []any, ext
 	if err != nil {
 		return Issue{}, err
 	}
-	b, a := diff(before, out)
-	maps.Copy(a, extra)
-	return out, w.event(ctx, op, string(before.ID), b, a)
+	return out, w.issueEvent(ctx, op, before, out, extra)
 }
 
 // diff returns the changed fields of an issue, old and new. Bookkeeping

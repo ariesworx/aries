@@ -73,13 +73,20 @@ type Limits struct {
 	// PlanPrincipals caps the principals one plan row names; at most
 	// 1,000.
 	PlanPrincipals int `yaml:"plan_principals"`
+	// ConflictsPerIssue caps the open conflicts on one issue, and
+	// ConflictsPerPrincipal those one principal's replayed updates
+	// parked (design §18.7); an update that would park past either is
+	// refused, and nothing of it applies.
+	ConflictsPerIssue     int `yaml:"conflicts_per_issue"`
+	ConflictsPerPrincipal int `yaml:"conflicts_per_principal"`
 }
 
 // DefaultLimits are the limits a zero field takes.
 var DefaultLimits = Limits{Labels: 50, AcceptanceItems: 200, Deps: 200, Sessions: 256, InboxUnread: 1000, Notices: 10,
 	UsageRecords: 500, UsagePerDay: 50000, Paths: proto.MaxPaths,
 	MemoryBody: 4096, MemoryTags: 20, MemoryTagLength: 64, Memories: 1000, MemoryKeyLength: 128,
-	Prices: 1000, HoursPerDay: 50, HoursNote: 500, Plans: 1000, PlanPrincipals: 100}
+	Prices: 1000, HoursPerDay: 50, HoursNote: 500, Plans: 1000, PlanPrincipals: 100,
+	ConflictsPerIssue: 20, ConflictsPerPrincipal: 100}
 
 // Column sizes that bound the memory limits: a body is TEXT, and a key
 // and a tag VARCHAR(255).
@@ -114,6 +121,7 @@ func (l Limits) withDefaults() Limits {
 		{&l.Prices, &DefaultLimits.Prices}, {&l.HoursPerDay, &DefaultLimits.HoursPerDay},
 		{&l.HoursNote, &DefaultLimits.HoursNote}, {&l.Plans, &DefaultLimits.Plans},
 		{&l.PlanPrincipals, &DefaultLimits.PlanPrincipals},
+		{&l.ConflictsPerIssue, &DefaultLimits.ConflictsPerIssue}, {&l.ConflictsPerPrincipal, &DefaultLimits.ConflictsPerPrincipal},
 	} {
 		if *f.v == 0 {
 			*f.v = *f.d
@@ -135,7 +143,8 @@ func (l Limits) Validate() error {
 		{"memory_body", l.MemoryBody}, {"memory_tags", l.MemoryTags}, {"memory_tag_length", l.MemoryTagLength},
 		{"memories_per_scope", l.Memories}, {"memory_key_length", l.MemoryKeyLength}, {"prices", l.Prices},
 		{"hours_per_day", l.HoursPerDay}, {"hours_note", l.HoursNote}, {"plans", l.Plans},
-		{"plan_principals", l.PlanPrincipals},
+		{"plan_principals", l.PlanPrincipals}, {"conflicts_per_issue", l.ConflictsPerIssue},
+		{"conflicts_per_principal", l.ConflictsPerPrincipal},
 	} {
 		if f.v < 0 {
 			return fmt.Errorf("%w: limit %s is %d; give a positive number, or leave it out for the default", ErrInvalid, f.name, f.v)

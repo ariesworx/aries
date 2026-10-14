@@ -1,6 +1,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -44,6 +45,9 @@ type DigestFilter struct {
 	// Label keeps only issues with this label (for discovered work, on
 	// either the new issue or the one it came from).
 	Label string
+	// ConflictAge is how long a conflict is open before Conflicts lists
+	// it; 0 takes DefaultConflictAge.
+	ConflictAge time.Duration
 }
 
 // DigestItem is one issue in a digest section. What By and At mean depends
@@ -98,6 +102,11 @@ type Digest struct {
 	// Discovered lists issues linked discovered-from in the window; From
 	// is the issue each came from.
 	Discovered DigestSection
+	// Conflicts lists the conflicts open for longer than the filter's
+	// ConflictAge, whenever they were parked (design §18.7), oldest
+	// first; By is the author of the parked update, At when it was
+	// parked, and Note names the field and the conflict.
+	Conflicts DigestSection
 	// Usage totals the time held and the tokens reported in the window
 	// (design §12.1), filtered like the sections.
 	Usage DigestUsage
@@ -199,6 +208,9 @@ func (q *digestQuery) run(ctx context.Context, d *Digest) error {
 		return err
 	}
 	if err := q.blocked(ctx, d); err != nil {
+		return err
+	}
+	if err := q.conflicts(ctx, d); err != nil {
 		return err
 	}
 	if err := q.usage(ctx, d); err != nil {
@@ -406,6 +418,42 @@ LIMIT ?`, append(append([]any{q.now}, fargs...), digestRows+1)...) //nolint:gose
 	for i := range d.Blocked.Items {
 		d.Blocked.Items[i].BlockedBy = by[vias[i]]
 	}
+	return nil
+}
+
+// conflicts lists the conflicts open longer than the filter's
+// ConflictAge, as Digest.Conflicts says.
+func (q *digestQuery) conflicts(ctx context.Context, d *Digest) error {
+	fcond, fargs := q.filters("c.author", "i.id")
+	age := cmp.Or(q.f.ConflictAge, DefaultConflictAge)
+	rows, err := q.tx.QueryContext(ctx, `SELECT i.id, i.title, i.priority, c.author, c.parked_at, c.id, c.field
+FROM conflicts c JOIN issues i ON i.id = c.issue_id
+WHERE c.resolved_at IS NULL AND c.parked_at <= ?`+fcond+`
+ORDER BY c.parked_at, c.id LIMIT ?`, append(append([]any{q.now.Add(-age)}, fargs...), digestRows+1)...) //nolint:gosec // constant clauses; values are placeholders
+	if err != nil {
+		return fmt.Errorf("conflicts: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var items []DigestItem
+	for rows.Next() {
+		var it DigestItem
+		var id int64
+		var field string
+		if err := rows.Scan(&it.ID, &it.Title, &it.Priority, &it.By, &it.At, &id, &field); err != nil {
+			return fmt.Errorf("conflicts: %w", err)
+		}
+		if len(items) == digestRows {
+			q.capped = true
+			break
+		}
+		it.At = it.At.UTC()
+		it.Note = fmt.Sprintf("%s (conflict %d)", field, id)
+		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("conflicts: %w", err)
+	}
+	d.Conflicts = DigestSection{Total: len(items), Items: items[:min(len(items), DigestItems)]}
 	return nil
 }
 
