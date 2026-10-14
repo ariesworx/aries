@@ -161,8 +161,12 @@ func queuedTarget(t *testing.T, s *Store) IssueID {
 func TestIdempotentReplayOfQueuedOps(t *testing.T) {
 	t.Parallel()
 	for _, op := range queuedOps {
+		// Not in parallel: each opens a store, and Open's read of
+		// information_schema failed in CI, as "no root value found in
+		// session", while sibling subtests made and dropped their
+		// databases (docs/design/database.md, "Dolt behaviors to
+		// investigate").
 		t.Run(op.name, func(t *testing.T) {
-			t.Parallel()
 			s := newStore(t)
 			ctx := t.Context()
 			id := queuedTarget(t, s)

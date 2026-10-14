@@ -58,7 +58,7 @@ stage is in progress.
 | `deploy/docker` | The Docker test server ([docs/deploy/docker.md](docs/deploy/docker.md)): image, entrypoint, compose file and `smoke.sh`, which drives it end to end and is not part of CI. It mirrors docs/server.md's setup steps; `internal/version` keeps its Dolt at the pin. Telemetry is off unless asked for: `STARFIX_TELEMETRY=1` turns starfixd's on, its log export included, and the compose profiles `telemetry` and `prometheus` run a Collector and a Prometheus, pinned by digest, in the server's network namespace, since what they read answers on loopback alone; `STARFIX_SMOKE_TELEMETRY=1` has `smoke.sh` check them |
 | `deploy/observability` | Examples that are tested, for operators (design §16.7): an OpenTelemetry Collector's configuration for metrics, traces and logs, alert rules in Prometheus's format, a Prometheus configuration that loads them, and one dashboard. Vendor-neutral (rule 1). Tests in `internal/telemetry` (`harness_test.go`) fail if a rule or a query names a metric, a label or a value starfixd does not have, so change them with the instruments |
 | `deploy/apparmor` | AppArmor profiles for `starfixd` on Ubuntu, and their tunables. A change to what `starfixd` reads, writes, connects to or runs changes them too |
-| `scripts` | For contributors, in POSIX shell: `gate.sh` runs the gate (Commands, below), and `install-dolt.sh` installs the pinned Dolt, verified, under the user's cache directory. `leftovers.sh` runs a command, the tests usually, with a temporary directory of its own and fails if it leaves a file there or a process running; it is not part of the gate. The tests beside them run all three against stand-ins |
+| `scripts` | For contributors, in POSIX shell: `gate.sh` runs the gate (Commands, below), and `install-dolt.sh` installs the pinned Dolt, verified, under the user's cache directory. `leftovers.sh` runs a command, the tests usually, with a temporary directory of its own and fails if it leaves a file there or a process running; the gate's tests run under it. The tests beside them run all three against stand-ins |
 | `mise.toml` | Go, golangci-lint and shellcheck versions for contributors who use mise; optional |
 | `install.sh` | The one-line installer for `sfx` and `starfixd`, from GitHub or from a static tree (`STARFIX_RELEASES`); `internal/release/install_test.go` and `install_static_test.go` run it against each, and tests check that its key is in `keys.go` and its `DEFAULT_RELEASES` is `release.DefaultSource` |
 | `spike/dolt` | Stage 0 measurements, kept as evidence; not maintained and excluded from lint |
@@ -88,12 +88,16 @@ GOOS=darwin GOARCH=amd64 go vet ./...          # sfx must build and vet
 GOOS=darwin GOARCH=amd64 go build ./cmd/...    # on every developer OS
 GOOS=windows GOARCH=amd64 go vet ./...
 GOOS=windows GOARCH=amd64 go build ./cmd/...
-STARFIX_REQUIRE_DOLT=1 go test -race -shuffle=on ./...
+STARFIX_REQUIRE_DOLT=1 scripts/leftovers.sh go test -race -shuffle=on ./...
 ```
 
 The script stops at the first failure (`--keep-going` does not), and
 away from Linux it also vets, builds and lints for Linux, which CI does
-natively. `scripts/gate.sh --quick` is for the loop between edits and is
+natively. The tests run under `scripts/leftovers.sh`, which fails a run
+that passed but left a file in its temporary directory (or in
+`GOTMPDIR`, where `go test` makes each `t.TempDir` when it is set) or a
+process running, and names the test that probably did.
+`scripts/gate.sh --quick` is for the loop between edits and is
 not the gate: it skips `go mod verify`, govulncheck and the builds for
 other systems, and runs the tests without `-race` or `-shuffle`.
 
@@ -108,8 +112,9 @@ CI also runs the tests named `TestCheckPeer…` (`internal/server`) under
 `sudo`, because `TestCheckPeerOtherUID` and
 `TestCheckPeerKeepsStatusFromOtherUsers` start a socket peer as another
 user; they skip when not root. It builds the package's test binary as
-its own user and runs only that binary as root, and the step fails
-unless both tests passed and none was skipped. `scripts/gate.sh` prints
+its own user and runs only that binary as root, under
+`scripts/leftovers.sh`, and the step fails unless both tests passed,
+none was skipped and they left nothing. `scripts/gate.sh` prints
 the command where it could not run them, and a test in `scripts/` keeps
 the two alike.
 
@@ -122,7 +127,10 @@ hash of `go.sum` with no fallback; only a push to `main` saves one, a
 pull request only reads them, and any other run, the release's gate
 among them, uses none. The tests' temporary files, Dolt's databases
 among them, are in memory when the runner's `/dev/shm` is fit for them
-(`TESTS_TMPFS`), and otherwise in `/tmp` with a warning.
+(`TESTS_TMPFS`), and otherwise in `/tmp` with a warning;
+`scripts/leftovers.sh` makes its directory under the one that step
+chose. `GOTMPDIR`, and with it the test binaries and each `t.TempDir`,
+stays on disk, in `/tmp`.
 [docs/design/ci-analysis.md](docs/design/ci-analysis.md) has the
 measurements behind each.
 

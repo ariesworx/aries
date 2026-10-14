@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -282,7 +283,10 @@ func printIssue(w io.Writer, s proto.ShowResult) {
 // printSummaries prints one aligned line per issue: id, priority, status
 // and title, then extra(i) for issues[i] when extra is set.
 func printSummaries(w io.Writer, issues []proto.Summary, extra func(i int) string) {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	// Laid out in memory and written once: tabwriter writes each cell and
+	// each run of padding on its own, eight writes a row.
+	var b bytes.Buffer
+	tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 	for i, is := range issues {
 		line := fmt.Sprintf("%s\tP%d\t%s\t%s", esc(is.ID), is.Priority, esc(is.Status), esc(is.Title))
 		if extra != nil {
@@ -291,6 +295,7 @@ func printSummaries(w io.Writer, issues []proto.Summary, extra func(i int) strin
 		_, _ = fmt.Fprintln(tw, line)
 	}
 	_ = tw.Flush()
+	_, _ = w.Write(b.Bytes())
 }
 
 func cmdList(ctx context.Context, r *runner, args []string) error {

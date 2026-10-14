@@ -16,6 +16,9 @@ func TestMethods(t *testing.T) {
 		if got, w := lazy.MatchString(s), want.MatchString(s); got != w {
 			t.Errorf("MatchString(%q) = %v, want %v", s, got, w)
 		}
+		if got, w := lazy.FindString(s), want.FindString(s); got != w {
+			t.Errorf("FindString(%q) = %q, want %q", s, got, w)
+		}
 		if got, w := lazy.FindStringIndex(s), want.FindStringIndex(s); !slices.Equal(got, w) {
 			t.Errorf("FindStringIndex(%q) = %v, want %v", s, got, w)
 		}

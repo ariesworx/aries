@@ -19,9 +19,10 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
-	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 )
 
 // branchTypes maps an issue type to its branch prefix. The prefixes are
@@ -89,12 +90,12 @@ var (
 	// idShape is an issue ID: a prefix, a hyphen, a suffix and optional
 	// .N child parts. It matches the server's rule loosely; the server is
 	// the judge.
-	idShape = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*-[a-z0-9]+(\.[0-9]+)*$`)
+	idShape = lazyregexp.New(`^[a-z][a-z0-9]*(-[a-z0-9]+)*-[a-z0-9]+(\.[0-9]+)*$`)
 	// branchID is the ID at the start of a branch's last segment, with a
 	// one-word prefix: sf-a1b2 or sf-a1b2.1.
-	branchID = regexp.MustCompile(`^[a-z][a-z0-9]*-[a-z0-9]+(\.[0-9]+)*`)
+	branchID = lazyregexp.New(`^[a-z][a-z0-9]*-[a-z0-9]+(\.[0-9]+)*`)
 	// trailer is a "Starfix: <id>" line, capturing the id.
-	trailer = regexp.MustCompile(`^Starfix:[ \t]*(\S+)[ \t]*$`)
+	trailer = lazyregexp.New(`^Starfix:[ \t]*(\S+)[ \t]*$`)
 )
 
 // IDFromBranch returns the issue ID at the start of a branch's last

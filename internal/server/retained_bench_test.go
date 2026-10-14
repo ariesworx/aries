@@ -146,8 +146,8 @@ func BenchmarkRetained(b *testing.B) {
 	})
 
 	b.Run("conn/after-4MiB-frame", func(b *testing.B) {
-		// The same, after one request just under the largest frame: the
-		// decoder's buffer grew to hold it, and stays that size.
+		// The same, after one request just under the largest frame,
+		// which the decoder gathers in a buffer it does not keep.
 		const k = 8
 		big := []byte(`{"t":"req","id":1,"op":"comment","a":{"id":"` + w.shown + `","body":"` + strings.Repeat("x", proto.MaxFrame-200) + `"}}` + "\n")
 		var sum benchHeld
@@ -198,7 +198,7 @@ func BenchmarkRetained(b *testing.B) {
 
 	b.Run("conn/before-hello-4MiB", func(b *testing.B) {
 		// The same, with a hello that never ends: just under 4 MiB and
-		// no newline, which the decoder buffers while it waits.
+		// no newline, which the decoder holds while it waits.
 		const k = 8
 		bridge := []byte(`{"t":"bridge","pr":"alice"}` + "\n")
 		endless := bytes.Repeat([]byte("x"), proto.MaxFrame-4096)
