@@ -637,6 +637,16 @@ follows from a measurement of the code as it is.
   states; the worst case, 10,000 creates of issues with texts of 8 KiB,
   goes from about 330 MB a section to a few MB.
 - **Risk:** very low. One query's column.
+- **Since this was written (14 October 2026): done.** The closed,
+  started and created sections select `NULL` for the state. `digest` on
+  the 100-issue project, against the commit before it: 336 KB and 3,527
+  allocations to 278 KB and 3,242, with the same 18 statements and 32
+  round trips. On `BenchmarkScale`, whose seeded events carry a state of
+  17 bytes, 0.30 MB to 0.28 MB at 1,000 issues, 5.6 MB to 5.4 MB at
+  10,000 and 16.4 MB to 15.9 MB at 50,000; the rest of those bytes is
+  the blocked section, which reads every blocked row to count them. The
+  worst case of the estimate, creates of issues with texts of 8 KiB,
+  was not measured.
 
 ### 6. Make a connection's stand-ins once
 

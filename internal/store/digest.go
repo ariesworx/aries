@@ -248,7 +248,14 @@ func (q *digestQuery) windowed(ctx context.Context, op Op, cond string) ([]Diges
 		labelOn = append(labelOn, afterTo)
 	}
 	fcond, fargs := q.filters("e.principal", labelOn...)
-	const head = `SELECT i.id, i.title, i.priority, e.principal, e.at, e.after_state
+	// Only a handoff's note and a discovered issue's source come from the
+	// event's state. For the other sections it stays in Dolt: a create's
+	// is the whole issue, its long texts and all.
+	state := "NULL"
+	if op == OpCommentAdd || op == OpDepAdd {
+		state = "e.after_state"
+	}
+	head := `SELECT i.id, i.title, i.priority, e.principal, e.at, ` + state + `
 FROM events e JOIN issues i ON i.id = e.target
 WHERE e.at >= ? AND e.op = ? `
 	query := head + cond + fcond + " ORDER BY e.seq DESC LIMIT ?" //nolint:gosec // constant clauses; values are placeholders
