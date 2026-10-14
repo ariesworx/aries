@@ -171,8 +171,8 @@ func TestPrincipalRule(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := fmt.Sprintf(`{"v":1,"server":%q,"project":%q,"keys":{%q:{"principal":"bob","at":"2026-10-13T15:02:00Z"},%q:{"principal":"alice-agent","at":"2026-10-13T14:02:00Z"}},"unconfigured":%q,"proto":6}`+"\n",
-		hostKey, project, keyA, keyB, keyA)
+	want := fmt.Sprintf(`{"v":1,"server":%q,"project":%q,"keys":{%q:{"principal":"bob","at":"2026-10-13T15:02:00Z"},%q:{"principal":"alice-agent","at":"2026-10-13T14:02:00Z"}},"unconfigured":%q,"proto":%d}`+"\n",
+		hostKey, project, keyA, keyB, keyA, proto.Proto)
 	if string(b) != want {
 		t.Errorf("%s holds\n%s\nwant\n%s", seenFile, b, want)
 	}
@@ -425,20 +425,23 @@ type fakeConn struct {
 	calls   []string // "op id", and "op id -paths" for a call without paths
 	// speaks is the connection's protocol; 0 is this build's.
 	speaks int
+	// parks are the issues on which a replayed update parks a field.
+	parks map[string]bool
 }
 
 func (f *fakeConn) Principal() string { return f.who }
 func (f *fakeConn) Err() error        { return f.lost }
 func (f *fakeConn) Proto() int        { return cmp.Or(f.speaks, proto.Proto) }
 
-func (f *fakeConn) Call(_ context.Context, op string, args, _ any) error {
-	b, err := json.Marshal(args)
+func (f *fakeConn) Call(_ context.Context, op string, args, out any) error {
+	b, err := json.Marshal(proto.ForProtocol(f.Proto(), op, args))
 	if err != nil {
 		return err
 	}
 	var a struct {
 		ID, Key string
 		Paths   []string
+		Park    bool
 	}
 	if err := json.Unmarshal(b, &a); err != nil {
 		return err
@@ -446,6 +449,12 @@ func (f *fakeConn) Call(_ context.Context, op string, args, _ any) error {
 	name := op + " " + a.ID + a.Key
 	if op == proto.OpHandoff && len(a.Paths) == 0 {
 		name += " -paths"
+	}
+	if a.Park {
+		name += " park"
+		if res, ok := out.(*proto.UpdateResult); ok && f.parks[a.ID] {
+			res.Parked = []proto.ParkedField{{Field: "title", Conflict: 1}}
+		}
 	}
 	f.calls = append(f.calls, name)
 	err = f.answers[a.ID+a.Key]
@@ -675,6 +684,40 @@ func TestKeepByProtocol(t *testing.T) {
 	}
 }
 
+// TestReplayParks: a replayed update asks the server to compare it
+// (park, protocol 7), and one the server parked in part is delivered and
+// counted as parked; to a server of 6 it goes as a plain update.
+func TestReplayParks(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		speaks int
+		calls  []string
+		parked int
+	}{
+		{"a server of 7", 7, []string{"update sf-a park", "update sf-b park", "comment sf-c"}, 1},
+		{"a server of 6", 6, []string{"update sf-a", "update sf-b", "comment sf-c"}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			l, _ := newLocal(t, outbox.Options{})
+			if _, err := l.Reached("alice", keyA, true, tc.speaks); err != nil {
+				t.Fatal(err)
+			}
+			for _, e := range []outbox.Entry{update("sf-a"), update("sf-b"), entry(proto.OpComment, "sf-c")} {
+				if _, err := l.Keep("alice", e, errReach); err != nil {
+					t.Fatal(err)
+				}
+			}
+			c := &fakeConn{who: "alice", speaks: tc.speaks, parks: map[string]bool{"sf-a": true}}
+			rep, err := l.Replay(t.Context(), c)
+			if err != nil || rep.Delivered != 3 || rep.Parked != tc.parked || !slices.Equal(c.calls, tc.calls) {
+				t.Errorf("Replay = %+v, %v, sending %v; want 3 delivered, %d parked, sending %v", rep, err, c.calls, tc.parked, tc.calls)
+			}
+		})
+	}
+}
+
 // TestReplayByProtocol: an entry whose op the connection's protocol
 // takes no key for is not sent, since a server that cannot apply it once
 // must not be sent it twice; it is refused with code version and kept
@@ -715,8 +758,8 @@ func TestReplayByProtocol(t *testing.T) {
 		t.Fatal(err)
 	}
 	c = &fakeConn{who: "alice"}
-	if rep, err := l.Replay(t.Context(), c); err != nil || rep.Delivered != 1 || !slices.Equal(c.calls, []string{"update sf-a"}) {
-		t.Errorf("Replay on a connection of protocol 6, after a retry = %+v, %v, sending %v; want the update delivered", rep, err, c.calls)
+	if rep, err := l.Replay(t.Context(), c); err != nil || rep.Delivered != 1 || !slices.Equal(c.calls, []string{"update sf-a park"}) {
+		t.Errorf("Replay on a connection of this build, after a retry = %+v, %v, sending %v; want the update delivered", rep, err, c.calls)
 	}
 }
 

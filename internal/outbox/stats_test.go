@@ -79,6 +79,28 @@ func TestStatsCountsEachOp(t *testing.T) {
 	}
 }
 
+// TestReplayCountsParked: an entry the server applied in part, parking
+// the rest as conflicts (design §18.7), leaves the outbox as delivered,
+// and is counted as parked too, in the report and the stats.
+func TestReplayCountsParked(t *testing.T) {
+	t.Parallel()
+	o, _ := open(t, outbox.Options{}, newClock())
+	mustAppend(t, o, comment(1))
+	mustAppend(t, o, comment(2))
+	rep := mustReplay(t, o, &server{answer: func(e outbox.Entry) (outbox.Outcome, error) {
+		return outbox.Outcome{Parked: e.Seq == 1}, nil
+	}})
+	if rep.Delivered != 2 || rep.Parked != 1 || rep.Pending != 0 || rep.Refused != 0 {
+		t.Errorf("Replay() = %+v; want 2 delivered, 1 of them parked", rep)
+	}
+	if l := mustList(t, o); len(l.Pending)+len(l.Refused) != 0 {
+		t.Errorf("List() after a parked entry = %+v, want it gone", l)
+	}
+	if got := mustStats(t, o).Ops[proto.OpComment]; got.Delivered != 2 || got.Parked != 1 {
+		t.Errorf("Stats() comment = %+v; want 2 delivered, 1 parked", got)
+	}
+}
+
 func TestStatsWaitBuckets(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

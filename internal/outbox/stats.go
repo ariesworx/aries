@@ -31,6 +31,9 @@ type WaitStats struct {
 type OpStats struct {
 	Queued    uint64 `json:"queued"`
 	Delivered uint64 `json:"delivered"`
+	// Parked are the delivered entries that parked conflicts, or were
+	// kept as a comment (design §18.7).
+	Parked uint64 `json:"parked,omitempty"`
 	// Refused are the server's refusals; Stale are the entries that
 	// waited too long to be sent.
 	Refused uint64 `json:"refused"`
@@ -132,10 +135,13 @@ func (s *Stats) queued(op string, at time.Time) {
 
 // delivered counts an entry the server applied at the time at, after
 // wait.
-func (s *Stats) delivered(op string, at time.Time, wait time.Duration) {
+func (s *Stats) delivered(op string, at time.Time, wait time.Duration, parked bool) {
 	wait = max(wait, 0) // a clock that went back
 	s.op(op, func(c *OpStats) {
 		c.Delivered++
+		if parked {
+			c.Parked++
+		}
 		w := &c.Wait
 		w.Count++
 		w.Total = add(w.Total, wait)

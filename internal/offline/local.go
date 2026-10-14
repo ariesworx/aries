@@ -602,7 +602,7 @@ func (l *Local) Keep(principal string, e outbox.Entry, reach error) (Kept, error
 	}
 	// A server that cannot apply the op once is never sent it later
 	// (design §18.5): what it spoke last is what it is taken to speak.
-	if spoke := max(l.read().Proto, proto.ProtoMin); !proto.Keyed(e.Op, spoke) && outbox.Queueable(e.Op) {
+	if spoke := cmp.Or(l.read().Proto, f1Proto); !proto.Keyed(e.Op, spoke) && outbox.Queueable(e.Op) {
 		return refuse(proto.CodeUnavailable, nil, rerun+"; the server's operator can run `starfixd upgrade` so that such writes are kept",
 			fmt.Sprintf("the server spoke protocol %d when last reached, which takes no idempotency key for %s, so it could apply it twice", spoke, e.Op))
 	}
@@ -688,14 +688,23 @@ func (l *Local) Replay(ctx context.Context, c Conn) (outbox.Report, error) {
 				Fix: fmt.Sprintf("once the server runs a starfixd of protocol %d or later, `sfx outbox retry %d` sends it; or make the change by hand now, and `sfx outbox drop %d`",
 					proto.ProtoKeys, e.Seq, e.Seq)}, nil
 		}
-		err := c.Call(ctx, e.Op, e.Args, nil)
+		args, out := e.Args, any(nil)
+		var merged proto.UpdateResult
+		if e.Op == proto.OpUpdate {
+			// The server compares it with the issue at its rev, and parks
+			// what someone else changed since (design §18.7). A server of
+			// 6 is sent it without park (proto.ForProtocol), and refuses
+			// it when it is stale, as before.
+			args, out = withPark(e.Args), &merged
+		}
+		err := c.Call(ctx, e.Op, args, out)
 		if pe, ok := errors.AsType[*proto.Error](err); ok && pe.Code == proto.CodeInvalid && c.Err() == nil {
 			if bare, had := withoutPaths(e); had {
 				err = c.Call(ctx, e.Op, bare, nil)
 			}
 		}
 		if err == nil {
-			return outbox.Outcome{}, nil
+			return outbox.Outcome{Parked: len(merged.Parked) > 0 || merged.Comment != ""}, nil
 		}
 		pe, ok := errors.AsType[*proto.Error](err)
 		if !ok || c.Err() != nil || pe.Code == proto.CodeUnavailable || pe.Code == proto.CodeBusy {
@@ -845,6 +854,10 @@ func (l *Local) Ended(principal string, pe *proto.Error) (int, error) {
 	return n, err
 }
 
+// f1Proto is the protocol of a server whose record names none: the sfx
+// that wrote it, of slice F1, noted no protocol, and spoke 5.
+const f1Proto = 5
+
 // speaks is the protocol c speaks, when it says; otherwise the oldest
 // this build speaks, so that nothing is sent that it could not apply once.
 func speaks(c Conn) int {
@@ -873,6 +886,22 @@ func withoutPaths(e outbox.Entry) (json.RawMessage, bool) {
 	delete(args, "paths")
 	b, err := json.Marshal(args)
 	return b, err == nil
+}
+
+// withPark returns an update's arguments with park set, which asks the
+// server to park what conflicts rather than refuse a stale rev. Arguments
+// that do not parse are returned as they are, for the server to refuse.
+func withPark(args json.RawMessage) json.RawMessage {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(args, &fields) != nil {
+		return args
+	}
+	fields["park"] = json.RawMessage("true")
+	b, err := json.Marshal(fields)
+	if err != nil {
+		return args
+	}
+	return b
 }
 
 // Target is what an entry is about, for a list a person reads: the
