@@ -141,7 +141,7 @@ up in a Linux VM you can throw away.
 | The systemd unit, or what starfixd tells systemd | The unit and its table in [step 5](docs/server.md#5-run-starfixd-under-systemd), and a run under a real systemd ([What was run, and where](docs/server.md#what-was-run-and-where)): the tests reach only a socket that stands in for systemd's |
 | Projects, principals, members, keys, the control store or the keys file | [Serving many projects](docs/server.md#serving-many-projects) in docs/server.md, and [Who can authenticate](docs/security-model.md#who-can-authenticate) |
 | A message an operator sees when something is wrong | [Troubleshooting](docs/server.md#troubleshooting) in docs/server.md |
-| A setup step in docs/server.md, or the Docker test server | [docs/deploy/docker.md](docs/deploy/docker.md), `deploy/docker`, and `smoke.sh` with its count of checks |
+| A setup step in docs/server.md, or the Docker test server | [docs/deploy/docker.md](docs/deploy/docker.md), `deploy/docker`, and `smoke.sh` with its count of checks; and `install-server.sh` with the table of [With the installer](docs/server.md#with-the-installer), which `scripts/installserver_test.go` holds to the guide's steps and files |
 | A file `starfixd` reads or writes, a socket or address it connects to, or a program it runs | `deploy/apparmor`, and a run on a machine with AppArmor ([deploy/apparmor/README.md](deploy/apparmor/README.md)) |
 | What a deployment needs or costs | The example under [docs/deploy](docs/deploy/README.md) |
 | How `sfx` or `starfixd` is installed or upgraded, or `install.sh` | [docs/install.md](docs/install.md) |

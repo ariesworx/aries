@@ -6,7 +6,7 @@ server needs `starfixd`.
 | Binary | Runs on | Installed by |
 |---|---|---|
 | `sfx` | Linux, macOS and Windows, on amd64 and arm64 | each person, on each machine where they or their agents work |
-| `starfixd` | Linux, on amd64 and arm64 | the server's admin ([Running a server](server.md#3-install-starfixd)) |
+| `starfixd` | Linux, on amd64 and arm64 | the server's admin ([Running a server](server.md#3-install-starfixd)), or the server installer, below |
 
 ## Install sfx
 
@@ -47,6 +47,22 @@ key's `.pub`, then run `sfx whoami` in the repository: it prints your
 principal and which key signed in. To sign in with another key, set
 `STARFIX_KEY_FILE` to the file's path
 ([Your key is your identity](cli.md#your-key-is-your-identity)).
+
+## Install a server
+
+On a fresh Ubuntu 24.04 LTS machine, `install-server.sh` sets up the
+whole server, `starfixd` included, as root:
+
+```sh
+curl -fsSLO https://raw.githubusercontent.com/ariesworx/starfix/main/install-server.sh
+sudo sh install-server.sh --admin alice --admin-key alice.pub --host starfix.example.com --dry-run
+```
+
+It installs `starfixd` and `sfx` with `install.sh`, so they are checked
+the same way, and reads `STARFIX_RELEASES` or `--releases` for a mirror.
+Drop `--dry-run` to set the server up.
+[With the installer](server.md#with-the-installer) has its options, its
+steps and what it leaves to you.
 
 ## Download by hand
 

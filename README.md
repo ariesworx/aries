@@ -148,7 +148,9 @@ OpenSSL 3 is installed, then installs `sfx` into `~/.local/bin`. It never
 uses sudo. On Windows, download the zip
 from the [releases page](https://github.com/ariesworx/starfix/releases).
 [Installing starfix](docs/install.md) covers the options, the server
-binary, building from source and verifying a download by hand.
+binary, building from source and verifying a download by hand. A server
+on Ubuntu 24.04 LTS is set up by one script, `install-server.sh`
+([With the installer](docs/server.md#with-the-installer)).
 
 ## Documentation
 
