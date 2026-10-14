@@ -260,6 +260,19 @@ func (b *buckets) take(key string, now time.Time) (bool, time.Duration) {
 	return false, time.Duration(math.Ceil((1-k.tokens)/b.rate)) * time.Second
 }
 
+// prune lets go of every bucket that has filled again by now. A full
+// bucket is what take makes for a key it has not seen, so letting it go
+// changes no answer, and the map holds only the keys that wrote lately.
+func (b *buckets) prune(now time.Time) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for key, k := range b.m {
+		if k.tokens+max(0, now.Sub(k.at).Seconds())*b.rate >= b.burst {
+			delete(b.m, key)
+		}
+	}
+}
+
 // conns counts connections past the handshake, in all and per principal:
 // per principal per project in a server of many.
 type conns struct {

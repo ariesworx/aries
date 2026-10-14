@@ -131,14 +131,19 @@ func (s *Store) IssueUsage(ctx context.Context, id IssueID) (IssueUsage, error) 
 		return IssueUsage{}, err
 	}
 	defer end()
+	return issueUsage(ctx, q, id, s.now())
+}
+
+// issueUsage is IssueUsage on q, as of now.
+func issueUsage(ctx context.Context, q querier, id IssueID, now time.Time) (IssueUsage, error) {
 	var out IssueUsage
+	var err error
 	if out.Account, out.AccountFrom, err = resolveAccount(ctx, q, id); err != nil {
 		return IssueUsage{}, err
 	}
 	if out.Logged, out.LoggedBy, err = issueHours(ctx, q, id); err != nil {
 		return IssueUsage{}, err
 	}
-	now := s.now()
 	own, err := loadHolds(ctx, q, []IssueID{id}, now)
 	if err != nil {
 		return IssueUsage{}, err

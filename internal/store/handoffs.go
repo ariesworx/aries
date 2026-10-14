@@ -123,9 +123,14 @@ func (s *Store) LastHandoff(ctx context.Context, id IssueID) (*Handoff, error) {
 	if err := id.Validate(); err != nil {
 		return nil, err
 	}
+	return lastHandoff(ctx, s.r, id)
+}
+
+// lastHandoff is LastHandoff on q.
+func lastHandoff(ctx context.Context, q querier, id IssueID) (*Handoff, error) {
 	var h Handoff
 	var state, next, branch, worktree, to sql.NullString
-	err := s.r.QueryRowContext(ctx, `SELECT c.id, c.issue_id, c.author, c.session, c.kind, c.body, c.created_at,
+	err := q.QueryRowContext(ctx, `SELECT c.id, c.issue_id, c.author, c.session, c.kind, c.body, c.created_at,
   h.state, h.next_step, h.branch, h.worktree, h.to_principal
   FROM comments c LEFT JOIN handoffs h ON h.comment_id = c.id
   WHERE c.issue_id = ? AND c.kind = ? ORDER BY c.created_at DESC, c.id DESC LIMIT 1`,
