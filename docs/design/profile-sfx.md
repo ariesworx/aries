@@ -335,6 +335,14 @@ to `MaxFrame` (4 MiB), and never shrinks.
   the end of stream must stay exactly as tested; it wants a fuzz test
   against the present decoder. Not prototyped.
 
+**Since this was written (14 Oct 2026).** Done, as `profile-starfixd.md`'s
+proposal 1 says, with a 4 KiB buffer rather than 64 KiB. Measured with
+ten idle `sfx mcp` against the test server, heap in use after two
+collections: 1.10 to 1.04 MiB after one `prime`, and 1.71 to 1.47 MiB
+after one `show` of an issue with three texts of 60,000 bytes. Their
+private memory moved by less than its spread between processes
+(10.6 to 12.1 MiB).
+
 ### 6. Write a table in one piece
 
 `internal/cli/commands.go:276` (`printSummaries`), with

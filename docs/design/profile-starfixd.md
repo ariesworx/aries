@@ -446,6 +446,27 @@ follows from a measurement of the code as it is.
   are rare (an issue with long texts, an import). (c) gives the limit a
   second value, to be stated in the protocol's documentation; a hello
   is under 1 KiB, and the bridge frame comes from `starfixd stdio`.
+- **Since this was written (14 Oct 2026):** (a) and (b) done together:
+  `proto.Decoder` reads through a 4 KiB `bufio.Reader` and gathers a
+  longer line in a buffer of its own, doubled exactly and to `MaxFrame`
+  at most, which it lets go of once the frame is decoded. Frames,
+  errors and the limit are as they were: `TestDecoderMatchesScanner`
+  and `FuzzDecoder` (2 million executions run) hold it to the old
+  Scanner, at the limit and around it, with a stream read whole, a byte
+  at a time and in pieces, ending or breaking mid-line. One call
+  differs, which no caller makes: after `ErrFrameTooLarge` the Scanner
+  gave the first `MaxFrame` bytes of that line as the next frame, and
+  the decoder now gives `ErrFrameTooLarge` again. `BenchmarkRetained`,
+  this machine, before and after: an idle connection 67.5 KB to 6.1 KB;
+  after a frame just under 4 MiB 4.20 MB to 6.1 KB; before its hello
+  66.4 KB to 4.9 KB. A frame over 4 KiB now costs more garbage while it
+  is read: steady state, a frame of 8 KiB 10.8 to 12.8 µs and 9.8 KB to
+  34 KB, 64 KiB 81 to 100 µs, 1 MiB 1.27 to 1.52 ms, 3.9 MiB 4.9 to
+  5.5 ms (minimum of 5); the first frame of a connection is as fast as
+  before or faster. (c) was not done: a hello that never ends still
+  holds up to 4.2 MB until its timeout. It needs a limit per call in
+  the decoder, a refusal whose message does not name 4 MiB, and a line
+  in the protocol's documentation, which is more than a small change.
 
 ### 2. A bridge that is not the whole of starfixd
 
