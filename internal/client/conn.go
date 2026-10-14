@@ -137,10 +137,10 @@ func (c *Conn) Done() <-chan struct{} { return c.done }
 // command overrides it anyway.
 const RemoteCommand = "starfixd stdio"
 
-// Dial connects to the server named in cfg, verifies its pinned host key,
-// authenticates, and completes the version handshake, all within
-// opts.Timeout. A refusal comes back as a *proto.Error. The caller must
-// Close the Conn.
+// Dial connects to the server named in cfg, verifies that its host key is
+// one of those pinned, authenticates, and completes the version
+// handshake, all within opts.Timeout. A refusal comes back as a
+// *proto.Error. The caller must Close the Conn.
 func Dial(ctx context.Context, cfg *Config, opts Options) (*Conn, error) {
 	if opts.Getenv == nil {
 		opts.Getenv = os.Getenv
@@ -167,10 +167,13 @@ func Dial(ctx context.Context, cfg *Config, opts Options) (*Conn, error) {
 		Auth:              []ssh.AuthMethod{ssh.PublicKeys(id.signers...)},
 		HostKeyAlgorithms: []string{ssh.KeyAlgoED25519},
 		HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
-			if got := ssh.FingerprintSHA256(key); got != cfg.Server.HostKey {
+			// Which pinned key matched is not kept: any of them is the
+			// server, and nothing else depends on which.
+			got := ssh.FingerprintSHA256(key)
+			if pinned := cfg.Pinned(); !slices.Contains(pinned, got) {
 				hostKeyErr = proto.Errf(proto.CodeAuth,
-					"if the server was rebuilt, confirm its new key with the admin out of band, then update server.host_key; otherwise do not connect",
-					fmt.Sprintf("host key mismatch for %s: the server presented %s, but %s pins %s", cfg.Server.Host, got, ConfigFile, cfg.Server.HostKey))
+					"if the server's host key was changed, confirm its new key with the admin out of band, then add it to server.host_keys; otherwise do not connect",
+					fmt.Sprintf("host key mismatch for %s: the server presented %s, but %s pins %s", cfg.Server.Host, got, ConfigFile, andList(pinned)))
 				return hostKeyErr
 			}
 			return nil

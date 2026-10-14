@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -51,6 +52,62 @@ func TestParseConfig(t *testing.T) {
 			}
 			if c.Server.Port == 0 || c.Server.User == "" {
 				t.Fatalf("defaults not filled: %+v", c)
+			}
+		})
+	}
+}
+
+// testFprNew is a second host key, for configs that pin several.
+var testFprNew = "SHA256:" + strings.Repeat("B", 43)
+
+// TestParseConfigHostKeys pins the two ways a config pins the server's
+// host key: host_key, one fingerprint, as every config before the list
+// had it, and host_keys, a list, so that a key can be added before the
+// server presents it and removed after.
+func TestParseConfigHostKeys(t *testing.T) {
+	t.Parallel()
+	head := "project: " + testProject + "\nserver:\n  host: starfix.example.com\n"
+	tests := []struct {
+		name string
+		in   string
+		want []string // when err is ""
+		err  []string // every part the error must hold
+	}{
+		{name: "host_key", in: head + "  host_key: " + testFpr + "\n", want: []string{testFpr}},
+		{name: "host_keys with one key", in: head + "  host_keys:\n    - " + testFpr + "\n", want: []string{testFpr}},
+		{name: "host_keys with two keys, in order", in: head + "  host_keys:\n    - " + testFpr + "\n    - " + testFprNew + "\n",
+			want: []string{testFpr, testFprNew}},
+		{name: "host_keys in flow style", in: head + "  host_keys: [" + testFprNew + ", " + testFpr + "]\n",
+			want: []string{testFprNew, testFpr}},
+		{name: "both, even when they agree", in: head + "  host_key: " + testFpr + "\n  host_keys: [" + testFpr + ", " + testFprNew + "]\n",
+			err: []string{"server.host_key and server.host_keys", "delete host_key"}},
+		{name: "a key listed twice", in: head + "  host_keys: [" + testFpr + ", " + testFprNew + ", " + testFpr + "]\n",
+			err: []string{"server.host_keys", "lists " + testFpr + " twice"}},
+		{name: "an entry that is no fingerprint", in: head + "  host_keys: [" + testFpr + ", SHA256:abc]\n",
+			err: []string{"server.host_keys[1]", "ED25519 fingerprint"}},
+		{name: "an empty list", in: head + "  host_keys: []\n", err: []string{"server.host_key"}},
+		{name: "neither", in: head, err: []string{"server.host_key"}},
+		{name: "host_key given a list", in: head + "  host_key: [" + testFpr + "]\n", err: []string{"host_key"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c, err := ParseConfig([]byte(tc.in))
+			if tc.err != nil {
+				if err == nil {
+					t.Fatalf("ParseConfig(%q) pins %v, want an error", tc.in, c.Pinned())
+				}
+				for _, part := range tc.err {
+					if !strings.Contains(err.Error(), part) {
+						t.Errorf("ParseConfig(%q) = %v, want an error containing %q", tc.in, err, part)
+					}
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParseConfig(%q) = %v", tc.in, err)
+			}
+			if got := c.Pinned(); !slices.Equal(got, tc.want) {
+				t.Errorf("ParseConfig(%q).Pinned() = %v, want %v", tc.in, got, tc.want)
 			}
 		})
 	}
@@ -328,6 +385,10 @@ func TestConfigForProject(t *testing.T) {
 			"\n  iap:\n    project: example-project\n    zone: us-central1-a\n    instance: tracker-2\n",
 			"project: " + other + "\nserver:\n  host: starfix-1\n  host_key: " + testFpr +
 				"\n  iap:\n    project: example-project\n    zone: us-central1-a\n    instance: tracker-2\n"},
+		{"one key in host_keys is printed as host_key", "project: " + testProject + "\nserver:\n  host: starfix.example.com\n  host_keys: [" + testFpr + "]\n",
+			"project: " + other + "\nserver:\n  host: starfix.example.com\n  host_key: " + testFpr + "\n"},
+		{"several keys, in order", "project: " + testProject + "\nserver:\n  host: starfix.example.com\n  host_keys: [" + testFprNew + ", " + testFpr + "]\n",
+			"project: " + other + "\nserver:\n  host: starfix.example.com\n  host_keys:\n    - " + testFprNew + "\n    - " + testFpr + "\n"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -345,7 +406,7 @@ func TestConfigForProject(t *testing.T) {
 				t.Fatalf("the printed config does not parse: %v", err)
 			}
 			if back.Project != other || back.Server.Host != c.Server.Host || back.Server.Port != c.Server.Port ||
-				back.Server.User != c.Server.User || back.Server.HostKey != c.Server.HostKey || back.Key != "" ||
+				back.Server.User != c.Server.User || !slices.Equal(back.Pinned(), c.Pinned()) || back.Key != "" ||
 				(back.Server.IAP == nil) != (c.Server.IAP == nil) || (c.Server.IAP != nil && *back.Server.IAP != *c.Server.IAP) {
 				t.Errorf("the printed config parses to %+v, want the server of %+v and no key", back, c)
 			}

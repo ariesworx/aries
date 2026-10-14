@@ -1,9 +1,10 @@
 // Package client connects to starfixd over SSH and speaks the protocol.
 //
 // The SSH client runs in-process (golang.org/x/crypto/ssh); no system ssh
-// is used. The server's ED25519 host key is pinned in .starfix.yaml and
-// checked on every connection: a mismatch is refused, and an unpinned host
-// is never trusted on first use. The developer authenticates with a key
+// is used. The server's ED25519 host key is pinned in .starfix.yaml, one
+// fingerprint or a list of them while a key is rotated ([Config.Pinned]),
+// and checked on every connection: a key that is none of them is refused,
+// and an unpinned host is never trusted on first use. The developer authenticates with a key
 // from ssh-agent (SSH_AUTH_SOCK, or the OpenSSH named pipe on Windows) or
 // the key file named in the config.
 //
