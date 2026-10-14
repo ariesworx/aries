@@ -9,6 +9,7 @@ import (
 	"github.com/ariesworx/starfix/internal/cli"
 	"github.com/ariesworx/starfix/internal/mcpserver"
 	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/starfix/internal/store"
 )
 
 // ops returns the ops of an issue's events, oldest first, and the
@@ -396,6 +397,121 @@ func TestKeyMovedLeavesTheOutbox(t *testing.T) {
 	}
 	if n := bob.comments(id); n != 1 {
 		t.Errorf("the issue has %d comments, want alice's one", n)
+	}
+}
+
+// When the server refuses a principal's access to the project at the
+// handshake, what that principal queued for it is refused as forbidden,
+// with the server's message and fix, and kept for a person (design
+// §18.3, "Who it runs as"): it is not left to go stale. A membership
+// ended and a principal disabled each prove it. A project archived
+// does not: it is refused as not served, which a project made active
+// again mends, so what waits for it goes on waiting. Access given back,
+// a person's retry sends the entry.
+func TestAccessEndedRefusesTheOutbox(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, daemonOpts{many: true, admins: []string{"dana"}})
+	w.member("alice", project, store.RoleMember)
+	w.member("bob", project, store.RoleMember)
+	w.member("carol", project, store.RoleMember)
+	alice, bob, carol := w.newUser("alice", ""), w.newUser("bob", ""), w.newUser("carol", "")
+	id := strings.TrimSpace(alice.ok("create", "Commented on while away"))
+	bob.ok("ready")
+	carol.ok("ready")
+
+	w.stop()
+	alice.ok("comment", id, "queued by alice")
+	alice.ok("comment", id, "queued by alice again")
+	bob.ok("comment", id, "queued by bob")
+	carol.ok("comment", id, "queued by carol")
+	w.start()
+	ctx := t.Context()
+	if _, err := w.ctl.RemoveMember(ctx, dana, "alice", project); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.ctl.DisablePrincipal(ctx, dana, "bob"); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		u        *user
+		name     string
+		n        string
+		msg, fix string
+	}{
+		{alice, "alice", "2 writes", `alice is not a member of project "` + project + `"`,
+			"ask a server admin, or one of the project's admins, to add you: `sfx admin member add alice`, run in this repository"},
+		{bob, "bob", "1 write", "bob is disabled on this server",
+			"ask a server admin, or a project admin who administers every project you belong to, to run `sfx admin principal enable bob`"},
+	} {
+		r := tc.u.run("v0.2.0", "ready")
+		if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "sfx: "+tc.msg+"\n") ||
+			!strings.Contains(r.stderr, "sfx: outbox: "+tc.n+" queued as "+tc.name) {
+			t.Errorf("%s's first command after access ended = exit %d, stderr:\n%s\nwant the refusal, and the outbox's line", tc.name, r.code, r.stderr)
+		}
+		out := tc.u.ok("outbox")
+		for _, want := range []string{
+			tc.name + "'s outbox: 0 waiting, ",
+			"     forbidden: " + tc.msg + "\n     fix: " + tc.fix + "\n",
+		} {
+			if !strings.Contains(out, want) {
+				t.Errorf("sfx outbox as %s lacks %q:\n%s", tc.name, want, out)
+			}
+		}
+	}
+
+	// A project archived is not the end of anyone's access.
+	if _, err := w.ctl.ArchiveProject(ctx, dana, project); err != nil {
+		t.Fatal(err)
+	}
+	if r := carol.run("v0.2.0", "ready"); r.code != cli.ExitFailure || !strings.Contains(r.stderr, "is not served by this server") ||
+		strings.Contains(r.stderr, "outbox") {
+		t.Errorf("carol's command in an archived project = exit %d, stderr:\n%s\nwant it refused, and her outbox left alone", r.code, r.stderr)
+	}
+	if out := carol.ok("outbox"); !strings.HasPrefix(out, "carol's outbox: 1 waiting, 0 refused\n") {
+		t.Errorf("sfx outbox as carol, the project archived:\n%s", out)
+	}
+	if _, err := w.ctl.ActivateProject(ctx, dana, project); err != nil {
+		t.Fatal(err)
+	}
+	if r := carol.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "sfx: outbox: delivered 1\n" {
+		t.Errorf("carol's command, the project active again = exit %d, stderr %q; want her write delivered", r.code, r.stderr)
+	}
+
+	// alice is a member again: nothing goes by itself, and a retry sends.
+	w.member("alice", project, store.RoleMember)
+	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "" {
+		t.Errorf("alice's command as a member again = exit %d, stderr %q; want nothing sent by itself", r.code, r.stderr)
+	}
+	alice.ok("outbox", "retry", "1")
+	if r := alice.run("v0.2.0", "ready"); r.stderr != "sfx: outbox: delivered 1\n" {
+		t.Errorf("alice's command after a retry said %q, want the entry delivered", r.stderr)
+	}
+	if n := carol.comments(id); n != 2 {
+		t.Errorf("the issue has %d comments, want carol's and alice's retried one", n)
+	}
+
+	// An agent's session: its tool call is refused, and tells it to ask
+	// a person; what it queued waits for that person, refused.
+	w.member("erin", project, store.RoleMember)
+	erin := w.newUser("erin", "")
+	erin.queues = true
+	ag := erin.mcp("v0.2.0")
+	ag.ok("ready", nil)
+	w.stop()
+	if out, isErr := ag.call("comment", map[string]any{"id": id, "body": "queued by erin's agent"}); isErr {
+		t.Fatalf("comment with the server away = %q, want it queued", out)
+	}
+	w.start()
+	if _, err := w.ctl.RemoveMember(ctx, dana, "erin", project); err != nil {
+		t.Fatal(err)
+	}
+	if out, isErr := ag.call("ready", nil); !isErr || !strings.Contains(out, "erin is not a member of project") {
+		t.Errorf("the agent's call after its access ended = %q (error %v); want the refusal", out, isErr)
+	}
+	if out := erin.ok("outbox"); !strings.HasPrefix(out, "erin's outbox: 0 waiting, 1 refused\n") ||
+		!strings.Contains(out, "     forbidden: erin is not a member of project") {
+		t.Errorf("sfx outbox as erin, after her agent's call was refused:\n%s", out)
 	}
 }
 

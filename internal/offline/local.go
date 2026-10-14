@@ -589,6 +589,26 @@ func (l *Local) Replay(ctx context.Context, c Conn) (outbox.Report, error) {
 	})
 }
 
+// Ended refuses what waits in principal's outbox with the server's
+// refusal pe, which said at a handshake that principal's access to the
+// project has ended ([client.AccessEnded]), and returns how many entries
+// it refused. They go to the refused list, as a refusal of each would
+// have, where a person retries them once access is back or drops them;
+// until then each would only go stale (design §18.3, "Who it runs as").
+// It makes nothing when nothing was ever queued for principal, and does
+// nothing while another process replays that outbox, which got in.
+func (l *Local) Ended(principal string, pe *proto.Error) (int, error) {
+	ob, ok, err := l.Existing(principal)
+	if err != nil || !ok {
+		return 0, err
+	}
+	n, err := ob.RefuseAll(outbox.Outcome{Refused: true, Code: string(pe.Code), Message: pe.Message, Fix: pe.Fix})
+	if errors.Is(err, outbox.ErrBusy) {
+		return 0, nil
+	}
+	return n, err
+}
+
 // withoutPaths returns the arguments of a finish or a handoff without
 // the paths its work touched, and whether it had any. They are a hint
 // read from git: a server that refuses them is sent the rest, as

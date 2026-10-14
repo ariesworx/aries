@@ -119,6 +119,37 @@ func (c *Client) Missed() {
 	}
 }
 
+// Ended notes err, a dial's refusal, when it is the server's word that a
+// principal's access to this project has ended ([client.AccessEnded]):
+// what that principal queued for it is refused with the server's
+// refusal ([Local.Ended]). It returns one line saying so, or "" when
+// err is no such word or nothing waited. A failure to note it leaves
+// the entries waiting, as they were.
+func (c *Client) Ended(err error) string {
+	who, ok := client.AccessEnded(err)
+	if !ok {
+		return ""
+	}
+	pe, _ := errors.AsType[*proto.Error](err) // AccessEnded says it is one
+	l, _, lerr := c.Local()
+	if lerr != nil {
+		return ""
+	}
+	n, _ := l.Ended(who, pe)
+	if n == 0 {
+		return ""
+	}
+	return fmt.Sprintf("outbox: %s queued as %s %s refused with it, and kept: `sfx outbox` lists %s, to retry once access is back or drop",
+		writes(n), who, was(n), them(n))
+}
+
+func them(n int) string {
+	if n == 1 {
+		return "it"
+	}
+	return "them"
+}
+
 // Keep queues the write op with args, which did not reach the server;
 // reach is the error that says so. principal is who the connection it
 // was lost on belonged to, or "" when there was none, and the keys this

@@ -307,7 +307,10 @@ session has not sent when it ends stays in the outbox, and the next
 `sfx` command or session of the same principal on that machine sends it.
 
 There is no tool for the outbox, and the agent is never asked to manage
-it. A person hears of it through `prime`: when writes wait, or the
+it. When the server refuses the principal the project as `forbidden`,
+the tool call fails with that refusal, telling the agent to ask a
+person, and what waits is marked refused for that person to retry or
+drop. A person hears of it through `prime`: when writes wait, or the
 server refused some, `prime` has one more notice, in the tool's result
 and in the session-start hook's context alike:
 

@@ -71,6 +71,19 @@
 // another principal, what the first queued with it stays where it is:
 // [Client.Connected] says so once, and `sfx outbox` lists it.
 //
+// # When access ends
+//
+// A handshake the server refuses as forbidden, naming the principal it
+// refuses ([client.AccessEnded]), says that principal's access to the
+// project has ended: disabled, unknown to the server, or no longer a
+// member. What waits in that principal's outbox is then refused with
+// the server's message and fix ([Local.Ended]), for a person to retry
+// once access is back or to drop, rather than left to go stale (design
+// §18.3). Nothing else does that: not unavailable or busy, not a
+// project that is not served (archived, which activation mends), not a
+// key the server no longer holds, and not a refusal that names nobody,
+// as an older server's does.
+//
 // # What the server sees
 //
 // A replayed entry is a request like any other, with the arguments and

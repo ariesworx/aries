@@ -574,6 +574,49 @@ func TestReplayLeavesAnotherPrincipalsOutbox(t *testing.T) {
 	}
 }
 
+// TestEnded: when the server refuses a principal's access to the
+// project, what waits in that principal's outbox is refused with the
+// server's code, message and fix, and kept for a person. Another
+// principal's outbox is not touched, and nobody's outbox is made.
+func TestEnded(t *testing.T) {
+	t.Parallel()
+	l, _ := newLocal(t, outbox.Options{})
+	for _, who := range []string{"alice", "alice", "bob"} {
+		if _, err := l.Keep(who, entry(proto.OpComment, "sf-a"), errReach); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ended := proto.Errf(proto.CodeForbidden, "ask a server admin to run `sfx admin principal enable alice`", "alice is disabled on this server")
+	if n, err := l.Ended("alice", ended); err != nil || n != 2 {
+		t.Fatalf("Ended(alice) = %d, %v; want her 2 entries refused", n, err)
+	}
+	ob, _, err := l.Existing("alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, err := ob.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Pending) != 0 || len(list.Refused) != 2 {
+		t.Fatalf("alice's outbox after Ended: %d pending, %d refused; want 0 and 2", len(list.Pending), len(list.Refused))
+	}
+	for _, r := range list.Refused {
+		if r.Code != string(proto.CodeForbidden) || r.Message != ended.Message || r.Fix != ended.Fix {
+			t.Errorf("entry %d is refused as %s: %q, fix %q; want the server's refusal %+v", r.Entry.Seq, r.Code, r.Message, r.Fix, ended)
+		}
+	}
+	if n, err := l.Waiting("bob"); err != nil || n.Pending != 1 || n.Refused != 0 {
+		t.Errorf("Waiting(bob) = %+v, %v; want his entry still pending", n, err)
+	}
+	if n, err := l.Ended("carol", ended); err != nil || n != 0 {
+		t.Errorf("Ended(carol), who queued nothing = %d, %v; want 0, nil", n, err)
+	}
+	if _, err := os.Stat(l.outboxDir("carol")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Ended(carol) made her outbox (%v)", err)
+	}
+}
+
 func TestTarget(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ op, args, want string }{

@@ -158,6 +158,48 @@ rounds:
 	return rep, nil
 }
 
+// RefuseAll moves every pending entry to the refused list with the
+// server's answer out, sending none, and returns how many it moved. It
+// is for an answer that holds for every entry alike: the server refused
+// the connection they would be sent on, and will go on refusing it until
+// a person acts (design §18.3, "Who it runs as"). An entry already
+// refused keeps its own answer. Like a person's decision, it does not
+// wait for a replay in progress, which was let in and decides for
+// itself: it is [ErrBusy] then.
+func (o *Outbox) RefuseAll(out Outcome) (int, error) {
+	rl, err := acquire(o.path(replayLockFile), false)
+	if err != nil {
+		return 0, fmt.Errorf("refuse outbox: %w", err)
+	}
+	if rl == nil {
+		return 0, fmt.Errorf("refuse outbox: %w: a replay is going on", ErrBusy)
+	}
+	defer func() { _ = rl.release() }()
+
+	var v *view
+	if err := o.locked(func() (err error) { v, err = o.load(); return err }); err != nil {
+		return 0, fmt.Errorf("refuse outbox: %w", err)
+	}
+	var counts []func(*Stats)
+	for _, e := range v.entries {
+		if !v.pending(e.Seq) {
+			continue
+		}
+		a := answer{Seq: e.Seq, State: stateRefused, Code: out.Code, Message: out.Message, Fix: out.Fix, At: o.now()}
+		if err := o.record(a); err != nil {
+			return len(counts), fmt.Errorf("refuse outbox: %w", err)
+		}
+		counts = append(counts, func(s *Stats) { s.refused(e.Op, a.At) })
+	}
+	if len(counts) == 0 {
+		return 0, nil
+	}
+	if _, err := o.settle(counts); err != nil {
+		return len(counts), fmt.Errorf("refuse outbox: %w", err)
+	}
+	return len(counts), nil
+}
+
 // Retry makes the refused entry seq pending again, to be sent by the
 // next Replay with the key it always had. It waits anew from now, so a
 // stale entry is sent. It is [ErrNotFound] when no refused entry has

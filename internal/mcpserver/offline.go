@@ -93,7 +93,13 @@ func queuedResult(k offline.Kept) *mcp.CallToolResult {
 // connection, for the call that failed before it had one.
 func (s *Server) away(err error, w *sent, rerun func(Conn)) (*mcp.CallToolResult, error) {
 	off := s.opts.Offline
-	if off == nil || !client.Unreachable(err) {
+	if off == nil {
+		return nil, err
+	}
+	if !client.Unreachable(err) {
+		// The agent is told of the refusal itself, and to ask a person;
+		// what its principal queued waits in the refused list for one.
+		off.Ended(err)
 		return nil, err
 	}
 	off.Missed()

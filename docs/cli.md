@@ -378,6 +378,24 @@ after it. An entry that waited more than 24 hours is not sent: it moves
 to the refused list as `stale`, because the server refuses a key that
 old.
 
+**When your access has ended.** If the server refuses you the project
+when a command connects, as `forbidden` (you were disabled, removed from
+the server, or are no longer a member of the project), what you queued
+for it can no longer be sent. Every waiting entry moves to the refused
+list at once, with the server's message and fix, and one line on stderr
+says so:
+
+```text
+sfx: alice is not a member of project "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+sfx: outbox: 2 writes queued as alice were refused with it, and kept: `sfx outbox` lists them, to retry once access is back or drop
+```
+
+Only that refusal does this, and only when the server names you in it.
+A project that is archived is refused as not served, which the
+project's activation mends, so what you queued for it goes on waiting.
+A key the server no longer holds is a refusal of the key, not of you,
+and the entries wait for one of your other keys.
+
 An entry is sent by whichever connection of yours comes next, and the
 server records that connection's session and machine on it, not those of
 the session that wrote it. So when your terminal delivers the `finish`

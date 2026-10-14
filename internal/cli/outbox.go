@@ -26,11 +26,19 @@ func (r *runner) away() *offline.Client {
 		Now: r.env.Now, Session: o.Session, Machine: o.Machine}
 }
 
-// missed notes, for `sfx outbox`, that err says the server was not
-// reached just now. A hook notes nothing.
+// missed notes, for `sfx outbox`, what err says of the server: that it
+// was not reached just now, or that it refused the principal's access to
+// the project, which refuses what the principal queued for it, and says
+// so on Stderr. A hook notes nothing.
 func (r *runner) missed(err error) {
-	if !r.hook && client.Unreachable(err) {
+	switch {
+	case r.hook:
+	case client.Unreachable(err):
 		r.away().Missed()
+	default:
+		if line := r.away().Ended(err); line != "" {
+			_, _ = fmt.Fprintf(r.env.Stderr, "sfx: %s\n", esc(line))
+		}
 	}
 }
 

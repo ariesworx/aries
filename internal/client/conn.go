@@ -369,7 +369,7 @@ func start(ctx context.Context, client *ssh.Client, nc *transport, far string, c
 		// The bridge may have refused and closed before reading the hello;
 		// its refusal is still waiting to be read.
 		if w, rerr := c.next(); rerr == nil && w.T == proto.FrameWelcome && w.Err != nil {
-			return nil, w.Err
+			return nil, &refusal{pe: w.Err, principal: w.Principal}
 		}
 		if ctx.Err() != nil {
 			return nil, gaveUp(ctx, far, "answer the hello", opts.Timeout, c.stderr.String())
@@ -388,7 +388,7 @@ func start(ctx context.Context, client *ssh.Client, nc *transport, far string, c
 			fmt.Sprintf("expected a welcome from the server, got a %q frame", w.T))
 	}
 	if w.Err != nil {
-		return nil, w.Err
+		return nil, &refusal{pe: w.Err, principal: w.Principal}
 	}
 	if e := proto.CheckProto(proto.Proto, w.Min, w.Max, w.Version); e != nil {
 		return nil, e

@@ -801,8 +801,10 @@ directory. The outbox and the record beside it are the first.
   rewritten without it, and it is never sent. It is an ordinary delete,
   not a secure erase: the bytes may remain on the disk, and in its
   backups, as with any file. Nothing removes an outbox when your access
-  to a project ends; its entries are then refused when sent, and stay
-  until you drop them. At most 1,000 entries and 4 MiB wait in one.
+  to a project ends: when the server refuses you the project as
+  `forbidden`, naming you, every entry that waits is marked refused with
+  that refusal, and stays until you retry or drop it. At most 1,000
+  entries and 4 MiB wait in one.
 - **Whose it is.** Only the server says which principal a key is. So at
   each connection `sfx` writes a record, `seen.json`, in the server and
   project's directory. It holds the server's pinned host key
