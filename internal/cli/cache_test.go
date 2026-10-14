@@ -107,6 +107,7 @@ func TestPrimeHookFromCache(t *testing.T) {
 	a.reachedAs(t, "alice")
 	a.keptAs(t, "alice")
 	a.now = a.now.Add(3 * time.Hour)
+	a.run(t, "comment", "sf-a1b2", "queued meanwhile")
 	code, out, errb := a.run(t, "prime", "--hook")
 	var doc struct {
 		HookSpecificOutput struct {
@@ -117,8 +118,9 @@ func TestPrimeHookFromCache(t *testing.T) {
 		t.Fatalf("sfx prime --hook with the server away = exit %d, %q (%v), stderr %q; want one JSON document and nothing else", code, out, err, errb)
 	}
 	ctx := doc.HookSpecificOutput.AdditionalContext
-	if !strings.Contains(ctx, "notice: cached: starfix cannot reach its server") || !strings.Contains(ctx, `sf-a1b2 P0 "Held work"`) {
-		t.Errorf("the hook's context with the server away:\n%s\nwant the cached prime, saying it is cached", ctx)
+	if !strings.Contains(ctx, "notice: cached: starfix cannot reach its server") || !strings.Contains(ctx, `sf-a1b2 P0 "Held work"`) ||
+		!strings.Contains(ctx, "notice: outbox: 1 write made while the server was away waits to be sent") {
+		t.Errorf("the hook's context with the server away:\n%s\nwant the cached prime, saying it is cached, with the outbox's notice", ctx)
 	}
 	// Nothing cached: the one-line note, as before.
 	b := newAway(t)

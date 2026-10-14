@@ -108,7 +108,7 @@ func (r *runner) prime(ctx context.Context) (*mcpserver.Prime, error) {
 		return nil, err
 	}
 	var notices []string
-	if n := r.away().NoticeFor(cache.Principal()); n != "" && !r.hook {
+	if n := r.away().NoticeFor(cache.Principal()); n != "" {
 		notices = append(notices, n)
 	}
 	p, at, ok := mcpserver.CachedPrime(cache, r.clientOptions().Session, r.env.Now(), notices...)
