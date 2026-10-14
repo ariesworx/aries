@@ -167,6 +167,9 @@ func TestQueuedToolCalls(t *testing.T) {
 		{"remember", map[string]any{"key": "style", "body": "tabs"}, proto.OpRemember, fmt.Sprintf(queuedLine, "remember")},
 		{"create", map[string]any{"title": "Something new"}, proto.OpCreate,
 			fmt.Sprintf(queuedLine, "create") + " The issue has no id until then, so nothing can refer to it."},
+		{"update", map[string]any{"id": "sf-1", "rev": 2, "title": "renamed"}, proto.OpUpdate, fmt.Sprintf(queuedLine, "update")},
+		{"dep", map[string]any{"action": "add", "id": "sf-1", "depends_on": "sf-2"}, proto.OpDepAdd, fmt.Sprintf(queuedLine, "dep.add")},
+		{"label", map[string]any{"action": "rm", "id": "sf-1", "labels": []string{"old"}}, proto.OpLabelRm, fmt.Sprintf(queuedLine, "label.rm")},
 	} {
 		t.Run(tc.tool, func(t *testing.T) {
 			a := newAway(t, &fakeConn{reply: okReply})
@@ -199,6 +202,50 @@ func TestQueuedToolCalls(t *testing.T) {
 				t.Errorf("%s: the outbox holds %+v, want the one %s with its key, session and machine", tc.tool, list.Pending, tc.op)
 			}
 		})
+	}
+}
+
+// Proto says the fake speaks this build's protocol, as a server of this
+// build does.
+func (f *fakeConn) Proto() int { return proto.Proto }
+
+// A label call of several labels that cannot reach the server queues a
+// write for each, in order, each with a key of its own, and says so in
+// one line; an update without a rev is not queued, since only the
+// server knows the rev, and the agent is told to give one.
+func TestQueuedSeveralAndUnqueuedUpdate(t *testing.T) {
+	t.Parallel()
+	a := newAway(t, &fakeConn{reply: okReply})
+	if res := callTool(t, a.cs, "ready", nil); res.IsError {
+		t.Fatalf("ready before the outage: %s", text(t, res))
+	}
+	drop(a.net.conns[0])
+	a.net.set(true)
+	res := callTool(t, a.cs, "label", map[string]any{"action": "add", "id": "sf-1", "labels": []string{"a", "b", "c"}})
+	want := "queued: starfix cannot reach its server, so these 3 writes (label.add) wait on this machine and are sent when the server answers. Carry on, and do not repeat them."
+	if got := text(t, res); res.IsError || got != want {
+		t.Errorf("label of three while the server is away = %q (error %v)\nwant %q", got, res.IsError, want)
+	}
+	list := a.list(t)
+	var labels, keys []string
+	for _, e := range list.Pending {
+		var args proto.LabelArgs
+		if err := json.Unmarshal(e.Args, &args); err != nil || e.Op != proto.OpLabelAdd {
+			t.Fatalf("the outbox holds %s %s (%v), want label.add", e.Op, e.Args, err)
+		}
+		labels, keys = append(labels, args.Label), append(keys, e.Idem)
+	}
+	if !slices.Equal(labels, []string{"a", "b", "c"}) || len(slices.Compact(slices.Sorted(slices.Values(keys)))) != 3 {
+		t.Errorf("the outbox holds labels %v with keys %v; want a, b and c, each with a key of its own", labels, keys)
+	}
+
+	res = callTool(t, a.cs, "update", map[string]any{"id": "sf-1", "title": "renamed"})
+	if got := text(t, res); !res.IsError || !strings.Contains(got,
+		"this was not queued (an update is kept for later only with the rev it was based on, which only the server knows: give rev)") {
+		t.Errorf("update without a rev while the server is away = %q (error %v); want it not queued, saying to give the rev", got, res.IsError)
+	}
+	if n := len(a.list(t).Pending); n != 3 {
+		t.Errorf("the outbox holds %d entries after the update, want the 3 labels alone", n)
 	}
 }
 
@@ -244,9 +291,6 @@ func TestUnqueuedToolCalls(t *testing.T) {
 	}{
 		{"start", nil, "it takes a claim, and no claim is made without the server"},
 		{"close", map[string]any{"id": "sf-1"}, "it ends something on a state the client cannot see"},
-		// With a rev: without one, update first reads the issue, and it is
-		// that read which fails.
-		{"update", map[string]any{"id": "sf-1", "rev": 2, "title": "t"}, "it has no idempotency key in this version of the protocol"},
 	} {
 		res := callTool(t, a.cs, tc.tool, tc.args)
 		want := "unavailable: cannot reach 127.0.0.1:2222: connection refused\n" +

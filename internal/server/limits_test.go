@@ -95,6 +95,17 @@ func TestResolveSettingsLimits(t *testing.T) {
 		{name: "negative server limit", body: "limits:\n  write_burst: -1\n", err: "limit write_burst must be zero or a positive number"},
 		{name: "write rate not a number", body: "limits:\n  write_rate: .nan\n", err: "limit write_rate must be zero or a positive number"},
 		{name: "infinite write rate", body: "limits:\n  write_rate: .inf\n", err: "limit write_rate must be zero or a positive number"},
+		{name: "idem window default", body: "limits:\n  conns: 5\n",
+			want: func(l Limits) bool { return l.IdemWindow == Duration(7*24*time.Hour) }},
+		{name: "idem window set", body: "limits:\n  idem_window: 30d\n",
+			want: func(l Limits) bool {
+				return l.IdemWindow == Duration(30*24*time.Hour) && l.Conns == DefaultLimits.Conns
+			}},
+		{name: "idem window of an hour", body: "limits:\n  idem_window: 1h\n",
+			want: func(l Limits) bool { return l.IdemWindow == Duration(time.Hour) }},
+		{name: "idem window below an hour", body: "limits:\n  idem_window: 59m\n", err: "limit idem_window is 59m; it must be from 1h to 365d"},
+		{name: "idem window past a year", body: "limits:\n  idem_window: 366d\n", err: "limit idem_window is 366d; it must be from 1h to 365d"},
+		{name: "negative idem window", body: "limits:\n  idem_window: -1h\n", err: "not a duration"},
 		{name: "telemetry requests", body: "limits:\n  telemetry_requests: 3\n",
 			want: func(l Limits) bool { return l.TelemetryRequests == 3 && l.Conns == DefaultLimits.Conns }},
 		{name: "telemetry requests default", body: "limits:\n  telemetry_requests: 0\n",

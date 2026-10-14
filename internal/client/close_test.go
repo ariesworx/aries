@@ -117,7 +117,7 @@ func bridgedConn(t *testing.T) (*Conn, *fullConn) {
 		t.Fatal(err)
 	}
 	client := ssh.NewClient(cc, chans, reqs)
-	c, err := start(t.Context(), client, nc, "the server", &Config{Project: testProject}, Options{Timeout: patience})
+	c, err := start(t.Context(), client, nc, "the server", &Config{Project: testProject}, Options{Timeout: patience}, proto.Proto)
 	if err != nil {
 		_ = client.Close()
 		t.Fatal(err)

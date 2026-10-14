@@ -57,7 +57,7 @@ func (c *Client) Local() (*Local, *client.Config, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return Open(root, cfg.Server.HostKey, cfg.Project, Options{Now: c.Now, Outbox: c.Outbox}), cfg, nil
+	return Open(root, cfg.Server.HostKey, cfg.Project, Options{Now: c.Now, Outbox: c.Outbox, Address: Address(cfg)}), cfg, nil
 }
 
 // Whose returns the principal this process's writes belong to while the
@@ -98,7 +98,7 @@ func (c *Client) Connected(conn Conn) (moved string) {
 	if err != nil {
 		return ""
 	}
-	was, _ := l.Reached(conn.Principal(), k.Key().Fingerprint, k.Key().Configured())
+	was, _ := l.Reached(conn.Principal(), k.Key().Fingerprint, k.Key().Configured(), speaks(conn))
 	if was == "" {
 		return ""
 	}
@@ -117,6 +117,37 @@ func (c *Client) Missed() {
 	if l, _, err := c.Local(); err == nil {
 		l.Missed()
 	}
+}
+
+// Ended notes err, a dial's refusal, when it is the server's word that a
+// principal's access to this project has ended ([client.AccessEnded]):
+// what that principal queued for it is refused with the server's
+// refusal ([Local.Ended]). It returns one line saying so, or "" when
+// err is no such word or nothing waited. A failure to note it leaves
+// the entries waiting, as they were.
+func (c *Client) Ended(err error) string {
+	who, ok := client.AccessEnded(err)
+	if !ok {
+		return ""
+	}
+	pe, _ := errors.AsType[*proto.Error](err) // AccessEnded says it is one
+	l, _, lerr := c.Local()
+	if lerr != nil {
+		return ""
+	}
+	n, _ := l.Ended(who, pe)
+	if n == 0 {
+		return ""
+	}
+	return fmt.Sprintf("outbox: %s queued as %s %s refused with it, and kept: `sfx outbox` lists %s, to retry once access is back or drop",
+		writes(n), who, was(n), them(n))
+}
+
+func them(n int) string {
+	if n == 1 {
+		return "it"
+	}
+	return "them"
 }
 
 // Keep queues the write op with args, which did not reach the server;
@@ -169,6 +200,37 @@ func (c *Client) Notice(conn Conn) string {
 		return ""
 	}
 	return notice(n)
+}
+
+// Rekeyed is the line a session's start says of what this machine keeps
+// for the project under host keys the server no longer has
+// ([Local.Rekeyed]), whoever queued it, or "" when nothing is kept so.
+// None of it is sent by itself, so only a person settles it.
+func (c *Client) Rekeyed() string {
+	l, _, err := c.Local()
+	if err != nil {
+		return ""
+	}
+	formers, err := l.Rekeyed()
+	if err != nil {
+		return ""
+	}
+	total := 0
+	for _, f := range formers {
+		for _, p := range f.Local.Principals() {
+			if n, err := f.Local.Waiting(p); err == nil {
+				total += n.Pending + n.Refused
+			}
+		}
+	}
+	if total == 0 {
+		return ""
+	}
+	itself := "are not sent by themselves"
+	if total == 1 {
+		itself = "is not sent by itself"
+	}
+	return fmt.Sprintf("outbox: %s queued under the server's old host key %s: tell the user to run `sfx outbox`", writes(total), itself)
 }
 
 func notice(n Count) string {

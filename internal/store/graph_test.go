@@ -20,7 +20,7 @@ func TestReadyAndBlocked(t *testing.T) {
 	}
 	dep := func(from, to IssueID, typ DepType) {
 		t.Helper()
-		if err := s.AddDep(ctx, alice, from, to, typ); err != nil {
+		if err := s.AddDep(ctx, alice, from, to, typ, ""); err != nil {
 			t.Fatalf("dep %s -> %s: %v", from, to, err)
 		}
 	}
@@ -173,7 +173,7 @@ func TestCycleRefusal(t *testing.T) {
 				ids[i] = mustCreate(t, s, in).ID
 			}
 			for _, e := range tc.setup {
-				if err := s.AddDep(ctx, alice, ids[e.from], ids[e.to], e.typ); err != nil {
+				if err := s.AddDep(ctx, alice, ids[e.from], ids[e.to], e.typ, ""); err != nil {
 					t.Fatalf("setup: %v", err)
 				}
 			}
@@ -185,14 +185,14 @@ func TestCycleRefusal(t *testing.T) {
 				}
 				_, err = s.UpdateIssue(ctx, alice, is.ID, is.Rev, IssuePatch{ParentID: &ids[tc.reparent[1]]})
 			} else {
-				err = s.AddDep(ctx, alice, ids[tc.add.from], ids[tc.add.to], tc.add.typ)
+				err = s.AddDep(ctx, alice, ids[tc.add.from], ids[tc.add.to], tc.add.typ, "")
 			}
 			if tc.want == nil && err != nil || tc.want != nil && !errors.Is(err, tc.want) {
 				t.Fatalf("err = %v, want %v", err, tc.want)
 			}
 		})
 	}
-	if err := s.AddDep(ctx, alice, "tst-nope", "tst-nada", DepBlocks); !errors.Is(err, ErrNotFound) {
+	if err := s.AddDep(ctx, alice, "tst-nope", "tst-nada", DepBlocks, ""); !errors.Is(err, ErrNotFound) {
 		t.Errorf("dep on missing issues: %v, want ErrNotFound", err)
 	}
 }

@@ -239,6 +239,9 @@ type IssuePatch struct {
 	// Paths replaces the declared paths; an empty slice clears them. They
 	// have their own rows, like labels, so changing them keeps Rev.
 	Paths *[]string
+	// IdempotencyKey, when set, makes a repeat of the update return the
+	// first one's result (idem.go). It changes no field.
+	IdempotencyKey string
 }
 
 // Dep is a dependency edge: From depends on To.

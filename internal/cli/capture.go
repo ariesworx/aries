@@ -133,7 +133,7 @@ func plural(n int) string {
 // sendUsage sends one batch with the usage op.
 func (r *runner) sendUsage(ctx context.Context, recs []proto.UsageRecord) error {
 	var out proto.UsageResult
-	return r.call(ctx, proto.OpUsage, proto.UsageArgs{Records: recs}, &out)
+	return r.call(ctx, proto.OpUsage, proto.UsageArgs{Records: recs, Idem: proto.NewIdem("cli")}, &out)
 }
 
 // usageFailure is the hook's one-line note on a failed capture: the

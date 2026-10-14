@@ -51,6 +51,11 @@ type Limits struct {
 	// item is.
 	AgentKeep Duration `yaml:"agent_keep"`
 	InboxKeep Duration `yaml:"inbox_keep"`
+	// IdemWindow is how long an idempotency key gives back its request's
+	// result (design §18.5, decision 41): a key used longer ago is
+	// refused as stale. It is how long an outbox entry may wait and still
+	// be delivered without a person. From an hour to a year.
+	IdemWindow Duration `yaml:"idem_window"`
 
 	// The rest apply to a server of many projects (control_db) only.
 
@@ -86,7 +91,8 @@ var DefaultLimits = Limits{
 	Limits: store.DefaultLimits, Conns: 1024, ConnsPerPrincipal: 64, Handshakes: 16, IdleTimeout: Duration(10 * time.Minute),
 	WriteRate: 10, WriteBurst: 100, RefusalLogs: 20,
 	AgentKeep: Duration(store.MaxAgentWindow), InboxKeep: Duration(30 * 24 * time.Hour),
-	Control: store.DefaultControlLimits, OpenStores: 64, StoreIdle: Duration(10 * time.Minute),
+	IdemWindow: Duration(store.DefaultIdemWindow),
+	Control:    store.DefaultControlLimits, OpenStores: 64, StoreIdle: Duration(10 * time.Minute),
 	ControlWriteRate: 1, ControlWriteBurst: 30,
 	TelemetryRequests: telemetry.DefaultRequests,
 }
@@ -126,7 +132,7 @@ func (l Limits) WithDefaults() Limits {
 		}
 	}
 	for _, f := range []struct{ v, d *Duration }{{&l.IdleTimeout, &d.IdleTimeout}, {&l.AgentKeep, &d.AgentKeep}, {&l.InboxKeep, &d.InboxKeep},
-		{&l.StoreIdle, &d.StoreIdle}} {
+		{&l.StoreIdle, &d.StoreIdle}, {&l.IdemWindow, &d.IdemWindow}} {
 		if *f.v == 0 {
 			*f.v = *f.d
 		}
@@ -166,8 +172,22 @@ func (l Limits) Validate() error {
 			return fmt.Errorf("limit %s must be zero or a positive number; fix: correct limits: in the config file, or leave it out for the default", f.name)
 		}
 	}
+	if w := time.Duration(l.IdemWindow); w != 0 && (w < minIdemWindow || w > maxIdemWindow) {
+		return fmt.Errorf("limit idem_window is %s; it must be from %s to %s; fix: correct limits: in the config file, or leave it out for the default, %s",
+			proto.Span(w), proto.Span(minIdemWindow), proto.Span(maxIdemWindow), proto.Span(store.DefaultIdemWindow))
+	}
 	return nil
 }
+
+// The bounds of Limits.IdemWindow. Below an hour, a key would expire
+// while a session that lost its connection still retries with it; past a
+// year, nothing an outbox holds is still meant (its own caps are far
+// shorter). The keys are kept whatever the window, so neither bounds
+// what the server stores.
+const (
+	minIdemWindow = time.Hour
+	maxIdemWindow = 365 * 24 * time.Hour
+)
 
 // readOps are the operations that write nothing; every other op counts
 // against the principal's write bucket.

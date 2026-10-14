@@ -283,8 +283,9 @@ here: `busy` is a refusal, not an outage.
 
 ### When the server cannot be reached
 
-When `create`, `comment`, `handoff`, `remember` or `finish` cannot reach
-the server, `sfx mcp` keeps the write in the outbox on the machine
+When `create`, `comment`, `handoff`, `remember`, `finish`, `update` with
+a `rev`, `dep` (adding) or `label` cannot reach the server, `sfx mcp`
+keeps the write in the outbox on the machine
 ([When the server cannot be reached](cli.md#when-the-server-cannot-be-reached))
 and the tool returns one line, which is not an error:
 
@@ -294,8 +295,15 @@ queued: starfix cannot reach its server, so this finish waits on this machine an
 
 Its structured content is `{"queued": true, "op": …, "entry": …}`, and
 never an `id` and a `rev`. A queued `create` adds that the issue has no id
-until then, so nothing can refer to it. The agent is told to carry on:
-it finishes what it holds and files what it finds.
+until then, so nothing can refer to it. A `label` call of several labels
+queues a write for each, and its line says how many. The agent is told
+to carry on: it finishes what it holds and files what it finds.
+
+An `update` without a `rev` reads the issue's rev first, which needs the
+server: with the server away it fails, saying it was not queued and to
+give `rev`. Against a server that speaks only protocol 5, `update`,
+`dep` and `label` are not queued, since that server could apply one
+twice.
 
 Nothing else is queued. `start` fails, and tells the agent that it was
 not queued and to go on with the work it holds: no claim is taken
@@ -312,7 +320,10 @@ session has not sent when it ends stays in the outbox, and the next
 `sfx` command or session of the same principal on that machine sends it.
 
 There is no tool for the outbox, and the agent is never asked to manage
-it. A person hears of it through `prime`: when writes wait, or the
+it. When the server refuses the principal the project as `forbidden`,
+the tool call fails with that refusal, telling the agent to ask a
+person, and what waits is marked refused for that person to retry or
+drop. A person hears of it through `prime`: when writes wait, or the
 server refused some, `prime` has one more notice, in the tool's result
 and in the session-start hook's context alike:
 

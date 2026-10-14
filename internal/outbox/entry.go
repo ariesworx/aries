@@ -34,9 +34,11 @@ type Entry struct {
 	At time.Time `json:"at"`
 }
 
-// queued are the ops the outbox queues: the ones that carry an
-// idempotency key in protocol 5 and whose replay cannot do harm nobody
-// asked for (design §18.3). Protocol 6 moves the ops of later here.
+// queued are the ops the outbox queues: the ones whose replay cannot do
+// harm nobody asked for (design §18.3), each of which carries an
+// idempotency key. The first six have one in protocol 5, and the rest
+// from protocol 6 (proto.Keyed): the caller sends an entry only to a
+// server that takes its key.
 var queued = map[string]bool{
 	proto.OpCreate:   true,
 	proto.OpComment:  true,
@@ -44,11 +46,6 @@ var queued = map[string]bool{
 	proto.OpRemember: true,
 	proto.OpHoursLog: true,
 	proto.OpFinish:   true,
-}
-
-// later are the ops design §18.3 queues once they have an idempotency
-// key, which is protocol 6.
-var later = map[string]bool{
 	proto.OpUpdate:   true,
 	proto.OpLabelAdd: true,
 	proto.OpLabelRm:  true,
@@ -78,9 +75,6 @@ func Queueable(op string) bool { return queued[op] }
 func Unqueued(op string) (why string, ok bool) {
 	if w, ok := never[op]; ok {
 		return w, true
-	}
-	if later[op] {
-		return "it has no idempotency key in this version of the protocol", true
 	}
 	return "", false
 }

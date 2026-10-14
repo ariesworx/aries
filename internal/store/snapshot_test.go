@@ -63,7 +63,7 @@ func TestReadsAreOneSnapshot(t *testing.T) {
 				b: mustCreate(t, s, NewIssue{Title: "b"}).ID,
 				c: mustCreate(t, s, NewIssue{Title: "c", Labels: []string{"old"}}).ID,
 			}
-			if err := s.AddDep(ctx, alice, f.c, f.b, DepBlocks); err != nil {
+			if err := s.AddDep(ctx, alice, f.c, f.b, DepBlocks, ""); err != nil {
 				t.Fatal(err)
 			}
 			want, err := tc.read(ctx, s, f)
@@ -75,7 +75,7 @@ func TestReadsAreOneSnapshot(t *testing.T) {
 			// queries read: labels, a blocker's status, acceptance state.
 			change := func() error {
 				for _, id := range []IssueID{f.a, f.c} {
-					if err := s.AddLabel(ctx, alice, id, "new"); err != nil {
+					if err := s.AddLabel(ctx, alice, id, "new", ""); err != nil {
 						return err
 					}
 				}

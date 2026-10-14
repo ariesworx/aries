@@ -13,17 +13,33 @@ import (
 	"github.com/ariesworx/starfix/internal/lazyregexp"
 )
 
-// Idempotency (design §7, §8): a create-type operation (create, finish,
-// comment, handoff) may carry a client key. The operation's last event
-// records the key, a hash of the request and the result. The same
-// principal sending the same key again within IdemTTL gets that result
-// back and nothing is written; the same key with a different request, or
-// after IdemTTL, is refused with an *IdemError. Keys are never deleted:
-// the unique index on (principal, idem_key) keeps an expired key from
-// being reused.
+// Idempotency (design §7, §8, §18.5): a write may carry a client key:
+// create, finish, comment, handoff, remember, forget, hours.log and
+// hours.delete, and since protocol 6 update, label.add, label.rm,
+// dep.add, accept and usage, so that the outbox can queue them. The
+// operation's last event records the key, a hash of the request and the
+// result. The same principal sending the same key again within the
+// store's window (Options.IdemWindow) gets that result back and nothing
+// is written; the same key with a different request, or after the
+// window, is refused with an *IdemError. Keys are never deleted: the
+// unique index on (principal, idem_key) keeps an expired key from being
+// reused, so a key is applied once however late it comes back, and the
+// window decides only whether its result is still given. That is also
+// why the window needs no pruning, and no migration of its own: the key
+// lives on an event, which is history and kept anyway.
+//
+// An operation that changes nothing (a label the issue has, an item
+// already ticked, records all stored before) records no event, and so
+// keeps no key: sent again, it is decided again on the state then, as
+// a request without a key is.
 
-// IdemTTL is how long a key replays its request.
-const IdemTTL = 24 * time.Hour
+// DefaultIdemWindow is how long a key replays its request when the
+// store is given no window: 7 days, how long an outbox entry may wait
+// and still be delivered without a person (design §14, decision 41).
+const DefaultIdemWindow = 7 * 24 * time.Hour
+
+// IdemWindow returns how long a key gives back its request's result.
+func (s *Store) IdemWindow() time.Duration { return s.opts.IdemWindow }
 
 // IdemPattern is what an idempotency key may look like: 1-64 letters,
 // digits and ._:-, starting with a letter or digit.
@@ -83,8 +99,8 @@ func replay[T any](ctx context.Context, w *wtx, key, op string, args any, out *T
 		return false, nil
 	case err != nil:
 		return false, fmt.Errorf("idempotency lookup: %w", err)
-	case w.now.Sub(at) > IdemTTL:
-		return false, &IdemError{Key: key, Expired: true}
+	case w.now.Sub(at) > w.window:
+		return false, &IdemError{Key: key, Expired: true, Used: at, Window: w.window}
 	case prev.String != hash || len(result) == 0:
 		return false, &IdemError{Key: key}
 	}
@@ -97,6 +113,17 @@ func replay[T any](ctx context.Context, w *wtx, key, op string, args any, out *T
 	}
 	*out = v
 	return true, nil
+}
+
+// settleChanged is settle for an operation that may change nothing: one
+// that recorded no event has nowhere to keep its key, and is left
+// without one (see the package's note on idempotency above).
+func (w *wtx) settleChanged(result any) error {
+	if len(w.pending) == 0 {
+		w.idem = nil
+		return nil
+	}
+	return w.settle(result)
 }
 
 // settle records the operation's result for its idempotency stamp. It

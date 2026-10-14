@@ -89,6 +89,8 @@ type world struct {
 	socket  string
 	addr    *net.TCPAddr
 	hostFpr string
+	// hostKey is the SSH server's host key, which rekey replaces.
+	hostKey *swappedKey
 	keysMu  sync.Mutex        // guards keys, and writes of handFile
 	keys    map[string]string // authorized key fingerprint → principal
 	// keysFile is the file the daemon writes the control store's keys to
@@ -286,7 +288,7 @@ func (w *world) startDaemon() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	clk := w.processClock()
 	st, err := store.Open(ctx, w.dsn, store.Options{Prefix: "sf", CommitInterval: o.commit, Now: o.now, Clock: clk, Admins: o.admins,
-		Limits: o.limits.Limits, Logger: o.logger,
+		Limits: o.limits.Limits, Logger: o.logger, IdemWindow: time.Duration(o.limits.IdemWindow),
 		Observer: server.StoreObserver(o.telemetry, project), Tracer: server.StoreTracer(o.telemetry, project)})
 	if err != nil {
 		cancel()
@@ -394,7 +396,7 @@ func (w *world) startMany() error {
 		return errors.Join(err, ctl.Close())
 	}
 	srv, err := server.New(server.Config{Control: ctl, Version: "v0.2.0", ProjectDBs: w.block,
-		Open:     server.ProjectOpener(w.dsn, ctl, store.Options{CommitInterval: o.commit, Now: o.now, Clock: clk, Limits: o.limits.Limits, Logger: o.logger}, o.telemetry),
+		Open:     server.ProjectOpener(w.dsn, ctl, store.Options{CommitInterval: o.commit, Now: o.now, Clock: clk, Limits: o.limits.Limits, Logger: o.logger, IdemWindow: time.Duration(o.limits.IdemWindow)}, o.telemetry),
 		ProtoMin: o.protoMin, ProtoMax: o.protoMax, Latest: o.latest, ReapInterval: o.reap, Limits: o.limits, Logger: o.logger,
 		KeysFile: w.keysFile, AuthorizedKeys: w.handFile, Clock: clk, AcceptHistory: w.acceptHistory, Telemetry: o.telemetry})
 	if err != nil {
@@ -473,15 +475,8 @@ func (w *world) restartDaemon() error {
 func (w *world) startSSH(ctx context.Context) {
 	t := w.t
 	t.Helper()
-	_, hostPriv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	hostSigner, err := ssh.NewSignerFromKey(hostPriv)
-	if err != nil {
-		t.Fatal(err)
-	}
-	w.hostFpr = ssh.FingerprintSHA256(hostSigner.PublicKey())
+	w.hostKey = &swappedKey{}
+	w.rekey()
 	cfg := &ssh.ServerConfig{
 		PublicKeyCallback: func(_ ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 			// sshd takes the first line that matches, in the order of its
@@ -500,7 +495,7 @@ func (w *world) startSSH(ctx context.Context) {
 			return nil, errors.New("unknown key")
 		},
 	}
-	cfg.AddHostKey(hostSigner)
+	cfg.AddHostKey(w.hostKey)
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -517,6 +512,44 @@ func (w *world) startSSH(ctx context.Context) {
 			wg.Go(func() { w.serveSSH(ctx, nc, cfg) })
 		}
 	})
+}
+
+// swappedKey is a host key that rekey replaces while the SSH server
+// runs, as rebuilding a server gives it a new one.
+type swappedKey struct {
+	mu sync.Mutex
+	s  ssh.Signer
+}
+
+func (k *swappedKey) signer() ssh.Signer {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.s
+}
+
+func (k *swappedKey) PublicKey() ssh.PublicKey { return k.signer().PublicKey() }
+
+func (k *swappedKey) Sign(r io.Reader, data []byte) (*ssh.Signature, error) {
+	return k.signer().Sign(r, data)
+}
+
+// rekey gives the SSH server a new host key, as rebuilding the server
+// does, and makes it the one new users pin. What users have pinned is
+// unchanged.
+func (w *world) rekey() {
+	w.t.Helper()
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	s, err := ssh.NewSignerFromKey(priv)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	w.hostKey.mu.Lock()
+	w.hostKey.s = s
+	w.hostKey.mu.Unlock()
+	w.hostFpr = ssh.FingerprintSHA256(s.PublicKey())
 }
 
 // fileLine looks key up in the keys file the daemon writes, and reads

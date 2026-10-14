@@ -64,7 +64,7 @@ func TestDigest(t *testing.T) {
 		Discovered: []NewIssue{{Title: "found"}}})
 	must(err)
 	b := create(carol, "b", P0, "ui")
-	must(s.AddDep(ctx, carol, b, old, DepBlocks))
+	must(s.AddDep(ctx, carol, b, old, DepBlocks, ""))
 	fresh := create(alice, "fresh", P3)
 	clk.t = t0.Add(9*24*time.Hour + 23*time.Hour)
 	_, _, err = s.StartIssue(ctx, alice, fresh, 0, false)

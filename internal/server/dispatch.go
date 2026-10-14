@@ -276,7 +276,7 @@ func blocked(ctx context.Context, pr *served, _ store.Actor, in proto.LimitArgs)
 
 func update(ctx context.Context, pr *served, a store.Actor, in proto.UpdateArgs) (any, *proto.Error) {
 	p := store.IssuePatch{Title: in.Title, Body: in.Body, Design: in.Design, Acceptance: in.Acceptance,
-		Notes: in.Notes, Assignee: in.Assignee, Owner: in.Owner, Account: in.Account}
+		Notes: in.Notes, Assignee: in.Assignee, Owner: in.Owner, Account: in.Account, IdempotencyKey: in.Idem}
 	if in.Status != nil {
 		st := store.Status(*in.Status)
 		p.Status = &st
@@ -330,7 +330,7 @@ func depType(t string) store.DepType {
 }
 
 func depAdd(ctx context.Context, pr *served, a store.Actor, in proto.DepArgs) (any, *proto.Error) {
-	if err := pr.store.AddDep(ctx, a, store.IssueID(in.From), store.IssueID(in.To), depType(in.Type)); err != nil {
+	if err := pr.store.AddDep(ctx, a, store.IssueID(in.From), store.IssueID(in.To), depType(in.Type), in.Idem); err != nil {
 		return nil, pr.mapErr(ctx, proto.OpDepAdd, in.From, 0, err)
 	}
 	return proto.Empty{}, nil
@@ -344,14 +344,14 @@ func depRm(ctx context.Context, pr *served, a store.Actor, in proto.DepArgs) (an
 }
 
 func labelAdd(ctx context.Context, pr *served, a store.Actor, in proto.LabelArgs) (any, *proto.Error) {
-	if err := pr.store.AddLabel(ctx, a, store.IssueID(in.ID), in.Label); err != nil {
+	if err := pr.store.AddLabel(ctx, a, store.IssueID(in.ID), in.Label, in.Idem); err != nil {
 		return nil, pr.mapErr(ctx, proto.OpLabelAdd, in.ID, 0, err)
 	}
 	return proto.Empty{}, nil
 }
 
 func labelRm(ctx context.Context, pr *served, a store.Actor, in proto.LabelArgs) (any, *proto.Error) {
-	if err := pr.store.RemoveLabel(ctx, a, store.IssueID(in.ID), in.Label); err != nil {
+	if err := pr.store.RemoveLabel(ctx, a, store.IssueID(in.ID), in.Label, in.Idem); err != nil {
 		return nil, pr.mapErr(ctx, proto.OpLabelRm, in.ID, 0, err)
 	}
 	return proto.Empty{}, nil
@@ -482,7 +482,7 @@ func handoff(ctx context.Context, pr *served, a store.Actor, in proto.HandoffArg
 }
 
 func accept(ctx context.Context, pr *served, a store.Actor, in proto.AcceptArgs) (any, *proto.Error) {
-	items, err := pr.store.Accept(ctx, a, store.IssueID(in.ID), store.Acceptance{Tick: in.Tick, Untick: in.Untick, Waive: in.Waive})
+	items, err := pr.store.Accept(ctx, a, store.IssueID(in.ID), store.Acceptance{Tick: in.Tick, Untick: in.Untick, Waive: in.Waive, IdempotencyKey: in.Idem})
 	if err != nil {
 		return nil, pr.mapErr(ctx, proto.OpAccept, in.ID, 0, err)
 	}
