@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 	"time"
 
@@ -77,6 +78,18 @@ two
 `
 	if b.String() != want {
 		t.Errorf("printConflict:\n%s\nwant:\n%s", b.String(), want)
+	}
+}
+
+// TestShowSaysConflicts: show names an issue's open conflicts, and where
+// to see them.
+func TestShowSaysConflicts(t *testing.T) {
+	t.Parallel()
+	var b bytes.Buffer
+	printIssue(&b, proto.ShowResult{Issue: proto.Issue{ID: "sf-a1", Title: "t", Status: "open", Type: "task", Rev: 3},
+		Conflicts: []proto.Conflict{{ID: 3, Field: "title"}, {ID: 4, Field: "body"}}})
+	if want := "conflicts: 2 open (title, body): `sfx conflicts sf-a1`\n"; !strings.Contains(b.String(), want) {
+		t.Errorf("printIssue:\n%s\nwant a line %q", b.String(), want)
 	}
 }
 

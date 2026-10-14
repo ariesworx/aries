@@ -239,6 +239,13 @@ func printIssue(w io.Writer, s proto.ShowResult) {
 	if c := s.Claim; c != nil {
 		p("claimed by %s (%s on %s), epoch %d, until %s\n", esc(c.By), esc(c.Session), esc(c.Machine), c.Epoch, when(c.ExpiresAt))
 	}
+	if len(s.Conflicts) > 0 {
+		fields := make([]string, len(s.Conflicts))
+		for i, c := range s.Conflicts {
+			fields[i] = esc(c.Field)
+		}
+		p("conflicts: %d open (%s): `sfx conflicts %s`\n", len(s.Conflicts), strings.Join(fields, ", "), esc(is.ID))
+	}
 	p("created %s by %s; updated %s\n", when(is.CreatedAt), esc(is.CreatedBy), when(is.UpdatedAt))
 	if is.ClosedAt != nil {
 		p("closed %s", when(*is.ClosedAt))
