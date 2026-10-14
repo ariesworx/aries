@@ -128,8 +128,8 @@ func BenchmarkClientSize(b *testing.B) {
 
 // BenchmarkClientListFit is the list tool on a page of limit issues from
 // a project that has more. Past about fifty, the page is over the budget:
-// the tool marshals it again for each issue it drops, then asks the
-// server for the smaller page (calls/op).
+// the tool searches for how many fit, marshaling a shorter page for each
+// guess, then asks the server for the smaller page (calls/op).
 func BenchmarkClientListFit(b *testing.B) {
 	for _, limit := range []int{10, 50, 100, 500} {
 		b.Run(fmt.Sprintf("limit=%d", limit), func(b *testing.B) {
@@ -151,8 +151,8 @@ func BenchmarkClientListFit(b *testing.B) {
 }
 
 // BenchmarkClientCommentsFit is the comments tool on an issue with long
-// comments: each is cut to maxCommentBody, and the oldest dropped one at
-// a time until the rest fit.
+// comments: each is cut to maxCommentBody, and the oldest dropped until
+// the rest fit.
 func BenchmarkClientCommentsFit(b *testing.B) {
 	for _, limit := range []int{10, 100} {
 		b.Run(fmt.Sprintf("limit=%d", limit), func(b *testing.B) {
@@ -171,6 +171,31 @@ func BenchmarkClientCommentsFit(b *testing.B) {
 			}
 		})
 	}
+}
+
+// BenchmarkClientDigestFit is the largest digest a server sends (every
+// section full, with whole titles and notes) built and held under
+// MaxDigestTokens, which drops most of its items.
+func BenchmarkClientDigestFit(b *testing.B) {
+	items := func(n int) []DigestItem {
+		out := make([]DigestItem, n)
+		for i := range out {
+			out[i] = DigestItem{ID: fmt.Sprintf("sf-%08d", i), Title: strings.Repeat("t", primeTitleLen), Priority: 1,
+				By: "alice", At: "2026-10-13T09:00Z", Note: strings.Repeat("n", 200), BlockedBy: []string{"sf-1", "sf-2"}}
+		}
+		return out
+	}
+	var kept int
+	b.ReportAllocs()
+	for b.Loop() {
+		d := Digest{Since: "2026-10-06T09:00Z", Until: "2026-10-13T09:00Z", Closed: items(10), Started: items(10),
+			InProgress: items(10), Stalled: items(10), Blocked: items(10), HandedOff: items(10), Created: items(5),
+			Discovered: items(10)}
+		d.fit()
+		kept = len(d.Closed) + len(d.Started) + len(d.InProgress) + len(d.Stalled) + len(d.Blocked) +
+			len(d.HandedOff) + len(d.Created) + len(d.Discovered)
+	}
+	b.ReportMetric(float64(kept), "kept")
 }
 
 // BenchmarkClientPrime is prime built and held under its budget from a

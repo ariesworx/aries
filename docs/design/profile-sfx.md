@@ -186,6 +186,23 @@ marshals a shrinking 60 KB document 450 times.
   the others are bounded by small limits and are not worth touching
   alone, but one helper would serve all.
 
+**Since this was written (14 Oct 2026).** Done: one helper,
+`fitPrefix` in `budget.go`, searches for how many items fit at every
+site above but `cost` and `show`'s files, which still drop one at a
+time because a count or a sum there could make the search's answer
+differ. It also cuts `start`'s memories, and `digest`, whose order of
+drops it keeps. Tests hold every converted site to the old loop byte
+for byte. Measured as above, by the minimum of six runs: `limit: 500`
+17.2 ms and 17.0 MB to 0.21 ms and 0.44 MB; `limit: 100` 0.57 ms and
+537 KB to 70 microseconds and 74 KB; `limit: 50` 29 to 54
+microseconds, since two drops were enough there (trying one drop first
+did not help); `comments` at 100 3.0 ms and 6.2 MB to 0.20 ms and
+0.80 MB; the largest digest 1.1 ms and 1.4 MB to 90
+microseconds and 125 KB. `prime` drops at most a couple of dozen items
+from a document of a few kilobytes (0.11 ms in the worst case tried),
+in an order that also depends on which memories are pinned, and was
+left as it was.
+
 ### 2. Compile no regular expression until it is used
 
 Package-level `regexp.MustCompile` in `internal/proto/ops.go:288` and
