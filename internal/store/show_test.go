@@ -20,10 +20,10 @@ func TestShowIssueMatchesItsParts(t *testing.T) {
 	blocker := mustCreate(t, s, NewIssue{Title: "blocker"})
 	after := mustCreate(t, s, NewIssue{Title: "after"})
 	held := mustCreate(t, s, NewIssue{Title: "held", Paths: []string{"internal/a/x.go"}})
-	if err := s.AddDep(ctx, alice, is.ID, blocker.ID, DepBlocks); err != nil {
+	if err := s.AddDep(ctx, alice, is.ID, blocker.ID, DepBlocks, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddDep(ctx, alice, after.ID, is.ID, DepRelated); err != nil {
+	if err := s.AddDep(ctx, alice, after.ID, is.ID, DepRelated, ""); err != nil {
 		t.Fatal(err)
 	}
 	mustStart(t, s, carol, held.ID)
@@ -34,7 +34,7 @@ func TestShowIssueMatchesItsParts(t *testing.T) {
 	}
 	n := int64(1200)
 	if _, err := s.AddUsage(ctx, bob, []UsageRecord{{RequestID: "r1", Model: "m", Harness: "h", At: clk.now(),
-		Granularity: GranularityRequest, Input: &n}}); err != nil {
+		Granularity: GranularityRequest, Input: &n}}, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.LogHours(ctx, bob, NewHours{Issue: is.ID, Duration: time.Hour, On: clk.now().Truncate(24 * time.Hour)}); err != nil {

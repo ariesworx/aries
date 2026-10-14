@@ -93,7 +93,7 @@ func TestReadyNowAgreesWithReady(t *testing.T) {
 		typ      DepType
 	}{{cond, target, DepConditionalBlocks}, {related, target, DepRelated}, {waits, target, DepWaitsFor},
 		{closedBlocked, target, DepBlocks}} {
-		if err := s.AddDep(ctx, alice, e.from, e.to, e.typ); err != nil {
+		if err := s.AddDep(ctx, alice, e.from, e.to, e.typ, ""); err != nil {
 			t.Fatal(err)
 		}
 	}

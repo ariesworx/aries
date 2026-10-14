@@ -35,7 +35,7 @@ func newSummaryProject(t *testing.T) summaryProject {
 	}
 	dep := func(from, to IssueID) {
 		t.Helper()
-		if err := s.AddDep(ctx, alice, from, to, DepBlocks); err != nil {
+		if err := s.AddDep(ctx, alice, from, to, DepBlocks, ""); err != nil {
 			t.Fatalf("AddDep(%s, %s): %v", from, to, err)
 		}
 	}
