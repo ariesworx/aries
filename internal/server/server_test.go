@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/clienttest"
 	"github.com/ariesworx/starfix/internal/dolttest"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
@@ -49,6 +50,9 @@ func run(m *testing.M) int {
 	if os.Getenv(peerHelperEnv) != "" || os.Getenv(statusHelperEnv) != "" {
 		return m.Run()
 	}
+	// The tests import the client only for its request timeout
+	// (TestClientWaitsLongerThanTheServer), and dial with none of it.
+	defer clienttest.Isolate()()
 	defer func() { _ = dolts.Close() }()
 	dolts.Warm()
 	return m.Run()
@@ -118,7 +122,7 @@ func newServerClock(t *testing.T, lim Limits, now func() time.Time) (*Server, st
 	t.Helper()
 	dsn := newDatabase(t)
 	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "sf", CommitInterval: -1, Admins: []string{dana.Principal},
-		Limits: lim.Limits, Now: now})
+		Limits: lim.Limits, Now: now, IdemWindow: time.Duration(lim.IdemWindow)})
 	if err != nil {
 		t.Fatal(err)
 	}

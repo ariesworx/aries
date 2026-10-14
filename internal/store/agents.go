@@ -55,12 +55,24 @@ func (s *Store) TouchAgent(ctx context.Context, actor Actor, harness string) err
 	if !ValidHarness(harness) {
 		return fmt.Errorf("%w: harness %q must be 1-32 lowercase letters, digits or hyphens", ErrInvalid, harness)
 	}
+	if err := actor.validate(); err != nil {
+		return err
+	}
+	// Most touches find the row fresh. Such a one is decided from a read,
+	// and does not wait for the writer behind other sessions' writes. It
+	// settles a step of the clock first, as a write would.
+	now, err := s.settledNow(ctx)
+	if err != nil {
+		return err
+	}
+	switch a, err := readAgent(ctx, s.r, actor); {
+	case err == nil && a.fresh(actor, harness, now):
+		return nil
+	case err != nil && !errors.Is(err, sql.ErrNoRows):
+		return err
+	}
 	return s.write(ctx, actor, func(w *wtx) error {
-		var machine, known string
-		var seen time.Time
-		var rev int64
-		err := w.tx.QueryRowContext(ctx, `SELECT machine, harness, last_seen, rev FROM agents
-  WHERE principal = ? AND session = ?`, actor.Principal, actor.Session).Scan(&machine, &known, &seen, &rev)
+		a, err := readAgent(ctx, w.tx, actor)
 		if errors.Is(err, sql.ErrNoRows) {
 			wid := randomInt63()
 			if _, err := w.exec(ctx, `INSERT INTO agents
@@ -72,21 +84,15 @@ func (s *Store) TouchAgent(ctx context.Context, actor Actor, harness string) err
 			return capSessions(ctx, w, actor.Principal)
 		}
 		if err != nil {
-			return fmt.Errorf("read agent %s/%s: %w", actor.Principal, actor.Session, err)
+			return err
 		}
-		// A local, not harness: a rerun must start from the argument,
-		// not from what this attempt read.
-		h := harness
-		if h == "" {
-			h = known
-		}
-		if machine == actor.Machine && h == known && w.now.Sub(seen) < AgentTouchEvery {
+		if a.fresh(actor, harness, w.now) {
 			return nil
 		}
 		wid := randomInt63()
 		n, err := w.exec(ctx, `UPDATE agents SET machine = ?, harness = ?, last_seen = ?, rev = rev + 1, write_id = ?
   WHERE principal = ? AND session = ? AND rev = ?`,
-			actor.Machine, h, w.now, wid, actor.Principal, actor.Session, rev)
+			actor.Machine, a.harness(harness), w.now, wid, actor.Principal, actor.Session, a.rev)
 		if err != nil {
 			return fmt.Errorf("update agent %s/%s: %w", actor.Principal, actor.Session, err)
 		}
@@ -96,6 +102,41 @@ func (s *Store) TouchAgent(ctx context.Context, actor Actor, harness string) err
 		w.quiet = true
 		return nil
 	})
+}
+
+// sessionRow is what TouchAgent reads of a session's row: known is its harness.
+type sessionRow struct {
+	machine, known string
+	seen           time.Time
+	rev            int64
+}
+
+// readAgent reads actor's session's row, or returns sql.ErrNoRows.
+func readAgent(ctx context.Context, q querier, actor Actor) (sessionRow, error) {
+	var a sessionRow
+	err := q.QueryRowContext(ctx, `SELECT machine, harness, last_seen, rev FROM agents
+  WHERE principal = ? AND session = ?`, actor.Principal, actor.Session).Scan(&a.machine, &a.known, &a.seen, &a.rev)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return sessionRow{}, fmt.Errorf("read agent %s/%s: %w", actor.Principal, actor.Session, err)
+	}
+	return a, err
+}
+
+// harness is the harness a touch with harness records: the one given, or
+// the one known when it is empty. It is worked out on each attempt from
+// the argument, not kept, so a rerun goes from the row it reads.
+func (a sessionRow) harness(harness string) string {
+	if harness == "" {
+		return a.known
+	}
+	return harness
+}
+
+// fresh reports whether a touch of actor with harness at now has nothing
+// to write: the machine and harness are the row's, and the row was seen
+// less than AgentTouchEvery ago.
+func (a sessionRow) fresh(actor Actor, harness string, now time.Time) bool {
+	return a.machine == actor.Machine && a.harness(harness) == a.known && now.Sub(a.seen) < AgentTouchEvery
 }
 
 // Who returns the sessions seen within since of the server's now (0

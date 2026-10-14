@@ -159,43 +159,19 @@ func wireItems(items []store.AcceptanceItem) []proto.AcceptanceItem {
 const compactText = 500
 
 func show(ctx context.Context, pr *served, a store.Actor, in proto.ShowArgs) (any, *proto.Error) {
-	id := store.IssueID(in.ID)
-	is, err := pr.store.GetIssue(ctx, id)
+	v, err := pr.store.ShowIssue(ctx, a, store.IssueID(in.ID), proto.MaxShowPaths)
 	if err != nil {
 		return nil, pr.mapErr(ctx, proto.OpShow, in.ID, 0, err)
 	}
-	deps, err := pr.store.Deps(ctx, id)
-	if err != nil {
-		return nil, pr.mapErr(ctx, proto.OpShow, in.ID, 0, err)
-	}
-	claim, err := pr.store.ClaimOf(ctx, id)
-	if err != nil {
-		return nil, pr.mapErr(ctx, proto.OpShow, in.ID, 0, err)
-	}
-	h, err := pr.store.LastHandoff(ctx, id)
-	if err != nil {
-		return nil, pr.mapErr(ctx, proto.OpShow, in.ID, 0, err)
-	}
-	items, err := pr.items(ctx, is)
-	if err != nil {
-		return nil, pr.mapErr(ctx, proto.OpShow, in.ID, 0, err)
-	}
-	u, err := pr.store.IssueUsage(ctx, id)
-	if err != nil {
-		return nil, pr.mapErr(ctx, proto.OpShow, in.ID, 0, err)
-	}
-	files, err := pr.store.IssueFiles(ctx, a, id, proto.MaxShowPaths)
-	if err != nil {
-		return nil, pr.mapErr(ctx, proto.OpShow, in.ID, 0, err)
-	}
-	out := proto.ShowResult{Issue: wireIssue(is), Items: items, Similar: pr.similar(ctx, is), Usage: pr.wireIssueUsage(u),
-		Files: wireFiles(files)}
-	if claim != nil {
-		c := wireClaim(*claim)
+	deps := v.Deps
+	out := proto.ShowResult{Issue: wireIssue(v.Issue), Items: wireItems(v.Items), Similar: pr.similar(ctx, v.Issue),
+		Usage: pr.wireIssueUsage(v.Usage), Files: wireFiles(v.Files)}
+	if v.Claim != nil {
+		c := wireClaim(*v.Claim)
 		out.Claim = &c
 	}
-	if h != nil {
-		w := wireHandoff(*h, a)
+	if v.Handoff != nil {
+		w := wireHandoff(*v.Handoff, a)
 		out.Handoff = &w
 	}
 	if !in.Full {
@@ -240,7 +216,7 @@ func list(ctx context.Context, pr *served, _ store.Actor, in proto.ListArgs) (an
 	for _, p := range in.Priority {
 		f.Priorities = append(f.Priorities, store.Priority(p))
 	}
-	page, err := pr.store.List(ctx, f)
+	page, err := pr.store.ListSummaries(ctx, f)
 	if err != nil {
 		return nil, pr.mapErr(ctx, proto.OpList, "", 0, err)
 	}
@@ -254,7 +230,7 @@ func ready(ctx context.Context, pr *served, a store.Actor, in proto.LimitArgs) (
 	}
 	out := proto.ListResult{Issues: make([]proto.Summary, 0, len(rs))}
 	for _, r := range rs {
-		sm := summary(r.Issue)
+		sm := summary(r.Summary)
 		for _, id := range r.Overlaps {
 			sm.Overlaps = append(sm.Overlaps, string(id))
 		}
@@ -286,7 +262,7 @@ func blocked(ctx context.Context, pr *served, _ store.Actor, in proto.LimitArgs)
 	}
 	out := proto.BlockedResult{Issues: []proto.BlockedIssue{}}
 	for _, b := range bs {
-		bi := proto.BlockedIssue{Summary: summary(b.Issue), Via: string(b.Via), BlockedBy: []string{}}
+		bi := proto.BlockedIssue{Summary: summary(b.Summary), Via: string(b.Via), BlockedBy: []string{}}
 		if len(b.BlockedBy) > proto.MaxBlockers {
 			b.BlockedBy, bi.More = b.BlockedBy[:proto.MaxBlockers], len(b.BlockedBy)-proto.MaxBlockers
 		}
@@ -300,7 +276,7 @@ func blocked(ctx context.Context, pr *served, _ store.Actor, in proto.LimitArgs)
 
 func update(ctx context.Context, pr *served, a store.Actor, in proto.UpdateArgs) (any, *proto.Error) {
 	p := store.IssuePatch{Title: in.Title, Body: in.Body, Design: in.Design, Acceptance: in.Acceptance,
-		Notes: in.Notes, Assignee: in.Assignee, Owner: in.Owner, Account: in.Account}
+		Notes: in.Notes, Assignee: in.Assignee, Owner: in.Owner, Account: in.Account, IdempotencyKey: in.Idem}
 	if in.Status != nil {
 		st := store.Status(*in.Status)
 		p.Status = &st
@@ -354,7 +330,7 @@ func depType(t string) store.DepType {
 }
 
 func depAdd(ctx context.Context, pr *served, a store.Actor, in proto.DepArgs) (any, *proto.Error) {
-	if err := pr.store.AddDep(ctx, a, store.IssueID(in.From), store.IssueID(in.To), depType(in.Type)); err != nil {
+	if err := pr.store.AddDep(ctx, a, store.IssueID(in.From), store.IssueID(in.To), depType(in.Type), in.Idem); err != nil {
 		return nil, pr.mapErr(ctx, proto.OpDepAdd, in.From, 0, err)
 	}
 	return proto.Empty{}, nil
@@ -368,14 +344,14 @@ func depRm(ctx context.Context, pr *served, a store.Actor, in proto.DepArgs) (an
 }
 
 func labelAdd(ctx context.Context, pr *served, a store.Actor, in proto.LabelArgs) (any, *proto.Error) {
-	if err := pr.store.AddLabel(ctx, a, store.IssueID(in.ID), in.Label); err != nil {
+	if err := pr.store.AddLabel(ctx, a, store.IssueID(in.ID), in.Label, in.Idem); err != nil {
 		return nil, pr.mapErr(ctx, proto.OpLabelAdd, in.ID, 0, err)
 	}
 	return proto.Empty{}, nil
 }
 
 func labelRm(ctx context.Context, pr *served, a store.Actor, in proto.LabelArgs) (any, *proto.Error) {
-	if err := pr.store.RemoveLabel(ctx, a, store.IssueID(in.ID), in.Label); err != nil {
+	if err := pr.store.RemoveLabel(ctx, a, store.IssueID(in.ID), in.Label, in.Idem); err != nil {
 		return nil, pr.mapErr(ctx, proto.OpLabelRm, in.ID, 0, err)
 	}
 	return proto.Empty{}, nil
@@ -506,7 +482,7 @@ func handoff(ctx context.Context, pr *served, a store.Actor, in proto.HandoffArg
 }
 
 func accept(ctx context.Context, pr *served, a store.Actor, in proto.AcceptArgs) (any, *proto.Error) {
-	items, err := pr.store.Accept(ctx, a, store.IssueID(in.ID), store.Acceptance{Tick: in.Tick, Untick: in.Untick, Waive: in.Waive})
+	items, err := pr.store.Accept(ctx, a, store.IssueID(in.ID), store.Acceptance{Tick: in.Tick, Untick: in.Untick, Waive: in.Waive, IdempotencyKey: in.Idem})
 	if err != nil {
 		return nil, pr.mapErr(ctx, proto.OpAccept, in.ID, 0, err)
 	}
@@ -581,14 +557,14 @@ func wireComment(c store.Comment) proto.Comment {
 		CreatedAt: c.CreatedAt.UTC()}
 }
 
-func summary(is store.Issue) proto.Summary {
-	return proto.Summary{ID: string(is.ID), Title: is.Title, Status: string(is.Status), Priority: int(is.Priority)}
+func summary(sm store.Summary) proto.Summary {
+	return proto.Summary{ID: string(sm.ID), Title: sm.Title, Status: string(sm.Status), Priority: int(sm.Priority)}
 }
 
-func summaries(issues []store.Issue) []proto.Summary {
-	out := make([]proto.Summary, 0, len(issues))
-	for _, is := range issues {
-		out = append(out, summary(is))
+func summaries(sms []store.Summary) []proto.Summary {
+	out := make([]proto.Summary, 0, len(sms))
+	for _, sm := range sms {
+		out = append(out, summary(sm))
 	}
 	return out
 }

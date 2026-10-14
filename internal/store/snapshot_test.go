@@ -46,6 +46,7 @@ func TestReadsAreOneSnapshot(t *testing.T) {
 		{"List", func(ctx context.Context, s *Store, _ fixture) (any, error) { return s.List(ctx, Filter{}) }},
 		{"Ready", func(ctx context.Context, s *Store, _ fixture) (any, error) { return s.Ready(ctx, Actor{}, 0) }},
 		{"Blocked", func(ctx context.Context, s *Store, _ fixture) (any, error) { return s.Blocked(ctx, 0) }},
+		{"ShowIssue", func(ctx context.Context, s *Store, f fixture) (any, error) { return s.ShowIssue(ctx, alice, f.a, 0) }},
 		{"AcceptanceItems", func(ctx context.Context, s *Store, f fixture) (any, error) {
 			return s.AcceptanceItems(ctx, f.a)
 		}},
@@ -62,7 +63,7 @@ func TestReadsAreOneSnapshot(t *testing.T) {
 				b: mustCreate(t, s, NewIssue{Title: "b"}).ID,
 				c: mustCreate(t, s, NewIssue{Title: "c", Labels: []string{"old"}}).ID,
 			}
-			if err := s.AddDep(ctx, alice, f.c, f.b, DepBlocks); err != nil {
+			if err := s.AddDep(ctx, alice, f.c, f.b, DepBlocks, ""); err != nil {
 				t.Fatal(err)
 			}
 			want, err := tc.read(ctx, s, f)
@@ -74,7 +75,7 @@ func TestReadsAreOneSnapshot(t *testing.T) {
 			// queries read: labels, a blocker's status, acceptance state.
 			change := func() error {
 				for _, id := range []IssueID{f.a, f.c} {
-					if err := s.AddLabel(ctx, alice, id, "new"); err != nil {
+					if err := s.AddLabel(ctx, alice, id, "new", ""); err != nil {
 						return err
 					}
 				}

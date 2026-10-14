@@ -270,9 +270,15 @@ func cmdAccept(ctx context.Context, r *runner, args []string) error {
 	default:
 		in.Tick = ns
 	}
+	in.Idem = proto.NewIdem("cli")
 	var out proto.AcceptResult
-	if err := r.call(ctx, proto.OpAccept, in, &out); err != nil {
+	kept, err := r.send(ctx, proto.OpAccept, in, &out)
+	if err != nil {
 		return err
+	}
+	if kept != nil {
+		r.queued(kept)
+		return nil
 	}
 	if r.json {
 		r.emit(out)

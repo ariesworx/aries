@@ -90,10 +90,10 @@ func TestRequestCaps(t *testing.T) {
 	}
 	is := mustCreate(t, s, NewIssue{Title: "capped", Labels: labels(3), Acceptance: items(4)})
 	a, b, c := mustCreate(t, s, NewIssue{Title: "a"}), mustCreate(t, s, NewIssue{Title: "b"}), mustCreate(t, s, NewIssue{Title: "c"})
-	if err := s.AddDep(ctx, alice, is.ID, a.ID, DepRelated); err != nil {
+	if err := s.AddDep(ctx, alice, is.ID, a.ID, DepRelated, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddDep(ctx, alice, is.ID, b.ID, DepRelated); err != nil {
+	if err := s.AddDep(ctx, alice, is.ID, b.ID, DepRelated, ""); err != nil {
 		t.Fatal(err)
 	}
 	tests := []struct {
@@ -109,8 +109,8 @@ func TestRequestCaps(t *testing.T) {
 			_, err := s.CreateIssue(ctx, alice, NewIssue{Title: "x", Labels: []string{"a", "a", "b", "b"}})
 			return err
 		}, ""},
-		{"label add over the cap", func() error { return s.AddLabel(ctx, alice, is.ID, "l9") }, "at most 3 labels"},
-		{"label add of one it has", func() error { return s.AddLabel(ctx, alice, is.ID, "l0") }, ""},
+		{"label add over the cap", func() error { return s.AddLabel(ctx, alice, is.ID, "l9", "") }, "at most 3 labels"},
+		{"label add of one it has", func() error { return s.AddLabel(ctx, alice, is.ID, "l0", "") }, ""},
 		{"create with too many items", func() error {
 			_, err := s.CreateIssue(ctx, alice, NewIssue{Title: "x", Acceptance: items(5)})
 			return err
@@ -127,9 +127,9 @@ func TestRequestCaps(t *testing.T) {
 			_, err := s.Accept(ctx, alice, is.ID, Acceptance{Tick: []int{1000000}})
 			return err
 		}, "at most 4 acceptance items"},
-		{"dep over the cap", func() error { return s.AddDep(ctx, alice, is.ID, c.ID, DepRelated) }, "at most 2 dependencies"},
-		{"dep it has", func() error { return s.AddDep(ctx, alice, is.ID, a.ID, DepRelated) }, ""},
-		{"edge into a full issue", func() error { return s.AddDep(ctx, alice, c.ID, is.ID, DepRelated) }, ""},
+		{"dep over the cap", func() error { return s.AddDep(ctx, alice, is.ID, c.ID, DepRelated, "") }, "at most 2 dependencies"},
+		{"dep it has", func() error { return s.AddDep(ctx, alice, is.ID, a.ID, DepRelated, "") }, ""},
+		{"edge into a full issue", func() error { return s.AddDep(ctx, alice, c.ID, is.ID, DepRelated, "") }, ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

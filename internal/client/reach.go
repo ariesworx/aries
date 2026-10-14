@@ -19,8 +19,9 @@ import (
 //     session or run the bridge, or the bridge closed before its welcome;
 //   - the bridge or the daemon answered the handshake unavailable: the
 //     daemon is not running, or its database does not answer;
-//   - the connection was lost while a call waited for its answer, in
-//     which case the server may have applied the request;
+//   - the connection was lost while a call waited for its answer, or the
+//     server did not answer within [RequestTimeout], in which case the
+//     server may have applied the request;
 //   - the server answered a request unavailable: it failed or timed out.
 //
 // It is false for everything else, which fails as it always has: a
@@ -48,6 +49,42 @@ type setupError struct{ pe *proto.Error }
 func (e *setupError) Error() string { return e.pe.Error() }
 
 func (e *setupError) Unwrap() error { return e.pe }
+
+// AccessEnded reports whether err, from [Dial], is the server's word
+// that principal's access to the project has ended: a refusal of the
+// handshake coded [proto.CodeForbidden] that names whom it refuses. A
+// principal disabled, one the server no longer knows, and one who is no
+// longer a member of the project are each refused so, and stay refused
+// until a person changes that; what they queued for the project can then
+// only be sent by a person's decision (design §18.3).
+//
+// Nothing else is proof. A forbidden answer to a request refuses that
+// request. A refusal that names nobody, as one from a server older than
+// the field does, does not say whose access ended. A project that is not
+// served (archived, being made, or never there) is not_found, which a
+// project made active again mends; a key the server no longer holds is
+// auth, and the principal may have others; and unavailable and busy are
+// the server's own state, not anyone's access.
+func AccessEnded(err error) (principal string, ok bool) {
+	r, ok := errors.AsType[*refusal](err)
+	if !ok || r.pe.Code != proto.CodeForbidden || r.principal == "" {
+		return "", false
+	}
+	return r.principal, true
+}
+
+// refusal is the server's refusal of a handshake: a *proto.Error through
+// Unwrap, with the principal the refusal names, if any, and the range of
+// protocols the server accepts.
+type refusal struct {
+	pe        *proto.Error
+	principal string
+	min, max  int
+}
+
+func (e *refusal) Error() string { return e.pe.Error() }
+
+func (e *refusal) Unwrap() error { return e.pe }
 
 // Offered returns the keys [Dial] would offer the server named in cfg,
 // in order, without connecting: the one configured key, or the default

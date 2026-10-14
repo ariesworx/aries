@@ -80,12 +80,16 @@ type Conn struct {
 	// trace goes on every request whose call has none of its own
 	// (Options.Trace).
 	trace proto.TraceContext
+	// proto is the protocol the connection speaks (Proto).
+	proto int
 
 	res     chan *proto.Frame // responses, from the reader to Call
 	done    chan struct{}     // closed when the reader stops
 	readErr error             // why the reader stopped; set before done closes
 	closed  chan struct{}     // closed by Close
 	once    sync.Once
+	// closeWait bounds the writes that end the session politely (Close).
+	closeWait time.Duration
 
 	mu     sync.Mutex // held for each Call, which serializes them; guards nextID and broken
 	nextID uint64
@@ -94,8 +98,8 @@ type Conn struct {
 
 // newConn returns a Conn over enc and dec, before its handshake.
 func newConn(enc *proto.Encoder, dec *proto.Decoder, kill func() error, onPush func(proto.Push)) *Conn {
-	return &Conn{enc: enc, dec: dec, kill: kill, onPush: onPush, stderr: &capBuffer{max: 4096},
-		res: make(chan *proto.Frame, 1), done: make(chan struct{}), closed: make(chan struct{})}
+	return &Conn{enc: enc, dec: dec, kill: kill, onPush: onPush, stderr: &capBuffer{max: 4096}, proto: proto.Proto,
+		res: make(chan *proto.Frame, 1), done: make(chan struct{}), closed: make(chan struct{}), closeWait: closeWait}
 }
 
 // run starts the reader. Before it, the handshake reads frames itself.
@@ -211,7 +215,10 @@ func Dial(ctx context.Context, cfg *Config, opts Options) (*Conn, error) {
 			fmt.Sprintf("ssh handshake with %s failed: %v", addr, err))
 	}
 	client := ssh.NewClient(cc, chans, reqs)
-	c, err := start(ctx, client, tr, far, cfg, opts)
+	c, err := start(ctx, client, tr, far, cfg, opts, proto.Proto)
+	if v, ok := stepDown(err); ok {
+		c, err = start(ctx, client, tr, far, cfg, opts, v)
+	}
 	if err != nil {
 		// Why the start failed is the error; what closing says after it
 		// is nothing a caller can act on.
@@ -336,7 +343,11 @@ func (t *transport) opened() {
 // ends whichever step was waiting for the server, which a message names
 // as far. On success the Conn's reader is running; on failure the
 // caller closes client.
-func start(ctx context.Context, client *ssh.Client, nc *transport, far string, cfg *Config, opts Options) (*Conn, error) {
+//
+// The hello speaks protocol p. A refusal of the hello leaves client open,
+// and closes its session, so that Dial can say hello again on another
+// session, speaking a protocol the refusal's range admits (stepDown).
+func start(ctx context.Context, client *ssh.Client, nc *transport, far string, cfg *Config, opts Options, p int) (*Conn, error) {
 	stop := context.AfterFunc(ctx, func() { _ = client.Close() })
 	defer stop()
 	sess, err := openSession(ctx, client, nc)
@@ -364,12 +375,13 @@ func start(ctx context.Context, client *ssh.Client, nc *transport, far string, c
 		return nil, proto.Errf(proto.CodeUnavailable, "check that this key's authorized_keys line forces `starfixd stdio --principal NAME`",
 			fmt.Sprintf("the server would not start starfixd: %v", err))
 	}
-	if err := c.enc.Encode(&proto.Frame{T: proto.FrameHello, Version: opts.Version, Proto: proto.Proto,
+	if err := c.enc.Encode(&proto.Frame{T: proto.FrameHello, Version: opts.Version, Proto: p,
 		Project: cfg.Project, Session: opts.Session, Machine: opts.Machine, Harness: opts.Harness}); err != nil {
 		// The bridge may have refused and closed before reading the hello;
 		// its refusal is still waiting to be read.
 		if w, rerr := c.next(); rerr == nil && w.T == proto.FrameWelcome && w.Err != nil {
-			return nil, w.Err
+			_ = sess.Close()
+			return nil, &refusal{pe: w.Err, principal: w.Principal, min: w.Min, max: w.Max}
 		}
 		if ctx.Err() != nil {
 			return nil, gaveUp(ctx, far, "answer the hello", opts.Timeout, c.stderr.String())
@@ -388,15 +400,33 @@ func start(ctx context.Context, client *ssh.Client, nc *transport, far string, c
 			fmt.Sprintf("expected a welcome from the server, got a %q frame", w.T))
 	}
 	if w.Err != nil {
-		return nil, w.Err
+		_ = sess.Close()
+		return nil, &refusal{pe: w.Err, principal: w.Principal, min: w.Min, max: w.Max}
 	}
-	if e := proto.CheckProto(proto.Proto, w.Min, w.Max, w.Version); e != nil {
+	if e := proto.CheckProto(p, w.Min, w.Max, w.Version); e != nil {
 		return nil, e
 	}
-	c.Welcome = *w
+	c.Welcome, c.proto = *w, p
 	c.run()
 	return c, nil
 }
+
+// stepDown reports the protocol to say hello again in, after err, the
+// refusal of a hello speaking Proto: one this build speaks that the
+// server's range admits, when the refusal is of the version and names
+// such a range (design §18.5, proto.Speak).
+func stepDown(err error) (int, bool) {
+	r, ok := errors.AsType[*refusal](err)
+	if !ok || r.pe.Code != proto.CodeVersion {
+		return 0, false
+	}
+	v, ok := proto.Speak(r.min, r.max)
+	return v, ok && v < proto.Proto
+}
+
+// Proto is the protocol the connection speaks: Proto, or an older one
+// this build speaks that the server accepts (Dial).
+func (c *Conn) Proto() int { return c.proto }
 
 // errClosedEarly is a connection that ended between the server's
 // accepting the key and the opening of the session.
@@ -521,12 +551,47 @@ func (c *Conn) Warning(clientVersion string) string {
 	return proto.OlderClientWarning(clientVersion, c.Welcome.Version)
 }
 
+// requestTimeout is how long Call waits for the answer to a request:
+// the server's own request timeout, a minute, after which it answers
+// with a refusal of its own, and 15 seconds for that answer to cross the
+// network. The server's timeout is not a setting, so a working server,
+// however slow, answers first.
+const requestTimeout = 75 * time.Second
+
+// waitedOn are the ops the server may answer later than its request
+// timeout, which Call waits on for as long as its context allows: the
+// writes to the control store. After the write the server reads the
+// control store's log for the audit stream, with a request timeout of
+// its own and behind a lock the reaper takes too; and an archive also
+// opens the project's store to end its claims, with another. Only `sfx
+// admin` sends them, for a person who can interrupt it. internal/server
+// holds this list to its own (controlWrites).
+var waitedOn = map[string]bool{
+	proto.OpProjectAdd: true, proto.OpProjectArchive: true, proto.OpProjectActivate: true,
+	proto.OpPrincipalAdd: true, proto.OpPrincipalDisable: true, proto.OpPrincipalEnable: true,
+	proto.OpMemberSet: true, proto.OpMemberRemove: true,
+	proto.OpKeyAdd: true, proto.OpKeyRemove: true,
+}
+
+// RequestTimeout is how long [Conn.Call] waits for the server to answer
+// a request for op, from sending it, before it closes the connection; or
+// zero for an op it waits on for as long as its context allows, since
+// the server may take longer over it.
+func RequestTimeout(op string) time.Duration {
+	if waitedOn[op] {
+		return 0
+	}
+	return requestTimeout
+}
+
 // Call sends one request and decodes its result into result (which may be
 // nil). A server refusal is returned as a *proto.Error and leaves the
-// Conn usable. Calls are serialized. Cancelling ctx closes the connection.
-// A cancelled or lost connection, or an error frame that answers no
-// request (as when the server closes an idle connection), breaks the Conn:
-// later calls fail at once, and Err says why.
+// Conn usable. Calls are serialized. Cancelling ctx closes the connection,
+// and so does a request the server has not answered within
+// RequestTimeout, which fails unavailable. A cancelled, unanswered or
+// lost connection, or an error frame that answers no request (as when
+// the server closes an idle connection), breaks the Conn: later calls
+// fail at once, and Err says why.
 func (c *Conn) Call(ctx context.Context, op string, args, result any) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -535,7 +600,7 @@ func (c *Conn) Call(ctx context.Context, op string, args, result any) error {
 	}
 	c.nextID++
 	id := c.nextID
-	f, err := proto.Request(id, op, args)
+	f, err := proto.Request(id, op, proto.ForProtocol(c.proto, op, args))
 	if err != nil {
 		return err
 	}
@@ -548,9 +613,29 @@ func (c *Conn) Call(ctx context.Context, op string, args, result any) error {
 	f.Traceparent, f.Tracestate = tc.Traceparent(), tc.State
 	stop := context.AfterFunc(ctx, func() { _ = c.kill() })
 	defer stop()
-	if err := c.enc.Encode(f); err != nil {
-		c.broken = c.lost(err)
+	// A stream with a request left unanswered cannot be used again, so
+	// the deadline closes it, which ends the write or the wait below.
+	wait := RequestTimeout(op)
+	var late atomic.Bool
+	if wait > 0 {
+		t := time.AfterFunc(wait, func() { late.Store(true); _ = c.kill() })
+		defer t.Stop()
+	}
+	ended := func(err error) error {
+		switch {
+		case ctx.Err() != nil:
+			c.broken = fmt.Errorf("%s: %w", op, ctx.Err())
+		case late.Load():
+			c.broken = proto.Errf(proto.CodeUnavailable,
+				"retry, which connects again; if it persists, ask the server admin to check sshd and starfixd on the server, where `starfixd status` reports on the daemon",
+				fmt.Sprintf("the server did not answer %s within %s, so sfx closed the connection", op, wait)+quoteStderr(c.stderr.String(), "server"))
+		default:
+			c.broken = c.lost(err)
+		}
 		return c.broken
+	}
+	if err := c.enc.Encode(f); err != nil {
+		return ended(err)
 	}
 	for {
 		var r *proto.Frame
@@ -562,12 +647,7 @@ func (c *Conn) Call(ctx context.Context, op string, args, result any) error {
 			select {
 			case r = <-c.res:
 			default:
-				if ctx.Err() != nil {
-					c.broken = fmt.Errorf("%s: %w", op, ctx.Err())
-				} else {
-					c.broken = c.lost(c.readErr)
-				}
-				return c.broken
+				return ended(c.readErr)
 			}
 		}
 		if r.ID != id && r.ID != 0 {
@@ -589,16 +669,24 @@ func (c *Conn) Call(ctx context.Context, op string, args, result any) error {
 	}
 }
 
+// closeWait is how long Close waits for the writes that end the session
+// before it closes the connection under them. They are two small
+// packets, which wait only on a server that reads nothing.
+const closeWait = time.Second
+
 // Close ends the session and closes the connection, which ends a call in
-// progress and the reader. It may be called more than once.
+// progress and the reader. It returns within about closeWait however the
+// server behaves, and may be called more than once.
 func (c *Conn) Close() error {
 	c.once.Do(func() { close(c.closed) })
+	t := time.AfterFunc(c.closeWait, func() { _ = c.kill() })
 	if c.stdin != nil {
 		_ = c.stdin.Close()
 	}
 	if c.sess != nil {
 		_ = c.sess.Close()
 	}
+	t.Stop()
 	if err := c.kill(); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, io.ErrClosedPipe) {
 		return fmt.Errorf("close: %w", err)
 	}

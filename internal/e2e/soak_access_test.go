@@ -798,19 +798,22 @@ func (cd *conductor) fileKey() {
 		_ = byStore.Close() // the server closed its end; this ends the SSH connection under it
 	}
 	// The store no longer has the key, and authorized_keys lets erin in.
+	// The counts below are checked only if the chaos dropped no
+	// connection from before this one was made: a connection it dropped
+	// on the server's side may not yet have been seen to close here.
+	shaken := s.shaken.Load()
 	byFile := cd.dial(principal, s.b, "", why)
 	if byFile == nil {
 		add()
 		return
 	}
 	defer func() { _ = byFile.Close() }()
-	shaken := s.shaken.Load()
 	var ks proto.KeysResult
-	if out, _, _ := cd.root.do(proto.OpKeys, proto.KeysArgs{Name: principal}, &ks); out == acked && byFile.Err() == nil && ks.FileConns < 1 {
+	if out, _, _ := cd.root.do(proto.OpKeys, proto.KeysArgs{Name: principal}, &ks); out == acked && byFile.Err() == nil && s.shaken.Load() == shaken && ks.FileConns < 1 {
 		s.mon.fail("", "%s: key list counts %d connections of %s by authorized_keys, with one open", why, ks.FileConns, principal)
 	}
 	var st proto.StatusResult
-	if out, _, _ := cd.root.do(proto.OpStatus, proto.StatusArgs{}, &st); out == acked && byFile.Err() == nil {
+	if out, _, _ := cd.root.do(proto.OpStatus, proto.StatusArgs{}, &st); out == acked && byFile.Err() == nil && s.shaken.Load() == shaken {
 		for _, ps := range st.Projects {
 			if ps.ID == s.b.id && ps.FileConns < 1 {
 				s.mon.fail("", "%s: status counts %d connections to project %s by authorized_keys, with one of %s's open", why, ps.FileConns, s.b.name, principal)

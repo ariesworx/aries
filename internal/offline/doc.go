@@ -34,8 +34,13 @@
 //	outbox-HASH.principal  that principal's name; 0600
 //
 // The server is its host key, not its address: a server that moves keeps
-// its outboxes, and a server rebuilt with a new key gets new ones, and
-// the old are left on the disk, unread.
+// its outboxes, and a server rebuilt with a new key gets new ones. The
+// old are left where they are and never sent by themselves, since a
+// changed host key is for a person to look at: [Local.Rekeyed] finds
+// them, by the project and the old key seen.json names, with the
+// address the config gave at the last handshake, and [Local.Adopt]
+// moves an entry to the current server's outbox when a person says so,
+// and only when the config names the server at that same address.
 //
 // Before every use, each of those directories that is there must be the
 // current user's own and closed to the group and to others (private),
@@ -52,8 +57,9 @@
 // fingerprint of the key the server accepted, the principal it took it
 // for and when ([Local.Reached]); and which fingerprint was accepted the
 // last time no key was configured. The record has a version, holds
-// several keys for one principal, and holds nothing else: no key, no
-// path to one, no token.
+// several keys for one principal, and the server's address as the
+// config gave it, and holds nothing else: no key, no path to one, no
+// token.
 //
 // With the server away ([Local.Principal]): when a key is configured
 // (STARFIX_KEY_FILE, or key:), which is then the only key offered, a
@@ -71,13 +77,39 @@
 // another principal, what the first queued with it stays where it is:
 // [Client.Connected] says so once, and `sfx outbox` lists it.
 //
+// # When access ends
+//
+// A handshake the server refuses as forbidden, naming the principal it
+// refuses ([client.AccessEnded]), says that principal's access to the
+// project has ended: disabled, unknown to the server, or no longer a
+// member. What waits in that principal's outbox is then refused with
+// the server's message and fix ([Local.Ended]), for a person to retry
+// once access is back or to drop, rather than left to go stale (design
+// §18.3). Nothing else does that: not unavailable or busy, not a
+// project that is not served (archived, which activation mends), not a
+// key the server no longer holds, and not a refusal that names nobody,
+// as an older server's does.
+//
 // # What the server sees
 //
 // A replayed entry is a request like any other, with the arguments and
 // the idempotency key it had when it was first sent. Its session and
 // machine are those of the connection that delivers it, not of the one
-// that made it: protocol 5 has no field for the latter, and the entry
-// keeps them only on this machine.
+// that made it: protocols 5 and 6 have no field for the latter, and the
+// entry keeps them only on this machine.
+//
+// # Which protocol
+//
+// Protocol 6 gave update, label.add, label.rm, dep.add, accept and usage
+// a key; a server of 5 takes none for them, and so could apply one of
+// them twice. At each handshake seen.json notes the protocol the
+// connection speaks ([Local.Reached]), and while the server is away a
+// write is queued only when that protocol takes its op's key
+// ([Local.Keep]; a record that names none is taken for 5). A replay
+// sends an entry only on a connection whose protocol takes its key
+// ([Local.Replay]): one queued for a server of 6 that comes back at 5 is
+// refused with code version, unsent, for a person to retry once the
+// server is upgraded.
 //
 // # Windows
 //

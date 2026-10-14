@@ -130,15 +130,20 @@ func refusedSeqs(rs []outbox.Refusal) []uint64 {
 
 func TestQueueable(t *testing.T) {
 	t.Parallel()
-	queued := []string{proto.OpCreate, proto.OpComment, proto.OpHandoff, proto.OpRemember, proto.OpHoursLog, proto.OpFinish}
+	// Design §18.3's table: the six keyed since protocol 5, and the six
+	// protocol 6 keys. Each takes a key in this build's protocol.
+	queued := []string{proto.OpCreate, proto.OpComment, proto.OpHandoff, proto.OpRemember, proto.OpHoursLog, proto.OpFinish,
+		proto.OpUpdate, proto.OpLabelAdd, proto.OpLabelRm, proto.OpDepAdd, proto.OpAccept, proto.OpUsage}
 	for _, op := range queued {
 		if !outbox.Queueable(op) {
 			t.Errorf("Queueable(%q) = false, want true", op)
 		}
+		if !proto.Keyed(op, proto.Proto) {
+			t.Errorf("Queueable(%q), but protocol %d gives it no key", op, proto.Proto)
+		}
 	}
 	never := []string{
 		proto.OpStart, proto.OpClose, proto.OpReopen, proto.OpForget, proto.OpDepRm, proto.OpHoursDelete, proto.OpRenew,
-		proto.OpUpdate, proto.OpLabelAdd, proto.OpLabelRm, proto.OpDepAdd, proto.OpAccept, proto.OpUsage,
 		proto.OpProjectAdd, proto.OpKeyAdd, proto.OpShow, proto.OpPin, "",
 	}
 	for _, op := range never {
@@ -159,8 +164,8 @@ func TestAppendRefuses(t *testing.T) {
 	}{
 		{name: "start takes a claim", e: outbox.Entry{Op: proto.OpStart, Args: []byte(`{"id":"sfx-1","idem":"k"}`)}, want: outbox.ErrNotQueueable},
 		{name: "close ends something", e: outbox.Entry{Op: proto.OpClose, Args: []byte(`{"id":"sfx-1","idem":"k"}`)}, want: outbox.ErrNotQueueable},
-		{name: "update waits for protocol 6", e: outbox.Entry{Op: proto.OpUpdate, Args: []byte(`{"id":"sfx-1","rev":2,"idem":"k"}`)}, want: outbox.ErrNotQueueable},
-		{name: "usage waits for protocol 6", e: outbox.Entry{Op: proto.OpUsage, Args: []byte(`{"idem":"k"}`)}, want: outbox.ErrNotQueueable},
+		{name: "an update without its key", e: outbox.Entry{Op: proto.OpUpdate, Args: []byte(`{"id":"sfx-1","rev":2}`)}, want: outbox.ErrNoKey},
+		{name: "usage without its key", e: outbox.Entry{Op: proto.OpUsage, Args: []byte(`{"records":[]}`)}, want: outbox.ErrNoKey},
 		{name: "an admin op", e: outbox.Entry{Op: proto.OpMemberSet, Args: []byte(`{"idem":"k"}`)}, want: outbox.ErrNotQueueable},
 		{name: "renew", e: outbox.Entry{Op: proto.OpRenew, Args: []byte(`{"idem":"k"}`)}, want: outbox.ErrNotQueueable},
 		{name: "an unknown op", e: outbox.Entry{Op: "frobnicate", Args: []byte(`{"idem":"k"}`)}, want: outbox.ErrNotQueueable},
@@ -428,11 +433,12 @@ func TestCapAge(t *testing.T) {
 		wantStale bool
 	}{
 		{name: "new", waited: 0},
-		{name: "a minute short of the default", waited: 24*time.Hour - time.Minute},
-		{name: "at the default", waited: 24 * time.Hour},
-		{name: "past the default", waited: 24*time.Hour + time.Nanosecond, wantStale: true},
+		{name: "a day and a second, well within the default", waited: 24*time.Hour + time.Second},
+		{name: "a minute short of the default", waited: 7*24*time.Hour - time.Minute},
+		{name: "at the default, the server's window", waited: 7 * 24 * time.Hour},
+		{name: "past the default", waited: 7*24*time.Hour + time.Nanosecond, wantStale: true},
 		{name: "past a shorter cap", maxAge: time.Hour, waited: time.Hour + time.Second, wantStale: true},
-		{name: "within a longer cap", maxAge: 7 * 24 * time.Hour, waited: 6 * 24 * time.Hour},
+		{name: "within a longer cap", maxAge: 30 * 24 * time.Hour, waited: 20 * 24 * time.Hour},
 		{name: "a clock that went back", waited: -time.Hour},
 	}
 	for _, tc := range tests {
@@ -470,7 +476,7 @@ func TestRetryOfStaleEntryIsSent(t *testing.T) {
 	clk := newClock()
 	o, _ := open(t, outbox.Options{}, clk)
 	e := mustAppend(t, o, handoff(1))
-	clk.Advance(25 * time.Hour)
+	clk.Advance(outbox.DefaultMaxAge + time.Hour)
 	var s server
 	if rep := mustReplay(t, o, &s); rep.Stale != 1 {
 		t.Fatalf("Replay() = %+v, want one stale", rep)
@@ -789,6 +795,83 @@ func TestRetryAndDrop(t *testing.T) {
 				t.Errorf("the next Replay() sent %v, want %v", s.sent, tc.wantPending)
 			}
 		})
+	}
+}
+
+// TestRefuseAll: when the server refuses the connection the entries
+// would go on, for good (a principal's access ended), every pending
+// entry moves to the refused list with that answer, at once, and is
+// counted refused; one already refused keeps its own answer. Nothing is
+// sent, nothing is lost, and a person's retry sends one again.
+func TestRefuseAll(t *testing.T) {
+	t.Parallel()
+	clk := newClock()
+	o, _ := open(t, outbox.Options{}, clk)
+	for i := 1; i <= 3; i++ {
+		mustAppend(t, o, handoff(i))
+	}
+	mustReplay(t, o, &server{answer: func(e outbox.Entry) (outbox.Outcome, error) {
+		if e.Seq == 1 {
+			return outbox.Outcome{Refused: true, Code: "not_found", Message: "issue sfx-1 not found"}, nil
+		}
+		return outbox.Outcome{}, errors.New("down")
+	}})
+	clk.Advance(time.Hour)
+	ended := outbox.Outcome{Refused: true, Code: "forbidden", Message: "alice is disabled on this server", Fix: "ask a server admin"}
+	n, err := o.RefuseAll(ended)
+	if err != nil || n != 2 {
+		t.Fatalf("RefuseAll(%+v) = %d, %v; want the 2 pending entries refused", ended, n, err)
+	}
+	l := mustList(t, o)
+	if len(l.Pending) != 0 || !slices.Equal(refusedSeqs(l.Refused), []uint64{1, 2, 3}) {
+		t.Fatalf("after RefuseAll: pending %v, refused %v; want none pending and 1, 2 and 3 refused", seqs(l.Pending), refusedSeqs(l.Refused))
+	}
+	for _, r := range l.Refused {
+		want, at := ended, start.Add(time.Hour)
+		if r.Entry.Seq == 1 {
+			want, at = outbox.Outcome{Refused: true, Code: "not_found", Message: "issue sfx-1 not found"}, start
+		}
+		if r.Code != want.Code || r.Message != want.Message || r.Fix != want.Fix || !r.At.Equal(at) {
+			t.Errorf("entry %d is refused as %s: %q, fix %q at %v; want %s: %q, fix %q at %v",
+				r.Entry.Seq, r.Code, r.Message, r.Fix, r.At, want.Code, want.Message, want.Fix, at)
+		}
+	}
+	st, err := o.Stats()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := st.Ops[proto.OpHandoff].Refused; got != 3 {
+		t.Errorf("Stats() counts %d handoffs refused, want 3", got)
+	}
+	if n, err := o.RefuseAll(ended); err != nil || n != 0 {
+		t.Errorf("RefuseAll() with nothing pending = %d, %v; want 0, nil", n, err)
+	}
+	var s server
+	if mustReplay(t, o, &s); len(s.sent) != 0 {
+		t.Errorf("Replay() after RefuseAll sent %v, want nothing", s.sent)
+	}
+	if err := o.Retry(2); err != nil {
+		t.Fatal(err)
+	}
+	if mustReplay(t, o, &s); !slices.Equal(s.sent, []uint64{2}) {
+		t.Errorf("Replay() after Retry(2) sent %v, want [2]", s.sent)
+	}
+}
+
+// TestRefuseAllWaitsForNoReplay: a replay in progress is on a
+// connection that was let in, so it decides; RefuseAll says it is busy.
+func TestRefuseAllWaitsForNoReplay(t *testing.T) {
+	t.Parallel()
+	o, _ := open(t, outbox.Options{}, nil)
+	mustAppend(t, o, handoff(1))
+	s := &server{answer: func(outbox.Entry) (outbox.Outcome, error) {
+		if _, err := o.RefuseAll(outbox.Outcome{Refused: true, Code: "forbidden"}); !errors.Is(err, outbox.ErrBusy) {
+			t.Errorf("RefuseAll() during a replay = %v, want ErrBusy", err)
+		}
+		return outbox.Outcome{}, nil
+	}}
+	if rep := mustReplay(t, o, s); rep.Delivered != 1 {
+		t.Errorf("Replay() = %+v, want the entry delivered", rep)
 	}
 }
 

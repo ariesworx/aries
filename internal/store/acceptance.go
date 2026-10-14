@@ -66,6 +66,9 @@ type Acceptance struct {
 	Tick   []int
 	Untick []int
 	Waive  map[int]string
+	// IdempotencyKey, when set, makes a repeat of Accept return the first
+	// one's result (idem.go). Finish ignores it: its own key covers it.
+	IdempotencyKey string
 }
 
 // empty reports whether a changes no item.
@@ -324,7 +327,10 @@ func openItems(items []AcceptanceItem) []int {
 // to the state it has is a no-op. An empty a, a number past the issue's
 // items, and a closed issue (reopen it first) are refused with
 // ErrInvalid; an issue another principal holds with a [*ForbiddenError]
-// unless the actor is an admin.
+// unless the actor is an admin. With an idempotency key (a's), a repeat
+// of an Accept that changed an item returns the items as it left them
+// and writes nothing, and the key reused for another request is refused
+// with an [*IdemError].
 func (s *Store) Accept(ctx context.Context, actor Actor, id IssueID, a Acceptance) ([]AcceptanceItem, error) {
 	if err := id.Validate(); err != nil {
 		return nil, err
@@ -335,8 +341,17 @@ func (s *Store) Accept(ctx context.Context, actor Actor, id IssueID, a Acceptanc
 	if err := a.validate(s.opts.Limits.AcceptanceItems); err != nil {
 		return nil, err
 	}
+	if err := validIdem(a.IdempotencyKey); err != nil {
+		return nil, err
+	}
 	var out []AcceptanceItem
 	err := s.write(ctx, actor, func(w *wtx) error {
+		if done, err := replay(ctx, w, a.IdempotencyKey, "accept", struct {
+			ID IssueID
+			Acceptance
+		}{id, a}, &out); done || err != nil {
+			return err
+		}
 		is, err := loadIssue(ctx, w.tx, id)
 		if err != nil {
 			return err
@@ -351,8 +366,10 @@ func (s *Store) Accept(ctx context.Context, actor Actor, id IssueID, a Acceptanc
 		if err := w.guard(ctx, c, "accept"); err != nil {
 			return err
 		}
-		out, err = applyAcceptance(ctx, w, is, a)
-		return err
+		if out, err = applyAcceptance(ctx, w, is, a); err != nil {
+			return err
+		}
+		return w.settleChanged(out)
 	})
 	if err != nil {
 		return nil, err

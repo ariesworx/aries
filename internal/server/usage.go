@@ -19,7 +19,7 @@ func usage(ctx context.Context, pr *served, a store.Actor, in proto.UsageArgs) (
 		recs[i] = store.UsageRecord{Harness: r.Harness, RequestID: r.RequestID, Model: r.Model, At: r.At,
 			Granularity: store.Granularity(r.Granularity), SpanStart: r.SpanStart, Tokens: store.Tokens(r.Tokens)}
 	}
-	added, err := pr.store.AddUsage(ctx, a, recs)
+	added, err := pr.store.AddUsage(ctx, a, recs, in.Idem)
 	if err != nil {
 		return nil, pr.mapErr(ctx, proto.OpUsage, "", 0, err)
 	}

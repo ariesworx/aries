@@ -68,7 +68,7 @@ func TestStatsCountsEachOp(t *testing.T) {
 		t.Fatalf("Drop(2) = %v", err)
 	}
 	mustAppend(t, o, comment(5))
-	clk.Advance(25 * time.Hour)
+	clk.Advance(outbox.DefaultMaxAge + time.Hour)
 	mustReplay(t, o, &server{})
 	got = mustStats(t, o)
 	if want := (outbox.OpStats{Queued: 2, Delivered: 1, Refused: 1, Dropped: 1, Wait: wait(30*time.Second, 2)}); got.Ops[proto.OpHandoff] != want {
@@ -170,7 +170,7 @@ func TestStatsOutages(t *testing.T) {
 	clk.Advance(time.Hour)
 	began = clk.Now()
 	mustAppend(t, o, handoff(4))
-	clk.Advance(25 * time.Hour)
+	clk.Advance(outbox.DefaultMaxAge + time.Hour)
 	mustReplay(t, o, &server{})
 	if got, want := mustStats(t, o).Outages, (outbox.OutageStats{Count: 2, Total: 13 * time.Minute, Longest: 10 * time.Minute, Since: began}); !sameOutages(got, want) {
 		t.Errorf("during the third outage, Stats() outages = %+v, want %+v", got, want)
