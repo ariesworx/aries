@@ -362,14 +362,16 @@ func TestConnectionCaps(t *testing.T) {
 	if w1.Err != nil || w2.Err != nil {
 		t.Fatalf("first two of alice's connections refused: %v, %v", w1.Err, w2.Err)
 	}
-	if w3.Err == nil || w3.Err.Code != proto.CodeBusy || !strings.Contains(w3.Err.Message, "alice is at its connection limit (2)") {
-		t.Errorf("alice's third connection: %+v, want busy naming her limit", w3.Err)
+	// Clients tell this refusal from every other by proto.AtConnLimit.
+	if w3.Err == nil || w3.Err.Message != "alice is at its connection limit (2)" || w3.Err.Fix != proto.FixConnLimit || !proto.AtConnLimit(w3.Err) {
+		t.Errorf("alice's third connection: %+v, want busy naming her limit, with FixConnLimit, that AtConnLimit reads", w3.Err)
 	}
 	if w, _ := handshakeAs(t, s, bob); w.Err != nil {
 		t.Errorf("bob's connection refused: %v", w.Err)
 	}
-	if w, _ := handshakeAs(t, s, dana); w.Err == nil || w.Err.Code != proto.CodeBusy || !strings.Contains(w.Err.Message, "server is at its connection limit (3)") {
-		t.Errorf("a fourth connection in all: %+v, want busy naming the server's limit", w.Err)
+	if w, _ := handshakeAs(t, s, dana); w.Err == nil || w.Err.Code != proto.CodeBusy ||
+		!strings.Contains(w.Err.Message, "server is at its connection limit (3)") || proto.AtConnLimit(w.Err) {
+		t.Errorf("a fourth connection in all: %+v, want busy naming the server's limit, which AtConnLimit does not read", w.Err)
 	}
 	// Closing one of alice's frees its slot.
 	_ = c1.nc.Close()
@@ -384,6 +386,19 @@ func TestConnectionCaps(t *testing.T) {
 			t.Fatalf("alice's slot was never freed: %v", w.Err)
 		}
 		runtime.Gosched()
+	}
+}
+
+// proto.AtConnLimit checks the principal in the message by a copy of
+// PrincipalPattern, which proto cannot import: the two agree at the
+// pattern's edges, and the subject of the server's own limit is no
+// principal.
+func TestAtConnLimitKnowsEveryPrincipal(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"a", "a" + strings.Repeat("z", 63), "a.b_c-9", "z0", "a" + strings.Repeat("z", 64), "A", "9a", "-a", "a b", "the server", "alicé"} {
+		if got, want := proto.AtConnLimit(proto.ConnLimit(name, 1)), PrincipalPattern.MatchString(name); got != want {
+			t.Errorf("AtConnLimit(ConnLimit(%q, 1)) = %v, want %v, as PrincipalPattern says", name, got, want)
+		}
 	}
 }
 

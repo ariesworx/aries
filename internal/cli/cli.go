@@ -368,7 +368,9 @@ func (r *runner) help(w io.Writer) {
 
 // fail reports err and returns its exit code. A usage error's fix is the
 // command's usage line; a *proto.Error keeps its code, message and fix,
-// and prints no fix: line when the fix is empty; any other error is
+// but for a principal at its connection limit, whose fix is
+// proto.FixConnLimit whatever server sent it, and prints no fix: line
+// when the fix is empty; any other error is
 // reported as unavailable, with a fix to retry and check the config.
 //
 // A refusal the server answers with unavailable is the server's own
@@ -391,6 +393,9 @@ func (r *runner) fail(err error) int {
 		code, msg, fix, req = pe.Code, pe.Message, pe.Fix, pe.Req
 		if pe.Code == proto.CodeVersion {
 			exit = ExitVersion
+		}
+		if proto.AtConnLimit(pe) {
+			fix = proto.FixConnLimit // a released server's fix is the one it gives its own limit
 		}
 	}
 	if r.json {

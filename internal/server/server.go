@@ -1063,8 +1063,8 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 			"session and machine must be 1-255 printable characters, without control or bidirectional characters"))
 	}
 	sess.harness = f.Harness
-	if ok, why := s.slots.acquire(sess.key, s.cfg.Limits.Conns, s.cfg.Limits.ConnsPerPrincipal); !ok {
-		return refuse(proto.Errf(proto.CodeBusy, "close other starfix sessions, or wait for them to end, and retry", why))
+	if e := s.slots.acquire(sess.key, s.cfg.Limits.Conns, s.cfg.Limits.ConnsPerPrincipal); e != nil {
+		return refuse(e)
 	}
 	sess.slot = true
 	if s.stores != nil {

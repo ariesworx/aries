@@ -355,6 +355,9 @@ func TestWritesAreCompact(t *testing.T) {
 // and clients still use, fails here.
 func TestErrorsNameTheNextStep(t *testing.T) {
 	t.Parallel()
+	const atConnLimit = "the user's other starfix sessions hold every connection the server allows them, so this session cannot reach it until one closes. " +
+		"Tell the user now: they can close some, or ask the server's operator to raise conns_per_principal. " +
+		"Until then, issues you hold go back to open unless renewed within their 15m lease, and writes are not kept for later; never run an admin command yourself"
 	tests := []struct {
 		name string
 		err  error
@@ -411,6 +414,16 @@ func TestErrorsNameTheNextStep(t *testing.T) {
 				"fix: you have no access to this project: stop and tell the user, who must ask one of its admins; never run an admin command yourself, " +
 				"quoting the server: \"ask a server admin, or one of the project's admins, to add you: `sfx admin member add alice`, run in this repository; " +
 				"or, if you were disabled, `sfx admin principal enable alice`\""},
+		// Too many of the user's sessions hold connections: only the user
+		// can free one, so the agent tells them now, and learns what waiting
+		// costs: its claims, and its writes, which busy does not queue.
+		{"dial, at the connection limit", &dialError{err: proto.ConnLimit("alice", 64)}, "busy: alice is at its connection limit (64)\nfix: " + atConnLimit},
+		{"dial, at a released server's connection limit", &dialError{err: proto.Errf(proto.CodeBusy,
+			"close other starfix sessions, or wait for them to end, and retry", "alice is at its connection limit (64)")},
+			"busy: alice is at its connection limit (64)\nfix: " + atConnLimit},
+		{"dial, at the server's own connection limit", &dialError{err: proto.Errf(proto.CodeBusy,
+			"close other starfix sessions, or wait for them to end, and retry", "the server is at its connection limit (1024)")},
+			"busy: the server is at its connection limit (1024)\nfix: tell the user starfix cannot connect, quoting the server: \"close other starfix sessions, or wait for them to end, and retry\""},
 		{"lost write", &lostError{err: errLost},
 			"unavailable: the server closed the connection\nfix: the connection dropped and the next call reconnects; this write may have applied, so check with show before repeating it"},
 		{"lost read", &lostError{err: errLost, retried: true},

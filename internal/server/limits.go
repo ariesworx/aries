@@ -251,24 +251,26 @@ type conns struct {
 }
 
 // acquire takes a slot for key, a principal or a principal in a project
-// (limitKey), or says which cap is full.
-func (c *conns) acquire(key string, total, per int) (bool, string) {
+// (limitKey), or refuses, naming the cap that is full. Clients tell the
+// principal's cap from the server's by proto.AtConnLimit.
+func (c *conns) acquire(key string, total, per int) *proto.Error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	switch {
 	case c.total >= total:
 		c.tel.Count(telemetry.LimitRefusals, telemetry.LimitConns)
-		return false, fmt.Sprintf("the server is at its connection limit (%d)", total)
+		return proto.Errf(proto.CodeBusy, "close other starfix sessions, or wait for them to end, and retry",
+			fmt.Sprintf("the server is at its connection limit (%d)", total))
 	case c.by[key] >= per:
 		c.tel.Count(telemetry.LimitRefusals, telemetry.LimitConnsPerPrincipal)
-		return false, fmt.Sprintf("%s is at its connection limit (%d)", keyPrincipal(key), per)
+		return proto.ConnLimit(keyPrincipal(key), per)
 	}
 	if c.by == nil {
 		c.by = map[string]int{}
 	}
 	c.total++
 	c.by[key]++
-	return true, ""
+	return nil
 }
 
 // release frees a slot acquire took for key.
