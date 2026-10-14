@@ -641,6 +641,26 @@ Maintainer, 13 Oct 2026, on the seven questions of the stage 5 design (§18.11).
 43. Long text in conflict parks whole, with no automatic merge of hunks. "Makes sense."
 44. A queued write exits 0, with `--no-queue` for scripts. "Ok."
 45. There is no hybrid logical clock. "Ok."
+46. Where vectors live is decided after V0 measures both: files beside the database, or a table in Dolt (§19.4). Asked what the difference would be, and told that search costs the same either way and that the two differ in loading, in writes through a project's single writer, in Dolt's history and memory, and in what a restore brings back: "Decide after measuring."
+47. V0, the measurement of whether any model beats word matching on real data, runs now; what it finds decides whether the rest of §19 is built, and the build waits (§19.7). "Measure now, build later."
+48. A server may use an embedding endpoint on another machine, behind an explicit setting, with a warning at start naming what is sent. "Allowed, opt-in."
+49. Agents get no search tool over MCP at first. "Not at first."
+50. No embedding model is named as the default until V0. "None until V0."
+51. Embedding is set for the server, and a project can opt out. "Per server, opt-out."
+52. starfix signs people in itself, as a way in that a server turns on, beside keys and §17's certificates and never required ([access-research.md](access-research.md) §11). "Yes, opt-in per server."
+53. A sign-in records an expiring key in the file sshd already reads; starfix signs no certificates and holds no signing key. "Expiring keys."
+54. The path a machine not yet known takes to hand over its sign-in is chosen by a spike of both candidates under AppArmor, the published enrollment key first, the key command for enrollment second. "Spike both, published key first."
+55. The device-code flow is a server setting, off by default, with tokens accepted once and only fresh. "Server option, off."
+56. Generic OpenID Connect comes first, then workload tokens for CI, then GitHub's own adapter. "Generic OIDC first."
+57. New people are invited; a principal is not made at first sign-in from an allowed domain. "Invitation only."
+58. A sign-in lasts a day by default, a server setting with a ceiling, and does not renew silently. "A day, no silent renewal."
+59. When a signed-in key expires, the server closes the connections made with it, decided together with §17.12's decision 8 for certificates. "Yes, close them."
+60. An external identity is a table of provider, subject and invited address, decided before §17's slice I2 is built. "Yes, a table."
+61. A person may approve a new machine of their own only from a session that has just signed in at the provider, never by a key alone; the details follow the spike. "Only after a fresh sign-in."
+62. The client's pinned host key becomes a list now, independent of sign-in. "Yes, now."
+63. `opkssh` is tried privately in the spike and not yet documented as a way in. "Not yet, trial it."
+64. A server installer comes before sign-in; `starfixd doctor` after it. "Installer before."
+65. Tunnels other than IAP are added when someone asks, as IAP was; Tailscale and WireGuard are documented now as network layers. "On request; document now."
 
 ## 15. Projects and access
 
@@ -1766,7 +1786,7 @@ Everything: this is a design. In particular, file locking with hundreds of proce
 
 ## 19. Search by meaning: a design for vectors
 
-Designed 12 Oct 2026, from §10 and [database.md](database.md#vectors-later). **Proposed, not decided, and nothing here is built.** The questions for the maintainer are in §19.8. It is planned for stage 7; this section says how it could be built sooner and smaller, and what would have to be measured first.
+Designed 12 Oct 2026, from §10 and [database.md](database.md#vectors-later). **Decided 14 Oct 2026 (§19.8; §14, decisions 46 to 51), and nothing here is built.** One question, where the vectors live, waits on V0. It is planned for stage 7; this section says how it could be built sooner and smaller, and what would have to be measured first.
 
 In short: starfixd runs no model. An operator points it at an embedding endpoint, by default one on the same machine, and starfixd asks it for vectors in the background, after a write and never during one. The vectors are derived data: kept beside the database and not in it, and rebuilt from the text at any time. Search is a plain comparison in Go. Every use falls back to what starfix does today when the endpoint is off, slow or behind, so nothing an agent or a person does can fail because of it.
 
@@ -1839,7 +1859,10 @@ Comparison is exact cosine over the project's vectors in Go: tens of millisecond
 
 V0 decides whether any of the rest is built. If word overlap already finds what matters at the sizes real projects have, the answer is to leave it.
 
-### 19.8 Decisions for the maintainer
+### 19.8 Decisions
+
+The maintainer answered the six questions on 14 Oct 2026; they are decisions 46 to 51 of §14, which has his words. Five stand as proposed. The first is left to V0, which is to time both places: search costs the same in either, and they differ in loading a project's vectors, in writes through its single writer, in Dolt's history and memory, and in what a restore from backup brings back. The questions as they were put follow.
+
 
 1. **Where vectors live.** Proposed: files beside the database, rebuilt at need. database.md proposed a table in Dolt.
 2. **Pull it forward.** Proposed: V0 now, since it costs nothing and decides the rest; V1 and V2 after the observability and stage 5 work in flight; V3 and V4 stay with stage 7.
