@@ -53,8 +53,8 @@ var clientBenchSizes = []struct {
 }{{"300B", 300}, {"8KiB", 8 << 10}, {"64KiB", 64 << 10}, {"1MiB", 1 << 20}, {"3.9MiB", MaxFrame - 100<<10}}
 
 // BenchmarkClientDecode is one frame read by a Decoder that has already
-// read frames of that size: the scanner's buffer has grown, and what is
-// left is the frame's own cost, the copy of its result in Frame.OK.
+// read frames of that size: the frame's own cost, the copy of its result
+// in Frame.OK, and for a frame over 4 KiB the buffer it is gathered in.
 func BenchmarkClientDecode(b *testing.B) {
 	for _, tc := range clientBenchSizes {
 		b.Run(tc.name, func(b *testing.B) {
@@ -75,9 +75,7 @@ func BenchmarkClientDecode(b *testing.B) {
 }
 
 // BenchmarkClientDecodeFirst is the first frame of a connection: a new
-// Decoder, whose scanner starts at 64 KiB and doubles until the frame
-// fits. A new connection pays it, and so does the first large result on
-// one; the buffer it grows is kept for the connection's life.
+// Decoder and its 4 KiB buffer, and the frame.
 func BenchmarkClientDecodeFirst(b *testing.B) {
 	for _, tc := range clientBenchSizes {
 		b.Run(tc.name, func(b *testing.B) {

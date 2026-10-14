@@ -2,6 +2,7 @@ package proto
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -105,15 +106,78 @@ func (e *Encoder) Encode(f *Frame) error {
 }
 
 // Decoder reads frames. It is not safe for concurrent use.
+//
+// It keeps a small buffer, and gathers a frame too long for it in one of
+// its own that it lets go of once the frame is decoded: a server holds a
+// Decoder for each connection and sfx mcp one for hours, and a buffer
+// kept at the size of the largest frame seen would be held as long
+// (docs/design/profile-starfixd.md, proposal 1).
 type Decoder struct {
-	s *bufio.Scanner
+	r   *bufio.Reader
+	err error // the error that ended the stream; every later call returns it
 }
+
+// readSize is a Decoder's buffer: larger than nearly every frame.
+const readSize = 4 << 10
 
 // NewDecoder returns a Decoder reading from r.
 func NewDecoder(r io.Reader) *Decoder {
-	s := bufio.NewScanner(r)
-	s.Buffer(make([]byte, 0, 64<<10), MaxFrame)
-	return &Decoder{s: s}
+	return &Decoder{r: bufio.NewReaderSize(r, readSize)}
+}
+
+// line returns the next line without its newline and one carriage return
+// before it, and a last line the stream ends without a newline, as
+// bufio.Scanner with ScanLines and a MaxFrame buffer did: a line must fit
+// in MaxFrame bytes with its newline, or, at the end of the stream, with
+// room for one. Any error but a line that is not a frame is final, and
+// every later call returns it.
+func (d *Decoder) line() ([]byte, error) {
+	if d.err != nil {
+		return nil, d.err
+	}
+	b, err := d.r.ReadSlice('\n')
+	if errors.Is(err, bufio.ErrBufferFull) {
+		b, err = d.gather(b)
+	}
+	if len(b) > MaxFrame || len(b) == MaxFrame && err != nil {
+		d.err = ErrFrameTooLarge
+		return nil, d.err
+	}
+	switch err {
+	case nil:
+		b = b[:len(b)-1]
+	case io.EOF: // as bufio.Scanner had it: only io.EOF itself, unwrapped, is a clean end
+		d.err = io.EOF
+	default:
+		d.err = fmt.Errorf("read frame: %w", err)
+	}
+	if err != nil && len(b) == 0 {
+		return nil, d.err
+	}
+	return bytes.TrimSuffix(b, []byte{'\r'}), nil
+}
+
+// gather reads the rest of a line that began with b and is longer than
+// the Decoder's buffer, into a buffer of its own that doubles as it
+// fills, to MaxFrame at most, so that a large frame costs a few copies
+// rather than one for each 4 KiB. It stops at MaxFrame bytes, newline or
+// none, and returns ReadSlice's last error: bufio.ErrBufferFull if it
+// stopped there.
+func (d *Decoder) gather(b []byte) ([]byte, error) {
+	long := append(make([]byte, 0, 2*len(b)), b...)
+	for {
+		b, err := d.r.ReadSlice('\n')
+		if len(long)+len(b) > cap(long) {
+			// Doubled exactly: append's own growth rounds up past it.
+			grown := make([]byte, len(long), max(len(long)+len(b), min(2*cap(long), MaxFrame)))
+			copy(grown, long)
+			long = grown
+		}
+		long = append(long, b...)
+		if !errors.Is(err, bufio.ErrBufferFull) || len(long) >= MaxFrame {
+			return long, err
+		}
+	}
 }
 
 // Decode reads the next frame. It returns [io.EOF] at a clean end of
@@ -121,19 +185,12 @@ func NewDecoder(r io.Reader) *Decoder {
 // that is not JSON, or has no frame type, is an error, and the next call
 // reads the line after it; any other error is final.
 func (d *Decoder) Decode() (*Frame, error) {
-	if !d.s.Scan() {
-		err := d.s.Err()
-		switch {
-		case err == nil:
-			return nil, io.EOF
-		case errors.Is(err, bufio.ErrTooLong):
-			return nil, ErrFrameTooLarge
-		default:
-			return nil, fmt.Errorf("read frame: %w", err)
-		}
+	b, err := d.line()
+	if err != nil {
+		return nil, err
 	}
 	var f Frame
-	if err := json.Unmarshal(d.s.Bytes(), &f); err != nil {
+	if err := json.Unmarshal(b, &f); err != nil {
 		return nil, fmt.Errorf("decode frame: %w", err)
 	}
 	if f.T == "" {

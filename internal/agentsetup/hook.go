@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 )
 
 // The SessionStart hook runs `sfx prime --hook=AGENT` (bare --hook for
@@ -101,10 +102,10 @@ var claudeHooks = []hookStyle{claudeHook, claudeUsage("Stop", true, UsageTimeout
 var (
 	// shellSafe matches a word the shell reads as itself, which
 	// shellQuote leaves bare.
-	shellSafe = regexp.MustCompile(`^[A-Za-z0-9_./:@%+=,-]+$`)
+	shellSafe = lazyregexp.New(`^[A-Za-z0-9_./:@%+=,-]+$`)
 	// hookCmd splits a hook's command into its program, one word as
 	// shellQuote writes it, and its verb.
-	hookCmd = regexp.MustCompile(`^([A-Za-z0-9_./:@%+=,-]+|'(?:[^']|'\\'')*') (prime|usage) --hook(?:=[a-z][a-z-]*)?$`)
+	hookCmd = lazyregexp.New(`^([A-Za-z0-9_./:@%+=,-]+|'(?:[^']|'\\'')*') (prime|usage) --hook(?:=[a-z][a-z-]*)?$`)
 )
 
 // shellQuote quotes s for the POSIX shell the harness runs hooks with.

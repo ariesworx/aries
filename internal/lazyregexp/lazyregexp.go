@@ -51,6 +51,9 @@ func (r *Regexp) String() string { return r.expr }
 // MatchString is [regexp.Regexp.MatchString].
 func (r *Regexp) MatchString(s string) bool { return r.compiled().MatchString(s) }
 
+// FindString is [regexp.Regexp.FindString].
+func (r *Regexp) FindString(s string) string { return r.compiled().FindString(s) }
+
 // FindStringIndex is [regexp.Regexp.FindStringIndex].
 func (r *Regexp) FindStringIndex(s string) []int { return r.compiled().FindStringIndex(s) }
 

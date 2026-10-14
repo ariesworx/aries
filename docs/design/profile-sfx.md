@@ -239,6 +239,20 @@ to that many states.
   link the outbox at this commit; when it does, every command pays that
   too unless those are lazy.
 
+**Since this was written (14 Oct 2026).** Done, with
+`internal/lazyregexp`. `internal/proto`'s, `release`'s and
+`secretscan`'s were already lazy, for `starfixd`'s sake; the rest that
+`sfx` links (`client`, `gitx`, `capture`, `agentsetup`, `cli`) are now
+too. The config's patterns stay patterns, compiled by the commands that
+read a config.
+Measured as above on macOS, before and after, at that later `main`:
+`sfx --version` 7,044 allocations and 1.01 MB at exit to 1,993 and
+0.57 MB, starfix's packages' `init` 446 KB to 10 KB; peak RSS 14.2 to
+13.1 MiB (minimum of 40), CPU 4.25 to 3.97 ms (minimum; median 4.48 to
+4.17); `prime --hook` outside a repository the same. `TestInitAllocations`
+(`cmd/sfx`) holds starfix's packages' `init` to 32 KiB and all of it to
+1 MiB.
+
 ### 3. Collect sooner in the long-lived commands
 
 `internal/cli/agent.go:179` (`cmdMCP`), and `sfx tui` and `sfx watch`.
@@ -264,6 +278,22 @@ process.
   collector run continuously while that result is held.
   `debug.FreeOSMemory` once after start gave back 1.5 to 2.0 MiB on
   Linux and nothing on macOS.
+
+**Since this was written (14 Oct 2026).** Measured again, larger, and
+not done: the saving holds, but the CPU it costs is not negligible.
+Fifty idle `sfx mcp` against the test server, each after one `prime`,
+two rounds each, `GOGC=50` in the environment against none: on Linux
+(the container above, `Private_Dirty`) 10.1 to 10.4 MiB a process
+against 8.0 to 8.1, about 2.2 MiB or 22% less; on macOS (physical
+footprint) 11.2 against 10.5 MiB, 0.7 MiB or 6% less. A session of 300
+tool calls (`prime`, `ready`, `list`, `show`, `comment`, `comments`,
+`who`, `inbox`, `digest`, `history` in turn), five runs each: the
+client's CPU went from 228 to 253 ms to 345 to 421 ms on Linux, and
+from 143 to 195 ms to 224 to 269 ms on macOS, about half as much
+again, or 0.3 to 0.5 ms a call. A collection is due at a 2 MiB heap in
+place of 4 MiB, and a call allocates about 250 KB, so it runs about
+twice as often. Whether 2 MiB a session is worth that is a choice
+between memory and CPU, not a free saving.
 
 ### 4. Parse a private key only when the server asks it to sign
 
@@ -293,6 +323,25 @@ key the server accepts to sign, and a public key is enough to offer.
   passphrase-protected must still be told from one that is corrupt
   before the offer. Not prototyped.
 
+**Since this was written (14 Oct 2026).** Not done: it would change
+which keys are offered and what `whoami` and a refusal say, for one
+kind of file. Nearly all of the 2.5 ms is `crypto/rsa` checking that
+the key's numbers agree (`ParsePrivateKey` calls `rsa.PrivateKey`'s
+`Validate` and `Precompute`), and that check tells a usable RSA key from
+a file that parses but cannot sign. Today such a file is skipped
+before the offer, and `whoami` and a refusal list it as "not a private
+key sfx can read"; parsed at signing, it would be offered by its public
+half, counted among the five, and fail only if the server accepted it.
+Measured: `whoami` with default identities, an RSA 3072 key the server
+does not know and the Ed25519 key it does, 11.2 ms and 9.7 ms of CPU
+(minimum of 40) against 8.4 ms and 6.8 ms with the Ed25519 key alone.
+The options are to accept that difference for files that are
+corrupt, to parse in the background while the connection is made
+(which saves the wall time and none of the CPU, and changes the point
+at which "no SSH key available" is reported), or to leave it: naming
+the key with `STARFIX_KEY_FILE` or `key:` already reads that file
+alone.
+
 ### 5. Do not keep the decoder's buffer at its largest
 
 `internal/proto/frame.go:112` to `116` (`NewDecoder`) and `123`
@@ -321,6 +370,14 @@ to `MaxFrame` (4 MiB), and never shrinks.
   the end of stream must stay exactly as tested; it wants a fuzz test
   against the present decoder. Not prototyped.
 
+**Since this was written (14 Oct 2026).** Done, as `profile-starfixd.md`'s
+proposal 1 says, with a 4 KiB buffer rather than 64 KiB. Measured with
+ten idle `sfx mcp` against the test server, heap in use after two
+collections: 1.10 to 1.04 MiB after one `prime`, and 1.71 to 1.47 MiB
+after one `show` of an issue with three texts of 60,000 bytes. Their
+private memory moved by less than its spread between processes
+(10.6 to 12.1 MiB).
+
 ### 6. Write a table in one piece
 
 `internal/cli/commands.go:276` (`printSummaries`), with
@@ -340,6 +397,18 @@ it is given twice and flushes to the terminal on every call.
   `sfx watch` relies on each line reaching the terminal as it is
   printed. The other tables (`blocked`, `who`, `admin`) print the same
   way.
+
+**Since this was written (14 Oct 2026).** Done for the issue table
+of `list`, `ready` and `blocked`: `printSummaries` lays the table
+out in a buffer of its own and writes it once, as `cost` and `hours`
+already did; the escaping writer is unchanged. `BenchmarkClientPrintSummaries`,
+before and after: 10 rows 80 writes, 232 allocations and 8.2 µs to 1,
+90 and 6.7 µs; 50 rows 400, 1,078 and 38.6 µs to 2, 339 and 30.8 µs;
+500 rows 4,000, 10,539 and 374 µs to 11, 3,054 and 291 µs, and 444 KB
+to 550 KB allocated. Its writer counts 4 KiB pieces; standard output,
+which takes a string whole, gets one write. Tests pin the table's text
+and the single write. `who`, `history`, `digest` and the `admin` tables
+were left as they were.
 
 ### Smaller, and questions rather than optimizations
 

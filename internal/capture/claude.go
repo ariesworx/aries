@@ -9,11 +9,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/lazyregexp"
 	"github.com/ariesworx/starfix/internal/proto"
 )
 
@@ -42,7 +42,7 @@ const maxLine = 4 << 20
 const syntheticModel = "<synthetic>"
 
 // versionShape is a Claude Code version as a note may repeat it.
-var versionShape = regexp.MustCompile(`^[0-9A-Za-z.+-]{1,32}$`)
+var versionShape = lazyregexp.New(`^[0-9A-Za-z.+-]{1,32}$`)
 
 // claudeEntry is the part of a transcript line usage needs. Decoding into
 // it skips the conversation text, which is never held past the line.
