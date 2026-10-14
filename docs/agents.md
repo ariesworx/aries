@@ -336,6 +336,33 @@ environment, turns the outbox off for a session: its writes then fail
 when the server is away, as they did before. The hooks never queue and
 never send what waits.
 
+**Reads from the cache.** What a session reads of its own context is
+kept on the machine as the server returned it: `prime`, `show` of each
+issue it looked at, the issue `start` took, `inbox` and `digest`
+([What is shown from the cache](cli.md#what-is-shown-from-the-cache)).
+With the server away those tools answer from that copy, never while it
+answers, and say so in one line after the result, within its budget:
+
+```text
+cached: starfix cannot reach its server, so this is this machine's copy from 2026-10-13 14:02 UTC (3h old), and may be out of date
+```
+
+`prime` says it as its first notice instead, and leaves out the ready
+issues: nothing can be started without the server. So the session goes
+on with the work it holds, with its acceptance items and last handoff
+(`show`) and the memories `prime` showed, and the SessionStart hook of a new session gets the
+same prime from the cache, marked the same way. A tool that asks for
+something the session never read fails as before.
+
+`ready`, `blocked`, `list` and `who` are refused with the server away,
+whatever was read before: from a copy, what others are doing now would be
+wrong in the way that has two sessions take the same work. The refusal
+says when the server was last reached, and its fix is to carry on with
+the work the agent holds, which `prime` and `show` answer for. The cache
+is on for every `sfx mcp`, `--no-queue` or not; it is the principal's,
+chosen as the outbox is, and is deleted from the machine when the server
+refuses the principal the project as `forbidden`.
+
 ## Sessions
 
 The server knows the principal from the SSH key. The session id comes
