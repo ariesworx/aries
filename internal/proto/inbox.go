@@ -49,9 +49,13 @@ type InboxArgs struct {
 }
 
 // InboxResult is a page of items, newest first, and the unread count.
+// Conflicts counts the open conflicts that concern the caller: those its
+// replayed updates parked, and those on issues assigned to it (protocol
+// 7).
 type InboxResult struct {
-	Items  []InboxItem `json:"items"`
-	Unread int         `json:"unread"`
+	Items     []InboxItem `json:"items"`
+	Unread    int         `json:"unread"`
+	Conflicts int         `json:"conflicts,omitempty"`
 }
 
 // AckArgs marks items read: those named, or All of the caller's.

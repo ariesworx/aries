@@ -38,6 +38,9 @@ type served struct {
 	// tel counts the refusals at the store's caps (observeLimit); nil
 	// counts none.
 	tel *telemetry.Telemetry
+	// conflictAge is how long a conflict is open before digest lists it
+	// (Limits.ConflictAge).
+	conflictAge time.Duration
 }
 
 // reap ends the project's expired claims now and logs each.

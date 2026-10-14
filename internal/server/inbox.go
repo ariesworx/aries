@@ -156,6 +156,9 @@ func inbox(ctx context.Context, pr *served, a store.Actor, in proto.InboxArgs) (
 	for _, it := range page.Items {
 		out.Items = append(out.Items, wireInboxItem(it))
 	}
+	if out.Conflicts, err = pr.store.OpenConflicts(ctx, a.Principal); err != nil {
+		return nil, pr.mapErr(ctx, proto.OpInbox, "", 0, err)
+	}
 	return out, nil
 }
 

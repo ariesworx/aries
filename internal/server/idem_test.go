@@ -105,7 +105,9 @@ func TestKeyedOpsReplayOnce(t *testing.T) {
 			}
 		})
 	}
-	// A client of protocol 5 sends no key, and is served.
+	// A client of protocol 5 sends no key, and is served by a server that
+	// still accepts 5, as one built before protocol 7 does.
+	s.cfg.ProtoMin = 5
 	send := speaking(t, s, 5)
 	cur := mustCall[proto.ShowResult](t, s, alice, proto.OpShow, proto.ShowArgs{ID: is.ID})
 	if f := send(proto.OpUpdate, proto.UpdateArgs{ID: is.ID, Rev: cur.Issue.Rev, Title: &title}); f.Err != nil {
@@ -137,6 +139,7 @@ func TestStaleKey(t *testing.T) {
 	is := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work"})
 	comment := proto.CommentArgs{ID: is.ID, Body: "written once", Idem: "k-1"}
 	mustCall[proto.CommentResult](t, s, alice, proto.OpComment, comment)
+	s.cfg.ProtoMin = 5 // as a server built before protocol 7 accepts
 	v6, v5 := speaking(t, s, 6), speaking(t, s, 5)
 
 	mu.Lock()

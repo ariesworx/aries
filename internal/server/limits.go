@@ -199,7 +199,7 @@ var readOps = map[string]bool{
 	proto.OpShow: true, proto.OpList: true, proto.OpReady: true, proto.OpBlocked: true, proto.OpComments: true,
 	proto.OpHistory: true, proto.OpDigest: true, proto.OpWho: true, proto.OpInbox: true, proto.OpWatch: true,
 	proto.OpClaims: true, proto.OpRecall: true, proto.OpPrices: true, proto.OpCost: true,
-	proto.OpHours: true, proto.OpPlans: true,
+	proto.OpHours: true, proto.OpPlans: true, proto.OpConflicts: true,
 	proto.OpProjects: true, proto.OpPrincipals: true, proto.OpMembers: true, proto.OpKeys: true,
 	proto.OpStatus: true, proto.OpPrincipalWhois: true,
 }

@@ -39,6 +39,8 @@ func command(op string) string {
 		return "admin member list"
 	case proto.OpKeys:
 		return "admin key list"
+	case proto.OpPropose:
+		return "conflicts" // proposing is an agent's, over MCP; sfx conflicts shows them
 	}
 	if adminOp(op) {
 		return "admin " + strings.ReplaceAll(op, ".", " ")
@@ -76,6 +78,7 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 	var taken *store.TakenError
 	var controlCap *store.ControlLimitError
 	var lastAdmin *store.LastAdminError
+	var conflictCap *store.ConflictLimitError
 	switch {
 	case errors.As(err, &access):
 		return accessErr(access)
@@ -108,6 +111,15 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 
 	case errors.Is(err, store.ErrInvalid) && adminOp(op):
 		return proto.Errf(proto.CodeInvalid, fmt.Sprintf("correct it and retry; `sfx %s -h` shows the usage", command(op)),
+			strings.TrimPrefix(text, store.ErrInvalid.Error()+": "))
+
+	case errors.Is(err, store.ErrNotFound) && (op == proto.OpConflicts || op == proto.OpPropose || op == proto.OpResolve):
+		return proto.Errf(proto.CodeNotFound, "find the conflict's number with `sfx conflicts`",
+			strings.Replace(text, ": "+store.ErrNotFound.Error(), " not found", 1))
+
+	case errors.As(err, &conflictCap):
+		return proto.Errf(proto.CodeInvalid,
+			fmt.Sprintf("a person resolves the open conflicts first (`sfx conflicts`, then `sfx resolve N`), and then `sfx outbox retry` sends it again; or ask the server admin to raise %s under limits: in starfixd's config", conflictCap.Limit),
 			strings.TrimPrefix(text, store.ErrInvalid.Error()+": "))
 
 	case errors.Is(err, store.ErrNotFound) && op == proto.OpHoursDelete:

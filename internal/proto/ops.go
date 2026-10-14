@@ -211,6 +211,9 @@ type ShowResult struct {
 	// Files are the issue's likely files and the issues others hold that
 	// overlap them (protocol 3).
 	Files *Files `json:"files,omitempty"`
+	// Conflicts are the issue's open conflicts, at most MaxShowConflicts,
+	// their sides cut as long text is without Full (protocol 7).
+	Conflicts []Conflict `json:"conflicts,omitempty"`
 }
 
 // Tokens are token counts. A count left out is unknown, which is not 0.
@@ -407,6 +410,29 @@ type UpdateArgs struct {
 	// (protocol 3).
 	Paths *[]string `json:"paths,omitempty"`
 	Idem  string    `json:"idem,omitempty"`
+	// Park, which a replayed update sends (protocol 7), asks the server
+	// to compare each field with the issue's state at Rev, rather than
+	// refuse a stale Rev: a field someone changed since is parked as a
+	// conflict, and the rest apply (design §18.7). The result is an
+	// UpdateResult.
+	Park bool `json:"park,omitempty"`
+}
+
+// UpdateResult is update's WriteResult and, for a replayed update
+// (UpdateArgs.Park), the fields it parked, the fields the server kept
+// (Dropped: status, assignee and paths changed since), and the comment
+// it was kept as when the issue was closed since.
+type UpdateResult struct {
+	WriteResult
+	Parked  []ParkedField `json:"parked,omitempty"`
+	Dropped []string      `json:"dropped,omitempty"`
+	Comment string        `json:"comment,omitempty"`
+}
+
+// ParkedField is a field a replayed update parked, and its conflict.
+type ParkedField struct {
+	Field    string `json:"field"`
+	Conflict int64  `json:"conflict"`
 }
 
 // CloseArgs closes an issue. Rev 0 skips the revision check: close wins
@@ -641,6 +667,9 @@ type DigestTotals struct {
 	HandedOff  int `json:"handed_off"`
 	Created    int `json:"created"`
 	Discovered int `json:"discovered"`
+	// Conflicts counts the conflicts open past the server's conflict_age
+	// (protocol 7).
+	Conflicts int `json:"conflicts,omitempty"`
 }
 
 // DigestResult summarizes the window from Since to Until and the work in
@@ -658,6 +687,10 @@ type DigestResult struct {
 	HandedOff  []DigestItem `json:"handed_off,omitempty"`
 	Created    []DigestItem `json:"created,omitempty"`
 	Discovered []DigestItem `json:"discovered,omitempty"`
+	// Conflicts lists the conflicts open past the server's conflict_age,
+	// oldest first: By parked it, At is when, Note names the field and
+	// the conflict (protocol 7).
+	Conflicts []DigestItem `json:"conflicts,omitempty"`
 	// Usage totals the window's time and tokens (protocol 3).
 	Usage *DigestUsage `json:"usage,omitempty"`
 	// Truncated: a total is a lower bound, or items were left out to fit

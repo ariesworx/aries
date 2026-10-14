@@ -39,7 +39,8 @@ func digest(ctx context.Context, pr *served, _ store.Actor, in proto.DigestArgs)
 	if err != nil {
 		return nil, pr.mapErr(ctx, proto.OpDigest, "", 0, err)
 	}
-	d, err := pr.store.Digest(ctx, store.DigestFilter{Since: since, Window: window, By: in.By, Label: in.Label})
+	d, err := pr.store.Digest(ctx, store.DigestFilter{Since: since, Window: window, By: in.By, Label: in.Label,
+		ConflictAge: pr.conflictAge})
 	if err != nil {
 		return nil, pr.mapErr(ctx, proto.OpDigest, "", 0, err)
 	}
@@ -63,9 +64,11 @@ func wireDigest(d store.Digest) proto.DigestResult {
 		Since: d.Since.UTC(), Until: d.Now.UTC(),
 		Totals: proto.DigestTotals{Events: d.Events, Closed: d.Closed.Total, Started: d.Started.Total,
 			InProgress: d.InProgress.Total, Stalled: d.Stalled.Total, Blocked: d.Blocked.Total,
-			HandedOff: d.HandedOff.Total, Created: d.Created.Total, Discovered: d.Discovered.Total},
+			HandedOff: d.HandedOff.Total, Created: d.Created.Total, Discovered: d.Discovered.Total,
+			Conflicts: d.Conflicts.Total},
 		Closed: items(d.Closed), Started: items(d.Started), InProgress: items(d.InProgress),
 		Stalled: items(d.Stalled), Blocked: items(d.Blocked), HandedOff: items(d.HandedOff),
-		Created: items(d.Created), Discovered: items(d.Discovered), Usage: wireDigestUsage(d.Usage), Truncated: d.Capped,
+		Created: items(d.Created), Discovered: items(d.Discovered), Conflicts: items(d.Conflicts),
+		Usage: wireDigestUsage(d.Usage), Truncated: d.Capped,
 	}
 }
