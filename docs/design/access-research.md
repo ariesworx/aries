@@ -1,6 +1,6 @@
 # Reaching a starfix server: research on sign-in, identity and operations
 
-13 Oct 2026. **Status: research. Proposed, not decided, and nothing here is built.** No product code, setting or guide was changed for it. It follows the identity design of [starfix.md §17](starfix.md#17-identity-certificates-handles-and-provisioning), which is also unbuilt, and takes up what §17.10 left out: signing in to starfix itself.
+13 Oct 2026. **Status: research. The maintainer decided its fourteen questions on 14 Oct 2026 (§11; [starfix.md](starfix.md) §14, decisions 52 to 65), each as recommended; nothing here is built.** No product code, setting or guide was changed for it. It follows the identity design of [starfix.md §17](starfix.md#17-identity-certificates-handles-and-provisioning), which is also unbuilt, and takes up what §17.10 left out: signing in to starfix itself.
 
 The question, in the maintainer's words: "It is getting harder and harder to maintain these SSH keys across multiple machines. I am thinking we may need to give the sfx client a SSO link in the terminal and store it to make management easier", for several providers (Google, Microsoft 365, GitHub), and then how access could be made secure and easy for a development and operations team to deploy and maintain.
 
@@ -456,6 +456,9 @@ What the maintainer was told before this research, and what holds.
 | (Implied) the device flow is the way to sign in from a terminal | **Wrong as a default.** It is the phishable flow, it cannot bind a token to a key, and it is the one enterprises are told to block. Loopback with PKCE first |
 
 ## 11. Decisions for the maintainer
+
+**Decided 14 Oct 2026.** The maintainer took the recommended answer to each of the fourteen questions below; they are decisions 52 to 65 of [starfix.md](starfix.md) §14. The order of work in §1 stands, with the spikes of "What to spike first" before any design of sign-in is accepted, and the host key list (11) and the installer (13) free to start now.
+
 
 Each with a recommended answer and the cost of each choice.
 
