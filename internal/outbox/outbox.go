@@ -28,10 +28,13 @@ const (
 	DefaultMaxBytes = 4 << 20
 	// DefaultMaxEntryBytes is how large one entry's line may be.
 	DefaultMaxEntryBytes = 256 << 10
-	// DefaultMaxAge is how long an entry may wait and still be sent. It
-	// is 24 hours because today's server refuses an idempotency key older
-	// than that; protocol 6 raises the window to 7 days (design §18.5).
-	DefaultMaxAge = 24 * time.Hour
+	// DefaultMaxAge is how long an entry may wait and still be sent: 7
+	// days, the server's idempotency window by default (design §18.5,
+	// decision 41), so that what is sent this late is still decided by
+	// a person. It is the default and not the server's own window, which
+	// a client cannot ask of a server it cannot reach; doc.go, "Bounds",
+	// says why that is safe.
+	DefaultMaxAge = 7 * 24 * time.Hour
 	// DefaultSendTimeout bounds the delivery of one entry.
 	DefaultSendTimeout = 5 * time.Second
 	// DefaultReplayBudget bounds one call of [Outbox.Replay].

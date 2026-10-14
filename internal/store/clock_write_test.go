@@ -27,6 +27,16 @@ func (w *waits) on(fn func(n int)) {
 	w.n, w.fn = 0, fn
 }
 
+// count returns how many waits for the writer there have been since the
+// func was last set, and starts the count again.
+func (w *waits) count() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	n := w.n
+	w.n = 0
+	return n
+}
+
 func (w *waits) Begin(ctx context.Context, stage Stage, _ int) (context.Context, func(Outcome)) {
 	if stage == StageWait {
 		w.mu.Lock()

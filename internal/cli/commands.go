@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -11,7 +12,9 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/client"
 	"github.com/ariesworx/starfix/internal/gitx"
+	"github.com/ariesworx/starfix/internal/offline"
 	"github.com/ariesworx/starfix/internal/proto"
 )
 
@@ -472,11 +475,28 @@ func cmdUpdate(ctx context.Context, r *runner, args []string) error {
 	if in.Rev == 0 {
 		var cur proto.ShowResult
 		if err := r.call(ctx, proto.OpShow, proto.ShowArgs{ID: id}, &cur); err != nil {
-			return err
+			return r.needsRev(err)
 		}
 		in.Rev = cur.Issue.Rev
 	}
+	in.Idem = proto.NewIdem("cli")
 	return r.write(ctx, proto.OpUpdate, in)
+}
+
+// needsRev adds, to the fix of an update without --rev whose read of the
+// issue's rev did not reach the server, that it was not queued: an
+// update is queued only with the rev it was based on (design §18.3).
+func (r *runner) needsRev(err error) error {
+	pe, ok := errors.AsType[*proto.Error](err)
+	if !ok || r.hook || !client.Unreachable(err) {
+		return err
+	}
+	e := *pe
+	if e.Fix != "" {
+		e.Fix += "; "
+	}
+	e.Fix += "this update was not queued, since it needs the issue's rev, which only the server knows: give --rev N, the rev you based it on, to queue it"
+	return &e
 }
 
 // write runs an issue write and prints "ID rev N".
@@ -555,8 +575,21 @@ func cmdDep(ctx context.Context, r *runner, args []string) error {
 		return usagef(usage, "unknown dep action %q", pos[0])
 	}
 	in.From, in.To = pos[1], pos[2]
-	if err := r.call(ctx, op, in, nil); err != nil {
+	if op == proto.OpDepRm {
+		if err := r.call(ctx, op, in, nil); err != nil {
+			return err
+		}
+		r.done()
+		return nil
+	}
+	in.Idem = proto.NewIdem("cli")
+	kept, err := r.send(ctx, op, in, nil)
+	if err != nil {
 		return err
+	}
+	if kept != nil {
+		r.queued(kept)
+		return nil
 	}
 	r.done()
 	return nil
@@ -576,12 +609,23 @@ func cmdLabel(ctx context.Context, r *runner, args []string) error {
 	if op == "" {
 		return usagef(usage, "unknown label action %q", pos[0])
 	}
+	// One request for each label, each with a key of its own. Some may be
+	// made and the rest queued, when the server goes in between.
+	var queued []*offline.Kept
 	for _, l := range pos[2:] {
-		if err := r.call(ctx, op, proto.LabelArgs{ID: pos[1], Label: l}, nil); err != nil {
+		kept, err := r.send(ctx, op, proto.LabelArgs{ID: pos[1], Label: l, Idem: proto.NewIdem("cli")}, nil)
+		if err != nil {
 			return err
 		}
+		if kept != nil {
+			queued = append(queued, kept)
+		}
 	}
-	r.done()
+	if len(queued) == 0 {
+		r.done()
+		return nil
+	}
+	r.queued(queued...)
 	return nil
 }
 

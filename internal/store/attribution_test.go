@@ -43,7 +43,7 @@ func span(id string, start, end time.Time, in int64) UsageRecord {
 
 func mustAddUsage(t *testing.T, s *Store, a Actor, recs ...UsageRecord) {
 	t.Helper()
-	if _, err := s.AddUsage(t.Context(), a, recs); err != nil {
+	if _, err := s.AddUsage(t.Context(), a, recs, ""); err != nil {
 		t.Fatalf("AddUsage: %v", err)
 	}
 }

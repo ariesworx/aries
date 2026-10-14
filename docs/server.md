@@ -1269,7 +1269,7 @@ It does not wait for a database that does not answer
 ([When Dolt does not answer](#when-dolt-does-not-answer)).
 
 ```text
-starfixd v0.5.0, protocol 5 to 5, up 3d 4h
+starfixd v0.5.0, protocol 5 to 6, up 3d 4h
 stores 2 of 64, connections 14 of 1024
 keys file /var/lib/starfix/.ssh/starfix_keys: 31 keys, written 2026-10-11 09:12 UTC
 starfixd's memory 42 MiB in use, 78 MiB from the system; 112 goroutines
@@ -1896,6 +1896,7 @@ limits:
 | `inbox_unread` | 1000 | A principal's unread inbox items; past it, the oldest are marked read (still under `inbox --all`) |
 | `notices_per_minute` | 10 | Mentions, assignments and handoffs one principal can send another a minute; the rest are not delivered. Lost claims always are |
 | `inbox_keep` | `30d` | How long a read inbox item is kept |
+| `idem_window` | `7d` | How long an idempotency key gives back its request's result: a write a client sends again with the same key within it, as an outbox does after an outage, applies once and gets the first answer. A key used longer ago is refused with `stale` (`conflict` to a client of protocol 5), saying its request was applied then, and nothing is written; the same key with other arguments is `conflict`. It is how long a write can wait on a person's machine and still be delivered without them. From `1h` to `365d`. Keys are kept on the events they stamped whatever this is, so it bounds no table: a key is never applied twice, however late it comes back |
 | `conns` | 1024 | Connections past the handshake, refused with `busy` beyond it. Twice this caps the sockets the daemon holds in all; at that cap a new connection is let in and the one that has waited longest without a hello is closed |
 | `conns_per_principal` | 64 | One principal's connections: one person's sessions on several machines, and a few unattended runs on their key. Agents that run unattended in numbers should have principals of their own, and meet `conns` instead. Each connection costs the server about 5 MiB, most of it the bridge and sshd outside starfixd ([What a server needs](#what-a-server-needs)): 64 connections about 320 MiB, and `conns`' 1,024 about 5 GiB (550 MiB and 8.6 GiB with transparent huge pages `always`). Past it, every new connection of the principal is refused with `busy`, `alice is at its connection limit (64)`, until one of its sessions closes: an `sfx` command fails, saying to close some sessions or have this limit raised; an `sfx mcp` session that is refused cannot reach the server at all, tells its agent so, and tries again at most every 5 seconds. Its claims lapse if it stays refused for their 15-minute lease, and its writes are not queued |
 | `handshakes_per_principal` | 16 | One principal's connections that sshd has let in and that have not yet sent their hello, on the whole server. A connection has 10 seconds to send it. Past the cap the next is refused with `busy` at once, so one key holder cannot use up the sockets everyone else connects through. The upgrade's health probe is not counted |
@@ -2621,7 +2622,7 @@ number of series cannot grow with what clients send:
 | Attribute | Values |
 |---|---|
 | `op` | An operation of the protocol, such as `create`, `start` or `member.set`; `unknown` for any other |
-| `result` | `ok`, or the refusal's code: `not_found`, `conflict`, `exists`, `cycle`, `invalid`, `acceptance`, `forbidden`, `unavailable`, `version`, `auth`, `busy`. For a handshake also `failed`: it ended without a refusal to name, as when a frame could not be read. For the keys file: `ok` or `failed` |
+| `result` | `ok`, or the refusal's code: `not_found`, `conflict`, `exists`, `cycle`, `invalid`, `acceptance`, `forbidden`, `unavailable`, `version`, `auth`, `busy`, `stale` (sent to a client of protocol 6 alone; a client of 5 is sent `conflict`). For a handshake also `failed`: it ended without a refusal to name, as when a frame could not be read. For the keys file: `ok` or `failed` |
 | `result_class` | `ok`; `error` for `unavailable`, which is the server's failure; `refused` for every other refusal, which is the request's |
 | `project` | The project's UUID, only for a project a connection was admitted to. At most as many as the `projects` limit, and `other` past that |
 | `reason` of a dropped connection | `membership`, `disabled`, `archived`, `key` (the access that let it in ended), `idle` (`idle_timeout`), `limit` (a socket past twice `conns`), `access` (the access ended while the handshake ran) |
@@ -3082,9 +3083,16 @@ document: the report, or `{"error": …}` and exit code 1.
 
 ## Upgrades
 
-This release speaks protocol 5 and accepts only protocol 5. **It refuses
-every earlier release's `sfx`**: v0.2.x (protocol 2), v0.3.x (protocol
-3) and v0.4.x (protocol 4). That is a break made once, on purpose,
+This release speaks protocols 5 and 6, and accepts both. Protocol 6
+adds idempotency keys to the writes an outbox may queue, and the
+refusal `stale` ([When the server cannot be reached](cli.md#when-the-server-cannot-be-reached));
+an `sfx` of protocol 5 is served as it was, and is told `conflict`
+where a client of 6 is told `stale`. This `sfx` against a server of
+protocol 5 speaks 5: refused at its first hello, it says hello again in
+5 on the same connection, and then queues, while the server is away,
+only the writes that server applies once. **It refuses every earlier
+release's `sfx`**: v0.2.x (protocol 2), v0.3.x (protocol 3) and v0.4.x
+(protocol 4). That is a break made once, on purpose,
 while nobody runs starfix in production and it changes quickly
 ([design §14, decision 25](design/starfix.md#14-decisions)). From here
 on the rule holds again: a release that changes the protocol still
@@ -3111,9 +3119,9 @@ What each side sees meanwhile, with exit code 3:
 
 | Who | Is told |
 |---|---|
-| An older `sfx` against this server | `sfx: starfix speaks protocol 4; the server (v0.5.0) needs protocol 5` and `fix: upgrade this client: run `sfx upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `sfx mcp``. The old `sfx` prints the server's words, so it says this whatever its version |
+| An older `sfx` against this server | `sfx: starfix speaks protocol 4; the server (v0.5.0) needs protocols 5 to 6` and `fix: upgrade this client: run `sfx upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `sfx mcp``. The old `sfx` prints the server's words, so it says this whatever its version |
 | An agent on an older `sfx mcp` | Every tool call fails with code `version` and that message, and the fix `tell the user starfix cannot connect, quoting the server:` followed by the line above. The session's start says the same in one line. The agent cannot fix it: the person upgrades `sfx` and restarts the agent |
-| This `sfx` against an older server | `sfx: starfix speaks protocol 5; the server (v0.4.0) is older and accepts protocols 2 to 4` and `fix: ask the server admin to run `starfixd upgrade`, or install the starfix release that matches the server` |
+| This `sfx` against an older server | `sfx: starfix speaks protocol 6; the server (v0.4.0) is older and accepts protocols 2 to 4` and `fix: ask the server admin to run `starfixd upgrade`, or install the starfix release that matches the server` |
 
 Upgrading the clients first works too, in the sense that nothing is
 lost: each new `sfx` is refused, as in the last row, until the server is

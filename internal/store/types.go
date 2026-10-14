@@ -239,6 +239,9 @@ type IssuePatch struct {
 	// Paths replaces the declared paths; an empty slice clears them. They
 	// have their own rows, like labels, so changing them keeps Rev.
 	Paths *[]string
+	// IdempotencyKey, when set, makes a repeat of the update return the
+	// first one's result (idem.go). It changes no field.
+	IdempotencyKey string
 }
 
 // Dep is a dependency edge: From depends on To.
@@ -311,10 +314,27 @@ type IssuePage struct {
 	Next   Cursor
 }
 
+// Summary is what a list of issues shows of each. The reads that return
+// summaries ([Store.ListSummaries], [Store.Ready], [Store.Blocked]) read
+// only these columns, and none of an issue's long texts.
+type Summary struct {
+	ID       IssueID
+	Title    string
+	Status   Status
+	Priority Priority
+}
+
+// SummaryPage is one page of ListSummaries results. Next is empty on the
+// last page.
+type SummaryPage struct {
+	Issues []Summary
+	Next   Cursor
+}
+
 // BlockedIssue is an unclosed issue held back by unclosed blockers, its
 // own or an ancestor's (Via).
 type BlockedIssue struct {
-	Issue     Issue
+	Summary
 	BlockedBy []IssueID
 	// Via is the ancestor whose blockers apply; empty when they are direct.
 	Via IssueID

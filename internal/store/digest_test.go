@@ -64,7 +64,7 @@ func TestDigest(t *testing.T) {
 		Discovered: []NewIssue{{Title: "found"}}})
 	must(err)
 	b := create(carol, "b", P0, "ui")
-	must(s.AddDep(ctx, carol, b, old, DepBlocks))
+	must(s.AddDep(ctx, carol, b, old, DepBlocks, ""))
 	fresh := create(alice, "fresh", P3)
 	clk.t = t0.Add(9*24*time.Hour + 23*time.Hour)
 	_, _, err = s.StartIssue(ctx, alice, fresh, 0, false)
@@ -189,6 +189,63 @@ func TestDigestCaps(t *testing.T) {
 	}
 	if d.InProgress.Total != 12 || len(d.InProgress.Items) != DigestItems || d.Started.Total != 12 || len(d.Started.Items) != DigestItems {
 		t.Errorf("in progress %d/%d, started %d/%d", len(d.InProgress.Items), d.InProgress.Total, len(d.Started.Items), d.Started.Total)
+	}
+}
+
+// Issues whose texts are long, whose events' states are long too, are
+// reported as short ones are: each section's items are the issue's id,
+// title and priority, and the event's principal and time, whatever the
+// state holds, and a handoff's note is quoted from it.
+func TestDigestLongTexts(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+	s := openStore(t, newDSN(t), Options{Now: func() time.Time { return at }})
+	ctx := t.Context()
+	long := strings.Repeat("Ü text that goes on; ", maxText/len("Ü text that goes on; "))
+	var made []Issue
+	for i := range 3 {
+		is, err := s.CreateIssue(ctx, bob, NewIssue{Title: fmt.Sprintf("long %d", i), Priority: prio(Priority(2 - i)), Body: long,
+			Design: long, Notes: long})
+		if err != nil {
+			t.Fatal(err)
+		}
+		made = append(made, is)
+	}
+	if _, err := s.CloseIssue(ctx, alice, made[0].ID, 0, "done"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.StartIssue(ctx, alice, made[1].ID, 0, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.HandoffIssue(ctx, alice, made[1].ID, 0, HandoffNote{Note: long}, false, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	d, err := s.Digest(ctx, DigestFilter{Window: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := func(is Issue, by string) DigestItem {
+		return DigestItem{ID: is.ID, Title: is.Title, Priority: is.Priority, By: by, At: at}
+	}
+	note := item(made[1], "alice")
+	note.Note = clip(long, digestNote)
+	tests := []struct {
+		name string
+		got  DigestSection
+		want []DigestItem
+	}{
+		{"closed", d.Closed, []DigestItem{item(made[0], "alice")}},
+		{"started", d.Started, []DigestItem{item(made[1], "alice")}},
+		{"created", d.Created, []DigestItem{item(made[2], "bob"), item(made[1], "bob"), item(made[0], "bob")}},
+		{"handed off", d.HandedOff, []DigestItem{note}},
+	}
+	for _, tc := range tests {
+		if !slices.EqualFunc(tc.got.Items, tc.want, func(a, b DigestItem) bool {
+			return a.ID == b.ID && a.Title == b.Title && a.Priority == b.Priority && a.By == b.By && a.At.Equal(b.At) &&
+				a.Note == b.Note && a.From == b.From
+		}) || tc.got.Total != len(tc.want) {
+			t.Errorf("Digest's %s = %+v of %d, want %+v", tc.name, tc.got.Items, tc.got.Total, tc.want)
+		}
 	}
 }
 

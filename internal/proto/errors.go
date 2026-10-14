@@ -34,6 +34,12 @@ const (
 	// CodeBusy: the caller reached one of the server's limits on
 	// connections or writes; the fix says how long to wait (protocol 2).
 	CodeBusy Code = "busy"
+	// CodeStale: the request's idempotency key was used longer ago than
+	// the server keeps a key's result: its request was applied then, and
+	// this one is not (protocol 6; a client of 5 is sent conflict). An
+	// outbox gives the same code to an entry it kept past that age and
+	// did not send.
+	CodeStale Code = "stale"
 )
 
 // Error is a typed, one-line error. Message names the cause; Fix names the

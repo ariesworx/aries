@@ -583,6 +583,28 @@ follows from a measurement of the code as it is.
   protocol change. It is the proposal that takes the largest
   allocation a client can ask for, over 130 MB with one request, down to
   nothing.
+- **Since this was written (14 October 2026): done.** `list` reads
+  `Store.ListSummaries`, the same pages and cursors as `List` with the
+  four columns of a summary and no labels; `List` stays for the export.
+  `Ready` and `Blocked` return a `Summary` of each issue. `Blocked`
+  counts its page in issues inside the query (`DENSE_RANK` over its
+  rows, which keeps an issue's own blockers before an ancestor's), and
+  reads the blockers of the page's issues alone; a first try that
+  chose the page with `IN (SELECT id FROM blocked)` ran for over 20
+  minutes at 50,000 issues and was dropped. On the 100-issue project
+  (`BenchmarkOp`, `BenchmarkOpStatements`): `list` 186 KB and 2,075
+  allocations to 45 KB and 531, 4 statements and 6 round trips to 1 and
+  2, 0.94 ms to 0.22; `ready` 48.8 KB and 630 to 17.3 KB and 257, 6 and
+  10 to 5 and 8; `blocked` 69 KB and 731 to 25 KB and 320, 5 and 7 to 4
+  and 6, its time the same. A page of 50 (`BenchmarkScale`) is 167 KB
+  and 2,090 allocations at 1,000, 10,000 and 50,000 issues before and
+  24 KB and 504 after, 1.4 ms to 0.26. With bodies of 32 KiB
+  (`BenchmarkLongBodies`) a page of 50 is 1.82 MB and 3.7 ms before and
+  24 KB and 0.19 ms after, a page of 500 17.7 MB and 55 ms before and
+  0.21 MB and 0.5 ms after; `Ready` 0.49 MB to 0.14 MB; `Blocked` 3.6 MB
+  and 8.4 ms to 57 KB and 3.4 ms. `Blocked` at 1,000, 10,000 and 50,000
+  issues: 0.38, 3.2 and 15.5 MB before, 57 KB at each after; 3.6, 14
+  and 67 ms before, 4.7, 10.5 and 41 ms after.
 
 ### 4. A renew that extends nothing should not wait for the writer
 
@@ -619,6 +641,22 @@ follows from a measurement of the code as it is.
   is answered as it was a moment earlier, as a renew that had arrived
   a moment earlier would. `wtx.quiet` and rule 7 are untouched: no
   write is made at all.
+- **Since this was written (14 October 2026): done.** `RenewClaims`
+  with no paths, and `TouchAgent`, read on a reader first, after
+  settling any step of the clock as a write would, and take the writer
+  only to change something; the write decides again on its own time.
+  A renew with nothing to extend and its note fresh: 6 statements, 8
+  round trips and 2 commits of nothing to 2, 4 and none; 10.7 KB and
+  178 allocations to 9.1 KB and 152; 0.32 ms to 0.25. The handshake of
+  a session whose note is fresh: 3 statements and a commit of nothing
+  to 1 and none. In three two-minute soaks of each, renew's median went
+  from 84 to 101 ms to 33 to 40 ms, and its wait for the writer from
+  659 to 707 s to 272 to 362 s, of which `RenewClaims` 331 to 356 s to
+  117 to 168 s. What is left is the soak's: leases of a few minutes on
+  a clock 120 times fast, and notes due at nearly every renew. On a real
+  clock the note is still mostly due at a renew a minute apart, and
+  that write remains; gathering notes into the reaper's tick was not
+  done.
 
 ### 5. Do not read an event's state where the digest does not use it
 
@@ -636,6 +674,16 @@ follows from a measurement of the code as it is.
   states; the worst case, 10,000 creates of issues with texts of 8 KiB,
   goes from about 330 MB a section to a few MB.
 - **Risk:** very low. One query's column.
+- **Since this was written (14 October 2026): done.** The closed,
+  started and created sections select `NULL` for the state. `digest` on
+  the 100-issue project, against the commit before it: 336 KB and 3,527
+  allocations to 278 KB and 3,242, with the same 18 statements and 32
+  round trips. On `BenchmarkScale`, whose seeded events carry a state of
+  17 bytes, 0.30 MB to 0.28 MB at 1,000 issues, 5.6 MB to 5.4 MB at
+  10,000 and 16.4 MB to 15.9 MB at 50,000; the rest of those bytes is
+  the blocked section, which reads every blocked row to count them. The
+  worst case of the estimate, creates of issues with texts of 8 KiB,
+  was not measured.
 
 ### 6. Make a connection's stand-ins once
 
@@ -670,6 +718,13 @@ follows from a measurement of the code as it is.
   2.9.
 - **Risk:** low to moderate: a new read in the store's API. It makes
   `show` right as well as cheaper.
+- **Since this was written (14 October 2026): done.** `Store.ShowIssue`
+  reads the issue, its edges, its claim, the latest handoff, the
+  acceptance items, the usage and the files on one read-only
+  transaction and at one time, and `TestReadsAreOneSnapshot` holds it to
+  that; the similar titles still come from the store's cache. `show`:
+  23 statements and 38 round trips to 14 and 26, 64 KB and 781
+  allocations to 51 KB and 578, 2.6 ms to 2.0.
 
 ### 8. Do not rank the ready issues inside the write
 
@@ -691,6 +746,17 @@ follows from a measurement of the code as it is.
   (rule 8); the check inside the write is a query that must agree with
   the ranking. Principle 3 rules out the other way, a stored ready
   list. Worth it only for projects past a few thousand open issues.
+- **Since this was written (14 October 2026): done.** `StartIssue`
+  with no id ranks the first five ready issues on a read, and the write
+  takes the first that is still ready then (`readyNow`, a query over
+  the issue and its ancestors that a test holds to `readyFilter` on
+  every issue of a project); if none is, it ranks under the writer as
+  before. The claim, its epoch and the refusals are the same code. The
+  writer held by a start with no id (`BenchmarkScale`, `writer-ms/op`):
+  16.9, 49 and 203 ms at 1,000, 10,000 and 50,000 issues before, 9.3,
+  10.1 and 13.1 ms after; the check is 0.9 to 1.9 ms of that. The
+  request itself is no faster, and at 100 issues is 26 statements and
+  43 round trips against 23 and 39.
 
 ### 9. Reread the control store only when it has changed
 
@@ -725,6 +791,11 @@ follows from a measurement of the code as it is.
 - **Saving:** small on any real server. It gives the one map without an
   eviction one.
 - **Risk:** very low.
+- **Since this was written (14 October 2026): done.** `Server.Prune`,
+  every 10 minutes on the reaper, lets go of each write bucket and
+  control-write bucket that has filled again. A full bucket is what
+  `take` makes for a key it has not seen, so no answer changes; the map
+  holds the keys that wrote since the last prune.
 
 ### 11. Small things
 

@@ -549,6 +549,23 @@ var benchOps = []struct {
 			return r.c.frame(proto.OpStart, proto.StartArgs{ID: id})
 		}, func([]byte) { r.c.call(proto.OpFinish, proto.FinishArgs{ID: id}, nil) })
 	}},
+	{"start-next", func(r *benchRun) {
+		// Start with no id: the top ready issue, a new one of priority 0,
+		// is ranked and taken; it is finished again, unmeasured.
+		r.prepared(func() []byte {
+			var res proto.CreateResult
+			p := 0
+			r.c.call(proto.OpCreate, proto.CreateArgs{Title: fmt.Sprintf("Benchmark the %d of the widget reader", r.w.n.Add(1)),
+				Priority: &p}, &res)
+			return r.c.frame(proto.OpStart, proto.StartArgs{})
+		}, func(res []byte) {
+			var got proto.StartResult
+			if err := json.Unmarshal(res, &got); err != nil {
+				r.b.Fatal(err)
+			}
+			r.c.call(proto.OpFinish, proto.FinishArgs{ID: got.Issue.ID}, nil)
+		})
+	}},
 	{"finish", func(r *benchRun) {
 		r.prepared(func() []byte {
 			id, epoch := r.started()

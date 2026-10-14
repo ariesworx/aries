@@ -15,15 +15,15 @@ import (
 // that a new server still serves the clients people already have
 // (AGENTS.md, rule 10).
 //
-// Protocol 5 is the only version this build speaks and the only one it
-// accepts. Making it the minimum was a reset, made once, on 12 Oct 2026
-// (design §14, decision 25): nobody ran starfix in production yet and it
-// was under active development, so the maintainer chose to refuse every
-// released client (v0.2.x to v0.4.x, protocols 2 to 4) rather than go on
-// carrying them. It is not a change to the rule above, which holds for
-// every bump after this one: the next makes Proto and ProtoMax 6 and
-// leaves ProtoMin at 5. TestReleasedClients pins which releases are
-// refused, and what each is told.
+// This build speaks protocols 5 and 6, and accepts both. Making 5 the
+// minimum was a reset, made once, on 12 Oct 2026 (design §14, decision
+// 25): nobody ran starfix in production yet and it was under active
+// development, so the maintainer chose to refuse every released client
+// (v0.2.x to v0.4.x, protocols 2 to 4) rather than go on carrying them.
+// It is not a change to the rule above, which holds for every bump after
+// it: 6 made Proto and ProtoMax 6 and left ProtoMin at 5.
+// TestReleasedClients pins which releases are refused, and what each is
+// told.
 //
 // A refused client is told which side to upgrade (CheckProto). A client
 // older than the server prints the message and fix the server sends, as
@@ -114,15 +114,48 @@ import (
 // trace context a tool call brings `sfx mcp` rides tp and ts as the
 // environment's does, so the wire did not change for it.
 //
+// 6 (not yet released; stage 5, slice F2, design §18.5) adds an
+// idempotency key, idem, to the arguments of update, label.add,
+// label.rm, dep.add, accept and usage, so that an outbox can queue them
+// (ProtoKeys, Keyed); and the code stale, for a key used longer ago than
+// the server's window, idem_window under limits:, 7 days by default. It
+// is the first bump made by the rule above: ProtoMin stays at 5. A
+// server of 6 serves a client of 5, which sends no such key, and sends
+// it conflict where it would send a client of 6 stale, as protocol 5
+// did for a key past its 24 hours. A client of 6 speaks 5 to a server of
+// 5: refused at its first hello with code version and that server's
+// range, it says hello again speaking 5 (Speak), on the same SSH
+// connection; it then sends those six ops without their key
+// (ForProtocol), and its outbox neither queues them nor sends them
+// (Keyed), since a server of 5 cannot apply them once. Though no release
+// speaks 5 or 6, 6 was not folded into 5, as additions to an unreleased
+// version were: the design decided a version of its own (§18.5, §18.9),
+// and the outbox of slice F1, built on 5, has entries on disk that a
+// client of 6 must still send to a server of 5.
+//
 // The bridge frame is not part of this protocol: it passes between two
 // starfixd processes on the server (frame.go), and carries no version.
 // It is read leniently, so a bridge from before a binary swap works
 // against the daemon after it, and the reverse.
 const (
-	Proto    = 5
+	Proto    = 6
 	ProtoMin = 5
-	ProtoMax = 5
+	ProtoMax = 6
 )
+
+// Speak returns the protocol this build speaks to a server that accepts
+// lo to hi, as its welcome or its refusal of a hello says: the newest of
+// ProtoMin to Proto that the server accepts, and false when it accepts
+// none of them. A client says hello speaking Proto; refused with code
+// version by a server that accepts an older one of its own, it says
+// hello again speaking that (design §18.5, principle 9).
+func Speak(lo, hi int) (int, bool) {
+	v := min(Proto, hi)
+	if v < max(ProtoMin, lo) {
+		return 0, false
+	}
+	return v, true
+}
 
 // CheckProto returns nil when the client protocol version p is in
 // [lo, hi], and otherwise a CodeVersion error that tells the person which

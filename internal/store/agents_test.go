@@ -20,9 +20,13 @@ func agentRow(t *testing.T, s *Store, a Actor) (rev int64, seen time.Time) {
 	return rev, seen.UTC()
 }
 
+// A touch that has nothing to write decides so from a read, and does not
+// wait for the writer behind other sessions' writes.
 func TestTouchAgentThrottles(t *testing.T) {
 	t.Parallel()
-	s, clk := clockStore(t)
+	clk := &clock{t: time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)}
+	w := &waits{}
+	s := openStore(t, newDSN(t), Options{Now: clk.now, Tracer: w})
 	ctx := t.Context()
 	seq := lastSeq(t, s)
 	start := clk.now()
@@ -34,22 +38,30 @@ func TestTouchAgentThrottles(t *testing.T) {
 		harness string
 		rev     int64
 		seen    time.Time
+		// waits counts the waits for the writer: one for a touch that
+		// writes, none for one that has nothing to write.
+		waits int
 	}{
-		{name: "first touch inserts", actor: alice, harness: "claude-code", rev: 1, seen: start},
+		{name: "first touch inserts", actor: alice, harness: "claude-code", rev: 1, seen: start, waits: 1},
 		{name: "within a minute writes nothing", advance: 30 * time.Second, actor: alice, harness: "claude-code", rev: 1, seen: start},
 		{name: "empty harness keeps the known one", advance: 10 * time.Second, actor: alice, rev: 1, seen: start},
 		{name: "a minute on refreshes last_seen", advance: 20 * time.Second, actor: alice, harness: "claude-code", rev: 2,
-			seen: start.Add(time.Minute)},
+			seen: start.Add(time.Minute), waits: 1},
 		{name: "a new harness writes at once", advance: time.Second, actor: alice, harness: "codex", rev: 3,
-			seen: start.Add(time.Minute + time.Second)},
+			seen: start.Add(time.Minute + time.Second), waits: 1},
 		{name: "a new machine writes at once", advance: time.Second,
 			actor: Actor{Principal: "alice", Session: alice.Session, Machine: "desktop"}, harness: "codex", rev: 4,
-			seen: start.Add(time.Minute + 2*time.Second)},
+			seen: start.Add(time.Minute + 2*time.Second), waits: 1},
 	}
 	for _, tc := range tests {
 		clk.add(tc.advance)
+		w.count()
 		if err := s.TouchAgent(ctx, tc.actor, tc.harness); err != nil {
 			t.Fatalf("%s: TouchAgent: %v", tc.name, err)
+		}
+		if n := w.count(); n != tc.waits {
+			t.Errorf("%s: TouchAgent(%s, %q) waited for the writer %d times, want %d", tc.name, tc.actor.Machine, tc.harness, n,
+				tc.waits)
 		}
 		if rev, seen := agentRow(t, s, tc.actor); rev != tc.rev || !seen.Equal(tc.seen) {
 			t.Errorf("%s: rev %d, last_seen %s; want rev %d, %s", tc.name, rev, seen, tc.rev, tc.seen)
@@ -80,6 +92,9 @@ func TestTouchAgentRetryKeepsNewHarness(t *testing.T) {
 	if err := s.TouchAgent(ctx, alice, "claude-code"); err != nil {
 		t.Fatal(err)
 	}
+	// The row is due, so the touch is a write: one that finds the row
+	// fresh decides so from a read and never begins a write to retry.
+	clk.add(AgentTouchEvery)
 	attempts := 0
 	s.beforeCommit = func(ctx context.Context) error {
 		attempts++

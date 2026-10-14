@@ -3,6 +3,7 @@ package store
 import (
 	"cmp"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"iter"
@@ -76,10 +77,10 @@ type Files struct {
 	Overlaps []Overlap
 }
 
-// ReadyIssue is an issue Ready lists, and the issues other sessions hold
-// whose paths overlap its own.
+// ReadyIssue is the summary of an issue Ready lists, and the issues other
+// sessions hold whose paths overlap its own.
 type ReadyIssue struct {
-	Issue
+	Summary
 	Overlaps []IssueID
 }
 
@@ -596,6 +597,49 @@ func readyIDList(ctx context.Context, q querier, now time.Time, limit int) ([]Is
 	return out, nil
 }
 
+// readyNow reports whether issue id is ready at now as readyFilter has
+// it: open, not a template, and neither blocked nor deferred, on itself
+// or an ancestor, as blockedCTE defines both. Where that query reads the
+// whole project, this reads the issue and its ancestors, each with
+// whether it has an unclosed blocker, and decides in Go.
+func readyNow(ctx context.Context, q querier, id IssueID, now time.Time) (bool, error) {
+	rows, err := q.QueryContext(ctx, `WITH RECURSIVE
+anc (id, parent_id, status, template, defer_until) AS (
+  SELECT id, parent_id, status, template, defer_until FROM issues WHERE id = ?
+  UNION
+  SELECT i.id, i.parent_id, i.status, i.template, i.defer_until FROM issues i JOIN anc a ON i.id = a.parent_id
+)
+SELECT a.id, a.status, a.template, a.defer_until, EXISTS (SELECT 1 FROM deps d JOIN issues t ON t.id = d.to_id
+  WHERE d.from_id = a.id AND d.type IN (`+readyBlocking+`) AND t.status <> 'closed')
+FROM anc a`, string(id))
+	if err != nil {
+		return false, fmt.Errorf("ready check of %s: %w", id, err)
+	}
+	defer func() { _ = rows.Close() }()
+	found, ready := false, true
+	for rows.Next() {
+		var (
+			at                IssueID
+			status            Status
+			template, blocked bool
+			deferUntil        sql.NullTime
+		)
+		if err := rows.Scan(&at, &status, &template, &deferUntil, &blocked); err != nil {
+			return false, fmt.Errorf("ready check of %s: %w", id, err)
+		}
+		if at == id {
+			found = true
+			ready = ready && status == StatusOpen && !template
+		}
+		deferred := status == StatusDeferred || deferUntil.Valid && deferUntil.Time.After(now)
+		ready = ready && !deferred && (!blocked || status == StatusClosed)
+	}
+	if err := rows.Err(); err != nil {
+		return false, fmt.Errorf("ready check of %s: %w", id, err)
+	}
+	return found && ready, nil
+}
+
 // IssueFiles returns an issue's likely files, from one snapshot: its
 // declared paths, in path order, then its commit paths, most recently
 // recorded first, at most n in all (0 means proto.MaxShowPaths), and the
@@ -605,7 +649,6 @@ func (s *Store) IssueFiles(ctx context.Context, actor Actor, id IssueID, n int) 
 	if err := id.Validate(); err != nil {
 		return Files{}, err
 	}
-	n = clampLimit(n, proto.MaxShowPaths, 1000)
 	tx, end, err := s.beginRead(ctx)
 	if err != nil {
 		return Files{}, fmt.Errorf("files of %s: %w", id, err)
@@ -614,6 +657,12 @@ func (s *Store) IssueFiles(ctx context.Context, actor Actor, id IssueID, n int) 
 	if err := mustExist(ctx, tx, id); err != nil {
 		return Files{}, err
 	}
+	return issueFiles(ctx, tx, actor, id, n, s.now())
+}
+
+// issueFiles is IssueFiles on tx, as of now, for an issue that exists.
+func issueFiles(ctx context.Context, tx querier, actor Actor, id IssueID, n int, now time.Time) (Files, error) {
+	n = clampLimit(n, proto.MaxShowPaths, 1000)
 	rows, err := tx.QueryContext(ctx, `SELECT path, source, principal, session, first_at, last_at
   FROM issue_paths WHERE issue_id = ?`, string(id))
 	if err != nil {
@@ -645,7 +694,7 @@ func (s *Store) IssueFiles(ctx context.Context, actor Actor, id IssueID, n int) 
 		}
 		return cmp.Or(b.LastAt.Compare(a.LastAt), cmp.Compare(a.Path, b.Path))
 	})
-	held, err := loadHeld(ctx, tx, actor, s.now())
+	held, err := loadHeld(ctx, tx, actor, now)
 	if err != nil {
 		return Files{}, err
 	}

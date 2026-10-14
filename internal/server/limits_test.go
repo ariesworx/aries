@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -93,6 +95,17 @@ func TestResolveSettingsLimits(t *testing.T) {
 		{name: "negative server limit", body: "limits:\n  write_burst: -1\n", err: "limit write_burst must be zero or a positive number"},
 		{name: "write rate not a number", body: "limits:\n  write_rate: .nan\n", err: "limit write_rate must be zero or a positive number"},
 		{name: "infinite write rate", body: "limits:\n  write_rate: .inf\n", err: "limit write_rate must be zero or a positive number"},
+		{name: "idem window default", body: "limits:\n  conns: 5\n",
+			want: func(l Limits) bool { return l.IdemWindow == Duration(7*24*time.Hour) }},
+		{name: "idem window set", body: "limits:\n  idem_window: 30d\n",
+			want: func(l Limits) bool {
+				return l.IdemWindow == Duration(30*24*time.Hour) && l.Conns == DefaultLimits.Conns
+			}},
+		{name: "idem window of an hour", body: "limits:\n  idem_window: 1h\n",
+			want: func(l Limits) bool { return l.IdemWindow == Duration(time.Hour) }},
+		{name: "idem window below an hour", body: "limits:\n  idem_window: 59m\n", err: "limit idem_window is 59m; it must be from 1h to 365d"},
+		{name: "idem window past a year", body: "limits:\n  idem_window: 366d\n", err: "limit idem_window is 366d; it must be from 1h to 365d"},
+		{name: "negative idem window", body: "limits:\n  idem_window: -1h\n", err: "not a duration"},
 		{name: "telemetry requests", body: "limits:\n  telemetry_requests: 3\n",
 			want: func(l Limits) bool { return l.TelemetryRequests == 3 && l.Conns == DefaultLimits.Conns }},
 		{name: "telemetry requests default", body: "limits:\n  telemetry_requests: 0\n",
@@ -142,6 +155,42 @@ func TestBuckets(t *testing.T) {
 		ok, wait := b.take(st.key, t0.Add(st.at))
 		if ok != st.ok || wait != st.wait {
 			t.Errorf("step %d: take(%s, +%s) = %v, %s; want %v, %s", i, st.key, st.at, ok, wait, st.ok, st.wait)
+		}
+	}
+}
+
+// A bucket that has filled again is let go when buckets are pruned: it is
+// the same as one not there, so a key that has ever written does not hold
+// memory for good (rule 18).
+func TestBucketsPrune(t *testing.T) {
+	t.Parallel()
+	t0 := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	b := buckets{rate: 2, burst: 3}
+	for _, key := range []string{"alice", "alice", "alice", "bob"} {
+		b.take(key, t0)
+	}
+	steps := []struct {
+		at   time.Duration
+		kept []string
+	}{
+		{0, []string{"alice", "bob"}},
+		{500 * time.Millisecond, []string{"alice"}}, // bob's one token is back
+		{time.Second, []string{"alice"}},            // alice has 2 of 3
+		{1500 * time.Millisecond, nil},
+		{-time.Hour, nil}, // a clock set back finds nothing to keep, and adds no bucket
+	}
+	for _, st := range steps {
+		b.prune(t0.Add(st.at))
+		got := slices.Sorted(maps.Keys(b.m))
+		if !slices.Equal(got, st.kept) {
+			t.Errorf("prune(+%s) kept %v, want %v", st.at, got, st.kept)
+		}
+	}
+	// A key let go starts again with a full bucket, as it would have had.
+	for i := range 4 {
+		ok, _ := b.take("alice", t0.Add(2*time.Second))
+		if want := i < 3; ok != want {
+			t.Errorf("take %d of alice's after the prune = %v, want %v", i, ok, want)
 		}
 	}
 }
@@ -509,4 +558,29 @@ func TestServerPrune(t *testing.T) {
 	t.Parallel()
 	s := newServer(t)
 	s.Prune(t.Context()) // nothing to prune, and no error logged
+}
+
+// Prune lets go of the write buckets that have filled again, and keeps
+// the others.
+func TestServerPruneLetsFullBucketsGo(t *testing.T) {
+	t.Parallel()
+	s := newServerWith(t, Limits{WriteBurst: 3, WriteRate: 0.001})
+	var ahead atomic.Int64
+	s.now = func() time.Time { return time.Now().Add(time.Duration(ahead.Load())) }
+	_, a := handshakeAs(t, s, alice)
+	a.until(a.send(proto.OpCreate, proto.CreateArgs{Title: "one"}))
+	keys := func() int {
+		s.writes.mu.Lock()
+		defer s.writes.mu.Unlock()
+		return len(s.writes.m)
+	}
+	s.Prune(t.Context())
+	if n := keys(); n != 1 {
+		t.Fatalf("after a write and a prune, %d write buckets; want alice's, which has not filled again", n)
+	}
+	ahead.Store(int64(2000 * time.Second)) // a token comes back in 1,000 s
+	s.Prune(t.Context())
+	if n := keys(); n != 0 {
+		t.Errorf("after alice's bucket filled again and a prune, %d write buckets; want none", n)
+	}
 }

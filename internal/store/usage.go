@@ -169,12 +169,22 @@ func (e *UsageBatchError) Unwrap() error { return ErrInvalid }
 // a [*UsageBatchError], one with an invalid record with ErrInvalid, and
 // one that would take the principal past Limits.UsagePerDay rows in 24
 // hours with ErrBusy.
-func (s *Store) AddUsage(ctx context.Context, actor Actor, recs []UsageRecord) (UsageAdded, error) {
+//
+// A record is the session's: sent again by another session of the
+// principal, as an outbox delivers it, it would be stored again. An
+// idempotency key (idem) prevents that: a repeat of a call that stored
+// rows returns its counts and writes nothing, from any session of the
+// principal, and the key reused for another batch is refused with an
+// [*IdemError].
+func (s *Store) AddUsage(ctx context.Context, actor Actor, recs []UsageRecord, idem string) (UsageAdded, error) {
 	if len(recs) == 0 {
 		return UsageAdded{}, nil
 	}
 	if limit := s.opts.Limits.UsageRecords; len(recs) > limit {
 		return UsageAdded{}, &UsageBatchError{Max: limit, Got: len(recs)}
+	}
+	if err := validIdem(idem); err != nil {
+		return UsageAdded{}, err
 	}
 	// A client's time is checked against now, so a forward step of the
 	// clock is settled first: a record made since is not in the future.
@@ -192,6 +202,9 @@ func (s *Store) AddUsage(ctx context.Context, actor Actor, recs []UsageRecord) (
 	var out UsageAdded
 	err = s.write(ctx, actor, func(w *wtx) error {
 		out = UsageAdded{}
+		if done, err := replay(ctx, w, idem, "usage", recs, &out); done || err != nil {
+			return err
+		}
 		args := make([]any, 0, len(recs)*15)
 		for _, r := range recs {
 			var span any
@@ -215,8 +228,11 @@ func (s *Store) AddUsage(ctx context.Context, actor Actor, recs []UsageRecord) (
 		if err := w.checkUsageDay(ctx); err != nil {
 			return err
 		}
-		return w.event(ctx, OpUsageAdd, UsageTarget, nil, map[string]any{
-			"added": out.Added, "duplicates": out.Duplicates, "from": from, "to": to})
+		if err := w.event(ctx, OpUsageAdd, UsageTarget, nil, map[string]any{
+			"added": out.Added, "duplicates": out.Duplicates, "from": from, "to": to}); err != nil {
+			return err
+		}
+		return w.settle(out)
 	})
 	if err != nil {
 		return UsageAdded{}, err

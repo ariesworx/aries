@@ -1,11 +1,13 @@
 package store
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -166,22 +168,50 @@ func seedScale(b *testing.B, s *Store, n, bodyLen int) benchProject {
 func BenchmarkScale(b *testing.B) {
 	for _, n := range benchSizes() {
 		b.Run(fmt.Sprintf("issues=%d", n), func(b *testing.B) {
-			s := openStore(b, newDSN(b), Options{})
+			hold := &writerHold{}
+			s := openStore(b, newDSN(b), Options{Tracer: hold})
 			p := seedScale(b, s, n, 400)
-			benchStore(b, s, p)
+			benchStore(b, s, p, hold)
 		})
 	}
 }
 
+// writerHold is a Tracer that adds up how long writes hold the store's
+// writer: each attempt's time, less its wait for the writer.
+type writerHold struct{ ns atomic.Int64 }
+
+func (h *writerHold) Begin(ctx context.Context, stage Stage, _ int) (context.Context, func(Outcome)) {
+	start := time.Now()
+	switch stage {
+	case StageAttempt:
+		return ctx, func(Outcome) { h.ns.Add(int64(time.Since(start))) }
+	case StageWait:
+		return ctx, func(Outcome) { h.ns.Add(-int64(time.Since(start))) }
+	}
+	return ctx, untraced
+}
+
+// held returns the time held so far.
+func (h *writerHold) held() time.Duration { return time.Duration(h.ns.Load()) }
+
 // BenchmarkLongBodies is the reads that return issues, on 1,000 issues
 // whose bodies are each 32 KiB: list, ready and blocked answer with a
-// summary of each issue, and read the whole row to make it.
+// summary of each issue, and read only that; the export reads the whole
+// row (list/full).
 func BenchmarkLongBodies(b *testing.B) {
 	s := openStore(b, newDSN(b), Options{})
 	p := seedScale(b, s, 1000, 32<<10)
 	ctx := b.Context()
 	for _, limit := range []int{50, 500} {
 		b.Run(fmt.Sprintf("list/limit=%d", limit), func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				if _, err := s.ListSummaries(ctx, Filter{Limit: limit}); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+		b.Run(fmt.Sprintf("list/full/limit=%d", limit), func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				if _, err := s.List(ctx, Filter{Limit: limit}); err != nil {
@@ -233,8 +263,9 @@ func BenchmarkLongBodies(b *testing.B) {
 	})
 }
 
-// benchStore runs the store's reads and writes on s, which holds p.
-func benchStore(b *testing.B, s *Store, p benchProject) {
+// benchStore runs the store's reads and writes on s, which holds p, and
+// whose writes hold tells the time of.
+func benchStore(b *testing.B, s *Store, p benchProject, hold *writerHold) {
 	ctx := b.Context()
 	some := p.open[len(p.open)/2]
 	reads := []struct {
@@ -242,12 +273,19 @@ func benchStore(b *testing.B, s *Store, p benchProject) {
 		run  func() error
 	}{
 		{"get", func() error { _, err := s.GetIssue(ctx, some); return err }},
-		{"list", func() error { _, err := s.List(ctx, Filter{}); return err }},
+		{"list", func() error { _, err := s.ListSummaries(ctx, Filter{}); return err }},
 		{"list/in_progress", func() error {
-			_, err := s.List(ctx, Filter{Statuses: []Status{StatusInProgress}, Assignee: "carol"})
+			_, err := s.ListSummaries(ctx, Filter{Statuses: []Status{StatusInProgress}, Assignee: "carol"})
 			return err
 		}},
+		{"list/full", func() error { _, err := s.List(ctx, Filter{}); return err }},
 		{"ready", func() error { _, err := s.Ready(ctx, alice, 10); return err }},
+		{"ready-check", func() error {
+			// What start with no id asks under the writer of the issue it
+			// ranked first on a read.
+			_, err := readyNow(ctx, s.r, some, s.now())
+			return err
+		}},
 		{"blocked", func() error { _, err := s.Blocked(ctx, 50); return err }},
 		{"digest", func() error { _, err := s.Digest(ctx, DigestFilter{Window: 24 * time.Hour}); return err }},
 		{"similar/warm", func() error {
@@ -309,20 +347,25 @@ func benchStore(b *testing.B, s *Store, p benchProject) {
 		}
 	})
 	b.Run("start-next", func(b *testing.B) {
-		// Start with no id takes the best ready issue: Ready's ranking,
-		// under the writer. Each is released again, unmeasured.
+		// Start with no id takes the best ready issue, by Ready's
+		// ranking. Each is released again, unmeasured. writer-ms/op is
+		// how long the start held the project's one writer.
 		b.ReportAllocs()
+		var held time.Duration
 		for b.Loop() {
+			before := hold.held()
 			is, c, err := s.StartIssue(ctx, alice, "", DefaultLease, false)
 			if err != nil {
 				b.Fatal(err)
 			}
+			held += hold.held() - before
 			b.StopTimer()
 			if _, err := s.HandoffIssue(ctx, alice, is.ID, c.Epoch, HandoffNote{Note: "Not now."}, true, "", nil); err != nil {
 				b.Fatal(err)
 			}
 			b.StartTimer()
 		}
+		b.ReportMetric(float64(held)/float64(b.N)/float64(time.Millisecond), "writer-ms/op")
 	})
 	b.Run("close", func(b *testing.B) {
 		// A close makes the cached closed titles stale.

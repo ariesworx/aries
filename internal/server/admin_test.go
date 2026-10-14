@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/client"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
 	"github.com/go-sql-driver/mysql"
@@ -861,6 +862,31 @@ func TestAdminOpsClassified(t *testing.T) {
 	}
 }
 
+// The client waits for every op longer than the server's request timeout
+// takes to refuse it, except the control writes, which the server may
+// answer later still (an audit read, and an archive's opening of the
+// store, each with a timeout of its own) and the client waits on.
+func TestClientWaitsLongerThanTheServer(t *testing.T) {
+	t.Parallel()
+	ops := []string{proto.OpWatch}
+	for op := range handlers {
+		ops = append(ops, op)
+	}
+	for op := range adminHandlers {
+		ops = append(ops, op)
+	}
+	const server = time.Minute // Config.RequestTimeout's default, which no setting changes
+	for _, op := range ops {
+		got := client.RequestTimeout(op)
+		switch {
+		case controlWrites[op] && got != 0:
+			t.Errorf("client.RequestTimeout(%s) = %s for a control write, want 0: the server may answer it after its request timeout", op, got)
+		case !controlWrites[op] && got <= server:
+			t.Errorf("client.RequestTimeout(%s) = %s, want more than the server's request timeout, %s", op, got, server)
+		}
+	}
+}
+
 // TestOpenProjects pins what a daemon does before it listens: every
 // active project's database is opened, and so migrated; one that cannot
 // be is held against the upgrade's health probe until it opens or is
@@ -964,7 +990,7 @@ func TestReleasedClientsRefused(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := fmt.Sprintf("starfix speaks protocol %d; the server (v0.2.0) needs protocol %d", tc.proto, proto.ProtoMin)
+			want := fmt.Sprintf("starfix speaks protocol %d; the server (v0.2.0) needs protocols %d to %d", tc.proto, proto.ProtoMin, proto.ProtoMax)
 			if w.T != proto.FrameWelcome || w.Err == nil || w.Err.Code != proto.CodeVersion || w.Err.Message != want || w.Err.Fix != fix ||
 				w.Min != proto.ProtoMin || w.Max != proto.ProtoMax {
 				t.Fatalf("a protocol %d hello = %+v (%+v)\nwant a welcome refusing it with code version, %q\nfix %q", tc.proto, w, w.Err, want, fix)

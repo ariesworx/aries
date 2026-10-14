@@ -45,6 +45,10 @@ type Options struct {
 	// supplies may be. Default [DefaultClientAhead], at most
 	// [MaxClientAhead].
 	ClientAhead time.Duration
+	// IdemWindow is how long an idempotency key gives back its request's
+	// result (idem.go). Default [DefaultIdemWindow]; one that is not
+	// positive is refused.
+	IdemWindow time.Duration
 	// Logger receives background committer errors, and the warning that
 	// AllowUnsafeAccount let an unsafe account through. Default discards.
 	Logger *slog.Logger
@@ -184,6 +188,12 @@ func open(ctx context.Context, dsn string, opts Options, sc schema) (*Store, err
 	}
 	if opts.ClientAhead == 0 {
 		opts.ClientAhead = DefaultClientAhead
+	}
+	if opts.IdemWindow < 0 {
+		return nil, fmt.Errorf("%w: an idempotency window must be more than zero, not %s", ErrInvalid, opts.IdemWindow)
+	}
+	if opts.IdemWindow == 0 {
+		opts.IdemWindow = DefaultIdemWindow
 	}
 	opts.Admins = slices.Clone(opts.Admins)
 	if opts.CommitInterval == 0 {
@@ -403,8 +413,10 @@ type wtx struct {
 	firstSeq int64
 	// pending are the events recorded, written by flush.
 	pending []pendingEvent
-	// idem is the operation's idempotency stamp, when it has a key.
-	idem *idemStamp
+	// idem is the operation's idempotency stamp, when it has a key, and
+	// window how long a key gives back its result (Options.IdemWindow).
+	idem   *idemStamp
+	window time.Duration
 	// lim are the store's limits.
 	lim Limits
 	// closedChanged is set when the attempt closed or reopened an issue,
@@ -748,7 +760,7 @@ func (s *Store) writeOnce(ctx context.Context, actor Actor, settle bool, fn func
 			return false, errors.Join(fmt.Errorf("%w: the clock stepped forward again while a step was settled", errRetry), rollback(tx))
 		}
 	}
-	w := &wtx{tx: tx, actor: actor, admin: s.IsAdmin(actor.Principal), now: v.at, lim: s.opts.Limits}
+	w := &wtx{tx: tx, actor: actor, admin: s.IsAdmin(actor.Principal), now: v.at, lim: s.opts.Limits, window: s.opts.IdemWindow}
 	if err := fn(w); err != nil {
 		return false, errors.Join(err, rollback(tx))
 	}
