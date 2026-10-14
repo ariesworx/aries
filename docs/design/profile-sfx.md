@@ -363,6 +363,18 @@ it is given twice and flushes to the terminal on every call.
   printed. The other tables (`blocked`, `who`, `admin`) print the same
   way.
 
+**Since this was written (14 Oct 2026).** Done for the issue table
+of `list`, `ready` and `blocked`: `printSummaries` lays the table
+out in a buffer of its own and writes it once, as `cost` and `hours`
+already did; the escaping writer is unchanged. `BenchmarkClientPrintSummaries`,
+before and after: 10 rows 80 writes, 232 allocations and 8.2 µs to 1,
+90 and 6.7 µs; 50 rows 400, 1,078 and 38.6 µs to 2, 339 and 30.8 µs;
+500 rows 4,000, 10,539 and 374 µs to 11, 3,054 and 291 µs, and 444 KB
+to 550 KB allocated. Its writer counts 4 KiB pieces; standard output,
+which takes a string whole, gets one write. Tests pin the table's text
+and the single write. `who`, `history`, `digest` and the `admin` tables
+were left as they were.
+
 ### Smaller, and questions rather than optimizations
 
 - **`conns_per_principal` and many sessions.** Not a cost but a wall:
