@@ -270,13 +270,23 @@ rest:
 scripts/leftovers.sh go test ./...
 ```
 
-It gives the command a temporary directory of its own, reports what the
-command left in it and which processes it started are still running, and
-removes the directory whatever happened. A command that passed and left
-something fails; the name of a directory left is its test's. It is not
-part of the gate: to make it so, the gate's test command would run under
-it, in `scripts/gate.sh`, [Commands](AGENTS.md#commands) and `ci.yml`
-together.
+It gives the command a temporary directory of its own, under the
+`TMPDIR` it is given, reports what the command left in it and which
+processes it started are still running, and removes the directory
+whatever happened. When `GOTMPDIR` is set it does the same with a
+`GOTMPDIR` of the command's own beneath it: `go test` then makes each
+`t.TempDir` there, not under `TMPDIR`. A command that passed and left
+something fails; a command that failed keeps its status, and what it
+left is listed. Each entry is named with what probably made it,
+`t.TempDir of TestName` (a subtest's name loses its slash) or
+`os.MkdirTemp("", "sfe")`, and so is each process whose command line
+names an entry. A process found only by its environment, such as a
+`sleep` a test started and did not stop, is listed with its command
+alone. With `GITHUB_ACTIONS=true` the report is an error annotation too.
+
+The gate's tests run under it, in `scripts/gate.sh`,
+[Commands](AGENTS.md#commands) and `ci.yml`, and so does CI's peer check
+as root, since only root could remove what it left.
 
 ## What a local run cannot tell you
 

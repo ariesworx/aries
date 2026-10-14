@@ -75,12 +75,23 @@ func TestGateMatchesAgents(t *testing.T) {
 
 // TestGateMatchesCI checks the commands CI words exactly as the gate
 // does. The others it runs through an action (golangci-lint, which also
-// covers gofmt and go vet), in a loop (the builds for other systems) or
-// with a coverage profile (the tests).
+// covers gofmt and go vet) or in a loop (the builds for other systems);
+// the tests it runs as the gate does, with a coverage profile and with
+// STARFIX_REQUIRE_DOLT set for the whole job.
 func TestGateMatchesCI(t *testing.T) {
 	t.Parallel()
 	ci := read(t, ".github/workflows/ci.yml")
 	cmds := gateCommands(t)
+	const require = "STARFIX_REQUIRE_DOLT=1 "
+	i := slices.IndexFunc(cmds, func(c string) bool { return strings.HasPrefix(c, require) })
+	if i < 0 {
+		t.Errorf("scripts/gate.sh runs no test command starting %q", require)
+	} else {
+		test, ok := strings.CutSuffix(strings.TrimPrefix(cmds[i], require), " ./...")
+		if want := test + " -coverprofile=coverage.out ./..."; !ok || !strings.Contains(ci, "run: "+want+"\n") {
+			t.Errorf("ci.yml does not run %q, which is scripts/gate.sh's %q with a coverage profile; change both together", want, cmds[i])
+		}
+	}
 	for _, prefix := range []string{"go mod verify", "git ls-files", "go run golang.org/x/vuln/cmd/govulncheck@"} {
 		i := slices.IndexFunc(cmds, func(c string) bool { return strings.HasPrefix(c, prefix) })
 		if i < 0 {
@@ -107,6 +118,8 @@ func TestPeerCheckMatchesCI(t *testing.T) {
 		"go test -race -c -o ",
 		"STARFIX_REQUIRE_DOLT=1 ",
 		"-test.run '^TestCheckPeer' -test.v",
+		// Root's leftovers, which only root can remove, fail it too.
+		"../../scripts/leftovers.sh ",
 	} {
 		for name, body := range files {
 			if !strings.Contains(body, part) {
@@ -206,6 +219,7 @@ echo "$(basename "$0") $*" >>"$root/calls"
 `
 	files := map[string]string{
 		"scripts/gate.sh":              gate,
+		"scripts/leftovers.sh":         read(t, "scripts/leftovers.sh"),
 		"go.mod":                       "module example.com/m\n\ngo 1.27\n",
 		".github/workflows/ci.yml":     "      - uses: golangci/golangci-lint-action@0000 # v9\n        with:\n          version: v2.14.0\n",
 		"internal/version/dolt.sha256": "# pins\n" + strings.Repeat("0", 64) + "  v9.8.7/dolt-linux-amd64.tar.gz\n",
@@ -216,6 +230,7 @@ echo "$(basename "$0") $*" >>"$root/calls"
 "env GOOS") cat "$root/goos" ;;
 "env GOARCH") echo amd64 ;;
 *govulncheck*) cat "$root/vuln"; [ ! -s "$root/vuln" ] || exit 3 ;;
+"test "*) [ ! -s "$root/leak" ] || mkdir "$TMPDIR/$(cat "$root/leak")" ;;
 esac
 ` + failing,
 		"fakebin/gofmt":         record + `cat "$root/unformatted"` + "\n",
@@ -233,6 +248,7 @@ esac
 		"vuln":        "",
 		"unformatted": "",
 		"fail":        "",
+		"leak":        "", // a directory go test leaves in its TMPDIR
 	}
 	for path, body := range files {
 		g.write(t, path, body)
@@ -325,7 +341,7 @@ func TestGateScript(t *testing.T) {
 				"gofmt -l . ... ok (", "gate: passed in ", ": 11 of 11 commands",
 				"Not covered by this run:", "TestCheckPeerOtherUID", "deploy/docker/smoke.sh", "The soak test ran its short form",
 				// The command for the tests that need root, as a shell takes it.
-				`go test -race -c -o server.test ./internal/server && (cd internal/server && sudo env "PATH=$PATH" STARFIX_REQUIRE_DOLT=1 ../../server.test -test.run '^TestCheckPeer' -test.v); rm server.test`},
+				`go test -race -c -o server.test ./internal/server && (cd internal/server && sudo env "PATH=$PATH" STARFIX_REQUIRE_DOLT=1 ../../scripts/leftovers.sh ../../server.test -test.run '^TestCheckPeer' -test.v); rm server.test`},
 			not: []string{"FAILED", "golangci-lint here is", "govulncheck:", "CI runs them on linux/amd64"}},
 		{name: "as root", files: map[string]string{"uid": "0\n"}, calls: full,
 			want: []string{"gate: passed in ", ": 11 of 11 commands"}, not: []string{"TestCheckPeerOtherUID"}},
@@ -333,14 +349,20 @@ func TestGateScript(t *testing.T) {
 			calls: []string{"gofmt -l ."},
 			want: []string{"gofmt -l . ... FAILED (", "    cmd/sfx/main.go", "fix: these files are not formatted",
 				"gate: FAILED in ", ": 0 of 11 commands passed", "  failed:  gofmt -l .", "  not run: go vet ./...",
-				"  not run: STARFIX_REQUIRE_DOLT=1 go test -race -shuffle=on ./...", "--keep-going runs every command"},
+				"  not run: STARFIX_REQUIRE_DOLT=1 scripts/leftovers.sh go test -race -shuffle=on ./...", "--keep-going runs every command"},
 			not: []string{"gate: passed"}},
 		{name: "keep going runs the rest", args: []string{"--keep-going"}, files: map[string]string{"fail": "golangci-lint run"}, status: 1,
 			calls: full,
 			want:  []string{"golangci-lint run ./... ... FAILED (", "    it broke", ": 10 of 11 commands passed", "  failed:  golangci-lint run ./..."},
 			not:   []string{"not run:"}},
 		{name: "a failing test fails the gate", files: map[string]string{"fail": "go test"}, status: 1,
-			want: []string{"STARFIX_REQUIRE_DOLT=1 go test -race -shuffle=on ./... ... FAILED (", ": 10 of 11 commands passed"}},
+			want: []string{"STARFIX_REQUIRE_DOLT=1 scripts/leftovers.sh go test -race -shuffle=on ./... ... FAILED (", ": 10 of 11 commands passed"}},
+		{name: "a test run that leaves something fails the gate", files: map[string]string{"leak": "TestLeaky42"}, status: 1, calls: full,
+			want: []string{"STARFIX_REQUIRE_DOLT=1 scripts/leftovers.sh go test -race -shuffle=on ./... ... FAILED (",
+				"    leftovers.sh: the command left 1 entry under its temporary directory:", "    TestLeaky42 (", " KB): t.TempDir of TestLeaky\n",
+				": 10 of 11 commands passed", "  failed:  STARFIX_REQUIRE_DOLT=1 scripts/leftovers.sh go test"}},
+		{name: "quick fails on a leftover too", args: []string{"--quick"}, files: map[string]string{"leak": "TestLeaky43"}, status: 1,
+			want: []string{"STARFIX_REQUIRE_DOLT=1 scripts/leftovers.sh go test ./... ... FAILED (", "    TestLeaky43 ("}},
 		{name: "standard library findings a newer Go fixes", files: map[string]string{"vuln": vulnStdlib}, calls: full,
 			want: []string{vuln + " ... needs Go 1.27.3 (", "gate: passed in ", "except govulncheck, which needs a newer Go: 10 of 11 commands passed",
 				"govulncheck: every finding is in the standard library of go1.27.1 and is fixed by Go 1.27.3",
@@ -357,7 +379,7 @@ func TestGateScript(t *testing.T) {
 			calls: []string{"gofmt -l .", vet, lint, "git ls-files -co --exclude-standard -z *.sh", shell, "go test ./..."},
 			want: []string{"quick (not the gate): go1.27.1", "quick (not the gate): passed in ", ": 5 of 5 commands",
 				"--quick skipped these commands of the gate", "go mod verify; go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...; GOOS=darwin",
-				"STARFIX_REQUIRE_DOLT=1 go test -race -shuffle=on ./.... Run scripts/gate.sh before you open a pull request"},
+				"STARFIX_REQUIRE_DOLT=1 scripts/leftovers.sh go test -race -shuffle=on ./.... Run scripts/gate.sh before you open a pull request"},
 			not: []string{"\ngate: "}},
 		{name: "another dolt on PATH", files: map[string]string{"dolt": "1.2.3\n"},
 			calls: append([]string{"install-dolt.sh"}, full...),

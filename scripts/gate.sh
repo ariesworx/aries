@@ -201,9 +201,11 @@ if [ "$goos" != linux ] && [ "$quick" = 0 ]; then
 	also 'GOOS=linux GOARCH=amd64 go build ./cmd/...'
 	also 'GOOS=linux GOARCH=amd64 golangci-lint run ./...'
 fi
-gate 'STARFIX_REQUIRE_DOLT=1 go test -race -shuffle=on ./...'
+# Under scripts/leftovers.sh, which fails a run that leaves a file in its
+# temporary directory or a process running.
+gate 'STARFIX_REQUIRE_DOLT=1 scripts/leftovers.sh go test -race -shuffle=on ./...'
 if [ "$quick" = 1 ]; then
-	also 'STARFIX_REQUIRE_DOLT=1 go test ./...'
+	also 'STARFIX_REQUIRE_DOLT=1 scripts/leftovers.sh go test ./...'
 fi
 if [ "$smoke" = 1 ]; then
 	also 'deploy/docker/smoke.sh'
@@ -216,7 +218,7 @@ fi
 if [ "$goos" != linux ]; then
 	note "Tests ran on $goos/$goarch; CI runs them on linux/amd64. The code only Linux builds (internal/server/peer_linux.go) was vetted, built and linted for Linux here, but its tests, TestCheckPeer*, run only on Linux: CI runs them."
 elif [ "$(id -u)" != 0 ]; then
-	note "TestCheckPeerOtherUID and TestCheckPeerKeepsStatusFromOtherUsers (internal/server) were skipped: each starts a socket peer as another user, which needs root. CI builds the package's test binary as its own user and runs only that binary under sudo, so go never runs as root, as: go test -race -c -o server.test ./internal/server && (cd internal/server && sudo env \"PATH=\$PATH\" STARFIX_REQUIRE_DOLT=1 ../../server.test -test.run '^TestCheckPeer' -test.v); rm server.test"
+	note "TestCheckPeerOtherUID and TestCheckPeerKeepsStatusFromOtherUsers (internal/server) were skipped: each starts a socket peer as another user, which needs root. CI builds the package's test binary as its own user and runs only that binary under sudo, so that go never runs as root, and under scripts/leftovers.sh, since only root could remove what it left: go test -race -c -o server.test ./internal/server && (cd internal/server && sudo env \"PATH=\$PATH\" STARFIX_REQUIRE_DOLT=1 ../../scripts/leftovers.sh ../../server.test -test.run '^TestCheckPeer' -test.v); rm server.test"
 fi
 if [ "$smoke" = 0 ]; then
 	note "The Docker smoke test (deploy/docker/smoke.sh, or --smoke) was not run; CI does not run it either. Run it after changing the server, the protocol, deploy/docker or the setup steps in docs/server.md."

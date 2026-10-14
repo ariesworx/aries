@@ -206,11 +206,20 @@ jobs:
         # -shuffle=on randomizes test order; the seed is in the log, and
         # -shuffle=SEED replays a failure. go builds and runs the test
         # binaries from GOTMPDIR, which stays on disk: they are half a
-        # gigabyte at a time, and gain nothing from memory.
+        # gigabyte at a time, and gain nothing from memory. go test makes
+        # each t.TempDir there too, since GOTMPDIR is set.
+        #
+        # scripts/leftovers.sh gives the tests a TMPDIR of their own under
+        # the directory the step above chose, so Dolt's files stay where
+        # that step put them, and a GOTMPDIR of their own under /tmp. It
+        # fails the step when the tests passed but left a file in either
+        # or a process running, and names each, with the test that
+        # probably made it, in the log and in an annotation. The coverage
+        # profile is written here, in the checkout, as before.
         env:
           TMPDIR: ${{ steps.tmp.outputs.dir }}
           GOTMPDIR: /tmp
-        run: go test -race -shuffle=on -coverprofile=coverage.out ./...
+        run: scripts/leftovers.sh go test -race -shuffle=on -coverprofile=coverage.out ./...
       - name: temporary directory after the tests
         # What the tests left there, and the machine's memory, whether
         # they passed or not.
@@ -230,9 +239,13 @@ jobs:
         # TestCheckPeerOtherUID and TestCheckPeerKeepsStatusFromOtherUsers
         # dial the daemon's socket from a process running as nobody, which
         # needs root; go test above skips them. Only the binary runs as
-        # root, in the package's directory as go test would run it. sudo
-        # does not pass TMPDIR on, so its files are in /tmp, which the
-        # user nobody can enter.
+        # root, in the package's directory as go test would run it, and
+        # under scripts/leftovers.sh, as the tests above do: what root
+        # leaves only root can remove. sudo does not pass TMPDIR or
+        # GOTMPDIR on, so the script's directory is in /tmp; the script
+        # lets the user nobody pass through it, as through /tmp.
+        # GITHUB_ACTIONS is passed so that what it reports is an
+        # annotation too.
         #
         # A pattern that matches no test passes, and so does a test that
         # skips, so the step fails unless the log says both tests passed
@@ -241,8 +254,8 @@ jobs:
         run: |
           log=$RUNNER_TEMP/peer-check.log
           failed=0
-          (cd internal/server && sudo env "PATH=$PATH" STARFIX_REQUIRE_DOLT=1 \
-            "$RUNNER_TEMP/server.test" -test.run '^TestCheckPeer' -test.v) >"$log" 2>&1 || failed=1
+          (cd internal/server && sudo env "PATH=$PATH" STARFIX_REQUIRE_DOLT=1 GITHUB_ACTIONS=true \
+            ../../scripts/leftovers.sh "$RUNNER_TEMP/server.test" -test.run '^TestCheckPeer' -test.v) >"$log" 2>&1 || failed=1
           cat "$log"
           for t in TestCheckPeerOtherUID TestCheckPeerKeepsStatusFromOtherUsers; do
             if ! grep -q "^--- PASS: $t " "$log"; then
