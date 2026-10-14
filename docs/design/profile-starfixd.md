@@ -770,6 +770,11 @@ follows from a measurement of the code as it is.
 - **Saving:** small on any real server. It gives the one map without an
   eviction one.
 - **Risk:** very low.
+- **Since this was written (14 October 2026): done.** `Server.Prune`,
+  every 10 minutes on the reaper, lets go of each write bucket and
+  control-write bucket that has filled again. A full bucket is what
+  `take` makes for a key it has not seen, so no answer changes; the map
+  holds the keys that wrote since the last prune.
 
 ### 11. Small things
 

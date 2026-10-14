@@ -587,9 +587,13 @@ func (s *Server) tick(ctx context.Context, prune bool) {
 }
 
 // Prune deletes registry rows and read inbox items older than the limits
-// keep them (S-6, S-7), in every open store, and logs what it removed.
+// keep them (S-6, S-7), in every open store, and logs what it removed;
+// and lets go of the write buckets that have filled again.
 func (s *Server) Prune(ctx context.Context) {
 	s.each(func(pr *served) { pr.prune(ctx, s.cfg.Limits) })
+	now := s.now()
+	s.writes.prune(now)
+	s.ctlWrites.prune(now)
 }
 
 // Reap ends expired claims now, in every open store, and logs each.
