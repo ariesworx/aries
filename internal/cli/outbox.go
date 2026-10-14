@@ -29,8 +29,13 @@ func (r *runner) away() *offline.Client {
 // missed notes, for `sfx outbox`, what err says of the server: that it
 // was not reached just now, or that it refused the principal's access to
 // the project, which refuses what the principal queued for it, and says
-// so on Stderr. A hook notes nothing.
+// so on Stderr. A hook notes nothing of that. Access ended also deletes
+// the principal's cache of the project, in a hook too, which says
+// nothing of it.
 func (r *runner) missed(err error) {
+	if line := r.away().Forget(err); line != "" && !r.hook {
+		_, _ = fmt.Fprintf(r.env.Stderr, "sfx: %s\n", esc(line))
+	}
 	switch {
 	case r.hook:
 	case client.Unreachable(err):

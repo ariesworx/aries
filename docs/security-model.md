@@ -775,7 +775,8 @@ A write that cannot reach the server is kept on your machine and sent
 later ([When the server cannot be reached](cli.md#when-the-server-cannot-be-reached)).
 Before this, `sfx` kept nothing of who you are and nothing you wrote on
 your disk: its only file was the offsets file above, in the cache
-directory. The outbox and the record beside it are the first.
+directory. The outbox and the record beside it were the first, and
+[the cache](#the-cache) of what you read is the second.
 
 - **What it holds.** The queued writes as they would have been sent: the
   text of handoffs, comments, new issues, memories and hours notes, with
@@ -827,7 +828,8 @@ directory. The outbox and the record beside it are the first.
   and which fingerprint was accepted the last time no key was
   configured; and the server's address as `.starfix.yaml` gave it. It
   holds no private key, no path to one and no token.
-  Beside it, a file holds the time the server was last not reached, and
+  Beside it, a file holds the time the server was last not reached,
+  another the time it was last reached, and
   one small file for each outbox holds its principal's name. While the
   server is away a write goes to the outbox of the principal recorded
   for the configured key, or, with none configured, for the key accepted
@@ -870,6 +872,57 @@ directory. The outbox and the record beside it are the first.
 - **Agents.** A queued tool call tells the agent it was queued and to
   carry on. No MCP tool lists, retries or drops entries: that is
   `sfx outbox`, for a person.
+
+## The cache
+
+What a session read of its own context is kept on your machine, to be
+shown while the server cannot be reached
+([What is shown from the cache](cli.md#what-is-shown-from-the-cache)).
+It is a copy of what the server showed you, and it stays on your
+machine after your access ends unless something deletes it: starfix
+cannot take back what it has shown.
+
+- **What it holds.** The server's answers, as returned, to `prime`, to
+  `show` of each issue read (and of the issue a `start` took, with its
+  acceptance items, last handoff and claim), to `inbox` and to `digest`:
+  titles, bodies, design notes, acceptance criteria, handoff notes,
+  inbox items, digests, and the memories `prime` returned. Each with
+  when it was kept, by your machine's clock. Nothing of `ready`,
+  `blocked`, `list`, `who` or `claims` is kept. Plain files, not
+  encrypted, as the outbox is.
+- **Never another principal's private memories.** The server never sends
+  them, so the cache cannot hold them: it holds only what the server
+  showed the principal it is for.
+- **Where, and for whom.** In the same server and project directory as
+  the outbox, under the same checks: one directory for each principal,
+  named by a hash of the principal's name, of mode 0700, and in it one
+  file of mode 0600 for each answer, named by a hash of what it answers,
+  and one that holds the principal's name. While the server is away the
+  cache shown is that of the principal the record above names for the
+  key `sfx` would offer, by the outbox's rule, so another principal using
+  the same machine and data directory is not shown yours. That rule is
+  trusted for this as it is for the outbox: someone with your account's
+  access, who could read the files anyway, can rewrite the record.
+- **Read as data.** A file that is not a whole answer to what its name
+  says, of the version this `sfx` writes, is read as absent. An answer
+  shown from the cache is marked as cached, with its age, on stderr for a
+  person and in the result for an agent, and is escaped and fenced as any
+  answer from the server is: its text is still other people's.
+- **How long.** 7 days at most; and at most 500 answers, 16 MiB, and 1 MiB
+  for one answer, for each principal. Each write removes what is past
+  them, the oldest first. A removal is an ordinary delete, not a secure
+  erase.
+- **When it is deleted.** When the server refuses a connection because
+  the principal's access to the project has ended (`forbidden`, naming
+  the principal: disabled, removed from the server, or no longer a
+  member), that principal's cache of the project is deleted from the
+  machine at once, in a SessionStart hook too, and the command says so.
+  An agent's session deletes it the same way. `sfx cache clear` deletes
+  every principal's cache of the project. Nothing deletes a cache on a
+  machine that never connects again, such as a laptop that is lost:
+  answers older than 7 days are no longer shown, but their files go only
+  at the next write to the cache, which needs a connection. Removing the
+  data directory removes them.
 
 ## Limits
 

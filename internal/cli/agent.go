@@ -35,11 +35,7 @@ func cmdPrime(ctx context.Context, r *runner, args []string) error {
 		r.primeHook(ctx, agentsetup.Agents[hook.agent])
 		return nil
 	}
-	c, err := r.connect(ctx)
-	if err != nil {
-		return err
-	}
-	p, err := mcpserver.BuildPrime(ctx, c, r.env.Version, r.outboxNotices(c)...)
+	p, err := r.prime(ctx)
 	if err != nil {
 		return err
 	}
@@ -141,13 +137,10 @@ func hookFailure(err error) string {
 	return text + "\n"
 }
 
-// primeText connects, builds prime and renders it as text.
+// primeText connects, builds prime and renders it as text; with the
+// server away, this machine's copy, which says it is one (runner.prime).
 func (r *runner) primeText(ctx context.Context) (string, error) {
-	c, err := r.connect(ctx)
-	if err != nil {
-		return "", err
-	}
-	p, err := mcpserver.BuildPrime(ctx, c, r.env.Version, r.outboxNotices(c)...)
+	p, err := r.prime(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -204,7 +197,9 @@ func cmdMCP(ctx context.Context, r *runner, args []string) error {
 	if r.noQueue || offline.NoQueue(r.env.Getenv) {
 		off = nil // writes that do not reach the server fail, as before there was an outbox
 	}
-	srv = mcpserver.New(mcpserver.Options{Version: r.env.Version, Dir: r.dir, Offline: off,
+	cache := r.away()
+	cache.Session = opts.Session
+	srv = mcpserver.New(mcpserver.Options{Version: r.env.Version, Dir: r.dir, Offline: off, Cache: cache,
 		Dial: func(ctx context.Context) (mcpserver.Conn, error) {
 			return mcpserver.DialRepo(ctx, r.dir, opts)
 		}})

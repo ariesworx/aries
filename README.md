@@ -18,8 +18,9 @@ history.
 > over plans), people's hours, agent setup and importing from bd (beads)
 > work today. Stage 5 has begun with an outbox: the writes made while
 > the server cannot be reached are kept on the machine and sent later,
-> once each, for up to 7 days; there is no offline cache and no conflict
-> handling yet, and the outbox has not run on Windows. Not ready for production use
+> once each, for up to 7 days; and a cache shows a session the work it
+> holds while the server is away, saying so. There is no conflict
+> handling yet, and neither has run on Windows. Not ready for production use
 > yet; see the [roadmap](#roadmap).
 
 ## Why starfix

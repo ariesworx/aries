@@ -135,6 +135,9 @@ type Options struct {
 	// Outbox bounds each outbox; its zero value takes the defaults, and
 	// its clock is Now.
 	Outbox outbox.Options
+	// Cache bounds each principal's cache; its zero value takes the
+	// defaults.
+	Cache CacheOptions
 }
 
 // Local is what this machine keeps for one server and project: who the

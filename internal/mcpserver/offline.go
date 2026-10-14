@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -131,6 +132,11 @@ func queuedResult(k offline.Kept, n int) *mcp.CallToolResult {
 // rerun runs the tool against a connection, for the call that failed
 // before it had one.
 func (s *Server) away(err error, w *sent, rerun func(Conn)) (*mcp.CallToolResult, error) {
+	if s.opts.Cache != nil {
+		// Access ended: what the principal read goes from this machine.
+		// The agent is told to ask a person, as below.
+		s.opts.Cache.Forget(err)
+	}
 	off := s.opts.Offline
 	if off == nil {
 		return nil, err
@@ -176,15 +182,19 @@ func (s *Server) away(err error, w *sent, rerun func(Conn)) (*mcp.CallToolResult
 
 // connected runs on each new connection, before the request that opened
 // it, holding the link: it notes who the server took the key for, and
-// sends what waits in that principal's outbox, within the outbox's
-// replay budget. What is left is sent by drain.
+// when, which the cache's choice of principal and its refusals read;
+// and with an outbox it sends what waits in that principal's outbox,
+// within the outbox's replay budget. What is left is sent by drain.
 func (s *Server) connected(ctx context.Context, c Conn) {
-	off := s.opts.Offline
-	if off == nil {
+	local := cmp.Or(s.opts.Offline, s.opts.Cache)
+	if local == nil {
 		return
 	}
-	if moved := off.Connected(c); moved != "" {
+	if moved := local.Connected(c); moved != "" {
 		s.moved.Store(&moved)
+	}
+	if s.opts.Offline == nil {
+		return
 	}
 	if s.replay(ctx, c) {
 		select {

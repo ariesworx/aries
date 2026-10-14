@@ -90,12 +90,13 @@ func (c *Client) Whose(l *Local, cfg *client.Config) string {
 // entries: this connection does not send them (doc.go, "Whose"), and a
 // person should hear of it. Otherwise it returns "".
 func (c *Client) Connected(conn Conn) (moved string) {
-	k, ok := conn.(interface{ Key() client.KeyInfo })
-	if !ok || conn.Principal() == "" {
-		return ""
-	}
 	l, _, err := c.Local()
 	if err != nil {
+		return ""
+	}
+	l.Touch()
+	k, ok := conn.(interface{ Key() client.KeyInfo })
+	if !ok || conn.Principal() == "" {
 		return ""
 	}
 	was, _ := l.Reached(conn.Principal(), k.Key().Fingerprint, k.Key().Configured(), speaks(conn))
@@ -141,6 +142,67 @@ func (c *Client) Ended(err error) string {
 	}
 	return fmt.Sprintf("outbox: %s queued as %s %s refused with it, and kept: `sfx outbox` lists %s, to retry once access is back or drop",
 		writes(n), who, was(n), them(n))
+}
+
+// CacheOf is the cache of principal, the principal of a connection the
+// server let in, for what it reads to be kept; nil when this machine has
+// nowhere to keep it.
+func (c *Client) CacheOf(principal string) *Cache {
+	l, _, err := c.Local()
+	if err != nil || principal == "" {
+		return nil
+	}
+	return l.Cache(principal)
+}
+
+// Cached is the cache of the principal this process's requests belong to
+// while the server cannot say ([Client.Whose]), by the same rule as an
+// outbox's, so that one principal's copy is never shown to another; nil
+// when this machine does not know whose they are.
+func (c *Client) Cached() *Cache {
+	l, cfg, err := c.Local()
+	if err != nil {
+		return nil
+	}
+	who := c.Whose(l, cfg)
+	if who == "" {
+		return nil
+	}
+	return l.Cache(who)
+}
+
+// Forget removes, when err is the server's word that a principal's access
+// to this project has ended ([client.AccessEnded]), that principal's
+// cache of the project from this machine (design §18.6). It returns one
+// line saying so, or "" when err is no such word or nothing was cached.
+func (c *Client) Forget(err error) string {
+	who, ok := client.AccessEnded(err)
+	if !ok {
+		return ""
+	}
+	l, _, lerr := c.Local()
+	if lerr != nil {
+		return ""
+	}
+	n, _ := l.Cache(who).Forget()
+	if n == 0 {
+		return ""
+	}
+	answers := "answers"
+	if n == 1 {
+		answers = "answer"
+	}
+	return fmt.Sprintf("cache: %d %s %s read from this project %s deleted from this machine", n, answers, who, was(n))
+}
+
+// LastReached is when this machine last reached the server, or the zero
+// time when it has no record of it.
+func (c *Client) LastReached() time.Time {
+	l, _, err := c.Local()
+	if err != nil {
+		return time.Time{}
+	}
+	return l.LastReached()
 }
 
 func them(n int) string {
@@ -191,11 +253,17 @@ func (c *Client) Replay(ctx context.Context, conn Conn) (outbox.Report, error) {
 // principal, or "" when nothing waits in it: how many writes wait for
 // the server, and how many it refused, which only a person settles.
 func (c *Client) Notice(conn Conn) string {
+	return c.NoticeFor(conn.Principal())
+}
+
+// NoticeFor is [Client.Notice] for principal's outbox, when there is no
+// connection to say whose it is.
+func (c *Client) NoticeFor(principal string) string {
 	l, _, err := c.Local()
 	if err != nil {
 		return ""
 	}
-	n, err := l.Waiting(conn.Principal())
+	n, err := l.Waiting(principal)
 	if err != nil {
 		return ""
 	}

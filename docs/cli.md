@@ -140,7 +140,7 @@ sign-in fails, the refusal says once that it is not read.
 | `HOME`, or `USERPROFILE` on Windows | Your home directory: `~/` in `STARFIX_KEY_FILE`, and `~/.ssh` for the default identities |
 | `STARFIX_SESSION`, `STARFIX_HARNESS`, `TRACEPARENT`, `TRACESTATE` | The session id, the agent harness's name and the caller's trace context ([agent guide](agents.md#sessions), [Trace context](agents.md#trace-context)) |
 | `STARFIX_NO_QUEUE` | Set to anything but empty, `0` or `false`: a write that cannot reach the server fails and is not queued, as with `--no-queue` ([When the server cannot be reached](#when-the-server-cannot-be-reached)) |
-| `STARFIX_DATA_DIR` | The absolute path of the directory `sfx` keeps its outbox in, in place of your data directory ([Where it is kept](#where-it-is-kept)) |
+| `STARFIX_DATA_DIR` | The absolute path of the directory `sfx` keeps its outbox and cache in, in place of your data directory ([Where it is kept](#where-it-is-kept)) |
 | `STARFIX_RELEASES` | Where `sfx upgrade` reads releases from, in place of the default: a mirror's `https://` URL, or the absolute path of a directory ([Where releases are read from](install.md#where-releases-are-read-from)) |
 
 `sfx` reads no other variable to decide who you are.
@@ -266,6 +266,7 @@ Memories are notes kept across sessions, in `project` (the default),
 |---|---|
 | `mcp` | Serve the MCP tools for an agent on stdin and stdout ([agent guide](agents.md)) |
 | `outbox` | List the writes that wait for the server and the ones it refused, for your principal on this machine; `outbox retry N` sends a refused entry again, `outbox drop N` removes an entry for good, and `outbox stats` shows the counts; `--host-key KEY` reaches what was queued under a host key the server had before. It never connects ([When the server cannot be reached](#when-the-server-cannot-be-reached)) |
+| `cache` | Say what this machine keeps of what was read from the server for this project, shown while the server cannot be reached; `cache clear` deletes it. It never connects ([What is shown from the cache](#what-is-shown-from-the-cache)) |
 | `setup AGENT` | Set an agent up for this repository; see [Set up an agent](agents.md#set-up-an-agent). With `--global`, or for Claude Desktop, `--key-file PATH` also names the key file the agent signs in with, in your own files only ([Give an agent its own identity](agents.md#give-an-agent-its-own-identity)) |
 | `usage --hook[=AGENT]` | Send the token counts in the session's transcripts that earlier runs have not sent. Run by Claude Code's Stop, SubagentStop and SessionEnd hooks, which `setup claude-code` installs, with the hook's JSON on stdin; bare `--hook` is Claude Code's, the only agent captured so far. It always exits 0 and sends only counts ([Token usage hooks](agents.md#token-usage-hooks-claude-code)) |
 | `admin prices` | List the model prices, in US dollars per million tokens. `admin prices set MODEL --from DATE --input USD --output USD --cache-write USD --cache-write-1h USD --cache-read USD` sets a model's rates from a date (midnight UTC) or an RFC 3339 time, and prints `added`, `replaced` (the same model and `--from`) or `unchanged`. Every rate must be given, 0 where the model charges nothing, with at most six decimals. Setting is for admins ([Prices](server.md#prices)) |
@@ -332,8 +333,10 @@ machine and sends it later: `create`, `comment`, `handoff`, `remember`,
 `dep add`, `accept`, and token usage. Each carries a key that lets the
 server apply it once however often it is sent.
 
-This is the first part of working without the server. There is no cache:
-every read still needs the server. Nothing resolves a conflict: a queued
+Reads have a **cache**: what you read of your own work is kept, and
+shown while the server cannot be reached, saying so
+([What is shown from the cache](#what-is-shown-from-the-cache)). Nothing
+resolves a conflict: a queued
 write that no longer fits is refused when it arrives, and waits for you.
 And a write waits 7 days at most, the server's window for a key
 (`idem_window` in [the server's limits](server.md#limits)).
@@ -398,7 +401,8 @@ claim, and no claim is made without the server: while it is away you
 finish what you hold and file new work, and start nothing new. `close`,
 `reopen`, `forget`, `dep rm` and `log --undo` end or undo something on a
 state your machine cannot see. The hooks (`prime --hook`,
-`usage --hook`) queue and send nothing.
+`usage --hook`) queue and send nothing; `prime --hook` does show prime
+from the cache.
 
 The outbox itself may refuse a write, which then fails with exit code 1
 and a fix:
@@ -511,6 +515,79 @@ under the server's old host key SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5Tq
 | `outbox retry N --host-key KEY` | Move entry N, waiting or refused, to this server's outbox, with the key it always had: the next command that connects sends it. Only when `.starfix.yaml` names the server at the address it had when the entry was queued (`server.host`, `server.port` and the IAP route); otherwise it is refused, and the entry can only be dropped |
 | `outbox drop N --host-key KEY` | Remove entry N for good |
 
+### What is shown from the cache
+
+Every read the server answers that is part of your own context is kept
+on your machine as it was returned, with when: `prime`; `show` of each
+issue you looked at, the latest answer for each issue; the issue
+`start` took, kept as a `show` of it; `inbox`; and `digest`, for the
+arguments it was run with. Agents' reads through `sfx mcp`, and the
+SessionStart hook's prime, are kept the same way, in the same place, so
+what your agent read you can read too.
+
+The cache is shown only when the server cannot be reached (as above),
+never in place of a server that answers. Then `show`, `prime`, `inbox`
+and `digest` print what was kept, exit 0, and say on stderr, in one line,
+that it is this machine's copy and how old:
+
+```text
+$ sfx show sf-a1b2c3d4
+sfx: cached: starfix cannot reach its server, so this is this machine's copy from 2026-10-13 14:02 UTC (3h old), and may be out of date
+sf-a1b2c3d4  P1  in_progress  task  rev 4
+...
+```
+
+Standard output is the command's own, as when the server answers. With
+`--json` the document has `"cached": true` and `"cached_at"`, the time
+it was kept, and nothing is printed on stderr. A read that was never
+kept, with these arguments, fails as before.
+
+**prime from the cache** has your work in progress, your memories, your
+inbox and the notices of your outbox, and a first notice that it is
+cached. It leaves out the ready issues, and says why: nothing can be
+started without the server, and what is ready now is not known. So does
+`prime --hook`, which still exits 0 and prints one JSON document, now with
+the cached context in it.
+
+**Refused, not shown.** `ready`, `blocked`, `list` and `who` are answers
+about what everyone is doing now, and from a copy they would be wrong in
+the way that has two sessions take the same work. With the server away
+they fail as before, and say when the server was last reached:
+
+```text
+$ sfx ready
+sfx: starfixd is not running on the server; ready is not answered from this machine's copy, since it says what others are doing now (server last reached 2026-10-13 14:02 UTC)
+fix: ask the server admin to start it (`systemctl start starfixd`); meanwhile `sfx prime` and `sfx show ID` answer from this machine's copy of what you read
+```
+
+There is no flag to show them from the cache anyway: they are not kept.
+
+**Whose.** One cache for each server, project and principal, chosen while
+the server is away by the rule that chooses an outbox (below): the
+principal the server last took your configured key for, or with none
+configured the one it took the last time. Another principal using the
+same machine and data directory is never shown yours.
+
+**Bounds.** For each principal: 500 answers, 16 MiB, 1 MiB for one
+answer (a larger one is not kept), and 7 days. Each write removes what is
+past them, the oldest first. They are fixed in `sfx`
+(`internal/offline/cache.go`), since what grows is on your own disk.
+
+**Deleted.** When a command's connection is refused because your access
+to the project has ended (as for the outbox, above), your cache of the
+project is deleted from the machine, and one line on stderr says so:
+
+```text
+sfx: cache: 12 answers alice read from this project were deleted from this machine
+```
+
+| Command | Does |
+|---|---|
+| `cache` | Say what is kept for this project on this machine: for each principal, the answers, their size and when they were kept; and when the server was last reached |
+| `cache clear` | Delete it, every principal's, for this project. The outbox is left alone |
+
+Both take `--json`, and neither connects.
+
 ### Where it is kept
 
 Under your data directory, never in the repository:
@@ -525,7 +602,8 @@ Under your data directory, never in the repository:
 must be on a local disk that is not synced: the locks that keep hundreds
 of sessions from each other's writes do not cross machines.
 
-There is one outbox for each server, project and principal. The server
+There is one outbox, and one cache, for each server, project and
+principal. The server
 says who a key is, so `sfx` notes, at each connection, the principal the
 server took the key for, and uses that while the server is away:
 
