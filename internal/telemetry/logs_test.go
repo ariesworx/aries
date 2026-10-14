@@ -63,6 +63,7 @@ func oneLog(t *testing.T, m *Manual) LogData {
 // nothing with omit, and nothing, never a name, when the key for
 // stand-ins is unavailable. Every field that names a person follows it.
 func TestExportedLogsFollowPrincipals(t *testing.T) {
+	t.Parallel()
 	noKey := filepath.Join(t.TempDir(), "no such directory", "principals.key")
 	for _, tc := range []struct {
 		name string
@@ -129,6 +130,7 @@ func TestExportedLogsFollowPrincipals(t *testing.T) {
 // trace.go, for logs): each id only in its own shape, words and numbers
 // as they are, and anything else not at all.
 func TestExportedLogFieldsAreVetted(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		key   string
@@ -180,6 +182,7 @@ func TestExportedLogFieldsAreVetted(t *testing.T) {
 // A record has the line's message, level and event, and the ids of the
 // span it was logged under, from the span itself.
 func TestExportedLogShape(t *testing.T) {
+	t.Parallel()
 	tel, m, log := logged(t, Config{})
 	ctx, sp := tel.StartRequest(t.Context(), "show", proto.TraceContext{})
 	traceID, spanID, _ := sp.IDs()
@@ -210,6 +213,7 @@ func TestExportedLogShape(t *testing.T) {
 // (design §16.2: the exporter is experimental upstream), to /v1/logs
 // under the endpoint, with the resource of the other signals.
 func TestLogPush(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	noLeak(t)
 	col := newCollector(t, http.StatusOK, nil)
 	out := &syncBuffer{}
@@ -260,6 +264,7 @@ func TestLogPush(t *testing.T) {
 }
 
 func TestReadEnvLogs(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name    string
 		env     env
@@ -313,6 +318,7 @@ func TestReadEnvLogs(t *testing.T) {
 // With nothing asking for logs there is no exporter, no goroutine and no
 // key file made, whatever else is exported.
 func TestLogsOffByDefault(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	noLeak(t)
 	col := newCollector(t, http.StatusOK, nil)
 	key := filepath.Join(t.TempDir(), "principals.key")
@@ -379,6 +385,7 @@ func batched(t *testing.T, tel *Telemetry, exp sdklog.Exporter, le logEnv) *slog
 // Every record is exported or counted as dropped, exactly, on
 // starfix.telemetry.dropped{signal="logs"}.
 func TestDroppedLogsAreCounted(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	for _, tc := range []struct {
 		name string
 		fail bool
@@ -423,6 +430,7 @@ func TestDroppedLogsAreCounted(t *testing.T) {
 // A stop whose deadline passes while an export hangs cuts it short,
 // counts what it abandoned, and leaves nothing running.
 func TestStopCutsShortASlowLogExport(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	noLeak(t)
 	tel, m := traced(t, Config{})
 	exp := &held{release: make(chan struct{})} // never released
@@ -451,6 +459,7 @@ func TestStopCutsShortASlowLogExport(t *testing.T) {
 // take is counted, and the failure is logged once, not once a line: the
 // warning is itself a line that is exported, and must not feed itself.
 func TestDeadCollectorLogs(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	closed, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

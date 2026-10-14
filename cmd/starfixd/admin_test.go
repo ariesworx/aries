@@ -5,51 +5,49 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/ariesworx/starfix/internal/dolttest"
 )
 
-var (
-	dolt    *dolttest.Server
-	doltErr error
-)
+// dolts are the package's Dolt servers: a test has one to itself while it
+// runs, so the tests can run in parallel (dolttest.Pool).
+var dolts = dolttest.NewPool("starfixd-admin-", dolttest.Options{})
 
 func TestMain(m *testing.M) {
 	os.Exit(runTests(m))
 }
 
 func runTests(m *testing.M) int {
-	dir, err := os.MkdirTemp("", "starfixd-admin-")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	defer func() { _ = os.RemoveAll(dir) }()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	dolt, doltErr = dolttest.Start(ctx, dir)
-	cancel()
-	if dolt != nil {
-		defer func() { _ = dolt.Stop() }()
-	}
+	defer func() { _ = dolts.Close() }()
+	dolts.Warm()
 	return m.Run()
 }
 
-// newDSN returns an empty database's DSN in $STARFIXD_DSN form.
-func newDSN(t *testing.T) string {
+// doltOf returns the Dolt server t's test holds, or skips without dolt.
+func doltOf(t testing.TB) *dolttest.Server {
 	t.Helper()
-	if errors.Is(doltErr, dolttest.ErrNoDolt) {
+	srv, err := dolts.Server(t)
+	if errors.Is(err, dolttest.ErrNoDolt) {
 		t.Skip("dolt is not on PATH: install dolt to run the admin command tests")
 	}
-	if doltErr != nil {
-		t.Fatalf("dolt sql-server: %v", doltErr)
+	if err != nil {
+		t.Fatalf("dolt sql-server: %v", err)
 	}
-	dsn, err := dolt.NewDatabase(t.Context())
+	return srv
+}
+
+// newDSN returns an empty database's DSN in $STARFIXD_DSN form, on the
+// test's Dolt server. The database is dropped when the test ends, after
+// the cleanups of what the test opened on it: Dolt holds every database
+// in memory and slows with each (dolttest.Server.DropDatabase).
+func newDSN(t testing.TB) string {
+	t.Helper()
+	doltOf(t)
+	dsn, err := dolts.Database(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,6 +80,7 @@ func admin(t *testing.T, dsn string, stdin string, cmd func(context.Context, adm
 const backlog = "../../internal/bdimport/testdata/backlog.jsonl"
 
 func TestImportBDCommand(t *testing.T) {
+	t.Parallel()
 	dsn := newDSN(t)
 
 	dry := admin(t, dsn, "", importBD, "--dry-run", backlog)
@@ -127,6 +126,7 @@ func TestImportBDCommand(t *testing.T) {
 }
 
 func TestImportBDFailures(t *testing.T) {
+	t.Parallel()
 	dsn := newDSN(t)
 	cases := []struct {
 		name   string
@@ -179,6 +179,7 @@ func TestImportBDFailures(t *testing.T) {
 }
 
 func TestExportBDCommand(t *testing.T) {
+	t.Parallel()
 	src := newDSN(t)
 	if r := admin(t, src, "", importBD, backlog); r.err != nil {
 		t.Fatal(r.err)

@@ -11,6 +11,7 @@ import (
 // A create-type request sent twice with one key is applied once; the same
 // key on another request is refused, naming the key.
 func TestDispatchIdempotency(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	in := proto.CreateArgs{Title: "once", Idem: "cli-0001"}
 	first := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, in)
@@ -51,6 +52,7 @@ func TestDispatchIdempotency(t *testing.T) {
 // finish, and hold close and finish until each is ticked or waived;
 // close's force overrides.
 func TestDispatchAcceptance(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	a := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work", Acceptance: "- one\n- [x] two\n- three"})
 	st := mustCall[proto.StartResult](t, s, alice, proto.OpStart, proto.StartArgs{ID: a.ID})
@@ -92,6 +94,7 @@ func TestDispatchAcceptance(t *testing.T) {
 
 // create and show name up to three similar closed issues.
 func TestDispatchSimilar(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	old := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "Login fails with expired token"})
 	mustCall[proto.WriteResult](t, s, alice, proto.OpClose, proto.CloseArgs{ID: old.ID})

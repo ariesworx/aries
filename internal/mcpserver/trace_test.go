@@ -21,6 +21,7 @@ func primeReply(string, any) (any, error) {
 // carries none of its own, so the connection's (the environment's) goes
 // instead. A malformed one never fails the call.
 func TestToolCallTraceContext(t *testing.T) {
+	t.Parallel()
 	const parent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
 	valid := proto.TraceContext{TraceID: "0af7651916cd43dd8448eb211c80319c", SpanID: "b7ad6b7169203331", Flags: "01"}
 	withState := valid

@@ -43,6 +43,7 @@ func checkOutput(t *testing.T, name, out string) {
 }
 
 func TestPrintEscapesControl(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	closed := now
 	sum := proto.Summary{ID: "sf-a" + evil, Title: evil, Status: "open" + evil, Priority: 1}
@@ -134,6 +135,7 @@ func TestPrintEscapesControl(t *testing.T) {
 // Run itself escapes everything it prints, in text and in JSON, and JSON
 // stays valid.
 func TestRunOutputIsEscaped(t *testing.T) {
+	t.Parallel()
 	var out, errb bytes.Buffer
 	r := &runner{env: Env{Stdout: &out, Stderr: &errb}}
 	r.wrapOutput()

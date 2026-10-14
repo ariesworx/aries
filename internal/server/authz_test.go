@@ -13,6 +13,7 @@ import (
 // and admins pass, anyone else gets forbidden with a fix naming the
 // holder (S-1, D1).
 func TestDispatchHeldIssue(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	alice2 := store.Actor{Principal: "alice", Session: "s-a2", Machine: "desktop"}
 	sp := func(v string) *string { return &v }
@@ -69,6 +70,7 @@ func TestDispatchHeldIssue(t *testing.T) {
 
 // The admin's override is on the record, as the admin.
 func TestDispatchAdminOverrideInHistory(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	c := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "x"})
 	mustCall[proto.StartResult](t, s, alice, proto.OpStart, proto.StartArgs{ID: c.ID})
@@ -87,6 +89,7 @@ func TestDispatchAdminOverrideInHistory(t *testing.T) {
 
 // Regression for the review's cross-principal reproducer (S-1, S-12).
 func TestSecCrossPrincipal(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	sp := func(v string) *string { return &v }
 	c := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "x"})
@@ -138,6 +141,7 @@ func TestSecCrossPrincipal(t *testing.T) {
 
 // Regression for the review's checklist reproducer (S-3).
 func TestSecChecklistBypass(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	sp := func(v string) *string { return &v }
 	c := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "x", Acceptance: "- [ ] tests pass\n- [ ] docs"})

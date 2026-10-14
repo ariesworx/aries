@@ -11,6 +11,7 @@ import (
 )
 
 func TestPrint(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 10, 11, 9, 30, 0, 0, time.UTC)
 	n := func(v int) *int { return &v }
 	const a, b = "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f", "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
@@ -98,6 +99,7 @@ func TestPrint(t *testing.T) {
 }
 
 func TestUptime(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		secs int64
 		want string
@@ -111,6 +113,7 @@ func TestUptime(t *testing.T) {
 // The status says what the server has seen of its clock, and nothing
 // while it has seen nothing.
 func TestClockLines(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 10, 11, 9, 30, 0, 0, time.UTC)
 	behind := &proto.ClockBehind{Seconds: 3*3600 + 120, Since: at, Log: "project acme (database starfix_p001)", History: at.Add(3 * time.Hour)}
 	stop := *behind
@@ -150,6 +153,7 @@ func TestClockLines(t *testing.T) {
 // The status says how people appear in the server's traces, and loudly
 // when they are left out because the stand-in key is unavailable.
 func TestTracesLine(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		tr   proto.TracesStatus
@@ -188,6 +192,7 @@ func TestTracesLine(t *testing.T) {
 // did not give. The collector's cycles get a verdict only with a memory
 // limit set and enough writes to judge by.
 func TestDoltLines(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 10, 11, 9, 30, 0, 0, time.UTC)
 	u := func(v uint64) *uint64 { return &v }
 	gc := func(cycles, writes int64) *proto.DoltGC {

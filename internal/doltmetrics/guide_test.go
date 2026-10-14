@@ -10,6 +10,7 @@ import (
 // Dolt's config turns it on where starfixd's config says to read it, and
 // where the refusal of a bad URL suggests.
 func TestGuideAndImageNameOneEndpoint(t *testing.T) {
+	t.Parallel()
 	if err := CheckURL(Example); err != nil {
 		t.Fatalf("CheckURL(Example) = %v: the refusals suggest a URL that is refused", err)
 	}

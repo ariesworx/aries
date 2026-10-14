@@ -89,6 +89,7 @@ func codex(t *testing.T, r *os.Root, path string) spec {
 }
 
 func TestSpecsAgree(t *testing.T) {
+	t.Parallel()
 	r := repo(t)
 	for _, name := range specs {
 		t.Run(name, func(t *testing.T) {

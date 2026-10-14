@@ -31,6 +31,7 @@ func mention(id int64) proto.Push {
 // Pushed items are kept, and the next tool result says how many in one
 // extra line, once; errors carry it too. The result itself is unchanged.
 func TestInboxLine(t *testing.T) {
+	t.Parallel()
 	f := &fakeConn{reply: func(op string, _ any) (any, error) {
 		if op == proto.OpClose {
 			return nil, proto.Errf(proto.CodeNotFound, "find the id with `sfx list`", "issue sf-x not found")
@@ -72,6 +73,7 @@ func TestInboxLine(t *testing.T) {
 
 // sfx mcp watches on each new connection, and again after a resync.
 func TestWatchOnEachConnection(t *testing.T) {
+	t.Parallel()
 	ok := func(string, any) (any, error) { return proto.ListResult{}, nil }
 	first := &fakeConn{reply: func(string, any) (any, error) { return nil, errLost }}
 	second := &fakeConn{reply: ok}
@@ -97,6 +99,7 @@ func TestWatchOnEachConnection(t *testing.T) {
 // inbox acks the ids given, then lists what is unread, compact and
 // capped.
 func TestInboxTool(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	var items []proto.InboxItem
 	for i := range 60 {
@@ -141,6 +144,7 @@ func TestInboxTool(t *testing.T) {
 // prime shows the unread count and the newest items, and lists the
 // issues whose claims this session lost, from its unread claim.lost items.
 func TestPrimeInbox(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name    string

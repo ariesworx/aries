@@ -8,6 +8,7 @@ import (
 )
 
 func TestPrintFiles(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		files *proto.Files
@@ -36,6 +37,7 @@ func TestPrintFiles(t *testing.T) {
 }
 
 func TestPrintReady(t *testing.T) {
+	t.Parallel()
 	var b bytes.Buffer
 	printReady(&b, []proto.Summary{{ID: "sf-a1b2", Priority: 1, Status: "open", Title: "free"},
 		{ID: "sf-c3d4", Priority: 0, Status: "open", Title: "contested", Overlaps: []string{"sf-e5f6", "sf-g7h8"}}})

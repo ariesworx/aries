@@ -63,6 +63,7 @@ func soakedLog(t *testing.T, cfg telemetry.Config) (*multi, *telemetry.Manual, [
 // names an event of the list, every field is one of the schema's, and a
 // line about a request carries the request's id and its trace's ids.
 func TestLogLinesFollowTheSchema(t *testing.T) {
+	t.Parallel()
 	_, _, lines := soakedLog(t, telemetry.Config{})
 	if len(lines) < 100 {
 		t.Fatalf("%d log lines: the run logged too little to test", len(lines))
@@ -117,6 +118,7 @@ func TestLogLinesFollowTheSchema(t *testing.T) {
 // every field that takes text, served and refused, leave it in no field
 // of the journal but the ids the client gave itself.
 func TestLogLinesCarryNoText(t *testing.T) {
+	t.Parallel()
 	m, _, lines := soakedLog(t, telemetry.Config{})
 	dsnSecrets := secretsOfDSN(t, m.dsn)
 	for _, l := range lines {
@@ -155,6 +157,7 @@ func secretsOfDSN(t *testing.T, dsn string) []string {
 // with telemetry: principals: at its default none of the names either;
 // with the stand-in key unavailable it says nothing about who.
 func TestExportedLogsCarryNoText(t *testing.T) {
+	t.Parallel()
 	names := []string{"alice", "dana", "bob", "carol", "erin", "hal", "laptop", "desk", "s-a", "s-d"}
 	for _, tc := range []struct {
 		name string
@@ -229,6 +232,7 @@ func TestExportedLogsCarryNoText(t *testing.T) {
 // And the bytes posted to a collector, as TestExportedSpansCarryNoText
 // reads the spans': none of the text and none of the names.
 func TestPostedLogsCarryNoText(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	var posted [][]byte
 	col := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
@@ -277,6 +281,7 @@ func TestPostedLogsCarryNoText(t *testing.T) {
 // the server logged for the request, so that a person's report finds
 // the server's lines (design §16.4).
 func TestRequestID(t *testing.T) {
+	t.Parallel()
 	m := newMulti(t, Limits{}, nil)
 	out := jsonLogged(t, m)
 	m.project(t, projA, "alice=admin")
@@ -316,6 +321,7 @@ func TestRequestID(t *testing.T) {
 // Every line a request causes carries its id, not only the request's
 // own: a part of the answer that could not be read is logged with it.
 func TestRequestIDOnEveryLineOfARequest(t *testing.T) {
+	t.Parallel()
 	out := &syncBuffer{}
 	log, err := NewLogger(out, "debug", "json")
 	if err != nil {
@@ -357,6 +363,7 @@ func TestRequestIDOnEveryLineOfARequest(t *testing.T) {
 // round, with one whose logs are not exported, so that a machine busy
 // for part of the test slows both alike.
 func TestDeadCollectorLogs(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	const rounds = 40
 	// side is one server and a connection to it, with its log.
 	type side struct {

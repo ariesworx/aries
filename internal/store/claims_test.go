@@ -41,6 +41,7 @@ func clockStoreAt(t *testing.T, start time.Time) (*Store, *clock) {
 }
 
 func TestClaimTakeAndTakeover(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "work"})
@@ -93,6 +94,7 @@ func TestClaimTakeAndTakeover(t *testing.T) {
 }
 
 func TestClaimExpiry(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "work"})
@@ -148,6 +150,7 @@ func TestClaimExpiry(t *testing.T) {
 }
 
 func TestRenewClaims(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	a := mustCreate(t, s, NewIssue{Title: "a"})
@@ -202,6 +205,7 @@ func TestRenewClaims(t *testing.T) {
 }
 
 func TestClaimEndsOnCloseAndRelease(t *testing.T) {
+	t.Parallel()
 	s, _ := clockStore(t)
 	ctx := t.Context()
 	a := mustCreate(t, s, NewIssue{Title: "a"})
@@ -241,6 +245,7 @@ func TestClaimEndsOnCloseAndRelease(t *testing.T) {
 // imported) holds nothing: the reaper leaves it alone, and anyone may
 // start it.
 func TestUnclaimedInProgressHoldsNothing(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "old", Status: StatusInProgress, Assignee: "alice"})
@@ -258,6 +263,7 @@ func TestUnclaimedInProgressHoldsNothing(t *testing.T) {
 // log is the truth (AGENTS.md rule 7), and a release that only a later
 // state implies cannot be told from no release.
 func TestClaimEndsAreRecorded(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		// end ends alice's claim on id, taken at epoch 1, as by.

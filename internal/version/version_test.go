@@ -33,6 +33,7 @@ const (
 
 // TestDoltMatchesCI keeps the pin and the version CI tests against equal.
 func TestDoltMatchesCI(t *testing.T) {
+	t.Parallel()
 	if got := setting(t, ciFile, `(?m)^\s*DOLT_VERSION:\s*(\S+)\s*$`); got != Dolt {
 		t.Errorf("ci.yml DOLT_VERSION is %s, version.Dolt is %s; change both together", got, Dolt)
 	}
@@ -40,6 +41,7 @@ func TestDoltMatchesCI(t *testing.T) {
 
 // TestDoltMatchesDocker keeps the Docker test server's Dolt at the pin.
 func TestDoltMatchesDocker(t *testing.T) {
+	t.Parallel()
 	if got := setting(t, dockerFile, `(?m)^ARG DOLT_VERSION=(\S+)$`); got != Dolt {
 		t.Errorf("Dockerfile DOLT_VERSION is %s, version.Dolt is %s; change both together", got, Dolt)
 	}
@@ -48,6 +50,7 @@ func TestDoltMatchesDocker(t *testing.T) {
 // TestDoltMatchesServerGuide keeps the release the server guide tells an
 // operator to download at the pin.
 func TestDoltMatchesServerGuide(t *testing.T) {
+	t.Parallel()
 	if got := setting(t, guideFile, `dolthub/dolt/releases/download/v([0-9.]+)/dolt-linux-amd64\.tar\.gz`); got != Dolt {
 		t.Errorf("docs/server.md downloads Dolt %s, version.Dolt is %s; change both together", got, Dolt)
 	}
@@ -83,6 +86,7 @@ func doltSums(t *testing.T) map[string]string {
 // verifies a download against, at the pinned release and equal to the
 // checksums CI and the Docker test server verify.
 func TestDoltChecksums(t *testing.T) {
+	t.Parallel()
 	sums := doltSums(t)
 	tests := []struct {
 		platform string
@@ -121,6 +125,7 @@ func TestDoltChecksums(t *testing.T) {
 // TestMiseMatchesGoMod keeps the Go that mise installs at go.mod's go
 // line, which is also what CI's setup-go reads.
 func TestMiseMatchesGoMod(t *testing.T) {
+	t.Parallel()
 	want := setting(t, goModFile, `(?m)^go (\S+)$`)
 	if got := setting(t, miseFile, `(?m)^go = "([^"]+)"$`); got != want {
 		t.Errorf("mise.toml go is %s, go.mod's go line is %s; change both together", got, want)
@@ -130,6 +135,7 @@ func TestMiseMatchesGoMod(t *testing.T) {
 // TestMiseMatchesCI keeps the golangci-lint that mise installs at the
 // version CI's lint job pins.
 func TestMiseMatchesCI(t *testing.T) {
+	t.Parallel()
 	want := setting(t, ciFile, `(?m)^\s*- uses: golangci/golangci-lint-action@.*\n\s*with:\n\s*version: v(\S+)$`)
 	if got := setting(t, miseFile, `(?m)^golangci-lint = "([^"]+)"$`); got != want {
 		t.Errorf("mise.toml golangci-lint is %s, ci.yml pins v%s; change both together", got, want)

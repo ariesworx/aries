@@ -140,6 +140,7 @@ func holds(s string) bool {
 // text, served and refused, leave it in no span: not in a name, an
 // attribute, a status, an event or the tracestate.
 func TestSpansCarryNoText(t *testing.T) {
+	t.Parallel()
 	tel, m := spanned(t, telemetry.Config{})
 	mu := adminWorldTel(t, Limits{Limits: store.Limits{}, WriteRate: 100000, WriteBurst: 100000, ControlWriteRate: 100000, ControlWriteBurst: 100000}, tel)
 	m.ResetSpans()
@@ -175,6 +176,7 @@ func TestSpansCarryNoText(t *testing.T) {
 // collector hold none of the text, and none of the names either, with
 // telemetry: principals: at its default.
 func TestExportedSpansCarryNoText(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	var posted [][]byte
 	col := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {

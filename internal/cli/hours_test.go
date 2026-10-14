@@ -10,6 +10,7 @@ import (
 )
 
 func TestPrintHours(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 10, 9, 8, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name string
@@ -38,6 +39,7 @@ func TestPrintHours(t *testing.T) {
 }
 
 func TestPrintPlans(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 10, 9, 8, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name string
@@ -68,6 +70,7 @@ func TestPrintPlans(t *testing.T) {
 // A report with plans shows each group's amortized cost beside its list
 // price, and one with hours each group's logged hours.
 func TestPrintCostAmortizedAndLogged(t *testing.T) {
+	t.Parallel()
 	since := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	res := proto.CostResult{By: "issue", Since: since, Until: since.Add(24 * time.Hour), Groups: []proto.CostGroup{
 		{Key: "sf-a1", Title: "one", Tokens: proto.Tokens{Input: n(1_200_000)}, CostUSD: "12.345", AmortizedUSD: "20", LoggedSeconds: 5400},
@@ -87,6 +90,7 @@ func TestPrintCostAmortizedAndLogged(t *testing.T) {
 }
 
 func TestPrintUsageHours(t *testing.T) {
+	t.Parallel()
 	opus := []proto.ModelTokens{{Model: "opus", Tokens: proto.Tokens{Input: n(950)}}}
 	tests := []struct {
 		name string
@@ -117,6 +121,7 @@ func TestPrintUsageHours(t *testing.T) {
 
 // log and admin plans refuse bad usage before dialing.
 func TestLogUsage(t *testing.T) {
+	t.Parallel()
 	empty := t.TempDir()
 	plan := []string{"--fee", "25", "--seats", "3", "--from", "2026-09"}
 	tests := []struct {

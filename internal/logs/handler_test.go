@@ -53,6 +53,7 @@ func fixedIDs(ctx context.Context) (string, string, bool) {
 }
 
 func TestHandlerAddsContextIDs(t *testing.T) {
+	t.Parallel()
 	span := context.WithValue(t.Context(), spanKey{}, true)
 	for _, tc := range []struct {
 		name string
@@ -94,6 +95,7 @@ func TestHandlerAddsContextIDs(t *testing.T) {
 // A line's own fields come before the ids the context adds, so that
 // event is the first field after slog's own wherever it is logged.
 func TestHandlerKeepsEventFirst(t *testing.T) {
+	t.Parallel()
 	var b bytes.Buffer
 	log := slog.New(NewHandler(slog.NewJSONHandler(&b, nil), fixedIDs))
 	log.InfoContext(WithReq(context.WithValue(t.Context(), spanKey{}, true), "00000000000000aa"), "served", KeyEvent, RequestDone, KeyOp, "show")
@@ -105,6 +107,7 @@ func TestHandlerKeepsEventFirst(t *testing.T) {
 
 // The schema is flat: a group qualifies keys and nests nothing.
 func TestHandlerFlattensGroups(t *testing.T) {
+	t.Parallel()
 	var b bytes.Buffer
 	log := slog.New(NewHandler(slog.NewJSONHandler(&b, nil), nil)).With("a", 1).WithGroup("g").With("b", 2).WithGroup("h")
 	log.InfoContext(WithReq(t.Context(), "00000000000000aa"), "m", "c", 3)
@@ -117,6 +120,7 @@ func TestHandlerFlattensGroups(t *testing.T) {
 }
 
 func TestHandlerEnabledIsTheJournals(t *testing.T) {
+	t.Parallel()
 	var b bytes.Buffer
 	log := slog.New(NewHandler(slog.NewJSONHandler(&b, &slog.HandlerOptions{Level: slog.LevelWarn}), nil))
 	log.Info("quiet", KeyEvent, ConnOpened)
@@ -146,6 +150,7 @@ func (h *tapped) Handle(_ context.Context, r slog.Record) error {
 // the handler, whenever it was derived; and no record once it is
 // removed.
 func TestHandlerTap(t *testing.T) {
+	t.Parallel()
 	var b bytes.Buffer
 	h := NewHandler(slog.NewJSONHandler(&b, nil), fixedIDs)
 	early := slog.New(h).With(KeyProject, "p1")
@@ -178,6 +183,7 @@ func TestHandlerTap(t *testing.T) {
 }
 
 func TestNewReq(t *testing.T) {
+	t.Parallel()
 	shape := regexp.MustCompile(`^[0-9a-f]{16}$`)
 	seen := map[string]bool{}
 	for range 1000 {

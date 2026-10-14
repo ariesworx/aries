@@ -21,6 +21,7 @@ func agentRow(t *testing.T, s *Store, a Actor) (rev int64, seen time.Time) {
 }
 
 func TestTouchAgentThrottles(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	seq := lastSeq(t, s)
@@ -70,6 +71,7 @@ func TestTouchAgentThrottles(t *testing.T) {
 // retried after another writer changed it keeps the change, not what the
 // first attempt read.
 func TestTouchAgentRetryKeepsNewHarness(t *testing.T) {
+	t.Parallel()
 	clk := &clock{t: time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)}
 	dsn := newDSN(t)
 	s := openStore(t, dsn, Options{Now: clk.now})
@@ -105,6 +107,7 @@ func TestTouchAgentRetryKeepsNewHarness(t *testing.T) {
 }
 
 func TestTouchAgentRefusesBadHarness(t *testing.T) {
+	t.Parallel()
 	s, _ := clockStore(t)
 	for _, h := range []string{"Claude", "claude code", "a_b", "x;drop", strings.Repeat("a", 33)} {
 		if err := s.TouchAgent(t.Context(), alice, h); !errors.Is(err, ErrInvalid) {
@@ -114,6 +117,7 @@ func TestTouchAgentRefusesBadHarness(t *testing.T) {
 }
 
 func TestWho(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	carol := Actor{Principal: "carol", Session: "sess-c", Machine: "laptop-c"}

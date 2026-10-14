@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -17,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/dolttest"
 	"github.com/ariesworx/starfix/internal/proto"
 )
 
@@ -37,12 +35,7 @@ func BenchmarkProcess(b *testing.B) {
 	if runtime.GOOS == "windows" {
 		b.Skip("reads resident memory from ps")
 	}
-	if errors.Is(doltErr, dolttest.ErrNoDolt) {
-		b.Skip("dolt is not on PATH")
-	}
-	if doltErr != nil {
-		b.Fatalf("dolt sql-server: %v", doltErr)
-	}
+	doltOf(b) // skips without dolt
 	exe := filepath.Join(b.TempDir(), "starfixd")
 	build := exec.CommandContext(b.Context(), "go", "build", "-trimpath", "-ldflags", "-s -w", "-o", exe, ".") //nolint:gosec // the benchmark's own directory
 	build.Env = append(os.Environ(), "CGO_ENABLED=0")
@@ -98,6 +91,9 @@ const benchProject = "00000000-0000-4000-8000-0000000000b1"
 func measureProcess(b *testing.B, exe string, metrics bool) processCost {
 	b.Helper()
 	ctx := b.Context()
+	// Of the benchmark's own Dolt server (dolttest.Pool), and dropped
+	// here, not when the benchmark ends: one for each daemon measured.
+	dolt := doltOf(b)
 	dsn, err := dolt.NewDatabase(ctx)
 	if err != nil {
 		b.Fatal(err)

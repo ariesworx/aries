@@ -60,6 +60,7 @@ func snapshot(t *testing.T, dir string) map[string]string {
 }
 
 func TestSetupWriteIsIdempotent(t *testing.T) {
+	t.Parallel()
 	// files maps each file setup writes to a string it must hold; parts
 	// is how many parts setup reports, when a file holds two; note is in
 	// the output of the first write and the printed snippets.
@@ -175,6 +176,7 @@ func sameFiles(t *testing.T, a, b map[string]string) {
 // fixes them, reporting the hook file updated and nothing else changed,
 // and is then idempotent; --remove takes every starfix hook out.
 func TestSetupUpgradesHooks(t *testing.T) {
+	t.Parallel()
 	sync := ",\n" + `            "timeout": 10`
 	tests := []struct {
 		name string
@@ -237,6 +239,7 @@ func TestSetupUpgradesHooks(t *testing.T) {
 // Setup adds its parts to files that hold other things, and removing them
 // gives the files back as they were.
 func TestSetupKeepsOtherContent(t *testing.T) {
+	t.Parallel()
 	root, sub := repoWithConfig(t)
 	before := map[string]string{
 		"CLAUDE.md": "# Project\n\nUse tabs.\n",
@@ -315,6 +318,7 @@ func TestSetupKeepsOtherContent(t *testing.T) {
 }
 
 func TestSetupGlobal(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	// --global needs no repository.
 	code, out, errb := runIn(t, home, "-C", t.TempDir(), "setup", "gemini", "--global", "--write", "--command", "/opt/bin/starfix")
@@ -328,6 +332,7 @@ func TestSetupGlobal(t *testing.T) {
 }
 
 func TestSetupRefusals(t *testing.T) {
+	t.Parallel()
 	_, sub := repoWithConfig(t)
 	tests := []struct {
 		args []string
@@ -381,6 +386,7 @@ func TestSetupRefusals(t *testing.T) {
 }
 
 func TestSetupGlobalClaudeCode(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	code, out, errb := runIn(t, home, "-C", t.TempDir(), "setup", "claude-code", "--global", "--write")
 	if code != ExitOK || strings.Count(out, ": added\n") != 3 || strings.Contains(out, "approve") {
@@ -395,6 +401,7 @@ func TestSetupGlobalClaudeCode(t *testing.T) {
 
 // Junie runs hooks only from the home config, so only --global writes one.
 func TestSetupGlobalJunie(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	code, out, errb := runIn(t, home, "-C", t.TempDir(), "setup", "junie", "--global", "--write")
 	if code != ExitOK || strings.Count(out, ": added\n") != 3 {
@@ -420,6 +427,7 @@ func lineOf(out, prefix string) string {
 // or one agent keeps two parts in, is edited once with both parts, and a
 // second run changes nothing.
 func TestSetupAll(t *testing.T) {
+	t.Parallel()
 	root, sub := repoWithConfig(t)
 	home := t.TempDir()
 
@@ -498,6 +506,7 @@ func TestSetupAll(t *testing.T) {
 
 // setup --all --global skips the agents with no home config, saying why.
 func TestSetupAllGlobal(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	code, out, errb := runIn(t, home, "-C", t.TempDir(), "setup", "--all", "--global", "--write")
 	if code != ExitOK {
@@ -519,6 +528,7 @@ func TestSetupAllGlobal(t *testing.T) {
 // no session variable from the harness, sfx mcp picks its own: the server
 // assigns one only to a client that sends none.
 func TestSetupSessionID(t *testing.T) {
+	t.Parallel()
 	_, sub := repoWithConfig(t)
 	const picks = " gives sfx mcp none; sfx mcp picks its own per process (m-…) unless STARFIX_SESSION is set\n"
 	for _, tc := range []struct{ agent, want string }{

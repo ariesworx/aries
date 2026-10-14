@@ -32,6 +32,7 @@ func pushes(t *testing.T, s string) []proto.Push {
 // did not fit would have been, so it says items were missed and watches
 // again, even when the server's own resync is among them.
 func TestWatchQueue(t *testing.T) {
+	// Serial: a synctest bubble's virtual time takes no real time worth sharing.
 	tests := []struct {
 		name string
 		put  string // put before the loop takes any: item ids, r for a resync

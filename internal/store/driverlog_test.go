@@ -38,19 +38,21 @@ func (l *lockedBuffer) String() string {
 // to the store's logger, as a line of the schema, and not to the
 // process's stderr unformatted (design §16, slice O1's note).
 func TestDriverLogsThroughTheStoresLogger(t *testing.T) {
-	if errors.Is(serverErr, dolttest.ErrNoDolt) {
-		t.Skip("dolt is not on PATH: install dolt to run the store integration tests")
-	}
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()
-	// A Dolt of the test's own, since it is restarted. Its directory is
-	// short: t.TempDir's is too long for the path of Dolt's socket.
+	// A Dolt of the test's own, and not the pool's, since it is restarted.
+	// Its directory is short: t.TempDir's is too long for the path of
+	// Dolt's socket.
 	dir, err := os.MkdirTemp("", "starfix-dolt-")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	srv, err := dolttest.Start(ctx, dir)
+	if errors.Is(err, dolttest.ErrNoDolt) {
+		t.Skip("dolt is not on PATH: install dolt to run the store integration tests")
+	}
 	if err != nil {
 		t.Fatalf("dolt sql-server: %v", err)
 	}

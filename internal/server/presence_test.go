@@ -137,6 +137,7 @@ func seen(c *conn, a store.Actor) bool {
 // note has been made: the op it sent meanwhile starts only after the
 // note's write has ended, and who then lists the session.
 func TestSessionNotedBeforeFirstStoreOp(t *testing.T) {
+	// Serial: bounds elapsed time, which a test running beside it would stretch.
 	m, g := gatedWorld(t, 0)
 	g.close()
 	c := mustDialTo(t, m.Server, alice, projA)
@@ -173,6 +174,7 @@ func TestSessionNotedBeforeFirstStoreOp(t *testing.T) {
 // A session whose note failed is noted by its next store op, and from
 // then on is not noted again by each request.
 func TestSessionNotedAgainAfterFailure(t *testing.T) {
+	t.Parallel()
 	// Long enough for a request to Dolt on a busy machine, and short
 	// enough to wait out here.
 	m, g := gatedWorld(t, 3*time.Second)
@@ -208,6 +210,7 @@ func TestSessionNotedAgainAfterFailure(t *testing.T) {
 // goroutine making the note has ended, and the project's store counts
 // no connection.
 func TestConnClosedWhileSessionNoted(t *testing.T) {
+	// Serial: bounds elapsed time, which a test running beside it would stretch, and reads every goroutine's stack.
 	m, g := gatedWorld(t, 0)
 	first := m.stores.conns(projA)
 	g.close()
@@ -241,6 +244,7 @@ func TestConnClosedWhileSessionNoted(t *testing.T) {
 // before: the report counts its asker's session among those seen, and
 // who lists it.
 func TestStatusOnlySessionIsNoted(t *testing.T) {
+	t.Parallel()
 	m, _ := gatedWorld(t, 0)
 	for i := range 20 {
 		a := store.Actor{Principal: dana.Principal, Session: fmt.Sprintf("s-status-%d", i), Machine: dana.Machine}

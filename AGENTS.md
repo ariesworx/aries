@@ -45,19 +45,19 @@ stage is in progress.
 | `internal/offline` | What `sfx` and `sfx mcp` do with a write that did not reach the server (design §18.3, As built): which errors say so is `client.Unreachable`; here are the data directory on each system and `STARFIX_DATA_DIR`, the check that it is the user's own, the record of who the server took each key for (`seen.json`) and the rule from it to a principal's outbox, each refusal to queue with its code and fix, the replay of one principal's outbox on that principal's connection, and `prime`'s notice. `doc.go` has the rules; nothing in it has run on Windows |
 | `internal/mcpserver` | MCP tools, `prime`, token budgets, agent-facing error rewording; and the trace context a tool call brings in its request's metadata, which its requests then carry. With an outbox (`Options.Offline`), a queueable tool call that does not reach the server is queued and answered in one line (`offline.go`), and each new connection sends what waits first |
 | `internal/agentsetup` | `sfx setup AGENT` and `--all`: per harness, the MCP config, pointer block, SessionStart hook (and Claude Code's usage hooks) and the hook's output format; per-project entries in a desktop app's config (`desktop.go`); `STARFIX_KEY_FILE` in an entry of the person's own files (`--key-file`), never a project's |
-| `internal/clienttest` | `Isolate`, which keeps a test binary from the developer's `~/.ssh`, ssh-agent, key variables and outbox (it sets `STARFIX_DATA_DIR`); every package whose tests connect calls it from `TestMain` |
+| `internal/clienttest` | `Isolate`, which keeps a test binary from the developer's `~/.ssh`, ssh-agent, key variables and outbox (it sets `STARFIX_DATA_DIR`); every package whose tests connect calls it from `TestMain`. `IsolateGit`, which keeps the git a test binary starts from the developer's git configuration. Its tests read the module's tests: each is parallel or says why not |
 | `internal/gitx` | Branch names from issues, issue ids from branches and `Starfix:` trailers |
 | `internal/bdimport` | bd JSONL import and export |
 | `internal/release` | Release download, signature and checksum checks, binary swap. A release is read from one of two sources behind one interface: GitHub's API (`release.go`), or a static tree on any HTTPS file host or in a directory (`static.go`, with `index.json` in `index.go`), chosen by `DefaultSource`, `STARFIX_RELEASES` and `release.Open`. The source is transport and is never trusted: `Fetch` accepts a release on its signature and checksum alone, a static tree's tags are checked before they reach a URL, and no redirect from one is followed. `releasetest` serves a fake of each source |
 | `internal/tools/releasekey`, `internal/tools/releaseindex` | The signing tool; and the tool that lays a release's files out as a static tree and writes its `index.json`, which signs nothing and needs no secret ([RELEASING.md](RELEASING.md#publishing-to-a-static-host)) |
 | `internal/version` | Build version, and `Dolt`, the pinned Dolt release, with the SHA-256 of its archives (`dolt.sha256`); its tests keep every copy of a tool pin in step |
-| `internal/dolttest` | Starts a throwaway `dolt sql-server` for tests, grants its locked-down account databases by name, and drops a test's database when the test is done with it |
+| `internal/dolttest` | Starts a throwaway `dolt sql-server` for tests, grants its locked-down account databases by name, and drops a test's database when the test is done with it. `Pool` is a test binary's servers: each test holds one alone while it runs, so tests run in parallel |
 | `internal/iaptest` | A fake `gcloud` for tests of the IAP transport: the test binary, re-executed from `PATH` |
 | `internal/e2e` | End-to-end tests: CLI and MCP through an in-process SSH server to a real daemon and store. The SSH server can read the keys file the daemon writes, before its own keys, as sshd reads its `AuthorizedKeysFile`. `TestSoak` (`soak*_test.go`) is the gate of stages 3 and 3a ([CONTRIBUTING.md](CONTRIBUTING.md#the-soak-test)); with `STARFIX_SOAK_TELEMETRY` it runs with the daemon's telemetry on, and holds the instruments, the spans and the audit stream to the event logs or gives the daemon a collector that is not there (`soak_telemetry_test.go`) |
 | `deploy/docker` | The Docker test server ([docs/deploy/docker.md](docs/deploy/docker.md)): image, entrypoint, compose file and `smoke.sh`, which drives it end to end and is not part of CI. It mirrors docs/server.md's setup steps; `internal/version` keeps its Dolt at the pin. Telemetry is off unless asked for: `STARFIX_TELEMETRY=1` turns starfixd's on, its log export included, and the compose profiles `telemetry` and `prometheus` run a Collector and a Prometheus, pinned by digest, in the server's network namespace, since what they read answers on loopback alone; `STARFIX_SMOKE_TELEMETRY=1` has `smoke.sh` check them |
 | `deploy/observability` | Examples that are tested, for operators (design §16.7): an OpenTelemetry Collector's configuration for metrics, traces and logs, alert rules in Prometheus's format, a Prometheus configuration that loads them, and one dashboard. Vendor-neutral (rule 1). Tests in `internal/telemetry` (`harness_test.go`) fail if a rule or a query names a metric, a label or a value starfixd does not have, so change them with the instruments |
 | `deploy/apparmor` | AppArmor profiles for `starfixd` on Ubuntu, and their tunables. A change to what `starfixd` reads, writes, connects to or runs changes them too |
-| `scripts` | For contributors, in POSIX shell: `gate.sh` runs the gate (Commands, below), and `install-dolt.sh` installs the pinned Dolt, verified, under the user's cache directory. The tests beside them run both against stand-ins |
+| `scripts` | For contributors, in POSIX shell: `gate.sh` runs the gate (Commands, below), and `install-dolt.sh` installs the pinned Dolt, verified, under the user's cache directory. `leftovers.sh` runs a command, the tests usually, with a temporary directory of its own and fails if it leaves a file there or a process running; it is not part of the gate. The tests beside them run all three against stand-ins |
 | `mise.toml` | Go, golangci-lint and shellcheck versions for contributors who use mise; optional |
 | `install.sh` | The one-line installer for `sfx` and `starfixd`, from GitHub or from a static tree (`STARFIX_RELEASES`); `internal/release/install_test.go` and `install_static_test.go` run it against each, and tests check that its key is in `keys.go` and its `DEFAULT_RELEASES` is `release.DefaultSource` |
 | `spike/dolt` | Stage 0 measurements, kept as evidence; not maintained and excluded from lint |
@@ -155,16 +155,24 @@ process that started it, on Linux and macOS: a test binary that is killed
 `Stop`, so each launch has a watcher, a `/bin/sh` that kills dolt and
 removes its files from the directory once that process is gone. Start
 Dolt for a test through `dolttest`, never directly. A package's tests
-share one server and take a database each, and Dolt holds every database
+take their servers from a `dolttest.Pool`: a test holds one, alone,
+while it runs, and the pool runs one for every two processors, four at
+most. Dolt holds every database
 in memory, about 14 MB with starfix's schema, and opens each new one
-more slowly the more it holds. So the store, server and e2e tests, which
-make hundreds, drop a test's database when the test ends (the store's
-`newDSN`, the server's `newDatabase` and the e2e world's, over
-`dolttest.Server.DropDatabase`): get a test's database from those, not
-from `NewDatabase` directly.
-[CONTRIBUTING.md](CONTRIBUTING.md#tests-on-a-slow-machine) says how to
-run the tests on a slow machine, and what a test that passes there does
-not do.
+more slowly the more it holds. So a test's database is dropped when the
+test ends (the store's and `cmd/starfixd`'s `newDSN`, the server's
+`newDatabase`, bdimport's `newStore` and the e2e world's, over
+`dolttest.Pool`): get a test's database from those, not from
+`NewDatabase` directly.
+
+**Tests.** A test begins with `t.Parallel()`, or with a comment
+`// Serial:` and the reason it cannot run beside another; a test in
+`internal/clienttest` fails until each has one. A test run leaves
+nothing behind, and `scripts/leftovers.sh` checks that.
+[CONTRIBUTING.md](CONTRIBUTING.md#writing-a-test) says what makes a test
+serial and where a test's files, processes and databases go, and how to
+run the tests [on a slow machine](CONTRIBUTING.md#tests-on-a-slow-machine)
+and what a test that passes there does not do.
 
 ## Rules
 

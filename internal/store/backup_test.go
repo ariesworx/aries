@@ -7,6 +7,7 @@ import (
 )
 
 func TestBackupTag(t *testing.T) {
+	t.Parallel()
 	dsn := newDSN(t)
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	s := openStore(t, dsn, Options{Now: func() time.Time { return now }})

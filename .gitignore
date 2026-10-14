@@ -9,3 +9,6 @@
 .zed/
 *.code-workspace
 .DS_Store
+
+# What CI's test command writes (-coverprofile), for a run of it by hand.
+coverage.out

@@ -22,6 +22,7 @@ func hookOf(t *testing.T, agent string, global bool) Target {
 // nothing; a new command updates the hook in place; removing gives the
 // file back without it; another tool's prime hook is never starfix's.
 func TestHookFormats(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		agent  string
 		global bool
@@ -174,6 +175,7 @@ func TestHookFormats(t *testing.T) {
 // Gemini matches SessionStart sources exactly, so starfix keeps one group
 // per source; a missing group is added back and the others are kept.
 func TestGeminiHookAddsMissingSource(t *testing.T) {
+	t.Parallel()
 	h := hookOf(t, "gemini", false)
 	in := `{"hooks": {"SessionStart": [{"matcher": "startup", "hooks": [{"type": "command", "command": "sfx prime --hook=gemini", "timeout": 5000}]}]}}`
 	if h.Registered([]byte(in), DefaultEntry) {
@@ -189,6 +191,7 @@ func TestGeminiHookAddsMissingSource(t *testing.T) {
 // Gemini keeps its MCP servers and hooks in one settings file; each part
 // leaves the other alone.
 func TestGeminiSettingsHoldBoth(t *testing.T) {
+	t.Parallel()
 	a := Agents["gemini"]
 	var content []byte
 	for _, tg := range a.Targets(false) {
@@ -209,6 +212,7 @@ func TestGeminiSettingsHoldBoth(t *testing.T) {
 }
 
 func TestHookOutput(t *testing.T) {
+	t.Parallel()
 	const claude = `{"hookSpecificOutput":{"additionalContext":"hi\n","hookEventName":"SessionStart"}}`
 	tests := []struct{ agent, want string }{
 		{"claude-code", claude},
@@ -229,6 +233,7 @@ func TestHookOutput(t *testing.T) {
 // Hooks lists the agents `prime --hook=` accepts: those setup writes a
 // hook for.
 func TestHooks(t *testing.T) {
+	t.Parallel()
 	want := "claude-code codex cursor gemini junie vscode"
 	if got := strings.Join(Hooks(), " "); got != want {
 		t.Fatalf("Hooks() = %s, want %s", got, want)
@@ -236,6 +241,7 @@ func TestHooks(t *testing.T) {
 }
 
 func TestJunieMCP(t *testing.T) {
+	t.Parallel()
 	out, res, err := Agents["junie"].Apply(nil, DefaultEntry)
 	want := `{
   "mcpServers": {
@@ -257,6 +263,7 @@ func TestJunieMCP(t *testing.T) {
 }
 
 func TestJetBrainsRule(t *testing.T) {
+	t.Parallel()
 	a := Agents["jetbrains"]
 	rule := a.Targets(false)[0]
 	out, res, err := rule.Apply(nil, DefaultEntry)

@@ -206,6 +206,7 @@ func (s *served) pending(t *testing.T) int {
 // order, over connections the background dials itself. Requests reach
 // the server one at a time throughout.
 func TestDrainSendsWhatTheBudgetLeft(t *testing.T) {
+	// Serial: a synctest bubble's virtual time takes no real time worth sharing.
 	synctest.Test(t, func(t *testing.T) {
 		s := serve(t)
 		// 400ms a write: a budget of one second sends two, and is cut off
@@ -251,6 +252,7 @@ func TestDrainSendsWhatTheBudgetLeft(t *testing.T) {
 // round's connection closed. The two never have a request at the server
 // at once, and between them each write still arrives once, in order.
 func TestCallDuringDrainIsNotHeld(t *testing.T) {
+	// Serial: a synctest bubble's virtual time takes no real time worth sharing.
 	synctest.Test(t, func(t *testing.T) {
 		s := serve(t)
 		want := s.queue(t, 12, 400*time.Millisecond)
@@ -280,6 +282,7 @@ func TestCallDuringDrainIsNotHeld(t *testing.T) {
 // to guess from: here the connection names no key, as one to an older
 // server does not.
 func TestQueuedForTheConnectionsPrincipal(t *testing.T) {
+	t.Parallel()
 	first := &fakeConn{reply: func(op string, _ any) (any, error) {
 		if op == proto.OpComment {
 			return nil, errLost
@@ -300,6 +303,7 @@ func TestQueuedForTheConnectionsPrincipal(t *testing.T) {
 // redialed round after round: the background stops when a round sends
 // nothing, and the call that opened the connection still goes through.
 func TestDrainStopsWithoutProgress(t *testing.T) {
+	// Serial: a synctest bubble's virtual time takes no real time worth sharing.
 	synctest.Test(t, func(t *testing.T) {
 		s := serve(t)
 		s.queue(t, 3, 3*budget)
@@ -325,6 +329,7 @@ func TestDrainStopsWithoutProgress(t *testing.T) {
 // The background ends with Serve, in the middle of a round or idle: the
 // bubble fails the test if a goroutine is left behind.
 func TestDrainEndsWithServe(t *testing.T) {
+	// Serial: a synctest bubble's virtual time takes no real time worth sharing.
 	for _, tc := range []struct {
 		name string
 		end  func(s *served)

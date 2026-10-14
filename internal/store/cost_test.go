@@ -42,6 +42,7 @@ func summaryCost(c *Cost) string {
 // A record is priced by the newest price for its model in effect at its
 // time; a model with no price then is unpriced, never guessed at.
 func TestIssueUsageCost(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	t0 := clk.now() // 12:00
@@ -91,6 +92,7 @@ func TestIssueUsageCost(t *testing.T) {
 // A record shared by two issues is priced part by part, and the parts'
 // costs add up to the whole record's, to the picodollar.
 func TestIssueUsageCostOfSplitRecord(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	mustSetPrice(t, s, "example-large", day("2026-01-01"), rates(3_000_001, 15_000_007, 3_750_011, 6_000_013, 300_017))
@@ -130,6 +132,7 @@ func TestIssueUsageCostOfSplitRecord(t *testing.T) {
 // A digest prices the window's tokens as it counts them: all of them, or
 // a label's issues' parts.
 func TestDigestUsageCost(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	t0 := clk.now()
@@ -172,6 +175,7 @@ func TestDigestUsageCost(t *testing.T) {
 // carries none rather than calling every token unpriced. Once any price
 // exists, a model without one is unpriced.
 func TestUsageCostWithoutPrices(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "work"})
@@ -279,6 +283,7 @@ func costFixture(t *testing.T) (*Store, map[string]IssueID) {
 }
 
 func TestCostReport(t *testing.T) {
+	t.Parallel()
 	s, ids := costFixture(t)
 	since := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	until := since.Add(time.Hour)
@@ -364,6 +369,7 @@ func TestCostReport(t *testing.T) {
 // A report reads at most usageScanRows records and says when it left
 // some out.
 func TestCostReportCapped(t *testing.T) {
+	// Serial: lowers the package's usageScanRows (setUsageScanRows).
 	s, _ := costFixture(t)
 	setUsageScanRows(t, 2)
 	since := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
@@ -377,6 +383,7 @@ func TestCostReportCapped(t *testing.T) {
 }
 
 func TestCostReportRefuses(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	now := clk.now()
 	tests := []struct {
@@ -407,6 +414,7 @@ func TestCostReportRefuses(t *testing.T) {
 // one reading and until from a later one made a 366-day window a moment
 // longer than 366 days, and always refused it.
 func TestCostReportWindow(t *testing.T) {
+	t.Parallel()
 	c := &clock{t: time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)}
 	s := openStore(t, newDSN(t), Options{Now: func() time.Time { c.add(time.Millisecond); return c.now() }})
 	r, err := s.CostReport(t.Context(), CostFilter{By: CostByModel, Window: MaxCostWindow})
@@ -430,6 +438,7 @@ func TestCostReportWindow(t *testing.T) {
 // holds' edges: each issue gets the tokens of its time, and the time no
 // issue was held is unattributed. Each issue's part is priced as its own.
 func TestCostReportSpanCutAtHolds(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	t0 := clk.now() // 12:00
@@ -465,6 +474,7 @@ func TestCostReportSpanCutAtHolds(t *testing.T) {
 // one, however many generations up; a parent that no longer exists ends
 // the chain, so the issue takes the default account and no epic.
 func TestCostReportChains(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	t0 := clk.now()
@@ -513,6 +523,7 @@ func TestCostReportChains(t *testing.T) {
 // groups' hours add up to the total. An issue with hours and no tokens
 // is a group of its own.
 func TestCostReportHours(t *testing.T) {
+	t.Parallel()
 	s, ids := costFixture(t) // now 13:00 on 2026-10-07
 	t4 := mustCreate(t, s, NewIssue{Title: "four"})
 	ids["T4"] = t4.ID
@@ -630,6 +641,7 @@ func amortizedFixture(t *testing.T) (*Store, *clock, map[string]IssueID) {
 // covers in part gets the part its tokens in the window are of the
 // month's. carol, on no plan, adds nothing.
 func TestCostReportAmortized(t *testing.T) {
+	t.Parallel()
 	s, clk, ids := amortizedFixture(t)
 	clk.add(month("2026-11").Sub(clk.now())) // October is over, so it has cost its whole fee
 	const usd = 1_000_000_000_000            // picodollars
@@ -682,6 +694,7 @@ func TestCostReportAmortized(t *testing.T) {
 // accrued, by time, before it is split; a window reaching past now
 // charges nothing for the months to come.
 func TestCostReportAccrues(t *testing.T) {
+	t.Parallel()
 	s, _, ids := amortizedFixture(t) // 7 Oct 12:00: 6.5 of October's 31 days
 	// 30 USD × 6.5/31, split evenly between alice's 50 tokens on B and
 	// bob's 50 on no issue.
@@ -705,6 +718,7 @@ func TestCostReportAccrues(t *testing.T) {
 // window covers. A report on a server with no plans has no amortized
 // cost at all.
 func TestCostReportAmortizedIdle(t *testing.T) {
+	t.Parallel()
 	s, _ := clockStore(t) // 2026-10-07 12:00
 	r, err := s.CostReport(t.Context(), CostFilter{By: CostByIssue, Since: month("2026-10")})
 	if err != nil {
@@ -737,6 +751,7 @@ func TestCostReportAmortizedIdle(t *testing.T) {
 // exponent form, and past 2⁵³, where a float can no longer hold every
 // integer.
 func TestCostReportAmortizedLargeMonth(t *testing.T) {
+	t.Parallel()
 	sept := time.Date(2026, 9, 10, 12, 5, 0, 0, time.UTC)
 	t.Run("a million tokens", func(t *testing.T) {
 		s, clk := clockStore(t)

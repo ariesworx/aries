@@ -31,6 +31,7 @@ func who(t *testing.T, tel *Telemetry, m *Manual, principal, session string) (st
 
 // telemetry: principals: decides how a person appears on a span.
 func TestPrincipalsSetting(t *testing.T) {
+	t.Parallel()
 	t.Run("pseudonym is the default", func(t *testing.T) {
 		for _, mode := range []string{"", PrincipalsPseudonym} {
 			tel, m := traced(t, Config{Principals: mode})
@@ -90,6 +91,7 @@ func TestPrincipalsSetting(t *testing.T) {
 // a 0600 file, and read back at the next start. Deleting it makes every
 // earlier stand-in unlinkable: a new key gives different ones.
 func TestStandInKey(t *testing.T) {
+	// Serial: telemetry.New sets the SDK's error handler, which is the process's (setSDKLogging).
 	dir := t.TempDir()
 	path := filepath.Join(dir, "principals.key")
 	open := func(t *testing.T) *Telemetry {
@@ -158,6 +160,7 @@ func TestStandInKey(t *testing.T) {
 // on one short line and each fix on its own; the state says why; and
 // once the cause is gone a retry starts the stand-ins and says so once.
 func TestStandInKeyUnavailable(t *testing.T) {
+	t.Parallel()
 	const key = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
 	for _, tc := range []struct {
 		name    string
@@ -218,7 +221,8 @@ func TestStandInKeyUnavailable(t *testing.T) {
 		}, "not a regular file", true, "move it away"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "telemetry", "principals.key")
+			dir := t.TempDir()
+			path := filepath.Join(dir, "telemetry", "principals.key")
 			if err := os.Mkdir(filepath.Dir(path), 0o700); err != nil {
 				t.Fatal(err)
 			}
@@ -250,9 +254,12 @@ func TestStandInKeyUnavailable(t *testing.T) {
 				}
 			}
 			for line := range strings.Lines(out) {
-				// Short enough for `systemctl status` to show whole.
-				if len(line) > 320 {
-					t.Errorf("a log line of %d bytes; the cause and each fix must be a short line of its own:\n%s", len(line), line)
+				// Short enough for `systemctl status` to show whole. Measured
+				// with the key where a server keeps it, so that the bound does
+				// not move with the length of the temporary directory's name:
+				// 262 bytes is what 320 allowed under Linux's /tmp.
+				if n := len(strings.ReplaceAll(line, dir, "/var/lib/starfix")); n > 262 {
+					t.Errorf("a log line of %d bytes with the key under /var/lib/starfix; the cause and each fix must be a short line of its own:\n%s", n, line)
 				}
 			}
 			if strings.Contains(out, key[:40]) || strings.Contains(st.Cause, key[:40]) {
@@ -289,6 +296,7 @@ func TestStandInKeyUnavailable(t *testing.T) {
 // file that could not be used is not looked at as a fault, and nothing
 // is said of it at error level.
 func TestNoKeyNeeded(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []string{PrincipalsName, PrincipalsOmit} {
 		path := filepath.Join(t.TempDir(), "missing", "principals.key")
 		log := &syncBuffer{}
@@ -317,6 +325,7 @@ func TestNoKeyNeeded(t *testing.T) {
 // The daemon's Telemetry never makes a key up: with no file named for
 // it, the key is unavailable, for the reason it was given.
 func TestNoKeyFileNamed(t *testing.T) {
+	// Serial: telemetry.New sets the SDK's error handler, which is the process's (setSDKLogging).
 	log := &syncBuffer{}
 	tel, err := New(t.Context(), Config{Logger: logTo(log), Ops: testOps, KeyFileErr: errors.New("the account has no home directory"),
 		Getenv: env{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://127.0.0.1:1/v1/traces", "OTEL_BSP_SCHEDULE_DELAY": "60000"}.get})
@@ -336,6 +345,7 @@ func TestNoKeyFileNamed(t *testing.T) {
 }
 
 func TestValidStandIn(t *testing.T) {
+	t.Parallel()
 	for s, want := range map[string]bool{
 		"p_0123456789abcdef":  true,
 		"p_0123456789ABCDEF":  false,

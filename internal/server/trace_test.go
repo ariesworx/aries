@@ -41,6 +41,7 @@ func requestLine(m *multi, op string) string {
 // ignored, the request served as any other and nothing of it logged; and
 // a request without one is unchanged.
 func TestRequestTraceContext(t *testing.T) {
+	t.Parallel()
 	const traceID, spanID = "4bf92f3577b34da6a3ce929d0e0e4736", "00f067aa0ba902b7"
 	const parent = "00-" + traceID + "-" + spanID + "-01"
 	m := newMulti(t, Limits{}, nil)
@@ -98,6 +99,7 @@ func TestRequestTraceContext(t *testing.T) {
 }
 
 func TestTraceFrom(t *testing.T) {
+	t.Parallel()
 	if tc, ok := TraceFrom(t.Context()); ok {
 		t.Errorf("TraceFrom of a context with no request = %+v, true", tc)
 	}

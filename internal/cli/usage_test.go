@@ -10,6 +10,7 @@ import (
 func n(v int64) *int64 { return &v }
 
 func TestPrintUsage(t *testing.T) {
+	t.Parallel()
 	opus := proto.ModelTokens{Model: "opus", Tokens: proto.Tokens{Input: n(950), Output: n(12_345), CacheWrite: n(1_500_000),
 		CacheWrite1h: n(500_000), CacheRead: n(2_000_000_000)}}
 	gemini := proto.ModelTokens{Model: "gemini", Tokens: proto.Tokens{Output: n(0)}}
@@ -49,6 +50,7 @@ func TestPrintUsage(t *testing.T) {
 }
 
 func TestPrintDigestUsage(t *testing.T) {
+	t.Parallel()
 	var b bytes.Buffer
 	printDigestUsage(&b, &proto.DigestUsage{HeldSeconds: 6000, Models: []proto.ModelTokens{{Model: "opus", Tokens: proto.Tokens{Input: n(167), Output: n(0)}}},
 		Unattributed: []proto.ModelTokens{{Model: "opus", Tokens: proto.Tokens{Input: n(7), Output: n(0)}}}})

@@ -34,6 +34,7 @@ func (h *hookedQuerier) QueryRowContext(ctx context.Context, q string, args ...a
 // Each read of several queries sees one snapshot: writes that commit
 // after its first query change nothing it returns.
 func TestReadsAreOneSnapshot(t *testing.T) {
+	t.Parallel()
 	// a is ready, with a label and two acceptance items; c has a label and
 	// is blocked by b.
 	type fixture struct{ a, b, c IssueID }

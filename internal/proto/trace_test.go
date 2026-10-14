@@ -12,6 +12,7 @@ const (
 )
 
 func TestParseTraceContext(t *testing.T) {
+	t.Parallel()
 	valid := TraceContext{TraceID: testTraceID, SpanID: testSpanID, Flags: "01"}
 	withState := valid
 	withState.State = "rojo=00f067aa0ba902b7,congo=t61rcWkgMzE"

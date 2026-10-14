@@ -13,6 +13,7 @@ import (
 // gcloud is not on PATH, since every connection will need it; it still
 // sets the agent up.
 func TestSetupWarnsWithoutGcloud(t *testing.T) {
+	// Serial: sets the process's environment (t.Setenv).
 	const iap = "  iap:\n    project: example-project\n    zone: us-central1-a\n    instance: starfix-1\n"
 	const warning = "sfx: server.iap in .starfix.yaml needs gcloud, which is not on PATH\nfix: install the Google Cloud CLI"
 	withGcloud := t.TempDir()

@@ -17,6 +17,7 @@ import (
 // in text and with --json, and follows STARFIX_KEY to another identity
 // (design §14, decision 35).
 func TestWhoami(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
 	alice.env = map[string]string{"STARFIX_SESSION": "s-alice"}

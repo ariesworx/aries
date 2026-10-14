@@ -211,6 +211,7 @@ func hello(t *testing.T, sock, principal, project string) *proto.Frame {
 }
 
 func TestControlInit(t *testing.T) {
+	t.Parallel()
 	s := newSite(t, "")
 	aliceKey, aliceFP := pubKey(t, "alice-1")
 	plain, _ := pubKey(t, "nobody")
@@ -350,6 +351,7 @@ func TestControlInit(t *testing.T) {
 // TestControlInitLimits checks that the limits: settings reach the
 // control store: a line past a cap is skipped, and says which.
 func TestControlInitLimits(t *testing.T) {
+	t.Parallel()
 	s := newSite(t, "limits:\n  principals: 2\n  keys_per_principal: 1\n")
 	keys := writeKeys(t,
 		forced(t, "alice", "alice-1"),
@@ -385,6 +387,7 @@ func mustKeyOnly(t *testing.T, seed string) string {
 }
 
 func TestControlInitRefusals(t *testing.T) {
+	t.Parallel()
 	keys := writeKeys(t, forced(t, "alice", "alice-1"))
 	tests := []struct {
 		name  string
@@ -468,6 +471,7 @@ func rewrite(t *testing.T, s *site, body string) {
 // TestServeManyProjects runs the daemon as serve builds it, from the
 // settings alone.
 func TestServeManyProjects(t *testing.T) {
+	t.Parallel()
 	s := newSite(t, "")
 
 	// Before control init there is nothing to serve.
@@ -513,6 +517,7 @@ func TestServeManyProjects(t *testing.T) {
 // that a server of one project writes nothing, and that a daemon that
 // cannot write the file does not start, and says what to change.
 func TestServeWritesTheKeysFile(t *testing.T) {
+	t.Parallel()
 	s := newSite(t, "bridge: /opt/starfix/bin/starfixd\n")
 	keys := writeKeys(t, forced(t, "alice", "alice-1"), forced(t, "dana", "dana-1"))
 	if got := s.run(t, "", controlCmd, "init", "--name", "acme", "--authorized-keys", keys); got.err != nil {
@@ -572,6 +577,7 @@ func TestServeWritesTheKeysFile(t *testing.T) {
 // setting is taken as it is, and a relative one is under the home
 // directory of the user it runs as.
 func TestKeyFiles(t *testing.T) {
+	t.Parallel()
 	abs := filepath.Join(t.TempDir(), "keys")
 	keys, hand, err := keyFiles(server.Settings{KeysFile: abs, AuthorizedKeys: abs + ".hand"})
 	if err != nil || keys != abs || hand != abs+".hand" {
@@ -591,6 +597,7 @@ func TestKeyFiles(t *testing.T) {
 // name no control database is the server it was: it opens its one
 // store, no control store, and leaves no control table anywhere.
 func TestServeOneProjectOpensNoControl(t *testing.T) {
+	t.Parallel()
 	s := newSite(t, "")
 	rewrite(t, s, "project: "+adopted+"\nadmins: [dana]\n")
 	d, err := openDaemon(t.Context(), s.settings(t), slog.New(slog.DiscardHandler))
@@ -608,7 +615,7 @@ func TestServeOneProjectOpensNoControl(t *testing.T) {
 	if w := hello(t, sock, "anyone", adopted); w.Err != nil {
 		t.Errorf("hello on a server of one project refused: %v", w.Err)
 	}
-	db, err := sql.Open("mysql", dolt.RootDSN(""))
+	db, err := sql.Open("mysql", doltOf(t).RootDSN(""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -644,6 +651,7 @@ func addSecond(t *testing.T, s *site) store.Project {
 }
 
 func TestImportExportProject(t *testing.T) {
+	t.Parallel()
 	s := newSite(t, "")
 	if got := s.run(t, "", controlCmd, "init", "--name", "acme", "--authorized-keys", writeKeys(t)); got.err != nil {
 		t.Fatalf("control init: %v", got.err)
@@ -710,6 +718,7 @@ func TestImportExportProject(t *testing.T) {
 // TestUpgradeBackupManyProjects runs the real backup on a server of
 // many projects: every database the new binary may migrate is tagged.
 func TestUpgradeBackupManyProjects(t *testing.T) {
+	t.Parallel()
 	s := newSite(t, "")
 	if got := s.run(t, "", controlCmd, "init", "--name", "acme", "--authorized-keys", writeKeys(t)); got.err != nil {
 		t.Fatalf("control init: %v", got.err)
@@ -730,7 +739,7 @@ func TestUpgradeBackupManyProjects(t *testing.T) {
 	if err != nil || tag != "starfix-v0.2.0" {
 		t.Fatalf("backupStore = %q, %v; want the one tag", tag, err)
 	}
-	db, err := sql.Open("mysql", dolt.RootDSN(""))
+	db, err := sql.Open("mysql", doltOf(t).RootDSN(""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -750,6 +759,13 @@ func TestUpgradeBackupManyProjects(t *testing.T) {
 	if _, err := db.ExecContext(t.Context(), "DROP DATABASE `"+other.DBName+"`"); err != nil {
 		t.Fatal(err)
 	}
+	// Put back before the test ends: the cleanup that drops the test's
+	// databases (newDSN) fails on one that is gone.
+	defer func() {
+		if _, err := db.ExecContext(t.Context(), "CREATE DATABASE `"+other.DBName+"`"); err != nil {
+			t.Errorf("put the dropped database back: %v", err)
+		}
+	}()
 	_, err = backupStore(t.Context(), env, server.Settings{}, s.cfg, "starfix-v0.2.1")
 	if err == nil || !strings.Contains(err.Error(), "project other (database "+other.DBName+")") {
 		t.Errorf("backupStore with a project's database gone = %v, want an error naming the project", err)
@@ -759,7 +775,7 @@ func TestUpgradeBackupManyProjects(t *testing.T) {
 // tables returns how many tables named table the database db holds.
 func tables(t *testing.T, db, table string) int {
 	t.Helper()
-	root, err := sql.Open("mysql", dolt.RootDSN(""))
+	root, err := sql.Open("mysql", doltOf(t).RootDSN(""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -777,6 +793,7 @@ func tables(t *testing.T, db, table string) int {
 // before the daemon listens, with no connection to it, as every active
 // project's is after an upgrade. An archived project's is left alone.
 func TestServeMigratesEveryProject(t *testing.T) {
+	t.Parallel()
 	s := newSite(t, "")
 	if got := s.run(t, "", controlCmd, "init", "--name", "acme", "--authorized-keys", writeKeys(t)); got.err != nil {
 		t.Fatalf("control init: %v", got.err)
@@ -817,6 +834,7 @@ func TestServeMigratesEveryProject(t *testing.T) {
 // claim has ended before the daemon listens, with no connection to the
 // project and without activating it (decision 24).
 func TestServeEndsClaimsOfArchivedProjects(t *testing.T) {
+	t.Parallel()
 	s := newSite(t, "")
 	if got := s.run(t, "", controlCmd, "init", "--name", "acme", "--authorized-keys", writeKeys(t)); got.err != nil {
 		t.Fatalf("control init: %v", got.err)
@@ -850,7 +868,7 @@ func TestServeEndsClaimsOfArchivedProjects(t *testing.T) {
 	}
 
 	serveSite(t, s)
-	root, err := sql.Open("mysql", dolt.RootDSN(other.DBName))
+	root, err := sql.Open("mysql", doltOf(t).RootDSN(other.DBName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -893,6 +911,7 @@ func siteRig(t *testing.T, s *site, sock string) *upgradeRig {
 // fails the health check, so the upgrade puts the old binary back; and
 // the check does not need the config file's project to be active.
 func TestUpgradeChecksEveryProject(t *testing.T) {
+	t.Parallel()
 	dana := store.Actor{Principal: "dana", Session: "s", Machine: "m"}
 	t.Run("a project that cannot be opened fails the upgrade", func(t *testing.T) {
 		s := newSite(t, "")

@@ -113,6 +113,7 @@ func tree(t *testing.T, dir string) []string {
 // The tool lays releases out as the static source reads them, and what
 // it writes is what a client then installs from.
 func TestLayout(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	if r := f.run("--published", "2026-01-02T03:04:05Z", "v0.9.0", f.dist(t, "v0.9.0"), f.dest); r.code != 0 {
 		t.Fatalf("first release: %+v", r)
@@ -166,6 +167,7 @@ func TestLayout(t *testing.T) {
 // The same release laid out again changes nothing: not a byte of the
 // index, whatever the clock says, and no file.
 func TestLayoutIsRepeatable(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	dist := f.dist(t, "v0.9.0")
 	if r := f.run("v0.9.0", dist, f.dest); r.code != 0 {
@@ -194,6 +196,7 @@ func TestLayoutIsRepeatable(t *testing.T) {
 }
 
 func TestLayoutRefuses(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		tag  string

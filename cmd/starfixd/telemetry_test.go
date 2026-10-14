@@ -182,6 +182,7 @@ const secretToken = "Bearer-s3cr3t-T0KEN-fedcba9876543210"
 // /readyz on the loopback listener, answers `starfixd status`, logs no
 // token, and stops cleanly, leaving nothing running.
 func TestRunDaemonWithTelemetry(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	noLeak(t)
 	var mu sync.Mutex
 	var exports [][]byte
@@ -327,6 +328,7 @@ func TestRunDaemonWithTelemetry(t *testing.T) {
 // With nothing configured the daemon is the daemon it was: no listener,
 // no export, no line about telemetry, and no goroutine left behind.
 func TestRunDaemonTelemetryOffByDefault(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	noLeak(t)
 	s := newSite(t, "")
 	rewrite(t, s, "project: "+adopted+"\nadmins: [dana]\n")
@@ -353,6 +355,7 @@ func TestRunDaemonTelemetryOffByDefault(t *testing.T) {
 // its spans say nothing about who, and its log and its status say why
 // and what to do.
 func TestRunDaemonStandInKey(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	traces := map[string]string{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://127.0.0.1:1/v1/traces", "OTEL_BSP_SCHEDULE_DELAY": "60000"}
 	t.Run("nowhere to make it", func(t *testing.T) {
 		noLeak(t)
@@ -442,6 +445,7 @@ func TestRunDaemonStandInKey(t *testing.T) {
 // OTEL_SDK_DISABLED turns the metrics off and leaves the health checks:
 // the listener answers /healthz and /readyz, and /metrics is 404.
 func TestRunDaemonSDKDisabled(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	noLeak(t)
 	s := newSite(t, "")
 	addr := freeAddr(t)
@@ -468,6 +472,7 @@ func TestRunDaemonSDKDisabled(t *testing.T) {
 // A listener that cannot be bound fails the start, with a fix, before
 // the database is touched.
 func TestRunDaemonListenerFailsTheStart(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	noLeak(t)
 	held, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -492,6 +497,7 @@ func TestRunDaemonListenerFailsTheStart(t *testing.T) {
 }
 
 func TestStatusUsage(t *testing.T) {
+	t.Parallel()
 	for _, args := range [][]string{{"extra"}, {"--project", "x"}, {"-n", "3"}} {
 		var out bytes.Buffer
 		err := statusCmd(t.Context(), adminEnv{stdout: &out, stderr: io.Discard, getenv: func(string) string { return "" }}, args)
@@ -504,6 +510,7 @@ func TestStatusUsage(t *testing.T) {
 // Whoever cannot read the daemon's config file is told who can run the
 // command, as text and as the one JSON document.
 func TestStatusUnreadableConfig(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("needs a file this user cannot read")
 	}
@@ -530,6 +537,7 @@ func TestStatusUnreadableConfig(t *testing.T) {
 // A refusal is printed with its fix on a line of its own, since
 // `systemctl status` cuts a long line and the fix is at its end.
 func TestRefusalLines(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		err  string
 		want []string

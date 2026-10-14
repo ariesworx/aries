@@ -18,6 +18,7 @@ func fixedNow() time.Time { return time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 // A person logs, lists and undoes their hours; show, digest and cost
 // carry them.
 func TestDispatchHours(t *testing.T) {
+	t.Parallel()
 	s, _ := newServerClock(t, Limits{}, fixedNow)
 	is := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work"})
 	mine := mustCall[proto.HoursLogResult](t, s, alice, proto.OpHoursLog, proto.HoursLogArgs{ID: is.ID, Seconds: 5400, Note: "pairing", Idem: "cli-1"})
@@ -87,6 +88,7 @@ func TestDispatchHours(t *testing.T) {
 
 // A retried log whose entry was since undone says so.
 func TestDispatchHoursLogRetriedAfterUndo(t *testing.T) {
+	t.Parallel()
 	s, _ := newServerClock(t, Limits{}, fixedNow)
 	is := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work"})
 	in := proto.HoursLogArgs{ID: is.ID, Seconds: 3600, Idem: "cli-log"}
@@ -103,6 +105,7 @@ func TestDispatchHoursLogRetriedAfterUndo(t *testing.T) {
 // Rule 18: past limits: hours_per_day a new entry is refused, naming the
 // limit and how to combine entries.
 func TestDispatchHoursLimit(t *testing.T) {
+	t.Parallel()
 	s, _ := newServerClock(t, Limits{Limits: store.Limits{HoursPerDay: 1}}, fixedNow)
 	is := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work"})
 	mustCall[proto.HoursLogResult](t, s, alice, proto.OpHoursLog, proto.HoursLogArgs{ID: is.ID, Seconds: 60})
@@ -116,6 +119,7 @@ func TestDispatchHoursLimit(t *testing.T) {
 // An entry that would take a day past 24 hours is refused with how much
 // more the day holds.
 func TestDispatchHoursDayFull(t *testing.T) {
+	t.Parallel()
 	s, _ := newServerClock(t, Limits{}, fixedNow)
 	is := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work"})
 	mustCall[proto.HoursLogResult](t, s, alice, proto.OpHoursLog, proto.HoursLogArgs{ID: is.ID, Seconds: 22*3600 + 1800})
@@ -127,6 +131,7 @@ func TestDispatchHoursDayFull(t *testing.T) {
 }
 
 func TestDispatchPlans(t *testing.T) {
+	t.Parallel()
 	s, _ := newServerClock(t, Limits{}, fixedNow)
 	set := proto.PlanSetArgs{Name: "team", From: "2026-09", Fee: 10_000_000, Seats: 3, Principals: []string{"bob", "alice"}}
 	for _, want := range []string{"added", "unchanged"} {
@@ -165,6 +170,7 @@ func TestDispatchPlans(t *testing.T) {
 
 // Rule 18: past limits: plans a new plan row is refused, naming the limit.
 func TestDispatchPlansLimit(t *testing.T) {
+	t.Parallel()
 	s, _ := newServerClock(t, Limits{Limits: store.Limits{Plans: 1}}, fixedNow)
 	mustCall[proto.PlanSetResult](t, s, dana, proto.OpPlanSet, proto.PlanSetArgs{Name: "a", From: "2026-09", Fee: 1, Seats: 1})
 	_, perr := call[proto.PlanSetResult](t, s, dana, proto.OpPlanSet, proto.PlanSetArgs{Name: "b", From: "2026-09", Fee: 1, Seats: 1})
@@ -177,6 +183,7 @@ func TestDispatchPlansLimit(t *testing.T) {
 // A cost report carries every group's amortized cost, an exact decimal,
 // once the server has a plan.
 func TestDispatchCostAmortized(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	now := fixedNow().Add(-time.Hour)
 	s, _ := newServerClock(t, Limits{}, func() time.Time {
@@ -210,6 +217,7 @@ func TestDispatchCostAmortized(t *testing.T) {
 }
 
 func TestHoursAndPlansReads(t *testing.T) {
+	t.Parallel()
 	for _, op := range []string{proto.OpHours, proto.OpPlans} {
 		if !readOps[op] {
 			t.Errorf("%s is not a read op", op)

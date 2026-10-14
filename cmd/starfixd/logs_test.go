@@ -18,6 +18,7 @@ import (
 // Without it nothing of the log is exported, whatever else is: the
 // journal is the logs' home.
 func TestRunDaemonExportsLogs(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	for _, tc := range []struct {
 		name string
 		env  map[string]string
@@ -100,6 +101,7 @@ func TestRunDaemonExportsLogs(t *testing.T) {
 // file says audit_log: false (design §16.3): an access change in the
 // control database is a log line with audit=true, or is not.
 func TestServeAuditLogSetting(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, extra string
 		want        bool

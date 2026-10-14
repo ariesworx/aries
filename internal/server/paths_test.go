@@ -15,6 +15,7 @@ import (
 // overlaps them for another principal, and show lists the issue's files
 // and who holds the overlapping work.
 func TestDispatchPaths(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	p0, p3 := 0, 3
 	held := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "held"})
@@ -67,6 +68,7 @@ func TestDispatchPaths(t *testing.T) {
 // The path fields are optional: a client that sends none of them is
 // served by every op that takes them, and no paths are recorded.
 func TestDispatchWithoutPaths(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	raw := func(a store.Actor, op, args string) json.RawMessage {
 		t.Helper()
@@ -95,6 +97,7 @@ func TestDispatchWithoutPaths(t *testing.T) {
 }
 
 func TestDispatchPathsRefused(t *testing.T) {
+	t.Parallel()
 	s := newServerWith(t, Limits{Limits: store.Limits{Paths: 2}})
 	is := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "x"})
 	tests := []struct {
@@ -122,6 +125,7 @@ func TestDispatchPathsRefused(t *testing.T) {
 // next ready issue as the caller's own ready would: the caller's own
 // claims do not count as overlaps.
 func TestHeldNamesCallersNextReady(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	p0, p1 := 0, 1
 	mine := mustCall[proto.WriteResult](t, s, bob, proto.OpCreate, proto.CreateArgs{Title: "bob's"})

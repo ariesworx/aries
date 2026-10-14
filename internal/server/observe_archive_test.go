@@ -14,6 +14,7 @@ import (
 // daemon's start in one an interrupted archive left behind. The store a
 // start opens as it is, without migrating, is no measured opening.
 func TestMetricsOfArchivedClaims(t *testing.T) {
+	t.Parallel()
 	tel, mr := measured(t, true)
 	m := adminWorldTel(t, Limits{}, tel)
 	const projD = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
@@ -83,6 +84,7 @@ func TestMetricsOfArchivedClaims(t *testing.T) {
 // request, is welcomed whatever it speaks, and `starfixd status`, which
 // sends one, only when it speaks this daemon's protocol.
 func TestStatusPrincipalSpeaksTheProtocol(t *testing.T) {
+	t.Parallel()
 	tel, mr := measured(t, true)
 	s := newServerTel(t, Limits{}, tel)
 	hello := func(principal string, p int) *proto.Frame {
@@ -149,6 +151,7 @@ func TestStatusPrincipalSpeaksTheProtocol(t *testing.T) {
 // The openings a daemon makes before it listens, which are where an
 // upgrade's migrations run, are measured as any opening is.
 func TestMetricsOfOpenProjects(t *testing.T) {
+	t.Parallel()
 	tel, mr := measured(t, true)
 	m := newMultiTel(t, Limits{}, nil, tel, dana.Principal)
 	m.project(t, projA, "alice")

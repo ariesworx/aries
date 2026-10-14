@@ -65,6 +65,7 @@ func one(t *testing.T, spans []SpanData, name string) SpanData {
 // caller's span when the request brought a trace context, and the spans
 // started under it are its children, in the same trace.
 func TestSpanTree(t *testing.T) {
+	t.Parallel()
 	tel, m := traced(t, Config{})
 	if !tel.Tracing() {
 		t.Fatalf("Tracing() = false for a Telemetry made to trace")
@@ -128,6 +129,7 @@ func TestSpanTree(t *testing.T) {
 // A request with no trace context, or one that is not valid, starts a
 // trace of its own. Nothing of an invalid one is kept.
 func TestSpanWithoutAParent(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name   string
 		parent proto.TraceContext
@@ -181,6 +183,7 @@ var spanNames = []string{"unknown", "handshake", "store.open", "store.migrate", 
 // the fixed names, its keys are from the fixed set, and no value is a
 // string the caller chose freely.
 func TestSpanAttributesAreVetted(t *testing.T) {
+	t.Parallel()
 	if got := SpanKeys(); !slices.Equal(got, spanKeys) {
 		t.Fatalf("SpanKeys() = %v, want %v: list a new key here, with the rule for its values", got, spanKeys)
 	}
@@ -258,6 +261,7 @@ func TestSpanAttributesAreVetted(t *testing.T) {
 // The sampler is the SDK's, chosen by the standard variables. An
 // unsampled span records nothing and still has ids, for the log.
 func TestSampling(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name    string
 		env     env
@@ -300,6 +304,7 @@ func TestSampling(t *testing.T) {
 }
 
 func TestReadEnvTraces(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name     string
 		env      env
@@ -408,6 +413,7 @@ func cmp[T comparable](a, b T) T {
 // with the headers, carrying the same resource as metrics; a stop
 // flushes what is pending.
 func TestTracePush(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	noLeak(t)
 	col := newCollector(t, http.StatusOK, nil)
 	log := &syncBuffer{}
@@ -466,6 +472,7 @@ func TestTracePush(t *testing.T) {
 // With nothing configured for traces there is no tracer, no goroutine
 // and no key file, and a span costs nothing.
 func TestTracesOffByDefault(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	noLeak(t)
 	for _, tc := range []struct {
 		name string
@@ -532,6 +539,7 @@ func TestTracesOffByDefault(t *testing.T) {
 // A header's value may be a token: no line about traces may hold it,
 // even when the backend's answer repeats it.
 func TestTraceTokenIsNeverLogged(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	noLeak(t)
 	col := newCollector(t, http.StatusUnauthorized, func(r *http.Request) string {
 		return "bad credentials: " + r.Header.Get("Authorization") + " for " + r.URL.String()
@@ -597,6 +605,7 @@ func grep(text, sub string) string {
 // neither a span nor a stop; the queue is bounded, and what it could not
 // take is counted.
 func TestDeadCollectorTraces(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	closed, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -700,6 +709,7 @@ func (*blocking) Shutdown(context.Context) error { return nil }
 // Every sampled span is exported or counted as dropped, exactly: the
 // queue's bound is enforced where it can be counted.
 func TestDroppedSpansAreCounted(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	for _, tc := range []struct {
 		name string
 		fail bool
@@ -747,6 +757,7 @@ func TestDroppedSpansAreCounted(t *testing.T) {
 // short, however long the export's own timeout is: it returns soon after
 // the deadline, counts what it abandoned, and leaves nothing running.
 func TestStopCutsShortASlowExport(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	noLeak(t)
 	tel, m := traced(t, Config{})
 	exp := &blocking{release: make(chan struct{})} // never released
@@ -825,6 +836,7 @@ func BenchmarkRequestSpans(b *testing.B) {
 // each once, so that a long run can count its spans without keeping
 // them all.
 func TestTakeSpans(t *testing.T) {
+	t.Parallel()
 	tel, m := traced(t, Config{})
 	end := func(name SpanName) {
 		_, sp := tel.Start(t.Context(), name)

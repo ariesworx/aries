@@ -18,6 +18,7 @@ import (
 // Dolt's metrics by itself, `starfixd status` shows them as text and as
 // JSON, and the stop leaves nothing running.
 func TestRunDaemonReadsDoltsMetrics(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	noLeak(t)
 	var hits atomic.Int64
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -60,6 +61,7 @@ func TestRunDaemonReadsDoltsMetrics(t *testing.T) {
 // With no URL, which is the default, the daemon asks nothing of Dolt's
 // endpoint and its status says nothing of Dolt.
 func TestRunDaemonReadsNothingOfDoltByDefault(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	noLeak(t)
 	s := newSite(t, "")
 	rewrite(t, s, "project: "+adopted+"\nadmins: [dana]\n")
@@ -87,6 +89,7 @@ func TestRunDaemonReadsNothingOfDoltByDefault(t *testing.T) {
 // settings: one that is not on loopback fails the start, with a fix,
 // before the database is touched.
 func TestRunDaemonRefusesDoltsMetricsElsewhere(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	noLeak(t)
 	set := server.Settings{DSN: "nobody@tcp(127.0.0.1:1)/nowhere", Project: adopted, Socket: filepath.Join(t.TempDir(), "d.sock")}
 	set.Limits = server.DefaultLimits

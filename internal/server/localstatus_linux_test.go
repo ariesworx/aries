@@ -18,6 +18,7 @@ import (
 // TestStatusHelperProcess is TestCheckPeerKeepsStatusFromOtherUsers's
 // child: it runs `starfixd status`'s request and prints how it ended.
 func TestStatusHelperProcess(t *testing.T) {
+	t.Parallel()
 	addr := os.Getenv(statusHelperEnv)
 	if addr == "" {
 		t.Skip("helper process for TestCheckPeerKeepsStatusFromOtherUsers")
@@ -32,6 +33,7 @@ func TestStatusHelperProcess(t *testing.T) {
 // Changing uid needs root; CI runs the tests named TestCheckPeer under
 // sudo, which is why this one is named so.
 func TestCheckPeerKeepsStatusFromOtherUsers(t *testing.T) {
+	// Serial: runs a program it has just written, which fails (text file busy) if a test beside it starts a process meanwhile.
 	if os.Getuid() != 0 {
 		t.Skip("needs root to run a peer as another uid")
 	}

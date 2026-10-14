@@ -14,6 +14,7 @@ import (
 // price and anyone lists it, a non-admin is refused with the fix, and
 // show, digest and cost price the tokens an agent's session reported.
 func TestCostCLI(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{admins: []string{"dana"}})
 	alice, dana := w.newUser("alice", ""), w.newUser("dana", "")
 	alice.env["STARFIX_SESSION"] = "s-agent"

@@ -308,6 +308,7 @@ func rawLines(t *testing.T, o *Outbox) (lines [][]byte, whole bool) {
 }
 
 func TestProcessesAppendTogether(t *testing.T) {
+	t.Parallel()
 	const procs, each = 10, 10
 	o := openTest(t)
 	children := make([]*child, procs)
@@ -375,6 +376,7 @@ func sessionID(t *testing.T, e Entry) int {
 }
 
 func TestWriterKilledMidAppend(t *testing.T) {
+	t.Parallel()
 	o := openTest(t)
 	for i := range 2 {
 		if _, err := o.Append(childEntry(0, i)); err != nil {
@@ -425,6 +427,7 @@ func entrySeqs(es []Entry) []uint64 {
 }
 
 func TestOneProcessReplaysAtATime(t *testing.T) {
+	t.Parallel()
 	o := openTest(t)
 	for i := range 3 {
 		if _, err := o.Append(childEntry(0, i)); err != nil {
@@ -467,6 +470,7 @@ func TestOneProcessReplaysAtATime(t *testing.T) {
 }
 
 func TestReplayerKilledMidReplay(t *testing.T) {
+	t.Parallel()
 	const entries, dieAt = 6, 3
 	o := openTest(t)
 	for i := range entries {
@@ -506,6 +510,7 @@ func TestReplayerKilledMidReplay(t *testing.T) {
 }
 
 func TestCompactionWhileProcessesAppend(t *testing.T) {
+	t.Parallel()
 	const procs, each, every, batch = 8, 10, 7, 5
 	o := openTest(t)
 	delivered := make(map[string]int)

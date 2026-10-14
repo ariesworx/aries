@@ -81,6 +81,7 @@ func round(t *testing.T, c *conn, i int) {
 // the other, a machine that was busy for the second run only made a dead
 // collector look six times slower than none.
 func TestDeadCollector(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	const rounds = 60
 	closed, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

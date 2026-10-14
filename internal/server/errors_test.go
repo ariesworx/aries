@@ -12,6 +12,7 @@ import (
 // refused as invalid, with the store's message and a fix chosen by the
 // reason, each pinned whole.
 func TestDispatchStateErrors(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	held := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "held"})
 	heldRev := mustCall[proto.StartResult](t, s, alice, proto.OpStart, proto.StartArgs{ID: held.ID}).Issue.Rev
@@ -50,6 +51,7 @@ func TestDispatchStateErrors(t *testing.T) {
 // code, and its proto.Fix phrase where sfx mcp reads the fix for it, so a
 // reworded fix fails here rather than lose the agent its advice.
 func TestFixPhrases(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	held := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "held"})
 	heldRev := mustCall[proto.StartResult](t, s, alice, proto.OpStart, proto.StartArgs{ID: held.ID}).Issue.Rev

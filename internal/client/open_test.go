@@ -207,6 +207,7 @@ func await[T any](t *testing.T, c <-chan T, what string) T {
 // until its time is up, or its context is canceled: Dial then says which
 // step it was waiting for, and leaves no connection and no goroutine.
 func TestDialGivesUpOnAQuietServer(t *testing.T) {
+	// Serial: counts the process's goroutines (settled).
 	tests := []struct {
 		name   string
 		how    quiet
@@ -257,6 +258,7 @@ func TestDialGivesUpOnAQuietServer(t *testing.T) {
 // is refused at once, however the close and the opening of the session
 // fall: CI once waited ten minutes on this.
 func TestDialToAServerThatClosesAtOnce(t *testing.T) {
+	// Serial: counts the process's goroutines (settled).
 	d := newQuietSSHD(t, closesAtOnce)
 	settled(t)
 	for i := range 50 {
@@ -362,6 +364,7 @@ func sshPair(t *testing.T) (*ssh.Client, *transport, *stallConn, net.Conn) {
 // returns. Without the transport's check, about every second run of this
 // never returned, and every run on one processor.
 func TestNoSessionIsOpenedOnAConnectionThatEnded(t *testing.T) {
+	// Serial: counts the process's goroutines (settled).
 	settled(t)
 	for i := range 20 {
 		client, nc, stall, srv := sshPair(t)
@@ -391,6 +394,7 @@ func TestNoSessionIsOpenedOnAConnectionThatEnded(t *testing.T) {
 // the request to open it is written, the open is over, or the transport
 // is closed; and none is opened once a read has failed.
 func TestTransportKeepsBackAFailedRead(t *testing.T) {
+	// Serial: a synctest bubble's virtual time takes no real time worth sharing.
 	tests := []struct {
 		name    string
 		release func(*transport)

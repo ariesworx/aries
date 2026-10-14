@@ -12,6 +12,7 @@ import (
 // principal while sshd signed it in as another (security review of
 // stage 3a, a note read from the code).
 func TestControlInitReadsAForcedCommandAsStdioDoes(t *testing.T) {
+	t.Parallel()
 	s := newSite(t, "")
 	key := func(seed string) string { return mustKeyOnly(t, seed) }
 	keys := writeKeys(t,

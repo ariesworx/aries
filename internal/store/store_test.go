@@ -29,6 +29,7 @@ func doltCommits(t *testing.T, s *Store) (int, string) {
 // TestBatchedCommits drives the committer from its own tick channel, so it
 // counts commits per tick rather than per wall-clock interval (T-1).
 func TestBatchedCommits(t *testing.T) {
+	t.Parallel()
 	ticks := make(chan time.Time)
 	s := openStore(t, newDSN(t), Options{CommitInterval: time.Hour, tick: ticks})
 	// tick sends two ticks. The committer is ready for the second only
@@ -88,6 +89,7 @@ func TestBatchedCommits(t *testing.T) {
 }
 
 func TestMigrations(t *testing.T) {
+	t.Parallel()
 	dsn := newDSN(t)
 	s := openStore(t, dsn, Options{})
 	if n, err := migrate(t.Context(), s.w, s.now(), projectSchema, true); err != nil || n != 0 {
@@ -105,6 +107,7 @@ func TestMigrations(t *testing.T) {
 // migrations have all been applied to opens, and one that is behind is
 // refused with ErrSchemaOld and left exactly as it was.
 func TestOpenNoMigrate(t *testing.T) {
+	t.Parallel()
 	dsn := newDSN(t)
 	// A database nothing has migrated: it is behind, and stays empty.
 	if _, err := Open(t.Context(), dsn, Options{CommitInterval: -1, NoMigrate: true}); !errors.Is(err, ErrSchemaOld) {
@@ -155,6 +158,7 @@ func TestOpenNoMigrate(t *testing.T) {
 }
 
 func TestLoadMigrations(t *testing.T) {
+	t.Parallel()
 	ms, err := loadMigrations(migrationFiles, "migrations")
 	if err != nil || len(ms) == 0 || ms[0].version != 1 || len(ms[0].stmts) != 6 {
 		t.Fatalf("embedded migrations: %v %+v", err, ms)
@@ -177,6 +181,7 @@ func TestLoadMigrations(t *testing.T) {
 }
 
 func TestSplitSQL(t *testing.T) {
+	t.Parallel()
 	got := splitSQL("-- comment\nCREATE TABLE a (\n  x INT\n);\n\nCREATE TABLE b (y INT);\nSELECT 1")
 	if len(got) != 3 || !strings.HasPrefix(got[0], "CREATE TABLE a") || got[2] != "SELECT 1" {
 		t.Errorf("splitSQL = %q", got)
@@ -186,6 +191,7 @@ func TestSplitSQL(t *testing.T) {
 // TestEveryUpdateSetsWriteID scans the package source: every UPDATE must
 // stamp write_id, or Dolt merges concurrent writes silently (stage 0).
 func TestEveryUpdateSetsWriteID(t *testing.T) {
+	t.Parallel()
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)

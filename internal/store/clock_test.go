@@ -57,6 +57,7 @@ func steppedStore(t *testing.T, dsn string, c *twoClocks, opts Options) (*Store,
 }
 
 func TestClockSteps(t *testing.T) {
+	t.Parallel()
 	type move struct {
 		run, step time.Duration
 	}
@@ -103,6 +104,7 @@ func TestClockSteps(t *testing.T) {
 // the clocks read: a time with more would be pushed to a watch as one
 // instant and stored as another. The soak found this.
 func TestStoreTimeIsToTheMicrosecond(t *testing.T) {
+	t.Parallel()
 	c := newTwoClocks()
 	s, _ := steppedStore(t, "", c, Options{})
 	for _, move := range []func(){
@@ -125,6 +127,7 @@ func TestStoreTimeIsToTheMicrosecond(t *testing.T) {
 // project. The soak found this: a claim released for a lost membership
 // was dated before the control event that removed it.
 func TestStoresOfOneServerShareOneTime(t *testing.T) {
+	t.Parallel()
 	c := newTwoClocks()
 	quiet, busy := newDSN(t), newDSN(t)
 	clk := NewClock(ClockOptions{Read: c.read})
@@ -170,6 +173,7 @@ func TestStoresOfOneServerShareOneTime(t *testing.T) {
 // follows the first, to keep one time, and its leases are given the jump
 // that makes it do so: no claim ends for it.
 func TestNeighborFollowsASettledJumpWithItsLeases(t *testing.T) {
+	t.Parallel()
 	c := newTwoClocks()
 	clk := NewClock(ClockOptions{Read: c.read})
 	a := openStore(t, newDSN(t), Options{Clock: clk})
@@ -199,6 +203,7 @@ func TestNeighborFollowsASettledJumpWithItsLeases(t *testing.T) {
 // reading, never shows a step: there is nothing to compare the wall
 // clock with.
 func TestClockWithoutMonotonicReadings(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	clk := NewClock(ClockOptions{Now: func() time.Time { return at }})
 	clk.Now()
@@ -230,6 +235,7 @@ func eventTimes(t *testing.T, s *Store) []Event {
 // Before this, an event written after the clock was set back had a time
 // before its predecessor's, in a running store and across a restart.
 func TestEventTimeNeverGoesBackward(t *testing.T) {
+	t.Parallel()
 	for _, back := range []time.Duration{time.Second, 30 * time.Second, time.Hour, 30 * 24 * time.Hour} {
 		t.Run(back.String(), func(t *testing.T) {
 			c := newTwoClocks()
@@ -271,6 +277,7 @@ func TestEventTimeNeverGoesBackward(t *testing.T) {
 // While the clock is behind, the store's time runs at half speed, so the
 // clock catches up after twice the gap and the two then agree again.
 func TestStoreTimeCatchesUp(t *testing.T) {
+	t.Parallel()
 	c := newTwoClocks()
 	s, _ := steppedStore(t, "", c, Options{})
 	mustCreate(t, s, NewIssue{})
@@ -297,6 +304,7 @@ func TestStoreTimeCatchesUp(t *testing.T) {
 // at most how far it was set back, and never shortens one; before, a
 // clock set back an hour kept a 15-minute lease alive for 75.
 func TestLeaseAcrossBackwardStep(t *testing.T) {
+	t.Parallel()
 	c := newTwoClocks()
 	s, _ := steppedStore(t, "", c, Options{})
 	ctx := t.Context()
@@ -345,6 +353,7 @@ func isStale(err error) bool {
 // the old holder's epoch is refused everywhere, and the epoch only
 // rises. The steps are tried at every point of a takeover.
 func TestFencingAcrossClockSteps(t *testing.T) {
+	t.Parallel()
 	steps := []struct {
 		name string
 		by   []time.Duration // the clock is set by each in turn, a reading between
@@ -477,6 +486,7 @@ func lastClockStep(t *testing.T, s *Store) (Event, clockStep, int) {
 // clock did not see is added to every live lease, with one event, and
 // no claim ends for it.
 func TestForwardStepEndsNoClaim(t *testing.T) {
+	t.Parallel()
 	for _, jump := range []time.Duration{6 * time.Second, 20 * time.Minute, 9 * time.Hour, 400 * 24 * time.Hour} {
 		t.Run(jump.String(), func(t *testing.T) {
 			c := newTwoClocks()
@@ -559,6 +569,7 @@ func TestForwardStepEndsNoClaim(t *testing.T) {
 // a lease still live is extended. The soak once took this for a claim
 // reaped for the jump (seed 264949260793903814).
 func TestLeaseThatRunsOutBeforeAJumpIsSettled(t *testing.T) {
+	t.Parallel()
 	c := newTwoClocks()
 	s, _ := steppedStore(t, "", c, Options{})
 	ctx := t.Context()
@@ -600,6 +611,7 @@ func TestLeaseThatRunsOutBeforeAJumpIsSettled(t *testing.T) {
 // only what the jump takes beyond that: nothing, when it only undoes the
 // step back.
 func TestBackThenForwardStepGivesNothingTwice(t *testing.T) {
+	t.Parallel()
 	c := newTwoClocks()
 	s, _ := steppedStore(t, "", c, Options{})
 	ctx := t.Context()
@@ -636,6 +648,7 @@ func TestBackThenForwardStepGivesNothingTwice(t *testing.T) {
 // is, settles the step with its first write after it opens, so its
 // leases are not ended by the reap at opening either.
 func TestForwardStepWhileStoreClosed(t *testing.T) {
+	t.Parallel()
 	c := newTwoClocks()
 	dsn := newDSN(t)
 	clk := NewClock(ClockOptions{Read: c.read})
@@ -682,6 +695,7 @@ func TestForwardStepWhileStoreClosed(t *testing.T) {
 // jump came after that event, whatever the wall clock read at the time:
 // the store settles it at its next opening, and no claim ends for it.
 func TestForwardStepWhileStoreClosedAndClockBehind(t *testing.T) {
+	t.Parallel()
 	c := newTwoClocks()
 	dsn := newDSN(t)
 	clk := NewClock(ClockOptions{Read: c.read})
@@ -729,6 +743,7 @@ func TestForwardStepWhileStoreClosedAndClockBehind(t *testing.T) {
 // again, that event is the database's latest, and its date must not make
 // the next opening take the second jump for one not settled.
 func TestTwoForwardStepsWhileStoreClosedAreSettledOnce(t *testing.T) {
+	t.Parallel()
 	c := newTwoClocks()
 	dsn := newDSN(t)
 	clk := NewClock(ClockOptions{Read: c.read})
@@ -780,6 +795,7 @@ func TestTwoForwardStepsWhileStoreClosedAreSettledOnce(t *testing.T) {
 // ahead of the clock when it jumped (the clock had been set back, or had
 // run fast) made the jump look settled: the claims ended at opening.
 func TestForwardStepBeforeFirstOpen(t *testing.T) {
+	t.Parallel()
 	const jump, back = 12 * time.Hour, time.Minute
 	tests := []struct {
 		name string
@@ -856,6 +872,7 @@ func TestForwardStepBeforeFirstOpen(t *testing.T) {
 // opens it first after a jump has nothing to settle: its log does not
 // begin with a clock.step for a jump made before it held anything.
 func TestFirstOpenOfAnEmptyDatabaseSettlesNothing(t *testing.T) {
+	t.Parallel()
 	c := newTwoClocks()
 	clk := NewClock(ClockOptions{Read: c.read})
 	clk.Now()
@@ -877,6 +894,7 @@ func TestFirstOpenOfAnEmptyDatabaseSettlesNothing(t *testing.T) {
 // one. The store's time never goes before the latest event, so they get
 // at most the time since that event, however large the jump.
 func TestFirstOpenExtendsByNoMoreThanTheTimeSinceTheLatestEvent(t *testing.T) {
+	t.Parallel()
 	c := newTwoClocks()
 	dsn := newDSN(t)
 	ctx := t.Context()
@@ -918,6 +936,7 @@ func TestFirstOpenExtendsByNoMoreThanTheTimeSinceTheLatestEvent(t *testing.T) {
 // under two holds of the clock's lock, counted a step seen between them
 // twice, and the leases were extended by twice the jump.
 func TestForwardStepWhileStoreOpensIsSettledOnce(t *testing.T) {
+	t.Parallel()
 	c := newTwoClocks()
 	// reading is closed by the first reading of the clock made once armed
 	// is set, after the reading is taken.
@@ -979,6 +998,7 @@ func TestForwardStepWhileStoreOpensIsSettledOnce(t *testing.T) {
 // lease is measured by the wall clock: a daemon that comes back after
 // the lease ran out ends the claim.
 func TestLeaseAcrossRestartIsByTheWallClock(t *testing.T) {
+	t.Parallel()
 	c := newTwoClocks()
 	dsn := newDSN(t)
 	s, _ := steppedStore(t, dsn, c, Options{})
@@ -999,6 +1019,7 @@ func TestLeaseAcrossRestartIsByTheWallClock(t *testing.T) {
 
 // The control store has no leases; it records the step all the same.
 func TestControlSettlesClockStep(t *testing.T) {
+	t.Parallel()
 	c := newTwoClocks()
 	ctl := openControl(t, newDSN(t), ControlOptions{Clock: NewClock(ClockOptions{Read: c.read})})
 	ctl.Now()
@@ -1019,6 +1040,7 @@ func TestControlSettlesClockStep(t *testing.T) {
 // is dated ahead of the clock at the jump; before this it followed the
 // jump with nothing in its log to say so.
 func TestControlFirstOpenRecordsAJumpBeforeIt(t *testing.T) {
+	t.Parallel()
 	c := newTwoClocks()
 	dsn := newDSN(t)
 	ctx := t.Context()
@@ -1078,6 +1100,7 @@ func TestControlFirstOpenRecordsAJumpBeforeIt(t *testing.T) {
 // it is not: records are sent late, and the daily cap counts them by
 // when the server stored them.
 func TestClientAhead(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		ahead   time.Duration // Options.ClientAhead
@@ -1114,6 +1137,7 @@ func TestClientAhead(t *testing.T) {
 // first: a record made after the machine resumed is not "in the future"
 // because the store had not yet followed the clock.
 func TestClientTimeAfterForwardStep(t *testing.T) {
+	t.Parallel()
 	c := newTwoClocks()
 	s, _ := steppedStore(t, "", c, Options{})
 	ctx := t.Context()
@@ -1133,6 +1157,7 @@ func TestClientTimeAfterForwardStep(t *testing.T) {
 // Windows counted back from now do not reopen when the clock is set
 // back: the daily cap on usage records.
 func TestWindowsDoNotReopenOnBackwardStep(t *testing.T) {
+	t.Parallel()
 	c := newTwoClocks()
 	s, _ := steppedStore(t, "", c, Options{Limits: Limits{UsagePerDay: 2}})
 	ctx := t.Context()

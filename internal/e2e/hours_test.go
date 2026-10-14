@@ -16,6 +16,7 @@ import (
 // carry the hours, and cost the plan's amortized cost beside the list
 // price.
 func TestHoursAndPlansCLI(t *testing.T) {
+	t.Parallel()
 	clk := &clock{t: time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)}
 	w := newWorld(t, daemonOpts{admins: []string{"dana"}, now: clk.now})
 	alice, bob, dana := w.newUser("alice", ""), w.newUser("bob", ""), w.newUser("dana", "")

@@ -121,6 +121,7 @@ func dialKey(t *testing.T, s *Server, a store.Actor, proj, fingerprint string) (
 // before this release sends and a line of authorized_keys still does,
 // is served as before.
 func TestBridgeFrameKey(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{}) // carol has a key
 	carols := fingerprintOf(t, "carol")
 
@@ -191,6 +192,7 @@ func (m *multi) has(o owner) bool {
 // had authenticated close, that those of the same principal that came in
 // by authorized_keys stay, and that the key lets nobody in again.
 func TestKeyRemoveDrops(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{})
 	carols := fingerprintOf(t, "carol")
 	d := mustDialTo(t, m.Server, dana, projA)
@@ -249,6 +251,7 @@ func TestKeyRemoveDrops(t *testing.T) {
 
 // TestKeyOps runs key.add, keys and key.remove as each kind of caller.
 func TestKeyOps(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{Control: store.ControlLimits{Keys: 2}})
 	if _, err := m.ctl.AddPrincipal(t.Context(), dana, "dana", ""); err != nil { // a server admin with a row
 		t.Fatal(err)
@@ -434,6 +437,7 @@ func TestKeyOps(t *testing.T) {
 // any project's store, until enabled; one with no row is not disabled;
 // and the last enabled server admin cannot be disabled.
 func TestDisabledServerAdmin(t *testing.T) {
+	t.Parallel()
 	m := newMultiAdmins(t, Limits{}, nil, dana.Principal, sam.Principal)
 	p := m.project(t, projA, "dana", "bob")
 	ctx := t.Context()
@@ -513,6 +517,7 @@ func TestDisabledServerAdmin(t *testing.T) {
 // command named, in a frame an older daemon reads as it always did, and
 // nothing at all for a key that is no fingerprint.
 func TestBridgeKey(t *testing.T) {
+	t.Parallel()
 	fp := fingerprintOf(t, "carol")
 	frames := make(chan *proto.Frame, 2)
 	sock := fakeDaemon(t, func(f *proto.Frame) *proto.Frame {

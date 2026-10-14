@@ -33,6 +33,7 @@ func event(seq int64, op, issue string) Pushed {
 // labels, acceptance items and the note of an admin's override, and any
 // op the board does not know, to be safe.
 func TestRelevant(t *testing.T) {
+	t.Parallel()
 	for op, want := range map[string]bool{
 		"issue.create": true, "issue.update": true, "issue.close": true, "issue.reopen": true, "issue.import": true,
 		"claim.take": true, "claim.expire": true, "dep.add": true, "dep.remove": true, "issue.paths": true,
@@ -50,6 +51,7 @@ func TestRelevant(t *testing.T) {
 // The tail is in seq order whatever order events arrive in: a push can
 // overtake another, and a redial can repeat one already shown.
 func TestModelEventOrder(t *testing.T) {
+	t.Parallel()
 	full := make([]int64, TailMax)
 	for i := range full {
 		full[i] = int64(i + 10)
@@ -89,6 +91,7 @@ func TestModelEventOrder(t *testing.T) {
 // Pushed events join the tail, oldest dropped past TailMax; a snapshot
 // replaces the lists and leaves the tail alone.
 func TestModelEvents(t *testing.T) {
+	t.Parallel()
 	m := New("demo")
 	for i := range TailMax + 3 {
 		m.Apply(event(int64(i+1), "issue.update", fmt.Sprintf("sf-%d", i)))
@@ -110,6 +113,7 @@ func TestModelEvents(t *testing.T) {
 // order, open an issue's detail and go back, toggle help, refresh and
 // quit. The selection follows its issue across a new snapshot.
 func TestModelKeys(t *testing.T) {
+	t.Parallel()
 	type step struct {
 		key  Key
 		sel  string
@@ -163,6 +167,7 @@ func TestModelKeys(t *testing.T) {
 }
 
 func TestModelSelectionFollowsItsIssue(t *testing.T) {
+	t.Parallel()
 	m := New("demo")
 	m.Apply(snapshot())
 	m.Key(KeyDown)
@@ -188,6 +193,7 @@ func TestModelSelectionFollowsItsIssue(t *testing.T) {
 // A detail arriving for another issue than the one open, say after a
 // quick back and forth, is dropped.
 func TestModelDetail(t *testing.T) {
+	t.Parallel()
 	m := New("demo")
 	m.Apply(snapshot())
 	m.Key(KeyEnter)
@@ -206,6 +212,7 @@ func TestModelDetail(t *testing.T) {
 
 // Scrolling a detail stops at its end, so going back up moves at once.
 func TestModelDetailScrollStops(t *testing.T) {
+	t.Parallel()
 	m := New("demo")
 	m.Apply(snapshot())
 	m.Resize(40, 6) // four rows of body
@@ -231,6 +238,7 @@ func TestModelDetailScrollStops(t *testing.T) {
 // A detail that arrives while help is open over it is kept, and shows
 // once help closes.
 func TestModelDetailDuringHelp(t *testing.T) {
+	t.Parallel()
 	m := New("demo")
 	m.Apply(snapshot())
 	m.Key(KeyEnter)
@@ -244,6 +252,7 @@ func TestModelDetailDuringHelp(t *testing.T) {
 
 // End jumps to the end of a detail, as G does.
 func TestModelDetailEnd(t *testing.T) {
+	t.Parallel()
 	m := New("demo")
 	m.Apply(snapshot())
 	m.Resize(40, 6)

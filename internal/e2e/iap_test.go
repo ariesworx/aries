@@ -33,6 +33,7 @@ func (u *user) viaIAP() {
 // sfx reaches a real daemon through the IAP tunnel, and the pinned host
 // key is still checked at the far end of it.
 func TestIAP(t *testing.T) {
+	// Serial: puts a stand-in gcloud on the process's PATH (iaptest.Install).
 	w := newWorld(t, daemonOpts{})
 	gcloud := iaptest.Install(t, iaptest.Bridge)
 	alice := w.newUser("alice", "")

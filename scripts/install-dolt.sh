@@ -103,7 +103,8 @@ else
 	die "neither sha256sum nor shasum is installed" "install coreutils"
 fi
 
-tmp=$(mktemp -d 2>&1) || die "cannot make a temporary directory: $tmp" "set TMPDIR to a writable directory"
+# With a template: mktemp -d alone ignores TMPDIR on macOS.
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/starfix-dolt.XXXXXX" 2>&1) || die "cannot make a temporary directory: $tmp" "set TMPDIR to a writable directory"
 stage=
 cleanup() { rm -rf "$tmp"; [ -z "$stage" ] || rm -rf "$stage"; }
 trap cleanup EXIT

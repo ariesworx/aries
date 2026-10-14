@@ -69,6 +69,7 @@ func (f *upgradeFixture) exeHolds(t *testing.T) string {
 }
 
 func TestUpgradeCheck(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name, current, latest, want string
 	}{
@@ -92,6 +93,7 @@ func TestUpgradeCheck(t *testing.T) {
 }
 
 func TestUpgradeCheckJSON(t *testing.T) {
+	t.Parallel()
 	f := newUpgrade(t, "v0.2.0", "v0.3.0", nil)
 	code, out, _ := f.run("upgrade", "--check", "--json")
 	var doc map[string]any
@@ -104,6 +106,7 @@ func TestUpgradeCheckJSON(t *testing.T) {
 }
 
 func TestUpgradeAndRollback(t *testing.T) {
+	t.Parallel()
 	f := newUpgrade(t, "v0.2.0", "v0.3.0", nil)
 	code, out, errb := f.run("upgrade")
 	if code != ExitOK || !strings.Contains(out, "upgraded v0.2.0 -> v0.3.0") {
@@ -137,6 +140,7 @@ func TestUpgradeAndRollback(t *testing.T) {
 }
 
 func TestUpgradeRefusals(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		current string

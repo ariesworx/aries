@@ -21,6 +21,7 @@ func usageRec(id string, at time.Time, in int64) proto.UsageRecord {
 }
 
 func TestDispatchUsage(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	now := time.Now().UTC()
 	batch := proto.UsageArgs{Records: []proto.UsageRecord{usageRec("r1", now, 10), usageRec("r2", now, 20)}}
@@ -59,6 +60,7 @@ func TestDispatchUsage(t *testing.T) {
 }
 
 func TestDispatchUsageLimits(t *testing.T) {
+	t.Parallel()
 	s := newServerWith(t, Limits{Limits: store.Limits{UsageRecords: 2, UsagePerDay: 3}})
 	now := time.Now().UTC()
 	recs := func(ids ...string) proto.UsageArgs {
@@ -82,6 +84,7 @@ func TestDispatchUsageLimits(t *testing.T) {
 }
 
 func TestDispatchShowUsageAndAccount(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	epic := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "epic", Type: "epic", Account: "acme"})
 	task := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "task", Parent: epic.ID})
@@ -144,6 +147,7 @@ func TestDispatchShowUsageAndAccount(t *testing.T) {
 }
 
 func TestServerAccountDefault(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	st := s.cfg.Store
 	for _, tc := range []struct {
@@ -171,6 +175,7 @@ func ptr[T any](v T) *T { return &v }
 // show and digest keep the largest proto.MaxUsageModels and fold the rest
 // into one entry, so the result stays small and the sums whole.
 func TestUsageModelsCapped(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	is := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "many models"})
 	mustCall[proto.StartResult](t, s, alice, proto.OpStart, proto.StartArgs{ID: is.ID})
@@ -205,6 +210,7 @@ func TestUsageModelsCapped(t *testing.T) {
 // A turn that began before its issue was started is split between the
 // issue and unattributed time, and the digest says so, as show does.
 func TestDigestUsageSplit(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	is := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "begun mid-turn"})
 	mustCall[proto.StartResult](t, s, alice, proto.OpStart, proto.StartArgs{ID: is.ID})

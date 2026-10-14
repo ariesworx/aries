@@ -60,6 +60,7 @@ func (w *world) member(principal, proj string, role store.Role) {
 // TestTwoProjects runs two projects on one server, through the CLI, SSH
 // and the daemon: each in its own database, reached by its members only.
 func TestTwoProjects(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{many: true, admins: []string{"dana"}})
 	w.addProject(second, "second", "two")
 	w.member("alice", project, store.RoleMember)

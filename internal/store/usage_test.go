@@ -44,6 +44,7 @@ func usageEvents(t *testing.T, s *Store, after int64) []Event {
 }
 
 func TestAddUsageIgnoresResentRecords(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	now := clk.now()
@@ -97,6 +98,7 @@ func TestAddUsageIgnoresResentRecords(t *testing.T) {
 }
 
 func TestAddUsageEmptyBatchWritesNothing(t *testing.T) {
+	t.Parallel()
 	s, _ := clockStore(t)
 	seq := lastSeq(t, s)
 	if got, err := s.AddUsage(t.Context(), alice, nil); err != nil || got != (UsageAdded{}) {
@@ -111,6 +113,7 @@ func TestAddUsageEmptyBatchWritesNothing(t *testing.T) {
 // the rows once and reports them as added, not as duplicates of the
 // attempt that rolled back.
 func TestAddUsageRerun(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	seq := lastSeq(t, s)
 	attempts := 0
@@ -133,6 +136,7 @@ func TestAddUsageRerun(t *testing.T) {
 }
 
 func TestAddUsageRefusesInvalidRecords(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	now := clk.now()
 	turn := func(f func(*UsageRecord)) UsageRecord {
@@ -196,6 +200,7 @@ func TestAddUsageRefusesInvalidRecords(t *testing.T) {
 }
 
 func TestAddUsageAcceptsUnknownCountsAndSpans(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	now := clk.now()
 	recs := []UsageRecord{
@@ -228,6 +233,7 @@ type usageStep struct {
 }
 
 func TestUsageLimits(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	batch := func(prefix string, n int) []UsageRecord {
 		out := make([]UsageRecord, n)

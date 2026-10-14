@@ -12,6 +12,7 @@ import (
 // standard input and output, and a terminal that says it cannot move
 // the cursor (TERM=dumb), and says what to run instead.
 func TestTUIRefusals(t *testing.T) {
+	t.Parallel()
 	file := func(name string) *os.File {
 		f, err := os.Create(filepath.Join(t.TempDir(), name)) //nolint:gosec // the test's own temporary file
 		if err != nil {

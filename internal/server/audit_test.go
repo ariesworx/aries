@@ -89,6 +89,7 @@ func controlEvents(t *testing.T, m *multi, after int64) []store.Event {
 // The stream is read from the event log, so it is that log's copy and
 // can say nothing the log does not.
 func TestAuditStream(t *testing.T) {
+	t.Parallel()
 	m := newMulti(t, Limits{ControlWriteRate: 100000, ControlWriteBurst: 100000}, nil)
 	out := jsonLogged(t, m)
 	m.project(t, projA, "alice=admin")
@@ -217,6 +218,7 @@ func TestAuditStream(t *testing.T) {
 
 // audit_log: false writes no audit line, and changes nothing else.
 func TestAuditStreamOff(t *testing.T) {
+	t.Parallel()
 	m := newMulti(t, Limits{}, nil)
 	m.cfg.NoAudit = true
 	out := jsonLogged(t, m)

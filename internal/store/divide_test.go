@@ -41,15 +41,23 @@ func manyHolds(n int) ([]hold, usageRow) {
 // machine. Rescanning, 200 records of 1000 holds took 15s under -race on
 // a laptop; swept, they take 0.4s there, and took 8s where the tests had
 // part of half a processor.
+//
+// And the time compared is the processor's, not the clock's
+// (onProcessor). Where the tests of four packages had half a processor
+// between them and ran in parallel, no division of the long record in
+// two hundred went uninterrupted: the fastest took 100 ms by the clock,
+// the length of the pause the machine gave everything.
 func TestDivideTimeGrowsWithHolds(t *testing.T) {
+	// Serial: compares the processor time work took, which a test running beside it would add to.
 	const few, many = 125, 2000
 	fewHolds, fewRecord := manyHolds(few)
 	manyOf, manyRecord := manyHolds(many)
 	fewIndex, manyIndex := newHoldIndex(fewHolds), newHoldIndex(manyOf)
+	now := onProcessor(t)
 	fastest := func(r usageRow, x *holdIndex, was time.Duration) time.Duration {
-		at := time.Now()
+		at := now()
 		divide(r, x)
-		return min(was, time.Since(at))
+		return min(was, now()-at)
 	}
 	fewest, most := time.Duration(math.MaxInt64), time.Duration(math.MaxInt64)
 	for range 200 {
@@ -71,6 +79,7 @@ func TestDivideTimeGrowsWithHolds(t *testing.T) {
 
 // A long record over many holds divides exactly.
 func TestDivideManyHolds(t *testing.T) {
+	t.Parallel()
 	holds, r := manyHolds(1000)
 	d := divide(r, newHoldIndex(holds))
 	parts := d.parts(*r.Input)
@@ -104,6 +113,7 @@ func BenchmarkDivide(b *testing.B) {
 // weights 3:1:10 gave 7 writes as 2, 0 and 5 and their 6 1-hour writes
 // as 1, 1 and 4: the second part had more 1-hour writes than writes.
 func TestShareKeepsCacheWrite1hWithinCacheWrite(t *testing.T) {
+	t.Parallel()
 	d := division{issues: []IssueID{"tst-a", "tst-b"}, weights: []float64{3, 1, 10}}
 	tests := []struct {
 		name     string
@@ -148,6 +158,7 @@ func TestShareKeepsCacheWrite1hWithinCacheWrite(t *testing.T) {
 // the parts sum to it, and what floors leave goes to the largest
 // remainders, ties to the earlier part.
 func TestSplitExact(t *testing.T) {
+	t.Parallel()
 	huge, _ := new(big.Int).SetString("1000000000000000000000000000000", 10)
 	tests := []struct {
 		total   *big.Int
@@ -183,6 +194,7 @@ func TestSplitExact(t *testing.T) {
 // (arm64 does, amd64 does not), and weights 3:1:10 gave 7 as 1, 1 and 5
 // on one and 2, 0 and 5 on the other.
 func TestApportionTies(t *testing.T) {
+	t.Parallel()
 	third := float64(time.Hour) / 3
 	tests := []struct {
 		name    string
@@ -221,6 +233,7 @@ func TestApportionTies(t *testing.T) {
 // exact rationals give: each part its quota rounded down, and the rest
 // one each to the largest remainders, the earlier part first in a tie.
 func TestApportionMatchesRationals(t *testing.T) {
+	t.Parallel()
 	rng := rand.New(rand.NewPCG(1, 2)) //nolint:gosec // a fixed seed: the same cases every run
 	exact := func(n int64, weights []float64) []int64 {
 		total := new(big.Rat)

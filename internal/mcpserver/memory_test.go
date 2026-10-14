@@ -25,6 +25,7 @@ func memories(n, bodyLen int) []proto.Memory {
 // and returns {id, rev}; the schema refuses a scope that is none of the
 // three before anything is sent.
 func TestRemember(t *testing.T) {
+	t.Parallel()
 	f := &fakeConn{reply: func(string, any) (any, error) { return proto.WriteResult{ID: "m1", Rev: 2}, nil }}
 	cs, d := connect(t, f)
 	res := callTool(t, cs, "remember", map[string]any{"key": "deploy", "body": "weekday mornings", "scope": "user",
@@ -83,6 +84,7 @@ func TestRemember(t *testing.T) {
 // as others' text, newest first as the server sent them; long bodies are
 // cut and the list held under MaxResultTokens, counting what it left out.
 func TestRecall(t *testing.T) {
+	t.Parallel()
 	var sent proto.RecallArgs
 	f := &fakeConn{reply: func(_ string, args any) (any, error) {
 		sent = args.(proto.RecallArgs)
@@ -120,6 +122,7 @@ func TestRecall(t *testing.T) {
 
 // An empty recall is a list, not null, and carries no untrusted note.
 func TestRecallNothing(t *testing.T) {
+	t.Parallel()
 	f := &fakeConn{reply: func(string, any) (any, error) { return proto.RecallResult{}, nil }}
 	cs, _ := connect(t, f)
 	if got := text(t, callTool(t, cs, "recall", nil)); got != `{"memories":[]}` {
@@ -128,6 +131,7 @@ func TestRecallNothing(t *testing.T) {
 }
 
 func TestForget(t *testing.T) {
+	t.Parallel()
 	f := &fakeConn{reply: func(string, any) (any, error) { return proto.WriteResult{ID: "m1", Rev: 3}, nil }}
 	cs, _ := connect(t, f)
 	res := callTool(t, cs, "forget", map[string]any{"key": "deploy", "scope": "team", "rev": 3})
@@ -143,6 +147,7 @@ func TestForget(t *testing.T) {
 // prime asks the server to rank memories for the session and shows them
 // inside the data fence, pinned ones marked.
 func TestPrimeMemories(t *testing.T) {
+	t.Parallel()
 	var sent proto.RecallArgs
 	f := &fakeConn{who: "alice", reply: func(op string, args any) (any, error) {
 		if op == proto.OpRecall {
@@ -178,6 +183,7 @@ func TestPrimeMemories(t *testing.T) {
 // fit cuts memory bodies, then drops unpinned memories before anything
 // else, and pinned ones only after the ready and inbox lists.
 func TestPrimeFitMemories(t *testing.T) {
+	t.Parallel()
 	pinned := func(n int) []Memory {
 		out := make([]Memory, n)
 		for i := range out {
@@ -219,6 +225,7 @@ func TestPrimeFitMemories(t *testing.T) {
 // start returns the memories relevant to the issue, compact, and drops
 // them before cutting the issue's own text.
 func TestStartMemories(t *testing.T) {
+	t.Parallel()
 	f := &fakeConn{reply: func(string, any) (any, error) {
 		ms := memories(30, 400)
 		ms[0].Relevant = true
@@ -247,6 +254,7 @@ func TestStartMemories(t *testing.T) {
 
 // Memory refusals name the agent's next step in tools.
 func TestMemoryErrorsNameTheNextStep(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		err  *proto.Error

@@ -73,6 +73,7 @@ func goList(t *testing.T, goos string, args ...string) []pkg {
 // sfx, on every system it is built for, links nothing of the SDK: not
 // directly, and not through any package it imports.
 func TestSfxLinksNoSDK(t *testing.T) {
+	t.Parallel()
 	for _, goos := range []string{"linux", "darwin", "windows"} {
 		t.Run(goos, func(t *testing.T) {
 			deps := goList(t, goos, "-deps", "./cmd/sfx")
@@ -98,6 +99,7 @@ func TestSfxLinksNoSDK(t *testing.T) {
 // starfixd does link it: the test above would pass for a tool that
 // listed nothing.
 func TestStarfixdLinksTheSDK(t *testing.T) {
+	t.Parallel()
 	for _, p := range goList(t, "linux", "-deps", "./cmd/starfixd") {
 		if isSDK(p.ImportPath) {
 			return
@@ -109,6 +111,7 @@ func TestStarfixdLinksTheSDK(t *testing.T) {
 // Only this package imports the SDK directly, in code or in tests, so
 // that it can be replaced in one place.
 func TestOnlyTelemetryImportsTheSDK(t *testing.T) {
+	t.Parallel()
 	seen := false
 	for _, goos := range []string{"linux", "darwin", "windows"} {
 		for _, p := range goList(t, goos, "./...") {

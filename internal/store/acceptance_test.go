@@ -9,6 +9,7 @@ import (
 )
 
 func TestParseAcceptance(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		text string
@@ -55,6 +56,7 @@ func states(items []AcceptanceItem) []ItemState {
 // close and finish refuse while an item is neither ticked nor waived; a
 // forced close records the items it overrode.
 func TestAcceptanceGatesClose(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "login", Acceptance: "Done when:\n- [ ] survives restart\n- [x] has tests\n- docs updated"})
@@ -125,6 +127,7 @@ func TestAcceptanceGatesClose(t *testing.T) {
 }
 
 func TestAcceptRefusals(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "x", Acceptance: "- a\n- b"})
@@ -160,6 +163,7 @@ func TestAcceptRefusals(t *testing.T) {
 // items whose text is unchanged, wherever they move; untick reopens one,
 // even one ticked in the text at create.
 func TestAcceptanceFollowsEdits(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "x", Acceptance: "- a\n- b\n- [x] c"})
@@ -183,6 +187,7 @@ func TestAcceptanceFollowsEdits(t *testing.T) {
 // finish ticks and waives in its own transaction: when items stay open it
 // is refused and none of it is written.
 func TestFinishAccepts(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "x", Acceptance: "- a\n- b"})
@@ -204,6 +209,7 @@ func TestFinishAccepts(t *testing.T) {
 
 // Imported issues get their checklist from the same parse.
 func TestImportedAcceptance(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	in := importedIssue("bd-imp1", func(is *Issue) { is.Acceptance = "- [x] one\n- two" })

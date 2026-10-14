@@ -14,6 +14,7 @@ import (
 // none; usage, which is no issue's, is not pushed, nor is a change that
 // rolls back.
 func TestWatchEvents(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	we := s.WatchEvents("bob", "sess-b")
@@ -63,6 +64,7 @@ func TestWatchEvents(t *testing.T) {
 // Events count against the same bounded queue as items: a watch that
 // falls behind overflows, once, and receives nothing more.
 func TestWatchEventsOverflow(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	we := s.WatchEvents("bob", "sess-b")
 	defer we.Close()
@@ -90,6 +92,7 @@ func TestWatchEventsOverflow(t *testing.T) {
 // issue events only while someone takes them. A watch leaves the count
 // once, whether it closes, overflows, or both.
 func TestWatchEventsCount(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	count := func(when string, want int64) {
 		t.Helper()
@@ -118,6 +121,7 @@ func TestWatchEventsCount(t *testing.T) {
 // ActiveClaims lists every live claim, longest held first, up to a limit,
 // and counts the rest; a lapsed or released claim holds nothing.
 func TestActiveClaims(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	one, two, lapsed := mustCreate(t, s, NewIssue{Title: "one"}), mustCreate(t, s, NewIssue{Title: "two"}),

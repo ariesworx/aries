@@ -17,13 +17,28 @@ import (
 	"github.com/ariesworx/starfix/internal/version"
 )
 
+// shortDir makes a directory for a server, removed when t ends. Not
+// t.TempDir, whose path has the test's name in it: with the server's
+// socket it comes within a few bytes of the 104 a unix socket's path may
+// be on macOS, and passes them under a temporary directory with one more
+// component (scripts/leftovers.sh).
+func shortDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "sfd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 // startOrSkip starts a server for this package's own tests. It skips without
 // dolt unless STARFIX_REQUIRE_DOLT is set, as every Dolt-backed package does.
 func startOrSkip(t *testing.T) *Server {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
-	s, err := Start(ctx, t.TempDir())
+	s, err := Start(ctx, shortDir(t))
 	if errors.Is(err, ErrNoDolt) {
 		t.Skip("dolt is not on PATH: install dolt to run the dolttest tests")
 	}
@@ -35,6 +50,7 @@ func startOrSkip(t *testing.T) *Server {
 }
 
 func TestStartWithoutDolt(t *testing.T) {
+	// Serial: sets the process's environment (t.Setenv).
 	tests := []struct {
 		name    string
 		require string
@@ -65,6 +81,7 @@ func TestStartWithoutDolt(t *testing.T) {
 // TestDoltVersion checks that the Dolt the tests run against is the one
 // this release names (version.Dolt, and CI's DOLT_VERSION).
 func TestDoltVersion(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("dolt"); err != nil {
 		if required() {
 			t.Fatalf("%s is set but dolt is not on PATH", RequireEnv)
@@ -80,10 +97,34 @@ func TestDoltVersion(t *testing.T) {
 	}
 }
 
+// Asking dolt its version writes nothing in the home directory of whoever
+// runs the tests: dolt makes ~/.dolt for any command, and looks for a
+// newer release.
+func TestVersionLeavesTheHomeDirectoryAlone(t *testing.T) {
+	// Serial: sets the process's environment (t.Setenv).
+	if _, err := lookDolt(); errors.Is(err, ErrNoDolt) {
+		t.Skip("dolt is not on PATH")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	if _, err := Version(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		t.Errorf("Version() left %s in the home directory", e.Name())
+	}
+}
+
 // TestStartPortTaken reproduces T-8: the port Start picks is taken by
 // another Dolt before this one binds it. Start must not mistake the other
 // server for its own; it retries on another port.
 func TestStartPortTaken(t *testing.T) {
+	// Serial: replaces the package's pickPort.
 	a := startOrSkip(t)
 	if _, err := a.NewDatabase(t.Context()); err != nil {
 		t.Fatal(err)
@@ -122,10 +163,11 @@ func TestStartPortTaken(t *testing.T) {
 // is set, and that process wrote under the server's directory while
 // TempDir's cleanup was removing it.
 func TestStopLeavesNothingRunning(t *testing.T) {
+	t.Parallel()
 	if _, err := os.Stat("/proc/self/environ"); err != nil {
 		t.Skip("listing processes needs /proc")
 	}
-	dir := t.TempDir()
+	dir := shortDir(t)
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 	s, err := Start(ctx, dir)
@@ -173,6 +215,7 @@ func running(root string) ([]string, error) {
 // TestRestartKeepsData checks that Restart brings up a new dolt process on
 // the same data, and that a DSN handed out before it still works after.
 func TestRestartKeepsData(t *testing.T) {
+	t.Parallel()
 	s := startOrSkip(t)
 	ctx := t.Context()
 	dsn, err := s.NewDatabase(ctx)
@@ -217,12 +260,13 @@ func TestRestartKeepsData(t *testing.T) {
 // limit set in it, before and after a restart; and that Start alone turns
 // the endpoint off.
 func TestStartWithOptions(t *testing.T) {
+	t.Parallel()
 	if plain := startOrSkip(t); plain.MetricsURL() != "" {
 		t.Errorf("Start: MetricsURL() = %q, want none", plain.MetricsURL())
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
-	s, err := StartWith(ctx, t.TempDir(), Options{Metrics: true, Env: []string{"GOMEMLIMIT=3GiB"}})
+	s, err := StartWith(ctx, shortDir(t), Options{Metrics: true, Env: []string{"GOMEMLIMIT=3GiB"}})
 	if err != nil {
 		t.Fatalf("StartWith: %v", err)
 	}
@@ -258,6 +302,7 @@ func TestStartWithOptions(t *testing.T) {
 // docs/server.md says a production one must be: NewDatabase's DSN logs in as
 // User, not root, and secure_file_priv names a directory.
 func TestLockedDown(t *testing.T) {
+	t.Parallel()
 	s := startOrSkip(t)
 	dsn, err := s.NewDatabase(t.Context())
 	if err != nil {
@@ -293,6 +338,7 @@ func TestLockedDown(t *testing.T) {
 // server, that a connection a test left open does not keep it, that its
 // name is not given out again, and that the database beside it stays.
 func TestDropDatabase(t *testing.T) {
+	t.Parallel()
 	s := startOrSkip(t)
 	ctx := t.Context()
 	root, err := sql.Open("mysql", s.RootDSN(""))

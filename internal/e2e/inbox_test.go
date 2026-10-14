@@ -88,6 +88,7 @@ func (a *agent) content(name string, args map[string]any) []string {
 // with a structured handoff, and alice's agent finds it in the inbox and
 // on start.
 func TestInboxLostClaimAndHandoff(t *testing.T) {
+	t.Parallel()
 	clk := &clock{t: time.Now().UTC()}
 	w := newWorld(t, daemonOpts{now: clk.now})
 	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
@@ -149,6 +150,7 @@ func TestInboxLostClaimAndHandoff(t *testing.T) {
 // A mention reaches a known principal's inbox, and `sfx watch --json`
 // prints it as it happens, one object per line, until interrupted.
 func TestInboxMentionAndWatch(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
 	bob.ok("ready") // bob is a known principal from here on

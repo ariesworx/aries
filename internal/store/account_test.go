@@ -11,6 +11,7 @@ import (
 )
 
 func TestAccountProblems(t *testing.T) {
+	t.Parallel()
 	dir := sql.NullString{String: "/var/lib/dolt/no-files", Valid: true}
 	tests := []struct {
 		name      string
@@ -53,13 +54,14 @@ func rootDSN(t *testing.T, dsn string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return server.RootDSN(cfg.DBName)
+	return doltOf(t).RootDSN(cfg.DBName)
 }
 
 // S-2: a store opened as Dolt's root, which can read and write files and
 // rewrite the event log behind starfixd's back, is refused unless the
 // caller explicitly allows it (starfixd allows it only with --dev).
 func TestOpenRefusesUnsafeAccount(t *testing.T) {
+	t.Parallel()
 	dsn := newDSN(t)
 	_, err := Open(t.Context(), rootDSN(t, dsn), Options{CommitInterval: -1})
 	var ua *UnsafeAccountError

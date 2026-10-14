@@ -111,6 +111,7 @@ func socketsHeld(s *Server) int {
 // bridge frame, once filled the server until their hellos timed out, and
 // a server admin's connection was closed unread.
 func TestHalfOpenConnectionsDoNotShutOthersOut(t *testing.T) {
+	t.Parallel()
 	m := newMulti(t, Limits{Conns: 3, ConnsPerPrincipal: 1}, nil)
 	m.project(t, projA, "alice=admin", "mallory")
 	if _, err := m.ctl.DisablePrincipal(t.Context(), dana, "mallory"); err != nil {
@@ -133,6 +134,7 @@ func TestHalfOpenConnectionsDoNotShutOthersOut(t *testing.T) {
 // TestBridgeFrameRefusals pins who a server of many projects refuses on
 // the bridge frame alone, and who it lets go on to say hello.
 func TestBridgeFrameRefusals(t *testing.T) {
+	t.Parallel()
 	m := newMultiAdmins(t, Limits{}, nil, "dana", "sam")
 	m.project(t, projA, "alice=admin", "mallory")
 	ctx := t.Context()
@@ -202,6 +204,7 @@ func TestBridgeFrameRefusals(t *testing.T) {
 // frame, other principals and the health probe are not affected, and a
 // connection that says hello or goes away gives its place back.
 func TestHandshakesPerPrincipal(t *testing.T) {
+	t.Parallel()
 	s := newServerWith(t, Limits{Handshakes: 2}) // a server of one project: any name may sign in
 	sock := serveOn(t, s)
 	first, second := openHalf(t, sock, "alice"), openHalf(t, sock, "alice")
@@ -233,6 +236,7 @@ func TestHandshakesPerPrincipal(t *testing.T) {
 // A refusal at handshakes_per_principal is counted under the setting's
 // name, like the other caps on connections.
 func TestHandshakesPerPrincipalIsCounted(t *testing.T) {
+	t.Parallel()
 	tel, m := measured(t, true)
 	s := newServerTel(t, Limits{Handshakes: 1}, tel)
 	sock := serveOn(t, s)
@@ -253,6 +257,7 @@ func TestHandshakesPerPrincipalIsCounted(t *testing.T) {
 // The review saw a server admin's closed unread while half-open ones
 // stayed.
 func TestConnectionCapClosesTheOldestHandshake(t *testing.T) {
+	t.Parallel()
 	s := newServerWith(t, Limits{Conns: 2})
 	sock := serveOn(t, s)
 	var waiting []*halfOpen
@@ -282,6 +287,7 @@ func TestConnectionCapClosesTheOldestHandshake(t *testing.T) {
 // TestHelloDeadline pins how long a connection may wait between its
 // bridge frame and its hello.
 func TestHelloDeadline(t *testing.T) {
+	// Serial: a synctest bubble's virtual time takes no real time worth sharing.
 	s := newServer(t)
 	synctest.Test(t, func(t *testing.T) {
 		srv, cli := net.Pipe()

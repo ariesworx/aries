@@ -28,6 +28,7 @@ const (
 )
 
 func TestFindSecrets(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		text string
@@ -93,6 +94,7 @@ func TestFindSecrets(t *testing.T) {
 // Ordinary memories, including text that mentions keys and passwords
 // without holding one, pass.
 func TestFindNothing(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		text string
@@ -165,6 +167,7 @@ func TestFindNothing(t *testing.T) {
 // The first finding is reported, and the kind names what it is without
 // echoing it.
 func TestFindReportsFirstAndNeverTheValue(t *testing.T) {
+	t.Parallel()
 	key := "AKIA" + "FAKEFAKEFAKEFAKE"
 	text := "first " + key + " then password=" + "hunter22"
 	f, ok := Find(text)
@@ -178,6 +181,7 @@ func TestFindReportsFirstAndNeverTheValue(t *testing.T) {
 
 // Entropy is in bits per character.
 func TestEntropy(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		in   string
 		want float64

@@ -154,6 +154,7 @@ const queuedLine = "queued: starfix cannot reach its server, so this %s waits on
 // it should carry on, which is not an error; and the write is then in
 // the outbox, with the key it would have been sent with.
 func TestQueuedToolCalls(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		tool string
 		args map[string]any
@@ -205,6 +206,7 @@ func TestQueuedToolCalls(t *testing.T) {
 // it, is queued with the key it was sent with: that is what makes
 // sending it again safe.
 func TestQueuedAfterADropKeepsItsKey(t *testing.T) {
+	t.Parallel()
 	var sent []string
 	first := &fakeConn{reply: func(_ string, args any) (any, error) {
 		if a, ok := args.(proto.CommentArgs); ok {
@@ -232,6 +234,7 @@ func TestQueuedAfterADropKeepsItsKey(t *testing.T) {
 // not queued and to carry on with what it holds: no claim is taken
 // without the server (decision 39).
 func TestUnqueuedToolCalls(t *testing.T) {
+	t.Parallel()
 	a := newAway(t)
 	a.net.set(true)
 	for _, tc := range []struct {
@@ -263,6 +266,7 @@ func TestUnqueuedToolCalls(t *testing.T) {
 // The agent is never asked to manage the outbox (rule 12): what the
 // outbox refuses is reworded as its next step, or handed to the user.
 func TestOutboxRefusalsForAnAgent(t *testing.T) {
+	t.Parallel()
 	t.Run("this machine never reached the server", func(t *testing.T) {
 		a := newAway(t)
 		a.net.set(true)
@@ -293,6 +297,7 @@ func TestOutboxRefusalsForAnAgent(t *testing.T) {
 // request that opened the connection; and a refusal among it reaches a
 // person through prime's notices.
 func TestQueuedWritesGoFirstOnTheNextConnection(t *testing.T) {
+	t.Parallel()
 	second := &fakeConn{reply: func(op string, args any) (any, error) {
 		if b, _ := json.Marshal(args); op == proto.OpComment && strings.Contains(string(b), "sf-gone") {
 			return nil, proto.Errf(proto.CodeNotFound, "find the id with `sfx list`", "issue sf-gone not found")
@@ -332,6 +337,7 @@ func TestQueuedWritesGoFirstOnTheNextConnection(t *testing.T) {
 // A session that makes no tool call still sends what waits: the renewal
 // tick connects when something does.
 func TestRenewSendsWhatWaits(t *testing.T) {
+	t.Parallel()
 	second := &fakeConn{reply: okReply}
 	a := newAway(t, &fakeConn{reply: okReply}, second)
 	callTool(t, a.cs, "ready", nil)
@@ -354,6 +360,7 @@ func TestRenewSendsWhatWaits(t *testing.T) {
 
 // Without an outbox the server does as it always did.
 func TestNoOutboxNoQueue(t *testing.T) {
+	t.Parallel()
 	o := &outage{down: true}
 	s := New(Options{Version: "v0.2.0", Dial: o.dial, RenewEvery: -1})
 	t.Cleanup(func() { _ = s.Close() })

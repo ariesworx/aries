@@ -129,6 +129,7 @@ func refusedSeqs(rs []outbox.Refusal) []uint64 {
 }
 
 func TestQueueable(t *testing.T) {
+	t.Parallel()
 	queued := []string{proto.OpCreate, proto.OpComment, proto.OpHandoff, proto.OpRemember, proto.OpHoursLog, proto.OpFinish}
 	for _, op := range queued {
 		if !outbox.Queueable(op) {
@@ -148,6 +149,7 @@ func TestQueueable(t *testing.T) {
 }
 
 func TestAppendRefuses(t *testing.T) {
+	t.Parallel()
 	const secret = "hunter2-Xq9-zebra" //nolint:gosec // invented, for the lint to find
 	tests := []struct {
 		name string
@@ -199,6 +201,7 @@ func TestAppendRefuses(t *testing.T) {
 }
 
 func TestAppendQueues(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		op, args    string
 		wantIdem    string
@@ -256,6 +259,7 @@ func show(e outbox.Entry) string {
 }
 
 func TestAppendAcceptsNewIdem(t *testing.T) {
+	t.Parallel()
 	// The secrets lint reads every string of the arguments, the key
 	// among them, so a key the client makes must not look like a secret.
 	o, _ := open(t, outbox.Options{}, nil)
@@ -268,6 +272,7 @@ func TestAppendAcceptsNewIdem(t *testing.T) {
 }
 
 func TestFilesArePrivate(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows has no permission bits; the directory's access list is the user's data directory's")
 	}
@@ -306,6 +311,7 @@ func TestFilesArePrivate(t *testing.T) {
 }
 
 func TestOpenTightensDirectory(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows has no permission bits")
 	}
@@ -326,6 +332,7 @@ func TestOpenTightensDirectory(t *testing.T) {
 }
 
 func TestCapEntries(t *testing.T) {
+	t.Parallel()
 	deliver := func(outbox.Entry) (outbox.Outcome, error) { return outbox.Outcome{}, nil }
 	refuse := func(outbox.Entry) (outbox.Outcome, error) {
 		return outbox.Outcome{Refused: true, Code: "forbidden"}, nil
@@ -366,6 +373,7 @@ func TestCapEntries(t *testing.T) {
 }
 
 func TestCapBytes(t *testing.T) {
+	t.Parallel()
 	// Every handoff(i) with one digit is a line of the same length,
 	// on one clock.
 	probe, dir := open(t, outbox.Options{}, newClock())
@@ -412,6 +420,7 @@ func TestCapBytes(t *testing.T) {
 }
 
 func TestCapAge(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		maxAge    time.Duration // zero for the default
@@ -457,6 +466,7 @@ func TestCapAge(t *testing.T) {
 }
 
 func TestRetryOfStaleEntryIsSent(t *testing.T) {
+	t.Parallel()
 	clk := newClock()
 	o, _ := open(t, outbox.Options{}, clk)
 	e := mustAppend(t, o, handoff(1))
@@ -479,6 +489,7 @@ func TestRetryOfStaleEntryIsSent(t *testing.T) {
 }
 
 func TestListSkipsDamage(t *testing.T) {
+	t.Parallel()
 	o, dir := open(t, outbox.Options{}, nil)
 	mustAppend(t, o, handoff(1))
 	path := filepath.Join(dir, "outbox.ndjson")
@@ -514,6 +525,7 @@ func TestListSkipsDamage(t *testing.T) {
 }
 
 func TestReplayDeliversInOrder(t *testing.T) {
+	t.Parallel()
 	clk := newClock()
 	o, _ := open(t, outbox.Options{}, clk)
 	for i := 1; i <= 5; i++ {
@@ -553,6 +565,7 @@ func TestReplayDeliversInOrder(t *testing.T) {
 }
 
 func TestReplayStopsWhenServerIsNotReached(t *testing.T) {
+	t.Parallel()
 	o, _ := open(t, outbox.Options{}, nil)
 	for i := 1; i <= 5; i++ {
 		mustAppend(t, o, handoff(i))
@@ -588,6 +601,7 @@ func TestReplayStopsWhenServerIsNotReached(t *testing.T) {
 }
 
 func TestReplayHonorsCancellation(t *testing.T) {
+	t.Parallel()
 	o, _ := open(t, outbox.Options{}, nil)
 	for i := 1; i <= 3; i++ {
 		mustAppend(t, o, handoff(i))
@@ -612,6 +626,7 @@ func TestReplayHonorsCancellation(t *testing.T) {
 }
 
 func TestReplayBoundsOneSend(t *testing.T) {
+	// Serial: a synctest bubble's virtual time takes no real time worth sharing.
 	synctest.Test(t, func(t *testing.T) {
 		o, _ := open(t, outbox.Options{SendTimeout: 3 * time.Second, ReplayBudget: time.Minute}, nil)
 		mustAppend(t, o, handoff(1))
@@ -636,6 +651,7 @@ func TestReplayBoundsOneSend(t *testing.T) {
 }
 
 func TestReplayBoundsTheCall(t *testing.T) {
+	// Serial: a synctest bubble's virtual time takes no real time worth sharing.
 	synctest.Test(t, func(t *testing.T) {
 		o, _ := open(t, outbox.Options{SendTimeout: time.Minute, ReplayBudget: 5 * time.Second}, nil)
 		for i := 1; i <= 4; i++ {
@@ -668,6 +684,7 @@ func TestReplayBoundsTheCall(t *testing.T) {
 }
 
 func TestReplaySendsWhatWasQueuedMeanwhile(t *testing.T) {
+	t.Parallel()
 	o, _ := open(t, outbox.Options{}, nil)
 	mustAppend(t, o, handoff(1))
 	s := &server{}
@@ -684,6 +701,7 @@ func TestReplaySendsWhatWasQueuedMeanwhile(t *testing.T) {
 }
 
 func TestOneReplayAtATimeInOneProcess(t *testing.T) {
+	t.Parallel()
 	// sfx mcp replays in the background of the process that serves tool
 	// calls, so a second handle in the same process must be kept out.
 	o, dir := open(t, outbox.Options{}, nil)
@@ -717,6 +735,7 @@ func TestOneReplayAtATimeInOneProcess(t *testing.T) {
 }
 
 func TestRetryAndDrop(t *testing.T) {
+	t.Parallel()
 	refuseOdd := func(e outbox.Entry) (outbox.Outcome, error) {
 		return outbox.Outcome{Refused: e.Seq%2 == 1, Code: "forbidden", Message: "no access"}, nil
 	}
@@ -774,6 +793,7 @@ func TestRetryAndDrop(t *testing.T) {
 }
 
 func TestSequenceSurvivesCompaction(t *testing.T) {
+	t.Parallel()
 	o, dir := open(t, outbox.Options{}, nil)
 	for i := 1; i <= 20; i++ {
 		mustAppend(t, o, handoff(i))
@@ -808,6 +828,7 @@ func TestSequenceSurvivesCompaction(t *testing.T) {
 }
 
 func TestCompactionKeepsRefusals(t *testing.T) {
+	t.Parallel()
 	o, _ := open(t, outbox.Options{}, nil)
 	for i := 1; i <= 4; i++ {
 		mustAppend(t, o, handoff(i))
@@ -832,6 +853,7 @@ func TestCompactionKeepsRefusals(t *testing.T) {
 }
 
 func TestRefusalTextIsBounded(t *testing.T) {
+	t.Parallel()
 	o, _ := open(t, outbox.Options{}, nil)
 	mustAppend(t, o, handoff(1))
 	long := "a" + strings.Repeat("é", 100_000) // the cap falls inside a character
@@ -847,6 +869,7 @@ func TestRefusalTextIsBounded(t *testing.T) {
 }
 
 func TestFailedCompactionLosesNothing(t *testing.T) {
+	t.Parallel()
 	// A compaction that cannot replace a file, as one on Windows could
 	// not while another program has it open, leaves both files as they
 	// were: what was delivered stays delivered, and what waits, waits.

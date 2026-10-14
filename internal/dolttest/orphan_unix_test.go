@@ -24,11 +24,88 @@ import (
 // server first.
 const orphanEnv = "STARFIX_DOLTTEST_ORPHAN"
 
+// poolEnv makes the test binary a helper process that stands for a test
+// binary with a pool: it warms a pool, prints its own process id, dolt's
+// and the server's directory, and does nothing more, as a test binary in
+// the middle of its tests.
+const poolEnv = "STARFIX_DOLTTEST_POOL"
+
 func TestMain(m *testing.M) {
 	if v := os.Getenv(orphanEnv); v != "" {
 		os.Exit(orphanHelper(v))
 	}
+	if os.Getenv(poolEnv) != "" {
+		os.Exit(poolHelper())
+	}
 	os.Exit(m.Run())
+}
+
+func poolHelper() int {
+	p := NewPool("sfq", Options{})
+	p.Warm()
+	s, err := p.take("helper")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		if errors.Is(err, ErrNoDolt) {
+			return 3
+		}
+		return 1
+	}
+	fmt.Println(os.Getpid(), s.PID(), s.dir)
+	select {} // until killed, or until its parent is gone
+}
+
+// A test binary whose go test is killed is no one's child: it ran on to
+// the end of its tests, for minutes, with its Dolt servers. With a pool
+// it ends when the process that started it is gone, and its servers and
+// their directories go with it.
+func TestPoolEndsWithItsParent(t *testing.T) {
+	t.Parallel()
+	if _, err := lookDolt(); errors.Is(err, ErrNoDolt) {
+		t.Skip("dolt is not on PATH: install dolt to run the dolttest tests")
+	}
+	// The shell stands for go test: it starts the helper and waits.
+	parent := exec.Command("/bin/sh", "-c", `"$1" & wait`, "sh", os.Args[0]) //nolint:gosec // the test binary itself
+	parent.Env = append(os.Environ(), poolEnv+"=1")
+	parent.Stderr = os.Stderr
+	parent.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	out, err := parent.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := parent.Start(); err != nil {
+		t.Fatal(err)
+	}
+	// Whatever the test finds, nothing of it is left: the group is the
+	// shell and the helper, and dolt is in a group of its own.
+	t.Cleanup(func() { _ = syscall.Kill(-parent.Process.Pid, syscall.SIGKILL); _ = parent.Wait() })
+	var helperPID, doltPID int
+	var dir string
+	if _, err := fmt.Fscan(bufio.NewReader(out), &helperPID, &doltPID, &dir); err != nil {
+		t.Fatalf("the helper printed no process ids: %v", err)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(-doltPID, syscall.SIGKILL); _ = os.RemoveAll(dir) })
+	if got := mentioning(t, dir); len(got) == 0 {
+		t.Fatalf("no process names %s while its server runs, so this test would see nothing", dir)
+	}
+
+	// Only the shell: the helper lives on, with no parent.
+	if err := parent.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = parent.Wait()
+	for end := time.Now().Add(patience); ; time.Sleep(100 * time.Millisecond) {
+		// Signal 0 asks only whether the process is there.
+		gone := errors.Is(syscall.Kill(helperPID, 0), syscall.ESRCH)
+		_, err := os.Stat(dir)
+		if gone && len(mentioning(t, dir)) == 0 && errors.Is(err, os.ErrNotExist) {
+			return
+		}
+		if time.Now().After(end) {
+			t.Fatalf("a minute after its parent was killed: the helper (pid %d) gone: %t; still running for %s: %q; the directory: %v",
+				helperPID, gone, dir, mentioning(t, dir), err)
+		}
+	}
 }
 
 func orphanHelper(v string) int {
@@ -134,6 +211,7 @@ func waitGone(t *testing.T, dir string) []string {
 // found running hours after their tests, each holding hundreds of
 // megabytes, with their data left in the temporary directory.
 func TestServerDiesWithItsProcess(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		end  func(helper *exec.Cmd) error
@@ -182,6 +260,7 @@ func TestServerDiesWithItsProcess(t *testing.T) {
 // and that being killed then removes nothing: the directory is the
 // caller's again once Stop returns.
 func TestStopLeavesNoWatcher(t *testing.T) {
+	t.Parallel()
 	helper, dir, _ := startOrphanHelper(t, ":stopped")
 	if left := mentioning(t, dir); len(left) > 0 {
 		t.Errorf("after Stop, still running: %q", left)
@@ -199,10 +278,11 @@ func TestStopLeavesNoWatcher(t *testing.T) {
 // TestStartCanceled checks that a Start whose context ends while dolt is
 // starting leaves no process behind.
 func TestStartCanceled(t *testing.T) {
+	// Serial: replaces the package's pickPort.
 	if _, err := lookDolt(); errors.Is(err, ErrNoDolt) {
 		t.Skip("dolt is not on PATH: install dolt to run the dolttest tests")
 	}
-	dir := t.TempDir()
+	dir := shortDir(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	// The port is picked just before dolt starts, so dolt is started
@@ -228,6 +308,7 @@ func TestStartCanceled(t *testing.T) {
 // process is only what this package and dolt put in the directory: a file
 // of the caller's stays, and the directory with it.
 func TestWatcherKeepsTheCallersFiles(t *testing.T) {
+	t.Parallel()
 	helper, dir, _ := startOrphanHelper(t, "")
 	mine := filepath.Join(dir, "mine")
 	if err := os.WriteFile(mine, []byte("kept"), 0o600); err != nil {

@@ -12,6 +12,7 @@ import (
 // A pushed inbox item or event is an evt frame with no id, the payload
 // under "e"; a resync is the op alone. Decoding gives back the push.
 func TestPushFrames(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	item := InboxItem{ID: 7, Kind: "mention", Issue: "sf-abcd1234", Body: "@bob look", From: "alice", At: at}
 	tests := []struct {

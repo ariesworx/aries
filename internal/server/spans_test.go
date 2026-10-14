@@ -136,6 +136,7 @@ func logged(line, key string) string {
 // brought a valid trace context, with the store's work beneath it; and
 // the request's log line names the trace and the server's span.
 func TestRequestSpans(t *testing.T) {
+	t.Parallel()
 	tel, m := spanned(t, telemetry.Config{})
 	s, log := newServerLogged(t, tel)
 	c := dialPipe(t, s, alice)
@@ -313,6 +314,7 @@ func TestRequestSpans(t *testing.T) {
 // numbered, so a write that is retried shows as several; a retry is not
 // a failure of the span, and a Dolt commit or a migration that fails is.
 func TestStoreTracer(t *testing.T) {
+	t.Parallel()
 	if tr := StoreTracer(nil, projA); tr != nil {
 		t.Errorf("StoreTracer(nil) = %v, want nil: the store then calls nothing", tr)
 	}
@@ -390,6 +392,7 @@ func TestStoreTracer(t *testing.T) {
 // of a trace when it runs on its own; and a handshake that opens a
 // project's store shows the opening and its migrations.
 func TestBackgroundSpans(t *testing.T) {
+	t.Parallel()
 	tel, m := spanned(t, telemetry.Config{})
 	mu := newMultiTel(t, Limits{}, nil, tel, dana.Principal)
 	mu.project(t, projA, "alice")
@@ -510,6 +513,7 @@ func TestBackgroundSpans(t *testing.T) {
 // a stand-in by default, the name, or nothing. The daemon's own log is
 // not changed by it.
 func TestSpanPrincipals(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		mode               string
 		principal, session *regexp.Regexp

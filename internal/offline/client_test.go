@@ -92,6 +92,7 @@ func (c *keyedConn) Key() client.KeyInfo {
 // first one queued with it: the entries stay, and the person is told
 // once, in one line with a fix.
 func TestConnectedSaysWhenAKeyMoved(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	c := r.newClient(t, nil)
 	if got := c.Connected(&keyedConn{fakeConn: fakeConn{who: "alice"}, key: r.mine}); got != "" {
@@ -127,6 +128,7 @@ func TestConnectedSaysWhenAKeyMoved(t *testing.T) {
 // one of them for someone, and the write then goes to that principal's
 // outbox, whichever key the environment names now.
 func TestClientKeepsForWhoeverTheKeyWas(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	args := proto.CommentArgs{ID: "sf-a", Body: "a note", Idem: proto.NewIdem("cli")}
 
@@ -177,6 +179,7 @@ func TestClientKeepsForWhoeverTheKeyWas(t *testing.T) {
 // A write lost with its connection belongs to that connection's
 // principal, which the server said: no guess is made.
 func TestClientKeepsForTheConnectionsPrincipal(t *testing.T) {
+	t.Parallel()
 	c := newRepo(t).newClient(t, nil)
 	kept, err := c.Keep("bob", proto.OpHandoff, proto.HandoffArgs{ID: "sf-a", Note: "n", Idem: proto.NewIdem("cli")}, errReach)
 	if err != nil || kept.Principal != "bob" || kept.Entry.Seq != 1 {
@@ -185,6 +188,7 @@ func TestClientKeepsForTheConnectionsPrincipal(t *testing.T) {
 }
 
 func TestClientKeepWithoutADataDirectory(t *testing.T) {
+	t.Parallel()
 	c := newRepo(t).newClient(t, map[string]string{EnvDataDir: "relative"})
 	_, err := c.Keep("alice", proto.OpComment, proto.CommentArgs{ID: "sf-a", Body: "b", Idem: "cli-1"}, errReach)
 	pe, ok := errors.AsType[*proto.Error](err)
@@ -195,6 +199,7 @@ func TestClientKeepWithoutADataDirectory(t *testing.T) {
 }
 
 func TestNotice(t *testing.T) {
+	t.Parallel()
 	c := newRepo(t).newClient(t, nil)
 	c.Outbox = outbox.Options{}
 	conn := &fakeConn{who: "alice", answers: map[string]error{
@@ -229,6 +234,7 @@ func TestNotice(t *testing.T) {
 }
 
 func TestNoQueue(t *testing.T) {
+	t.Parallel()
 	for v, want := range map[string]bool{"": false, "0": false, "false": false, "1": true, "true": true, "yes": true} {
 		if got := NoQueue(func(k string) string { return map[string]string{EnvNoQueue: v}[k] }); got != want {
 			t.Errorf("NoQueue with %s=%q = %v, want %v", EnvNoQueue, v, got, want)

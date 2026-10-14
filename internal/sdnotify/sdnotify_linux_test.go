@@ -37,6 +37,7 @@ func next(t *testing.T, c *net.UnixConn, wait time.Duration) string {
 }
 
 func TestNotify(t *testing.T) {
+	t.Parallel()
 	pid := os.Getpid()
 	for _, tc := range []struct {
 		name     string
@@ -94,6 +95,7 @@ func TestNotify(t *testing.T) {
 // A socket that is gone is an error the caller can log, not a panic or a
 // hang.
 func TestNotifyNoListener(t *testing.T) {
+	t.Parallel()
 	addr := filepath.Join(t.TempDir(), "gone.sock")
 	n := New(func(k string) string { return map[string]string{EnvSocket: addr}[k] }, os.Getpid())
 	if err := n.Ready(); err == nil {

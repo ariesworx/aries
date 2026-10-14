@@ -12,6 +12,7 @@ import (
 // tags, an issue and a pin; recall by text, key and tag; a stale replace
 // refused with its fix; pin, unpin and forget; and --json throughout.
 func TestMemoryCLI(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
 	id := decode[proto.WriteResult](t, alice.ok("create", "Ship", "it", "--label", "release", "--json")).ID
@@ -82,6 +83,7 @@ func TestMemoryCLI(t *testing.T) {
 // A memory that looks like it holds a credential is refused in every
 // scope, and the refusal never repeats it.
 func TestMemorySecretsRefused(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice := w.newUser("alice", "")
 	token := "ghp_" + strings.Repeat("Ab1", 12) // an obviously fake GitHub token
@@ -102,6 +104,7 @@ func TestMemorySecretsRefused(t *testing.T) {
 // history, the digest, the pushed event stream or the MCP tools. The same
 // key in another user's scope is another record.
 func TestUserScopeMemoryIsPrivate(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
 	const secretKey, secretBody = "alice-only-key", "alice-only-body: she prefers tabs"
@@ -182,6 +185,7 @@ func TestUserScopeMemoryIsPrivate(t *testing.T) {
 // An agent keeps, finds, replaces and forgets a memory over MCP, and a
 // replace from a stale rev is refused with the next step in tools.
 func TestMCPMemory(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
 	ag := alice.mcp("v0.2.0")

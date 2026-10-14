@@ -21,6 +21,7 @@ func show(s Sample) string {
 }
 
 func TestParse(t *testing.T) {
+	t.Parallel()
 	started := time.Unix(1791835308, 0).UTC()
 	full := Sample{Version: "2.4.2", Resident: new(uint64(59670528)), MemLimit: new(uint64(1572864000)),
 		Started: &started, Conns: new(4), GCCycles: new(int64(3))}
@@ -89,6 +90,7 @@ func TestParse(t *testing.T) {
 
 // What Dolt 2.4.2 served, saved as it came: every figure is read from it.
 func TestParseDoltsOwn(t *testing.T) {
+	t.Parallel()
 	f, err := os.Open("testdata/dolt-2.4.2.txt")
 	if err != nil {
 		t.Fatal(err)
@@ -108,6 +110,7 @@ func TestParseDoltsOwn(t *testing.T) {
 
 // A reader that fails is an error, not a short sample.
 func TestParseReadError(t *testing.T) {
+	t.Parallel()
 	boom := errors.New("boom")
 	if _, err := Parse(failing{boom}); !errors.Is(err, boom) {
 		t.Errorf("Parse(a reader that fails) = %v, want %v", err, boom)

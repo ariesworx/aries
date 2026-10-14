@@ -15,6 +15,7 @@ import (
 // has is refused the same way whoever has it, without saying that anyone
 // does. A server admin, who may list everything, is still told which.
 func TestRefusalsDoNotSayWhatExists(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{}) // carol, in a and b, has a key; frank is in no project
 	ctx := t.Context()
 	if _, err := m.ctl.AddPrincipal(ctx, dana, "hal", projA); err != nil { // within alice's reach

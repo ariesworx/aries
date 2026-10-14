@@ -15,6 +15,7 @@ import (
 // refused. Each creator who is no server admin now has an allowance of
 // their own (principals_per_creator).
 func TestProjectAdminCannotFillTheServersPrincipals(t *testing.T) {
+	t.Parallel()
 	// adminWorld has five rows already, all a server admin's.
 	m := adminWorld(t, Limits{Control: store.ControlLimits{Principals: 9, PrincipalsPerCreator: 2}})
 	a := mustDialTo(t, m.Server, alice, projA)

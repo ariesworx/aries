@@ -11,6 +11,7 @@ import (
 )
 
 func TestBranchFor(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		branch, id string
 		want       bool
@@ -69,6 +70,7 @@ func commit(t *testing.T, dir, msg string, files ...string) {
 // branch, newest first, then its uncommitted files ahead of them; a
 // trailer gives a commit to the issue it names, on any branch.
 func TestReadChanges(t *testing.T) {
+	t.Parallel()
 	dir := newRepo(t)
 	commit(t, dir, "on main, before the branch", "main.go")
 	repoGit(t, dir, "switch", "-q", "-c", "feature/sf-a1b2-paths")
@@ -109,6 +111,7 @@ func TestReadChanges(t *testing.T) {
 // Off an issue's branch, its trailer commits still count, and uncommitted
 // files belong to nobody.
 func TestReadChangesTrailerOnly(t *testing.T) {
+	t.Parallel()
 	dir := newRepo(t)
 	repoGit(t, dir, "switch", "-q", "-c", "feature/refactor")
 	commit(t, dir, "part of it\n\nStarfix: sf-a1b2", "a.go")
@@ -127,6 +130,7 @@ func TestReadChangesTrailerOnly(t *testing.T) {
 // The default branch is origin's HEAD when there is one, so commits on it
 // never count, whatever it is called.
 func TestReadChangesOriginHead(t *testing.T) {
+	t.Parallel()
 	upstream := newRepo(t)
 	repoGit(t, upstream, "branch", "-q", "-m", "trunk")
 	commit(t, upstream, "on trunk", "trunk.go")
@@ -149,6 +153,7 @@ func TestReadChangesOriginHead(t *testing.T) {
 // first parents only, and the default branch is origin's before a local
 // copy that may be stale.
 func TestReadChangesMerged(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		setup func(t *testing.T) string
@@ -191,6 +196,7 @@ func TestReadChangesMerged(t *testing.T) {
 // IssuePaths gives each issue the paths of its work that the server
 // accepts, and nothing when git tells nothing.
 func TestIssuePaths(t *testing.T) {
+	t.Parallel()
 	long := strings.Repeat("d/", proto.MaxPathLen/2) + "x.go"
 	dir := newRepo(t)
 	repoGit(t, dir, "switch", "-q", "-c", "feature/sf-a1b2-thing")
@@ -233,6 +239,7 @@ func TestIssuePaths(t *testing.T) {
 // RepoRelative turns paths given in a directory into the repository's
 // form, relative to its root.
 func TestRepoRelative(t *testing.T) {
+	t.Parallel()
 	dir := newRepo(t)
 	sub := filepath.Join(dir, "internal", "store")
 	if err := os.MkdirAll(sub, 0o750); err != nil {
@@ -263,6 +270,7 @@ func TestRepoRelative(t *testing.T) {
 // Without a default branch to measure from, only uncommitted files count;
 // with no commit at all, the same.
 func TestReadChangesNoBase(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		setup func(t *testing.T) string
@@ -297,6 +305,7 @@ func TestReadChangesNoBase(t *testing.T) {
 // A detached HEAD, a directory outside any repository and a machine
 // without git all give no changes; the last two say why.
 func TestReadChangesNothing(t *testing.T) {
+	// Serial: sets the process's environment (t.Setenv).
 	dir := newRepo(t)
 	repoGit(t, dir, "switch", "-q", "-c", "feature/sf-a1b2")
 	commit(t, dir, "work", "a.go")

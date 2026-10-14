@@ -31,6 +31,7 @@ func sshDir(t *testing.T, home string) string {
 // files of ~/.ssh, in ssh's order, then ssh-agent's other keys, each key
 // once, and at most maxOffered in all.
 func TestDefaultIdentities(t *testing.T) {
+	t.Parallel()
 	ecdsaNamed, edNamed, locked, hardware, inAgent, stray := newKeyPair(t), newKeyPair(t), newKeyPair(t), newKeyPair(t), newKeyPair(t), newKeyPair(t)
 	fps := func(ks ...keyPair) []string {
 		var out []string
@@ -129,6 +130,7 @@ func TestDefaultIdentities(t *testing.T) {
 // offers five, so the server answers, and the refusal says what was
 // offered, what was left out, and how to name the key.
 func TestOffersAreCapped(t *testing.T) {
+	t.Parallel()
 	mine := newKeyPair(t)
 	var crowd []keyPair
 	for range 7 {
@@ -172,6 +174,7 @@ func TestOffersAreCapped(t *testing.T) {
 // STARFIX_KEY_FILE holds a path: a value that is plainly a key is
 // refused without being repeated.
 func TestAKeyIsNeverTakenForAPath(t *testing.T) {
+	t.Parallel()
 	secret, mine, stranger := newKeyPair(t), newKeyPair(t), newKeyPair(t)
 	block, err := ssh.MarshalPrivateKey(secret.priv, "")
 	if err != nil {

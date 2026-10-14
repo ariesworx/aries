@@ -149,6 +149,7 @@ const (
 // message follows yet, even across tool results, so its final output is
 // the one sent: the sink, like the server, keeps the first.
 func TestClaudeAcrossRuns(t *testing.T) {
+	t.Parallel()
 	l := newLayout(t)
 	s := &sink{}
 	newFirst := claudeLine("msg_01New", "req_01New", "claude-x", `{"input_tokens":1,"output_tokens":5}`) + "\n"
@@ -196,6 +197,7 @@ func TestClaudeAcrossRuns(t *testing.T) {
 // A send that fails leaves the offsets, so the next run sends the same
 // records again; the server keeps one of each.
 func TestClaudeRetriesAfterFailedSend(t *testing.T) {
+	t.Parallel()
 	l := newLayout(t)
 	down := proto.Errf(proto.CodeUnavailable, "retry", "server down")
 	s := &sink{fail: down}
@@ -214,6 +216,7 @@ func TestClaudeRetriesAfterFailedSend(t *testing.T) {
 // Records go in batches of at most MaxBatch. When a later batch fails,
 // a file whose records all went in earlier batches keeps its offset.
 func TestClaudeBatches(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	big, small := filepath.Join(dir, "big.jsonl"), filepath.Join(dir, "small.jsonl")
 	var b strings.Builder
@@ -255,6 +258,7 @@ func TestClaudeBatches(t *testing.T) {
 
 // A file truncated or replaced since the last run is read from its start.
 func TestClaudeTruncatedOrReplaced(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		replace func(t *testing.T, l layout)
@@ -298,6 +302,7 @@ func TestClaudeTruncatedOrReplaced(t *testing.T) {
 // A transcript in a format sfx does not know sends nothing and says so,
 // with the version; its offset stays, so a later sfx can read it.
 func TestClaudeUnrecognized(t *testing.T) {
+	t.Parallel()
 	l := newLayout(t)
 	unknown := filepath.Join(l.dir, "unknown.jsonl")
 	copyFile(t, "unknown.jsonl", unknown)
@@ -319,6 +324,7 @@ func TestClaudeUnrecognized(t *testing.T) {
 }
 
 func TestStateFile(t *testing.T) {
+	t.Parallel()
 	l := newLayout(t)
 	if _, err := l.capture(t, &sink{}, true); err != nil {
 		t.Fatal(err)
@@ -358,6 +364,7 @@ func TestStateFile(t *testing.T) {
 
 // The state directory is tightened to 0700 if it was made wider.
 func TestStateDirTightened(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("no POSIX modes")
 	}
@@ -379,6 +386,7 @@ func TestStateDirTightened(t *testing.T) {
 // Entries for files that are gone are dropped; a state file that is not
 // JSON is started over.
 func TestStatePruneAndCorrupt(t *testing.T) {
+	t.Parallel()
 	l := newLayout(t)
 	if _, err := l.run(t, &sink{}); err != nil {
 		t.Fatal(err)
@@ -413,6 +421,7 @@ func TestStatePruneAndCorrupt(t *testing.T) {
 // Runs at once, as Stop and SubagentStop can be, leave a state file that
 // still reads, and nothing is lost: a later run sends nothing new.
 func TestClaudeConcurrentRuns(t *testing.T) {
+	t.Parallel()
 	l := newLayout(t)
 	s := &sink{}
 	var wg sync.WaitGroup
@@ -451,6 +460,7 @@ func TestClaudeConcurrentRuns(t *testing.T) {
 // it is dropped and counted, and the offsets move on, so it does not
 // block every later run.
 func TestClaudeDropsRefusedRecord(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "s.jsonl")
 	var b strings.Builder
 	for i := range 7 {
@@ -483,6 +493,7 @@ func TestClaudeDropsRefusedRecord(t *testing.T) {
 // A refusal that is not invalid, such as busy, drops nothing: the run
 // stops and the next one sends the same records.
 func TestClaudeKeepsRecordsWhenBusy(t *testing.T) {
+	t.Parallel()
 	l := newLayout(t)
 	s := &sink{fail: proto.Errf(proto.CodeBusy, "wait", "too many usage records today")}
 	if res, err := l.run(t, s); err == nil || res.Sent != 0 || res.Refused != 0 {
@@ -497,6 +508,7 @@ func TestClaudeKeepsRecordsWhenBusy(t *testing.T) {
 // A server with a smaller batch limit refuses a batch as invalid; the
 // records still all go, in smaller batches, and none is dropped.
 func TestClaudeSmallerBatchLimit(t *testing.T) {
+	t.Parallel()
 	l := newLayout(t)
 	s := &sink{limit: 1}
 	if res, err := l.capture(t, s, true); err != nil || res.Sent != 5 || res.Refused != 0 {
@@ -507,6 +519,7 @@ func TestClaudeSmallerBatchLimit(t *testing.T) {
 // Files the harness has finished writing, such as a stopped subagent's,
 // are read whole even on a run that is not final.
 func TestClaudeDoneFiles(t *testing.T) {
+	t.Parallel()
 	l := newLayout(t)
 	s := &sink{}
 	files, err := ClaudeFiles(l.main, session, l.sub)
@@ -522,6 +535,7 @@ func TestClaudeDoneFiles(t *testing.T) {
 }
 
 func TestClaudeFiles(t *testing.T) {
+	t.Parallel()
 	l := newLayout(t)
 	other := filepath.Join(t.TempDir(), "agent-elsewhere.jsonl")
 	tests := []struct {

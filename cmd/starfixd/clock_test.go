@@ -34,6 +34,7 @@ func writtenAhead(t *testing.T, dsn string, ahead time.Duration) time.Time {
 // serve refuses to start when its clock is behind its database's
 // history, unless told to warn, or to accept that history once.
 func TestServeClockBehindHistory(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		ahead   time.Duration // how far ahead of the clock the history is
@@ -74,6 +75,7 @@ func TestServeClockBehindHistory(t *testing.T) {
 }
 
 func TestServeAcceptClockBehindFlag(t *testing.T) {
+	t.Parallel()
 	err := serve(t.Context(), []string{"--dev", "--accept-clock-behind", "tomorrow"})
 	if _, ok := errors.AsType[usageError](err); !ok || !strings.Contains(err.Error(), "--accept-clock-behind") {
 		t.Errorf("serve --accept-clock-behind tomorrow = %v, want a usage error naming the flag", err)
@@ -84,6 +86,7 @@ func TestServeAcceptClockBehindFlag(t *testing.T) {
 // refusal to start would fail the health check, and the upgrade would
 // put the old binary back and blame the release.
 func TestUpgradeChecksTheClockFirst(t *testing.T) {
+	t.Parallel()
 	t.Run("behind, stop", func(t *testing.T) {
 		r := newRig(t, "v0.2.0", "v0.3.0", "systemd_unit: starfixd.service\n")
 		r.dsn = newDSN(t)

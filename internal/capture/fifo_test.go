@@ -13,6 +13,7 @@ import (
 // A transcript path that names a FIFO is refused, not opened: opening it
 // would block until a writer came, past any deadline.
 func TestClaudeRefusesFIFO(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "fifo.jsonl")
 	if err := syscall.Mkfifo(path, 0o600); err != nil {
 		t.Skipf("mkfifo: %v", err)

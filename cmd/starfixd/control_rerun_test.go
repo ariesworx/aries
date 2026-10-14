@@ -103,6 +103,7 @@ func events(t *testing.T, s *site) []store.Event {
 }
 
 func TestControlInitRerunKeepsWhatAdminsRemoved(t *testing.T) {
+	t.Parallel()
 	s, keys := rerunSite(t)
 	const left = "bob active keys=1 member=false\n" +
 		"carol active keys=0 member=true\n" +
@@ -152,6 +153,7 @@ func TestControlInitRerunKeepsWhatAdminsRemoved(t *testing.T) {
 }
 
 func TestControlInitRestoreRemovedAccess(t *testing.T) {
+	t.Parallel()
 	s, keys := rerunSite(t)
 	before := events(t, s)
 	got := s.run(t, "", controlCmd, "init", "--name", "acme", "--authorized-keys", keys, "--restore-removed-access")
@@ -205,6 +207,7 @@ func TestControlInitRestoreRemovedAccess(t *testing.T) {
 // operator reads it: starfixd's usage, which every mistake on the command
 // line prints.
 func TestControlInitRestoreFlagIsExplained(t *testing.T) {
+	t.Parallel()
 	for _, want := range []string{"[--restore-removed-access]", "sfx admin key remove", "sfx admin member remove", "sfx admin principal disable"} {
 		if !strings.Contains(usage, want) {
 			t.Errorf("starfixd's usage does not mention %q:\n%s", want, usage)

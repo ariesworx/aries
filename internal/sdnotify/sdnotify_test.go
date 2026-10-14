@@ -8,6 +8,7 @@ import (
 // With no notify socket, and on a nil Notifier, nothing is sent and
 // nothing fails. Off Linux that is every Notifier.
 func TestNoSocket(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		n    *Notifier

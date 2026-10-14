@@ -108,6 +108,7 @@ func (r *rawSession) nextErr() (*proto.Frame, error) {
 // proto.MaxFrame. The server answers with a typed invalid refusal and ends
 // that session, and another session on the same daemon keeps working.
 func TestOversizedFrameAfterHandshake(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice := w.newUser("alice", "").rawDial("s-big")
 	bob := w.newUser("bob", "").rawDial("s-bob")

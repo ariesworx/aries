@@ -16,6 +16,7 @@ import (
 )
 
 func TestResolveSettingsClock(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	tests := []struct {
 		name string
@@ -133,6 +134,7 @@ func earlierWork(t *testing.T, dsn string, clk *store.Clock) {
 // A daemon starts, or refuses to, by how its clock stands against the
 // history in its database.
 func TestStartClockBehind(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		mode    string        // Config.ClockBehind; empty is the default
@@ -212,6 +214,7 @@ func TestStartClockBehind(t *testing.T) {
 // real systemd the one-line refusal lost its fix there, which is the
 // part an operator needs: each way on is a short line of its own.
 func TestClockBehindErrorLines(t *testing.T) {
+	t.Parallel()
 	e := &ClockBehindError{Log: "project 6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f (database starfix_p001)", More: 2,
 		Clock: time.Date(2026, 10, 12, 6, 0, 4, 0, time.UTC), History: time.Date(2026, 10, 12, 9, 30, 11, 500, time.UTC)}
 	lines := e.Lines()
@@ -238,6 +241,7 @@ func TestClockBehindErrorLines(t *testing.T) {
 // A database with no history has nothing for the clock to be behind,
 // whatever the clock says.
 func TestStartFreshDatabaseWithAnyClock(t *testing.T) {
+	t.Parallel()
 	c := newMachine()
 	c.set(-30 * 365 * 24 * time.Hour) // a dead battery: the clock reads 1996
 	clk := store.NewClock(store.ClockOptions{Read: c.read})
@@ -256,6 +260,7 @@ func TestStartFreshDatabaseWithAnyClock(t *testing.T) {
 // stop: a daemon that exits when its clock is set back hands whoever can
 // set it a way to take the server down.
 func TestClockBehindWhileRunning(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []string{ClockStop, ClockWarn} {
 		t.Run(mode, func(t *testing.T) {
 			dsn := newDatabase(t)
@@ -368,6 +373,7 @@ func TestClockBehindWhileRunning(t *testing.T) {
 // will write to: the control store's and each active project's, which
 // it opens at start anyway.
 func TestOpenProjectsClockBehind(t *testing.T) {
+	t.Parallel()
 	m := newMulti(t, Limits{}, nil)
 	a := m.project(t, projA, "alice")
 	b := m.project(t, projB, "alice")
@@ -417,6 +423,7 @@ func TestOpenProjectsClockBehind(t *testing.T) {
 // them. Given wall-clock times alone, as here, a step back refills no
 // bucket and a jump forward fills one only to its burst.
 func TestBucketsAcrossClockSteps(t *testing.T) {
+	t.Parallel()
 	t0 := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	b := buckets{rate: 2, burst: 3}
 	for i, st := range []struct {
@@ -440,6 +447,7 @@ func TestBucketsAcrossClockSteps(t *testing.T) {
 // closes nothing early; set forward, it closes stores with no
 // connection, which the next connection opens again.
 func TestRegistryIdleAcrossClockSteps(t *testing.T) {
+	t.Parallel()
 	ck := newClock()
 	m := newMulti(t, Limits{StoreIdle: Duration(10 * time.Minute)}, ck)
 	m.project(t, projA, "alice")

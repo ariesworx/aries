@@ -11,6 +11,10 @@
 // callers skip, unless [RequireEnv] makes that a failure. NewDatabase is
 // safe for concurrent use.
 //
+// A package's tests take their servers from a [Pool], which gives each
+// test one to itself while it runs, so that the tests can run in
+// parallel, and drops what a test left on it.
+//
 // Measurements (spike/multidb) also use [StartWith], for Dolt's metrics
 // endpoint and extra environment, [Server.Restart], for a new dolt process
 // on the same data, and [Server.PID].
@@ -110,12 +114,24 @@ func lookDolt() (string, error) {
 }
 
 // Version returns the version of the dolt on PATH, such as "2.4.2".
+//
+// Dolt keeps its own files under its root, by default the home directory
+// (~/.dolt), and makes them for any command, this one included. So it is
+// given a root that is removed afterward: a test run writes nothing in
+// the home directory of whoever runs it.
 func Version(ctx context.Context) (string, error) {
 	bin, err := lookDolt()
 	if err != nil {
 		return "", err
 	}
-	out, err := exec.CommandContext(ctx, bin, "version").Output() //nolint:gosec // fixed args, dolt from PATH
+	root, err := os.MkdirTemp("", "dolttest-version-")
+	if err != nil {
+		return "", fmt.Errorf("dolttest: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(root) }()
+	cmd := exec.CommandContext(ctx, bin, "version") //nolint:gosec // fixed args, dolt from PATH
+	cmd.Env = append(os.Environ(), "DOLT_ROOT_PATH="+root, "DOLT_DISABLE_EVENT_FLUSH=1")
+	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("dolttest: dolt version: %w", err)
 	}
@@ -383,6 +399,45 @@ func (s *Server) DropDatabase(dsn string) error {
 		return fmt.Errorf("dolttest: drop database %s: %w", name, err)
 	}
 	return nil
+}
+
+// dropAll drops every database on the server but Dolt's own. Only a
+// [Pool] calls it, on a server no test holds.
+func (s *Server) dropAll() error {
+	db, err := sql.Open("mysql", s.rootDSN(""))
+	if err != nil {
+		return fmt.Errorf("dolttest: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	ctx, cancel := context.WithTimeout(context.Background(), dropTimeout)
+	defer cancel()
+	rows, err := db.QueryContext(ctx, "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('information_schema', 'mysql')")
+	if err != nil {
+		return fmt.Errorf("dolttest: list databases: %w", err)
+	}
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("dolttest: list databases: %w", err)
+		}
+		names = append(names, name)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return fmt.Errorf("dolttest: list databases: %w", err)
+	}
+	var errs []error
+	for _, name := range names {
+		if strings.Contains(name, "`") {
+			errs = append(errs, fmt.Errorf("dolttest: drop database: %q cannot be quoted", name))
+			continue
+		}
+		if _, err := db.ExecContext(ctx, "DROP DATABASE `"+name+"`"); err != nil {
+			errs = append(errs, fmt.Errorf("dolttest: drop database %s: %w", name, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // Grant gives User every right on each database named, whether or not it

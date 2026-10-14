@@ -15,6 +15,7 @@ import (
 // goroutine runs, and says when it starts to stop. The socket here is
 // the test's own, standing in for systemd's.
 func TestRunDaemonNotifiesSystemd(t *testing.T) {
+	// Serial: counts the process's goroutines (noLeak).
 	noLeak(t)
 	// Not t.TempDir, whose path can be too long for a unix socket.
 	dir, err := os.MkdirTemp("", "sfn")

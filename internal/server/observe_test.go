@@ -103,6 +103,7 @@ func starfixOnly(snap telemetry.Snapshot) telemetry.Snapshot {
 // A known sequence of requests through a server of one project gives
 // exactly the counts it should, and each histogram its observations.
 func TestMetricsOfRequests(t *testing.T) {
+	t.Parallel()
 	tel, m := measured(t, true)
 	s := newServerTel(t, Limits{}, tel)
 	c := dialPipe(t, s, alice)
@@ -170,6 +171,7 @@ func TestMetricsOfRequests(t *testing.T) {
 
 // Handshakes are counted by how they end.
 func TestMetricsOfHandshakes(t *testing.T) {
+	t.Parallel()
 	tel, m := measured(t, true)
 	s := newServerTel(t, Limits{ConnsPerPrincipal: 1}, tel)
 	other := "99999999-9999-4999-8999-999999999999"
@@ -226,6 +228,7 @@ func TestMetricsOfHandshakes(t *testing.T) {
 // code: unknown ops are one value, a project the server does not serve
 // is never a value, and nothing of the client's own is an attribute.
 func TestMetricsStayBounded(t *testing.T) {
+	t.Parallel()
 	tel, m := measured(t, true)
 	s := newServerTel(t, Limits{WriteBurst: 100000, WriteRate: 100000}, tel)
 	hostile := []string{"", "x", "create ", "CREATE", "create\n", "../etc", "alice", "s-a", "laptop-a", `{"op":"x"}`, "\u202eetaerc", strings.Repeat("o", 2000)}
@@ -279,6 +282,7 @@ func TestMetricsStayBounded(t *testing.T) {
 
 // The write limits are counted by name, and their refusals as busy.
 func TestMetricsOfLimits(t *testing.T) {
+	t.Parallel()
 	tel, m := measured(t, true)
 	s := newServerTel(t, Limits{WriteBurst: 2, WriteRate: 0.001, Conns: 2, ConnsPerPrincipal: 2}, tel)
 	c := dialPipe(t, s, alice)
@@ -312,6 +316,7 @@ func TestMetricsOfLimits(t *testing.T) {
 // control writes, the reasons connections and claims end, the stores
 // and the keys file.
 func TestMetricsOfManyProjects(t *testing.T) {
+	t.Parallel()
 	tel, m := measured(t, true)
 	ck := newClock()
 	mu := newMultiTel(t, Limits{}, ck, tel, dana.Principal)
@@ -394,6 +399,7 @@ func TestMetricsOfManyProjects(t *testing.T) {
 // With per_project off, no instrument names a project, and the numbers
 // are the same.
 func TestMetricsWithoutProjects(t *testing.T) {
+	t.Parallel()
 	tel, m := measured(t, false)
 	mu := newMultiTel(t, Limits{}, nil, tel, dana.Principal)
 	mu.project(t, projA, "alice")
@@ -428,6 +434,7 @@ func TestMetricsWithoutProjects(t *testing.T) {
 // A write of the keys file that fails is counted, and /readyz says so
 // until one succeeds.
 func TestReadyFollowsTheKeysFile(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("needs a directory this user cannot write to")
 	}
@@ -470,10 +477,8 @@ func TestReadyFollowsTheKeysFile(t *testing.T) {
 // check of Dolt is made once and stands for doltCheckEvery, however
 // often it is asked.
 func TestReadyFollowsDolt(t *testing.T) {
-	if errors.Is(doltErr, dolttest.ErrNoDolt) {
-		t.Skip("dolt is not on PATH: install dolt to run the server tests")
-	}
-	// A Dolt of the test's own, since it is stopped.
+	// Serial: bounds elapsed time, which a test running beside it would stretch.
+	// A Dolt of the test's own, and not the pool's, since it is stopped.
 	dir, err := os.MkdirTemp("", "sfready")
 	if err != nil {
 		t.Fatal(err)
@@ -482,6 +487,9 @@ func TestReadyFollowsDolt(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()
 	own, err := dolttest.Start(ctx, dir)
+	if errors.Is(err, dolttest.ErrNoDolt) {
+		t.Skip("dolt is not on PATH: install dolt to run the server tests")
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -587,6 +595,7 @@ func waitFor(t *testing.T, what string, ok func() bool) {
 // The reaper's ticks are measured, and the heartbeat comes from its
 // goroutine: often between ticks, and not at all once it has stopped.
 func TestReaperMetricsAndHeartbeat(t *testing.T) {
+	t.Parallel()
 	tel, m := measured(t, true)
 	s := newServerTel(t, Limits{}, tel)
 	s.cfg.ReapInterval = 20 * time.Millisecond
@@ -623,6 +632,7 @@ func slogTo(w io.Writer) *slog.Logger {
 // `starfixd status` gets the report a server admin gets, over the
 // daemon's socket and with no key, and nothing else.
 func TestLocalStatus(t *testing.T) {
+	t.Parallel()
 	sockDir := func(t *testing.T) string {
 		t.Helper()
 		// Not t.TempDir, whose path can be too long for a unix socket.
@@ -774,6 +784,7 @@ func TestLocalStatus(t *testing.T) {
 
 // Ops lists every op the server answers, once.
 func TestOps(t *testing.T) {
+	t.Parallel()
 	ops := Ops()
 	if !slices.IsSorted(ops) || len(slices.Compact(slices.Clone(ops))) != len(ops) {
 		t.Errorf("Ops() is not sorted and unique: %v", ops)

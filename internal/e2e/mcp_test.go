@@ -97,6 +97,7 @@ func (a *agent) ok(name string, args map[string]any) string {
 }
 
 func TestMCPAgentSession(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{latest: "v0.3.0"})
 	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
 	alice.env["CLAUDE_CODE_SESSION_ID"] = "cc-e2e"
@@ -246,6 +247,7 @@ func TestMCPAgentSession(t *testing.T) {
 // Without a session variable the server assigns one, and the agent's
 // failures to connect come back as tool errors for the person.
 func TestMCPServerAssignedSessionAndRefusal(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	ag := w.newUser("carol", "").mcp("v0.2.0")
 	p := decode[mcpserver.Prime](t, ag.ok("prime", nil))
@@ -273,6 +275,7 @@ func TestMCPServerAssignedSessionAndRefusal(t *testing.T) {
 
 // `sfx mcp` itself, over pipes as a harness runs it.
 func TestMCPCommand(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice := w.newUser("alice", "")
 	inR, inW := io.Pipe()

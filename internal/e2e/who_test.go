@@ -12,6 +12,7 @@ import (
 // Two sessions of one person, under two harnesses, show up in `sfx who`
 // for another, with the claim the first holds.
 func TestWhoListsSessions(t *testing.T) {
+	t.Parallel()
 	// The store's clock stands still, so every session was "seen just
 	// now": on the real one, a machine that takes a minute over these
 	// commands saw the first "1m ago".

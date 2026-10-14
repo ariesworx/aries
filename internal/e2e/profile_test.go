@@ -31,6 +31,7 @@ import (
 // principal's connections, handshakes, sessions and write rate.
 // STARFIX_PROFILE_LIMITS=default leaves the server's defaults.
 func TestProfileServer(t *testing.T) {
+	// Serial: measures this process, its heap and its goroutines, which a test beside it would add to.
 	dir := os.Getenv("STARFIX_PROFILE_DIR")
 	if dir == "" {
 		t.Skip("set STARFIX_PROFILE_DIR to serve a world for profiling sfx from outside the test")

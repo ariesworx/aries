@@ -62,6 +62,7 @@ func gateCommands(t *testing.T) []string {
 // TestGateMatchesAgents keeps the gate a person runs and the gate an
 // agent reads the same list, in the same order.
 func TestGateMatchesAgents(t *testing.T) {
+	t.Parallel()
 	got, want := gateCommands(t), agentsCommands(t)
 	if len(want) == 0 {
 		t.Fatal("AGENTS.md's Commands block lists no command")
@@ -77,6 +78,7 @@ func TestGateMatchesAgents(t *testing.T) {
 // covers gofmt and go vet), in a loop (the builds for other systems) or
 // with a coverage profile (the tests).
 func TestGateMatchesCI(t *testing.T) {
+	t.Parallel()
 	ci := read(t, ".github/workflows/ci.yml")
 	cmds := gateCommands(t)
 	for _, prefix := range []string{"go mod verify", "git ls-files", "go run golang.org/x/vuln/cmd/govulncheck@"} {
@@ -96,6 +98,7 @@ func TestGateMatchesCI(t *testing.T) {
 // built with the race detector by whoever runs the gate, and only that
 // binary under sudo. Neither runs go as root.
 func TestPeerCheckMatchesCI(t *testing.T) {
+	t.Parallel()
 	files := map[string]string{
 		".github/workflows/ci.yml": read(t, ".github/workflows/ci.yml"),
 		"scripts/gate.sh":          read(t, "scripts/gate.sh"),
@@ -121,6 +124,7 @@ func TestPeerCheckMatchesCI(t *testing.T) {
 // TestGovulncheckPin keeps every govulncheck in the repository at one
 // version: the gate's, CI's, the weekly scan's and the release build's.
 func TestGovulncheckPin(t *testing.T) {
+	t.Parallel()
 	pin := regexp.MustCompile(`golang\.org/x/vuln/cmd/govulncheck@(v[0-9.]+)`)
 	var want, first string
 	for _, path := range []string{
@@ -252,12 +256,21 @@ func (g gateTree) write(t *testing.T, path, body string) {
 func (g gateTree) run(t *testing.T, args ...string) (out string, status int, calls []string) {
 	t.Helper()
 	cmd := exec.Command("sh", append([]string{filepath.Join(g.root, "scripts", "gate.sh")}, args...)...) //nolint:gosec // the repository's script, copied by the test
+	tmp := t.TempDir()
 	cmd.Env = []string{
 		"PATH=" + g.bin + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"HOME=" + g.root,
-		"TMPDIR=" + t.TempDir(),
+		"TMPDIR=" + tmp,
 	}
 	b, err := cmd.CombinedOutput()
+	// The logs a failed gate keeps are under the TMPDIR it was given, so
+	// they go with the test's directory: mktemp with no template ignores
+	// TMPDIR on macOS, and each run then left its logs in the user's own.
+	for line := range strings.Lines(string(b)) {
+		if dir, ok := strings.CutPrefix(strings.TrimSpace(line), "logs: "); ok && !strings.HasPrefix(dir, tmp) {
+			t.Errorf("gate.sh kept its logs in %s, which is not under its TMPDIR, %s", dir, tmp)
+		}
+	}
 	if err != nil {
 		ee, ok := err.(*exec.ExitError) //nolint:errorlint // exec returns it unwrapped
 		if !ok {
@@ -277,6 +290,7 @@ func (g gateTree) run(t *testing.T, args ...string) (out string, status int, cal
 }
 
 func TestGateScript(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("scripts/gate.sh is for a POSIX shell")
 	}

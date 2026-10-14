@@ -58,6 +58,7 @@ func (o *seen) take() (wrote, retried, commits int, claims []string) {
 // The observer is told of each write that changed a row, each retry,
 // each Dolt commit and each change of a claim, once it has committed.
 func TestObserver(t *testing.T) {
+	t.Parallel()
 	obs := &seen{}
 	clk := &clock{t: time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)}
 	s := openStore(t, newDSN(t), Options{Now: clk.now, Observer: obs})
@@ -156,6 +157,7 @@ func TestObserver(t *testing.T) {
 
 // A database already migrated reports none.
 func TestMigratedOnReopen(t *testing.T) {
+	t.Parallel()
 	dsn := newDSN(t)
 	first, err := Open(t.Context(), dsn, Options{CommitInterval: -1})
 	if err != nil {

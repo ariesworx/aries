@@ -27,6 +27,7 @@ func aliasOn(t *testing.T, m *telemetry.Manual, op string) string {
 // that is nobody's, or made under a key the server no longer has, is
 // refused with what to do.
 func TestWhois(t *testing.T) {
+	t.Parallel()
 	tel, m := spanned(t, telemetry.Config{})
 	mu := adminWorldTel(t, Limits{}, tel)
 	d := mustDialTo(t, mu.Server, dana, projA)
@@ -110,6 +111,7 @@ func TestWhois(t *testing.T) {
 // Once the cause is gone the reaper's next tick finds the key, with no
 // restart, and spans name people by stand-ins from then on.
 func TestSpansWithoutTheKey(t *testing.T) {
+	t.Parallel()
 	key := filepath.Join(t.TempDir(), "telemetry", "principals.key")
 	tel, m := spanned(t, telemetry.Config{KeyFile: key})
 	mu := adminWorldTel(t, Limits{}, tel)
@@ -169,6 +171,7 @@ func TestSpansWithoutTheKey(t *testing.T) {
 // The status report says how people appear in traces, and nothing of it
 // when the server exports none.
 func TestStatusTraces(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		tel  func(t *testing.T) *telemetry.Telemetry

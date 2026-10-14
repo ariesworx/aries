@@ -6,6 +6,7 @@ import (
 )
 
 func TestUSD(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		pico string
 		want string
@@ -30,6 +31,7 @@ func TestUSD(t *testing.T) {
 }
 
 func TestParseUSD(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		usd  string
 		pico string // "" for refused
@@ -58,6 +60,7 @@ func TestParseUSD(t *testing.T) {
 }
 
 func TestDollars(t *testing.T) {
+	t.Parallel()
 	tests := []struct{ usd, want string }{
 		{"0", "$0.00"},
 		{"12.5", "$12.50"},
@@ -84,6 +87,7 @@ func TestDollars(t *testing.T) {
 }
 
 func TestParseRate(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		in   string
 		want int64
@@ -113,6 +117,7 @@ func TestParseRate(t *testing.T) {
 }
 
 func TestFormatRate(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		micros int64
 		want   string

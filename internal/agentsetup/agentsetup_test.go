@@ -6,6 +6,7 @@ import (
 )
 
 func TestApply(t *testing.T) {
+	t.Parallel()
 	custom := Entry{Command: `C:\tools\starfix.exe`, Args: []string{"mcp"}}
 	tests := []struct {
 		name, agent, in, want string
@@ -198,6 +199,7 @@ func TestApply(t *testing.T) {
 // An already-registered file is left exactly as it is, even when its
 // formatting is not ours.
 func TestApplyLeavesRegisteredFileAlone(t *testing.T) {
+	t.Parallel()
 	in := `{"mcpServers":{"starfix":{"env":{"STARFIX_HARNESS":"claude-code"},"args":["mcp"],"command":"sfx","type":"stdio"}}}`
 	out, res, err := Agents["claude-code"].Apply([]byte(in), DefaultEntry)
 	if err != nil || res != Unchanged || string(out) != in {
@@ -206,6 +208,7 @@ func TestApplyLeavesRegisteredFileAlone(t *testing.T) {
 }
 
 func TestRemove(t *testing.T) {
+	t.Parallel()
 	tests := []struct{ agent, in, want string }{
 		{"claude-code", `{"mcpServers": {"a": {}, "starfix": {"command": "starfix"}}}`, "{\n  \"mcpServers\": {\n    \"a\": {}\n  }\n}\n"},
 		{"vscode", `{"servers": {"starfix": {"command": "sfx"}}, "mcpServers": {"starfix": {}}}`, "{\n  \"servers\": {},\n  \"mcpServers\": {\n    \"starfix\": {}\n  }\n}\n"},
@@ -225,6 +228,7 @@ func TestRemove(t *testing.T) {
 }
 
 func TestApplyRefusesBadJSON(t *testing.T) {
+	t.Parallel()
 	for _, in := range []string{"[1]", "{", `{"mcpServers": []}`, "{} {}", `{"a": 1, "a": 2}`} {
 		if _, _, err := Agents["gemini"].Apply([]byte(in), DefaultEntry); err == nil {
 			t.Errorf("%q accepted", in)
@@ -233,6 +237,7 @@ func TestApplyRefusesBadJSON(t *testing.T) {
 }
 
 func TestSnippets(t *testing.T) {
+	t.Parallel()
 	for _, name := range Names() {
 		a := Agents[name]
 		s := a.Snippet(DefaultEntry)

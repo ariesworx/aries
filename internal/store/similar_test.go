@@ -6,6 +6,7 @@ import (
 )
 
 func TestTitleTokens(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		title string
 		want  []string
@@ -26,6 +27,7 @@ func TestTitleTokens(t *testing.T) {
 }
 
 func TestSimilarClosed(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	closed := func(title string) Issue {

@@ -48,34 +48,26 @@ import (
 	"github.com/ariesworx/starfix/internal/telemetry"
 )
 
-var (
-	dolt    *dolttest.Server
-	doltErr error
-)
+// dolts are the package's Dolt servers: a test has one to itself while it
+// runs, so the tests can run in parallel (dolttest.Pool).
+var dolts = dolttest.NewPool("starfix-e2e-", dolttest.Options{})
 
 func TestMain(m *testing.M) {
 	iaptest.Main()
 	// No test here, the soak included, reads the real ~/.ssh or
-	// ssh-agent: each user's key is in its own checkout.
+	// ssh-agent: each user's key is in its own checkout. Nor does the git
+	// the tests start read the user's git configuration.
 	restore := clienttest.Isolate()
+	restoreGit := clienttest.IsolateGit()
 	code := run(m)
+	restoreGit()
 	restore()
 	os.Exit(code)
 }
 
 func run(m *testing.M) int {
-	dir, err := os.MkdirTemp("", "starfix-e2e-")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	defer func() { _ = os.RemoveAll(dir) }()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	dolt, doltErr = dolttest.Start(ctx, dir)
-	cancel()
-	if dolt != nil {
-		defer func() { _ = dolt.Stop() }()
-	}
+	defer func() { _ = dolts.Close() }()
+	dolts.Warm()
 	return m.Run()
 }
 
@@ -90,7 +82,10 @@ const patience = time.Minute
 
 // world is one daemon behind one SSH server.
 type world struct {
-	t       *testing.T
+	t *testing.T
+	// dolt is the Dolt server the world's test holds, and no other test
+	// while it runs.
+	dolt    *dolttest.Server
 	socket  string
 	addr    *net.TCPAddr
 	hostFpr string
@@ -200,11 +195,14 @@ type daemonOpts struct {
 // SSH server in front of it, and stops both when t ends.
 func newWorld(t *testing.T, o daemonOpts) *world {
 	t.Helper()
-	if errors.Is(doltErr, dolttest.ErrNoDolt) {
+	// Taken before any cleanup is registered, so that the test gives the
+	// server up last, once its databases are dropped.
+	srv, err := dolts.Server(t)
+	if errors.Is(err, dolttest.ErrNoDolt) {
 		t.Skip("dolt is not on PATH: install dolt to run the end-to-end tests")
 	}
-	if doltErr != nil {
-		t.Fatalf("dolt sql-server: %v", doltErr)
+	if err != nil {
+		t.Fatalf("dolt sql-server: %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -214,7 +212,7 @@ func newWorld(t *testing.T, o daemonOpts) *world {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(base) })
-	w := &world{t: t, socket: filepath.Join(base, "run", "starfixd.sock"), keys: map[string]string{},
+	w := &world{t: t, dolt: srv, socket: filepath.Join(base, "run", "starfixd.sock"), keys: map[string]string{},
 		conns: map[net.Conn]struct{}{}, opts: o, hand: map[string]string{}}
 	// Registered before anything is opened on a database, so that it runs
 	// after the daemon has stopped and the test's own connections closed.
@@ -252,11 +250,11 @@ func newWorld(t *testing.T, o daemonOpts) *world {
 	return w
 }
 
-// newDatabase makes a database in the package's Dolt, which the world
+// newDatabase makes a database in the world's Dolt, which the world
 // drops when its test ends: Dolt holds every database in memory and slows
 // with each (dolttest.Server.DropDatabase).
 func (w *world) newDatabase(ctx context.Context) (string, error) {
-	dsn, err := dolt.NewDatabase(ctx)
+	dsn, err := w.dolt.NewDatabase(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -271,7 +269,7 @@ func (w *world) dropDatabases() {
 	w.madeMu.Lock()
 	defer w.madeMu.Unlock()
 	for _, dsn := range w.made {
-		if err := dolt.DropDatabase(dsn); err != nil {
+		if err := w.dolt.DropDatabase(dsn); err != nil {
 			w.t.Errorf("drop the world's database: %v", err)
 		}
 	}
@@ -364,7 +362,7 @@ func (w *world) adopt(ctx context.Context) error {
 		// Named for the control database, which no other world has.
 		w.block = server.ProjectDBs{Prefix: ccfg.DBName + "_p", Count: w.opts.dbs}
 		for i := 1; i <= w.opts.granted; i++ {
-			if err := dolt.Grant(ctx, w.block.Name(i)); err != nil {
+			if err := w.dolt.Grant(ctx, w.block.Name(i)); err != nil {
 				return err
 			}
 		}
@@ -878,6 +876,7 @@ func decode[T any](t *testing.T, s string) T {
 }
 
 func TestCRUDRoundTrip(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice := w.newUser("alice", "")
 
@@ -950,6 +949,7 @@ func TestCRUDRoundTrip(t *testing.T) {
 }
 
 func TestSessionFromEnvironment(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice := w.newUser("alice", "")
 	alice.env["CLAUDE_SESSION_ID"] = "claude-123"
@@ -963,6 +963,7 @@ func TestSessionFromEnvironment(t *testing.T) {
 }
 
 func TestConflict(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
 	id := strings.TrimSpace(alice.ok("create", "contested"))
@@ -983,6 +984,7 @@ func TestConflict(t *testing.T) {
 }
 
 func TestRefusals(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	other := w.newUser("", "") // a key the server does not know
 	pinnedWrong := w.newUser("carol", "SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5TqvU")
@@ -1021,6 +1023,7 @@ func TestRefusals(t *testing.T) {
 }
 
 func TestProtocolRangeRefusal(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{protoMin: proto.Proto + 1, protoMax: proto.Proto + 2})
 	alice := w.newUser("alice", "")
 	r := alice.run("v0.2.0", "ready")
@@ -1039,6 +1042,7 @@ func TestProtocolRangeRefusal(t *testing.T) {
 }
 
 func TestOlderClientWarns(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice := w.newUser("alice", "")
 	r := alice.run("v0.1.0", "ready")
@@ -1054,6 +1058,7 @@ func TestOlderClientWarns(t *testing.T) {
 // world's cleanup must not wait on the daemon the restart already
 // stopped.
 func TestRestartDaemonFails(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	// The listener refuses a socket directory others can read.
 	if err := os.Chmod(filepath.Dir(w.socket), 0o755); err != nil { //nolint:gosec // the mode the listener must refuse
@@ -1076,6 +1081,7 @@ func TestRestartDaemonFails(t *testing.T) {
 }
 
 func TestDaemonDown(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{noDaemon: true})
 	r := w.newUser("alice", "").run("v0.2.0", "ready")
 	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "starfixd is not running on the server") ||

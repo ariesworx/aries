@@ -61,6 +61,7 @@ func (b *logBuilder) claimOf(who sessKey, epoch int64, expires time.Duration) st
 }
 
 func TestReplayCatches(t *testing.T) {
+	t.Parallel()
 	alice, alice2, bob := sessKey{"alice", "s1"}, sessKey{"alice", "s2"}, sessKey{"bob", "s1"}
 	tests := []struct {
 		name string
@@ -297,6 +298,7 @@ func TestReplayCatches(t *testing.T) {
 }
 
 func TestReplayCompare(t *testing.T) {
+	t.Parallel()
 	base := func() tables {
 		return tables{
 			issues: map[string]tIssue{"sf-1": {title: "task sf-1", status: "open", typ: "task", priority: 2, rev: 1}},
@@ -347,6 +349,7 @@ func TestReplayCompare(t *testing.T) {
 }
 
 func TestMonitorCatches(t *testing.T) {
+	t.Parallel()
 	alice, alice2 := sessKey{"alice", "s1"}, sessKey{"alice", "s2"}
 	exp := time.Date(2026, 1, 2, 3, 15, 0, 0, time.UTC)
 	start := func(who sessKey, epoch int64) call {
@@ -390,6 +393,7 @@ func TestMonitorCatches(t *testing.T) {
 }
 
 func TestCheckMarkers(t *testing.T) {
+	t.Parallel()
 	alice := sessKey{"alice", "s1"}
 	comment := func(out outcome) call {
 		return call{who: alice, op: proto.OpComment, out: out, args: proto.CommentArgs{ID: "sf-1", Body: "note alice-1"}}
@@ -427,6 +431,7 @@ func TestCheckMarkers(t *testing.T) {
 }
 
 func TestCheckFencing(t *testing.T) {
+	t.Parallel()
 	alice, bob := sessKey{"alice", "s1"}, sessKey{"bob", "s1"}
 	finish := func(out outcome, epoch int64) call {
 		return call{who: alice, op: proto.OpFinish, out: out, args: proto.FinishArgs{ID: "sf-1", Epoch: epoch, Reason: "done alice-1"}}
@@ -467,6 +472,7 @@ func TestCheckFencing(t *testing.T) {
 // released it silently, so the change and the next take each act on a
 // holder the log says is still there.
 func TestReplaySilentRelease(t *testing.T) {
+	t.Parallel()
 	alice, bob := sessKey{"alice", "s1"}, sessKey{"bob", "s1"}
 	b := newLog().create(alice, "sf-1").take(alice, "sf-1", 1, time.Minute, "")
 	b.add(0, alice, "issue.update", "sf-1", `{"status": "open"}`, `{"status": "in_progress", "assignee": "alice"}`)
@@ -488,6 +494,7 @@ func TestReplaySilentRelease(t *testing.T) {
 // subquery gives NULL: a session can drop its connection before anyone
 // was sent an inbox item.
 func TestTopIDsEmpty(t *testing.T) {
+	t.Parallel()
 	db := openCheckerDB(t, newWorld(t, daemonOpts{}).dsn)
 	for range 20 {
 		top, err := topIDs(t.Context(), db)
@@ -502,6 +509,7 @@ func TestTopIDsEmpty(t *testing.T) {
 // baseline, while a connection the soak opened and never closed is
 // reported.
 func TestCheckLeaksBaseline(t *testing.T) {
+	// Serial: counts the process's goroutines (checkLeaks).
 	dial := func(u *user, session string) *mcpserver.RepoConn {
 		t.Helper()
 		c, err := mcpserver.DialRepo(t.Context(), u.repo, client.Options{Version: "v0.2.0", Session: session,

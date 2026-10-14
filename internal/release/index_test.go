@@ -22,6 +22,7 @@ const goldenIndex = `{
 `
 
 func TestIndexEncode(t *testing.T) {
+	t.Parallel()
 	var x release.Index
 	// Added out of order, and from another time zone: the file is the same.
 	for _, e := range []struct{ tag, at string }{
@@ -68,6 +69,7 @@ func TestIndexEncode(t *testing.T) {
 }
 
 func TestIndexLatest(t *testing.T) {
+	t.Parallel()
 	entry := func(tag string, pre bool) string {
 		return fmt.Sprintf(`{"tag": %q, "prerelease": %v, "published": "2026-01-02T03:04:05Z"}`, tag, pre)
 	}
@@ -109,6 +111,7 @@ func TestIndexLatest(t *testing.T) {
 // that is not a list of release tags is refused whole, before any tag is
 // put in a URL.
 func TestParseIndexRefuses(t *testing.T) {
+	t.Parallel()
 	one := func(tag string) string {
 		return fmt.Sprintf(`{"format": 1, "releases": [{"tag": %q, "prerelease": false}]}`, tag)
 	}
@@ -181,6 +184,7 @@ func TestParseIndexRefuses(t *testing.T) {
 
 // Encode writes nothing ParseIndex would refuse.
 func TestIndexEncodeRefuses(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		x    release.Index
@@ -200,6 +204,7 @@ func TestIndexEncodeRefuses(t *testing.T) {
 }
 
 func TestValidTag(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		tag  string
 		want bool

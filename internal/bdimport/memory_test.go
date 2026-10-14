@@ -23,6 +23,7 @@ func quote(s string) string {
 // keyed as bd keyed them without its kv.memory. prefix. A record that
 // cannot be stored is reported with a fix, and the rest still import.
 func TestImportMemories(t *testing.T) {
+	t.Parallel()
 	token := "xox" + "b-" + strings.Repeat("0123456789", 2) // an obviously fake Slack token
 	tests := []struct {
 		name     string
@@ -97,6 +98,7 @@ func TestImportMemories(t *testing.T) {
 // A key that looks like a secret is refused by its line alone, before
 // any other check could name it: not in a message, an id or a warning.
 func TestImportMemorySecretKey(t *testing.T) {
+	t.Parallel()
 	key := "gh" + "p_" + strings.Repeat("FakeToken0", 4) // an obviously fake GitHub token
 	lines := []string{
 		memoryLine(key, "x"),
@@ -127,6 +129,7 @@ func TestImportMemorySecretKey(t *testing.T) {
 // holds another value for its key: bd records no time to say which is
 // newer. A dry run counts the same and writes nothing.
 func TestImportMemoryKeepsTheStoredOne(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	importBytes(t, s, []byte(memoryLine("k", "first")), false)
 	seq := lastSeq(t, s)

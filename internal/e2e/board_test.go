@@ -80,6 +80,7 @@ func (b *boardView) until(what string, want ...string) {
 // her claim appears under held, with her session, and her close takes it
 // off; after the connection drops, the board redials and catches up.
 func TestBoardFollowsTheEventStream(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
 	id := decode[proto.WriteResult](t, alice.ok("create", "Fix", "the", "parser", "-p", "1", "--json")).ID

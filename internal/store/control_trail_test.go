@@ -12,6 +12,7 @@ import (
 // F-2). Disabling an account ends none of them, so an admin has to be
 // able to find them.
 func TestControlTrail(t *testing.T) {
+	t.Parallel()
 	c := accessWorld(t) // everything in it is dana's work, but dana's own key, which sam added
 	ctx := t.Context()
 	hals, _ := testKey(t, "hal-from-alice")

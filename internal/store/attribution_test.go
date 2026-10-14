@@ -66,6 +66,7 @@ func checkUsage(t *testing.T, what string, u IssueUsage, held time.Duration, spl
 }
 
 func TestIssueUsageStartToFinish(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	t0 := clk.now()
@@ -95,6 +96,7 @@ func TestIssueUsageStartToFinish(t *testing.T) {
 }
 
 func TestIssueUsageAcrossHandoffAndTakeover(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	t0 := clk.now()
@@ -153,6 +155,7 @@ func TestIssueUsageAcrossHandoffAndTakeover(t *testing.T) {
 // handoff; another session's take then starts a hold of its own. Without
 // the release event the lapsed hold would run on to the handoff.
 func TestIssueUsageReleaseThenTake(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	t0 := clk.now()
@@ -191,6 +194,7 @@ func TestIssueUsageReleaseThenTake(t *testing.T) {
 // A hold whose lease lapsed, and which a later write ends before the
 // reaper runs, ends when the lease ran out, not at the write.
 func TestIssueUsageEndAfterLapse(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		end  func(t *testing.T, s *Store, id IssueID)
@@ -242,6 +246,7 @@ func TestIssueUsageEndAfterLapse(t *testing.T) {
 }
 
 func TestIssueUsageExpiry(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	t0 := clk.now()
@@ -275,6 +280,7 @@ func TestIssueUsageExpiry(t *testing.T) {
 // hold at its expiry, which the take's before state records. A take
 // recorded before that state existed still ends the hold, at the take.
 func TestIssueUsageTakeAfterLapse(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		legacy bool // the take is recorded as before token capture: no before state
@@ -332,6 +338,7 @@ func legacyTake(t *testing.T, s *Store, a Actor, id IssueID) {
 // One session holds two issues at once: a turn record across both is
 // split by time held, and the time no issue was held is unattributed.
 func TestIssueUsageSplitAcrossTwoIssues(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	t0 := clk.now()
@@ -375,6 +382,7 @@ func TestIssueUsageSplitAcrossTwoIssues(t *testing.T) {
 // Unknown counts stay unknown in a sum; a zero is a known zero; a sum of
 // known and unknown is the known part.
 func TestIssueUsageUnknownIsNotZero(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	t0 := clk.now()
@@ -395,6 +403,7 @@ func TestIssueUsageUnknownIsNotZero(t *testing.T) {
 }
 
 func TestIssueUsageAccount(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	epic := mustCreate(t, s, NewIssue{Title: "epic", Account: "acme"})
 	task := mustCreate(t, s, NewIssue{Title: "task", ParentID: epic.ID})
@@ -405,6 +414,7 @@ func TestIssueUsageAccount(t *testing.T) {
 }
 
 func TestDigestUsage(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	t0 := clk.now()
@@ -473,6 +483,7 @@ func TestDigestUsage(t *testing.T) {
 // part sum to the digest's total, with nothing lost or invented by
 // rounding.
 func TestUsagePartsSumToRecord(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	t0 := clk.now()
@@ -535,6 +546,7 @@ func TestUsagePartsSumToRecord(t *testing.T) {
 // count nor make the result look capped. A record across two holds
 // counts once. Capped is set only when records that count were left out.
 func TestIssueUsageReadsOnlyItsHolds(t *testing.T) {
+	// Serial: lowers the package's usageScanRows (setUsageScanRows).
 	tests := []struct {
 		name   string
 		rows   int
@@ -609,6 +621,7 @@ func setUsageScanRows(t *testing.T, n int) {
 // Dividing records needs only the holds of their sessions that overlap
 // them: not every issue the sessions ever took.
 func TestSessionHoldsOverlapTheRecords(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	t0 := clk.now()

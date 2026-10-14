@@ -19,6 +19,7 @@ func memKeys(ms []proto.Memory) []string {
 }
 
 func TestDispatchMemory(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	is := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work", Labels: []string{"api"}})
 	pin := true
@@ -61,6 +62,7 @@ func TestDispatchMemory(t *testing.T) {
 // Identity is the connection's: no memory argument names an author, an
 // owner or a principal.
 func TestDispatchMemoryIdentityIsImplicit(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	for _, args := range []string{
 		`{"key":"k","body":"b","author":"bob"}`,
@@ -75,6 +77,7 @@ func TestDispatchMemoryIdentityIsImplicit(t *testing.T) {
 }
 
 func TestDispatchMemoryRefusals(t *testing.T) {
+	t.Parallel()
 	s := newServerWith(t, Limits{Limits: store.Limits{Memories: 1}})
 	mustCall[proto.WriteResult](t, s, alice, proto.OpRemember, proto.RememberArgs{Key: "k", Body: "one"})
 	mustCall[proto.WriteResult](t, s, alice, proto.OpRemember, proto.RememberArgs{Key: "k", Body: "two", Rev: 1})
@@ -124,6 +127,7 @@ func TestDispatchMemoryRefusals(t *testing.T) {
 // start returns the memories relevant to the issue it takes, and prime's
 // recall ranks them for the caller; neither shows another's user scope.
 func TestDispatchMemoriesInStartAndPrime(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	is := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work", Labels: []string{"api"}})
 	other := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "other"})
@@ -152,6 +156,7 @@ func TestDispatchMemoriesInStartAndPrime(t *testing.T) {
 
 // recall writes nothing, so the write rate does not count it.
 func TestRecallIsARead(t *testing.T) {
+	t.Parallel()
 	if !readOps[proto.OpRecall] {
 		t.Error("recall is not a read op")
 	}
@@ -166,6 +171,7 @@ func TestRecallIsARead(t *testing.T) {
 // result may gain a field without a protocol bump: start's result,
 // decoded as a client from before its memories would.
 func TestClientIgnoresUnknownResultFields(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	is := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work"})
 	mustCall[proto.WriteResult](t, s, bob, proto.OpRemember, proto.RememberArgs{Key: "k", Body: "about it", Issue: ptr(is.ID)})

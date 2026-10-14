@@ -12,6 +12,7 @@ import (
 // key of their own account, and never the one their connection signed
 // in with, so that nobody locks themselves out by accident.
 func TestOwnKeyRemoval(t *testing.T) {
+	t.Parallel()
 	m := newMultiAdmins(t, Limits{}, nil, "dana", "sam")
 	m.project(t, projA, "alice=admin", "bob")
 	ctx := t.Context()

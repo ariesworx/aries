@@ -3,7 +3,6 @@ package gitx
 import (
 	"context"
 	"errors"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -11,6 +10,7 @@ import (
 )
 
 func TestBranchType(t *testing.T) {
+	t.Parallel()
 	for typ, want := range map[string]string{
 		"bug": "fix", "feature": "feature", "task": "maintenance", "chore": "maintenance",
 		"docs": "docs", "epic": "feature", "": "feature", "story": "feature",
@@ -22,6 +22,7 @@ func TestBranchType(t *testing.T) {
 }
 
 func TestBranch(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		typ, id, title, want string
 	}{
@@ -43,6 +44,7 @@ func TestBranch(t *testing.T) {
 }
 
 func TestIDFromBranch(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		branch, prefix, want string
 		ok                   bool
@@ -70,6 +72,7 @@ func TestIDFromBranch(t *testing.T) {
 }
 
 func TestIDFromMessage(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		msg, want string
 		ok        bool
@@ -90,19 +93,13 @@ func TestIDFromMessage(t *testing.T) {
 	}
 }
 
-// newRepo makes a repository with one commit, isolated from the user's git
-// configuration.
+// newRepo makes a repository with one commit. TestMain isolates it from
+// the user's git configuration.
 func newRepo(t *testing.T) string {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not on PATH")
 	}
-	empty := filepath.Join(t.TempDir(), "gitconfig")
-	if err := os.WriteFile(empty, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("GIT_CONFIG_GLOBAL", empty)
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	dir := t.TempDir()
 	for _, args := range [][]string{
 		{"init", "-q", "-b", "main"},
@@ -125,6 +122,7 @@ func current(t *testing.T, dir string) string {
 }
 
 func TestSwitch(t *testing.T) {
+	t.Parallel()
 	dir := newRepo(t)
 	const br = "fix/sf-a1b2-thing"
 	for range 2 { // creates, then switches to the existing branch
@@ -145,6 +143,7 @@ func TestSwitch(t *testing.T) {
 }
 
 func TestAddWorktree(t *testing.T) {
+	t.Parallel()
 	dir := newRepo(t)
 	const br = "feature/sf-a1b2-thing"
 	wt := filepath.Join(t.TempDir(), "wt")
@@ -174,6 +173,7 @@ func TestAddWorktree(t *testing.T) {
 // when git printed none, and unwraps to the cause: the context's error, or
 // git's exit status.
 func TestGitErrors(t *testing.T) {
+	t.Parallel()
 	dir := newRepo(t)
 	cancelled, cancel := context.WithCancel(t.Context())
 	cancel()

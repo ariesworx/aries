@@ -27,6 +27,7 @@ func importedIssue(id IssueID, mod func(*Issue)) Issue {
 }
 
 func TestImportIssuePreservesAndIsIdempotent(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	closed := time.Date(2026, 3, 5, 0, 0, 0, 0, time.UTC)
@@ -75,6 +76,7 @@ func TestImportIssuePreservesAndIsIdempotent(t *testing.T) {
 }
 
 func TestImportIssueNewerOlder(t *testing.T) {
+	t.Parallel()
 	base := importedIssue("bd-c2d", nil)
 	cases := []struct {
 		name   string
@@ -145,6 +147,7 @@ func TestImportIssueNewerOlder(t *testing.T) {
 // do, and the holder's time on it stops there. One that leaves it in
 // progress with the holder leaves the claim alone.
 func TestImportIssueHeld(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		mod  func(*Issue)
@@ -216,6 +219,7 @@ func TestImportIssueHeld(t *testing.T) {
 }
 
 func TestImportIssueInvalid(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	if _, err := s.ImportIssue(ctx, importer, importedIssue("bd-p1", nil)); err != nil {
@@ -257,6 +261,7 @@ func TestImportIssueInvalid(t *testing.T) {
 }
 
 func TestImportDepAndComment(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	for _, id := range []IssueID{"bd-d1", "bd-d2", "bd-d3"} {
@@ -350,6 +355,7 @@ func TestImportDepAndComment(t *testing.T) {
 // back without one. That round trip must read as unchanged and keep the
 // account the issue already has, not report the issue stale.
 func TestImportIssueKeepsAccount(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	in := importedIssue("bd-acct", nil)

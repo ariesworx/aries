@@ -12,6 +12,7 @@ import (
 // reason, the holder's session is told, and the issue is ready again.
 // Other claims are left alone.
 func TestEndClaims(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	issue := func(title string, by Actor, lease time.Duration) IssueID {

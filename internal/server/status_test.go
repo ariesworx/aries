@@ -25,6 +25,7 @@ func byName(res proto.StatusResult) map[string]proto.ProjectStatus {
 // project admin's own projects to them, and nothing to anyone else. It
 // opens no store to do so.
 func TestStatus(t *testing.T) {
+	t.Parallel()
 	ck := newClock()
 	m := newMulti(t, Limits{OpenStores: 8, Conns: 50}, ck)
 	m.project(t, projA, "alice=admin", "bob", "carol")
@@ -190,6 +191,7 @@ func TestStatus(t *testing.T) {
 // write bucket, and a server of one project refuses it as it refuses
 // every admin op (TestAdminNeedsManyProjects).
 func TestStatusIsARead(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{ControlWriteRate: 0.001, ControlWriteBurst: 1, WriteRate: 0.001, WriteBurst: 1})
 	d := mustDialTo(t, m.Server, dana, projA)
 	for range 5 {
@@ -204,6 +206,7 @@ func TestStatusIsARead(t *testing.T) {
 // Whether the key removed is itself in that file is another question,
 // which the daemon answers by reading it (TestKeyAlsoInAuthorizedKeys).
 func TestFileConnections(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{}) // carol has a key in the store
 	carols := fingerprintOf(t, "carol")
 	d := mustDialTo(t, m.Server, dana, projA)
@@ -265,6 +268,7 @@ func TestFileConnections(t *testing.T) {
 // store, so it is swept once more as it closes (decision 21). The soak
 // found the claim left behind (seed 15536472690001368833).
 func TestArchiveSweepsAsTheStoreCloses(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{})
 	d := mustDialTo(t, m.Server, dana, projA)
 	c := mustDialTo(t, m.Server, carol, projB)

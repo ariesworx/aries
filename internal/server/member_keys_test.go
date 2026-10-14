@@ -32,6 +32,7 @@ func carried(res proto.MemberSetResult) []string {
 // victor. Now victor is not added until erin has been shown every key,
 // with who added it, and accepts.
 func TestPlantedKeyIsShownBeforeItReachesAnotherProject(t *testing.T) {
+	t.Parallel()
 	m := newMulti(t, Limits{}, nil)
 	m.project(t, projA, "alice=admin", "victor")
 	m.project(t, projB, "erin=admin")
@@ -98,6 +99,7 @@ func TestPlantedKeyIsShownBeforeItReachesAnotherProject(t *testing.T) {
 // TestMemberSetAcceptance pins when member.set asks for acceptance and
 // what it shows.
 func TestMemberSetAcceptance(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{}) // carol, in a and b, has a key added by dana; frank is in no project
 	ctx := t.Context()
 	if _, err := m.ctl.AddPrincipal(ctx, dana, "hal", projB); err != nil { // in b only, with two keys
@@ -218,6 +220,7 @@ func TestMemberSetAcceptance(t *testing.T) {
 // Anyone else is refused the same way whether or not the principal
 // exists.
 func TestKeysReadableByAProjectsAdmin(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{}) // carol is in a and b; frank in no project; bob in a
 	conns := map[string]*conn{
 		"alice": mustDialTo(t, m.Server, alice, projA),

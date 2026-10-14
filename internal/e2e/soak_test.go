@@ -50,6 +50,7 @@ import (
 // the event logs, and refused and hang give it a collector that is not
 // there. See CONTRIBUTING.md, "The soak test".
 func TestSoak(t *testing.T) {
+	// Serial: counts the process's goroutines and connections (checkLeaks); it is concurrent inside.
 	cfg, err := soakConfigFrom(os.Getenv)
 	if err != nil {
 		t.Fatal(err)

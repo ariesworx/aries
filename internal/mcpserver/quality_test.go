@@ -13,6 +13,7 @@ import (
 // Every create-type tool sends an idempotency key, the same one on the
 // retry after a dropped connection; keys differ between calls.
 func TestWritesRetryWithTheirKey(t *testing.T) {
+	t.Parallel()
 	key := func(args any) string {
 		switch a := args.(type) {
 		case proto.CreateArgs:
@@ -69,6 +70,7 @@ func TestWritesRetryWithTheirKey(t *testing.T) {
 // finish passes ticked and waived items; a waived key that is not an item
 // number is refused before anything is sent.
 func TestFinishAcceptance(t *testing.T) {
+	t.Parallel()
 	f := &fakeConn{reply: func(string, any) (any, error) { return proto.FinishResult{ID: "sf-1", Rev: 3}, nil }}
 	cs, d := connect(t, f)
 	res := callTool(t, cs, "finish", map[string]any{"id": "sf-1", "ticked": []any{1, 3}, "waived": map[string]any{"2": "covered elsewhere"}})
@@ -92,6 +94,7 @@ func TestFinishAcceptance(t *testing.T) {
 // start and show list acceptance items in place of the prose, one line
 // each; show and create name similar closed issues in one line.
 func TestItemsAndSimilar(t *testing.T) {
+	t.Parallel()
 	items := []proto.AcceptanceItem{{N: 1, Text: "survives restart", State: "ticked", By: "alice"},
 		{N: 2, Text: "docs", State: "waived", Reason: "none needed"}, {N: 3, Text: "has tests"}}
 	similar := []proto.Summary{{ID: "sf-old1", Title: "Login fails", Status: "closed"}, {ID: "sf-old2", Title: "Token expiry", Status: "closed"}}
@@ -128,6 +131,7 @@ func TestItemsAndSimilar(t *testing.T) {
 }
 
 func TestAcceptanceErrorNamesTheArguments(t *testing.T) {
+	t.Parallel()
 	res := toolError(proto.Errf(proto.CodeAcceptance, "tick what is met with `sfx accept sf-1 2`, or waive an item with `sfx accept sf-1 N --waive REASON`",
 		"issue sf-1 has acceptance items neither ticked nor waived: 2"))
 	want := "acceptance: issue sf-1 has acceptance items neither ticked nor waived: 2\n" +

@@ -3,11 +3,9 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/dolttest"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
 	"github.com/ariesworx/starfix/internal/telemetry"
@@ -20,12 +18,6 @@ import (
 //
 //	go test -run '^$' -bench Request -benchmem ./internal/server/
 func BenchmarkRequest(b *testing.B) {
-	if errors.Is(doltErr, dolttest.ErrNoDolt) {
-		b.Skip("dolt is not on PATH")
-	}
-	if doltErr != nil {
-		b.Fatalf("dolt sql-server: %v", doltErr)
-	}
 	for _, mode := range []struct {
 		name    string
 		sampler string // empty: traces off
@@ -41,10 +33,7 @@ func BenchmarkRequest(b *testing.B) {
 			}
 			b.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
 		}
-		dsn, err := dolt.NewDatabase(b.Context())
-		if err != nil {
-			b.Fatal(err)
-		}
+		dsn := newDatabase(b)
 		// The metrics stay off in every mode, so that the difference is
 		// the spans'.
 		st, err := store.Open(b.Context(), dsn, store.Options{Prefix: "sf", CommitInterval: -1, Tracer: StoreTracer(tel, project)})

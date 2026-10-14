@@ -50,6 +50,7 @@ func mustRenewPaths(t *testing.T, s *Store, actor Actor, paths map[IssueID][]str
 // one issue.paths event per call; a renew that only sees paths already
 // recorded refreshes them quietly, and moves them up in show's order.
 func TestCommitPathsOnRenew(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	is := mustCreate(t, s, NewIssue{Title: "work"})
 	mustStart(t, s, alice, is.ID)
@@ -85,6 +86,7 @@ func TestCommitPathsOnRenew(t *testing.T) {
 // a renew ignores issues it does not renew, and a handoff or finish by
 // another principal is refused before anything is written.
 func TestCommitPathsGuard(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	held := mustCreate(t, s, NewIssue{Title: "alice's"})
@@ -124,6 +126,7 @@ func TestCommitPathsGuard(t *testing.T) {
 // Declared paths are set at create and replaced by update, under update's
 // rules: the issue's holder or an admin, at the current rev.
 func TestDeclaredPaths(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "planned", Paths: []string{"internal/store/", "docs/a.md"}})
@@ -177,6 +180,7 @@ func TestDeclaredPaths(t *testing.T) {
 }
 
 func TestPathsRefused(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "x"})
@@ -257,6 +261,7 @@ func paths(prefix string, n int) []string {
 // declared paths are a person's statement, so too many are refused, and
 // they take precedence over commit paths.
 func TestPathsCap(t *testing.T) {
+	t.Parallel()
 	clk := &clock{t: time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)}
 	s := openStore(t, newDSN(t), Options{Now: clk.now, Limits: Limits{Paths: 4}})
 	ctx := t.Context()
@@ -339,6 +344,7 @@ func readyOverlaps(t *testing.T, s *Store, actor Actor) []string {
 // of an issue another session holds; the caller's own claims do not
 // count, and the order is otherwise unchanged.
 func TestReadyRanksDownOverlaps(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		// held is the path the held issue's commits touched, or its
@@ -399,6 +405,7 @@ func TestReadyRanksDownOverlaps(t *testing.T) {
 // overlapping issue while another is ready, and takes it when it is the
 // only one.
 func TestStartSkipsOverlaps(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	held := mustCreate(t, s, NewIssue{Title: "held", Paths: []string{"a/"}})
 	cand := mustCreate(t, s, NewIssue{Title: "candidate", Priority: prio(P0), Paths: []string{"a/x.go"}})
@@ -420,6 +427,7 @@ func TestStartSkipsOverlaps(t *testing.T) {
 // at most n with the rest counted, and the issues others hold whose
 // paths overlap, with their holders.
 func TestIssueFiles(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	is := mustCreate(t, s, NewIssue{Title: "mine", Paths: []string{"z/"}})
@@ -478,6 +486,7 @@ func bulkContested(t *testing.T, s *Store, n int, path string) {
 // its cost under the writer is bounded however long the backlog; issues
 // past that keep their place.
 func TestReadyScanBound(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	held := mustCreate(t, s, NewIssue{Title: "held", Paths: []string{"a/"}})
 	mustStart(t, s, alice, held.ID)
@@ -513,6 +522,7 @@ func TestReadyScanBound(t *testing.T) {
 // A path that more than maxPathHolders held issues share, such as go.mod,
 // says nothing about which work collides, so it marks nothing contested.
 func TestReadyIgnoresCommonPaths(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		holders int
 		overlap bool
@@ -552,6 +562,7 @@ func TestReadyIgnoresCommonPaths(t *testing.T) {
 // that records one still trips the safety net if anything else it
 // changed has no event.
 func TestPathsRefreshKeepsSafetyNet(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	is := mustCreate(t, s, NewIssue{Title: "x"})
 	mustStart(t, s, alice, is.ID)

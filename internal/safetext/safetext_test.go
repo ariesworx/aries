@@ -18,6 +18,7 @@ const (
 )
 
 func TestUnsafe(t *testing.T) {
+	t.Parallel()
 	for _, r := range []rune{0x00, 0x07, '\t', '\n', '\r', 0x1b, 0x1f, 0x7f, 0x80, 0x9b, 0x9f,
 		0x061c, 0x200e, 0x200f, 0x202a, 0x202e, 0x2066, 0x2069, 0x2028, 0x2029} {
 		if !Unsafe(r) {
@@ -32,6 +33,7 @@ func TestUnsafe(t *testing.T) {
 }
 
 func TestValid(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		in         string
 		line, text bool
@@ -60,6 +62,7 @@ func TestValid(t *testing.T) {
 }
 
 func TestEscape(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		in, line, text string
 	}{
@@ -86,6 +89,7 @@ func TestEscape(t *testing.T) {
 }
 
 func TestClean(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		in, line, text string
 	}{
@@ -110,6 +114,7 @@ func TestClean(t *testing.T) {
 }
 
 func TestWriter(t *testing.T) {
+	t.Parallel()
 	in := "title: " + title + "\n" + osc52 + osc8 + csiErase + "\n" + c1CSI + " " + bidi + " 中文 \xff\n"
 	want := Text(in)
 	// Every split point, so a rune or escape cut across two writes still
@@ -138,6 +143,7 @@ func TestWriter(t *testing.T) {
 
 // JSON keeps a document valid and equal in value, with no raw unsafe rune.
 func TestJSON(t *testing.T) {
+	t.Parallel()
 	v := map[string]string{"title": title + osc52 + c1CSI + bidi + "\u2028\x7f"}
 	b, err := json.Marshal(v)
 	if err != nil {

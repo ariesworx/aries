@@ -38,6 +38,7 @@ func fakePages(total, size int, calls *int) func(string, int) ([]int, string, in
 }
 
 func TestPages(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name               string
 		total, size, want  int

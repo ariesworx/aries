@@ -11,6 +11,7 @@ import (
 // into the starfix entry of a file that is the person's own (--global,
 // or a desktop app's config), and never into one a repository commits.
 func TestSetupKeyFile(t *testing.T) {
+	t.Parallel()
 	root, sub := repoWithConfig(t)
 	home := t.TempDir()
 	key := filepath.Join(home, ".ssh", "starfix_agent")
@@ -86,6 +87,7 @@ func TestSetupKeyFile(t *testing.T) {
 // A desktop app starts sfx with no shell environment at all, so its
 // entry is the only place the variable can come from.
 func TestSetupKeyFileClaudeDesktop(t *testing.T) {
+	t.Parallel()
 	_, sub := repoWithConfig(t)
 	home := t.TempDir()
 	key := filepath.Join(home, "agent_key")

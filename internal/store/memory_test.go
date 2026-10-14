@@ -43,6 +43,7 @@ func recall(t *testing.T, s *Store, a Actor, q MemoryQuery) []string {
 }
 
 func TestRememberCreatesARecord(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	is := mustCreate(t, s, NewIssue{Title: "work"})
 	m := mustRemember(t, s, alice, NewMemory{Key: "deploy-window", Body: "Deploys go out on weekday mornings.",
@@ -68,6 +69,7 @@ func memoryEqual(a, b Memory) bool {
 // A key names one record per scope, and per user in user scope: the same
 // key in each is a different record, and none conflicts with another.
 func TestMemoryKeysAreScoped(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	for _, c := range []struct {
 		a     Actor
@@ -101,6 +103,7 @@ func TestMemoryKeysAreScoped(t *testing.T) {
 // A user-scope memory is its author's alone: no other principal can
 // read, replace, pin or forget it, and to them it does not exist.
 func TestUserScopeIsTheAuthorsAlone(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	m := mustRemember(t, s, alice, NewMemory{Scope: ScopeUser, Key: "editor", Body: "alice likes tabs"})
@@ -127,6 +130,7 @@ func TestUserScopeIsTheAuthorsAlone(t *testing.T) {
 // is refused when the key exists, a stale rev is refused, and a rev on a
 // key that is gone is not found.
 func TestRememberCompareAndSwap(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	m := mustRemember(t, s, alice, NewMemory{Key: "k", Body: "one"})
@@ -164,6 +168,7 @@ func TestRememberCompareAndSwap(t *testing.T) {
 // A replace leaves what it omits as it is, as it does the pin: tags and
 // the issue link change only when it sets them.
 func TestRememberReplaceKeepsOmitted(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	is := mustCreate(t, s, NewIssue{Title: "work"})
 	m := mustRemember(t, s, alice, NewMemory{Key: "k", Body: "one", Tags: ptr([]string{"ops"}), Issue: ptr(is.ID), Pinned: ptr(true)})
@@ -188,6 +193,7 @@ func TestRememberReplaceKeepsOmitted(t *testing.T) {
 // Concurrent edits of one key from the same rev, in one store or two
 // overlapping transactions, have exactly one winner.
 func TestRememberConcurrentEditsConflict(t *testing.T) {
+	t.Parallel()
 	t.Run("one store", func(t *testing.T) {
 		s := newStore(t)
 		m := mustRemember(t, s, alice, NewMemory{Key: "k", Body: "start"})
@@ -234,6 +240,7 @@ func TestRememberConcurrentEditsConflict(t *testing.T) {
 // transactions (one writer each) insert different keys, one with tags,
 // and both commit.
 func TestRememberNewKeysMerge(t *testing.T) {
+	t.Parallel()
 	dsn := newDSN(t)
 	s1, s2 := openStore(t, dsn, Options{}), openStore(t, dsn, Options{})
 	const rounds = 4
@@ -262,6 +269,7 @@ func TestRememberNewKeysMerge(t *testing.T) {
 // Recall searches by key, tag or text, in the scopes the caller can see,
 // pinned first and then newest first.
 func TestRecallSearchAndOrder(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	ctx := t.Context()
 	rem := func(a Actor, scope Scope, key, body string, tags ...string) Memory {
@@ -309,6 +317,7 @@ func TestRecallSearchAndOrder(t *testing.T) {
 }
 
 func TestForgetMemory(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	m := mustRemember(t, s, alice, NewMemory{Key: "k", Body: "one", Tags: ptr([]string{"t"})})
@@ -340,6 +349,7 @@ func TestForgetMemory(t *testing.T) {
 // again continues from the forgotten one's revision, so a rev read before
 // the forget can never match the new memory and replace or forget it.
 func TestForgetKeepsRevsMonotonic(t *testing.T) {
+	t.Parallel()
 	s := openStore(t, newDSN(t), Options{Limits: Limits{Memories: 1}})
 	ctx := t.Context()
 	m := mustRemember(t, s, alice, NewMemory{Key: "k", Body: "one", Pinned: new(true)})
@@ -396,6 +406,7 @@ func TestForgetKeepsRevsMonotonic(t *testing.T) {
 // A replace that changes only the pin leaves updated_at as PinMemory
 // does, so pinning through remember does not make a memory newest.
 func TestRememberPinOnlyKeepsUpdatedAt(t *testing.T) {
+	t.Parallel()
 	s, clk := clockStore(t)
 	m := mustRemember(t, s, alice, NewMemory{Key: "k", Body: "one"})
 	clk.add(time.Hour)
@@ -419,6 +430,7 @@ func TestRememberPinOnlyKeepsUpdatedAt(t *testing.T) {
 // would pass the cap first deletes the author's oldest tombstones in the
 // scope, so only live memories are ever refused.
 func TestMemoryCapPrunesTombstones(t *testing.T) {
+	t.Parallel()
 	s := openStore(t, newDSN(t), Options{Limits: Limits{Memories: 3}})
 	ctx := t.Context()
 	rows := func(key string) int {
@@ -487,6 +499,7 @@ func TestMemoryCapPrunesTombstones(t *testing.T) {
 }
 
 func TestPinMemory(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	m := mustRemember(t, s, alice, NewMemory{Key: "k", Body: "one"})
@@ -516,6 +529,7 @@ func TestPinMemory(t *testing.T) {
 // no issue id can take, so the live board never takes it for an issue
 // event. A user-scope memory's event holds neither its key nor its body.
 func TestMemoryEvents(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	seq := lastSeq(t, s)
@@ -577,6 +591,7 @@ func TestMemoryEvents(t *testing.T) {
 // its events do: no column of any event holds its key, body or tags,
 // and a repeat still returns the first result's id and rev.
 func TestUserMemoryIdemResult(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	seq := lastSeq(t, s)
@@ -647,6 +662,7 @@ func firstNonNull(a, b json.RawMessage) json.RawMessage {
 
 // Memory events are not issue events: an event watch is offered none.
 func TestMemoryEventsAreNotPushed(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	we := s.WatchEvents("bob", "sess-b")
 	defer we.Close()
@@ -664,6 +680,7 @@ func TestMemoryEventsAreNotPushed(t *testing.T) {
 }
 
 func TestRememberIdempotent(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
 	in := NewMemory{Key: "k", Body: "b", IdempotencyKey: "mcp-1"}
@@ -698,6 +715,7 @@ func TestRememberIdempotent(t *testing.T) {
 // The secrets lint refuses anything that looks like a credential, in
 // every scope and every field, naming what it saw and never the value.
 func TestRememberRefusesSecrets(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	key := "AKIA" + "FAKEFAKEFAKEFAKE"
 	for _, scope := range []Scope{ScopeTeam, ScopeProject, ScopeUser} {
@@ -732,6 +750,7 @@ func TestRememberRefusesSecrets(t *testing.T) {
 }
 
 func TestRememberValidates(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	is := mustCreate(t, s, NewIssue{Title: "x"})
 	tests := []struct {
@@ -769,6 +788,7 @@ func TestRememberValidates(t *testing.T) {
 // Rule 18: the body, the tags, each tag, the key and how many memories a
 // principal holds in a scope are capped.
 func TestMemoryLimits(t *testing.T) {
+	t.Parallel()
 	s := openStore(t, newDSN(t), Options{Limits: Limits{MemoryBody: 10, MemoryTags: 2, MemoryTagLength: 4, Memories: 2, MemoryKeyLength: 5}})
 	ctx := t.Context()
 	mustRemember(t, s, alice, NewMemory{Key: "full1", Body: "x"})
@@ -847,6 +867,7 @@ func rankWorld(t *testing.T) (s *Store, w, x Issue) {
 // in-progress issues or tagged with their labels, then the rest; newest
 // first within each, never by key.
 func TestPrimeMemoriesRanking(t *testing.T) {
+	t.Parallel()
 	s, _, _ := rankWorld(t)
 	want := []string{"project/gamma-pinned-rel", "team/mid-pinned", "user/delta-mine", "project/beta-link",
 		"project/alpha-tag", "project/kappa-new-rest", "project/omega-other", "project/zeta-old-rest"}
@@ -882,6 +903,7 @@ func TestPrimeMemoriesRanking(t *testing.T) {
 // then newest: those linked to it or tagged with its labels, and no
 // others.
 func TestIssueMemories(t *testing.T) {
+	t.Parallel()
 	s, w, x := rankWorld(t)
 	tests := []struct {
 		a    Actor
@@ -910,6 +932,7 @@ func TestIssueMemories(t *testing.T) {
 // stored is kept, whatever the file says, so importing again changes
 // nothing and never undoes an edit made in starfix.
 func TestImportMemory(t *testing.T) {
+	t.Parallel()
 	s := openStore(t, newDSN(t), Options{Limits: Limits{Memories: 1}})
 	ctx := t.Context()
 	imp := Actor{Principal: "import", Session: "bd", Machine: "m"}

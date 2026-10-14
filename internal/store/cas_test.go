@@ -13,6 +13,7 @@ import (
 // TestUpdateSameRevOneWinner: many concurrent updates from the same rev,
 // through one store. Exactly one wins; the rest get ErrConflict.
 func TestUpdateSameRevOneWinner(t *testing.T) {
+	t.Parallel()
 	s := newStore(t)
 	is := mustCreate(t, s, NewIssue{Title: "start"})
 
@@ -45,6 +46,7 @@ func TestUpdateSameRevOneWinner(t *testing.T) {
 // commit. Without write_id Dolt merges both silently; with it, exactly one
 // wins and the other gets ErrConflict.
 func TestUpdateOverlappingTransactions(t *testing.T) {
+	t.Parallel()
 	dsn := newDSN(t)
 	s1 := openStore(t, dsn, Options{})
 	s2 := openStore(t, dsn, Options{})
@@ -86,6 +88,7 @@ func TestUpdateOverlappingTransactions(t *testing.T) {
 // write_id makes the second fail with 1213. If Dolt ever changes this, the
 // first half fails and the design should be revisited.
 func TestDoltNeedsWriteID(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name     string
 		set1     string

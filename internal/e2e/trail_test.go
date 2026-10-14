@@ -14,6 +14,7 @@ import (
 // `principal disable` says what the disabled account added, and the
 // three lists it names show it.
 func TestAdminTrail(t *testing.T) {
+	t.Parallel()
 	w := adminWorld(t, 0, 0)
 	w.member("alice", project, store.RoleAdmin)
 	dana, alice := w.newUser("dana", ""), w.newUser("alice", "")

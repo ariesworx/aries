@@ -66,6 +66,7 @@ func newKey(t *testing.T, dir string) (secret string, pub ed25519.PublicKey) {
 }
 
 func TestGenSignVerify(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	secret, pub := newKey(t, dir)
 	sums := filepath.Join(dir, "checksums.txt")
@@ -102,6 +103,7 @@ func TestGenSignVerify(t *testing.T) {
 }
 
 func TestRefusals(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	secret, pub := newKey(t, dir)
 	other, _ := newKey(t, t.TempDir())

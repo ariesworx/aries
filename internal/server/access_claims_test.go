@@ -74,6 +74,7 @@ func released(t *testing.T, reader *conn, id, holder, by, bySession, reason stri
 // principal disabled and a project archived each end the claims the
 // lost access held, and only those; a demotion ends none.
 func TestAccessEndsClaims(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{})
 	d := mustDialTo(t, m.Server, dana, projA)
 	dB := mustDialTo(t, m.Server, dana, projB)
@@ -136,6 +137,7 @@ func TestAccessEndsClaims(t *testing.T) {
 // so the claims end when the store next opens, before its first
 // request, under the server's own name.
 func TestAccessEndsClaimsOfAClosedStore(t *testing.T) {
+	t.Parallel()
 	ck := newClock()
 	m := newMulti(t, Limits{StoreIdle: Duration(time.Minute)}, ck)
 	m.project(t, projA, "alice")
@@ -215,6 +217,7 @@ func TestAccessEndsClaimsOfAClosedStore(t *testing.T) {
 // TestSweep checks the reaper tick's sweep: it ends the claims of
 // holders without access in the stores that are open, and no others.
 func TestSweep(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{})
 	d := mustDialTo(t, m.Server, dana, projA)
 	b, c := mustDialTo(t, m.Server, bob, projA), mustDialTo(t, m.Server, carol, projA)
@@ -278,6 +281,7 @@ func historyOps(t *testing.T, st *store.Store, id string) []string {
 // "project archived", so that a daemon that stopped between an archive's
 // control write and its release leaves no claim behind once it is back.
 func TestReleaseArchived(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{})
 	a, c, e := mustDialTo(t, m.Server, alice, projA), mustDialTo(t, m.Server, carol, projB), mustDialTo(t, m.Server, erin, projB)
 	alices, carols, erins := held(a, "alice's"), held(c, "carol's"), held(e, "erin's")
@@ -382,6 +386,7 @@ func TestReleaseArchived(t *testing.T) {
 // migrated is left exactly as it is, claims included. Activating the
 // project migrates it and ends them, as before.
 func TestReleaseArchivedDoesNotMigrate(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{})
 	e := mustDialTo(t, m.Server, erin, projB)
 	erins := held(e, "erin's")
@@ -438,6 +443,7 @@ func TestReleaseArchivedDoesNotMigrate(t *testing.T) {
 // leave no active project: nobody could connect again, and the daemon
 // would not start. Whatever the order, one is refused.
 func TestArchivesTogetherLeaveOneProject(t *testing.T) {
+	t.Parallel()
 	for range 5 {
 		m := adminWorld(t, Limits{})
 		conns := []*conn{mustDialTo(t, m.Server, dana, projA), mustDialTo(t, m.Server, dana, projB)}

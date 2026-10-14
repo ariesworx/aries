@@ -220,6 +220,7 @@ func (d *fakeSSHD) dial(t *testing.T, key string, env map[string]string) (who st
 // knows. sfx once offered the agent's keys first and signed in as the
 // admin.
 func TestConfiguredKeyIsTheOnlyKeyOffered(t *testing.T) {
+	t.Parallel()
 	admin, sandbox := newKeyPair(t), newKeyPair(t)
 	d := newFakeSSHD(t, map[string]keyPair{"dana-the-admin": admin, "sandbox": sandbox})
 	sandbox.write(t, d.root, "id_sandbox", "", false)
@@ -235,6 +236,7 @@ func TestConfiguredKeyIsTheOnlyKeyOffered(t *testing.T) {
 // TestWhichKeysAreOffered pins, for each way a key can be configured,
 // which keys reach the server and who signs.
 func TestWhichKeysAreOffered(t *testing.T) {
+	t.Parallel()
 	mine, other, third := newKeyPair(t), newKeyPair(t), newKeyPair(t)
 	var crowd []keyPair
 	for range 6 { // with OpenSSH's six tries, a seventh key is never tried
@@ -298,6 +300,7 @@ func TestWhichKeysAreOffered(t *testing.T) {
 // server takes none: each refusal names the cause and the next action,
 // and names keys by fingerprint only.
 func TestKeyRefusals(t *testing.T) {
+	t.Parallel()
 	mine, stranger := newKeyPair(t), newKeyPair(t)
 	var crowd []keyPair
 	for range 7 {
@@ -389,6 +392,7 @@ func TestKeyRefusals(t *testing.T) {
 // TestKeyPathStaysInTheRepository pins the rule for a committed key:
 // where the path may lead, whatever it looks like.
 func TestKeyPathStaysInTheRepository(t *testing.T) {
+	t.Parallel()
 	root, outside := t.TempDir(), t.TempDir()
 	for _, dir := range []string{filepath.Join(root, "keys"), filepath.Join(outside, "keys")} {
 		if err := os.Mkdir(dir, 0o700); err != nil {
@@ -439,6 +443,7 @@ func TestKeyPathStaysInTheRepository(t *testing.T) {
 // TestKeyOfAConnection pins what a connection says of the key that
 // signed it in, for `sfx whoami`.
 func TestKeyOfAConnection(t *testing.T) {
+	t.Parallel()
 	mine, other := newKeyPair(t), newKeyPair(t)
 	dir := t.TempDir()
 	file := mine.write(t, dir, "id", "", false)

@@ -175,6 +175,7 @@ func summaries(n, titleLen int) []proto.Summary {
 func okReply(string, any) (any, error) { return proto.Empty{}, nil }
 
 func TestTools(t *testing.T) {
+	t.Parallel()
 	cs, _ := connect(t)
 	res, err := cs.ListTools(t.Context(), nil)
 	if err != nil {
@@ -237,6 +238,7 @@ func TestTools(t *testing.T) {
 
 // The schema enums are the store's own values.
 func TestEnumsMatchStore(t *testing.T) {
+	t.Parallel()
 	for _, v := range issueTypes {
 		if !store.IssueType(v.(string)).Valid() {
 			t.Errorf("type %v", v)
@@ -256,6 +258,7 @@ func TestEnumsMatchStore(t *testing.T) {
 
 // Bad input is refused before anything reaches the server.
 func TestSchemaRejects(t *testing.T) {
+	t.Parallel()
 	f := &fakeConn{reply: okReply}
 	cs, d := connect(t, f)
 	for _, tc := range []struct {
@@ -291,6 +294,7 @@ func TestSchemaRejects(t *testing.T) {
 }
 
 func TestWritesAreCompact(t *testing.T) {
+	t.Parallel()
 	f := &fakeConn{reply: func(op string, _ any) (any, error) {
 		switch op {
 		case proto.OpShow:
@@ -350,6 +354,7 @@ func TestWritesAreCompact(t *testing.T) {
 // proto's Fix phrases, so that changing a phrase, which released servers
 // and clients still use, fails here.
 func TestErrorsNameTheNextStep(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		err  error
@@ -435,6 +440,7 @@ func TestErrorsNameTheNextStep(t *testing.T) {
 // A dropped connection is redialed. Reads and creates are retried on the
 // new connection; other writes are not, and say so.
 func TestReconnect(t *testing.T) {
+	t.Parallel()
 	breaksOnce := func() *fakeConn {
 		return &fakeConn{reply: func(string, any) (any, error) { return nil, errLost }}
 	}
@@ -487,6 +493,7 @@ func TestReconnect(t *testing.T) {
 // A failed call is a tool error naming the next step, whatever the
 // tool's result type: prime's is a pointer, left nil by the failure.
 func TestFailedCallsAreToolErrors(t *testing.T) {
+	t.Parallel()
 	refuse := func(string, any) (any, error) {
 		return nil, proto.Errf(proto.CodeBusy, "wait 3s and retry", "alice is over the write limit")
 	}
@@ -538,6 +545,7 @@ func TestFailedCallsAreToolErrors(t *testing.T) {
 
 // A create retried after a drop carries the same idempotency key.
 func TestCreateRetryKeepsKey(t *testing.T) {
+	t.Parallel()
 	var idems []string
 	record := func(fail bool) *fakeConn {
 		return &fakeConn{reply: func(_ string, args any) (any, error) {
@@ -558,6 +566,7 @@ func TestCreateRetryKeepsKey(t *testing.T) {
 }
 
 func TestResultsAreCapped(t *testing.T) {
+	t.Parallel()
 	var limits []int
 	big := strings.Repeat("word ", 20000)
 	f := &fakeConn{reply: func(op string, args any) (any, error) {
@@ -603,6 +612,7 @@ func TestResultsAreCapped(t *testing.T) {
 }
 
 func TestPrime(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		who      string
@@ -647,6 +657,7 @@ func TestPrime(t *testing.T) {
 
 // Even a prime with nothing to cut but notices stays in budget.
 func TestPrimeFitDropsToBudget(t *testing.T) {
+	t.Parallel()
 	p := &Prime{Project: "example", Session: "s", Working: summaries(50, 100), Ready: summaries(50, 100),
 		Notices: []string{strings.Repeat("n", 5000)}}
 	p.fit()
@@ -657,6 +668,7 @@ func TestPrimeFitDropsToBudget(t *testing.T) {
 
 // start returns the issue with its handoff and branch, cut to the budget.
 func TestStart(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 10, 7, 9, 30, 0, 0, time.UTC)
 	f := &fakeConn{reply: func(op string, args any) (any, error) {
 		if a, ok := args.(proto.StartArgs); !ok || a.ID != "sf-a1b2" {
@@ -691,6 +703,7 @@ func TestStart(t *testing.T) {
 // digest passes its filters through, turns times into stamps and spans,
 // and holds the worst case under its budget.
 func TestDigest(t *testing.T) {
+	t.Parallel()
 	until := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	item := func(i int, title int) proto.DigestItem {
 		return proto.DigestItem{ID: fmt.Sprintf("sf-%08d", i), Title: strings.Repeat("t", title), Priority: 2, By: "alice",
@@ -761,6 +774,7 @@ func TestDigest(t *testing.T) {
 // handoff pass it, and the renewer keeps it alive until the server says
 // the claim is gone (the inbox reports that: TestPrimeInbox).
 func TestClaimsFollowTheSession(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	held := []proto.Claim{{ID: "sf-1", Epoch: 3}, {ID: "sf-2", Epoch: 1}}
 	f := &fakeConn{who: "alice", reply: func(op string, args any) (any, error) {
@@ -818,6 +832,7 @@ func TestClaimsFollowTheSession(t *testing.T) {
 // who lists the agents seen recently, terse, and drops the least recently
 // seen to fit the budget.
 func TestWho(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name   string
@@ -871,6 +886,7 @@ func TestWho(t *testing.T) {
 }
 
 func TestOmitted(t *testing.T) {
+	t.Parallel()
 	tests := []struct{ n, total, keep, want int }{
 		{n: 10, total: 25, keep: 10, want: 15}, // a page of the newest 10
 		{n: 3, total: 3, keep: 10, want: 0},

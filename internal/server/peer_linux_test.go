@@ -38,6 +38,7 @@ func socketPair(t *testing.T) (a, b net.Conn) {
 }
 
 func TestCheckPeer(t *testing.T) {
+	t.Parallel()
 	pipeA, _ := net.Pipe()
 	t.Cleanup(func() { _ = pipeA.Close() })
 	unixA, _ := socketPair(t)
@@ -74,6 +75,7 @@ func TestCheckPeer(t *testing.T) {
 // TestPeerHelperProcess is TestCheckPeerOtherUID's child: it dials the
 // address in peerHelperEnv and waits for the daemon side to hang up.
 func TestPeerHelperProcess(t *testing.T) {
+	t.Parallel()
 	addr := os.Getenv(peerHelperEnv)
 	if addr == "" {
 		t.Skip("helper process for TestCheckPeerOtherUID")
@@ -89,6 +91,7 @@ func TestPeerHelperProcess(t *testing.T) {
 // through a real socket, and checks that CheckPeer refuses it. Changing
 // uid needs root; CI runs this test under sudo.
 func TestCheckPeerOtherUID(t *testing.T) {
+	// Serial: runs a program it has just written, which fails (text file busy) if a test beside it starts a process meanwhile.
 	if os.Getuid() != 0 {
 		t.Skip("needs root to run a peer as another uid")
 	}

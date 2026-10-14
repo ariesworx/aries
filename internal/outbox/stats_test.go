@@ -34,6 +34,7 @@ func wait(d time.Duration, bucket int) outbox.WaitStats {
 }
 
 func TestStatsCountsEachOp(t *testing.T) {
+	t.Parallel()
 	clk := newClock()
 	o, _ := open(t, outbox.Options{}, clk)
 	if got := mustStats(t, o); len(got.Ops) != 0 || got.Outages != (outbox.OutageStats{}) {
@@ -79,6 +80,7 @@ func TestStatsCountsEachOp(t *testing.T) {
 }
 
 func TestStatsWaitBuckets(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		waited time.Duration
 		bucket int
@@ -114,6 +116,7 @@ func TestStatsWaitBuckets(t *testing.T) {
 }
 
 func TestStatsWaitSummary(t *testing.T) {
+	t.Parallel()
 	clk := newClock()
 	o, _ := open(t, outbox.Options{}, clk)
 	for i, waited := range []time.Duration{5 * time.Second, 2 * time.Minute, 8 * time.Second} {
@@ -129,6 +132,7 @@ func TestStatsWaitSummary(t *testing.T) {
 }
 
 func TestStatsOutages(t *testing.T) {
+	t.Parallel()
 	clk := newClock()
 	o, _ := open(t, outbox.Options{}, clk)
 	down := &server{answer: func(outbox.Entry) (outbox.Outcome, error) { return outbox.Outcome{}, errors.New("down") }}
@@ -178,6 +182,7 @@ func sameOutages(a, b outbox.OutageStats) bool {
 }
 
 func TestStatsFileIsSafeToLose(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		content string
@@ -218,6 +223,7 @@ func TestStatsFileIsSafeToLose(t *testing.T) {
 }
 
 func TestStatsHoldNoText(t *testing.T) {
+	t.Parallel()
 	clk := newClock()
 	o, dir := open(t, outbox.Options{}, clk)
 	texts := []string{"zebra-note", "quagga-key", "okapi-session", "tapir-machine", "sfx-4242", "gnu-message", "ibex-fix"}
@@ -247,6 +253,7 @@ func TestStatsHoldNoText(t *testing.T) {
 }
 
 func TestStatsFileIsBounded(t *testing.T) {
+	t.Parallel()
 	// Only the ops the outbox queues are kept, so the file has a fixed
 	// size however it is used, and whatever was put in it.
 	o, dir := open(t, outbox.Options{}, nil)

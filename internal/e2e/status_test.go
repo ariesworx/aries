@@ -16,6 +16,7 @@ import (
 // TestAdminStatus runs `sfx admin status` through SSH and the daemon as
 // each kind of caller, in text and as JSON.
 func TestAdminStatus(t *testing.T) {
+	t.Parallel()
 	w := keysWorld(t, server.Limits{OpenStores: 7})
 	const second = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
 	w.addProject(second, "second", "sb")
@@ -89,6 +90,7 @@ func TestAdminStatus(t *testing.T) {
 // `key remove` say so, by the key, because the daemon reads that file.
 // Once the line is deleted there, the store governs the key.
 func TestKeyStillInTheFile(t *testing.T) {
+	t.Parallel()
 	w := keysWorld(t, server.Limits{})
 	dana := w.newUser("dana", "")
 	bob := w.newUser("bob", "") // a line of authorized_keys

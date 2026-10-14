@@ -11,6 +11,7 @@ import (
 // instrument has a row with its name, its name on /metrics and its
 // attributes, and the guide lists every value an attribute may take.
 func TestGuideListsEveryInstrument(t *testing.T) {
+	t.Parallel()
 	b, err := os.ReadFile("../../docs/server.md")
 	if err != nil {
 		t.Fatal(err)
@@ -71,6 +72,7 @@ func TestGuideListsEveryInstrument(t *testing.T) {
 // what it holds, and every outcome, every sampler and every value of
 // telemetry: principals: is named.
 func TestGuideListsEverySpan(t *testing.T) {
+	t.Parallel()
 	b, err := os.ReadFile("../../docs/server.md")
 	if err != nil {
 		t.Fatal(err)

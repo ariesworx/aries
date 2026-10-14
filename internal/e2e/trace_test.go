@@ -43,6 +43,7 @@ func (b *lockedBuffer) String() string {
 // which is where the ids in its log line come from. A TRACEPARENT that is
 // not a valid one is not sent, and the command works as without it.
 func TestTraceContextFromTheEnvironment(t *testing.T) {
+	t.Parallel()
 	const traceID, spanID = "4bf92f3577b34da6a3ce929d0e0e4736", "00f067aa0ba902b7"
 	logs := &lockedBuffer{}
 	w := newWorld(t, daemonOpts{logger: daemonLog(t, logs)})
@@ -87,6 +88,7 @@ func TestTraceContextFromTheEnvironment(t *testing.T) {
 // that carries none, or one that is not valid, under the environment's.
 // No call is failed by its metadata.
 func TestTraceContextPerToolCall(t *testing.T) {
+	t.Parallel()
 	const (
 		envTrace, envSpan   = "4bf92f3577b34da6a3ce929d0e0e4736", "00f067aa0ba902b7"
 		callTrace, callSpan = "0af7651916cd43dd8448eb211c80319c", "b7ad6b7169203331"
@@ -168,6 +170,7 @@ func TestTraceContextPerToolCall(t *testing.T) {
 // by a stand-in; and `sfx admin principal whois`, for a server admin,
 // says whose the stand-in is.
 func TestTracesEndToEnd(t *testing.T) {
+	t.Parallel()
 	const traceID, spanID = "4bf92f3577b34da6a3ce929d0e0e4736", "00f067aa0ba902b7"
 	tel, spans, err := telemetry.NewManual(telemetry.Config{Version: "v0.2.0", Ops: server.Ops()})
 	if err != nil {

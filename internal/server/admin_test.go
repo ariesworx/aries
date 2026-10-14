@@ -30,7 +30,7 @@ func (m *multi) block(t *testing.T, n, granted int) ProjectDBs {
 	}
 	b := ProjectDBs{Prefix: cfg.DBName + "_p", Count: n}
 	for i := 1; i <= granted; i++ {
-		if err := dolt.Grant(t.Context(), b.Name(i)); err != nil {
+		if err := doltOf(t).Grant(t.Context(), b.Name(i)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -145,6 +145,7 @@ func adminRequests() []struct {
 // A server of one project refuses every admin op, on a connection and
 // through Dispatch, and says how a server opts in.
 func TestAdminNeedsManyProjects(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	c := dialPipe(t, s, dana)
 	reqs := adminRequests()
@@ -170,6 +171,7 @@ func TestAdminNeedsManyProjects(t *testing.T) {
 // TestAdminRoles runs the admin ops as each kind of caller. A refusal is
 // forbidden, says which rule applied and names who can do it.
 func TestAdminRoles(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{})
 	// A server admin with a row, as `control init` gives one.
 	if _, err := m.ctl.AddPrincipal(t.Context(), dana, "dana", ""); err != nil {
@@ -345,6 +347,7 @@ func TestAdminRoles(t *testing.T) {
 // What a server admin is told when a request names something that is
 // not there, or is taken, or is not valid.
 func TestAdminRefusals(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{Control: store.ControlLimits{Members: 3}})
 	d := mustDialTo(t, m.Server, dana, projA)
 	tests := []struct {
@@ -394,6 +397,7 @@ func TestAdminRefusals(t *testing.T) {
 }
 
 func TestAdminListsPage(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{})
 	d := mustDialTo(t, m.Server, dana, projA)
 	tests := []struct {
@@ -430,6 +434,7 @@ func TestAdminListsPage(t *testing.T) {
 // TestAdminProjectAdd creates projects from a block of four names of
 // which three are granted.
 func TestAdminProjectAdd(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{})
 	d := mustDialTo(t, m.Server, dana, projA)
 	state := func(name string) store.ProjectState {
@@ -529,7 +534,7 @@ func TestAdminProjectAdd(t *testing.T) {
 	}
 
 	// After the grant, the same command resumes and finishes.
-	if err := dolt.Grant(t.Context(), b.Name(3)); err != nil {
+	if err := doltOf(t).Grant(t.Context(), b.Name(3)); err != nil {
 		t.Fatal(err)
 	}
 	done := mustAsk[proto.ProjectAddResult](d, proto.OpProjectAdd, proto.ProjectAddArgs{Name: "three"})
@@ -546,6 +551,7 @@ func TestAdminProjectAdd(t *testing.T) {
 // closed and its store with them, while the admin, connected elsewhere,
 // gets the answer. Activated again, it is served from the same database.
 func TestAdminArchive(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{})
 	d := mustDialTo(t, m.Server, dana, projB)
 	a1, a2 := mustDialTo(t, m.Server, alice, projA), mustDialTo(t, m.Server, bob, projA)
@@ -619,6 +625,7 @@ func TestAdminArchive(t *testing.T) {
 // TestAdminDrops pins which connections each end of access closes, and
 // that nothing else is closed.
 func TestAdminDrops(t *testing.T) {
+	t.Parallel()
 	t.Run("membership removed", func(t *testing.T) {
 		m := adminWorld(t, Limits{})
 		d := mustDialTo(t, m.Server, dana, projA)
@@ -731,6 +738,7 @@ func TestAdminDrops(t *testing.T) {
 // A connection whose access ended while its handshake ran is closed as
 // it is recorded: drop looks only at connections already recorded.
 func TestTrackRechecksAccess(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{})
 	c := mustDialTo(t, m.Server, bob, projA)
 	sess := &session{actor: bob, proj: &served{id: projA}}
@@ -749,6 +757,7 @@ func TestTrackRechecksAccess(t *testing.T) {
 // TestAdminPrompts pins the two things an admin is told beyond the
 // change they asked for.
 func TestAdminPrompts(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{})
 	d := mustDialTo(t, m.Server, dana, projA)
 	keys, err := m.ctl.Keys(t.Context(), "carol")
@@ -804,6 +813,7 @@ func TestAdminPrompts(t *testing.T) {
 // principal's on the whole server: a project's writes do not drain it,
 // and it does not drain theirs.
 func TestControlWriteRateLimit(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{ControlWriteBurst: 2, ControlWriteRate: 0.001, WriteBurst: 2, WriteRate: 0.001})
 	inA, inB := mustDialTo(t, m.Server, dana, projA), mustDialTo(t, m.Server, dana, projB)
 	mustAsk[proto.MemberSetResult](inA, proto.OpMemberSet, proto.MemberSetArgs{Name: "frank"})
@@ -833,6 +843,7 @@ func TestControlWriteRateLimit(t *testing.T) {
 
 // Every admin op is routed, and counted as a read or as a control write.
 func TestAdminOpsClassified(t *testing.T) {
+	t.Parallel()
 	for op := range adminHandlers {
 		if !adminOp(op) {
 			t.Errorf("adminOp(%s) = false for an op with a handler", op)
@@ -855,6 +866,7 @@ func TestAdminOpsClassified(t *testing.T) {
 // be is held against the upgrade's health probe until it opens or is
 // archived, while the rest are served.
 func TestOpenProjects(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{})
 	m.project(t, projC, "alice")
 	if _, err := m.ctl.ArchiveProject(t.Context(), dana, projC); err != nil {
@@ -916,6 +928,7 @@ func TestOpenProjects(t *testing.T) {
 // A project whose database opens after all, at a later connection, no
 // longer counts against the probe.
 func TestOpenProjectsRecovers(t *testing.T) {
+	t.Parallel()
 	m := adminWorld(t, Limits{})
 	p, ok := m.ctl.ProjectNamed("proj-a")
 	if !ok {
@@ -938,6 +951,7 @@ func TestOpenProjectsRecovers(t *testing.T) {
 // to choose, since a released client prints the welcome's error as it
 // is: that the client is the side to upgrade, and how.
 func TestReleasedClientsRefused(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	const fix = "upgrade this client: run `sfx upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `sfx mcp`"
 	for _, tc := range []struct {
@@ -964,6 +978,7 @@ func TestReleasedClientsRefused(t *testing.T) {
 // it. The daemon answers it whatever it speaks: a v0.4.0 starfixd that
 // was refused would take the new daemon for dead and put itself back.
 func TestProbeOfAnOlderStarfixdIsAnswered(t *testing.T) {
+	t.Parallel()
 	s := newServer(t)
 	for _, p := range []int{2, 4, proto.Proto, proto.ProtoMax + 1} {
 		f, err := handshake(t, s, &proto.Frame{T: proto.FrameBridge, Principal: ProbePrincipal},
@@ -981,6 +996,7 @@ func TestProbeOfAnOlderStarfixdIsAnswered(t *testing.T) {
 // have the server upgraded, before a request could fail on an op or a
 // field the server does not know. v0.4.x accepts 2 to 4.
 func TestHandshakeOlderServerRefusesThisClient(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		release string
 		lo, hi  int
@@ -1004,6 +1020,7 @@ func TestHandshakeOlderServerRefusesThisClient(t *testing.T) {
 }
 
 func TestProjectDBs(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		b    ProjectDBs

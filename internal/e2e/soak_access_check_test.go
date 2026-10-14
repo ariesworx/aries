@@ -69,6 +69,7 @@ func ctlWorld() *logBuilder {
 }
 
 func TestCtlReplayCatches(t *testing.T) {
+	t.Parallel()
 	const fp = "SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5TqvU"
 	tests := []struct {
 		name string
@@ -136,6 +137,7 @@ func TestCtlReplayCatches(t *testing.T) {
 }
 
 func TestCtlReplayCompare(t *testing.T) {
+	t.Parallel()
 	const fp = "SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5TqvU"
 	tests := []struct {
 		name   string
@@ -207,6 +209,7 @@ func TestCtlReplayCompare(t *testing.T) {
 // access: the issue returns to open, and the admin's write under the
 // holder's claim is no breach of the guard.
 func TestReplayLostAccess(t *testing.T) {
+	t.Parallel()
 	alice, carol := sessKey{"alice", "s1"}, sessKey{"carol", "s1"}
 	held := func(b *logBuilder) *logBuilder {
 		return b.create(alice, "sf-1").take(alice, "sf-1", 1, 15*time.Minute, "").
@@ -269,6 +272,7 @@ func accessSoak(log *logBuilder) (*soak, *sproj) {
 }
 
 func TestCheckLost(t *testing.T) {
+	t.Parallel()
 	alice, carol, sweep := sessKey{"alice", "s1"}, sessKey{"carol", "s1"}, sessKey{"starfixd", "access"}
 	// The control log: at 8m (the world's last event is at 9m; see below)
 	// each case removes, disables or archives, an hour in.
@@ -381,6 +385,7 @@ func TestCheckLost(t *testing.T) {
 // times: known is the last event the server had answered for when the
 // handshake began, and seen the last the log held when it ended.
 func TestCheckDials(t *testing.T) {
+	t.Parallel()
 	const fp = "SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5TqvU"
 	alice := sessKey{"alice", "s1"}
 	t0 := newLog().t0
@@ -465,6 +470,7 @@ func TestCheckDials(t *testing.T) {
 // Nothing of one project shows through a connection to another: an
 // answer or a push that names another project's issue fails the run.
 func TestCheckForeign(t *testing.T) {
+	t.Parallel()
 	p := &sproj{name: "first", prefix: "sf", foreign: regexp.MustCompile(`\b(sb|sq)-[a-z2-7]{8}\b`)}
 	alice := sessKey{"alice", "s1"}
 	const mine, theirs = "sf-abcdefgh", "sb-abcdefgh"

@@ -62,6 +62,7 @@ type callerKey struct{}
 // attempt for each retry, each Dolt commit, and the migrations of an
 // open. A read tells it nothing.
 func TestTracer(t *testing.T) {
+	t.Parallel()
 	tr := &staged{}
 	s := openStore(t, newDSN(t), Options{Tracer: tr})
 	if got, want := tr.take(), []string{"begin migrate", "end migrate ok"}; !slices.Equal(got, want) {
@@ -131,6 +132,7 @@ func TestTracer(t *testing.T) {
 // A store with no tracer does the same work, and a write allocates
 // nothing for the hook.
 func TestNoTracer(t *testing.T) {
+	// Serial: testing.AllocsPerRun must not run beside a parallel test.
 	s := openStore(t, newDSN(t), Options{})
 	ctx, end := s.begin(t.Context(), StageAttempt, 1)
 	if ctx != t.Context() {
