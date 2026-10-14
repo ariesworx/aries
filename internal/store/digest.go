@@ -426,10 +426,11 @@ LIMIT ?`, append(append([]any{q.now}, fargs...), digestRows+1)...) //nolint:gose
 func (q *digestQuery) conflicts(ctx context.Context, d *Digest) error {
 	fcond, fargs := q.filters("c.author", "i.id")
 	age := cmp.Or(q.f.ConflictAge, DefaultConflictAge)
-	rows, err := q.tx.QueryContext(ctx, `SELECT i.id, i.title, i.priority, c.author, c.parked_at, c.id, c.field
+	const head = `SELECT i.id, i.title, i.priority, c.author, c.parked_at, c.id, c.field
 FROM conflicts c JOIN issues i ON i.id = c.issue_id
-WHERE c.resolved_at IS NULL AND c.parked_at <= ?`+fcond+`
-ORDER BY c.parked_at, c.id LIMIT ?`, append(append([]any{q.now.Add(-age)}, fargs...), digestRows+1)...) //nolint:gosec // constant clauses; values are placeholders
+WHERE c.resolved_at IS NULL AND c.parked_at <= ?`
+	query := head + fcond + " ORDER BY c.parked_at, c.id LIMIT ?" //nolint:gosec // constant clauses; values are placeholders
+	rows, err := q.tx.QueryContext(ctx, query, append(append([]any{q.now.Add(-age)}, fargs...), digestRows+1)...)
 	if err != nil {
 		return fmt.Errorf("conflicts: %w", err)
 	}

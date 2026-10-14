@@ -67,7 +67,7 @@ func TestConflictErrorsNameTheNextStep(t *testing.T) {
 func TestShowConflicts(t *testing.T) {
 	t.Parallel()
 	long := strings.Repeat("word ", 2000)
-	conn := &fakeConn{reply: func(op string, _ any) (any, error) {
+	conn := &fakeConn{reply: func(string, any) (any, error) {
 		return proto.ShowResult{Issue: proto.Issue{ID: "sf-1", Title: "t", Status: "open", Rev: 4},
 			Conflicts: []proto.Conflict{{ID: 3, Issue: "sf-1", Field: "body", BaseRev: 2, Base: long, Mine: long + "mine",
 				Theirs: long + "theirs", By: "alice", TheirsBy: "bob", Advice: "take theirs",

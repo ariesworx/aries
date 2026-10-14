@@ -567,8 +567,9 @@ func supersede(ctx context.Context, w *wtx, id IssueID, changed map[string]any) 
 	if len(fields) == 0 {
 		return nil
 	}
-	rows, err := w.tx.QueryContext(ctx, `SELECT id, field FROM conflicts WHERE issue_id = ? AND resolved_at IS NULL
-  AND field IN (`+placeholders(len(fields))+`) ORDER BY id`, append([]any{string(id)}, fields...)...)
+	in := placeholders(len(fields))
+	query := `SELECT id, field FROM conflicts WHERE issue_id = ? AND resolved_at IS NULL AND field IN (` + in + `) ORDER BY id` //nolint:gosec // placeholders only; the values are arguments
+	rows, err := w.tx.QueryContext(ctx, query, append([]any{string(id)}, fields...)...)
 	if err != nil {
 		return fmt.Errorf("open conflicts of %s: %w", id, err)
 	}
