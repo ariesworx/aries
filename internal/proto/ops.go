@@ -291,9 +291,12 @@ var (
 )
 
 // UsageArgs reports usage records for the caller's session; the
-// principal, session and machine come from the connection.
+// principal, session and machine come from the connection. Idem, an
+// idempotency key, makes a repeat from any session of the principal
+// return the first result (protocol 6).
 type UsageArgs struct {
 	Records []UsageRecord `json:"records"`
+	Idem    string        `json:"idem,omitempty"`
 }
 
 // UsageResult counts the records stored and those already stored.
@@ -322,12 +325,14 @@ type AcceptanceItem struct {
 }
 
 // AcceptArgs ticks, unticks and waives an issue's acceptance items by
-// number; Waive maps a number to the reason it is waived.
+// number; Waive maps a number to the reason it is waived. Idem, an
+// idempotency key, makes a repeat return the first result (protocol 6).
 type AcceptArgs struct {
 	ID     string         `json:"id"`
 	Tick   []int          `json:"tick,omitempty"`
 	Untick []int          `json:"untick,omitempty"`
 	Waive  map[int]string `json:"waive,omitempty"`
+	Idem   string         `json:"idem,omitempty"`
 }
 
 // AcceptResult lists the items and the numbers of those still open.
@@ -379,7 +384,8 @@ type BlockedResult struct {
 
 // UpdateArgs changes the fields that are set. Rev is the revision the
 // caller read; a stale one is a conflict. An empty string clears Assignee,
-// Owner and Parent.
+// Owner and Parent. Idem, an idempotency key, makes a repeat return the
+// first result, whatever the issue's rev has become (protocol 6).
 type UpdateArgs struct {
 	ID         string  `json:"id"`
 	Rev        int64   `json:"rev"`
@@ -400,6 +406,7 @@ type UpdateArgs struct {
 	// Paths replaces the issue's declared paths; empty clears them
 	// (protocol 3).
 	Paths *[]string `json:"paths,omitempty"`
+	Idem  string    `json:"idem,omitempty"`
 }
 
 // CloseArgs closes an issue. Rev 0 skips the revision check: close wins
@@ -419,16 +426,21 @@ type ReopenArgs struct {
 }
 
 // DepArgs names an edge: From depends on To. Type defaults to "blocks".
+// Idem, an idempotency key, makes a repeat of dep.add return the first
+// result (protocol 6); dep.rm takes none.
 type DepArgs struct {
 	From string `json:"from"`
 	To   string `json:"to"`
 	Type string `json:"type,omitempty"`
+	Idem string `json:"idem,omitempty"`
 }
 
-// LabelArgs names one label on one issue.
+// LabelArgs names one label on one issue. Idem, an idempotency key,
+// makes a repeat return the first result (protocol 6).
 type LabelArgs struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
+	Idem  string `json:"idem,omitempty"`
 }
 
 // CommentArgs adds a comment. Idem, an idempotency key, makes a retry

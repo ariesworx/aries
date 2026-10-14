@@ -73,10 +73,12 @@ func AccessEnded(err error) (principal string, ok bool) {
 }
 
 // refusal is the server's refusal of a handshake: a *proto.Error through
-// Unwrap, with the principal the refusal names, if any.
+// Unwrap, with the principal the refusal names, if any, and the range of
+// protocols the server accepts.
 type refusal struct {
 	pe        *proto.Error
 	principal string
+	min, max  int
 }
 
 func (e *refusal) Error() string { return e.pe.Error() }

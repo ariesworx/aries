@@ -381,13 +381,19 @@ func insertIssue(ctx context.Context, w *wtx, id IssueID, in NewIssue, meta any)
 // so the change is on the record. Paths replaces the declared paths, and
 // moves the rev when that changes them, so two replaces made at one rev
 // conflict rather than merge; more than the paths_per_issue limit is
-// refused with ErrInvalid.
+// refused with ErrInvalid. With an idempotency key (patch's), a repeat
+// returns the first update's result and writes nothing, whatever the
+// issue's rev has become, and the key reused for another request is
+// refused with an [*IdemError].
 func (s *Store) UpdateIssue(ctx context.Context, actor Actor, id IssueID, expected Rev, patch IssuePatch) (Issue, error) {
 	if err := id.Validate(); err != nil {
 		return Issue{}, err
 	}
 	if expected < 1 {
 		return Issue{}, fmt.Errorf("%w: expected rev is required", ErrInvalid)
+	}
+	if err := validIdem(patch.IdempotencyKey); err != nil {
+		return Issue{}, err
 	}
 	sets, args, err := patch.columns()
 	if err != nil {
@@ -406,6 +412,13 @@ func (s *Store) UpdateIssue(ctx context.Context, actor Actor, id IssueID, expect
 	}
 	var out Issue
 	err = s.write(ctx, actor, func(w *wtx) error {
+		if done, err := replay(ctx, w, patch.IdempotencyKey, "update", struct {
+			ID    IssueID
+			Rev   Rev
+			Patch IssuePatch
+		}{id, expected, patch}, &out); done || err != nil {
+			return err
+		}
 		before, err := loadIssue(ctx, w.tx, id)
 		if err != nil {
 			return err
@@ -480,7 +493,7 @@ func (s *Store) UpdateIssue(ctx context.Context, actor Actor, id IssueID, expect
 				}
 			}
 		}
-		return nil
+		return w.settleChanged(out)
 	})
 	if err != nil {
 		return Issue{}, err

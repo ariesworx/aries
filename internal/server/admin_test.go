@@ -964,7 +964,7 @@ func TestReleasedClientsRefused(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := fmt.Sprintf("starfix speaks protocol %d; the server (v0.2.0) needs protocol %d", tc.proto, proto.ProtoMin)
+			want := fmt.Sprintf("starfix speaks protocol %d; the server (v0.2.0) needs protocols %d to %d", tc.proto, proto.ProtoMin, proto.ProtoMax)
 			if w.T != proto.FrameWelcome || w.Err == nil || w.Err.Code != proto.CodeVersion || w.Err.Message != want || w.Err.Fix != fix ||
 				w.Min != proto.ProtoMin || w.Max != proto.ProtoMax {
 				t.Fatalf("a protocol %d hello = %+v (%+v)\nwant a welcome refusing it with code version, %q\nfix %q", tc.proto, w, w.Err, want, fix)

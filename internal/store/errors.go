@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/go-sql-driver/mysql"
+
+	"github.com/ariesworx/starfix/internal/proto"
 )
 
 // Errors returned by the store, always wrapped with context. Test with
@@ -101,16 +103,22 @@ func (e *HeldError) Error() string {
 func (e *HeldError) Unwrap() error { return ErrConflict }
 
 // IdemError refuses an idempotency key the principal already used for a
-// different request, or used more than IdemTTL ago (Expired). It wraps
-// ErrConflict.
+// different request, or used longer ago than the store's window
+// (Expired): the request it was used for was applied then, at Used, and
+// its result is no longer given for it. It wraps ErrConflict.
 type IdemError struct {
 	Key     string
 	Expired bool
+	// Used and Window are an expired key's: when its request was
+	// applied, and the window it is past.
+	Used   time.Time
+	Window time.Duration
 }
 
 func (e *IdemError) Error() string {
 	if e.Expired {
-		return fmt.Sprintf("idempotency key %q expired: it was used more than %s ago", e.Key, IdemTTL)
+		return fmt.Sprintf("idempotency key %q was used at %s, longer ago than the %s a key's result is kept: its request was applied then",
+			e.Key, e.Used.UTC().Format(time.RFC3339), proto.Span(e.Window))
 	}
 	return fmt.Sprintf("idempotency key %q was already used for a different request", e.Key)
 }

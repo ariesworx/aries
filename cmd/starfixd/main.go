@@ -431,7 +431,7 @@ func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h 
 		Telemetry: h.tel, Heartbeat: h.heartbeat, HeartbeatEvery: h.heartbeatEvery, DoltMetrics: h.dolt, NoAudit: !s.Telemetry.Audit(),
 		Clock: clk, ClockBehind: s.ClockBehind, BehindTolerance: time.Duration(s.ClockBehindTolerance), AcceptHistory: s.AcceptClockBehind}
 	opts := store.Options{Logger: log, AllowUnsafeAccount: s.AllowUnsafeDolt, Limits: s.Limits.Limits,
-		Clock: clk, ClientAhead: time.Duration(s.ClockClientTolerance)}
+		Clock: clk, ClientAhead: time.Duration(s.ClockClientTolerance), IdemWindow: time.Duration(s.Limits.IdemWindow)}
 	if s.DSN == "" {
 		return nil, errors.New("no database DSN; fix: set $STARFIXD_DSN or dsn: in the config file")
 	}

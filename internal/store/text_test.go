@@ -63,7 +63,7 @@ func TestControlCharsRefused(t *testing.T) {
 			_, err := s.CreateIssue(ctx, alice, NewIssue{Title: "t", Labels: []string{"l" + v}})
 			return err
 		}},
-		{"added label", func(v string) error { return s.AddLabel(ctx, alice, is.ID, "l"+v) }},
+		{"added label", func(v string) error { return s.AddLabel(ctx, alice, is.ID, "l"+v, "") }},
 		{"close reason", func(v string) error { _, err := s.CloseIssue(ctx, alice, is.ID, 0, "r"+v); return err }},
 		{"finish reason", func(v string) error {
 			_, _, err := s.FinishIssue(ctx, alice, is.ID, 0, Finish{Reason: "r" + v})

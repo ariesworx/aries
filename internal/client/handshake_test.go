@@ -5,6 +5,8 @@ package client
 import (
 	"errors"
 	"net"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -117,6 +119,98 @@ func (w *welcomer) dial(t *testing.T) (*Conn, error) {
 		t.Cleanup(func() { _ = c.Close() })
 	}
 	return c, err
+}
+
+// protos are the protocol versions of the hellos w was sent, in order,
+// and the SSH connections they came on.
+func (w *welcomer) protos() ([]int, int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	var out []int
+	for _, h := range w.hellos {
+		out = append(out, h.Proto)
+	}
+	return out, w.conns
+}
+
+// server is a daemon that accepts protocols lo to hi, and refuses any
+// other as a daemon does, with its range.
+func server(lo, hi int) func(*proto.Frame) *proto.Frame {
+	return func(hello *proto.Frame) *proto.Frame {
+		w := welcome(lo, hi)
+		if e := proto.CheckProto(hello.Proto, lo, hi, w.Version); e != nil {
+			w.Session, w.Principal, w.Err = "", "", e
+		}
+		return w
+	}
+}
+
+// TestDialStepsDown pins the version a client of this build speaks
+// (design §18.5): protocol 6 to a server that accepts it; to a server of
+// 5 alone, 5, saying hello again on the same SSH connection once the
+// server's refusal has named its range; and nothing to a server that
+// accepts neither, which refuses it with code version as before.
+func TestDialStepsDown(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		lo, hi int
+		want   int   // the protocol spoken, 0 when refused
+		hellos []int // the hellos' protocols
+	}{
+		{"a server of 5 and 6", 5, 6, 6, []int{6}},
+		{"a server of 6 and 7", 6, 7, 6, []int{6}},
+		{"a server of 5", 5, 5, 5, []int{6, 5}},
+		{"a server of 7 and 8", 7, 8, 0, []int{6}},
+		{"a server of 3 and 4", 3, 4, 0, []int{6}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			w := newWelcomer(t, server(tc.lo, tc.hi))
+			c, err := w.dial(t)
+			hellos, conns := w.protos()
+			switch {
+			case tc.want == 0:
+				if pe, ok := errors.AsType[*proto.Error](err); !ok || pe.Code != proto.CodeVersion {
+					t.Errorf("Dial to %s = %v, want refused with code version", tc.name, err)
+				}
+			case err != nil:
+				t.Fatalf("Dial to %s = %v, want it welcomed", tc.name, err)
+			case c.Proto() != tc.want:
+				t.Errorf("Dial to %s speaks protocol %d, want %d", tc.name, c.Proto(), tc.want)
+			}
+			if !slices.Equal(hellos, tc.hellos) || conns != 1 {
+				t.Errorf("Dial to %s said hello speaking %v on %d SSH connections; want %v on 1", tc.name, hellos, conns, tc.hellos)
+			}
+		})
+	}
+}
+
+// TestCallSpeaksTheConnectionsProtocol: on a connection of protocol 5,
+// an op whose key protocol 6 added goes without it, which a server of 5
+// would refuse as an unknown argument; on 6 it goes with it.
+func TestCallSpeaksTheConnectionsProtocol(t *testing.T) {
+	t.Parallel()
+	for _, v := range []int{5, 6} {
+		c, srv := pipeConn(t, nil)
+		c.proto = v
+		sent := make(chan string, 1)
+		go func() {
+			f := srv.req()
+			if f == nil {
+				sent <- ""
+				return
+			}
+			sent <- string(f.Args)
+			srv.send(&proto.Frame{T: proto.FrameRes, ID: f.ID, OK: []byte(`{"id":"sf-1","rev":2}`)})
+		}()
+		if err := c.Call(t.Context(), proto.OpUpdate, proto.UpdateArgs{ID: "sf-1", Rev: 1, Idem: "cli-1"}, nil); err != nil {
+			t.Fatalf("Call at protocol %d = %v", v, err)
+		}
+		if got := <-sent; strings.Contains(got, `"idem"`) != (v >= 6) || !strings.Contains(got, `"rev":1`) {
+			t.Errorf("update at protocol %d was sent as %s; want it whole, and its key sent only at 6", v, got)
+		}
+	}
 }
 
 // welcome is a welcome frame from a server of protocols lo to hi.
