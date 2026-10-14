@@ -279,6 +279,22 @@ process.
   `debug.FreeOSMemory` once after start gave back 1.5 to 2.0 MiB on
   Linux and nothing on macOS.
 
+**Since this was written (14 Oct 2026).** Measured again, larger, and
+not done: the saving holds, but the CPU it costs is not negligible.
+Fifty idle `sfx mcp` against the test server, each after one `prime`,
+two rounds each, `GOGC=50` in the environment against none: on Linux
+(the container above, `Private_Dirty`) 10.1 to 10.4 MiB a process
+against 8.0 to 8.1, about 2.2 MiB or 22% less; on macOS (physical
+footprint) 11.2 against 10.5 MiB, 0.7 MiB or 6% less. A session of 300
+tool calls (`prime`, `ready`, `list`, `show`, `comment`, `comments`,
+`who`, `inbox`, `digest`, `history` in turn), five runs each: the
+client's CPU went from 228 to 253 ms to 345 to 421 ms on Linux, and
+from 143 to 195 ms to 224 to 269 ms on macOS, about half as much
+again, or 0.3 to 0.5 ms a call. A collection is due at a 2 MiB heap in
+place of 4 MiB, and a call allocates about 250 KB, so it runs about
+twice as often. Whether 2 MiB a session is worth that is a choice
+between memory and CPU, not a free saving.
+
 ### 4. Parse a private key only when the server asks it to sign
 
 `internal/client/conn.go:733` (`readDefaultIdentity`) and `780`
@@ -306,6 +322,25 @@ key the server accepts to sign, and a public key is enough to offer.
   refusal show (`skipped`) must still be right, and a key file that is
   passphrase-protected must still be told from one that is corrupt
   before the offer. Not prototyped.
+
+**Since this was written (14 Oct 2026).** Not done: it would change
+which keys are offered and what `whoami` and a refusal say, for one
+kind of file. Nearly all of the 2.5 ms is `crypto/rsa` checking that
+the key's numbers agree (`ParsePrivateKey` calls `rsa.PrivateKey`'s
+`Validate` and `Precompute`), and that check tells a usable RSA key from
+a file that parses but cannot sign. Today such a file is skipped
+before the offer, and `whoami` and a refusal list it as "not a private
+key sfx can read"; parsed at signing, it would be offered by its public
+half, counted among the five, and fail only if the server accepted it.
+Measured: `whoami` with default identities, an RSA 3072 key the server
+does not know and the Ed25519 key it does, 11.2 ms and 9.7 ms of CPU
+(minimum of 40) against 8.4 ms and 6.8 ms with the Ed25519 key alone.
+The options are to accept that difference for files that are
+corrupt, to parse in the background while the connection is made
+(which saves the wall time and none of the CPU, and changes the point
+at which "no SSH key available" is reported), or to leave it: naming
+the key with `STARFIX_KEY_FILE` or `key:` already reads that file
+alone.
 
 ### 5. Do not keep the decoder's buffer at its largest
 
