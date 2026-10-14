@@ -21,11 +21,19 @@ const leftoversScript = "leftovers.sh"
 // base as the temporary directory it makes its own under, and returns
 // what it printed and its exit status. settle is how long it waits for
 // processes to end, in seconds, and hold a named pipe the command's
-// processes may wait on ($HOLD).
-func runLeftovers(t *testing.T, base, hold, settle, shell string) (stdout, stderr string, status int) {
+// processes may wait on ($HOLD). env adds to the environment, which has
+// no GOTMPDIR or GITHUB_ACTIONS of the test's own: go test passes on its
+// GOTMPDIR, and CI sets both.
+func runLeftovers(t *testing.T, base, hold, settle, shell string, env ...string) (stdout, stderr string, status int) {
 	t.Helper()
 	cmd := exec.Command("sh", leftoversScript, "sh", "-c", shell) //nolint:gosec // the repository's script, and the test's own commands
-	cmd.Env = append(os.Environ(), "TMPDIR="+base, "HOLD="+hold, "STARFIX_LEFTOVERS_WAIT="+settle)
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "GOTMPDIR=") && !strings.HasPrefix(kv, "GITHUB_ACTIONS=") {
+			cmd.Env = append(cmd.Env, kv)
+		}
+	}
+	cmd.Env = append(cmd.Env, "TMPDIR="+base, "HOLD="+hold, "STARFIX_LEFTOVERS_WAIT="+settle)
+	cmd.Env = append(cmd.Env, env...)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	err := cmd.Run()
@@ -53,6 +61,8 @@ func TestLeftoversScript(t *testing.T) {
 		settle string
 		linux  bool // only where a process's environment can be read (/proc)
 		letGo  bool // the process is let go while the script runs, not after
+		gotmp  bool // the script is given a GOTMPDIR, $GOBASE
+		github bool // as in GitHub Actions (GITHUB_ACTIONS=true)
 		status int
 		stdout string   // exactly
 		want   []string // in stderr
@@ -64,9 +74,25 @@ func TestLeftoversScript(t *testing.T) {
 			stdout: "out\n", want: []string{"err\n"}},
 		{name: "a file left behind fails a command that passed", shell: `echo x >"$TMPDIR/forgotten.sock"`,
 			status: 1, want: []string{"leftovers.sh: the command left 1 entry under its temporary directory", "forgotten.sock",
-				"fix: "}},
-		{name: "directories left behind are counted and named", shell: `mkdir -p "$TMPDIR/TestOne123/001" "$TMPDIR/sfe456" && echo x >"$TMPDIR/TestOne123/001/f"`,
-			status: 1, want: []string{"left 2 entries", "TestOne123", "sfe456"}},
+				"fix: "}, not: []string{"::error", ": t.TempDir", ": os.MkdirTemp"}},
+		// A directory's name says which test made it: t.TempDir names it
+		// for the test, and the short ones are os.MkdirTemp's prefixes.
+		{name: "directories left behind are counted and named, with whose they are", shell: `mkdir -p "$TMPDIR/TestOne123/001" "$TMPDIR/sfe456" "$TMPDIR/starfix-test-home-789" && echo x >"$TMPDIR/TestOne123/001/f"`,
+			status: 1, want: []string{"left 3 entries", "  TestOne123 (", " KB): t.TempDir of TestOne\n", "  sfe456 (", " KB): os.MkdirTemp(\"\", \"sfe\")\n",
+				"  starfix-test-home-789 (", " KB): os.MkdirTemp(\"\", \"starfix-test-home-\")\n"}},
+		{name: "a test's directory left by a failing command is named too", shell: `mkdir "$TMPDIR/TestDiedToo1"; exit 4`,
+			status: 4, want: []string{"TestDiedToo1 (", " KB): t.TempDir of TestDiedToo\n"}},
+		{name: "with GOTMPDIR, the command is given one of its own under it", gotmp: true,
+			shell: `case $GOTMPDIR in "$GOBASE"/sfl.*) ;; *) echo "GOTMPDIR is $GOTMPDIR" >&2; exit 9 ;; esac; [ -d "$GOTMPDIR" ] && [ "$GOTMPDIR" != "$TMPDIR" ]`,
+			not:   []string{"left"}},
+		{name: "without GOTMPDIR, the command has none", shell: `[ -z "${GOTMPDIR+set}" ]`, not: []string{"left"}},
+		// go test makes t.TempDir under GOTMPDIR when it is set, as CI sets it.
+		{name: "a file left in GOTMPDIR fails a command that passed", gotmp: true, shell: `mkdir "$GOTMPDIR/TestGo77"`,
+			status: 1, want: []string{"leftovers.sh: the command left 1 entry under its GOTMPDIR", "  TestGo77 (", " KB): t.TempDir of TestGo\n", "fix: "},
+			not: []string{"under its temporary directory"}},
+		{name: "in GitHub Actions, what was left is an annotation too", github: true, shell: `echo x >"$TMPDIR/TestAnnotated5"`,
+			status: 1, want: []string{"::error title=leftovers.sh::the command left 1 entry under its temporary directory:%0A  TestAnnotated5 (", " KB): t.TempDir of TestAnnotated%0Afix: "}},
+		{name: "in GitHub Actions, nothing left is no annotation", github: true, shell: `exit 0`, not: []string{"::error"}},
 		{name: "a failing command keeps its status, and what it left is said", shell: `mkdir "$TMPDIR/TestDied9"; exit 7`,
 			status: 7, want: []string{"TestDied9", "the command failed"}, not: []string{"fix: "}},
 		{name: "a failing command that leaves nothing says nothing", shell: `exit 3`, status: 3, not: []string{"leftovers.sh"}},
@@ -81,6 +107,9 @@ func TestLeftoversScript(t *testing.T) {
 		{name: "a process that names the directory only in its environment", linux: true,
 			shell:  `sh -c 'read -r x <"$HOLD"' >/dev/null 2>&1 &`,
 			settle: "0", status: 1, want: []string{"leftovers.sh: the command left 1 process running", "read -r x"}},
+		{name: "a process says which entry it runs from",
+			shell:  `mkdir "$TMPDIR/TestJob31"; sh -c 'read -r x <"$HOLD"' "$TMPDIR/TestJob31/job" >/dev/null 2>&1 &`,
+			settle: "0", status: 1, want: []string{"the command left 1 process running", "/TestJob31/job\n      in TestJob31: t.TempDir of TestJob\n"}},
 		{name: "a process that ends while the script waits is not one left", letGo: true,
 			shell:  `sh -c 'read -r x <"$HOLD"' "$TMPDIR/job" >/dev/null 2>&1 &`,
 			settle: "60", not: []string{"left"}},
@@ -110,7 +139,16 @@ func TestLeftoversScript(t *testing.T) {
 			} else if strings.Contains(tc.shell, "$HOLD") {
 				defer release()
 			}
-			stdout, stderr, status := runLeftovers(t, base, hold, tc.settle, tc.shell)
+			var env []string
+			gobase := ""
+			if tc.gotmp {
+				gobase = t.TempDir()
+				env = append(env, "GOTMPDIR="+gobase, "GOBASE="+gobase)
+			}
+			if tc.github {
+				env = append(env, "GITHUB_ACTIONS=true")
+			}
+			stdout, stderr, status := runLeftovers(t, base, hold, tc.settle, tc.shell, env...)
 			if status != tc.status {
 				t.Errorf("exit status %d, want %d\nstderr:\n%s", status, tc.status, stderr)
 			}
@@ -127,13 +165,18 @@ func TestLeftoversScript(t *testing.T) {
 					t.Errorf("stderr has %q:\n%s", not, stderr)
 				}
 			}
-			// Whatever the command left, the script's own directory is gone.
-			entries, err := os.ReadDir(base)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, e := range entries {
-				t.Errorf("the script left %s in the temporary directory it was given", filepath.Join(base, e.Name()))
+			// Whatever the command left, the script's own directories are gone.
+			for _, dir := range []string{base, gobase} {
+				if dir == "" {
+					continue
+				}
+				entries, err := os.ReadDir(dir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, e := range entries {
+					t.Errorf("the script left %s in the temporary directory it was given", filepath.Join(dir, e.Name()))
+				}
 			}
 		})
 	}
