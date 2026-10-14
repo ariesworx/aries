@@ -202,6 +202,7 @@ transaction as its cause:
 | `handoff` | A handoff names you with `--to` |
 | `mention` | A comment, handoff or finish note says `@you`. Only principals the server has seen can be mentioned, and never yourself |
 | `assigned` | Someone else assigned you an issue |
+| `conflict` | An update of yours, queued while the server was away, parked fields someone else had changed, or was kept as a comment because the issue was closed meanwhile; or another principal's parked fields on an issue you hold ([Conflicts](cli.md#conflicts)). It reaches every session of yours |
 
 `sfx inbox` lists unread items and `--ack` marks them read. `sfx watch`
 prints them as they arrive. An agent's `sfx mcp` asks the server to push

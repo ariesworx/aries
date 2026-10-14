@@ -253,6 +253,28 @@ tool logs them.
   last), and `show` gives the likely `files`, `files_more` and the
   `overlaps` with who holds them ([Files](concepts.md#files-what-an-issue-touches)).
   People declare files with `sfx create --paths` or `sfx update --paths`.
+- **Agents propose, people resolve conflicts.** See [Conflicts](#conflicts).
+
+### Conflicts
+
+A queued update that arrives after someone else changed the same field
+is parked as a conflict for a person to resolve
+([Conflicts](cli.md#conflicts)). An agent hears of one through
+`prime`, which counts the open conflicts on its principal's work, and
+`inbox`, whose `conflict` items name the issue. `show` gives the
+issue's open `conflicts`: each one's `id`, `field`, `base`, `mine` and
+`theirs` (cut to fit the result), who made each side, the server's
+`advice`, and any proposal waiting.
+
+The agent may propose a resolution with `comment`, giving `conflict`
+(the conflict's id) and `propose`: `mine`, `theirs`, or the new text;
+the `body` says why. It is kept with the conflict, replacing any earlier
+proposal, and changes nothing. There is no resolve tool: a person
+accepts the proposal with `sfx resolve N --accept`, or resolves another
+way (decision 42 of [the design](design/starfix.md#14-decisions)).
+Proposing is guarded as a change to the issue is, so it is refused on
+an issue another principal holds. Proposing rides `comment` rather than
+a tool of its own to keep the tools' schemas within their budget.
 
 One SSH connection serves an MCP session. It opens on the first tool call
 and is redialed if it drops. Reads, `create`, `comment`, `finish`,
@@ -301,9 +323,10 @@ to carry on: it finishes what it holds and files what it finds.
 
 An `update` without a `rev` reads the issue's rev first, which needs the
 server: with the server away it fails, saying it was not queued and to
-give `rev`. Against a server that speaks only protocol 5, `update`,
-`dep` and `label` are not queued, since that server could apply one
-twice.
+give `rev`. A queued `update` is replayed so that what someone else
+changed meanwhile is parked as a [conflict](#conflicts) rather than
+refused; against a server that speaks only protocol 6 it is refused
+when stale, as before, and waits in `sfx outbox` for the person.
 
 Nothing else is queued. `start` fails, and tells the agent that it was
 not queued and to go on with the work it holds: no claim is taken

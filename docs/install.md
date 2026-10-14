@@ -188,7 +188,7 @@ earlier `sfx`, once, on purpose ([Upgrades](server.md#upgrades)). Each
 command then exits 3 and says:
 
 ```text
-sfx: starfix speaks protocol 4; the server (v0.5.0) needs protocols 5 to 6
+sfx: starfix speaks protocol 4; the server (v0.5.0) needs protocols 6 to 7
 fix: upgrade this client: run `sfx upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `sfx mcp`
 ```
 
