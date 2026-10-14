@@ -470,6 +470,15 @@ func (l *Local) LastReached() time.Time {
 	return t
 }
 
+// LastReachedLine says when the server was last reached from this
+// machine, for a refusal of a read that is not answered offline.
+func LastReachedLine(t time.Time) string {
+	if t.IsZero() {
+		return "this machine has no record of reaching the server"
+	}
+	return "server last reached " + t.UTC().Format("2006-01-02 15:04 UTC")
+}
+
 // CachedLine is the one line that says an answer is this machine's copy,
 // kept at at, and how old it is at now.
 func CachedLine(at, now time.Time) string {

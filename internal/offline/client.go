@@ -253,11 +253,17 @@ func (c *Client) Replay(ctx context.Context, conn Conn) (outbox.Report, error) {
 // principal, or "" when nothing waits in it: how many writes wait for
 // the server, and how many it refused, which only a person settles.
 func (c *Client) Notice(conn Conn) string {
+	return c.NoticeFor(conn.Principal())
+}
+
+// NoticeFor is [Client.Notice] for principal's outbox, when there is no
+// connection to say whose it is.
+func (c *Client) NoticeFor(principal string) string {
 	l, _, err := c.Local()
 	if err != nil {
 		return ""
 	}
-	n, err := l.Waiting(conn.Principal())
+	n, err := l.Waiting(principal)
 	if err != nil {
 		return ""
 	}

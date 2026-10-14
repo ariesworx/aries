@@ -104,12 +104,3 @@ type offlineRead struct {
 
 func (e *offlineRead) Error() string { return e.err.Error() }
 func (e *offlineRead) Unwrap() error { return e.err }
-
-// lastReached says when the server was last reached from this machine,
-// for a refusal.
-func lastReached(t time.Time) string {
-	if t.IsZero() {
-		return "this machine has no record of reaching the server"
-	}
-	return "server last reached " + t.UTC().Format("2006-01-02 15:04 UTC")
-}

@@ -35,7 +35,7 @@ func explain(err error) toolErr {
 	case errors.As(err, &off):
 		// What everyone is doing now, from a copy, is wrong in the way
 		// that has two sessions take the same work (design §18.6).
-		e.Message += "; " + off.tool + " is not answered from this machine's copy, since it says what others are doing now (" + lastReached(off.last) + ")"
+		e.Message += "; " + off.tool + " is not answered from this machine's copy, since it says what others are doing now (" + offline.LastReachedLine(off.last) + ")"
 		e.Fix = "carry on with the work you hold (prime and show answer from this machine's copy) and call " + off.tool +
 			" again later; if it still fails, tell the user"
 	case errors.As(err, &unq):

@@ -25,6 +25,7 @@ func cmdDigest(ctx context.Context, r *runner, args []string) error {
 		return usagef(usage, "digest takes no arguments")
 	}
 	var out proto.DigestResult
+	r.cacheable = true // with the server away, this machine's copy (design §18.6)
 	if err := r.call(ctx, proto.OpDigest, in, &out); err != nil {
 		return err
 	}
