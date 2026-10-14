@@ -26,7 +26,10 @@ type Limits struct {
 	// Conns caps the daemon's connections past the handshake; twice it
 	// caps sockets still in the handshake.
 	Conns int `yaml:"conns"`
-	// ConnsPerPrincipal caps one principal's connections.
+	// ConnsPerPrincipal caps one principal's connections. Its default,
+	// 64, is one person's sessions on several machines and a few
+	// unattended runs on their key: a fleet of agents should have
+	// principals of its own, and meets Conns.
 	ConnsPerPrincipal int `yaml:"conns_per_principal"`
 	// Handshakes caps one principal's connections that have sent their
 	// bridge frame and not yet a hello, on the whole server: the project
@@ -80,7 +83,7 @@ type Limits struct {
 
 // DefaultLimits are the limits a zero field takes.
 var DefaultLimits = Limits{
-	Limits: store.DefaultLimits, Conns: 1024, ConnsPerPrincipal: 32, Handshakes: 16, IdleTimeout: Duration(10 * time.Minute),
+	Limits: store.DefaultLimits, Conns: 1024, ConnsPerPrincipal: 64, Handshakes: 16, IdleTimeout: Duration(10 * time.Minute),
 	WriteRate: 10, WriteBurst: 100, RefusalLogs: 20,
 	AgentKeep: Duration(store.MaxAgentWindow), InboxKeep: Duration(30 * 24 * time.Hour),
 	Control: store.DefaultControlLimits, OpenStores: 64, StoreIdle: Duration(10 * time.Minute),

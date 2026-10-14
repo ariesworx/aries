@@ -169,6 +169,12 @@ connections' bridges are **9.9 GiB**.
 A team of 20 agents on one project is another matter: 26 MiB of
 daemon, 198 MiB of bridges, and Dolt.
 
+Since 14 October 2026 `conns_per_principal` is 64, after the bridge
+was made lighter (proposal 2, Done): 4.9 MB of the daemon's for a
+principal in a project, 268 MB with the buffers grown, and about
+320 MiB on the machine with each connection's bridge, sshd and kernel,
+measured on Linux.
+
 ### 1.4 What a request costs
 
 | Op | Time | Bytes | Allocations | Statements | Round trips | Commits | Waiting on Dolt |
