@@ -98,7 +98,7 @@ func (c *Client) Connected(conn Conn) (moved string) {
 	if err != nil {
 		return ""
 	}
-	was, _ := l.Reached(conn.Principal(), k.Key().Fingerprint, k.Key().Configured())
+	was, _ := l.Reached(conn.Principal(), k.Key().Fingerprint, k.Key().Configured(), speaks(conn))
 	if was == "" {
 		return ""
 	}

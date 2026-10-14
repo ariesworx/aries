@@ -796,7 +796,7 @@ directory. The outbox and the record beside it are the first.
 - **How long.** Until the server answers the write, or you drop it. A
   delivered write is deleted from the outbox at the end of that replay.
   A refused one stays, with the server's code, message and fix, until
-  you retry or drop it. One that waited 24 hours is not sent and stays
+  you retry or drop it. One that waited 7 days is not sent and stays
   as refused. `sfx outbox drop N` deletes an entry: the outbox is
   rewritten without it, and it is never sent. It is an ordinary delete,
   not a secure erase: the bytes may remain on the disk, and in its

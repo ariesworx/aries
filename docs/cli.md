@@ -298,16 +298,31 @@ the server is escaped (below).
 
 ## When the server cannot be reached
 
-A server restarts, a tunnel or a VPN drops, a database is slow. When one
-of six writes cannot reach the server, `sfx` keeps it in an **outbox** on
-your machine and sends it later: `create`, `comment`, `handoff`,
-`remember`, `log` (logging hours) and `finish`. Each carries a key that
-lets the server apply it once however often it is sent.
+A server restarts, a tunnel or a VPN drops, a database is slow. When a
+write cannot reach the server, `sfx` keeps it in an **outbox** on your
+machine and sends it later: `create`, `comment`, `handoff`, `remember`,
+`log` (logging hours), `finish`, `update`, `label add` and `label rm`,
+`dep add`, `accept`, and token usage. Each carries a key that lets the
+server apply it once however often it is sent.
 
 This is the first part of working without the server. There is no cache:
 every read still needs the server. Nothing resolves a conflict: a queued
 write that no longer fits is refused when it arrives, and waits for you.
-And a write waits 24 hours at most.
+And a write waits 7 days at most, the server's window for a key
+(`idem_window` in [the server's limits](server.md#limits)).
+
+**`update` needs its rev.** An `update` is queued only with the rev it
+was based on, which offline only you know: `sfx update ID --rev N ...`.
+Without `--rev` it first reads the issue's rev from the server, and with
+the server away it fails, saying to give `--rev`.
+
+**A server of protocol 5.** The keys on `update`, labels, `dep add`,
+`accept` and usage are protocol 6's. Against a server that speaks only
+protocol 5, `sfx` speaks 5, those writes go without a key, and while
+that server is away they are not queued, since it could apply one twice:
+the refusal says so. What was queued for a server of 6 that comes back
+at 5 is not sent either: it moves to the refused list as `version`, and
+`sfx outbox retry N` sends it once the server is upgraded.
 
 **What counts as not reached.** The connection could not be made (the
 network, the tunnel, sshd, or `starfixd` not running), it was lost
@@ -334,7 +349,9 @@ a write that was made:
 
 `issue` is the issue the write is about, and a `remember` has `key`
 instead. A queued `create` has neither, and a `note`: the issue has no id
-until it is sent, so nothing else you queue can refer to it.
+until it is sent, so nothing else you queue can refer to it. A `label`
+command of several labels queues a write for each, prints a line for
+each, and with `--json` one document, `{"queued":true,"entries":[...]}`.
 
 **Scripts.** A script that reads an id from `sfx create`, or that must
 know the write was made, passes `--no-queue` or sets
@@ -346,8 +363,7 @@ the `fix:` line says that it was not queued and why. `start` takes a
 claim, and no claim is made without the server: while it is away you
 finish what you hold and file new work, and start nothing new. `close`,
 `reopen`, `forget`, `dep rm` and `log --undo` end or undo something on a
-state your machine cannot see. `update`, `label`, `dep add`, `accept` and
-token usage have no such key yet. The hooks (`prime --hook`,
+state your machine cannot see. The hooks (`prime --hook`,
 `usage --hook`) queue and send nothing.
 
 The outbox itself may refuse a write, which then fails with exit code 1
@@ -374,9 +390,14 @@ An answer from the server settles an entry. Applied, it is gone.
 Refused, it moves to the refused list with the server's code, message
 and fix, and is never sent again by itself. If the server still cannot be
 reached, or says `busy`, the entry stays where it is with everything
-after it. An entry that waited more than 24 hours is not sent: it moves
-to the refused list as `stale`, because the server refuses a key that
-old.
+after it. An entry that waited more than 7 days is not sent: it moves to
+the refused list as `stale`, so that a write that late is sent only when
+you say so. `sfx outbox retry N` sends it, with its key: one the server
+never had applies; one it applied more than its window ago is refused
+by the server as `stale`, saying the write was applied then, and is
+never applied again. If you still want that change, make it again by
+hand. A write sent again within the window gets the answer it got the
+first time, and is not applied twice.
 
 **When your access has ended.** If the server refuses you the project
 when a command connects, as `forbidden` (you were disabled, removed from

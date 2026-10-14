@@ -8,11 +8,15 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/ariesworx/starfix/internal/proto"
 )
 
 // CodeStale is the code of a [Refusal] this package made itself: the
-// entry waited longer than MaxAge, and was not sent.
-const CodeStale = "stale"
+// entry waited longer than MaxAge, and was not sent. It is the code a
+// server of protocol 6 gives a key older than its window, too
+// (proto.CodeStale), which a replayed entry may also be refused with.
+const CodeStale = string(proto.CodeStale)
 
 // maxText bounds the code, the message and the fix kept of a refusal, in
 // bytes each.

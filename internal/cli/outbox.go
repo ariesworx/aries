@@ -177,29 +177,43 @@ type queuedDoc struct {
 	Note  string    `json:"note,omitempty"`
 }
 
-// queued prints that a write was queued: one line, or one document.
-func (r *runner) queued(k *offline.Kept) {
-	e := k.Entry
-	target := offline.Target(e)
+// queued prints that writes were queued: a line for each, or one
+// document, which for several writes of one command (a label for each
+// of several labels) lists them under entries.
+func (r *runner) queued(ks ...*offline.Kept) {
 	if r.json {
-		doc := queuedDoc{Queued: true, Entry: e.Seq, Op: e.Op, Since: k.Since.UTC()}
-		switch e.Op {
-		case proto.OpRemember:
-			doc.Key = target
-		case proto.OpCreate:
-			doc.Note = "the issue has no id until it is sent, so nothing queued can refer to it"
-		default:
-			doc.Issue = target
+		docs := make([]queuedDoc, len(ks))
+		for i, k := range ks {
+			e := k.Entry
+			docs[i] = queuedDoc{Queued: true, Entry: e.Seq, Op: e.Op, Since: k.Since.UTC()}
+			switch target := offline.Target(e); e.Op {
+			case proto.OpRemember:
+				docs[i].Key = target
+			case proto.OpCreate:
+				docs[i].Note = "the issue has no id until it is sent, so nothing queued can refer to it"
+			default:
+				docs[i].Issue = target
+			}
 		}
-		r.emit(doc)
+		if len(docs) == 1 {
+			r.emit(docs[0])
+			return
+		}
+		r.emit(struct {
+			Queued  bool        `json:"queued"`
+			Entries []queuedDoc `json:"entries"`
+		}{true, docs})
 		return
 	}
-	line := fmt.Sprintf("queued (server unreachable since %s): entry %d, %s", when(k.Since), e.Seq, esc(strings.TrimSpace(e.Op+" "+target)))
-	line += "; sfx sends it when the server answers (`sfx outbox` lists what waits)"
-	if e.Op == proto.OpCreate {
-		line += "; the issue has no id until then, so nothing queued can refer to it"
+	for _, k := range ks {
+		e := k.Entry
+		line := fmt.Sprintf("queued (server unreachable since %s): entry %d, %s", when(k.Since), e.Seq, esc(strings.TrimSpace(e.Op+" "+offline.Target(e))))
+		line += "; sfx sends it when the server answers (`sfx outbox` lists what waits)"
+		if e.Op == proto.OpCreate {
+			line += "; the issue has no id until then, so nothing queued can refer to it"
+		}
+		_, _ = fmt.Fprintln(r.env.Stdout, line)
 	}
-	_, _ = fmt.Fprintln(r.env.Stdout, line)
 }
 
 const outboxUsage = "outbox [retry N | drop N | stats] [--principal P] [--host-key FINGERPRINT]"

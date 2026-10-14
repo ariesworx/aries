@@ -130,15 +130,20 @@ func refusedSeqs(rs []outbox.Refusal) []uint64 {
 
 func TestQueueable(t *testing.T) {
 	t.Parallel()
-	queued := []string{proto.OpCreate, proto.OpComment, proto.OpHandoff, proto.OpRemember, proto.OpHoursLog, proto.OpFinish}
+	// Design §18.3's table: the six keyed since protocol 5, and the six
+	// protocol 6 keys. Each takes a key in this build's protocol.
+	queued := []string{proto.OpCreate, proto.OpComment, proto.OpHandoff, proto.OpRemember, proto.OpHoursLog, proto.OpFinish,
+		proto.OpUpdate, proto.OpLabelAdd, proto.OpLabelRm, proto.OpDepAdd, proto.OpAccept, proto.OpUsage}
 	for _, op := range queued {
 		if !outbox.Queueable(op) {
 			t.Errorf("Queueable(%q) = false, want true", op)
 		}
+		if !proto.Keyed(op, proto.Proto) {
+			t.Errorf("Queueable(%q), but protocol %d gives it no key", op, proto.Proto)
+		}
 	}
 	never := []string{
 		proto.OpStart, proto.OpClose, proto.OpReopen, proto.OpForget, proto.OpDepRm, proto.OpHoursDelete, proto.OpRenew,
-		proto.OpUpdate, proto.OpLabelAdd, proto.OpLabelRm, proto.OpDepAdd, proto.OpAccept, proto.OpUsage,
 		proto.OpProjectAdd, proto.OpKeyAdd, proto.OpShow, proto.OpPin, "",
 	}
 	for _, op := range never {
@@ -159,8 +164,8 @@ func TestAppendRefuses(t *testing.T) {
 	}{
 		{name: "start takes a claim", e: outbox.Entry{Op: proto.OpStart, Args: []byte(`{"id":"sfx-1","idem":"k"}`)}, want: outbox.ErrNotQueueable},
 		{name: "close ends something", e: outbox.Entry{Op: proto.OpClose, Args: []byte(`{"id":"sfx-1","idem":"k"}`)}, want: outbox.ErrNotQueueable},
-		{name: "update waits for protocol 6", e: outbox.Entry{Op: proto.OpUpdate, Args: []byte(`{"id":"sfx-1","rev":2,"idem":"k"}`)}, want: outbox.ErrNotQueueable},
-		{name: "usage waits for protocol 6", e: outbox.Entry{Op: proto.OpUsage, Args: []byte(`{"idem":"k"}`)}, want: outbox.ErrNotQueueable},
+		{name: "an update without its key", e: outbox.Entry{Op: proto.OpUpdate, Args: []byte(`{"id":"sfx-1","rev":2}`)}, want: outbox.ErrNoKey},
+		{name: "usage without its key", e: outbox.Entry{Op: proto.OpUsage, Args: []byte(`{"records":[]}`)}, want: outbox.ErrNoKey},
 		{name: "an admin op", e: outbox.Entry{Op: proto.OpMemberSet, Args: []byte(`{"idem":"k"}`)}, want: outbox.ErrNotQueueable},
 		{name: "renew", e: outbox.Entry{Op: proto.OpRenew, Args: []byte(`{"idem":"k"}`)}, want: outbox.ErrNotQueueable},
 		{name: "an unknown op", e: outbox.Entry{Op: "frobnicate", Args: []byte(`{"idem":"k"}`)}, want: outbox.ErrNotQueueable},
@@ -428,11 +433,12 @@ func TestCapAge(t *testing.T) {
 		wantStale bool
 	}{
 		{name: "new", waited: 0},
-		{name: "a minute short of the default", waited: 24*time.Hour - time.Minute},
-		{name: "at the default", waited: 24 * time.Hour},
-		{name: "past the default", waited: 24*time.Hour + time.Nanosecond, wantStale: true},
+		{name: "a day and a second, well within the default", waited: 24*time.Hour + time.Second},
+		{name: "a minute short of the default", waited: 7*24*time.Hour - time.Minute},
+		{name: "at the default, the server's window", waited: 7 * 24 * time.Hour},
+		{name: "past the default", waited: 7*24*time.Hour + time.Nanosecond, wantStale: true},
 		{name: "past a shorter cap", maxAge: time.Hour, waited: time.Hour + time.Second, wantStale: true},
-		{name: "within a longer cap", maxAge: 7 * 24 * time.Hour, waited: 6 * 24 * time.Hour},
+		{name: "within a longer cap", maxAge: 30 * 24 * time.Hour, waited: 20 * 24 * time.Hour},
 		{name: "a clock that went back", waited: -time.Hour},
 	}
 	for _, tc := range tests {
@@ -470,7 +476,7 @@ func TestRetryOfStaleEntryIsSent(t *testing.T) {
 	clk := newClock()
 	o, _ := open(t, outbox.Options{}, clk)
 	e := mustAppend(t, o, handoff(1))
-	clk.Advance(25 * time.Hour)
+	clk.Advance(outbox.DefaultMaxAge + time.Hour)
 	var s server
 	if rep := mustReplay(t, o, &s); rep.Stale != 1 {
 		t.Fatalf("Replay() = %+v, want one stale", rep)

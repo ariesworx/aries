@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -13,17 +14,48 @@ import (
 	"github.com/ariesworx/starfix/internal/proto"
 )
 
-// sent remembers the last write a tool call sent, or would have sent:
-// its op, its arguments with their idempotency key, and whose connection
-// it went on. When the write did not reach the server, that is what is
-// queued (design §18.3).
+// sent remembers the writes a tool call sent, or would have sent, in
+// order. Those that did not reach the server are what is queued (design
+// §18.3): one, or each label of a label call.
 type sent struct {
+	writes []attempt
+	// unqueued is why the call's write is not queued, when the tool knew
+	// before it sent one (notQueued).
+	unqueued string
+}
+
+// notQueued is the error of a tool whose write, which did not reach the
+// server, cannot be queued, and why; c is the connection the tool was
+// given, which notes it when it is a recorder, so that away says why
+// though the tool ran without a connection.
+func notQueued(c Conn, err error, why string) error {
+	if r, ok := c.(recorder); ok {
+		r.sent.unqueued = why
+	}
+	return &unqueuedError{err: err, why: why}
+}
+
+// attempt is one write of a tool call: its op, its arguments with their
+// idempotency key, whose connection it went on, and what came of it.
+type attempt struct {
 	op   string
 	args any
 	who  string
+	err  error
 }
 
-// recorder is a Conn that notes each write in sent before passing it on.
+// lost returns the writes that did not reach the server.
+func (s *sent) lost() []attempt {
+	var out []attempt
+	for _, w := range s.writes {
+		if client.Unreachable(w.err) {
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
+// recorder is a Conn that notes each write in sent as it passes it on.
 // It keeps the one method beyond Conn that a tool asks a connection for.
 type recorder struct {
 	Conn
@@ -31,10 +63,11 @@ type recorder struct {
 }
 
 func (r recorder) Call(ctx context.Context, op string, args, result any) error {
+	err := r.Conn.Call(ctx, op, args, result)
 	if _, unqueued := outbox.Unqueued(op); unqueued || outbox.Queueable(op) {
-		*r.sent = sent{op: op, args: args, who: r.Principal()}
+		r.sent.writes = append(r.sent.writes, attempt{op: op, args: args, who: r.Principal(), err: err})
 	}
-	return r.Conn.Call(ctx, op, args, result)
+	return err
 }
 
 // Key is the key that signed the connection in, when it says.
@@ -68,12 +101,17 @@ type unqueuedError struct {
 func (e *unqueuedError) Error() string { return e.err.Error() }
 func (e *unqueuedError) Unwrap() error { return e.err }
 
-// queuedResult is what an agent is told of a write that was queued: one
-// terse line, which is not an error, and never an id and a rev as a
-// write that was made returns (design §18.2, §18.8).
-func queuedResult(k offline.Kept) *mcp.CallToolResult {
+// queuedResult is what an agent is told of the writes of one call that
+// were queued, the last of which is k: one terse line, which is not an
+// error, and never an id and a rev as a write that was made returns
+// (design §18.2, §18.8).
+func queuedResult(k offline.Kept, n int) *mcp.CallToolResult {
 	line := "queued: starfix cannot reach its server, so this " + k.Entry.Op +
 		" waits on this machine and is sent when the server answers. Carry on, and do not repeat it."
+	if n > 1 {
+		line = fmt.Sprintf("queued: starfix cannot reach its server, so these %d writes (%s) wait on this machine and are sent when the server answers. Carry on, and do not repeat them.",
+			n, k.Entry.Op)
+	}
 	if k.Entry.Op == proto.OpCreate {
 		line += " The issue has no id until then, so nothing can refer to it."
 	}
@@ -86,11 +124,12 @@ func queuedResult(k offline.Kept) *mcp.CallToolResult {
 }
 
 // away handles a tool call that failed with err. When the server was
-// not reached and the call's write is one the outbox queues, it queues
-// it and returns the result that says so. Otherwise it returns nil and
-// the error to report: err itself, the outbox's refusal, or err marked
-// as a write that is never queued. rerun runs the tool against a
-// connection, for the call that failed before it had one.
+// not reached and the call's writes that did not reach it are ones the
+// outbox queues, it queues them, in order, and returns the result that
+// says so. Otherwise it returns nil and the error to report: err itself,
+// the outbox's refusal, or err marked as a write that is never queued.
+// rerun runs the tool against a connection, for the call that failed
+// before it had one.
 func (s *Server) away(err error, w *sent, rerun func(Conn)) (*mcp.CallToolResult, error) {
 	off := s.opts.Offline
 	if off == nil {
@@ -103,21 +142,36 @@ func (s *Server) away(err error, w *sent, rerun func(Conn)) (*mcp.CallToolResult
 		return nil, err
 	}
 	off.Missed()
-	if w.op == "" {
-		rerun(recorder{Conn: noConn{err: err}, sent: w})
-	}
-	if why, ok := outbox.Unqueued(w.op); ok {
-		return nil, &unqueuedError{err: err, why: why}
-	}
-	if !outbox.Queueable(w.op) {
+	if _, unq := errors.AsType[*unqueuedError](err); unq {
 		return nil, err
 	}
-	k, kerr := off.Keep(w.who, w.op, w.args, err)
-	if kerr != nil {
-		return nil, kerr
+	if len(w.writes) == 0 {
+		rerun(recorder{Conn: noConn{err: err}, sent: w})
 	}
-	s.waiting.Store(true)
-	return queuedResult(k), nil
+	if w.unqueued != "" {
+		return nil, &unqueuedError{err: err, why: w.unqueued}
+	}
+	lost := w.lost()
+	if len(lost) == 0 {
+		return nil, err
+	}
+	for _, l := range lost {
+		if why, ok := outbox.Unqueued(l.op); ok {
+			return nil, &unqueuedError{err: err, why: why}
+		}
+		if !outbox.Queueable(l.op) {
+			return nil, err
+		}
+	}
+	var k offline.Kept
+	for _, l := range lost {
+		var kerr error
+		if k, kerr = off.Keep(l.who, l.op, l.args, err); kerr != nil {
+			return nil, kerr
+		}
+		s.waiting.Store(true)
+	}
+	return queuedResult(k, len(lost)), nil
 }
 
 // connected runs on each new connection, before the request that opened

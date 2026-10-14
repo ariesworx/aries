@@ -1,6 +1,7 @@
 package offline
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -110,14 +111,14 @@ func TestPrincipalRule(t *testing.T) {
 	if got := who(l, true, keyA) + who(l, false, keyA); got != "" {
 		t.Errorf("before any handshake, Principal = %q, want none", got)
 	}
-	if was, err := l.Reached("", keyA, true); err != nil || was != "" || who(l, true, keyA) != "" {
+	if was, err := l.Reached("", keyA, true, proto.Proto); err != nil || was != "" || who(l, true, keyA) != "" {
 		t.Errorf("a handshake that names no principal was recorded (%v)", err)
 	}
 	// alice signs in with no key configured, and her agent with its own.
-	if _, err := l.Reached("alice", keyA, false); err != nil {
+	if _, err := l.Reached("alice", keyA, false, proto.Proto); err != nil {
 		t.Fatalf("Reached = %v", err)
 	}
-	if _, err := l.Reached("alice-agent", keyB, true); err != nil {
+	if _, err := l.Reached("alice-agent", keyB, true, proto.Proto); err != nil {
 		t.Fatalf("Reached = %v", err)
 	}
 	for _, tc := range []struct {
@@ -155,21 +156,22 @@ func TestPrincipalRule(t *testing.T) {
 	// The server may give a key to another principal: the last handshake
 	// wins, and says who the key was before.
 	clk.t = t0.Add(time.Hour)
-	was, err := l.Reached("bob", keyA, false)
+	was, err := l.Reached("bob", keyA, false, proto.Proto)
 	if err != nil || was != "alice" || who(l, false, keyA) != "bob" {
 		t.Errorf("Reached(bob) = %q, %v, and Principal = %q; want alice, who the key was, and then bob", was, err, who(l, false, keyA))
 	}
-	if was, err := l.Reached("bob", keyA, false); err != nil || was != "" {
+	if was, err := l.Reached("bob", keyA, false, proto.Proto); err != nil || was != "" {
 		t.Errorf("a second handshake as bob = %q, %v; want no change", was, err)
 	}
 
 	// The record is the server, the project, and for each key its
-	// fingerprint, the principal and when: nothing else.
+	// fingerprint, the principal and when, and the protocol the server
+	// spoke: nothing else.
 	b, err := os.ReadFile(filepath.Join(l.dir, seenFile))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := fmt.Sprintf(`{"v":1,"server":%q,"project":%q,"keys":{%q:{"principal":"bob","at":"2026-10-13T15:02:00Z"},%q:{"principal":"alice-agent","at":"2026-10-13T14:02:00Z"}},"unconfigured":%q}`+"\n",
+	want := fmt.Sprintf(`{"v":1,"server":%q,"project":%q,"keys":{%q:{"principal":"bob","at":"2026-10-13T15:02:00Z"},%q:{"principal":"alice-agent","at":"2026-10-13T14:02:00Z"}},"unconfigured":%q,"proto":6}`+"\n",
 		hostKey, project, keyA, keyB, keyA)
 	if string(b) != want {
 		t.Errorf("%s holds\n%s\nwant\n%s", seenFile, b, want)
@@ -196,7 +198,7 @@ func TestDirectoryMustBeTheUsersOwn(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			l, _ := newLocal(t, outbox.Options{})
-			if _, err := l.Reached("alice", keyA, true); err != nil {
+			if _, err := l.Reached("alice", keyA, true, proto.Proto); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := l.Keep("alice", entry(proto.OpComment, "sf-a"), errReach); err != nil {
@@ -224,7 +226,7 @@ func TestDirectoryMustBeTheUsersOwn(t *testing.T) {
 			_, err = l.Waiting("alice")
 			check("Waiting", err)
 			if dir != l.outboxDir("alice") {
-				_, err = l.Reached("bob", keyB, true)
+				_, err = l.Reached("bob", keyB, true, proto.Proto)
 				check("Reached", err)
 				if p, ok := l.Principal([]string{keyA}, true); ok {
 					t.Errorf("Principal read a record others could have written: %q", p)
@@ -242,7 +244,7 @@ func TestLocalFilesAreTheOwnersAlone(t *testing.T) {
 		t.Skip("Windows has no mode bits")
 	}
 	l, _ := newLocal(t, outbox.Options{})
-	if _, err := l.Reached("alice", keyA, true); err != nil {
+	if _, err := l.Reached("alice", keyA, true, proto.Proto); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := l.Keep("alice", entry(proto.OpComment, "sf-a"), errReach); err != nil {
@@ -421,10 +423,13 @@ type fakeConn struct {
 	answers map[string]error // by the entry's id or key
 	lost    error
 	calls   []string // "op id", and "op id -paths" for a call without paths
+	// speaks is the connection's protocol; 0 is this build's.
+	speaks int
 }
 
 func (f *fakeConn) Principal() string { return f.who }
 func (f *fakeConn) Err() error        { return f.lost }
+func (f *fakeConn) Proto() int        { return cmp.Or(f.speaks, proto.Proto) }
 
 func (f *fakeConn) Call(_ context.Context, op string, args, _ any) error {
 	b, err := json.Marshal(args)
@@ -617,6 +622,104 @@ func TestEnded(t *testing.T) {
 	}
 }
 
+// update is an update entry of issue id, with its key.
+func update(id string) outbox.Entry {
+	b, err := json.Marshal(proto.UpdateArgs{ID: id, Rev: 3, Title: ptr("renamed"), Idem: proto.NewIdem("cli")})
+	if err != nil {
+		panic(err) // a programming error in the test
+	}
+	return outbox.Entry{Op: proto.OpUpdate, Args: b, Session: "cli", Machine: "laptop"}
+}
+
+func ptr[T any](v T) *T { return &v }
+
+// TestKeepByProtocol: a write is queued only when the server spoke a
+// protocol, at the last handshake, that takes its op's key (design
+// §18.5): an update not for a server of 5, or one this machine has not
+// heard the protocol of, which is taken to be the oldest; a comment for
+// both.
+func TestKeepByProtocol(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name     string
+		protocol int
+		queued   bool
+	}{
+		{"a server of protocol 6", 6, true},
+		{"a server of protocol 5", 5, false},
+		{"a record from before protocols were noted", 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			l, _ := newLocal(t, outbox.Options{})
+			if _, err := l.Reached("alice", keyA, true, tc.protocol); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := l.Keep("alice", entry(proto.OpComment, "sf-a"), errReach); err != nil {
+				t.Errorf("Keep(comment) = %v, want it queued whatever the protocol", err)
+			}
+			_, err := l.Keep("alice", update("sf-a"), errReach)
+			if tc.queued != (err == nil) {
+				t.Fatalf("Keep(update) = %v, want queued %v", err, tc.queued)
+			}
+			if tc.queued {
+				return
+			}
+			pe, ok := errors.AsType[*proto.Error](err)
+			if !ok || !errors.Is(err, ErrNotQueued) || pe.Code != proto.CodeUnavailable ||
+				!strings.Contains(pe.Message, "and this update was not queued: the server spoke protocol 5 when last reached, which takes no idempotency key for update") ||
+				!strings.HasPrefix(pe.Fix, rerun) {
+				t.Errorf("Keep(update) = %+v; want unavailable, not queued, saying why, with the fix to run it again", err)
+			}
+		})
+	}
+}
+
+// TestReplayByProtocol: an entry whose op the connection's protocol
+// takes no key for is not sent, since a server that cannot apply it once
+// must not be sent it twice; it is refused with code version and kept
+// for a person, and what is behind it is sent.
+func TestReplayByProtocol(t *testing.T) {
+	t.Parallel()
+	l, _ := newLocal(t, outbox.Options{})
+	if _, err := l.Reached("alice", keyA, true, proto.Proto); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range []outbox.Entry{update("sf-a"), entry(proto.OpComment, "sf-b")} {
+		if _, err := l.Keep("alice", e, errReach); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c := &fakeConn{who: "alice", speaks: 5}
+	rep, err := l.Replay(t.Context(), c)
+	if err != nil || rep.Delivered != 1 || rep.Refused != 1 || !slices.Equal(c.calls, []string{"comment sf-b"}) {
+		t.Fatalf("Replay on a connection of protocol 5 = %+v, %v, sending %v; want the comment delivered and the update refused unsent", rep, err, c.calls)
+	}
+	ob, _, err := l.Existing("alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, err := ob.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Refused) != 1 {
+		t.Fatalf("refused = %+v, want the update", list.Refused)
+	}
+	r := list.Refused[0]
+	if r.Code != string(proto.CodeVersion) || !strings.Contains(r.Message, "the server speaks protocol 5, which takes no idempotency key for update") ||
+		!strings.Contains(r.Fix, "`sfx outbox retry 1`") {
+		t.Errorf("the update is refused as %s: %q, fix %q; want version, saying why, with a fix", r.Code, r.Message, r.Fix)
+	}
+	if err := ob.Retry(r.Entry.Seq); err != nil {
+		t.Fatal(err)
+	}
+	c = &fakeConn{who: "alice"}
+	if rep, err := l.Replay(t.Context(), c); err != nil || rep.Delivered != 1 || !slices.Equal(c.calls, []string{"update sf-a"}) {
+		t.Errorf("Replay on a connection of protocol 6, after a retry = %+v, %v, sending %v; want the update delivered", rep, err, c.calls)
+	}
+}
+
 // oldKey and otherKey are host keys a server had before it was rebuilt.
 const (
 	oldKey   = "SHA256:oldoldoldoldoldoldoldoldoldoldoldoldoldoldo"
@@ -628,7 +731,7 @@ const (
 func queuedAt(t *testing.T, root, key, proj, addr string, n int) *Local {
 	t.Helper()
 	l := Open(root, key, proj, Options{Now: func() time.Time { return t0 }, Address: addr})
-	if _, err := l.Reached("alice", keyA, true); err != nil {
+	if _, err := l.Reached("alice", keyA, true, proto.Proto); err != nil {
 		t.Fatal(err)
 	}
 	for range n {
@@ -653,7 +756,7 @@ func TestRekeyed(t *testing.T) {
 	cur := queuedAt(t, root, hostKey, project, here, 0)
 	// A directory left by an sfx from before addresses were noted.
 	unnoted := Open(root, keyX, project, Options{Now: func() time.Time { return t0 }})
-	if _, err := unnoted.Reached("alice", keyA, true); err != nil {
+	if _, err := unnoted.Reached("alice", keyA, true, 0); err != nil {
 		t.Fatal(err)
 	}
 

@@ -95,8 +95,21 @@
 // A replayed entry is a request like any other, with the arguments and
 // the idempotency key it had when it was first sent. Its session and
 // machine are those of the connection that delivers it, not of the one
-// that made it: protocol 5 has no field for the latter, and the entry
-// keeps them only on this machine.
+// that made it: protocols 5 and 6 have no field for the latter, and the
+// entry keeps them only on this machine.
+//
+// # Which protocol
+//
+// Protocol 6 gave update, label.add, label.rm, dep.add, accept and usage
+// a key; a server of 5 takes none for them, and so could apply one of
+// them twice. At each handshake seen.json notes the protocol the
+// connection speaks ([Local.Reached]), and while the server is away a
+// write is queued only when that protocol takes its op's key
+// ([Local.Keep]; a record that names none is taken for 5). A replay
+// sends an entry only on a connection whose protocol takes its key
+// ([Local.Replay]): one queued for a server of 6 that comes back at 5 is
+// refused with code version, unsent, for a person to retry once the
+// server is upgraded.
 //
 // # Windows
 //

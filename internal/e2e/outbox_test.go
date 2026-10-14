@@ -635,12 +635,12 @@ func TestStaleEntryWaitsForAPerson(t *testing.T) {
 	alice.now = func() time.Time { return clock }
 	id := strings.TrimSpace(alice.ok("create", "Commented on long ago"))
 	w.stop()
-	alice.ok("comment", id, "written a day ago")
+	alice.ok("comment", id, "written eight days ago")
 	w.start()
-	clock = clock.Add(25 * time.Hour) // alice's machine was away for more than the cap
+	clock = clock.Add(8 * 24 * time.Hour) // alice's machine was away for more than the cap
 
 	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "sfx: outbox: stale 1 (see `sfx outbox`)\n" {
-		t.Fatalf("the first command a day later = exit %d, stderr %q; want the entry found stale", r.code, r.stderr)
+		t.Fatalf("the first command eight days later = exit %d, stderr %q; want the entry found stale", r.code, r.stderr)
 	}
 	if n := bob.comments(id); n != 0 {
 		t.Errorf("the issue has %d comments, want none: a stale entry is not sent", n)
@@ -649,7 +649,7 @@ func TestStaleEntryWaitsForAPerson(t *testing.T) {
 	for _, want := range []string{
 		"alice's outbox: 0 waiting, 1 refused\n",
 		"  1  comment  " + id,
-		"     stale: it waited 25h0m0s, and an entry is sent for 24h0m0s\n     fix: retry it if it is still wanted, or drop it\n",
+		"     stale: it waited 192h0m0s, and an entry is sent for 168h0m0s\n     fix: retry it if it is still wanted, or drop it\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("sfx outbox lacks %q:\n%s", want, out)

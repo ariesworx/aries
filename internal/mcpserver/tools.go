@@ -1,12 +1,14 @@
 package mcpserver
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/client"
 	"github.com/ariesworx/starfix/internal/gitx"
 	"github.com/ariesworx/starfix/internal/proto"
 )
@@ -89,6 +91,24 @@ func (in *HandoffIn) prepare() error {
 	return nil
 }
 
+// The update, dep and label inputs take a key too (protocol 6), so that a
+// call that does not reach the server can be queued (design §18.5). A
+// label call's labels each go with the key and their place in the call.
+func (in *UpdateIn) prepare() error {
+	in.idem = proto.NewIdem("mcp")
+	return nil
+}
+
+func (in *DepIn) prepare() error {
+	in.idem = proto.NewIdem("mcp")
+	return nil
+}
+
+func (in *LabelIn) prepare() error {
+	in.idem = proto.NewIdem("mcp")
+	return nil
+}
+
 // prepare also checks waived's keys, which the schema leaves as strings.
 func (in *FinishIn) prepare() error {
 	for k := range in.Waived {
@@ -115,6 +135,8 @@ type UpdateIn struct {
 	Assignee   *string `json:"assignee,omitempty" jsonschema:"empty clears"`
 	Owner      *string `json:"owner,omitempty" jsonschema:"empty clears"`
 	Parent     *string `json:"parent,omitempty" jsonschema:"empty clears"`
+
+	idem string
 }
 
 // CloseIn closes an issue.
@@ -136,6 +158,8 @@ type DepIn struct {
 	ID        string `json:"id"`
 	DependsOn string `json:"depends_on"`
 	Type      string `json:"type,omitempty"`
+
+	idem string
 }
 
 // LabelIn adds or removes labels.
@@ -143,6 +167,8 @@ type LabelIn struct {
 	Action string   `json:"action"`
 	ID     string   `json:"id"`
 	Labels []string `json:"labels"`
+
+	idem string
 }
 
 // CommentIn adds a comment.
@@ -577,11 +603,12 @@ func (s *Server) register() {
 	add(s, tool{name: "dep", desc: "id depends on depends_on; blocks keeps id out of ready.", ann: idem,
 		enums: enums{"action": actions, "type": depTypes}},
 		func(ctx context.Context, c Conn, in DepIn) (Ref, error) {
+			args := proto.DepArgs{From: in.ID, To: in.DependsOn, Type: in.Type, Idem: in.idem}
 			op := proto.OpDepAdd
 			if in.Action == "rm" {
-				op = proto.OpDepRm
+				op, args.Idem = proto.OpDepRm, ""
 			}
-			return Ref{ID: in.ID}, c.Call(ctx, op, proto.DepArgs{From: in.ID, To: in.DependsOn, Type: in.Type}, nil)
+			return Ref{ID: in.ID}, c.Call(ctx, op, args, nil)
 		})
 	add(s, tool{name: "label", desc: "Add or remove labels.", ann: idem, enums: enums{"action": actions}},
 		func(ctx context.Context, c Conn, in LabelIn) (Ref, error) {
@@ -592,10 +619,21 @@ func (s *Server) register() {
 			if in.Action == "rm" {
 				op = proto.OpLabelRm
 			}
-			for _, l := range in.Labels {
-				if err := c.Call(ctx, op, proto.LabelArgs{ID: in.ID, Label: l}, nil); err != nil {
+			// Once one label does not reach the server, the rest are still
+			// tried, so that each is kept for later with the first (away).
+			var lost error
+			for i, l := range in.Labels {
+				err := c.Call(ctx, op, proto.LabelArgs{ID: in.ID, Label: l, Idem: in.idem + "." + strconv.Itoa(i+1)}, nil)
+				switch {
+				case err == nil:
+				case client.Unreachable(err):
+					lost = cmp.Or(lost, err)
+				default:
 					return Ref{}, err
 				}
+			}
+			if lost != nil {
+				return Ref{}, lost
 			}
 			return Ref{ID: in.ID}, nil
 		})
@@ -768,7 +806,7 @@ func (r *Issue) fitNeededBy() {
 func update(ctx context.Context, c Conn, in UpdateIn) (proto.WriteResult, error) {
 	args := proto.UpdateArgs{ID: in.ID, Rev: in.Rev, Title: in.Title, Body: in.Body, Design: in.Design,
 		Acceptance: in.Acceptance, Notes: in.Notes, Status: in.Status, Priority: in.Priority, Type: in.Type,
-		Assignee: in.Assignee, Owner: in.Owner, Parent: in.Parent}
+		Assignee: in.Assignee, Owner: in.Owner, Parent: in.Parent, Idem: in.idem}
 	if args.Title == nil && args.Body == nil && args.Design == nil && args.Acceptance == nil && args.Notes == nil &&
 		args.Status == nil && args.Priority == nil && args.Type == nil && args.Assignee == nil && args.Owner == nil &&
 		args.Parent == nil {
@@ -777,6 +815,10 @@ func update(ctx context.Context, c Conn, in UpdateIn) (proto.WriteResult, error)
 	if args.Rev == 0 {
 		var cur proto.ShowResult
 		if err := c.Call(ctx, proto.OpShow, proto.ShowArgs{ID: in.ID}, &cur); err != nil {
+			if client.Unreachable(err) {
+				return proto.WriteResult{}, notQueued(c, err,
+					"an update is kept for later only with the rev it was based on, which only the server knows: give rev")
+			}
 			return proto.WriteResult{}, err
 		}
 		args.Rev = cur.Issue.Rev

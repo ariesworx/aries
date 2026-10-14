@@ -107,6 +107,10 @@ type seen struct {
 	// ([Address]): what tells a server rebuilt with a new host key for
 	// the same one (Local.Rekeyed). Empty in a record from before it.
 	Addr string `json:"addr,omitempty"`
+	// Proto is the protocol the server spoke at the last handshake, which
+	// decides what is queued while it is away (proto.Keyed). Zero, in a
+	// record from before it, is taken for the oldest this build speaks.
+	Proto int `json:"proto,omitempty"`
 }
 
 type keyNote struct {
@@ -272,9 +276,10 @@ func (l *Local) replace(name string, data []byte) error {
 }
 
 // Reached notes that the server took the key with this fingerprint for
-// principal, at a handshake; configured says the key was the one
-// STARFIX_KEY_FILE or `key:` names, and not one of several offered. It
-// returns who the key was noted for before, when that was someone else:
+// principal, at a handshake, and spoke protocol; configured says the key
+// was the one STARFIX_KEY_FILE or `key:` names, and not one of several
+// offered. It returns who the key was noted for before, when that was
+// someone else:
 // the server has moved the key, and what the other principal queued with
 // it is no longer this key's to send.
 //
@@ -282,7 +287,7 @@ func (l *Local) replace(name string, data []byte) error {
 // ago, so a machine's many commands do not each write. A server that
 // names no principal, or a connection whose key is not known, is not
 // noted.
-func (l *Local) Reached(principal, fingerprint string, configured bool) (was string, err error) {
+func (l *Local) Reached(principal, fingerprint string, configured bool, protocol int) (was string, err error) {
 	if principal == "" || fingerprint == "" {
 		return "", nil
 	}
@@ -292,10 +297,10 @@ func (l *Local) Reached(principal, fingerprint string, configured bool) (was str
 	s, now := l.read(), l.opts.Now()
 	k, known := s.Keys[fingerprint]
 	fresh := known && k.Principal == principal && now.Sub(k.At) < 24*time.Hour && !now.Before(k.At)
-	if fresh && (configured || s.Unconfigured == fingerprint) && s.Addr == l.opts.Address {
+	if fresh && (configured || s.Unconfigured == fingerprint) && s.Addr == l.opts.Address && s.Proto == protocol {
 		return "", nil
 	}
-	s.Addr = l.opts.Address
+	s.Addr, s.Proto = l.opts.Address, protocol
 	if known && k.Principal != principal {
 		was = k.Principal
 	}
@@ -510,6 +515,12 @@ func (l *Local) Keep(principal string, e outbox.Entry, reach error) (Kept, error
 			rerun+"; a write is queued for later only once a command of yours has reached the server from this machine with this key",
 			"this machine has never reached the server with this key, so sfx cannot tell whose write it is")
 	}
+	// A server that cannot apply the op once is never sent it later
+	// (design §18.5): what it spoke last is what it is taken to speak.
+	if spoke := max(l.read().Proto, proto.ProtoMin); !proto.Keyed(e.Op, spoke) && outbox.Queueable(e.Op) {
+		return refuse(proto.CodeUnavailable, nil, rerun+"; the server's operator can run `starfixd upgrade` so that such writes are kept",
+			fmt.Sprintf("the server spoke protocol %d when last reached, which takes no idempotency key for %s, so it could apply it twice", spoke, e.Op))
+	}
 	ob, err := l.Outbox(principal)
 	var stored outbox.Entry
 	if err == nil {
@@ -583,7 +594,15 @@ func (l *Local) Replay(ctx context.Context, c Conn) (outbox.Report, error) {
 	if err != nil || !ok {
 		return outbox.Report{}, err
 	}
+	spoke := speaks(c)
 	return ob.Replay(ctx, func(ctx context.Context, e outbox.Entry) (outbox.Outcome, error) {
+		if !proto.Keyed(e.Op, spoke) {
+			// Sent at least once, it could apply twice (design §18.5).
+			return outbox.Outcome{Refused: true, Code: string(proto.CodeVersion),
+				Message: fmt.Sprintf("not sent: the server speaks protocol %d, which takes no idempotency key for %s, so it could apply it twice", spoke, e.Op),
+				Fix: fmt.Sprintf("once the server runs a starfixd of protocol %d or later, `sfx outbox retry %d` sends it; or make the change by hand now, and `sfx outbox drop %d`",
+					proto.ProtoKeys, e.Seq, e.Seq)}, nil
+		}
 		err := c.Call(ctx, e.Op, e.Args, nil)
 		if pe, ok := errors.AsType[*proto.Error](err); ok && pe.Code == proto.CodeInvalid && c.Err() == nil {
 			if bare, had := withoutPaths(e); had {
@@ -748,6 +767,15 @@ func (l *Local) Ended(principal string, pe *proto.Error) (int, error) {
 	return n, err
 }
 
+// speaks is the protocol c speaks, when it says; otherwise the oldest
+// this build speaks, so that nothing is sent that it could not apply once.
+func speaks(c Conn) int {
+	if p, ok := c.(interface{ Proto() int }); ok {
+		return p.Proto()
+	}
+	return proto.ProtoMin
+}
+
 // withoutPaths returns the arguments of a finish or a handoff without
 // the paths its work touched, and whether it had any. They are a hint
 // read from git: a server that refuses them is sent the rest, as
@@ -774,12 +802,16 @@ func withoutPaths(e outbox.Entry) (json.RawMessage, bool) {
 // a create does.
 func Target(e outbox.Entry) string {
 	var a struct {
-		ID  string `json:"id"`
-		Key string `json:"key"`
+		ID   string `json:"id"`
+		Key  string `json:"key"`
+		From string `json:"from"`
 	}
 	_ = json.Unmarshal(e.Args, &a) // arguments that do not parse name nothing
-	if e.Op == proto.OpRemember {
+	switch e.Op {
+	case proto.OpRemember:
 		return a.Key
+	case proto.OpDepAdd:
+		return a.From
 	}
 	return a.ID
 }
