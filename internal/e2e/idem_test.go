@@ -2,7 +2,8 @@ package e2e
 
 // Slice F2 (design §18.5, §18.10): protocol 6's keys on the ops an
 // outbox may queue, the idempotency window, and stale; through the CLI,
-// SSH and a real daemon, at protocols 6 and 5.
+// SSH and a real daemon. A client of 7 stepping down to a server of 6
+// is in conflicts_test.go; it no longer speaks 5.
 
 import (
 	"strconv"
@@ -138,67 +139,6 @@ func TestReplayPastTheWindowIsKept(t *testing.T) {
 	}
 	if s := decode[proto.ShowResult](t, bob.ok("show", id, "--json")); strings.Join(s.Issue.Labels, ",") != "never-sent" {
 		t.Errorf("labels = %v, want the retried one", s.Issue.Labels)
-	}
-}
-
-// A client of protocol 6 against a server of 5 speaks 5 (design §18.5):
-// its commands work, the keys protocol 6 added are not sent, and while
-// the server is away it queues only what a server of 5 applies once.
-// What it queued for a server of 6 that comes back at 5 is not sent,
-// and waits for a person; at 6 again, a retry sends it.
-func TestClientStepsDownToProtocol5(t *testing.T) {
-	t.Parallel()
-	w := newWorld(t, daemonOpts{protoMax: 5})
-	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
-	id := strings.TrimSpace(alice.ok("create", "On a server of protocol 5"))
-	alice.ok("update", id, "--title", "Renamed live")
-	alice.ok("label", "add", id, "live")
-	if s := decode[proto.ShowResult](t, bob.ok("show", id, "--json")); s.Issue.Title != "Renamed live" || strings.Join(s.Issue.Labels, ",") != "live" {
-		t.Errorf("against a server of 5 the issue is %q, %v; want the update and label applied", s.Issue.Title, s.Issue.Labels)
-	}
-
-	rev := decode[proto.ShowResult](t, alice.ok("show", id, "--json")).Issue.Rev
-	w.stop()
-	r := alice.run("v0.2.0", "update", id, "--rev", strconv.FormatInt(rev, 10), "--title", "Renamed while away")
-	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "and this update was not queued: the server spoke protocol 5 when last reached, which takes no idempotency key for update") {
-		t.Errorf("an update while a server of 5 is away = exit %d, stderr:\n%s\nwant it not queued, saying why", r.code, r.stderr)
-	}
-	if out := alice.ok("comment", id, "queued for a server of 5"); !strings.HasPrefix(out, "queued (") {
-		t.Errorf("a comment while a server of 5 is away printed %q, want it queued", out)
-	}
-	w.start()
-	if r := alice.run("v0.2.0", "ready"); r.stderr != "sfx: outbox: delivered 1\n" {
-		t.Errorf("the next command said %q, want the comment delivered", r.stderr)
-	}
-
-	// The server comes back at 6, and alice queues a label while it is
-	// away; it returns at 5.
-	w.stop()
-	w.opts.protoMax = proto.ProtoMax
-	w.start()
-	alice.ok("ready")
-	w.stop()
-	if out := alice.ok("label", "add", id, "queued-at-6"); !strings.HasPrefix(out, "queued (") {
-		t.Fatalf("a label while a server of 6 is away printed %q, want it queued", out)
-	}
-	w.opts.protoMax = 5
-	w.start()
-	if r := alice.run("v0.2.0", "ready"); r.stderr != "sfx: outbox: refused 1 (see `sfx outbox`)\n" {
-		t.Errorf("the command against the server back at 5 said %q, want the label refused unsent", r.stderr)
-	}
-	out := alice.ok("outbox")
-	if !strings.Contains(out, "     version: not sent: the server speaks protocol 5, which takes no idempotency key for label.add") {
-		t.Errorf("sfx outbox with the server at 5:\n%s", out)
-	}
-	w.stop()
-	w.opts.protoMax = proto.ProtoMax
-	w.start()
-	alice.ok("outbox", "retry", firstRefused(t, out))
-	if r := alice.run("v0.2.0", "ready"); r.stderr != "sfx: outbox: delivered 1\n" {
-		t.Errorf("the command after the retry, at 6, said %q, want the label delivered", r.stderr)
-	}
-	if s := decode[proto.ShowResult](t, bob.ok("show", id, "--json")); strings.Join(s.Issue.Labels, ",") != "live,queued-at-6" {
-		t.Errorf("labels = %v, want live and queued-at-6", s.Issue.Labels)
 	}
 }
 

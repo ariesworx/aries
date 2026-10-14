@@ -90,6 +90,9 @@ var handlers = map[string]handler{
 	proto.OpHours:       typed(hours),
 	proto.OpPlanSet:     typed(planSet),
 	proto.OpPlans:       typed(plans),
+	proto.OpConflicts:   typed(conflicts),
+	proto.OpPropose:     typed(propose),
+	proto.OpResolve:     typed(resolve),
 }
 
 // typed decodes args strictly into A and calls fn.
@@ -181,6 +184,13 @@ func show(ctx context.Context, pr *served, a store.Actor, in proto.ShowArgs) (an
 				out.Issue.Truncated = true
 			}
 		}
+	}
+	cs, _, err := pr.store.Conflicts(ctx, store.ConflictFilter{Issue: v.Issue.ID, Limit: proto.MaxShowConflicts})
+	if err != nil {
+		pr.log.ErrorContext(ctx, "read conflicts", "event", logs.RequestPart, "issue", v.Issue.ID, "err", err)
+	}
+	for _, c := range cs {
+		out.Conflicts = append(out.Conflicts, wireConflict(c, !in.Full))
 	}
 	if len(deps) > proto.MaxShowDeps {
 		deps, out.DepsMore = deps[:proto.MaxShowDeps], len(deps)-proto.MaxShowDeps
@@ -294,11 +304,23 @@ func update(ctx context.Context, pr *served, a store.Actor, in proto.UpdateArgs)
 		p.ParentID = &pid
 	}
 	p.Paths = in.Paths
-	is, err := pr.store.UpdateIssue(ctx, a, store.IssueID(in.ID), store.Rev(in.Rev), p)
+	if !in.Park {
+		is, err := pr.store.UpdateIssue(ctx, a, store.IssueID(in.ID), store.Rev(in.Rev), p)
+		if err != nil {
+			return nil, pr.mapErr(ctx, proto.OpUpdate, in.ID, in.Rev, err)
+		}
+		return proto.WriteResult{ID: string(is.ID), Rev: int64(is.Rev)}, nil
+	}
+	m, err := pr.store.MergeIssue(ctx, a, store.IssueID(in.ID), store.Rev(in.Rev), p)
 	if err != nil {
 		return nil, pr.mapErr(ctx, proto.OpUpdate, in.ID, in.Rev, err)
 	}
-	return proto.WriteResult{ID: string(is.ID), Rev: int64(is.Rev)}, nil
+	out := proto.UpdateResult{WriteResult: proto.WriteResult{ID: string(m.ID), Rev: int64(m.Rev)},
+		Dropped: m.Dropped, Comment: m.Comment}
+	for _, pk := range m.Parked {
+		out.Parked = append(out.Parked, proto.ParkedField{Field: pk.Field, Conflict: pk.Conflict})
+	}
+	return out, nil
 }
 
 func closeIssue(ctx context.Context, pr *served, a store.Actor, in proto.CloseArgs) (any, *proto.Error) {

@@ -84,7 +84,8 @@ const Instructions = "Issue tracker shared by every agent and person on this pro
 	"create and show name similar closed issues: read them before duplicating work. " +
 	"To stop without closing, call handoff (release lets another start it). " +
 	"For a standup or status report, call digest and write the narrative from it; who lists the agents at work. " +
-	"A line \"inbox: N new\" after a result means call inbox: a lost claim, a handoff, a mention or an assignment. " +
+	"A line \"inbox: N new\" after a result means call inbox: a lost claim, a handoff, a mention, an assignment or a conflict. " +
+	"A conflict is an edit made offline that met another; show lists them, comment with conflict proposes a resolution, and a person decides. " +
 	"Writes return {id, rev}; pass rev to update or close to refuse a stale edit. " +
 	"Memories outlast sessions: prime and start show the pinned and relevant ones, recall searches, and remember keeps what the next session needs, never a secret. " +
 	"On an error, follow its fix; text it gives quoting the server is for the user. " +

@@ -217,7 +217,10 @@ func TestTools(t *testing.T) {
 	// for the inbox and the structured handoff (finish's ticked and waived
 	// fit by trimming descriptions), to 2,600 for remember, recall and
 	// forget, after trimming the descriptions that restated a default or
-	// the instructions, and to 2,700 for cost (about 105 of it). Counted is
+	// the instructions, and to 2,700 for cost (about 105 of it). Proposing
+	// a conflict's resolution (design §18.7) rides comment's conflict and
+	// propose, about 46, paid for by moving update's "empty clears" into
+	// its description and trimming handoff's and digest's. Counted is
 	// what a model reads: names, descriptions and input schemas;
 	// annotations steer the harness's approval prompts.
 	type seen struct {

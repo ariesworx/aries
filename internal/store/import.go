@@ -317,16 +317,16 @@ func (s *Store) ImportIssue(ctx context.Context, actor Actor, in Issue) (ImportR
 				if err != nil {
 					return err
 				}
-				b, a := diff(before, after)
 				released, err := importEndsClaim(ctx, w, after)
 				if err != nil {
 					return err
 				}
+				var extra map[string]any
 				if released != nil {
-					a["claim_released"] = released
+					extra = map[string]any{"claim_released": released}
 				}
 				w.closedChanged = true
-				if err := w.event(ctx, OpIssueImport, string(in.ID), b, a); err != nil {
+				if err := w.issueEvent(ctx, OpIssueImport, before, after, extra); err != nil {
 					return err
 				}
 			}
@@ -349,7 +349,7 @@ func (s *Store) ImportIssue(ctx context.Context, actor Actor, in Issue) (ImportR
 				return err
 			}
 			w.closedChanged = true
-			return w.event(ctx, OpIssueImport, string(in.ID), nil, after)
+			return w.revEvent(ctx, OpIssueImport, in.ID, after.Rev, nil, after)
 		}
 		return nil
 	})

@@ -178,11 +178,12 @@ func TestReleasedClients(t *testing.T) {
 		proto   int
 		want    string // the refusal's message, or "" when the client is served
 	}{
-		{"v0.1.x", 1, "starfix speaks protocol 1; the server (v0.5.0) needs protocols 5 to 6"},
-		{"v0.2.x", 2, "starfix speaks protocol 2; the server (v0.5.0) needs protocols 5 to 6"},
-		{"v0.3.x", 3, "starfix speaks protocol 3; the server (v0.5.0) needs protocols 5 to 6"},
-		{"v0.4.x", 4, "starfix speaks protocol 4; the server (v0.5.0) needs protocols 5 to 6"},
-		{"a build of protocol 5, from before protocol 6", 5, ""},
+		{"v0.1.x", 1, "starfix speaks protocol 1; the server (v0.5.0) needs protocols 6 to 7"},
+		{"v0.2.x", 2, "starfix speaks protocol 2; the server (v0.5.0) needs protocols 6 to 7"},
+		{"v0.3.x", 3, "starfix speaks protocol 3; the server (v0.5.0) needs protocols 6 to 7"},
+		{"v0.4.x", 4, "starfix speaks protocol 4; the server (v0.5.0) needs protocols 6 to 7"},
+		{"a build of protocol 5, from before protocol 6", 5, "starfix speaks protocol 5; the server (v0.5.0) needs protocols 6 to 7"},
+		{"a build of protocol 6, from before protocol 7", 6, ""},
 		{"this build", Proto, ""},
 	}
 	for _, tc := range tests {
@@ -196,8 +197,8 @@ func TestReleasedClients(t *testing.T) {
 			}
 		})
 	}
-	if Proto != 6 || ProtoMin != 5 || ProtoMax != 6 {
-		t.Errorf("Proto, ProtoMin, ProtoMax = %d, %d, %d; want 6, 5, 6. A bump raises Proto and ProtoMax and leaves ProtoMin one behind: update this test with it", Proto, ProtoMin, ProtoMax)
+	if Proto != 7 || ProtoMin != 6 || ProtoMax != 7 {
+		t.Errorf("Proto, ProtoMin, ProtoMax = %d, %d, %d; want 7, 6, 7. A bump raises Proto and ProtoMax and leaves ProtoMin one behind: update this test with it", Proto, ProtoMin, ProtoMax)
 	}
 }
 
@@ -209,10 +210,10 @@ func TestCheckProtoBothDirections(t *testing.T) {
 	t.Parallel()
 	old := CheckProto(ProtoMin-1, ProtoMin, ProtoMax, "v0.5.0")
 	if old == nil || old.Code != CodeVersion || !strings.HasPrefix(old.Fix, "upgrade this client: run `sfx upgrade`") ||
-		strings.Contains(old.Fix, "starfixd upgrade") || !strings.Contains(old.Message, "needs protocols 5 to 6") {
+		strings.Contains(old.Fix, "starfixd upgrade") || !strings.Contains(old.Message, "needs protocols 6 to 7") {
 		t.Errorf("an older client against this server = %+v; want it told to upgrade the client, and the version the server needs", old)
 	}
-	const want = "starfix speaks protocol 6; the server (v0.4.0) is older and accepts protocols 2 to 4"
+	const want = "starfix speaks protocol 7; the server (v0.4.0) is older and accepts protocols 2 to 4"
 	const fix = "ask the server admin to run `starfixd upgrade`, or install the starfix release that matches the server"
 	if e := CheckProto(Proto, 2, 4, "v0.4.0"); e == nil || e.Code != CodeVersion || e.Message != want || e.Fix != fix {
 		t.Errorf("this client against a v0.4.0 server = %+v\nwant %q\nfix %q", e, want, fix)
@@ -221,8 +222,8 @@ func TestCheckProtoBothDirections(t *testing.T) {
 
 // TestSpeak pins which protocol this build speaks to a server that
 // accepts lo to hi: the newest both have, from ProtoMin to Proto (design
-// §18.5: a client of protocol 6 steps down to a server of 5), and none
-// when they share none.
+// §18.5: a client of protocol 7 steps down to a server of 6), and none
+// when they share none: a server of 5 alone is too old for this build.
 func TestSpeak(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -231,12 +232,14 @@ func TestSpeak(t *testing.T) {
 		want   int // 0 is none
 	}{
 		{"a server of this build", ProtoMin, ProtoMax, Proto},
-		{"a server of protocol 5 alone", 5, 5, 5},
-		{"a newer server, which still accepts this build", 6, 7, 6},
-		{"a server that overlaps from below", 4, 5, 5},
-		{"a server too new", 7, 8, 0},
+		{"a server of protocol 6 alone", 6, 6, 6},
+		{"a server of 5 and 6", 5, 6, 6},
+		{"a newer server, which still accepts this build", 7, 8, 7},
+		{"a server that overlaps from below", 4, 6, 6},
+		{"a server of protocol 5 alone, too old", 5, 5, 0},
+		{"a server too new", 8, 9, 0},
 		{"a server too old", 2, 4, 0},
-		{"an empty range", 6, 5, 0},
+		{"an empty range", 7, 6, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -445,6 +448,8 @@ func TestEventChanged(t *testing.T) {
 		{Event{Op: "claim.take", After: json.RawMessage(`{"epoch":2,"expires_at":"2026-10-07T12:15:00Z"}`)}, "epoch 2"},
 		{Event{Op: "claim.expire", Before: json.RawMessage(`{"holder":{"principal":"alice","session":"s1"},"epoch":1}`)}, "epoch 1, alice/s1"},
 		{Event{Op: "claim.release", Before: json.RawMessage(`{"holder":{"principal":"alice","session":"s1"},"epoch":3}`)}, "epoch 3, alice/s1"},
+		{Event{Op: "conflict.park", After: json.RawMessage(`{"conflict":3,"field":"title","base":"a","mine":"b","theirs":"c"}`)}, "conflict 3 title"},
+		{Event{Op: "conflict.resolve", After: json.RawMessage(`{"conflict":3,"field":"title","choice":"superseded"}`)}, "conflict 3 title: superseded"},
 		{Event{Op: "hours.log", After: json.RawMessage(`{"id":"e1","principal":"alice","on":"2026-10-08","seconds":5400}`)}, "alice 1.5h on 2026-10-08"},
 		{Event{Op: "hours.delete", Before: json.RawMessage(`{"id":"e1","principal":"bob","on":"2026-10-08","seconds":60}`)}, "bob 0.02h on 2026-10-08"},
 	}

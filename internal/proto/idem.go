@@ -43,12 +43,21 @@ func Keyed(op string, v int) bool {
 // ForProtocol returns args as a request of op to a server of protocol v
 // sends them: without their idempotency key when op takes none in v, so
 // that a server of protocol 5 is not sent the key protocol 6 added, which
-// it would refuse as an unknown argument. Otherwise, and for args that
-// are not a JSON object, it returns args as they are. A request so sent
-// is not deduplicated: the caller must not send it twice (Keyed).
+// it would refuse as an unknown argument; and an update without park
+// below protocol 7, so that a replayed update reaches a server of 6 as
+// an update it refuses when stale, as it did. Otherwise, and for args
+// that are not a JSON object, it returns args as they are. A request so
+// sent without its key is not deduplicated: the caller must not send it
+// twice (Keyed).
 func ForProtocol(v int, op string, args any) any {
-	since, ok := keyedSince[op]
-	if !ok || v >= since {
+	var drop []string
+	if since, ok := keyedSince[op]; ok && v < since {
+		drop = append(drop, "idem")
+	}
+	if op == OpUpdate && v < ProtoConflicts {
+		drop = append(drop, "park")
+	}
+	if len(drop) == 0 {
 		return args
 	}
 	b, err := json.Marshal(args)
@@ -59,10 +68,15 @@ func ForProtocol(v int, op string, args any) any {
 	if json.Unmarshal(b, &fields) != nil {
 		return args
 	}
-	if _, had := fields["idem"]; !had {
+	had := false
+	for _, f := range drop {
+		_, ok := fields[f]
+		had = had || ok
+		delete(fields, f)
+	}
+	if !had {
 		return args
 	}
-	delete(fields, "idem")
 	// A map's keys marshal sorted, not in the order of the struct's
 	// fields: the server reads the object by name, so the order is not
 	// part of the request.

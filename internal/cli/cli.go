@@ -144,6 +144,8 @@ func init() {
 		{"unpin", "unpin KEY [--scope S]", "unpin a memory", cmdUnpin},
 		{"prime", "prime [--hook[=AGENT]]", "orient a session: your in-progress issues, top ready work, memories, notices", cmdPrime},
 		{"usage", "usage --hook[=AGENT]", "send the session's token counts from the agent's transcript (run by its hooks)", cmdUsage},
+		{"conflicts", conflictsUsage, "list the fields of replayed updates parked against others' changes, or show one whole", cmdConflicts},
+		{"resolve", resolveUsage, "resolve a conflict: the replayed update's value, the server's, new text, or as proposed", cmdResolve},
 		{"outbox", outboxUsage, "list the writes that wait for the server and the ones it refused; retry or drop one; show the counts", cmdOutbox},
 		{"cache", cacheUsage, "say what this machine keeps of what was read, shown while the server cannot be reached; clear deletes it", cmdCache},
 		{"mcp", "mcp", "serve the MCP tools for an agent on stdin and stdout", cmdMCP},

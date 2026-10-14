@@ -15,7 +15,7 @@ import (
 // that a new server still serves the clients people already have
 // (AGENTS.md, rule 10).
 //
-// This build speaks protocols 5 and 6, and accepts both. Making 5 the
+// This build speaks protocols 6 and 7, and accepts both. Making 5 the
 // minimum was a reset, made once, on 12 Oct 2026 (design §14, decision
 // 25): nobody ran starfix in production yet and it was under active
 // development, so the maintainer chose to refuse every released client
@@ -133,14 +133,27 @@ import (
 // and the outbox of slice F1, built on 5, has entries on disk that a
 // client of 6 must still send to a server of 5.
 //
+// 7 (not yet released; stage 5, slice F4, design §18.7) adds conflicts:
+// park on update, which a replayed update sends so that the server
+// compares each field with the state at its rev and parks what someone
+// else changed, instead of refusing it as stale; and the ops conflicts,
+// conflict.propose and resolve. Its results gained fields, which need no
+// version: update's parked, dropped and comment, show's conflicts,
+// inbox's conflicts, and digest's conflicts. ProtoMin moved to 6, by the
+// rule above, so a client of 5, which no release is, is refused. A
+// client of 7 speaks 6 to a server of 6 (Speak) and sends update without
+// park (ForProtocol): a stale update it replays there is refused as
+// conflict, as before, and waits in the outbox's refused list. A server
+// of 5 alone is too old for it, and refuses it with code version.
+//
 // The bridge frame is not part of this protocol: it passes between two
 // starfixd processes on the server (frame.go), and carries no version.
 // It is read leniently, so a bridge from before a binary swap works
 // against the daemon after it, and the reverse.
 const (
-	Proto    = 6
-	ProtoMin = 5
-	ProtoMax = 6
+	Proto    = 7
+	ProtoMin = 6
+	ProtoMax = 7
 )
 
 // Speak returns the protocol this build speaks to a server that accepts

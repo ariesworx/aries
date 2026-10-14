@@ -221,11 +221,13 @@ waiting in the outbox
 | Command | Does |
 |---|---|
 | `create TITLE` | Create an issue and print its id: `-p N` priority, `-t TYPE`, `--body TEXT` (or `-` for stdin), `--parent ID`, `--account NAME`, `--label L`, and `--paths P,P` for the files the work will touch, relative to the current directory (a directory ends in `/`). Similar closed issues, if any, are listed on stderr |
-| `show ID` | Show an issue with its dependencies, claim, account, time held, cost at list price, hours people logged (by whom) and tokens by model ([Accounts, time and tokens](concepts.md#accounts-time-and-tokens)), acceptance checklist, latest handoff, likely files (declared first, then the most recent 20) with the issues others hold that overlap them, and similar closed issues. `--compact` is shorter |
+| `show ID` | Show an issue with its dependencies, claim, open [conflicts](#conflicts), account, time held, cost at list price, hours people logged (by whom) and tokens by model ([Accounts, time and tokens](concepts.md#accounts-time-and-tokens)), acceptance checklist, latest handoff, likely files (declared first, then the most recent 20) with the issues others hold that overlap them, and similar closed issues. `--compact` is shorter |
 | `list` | List issues that are not closed, oldest first, 50 at a time. `-n N` sets the page size (up to 500); `--cursor C` continues, as the `more:` line on stderr shows. Filters: `--status S,S`, `--all` (closed too), `-t TYPE`, `-p N,N`, `--assignee A`, `--parent ID`, `--label L` |
 | `ready` | List issues nothing holds back, best first. An issue whose files overlap work another session holds comes last, with `overlaps ID` ([Files](concepts.md#files-what-an-issue-touches)) |
 | `blocked` | List issues held back by open blockers |
 | `update ID` | Change fields (`--title`, `--body`, `--status`, `-p`, `-t`, `--assignee`, `--parent`, `--account`, …). `--account NAME` sets the account the issue's time and tokens report against; `--account ""` clears it, to inherit the parent's. `--paths P,P` replaces the declared paths and `--paths ""` clears them. `--rev N` applies the change only if the issue is still at revision N. It cannot set `in_progress` (claim with `start`), change the status or assignee of a claimed issue (once the claim's lease has run out, such a change ends the claim and tells its holder), or drop an acceptance item that is still open |
+| `conflicts [ISSUE]` | List the open [conflicts](#conflicts), of one issue or all, oldest first: each with its base, mine and theirs on a line each (cut at 500 bytes), the server's advice, and any proposal; 20, or `-n N` (at most 100), and `--after N` for the next page. `conflicts N` shows conflict N whole, open or resolved, each side on lines of its own |
+| `resolve N` | Resolve conflict N: `--mine` takes the replayed update's value, `--theirs` keeps the server's, `--text TEXT` (or `-` for stdin) sets new text, and `--accept` does what its proposal says. It changes the issue as `update` does, so it is refused on an issue another principal holds, unless you are an admin. It is never queued |
 | `close ID`, `reopen ID` | Close (with `--reason`) or reopen an issue. Close is refused while an acceptance item is open; `--force`, for admins only, closes anyway |
 | `dep add\|rm FROM TO` | Add or remove a dependency: FROM depends on TO. `--type T` (default `blocks`) |
 | `label add\|rm ID LABEL...` | Add or remove labels |
@@ -335,24 +337,28 @@ server apply it once however often it is sent.
 
 Reads have a **cache**: what you read of your own work is kept, and
 shown while the server cannot be reached, saying so
-([What is shown from the cache](#what-is-shown-from-the-cache)). Nothing
-resolves a conflict: a queued
-write that no longer fits is refused when it arrives, and waits for you.
-And a write waits 7 days at most, the server's window for a key
-(`idem_window` in [the server's limits](server.md#limits)).
+([What is shown from the cache](#what-is-shown-from-the-cache)). A
+queued `update` that arrives after someone else changed the same field
+is not refused: the server applies what nobody else changed and parks
+the rest as a [conflict](#conflicts) for a person to resolve. Any other
+queued write that no longer fits is refused when it arrives, and waits
+for you. And a write waits 7 days at most, the server's window for a
+key (`idem_window` in [the server's limits](server.md#limits)).
 
 **`update` needs its rev.** An `update` is queued only with the rev it
 was based on, which offline only you know: `sfx update ID --rev N ...`.
 Without `--rev` it first reads the issue's rev from the server, and with
 the server away it fails, saying to give `--rev`.
 
-**A server of protocol 5.** The keys on `update`, labels, `dep add`,
-`accept` and usage are protocol 6's. Against a server that speaks only
-protocol 5, `sfx` speaks 5, those writes go without a key, and while
-that server is away they are not queued, since it could apply one twice:
-the refusal says so. What was queued for a server of 6 that comes back
-at 5 is not sent either: it moves to the refused list as `version`, and
-`sfx outbox retry N` sends it once the server is upgraded.
+**A server of protocol 6.** Conflicts are protocol 7's. Against a
+server that speaks only protocol 6, `sfx` speaks 6, and a queued
+`update` it replays there is refused as `conflict` when the issue
+changed since its rev, as before: it moves to the refused list, and
+`sfx outbox retry N` sends it again once the server is upgraded, when
+it parks. This `sfx` does not speak protocol 5, which no release spoke:
+a server of 5 alone refuses it with `version` (exit code 3). A record
+of a server last seen at 5, from an older `sfx`, still keeps an
+`update` from being queued for it, saying so.
 
 **What counts as not reached.** The connection could not be made (the
 network, the tunnel, sshd, or `starfixd` not running), it was lost
@@ -485,7 +491,7 @@ refused:
 | `outbox` | List the entries: number, op, the issue's id or the memory's key, age, and the session and machine that wrote it; for a refused one the code, message and fix. And when the server was last not reached, and what waits under host keys the server had before |
 | `outbox retry N` | Make refused entry N wait again. The next command that connects sends it, with the key it always had |
 | `outbox drop N` | Remove entry N, waiting or refused, for good. It is deleted from the outbox and never sent |
-| `outbox stats` | For each op, the entries queued, delivered, refused, stale and dropped, and how long the delivered ones waited; and the outages: how many, how long in all, the longest, and the one in progress. With `--json` the durations are in nanoseconds |
+| `outbox stats` | For each op, the entries queued, delivered (and of those, parked: see [Conflicts](#conflicts)), refused, stale and dropped, and how long the delivered ones waited; and the outages: how many, how long in all, the longest, and the one in progress. With `--json` the durations are in nanoseconds |
 
 Each takes `--json`, and `--principal NAME` for the outbox of another
 principal this machine has queued as.
@@ -514,6 +520,61 @@ under the server's old host key SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5Tq
 | `outbox --host-key KEY` | List what waits under the old host key `KEY`, as `outbox` lists your own |
 | `outbox retry N --host-key KEY` | Move entry N, waiting or refused, to this server's outbox, with the key it always had: the next command that connects sends it. Only when `.starfix.yaml` names the server at the address it had when the entry was queued (`server.host`, `server.port` and the IAP route); otherwise it is refused, and the entry can only be dropped |
 | `outbox drop N --host-key KEY` | Remove entry N for good |
+
+### Conflicts
+
+A queued `update` carries the rev it was based on. When it arrives
+after someone else changed the issue, the server does not refuse it:
+it compares each field the update sets with the issue as it was at that
+rev, which its history gives ([design §18.7](design/starfix.md#187-conflicts-parked-on-the-server)).
+
+- A field nobody else changed since is applied, and so is one the other
+  change set to the same value, or set back to what it was.
+- A field someone else changed is **parked** as a conflict, with three
+  values: base (the field at your rev), mine (your update's) and theirs
+  (the server's now). The server's value stays until a person resolves
+  it. Long text (body, design, acceptance, notes) parks whole: there is
+  no merge of lines.
+- Status and assignee are the server's: a change to them since your rev
+  keeps the server's, and yours is dropped. So are declared paths.
+- An issue closed since your rev takes nothing: the update is kept as a
+  comment on it, listing what it would have set.
+- Labels, dependencies, comments and checklist ticks are not compared:
+  they add to what is there.
+
+The replay says so on stderr, as `sfx: outbox: delivered 1 (1 parked
+conflicts for a person to resolve: `sfx conflicts`)`; an inbox item
+tells your principal, in every session, and the holder of the issue
+when that is another principal; and `prime` counts the open conflicts
+on your work. `sfx outbox stats` counts parked entries among the
+delivered ones.
+
+```text
+$ sfx conflicts sf-a1
+#3 sf-a1 title: alice's update from rev 4, parked 2h ago, against bob's of 3h ago
+  base:   Fix login
+  mine:   Fix the login redirect
+  theirs: Fix login and logout
+  advice: theirs is from bob, who holds the issue; take theirs
+  proposed by agent-7: text: Fix the login and logout redirects (keeps both)
+$ sfx resolve 3 --accept
+sf-a1 rev 9
+```
+
+The advice is worked out when you read it, from who holds the issue
+and who made each side; it is never applied by itself. An agent may
+**propose** a resolution, kept with the conflict, a later one
+replacing it ([agent guide](agents.md#conflicts)); only `sfx resolve`
+decides, `--accept` taking the proposal. A later change to the same
+field, by anyone, closes the conflict, noted in the issue's history.
+`digest` lists conflicts open longer than the server's `conflict_age`
+(a day by default). The server caps the open conflicts on one issue
+and those one principal parked ([limits](server.md#limits)); an update
+that would pass a cap is refused, nothing of it applied, and waits in
+`sfx outbox` until the conflicts are resolved and it is retried.
+
+A live `update` with `--rev` is not compared: if the issue changed, it
+is refused with `conflict`, and you read it again.
 
 ### What is shown from the cache
 

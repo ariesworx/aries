@@ -63,6 +63,8 @@ var never = map[string]string{
 	proto.OpDepRm:       "it undoes something on a state the client cannot see",
 	proto.OpHoursDelete: "it undoes something on a state the client cannot see",
 	proto.OpRenew:       "renewing a lease is the client's own chore",
+	proto.OpResolve:     "it decides between two changes on a state the client cannot see",
+	proto.OpPropose:     "it decides between two changes on a state the client cannot see",
 }
 
 // Queueable reports whether op is one the outbox queues.

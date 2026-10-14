@@ -44,6 +44,12 @@ const (
 	InboxMention InboxKind = "mention"
 	// InboxHandoff tells a principal someone else handed it an issue.
 	InboxHandoff InboxKind = "handoff"
+	// InboxConflict tells a principal its replayed update parked a
+	// conflict, or was kept as a comment, and tells the holder of the
+	// issue another principal's parked. The author's own item is for
+	// every session of it: the session that replays an update is not
+	// always the one that made it.
+	InboxConflict InboxKind = "conflict"
 )
 
 // Inbox bounds.
@@ -87,15 +93,18 @@ var mentionPattern = lazyregexp.New(`(?:^|[^A-Za-z0-9._@+-])@([a-z][a-z0-9._-]{0
 
 // notify records an item in w's transaction and queues it to be pushed
 // once the transaction commits. Nothing is written for the actor's own
-// principal, unless the item concerns one of its other sessions, and
-// nothing past the Notices limit on what the actor sent the recipient in
-// the last minute; claim.lost items are exempt from the limit. Recording
-// an item may mark the recipient's oldest unread items read (capUnread).
+// principal, unless the item concerns one of its other sessions or is a
+// conflict item, and nothing past the Notices limit on what the actor
+// sent the recipient in the last minute; claim.lost items, and items for
+// the actor's own principal, are exempt from the limit. Recording an item may mark the recipient's oldest
+// unread items read (capUnread).
 func (w *wtx) notify(ctx context.Context, it InboxItem) error {
-	if it.To == w.actor.Principal && (it.Session == "" || it.Session == w.actor.Session) {
+	if it.To == w.actor.Principal && (it.Session == "" || it.Session == w.actor.Session) && it.Kind != InboxConflict {
 		return nil
 	}
-	if it.Kind != InboxClaimLost {
+	// The limit keeps one principal from flooding another's inbox; what
+	// the actor is told of its own writes floods nobody's.
+	if it.Kind != InboxClaimLost && it.To != w.actor.Principal {
 		var sent int
 		if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM inbox
   WHERE to_principal = ? AND from_principal = ? AND kind <> ? AND at > ?`,

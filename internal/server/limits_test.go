@@ -91,6 +91,17 @@ func TestResolveSettingsLimits(t *testing.T) {
 			want: func(l Limits) bool { return l.Plans == 1000 && l.PlanPrincipals == 100 }},
 		{name: "plans past the most", body: "limits:\n  plans: 10001\n", err: "plans is 10001; it can be at most 10000"},
 		{name: "plan_principals past the most", body: "limits:\n  plan_principals: 1001\n", err: "plan_principals is 1001; it can be at most 1000"},
+		{name: "conflict limits", body: "limits:\n  conflicts_per_issue: 3\n  conflicts_per_principal: 9\n  conflict_age: 3d\n",
+			want: func(l Limits) bool {
+				return l.ConflictsPerIssue == 3 && l.ConflictsPerPrincipal == 9 && l.ConflictAge == Duration(3*24*time.Hour)
+			}},
+		{name: "conflict limits default", body: "limits:\n  conflicts_per_issue: 0\n",
+			want: func(l Limits) bool {
+				return l.ConflictsPerIssue == 20 && l.ConflictsPerPrincipal == 100 && l.ConflictAge == Duration(24*time.Hour)
+			}},
+		{name: "negative conflicts_per_issue", body: "limits:\n  conflicts_per_issue: -1\n", err: "conflicts_per_issue"},
+		{name: "negative conflicts_per_principal", body: "limits:\n  conflicts_per_principal: -1\n", err: "conflicts_per_principal"},
+		{name: "negative conflict_age", body: "limits:\n  conflict_age: -1h\n", err: "conflict_age"},
 		{name: "memory body past the column", body: "limits:\n  memory_body: 70000\n", err: "memory_body"},
 		{name: "negative server limit", body: "limits:\n  write_burst: -1\n", err: "limit write_burst must be zero or a positive number"},
 		{name: "write rate not a number", body: "limits:\n  write_rate: .nan\n", err: "limit write_rate must be zero or a positive number"},

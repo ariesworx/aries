@@ -23,7 +23,7 @@ func TestPrintDigest(t *testing.T) {
 		{"every section", proto.DigestResult{
 			Since: ago(7 * 24 * time.Hour), Until: until, Truncated: true,
 			Totals: proto.DigestTotals{Events: 40, Closed: 12, Started: 1, InProgress: 1, Stalled: 1, Blocked: 1,
-				HandedOff: 1, Created: 1, Discovered: 1},
+				HandedOff: 1, Created: 1, Discovered: 1, Conflicts: 1},
 			Closed:     []proto.DigestItem{{ID: "sf-a1", Title: "Fix the login redirect", Priority: 1, By: "bob", At: ago(3 * time.Hour)}},
 			Started:    []proto.DigestItem{{ID: "sf-b2", Title: "Add digest", Priority: 2, By: "alice", At: ago(90 * time.Minute)}},
 			InProgress: []proto.DigestItem{{ID: "sf-b2", Title: "Add digest", Priority: 2, By: "alice", At: ago(28 * time.Hour)}},
@@ -33,6 +33,7 @@ func TestPrintDigest(t *testing.T) {
 				Note: "cookie path\nis gone; " + strings.Repeat("x", 80)}},
 			Created:    []proto.DigestItem{{ID: "sf-e5", Title: "Flaky test", Priority: 2, By: "bob", At: ago(3 * time.Hour)}},
 			Discovered: []proto.DigestItem{{ID: "sf-e5", Title: "Flaky test", Priority: 2, By: "bob", At: ago(3 * time.Hour), From: "sf-a1"}},
+			Conflicts:  []proto.DigestItem{{ID: "sf-a1", Title: "Fix the login redirect", Priority: 1, By: "alice", At: ago(50 * time.Hour), Note: "title (conflict 3)"}},
 		}, `since 2026-09-30 12:00 UTC (7d): 40 events, some totals partial
 closed 12, 1 shown
   sf-a1  P1  Fix the login redirect  bob  3h ago
@@ -50,6 +51,8 @@ created 1
   sf-e5  P2  Flaky test  bob  3h ago
 discovered 1
   sf-e5  P2  Flaky test  bob  3h ago  from sf-a1
+old conflicts 1
+  sf-a1  P1  Fix the login redirect  alice  parked 2d2h ago  title (conflict 3)
 `},
 	}
 	for _, tc := range tests {

@@ -119,6 +119,10 @@ func replayLine(rep outbox.Report) string {
 		return ""
 	}
 	line := "outbox: " + strings.Join(parts, ", ")
+	if rep.Parked > 0 {
+		line = strings.Replace(line, fmt.Sprintf("delivered %d", rep.Delivered),
+			fmt.Sprintf("delivered %d (%d parked conflicts for a person to resolve: `sfx conflicts`)", rep.Delivered, rep.Parked), 1)
+	}
 	if rep.Pending > 0 {
 		line += fmt.Sprintf(", %d still waiting", rep.Pending)
 	}
@@ -705,7 +709,7 @@ func (r *runner) outboxStats(l *offline.Local, who string) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s's outbox, since it was made:\n", esc(who))
 	tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "OP\tQUEUED\tDELIVERED\tREFUSED\tSTALE\tDROPPED\tMEAN WAIT\tLONGEST")
+	_, _ = fmt.Fprintln(tw, "OP\tQUEUED\tDELIVERED\tPARKED\tREFUSED\tSTALE\tDROPPED\tMEAN WAIT\tLONGEST")
 	for _, op := range slices.Sorted(maps.Keys(st.Ops)) {
 		c := st.Ops[op]
 		mean, longest := "-", "-"
@@ -713,7 +717,7 @@ func (r *runner) outboxStats(l *offline.Local, who string) error {
 			mean = proto.Span(c.Wait.Total / time.Duration(c.Wait.Count)) //nolint:gosec // a count of entries
 			longest = proto.Span(c.Wait.Max)
 		}
-		_, _ = fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\t%d\t%s\t%s\n", esc(op), c.Queued, c.Delivered, c.Refused, c.Stale, c.Dropped, mean, longest)
+		_, _ = fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\t%d\t%d\t%s\t%s\n", esc(op), c.Queued, c.Delivered, c.Parked, c.Refused, c.Stale, c.Dropped, mean, longest)
 	}
 	_ = tw.Flush()
 	out := st.Outages

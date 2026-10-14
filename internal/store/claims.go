@@ -542,6 +542,5 @@ func reopenReleased(ctx context.Context, w *wtx, c Claim) error {
 	if err != nil {
 		return err
 	}
-	b, a := diff(is, after)
-	return w.event(ctx, OpIssueUpdate, string(c.Issue), b, a)
+	return w.issueEvent(ctx, OpIssueUpdate, is, after, nil)
 }

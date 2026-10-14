@@ -20,6 +20,8 @@ func TestUnqueued(t *testing.T) {
 		{proto.OpReopen, "cannot see"},
 		{proto.OpForget, "cannot see"},
 		{proto.OpDepRm, "cannot see"},
+		{proto.OpResolve, "decides between"},
+		{proto.OpPropose, "decides between"},
 		{proto.OpUpdate, ""},
 		{proto.OpLabelAdd, ""},
 		{proto.OpAccept, ""},

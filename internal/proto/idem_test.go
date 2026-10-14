@@ -56,11 +56,14 @@ func TestKeyed(t *testing.T) {
 // TestForProtocol: a request for a server of protocol 5 goes without the
 // key protocol 6 added to its op, which that server would refuse as an
 // unknown argument; for 6 it goes as it is, as does every op 5 knows
-// the key of.
+// the key of. A replayed update's park, which protocol 7 added, goes to
+// 7 alone.
 func TestForProtocol(t *testing.T) {
 	t.Parallel()
 	title := "renamed"
 	update := UpdateArgs{ID: "sf-1", Rev: 3, Title: &title, Idem: "cli-1"}
+	replayed := update
+	replayed.Park = true
 	comment := CommentArgs{ID: "sf-1", Body: "b", Idem: "cli-2"}
 	raw := json.RawMessage(`{"id":"sf-1","label":"x","idem":"cli-3"}`)
 	for _, tc := range []struct {
@@ -77,6 +80,10 @@ func TestForProtocol(t *testing.T) {
 		{"raw label.add to 6", 6, OpLabelAdd, raw, `{"id":"sf-1","label":"x","idem":"cli-3"}`},
 		{"comment to 5", 5, OpComment, comment, `{"id":"sf-1","body":"b","idem":"cli-2"}`},
 		{"update with no key, to 5", 5, OpUpdate, UpdateArgs{ID: "sf-1", Rev: 3}, `{"id":"sf-1","rev":3}`},
+		{"a replayed update to 7", 7, OpUpdate, replayed, `{"id":"sf-1","rev":3,"title":"renamed","idem":"cli-1","park":true}`},
+		{"a replayed update to 6", 6, OpUpdate, replayed, `{"id":"sf-1","idem":"cli-1","rev":3,"title":"renamed"}`},
+		{"a replayed update to 5", 5, OpUpdate, replayed, `{"id":"sf-1","rev":3,"title":"renamed"}`},
+		{"a raw replayed update to 6", 6, OpUpdate, json.RawMessage(`{"id":"sf-1","rev":3,"park":true}`), `{"id":"sf-1","rev":3}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

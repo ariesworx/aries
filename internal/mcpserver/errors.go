@@ -94,6 +94,8 @@ func nextStep(pe *proto.Error) string {
 			return "nothing is ready: call blocked to see why, or create an issue"
 		case strings.HasPrefix(pe.Fix, proto.FixFindMemory):
 			return "call recall to find the key and its scope; remember without rev creates it"
+		case strings.HasPrefix(pe.Fix, proto.FixFindConflict):
+			return "call show on the issue to list its open conflicts and their numbers"
 		}
 		return "find the id with list or ready"
 	case proto.CodeConflict:

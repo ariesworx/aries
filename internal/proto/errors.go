@@ -113,6 +113,8 @@ const (
 	FixRecall = "recall it"
 	// FixFindMemory: not_found, no memory has the key in the scope.
 	FixFindMemory = "find the key"
+	// FixFindConflict: not_found, no conflict has the number.
+	FixFindConflict = "find the conflict's number"
 	// FixSecret: invalid, a memory looks like it holds a secret.
 	FixSecret = "remove the secret"
 	// FixForgetSome: invalid, the caller holds as many memories in the

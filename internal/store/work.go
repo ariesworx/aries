@@ -140,8 +140,7 @@ func (s *Store) start(ctx context.Context, actor Actor, id IssueID, ranked []Iss
 		if err != nil {
 			return err
 		}
-		b, a := diff(before, out)
-		return w.event(ctx, OpIssueUpdate, string(target), b, a)
+		return w.issueEvent(ctx, OpIssueUpdate, before, out, nil)
 	})
 	if err != nil {
 		return Issue{}, Claim{}, err
@@ -385,8 +384,7 @@ func (s *Store) HandoffIssue(ctx context.Context, actor Actor, id IssueID, epoch
 		if err != nil {
 			return err
 		}
-		b, a := diff(before, out)
-		if err := w.event(ctx, OpIssueUpdate, string(id), b, a); err != nil {
+		if err := w.issueEvent(ctx, OpIssueUpdate, before, out, nil); err != nil {
 			return err
 		}
 		return w.settle(out)
