@@ -19,8 +19,9 @@ import (
 //     session or run the bridge, or the bridge closed before its welcome;
 //   - the bridge or the daemon answered the handshake unavailable: the
 //     daemon is not running, or its database does not answer;
-//   - the connection was lost while a call waited for its answer, in
-//     which case the server may have applied the request;
+//   - the connection was lost while a call waited for its answer, or the
+//     server did not answer within [RequestTimeout], in which case the
+//     server may have applied the request;
 //   - the server answered a request unavailable: it failed or timed out.
 //
 // It is false for everything else, which fails as it always has: a

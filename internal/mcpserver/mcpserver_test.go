@@ -27,6 +27,7 @@ type fakeConn struct {
 	calls   []call
 	watches int
 	lost    error
+	closes  int
 	who     string
 	// key is the fingerprint of the key that signed in, when a test
 	// gives one.
@@ -84,7 +85,12 @@ func (f *fakeConn) Err() error {
 	defer f.mu.Unlock()
 	return f.lost
 }
-func (f *fakeConn) Close() error      { return nil }
+func (f *fakeConn) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.closes++
+	return nil
+}
 func (f *fakeConn) Principal() string { return f.who }
 func (f *fakeConn) Session() string   { return "s-test" }
 func (f *fakeConn) Project() string   { return "example" }

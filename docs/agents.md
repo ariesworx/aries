@@ -258,7 +258,12 @@ One SSH connection serves an MCP session. It opens on the first tool call
 and is redialed if it drops. Reads, `create`, `comment`, `finish`,
 `handoff`, `inbox`, `remember` and `forget` are retried on the new
 connection, since a retry cannot write twice. `start`, `update`, `close`, `reopen`, `dep` and
-`label` report that they may have applied.
+`label` report that they may have applied. A request the server has not
+answered within 75 seconds counts as a dropped connection: the server
+gives up on a request after a minute and answers that it did, so by then
+the connection itself has stalled. `sfx mcp` closes it, the call is
+retried or reported as above, and the claims' renewal, which waits
+behind the call, goes out on the next connection.
 
 A person's sessions together hold at most `conns_per_principal`
 connections, 64 unless the server says otherwise

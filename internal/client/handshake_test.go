@@ -261,6 +261,10 @@ func TestAccessEnded(t *testing.T) {
 			if who != tc.want || ended != (tc.want != "") {
 				t.Errorf("AccessEnded(%v) = %q, %v; want %q, %v", err, who, ended, tc.want, tc.want != "")
 			}
+			// An error is kept for later or refuses access, never both.
+			if ended && Unreachable(err) {
+				t.Errorf("AccessEnded(%v) and Unreachable(%v) are both true", err, err)
+			}
 		})
 	}
 	t.Run("a request refused as forbidden", func(t *testing.T) {

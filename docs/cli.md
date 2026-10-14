@@ -326,7 +326,14 @@ at 5 is not sent either: it moves to the refused list as `version`, and
 
 **What counts as not reached.** The connection could not be made (the
 network, the tunnel, sshd, or `starfixd` not running), it was lost
-before the answer came, or the server answered `unavailable`. A refusal
+before the answer came, the answer did not come within 75 seconds, or
+the server answered `unavailable`. The server gives up on a request
+after a minute and says so, so `sfx` waits 75 seconds before it closes
+a connection that has gone silent and fails the command (`the server
+did not answer show within 1m15s, so sfx closed the connection`). The
+`sfx admin` commands that change projects, principals, members and keys
+are waited on for as long as they take, since the server may take
+longer over them; interrupt one with ctrl-c. A refusal
 is not an outage, and fails as it always has: an unknown key, a host key
 that does not match its pin, `forbidden`, `invalid`, `not_found`,
 `conflict`, a protocol version, a mistake in `.starfix.yaml`, and the

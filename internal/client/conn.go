@@ -88,6 +88,8 @@ type Conn struct {
 	readErr error             // why the reader stopped; set before done closes
 	closed  chan struct{}     // closed by Close
 	once    sync.Once
+	// closeWait bounds the writes that end the session politely (Close).
+	closeWait time.Duration
 
 	mu     sync.Mutex // held for each Call, which serializes them; guards nextID and broken
 	nextID uint64
@@ -97,7 +99,7 @@ type Conn struct {
 // newConn returns a Conn over enc and dec, before its handshake.
 func newConn(enc *proto.Encoder, dec *proto.Decoder, kill func() error, onPush func(proto.Push)) *Conn {
 	return &Conn{enc: enc, dec: dec, kill: kill, onPush: onPush, stderr: &capBuffer{max: 4096}, proto: proto.Proto,
-		res: make(chan *proto.Frame, 1), done: make(chan struct{}), closed: make(chan struct{})}
+		res: make(chan *proto.Frame, 1), done: make(chan struct{}), closed: make(chan struct{}), closeWait: closeWait}
 }
 
 // run starts the reader. Before it, the handshake reads frames itself.
@@ -549,12 +551,47 @@ func (c *Conn) Warning(clientVersion string) string {
 	return proto.OlderClientWarning(clientVersion, c.Welcome.Version)
 }
 
+// requestTimeout is how long Call waits for the answer to a request:
+// the server's own request timeout, a minute, after which it answers
+// with a refusal of its own, and 15 seconds for that answer to cross the
+// network. The server's timeout is not a setting, so a working server,
+// however slow, answers first.
+const requestTimeout = 75 * time.Second
+
+// waitedOn are the ops the server may answer later than its request
+// timeout, which Call waits on for as long as its context allows: the
+// writes to the control store. After the write the server reads the
+// control store's log for the audit stream, with a request timeout of
+// its own and behind a lock the reaper takes too; and an archive also
+// opens the project's store to end its claims, with another. Only `sfx
+// admin` sends them, for a person who can interrupt it. internal/server
+// holds this list to its own (controlWrites).
+var waitedOn = map[string]bool{
+	proto.OpProjectAdd: true, proto.OpProjectArchive: true, proto.OpProjectActivate: true,
+	proto.OpPrincipalAdd: true, proto.OpPrincipalDisable: true, proto.OpPrincipalEnable: true,
+	proto.OpMemberSet: true, proto.OpMemberRemove: true,
+	proto.OpKeyAdd: true, proto.OpKeyRemove: true,
+}
+
+// RequestTimeout is how long [Conn.Call] waits for the server to answer
+// a request for op, from sending it, before it closes the connection; or
+// zero for an op it waits on for as long as its context allows, since
+// the server may take longer over it.
+func RequestTimeout(op string) time.Duration {
+	if waitedOn[op] {
+		return 0
+	}
+	return requestTimeout
+}
+
 // Call sends one request and decodes its result into result (which may be
 // nil). A server refusal is returned as a *proto.Error and leaves the
-// Conn usable. Calls are serialized. Cancelling ctx closes the connection.
-// A cancelled or lost connection, or an error frame that answers no
-// request (as when the server closes an idle connection), breaks the Conn:
-// later calls fail at once, and Err says why.
+// Conn usable. Calls are serialized. Cancelling ctx closes the connection,
+// and so does a request the server has not answered within
+// RequestTimeout, which fails unavailable. A cancelled, unanswered or
+// lost connection, or an error frame that answers no request (as when
+// the server closes an idle connection), breaks the Conn: later calls
+// fail at once, and Err says why.
 func (c *Conn) Call(ctx context.Context, op string, args, result any) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -576,9 +613,29 @@ func (c *Conn) Call(ctx context.Context, op string, args, result any) error {
 	f.Traceparent, f.Tracestate = tc.Traceparent(), tc.State
 	stop := context.AfterFunc(ctx, func() { _ = c.kill() })
 	defer stop()
-	if err := c.enc.Encode(f); err != nil {
-		c.broken = c.lost(err)
+	// A stream with a request left unanswered cannot be used again, so
+	// the deadline closes it, which ends the write or the wait below.
+	wait := RequestTimeout(op)
+	var late atomic.Bool
+	if wait > 0 {
+		t := time.AfterFunc(wait, func() { late.Store(true); _ = c.kill() })
+		defer t.Stop()
+	}
+	ended := func(err error) error {
+		switch {
+		case ctx.Err() != nil:
+			c.broken = fmt.Errorf("%s: %w", op, ctx.Err())
+		case late.Load():
+			c.broken = proto.Errf(proto.CodeUnavailable,
+				"retry, which connects again; if it persists, ask the server admin to check sshd and starfixd on the server, where `starfixd status` reports on the daemon",
+				fmt.Sprintf("the server did not answer %s within %s, so sfx closed the connection", op, wait)+quoteStderr(c.stderr.String(), "server"))
+		default:
+			c.broken = c.lost(err)
+		}
 		return c.broken
+	}
+	if err := c.enc.Encode(f); err != nil {
+		return ended(err)
 	}
 	for {
 		var r *proto.Frame
@@ -590,12 +647,7 @@ func (c *Conn) Call(ctx context.Context, op string, args, result any) error {
 			select {
 			case r = <-c.res:
 			default:
-				if ctx.Err() != nil {
-					c.broken = fmt.Errorf("%s: %w", op, ctx.Err())
-				} else {
-					c.broken = c.lost(c.readErr)
-				}
-				return c.broken
+				return ended(c.readErr)
 			}
 		}
 		if r.ID != id && r.ID != 0 {
@@ -617,16 +669,24 @@ func (c *Conn) Call(ctx context.Context, op string, args, result any) error {
 	}
 }
 
+// closeWait is how long Close waits for the writes that end the session
+// before it closes the connection under them. They are two small
+// packets, which wait only on a server that reads nothing.
+const closeWait = time.Second
+
 // Close ends the session and closes the connection, which ends a call in
-// progress and the reader. It may be called more than once.
+// progress and the reader. It returns within about closeWait however the
+// server behaves, and may be called more than once.
 func (c *Conn) Close() error {
 	c.once.Do(func() { close(c.closed) })
+	t := time.AfterFunc(c.closeWait, func() { _ = c.kill() })
 	if c.stdin != nil {
 		_ = c.stdin.Close()
 	}
 	if c.sess != nil {
 		_ = c.sess.Close()
 	}
+	t.Stop()
 	if err := c.kill(); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, io.ErrClosedPipe) {
 		return fmt.Errorf("close: %w", err)
 	}

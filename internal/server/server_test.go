@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/clienttest"
 	"github.com/ariesworx/starfix/internal/dolttest"
 	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/store"
@@ -49,6 +50,9 @@ func run(m *testing.M) int {
 	if os.Getenv(peerHelperEnv) != "" || os.Getenv(statusHelperEnv) != "" {
 		return m.Run()
 	}
+	// The tests import the client only for its request timeout
+	// (TestClientWaitsLongerThanTheServer), and dial with none of it.
+	defer clienttest.Isolate()()
 	defer func() { _ = dolts.Close() }()
 	dolts.Warm()
 	return m.Run()
