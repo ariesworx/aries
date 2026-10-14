@@ -105,10 +105,14 @@ func inbox(ctx context.Context, c Conn, in InboxIn) (Inbox, error) {
 	}
 	out.Items, out.Unread = compactItems(r.Items), r.Unread
 	out.More = len(out.Items) < r.Unread
-	for size(out) > MaxResultTokens && len(out.Items) > 1 {
-		out.Items, out.More = out.Items[:len(out.Items)-1], true
-	}
+	out.fit()
 	return out, nil
+}
+
+// fit drops the oldest items, leaving at least one, until r is under
+// MaxResultTokens, and sets More if it dropped any.
+func (r *Inbox) fit() {
+	dropLast(&r.Items, &r.More, func() bool { return size(r) <= MaxResultTokens })
 }
 
 func compactItems(items []proto.InboxItem) []InboxItem {

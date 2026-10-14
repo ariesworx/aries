@@ -132,8 +132,19 @@ func recall(ctx context.Context, c Conn, in RecallIn) (Memories, error) {
 	}
 	ms, cutAny := compactMemories(r.Memories, maxMemoryText)
 	out := Memories{Memories: ms, More: r.More, Truncated: cutAny}
-	for size(out) > MaxResultTokens && len(out.Memories) > 1 {
-		out.Memories, out.More, out.Truncated = out.Memories[:len(out.Memories)-1], out.More+1, true
-	}
+	out.fit()
 	return out, nil
+}
+
+// fit drops the last memories, leaving at least one, until r is under
+// MaxResultTokens; More counts them, and Truncated says so.
+func (r *Memories) fit() {
+	all, more, truncated := r.Memories, r.More, r.Truncated
+	keep := func(k int) {
+		r.Memories, r.More, r.Truncated = all[:k], more+len(all)-k, truncated || k < len(all)
+	}
+	keep(fitPrefix(len(all), 1, func(k int) bool {
+		keep(k)
+		return size(r) <= MaxResultTokens
+	}))
 }

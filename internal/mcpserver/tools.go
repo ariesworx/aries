@@ -529,9 +529,7 @@ func (s *Server) register() {
 				out.Agents = append(out.Agents, Agent{Principal: a.Principal, Session: a.Session, Machine: a.Machine,
 					Harness: a.Harness, Seen: proto.Span(max(r.Now.Sub(a.LastSeen), 0)), Claims: a.Claims})
 			}
-			for size(out) > MaxResultTokens && len(out.Agents) > 1 {
-				out.Agents, out.More = out.Agents[:len(out.Agents)-1], true
-			}
+			out.fit()
 			return out, nil
 		})
 	add(s, tool{name: "ready", desc: "Open issues nothing blocks, best first.", ann: readOnly, retry: true},
@@ -539,9 +537,7 @@ func (s *Server) register() {
 			var r proto.ListResult
 			err := c.Call(ctx, proto.OpReady, proto.LimitArgs{Limit: orDefault(in.Limit, DefaultLimit)}, &r)
 			out := Issues{Issues: r.Issues}
-			for size(out) > MaxResultTokens && len(out.Issues) > 1 {
-				out.Issues, out.More = out.Issues[:len(out.Issues)-1], true
-			}
+			out.fit()
 			return out, err
 		})
 	add(s, tool{name: "blocked", desc: "Issues held back, and by what.", ann: readOnly, retry: true},
@@ -549,9 +545,7 @@ func (s *Server) register() {
 			var r proto.BlockedResult
 			err := c.Call(ctx, proto.OpBlocked, proto.LimitArgs{Limit: orDefault(in.Limit, DefaultLimit)}, &r)
 			out := Blocked{Issues: r.Issues}
-			for size(out) > MaxResultTokens && len(out.Issues) > 1 {
-				out.Issues, out.More = out.Issues[:len(out.Issues)-1], true
-			}
+			out.fit()
 			return out, err
 		})
 	add(s, tool{name: "list", desc: "Issues matching filters.", ann: readOnly, retry: true,
@@ -632,18 +626,40 @@ func list(ctx context.Context, c Conn, in ListIn) (Issues, error) {
 		if err := c.Call(ctx, proto.OpList, args, &r); err != nil {
 			return Issues{}, err
 		}
-		out := Issues{Issues: r.Issues, Next: r.Next}
-		if size(out) <= MaxResultTokens || len(r.Issues) <= 1 {
-			return out, nil
+		n := listLimit(r.Issues, r.Next)
+		if n == len(r.Issues) {
+			return Issues{Issues: r.Issues, Next: r.Next}, nil
 		}
 		// Ask again for as many as fit, so the cursor resumes after the
 		// last one returned.
-		n := len(r.Issues) - 1
-		for n > 1 && size(Issues{Issues: r.Issues[:n], Next: r.Next}) > MaxResultTokens {
-			n--
-		}
 		args.Limit = n
 	}
+}
+
+// listLimit is how many of a page of issues, with the cursor next, fit
+// MaxResultTokens: all of them, or the most that fit, but at least one.
+func listLimit(issues []proto.Summary, next string) int {
+	return fitPrefix(len(issues), 1, func(k int) bool {
+		return size(Issues{Issues: issues[:k], Next: next}) <= MaxResultTokens
+	})
+}
+
+// fit drops the last issues, leaving at least one, until r is under
+// MaxResultTokens, and sets More if it dropped any.
+func (r *Issues) fit() {
+	dropLast(&r.Issues, &r.More, func() bool { return size(r) <= MaxResultTokens })
+}
+
+// fit drops the last issues, leaving at least one, until r is under
+// MaxResultTokens, and sets More if it dropped any.
+func (r *Blocked) fit() {
+	dropLast(&r.Issues, &r.More, func() bool { return size(r) <= MaxResultTokens })
+}
+
+// fit drops the last agents, leaving at least one, until r is under
+// MaxResultTokens, and sets More if it dropped any.
+func (r *Who) fit() {
+	dropLast(&r.Agents, &r.More, func() bool { return size(r) <= MaxResultTokens })
 }
 
 // start takes an issue for Lease and returns it and the claim's epoch (0
@@ -667,9 +683,7 @@ func start(ctx context.Context, c Conn, in StartIn) (Started, int64, error) {
 	}
 	// Memories are context; the issue is the work, so they go first.
 	out.Memories, _ = compactMemories(r.Memories, startMemoryText)
-	for size(out) > MaxResultTokens && len(out.Memories) > 0 {
-		out.Memories = out.Memories[:len(out.Memories)-1]
-	}
+	out.fitMemories()
 	out.Truncated = fitTexts(func() bool { return size(out) <= MaxResultTokens }, fields...)
 	var epoch int64
 	if r.Claim != nil {
@@ -716,14 +730,36 @@ func show(ctx context.Context, c Conn, in ShowIn) (Issue, error) {
 	if fitTexts(func() bool { return size(out) <= MaxResultTokens }, &out.Body, &out.Design, &out.Acceptance, &out.Notes) {
 		out.Truncated = true
 	}
-	for size(out) > MaxResultTokens && len(out.NeededBy) > 0 {
-		out.NeededBy = out.NeededBy[:len(out.NeededBy)-1]
-		out.Truncated = true
-	}
+	out.fitNeededBy()
+	// One at a time: files_more is the server's count, and one below
+	// zero would make the search's assumption false (see fitPrefix).
+	// There are at most proto.MaxShowPaths.
 	for size(out) > MaxResultTokens && len(out.Files) > 0 {
 		out.Files, out.FilesMore = out.Files[:len(out.Files)-1], out.FilesMore+1
 	}
 	return out, nil
+}
+
+// fitMemories drops the last memories, all of them if need be, until r is
+// under MaxResultTokens.
+func (r *Started) fitMemories() {
+	all := r.Memories
+	keep := func(k int) { r.Memories = all[:k] }
+	keep(fitPrefix(len(all), 0, func(k int) bool {
+		keep(k)
+		return size(r) <= MaxResultTokens
+	}))
+}
+
+// fitNeededBy drops the last dependents, all of them if need be, until r
+// is under MaxResultTokens, and sets Truncated if it dropped any.
+func (r *Issue) fitNeededBy() {
+	all, truncated := r.NeededBy, r.Truncated
+	keep := func(k int) { r.NeededBy, r.Truncated = all[:k], truncated || k < len(all) }
+	keep(fitPrefix(len(all), 0, func(k int) bool {
+		keep(k)
+		return size(r) <= MaxResultTokens
+	}))
 }
 
 // update is the update tool. Without a rev it reads the current one
@@ -772,10 +808,14 @@ func comments(ctx context.Context, c Conn, in PageIn) (Comments, error) {
 		body, _ := cut(cm.Body, maxCommentBody)
 		out.Comments = append(out.Comments, Comment{Author: cm.Author, At: stamp(cm.CreatedAt), Kind: cm.Kind, Body: body})
 	}
-	for size(out) > MaxResultTokens && len(out.Comments) > 1 {
-		out.Comments, out.Omitted = out.Comments[1:], out.Omitted+1
-	}
+	out.fit()
 	return out, nil
+}
+
+// fit drops the oldest comments, leaving at least one, until r is under
+// MaxResultTokens, and counts them in Omitted.
+func (r *Comments) fit() {
+	dropFirst(&r.Comments, &r.Omitted, func() bool { return size(r) <= MaxResultTokens })
 }
 
 // history is the history tool, by the comments tool's rules; each
@@ -793,10 +833,14 @@ func history(ctx context.Context, c Conn, in PageIn) (History, error) {
 		changed, _ := cut(e.Changed(), 200)
 		out.Events = append(out.Events, Event{Seq: e.Seq, At: stamp(e.At), By: e.Principal, Op: e.Op, Changed: changed})
 	}
-	for size(out) > MaxResultTokens && len(out.Events) > 1 {
-		out.Events, out.Omitted = out.Events[1:], out.Omitted+1
-	}
+	out.fit()
 	return out, nil
+}
+
+// fit drops the oldest events, leaving at least one, until r is under
+// MaxResultTokens, and counts them in Omitted.
+func (r *History) fit() {
+	dropFirst(&r.Events, &r.Omitted, func() bool { return size(r) <= MaxResultTokens })
 }
 
 // digest is the digest tool: titles are cut, in-progress and stalled
@@ -833,24 +877,49 @@ func digest(ctx context.Context, c Conn, in DigestIn) (Digest, error) {
 	return out, nil
 }
 
-// fit drops the last item of the longest section until d is under
-// MaxDigestTokens, so every section keeps its first items.
+// fit drops the last item of the longest section, the first of equals,
+// until d is under MaxDigestTokens, so every section keeps its first items.
+// The order of the drops depends only on the sections' lengths, so it is
+// worked out first, and fitPrefix finds how many items to keep: keeping k
+// makes the first len(drops)-k drops. Each drop takes an item and nothing
+// grows, so keeping fewer is never longer (see fitPrefix).
 func (d *Digest) fit() {
 	sections := []*[]DigestItem{&d.Closed, &d.Started, &d.InProgress, &d.Stalled, &d.Blocked, &d.HandedOff,
 		&d.Created, &d.Discovered}
-	for size(d) > MaxDigestTokens {
-		var longest *[]DigestItem
-		for _, sec := range sections {
-			if len(*sec) > 0 && (longest == nil || len(*sec) > len(*longest)) {
-				longest = sec
+	all := make([][]DigestItem, len(sections))
+	lens := make([]int, len(sections))
+	for i, sec := range sections {
+		all[i], lens[i] = *sec, len(*sec)
+	}
+	// drops[j] is the section the j+1th drop takes from.
+	var drops []int
+	for {
+		longest := -1
+		for i, n := range lens {
+			if n > 0 && (longest < 0 || n > lens[longest]) {
+				longest = i
 			}
 		}
-		if longest == nil {
-			return
+		if longest < 0 {
+			break
 		}
-		*longest = (*longest)[:len(*longest)-1]
-		d.Truncated = true
+		lens[longest]--
+		drops = append(drops, longest)
 	}
+	truncated := d.Truncated
+	keep := func(k int) {
+		for i, sec := range sections {
+			*sec = all[i]
+		}
+		for _, i := range drops[:len(drops)-k] {
+			*sections[i] = (*sections[i])[:len(*sections[i])-1]
+		}
+		d.Truncated = truncated || k < len(drops)
+	}
+	keep(fitPrefix(len(drops), 0, func(k int) bool {
+		keep(k)
+		return size(d) <= MaxDigestTokens
+	}))
 }
 
 // stamp formats t for a result: UTC, to the minute.
