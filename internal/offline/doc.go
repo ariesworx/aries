@@ -34,8 +34,13 @@
 //	outbox-HASH.principal  that principal's name; 0600
 //
 // The server is its host key, not its address: a server that moves keeps
-// its outboxes, and a server rebuilt with a new key gets new ones, and
-// the old are left on the disk, unread.
+// its outboxes, and a server rebuilt with a new key gets new ones. The
+// old are left where they are and never sent by themselves, since a
+// changed host key is for a person to look at: [Local.Rekeyed] finds
+// them, by the project and the old key seen.json names, with the
+// address the config gave at the last handshake, and [Local.Adopt]
+// moves an entry to the current server's outbox when a person says so,
+// and only when the config names the server at that same address.
 //
 // Before every use, each of those directories that is there must be the
 // current user's own and closed to the group and to others (private),
@@ -52,8 +57,9 @@
 // fingerprint of the key the server accepted, the principal it took it
 // for and when ([Local.Reached]); and which fingerprint was accepted the
 // last time no key was configured. The record has a version, holds
-// several keys for one principal, and holds nothing else: no key, no
-// path to one, no token.
+// several keys for one principal, and the server's address as the
+// config gave it, and holds nothing else: no key, no path to one, no
+// token.
 //
 // With the server away ([Local.Principal]): when a key is configured
 // (STARFIX_KEY_FILE, or key:), which is then the only key offered, a

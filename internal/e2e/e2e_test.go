@@ -89,6 +89,8 @@ type world struct {
 	socket  string
 	addr    *net.TCPAddr
 	hostFpr string
+	// hostKey is the SSH server's host key, which rekey replaces.
+	hostKey *swappedKey
 	keysMu  sync.Mutex        // guards keys, and writes of handFile
 	keys    map[string]string // authorized key fingerprint → principal
 	// keysFile is the file the daemon writes the control store's keys to
@@ -473,15 +475,8 @@ func (w *world) restartDaemon() error {
 func (w *world) startSSH(ctx context.Context) {
 	t := w.t
 	t.Helper()
-	_, hostPriv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	hostSigner, err := ssh.NewSignerFromKey(hostPriv)
-	if err != nil {
-		t.Fatal(err)
-	}
-	w.hostFpr = ssh.FingerprintSHA256(hostSigner.PublicKey())
+	w.hostKey = &swappedKey{}
+	w.rekey()
 	cfg := &ssh.ServerConfig{
 		PublicKeyCallback: func(_ ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 			// sshd takes the first line that matches, in the order of its
@@ -500,7 +495,7 @@ func (w *world) startSSH(ctx context.Context) {
 			return nil, errors.New("unknown key")
 		},
 	}
-	cfg.AddHostKey(hostSigner)
+	cfg.AddHostKey(w.hostKey)
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -517,6 +512,44 @@ func (w *world) startSSH(ctx context.Context) {
 			wg.Go(func() { w.serveSSH(ctx, nc, cfg) })
 		}
 	})
+}
+
+// swappedKey is a host key that rekey replaces while the SSH server
+// runs, as rebuilding a server gives it a new one.
+type swappedKey struct {
+	mu sync.Mutex
+	s  ssh.Signer
+}
+
+func (k *swappedKey) signer() ssh.Signer {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.s
+}
+
+func (k *swappedKey) PublicKey() ssh.PublicKey { return k.signer().PublicKey() }
+
+func (k *swappedKey) Sign(r io.Reader, data []byte) (*ssh.Signature, error) {
+	return k.signer().Sign(r, data)
+}
+
+// rekey gives the SSH server a new host key, as rebuilding the server
+// does, and makes it the one new users pin. What users have pinned is
+// unchanged.
+func (w *world) rekey() {
+	w.t.Helper()
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	s, err := ssh.NewSignerFromKey(priv)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	w.hostKey.mu.Lock()
+	w.hostKey.s = s
+	w.hostKey.mu.Unlock()
+	w.hostFpr = ssh.FingerprintSHA256(s.PublicKey())
 }
 
 // fileLine looks key up in the keys file the daemon writes, and reads

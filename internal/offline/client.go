@@ -57,7 +57,7 @@ func (c *Client) Local() (*Local, *client.Config, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return Open(root, cfg.Server.HostKey, cfg.Project, Options{Now: c.Now, Outbox: c.Outbox}), cfg, nil
+	return Open(root, cfg.Server.HostKey, cfg.Project, Options{Now: c.Now, Outbox: c.Outbox, Address: Address(cfg)}), cfg, nil
 }
 
 // Whose returns the principal this process's writes belong to while the
@@ -200,6 +200,37 @@ func (c *Client) Notice(conn Conn) string {
 		return ""
 	}
 	return notice(n)
+}
+
+// Rekeyed is the line a session's start says of what this machine keeps
+// for the project under host keys the server no longer has
+// ([Local.Rekeyed]), whoever queued it, or "" when nothing is kept so.
+// None of it is sent by itself, so only a person settles it.
+func (c *Client) Rekeyed() string {
+	l, _, err := c.Local()
+	if err != nil {
+		return ""
+	}
+	formers, err := l.Rekeyed()
+	if err != nil {
+		return ""
+	}
+	total := 0
+	for _, f := range formers {
+		for _, p := range f.Local.Principals() {
+			if n, err := f.Local.Waiting(p); err == nil {
+				total += n.Pending + n.Refused
+			}
+		}
+	}
+	if total == 0 {
+		return ""
+	}
+	itself := "are not sent by themselves"
+	if total == 1 {
+		itself = "is not sent by itself"
+	}
+	return fmt.Sprintf("outbox: %s queued under the server's old host key %s: tell the user to run `sfx outbox`", writes(total), itself)
 }
 
 func notice(n Count) string {

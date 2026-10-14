@@ -1,6 +1,7 @@
 package offline
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -9,10 +10,12 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -100,6 +103,10 @@ type seen struct {
 	// Unconfigured is the fingerprint the server accepted the last time
 	// sfx connected with no key configured, having offered several.
 	Unconfigured string `json:"unconfigured,omitempty"`
+	// Addr is where the config said the server was at the last handshake
+	// ([Address]): what tells a server rebuilt with a new host key for
+	// the same one (Local.Rekeyed). Empty in a record from before it.
+	Addr string `json:"addr,omitempty"`
 }
 
 type keyNote struct {
@@ -107,10 +114,14 @@ type keyNote struct {
 	At        time.Time `json:"at"`
 }
 
-// Options are a Local's clock and its outboxes' bounds.
+// Options are a Local's clock, its outboxes' bounds and the server's
+// address.
 type Options struct {
 	// Now is the client's clock; time.Now when nil.
 	Now func() time.Time
+	// Address is where the config says the server is ([Address]), noted
+	// at each handshake.
+	Address string
 	// Outbox bounds each outbox; its zero value takes the defaults, and
 	// its clock is Now.
 	Outbox outbox.Options
@@ -281,9 +292,10 @@ func (l *Local) Reached(principal, fingerprint string, configured bool) (was str
 	s, now := l.read(), l.opts.Now()
 	k, known := s.Keys[fingerprint]
 	fresh := known && k.Principal == principal && now.Sub(k.At) < 24*time.Hour && !now.Before(k.At)
-	if fresh && (configured || s.Unconfigured == fingerprint) {
+	if fresh && (configured || s.Unconfigured == fingerprint) && s.Addr == l.opts.Address {
 		return "", nil
 	}
+	s.Addr = l.opts.Address
 	if known && k.Principal != principal {
 		was = k.Principal
 	}
@@ -587,6 +599,133 @@ func (l *Local) Replay(ctx context.Context, c Conn) (outbox.Report, error) {
 		}
 		return outbox.Outcome{Refused: true, Code: string(pe.Code), Message: pe.Message, Fix: pe.Fix}, nil
 	})
+}
+
+// Address is where cfg says the server is, as noted with what is kept
+// for it: host and port, and the IAP project and zone when the server is
+// reached through IAP. Two configs that give the same address name the
+// same server, as far as the config can tell.
+func Address(cfg *client.Config) string {
+	addr := net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port))
+	if iap := cfg.Server.IAP; iap != nil {
+		addr += fmt.Sprintf(" through IAP (project %s, zone %s, instance %s)", iap.Project, iap.Zone, cmp.Or(iap.Instance, cfg.Server.Host))
+	}
+	return addr
+}
+
+// Former is what this machine keeps for the same project under a host
+// key the server no longer has: a server rebuilt with a new key, or a
+// checkout pointed at another server for the project. Nothing in it is
+// sent by itself: a changed host key is for a person to look at.
+type Former struct {
+	// HostKey is the host key it was kept under.
+	HostKey string
+	// Address is where the server was then, or "" when the record is
+	// from an sfx that did not note it.
+	Address string
+	// Local is what was kept, to read, and to drop from.
+	Local *Local
+}
+
+// Rekeyed returns, by host key, what this machine keeps for this project
+// under other host keys of the server: each directory of the data
+// directory whose record names this project and another key. A
+// directory with no record names no project, and is left out, as is one
+// that is not the user's own.
+func (l *Local) Rekeyed() ([]Former, error) {
+	if err := private(l.root); err != nil {
+		return nil, err
+	}
+	dirs, err := os.ReadDir(l.root)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []Former
+	for _, d := range dirs {
+		dir := filepath.Join(l.root, d.Name())
+		if !d.IsDir() || dir == l.dir || private(dir) != nil {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, seenFile)) //nolint:gosec // sfx's own file, in a directory checked to be the user's
+		if err != nil {
+			continue
+		}
+		var s seen
+		if json.Unmarshal(b, &s) != nil || s.V != seenVersion || s.Project != l.project || s.Server == l.server || s.Server == "" {
+			continue
+		}
+		f := Open(l.root, s.Server, s.Project, Options{Now: l.opts.Now, Outbox: l.opts.Outbox, Address: s.Addr})
+		if f.dir != dir {
+			continue // a record that does not name its own directory's server
+		}
+		out = append(out, Former{HostKey: s.Server, Address: s.Addr, Local: f})
+	}
+	slices.SortFunc(out, func(a, b Former) int { return strings.Compare(a.HostKey, b.HostKey) })
+	return out, nil
+}
+
+// Errors of [Local.Adopt].
+var (
+	// ErrOtherAddress: the entry was kept for a server at another
+	// address than this one's, or at one that was not noted.
+	ErrOtherAddress = errors.New("kept for a server at another address")
+	// ErrNoEntry: no entry that waits has that number.
+	ErrNoEntry = errors.New("no such entry")
+)
+
+// Adopt moves entry seq of principal's outbox in from, which is kept
+// under a host key the server no longer has ([Local.Rekeyed]), to that
+// principal's outbox here, where it waits to be sent like any other, with
+// its op, arguments and idempotency key, and returns it as stored here.
+// A person decides that, never sfx: it is [ErrOtherAddress] unless from
+// was kept for a server at this one's address, which is what says it is
+// the same server. The entry is added here before it leaves from, so a
+// failure between the two leaves it in both, and its key makes the
+// second sending of it harmless.
+func (l *Local) Adopt(from *Local, principal string, seq uint64) (outbox.Entry, error) {
+	if from.opts.Address == "" || from.opts.Address != l.opts.Address {
+		return outbox.Entry{}, ErrOtherAddress
+	}
+	ob, ok, err := from.Existing(principal)
+	if err != nil {
+		return outbox.Entry{}, err
+	}
+	if !ok {
+		return outbox.Entry{}, ErrNoEntry
+	}
+	list, err := ob.List()
+	if err != nil {
+		return outbox.Entry{}, err
+	}
+	var e *outbox.Entry
+	for i := range list.Pending {
+		if list.Pending[i].Seq == seq {
+			e = &list.Pending[i]
+		}
+	}
+	for i := range list.Refused {
+		if list.Refused[i].Entry.Seq == seq {
+			e = &list.Refused[i].Entry
+		}
+	}
+	if e == nil {
+		return outbox.Entry{}, ErrNoEntry
+	}
+	to, err := l.Outbox(principal)
+	if err != nil {
+		return outbox.Entry{}, err
+	}
+	stored, err := to.Append(outbox.Entry{Op: e.Op, Args: e.Args, Session: e.Session, Machine: e.Machine})
+	if err != nil {
+		return outbox.Entry{}, err
+	}
+	if err := ob.Drop(seq); err != nil {
+		return stored, fmt.Errorf("entry %d is now %d here, and is still there too: %w", seq, stored.Seq, err)
+	}
+	return stored, nil
 }
 
 // Ended refuses what waits in principal's outbox with the server's

@@ -186,5 +186,8 @@ func (s *Server) notices(c Conn) []string {
 	if n := off.Notice(c); n != "" {
 		out = append(out, n)
 	}
+	if n := off.Rekeyed(); n != "" {
+		out = append(out, n)
+	}
 	return out
 }

@@ -617,6 +617,117 @@ func TestEnded(t *testing.T) {
 	}
 }
 
+// oldKey and otherKey are host keys a server had before it was rebuilt.
+const (
+	oldKey   = "SHA256:oldoldoldoldoldoldoldoldoldoldoldoldoldoldo"
+	otherKey = "SHA256:otherotherotherotherotherotherotherotherot"
+)
+
+// queuedAt makes the Local of a server and project at addr under root,
+// as a handshake leaves it, and queues for alice there.
+func queuedAt(t *testing.T, root, key, proj, addr string, n int) *Local {
+	t.Helper()
+	l := Open(root, key, proj, Options{Now: func() time.Time { return t0 }, Address: addr})
+	if _, err := l.Reached("alice", keyA, true); err != nil {
+		t.Fatal(err)
+	}
+	for range n {
+		if _, err := l.Keep("alice", entry(proto.OpComment, "sf-a"), errReach); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return l
+}
+
+// TestRekeyed: what this machine keeps for the same project under a
+// host key the server no longer has is found, with the address it was
+// kept for; what it keeps for another project, or for the current key,
+// is not.
+func TestRekeyed(t *testing.T) {
+	t.Parallel()
+	root := ownDir(t)
+	const here, there = "example.com:22", "example.org:22"
+	queuedAt(t, root, oldKey, project, here, 2)
+	queuedAt(t, root, otherKey, project, there, 1)
+	queuedAt(t, root, oldKey, strings.Replace(project, "6f1c", "0000", 1), here, 1)
+	cur := queuedAt(t, root, hostKey, project, here, 0)
+	// A directory left by an sfx from before addresses were noted.
+	unnoted := Open(root, keyX, project, Options{Now: func() time.Time { return t0 }})
+	if _, err := unnoted.Reached("alice", keyA, true); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := cur.Rekeyed()
+	if err != nil {
+		t.Fatalf("Rekeyed() = %v", err)
+	}
+	type former struct{ key, addr string }
+	var have []former
+	for _, f := range got {
+		have = append(have, former{f.HostKey, f.Address})
+		if f.Local.Dir() != Open(root, f.HostKey, project, Options{}).Dir() {
+			t.Errorf("the Local of %s is %s, want that server and project's", f.HostKey, f.Local.Dir())
+		}
+	}
+	want := []former{{oldKey, here}, {otherKey, there}, {keyX, ""}}
+	slices.SortFunc(want, func(a, b former) int { return strings.Compare(a.key, b.key) })
+	if !slices.Equal(have, want) {
+		t.Errorf("Rekeyed() = %v, want %v", have, want)
+	}
+}
+
+// TestAdopt: an entry kept for the project under the server's old host
+// key moves, when a person says so, to the outbox of the same principal
+// for the current key, with its op, arguments and key, to be sent
+// there; only when the server is at the address it was kept for.
+func TestAdopt(t *testing.T) {
+	t.Parallel()
+	root := ownDir(t)
+	const here = "example.com:22"
+	old := queuedAt(t, root, oldKey, project, here, 2)
+	moved := queuedAt(t, root, otherKey, project, "example.org:22", 1)
+	cur := queuedAt(t, root, hostKey, project, here, 0)
+
+	ob, _, err := old.Existing("alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := ob.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := cur.Adopt(old, "alice", 2)
+	if err != nil {
+		t.Fatalf("Adopt(entry 2) = %v", err)
+	}
+	if e.Seq != 1 || e.Op != before.Pending[1].Op || e.Idem != before.Pending[1].Idem || string(e.Args) != string(before.Pending[1].Args) {
+		t.Errorf("Adopt stored %+v; want entry 2 as it was (%+v), as the first of the current outbox", e, before.Pending[1])
+	}
+	if n, err := cur.Waiting("alice"); err != nil || n.Pending != 1 {
+		t.Errorf("the current outbox holds %+v, %v; want the adopted entry waiting", n, err)
+	}
+	if n, err := old.Waiting("alice"); err != nil || n.Pending != 1 {
+		t.Errorf("the old outbox holds %+v, %v; want only entry 1 left", n, err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		from *Local
+		seq  uint64
+		want error
+	}{
+		{"an entry that is not there", old, 2, ErrNoEntry},
+		{"another address", moved, 1, ErrOtherAddress},
+	} {
+		if _, err := cur.Adopt(tc.from, "alice", tc.seq); !errors.Is(err, tc.want) {
+			t.Errorf("%s: Adopt = %v, want %v", tc.name, err, tc.want)
+		}
+	}
+	if n, err := moved.Waiting("alice"); err != nil || n.Pending != 1 {
+		t.Errorf("the outbox at another address holds %+v, %v; want its entry left", n, err)
+	}
+}
+
 func TestTarget(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ op, args, want string }{

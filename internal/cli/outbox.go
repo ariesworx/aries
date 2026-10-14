@@ -93,6 +93,9 @@ func (r *runner) outboxNotices(c *mcpserver.RepoConn) []string {
 	if n := r.away().Notice(c); n != "" {
 		out = append(out, n)
 	}
+	if n := r.away().Rekeyed(); n != "" {
+		out = append(out, n)
+	}
 	return out
 }
 
@@ -199,13 +202,14 @@ func (r *runner) queued(k *offline.Kept) {
 	_, _ = fmt.Fprintln(r.env.Stdout, line)
 }
 
-const outboxUsage = "outbox [retry N | drop N | stats] [--principal P]"
+const outboxUsage = "outbox [retry N | drop N | stats] [--principal P] [--host-key FINGERPRINT]"
 
 // cmdOutbox shows and changes what this machine keeps for the server. It
 // never connects, so all of it works while the server is away.
 func cmdOutbox(_ context.Context, r *runner, args []string) error {
 	fs := r.newFlags("outbox")
 	as := fs.String("principal", "", "the outbox of this principal, when this machine has queued as several")
+	hostKey := fs.String("host-key", "", "the outbox kept for this project under a host key the server had before")
 	pos, err := parse(fs, args, outboxUsage)
 	if err != nil {
 		return err
@@ -234,13 +238,121 @@ func cmdOutbox(_ context.Context, r *runner, args []string) error {
 		return err
 	}
 	who := cmp.Or(*as, off.Whose(l, cfg))
+	if *hostKey != "" {
+		if *hostKey == cfg.Server.HostKey {
+			return usagef(outboxUsage, "%s is the server's host key now: leave out --host-key", *hostKey)
+		}
+		f, err := former(l, *hostKey)
+		if err != nil {
+			return err
+		}
+		switch action {
+		case "":
+			return r.formerList(cfg, f, who)
+		case "stats":
+			return r.outboxStats(f.Local, who)
+		case "retry":
+			return r.adopt(l, cfg, f, who, seq)
+		}
+		return r.outboxChange(f.Local, who, action, seq)
+	}
 	switch action {
 	case "":
-		return r.outboxList(l, who)
+		return r.outboxList(l, cfg, who)
 	case "stats":
 		return r.outboxStats(l, who)
 	}
 	return r.outboxChange(l, who, action, seq)
+}
+
+// former finds what this machine keeps for the project under hostKey,
+// a host key the server no longer has.
+func former(l *offline.Local, hostKey string) (offline.Former, error) {
+	formers, err := l.Rekeyed()
+	if err != nil {
+		return offline.Former{}, outboxFailed(l, err)
+	}
+	for _, f := range formers {
+		if f.HostKey == hostKey {
+			return f, nil
+		}
+	}
+	return offline.Former{}, proto.Errf(proto.CodeNotFound, "`sfx outbox` names the old host keys this machine keeps writes under",
+		fmt.Sprintf("this machine keeps nothing for this project under the host key %s", hostKey))
+}
+
+// rekeyedOutbox is an outbox of `sfx outbox --json` kept for the project
+// under a host key the server no longer has.
+type rekeyedOutbox struct {
+	HostKey string `json:"host_key"`
+	// Address is where the server was, or "" when sfx did not note it;
+	// SameAddress says it is where the checkout names the server now,
+	// which `outbox retry N --host-key` needs.
+	Address     string `json:"address,omitempty"`
+	SameAddress bool   `json:"same_address"`
+	otherOutbox
+}
+
+// rekeyed lists the outboxes kept for the project under host keys the
+// server no longer has, with what waits in them.
+func rekeyed(l *offline.Local, cfg *client.Config) []rekeyedOutbox {
+	formers, err := l.Rekeyed()
+	if err != nil {
+		return nil
+	}
+	var out []rekeyedOutbox
+	for _, f := range formers {
+		for _, p := range f.Local.Principals() {
+			if n, err := f.Local.Waiting(p); err == nil && n.Pending+n.Refused > 0 {
+				out = append(out, rekeyedOutbox{HostKey: f.HostKey, Address: f.Address, SameAddress: f.Address != "" && f.Address == offline.Address(cfg),
+					otherOutbox: otherOutbox{Principal: p, Pending: n.Pending, Refused: n.Refused}})
+			}
+		}
+	}
+	return out
+}
+
+// at says where a server rekeyed was, for a person.
+func (o rekeyedOutbox) at() string {
+	switch {
+	case o.Address == "":
+		return "at an address sfx did not note"
+	case o.SameAddress:
+		return "at " + o.Address
+	}
+	return "at " + o.Address + ", not where this checkout names the server"
+}
+
+// adopt moves entry seq of who's outbox under f's host key to who's
+// outbox here, for the next command to send: the person's decision that
+// the rebuilt server is the same one.
+func (r *runner) adopt(l *offline.Local, cfg *client.Config, f offline.Former, who string, seq uint64) error {
+	e, err := l.Adopt(f.Local, who, seq)
+	switch {
+	case errors.Is(err, offline.ErrOtherAddress):
+		return proto.Errf(proto.CodeInvalid,
+			fmt.Sprintf("if it is the same server, set server.host and server.port back to what they were and retry; otherwise `sfx outbox drop %d --host-key %s` removes it", seq, f.HostKey),
+			fmt.Sprintf("entry %d was queued for the server at %s, and this checkout names %s, so it is not known to be the same server",
+				seq, cmp.Or(f.Address, "an address sfx did not note"), offline.Address(cfg)))
+	case errors.Is(err, offline.ErrNoEntry):
+		return proto.Errf(proto.CodeNotFound, "`sfx outbox --host-key "+f.HostKey+"` lists the entries and their numbers",
+			fmt.Sprintf("no entry %d in %s's outbox under the host key %s", seq, cmp.Or(who, "this machine"), f.HostKey))
+	case errors.Is(err, outbox.ErrBusy):
+		return proto.Errf(proto.CodeBusy, "run it again in a few seconds", "another sfx is sending an outbox now, so it cannot be changed")
+	case err != nil:
+		return outboxFailed(l, err)
+	}
+	if r.json {
+		r.emit(struct {
+			Entry uint64 `json:"entry"`
+			Now   uint64 `json:"now"`
+			State string `json:"state"`
+		}{seq, e.Seq, "waiting"})
+		return nil
+	}
+	_, _ = fmt.Fprintf(r.env.Stdout, "entry %d (%s) of the outbox under the old host key is entry %d of this server's now: the next sfx command that reaches the server sends it\n",
+		seq, esc(strings.TrimSpace(e.Op+" "+offline.Target(e))), e.Seq)
+	return nil
 }
 
 // outboxEntry is one entry of `sfx outbox --json`.
@@ -280,41 +392,63 @@ type otherOutbox struct {
 
 // outboxDoc is `sfx outbox --json`.
 type outboxDoc struct {
-	Principal string        `json:"principal"`
-	Pending   []outboxEntry `json:"pending"`
-	Refused   []outboxEntry `json:"refused"`
+	Principal string `json:"principal"`
+	// HostKey and Address are those of `--host-key`: the old host key
+	// the outbox is kept under, and where the server was then.
+	HostKey string        `json:"host_key,omitempty"`
+	Address string        `json:"address,omitempty"`
+	Pending []outboxEntry `json:"pending"`
+	Refused []outboxEntry `json:"refused"`
 	// UnreachableSince is when the outage in progress began, and
 	// LastNotReached when the server was last not reached, to the minute.
 	UnreachableSince time.Time     `json:"unreachable_since,omitzero"`
 	LastNotReached   time.Time     `json:"last_not_reached,omitzero"`
 	Others           []otherOutbox `json:"others,omitempty"`
+	// Rekeyed are the outboxes kept for the project under host keys the
+	// server no longer has, which nothing sends by itself.
+	Rekeyed []rekeyedOutbox `json:"rekeyed,omitempty"`
+}
+
+// entries reads who's outbox in l into doc, and returns when the outage
+// in progress began, as that outbox saw it.
+func entries(l *offline.Local, who string, doc *outboxDoc) (since time.Time, err error) {
+	doc.Pending, doc.Refused = []outboxEntry{}, []outboxEntry{}
+	ob, ok, err := l.Existing(who)
+	if err != nil || !ok {
+		return time.Time{}, err
+	}
+	list, err := ob.List()
+	if err != nil {
+		return time.Time{}, outboxFailed(l, err)
+	}
+	for _, e := range list.Pending {
+		doc.Pending = append(doc.Pending, newOutboxEntry(e))
+	}
+	for _, f := range list.Refused {
+		e := newOutboxEntry(f.Entry)
+		e.Code, e.Message, e.Fix, e.RefusedAt = f.Code, f.Message, f.Fix, f.At.UTC()
+		doc.Refused = append(doc.Refused, e)
+	}
+	if st, err := ob.Stats(); err == nil {
+		since = st.Outages.Since
+	}
+	return since, nil
 }
 
 // outboxList prints who's outbox: what waits, what was refused and why,
-// and when the server was last not reached.
-func (r *runner) outboxList(l *offline.Local, who string) error {
-	doc := outboxDoc{Principal: who, Pending: []outboxEntry{}, Refused: []outboxEntry{}, LastNotReached: l.LastMissed().UTC()}
-	if l.LastMissed().IsZero() {
-		doc.LastNotReached = time.Time{}
+// and when the server was last not reached; and what waits in the
+// outboxes of others, and under the server's old host keys.
+func (r *runner) outboxList(l *offline.Local, cfg *client.Config, who string) error {
+	doc := outboxDoc{Principal: who}
+	if t := l.LastMissed(); !t.IsZero() {
+		doc.LastNotReached = t.UTC()
 	}
-	if ob, ok, err := l.Existing(who); err != nil {
+	since, err := entries(l, who, &doc)
+	if err != nil {
 		return err
-	} else if ok {
-		list, err := ob.List()
-		if err != nil {
-			return outboxFailed(l, err)
-		}
-		for _, e := range list.Pending {
-			doc.Pending = append(doc.Pending, newOutboxEntry(e))
-		}
-		for _, f := range list.Refused {
-			e := newOutboxEntry(f.Entry)
-			e.Code, e.Message, e.Fix, e.RefusedAt = f.Code, f.Message, f.Fix, f.At.UTC()
-			doc.Refused = append(doc.Refused, e)
-		}
-		if st, err := ob.Stats(); err == nil && !st.Outages.Since.IsZero() {
-			doc.UnreachableSince = st.Outages.Since.UTC()
-		}
+	}
+	if !since.IsZero() {
+		doc.UnreachableSince = since.UTC()
 	}
 	for _, p := range l.Principals() {
 		if p == who {
@@ -324,12 +458,13 @@ func (r *runner) outboxList(l *offline.Local, who string) error {
 			doc.Others = append(doc.Others, otherOutbox{Principal: p, Pending: n.Pending, Refused: n.Refused})
 		}
 	}
+	doc.Rekeyed = rekeyed(l, cfg)
 	if r.json {
 		r.emit(doc)
 		return nil
 	}
 	p := func(format string, a ...any) { _, _ = fmt.Fprintf(r.env.Stdout, format, a...) }
-	if who == "" && len(doc.Others) == 0 {
+	if who == "" && len(doc.Others)+len(doc.Rekeyed) == 0 {
 		p("nothing is queued: this machine has not reached the server with this key, so it queues nothing\n")
 		return nil
 	}
@@ -351,8 +486,64 @@ func (r *runner) outboxList(l *offline.Local, who string) error {
 	default:
 		p("no failure to reach the server is recorded\n")
 	}
-	// One set of columns for both lists. The cells are other people's
-	// text: an id an entry names, a session, a machine.
+	r.printEntries(doc)
+	if len(doc.Pending)+len(doc.Refused) > 0 {
+		p("`sfx outbox retry N` sends a refused entry again; `sfx outbox drop N` removes an entry for good\n")
+	}
+	for _, o := range doc.Others {
+		p("%s's outbox on this machine: %d waiting, %d refused; sfx sends it on a connection as %s (`sfx outbox --principal %s` lists it)\n",
+			esc(o.Principal), o.Pending, o.Refused, esc(o.Principal), esc(o.Principal))
+	}
+	for _, o := range doc.Rekeyed {
+		// The host key and the address are this machine's own record, and
+		// a principal's name the server's: escaped all the same.
+		lists := "`sfx outbox --host-key " + esc(o.HostKey)
+		if o.Principal != who {
+			lists += " --principal " + esc(o.Principal)
+		}
+		p("under the server's old host key %s, %s: %s's outbox, %d waiting, %d refused\n",
+			esc(o.HostKey), esc(o.at()), esc(o.Principal), o.Pending, o.Refused)
+		p("  not sent by themselves, since the server's host key changed: %s` lists them\n", lists)
+	}
+	return nil
+}
+
+// formerList prints who's outbox under f's host key, which the server no
+// longer has, and what a person may do with it.
+func (r *runner) formerList(cfg *client.Config, f offline.Former, who string) error {
+	doc := outboxDoc{Principal: who, HostKey: f.HostKey, Address: f.Address}
+	if _, err := entries(f.Local, who, &doc); err != nil {
+		return err
+	}
+	if r.json {
+		r.emit(doc)
+		return nil
+	}
+	o := rekeyedOutbox{HostKey: f.HostKey, Address: f.Address, SameAddress: f.Address != "" && f.Address == offline.Address(cfg)}
+	p := func(format string, a ...any) { _, _ = fmt.Fprintf(r.env.Stdout, format, a...) }
+	p("%s's outbox under the server's old host key %s, %s: %d waiting, %d refused\n",
+		esc(cmp.Or(who, "nobody")), esc(f.HostKey), esc(o.at()), len(doc.Pending), len(doc.Refused))
+	r.printEntries(doc)
+	if len(doc.Pending)+len(doc.Refused) == 0 {
+		return nil
+	}
+	p("nothing here is sent by itself: the server's host key changed, which only a person can confirm is the same server\n")
+	key := esc(f.HostKey)
+	if o.SameAddress {
+		p("`sfx outbox retry N --host-key %s` moves entry N to this server's outbox, which sends it; `sfx outbox drop N --host-key %s` removes it for good\n", key, key)
+	} else {
+		p("this checkout names the server at %s, so its entries are not moved to it; `sfx outbox drop N --host-key %s` removes one for good\n",
+			esc(offline.Address(cfg)), key)
+	}
+	return nil
+}
+
+// printEntries prints doc's entries, waiting and refused, in one set of
+// columns, with each refusal's code, message and fix.
+func (r *runner) printEntries(doc outboxDoc) {
+	p := func(format string, a ...any) { _, _ = fmt.Fprintf(r.env.Stdout, format, a...) }
+	// The cells are other people's text: an id an entry names, a
+	// session, a machine.
 	now := r.env.Now()
 	row := func(e outboxEntry) [5]string {
 		return [5]string{strconv.FormatUint(e.Entry, 10), esc(e.Op), esc(cmp.Or(e.Issue, e.Key, "-")),
@@ -391,14 +582,6 @@ func (r *runner) outboxList(l *offline.Local, who string) error {
 			}
 		}
 	}
-	if len(doc.Pending)+len(doc.Refused) > 0 {
-		p("`sfx outbox retry N` sends a refused entry again; `sfx outbox drop N` removes an entry for good\n")
-	}
-	for _, o := range doc.Others {
-		p("%s's outbox on this machine: %d waiting, %d refused; sfx sends it on a connection as %s (`sfx outbox --principal %s` lists it)\n",
-			esc(o.Principal), o.Pending, o.Refused, esc(o.Principal), esc(o.Principal))
-	}
-	return nil
 }
 
 // outboxFailed is a failure of the outbox's own files, with a fix.

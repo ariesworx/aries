@@ -2,6 +2,9 @@ package e2e
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -512,6 +515,113 @@ func TestAccessEndedRefusesTheOutbox(t *testing.T) {
 	if out := erin.ok("outbox"); !strings.HasPrefix(out, "erin's outbox: 0 waiting, 1 refused\n") ||
 		!strings.Contains(out, "     forbidden: erin is not a member of project") {
 		t.Errorf("sfx outbox as erin, after her agent's call was refused:\n%s", out)
+	}
+}
+
+// configure rewrites the user's .starfix.yaml, as a person who edits it
+// does: from becomes to.
+func (u *user) configure(from, to string) {
+	u.w.t.Helper()
+	p := filepath.Join(u.repo, ".starfix.yaml")
+	b, err := os.ReadFile(p) //nolint:gosec // the test's own file
+	if err != nil {
+		u.w.t.Fatal(err)
+	}
+	if !strings.Contains(string(b), from) {
+		u.w.t.Fatalf("%s has no %q:\n%s", p, from, b)
+	}
+	if err := os.WriteFile(p, []byte(strings.ReplaceAll(string(b), from, to)), 0o600); err != nil { //nolint:gosec // the test's own file
+		u.w.t.Fatal(err)
+	}
+}
+
+// A server rebuilt with a new host key leaves what was queued for it
+// under the old key. Nothing of it is sent by itself, even once the
+// person has pinned the new key: a changed host key is for a person to
+// look at. `sfx outbox` and prime say it is there; a person moves an
+// entry to the current server's outbox, which then sends it, but only
+// when the checkout names the server at the address it was queued for;
+// or drops it.
+func TestRekeyedServerKeepsTheOutbox(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, daemonOpts{})
+	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
+	id := strings.TrimSpace(alice.ok("create", "Commented on before the rebuild"))
+	w.stop()
+	alice.ok("comment", id, "first, before the rebuild")
+	alice.ok("comment", id, "second, before the rebuild")
+	w.start()
+	old := w.hostFpr
+	w.rekey()
+
+	// The pin no longer matches: refused, and nothing else happens.
+	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitFailure || !strings.Contains(r.stderr, "host key mismatch") || strings.Contains(r.stderr, "outbox") {
+		t.Fatalf("a command against the rebuilt server = exit %d, stderr:\n%s\nwant the host key refused", r.code, r.stderr)
+	}
+	// The people confirm the new key and pin it.
+	alice.configure(old, w.hostFpr)
+	bob.configure(old, w.hostFpr)
+	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "" {
+		t.Errorf("the first command with the new key pinned = exit %d, stderr %q; want nothing sent by itself", r.code, r.stderr)
+	}
+	if n := bob.comments(id); n != 0 {
+		t.Errorf("the issue has %d comments, want none sent by themselves", n)
+	}
+	addr := fmt.Sprintf("127.0.0.1:%d", w.addr.Port)
+	out := alice.ok("outbox")
+	for _, want := range []string{
+		"alice's outbox is empty\n",
+		"under the server's old host key " + old + ", at " + addr + ": alice's outbox, 2 waiting, 0 refused\n",
+		"not sent by themselves, since the server's host key changed: `sfx outbox --host-key " + old + "` lists them\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("sfx outbox lacks %q:\n%s", want, out)
+		}
+	}
+	if p := alice.ok("prime"); !strings.Contains(p,
+		"notice: outbox: 2 writes queued under the server's old host key are not sent by themselves: tell the user to run `sfx outbox`\n") {
+		t.Errorf("prime does not say what waits under the old key:\n%s", p)
+	}
+	out = alice.ok("outbox", "--host-key", old)
+	for _, want := range []string{
+		"alice's outbox under the server's old host key " + old + ", at " + addr + ": 2 waiting, 0 refused\n",
+		"  1  comment  " + id,
+		"  2  comment  " + id,
+		"`sfx outbox retry N --host-key " + old + "` moves entry N to this server's outbox, which sends it; `sfx outbox drop N --host-key " + old + "` removes it for good\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("sfx outbox --host-key lacks %q:\n%s", want, out)
+		}
+	}
+
+	// Named at another address, the server is not known to be the same.
+	alice.configure("host: 127.0.0.1", "host: localhost")
+	r := alice.run("v0.2.0", "outbox", "retry", "1", "--host-key", old)
+	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "entry 1 was queued for the server at "+addr+", and this checkout names localhost:") {
+		t.Errorf("a retry with the server named at another address = exit %d, stderr:\n%s\nwant it refused", r.code, r.stderr)
+	}
+	alice.configure("host: localhost", "host: 127.0.0.1")
+	if r := alice.run("v0.2.0", "outbox", "retry", "9", "--host-key", old); r.code != cli.ExitFailure || !strings.Contains(r.stderr, "no entry 9") {
+		t.Errorf("a retry of an entry that is not there = exit %d, stderr:\n%s", r.code, r.stderr)
+	}
+	if r := alice.run("v0.2.0", "outbox", "--host-key", w.hostFpr); r.code != cli.ExitUsage {
+		t.Errorf("sfx outbox --host-key with the current key = exit %d, stderr:\n%s\nwant a usage error", r.code, r.stderr)
+	}
+
+	if out := alice.ok("outbox", "retry", "1", "--host-key", old); !strings.HasPrefix(out,
+		"entry 1 (comment "+id+") of the outbox under the old host key is entry 1 of this server's now: the next sfx command that reaches the server sends it\n") {
+		t.Errorf("sfx outbox retry --host-key said:\n%s", out)
+	}
+	alice.ok("outbox", "drop", "2", "--host-key", old)
+	if r := alice.run("v0.2.0", "ready"); r.stderr != "sfx: outbox: delivered 1\n" {
+		t.Errorf("the command after the retry said %q, want the entry delivered", r.stderr)
+	}
+	cs := decode[proto.CommentsResult](t, bob.ok("comments", id, "--json"))
+	if len(cs.Comments) != 1 || cs.Comments[0].Body != "first, before the rebuild" {
+		t.Errorf("comments = %+v, want the one retried", cs.Comments)
+	}
+	if out := alice.ok("outbox"); strings.Contains(out, "old host key") {
+		t.Errorf("sfx outbox with the old outbox emptied still names it:\n%s", out)
 	}
 }
 
