@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"testing"
@@ -104,7 +105,7 @@ func (c *fakeControl) Access(principal, project string) store.Access {
 // newFakeServer returns a server of one project over st.
 func newFakeServer(t *testing.T, st Store) *Server {
 	t.Helper()
-	s, err := New(Config{Store: st, Project: project, Version: "v0.2.0", ReapInterval: -1})
+	s, err := New(Config{Store: st, Project: project, Version: "v0.2.0", ReapInterval: -1, PeerCheck: anyPeer})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +241,7 @@ func TestProjectStoreFailsToOpen(t *testing.T) {
 		return opened, nil
 	}
 	s, err := New(Config{Control: &fakeControl{members: map[string]bool{"alice": true}}, Open: open, NoAudit: true,
-		Version: "v0.2.0", ReapInterval: -1, Logger: slogTo(&log)})
+		Version: "v0.2.0", ReapInterval: -1, Logger: slogTo(&log), PeerCheck: anyPeer})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,3 +271,7 @@ func TestProjectStoreFailsToOpen(t *testing.T) {
 		t.Errorf("after the store idled: OpenStores() = %d, closed %d times; want 0 open, closed once", s.OpenStores(), opened.closes())
 	}
 }
+
+// anyPeer passes every connection's peer check: a test's net.Pipe has
+// no peer to check, and on Linux the server's own check refuses it.
+func anyPeer(net.Conn) error { return nil }
