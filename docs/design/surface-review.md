@@ -519,3 +519,100 @@ Tests hold the guide's tables to the code (`internal/logs`,
 | `prime --hook[=AGENT]`'s output in each harness's format (`hookSpecificOutput.additionalContext` for Claude Code) | `internal/agentsetup/hook.go:131-145`; `internal/cli/agent.go:20-60` | `docs/agents.md`; `CLAUDE.md` | keep: the harnesses define it |
 | The hook input `aries` reads (`session_id`, `sessionId`, `transcript_path`…) | `internal/cli/agent.go:86-91` | `docs/agents.md` | keep: the harnesses define it |
 | `prime`'s text, which agents read | `internal/mcpserver/prime.go`; `internal/cli/agent.go` | `docs/agents.md` | keep, unfrozen: agents read it as prose |
+
+## 9. New names from the identity design
+
+`docs/design/identity.md`, on `docs/identity-v1` (decision 84, not yet
+on main), adds names that v1.0.0 will freeze before they have shipped
+once. They are cheaper to get right now than anything above. References
+are to that branch's `docs/design/identity.md`.
+
+| Item | Where | Finding |
+|---|---|---|
+| `aries login`, `aries logout`, `login --provider NAME`, `login --url`, `login --workload KIND`, `login --approve [CODE]` | §6.2-§6.9, §7.4 | keep: `login`/`logout` sit beside `whoami` as people expect |
+| `ARIES_WORKLOAD=KIND` | §7.4 | keep: the variable form of `--workload`, for CI steps |
+| `ARIES_HARNESS=claude-desktop` in the extension | §9.1 | keep (already public) |
+| `ARIES_EXTENSION=1`, whose only effect is that `aries upgrade` refuses and says to update the extension | §9.1 | rename to `ARIES_NO_UPGRADE=1`: name the effect, as `ARIES_NO_QUEUE` does. A package manager's `aries` (Homebrew, a distribution's) needs the same, and should not have to claim to be an extension |
+| `ARIES_PROJECT_DIR` (the clone with `.aries.yaml`) | §9.1 | keep. It is `-C` as a variable; `ARIES_DIR` (`install.sh`'s, §3.1) would have collided, which is a reason to rename that one |
+| `ARIES_SERVER`, `ARIES_PROJECT` ("a `.aries.yaml` for someone with no clone") | §9.1 | keep the names, with two conditions. `ARIES_SERVER` should take whatever `.aries.yaml`'s server takes once HTTPS lands (a URL), not `host[:port]` only. `ARIES_PROJECT` takes "the project's name or id" here while `.aries.yaml`'s `project` is a UUID only: one should accept what the other does. And the Docker server's `ARIES_PROJECT` must be renamed (§3.1) |
+| `ARIES_HOST_KEY` | §9.1 | settled elsewhere (§10) |
+| `login:` and `workload:` at the top of `ariesd.yaml`, with `login.enroll` nested under `login` | §10.1 | rename: enrollment serves both people and workloads (§5.3), so `enroll:` belongs at the top level beside them |
+| `login.lifetime` and `login.max_lifetime` against `workload.max_key_lifetime` | §10.1 | rename to one pair in both: `key_lifetime` and `max_key_lifetime`. What lives that long is the key |
+| Durations written `168h` in the examples | §10.1 | document: write `7d`, which `proto.ParseDuration` accepts and the rest of the guide uses |
+| `login.device_grant: false`, `login.desktop_opens`, `login.jwks_refetch`, `login.prune_after` | §10.1 | keep; `desktop_opens` reads oddly. `desktop_browser_opens_per_hour` says what it is, at a cost of length |
+| Provider entries `name`, `kind`, `issuer`, `client_id`, `client_secret_file`, `subject`, `require`, `prompt_login`, `org` | §10.1 | keep: `*_file` for a secret follows rule 2 |
+| Limits `enroll_conns`, `enroll_rate`/`enroll_burst` (a minute), `enroll_rate_total`, `enroll_challenges`, `seen_tokens`, `identities_per_principal`, `invites_open`, `login_keys_per_principal`, `trust_rules_per_principal`, `trust_rules`, `workload_keys_per_rule` | §10.2 | rename, to the rule question 3 settles. `enroll_rate` is a minute where `write_rate` is a second: make it `enroll_per_minute` (and `enroll_per_minute_total`). `invites_open` follows `open_gates` today; under a `THING_per_SCOPE` rule both become `invites_per_server` and `gates_per_project` |
+| Ops `enroll.begin`, `enroll.finish`, `principal.set`, `principal.show`, `invite.add`/`list`/`remove`, `identity.list`/`remove`, `trust.add`/`list`/`show`/`set`/`remove` | §12 | rename the lists to the existing rule (§4.2): `invites`, `identities`, `trust_rules`, as `principals`, `keys` and `members` are. `enroll.*`, `*.add`, `*.remove`, `*.set`, `*.show` keep |
+| `key.add`'s `expires`, the welcome's `key_expires`, `keys`' `expires` | §12 | rename to `expires_at` everywhere: `Issue` and `Claim` already say `expires_at` for a time |
+| `principal.add`'s `display`, `kind`, `owner`, `invite`, `provider` | §12 | rename `display` to `display_name`, as §3.1's column is. `owner` is also an issue's field, with another meaning; it is fine within `principal.add` |
+| The bridge frame's `enroll` and `addr` | §12 | settled elsewhere (§10) |
+
+## 10. Settled elsewhere: Dolt and SSH
+
+The Postgres port (decision 79, on `feature/postgres-store`) removes
+Dolt. The HTTPS transport (decisions 85 and 86, being written on
+`docs/https-transport`) makes HTTPS primary and SSH off by default, kept
+for air-gapped teams. Everything below is named after one or the other
+and changes with that work, so this review gives it no finding. It is
+listed so that the work that settles it can check its names against
+the rules above.
+
+**Dolt:**
+- **Settings and flags:** `dsn` and `ARIESD_DSN`; `--dsn`;
+  `--allow-unsafe-dolt`; `control_db` and `ARIESD_CONTROL_DB`;
+  `project_dbs` (`prefix`, `count`); `telemetry.dolt_metrics_url` and
+  `ARIESD_TELEMETRY_DOLT_METRICS_URL`. These are in
+  `internal/server/settings.go:34-60`, `:177` and
+  `cmd/ariesd/admin.go:105-132`.
+- **Limits:** `open_stores` and `store_idle`, which are the
+  store-per-database model (`internal/server/limits.go:80-84`).
+- **Protocol fields:** the status report's `dolt` (`DoltStatus`,
+  `DoltGC`), and `database` on `project.add`'s result and `Project`
+  (`internal/proto/admin.go:73`, `:94`, `:466-510`).
+- **Output:** `admin project list`'s DATABASE column
+  (`internal/cli/admin.go:159-190`).
+- **Telemetry:** the instrument `aries.store.commit.duration`, the span
+  `store.commit`, the log events `dolt.*` and `dolt_metrics.*`, and the
+  alerts `Dolt…` (`deploy/observability/alerts.yaml:261-330`).
+  `aries.stores.open` and `aries.store.open.duration` are to check under
+  Postgres.
+- **The server's files:** `dolt.service` and `Requires=dolt.service`;
+  `/etc/dolt`, `/var/lib/dolt` and the `dolt` user; `ARIES_DOLT_BASE_URL`
+  (`install-server.sh:314-535`).
+- **Guides:** `docs/server.md` §1-2, "When Dolt does not answer",
+  "Dolt's figures", "Dolt's memory".
+- **Questions for the port:**
+  - whether `ariesd control init` keeps its group;
+  - the `project_dbs.prefix` and `prefix` clash.
+
+**SSH:**
+- **`.aries.yaml`:** `server.port`, `server.user`, `server.host_key`,
+  `server.host_keys`, `server.iap.*` and `key`
+  (`internal/client/config.go:34-73`).
+- **Client variables:** `ARIES_KEY_FILE` and the refused `ARIES_KEY`;
+  `SSH_AUTH_SOCK`.
+- **`ariesd stdio`,** with `--principal` and `--key`
+  (`cmd/ariesd/main.go:583-610`); `control init --authorized-keys` and
+  `--restore-removed-access` (`cmd/ariesd/control.go:179-181`).
+- **Server settings:** `keys_file`, `authorized_keys`, `bridge` and their
+  `ARIESD_*` variables; the limit `keys_per_principal`.
+- **CLI:** `aries admin key add|list|remove`; `admin principal add --key`;
+  `admin member add --accept-keys`; `outbox --host-key`; what `whoami`
+  prints of the host, host key and identities
+  (`internal/cli/whoami.go:28-111`).
+- **Protocol:** the ops `key.add`, `keys`, `key.remove`; the fields
+  `in_authorized_keys`, `file_conns`, `keys_file`, `held_back`,
+  `accept_keys`, `carried`; the `bridge` frame and its `k`; `auth`'s
+  wording.
+- **Telemetry:** `aries.keys_file.*`, the span `keys_file.write`, the
+  limit values `handshakes_per_principal` and `handshake_sockets`, and
+  the log events `keys_file.*`.
+- **Client files:** the data directory's names by host-key hash and
+  `seen.json`'s fingerprints.
+- **Server files:** `.ssh/aries_keys` and its forced command;
+  `/etc/ssh/sshd_config.d/00-aries.conf`; the `keys.conf` drop-in; the
+  path-attached AppArmor profile `ariesd`; `deploy/docker/sshd.conf`.
+- **Guides:** `docs/server.md` "Rotating the host key", and the SSH
+  sections of `docs/cli.md` §Connect a repository.
+- **identity.md:** `ARIES_HOST_KEY`, `login.enroll.host_keys` and the
+  enrollment key.
