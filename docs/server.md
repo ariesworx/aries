@@ -624,8 +624,9 @@ grep persourcepenalties`):
 - A principal whose key was removed tried four times; sshd then dropped
   every connection from that address for about 25 seconds, the admin's
   among them (`drop connection … penalty: failed authentication` in
-  `journalctl -u ssh`). `aries` says only `ssh handshake with HOST:PORT
-  failed: ssh: handshake failed: EOF`.
+  `journalctl -u ssh`). `aries` says `HOST:PORT closed the connection
+  before the ssh handshake` (before 15 Oct 2026, only `ssh handshake
+  with HOST:PORT failed: ssh: handshake failed: EOF`).
 - A connection that ends before it tries to log in counts too (`penalty:
   connections without attempting authentication`): 16 from `aries`
   refusing a host key that no longer matched its pin turned the address
@@ -3930,7 +3931,7 @@ Dolt's collector: 1762 cycles for 12000 writes in 10m, 15 for each 100 writes: O
 | `aries: … accepted no key`, though the key line is right | The `aries` account is locked (`!` in `/etc/shadow`), or its shell is `nologin` | `usermod -p '*' aries`; `usermod -s /bin/sh aries` |
 | `aries: ariesd is not running on the server` | The daemon is stopped, or failed at start | `journalctl -u ariesd` shows why; `systemctl start ariesd` |
 | `aries: timed out after 15s waiting for … to open an ssh session`, `to start ariesd` or `to answer the hello` | The server accepted the key and then did not answer within the 15 seconds `aries` gives a connection: sshd, or something on the path to it, went quiet (the first two), or `ariesd stdio` or the daemon did not answer (the last) | Run it again. If it persists: `journalctl -u ssh` for the first two, and `ariesd status` and `journalctl -u ariesd` for the last |
-| `aries: ssh handshake with HOST:PORT failed: ssh: handshake failed: EOF`, for everyone behind one address at once | sshd turned the address away for a while: on OpenSSH 9.8 and later, Ubuntu 26.04's among them, after failed logins or connections that ended before logging in from it, such as a removed key or a pin of an old host key retried ([step 6](#6-let-the-first-principal-in)) | It ends within 10 minutes. On the server, `journalctl -u ssh -g penalty` names the address and the cause; stop the client that fails, and list shared addresses in `PerSourcePenaltyExemptList` |
+| `aries: HOST:PORT closed the connection before the ssh handshake (…)`, often for everyone behind one address at once; from an older `aries`, `ssh handshake with HOST:PORT failed: ssh: handshake failed: EOF` | The server accepted the TCP connection and hung up before the handshake. Usually sshd turned the address away for a while: on OpenSSH 9.8 and later, Ubuntu 26.04's among them, after failed logins or connections that ended before logging in from it, such as a removed key or a pin of an old host key retried ([step 6](#6-let-the-first-principal-in)). Also sshd past `MaxStartups`, or a firewall or proxy in front of it | Wait a minute and try once, not in a loop: each attempt can lengthen the penalty. Check that `aries whoami` signs in with the key the server knows. A penalty ends within 10 minutes. On the server, `journalctl -u ssh -g 'penalty|MaxStartups'` names the address and the cause; stop the client that fails, and list shared addresses in `PerSourcePenaltyExemptList`. Writes made meanwhile are queued, and `aries mcp` waits 30 seconds before it dials again |
 | `aries: open ssh session: the server closed the connection once it had accepted the key` | sshd took the key and hung up before a session was open: it was restarting, or something between the two machines cut the connection | Run it again. If it persists, `journalctl -u ssh` on the server |
 | `project "…" is not served by this server` | `.aries.yaml` and the config file name different projects; with `control_db`, the project is unknown or archived | Make the two `project` values match |
 | `… is not a member of project "…"` | With `control_db`: the principal has no row in the control database, or is in other projects only | An admin runs `aries admin member add NAME` in the project's repository (`principal add NAME` for someone new) |

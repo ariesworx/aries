@@ -377,6 +377,17 @@ machine and sends it later: `create`, `comment`, `handoff`, `remember`,
 `dep add`, `accept`, and token usage. Each carries a key that lets the
 server apply it once however often it is sent.
 
+**When sshd hangs up.** A server that accepts the connection and closes
+it before the SSH handshake is not reachable either, and a write made
+then is queued. `aries` says so, as `HOST:PORT closed the connection
+before the ssh handshake`: sshd does that for a while to an address
+with failed or dropped connections (`PerSourcePenalties`, OpenSSH 9.8
+and later) or past `MaxStartups`, and a firewall or proxy can too. Wait
+a minute and try once, not in a loop, since each attempt can lengthen
+the penalty; check that `aries whoami` signs in with the key the server
+knows; and if it persists, ask the server's operator to look for
+`penalty` in sshd's log ([Troubleshooting](server.md#troubleshooting)).
+
 Reads have a **cache**: what you read of your own work is kept, and
 shown while the server cannot be reached, saying so
 ([What is shown from the cache](#what-is-shown-from-the-cache)). A

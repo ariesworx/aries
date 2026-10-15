@@ -40,7 +40,7 @@ and fix: read it at the server's release and quote the row you act on.
 | `host key mismatch` | Stop. A changed host key is checked with the admin out of band, never accepted to make the error go | docs/cli.md#the-host-key-is-pinned |
 | `… is not a member of project` or `is disabled` | `aries -C REPO admin member list --project P`, `aries -C REPO admin principal list` | docs/server.md#managing-access |
 | `busy` | The limit named; `aries -C REPO admin status` | docs/server.md#limits |
-| `handshake failed: EOF` for everyone behind one address | `journalctl -u ssh -g penalty` | docs/server.md#6-let-the-first-principal-in |
+| `closed the connection before the ssh handshake` (older clients: `handshake failed: EOF`) for everyone behind one address | `journalctl -u ssh -g penalty` | docs/server.md#6-let-the-first-principal-in |
 | ariesd does not start, status 75 | `timedatectl` | docs/server.md#when-the-clock-is-behind-the-servers-history |
 | `permission denied` under AppArmor | The kernel's denial names the profile and path | docs/server.md#confine-ariesd-with-apparmor |
 | Anything about the database | The status report's lines about it; then references/database.md | docs/server.md#when-dolt-does-not-answer |

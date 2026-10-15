@@ -376,6 +376,16 @@ until then, so nothing can refer to it. A `label` call of several labels
 queues a write for each, and its line says how many. The agent is told
 to carry on: it finishes what it holds and files what it finds.
 
+A server whose sshd closes the connection before the SSH handshake, as
+it does for a while to an address with failed connections, counts as
+away too: writes are queued as above. Any other tool call fails with
+`unavailable: HOST:PORT closed the connection before the ssh handshake`
+and a fix telling the agent not to call aries tools again in a loop,
+to carry on with the work it holds and to tell the user, quoting what
+the person should do. `aries mcp` itself dials again no sooner than 30
+seconds later: the calls in between, and the renewals, get the same
+refusal without a connection.
+
 An `update` without a `rev` reads the issue's rev first, which needs the
 server: with the server away it fails, saying it was not queued and to
 give `rev`. A queued `update` is replayed so that what someone else
