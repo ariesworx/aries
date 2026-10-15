@@ -46,6 +46,7 @@ func (s *soak) verifyProject(ctx context.Context, p *sproj, calls []call) {
 	defer r.mu.Unlock()
 	s.checkMarkers(p, calls)
 	s.checkFencing(p, calls)
+	s.checkPartition(p, calls)
 	s.checkGuards(p)
 	s.checkTakeovers(p, calls)
 	s.checkRenewals(p)
@@ -118,7 +119,7 @@ func markersOf(args any) []string {
 func (s *soak) checkMarkers(p *sproj, calls []call) {
 	byMarker := map[string]*attempts{}
 	for _, c := range calls {
-		for _, m := range markersOf(c.args) {
+		for _, m := range markersOf(argsOf(c)) {
 			a := byMarker[m]
 			if a == nil {
 				a = &attempts{who: c.who, op: c.op}
@@ -174,7 +175,7 @@ func (s *soak) checkFencing(p *sproj, calls []call) {
 		var ok bool
 		var epoch int64
 		var id string
-		switch a := c.args.(type) {
+		switch a := argsOf(c).(type) {
 		case proto.FinishArgs:
 			at, ok = p.rep.closedAt[a.Reason]
 			epoch, id = a.Epoch, a.ID
@@ -193,7 +194,9 @@ func (s *soak) checkFencing(p *sproj, calls []call) {
 		if at.epoch != epoch {
 			s.mon.fail(id, "%s's %s fenced to epoch %d was applied under epoch %d (event %d)", c.who, c.op, epoch, at.epoch, at.seq)
 		}
-		if at.holder != c.who && at.holder != (sessKey{}) {
+		// A replay from an outbox is delivered by whichever session of
+		// the principal connects next, not the one that held the claim.
+		if at.holder != c.who && at.holder != (sessKey{}) && (c.replayed == nil || at.holder.principal != c.who.principal) {
 			s.mon.fail(id, "%s's %s under epoch %d was applied while %s held it (event %d)", c.who, c.op, epoch, at.holder, at.seq)
 		}
 	}

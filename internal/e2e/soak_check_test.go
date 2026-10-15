@@ -350,14 +350,15 @@ type replay struct {
 	guards   []guardCheck
 	overs    []takeover
 	notices  []notice
-	markers  map[string]int       // marker → events carrying it
-	closedAt map[string]atEpoch   // close reason → claim then
-	handedAt map[string]atEpoch   // handoff note → claim then
-	usage    map[sessKey]int      // usage.add events by session
-	causes   map[string]bool      // issue and time of every change, for claim.lost
-	ops      map[string]int       // events by op
-	created  map[string]time.Time // issue → created_at
-	tx       []sevent             // events of the transaction being read
+	markers  map[string]int        // marker → events carrying it
+	stamped  map[string][]stampRec // idempotency key → the events it stamps
+	closedAt map[string]atEpoch    // close reason → claim then
+	handedAt map[string]atEpoch    // handoff note → claim then
+	usage    map[sessKey]int       // usage.add events by session
+	causes   map[string]bool       // issue and time of every change, for claim.lost
+	ops      map[string]int        // events by op
+	created  map[string]time.Time  // issue → created_at
+	tx       []sevent              // events of the transaction being read
 	txs      int
 
 	// released holds, for the transaction being applied, the claims a
@@ -378,7 +379,7 @@ type replay struct {
 func newReplay(fail func(string, string, ...any), admins []string) *replay {
 	r := &replay{fail: fail, admins: map[string]bool{}, issues: map[string]*rIssue{}, deps: map[depKey]bool{},
 		claims: map[string]*rClaim{}, holds: map[string][]*hold{}, takers: map[issueEpoch]sessKey{},
-		ends: map[issueEpoch]ended{}, markers: map[string]int{}, closedAt: map[string]atEpoch{},
+		ends: map[issueEpoch]ended{}, markers: map[string]int{}, stamped: map[string][]stampRec{}, closedAt: map[string]atEpoch{},
 		handedAt: map[string]atEpoch{}, usage: map[sessKey]int{}, causes: map[string]bool{}, ops: map[string]int{},
 		created: map[string]time.Time{}, tookAt: map[issueEpoch]time.Time{}}
 	for _, a := range admins {
@@ -400,6 +401,9 @@ func (r *replay) feed(evs []sevent) {
 		}
 		r.seq, r.lastAt = e.seq, e.at
 		r.ops[e.op]++
+		if e.idem != "" {
+			r.stamped[e.idem] = append(r.stamped[e.idem], stampRec{seq: e.seq, op: e.op})
+		}
 		if n := len(r.tx); n > 0 && (r.tx[n-1].at != e.at || r.tx[n-1].actor != e.actor) {
 			r.flush()
 		}
@@ -538,6 +542,19 @@ func (r *replay) apply(tx []sevent) {
 			r.kept(e)
 		case "claim.away":
 			r.away(e)
+		case "conflict.park":
+			// A replayed update parked a title someone else changed
+			// since (design §18.7): the title it set is its marker.
+			var c struct {
+				Field string `json:"field"`
+				Mine  string `json:"mine"`
+			}
+			_ = json.Unmarshal(e.after, &c)
+			if c.Field == "title" {
+				r.markers[c.Mine]++
+			}
+		case "conflict.resolve":
+			// A later change to the field closed the conflict.
 		case "usage.add":
 			r.usage[e.actor]++
 		default:

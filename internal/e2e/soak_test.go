@@ -48,7 +48,9 @@ import (
 // STARFIX_SOAK_TELEMETRY turns the daemon's telemetry on for the run
 // (soak_telemetry_test.go): check holds its instruments and spans to
 // the event logs, and refused and hang give it a collector that is not
-// there. See CONTRIBUTING.md, "The soak test".
+// there. STARFIX_SOAK_PARTITION=1 cuts agents off from the server for
+// minutes at a time, the gate of stage 5 (soak_partition_test.go). See
+// CONTRIBUTING.md, "The soak test".
 func TestSoak(t *testing.T) {
 	// Serial: counts the process's goroutines and connections (checkLeaks); it is concurrent inside.
 	cfg, err := soakConfigFrom(os.Getenv)
@@ -59,6 +61,9 @@ func TestSoak(t *testing.T) {
 		cfg.seed, cfg.duration, len(cfg.principals), cfg.sessions, cfg.speed, cfg.seed)
 	if cfg.telemetry != telOff {
 		t.Logf("soak: telemetry on (STARFIX_SOAK_TELEMETRY=%s)", cfg.telemetry)
+	}
+	if cfg.partition {
+		t.Logf("soak: partition mode on (STARFIX_SOAK_PARTITION): agents are cut off from the server for %s to %s at a time", cutMin, cutMax)
 	}
 	s := newSoak(t, cfg)
 	s.run()
@@ -103,6 +108,9 @@ type soakConfig struct {
 	// telemetry is what the daemon's telemetry does in the run: telOff,
 	// telCheck, telRefused or telHang.
 	telemetry string
+	// partition cuts agents off from the server now and then, as they
+	// go on working (soak_partition_test.go).
+	partition bool
 }
 
 // soakConfigFrom reads STARFIX_SOAK (a duration; empty runs the short
@@ -137,6 +145,10 @@ func soakConfigFrom(getenv func(string) string) (soakConfig, error) {
 			return soakConfig{}, fmt.Errorf("STARFIX_SOAK_SEED=%q: want an unsigned integer", v)
 		}
 		cfg.seed = n
+	}
+	var err error
+	if cfg.partition, err = partitionFrom(getenv("STARFIX_SOAK_PARTITION")); err != nil {
+		return soakConfig{}, err
 	}
 	switch v := getenv("STARFIX_SOAK_TELEMETRY"); v {
 	case telOff, telCheck, telRefused, telHang:
@@ -254,10 +266,13 @@ type soak struct {
 	}
 	// clockStats counts the clock chaos (soak_clock_test.go).
 	clockStats clockStats
-	baseline   int            // goroutines before any session started
-	connBase   map[string]int // connGoroutines then
-	started    time.Time
-	ended      time.Duration // real length of the work
+	// part is the partition mode's, nil when it is off
+	// (soak_partition_test.go).
+	part     *partition
+	baseline int            // goroutines before any session started
+	connBase map[string]int // connGoroutines then
+	started  time.Time
+	ended    time.Duration // real length of the work
 }
 
 // user returns principal's repository for project p.
@@ -278,6 +293,9 @@ func newSoak(t *testing.T, cfg soakConfig) *soak {
 	s := &soak{t: t, cfg: cfg, clock: clock, mon: newMonitor(), logs: &logCounter{}, users: map[string]map[*sproj]*user{},
 		storeKey: map[string]string{}, eve: map[*sproj]*user{}}
 	s.logs.audit = cfg.telemetry == telCheck
+	if cfg.partition {
+		s.part = &partition{}
+	}
 	// Before the world, so that it stops after the daemon has.
 	s.tel = newSoakTel(t, cfg.telemetry, slog.New(s.logs))
 	// A span may carry no principal's name, and no session id, which
@@ -346,6 +364,9 @@ func (s *soak) run() {
 	s.ended = time.Since(s.started)
 	s.w.dropReplyTo("")
 
+	drain, stopDrain := context.WithTimeout(context.Background(), 15*time.Minute)
+	s.drain(drain)
+	stopDrain()
 	settle, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	for _, a := range s.agents() {
@@ -618,6 +639,7 @@ func (s *soak) report() {
 		r.mu.Unlock()
 	}
 	s.reportAccess(&b)
+	s.reportPartition(&b, calls)
 	m := s.mon
 	m.mu.Lock()
 	fmt.Fprintf(&b, "  chaos: %d dropped answers, %d connection drops, %d daemon restarts; %d sessions vanished, %d stalled; %d dial failures; retries %v\n",

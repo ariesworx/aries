@@ -271,6 +271,60 @@ func TestReplayCatches(t *testing.T) {
 			},
 		},
 		{
+			name: "a late finish after the reaper, nobody having taken the issue",
+			log: func(b *logBuilder) *logBuilder {
+				b.create(alice, "sf-1").take(alice, "sf-1", 1, time.Minute, "")
+				b.add(3*time.Minute, reaper, "claim.expire", "sf-1", b.claimOf(alice, 1, 3*time.Minute), "")
+				return b.add(time.Minute, alice2, "claim.lapsed", "sf-1", `{"epoch": 1}`, `{"op": "finish"}`).
+					add(0, alice2, "issue.close", "sf-1", `{"status": "open"}`, `{"status": "closed", "close_reason": "done alice-3"}`)
+			},
+		},
+		{
+			name: "a late finish applied though the issue was taken since",
+			log: func(b *logBuilder) *logBuilder {
+				b.create(alice, "sf-1").take(alice, "sf-1", 1, time.Minute, "")
+				b.add(3*time.Minute, reaper, "claim.expire", "sf-1", b.claimOf(alice, 1, 3*time.Minute), "")
+				b.take(bob, "sf-1", 2, 15*time.Minute, "")
+				return b.add(time.Minute, alice, "claim.lapsed", "sf-1", `{"epoch": 1}`, `{"op": "finish"}`)
+			},
+			want: "late write under epoch 1 applied, but epoch 2 was taken since",
+		},
+		{
+			name: "a lapse recorded before the lease ran out",
+			log: func(b *logBuilder) *logBuilder {
+				b.create(alice, "sf-1").take(alice, "sf-1", 1, 15*time.Minute, "")
+				return b.add(time.Minute, alice, "claim.lapsed", "sf-1", b.claimOf(alice, 1, 17*time.Minute), `{"op": "handoff"}`)
+			},
+			want: "claim.lapsed at",
+		},
+		{
+			name: "a late finish kept as a comment, the issue taken since",
+			log: func(b *logBuilder) *logBuilder {
+				b.create(alice, "sf-1").take(alice, "sf-1", 1, time.Minute, "")
+				b.add(3*time.Minute, reaper, "claim.expire", "sf-1", b.claimOf(alice, 1, 3*time.Minute), "")
+				b.take(bob, "sf-1", 2, 15*time.Minute, "")
+				return b.add(time.Minute, alice, "comment.add", "sf-1", "", `{"id": "c1", "body": "Finish made at epoch 1, delivered late, kept"}`).
+					add(0, alice, "issue.kept", "sf-1", "", `{"op": "finish", "epoch": 1, "comment": "c1", "reason": "done alice-3"}`)
+			},
+		},
+		{
+			name: "a late finish kept as a comment though nobody took the issue",
+			log: func(b *logBuilder) *logBuilder {
+				b.create(alice, "sf-1").take(alice, "sf-1", 1, time.Minute, "")
+				return b.add(3*time.Minute, alice, "comment.add", "sf-1", "", `{"id": "c1", "body": "kept"}`).
+					add(0, alice, "issue.kept", "sf-1", "", `{"op": "finish", "epoch": 1, "comment": "c1", "reason": "done alice-3"}`)
+			},
+			want: "but the issue had not moved on",
+		},
+		{
+			name: "an away that cut a lease short",
+			log: func(b *logBuilder) *logBuilder {
+				b.create(alice, "sf-1").take(alice, "sf-1", 1, time.Hour, "")
+				return b.add(time.Minute, alice, "claim.away", "sf-1", b.claimOf(alice, 1, 2*time.Hour), `{"expires_at": `+b.ts(time.Hour)+`}`)
+			},
+			want: "claim.away cut a lease",
+		},
+		{
 			name: "an op the soak does not expect",
 			log: func(b *logBuilder) *logBuilder {
 				return b.create(alice, "sf-1").add(time.Minute, alice, "issue.vanish", "sf-1", "", "")
