@@ -786,6 +786,14 @@ access control lists.
 | 2 | Usage error: an unknown flag or a missing argument |
 | 3 | The server refused this client's protocol version; the `fix:` line says which side to upgrade |
 
+**`lock run` exits with its command's code**, so that a script or a CI
+step sees what the command did: once CMD has run, a 1, 2 or 3 is CMD's,
+not `aries`'s. It exits 130 when an interrupt (ctrl-c, SIGTERM) ended
+CMD, and 1 when the hold was lost while CMD ran, after stopping it,
+since what the lock guards was no longer guarded. Before CMD starts, the
+codes are `aries`'s own, as above: 1 when the lock could not be taken, 2
+for a mistake on the command line ([Locks](#locks)).
+
 With `--json`, a failure prints one document on standard output and
 nothing on standard error, in the shape the MCP server gives an agent:
 
