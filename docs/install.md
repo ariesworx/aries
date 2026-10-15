@@ -188,21 +188,23 @@ starts an agent's session, includes it. To upgrade the server, see
 from](#where-releases-are-read-from)), and asks your Aries server
 nothing, so it works when the server refuses your `aries` as too old.
 
-**Coming from v0.4.x or earlier.** A server of this release refuses every
-earlier `aries`, once, on purpose ([Upgrades](server.md#upgrades)). Each
-command then exits 3 and says:
+**When the server is newer, or older.** A release that changes the
+protocol keeps accepting the one before it, so the server is upgraded
+first and each `aries` after, at its own pace. An `aries` the server no
+longer accepts, or one newer than the server, is refused at the
+handshake with exit code 3 and a `fix:` line naming which side to
+upgrade. Run `aries upgrade` on each machine, then restart your agents:
+the MCP server an agent's harness started is the old `aries` until the
+harness starts it again. If your `aries` is the newer one,
+`aries upgrade --rollback` puts your previous `aries` back until the
+server is upgraded.
 
-```text
-aries: aries speaks protocol 4; the server (v0.5.0) needs protocols 7 to 8
-fix: upgrade this client: run `aries upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `aries mcp`
-```
-
-Run `aries upgrade`, or the install script above, on each machine. Then
-restart your agents: the MCP server an agent's harness started is the
-old `aries` until the harness starts it again, and its tools go on failing
-with code `version` until then. If your `aries` is the new one and the
-server is not yet, you are told to have the server upgraded instead, and
-`aries upgrade --rollback` puts your previous `aries` back meanwhile.
+**Coming from v0.4.x or earlier.** An upgrade in place is not possible.
+A v0.4.x `aries` looks for releases under the project's former names
+and trusts only the former release key, so `aries upgrade` finds
+nothing it would install, and a v1.0.0 server refuses it anyway.
+Install `aries` again with the script above, and follow
+[Upgrading to 1.0](upgrade-to-1.0.md).
 
 ## Uninstall
 

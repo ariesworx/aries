@@ -39,46 +39,17 @@ The release notes name the Dolt version the release was tested with
 They also say, first, when the release changes the protocol
 (`internal/proto/version.go`): the version it speaks and the range it
 accepts, and which earlier releases keep working. Normally all of the
-one before do, since `ProtoMin` stays one version behind. **The first
-release after v0.4.0 is the exception:** it speaks and accepts protocol
-5 alone, so every earlier `aries` is refused by it, and it is refused by
-every earlier server. Its notes must lead with that, give the order
-(server, then every `aries`, then restart the agents) and link
-[Upgrades](docs/server.md#upgrades), which has the text each side
-prints.
+one before do, since `ProtoMin` stays one version behind. **v1.0.0 is
+the exception:** under decision 78 its protocol is settled at the
+release, to one version, and no number is given until then; it refuses
+every client and server of v0.4.x and earlier. Its notes
+([docs/releases/v1.0.0.md](docs/releases/v1.0.0.md)) lead with that and
+link [Upgrading to 1.0](docs/upgrade-to-1.0.md).
 
-**The same release changes which key `aries` signs in with, and its notes
-must say so beside the protocol.** A key named for `aries` is now the only
-key it offers the server, and `key:` in `.aries.yaml` may name only a
-file inside the repository. A `.aries.yaml` with a line such as `key:
-~/.ssh/id_ed25519`, which every earlier release accepted, is refused:
-`aries` says so, names the line to remove, and gives the replacement, the
-environment variable `ARIES_KEY_FILE=~/.ssh/id_ed25519`, which holds
-the key file's path. The notes give that one step and three more
-things. With no key named, `aries` now tries the default identity files of
-`~/.ssh` before ssh-agent's keys, as `ssh` does, and offers five keys at
-most, so a person whose key is `~/.ssh/id_ed25519` needs no ssh-agent,
-and one with several registered keys may sign in by a different one
-than before. A CI job that followed the team guide's earlier recipe has
-a secret named `ARIES_KEY` holding a private key: `aries` never reads
-it, and the notes link the new recipe
-([docs/deploy/team.md](docs/deploy/team.md)), which writes the key to a
-file and sets `ARIES_KEY_FILE` to its path. And `aries whoami` shows
-which principal and key a connection used. The notes link [Your key is your
-identity](docs/cli.md#your-key-is-your-identity).
-
-**That same release is the first whose ariesd refuses to start with
-its clock behind its own history** (`clock_behind: stop`, design §14,
-decision 37). Its notes must say so under the protocol change: a server
-whose clock once ran ahead holds events dated in the future and will not
-start after the upgrade; how to find out beforehand (the query in
-[Upgrades](docs/server.md#upgrades)); the three ways on (wait, set
-`clock_behind: warn`, or start once with `--accept-clock-behind`); the
-unit lines to add (`RestartPreventExitStatus=75`, `time-sync.target`);
-and that a usage record may now be 5 minutes past the server's clock,
-not an hour. The upgrade from v0.4.0 cannot ask the question itself,
-since the binary that runs it predates the check: it puts the old
-binary back and reports the new one unhealthy.
+What this section once required of the first release after v0.4.0
+(the key `aries` signs in with, and the refusal to start with the clock
+behind) concerned upgrading a v0.4.0 server in place, which v1.0.0 does
+not allow; its notes give both as breaking changes.
 
 ## Changing the Dolt pin
 

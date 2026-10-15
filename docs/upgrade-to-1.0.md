@@ -79,22 +79,34 @@ by a new key, so the former client finds nothing it would install. The
 install script trusts the new key; check a download by hand as
 [Verify a download by hand](install.md#verify-a-download-by-hand) says.
 
-### 4. Name your key
+### 4. Sign in
 
-`aries` signs in with the key `ssh` would use: a default file in
-`~/.ssh`, then ssh-agent's keys. To use another, set
-`ARIES_KEY_FILE` to the key file's path. A `key:` line in the config
-file may name only a file inside the repository; `key: ~/.ssh/…` is
-refused, and `aries` names the variable to use instead. Send your
-server's admin the `.pub` of the key you will use; on the new server
-you are a new principal ([Your key is your
-identity](cli.md#your-key-is-your-identity)).
+How you sign in depends on the transport your server uses. On the new
+server you are a new principal either way.
 
-**(planned, decision 83)** On a server with sign-in, `aries login`
-signs you in through your identity provider instead, in the browser or
-by a URL it prints, and the key it is given expires. **(planned)** On a
-server that serves HTTPS, which becomes the default transport, there
+**Over HTTPS (planned, decision 86), the default.** Your admin invites
+you by the address your company's identity provider knows you by. Then,
+in the repository:
+
+```sh
+aries login
+```
+
+It opens the browser at your provider; where there is no browser,
+`aries login --url` prints a URL to open on any machine. The sign-in
+lasts a day by default, and the token it leaves is bound to a key on
+this machine and useless anywhere else. `aries logout` ends it. There
 is no SSH key to send.
+
+**Over SSH,** where your operator turned SSH on: `aries` signs in with
+the key `ssh` would use, a default file in `~/.ssh` and then
+ssh-agent's keys. To use another, set `ARIES_KEY_FILE` to the key
+file's path. A `key:` line in the config file may name only a file
+inside the repository; `key: ~/.ssh/…` is refused, and `aries` names
+the variable to use instead. Send your admin the `.pub` of the key you
+will use ([Your key is your
+identity](cli.md#your-key-is-your-identity)). **(planned, decision
+87)** Your admin may give the key an end date.
 
 ### 5. Rename your environment variables
 
@@ -110,24 +122,32 @@ your shell's profile, an IDE's settings or a CI job:
 
 A CI secret that held a private key for the client to read is never
 read: write the key to a file in the job and set `ARIES_KEY_FILE`
-([Team deployment](deploy/team.md)). **(planned, decision 83)** A CI
-job may instead sign in as a service principal with its platform's
-workload identity, and hold no key.
+([Team deployment](deploy/team.md)). **(planned, decision 87)** Over
+HTTPS, a CI job instead signs in as a service principal with its
+platform's own token, `aries login --workload github-actions` (or
+`google`, `azure`), and holds no key.
 
 ### 6. Connect the repository again
 
 Delete the former project config file from the repository's root and
 commit `.aries.yaml` in its place. The admin of the new server gives it
 to you: `aries admin project add` prints one for a new project. It
-names a new project (a new UUID), the new server, its host key and the
-account `aries`:
+names a new project (a new UUID) and the new server: **(planned,
+decision 86)** its HTTPS address, and its host and host key when SSH is
+on:
 
 ```yaml
 project: 6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f
 server:
-  host: aries.example.com
+  url: https://aries.example.com   # planned: HTTPS, the default
+  host: aries.example.com          # SSH, when the server has it on
   host_key: SHA256:…
 ```
+
+`server.ca` (planned) holds a site's own certificate authority, for a
+machine whose system store lacks it. Where both transports are set,
+`aries` uses HTTPS, and `ARIES_TRANSPORT=ssh` in your environment
+chooses SSH, for a server reached through IAP.
 
 Then check the connection:
 
@@ -156,8 +176,22 @@ approve the project's MCP server in Claude Code, trust it in Codex,
 Gemini CLI or VS Code, turn Aries on in Cursor
 ([Set up an agent](agents.md#set-up-an-agent)). For Claude Desktop, run
 `aries setup claude-desktop --write` in the repository and reopen the
-app. **(planned, decision 83)** Or install the Aries extension for
+app. **(planned, decision 87)** Or install the Aries extension for
 Claude Desktop, which carries `aries` and signs you in.
+
+**(planned, decision 87)** On an internet-facing server, Claude's
+custom connectors (claude.ai, Claude Desktop, mobile) and Claude Code
+can instead add Aries as a remote MCP server by its URL, one per
+project, with no binary on the machine:
+
+```sh
+claude mcp add --transport http aries https://aries.example.com/mcp/p/PROJECT
+```
+
+A connector reaches the server from Anthropic's cloud, so it cannot
+reach a private or air-gapped server; use `aries mcp` or the extension
+there. Long work belongs in an agent with `aries mcp`, which renews its
+claims; a connector's claim lapses a lease after its last tool call.
 
 Restart every agent: an agent's MCP server is the binary the harness
 started, and it stays the former one until the harness starts it again.
@@ -199,7 +233,23 @@ curl -fsSLO https://raw.githubusercontent.com/ariesworx/aries/main/install-serve
 sudo sh install-server.sh --admin alice --admin-key alice.pub --host aries.example.com --dry-run
 ```
 
-Drop `--dry-run` to set it up. Or follow
+Drop `--dry-run` to set it up. **(planned, decision 87)** Choose a
+profile with `--profile`:
+
+| Profile | For |
+|---|---|
+| `internet` (the default) | A team on any network, with Claude's connectors: HTTPS, with ACME or your certificate, and any identity provider |
+| `private` | A company network or VPN: HTTPS with your company CA's certificate, and an internal or a cloud provider |
+| `airgapped` | A site with no route out: HTTPS with the site CA's certificate, an identity provider inside the network, releases from a directory |
+| `ssh-only` | Today's server: SSH alone, HTTPS off, keys and no sign-in |
+
+**SSH is off unless you turn it on (planned, decision 86).** Add
+`--enable-ssh` to any of the first three profiles for teams that sign in
+with keys or reach the server through IAP; then set
+`transports: [https, ssh]` and reload `ariesd`. Keys added while SSH is
+off take effect when it is turned on.
+
+Or follow
 [Running a server](server.md#set-up-a-server) step by step, or have
 Claude Code do it with the `aries-ops` plugin
 ([Operate a server with Claude Code](server.md#operate-a-server-with-claude-code)).
@@ -214,9 +264,12 @@ it, remove the former server first ([On the former
 server](#on-the-former-server)). Its SSH host key does not change, so a
 `.aries.yaml` may pin the same fingerprint as before.
 
-**(planned)** HTTPS becomes the default transport, with SSH off by
-default and kept for servers with no other way in. This step will then
-include the server's certificate.
+**(planned, decision 86)** An HTTPS server needs a DNS name and a
+certificate (ACME, or your CA's files), and the registration of Aries
+at your identity provider, with one redirect,
+`https://aries.example.com/auth/callback`. An Entra ID provider takes
+its cloud's authority from the settings, with no default; Microsoft's
+US Government and classified clouds are configurable and not tested.
 
 ### 3. Add projects and people
 
@@ -230,9 +283,11 @@ aries admin member set …
 ```
 
 Send each project's `.aries.yaml` to its people (developer step 6).
-**(planned, decision 83)** With sign-in configured, invite people by
-the address their identity provider knows them by, and add CI jobs and
-unattended agents as service principals.
+**(planned, decisions 85 and 87)** With sign-in configured, invite
+people by the address their identity provider knows them by; a
+sign-in binds only an identity an admin invited. Add CI jobs and
+unattended agents as service principals, with trust rules matched on
+their platform's token.
 
 ### 4. Bring over what you configured
 
