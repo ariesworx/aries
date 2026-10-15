@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -22,6 +23,10 @@ func ciGate(t *testing.T, s *Store, subject, blocks IssueID, check string) Gate 
 	return mustGate(t, s, alice, NewGate{Kind: GateCI, Check: check, Subject: subject, Blocks: blocks,
 		Approvers: []string{"ci-example"}})
 }
+
+// withPassword is a link to a run with an invented user and password in
+// it, which a report must not carry.
+var withPassword = (&url.URL{Scheme: "https", User: url.UserPassword("bob", "invented"), Host: "ci.example.com", Path: "/runs/1"}).String()
 
 // inboxOf is principal a's unread items of kind k.
 func inboxOf(t *testing.T, s *Store, a Actor, k InboxKind) []InboxItem {
@@ -261,6 +266,15 @@ func TestCIGateAdd(t *testing.T) {
 	if _, err := s.PassCheck(ctx, ciJob, Report{Check: "build"}); !errors.Is(err, ErrInvalid) {
 		t.Errorf("PassCheck naming no gate and no subject = %v, want ErrInvalid", err)
 	}
+	build, err := s.ChecksOf(ctx, a.ID)
+	if err != nil || len(build) == 0 || build[0].Check != "build" {
+		t.Fatalf("ChecksOf(%s) = %+v, %v; want its build gate first", a.ID, build, err)
+	}
+	for _, r := range []Report{{Gate: build[0].ID, Check: "landed"}, {Gate: build[0].ID, Subject: b.ID}} {
+		if _, err := s.PassCheck(ctx, ciJob, r); !errors.Is(err, ErrInvalid) {
+			t.Errorf("PassCheck(%+v), a gate and another check or subject = %v, want ErrInvalid", r, err)
+		}
+	}
 }
 
 // Evidence is bounded (gate_evidence) and holds no secret (rule 2): a URL
@@ -279,7 +293,7 @@ func TestCheckEvidence(t *testing.T) {
 	}{
 		{"a run's URL, a commit and a reason", Report{URL: "https://ci.example.com/example/repo/actions/runs/1234567890", SHA: "0123abc", Reason: "lint failed"}, true},
 		{"no evidence", Report{}, true},
-		{"a URL with a password", Report{URL: "https://bob:hunter2@ci.example.com/runs/1"}, false},
+		{"a URL with a password", Report{URL: withPassword}, false},
 		{"a URL with a user", Report{URL: "https://bob@ci.example.com/runs/1"}, false},
 		{"a URL of another scheme", Report{URL: "file:///etc/passwd"}, false},
 		{"a URL that is no URL", Report{URL: "not a url"}, false},

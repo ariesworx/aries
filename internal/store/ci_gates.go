@@ -1,6 +1,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -249,8 +250,12 @@ func findCheck(ctx context.Context, q querier, r Report) (*gateRow, error) {
 		if err != nil {
 			return nil, err
 		}
-		if g == nil {
+		switch {
+		case g == nil:
 			return nil, fmt.Errorf("%w: issue %s is not a gate", ErrInvalid, r.Gate)
+		case r.Check != "" && r.Check != g.Check, r.Subject != "" && r.Subject != g.Subject:
+			return nil, fmt.Errorf("%w: gate %s is for check %s on %s, not %s on %s; name the gate, or the issue and the check",
+				ErrInvalid, g.ID, cmp.Or(g.Check, "none"), cmp.Or(g.Subject, "no issue"), cmp.Or(r.Check, g.Check), cmp.Or(r.Subject, g.Subject))
 		}
 		return g, nil
 	}

@@ -2,6 +2,7 @@ package server
 
 import (
 	"net"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -51,7 +52,8 @@ func TestCIGateFromBranch(t *testing.T) {
 			proto.GateArgs{Check: "build", Branch: branch}, proto.CodeForbidden, "agent's session", "CI"},
 		{"a branch and another issue", ciJob, proto.GateArgs{Check: "build", Branch: branch, Subject: next.ID}, proto.CodeInvalid,
 			"names " + impl.ID, "one of"},
-		{"evidence with a password", ciJob, proto.GateArgs{Check: "build", Branch: branch, URL: "https://u:p@ci.example.com/1"},
+		{"evidence with a password", ciJob, proto.GateArgs{Check: "build", Branch: branch,
+			URL: (&url.URL{Scheme: "https", User: url.UserPassword("u", "invented"), Host: "ci.example.com"}).String()},
 			proto.CodeInvalid, "user or a password", ""},
 	}
 	for _, tc := range refused {
