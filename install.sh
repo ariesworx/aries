@@ -41,11 +41,11 @@ EOF
 DEFAULT_RELEASES=github
 
 # The release signing public key as a PEM SubjectPublicKeyInfo. It must
-# match internal/release/keys.go (Lsz75EL8k/kqkFSEtvkCB6bVC8BKiuI3zzux00wv/Gs=);
+# match internal/release/keys.go (PY3QJCqgGjLI5r/3LarwbF9Pnm/MQyEKxROSTrmZT7c=);
 # the body is base64 of 302a300506032b6570032100 followed by the 32 key bytes.
 # Rotate it in the same pull request as keys.go (RELEASING.md).
 RELEASE_PUBKEY_PEM='-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEALsz75EL8k/kqkFSEtvkCB6bVC8BKiuI3zzux00wv/Gs=
+MCowBQYDK2VwAyEAPY3QJCqgGjLI5r/3LarwbF9Pnm/MQyEKxROSTrmZT7c=
 -----END PUBLIC KEY-----'
 
 say() { printf '%s\n' "$*"; }

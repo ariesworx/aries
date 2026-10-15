@@ -6,5 +6,5 @@ package release
 // key beside the old one for at least one release before the old one is
 // removed (RELEASING.md).
 var releaseKeys = []string{
-	"Lsz75EL8k/kqkFSEtvkCB6bVC8BKiuI3zzux00wv/Gs=", // first key, 2026-10-07
+	"PY3QJCqgGjLI5r/3LarwbF9Pnm/MQyEKxROSTrmZT7c=", // Aries key, 2026-10-15
 }
