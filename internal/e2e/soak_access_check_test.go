@@ -23,7 +23,7 @@ const (
 
 var (
 	root       = sessKey{"root", "s1"}
-	clockActor = sessKey{"starfixd", "clock"}
+	clockActor = sessKey{"ariesd", "clock"}
 )
 
 // The states of control rows, as the control store's events carry them.
@@ -273,7 +273,7 @@ func accessSoak(log *logBuilder) (*soak, *sproj) {
 
 func TestCheckLost(t *testing.T) {
 	t.Parallel()
-	alice, carol, sweep := sessKey{"alice", "s1"}, sessKey{"carol", "s1"}, sessKey{"starfixd", "access"}
+	alice, carol, sweep := sessKey{"alice", "s1"}, sessKey{"carol", "s1"}, sessKey{"ariesd", "access"}
 	// The control log: at 8m (the world's last event is at 9m; see below)
 	// each case removes, disables or archives, an hour in.
 	t0 := newLog().t0

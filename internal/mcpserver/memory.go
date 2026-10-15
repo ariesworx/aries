@@ -14,7 +14,7 @@ var scopes = []any{"project", "user", "team"}
 const rememberDesc = "Save a fact for later sessions. scope: project (default); user for personal preferences " +
 	"(ask if unsure); team only if asked. rev replaces."
 
-// RememberIn writes a memory. Pinning is left to people (sfx pin).
+// RememberIn writes a memory. Pinning is left to people (aries pin).
 type RememberIn struct {
 	Key   string   `json:"key"`
 	Body  string   `json:"body"`

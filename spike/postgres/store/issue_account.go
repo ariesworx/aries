@@ -12,7 +12,7 @@ import (
 // Accounts (design §12.1). An issue's account is what its time and tokens
 // are reported against: a client's engagement code name or an internal
 // department, never a client's real name. An issue without one inherits
-// its parent's, up the chain; starfixd's account: setting covers the
+// its parent's, up the chain; ariesd's account: setting covers the
 // rest. Code names only, so the pattern admits nothing but lowercase
 // letters, digits and inner hyphens.
 

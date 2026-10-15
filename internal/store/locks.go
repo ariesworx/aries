@@ -16,7 +16,7 @@ import (
 // held by up to its capacity of holders at once, each a (principal,
 // session, machine) under a lease, as a claim is. It is tied to no issue,
 // and holding one changes no issue: a merge train, a deploy or a shared
-// resource takes one around its critical section, through `sfx lock run`
+// resource takes one around its critical section, through `aries lock run`
 // or the protocol. No agent tool takes one.
 //
 // Each grant takes the project's next epoch, so a lock's epochs only
@@ -38,7 +38,7 @@ import (
 // Lock bounds.
 const (
 	// WaiterLease is how long a place in a queue lasts unless renewed;
-	// `sfx lock run` renews it every 30 seconds.
+	// `aries lock run` renews it every 30 seconds.
 	WaiterLease = 2 * time.Minute
 	// MaxLockName is the longest name a lock may have: an event's target
 	// is "lock:" and the name, in 64 bytes.

@@ -41,7 +41,7 @@ func TestConnectionCap(t *testing.T) {
 	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
 	alice.rawDial("s-held") // holds alice's one connection
 	r := alice.run("v0.2.0", "list")
-	if want := "sfx: alice is at its connection limit (1)\nfix: " + proto.FixConnLimit + "\n"; r.code != 1 || r.stderr != want {
+	if want := "aries: alice is at its connection limit (1)\nfix: " + proto.FixConnLimit + "\n"; r.code != 1 || r.stderr != want {
 		t.Fatalf("alice's second connection: exit %d\n%s\nwant exit 1\n%s", r.code, r.stderr, want)
 	}
 	r = alice.run("v0.2.0", "--json", "list")
@@ -64,7 +64,7 @@ func TestConnectionCapForAnAgent(t *testing.T) {
 	ag := alice.mcp("v0.2.0")
 	const title = "Made at the limit"
 	out, isErr := ag.call("create", map[string]any{"title": title})
-	if !isErr || !strings.HasPrefix(out, "busy: alice is at its connection limit (1)\nfix: the user's other starfix sessions hold every connection the server allows them") ||
+	if !isErr || !strings.HasPrefix(out, "busy: alice is at its connection limit (1)\nfix: the user's other aries sessions hold every connection the server allows them") ||
 		!strings.Contains(out, "15m lease") || !strings.Contains(out, "writes are not kept for later") {
 		t.Fatalf("create at the limit = %q (error %v), want the refusal at the connection limit", out, isErr)
 	}

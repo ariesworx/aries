@@ -9,7 +9,7 @@ import (
 )
 
 // What a store's writer has been doing lately, kept in memory for an
-// admin to watch a server of many projects by (design §15.4, `sfx admin
+// admin to watch a server of many projects by (design §15.4, `aries admin
 // status`). Nothing here is stored: a store that is closed and opened
 // again starts from zero.
 

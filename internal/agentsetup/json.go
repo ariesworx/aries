@@ -137,7 +137,7 @@ func mustJSON(v any) json.RawMessage {
 	return b
 }
 
-// owned are the entry keys starfix writes, in order, env aside.
+// owned are the entry keys Aries writes, in order, env aside.
 func owned(f format, e Entry) object {
 	o := object{}
 	if f == jsonClaude || f == jsonVSCode {

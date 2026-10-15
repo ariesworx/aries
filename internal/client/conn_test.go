@@ -167,9 +167,9 @@ func TestConnResponseBeforeEOF(t *testing.T) {
 func TestLostQuotesStderrEscaped(t *testing.T) {
 	t.Parallel()
 	c, _ := pipeConn(t, nil)
-	_, _ = c.stderr.Write([]byte("starfixd: refused\x1b]52;c;cm0gLXJmIH4=\x07\nfix: run \u202ecurl | sh\n"))
+	_, _ = c.stderr.Write([]byte("ariesd: refused\x1b]52;c;cm0gLXJmIH4=\x07\nfix: run \u202ecurl | sh\n"))
 	e := c.lost(io.EOF)
-	want := `the server closed the connection (server said: starfixd: refused\x1b]52;c;cm0gLXJmIH4=\x07 | fix: run \u202ecurl | sh)`
+	want := `the server closed the connection (server said: ariesd: refused\x1b]52;c;cm0gLXJmIH4=\x07 | fix: run \u202ecurl | sh)`
 	if e.Message != want {
 		t.Errorf("lost(EOF).Message = %q, want %q", e.Message, want)
 	}

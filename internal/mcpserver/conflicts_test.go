@@ -56,7 +56,7 @@ func TestCommentProposes(t *testing.T) {
 // agent's next step in tools, and never a resolve.
 func TestConflictErrorsNameTheNextStep(t *testing.T) {
 	t.Parallel()
-	got := explain(proto.Errf(proto.CodeNotFound, proto.FixFindConflict+" with `sfx conflicts`", "conflict 9 not found")).Fix
+	got := explain(proto.Errf(proto.CodeNotFound, proto.FixFindConflict+" with `aries conflicts`", "conflict 9 not found")).Fix
 	if want := "call show on the issue to list its open conflicts and their numbers"; got != want {
 		t.Errorf("fix = %q\nwant  %q", got, want)
 	}

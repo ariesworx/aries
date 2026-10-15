@@ -2,11 +2,11 @@
 // without compiling them as the program starts, after the package of the
 // same name in the Go distribution (cmd/go).
 //
-// Every starfixd process initializes every package the binary links, and
-// sshd starts one, `starfixd stdio`, for each connection. Compiled at
-// initialization, starfix's own expressions were most of what such a
+// Every ariesd process initializes every package the binary links, and
+// sshd starts one, `ariesd stdio`, for each connection. Compiled at
+// initialization, Aries's own expressions were most of what such a
 // process allocated before main, and so most of its memory
-// (docs/design/profile-starfixd.md, proposal 2). A Regexp compiles on
+// (docs/design/profile-ariesd.md, proposal 2). A Regexp compiles on
 // first use instead, so a process pays only for those it uses.
 package lazyregexp
 

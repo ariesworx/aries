@@ -24,7 +24,7 @@ import (
 )
 
 // errDown is what a dial returns while the server is away.
-var errDown = proto.Errf(proto.CodeUnavailable, "check server.host and server.port in .starfix.yaml, and your network",
+var errDown = proto.Errf(proto.CodeUnavailable, "check server.host and server.port in .aries.yaml, and your network",
 	"cannot reach 127.0.0.1:2222: connection refused")
 
 // outage is a server that comes and goes: while down, a dial fails as
@@ -147,7 +147,7 @@ func drop(c *fakeConn) {
 	c.lost = errLost
 }
 
-const queuedLine = "queued: starfix cannot reach its server, so this %s waits on this machine and is sent when the server answers. Carry on, and do not repeat it."
+const queuedLine = "queued: aries cannot reach its server, so this %s waits on this machine and is sent when the server answers. Carry on, and do not repeat it."
 
 // TestQueuedToolCalls pins what an agent is told when a write does not
 // reach the server and is queued: one terse line that says so and that
@@ -222,7 +222,7 @@ func TestQueuedSeveralAndUnqueuedUpdate(t *testing.T) {
 	drop(a.net.conns[0])
 	a.net.set(true)
 	res := callTool(t, a.cs, "label", map[string]any{"action": "add", "id": "sf-1", "labels": []string{"a", "b", "c"}})
-	want := "queued: starfix cannot reach its server, so these 3 writes (label.add) wait on this machine and are sent when the server answers. Carry on, and do not repeat them."
+	want := "queued: aries cannot reach its server, so these 3 writes (label.add) wait on this machine and are sent when the server answers. Carry on, and do not repeat them."
 	if got := text(t, res); res.IsError || got != want {
 		t.Errorf("label of three while the server is away = %q (error %v)\nwant %q", got, res.IsError, want)
 	}
@@ -294,7 +294,7 @@ func TestUnqueuedToolCalls(t *testing.T) {
 	} {
 		res := callTool(t, a.cs, tc.tool, tc.args)
 		want := "unavailable: cannot reach 127.0.0.1:2222: connection refused\n" +
-			"fix: starfix cannot reach its server, and this was not queued (" + tc.want + "): carry on with the work you hold and call it again later; if it still fails, tell the user"
+			"fix: aries cannot reach its server, and this was not queued (" + tc.want + "): carry on with the work you hold and call it again later; if it still fails, tell the user"
 		if got := text(t, res); !res.IsError || got != want {
 			t.Errorf("%s while the server is away = %q (error %v)\nwant %q", tc.tool, got, res.IsError, want)
 		}
@@ -316,8 +316,8 @@ func TestOutboxRefusalsForAnAgent(t *testing.T) {
 		a.net.set(true)
 		res := callTool(t, a.cs, "comment", map[string]any{"id": "sf-1", "body": "hi"})
 		want := "unavailable: cannot reach 127.0.0.1:2222: connection refused, and this comment was not queued: " +
-			"this machine has never reached the server with this key, so sfx cannot tell whose write it is\n" +
-			"fix: starfix cannot reach its server and could not keep this for later: keep the text, call it again when a call succeeds, and tell the user"
+			"this machine has never reached the server with this key, so aries cannot tell whose write it is\n" +
+			"fix: aries cannot reach its server and could not keep this for later: keep the text, call it again when a call succeeds, and tell the user"
 		if got := text(t, res); !res.IsError || got != want {
 			t.Errorf("comment = %q (error %v)\nwant %q", got, res.IsError, want)
 		}
@@ -330,7 +330,7 @@ func TestOutboxRefusalsForAnAgent(t *testing.T) {
 		//nolint:gosec // G101: an invented token, which the outbox must refuse
 		res := callTool(t, a.cs, "comment", map[string]any{"id": "sf-1", "body": "the token is ghp_0123456789abcdefghijABCDEFGHIJ012345"})
 		got := text(t, res)
-		if !res.IsError || !strings.HasPrefix(got, "invalid: ") || strings.Contains(got, "ghp_") || strings.Contains(got, "sfx outbox") ||
+		if !res.IsError || !strings.HasPrefix(got, "invalid: ") || strings.Contains(got, "ghp_") || strings.Contains(got, "aries outbox") ||
 			!strings.HasSuffix(got, "\nfix: never store a secret: remember the rest, naming where the secret is kept (a vault path or an environment variable) instead") {
 			t.Errorf("comment with a token = %q (error %v); want the refusal, the next step, and neither the token nor a command", got, res.IsError)
 		}
@@ -344,7 +344,7 @@ func TestQueuedWritesGoFirstOnTheNextConnection(t *testing.T) {
 	t.Parallel()
 	second := &fakeConn{reply: func(op string, args any) (any, error) {
 		if b, _ := json.Marshal(args); op == proto.OpComment && strings.Contains(string(b), "sf-gone") {
-			return nil, proto.Errf(proto.CodeNotFound, "find the id with `sfx list`", "issue sf-gone not found")
+			return nil, proto.Errf(proto.CodeNotFound, "find the id with `aries list`", "issue sf-gone not found")
 		}
 		return proto.Empty{}, nil
 	}}
@@ -369,7 +369,7 @@ func TestQueuedWritesGoFirstOnTheNextConnection(t *testing.T) {
 	if err := json.Unmarshal([]byte(text(t, res)), &p); err != nil {
 		t.Fatal(err)
 	}
-	want := "outbox: 1 write made while the server was away was refused: tell the user to run `sfx outbox`"
+	want := "outbox: 1 write made while the server was away was refused: tell the user to run `aries outbox`"
 	if !slices.Contains(p.Notices, want) {
 		t.Errorf("prime's notices are %q, want among them %q", p.Notices, want)
 	}
@@ -468,7 +468,7 @@ func TestNoOutboxNoQueue(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = cs.Close() })
 	res := callTool(t, cs, "comment", map[string]any{"id": "sf-1", "body": "hi"})
-	if got := text(t, res); !res.IsError || !strings.Contains(got, "fix: tell the user starfix cannot connect") {
+	if got := text(t, res); !res.IsError || !strings.Contains(got, "fix: tell the user aries cannot connect") {
 		t.Errorf("comment with no outbox = %q (error %v), want the dial error", got, res.IsError)
 	}
 }

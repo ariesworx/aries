@@ -1,6 +1,6 @@
 // Package secretscan finds text that looks like a credential: a private
 // key, a cloud or service token, a password or secret assigned a value,
-// or a long random token. It is the one place starfix decides what looks
+// or a long random token. It is the one place Aries decides what looks
 // like a secret, so every kind of text the server keeps can be checked
 // the same way (design §6: a secrets lint refuses anything that looks
 // like a key or password).

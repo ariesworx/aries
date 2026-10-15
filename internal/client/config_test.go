@@ -20,7 +20,7 @@ const (
 
 func TestParseConfig(t *testing.T) {
 	t.Parallel()
-	good := "project: " + testProject + "\nserver:\n  host: starfix.example.com\n  host_key: " + testFpr + "\n"
+	good := "project: " + testProject + "\nserver:\n  host: aries.example.com\n  host_key: " + testFpr + "\n"
 	tests := []struct {
 		name string
 		in   string
@@ -33,7 +33,7 @@ func TestParseConfig(t *testing.T) {
 		{name: "uppercase uuid", in: strings.Replace(good, testProject, strings.ToUpper(testProject), 1), err: "project"},
 		{name: "short fingerprint", in: strings.Replace(good, testFpr, "SHA256:abc", 1), err: "host_key"},
 		{name: "md5 fingerprint", in: strings.Replace(good, testFpr, "MD5:aa:bb", 1), err: "host_key"},
-		{name: "option as host", in: strings.Replace(good, "starfix.example.com", "-oProxyCommand=x", 1), err: "server.host"},
+		{name: "option as host", in: strings.Replace(good, "aries.example.com", "-oProxyCommand=x", 1), err: "server.host"},
 		{name: "bad port", in: good + "  port: 70000\n", err: "server.port"},
 		{name: "bad user", in: good + "  user: Root!\n", err: "server.user"},
 		{name: "empty", in: "", err: "project"},
@@ -66,7 +66,7 @@ var testFprNew = "SHA256:" + strings.Repeat("B", 43)
 // server presents it and removed after.
 func TestParseConfigHostKeys(t *testing.T) {
 	t.Parallel()
-	head := "project: " + testProject + "\nserver:\n  host: starfix.example.com\n"
+	head := "project: " + testProject + "\nserver:\n  host: aries.example.com\n"
 	tests := []struct {
 		name string
 		in   string
@@ -116,7 +116,7 @@ func TestParseConfigHostKeys(t *testing.T) {
 func TestLoadConfigWalksUp(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	body := "project: " + testProject + "\nserver:\n  host: starfix.example.com\n  host_key: " + testFpr + "\nkey: keys/me\n"
+	body := "project: " + testProject + "\nserver:\n  host: aries.example.com\n  host_key: " + testFpr + "\nkey: keys/me\n"
 	if err := os.WriteFile(filepath.Join(root, ConfigFile), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestLoadConfigWalksUp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Root != root || c.Server.Port != 22 || c.Server.User != "starfix" {
+	if c.Root != root || c.Server.Port != 22 || c.Server.User != "aries" {
 		t.Fatalf("config: %+v", c)
 	}
 	if p, err := c.KeyPath(); err != nil || p != filepath.Join(root, "keys", "me") {
@@ -144,7 +144,7 @@ func TestLoadConfigWalksUp(t *testing.T) {
 	}
 }
 
-// TestKeyFile pins where the key file comes from: STARFIX_KEY, by any
+// TestKeyFile pins where the key file comes from: ARIES_KEY, by any
 // path, before the config's key:, which stays inside the repository
 // (TestKeyPathStaysInTheRepository has that rule's cases).
 func TestKeyFile(t *testing.T) {
@@ -162,15 +162,15 @@ func TestKeyFile(t *testing.T) {
 		name, env, key string
 		want, from     string
 	}{
-		{"neither", "", "", "", "key: in .starfix.yaml"},
-		{"the config's key, in the repository", "", "rel/k", filepath.Join(root, "rel/k"), "key: in .starfix.yaml"},
-		{"STARFIX_KEY, absolute", "/abs/key", "", "/abs/key", "STARFIX_KEY_FILE"},
-		{"STARFIX_KEY, under home", "~/.ssh/k", "", filepath.Join(home, ".ssh/k"), "STARFIX_KEY_FILE"},
-		{"STARFIX_KEY, relative to the working directory", "rel/k", "", filepath.Join(wd, "rel/k"), "STARFIX_KEY_FILE"},
-		{"STARFIX_KEY wins over the config's key", "/abs/key", "rel/k", "/abs/key", "STARFIX_KEY_FILE"},
+		{"neither", "", "", "", "key: in .aries.yaml"},
+		{"the config's key, in the repository", "", "rel/k", filepath.Join(root, "rel/k"), "key: in .aries.yaml"},
+		{"ARIES_KEY, absolute", "/abs/key", "", "/abs/key", "ARIES_KEY_FILE"},
+		{"ARIES_KEY, under home", "~/.ssh/k", "", filepath.Join(home, ".ssh/k"), "ARIES_KEY_FILE"},
+		{"ARIES_KEY, relative to the working directory", "rel/k", "", filepath.Join(wd, "rel/k"), "ARIES_KEY_FILE"},
+		{"ARIES_KEY wins over the config's key", "/abs/key", "rel/k", "/abs/key", "ARIES_KEY_FILE"},
 		// A key: the config may not name is not looked at when
-		// STARFIX_KEY is set.
-		{"STARFIX_KEY wins over a key: outside the repository", "/abs/key", "/elsewhere/k", "/abs/key", "STARFIX_KEY_FILE"},
+		// ARIES_KEY is set.
+		{"ARIES_KEY wins over a key: outside the repository", "/abs/key", "/elsewhere/k", "/abs/key", "ARIES_KEY_FILE"},
 	}
 	for _, tc := range tests {
 		c := &Config{Key: tc.key, Root: root}
@@ -191,7 +191,7 @@ func TestKeyFile(t *testing.T) {
 // cannot capture a checkout without one (C-6).
 func TestLoadConfigBoundary(t *testing.T) {
 	t.Parallel()
-	body := "project: " + testProject + "\nserver:\n  host: starfix.example.com\n  host_key: " + testFpr + "\n"
+	body := "project: " + testProject + "\nserver:\n  host: aries.example.com\n  host_key: " + testFpr + "\n"
 	tests := []struct {
 		name string
 		// dirs are made, files written with body (or as named, mode
@@ -246,7 +246,7 @@ func TestLoadConfigRefusesOthersFiles(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows has no Unix owner or mode bits; see LoadConfig")
 	}
-	body := "project: " + testProject + "\nserver:\n  host: starfix.example.com\n  host_key: " + testFpr + "\n"
+	body := "project: " + testProject + "\nserver:\n  host: aries.example.com\n  host_key: " + testFpr + "\n"
 	tests := []struct {
 		name  string
 		mode  fs.FileMode
@@ -301,7 +301,7 @@ func TestLoadConfigRefusesOthersFiles(t *testing.T) {
 // a newline or a shell metacharacter, is refused.
 func TestParseConfigIAP(t *testing.T) {
 	t.Parallel()
-	base := "project: " + testProject + "\nserver:\n  host: starfix-1\n  host_key: " + testFpr + "\n"
+	base := "project: " + testProject + "\nserver:\n  host: aries-1\n  host_key: " + testFpr + "\n"
 	iap := func(project, zone, instance string) string {
 		s := base + "  iap:\n    project: " + project + "\n    zone: " + zone + "\n"
 		if instance != "" {
@@ -315,7 +315,7 @@ func TestParseConfigIAP(t *testing.T) {
 		instance string // want, when err is ""
 		err      string
 	}{
-		{name: "instance from host", in: iap("example-project", "us-central1-a", ""), instance: "starfix-1"},
+		{name: "instance from host", in: iap("example-project", "us-central1-a", ""), instance: "aries-1"},
 		{name: "explicit instance", in: iap("example-project", "europe-west4-b", "tracker-2"), instance: "tracker-2"},
 		{name: "unknown field", in: iap("example-project", "us-central1-a", "") + "    command: sh\n", err: "command"},
 		{name: "no project", in: base + "  iap:\n    zone: us-central1-a\n", err: "server.iap.project"},
@@ -332,8 +332,8 @@ func TestParseConfigIAP(t *testing.T) {
 		{name: "instance as a flag", in: iap("example-project", "us-central1-a", `"-x"`), err: "server.iap.instance"},
 		{name: "instance with a semicolon", in: iap("example-project", "us-central1-a", `"a;b"`), err: "server.iap.instance"},
 		{name: "instance with a newline", in: iap("example-project", "us-central1-a", `"a\nb"`), err: "server.iap.instance"},
-		{name: "instance uppercase", in: iap("example-project", "us-central1-a", "Starfix"), err: "server.iap.instance"},
-		{name: "host not an instance name", in: strings.Replace(iap("example-project", "us-central1-a", ""), "starfix-1", "starfix.example.com", 1), err: "server.iap.instance"},
+		{name: "instance uppercase", in: iap("example-project", "us-central1-a", "Aries"), err: "server.iap.instance"},
+		{name: "host not an instance name", in: strings.Replace(iap("example-project", "us-central1-a", ""), "aries-1", "aries.example.com", 1), err: "server.iap.instance"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -357,38 +357,38 @@ func TestParseConfigIAP(t *testing.T) {
 	}
 }
 
-// TestConfigForProject pins the .starfix.yaml `sfx admin project add`
+// TestConfigForProject pins the .aries.yaml `aries admin project add`
 // prints for a new project: this repository's server, the new project,
 // and nothing private to this machine.
 func TestConfigForProject(t *testing.T) {
 	t.Parallel()
 	const other = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
-	base := "project: " + testProject + "\nserver:\n  host: starfix.example.com\n  host_key: " + testFpr + "\n"
+	base := "project: " + testProject + "\nserver:\n  host: aries.example.com\n  host_key: " + testFpr + "\n"
 	tests := []struct {
 		name string
 		in   string
 		want string
 	}{
 		{"minimal", base,
-			"project: " + other + "\nserver:\n  host: starfix.example.com\n  host_key: " + testFpr + "\n"},
-		{"the defaults written out are left out", base + "  port: 22\n  user: starfix\n",
-			"project: " + other + "\nserver:\n  host: starfix.example.com\n  host_key: " + testFpr + "\n"},
+			"project: " + other + "\nserver:\n  host: aries.example.com\n  host_key: " + testFpr + "\n"},
+		{"the defaults written out are left out", base + "  port: 22\n  user: aries\n",
+			"project: " + other + "\nserver:\n  host: aries.example.com\n  host_key: " + testFpr + "\n"},
 		{"a port and a user", base + "  port: 2222\n  user: tracker\n",
-			"project: " + other + "\nserver:\n  host: starfix.example.com\n  port: 2222\n  user: tracker\n  host_key: " + testFpr + "\n"},
+			"project: " + other + "\nserver:\n  host: aries.example.com\n  port: 2222\n  user: tracker\n  host_key: " + testFpr + "\n"},
 		{"the key path is never printed", base + "key: ~/.ssh/id_ed25519_work\n",
-			"project: " + other + "\nserver:\n  host: starfix.example.com\n  host_key: " + testFpr + "\n"},
-		{"iap", "project: " + testProject + "\nserver:\n  host: starfix-1\n  host_key: " + testFpr +
+			"project: " + other + "\nserver:\n  host: aries.example.com\n  host_key: " + testFpr + "\n"},
+		{"iap", "project: " + testProject + "\nserver:\n  host: aries-1\n  host_key: " + testFpr +
 			"\n  iap:\n    project: example-project\n    zone: us-central1-a\n",
-			"project: " + other + "\nserver:\n  host: starfix-1\n  host_key: " + testFpr +
+			"project: " + other + "\nserver:\n  host: aries-1\n  host_key: " + testFpr +
 				"\n  iap:\n    project: example-project\n    zone: us-central1-a\n"},
-		{"iap with its own instance", "project: " + testProject + "\nserver:\n  host: starfix-1\n  host_key: " + testFpr +
+		{"iap with its own instance", "project: " + testProject + "\nserver:\n  host: aries-1\n  host_key: " + testFpr +
 			"\n  iap:\n    project: example-project\n    zone: us-central1-a\n    instance: tracker-2\n",
-			"project: " + other + "\nserver:\n  host: starfix-1\n  host_key: " + testFpr +
+			"project: " + other + "\nserver:\n  host: aries-1\n  host_key: " + testFpr +
 				"\n  iap:\n    project: example-project\n    zone: us-central1-a\n    instance: tracker-2\n"},
-		{"one key in host_keys is printed as host_key", "project: " + testProject + "\nserver:\n  host: starfix.example.com\n  host_keys: [" + testFpr + "]\n",
-			"project: " + other + "\nserver:\n  host: starfix.example.com\n  host_key: " + testFpr + "\n"},
-		{"several keys, in order", "project: " + testProject + "\nserver:\n  host: starfix.example.com\n  host_keys: [" + testFprNew + ", " + testFpr + "]\n",
-			"project: " + other + "\nserver:\n  host: starfix.example.com\n  host_keys:\n    - " + testFprNew + "\n    - " + testFpr + "\n"},
+		{"one key in host_keys is printed as host_key", "project: " + testProject + "\nserver:\n  host: aries.example.com\n  host_keys: [" + testFpr + "]\n",
+			"project: " + other + "\nserver:\n  host: aries.example.com\n  host_key: " + testFpr + "\n"},
+		{"several keys, in order", "project: " + testProject + "\nserver:\n  host: aries.example.com\n  host_keys: [" + testFprNew + ", " + testFpr + "]\n",
+			"project: " + other + "\nserver:\n  host: aries.example.com\n  host_keys:\n    - " + testFprNew + "\n    - " + testFpr + "\n"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -1,13 +1,13 @@
 {
-  "name": "starfix-ops",
-  "displayName": "starfix operations",
-  "description": "Deploy and run a starfix server by talking to Claude: cloud provisioning, first install, day-2 operations and client onboarding, following docs/server.md, with every change shown and approved first and no secret in the transcript",
+  "name": "aries-ops",
+  "displayName": "Aries operations",
+  "description": "Deploy and run an Aries server by talking to Claude: cloud provisioning, first install, day-2 operations and client onboarding, following docs/server.md, with every change shown and approved first and no secret in the transcript",
   "author": {
-    "name": "starfix maintainers",
+    "name": "Aries maintainers",
     "url": "https://github.com/ariesworx/aries"
   },
   "homepage": "https://github.com/ariesworx/aries/blob/main/docs/server.md#operate-a-server-with-claude-code",
   "repository": "https://github.com/ariesworx/aries",
   "license": "Apache-2.0",
-  "keywords": ["starfix", "operations", "server", "ssh", "dolt"]
+  "keywords": ["aries", "operations", "server", "ssh", "dolt"]
 }

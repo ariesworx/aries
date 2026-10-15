@@ -38,7 +38,7 @@ func TestMemoryCLI(t *testing.T) {
 
 	r := bob.run("v0.2.0", "remember", "deploy-window", "Any", "time.")
 	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "memory deploy-window exists in project scope at rev 1, written by alice") ||
-		!strings.Contains(r.stderr, "fix: recall it with `sfx recall --key deploy-window --scope project`, merge, and retry with --rev 1") {
+		!strings.Contains(r.stderr, "fix: recall it with `aries recall --key deploy-window --scope project`, merge, and retry with --rev 1") {
 		t.Fatalf("remember over an existing key: exit %d\n%s", r.code, r.stderr)
 	}
 	wr := decode[proto.WriteResult](t, bob.ok("remember", "deploy-window", "Any", "weekday.", "--rev", "1", "--json"))
@@ -67,7 +67,7 @@ func TestMemoryCLI(t *testing.T) {
 		t.Fatalf("bob's memories after forget: %q", got)
 	}
 	if r := bob.run("v0.2.0", "pin", "deploy-window"); r.code != cli.ExitFailure ||
-		!strings.Contains(r.stderr, "fix: find the key with `sfx memories --scope project`") {
+		!strings.Contains(r.stderr, "fix: find the key with `aries memories --scope project`") {
 		t.Fatalf("pin a forgotten memory: exit %d\n%s", r.code, r.stderr)
 	}
 
@@ -154,13 +154,13 @@ func TestUserScopeMemoryIsPrivate(t *testing.T) {
 		{"memories"}, {"memories", "--scope", "user", "--json"}, {"show", id}, {"history", id, "--json"},
 		{"digest", "--json"}, {"prime"}, {"prime", "--json"},
 	} {
-		leaks("bob's sfx "+strings.Join(args, " "), bob.ok(args...))
+		leaks("bob's aries "+strings.Join(args, " "), bob.ok(args...))
 	}
 	if got := bob.ok("recall", "--scope", "user"); !strings.Contains(got, "bob's own") {
 		t.Errorf("bob's user scope lost his own memory:\n%s", got)
 	}
 	bob.ok("handoff", id, "back to you", "--release")
-	leaks("bob's sfx start", bob.ok("start", id, "--take"))
+	leaks("bob's aries start", bob.ok("start", id, "--take"))
 
 	agent := bob.mcp("v0.2.0")
 	for _, call := range []struct {

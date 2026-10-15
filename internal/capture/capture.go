@@ -59,7 +59,7 @@ type Result struct {
 	// read, and lines too long to read.
 	Skipped int
 	// Unrecognized says a transcript had response lines but none could
-	// be read: its format is not one sfx knows. Version is the Claude
+	// be read: its format is not one aries knows. Version is the Claude
 	// Code version such a line named, if any.
 	Unrecognized bool
 	Version      string
@@ -79,8 +79,8 @@ type Result struct {
 // failed send is retried by the next run. The server keeps one record per
 // request, so a record sent twice, by runs at once or after a lost state
 // file, is counted once. A file truncated or replaced since its offset
-// was kept is read from its start. A file in a format sfx does not know
-// keeps its offset, so a later sfx can read what it holds.
+// was kept is read from its start. A file in a format aries does not know
+// keeps its offset, so a later aries can read what it holds.
 //
 // Errors reading one file do not stop the others; all are returned,
 // joined, with the send's.
@@ -244,7 +244,7 @@ type stateDoc struct {
 // drops what it already has.
 func loadState(dir string) map[string]mark {
 	var doc stateDoc
-	b, err := os.ReadFile(filepath.Join(dir, StateFile)) //nolint:gosec // sfx's own state file
+	b, err := os.ReadFile(filepath.Join(dir, StateFile)) //nolint:gosec // aries's own state file
 	if err != nil || json.Unmarshal(b, &doc) != nil || doc.Files == nil {
 		return map[string]mark{}
 	}

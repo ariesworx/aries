@@ -1,43 +1,43 @@
-# Where a starfix server keeps its files, for the AppArmor profiles of
-# starfixd (/etc/apparmor.d/starfixd). Install this file as
-# /etc/apparmor.d/tunables/starfixd.
+# Where an Aries server keeps its files, for the AppArmor profiles of
+# ariesd (/etc/apparmor.d/ariesd). Install this file as
+# /etc/apparmor.d/tunables/ariesd.
 #
 # The values are those of docs/server.md. If you moved something, change
 # it here and nowhere else, then reload the profiles:
 #
-#   apparmor_parser -r /etc/apparmor.d/starfixd
+#   apparmor_parser -r /etc/apparmor.d/ariesd
 #
 # AppArmor matches the path a file really has, with symbolic links
 # resolved, so name the real directory, not a link to it.
 
-# The directory that holds the starfixd binary. `starfixd upgrade`
+# The directory that holds the ariesd binary. `ariesd upgrade`
 # replaces the binary here and keeps the one it replaced beside it.
-# /usr/local/bin/starfixd is a symbolic link to it and needs no entry.
-@{starfixd_bin}=/opt/starfix/bin
+# /usr/local/bin/ariesd is a symbolic link to it and needs no entry.
+@{ariesd_bin}=/opt/aries/bin
 
-# Every directory above it but the root, separated by spaces. `starfixd
+# Every directory above it but the root, separated by spaces. `ariesd
 # upgrade` looks at each to find the file it must replace.
-@{starfixd_bin_above}=/opt /opt/starfix
+@{ariesd_bin_above}=/opt /opt/aries
 
-# The config file (`--config`, STARFIXD_CONFIG).
-@{starfixd_config}=/etc/starfix/starfixd.yaml
+# The config file (`--config`, ARIESD_CONFIG).
+@{ariesd_config}=/etc/aries/ariesd.yaml
 
 # The directory of the daemon's unix socket (`socket`; the unit's
 # RuntimeDirectory).
-@{starfixd_run}=/run/starfix
+@{ariesd_run}=/run/aries
 
-# The home directory of the account starfixd runs as. Not under /home:
+# The home directory of the account ariesd runs as. Not under /home:
 # the profiles refuse everything there.
-@{starfixd_home}=/var/lib/starfix
+@{ariesd_home}=/var/lib/aries
 
-# The file starfixd writes for sshd on a server of many projects
+# The file ariesd writes for sshd on a server of many projects
 # (`keys_file`), as its directory and its name, and the hand-maintained
 # file it reads beside it (`authorized_keys`).
-@{starfixd_keys_dir}=@{starfixd_home}/.ssh
-@{starfixd_keys_name}=starfix_keys
-@{starfixd_authorized_keys}=@{starfixd_home}/.ssh/authorized_keys
+@{ariesd_keys_dir}=@{ariesd_home}/.ssh
+@{ariesd_keys_name}=aries_keys
+@{ariesd_authorized_keys}=@{ariesd_home}/.ssh/authorized_keys
 
 # The file that holds the key principals' stand-ins in traces are made
-# with (`telemetry: principals_key`). starfixd makes it, in a directory
+# with (`telemetry: principals_key`). ariesd makes it, in a directory
 # the operator made for it, when it first exports traces.
-@{starfixd_principals_key}=@{starfixd_home}/telemetry/principals.key
+@{ariesd_principals_key}=@{ariesd_home}/telemetry/principals.key

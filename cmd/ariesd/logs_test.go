@@ -52,7 +52,7 @@ func TestRunDaemonExportsLogs(t *testing.T) {
 				env[k] = v
 			}
 			d := runSite(t, s, env)
-			waitFor(t, "the daemon to serve", func() bool { return strings.Contains(d.log.String(), "starfixd serving") })
+			waitFor(t, "the daemon to serve", func() bool { return strings.Contains(d.log.String(), "ariesd serving") })
 			if w := hello(t, d.sock, "alice", second); w.Err == nil {
 				t.Fatalf("hello for a project the server does not serve was welcomed")
 			}
@@ -73,7 +73,7 @@ func TestRunDaemonExportsLogs(t *testing.T) {
 				t.Errorf("%d bytes of logs were exported, want some: %t", len(logs), tc.want)
 			}
 			out := d.log.String()
-			for _, want := range []string{`msg="starfixd serving" event=daemon.serving`, `msg="handshake failed" event=handshake.failed`} {
+			for _, want := range []string{`msg="ariesd serving" event=daemon.serving`, `msg="handshake failed" event=handshake.failed`} {
 				if !strings.Contains(out, want) {
 					t.Errorf("stderr lacks %q, which it has whatever is exported:\n%s", want, out)
 				}
@@ -81,7 +81,7 @@ func TestRunDaemonExportsLogs(t *testing.T) {
 			if tc.want {
 				// The message and the event, and nothing of the error's
 				// text, which names the project asked for.
-				for _, want := range []string{"starfixd serving", "handshake failed", "starfixd"} {
+				for _, want := range []string{"ariesd serving", "handshake failed", "ariesd"} {
 					if !bytes.Contains(logs, []byte(want)) {
 						t.Errorf("the exported logs lack %q", want)
 					}

@@ -15,7 +15,7 @@ import (
 
 // dolts are the package's Dolt servers: a test has one to itself while it
 // runs, so the tests can run in parallel (dolttest.Pool).
-var dolts = dolttest.NewPool("starfixd-admin-", dolttest.Options{})
+var dolts = dolttest.NewPool("ariesd-admin-", dolttest.Options{})
 
 func TestMain(m *testing.M) {
 	os.Exit(runTests(m))
@@ -40,7 +40,7 @@ func doltOf(t testing.TB) *dolttest.Server {
 	return srv
 }
 
-// newDSN returns an empty database's DSN in $STARFIXD_DSN form, on the
+// newDSN returns an empty database's DSN in $ARIESD_DSN form, on the
 // test's Dolt server. The database is dropped when the test ends, after
 // the cleanups of what the test opened on it: Dolt holds every database
 // in memory and slows with each (dolttest.Server.DropDatabase).
@@ -63,12 +63,12 @@ type result struct {
 func admin(t *testing.T, dsn string, stdin string, cmd func(context.Context, adminEnv, []string) error, args ...string) result {
 	t.Helper()
 	var out, errb bytes.Buffer
-	cfg := filepath.Join(t.TempDir(), "starfixd.yaml")
+	cfg := filepath.Join(t.TempDir(), "ariesd.yaml")
 	if err := os.WriteFile(cfg, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	env := adminEnv{stdin: strings.NewReader(stdin), stdout: &out, stderr: &errb, getenv: func(k string) string {
-		if k == "STARFIXD_DSN" {
+		if k == "ARIESD_DSN" {
 			return dsn
 		}
 		return ""
@@ -173,7 +173,7 @@ func TestImportBDFailures(t *testing.T) {
 	}
 
 	none := admin(t, "", "", importBD, backlog)
-	if none.err == nil || !strings.Contains(none.err.Error(), "fix: set $STARFIXD_DSN") {
+	if none.err == nil || !strings.Contains(none.err.Error(), "fix: set $ARIESD_DSN") {
 		t.Errorf("no DSN: %v", none.err)
 	}
 }
@@ -199,7 +199,7 @@ func TestExportBDCommand(t *testing.T) {
 	}
 
 	// The export imports into an empty store with nothing to report but
-	// the fields bd has and starfix does not; then it exports the same.
+	// the fields bd has and Aries does not; then it exports the same.
 	dst := newDSN(t)
 	in := admin(t, dst, "", importBD, file)
 	if in.err != nil || !strings.HasPrefix(in.stdout, "imported 10 issues (10 created), 8 deps (8 created), 3 comments (3 created); 0 errors") {

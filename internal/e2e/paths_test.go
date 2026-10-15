@@ -55,7 +55,7 @@ func filePaths(t *testing.T, u *user, id string) []string {
 // renews; another principal's ready ranks down the issue that overlaps
 // them and says why, and show names the holder. The agent's own session
 // is not held back by its own claim. finish records the paths, and a
-// person's `sfx away`, handoff and finish send theirs.
+// person's `aries away`, handoff and finish send theirs.
 func TestFilesToIssues(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, daemonOpts{})
@@ -63,7 +63,7 @@ func TestFilesToIssues(t *testing.T) {
 	gitInit(t, alice.repo)
 	// The world's key and config are untracked in the repository; a real
 	// one ignores the key.
-	if err := os.WriteFile(filepath.Join(alice.repo, ".git", "info", "exclude"), []byte("id_ed25519\n.starfix.yaml\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(alice.repo, ".git", "info", "exclude"), []byte("id_ed25519\n.aries.yaml\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	alice.env["CLAUDE_CODE_SESSION_ID"] = "cc-files"
@@ -121,33 +121,33 @@ func TestFilesToIssues(t *testing.T) {
 	touch(t, alice.repo, "side.go")
 	gitIn(t, alice.repo, "add", "side.go")
 	gitIn(t, alice.repo, "-c", "user.name=Alice", "-c", "user.email=alice@example.com",
-		"commit", "-q", "-m", "side work\n\nStarfix: "+side)
+		"commit", "-q", "-m", "side work\n\nAries: "+side)
 	touch(t, alice.repo, "cmd/tool.go")
 	alice.ok("away", "1h")
 	if got := filePaths(t, bob, other); !slices.Contains(got, "cmd/tool.go") {
-		t.Errorf("paths of %s after sfx away = %q, want cmd/tool.go among them", other, got)
+		t.Errorf("paths of %s after aries away = %q, want cmd/tool.go among them", other, got)
 	}
 	if got := filePaths(t, bob, side); !slices.Equal(got, []string{"side.go"}) {
-		t.Errorf("paths of %s after sfx away = %q, want side.go, from its trailer", side, got)
+		t.Errorf("paths of %s after aries away = %q, want side.go, from its trailer", side, got)
 	}
 	touch(t, alice.repo, "cmd/handoff.go")
 	alice.ok("handoff", other, "halfway")
 	if got := filePaths(t, bob, other); !slices.Contains(got, "cmd/handoff.go") {
-		t.Errorf("paths after sfx handoff = %q, want cmd/handoff.go among them", got)
+		t.Errorf("paths after aries handoff = %q, want cmd/handoff.go among them", got)
 	}
 	// A branch naming an id the server refuses costs the renewal nothing.
 	gitIn(t, alice.repo, "switch", "-q", "-c", "feature/sf-"+strings.Repeat("a", 70))
 	if out := alice.ok("away", "1h"); !strings.Contains(out, other+" held until") {
-		t.Errorf("sfx away on a branch with a hostile id = %q, want %s renewed", out, other)
+		t.Errorf("aries away on a branch with a hostile id = %q, want %s renewed", out, other)
 	}
 	gitIn(t, alice.repo, "switch", "-q", "-")
 	touch(t, alice.repo, "cmd/finish.go")
 	alice.ok("finish", other)
 	if got := filePaths(t, bob, other); !slices.Contains(got, "cmd/finish.go") {
-		t.Errorf("paths after sfx finish = %q, want cmd/finish.go among them", got)
+		t.Errorf("paths after aries finish = %q, want cmd/finish.go among them", got)
 	}
 
-	// --paths is relative to where sfx runs, like any path on a command
+	// --paths is relative to where aries runs, like any path on a command
 	// line.
 	if err := os.MkdirAll(filepath.Join(alice.repo, "docs"), 0o750); err != nil {
 		t.Fatal(err)

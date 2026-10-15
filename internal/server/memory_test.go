@@ -94,10 +94,10 @@ func TestDispatchMemoryRefusals(t *testing.T) {
 		{"exists", proto.OpRemember, proto.RememberArgs{Key: "k", Body: "three"}, proto.CodeConflict,
 			"memory k exists in project scope at rev 2", proto.FixRecall, "--rev 2"},
 		{"stale", proto.OpRemember, proto.RememberArgs{Key: "k", Body: "three", Rev: 1}, proto.CodeConflict,
-			"changed since rev 1 (now rev 2 by alice)", proto.FixRecall, "sfx recall --key k --scope project"},
+			"changed since rev 1 (now rev 2 by alice)", proto.FixRecall, "aries recall --key k --scope project"},
 		{"stale forget", proto.OpForget, proto.ForgetArgs{Key: "k", Rev: 1}, proto.CodeConflict, "changed since rev 1", proto.FixRecall, ""},
 		{"missing", proto.OpForget, proto.ForgetArgs{Key: "nope", Scope: "team"}, proto.CodeNotFound,
-			"memory nope not found in team scope", proto.FixFindMemory, "sfx memories --scope team"},
+			"memory nope not found in team scope", proto.FixFindMemory, "aries memories --scope team"},
 		{"missing pin", proto.OpPin, proto.PinArgs{Key: "nope", Pinned: true}, proto.CodeNotFound, "memory nope not found", proto.FixFindMemory, ""},
 		{"missing replace", proto.OpRemember, proto.RememberArgs{Key: "nope", Body: "x", Rev: 4}, proto.CodeNotFound, "memory nope not found",
 			proto.FixFindMemory, ""},
@@ -105,10 +105,10 @@ func TestDispatchMemoryRefusals(t *testing.T) {
 			"the memory's body looks like it holds a secret (AWS access key id)", proto.FixSecret, "where it is kept"},
 		{"cap", proto.OpRemember, proto.RememberArgs{Key: "k2", Body: "x"}, proto.CodeInvalid,
 			"alice may hold at most 1 memories in project scope", proto.FixForgetSome, "memories_per_scope"},
-		{"bad scope", proto.OpRecall, proto.RecallArgs{Scope: "world"}, proto.CodeInvalid, "scope", "", "sfx recall -h"},
+		{"bad scope", proto.OpRecall, proto.RecallArgs{Scope: "world"}, proto.CodeInvalid, "scope", "", "aries recall -h"},
 		{"prime with a filter", proto.OpRecall, proto.RecallArgs{Prime: true, Tag: "x"}, proto.CodeInvalid, "prime", "", ""},
 		{"linked issue missing", proto.OpRemember, proto.RememberArgs{Key: "k3", Body: "x", Issue: ptr("sf-zzzzzzzz")}, proto.CodeNotFound,
-			"issue sf-zzzzzzzz not found", "", "sfx list"},
+			"issue sf-zzzzzzzz not found", "", "aries list"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

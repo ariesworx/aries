@@ -28,7 +28,7 @@ import (
 // The benchmarks of this file measure a request end to end in the
 // daemon: a frame read from a unix socket, decoded, dispatched to a
 // real store on a real Dolt, and its answer encoded and written
-// (docs/design/profile-starfixd.md). The client side is a socket and
+// (docs/design/profile-ariesd.md). The client side is a socket and
 // two byte slices: it builds each request before the clock starts and
 // reads the answer into a buffer it keeps, so what -benchmem counts is
 // the daemon's.
@@ -252,7 +252,7 @@ func newBenchWorld(b *testing.B, sd seeded, mode string, counted bool) *benchWor
 // enough for a socket's path, removed when the benchmark ends.
 func benchListen(b *testing.B) net.Listener {
 	b.Helper()
-	dir, err := os.MkdirTemp("", "sfxb")
+	dir, err := os.MkdirTemp("", "ariesb")
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -690,7 +690,7 @@ func BenchmarkHandshake(b *testing.B) {
 }
 
 // BenchmarkPush is a write whose event is pushed to n connections that
-// watch the project's events, as `sfx tui` and `sfx watch` do: the
+// watch the project's events, as `aries tui` and `aries watch` do: the
 // comment's own cost, and each watcher's frame encoded and written.
 func BenchmarkPush(b *testing.B) {
 	sd := seedProject(b)

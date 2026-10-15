@@ -1,5 +1,5 @@
 // Package capture reads token usage from the records an agent harness
-// keeps on this machine, for `sfx usage --hook` to send to starfixd
+// keeps on this machine, for `aries usage --hook` to send to ariesd
 // (design §12.1).
 //
 // Only counts leave the machine: for each API request, the harness, its

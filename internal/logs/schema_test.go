@@ -17,8 +17,8 @@ import (
 // root is the module's root, from this package's directory.
 const root = "../.."
 
-// logged are the directories whose code writes starfixd's log.
-var logged = []string{"cmd/starfixd", "internal/server", "internal/store", "internal/telemetry", "internal/sdnotify", "internal/doltmetrics"}
+// logged are the directories whose code writes ariesd's log.
+var logged = []string{"cmd/ariesd", "internal/server", "internal/store", "internal/telemetry", "internal/sdnotify", "internal/doltmetrics"}
 
 // parseDir parses the Go files of dir that are not tests.
 func parseDir(t *testing.T, fset *token.FileSet, dir string) []*ast.File {

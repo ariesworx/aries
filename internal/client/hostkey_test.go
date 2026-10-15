@@ -36,9 +36,9 @@ func TestDialPinsAnyListedHostKey(t *testing.T) {
 		msg  []string
 	}{
 		{"one key, another", []string{testFpr},
-			[]string{"host key mismatch for 127.0.0.1: the server presented " + w.hostKey + ", but .starfix.yaml pins " + testFpr}},
+			[]string{"host key mismatch for 127.0.0.1: the server presented " + w.hostKey + ", but .aries.yaml pins " + testFpr}},
 		{"two keys, neither", []string{testFpr, testFprNew},
-			[]string{"the server presented " + w.hostKey + ", but .starfix.yaml pins " + testFpr + " and " + testFprNew}},
+			[]string{"the server presented " + w.hostKey + ", but .aries.yaml pins " + testFpr + " and " + testFprNew}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := w.dialPinned(t, tc.pins...)

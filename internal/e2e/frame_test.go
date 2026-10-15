@@ -41,7 +41,7 @@ func (u *user) rawDial(session string) *rawSession {
 	}
 	hostFpr := u.w.hostFpr
 	cfg := &ssh.ClientConfig{
-		User: "starfix",
+		User: "aries",
 		Auth: []ssh.AuthMethod{ssh.PublicKeys(signer)},
 		HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
 			if ssh.FingerprintSHA256(key) != hostFpr {
@@ -73,7 +73,7 @@ func (u *user) rawDial(session string) *rawSession {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sess.Start("starfixd stdio"); err != nil {
+	if err := sess.Start("ariesd stdio"); err != nil {
 		t.Fatal(err)
 	}
 	r := &rawSession{t: t, stdin: stdin, enc: proto.NewEncoder(stdin), dec: proto.NewDecoder(stdout), nc: nc}

@@ -163,7 +163,7 @@ func (s Swap) replace(src string) error {
 }
 
 // VersionCheck returns a Swap.Check that runs `<path> version` and wants
-// the second word of its output to be want: sfx and starfixd both print
+// the second word of its output to be want: aries and ariesd both print
 // "<name> <version> (protocol …)". The check gives up after 30 seconds.
 func VersionCheck(want string) func(context.Context, string) error {
 	return func(ctx context.Context, path string) error {

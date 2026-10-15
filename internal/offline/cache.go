@@ -371,7 +371,7 @@ func (l *Local) cacheStat(dir string) (CacheStat, error) {
 		return CacheStat{}, err
 	}
 	var st CacheStat
-	if b, err := os.ReadFile(filepath.Join(dir, cachePrincipal)); err == nil { //nolint:gosec // sfx's own file, in a directory checked to be the user's
+	if b, err := os.ReadFile(filepath.Join(dir, cachePrincipal)); err == nil { //nolint:gosec // aries's own file, in a directory checked to be the user's
 		st.Principal = strings.TrimSpace(string(b))
 	}
 	for _, d := range ents {
@@ -482,6 +482,6 @@ func LastReachedLine(t time.Time) string {
 // CachedLine is the one line that says an answer is this machine's copy,
 // kept at at, and how old it is at now.
 func CachedLine(at, now time.Time) string {
-	return fmt.Sprintf("cached: starfix cannot reach its server, so this is this machine's copy from %s (%s old), and may be out of date",
+	return fmt.Sprintf("cached: aries cannot reach its server, so this is this machine's copy from %s (%s old), and may be out of date",
 		at.UTC().Format("2006-01-02 15:04 UTC"), proto.Span(max(now.Sub(at), 0)))
 }

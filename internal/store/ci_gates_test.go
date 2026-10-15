@@ -10,7 +10,7 @@ import (
 	"github.com/ariesworx/aries/internal/proto"
 )
 
-// A CI job: a principal of its own, in the session CI's sfx takes.
+// A CI job: a principal of its own, in the session CI's aries takes.
 var (
 	ciJob   = Actor{Principal: "ci-example", Session: proto.CISession, Machine: "runner-1"}
 	ciOther = Actor{Principal: "ci-other", Session: proto.CISession, Machine: "runner-2"}

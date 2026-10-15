@@ -57,7 +57,7 @@ func TestOwnKeyRemoval(t *testing.T) {
 			// The key this connection signed in with is not removed by it.
 			before := events()
 			_, perr := ask[proto.KeyResult](c, proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: inUse})
-			wantFix := "sign in with another of your keys and remove this one from there, or ask an admin to; `sfx whoami` shows the key in use and `sfx admin key list " + me + "` the others"
+			wantFix := "sign in with another of your keys and remove this one from there, or ask an admin to; `aries whoami` shows the key in use and `aries admin key list " + me + "` the others"
 			if perr == nil || perr.Code != proto.CodeInvalid || perr.Fix != wantFix ||
 				perr.Message != "key "+inUse+" is the key this connection signed in with, and removing it here would lock "+me+" out" {
 				t.Errorf("key.remove of the key in use by %s = %+v\nwant invalid, naming the fingerprint, and the fix %q", me, perr, wantFix)
@@ -88,7 +88,7 @@ func TestOwnKeyRemoval(t *testing.T) {
 			// allowed, and says that it could not check.
 			byFile := mustDialTo(t, m.Server, store.Actor{Principal: me, Session: "s-file-" + me, Machine: "desk"}, projA)
 			res, perr = ask[proto.KeyResult](byFile, proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: third})
-			if perr != nil || res.ID != third || !strings.Contains(res.Warning, "starfixd could not check that key "+third+" is not the one this connection signed in with") {
+			if perr != nil || res.ID != third || !strings.Contains(res.Warning, "ariesd could not check that key "+third+" is not the one this connection signed in with") {
 				t.Errorf("key.remove of %s's own key on a connection that named no key = %+v, %v; want it removed, with a warning that it could not be checked", me, res, perr)
 			}
 		})

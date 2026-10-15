@@ -28,7 +28,7 @@ import (
 // dolts are the package's Dolt servers: a test has one to itself while it
 // runs, so the tests can run in parallel (dolttest.Pool). Each has its
 // metrics endpoint, which TestDoltStatusRealDolt reads.
-var dolts = dolttest.NewPool("starfix-server-", dolttest.Options{Metrics: true})
+var dolts = dolttest.NewPool("aries-server-", dolttest.Options{Metrics: true})
 
 func TestMain(m *testing.M) {
 	os.Exit(run(m))
@@ -37,13 +37,13 @@ func TestMain(m *testing.M) {
 // peerHelperEnv, when set to a socket address, makes this test binary a
 // child that dials it as another user (TestCheckPeerOtherUID); it then
 // needs no Dolt.
-const peerHelperEnv = "STARFIX_PEER_HELPER"
+const peerHelperEnv = "ARIES_PEER_HELPER"
 
 // statusHelperEnv, when set to a socket address, makes this test binary
 // a child that asks that socket for the daemon's status as whatever user
 // it runs as (TestCheckPeerKeepsStatusFromOtherUsers); it needs no Dolt
 // either.
-const statusHelperEnv = "STARFIX_STATUS_HELPER"
+const statusHelperEnv = "ARIES_STATUS_HELPER"
 
 func run(m *testing.M) int {
 	// A helper process is a child of one test and needs no Dolt.
@@ -258,11 +258,11 @@ func TestDispatchErrors(t *testing.T) {
 		rawArgs string
 	}{
 		{name: "conflict names who and which rev", op: proto.OpUpdate, args: proto.UpdateArgs{ID: a.ID, Rev: 1, Title: &stale},
-			code: proto.CodeConflict, msg: a.ID + " changed since rev 1 (now rev 2 by bob)", fix: "re-read with `sfx show " + a.ID + "`"},
+			code: proto.CodeConflict, msg: a.ID + " changed since rev 1 (now rev 2 by bob)", fix: "re-read with `aries show " + a.ID + "`"},
 		{name: "close with stale rev", op: proto.OpClose, args: proto.CloseArgs{ID: a.ID, Rev: 1},
 			code: proto.CodeConflict, msg: "changed since rev 1 (now rev 2 by bob)"},
 		{name: "not found", op: proto.OpShow, args: proto.ShowArgs{ID: "sf-zzzzzzzz"},
-			code: proto.CodeNotFound, msg: "issue sf-zzzzzzzz not found", fix: "sfx list"},
+			code: proto.CodeNotFound, msg: "issue sf-zzzzzzzz not found", fix: "aries list"},
 		{name: "comments of a missing issue", op: proto.OpComments, args: proto.IDArgs{ID: "sf-zzzzzzzz"}, code: proto.CodeNotFound},
 		{name: "history of a missing issue", op: proto.OpHistory, args: proto.IDArgs{ID: "sf-zzzzzzzz"}, code: proto.CodeNotFound},
 		{name: "exists", op: proto.OpCreate, args: proto.CreateArgs{ID: b.ID, Title: "dup"},
@@ -270,22 +270,22 @@ func TestDispatchErrors(t *testing.T) {
 		{name: "cycle", op: proto.OpDepAdd, args: proto.DepArgs{From: b.ID, To: a.ID},
 			code: proto.CodeCycle, msg: a.ID + " already depends on " + b.ID + ", so this would make a cycle", fix: "dep rm"},
 		{name: "invalid title", op: proto.OpCreate, args: proto.CreateArgs{Title: " "},
-			code: proto.CodeInvalid, msg: "title must be 1-500 bytes", fix: "`sfx create -h`"},
+			code: proto.CodeInvalid, msg: "title must be 1-500 bytes", fix: "`aries create -h`"},
 		{name: "control characters in a title", op: proto.OpCreate, args: proto.CreateArgs{Title: "ok\x1b]0;pwned\x07\x1b[2J"},
-			code: proto.CodeInvalid, msg: "title must be one line of UTF-8 without control", fix: "`sfx create -h`"},
+			code: proto.CodeInvalid, msg: "title must be one line of UTF-8 without control", fix: "`aries create -h`"},
 		{name: "invalid dep type", op: proto.OpDepAdd, args: proto.DepArgs{From: a.ID, To: b.ID, Type: "likes"},
-			code: proto.CodeInvalid, fix: "`sfx dep add -h`"},
+			code: proto.CodeInvalid, fix: "`aries dep add -h`"},
 		{name: "status on a closed issue", op: proto.OpUpdate, args: proto.UpdateArgs{ID: b.ID, Rev: 2, Status: &open},
-			code: proto.CodeInvalid, msg: "is closed", fix: "sfx reopen " + b.ID},
+			code: proto.CodeInvalid, msg: "is closed", fix: "aries reopen " + b.ID},
 		{name: "close twice", op: proto.OpClose, args: proto.CloseArgs{ID: b.ID}, code: proto.CodeInvalid, fix: "nothing to do"},
 		{name: "unknown op", op: "explode", args: struct{}{}, code: proto.CodeInvalid, msg: `unknown operation "explode"`},
 		{name: "unknown field", op: proto.OpShow, rawArgs: `{"id":"sf-aaaa","colour":1}`, code: proto.CodeInvalid, msg: "colour"},
 		// Last, so an update that wrongly succeeds moves no rev the rows
 		// above expect.
 		{name: "create under a missing parent", op: proto.OpCreate, args: proto.CreateArgs{Title: "orphan", Parent: missing},
-			code: proto.CodeNotFound, msg: "parent: issue sf-zzzzzzzz not found", fix: "find the id with `sfx list`"},
+			code: proto.CodeNotFound, msg: "parent: issue sf-zzzzzzzz not found", fix: "find the id with `aries list`"},
 		{name: "update to a missing parent", op: proto.OpUpdate, args: proto.UpdateArgs{ID: a.ID, Rev: 2, Parent: &missing},
-			code: proto.CodeNotFound, msg: "parent: issue sf-zzzzzzzz not found", fix: "find the id with `sfx list`"},
+			code: proto.CodeNotFound, msg: "parent: issue sf-zzzzzzzz not found", fix: "find the id with `aries list`"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -367,7 +367,7 @@ func TestHandshake(t *testing.T) {
 		{name: "empty principal", frames: []*proto.Frame{{T: proto.FrameBridge}, hello(proto.Proto, project, "")}, closed: true},
 		{name: "principal with a newline", frames: []*proto.Frame{{T: proto.FrameBridge, Principal: "alice\nbob"}, hello(proto.Proto, project, "")}, closed: true},
 		{name: "valid principal in a hello frame", frames: []*proto.Frame{{T: proto.FrameHello, Principal: "alice"}, hello(proto.Proto, project, "")}, closed: true},
-		{name: "reaper principal reserved", frames: []*proto.Frame{{T: proto.FrameBridge, Principal: "starfixd"}, hello(proto.Proto, project, "")}, closed: true},
+		{name: "reaper principal reserved", frames: []*proto.Frame{{T: proto.FrameBridge, Principal: "ariesd"}, hello(proto.Proto, project, "")}, closed: true},
 		{name: "importer principal reserved", frames: []*proto.Frame{{T: proto.FrameBridge, Principal: "import"}, hello(proto.Proto, project, "")}, closed: true},
 	}
 	for _, tc := range tests {
@@ -692,7 +692,7 @@ func TestListen(t *testing.T) {
 	if err != nil || fi.Mode().Perm() != 0o700 {
 		t.Fatalf("dir mode %v %v", fi.Mode(), err)
 	}
-	if _, err := Listen(sock); err == nil || !strings.Contains(err.Error(), "another starfixd") {
+	if _, err := Listen(sock); err == nil || !strings.Contains(err.Error(), "another ariesd") {
 		t.Fatalf("second listener: %v", err)
 	}
 	if err := CheckPeer(mustDial(t, sock, l)); err != nil {
@@ -759,7 +759,7 @@ func TestBridgeUnavailable(t *testing.T) {
 	}
 	f, derr := proto.NewDecoder(strings.NewReader(out.String())).Decode()
 	if derr != nil || f.T != proto.FrameWelcome || f.Err == nil || f.Err.Code != proto.CodeUnavailable ||
-		!strings.Contains(f.Err.Fix, "systemctl start starfixd") {
+		!strings.Contains(f.Err.Fix, "systemctl start ariesd") {
 		t.Fatalf("refusal: %+v %v", f, derr)
 	}
 	out.Reset()
@@ -795,16 +795,16 @@ func TestResolveSettings(t *testing.T) {
 		}
 		return p
 	}
-	good := write("good.yaml", "dsn: starfix:pw@tcp(127.0.0.1:3306)/sf\nsocket: /run/x/s.sock\nproject: "+project+"\n", 0o600)
-	loose := write("loose.yaml", "dsn: starfix:pw@tcp(127.0.0.1:3306)/sf\n", 0o644)
-	nopw := write("nopw.yaml", "dsn: starfix@tcp(127.0.0.1:3306)/sf\n", 0o644)
+	good := write("good.yaml", "dsn: aries:pw@tcp(127.0.0.1:3306)/sf\nsocket: /run/x/s.sock\nproject: "+project+"\n", 0o600)
+	loose := write("loose.yaml", "dsn: aries:pw@tcp(127.0.0.1:3306)/sf\n", 0o644)
+	nopw := write("nopw.yaml", "dsn: aries@tcp(127.0.0.1:3306)/sf\n", 0o644)
 	unknown := write("unknown.yaml", "dns: typo\n", 0o600)
-	unit := write("unit.yaml", "systemd_unit: starfixd.service\n", 0o600)
+	unit := write("unit.yaml", "systemd_unit: ariesd.service\n", 0o600)
 	badUnit := write("badunit.yaml", "systemd_unit: --no-block\n", 0o600)
-	releases := write("releases.yaml", "releases: https://releases.example.com/starfix\n", 0o600)
+	releases := write("releases.yaml", "releases: https://releases.example.com/aries\n", 0o600)
 	logs := write("logs.yaml", "log_level: warn\nlog_format: json\n", 0o600)
 	admins := write("admins.yaml", "admins: [alice, bob]\n", 0o600)
-	reserved := write("reserved.yaml", "admins: [starfixd]\n", 0o600)
+	reserved := write("reserved.yaml", "admins: [ariesd]\n", 0o600)
 	account := write("account.yaml", "account: acme-2026\n", 0o600)
 	badAccount := write("badaccount.yaml", "account: Acme Corp\n", 0o600)
 	// Cases that set no file name this one, so that a DefaultConfigFile
@@ -834,9 +834,9 @@ func TestResolveSettings(t *testing.T) {
 		{name: "password in a loose file refused", path: loose, err: "chmod 600"},
 		{name: "loose file without password", path: nopw, check: func(s Settings) bool { return s.DSN != "" }},
 		{name: "unknown key refused", path: unknown, err: "dns"},
-		{name: "systemd unit", path: unit, check: func(s Settings) bool { return s.SystemdUnit == "starfixd.service" }},
+		{name: "systemd unit", path: unit, check: func(s Settings) bool { return s.SystemdUnit == "ariesd.service" }},
 		{name: "option-like unit refused", path: badUnit, err: "is not a unit name"},
-		{name: "releases from file", path: releases, check: func(s Settings) bool { return s.Releases == "https://releases.example.com/starfix" }},
+		{name: "releases from file", path: releases, check: func(s Settings) bool { return s.Releases == "https://releases.example.com/aries" }},
 		{name: "no releases by default", path: empty, check: func(s Settings) bool { return s.Releases == "" }},
 		{name: "log settings default", path: empty, check: func(s Settings) bool { return s.LogLevel == "info" && s.LogFormat == "text" }},
 		{name: "log settings from file", path: logs, check: func(s Settings) bool { return s.LogLevel == "warn" && s.LogFormat == "json" }},
@@ -851,9 +851,9 @@ func TestResolveSettings(t *testing.T) {
 		{name: "admins from file", path: admins, check: func(s Settings) bool { return slices.Equal(s.Admins, []string{"alice", "bob"}) }},
 		{name: "admins env beats file", path: admins, env: map[string]string{EnvAdmins: "dana, erin"},
 			check: func(s Settings) bool { return slices.Equal(s.Admins, []string{"dana", "erin"}) }},
-		{name: "reserved admin refused", path: reserved, err: `admin "starfixd"`},
+		{name: "reserved admin refused", path: reserved, err: `admin "ariesd"`},
 		{name: "reserved admin in env refused", path: empty, env: map[string]string{EnvAdmins: "import"}, err: `admin "import"`},
-		{name: "probe principal as admin refused", path: empty, env: map[string]string{EnvAdmins: ProbePrincipal}, err: `admin "starfixd-upgrade"`},
+		{name: "probe principal as admin refused", path: empty, env: map[string]string{EnvAdmins: ProbePrincipal}, err: `admin "ariesd-upgrade"`},
 		{name: "invalid admin refused", path: empty, env: map[string]string{EnvAdmins: "Not Valid"}, err: "is not a principal name"},
 		{name: "account defaults to internal", path: empty, check: func(s Settings) bool { return s.Account == "internal" }},
 		{name: "account from file", path: account, check: func(s Settings) bool { return s.Account == "acme-2026" }},
@@ -894,7 +894,7 @@ func TestResolveSettings(t *testing.T) {
 
 // The bridge's socket comes from where ResolveSettings takes it, and the
 // file is read as strictly, but no other setting is checked: the bridge
-// uses none, and checking them compiled expressions each `starfixd stdio`
+// uses none, and checking them compiled expressions each `ariesd stdio`
 // then held.
 func TestResolveSocket(t *testing.T) {
 	t.Parallel()
@@ -909,11 +909,11 @@ func TestResolveSocket(t *testing.T) {
 		}
 		return p
 	}
-	good := write("good.yaml", "dsn: starfix:pw@tcp(127.0.0.1:3306)/sf\nsocket: /run/x/s.sock\n", 0o600)
+	good := write("good.yaml", "dsn: aries:pw@tcp(127.0.0.1:3306)/sf\nsocket: /run/x/s.sock\n", 0o600)
 	empty := write("empty.yaml", "", 0o600)
-	loose := write("loose.yaml", "dsn: starfix:pw@tcp(127.0.0.1:3306)/sf\nsocket: /run/x/s.sock\n", 0o644)
+	loose := write("loose.yaml", "dsn: aries:pw@tcp(127.0.0.1:3306)/sf\nsocket: /run/x/s.sock\n", 0o644)
 	unknown := write("unknown.yaml", "sokcet: /run/x/s.sock\n", 0o600)
-	others := write("others.yaml", "socket: /run/x/s.sock\nsystemd_unit: --no-block\nadmins: [starfixd]\naccount: Acme Corp\nlog_level: loud\n", 0o600)
+	others := write("others.yaml", "socket: /run/x/s.sock\nsystemd_unit: --no-block\nadmins: [ariesd]\naccount: Acme Corp\nlog_level: loud\n", 0o600)
 
 	tests := []struct {
 		name, flag, path string
@@ -996,18 +996,18 @@ func TestDispatchWork(t *testing.T) {
 	}{
 		{name: "start held names the next ready", a: bob, op: proto.OpStart, args: proto.StartArgs{ID: b.ID},
 			code: proto.CodeConflict, msg: b.ID + " is in progress by alice; next ready: " + f.Created[0],
-			fix: "take that one with `sfx start " + f.Created[0] + "`"},
+			fix: "take that one with `aries start " + f.Created[0] + "`"},
 		{name: "finish held", a: bob, op: proto.OpFinish, args: proto.FinishArgs{ID: b.ID},
 			code: proto.CodeForbidden, msg: b.ID + " is held by alice (session s-a) until ", fix: "ask alice to hand it off"},
 		{name: "release held", a: bob, op: proto.OpHandoff, args: proto.HandoffArgs{ID: b.ID, Note: "x", Release: true},
-			code: proto.CodeForbidden, msg: "only the holder or an admin may change it", fix: "`sfx comment " + b.ID + "` works on any issue"},
+			code: proto.CodeForbidden, msg: "only the holder or an admin may change it", fix: "`aries comment " + b.ID + "` works on any issue"},
 		{name: "start closed", a: bob, op: proto.OpStart, args: proto.StartArgs{ID: a.ID},
-			code: proto.CodeInvalid, msg: "is closed", fix: "sfx reopen " + a.ID},
+			code: proto.CodeInvalid, msg: "is closed", fix: "aries reopen " + a.ID},
 		{name: "finish closed", a: bob, op: proto.OpFinish, args: proto.FinishArgs{ID: a.ID}, code: proto.CodeInvalid, fix: "nothing to do"},
 		{name: "start missing", a: bob, op: proto.OpStart, args: proto.StartArgs{ID: "sf-zzzzzzzz"},
 			code: proto.CodeNotFound, msg: "issue sf-zzzzzzzz not found"},
 		{name: "bad discovered", a: alice, op: proto.OpFinish, args: proto.FinishArgs{ID: b.ID, Discovered: []proto.Discovered{{Title: "x", Type: "story"}}},
-			code: proto.CodeInvalid, msg: "story", fix: "`sfx finish -h`"},
+			code: proto.CodeInvalid, msg: "story", fix: "`aries finish -h`"},
 		{name: "empty note", a: alice, op: proto.OpHandoff, args: proto.HandoffArgs{ID: b.ID}, code: proto.CodeInvalid, msg: "comment must be"},
 	}
 	for _, tc := range tests {
@@ -1025,7 +1025,7 @@ func TestDispatchWork(t *testing.T) {
 	// Nothing left to start.
 	mustCall[proto.StartResult](t, s, bob, proto.OpStart, proto.StartArgs{})
 	_, perr := call[proto.Empty](t, s, bob, proto.OpStart, proto.StartArgs{})
-	if perr == nil || perr.Code != proto.CodeNotFound || perr.Message != "nothing is ready to start" || !strings.Contains(perr.Fix, "sfx blocked") {
+	if perr == nil || perr.Code != proto.CodeNotFound || perr.Message != "nothing is ready to start" || !strings.Contains(perr.Fix, "aries blocked") {
 		t.Fatalf("nothing ready: %+v", perr)
 	}
 	_, perr = call[proto.Empty](t, s, bob, proto.OpStart, proto.StartArgs{ID: b.ID})
@@ -1050,7 +1050,7 @@ func TestDispatchClaims(t *testing.T) {
 	}
 	// Renewing every session's claims is for a person's terminal (S-12).
 	_, perr := call[proto.Empty](t, s, alice, proto.OpRenew, proto.RenewArgs{Lease: "3d", All: true})
-	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Fix, "sfx away") {
+	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Fix, "aries away") {
 		t.Fatalf("renew all from an agent session: %+v", perr)
 	}
 	aliceCLI := store.Actor{Principal: "alice", Session: proto.CLISession, Machine: "laptop-a"}
@@ -1068,7 +1068,7 @@ func TestDispatchClaims(t *testing.T) {
 	alice2 := store.Actor{Principal: "alice", Session: "s-a2", Machine: "desktop"}
 	_, perr = call[proto.Empty](t, s, alice2, proto.OpStart, proto.StartArgs{ID: a.ID})
 	if perr == nil || perr.Code != proto.CodeConflict || perr.Message != a.ID+" is held by your session s-a" ||
-		!strings.Contains(perr.Fix, "`sfx start "+a.ID+" --take`") {
+		!strings.Contains(perr.Fix, "`aries start "+a.ID+" --take`") {
 		t.Fatalf("takeover without take: %+v", perr)
 	}
 	if st := mustCall[proto.StartResult](t, s, alice2, proto.OpStart, proto.StartArgs{ID: a.ID, Take: true}); st.Claim.Epoch != 2 {
@@ -1077,7 +1077,7 @@ func TestDispatchClaims(t *testing.T) {
 	_, perr = call[proto.Empty](t, s, alice, proto.OpFinish, proto.FinishArgs{ID: a.ID, Epoch: 1})
 	if perr == nil || perr.Code != proto.CodeConflict ||
 		perr.Message != "your claim on "+a.ID+" (epoch 1) was lost; it is now epoch 2, held by alice/s-a2" ||
-		!strings.Contains(perr.Fix, "sfx comment "+a.ID) {
+		!strings.Contains(perr.Fix, "aries comment "+a.ID) {
 		t.Fatalf("stale finish: %+v", perr)
 	}
 	for _, l := range []string{"5s", "25h", "8d", "soon"} {

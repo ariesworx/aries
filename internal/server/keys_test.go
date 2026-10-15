@@ -266,7 +266,7 @@ func TestKeyOps(t *testing.T) {
 	const (
 		ownFix   = "ask another admin to run it: a server admin, or a project admin who administers every project you belong to; the server's operator can also change authorized_keys on the server"
 		reachFix = "check the name, or ask a server admin to run it; a project admin may only while every project the principal belongs to is one they administer"
-		listFix  = "ask a server admin, or an admin of a project the principal belongs to; `sfx admin key list %s` lists your own"
+		listFix  = "ask a server admin, or an admin of a project the principal belongs to; `aries admin key list %s` lists your own"
 	)
 	seq := func() int {
 		t.Helper()
@@ -302,10 +302,10 @@ func TestKeyOps(t *testing.T) {
 		// The same refusal for a key out of reach as for one no one has.
 		{"a project admin removes a key out of reach", "alice", proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: carols}, proto.CodeForbidden,
 			"alice may not remove that key: it is no key of a principal alice may manage",
-			"check the fingerprint with `sfx admin key list NAME`, or ask a server admin to run it"},
+			"check the fingerprint with `aries admin key list NAME`, or ask a server admin to run it"},
 		{"a project admin removes a key no one has", "alice", proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: fingerprintOf(t, "nobody")}, proto.CodeForbidden,
 			"alice may not remove that key: it is no key of a principal alice may manage",
-			"check the fingerprint with `sfx admin key list NAME`, or ask a server admin to run it"},
+			"check the fingerprint with `aries admin key list NAME`, or ask a server admin to run it"},
 		{"a member removes a key", "bob", proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: carols}, proto.CodeForbidden,
 			"bob may not remove that key: it is for project admins and server admins",
 			"ask a server admin to run it, or a project admin who administers every project the principal belongs to"},
@@ -317,17 +317,17 @@ func TestKeyOps(t *testing.T) {
 		{"a project admin lists the keys of no one", "alice", proto.OpKeys, proto.KeysArgs{Name: "zed"}, proto.CodeForbidden,
 			"alice may not list the keys of zed: it is for the principal, for an admin of a project it belongs to, and for server admins", strings.ReplaceAll(listFix, "%s", "alice")},
 		{"a server admin lists the keys of no one", "dana", proto.OpKeys, proto.KeysArgs{Name: "zed"}, proto.CodeNotFound,
-			"principal zed not found", "check the name; a server admin lists them with `sfx admin principal list`"},
+			"principal zed not found", "check the name; a server admin lists them with `aries admin principal list`"},
 		{"a server admin removes a key no one has", "dana", proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: fingerprintOf(t, "nobody")}, proto.CodeNotFound,
-			"key " + fingerprintOf(t, "nobody") + " not found", "list a principal's keys, with their fingerprints, with `sfx admin key list NAME`"},
+			"key " + fingerprintOf(t, "nobody") + " not found", "list a principal's keys, with their fingerprints, with `aries admin key list NAME`"},
 		{"a key another principal has", "dana", proto.OpKeyAdd, proto.KeyAddArgs{Name: "bob", Key: keyLine(t, "carol")}, proto.CodeExists,
 			"key " + carols + " already belongs to another principal",
 			"use another key: a key belongs to one principal, and an agent or a machine that needs less access gets a key and a principal of its own"},
 		{"a private key", "dana", proto.OpKeyAdd, proto.KeyAddArgs{Name: "bob", Key: "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA\n-----END OPENSSH PRIVATE KEY-----\n"},
 			proto.CodeInvalid, "the key must be one public key in authorized_keys form: TYPE BASE64 [COMMENT], with no options",
-			"give the public key file, such as ~/.ssh/id_ed25519.pub: `sfx admin key add NAME FILE`"},
+			"give the public key file, such as ~/.ssh/id_ed25519.pub: `aries admin key add NAME FILE`"},
 		{"a fingerprint that is none", "dana", proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: "carol"}, proto.CodeInvalid,
-			"a key is named by its SHA256: fingerprint", "correct it and retry; `sfx admin key remove -h` shows the usage"},
+			"a key is named by its SHA256: fingerprint", "correct it and retry; `aries admin key remove -h` shows the usage"},
 	}
 	for _, tc := range refused {
 		t.Run(tc.name, func(t *testing.T) {
@@ -358,7 +358,7 @@ func TestKeyOps(t *testing.T) {
 	// The cap on a principal's keys.
 	_, perr := ask[proto.KeyResult](conns["dana"], proto.OpKeyAdd, proto.KeyAddArgs{Name: "bob", Key: keyLine(t, "bob 3")})
 	if perr == nil || perr.Code != proto.CodeInvalid || perr.Message != "a principal keeps at most 2 keys" ||
-		perr.Fix != "remove a key the principal no longer uses with `sfx admin key remove FINGERPRINT`, or ask the server's operator to raise keys_per_principal under limits: in starfixd's config" {
+		perr.Fix != "remove a key the principal no longer uses with `aries admin key remove FINGERPRINT`, or ask the server's operator to raise keys_per_principal under limits: in ariesd's config" {
 		t.Errorf("a third key with keys_per_principal 2 = %+v", perr)
 	}
 
@@ -472,7 +472,7 @@ func TestDisabledServerAdmin(t *testing.T) {
 	admins(map[string]bool{"dana": false, "sam": true})
 	w, _ := dialTo(t, m.Server, dana, projA)
 	if w.Err == nil || w.Err.Code != proto.CodeForbidden || w.Err.Message != "dana is disabled on this server" ||
-		!strings.Contains(w.Err.Fix, "`sfx admin principal enable dana`") {
+		!strings.Contains(w.Err.Fix, "`aries admin principal enable dana`") {
 		t.Errorf("a disabled server admin's handshake = %+v; want forbidden, told it is disabled and what enables it", w.Err)
 	}
 	// A project's store asks on every write: she may not override bob's
@@ -505,7 +505,7 @@ func TestDisabledServerAdmin(t *testing.T) {
 	_, perr := ask[proto.PrincipalResult](d, proto.OpPrincipalDisable, proto.PrincipalArgs{Name: "dana"})
 	if perr == nil || perr.Code != proto.CodeInvalid ||
 		perr.Message != "dana is the last server admin who is not disabled; without one, nobody could enable anyone from here" ||
-		perr.Fix != "enable another server admin first with `sfx admin principal enable NAME`, or ask the server's operator to name another under admins: in starfixd's config" {
+		perr.Fix != "enable another server admin first with `aries admin principal enable NAME`, or ask the server's operator to name another under admins: in ariesd's config" {
 		t.Errorf("disabling the last enabled server admin = %+v", perr)
 	}
 	if !d.alive() {

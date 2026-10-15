@@ -64,7 +64,7 @@ const OpClockStep Op = "clock.step"
 const ClockTarget = "clock"
 
 // ClockActor is who a settled clock step is recorded as.
-var ClockActor = Actor{Principal: "starfixd", Session: "clock", Machine: "server"}
+var ClockActor = Actor{Principal: "ariesd", Session: "clock", Machine: "server"}
 
 // ClockOptions configure a [Clock]. The zero value reads time.Now.
 type ClockOptions struct {

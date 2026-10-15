@@ -13,7 +13,7 @@ import (
 // Comments, labels and dependencies stay open to everyone. An admin's
 // change to an issue another principal holds is recorded as an
 // admin.override event, naming the holder, ahead of the change's own
-// events. Admins are a list of principals in starfixd's settings
+// events. Admins are a list of principals in ariesd's settings
 // (decision D2), passed in Options.Admins; nothing over the protocol
 // reads or changes it. In a server of many projects a project also has
 // admins of its own, a role in the control store, which the daemon
@@ -26,14 +26,14 @@ const OpAdminOverride Op = "admin.override"
 
 // ReservedPrincipals are the names the server uses itself: the claim
 // reaper and the bd importer record their changes under theirs, and the
-// health probe of `starfixd upgrade` and `starfixd status` connect as
+// health probe of `ariesd upgrade` and `ariesd status` connect as
 // the last two, recording nothing. No key may authenticate as one, and
 // none may be an admin, so the audit trail cannot be forged.
-var ReservedPrincipals = []string{ReaperActor.Principal, OperatorPrincipal, "starfixd-upgrade", "starfixd-status"}
+var ReservedPrincipals = []string{ReaperActor.Principal, OperatorPrincipal, "ariesd-upgrade", "ariesd-status"}
 
 // OperatorPrincipal is the reserved principal under which the commands
-// the operator runs on the server record their writes: `starfixd
-// import-bd` by default, and `starfixd control init` always. Such a
+// the operator runs on the server record their writes: `ariesd
+// import-bd` by default, and `ariesd control init` always. Such a
 // command opens the database itself, as the daemon's account, so what it
 // may do is decided where it is built, not by a list of admins:
 // [Store.ImportIssue] skips the claim guard, and a [Control] opened with

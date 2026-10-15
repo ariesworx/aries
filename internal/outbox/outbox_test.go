@@ -62,7 +62,7 @@ func open(t *testing.T, opts outbox.Options, clk *clock) (*outbox.Outbox, string
 func handoff(i int) outbox.Entry {
 	return outbox.Entry{
 		Op:      proto.OpHandoff,
-		Args:    fmt.Appendf(nil, `{"id":"sfx-1","epoch":4,"note":"note %d","idem":"t-%d"}`, i, i),
+		Args:    fmt.Appendf(nil, `{"id":"aries-1","epoch":4,"note":"note %d","idem":"t-%d"}`, i, i),
 		Session: "s-1",
 		Machine: "m-1",
 	}
@@ -162,28 +162,28 @@ func TestAppendRefuses(t *testing.T) {
 		opts outbox.Options
 		want error
 	}{
-		{name: "start takes a claim", e: outbox.Entry{Op: proto.OpStart, Args: []byte(`{"id":"sfx-1","idem":"k"}`)}, want: outbox.ErrNotQueueable},
-		{name: "close ends something", e: outbox.Entry{Op: proto.OpClose, Args: []byte(`{"id":"sfx-1","idem":"k"}`)}, want: outbox.ErrNotQueueable},
-		{name: "an update without its key", e: outbox.Entry{Op: proto.OpUpdate, Args: []byte(`{"id":"sfx-1","rev":2}`)}, want: outbox.ErrNoKey},
+		{name: "start takes a claim", e: outbox.Entry{Op: proto.OpStart, Args: []byte(`{"id":"aries-1","idem":"k"}`)}, want: outbox.ErrNotQueueable},
+		{name: "close ends something", e: outbox.Entry{Op: proto.OpClose, Args: []byte(`{"id":"aries-1","idem":"k"}`)}, want: outbox.ErrNotQueueable},
+		{name: "an update without its key", e: outbox.Entry{Op: proto.OpUpdate, Args: []byte(`{"id":"aries-1","rev":2}`)}, want: outbox.ErrNoKey},
 		{name: "usage without its key", e: outbox.Entry{Op: proto.OpUsage, Args: []byte(`{"records":[]}`)}, want: outbox.ErrNoKey},
 		{name: "an admin op", e: outbox.Entry{Op: proto.OpMemberSet, Args: []byte(`{"idem":"k"}`)}, want: outbox.ErrNotQueueable},
 		{name: "renew", e: outbox.Entry{Op: proto.OpRenew, Args: []byte(`{"idem":"k"}`)}, want: outbox.ErrNotQueueable},
 		{name: "an unknown op", e: outbox.Entry{Op: "frobnicate", Args: []byte(`{"idem":"k"}`)}, want: outbox.ErrNotQueueable},
-		{name: "no key", e: outbox.Entry{Op: proto.OpHandoff, Args: []byte(`{"id":"sfx-1","note":"n"}`)}, want: outbox.ErrNoKey},
-		{name: "an empty key", e: outbox.Entry{Op: proto.OpComment, Args: []byte(`{"id":"sfx-1","body":"b","idem":""}`)}, want: outbox.ErrNoKey},
-		{name: "a key that is not text", e: outbox.Entry{Op: proto.OpComment, Args: []byte(`{"id":"sfx-1","body":"b","idem":7}`)}, want: outbox.ErrInvalid},
-		{name: "a key that is not the arguments'", e: outbox.Entry{Op: proto.OpComment, Idem: "other", Args: []byte(`{"id":"sfx-1","body":"b","idem":"k"}`)}, want: outbox.ErrInvalid},
+		{name: "no key", e: outbox.Entry{Op: proto.OpHandoff, Args: []byte(`{"id":"aries-1","note":"n"}`)}, want: outbox.ErrNoKey},
+		{name: "an empty key", e: outbox.Entry{Op: proto.OpComment, Args: []byte(`{"id":"aries-1","body":"b","idem":""}`)}, want: outbox.ErrNoKey},
+		{name: "a key that is not text", e: outbox.Entry{Op: proto.OpComment, Args: []byte(`{"id":"aries-1","body":"b","idem":7}`)}, want: outbox.ErrInvalid},
+		{name: "a key that is not the arguments'", e: outbox.Entry{Op: proto.OpComment, Idem: "other", Args: []byte(`{"id":"aries-1","body":"b","idem":"k"}`)}, want: outbox.ErrInvalid},
 		{name: "no arguments", e: outbox.Entry{Op: proto.OpComment}, want: outbox.ErrInvalid},
 		{name: "arguments that are not an object", e: outbox.Entry{Op: proto.OpComment, Args: []byte(`["idem"]`)}, want: outbox.ErrInvalid},
 		{name: "arguments that are not JSON", e: outbox.Entry{Op: proto.OpComment, Args: []byte(`{"idem":"k"`)}, want: outbox.ErrInvalid},
 		{name: "two documents", e: outbox.Entry{Op: proto.OpComment, Args: []byte(`{"idem":"k"}{"idem":"k"}`)}, want: outbox.ErrInvalid},
-		{name: "a password in a note", e: outbox.Entry{Op: proto.OpHandoff, Args: []byte(`{"id":"sfx-1","note":"db password=` + secret + `","idem":"k"}`)}, want: outbox.ErrSecret},
+		{name: "a password in a note", e: outbox.Entry{Op: proto.OpHandoff, Args: []byte(`{"id":"aries-1","note":"db password=` + secret + `","idem":"k"}`)}, want: outbox.ErrSecret},
 		{name: "a private key in a memory", e: outbox.Entry{Op: proto.OpRemember, Args: []byte(`{"key":"deploy","body":"-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXk\n-----END OPENSSH PRIVATE KEY-----","idem":"k"}`)}, want: outbox.ErrSecret},
-		{name: "a secret in discovered work", e: outbox.Entry{Op: proto.OpFinish, Args: []byte(`{"id":"sfx-1","discovered":[{"title":"rotate api_key=` + secret + `"}],"idem":"k"}`)}, want: outbox.ErrSecret},
-		{name: "a secret in a waiver", e: outbox.Entry{Op: proto.OpFinish, Args: []byte(`{"id":"sfx-1","waived":{"2":"token: ` + secret + `"},"idem":"k"}`)}, want: outbox.ErrSecret},
+		{name: "a secret in discovered work", e: outbox.Entry{Op: proto.OpFinish, Args: []byte(`{"id":"aries-1","discovered":[{"title":"rotate api_key=` + secret + `"}],"idem":"k"}`)}, want: outbox.ErrSecret},
+		{name: "a secret in a waiver", e: outbox.Entry{Op: proto.OpFinish, Args: []byte(`{"id":"aries-1","waived":{"2":"token: ` + secret + `"},"idem":"k"}`)}, want: outbox.ErrSecret},
 		{
 			name: "an entry past the size cap",
-			e:    outbox.Entry{Op: proto.OpComment, Args: []byte(`{"id":"sfx-1","body":"` + strings.Repeat("word ", 80) + `","idem":"k"}`)},
+			e:    outbox.Entry{Op: proto.OpComment, Args: []byte(`{"id":"aries-1","body":"` + strings.Repeat("word ", 80) + `","idem":"k"}`)},
 			opts: outbox.Options{MaxEntryBytes: 300},
 			want: outbox.ErrTooLarge,
 		},
@@ -214,14 +214,14 @@ func TestAppendQueues(t *testing.T) {
 		wantOneLine string // the arguments as stored, when not args itself
 	}{
 		{op: proto.OpCreate, args: `{"idem":"cli-1","title":"Fix <the> parser & \"quotes\"","labels":["a","b"]}`, wantIdem: "cli-1"},
-		{op: proto.OpComment, args: `{"id":"sfx-1","body":"line one\nline two é","idem":"cli-2"}`, wantIdem: "cli-2"},
-		{op: proto.OpHandoff, args: `{"id":"sfx-1","epoch":4,"note":"n","idem":"mcp-3"}`, wantIdem: "mcp-3", epoch: 4},
+		{op: proto.OpComment, args: `{"id":"aries-1","body":"line one\nline two é","idem":"cli-2"}`, wantIdem: "cli-2"},
+		{op: proto.OpHandoff, args: `{"id":"aries-1","epoch":4,"note":"n","idem":"mcp-3"}`, wantIdem: "mcp-3", epoch: 4},
 		{op: proto.OpRemember, args: `{"key":"build","body":"use make","rev":7,"idem":"mcp-4"}`, wantIdem: "mcp-4", rev: 7},
-		{op: proto.OpHoursLog, args: `{"id":"sfx-1","seconds":3600,"idem":"cli-5"}`, wantIdem: "cli-5"},
-		{op: proto.OpFinish, args: `{"id":"sfx-1","epoch":9,"handoff":"done","waived":{"2":"not needed"},"idem":"mcp-6"}`, wantIdem: "mcp-6", epoch: 9},
+		{op: proto.OpHoursLog, args: `{"id":"aries-1","seconds":3600,"idem":"cli-5"}`, wantIdem: "cli-5"},
+		{op: proto.OpFinish, args: `{"id":"aries-1","epoch":9,"handoff":"done","waived":{"2":"not needed"},"idem":"mcp-6"}`, wantIdem: "mcp-6", epoch: 9},
 		{
-			op: proto.OpComment, args: "{\n  \"id\": \"sfx-1\",\n  \"body\": \"b\",\n  \"idem\": \"cli-7\"\n}", wantIdem: "cli-7",
-			wantOneLine: `{"id":"sfx-1","body":"b","idem":"cli-7"}`,
+			op: proto.OpComment, args: "{\n  \"id\": \"aries-1\",\n  \"body\": \"b\",\n  \"idem\": \"cli-7\"\n}", wantIdem: "cli-7",
+			wantOneLine: `{"id":"aries-1","body":"b","idem":"cli-7"}`,
 		},
 	}
 	clk := newClock()
@@ -269,7 +269,7 @@ func TestAppendAcceptsNewIdem(t *testing.T) {
 	// among them, so a key the client makes must not look like a secret.
 	o, _ := open(t, outbox.Options{}, nil)
 	for _, prefix := range []string{"cli", "mcp"} {
-		args := fmt.Appendf(nil, `{"id":"sfx-1","body":"b","idem":%q}`, proto.NewIdem(prefix))
+		args := fmt.Appendf(nil, `{"id":"aries-1","body":"b","idem":%q}`, proto.NewIdem(prefix))
 		if _, err := o.Append(outbox.Entry{Op: proto.OpComment, Args: args}); err != nil {
 			t.Errorf("Append(comment %s) = %v, want it queued", args, err)
 		}
@@ -506,7 +506,7 @@ func TestListSkipsDamage(t *testing.T) {
 	// A line that is not JSON, lines that are JSON and no entry, and the
 	// first half of an entry with no newline, as a writer killed between
 	// two writes leaves it.
-	damage := "not json\n" + `{"seq":0}` + "\n" + `[1,2]` + "\n" + `{"seq":9,"op":"handoff","args":{"id":"sfx-1","note":"torn`
+	damage := "not json\n" + `{"seq":0}` + "\n" + `[1,2]` + "\n" + `{"seq":9,"op":"handoff","args":{"id":"aries-1","note":"torn`
 	if _, err := f.WriteString(damage); err != nil {
 		t.Fatal(err)
 	}
@@ -540,7 +540,7 @@ func TestReplayDeliversInOrder(t *testing.T) {
 	clk.Advance(time.Minute)
 	s := &server{answer: func(e outbox.Entry) (outbox.Outcome, error) {
 		if e.Seq == 2 {
-			return outbox.Outcome{Refused: true, Code: "conflict", Message: "sfx-1 is held by bob", Fix: "ask bob"}, nil
+			return outbox.Outcome{Refused: true, Code: "conflict", Message: "aries-1 is held by bob", Fix: "ask bob"}, nil
 		}
 		return outbox.Outcome{}, nil
 	}}
@@ -559,7 +559,7 @@ func TestReplayDeliversInOrder(t *testing.T) {
 		t.Fatalf("List() = %d pending, %d refused, want 0 and 1", len(l.Pending), len(l.Refused))
 	}
 	r := l.Refused[0]
-	if r.Entry.Seq != 2 || r.Entry.Idem != "t-2" || r.Code != "conflict" || r.Message != "sfx-1 is held by bob" || r.Fix != "ask bob" || !r.At.Equal(clk.Now()) {
+	if r.Entry.Seq != 2 || r.Entry.Idem != "t-2" || r.Code != "conflict" || r.Message != "aries-1 is held by bob" || r.Fix != "ask bob" || !r.At.Equal(clk.Now()) {
 		t.Errorf("refusal = %+v, want entry 2 with the server's code, message and fix at %s", r, clk.Now())
 	}
 
@@ -708,7 +708,7 @@ func TestReplaySendsWhatWasQueuedMeanwhile(t *testing.T) {
 
 func TestOneReplayAtATimeInOneProcess(t *testing.T) {
 	t.Parallel()
-	// sfx mcp replays in the background of the process that serves tool
+	// aries mcp replays in the background of the process that serves tool
 	// calls, so a second handle in the same process must be kept out.
 	o, dir := open(t, outbox.Options{}, nil)
 	e := mustAppend(t, o, handoff(1))
@@ -812,7 +812,7 @@ func TestRefuseAll(t *testing.T) {
 	}
 	mustReplay(t, o, &server{answer: func(e outbox.Entry) (outbox.Outcome, error) {
 		if e.Seq == 1 {
-			return outbox.Outcome{Refused: true, Code: "not_found", Message: "issue sfx-1 not found"}, nil
+			return outbox.Outcome{Refused: true, Code: "not_found", Message: "issue aries-1 not found"}, nil
 		}
 		return outbox.Outcome{}, errors.New("down")
 	}})
@@ -829,7 +829,7 @@ func TestRefuseAll(t *testing.T) {
 	for _, r := range l.Refused {
 		want, at := ended, start.Add(time.Hour)
 		if r.Entry.Seq == 1 {
-			want, at = outbox.Outcome{Refused: true, Code: "not_found", Message: "issue sfx-1 not found"}, start
+			want, at = outbox.Outcome{Refused: true, Code: "not_found", Message: "issue aries-1 not found"}, start
 		}
 		if r.Code != want.Code || r.Message != want.Message || r.Fix != want.Fix || !r.At.Equal(at) {
 			t.Errorf("entry %d is refused as %s: %q, fix %q at %v; want %s: %q, fix %q at %v",
@@ -1001,14 +1001,14 @@ func TestFailedCompactionLosesNothing(t *testing.T) {
 // outbox lists, queues and replays without error, a new entry takes a
 // number no listed entry has, and everything pending is sent.
 func FuzzFiles(f *testing.F) {
-	entry := `{"seq":1,"op":"handoff","args":{"id":"sfx-1","note":"n","idem":"k-1"},"idem":"k-1","at":"2026-10-13T09:00:00Z"}` + "\n"
-	second := `{"seq":2,"op":"comment","args":{"id":"sfx-1","body":"b","idem":"k-2"},"idem":"k-2","at":"2026-10-13T09:00:00Z"}` + "\n"
+	entry := `{"seq":1,"op":"handoff","args":{"id":"aries-1","note":"n","idem":"k-1"},"idem":"k-1","at":"2026-10-13T09:00:00Z"}` + "\n"
+	second := `{"seq":2,"op":"comment","args":{"id":"aries-1","body":"b","idem":"k-2"},"idem":"k-2","at":"2026-10-13T09:00:00Z"}` + "\n"
 	f.Add([]byte(""), []byte(""))
 	f.Add([]byte(entry+second), []byte(""))
 	f.Add([]byte(entry+second), []byte(`{"seq":1,"state":"delivered","at":"2026-10-13T09:01:00Z"}`+"\n"))
 	f.Add([]byte(entry+second), []byte(`{"seq":2,"state":"refused","code":"conflict","at":"2026-10-13T09:01:00Z"}`+"\n"+`{"seq":2,"state":"pending","at":"2026-10-13T09:02:00Z"}`+"\n"))
 	f.Add([]byte(`{"next":41}`+"\n"+entry), []byte(`{"seq":7,"state":"dropped"}`+"\n"+`{"seq":1,"state":"nonsense"}`+"\n"))
-	f.Add([]byte(entry+entry+`{"seq":3,"op":"handoff","args":{"id":"sfx-1","note":"torn`), []byte(`{"seq":1,"state":"refu`))
+	f.Add([]byte(entry+entry+`{"seq":3,"op":"handoff","args":{"id":"aries-1","note":"torn`), []byte(`{"seq":1,"state":"refu`))
 	f.Add([]byte("not json\n[1]\n{}\nnull\n"+`{"seq":18446744073709551615,"op":"handoff","args":{},"idem":"k"}`+"\n"), []byte("\n\n{}\n"))
 	f.Add([]byte(`{"next":18446744073709551615}`+"\n"+`{"seq":4611686018427387904,"op":"x","args":1,"idem":"k"}`+"\n"), []byte(`{"seq":-1}`))
 	f.Fuzz(func(t *testing.T, box, answered []byte) {

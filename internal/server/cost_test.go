@@ -43,10 +43,10 @@ func TestDispatchPrices(t *testing.T) {
 		fix   string
 	}{
 		{"not an admin", alice, `{"model":"example-large","from":"2026-01-01"}`, proto.CodeForbidden,
-			"prices set is for starfix admins", "ask a starfix admin"},
-		{"bad from", dana, `{"model":"example-large","from":"soon"}`, proto.CodeInvalid, `from "soon"`, "sfx admin prices set -h"},
-		{"bad model", dana, `{"model":"example large","from":"2026-01-01"}`, proto.CodeInvalid, "model", "sfx admin prices set -h"},
-		{"negative rate", dana, `{"model":"example-large","from":"2026-01-01","output":-1}`, proto.CodeInvalid, "output rate", "sfx admin prices set -h"},
+			"prices set is for aries admins", "ask an aries admin"},
+		{"bad from", dana, `{"model":"example-large","from":"soon"}`, proto.CodeInvalid, `from "soon"`, "aries admin prices set -h"},
+		{"bad model", dana, `{"model":"example large","from":"2026-01-01"}`, proto.CodeInvalid, "model", "aries admin prices set -h"},
+		{"negative rate", dana, `{"model":"example-large","from":"2026-01-01","output":-1}`, proto.CodeInvalid, "output rate", "aries admin prices set -h"},
 		{"unknown field", dana, `{"model":"example-large","from":"2026-01-01","currency":"EUR"}`, proto.CodeInvalid, "unknown field", proto.FixUpgrade},
 	}
 	for _, tc := range tests {
@@ -138,8 +138,8 @@ func TestDispatchCost(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			_, perr := s.Dispatch(t.Context(), alice, proto.OpCost, json.RawMessage(tc.args))
-			if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Message, tc.msg) || !strings.Contains(perr.Fix, "sfx cost -h") {
-				t.Fatalf("cost(%s) = %+v; want invalid naming %q, fix with sfx cost -h", tc.args, perr, tc.msg)
+			if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Message, tc.msg) || !strings.Contains(perr.Fix, "aries cost -h") {
+				t.Fatalf("cost(%s) = %+v; want invalid naming %q, fix with aries cost -h", tc.args, perr, tc.msg)
 			}
 		})
 	}

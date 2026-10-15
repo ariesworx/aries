@@ -7,7 +7,7 @@ import (
 )
 
 // A change that does not fit the issue's state is refused with a
-// *StateError naming the reason and the issue, so that starfixd chooses
+// *StateError naming the reason and the issue, so that ariesd chooses
 // the fix without reading the message (internal/server/errors.go). It
 // still matches ErrInvalid, and its text is the message these refusals
 // had as plain errors.

@@ -242,7 +242,7 @@ func (w *cwtx) scope(ctx context.Context, op Op, principal string) (scope, error
 
 // ownKeys refuses op, adding a key to principal, when the actor is
 // principal (decision 19). The operator's principal is no one's account,
-// so `starfixd control init` is never refused here.
+// so `ariesd control init` is never refused here.
 func (w *cwtx) ownKeys(op Op, principal string) error {
 	if w.actor.Principal == principal {
 		return w.denied(op, principal, "", AccessOwnKeys)

@@ -35,7 +35,7 @@ func TestMain(m *testing.M) {
 }
 
 // sshServer runs an SSH server on loopback that accepts any key and
-// answers the handshake as starfixd would. It returns its port and its
+// answers the handshake as ariesd would. It returns its port and its
 // host key's fingerprint.
 func sshServer(t *testing.T) (int, string) {
 	t.Helper()
@@ -98,7 +98,7 @@ func serveHandshake(nc net.Conn, cfg *ssh.ServerConfig) {
 // iapConfig is a config that reaches port through IAP, pinning fpr.
 func iapConfig(t *testing.T, port int, fpr string) *Config {
 	t.Helper()
-	c, err := ParseConfig(fmt.Appendf(nil, "project: %s\nserver:\n  host: starfix-1\n  port: %d\n  host_key: %s\n"+
+	c, err := ParseConfig(fmt.Appendf(nil, "project: %s\nserver:\n  host: aries-1\n  port: %d\n  host_key: %s\n"+
 		"  iap:\n    project: example-project\n    zone: us-central1-a\nkey: id\n", testProject, port, fpr))
 	if err != nil {
 		t.Fatal(err)
@@ -131,7 +131,7 @@ func TestDialIAP(t *testing.T) {
 		t.Errorf("Session() = %q, want s-iap", c.Session())
 	}
 	inv := gcloud.Last(t)
-	want := []string{"compute", "start-iap-tunnel", "starfix-1", strconv.Itoa(port), "--listen-on-stdin",
+	want := []string{"compute", "start-iap-tunnel", "aries-1", strconv.Itoa(port), "--listen-on-stdin",
 		"--project=example-project", "--zone=us-central1-a", "--verbosity=warning"}
 	if !slices.Equal(inv.Args, want) {
 		t.Errorf("gcloud args = %q, want %q", inv.Args, want)
@@ -162,12 +162,12 @@ func TestDialIAPRefusals(t *testing.T) {
 		fix     string
 	}{
 		{name: "host key mismatch", mode: iaptest.Bridge, pin: testFpr, code: proto.CodeAuth,
-			msg: []string{"host key mismatch for starfix-1"}, fix: "server.host_key"},
+			msg: []string{"host key mismatch for aries-1"}, fix: "server.host_key"},
 		{name: "tunnel refused", mode: iaptest.Deny, pin: fpr, code: proto.CodeUnavailable,
 			// gcloud's words are quoted, escaped.
-			msg: []string{"instance starfix-1", "4033: 'not authorized'", `\x1b]0;pwned\x07`}, fix: "IAP-secured Tunnel User"},
+			msg: []string{"instance aries-1", "4033: 'not authorized'", `\x1b]0;pwned\x07`}, fix: "IAP-secured Tunnel User"},
 		{name: "tunnel silent", mode: iaptest.Hang, pin: fpr, timeout: time.Second, code: proto.CodeUnavailable,
-			msg: []string{"timed out", "instance starfix-1"}, fix: "gcloud compute start-iap-tunnel starfix-1"},
+			msg: []string{"timed out", "instance aries-1"}, fix: "gcloud compute start-iap-tunnel aries-1"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -6,7 +6,7 @@
 # SHA-256 are checked against the values below before anything is
 # unpacked. Only macOS on Apple silicon was pinned for the spike.
 #
-# usage: spike/postgres/install.sh [DIR]   (default ~/.cache/starfix)
+# usage: spike/postgres/install.sh [DIR]   (default ~/.cache/aries)
 set -eu
 
 version=18.6
@@ -23,7 +23,7 @@ Darwin/arm64) ;;
 	;;
 esac
 
-dir=${1:-${XDG_CACHE_HOME:-${HOME:?HOME is not set}/.cache}/starfix}
+dir=${1:-${XDG_CACHE_HOME:-${HOME:?HOME is not set}/.cache}/aries}
 dest=$dir/postgres-$version
 if [ -x "$dest/bin/postgres" ]; then
 	echo "$dest/bin"

@@ -8,7 +8,7 @@ import (
 	"github.com/ariesworx/aries/internal/proto"
 )
 
-// The inbox in an agent session. sfx mcp watches on every connection it
+// The inbox in an agent session. aries mcp watches on every connection it
 // opens, so the server pushes the session's new inbox items as they
 // happen. It keeps count, and the next tool result carries one extra
 // line, "inbox: N new (call inbox)": the agent hears of a lost claim or a

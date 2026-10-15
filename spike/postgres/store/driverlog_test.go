@@ -44,7 +44,7 @@ func TestDriverLogsThroughTheStoresLogger(t *testing.T) {
 	// A Dolt of the test's own, and not the pool's, since it is restarted.
 	// Its directory is short: t.TempDir's is too long for the path of
 	// Dolt's socket.
-	dir, err := os.MkdirTemp("", "starfix-dolt-")
+	dir, err := os.MkdirTemp("", "aries-dolt-")
 	if err != nil {
 		t.Fatal(err)
 	}

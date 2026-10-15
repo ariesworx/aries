@@ -209,7 +209,7 @@ func TestExportedSpansCarryNoText(t *testing.T) {
 	all := bytes.Join(posted, nil)
 	mu.Unlock()
 	// The export is there, and readable: it is not compressed.
-	for _, want := range []string{"create", "store.write.attempt", "handshake", "starfixd", projA, "p_"} {
+	for _, want := range []string{"create", "store.write.attempt", "handshake", "ariesd", projA, "p_"} {
 		if !bytes.Contains(all, []byte(want)) {
 			t.Fatalf("the %d bytes exported do not hold %q: the test reads nothing", len(all), want)
 		}

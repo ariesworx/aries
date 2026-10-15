@@ -13,7 +13,7 @@ import (
 	"github.com/ariesworx/aries/internal/proto"
 )
 
-// costBys are the groupings sfx cost takes.
+// costBys are the groupings aries cost takes.
 var costBys = []string{"account", "issue", "epic", "person", "model"}
 
 func cmdCost(ctx context.Context, r *runner, args []string) error {
@@ -129,7 +129,7 @@ func printCost(w io.Writer, c proto.CostResult) {
 		if c.UnpricedMore > 0 {
 			names += fmt.Sprintf(" and %d more", c.UnpricedMore)
 		}
-		p("unpriced: no price for %s; an admin sets one with `sfx admin prices set`\n", names)
+		p("unpriced: no price for %s; an admin sets one with `aries admin prices set`\n", names)
 	}
 	if c.Truncated {
 		p("partial: more records than the server reads; narrow the window\n")
@@ -274,7 +274,7 @@ func listPrices(ctx context.Context, r *runner) error {
 // a price from midnight UTC shows its date alone.
 func printPrices(w io.Writer, res proto.PricesResult) {
 	if len(res.Prices) == 0 {
-		_, _ = fmt.Fprintln(w, "no prices; an admin sets one with `sfx admin prices set`")
+		_, _ = fmt.Fprintln(w, "no prices; an admin sets one with `aries admin prices set`")
 		return
 	}
 	_, _ = fmt.Fprintln(w, "USD per million tokens")

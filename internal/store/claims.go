@@ -31,7 +31,7 @@ import (
 // Lease bounds. DefaultLease is an agent's lease, renewed while it runs.
 // No lease is shorter than MinLease. A start, or a renewal of one
 // session's claims, may ask for up to MaxClaimLease; only a renewal of
-// every session's claims (`sfx away`) may reach further, up to the
+// every session's claims (`aries away`) may reach further, up to the
 // store's AwayMax, which is MaxLease unless the server sets another
 // (away_max).
 const (
@@ -72,7 +72,7 @@ const (
 func (s *Store) AwayMax() time.Duration { return s.opts.AwayMax }
 
 // ReaperActor is who the reaper's changes are recorded as.
-var ReaperActor = Actor{Principal: "starfixd", Session: "reaper", Machine: "server"}
+var ReaperActor = Actor{Principal: "ariesd", Session: "reaper", Machine: "server"}
 
 // claimRow is a claims row; Holder.Principal is empty once released.
 type claimRow struct {
@@ -326,7 +326,7 @@ func queryClaims(ctx context.Context, q querier, clause string, args ...any) ([]
 // rewritten, so an agent renewing every minute writes about every
 // lease/2. Such renewals record no event.
 //
-// With allSessions it is a person going away (`sfx away`, design §18.6):
+// With allSessions it is a person going away (`aries away`, design §18.6):
 // every claim the principal holds, in every session, is extended to at
 // least now+lease, for up to the store's AwayMax, and each claim it
 // extends records a claim.away event naming the claim as it was and its
@@ -454,7 +454,7 @@ func renewDue(c Claim, now time.Time, lease time.Duration) bool {
 
 // awayDue reports whether going away for lease at now extends c: whether
 // it has less than lease left, by more than MinLease. A lease within a
-// minute of it is left as it is, so that `sfx away`, which sends each
+// minute of it is left as it is, so that `aries away`, which sends each
 // claim's paths in a renew of its own, does not extend every claim again
 // a moment later, each time on the record.
 func awayDue(c Claim, now time.Time, lease time.Duration) bool {

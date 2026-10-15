@@ -62,8 +62,8 @@ func TestDigest(t *testing.T) {
 	}
 
 	r := bob.run("v0.2.0", "digest", "--since", "yesterday")
-	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, `sfx: invalid input: since "yesterday" must be`) ||
-		!strings.Contains(r.stderr, "fix: correct it and retry; `sfx digest -h` lists the options") {
+	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, `aries: invalid input: since "yesterday" must be`) ||
+		!strings.Contains(r.stderr, "fix: correct it and retry; `aries digest -h` lists the options") {
 		t.Fatalf("bad since: exit %d\n%s", r.code, r.stderr)
 	}
 

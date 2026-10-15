@@ -1,10 +1,10 @@
-// Package gitx is starfix's git awareness, on the client: the branch
+// Package gitx is Aries's git awareness, on the client: the branch
 // name an issue suggests ([Branch]), the issue a branch or commit message
 // names ([IDFromBranch], [IDFromMessage], [BranchFor]), which the server
 // reads too, for a CI job that reports a check by its branch, creating that
 // branch or a worktree on it ([Switch], [AddWorktree]), and the paths an
 // issue's work touched ([ReadChanges]). The design is
-// docs/design/starfix.md §12 items 2 and 3, and the branch scheme is in
+// docs/design/aries.md §12 items 2 and 3, and the branch scheme is in
 // §5, "As built (stage 2, first slice)".
 //
 // It installs no hooks. Switch and AddWorktree run the git on PATH with
@@ -27,7 +27,7 @@ import (
 )
 
 // branchTypes maps an issue type to its branch prefix. The prefixes are
-// the starfix repository's own branch types: feature/, fix/, maintenance/
+// the Aries repository's own branch types: feature/, fix/, maintenance/
 // and docs/.
 var branchTypes = map[string]string{
 	"bug":     "fix",
@@ -95,8 +95,8 @@ var (
 	// branchID is the ID at the start of a branch's last segment, with a
 	// one-word prefix: sf-a1b2 or sf-a1b2.1.
 	branchID = lazyregexp.New(`^[a-z][a-z0-9]*-[a-z0-9]+(\.[0-9]+)*`)
-	// trailer is a "Starfix: <id>" line, capturing the id.
-	trailer = lazyregexp.New(`^Starfix:[ \t]*(\S+)[ \t]*$`)
+	// trailer is an "Aries: <id>" line, capturing the id.
+	trailer = lazyregexp.New(`^Aries:[ \t]*(\S+)[ \t]*$`)
 )
 
 // IDFromBranch returns the issue ID at the start of a branch's last
@@ -119,8 +119,8 @@ func IDFromBranch(branch, prefix string) (string, bool) {
 	return id, id != ""
 }
 
-// IDFromMessage returns the issue ID a commit message names in a
-// "Starfix: <id>" trailer, and whether it names one. The last such line
+// IDFromMessage returns the issue ID a commit message names in an
+// "Aries: <id>" trailer, and whether it names one. The last such line
 // wins; a value not shaped like an issue ID is skipped.
 func IDFromMessage(msg string) (string, bool) {
 	lines := strings.Split(strings.TrimRight(msg, "\n"), "\n")

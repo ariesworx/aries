@@ -67,20 +67,20 @@ func TestMetricsOfDrops(t *testing.T) {
 	}
 
 	check(t, snapshot(t, mr), []want{
-		{"starfix.connections.dropped", []string{"reason", "key"}, 1},
-		{"starfix.connections.dropped", []string{"reason", "disabled"}, 2},
-		{"starfix.connections.dropped", []string{"reason", "archived"}, 2},
-		{"starfix.connections.dropped", []string{"reason", "membership"}, 0},
-		{"starfix.connections.dropped", []string{"reason", "other"}, 0},
-		{"starfix.claims", []string{"event", "take", "reason", "none"}, 2},
-		{"starfix.claims", []string{"event", "release", "reason", "disabled"}, 1},
-		{"starfix.claims", []string{"event", "release", "reason", "archived"}, 1},
-		{"starfix.claims", []string{"event", "release", "reason", "other"}, 0},
-		{"starfix.control.writes", []string{"op", "key.remove", "result", "ok"}, 1},
-		{"starfix.control.writes", []string{"op", "principal.disable", "result", "ok"}, 1},
-		{"starfix.control.writes", []string{"op", "project.archive", "result", "ok"}, 1},
-		{"starfix.connections", []string{"project", projA}, 1}, // dana's
-		{"starfix.connections", []string{"project", projB}, 0},
+		{"aries.connections.dropped", []string{"reason", "key"}, 1},
+		{"aries.connections.dropped", []string{"reason", "disabled"}, 2},
+		{"aries.connections.dropped", []string{"reason", "archived"}, 2},
+		{"aries.connections.dropped", []string{"reason", "membership"}, 0},
+		{"aries.connections.dropped", []string{"reason", "other"}, 0},
+		{"aries.claims", []string{"event", "take", "reason", "none"}, 2},
+		{"aries.claims", []string{"event", "release", "reason", "disabled"}, 1},
+		{"aries.claims", []string{"event", "release", "reason", "archived"}, 1},
+		{"aries.claims", []string{"event", "release", "reason", "other"}, 0},
+		{"aries.control.writes", []string{"op", "key.remove", "result", "ok"}, 1},
+		{"aries.control.writes", []string{"op", "principal.disable", "result", "ok"}, 1},
+		{"aries.control.writes", []string{"op", "project.archive", "result", "ok"}, 1},
+		{"aries.connections", []string{"project", projA}, 1}, // dana's
+		{"aries.connections", []string{"project", projB}, 0},
 	})
 }
 
@@ -115,8 +115,8 @@ func TestMetricsOfIdleConnections(t *testing.T) {
 	}
 	c.hangUp()
 	check(t, snapshot(t, mr), []want{
-		{"starfix.connections.dropped", []string{"reason", "idle"}, 1},
-		{"starfix.connections", []string{"project", project}, 0},
+		{"aries.connections.dropped", []string{"reason", "idle"}, 1},
+		{"aries.connections", []string{"project", project}, 0},
 	})
 }
 
@@ -145,9 +145,9 @@ func TestMetricsOfStoreLimits(t *testing.T) {
 		t.Fatalf("a second price with prices: 1 = %v, want invalid", perr)
 	}
 	check(t, snapshot(t, mr), []want{
-		{"starfix.limit.refusals", []string{"limit", "keys_per_principal"}, 1},
-		{"starfix.limit.refusals", []string{"limit", "prices"}, 1},
-		{"starfix.limit.refusals", []string{"limit", "other"}, 0},
-		{"starfix.control.writes", []string{"op", "key.add", "result", "invalid"}, 1},
+		{"aries.limit.refusals", []string{"limit", "keys_per_principal"}, 1},
+		{"aries.limit.refusals", []string{"limit", "prices"}, 1},
+		{"aries.limit.refusals", []string{"limit", "other"}, 0},
+		{"aries.control.writes", []string{"op", "key.add", "result", "invalid"}, 1},
 	})
 }

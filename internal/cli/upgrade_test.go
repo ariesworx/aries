@@ -21,13 +21,13 @@ type upgradeFixture struct {
 	env     Env
 }
 
-// newUpgrade serves release latest, signed, with an sfx for linux/amd64 whose
-// contents are "sfx <latest>", and installs "sfx <current>" as the exe.
+// newUpgrade serves release latest, signed, with an aries for linux/amd64 whose
+// contents are "aries <latest>", and installs "aries <current>" as the exe.
 func newUpgrade(t *testing.T, current, latest string, verr error) *upgradeFixture {
 	t.Helper()
-	f := &upgradeFixture{gh: releasetest.New(t, latest), exe: filepath.Join(t.TempDir(), "sfx")}
-	f.gh.AddBinary(t, "sfx", "linux", "amd64", []byte("sfx "+latest))
-	if err := os.WriteFile(f.exe, []byte("sfx "+current), 0o755); err != nil { //nolint:gosec // an executable fixture
+	f := &upgradeFixture{gh: releasetest.New(t, latest), exe: filepath.Join(t.TempDir(), "aries")}
+	f.gh.AddBinary(t, "aries", "linux", "amd64", []byte("aries "+latest))
+	if err := os.WriteFile(f.exe, []byte("aries "+current), 0o755); err != nil { //nolint:gosec // an executable fixture
 		t.Fatal(err)
 	}
 	// Without an injected error, the real Ed25519 verifier checks the
@@ -42,7 +42,7 @@ func newUpgrade(t *testing.T, current, latest string, verr error) *upgradeFixtur
 		GOOS:     "linux", GOARCH: "amd64",
 		Check: func(_ context.Context, p, tag string) error {
 			f.checked = append(f.checked, tag)
-			if b, err := os.ReadFile(p); err != nil || string(b) != "sfx "+tag { //nolint:gosec // test temp dir
+			if b, err := os.ReadFile(p); err != nil || string(b) != "aries "+tag { //nolint:gosec // test temp dir
 				return errors.New("staged binary is not the release's")
 			}
 			return nil
@@ -73,10 +73,10 @@ func TestUpgradeCheck(t *testing.T) {
 	tests := []struct {
 		name, current, latest, want string
 	}{
-		{"behind", "v0.2.0", "v0.3.0", "starfix v0.2.0, latest v0.3.0: run sfx upgrade\n"},
-		{"current", "v0.3.0", "v0.3.0", "starfix v0.3.0, latest v0.3.0: up to date\n"},
-		{"ahead", "v0.4.0-rc.1", "v0.3.0", "starfix v0.4.0-rc.1, latest v0.3.0: up to date\n"},
-		{"dev", "dev", "v0.3.0", "starfix dev, latest v0.3.0: dev build; install a release to upgrade\n"},
+		{"behind", "v0.2.0", "v0.3.0", "aries v0.2.0, latest v0.3.0: run aries upgrade\n"},
+		{"current", "v0.3.0", "v0.3.0", "aries v0.3.0, latest v0.3.0: up to date\n"},
+		{"ahead", "v0.4.0-rc.1", "v0.3.0", "aries v0.4.0-rc.1, latest v0.3.0: up to date\n"},
+		{"dev", "dev", "v0.3.0", "aries dev, latest v0.3.0: dev build; install a release to upgrade\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -85,7 +85,7 @@ func TestUpgradeCheck(t *testing.T) {
 			if code != ExitOK || out != tt.want || errb != "" {
 				t.Fatalf("exit %d, stdout %q (want %q), stderr %q", code, out, tt.want, errb)
 			}
-			if got := f.exeHolds(t); got != "sfx "+tt.current {
+			if got := f.exeHolds(t); got != "aries "+tt.current {
 				t.Errorf("--check changed the binary to %q", got)
 			}
 		})
@@ -112,7 +112,7 @@ func TestUpgradeAndRollback(t *testing.T) {
 	if code != ExitOK || !strings.Contains(out, "upgraded v0.2.0 -> v0.3.0") {
 		t.Fatalf("exit %d, stdout %q, stderr %q", code, out, errb)
 	}
-	if got := f.exeHolds(t); got != "sfx v0.3.0" {
+	if got := f.exeHolds(t); got != "aries v0.3.0" {
 		t.Fatalf("exe holds %q", got)
 	}
 	if len(f.checked) != 1 || f.checked[0] != "v0.3.0" {
@@ -122,19 +122,19 @@ func TestUpgradeAndRollback(t *testing.T) {
 	// The binary now reports the new version: a second run changes nothing.
 	f.env.Version = "v0.3.0"
 	code, out, _ = f.run("upgrade")
-	if code != ExitOK || out != "starfix v0.3.0 is up to date\n" || f.exeHolds(t) != "sfx v0.3.0" {
+	if code != ExitOK || out != "aries v0.3.0 is up to date\n" || f.exeHolds(t) != "aries v0.3.0" {
 		t.Fatalf("second run: exit %d, %q, exe %q", code, out, f.exeHolds(t))
 	}
 
 	code, out, errb = f.run("upgrade", "--rollback")
-	if code != ExitOK || f.exeHolds(t) != "sfx v0.2.0" {
+	if code != ExitOK || f.exeHolds(t) != "aries v0.2.0" {
 		t.Fatalf("rollback: exit %d, %q %q, exe %q", code, out, errb, f.exeHolds(t))
 	}
 	code, _, errb = f.run("upgrade", "--rollback")
 	if code != ExitFailure || !strings.Contains(errb, "no previous binary") || !strings.Contains(errb, "fix: nothing to roll back") {
 		t.Fatalf("second rollback: exit %d, %q", code, errb)
 	}
-	if f.exeHolds(t) != "sfx v0.2.0" {
+	if f.exeHolds(t) != "aries v0.2.0" {
 		t.Errorf("refused rollback changed the binary")
 	}
 }
@@ -162,14 +162,14 @@ func TestUpgradeRefusals(t *testing.T) {
 			edit: func(t *testing.T, f *upgradeFixture) {
 				s := f.gh.Checksums()
 				f.gh.Sums = &s
-				f.gh.AddBinary(t, "sfx", "linux", "amd64", []byte("tampered"))
+				f.gh.AddBinary(t, "aries", "linux", "amd64", []byte("tampered"))
 			}, stderr: "checksum mismatch"},
 		{name: "no build for platform", current: "v0.2.0", args: []string{"upgrade"}, code: ExitFailure,
-			edit: func(_ *testing.T, f *upgradeFixture) { f.env.Upgrader.GOARCH = "riscv64" }, stderr: "has no sfx_0.3.0_linux_riscv64.tar.gz"},
+			edit: func(_ *testing.T, f *upgradeFixture) { f.env.Upgrader.GOARCH = "riscv64" }, stderr: "has no aries_0.3.0_linux_riscv64.tar.gz"},
 		{name: "staged binary fails its check", current: "v0.2.0", args: []string{"upgrade"}, code: ExitFailure,
 			edit: func(t *testing.T, f *upgradeFixture) {
 				f.gh.Tag = "v0.3.0"
-				f.gh.AddBinary(t, "sfx", "linux", "amd64", []byte("sfx v9.9.9"))
+				f.gh.AddBinary(t, "aries", "linux", "amd64", []byte("aries v9.9.9"))
 			}, stderr: "staged binary is not the release's"},
 		{name: "check and rollback", current: "v0.2.0", args: []string{"upgrade", "--check", "--rollback"}, code: ExitUsage,
 			stderr: "cannot be combined"},
@@ -186,7 +186,7 @@ func TestUpgradeRefusals(t *testing.T) {
 			if code != tt.code || !strings.Contains(errb, tt.stderr) || !strings.Contains(errb, "fix: ") {
 				t.Fatalf("exit %d (want %d), stdout %q, stderr %q (want %q and a fix)", code, tt.code, out, errb, tt.stderr)
 			}
-			if got := f.exeHolds(t); got != "sfx "+tt.current {
+			if got := f.exeHolds(t); got != "aries "+tt.current {
 				t.Errorf("refused upgrade left %q", got)
 			}
 			if _, err := os.Stat(f.exe + ".prev"); !errors.Is(err, os.ErrNotExist) {

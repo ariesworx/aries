@@ -80,7 +80,7 @@ type quiet int
 const (
 	closesAtOnce   quiet = iota // closes the connection
 	ignoresSession              // never answers the request to open a session
-	ignoresExec                 // opens the session, and never answers the request to run starfixd
+	ignoresExec                 // opens the session, and never answers the request to run ariesd
 	ignoresHello                // runs it, reads the hello and never answers
 )
 
@@ -176,7 +176,7 @@ func (d *quietSSHD) addr() string { return net.JoinHostPort("127.0.0.1", strconv
 func (d *quietSSHD) dial(ctx context.Context, t *testing.T) <-chan error {
 	t.Helper()
 	cfg := &Config{Project: testProject, Key: "id", Root: t.TempDir()}
-	cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.HostKey = "127.0.0.1", d.port, "starfix", d.hostKey
+	cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.HostKey = "127.0.0.1", d.port, "aries", d.hostKey
 	newKeyPair(t).write(t, cfg.Root, "id", "", false)
 	result := make(chan error, 1)
 	go func() {
@@ -216,8 +216,8 @@ func TestDialGivesUpOnAQuietServer(t *testing.T) {
 	}{
 		{name: "the session is never opened", how: ignoresSession,
 			want: "timed out after 1m0s waiting for %s to open an ssh session"},
-		{name: "starfixd is never started", how: ignoresExec,
-			want: "timed out after 1m0s waiting for %s to start starfixd"},
+		{name: "ariesd is never started", how: ignoresExec,
+			want: "timed out after 1m0s waiting for %s to start ariesd"},
 		{name: "the hello is never answered", how: ignoresHello,
 			want: "timed out after 1m0s waiting for %s to answer the hello"},
 		{name: "the caller cancels", how: ignoresHello, cancel: true,
@@ -243,7 +243,7 @@ func TestDialGivesUpOnAQuietServer(t *testing.T) {
 			if want := strings.Replace(tc.want, "%s", d.addr(), 1); pe.Message != want {
 				t.Errorf("Dial message = %q, want %q", pe.Message, want)
 			}
-			if !strings.Contains(pe.Fix, "retry") || !strings.Contains(pe.Fix, "starfixd status") {
+			if !strings.Contains(pe.Fix, "retry") || !strings.Contains(pe.Fix, "ariesd status") {
 				t.Errorf("Dial fix = %q, want it to say to retry, and what the admin checks", pe.Fix)
 			}
 			if !Unreachable(err) {
@@ -345,7 +345,7 @@ func sshPair(t *testing.T) (*ssh.Client, *transport, *stallConn, net.Conn) {
 	stall := &stallConn{Conn: cli, held: make(chan struct{}), release: make(chan struct{}), closed: make(chan struct{})}
 	nc := &transport{Conn: stall}
 	//nolint:gosec // G106: both ends are the test's
-	cc, chans, reqs, err := ssh.NewClientConn(nc, "the server", &ssh.ClientConfig{User: "starfix", HostKeyCallback: ssh.InsecureIgnoreHostKey()})
+	cc, chans, reqs, err := ssh.NewClientConn(nc, "the server", &ssh.ClientConfig{User: "aries", HostKeyCallback: ssh.InsecureIgnoreHostKey()})
 	if err != nil {
 		t.Fatal(err)
 	}

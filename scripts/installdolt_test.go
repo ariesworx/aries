@@ -94,7 +94,7 @@ func (c doltCheckout) run(t *testing.T, url string) (stdout, stderr string, ok b
 		"HOME=" + filepath.Join(filepath.Dir(c.fake), "home"),
 		"XDG_CACHE_HOME=" + c.cache,
 		"TMPDIR=" + t.TempDir(),
-		"STARFIX_DOLT_BASE_URL=" + url,
+		"ARIES_DOLT_BASE_URL=" + url,
 	}
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
@@ -171,7 +171,7 @@ func TestInstallDoltScript(t *testing.T) {
 			}))
 			t.Cleanup(srv.Close)
 			c := newDoltCheckout(t, tc.sums, tc.unameS, tc.unameM)
-			bin := filepath.Join(c.cache, "starfix", "dolt-"+v, "bin")
+			bin := filepath.Join(c.cache, "aries", "dolt-"+v, "bin")
 			dolt := filepath.Join(bin, "dolt")
 			if tc.before != "" {
 				if err := os.MkdirAll(bin, 0o700); err != nil {
@@ -202,7 +202,7 @@ func TestInstallDoltScript(t *testing.T) {
 				if string(got) != tc.before {
 					t.Errorf("a failed run left %q at %s, want %q", got, dolt, tc.before)
 				}
-				if entries, _ := os.ReadDir(filepath.Join(c.cache, "starfix")); tc.before == "" && len(entries) != 0 {
+				if entries, _ := os.ReadDir(filepath.Join(c.cache, "aries")); tc.before == "" && len(entries) != 0 {
 					t.Errorf("a failed run left %d entries in the cache directory", len(entries))
 				}
 				return
@@ -220,7 +220,7 @@ func TestInstallDoltScript(t *testing.T) {
 			if fi, err := os.Stat(dolt); err != nil || fi.Mode().Perm()&0o100 == 0 {
 				t.Errorf("%s is not executable: %v, %v", dolt, fi, err)
 			}
-			if entries, _ := os.ReadDir(filepath.Join(c.cache, "starfix")); len(entries) != 1 {
+			if entries, _ := os.ReadDir(filepath.Join(c.cache, "aries")); len(entries) != 1 {
 				t.Errorf("the cache directory holds %d entries, want only dolt-%s", len(entries), v)
 			}
 		})

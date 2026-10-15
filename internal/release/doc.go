@@ -1,4 +1,4 @@
-// Package release finds, downloads and verifies starfix releases, and
+// Package release finds, downloads and verifies Aries releases, and
 // swaps a running binary for a new one.
 //
 // A release carries one archive per binary and platform ([ArchiveName]),
@@ -25,7 +25,7 @@
 // one it replaced for [Swap.Rollback]. It works on files beside the
 // executable and takes no lock, so callers run one swap at a time.
 //
-// The design is docs/design/starfix.md §11, whose As-built notes cover
+// The design is docs/design/aries.md §11, whose As-built notes cover
 // signing and the static source; RELEASING.md covers the release
 // workflow, the static layout and key rotation.
 package release

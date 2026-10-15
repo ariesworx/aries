@@ -83,8 +83,8 @@ func TestGateRefusalsNameApprovers(t *testing.T) {
 	} {
 		_, perr := call[proto.WriteResult](t, s, bob, tc.op, tc.args)
 		if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Message, "carol") ||
-			!strings.HasPrefix(perr.Fix, proto.FixGate) || !strings.Contains(perr.Fix, "sfx gate pass "+g.ID) {
-			t.Errorf("%s = %+v, want invalid naming carol, with a fix naming `sfx gate pass %s`", tc.name, perr, g.ID)
+			!strings.HasPrefix(perr.Fix, proto.FixGate) || !strings.Contains(perr.Fix, "aries gate pass "+g.ID) {
+			t.Errorf("%s = %+v, want invalid naming carol, with a fix naming `aries gate pass %s`", tc.name, perr, g.ID)
 		}
 	}
 	if _, perr := call[proto.WriteResult](t, s, bob, proto.OpCreate, proto.CreateArgs{Title: "x", Type: "gate"}); perr == nil ||

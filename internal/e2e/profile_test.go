@@ -11,15 +11,15 @@ import (
 	"github.com/ariesworx/aries/internal/server"
 )
 
-// TestProfileServer serves a world to sfx binaries started outside the
-// test, for measuring whole processes (docs/design/profile-sfx.md). It
-// runs only when STARFIX_PROFILE_DIR names a directory, and then until a
+// TestProfileServer serves a world to aries binaries started outside the
+// test, for measuring whole processes (docs/design/profile-aries.md). It
+// runs only when ARIES_PROFILE_DIR names a directory, and then until a
 // file named stop appears there:
 //
-//	STARFIX_PROFILE_DIR=DIR go test -run 'TestProfileServer$' -timeout 0 ./internal/e2e/
+//	ARIES_PROFILE_DIR=DIR go test -run 'TestProfileServer$' -timeout 0 ./internal/e2e/
 //
 // Once it serves it writes DIR/server.env: the repository whose
-// .starfix.yaml names the world's server and whose key signs in as alice,
+// .aries.yaml names the world's server and whose key signs in as alice,
 // an admin; the port; and the host key's fingerprint. It answers two
 // more files, removing each when it has: drop closes every SSH
 // connection, as a network drop would, and stat writes DIR/stats, the
@@ -29,16 +29,16 @@ import (
 //
 // The limits a profile would otherwise meet first are raised: one
 // principal's connections, handshakes, sessions and write rate.
-// STARFIX_PROFILE_LIMITS=default leaves the server's defaults.
+// ARIES_PROFILE_LIMITS=default leaves the server's defaults.
 func TestProfileServer(t *testing.T) {
 	// Serial: measures this process, its heap and its goroutines, which a test beside it would add to.
-	dir := os.Getenv("STARFIX_PROFILE_DIR")
+	dir := os.Getenv("ARIES_PROFILE_DIR")
 	if dir == "" {
-		t.Skip("set STARFIX_PROFILE_DIR to serve a world for profiling sfx from outside the test")
+		t.Skip("set ARIES_PROFILE_DIR to serve a world for profiling aries from outside the test")
 	}
 	limits := server.Limits{Conns: 4096, ConnsPerPrincipal: 4096, Handshakes: 4096, WriteRate: 1e6, WriteBurst: 1_000_000}
 	limits.Sessions = 4096
-	if os.Getenv("STARFIX_PROFILE_LIMITS") == "default" {
+	if os.Getenv("ARIES_PROFILE_LIMITS") == "default" {
 		limits = server.Limits{}
 	}
 	w := newWorld(t, daemonOpts{admins: []string{"alice"}, limits: limits})

@@ -23,7 +23,7 @@ import (
 )
 
 // Repo is the GitHub repository releases come from.
-const Repo = "ariesworx/starfix"
+const Repo = "ariesworx/aries"
 
 // Asset names shared by every release.
 const (
@@ -194,7 +194,7 @@ func get(ctx context.Context, hc *http.Client, u string, limit int64, accept str
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "starfix-upgrade")
+	req.Header.Set("User-Agent", "aries-upgrade")
 	if accept != "" {
 		req.Header.Set("Accept", accept)
 		req.Header.Set("X-GitHub-Api-Version", "2022-11-28")

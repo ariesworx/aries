@@ -52,7 +52,7 @@ type Options struct {
 	// positive is refused.
 	IdemWindow time.Duration
 	// AwayMax is the longest lease a renewal of every session's claims
-	// (`sfx away`) may ask for. Default [MaxLease]; one that is negative,
+	// (`aries away`) may ask for. Default [MaxLease]; one that is negative,
 	// or under [MinLease], is refused.
 	AwayMax time.Duration
 	// Logger receives background committer errors, and the warning that
@@ -63,14 +63,14 @@ type Options struct {
 	Admins []string
 	// IsAdmin, when set, is asked as well as Admins, on every write and
 	// admin-only request, so its answer may change while the store is
-	// open: a multi-project starfixd answers from the control store's
+	// open: a multi-project ariesd answers from the control store's
 	// project admins ([Control.Access]). It must be fast, read no
 	// database, and be safe for concurrent use.
 	IsAdmin func(principal string) bool
 	// AllowUnsafeAccount opens the store even when the database account
 	// is root, holds rights beyond its database, or the server leaves
 	// secure_file_priv empty. Off, Open refuses such an account with an
-	// [*UnsafeAccountError]; starfixd turns it on only for --dev
+	// [*UnsafeAccountError]; ariesd turns it on only for --dev
 	// --allow-unsafe-dolt.
 	AllowUnsafeAccount bool
 	// Limits bound requests and per-principal rows. Zero fields take
@@ -84,7 +84,7 @@ type Options struct {
 	Tracer Tracer
 	// NoMigrate opens the database only as it is: one that this binary's
 	// migrations have not all been applied to is refused with
-	// [ErrSchemaOld], and nothing in it is changed. starfixd sets it for
+	// [ErrSchemaOld], and nothing in it is changed. ariesd sets it for
 	// the database of an archived project, which is migrated when the
 	// project is activated and not before.
 	NoMigrate bool
@@ -378,7 +378,7 @@ func (s *Store) commit(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("dolt commit: %w", err)
 	}
-	msg := fmt.Sprintf("starfix: events through %d", seq)
+	msg := fmt.Sprintf("aries: events through %d", seq)
 	if _, err := c.ExecContext(ctx, `CALL DOLT_COMMIT('-Am', ?, '--skip-empty')`, msg); err != nil {
 		return fmt.Errorf("dolt commit: %w", err)
 	}

@@ -14,10 +14,10 @@ import (
 // with every kind of string, multi-line arrays, inline tables and
 // comments, so that a header inside a string or a bracket inside an
 // array is never mistaken for structure. It does not check values
-// beyond that. The starfix entry ([mcp_servers.starfix], its env table
+// beyond that. The Aries entry ([mcp_servers.aries], its env table
 // and any other subtable) is replaced wholesale, at the place of the
 // first of them; everything else, comments included, is left as it was.
-// A file the scanner cannot read, or one that defines starfix in a form
+// A file the scanner cannot read, or one that defines Aries in a form
 // it does not edit (an inline table, dotted keys), is refused, and setup
 // prints the snippet to add by hand.
 
@@ -492,7 +492,7 @@ func tomlString(s string) string {
 // harnessLine is the env table's key/value pair naming the harness.
 func harnessLine(harness string) string { return HarnessEnv + " = " + tomlString(harness) }
 
-// tomlTable is the starfix entry as setup writes it, one line each: the
+// tomlTable is the Aries entry as setup writes it, one line each: the
 // server's table and its env table, with a blank line between.
 func tomlTable(e Entry, harness string) []string {
 	quoted := make([]string, len(e.Args))
@@ -508,7 +508,7 @@ func tomlTable(e Entry, harness string) []string {
 	return out
 }
 
-// tomlKeyFile returns the key file the starfix entry's env table sets,
+// tomlKeyFile returns the key file the Aries entry's env table sets,
 // or "" when it sets none, or as anything but a basic string, which is
 // how setup writes it.
 func tomlKeyFile(content []byte) string {
@@ -534,18 +534,18 @@ func tomlKeyFile(content []byte) string {
 	return ""
 }
 
-// starfixPath reports whether a table or key path is inside the starfix
+// ariesPath reports whether a table or key path is inside the Aries
 // entry.
-func starfixPath(p []string) bool {
+func ariesPath(p []string) bool {
 	return len(p) >= 2 && p[0] == "mcp_servers" && p[1] == ServerName
 }
 
 // tomlSpan is a byte range of the document.
 type tomlSpan struct{ start, end int }
 
-// tomlEntry finds the starfix entry's tables: for each, from its header
+// tomlEntry finds the Aries entry's tables: for each, from its header
 // to its last key/value pair, with any blank lines after it, so that
-// removing the spans leaves no gap. It refuses a starfix entry, or a
+// removing the spans leaves no gap. It refuses an Aries entry, or a
 // servers table, defined in a form it does not edit.
 func tomlEntry(content []byte) ([]tomlSpan, error) {
 	items, err := scanTOML(content)
@@ -558,15 +558,15 @@ func tomlEntry(content []byte) ([]tomlSpan, error) {
 		switch it.kind {
 		case tomlHeader:
 			if len(it.path) == 1 && it.path[0] == "mcp_servers" && it.array {
-				return nil, errors.New("mcp_servers is an array of tables; setup edits only [mcp_servers.starfix] tables")
+				return nil, errors.New("mcp_servers is an array of tables; setup edits only [mcp_servers.aries] tables")
 			}
-			inEntry = starfixPath(it.path)
+			inEntry = ariesPath(it.path)
 			if !inEntry {
 				continue
 			}
 			if len(it.path) == 2 {
 				if seen {
-					return nil, errors.New("[mcp_servers.starfix] is defined twice")
+					return nil, errors.New("[mcp_servers.aries] is defined twice")
 				}
 				seen = true
 			}
@@ -592,8 +592,8 @@ func tomlEntry(content []byte) ([]tomlSpan, error) {
 			if len(it.path) == 1 && it.path[0] == "mcp_servers" {
 				return nil, errors.New("mcp_servers is an inline table; make it [mcp_servers.NAME] tables and run setup again")
 			}
-			if starfixPath(it.path) {
-				return nil, errors.New("starfix is defined with dotted keys or an inline table; make it a [mcp_servers.starfix] table and run setup again")
+			if ariesPath(it.path) {
+				return nil, errors.New("aries is defined with dotted keys or an inline table; make it a [mcp_servers.aries] table and run setup again")
 			}
 		}
 	}
@@ -615,7 +615,7 @@ func cut(content []byte, spans []tomlSpan) (rest []byte, at int) {
 	return append(rest, content[prev:]...), at
 }
 
-// applyTOML writes the starfix entry into content: in place of the first
+// applyTOML writes the Aries entry into content: in place of the first
 // of its tables when it has any, else at the end after a blank line.
 func applyTOML(content []byte, e Entry, harness string) ([]byte, error) {
 	spans, err := tomlEntry(content)
@@ -647,7 +647,7 @@ func applyTOML(content []byte, e Entry, harness string) ([]byte, error) {
 	return []byte(string(rest[:at]) + block + after), nil
 }
 
-// removeTOML takes the starfix entry out, with the blank lines at the
+// removeTOML takes the Aries entry out, with the blank lines at the
 // end of the file.
 func removeTOML(content []byte) ([]byte, bool, error) {
 	spans, err := tomlEntry(content)
@@ -669,7 +669,7 @@ func tomlRegistered(content []byte, e Entry, harness string) bool {
 	return err == nil && string(out) == string(content)
 }
 
-// tomlHas reports whether content has a starfix entry.
+// tomlHas reports whether content has an Aries entry.
 func tomlHas(content []byte) bool {
 	spans, err := tomlEntry(content)
 	return err == nil && len(spans) > 0

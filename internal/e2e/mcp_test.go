@@ -21,7 +21,7 @@ import (
 	"github.com/ariesworx/aries/internal/proto"
 )
 
-// agent is an MCP client session against `sfx mcp` run as this user,
+// agent is an MCP client session against `aries mcp` run as this user,
 // over in-memory transport, with the real SSH client underneath.
 type agent struct {
 	t       *testing.T
@@ -32,7 +32,7 @@ type agent struct {
 }
 
 // mcp starts an agent for this user: an MCP session with an in-process
-// `sfx mcp` server built as version, which dials the world on its first
+// `aries mcp` server built as version, which dials the world on its first
 // tool call.
 func (u *user) mcp(version string) *agent {
 	t := u.w.t
@@ -45,7 +45,7 @@ func (u *user) mcp(version string) *agent {
 	if u.w.fixedClock {
 		renew = -1 // renewals would not move the test's clock
 	}
-	// Every `sfx mcp` has a cache, and an outbox unless --no-queue.
+	// Every `aries mcp` has a cache, and an outbox unless --no-queue.
 	cache := &offline.Client{Dir: u.repo, GOOS: runtime.GOOS, Getenv: opts.Getenv, UserHomeDir: os.UserHomeDir,
 		Session: opts.Session, Machine: opts.Machine}
 	var off *offline.Client
@@ -151,7 +151,7 @@ func TestMCPAgentSession(t *testing.T) {
 	}
 
 	if out := alice.ok("prime"); !strings.Contains(out, "in progress:\n  "+b.ID+" P2 \"Write the docs\"\n") {
-		t.Fatalf("sfx prime:\n%s", out)
+		t.Fatalf("aries prime:\n%s", out)
 	}
 
 	// As a SessionStart hook: the hook input's session id is used, and
@@ -259,7 +259,7 @@ func TestMCPServerAssignedSessionAndRefusal(t *testing.T) {
 
 	stranger := w.newUser("", "").mcp("v0.2.0")
 	out, isErr := stranger.call("ready", nil)
-	if !isErr || !strings.HasPrefix(out, "auth: ") || !strings.Contains(out, "fix: tell the user starfix cannot connect, quoting the server: \"send your public key") {
+	if !isErr || !strings.HasPrefix(out, "auth: ") || !strings.Contains(out, "fix: tell the user aries cannot connect, quoting the server: \"send your public key") {
 		t.Fatalf("unknown key: %q", out)
 	}
 	var doc struct {
@@ -275,7 +275,7 @@ func TestMCPServerAssignedSessionAndRefusal(t *testing.T) {
 	}
 }
 
-// `sfx mcp` itself, over pipes as a harness runs it.
+// `aries mcp` itself, over pipes as a harness runs it.
 func TestMCPCommand(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, daemonOpts{})
@@ -311,10 +311,10 @@ func TestMCPCommand(t *testing.T) {
 	select {
 	case code := <-done:
 		if code != cli.ExitOK {
-			t.Fatalf("sfx mcp exited %d", code)
+			t.Fatalf("aries mcp exited %d", code)
 		}
 	case <-ctx.Done():
-		t.Fatal("sfx mcp did not exit when its input closed")
+		t.Fatal("aries mcp did not exit when its input closed")
 	}
 	if out := alice.ok("list"); !strings.Contains(out, "over pipes") {
 		t.Fatalf("list:\n%s", out)

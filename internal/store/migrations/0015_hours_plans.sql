@@ -1,4 +1,4 @@
--- Human hours (design §12.1, sfx log): a person's time on an issue, one
+-- Human hours (design §12.1, aries log): a person's time on an issue, one
 -- row per entry. principal is who logged it, for themselves; on_date is
 -- the day worked (UTC) and seconds how long, at most a day. The account
 -- comes from the issue when read, as for tokens, so moving an issue to

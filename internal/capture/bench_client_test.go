@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// Benchmarks of reading a Claude Code transcript for `sfx usage --hook`
-// (docs/design/profile-sfx.md). Run with:
+// Benchmarks of reading a Claude Code transcript for `aries usage --hook`
+// (docs/design/profile-aries.md). Run with:
 //
 //	go test -run '^$' -bench Client -benchmem ./internal/capture/
 

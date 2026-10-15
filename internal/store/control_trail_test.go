@@ -85,7 +85,7 @@ func TestControlTrail(t *testing.T) {
 		{"dana", []string{"bob", "carol", "frank", "hal"}, []string{"alice", "bob", "carol", "dana", "erin", "frank", "hal", "ivy"},
 			[]string{"alice in a", "bob in a", "carol in a", "carol in b", "dana in a", "erin in b", "hal in a", "ivy in a", "ivy in b"}},
 		{"nobody", nil, nil, nil},
-		// What `starfixd control init` wrote is under the operator's name.
+		// What `ariesd control init` wrote is under the operator's name.
 		{OperatorPrincipal, nil, nil, nil},
 	}
 	for _, tc := range tests {

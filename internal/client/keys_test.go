@@ -127,7 +127,7 @@ func TestDialKeyRefusals(t *testing.T) {
 			cfg := &Config{Project: "00000000-0000-4000-8000-000000000001", Key: tc.key, Root: root}
 			cfg.Server.Host = "127.0.0.1"
 			cfg.Server.Port = closedAddr(t)
-			cfg.Server.User = "starfix"
+			cfg.Server.User = "aries"
 			cfg.Server.HostKey = "SHA256:" + strings.Repeat("A", 43)
 			env := map[string]string{}
 			if tc.agent {

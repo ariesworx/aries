@@ -9,7 +9,7 @@ import (
 // A desktop app (Claude Desktop) differs from the other harnesses in four
 // ways that shape its setup. It keeps one MCP config per user, at a path
 // that depends on the platform. It starts servers with no working
-// directory, so `sfx mcp` cannot find .starfix.yaml by itself: the entry
+// directory, so `aries mcp` cannot find .aries.yaml by itself: the entry
 // pins the project with -C. It starts them without the login shell's
 // PATH, so the command is an absolute path. And it reads no instruction
 // file and runs no hook, so the MCP server's instructions are all the

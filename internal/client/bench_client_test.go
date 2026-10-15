@@ -20,8 +20,8 @@ import (
 	"github.com/ariesworx/aries/internal/proto"
 )
 
-// Benchmarks of what every connecting sfx command does before its
-// request (docs/design/profile-sfx.md): find and read .starfix.yaml, load
+// Benchmarks of what every connecting aries command does before its
+// request (docs/design/profile-aries.md): find and read .aries.yaml, load
 // the keys to offer, dial and shake hands; and of one call. Run with:
 //
 //	go test -run '^$' -bench Client -benchmem ./internal/client/
@@ -56,7 +56,7 @@ func benchEd25519(b *testing.B) ed25519.PrivateKey {
 	return key
 }
 
-// benchRepo makes a repository whose .starfix.yaml names a server at
+// benchRepo makes a repository whose .aries.yaml names a server at
 // port with host key fingerprint hostKey, and returns a directory three
 // levels inside it.
 func benchRepo(b *testing.B, port int, hostKey, key string) string {
@@ -69,7 +69,7 @@ func benchRepo(b *testing.B, port int, hostKey, key string) string {
 	if err := os.Mkdir(filepath.Join(root, ".git"), 0o700); err != nil {
 		b.Fatal(err)
 	}
-	cfg := fmt.Sprintf("project: %s\nserver:\n  host: 127.0.0.1\n  port: %d\n  user: starfix\n  host_key: %s\n", benchProject, port, hostKey)
+	cfg := fmt.Sprintf("project: %s\nserver:\n  host: 127.0.0.1\n  port: %d\n  user: aries\n  host_key: %s\n", benchProject, port, hostKey)
 	if key != "" {
 		cfg += "key: " + key + "\n"
 	}
@@ -81,7 +81,7 @@ func benchRepo(b *testing.B, port int, hostKey, key string) string {
 
 const benchHostKey = "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
-// BenchmarkClientLoadConfig is the search for .starfix.yaml from three
+// BenchmarkClientLoadConfig is the search for .aries.yaml from three
 // directories below the repository's top, the checks on the file, and
 // its parsing and validation.
 func BenchmarkClientLoadConfig(b *testing.B) {
@@ -96,7 +96,7 @@ func BenchmarkClientLoadConfig(b *testing.B) {
 
 // BenchmarkClientLoadConfigNone is the search that finds nothing, which
 // `prime --hook` and `usage --hook` make in every repository that is not
-// a starfix one.
+// an Aries one.
 func BenchmarkClientLoadConfigNone(b *testing.B) {
 	dir := benchRepo(b, 22, benchHostKey, "")
 	if err := os.Remove(filepath.Join(dir, "..", "..", "..", ConfigFile)); err != nil {

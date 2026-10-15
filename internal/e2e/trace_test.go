@@ -37,7 +37,7 @@ func (b *lockedBuffer) String() string {
 	return b.b.String()
 }
 
-// TestTraceContextFromTheEnvironment runs decision 27 end to end: sfx
+// TestTraceContextFromTheEnvironment runs decision 27 end to end: aries
 // reads TRACEPARENT and TRACESTATE from its environment and sends them on
 // each request, and the daemon carries them on the request's context,
 // which is where the ids in its log line come from. A TRACEPARENT that is
@@ -81,7 +81,7 @@ func TestTraceContextFromTheEnvironment(t *testing.T) {
 	}
 }
 
-// TestTraceContextPerToolCall runs `sfx mcp` as a harness does, over
+// TestTraceContextPerToolCall runs `aries mcp` as a harness does, over
 // pipes, started with a TRACEPARENT in its environment. A tool call
 // whose request carries a trace context in its metadata (_meta's
 // traceparent and tracestate) reaches the daemon under that trace; one
@@ -151,10 +151,10 @@ func TestTraceContextPerToolCall(t *testing.T) {
 	select {
 	case code := <-done:
 		if code != cli.ExitOK {
-			t.Fatalf("sfx mcp exited %d", code)
+			t.Fatalf("aries mcp exited %d", code)
 		}
 	case <-ctx.Done():
-		t.Fatal("sfx mcp did not exit when its input closed")
+		t.Fatal("aries mcp did not exit when its input closed")
 	}
 	for _, leaked := range []string{"EVIL", "call-STATE", "env-STATE"} {
 		if strings.Contains(logs.String(), leaked) {
@@ -163,11 +163,11 @@ func TestTraceContextPerToolCall(t *testing.T) {
 	}
 }
 
-// TestTracesEndToEnd runs slice O2 through everything: `sfx` with a
+// TestTracesEndToEnd runs slice O2 through everything: `aries` with a
 // TRACEPARENT in its environment, SSH, the bridge, a daemon that traces,
 // and its store. The daemon's span for the request is a child of the
 // caller's span, with the store's work beneath it; it names the person
-// by a stand-in; and `sfx admin principal whois`, for a server admin,
+// by a stand-in; and `aries admin principal whois`, for a server admin,
 // says whose the stand-in is.
 func TestTracesEndToEnd(t *testing.T) {
 	t.Parallel()
@@ -218,7 +218,7 @@ func TestTracesEndToEnd(t *testing.T) {
 
 	// A server admin resolves the stand-in; nobody else does.
 	if got := dana.ok("admin", "principal", "whois", alias); got != alias+" is alice\n" {
-		t.Errorf("sfx admin principal whois = %q, want %q", got, alias+" is alice\n")
+		t.Errorf("aries admin principal whois = %q, want %q", got, alias+" is alice\n")
 	}
 	if got := decode[proto.PrincipalWhoisResult](t, dana.ok("admin", "principal", "whois", alias, "--json")); got !=
 		(proto.PrincipalWhoisResult{StandIn: alias, Name: "alice", State: "active"}) {
@@ -240,7 +240,7 @@ func TestTracesEndToEnd(t *testing.T) {
 	}
 }
 
-// daemonLog is the logger `starfixd serve` makes, at debug, writing to
+// daemonLog is the logger `ariesd serve` makes, at debug, writing to
 // w: its handler is what puts a request's id and its trace's ids on a
 // line.
 func daemonLog(t *testing.T, w io.Writer) *slog.Logger {

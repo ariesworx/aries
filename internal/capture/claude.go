@@ -30,7 +30,7 @@ import (
 // versions: what is read here was checked against version 2.1.x, and a
 // live transcript, on 8 Oct 2026.
 
-// Harness is the harness name records carry: `sfx setup`'s agent name.
+// Harness is the harness name records carry: `aries setup`'s agent name.
 const Harness = "claude-code"
 
 // maxLine bounds a transcript line. Assistant lines are far shorter; a

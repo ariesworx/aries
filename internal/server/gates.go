@@ -60,7 +60,7 @@ func gateReport(ctx context.Context, pr *served, a store.Actor, op string, in pr
 const maxBranch = 255
 
 // reportSubject is the issue a report names: in.Subject, or the issue
-// in.Branch names with the project's prefix, as `sfx start --branch`
+// in.Branch names with the project's prefix, as `aries start --branch`
 // names a branch (gitx.Branch). A branch that names none, or another
 // issue than in.Subject, is refused.
 func (pr *served) reportSubject(in proto.GateArgs) (store.IssueID, *proto.Error) {
@@ -74,9 +74,9 @@ func (pr *served) reportSubject(in proto.GateArgs) (store.IssueID, *proto.Error)
 	id, ok := gitx.IDFromBranch(in.Branch, pr.store.Prefix())
 	if !ok {
 		// not_found, as a subject with no gate for the check is: there is
-		// nothing to report on, which `sfx gate pass --optional` allows.
+		// nothing to report on, which `aries gate pass --optional` allows.
 		return "", proto.Errf(proto.CodeNotFound,
-			"report on a branch named for its issue, as `sfx start --branch` names it ("+gitx.Branch("feature", pr.store.Prefix()+"-a1b2", "title")+
+			"report on a branch named for its issue, as `aries start --branch` names it ("+gitx.Branch("feature", pr.store.Prefix()+"-a1b2", "title")+
 				"), or name the issue with --issue ID",
 			fmt.Sprintf("branch %s names no issue of this project", in.Branch))
 	}
@@ -186,18 +186,18 @@ func gateErr(e *store.GateError) *proto.Error {
 			msg = fmt.Sprintf("%s waits behind gate %s, which %s may pass", e.ID, e.Gate, who)
 		}
 		return proto.Errf(proto.CodeInvalid,
-			fmt.Sprintf(proto.FixGate+" %s to pass gate %s (`sfx gate pass %s`); `sfx ready` lists the work nothing holds", who, e.Gate, e.Gate), msg)
+			fmt.Sprintf(proto.FixGate+" %s to pass gate %s (`aries gate pass %s`); `aries ready` lists the work nothing holds", who, e.Gate, e.Gate), msg)
 	case store.GateIsGate:
 		if e.Gate == "" {
-			return proto.Errf(proto.CodeInvalid, proto.FixGateAdd+" `sfx gate add --blocks ID`, which makes the gate and what it holds",
+			return proto.Errf(proto.CodeInvalid, proto.FixGateAdd+" `aries gate add --blocks ID`, which makes the gate and what it holds",
 				"an issue becomes a gate only through gate add")
 		}
 		return proto.Errf(proto.CodeInvalid,
-			fmt.Sprintf(proto.FixGate+" %s to pass it (`sfx gate pass %s`); a gate is opened and closed only by the gate commands", who, e.Gate),
+			fmt.Sprintf(proto.FixGate+" %s to pass it (`aries gate pass %s`); a gate is opened and closed only by the gate commands", who, e.Gate),
 			fmt.Sprintf("%s is a gate; %s may pass it", e.Gate, who))
 	case store.GateNotPerson:
 		return proto.Errf(proto.CodeForbidden,
-			fmt.Sprintf(proto.FixGate+" a person to run `sfx gate %s %s` at their own terminal, outside an agent session", e.Op, e.Gate),
+			fmt.Sprintf(proto.FixGate+" a person to run `aries gate %s %s` at their own terminal, outside an agent session", e.Op, e.Gate),
 			fmt.Sprintf("gate %s is decided by a person at their own terminal, and this request came from an agent's session", e.Gate))
 	case store.GateNotAdmin:
 		return proto.Errf(proto.CodeForbidden,
@@ -205,19 +205,19 @@ func gateErr(e *store.GateError) *proto.Error {
 			fmt.Sprintf("waiving gate %s is for the project's admins", e.Gate))
 	case store.GateNotCI:
 		return proto.Errf(proto.CodeForbidden,
-			fmt.Sprintf(proto.FixGate+" CI to report check %s as %s, from its job; a person named by the gate may run `sfx gate %s %s` at their own terminal", e.Check, who, e.Op, e.Gate),
+			fmt.Sprintf(proto.FixGate+" CI to report check %s as %s, from its job; a person named by the gate may run `aries gate %s %s` at their own terminal", e.Check, who, e.Op, e.Gate),
 			fmt.Sprintf("gate %s takes reports from a CI job or a person's terminal, and this request came from an agent's session", e.Gate))
 	case store.GateNoCheck:
 		return proto.Errf(proto.CodeNotFound,
-			fmt.Sprintf("add one with `sfx gate add --kind ci --check %s --subject %s --by PRINCIPAL`; `sfx gate list` lists the gates", e.Check, e.ID),
+			fmt.Sprintf("add one with `aries gate add --kind ci --check %s --subject %s --by PRINCIPAL`; `aries gate list` lists the gates", e.Check, e.ID),
 			fmt.Sprintf("%s has no ci gate for check %s", e.ID, e.Check))
 	}
 	if e.Check != "" {
 		return proto.Errf(proto.CodeForbidden,
-			fmt.Sprintf(proto.FixGate+" CI to report check %s as %s, the principal gate %s names; an admin may waive it (`sfx gate waive %s --reason TEXT`)", e.Check, who, e.Gate, e.Gate),
+			fmt.Sprintf(proto.FixGate+" CI to report check %s as %s, the principal gate %s names; an admin may waive it (`aries gate waive %s --reason TEXT`)", e.Check, who, e.Gate, e.Gate),
 			fmt.Sprintf("only %s may %s gate %s", who, e.Op, e.Gate))
 	}
 	return proto.Errf(proto.CodeForbidden,
-		fmt.Sprintf(proto.FixGate+" %s to %s gate %s (`sfx gate %s %s`)", who, e.Op, e.Gate, e.Op, e.Gate),
+		fmt.Sprintf(proto.FixGate+" %s to %s gate %s (`aries gate %s %s`)", who, e.Op, e.Gate, e.Op, e.Gate),
 		fmt.Sprintf("only %s may %s gate %s", who, e.Op, e.Gate))
 }

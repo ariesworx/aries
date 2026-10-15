@@ -19,15 +19,15 @@ import (
 	"github.com/ariesworx/aries/internal/proto"
 )
 
-// BenchmarkProcess is what a running starfixd costs as the operating
-// system sees it (docs/design/profile-starfixd.md): it builds the
-// binary as a release is built, runs `starfixd serve --dev` on a new
+// BenchmarkProcess is what a running ariesd costs as the operating
+// system sees it (docs/design/profile-ariesd.md): it builds the
+// binary as a release is built, runs `ariesd serve --dev` on a new
 // database, and reads the process's resident memory from ps, and its
 // own account of its heap from the /metrics it serves, idle and then
-// with 200 connections past their handshake. It also runs 20 `starfixd
+// with 200 connections past their handshake. It also runs 20 `ariesd
 // stdio`, the bridge sshd starts for each connection, and reads theirs.
 //
-//	go test -run '^$' -bench 'Process' -benchtime 1x ./cmd/starfixd/
+//	go test -run '^$' -bench 'Process' -benchtime 1x ./cmd/ariesd/
 //
 // One iteration is one daemon. It needs dolt, the go command and ps,
 // and is skipped on Windows.
@@ -36,7 +36,7 @@ func BenchmarkProcess(b *testing.B) {
 		b.Skip("reads resident memory from ps")
 	}
 	doltOf(b) // skips without dolt
-	exe := filepath.Join(b.TempDir(), "starfixd")
+	exe := filepath.Join(b.TempDir(), "ariesd")
 	build := exec.CommandContext(b.Context(), "go", "build", "-trimpath", "-ldflags", "-s -w", "-o", exe, ".") //nolint:gosec // the benchmark's own directory
 	build.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if out, err := build.CombinedOutput(); err != nil {
@@ -105,17 +105,17 @@ func measureProcess(b *testing.B, exe string, metrics bool) processCost {
 	}()
 	// A unix socket's path is short; the benchmark's own directory may
 	// not be.
-	dir, err := os.MkdirTemp("", "sfxp")
+	dir, err := os.MkdirTemp("", "ariesp")
 	if err != nil {
 		b.Fatal(err)
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 	sock := filepath.Join(dir, "run", "s")
-	cfg := filepath.Join(dir, "starfixd.yaml")
+	cfg := filepath.Join(dir, "ariesd.yaml")
 	if err := os.WriteFile(cfg, nil, 0o600); err != nil {
 		b.Fatal(err)
 	}
-	env := []string{"STARFIXD_DSN=" + dsn, "HOME=" + dir, "PATH=" + os.Getenv("PATH")}
+	env := []string{"ARIESD_DSN=" + dsn, "HOME=" + dir, "PATH=" + os.Getenv("PATH")}
 	var addr string
 	if metrics {
 		l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -124,7 +124,7 @@ func measureProcess(b *testing.B, exe string, metrics bool) processCost {
 		}
 		addr = l.Addr().String()
 		_ = l.Close()
-		env = append(env, "STARFIXD_TELEMETRY_LISTEN="+addr)
+		env = append(env, "ARIESD_TELEMETRY_LISTEN="+addr)
 	}
 	var log bytes.Buffer
 	daemon := exec.CommandContext(ctx, exe, "serve", "--dev", "--config", cfg, "--socket", sock, "--project", benchProject) //nolint:gosec // the binary just built
@@ -150,7 +150,7 @@ func measureProcess(b *testing.B, exe string, metrics bool) processCost {
 			break
 		}
 		if time.Now().After(deadline) {
-			b.Fatalf("starfixd did not listen on %s within a minute:\n%s", sock, log.String())
+			b.Fatalf("ariesd did not listen on %s within a minute:\n%s", sock, log.String())
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -208,7 +208,7 @@ func measureProcess(b *testing.B, exe string, metrics bool) processCost {
 	rss, heap, _ := read()
 	cost.connRSS, cost.connHeap = (rss-cost.idleRSS)/conns, (heap-cost.idleHeap)/conns
 
-	// The bridge: `starfixd stdio`, one process for each connection sshd
+	// The bridge: `ariesd stdio`, one process for each connection sshd
 	// lets in, which copies its stdin and stdout to the socket.
 	const bridges = 20
 	var pids []int

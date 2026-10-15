@@ -17,7 +17,7 @@ import (
 
 func TestFetch(t *testing.T) {
 	t.Parallel()
-	bin := []byte("\x7fELF new sfx")
+	bin := []byte("\x7fELF new aries")
 	tests := []struct {
 		name     string
 		goos     string
@@ -38,7 +38,7 @@ func TestFetch(t *testing.T) {
 			edit: func(t *testing.T, g *releasetest.Server, archive string) {
 				s := g.Checksums()
 				g.Sums = &s
-				g.Assets[archive] = releasetest.TarGz(t, "sfx", []byte("evil"))
+				g.Assets[archive] = releasetest.TarGz(t, "aries", []byte("evil"))
 			}, wantErr: release.ErrMismatch},
 		{name: "not in checksums", goos: "linux", goarch: "amd64",
 			edit: func(_ *testing.T, g *releasetest.Server, _ string) {
@@ -68,8 +68,8 @@ func TestFetch(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			g := releasetest.New(t, "v1.2.0")
-			linux := g.AddBinary(t, "sfx", "linux", "amd64", bin)
-			g.AddBinary(t, "sfx", "windows", "arm64", bin)
+			linux := g.AddBinary(t, "aries", "linux", "amd64", bin)
+			g.AddBinary(t, "aries", "windows", "arm64", bin)
 			if tt.edit != nil {
 				tt.edit(t, g, linux)
 			}
@@ -79,7 +79,7 @@ func TestFetch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got, err := c.Fetch(t.Context(), rel, "sfx", tt.goos, tt.goarch)
+			got, err := c.Fetch(t.Context(), rel, "aries", tt.goos, tt.goarch)
 			switch {
 			case tt.wantErr != nil:
 				if !errors.Is(err, tt.wantErr) {
@@ -135,7 +135,7 @@ func TestFetchRedactsSignedURL(t *testing.T) {
 			}))
 			t.Cleanup(cdn.Close)
 			g := releasetest.New(t, "v1.2.0")
-			g.AddBinary(t, "sfx", "linux", "amd64", []byte("sfx"))
+			g.AddBinary(t, "aries", "linux", "amd64", []byte("aries"))
 			g.Rewrite = func(r *release.Release) {
 				for i := range r.Assets {
 					r.Assets[i].URL = cdn.URL + "/download/" + r.Assets[i].Name
@@ -146,7 +146,7 @@ func TestFetchRedactsSignedURL(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = c.Fetch(t.Context(), rel, "sfx", "linux", "amd64")
+			_, err = c.Fetch(t.Context(), rel, "aries", "linux", "amd64")
 			if err == nil || strings.Contains(err.Error(), secret) || !strings.Contains(err.Error(), release.ChecksumsName) {
 				t.Errorf("Fetch = %v, want an error naming %s without %q", err, release.ChecksumsName, secret)
 			}
@@ -157,13 +157,13 @@ func TestFetchRedactsSignedURL(t *testing.T) {
 func TestFetchNeedsVerifier(t *testing.T) {
 	t.Parallel()
 	g := releasetest.New(t, "v1.2.0")
-	g.AddBinary(t, "sfx", "linux", "amd64", []byte("x"))
+	g.AddBinary(t, "aries", "linux", "amd64", []byte("x"))
 	c := g.Client(nil)
 	rel, err := c.Latest(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Fetch(t.Context(), rel, "sfx", "linux", "amd64"); err == nil {
+	if _, err := c.Fetch(t.Context(), rel, "aries", "linux", "amd64"); err == nil {
 		t.Fatal("Fetch without a verifier succeeded")
 	}
 }
@@ -210,9 +210,9 @@ func TestReleaseMetadata(t *testing.T) {
 func TestArchiveName(t *testing.T) {
 	t.Parallel()
 	tests := []struct{ bin, tag, goos, goarch, want string }{
-		{"sfx", "v1.2.3", "linux", "amd64", "sfx_1.2.3_linux_amd64.tar.gz"},
-		{"sfx", "v1.2.3", "windows", "arm64", "sfx_1.2.3_windows_arm64.zip"},
-		{"starfixd", "v0.1.0-rc.1", "linux", "arm64", "starfixd_0.1.0-rc.1_linux_arm64.tar.gz"},
+		{"aries", "v1.2.3", "linux", "amd64", "aries_1.2.3_linux_amd64.tar.gz"},
+		{"aries", "v1.2.3", "windows", "arm64", "aries_1.2.3_windows_arm64.zip"},
+		{"ariesd", "v0.1.0-rc.1", "linux", "arm64", "ariesd_0.1.0-rc.1_linux_arm64.tar.gz"},
 	}
 	for _, tt := range tests {
 		if got := release.ArchiveName(tt.bin, tt.tag, tt.goos, tt.goarch); got != tt.want {
@@ -248,7 +248,7 @@ func TestFetchEd25519(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			g := releasetest.New(t, "v1.2.0")
-			g.AddBinary(t, "sfx", "linux", "amd64", []byte("bin"))
+			g.AddBinary(t, "aries", "linux", "amd64", []byte("bin"))
 			if tt.edit != nil {
 				tt.edit(t, g)
 			}
@@ -257,7 +257,7 @@ func TestFetchEd25519(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = c.Fetch(t.Context(), rel, "sfx", "linux", "amd64")
+			_, err = c.Fetch(t.Context(), rel, "aries", "linux", "amd64")
 			if !errors.Is(err, tt.wantErr) || (tt.wantErr == nil && err != nil) {
 				t.Fatalf("Fetch = %v, want %v", err, tt.wantErr)
 			}
@@ -275,7 +275,7 @@ func TestEd25519(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	msg := []byte("abc  sfx_1.0.0_linux_amd64.tar.gz\n")
+	msg := []byte("abc  aries_1.0.0_linux_amd64.tar.gz\n")
 	sig := func(k ed25519.PrivateKey) []byte { return release.EncodeSignature(ed25519.Sign(k, msg)) }
 	tests := []struct {
 		name    string

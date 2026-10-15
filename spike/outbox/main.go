@@ -1,4 +1,4 @@
-// Command outbox is the stage 5 spike, slice F0 (docs/design/starfix.md
+// Command outbox is the stage 5 spike, slice F0 (docs/design/aries.md
 // §18.4, §18.10, §18.13): it measures the proposed local store, an
 // append-only NDJSON outbox and a cache of whole files, under many real
 // operating system processes on one directory.
@@ -182,7 +182,7 @@ func main() {
 		CompactEvery: *every, Files: *files, Ops: *ops, Iter: *iter,
 	}
 
-	base, err := os.MkdirTemp(*dir, "sfx-outbox-")
+	base, err := os.MkdirTemp(*dir, "aries-outbox-")
 	if err != nil {
 		fatal("%v", err)
 	}

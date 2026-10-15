@@ -7,7 +7,7 @@ import (
 )
 
 // Benchmarks of the escaping every client applies to what it prints
-// (docs/design/profile-sfx.md). Run with:
+// (docs/design/profile-aries.md). Run with:
 //
 //	go test -run '^$' -bench Client -benchmem ./internal/safetext/
 

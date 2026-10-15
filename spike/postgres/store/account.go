@@ -10,12 +10,12 @@ import (
 // The account check (S-2). A Dolt sql-server started without a config
 // lets root in from localhost with no password, grants it FILE and every
 // other right, and leaves secure_file_priv empty, so any user on the host
-// could skip starfixd, rewrite the event log as anyone, and read or write
+// could skip ariesd, rewrite the event log as anyone, and read or write
 // files as the Dolt user. Open refuses such an account unless
 // Options.AllowUnsafeAccount says otherwise.
 
 // UnsafeAccountError refuses a database account with more rights than
-// starfix needs. User is the account as CURRENT_USER() names it
+// Aries needs. User is the account as CURRENT_USER() names it
 // (user@host), and Problems lists what is unsafe, in words. Its message
 // ends with the fix.
 type UnsafeAccountError struct {
@@ -24,8 +24,8 @@ type UnsafeAccountError struct {
 }
 
 func (e *UnsafeAccountError) Error() string {
-	return fmt.Sprintf("dolt account %s is unsafe for starfixd: %s; fix: as Dolt's root, run "+
-		"CREATE USER 'starfix'@'localhost' IDENTIFIED BY '...'; GRANT ALL ON <database>.* TO 'starfix'@'localhost'; "+
+	return fmt.Sprintf("dolt account %s is unsafe for ariesd: %s; fix: as Dolt's root, run "+
+		"CREATE USER 'aries'@'localhost' IDENTIFIED BY '...'; GRANT ALL ON <database>.* TO 'aries'@'localhost'; "+
 		"put that user in the DSN, and set system_variables: secure_file_priv: to a directory that does not exist "+
 		"in Dolt's config.yaml (docs/server.md, steps 2 and 4); for local development only, pass --dev --allow-unsafe-dolt",
 		e.User, strings.Join(e.Problems, "; "))

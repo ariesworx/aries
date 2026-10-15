@@ -6,7 +6,7 @@
 // started it dies first. Nothing is installed system-wide.
 //
 // The server has a superuser, postgres, which only this package uses, and
-// a role, starfix, that may log in and owns what it is given: a database
+// a role, aries, that may log in and owns what it is given: a database
 // per project (Database) or a schema per project in one database
 // (Schema), the two layouts the spike compares.
 package pgtest
@@ -40,9 +40,9 @@ const Version = "18.6"
 var ErrNoPostgres = errors.New("postgres " + Version + " not found: run spike/postgres/install.sh")
 
 // Bin returns the directory of the pinned release's programs:
-// $STARFIX_POSTGRES_BIN, or ~/.cache/starfix/postgres-VERSION/bin.
+// $ARIES_POSTGRES_BIN, or ~/.cache/aries/postgres-VERSION/bin.
 func Bin() (string, error) {
-	dir := os.Getenv("STARFIX_POSTGRES_BIN")
+	dir := os.Getenv("ARIES_POSTGRES_BIN")
 	if dir == "" {
 		cache := os.Getenv("XDG_CACHE_HOME")
 		if cache == "" {
@@ -52,7 +52,7 @@ func Bin() (string, error) {
 			}
 			cache = filepath.Join(home, ".cache")
 		}
-		dir = filepath.Join(cache, "starfix", "postgres-"+Version, "bin")
+		dir = filepath.Join(cache, "aries", "postgres-"+Version, "bin")
 	}
 	out, err := exec.Command(filepath.Join(dir, "postgres"), "--version").Output() //nolint:gosec // the pinned binary
 	if err != nil {
@@ -92,7 +92,7 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	dir, err := os.MkdirTemp("", "sfxpg-")
+	dir, err := os.MkdirTemp("", "ariespg-")
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +156,7 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	if _, err := s.admin.ExecContext(ctx, `CREATE ROLE starfix LOGIN`); err != nil {
+	if _, err := s.admin.ExecContext(ctx, `CREATE ROLE aries LOGIN`); err != nil {
 		return nil, errors.Join(err, s.Stop())
 	}
 	return s, nil
@@ -164,7 +164,7 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 
 func (s *Server) dsn(user, db, schema string) string {
 	d := fmt.Sprintf("postgres://%s@127.0.0.1:%d/%s?sslmode=disable", user, s.Port, db)
-	if user == "starfix" {
+	if user == "aries" {
 		// A test that holds one writer open while another writes would
 		// wait forever on Postgres's row locks; let it fail instead.
 		d += "&lock_timeout=5s"
@@ -190,14 +190,14 @@ func name(prefix string) string {
 	return prefix + hex.EncodeToString(b)
 }
 
-// Database creates a database that starfix owns and returns starfix's
-// DSN for it.
+// Database creates a database that the aries role owns and returns
+// the role's DSN for it.
 func (s *Server) Database(ctx context.Context) (string, error) {
-	db := name("sfx_")
+	db := name("aries_")
 	if err := s.createDatabase(ctx, db); err != nil {
 		return "", err
 	}
-	return s.dsn("starfix", db, ""), nil
+	return s.dsn("aries", db, ""), nil
 }
 
 var createMu sync.Mutex // CREATE DATABASE copies template1, one at a time
@@ -205,7 +205,7 @@ var createMu sync.Mutex // CREATE DATABASE copies template1, one at a time
 func (s *Server) createDatabase(ctx context.Context, db string) error {
 	createMu.Lock()
 	defer createMu.Unlock()
-	if _, err := s.admin.ExecContext(ctx, `CREATE DATABASE `+db+` OWNER starfix`); err != nil {
+	if _, err := s.admin.ExecContext(ctx, `CREATE DATABASE `+db+` OWNER aries`); err != nil {
 		return fmt.Errorf("pgtest: create database: %w", err)
 	}
 	s.mu.Lock()
@@ -215,27 +215,27 @@ func (s *Server) createDatabase(ctx context.Context, db string) error {
 }
 
 // SharedDB is the database that holds the schemas Schema makes.
-const SharedDB = "starfix"
+const SharedDB = "aries"
 
-// Schema creates a schema in the shared database, owned by starfix, and
-// returns starfix's DSN for it, whose search_path is that schema.
+// Schema creates a schema in the shared database, owned by the aries
+// role, and returns the role's DSN for it, whose search_path is that schema.
 func (s *Server) Schema(ctx context.Context) (string, error) {
 	if err := s.shared(ctx); err != nil {
 		return "", err
 	}
-	sc := name("sfx_")
+	sc := name("aries_")
 	db, err := sql.Open("pgx", s.dsn("postgres", SharedDB, ""))
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = db.Close() }()
-	if _, err := db.ExecContext(ctx, `CREATE SCHEMA `+sc+` AUTHORIZATION starfix`); err != nil {
+	if _, err := db.ExecContext(ctx, `CREATE SCHEMA `+sc+` AUTHORIZATION aries`); err != nil {
 		return "", fmt.Errorf("pgtest: create schema: %w", err)
 	}
 	s.mu.Lock()
 	s.made = append(s.made, "s:"+sc)
 	s.mu.Unlock()
-	return s.dsn("starfix", SharedDB, sc), nil
+	return s.dsn("aries", SharedDB, sc), nil
 }
 
 var sharedOnce sync.Map // *Server -> error
@@ -246,7 +246,7 @@ func (s *Server) shared(ctx context.Context) error {
 	v.(*sync.Once).Do(func() {
 		err = s.createDatabase(ctx, SharedDB)
 		if err == nil {
-			// The public schema is not the starfix role's to use.
+			// The public schema is not the aries role's to use.
 			var db *sql.DB
 			if db, err = sql.Open("pgx", s.dsn("postgres", SharedDB, "")); err == nil {
 				_, err = db.ExecContext(ctx, `REVOKE ALL ON SCHEMA public FROM PUBLIC`)

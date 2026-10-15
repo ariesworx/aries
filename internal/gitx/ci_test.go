@@ -60,7 +60,7 @@ func TestCurrentBranchAndHeadMessage(t *testing.T) {
 		t.Errorf("CurrentBranch = %q, %v; want main", got, err)
 	}
 	if _, err := git(ctx, dir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-q", "--allow-empty",
-		"-m", "Do the thing", "-m", "Starfix: sf-a1b2"); err != nil {
+		"-m", "Do the thing", "-m", "Aries: sf-a1b2"); err != nil {
 		t.Fatal(err)
 	}
 	msg, err := HeadMessage(ctx, dir)

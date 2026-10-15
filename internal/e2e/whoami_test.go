@@ -12,21 +12,21 @@ import (
 	"github.com/ariesworx/aries/internal/client"
 )
 
-// TestWhoami runs `sfx whoami` through SSH and the daemon: it names the
+// TestWhoami runs `aries whoami` through SSH and the daemon: it names the
 // principal the server took the connection for and the key that signed,
-// in text and with --json, and follows STARFIX_KEY to another identity
+// in text and with --json, and follows ARIES_KEY to another identity
 // (design §14, decision 35).
 func TestWhoami(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, daemonOpts{})
 	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
-	alice.env = map[string]string{"STARFIX_SESSION": "s-alice"}
+	alice.env = map[string]string{"ARIES_SESSION": "s-alice"}
 	aliceKey := filepath.Join(alice.repo, "id_ed25519")
 
-	want := fmt.Sprintf("principal  alice\nproject    %s\nserver     starfix@127.0.0.1:%d, host key %s\nsession    s-alice\nkey        %s, from the file %s, which key: in .starfix.yaml names\n",
+	want := fmt.Sprintf("principal  alice\nproject    %s\nserver     aries@127.0.0.1:%d, host key %s\nsession    s-alice\nkey        %s, from the file %s, which key: in .aries.yaml names\n",
 		project, w.addr.Port, w.hostFpr, alice.fingerprint(), aliceKey)
 	if got := alice.ok("whoami"); got != want {
-		t.Errorf("sfx whoami =\n%swant\n%s", got, want)
+		t.Errorf("aries whoami =\n%swant\n%s", got, want)
 	}
 	type doc struct {
 		Principal string `json:"principal"`
@@ -42,29 +42,29 @@ func TestWhoami(t *testing.T) {
 	}
 	got := decode[doc](t, alice.ok("whoami", "--json"))
 	if got.Principal != "alice" || got.Project != project || got.Server.Host != "127.0.0.1" || got.Server.Port != w.addr.Port ||
-		got.Server.User != "starfix" || got.Server.HostKey != w.hostFpr || got.Session != "s-alice" ||
-		got.Key != (client.KeyInfo{Fingerprint: alice.fingerprint(), Source: "file", Path: aliceKey, By: "key: in .starfix.yaml"}) {
-		t.Errorf("sfx whoami --json = %+v", got)
+		got.Server.User != "aries" || got.Server.HostKey != w.hostFpr || got.Session != "s-alice" ||
+		got.Key != (client.KeyInfo{Fingerprint: alice.fingerprint(), Source: "file", Path: aliceKey, By: "key: in .aries.yaml"}) {
+		t.Errorf("aries whoami --json = %+v", got)
 	}
 
-	// In alice's checkout, with STARFIX_KEY naming another key, sfx is
+	// In alice's checkout, with ARIES_KEY naming another key, aries is
 	// whoever that key is: here bob. The checkout's own key: is not
 	// offered.
 	bobKey := filepath.Join(bob.repo, "id_ed25519")
-	alice.env = map[string]string{"STARFIX_SESSION": "s-alice", client.EnvKeyFile: bobKey}
+	alice.env = map[string]string{"ARIES_SESSION": "s-alice", client.EnvKeyFile: bobKey}
 	got = decode[doc](t, alice.ok("whoami", "--json"))
 	if got.Principal != "bob" || got.Key != (client.KeyInfo{Fingerprint: bob.fingerprint(), Source: "file", Path: bobKey, By: client.EnvKeyFile}) {
-		t.Errorf("sfx whoami --json with %s naming bob's key = %+v, want bob and his key", client.EnvKeyFile, got)
+		t.Errorf("aries whoami --json with %s naming bob's key = %+v, want bob and his key", client.EnvKeyFile, got)
 	}
 
 	// prime, which an agent reads, names the principal and the key too.
-	alice.env = map[string]string{"STARFIX_SESSION": "s-alice"}
+	alice.env = map[string]string{"ARIES_SESSION": "s-alice"}
 	if got := alice.ok("prime"); !strings.Contains(got, "you are alice, session s-alice\nsigned in with key "+alice.fingerprint()+" from "+aliceKey+"\n") {
-		t.Errorf("sfx prime does not say who and by which key:\n%s", got)
+		t.Errorf("aries prime does not say who and by which key:\n%s", got)
 	}
 
-	// STARFIX_KEY is a name some deployments gave a secret that holds a
-	// private key's text. sfx never reads it: set to a key, nothing any
+	// ARIES_KEY is a name some deployments gave a secret that holds a
+	// private key's text. aries never reads it: set to a key, nothing any
 	// command prints holds any of it, whether the command succeeds, is
 	// refused by the server or cannot sign in, in text or with --json.
 	const material = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACBzZWNyZXQtc2VjcmV0LXNlY3JldC1zZWNyZXQtc2VjcmV0AAAA\n-----END OPENSSH PRIVATE KEY-----\n"
@@ -76,20 +76,20 @@ func TestWhoami(t *testing.T) {
 				r := u.run("v0.2.0", args...)
 				for _, part := range []string{"b3BlbnNzaC1rZXktdjE", "QyNTUxOQAAACBz", "PRIVATE KEY"} {
 					if strings.Contains(r.stdout+r.stderr, part) {
-						t.Errorf("sfx %s with %v holding a private key printed part of it (%q):\n%s%s", strings.Join(args, " "), slices.Collect(maps.Keys(env)), part, r.stdout, r.stderr)
+						t.Errorf("aries %s with %v holding a private key printed part of it (%q):\n%s%s", strings.Join(args, " "), slices.Collect(maps.Keys(env)), part, r.stdout, r.stderr)
 					}
 				}
 				if _, bad := env[client.EnvKeyFile]; bad && (r.code != cli.ExitFailure || !strings.Contains(r.stdout+r.stderr, "never the key itself")) {
-					t.Errorf("sfx %s with %s holding a key: exit %d, want it refused with a fix that says the variable takes a path\n%s%s",
+					t.Errorf("aries %s with %s holding a key: exit %d, want it refused with a fix that says the variable takes a path\n%s%s",
 						strings.Join(args, " "), client.EnvKeyFile, r.code, r.stdout, r.stderr)
 				}
 			}
 		}
 		u.env = nil
 	}
-	alice.env = map[string]string{"STARFIX_SESSION": "s-alice"}
+	alice.env = map[string]string{"ARIES_SESSION": "s-alice"}
 
 	if r := alice.run("v0.2.0", "whoami", "now"); r.code != cli.ExitUsage {
-		t.Errorf("sfx whoami now: exit %d, want a usage error\n%s", r.code, r.stderr)
+		t.Errorf("aries whoami now: exit %d, want a usage error\n%s", r.code, r.stderr)
 	}
 }

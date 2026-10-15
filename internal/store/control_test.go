@@ -96,7 +96,7 @@ func testCertificate(t *testing.T) string {
 // character, as project a, b or c.
 func newProject(id string) NewProject {
 	n := id[len(id)-1:]
-	return NewProject{ID: id, Name: "proj-" + n, Prefix: "p" + n, Account: "internal", DBName: "starfix_p" + n}
+	return NewProject{ID: id, Name: "proj-" + n, Prefix: "p" + n, Account: "internal", DBName: "aries_p" + n}
 }
 
 func mustProject(t *testing.T, c *Control, id string) Project {
@@ -195,7 +195,7 @@ func TestControlProjects(t *testing.T) {
 		p.State != ProjectCreating || p.CreatedBy != "dana" || p.Rev != 1 || p.CreatedAt.IsZero() {
 		t.Errorf("AddProject(%+v) = %+v, want those fields, state creating, by dana, rev 1", in, p)
 	}
-	wantEvents(t, c, seq, ev{OpProjectAdd, projA, dana, `"db_name":"starfix_pa"`})
+	wantEvents(t, c, seq, ev{OpProjectAdd, projA, dana, `"db_name":"aries_pa"`})
 
 	// A creation that failed halfway is run again: the same request, by
 	// any server admin, returns the row and records nothing.
@@ -214,8 +214,8 @@ func TestControlProjects(t *testing.T) {
 		{"same id, other name", NewProject{projA, "other", in.Prefix, in.Account, in.DBName}, TakenProjectID},
 		{"same id, other prefix", NewProject{projA, in.Name, "zz", in.Account, in.DBName}, TakenProjectID},
 		{"same id, other account", NewProject{projA, in.Name, in.Prefix, "acme", in.DBName}, TakenProjectID},
-		{"same id, other database", NewProject{projA, in.Name, in.Prefix, in.Account, "starfix_other"}, TakenProjectID},
-		{"other id, same name", NewProject{projB, in.Name, "pb", "internal", "starfix_pb"}, TakenProjectName},
+		{"same id, other database", NewProject{projA, in.Name, in.Prefix, in.Account, "aries_other"}, TakenProjectID},
+		{"other id, same name", NewProject{projB, in.Name, "pb", "internal", "aries_pb"}, TakenProjectName},
 		{"other id, same database", NewProject{projB, "proj-b", "pb", "internal", in.DBName}, TakenDBName},
 	}
 	for _, tc := range taken {
@@ -324,9 +324,9 @@ func TestControlProjectValidation(t *testing.T) {
 		{"account with an underscore", with(func(p *NewProject) { p.Account = "a_b" })},
 		{"empty database", with(func(p *NewProject) { p.DBName = "" })},
 		{"database starts with a digit", with(func(p *NewProject) { p.DBName = "1db" })},
-		{"database with a hyphen", with(func(p *NewProject) { p.DBName = "starfix-p1" })},
+		{"database with a hyphen", with(func(p *NewProject) { p.DBName = "aries-p1" })},
 		{"database with a backtick", with(func(p *NewProject) { p.DBName = "a`; DROP DATABASE x; --" })},
-		{"uppercase database", with(func(p *NewProject) { p.DBName = "Starfix" })},
+		{"uppercase database", with(func(p *NewProject) { p.DBName = "Aries" })},
 		{"database too long", with(func(p *NewProject) { p.DBName = strings.Repeat("d", 65) })},
 	}
 	for _, tc := range cases {
@@ -919,7 +919,7 @@ func TestOpenControl(t *testing.T) {
 			t.Fatalf("Flush: %v", err)
 		}
 		var n int
-		if err := c.s.r.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM dolt_log WHERE message = 'starfix: events through 1'`).Scan(&n); err != nil || n != 1 {
+		if err := c.s.r.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM dolt_log WHERE message = 'aries: events through 1'`).Scan(&n); err != nil || n != 1 {
 			t.Errorf("Dolt commits naming event 1 = %d, %v; want 1", n, err)
 		}
 	})

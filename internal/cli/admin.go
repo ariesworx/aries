@@ -14,14 +14,14 @@ import (
 	"github.com/ariesworx/aries/internal/proto"
 )
 
-// Access management (design §15.4): `sfx admin project`, `principal`,
+// Access management (design §15.4): `aries admin project`, `principal`,
 // `member`, `key` (admin_key.go) and `status` (admin_status.go), for the
 // admins of a server of many projects. Each command
 // rides the connection of the repository it is run in, and acts on that
 // repository's project unless --project names another, by UUID or name.
 // The server decides who may run what.
 
-// adminGroups are the first words `sfx admin` takes.
+// adminGroups are the first words `aries admin` takes.
 var adminGroups = []string{"prices", "plans", "project", "principal", "member", "key", "status"}
 
 // adminUsage is the usage of the access commands, for the command table.
@@ -105,7 +105,7 @@ func adminProject(ctx context.Context, r *runner, args []string) error {
 			return err
 		}
 		if len(pos) != 2 {
-			return usagef(usage, "project %s needs one project, a UUID or a name from `sfx admin project list`", action)
+			return usagef(usage, "project %s needs one project, a UUID or a name from `aries admin project list`", action)
 		}
 		op := proto.OpProjectArchive
 		if action == "activate" {
@@ -126,7 +126,7 @@ func adminProject(ctx context.Context, r *runner, args []string) error {
 	return usagef(usage, "unknown project action %q", pos[0])
 }
 
-// projectAdd creates a project and prints its id and the .starfix.yaml
+// projectAdd creates a project and prints its id and the .aries.yaml
 // to commit to its repository: this repository's server, with the new
 // project. The config is read first, so that a project is not created
 // and then left without the one thing its admin needs next.
@@ -147,7 +147,7 @@ func projectAdd(ctx context.Context, r *runner, in proto.ProjectAddArgs) error {
 	if r.json {
 		r.emit(struct {
 			proto.ProjectAddResult
-			Config string `json:"starfix_yaml"`
+			Config string `json:"aries_yaml"`
 		}{out, string(yaml)})
 		return nil
 	}
@@ -222,7 +222,7 @@ func adminPrincipal(ctx context.Context, r *runner, args []string) error {
 		case add.Unassigned && add.Project != "":
 			return usagef(usage, "give --project or --no-project, not both")
 		case len(keyFiles) > proto.MaxKeysPerAdd:
-			return usagef(usage, "principal add takes at most %d keys; add the rest with `sfx admin key add %s FILE`", proto.MaxKeysPerAdd, pos[1])
+			return usagef(usage, "principal add takes at most %d keys; add the rest with `aries admin key add %s FILE`", proto.MaxKeysPerAdd, pos[1])
 		}
 		add.Name = pos[1]
 		// Every file is read before anything is sent.
@@ -430,7 +430,7 @@ func adminMember(ctx context.Context, r *runner, args []string) error {
 // --accept-keys, so that a script never adds by accident and can add on
 // purpose; with --json the one document holds the refusal and the keys.
 func memberPending(ctx context.Context, r *runner, in proto.MemberSetArgs, shown proto.MemberSetResult) error {
-	again := "sfx admin member add " + in.Name
+	again := "aries admin member add " + in.Name
 	if in.Project != "" {
 		again += " --project " + in.Project
 	}
@@ -438,7 +438,7 @@ func memberPending(ctx context.Context, r *runner, in proto.MemberSetArgs, shown
 		again += " --role admin"
 	}
 	refusal := proto.Errf(proto.CodeConflict,
-		fmt.Sprintf("check each key with %s, then run `%s --accept-keys`; on a terminal, without --json, sfx shows the keys and asks", in.Name, again),
+		fmt.Sprintf("check each key with %s, then run `%s --accept-keys`; on a terminal, without --json, aries shows the keys and asks", in.Name, again),
 		fmt.Sprintf("%s was not added to project %s: it has %s, and each would sign in to the project too", shown.ID, shown.ProjectName, count(len(shown.Carried), "key")))
 	if r.json {
 		return &refusedWith{err: refusal, key: "member", value: shown}
@@ -466,7 +466,7 @@ func memberPending(ctx context.Context, r *runner, in proto.MemberSetArgs, shown
 	// A key added between the question and the answer came in unseen.
 	for _, k := range added.Carried {
 		if !slices.ContainsFunc(shown.Carried, func(s proto.CarriedKey) bool { return s.Fingerprint == k.Fingerprint }) {
-			r.warn(fmt.Sprintf("key %s was added to %s by %s after you were asked, and signs in to project %s too; check it, or undo with `sfx admin member remove %s`",
+			r.warn(fmt.Sprintf("key %s was added to %s by %s after you were asked, and signs in to project %s too; check it, or undo with `aries admin member remove %s`",
 				k.Fingerprint, added.ID, k.AddedBy, added.ProjectName, added.ID))
 		}
 	}
@@ -553,5 +553,5 @@ func printMembers(w io.Writer, res proto.MembersResult) {
 	more(w, res.More, res.Members[len(res.Members)-1].Principal)
 }
 
-// adminNeeds is what `sfx admin` says when no group was named.
+// adminNeeds is what `aries admin` says when no group was named.
 var adminNeeds = "admin needs " + strings.Join(adminGroups[:len(adminGroups)-1], ", ") + " or " + adminGroups[len(adminGroups)-1]

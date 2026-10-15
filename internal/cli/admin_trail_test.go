@@ -32,14 +32,14 @@ func TestAdminTrailUsage(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			code, out, errb := runCLI(t, append([]string{"-C", empty}, tc.args...)...)
 			if code != ExitUsage || out != "" || !strings.Contains(errb, tc.stderr) {
-				t.Errorf("sfx %s: exit %d (want %d), stdout %q, stderr %q; want it to say %q", strings.Join(tc.args, " "), code, ExitUsage, out, errb, tc.stderr)
+				t.Errorf("aries %s: exit %d (want %d), stdout %q, stderr %q; want it to say %q", strings.Join(tc.args, " "), code, ExitUsage, out, errb, tc.stderr)
 			}
 		})
 	}
 	_, help, _ := runCLI(t, "help", "admin")
 	for _, want := range []string{"list [--created-by NAME]", "list [--project P] [--added-by NAME]", "list --added-by NAME"} {
 		if !strings.Contains(help, want) {
-			t.Errorf("sfx help admin lacks %q:\n%s", want, help)
+			t.Errorf("aries help admin lacks %q:\n%s", want, help)
 		}
 	}
 }
@@ -74,8 +74,8 @@ func TestPrintAdminTrail(t *testing.T) {
 		{"no memberships added", func(w *bytes.Buffer) { printMembersAddedBy(w, "dana", proto.MembersResult{}) }, "no memberships added by dana\n"},
 		// A name from the server cannot start a line of its own.
 		{"a hostile principal name", func(w *bytes.Buffer) {
-			printKeysAddedBy(w, proto.KeysResult{AddedBy: "dana\nsfx: all clear"})
-		}, "no keys added by dana\\nsfx: all clear\n"},
+			printKeysAddedBy(w, proto.KeysResult{AddedBy: "dana\naries: all clear"})
+		}, "no keys added by dana\\naries: all clear\n"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

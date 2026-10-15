@@ -25,7 +25,7 @@ import (
 )
 
 // The soak's sessions. Each is one agent at work: a libSession drives the
-// client library directly, as `sfx` does, and an mcpSession drives `sfx
+// client library directly, as `aries` does, and an mcpSession drives `aries
 // mcp`'s tools over an in-memory MCP transport, as an agent harness does.
 // Both reach the daemon through the world's SSH server, and every
 // protocol request either makes goes through soak.do, which times it,
@@ -731,7 +731,7 @@ func (ls *libSession) dep(ctx context.Context) {
 		typ = "related"
 	}
 	// Not resent: a second dep.rm could remove an edge someone added
-	// since, as sfx mcp knows (its dep tool does not retry either).
+	// since, as aries mcp knows (its dep tool does not retry either).
 	_, _ = ls.call(ctx, op, proto.DepArgs{From: from, To: to, Type: typ}, nil, false)
 }
 
@@ -972,7 +972,7 @@ func (ls *libSession) liveLine() (*line, *mcpserver.RepoConn) {
 
 func (ls *libSession) close() { ls.drop() }
 
-// tracedConn is an mcpSession's connection: every request `sfx mcp`
+// tracedConn is an mcpSession's connection: every request `aries mcp`
 // makes on it goes through soak.do, and a watch opens a window.
 type tracedConn struct {
 	*mcpserver.RepoConn
@@ -1022,7 +1022,7 @@ func (c *tracedConn) Call(_ context.Context, op string, args, res any) error {
 	return errors.New("soak: request failed")
 }
 
-// mcpSession is an agent harness running `sfx mcp`.
+// mcpSession is an agent harness running `aries mcp`.
 type mcpSession struct {
 	*session
 	srv *mcpserver.Server
@@ -1045,7 +1045,7 @@ type mcpSession struct {
 }
 
 // open starts the MCP server and client for this session and its renewal
-// loop, as a harness starting `sfx mcp` would.
+// loop, as a harness starting `aries mcp` would.
 func (ms *mcpSession) open() error {
 	opts := mcpserver.Options{Version: "v0.2.0", RenewEvery: -1, Dir: ms.u.repo,
 		Dial: func(ctx context.Context) (mcpserver.Conn, error) {
@@ -1084,7 +1084,7 @@ func (ms *mcpSession) open() error {
 			return tc, nil
 		}}
 	if ms.s.part != nil {
-		// Every `sfx mcp` has a cache, and an outbox unless --no-queue,
+		// Every `aries mcp` has a cache, and an outbox unless --no-queue,
 		// in the user's own data directory.
 		ms.off = &offline.Client{Dir: ms.u.repo, GOOS: runtime.GOOS, Getenv: func(k string) string { return ms.u.env[k] },
 			UserHomeDir: os.UserHomeDir, Session: ms.key.session, Machine: "laptop-" + ms.key.principal}

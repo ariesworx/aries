@@ -13,7 +13,7 @@ import (
 	"github.com/ariesworx/aries/internal/store"
 )
 
-// TestAdminStatus runs `sfx admin status` through SSH and the daemon as
+// TestAdminStatus runs `aries admin status` through SSH and the daemon as
 // each kind of caller, in text and as JSON.
 func TestAdminStatus(t *testing.T) {
 	t.Parallel()
@@ -52,7 +52,7 @@ func TestAdminStatus(t *testing.T) {
 	if strings.Contains(text, "protocol") {
 		t.Errorf("status names the protocol, which only a mismatch needs:\n%s", text)
 	}
-	for _, want := range []string{"starfixd v0.2.0, up ", "stores 1 of 7, connections 2 of 1024\nkeys file " + w.keysFile + ": 0 keys, written ",
+	for _, want := range []string{"ariesd v0.2.0, up ", "stores 1 of 7, connections 2 of 1024\nkeys file " + w.keysFile + ": 0 keys, written ",
 		"projects: 2 active; principals: 2 active\n", "PROJECT  STATE   STORE   CONNS  BY HAND  SESSIONS  WRITES/MIN  P50",
 		"\nsecond   active  closed  0      -        -         -           -", "\nBY HAND: connections sshd let in by the server's hand-maintained authorized_keys file"} {
 		if !strings.Contains(text, want) {
@@ -68,7 +68,7 @@ func TestAdminStatus(t *testing.T) {
 	if own.Server != nil || len(own.Projects) != 1 || own.Projects[0].Name != "first" {
 		t.Errorf("status for a project admin = %+v; want the first project alone, and no server", own)
 	}
-	if got := alice.ok("admin", "status"); strings.Contains(got, "starfixd") || strings.Contains(got, "second") || !strings.HasPrefix(got, "PROJECT ") {
+	if got := alice.ok("admin", "status"); strings.Contains(got, "ariesd") || strings.Contains(got, "second") || !strings.HasPrefix(got, "PROJECT ") {
 		t.Errorf("status for a project admin:\n%s", got)
 	}
 	// Anyone else is refused, and told whom to ask.
@@ -84,9 +84,9 @@ func TestAdminStatus(t *testing.T) {
 	}
 }
 
-// TestKeyStillInTheFile is the state `starfixd control init` leaves: a
+// TestKeyStillInTheFile is the state `ariesd control init` leaves: a
 // key in the store and in the authorized_keys file kept by hand. sshd
-// reads the keys file starfixd writes first (decision 26), so the key
+// reads the keys file ariesd writes first (decision 26), so the key
 // signs in by the store's line, which names it: removing it from the
 // store closes its connections. It does not keep the key out, because
 // sshd then finds the other line, which names no key; `key list` and
@@ -103,7 +103,7 @@ func TestKeyStillInTheFile(t *testing.T) {
 
 	byStore := bob.watch()
 	const mark = "ALSO IN authorized_keys: the key is also a line of the server's hand-maintained authorized_keys file, which sshd reads after the store's keys; " +
-		"`sfx admin key remove` closes the key's connections, and sshd still accepts it by that line until the line is deleted on the server\n"
+		"`aries admin key remove` closes the key's connections, and sshd still accepts it by that line until the line is deleted on the server\n"
 	const count = "1 open connection of bob came in by a line of the server's hand-maintained authorized_keys file; removing a key from the store does not close it\n"
 	// The connection came in by the store's line: nothing is counted as
 	// let in by the other file.
@@ -119,8 +119,8 @@ func TestKeyStillInTheFile(t *testing.T) {
 	// The removal closes the connection, and says that the key still
 	// gets in.
 	r := dana.run("v0.2.0", "admin", "key", "remove", fp)
-	const warning = "sfx: warning: sshd will still accept key %s: the connections it had signed in were closed, but it is also a line of the server's authorized_keys file, " +
-		"which starfixd never edits and sshd reads after starfixd's keys file. Its next connection comes in by that line, as the principal the line names, and names no key. " +
+	const warning = "aries: warning: sshd will still accept key %s: the connections it had signed in were closed, but it is also a line of the server's authorized_keys file, " +
+		"which ariesd never edits and sshd reads after ariesd's keys file. Its next connection comes in by that line, as the principal the line names, and names no key. " +
 		"Ask the server's operator to delete the line (docs/server.md, Keys from the store); until then, disabling the principal that line names is what keeps the key out\n"
 	if want := fmt.Sprintf(warning, fp); r.code != cli.ExitOK || r.stdout != "key "+fp+" removed from bob\n1 connection it had signed in was closed\n" || r.stderr != want {
 		t.Errorf("key remove of a key also in authorized_keys: exit %d\nstdout %q\nstderr %q\nwant one connection closed and stderr %q", r.code, r.stdout, r.stderr, want)

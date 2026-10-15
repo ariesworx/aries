@@ -9,7 +9,7 @@ import "slices"
 // the table in docs/server.md, which tests hold together.
 type Event string
 
-// The events of starfixd's log.
+// The events of ariesd's log.
 const (
 	// The daemon.
 	DaemonServing Event = "daemon.serving"

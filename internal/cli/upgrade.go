@@ -15,12 +15,12 @@ import (
 // releasesURL is where a person installs a release by hand.
 const releasesURL = "https://github.com/" + release.Repo + "/releases"
 
-// Upgrader is what `sfx upgrade` reads releases from and replaces. The zero
-// value uses the source $STARFIX_RELEASES names, or release.DefaultSource,
+// Upgrader is what `aries upgrade` reads releases from and replaces. The zero
+// value uses the source $ARIES_RELEASES names, or release.DefaultSource,
 // the built-in release keys and this executable.
 type Upgrader struct {
 	// Releases reads and verifies releases. Default: release.Open on
-	// $STARFIX_RELEASES, verifying with Verifier.
+	// $ARIES_RELEASES, verifying with Verifier.
 	Releases *release.Client
 	// Verifier checks a release's signature when Releases is not set.
 	// Default the release keys built into this binary.
@@ -59,7 +59,7 @@ func (r *runner) upgrader() Upgrader {
 }
 
 // releases returns u.Releases, or the client for the source that
-// $STARFIX_RELEASES names, which is release.DefaultSource when unset.
+// $ARIES_RELEASES names, which is release.DefaultSource when unset.
 func (r *runner) releases(u Upgrader) (*release.Client, error) {
 	if u.Releases != nil {
 		return u.Releases, nil
@@ -81,7 +81,7 @@ func (u Upgrader) exe() (string, error) {
 	}
 	p, err := release.Executable()
 	if err != nil {
-		return "", proto.Errf(proto.CodeUnavailable, "reinstall sfx from "+releasesURL, err.Error())
+		return "", proto.Errf(proto.CodeUnavailable, "reinstall aries from "+releasesURL, err.Error())
 	}
 	return p, nil
 }
@@ -115,7 +115,7 @@ func cmdUpgrade(ctx context.Context, r *runner, args []string) error {
 	if err != nil {
 		return proto.Errf(proto.CodeUnavailable,
 			"check that this machine can reach "+rels.Location()+" (HTTPS_PROXY is honored) and retry",
-			"cannot read the latest starfix release: "+err.Error())
+			"cannot read the latest aries release: "+err.Error())
 	}
 	cmp, ok := proto.CompareVersions(cur, rel.Tag)
 	newer := ok && cmp < 0
@@ -125,29 +125,29 @@ func cmdUpgrade(ctx context.Context, r *runner, args []string) error {
 		case !ok:
 			state = "dev build; install a release to upgrade"
 		case newer:
-			state = "run sfx upgrade"
+			state = "run aries upgrade"
 		}
 		if r.json {
 			r.emit(map[string]any{"current": cur, "latest": rel.Tag, "upgrade": newer})
 		} else {
-			_, _ = fmt.Fprintf(r.env.Stdout, "starfix %s, latest %s: %s\n", cur, rel.Tag, state)
+			_, _ = fmt.Fprintf(r.env.Stdout, "aries %s, latest %s: %s\n", cur, rel.Tag, state)
 		}
 		return nil
 	}
 	if !ok {
 		return proto.Errf(proto.CodeInvalid, "install a release build from "+releasesURL,
-			fmt.Sprintf("this sfx is a development build (%s), which never upgrades itself", cur))
+			fmt.Sprintf("this aries is a development build (%s), which never upgrades itself", cur))
 	}
 	if !newer {
 		if r.json {
 			r.emit(map[string]any{"current": cur, "latest": rel.Tag, "upgraded": false})
 		} else {
-			_, _ = fmt.Fprintf(r.env.Stdout, "starfix %s is up to date\n", cur)
+			_, _ = fmt.Fprintf(r.env.Stdout, "aries %s is up to date\n", cur)
 		}
 		return nil
 	}
 
-	bin, err := rels.Fetch(ctx, rel, "sfx", u.GOOS, u.GOARCH)
+	bin, err := rels.Fetch(ctx, rel, "aries", u.GOOS, u.GOARCH)
 	if err != nil {
 		return fetchError(rel.Tag, err)
 	}
@@ -164,7 +164,7 @@ func cmdUpgrade(ctx context.Context, r *runner, args []string) error {
 	if r.json {
 		r.emit(map[string]any{"current": rel.Tag, "previous": cur, "upgraded": true, "rollback": s.Prev()})
 	} else {
-		_, _ = fmt.Fprintf(r.env.Stdout, "starfix upgraded %s -> %s; `sfx upgrade --rollback` restores %s\n", cur, rel.Tag, cur)
+		_, _ = fmt.Fprintf(r.env.Stdout, "aries upgraded %s -> %s; `aries upgrade --rollback` restores %s\n", cur, rel.Tag, cur)
 	}
 	return nil
 }
@@ -186,7 +186,7 @@ func (r *runner) rollback(u Upgrader) error {
 	if r.json {
 		r.emit(map[string]any{"rolled_back": true})
 	} else {
-		_, _ = fmt.Fprintf(r.env.Stdout, "restored the previous sfx at %s\n", exe)
+		_, _ = fmt.Fprintf(r.env.Stdout, "restored the previous aries at %s\n", exe)
 	}
 	return nil
 }
@@ -196,22 +196,22 @@ func fetchError(tag string, err error) error {
 	switch {
 	case errors.Is(err, release.ErrNoKey):
 		return proto.Errf(proto.CodeInvalid, "nothing was installed; this build cannot verify releases, so install one by hand from "+releasesURL+" (README, Install)",
-			fmt.Sprintf("cannot verify starfix %s: %v", tag, err))
+			fmt.Sprintf("cannot verify aries %s: %v", tag, err))
 	case errors.Is(err, release.ErrSignature), errors.Is(err, release.ErrMismatch):
 		return proto.Errf(proto.CodeInvalid, "nothing was installed; do not install this release by hand, and report it at "+releasesURL,
-			fmt.Sprintf("starfix %s failed verification: %v", tag, err))
+			fmt.Sprintf("aries %s failed verification: %v", tag, err))
 	case errors.Is(err, release.ErrNotFound):
 		return proto.Errf(proto.CodeNotFound, "nothing was installed; build from source (go install) or pick a release with a build for this platform",
-			fmt.Sprintf("starfix %s: %v", tag, err))
+			fmt.Sprintf("aries %s: %v", tag, err))
 	}
 	return proto.Errf(proto.CodeUnavailable, "nothing was installed; check your network (HTTPS_PROXY is honored) and retry",
-		fmt.Sprintf("download starfix %s: %v", tag, err))
+		fmt.Sprintf("download aries %s: %v", tag, err))
 }
 
 // installError types a failed swap.
 func installError(exe string, err error) error {
 	if errors.Is(err, fs.ErrPermission) {
-		return proto.Errf(proto.CodeUnavailable, "run it as the user who owns "+filepath.Dir(exe)+", or reinstall sfx into a directory you can write",
+		return proto.Errf(proto.CodeUnavailable, "run it as the user who owns "+filepath.Dir(exe)+", or reinstall aries into a directory you can write",
 			fmt.Sprintf("cannot replace %s: %v", exe, err))
 	}
 	return proto.Errf(proto.CodeUnavailable, "retry; if it persists, reinstall from "+releasesURL,

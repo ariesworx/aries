@@ -1,13 +1,13 @@
-// Command starfixd is the starfix server.
+// Command ariesd is the Aries server.
 //
-//	starfixd serve [--dev [--allow-unsafe-dolt]] [--config FILE] [--dsn DSN] [--socket PATH] [--project UUID] [--prefix P] [--log-level L] [--log-format F]
-//	starfixd stdio --principal NAME [--key FINGERPRINT] [--config FILE] [--socket PATH]
-//	starfixd control init --name NAME [--authorized-keys FILE] [--restore-removed-access] [--config FILE] [--dsn DSN]
-//	starfixd import-bd [--config FILE] [--dsn DSN] [--project UUID] [--principal NAME] [--dry-run] [--json] FILE|-
-//	starfixd export-bd [--config FILE] [--dsn DSN] [--project UUID] [-o FILE]
-//	starfixd upgrade [--check] [--to vX.Y.Z] [--rollback] [--restart] [--config FILE] [--dsn DSN] [--socket PATH]
-//	starfixd status [--json] [--config FILE] [--socket PATH]
-//	starfixd version
+//	ariesd serve [--dev [--allow-unsafe-dolt]] [--config FILE] [--dsn DSN] [--socket PATH] [--project UUID] [--prefix P] [--log-level L] [--log-format F]
+//	ariesd stdio --principal NAME [--key FINGERPRINT] [--config FILE] [--socket PATH]
+//	ariesd control init --name NAME [--authorized-keys FILE] [--restore-removed-access] [--config FILE] [--dsn DSN]
+//	ariesd import-bd [--config FILE] [--dsn DSN] [--project UUID] [--principal NAME] [--dry-run] [--json] FILE|-
+//	ariesd export-bd [--config FILE] [--dsn DSN] [--project UUID] [-o FILE]
+//	ariesd upgrade [--check] [--to vX.Y.Z] [--rollback] [--restart] [--config FILE] [--dsn DSN] [--socket PATH]
+//	ariesd status [--json] [--config FILE] [--socket PATH]
+//	ariesd version
 //
 // serve is the long-running daemon: it owns the Dolt store and serves the
 // protocol on a unix socket. stdio is the forced command in each developer
@@ -24,7 +24,7 @@
 // release, after tagging the database, and restarts and health-checks the
 // daemon when a systemd unit is configured or --restart is given. status
 // asks the running daemon, over its socket and as its own user, for the
-// report `sfx admin status` gives a server admin.
+// report `aries admin status` gives a server admin.
 //
 // serve exports metrics and traces when it is configured to
 // (docs/server.md, Observability): pushed over OTLP/HTTP to the endpoint
@@ -63,35 +63,35 @@ import (
 )
 
 const usage = `usage:
-  starfixd serve [--dev [--allow-unsafe-dolt]] [--config FILE] [--dsn DSN] [--socket PATH] [--project UUID] [--prefix P] [--log-level L] [--log-format F] [--accept-clock-behind TIME]
-  starfixd stdio --principal NAME [--key FINGERPRINT] [--config FILE] [--socket PATH]
-  starfixd control init --name NAME [--authorized-keys FILE] [--restore-removed-access] [--config FILE] [--dsn DSN]
-  starfixd import-bd [--config FILE] [--dsn DSN] [--project UUID] [--principal NAME] [--dry-run] [--json] FILE|-
-  starfixd export-bd [--config FILE] [--dsn DSN] [--project UUID] [-o FILE]
-  starfixd upgrade [--check] [--to vX.Y.Z] [--rollback] [--restart] [--config FILE] [--dsn DSN] [--socket PATH]
-  starfixd status [--json] [--config FILE] [--socket PATH]
-  starfixd version
+  ariesd serve [--dev [--allow-unsafe-dolt]] [--config FILE] [--dsn DSN] [--socket PATH] [--project UUID] [--prefix P] [--log-level L] [--log-format F] [--accept-clock-behind TIME]
+  ariesd stdio --principal NAME [--key FINGERPRINT] [--config FILE] [--socket PATH]
+  ariesd control init --name NAME [--authorized-keys FILE] [--restore-removed-access] [--config FILE] [--dsn DSN]
+  ariesd import-bd [--config FILE] [--dsn DSN] [--project UUID] [--principal NAME] [--dry-run] [--json] FILE|-
+  ariesd export-bd [--config FILE] [--dsn DSN] [--project UUID] [-o FILE]
+  ariesd upgrade [--check] [--to vX.Y.Z] [--rollback] [--restart] [--config FILE] [--dsn DSN] [--socket PATH]
+  ariesd status [--json] [--config FILE] [--socket PATH]
+  ariesd version
 
-The database DSN comes from --dsn (no password allowed there), $STARFIXD_DSN,
-or dsn: in the config file (default /etc/starfix/starfixd.yaml, mode 0600).
+The database DSN comes from --dsn (no password allowed there), $ARIESD_DSN,
+or dsn: in the config file (default /etc/aries/ariesd.yaml, mode 0600).
 Admins, who may change issues others hold and force a close, are listed
-under admins: in the config file or in $STARFIXD_ADMINS (comma-separated);
+under admins: in the config file or in $ARIESD_ADMINS (comma-separated);
 serve reads them at start.
 
-With control_db: (or $STARFIXD_CONTROL_DB) set, the server holds many
+With control_db: (or $ARIESD_CONTROL_DB) set, the server holds many
 projects, and who may reach each is in that database. Run control init
 once to adopt the existing database as the first project; admins then
-manage projects, principals, members and keys from anywhere with sfx admin.
+manage projects, principals, members and keys from anywhere with aries admin.
 project_dbs: names the databases granted for new projects. serve writes
 the keys the control database holds to keys_file: (default
-~/.ssh/starfix_keys of the user it runs as), which sshd reads with
+~/.ssh/aries_keys of the user it runs as), which sshd reads with
 AuthorizedKeysFile before the authorized_keys you maintain by hand.
 
 control init may be run again, to import new lines of authorized_keys. It
 leaves alone what admins did since, and reports each:
-  a key removed with            sfx admin key remove
-  a membership removed with     sfx admin member remove
-  a principal disabled with     sfx admin principal disable
+  a key removed with            aries admin key remove
+  a membership removed with     aries admin member remove
+  a principal disabled with     aries admin principal disable
 --restore-removed-access overrides those admins: it puts all three back
 for every principal the file names, and records each as an event.
 
@@ -100,21 +100,21 @@ behind the latest event of a database it serves by more than
 clock_behind_tolerance: (default 2m): check the clock, correct it and
 start again. --accept-clock-behind TIME starts once all the same, for a
 history no later than TIME, which the refusal prints; clock_behind: warn
-(or $STARFIXD_CLOCK_BEHIND) starts with a warning every time.
+(or $ARIESD_CLOCK_BEHIND) starts with a warning every time.
 
 serve exports nothing and opens no port unless configured to: metrics and
 traces are pushed over OTLP/HTTP to $OTEL_EXPORTER_OTLP_ENDPOINT when it
 is set, and telemetry: listen: (a loopback HOST:PORT, or
-$STARFIXD_TELEMETRY_LISTEN) serves /metrics, /healthz and /readyz to this
+$ARIESD_TELEMETRY_LISTEN) serves /metrics, /healthz and /readyz to this
 machine. Traces name people by a stand-in (telemetry: principals:
 pseudonym, name or omit), made with a key serve keeps in telemetry:
 principals_key: (default telemetry/principals.key in its home directory).
 Until serve can make that file its traces say nothing about who, and its
 log and its status say why; $OTEL_TRACES_EXPORTER=none sends metrics
 alone. status prints what the running daemon knows of itself and its
-projects; run it as the user starfixd runs as. With telemetry:
+projects; run it as the user ariesd runs as. With telemetry:
 dolt_metrics_url: (an http:// URL on a loopback address, or
-$STARFIXD_TELEMETRY_DOLT_METRICS_URL) set to Dolt's own metrics endpoint,
+$ARIESD_TELEMETRY_DOLT_METRICS_URL) set to Dolt's own metrics endpoint,
 serve reads it every 15 seconds and status shows Dolt's memory,
 connections, uptime and collector.
 
@@ -143,14 +143,14 @@ func main() {
 		// A line for each part, the last things in the journal: the unit
 		// does not start a daemon again that exits with this status.
 		for _, l := range behind.Lines() {
-			fmt.Fprintf(os.Stderr, "starfixd: %s\n", l)
+			fmt.Fprintf(os.Stderr, "ariesd: %s\n", l)
 		}
 		os.Exit(exitClockBehind)
 	}
 	// The cause, then each fix, on a line of its own: `systemctl status`
 	// cuts a long line, and the fix is at its end.
 	for _, l := range refusalLines(err) {
-		fmt.Fprintf(os.Stderr, "starfixd: %s\n", l)
+		fmt.Fprintf(os.Stderr, "ariesd: %s\n", l)
 	}
 	if _, ok := errors.AsType[usageError](err); ok {
 		fmt.Fprintln(os.Stderr, usage)
@@ -187,7 +187,7 @@ func run(ctx context.Context, args []string) error {
 	case "status":
 		return statusCmd(ctx, osEnv(), args[1:])
 	case "version", "--version":
-		fmt.Printf("starfixd %s\n", version.Version)
+		fmt.Printf("ariesd %s\n", version.Version)
 		return nil
 	case "help", "-h", "--help":
 		fmt.Println(usage)
@@ -213,7 +213,7 @@ func flags(name string, args []string, s *server.Settings, cfg *string, extra fu
 	return nil
 }
 
-// serve runs `starfixd serve`, the daemon, until ctx is done.
+// serve runs `ariesd serve`, the daemon, until ctx is done.
 func serve(ctx context.Context, args []string) error {
 	var fl server.Settings
 	var cfgPath, accept string
@@ -322,10 +322,10 @@ func runDaemon(ctx context.Context, s server.Settings, log *slog.Logger, getenv 
 					if p := srv.Load(); p != nil {
 						return p.Ready(ctx)
 					}
-					return "starfixd is starting"
+					return "ariesd is starting"
 				}})
 			if err != nil {
-				log.Error("the telemetry listener stopped; metrics and health are not served until starfixd restarts", "event", logs.TelemetryListenerStopped, "err", err)
+				log.Error("the telemetry listener stopped; metrics and health are not served until ariesd restarts", "event", logs.TelemetryListenerStopped, "err", err)
 			}
 		}()
 		defer func() {
@@ -353,10 +353,10 @@ func runDaemon(ctx context.Context, s server.Settings, log *slog.Logger, getenv 
 	}
 	srv.Store(d.srv)
 	if d.ctl != nil {
-		log.Info("starfixd serving", "event", logs.DaemonServing, "version", version.Version, "socket", s.Socket, "control_db", s.ControlDB,
+		log.Info("ariesd serving", "event", logs.DaemonServing, "version", version.Version, "socket", s.Socket, "control_db", s.ControlDB,
 			"projects", d.ctl.ActiveProjects(), "admins", s.Admins)
 	} else {
-		log.Info("starfixd serving", "event", logs.DaemonServing, "version", version.Version, "socket", s.Socket, "project", s.Project, "admins", s.Admins)
+		log.Info("ariesd serving", "event", logs.DaemonServing, "version", version.Version, "socket", s.Socket, "project", s.Project, "admins", s.Admins)
 	}
 	// The socket takes connections from here on, so a unit with
 	// Type=notify is started now, and told when the stop begins.
@@ -432,11 +432,11 @@ func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h 
 	opts := store.Options{Logger: log, AllowUnsafeAccount: s.AllowUnsafeDolt, Limits: s.Limits.Limits,
 		Clock: clk, ClientAhead: time.Duration(s.ClockClientTolerance), IdemWindow: time.Duration(s.Limits.IdemWindow), AwayMax: time.Duration(s.Limits.AwayMax)}
 	if s.DSN == "" {
-		return nil, errors.New("no database DSN; fix: set $STARFIXD_DSN or dsn: in the config file")
+		return nil, errors.New("no database DSN; fix: set $ARIESD_DSN or dsn: in the config file")
 	}
 	if s.ControlDB == "" {
 		if s.Project == "" {
-			return nil, errors.New("no project; fix: set --project, $STARFIXD_PROJECT or project: in the config file")
+			return nil, errors.New("no project; fix: set --project, $ARIESD_PROJECT or project: in the config file")
 		}
 		opts.Prefix, opts.Admins = s.Prefix, s.Admins
 		opts.Observer = server.StoreObserver(h.tel, s.Project)
@@ -457,7 +457,7 @@ func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h 
 		return nil, err
 	}
 	if ctl.ActiveProjects() == 0 {
-		return nil, errors.Join(fmt.Errorf("the control database %s holds no active project; fix: adopt this server's database as the first with `starfixd control init --name NAME`",
+		return nil, errors.Join(fmt.Errorf("the control database %s holds no active project; fix: adopt this server's database as the first with `ariesd control init --name NAME`",
 			s.ControlDB), ctl.Close())
 	}
 	warnOfAdmins(ctx, ctl, s.Admins, log)
@@ -500,7 +500,7 @@ func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h 
 
 // keyFiles returns the absolute paths of the keys file a server of many
 // projects writes and of the authorized_keys file it reads. A relative
-// setting is under the home directory of the user starfixd runs as,
+// setting is under the home directory of the user ariesd runs as,
 // taken from the account database, not from $HOME, which a daemon
 // started by hand may have inherited from someone else.
 func keyFiles(s server.Settings) (keysFile, authorizedKeys string, err error) {
@@ -529,14 +529,14 @@ func principalsKey(s server.Settings) (string, error) {
 	return s.PrincipalsKey(home), nil
 }
 
-// accountHome returns the home directory of the user starfixd runs as.
+// accountHome returns the home directory of the user ariesd runs as.
 func accountHome() (string, error) {
 	u, err := user.Current()
 	if err == nil && !filepath.IsAbs(u.HomeDir) {
 		err = errors.New("the account has no home directory")
 	}
 	if err != nil {
-		return "", fmt.Errorf("find the home directory of the user starfixd runs as: %w", err)
+		return "", fmt.Errorf("find the home directory of the user ariesd runs as: %w", err)
 	}
 	return u.HomeDir, nil
 }
@@ -561,7 +561,7 @@ func warnOfAdmins(ctx context.Context, ctl *store.Control, admins []string, log 
 		}
 		if !trusted(p.CreatedBy) {
 			log.WarnContext(ctx, "a configured server admin was set up by someone who is no server admin", "event", logs.AdminWarning, "admin", a, "created_by", p.CreatedBy,
-				"fix", "check with "+a+" that every key `sfx admin key list "+a+"` shows is theirs, or take the name out of admins:")
+				"fix", "check with "+a+" that every key `aries admin key list "+a+"` shows is theirs, or take the name out of admins:")
 		}
 		keys, err := ctl.Keys(ctx, a)
 		if err != nil {
@@ -571,13 +571,13 @@ func warnOfAdmins(ctx context.Context, ctl *store.Control, admins []string, log 
 		for _, k := range keys {
 			if !trusted(k.AddedBy) {
 				log.WarnContext(ctx, "a configured server admin was set up by someone who is no server admin", "event", logs.AdminWarning, "admin", a, "fingerprint", k.Fingerprint, "added_by", k.AddedBy,
-					"fix", "check with "+a+" that the key is theirs, or have another server admin run `sfx admin key remove "+k.Fingerprint+"`")
+					"fix", "check with "+a+" that the key is theirs, or have another server admin run `aries admin key remove "+k.Fingerprint+"`")
 			}
 		}
 	}
 }
 
-// stdio runs `starfixd stdio`, the forced command: it bridges this
+// stdio runs `ariesd stdio`, the forced command: it bridges this
 // process's stdin and stdout to the daemon's socket. sshd starts one for
 // every connection, so it reads only the socket from the settings.
 func stdio(ctx context.Context, args []string) error {
@@ -592,13 +592,13 @@ func stdio(ctx context.Context, args []string) error {
 	return server.Bridge(ctx, socket, principal, key, os.Stdin, os.Stdout)
 }
 
-// stdioArgs parses the arguments of `starfixd stdio`. `control init`
+// stdioArgs parses the arguments of `ariesd stdio`. `control init`
 // reads the forced command of an authorized_keys line with it too, so
 // that the two cannot disagree on whose a line is.
 func stdioArgs(args []string) (fl server.Settings, cfgPath, principal, key string, err error) {
 	if err := flags("stdio", args, &fl, &cfgPath, func(fs *flag.FlagSet) {
 		fs.StringVar(&principal, "principal", "", "principal this key authenticates")
-		fs.StringVar(&key, "key", "", "SHA256 fingerprint of the key, when its line is one starfixd wrote to its keys file")
+		fs.StringVar(&key, "key", "", "SHA256 fingerprint of the key, when its line is one ariesd wrote to its keys file")
 	}); err != nil {
 		return fl, "", "", "", err
 	}

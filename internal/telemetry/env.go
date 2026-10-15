@@ -80,7 +80,7 @@ const (
 
 // What the variables default to and may hold, and the resource's keys.
 const (
-	defaultService      = "starfixd"
+	defaultService      = "ariesd"
 	keyServiceName      = "service.name"
 	keyServiceVersion   = "service.version"
 	keyServiceInstance  = "service.instance.id"
@@ -94,7 +94,7 @@ const (
 	maxResourceAttrs    = 64
 	exporterOTLP        = "otlp"
 	exporterNone        = "none"
-	fixUnsetOrCorrectIt = "correct it in starfixd's environment (the unit's Environment= or EnvironmentFile=), or unset it"
+	fixUnsetOrCorrectIt = "correct it in ariesd's environment (the unit's Environment= or EnvironmentFile=), or unset it"
 )
 
 // envConfig is what the OTEL_* variables configure.
@@ -226,7 +226,7 @@ func readEnv(getenv func(string) string) (envConfig, error) {
 	case exporterNone:
 		metrics = false
 	default:
-		return c, fmt.Errorf("telemetry: %s is %q, and starfixd pushes metrics with otlp only; fix: set it to otlp or none; to have Prometheus scrape starfixd, set telemetry: listen: in its config file instead",
+		return c, fmt.Errorf("telemetry: %s is %q, and ariesd pushes metrics with otlp only; fix: set it to otlp or none; to have Prometheus scrape ariesd, set telemetry: listen: in its config file instead",
 			envMetricsExporter, exp)
 	}
 	switch exp := get(envTracesExporter); exp {
@@ -234,7 +234,7 @@ func readEnv(getenv func(string) string) (envConfig, error) {
 	case exporterNone:
 		traces = false
 	default:
-		return c, fmt.Errorf("telemetry: %s is %q, and starfixd exports traces with otlp only; fix: set it to otlp or none", envTracesExporter, exp)
+		return c, fmt.Errorf("telemetry: %s is %q, and ariesd exports traces with otlp only; fix: set it to otlp or none", envTracesExporter, exp)
 	}
 	// Logs are exported only when asked for: the exporter is
 	// experimental upstream, and the journal is the logs' home.
@@ -243,14 +243,14 @@ func readEnv(getenv func(string) string) (envConfig, error) {
 	case exporterOTLP:
 		logging = true
 	default:
-		return c, fmt.Errorf("telemetry: %s is %q, and starfixd exports logs with otlp only; fix: set it to otlp, or to none or nothing to leave the logs in the journal alone",
+		return c, fmt.Errorf("telemetry: %s is %q, and ariesd exports logs with otlp only; fix: set it to otlp, or to none or nothing to leave the logs in the journal alone",
 			envLogsExporter, exp)
 	}
 	// endpoint reads one signal's endpoint and headers: the signal's own
 	// variables, then the general ones.
 	endpoint := func(own, ownProtocol, ownHeaders, path string) (string, map[string]string, error) {
 		if name, v := first(ownProtocol, envProtocol); v != "" && v != protocolHTTP {
-			return "", nil, fmt.Errorf("telemetry: %s is %q, and starfixd exports OTLP over HTTP only; fix: set it to %s and point the endpoint at the collector's HTTP port, usually 4318",
+			return "", nil, fmt.Errorf("telemetry: %s is %q, and ariesd exports OTLP over HTTP only; fix: set it to %s and point the endpoint at the collector's HTTP port, usually 4318",
 				name, v, protocolHTTP)
 		}
 		name, raw := first(own, envEndpoint)
@@ -338,7 +338,7 @@ func (te *traceEnv) readSampler(get func(string) string) error {
 	case samplerAlwaysOn, samplerAlwaysOff, samplerRatio, samplerParentOn, samplerParentOff, samplerParentRatio:
 		te.sampler = v
 	default:
-		return fmt.Errorf("telemetry: %s is %q, and starfixd has the samplers %s; fix: %s", envSampler, v,
+		return fmt.Errorf("telemetry: %s is %q, and ariesd has the samplers %s; fix: %s", envSampler, v,
 			strings.Join([]string{samplerAlwaysOn, samplerAlwaysOff, samplerRatio, samplerParentOn, samplerParentOff, samplerParentRatio}, ", "),
 			fixUnsetOrCorrectIt)
 	}

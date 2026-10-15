@@ -18,7 +18,7 @@ import (
 
 // bdIssue is one issue line of bd's JSONL export (bd 1.2.2,
 // types.IssueWithCounts plus "_type"). expires_at and a comment's session
-// are starfix additions that bd ignores, so a starfix export round-trips.
+// are Aries additions that bd ignores, so an Aries export round-trips.
 type bdIssue struct {
 	ID                 string          `json:"id"`
 	Title              string          `json:"title"`
@@ -143,27 +143,27 @@ func decodeMetadata(raw json.RawMessage, emptyObjectIsNone bool) (json.RawMessag
 	return json.RawMessage(buf.Bytes()), nil
 }
 
-// coreStatus maps the statuses bd and starfix share; mapIssue maps the
+// coreStatus maps the statuses bd and Aries share; mapIssue maps the
 // rest.
 var coreStatus = map[string]store.Status{
 	"": store.StatusOpen, "open": store.StatusOpen, "in_progress": store.StatusInProgress,
 	"blocked": store.StatusBlocked, "deferred": store.StatusDeferred, "closed": store.StatusClosed,
 }
 
-// coreType maps the issue types bd and starfix share. mapIssue stores
+// coreType maps the issue types bd and Aries share. mapIssue stores
 // any other as a task, labeled "bd-type:<name>" when that is a valid label.
 var coreType = map[string]store.IssueType{
 	"": store.TypeTask, "bug": store.TypeBug, "feature": store.TypeFeature,
 	"task": store.TypeTask, "epic": store.TypeEpic, "chore": store.TypeChore,
 }
 
-// commentIDShape is the form starfix gives comment IDs.
+// commentIDShape is the form Aries gives comment IDs.
 var commentIDShape = lazyregexp.New(`^[a-z2-7]{16}$`)
 
 // idEncoding spells comment IDs in commentIDShape's alphabet.
 var idEncoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)
 
-// commentID maps a bd comment ID to a starfix one. bd IDs are UUIDs (once
+// commentID maps a bd comment ID to an Aries one. bd IDs are UUIDs (once
 // integers, unique only per database), longer than the column, so they are
 // hashed with the issue ID: the same comment always maps to the same ID.
 func commentID(issue store.IssueID, raw json.RawMessage, c bdComment) string {
@@ -211,7 +211,7 @@ func mapIssue(b bdIssue, n int, principal string, warn func(kind, detail string)
 		return line{}, fmt.Errorf("issue has no id")
 	}
 	if err := id.Validate(); err != nil {
-		return line{}, fmt.Errorf("id %q is not a valid starfix id (lowercase prefix, hyphen, lowercase suffix, optional .N parts)", b.ID)
+		return line{}, fmt.Errorf("id %q is not a valid aries id (lowercase prefix, hyphen, lowercase suffix, optional .N parts)", b.ID)
 	}
 	is := store.Issue{
 		ID: id, Title: b.Title, Body: b.Description, Design: b.Design,

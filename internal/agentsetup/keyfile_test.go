@@ -7,12 +7,12 @@ import (
 )
 
 // TestEntryKeyFile pins the one variable beside the harness's name that
-// a starfix entry may hold: STARFIX_KEY_FILE, the key file the agent's
-// sfx signs in with, written only when the entry's KeyFile is set. The
+// an Aries entry may hold: ARIES_KEY_FILE, the key file the agent's
+// aries signs in with, written only when the entry's KeyFile is set. The
 // entry is still replaced wholesale and may hold nothing else.
 func TestEntryKeyFile(t *testing.T) {
 	t.Parallel()
-	const path = `/home/alice/.ssh/starfix "agent" key`
+	const path = `/home/alice/.ssh/aries "agent" key`
 	for _, name := range Names() {
 		a := Agents[name]
 		if a.ManualMCP() {
@@ -52,7 +52,7 @@ func TestEntryKeyFile(t *testing.T) {
 			}
 			// Removing the entry takes the path with it.
 			gone, res, err := a.Remove(out)
-			if err != nil || res != Removed || strings.Contains(string(gone), "starfix") {
+			if err != nil || res != Removed || strings.Contains(string(gone), "aries") {
 				t.Errorf("Remove = %v, %v; want Removed and nothing of the path left:\n%s", res, err, gone)
 			}
 		})

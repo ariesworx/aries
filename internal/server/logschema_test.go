@@ -36,7 +36,7 @@ var reqShape = regexp.MustCompile(`^[0-9a-f]{16}$`)
 // soakedLog runs the soak of spans_text_test.go, which puts plantedText
 // wherever a person or an agent writes, against a server of many
 // projects that logs in JSON at debug and exports its log records to the
-// Manual, as starfixd does with OTEL_LOGS_EXPORTER=otlp. It returns the
+// Manual, as ariesd does with OTEL_LOGS_EXPORTER=otlp. It returns the
 // journal's lines and the server.
 func soakedLog(t *testing.T, cfg telemetry.Config) (*multi, *telemetry.Manual, []jsonLine) {
 	t.Helper()
@@ -59,7 +59,7 @@ func soakedLog(t *testing.T, cfg telemetry.Config) (*multi, *telemetry.Manual, [
 	return m, man, jsonLines(t, out.String())
 }
 
-// Every line starfixd writes follows the schema (design §16.4): it
+// Every line ariesd writes follows the schema (design §16.4): it
 // names an event of the list, every field is one of the schema's, and a
 // line about a request carries the request's id and its trace's ids.
 func TestLogLinesFollowTheSchema(t *testing.T) {
@@ -261,7 +261,7 @@ func TestPostedLogsCarryNoText(t *testing.T) {
 	mu.Lock()
 	all := bytes.Join(posted, nil)
 	mu.Unlock()
-	for _, want := range []string{"request.refused", "request.done", "conn.opened", "starfixd", projA, "p_", "s_"} {
+	for _, want := range []string{"request.refused", "request.done", "conn.opened", "ariesd", projA, "p_", "s_"} {
 		if !bytes.Contains(all, []byte(want)) {
 			t.Fatalf("the %d bytes exported do not hold %q: the test reads nothing", len(all), want)
 		}

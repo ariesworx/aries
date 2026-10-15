@@ -9,7 +9,7 @@ import (
 	"github.com/ariesworx/aries/internal/proto"
 )
 
-// `sfx admin status` refuses bad usage before dialing.
+// `aries admin status` refuses bad usage before dialing.
 func TestAdminStatusUsage(t *testing.T) {
 	t.Parallel()
 	empty := t.TempDir()
@@ -23,14 +23,14 @@ func TestAdminStatusUsage(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			code, out, errb := runCLI(t, append([]string{"-C", empty}, tc.args...)...)
-			if code != ExitUsage || out != "" || !strings.Contains(errb, tc.stderr) || !strings.Contains(errb, "fix: usage: sfx admin status [-n N] [--after NAME]") {
-				t.Errorf("sfx %s: exit %d (want %d), stdout %q, stderr %q; want it to name %q and the usage",
+			if code != ExitUsage || out != "" || !strings.Contains(errb, tc.stderr) || !strings.Contains(errb, "fix: usage: aries admin status [-n N] [--after NAME]") {
+				t.Errorf("aries %s: exit %d (want %d), stdout %q, stderr %q; want it to name %q and the usage",
 					strings.Join(tc.args, " "), code, ExitUsage, out, errb, tc.stderr)
 			}
 		})
 	}
 	if _, help, _ := runCLI(t, "help", "admin"); !strings.Contains(help, "admin status [-n N] [--after NAME]") {
-		t.Errorf("sfx help admin lacks the status command:\n%s", help)
+		t.Errorf("aries help admin lacks the status command:\n%s", help)
 	}
 }
 

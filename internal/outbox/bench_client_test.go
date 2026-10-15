@@ -12,7 +12,7 @@ import (
 )
 
 // Benchmarks of the outbox as a client would use it
-// (docs/design/profile-sfx.md). Nothing in sfx calls the outbox yet, so
+// (docs/design/profile-aries.md). Nothing in aries calls the outbox yet, so
 // these are the costs it brings when it does. Run with:
 //
 //	go test -run '^$' -bench Client -benchmem ./internal/outbox/

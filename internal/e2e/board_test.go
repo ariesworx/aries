@@ -20,7 +20,7 @@ type boardView struct {
 	updates chan board.Update
 }
 
-// board starts Live for this user, as `sfx tui` does, until the test
+// board starts Live for this user, as `aries tui` does, until the test
 // ends.
 func (u *user) board() *boardView {
 	t := u.w.t

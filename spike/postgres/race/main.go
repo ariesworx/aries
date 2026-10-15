@@ -12,9 +12,9 @@
 //	claims       stage 0's claim race in raw SQL (spike/dolt/claims.go):
 //	             -workers, -pick, -mode tx|auto|skiplocked, -issues, -limit
 //	writes       stage 0's write mix in raw SQL (spike/dolt/commits.go),
-//	             with Dolt committing once a second as starfixd does:
+//	             with Dolt committing once a second as ariesd does:
 //	             -workers, -dur
-//	storeclaims  the claim race through the store as starfixd runs it:
+//	storeclaims  the claim race through the store as ariesd runs it:
 //	             every worker an agent calling StartIssue for the top
 //	             ready issue on one store (one writer): -workers, -issues
 //	storewrites  a write mix through the store: an update of an issue's
@@ -114,7 +114,7 @@ func start(ctx context.Context) (*server, error) {
 		pg, err := pgtest.Start(ctx, opts)
 		return &server{pg: pg}, err
 	case "dolt":
-		dir, err := os.MkdirTemp("", "sfxdolt-")
+		dir, err := os.MkdirTemp("", "ariesdolt-")
 		if err != nil {
 			return nil, err
 		}

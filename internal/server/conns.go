@@ -90,7 +90,7 @@ func (s *Server) keyHolds(principal, fingerprint string) *proto.Error {
 		return nil
 	}
 	return proto.Errf(proto.CodeAuth,
-		fmt.Sprintf("use another of your keys, or ask an admin to add this one again: `sfx admin key add %s FILE.pub`", principal),
+		fmt.Sprintf("use another of your keys, or ask an admin to add this one again: `aries admin key add %s FILE.pub`", principal),
 		fmt.Sprintf("the key that signed in is no longer one the server holds for %s", principal))
 }
 

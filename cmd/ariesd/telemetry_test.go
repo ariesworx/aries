@@ -165,7 +165,7 @@ func runSite(t *testing.T, s *site, env map[string]string) *running {
 	return r
 }
 
-// status runs `starfixd status` against the daemon on sock.
+// status runs `ariesd status` against the daemon on sock.
 func status(t *testing.T, s *site, sock string, args ...string) result {
 	t.Helper()
 	var out, errb bytes.Buffer
@@ -179,7 +179,7 @@ const secretToken = "Bearer-s3cr3t-T0KEN-fedcba9876543210"
 // The daemon as serve runs it, with both ways out for metrics and with
 // traces: it pushes both to the collector the environment names, makes
 // the key of principals' stand-ins, serves /metrics, /healthz and
-// /readyz on the loopback listener, answers `starfixd status`, logs no
+// /readyz on the loopback listener, answers `ariesd status`, logs no
 // token, and stops cleanly, leaving nothing running.
 func TestRunDaemonWithTelemetry(t *testing.T) {
 	// Serial: counts the process's goroutines (noLeak).
@@ -235,13 +235,13 @@ func TestRunDaemonWithTelemetry(t *testing.T) {
 
 	_, text := httpGet(base + "/metrics")
 	for _, want := range []string{
-		`starfix_handshakes_total{result="ok"} 1`,
-		`starfix_handshakes_total{result="not_found"} 1`,
-		"starfix_stores_open 1",
-		`starfix_telemetry_dropped_total{signal="metrics"}`,
-		`starfix_telemetry_dropped_total{signal="traces"}`,
+		`aries_handshakes_total{result="ok"} 1`,
+		`aries_handshakes_total{result="not_found"} 1`,
+		"aries_stores_open 1",
+		`aries_telemetry_dropped_total{signal="metrics"}`,
+		`aries_telemetry_dropped_total{signal="traces"}`,
 		"go_goroutine_count",
-		`service_name="starfixd"`,
+		`service_name="ariesd"`,
 	} {
 		waitFor(t, "/metrics to carry "+want, func() bool {
 			_, text = httpGet(base + "/metrics")
@@ -254,7 +254,7 @@ func TestRunDaemonWithTelemetry(t *testing.T) {
 	if code, _ := httpGet(base + "/debug/vars"); code != 404 {
 		t.Errorf("GET /debug/vars = %d, want 404", code)
 	}
-	waitFor(t, "an export of the handshakes to reach the collector", func() bool { return exported("starfix.handshakes") })
+	waitFor(t, "an export of the handshakes to reach the collector", func() bool { return exported("aries.handshakes") })
 	// The handshakes' spans went too, under a stand-in for alice, made
 	// with a key the daemon keeps where it was told to, for itself alone.
 	waitFor(t, "an export of the handshake's span to reach the collector", func() bool { return exported("handshake") && exported("p_") })
@@ -271,22 +271,22 @@ func TestRunDaemonWithTelemetry(t *testing.T) {
 		t.Errorf("the collector was sent Authorization %q, want the token from the environment", sent)
 	}
 
-	// `starfixd status`, as text and as one JSON document.
+	// `ariesd status`, as text and as one JSON document.
 	res := status(t, s, d.sock)
 	// How many connections it counts depends on whether the daemon has
 	// yet seen the hellos above hang up, so the count is not checked.
-	if res.err != nil || !strings.HasPrefix(res.stdout, "starfixd ") || !strings.Contains(res.stdout, "stores 1 of 1, connections ") ||
+	if res.err != nil || !strings.HasPrefix(res.stdout, "ariesd ") || !strings.Contains(res.stdout, "stores 1 of 1, connections ") ||
 		strings.Contains(res.stdout, "1970-01-01") ||
 		!strings.Contains(res.stdout, "PROJECT") || !strings.Contains(res.stdout, adopted) {
-		t.Errorf("starfixd status = %v, printed:\n%s", res.err, res.stdout)
+		t.Errorf("ariesd status = %v, printed:\n%s", res.err, res.stdout)
 	}
 	res = status(t, s, d.sock, "--json")
 	var doc proto.StatusResult
 	if err := json.Unmarshal([]byte(res.stdout), &doc); res.err != nil || err != nil || strings.Count(res.stdout, "\n") != 1 {
-		t.Fatalf("starfixd status --json = %v, %v; want exactly one JSON document, got %q", res.err, err, res.stdout)
+		t.Fatalf("ariesd status --json = %v, %v; want exactly one JSON document, got %q", res.err, err, res.stdout)
 	}
 	if doc.Server == nil || doc.Server.OpenStores != 1 || len(doc.Projects) != 1 || doc.Projects[0].ID != adopted || !doc.Projects[0].Open {
-		t.Errorf("starfixd status --json = %+v, want the server and its one project, open", doc)
+		t.Errorf("ariesd status --json = %+v, want the server and its one project, open", doc)
 	}
 
 	if err := d.stop(); err != nil {
@@ -297,7 +297,7 @@ func TestRunDaemonWithTelemetry(t *testing.T) {
 	}
 	out := d.log.String()
 	for _, want := range []string{`msg="telemetry on"`, " traces=" + col.URL + "/v1/traces ", " sampler=parentbased_always_on ", " principals=pseudonym ",
-		"telemetry listener serving", "a metrics export failed", "a trace export failed", "starfixd serving"} {
+		"telemetry listener serving", "a metrics export failed", "a trace export failed", "ariesd serving"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the log lacks %q:\n%s", want, out)
 		}
@@ -315,13 +315,13 @@ func TestRunDaemonWithTelemetry(t *testing.T) {
 	// With no daemon, status says so, and with --json as one document.
 	res = status(t, s, d.sock)
 	if res.err == nil || !strings.Contains(res.err.Error(), "fix: ") || res.stdout != "" {
-		t.Errorf("starfixd status with no daemon = %v, printed %q; want an error with a fix and nothing printed", res.err, res.stdout)
+		t.Errorf("ariesd status with no daemon = %v, printed %q; want an error with a fix and nothing printed", res.err, res.stdout)
 	}
 	res = status(t, s, d.sock, "--json")
 	var failed map[string]proto.Error
 	if err := json.Unmarshal([]byte(res.stdout), &failed); err != nil || failed["error"].Code != proto.CodeUnavailable ||
 		res.err != exitError(1) || strings.Count(res.stdout, "\n") != 1 {
-		t.Errorf("starfixd status --json with no daemon = %v, printed %q; want one {\"error\"} document and exit 1", res.err, res.stdout)
+		t.Errorf("ariesd status --json with no daemon = %v, printed %q; want one {\"error\"} document and exit 1", res.err, res.stdout)
 	}
 }
 
@@ -391,7 +391,7 @@ func TestRunDaemonStandInKey(t *testing.T) {
 		}
 		res := status(t, s, d.sock)
 		if res.err != nil || !strings.Contains(res.stdout, "TRACES SAY NOTHING ABOUT WHO: the key for stand-ins, "+key+", is unavailable: it cannot be made: no such file or directory") {
-			t.Errorf("starfixd status = %v, and does not say the key is unavailable:\n%s", res.err, res.stdout)
+			t.Errorf("ariesd status = %v, and does not say the key is unavailable:\n%s", res.err, res.stdout)
 		}
 		if err := d.stop(); err != nil {
 			t.Fatalf("runDaemon = %v, want nil", err)
@@ -399,7 +399,7 @@ func TestRunDaemonStandInKey(t *testing.T) {
 		out := d.log.String()
 		for _, want := range []string{`level=ERROR msg="telemetry: spans say nothing about who`, `msg="the key's file" event=telemetry.key_unavailable path=` + key,
 			`msg=cause event=telemetry.key_unavailable cause="it cannot be made: no such file or directory`,
-			`msg=fix event=telemetry.key_unavailable fix="make its directory`, "ReadWritePaths=" + filepath.Dir(key), "principals: omit", "OTEL_TRACES_EXPORTER=none", "starfixd serving"} {
+			`msg=fix event=telemetry.key_unavailable fix="make its directory`, "ReadWritePaths=" + filepath.Dir(key), "principals: omit", "OTEL_TRACES_EXPORTER=none", "ariesd serving"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("the log lacks %q:\n%s", want, out)
 			}
@@ -502,7 +502,7 @@ func TestStatusUsage(t *testing.T) {
 		var out bytes.Buffer
 		err := statusCmd(t.Context(), adminEnv{stdout: &out, stderr: io.Discard, getenv: func(string) string { return "" }}, args)
 		if _, ok := err.(usageError); !ok || out.Len() != 0 { //nolint:errorlint // the command returns it unwrapped
-			t.Errorf("starfixd status %v = %v, printed %q; want a usage error and nothing printed", args, err, out.String())
+			t.Errorf("ariesd status %v = %v, printed %q; want a usage error and nothing printed", args, err, out.String())
 		}
 	}
 }
@@ -514,7 +514,7 @@ func TestStatusUnreadableConfig(t *testing.T) {
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("needs a file this user cannot read")
 	}
-	cfg := filepath.Join(t.TempDir(), "starfixd.yaml")
+	cfg := filepath.Join(t.TempDir(), "ariesd.yaml")
 	if err := os.WriteFile(cfg, []byte("socket: /nonexistent/d.sock\n"), 0o000); err != nil {
 		t.Fatal(err)
 	}
@@ -523,14 +523,14 @@ func TestStatusUnreadableConfig(t *testing.T) {
 	}
 	var out bytes.Buffer
 	err := statusCmd(t.Context(), env(&out), []string{"--config", cfg})
-	if err == nil || !strings.Contains(err.Error(), "permission denied") || !strings.Contains(err.Error(), "fix: run it as the user starfixd runs as") || out.Len() != 0 {
-		t.Errorf("starfixd status with an unreadable config = %v, printed %q; want the refusal with a fix, and nothing printed", err, out.String())
+	if err == nil || !strings.Contains(err.Error(), "permission denied") || !strings.Contains(err.Error(), "fix: run it as the user ariesd runs as") || out.Len() != 0 {
+		t.Errorf("ariesd status with an unreadable config = %v, printed %q; want the refusal with a fix, and nothing printed", err, out.String())
 	}
 	out.Reset()
 	err = statusCmd(t.Context(), env(&out), []string{"--json", "--config", cfg})
 	var doc map[string]proto.Error
-	if jerr := json.Unmarshal(out.Bytes(), &doc); jerr != nil || err != exitError(1) || !strings.Contains(doc["error"].Message, "fix: run it as the user starfixd runs as") {
-		t.Errorf("starfixd status --json with an unreadable config = %v, printed %q; want one {\"error\"} document naming the fix", err, out.String())
+	if jerr := json.Unmarshal(out.Bytes(), &doc); jerr != nil || err != exitError(1) || !strings.Contains(doc["error"].Message, "fix: run it as the user ariesd runs as") {
+		t.Errorf("ariesd status --json with an unreadable config = %v, printed %q; want one {\"error\"} document naming the fix", err, out.String())
 	}
 }
 

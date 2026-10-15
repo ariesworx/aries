@@ -200,7 +200,7 @@ func TestServe(t *testing.T) {
 	}{
 		{"GET", "/healthz", 200, "ok\n"},
 		{"GET", "/readyz", 200, "ready\n"},
-		{"GET", "/metrics", 200, `starfix_handshakes_total{result="ok"} 1`},
+		{"GET", "/metrics", 200, `aries_handshakes_total{result="ok"} 1`},
 		{"HEAD", "/healthz", 200, ""},
 		{"GET", "/", 404, ""},
 		{"GET", "/metrics/", 404, ""},
@@ -370,8 +370,8 @@ func TestServeCaps(t *testing.T) {
 				t.Errorf("GET /healthz after the cap freed = %d, want 200", status)
 			}
 			snap := collect(t, m)
-			if v := snap.Value("starfix.limit.refusals", "limit", LimitTelemetryRequests); v != 3 {
-				t.Errorf("starfix.limit.refusals{limit=%s} = %v, want 3", LimitTelemetryRequests, v)
+			if v := snap.Value("aries.limit.refusals", "limit", LimitTelemetryRequests); v != 3 {
+				t.Errorf("aries.limit.refusals{limit=%s} = %v, want 3", LimitTelemetryRequests, v)
 			}
 		})
 	}

@@ -28,7 +28,7 @@ func clockPreflight(ctx context.Context, env adminEnv, fl server.Settings, cfgPa
 		return err
 	}
 	if s.DSN == "" {
-		return errors.New("no database DSN; fix: set $STARFIXD_DSN or dsn: in the config file")
+		return errors.New("no database DSN; fix: set $ARIESD_DSN or dsn: in the config file")
 	}
 	tol := time.Duration(s.ClockBehindTolerance)
 	var worst *server.ClockBehindError

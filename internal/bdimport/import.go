@@ -57,7 +57,7 @@ func Import(ctx context.Context, st *store.Store, r io.Reader, opts Options) (*R
 const (
 	fixReexport = "correct it in bd and export again, or delete the line, then import again"
 	fixNone     = "none needed; this is informational"
-	fixStale    = "none needed if starfix holds the right version; otherwise edit it in starfix"
+	fixStale    = "none needed if aries holds the right version; otherwise edit it in aries"
 )
 
 // parse reads every line, maps the issues and memories, and reports what
@@ -155,7 +155,7 @@ func parseLine(b []byte, n int, principal string, rep *Report) (line, *memLine, 
 		return line{}, nil, false
 	}
 	for _, f := range unheld(raw) {
-		rep.warn("field:"+f, "field", bi.ID, n, "keep bd's export if you need it; the field has no starfix column yet",
+		rep.warn("field:"+f, "field", bi.ID, n, "keep bd's export if you need it; the field has no aries column yet",
 			fmt.Sprintf("field %s is not stored", f))
 	}
 	return l, nil, true
@@ -183,14 +183,14 @@ func warnMapping(rep *Report, kind, detail, id string, n int) {
 		rep.warn(key, "priority", id, n, fixNone, fmt.Sprintf("priority %s is outside 0-4; clamped", detail))
 	case "label":
 		rep.warn(key, "label", id, n, "rename the label in bd (1-64 characters, no spaces or commas) and import again",
-			fmt.Sprintf("label %q is not a valid starfix label; skipped", detail))
+			fmt.Sprintf("label %q is not a valid aries label; skipped", detail))
 	case "text":
 		rep.warn(key, "text", id, n, fixNone,
 			detail+" had control or bidirectional characters; they were removed, and line breaks in a one-line field became spaces")
 	case "no-created-at":
 		rep.warn(key, "created_at", id, n, fixNone, "no created_at; updated_at used instead")
 	case "thread-id":
-		rep.warn(key, "field", id, n, "keep bd's export if you need it; the field has no starfix column yet",
+		rep.warn(key, "field", id, n, "keep bd's export if you need it; the field has no aries column yet",
 			"dependency field thread_id is not stored")
 	case "dep-metadata":
 		rep.warn(key, "metadata", id, n, "repair the metadata in bd and import again",
@@ -367,7 +367,7 @@ func (im *importer) order(lines []line) []*line {
 			case im.stored[p]:
 				l.issue.ParentID = p
 			default:
-				im.rep.fail("dangling", l.n, "import "+string(p)+" too, or set the parent in starfix after the import",
+				im.rep.fail("dangling", l.n, "import "+string(p)+" too, or set the parent in aries after the import",
 					"%s has parent %s, which is not in the file or the store; imported without a parent", id, p).IDs = []string{string(id), string(p)}
 			}
 		}

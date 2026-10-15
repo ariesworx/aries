@@ -96,7 +96,7 @@ func (s *Server) left(ctx context.Context, sess *session, out *proto.PrincipalRe
 		return
 	}
 	warning := fmt.Sprintf("%s added %s that %s still in the store, created %s and added %s, and disabling %s undoes none of them: "+
-		"review them with `sfx admin key list --added-by %s`, `sfx admin principal list --created-by %s` and `sfx admin member list --added-by %s`",
+		"review them with `aries admin key list --added-by %s`, `aries admin principal list --created-by %s` and `aries admin member list --added-by %s`",
 		out.ID, plural(out.KeysAdded, "key"), isAre(out.KeysAdded), plural(out.PrincipalsCreated, "principal"), plural(out.MembersAdded, "membership"),
 		out.ID, out.ID, out.ID, out.ID)
 	// One line: a warning is printed as one.

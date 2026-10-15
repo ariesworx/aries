@@ -34,7 +34,7 @@ func TestWhatADisabledAdminAddedIsFoundAndRemoved(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// An agent with dana's key, steered by what it read, runs `sfx admin`.
+	// An agent with dana's key, steered by what it read, runs `aries admin`.
 	d := mustDialTo(t, m.Server, dana, projA)
 	if _, perr := ask[proto.KeyResult](d, proto.OpKeyAdd, proto.KeyAddArgs{Name: "dana", Key: keyLine(t, "attacker-0")}); perr == nil {
 		t.Fatal("dana added a key to her own account: decision 19 is not enforced")
@@ -60,7 +60,7 @@ func TestWhatADisabledAdminAddedIsFoundAndRemoved(t *testing.T) {
 	res := mustAsk[proto.PrincipalResult](dv, proto.OpPrincipalDisable, proto.PrincipalArgs{Name: "dana"})
 	// The fixture's projects and their admins were dana's work too.
 	const warning = "dana added 2 keys that are still in the store, created 3 principals and added 4 memberships, and disabling dana undoes none of them: " +
-		"review them with `sfx admin key list --added-by dana`, `sfx admin principal list --created-by dana` and `sfx admin member list --added-by dana`"
+		"review them with `aries admin key list --added-by dana`, `aries admin principal list --created-by dana` and `aries admin member list --added-by dana`"
 	if res.State != "disabled" || res.KeysAdded != 2 || res.PrincipalsCreated != 3 || res.MembersAdded != 4 || res.Warning != warning {
 		t.Errorf("principal.disable dana = %+v\nwant 2 keys added, 3 principals created, 4 memberships added and the warning\n%s", res, warning)
 	}

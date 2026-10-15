@@ -18,8 +18,8 @@ import (
 	"github.com/ariesworx/aries/internal/proto"
 )
 
-// `sfx admin key`: a principal's public SSH keys, which the server's
-// sshd asks starfixd for (design §15.2). An admin adds and removes
+// `aries admin key`: a principal's public SSH keys, which the server's
+// sshd asks ariesd for (design §15.2). An admin adds and removes
 // them; nobody adds a key to their own account, though anyone may
 // remove one of their own that their connection did not sign in with,
 // which the server decides. Only a public key ever leaves this machine: the file is read
@@ -31,7 +31,7 @@ import (
 const maxKeyFile = 16 << 10
 
 // fingerprintForm is a key's SHA-256 fingerprint as ssh-keygen -l and
-// `sfx admin key list` print it.
+// `aries admin key list` print it.
 var fingerprintForm = lazyregexp.New(`^SHA256:[A-Za-z0-9+/]{43}$`)
 
 // fileFlag collects a repeatable flag whose value is a file's path,
@@ -105,7 +105,7 @@ func (r *runner) publicKey(file string) (string, error) {
 
 // readUpTo reads at most n bytes of the file at path.
 func readUpTo(path string, n int64) ([]byte, error) {
-	f, err := os.Open(path) //nolint:gosec // the person running sfx names the file
+	f, err := os.Open(path) //nolint:gosec // the person running aries names the file
 	if err != nil {
 		return nil, err
 	}
@@ -178,9 +178,9 @@ func adminKey(ctx context.Context, r *runner, args []string) error {
 	case "remove":
 		switch {
 		case len(pos) != 2:
-			return usagef(usage, "key remove needs one fingerprint, as `sfx admin key list NAME` prints it")
+			return usagef(usage, "key remove needs one fingerprint, as `aries admin key list NAME` prints it")
 		case !fingerprintForm.MatchString(pos[1]):
-			return usagef(usage, "key remove takes a key's SHA256: fingerprint, as `sfx admin key list NAME` and `ssh-keygen -lf FILE.pub` print it")
+			return usagef(usage, "key remove takes a key's SHA256: fingerprint, as `aries admin key list NAME` and `ssh-keygen -lf FILE.pub` print it")
 		}
 		var out proto.KeyResult
 		if err := r.call(ctx, proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: pos[1]}, &out); err != nil {
@@ -275,7 +275,7 @@ func printKeys(w io.Writer, res proto.KeysResult) {
 	}
 	_ = tw.Flush()
 	if byHand {
-		_, _ = fmt.Fprintln(w, "ALSO IN authorized_keys: the key is also a line of the server's hand-maintained authorized_keys file, which sshd reads after the store's keys; `sfx admin key remove` closes the key's connections, and sshd still accepts it by that line until the line is deleted on the server")
+		_, _ = fmt.Fprintln(w, "ALSO IN authorized_keys: the key is also a line of the server's hand-maintained authorized_keys file, which sshd reads after the store's keys; `aries admin key remove` closes the key's connections, and sshd still accepts it by that line until the line is deleted on the server")
 	}
 }
 

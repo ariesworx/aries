@@ -15,8 +15,8 @@ import (
 // setupDesktop sets a desktop app up for the project setup runs in. The
 // app's config is the person's own, at a per-platform path, and the app
 // starts servers with no working directory and without the shell's PATH,
-// so the entry pins this checkout's root and an absolute sfx. command is
-// --command, or "" for this sfx. --global changes nothing: the config is
+// so the entry pins this checkout's root and an absolute aries. command is
+// --command, or "" for this aries. --global changes nothing: the config is
 // always the person's.
 func (r *runner) setupDesktop(agent agentsetup.Agent, command, keyFile string, mode setupMode) error {
 	usage := "setup " + agent.Name + " [--write|--check|--remove] [--key-file PATH] [--command ABSOLUTE-PATH]"
@@ -26,7 +26,7 @@ func (r *runner) setupDesktop(agent agentsetup.Agent, command, keyFile string, m
 	switch {
 	case errors.Is(err, agentsetup.ErrNoDesktop):
 		return proto.Errf(proto.CodeInvalid,
-			"run it on the Mac or Windows PC that runs "+agent.Title+"; here, set up a terminal or IDE agent such as `sfx setup claude-code`",
+			"run it on the Mac or Windows PC that runs "+agent.Title+"; here, set up a terminal or IDE agent such as `aries setup claude-code`",
 			agent.Title+" runs only on macOS and Windows")
 	case err != nil:
 		return proto.Errf(proto.CodeInvalid, "set HOME on macOS, or APPDATA on Windows",
@@ -41,15 +41,15 @@ func (r *runner) setupDesktop(agent agentsetup.Agent, command, keyFile string, m
 	}
 	if command == "" {
 		if command, err = r.env.Executable(); err != nil || command == "" {
-			return proto.Errf(proto.CodeInvalid, "pass --command with the absolute path of sfx",
-				"cannot find the path of this sfx")
+			return proto.Errf(proto.CodeInvalid, "pass --command with the absolute path of aries",
+				"cannot find the path of this aries")
 		}
 	}
 	entry := agentsetup.DesktopEntry(command, root)
-	// The app starts sfx with no shell environment, so the entry is the
+	// The app starts aries with no shell environment, so the entry is the
 	// one place the variable can come from; the config is the person's.
 	entry.KeyFile = keyFile
-	again := "sfx setup " + agent.Name
+	again := "aries setup " + agent.Name
 
 	// The config is the person's: new, it is private, since it holds every
 	// server's env, other servers' tokens among them. On Windows it is under
@@ -65,7 +65,7 @@ func (r *runner) setupDesktop(agent agentsetup.Agent, command, keyFile string, m
 	}
 	if dir, ok := agent.ProjectDir(d.orig, entry.Server); ok && dir != root && mode != (setupMode{}) {
 		return proto.Errf(proto.CodeExists,
-			fmt.Sprintf("remove it with `sfx -C %s setup %s --remove`, or rename this checkout's directory", dir, agent.Name),
+			fmt.Sprintf("remove it with `aries -C %s setup %s --remove`, or rename this checkout's directory", dir, agent.Name),
 			fmt.Sprintf("%s already starts %s, not this checkout (in %s)", entry.Server, dir, path))
 	}
 	plan := setupPlan{Agent: agent, files: []setupFile{{Target: agent.DesktopTarget(path), disk: d, rel: path}}}
@@ -74,7 +74,7 @@ func (r *runner) setupDesktop(agent agentsetup.Agent, command, keyFile string, m
 }
 
 // absPath reports whether p is absolute on goos, which need not be the
-// platform sfx runs on.
+// platform aries runs on.
 func absPath(goos, p string) bool {
 	if goos != "windows" {
 		return strings.HasPrefix(p, "/")
@@ -85,18 +85,18 @@ func absPath(goos, p string) bool {
 	return len(p) >= 3 && (p[0]|0x20 >= 'a' && p[0]|0x20 <= 'z') && p[1] == ':' && (p[2] == '\\' || p[2] == '/')
 }
 
-// sfxPath is the absolute path a desktop app should start sfx by. It
-// prefers sfx's entry on PATH, when that is this program, over the
+// ariesPath is the absolute path a desktop app should start aries by. It
+// prefers aries's entry on PATH, when that is this program, over the
 // program's own path: a package manager links a stable name on PATH
-// (Homebrew's /opt/homebrew/bin/sfx) to a versioned file it deletes on
+// (Homebrew's /opt/homebrew/bin/aries) to a versioned file it deletes on
 // upgrade, so the resolved path would break and the link does not.
-// `sfx upgrade` replaces the file in place, so either path survives it.
-func sfxPath() (string, error) {
+// `aries upgrade` replaces the file in place, so either path survives it.
+func ariesPath() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return "", err
 	}
-	if p, err := exec.LookPath("sfx"); err == nil {
+	if p, err := exec.LookPath("aries"); err == nil {
 		if p, err = filepath.Abs(p); err == nil && sameFile(p, exe) {
 			return p, nil
 		}

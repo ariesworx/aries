@@ -18,15 +18,15 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// defaultAuthorizedKeys is the file sshd reads for the starfix account,
+// defaultAuthorizedKeys is the file sshd reads for the aries account,
 // as docs/server.md sets it up.
-const defaultAuthorizedKeys = "/var/lib/starfix/.ssh/authorized_keys"
+const defaultAuthorizedKeys = "/var/lib/aries/.ssh/authorized_keys"
 
 // maxAuthorizedKeys bounds the authorized_keys file control init reads.
 // The control store's default caps allow far fewer keys than fit in it.
 const maxAuthorizedKeys = 16 << 20
 
-// controlCmd runs `starfixd control COMMAND`; init is the only command.
+// controlCmd runs `ariesd control COMMAND`; init is the only command.
 func controlCmd(ctx context.Context, env adminEnv, args []string) error {
 	if len(args) == 0 || args[0] != "init" {
 		return usageError("control takes one command: init")
@@ -48,11 +48,11 @@ func openControl(ctx context.Context, s server.Settings, opts store.ControlOptio
 		return nil, fmt.Errorf("open the control database: %w", err) // it names its own fix
 	}
 	if errors.Is(err, store.ErrInvalid) || errors.Is(err, store.ErrSchemaTooNew) {
-		return nil, fmt.Errorf("open the control database %s: %w; fix: check control_db: and that this starfixd is the newest that has run here",
+		return nil, fmt.Errorf("open the control database %s: %w; fix: check control_db: and that this ariesd is the newest that has run here",
 			s.ControlDB, err)
 	}
 	if err != nil {
-		user := "starfix"
+		user := "aries"
 		if cfg, perr := mysql.ParseDSN(s.DSN); perr == nil && cfg.User != "" {
 			user = cfg.User
 		}
@@ -82,7 +82,7 @@ type keyLine struct {
 }
 
 // readAuthorizedKeys reads an authorized_keys file and returns the lines
-// whose forced command is `starfixd stdio --principal NAME`, and a
+// whose forced command is `ariesd stdio --principal NAME`, and a
 // problem for each other line that is not blank or a comment. A problem
 // gives the line's number and the reason, never its text.
 func readAuthorizedKeys(file string) (lines []keyLine, problems []string, err error) {
@@ -108,7 +108,7 @@ func readAuthorizedKeys(file string) (lines []keyLine, problems []string, err er
 		}
 		principal, ok := forcedPrincipal(options)
 		if !ok {
-			skip("no `starfixd stdio --principal NAME` forced command")
+			skip("no `ariesd stdio --principal NAME` forced command")
 			continue
 		}
 		key := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pub)))
@@ -121,9 +121,9 @@ func readAuthorizedKeys(file string) (lines []keyLine, problems []string, err er
 }
 
 // forcedPrincipal returns the principal named by the forced command
-// among a key line's options, when the command is starfixd's stdio
-// bridge: `[PATH/]starfixd stdio ... --principal NAME`. The arguments
-// are parsed as `starfixd stdio` parses them (stdioArgs), so the
+// among a key line's options, when the command is ariesd's stdio
+// bridge: `[PATH/]ariesd stdio ... --principal NAME`. The arguments
+// are parsed as `ariesd stdio` parses them (stdioArgs), so the
 // principal is the one sshd would sign the key in as: the last
 // --principal of the command, and none for a command stdio would refuse.
 func forcedPrincipal(options []string) (string, bool) {
@@ -133,7 +133,7 @@ func forcedPrincipal(options []string) (string, bool) {
 			continue
 		}
 		f := strings.Fields(strings.TrimSuffix(cmd, `"`))
-		if len(f) < 2 || path.Base(f[0]) != "starfixd" || f[1] != "stdio" {
+		if len(f) < 2 || path.Base(f[0]) != "ariesd" || f[1] != "stdio" {
 			return "", false
 		}
 		_, _, principal, _, err := stdioArgs(f[2:])
@@ -162,11 +162,11 @@ func count(n int, noun string) string {
 	return fmt.Sprintf("%d %ss", n, noun)
 }
 
-// controlInit runs `starfixd control init --name NAME [--authorized-keys
+// controlInit runs `ariesd control init --name NAME [--authorized-keys
 // FILE]`: the one-time move of a server of one project to a server of
 // many. It adopts the server's database as the first project, without
 // touching what is in it, and imports the principals and keys of the
-// starfix account's authorized_keys as members of that project. It is
+// aries account's authorized_keys as members of that project. It is
 // safe to run again: what is there already is left as it is, and so is
 // what an admin removed or disabled since (importer), unless
 // --restore-removed-access says to put it back. It says how
@@ -183,8 +183,8 @@ func controlInit(ctx context.Context, env adminEnv, args []string) (err error) {
 	fs, err := adminFlags("control init", args, &fl, &cfgPath, func(fs *flag.FlagSet) {
 		fs.StringVar(&name, "name", "", "code name of the project adopted")
 		fs.StringVar(&keysFile, "authorized-keys", defaultAuthorizedKeys, "authorized_keys file to import principals and keys from")
-		fs.BoolVar(&restore, "restore-removed-access", false, "put back from the file what admins removed since: keys removed with `sfx admin key remove`, "+
-			"memberships of the adopted project removed with `sfx admin member remove`, and principals disabled with `sfx admin principal disable`; it overrides them")
+		fs.BoolVar(&restore, "restore-removed-access", false, "put back from the file what admins removed since: keys removed with `aries admin key remove`, "+
+			"memberships of the adopted project removed with `aries admin member remove`, and principals disabled with `aries admin principal disable`; it overrides them")
 	})
 	if err != nil {
 		return err
@@ -201,9 +201,9 @@ func controlInit(ctx context.Context, env adminEnv, args []string) (err error) {
 	}
 	switch {
 	case s.DSN == "":
-		return errors.New("no database DSN; fix: set $STARFIXD_DSN or dsn: in the config file")
+		return errors.New("no database DSN; fix: set $ARIESD_DSN or dsn: in the config file")
 	case s.ControlDB == "":
-		return fmt.Errorf("no control database; fix: set control_db: in the config file or $%s, to a database of its own such as starfix_control", server.EnvControlDB)
+		return fmt.Errorf("no control database; fix: set control_db: in the config file or $%s, to a database of its own such as aries_control", server.EnvControlDB)
 	case s.Project == "":
 		return errors.New("no project to adopt; fix: set project: in the config file to the UUID this server serves")
 	}
@@ -218,7 +218,7 @@ func controlInit(ctx context.Context, env adminEnv, args []string) (err error) {
 	// Read before anything is written, so a wrong path changes nothing.
 	lines, problems, err := readAuthorizedKeys(keysFile)
 	if err != nil {
-		return fmt.Errorf("read authorized_keys: %w; fix: give the file sshd reads for the starfix account with --authorized-keys FILE", err)
+		return fmt.Errorf("read authorized_keys: %w; fix: give the file sshd reads for the aries account with --authorized-keys FILE", err)
 	}
 
 	// No background committer: Close makes the one Dolt commit.
@@ -274,9 +274,9 @@ func controlInit(ctx context.Context, env adminEnv, args []string) (err error) {
 	// and sshd still reads that file. Nothing here edits it.
 	switch n := keys.added + keys.already; {
 	case n == 1:
-		_, _ = fmt.Fprintf(env.stdout, "1 key in the store is also a line of %s: sshd reads that file too, so `sfx admin key remove` does not keep the key out until its line is deleted too\n", keysFile)
+		_, _ = fmt.Fprintf(env.stdout, "1 key in the store is also a line of %s: sshd reads that file too, so `aries admin key remove` does not keep the key out until its line is deleted too\n", keysFile)
 	case n > 1:
-		_, _ = fmt.Fprintf(env.stdout, "%d keys in the store are also lines of %s: sshd reads that file too, so `sfx admin key remove` does not keep such a key out until its line is deleted too\n", n, keysFile)
+		_, _ = fmt.Fprintf(env.stdout, "%d keys in the store are also lines of %s: sshd reads that file too, so `aries admin key remove` does not keep such a key out until its line is deleted too\n", n, keysFile)
 	}
 	return nil
 }

@@ -9,7 +9,7 @@ import (
 	"github.com/ariesworx/aries/internal/store"
 )
 
-// `starfixd control init`, run again, leaves alone what an admin did
+// `ariesd control init`, run again, leaves alone what an admin did
 // since (security review of stage 3a, F-7). It is documented as safe to
 // run again and the Docker image runs it at every start, and it once
 // gave every principal with a line in authorized_keys a membership of
@@ -126,7 +126,7 @@ func TestControlInitRerunKeepsWhatAdminsRemoved(t *testing.T) {
 	wantOut := fmt.Sprintf("project acme (%s) adopted from database %s: active\n", adopted, s.db) +
 		"principals: 0 added, 6 already there; keys: 0 added, 4 already there; members: 0 added, 3 already there; 0 lines skipped\n" +
 		"left as admins set them: 1 key removed, 1 membership removed, 1 principal disabled; to put them back from this file, run it again with --restore-removed-access\n" +
-		"4 keys in the store are also lines of " + keys + ": sshd reads that file too, so `sfx admin key remove` does not keep such a key out until its line is deleted too\n"
+		"4 keys in the store are also lines of " + keys + ": sshd reads that file too, so `aries admin key remove` does not keep such a key out until its line is deleted too\n"
 	if got.stdout != wantOut {
 		t.Errorf("stdout of the rerun = %q\nwant              %q", got.stdout, wantOut)
 	}
@@ -163,7 +163,7 @@ func TestControlInitRestoreRemovedAccess(t *testing.T) {
 	wantOut := fmt.Sprintf("project acme (%s) adopted from database %s: active\n", adopted, s.db) +
 		"principals: 0 added, 6 already there; keys: 1 added, 5 already there; members: 1 added, 4 already there; 0 lines skipped\n" +
 		"restored from this file, over what admins had set: 1 key, 1 membership, 1 principal enabled\n" +
-		"6 keys in the store are also lines of " + keys + ": sshd reads that file too, so `sfx admin key remove` does not keep such a key out until its line is deleted too\n"
+		"6 keys in the store are also lines of " + keys + ": sshd reads that file too, so `aries admin key remove` does not keep such a key out until its line is deleted too\n"
 	if got.stdout != wantOut {
 		t.Errorf("stdout = %q\nwant     %q", got.stdout, wantOut)
 	}
@@ -204,13 +204,13 @@ func TestControlInitRestoreRemovedAccess(t *testing.T) {
 }
 
 // The flag that overrides admins says what it overrides where an
-// operator reads it: starfixd's usage, which every mistake on the command
+// operator reads it: ariesd's usage, which every mistake on the command
 // line prints.
 func TestControlInitRestoreFlagIsExplained(t *testing.T) {
 	t.Parallel()
-	for _, want := range []string{"[--restore-removed-access]", "sfx admin key remove", "sfx admin member remove", "sfx admin principal disable"} {
+	for _, want := range []string{"[--restore-removed-access]", "aries admin key remove", "aries admin member remove", "aries admin principal disable"} {
 		if !strings.Contains(usage, want) {
-			t.Errorf("starfixd's usage does not mention %q:\n%s", want, usage)
+			t.Errorf("ariesd's usage does not mention %q:\n%s", want, usage)
 		}
 	}
 	// It is no flag of anything else, and has no short form to mistype.

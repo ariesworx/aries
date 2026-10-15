@@ -22,8 +22,8 @@ import (
 // The soak's partition mode (design §18.10, F5's gate): "the soak with
 // the client cut from the server for minutes at a time, and its event
 // log still equal to what the sessions were told". With
-// STARFIX_SOAK_PARTITION set, every agent's `sfx mcp` has an outbox and a
-// cache, as `sfx mcp` does by default, and now and then an agent is cut
+// ARIES_SOAK_PARTITION set, every agent's `aries mcp` has an outbox and a
+// cache, as `aries mcp` does by default, and now and then an agent is cut
 // off from the server for 2 to 30 minutes of the store's clock while it
 // goes on working: its writes are queued, its reads of its own work
 // answered from the cache, its starts refused, and its leases lapse on
@@ -32,10 +32,10 @@ import (
 // arrives after its lease lapsed is applied or kept as a comment
 // (§18.6).
 //
-// A session is cut by its dials: while it is cut, its `sfx mcp` dials
+// A session is cut by its dials: while it is cut, its `aries mcp` dials
 // fail as an unreachable server's do (code unavailable), and the
 // connection it had fails its next request, sending nothing, as one whose
-// network dropped, which `sfx mcp` closes itself. (Closing it from the
+// network dropped, which `aries mcp` closes itself. (Closing it from the
 // cutting goroutine raced the SSH channel's writes, under -race.) A dial
 // that was under way when the cut came is closed as it completes.
 // Whatever the timing, then, a request made while the session is cut
@@ -48,7 +48,7 @@ import (
 // At rest the check (partitionFaults) holds every write a session was
 // told it queued to its outbox, what the server answered its replays,
 // and the event log: applied once, parked, kept as a comment, or refused
-// with a reason the person can read in `sfx outbox`; none lost, none
+// with a reason the person can read in `aries outbox`; none lost, none
 // silently dropped, none applied twice. The replay of each project's log
 // already holds that no claim went to two sessions, that a late write
 // applied only under a claim nobody took since (claim.lapsed), and that
@@ -219,7 +219,7 @@ func partitionFaults(queued []queuedWrite, end partitionEnd) []violation {
 	return out
 }
 
-// partitionFrom reads the partition mode from STARFIX_SOAK_PARTITION:
+// partitionFrom reads the partition mode from ARIES_SOAK_PARTITION:
 // empty is off; 1 or true, on.
 func partitionFrom(v string) (bool, error) {
 	switch strings.ToLower(v) {
@@ -228,7 +228,7 @@ func partitionFrom(v string) (bool, error) {
 	case "1", "true", "on":
 		return true, nil
 	}
-	return false, fmt.Errorf("STARFIX_SOAK_PARTITION=%q: want 1 for the partition mode, or nothing", v)
+	return false, fmt.Errorf("ARIES_SOAK_PARTITION=%q: want 1 for the partition mode, or nothing", v)
 }
 
 // The bounds of one cut, and of the time an agent is connected between
@@ -251,7 +251,7 @@ func (ms *mcpSession) cutSpan() (onStore, inReal time.Duration) {
 var errCut = proto.Errf(proto.CodeUnavailable, "retry once the network is back", "soak: the network between this session and the server is cut")
 
 // errCutConn is how a connection fails once its session is cut off: as
-// one whose network dropped, which sfx mcp closes and dials again.
+// one whose network dropped, which aries mcp closes and dials again.
 var errCutConn = errors.New("soak: the connection's network is cut")
 
 // partitionStep cuts the agent off once it has been connected for a
@@ -447,7 +447,7 @@ func argsOf(c call) any {
 // drain lets every cut agent back and sends what waits in every outbox
 // of the run: the agents' own connections send theirs, and an outbox
 // whose agent vanished is sent by a new session of its principal, as on
-// a machine where the next `sfx mcp` sends what the last one left. It
+// a machine where the next `aries mcp` sends what the last one left. It
 // waits until nothing is pending, or a minute has passed.
 func (s *soak) drain(ctx context.Context) {
 	if s.part == nil {
@@ -477,7 +477,7 @@ func (s *soak) drain(ctx context.Context) {
 			lease: 15 * time.Minute, renewEvery: time.Hour}, held:       map[string]int{}}
 		sweep.key = sessKey{ms.key.principal, "mcp-" + sweep.tag}
 		if err := sweep.open(); err != nil {
-			s.mon.fail("", "%s: start sfx mcp to send the outbox: %v", sweep.key, err)
+			s.mon.fail("", "%s: start aries mcp to send the outbox: %v", sweep.key, err)
 			continue
 		}
 		s.mu.Lock()
@@ -499,7 +499,7 @@ func (ms *mcpSession) sweep(ctx context.Context) {
 	last, since := -1, time.Now()
 	for ctx.Err() == nil {
 		// A tool call, whose first connection sends what waits, and a
-		// renewal, as `sfx mcp`'s tick makes, which sends more on the
+		// renewal, as `aries mcp`'s tick makes, which sends more on the
 		// open connection.
 		text, isErr := ms.tool("inbox", nil)
 		if isErr {

@@ -8,8 +8,8 @@ import (
 )
 
 // TestMain keeps every test here away from the real home directory and
-// ssh-agent (clienttest): the operations skill's test runs sfx's help
-// in process, and sfx is a client that could sign in.
+// ssh-agent (clienttest): the operations skill's test runs aries's help
+// in process, and aries is a client that could sign in.
 func TestMain(m *testing.M) {
 	restore := clienttest.Isolate()
 	code := m.Run()

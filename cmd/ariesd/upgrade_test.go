@@ -17,7 +17,7 @@ import (
 
 const upgradeProject = "00000000-0000-4000-8000-0000000000aa"
 
-// upgradeRig is a starfixd install, a fake release and fake systemd: the
+// upgradeRig is an ariesd install, a fake release and fake systemd: the
 // "daemon" runs whatever the exe file holds, so a probe after a restart
 // reports the version written in it.
 type upgradeRig struct {
@@ -38,13 +38,13 @@ type upgradeRig struct {
 func newRig(t *testing.T, current, latest, configExtra string) *upgradeRig {
 	t.Helper()
 	dir := t.TempDir()
-	r := &upgradeRig{gh: releasetest.New(t, latest), exe: filepath.Join(dir, "starfixd"), running: current,
+	r := &upgradeRig{gh: releasetest.New(t, latest), exe: filepath.Join(dir, "ariesd"), running: current,
 		healthy: func(string) bool { return true }}
-	r.gh.AddBinary(t, "starfixd", "linux", "amd64", []byte(latest))
+	r.gh.AddBinary(t, "ariesd", "linux", "amd64", []byte(latest))
 	if err := os.WriteFile(r.exe, []byte(current), 0o755); err != nil { //nolint:gosec // an executable fixture
 		t.Fatal(err)
 	}
-	r.cfg = filepath.Join(dir, "starfixd.yaml")
+	r.cfg = filepath.Join(dir, "ariesd.yaml")
 	cfg := "project: " + upgradeProject + "\nsocket: " + filepath.Join(dir, "d.sock") + "\n" + configExtra
 	if err := os.WriteFile(r.cfg, []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
@@ -85,7 +85,7 @@ func (r *upgradeRig) run(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
 	env := adminEnv{stdout: &out, stderr: &out, getenv: func(k string) string {
-		if k == "STARFIXD_DSN" {
+		if k == "ARIESD_DSN" {
 			return r.dsn
 		}
 		return r.vars[k]
@@ -105,26 +105,26 @@ func (r *upgradeRig) exeHolds(t *testing.T) string {
 
 func TestUpgradeServerRestarts(t *testing.T) {
 	t.Parallel()
-	r := newRig(t, "v0.2.0", "v0.3.0", "systemd_unit: starfixd.service\n")
+	r := newRig(t, "v0.2.0", "v0.3.0", "systemd_unit: ariesd.service\n")
 	out, err := r.run(t)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "starfixd upgraded v0.2.0 -> v0.3.0 (backup tag starfix-v0.2.0; starfixd.service restarted and healthy)\n"
+	want := "ariesd upgraded v0.2.0 -> v0.3.0 (backup tag aries-v0.2.0; ariesd.service restarted and healthy)\n"
 	if out != want {
 		t.Errorf("stdout %q, want %q", out, want)
 	}
 	if r.exeHolds(t) != "v0.3.0" || r.running != "v0.3.0" {
 		t.Errorf("exe %q, running %q", r.exeHolds(t), r.running)
 	}
-	if strings.Join(r.restarts, ",") != "starfixd.service" || strings.Join(r.backups, ",") != "starfix-v0.2.0" {
+	if strings.Join(r.restarts, ",") != "ariesd.service" || strings.Join(r.backups, ",") != "aries-v0.2.0" {
 		t.Errorf("restarts %v, backups %v", r.restarts, r.backups)
 	}
 
 	// The new binary reports the new version: a second run changes nothing.
 	r.d.current = "v0.3.0"
 	out, err = r.run(t)
-	if err != nil || out != "starfixd v0.3.0 is up to date\n" || len(r.restarts) != 1 || len(r.backups) != 1 {
+	if err != nil || out != "ariesd v0.3.0 is up to date\n" || len(r.restarts) != 1 || len(r.backups) != 1 {
 		t.Fatalf("second run: %q, %v, restarts %v, backups %v", out, err, r.restarts, r.backups)
 	}
 
@@ -143,7 +143,7 @@ func TestUpgradeServerWithoutUnit(t *testing.T) {
 	t.Parallel()
 	r := newRig(t, "v0.2.0", "v0.3.0", "")
 	out, err := r.run(t)
-	if err != nil || !strings.Contains(out, "installed starfixd v0.3.0") || !strings.Contains(out, "systemctl restart") {
+	if err != nil || !strings.Contains(out, "installed ariesd v0.3.0") || !strings.Contains(out, "systemctl restart") {
 		t.Fatalf("%q, %v", out, err)
 	}
 	if len(r.restarts) != 0 || r.exeHolds(t) != "v0.3.0" || r.running != "v0.2.0" {
@@ -154,24 +154,24 @@ func TestUpgradeServerWithoutUnit(t *testing.T) {
 	if _, err := r.run(t, "--restart"); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(r.restarts, ",") != "starfixd" {
+	if strings.Join(r.restarts, ",") != "ariesd" {
 		t.Errorf("--restart restarted %v, want the default unit", r.restarts)
 	}
 }
 
 func TestUpgradeServerUnhealthyRestores(t *testing.T) {
 	t.Parallel()
-	r := newRig(t, "v0.2.0", "v0.3.0", "systemd_unit: starfixd\n")
+	r := newRig(t, "v0.2.0", "v0.3.0", "systemd_unit: ariesd\n")
 	r.healthy = func(v string) bool { return v != "v0.3.0" }
 	_, err := r.run(t)
-	if err == nil || !strings.Contains(err.Error(), "restored v0.2.0, which is running") || !strings.Contains(err.Error(), "fix: check `journalctl -u starfixd`") {
+	if err == nil || !strings.Contains(err.Error(), "restored v0.2.0, which is running") || !strings.Contains(err.Error(), "fix: check `journalctl -u ariesd`") {
 		t.Fatalf("err = %v", err)
 	}
 	if r.exeHolds(t) != "v0.2.0" || r.running != "v0.2.0" || len(r.restarts) != 2 {
 		t.Errorf("exe %q, running %q, restarts %v", r.exeHolds(t), r.running, r.restarts)
 	}
 
-	r = newRig(t, "v0.2.0", "v0.3.0", "systemd_unit: starfixd\n")
+	r = newRig(t, "v0.2.0", "v0.3.0", "systemd_unit: ariesd\n")
 	r.healthy = func(string) bool { return false }
 	if _, err := r.run(t); err == nil || !strings.Contains(err.Error(), "not healthy either") {
 		t.Fatalf("err = %v", err)
@@ -185,14 +185,14 @@ func TestUpgradeServerCheck(t *testing.T) {
 		args                  []string
 		want                  string
 	}{
-		{"behind", "v0.2.0", "v0.3.0", nil, "starfixd v0.2.0, latest v0.3.0: run starfixd upgrade\n"},
-		{"current", "v0.3.0", "v0.3.0", nil, "starfixd v0.3.0, latest v0.3.0: up to date\n"},
-		{"target", "v0.2.0", "v0.3.0", []string{"--to", "v0.3.0"}, "starfixd v0.2.0, target v0.3.0: run starfixd upgrade\n"},
-		{"dev", "dev", "v0.3.0", nil, "starfixd dev, latest v0.3.0: dev build; install a release to upgrade\n"},
+		{"behind", "v0.2.0", "v0.3.0", nil, "ariesd v0.2.0, latest v0.3.0: run ariesd upgrade\n"},
+		{"current", "v0.3.0", "v0.3.0", nil, "ariesd v0.3.0, latest v0.3.0: up to date\n"},
+		{"target", "v0.2.0", "v0.3.0", []string{"--to", "v0.3.0"}, "ariesd v0.2.0, target v0.3.0: run ariesd upgrade\n"},
+		{"dev", "dev", "v0.3.0", nil, "ariesd dev, latest v0.3.0: dev build; install a release to upgrade\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := newRig(t, tt.current, tt.latest, "systemd_unit: starfixd\n")
+			r := newRig(t, tt.current, tt.latest, "systemd_unit: ariesd\n")
 			r.d.euid = func() int { return 0 } // --check changes nothing, so root may run it
 			out, err := r.run(t, append([]string{"--check"}, tt.args...)...)
 			if err != nil || out != tt.want {
@@ -229,7 +229,7 @@ func TestUpgradeServerRefusals(t *testing.T) {
 		{name: "tampered archive", current: "v0.2.0", edit: func(t *testing.T, r *upgradeRig) {
 			s := r.gh.Checksums()
 			r.gh.Sums = &s
-			r.gh.AddBinary(t, "starfixd", "linux", "amd64", []byte("evil"))
+			r.gh.AddBinary(t, "ariesd", "linux", "amd64", []byte("evil"))
 		}, want: "checksum mismatch"},
 		{name: "backup fails", current: "v0.2.0", edit: func(_ *testing.T, r *upgradeRig) {
 			r.d.backup = func(context.Context, adminEnv, server.Settings, string, string) (string, error) {
@@ -237,12 +237,12 @@ func TestUpgradeServerRefusals(t *testing.T) {
 			}
 		}, want: "fix: nothing was changed"},
 		{name: "staged binary fails", current: "v0.2.0", edit: func(t *testing.T, r *upgradeRig) {
-			r.gh.AddBinary(t, "starfixd", "linux", "amd64", []byte("v9.9.9"))
+			r.gh.AddBinary(t, "ariesd", "linux", "amd64", []byte("v9.9.9"))
 		}, want: "does not report v0.3.0"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := newRig(t, tt.current, "v0.3.0", "systemd_unit: starfixd\n")
+			r := newRig(t, tt.current, "v0.3.0", "systemd_unit: ariesd\n")
 			if tt.edit != nil {
 				tt.edit(t, r)
 			}
@@ -276,7 +276,7 @@ func TestUpgradeServerBackupDolt(t *testing.T) {
 			t.Fatal(err)
 		}
 		out, err := r.run(t)
-		if err != nil || !strings.Contains(out, "backup tag starfix-v0.2.0)") {
+		if err != nil || !strings.Contains(out, "backup tag aries-v0.2.0)") {
 			t.Fatalf("%q, %v", out, err)
 		}
 	}

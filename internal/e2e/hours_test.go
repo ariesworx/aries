@@ -20,7 +20,7 @@ func TestHoursAndPlansCLI(t *testing.T) {
 	clk := &clock{t: time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)}
 	w := newWorld(t, daemonOpts{admins: []string{"dana"}, now: clk.now})
 	alice, bob, dana := w.newUser("alice", ""), w.newUser("bob", ""), w.newUser("dana", "")
-	alice.env["STARFIX_SESSION"] = "s-agent"
+	alice.env["ARIES_SESSION"] = "s-agent"
 	// The day logged is the logger's own: at 12:00 UTC on 8 Oct it is
 	// already the 9th for alice, east of UTC, and still the 8th for bob.
 	alice.now = func() time.Time { return clk.now().In(time.FixedZone("east", 14*60*60)) }
@@ -39,7 +39,7 @@ func TestHoursAndPlansCLI(t *testing.T) {
 		t.Errorf("log --issue:\n%s", got)
 	}
 	if r := bob.run("v0.2.0", "log", "--undo", e.ID); r.code != cli.ExitFailure ||
-		!strings.Contains(r.stderr, "sfx: undoing another person's hours is for starfix admins\n") || !strings.Contains(r.stderr, "fix: ask a starfix admin") {
+		!strings.Contains(r.stderr, "aries: undoing another person's hours is for aries admins\n") || !strings.Contains(r.stderr, "fix: ask an aries admin") {
 		t.Errorf("bob undoing alice's entry: exit %d\n%s", r.code, r.stderr)
 	}
 	if r := alice.run("v0.2.0", "log", "25h", task); r.code != cli.ExitUsage || !strings.Contains(r.stderr, "not a time from 1m to 24h") {
@@ -57,7 +57,7 @@ func TestHoursAndPlansCLI(t *testing.T) {
 	if got := dana.ok(set...); got != "team from "+month+": added\n" {
 		t.Fatalf("admin plans set: %q", got)
 	}
-	if r := alice.run("v0.2.0", set...); r.code != cli.ExitFailure || !strings.Contains(r.stderr, "sfx: plans set is for starfix admins\n") {
+	if r := alice.run("v0.2.0", set...); r.code != cli.ExitFailure || !strings.Contains(r.stderr, "aries: plans set is for aries admins\n") {
 		t.Errorf("admin plans set by alice: exit %d\n%s", r.code, r.stderr)
 	}
 	if got := bob.ok("admin", "plans"); !strings.Contains(got, "team  "+month+"  30   1      30       alice       dana\n") {

@@ -14,7 +14,7 @@ import (
 
 // The files of deploy/observability are examples that are tested
 // (design §16.7). These tests hold them to the code: a rule and a query
-// of the dashboard name only series, labels and values that starfixd
+// of the dashboard name only series, labels and values that ariesd
 // has, the scrape jobs are the ones they select by, and every image of
 // the harness is pinned.
 
@@ -26,13 +26,13 @@ const (
 	composeFile    = "../../deploy/docker/compose.yaml"
 	smokeFile      = "../../deploy/docker/smoke.sh"
 
-	jobStarfixd = "starfixd"
-	jobDolt     = "dolt"
+	jobAriesd = "ariesd"
+	jobDolt   = "dolt"
 )
 
 // doltSeries are the series of Dolt's own metrics endpoint that the
 // harness may name, as Dolt 2.4.2 serves them (design §16.5). Dolt is
-// not starfix's to rename, so nothing but the Docker smoke test, which
+// not Aries's to rename, so nothing but the Docker smoke test, which
 // asks a real Dolt for each, holds this list to it.
 var doltSeries = []string{
 	"dss_concurrent_connections", "dss_concurrent_queries", "dss_connects", "dss_disconnects",
@@ -43,7 +43,7 @@ var doltSeries = []string{
 	"sys_cpu_usage", "sys_mem_usage", "sys_disk_usage",
 }
 
-// runtimeSeries are the Go runtime's metrics on starfixd's /metrics, as
+// runtimeSeries are the Go runtime's metrics on ariesd's /metrics, as
 // the contrib module names them (docs/server.md, What is measured).
 var runtimeSeries = []string{
 	"go_memory_used_bytes", "go_memory_allocated_bytes_total", "go_memory_allocations_total",
@@ -150,14 +150,14 @@ func matchers(s string) ([]matcher, error) {
 	return out, nil
 }
 
-// series is one series of starfixd's /metrics: the label keys it has,
+// series is one series of ariesd's /metrics: the label keys it has,
 // and the values each may take, nil for a key whose values are not a
 // fixed list in this package (an op, a project, a bucket's bound).
 type series map[string][]string
 
-// starfixdSeries is every series of starfixd's own instruments, by its
+// ariesdSeries is every series of ariesd's own instruments, by its
 // name on /metrics.
-func starfixdSeries() map[string]series {
+func ariesdSeries() map[string]series {
 	out := map[string]series{}
 	for _, sp := range specs {
 		labels := series{}
@@ -180,7 +180,7 @@ func starfixdSeries() map[string]series {
 }
 
 // checkExpr returns what is wrong with a PromQL expression of the
-// harness: a series that neither starfixd nor Dolt serves, a label a
+// harness: a series that neither ariesd nor Dolt serves, a label a
 // series does not have, a value a label never takes, or a series of
 // Dolt's or of Prometheus's own that is not held to its job.
 func checkExpr(expr string) []string {
@@ -191,7 +191,7 @@ func checkExpr(expr string) []string {
 	if len(sels) == 0 {
 		return []string{"it selects no series"}
 	}
-	ours := starfixdSeries()
+	ours := ariesdSeries()
 	var problems []string
 	for _, sel := range sels {
 		job := ""
@@ -204,22 +204,22 @@ func checkExpr(expr string) []string {
 		switch {
 		case isOurs:
 		case sel.name == "up":
-			if job != jobStarfixd && job != jobDolt {
-				problems = append(problems, fmt.Sprintf(`up must be held to job=%q or job=%q`, jobStarfixd, jobDolt))
+			if job != jobAriesd && job != jobDolt {
+				problems = append(problems, fmt.Sprintf(`up must be held to job=%q or job=%q`, jobAriesd, jobDolt))
 			}
 			continue
 		case slices.Contains(doltSeries, sel.name):
 			if job != jobDolt {
-				problems = append(problems, fmt.Sprintf(`%s is Dolt's, and must be held to job=%q: starfixd's /metrics has Go runtime series too`, sel.name, jobDolt))
+				problems = append(problems, fmt.Sprintf(`%s is Dolt's, and must be held to job=%q: ariesd's /metrics has Go runtime series too`, sel.name, jobDolt))
 			}
 			continue
 		case slices.Contains(runtimeSeries, sel.name):
-			if job != jobStarfixd {
-				problems = append(problems, fmt.Sprintf(`%s must be held to job=%q`, sel.name, jobStarfixd))
+			if job != jobAriesd {
+				problems = append(problems, fmt.Sprintf(`%s must be held to job=%q`, sel.name, jobAriesd))
 			}
 			continue
 		default:
-			problems = append(problems, fmt.Sprintf("%s is not a series of starfixd's /metrics (telemetry.Instruments) nor one of Dolt's this test knows", sel.name))
+			problems = append(problems, fmt.Sprintf("%s is not a series of ariesd's /metrics (telemetry.Instruments) nor one of Dolt's this test knows", sel.name))
 			continue
 		}
 		for _, m := range sel.matchers {
@@ -256,12 +256,12 @@ func TestSelectors(t *testing.T) {
 		name, expr string
 		want       []selector
 	}{
-		{"bare", `starfix_clock_behind_seconds > 0`, []selector{{name: "starfix_clock_behind_seconds"}}},
+		{"bare", `aries_clock_behind_seconds > 0`, []selector{{name: "aries_clock_behind_seconds"}}},
 		{"matcher", `up{job="dolt"} == 0`, []selector{{name: "up", matchers: []matcher{{"job", "=", "dolt"}}}}},
-		{"function and range", `increase(starfix_clock_steps_total[15m]) > 0`, []selector{{name: "starfix_clock_steps_total"}}},
+		{"function and range", `increase(aries_clock_steps_total[15m]) > 0`, []selector{{name: "aries_clock_steps_total"}}},
 		{"aggregation with a label list",
-			`histogram_quantile(0.99, sum by (le) (rate(starfix_store_write_duration_seconds_bucket[5m]))) > 1`,
-			[]selector{{name: "starfix_store_write_duration_seconds_bucket"}}},
+			`histogram_quantile(0.99, sum by (le) (rate(aries_store_write_duration_seconds_bucket[5m]))) > 1`,
+			[]selector{{name: "aries_store_write_duration_seconds_bucket"}}},
 		{"regexp and two matchers", `m{a=~"x|y", b!="z"}`,
 			[]selector{{name: "m", matchers: []matcher{{"a", "=~", "x|y"}, {"b", "!=", "z"}}}}},
 		{"set operators, offset and a power",
@@ -297,20 +297,20 @@ func TestCheckExpr(t *testing.T) {
 		name, expr string
 		want       string // part of the one problem, or empty for none
 	}{
-		{"a counter", `increase(starfix_telemetry_dropped_total{signal="traces"}[15m]) > 0`, ""},
-		{"a histogram's buckets", `sum by (le) (rate(starfix_request_duration_seconds_bucket{op="create",le="1"}[5m]))`, ""},
-		{"a histogram's count", `rate(starfix_store_write_duration_seconds_count[5m])`, ""},
+		{"a counter", `increase(aries_telemetry_dropped_total{signal="traces"}[15m]) > 0`, ""},
+		{"a histogram's buckets", `sum by (le) (rate(aries_request_duration_seconds_bucket{op="create",le="1"}[5m]))`, ""},
+		{"a histogram's count", `rate(aries_store_write_duration_seconds_count[5m])`, ""},
 		{"Dolt's, with its job", `go_gc_duration_seconds_count{job="dolt"}`, ""},
-		{"the runtime's, with its job", `go_goroutine_count{job="starfixd"}`, ""},
-		{"a regexp of values", `starfix_limit_refusals_total{limit=~"conns|open_stores"}`, ""},
-		{"a renamed metric", `starfix_reaper_last_run_seconds > 0`, "is not a series"},
-		{"the OpenTelemetry name", `starfix.reaper.last_run.time > 0`, "has underscores where its instrument has dots"},
-		{"a histogram with no suffix", `rate(starfix_request_duration_seconds[5m])`, "is not a series"},
-		{"a counter with no _total", `rate(starfix_handshakes[5m])`, "is not a series"},
-		{"a label of another instrument", `starfix_handshakes_total{op="create"}`, `no label "op"`},
-		{"le on a count", `starfix_request_duration_seconds_count{le="1"}`, `no label "le"`},
-		{"a value never taken", `starfix_telemetry_dropped_total{signal="events"}`, `is never "events"`},
-		{"one bad value of a regexp", `starfix_limit_refusals_total{limit=~"conns|stores"}`, `is never "stores"`},
+		{"the runtime's, with its job", `go_goroutine_count{job="ariesd"}`, ""},
+		{"a regexp of values", `aries_limit_refusals_total{limit=~"conns|open_stores"}`, ""},
+		{"a renamed metric", `aries_reaper_last_run_seconds > 0`, "is not a series"},
+		{"the OpenTelemetry name", `aries.reaper.last_run.time > 0`, "has underscores where its instrument has dots"},
+		{"a histogram with no suffix", `rate(aries_request_duration_seconds[5m])`, "is not a series"},
+		{"a counter with no _total", `rate(aries_handshakes[5m])`, "is not a series"},
+		{"a label of another instrument", `aries_handshakes_total{op="create"}`, `no label "op"`},
+		{"le on a count", `aries_request_duration_seconds_count{le="1"}`, `no label "le"`},
+		{"a value never taken", `aries_telemetry_dropped_total{signal="events"}`, `is never "events"`},
+		{"one bad value of a regexp", `aries_limit_refusals_total{limit=~"conns|stores"}`, `is never "stores"`},
 		{"Dolt's, with no job", `go_gc_duration_seconds_count > 70`, "must be held to job"},
 		{"up, with no job", `up == 0`, "up must be held to job"},
 		{"no series", `1 > 0`, "selects no series"},
@@ -414,35 +414,35 @@ func selects(rules []alertRule, name, key, value string) bool {
 // The rules cover what the design says an operator is told of (§16.7,
 // and the notes of slices O2 and O4): each signal's drops, the reaper,
 // the keys file, the clock, write latency and retries, the connection
-// and store caps, and Dolt's collector against starfixd's writes.
+// and store caps, and Dolt's collector against ariesd's writes.
 func TestAlertRulesCover(t *testing.T) {
 	t.Parallel()
 	rules := readAlerts(t)
 	tests := []struct{ name, series, key, value string }{
-		{"the listener answering", "up", "job", jobStarfixd},
+		{"the listener answering", "up", "job", jobAriesd},
 		{"Dolt's endpoint answering", "up", "job", jobDolt},
-		{"the reaper, which feeds the watchdog", "starfix_reaper_last_run_time_seconds", "", ""},
-		{"a keys file write failing", "starfix_keys_file_writes_total", KeyResult, ResultFailed},
-		{"the clock behind history", "starfix_clock_behind_seconds", "", ""},
-		{"a step of the clock", "starfix_clock_steps_total", "", ""},
-		{"a project that cannot be opened", "starfix_handshakes_total", KeyResult, "unavailable"},
-		{"the server's own failures", "starfix_project_requests_total", KeyResultClass, ClassError},
-		{"write latency", "starfix_store_write_duration_seconds_bucket", "", ""},
-		{"writes retried", "starfix_store_write_retries_total", "", ""},
-		{"the connection cap", "starfix_limit_refusals_total", KeyLimit, LimitConns},
-		{"the cap on one principal's connections", "starfix_limit_refusals_total", KeyLimit, LimitConnsPerPrincipal},
-		{"the store cap", "starfix_limit_refusals_total", KeyLimit, LimitOpenStores},
+		{"the reaper, which feeds the watchdog", "aries_reaper_last_run_time_seconds", "", ""},
+		{"a keys file write failing", "aries_keys_file_writes_total", KeyResult, ResultFailed},
+		{"the clock behind history", "aries_clock_behind_seconds", "", ""},
+		{"a step of the clock", "aries_clock_steps_total", "", ""},
+		{"a project that cannot be opened", "aries_handshakes_total", KeyResult, "unavailable"},
+		{"the server's own failures", "aries_project_requests_total", KeyResultClass, ClassError},
+		{"write latency", "aries_store_write_duration_seconds_bucket", "", ""},
+		{"writes retried", "aries_store_write_retries_total", "", ""},
+		{"the connection cap", "aries_limit_refusals_total", KeyLimit, LimitConns},
+		{"the cap on one principal's connections", "aries_limit_refusals_total", KeyLimit, LimitConnsPerPrincipal},
+		{"the store cap", "aries_limit_refusals_total", KeyLimit, LimitOpenStores},
 		{"Dolt's collector", "go_gc_duration_seconds_count", "job", jobDolt},
 		{"Dolt's memory", "process_resident_memory_bytes", "job", jobDolt},
 		{"Dolt's memory limit", "go_gc_gomemlimit_bytes", "job", jobDolt},
 		{"the machine's memory", "sys_mem_usage", "job", jobDolt},
 		{"the disk", "sys_disk_usage", "job", jobDolt},
 	}
-	// Every signal starfixd can drop has its rule: one added to
+	// Every signal ariesd can drop has its rule: one added to
 	// attrSignal's values needs one here.
 	for _, signal := range attrSignal.values {
 		tests = append(tests, struct{ name, series, key, value string }{
-			"dropped " + signal, "starfix_telemetry_dropped_total", KeySignal, signal})
+			"dropped " + signal, "aries_telemetry_dropped_total", KeySignal, signal})
 	}
 	for _, tc := range tests {
 		if !selects(rules, tc.series, tc.key, tc.value) {
@@ -574,12 +574,12 @@ type scrapeConfig struct {
 }
 
 // The scrape jobs of both examples are the two the rules select by,
-// at the loopback addresses the server guide gives starfixd's listener
+// at the loopback addresses the server guide gives ariesd's listener
 // and Dolt's metrics; and the collector receives OTLP on loopback, at
-// the port the guide gives starfixd.
+// the port the guide gives ariesd.
 func TestHarnessScrapesWhatTheRulesSelect(t *testing.T) {
 	t.Parallel()
-	want := map[string]string{jobStarfixd: "127.0.0.1:9464", jobDolt: "127.0.0.1:11228"}
+	want := map[string]string{jobAriesd: "127.0.0.1:9464", jobDolt: "127.0.0.1:11228"}
 	check := func(file string, jobs []scrapeConfig) {
 		t.Helper()
 		got := map[string]string{}
@@ -640,7 +640,7 @@ func TestHarnessScrapesWhatTheRulesSelect(t *testing.T) {
 	for _, signal := range attrSignal.values {
 		p, ok := col.Service.Pipelines[signal]
 		if !ok || !slices.Contains(p.Receivers, "otlp") || len(p.Exporters) == 0 {
-			t.Errorf("%s: no pipeline carries the %s starfixd pushes from the otlp receiver to an exporter", collectorFile, signal)
+			t.Errorf("%s: no pipeline carries the %s ariesd pushes from the otlp receiver to an exporter", collectorFile, signal)
 		}
 	}
 }
@@ -670,7 +670,7 @@ func TestHarnessImagesArePinned(t *testing.T) {
 	n := 0
 	for i, line := range lines {
 		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "image:") || strings.Contains(line, "STARFIX_IMAGE") {
+		if !strings.HasPrefix(line, "image:") || strings.Contains(line, "ARIES_IMAGE") {
 			continue
 		}
 		n++

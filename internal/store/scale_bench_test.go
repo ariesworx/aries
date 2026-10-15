@@ -16,9 +16,9 @@ import (
 )
 
 // The benchmarks of this file say how the store's reads and writes grow
-// with a project (docs/design/profile-starfixd.md): each runs on a
+// with a project (docs/design/profile-ariesd.md): each runs on a
 // database of 100, 1,000 and 10,000 issues, half of them closed, and of
-// 50,000 when STARFIX_BENCH_LARGE is set. The time is mostly Dolt's;
+// 50,000 when ARIES_BENCH_LARGE is set. The time is mostly Dolt's;
 // the bytes and allocations are the store's and its driver's.
 //
 //	go test -run '^$' -bench 'Scale' -benchmem ./internal/store/
@@ -30,7 +30,7 @@ import (
 // benchSizes are the project sizes BenchmarkScale runs at.
 func benchSizes() []int {
 	sizes := []int{100, 1000, 10000}
-	if os.Getenv("STARFIX_BENCH_LARGE") != "" {
+	if os.Getenv("ARIES_BENCH_LARGE") != "" {
 		sizes = append(sizes, 50000)
 	}
 	return sizes

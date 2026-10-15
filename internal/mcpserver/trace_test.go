@@ -16,7 +16,7 @@ func primeReply(string, any) (any, error) {
 
 // A tool call may bring the agent's W3C trace context in its request's
 // metadata: "traceparent" and "tracestate" in _meta, as OpenTelemetry's
-// convention for MCP has it. Every request the call makes of starfixd
+// convention for MCP has it. Every request the call makes of ariesd
 // then carries it; a call that brings none, or one that is not valid,
 // carries none of its own, so the connection's (the environment's) goes
 // instead. A malformed one never fails the call.

@@ -9,8 +9,8 @@ import (
 
 // FixConnLimit is the fix of a refusal at a principal's connection
 // limit (ConnLimit): what the person whose key it is can do.
-const FixConnLimit = "close some of your other starfix sessions (each running sfx mcp, sfx watch or sfx tui holds a connection), " +
-	"or wait for them to end, and retry; or ask the server's operator to raise conns_per_principal under limits: in starfixd's config"
+const FixConnLimit = "close some of your other aries sessions (each running aries mcp, aries watch or aries tui holds a connection), " +
+	"or wait for them to end, and retry; or ask the server's operator to raise conns_per_principal under limits: in ariesd's config"
 
 // connLimitText follows the principal in ConnLimit's message.
 const connLimitText = " is at its connection limit ("

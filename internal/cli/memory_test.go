@@ -65,7 +65,7 @@ func TestMemoryUsage(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			code, out, errb := runCLI(t, tc.args...)
 			if tc.stderr == "" {
-				if code != ExitOK || !strings.Contains(out, "usage: sfx remember KEY TEXT...|-") {
+				if code != ExitOK || !strings.Contains(out, "usage: aries remember KEY TEXT...|-") {
 					t.Fatalf("exit %d, stdout %q, stderr %q", code, out, errb)
 				}
 				return

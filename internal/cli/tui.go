@@ -26,16 +26,16 @@ func cmdTUI(ctx context.Context, r *runner, args []string) error {
 		return usagef(usage, "tui takes no arguments")
 	}
 	if r.json {
-		return usagef(usage, "tui draws a board and prints no JSON; `sfx ready --json` and `sfx list --json` do")
+		return usagef(usage, "tui draws a board and prints no JSON; `aries ready --json` and `aries list --json` do")
 	}
-	const notHere = "run it in a terminal; for a list that does not update, `sfx ready`, `sfx blocked` or `sfx list`"
+	const notHere = "run it in a terminal; for a list that does not update, `aries ready`, `aries blocked` or `aries list`"
 	// Emacs's shell and some CI runners are terminals, but say with
 	// TERM=dumb that they cannot move the cursor the board needs.
 	if r.env.Getenv("TERM") == "dumb" {
-		return proto.Errf(proto.CodeInvalid, notHere, "sfx tui needs a terminal that can move the cursor, and TERM is dumb")
+		return proto.Errf(proto.CodeInvalid, notHere, "aries tui needs a terminal that can move the cursor, and TERM is dumb")
 	}
 	if !board.IsTerminal(r.env.Stdin, r.rawOut) {
-		return proto.Errf(proto.CodeInvalid, notHere, "sfx tui needs a terminal, and standard input or output is not one")
+		return proto.Errf(proto.CodeInvalid, notHere, "aries tui needs a terminal, and standard input or output is not one")
 	}
 	live := board.NewLive(func(ctx context.Context, onPush func(proto.Push)) (board.Conn, error) {
 		opts := r.clientOptions()
@@ -53,13 +53,13 @@ func cmdTUI(ctx context.Context, r *runner, args []string) error {
 	rc := conn.(*mcpserver.RepoConn) // the only Conn the dialer above returns
 	if w := rc.Warning(r.env.Version); w != "" {
 		// Shown again once the board gives the screen back.
-		_, _ = fmt.Fprintf(r.env.Stderr, "sfx: %s\n", esc(w))
+		_, _ = fmt.Fprintf(r.env.Stderr, "aries: %s\n", esc(w))
 		r.flush()
 	}
 	screen, err := board.OpenScreen(r.env.Stdin, r.rawOut)
 	if err != nil {
 		_ = conn.Close()
-		return proto.Errf(proto.CodeUnavailable, "run it in another terminal, or use `sfx ready` and `sfx list`",
+		return proto.Errf(proto.CodeUnavailable, "run it in another terminal, or use `aries ready` and `aries list`",
 			fmt.Sprintf("cannot take over the terminal: %v", err))
 	}
 	t, stop := screen.Terminal(r.env.Getenv("NO_COLOR") == "")

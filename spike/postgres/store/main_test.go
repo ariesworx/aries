@@ -16,15 +16,15 @@ import (
 
 // dolts are the package's Dolt servers: a test has one to itself while it
 // runs, so the tests can run in parallel (dolttest.Pool).
-var dolts = dolttest.NewPool("starfix-dolt-", dolttest.Options{})
+var dolts = dolttest.NewPool("aries-dolt-", dolttest.Options{})
 
 func TestMain(m *testing.M) {
 	os.Exit(run(m))
 }
 
-// backend is STARFIX_BACKEND: "" or "dolt", "postgres" (a database per
+// backend is ARIES_BACKEND: "" or "dolt", "postgres" (a database per
 // test) or "postgres-schema" (a schema per test in one database).
-var backend = os.Getenv("STARFIX_BACKEND")
+var backend = os.Getenv("ARIES_BACKEND")
 
 func onPostgres() bool { return strings.HasPrefix(backend, "postgres") }
 

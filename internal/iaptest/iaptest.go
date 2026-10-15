@@ -40,8 +40,8 @@ const DenyMessage = "ERROR: (gcloud.compute.start-iap-tunnel) Error while connec
 
 // Install passes these to the fake through its environment.
 const (
-	modeEnv   = "STARFIX_IAPTEST_MODE"   // the Mode
-	recordEnv = "STARFIX_IAPTEST_RECORD" // the file Last reads
+	modeEnv   = "ARIES_IAPTEST_MODE"   // the Mode
+	recordEnv = "ARIES_IAPTEST_RECORD" // the file Last reads
 )
 
 // Fake is an installed fake gcloud.

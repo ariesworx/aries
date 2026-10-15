@@ -96,7 +96,7 @@ func TestControlAccessIndex(t *testing.T) {
 }
 
 // TestControlReload checks that Reload brings in what another process
-// wrote to the control database, as `starfixd control init` does beside a
+// wrote to the control database, as `ariesd control init` does beside a
 // running daemon.
 func TestControlReload(t *testing.T) {
 	t.Parallel()
@@ -113,7 +113,7 @@ func TestControlReload(t *testing.T) {
 	if err := daemon.Reload(t.Context()); err != nil {
 		t.Fatalf("Reload: %v", err)
 	}
-	if got := daemon.Access("alice", projA); !got.Active || got.Role != RoleMember || got.Project.DBName != "starfix_pa" {
+	if got := daemon.Access("alice", projA); !got.Active || got.Role != RoleMember || got.Project.DBName != "aries_pa" {
 		t.Errorf("after Reload: Access(alice, a) = %+v, want an active project and a member", got)
 	}
 	if who, _, ok := daemon.AuthorizedKey(k.Fingerprint); !ok || who != "alice" {
@@ -190,11 +190,11 @@ func TestControlBackupTag(t *testing.T) {
 	t.Parallel()
 	c := newControl(t)
 	mustProject(t, c, projA)
-	got, err := c.BackupTag(t.Context(), "starfix-v0.1.0")
-	if err != nil || got != "starfix-v0.1.0" {
+	got, err := c.BackupTag(t.Context(), "aries-v0.1.0")
+	if err != nil || got != "aries-v0.1.0" {
 		t.Fatalf("BackupTag = %q, %v; want the tag", got, err)
 	}
-	if again, err := c.BackupTag(t.Context(), "starfix-v0.1.0"); err != nil || again != got {
+	if again, err := c.BackupTag(t.Context(), "aries-v0.1.0"); err != nil || again != got {
 		t.Errorf("BackupTag again = %q, %v; want %q unchanged", again, err, got)
 	}
 	if _, err := c.BackupTag(t.Context(), "Bad Tag"); !errors.Is(err, ErrInvalid) {

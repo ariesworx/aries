@@ -9,7 +9,7 @@ import (
 	"github.com/ariesworx/aries/internal/statustext"
 )
 
-// `sfx admin status`: what the daemon knows of itself and of its
+// `aries admin status`: what the daemon knows of itself and of its
 // projects now (design §15.4). A server admin sees the server and every
 // project; a project admin the projects they administer. It reads, and
 // changes nothing.

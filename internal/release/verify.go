@@ -27,7 +27,7 @@ var ErrNoKey = errors.New("no release signing key is configured in this build")
 // Ed25519 verifies checksums.txt.sig: one line, the standard base64 of a
 // raw 64-byte Ed25519 signature over the exact bytes of checksums.txt,
 // made by the release workflow (internal/tools/releasekey sign) with the
-// key in the release environment's STARFIX_RELEASE_KEY secret.
+// key in the release environment's ARIES_RELEASE_KEY secret.
 //
 // The signature does not cover the tag. It does not need to: Fetch looks
 // the archive up in the signed checksums.txt by a name that carries the

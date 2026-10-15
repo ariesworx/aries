@@ -18,7 +18,7 @@ import (
 // connections it holds, how long they idle, how fast it writes, and how
 // many log lines its refusals cost (S-11, S-20, the write rate limit);
 // the store's limits on what a request may hold come with them (S-4,
-// S-6, S-7). They are set under limits: in starfixd's config file; a
+// S-6, S-7). They are set under limits: in ariesd's config file; a
 // field left out, or zero, takes DefaultLimits.
 type Limits struct {
 	store.Limits `yaml:",inline"`
@@ -62,7 +62,7 @@ type Limits struct {
 	// DueSoon is how far ahead of its due date digest, dates and prime
 	// list an issue as due soon (design §20.3). Up to a year.
 	DueSoon Duration `yaml:"due_soon"`
-	// AwayMax is the longest a person's `sfx away` may extend their
+	// AwayMax is the longest a person's `aries away` may extend their
 	// claims (design §18.6): every claim of theirs, in every session,
 	// holds that long without renewals, and nobody else may take it.
 	// From an hour to 30 days.
@@ -323,7 +323,7 @@ func (c *conns) acquire(key string, total, per int) *proto.Error {
 	switch {
 	case c.total >= total:
 		c.tel.Count(telemetry.LimitRefusals, telemetry.LimitConns)
-		return proto.Errf(proto.CodeBusy, "close other starfix sessions, or wait for them to end, and retry",
+		return proto.Errf(proto.CodeBusy, "close other aries sessions, or wait for them to end, and retry",
 			fmt.Sprintf("the server is at its connection limit (%d)", total))
 	case c.by[key] >= per:
 		c.tel.Count(telemetry.LimitRefusals, telemetry.LimitConnsPerPrincipal)

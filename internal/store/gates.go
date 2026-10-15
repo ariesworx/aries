@@ -586,7 +586,7 @@ func (s *Store) AddGate(ctx context.Context, actor Actor, in NewGate) (Gate, err
 		}
 		for _, a := range pending {
 			if err := w.notify(ctx, InboxItem{To: a, Kind: InboxGatePending, Issue: id,
-				Body: fmt.Sprintf("holds %s %s: pass it with `sfx gate pass %s`", held.ID, held.Title, id)}); err != nil {
+				Body: fmt.Sprintf("holds %s %s: pass it with `aries gate pass %s`", held.ID, held.Title, id)}); err != nil {
 				return err
 			}
 		}

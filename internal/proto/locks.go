@@ -5,7 +5,7 @@ import "time"
 // Locks (design §20.5; stage 6, slice G2; protocol 8). A lock is a name
 // in the project held by up to its capacity of holders, each under a
 // lease and an epoch that fences it. No MCP tool takes one (decision
-// 70); `sfx lock` and the protocol do.
+// 70); `aries lock` and the protocol do.
 const (
 	OpLockAcquire = "lock.acquire" // LockAcquireArgs → LockResult
 	OpLockRenew   = "lock.renew"   // LockRenewArgs → LockResult
@@ -14,9 +14,9 @@ const (
 	OpLocks       = "locks"        // LocksArgs → LocksResult
 )
 
-// LockEpochEnv is the variable `sfx lock run` gives the command it runs:
+// LockEpochEnv is the variable `aries lock run` gives the command it runs:
 // the hold's epoch, for a resource that checks it.
-const LockEpochEnv = "STARFIX_LOCK_EPOCH"
+const LockEpochEnv = "ARIES_LOCK_EPOCH"
 
 // LockAcquireArgs takes lock Name: at once when fewer than its capacity
 // hold it and nobody waits, else with Wait a place in its queue, else

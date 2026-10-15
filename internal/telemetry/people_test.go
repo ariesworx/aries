@@ -258,8 +258,8 @@ func TestStandInKeyUnavailable(t *testing.T) {
 				// with the key where a server keeps it, so that the bound does
 				// not move with the length of the temporary directory's name:
 				// 262 bytes is what 320 allowed under Linux's /tmp.
-				if n := len(strings.ReplaceAll(line, dir, "/var/lib/starfix")); n > 262 {
-					t.Errorf("a log line of %d bytes with the key under /var/lib/starfix; the cause and each fix must be a short line of its own:\n%s", n, line)
+				if n := len(strings.ReplaceAll(line, dir, "/var/lib/aries")); n > 262 {
+					t.Errorf("a log line of %d bytes with the key under /var/lib/aries; the cause and each fix must be a short line of its own:\n%s", n, line)
 				}
 			}
 			if strings.Contains(out, key[:40]) || strings.Contains(st.Cause, key[:40]) {

@@ -84,12 +84,12 @@ func (pr *served) issueMemories(ctx context.Context, a store.Actor, id store.Iss
 func (pr *served) memoryErr(ctx context.Context, op, issue string, err error) *proto.Error {
 	if c, ok := errors.AsType[*store.MemoryConflictError](err); ok {
 		return proto.Errf(proto.CodeConflict,
-			fmt.Sprintf(proto.FixRecall+" with `sfx recall --key %s --scope %s`, merge, and retry with --rev %d", c.Key, c.Scope, c.Current),
+			fmt.Sprintf(proto.FixRecall+" with `aries recall --key %s --scope %s`, merge, and retry with --rev %d", c.Key, c.Scope, c.Current),
 			c.Error())
 	}
 	if nf, ok := errors.AsType[*store.MemoryNotFoundError](err); ok {
 		return proto.Errf(proto.CodeNotFound,
-			fmt.Sprintf(proto.FixFindMemory+" with `sfx memories --scope %s`; remember it with no rev to create it", nf.Scope),
+			fmt.Sprintf(proto.FixFindMemory+" with `aries memories --scope %s`; remember it with no rev to create it", nf.Scope),
 			nf.Error())
 	}
 	if se, ok := errors.AsType[*store.SecretError](err); ok {
@@ -99,7 +99,7 @@ func (pr *served) memoryErr(ctx context.Context, op, issue string, err error) *p
 	}
 	if le, ok := errors.AsType[*store.MemoryLimitError](err); ok {
 		return proto.Errf(proto.CodeInvalid,
-			fmt.Sprintf(proto.FixForgetSome+" no longer needed with `sfx forget KEY --scope %s`, or ask the server admin to raise memories_per_scope under limits: in starfixd's config", le.Scope),
+			fmt.Sprintf(proto.FixForgetSome+" no longer needed with `aries forget KEY --scope %s`, or ask the server admin to raise memories_per_scope under limits: in ariesd's config", le.Scope),
 			invalidText(le))
 	}
 	return pr.mapErr(ctx, op, issue, 0, err)

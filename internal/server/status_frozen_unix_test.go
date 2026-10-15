@@ -127,8 +127,8 @@ func TestStatusWithDoltFrozen(t *testing.T) {
 		name   string
 		report func() (proto.StatusResult, *proto.Error)
 	}{
-		{"starfixd status", local},
-		{"sfx admin status on an open connection", func() (proto.StatusResult, *proto.Error) {
+		{"ariesd status", local},
+		{"aries admin status on an open connection", func() (proto.StatusResult, *proto.Error) {
 			return ask[proto.StatusResult](d, proto.OpStatus, proto.StatusArgs{})
 		}},
 	}
@@ -160,7 +160,7 @@ func TestStatusWithDoltFrozen(t *testing.T) {
 				}
 			}
 			text, doc := printed(t, res)
-			for _, want := range []string{"starfixd v0.2.0, ", "stores 2 of 64, connections 3 of ", "\nproj-a ", "  unknown  ",
+			for _, want := range []string{"ariesd v0.2.0, ", "stores 2 of 64, connections 3 of ", "\nproj-a ", "  unknown  ",
 				"\nsessions: unknown for 2 projects (" + unanswered + ")"} {
 				if !strings.Contains(text, want) {
 					t.Errorf("the status with Dolt frozen lacks %q:\n%s", want, text)
@@ -189,11 +189,11 @@ func TestStatusWithDoltFrozen(t *testing.T) {
 	}
 }
 
-// `sfx` connects anew for each command, so what an admin's `sfx admin
+// `aries` connects anew for each command, so what an admin's `aries admin
 // status` meets while Dolt does not answer is a new connection. To a
 // project whose store is open it is welcomed and answered within the
 // status bound. To one whose store is closed it is refused as quickly,
-// told that the database does not answer and to run `starfixd status`
+// told that the database does not answer and to run `ariesd status`
 // on the server, and no store is opened. Any other request is refused
 // when it runs out of time, as on an older connection, and once Dolt
 // answers again the session is in who.
@@ -207,7 +207,7 @@ func TestNewConnectionWithDoltFrozen(t *testing.T) {
 	if !mustDialTo(t, m.Server, dana, projA).alive() { // project a's store is open, b's closed
 		t.Fatal("project a's first connection does not answer")
 	}
-	// Another session of a's, as each command of `sfx` outside a
+	// Another session of a's, as each command of `aries` outside a
 	// harness is not, but as each test connection here must be.
 	another := func(a store.Actor, suffix string) store.Actor {
 		a.Session += suffix
@@ -243,8 +243,8 @@ func TestNewConnectionWithDoltFrozen(t *testing.T) {
 			t.Errorf("the answer to a hello for a closed store with Dolt frozen took %s, want at most %s, and the %s this machine was late by", took.Round(time.Millisecond), statusBound, late().Round(time.Millisecond))
 		}
 		if e := w.Err; e == nil || e.Code != proto.CodeUnavailable || !strings.Contains(e.Message, "database does not answer") ||
-			!strings.Contains(e.Message, projB) || !strings.Contains(e.Fix, "`starfixd status` on the server") {
-			t.Errorf("welcome for a closed store with Dolt frozen has error %+v; want unavailable, saying the database does not answer and naming the project, with a fix naming `starfixd status` on the server", e)
+			!strings.Contains(e.Message, projB) || !strings.Contains(e.Fix, "`ariesd status` on the server") {
+			t.Errorf("welcome for a closed store with Dolt frozen has error %+v; want unavailable, saying the database does not answer and naming the project, with a fix naming `ariesd status` on the server", e)
 		}
 		if n := m.opened(projB); n != 0 {
 			t.Errorf("project b's store was opened %d times with Dolt frozen, want 0", n)

@@ -33,7 +33,7 @@ func TestDialIAPGivesUpOnAQuietServer(t *testing.T) {
 	await(t, d.reached, "the server never got the request to open a session")
 	pass()
 	err := await(t, result, "Dial had not returned, though its time was up")
-	const want = "timed out after 1m0s waiting for instance starfix-1 (project example-project, zone us-central1-a) to open an ssh session"
+	const want = "timed out after 1m0s waiting for instance aries-1 (project example-project, zone us-central1-a) to open an ssh session"
 	if pe, ok := errors.AsType[*proto.Error](err); !ok || pe.Code != proto.CodeUnavailable || pe.Message != want || pe.Fix == "" {
 		t.Errorf("Dial = %v, want an unavailable *proto.Error with a fix, saying %q", err, want)
 	}

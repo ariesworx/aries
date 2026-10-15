@@ -49,7 +49,7 @@ func (u *user) titled(title string) int {
 	return n
 }
 
-// queuedDoc is what `sfx --json` prints for a write that was queued.
+// queuedDoc is what `aries --json` prints for a write that was queued.
 type queuedDoc struct {
 	Queued bool
 	Entry  int
@@ -80,7 +80,7 @@ func TestOutageWritesArriveOnceCLI(t *testing.T) {
 		r := alice.run("v0.2.0", append(args, "--json")...)
 		doc := decode[queuedDoc](t, r.stdout)
 		if r.code != cli.ExitOK || !doc.Queued || doc.Entry != i+1 || doc.ID != "" || doc.Rev != 0 || r.stderr != "" {
-			t.Fatalf("sfx %s with the server away = exit %d, %q, stderr %q; want it queued as entry %d", strings.Join(args, " "), r.code, r.stdout, r.stderr, i+1)
+			t.Fatalf("aries %s with the server away = exit %d, %q, stderr %q; want it queued as entry %d", strings.Join(args, " "), r.code, r.stdout, r.stderr, i+1)
 		}
 	}
 	if out := alice.ok("comment", other, "a second note"); !strings.HasPrefix(out, "queued (server unreachable since ") ||
@@ -90,23 +90,23 @@ func TestOutageWritesArriveOnceCLI(t *testing.T) {
 	// Nothing that takes a claim, or ends something, is queued.
 	for _, args := range [][]string{{"start", other}, {"close", other}} {
 		r := alice.run("v0.2.0", args...)
-		if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "sfx: starfixd is not running on the server\n") ||
+		if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "aries: ariesd is not running on the server\n") ||
 			!strings.Contains(r.stderr, "this was not queued for later, since ") {
-			t.Errorf("sfx %s with the server away = exit %d, %q; want it to fail, saying it was not queued", strings.Join(args, " "), r.code, r.stderr)
+			t.Errorf("aries %s with the server away = exit %d, %q; want it to fail, saying it was not queued", strings.Join(args, " "), r.code, r.stderr)
 		}
 	}
 	// --no-queue: a script that must know.
 	if r := alice.run("v0.2.0", "--no-queue", "comment", other, "must arrive now"); r.code != cli.ExitFailure || r.stdout != "" ||
-		r.stderr != "sfx: starfixd is not running on the server\nfix: ask the server admin to start it (`systemctl start starfixd`)\n" {
-		t.Errorf("sfx --no-queue comment with the server away = exit %d, %q, %q; want the failure as without an outbox", r.code, r.stdout, r.stderr)
+		r.stderr != "aries: ariesd is not running on the server\nfix: ask the server admin to start it (`systemctl start ariesd`)\n" {
+		t.Errorf("aries --no-queue comment with the server away = exit %d, %q, %q; want the failure as without an outbox", r.code, r.stdout, r.stderr)
 	}
 	if out := alice.ok("outbox"); !strings.HasPrefix(out, "alice's outbox: 5 waiting, 0 refused\nserver unreachable since ") {
-		t.Errorf("sfx outbox with the server away:\n%s", out)
+		t.Errorf("aries outbox with the server away:\n%s", out)
 	}
 
 	w.start()
 	r := alice.run("v0.2.0", "ready")
-	if r.code != cli.ExitOK || r.stderr != "sfx: outbox: delivered 5\n" {
+	if r.code != cli.ExitOK || r.stderr != "aries: outbox: delivered 5\n" {
 		t.Fatalf("the first command with the server back = exit %d, stderr %q; want the five writes delivered", r.code, r.stderr)
 	}
 	check := func(when string) {
@@ -137,10 +137,10 @@ func TestOutageWritesArriveOnceCLI(t *testing.T) {
 	check("after a restart")
 	var doc struct{ Pending, Refused []any }
 	if err := json.Unmarshal([]byte(alice.ok("outbox", "--json")), &doc); err != nil || len(doc.Pending)+len(doc.Refused) != 0 {
-		t.Errorf("sfx outbox --json after delivery holds %+v (%v), want nothing", doc, err)
+		t.Errorf("aries outbox --json after delivery holds %+v (%v), want nothing", doc, err)
 	}
 	if out := alice.ok("outbox", "stats"); !strings.Contains(out, "outages: 1 over") || !strings.Contains(out, "none in progress") {
-		t.Errorf("sfx outbox stats after delivery:\n%s", out)
+		t.Errorf("aries outbox stats after delivery:\n%s", out)
 	}
 }
 
@@ -171,7 +171,7 @@ func TestOutageWritesArriveOnceMCP(t *testing.T) {
 		{"finish", map[string]any{"id": held, "reason": "done", "handoff": "all of it"}},
 	} {
 		out, isErr := ag.call(c.tool, c.args)
-		if isErr || !strings.HasPrefix(out, "queued: starfix cannot reach its server, so this "+c.tool+" waits on this machine") ||
+		if isErr || !strings.HasPrefix(out, "queued: aries cannot reach its server, so this "+c.tool+" waits on this machine") ||
 			!strings.Contains(out, "Carry on, and do not repeat it.") {
 			t.Fatalf("%s with the server away = %q (error %v); want the one line that says it was queued", c.tool, out, isErr)
 		}
@@ -226,11 +226,11 @@ func TestLostAnswerThenReplayAppliesOnce(t *testing.T) {
 	// comment again before the finish, and the next command sends the
 	// finish again: the server answers each with what it did the first
 	// time.
-	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "sfx: outbox: delivered 1\n" {
+	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "aries: outbox: delivered 1\n" {
 		t.Fatalf("the next command = exit %d, stderr %q; want the finish delivered", r.code, r.stderr)
 	}
 	if out := alice.ok("outbox"); !strings.HasPrefix(out, "alice's outbox is empty\n") {
-		t.Errorf("sfx outbox after both were sent again:\n%s", out)
+		t.Errorf("aries outbox after both were sent again:\n%s", out)
 	}
 	cs := decode[proto.CommentsResult](t, alice.ok("comments", id, "--json"))
 	if len(cs.Comments) != 1 {
@@ -247,7 +247,7 @@ func TestLostAnswerThenReplayAppliesOnce(t *testing.T) {
 // A queued write the server refuses when it arrives goes to the refused
 // list, with the server's code, message and fix; the person hears of it
 // from the command that delivered it and from prime, and retries or
-// drops it with `sfx outbox`.
+// drops it with `aries outbox`.
 func TestRefusedEntries(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, daemonOpts{})
@@ -261,7 +261,7 @@ func TestRefusedEntries(t *testing.T) {
 	w.start()
 
 	r := alice.run("v0.2.0", "ready")
-	if r.code != cli.ExitOK || r.stderr != "sfx: outbox: refused 2 (see `sfx outbox`)\n" {
+	if r.code != cli.ExitOK || r.stderr != "aries: outbox: refused 2 (see `aries outbox`)\n" {
 		t.Fatalf("the first command with the server back = exit %d, stderr %q; want both writes refused", r.code, r.stderr)
 	}
 	out := alice.ok("outbox")
@@ -270,13 +270,13 @@ func TestRefusedEntries(t *testing.T) {
 		"  1  finish   " + id,
 		"     acceptance: ",
 		"  2  comment  sf-zzzzzzzz",
-		"     not_found: issue sf-zzzzzzzz not found\n     fix: find the id with `sfx list`\n",
+		"     not_found: issue sf-zzzzzzzz not found\n     fix: find the id with `aries list`\n",
 	} {
 		if !strings.Contains(out, want) {
-			t.Errorf("sfx outbox lacks %q:\n%s", want, out)
+			t.Errorf("aries outbox lacks %q:\n%s", want, out)
 		}
 	}
-	if p := alice.ok("prime"); !strings.Contains(p, "notice: outbox: 2 writes made while the server was away were refused: tell the user to run `sfx outbox`\n") {
+	if p := alice.ok("prime"); !strings.Contains(p, "notice: outbox: 2 writes made while the server was away were refused: tell the user to run `aries outbox`\n") {
 		t.Errorf("prime does not say what was refused:\n%s", p)
 	}
 	// A refused entry is not sent again by itself.
@@ -285,13 +285,13 @@ func TestRefusedEntries(t *testing.T) {
 	}
 	// Retried, it is sent once more, and refused again; dropped, it is gone.
 	alice.ok("outbox", "retry", "2")
-	if r := alice.run("v0.2.0", "ready"); r.stderr != "sfx: outbox: refused 1 (see `sfx outbox`)\n" {
+	if r := alice.run("v0.2.0", "ready"); r.stderr != "aries: outbox: refused 1 (see `aries outbox`)\n" {
 		t.Errorf("the command after a retry said %q, want the comment refused again", r.stderr)
 	}
 	alice.ok("outbox", "drop", "2")
 	alice.ok("outbox", "drop", "1")
 	if out := alice.ok("outbox"); !strings.HasPrefix(out, "alice's outbox is empty\n") {
-		t.Errorf("sfx outbox after the drops:\n%s", out)
+		t.Errorf("aries outbox after the drops:\n%s", out)
 	}
 	if ops, _ := alice.history(id); tally(ops, "issue.close") != 0 {
 		t.Errorf("history = %v, want no close", ops)
@@ -326,7 +326,7 @@ func TestAnotherSessionDeliversTheOutbox(t *testing.T) {
 	}
 	// alice's own CLI, another session of hers, delivers it.
 	delete(alice.env, "CLAUDE_CODE_SESSION_ID")
-	if r := alice.run("v0.2.0", "ready"); r.stderr != "sfx: outbox: delivered 1\n" {
+	if r := alice.run("v0.2.0", "ready"); r.stderr != "aries: outbox: delivered 1\n" {
 		t.Fatalf("alice's command said %q, want the finish delivered", r.stderr)
 	}
 	ops, sessions := alice.history(id)
@@ -356,7 +356,7 @@ func (u *user) comments(id string) int {
 
 // When the server gives a key to another principal, what the first one
 // queued with it is not sent on the key's connections: the entries stay,
-// the person is told once, in one line with its fix, and `sfx outbox`
+// the person is told once, in one line with its fix, and `aries outbox`
 // goes on listing them, where --principal reaches them.
 func TestKeyMovedLeavesTheOutbox(t *testing.T) {
 	t.Parallel()
@@ -369,8 +369,8 @@ func TestKeyMovedLeavesTheOutbox(t *testing.T) {
 	w.byHand(alice.key, "alicia") // the server now takes alice's key for alicia
 
 	r := alice.run("v0.2.0", "ready")
-	want := "sfx: outbox: the server now takes this key for alicia, not alice, so 1 write queued as alice is not sent with it; " +
-		"fix: sign in with a key of alice's to send them, or run `sfx outbox --principal alice` to see or drop them\n"
+	want := "aries: outbox: the server now takes this key for alicia, not alice, so 1 write queued as alice is not sent with it; " +
+		"fix: sign in with a key of alice's to send them, or run `aries outbox --principal alice` to see or drop them\n"
 	if r.code != cli.ExitOK || r.stderr != want {
 		t.Errorf("the first command as alicia = exit %d, stderr %q\nwant %q", r.code, r.stderr, want)
 	}
@@ -384,16 +384,16 @@ func TestKeyMovedLeavesTheOutbox(t *testing.T) {
 	}
 	out := alice.ok("outbox")
 	if !strings.HasPrefix(out, "alicia's outbox is empty\n") || !strings.Contains(out,
-		"alice's outbox on this machine: 1 waiting, 0 refused; sfx sends it on a connection as alice (`sfx outbox --principal alice` lists it)\n") {
-		t.Errorf("sfx outbox as alicia:\n%s", out)
+		"alice's outbox on this machine: 1 waiting, 0 refused; aries sends it on a connection as alice (`aries outbox --principal alice` lists it)\n") {
+		t.Errorf("aries outbox as alicia:\n%s", out)
 	}
 	if out := alice.ok("outbox", "--principal", "alice"); !strings.HasPrefix(out, "alice's outbox: 1 waiting, 0 refused\n") ||
 		!strings.Contains(out, "  1  comment  "+id) {
-		t.Errorf("sfx outbox --principal alice:\n%s", out)
+		t.Errorf("aries outbox --principal alice:\n%s", out)
 	}
 	// The key is alice's again: her connection sends what she queued.
 	w.byHand(alice.key, "alice")
-	if r := alice.run("v0.2.0", "ready"); r.stderr != "sfx: outbox: delivered 1\n" {
+	if r := alice.run("v0.2.0", "ready"); r.stderr != "aries: outbox: delivered 1\n" {
 		t.Errorf("the first command as alice again said %q, want her write delivered", r.stderr)
 	}
 	if n := bob.comments(id); n != 1 {
@@ -441,13 +441,13 @@ func TestAccessEndedRefusesTheOutbox(t *testing.T) {
 		msg, fix string
 	}{
 		{alice, "alice", "2 writes", `alice is not a member of project "` + project + `"`,
-			"ask a server admin, or one of the project's admins, to add you: `sfx admin member add alice`, run in this repository"},
+			"ask a server admin, or one of the project's admins, to add you: `aries admin member add alice`, run in this repository"},
 		{bob, "bob", "1 write", "bob is disabled on this server",
-			"ask a server admin, or a project admin who administers every project you belong to, to run `sfx admin principal enable bob`"},
+			"ask a server admin, or a project admin who administers every project you belong to, to run `aries admin principal enable bob`"},
 	} {
 		r := tc.u.run("v0.2.0", "ready")
-		if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "sfx: "+tc.msg+"\n") ||
-			!strings.Contains(r.stderr, "sfx: outbox: "+tc.n+" queued as "+tc.name) {
+		if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "aries: "+tc.msg+"\n") ||
+			!strings.Contains(r.stderr, "aries: outbox: "+tc.n+" queued as "+tc.name) {
 			t.Errorf("%s's first command after access ended = exit %d, stderr:\n%s\nwant the refusal, and the outbox's line", tc.name, r.code, r.stderr)
 		}
 		out := tc.u.ok("outbox")
@@ -456,7 +456,7 @@ func TestAccessEndedRefusesTheOutbox(t *testing.T) {
 			"     forbidden: " + tc.msg + "\n     fix: " + tc.fix + "\n",
 		} {
 			if !strings.Contains(out, want) {
-				t.Errorf("sfx outbox as %s lacks %q:\n%s", tc.name, want, out)
+				t.Errorf("aries outbox as %s lacks %q:\n%s", tc.name, want, out)
 			}
 		}
 	}
@@ -470,12 +470,12 @@ func TestAccessEndedRefusesTheOutbox(t *testing.T) {
 		t.Errorf("carol's command in an archived project = exit %d, stderr:\n%s\nwant it refused, and her outbox left alone", r.code, r.stderr)
 	}
 	if out := carol.ok("outbox"); !strings.HasPrefix(out, "carol's outbox: 1 waiting, 0 refused\n") {
-		t.Errorf("sfx outbox as carol, the project archived:\n%s", out)
+		t.Errorf("aries outbox as carol, the project archived:\n%s", out)
 	}
 	if _, err := w.ctl.ActivateProject(ctx, dana, project); err != nil {
 		t.Fatal(err)
 	}
-	if r := carol.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "sfx: outbox: delivered 1\n" {
+	if r := carol.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "aries: outbox: delivered 1\n" {
 		t.Errorf("carol's command, the project active again = exit %d, stderr %q; want her write delivered", r.code, r.stderr)
 	}
 
@@ -485,7 +485,7 @@ func TestAccessEndedRefusesTheOutbox(t *testing.T) {
 		t.Errorf("alice's command as a member again = exit %d, stderr %q; want nothing sent by itself", r.code, r.stderr)
 	}
 	alice.ok("outbox", "retry", "1")
-	if r := alice.run("v0.2.0", "ready"); r.stderr != "sfx: outbox: delivered 1\n" {
+	if r := alice.run("v0.2.0", "ready"); r.stderr != "aries: outbox: delivered 1\n" {
 		t.Errorf("alice's command after a retry said %q, want the entry delivered", r.stderr)
 	}
 	if n := carol.comments(id); n != 2 {
@@ -512,15 +512,15 @@ func TestAccessEndedRefusesTheOutbox(t *testing.T) {
 	}
 	if out := erin.ok("outbox"); !strings.HasPrefix(out, "erin's outbox: 0 waiting, 1 refused\n") ||
 		!strings.Contains(out, "     forbidden: erin is not a member of project") {
-		t.Errorf("sfx outbox as erin, after her agent's call was refused:\n%s", out)
+		t.Errorf("aries outbox as erin, after her agent's call was refused:\n%s", out)
 	}
 }
 
-// configure rewrites the user's .starfix.yaml, as a person who edits it
+// configure rewrites the user's .aries.yaml, as a person who edits it
 // does: from becomes to.
 func (u *user) configure(from, to string) {
 	u.w.t.Helper()
-	p := filepath.Join(u.repo, ".starfix.yaml")
+	p := filepath.Join(u.repo, ".aries.yaml")
 	b, err := os.ReadFile(p) //nolint:gosec // the test's own file
 	if err != nil {
 		u.w.t.Fatal(err)
@@ -536,7 +536,7 @@ func (u *user) configure(from, to string) {
 // A server rebuilt with a new host key leaves what was queued for it
 // under the old key. Nothing of it is sent by itself, even once the
 // person has pinned the new key: a changed host key is for a person to
-// look at. `sfx outbox` and prime say it is there; a person moves an
+// look at. `aries outbox` and prime say it is there; a person moves an
 // entry to the current server's outbox, which then sends it, but only
 // when the checkout names the server at the address it was queued for;
 // or drops it.
@@ -570,14 +570,14 @@ func TestRekeyedServerKeepsTheOutbox(t *testing.T) {
 	for _, want := range []string{
 		"alice's outbox is empty\n",
 		"under the server's old host key " + old + ", at " + addr + ": alice's outbox, 2 waiting, 0 refused\n",
-		"not sent by themselves, since the server's host key changed: `sfx outbox --host-key " + old + "` lists them\n",
+		"not sent by themselves, since the server's host key changed: `aries outbox --host-key " + old + "` lists them\n",
 	} {
 		if !strings.Contains(out, want) {
-			t.Errorf("sfx outbox lacks %q:\n%s", want, out)
+			t.Errorf("aries outbox lacks %q:\n%s", want, out)
 		}
 	}
 	if p := alice.ok("prime"); !strings.Contains(p,
-		"notice: outbox: 2 writes queued under the server's old host key are not sent by themselves: tell the user to run `sfx outbox`\n") {
+		"notice: outbox: 2 writes queued under the server's old host key are not sent by themselves: tell the user to run `aries outbox`\n") {
 		t.Errorf("prime does not say what waits under the old key:\n%s", p)
 	}
 	out = alice.ok("outbox", "--host-key", old)
@@ -585,10 +585,10 @@ func TestRekeyedServerKeepsTheOutbox(t *testing.T) {
 		"alice's outbox under the server's old host key " + old + ", at " + addr + ": 2 waiting, 0 refused\n",
 		"  1  comment  " + id,
 		"  2  comment  " + id,
-		"`sfx outbox retry N --host-key " + old + "` moves entry N to this server's outbox, which sends it; `sfx outbox drop N --host-key " + old + "` removes it for good\n",
+		"`aries outbox retry N --host-key " + old + "` moves entry N to this server's outbox, which sends it; `aries outbox drop N --host-key " + old + "` removes it for good\n",
 	} {
 		if !strings.Contains(out, want) {
-			t.Errorf("sfx outbox --host-key lacks %q:\n%s", want, out)
+			t.Errorf("aries outbox --host-key lacks %q:\n%s", want, out)
 		}
 	}
 
@@ -603,15 +603,15 @@ func TestRekeyedServerKeepsTheOutbox(t *testing.T) {
 		t.Errorf("a retry of an entry that is not there = exit %d, stderr:\n%s", r.code, r.stderr)
 	}
 	if r := alice.run("v0.2.0", "outbox", "--host-key", w.hostFpr); r.code != cli.ExitUsage {
-		t.Errorf("sfx outbox --host-key with the current key = exit %d, stderr:\n%s\nwant a usage error", r.code, r.stderr)
+		t.Errorf("aries outbox --host-key with the current key = exit %d, stderr:\n%s\nwant a usage error", r.code, r.stderr)
 	}
 
 	if out := alice.ok("outbox", "retry", "1", "--host-key", old); !strings.HasPrefix(out,
-		"entry 1 (comment "+id+") of the outbox under the old host key is entry 1 of this server's now: the next sfx command that reaches the server sends it\n") {
-		t.Errorf("sfx outbox retry --host-key said:\n%s", out)
+		"entry 1 (comment "+id+") of the outbox under the old host key is entry 1 of this server's now: the next aries command that reaches the server sends it\n") {
+		t.Errorf("aries outbox retry --host-key said:\n%s", out)
 	}
 	alice.ok("outbox", "drop", "2", "--host-key", old)
-	if r := alice.run("v0.2.0", "ready"); r.stderr != "sfx: outbox: delivered 1\n" {
+	if r := alice.run("v0.2.0", "ready"); r.stderr != "aries: outbox: delivered 1\n" {
 		t.Errorf("the command after the retry said %q, want the entry delivered", r.stderr)
 	}
 	cs := decode[proto.CommentsResult](t, bob.ok("comments", id, "--json"))
@@ -619,7 +619,7 @@ func TestRekeyedServerKeepsTheOutbox(t *testing.T) {
 		t.Errorf("comments = %+v, want the one retried", cs.Comments)
 	}
 	if out := alice.ok("outbox"); strings.Contains(out, "old host key") {
-		t.Errorf("sfx outbox with the old outbox emptied still names it:\n%s", out)
+		t.Errorf("aries outbox with the old outbox emptied still names it:\n%s", out)
 	}
 }
 
@@ -637,7 +637,7 @@ func TestStaleEntryWaitsForAPerson(t *testing.T) {
 	w.start()
 	clock = clock.Add(8 * 24 * time.Hour) // alice's machine was away for more than the cap
 
-	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "sfx: outbox: stale 1 (see `sfx outbox`)\n" {
+	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "aries: outbox: stale 1 (see `aries outbox`)\n" {
 		t.Fatalf("the first command eight days later = exit %d, stderr %q; want the entry found stale", r.code, r.stderr)
 	}
 	if n := bob.comments(id); n != 0 {
@@ -650,14 +650,14 @@ func TestStaleEntryWaitsForAPerson(t *testing.T) {
 		"     stale: it waited 192h0m0s, and an entry is sent for 168h0m0s\n     fix: retry it if it is still wanted, or drop it\n",
 	} {
 		if !strings.Contains(out, want) {
-			t.Errorf("sfx outbox lacks %q:\n%s", want, out)
+			t.Errorf("aries outbox lacks %q:\n%s", want, out)
 		}
 	}
 	if r := alice.run("v0.2.0", "ready"); r.stderr != "" {
 		t.Errorf("the next command said %q, want the stale entry left alone", r.stderr)
 	}
 	alice.ok("outbox", "retry", "1")
-	if r := alice.run("v0.2.0", "ready"); r.stderr != "sfx: outbox: delivered 1\n" {
+	if r := alice.run("v0.2.0", "ready"); r.stderr != "aries: outbox: delivered 1\n" {
 		t.Errorf("the command after the retry said %q, want the entry delivered", r.stderr)
 	}
 	if n := bob.comments(id); n != 1 {
@@ -696,9 +696,9 @@ func TestReplayBudgetCLI(t *testing.T) {
 		t.Errorf("the issues have %v comments, want %v: the server applied the first write and saw nothing of the second", got, want)
 	}
 	if out := alice.ok("outbox"); !strings.HasPrefix(out, "alice's outbox: 2 waiting, 0 refused\n") {
-		t.Errorf("sfx outbox after the budget ran out:\n%s", out)
+		t.Errorf("aries outbox after the budget ran out:\n%s", out)
 	}
-	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "sfx: outbox: delivered 2\n" {
+	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "aries: outbox: delivered 2\n" {
 		t.Errorf("the next command = exit %d, stderr %q; want both writes delivered", r.code, r.stderr)
 	}
 	if got, want := [2]int{bob.comments(first), bob.comments(second)}, [2]int{1, 1}; got != want {

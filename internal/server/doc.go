@@ -1,4 +1,4 @@
-// Package server is starfixd: the daemon that owns the store and serves the
+// Package server is ariesd: the daemon that owns the store and serves the
 // protocol on a unix socket, and the stdio bridge that sshd runs as each
 // developer key's forced command.
 //
@@ -7,7 +7,7 @@
 // The daemon never authenticates anyone itself. sshd authenticates the
 // developer's key, and that key's authorized_keys line forces
 //
-//	restrict,command="starfixd stdio --principal NAME" ssh-ed25519 AAAA…
+//	restrict,command="ariesd stdio --principal NAME" ssh-ed25519 AAAA…
 //
 // so the principal is fixed by which key logged in; whatever command the
 // client asks for is ignored. The bridge connects to the daemon's socket
@@ -16,7 +16,7 @@
 // local and runs as the daemon's own Unix user: the socket lives in a 0700
 // directory, and on Linux each connection's SO_PEERCRED uid must equal the
 // daemon's. The SSH login account (server.user) is therefore the account
-// starfixd runs as, and its authorized_keys holds only restricted lines.
+// ariesd runs as, and its authorized_keys holds only restricted lines.
 // A bridge frame anywhere but first is refused.
 //
 // # Serving
@@ -59,10 +59,10 @@
 // connections, their idle time, its write rate and its refusal log lines,
 // besides the store's limits. They are counted in memory, per daemon.
 //
-// [ResolveSettings] builds the starfixd commands' [Settings] from flags,
-// the environment and a config file. [Bridge] is `starfixd stdio`, and
-// [Probe] the health check `starfixd upgrade` runs after a restart.
-// [Status] is `starfixd status`: the status report, asked for over the
+// [ResolveSettings] builds the ariesd commands' [Settings] from flags,
+// the environment and a config file. [Bridge] is `ariesd stdio`, and
+// [Probe] the health check `ariesd upgrade` runs after a restart.
+// [Status] is `ariesd status`: the status report, asked for over the
 // socket by the daemon's own user under a reserved principal, as Probe
 // connects.
 //
@@ -71,7 +71,7 @@
 // with attributes whose values a client cannot choose. [Server.Ready] is
 // what /readyz answers from. With no Telemetry nothing is recorded.
 //
-// The design is docs/design/starfix.md: §2 for the transport and the
+// The design is docs/design/aries.md: §2 for the transport and the
 // trust model, the "As built" notes in §7 for claims, the inbox,
 // authorization and the limits, §15 for many projects, and §16 for
 // observability.

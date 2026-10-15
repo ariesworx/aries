@@ -17,7 +17,7 @@ import (
 // CI gates (design §20.3 and §20.4; decision 67; stage 6, slice G1). A
 // gate of kind ci names a check (build, test, landed, …), the issue whose
 // branch the check runs on (its subject), and the principals that report
-// it: CI jobs, each a principal of its own that runs sfx. starfixd polls
+// it: CI jobs, each a principal of its own that runs aries. ariesd polls
 // nothing and listens for nothing; a job reports, and the report is a
 // write like any other.
 //
@@ -112,7 +112,7 @@ func checkNewCI(ctx context.Context, w *wtx, in NewGate) error {
 		return err
 	}
 	if len(same) > 0 {
-		return fmt.Errorf("%w: issue %s already has gate %s for check %s; hold another issue behind that gate with `sfx dep add ISSUE %s`",
+		return fmt.Errorf("%w: issue %s already has gate %s for check %s; hold another issue behind that gate with `aries dep add ISSUE %s`",
 			ErrInvalid, in.Subject, same[0].ID, in.Check, same[0].ID)
 	}
 	var n int
@@ -217,7 +217,7 @@ func (s *Store) reportCheck(ctx context.Context, actor Actor, r Report, result C
 			return err
 		}
 		if g.Kind != GateCI {
-			return fmt.Errorf("%w: gate %s is a human gate, which a person passes with `sfx gate pass %s`; only a ci gate takes a check's report",
+			return fmt.Errorf("%w: gate %s is a human gate, which a person passes with `aries gate pass %s`; only a ci gate takes a check's report",
 				ErrInvalid, g.ID, g.ID)
 		}
 		refuse := func(why GateReason) error {
@@ -279,7 +279,7 @@ func (w *wtx) report(ctx context.Context, before Issue, g *gateRow, r Report, re
 	case result == CheckPassed && !g.open:
 		return g.Gate, nil
 	case result == CheckFailed && g.Outcome == GateWaived:
-		return Gate{}, fmt.Errorf("%w: gate %s was waived by %s; rearm it (`sfx gate rearm %s`) for CI to report on it again",
+		return Gate{}, fmt.Errorf("%w: gate %s was waived by %s; rearm it (`aries gate rearm %s`) for CI to report on it again",
 			ErrInvalid, g.ID, g.By, g.ID)
 	}
 	rep := GateReport{Result: result, By: w.actor.Principal, At: w.now, SHA: r.SHA, URL: r.URL, Reason: r.Reason}

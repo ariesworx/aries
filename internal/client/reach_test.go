@@ -90,12 +90,12 @@ func TestUnreachableFromDial(t *testing.T) {
 
 	dial := func(port int, hostKey, key string) error {
 		cfg := &Config{Project: testProject, Key: key, Root: d.root}
-		cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.HostKey = "127.0.0.1", port, "starfix", hostKey
+		cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.HostKey = "127.0.0.1", port, "aries", hostKey
 		c, err := Dial(t.Context(), cfg, Options{Timeout: 10 * time.Second, Getenv: noEnv,
 			UserHomeDir: func() (string, error) { return d.home, nil }})
 		if err == nil {
 			_ = c.Close()
-			t.Fatal("Dial succeeded against a stand-in that runs no starfixd")
+			t.Fatal("Dial succeeded against a stand-in that runs no ariesd")
 		}
 		return err
 	}

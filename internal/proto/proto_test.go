@@ -136,8 +136,8 @@ func TestCheckProto(t *testing.T) {
 		{"in range", 1, 1, 1, true, ""},
 		{"one back", 1, 1, 2, true, ""},
 		{"one forward", 3, 2, 3, true, ""},
-		{"client too old", 1, 2, 3, false, "sfx upgrade"},
-		{"client too new", 4, 2, 3, false, "starfixd upgrade"},
+		{"client too old", 1, 2, 3, false, "aries upgrade"},
+		{"client too new", 4, 2, 3, false, "ariesd upgrade"},
 		{"empty range", 1, 2, 1, false, "protocol range"},
 		{"zero range", 1, 0, 0, false, "protocol range"},
 	}
@@ -163,7 +163,7 @@ func TestCheckProto(t *testing.T) {
 // TestReleasedClients pins what this server tells each released client.
 // Every release so far is refused: v0.2.x speaks protocol 2, v0.3.x
 // speaks 3 and v0.4.x speaks 4, and ProtoMin was raised past them all,
-// once, while nobody ran starfix in production (design §14, decision
+// once, while nobody ran Aries in production (design §14, decision
 // 25). A released client prints the message and the fix the server sends
 // as they are, so these are the words its user reads, with exit code 3:
 // which side is too old, the version the server needs, and that the
@@ -172,18 +172,18 @@ func TestCheckProto(t *testing.T) {
 // here deliberately.
 func TestReleasedClients(t *testing.T) {
 	t.Parallel()
-	const fix = "upgrade this client: run `sfx upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `sfx mcp`"
+	const fix = "upgrade this client: run `aries upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `aries mcp`"
 	tests := []struct {
 		release string
 		proto   int
 		want    string // the refusal's message, or "" when the client is served
 	}{
-		{"v0.1.x", 1, "starfix speaks protocol 1; the server (v0.5.0) needs protocols 7 to 8"},
-		{"v0.2.x", 2, "starfix speaks protocol 2; the server (v0.5.0) needs protocols 7 to 8"},
-		{"v0.3.x", 3, "starfix speaks protocol 3; the server (v0.5.0) needs protocols 7 to 8"},
-		{"v0.4.x", 4, "starfix speaks protocol 4; the server (v0.5.0) needs protocols 7 to 8"},
-		{"a build of protocol 5, from before protocol 6", 5, "starfix speaks protocol 5; the server (v0.5.0) needs protocols 7 to 8"},
-		{"a build of protocol 6, from before protocol 7", 6, "starfix speaks protocol 6; the server (v0.5.0) needs protocols 7 to 8"},
+		{"v0.1.x", 1, "aries speaks protocol 1; the server (v0.5.0) needs protocols 7 to 8"},
+		{"v0.2.x", 2, "aries speaks protocol 2; the server (v0.5.0) needs protocols 7 to 8"},
+		{"v0.3.x", 3, "aries speaks protocol 3; the server (v0.5.0) needs protocols 7 to 8"},
+		{"v0.4.x", 4, "aries speaks protocol 4; the server (v0.5.0) needs protocols 7 to 8"},
+		{"a build of protocol 5, from before protocol 6", 5, "aries speaks protocol 5; the server (v0.5.0) needs protocols 7 to 8"},
+		{"a build of protocol 6, from before protocol 7", 6, "aries speaks protocol 6; the server (v0.5.0) needs protocols 7 to 8"},
 		{"a build of protocol 7, from before protocol 8", 7, ""},
 		{"this build", Proto, ""},
 	}
@@ -210,12 +210,12 @@ func TestReleasedClients(t *testing.T) {
 func TestCheckProtoBothDirections(t *testing.T) {
 	t.Parallel()
 	old := CheckProto(ProtoMin-1, ProtoMin, ProtoMax, "v0.5.0")
-	if old == nil || old.Code != CodeVersion || !strings.HasPrefix(old.Fix, "upgrade this client: run `sfx upgrade`") ||
-		strings.Contains(old.Fix, "starfixd upgrade") || !strings.Contains(old.Message, "needs protocols 7 to 8") {
+	if old == nil || old.Code != CodeVersion || !strings.HasPrefix(old.Fix, "upgrade this client: run `aries upgrade`") ||
+		strings.Contains(old.Fix, "ariesd upgrade") || !strings.Contains(old.Message, "needs protocols 7 to 8") {
 		t.Errorf("an older client against this server = %+v; want it told to upgrade the client, and the version the server needs", old)
 	}
-	const want = "starfix speaks protocol 8; the server (v0.4.0) is older and accepts protocols 2 to 4"
-	const fix = "ask the server admin to run `starfixd upgrade`, or install the starfix release that matches the server"
+	const want = "aries speaks protocol 8; the server (v0.4.0) is older and accepts protocols 2 to 4"
+	const fix = "ask the server admin to run `ariesd upgrade`, or install the aries release that matches the server"
 	if e := CheckProto(Proto, 2, 4, "v0.4.0"); e == nil || e.Code != CodeVersion || e.Message != want || e.Fix != fix {
 		t.Errorf("this client against a v0.4.0 server = %+v\nwant %q\nfix %q", e, want, fix)
 	}
@@ -365,7 +365,7 @@ func TestHostileServerVersion(t *testing.T) {
 func TestOlderClientWarning(t *testing.T) {
 	t.Parallel()
 	tests := []struct{ client, server, want string }{
-		{"v0.1.0", "v0.2.0", "starfix v0.1.0 is older than the server (v0.2.0); run `sfx upgrade`"},
+		{"v0.1.0", "v0.2.0", "aries v0.1.0 is older than the server (v0.2.0); run `aries upgrade`"},
 		{"v0.2.0", "v0.2.0", ""},
 		{"v0.3.0", "v0.2.0", ""},
 		{"dev", "v0.2.0", ""},
@@ -421,7 +421,7 @@ func TestErrorReq(t *testing.T) {
 func TestOlderServerWarning(t *testing.T) {
 	t.Parallel()
 	tests := []struct{ server, latest, want string }{
-		{"v0.1.0", "v0.2.0", "the server runs starfixd v0.1.0; v0.2.0 is out: ask the admin to run `starfixd upgrade`"},
+		{"v0.1.0", "v0.2.0", "the server runs ariesd v0.1.0; v0.2.0 is out: ask the admin to run `ariesd upgrade`"},
 		{"v0.2.0", "v0.2.0", ""},
 		{"v0.2.0", "", ""},
 		{"dev", "v0.2.0", ""},

@@ -10,10 +10,10 @@ import (
 	"testing"
 )
 
-// What every sfx process allocates before main runs, at most. Every
+// What every aries process allocates before main runs, at most. Every
 // command pays it, hooks included, and a developer's sessions run
-// thousands of them a day (docs/design/profile-sfx.md, proposal 2):
-// starfix's own packages allocated 446 KB of 711 KB, nearly all of it
+// thousands of them a day (docs/design/profile-aries.md, proposal 2):
+// Aries's own packages allocated 446 KB of 711 KB, nearly all of it
 // regular expressions compiled into package variables, before they were
 // compiled on first use (internal/lazyregexp). The rest is the
 // dependencies'.
@@ -22,19 +22,19 @@ const (
 	maxInitBytes    = 1 << 20
 )
 
-// TestInitAllocations runs the sfx binary, built as a release is, with
+// TestInitAllocations runs the aries binary, built as a release is, with
 // the runtime's trace of package initialization, and holds what the
 // packages allocate to the bounds above. Allocations are counted, not
 // memory measured: they are the same on every run and every machine, and
-// they are what the change controls. cmd/starfixd's test of the same name
-// does this for starfixd.
+// they are what the change controls. cmd/ariesd's test of the same name
+// does this for ariesd.
 func TestInitAllocations(t *testing.T) {
 	t.Parallel()
 	gobin, err := exec.LookPath("go")
 	if err != nil {
-		t.Skip("go is not on PATH: the test builds sfx")
+		t.Skip("go is not on PATH: the test builds aries")
 	}
-	exe := filepath.Join(t.TempDir(), "sfx")
+	exe := filepath.Join(t.TempDir(), "aries")
 	build := exec.CommandContext(t.Context(), gobin, "build", "-trimpath", "-ldflags", "-s -w", "-o", exe, ".") //nolint:gosec // the test's own package
 	build.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if out, err := build.CombinedOutput(); err != nil {
@@ -47,26 +47,26 @@ func TestInitAllocations(t *testing.T) {
 	var trace bytes.Buffer
 	run.Stderr = &trace
 	if err := run.Run(); err != nil {
-		t.Fatalf("sfx --version: %v\n%s", err, trace.String())
+		t.Fatalf("aries --version: %v\n%s", err, trace.String())
 	}
 
 	own, all, pkgs := initBytes(t, trace.String())
 	if pkgs == 0 {
-		t.Fatalf("sfx printed no init trace lines:\n%s", trace.String())
+		t.Fatalf("aries printed no init trace lines:\n%s", trace.String())
 	}
 	if total := sum(own); total > maxOwnInitBytes {
-		t.Errorf("starfix's packages allocate %d bytes as sfx initializes, want at most %d; by package: %v\n"+
+		t.Errorf("aries's packages allocate %d bytes as aries initializes, want at most %d; by package: %v\n"+
 			"Compile a package-level regular expression on first use (internal/lazyregexp), and build tables when first needed",
 			total, maxOwnInitBytes, own)
 	}
 	if all > maxInitBytes {
-		t.Errorf("sfx's %d packages allocate %d bytes as it initializes, want at most %d: every command and hook pays them",
+		t.Errorf("aries's %d packages allocate %d bytes as it initializes, want at most %d: every command and hook pays them",
 			pkgs, all, maxInitBytes)
 	}
 }
 
 // initBytes reads GODEBUG=inittrace=1 output: the bytes each of
-// starfix's own packages allocated, the bytes all packages did, and how
+// Aries's own packages allocated, the bytes all packages did, and how
 // many packages it read. A line is
 //
 //	init PACKAGE @T ms, T ms clock, BYTES bytes, ALLOCS allocs

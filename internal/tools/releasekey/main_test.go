@@ -17,7 +17,7 @@ type result struct {
 	stdout, stderr string
 }
 
-// runWith runs the command with secret in $STARFIX_RELEASE_KEY and
+// runWith runs the command with secret in $ARIES_RELEASE_KEY and
 // trusted standing in for keys.go's keys.
 func runWith(t *testing.T, secret string, trusted []ed25519.PublicKey, args ...string) result {
 	t.Helper()
@@ -70,7 +70,7 @@ func TestGenSignVerify(t *testing.T) {
 	dir := t.TempDir()
 	secret, pub := newKey(t, dir)
 	sums := filepath.Join(dir, "checksums.txt")
-	if err := os.WriteFile(sums, []byte("abc  sfx_1.0.0_linux_amd64.tar.gz\n"), 0o600); err != nil {
+	if err := os.WriteFile(sums, []byte("abc  aries_1.0.0_linux_amd64.tar.gz\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	trusted := []ed25519.PublicKey{pub}
@@ -123,7 +123,7 @@ func TestRefusals(t *testing.T) {
 		{"no command", "", nil, nil, 2, "no command"},
 		{"gen over an existing file", "", nil, []string{"gen", filepath.Join(dir, "release.key")}, 1, "does not exist yet"},
 		{"gen flag-like path", "", nil, []string{"gen", "-x"}, 2, "gen takes one KEYFILE"},
-		{"sign without secret", "", trusted, []string{"sign", file}, 1, "STARFIX_RELEASE_KEY is empty"},
+		{"sign without secret", "", trusted, []string{"sign", file}, 1, "ARIES_RELEASE_KEY is empty"},
 		{"sign with a garbage secret", "not-base64!", trusted, []string{"sign", file}, 1, "is not base64"},
 		{"sign with a short secret", "AAAA", trusted, []string{"sign", file}, 1, "not a 32-byte"},
 		{"sign with an untrusted key", other, trusted, []string{"sign", file}, 1, "is not in internal/release/keys.go"},

@@ -1,20 +1,20 @@
-# AppArmor profiles for starfixd, the starfix server (docs/server.md,
-# "Confine starfixd with AppArmor"). Install this file as
-# /etc/apparmor.d/starfixd and tunables/starfixd beside it as
-# /etc/apparmor.d/tunables/starfixd. README.md says how they were tested.
+# AppArmor profiles for ariesd, the Aries server (docs/server.md,
+# "Confine ariesd with AppArmor"). Install this file as
+# /etc/apparmor.d/ariesd and tunables/ariesd beside it as
+# /etc/apparmor.d/tunables/ariesd. README.md says how they were tested.
 #
 # One binary does three jobs, and each gets the profile that fits it:
 #
-#   starfixd          the bridge, `starfixd stdio`, which sshd runs for
+#   ariesd          the bridge, `ariesd stdio`, which sshd runs for
 #                     every connection. Attached to the binary's path, so
 #                     it is also what any run gets that asks for nothing
-#                     else: `starfixd status`, which needs the same two
-#                     things, runs under it as the starfix user.
-#   starfixd-serve    the daemon, `starfixd serve`. The systemd unit asks
-#                     for it with AppArmorProfile=starfixd-serve.
-#   starfixd-admin    the operator's commands: control init, import-bd,
+#                     else: `ariesd status`, which needs the same two
+#                     things, runs under it as the aries user.
+#   ariesd-serve    the daemon, `ariesd serve`. The systemd unit asks
+#                     for it with AppArmorProfile=ariesd-serve.
+#   ariesd-admin    the operator's commands: control init, import-bd,
 #                     export-bd and upgrade. The operator asks for it:
-#                     sudo -u starfix -H aa-exec -p starfixd-admin -- starfixd upgrade
+#                     sudo -u aries -H aa-exec -p ariesd-admin -- ariesd upgrade
 #
 # AppArmor chooses a profile by the path of the program, never by its
 # arguments, so the one path can carry only one profile by itself. It
@@ -25,40 +25,40 @@
 # profile may change to another, and the first two run no program at
 # all.
 #
-# The paths are tunables/starfixd's. Rules of your own go in
-# /etc/apparmor.d/local/starfixd, local/starfixd-serve and
-# local/starfixd-admin, which upgrades of this file leave alone. A deny
+# The paths are tunables/ariesd's. Rules of your own go in
+# /etc/apparmor.d/local/ariesd, local/ariesd-serve and
+# local/ariesd-admin, which upgrades of this file leave alone. A deny
 # rule here wins over anything those files allow.
 
 abi <abi/4.0>,
 
 include <tunables/global>
-include <tunables/starfixd>
+include <tunables/ariesd>
 
-# The bridge: sshd's forced command for the starfix account. It reads
+# The bridge: sshd's forced command for the aries account. It reads
 # the config file to find the socket, connects, and copies bytes between
-# the SSH session and the daemon. `starfixd version` and `help` need no
-# more, and neither does `starfixd status`, which asks the daemon for its
-# report over the same socket (sudo -u starfix -H starfixd status). root
-# gets no capability here, so root runs it as the starfix user too.
+# the SSH session and the daemon. `ariesd version` and `help` need no
+# more, and neither does `ariesd status`, which asks the daemon for its
+# report over the same socket (sudo -u aries -H ariesd status). root
+# gets no capability here, so root runs it as the aries user too.
 #
 # attach_disconnected: the daemon binds its socket inside the mount
 # namespace systemd gives the unit (ProtectSystem, PrivateTmp), so from
 # out here the socket's path does not start at the root, and AppArmor
 # refuses such a path, in complain mode too, unless this flag has it
 # looked up from the root.
-profile starfixd @{starfixd_bin}/starfixd flags=(attach_disconnected) {
+profile ariesd @{ariesd_bin}/ariesd flags=(attach_disconnected) {
   include <abstractions/base>
 
-  @{starfixd_bin}/starfixd mr,
+  @{ariesd_bin}/ariesd mr,
 
   # The config file, read only. It holds the socket's path, and also
   # Dolt's password, which this profile gives no way to use: it has no
   # network rule but for unix sockets.
-  @{starfixd_config} r,
+  @{ariesd_config} r,
 
   # The daemon's socket: connect, send and receive.
-  @{starfixd_run}/starfixd.sock rw,
+  @{ariesd_run}/ariesd.sock rw,
 
   # The Go runtime sizes itself from the cgroup's CPU limit.
   owner @{PROC}/@{pid}/cgroup r,
@@ -67,9 +67,9 @@ profile starfixd @{starfixd_bin}/starfixd flags=(attach_disconnected) {
 
   # What it must never do. An explicit deny documents the intent,
   # outlasts a careless rule in local/, and with `audit` is still logged.
-  audit deny @{starfixd_bin}/** w,
-  audit deny @{starfixd_config} w,
-  audit deny @{starfixd_keys_dir}/** w,
+  audit deny @{ariesd_bin}/** w,
+  audit deny @{ariesd_config} w,
+  audit deny @{ariesd_keys_dir}/** w,
   audit deny @{HOMEDIRS}/** mrwklx,
   audit deny /root/** mrwklx,
   audit deny /** x,
@@ -84,7 +84,7 @@ profile starfixd @{starfixd_bin}/starfixd flags=(attach_disconnected) {
   audit deny network packet,
   audit deny network raw,
 
-  include if exists <local/starfixd>
+  include if exists <local/ariesd>
 }
 
 # The daemon. It reads the config file, listens on its socket, talks to
@@ -94,19 +94,19 @@ profile starfixd @{starfixd_bin}/starfixd flags=(attach_disconnected) {
 # listens on a loopback TCP port for /metrics and health, posts metrics
 # and traces to a collector over HTTP, keeps the key of the stand-ins
 # its traces name people by, and tells systemd it is ready and alive.
-profile starfixd-serve flags=(attach_disconnected) {
+profile ariesd-serve flags=(attach_disconnected) {
   include <abstractions/base>
 
-  @{starfixd_bin}/starfixd mr,
-  @{starfixd_config} r,
+  @{ariesd_bin}/ariesd mr,
+  @{ariesd_config} r,
 
   # The account's home directory, from the account database.
   /etc/passwd r,
 
   # The socket: its directory is checked, a stale socket removed, a new
   # one bound and made 0600.
-  @{starfixd_run}/ r,
-  @{starfixd_run}/starfixd.sock rw,
+  @{ariesd_run}/ r,
+  @{ariesd_run}/ariesd.sock rw,
   @{PROC}/sys/net/core/somaxconn r,
 
   # Dolt, over TCP, to any address: this profile does not rely on rules
@@ -115,7 +115,7 @@ profile starfixd-serve flags=(attach_disconnected) {
   # (IPAddressDeny=any with IPAddressAllow=localhost, in a drop-in).
   #
   # The same two rules are all the telemetry needs on this machine: the
-  # listener (telemetry: listen:, which starfixd itself holds to a
+  # listener (telemetry: listen:, which ariesd itself holds to a
   # loopback address) and OTLP over HTTP to a collector at an address
   # (OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318).
   network inet stream,
@@ -124,7 +124,7 @@ profile starfixd-serve flags=(attach_disconnected) {
   # A dsn, the listener's address or the collector's endpoint may give
   # a host by name. Go resolves names itself, from these files. There is
   # no UDP here, so a name /etc/hosts does not hold, which needs DNS,
-  # also needs these in local/starfixd-serve:
+  # also needs these in local/ariesd-serve:
   #   network inet dgram,
   #   network inet6 dgram,
   # Metrics sent straight to a hosted backend need those two, since its
@@ -139,10 +139,10 @@ profile starfixd-serve flags=(attach_disconnected) {
 
   # The keys file: a temporary file beside it, written, synced and
   # renamed over it. authorized_keys is only ever read.
-  owner @{starfixd_keys_dir}/ r,
-  owner @{starfixd_keys_dir}/@{starfixd_keys_name} rw,
-  owner @{starfixd_keys_dir}/.@{starfixd_keys_name}.tmp-* rw,
-  owner @{starfixd_authorized_keys} r,
+  owner @{ariesd_keys_dir}/ r,
+  owner @{ariesd_keys_dir}/@{ariesd_keys_name} rw,
+  owner @{ariesd_keys_dir}/.@{ariesd_keys_name}.tmp-* rw,
+  owner @{ariesd_authorized_keys} r,
 
   # The key that principals' stand-ins in traces are made with
   # (telemetry: principals: pseudonym, the default). The daemon makes
@@ -151,7 +151,7 @@ profile starfixd-serve flags=(attach_disconnected) {
   # one file and not its directory. Without it the daemon still runs:
   # its traces say nothing about who, and its log and its status say
   # that the key cannot be made.
-  owner @{starfixd_principals_key} rw,
+  owner @{ariesd_principals_key} rw,
 
   # systemd's notify socket. With Type=notify in the unit the daemon
   # says when it is ready and when it stops, and with WatchdogSec that
@@ -163,9 +163,9 @@ profile starfixd-serve flags=(attach_disconnected) {
   # Signals among its own threads: Go preempts a long-running goroutine
   # with SIGURG. abstractions/base allows a profile to signal itself
   # (peer=@{profile_name}), but where a user other than root changes to
-  # a profile, as systemd does for User=starfix, Ubuntu 26.04 stacks the
+  # a profile, as systemd does for User=aries, Ubuntu 26.04 stacks the
   # profile on unconfined (kernel.apparmor_restrict_unprivileged_unconfined
-  # is 1), and the daemon's label is starfixd-serve//&unconfined, which
+  # is 1), and the daemon's label is ariesd-serve//&unconfined, which
   # that rule does not match.
   signal peer=@{profile_name}//&unconfined,
 
@@ -173,9 +173,9 @@ profile starfixd-serve flags=(attach_disconnected) {
   owner @{PROC}/@{pid}/mountinfo r,
   @{sys}/fs/cgroup/** r,
 
-  audit deny @{starfixd_bin}/** w,
-  audit deny @{starfixd_config} w,
-  audit deny @{starfixd_authorized_keys} w,
+  audit deny @{ariesd_bin}/** w,
+  audit deny @{ariesd_config} w,
+  audit deny @{ariesd_authorized_keys} w,
   audit deny @{HOMEDIRS}/** mrwklx,
   audit deny /root/** mrwklx,
   audit deny /** x,
@@ -188,21 +188,21 @@ profile starfixd-serve flags=(attach_disconnected) {
   audit deny network packet,
   audit deny network raw,
 
-  include if exists <local/starfixd-serve>
+  include if exists <local/ariesd-serve>
 }
 
-# The operator's commands, run as the starfix user through aa-exec:
+# The operator's commands, run as the aries user through aa-exec:
 # control init, import-bd, export-bd, and upgrade with --check, --to and
-# --rollback. (`starfixd status` is not one of them: it runs under the
+# --rollback. (`ariesd status` is not one of them: it runs under the
 # bridge's profile, and would also run under this one.) They open the store as the daemon does; upgrade also
 # downloads a release, replaces the binary, asks systemd for a restart
 # through sudo, and asks the daemon whether it is healthy.
-profile starfixd-admin flags=(attach_disconnected) {
+profile ariesd-admin flags=(attach_disconnected) {
   include <abstractions/base>
   # The certificate authorities that vouch for the release's host.
   include <abstractions/ssl_certs>
 
-  @{starfixd_config} r,
+  @{ariesd_config} r,
   /etc/passwd r,
 
   # Dolt, the release (HTTPS, or HTTPS_PROXY), and DNS for its host. Go
@@ -220,31 +220,31 @@ profile starfixd-admin flags=(attach_disconnected) {
 
   # control init reads authorized_keys. Nothing here writes it, or the
   # keys file: the daemon does that.
-  owner @{starfixd_keys_dir}/ r,
-  owner @{starfixd_authorized_keys} r,
+  owner @{ariesd_keys_dir}/ r,
+  owner @{ariesd_authorized_keys} r,
 
   # import-bd reads the file it is given and export-bd -o writes one,
   # through a temporary file beside it. Both stay in the top of the
   # account's home directory; anything else goes through a pipe
-  # (`starfixd import-bd -`, `starfixd export-bd | ...`).
-  owner @{starfixd_home}/ r,
-  owner @{starfixd_home}/* rw,
+  # (`ariesd import-bd -`, `ariesd export-bd | ...`).
+  owner @{ariesd_home}/ r,
+  owner @{ariesd_home}/* rw,
 
   # upgrade finds its own file through the links that lead to it, stages
   # the new binary beside it and runs `version` in it under this same
-  # profile, keeps the old binary as starfixd.prev, and renames.
-  # --rollback renames starfixd.prev back.
-  @{starfixd_bin_above}/ r,
-  @{starfixd_bin}/ r,
-  @{starfixd_bin}/starfixd mr,
-  owner @{starfixd_bin}/starfixd rw,
-  owner @{starfixd_bin}/starfixd.prev rw,
-  owner @{starfixd_bin}/.starfixd.prev-* rw,
-  owner @{starfixd_bin}/.starfixd.new-* mrwix,
+  # profile, keeps the old binary as ariesd.prev, and renames.
+  # --rollback renames ariesd.prev back.
+  @{ariesd_bin_above}/ r,
+  @{ariesd_bin}/ r,
+  @{ariesd_bin}/ariesd mr,
+  owner @{ariesd_bin}/ariesd rw,
+  owner @{ariesd_bin}/ariesd.prev rw,
+  owner @{ariesd_bin}/.ariesd.prev-* rw,
+  owner @{ariesd_bin}/.ariesd.new-* mrwix,
 
   # The restart: `sudo -n systemctl restart UNIT`. sudo runs unconfined,
   # with a scrubbed environment (Ux), and does what sudoers lets the
-  # starfix user do: with the guide's rule, that one command. If it
+  # aries user do: with the guide's rule, that one command. If it
   # hangs for two minutes, upgrade kills it. AppArmor names the file the
   # links lead to: on Ubuntu 26.04 /usr/bin/sudo is a link to sudo-rs,
   # or to the original sudo, renamed sudo.ws, if the machine chose it.
@@ -254,24 +254,24 @@ profile starfixd-admin flags=(attach_disconnected) {
   signal (send) set=(kill) peer=unconfined,
 
   # Signals among its own threads, under the label aa-exec gives the
-  # starfix user on Ubuntu 26.04: starfixd-admin//&unconfined (see
-  # starfixd-serve).
+  # aries user on Ubuntu 26.04: ariesd-admin//&unconfined (see
+  # ariesd-serve).
   signal peer=@{profile_name}//&unconfined,
 
   # The health check: a handshake on the daemon's socket.
-  @{starfixd_run}/starfixd.sock rw,
+  @{ariesd_run}/ariesd.sock rw,
 
   owner @{PROC}/@{pid}/cgroup r,
   owner @{PROC}/@{pid}/mountinfo r,
   @{sys}/fs/cgroup/** r,
 
-  # root may run `starfixd upgrade --check`, and is told so when it runs
-  # anything else here. The config file is the starfix user's, mode
+  # root may run `ariesd upgrade --check`, and is told so when it runs
+  # anything else here. The config file is the aries user's, mode
   # 0600, so root reads it by this capability and has no other.
   capability dac_read_search,
 
-  audit deny @{starfixd_config} w,
-  audit deny @{starfixd_keys_dir}/** w,
+  audit deny @{ariesd_config} w,
+  audit deny @{ariesd_keys_dir}/** w,
   audit deny @{HOMEDIRS}/** mrwklx,
   audit deny /root/** mrwklx,
   audit deny ptrace (trace),
@@ -282,5 +282,5 @@ profile starfixd-admin flags=(attach_disconnected) {
   audit deny network packet,
   audit deny network raw,
 
-  include if exists <local/starfixd-admin>
+  include if exists <local/ariesd-admin>
 }

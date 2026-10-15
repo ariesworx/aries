@@ -58,7 +58,7 @@ var ErrNoDolt = errors.New("dolt not found on PATH")
 // RequireEnv names the environment variable that makes a missing dolt a
 // failure rather than a skip. CI sets it to 1, so a Dolt-backed test can
 // never pass by skipping.
-const RequireEnv = "STARFIX_REQUIRE_DOLT"
+const RequireEnv = "ARIES_REQUIRE_DOLT"
 
 // required reports whether RequireEnv is set to anything but 0.
 func required() bool {
@@ -173,7 +173,7 @@ func StartWith(ctx context.Context, dir string, opts Options) (*Server, error) {
 	// DoltHub. That process outlived Stop and wrote under root while the
 	// caller was removing dir.
 	env := append(os.Environ(), "DOLT_ROOT_PATH="+root, "DOLT_DISABLE_EVENT_FLUSH=1")
-	for _, kv := range [][2]string{{"user.name", "starfix-test"}, {"user.email", "test@example.com"}} {
+	for _, kv := range [][2]string{{"user.name", "aries-test"}, {"user.email", "test@example.com"}} {
 		c := exec.CommandContext(ctx, bin, "config", "--global", "--add", kv[0], kv[1]) //nolint:gosec // fixed args, dolt from PATH
 		c.Env = env
 		if out, err := c.CombinedOutput(); err != nil {
@@ -229,7 +229,7 @@ func (s *Server) MetricsURL() string {
 }
 
 // User is the least-privileged account NewDatabase's DSNs log in as.
-const User = "starfix"
+const User = "aries"
 
 // config is the sql-server configuration: loopback and a unix socket,
 // and secure_file_priv set to a directory that does not exist, so
@@ -380,7 +380,7 @@ const dropTimeout = time.Minute
 // context: a test's own has ended by then.
 //
 // Dolt keeps every database of a server in memory, about 14 MB for one
-// that holds starfix's schema, and takes longer to open each new one the
+// that holds Aries's schema, and takes longer to open each new one the
 // more it holds: a package that makes a database for each of several
 // hundred tests and drops none ends with a Dolt of several gigabytes, and
 // spends most of its time in it.
@@ -443,7 +443,7 @@ func (s *Server) dropAll() error {
 
 // Grant gives User every right on each database named, whether or not it
 // exists yet: Dolt honors a grant on an exact name made beforehand, which
-// is how an operator lets starfixd create a project's database later
+// is how an operator lets ariesd create a project's database later
 // (design §15.5, 1). Each name must be lowercase letters, digits and
 // underscores, since it is written into the statement.
 func (s *Server) Grant(ctx context.Context, names ...string) error {

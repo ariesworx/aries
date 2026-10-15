@@ -7,7 +7,7 @@ import (
 
 // A shadowing duplicate key decides what the harness runs, since
 // JSON.parse keeps the last one; setup refuses such a file rather than
-// edit the first copy and call it registered (T-2). Inside the starfix
+// edit the first copy and call it registered (T-2). Inside the Aries
 // entry a duplicate is not registered either, and Apply's wholesale
 // replacement leaves one copy of each key.
 func TestJSONRefusesDuplicateKeys(t *testing.T) {
@@ -16,11 +16,11 @@ func TestJSONRefusesDuplicateKeys(t *testing.T) {
 		name, in string
 		refused  bool
 	}{
-		{"top level", `{"mcpServers":{},"mcpServers":{"starfix":{"command":"/tmp/evil","args":["mcp"]}}}`, true},
-		{"servers", `{"mcpServers":{"starfix":{"command":"sfx","args":["mcp"]},"starfix":{"command":"/tmp/evil"}}}`, true},
+		{"top level", `{"mcpServers":{},"mcpServers":{"aries":{"command":"/tmp/evil","args":["mcp"]}}}`, true},
+		{"servers", `{"mcpServers":{"aries":{"command":"aries","args":["mcp"]},"aries":{"command":"/tmp/evil"}}}`, true},
 		{"escaped twin", `{"mcpServers":{},"mcp\u0053ervers":{}}`, true},
-		{"entry", `{"mcpServers":{"starfix":{"command":"sfx","args":["mcp"],"command":"/tmp/evil"}}}`, false},
-		{"env", `{"mcpServers":{"starfix":{"command":"sfx","args":["mcp"],"env":{"STARFIX_HARNESS":"gemini","STARFIX_HARNESS":"x"}}}}`, false},
+		{"entry", `{"mcpServers":{"aries":{"command":"aries","args":["mcp"],"command":"/tmp/evil"}}}`, false},
+		{"env", `{"mcpServers":{"aries":{"command":"aries","args":["mcp"],"env":{"ARIES_HARNESS":"gemini","ARIES_HARNESS":"x"}}}}`, false},
 	}
 	a := Agents["gemini"]
 	for _, tc := range tests {
@@ -79,19 +79,19 @@ func TestJSONRefusesTextAfterTheObject(t *testing.T) {
 // --check reports it, and Apply replaces the entry wholesale (C-8).
 func TestRegisteredRefusesExtras(t *testing.T) {
 	t.Parallel()
-	const good = `"command": "sfx", "args": ["mcp"]`
+	const good = `"command": "aries", "args": ["mcp"]`
 	tests := []struct {
 		name, agent, in string
 	}{
-		{"json PATH", "gemini", `{"mcpServers": {"starfix": {` + good + `, "env": {"STARFIX_HARNESS": "gemini", "PATH": "./.tools:/usr/bin"}}}}`},
-		{"json LD_PRELOAD", "claude-code", `{"mcpServers": {"starfix": {"type": "stdio", ` + good + `, "env": {"STARFIX_HARNESS": "claude-code", "LD_PRELOAD": "./x.so"}}}}`},
-		{"json NODE_OPTIONS", "cursor", `{"mcpServers": {"starfix": {` + good + `, "env": {"STARFIX_HARNESS": "cursor", "NODE_OPTIONS": "--require ./x.js"}}}}`},
-		{"json cwd", "gemini", `{"mcpServers": {"starfix": {` + good + `, "cwd": "./tools", "env": {"STARFIX_HARNESS": "gemini"}}}}`},
-		{"json envFile", "vscode", `{"servers": {"starfix": {"type": "stdio", ` + good + `, "envFile": ".env", "env": {"STARFIX_HARNESS": "vscode"}}}}`},
-		{"json session", "gemini", `{"mcpServers": {"starfix": {` + good + `, "env": {"STARFIX_HARNESS": "gemini", "STARFIX_SESSION": "x"}}}}`},
-		{"toml env", "codex", "[mcp_servers.starfix]\ncommand = \"sfx\"\nargs = [\"mcp\"]\n\n[mcp_servers.starfix.env]\nSTARFIX_HARNESS = \"codex\"\nLD_PRELOAD = \"./x.so\"\n"},
-		{"toml cwd", "codex", "[mcp_servers.starfix]\ncommand = \"sfx\"\nargs = [\"mcp\"]\ncwd = \"./tools\"\n\n[mcp_servers.starfix.env]\nSTARFIX_HARNESS = \"codex\"\n"},
-		{"toml dotted env", "codex", "[mcp_servers.starfix]\ncommand = \"sfx\"\nargs = [\"mcp\"]\nenv.PATH = \"./.tools\"\n\n[mcp_servers.starfix.env]\nSTARFIX_HARNESS = \"codex\"\n"},
+		{"json PATH", "gemini", `{"mcpServers": {"aries": {` + good + `, "env": {"ARIES_HARNESS": "gemini", "PATH": "./.tools:/usr/bin"}}}}`},
+		{"json LD_PRELOAD", "claude-code", `{"mcpServers": {"aries": {"type": "stdio", ` + good + `, "env": {"ARIES_HARNESS": "claude-code", "LD_PRELOAD": "./x.so"}}}}`},
+		{"json NODE_OPTIONS", "cursor", `{"mcpServers": {"aries": {` + good + `, "env": {"ARIES_HARNESS": "cursor", "NODE_OPTIONS": "--require ./x.js"}}}}`},
+		{"json cwd", "gemini", `{"mcpServers": {"aries": {` + good + `, "cwd": "./tools", "env": {"ARIES_HARNESS": "gemini"}}}}`},
+		{"json envFile", "vscode", `{"servers": {"aries": {"type": "stdio", ` + good + `, "envFile": ".env", "env": {"ARIES_HARNESS": "vscode"}}}}`},
+		{"json session", "gemini", `{"mcpServers": {"aries": {` + good + `, "env": {"ARIES_HARNESS": "gemini", "ARIES_SESSION": "x"}}}}`},
+		{"toml env", "codex", "[mcp_servers.aries]\ncommand = \"aries\"\nargs = [\"mcp\"]\n\n[mcp_servers.aries.env]\nARIES_HARNESS = \"codex\"\nLD_PRELOAD = \"./x.so\"\n"},
+		{"toml cwd", "codex", "[mcp_servers.aries]\ncommand = \"aries\"\nargs = [\"mcp\"]\ncwd = \"./tools\"\n\n[mcp_servers.aries.env]\nARIES_HARNESS = \"codex\"\n"},
+		{"toml dotted env", "codex", "[mcp_servers.aries]\ncommand = \"aries\"\nargs = [\"mcp\"]\nenv.PATH = \"./.tools\"\n\n[mcp_servers.aries.env]\nARIES_HARNESS = \"codex\"\n"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -103,7 +103,7 @@ func TestRegisteredRefusesExtras(t *testing.T) {
 			if err != nil || res != Updated {
 				t.Fatalf("Apply = %s, %v; want updated", res, err)
 			}
-			for _, extra := range []string{"PATH", "LD_PRELOAD", "NODE_OPTIONS", "cwd", "envFile", "STARFIX_SESSION"} {
+			for _, extra := range []string{"PATH", "LD_PRELOAD", "NODE_OPTIONS", "cwd", "envFile", "ARIES_SESSION"} {
 				if strings.Contains(string(out), extra) {
 					t.Errorf("Apply kept %s:\n%s", extra, out)
 				}
@@ -119,41 +119,41 @@ func TestRegisteredRefusesExtras(t *testing.T) {
 }
 
 // The Codex editor understands TOML's strings, arrays and comments:
-// valid TOML in gives valid TOML out with starfix registered, and a
+// valid TOML in gives valid TOML out with Aries registered, and a
 // second run changes nothing (T-3, C-11).
 func TestApplyTOMLStructure(t *testing.T) {
 	t.Parallel()
-	const block = "[mcp_servers.starfix]\ncommand = \"sfx\"\nargs = [\"mcp\"]\n\n[mcp_servers.starfix.env]\nSTARFIX_HARNESS = \"codex\"\n"
+	const block = "[mcp_servers.aries]\ncommand = \"aries\"\nargs = [\"mcp\"]\n\n[mcp_servers.aries.env]\nARIES_HARNESS = \"codex\"\n"
 	tests := []struct{ name, in, want string }{
 		{"nested array",
-			"[mcp_servers.starfix]\ncommand = \"old\"\nargs = [[\"a\"],\n[\"b\"]]\n",
+			"[mcp_servers.aries]\ncommand = \"old\"\nargs = [[\"a\"],\n[\"b\"]]\n",
 			block},
 		{"bracket in a string",
-			"[mcp_servers.starfix]\nargs = [\"a]\",\n \"b\"]\n",
+			"[mcp_servers.aries]\nargs = [\"a]\",\n \"b\"]\n",
 			block},
 		{"header inside a basic multi-line string",
-			"x = \"\"\"\n[mcp_servers.starfix]\n\"\"\"\n",
-			"x = \"\"\"\n[mcp_servers.starfix]\n\"\"\"\n\n" + block},
+			"x = \"\"\"\n[mcp_servers.aries]\n\"\"\"\n",
+			"x = \"\"\"\n[mcp_servers.aries]\n\"\"\"\n\n" + block},
 		{"header inside a literal multi-line string",
-			"x = '''\n[mcp_servers.starfix]\ncommand = \"evil\"\n'''\n",
-			"x = '''\n[mcp_servers.starfix]\ncommand = \"evil\"\n'''\n\n" + block},
+			"x = '''\n[mcp_servers.aries]\ncommand = \"evil\"\n'''\n",
+			"x = '''\n[mcp_servers.aries]\ncommand = \"evil\"\n'''\n\n" + block},
 		{"escaped quotes in a multi-line string",
-			"x = \"\"\"a\\\"\"\"\n[mcp_servers.starfix]\n\"\"\"\n",
-			"x = \"\"\"a\\\"\"\"\n[mcp_servers.starfix]\n\"\"\"\n\n" + block},
+			"x = \"\"\"a\\\"\"\"\n[mcp_servers.aries]\n\"\"\"\n",
+			"x = \"\"\"a\\\"\"\"\n[mcp_servers.aries]\n\"\"\"\n\n" + block},
 		{"comment with a bracket in an array",
-			"[mcp_servers.starfix]\nargs = [ # ]\n  \"serve\", # [\n]\nstartup_timeout_sec = 20\n\n[other]\ny = 2\n",
+			"[mcp_servers.aries]\nargs = [ # ]\n  \"serve\", # [\n]\nstartup_timeout_sec = 20\n\n[other]\ny = 2\n",
 			block + "\n[other]\ny = 2\n"},
 		{"keeps comments before the table and after it",
-			"# servers\n[mcp_servers.\"starfix\"] # ours\ncommand = \"x\"\n# about other\n[other]\n",
+			"# servers\n[mcp_servers.\"aries\"] # ours\ncommand = \"x\"\n# about other\n[other]\n",
 			"# servers\n" + block + "\n# about other\n[other]\n"},
 		{"env table elsewhere moves beside the table",
-			"[mcp_servers.starfix.env]\nA = \"b\"\n\n[other]\ny = 2\n\n[mcp_servers.starfix]\ncommand = \"x\"\n",
+			"[mcp_servers.aries.env]\nA = \"b\"\n\n[other]\ny = 2\n\n[mcp_servers.aries]\ncommand = \"x\"\n",
 			block + "\n[other]\ny = 2\n"},
-		{"subtables are starfix's too",
-			"[mcp_servers.starfix]\ncommand = \"x\"\n\n[mcp_servers.starfix.tools.a]\nz = 1\n",
+		{"subtables are aries's too",
+			"[mcp_servers.aries]\ncommand = \"x\"\n\n[mcp_servers.aries.tools.a]\nz = 1\n",
 			block},
 		{"inline env is replaced",
-			"[mcp_servers.starfix]\ncommand = \"sfx\"\nenv = { A = \"b\" }\n",
+			"[mcp_servers.aries]\ncommand = \"aries\"\nenv = { A = \"b\" }\n",
 			block},
 		{"other servers stay",
 			"[mcp_servers.other]\ncommand = \"o\"\nargs = [\n  \"x\",\n]\n",
@@ -191,15 +191,15 @@ func TestApplyTOMLStructure(t *testing.T) {
 func TestApplyTOMLRefuses(t *testing.T) {
 	t.Parallel()
 	tests := []struct{ name, in string }{
-		{"unterminated multi-line string", "x = \"\"\"\n[mcp_servers.starfix]\n"},
+		{"unterminated multi-line string", "x = \"\"\"\n[mcp_servers.aries]\n"},
 		{"unterminated array", "args = [\"a\",\n"},
 		{"newline in a basic string", "x = \"a\nb\"\n"},
-		{"starfix as an inline table", "[mcp_servers]\nstarfix = { command = \"evil\" }\n"},
-		{"starfix by dotted keys", "mcp_servers.starfix.command = \"evil\"\n"},
+		{"aries as an inline table", "[mcp_servers]\naries = { command = \"evil\" }\n"},
+		{"aries by dotted keys", "mcp_servers.aries.command = \"evil\"\n"},
 		{"servers as an inline table", "mcp_servers = { other = { command = \"x\" } }\n"},
 		{"servers as an array", "[[mcp_servers]]\nx = 1\n"},
-		{"twice", "[mcp_servers.starfix]\ncommand = \"a\"\n[mcp_servers.starfix]\ncommand = \"b\"\n"},
-		{"bad header", "[mcp_servers.starfix\n"},
+		{"twice", "[mcp_servers.aries]\ncommand = \"a\"\n[mcp_servers.aries]\ncommand = \"b\"\n"},
+		{"bad header", "[mcp_servers.aries\n"},
 		{"text after a value", "x = 1 2\n"},
 		{"bad escape in a key", "\"a\\q\" = 1\n"},
 	}
@@ -214,7 +214,7 @@ func TestApplyTOMLRefuses(t *testing.T) {
 			}
 		})
 	}
-	if _, _, err := a.Remove([]byte("x = \"\"\"\n[mcp_servers.starfix]\n")); err == nil {
+	if _, _, err := a.Remove([]byte("x = \"\"\"\n[mcp_servers.aries]\n")); err == nil {
 		t.Error("Remove accepted an unterminated string")
 	}
 }
@@ -224,7 +224,7 @@ func TestApplyTOMLRefuses(t *testing.T) {
 func TestTOMLString(t *testing.T) {
 	t.Parallel()
 	tests := []struct{ in, want string }{
-		{`C:\tools\sfx.exe`, `"C:\\tools\\sfx.exe"`},
+		{`C:\tools\aries.exe`, `"C:\\tools\\aries.exe"`},
 		{"a\"b", `"a\"b"`},
 		{"\a\x01\x7f", `"\u0007\u0001\u007F"`},
 		{"tab\tnl\n", `"tab\tnl\n"`},
@@ -237,7 +237,7 @@ func TestTOMLString(t *testing.T) {
 	}
 }
 
-// A hook is starfix's only when its whole command is one program token
+// A hook is Aries's only when its whole command is one program token
 // running prime --hook, or usage --hook: a person's compound command that
 // ends the same way is theirs (C-10).
 func TestOurHookExact(t *testing.T) {
@@ -246,20 +246,20 @@ func TestOurHookExact(t *testing.T) {
 		cmd  string
 		want bool
 	}{
-		{"sfx prime --hook", true},
-		{"sfx prime --hook=codex", true},
-		{"/usr/local/bin/sfx prime --hook", true},
-		{"'/opt/star fix/sfx' prime --hook", true},
-		{"'/opt/it'\\''s/sfx' prime --hook=gemini", true},
-		{`C:\tools\sfx.exe prime --hook`, false}, // not shell-safe unquoted, so not what setup writes
-		{`'C:\tools\sfx.exe' prime --hook`, true},
-		{"make env; ./bin/sfx prime --hook", false},
-		{"cd x && sfx prime --hook", false},
-		{"$(curl x) sfx prime --hook", false},
-		{"/tmp/evil sfx prime --hook", false},
+		{"aries prime --hook", true},
+		{"aries prime --hook=codex", true},
+		{"/usr/local/bin/aries prime --hook", true},
+		{"'/opt/star fix/aries' prime --hook", true},
+		{"'/opt/it'\\''s/aries' prime --hook=gemini", true},
+		{`C:\tools\aries.exe prime --hook`, false}, // not shell-safe unquoted, so not what setup writes
+		{`'C:\tools\aries.exe' prime --hook`, true},
+		{"make env; ./bin/aries prime --hook", false},
+		{"cd x && aries prime --hook", false},
+		{"$(curl x) aries prime --hook", false},
+		{"/tmp/evil aries prime --hook", false},
 		{"bd prime --hook", false},
-		{"sfx prime --hook --x", false},
-		{"'sfx prime --hook", false},
+		{"aries prime --hook --x", false},
+		{"'aries prime --hook", false},
 	}
 	for _, tc := range tests {
 		h := object{{"type", mustJSON("command")}, {"command", mustJSON(tc.cmd)}}
@@ -273,15 +273,15 @@ func TestOurHookExact(t *testing.T) {
 		cmd         string
 		prime, want bool
 	}{
-		{cmd: "sfx usage --hook", want: true},
-		{cmd: "sfx usage --hook=claude-code", want: true},
-		{cmd: "/usr/local/bin/sfx usage --hook", want: true},
-		{cmd: "'/opt/star fix/sfx' usage --hook", want: true},
-		{cmd: "sfx prime --hook", prime: true},
+		{cmd: "aries usage --hook", want: true},
+		{cmd: "aries usage --hook=claude-code", want: true},
+		{cmd: "/usr/local/bin/aries usage --hook", want: true},
+		{cmd: "'/opt/star fix/aries' usage --hook", want: true},
+		{cmd: "aries prime --hook", prime: true},
 		{cmd: "bd usage --hook"},
-		{cmd: "cd x && sfx usage --hook"},
-		{cmd: "sfx usage --hook --x"},
-		{cmd: "sfx usage"},
+		{cmd: "cd x && aries usage --hook"},
+		{cmd: "aries usage --hook --x"},
+		{cmd: "aries usage"},
 	}
 	for _, tc := range usage {
 		h := object{{"type", mustJSON("command")}, {"command", mustJSON(tc.cmd)}}
@@ -292,13 +292,13 @@ func TestOurHookExact(t *testing.T) {
 			t.Errorf("prime hook ours(%q) = %v, want %v", tc.cmd, got, tc.prime)
 		}
 	}
-	in := `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "make env; ./bin/sfx prime --hook"}]}]}}`
+	in := `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "make env; ./bin/aries prime --hook"}]}]}}`
 	h := hookOf(t, "claude-code", false)
 	if out, res, err := h.Remove([]byte(in), DefaultEntry); err != nil || res != Unchanged || string(out) != in {
 		t.Errorf("Remove(compound hook) = %s, %v\n%s", res, err, out)
 	}
 	out, res, err := h.Apply([]byte(in), DefaultEntry)
-	if err != nil || res != Added || !strings.Contains(string(out), "make env; ./bin/sfx prime --hook") {
+	if err != nil || res != Added || !strings.Contains(string(out), "make env; ./bin/aries prime --hook") {
 		t.Errorf("Apply beside a compound hook = %s, %v\n%s", res, err, out)
 	}
 }
@@ -306,8 +306,8 @@ func TestOurHookExact(t *testing.T) {
 // FuzzApplyTOML: whatever the editor accepts, its output scans, holds
 // the entry, and a second run changes nothing.
 func FuzzApplyTOML(f *testing.F) {
-	for _, s := range []string{"model = \"o3\"\n", "[mcp_servers.starfix]\ncommand = \"old\"\nargs = [\n  \"a\",\n  \"b\",\n]\n",
-		"x = '''\n[mcp_servers.starfix]\n'''\n", "[mcp_servers.starfix.env]\nA = 1\n\n\n[b]\n", "a = [1, # ]\n 2]\r\n"} {
+	for _, s := range []string{"model = \"o3\"\n", "[mcp_servers.aries]\ncommand = \"old\"\nargs = [\n  \"a\",\n  \"b\",\n]\n",
+		"x = '''\n[mcp_servers.aries]\n'''\n", "[mcp_servers.aries.env]\nA = 1\n\n\n[b]\n", "a = [1, # ]\n 2]\r\n"} {
 		f.Add([]byte(s))
 	}
 	a := Agents["codex"]

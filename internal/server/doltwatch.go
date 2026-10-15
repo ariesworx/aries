@@ -13,7 +13,7 @@ import (
 // Dolt's own figures in the status report (design §16.5, decision 30).
 // With Config.DoltMetrics set, the daemon reads Dolt's metrics endpoint
 // on a timer of its own, never for a request, and keeps the last
-// answer for `sfx admin status` and `starfixd status`. Dolt's metrics
+// answer for `aries admin status` and `ariesd status`. Dolt's metrics
 // are not exported again: a collector scrapes Dolt itself.
 //
 // A read that fails makes the report say "unknown" with the last read

@@ -1,4 +1,4 @@
-// Package doltmetrics reads the few figures starfixd shows of Dolt from
+// Package doltmetrics reads the few figures ariesd shows of Dolt from
 // Dolt's own Prometheus endpoint (design §16.5): its version, memory,
 // start time, connections, memory limit and count of garbage collection
 // cycles.
@@ -10,7 +10,7 @@
 // bytes, with a parser of its own that knows six series by name and
 // passes over the rest. The package imports the standard library only:
 // the Prometheus client that internal/telemetry links is for writing
-// starfixd's metrics, and stays there.
+// ariesd's metrics, and stays there.
 package doltmetrics
 
 import (

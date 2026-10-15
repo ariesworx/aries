@@ -25,7 +25,7 @@ func TestJumpFaults(t *testing.T) {
 		return v
 	}
 	settle := func(seq int64, when time.Time, extended time.Duration) sevent {
-		return sevent{seq: seq, at: when, actor: sessKey{"starfixd", "clock"}, op: "clock.step", target: "clock",
+		return sevent{seq: seq, at: when, actor: sessKey{"ariesd", "clock"}, op: "clock.step", target: "clock",
 			before: fmt.Appendf(nil, `{"at": %q}`, when.Format(time.RFC3339Nano)),
 			after: fmt.Appendf(nil, `{"at": %q, "claims": 3, "step_us": %d, "extended_us": %d}`,
 				when.Add(extended).Format(time.RFC3339Nano), extended.Microseconds(), extended.Microseconds())}

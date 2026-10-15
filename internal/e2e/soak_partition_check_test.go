@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// STARFIX_SOAK_PARTITION turns the partition mode on, and takes nothing
+// ARIES_SOAK_PARTITION turns the partition mode on, and takes nothing
 // but a yes or nothing.
 func TestSoakPartitionConfig(t *testing.T) {
 	t.Parallel()
@@ -17,13 +17,13 @@ func TestSoakPartitionConfig(t *testing.T) {
 		{"0", false, true}, {"10m", false, true},
 	} {
 		cfg, err := soakConfigFrom(func(k string) string {
-			if k == "STARFIX_SOAK_PARTITION" {
+			if k == "ARIES_SOAK_PARTITION" {
 				return tc.value
 			}
 			return ""
 		})
 		if (err != nil) != tc.refused || cfg.partition != tc.want {
-			t.Errorf("soakConfigFrom with STARFIX_SOAK_PARTITION=%q = partition %t, %v; want %t, refused %t", tc.value, cfg.partition, err, tc.want, tc.refused)
+			t.Errorf("soakConfigFrom with ARIES_SOAK_PARTITION=%q = partition %t, %v; want %t, refused %t", tc.value, cfg.partition, err, tc.want, tc.refused)
 		}
 	}
 }

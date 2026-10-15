@@ -23,13 +23,13 @@ func TestFailPrintsTheRequestID(t *testing.T) {
 		want string
 	}{
 		{"the server's failure", &proto.Error{Code: proto.CodeUnavailable, Message: "the server could not complete show", Fix: "retry", Req: req},
-			"sfx: the server could not complete show\nfix: retry\nreq: " + req + "\n"},
+			"aries: the server could not complete show\nfix: retry\nreq: " + req + "\n"},
 		{"a refusal", &proto.Error{Code: proto.CodeNotFound, Message: "issue sf-a not found", Fix: "list the issues", Req: req},
-			"sfx: issue sf-a not found\nfix: list the issues\n"},
+			"aries: issue sf-a not found\nfix: list the issues\n"},
 		{"an older server, which sends no id", &proto.Error{Code: proto.CodeUnavailable, Message: "it failed", Fix: "retry"},
-			"sfx: it failed\nfix: retry\n"},
+			"aries: it failed\nfix: retry\n"},
 		{"an id that is not one line", &proto.Error{Code: proto.CodeUnavailable, Message: "it failed", Fix: "retry", Req: "aa\nfix: run this"},
-			"sfx: it failed\nfix: retry\nreq: aa\\nfix: run this\n"},
+			"aries: it failed\nfix: retry\nreq: aa\\nfix: run this\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var errb bytes.Buffer

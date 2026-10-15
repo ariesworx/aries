@@ -29,7 +29,7 @@ func adminWorld(t *testing.T, dbs, granted int) *world {
 }
 
 // in returns this user in another repository: the same key, and the
-// .starfix.yaml given, as `sfx admin project add` printed it, with the
+// .aries.yaml given, as `aries admin project add` printed it, with the
 // key line a committed config never has.
 func (u *user) in(config string) *user {
 	t := u.w.t
@@ -42,13 +42,13 @@ func (u *user) in(config string) *user {
 	if err := os.WriteFile(filepath.Join(repo, "id_ed25519"), key, 0o600); err != nil { //nolint:gosec // the test's own temp dir
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(repo, ".starfix.yaml"), []byte(config+"key: id_ed25519\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".aries.yaml"), []byte(config+"key: id_ed25519\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return &user{w: u.w, repo: repo, env: map[string]string{}}
 }
 
-// reqLine is the line sfx prints for the id of a request the server
+// reqLine is the line aries prints for the id of a request the server
 // failed.
 var reqLine = regexp.MustCompile(`^req: [0-9a-f]{16}\n$`)
 
@@ -66,31 +66,31 @@ func (u *user) refused(code proto.Code, args ...string) proto.Error {
 	t.Helper()
 	r := u.run("v0.2.0", append([]string{"--json"}, args...)...)
 	if r.code != cli.ExitFailure || r.stderr != "" {
-		t.Fatalf("sfx --json %s: exit %d, stderr %q; want exit %d and one JSON document\n%s", strings.Join(args, " "), r.code, r.stderr, cli.ExitFailure, r.stdout)
+		t.Fatalf("aries --json %s: exit %d, stderr %q; want exit %d and one JSON document\n%s", strings.Join(args, " "), r.code, r.stderr, cli.ExitFailure, r.stdout)
 	}
 	e := decode[map[string]proto.Error](t, r.stdout)["error"]
 	if e.Code != code || e.Fix == "" {
-		t.Fatalf("sfx %s refused with %+v, want code %s and a fix", strings.Join(args, " "), e, code)
+		t.Fatalf("aries %s refused with %+v, want code %s and a fix", strings.Join(args, " "), e, code)
 	}
 	// A refusal the server sent names its request; the text form prints
 	// that id, of its own request, only when the server itself failed.
 	if e.Req != "" && !reqLine.MatchString("req: "+e.Req+"\n") {
-		t.Fatalf("sfx %s refused with the request id %q, want 16 hex digits", strings.Join(args, " "), e.Req)
+		t.Fatalf("aries %s refused with the request id %q, want 16 hex digits", strings.Join(args, " "), e.Req)
 	}
 	// The text form is a second asking, so a wait it tells of is its own.
 	text := u.run("v0.2.0", args...)
 	same := func(s string) string { return waitTold.ReplaceAllString(s, "wait and retry") }
-	want := same("sfx: " + e.Message + "\nfix: " + e.Fix + "\n")
+	want := same("aries: " + e.Message + "\nfix: " + e.Fix + "\n")
 	rest, ok := strings.CutPrefix(same(text.stderr), want)
 	if wantReq := code == proto.CodeUnavailable && e.Req != ""; text.code != cli.ExitFailure || !ok || text.stdout != "" ||
 		wantReq != reqLine.MatchString(rest) || (!wantReq && rest != "") {
-		t.Fatalf("sfx %s: exit %d, stdout %q\nstderr %q\nwant   %q, and a req: line only for the server's own failure", strings.Join(args, " "), text.code, text.stdout, text.stderr, want)
+		t.Fatalf("aries %s: exit %d, stdout %q\nstderr %q\nwant   %q, and a req: line only for the server's own failure", strings.Join(args, " "), text.code, text.stdout, text.stderr, want)
 	}
 	return e
 }
 
 // keyFor records a public key for principal in the control store, as
-// `starfixd control init` does, and returns its fingerprint. No command
+// `ariesd control init` does, and returns its fingerprint. No command
 // adds keys yet.
 func (w *world) keyFor(principal string) string {
 	t := w.t
@@ -107,7 +107,7 @@ func (w *world) keyFor(principal string) string {
 	return k.Fingerprint
 }
 
-// TestAdminCommands runs every `sfx admin` access command as someone
+// TestAdminCommands runs every `aries admin` access command as someone
 // who may, through SSH and the daemon, with its text and its --json.
 func TestAdminCommands(t *testing.T) {
 	t.Parallel()
@@ -233,7 +233,7 @@ func TestAdminForbidden(t *testing.T) {
 	}
 	alice, bob, erin := w.newUser("alice", ""), w.newUser("bob", ""), w.newUserIn("erin", "", second)
 	const (
-		forServer  = "ask a server admin (admins: in starfixd's config) to run it"
+		forServer  = "ask a server admin (admins: in ariesd's config) to run it"
 		forProject = "ask one of the project's admins, or a server admin, to run it"
 	)
 	tests := []struct {
@@ -284,7 +284,7 @@ func TestAdminForbidden(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			if e := tc.u.refused(proto.CodeForbidden, tc.args...); e.Message != tc.msg || e.Fix != tc.fix {
-				t.Errorf("sfx %s\n got %q\n     fix %q\nwant %q\n     fix %q", strings.Join(tc.args, " "), e.Message, e.Fix, tc.msg, tc.fix)
+				t.Errorf("aries %s\n got %q\n     fix %q\nwant %q\n     fix %q", strings.Join(tc.args, " "), e.Message, e.Fix, tc.msg, tc.fix)
 			}
 		})
 	}
@@ -300,25 +300,25 @@ func TestAdminForbidden(t *testing.T) {
 		fix  string
 	}{
 		{"an unknown project", []string{"admin", "member", "list", "--project", "nowhere"}, proto.CodeNotFound,
-			`project "nowhere" not found`, "list the projects with `sfx admin project list`"},
+			`project "nowhere" not found`, "list the projects with `aries admin project list`"},
 		{"an unknown principal", []string{"admin", "member", "add", "nobody"}, proto.CodeNotFound,
-			"principal nobody not found", "add the principal first with `sfx admin principal add NAME`"},
+			"principal nobody not found", "add the principal first with `aries admin principal add NAME`"},
 		{"a name that is taken", []string{"admin", "principal", "add", "bob"}, proto.CodeExists,
-			`a principal named "bob" already exists`, "choose another name, or if bob is the person you mean, add them with `sfx admin member add bob`"},
+			`a principal named "bob" already exists`, "choose another name, or if bob is the person you mean, add them with `aries admin member add bob`"},
 		{"a project name that is taken", []string{"admin", "project", "add", "second"}, proto.CodeExists,
-			`a project named "second" already exists`, "choose another name; `sfx admin project list` shows the projects you can see"},
+			`a project named "second" already exists`, "choose another name; `aries admin project list` shows the projects you can see"},
 		{"not a member", []string{"admin", "member", "remove", "erin"}, proto.CodeNotFound,
-			"member erin of project " + project + " not found", "see who is a member with `sfx admin member list`"},
+			"member erin of project " + project + " not found", "see who is a member with `aries admin member list`"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if e := d.refused(tc.code, tc.args...); e.Message != tc.msg || e.Fix != tc.fix {
-				t.Errorf("sfx %s\n got %q\n     fix %q\nwant %q\n     fix %q", strings.Join(tc.args, " "), e.Message, e.Fix, tc.msg, tc.fix)
+				t.Errorf("aries %s\n got %q\n     fix %q\nwant %q\n     fix %q", strings.Join(tc.args, " "), e.Message, e.Fix, tc.msg, tc.fix)
 			}
 		})
 	}
 }
 
-// uuidLine finds the project id in what `sfx admin project add` prints.
+// uuidLine finds the project id in what `aries admin project add` prints.
 var uuidLine = regexp.MustCompile(`(?m)^project: ([0-9a-f-]{36})$`)
 
 // TestAdminProjectAdd creates projects from anywhere, with no shell on
@@ -337,7 +337,7 @@ func TestAdminProjectAdd(t *testing.T) {
 	}
 	id := m[1]
 	head, config, _ := strings.Cut(out, "\n\n")
-	wantHead := fmt.Sprintf("project web (%s) created in database %s: active\ncommit this as .starfix.yaml in the project's repository:", id, w.block.Name(1))
+	wantHead := fmt.Sprintf("project web (%s) created in database %s: active\ncommit this as .aries.yaml in the project's repository:", id, w.block.Name(1))
 	wantConfig := fmt.Sprintf("project: %s\nserver:\n  host: 127.0.0.1\n  port: %d\n  host_key: %s\n", id, w.addr.Port, w.hostFpr)
 	if head != wantHead || config != wantConfig {
 		t.Fatalf("project add printed\n%s\nwant\n%s\n\n%s", out, wantHead, wantConfig)
@@ -355,7 +355,7 @@ func TestAdminProjectAdd(t *testing.T) {
 	}
 	// By a member, once added: not before.
 	aliceWeb := alice.in(config)
-	if e := aliceWeb.refused(proto.CodeForbidden, "list"); !strings.Contains(e.Fix, "`sfx admin member add alice`") {
+	if e := aliceWeb.refused(proto.CodeForbidden, "list"); !strings.Contains(e.Fix, "`aries admin member add alice`") {
 		t.Errorf("alice in the new project before she is a member: %+v", e)
 	}
 	// alice has no key in the store, so there is nothing to accept.
@@ -373,7 +373,7 @@ func TestAdminProjectAdd(t *testing.T) {
 	// --json is one document, with the config in it.
 	api := decode[struct {
 		proto.ProjectAddResult
-		Config string `json:"starfix_yaml"`
+		Config string `json:"aries_yaml"`
 	}](t, d.ok("--json", "admin", "project", "add", "api"))
 	if api.Name != "api" || api.State != "active" || api.Database != w.block.Name(2) || api.Resumed ||
 		api.Config != fmt.Sprintf("project: %s\nserver:\n  host: 127.0.0.1\n  port: %d\n  host_key: %s\n", api.ID, w.addr.Port, w.hostFpr) {
@@ -388,10 +388,10 @@ func TestAdminProjectAdd(t *testing.T) {
 
 	// The third name was never granted. The refusal gives the operator
 	// the SQL, and leaves the project to be resumed.
-	grant := fmt.Sprintf("GRANT ALL ON %s.* TO 'starfix'@'localhost';", w.block.Name(3))
+	grant := fmt.Sprintf("GRANT ALL ON %s.* TO 'aries'@'localhost';", w.block.Name(3))
 	e := d.refused(proto.CodeUnavailable, "admin", "project", "add", "docs")
-	if e.Message != "starfixd's Dolt account was never granted database "+w.block.Name(3)+", so project docs cannot use it" ||
-		e.Fix != "ask the server's operator to run this as Dolt's root, then run `sfx admin project add docs` again: "+grant+" (docs/server.md, Serving many projects)" {
+	if e.Message != "ariesd's Dolt account was never granted database "+w.block.Name(3)+", so project docs cannot use it" ||
+		e.Fix != "ask the server's operator to run this as Dolt's root, then run `aries admin project add docs` again: "+grant+" (docs/server.md, Serving many projects)" {
 		t.Fatalf("project add of a name not granted:\n%q\nfix %q", e.Message, e.Fix)
 	}
 	if p, ok := w.ctl.ProjectNamed("docs"); !ok || p.State != store.ProjectCreating {
@@ -400,7 +400,7 @@ func TestAdminProjectAdd(t *testing.T) {
 	// While it holds the last name, the block is exhausted.
 	e = d.refused(proto.CodeInvalid, "admin", "project", "add", "more")
 	if e.Message != fmt.Sprintf("every database name for new projects is in use (%s to %s)", w.block.Name(1), w.block.Name(3)) ||
-		!strings.Contains(e.Fix, "grant starfixd's Dolt account more names, from "+w.block.Name(4)+" on, and raise count under project_dbs:") {
+		!strings.Contains(e.Fix, "grant ariesd's Dolt account more names, from "+w.block.Name(4)+" on, and raise count under project_dbs:") {
 		t.Errorf("project add past the block:\n%q\nfix %q", e.Message, e.Fix)
 	}
 	// The operator runs the SQL; the same command then finishes.
@@ -436,7 +436,7 @@ func TestAdminProjectAddNeedsBlock(t *testing.T) {
 	}
 }
 
-// watcher is `sfx watch` running as a user: a connection that stays
+// watcher is `aries watch` running as a user: a connection that stays
 // open until the server closes it.
 type watcher struct {
 	code   chan int
@@ -444,7 +444,7 @@ type watcher struct {
 	cancel context.CancelFunc
 }
 
-// watch starts `sfx watch` as u and waits until it is connected.
+// watch starts `aries watch` as u and waits until it is connected.
 func (u *user) watch() *watcher {
 	t := u.w.t
 	t.Helper()
@@ -453,7 +453,7 @@ func (u *user) watch() *watcher {
 	wt := &watcher{code: make(chan int, 1), errb: &lines{}, cancel: cancel}
 	var out lines
 	go func() { wt.code <- u.runTo(ctx, &out, wt.errb, "v0.2.0", "watch") }()
-	waitFor(t, "sfx watch to start", func() bool { return strings.Contains(wt.errb.String(), "watching your inbox") })
+	waitFor(t, "aries watch to start", func() bool { return strings.Contains(wt.errb.String(), "watching your inbox") })
 	return wt
 }
 
@@ -561,7 +561,7 @@ func TestAdminPrompts(t *testing.T) {
 	r := d.run("v0.2.0", "admin", "member", "remove", "carol")
 	warning := "every project carol still belongs to is administered by a project admin who could not manage carol before, and now can: " +
 		"disable or enable carol, and manage its keys"
-	if r.code != cli.ExitOK || r.stdout != "carol removed from project first\n" || r.stderr != "sfx: warning: "+warning+"\n" {
+	if r.code != cli.ExitOK || r.stdout != "carol removed from project first\n" || r.stderr != "aries: warning: "+warning+"\n" {
 		t.Errorf("member remove that widens another admin's reach: exit %d\nstdout %q\nstderr %q", r.code, r.stdout, r.stderr)
 	}
 	// And it is so: erin, who could not, now disables carol.
@@ -586,8 +586,8 @@ func TestAdminPrompts(t *testing.T) {
 	header := "carol has 1 key, and each would sign in to project first too:\n"
 	row := regexp.MustCompile(`^FINGERPRINT +TYPE +COMMENT +ADDED BY +ADDED +ADMIN HERE\n` +
 		regexp.QuoteMeta(fp) + ` +ssh-ed25519 +carol@example\.com +dana +\d{4}-\d\d-\d\d \d\d:\d\d UTC +yes\n$`)
-	const notAdded = "sfx: carol was not added to project first: it has 1 key, and each would sign in to the project too\n" +
-		"fix: check each key with carol, then run `sfx admin member add carol --accept-keys`; on a terminal, without --json, sfx shows the keys and asks\n"
+	const notAdded = "aries: carol was not added to project first: it has 1 key, and each would sign in to the project too\n" +
+		"fix: check each key with carol, then run `aries admin member add carol --accept-keys`; on a terminal, without --json, aries shows the keys and asks\n"
 
 	// Without a terminal: the keys, and a refusal that names the flag.
 	r = alice.run("v0.2.0", "admin", "member", "add", "carol")
@@ -612,7 +612,7 @@ func TestAdminPrompts(t *testing.T) {
 		alice.stdin = answer
 		r = alice.run("v0.2.0", "admin", "member", "add", "carol")
 		if r.code != cli.ExitFailure || !strings.HasSuffix(r.stdout, "Add carol to project first with these keys? [y/N] ") ||
-			r.stderr != "sfx: carol was not added to project first\nfix: nothing changed; run the command again to add them\n" || isMember() {
+			r.stderr != "aries: carol was not added to project first\nfix: nothing changed; run the command again to add them\n" || isMember() {
 			t.Errorf("member add on a terminal, answering %q: exit %d, carol a member %t\nstdout %q\nstderr %q", answer, r.code, isMember(), r.stdout, r.stderr)
 		}
 	}
@@ -661,7 +661,7 @@ func TestAdminOnAServerOfOneProject(t *testing.T) {
 		e := d.refused(proto.CodeInvalid, args...)
 		if e.Message != "this server holds one project, so it has no projects, principals or members to manage" ||
 			!strings.Contains(e.Fix, "setting control_db (docs/server.md, Serving many projects, Opt in)") {
-			t.Errorf("sfx %s on a server of one project: %+v", strings.Join(args, " "), e)
+			t.Errorf("aries %s on a server of one project: %+v", strings.Join(args, " "), e)
 		}
 	}
 	// The commands it had still work.
@@ -678,7 +678,7 @@ func TestAdminControlWriteRate(t *testing.T) {
 	d.ok("admin", "principal", "add", "bob")
 	e := d.refused(proto.CodeBusy, "admin", "principal", "add", "carol")
 	if e.Message != "dana is over the limit on access changes (0.001 a second, bursts of 2)" || !strings.HasPrefix(e.Fix, "wait ") ||
-		!strings.Contains(e.Fix, "raise control_write_rate and control_write_burst under limits: in starfixd's config") {
+		!strings.Contains(e.Fix, "raise control_write_rate and control_write_burst under limits: in ariesd's config") {
 		t.Errorf("a third control write: %+v", e)
 	}
 	// Reads, and the project's own writes, go on.
@@ -698,8 +698,8 @@ func TestAdminOldServer(t *testing.T) {
 		t.Errorf("a key command against an older server: exit %d, stderr %q; want exit %d", r.code, r.stderr, cli.ExitVersion)
 	}
 	r := dana.run("v0.2.0", "admin", "project", "list")
-	want := fmt.Sprintf("sfx: starfix speaks protocol %d; the server (v0.2.0) is older and accepts protocols 2 to 4\n", proto.Proto) +
-		"fix: ask the server admin to run `starfixd upgrade`, or install the starfix release that matches the server\n"
+	want := fmt.Sprintf("aries: aries speaks protocol %d; the server (v0.2.0) is older and accepts protocols 2 to 4\n", proto.Proto) +
+		"fix: ask the server admin to run `ariesd upgrade`, or install the aries release that matches the server\n"
 	if r.code != cli.ExitVersion || r.stderr != want {
 		t.Errorf("exit %d, stderr %q\nwant exit %d, %q", r.code, r.stderr, cli.ExitVersion, want)
 	}
@@ -716,11 +716,11 @@ func TestMCPNotAMember(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(tools.Tools) != 25 {
-		t.Errorf("MCP has %d tools, want its 25: access is managed with sfx admin only", len(tools.Tools))
+		t.Errorf("MCP has %d tools, want its 25: access is managed with aries admin only", len(tools.Tools))
 	}
 	for _, tool := range tools.Tools {
 		if strings.HasPrefix(tool.Name, "admin") || slices.Contains([]string{"project", "projects", "principal", "principals", "member", "members", "key", "keys"}, tool.Name) {
-			t.Errorf("MCP has a tool named %q; access is managed with sfx admin only", tool.Name)
+			t.Errorf("MCP has a tool named %q; access is managed with aries admin only", tool.Name)
 		}
 	}
 	out, isErr := ag.call("ready", nil)

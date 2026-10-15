@@ -75,7 +75,7 @@ func TestStatus(t *testing.T) {
 			t.Errorf("uptime %ds, want 90 minutes on the server's clock", sv.UptimeSeconds)
 		}
 		if sv.HeapBytes == 0 || sv.SysBytes < sv.HeapBytes || sv.Goroutines < 4 {
-			t.Errorf("status = heap %d, sys %d, %d goroutines; want starfixd's own, from the runtime", sv.HeapBytes, sv.SysBytes, sv.Goroutines)
+			t.Errorf("status = heap %d, sys %d, %d goroutines; want ariesd's own, from the runtime", sv.HeapBytes, sv.SysBytes, sv.Goroutines)
 		}
 		if want := map[string]int{"active": 2, "archived": 1}; !maps.Equal(sv.Projects, want) {
 			t.Errorf("projects by state = %v, want %v", sv.Projects, want)
@@ -161,7 +161,7 @@ func TestStatus(t *testing.T) {
 		for _, c := range []*conn{b, byFile} { // a member of one project, and of two
 			_, perr := ask[proto.StatusResult](c, proto.OpStatus, proto.StatusArgs{})
 			if perr == nil || perr.Code != proto.CodeForbidden || !strings.Contains(perr.Message, "may not see the server's status") ||
-				perr.Fix != "ask a server admin, or an admin of the project you want to know about, to run `sfx admin status`" {
+				perr.Fix != "ask a server admin, or an admin of the project you want to know about, to run `aries admin status`" {
 				t.Errorf("status for a member = %+v; want forbidden, with who to ask", perr)
 			}
 		}
@@ -324,7 +324,7 @@ func TestArchiveSweepsAsTheStoreCloses(t *testing.T) {
 		ops = append(ops, string(e.Op)+" by "+e.Actor.Principal+"/"+e.Actor.Session)
 	}
 	want := []string{"issue.create by carol/s-c", "claim.take by carol/s-c", "issue.update by carol/s-c",
-		"claim.release by starfixd/access", "issue.update by starfixd/access"}
+		"claim.release by ariesd/access", "issue.update by ariesd/access"}
 	if !slices.Equal(ops, want) {
 		t.Errorf("the history of the issue started as the project was archived:\n%v\nwant\n%v", ops, want)
 	}

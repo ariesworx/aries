@@ -88,7 +88,7 @@ func TestServeAcceptClockBehindFlag(t *testing.T) {
 func TestUpgradeChecksTheClockFirst(t *testing.T) {
 	t.Parallel()
 	t.Run("behind, stop", func(t *testing.T) {
-		r := newRig(t, "v0.2.0", "v0.3.0", "systemd_unit: starfixd.service\n")
+		r := newRig(t, "v0.2.0", "v0.3.0", "systemd_unit: ariesd.service\n")
 		r.dsn = newDSN(t)
 		r.d.clock = clockPreflight
 		at := writtenAhead(t, r.dsn, 3*time.Hour)
@@ -106,22 +106,22 @@ func TestUpgradeChecksTheClockFirst(t *testing.T) {
 		}
 		r.d.euid = func() int { return 0 }
 		out, err := r.run(t, "--check")
-		if err != nil || !strings.Contains(out, "clock: STARFIXD WILL NOT START AGAIN") {
-			t.Errorf("upgrade --check = %q, %v; want a clock line saying starfixd will not start again", out, err)
+		if err != nil || !strings.Contains(out, "clock: ARIESD WILL NOT START AGAIN") {
+			t.Errorf("upgrade --check = %q, %v; want a clock line saying ariesd will not start again", out, err)
 		}
 	})
 	t.Run("behind, warn", func(t *testing.T) {
-		r := newRig(t, "v0.2.0", "v0.3.0", "systemd_unit: starfixd.service\nclock_behind: warn\n")
+		r := newRig(t, "v0.2.0", "v0.3.0", "systemd_unit: ariesd.service\nclock_behind: warn\n")
 		r.dsn = newDSN(t)
 		r.d.clock = clockPreflight
 		writtenAhead(t, r.dsn, 3*time.Hour)
 		out, err := r.run(t)
-		if err != nil || !strings.Contains(out, "warning: the server's clock is behind its own history") || !strings.Contains(out, "starfixd upgraded v0.2.0 -> v0.3.0") {
+		if err != nil || !strings.Contains(out, "warning: the server's clock is behind its own history") || !strings.Contains(out, "ariesd upgraded v0.2.0 -> v0.3.0") {
 			t.Errorf("upgrade with clock_behind: warn = %q, %v; want a warning and the upgrade", out, err)
 		}
 	})
 	t.Run("not behind", func(t *testing.T) {
-		r := newRig(t, "v0.2.0", "v0.3.0", "systemd_unit: starfixd.service\n")
+		r := newRig(t, "v0.2.0", "v0.3.0", "systemd_unit: ariesd.service\n")
 		r.dsn = newDSN(t)
 		r.d.clock = clockPreflight
 		writtenAhead(t, r.dsn, -time.Hour)
@@ -130,7 +130,7 @@ func TestUpgradeChecksTheClockFirst(t *testing.T) {
 			t.Errorf("upgrade --check = %q, %v; want a clock line saying it is not behind", out, err)
 		}
 		r.d.euid = func() int { return 1000 }
-		if out, err := r.run(t); err != nil || !strings.Contains(out, "starfixd upgraded v0.2.0 -> v0.3.0") {
+		if out, err := r.run(t); err != nil || !strings.Contains(out, "ariesd upgraded v0.2.0 -> v0.3.0") {
 			t.Errorf("upgrade = %q, %v", out, err)
 		}
 	})

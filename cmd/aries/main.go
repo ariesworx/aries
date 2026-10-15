@@ -1,6 +1,6 @@
-// Command sfx is the starfix client: a command line for people and, as
-// `sfx mcp`, an MCP server for agents, both talking to starfixd over SSH
-// with a pinned host key (docs/design/starfix.md §2). `sfx help` lists
+// Command aries is the Aries client: a command line for people and, as
+// `aries mcp`, an MCP server for agents, both talking to ariesd over SSH
+// with a pinned host key (docs/design/aries.md §2). `aries help` lists
 // the commands.
 //
 // It exits 0 on success, 1 on a failure, 2 on a mistake on the command

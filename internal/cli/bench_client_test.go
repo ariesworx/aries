@@ -11,7 +11,7 @@ import (
 )
 
 // Benchmarks of the command line apart from the connection
-// (docs/design/profile-sfx.md). Run with:
+// (docs/design/profile-aries.md). Run with:
 //
 //	go test -run '^$' -bench Client -benchmem ./internal/cli/
 
@@ -41,7 +41,7 @@ func (w *benchCountingWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// BenchmarkClientPrintSummaries is the text of `sfx list` and `sfx
+// BenchmarkClientPrintSummaries is the text of `aries list` and `aries
 // ready`: the table of issues written through the escaping writer that
 // Run puts in front of standard output. writes/op is how many writes
 // reach standard output.

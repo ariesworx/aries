@@ -85,12 +85,12 @@ func gateAdd(ctx context.Context, r *runner, args []string) error {
 	_, _ = fmt.Fprintln(r.env.Stdout, esc(out.ID))
 	switch {
 	case out.Kind != proto.GateCI:
-		_, _ = fmt.Fprintf(r.env.Stderr, "holds %s until %s passes it: `sfx gate pass %s`\n", esc(in.Blocks), approverText(out.Approvers), esc(out.ID))
+		_, _ = fmt.Fprintf(r.env.Stderr, "holds %s until %s passes it: `aries gate pass %s`\n", esc(in.Blocks), approverText(out.Approvers), esc(out.ID))
 	case in.Blocks != "":
-		_, _ = fmt.Fprintf(r.env.Stderr, "holds %s until %s reports %s passed on %s: `sfx gate pass --check %s --issue %s`\n",
+		_, _ = fmt.Fprintf(r.env.Stderr, "holds %s until %s reports %s passed on %s: `aries gate pass --check %s --issue %s`\n",
 			esc(in.Blocks), approverText(out.Approvers), esc(out.Check), esc(out.Subject), esc(out.Check), esc(out.Subject))
 	default:
-		_, _ = fmt.Fprintf(r.env.Stderr, "records %s of %s, which %s reports: `sfx gate pass --check %s --issue %s`\n",
+		_, _ = fmt.Fprintf(r.env.Stderr, "records %s of %s, which %s reports: `aries gate pass --check %s --issue %s`\n",
 			esc(out.Check), esc(out.Subject), approverText(out.Approvers), esc(out.Check), esc(out.Subject))
 	}
 	return nil
@@ -112,7 +112,7 @@ func (f *reportFlags) register(fs interface {
 	fs.StringVar(&f.issue, "issue", "", "the issue the check ran on")
 	fs.StringVar(&f.branch, "branch", "", "the branch the check ran on, which names the issue")
 	fs.BoolVar(&f.fromBranch, "from-branch", false, "take the branch from the CI job's variables, or else from git")
-	fs.BoolVar(&f.fromCommit, "from-commit", false, "take the issue from HEAD's commit: its Starfix: trailer, or the branch a merge commit merged")
+	fs.BoolVar(&f.fromCommit, "from-commit", false, "take the issue from HEAD's commit: its Aries: trailer, or the branch a merge commit merged")
 	fs.StringVar(&in.SHA, "sha", "", "the commit checked")
 	fs.StringVar(&in.URL, "url", "", "a link to the run")
 	fs.BoolVar(&f.optional, "optional", false, "exit 0 when the branch or commit names no issue, or the issue has no gate for the check")
@@ -143,7 +143,7 @@ func gateDecide(ctx context.Context, r *runner, action string, args []string) er
 		return err
 	}
 	if len(pos) > 1 {
-		return usagef(gateUsage, "gate %s takes one gate id; `sfx gate list` lists them", action)
+		return usagef(gateUsage, "gate %s takes one gate id; `aries gate list` lists them", action)
 	}
 	if len(pos) == 1 {
 		in.ID = pos[0]
@@ -152,7 +152,7 @@ func gateDecide(ctx context.Context, r *runner, action string, args []string) er
 		return gateReport(ctx, r, action, in, rep)
 	}
 	if in.ID == "" {
-		return usagef(gateUsage, "gate %s takes one gate id; `sfx gate list` lists them", action)
+		return usagef(gateUsage, "gate %s takes one gate id; `aries gate list` lists them", action)
 	}
 	if action == "waive" && strings.TrimSpace(in.Reason) == "" {
 		return usagef(gateUsage, "gate waive needs --reason: a waive passes a gate whoever it names, on the record")
@@ -174,7 +174,7 @@ func gateReport(ctx context.Context, r *runner, action string, in proto.GateArgs
 	case rep.ways() > 1:
 		return usagef(gateUsage, "give one of --issue, --branch, --from-branch and --from-commit")
 	case in.ID == "" && in.Check == "":
-		return usagef(gateUsage, "gate %s takes a gate id, or --check NAME and the issue it ran on; `sfx gate list` lists the gates", action)
+		return usagef(gateUsage, "gate %s takes a gate id, or --check NAME and the issue it ran on; `aries gate list` lists the gates", action)
 	case in.ID == "" && rep.ways() == 0:
 		return usagef(gateUsage, "--check needs the issue it ran on: --issue ID, --branch NAME, --from-branch or --from-commit")
 	}
@@ -202,7 +202,7 @@ func gateReport(ctx context.Context, r *runner, action string, in proto.GateArgs
 			r.emit(map[string]any{"reported": false, "reason": pe.Message})
 			return nil
 		}
-		_, _ = fmt.Fprintf(r.env.Stderr, "sfx: nothing reported: %s\n", esc(pe.Message))
+		_, _ = fmt.Fprintf(r.env.Stderr, "aries: nothing reported: %s\n", esc(pe.Message))
 		return nil
 	}
 	return err
@@ -229,7 +229,7 @@ func (r *runner) branchOf(ctx context.Context, in *proto.GateArgs) error {
 }
 
 // commitOf names the issue HEAD's commit names: in.Subject from its
-// Starfix: trailer, or else in.Branch from a merge commit's subject.
+// Aries: trailer, or else in.Branch from a merge commit's subject.
 // Neither is not_found.
 func (r *runner) commitOf(ctx context.Context, in *proto.GateArgs) error {
 	msg, err := gitx.HeadMessage(ctx, r.dir)
@@ -246,8 +246,8 @@ func (r *runner) commitOf(ctx context.Context, in *proto.GateArgs) error {
 		return nil
 	}
 	return proto.Errf(proto.CodeNotFound,
-		"end the commit's message with a `Starfix: ID` trailer, merge with a merge commit, or give --issue ID",
-		"HEAD's commit names no issue: it has no Starfix: trailer and merged no branch")
+		"end the commit's message with an `Aries: ID` trailer, merge with a merge commit, or give --issue ID",
+		"HEAD's commit names no issue: it has no Aries: trailer and merged no branch")
 }
 
 // printDecided prints a gate after a decision or a report: its id and

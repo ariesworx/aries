@@ -151,7 +151,7 @@ func TestSetupGlobalLinks(t *testing.T) {
 			if isDir {
 				want = filepath.Join(target, "settings.json")
 			}
-			if !strings.Contains(readFile(t, want), "prime --hook") && !strings.Contains(readFile(t, want), "starfix") {
+			if !strings.Contains(readFile(t, want), "prime --hook") && !strings.Contains(readFile(t, want), "aries") {
 				t.Fatalf("the link's target was not edited:\n%s", readFile(t, want))
 			}
 			code, out, _ = runIn(t, home, "-C", t.TempDir(), "setup", "claude-code", "--global", "--check")
@@ -228,7 +228,7 @@ func TestSetupClaudeDesktopLink(t *testing.T) {
 	home, outside := t.TempDir(), t.TempDir()
 	_, sub := repoWithConfig(t)
 	symlink(t, outside, filepath.Join(home, "Library", "Application Support", "Claude"))
-	d := desktopEnv{goos: "darwin", home: home, exe: "/usr/local/bin/sfx"}
+	d := desktopEnv{goos: "darwin", home: home, exe: "/usr/local/bin/aries"}
 	code, _, errb := d.run(t, "-C", sub, "setup", "claude-desktop", "--write")
 	if code != ExitFailure || !strings.Contains(errb, "symbolic link") || !strings.Contains(errb, "fix: ") {
 		t.Fatalf("exit %d\n%s", code, errb)
@@ -246,7 +246,7 @@ func TestSetupClaudeDesktopDotDotDir(t *testing.T) {
 	home, outside := t.TempDir(), t.TempDir()
 	_, sub := repoWithConfig(t)
 	symlink(t, outside, filepath.Join(home, "..x"))
-	d := desktopEnv{goos: "windows", home: home, appdata: filepath.Join(home, "..x", "AppData", "Roaming"), exe: `C:\Users\alice\bin\sfx.exe`}
+	d := desktopEnv{goos: "windows", home: home, appdata: filepath.Join(home, "..x", "AppData", "Roaming"), exe: `C:\Users\alice\bin\aries.exe`}
 	code, _, errb := d.run(t, "-C", sub, "setup", "claude-desktop", "--write")
 	if code != ExitFailure || !strings.Contains(errb, "outside your home directory") || !strings.Contains(errb, "fix: ") {
 		t.Fatalf("exit %d\n%s", code, errb)

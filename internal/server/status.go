@@ -11,7 +11,7 @@ import (
 	"github.com/ariesworx/aries/internal/store"
 )
 
-// `sfx admin status` (design §15.4): what an admin watches a server of
+// `aries admin status` (design §15.4): what an admin watches a server of
 // many projects by. Everything in it is what the daemon holds in memory,
 // apart from one count on an index for each open store listed (the
 // sessions seen lately). It opens no store, reads no control table and
@@ -47,7 +47,7 @@ const statusReadTimeout = 2 * time.Second
 // error itself is not sent: a project admin reads this too.
 var (
 	sessionsUnanswered = fmt.Sprintf("database did not answer in %s", statusReadTimeout)
-	sessionsFailed     = "the read failed; see starfixd's log"
+	sessionsFailed     = "the read failed; see ariesd's log"
 )
 
 // status reports the server and every project to a server admin, and to
@@ -66,7 +66,7 @@ func status(ctx context.Context, s *Server, sess *session, in proto.StatusArgs) 
 	}
 	if !admin && len(rows) == 0 {
 		return nil, proto.Errf(proto.CodeForbidden,
-			"ask a server admin, or an admin of the project you want to know about, to run `sfx admin status`",
+			"ask a server admin, or an admin of the project you want to know about, to run `aries admin status`",
 			fmt.Sprintf("%s may not see the server's status: it is for server admins, and for project admins about their own projects", actor))
 	}
 	return s.report(ctx, rows, admin, in, sess.statusBy)

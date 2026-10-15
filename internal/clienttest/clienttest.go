@@ -1,4 +1,4 @@
-// Package clienttest keeps a test binary that starts the starfix client
+// Package clienttest keeps a test binary that starts the Aries client
 // away from the keys and the outbox of whoever runs it, and one that
 // starts git away from their git configuration.
 //
@@ -31,20 +31,20 @@ import (
 // It panics when it cannot make the directory: it runs in TestMain,
 // where there is no test to fail.
 func Isolate() (restore func()) {
-	home, err := os.MkdirTemp("", "starfix-test-home-")
+	home, err := os.MkdirTemp("", "aries-test-home-")
 	if err != nil {
 		panic(fmt.Sprintf("clienttest: %v", err))
 	}
-	data, err := os.MkdirTemp("", "starfix-test-data-")
+	data, err := os.MkdirTemp("", "aries-test-data-")
 	if err != nil {
 		panic(fmt.Sprintf("clienttest: %v", err))
 	}
 	// HOME is what os.UserHomeDir reads on Unix, and USERPROFILE on
 	// Windows. XDG_DATA_HOME would name a person's data directory to a
-	// test that hands sfx an environment without STARFIX_DATA_DIR and
+	// test that hands aries an environment without ARIES_DATA_DIR and
 	// the process's own home.
-	unset := setenv(map[string]string{"HOME": home, "USERPROFILE": home, "SSH_AUTH_SOCK": "", "STARFIX_KEY_FILE": "", "STARFIX_KEY": "",
-		"STARFIX_DATA_DIR": data, "STARFIX_NO_QUEUE": "", "XDG_DATA_HOME": ""})
+	unset := setenv(map[string]string{"HOME": home, "USERPROFILE": home, "SSH_AUTH_SOCK": "", "ARIES_KEY_FILE": "", "ARIES_KEY": "",
+		"ARIES_DATA_DIR": data, "ARIES_NO_QUEUE": "", "XDG_DATA_HOME": ""})
 	return func() {
 		unset()
 		_ = os.RemoveAll(home)

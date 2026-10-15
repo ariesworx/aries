@@ -35,7 +35,7 @@ import (
 )
 
 // Repo is the repository the fake serves.
-const Repo = "example/starfix"
+const Repo = "example/aries"
 
 // Server is a fake GitHub API serving one release. Change its fields
 // before the code under test makes requests.

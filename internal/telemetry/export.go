@@ -17,7 +17,7 @@ import (
 )
 
 // guarded is the OTLP exporter with its failures handled here, once: a
-// failed export is counted on starfix.telemetry.dropped and logged,
+// failed export is counted on aries.telemetry.dropped and logged,
 // sampled, and never returned to the SDK, whose handler would log it
 // again at every interval.
 type guarded struct {
@@ -75,7 +75,7 @@ func (t *Telemetry) builtInstruments() {
 // errEvery is how often a failure that keeps happening is logged again.
 const errEvery = 10 * time.Minute
 
-// errlog writes the exporters' failures to starfixd's log (design
+// errlog writes the exporters' failures to ariesd's log (design
 // §16.6): the first at once, and while they go on one line every
 // errEvery saying how many were left out, so a collector that is down
 // for a day costs about 150 lines, not one for each export. Every line

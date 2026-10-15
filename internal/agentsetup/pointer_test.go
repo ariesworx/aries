@@ -23,7 +23,7 @@ func TestPointer(t *testing.T) {
 		{name: "no final newline", in: "# Project",
 			want: "# Project\n\n" + block, result: Added, removed: "# Project\n"},
 		{name: "replaces an old block in place", result: Updated,
-			in:      "# P\n\n<!-- starfix:begin -->\nold words\n<!-- starfix:end -->\n\n## Later\n",
+			in:      "# P\n\n<!-- aries:begin -->\nold words\n<!-- aries:end -->\n\n## Later\n",
 			want:    "# P\n\n" + block + "\n## Later\n",
 			removed: "# P\n\n\n## Later\n"},
 		{name: "keeps a CRLF file CRLF", in: "# P\r\n", result: Added,
@@ -55,9 +55,9 @@ func TestPointer(t *testing.T) {
 func TestPointerRefusesBrokenMarkers(t *testing.T) {
 	t.Parallel()
 	for _, in := range []string{
-		"<!-- starfix:begin -->\nno end\n",
-		"stray\n<!-- starfix:end -->\n",
-		"<!-- starfix:begin -->\n<!-- starfix:begin -->\n<!-- starfix:end -->\n",
+		"<!-- aries:begin -->\nno end\n",
+		"stray\n<!-- aries:end -->\n",
+		"<!-- aries:begin -->\n<!-- aries:begin -->\n<!-- aries:end -->\n",
 	} {
 		if _, _, err := applyPointer([]byte(in), markdownBlock); err == nil {
 			t.Errorf("apply accepted %q", in)
@@ -73,7 +73,7 @@ func TestPointerBlockIsShort(t *testing.T) {
 	if n := strings.Count(block, "\n"); n < 3 || n > 5 {
 		t.Fatalf("pointer block is %d lines", n)
 	}
-	for _, w := range []string{"starfix", "prime", "start", "finish"} {
+	for _, w := range []string{"aries", "prime", "start", "finish"} {
 		if !strings.Contains(block, w) {
 			t.Errorf("pointer block lacks %q", w)
 		}
@@ -89,7 +89,7 @@ func TestCursorRule(t *testing.T) {
 			rule = tg
 		}
 	}
-	if rule.Path != ".cursor/rules/starfix.mdc" {
+	if rule.Path != ".cursor/rules/aries.mdc" {
 		t.Fatalf("cursor pointer target %+v", rule)
 	}
 	out, res, err := rule.Apply(nil, DefaultEntry)
@@ -106,7 +106,7 @@ func TestCursorRule(t *testing.T) {
 	if !rule.Registered(out, DefaultEntry) {
 		t.Fatal("not registered")
 	}
-	// The whole file is starfix's: removing leaves nothing.
+	// The whole file is Aries's: removing leaves nothing.
 	if rm, res, err := rule.Remove(out, DefaultEntry); err != nil || res != Removed || len(rm) != 0 {
 		t.Fatalf("remove: %s %v %q", res, err, rm)
 	}

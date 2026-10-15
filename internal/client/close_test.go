@@ -112,7 +112,7 @@ func bridgedConn(t *testing.T) (*Conn, *fullConn) {
 	})
 	nc := &transport{Conn: near}
 	//nolint:gosec // G106: both ends are the test's
-	cc, chans, reqs, err := ssh.NewClientConn(nc, "the server", &ssh.ClientConfig{User: "starfix", HostKeyCallback: ssh.InsecureIgnoreHostKey()})
+	cc, chans, reqs, err := ssh.NewClientConn(nc, "the server", &ssh.ClientConfig{User: "aries", HostKeyCallback: ssh.InsecureIgnoreHostKey()})
 	if err != nil {
 		t.Fatal(err)
 	}

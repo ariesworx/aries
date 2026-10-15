@@ -258,7 +258,7 @@ func TestRenewPathIssuesCap(t *testing.T) {
 	n := proto.MaxPathIssues + 1
 	for i := range n {
 		id := fmt.Sprintf("sf-a%03d", i)
-		gitCommit(t, dir, "work\n\nStarfix: "+id, id+".go")
+		gitCommit(t, dir, "work\n\nAries: "+id, id+".go")
 		callTool(t, cs, "start", map[string]any{"id": id})
 	}
 	s.Renew(t.Context())

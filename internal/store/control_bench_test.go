@@ -25,7 +25,7 @@ func benchKey(tb testing.TB, n int) (key, fingerprint string) {
 }
 
 // plantControl writes rows straight into the control database's tables,
-// as `starfixd control init` run beside the daemon leaves them, so that
+// as `ariesd control init` run beside the daemon leaves them, so that
 // a benchmark has thousands without thousands of writes: values is one
 // "(?, …)" for each row, and args its arguments.
 func plantControl(b *testing.B, c *Control, insert string, values []string, args []any, perRow int) {
@@ -103,7 +103,7 @@ func BenchmarkControlIndex(b *testing.B) {
 				for i := range projects {
 					values = append(values, "(?, ?, ?, 'acct', ?, 'archived', 'dana', ?, ?, 1, ?)")
 					args = append(args, fmt.Sprintf("00000000-0000-4000-8000-%012d", i), fmt.Sprintf("project-%03d", i), fmt.Sprintf("p%d", i),
-						fmt.Sprintf("starfix_p%03d", i), now, now, i)
+						fmt.Sprintf("aries_p%03d", i), now, now, i)
 				}
 				plantControl(b, c, `INSERT INTO projects (id, name, prefix, account, db_name, state, created_by, created_at, updated_at, rev, write_id) VALUES `,
 					values, args, 7)

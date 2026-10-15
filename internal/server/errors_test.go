@@ -28,9 +28,9 @@ func TestDispatchStateErrors(t *testing.T) {
 	}{
 		{"status change of a claimed issue", proto.OpUpdate, proto.UpdateArgs{ID: held.ID, Rev: heldRev, Status: &blocked},
 			"issue " + held.ID + " is claimed by alice/s-a; status and assignee change only through finish, close or a releasing handoff",
-			"finish it, or let it go with `sfx handoff " + held.ID + " --release` first; only the holder or an admin can"},
+			"finish it, or let it go with `aries handoff " + held.ID + " --release` first; only the holder or an admin can"},
 		{"status change of a closed issue", proto.OpUpdate, proto.UpdateArgs{ID: done.ID, Rev: doneRev, Status: &blocked},
-			"invalid input: issue " + done.ID + " is closed", "reopen it with `sfx reopen " + done.ID + "`"},
+			"invalid input: issue " + done.ID + " is closed", "reopen it with `aries reopen " + done.ID + "`"},
 		{"close of a closed issue", proto.OpClose, proto.CloseArgs{ID: done.ID},
 			"invalid input: issue " + done.ID + " is already closed", "nothing to do"},
 		{"reopen of an open issue", proto.OpReopen, proto.ReopenArgs{ID: open.ID},
@@ -46,9 +46,9 @@ func TestDispatchStateErrors(t *testing.T) {
 	}
 }
 
-// The refusals that sfx mcp tells apart to name an agent's next step
+// The refusals that aries mcp tells apart to name an agent's next step
 // (internal/mcpserver's nextStep), each provoked here: every one has its
-// code, and its proto.Fix phrase where sfx mcp reads the fix for it, so a
+// code, and its proto.Fix phrase where aries mcp reads the fix for it, so a
 // reworded fix fails here rather than lose the agent its advice.
 func TestFixPhrases(t *testing.T) {
 	t.Parallel()
@@ -78,7 +78,7 @@ func TestFixPhrases(t *testing.T) {
 		op     string
 		args   any
 		code   proto.Code
-		phrase string // the proto.Fix phrase sfx mcp reads in the fix
+		phrase string // the proto.Fix phrase aries mcp reads in the fix
 	}{
 		{"nothing ready", idle, bob, proto.OpStart, proto.StartArgs{}, proto.CodeNotFound, proto.FixSeeBlocked},
 		{"held, and another is ready", s, bob, proto.OpStart, proto.StartArgs{ID: held.ID}, proto.CodeConflict, proto.FixTakeNext},
@@ -108,13 +108,13 @@ func TestFixPhrases(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, perr := call[proto.Empty](t, tc.s, tc.a, tc.op, tc.args)
 			if perr == nil || perr.Code != tc.code || !hasPhrase(perr.Fix, tc.phrase) {
-				t.Errorf("%s = %+v, want code %s and a fix with %q where sfx mcp reads it", tc.op, perr, tc.code, tc.phrase)
+				t.Errorf("%s = %+v, want code %s and a fix with %q where aries mcp reads it", tc.op, perr, tc.code, tc.phrase)
 			}
 		})
 	}
 }
 
-// hasPhrase reports whether fix has phrase where sfx mcp reads it:
+// hasPhrase reports whether fix has phrase where aries mcp reads it:
 // FixNothing as the whole fix, FixEditText at its end, and any other
 // phrase at its start.
 func hasPhrase(fix, phrase string) bool {

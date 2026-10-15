@@ -41,7 +41,7 @@ func TestImportMemories(t *testing.T) {
 		{"duplicate key, the last line wins", []string{memoryLine("k", "first"), memoryLine("kv.memory.k", "second")},
 			Counts{Created: 1}, []string{"duplicate: the same memory key appears on more than one line; the last one is used [k]"},
 			map[string]string{"k": "second"}},
-		{"key starfix cannot hold", []string{memoryLine("has space", "x"), memoryLine("ok", "y")},
+		{"key aries cannot hold", []string{memoryLine("has space", "x"), memoryLine("ok", "y")},
 			Counts{Created: 1, Failed: 1}, []string{"invalid: memory has space: invalid input: memory key must be 1-128 bytes of letters, digits and ._:/@+-, starting with a letter or digit [has space]"},
 			map[string]string{"ok": "y"}},
 		{"secret", []string{memoryLine("slack", "the bot token is "+token)},

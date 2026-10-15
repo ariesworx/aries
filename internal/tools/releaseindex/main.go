@@ -1,6 +1,6 @@
 // Command releaseindex lays a release out for a static file host, the
-// layout sfx upgrade, starfixd upgrade and install.sh read (RELEASING.md).
-// It is not part of sfx or starfixd.
+// layout aries upgrade, ariesd upgrade and install.sh read (RELEASING.md).
+// It is not part of aries or ariesd.
 //
 //	releaseindex [--published TIME] TAG SRC DEST
 //

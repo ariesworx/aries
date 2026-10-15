@@ -4,7 +4,7 @@ import "errors"
 
 // ErrNoPeerCheck is RequirePeerCheck's refusal off Linux, unless dev mode
 // is on.
-var ErrNoPeerCheck = errors.New("starfixd serve runs on Linux only: elsewhere nothing checks which user " +
+var ErrNoPeerCheck = errors.New("ariesd serve runs on Linux only: elsewhere nothing checks which user " +
 	"connects to the socket; fix: run it on Linux (WSL2 on Windows), or pass --dev on a single-user machine")
 
 // RequirePeerCheck refuses to serve where CheckPeer cannot verify the

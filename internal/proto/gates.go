@@ -51,7 +51,7 @@ type GateAddArgs struct {
 // A ci gate's report (gate.pass or gate.fail; slice G1) names the gate by
 // ID, or by Check and the issue it ran on: Subject, or Branch, a branch
 // name the server reads the issue from with the project's prefix, as
-// `sfx start --branch` names it. SHA (the commit), URL (a link to the
+// `aries start --branch` names it. SHA (the commit), URL (a link to the
 // run) and Reason are its evidence. The server takes it from a principal
 // the gate names, in CISession or CLISession.
 type GateArgs struct {

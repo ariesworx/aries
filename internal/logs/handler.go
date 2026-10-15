@@ -35,7 +35,7 @@ func Req(ctx context.Context) string {
 // when it carries none.
 type IDs func(ctx context.Context) (traceID, spanID string, ok bool)
 
-// Handler is starfixd's log handler. It writes each record to the
+// Handler is ariesd's log handler. It writes each record to the
 // handler it wraps, which is the journal's, with what the record's
 // context says of it: the request's id ([WithReq]) and the ids of its
 // span. So a call site passes its context and names neither.

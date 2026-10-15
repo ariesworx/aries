@@ -28,7 +28,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// scope names the meter starfixd's instruments belong to, and the
+// scope names the meter ariesd's instruments belong to, and the
 // tracer of its spans.
 const scope = "github.com/ariesworx/aries"
 
@@ -73,7 +73,7 @@ type Config struct {
 	KeyFileErr error
 }
 
-// Telemetry records starfixd's measurements and exports them. A nil
+// Telemetry records ariesd's measurements and exports them. A nil
 // *Telemetry is usable and does nothing, as is one that [New] made with
 // nothing to export to. It is safe for concurrent use.
 type Telemetry struct {
@@ -170,7 +170,7 @@ func New(ctx context.Context, cfg Config) (*Telemetry, error) {
 		}
 		exp, err := otlpmetrichttp.New(ctx, opts...)
 		if err != nil {
-			return nil, fmt.Errorf("telemetry: %s; fix: correct the OTEL_EXPORTER_OTLP_* variables in starfixd's environment, or unset %s to push nothing",
+			return nil, fmt.Errorf("telemetry: %s; fix: correct the OTEL_EXPORTER_OTLP_* variables in ariesd's environment, or unset %s to push nothing",
 				t.errs.redact(err.Error()), envEndpoint)
 		}
 		readers = append(readers, sdkmetric.NewPeriodicReader(&guarded{Exporter: exp, t: t},
@@ -210,7 +210,7 @@ func New(ctx context.Context, cfg Config) (*Telemetry, error) {
 		exp, err := otlptracehttp.New(ctx, opts...)
 		if err != nil {
 			return nil, errors.Join(
-				fmt.Errorf("telemetry: %s; fix: correct the OTEL_EXPORTER_OTLP_* variables in starfixd's environment, or set %s to %s to export no traces",
+				fmt.Errorf("telemetry: %s; fix: correct the OTEL_EXPORTER_OTLP_* variables in ariesd's environment, or set %s to %s to export no traces",
 					t.errs.redact(err.Error()), envTracesExporter, exporterNone),
 				t.stopMetrics(context.WithoutCancel(ctx)))
 		}
@@ -229,7 +229,7 @@ func New(ctx context.Context, cfg Config) (*Telemetry, error) {
 		if err != nil {
 			stop := context.WithoutCancel(ctx)
 			return nil, errors.Join(
-				fmt.Errorf("telemetry: %s; fix: correct the OTEL_EXPORTER_OTLP_* variables in starfixd's environment, or unset %s to leave the logs in the journal alone",
+				fmt.Errorf("telemetry: %s; fix: correct the OTEL_EXPORTER_OTLP_* variables in ariesd's environment, or unset %s to leave the logs in the journal alone",
 					t.errs.redact(err.Error()), envLogsExporter),
 				t.stopTraces(stop), t.stopMetrics(stop))
 		}
@@ -283,7 +283,7 @@ func (t *Telemetry) build(res *resource.Resource, readers ...sdkmetric.Reader) e
 	opts := []sdkmetric.Option{
 		sdkmetric.WithResource(res),
 		sdkmetric.WithView(sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "starfix.*", Kind: sdkmetric.InstrumentKindHistogram},
+			sdkmetric.Instrument{Name: "aries.*", Kind: sdkmetric.InstrumentKindHistogram},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{Boundaries: Buckets}})),
 	}
 	for _, r := range readers {

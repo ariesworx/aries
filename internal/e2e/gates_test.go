@@ -94,17 +94,17 @@ func TestHumanGate(t *testing.T) {
 	for _, tc := range refusedCLI {
 		r := tc.u.run("v0.2.0", tc.args...)
 		if r.code != 1 || !strings.Contains(r.stderr, "carol") || !strings.Contains(r.stderr, "fix: ") {
-			t.Errorf("sfx %s (%s) = exit %d\n%s%s\nwant exit 1 naming carol", strings.Join(tc.args, " "), tc.name, r.code, r.stdout, r.stderr)
+			t.Errorf("aries %s (%s) = exit %d\n%s%s\nwant exit 1 naming carol", strings.Join(tc.args, " "), tc.name, r.code, r.stdout, r.stderr)
 		}
 	}
-	// The approver's own agent, running sfx in its shell, is not her.
+	// The approver's own agent, running aries in its shell, is not her.
 	carol.env["CLAUDE_CODE_SESSION_ID"] = "claude-carol"
 	if r := carol.run("v0.2.0", "gate", "pass", gate); r.code != 1 || !strings.Contains(r.stderr, "agent") {
-		t.Errorf("sfx gate pass from carol's agent session = exit %d\n%s%s\nwant it refused", r.code, r.stdout, r.stderr)
+		t.Errorf("aries gate pass from carol's agent session = exit %d\n%s%s\nwant it refused", r.code, r.stdout, r.stderr)
 	}
 	delete(carol.env, "CLAUDE_CODE_SESSION_ID")
 	if out := carol.ok("gate", "pass", gate, "--reason", "plan reviewed"); !strings.Contains(out, gate+" passed") {
-		t.Errorf("sfx gate pass by carol = %q, want it passed", out)
+		t.Errorf("aries gate pass by carol = %q, want it passed", out)
 	}
 	board.until("the pass, pushed", "carol/cli gate.pass "+gate)
 

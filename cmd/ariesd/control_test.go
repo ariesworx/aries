@@ -51,7 +51,7 @@ func newSite(t *testing.T, extra string) *site {
 	s := &site{dsn: newDSN(t)}
 	s.db = dbName(t, s.dsn)
 	s.controlDB = dbName(t, newDSN(t))
-	s.cfg = filepath.Join(t.TempDir(), "starfixd.yaml")
+	s.cfg = filepath.Join(t.TempDir(), "ariesd.yaml")
 	body := fmt.Sprintf("project: %s\nprefix: acme\naccount: acme-2026\ncontrol_db: %s\nadmins: [dana]\n%s", adopted, s.controlDB, extra)
 	if err := os.WriteFile(s.cfg, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
@@ -62,7 +62,7 @@ func newSite(t *testing.T, extra string) *site {
 	if err := os.Mkdir(sshDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	s.keysFile = filepath.Join(sshDir, "starfix_keys")
+	s.keysFile = filepath.Join(sshDir, "aries_keys")
 	s.env = map[string]string{server.EnvDSN: s.dsn, server.EnvKeysFile: s.keysFile,
 		server.EnvAuthorizedKeys: filepath.Join(sshDir, "authorized_keys")}
 	return s
@@ -133,7 +133,7 @@ func pubKey(t *testing.T, seed string) (line, fingerprint string) {
 func forced(t *testing.T, principal, seed string) string {
 	t.Helper()
 	key, _ := pubKey(t, seed)
-	return fmt.Sprintf(`restrict,command="/usr/local/bin/starfixd stdio --principal %s" %s %s@example.com`, principal, key, principal)
+	return fmt.Sprintf(`restrict,command="/usr/local/bin/ariesd stdio --principal %s" %s %s@example.com`, principal, key, principal)
 }
 
 func writeKeys(t *testing.T, lines ...string) string {
@@ -216,10 +216,10 @@ func TestControlInit(t *testing.T) {
 	aliceKey, aliceFP := pubKey(t, "alice-1")
 	plain, _ := pubKey(t, "nobody")
 	keys := writeKeys(t,
-		"# the starfix account's keys", // 1
-		forced(t, "alice", "alice-1"),  // 2
-		"",                             // 3
-		`command="starfixd stdio --principal=alice",no-pty `+mustKeyOnly(t, "alice-2"), // 4: another form of the command
+		"# the aries account's keys",  // 1
+		forced(t, "alice", "alice-1"), // 2
+		"",                            // 3
+		`command="ariesd stdio --principal=alice",no-pty `+mustKeyOnly(t, "alice-2"), // 4: another form of the command
 		forced(t, "bob", "bob-1"),                                              // 5
 		forced(t, "dana", "dana-1"),                                            // 6: the config's admin
 		plain+" a key with no forced command",                                  // 7
@@ -227,8 +227,8 @@ func TestControlInit(t *testing.T) {
 		"this is not a key at all",                                             // 9
 		forced(t, "import", "reserved"),                                        // 10
 		forced(t, "Bob", "upper"),                                              // 11
-		`restrict,command="/usr/local/bin/starfixd stdio --principal bob" `+aliceKey+" stolen",   // 12: alice's key again, for bob
-		`restrict,command="/usr/local/bin/starfixd stdio --principal" `+mustKeyOnly(t, "noname"), // 13
+		`restrict,command="/usr/local/bin/ariesd stdio --principal bob" `+aliceKey+" stolen",   // 12: alice's key again, for bob
+		`restrict,command="/usr/local/bin/ariesd stdio --principal" `+mustKeyOnly(t, "noname"), // 13
 	)
 
 	got := s.run(t, "", controlCmd, "init", "--name", "acme", "--authorized-keys", keys)
@@ -237,18 +237,18 @@ func TestControlInit(t *testing.T) {
 	}
 	wantOut := fmt.Sprintf("project acme (%s) adopted from database %s: active\n", adopted, s.db) +
 		"principals: 3 added, 0 already there; keys: 4 added, 0 already there; members: 2 added, 0 already there; 7 lines skipped\n" +
-		"4 keys in the store are also lines of " + keys + ": sshd reads that file too, so `sfx admin key remove` does not keep such a key out until its line is deleted too\n"
+		"4 keys in the store are also lines of " + keys + ": sshd reads that file too, so `aries admin key remove` does not keep such a key out until its line is deleted too\n"
 	if got.stdout != wantOut {
 		t.Errorf("stdout = %q\nwant     %q", got.stdout, wantOut)
 	}
 	for _, want := range []string{
-		"authorized_keys line 7: no `starfixd stdio --principal NAME` forced command; skipped\n",
-		"authorized_keys line 8: no `starfixd stdio --principal NAME` forced command; skipped\n",
+		"authorized_keys line 7: no `ariesd stdio --principal NAME` forced command; skipped\n",
+		"authorized_keys line 8: no `ariesd stdio --principal NAME` forced command; skipped\n",
 		"authorized_keys line 9: not a public key line; skipped\n",
 		"authorized_keys line 10: principal \"import\" is a name the server uses itself; skipped\n",
 		"authorized_keys line 11: principal \"Bob\" must be",
 		"authorized_keys line 12: key " + aliceFP + " already belongs to another principal; skipped\n",
-		"authorized_keys line 13: no `starfixd stdio --principal NAME` forced command; skipped\n",
+		"authorized_keys line 13: no `ariesd stdio --principal NAME` forced command; skipped\n",
 	} {
 		if !strings.Contains(got.stderr, want) {
 			t.Errorf("stderr has no %q:\n%s", want, got.stderr)
@@ -307,7 +307,7 @@ func TestControlInit(t *testing.T) {
 		got := s.run(t, "", controlCmd, "init", "--name", "acme", "--authorized-keys", keys)
 		want := fmt.Sprintf("project acme (%s) adopted from database %s: active\n", adopted, s.db) +
 			"principals: 0 added, 3 already there; keys: 0 added, 4 already there; members: 0 added, 2 already there; 7 lines skipped\n" +
-			"4 keys in the store are also lines of " + keys + ": sshd reads that file too, so `sfx admin key remove` does not keep such a key out until its line is deleted too\n"
+			"4 keys in the store are also lines of " + keys + ": sshd reads that file too, so `aries admin key remove` does not keep such a key out until its line is deleted too\n"
 		if got.err != nil || got.stdout != want {
 			t.Errorf("second run = %q, %v\nwant       %q", got.stdout, got.err, want)
 		}
@@ -330,7 +330,7 @@ func TestControlInit(t *testing.T) {
 		got := s.run(t, "", controlCmd, "init", "--name", "acme", "--authorized-keys", more)
 		want := fmt.Sprintf("project acme (%s) adopted from database %s: archived\n", adopted, s.db) +
 			"principals: 1 added, 1 already there; keys: 1 added, 1 already there; members: 1 added, 1 already there; 0 lines skipped\n" +
-			"2 keys in the store are also lines of " + more + ": sshd reads that file too, so `sfx admin key remove` does not keep such a key out until its line is deleted too\n"
+			"2 keys in the store are also lines of " + more + ": sshd reads that file too, so `aries admin key remove` does not keep such a key out until its line is deleted too\n"
 		if got.err != nil || got.stdout != want || got.stderr != "" {
 			t.Errorf("run with a new line = %q, %v, stderr %q\nwant %q", got.stdout, got.err, got.stderr, want)
 		}
@@ -366,7 +366,7 @@ func TestControlInitLimits(t *testing.T) {
 	// The two keys that were stored are counted as still in the file; the
 	// two lines skipped are not.
 	if want := "principals: 2 added, 0 already there; keys: 2 added, 0 already there; members: 2 added, 0 already there; 2 lines skipped\n" +
-		"2 keys in the store are also lines of " + keys + ": sshd reads that file too, so `sfx admin key remove` does not keep such a key out until its line is deleted too\n"; !strings.HasSuffix(got.stdout, want) {
+		"2 keys in the store are also lines of " + keys + ": sshd reads that file too, so `aries admin key remove` does not keep such a key out until its line is deleted too\n"; !strings.HasSuffix(got.stdout, want) {
 		t.Errorf("stdout = %q, want it to end %q", got.stdout, want)
 	}
 	for _, want := range []string{
@@ -409,14 +409,14 @@ func TestControlInitRefusals(t *testing.T) {
 			edit: func(t *testing.T, s *site) { rewrite(t, s, "control_db: "+s.controlDB+"\n") },
 			want: []string{"no project to adopt; fix: set project:"}},
 		{name: "no authorized_keys file", args: []string{"init", "--name", "acme", "--authorized-keys", filepath.Join(t.TempDir(), "none")},
-			want: []string{"read authorized_keys:", "fix: give the file sshd reads for the starfix account with --authorized-keys FILE"}},
+			want: []string{"read authorized_keys:", "fix: give the file sshd reads for the aries account with --authorized-keys FILE"}},
 		{name: "control database never created", args: []string{"init", "--name", "acme", "--authorized-keys", keys},
 			edit: func(t *testing.T, s *site) {
-				rewrite(t, s, "project: "+adopted+"\ncontrol_db: starfix_control_missing\n")
+				rewrite(t, s, "project: "+adopted+"\ncontrol_db: aries_control_missing\n")
 			},
-			want: []string{"open the control database starfix_control_missing:", "fix: ", "as Dolt's root",
-				"CREATE DATABASE IF NOT EXISTS starfix_control_missing;",
-				"GRANT ALL ON starfix_control_missing.* TO 'starfix'@'localhost';"}},
+			want: []string{"open the control database aries_control_missing:", "fix: ", "as Dolt's root",
+				"CREATE DATABASE IF NOT EXISTS aries_control_missing;",
+				"GRANT ALL ON aries_control_missing.* TO 'aries'@'localhost';"}},
 		{name: "control database is a project's", args: []string{"init", "--name", "acme", "--authorized-keys", keys},
 			edit: func(t *testing.T, s *site) {
 				// Another project's database, migrated as one.
@@ -477,7 +477,7 @@ func TestServeManyProjects(t *testing.T) {
 	// Before control init there is nothing to serve.
 	_, err := openDaemon(t.Context(), s.settings(t), slog.New(slog.DiscardHandler))
 	if err == nil || !strings.Contains(err.Error(), "holds no active project") ||
-		!strings.Contains(err.Error(), "fix: adopt this server's database as the first with `starfixd control init --name NAME`") {
+		!strings.Contains(err.Error(), "fix: adopt this server's database as the first with `ariesd control init --name NAME`") {
 		t.Fatalf("serve before control init = %v, want a refusal naming control init", err)
 	}
 
@@ -518,7 +518,7 @@ func TestServeManyProjects(t *testing.T) {
 // cannot write the file does not start, and says what to change.
 func TestServeWritesTheKeysFile(t *testing.T) {
 	t.Parallel()
-	s := newSite(t, "bridge: /opt/starfix/bin/starfixd\n")
+	s := newSite(t, "bridge: /opt/aries/bin/ariesd\n")
 	keys := writeKeys(t, forced(t, "alice", "alice-1"), forced(t, "dana", "dana-1"))
 	if got := s.run(t, "", controlCmd, "init", "--name", "acme", "--authorized-keys", keys); got.err != nil {
 		t.Fatalf("control init: %v\n%s", got.err, got.stderr)
@@ -535,24 +535,24 @@ func TestServeWritesTheKeysFile(t *testing.T) {
 	}
 	aliceKey, aliceFP := pubKey(t, "alice-1")
 	danaKey, danaFP := pubKey(t, "dana-1")
-	want := "restrict,command=\"/opt/starfix/bin/starfixd stdio --principal alice --key " + aliceFP + "\" " + aliceKey + "\n" +
-		"restrict,command=\"/opt/starfix/bin/starfixd stdio --principal dana --key " + danaFP + "\" " + danaKey + "\n"
+	want := "restrict,command=\"/opt/aries/bin/ariesd stdio --principal alice --key " + aliceFP + "\" " + aliceKey + "\n" +
+		"restrict,command=\"/opt/aries/bin/ariesd stdio --principal dana --key " + danaFP + "\" " + danaKey + "\n"
 	b, err := os.ReadFile(s.keysFile)
 	if err != nil {
 		t.Fatalf("the daemon opened and wrote no keys file: %v", err)
 	}
-	if header, lines, _ := strings.Cut(string(b), "\n"); !strings.HasPrefix(header, "# Generated by starfixd") || lines != want {
-		t.Errorf("keys file =\n%s\nwant a comment that starfixd generates it, then\n%s", b, want)
+	if header, lines, _ := strings.Cut(string(b), "\n"); !strings.HasPrefix(header, "# Generated by ariesd") || lines != want {
+		t.Errorf("keys file =\n%s\nwant a comment that ariesd generates it, then\n%s", b, want)
 	}
 	if fi, err := os.Stat(s.keysFile); err != nil || fi.Mode().Perm() != 0o600 {
 		t.Errorf("keys file mode = %v (%v), want 0600", fi.Mode().Perm(), err)
 	}
 
 	t.Run("a directory that is not there", func(t *testing.T) {
-		s.env[server.EnvKeysFile] = filepath.Join(t.TempDir(), "missing", "starfix_keys")
+		s.env[server.EnvKeysFile] = filepath.Join(t.TempDir(), "missing", "aries_keys")
 		defer func() { s.env[server.EnvKeysFile] = s.keysFile }()
 		_, err := openDaemon(t.Context(), s.settings(t), slog.New(slog.DiscardHandler))
-		if err == nil || !strings.Contains(err.Error(), "write the keys file "+s.env[server.EnvKeysFile]) || !strings.Contains(err.Error(), "; fix: create it as the user starfixd runs as") {
+		if err == nil || !strings.Contains(err.Error(), "write the keys file "+s.env[server.EnvKeysFile]) || !strings.Contains(err.Error(), "; fix: create it as the user ariesd runs as") {
 			t.Errorf("openDaemon with no directory for the keys file = %v; want a refusal naming the file, with a fix", err)
 		}
 	})
@@ -588,7 +588,7 @@ func TestKeyFiles(t *testing.T) {
 		t.Skipf("no current user: %v", err)
 	}
 	keys, hand, err = keyFiles(server.Settings{KeysFile: server.DefaultKeysFile, AuthorizedKeys: server.DefaultAuthorizedKeys})
-	if err != nil || keys != filepath.Join(u.HomeDir, ".ssh", "starfix_keys") || hand != filepath.Join(u.HomeDir, ".ssh", "authorized_keys") {
+	if err != nil || keys != filepath.Join(u.HomeDir, ".ssh", "aries_keys") || hand != filepath.Join(u.HomeDir, ".ssh", "authorized_keys") {
 		t.Errorf("keyFiles(defaults) = %q, %q, %v; want them under %s/.ssh", keys, hand, err, u.HomeDir)
 	}
 }
@@ -631,7 +631,7 @@ func TestServeOneProjectOpensNoControl(t *testing.T) {
 }
 
 // addSecond adds a second active project in a database of its own,
-// through the control store, as `sfx admin project add` will.
+// through the control store, as `aries admin project add` will.
 func addSecond(t *testing.T, s *site) store.Project {
 	t.Helper()
 	c := s.control(t)
@@ -735,8 +735,8 @@ func TestUpgradeBackupManyProjects(t *testing.T) {
 	}
 
 	env := adminEnv{stdin: strings.NewReader(""), stdout: io.Discard, stderr: io.Discard, getenv: func(k string) string { return s.env[k] }}
-	tag, err := backupStore(t.Context(), env, server.Settings{}, s.cfg, "starfix-v0.2.0")
-	if err != nil || tag != "starfix-v0.2.0" {
+	tag, err := backupStore(t.Context(), env, server.Settings{}, s.cfg, "aries-v0.2.0")
+	if err != nil || tag != "aries-v0.2.0" {
 		t.Fatalf("backupStore = %q, %v; want the one tag", tag, err)
 	}
 	db, err := sql.Open("mysql", doltOf(t).RootDSN(""))
@@ -747,11 +747,11 @@ func TestUpgradeBackupManyProjects(t *testing.T) {
 	for _, name := range []string{s.controlDB, s.db, other.DBName} {
 		var n int
 		// name is one of the test's own database names.
-		if err := db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM `"+name+"`.dolt_tags WHERE tag_name = ?", "starfix-v0.2.0").Scan(&n); err != nil {
+		if err := db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM `"+name+"`.dolt_tags WHERE tag_name = ?", "aries-v0.2.0").Scan(&n); err != nil {
 			t.Fatal(err)
 		}
 		if n != 1 {
-			t.Errorf("database %s has %d tags named starfix-v0.2.0, want 1", name, n)
+			t.Errorf("database %s has %d tags named aries-v0.2.0, want 1", name, n)
 		}
 	}
 
@@ -766,7 +766,7 @@ func TestUpgradeBackupManyProjects(t *testing.T) {
 			t.Errorf("put the dropped database back: %v", err)
 		}
 	}()
-	_, err = backupStore(t.Context(), env, server.Settings{}, s.cfg, "starfix-v0.2.1")
+	_, err = backupStore(t.Context(), env, server.Settings{}, s.cfg, "aries-v0.2.1")
 	if err == nil || !strings.Contains(err.Error(), "project other (database "+other.DBName+")") {
 		t.Errorf("backupStore with a project's database gone = %v, want an error naming the project", err)
 	}
@@ -789,7 +789,7 @@ func tables(t *testing.T, db, table string) int {
 }
 
 // TestServeMigratesEveryProject starts the daemon on a server whose
-// second project has a database no starfixd ever opened: it is migrated
+// second project has a database no ariesd ever opened: it is migrated
 // before the daemon listens, with no connection to it, as every active
 // project's is after an upgrade. An archived project's is left alone.
 func TestServeMigratesEveryProject(t *testing.T) {
@@ -813,7 +813,7 @@ func TestServeMigratesEveryProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	if n := tables(t, other.DBName, "issues"); n != 0 {
-		t.Fatalf("the second project's database has an issues table before any starfixd opened it")
+		t.Fatalf("the second project's database has an issues table before any ariesd opened it")
 	}
 
 	sock := serveSite(t, s)
@@ -877,7 +877,7 @@ func TestServeEndsClaimsOfArchivedProjects(t *testing.T) {
 	if err := root.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM claims WHERE principal IS NOT NULL`).Scan(&held); err != nil {
 		t.Fatal(err)
 	}
-	if err := root.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM events WHERE op = 'claim.release' AND principal = 'starfixd'`).Scan(&released); err != nil {
+	if err := root.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM events WHERE op = 'claim.release' AND principal = 'ariesd'`).Scan(&released); err != nil {
 		t.Fatal(err)
 	}
 	if held != 0 || released != 1 {
@@ -891,7 +891,7 @@ func TestServeEndsClaimsOfArchivedProjects(t *testing.T) {
 func siteRig(t *testing.T, s *site, sock string) *upgradeRig {
 	t.Helper()
 	r := newRig(t, "v0.2.0", "v0.3.0", "")
-	body := fmt.Sprintf("project: %s\ncontrol_db: %s\nadmins: [dana]\nsystemd_unit: starfixd\nsocket: %s\n", adopted, s.controlDB, sock)
+	body := fmt.Sprintf("project: %s\ncontrol_db: %s\nadmins: [dana]\nsystemd_unit: ariesd\nsocket: %s\n", adopted, s.controlDB, sock)
 	if err := os.WriteFile(r.cfg, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -906,7 +906,7 @@ func siteRig(t *testing.T, s *site, sock string) *upgradeRig {
 	return r
 }
 
-// TestUpgradeChecksEveryProject runs `starfixd upgrade` against a real
+// TestUpgradeChecksEveryProject runs `ariesd upgrade` against a real
 // daemon of many projects. A project whose database cannot be opened
 // fails the health check, so the upgrade puts the old binary back; and
 // the check does not need the config file's project to be active.
@@ -936,7 +936,7 @@ func TestUpgradeChecksEveryProject(t *testing.T) {
 		}
 		r := siteRig(t, s, sock)
 		_, err := r.run(t)
-		if err == nil || !strings.Contains(err.Error(), "starfixd v0.3.0 is unhealthy") ||
+		if err == nil || !strings.Contains(err.Error(), "ariesd v0.3.0 is unhealthy") ||
 			!strings.Contains(err.Error(), "could not open the database of an active project: broken (database not_made_yet)") {
 			t.Fatalf("upgrade with a project that cannot be opened = %v\nwant it unhealthy, naming the project and its database", err)
 		}
@@ -963,7 +963,7 @@ func TestUpgradeChecksEveryProject(t *testing.T) {
 		}
 		r := siteRig(t, s, sock)
 		out, err := r.run(t)
-		if err != nil || !strings.Contains(out, "starfixd upgraded v0.2.0 -> v0.3.0") || !strings.Contains(out, "restarted and healthy") {
+		if err != nil || !strings.Contains(out, "ariesd upgraded v0.2.0 -> v0.3.0") || !strings.Contains(out, "restarted and healthy") {
 			t.Errorf("upgrade with the config file's project archived = %q, %v; want it healthy", out, err)
 		}
 	})

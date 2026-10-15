@@ -40,8 +40,8 @@ func TestAdminKeyUsage(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			code, out, errb := runCLI(t, append([]string{"-C", empty}, tc.args...)...)
-			if code != ExitUsage || out != "" || !strings.Contains(errb, tc.stderr) || !strings.Contains(errb, "fix: usage: sfx admin "+tc.args[1]+" ") {
-				t.Errorf("sfx %s: exit %d (want %d), stdout %q, stderr %q; want it to name %q and the group's usage",
+			if code != ExitUsage || out != "" || !strings.Contains(errb, tc.stderr) || !strings.Contains(errb, "fix: usage: aries admin "+tc.args[1]+" ") {
+				t.Errorf("aries %s: exit %d (want %d), stdout %q, stderr %q; want it to name %q and the group's usage",
 					strings.Join(tc.args, " "), code, ExitUsage, out, errb, tc.stderr)
 			}
 		})
@@ -50,7 +50,7 @@ func TestAdminKeyUsage(t *testing.T) {
 	for _, want := range []string{"admin key add NAME FILE|- | list NAME | list --added-by NAME | remove FINGERPRINT",
 		"admin principal add NAME [--key FILE]... [--project P | --no-project] | list [--created-by NAME] | disable NAME | enable NAME"} {
 		if !strings.Contains(help, want) {
-			t.Errorf("sfx help admin lacks %q:\n%s", want, help)
+			t.Errorf("aries help admin lacks %q:\n%s", want, help)
 		}
 	}
 }
@@ -168,12 +168,12 @@ func TestAdminKeyAddSendsNoPrivateKey(t *testing.T) {
 		code, out, errb := runCLI(t, append([]string{"-C", empty}, args...)...)
 		all := out + errb
 		if code != ExitFailure || !strings.Contains(all, "holds a private key, which never leaves this machine") ||
-			!strings.Contains(all, "id_ed25519.pub") || strings.Contains(all, ".starfix.yaml") {
-			t.Errorf("sfx %s: exit %d\nstdout %q\nstderr %q\nwant exit %d and the private key refused, naming the .pub file, before any configuration is read",
+			!strings.Contains(all, "id_ed25519.pub") || strings.Contains(all, ".aries.yaml") {
+			t.Errorf("aries %s: exit %d\nstdout %q\nstderr %q\nwant exit %d and the private key refused, naming the .pub file, before any configuration is read",
 				strings.Join(args, " "), code, out, errb, ExitFailure)
 		}
 		if strings.Contains(all, "b3BlbnNzaC1rZXktdjE") || strings.Contains(all, "PRIVATE KEY-----") {
-			t.Errorf("sfx %s printed the private key:\n%s", strings.Join(args, " "), all)
+			t.Errorf("aries %s printed the private key:\n%s", strings.Join(args, " "), all)
 		}
 	}
 	// Standard input is read the same way.
@@ -185,7 +185,7 @@ func TestAdminKeyAddSendsNoPrivateKey(t *testing.T) {
 	code := Run(t.Context(), []string{"-C", empty, "admin", "key", "add", "bob", "-"}, Env{Stdin: bytes.NewReader(b), Stdout: &out, Stderr: &errb,
 		Getenv: func(string) string { return "" }, Version: "v0.3.0"})
 	if code != ExitFailure || !strings.Contains(errb.String(), "standard input holds a private key") {
-		t.Errorf("sfx admin key add bob - with a private key: exit %d, stderr %q", code, errb.String())
+		t.Errorf("aries admin key add bob - with a private key: exit %d, stderr %q", code, errb.String())
 	}
 }
 
@@ -217,7 +217,7 @@ func TestPrintKeys(t *testing.T) {
 			fp1 + "  ssh-ed25519  bob@laptop  import    2026-10-11 09:30 UTC  authorized_keys\n" +
 			fp2 + "  ssh-rsa                  dana      2026-10-11 09:30 UTC  -\n" +
 			"ALSO IN authorized_keys: the key is also a line of the server's hand-maintained authorized_keys file, which sshd reads after the store's keys; " +
-			"`sfx admin key remove` closes the key's connections, and sshd still accepts it by that line until the line is deleted on the server\n"},
+			"`aries admin key remove` closes the key's connections, and sshd still accepts it by that line until the line is deleted on the server\n"},
 		{"key added", func(w *bytes.Buffer) {
 			printKeyAdded(w, proto.KeyResult{ID: fp1, Principal: "bob", Type: "ssh-ed25519", Comment: "bob@laptop", Change: "added"})
 		}, "key " + fp1 + " (ssh-ed25519, bob@laptop) added to bob\n"},

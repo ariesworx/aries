@@ -53,15 +53,15 @@ func (f *fixture) run(args ...string) result {
 }
 
 // dist writes what the release workflow's dist directory holds for tag: an
-// sfx archive for linux and for windows, a starfixd archive, checksums.txt
+// aries archive for linux and for windows, an ariesd archive, checksums.txt
 // and its signature. It returns the directory.
 func (f *fixture) dist(t *testing.T, tag string) string {
 	t.Helper()
 	dir := t.TempDir()
 	files := map[string][]byte{
-		release.ArchiveName("sfx", tag, "linux", "amd64"):      releasetest.TarGz(t, "sfx", []byte("sfx "+tag)),
-		release.ArchiveName("sfx", tag, "windows", "amd64"):    releasetest.Zip(t, "sfx.exe", []byte("sfx.exe "+tag)),
-		release.ArchiveName("starfixd", tag, "linux", "arm64"): releasetest.TarGz(t, "starfixd", []byte("starfixd "+tag)),
+		release.ArchiveName("aries", tag, "linux", "amd64"):   releasetest.TarGz(t, "aries", []byte("aries "+tag)),
+		release.ArchiveName("aries", tag, "windows", "amd64"): releasetest.Zip(t, "aries.exe", []byte("aries.exe "+tag)),
+		release.ArchiveName("ariesd", tag, "linux", "arm64"):  releasetest.TarGz(t, "ariesd", []byte("ariesd "+tag)),
 	}
 	var sums strings.Builder
 	for _, name := range slices.Sorted(maps.Keys(files)) {
@@ -131,7 +131,7 @@ func TestLayout(t *testing.T) {
 	for _, tag := range []string{"v0.10.0", "v0.10.0-rc.1", "v0.9.0"} {
 		v := strings.TrimPrefix(tag, "v")
 		want = append(want, tag+"/checksums.txt", tag+"/checksums.txt.sig",
-			tag+"/sfx_"+v+"_linux_amd64.tar.gz", tag+"/sfx_"+v+"_windows_amd64.zip", tag+"/starfixd_"+v+"_linux_arm64.tar.gz")
+			tag+"/aries_"+v+"_linux_amd64.tar.gz", tag+"/aries_"+v+"_windows_amd64.zip", tag+"/ariesd_"+v+"_linux_arm64.tar.gz")
 	}
 	slices.Sort(want)
 	if got := tree(t, f.dest); !slices.Equal(got, want) {
@@ -159,8 +159,8 @@ func TestLayout(t *testing.T) {
 	if err != nil || rel.Tag != "v0.10.0" {
 		t.Fatalf("Latest() of the tree = %+v, %v, want v0.10.0", rel, err)
 	}
-	if bin, err := c.Fetch(t.Context(), rel, "sfx", "windows", "amd64"); err != nil || string(bin) != "sfx.exe v0.10.0" {
-		t.Errorf("Fetch(v0.10.0, sfx, windows, amd64) = %q, %v", bin, err)
+	if bin, err := c.Fetch(t.Context(), rel, "aries", "windows", "amd64"); err != nil || string(bin) != "aries.exe v0.10.0" {
+		t.Errorf("Fetch(v0.10.0, aries, windows, amd64) = %q, %v", bin, err)
 	}
 }
 
@@ -206,13 +206,13 @@ func TestLayoutRefuses(t *testing.T) {
 		code int
 		want string
 	}{
-		{name: "archive changed after checksums", tag: "v0.9.0", code: 1, want: "sfx_0.9.0_linux_amd64.tar.gz: sha256",
+		{name: "archive changed after checksums", tag: "v0.9.0", code: 1, want: "aries_0.9.0_linux_amd64.tar.gz: sha256",
 			edit: func(t *testing.T, _ *fixture, dist string) {
-				put(t, filepath.Join(dist, "sfx_0.9.0_linux_amd64.tar.gz"), []byte("changed"))
+				put(t, filepath.Join(dist, "aries_0.9.0_linux_amd64.tar.gz"), []byte("changed"))
 			}},
-		{name: "archive missing", tag: "v0.9.0", code: 1, want: "sfx_0.9.0_windows_amd64.zip",
+		{name: "archive missing", tag: "v0.9.0", code: 1, want: "aries_0.9.0_windows_amd64.zip",
 			edit: func(t *testing.T, _ *fixture, dist string) {
-				if err := os.Remove(filepath.Join(dist, "sfx_0.9.0_windows_amd64.zip")); err != nil {
+				if err := os.Remove(filepath.Join(dist, "aries_0.9.0_windows_amd64.zip")); err != nil {
 					t.Fatal(err)
 				}
 			}},
@@ -237,7 +237,7 @@ func TestLayoutRefuses(t *testing.T) {
 		{name: "another release's files", tag: "v0.9.1", code: 1, want: "is not a file of release v0.9.1"},
 		{name: "checksums list a path", tag: "v0.9.0", code: 1, want: "is not a file of release v0.9.0",
 			edit: func(t *testing.T, f *fixture, dist string) {
-				sums := fmt.Sprintf("%x  ../sfx_0.9.0_linux_amd64.tar.gz\n", sha256.Sum256(nil))
+				sums := fmt.Sprintf("%x  ../aries_0.9.0_linux_amd64.tar.gz\n", sha256.Sum256(nil))
 				put(t, filepath.Join(dist, "checksums.txt"), []byte(sums))
 				put(t, filepath.Join(dist, "checksums.txt.sig"), release.EncodeSignature(ed25519.Sign(f.priv, []byte(sums))))
 			}},

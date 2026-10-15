@@ -342,7 +342,7 @@ func TestLeaseCaps(t *testing.T) {
 // S-15: the server's own principals are reserved and cannot be admins.
 func TestReservedPrincipals(t *testing.T) {
 	t.Parallel()
-	for _, p := range []string{"starfixd", "import"} {
+	for _, p := range []string{"ariesd", "import"} {
 		if !Reserved(p) {
 			t.Errorf("Reserved(%q) = false", p)
 		}
@@ -351,7 +351,7 @@ func TestReservedPrincipals(t *testing.T) {
 		t.Error(`Reserved("alice") = true`)
 	}
 	dsn := newDSN(t)
-	for _, admins := range [][]string{{"starfixd"}, {"import"}, {"Not A Name"}} {
+	for _, admins := range [][]string{{"ariesd"}, {"import"}, {"Not A Name"}} {
 		if s, err := Open(t.Context(), dsn, Options{CommitInterval: -1, Admins: admins}); !errors.Is(err, ErrInvalid) {
 			if s != nil {
 				_ = s.Close()

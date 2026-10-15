@@ -80,7 +80,7 @@ func cmdInbox(ctx context.Context, r *runner, args []string) error {
 	case out.Unread == 0 && len(out.Items) == 0:
 		_, _ = fmt.Fprintln(r.env.Stdout, "no unread items")
 	case out.Unread > 0:
-		_, _ = fmt.Fprintf(r.env.Stdout, "%d unread; `sfx inbox --ack ID` marks one read\n", out.Unread)
+		_, _ = fmt.Fprintf(r.env.Stdout, "%d unread; `aries inbox --ack ID` marks one read\n", out.Unread)
 	}
 	return nil
 }
@@ -99,17 +99,17 @@ func printItem(w io.Writer, it proto.InboxItem) {
 	_, _ = fmt.Fprintf(w, "%s: %s\n", line, esc(it.Body))
 }
 
-// watchLine is one line of `sfx watch --json`.
+// watchLine is one line of `aries watch --json`.
 type watchLine struct {
 	Op   string           `json:"op"`
 	Item *proto.InboxItem `json:"item,omitempty"`
 }
 
-// watchBuffer is how many pushed events `sfx watch` holds while printing.
+// watchBuffer is how many pushed events `aries watch` holds while printing.
 const watchBuffer = 256
 
 // watchQueue carries pushed events from the connection's reader goroutine
-// to sfx watch's printing loop. When printing falls behind, the pushes
+// to aries watch's printing loop. When printing falls behind, the pushes
 // that do not fit are dropped and a resync takes the place of the first,
 // so the loop says items were missed and watches again, as it does for
 // the server's own resync, which may be among those dropped.
@@ -141,7 +141,7 @@ func (q *watchQueue) put(p proto.Push) {
 // cmdWatch prints each inbox item the server pushes, as it arrives, until
 // interrupted. With --json each event is one JSON object on its own line:
 // {"op":"inbox","item":{…}}, or {"op":"resync"} when items were missed
-// (`sfx inbox` lists them). After a resync it watches again.
+// (`aries inbox` lists them). After a resync it watches again.
 func cmdWatch(ctx context.Context, r *runner, args []string) error {
 	const usage = "watch"
 	fs := r.newFlags("watch")
@@ -163,7 +163,7 @@ func cmdWatch(ctx context.Context, r *runner, args []string) error {
 		return err
 	}
 	// On standard error, so --json output stays one object per line.
-	_, _ = fmt.Fprintf(r.env.Stderr, "sfx: watching your inbox (%d unread); ctrl-c stops\n", w.Unread)
+	_, _ = fmt.Fprintf(r.env.Stderr, "aries: watching your inbox (%d unread); ctrl-c stops\n", w.Unread)
 	for {
 		select {
 		case <-ctx.Done():
@@ -175,7 +175,7 @@ func cmdWatch(ctx context.Context, r *runner, args []string) error {
 			if err := c.Err(); err != nil {
 				return err
 			}
-			return proto.Errf(proto.CodeUnavailable, "run `sfx watch` again", "the connection to the server ended")
+			return proto.Errf(proto.CodeUnavailable, "run `aries watch` again", "the connection to the server ended")
 		case p := <-q.c:
 			switch {
 			case r.json:
@@ -183,7 +183,7 @@ func cmdWatch(ctx context.Context, r *runner, args []string) error {
 			case p.Item != nil:
 				printItem(r.env.Stdout, *p.Item)
 			case p.Op == proto.EvResync:
-				_, _ = fmt.Fprintln(r.env.Stdout, "resync: some items were not shown; `sfx inbox` lists them")
+				_, _ = fmt.Fprintln(r.env.Stdout, "resync: some items were not shown; `aries inbox` lists them")
 			}
 			if p.Op == proto.EvResync {
 				if err := c.Call(ctx, proto.OpWatch, proto.WatchArgs{}, nil); err != nil && ctx.Err() == nil {

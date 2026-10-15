@@ -20,15 +20,15 @@ import (
 	"github.com/ariesworx/aries/internal/release/releasetest"
 )
 
-// newTree is a tree of three releases: v1.1.0, v1.2.0 with sfx for linux
+// newTree is a tree of three releases: v1.1.0, v1.2.0 with aries for linux
 // and windows, and the prerelease v1.3.0-rc.1.
 func newTree(t *testing.T) *releasetest.Tree {
 	t.Helper()
 	tr := releasetest.NewTree(t)
-	tr.AddBinary(t, "v1.1.0", "sfx", "linux", "amd64", []byte("sfx v1.1.0"))
-	tr.AddBinary(t, "v1.2.0", "sfx", "linux", "amd64", []byte("sfx v1.2.0"))
-	tr.AddBinary(t, "v1.2.0", "sfx", "windows", "arm64", []byte("sfx.exe v1.2.0"))
-	tr.AddBinary(t, "v1.3.0-rc.1", "sfx", "linux", "amd64", []byte("sfx v1.3.0-rc.1"))
+	tr.AddBinary(t, "v1.1.0", "aries", "linux", "amd64", []byte("aries v1.1.0"))
+	tr.AddBinary(t, "v1.2.0", "aries", "linux", "amd64", []byte("aries v1.2.0"))
+	tr.AddBinary(t, "v1.2.0", "aries", "windows", "arm64", []byte("aries.exe v1.2.0"))
+	tr.AddBinary(t, "v1.3.0-rc.1", "aries", "linux", "amd64", []byte("aries v1.3.0-rc.1"))
 	return tr
 }
 
@@ -64,23 +64,23 @@ func TestStatic(t *testing.T) {
 				t.Fatalf("Latest() = %+v, %v, want v1.2.0: the newest that is no prerelease", rel, err)
 			}
 			for _, f := range []struct{ goos, goarch, want string }{
-				{"linux", "amd64", "sfx v1.2.0"},
-				{"windows", "arm64", "sfx.exe v1.2.0"},
+				{"linux", "amd64", "aries v1.2.0"},
+				{"windows", "arm64", "aries.exe v1.2.0"},
 			} {
-				got, err := c.Fetch(t.Context(), rel, "sfx", f.goos, f.goarch)
+				got, err := c.Fetch(t.Context(), rel, "aries", f.goos, f.goarch)
 				if err != nil || string(got) != f.want {
-					t.Errorf("Fetch(v1.2.0, sfx, %s, %s) = %q, %v, want %q", f.goos, f.goarch, got, err, f.want)
+					t.Errorf("Fetch(v1.2.0, aries, %s, %s) = %q, %v, want %q", f.goos, f.goarch, got, err, f.want)
 				}
 			}
-			if _, err := c.Fetch(t.Context(), rel, "sfx", "darwin", "arm64"); !errors.Is(err, release.ErrNotFound) {
-				t.Errorf("Fetch(v1.2.0, sfx, darwin, arm64) = %v, want ErrNotFound: the release has no such build", err)
+			if _, err := c.Fetch(t.Context(), rel, "aries", "darwin", "arm64"); !errors.Is(err, release.ErrNotFound) {
+				t.Errorf("Fetch(v1.2.0, aries, darwin, arm64) = %v, want ErrNotFound: the release has no such build", err)
 			}
 
 			pre, err := c.ByTag(t.Context(), "v1.3.0-rc.1")
 			if err != nil || pre.Tag != "v1.3.0-rc.1" {
 				t.Fatalf("ByTag(v1.3.0-rc.1) = %+v, %v", pre, err)
 			}
-			if got, err := c.Fetch(t.Context(), pre, "sfx", "linux", "amd64"); err != nil || string(got) != "sfx v1.3.0-rc.1" {
+			if got, err := c.Fetch(t.Context(), pre, "aries", "linux", "amd64"); err != nil || string(got) != "aries v1.3.0-rc.1" {
 				t.Errorf("Fetch(v1.3.0-rc.1) = %q, %v", got, err)
 			}
 			if _, err := c.ByTag(t.Context(), "v9.9.9"); !errors.Is(err, release.ErrNotFound) {
@@ -104,7 +104,7 @@ func TestStaticByTagWithoutIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ByTag(v1.1.0) with no index.json = %v", err)
 	}
-	if got, err := c.Fetch(t.Context(), rel, "sfx", "linux", "amd64"); err != nil || string(got) != "sfx v1.1.0" {
+	if got, err := c.Fetch(t.Context(), rel, "aries", "linux", "amd64"); err != nil || string(got) != "aries v1.1.0" {
 		t.Errorf("Fetch(v1.1.0) = %q, %v", got, err)
 	}
 	if _, err := c.Latest(t.Context()); !errors.Is(err, release.ErrNotFound) {
@@ -122,20 +122,20 @@ func TestOpen(t *testing.T) {
 		refusal  string // in the error
 	}{
 		{name: "github by name", location: "github", want: "https://api.github.com"},
-		{name: "https", location: "https://releases.example.com/starfix", want: "https://releases.example.com/starfix"},
-		{name: "https with a trailing slash", location: "https://releases.example.com/starfix/", want: "https://releases.example.com/starfix"},
+		{name: "https", location: "https://releases.example.com/aries", want: "https://releases.example.com/aries"},
+		{name: "https with a trailing slash", location: "https://releases.example.com/aries/", want: "https://releases.example.com/aries"},
 		{name: "https with a port", location: "https://releases.example.com:8443", want: "https://releases.example.com:8443"},
 		{name: "http to loopback", location: "http://127.0.0.1:8080/mirror", want: "http://127.0.0.1:8080/mirror"},
 		{name: "http to IPv6 loopback", location: "http://[::1]:8080", want: "http://[::1]:8080"},
 		{name: "directory", location: abs, want: abs},
 		{name: "file URL", location: fileURL(abs), want: abs},
-		{name: "http to a host", location: "http://releases.example.com/starfix", refusal: "https"},
+		{name: "http to a host", location: "http://releases.example.com/aries", refusal: "https"},
 		{name: "http to a name that says loopback", location: "http://127.0.0.1.example.com/", refusal: "https"},
 		{name: "http to localhost by name", location: "http://localhost:8080/", refusal: "https"},
-		{name: "another scheme", location: "ftp://releases.example.com/starfix", refusal: "https"},
-		{name: "no scheme", location: "releases.example.com/starfix", refusal: "https"},
-		{name: "relative directory", location: "mirror/starfix", refusal: "absolute"},
-		{name: "https with no host", location: "https:///starfix", refusal: "host"},
+		{name: "another scheme", location: "ftp://releases.example.com/aries", refusal: "https"},
+		{name: "no scheme", location: "releases.example.com/aries", refusal: "https"},
+		{name: "relative directory", location: "mirror/aries", refusal: "absolute"},
+		{name: "https with no host", location: "https:///aries", refusal: "host"},
 		{name: "a password in the URL", location: "https://alice:hunter2@releases.example.com/", refusal: "user name or password"}, //nolint:gosec // an invented password, which the refusal must not repeat
 		{name: "a query", location: "https://releases.example.com/?token=hunter2", refusal: "query"},
 		{name: "a fragment", location: "https://releases.example.com/#x", refusal: "query"},
@@ -168,8 +168,8 @@ func TestOpen(t *testing.T) {
 }
 
 // TestDefaultSource pins the one line that says where releases come
-// from. Changing release.DefaultSource to the bucket's URL moves sfx and
-// starfixd; install.sh has its own copy, which must say the same.
+// from. Changing release.DefaultSource to the bucket's URL moves aries and
+// ariesd; install.sh has its own copy, which must say the same.
 func TestDefaultSource(t *testing.T) {
 	t.Parallel()
 	def, err := release.Open(release.DefaultSource, nil)
@@ -251,11 +251,11 @@ func TestStaticHostileHost(t *testing.T) {
 				tr.Move("v1.1.0", "v9.9.9")
 				tr.SetIndex(`{"format": 1, "releases": [{"tag": "v9.9.9"}]}`)
 			},
-			wantLatest: "v9.9.9", wantErr: release.ErrNotFound, wantText: "does not list sfx_9.9.9_linux_amd64.tar.gz"},
+			wantLatest: "v9.9.9", wantErr: release.ErrNotFound, wantText: "does not list aries_9.9.9_linux_amd64.tar.gz"},
 		{name: "an older release's archive under the new name too",
 			edit: func(_ *testing.T, tr *releasetest.Tree) {
 				tr.Move("v1.1.0", "v9.9.9")
-				tr.Set("v9.9.9/sfx_9.9.9_linux_amd64.tar.gz", tr.File("v1.1.0/sfx_1.1.0_linux_amd64.tar.gz"))
+				tr.Set("v9.9.9/aries_9.9.9_linux_amd64.tar.gz", tr.File("v1.1.0/aries_1.1.0_linux_amd64.tar.gz"))
 				tr.SetIndex(`{"format": 1, "releases": [{"tag": "v9.9.9"}]}`)
 			},
 			wantLatest: "v9.9.9", wantErr: release.ErrNotFound, wantText: "does not list"},
@@ -323,13 +323,13 @@ func TestStaticHostileHost(t *testing.T) {
 			wantText: "redirect", only: []string{"/v1.2.0/checksums.txt"}},
 		{name: "archive changed after signing",
 			edit: func(t *testing.T, tr *releasetest.Tree) {
-				tr.Set("v1.2.0/sfx_1.2.0_linux_amd64.tar.gz", releasetest.TarGz(t, "sfx", []byte("evil")))
+				tr.Set("v1.2.0/aries_1.2.0_linux_amd64.tar.gz", releasetest.TarGz(t, "aries", []byte("evil")))
 			},
 			wantLatest: "v1.2.0", wantErr: release.ErrMismatch},
 		{name: "checksums changed to match a changed archive",
 			edit: func(t *testing.T, tr *releasetest.Tree) {
 				sig := tr.File("v1.2.0/checksums.txt.sig")
-				tr.Set("v1.2.0/sfx_1.2.0_linux_amd64.tar.gz", releasetest.TarGz(t, "sfx", []byte("evil")))
+				tr.Set("v1.2.0/aries_1.2.0_linux_amd64.tar.gz", releasetest.TarGz(t, "aries", []byte("evil")))
 				tr.Sign("v1.2.0")
 				tr.Set("v1.2.0/checksums.txt.sig", sig)
 			},
@@ -340,7 +340,7 @@ func TestStaticHostileHost(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				tr.Set("v1.2.0/sfx_1.2.0_linux_amd64.tar.gz", releasetest.TarGz(t, "sfx", []byte("evil")))
+				tr.Set("v1.2.0/aries_1.2.0_linux_amd64.tar.gz", releasetest.TarGz(t, "aries", []byte("evil")))
 				tr.Key = other
 				tr.Sign("v1.2.0")
 			},
@@ -398,9 +398,9 @@ func TestStaticHostileHost(t *testing.T) {
 			if err != nil || rel.Tag != tc.wantLatest {
 				t.Fatalf("Latest() = %+v, %v, want %s", rel, err, tc.wantLatest)
 			}
-			got, err := c.Fetch(t.Context(), rel, "sfx", "linux", "amd64")
+			got, err := c.Fetch(t.Context(), rel, "aries", "linux", "amd64")
 			if tc.wantErr == nil && tc.wantText == "" {
-				if want := "sfx " + rel.Tag; err != nil || string(got) != want {
+				if want := "aries " + rel.Tag; err != nil || string(got) != want {
 					t.Errorf("Fetch(%s) = %q, %v, want %q", rel.Tag, got, err, want)
 				}
 				return
@@ -452,7 +452,7 @@ func TestStaticDirectoryConfined(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, err := c.Fetch(t.Context(), rel, "sfx", "linux", "amd64"); err == nil {
+	if got, err := c.Fetch(t.Context(), rel, "aries", "linux", "amd64"); err == nil {
 		t.Errorf("Fetch through a link out of the mirror = %q, want an error", got)
 	}
 }

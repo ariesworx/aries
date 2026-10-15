@@ -23,8 +23,8 @@ func TestAdminTrail(t *testing.T) {
 
 	// A server admin disables alice, and is told what she left.
 	r := dana.run("v0.2.0", "admin", "principal", "disable", "alice")
-	const warning = "sfx: warning: alice added 1 key that is still in the store, created 1 principal and added 1 membership, and disabling alice undoes none of them: " +
-		"review them with `sfx admin key list --added-by alice`, `sfx admin principal list --created-by alice` and `sfx admin member list --added-by alice`\n"
+	const warning = "aries: warning: alice added 1 key that is still in the store, created 1 principal and added 1 membership, and disabling alice undoes none of them: " +
+		"review them with `aries admin key list --added-by alice`, `aries admin principal list --created-by alice` and `aries admin member list --added-by alice`\n"
 	if r.code != cli.ExitOK || r.stdout != "alice: disabled\n" || r.stderr != warning {
 		t.Errorf("principal disable of an admin who added things: exit %d\nstdout %q\nstderr %q\nwant    %q", r.code, r.stdout, r.stderr, warning)
 	}

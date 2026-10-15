@@ -24,7 +24,7 @@ import (
 // releasesURL lists the releases, for fix lines.
 const releasesURL = "https://github.com/" + release.Repo + "/releases"
 
-// upgradeDeps is everything `starfixd upgrade` reaches outside the
+// upgradeDeps is everything `ariesd upgrade` reaches outside the
 // process, so tests can replace each piece.
 type upgradeDeps struct {
 	// current is the running version.
@@ -34,7 +34,7 @@ type upgradeDeps struct {
 	// euid is the effective user id; upgrade refuses root.
 	euid func() int
 	// releases finds, downloads and verifies releases. Nil reads the
-	// source that $STARFIX_RELEASES or the releases setting names, which
+	// source that $ARIES_RELEASES or the releases setting names, which
 	// is release.DefaultSource when neither is set, verifying with
 	// verifier.
 	releases *release.Client
@@ -79,7 +79,7 @@ func osUpgradeDeps() upgradeDeps {
 	}
 }
 
-// upgradeCmd runs `starfixd upgrade [--check] [--to vX.Y.Z] [--rollback] [--restart]`.
+// upgradeCmd runs `ariesd upgrade [--check] [--to vX.Y.Z] [--rollback] [--restart]`.
 func upgradeCmd(ctx context.Context, env adminEnv, d upgradeDeps, args []string) error {
 	var fl server.Settings
 	var cfgPath, to string
@@ -89,7 +89,7 @@ func upgradeCmd(ctx context.Context, env adminEnv, d upgradeDeps, args []string)
 		fs.BoolVar(&check, "check", false, "print whether an upgrade is available; change nothing")
 		fs.StringVar(&to, "to", "", "upgrade to this release instead of the latest")
 		fs.BoolVar(&rollback, "rollback", false, "restore the binary the last upgrade replaced")
-		fs.BoolVar(&restart, "restart", false, "restart the systemd unit (systemd_unit, default starfixd) and health-check it")
+		fs.BoolVar(&restart, "restart", false, "restart the systemd unit (systemd_unit, default ariesd) and health-check it")
 	})
 	if err != nil {
 		return err
@@ -103,7 +103,7 @@ func upgradeCmd(ctx context.Context, env adminEnv, d upgradeDeps, args []string)
 		return usageError(fmt.Sprintf("--to %q is not a release version (vMAJOR.MINOR.PATCH)", to))
 	}
 	if d.goos != "linux" {
-		return errors.New("starfixd upgrade runs on the Linux server only; fix: run it there, as the user starfixd runs as")
+		return errors.New("ariesd upgrade runs on the Linux server only; fix: run it there, as the user ariesd runs as")
 	}
 	s, err := server.ResolveSettings(fl, cfgPath, env.getenv)
 	if err != nil {
@@ -111,16 +111,16 @@ func upgradeCmd(ctx context.Context, env adminEnv, d upgradeDeps, args []string)
 	}
 	unit := s.SystemdUnit
 	if restart && unit == "" {
-		unit = "starfixd"
+		unit = "ariesd"
 	}
 	if !check && d.euid() == 0 {
-		return errors.New("starfixd upgrade refuses to run as root: the new binary would be root's, and the health check " +
-			"must connect as the daemon's user; fix: run it as that user (sudo -u USER starfixd upgrade)")
+		return errors.New("ariesd upgrade refuses to run as root: the new binary would be root's, and the health check " +
+			"must connect as the daemon's user; fix: run it as that user (sudo -u USER ariesd upgrade)")
 	}
 	exe := d.exe
 	if exe == "" && !check {
 		if exe, err = release.Executable(); err != nil {
-			return fmt.Errorf("%w; fix: run the installed starfixd, not a temporary build", err)
+			return fmt.Errorf("%w; fix: run the installed ariesd, not a temporary build", err)
 		}
 	}
 	if rollback {
@@ -152,18 +152,18 @@ func upgradeCmd(ctx context.Context, env adminEnv, d upgradeDeps, args []string)
 		case !ok:
 			state = "dev build; install a release to upgrade"
 		case cmp < 0:
-			state = "run starfixd upgrade"
+			state = "run ariesd upgrade"
 		}
-		_, _ = fmt.Fprintf(env.stdout, "starfixd %s, %s %s: %s\n", cur, targetWord(to), rel.Tag, state)
+		_, _ = fmt.Fprintf(env.stdout, "ariesd %s, %s %s: %s\n", cur, targetWord(to), rel.Tag, state)
 		if d.clock != nil {
 			// What the next start would find, upgraded or not.
 			err := d.clock(ctx, env, fl, cfgPath)
 			behind, isBehind := errors.AsType[*server.ClockBehindError](err)
 			switch {
 			case isBehind && s.ClockBehind == server.ClockStop:
-				_, _ = fmt.Fprintf(env.stdout, "clock: STARFIXD WILL NOT START AGAIN as things are: %v\n", behind)
+				_, _ = fmt.Fprintf(env.stdout, "clock: ARIESD WILL NOT START AGAIN as things are: %v\n", behind)
 			case isBehind:
-				_, _ = fmt.Fprintf(env.stdout, "clock: starfixd will start with a warning (clock_behind: warn): %v\n", behind)
+				_, _ = fmt.Fprintf(env.stdout, "clock: ariesd will start with a warning (clock_behind: warn): %v\n", behind)
 			case err != nil:
 				_, _ = fmt.Fprintf(env.stdout, "clock: not checked against the server's history: %v\n", err)
 			default:
@@ -174,18 +174,18 @@ func upgradeCmd(ctx context.Context, env adminEnv, d upgradeDeps, args []string)
 	}
 	switch {
 	case !ok:
-		return fmt.Errorf("this starfixd is a development build (%s), which never upgrades itself; fix: install a release from %s", cur, releasesURL)
+		return fmt.Errorf("this ariesd is a development build (%s), which never upgrades itself; fix: install a release from %s", cur, releasesURL)
 	case cmp == 0:
-		_, _ = fmt.Fprintf(env.stdout, "starfixd %s is up to date\n", cur)
+		_, _ = fmt.Fprintf(env.stdout, "ariesd %s is up to date\n", cur)
 		return nil
 	case cmp > 0 && to == "":
-		_, _ = fmt.Fprintf(env.stdout, "starfixd %s is up to date (newer than the latest release, %s)\n", cur, rel.Tag)
+		_, _ = fmt.Fprintf(env.stdout, "ariesd %s is up to date (newer than the latest release, %s)\n", cur, rel.Tag)
 		return nil
 	case cmp > 0:
 		return fmt.Errorf("%s is older than the running %s, and migrations only go forward; fix: use --rollback to return to the binary the last upgrade replaced", to, cur)
 	}
 
-	bin, err := rels.Fetch(ctx, rel, "starfixd", d.goos, d.goarch)
+	bin, err := rels.Fetch(ctx, rel, "ariesd", d.goos, d.goarch)
 	if err != nil {
 		return fetchFailure(rel.Tag, err)
 	}
@@ -197,14 +197,14 @@ func upgradeCmd(ctx context.Context, env adminEnv, d upgradeDeps, args []string)
 			// The restarted daemon would refuse to start, and the health
 			// check would then blame the release and put the old binary
 			// back.
-			return fmt.Errorf("nothing was changed: starfixd would not start again after this upgrade, whatever its version: %w", behind)
+			return fmt.Errorf("nothing was changed: ariesd would not start again after this upgrade, whatever its version: %w", behind)
 		case isBehind:
-			_, _ = fmt.Fprintf(env.stderr, "starfixd: warning: %v\n", behind)
+			_, _ = fmt.Fprintf(env.stderr, "ariesd: warning: %v\n", behind)
 		case err != nil:
 			return fmt.Errorf("check the clock against the server's history before upgrading: %w; fix: nothing was changed; make sure dolt sql-server is running and retry", err)
 		}
 	}
-	tag, err := d.backup(ctx, env, fl, cfgPath, "starfix-"+cur)
+	tag, err := d.backup(ctx, env, fl, cfgPath, "aries-"+cur)
 	if err != nil {
 		return fmt.Errorf("backup before upgrade: %w; fix: nothing was changed; make sure dolt sql-server is running and retry", err)
 	}
@@ -213,31 +213,31 @@ func upgradeCmd(ctx context.Context, env adminEnv, d upgradeDeps, args []string)
 		return swapFailure(exe, err)
 	}
 	if unit == "" {
-		_, _ = fmt.Fprintf(env.stdout, "installed starfixd %s (was %s; backup tag %s); restart it to run the new version: sudo systemctl restart starfixd\n",
+		_, _ = fmt.Fprintf(env.stdout, "installed ariesd %s (was %s; backup tag %s); restart it to run the new version: sudo systemctl restart ariesd\n",
 			rel.Tag, cur, tag)
 		return nil
 	}
 	herr := restartHealthy(ctx, d, s, unit, rel.Tag)
 	if herr == nil {
-		_, _ = fmt.Fprintf(env.stdout, "starfixd upgraded %s -> %s (backup tag %s; %s restarted and healthy)\n", cur, rel.Tag, tag, unit)
+		_, _ = fmt.Fprintf(env.stdout, "ariesd upgraded %s -> %s (backup tag %s; %s restarted and healthy)\n", cur, rel.Tag, tag, unit)
 		return nil
 	}
 	// Put the old binary back and restart it, then say what happened.
 	if err := swap.Rollback(); err != nil {
-		return fmt.Errorf("starfixd %s is unhealthy (%w), and restoring %s failed: %w; fix: copy %s over %s by hand, then restart %s",
+		return fmt.Errorf("ariesd %s is unhealthy (%w), and restoring %s failed: %w; fix: copy %s over %s by hand, then restart %s",
 			rel.Tag, herr, cur, err, swap.Prev(), exe, unit)
 	}
 	if err := restartHealthy(ctx, d, s, unit, cur); err != nil {
-		return fmt.Errorf("starfixd %s is unhealthy (%w); restored %s, which is not healthy either (%w); fix: check `journalctl -u %s`; the data is tagged %s",
+		return fmt.Errorf("ariesd %s is unhealthy (%w); restored %s, which is not healthy either (%w); fix: check `journalctl -u %s`; the data is tagged %s",
 			rel.Tag, herr, cur, err, unit, tag)
 	}
-	return fmt.Errorf("starfixd %s is unhealthy (%w); restored %s, which is running; fix: check `journalctl -u %s` and report it at %s",
+	return fmt.Errorf("ariesd %s is unhealthy (%w); restored %s, which is running; fix: check `journalctl -u %s` and report it at %s",
 		rel.Tag, herr, cur, unit, releasesURL)
 }
 
 // upgradeSource returns d.releases, or the client for the source that
-// $STARFIX_RELEASES names, then the releases setting, then
-// release.DefaultSource. The variable is the one sfx and install.sh read.
+// $ARIES_RELEASES names, then the releases setting, then
+// release.DefaultSource. The variable is the one aries and install.sh read.
 func upgradeSource(env adminEnv, d upgradeDeps, s server.Settings) (*release.Client, error) {
 	if d.releases != nil {
 		return d.releases, nil
@@ -273,13 +273,13 @@ func upgradeRollback(ctx context.Context, env adminEnv, d upgradeDeps, s server.
 		return swapFailure(exe, err)
 	}
 	if unit == "" {
-		_, _ = fmt.Fprintf(env.stdout, "restored the previous starfixd at %s; restart it to run it: sudo systemctl restart starfixd\n", exe)
+		_, _ = fmt.Fprintf(env.stdout, "restored the previous ariesd at %s; restart it to run it: sudo systemctl restart ariesd\n", exe)
 		return nil
 	}
 	if err := restartHealthy(ctx, d, s, unit, ""); err != nil {
-		return fmt.Errorf("restored the previous starfixd, but it is not healthy: %w; fix: check `journalctl -u %s`", err, unit)
+		return fmt.Errorf("restored the previous ariesd, but it is not healthy: %w; fix: check `journalctl -u %s`", err, unit)
 	}
-	_, _ = fmt.Fprintf(env.stdout, "restored the previous starfixd; %s restarted and healthy\n", unit)
+	_, _ = fmt.Fprintf(env.stdout, "restored the previous ariesd; %s restarted and healthy\n", unit)
 	return nil
 }
 
@@ -338,7 +338,7 @@ func systemctlRestart(ctx context.Context, unit string) error {
 }
 
 // backupStore commits every write so far to the daemon's database and tags
-// the commit tag (starfix-<old version>). It returns the tag made: tag, or
+// the commit tag (aries-<old version>). It returns the tag made: tag, or
 // tag-<UTC time> when tag already marks an older commit
 // (store.Store.BackupTag).
 //
@@ -363,7 +363,7 @@ func backupStore(ctx context.Context, env adminEnv, fl server.Settings, cfgPath,
 		return name, closeStore(err, st)
 	}
 	if s.DSN == "" {
-		return "", errors.New("no database DSN; fix: set $STARFIXD_DSN or dsn: in the config file")
+		return "", errors.New("no database DSN; fix: set $ARIESD_DSN or dsn: in the config file")
 	}
 	ctl, err := openControl(ctx, s, store.ControlOptions{CommitInterval: -1})
 	if err != nil {
@@ -413,19 +413,19 @@ func backupProject(ctx context.Context, s server.Settings, p store.Project, tag 
 func fetchFailure(tag string, err error) error {
 	switch {
 	case errors.Is(err, release.ErrNoKey):
-		return fmt.Errorf("cannot verify starfixd %s: %w; fix: nothing was changed; this build cannot verify releases, so install one by hand (README, Install)", tag, err)
+		return fmt.Errorf("cannot verify ariesd %s: %w; fix: nothing was changed; this build cannot verify releases, so install one by hand (README, Install)", tag, err)
 	case errors.Is(err, release.ErrSignature), errors.Is(err, release.ErrMismatch):
-		return fmt.Errorf("starfixd %s failed verification: %w; fix: nothing was changed; do not install it by hand, and report it at %s", tag, err, releasesURL)
+		return fmt.Errorf("ariesd %s failed verification: %w; fix: nothing was changed; do not install it by hand, and report it at %s", tag, err, releasesURL)
 	case errors.Is(err, release.ErrNotFound):
-		return fmt.Errorf("starfixd %s: %w; fix: nothing was changed; pick a release with a linux build, or build from source", tag, err)
+		return fmt.Errorf("ariesd %s: %w; fix: nothing was changed; pick a release with a linux build, or build from source", tag, err)
 	}
-	return fmt.Errorf("download starfixd %s: %w; fix: nothing was changed; check the network (HTTPS_PROXY is honored) and retry", tag, err)
+	return fmt.Errorf("download ariesd %s: %w; fix: nothing was changed; check the network (HTTPS_PROXY is honored) and retry", tag, err)
 }
 
 // swapFailure explains a failed install or rollback of exe.
 func swapFailure(exe string, err error) error {
 	if errors.Is(err, fs.ErrPermission) {
-		return fmt.Errorf("cannot replace %s: %w; fix: run as the user who owns %s (the user starfixd runs as)", exe, err, filepath.Dir(exe))
+		return fmt.Errorf("cannot replace %s: %w; fix: run as the user who owns %s (the user ariesd runs as)", exe, err, filepath.Dir(exe))
 	}
 	return fmt.Errorf("replace %s: %w; fix: retry; if it persists, reinstall from %s", exe, err, releasesURL)
 }

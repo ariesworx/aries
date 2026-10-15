@@ -24,20 +24,20 @@ import (
 	"github.com/ariesworx/aries/internal/proto"
 )
 
-// EnvDataDir names the directory sfx keeps its outboxes in, in place of
+// EnvDataDir names the directory aries keeps its outboxes in, in place of
 // the user's data directory. It must be an absolute path. Tests set it,
 // so that none touches a person's own.
-const EnvDataDir = "STARFIX_DATA_DIR"
+const EnvDataDir = "ARIES_DATA_DIR"
 
-// DataDir returns the directory sfx keeps its own data in on goos:
-// EnvDataDir's when set, else "starfix" under the user's data directory,
+// DataDir returns the directory aries keeps its own data in on goos:
+// EnvDataDir's when set, else "aries" under the user's data directory,
 // which on Windows is the local application data directory and never the
 // roaming one (doc.go, "Where"). It makes nothing. A refusal names
 // EnvDataDir in its fix.
 func DataDir(goos string, getenv func(string) string, home func() (string, error)) (string, error) {
 	refuse := func(msg string) (string, error) {
 		return "", proto.Errf(proto.CodeUnavailable,
-			"set "+EnvDataDir+" to the absolute path of a directory of your own, on a local disk, for sfx to keep its outbox in", msg)
+			"set "+EnvDataDir+" to the absolute path of a directory of your own, on a local disk, for aries to keep its outbox in", msg)
 	}
 	if d := getenv(EnvDataDir); d != "" {
 		if !filepath.IsAbs(d) {
@@ -47,21 +47,21 @@ func DataDir(goos string, getenv func(string) string, home func() (string, error
 	}
 	if goos == "windows" {
 		if d := getenv("LocalAppData"); filepath.IsAbs(d) {
-			return filepath.Join(d, "starfix"), nil
+			return filepath.Join(d, "aries"), nil
 		}
 		return refuse("LocalAppData is not set, so there is no local application data directory to keep an outbox in")
 	}
 	if d := getenv("XDG_DATA_HOME"); goos != "darwin" && filepath.IsAbs(d) {
-		return filepath.Join(d, "starfix"), nil
+		return filepath.Join(d, "aries"), nil
 	}
 	h, err := home()
 	if err != nil || h == "" {
 		return refuse("there is no home directory to keep an outbox under")
 	}
 	if goos == "darwin" {
-		return filepath.Join(h, "Library", "Application Support", "starfix"), nil
+		return filepath.Join(h, "Library", "Application Support", "aries"), nil
 	}
-	return filepath.Join(h, ".local", "share", "starfix"), nil
+	return filepath.Join(h, ".local", "share", "aries"), nil
 }
 
 // The files of a server and project's directory, beside its outboxes.
@@ -107,7 +107,7 @@ type seen struct {
 	// took it for.
 	Keys map[string]keyNote `json:"keys,omitempty"`
 	// Unconfigured is the fingerprint the server accepted the last time
-	// sfx connected with no key configured, having offered several.
+	// aries connected with no key configured, having offered several.
 	Unconfigured string `json:"unconfigured,omitempty"`
 	// Addr is where the config said the server was at the last handshake
 	// ([Address]): what tells a server rebuilt with a new host key for
@@ -222,7 +222,7 @@ func record(dir, server, project string) (seen, bool) {
 	if private(dir) != nil {
 		return seen{}, false
 	}
-	b, err := os.ReadFile(filepath.Join(dir, seenFile)) //nolint:gosec // sfx's own file, in a directory checked to be the user's
+	b, err := os.ReadFile(filepath.Join(dir, seenFile)) //nolint:gosec // aries's own file, in a directory checked to be the user's
 	if err != nil {
 		return seen{}, false
 	}
@@ -238,7 +238,7 @@ func record(dir, server, project string) (seen, bool) {
 // principal's name is the server's) and so name no file themselves.
 func hashed(kind string, parts ...string) string {
 	h := sha256.New()
-	h.Write([]byte("starfix " + kind))
+	h.Write([]byte("aries " + kind))
 	for _, p := range parts {
 		h.Write([]byte{0})
 		h.Write([]byte(p))
@@ -259,9 +259,9 @@ func (l *Local) outboxDir(principal string) string {
 // alone: owned by someone else, or readable or writable by the group or
 // by others, as a key file is checked (client.OwnedByUser). What is kept
 // here is who a person is to a server and the text of what they wrote.
-// It changes no mode: a directory that is open was not made by sfx, or
+// It changes no mode: a directory that is open was not made by aries, or
 // was opened since, and either is for its owner to see to. A directory
-// that is not there yet passes: sfx makes it 0700.
+// that is not there yet passes: aries makes it 0700.
 //
 // On Windows nothing is checked: ownership and access are in ACLs, which
 // this does not read. The local application data directory is the
@@ -286,7 +286,7 @@ func private(dirs ...string) error {
 		if why != "" {
 			return proto.Errf(proto.CodeUnavailable,
 				fmt.Sprintf("if it is yours, `chmod 700 %s`; otherwise set %s to a directory of your own", dir, EnvDataDir),
-				"sfx keeps its outbox only in a directory that is yours alone: "+why)
+				"aries keeps its outbox only in a directory that is yours alone: "+why)
 		}
 	}
 	return nil
@@ -307,7 +307,7 @@ func (l *Local) ready(create bool, outboxOf string) error {
 		return nil
 	}
 	// The data directory's parents are the system's; the two below are
-	// sfx's own, and the outbox makes its own the same way.
+	// aries's own, and the outbox makes its own the same way.
 	if err := os.MkdirAll(l.root, 0o700); err != nil {
 		return err
 	}
@@ -355,7 +355,7 @@ func (l *Local) replace(name string, data []byte) error {
 
 // Reached notes that the server took the key with this fingerprint for
 // principal, at a handshake, and spoke protocol; configured says the key
-// was the one STARFIX_KEY_FILE or `key:` names, and not one of several
+// was the one ARIES_KEY_FILE or `key:` names, and not one of several
 // offered. It returns who the key was noted for before, when that was
 // someone else:
 // the server has moved the key, and what the other principal queued with
@@ -441,7 +441,7 @@ func (l *Local) LastMissed() time.Time {
 }
 
 // Principal returns who a write belongs to while the server cannot say,
-// from the fingerprints of the keys sfx would offer, in order.
+// from the fingerprints of the keys aries would offer, in order.
 //
 // With a key configured, which is then the only one offered, it is the
 // principal the server last took that key for. With none configured,
@@ -476,7 +476,7 @@ func (l *Local) Principals() []string {
 	if l.ready(false, "") == nil {
 		owners, _ := filepath.Glob(filepath.Join(l.dir, "outbox-*"+ownerSuffix)) // the pattern is well formed
 		for _, f := range owners {
-			b, err := os.ReadFile(f) //nolint:gosec // sfx's own file, in a directory checked to be the user's
+			b, err := os.ReadFile(f) //nolint:gosec // aries's own file, in a directory checked to be the user's
 			if p := strings.TrimSpace(string(b)); err == nil && l.outboxDir(p)+ownerSuffix == f {
 				set[p] = true
 			}
@@ -558,7 +558,7 @@ func (e *notQueued) Unwrap() []error {
 
 // Kept is a write that is in an outbox.
 type Kept struct {
-	// Entry is the write as stored; its Seq is the number `sfx outbox`
+	// Entry is the write as stored; its Seq is the number `aries outbox`
 	// shows.
 	Entry outbox.Entry
 	// Principal is whose outbox it is in.
@@ -598,12 +598,12 @@ func (l *Local) Keep(principal string, e outbox.Entry, reach error) (Kept, error
 	if principal == "" {
 		return refuse(proto.CodeUnavailable, nil,
 			rerun+"; a write is queued for later only once a command of yours has reached the server from this machine with this key",
-			"this machine has never reached the server with this key, so sfx cannot tell whose write it is")
+			"this machine has never reached the server with this key, so aries cannot tell whose write it is")
 	}
 	// A server that cannot apply the op once is never sent it later
 	// (design §18.5): what it spoke last is what it is taken to speak.
 	if spoke := cmp.Or(l.read().Proto, f1Proto); !proto.Keyed(e.Op, spoke) && outbox.Queueable(e.Op) {
-		return refuse(proto.CodeUnavailable, nil, rerun+"; the server's operator can run `starfixd upgrade` so that such writes are kept",
+		return refuse(proto.CodeUnavailable, nil, rerun+"; the server's operator can run `ariesd upgrade` so that such writes are kept",
 			fmt.Sprintf("the server spoke protocol %d when last reached, which takes no idempotency key for %s, so it could apply it twice", spoke, e.Op))
 	}
 	ob, err := l.Outbox(principal)
@@ -621,7 +621,7 @@ func (l *Local) Keep(principal string, e outbox.Entry, reach error) (Kept, error
 	case err == nil:
 	case errors.Is(err, outbox.ErrFull):
 		return refuse(proto.CodeBusy, err,
-			rerun+", which also sends what waits; `sfx outbox` lists it, and `sfx outbox drop N` removes an entry that is no longer wanted",
+			rerun+", which also sends what waits; `aries outbox` lists it, and `aries outbox drop N` removes an entry that is no longer wanted",
 			why(outbox.ErrFull))
 	case errors.Is(err, outbox.ErrTooLarge):
 		return refuse(proto.CodeInvalid, err, "shorten its text and run it again, or "+rerun, why(outbox.ErrTooLarge))
@@ -685,7 +685,7 @@ func (l *Local) Replay(ctx context.Context, c Conn) (outbox.Report, error) {
 			// Sent at least once, it could apply twice (design §18.5).
 			return outbox.Outcome{Refused: true, Code: string(proto.CodeVersion),
 				Message: fmt.Sprintf("not sent: the server speaks protocol %d, which takes no idempotency key for %s, so it could apply it twice", spoke, e.Op),
-				Fix: fmt.Sprintf("once the server runs a starfixd of protocol %d or later, `sfx outbox retry %d` sends it; or make the change by hand now, and `sfx outbox drop %d`",
+				Fix: fmt.Sprintf("once the server runs an ariesd of protocol %d or later, `aries outbox retry %d` sends it; or make the change by hand now, and `aries outbox drop %d`",
 					proto.ProtoKeys, e.Seq, e.Seq)}, nil
 		}
 		var merged proto.UpdateResult
@@ -748,7 +748,7 @@ type Former struct {
 	// HostKey is the host key it was kept under.
 	HostKey string
 	// Address is where the server was then, or "" when the record is
-	// from an sfx that did not note it.
+	// from an aries that did not note it.
 	Address string
 	// Local is what was kept, to read, and to drop from.
 	Local *Local
@@ -800,7 +800,7 @@ var (
 // under a host key the server no longer has ([Local.Rekeyed]), to that
 // principal's outbox here, where it waits to be sent like any other, with
 // its op, arguments and idempotency key, and returns it as stored here.
-// A person decides that, never sfx: it is [ErrOtherAddress] unless from
+// A person decides that, never aries: it is [ErrOtherAddress] unless from
 // was kept for a server at this one's address, which is what says it is
 // the same server. The entry is added here before it leaves from, so a
 // failure between the two leaves it in both, and its key makes the
@@ -868,7 +868,7 @@ func (l *Local) Ended(principal string, pe *proto.Error) (int, error) {
 	return n, err
 }
 
-// f1Proto is the protocol of a server whose record names none: the sfx
+// f1Proto is the protocol of a server whose record names none: the aries
 // that wrote it, of slice F1, noted no protocol, and spoke 5.
 const f1Proto = 5
 

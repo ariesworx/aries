@@ -75,7 +75,7 @@ func TestReadChanges(t *testing.T) {
 	commit(t, dir, "on main, before the branch", "main.go")
 	repoGit(t, dir, "switch", "-q", "-c", "feature/sf-a1b2-paths")
 	commit(t, dir, "first", "docs/design notes/a b.md", "internal/x.go")
-	commit(t, dir, "second\n\nStarfix: sf-c3d4\n", "café/naïve.go", "internal/x.go")
+	commit(t, dir, "second\n\nAries: sf-c3d4\n", "café/naïve.go", "internal/x.go")
 	commit(t, dir, "third", "internal/y.go")
 	write(t, dir, ".gitignore", "*.log\n")
 	repoGit(t, dir, "add", ".gitignore")
@@ -114,7 +114,7 @@ func TestReadChangesTrailerOnly(t *testing.T) {
 	t.Parallel()
 	dir := newRepo(t)
 	repoGit(t, dir, "switch", "-q", "-c", "feature/refactor")
-	commit(t, dir, "part of it\n\nStarfix: sf-a1b2", "a.go")
+	commit(t, dir, "part of it\n\nAries: sf-a1b2", "a.go")
 	commit(t, dir, "unrelated", "b.go")
 	write(t, dir, "c.go", "uncommitted")
 

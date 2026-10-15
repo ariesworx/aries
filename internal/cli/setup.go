@@ -15,7 +15,7 @@ import (
 	"github.com/ariesworx/aries/internal/proto"
 )
 
-// cmdSetup prints, or with --write makes, an agent's starfix setup: the
+// cmdSetup prints, or with --write makes, an agent's Aries setup: the
 // MCP registration, the pointer block in its instruction file and, where
 // the harness has them, the SessionStart hook and Claude Code's usage
 // hooks. With --all it does so for
@@ -26,12 +26,12 @@ func cmdSetup(_ context.Context, r *runner, args []string) error {
 	fs := r.newFlags("setup")
 	write := fs.Bool("write", false, "edit the files")
 	check := fs.Bool("check", false, "fail unless everything is in place")
-	remove := fs.Bool("remove", false, "take starfix out of the files")
+	remove := fs.Bool("remove", false, "take aries out of the files")
 	global := fs.Bool("global", false, "the user's files in the home directory, not the project's")
 	all := fs.Bool("all", false, "every supported agent")
 	entry := agentsetup.DefaultEntry
-	fs.StringVar(&entry.Command, "command", entry.Command, "how the agent runs starfix")
-	keyFile := fs.String("key-file", "", "the key file the agent's sfx signs in with (STARFIX_KEY_FILE in its entry); only for your own files: --global, or a desktop app")
+	fs.StringVar(&entry.Command, "command", entry.Command, "how the agent runs aries")
+	keyFile := fs.String("key-file", "", "the key file the agent's aries signs in with (ARIES_KEY_FILE in its entry); only for your own files: --global, or a desktop app")
 	pos, err := parse(fs, args, usage)
 	if err != nil {
 		return err
@@ -107,9 +107,9 @@ func cmdSetup(_ context.Context, r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
-	again := "sfx setup " + names[0]
+	again := "aries setup " + names[0]
 	if *all {
-		again = "sfx setup --all"
+		again = "aries setup --all"
 	}
 	if *global {
 		again += " --global"
@@ -195,15 +195,15 @@ func (r *runner) keyFileNotes(plans []setupPlan, entry agentsetup.Entry, mode se
 			switch {
 			case had == "" || had == entry.KeyFile:
 			case mode.write:
-				_, _ = fmt.Fprintf(r.env.Stderr, "sfx: note: %s set %s=%s for %s, and this run replaces the entry: pass --key-file to keep or change it\n",
+				_, _ = fmt.Fprintf(r.env.Stderr, "aries: note: %s set %s=%s for %s, and this run replaces the entry: pass --key-file to keep or change it\n",
 					esc(f.rel), agentsetup.KeyFileEnv, esc(had), p.Name)
 			default:
-				_, _ = fmt.Fprintf(r.env.Stderr, "sfx: note: %s sets %s=%s for %s: pass --key-file %s to check for it\n",
+				_, _ = fmt.Fprintf(r.env.Stderr, "aries: note: %s sets %s=%s for %s: pass --key-file %s to check for it\n",
 					esc(f.rel), agentsetup.KeyFileEnv, esc(had), p.Name, esc(had))
 			}
 		}
 		if entry.KeyFile != "" && hooks && mode.write {
-			_, _ = fmt.Fprintf(r.env.Stderr, "sfx: note: %s's hooks run with its own environment, not the MCP entry's: set %s there too (your shell's profile), or the hooks sign in as whoever your default keys are; `sfx prime` names the principal and the key\n",
+			_, _ = fmt.Fprintf(r.env.Stderr, "aries: note: %s's hooks run with its own environment, not the MCP entry's: set %s there too (your shell's profile), or the hooks sign in as whoever your default keys are; `aries prime` names the principal and the key\n",
 				p.Title, agentsetup.KeyFileEnv)
 		}
 	}
@@ -238,7 +238,7 @@ func (r *runner) applySetup(plans []setupPlan, entry agentsetup.Entry, mode setu
 		}
 		if len(missing) > 0 {
 			return proto.Errf(proto.CodeNotFound, "run `"+again+" --write`",
-				"starfix is not set up for "+strings.Join(missing, "; "))
+				"aries is not set up for "+strings.Join(missing, "; "))
 		}
 		r.report(plans, all, "registered")
 		return nil
@@ -266,7 +266,7 @@ func (r *runner) applySetup(plans []setupPlan, entry agentsetup.Entry, mode setu
 				continue
 			}
 			f.disk.cur = out
-			// An emptied pointer or hook file was starfix's alone; an
+			// An emptied pointer or hook file was Aries's alone; an
 			// emptied MCP config is kept, as the person's file.
 			f.disk.drop = len(out) == 0 && f.res == agentsetup.Removed && f.Kind != agentsetup.KindMCP
 		}
@@ -311,11 +311,11 @@ func hookList(events []string) string {
 
 // globalHookNote is said after setup adds or prints hooks in the home
 // directory. They run prime and usage, which dial the server named by the
-// .starfix.yaml of whatever repository the agent opens (C-14 in the
+// .aries.yaml of whatever repository the agent opens (C-14 in the
 // security review): a cloned repository chooses the host. Per-project
 // hooks have the same reach but are part of the repository the person
 // chose to set up.
-const globalHookNote = "These hooks run in every repository with a .starfix.yaml that you open with the agent, and connect to the server that file names; Claude Code's usage hooks send it the session's token counts. Turn them off before opening a repository you do not trust, or drop --global and set the hooks up per project."
+const globalHookNote = "These hooks run in every repository with a .aries.yaml that you open with the agent, and connect to the server that file names; Claude Code's usage hooks send it the session's token counts. Turn them off before opening a repository you do not trust, or drop --global and set the hooks up per project."
 
 // noGlobal is the message refusing --global for a, whose fix is
 // a.NoGlobal.
@@ -358,7 +358,7 @@ type diskFile struct {
 	orig, cur []byte
 	// mode is the file's permission bits, or a new file's.
 	mode fs.FileMode
-	// drop: the last edit emptied a file that held only starfix's part.
+	// drop: the last edit emptied a file that held only Aries's part.
 	drop bool
 }
 
@@ -508,9 +508,9 @@ func (r *runner) printSnippets(plan setupPlan, entry agentsetup.Entry, all, glob
 		p("# %s: skipped; fix: %s\n", agent.Title, plan.skipped)
 		return
 	}
-	again := "sfx setup " + agent.Name
+	again := "aries setup " + agent.Name
 	if all {
-		again = "sfx setup --all"
+		again = "aries setup --all"
 	}
 	if global {
 		again += " --global"
@@ -538,12 +538,12 @@ func (r *runner) printSnippets(plan setupPlan, entry agentsetup.Entry, all, glob
 	if agent.SessionEnv != "" {
 		p("\n# session id: read from %s\n", agent.SessionEnv)
 	} else {
-		p("\n# session id: %s gives sfx mcp none; sfx mcp picks its own per process (m-…) unless STARFIX_SESSION is set\n", agent.Title)
+		p("\n# session id: %s gives aries mcp none; aries mcp picks its own per process (m-…) unless ARIES_SESSION is set\n", agent.Title)
 	}
 }
 
 // setupRoot is the directory the targets are relative to: the root of the
-// repository that holds .starfix.yaml or, with global, the home directory.
+// repository that holds .aries.yaml or, with global, the home directory.
 // For a repository, it warns when this machine lacks a program needed to
 // reach the server (gcloud, for IAP).
 func (r *runner) setupRoot(global bool) (string, error) {
@@ -563,7 +563,7 @@ func (r *runner) setupRoot(global bool) (string, error) {
 	}
 	// The agent can be set up regardless, but it will not connect.
 	if pe, ok := errors.AsType[*proto.Error](cfg.CheckTransport()); ok {
-		_, _ = fmt.Fprintf(r.env.Stderr, "sfx: %s\nfix: %s\n", esc(pe.Message), esc(pe.Fix))
+		_, _ = fmt.Fprintf(r.env.Stderr, "aries: %s\nfix: %s\n", esc(pe.Message), esc(pe.Fix))
 	}
 	return cfg.Root, nil
 }

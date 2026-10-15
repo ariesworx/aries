@@ -25,9 +25,9 @@ import (
 )
 
 // DefaultConfigFile is read when it exists and no --config is given.
-const DefaultConfigFile = "/etc/starfix/starfixd.yaml"
+const DefaultConfigFile = "/etc/aries/ariesd.yaml"
 
-// Settings configure the starfixd commands: serve, stdio, upgrade, and the
+// Settings configure the ariesd commands: serve, stdio, upgrade, and the
 // admin commands control init, import-bd and export-bd.
 type Settings struct {
 	// DSN is the Dolt database (go-sql-driver/mysql form). It may hold a
@@ -38,12 +38,12 @@ type Settings struct {
 	// ControlDB names the control database, on the same Dolt server and
 	// account as DSN, and makes this a server of many projects (design
 	// §15): each project's database is then named by its row there, and
-	// DSN's, Project, Prefix and Account describe the project `starfixd
+	// DSN's, Project, Prefix and Account describe the project `ariesd
 	// control init` adopts, which the admin commands act on by default.
 	// Empty, the default, is a server of the one project in DSN.
 	ControlDB string `yaml:"control_db"`
 	// ProjectDBs is the block of database names granted to DSN's account
-	// for the projects `sfx admin project add` creates. It needs
+	// for the projects `aries admin project add` creates. It needs
 	// ControlDB.
 	ProjectDBs ProjectDBs `yaml:"project_dbs"`
 	// KeysFile is the file a server of many projects writes the control
@@ -51,12 +51,12 @@ type Settings struct {
 	// (design §15.2). AuthorizedKeys is the file of that form the
 	// operator maintains by hand, which the server reads to say which
 	// keys are in both, and never writes. A relative path is under the
-	// home directory of the user starfixd runs as ([Settings.KeyFiles]).
+	// home directory of the user ariesd runs as ([Settings.KeyFiles]).
 	// Defaults DefaultKeysFile and DefaultAuthorizedKeys. A server of
 	// one project uses neither.
 	KeysFile       string `yaml:"keys_file"`
 	AuthorizedKeys string `yaml:"authorized_keys"`
-	// Bridge is the path of starfixd in the forced command of each line
+	// Bridge is the path of ariesd in the forced command of each line
 	// of KeysFile. Default DefaultBridge.
 	Bridge string `yaml:"bridge"`
 	// Project is the UUID of the project served.
@@ -65,12 +65,12 @@ type Settings struct {
 	Prefix string `yaml:"prefix"`
 	// Latest is the latest release, set by hand on air-gapped servers.
 	Latest string `yaml:"latest"`
-	// SystemdUnit is the unit `starfixd upgrade` restarts. Empty means
+	// SystemdUnit is the unit `ariesd upgrade` restarts. Empty means
 	// upgrade installs the binary and leaves the restart to the admin,
 	// unless --restart is given.
 	SystemdUnit string `yaml:"systemd_unit"`
-	// Releases is where `starfixd upgrade` reads releases from, when the
-	// environment's STARFIX_RELEASES does not say: a location
+	// Releases is where `ariesd upgrade` reads releases from, when the
+	// environment's ARIES_RELEASES does not say: a location
 	// release.Open accepts. Empty means the default compiled in. Upgrade
 	// checks it; the daemon never reads it.
 	Releases string `yaml:"releases"`
@@ -81,7 +81,7 @@ type Settings struct {
 	LogFormat string `yaml:"log_format"`
 	// Admins are the principals who may change issues others hold and
 	// force a close (decision D2). They are set here, or in
-	// STARFIXD_ADMINS as a comma-separated list, and nowhere else:
+	// ARIESD_ADMINS as a comma-separated list, and nowhere else:
 	// nothing over the protocol reads or changes them. None may be
 	// reserved (store.ReservedPrincipals).
 	Admins []string `yaml:"admins"`
@@ -118,7 +118,7 @@ type Settings struct {
 	// command-line flag sets it: an answer to one refusal must not be
 	// left in a file to answer the next.
 	AcceptClockBehind time.Time `yaml:"-"`
-	// Telemetry is what is starfix's own of the daemon's telemetry
+	// Telemetry is what is Aries's own of the daemon's telemetry
 	// (design §16.3); where metrics are pushed is in the standard OTEL_*
 	// environment variables, not here.
 	Telemetry TelemetrySettings `yaml:"telemetry"`
@@ -140,7 +140,7 @@ func (t *Tolerance) UnmarshalText(b []byte) error {
 	return nil
 }
 
-// TelemetrySettings are the telemetry: settings of starfixd's config.
+// TelemetrySettings are the telemetry: settings of ariesd's config.
 type TelemetrySettings struct {
 	// Listen is the loopback address, HOST:PORT, of the listener that
 	// serves /metrics, /healthz and /readyz. Empty, the default, opens no
@@ -160,9 +160,9 @@ type TelemetrySettings struct {
 	// the daemon's log on stderr, nor the audit stream there.
 	Principals string `yaml:"principals"`
 	// PrincipalsKey is the file that holds the key the stand-ins are
-	// made with. starfixd makes it, mode 0600, the first time it exports
+	// made with. ariesd makes it, mode 0600, the first time it exports
 	// traces with stand-ins. A relative path is under the home directory
-	// of the user starfixd runs as ([Settings.PrincipalsKey]). Default
+	// of the user ariesd runs as ([Settings.PrincipalsKey]). Default
 	// DefaultPrincipalsKey.
 	PrincipalsKey string `yaml:"principals_key"`
 	// AuditLog says whether each event of the control store's log that
@@ -179,7 +179,7 @@ type TelemetrySettings struct {
 }
 
 // DefaultPrincipalsKey is where the stand-in key is kept, under the home
-// directory of the user starfixd runs as: a directory of its own, so
+// directory of the user ariesd runs as: a directory of its own, so
 // that the unit can let the daemon write there and nowhere else in the
 // home, where authorized_keys is.
 const DefaultPrincipalsKey = "telemetry/principals.key"
@@ -202,37 +202,37 @@ var UnitPattern = lazyregexp.New(`^[A-Za-z0-9][A-Za-z0-9@._:-]{0,127}$`)
 
 // Environment variables read by ResolveSettings.
 const (
-	EnvDSN     = "STARFIXD_DSN"
-	EnvSocket  = "STARFIXD_SOCKET"
-	EnvProject = "STARFIXD_PROJECT"
-	EnvConfig  = "STARFIXD_CONFIG"
+	EnvDSN     = "ARIESD_DSN"
+	EnvSocket  = "ARIESD_SOCKET"
+	EnvProject = "ARIESD_PROJECT"
+	EnvConfig  = "ARIESD_CONFIG"
 	// EnvLogLevel and EnvLogFormat set LogLevel and LogFormat.
-	EnvLogLevel  = "STARFIXD_LOG_LEVEL"
-	EnvLogFormat = "STARFIXD_LOG_FORMAT"
+	EnvLogLevel  = "ARIESD_LOG_LEVEL"
+	EnvLogFormat = "ARIESD_LOG_FORMAT"
 	// EnvAdmins sets Admins, comma-separated.
-	EnvAdmins = "STARFIXD_ADMINS"
+	EnvAdmins = "ARIESD_ADMINS"
 	// EnvControlDB sets ControlDB.
-	EnvControlDB = "STARFIXD_CONTROL_DB"
+	EnvControlDB = "ARIESD_CONTROL_DB"
 	// EnvKeysFile, EnvAuthorizedKeys and EnvBridge set KeysFile,
 	// AuthorizedKeys and Bridge.
-	EnvKeysFile       = "STARFIXD_KEYS_FILE"
-	EnvAuthorizedKeys = "STARFIXD_AUTHORIZED_KEYS"
-	EnvBridge         = "STARFIXD_BRIDGE"
+	EnvKeysFile       = "ARIESD_KEYS_FILE"
+	EnvAuthorizedKeys = "ARIESD_AUTHORIZED_KEYS"
+	EnvBridge         = "ARIESD_BRIDGE"
 	// EnvClockBehind sets ClockBehind.
-	EnvClockBehind = "STARFIXD_CLOCK_BEHIND"
+	EnvClockBehind = "ARIESD_CLOCK_BEHIND"
 	// EnvTelemetryListen sets Telemetry.Listen.
-	EnvTelemetryListen = "STARFIXD_TELEMETRY_LISTEN"
+	EnvTelemetryListen = "ARIESD_TELEMETRY_LISTEN"
 	// EnvDoltMetricsURL sets Telemetry.DoltMetricsURL.
-	EnvDoltMetricsURL = "STARFIXD_TELEMETRY_DOLT_METRICS_URL"
+	EnvDoltMetricsURL = "ARIESD_TELEMETRY_DOLT_METRICS_URL"
 )
 
 // ResolveSettings merges, highest precedence first: flags, the environment,
-// the config file, and defaults. configPath "" means STARFIXD_CONFIG, else
+// the config file, and defaults. configPath "" means ARIESD_CONFIG, else
 // DefaultConfigFile if it exists; a named file must exist. Limits and
-// ProjectDBs come from the file only, Admins from the file unless STARFIXD_ADMINS replaces
+// ProjectDBs come from the file only, Admins from the file unless ARIESD_ADMINS replaces
 // them, Telemetry from the file with its listen address from
-// STARFIXD_TELEMETRY_LISTEN and the URL of Dolt's metrics from
-// STARFIXD_TELEMETRY_DOLT_METRICS_URL when those are set, and AllowUnsafeDolt from
+// ARIESD_TELEMETRY_LISTEN and the URL of Dolt's metrics from
+// ARIESD_TELEMETRY_DOLT_METRICS_URL when those are set, and AllowUnsafeDolt from
 // flags only. It refuses a password in
 // flags.DSN, which the process list would show; a config file with an
 // unknown key, or with a password and any access for group or others; an
@@ -349,15 +349,15 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 		return Settings{}, err
 	}
 	if !ValidBridge(out.Bridge) {
-		return Settings{}, fmt.Errorf("bridge %q cannot be written into a forced command; fix: set bridge: or %s to the absolute path of starfixd, of letters, digits and ._+-, such as %s",
+		return Settings{}, fmt.Errorf("bridge %q cannot be written into a forced command; fix: set bridge: or %s to the absolute path of ariesd, of letters, digits and ._+-, such as %s",
 			out.Bridge, EnvBridge, DefaultBridge)
 	}
 	if filepath.Clean(out.KeysFile) == filepath.Clean(out.AuthorizedKeys) {
-		return Settings{}, fmt.Errorf("keys_file %q is the authorized_keys file, which starfixd reads and never writes; fix: set keys_file: or %s to a file of its own beside it, such as %s",
+		return Settings{}, fmt.Errorf("keys_file %q is the authorized_keys file, which ariesd reads and never writes; fix: set keys_file: or %s to a file of its own beside it, such as %s",
 			out.KeysFile, EnvKeysFile, DefaultKeysFile)
 	}
 	if out.SystemdUnit != "" && !UnitPattern.MatchString(out.SystemdUnit) {
-		return Settings{}, fmt.Errorf("systemd_unit %q is not a unit name; fix: set it to the service's name, for example starfixd.service", out.SystemdUnit)
+		return Settings{}, fmt.Errorf("systemd_unit %q is not a unit name; fix: set it to the service's name, for example ariesd.service", out.SystemdUnit)
 	}
 	if _, err := NewLogger(io.Discard, out.LogLevel, out.LogFormat); err != nil {
 		return Settings{}, err
@@ -401,11 +401,11 @@ func (s Settings) checkControlDB() error {
 		return nil
 	}
 	if !store.ValidDBName(s.ControlDB) {
-		return fmt.Errorf("control_db %q is not a database name; fix: set control_db: or %s to a lowercase letter, then lowercase letters, digits and underscores, such as starfix_control",
+		return fmt.Errorf("control_db %q is not a database name; fix: set control_db: or %s to a lowercase letter, then lowercase letters, digits and underscores, such as aries_control",
 			s.ControlDB, EnvControlDB)
 	}
 	if cfg, err := mysql.ParseDSN(s.DSN); err == nil && cfg.DBName == s.ControlDB {
-		return fmt.Errorf("control_db %q is the database in the DSN, which holds a project; fix: set control_db: to a database of its own, such as starfix_control",
+		return fmt.Errorf("control_db %q is the database in the DSN, which holds a project; fix: set control_db: to a database of its own, such as aries_control",
 			s.ControlDB)
 	}
 	return nil
@@ -426,14 +426,14 @@ func (s Settings) checkProjectDBs() error {
 	case s.ControlDB == "":
 		return errors.New("project_dbs is set without control_db; fix: set control_db: to serve many projects, or remove project_dbs: (docs/server.md, Serving many projects)")
 	case b.holds(s.ControlDB):
-		return fmt.Errorf("project_dbs holds %s, the control database; fix: choose a prefix of its own, such as starfix_p", s.ControlDB)
+		return fmt.Errorf("project_dbs holds %s, the control database; fix: choose a prefix of its own, such as aries_p", s.ControlDB)
 	}
 	return nil
 }
 
 // KeyFiles returns the absolute paths of the keys file and of the
 // hand-maintained authorized_keys file: a relative setting is under
-// home, the home directory of the user starfixd runs as, whose
+// home, the home directory of the user ariesd runs as, whose
 // authorized_keys sshd reads.
 func (s Settings) KeyFiles(home string) (keysFile, authorizedKeys string) {
 	abs := func(p string) string {
@@ -447,7 +447,7 @@ func (s Settings) KeyFiles(home string) (keysFile, authorizedKeys string) {
 
 // PrincipalsKey returns the absolute path of the stand-in key's file
 // (telemetry: principals_key:): a relative setting is under home, the
-// home directory of the user starfixd runs as.
+// home directory of the user ariesd runs as.
 func (s Settings) PrincipalsKey(home string) string {
 	if p := s.Telemetry.PrincipalsKey; filepath.IsAbs(p) {
 		return filepath.Clean(p)
@@ -459,7 +459,7 @@ func (s Settings) PrincipalsKey(home string) string {
 // must be set.
 func (s Settings) ControlDSN() (string, error) { return DatabaseDSN(s.DSN, s.ControlDB) }
 
-// NewLogger returns starfixd's logger, writing to w at level (debug,
+// NewLogger returns ariesd's logger, writing to w at level (debug,
 // info, warn or error) in format (text or json). Its handler is a
 // [*logs.Handler]: a line logged with a request's context has the
 // request's id and the ids of its span, and the lines can be given to a
@@ -479,14 +479,14 @@ func NewLogger(w io.Writer, level, format string) (*slog.Logger, error) {
 	return nil, fmt.Errorf("log format %q is not text or json; fix: set log_format: or %s to text or json", format, EnvLogFormat)
 }
 
-// ResolveSocket returns the daemon's socket for `starfixd stdio`, from
-// where ResolveSettings takes it: flag, then $STARFIXD_SOCKET, then
+// ResolveSocket returns the daemon's socket for `ariesd stdio`, from
+// where ResolveSettings takes it: flag, then $ARIESD_SOCKET, then
 // socket: in the config file, then DefaultSocket. It reads the file as
 // ResolveSettings does, and refuses what that refuses of the file itself
 // (an unknown key, a password in a file others can read), but checks no
 // other setting. The bridge uses none of them, and sshd starts one for
 // every connection: checking them compiled regular expressions that each
-// bridge then held (docs/design/profile-starfixd.md, proposal 2).
+// bridge then held (docs/design/profile-ariesd.md, proposal 2).
 func ResolveSocket(flag, configPath string, getenv func(string) string) (string, error) {
 	file, err := configFile(configPath, getenv)
 	if err != nil {
@@ -501,7 +501,7 @@ func ResolveSocket(flag, configPath string, getenv func(string) string) (string,
 }
 
 // configFile reads the config file at configPath, or else at
-// $STARFIXD_CONFIG, either of which must exist, or else at
+// $ARIESD_CONFIG, either of which must exist, or else at
 // DefaultConfigFile, which may not.
 func configFile(configPath string, getenv func(string) string) (Settings, error) {
 	required := true

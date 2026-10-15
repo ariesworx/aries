@@ -53,7 +53,7 @@ func (f *fields) register(fs *flag.FlagSet, withTitle bool) {
 	fs.StringVar(&f.design, "design", "", "design notes, or -")
 	fs.StringVar(&f.acceptance, "acceptance", "", "acceptance criteria, or -")
 	fs.StringVar(&f.notes, "notes", "", "notes, or -")
-	fs.StringVar(&f.status, "status", "", "open, blocked or deferred (`sfx start` sets in_progress)")
+	fs.StringVar(&f.status, "status", "", "open, blocked or deferred (`aries start` sets in_progress)")
 	fs.StringVar(&f.typ, "t", "", "type: bug, feature, task, epic or chore")
 	fs.StringVar(&f.typ, "type", "", "type")
 	fs.StringVar(&f.prio, "p", "", "priority 0-4")
@@ -148,7 +148,7 @@ func cmdCreate(ctx context.Context, r *runner, args []string) error {
 		return nil
 	}
 	_, _ = fmt.Fprintln(r.env.Stdout, esc(out.ID))
-	// Standard error, so `id=$(sfx create …)` still captures the id alone.
+	// Standard error, so `id=$(aries create …)` still captures the id alone.
 	printSimilar(r.env.Stderr, out.Similar)
 	return nil
 }
@@ -261,7 +261,7 @@ func printIssue(w io.Writer, s proto.ShowResult) {
 		for i, c := range s.Conflicts {
 			fields[i] = esc(c.Field)
 		}
-		p("conflicts: %d open (%s): `sfx conflicts %s`\n", len(s.Conflicts), strings.Join(fields, ", "), esc(is.ID))
+		p("conflicts: %d open (%s): `aries conflicts %s`\n", len(s.Conflicts), strings.Join(fields, ", "), esc(is.ID))
 	}
 	var dates []string
 	if is.DeferUntil != nil {
@@ -296,7 +296,7 @@ func printIssue(w io.Writer, s proto.ShowResult) {
 			p("held by gate %s until %s reports %s passed on %s\n", esc(g.ID), approverText(g.Approvers), esc(g.Check), esc(g.Subject))
 			continue
 		}
-		p("held by gate %s, which %s may pass: `sfx gate pass %s`\n", esc(g.ID), approverText(g.Approvers), esc(g.ID))
+		p("held by gate %s, which %s may pass: `aries gate pass %s`\n", esc(g.ID), approverText(g.Approvers), esc(g.ID))
 	}
 	printChecks(w, s)
 	p("created %s by %s; updated %s\n", when(is.CreatedAt), esc(is.CreatedBy), when(is.UpdatedAt))
@@ -404,7 +404,7 @@ func cmdList(ctx context.Context, r *runner, args []string) error {
 	}
 	printList(r.env.Stdout, out.Issues)
 	if out.Next != "" {
-		_, _ = fmt.Fprintf(r.env.Stderr, "more: sfx list --cursor %s\n", esc(out.Next))
+		_, _ = fmt.Fprintf(r.env.Stderr, "more: aries list --cursor %s\n", esc(out.Next))
 	}
 	return nil
 }
@@ -471,7 +471,7 @@ func cmdBlocked(ctx context.Context, r *runner, args []string) error {
 	}
 	printBlocked(r.env.Stdout, out.Issues)
 	for _, g := range out.Gates {
-		_, _ = fmt.Fprintf(r.env.Stdout, "gate %s: %s may pass it (`sfx gate pass %s`)\n", esc(g.ID), approverText(g.Approvers), esc(g.ID))
+		_, _ = fmt.Fprintf(r.env.Stdout, "gate %s: %s may pass it (`aries gate pass %s`)\n", esc(g.ID), approverText(g.Approvers), esc(g.ID))
 	}
 	return nil
 }
@@ -870,6 +870,6 @@ func cmdVersion(_ context.Context, r *runner, _ []string) error {
 		r.emit(map[string]string{"version": r.env.Version, "protocol": strconv.Itoa(proto.Proto)})
 		return nil
 	}
-	_, _ = fmt.Fprintf(r.env.Stdout, "starfix %s\n", r.env.Version)
+	_, _ = fmt.Fprintf(r.env.Stdout, "aries %s\n", r.env.Version)
 	return nil
 }

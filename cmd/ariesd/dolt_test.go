@@ -15,7 +15,7 @@ import (
 )
 
 // With telemetry.dolt_metrics_url set, the daemon as serve runs it reads
-// Dolt's metrics by itself, `starfixd status` shows them as text and as
+// Dolt's metrics by itself, `ariesd status` shows them as text and as
 // JSON, and the stop leaves nothing running.
 func TestRunDaemonReadsDoltsMetrics(t *testing.T) {
 	// Serial: counts the process's goroutines (noLeak).
@@ -41,14 +41,14 @@ func TestRunDaemonReadsDoltsMetrics(t *testing.T) {
 	})
 	waitFor(t, "a read of Dolt's metrics", func() bool { return hits.Load() > 0 })
 	const line = "Dolt 2.4.2, uptime unknown, 4 connections, 57 MiB resident, no memory limit\n"
-	waitFor(t, "starfixd status to show Dolt", func() bool { return strings.Contains(status(t, s, d.sock).stdout, line) })
+	waitFor(t, "ariesd status to show Dolt", func() bool { return strings.Contains(status(t, s, d.sock).stdout, line) })
 	res := status(t, s, d.sock, "--json")
 	var doc proto.StatusResult
 	if err := json.Unmarshal([]byte(res.stdout), &doc); res.err != nil || err != nil || strings.Count(res.stdout, "\n") != 1 {
-		t.Fatalf("starfixd status --json = %v, %v; want exactly one JSON document, got %q", res.err, err, res.stdout)
+		t.Fatalf("ariesd status --json = %v, %v; want exactly one JSON document, got %q", res.err, err, res.stdout)
 	}
 	if dolt := doc.Server.Dolt; dolt == nil || dolt.Unknown || dolt.Version != "2.4.2" || dolt.Conns == nil || *dolt.Conns != 4 || dolt.ReadAt == nil {
-		t.Errorf("starfixd status --json lacks Dolt's figures: %s", res.stdout)
+		t.Errorf("ariesd status --json lacks Dolt's figures: %s", res.stdout)
 	}
 	if err := d.stop(); err != nil {
 		t.Fatalf("runDaemon = %v, want nil", err)
@@ -71,11 +71,11 @@ func TestRunDaemonReadsNothingOfDoltByDefault(t *testing.T) {
 		return err == nil
 	})
 	res := status(t, s, d.sock)
-	if res.err != nil || !strings.HasPrefix(res.stdout, "starfixd ") || strings.Contains(res.stdout, "Dolt") {
-		t.Errorf("starfixd status = %v; want the report, with nothing of Dolt:\n%s", res.err, res.stdout)
+	if res.err != nil || !strings.HasPrefix(res.stdout, "ariesd ") || strings.Contains(res.stdout, "Dolt") {
+		t.Errorf("ariesd status = %v; want the report, with nothing of Dolt:\n%s", res.err, res.stdout)
 	}
 	if res := status(t, s, d.sock, "--json"); res.err != nil || strings.Contains(res.stdout, "dolt") {
-		t.Errorf("starfixd status --json = %v; want nothing of Dolt:\n%s", res.err, res.stdout)
+		t.Errorf("ariesd status --json = %v; want nothing of Dolt:\n%s", res.err, res.stdout)
 	}
 	if err := d.stop(); err != nil {
 		t.Fatalf("runDaemon = %v, want nil", err)

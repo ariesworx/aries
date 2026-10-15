@@ -82,7 +82,7 @@ type InboxItem struct {
 	ReadAt  *time.Time `json:"read_at,omitempty"`
 }
 
-// PrincipalPattern is what a principal name may look like. starfixd
+// PrincipalPattern is what a principal name may look like. ariesd
 // refuses a bridge frame naming anything else.
 var PrincipalPattern = lazyregexp.New(`^[a-z][a-z0-9._-]{0,63}$`)
 

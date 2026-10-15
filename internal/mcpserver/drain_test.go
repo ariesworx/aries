@@ -125,7 +125,7 @@ func (c *slowConn) Key() client.KeyInfo {
 	return client.KeyInfo{Fingerprint: c.w.key, Source: "file", By: "key: in " + client.ConfigFile}
 }
 
-// served is `sfx mcp` as it runs: Serve on a pair of pipes, with its
+// served is `aries mcp` as it runs: Serve on a pair of pipes, with its
 // loops, and an MCP client on the other ends. It must be made inside a
 // synctest bubble.
 type served struct {
@@ -199,7 +199,7 @@ func (s *served) pending(t *testing.T) int {
 }
 
 // TestDrainSendsWhatTheBudgetLeft is the replay budget, end to end for
-// `sfx mcp`: with more waiting than one budget sends, the call that
+// `aries mcp`: with more waiting than one budget sends, the call that
 // found the server back is held for the budget and no longer, on a new
 // connection, since running out of time closed the first; what was not
 // sent stays pending, and is sent in the background, once each and in

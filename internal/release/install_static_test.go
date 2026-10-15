@@ -20,12 +20,12 @@ import (
 	"github.com/ariesworx/aries/internal/release/releasetest"
 )
 
-// fakeBinary is an sfx or starfixd that reports tag.
+// fakeBinary is an aries or ariesd that reports tag.
 func fakeBinary(tag string) []byte {
-	return fmt.Appendf(nil, "#!/bin/sh\necho 'starfix %s (protocol 1)'\n", tag)
+	return fmt.Appendf(nil, "#!/bin/sh\necho 'aries %s (protocol 1)'\n", tag)
 }
 
-// newInstallTree is a static tree of sfx for linux/amd64 at v1.2.3,
+// newInstallTree is a static tree of aries for linux/amd64 at v1.2.3,
 // v1.9.0 and v1.10.0, which is the newest though not the last in the
 // alphabet, and the prerelease v1.11.0-rc.1. It returns the tree and its
 // public key as a PEM.
@@ -33,7 +33,7 @@ func newInstallTree(t *testing.T) (*releasetest.Tree, string) {
 	t.Helper()
 	tr := releasetest.NewTree(t)
 	for _, tag := range []string{"v1.2.3", "v1.9.0", "v1.10.0", "v1.11.0-rc.1"} {
-		tr.AddBinary(t, tag, "sfx", "linux", "amd64", fakeBinary(tag))
+		tr.AddBinary(t, tag, "aries", "linux", "amd64", fakeBinary(tag))
 	}
 	der, err := x509.MarshalPKIXPublicKey(tr.Public)
 	if err != nil {
@@ -77,7 +77,7 @@ func skipWithoutInstallTools(t *testing.T) {
 	}
 }
 
-// install.sh reads a static tree as sfx does: over loopback HTTP, from a
+// install.sh reads a static tree as aries does: over loopback HTTP, from a
 // directory, and from a file:// URL, and trusts the host with nothing but
 // the choice of a tag.
 func TestInstallScriptStatic(t *testing.T) {
@@ -144,7 +144,7 @@ func TestInstallScriptStatic(t *testing.T) {
 			edit: func(_ *testing.T, tr *releasetest.Tree) {
 				tr.SetIndex(`{"format":1,"releases":[{"tag":"v1.10.0","prerelease":false},{"tag":"v1.9.0","prerelease":false},{"tag":"v1.11.0-rc.1","prerelease":true}]}`)
 			}, want: "v1.10.0"},
-		{name: "the variable wins over STARFIX_BASE_URL", env: []string{"STARFIX_BASE_URL=http://127.0.0.1:1/nothing"}, want: "v1.10.0"},
+		{name: "the variable wins over ARIES_BASE_URL", env: []string{"ARIES_BASE_URL=http://127.0.0.1:1/nothing"}, want: "v1.10.0"},
 
 		// A fresh install has nothing older to compare with: an index of
 		// old releases installs an old, signed release.
@@ -156,10 +156,10 @@ func TestInstallScriptStatic(t *testing.T) {
 		{name: "an older signed release in a newer one's directory",
 			edit: func(_ *testing.T, tr *releasetest.Tree) {
 				tr.Move("v1.2.3", "v9.9.9")
-				tr.Set("v9.9.9/sfx_9.9.9_linux_amd64.tar.gz", tr.File("v1.2.3/sfx_1.2.3_linux_amd64.tar.gz"))
+				tr.Set("v9.9.9/aries_9.9.9_linux_amd64.tar.gz", tr.File("v1.2.3/aries_1.2.3_linux_amd64.tar.gz"))
 				tr.SetIndex(`{"format": 1, "releases": [{"tag": "v9.9.9"}]}`)
 			},
-			wantOut: []string{"sfx_9.9.9_linux_amd64.tar.gz is not listed in v9.9.9's checksums.txt", "fix: "}},
+			wantOut: []string{"aries_9.9.9_linux_amd64.tar.gz is not listed in v9.9.9's checksums.txt", "fix: "}},
 		{name: "index names a tag that climbs out of the tree",
 			edit: func(_ *testing.T, tr *releasetest.Tree) {
 				tr.SetIndex(`{"format": 1, "releases": [{"tag": "v1.2.3"}, {"tag": "../../v1.2.3"}]}`)
@@ -198,19 +198,19 @@ func TestInstallScriptStatic(t *testing.T) {
 		{name: "checksums redirect elsewhere", edit: redirect("/checksums.txt"),
 			wantOut: []string{"cannot download", "checksums.txt"}},
 		{name: "archive redirects elsewhere", edit: redirect(".tar.gz"),
-			wantOut: []string{"cannot download", "sfx_1.10.0_linux_amd64.tar.gz"}},
+			wantOut: []string{"cannot download", "aries_1.10.0_linux_amd64.tar.gz"}},
 		{name: "archive changed after signing",
 			edit: func(t *testing.T, tr *releasetest.Tree) {
-				tr.Set("v1.10.0/sfx_1.10.0_linux_amd64.tar.gz", releasetest.TarGz(t, "sfx", []byte("evil")))
+				tr.Set("v1.10.0/aries_1.10.0_linux_amd64.tar.gz", releasetest.TarGz(t, "aries", []byte("evil")))
 			},
-			wantOut: []string{"checksum mismatch for sfx_1.10.0_linux_amd64.tar.gz", "nothing was installed"}},
+			wantOut: []string{"checksum mismatch for aries_1.10.0_linux_amd64.tar.gz", "nothing was installed"}},
 		{name: "signed by the host's own key", needSig: true,
 			edit: func(t *testing.T, tr *releasetest.Tree) {
 				_, other, err := ed25519.GenerateKey(rand.Reader)
 				if err != nil {
 					t.Fatal(err)
 				}
-				tr.Set("v1.10.0/sfx_1.10.0_linux_amd64.tar.gz", releasetest.TarGz(t, "sfx", []byte("evil")))
+				tr.Set("v1.10.0/aries_1.10.0_linux_amd64.tar.gz", releasetest.TarGz(t, "aries", []byte("evil")))
 				tr.Key = other
 				tr.Sign("v1.10.0")
 			},
@@ -219,16 +219,16 @@ func TestInstallScriptStatic(t *testing.T) {
 			edit:    func(_ *testing.T, tr *releasetest.Tree) { tr.Delete("v1.10.0/checksums.txt.sig") },
 			wantOut: []string{"cannot download", "checksums.txt.sig"}},
 
-		{name: "plain http to a host", location: "http://releases.example.com/starfix",
-			wantOut: []string{"STARFIX_RELEASES is not an https URL", "fix: "}},
-		{name: "http to a name that says loopback", location: "http://127.0.0.1.example.com/starfix",
-			wantOut: []string{"STARFIX_RELEASES is not an https URL"}},
-		{name: "a relative directory", location: "mirror/starfix",
-			wantOut: []string{"STARFIX_RELEASES is not an https URL", "absolute path"}},
-		{name: "a password in the URL", location: "https://alice:hunter2@releases.example.com/starfix", //nolint:gosec // an invented password, which the refusal must not repeat
-			wantOut: []string{"STARFIX_RELEASES must not hold a user name, a password, a query or a fragment"}, noOut: []string{"hunter2"}},
+		{name: "plain http to a host", location: "http://releases.example.com/aries",
+			wantOut: []string{"ARIES_RELEASES is not an https URL", "fix: "}},
+		{name: "http to a name that says loopback", location: "http://127.0.0.1.example.com/aries",
+			wantOut: []string{"ARIES_RELEASES is not an https URL"}},
+		{name: "a relative directory", location: "mirror/aries",
+			wantOut: []string{"ARIES_RELEASES is not an https URL", "absolute path"}},
+		{name: "a password in the URL", location: "https://alice:hunter2@releases.example.com/aries", //nolint:gosec // an invented password, which the refusal must not repeat
+			wantOut: []string{"ARIES_RELEASES must not hold a user name, a password, a query or a fragment"}, noOut: []string{"hunter2"}},
 		{name: "a file URL on another host", location: "file://fileserver.example.com/mirror",
-			wantOut: []string{"STARFIX_RELEASES is not an https URL"}},
+			wantOut: []string{"ARIES_RELEASES is not an https URL"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -256,7 +256,7 @@ func TestInstallScriptStatic(t *testing.T) {
 			fake := t.TempDir()
 			linuxAMD64(t, fake)
 			env := installEnv(t, fake, false, append(tc.env,
-				"STARFIX_DIR="+dir, "STARFIX_PUBKEY_PEM="+pubPEM, "STARFIX_RELEASES="+location)...)
+				"ARIES_DIR="+dir, "ARIES_PUBKEY_PEM="+pubPEM, "ARIES_RELEASES="+location)...)
 			cmd := exec.Command("sh", append([]string{installScript}, tc.args...)...) //nolint:gosec // the test's own arguments
 			cmd.Env = env
 			b, err := cmd.CombinedOutput()
@@ -272,7 +272,7 @@ func TestInstallScriptStatic(t *testing.T) {
 					t.Errorf("output repeats %q, which the host or the variable supplied:\n%.2000s", w, out)
 				}
 			}
-			bin := filepath.Join(dir, "sfx")
+			bin := filepath.Join(dir, "aries")
 			got, readErr := os.ReadFile(bin) //nolint:gosec // test temp dir
 			if tc.want == "" {
 				if err == nil {
@@ -287,9 +287,9 @@ func TestInstallScriptStatic(t *testing.T) {
 				t.Fatalf("install.sh failed: %v\n%.2000s", err, out)
 			}
 			if want := fakeBinary(tc.want); string(got) != string(want) {
-				t.Errorf("installed %q, want release %s's sfx, %q", got, tc.want, want)
+				t.Errorf("installed %q, want release %s's aries, %q", got, tc.want, want)
 			}
-			if want := "installed starfix " + tc.want + " (protocol 1) to "; !strings.Contains(out, want) {
+			if want := "installed aries " + tc.want + " (protocol 1) to "; !strings.Contains(out, want) {
 				t.Errorf("output lacks %q:\n%s", want, out)
 			}
 		})
@@ -350,7 +350,7 @@ func TestInstallScriptStaticWget(t *testing.T) {
 		redirect bool
 		wantOut  string
 	}{
-		{name: "latest", wantOut: "installed starfix v1.10.0 (protocol 1) to "},
+		{name: "latest", wantOut: "installed aries v1.10.0 (protocol 1) to "},
 		{name: "index redirects elsewhere", redirect: true, wantOut: "cannot read"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -363,7 +363,7 @@ func TestInstallScriptStaticWget(t *testing.T) {
 			}
 			dir := filepath.Join(t.TempDir(), "bin")
 			cmd := exec.Command(filepath.Join(bin, "sh"), installScript) //nolint:gosec // the test's own link to sh
-			cmd.Env = installEnv(t, bin, true, "STARFIX_DIR="+dir, "STARFIX_PUBKEY_PEM="+pubPEM, "STARFIX_RELEASES="+tr.URL)
+			cmd.Env = installEnv(t, bin, true, "ARIES_DIR="+dir, "ARIES_PUBKEY_PEM="+pubPEM, "ARIES_RELEASES="+tr.URL)
 			b, err := cmd.CombinedOutput()
 			if (err == nil) == tc.redirect || !strings.Contains(string(b), tc.wantOut) {
 				t.Errorf("install.sh: %v, want output holding %q:\n%s", err, tc.wantOut, b)

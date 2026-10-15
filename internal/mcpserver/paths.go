@@ -8,7 +8,7 @@ import (
 )
 
 // Files to issues (design §12 item 3), client side: the paths an issue's
-// work touched are read from git (gitx.IssuePaths), by sfx, and sent with
+// work touched are read from git (gitx.IssuePaths), by aries, and sent with
 // renew, finish and handoff. The agent never passes them, so no tool
 // schema carries them.
 

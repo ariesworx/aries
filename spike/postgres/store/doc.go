@@ -1,4 +1,4 @@
-// Package store is starfixd's issue store: a typed API over one database
+// Package store is ariesd's issue store: a typed API over one database
 // on a Dolt sql-server, and the only code that writes to it.
 //
 // [Open] checks the database account, applies the embedded migrations
@@ -28,7 +28,7 @@
 // holds for it; its own migrations are in controlmigrations, and design
 // §15 describes it.
 //
-// The design is docs/design/starfix.md: §3 for the data model, §6 for
+// The design is docs/design/aries.md: §3 for the data model, §6 for
 // memory, §7 for claims, the registry, inboxes, handoffs, idempotency and authorization,
 // §8 for how concurrent changes resolve, and §12.1 for tokens and cost. docs/design/database.md says
 // why the database is Dolt.

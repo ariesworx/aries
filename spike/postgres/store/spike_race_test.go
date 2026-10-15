@@ -5,7 +5,7 @@ package store
 // writer's transaction open until the second reaches its commit, which
 // Dolt allows (both run, the loser fails at COMMIT) and Postgres cannot
 // (the second waits on the first's row lock, so it never arrives). Here
-// several stores on one database race freely, as several starfixd
+// several stores on one database race freely, as several ariesd
 // processes on one database would, and every outcome is checked.
 
 import (

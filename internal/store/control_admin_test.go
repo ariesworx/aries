@@ -122,7 +122,7 @@ func TestControlAccount(t *testing.T) {
 	t.Parallel()
 	c := newControl(t)
 	got, err := c.Account(t.Context())
-	if want := "'starfix'@'localhost'"; err != nil || got != want {
+	if want := "'aries'@'localhost'"; err != nil || got != want {
 		t.Errorf("Account() = %q, %v; want %q", got, err, want)
 	}
 }

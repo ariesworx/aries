@@ -10,14 +10,14 @@ import (
 	"testing"
 )
 
-const testConfig = "project: 6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f\nserver:\n  host: starfix.example.com\n  host_key: SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5TqvU\n"
+const testConfig = "project: 6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f\nserver:\n  host: aries.example.com\n  host_key: SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5TqvU\n"
 
-// repoWithConfig is a repository root holding .starfix.yaml, and a
+// repoWithConfig is a repository root holding .aries.yaml, and a
 // subdirectory to run from.
 func repoWithConfig(t *testing.T) (root, sub string) {
 	t.Helper()
 	root = t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, ".starfix.yaml"), []byte(testConfig), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".aries.yaml"), []byte(testConfig), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	sub = filepath.Join(root, "src")
@@ -70,20 +70,20 @@ func TestSetupWriteIsIdempotent(t *testing.T) {
 		parts int
 		note  string
 	}{
-		{name: "claude-code", files: map[string]string{".mcp.json": `"type": "stdio"`, "CLAUDE.md": "<!-- starfix:begin -->",
-			".claude/settings.json": `"command": "sfx prime --hook"`}, note: "approve"},
-		{name: "codex", files: map[string]string{".codex/config.toml": "[mcp_servers.starfix]", "AGENTS.md": "<!-- starfix:end -->",
-			".codex/hooks.json": `"command": "sfx prime --hook=codex"`}, note: "/hooks"},
-		{name: "gemini", files: map[string]string{".gemini/settings.json": `"command": "sfx prime --hook=gemini"`, "GEMINI.md": "`prime`"},
+		{name: "claude-code", files: map[string]string{".mcp.json": `"type": "stdio"`, "CLAUDE.md": "<!-- aries:begin -->",
+			".claude/settings.json": `"command": "aries prime --hook"`}, note: "approve"},
+		{name: "codex", files: map[string]string{".codex/config.toml": "[mcp_servers.aries]", "AGENTS.md": "<!-- aries:end -->",
+			".codex/hooks.json": `"command": "aries prime --hook=codex"`}, note: "/hooks"},
+		{name: "gemini", files: map[string]string{".gemini/settings.json": `"command": "aries prime --hook=gemini"`, "GEMINI.md": "`prime`"},
 			parts: 3, note: "trusted folder"},
-		{name: "cursor", files: map[string]string{".cursor/mcp.json": `"mcpServers"`, ".cursor/rules/starfix.mdc": "alwaysApply: true",
-			".cursor/hooks.json": `"command": "sfx prime --hook=cursor"`}, note: "Settings › MCP"},
+		{name: "cursor", files: map[string]string{".cursor/mcp.json": `"mcpServers"`, ".cursor/rules/aries.mdc": "alwaysApply: true",
+			".cursor/hooks.json": `"command": "aries prime --hook=cursor"`}, note: "Settings › MCP"},
 		{name: "vscode", files: map[string]string{".vscode/mcp.json": `"servers"`, ".github/copilot-instructions.md": "`finish`",
-			".github/hooks/starfix.json": `"command": "sfx prime --hook=vscode"`}, note: "Preview"},
-		{name: "junie", files: map[string]string{".junie/mcp/mcp.json": `"STARFIX_HARNESS": "junie"`, "AGENTS.md": "`start`"},
+			".github/hooks/aries.json": `"command": "aries prime --hook=vscode"`}, note: "Preview"},
+		{name: "junie", files: map[string]string{".junie/mcp/mcp.json": `"ARIES_HARNESS": "junie"`, "AGENTS.md": "`start`"},
 			note: "--global"},
-		{name: "jetbrains", files: map[string]string{".aiassistant/rules/starfix.md": "apply: always"},
-			note: `"STARFIX_HARNESS": "jetbrains"`},
+		{name: "jetbrains", files: map[string]string{".aiassistant/rules/aries.md": "apply: always"},
+			note: `"ARIES_HARNESS": "jetbrains"`},
 	} {
 		t.Run(agent.name, func(t *testing.T) {
 			root, sub := repoWithConfig(t)
@@ -104,7 +104,7 @@ func TestSetupWriteIsIdempotent(t *testing.T) {
 				}
 			}
 			if code, _, errb := runIn(t, home, "-C", sub, "setup", agent.name, "--check"); code != ExitFailure ||
-				!strings.Contains(errb, "fix: run `sfx setup "+agent.name+" --write`") {
+				!strings.Contains(errb, "fix: run `aries setup "+agent.name+" --write`") {
 				t.Fatalf("check before write: exit %d %s", code, errb)
 			}
 			if len(snapshot(t, root)) != 1 {
@@ -140,10 +140,10 @@ func TestSetupWriteIsIdempotent(t *testing.T) {
 				strings.Count(out, ": removed\n") != parts {
 				t.Fatalf("remove: %d %s", code, out)
 			}
-			// A file that held only starfix's part is gone; the configs stay.
+			// A file that held only Aries's part is gone; the configs stay.
 			for f := range agent.files {
 				_, err := os.Stat(filepath.Join(root, filepath.FromSlash(f)))
-				own := strings.HasSuffix(f, ".md") || strings.HasSuffix(f, ".mdc") || f == ".github/hooks/starfix.json"
+				own := strings.HasSuffix(f, ".md") || strings.HasSuffix(f, ".mdc") || f == ".github/hooks/aries.json"
 				if gone := errors.Is(err, fs.ErrNotExist); gone != own {
 					t.Errorf("%s after remove: %v", f, err)
 				}
@@ -174,7 +174,7 @@ func sameFiles(t *testing.T, a, b map[string]string) {
 // SessionStart hook alone, and one from its first release runs
 // SessionEnd async. --check names the hooks to fix and the fix; --write
 // fixes them, reporting the hook file updated and nothing else changed,
-// and is then idempotent; --remove takes every starfix hook out.
+// and is then idempotent; --remove takes every Aries hook out.
 func TestSetupUpgradesHooks(t *testing.T) {
 	t.Parallel()
 	sync := ",\n" + `            "timeout": 10`
@@ -184,7 +184,7 @@ func TestSetupUpgradesHooks(t *testing.T) {
 		hint string
 	}{
 		{name: "prime only", hint: "(Stop, SubagentStop and SessionEnd hooks)", old: func(string) string {
-			return `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "sfx prime --hook"}]}]}}`
+			return `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "aries prime --hook"}]}]}}`
 		}},
 		{name: "async SessionEnd", hint: "(SessionEnd hook)", old: func(current string) string {
 			return strings.Replace(current, sync, ",\n"+`            "async": true,`+"\n"+`            "timeout": 30`, 1)
@@ -206,8 +206,8 @@ func TestSetupUpgradesHooks(t *testing.T) {
 				t.Fatal(err)
 			}
 			code, _, errb := runIn(t, home, "-C", sub, "setup", "claude-code", "--check")
-			if want := "sfx: starfix is not set up for Claude Code in .claude/settings.json " + tc.hint + "\n" +
-				"fix: run `sfx setup claude-code --write`\n"; code != ExitFailure || errb != want {
+			if want := "aries: aries is not set up for Claude Code in .claude/settings.json " + tc.hint + "\n" +
+				"fix: run `aries setup claude-code --write`\n"; code != ExitFailure || errb != want {
 				t.Fatalf("check of the old install: exit %d\n%s\nwant %d\n%s", code, errb, ExitFailure, want)
 			}
 			code, out, errb := runIn(t, home, "-C", sub, "setup", "claude-code", "--write")
@@ -230,7 +230,7 @@ func TestSetupUpgradesHooks(t *testing.T) {
 			}
 			// Claude Code's settings file is the person's: emptied, it is kept.
 			if b, err := os.ReadFile(settings); err != nil || string(b) != "{}\n" { //nolint:gosec // the test's temp repository
-				t.Errorf("settings after remove = %q, %v; want {} with every starfix hook gone", b, err)
+				t.Errorf("settings after remove = %q, %v; want {} with every aries hook gone", b, err)
 			}
 		})
 	}
@@ -291,7 +291,7 @@ func TestSetupKeepsOtherContent(t *testing.T) {
 	after := snapshot(t, root)
 	for f, c := range before {
 		got := after[filepath.Join(root, filepath.FromSlash(f))]
-		if f == "CLAUDE.md" && !strings.HasPrefix(got, c+"\n<!-- starfix:begin -->\n") {
+		if f == "CLAUDE.md" && !strings.HasPrefix(got, c+"\n<!-- aries:begin -->\n") {
 			t.Errorf("%s:\n%s", f, got)
 		}
 		for _, keep := range []string{"Use tabs.", "Read(./.env)", `"echo hi"`, `"figma"`} {
@@ -321,12 +321,12 @@ func TestSetupGlobal(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
 	// --global needs no repository.
-	code, out, errb := runIn(t, home, "-C", t.TempDir(), "setup", "gemini", "--global", "--write", "--command", "/opt/bin/starfix")
+	code, out, errb := runIn(t, home, "-C", t.TempDir(), "setup", "gemini", "--global", "--write", "--command", "/opt/bin/aries")
 	if code != ExitOK || !strings.Contains(out, "added") {
 		t.Fatalf("exit %d %s %s", code, out, errb)
 	}
 	b, err := os.ReadFile(filepath.Join(home, ".gemini", "settings.json")) //nolint:gosec // the test's temp home
-	if err != nil || !strings.Contains(string(b), `"command": "/opt/bin/starfix"`) {
+	if err != nil || !strings.Contains(string(b), `"command": "/opt/bin/aries"`) {
 		t.Fatalf("%s %v", b, err)
 	}
 }
@@ -345,7 +345,7 @@ func TestSetupRefusals(t *testing.T) {
 		{[]string{"setup", "vscode", "--global", "--write"}, ExitFailure, "fix: drop --global"},
 		{[]string{"setup", "jetbrains", "--global"}, ExitFailure, "fix: drop --global"},
 		{[]string{"setup", "codex", "--write", "--remove"}, ExitUsage, "at most one"},
-		{[]string{"-C", t.TempDir(), "setup", "codex", "--write"}, ExitFailure, ".starfix.yaml not found"},
+		{[]string{"-C", t.TempDir(), "setup", "codex", "--write"}, ExitFailure, ".aries.yaml not found"},
 	}
 	for _, tc := range tests {
 		args := tc.args
@@ -408,7 +408,7 @@ func TestSetupGlobalJunie(t *testing.T) {
 		t.Fatalf("exit %d %s %s", code, out, errb)
 	}
 	b, err := os.ReadFile(filepath.Join(home, ".junie", "config.json")) //nolint:gosec // the test's temp home
-	if err != nil || !strings.Contains(string(b), `"command": "sfx prime --hook=junie"`) {
+	if err != nil || !strings.Contains(string(b), `"command": "aries prime --hook=junie"`) {
 		t.Fatalf("%s %v", b, err)
 	}
 }
@@ -441,7 +441,7 @@ func TestSetupAll(t *testing.T) {
 		}
 	}
 	if code, _, errb := runIn(t, home, "-C", sub, "setup", "--all", "--check"); code != ExitFailure ||
-		!strings.Contains(errb, "fix: run `sfx setup --all --write`") {
+		!strings.Contains(errb, "fix: run `aries setup --all --write`") {
 		t.Fatalf("check before write: exit %d %s", code, errb)
 	}
 
@@ -467,7 +467,7 @@ func TestSetupAll(t *testing.T) {
 	}
 	first := snapshot(t, root)
 	agents := first[filepath.Join(root, "AGENTS.md")]
-	if strings.Count(agents, "<!-- starfix:begin -->") != 1 {
+	if strings.Count(agents, "<!-- aries:begin -->") != 1 {
 		t.Errorf("AGENTS.md:\n%s", agents)
 	}
 	gemini := first[filepath.Join(root, ".gemini", "settings.json")]
@@ -525,12 +525,12 @@ func TestSetupAllGlobal(t *testing.T) {
 }
 
 // The printed snippets say where each agent's session id comes from. With
-// no session variable from the harness, sfx mcp picks its own: the server
+// no session variable from the harness, aries mcp picks its own: the server
 // assigns one only to a client that sends none.
 func TestSetupSessionID(t *testing.T) {
 	t.Parallel()
 	_, sub := repoWithConfig(t)
-	const picks = " gives sfx mcp none; sfx mcp picks its own per process (m-…) unless STARFIX_SESSION is set\n"
+	const picks = " gives aries mcp none; aries mcp picks its own per process (m-…) unless ARIES_SESSION is set\n"
 	for _, tc := range []struct{ agent, want string }{
 		{"claude-code", "# session id: read from CLAUDE_CODE_SESSION_ID\n"},
 		{"codex", "# session id: Codex" + picks},
@@ -543,7 +543,7 @@ func TestSetupSessionID(t *testing.T) {
 		t.Run(tc.agent, func(t *testing.T) {
 			code, out, errb := runIn(t, t.TempDir(), "-C", sub, "setup", tc.agent)
 			if code != ExitOK || !strings.Contains(out, tc.want) {
-				t.Errorf("sfx setup %s: exit %d, output lacks %q:\n%s%s", tc.agent, code, tc.want, out, errb)
+				t.Errorf("aries setup %s: exit %d, output lacks %q:\n%s%s", tc.agent, code, tc.want, out, errb)
 			}
 		})
 	}

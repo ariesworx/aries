@@ -7,7 +7,7 @@ import (
 )
 
 // The guide, the Docker test server and the refusals name one endpoint:
-// Dolt's config turns it on where starfixd's config says to read it, and
+// Dolt's config turns it on where ariesd's config says to read it, and
 // where the refusal of a bad URL suggests.
 func TestGuideAndImageNameOneEndpoint(t *testing.T) {
 	t.Parallel()
@@ -23,7 +23,7 @@ func TestGuideAndImageNameOneEndpoint(t *testing.T) {
 		file string
 		want []string
 	}{
-		{"../../docs/server.md", []string{block, "dolt_metrics_url: " + Example, "STARFIXD_TELEMETRY_DOLT_METRICS_URL",
+		{"../../docs/server.md", []string{block, "dolt_metrics_url: " + Example, "ARIESD_TELEMETRY_DOLT_METRICS_URL",
 			`printf 'metrics:\n  host: 127.0.0.1\n  port: 11228\n  labels: {}\n' >> /etc/dolt/config.yaml`}},
 		{"../../deploy/docker/dolt.yaml", []string{block}},
 		{"../../deploy/docker/entrypoint.sh", []string{"dolt_metrics_url=" + Example + "\n"}},

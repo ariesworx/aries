@@ -28,9 +28,9 @@ func TestMetricsOfArchivedClaims(t *testing.T) {
 	mustAsk[proto.ProjectResult](d, proto.OpProjectArchive, proto.ProjectArgs{Project: projB})
 	e.hangUp()
 	check(t, snapshot(t, mr), []want{
-		{"starfix.claims", []string{"event", "take", "reason", "none"}, 1},
-		{"starfix.claims", []string{"event", "release", "reason", "archived"}, 1},
-		{"starfix.store.open.duration", []string{"migrated", "true"}, 2}, // A's and B's
+		{"aries.claims", []string{"event", "take", "reason", "none"}, 1},
+		{"aries.claims", []string{"event", "release", "reason", "archived"}, 1},
+		{"aries.store.open.duration", []string{"migrated", "true"}, 2}, // A's and B's
 	})
 
 	// C's is closed: the archive opens it, which is an opening like any
@@ -41,10 +41,10 @@ func TestMetricsOfArchivedClaims(t *testing.T) {
 	m.stores.closeAll() // C's; not A's, which dana's connection holds
 	mustAsk[proto.ProjectResult](d, proto.OpProjectArchive, proto.ProjectArgs{Project: projC})
 	check(t, snapshot(t, mr), []want{
-		{"starfix.claims", []string{"event", "take", "reason", "none"}, 2},
-		{"starfix.claims", []string{"event", "release", "reason", "archived"}, 2},
-		{"starfix.store.open.duration", []string{"migrated", "true"}, 3},  // and C's first
-		{"starfix.store.open.duration", []string{"migrated", "false"}, 1}, // C's again, for the archive
+		{"aries.claims", []string{"event", "take", "reason", "none"}, 2},
+		{"aries.claims", []string{"event", "release", "reason", "archived"}, 2},
+		{"aries.store.open.duration", []string{"migrated", "true"}, 3},  // and C's first
+		{"aries.store.open.duration", []string{"migrated", "false"}, 1}, // C's again, for the archive
 	})
 
 	// D's archive reached the control store and no further, as when a
@@ -63,25 +63,25 @@ func TestMetricsOfArchivedClaims(t *testing.T) {
 	}
 	after := snapshot(t, mr)
 	check(t, after, []want{
-		{"starfix.claims", []string{"event", "take", "reason", "none"}, 3},
-		{"starfix.claims", []string{"event", "release", "reason", "archived"}, 3},
-		{"starfix.claims", []string{"event", "release", "reason", "none"}, 0},
-		{"starfix.claims", []string{"event", "release", "reason", "other"}, 0},
-		{"starfix.claims", []string{"event", "expire", "reason", "none"}, 0},
+		{"aries.claims", []string{"event", "take", "reason", "none"}, 3},
+		{"aries.claims", []string{"event", "release", "reason", "archived"}, 3},
+		{"aries.claims", []string{"event", "release", "reason", "none"}, 0},
+		{"aries.claims", []string{"event", "release", "reason", "other"}, 0},
+		{"aries.claims", []string{"event", "expire", "reason", "none"}, 0},
 	})
-	if b, a := before.Observations("starfix.store.open.duration"), after.Observations("starfix.store.open.duration"); a != b {
-		t.Errorf("starfix.store.open.duration went from %d to %d observations at ReleaseArchived, which opens a store as it is and beside the registry: want none added", b, a)
+	if b, a := before.Observations("aries.store.open.duration"), after.Observations("aries.store.open.duration"); a != b {
+		t.Errorf("aries.store.open.duration went from %d to %d observations at ReleaseArchived, which opens a store as it is and beside the registry: want none added", b, a)
 	}
 	// Run again, as at the next start: nothing is left to end or count.
 	if err := m.ReleaseArchived(t.Context(), m.asIs()); err != nil {
 		t.Fatal(err)
 	}
-	check(t, snapshot(t, mr), []want{{"starfix.claims", []string{"event", "release", "reason", "archived"}, 3}})
+	check(t, snapshot(t, mr), []want{{"aries.claims", []string{"event", "release", "reason", "archived"}, 3}})
 }
 
 // The names the daemon's own commands connect under are held to the
 // protocol as their use requires: the upgrade's probe, which sends no
-// request, is welcomed whatever it speaks, and `starfixd status`, which
+// request, is welcomed whatever it speaks, and `ariesd status`, which
 // sends one, only when it speaks this daemon's protocol.
 func TestStatusPrincipalSpeaksTheProtocol(t *testing.T) {
 	t.Parallel()
@@ -142,9 +142,9 @@ func TestStatusPrincipalSpeaksTheProtocol(t *testing.T) {
 		<-done
 	}
 	check(t, snapshot(t, mr), []want{
-		{"starfix.handshakes", []string{"result", "ok"}, 3},
-		{"starfix.handshakes", []string{"result", "version"}, 3},
-		{"starfix.handshakes", []string{"result", "failed"}, float64(len(store.ReservedPrincipals) - 2)},
+		{"aries.handshakes", []string{"result", "ok"}, 3},
+		{"aries.handshakes", []string{"result", "version"}, 3},
+		{"aries.handshakes", []string{"result", "failed"}, float64(len(store.ReservedPrincipals) - 2)},
 	})
 }
 
@@ -160,15 +160,15 @@ func TestMetricsOfOpenProjects(t *testing.T) {
 		t.Fatal(err)
 	}
 	check(t, snapshot(t, mr), []want{
-		{"starfix.store.open.duration", []string{"migrated", "true"}, 2},
-		{"starfix.store.open.duration", []string{"migrated", "false"}, 0},
-		{"starfix.stores.open", nil, 0},
+		{"aries.store.open.duration", []string{"migrated", "true"}, 2},
+		{"aries.store.open.duration", []string{"migrated", "false"}, 0},
+		{"aries.stores.open", nil, 0},
 	})
 	if err := m.OpenProjects(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	check(t, snapshot(t, mr), []want{
-		{"starfix.store.open.duration", []string{"migrated", "true"}, 2},
-		{"starfix.store.open.duration", []string{"migrated", "false"}, 2},
+		{"aries.store.open.duration", []string{"migrated", "true"}, 2},
+		{"aries.store.open.duration", []string{"migrated", "false"}, 2},
 	})
 }

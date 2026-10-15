@@ -299,7 +299,7 @@ func TestLiveRefusal(t *testing.T) {
 	// Serial: a synctest bubble's virtual time takes no real time worth sharing.
 	synctest.Test(t, func(t *testing.T) {
 		srv := &fakeServer{refuse: map[string]*proto.Error{
-			proto.OpClaims: proto.Errf(proto.CodeInvalid, "ask the admin to run `starfixd upgrade`", "unknown operation \"claims\"")}}
+			proto.OpClaims: proto.Errf(proto.CodeInvalid, "ask the admin to run `ariesd upgrade`", "unknown operation \"claims\"")}}
 		r := startLive(t, srv)
 		var status Status
 		for {
@@ -312,7 +312,7 @@ func TestLiveRefusal(t *testing.T) {
 				break
 			}
 		}
-		if status.State != StateLive || status.Note != "unknown operation \"claims\"; fix: ask the admin to run `starfixd upgrade`" {
+		if status.State != StateLive || status.Note != "unknown operation \"claims\"; fix: ask the admin to run `ariesd upgrade`" {
 			t.Errorf("status = %+v, want live with the refusal and its fix", status)
 		}
 		if n := len(srv.conns); n != 1 {
@@ -360,7 +360,7 @@ func TestLiveWatchRefused(t *testing.T) {
 	// Serial: a synctest bubble's virtual time takes no real time worth sharing.
 	synctest.Test(t, func(t *testing.T) {
 		srv := &fakeServer{refuse: map[string]*proto.Error{
-			proto.OpWatch: proto.Errf(proto.CodeInvalid, "ask the admin to run `starfixd upgrade`", "bad arguments")}}
+			proto.OpWatch: proto.Errf(proto.CodeInvalid, "ask the admin to run `ariesd upgrade`", "bad arguments")}}
 		r := startLive(t, srv)
 		r.actions <- Action{Do: DoRefresh}
 		synctest.Wait()
@@ -376,7 +376,7 @@ func TestLiveWatchRefused(t *testing.T) {
 			}
 			break
 		}
-		if want := "bad arguments; fix: ask the admin to run `starfixd upgrade`"; last.Note != want {
+		if want := "bad arguments; fix: ask the admin to run `ariesd upgrade`"; last.Note != want {
 			t.Errorf("status after a refresh = %+v, want the watch's refusal %q kept", last, want)
 		}
 	})

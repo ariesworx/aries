@@ -48,14 +48,14 @@ func TestConfigPath(t *testing.T) {
 func TestServerKey(t *testing.T) {
 	t.Parallel()
 	tests := []struct{ root, want string }{
-		{"/Users/alice/src/widget", "starfix-widget"},
-		{"/Users/alice/src/widget/", "starfix-widget"},
-		{`C:\Users\alice\src\Widget Shop`, "starfix-widget-shop"},
-		{"/home/bob/My_Repo.v2", "starfix-my-repo-v2"},
-		{"/home/bob/--x--", "starfix-x"},
-		{"/home/bob/日本", "starfix-project"},
-		{"/", "starfix-project"},
-		{"/src/" + strings.Repeat("a", 80), "starfix-" + strings.Repeat("a", 40)},
+		{"/Users/alice/src/widget", "aries-widget"},
+		{"/Users/alice/src/widget/", "aries-widget"},
+		{`C:\Users\alice\src\Widget Shop`, "aries-widget-shop"},
+		{"/home/bob/My_Repo.v2", "aries-my-repo-v2"},
+		{"/home/bob/--x--", "aries-x"},
+		{"/home/bob/日本", "aries-project"},
+		{"/", "aries-project"},
+		{"/src/" + strings.Repeat("a", 80), "aries-" + strings.Repeat("a", 40)},
 	}
 	for _, tc := range tests {
 		if got := ServerKey(tc.root); got != tc.want {
@@ -70,8 +70,8 @@ func TestServerKey(t *testing.T) {
 func TestDesktopEntries(t *testing.T) {
 	t.Parallel()
 	a := Agents["claude-desktop"]
-	widget := DesktopEntry("/usr/local/bin/sfx", "/Users/alice/src/widget")
-	gadget := DesktopEntry("/usr/local/bin/sfx", "/Users/alice/src/gadget")
+	widget := DesktopEntry("/usr/local/bin/aries", "/Users/alice/src/widget")
+	gadget := DesktopEntry("/usr/local/bin/aries", "/Users/alice/src/gadget")
 	in := `{"globalShortcut": "Alt+Space", "mcpServers": {"files": {"command": "npx", "args": ["-y", "x"]}}, "z": [1, 2.50]}`
 
 	out, res, err := a.Apply([]byte(in), widget)
@@ -88,15 +88,15 @@ func TestDesktopEntries(t *testing.T) {
         "x"
       ]
     },
-    "starfix-widget": {
-      "command": "/usr/local/bin/sfx",
+    "aries-widget": {
+      "command": "/usr/local/bin/aries",
       "args": [
         "-C",
         "/Users/alice/src/widget",
         "mcp"
       ],
       "env": {
-        "STARFIX_HARNESS": "claude-desktop"
+        "ARIES_HARNESS": "claude-desktop"
       }
     }
   },
@@ -113,19 +113,19 @@ func TestDesktopEntries(t *testing.T) {
 		t.Fatalf("second Apply(widget) = %s, %v", res, err)
 	}
 	both, res, err := a.Apply(out, gadget)
-	if err != nil || res != Added || !strings.Contains(string(both), `"starfix-widget"`) {
+	if err != nil || res != Added || !strings.Contains(string(both), `"aries-widget"`) {
 		t.Fatalf("Apply(gadget) = %s, %v\n%s", res, err, both)
 	}
 	if !a.Registered(both, widget) || !a.Registered(both, gadget) || a.Registered(out, gadget) {
 		t.Fatal("Registered disagrees with two projects")
 	}
 	if a.Registered(both, DefaultEntry) {
-		t.Fatal("a desktop entry registers the plain starfix server")
+		t.Fatal("a desktop entry registers the plain aries server")
 	}
 	if dir, ok := a.ProjectDir(both, widget.Server); !ok || dir != "/Users/alice/src/widget" {
 		t.Fatalf("ProjectDir(widget) = %q, %v", dir, ok)
 	}
-	if _, ok := a.ProjectDir(both, "starfix-other"); ok {
+	if _, ok := a.ProjectDir(both, "aries-other"); ok {
 		t.Fatal("ProjectDir found an entry that is not there")
 	}
 
@@ -137,7 +137,7 @@ func TestDesktopEntries(t *testing.T) {
 	if again, res, err := tg.Remove(gone, gadget); err != nil || res != Unchanged || string(again) != string(gone) {
 		t.Fatalf("second Remove(gadget) = %s, %v", res, err)
 	}
-	if s := tg.Snippet(widget); !tg.Registered([]byte(s), widget) || !strings.Contains(s, `"starfix-widget"`) {
+	if s := tg.Snippet(widget); !tg.Registered([]byte(s), widget) || !strings.Contains(s, `"aries-widget"`) {
 		t.Fatalf("snippet does not register:\n%s", s)
 	}
 }

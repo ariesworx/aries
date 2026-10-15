@@ -57,7 +57,7 @@ func TestNotify(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			addr := filepath.Join(t.TempDir(), "notify.sock")
 			if tc.abstract {
-				addr = fmt.Sprintf("@starfix-test-%d-%d", pid, time.Now().UnixNano())
+				addr = fmt.Sprintf("@aries-test-%d-%d", pid, time.Now().UnixNano())
 			}
 			sock := notifySocket(t, addr)
 			n := New(func(k string) string {

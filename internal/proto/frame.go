@@ -13,8 +13,8 @@ import (
 // Frame types.
 //
 // FrameBridge is a connection's first frame. It comes from another
-// starfixd process on the server, never from a client: the bridge
-// (`starfixd stdio`), ahead of a client's hello. It has no version. The
+// ariesd process on the server, never from a client: the bridge
+// (`ariesd stdio`), ahead of a client's hello. It has no version. The
 // binary is swapped while old bridges run, so either side may be the
 // older: fields are only ever added to it, a reader ignores a field it
 // does not know, and a missing one means what it meant before it existed
@@ -53,7 +53,7 @@ type Frame struct {
 	Session string `json:"s,omitempty"`
 	Machine string `json:"m,omitempty"`
 	Latest  string `json:"latest,omitempty"`
-	// Harness names the agent harness a hello comes from (an `sfx setup`
+	// Harness names the agent harness a hello comes from (an `aries setup`
 	// agent name), or is empty. Servers that predate it ignore it.
 	Harness string `json:"h,omitempty"`
 
@@ -69,7 +69,7 @@ type Frame struct {
 
 	// Traceparent and Tracestate are, on a req frame, the caller's W3C
 	// trace context: the traceparent value and, optionally, the
-	// tracestate. They are per request, since one connection of `sfx mcp`
+	// tracestate. They are per request, since one connection of `aries mcp`
 	// serves many agent turns. The server reads them with
 	// ParseTraceContext, which ignores what is malformed: a bad trace
 	// context never fails a request.
@@ -109,9 +109,9 @@ func (e *Encoder) Encode(f *Frame) error {
 //
 // It keeps a small buffer, and gathers a frame too long for it in one of
 // its own that it lets go of once the frame is decoded: a server holds a
-// Decoder for each connection and sfx mcp one for hours, and a buffer
+// Decoder for each connection and aries mcp one for hours, and a buffer
 // kept at the size of the largest frame seen would be held as long
-// (docs/design/profile-starfixd.md, proposal 1).
+// (docs/design/profile-ariesd.md, proposal 1).
 type Decoder struct {
 	r   *bufio.Reader
 	err error // the error that ended the stream; every later call returns it

@@ -70,7 +70,7 @@ func Errf(code Code, fix, msg string) *Error {
 	return &Error{Code: code, Message: msg, Fix: fix}
 }
 
-// Fix phrases. sfx mcp tells some refusals apart by their code and the
+// Fix phrases. aries mcp tells some refusals apart by their code and the
 // phrase their fix opens with, and turns each into an agent's next step
 // (internal/mcpserver). The server writes those fixes with these phrases,
 // so the two cannot drift apart. They are wire text that released clients

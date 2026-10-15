@@ -322,7 +322,7 @@ type doltCheck struct {
 // stands, so a caller may ask as often as it likes.
 func (s *Server) Ready(ctx context.Context) string {
 	if !s.listening.Load() {
-		return "starfixd is not listening on its socket"
+		return "ariesd is not listening on its socket"
 	}
 	if err := s.checkDolt(ctx); err != nil {
 		return "the last check of Dolt failed"

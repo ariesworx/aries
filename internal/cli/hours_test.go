@@ -46,7 +46,7 @@ func TestPrintPlans(t *testing.T) {
 		res  proto.PlansResult
 		want string
 	}{
-		{"none", proto.PlansResult{}, "no plans; an admin sets one with `sfx admin plans set`\n"},
+		{"none", proto.PlansResult{}, "no plans; an admin sets one with `aries admin plans set`\n"},
 		{"some", proto.PlansResult{Plans: []proto.Plan{
 			{Name: "team", From: "2026-09", Fee: 25_000_000, Seats: 3, Principals: []string{"alice", "bob"}, SetBy: "dana", SetAt: at},
 			{Name: "team", From: "2027-01", Principals: []string{}, SetBy: "dana", SetAt: at},
@@ -151,7 +151,7 @@ func TestLogUsage(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			code, out, errb := runCLI(t, tc.args...)
-			if code != ExitUsage || !strings.Contains(errb, tc.stderr) || !strings.Contains(errb, "fix: usage: sfx ") {
+			if code != ExitUsage || !strings.Contains(errb, tc.stderr) || !strings.Contains(errb, "fix: usage: aries ") {
 				t.Fatalf("exit %d (want %d), stdout %q, stderr %q; want it to name %q and the usage", code, ExitUsage, out, errb, tc.stderr)
 			}
 		})

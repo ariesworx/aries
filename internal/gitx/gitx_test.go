@@ -77,12 +77,12 @@ func TestIDFromMessage(t *testing.T) {
 		msg, want string
 		ok        bool
 	}{
-		{"feature: add start\n\nWhy.\n\nStarfix: sf-a1b2c3d4\n", "sf-a1b2c3d4", true},
-		{"subject\n\nStarfix: sf-old\nStarfix: sf-new\r\n", "sf-new", true},
-		{"subject\n\nStarfix:sf-a1b2", "sf-a1b2", true},
-		{"subject\n\nStarfix: not an id", "", false},
-		{"subject\n\nstarfix: sf-a1b2", "", false},
-		{"Starfix: sf-a1b2 trailing words", "", false},
+		{"feature: add start\n\nWhy.\n\nAries: sf-a1b2c3d4\n", "sf-a1b2c3d4", true},
+		{"subject\n\nAries: sf-old\nAries: sf-new\r\n", "sf-new", true},
+		{"subject\n\nAries:sf-a1b2", "sf-a1b2", true},
+		{"subject\n\nAries: not an id", "", false},
+		{"subject\n\naries: sf-a1b2", "", false},
+		{"Aries: sf-a1b2 trailing words", "", false},
 		{"", "", false},
 	}
 	for _, tc := range tests {

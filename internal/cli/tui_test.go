@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// sfx tui refuses, before it dials, anything but a terminal on both
+// aries tui refuses, before it dials, anything but a terminal on both
 // standard input and output, and a terminal that says it cannot move
 // the cursor (TERM=dumb), and says what to run instead.
 func TestTUIRefusals(t *testing.T) {
@@ -30,15 +30,15 @@ func TestTUIRefusals(t *testing.T) {
 		want   []string
 	}{
 		{"output to a buffer", []string{"tui"}, func() any { return nil }, "xterm", ExitFailure,
-			[]string{"sfx: sfx tui needs a terminal, and standard input or output is not one\n",
-				"fix: run it in a terminal; for a list that does not update, `sfx ready`, `sfx blocked` or `sfx list`\n"}},
+			[]string{"aries: aries tui needs a terminal, and standard input or output is not one\n",
+				"fix: run it in a terminal; for a list that does not update, `aries ready`, `aries blocked` or `aries list`\n"}},
 		{"output to a file", []string{"tui"}, func() any { return file("out") }, "", ExitFailure,
-			[]string{"sfx tui needs a terminal"}},
+			[]string{"aries tui needs a terminal"}},
 		{"dumb terminal", []string{"tui"}, func() any { return nil }, "dumb", ExitFailure,
-			[]string{"sfx: sfx tui needs a terminal that can move the cursor, and TERM is dumb\n",
-				"fix: run it in a terminal; for a list that does not update, `sfx ready`, `sfx blocked` or `sfx list`\n"}},
+			[]string{"aries: aries tui needs a terminal that can move the cursor, and TERM is dumb\n",
+				"fix: run it in a terminal; for a list that does not update, `aries ready`, `aries blocked` or `aries list`\n"}},
 		{"json", []string{"tui", "--json"}, func() any { return nil }, "", ExitUsage,
-			[]string{`{"error":{"c":"invalid","m":"tui draws a board and prints no JSON; ` + "`sfx ready --json` and `sfx list --json` do" + `","fix":"usage: sfx tui"}}`}},
+			[]string{`{"error":{"c":"invalid","m":"tui draws a board and prints no JSON; ` + "`aries ready --json` and `aries list --json` do" + `","fix":"usage: aries tui"}}`}},
 		{"arguments", []string{"tui", "sf-a1"}, func() any { return nil }, "", ExitUsage, []string{"tui takes no arguments"}},
 	}
 	for _, tc := range tests {
@@ -54,7 +54,7 @@ func TestTUIRefusals(t *testing.T) {
 			if f, ok := tc.stdout().(*os.File); ok {
 				env.Stdout, env.Stdin = f, file("in")
 			}
-			// -C names a directory with no .starfix.yaml: a refusal that
+			// -C names a directory with no .aries.yaml: a refusal that
 			// came after dialing would be about the config instead.
 			code := Run(t.Context(), append([]string{"-C", t.TempDir()}, tc.args...), env)
 			// --json reports on standard output, as one document.
@@ -68,11 +68,11 @@ func TestTUIRefusals(t *testing.T) {
 			}
 			for _, want := range tc.want {
 				if !strings.Contains(got, want) {
-					t.Errorf("sfx %s printed %q, want it to contain %q", strings.Join(tc.args, " "), got, want)
+					t.Errorf("aries %s printed %q, want it to contain %q", strings.Join(tc.args, " "), got, want)
 				}
 			}
 			if code != tc.code {
-				t.Errorf("sfx %s = exit %d, want %d", strings.Join(tc.args, " "), code, tc.code)
+				t.Errorf("aries %s = exit %d, want %d", strings.Join(tc.args, " "), code, tc.code)
 			}
 		})
 	}

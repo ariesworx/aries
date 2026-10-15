@@ -44,7 +44,7 @@ func (s *Server) watch(ctx context.Context, sess *session, raw json.RawMessage) 
 		dec := json.NewDecoder(bytes.NewReader(raw))
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&in); err != nil {
-			return nil, proto.Errf(proto.CodeInvalid, proto.FixUpgrade+" starfix to match the server", fmt.Sprintf("bad arguments: %v", err))
+			return nil, proto.Errf(proto.CodeInvalid, proto.FixUpgrade+" aries to match the server", fmt.Sprintf("bad arguments: %v", err))
 		}
 	}
 	if p := sess.push; p != nil {
@@ -172,7 +172,7 @@ func ack(ctx context.Context, pr *served, a store.Actor, in proto.AckArgs) (any,
 
 // watchOp answers watch sent where there is no connection to push to.
 func watchOp(context.Context, *served, store.Actor, proto.WatchArgs) (any, *proto.Error) {
-	return nil, proto.Errf(proto.CodeInvalid, "send watch on a connection: `sfx watch`",
+	return nil, proto.Errf(proto.CodeInvalid, "send watch on a connection: `aries watch`",
 		"watch pushes to a connection, and this request has none")
 }
 

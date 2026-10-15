@@ -274,7 +274,7 @@ func TestCacheDirectoryMustBeTheUsersOwn(t *testing.T) {
 			c := l.Cache("alice")
 			keep(t, c, proto.OpShow, proto.ShowArgs{ID: "sf-a"}, shown("sf-a", "Mine"))
 			dir := tc.dir(l)
-			if err := os.Chmod(dir, 0o755); err != nil { //nolint:gosec // the mode sfx must refuse
+			if err := os.Chmod(dir, 0o755); err != nil { //nolint:gosec // the mode aries must refuse
 				t.Fatal(err)
 			}
 			var s proto.ShowResult
@@ -384,7 +384,7 @@ func TestLastReached(t *testing.T) {
 func TestCachedLine(t *testing.T) {
 	t.Parallel()
 	got := CachedLine(t0, t0.Add(3*time.Hour+5*time.Minute))
-	want := "cached: starfix cannot reach its server, so this is this machine's copy from 2026-10-13 14:02 UTC (3h old), and may be out of date"
+	want := "cached: aries cannot reach its server, so this is this machine's copy from 2026-10-13 14:02 UTC (3h old), and may be out of date"
 	if got != want {
 		t.Errorf("CachedLine = %q\nwant %q", got, want)
 	}

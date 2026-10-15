@@ -17,7 +17,7 @@ func fd(v any) (int, bool) {
 	if !ok {
 		return 0, false
 	}
-	return int(f.Fd()), true //nolint:gosec // a descriptor or handle fits an int on every platform sfx builds for
+	return int(f.Fd()), true //nolint:gosec // a descriptor or handle fits an int on every platform aries builds for
 }
 
 // IsTerminal reports whether in and out are both a terminal, which the

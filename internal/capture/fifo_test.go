@@ -21,7 +21,7 @@ func TestClaudeRefusesFIFO(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		_, err := Claude(t.Context(), Input{Session: session, Files: []string{path},
-			StateDir: filepath.Join(t.TempDir(), "starfix"), Send: (&sink{}).send})
+			StateDir: filepath.Join(t.TempDir(), "aries"), Send: (&sink{}).send})
 		done <- err
 	}()
 	select {

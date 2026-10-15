@@ -6,18 +6,18 @@ import (
 )
 
 // The pointer is a short block in the agent's instruction file that tells
-// it to use the starfix tools. It sits between two marker lines, so setup
+// it to use the Aries tools. It sits between two marker lines, so setup
 // can find, replace and remove it without touching the rest of the file.
 const (
-	beginMarker = "<!-- starfix:begin -->"
-	endMarker   = "<!-- starfix:end -->"
+	beginMarker = "<!-- aries:begin -->"
+	endMarker   = "<!-- aries:end -->"
 )
 
 // pointerBody is the block's text between the markers. Every agent reads
 // it in every session, so it stays a few lines (TestPointerBlockIsShort).
 var pointerBody = []string{
-	"## Issue tracking: starfix",
-	"Track work with the `starfix` MCP tools; never shell out to `sfx` for it.",
+	"## Issue tracking: aries",
+	"Track work with the `aries` MCP tools; never shell out to `aries` for it.",
 	"Call `prime` when a session starts, unless its output is already in context; then `start` takes an issue and `finish` closes it with a handoff note.",
 }
 
@@ -26,8 +26,8 @@ type pointerStyle int
 
 const (
 	markdownBlock pointerStyle = iota // a block inside a shared file
-	cursorRule                        // a whole file of starfix's own, with Cursor's frontmatter
-	jetbrainsRule                     // a whole file of starfix's own, with AI Assistant's frontmatter
+	cursorRule                        // a whole file of aries's own, with Cursor's frontmatter
+	jetbrainsRule                     // a whole file of aries's own, with AI Assistant's frontmatter
 )
 
 // frontmatter makes a rule file apply to every request. AI Assistant's
@@ -35,7 +35,7 @@ const (
 // describes the rule types in the IDE's settings, not the frontmatter
 // keys behind them.
 var frontmatter = map[pointerStyle]string{
-	cursorRule:    "---\ndescription: Issue tracking with starfix\nalwaysApply: true\n---\n\n",
+	cursorRule:    "---\ndescription: Issue tracking with aries\nalwaysApply: true\n---\n\n",
 	jetbrainsRule: "---\napply: always\n---\n\n",
 }
 
@@ -132,7 +132,7 @@ func removePointer(content []byte, style pointerStyle) ([]byte, Result, error) {
 		return content, Unchanged, nil
 	}
 	if style != markdownBlock {
-		return nil, Removed, nil // the whole file is starfix's
+		return nil, Removed, nil // the whole file is aries's
 	}
 	rest := lines[end+1:]
 	// Take the blank line Apply put before a block at the end of the file.

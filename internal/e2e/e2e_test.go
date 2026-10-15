@@ -1,14 +1,14 @@
-// Package e2e runs the starfix CLI and MCP server against starfixd through
+// Package e2e runs the Aries CLI and MCP server against ariesd through
 // a real SSH handshake: an in-process SSH server that authenticates keys,
 // maps each to a principal and enforces forced-command semantics by running
 // the stdio bridge whatever the client asks for, in front of a daemon on a
 // temporary unix socket and a real Dolt store.
 //
 // A world is one daemon and its SSH server, and a user is a developer with
-// a key and a repository whose .starfix.yaml points at them. Each test
+// a key and a repository whose .aries.yaml points at them. Each test
 // makes its own world, whose cleanup stops both and waits for their
 // goroutines. TestMain starts one Dolt server for every test; without dolt
-// on PATH the tests skip, unless STARFIX_REQUIRE_DOLT is set.
+// on PATH the tests skip, unless ARIES_REQUIRE_DOLT is set.
 package e2e
 
 import (
@@ -50,7 +50,7 @@ import (
 
 // dolts are the package's Dolt servers: a test has one to itself while it
 // runs, so the tests can run in parallel (dolttest.Pool).
-var dolts = dolttest.NewPool("starfix-e2e-", dolttest.Options{})
+var dolts = dolttest.NewPool("aries-e2e-", dolttest.Options{})
 
 func TestMain(m *testing.M) {
 	iaptest.Main()
@@ -75,7 +75,7 @@ const project = "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
 
 // patience is how long a test waits for something that must happen. It
 // turns a hang into a failure that says what did not happen, and nothing
-// is asserted of it, so it is long: `sfx watch` took more than twenty
+// is asserted of it, so it is long: `aries watch` took more than twenty
 // seconds to start where the tests shared a processor and Dolt was short
 // of memory.
 const patience = time.Minute
@@ -130,7 +130,7 @@ type world struct {
 
 	// controlDSN is the control database of a server of many projects
 	// (daemonOpts.many), and ctl the daemon's own control store, through
-	// which tests add projects and members until `sfx admin` can.
+	// which tests add projects and members until `aries admin` can.
 	controlDSN string
 	ctl        *store.Control
 	// block is the daemon's block of database names for new projects
@@ -172,7 +172,7 @@ type daemonOpts struct {
 	// logger, if set, receives the daemon's and the store's log.
 	logger *slog.Logger
 	// telemetry, if set, measures and traces the daemon and its stores,
-	// as `starfixd serve` wires them.
+	// as `ariesd serve` wires them.
 	telemetry *telemetry.Telemetry
 	// many makes the daemon a server of many projects: the world's
 	// database is adopted as project, in a control store (world.ctl)
@@ -214,7 +214,7 @@ func newWorld(t *testing.T, o daemonOpts) *world {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(base) })
-	w := &world{t: t, dolt: srv, socket: filepath.Join(base, "run", "starfixd.sock"), keys: map[string]string{},
+	w := &world{t: t, dolt: srv, socket: filepath.Join(base, "run", "ariesd.sock"), keys: map[string]string{},
 		conns: map[net.Conn]struct{}{}, opts: o, hand: map[string]string{}}
 	// Registered before anything is opened on a database, so that it runs
 	// after the daemon has stopped and the test's own connections closed.
@@ -224,7 +224,7 @@ func newWorld(t *testing.T, o daemonOpts) *world {
 		if err := os.Mkdir(dir, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		w.keysFile, w.handFile = filepath.Join(dir, "starfix_keys"), filepath.Join(dir, "authorized_keys")
+		w.keysFile, w.handFile = filepath.Join(dir, "aries_keys"), filepath.Join(dir, "authorized_keys")
 	}
 
 	if o.now != nil && o.reap == 0 {
@@ -331,7 +331,7 @@ func (w *world) processClock() *store.Clock {
 }
 
 // adopt makes the control database and records the world's database in
-// it as project, as the operator's `starfixd control init` does before
+// it as project, as the operator's `ariesd control init` does before
 // the daemon first serves many projects.
 func (w *world) adopt(ctx context.Context) error {
 	dsn, err := w.newDatabase(ctx)
@@ -402,7 +402,7 @@ func (w *world) startMany() error {
 	if err != nil {
 		return fail(err)
 	}
-	// As `starfixd serve` does before it listens.
+	// As `ariesd serve` does before it listens.
 	if err := srv.WriteKeys(); err != nil {
 		return fail(err)
 	}
@@ -466,7 +466,7 @@ func (w *world) restartDaemon() error {
 }
 
 // startSSH runs the in-process sshd. Like OpenSSH with
-// restrict,command="starfixd stdio --principal NAME", it maps the key to a
+// restrict,command="ariesd stdio --principal NAME", it maps the key to a
 // principal, refuses pty and forwarding, and runs the bridge for any exec
 // or shell request, ignoring the command the client sent. With
 // daemonOpts.keys a key is first looked up in the keys file the daemon
@@ -769,7 +769,7 @@ func (w *world) serveSSH(ctx context.Context, nc net.Conn, cfg *ssh.ServerConfig
 					status := uint32(0)
 					tp := &tap{w: w, nc: nc, in: ch, out: ch, drop: map[uint64]bool{}, silent: map[uint64]bool{}}
 					if err := server.Bridge(ctx, w.socket, principal, sc.Permissions.Extensions["key"], tp, tp); err != nil {
-						_, _ = fmt.Fprintf(ch.Stderr(), "starfixd: %v\n", err)
+						_, _ = fmt.Fprintf(ch.Stderr(), "ariesd: %v\n", err)
 						status = 1
 					}
 					_, _ = ch.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{status}))
@@ -782,7 +782,7 @@ func (w *world) serveSSH(ctx context.Context, nc net.Conn, cfg *ssh.ServerConfig
 	}
 }
 
-// user is a developer: a key, and a repository whose .starfix.yaml points at
+// user is a developer: a key, and a repository whose .aries.yaml points at
 // the world's server.
 type user struct {
 	w    *world
@@ -796,27 +796,27 @@ type user struct {
 	// terminal says a person is at the CLI's input and output, so that it
 	// may ask them something.
 	terminal bool
-	// pubFile is the user's public key file, for `sfx admin key add`.
+	// pubFile is the user's public key file, for `aries admin key add`.
 	pubFile string
-	// queues gives the user's `sfx mcp` an outbox, as cmdMCP does.
+	// queues gives the user's `aries mcp` an outbox, as cmdMCP does.
 	queues bool
 	// key is the user's public key, for a test that has the server take
 	// it for another principal (world.byHand).
 	key ssh.PublicKey
-	// after, if set, is the clock `sfx lock` waits on, for a test whose
+	// after, if set, is the clock `aries lock` waits on, for a test whose
 	// store's clock runs fast; unset, the CLI's default.
 	after func(time.Duration) <-chan time.Time
 }
 
 // newUser makes a user with a new key, which the server maps to principal
-// ("" leaves the key unknown to it). The user's .starfix.yaml pins the
+// ("" leaves the key unknown to it). The user's .aries.yaml pins the
 // server's host key, or hostFpr if it is set.
 func (w *world) newUser(principal, hostFpr string) *user {
 	w.t.Helper()
 	return w.newUserIn(principal, hostFpr, project)
 }
 
-// newUserIn is newUser for a repository whose .starfix.yaml names
+// newUserIn is newUser for a repository whose .aries.yaml names
 // project proj.
 func (w *world) newUserIn(principal, hostFpr, proj string) *user {
 	t := w.t
@@ -850,9 +850,9 @@ func (w *world) newUserIn(principal, hostFpr, proj string) *user {
 	if hostFpr == "" {
 		hostFpr = w.hostFpr
 	}
-	cfg := fmt.Sprintf("project: %s\nserver:\n  host: 127.0.0.1\n  port: %d\n  user: starfix\n  host_key: %s\nkey: id_ed25519\n",
+	cfg := fmt.Sprintf("project: %s\nserver:\n  host: 127.0.0.1\n  port: %d\n  user: aries\n  host_key: %s\nkey: id_ed25519\n",
 		proj, w.addr.Port, hostFpr)
-	if err := os.WriteFile(filepath.Join(repo, ".starfix.yaml"), []byte(cfg), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".aries.yaml"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	// What the user queues while the server is away goes to a data
@@ -900,7 +900,7 @@ func (u *user) runTo(ctx context.Context, stdout, stderr io.Writer, version stri
 		Version:  version,
 		Now:      u.now,
 		Terminal: func() bool { return u.terminal },
-		// What `sfx lock run` gives the command it runs: a PATH to find it
+		// What `aries lock run` gives the command it runs: a PATH to find it
 		// by, and nothing else of the test's environment.
 		Environ: func() []string { return []string{"PATH=" + os.Getenv("PATH")} },
 		After:   u.after,
@@ -913,7 +913,7 @@ func (u *user) ok(args ...string) string {
 	u.w.t.Helper()
 	r := u.run("v0.2.0", args...)
 	if r.code != 0 {
-		u.w.t.Fatalf("sfx %s: exit %d\n%s%s", strings.Join(args, " "), r.code, r.stdout, r.stderr)
+		u.w.t.Fatalf("aries %s: exit %d\n%s%s", strings.Join(args, " "), r.code, r.stdout, r.stderr)
 	}
 	return r.stdout
 }
@@ -1007,10 +1007,10 @@ func TestSessionFromEnvironment(t *testing.T) {
 	alice := w.newUser("alice", "")
 	alice.env["CLAUDE_SESSION_ID"] = "claude-123"
 	id := strings.TrimSpace(alice.ok("create", "one"))
-	alice.env["STARFIX_SESSION"] = "starfix-456"
+	alice.env["ARIES_SESSION"] = "aries-456"
 	alice.ok("comment", id, "two")
 	h := decode[proto.HistoryResult](t, alice.ok("history", id, "--json"))
-	if len(h.Events) != 2 || h.Events[0].Session != "claude-123" || h.Events[1].Session != "starfix-456" {
+	if len(h.Events) != 2 || h.Events[0].Session != "claude-123" || h.Events[1].Session != "aries-456" {
 		t.Fatalf("sessions: %+v", h.Events)
 	}
 }
@@ -1023,7 +1023,7 @@ func TestConflict(t *testing.T) {
 	bob.ok("update", id, "--rev", "1", "-p", "0")
 
 	r := alice.run("v0.2.0", "update", id, "--rev", "1", "--title", "mine")
-	want := fmt.Sprintf("sfx: %s changed since rev 1 (now rev 2 by bob)\nfix: re-read with `sfx show %s`\n", id, id)
+	want := fmt.Sprintf("aries: %s changed since rev 1 (now rev 2 by bob)\nfix: re-read with `aries show %s`\n", id, id)
 	if r.code != cli.ExitFailure || r.stderr != want || r.stdout != "" {
 		t.Fatalf("exit %d\nstderr %q\nwant   %q", r.code, r.stderr, want)
 	}
@@ -1052,11 +1052,11 @@ func TestRefusals(t *testing.T) {
 		{name: "wrong host key", u: pinnedWrong, args: []string{"ready"}, code: cli.ExitFailure,
 			want: []string{"host key mismatch for 127.0.0.1", w.hostFpr, "fix: if the server's host key was changed"}},
 		{name: "unknown key", u: other, args: []string{"ready"}, code: cli.ExitFailure,
-			want: []string{"accepted no key: sfx offered SHA256:", "fix: send your public key"}},
+			want: []string{"accepted no key: aries offered SHA256:", "fix: send your public key"}},
 		{name: "not found", u: w.newUser("dave", ""), args: []string{"show", "sf-zzzzzzzz"}, code: cli.ExitFailure,
-			want: []string{"sfx: issue sf-zzzzzzzz not found\nfix: find the id with `sfx list`"}},
+			want: []string{"aries: issue sf-zzzzzzzz not found\nfix: find the id with `aries list`"}},
 		{name: "usage", u: other, args: []string{"show"}, code: cli.ExitUsage,
-			want: []string{"show needs exactly one issue id", "fix: usage: sfx show ID"}},
+			want: []string{"show needs exactly one issue id", "fix: usage: aries show ID"}},
 		{name: "unknown command", u: other, args: []string{"explode"}, code: cli.ExitUsage,
 			want: []string{`unknown command "explode"`}},
 	}
@@ -1083,8 +1083,8 @@ func TestProtocolRangeRefusal(t *testing.T) {
 	if r.code != cli.ExitVersion {
 		t.Fatalf("exit %d, want %d\n%s", r.code, cli.ExitVersion, r.stderr)
 	}
-	want := fmt.Sprintf("sfx: starfix speaks protocol %d; the server (v0.2.0) needs protocols %d to %d\n", proto.Proto, proto.Proto+1, proto.Proto+2) +
-		"fix: upgrade this client: run `sfx upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `sfx mcp`\n"
+	want := fmt.Sprintf("aries: aries speaks protocol %d; the server (v0.2.0) needs protocols %d to %d\n", proto.Proto, proto.Proto+1, proto.Proto+2) +
+		"fix: upgrade this client: run `aries upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `aries mcp`\n"
 	if r.stderr != want {
 		t.Fatalf("stderr %q\nwant   %q", r.stderr, want)
 	}
@@ -1099,7 +1099,7 @@ func TestOlderClientWarns(t *testing.T) {
 	w := newWorld(t, daemonOpts{})
 	alice := w.newUser("alice", "")
 	r := alice.run("v0.1.0", "ready")
-	if r.code != 0 || r.stderr != "sfx: starfix v0.1.0 is older than the server (v0.2.0); run `sfx upgrade`\n" {
+	if r.code != 0 || r.stderr != "aries: aries v0.1.0 is older than the server (v0.2.0); run `aries upgrade`\n" {
 		t.Fatalf("exit %d stderr %q", r.code, r.stderr)
 	}
 	if r := alice.run("v0.2.0", "ready"); r.stderr != "" {
@@ -1137,7 +1137,7 @@ func TestDaemonDown(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, daemonOpts{noDaemon: true})
 	r := w.newUser("alice", "").run("v0.2.0", "ready")
-	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "starfixd is not running on the server") ||
+	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "ariesd is not running on the server") ||
 		!strings.Contains(r.stderr, "fix: ask the server admin to start it") {
 		t.Fatalf("exit %d\n%s", r.code, r.stderr)
 	}

@@ -73,11 +73,11 @@ func cmdResolve(ctx context.Context, r *runner, args []string) error {
 		return err
 	}
 	if len(pos) != 1 {
-		return usagef(resolveUsage, "resolve takes one conflict number; `sfx conflicts` lists them")
+		return usagef(resolveUsage, "resolve takes one conflict number; `aries conflicts` lists them")
 	}
 	n, err := strconv.ParseInt(strings.TrimPrefix(pos[0], "#"), 10, 64)
 	if err != nil || n < 1 {
-		return usagef(resolveUsage, "%q is not a conflict number; `sfx conflicts` lists them", pos[0])
+		return usagef(resolveUsage, "%q is not a conflict number; `aries conflicts` lists them", pos[0])
 	}
 	in := proto.ResolveArgs{ID: n}
 	textSet := false // --text "" clears a field, so it is the flag that counts
@@ -140,9 +140,9 @@ func printConflicts(w io.Writer, out proto.ConflictsResult, now time.Time) {
 		}
 	}
 	if out.Next != 0 {
-		p("more: `sfx conflicts --after %d`\n", out.Next)
+		p("more: `aries conflicts --after %d`\n", out.Next)
 	}
-	p("resolve with `sfx resolve N --mine|--theirs|--text TEXT|--accept`; `sfx conflicts N` shows one whole\n")
+	p("resolve with `aries resolve N --mine|--theirs|--text TEXT|--accept`; `aries conflicts N` shows one whole\n")
 }
 
 // proposalLine says what a proposal is, by whom, and why.

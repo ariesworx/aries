@@ -48,7 +48,7 @@ func (r *runner) answered(op string, args, result any, err error) bool {
 func (r *runner) fromCache(at time.Time) {
 	r.cachedAt = at
 	if !r.json && !r.hook {
-		_, _ = fmt.Fprintf(r.env.Stderr, "sfx: %s\n", offline.CachedLine(at, r.env.Now()))
+		_, _ = fmt.Fprintf(r.env.Stderr, "aries: %s\n", offline.CachedLine(at, r.env.Now()))
 	}
 }
 
@@ -84,7 +84,7 @@ func (r *runner) refusedOffline(op string, err error) error {
 	if e.Fix != "" {
 		e.Fix += "; "
 	}
-	e.Fix += "meanwhile `sfx prime` and `sfx show ID` answer from this machine's copy of what you read"
+	e.Fix += "meanwhile `aries prime` and `aries show ID` answer from this machine's copy of what you read"
 	return &e
 }
 
@@ -121,7 +121,7 @@ func (r *runner) prime(ctx context.Context) (*mcpserver.Prime, error) {
 
 const cacheUsage = "cache [clear]"
 
-// cacheDoc is one principal's cache in `sfx cache --json`.
+// cacheDoc is one principal's cache in `aries cache --json`.
 type cacheDoc struct {
 	Principal string    `json:"principal"`
 	Answers   int       `json:"answers"`
@@ -187,6 +187,6 @@ func cmdCache(_ context.Context, r *runner, args []string) error {
 			(c.Bytes+1023)/1024, when(c.Oldest), when(c.Newest))
 	}
 	p("%s\n", offline.LastReachedLine(doc.LastReached))
-	p("they are shown only while the server cannot be reached; `sfx cache clear` deletes them from this machine\n")
+	p("they are shown only while the server cannot be reached; `aries cache clear` deletes them from this machine\n")
 	return nil
 }

@@ -132,7 +132,7 @@ func TestItemsAndSimilar(t *testing.T) {
 
 func TestAcceptanceErrorNamesTheArguments(t *testing.T) {
 	t.Parallel()
-	res := toolError(proto.Errf(proto.CodeAcceptance, "tick what is met with `sfx accept sf-1 2`, or waive an item with `sfx accept sf-1 N --waive REASON`",
+	res := toolError(proto.Errf(proto.CodeAcceptance, "tick what is met with `aries accept sf-1 2`, or waive an item with `aries accept sf-1 N --waive REASON`",
 		"issue sf-1 has acceptance items neither ticked nor waived: 2"))
 	want := "acceptance: issue sf-1 has acceptance items neither ticked nor waived: 2\n" +
 		"fix: call finish with ticked: [numbers met] and waived: {number: reason} for the rest; show lists the items"

@@ -76,7 +76,7 @@ func watchDolt(t *testing.T, s *Server, url string) (advance func(time.Duration)
 	return func(d time.Duration) { now.Add(int64(d)) }
 }
 
-// localReport is the status report `starfixd status` gets, with its text
+// localReport is the status report `ariesd status` gets, with its text
 // and its JSON as the two commands print them.
 func localReport(t *testing.T, s *Server) (res proto.StatusResult, text, doc string) {
 	t.Helper()
@@ -116,7 +116,7 @@ func TestDoltStatus(t *testing.T) {
 	if d := res.Server.Dolt; d == nil || !d.Unknown || d.ReadAt != nil {
 		t.Fatalf("Dolt before the first read = %s, want unknown and never read", js(d))
 	}
-	if want := "Dolt: unknown: starfixd has not read Dolt's metrics since it started; see starfixd's log\n"; !strings.Contains(text, want) {
+	if want := "Dolt: unknown: ariesd has not read Dolt's metrics since it started; see ariesd's log\n"; !strings.Contains(text, want) {
 		t.Errorf("the status before the first read lacks %q:\n%s", want, text)
 	}
 	if want := `"dolt":{"unknown":true}`; !strings.Contains(doc, want) {
@@ -296,7 +296,7 @@ func TestDoltUnknown(t *testing.T) {
 			if got, want := js(res.Server.Dolt), `{"unknown":true,"read_at":"2026-10-12T20:03:20Z"}`; got != want {
 				t.Errorf("Dolt = %s, want %s: unknown, and no figure", got, want)
 			}
-			if want := "Dolt: unknown: starfixd could not read Dolt's metrics, and last could at " + readAt + "; see starfixd's log\n"; !strings.Contains(text, want) {
+			if want := "Dolt: unknown: ariesd could not read Dolt's metrics, and last could at " + readAt + "; see ariesd's log\n"; !strings.Contains(text, want) {
 				t.Errorf("the status lacks %q:\n%s", want, text)
 			}
 			if want := `"dolt":{"unknown":true,"read_at":"2026-10-12T20:03:20Z"}`; !strings.Contains(doc, want) {
@@ -316,7 +316,7 @@ func TestDoltUnknown(t *testing.T) {
 		t.Errorf("%d dolt_metrics.read_failed lines logged for six failures in a row, want 1:\n%s", n, log)
 	}
 	if strings.Contains(log.String(), "level=ERROR") {
-		t.Errorf("a failed read was logged as an error of starfixd's:\n%s", log)
+		t.Errorf("a failed read was logged as an error of ariesd's:\n%s", log)
 	}
 
 	advance(15 * time.Second)

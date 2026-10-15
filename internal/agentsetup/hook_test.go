@@ -8,7 +8,7 @@ import (
 
 func TestHook(t *testing.T) {
 	t.Parallel()
-	custom := Entry{Command: "/opt/star fix/sfx", Args: []string{"mcp"}}
+	custom := Entry{Command: "/opt/star fix/aries", Args: []string{"mcp"}}
 	tests := []struct {
 		name, in, want string
 		entry          Entry
@@ -23,12 +23,12 @@ func TestHook(t *testing.T) {
         "hooks": [
           {
             "type": "command",
-            "command": "sfx prime --hook"
+            "command": "aries prime --hook"
           }
         ]
       }
     ],
-` + usageHooks("sfx") + `
+` + usageHooks("aries") + `
   }
 }
 `},
@@ -67,12 +67,12 @@ func TestHook(t *testing.T) {
         "hooks": [
           {
             "type": "command",
-            "command": "sfx prime --hook"
+            "command": "aries prime --hook"
           }
         ]
       }
     ],
-` + usageHooks("sfx") + `
+` + usageHooks("aries") + `
   },
   "model": "x"
 }
@@ -111,7 +111,7 @@ func TestHook(t *testing.T) {
 }
 `},
 		{name: "updates the command in place, keeping its timeout", result: Updated, entry: custom,
-			in: `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "sfx prime --hook", "timeout": 20}, {"type": "command", "command": "other"}]}]}}`,
+			in: `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "aries prime --hook", "timeout": 20}, {"type": "command", "command": "other"}]}]}}`,
 			want: `{
   "hooks": {
     "SessionStart": [
@@ -119,7 +119,7 @@ func TestHook(t *testing.T) {
         "hooks": [
           {
             "type": "command",
-            "command": "'/opt/star fix/sfx' prime --hook",
+            "command": "'/opt/star fix/aries' prime --hook",
             "timeout": 20
           },
           {
@@ -129,7 +129,7 @@ func TestHook(t *testing.T) {
         ]
       }
     ],
-` + usageHooks("'/opt/star fix/sfx'") + `
+` + usageHooks("'/opt/star fix/aries'") + `
   }
 }
 `,
@@ -224,8 +224,8 @@ func TestHookUpgradeSyncSessionEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	async := strings.Replace(string(current), `"command": "sfx usage --hook",
-            "timeout": 10`, `"command": "sfx usage --hook",
+	async := strings.Replace(string(current), `"command": "aries usage --hook",
+            "timeout": 10`, `"command": "aries usage --hook",
             "async": true,
             "timeout": 30`, 1)
 	if async == string(current) {
@@ -252,7 +252,7 @@ func TestHookUpgradeSyncSessionEnd(t *testing.T) {
 // them, keeping the prime hook as the person left it.
 func TestHookUpgradeAddsUsageHooks(t *testing.T) {
 	t.Parallel()
-	old := `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "sfx prime --hook", "timeout": 20}]}]}}`
+	old := `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "aries prime --hook", "timeout": 20}]}]}}`
 	h := hookOf(t, "claude-code", false)
 	if h.Registered([]byte(old), DefaultEntry) {
 		t.Fatal("Registered with only the prime hook")
@@ -262,7 +262,7 @@ func TestHookUpgradeAddsUsageHooks(t *testing.T) {
 	}
 	out, res, err := h.Apply([]byte(old), DefaultEntry)
 	if err != nil || res != Updated || !h.Registered(out, DefaultEntry) || !strings.Contains(string(out), `"timeout": 20`) ||
-		strings.Count(string(out), "sfx usage --hook") != 3 {
+		strings.Count(string(out), "aries usage --hook") != 3 {
 		t.Fatalf("Apply(prime only) = %s, %v\n%s\nwant updated, the usage hooks added and the prime hook kept", res, err, out)
 	}
 	if got := h.MissingHooks(out, DefaultEntry); len(got) != 0 {
@@ -288,7 +288,7 @@ func TestUsageHooksAreClaudeCodes(t *testing.T) {
 
 func TestHookLeavesOthersAlone(t *testing.T) {
 	t.Parallel()
-	// Another tool's prime hook is not starfix's.
+	// Another tool's prime hook is not Aries's.
 	in := `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "bd prime --hook"}]}]}}`
 	h := hookOf(t, "claude-code", false)
 	if _, res, err := h.Remove([]byte(in), DefaultEntry); err != nil || res != Unchanged {
@@ -313,12 +313,12 @@ func TestHookRefusesBadJSON(t *testing.T) {
 func TestHookCommand(t *testing.T) {
 	t.Parallel()
 	tests := []struct{ cmd, harness, want string }{
-		{"sfx", "claude-code", "sfx prime --hook"},
-		{"/usr/local/bin/sfx", "claude-code", "/usr/local/bin/sfx prime --hook"},
-		{`C:\tools\sfx.exe`, "claude-code", `'C:\tools\sfx.exe' prime --hook`},
+		{"aries", "claude-code", "aries prime --hook"},
+		{"/usr/local/bin/aries", "claude-code", "/usr/local/bin/aries prime --hook"},
+		{`C:\tools\aries.exe`, "claude-code", `'C:\tools\aries.exe' prime --hook`},
 		{"it's", "claude-code", `'it'\''s' prime --hook`},
-		{"sfx", "gemini", "sfx prime --hook=gemini"},
-		{"/opt/star fix/sfx", "cursor", "'/opt/star fix/sfx' prime --hook=cursor"},
+		{"aries", "gemini", "aries prime --hook=gemini"},
+		{"/opt/star fix/aries", "cursor", "'/opt/star fix/aries' prime --hook=cursor"},
 	}
 	for _, tc := range tests {
 		if got := HookCommand(Entry{Command: tc.cmd}, tc.harness); got != tc.want {
@@ -340,14 +340,14 @@ func TestTargets(t *testing.T) {
 		{"codex", true, "mcp .codex/config.toml, pointer .codex/AGENTS.md, hook .codex/hooks.json"},
 		{"gemini", false, "mcp .gemini/settings.json, pointer GEMINI.md, hook .gemini/settings.json"},
 		{"gemini", true, "mcp .gemini/settings.json, pointer .gemini/GEMINI.md, hook .gemini/settings.json"},
-		{"cursor", false, "mcp .cursor/mcp.json, pointer .cursor/rules/starfix.mdc, hook .cursor/hooks.json"},
+		{"cursor", false, "mcp .cursor/mcp.json, pointer .cursor/rules/aries.mdc, hook .cursor/hooks.json"},
 		{"cursor", true, "mcp .cursor/mcp.json, hook .cursor/hooks.json"},
-		{"vscode", false, "mcp .vscode/mcp.json, pointer .github/copilot-instructions.md, hook .github/hooks/starfix.json"},
+		{"vscode", false, "mcp .vscode/mcp.json, pointer .github/copilot-instructions.md, hook .github/hooks/aries.json"},
 		// Junie ignores hooks in a project's config: only the home one gets it.
 		{"junie", false, "mcp .junie/mcp/mcp.json, pointer AGENTS.md"},
 		{"junie", true, "mcp .junie/mcp/mcp.json, pointer .junie/AGENTS.md, hook .junie/config.json"},
 		// AI Assistant keeps its MCP servers in IDE settings, not a file.
-		{"jetbrains", false, "pointer .aiassistant/rules/starfix.md"},
+		{"jetbrains", false, "pointer .aiassistant/rules/aries.md"},
 	}
 	// VS Code's user MCP config is per platform, and AI Assistant has no
 	// file at all: setup refuses --global for both.

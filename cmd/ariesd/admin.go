@@ -45,7 +45,7 @@ func openAdminStore(ctx context.Context, env adminEnv, fl server.Settings, cfgPa
 		return nil, err
 	}
 	if s.DSN == "" {
-		return nil, errors.New("no database DSN; fix: set $STARFIXD_DSN or dsn: in the config file")
+		return nil, errors.New("no database DSN; fix: set $ARIESD_DSN or dsn: in the config file")
 	}
 	dsn, prefix := s.DSN, s.Prefix
 	switch {
@@ -91,7 +91,7 @@ func adminProject(ctx context.Context, s server.Settings, id string) (store.Proj
 	p, err := ctl.Project(ctx, id)
 	if err = closeControl(err, ctl); err != nil {
 		if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrInvalid) {
-			return store.Project{}, fmt.Errorf("project %q is not one of this server's; fix: give a project's UUID with --project, or run `starfixd control init` if none was adopted yet", id)
+			return store.Project{}, fmt.Errorf("project %q is not one of this server's; fix: give a project's UUID with --project, or run `ariesd control init` if none was adopted yet", id)
 		}
 		return store.Project{}, fmt.Errorf("read project %s: %w; fix: check that dolt sql-server is running", id, err)
 	}
@@ -126,7 +126,7 @@ func devFlags(fs *flag.FlagSet, dev, unsafe *bool) {
 // unsafe Dolt account is for a developer's own machine only.
 func checkDev(dev, unsafe bool) error {
 	if unsafe && !dev {
-		return usageError("--allow-unsafe-dolt is for development only and needs --dev; on a server, give starfixd a least-privileged Dolt account (docs/server.md, steps 2 and 4)")
+		return usageError("--allow-unsafe-dolt is for development only and needs --dev; on a server, give ariesd a least-privileged Dolt account (docs/server.md, steps 2 and 4)")
 	}
 	return nil
 }
@@ -140,7 +140,7 @@ func closeStore(err error, st *store.Store) error {
 	return err
 }
 
-// importBD runs `starfixd import-bd [flags] FILE|-`.
+// importBD runs `ariesd import-bd [flags] FILE|-`.
 func importBD(ctx context.Context, env adminEnv, args []string) (err error) {
 	var fl server.Settings
 	var cfgPath, principal, project string
@@ -205,7 +205,7 @@ func importBD(ctx context.Context, env adminEnv, args []string) (err error) {
 	return nil
 }
 
-// exportBD runs `starfixd export-bd [flags] [-o FILE]`.
+// exportBD runs `ariesd export-bd [flags] [-o FILE]`.
 func exportBD(ctx context.Context, env adminEnv, args []string) (err error) {
 	var fl server.Settings
 	var cfgPath, out, project string

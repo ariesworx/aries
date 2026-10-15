@@ -146,7 +146,7 @@ func TestSpansWithoutTheKey(t *testing.T) {
 	}
 	_, perr := ask[proto.PrincipalWhoisResult](d, proto.OpPrincipalWhois, proto.PrincipalWhoisArgs{StandIn: "p_0123456789abcdef"})
 	if perr == nil || perr.Code != proto.CodeUnavailable || !strings.Contains(perr.Message, "the key is unavailable") ||
-		!strings.Contains(perr.Message, "no such file or directory") || !strings.Contains(perr.Fix, "starfixd's log") {
+		!strings.Contains(perr.Message, "no such file or directory") || !strings.Contains(perr.Fix, "ariesd's log") {
 		t.Errorf("whois with the key unavailable = %+v; want unavailable, with the cause, and a fix that points at the log", perr)
 	}
 

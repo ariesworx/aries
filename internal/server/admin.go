@@ -18,7 +18,7 @@ import (
 )
 
 // Access management over the protocol (design §15.4, protocols 5 and 6):
-// what `sfx admin` asks of a server of many projects. Each op rides the
+// what `aries admin` asks of a server of many projects. Each op rides the
 // caller's connection to a project it may reach, and acts on that
 // project unless it names another.
 //
@@ -74,7 +74,7 @@ func decodeArgs[A any](raw json.RawMessage) (A, *proto.Error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&args); err != nil {
-		return args, proto.Errf(proto.CodeInvalid, proto.FixUpgrade+" starfix to match the server",
+		return args, proto.Errf(proto.CodeInvalid, proto.FixUpgrade+" aries to match the server",
 			fmt.Sprintf("bad arguments: %v", err))
 	}
 	return args, nil
@@ -138,7 +138,7 @@ func (s *Server) project(ctx context.Context, sess *session, op, ref, principal 
 	}
 	if ctl.IsServerAdmin(actor) {
 		if err != nil {
-			return p, proto.Errf(proto.CodeNotFound, "list the projects with `sfx admin project list`", fmt.Sprintf("project %q not found", ref))
+			return p, proto.Errf(proto.CodeNotFound, "list the projects with `aries admin project list`", fmt.Sprintf("project %q not found", ref))
 		}
 		return p, nil
 	}
@@ -161,23 +161,23 @@ func (s *Server) open(ctx context.Context, op string, p store.Project) *proto.Er
 	case errors.Is(err, errStoresFull):
 		s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitOpenStores)
 		return proto.Errf(proto.CodeBusy,
-			"retry in a minute; the server admin can raise open_stores under limits: in starfixd's config",
+			"retry in a minute; the server admin can raise open_stores under limits: in ariesd's config",
 			fmt.Sprintf("the server has its limit of %d projects open, each with a connection", s.cfg.Limits.OpenStores))
 	case store.DatabaseDenied(err):
 		account, aerr := s.cfg.Control.Account(ctx)
 		if aerr != nil {
-			account = "'starfix'@'localhost'"
+			account = "'aries'@'localhost'"
 		}
 		return proto.Errf(proto.CodeUnavailable,
-			fmt.Sprintf("ask the server's operator to run this as Dolt's root, then run `sfx %s %s` again: GRANT ALL ON %s.* TO %s; (docs/server.md, Serving many projects)",
+			fmt.Sprintf("ask the server's operator to run this as Dolt's root, then run `aries %s %s` again: GRANT ALL ON %s.* TO %s; (docs/server.md, Serving many projects)",
 				command(op), p.Name, p.DBName, account),
-			fmt.Sprintf("starfixd's Dolt account was never granted database %s, so project %s cannot use it", p.DBName, p.Name))
+			fmt.Sprintf("ariesd's Dolt account was never granted database %s, so project %s cannot use it", p.DBName, p.Name))
 	}
 	if ctx.Err() == nil {
 		s.cfg.Logger.ErrorContext(ctx, "open project store", "event", logs.ProjectOpenFailed, "project", p.ID, "database", p.DBName, "err", err)
 	}
 	return proto.Errf(proto.CodeUnavailable,
-		fmt.Sprintf("run `sfx %s %s` again; if it persists, the server admin should check the starfixd log", command(op), p.Name),
+		fmt.Sprintf("run `aries %s %s` again; if it persists, the server admin should check the ariesd log", command(op), p.Name),
 		fmt.Sprintf("the server could not open the database of project %s", p.Name))
 }
 
@@ -219,7 +219,7 @@ func projectAdd(ctx context.Context, s *Server, sess *session, in proto.ProjectA
 		}
 		if (in.Prefix != "" && in.Prefix != p.Prefix) || (in.Account != "" && in.Account != p.Account) {
 			return nil, proto.Errf(proto.CodeInvalid,
-				fmt.Sprintf("run `sfx admin project add %s` without --prefix and --account to finish creating it", p.Name),
+				fmt.Sprintf("run `aries admin project add %s` without --prefix and --account to finish creating it", p.Name),
 				fmt.Sprintf("project %s is being created with prefix %s and account %s, which cannot change", p.Name, p.Prefix, p.Account))
 		}
 		np, resumed = store.NewProject{ID: p.ID, Name: p.Name, Prefix: p.Prefix, Account: p.Account, DBName: p.DBName}, true
@@ -228,13 +228,13 @@ func projectAdd(ctx context.Context, s *Server, sess *session, in proto.ProjectA
 		b := s.cfg.ProjectDBs
 		if b.Count == 0 {
 			return nil, proto.Errf(proto.CodeInvalid,
-				"ask the server's operator to grant starfixd's Dolt account a block of database names and set project_dbs: in its config (docs/server.md, Serving many projects)",
+				"ask the server's operator to grant ariesd's Dolt account a block of database names and set project_dbs: in its config (docs/server.md, Serving many projects)",
 				"the server has no database names for new projects")
 		}
 		name, ok := b.free(used)
 		if !ok {
 			return nil, proto.Errf(proto.CodeInvalid,
-				fmt.Sprintf("ask the server's operator to grant starfixd's Dolt account more names, from %s on, and raise count under project_dbs: in its config (docs/server.md, Serving many projects)",
+				fmt.Sprintf("ask the server's operator to grant ariesd's Dolt account more names, from %s on, and raise count under project_dbs: in its config (docs/server.md, Serving many projects)",
 					b.Name(b.Count+1)),
 				fmt.Sprintf("every database name for new projects is in use (%s to %s)", b.Name(1), b.Name(b.Count)))
 		}
@@ -340,7 +340,7 @@ func projectArchive(ctx context.Context, s *Server, sess *session, in proto.Proj
 	if p.State == store.ProjectActive && s.cfg.Control.ActiveProjects() == 1 {
 		s.archiving.Unlock()
 		return nil, proto.Errf(proto.CodeInvalid,
-			"add another project, or bring one back with `sfx admin project activate PROJECT`, before archiving this one",
+			"add another project, or bring one back with `aries admin project activate PROJECT`, before archiving this one",
 			fmt.Sprintf("%s is the server's only active project; without one, nobody could connect to manage the server", p.Name))
 	}
 	p, err := s.cfg.Control.ArchiveProject(ctx, sess.actor, p.ID)
@@ -386,14 +386,14 @@ func projectArchive(ctx context.Context, s *Server, sess *session, in proto.Proj
 // named resolves the project a server admin's op must name.
 func (s *Server) named(ctx context.Context, sess *session, op, ref string) (store.Project, *proto.Error) {
 	if ref == "" {
-		return store.Project{}, proto.Errf(proto.CodeInvalid, fmt.Sprintf("name the project: `sfx %s PROJECT`, a UUID or a name from `sfx admin project list`", command(op)),
+		return store.Project{}, proto.Errf(proto.CodeInvalid, fmt.Sprintf("name the project: `aries %s PROJECT`, a UUID or a name from `aries admin project list`", command(op)),
 			"no project named")
 	}
 	return s.project(ctx, sess, op, ref, "")
 }
 
 // projectActivate serves an archived project again. Its store is opened
-// first, which migrates a database archived under an older starfixd, so
+// first, which migrates a database archived under an older ariesd, so
 // that an active project is always one this server can open.
 func projectActivate(ctx context.Context, s *Server, sess *session, in proto.ProjectArgs) (any, *proto.Error) {
 	const op = proto.OpProjectActivate
@@ -409,7 +409,7 @@ func projectActivate(ctx context.Context, s *Server, sess *session, in proto.Pro
 		return wireProjectResult(p), nil
 	case store.ProjectCreating:
 		// It may have no database yet; only project add finishes one.
-		return nil, proto.Errf(proto.CodeInvalid, fmt.Sprintf("run `sfx admin project add %s` again, which finishes creating it", p.Name),
+		return nil, proto.Errf(proto.CodeInvalid, fmt.Sprintf("run `aries admin project add %s` again, which finishes creating it", p.Name),
 			fmt.Sprintf("project %s is still being created", p.Name))
 	}
 	if perr := s.open(ctx, op, p); perr != nil {
@@ -438,7 +438,7 @@ func principalAdd(ctx context.Context, s *Server, sess *session, in proto.Princi
 	}
 	if len(in.Keys) > proto.MaxKeysPerAdd {
 		return nil, proto.Errf(proto.CodeInvalid,
-			fmt.Sprintf("add the principal with up to %d keys, then the rest with `sfx admin key add %s FILE`", proto.MaxKeysPerAdd, in.Name),
+			fmt.Sprintf("add the principal with up to %d keys, then the rest with `aries admin key add %s FILE`", proto.MaxKeysPerAdd, in.Name),
 			fmt.Sprintf("%d keys is more than one principal add carries (%d)", len(in.Keys), proto.MaxKeysPerAdd))
 	}
 	p, err := s.cfg.Control.AddPrincipal(ctx, sess.actor, in.Name, proj.ID, in.Keys...)
@@ -532,7 +532,7 @@ func principalWhois(ctx context.Context, s *Server, sess *session, in proto.Prin
 		// The server cannot answer; that is not the same as a stand-in
 		// that is nobody's.
 		return nil, proto.Errf(proto.CodeUnavailable,
-			"the server's operator finds the cause and its fix in starfixd's log (`telemetry: spans say nothing about who`) and in `starfixd status`; a stand-in made under a key file that was since deleted cannot be resolved by anyone (docs/server.md, Traces)",
+			"the server's operator finds the cause and its fix in ariesd's log (`telemetry: spans say nothing about who`) and in `ariesd status`; a stand-in made under a key file that was since deleted cannot be resolved by anyone (docs/server.md, Traces)",
 			"this server has no key for stand-ins: "+why)
 	}
 	all, err := s.cfg.Control.Principals(ctx)
@@ -627,7 +627,7 @@ func (s *Server) carried(ctx context.Context, principal, joined string) (int, []
 
 // wireCarried is the keys of a principal joining project, each with
 // whether whoever added it has an admin's rights in project now, or was
-// the server's operator (`starfixd control init`), whose say over every
+// the server's operator (`ariesd control init`), whose say over every
 // project is beyond an admin's.
 func (s *Server) wireCarried(keys []store.PrincipalKey, project string) []proto.CarriedKey {
 	var out []proto.CarriedKey
@@ -734,7 +734,7 @@ func keyAdd(ctx context.Context, s *Server, sess *session, in proto.KeyAddArgs) 
 func (s *Server) keyErr(ctx context.Context, sess *session, op string, err error) *proto.Error {
 	if te, ok := errors.AsType[*store.TakenError](err); ok && te.Elsewhere && s.cfg.Control.IsServerAdmin(sess.actor.Principal) {
 		return proto.Errf(proto.CodeExists,
-			"add it to the principal that line names, or have the line deleted on the server first (docs/server.md, Keys from the store): sshd reads starfixd's keys before that file, so the key would otherwise sign its owner in as someone else",
+			"add it to the principal that line names, or have the line deleted on the server first (docs/server.md, Keys from the store): sshd reads ariesd's keys before that file, so the key would otherwise sign its owner in as someone else",
 			fmt.Sprintf("key %s is a line of the server's authorized_keys file, for another principal", te.Value))
 	}
 	return s.ctlErr(ctx, sess, op, err)
@@ -762,7 +762,7 @@ func keys(ctx context.Context, s *Server, sess *session, in proto.KeysArgs) (any
 	const op = proto.OpKeys
 	switch {
 	case (in.Name == "") == (in.AddedBy == ""):
-		return nil, proto.Errf(proto.CodeInvalid, "give `sfx admin key list NAME`, or `sfx admin key list --added-by NAME`, not both",
+		return nil, proto.Errf(proto.CodeInvalid, "give `aries admin key list NAME`, or `aries admin key list --added-by NAME`, not both",
 			"key list shows a principal's keys, or the keys someone added")
 	case in.AddedBy != "":
 		return s.keysAddedBy(ctx, sess, in)
@@ -771,7 +771,7 @@ func keys(ctx context.Context, s *Server, sess *session, in proto.KeysArgs) (any
 	admin := ctl.IsServerAdmin(actor)
 	if !admin && actor != in.Name && !ctl.AdministersProjectOf(actor, in.Name) {
 		return nil, proto.Errf(proto.CodeForbidden,
-			"ask a server admin, or an admin of a project the principal belongs to; `sfx admin key list "+actor+"` lists your own",
+			"ask a server admin, or an admin of a project the principal belongs to; `aries admin key list "+actor+"` lists your own",
 			fmt.Sprintf("%s may not list the keys of %s: it is for the principal, for an admin of a project it belongs to, and for server admins", actor, in.Name))
 	}
 	all, err := ctl.Keys(ctx, in.Name)
@@ -821,7 +821,7 @@ func keyRemove(ctx context.Context, s *Server, sess *session, in proto.KeyRemove
 	me := sess.actor.Principal
 	if in.Fingerprint != "" && in.Fingerprint == sess.fingerprint {
 		return nil, proto.Errf(proto.CodeInvalid,
-			fmt.Sprintf("sign in with another of your keys and remove this one from there, or ask an admin to; `sfx whoami` shows the key in use and `sfx admin key list %s` the others", me),
+			fmt.Sprintf("sign in with another of your keys and remove this one from there, or ask an admin to; `aries whoami` shows the key in use and `aries admin key list %s` the others", me),
 			fmt.Sprintf("key %s is the key this connection signed in with, and removing it here would lock %s out", in.Fingerprint, me))
 	}
 	k, err := s.cfg.Control.RemoveKey(ctx, sess.actor, in.Fingerprint)
@@ -831,7 +831,7 @@ func keyRemove(ctx context.Context, s *Server, sess *session, in proto.KeyRemove
 	out := wireKeyResult(k)
 	out.Warning = s.syncKeys(ctx)
 	if k.Principal == me && sess.fingerprint == "" {
-		unchecked := fmt.Sprintf("starfixd could not check that key %s is not the one this connection signed in with: the connection came in by the server's authorized_keys file, which names no key; `sfx whoami` shows the key in use",
+		unchecked := fmt.Sprintf("ariesd could not check that key %s is not the one this connection signed in with: the connection came in by the server's authorized_keys file, which names no key; `aries whoami` shows the key in use",
 			k.Fingerprint)
 		if out.Warning != "" {
 			unchecked += "; and " + out.Warning
@@ -851,10 +851,10 @@ func keyRemove(ctx context.Context, s *Server, sess *session, in proto.KeyRemove
 }
 
 // OpenProjects opens the store of every active project in turn and
-// closes it again, which applies this starfixd's migrations to each
+// closes it again, which applies this ariesd's migrations to each
 // database (about 3 ms for one already migrated). A daemon runs it once,
 // before it listens, so that an upgrade migrates every project while
-// `starfixd upgrade` still watches, not each at its next connection.
+// `ariesd upgrade` still watches, not each at its next connection.
 //
 // A project that cannot be opened does not stop the others, or the
 // server: it is logged, tried again by its next connection, and held
@@ -911,7 +911,7 @@ func (s *Server) OpenProjects(ctx context.Context) error {
 // lock.leave.
 //
 // open opens an archived project's database as it is, without migrating
-// it ([store.Options.NoMigrate]): a database an older starfixd last
+// it ([store.Options.NoMigrate]): a database an older ariesd last
 // migrated is left untouched, with a line in the log, and any claim in
 // it ends when the project is activated, which migrates it and sweeps
 // it before its first request. So an upgrade changes no database that
@@ -944,7 +944,7 @@ func (s *Server) ReleaseArchived(ctx context.Context, open func(context.Context,
 		case ctx.Err() != nil:
 			return fmt.Errorf("release the claims of archived projects: %w", ctx.Err())
 		case errors.Is(err, store.ErrSchemaOld):
-			s.cfg.Logger.InfoContext(ctx, "archived project not opened at start: its database awaits this starfixd's migrations, and any claim in it ends when the project is activated",
+			s.cfg.Logger.InfoContext(ctx, "archived project not opened at start: its database awaits this ariesd's migrations, and any claim in it ends when the project is activated",
 				"event", logs.ProjectNotOpened, "project", p.ID, "name", p.Name, "database", p.DBName)
 		default:
 			s.cfg.Logger.ErrorContext(ctx, "end the claims of an archived project at start", "event", logs.SweepFailed, "project", p.ID, "name", p.Name, "database", p.DBName, "err", err)
@@ -993,12 +993,12 @@ func (s *Server) unopenedErr() *proto.Error {
 	for _, p := range bad[:min(len(bad), 5)] {
 		names = append(names, fmt.Sprintf("%s (database %s)", p.Name, p.DBName))
 	}
-	msg := fmt.Sprintf("starfixd could not open the database of %d active projects: %s", len(bad), strings.Join(names, ", "))
+	msg := fmt.Sprintf("ariesd could not open the database of %d active projects: %s", len(bad), strings.Join(names, ", "))
 	if len(bad) == 1 {
-		msg = "starfixd could not open the database of an active project: " + names[0]
+		msg = "ariesd could not open the database of an active project: " + names[0]
 	}
 	if len(bad) > len(names) {
 		msg += fmt.Sprintf(" and %d more", len(bad)-len(names))
 	}
-	return proto.Errf(proto.CodeUnavailable, "check the starfixd log for each; fix or archive the project, then restart starfixd", msg)
+	return proto.Errf(proto.CodeUnavailable, "check the ariesd log for each; fix or archive the project, then restart ariesd", msg)
 }

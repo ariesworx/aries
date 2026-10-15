@@ -16,10 +16,10 @@ import (
 	"github.com/ariesworx/aries/internal/version"
 )
 
-// statusCmd runs `starfixd status [--json]`: it asks the running daemon,
-// over its socket, for the report `sfx admin status` gives a server
+// statusCmd runs `ariesd status [--json]`: it asks the running daemon,
+// over its socket, for the report `aries admin status` gives a server
 // admin, and prints it the same way. It is for the operator, a script or
-// an agent on the server with no admin key. Only the user starfixd runs
+// an agent on the server with no admin key. Only the user ariesd runs
 // as can reach the socket, so only that user can run it.
 //
 // With --json it prints exactly one JSON document: the report, or
@@ -76,7 +76,7 @@ func localStatus(ctx context.Context, env adminEnv, fl server.Settings, cfgPath 
 		// The config file is the daemon's user's alone. root is refused it
 		// too where the AppArmor profiles are loaded, which give this
 		// command no capability.
-		return proto.StatusResult{}, fmt.Errorf("%w; fix: run it as the user starfixd runs as, for example `sudo -u starfix -H starfixd status`", err)
+		return proto.StatusResult{}, fmt.Errorf("%w; fix: run it as the user ariesd runs as, for example `sudo -u aries -H ariesd status`", err)
 	}
 	if err != nil {
 		return proto.StatusResult{}, err

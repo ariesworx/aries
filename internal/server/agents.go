@@ -11,7 +11,7 @@ import (
 	"github.com/ariesworx/aries/internal/store"
 )
 
-// The note of a session in its project's registry, which `sfx who`
+// The note of a session in its project's registry, which `aries who`
 // reads, is a write, and so waits on Dolt. A connection makes it beside
 // the wait for its first request, not before it, and each request waits
 // for it (presence.ensure): so that none reads or writes a store for a

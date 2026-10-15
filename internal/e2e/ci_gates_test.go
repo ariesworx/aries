@@ -39,19 +39,19 @@ func TestCIGate(t *testing.T) {
 	}
 	if r := intruder.run("v0.2.0", "gate", "pass", "--check", "build", "--from-branch"); r.code != 1 ||
 		!strings.Contains(r.stderr, "only ci-example may pass gate "+gate) || !strings.Contains(r.stderr, "fix: ") {
-		t.Errorf("sfx gate pass by ci-other = exit %d\n%s%s\nwant a refusal naming ci-example", r.code, r.stdout, r.stderr)
+		t.Errorf("aries gate pass by ci-other = exit %d\n%s%s\nwant a refusal naming ci-example", r.code, r.stdout, r.stderr)
 	}
-	// The agent itself, running sfx in its shell, is no CI job.
+	// The agent itself, running aries in its shell, is no CI job.
 	bob.env["CLAUDE_CODE_SESSION_ID"] = "claude-bob"
 	if r := bob.run("v0.2.0", "gate", "pass", "--check", "build", "--issue", impl); r.code != 1 || !strings.Contains(r.stderr, "ci-example") {
-		t.Errorf("sfx gate pass from bob's agent = exit %d\n%s%s\nwant it refused", r.code, r.stdout, r.stderr)
+		t.Errorf("aries gate pass from bob's agent = exit %d\n%s%s\nwant it refused", r.code, r.stdout, r.stderr)
 	}
 	delete(bob.env, "CLAUDE_CODE_SESSION_ID")
 
 	const runURL = "https://ci.example.com/example/parser/actions/runs/1001"
 	if out := ci.ok("gate", "fail", "--check", "build", "--from-branch", "--sha", "abc1234def", "--url", runURL,
 		"--reason", "2 tests failed"); !strings.Contains(out, gate+" failed") {
-		t.Errorf("sfx gate fail = %q, want %s failed", out, gate)
+		t.Errorf("aries gate fail = %q, want %s failed", out, gate)
 	}
 	if out := agent.ok("inbox", nil); !strings.Contains(out, `"kind":"gate.failed"`) || !strings.Contains(out, runURL) ||
 		!strings.Contains(out, "2 tests failed") {
@@ -65,7 +65,7 @@ func TestCIGate(t *testing.T) {
 	}
 
 	if out := ci.ok("gate", "pass", "--check", "build", "--from-branch", "--sha", "fed4321", "--url", runURL); !strings.Contains(out, gate+" passed") {
-		t.Errorf("sfx gate pass = %q, want %s passed", out, gate)
+		t.Errorf("aries gate pass = %q, want %s passed", out, gate)
 	}
 	if got := agent.readyIDs(); !slices.Contains(got, next) {
 		t.Errorf("ready after the pass = %v, want %s", got, next)
@@ -76,10 +76,10 @@ func TestCIGate(t *testing.T) {
 	ci.env["GITHUB_HEAD_REF"] = "dependabot/go_modules/example.com/lib-1.2.3"
 	if r := ci.run("v0.2.0", "gate", "pass", "--check", "build", "--from-branch", "--optional"); r.code != 0 ||
 		!strings.Contains(r.stderr, "nothing reported") {
-		t.Errorf("sfx gate pass --optional on another branch = exit %d\n%s%s\nwant exit 0, nothing reported", r.code, r.stdout, r.stderr)
+		t.Errorf("aries gate pass --optional on another branch = exit %d\n%s%s\nwant exit 0, nothing reported", r.code, r.stdout, r.stderr)
 	}
 	if r := ci.run("v0.2.0", "gate", "pass", "--check", "build", "--from-branch"); r.code != 1 || !strings.Contains(r.stderr, "names no issue") {
-		t.Errorf("sfx gate pass on another branch = exit %d\n%s%s\nwant it refused", r.code, r.stdout, r.stderr)
+		t.Errorf("aries gate pass on another branch = exit %d\n%s%s\nwant it refused", r.code, r.stdout, r.stderr)
 	}
 
 	// Closed is not landed until the default branch's job says so.

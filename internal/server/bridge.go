@@ -11,7 +11,7 @@ import (
 	"github.com/ariesworx/aries/internal/store"
 )
 
-// Bridge is `starfixd stdio`, the forced command of every developer key. It
+// Bridge is `ariesd stdio`, the forced command of every developer key. It
 // connects to the daemon's socket, sends a bridge frame naming principal
 // (fixed by sshd from the key that authenticated), then copies in to the
 // daemon and the daemon to out until the daemon closes the connection.
@@ -41,8 +41,8 @@ func Bridge(ctx context.Context, socket, principal, key string, in io.Reader, ou
 	var d net.Dialer
 	c, err := d.DialContext(ctx, "unix", socket)
 	if err != nil {
-		e := proto.Errf(proto.CodeUnavailable, "ask the server admin to start it (`systemctl start starfixd`)",
-			"starfixd is not running on the server")
+		e := proto.Errf(proto.CodeUnavailable, "ask the server admin to start it (`systemctl start ariesd`)",
+			"ariesd is not running on the server")
 		return errors.Join(fmt.Errorf("connect to %s: %w", socket, err), refuse(out, e))
 	}
 	defer func() { _ = c.Close() }()

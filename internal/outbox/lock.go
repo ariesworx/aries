@@ -12,7 +12,7 @@ import (
 //
 // The lock file is opened anew for each acquisition. flock and LockFileEx
 // belong to the open handle, so two goroutines of one process, each with
-// its own handle, exclude each other as two processes do; `sfx mcp`
+// its own handle, exclude each other as two processes do; `aries mcp`
 // appends for its tool calls while it replays in the background.
 type lock struct{ f *os.File }
 
