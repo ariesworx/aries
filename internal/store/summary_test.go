@@ -83,7 +83,14 @@ func newSummaryProject(t *testing.T) summaryProject {
 }
 
 func summaryOf(is Issue) Summary {
-	return Summary{ID: is.ID, Title: is.Title, Status: is.Status, Priority: is.Priority}
+	sm := Summary{ID: is.ID, Title: is.Title, Status: is.Status, Priority: is.Priority}
+	if is.DueAt != nil {
+		sm.DueAt = *is.DueAt
+	}
+	if is.DeferUntil != nil {
+		sm.DeferUntil = *is.DeferUntil
+	}
+	return sm
 }
 
 func TestListSummariesMatchList(t *testing.T) {

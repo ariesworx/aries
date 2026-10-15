@@ -661,7 +661,15 @@ func wireComment(c store.Comment) proto.Comment {
 
 func summary(sm store.Summary) proto.Summary {
 	return proto.Summary{ID: string(sm.ID), Title: sm.Title, Status: string(sm.Status), Priority: int(sm.Priority),
-		DueAt: sm.DueAt, DeferUntil: sm.DeferUntil}
+		DueAt: timeOrNil(sm.DueAt), DeferUntil: timeOrNil(sm.DeferUntil)}
+}
+
+// timeOrNil is t, or nil for the zero time.
+func timeOrNil(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
 }
 
 func summaries(sms []store.Summary) []proto.Summary {

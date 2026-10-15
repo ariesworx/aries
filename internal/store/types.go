@@ -322,9 +322,10 @@ type Summary struct {
 	Title    string
 	Status   Status
 	Priority Priority
-	// DueAt and DeferUntil are the issue's dates, if set; Blocked leaves
-	// them out.
-	DueAt, DeferUntil *time.Time
+	// DueAt and DeferUntil are the issue's dates in UTC, zero when not
+	// set; Blocked leaves them out. They are values, so that two
+	// summaries compare with ==.
+	DueAt, DeferUntil time.Time
 }
 
 // SummaryPage is one page of ListSummaries results. Next is empty on the

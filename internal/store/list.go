@@ -109,7 +109,7 @@ func (s *Store) ListSummaries(ctx context.Context, f Filter) (SummaryPage, error
 		if len(page.Issues) < limit {
 			lastAt = at
 		}
-		sm.DueAt, sm.DeferUntil = timePtr(due), timePtr(deferUntil)
+		sm.DueAt, sm.DeferUntil = orZero(due), orZero(deferUntil)
 		page.Issues = append(page.Issues, sm)
 	}
 	if err := rows.Err(); err != nil {

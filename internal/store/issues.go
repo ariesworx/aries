@@ -62,6 +62,14 @@ func timePtr(t sql.NullTime) *time.Time {
 	return &u
 }
 
+// orZero maps NULL to the zero time and a time to UTC.
+func orZero(t sql.NullTime) time.Time {
+	if !t.Valid {
+		return time.Time{}
+	}
+	return t.Time.UTC()
+}
+
 // nullStr maps "" to NULL.
 func nullStr[T ~string](s T) any {
 	if s == "" {

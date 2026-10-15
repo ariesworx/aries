@@ -284,7 +284,7 @@ func loadSummaries(ctx context.Context, q querier, ids []IssueID) ([]Summary, er
 		if err := rows.Scan(&sm.ID, &sm.Title, &sm.Status, &sm.Priority, &due, &deferUntil); err != nil {
 			return nil, err
 		}
-		sm.DueAt, sm.DeferUntil = timePtr(due), timePtr(deferUntil)
+		sm.DueAt, sm.DeferUntil = orZero(due), orZero(deferUntil)
 		byID[sm.ID] = sm
 	}
 	if err := rows.Err(); err != nil {
