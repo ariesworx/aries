@@ -132,6 +132,10 @@ func nextStep(pe *proto.Error) string {
 			return "never store a secret: remember the rest, naming where the secret is kept (a vault path or an environment variable) instead"
 		case strings.HasPrefix(pe.Fix, proto.FixForgetSome):
 			return "call forget on memories that no longer hold, or tell the user" + personFix(pe)
+		case strings.HasPrefix(pe.Fix, proto.FixGate):
+			return "a gate holds this until a person passes it: do not work around it; pick other work with ready, or tell the user it waits for the approvers named above"
+		case strings.HasPrefix(pe.Fix, proto.FixGateAdd):
+			return "call gate with action add to hold an issue back; create and update do not make gates"
 		}
 		return "correct the arguments and retry"
 	case proto.CodeAcceptance:
@@ -140,6 +144,9 @@ func nextStep(pe *proto.Error) string {
 		}
 		return "call finish with ticked: [numbers met] and waived: {number: reason} for the rest; show lists the items"
 	case proto.CodeForbidden:
+		if strings.HasPrefix(pe.Fix, proto.FixGate) {
+			return "passing a gate is a person's act at their own terminal: tell the user it waits for the approvers named above; never run sfx gate yourself"
+		}
 		if strings.HasPrefix(pe.Fix, proto.FixAsk) {
 			return "someone else holds this issue: do not change it; leave a comment, pick other work with start, or tell the user"
 		}

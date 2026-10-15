@@ -40,6 +40,7 @@ func (r *runner) text(v string) (string, error) {
 // fields are the issue fields create and update share.
 type fields struct {
 	title, body, design, acceptance, notes, status, typ, assignee, owner, parent, prio, account string
+	deferUntil, due                                                                             string
 }
 
 // register adds the field flags to fs. withTitle adds --title, for
@@ -61,6 +62,19 @@ func (f *fields) register(fs *flag.FlagSet, withTitle bool) {
 	fs.StringVar(&f.owner, "owner", "", "owner (empty clears)")
 	fs.StringVar(&f.parent, "parent", "", "parent issue id (empty clears)")
 	fs.StringVar(&f.account, "account", "", "account code name for time and tokens (empty inherits the parent's)")
+	fs.StringVar(&f.deferUntil, "defer-until", "", "keep it out of ready until this date (2026-11-02) or time (RFC 3339); empty clears")
+	fs.StringVar(&f.due, "due", "", "due by this date or time; empty clears")
+}
+
+// checkDates refuses, as a usage error, a --defer-until or --due that is
+// no date or time, before anything is sent.
+func (f *fields) checkDates(usage string) error {
+	for _, d := range []struct{ name, v string }{{"defer-until", f.deferUntil}, {"due", f.due}} {
+		if _, err := proto.ParseDate(d.v); err != nil {
+			return usagef(usage, "--%s: %v", d.name, err)
+		}
+	}
+	return nil
 }
 
 // readTexts resolves "-" in the long text fields; only one may use it.
@@ -83,7 +97,7 @@ func (r *runner) readTexts(f *fields) error {
 }
 
 func cmdCreate(ctx context.Context, r *runner, args []string) error {
-	const usage = "create TITLE... [-p N] [-t TYPE] [--body TEXT|-] [--parent ID] [--account NAME] [--label L]... [--paths P,P]"
+	const usage = "create TITLE... [-p N] [-t TYPE] [--body TEXT|-] [--parent ID] [--account NAME] [--label L]... [--paths P,P] [--defer-until DATE] [--due DATE]"
 	fs := r.newFlags("create")
 	var f fields
 	f.register(fs, false)
@@ -100,13 +114,16 @@ func cmdCreate(ctx context.Context, r *runner, args []string) error {
 	if len(pos) == 0 {
 		return usagef(usage, "create needs a title")
 	}
+	if err := f.checkDates(usage); err != nil {
+		return err
+	}
 	if err := r.readTexts(&f); err != nil {
 		return err
 	}
 	idem := proto.NewIdem("cli")
 	in := proto.CreateArgs{ID: id, Idem: idem, Title: strings.Join(pos, " "), Body: f.body, Design: f.design,
 		Acceptance: f.acceptance, Notes: f.notes, Status: f.status, Type: f.typ, Assignee: f.assignee,
-		Owner: f.owner, Parent: f.parent, Labels: labels, Account: f.account}
+		Owner: f.owner, Parent: f.parent, Labels: labels, Account: f.account, DeferUntil: f.deferUntil, Due: f.due}
 	if len(paths) > 0 {
 		in.Paths = gitx.RepoRelative(ctx, r.dir, paths)
 	}
@@ -246,6 +263,29 @@ func printIssue(w io.Writer, s proto.ShowResult) {
 		}
 		p("conflicts: %d open (%s): `sfx conflicts %s`\n", len(s.Conflicts), strings.Join(fields, ", "), esc(is.ID))
 	}
+	var dates []string
+	if is.DeferUntil != nil {
+		dates = append(dates, "not before "+when(*is.DeferUntil))
+	}
+	if is.DueAt != nil {
+		dates = append(dates, "due "+when(*is.DueAt))
+	}
+	if len(dates) > 0 {
+		p("%s\n", strings.Join(dates, "; "))
+	}
+	if g := s.Gate; g != nil {
+		p("%s gate, passed by %s; holds %s\n", esc(g.Kind), approverText(g.Approvers), strings.Join(escAll(g.Holds), ", "))
+		if g.Outcome != "" {
+			p("%s by %s", esc(g.Outcome), esc(g.By))
+			if g.Reason != "" {
+				p(": %s", esc(g.Reason))
+			}
+			p("\n")
+		}
+	}
+	for _, g := range s.Gates {
+		p("held by gate %s, which %s may pass: `sfx gate pass %s`\n", esc(g.ID), approverText(g.Approvers), esc(g.ID))
+	}
 	p("created %s by %s; updated %s\n", when(is.CreatedAt), esc(is.CreatedBy), when(is.UpdatedAt))
 	if is.ClosedAt != nil {
 		p("closed %s", when(*is.ClosedAt))
@@ -349,11 +389,28 @@ func cmdList(ctx context.Context, r *runner, args []string) error {
 		r.emit(out)
 		return nil
 	}
-	printSummaries(r.env.Stdout, out.Issues, nil)
+	printList(r.env.Stdout, out.Issues)
 	if out.Next != "" {
 		_, _ = fmt.Fprintf(r.env.Stderr, "more: sfx list --cursor %s\n", esc(out.Next))
 	}
 	return nil
+}
+
+// printList is printSummaries with each issue's dates, if it has any.
+func printList(w io.Writer, issues []proto.Summary) {
+	printSummaries(w, issues, func(i int) string {
+		var ds []string
+		if t := issues[i].DeferUntil; t != nil {
+			ds = append(ds, "not before "+when(*t))
+		}
+		if t := issues[i].DueAt; t != nil {
+			ds = append(ds, "due "+when(*t))
+		}
+		if len(ds) == 0 {
+			return ""
+		}
+		return "\t" + strings.Join(ds, "; ")
+	})
 }
 
 // limitArgs parses the arguments of a command whose only flag is -n.
@@ -400,6 +457,9 @@ func cmdBlocked(ctx context.Context, r *runner, args []string) error {
 		return nil
 	}
 	printBlocked(r.env.Stdout, out.Issues)
+	for _, g := range out.Gates {
+		_, _ = fmt.Fprintf(r.env.Stdout, "gate %s: %s may pass it (`sfx gate pass %s`)\n", esc(g.ID), approverText(g.Approvers), esc(g.ID))
+	}
 	return nil
 }
 
@@ -423,7 +483,7 @@ func printBlocked(w io.Writer, issues []proto.BlockedIssue) {
 }
 
 func cmdUpdate(ctx context.Context, r *runner, args []string) error {
-	const usage = "update ID [--rev N] [--title T] [--body TEXT|-] [--status S] [-p N] [-t TYPE] [--assignee A] [--parent ID] [--account NAME] [--paths P,P] ..."
+	const usage = "update ID [--rev N] [--title T] [--body TEXT|-] [--status S] [-p N] [-t TYPE] [--assignee A] [--parent ID] [--account NAME] [--paths P,P] [--defer-until DATE] [--due DATE] ..."
 	fs := r.newFlags("update")
 	var f fields
 	f.register(fs, true)
@@ -436,6 +496,9 @@ func cmdUpdate(ctx context.Context, r *runner, args []string) error {
 	}
 	id, err := one(usage, pos, "update")
 	if err != nil {
+		return err
+	}
+	if err := f.checkDates(usage); err != nil {
 		return err
 	}
 	if err := r.readTexts(&f); err != nil {
@@ -464,6 +527,8 @@ func cmdUpdate(ctx context.Context, r *runner, args []string) error {
 	str([]string{"owner"}, f.owner, &in.Owner)
 	str([]string{"parent"}, f.parent, &in.Parent)
 	str([]string{"account"}, f.account, &in.Account)
+	str([]string{"defer-until"}, f.deferUntil, &in.DeferUntil)
+	str([]string{"due"}, f.due, &in.Due)
 	if set(fs, "p") || set(fs, "priority") {
 		p, err := priority(f.prio)
 		if err != nil {

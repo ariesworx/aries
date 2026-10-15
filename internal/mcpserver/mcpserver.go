@@ -700,7 +700,9 @@ func (r *Comments) mark() { r.set(len(r.Comments) > 0) }
 func (r *History) mark()  { r.set(len(r.Events) > 0) }
 func (r *Inbox) mark()    { r.set(len(r.Items) > 0) }
 func (r *Who) mark()      { r.set(len(r.Agents) > 0) }
-func (r *Prime) mark()    { r.set(len(r.Working)+len(r.Ready)+len(r.Inbox)+len(r.Memories) > 0) }
+func (r *Prime) mark() {
+	r.set(len(r.Working)+len(r.Ready)+len(r.Inbox)+len(r.Memories)+len(r.Overdue)+len(r.DueSoon)+len(r.ReadyByDate) > 0)
+}
 func (r *Digest) mark() {
 	r.set(len(r.Closed)+len(r.Started)+len(r.InProgress)+len(r.Stalled)+len(r.Blocked)+
 		len(r.HandedOff)+len(r.Created)+len(r.Discovered) > 0)

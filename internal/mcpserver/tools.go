@@ -69,6 +69,8 @@ type CreateIn struct {
 	Assignee   string   `json:"assignee,omitempty"`
 	Design     string   `json:"design,omitempty"`
 	Acceptance string   `json:"acceptance,omitempty"`
+	DeferUntil string   `json:"defer_until,omitempty" jsonschema:"not ready before; YYYY-MM-DD"`
+	Due        string   `json:"due,omitempty"`
 
 	idem string // the same on every attempt of one call
 }
@@ -135,6 +137,8 @@ type UpdateIn struct {
 	Assignee   *string `json:"assignee,omitempty"`
 	Owner      *string `json:"owner,omitempty"`
 	Parent     *string `json:"parent,omitempty"`
+	DeferUntil *string `json:"defer_until,omitempty"`
+	Due        *string `json:"due,omitempty"`
 
 	idem string
 }
@@ -647,12 +651,13 @@ func (s *Server) register() {
 	add(s, tool{name: "create", desc: "Create an issue.", ann: write, retry: true, enums: enums{"type": issueTypes}},
 		func(ctx context.Context, c Conn, in CreateIn) (Created, error) {
 			args := proto.CreateArgs{Idem: in.idem, Title: in.Title, Body: in.Body, Type: in.Type, Priority: in.Priority,
-				Parent: in.Parent, Labels: in.Labels, Assignee: in.Assignee, Design: in.Design, Acceptance: in.Acceptance}
+				Parent: in.Parent, Labels: in.Labels, Assignee: in.Assignee, Design: in.Design, Acceptance: in.Acceptance,
+				DeferUntil: in.DeferUntil, Due: in.Due}
 			var r proto.CreateResult
 			err := c.Call(ctx, proto.OpCreate, args, &r)
 			return Created{ID: r.ID, Rev: r.Rev, Similar: similarLine(r.Similar)}, err
 		})
-	add(s, tool{name: "update", desc: "Change the fields given; empty clears assignee, owner, parent.", ann: write,
+	add(s, tool{name: "update", desc: "Change the fields given; empty clears assignee, owner, parent, dates.", ann: write,
 		enums: enums{"status": setStatuses, "type": issueTypes}},
 		func(ctx context.Context, c Conn, in UpdateIn) (proto.WriteResult, error) { return update(ctx, c, in) })
 	add(s, tool{name: "close", desc: "Close a finished issue.", ann: write},
@@ -722,6 +727,9 @@ func (s *Server) register() {
 		func(ctx context.Context, c Conn, in PageIn) (Comments, error) { return comments(ctx, c, in) })
 	add(s, tool{name: "history", desc: "An issue's newest changes.", ann: readOnly, retry: true},
 		func(ctx context.Context, c Conn, in PageIn) (History, error) { return history(ctx, c, in) })
+	add(s, tool{name: "gate", desc: "Hold blocks back until a person passes the gate (approvers, else admins); list open gates.",
+		ann: write, retry: true, enums: enums{"action": gateActions}},
+		func(ctx context.Context, c Conn, in GateIn) (any, error) { return gate(ctx, c, in) })
 	s.registerMemory()
 	s.registerCost()
 }
@@ -903,10 +911,10 @@ func (r *Issue) fitNeededBy() {
 func update(ctx context.Context, c Conn, in UpdateIn) (proto.WriteResult, error) {
 	args := proto.UpdateArgs{ID: in.ID, Rev: in.Rev, Title: in.Title, Body: in.Body, Design: in.Design,
 		Acceptance: in.Acceptance, Notes: in.Notes, Status: in.Status, Priority: in.Priority, Type: in.Type,
-		Assignee: in.Assignee, Owner: in.Owner, Parent: in.Parent, Idem: in.idem}
+		Assignee: in.Assignee, Owner: in.Owner, Parent: in.Parent, DeferUntil: in.DeferUntil, Due: in.Due, Idem: in.idem}
 	if args.Title == nil && args.Body == nil && args.Design == nil && args.Acceptance == nil && args.Notes == nil &&
 		args.Status == nil && args.Priority == nil && args.Type == nil && args.Assignee == nil && args.Owner == nil &&
-		args.Parent == nil {
+		args.Parent == nil && args.DeferUntil == nil && args.Due == nil {
 		return proto.WriteResult{}, proto.Errf(proto.CodeInvalid, "", "nothing to update: give at least one field")
 	}
 	if args.Rev == 0 {

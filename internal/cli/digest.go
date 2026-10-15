@@ -87,6 +87,18 @@ func printDigest(w io.Writer, d proto.DigestResult) {
 		{"old conflicts", t.Conflicts, d.Conflicts, func(it proto.DigestItem) string {
 			return "\t" + esc(it.By) + "\tparked " + proto.Span(d.Until.Sub(it.At)) + " ago\t" + esc(it.Note)
 		}},
+		// Dates, read at the server's time: what became ready in the
+		// window because its defer_until passed, what is due within the
+		// server's due_soon, and what is past its due date.
+		{"ready since its date", t.Ready, d.Ready, func(it proto.DigestItem) string {
+			return "\t" + esc(it.By) + "\tfrom " + when(it.At)
+		}},
+		{"due soon", t.DueSoon, d.DueSoon, func(it proto.DigestItem) string {
+			return "\t" + esc(it.By) + "\tdue " + when(it.At) + ", in " + proto.Span(it.At.Sub(d.Until))
+		}},
+		{"overdue", t.Overdue, d.Overdue, func(it proto.DigestItem) string {
+			return "\t" + esc(it.By) + "\tdue " + when(it.At) + ", " + proto.Span(d.Until.Sub(it.At)) + " ago"
+		}},
 	} {
 		if sec.total == 0 {
 			continue

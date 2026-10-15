@@ -49,10 +49,34 @@ type Prime struct {
 	// Memories are the pinned memories, then those relevant to your
 	// in-progress issues, then the newest (design §6).
 	Memories []Memory `json:"memories,omitempty"`
+	// Overdue and DueSoon are issues past their due date and due within
+	// the server's due_soon; ReadyByDate those that became ready in the
+	// last day because their defer_until passed (design §20.3).
+	Overdue     []DateItem `json:"overdue,omitempty"`
+	DueSoon     []DateItem `json:"due_soon,omitempty"`
+	ReadyByDate []DateItem `json:"ready_by_date,omitempty"`
 
 	// cached: this prime is this machine's copy, shown while the server
 	// cannot be reached ([CachedPrime]); its first notice says so.
 	cached bool
+}
+
+// DateItem is an issue a date makes worth saying: At is the date.
+type DateItem struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Priority int    `json:"priority"`
+	At       string `json:"at"`
+}
+
+// dateItems is items as prime shows them, at most primeDates.
+func dateItems(items []proto.DigestItem) []DateItem {
+	var out []DateItem
+	for _, it := range items[:min(len(items), primeDates)] {
+		t, _ := cut(it.Title, primeTitleLen)
+		out = append(out, DateItem{ID: it.ID, Title: t, Priority: it.Priority, At: stamp(it.At)})
+	}
+	return out
 }
 
 // KeepPrime keeps p in cache, as this machine's copy of the principal's
@@ -105,6 +129,8 @@ const (
 	// primeMemoryLen how much of each body it keeps.
 	primeMemories  = 10
 	primeMemoryLen = 200
+	// primeDates is how many issues each of prime's date lists shows.
+	primeDates = 3
 )
 
 // BuildPrime reads the caller's in-progress issues, the top ready ones,
@@ -156,6 +182,15 @@ func BuildPrime(ctx context.Context, c Conn, clientVersion string, notices ...st
 	case c.Err() != nil:
 		return nil, err
 	}
+	// The last day's dates; a server older than gates has no dates op,
+	// and its prime goes without them.
+	var d proto.DatesResult
+	switch err := c.Call(ctx, proto.OpDates, proto.DatesArgs{}, &d); {
+	case err == nil:
+		p.Overdue, p.DueSoon, p.ReadyByDate = dateItems(d.Overdue), dateItems(d.DueSoon), dateItems(d.Ready)
+	case c.Err() != nil:
+		return nil, err
+	}
 	p.fit()
 	return p, nil
 }
@@ -186,6 +221,12 @@ func (p *Prime) fit() {
 			p.Memories = slices.Delete(p.Memories, loose, loose+1)
 		case len(p.Inbox) > 0:
 			p.Inbox = p.Inbox[:len(p.Inbox)-1]
+		case len(p.ReadyByDate) > 0:
+			p.ReadyByDate = p.ReadyByDate[:len(p.ReadyByDate)-1]
+		case len(p.DueSoon) > 0:
+			p.DueSoon = p.DueSoon[:len(p.DueSoon)-1]
+		case len(p.Overdue) > 0:
+			p.Overdue = p.Overdue[:len(p.Overdue)-1]
 		case len(p.Ready) > 0:
 			p.Ready = p.Ready[:len(p.Ready)-1]
 		case len(p.Memories) > 0:
@@ -269,6 +310,18 @@ func (p *Prime) Text() string {
 		section("ready", "not shown while the server cannot be reached", nil)
 	} else {
 		section("ready", "nothing ready", p.Ready)
+	}
+	for _, sec := range []struct {
+		name, word string
+		items      []DateItem
+	}{{"overdue", "due", p.Overdue}, {"due soon", "due", p.DueSoon}, {"ready by date", "from", p.ReadyByDate}} {
+		if len(sec.items) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "%s:\n", sec.name)
+		for _, it := range sec.items {
+			fmt.Fprintf(&b, "  %s P%d %s %s %s\n", esc(it.ID), it.Priority, strconv.Quote(it.Title), sec.word, esc(it.At))
+		}
 	}
 	if len(p.Memories) > 0 {
 		b.WriteString("memories:\n")
