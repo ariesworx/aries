@@ -31,7 +31,9 @@ import (
 // Lease bounds. DefaultLease is an agent's lease, renewed while it runs.
 // No lease is shorter than MinLease. A start, or a renewal of one
 // session's claims, may ask for up to MaxClaimLease; only a renewal of
-// every session's claims (`sfx away`) may reach MaxLease.
+// every session's claims (`sfx away`) may reach further, up to the
+// store's AwayMax, which is MaxLease unless the server sets another
+// (away_max).
 const (
 	DefaultLease  = 15 * time.Minute
 	MinLease      = time.Minute
@@ -62,7 +64,12 @@ const (
 	OpClaimTake    Op = "claim.take"
 	OpClaimExpire  Op = "claim.expire"
 	OpClaimRelease Op = "claim.release"
+	OpClaimAway    Op = "claim.away"
 )
+
+// AwayMax returns the longest lease a renewal of every session's claims
+// may ask for (Options.AwayMax).
+func (s *Store) AwayMax() time.Duration { return s.opts.AwayMax }
 
 // ReaperActor is who the reaper's changes are recorded as.
 var ReaperActor = Actor{Principal: "starfixd", Session: "reaper", Machine: "server"}
@@ -176,21 +183,22 @@ func endClaimFor(ctx context.Context, w *wtx, c claimRow, reason string) error {
 }
 
 // checkLease refuses a lease outside [MinLease, most]; most is
-// MaxClaimLease or MaxLease.
+// MaxClaimLease, or the store's AwayMax.
 func checkLease(d, most time.Duration) error {
 	if d < MinLease || d > most {
-		return fmt.Errorf("%w: lease must be between %s and %s", ErrInvalid, "1m", leaseText(most))
+		return fmt.Errorf("%w: lease must be between %s and %s", ErrInvalid, "1m", LeaseText(most))
 	}
 	return nil
 }
 
-// leaseText spells checkLease's upper bound, MaxClaimLease or MaxLease,
-// as the refusal shows it.
-func leaseText(d time.Duration) string {
-	if d == MaxLease {
-		return "7d"
+// LeaseText spells the upper bound of a lease, MaxClaimLease or an
+// AwayMax, as a refusal shows it: "24h" for a day, which a person asks
+// for so, and otherwise as proto.Span does.
+func LeaseText(d time.Duration) string {
+	if d == MaxClaimLease {
+		return "24h"
 	}
-	return "24h"
+	return proto.Span(d)
 }
 
 // takeClaim leases c to w's actor for lease. A new holder raises the
@@ -312,15 +320,19 @@ func queryClaims(ctx context.Context, q querier, clause string, args ...any) ([]
 }
 
 // RenewClaims renews the actor's active claims and returns them all, with
-// their new expiry. With allSessions it renews every claim the principal
-// holds (a person going away, `sfx away`), for up to MaxLease; otherwise
-// only the actor's own session's, for up to MaxClaimLease. A lease out of
-// range is refused with ErrInvalid. A claim with less than half of lease
-// left is extended to now+lease; one with more is not rewritten, so an
-// agent renewing every minute writes about every lease/2, and a lease is
-// never shortened. Renewals record no event. A renewal that brings no
-// paths and finds nothing to extend writes nothing, and does not wait for
-// the writer.
+// their new expiry. Without allSessions it renews only the actor's own
+// session's, for up to MaxClaimLease: a claim with less than half of
+// lease left is extended to now+lease, and one with more is not
+// rewritten, so an agent renewing every minute writes about every
+// lease/2. Such renewals record no event.
+//
+// With allSessions it is a person going away (`sfx away`, design §18.6):
+// every claim the principal holds, in every session, is extended to at
+// least now+lease, for up to the store's AwayMax, and each claim it
+// extends records a claim.away event naming the claim as it was and its
+// new expiry. A lease out of range is refused with ErrInvalid, and a
+// lease is never shortened. A renewal that brings no paths and finds
+// nothing to extend writes nothing, and does not wait for the writer.
 //
 // paths maps an issue to the paths its work touched, most recent first:
 // they are recorded as commit paths of the claims renewed, at most the
@@ -330,9 +342,9 @@ func queryClaims(ctx context.Context, q querier, clause string, args ...any) ([]
 // refused with ErrInvalid before anything is renewed. A renewal that adds
 // paths records an issue.paths event for each issue it adds them to.
 func (s *Store) RenewClaims(ctx context.Context, actor Actor, lease time.Duration, allSessions bool, paths map[IssueID][]string) ([]Claim, error) {
-	most := MaxClaimLease
+	most, due := MaxClaimLease, renewDue
 	if allSessions {
-		most = MaxLease
+		most, due = s.opts.AwayMax, awayDue
 	}
 	if err := checkLease(lease, most); err != nil {
 		return nil, err
@@ -375,7 +387,7 @@ func (s *Store) RenewClaims(ctx context.Context, actor Actor, lease time.Duratio
 		if err != nil {
 			return nil, err
 		}
-		if !slices.ContainsFunc(out, func(c Claim) bool { return renewDue(c, now, lease) }) {
+		if !slices.ContainsFunc(out, func(c Claim) bool { return due(c, now, lease) }) {
 			return out, nil
 		}
 	}
@@ -387,7 +399,7 @@ func (s *Store) RenewClaims(ctx context.Context, actor Actor, lease time.Duratio
 		}
 		out = held
 		for i, c := range held {
-			if !renewDue(c, w.now, lease) {
+			if !due(c, w.now, lease) {
 				continue
 			}
 			want := w.now.Add(lease)
@@ -400,8 +412,21 @@ func (s *Store) RenewClaims(ctx context.Context, actor Actor, lease time.Duratio
 				return err
 			}
 			out[i].ExpiresAt = want
-			w.quiet = true
 			w.claimed(ClaimRenewed, "")
+			if !allSessions {
+				w.quiet = true
+				continue
+			}
+			// The claims are the principal's own, so the guard passes
+			// each; going away is a change to the claim all the same.
+			if err := w.guard(ctx, row, "away"); err != nil {
+				return err
+			}
+			if err := w.event(ctx, OpClaimAway, string(c.Issue),
+				map[string]any{"holder": c.Holder, "epoch": c.Epoch, "expires_at": c.ExpiresAt},
+				map[string]any{"expires_at": want}); err != nil {
+				return err
+			}
 		}
 		// The claims are the actor's own, so wtx.guard would pass each.
 		budget := w.lim.Paths
@@ -425,6 +450,12 @@ func (s *Store) RenewClaims(ctx context.Context, actor Actor, lease time.Duratio
 // c has less than half of lease left.
 func renewDue(c Claim, now time.Time, lease time.Duration) bool {
 	return c.ExpiresAt.Before(now.Add(lease).Add(-lease / 2))
+}
+
+// awayDue reports whether going away for lease at now extends c: whether
+// it has less than lease left.
+func awayDue(c Claim, now time.Time, lease time.Duration) bool {
+	return c.ExpiresAt.Before(now.Add(lease))
 }
 
 // ReapClaims ends every claim whose lease has run out: the claim loses its

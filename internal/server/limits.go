@@ -59,6 +59,11 @@ type Limits struct {
 	// ConflictAge is how long a conflict stays open before digest lists
 	// it (design §18.7).
 	ConflictAge Duration `yaml:"conflict_age"`
+	// AwayMax is the longest a person's `sfx away` may extend their
+	// claims (design §18.6): every claim of theirs, in every session,
+	// holds that long without renewals, and nobody else may take it.
+	// From an hour to 30 days.
+	AwayMax Duration `yaml:"away_max"`
 
 	// The rest apply to a server of many projects (control_db) only.
 
@@ -94,7 +99,7 @@ var DefaultLimits = Limits{
 	Limits: store.DefaultLimits, Conns: 1024, ConnsPerPrincipal: 64, Handshakes: 16, IdleTimeout: Duration(10 * time.Minute),
 	WriteRate: 10, WriteBurst: 100, RefusalLogs: 20,
 	AgentKeep: Duration(store.MaxAgentWindow), InboxKeep: Duration(30 * 24 * time.Hour),
-	IdemWindow: Duration(store.DefaultIdemWindow), ConflictAge: Duration(store.DefaultConflictAge),
+	IdemWindow: Duration(store.DefaultIdemWindow), ConflictAge: Duration(store.DefaultConflictAge), AwayMax: Duration(store.MaxLease),
 	Control: store.DefaultControlLimits, OpenStores: 64, StoreIdle: Duration(10 * time.Minute),
 	ControlWriteRate: 1, ControlWriteBurst: 30,
 	TelemetryRequests: telemetry.DefaultRequests,
@@ -136,7 +141,8 @@ func (l Limits) WithDefaults() Limits {
 		}
 	}
 	for _, f := range []struct{ v, d *Duration }{{&l.IdleTimeout, &d.IdleTimeout}, {&l.AgentKeep, &d.AgentKeep}, {&l.InboxKeep, &d.InboxKeep},
-		{&l.StoreIdle, &d.StoreIdle}, {&l.IdemWindow, &d.IdemWindow}, {&l.ConflictAge, &d.ConflictAge}} {
+		{&l.StoreIdle, &d.StoreIdle}, {&l.IdemWindow, &d.IdemWindow}, {&l.ConflictAge, &d.ConflictAge},
+		{&l.AwayMax, &d.AwayMax}} {
 		if *f.v == 0 {
 			*f.v = *f.d
 		}
@@ -180,8 +186,21 @@ func (l Limits) Validate() error {
 		return fmt.Errorf("limit idem_window is %s; it must be from %s to %s; fix: correct limits: in the config file, or leave it out for the default, %s",
 			proto.Span(w), proto.Span(minIdemWindow), proto.Span(maxIdemWindow), proto.Span(store.DefaultIdemWindow))
 	}
+	if a := time.Duration(l.AwayMax); a != 0 && (a < minAwayMax || a > maxAwayMax) {
+		return fmt.Errorf("limit away_max is %s; it must be from %s to %s; fix: correct limits: in the config file, or leave it out for the default, %s",
+			proto.Span(a), proto.Span(minAwayMax), proto.Span(maxAwayMax), proto.Span(store.MaxLease))
+	}
 	return nil
 }
+
+// The bounds of Limits.AwayMax. An hour is the least an absence worth
+// planning needs, and more than an agent's lease; past 30 days a claim
+// holds work nobody is doing for longer than the work is likely to
+// stay what it was, and nobody else may take it.
+const (
+	minAwayMax = time.Hour
+	maxAwayMax = 30 * 24 * time.Hour
+)
 
 // The bounds of Limits.IdemWindow. Below an hour, a key would expire
 // while a session that lost its connection still retries with it; past a

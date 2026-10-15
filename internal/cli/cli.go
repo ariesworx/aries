@@ -130,7 +130,7 @@ func init() {
 		{"inbox", "inbox [--all] [-n N] [--ack ID]... [--ack-all]", "list your unread lost claims, handoffs, mentions and assignments; --ack marks read", cmdInbox},
 		{"watch", "watch", "print inbox items as they arrive, until interrupted", cmdWatch},
 		{"tui", "tui", "show a live board: ready, held and blocked issues and recent events, until q", cmdTUI},
-		{"away", "away DURATION", "extend all your claims, e.g. before going offline (1m to 7d)", cmdAway},
+		{"away", "away DURATION", "extend all your claims, e.g. before going offline (1m to the server's away_max, 7d by default)", cmdAway},
 		{"digest", "digest [--since 24h|7d|DATE|TIME] [--by PRINCIPAL] [--label L]", "summarize what closed, started, stalled, is blocked and was handed off", cmdDigest},
 		{"who", "who [--since DURATION] [-n N]", "list the agents at work and the issues each holds (seen in the last 5m)", cmdWho},
 		{"whoami", "whoami", "say which principal the server takes you for, and which key signed in", cmdWhoami},

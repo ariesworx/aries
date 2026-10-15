@@ -70,7 +70,7 @@ it or link it.
 | Who claims | Lease | Kept alive by |
 |---|---|---|
 | An agent, through MCP | 15 minutes | `sfx mcp` renews it every minute while the agent runs |
-| A person, from a terminal | 8 hours (`--for`, at most 24 hours) | `sfx away 4h` extends all your claims, up to 7 days |
+| A person, from a terminal | 8 hours (`--for`, at most 24 hours) | `sfx away 4h` extends all your claims, up to 7 days unless the server sets another `away_max` |
 
 When a lease runs out, the server returns the issue to `open`. So a
 session that crashes lets its work go within 15 minutes, and nothing stays
