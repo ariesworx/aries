@@ -1,5 +1,10 @@
 # Running a server
 
+> **This guide still describes Dolt.** Aries now stores its data in
+> Postgres, and this guide is rewritten for it when the port's
+> operations slice lands; until then its setup, backups and tuning are
+> Dolt's ([design, decision 79](design/aries.md)).
+
 An Aries server is one Linux machine running three programs:
 
 | Program | Role |
@@ -2636,7 +2641,6 @@ time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-
 | `project.not_opened` | info | At start: an archived project's database awaits this ariesd's migrations and was left alone |
 | `project.close_failed` | error | Closing a project's store failed |
 | `store.schema_too_new` | error | A database was migrated by a newer ariesd |
-| `store.commit_failed` | error | The Dolt commit of pending writes failed; the next tries again |
 | `store.unsafe_account` | warn | `--allow-unsafe-dolt` let an unsafe Dolt account through |
 | `control.reload_failed` | error | The reaper could not reread the control store |
 | `control.index_stale` | error | A control write failed and the reread after it failed too: what ariesd holds in memory of keys and members may be stale until a restart |
@@ -2656,11 +2660,7 @@ time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-
 | `clock.stepped` | warn | The clock was set, or the machine suspended: the direction, the size and what ariesd did about it |
 | `clock.step_settled` | warn | For each database, a forward step was added to every live lease |
 | `clock.settle_failed` | error | A step could not be settled in the control store |
-| `dolt.check_failed` | error | A check of Dolt failed: the one for `/readyz`, or the one made before a connection's project store is opened, which is then not opened (`project`, `database`) |
-| `dolt.driver` | warn | The database driver found a connection to Dolt dead (`closing bad idle connection`); the pool dials again. Many of them mean Dolt restarted or is refusing connections |
-| `dolt_metrics.reading` | info | At start, with `dolt_metrics_url` set |
-| `dolt_metrics.read_failed` | warn | Dolt's metrics could not be read: once, then every 10 minutes while it lasts ([Dolt's figures](#dolts-figures)) |
-| `dolt_metrics.read_recovered` | info | They can be read again |
+| `database.check_failed` | error | A check of the database failed: the one for `/readyz`, or the one made before a connection's project store is opened, which is then not opened (`project`, `database`) |
 | `telemetry.on`, `telemetry.off` | info | At start: what is exported and where, or that `OTEL_SDK_DISABLED` turned it off |
 | `telemetry.listening` | info | The loopback listener serves |
 | `telemetry.listener_error` | warn | The listener's HTTP server reported an error |
@@ -2957,7 +2957,6 @@ seconds and `_total` to a counter, and gives a histogram `_bucket`,
 | `aries.limit.refusals` | `aries_limit_refusals_total` | counter | `limit` |
 | `aries.store.write.duration` | `aries_store_write_duration_seconds` | histogram, seconds | `project` |
 | `aries.store.write.retries` | `aries_store_write_retries_total` | counter | `project` |
-| `aries.store.commit.duration` | `aries_store_commit_duration_seconds` | histogram, seconds | none |
 | `aries.stores.open` | `aries_stores_open` | gauge | none |
 | `aries.store.open.duration` | `aries_store_open_duration_seconds` | histogram, seconds | `migrated` |
 | `aries.claims` | `aries_claims_total` | counter | `event`, `reason` |
@@ -2984,7 +2983,6 @@ What each counts:
 | `limit.refusals` | Refusals at a limit that ariesd can name |
 | `store.write.duration` | A write that changed a row and committed: the same measurement as P50 and P99 in the status report, the wait for the project's one writer and any retry included |
 | `store.write.retries` | Each attempt of a write that lost to a concurrent transaction and was tried again |
-| `store.commit.duration` | Each Dolt commit of pending writes, about one a second while a project is written to, failed ones included |
 | `stores.open` | Project stores open, opening or closing; always 1 on a server of one project |
 | `store.open.duration` | With `control_db`: opening a project's store, migrations included: once for each active project before the daemon listens, which is where an upgrade's migrations run, then whenever a connection or an archive opens one that was closed |
 | `claims` | Changes of a claim, as the event log records them, and renewals |
@@ -3057,7 +3055,6 @@ ends at ariesd's span around the work it asked of Dolt.
 | `handshake` | server | A connection's handshake, from its first frame to its welcome, with the opening of the project's store when this connection caused it. The note of its session in the registry is beneath it and may end after it: it is written beside the wait for the first request. The root of a trace of its own, since a hello brings no trace context | `result`, `project`, `protocol`, `principal`, `session` |
 | `store.write.attempt` | internal | One attempt of a write: the wait for the writer, the SQL transaction and its commit. A write that loses to a concurrent transaction is attempted again, in a new span, so a retried write shows as several | `project`, `attempt`, `outcome` |
 | `store.write.wait` | internal | Within an attempt: the wait for the project's one writer connection, and the start of its transaction | `project`, `outcome` |
-| `store.commit` | internal | A Dolt commit of pending writes, about one a second while a database is written to. The root of a trace of its own: no request waits for it | `project`, `outcome` |
 | `store.open` | internal | With `control_db`: opening a project's store, as `aries.store.open.duration` measures it | `project`, `migrated` |
 | `store.migrate` | internal | Within the opening of a store, a project's or the control database's: the check of its schema, and the migrations applied | `project`, `outcome` |
 | `reaper` | internal | One 30-second tick, with the four below and the store's writes beneath it, so a slow tick shows which part was slow | none |

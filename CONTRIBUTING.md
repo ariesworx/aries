@@ -1,7 +1,7 @@
 # Contributing to Aries
 
 Aries is an issue tracker and coordination layer for AI coding agents,
-written in Go and stored in Dolt ([README](README.md)). This page gets
+written in Go and stored in Postgres ([README](README.md)). This page gets
 you from a fresh clone to a pull request. The rules every change follows
 and the map of the code are in [AGENTS.md](AGENTS.md); they apply to
 people and agents alike, so read them before your first change.
@@ -30,7 +30,7 @@ With [mise](https://mise.jdx.dev), which reads the tool versions from
 ```sh
 git clone https://github.com/ariesworx/aries && cd aries
 mise install        # Go, golangci-lint and shellcheck
-scripts/gate.sh     # fetches the pinned Dolt, then runs what CI runs
+scripts/gate.sh     # finds or builds Postgres, then runs what CI runs
 ```
 
 Without mise, which is optional, install the tools below yourself, then
@@ -42,26 +42,44 @@ run `scripts/gate.sh`.
 | golangci-lint | the `version:` CI pins in [ci.yml](.github/workflows/ci.yml), and mise.toml with it | lint, with the config in `.golangci.yml` |
 | shellcheck | any recent; mise.toml names one | every `*.sh` in the repository |
 | git | any recent | the gate, and tests of branch and worktree creation |
-| Dolt | `Dolt` in [internal/version](internal/version/version.go) | the store, server, bd import and end-to-end tests. `scripts/install-dolt.sh` installs it |
+| Postgres | the major version `PostgresMajor` in [internal/version](internal/version/version.go), 18 | the store, server, bd import and end-to-end tests. `scripts/install-postgres.sh` finds or builds it |
 | Docker | Docker Desktop, OrbStack, or Docker Engine 25 with Compose v2 | only the [Docker test server](#try-your-change-against-a-real-server) |
 
-**Dolt** must be the pinned release exactly; a package manager's is
-usually another, and `TestDoltVersion` then fails.
-`scripts/install-dolt.sh` downloads the pinned release for Linux or
-macOS from Dolt's GitHub releases, verifies its SHA-256 against
-[internal/version/dolt.sha256](internal/version/dolt.sha256), and unpacks
-it under your cache directory (`~/.cache/aries`), never over a `dolt`
-you installed. The gate runs it for you when the `dolt` on your `PATH`
-is another version. To run `go test` yourself, put it on your `PATH`:
+**Postgres** must be at the pinned major version; another one fails
+`TestPostgresVersion`. The tests start servers of their own, each in a
+temporary directory with a unix socket and no TCP port, so a Postgres
+you already run is never touched, and none needs to be running.
+
+- **On Linux,** install the PostgreSQL project's package
+  `postgresql-18` from [its apt repository](https://wiki.postgresql.org/wiki/Apt),
+  as CI does; the tests use its programs in
+  `/usr/lib/postgresql/18/bin`. The package makes and starts a cluster
+  of its own, which the tests do not need: put
+  `create_main_cluster = false` in
+  `/etc/postgresql-common/createcluster.conf` before installing it, or
+  stop that cluster.
+- **On macOS,** and on Linux without the package,
+  `scripts/install-postgres.sh` builds Postgres 18.6 from the official
+  source archive, after checking its SHA-256 against
+  [internal/version/postgres.sha256](internal/version/postgres.sha256),
+  into your cache directory (`~/.cache/aries/postgres-18.6`), once. It
+  needs `make` and a C compiler (on macOS, `xcode-select --install`),
+  takes a few minutes, and never builds over a Postgres you installed.
+
+`scripts/install-postgres.sh` prints the directory of the programs,
+whichever it found, and the gate runs it for you when the `postgres` on
+your `PATH` is another major version. To run `go test` yourself, put
+that directory first on your `PATH`:
 
 ```sh
-export PATH="$(scripts/install-dolt.sh):$PATH"
+export PATH="$(scripts/install-postgres.sh):$PATH"
 go test ./...
 ```
 
-Tests that need Dolt or git skip without them, and a skipped store test
-proves nothing; `ARIES_REQUIRE_DOLT=1`, which the gate and CI set,
-makes a missing Dolt a failure. [Commands](AGENTS.md#commands) lists the
+Postgres refuses to run as root, and so the tests that need it fail as
+root. Tests that need Postgres or git skip without them, and a skipped
+store test proves nothing; `ARIES_REQUIRE_POSTGRES=1`, which the gate and
+CI set, makes a missing Postgres a failure. [Commands](AGENTS.md#commands) lists the
 gate command by command.
 
 | Command | Does |
@@ -77,6 +95,9 @@ gate command by command.
 the server in WSL, where everything on this page works as on Linux.
 
 ## Try your change against a real server
+
+**Not until the Postgres port's operations slice lands:** the Docker
+test server still runs Dolt, which this `ariesd` no longer opens.
 
 The [Docker test server](docs/deploy/docker.md) runs sshd, `ariesd`
 and Dolt in one container, built from your checkout and set up as
@@ -151,7 +172,7 @@ up in a Linux VM you can throw away.
 | A metric's name, an attribute or one of its values that an alert rule or the dashboard reads; a scrape job's name or address | `deploy/observability`, whose files tests in `internal/telemetry` hold to the instruments (`harness_test.go`), and [A collector, alert rules and a dashboard](docs/server.md#a-collector-alert-rules-and-a-dashboard) in docs/server.md. A new value of the `signal` attribute needs a rule on `aries_telemetry_dropped_total` for it. Then the smoke test with `ARIES_SMOKE_TELEMETRY=1`, and the soak with `ARIES_SOAK_TELEMETRY=check` |
 | A log line: its event, a field, or what of it is exported | `internal/logs` (`events.go`, `schema.go`) and the tables of [Logs](docs/server.md#logs) together; tests in `internal/logs` read every log call of the daemon's packages and fail until each names a listed event first, under a message that is a string literal, with fields the schema lists, and until the guide lists every event and field. A field's kind there decides whether a record exported over OTLP may carry it ([Logs over OTLP](docs/server.md#logs-over-otlp), and [Logs](docs/security-model.md#logs) in the security model); `TestLogLinesCarryNoText` and `TestExportedLogsCarryNoText` in `internal/server` search both for marked text |
 | The telemetry listener, a health check, an `OTEL_*` variable ariesd reads, or `ariesd status` | [Observability](docs/server.md#observability) in docs/server.md, and [The telemetry listener](docs/security-model.md#the-telemetry-listener) for what it reveals |
-| What ariesd reads of Dolt's metrics, or how the status report shows it | [Dolt's figures](docs/server.md#dolts-figures) and [Dolt's memory](docs/server.md#dolts-memory) in docs/server.md, [Dolt's metrics endpoint](docs/security-model.md#dolts-metrics-endpoint), and the fuzz target in `internal/doltmetrics` for anything the parser reads. The port, 11228, is in Dolt's config in [step 2](docs/server.md#2-run-dolt-under-its-own-account) and `deploy/docker/dolt.yaml`; a test keeps them and the examples in step |
+| What the store checks of Postgres when it opens (its version, the role's rights, the schema), or which SQLSTATEs a write retries | `internal/store` (`postgres.go`, `account.go`, `errors.go`), rules 6 and 8 in [AGENTS.md](AGENTS.md#rules), and the [design's As built note for the port](docs/design/aries.md) |
 | The systemd unit, or what ariesd tells systemd | The unit and its table in [step 5](docs/server.md#5-run-ariesd-under-systemd), and a run under a real systemd ([What was run, and where](docs/server.md#what-was-run-and-where)): the tests reach only a socket that stands in for systemd's |
 | Projects, principals, members, keys, the control store or the keys file | [Serving many projects](docs/server.md#serving-many-projects) in docs/server.md, and [Who can authenticate](docs/security-model.md#who-can-authenticate) |
 | A message an operator sees when something is wrong | [Troubleshooting](docs/server.md#troubleshooting) in docs/server.md |
@@ -163,10 +184,10 @@ up in a Linux VM you can throw away.
 | bd import or export | [docs/migrate-from-bd.md](docs/migrate-from-bd.md) |
 | A security property, or a check CI makes | [docs/security-model.md](docs/security-model.md) |
 | The protocol (rule 10) | The version in `internal/proto`, and what the change is in the pull request |
-| The release process, or the Dolt pin | [RELEASING.md](RELEASING.md) |
+| The release process, or the Postgres pin | [RELEASING.md](RELEASING.md) |
 | Anything a user or an operator of the next release will notice: a feature, a break, a removal, a security property, a supported platform | The next release's notes in [docs/releases](docs/releases/v1.0.0.md); a planned item that lands drops its **(planned)** mark there and in [Upgrading to 1.0](docs/upgrade-to-1.0.md) |
 | A command of the gate | `scripts/gate.sh`, [Commands](AGENTS.md#commands) and `ci.yml` together; a test fails until the first two agree |
-| A tool's version | [Changing the Dolt pin](RELEASING.md#changing-the-dolt-pin) for Dolt; `ci.yml` and `mise.toml` for golangci-lint; `go.mod` and `mise.toml` for Go. Tests in `internal/version` fail until they agree |
+| A tool's version | [Changing the Postgres pin](RELEASING.md#changing-the-postgres-pin) for Postgres; `ci.yml` and `mise.toml` for golangci-lint; `go.mod` and `mise.toml` for Go. Tests in `internal/version` fail until they agree |
 | The layout of the code, a rule, or how agents should work | [AGENTS.md](AGENTS.md); the three [agent specifications](AGENTS.md#agent-specifications) together |
 | The stage a feature is at | The status line and roadmap in [README.md](README.md) |
 | Something that departs from a design | A dated **As built** note in [docs/design](docs/design/README.md) |
@@ -214,7 +235,7 @@ number of processors). One that cannot begins with a comment that says
 why:
 
 ```go
-func TestStartWithoutDolt(t *testing.T) {
+func TestStartWithoutPostgres(t *testing.T) {
 	// Serial: sets the process's environment (t.Setenv).
 ```
 
@@ -235,7 +256,7 @@ change what the process shares, if it puts it back (`t.Cleanup`).
 | Runs in a `synctest` bubble | Its time is virtual: it takes no real time, so nothing would be gained |
 
 What does not make a test serial, because each test has its own: a
-database and the Dolt server under it (below), a directory
+database and the Postgres server under it (below), a directory
 (`t.TempDir()`), a port (listen on `127.0.0.1:0` and read the port the
 kernel gave), a clock (`Options.Now`), a logger, a home directory and
 the keys in it (`cli.Env`, `client.Options`).
@@ -243,25 +264,23 @@ the keys in it (`cli.Env`, `client.Options`).
 What a whole package needs is set once, in `TestMain`, and never by a
 test: the empty home directory and the absence of ssh-agent
 (`clienttest.Isolate`), git that reads no configuration but the
-repository's (`clienttest.IsolateGit`), and the Dolt servers.
+repository's (`clienttest.IsolateGit`), and the Postgres servers.
 
 Subtests run in turn within their test, which is usually what a table
 wants: its rows often share what the test set up. A subtest that calls
 `t.Parallel()` runs after its test's function has returned, so what it
 uses must be closed by `t.Cleanup`, not by `defer`.
 
-**Dolt.** A package's tests take their databases from a `dolttest.Pool`
-(`newDSN`, `newDatabase`, `newStore`, `newWorld`, and `doltOf` for the
-server itself). A test and its subtests hold one Dolt server, and no
-other test has it meanwhile: the pool starts a server when a test asks
-and none is free, up to one for every two processors and four at most
-(`dolttest.PoolLimit`), and hands it on when the test ends. So a test may stop its Dolt, restart it, read its
-metrics or drop a database in it, and the Dolt each test sees does one
-thing at a time, as it did when the tests ran in turn. Tests cannot
-share one server: Dolt takes one data definition statement at a time,
-which is most of what a test of the store does, and a session that
-reads `information_schema` while another drops a database fails with
-`no root value found in session`.
+**Postgres.** A package's tests take their databases from a
+`pgtest.Pool` (`newDSN`, `newDatabase`, `newStore`, `newWorld`, and
+`pgOf` for the server itself). A test and its subtests hold one Postgres
+server, and no other test has it meanwhile: the pool starts a server
+when a test asks and none is free, up to one for every two processors
+and four at most (`pgtest.PoolLimit`), and hands it on when the test
+ends. So a test may stop its Postgres, restart it, stop its processes
+(`Server.Signal`) or drop a database in it without disturbing another.
+Postgres itself could serve the tests from one server; they hold one
+each so that a test that stops its server stops no other test.
 
 ### Tests that leave nothing behind
 
@@ -271,13 +290,13 @@ passes and when a test fails.
 | A test's | Go |
 |---|---|
 | Files | Under `t.TempDir()`. Where a unix socket's path would be too long there (104 bytes on macOS), under `os.MkdirTemp("", "aries")` with a short prefix, removed by `t.Cleanup`. Never a fixed path, the repository, or the home directory, which `clienttest.Isolate` replaces with an empty one for the process |
-| Processes | Are stopped and waited for in `t.Cleanup`. Dolt is started through `dolttest` only: a server it starts is killed, and its directory removed, when the test binary is gone however it went, and a test binary with a pool ends when its `go test` is gone |
+| Processes | Are stopped and waited for in `t.Cleanup`. Postgres is started through `pgtest` only: a server it starts is killed, its directory removed and its shared memory freed, when the test binary is gone however it went, and a test binary with a pool ends when its `go test` is gone |
 | Databases | Are dropped when the test ends (`newDSN` and the others, above), and the pool drops whatever else the test left on its server, such as a database the daemon made for a new project |
 | Ports and sockets | Are closed in `t.Cleanup`; the port is the kernel's choice |
 | Shell scripts' files | `mktemp -d "${TMPDIR:-/tmp}/name.XXXXXX"`, with the template: `mktemp -d` alone ignores `TMPDIR` on macOS, so a test that gives a script a temporary directory would not get its files back |
 
 A test binary that is killed, panics or runs out of time runs no
-cleanup. Its Dolt servers go, by their watchers; the directories of the
+cleanup. Its Postgres servers go, by their watchers; the directories of the
 tests that were running stay (`TestName123` and the short ones), and the
 empty home directory. `scripts/leftovers.sh` covers that, and checks the
 rest:
@@ -329,10 +348,13 @@ of a processor:
 
 ```sh
 docker run --rm --cpus 1 --memory 4g -e GOMAXPROCS=4 \
-  -e ARIES_REQUIRE_DOLT=1 -e GOFLAGS=-buildvcs=false -e HOME=/tmp/h \
+  -e ARIES_REQUIRE_POSTGRES=1 -e GOFLAGS=-buildvcs=false \
   -v "$PWD":/src:ro -w /src golang:1.27-trixie sh -c '
-    mkdir -p "$HOME" && PATH="$(sh scripts/install-dolt.sh | tail -n 1):$PATH" &&
-    go test -race -shuffle=on -p 4 ./...'
+    apt-get update -q && apt-get install -yq postgresql-common &&
+    /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y &&
+    echo "create_main_cluster = false" >/etc/postgresql-common/createcluster.conf &&
+    apt-get install -yq postgresql-18 && useradd -m tester &&
+    su tester -c "umask 022 && PATH=/usr/lib/postgresql/18/bin:/usr/local/go/bin:\$PATH go test -race -shuffle=on -p 4 ./..."'
 ```
 
 `GOMAXPROCS=4` and `-p 4` are what CI's four processors give: four
@@ -341,10 +363,14 @@ them. `--cpus 0.5` is slower again, and `--cpus 2` with a busy loop or
 two beside the tests (`while :; do :; done &`) is a machine that is busy
 rather than slow, which finds other faults. Mount a volume at
 `/go/pkg/mod` and another as `GOCACHE` to keep the build between runs. A
-test is run many times with `-run NAME -count N`. The container runs as
-root, so `TestCheckPeer…` runs too.
+test is run many times with `-run NAME -count N`. The tests run as a
+user of their own, since Postgres refuses root, so `TestCheckPeer…`
+skips there as it does on your machine; the umask is CI's, since a
+user's own on Debian lets the group write, which the keys file's tests
+refuse. `TestNoOldName` fails in a worktree there: its `.git` names a
+path outside the container.
 
-CI keeps the tests' temporary files, Dolt's databases among them, in
+CI keeps the tests' temporary files, Postgres's data among them, in
 memory (`TESTS_TMPFS` in [ci.yml](.github/workflows/ci.yml)), so its
 tests do not wait for a disk and that command's do. For CI's way, add
 `--tmpfs /dev/shm:exec,size=3g -e TMPDIR=/dev/shm -e GOTMPDIR=/tmp`
@@ -362,7 +388,7 @@ A test that passes there:
 | Give work that must succeed the short deadline it gives work that must run out of time | Keeps the short deadline for the cases that wait it out |
 | Assert that something took less than a fixed time | Bounds it by what the fault would cost with the timeouts the test set (half an export's timeout, for a recording that must not wait for the export); or times the same work beside it, in turns, so that the machine slows both alike (the dead collector's requests); or, for work of a few milliseconds, compares the fastest of many runs, which is the one the machine did not interrupt (the division of usage by holds); or, for a deadline the server sets itself, adds how late the machine was for a wait of the same length begun with it (`pace`, for the status report's two seconds) |
 | Count on a minute of the real clock not passing, or on the clock not being set | Gives the store a clock (`Options.Now`, `newServerClock`, the e2e world's `now`): `notices_per_minute` is a minute of the store's time, and "held 0m", "0m ago" and "seen just now" are true for a minute of it. A machine that was suspended sets its clock forward when it wakes, which a daemon on the real clock records as a `clock.step` |
-| Leave its database in Dolt | Takes it from `newDSN` or `newDatabase`, which drop it ([Tests that leave nothing behind](#tests-that-leave-nothing-behind)) |
+| Leave its database on its Postgres server | Takes it from `newDSN` or `newDatabase`, which drop it ([Tests that leave nothing behind](#tests-that-leave-nothing-behind)) |
 | Run beside others when it bounds time or counts what the process holds | Stays serial, and says why ([Tests run in parallel](#tests-run-in-parallel)) |
 | Compare, by the clock, work that the machine may interrupt every time | Compares the time the work had a processor (`onProcessor` in `internal/store`): on half a processor shared by four packages' tests, not one division in two hundred went uninterrupted |
 | Take two answers given at different times to say the same of time | Leaves out what moves between them: a refusal for a rate tells of a wait that is a second shorter a second later (`refused` in `internal/e2e`) |
@@ -375,14 +401,18 @@ six and a half to eight: `go test` gives a package ten minutes, so pass
 `-timeout 20m` there, as before the tests ran in parallel, when they
 took nine and a half, eight and a half and eight. Most of
 `internal/server`'s time on such a machine is its serial tests, the dead
-collector's above all, which take their turns with the machine.
+collector's above all, which take their turns with the machine. These
+times were measured when the tests ran on Dolt, and have not been
+measured again on Postgres, which is much faster: on one laptop
+(16 processors), `go test -race ./internal/store/` took 21 seconds on
+Postgres and 257 on Dolt.
 
 Tests in parallel are for a machine with processors to spare: on four
 the suite takes a fifth less time than it took with the tests in turn,
 and on one, with `GOMAXPROCS=4`, a quarter more, since what runs at
 once only takes the processor from the rest. On a small machine, run
 the tests in turn, as they ran before: `go test -parallel 1 ./...` (with
-`-race -shuffle=on` for the gate's command), which starts one Dolt
+`-race -shuffle=on` for the gate's command), which starts one Postgres
 server for a package and runs one test at a time. On one processor that
 took the time it took before, 198 s against 205.
 
@@ -392,9 +422,12 @@ took the time it took before, 198 s against 205.
 |---|---|
 | `No version is set for shim: go` | mise manages your Go and no version is set where you ran it. Run `go` inside the checkout, where mise.toml sets one, after `mise install` |
 | `gate.sh: golangci-lint is not installed, or not on PATH` (or another tool) | Install the tool in the table above, or run `mise install` |
-| `TestDoltVersion`: `Version() = "2.3.3", want version.Dolt "2.4.2"` | The `dolt` on your `PATH` is not the pinned release. `export PATH="$(scripts/install-dolt.sh):$PATH"`; the gate does this itself |
-| `ARIES_REQUIRE_DOLT is set but dolt is not on PATH` | The same fix |
-| `install-dolt.sh: checksum mismatch for dolt-…tar.gz` | The download is not the archive that was pinned. Nothing was installed. Run it again; if it persists, do not use the download, and report it |
+| `TestPostgresVersion`: `Version() = "17.6", want Postgres 18 (version.PostgresMajor)` | The `postgres` on your `PATH` is another major version. `export PATH="$(scripts/install-postgres.sh):$PATH"`; the gate does this itself |
+| `pgtest: ARIES_REQUIRE_POSTGRES is set but postgres and initdb are not on PATH` | The same fix |
+| `pgtest: Postgres refuses to run as root` | Run the tests as another user ([Tests on a slow machine](#tests-on-a-slow-machine) shows one way in a container) |
+| `install-postgres.sh: checksum mismatch for postgresql-….tar.gz` | The download is not the archive that was pinned. Nothing was installed. Run it again; if it persists, do not use the download, and report it |
+| `install-postgres.sh: building Postgres … failed` | It names its build log, kept in the cache directory. Most often a tool is missing: `make`, a C compiler, or zlib's headers (`zlib1g-dev` on Debian and Ubuntu) |
+| `could not create shared memory segment: No space left on device`, on macOS | Test servers killed with no chance to clean up left System V shared memory behind, and macOS allows 32 segments. `ipcs -m` lists them; remove those that are yours and whose creator (`CPID`) is gone with `ipcrm -m ID`. `pgtest` frees what it can find |
 | The gate's summary says `golangci-lint here is 2.13.2 and CI pins 2.14.0` | Your linter is another version, so CI may find what yours did not. Install the pinned one: `mise install`, or from [golangci-lint's releases](https://github.com/golangci/golangci-lint/releases) |
 | govulncheck: `Your code is affected by 9 vulnerabilities from the Go standard library`; the gate prints `needs Go 1.27.2` | Your Go is an older patch release than CI's. The findings are not your change's. Install the newest patch release (`mise upgrade go`) and run the gate again |
 | govulncheck fails and the gate prints `FAILED` | A finding in a dependency, or one no Go release fixes yet: a real failure, which CI will report too. Read the finding's `Fixed in:` line and update the module |
@@ -412,7 +445,7 @@ one before changing claims, the reaper, the event log, pushes, the write
 path, the control store, or what happens when access ends:
 
 ```sh
-ARIES_REQUIRE_DOLT=1 ARIES_SOAK=10m go test -race -timeout 45m -run 'TestSoak$' -v ./internal/e2e/
+ARIES_REQUIRE_POSTGRES=1 ARIES_SOAK=10m go test -race -timeout 45m -run 'TestSoak$' -v ./internal/e2e/
 ```
 
 The run prints its seed first and with any failure, followed by the
@@ -427,7 +460,7 @@ asserted: only a request with no answer in 60 seconds fails the run.
 
 Five principals with five sessions each work the backlogs of two
 projects on one server at once, through the in-process SSH server, a
-real daemon and Dolt, while the test drops answers and connections,
+real daemon and Postgres, while the test drops answers and connections,
 restarts the daemon, and lets sessions vanish or stall past their
 leases. It checks claims, fencing, the event log, idempotent retries,
 the inbox and event pushes, token usage, rule 18's caps, and that the
@@ -526,7 +559,7 @@ gives the counts and how late the lapsed holds were ended. Run it longer
 after changing locks, the reaper or the clock:
 
 ```sh
-ARIES_REQUIRE_DOLT=1 ARIES_SOAK=10m go test -race -timeout 45m -run 'TestSoak$' -v ./internal/e2e/
+ARIES_REQUIRE_POSTGRES=1 ARIES_SOAK=10m go test -race -timeout 45m -run 'TestSoak$' -v ./internal/e2e/
 ```
 
 ### With the network cut
@@ -539,7 +572,7 @@ outbox, its replay, the cache, conflicts, or what a late `finish` or
 `handoff` does:
 
 ```sh
-ARIES_REQUIRE_DOLT=1 ARIES_SOAK_PARTITION=1 ARIES_SOAK=10m go test -race -timeout 45m -run 'TestSoak$' -v ./internal/e2e/
+ARIES_REQUIRE_POSTGRES=1 ARIES_SOAK_PARTITION=1 ARIES_SOAK=10m go test -race -timeout 45m -run 'TestSoak$' -v ./internal/e2e/
 ```
 
 Each agent's `aries mcp` then has an outbox and a cache in its user's own
@@ -589,7 +622,7 @@ short run in the gate is as long as it was. Run it after changing an
 instrument, a span, or where either is recorded:
 
 ```sh
-ARIES_REQUIRE_DOLT=1 ARIES_SOAK_TELEMETRY=check go test -race -run 'TestSoak$' -v ./internal/e2e/
+ARIES_REQUIRE_POSTGRES=1 ARIES_SOAK_TELEMETRY=check go test -race -run 'TestSoak$' -v ./internal/e2e/
 ```
 
 | Value | The run |

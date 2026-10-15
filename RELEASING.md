@@ -8,7 +8,7 @@ naming the first, and it is `sign-and-publish`:
 
 | Job | Secrets | Does |
 |---|---|---|
-| `gate` | none | Runs the full CI gate (`ci.yml`, called as a reusable workflow) on the tagged commit: lint, `go mod verify`, govulncheck, the cross-platform builds, and every test with `-race -shuffle=on` against the pinned Dolt, which must be present (`ARIES_REQUIRE_DOLT=1`). It restores no Go cache: it downloads every module and compiles everything. A tag whose commit fails it is never built or signed |
+| `gate` | none | Runs the full CI gate (`ci.yml`, called as a reusable workflow) on the tagged commit: lint, `go mod verify`, govulncheck, the cross-platform builds, and every test with `-race -shuffle=on` against Postgres at the pinned major version, which must be present (`ARIES_REQUIRE_POSTGRES=1`). It restores no Go cache: it downloads every module and compiles everything. A tag whose commit fails it is never built or signed |
 | `build` | none | Downloads and verifies the modules (`go mod verify`) into a clean cache and runs `govulncheck`, failing on a known vulnerability; builds `aries` for linux, darwin and windows on amd64 and arm64, and `ariesd` for linux on amd64 and arm64 (`CGO_ENABLED=0`, `-trimpath`, `-ldflags "-s -w -X …version.Version=<tag>"`); packs each into `<bin>_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows) with the LICENSE and README; writes `checksums.txt` (sha256); attests build provenance for every archive; uploads them as a workflow artifact |
 | `sign-and-publish` | `ARIES_RELEASE_KEY`, in the `release` environment | Runs only when started by hand (`workflow_dispatch`), and first refuses anyone but the release approver, any ref but a release tag, and any build run that is not this workflow's own for this tag and commit, and green. Then it downloads that run's archives; checks them against `checksums.txt`; signs it into `checksums.txt.sig` with `internal/tools/releasekey`; creates the GitHub release with every file |
 
@@ -33,8 +33,10 @@ private ([Publishing to a static host](#publishing-to-a-static-host),
 [Before the repository is made
 private](#before-the-repository-is-made-private)).
 
-The release notes name the Dolt version the release was tested with
-(`version.Dolt`, which a test keeps equal to CI's `DOLT_VERSION`).
+The release notes name the Postgres release the tests pin
+(`version.Postgres`), which the workflow reads from `version.go`; a
+test keeps the two in step. CI ran the gate on the newest release of
+that major version.
 
 They also say, first, when the release changes the protocol
 (`internal/proto/version.go`): the version it speaks and the range it
@@ -51,42 +53,46 @@ What this section once required of the first release after v0.4.0
 behind) concerned upgrading a v0.4.0 server in place, which v1.0.0 does
 not allow; its notes give both as breaking changes.
 
-## Changing the Dolt pin
+## Changing the Postgres pin
 
-The Dolt release is pinned in six files, and one pull request changes
-them all. Tests in `internal/version` fail until they agree:
+Postgres is pinned twice: the major version the tests run on
+(`PostgresMajor`), which CI installs from the PostgreSQL project's apt
+repository at its newest release, and the release that
+`scripts/install-postgres.sh` builds where no package of that major
+version is installed (`Postgres`, with the SHA-256 of its source
+archive). `PostgresMin`, the oldest release the store opens, is not a
+pin: it changes by decision, and the store's message names it. One pull
+request changes these files, and tests in `internal/version` fail until
+they agree:
 
 | File | Change |
 |---|---|
-| `internal/version/version.go` | `Dolt` |
-| `internal/version/dolt.sha256` | All four lines: the SHA-256 of the linux and darwin archives, amd64 and arm64, each named `vVERSION/ARCHIVE`. `scripts/install-dolt.sh` verifies a contributor's download against it |
-| `.github/workflows/ci.yml` | `DOLT_VERSION`, and `DOLT_SHA256`, the linux-amd64 checksum |
-| `deploy/docker/Dockerfile` | `DOLT_VERSION`, `DOLT_SHA256_AMD64` and `DOLT_SHA256_ARM64` |
-| `docs/server.md` | The download in step 1, and the version under "What a server needs" |
-| `install-server.sh` | `dolt_version`, `dolt_sha256_amd64` and `dolt_sha256_arm64` |
+| `internal/version/version.go` | `Postgres`, and `PostgresMajor` when the major version changes |
+| `internal/version/postgres.sha256` | The one line: the SHA-256 of the source archive, named `vVERSION/postgresql-VERSION.tar.gz` |
+| `.github/workflows/ci.yml` | `POSTGRES_MAJOR`, when the major version changes |
+| `CONTRIBUTING.md` | The release `scripts/install-postgres.sh` builds, and the major version under "What you need" |
 
-GitHub records each archive's digest. This prints the four lines of
-`dolt.sha256` for a release; put the new version in both places:
-
-```sh
-gh api repos/dolthub/dolt/releases/tags/v2.4.2 --jq '.assets[]
-  | select(.name | test("^dolt-(linux|darwin)-(amd64|arm64)\\.tar\\.gz$"))
-  | "\(.digest | ltrimstr("sha256:"))  v2.4.2/\(.name)"'
-```
-
-Then check the pins against each other and against a real download:
+The PostgreSQL project publishes each archive's SHA-256 beside it, as
+`postgresql-VERSION.tar.gz.sha256` in the release's directory of
+<https://ftp.postgresql.org/pub/source/>. Put it in `postgres.sha256`,
+then check the pins against each other and against a real build, which
+`install-postgres.sh` makes under a new directory of the cache for the
+new release:
 
 ```sh
 go test ./internal/version ./scripts
-scripts/install-dolt.sh
+scripts/install-postgres.sh
 ```
 
-The digests come from the same place as the archives, so the pin
-protects against an archive that changes after it was pinned, not
-against a release that was bad when it was pinned. Run the whole gate
-against the new Dolt before merging: a Dolt release can change behavior
-the store depends on (stage 0, summarized in
-`spike/postgres/RESULTS.md`).
+The digest comes from the same place as the archive, so the pin protects
+against an archive that changes after it was pinned, not against a
+release that was bad when it was pinned. Run the whole gate against the
+new release before merging: a new major version can change what the
+store depends on, such as which SQLSTATE a lost race reports.
+
+The server guide, `install-server.sh` and the Docker test server still
+install Dolt until the port's operations slice lands (decision 79); they
+take the Postgres pin then.
 
 ## Cutting a release
 

@@ -125,6 +125,6 @@ When done, report:
 - What changed and why, in a few sentences.
 - The tests you added, and that each failed before the fix.
 - The gate commands you ran and their results. Name any you could not run,
-  such as tests skipped for want of `dolt`.
+  such as tests skipped for want of `postgres`.
 
 Report a check you did not run as not run, and never as passing.
