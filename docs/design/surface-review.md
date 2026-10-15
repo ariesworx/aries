@@ -18,7 +18,79 @@ it, and decides nothing. Each item gets one finding:
 References are `file:line` at that commit. "Undocumented" means no guide
 in `docs/`, `README.md` or `RELEASING.md` names the item.
 
-<!-- SUMMARY -->
+## Summary
+
+The review has 270 rows across §1 to §9, counted by the finding each row
+leads with:
+
+| Finding | Rows |
+|---|---|
+| keep | 183 |
+| rename | 26 |
+| document | 20 |
+| decide | 18 (15 questions, below) |
+| remove | 11 |
+| settled elsewhere | 12, plus everything listed in §10 |
+
+**The surface is mostly sound.** The commands, flags, variables, files
+and telemetry are named consistently, and tests hold most of the guides
+to the code. What needs work before 1.0 falls in three places:
+- the wire protocol, which decision 78 settles once and for all at this
+  release;
+- a handful of names that cannot change after 1.0 without a
+  compatibility path;
+- the names identity.md adds, which have not shipped yet.
+
+### The ten changes most worth making before 1.0
+
+1. **Change the default issue id prefix from `sf`** (`internal/server/settings.go:63`, `:270`): it is what is left of the former name (decision 80), and every issue a new server makes carries it for good. *Cost:* an hour, one default with its docs and tests. Question 1.
+2. **Settle the protocol at one version and delete the step-down code** (§4.1): `Speak`, `ForProtocol`, `Keyed`, `codeFor`, `stepDown`, the outbox's protocol checks and the version history. *Cost:* about a day, in `internal/proto`, `internal/client`, `internal/offline` and `internal/server`, mostly deletions and the tests that pinned old versions. Question 5.
+3. **Have `aries` ignore unknown `.aries.yaml` keys, with a warning** (`internal/client/config.go:201`). The file is committed and read by every teammate's `aries`, so strict decoding means the HTTPS transport's first new key breaks every 1.0 client in the repository. *Cost:* two hours. Question 2.
+4. **Finish the protocol's names before they freeze** (§4.2, §4.3, §4.5):
+   - remove the import-only `Issue` fields (`expires_at`, `ephemeral`, `pinned`, `template`, `metadata`) and the unused `IDArgs`;
+   - rename `resolve` to `conflict.resolve`;
+   - make `due_at` match `due`;
+   - rename `parent_id`, `Claim.id` and `Overlap.id`;
+   - make `LockReleaseResult.released` `epoch`;
+   - give `HoursLogArgs` an `issue`;
+   - make the four bare inbox kinds `noun.verb`.
+
+   *Cost:* about a day, with the clients and the guides. Questions 6 and 8.
+5. **Print `aries --json` errors as `{"error":{"code","message","fix","req"}}`**, the shape the MCP server already uses, rather than the wire's `{"c","m"}` (§8.1); and make `version --json`'s `protocol` a number. *Cost:* half a day. Question 15.
+6. **Review identity.md's names now, before they are built** (§9). They join every rule here and have shipped nowhere:
+   - plural list ops (`invites`, `identities`, `trust_rules`);
+   - `expires_at`;
+   - `enroll:` at the top level;
+   - one `key_lifetime` pair;
+   - `enroll_per_minute` beside a per-second `write_rate`;
+   - `ARIES_NO_UPGRADE` for `ARIES_EXTENSION`;
+   - `display_name`.
+
+   *Cost:* an hour's edit to the design, nothing in code.
+7. **Give `limits:` one naming rule** (§3.4). At the least, put `_bytes` on the five sizes (`memory_body`, `memory_key_length`, `memory_tag_length`, `hours_note`, `gate_evidence`) and move `telemetry_requests`, `conflict_age` and `due_soon` out of `limits:`. *Cost:* two hours for that much; about a day for the full `THING_per_SCOPE` rule across 52 keys, the guide, the instruments' `limit` values and the alert rules. Question 3.
+8. **End the CLI's flag clashes** (§1.3, §1.4, §1.5):
+   - `cost --by` becomes `--group-by`;
+   - drop `gate add --by`, an alias of `--approver`;
+   - drop `dep -t`;
+   - `gate add --subject` becomes `--issue`;
+   - `start --branch` becomes `--new-branch`;
+   - one spelling of remove.
+
+   *Cost:* half a day with the guides. Question 4.
+9. **Take the `cost` tool out of MCP** (§5). It is about 105 of the schema budget's tokens, and decision 76's cross-project link and `start`'s reserve have about 124 left between them. Adding it back in 1.x is compatible; removing it after 1.0 is not. *Cost:* an hour. Question 12.
+10. **Take `ARIES_PUBKEY_PEM` out of the public `install.sh`** (§3.1). It replaces the release signing key with a warning; the tests can inject a key another way. *Cost:* two hours, in `install.sh` and `internal/release/install_test.go`. Question 7.
+
+Smaller items each take an hour or less:
+- remove `CLAUDE_SESSION_ID`;
+- rename `ARIES_DIR` to `ARIES_INSTALL_DIR`;
+- give the Docker server `ARIESD_PROJECT` and `ARIESD_ADMINS`;
+- make the timestamps' metric names `….timestamp`;
+- the `document` rows (help text that omits flags, the exit codes of `ariesd` and of `lock run`, two MCP fix texts that cannot be followed).
+
+**Decisions 85 and 86** (HTTPS primary, SSH off by default and kept for
+air-gapped teams) are being written beside this review. Everything
+named after SSH or Dolt is in [§10](#10-settled-elsewhere-dolt-and-ssh)
+and gets no finding, so the maintainer does not decide it twice.
 
 ## 1. `aries` commands, flags and exit codes
 
@@ -49,10 +121,10 @@ it in that order. Every command is documented in `docs/cli.md`
 | `ready`, `blocked` | `cli.go:123-124` | same | keep |
 | `update ID` | `cli.go:125`; flags `commands.go:45-67`, `:500-506` | same | document: the usage ends in `...`; `aries help update` should list every flag (`--design`, `--acceptance`, `--notes`, `--owner`, `--account`, `--paths`, `--defer-until`, `--due`) |
 | `close`, `reopen` | `cli.go:126-127` | same | keep |
-| `gate add|pass|fail|waive|rearm|list` | `cli.go:128`; `internal/cli/gate.go:40-300` | `docs/cli.md`, `docs/ci.md` | keep (see 1.4 on `--by`) |
-| `lock acquire|renew|release|leave|list|run` | `cli.go:129`; `internal/cli/lock.go:70-430` | `docs/cli.md:247-279` | keep |
-| `dep add|rm FROM TO` | `cli.go:130`; `commands.go:645-655` | `docs/cli.md` | decide: `rm` here and in `label`, `remove` in `admin member` and `admin key`, `drop` in `outbox`, `clear` in `cache` (question 4) |
-| `label add|rm ID LABEL...` | `cli.go:131` | `docs/cli.md` | as `dep` |
+| `gate add\|pass\|fail\|waive\|rearm\|list` | `cli.go:128`; `internal/cli/gate.go:40-300` | `docs/cli.md`, `docs/ci.md` | keep (see 1.4 on `--by`) |
+| `lock acquire\|renew\|release\|leave\|list\|run` | `cli.go:129`; `internal/cli/lock.go:70-430` | `docs/cli.md:247-279` | keep |
+| `dep add\|rm FROM TO` | `cli.go:130`; `commands.go:645-655` | `docs/cli.md` | decide: `rm` here and in `label`, `remove` in `admin member` and `admin key`, `drop` in `outbox`, `clear` in `cache` (question 4) |
+| `label add\|rm ID LABEL...` | `cli.go:131` | `docs/cli.md` | decide, as `dep` (question 4) |
 | `comment`, `comments` | `cli.go:132-133` | `docs/cli.md` | keep: a verb to write, a plural noun to list, as `remember`/`memories` |
 | `history` | `cli.go:134` | `docs/cli.md` | keep |
 | `start`, `finish`, `accept`, `handoff` | `cli.go:135-138`; `internal/cli/work.go` | `docs/cli.md:212-221`, `docs/agents.md` | keep |
@@ -67,15 +139,15 @@ it in that order. Every command is documented in `docs/cli.md`
 | `prime [--hook[=AGENT]]` | `cli.go:154`; `internal/cli/agent.go:20-60` | `docs/agents.md`; `CLAUDE.md` | keep |
 | `usage --hook[=AGENT]` | `cli.go:155`; `internal/cli/capture.go:25-120` | `docs/agents.md:140-160` | keep |
 | `conflicts`, `resolve N` | `cli.go:156-157`; `internal/cli/conflicts.go` | `docs/cli.md:590-644` | keep |
-| `outbox [retry N|drop N|stats]` | `cli.go:158`; `internal/cli/outbox.go` | `docs/cli.md:371-590` | keep; `--host-key` is SSH's (§10) |
+| `outbox [retry N\|drop N\|stats]` | `cli.go:158`; `internal/cli/outbox.go` | `docs/cli.md:371-590` | keep; `--host-key` is SSH's (§10) |
 | `cache [clear]` | `cli.go:159`; `internal/cli/cache.go` | `docs/cli.md:645-760` | keep |
 | `mcp` | `cli.go:160`; `agent.go:170-` | `docs/agents.md` | keep |
-| `setup AGENT|--all` | `cli.go:161`; `internal/cli/setup.go:25-470`; agents `internal/agentsetup/agentsetup.go:87-130` (`claude-code`, `codex`, `gemini`, `cursor`, `vscode`, `junie`, `jetbrains`, `claude-desktop`) | `docs/agents.md` | keep |
-| `admin prices|plans` | `cli.go:162`; `internal/cli/cost.go:205-` , `hours.go:120-` | `docs/server.md:1749-1798` | decide: plural nouns here, singular in every other `admin` group (`project`, `principal`, `member`, `key`). `admin price list|set` and `admin plan list|set` would match (question 4) |
-| `admin project add|list|archive|activate` | `internal/cli/admin.go:60-150` | `docs/cli.md:307-325`, `docs/server.md:1378-1549` | keep |
-| `admin principal add|list|disable|enable|whois` | `internal/cli/admin.go:195-320` | same | keep |
-| `admin member add|list|remove` | `internal/cli/admin.go:340-450` | same | keep |
-| `admin key add|list|remove` | `internal/cli/admin_key.go:110-200` | same | keep |
+| `setup AGENT\|--all` | `cli.go:161`; `internal/cli/setup.go:25-470`; agents `internal/agentsetup/agentsetup.go:87-130` (`claude-code`, `codex`, `gemini`, `cursor`, `vscode`, `junie`, `jetbrains`, `claude-desktop`) | `docs/agents.md` | keep |
+| `admin prices\|plans` | `cli.go:162`; `internal/cli/cost.go:205-` , `hours.go:120-` | `docs/server.md:1749-1798` | decide: plural nouns here, singular in every other `admin` group (`project`, `principal`, `member`, `key`). `admin price list\|set` and `admin plan list\|set` would match (question 4) |
+| `admin project add\|list\|archive\|activate` | `internal/cli/admin.go:60-150` | `docs/cli.md:307-325`, `docs/server.md:1378-1549` | keep |
+| `admin principal add\|list\|disable\|enable\|whois` | `internal/cli/admin.go:195-320` | same | keep |
+| `admin member add\|list\|remove` | `internal/cli/admin.go:340-450` | same | keep |
+| `admin key add\|list\|remove` | `internal/cli/admin_key.go:110-200` | same | keep |
 | `admin status [-n N] [--after NAME]` | `internal/cli/admin_status.go:15-40` | `docs/cli.md:322`, `docs/server.md:1550-` | keep |
 | `upgrade [--check] [--rollback]` | `cli.go:164`; `internal/cli/upgrade.go:85-190` | `docs/install.md` | keep |
 | `version` | `cli.go:165` | `docs/cli.md` | keep |
@@ -98,7 +170,7 @@ them.
 
 | Flag | Meanings | Defined | Finding |
 |---|---|---|---|
-| `--by` | a principal filter (`digest`, `log`); the grouping of a report (`cost --by account|issue|epic|person|model`); on `gate add --kind ci`, the principals who may report, as an alias of `--approver` that writes the same variable | `digest.go:18`, `hours.go:22`, `cost.go:23`, `gate.go:48-49` | rename: `cost --group-by`, and drop `gate add --by` in favor of `--approver`, which it already is. That leaves `--by` meaning "by this principal" everywhere. The MCP `cost` tool's `by` follows (§5) |
+| `--by` | a principal filter (`digest`, `log`); the grouping of a report (`cost --by account\|issue\|epic\|person\|model`); on `gate add --kind ci`, the principals who may report, as an alias of `--approver` that writes the same variable | `digest.go:18`, `hours.go:22`, `cost.go:23`, `gate.go:48-49` | rename: `cost --group-by`, and drop `gate add --by` in favor of `--approver`, which it already is. That leaves `--by` meaning "by this principal" everywhere. The MCP `cost` tool's `by` follows (§5) |
 | `--since` | a duration only (`who`), a duration, date or time (`digest`, `cost`) | `who.go:22`, `digest.go:17`, `cost.go:24` | keep; one parser for all three would let `who --since` take a time too, a compatible change later |
 | `--after` | a name, for paging (`admin * list`, `admin status`); a conflict number (`conflicts`) | `admin.go:50`, `conflicts.go:27` | keep: both are "the cursor after which to list", of the list's own key |
 | `--from` | a date or time when rates take effect (`admin prices set`), a month (`admin plans set`) | `cost.go:210`, `hours.go:125` | keep |
@@ -179,7 +251,7 @@ usage text at `main.go:65-123`. The guide's table is
 | `serve --project`, `--prefix`, `--log-level`, `--log-format` | `main.go:225-228` | `docs/server.md:2134-2146` | keep (see `prefix` in §3.2) |
 | `ariesd stdio` | `main.go:583-610` | `docs/server.md:544`, `:3958` | settled elsewhere (§10) |
 | `ariesd control init --name` | `cmd/ariesd/control.go:174-190` | `docs/server.md:1065`, `:3959` | decide with the Postgres port: `control` has one subcommand, `init`. Keep the group; P1 decides whether it survives |
-| `ariesd import-bd [--project] [--principal import] [--dry-run] [--json] FILE|-` | `cmd/ariesd/admin.go:144-205` | `docs/migrate-from-bd.md:23-51` | keep. The option table at `docs/migrate-from-bd.md:44-49` omits `--project`, `--config`: document |
+| `ariesd import-bd [--project] [--principal import] [--dry-run] [--json] FILE\|-` | `cmd/ariesd/admin.go:144-205` | `docs/migrate-from-bd.md:23-51` | keep. The option table at `docs/migrate-from-bd.md:44-49` omits `--project`, `--config`: document |
 | `ariesd export-bd [--project] [-o FILE]` | `admin.go:209-230` | `docs/migrate-from-bd.md:108` | keep |
 | `ariesd upgrade [--check] [--to vX.Y.Z] [--rollback] [--restart] [--socket]` | `cmd/ariesd/upgrade.go:83-120` | `docs/server.md:3466-3676`; `RELEASING.md:76`, `:147` | keep. `--socket` is undocumented at `:3962`: document. `aries upgrade` has no `--to`; question 10 |
 | `ariesd status [--json]` | `cmd/ariesd/status.go:27-70` | `docs/server.md:3430-3465` | keep |
@@ -213,7 +285,7 @@ are not public and are not frozen.
 | `ARIES_VERSION`, `ARIES_DIR` | `install.sh` | `install.sh:60-61` | `install.sh --help`; `docs/install.md` | rename `ARIES_DIR` to `ARIES_INSTALL_DIR`: `ARIES_DATA_DIR` and identity.md's `ARIES_PROJECT_DIR` are other directories, and a bare `ARIES_DIR` reads as any of them |
 | `ARIES_BASE_URL` | `install.sh`, `install-server.sh` | `install.sh:30`, `:83-90` | `install.sh --help` ("for tests") | remove from the public surface, or document as tests only. `ARIES_RELEASES` already names a mirror |
 | `ARIES_PUBKEY_PEM` | `install.sh`, passed on by `install-server.sh:661-663` | `install.sh:111-114` | `install-server.sh:643` says "for tests" | decide (question 7): it replaces the release signing key and only warns. A variable that turns off the one check a release is accepted on should not ship in the one-line installer of a 1.0 |
-| `ARIES_DOLT_BASE_URL` | `install-server.sh:518` | `install-server.sh:49` | settled elsewhere (§10) |
+| `ARIES_DOLT_BASE_URL` | `install-server.sh` | `install-server.sh:518` | `install-server.sh:49` | settled elsewhere (§10) |
 | `ARIESD_CONFIG`, `ARIESD_SOCKET`, `ARIESD_PROJECT`, `ARIESD_LOG_LEVEL`, `ARIESD_LOG_FORMAT`, `ARIESD_ADMINS`, `ARIESD_CLOCK_BEHIND`, `ARIESD_TELEMETRY_LISTEN` | `ariesd` | `internal/server/settings.go:203-226`, read at `:266-331` | `docs/server.md:2131-2159` | keep. Precedence is flag, variable, file, default (`settings.go:272`); most settings have no variable, which is fine |
 | `ARIESD_DSN`, `ARIESD_CONTROL_DB`, `ARIESD_KEYS_FILE`, `ARIESD_AUTHORIZED_KEYS`, `ARIESD_BRIDGE`, `ARIESD_TELEMETRY_DOLT_METRICS_URL` | `ariesd` | same | same | settled elsewhere (§10) |
 | `OTEL_SDK_DISABLED`, `OTEL_{METRICS,TRACES,LOGS}_EXPORTER`, `OTEL_EXPORTER_OTLP_*` (endpoint, headers, protocol, timeout, and each per signal), `OTEL_METRIC_EXPORT_{INTERVAL,TIMEOUT}`, `OTEL_TRACES_SAMPLER[_ARG]`, `OTEL_BSP_*`, `OTEL_BLRP_*`, `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | `ariesd` | `internal/telemetry/env.go:20-53` | `docs/server.md:2847-2886` | keep: the specification's names, which is the point |
@@ -257,7 +329,7 @@ in the code is in it and no other.
 | `clock_behind_tolerance`, `clock_step_tolerance`, `clock_client_tolerance` | `settings.go:106-114` | `2m`, `5s`, `5m` | keep |
 | `telemetry.listen`, `telemetry.per_project`, `telemetry.principals`, `telemetry.audit_log`, `telemetry.principals_key` | `settings.go:148-184` | none, `true`, `pseudonym`, `true`, `telemetry/principals.key` | keep. `telemetry_requests` belongs here rather than under `limits:` (3.4) |
 | `dsn`, `control_db`, `project_dbs`, `keys_file`, `authorized_keys`, `bridge`, `telemetry.dolt_metrics_url` | `settings.go:34-60`, `:177` | | settled elsewhere (§10) |
-| `prefix` beside `project_dbs.prefix` | `settings.go:64`; `internal/server/project.go:126` | | none here: `project_dbs` goes with Dolt, and the clash with it |
+| `prefix` beside `project_dbs.prefix` | `settings.go:64`; `internal/server/project.go:126` | | settled elsewhere: `project_dbs` goes with Dolt, and the clash with it |
 
 **Formats.** Durations go through `proto.ParseDuration`
 (`internal/proto/duration.go:12`): Go's units plus `d` and `w`, and
@@ -282,14 +354,14 @@ The names follow several patterns at once:
 |---|---|---|
 | `THING_per_SCOPE` | `labels_per_issue`, `deps_per_issue`, `paths_per_issue`, `conflicts_per_issue`, `sessions_per_principal`, `conns_per_principal`, `handshakes_per_principal`, `lock_waits_per_principal`, `memories_per_scope`, `principals_per_creator`, `members_per_project`, `keys_per_principal`, `usage_per_day`, `hours_per_day`, `notices_per_minute` | keep: the clearest form, and most keys already have it |
 | A bare plural, its scope implied | `conns` (server), `locks`, `open_gates`, `prices`, `plans` (project), `projects`, `principals` (server), `open_stores` | rename for one rule, if the maintainer wants one (question 3). Suggested: `conns_per_server`, `locks_per_project`, `gates_per_project` (for `open_gates`), `prices_rows`, `plans_rows`, `projects_per_server`, `principals_per_server`. Cost: renames in three structs, the guide's table, the installer's config and the tests, about a day. Without a rule, keep as they are: each is documented |
-| An item count named by its owner | `acceptance_items`, `gate_approvers`, `gate_checks`, `lock_capacity`, `lock_waiters`, `memory_tags`, `plan_principals`, `usage_records`, `inbox_unread`, `refusal_logs` | as above: `acceptance_items_per_issue`, `approvers_per_gate`, `checks_per_issue`, `holders_per_lock`, `waiters_per_lock`, `tags_per_memory`, `principals_per_plan`, `records_per_usage_call`, `unread_per_principal`, `refusal_logs_per_minute` |
+| An item count named by its owner | `acceptance_items`, `gate_approvers`, `gate_checks`, `lock_capacity`, `lock_waiters`, `memory_tags`, `plan_principals`, `usage_records`, `inbox_unread`, `refusal_logs` | rename (question 3), as above: `acceptance_items_per_issue`, `approvers_per_gate`, `checks_per_issue`, `holders_per_lock`, `waiters_per_lock`, `tags_per_memory`, `principals_per_plan`, `records_per_usage_call`, `unread_per_principal`, `refusal_logs_per_minute` |
 | A size in bytes with no unit | `memory_body`, `hours_note`, `gate_evidence`; `memory_key_length` and `memory_tag_length` | rename (question 3): `memory_body_bytes`, `hours_note_bytes`, `gate_evidence_bytes`, `memory_key_bytes`, `memory_tag_bytes`. "Length" reads as characters, and each is bytes |
 | A rate | `write_rate`, `control_write_rate` (a second, float); with `write_burst`, `control_write_burst` | keep; but identity.md's `enroll_rate` is a minute (§9), so name every rate's unit if a minute one joins: `write_rate` stays a second and the new one becomes `enroll_per_minute` |
 | A duration, with six suffixes | `agent_keep`, `inbox_keep`, `idem_window`, `conflict_age`, `store_idle`, `idle_timeout`, `due_soon`, `away_max` | keep the names: each says what the time is for, and none is a count. `conflict_age` and `due_soon` bound nothing (the guide says so) and are thresholds, not limits: move them out of `limits:` (question 3) |
 | Set only with `control_db` | `open_stores`, `store_idle`, `projects`, `principals`, `principals_per_creator`, `keys_per_principal`, `members_per_project`, `control_write_rate`, `control_write_burst` | settled elsewhere for `open_stores` and `store_idle`, which are Dolt's store-per-database model (§10); keep the rest |
-| `telemetry_requests` | `internal/server/limits.go:97` | | rename: move it to `telemetry.max_requests`. It applies only with `telemetry.listen` |
-| Go field names that differ from the keys (`Labels` for `labels_per_issue`, `Handshakes`, `Sessions`, `Keys`, `Members`, `Memories`, `Notices`) | `internal/store/limits.go`, `internal/server/limits.go` | | keep: not public |
-| `conflict_age`'s default | `internal/store/conflicts.go:59` (24 hours) | `docs/server.md:2224` says `1d` | keep: the same value |
+| Only with `telemetry.listen` | `telemetry_requests` (`internal/server/limits.go:97`) | rename: move it to `telemetry.max_requests`, where the listener it bounds is set |
+| Go field names that differ from the keys | `Labels` for `labels_per_issue`, `Handshakes`, `Sessions`, `Keys`, `Members`, `Memories`, `Notices` (`internal/store/limits.go`, `internal/server/limits.go`) | keep: not public |
+| `conflict_age`'s default | 24 hours at `internal/store/conflicts.go:59`; `1d` at `docs/server.md:2224` | keep: the same value |
 
 ## 4. The wire protocol
 
@@ -373,9 +445,9 @@ applies (`docs/cli.md`, `docs/server.md`, `docs/agents.md`).
 | `not_found`, `conflict`, `exists`, `cycle`, `invalid`, `acceptance`, `forbidden`, `unavailable`, `busy`, `stale` | keep |
 | `version` | keep; exit code 3 |
 | `auth` | keep the code; its wording names the SSH host key, settled elsewhere (§10) |
-| A missing `.aries.yaml` is `invalid` | `internal/cli/cli.go:411-447` | keep. No guide lists every code in one place, though: add a table to `docs/cli.md` §Exit codes (document) |
-| The `Fix*` phrases the MCP server matches on are wire text | `errors.go:79-129` | keep, and say in `doc.go` that changing one is a protocol change, since an older `aries mcp` matches the text |
-| `AtConnLimit` parses the message | `internal/proto/connlimit.go:29-44` | as above |
+| A missing `.aries.yaml` is `invalid` (`internal/cli/cli.go:411-447`) | keep. No guide lists every code in one place, though: add a table to `docs/cli.md` §Exit codes (document) |
+| The `Fix*` phrases the MCP server matches on are wire text (`errors.go:79-129`) | keep, and say in `doc.go` that changing one is a protocol change, since an older `aries mcp` matches the text |
+| `AtConnLimit` parses the message (`internal/proto/connlimit.go:29-44`) | keep, as above |
 
 ### 4.5 Frames and events
 
@@ -410,8 +482,8 @@ and `start`'s reserve. They will not both fit unless something gives.
 | Item | Defined | Documented | Finding |
 |---|---|---|---|
 | `prime`, `inbox`, `start`, `finish`, `handoff`, `digest`, `who`, `ready`, `blocked`, `list`, `show`, `create`, `update`, `close`, `reopen`, `comment`, `comments`, `history`, `remember`, `recall`, `forget` | `tools.go:538-732`; `memory.go:105-119` | `docs/agents.md:195-264` | keep |
-| `dep` and `label`, each with `action: add|rm` | `tools.go:677-700` | `docs/agents.md:195` | keep; `rm` follows question 4 |
-| `gate`, with `action: add|list` | `tools.go:734`; `internal/mcpserver/gate.go:30-126` | `docs/agents.md:314-349` | keep |
+| `dep` and `label`, each with `action: add\|rm` | `tools.go:677-700` | `docs/agents.md:195` | keep; `rm` follows question 4 |
+| `gate`, with `action: add\|list` | `tools.go:734`; `internal/mcpserver/gate.go:30-126` | `docs/agents.md:314-349` | keep |
 | `cost` (about 105 tokens of schema) | `internal/mcpserver/cost.go:22-42` | `docs/agents.md` | decide (question 12). It is the one tool an agent does not need to do or hand off work, it requires `since`, and its ~105 tokens are most of what decision 76's owed additions need. Recommend removing it from MCP for 1.0, leaving `aries cost` to people; adding it back in 1.x is compatible, while removing it after 1.0 is not |
 | Parameter names against the CLI's: `ticked`/`--tick`, `waived`/`--waive`, `labels`/`--label`, `tags`/`--tag`, `approvers`/`--approver`, `limit`/`-n` | `tools.go:566-700`; `internal/cli/work.go:99-100`, `commands.go:106`, `memory.go:51`, `gate.go:48` | | keep: plurals for arrays in JSON, a repeatable singular flag on a command line, is each medium's idiom |
 | Singular in one tool, plural in another: `digest.label` against `list.labels`; `recall.tag` against `remember.tags` | `tools.go:617`, `:650`; `memory.go:105-116` | | keep: a filter takes one, a record holds many; a list in `digest` later is compatible |
@@ -491,7 +563,7 @@ Tests hold the guide's tables to the code (`internal/logs`,
 | The MCP server's entry name `aries`; Claude Desktop's `aries-DIRECTORY` | `internal/agentsetup/agentsetup.go:11`; `internal/agentsetup/desktop.go` | `docs/agents.md` | keep. identity.md's extension takes `aries` in Claude Desktop, which does not collide (§9) |
 | The pointer block's markers `<!-- aries:begin -->`, `<!-- aries:end -->` | `internal/agentsetup/pointer.go:12-13` | `docs/agents.md:43` | keep: `setup --remove` finds the block by them, in files people commit |
 | Hook commands `aries prime --hook[=AGENT]`, `aries usage --hook[=AGENT]` | `internal/agentsetup/hook.go:26`, `:211` | `docs/agents.md` | keep |
-| The Docker test server's image `aries-dev:local` and its variables | `deploy/docker/compose.yaml:27-38` | `docs/deploy/docker.md` | see §3.1 |
+| The Docker test server's image `aries-dev:local` and its variables | `deploy/docker/compose.yaml:27-38` | `docs/deploy/docker.md` | rename (see §3.1) |
 
 ## 8. Output formats
 
@@ -502,7 +574,7 @@ Tests hold the guide's tables to the code (`internal/logs`,
 | One document per command (rule 13); writes print `{id, rev}`; lists the compact summaries | `internal/cli/cli.go`, each command's `r.emit` | `docs/cli.md`; rule 13 | keep |
 | An error: `{"error":{"c":…,"m":…,"fix":…,"req":…}}`, `proto.Error` printed as it is | `internal/cli/cli.go:431-433`; `internal/proto/errors.go:46-56` | `docs/cli.md:766` names `error.req` only | rename before 1.0 (question 15): print `{"error":{"code","message","fix","req"}}`, the shape the MCP server already gives an agent (`internal/mcpserver/mcpserver.go:715-737`). The one-letter keys are the wire's economy; a script reading `aries --json` should not need to know them, and the two documents for one error should match. Cost: a type for the printed error, the tests that read `c` and `m`, and a sentence in `docs/cli.md` |
 | `version --json` is `{"version":"…","protocol":"8"}`, the protocol a string | `internal/cli/commands.go:868-875` | | rename: make `protocol` a number, as `proto_min` and `proto_max` are in the status report |
-| `watch --json` prints one object per line | `internal/cli/inbox.go:145-200` | `docs/cli.md:285` | see §1.1 |
+| `watch --json` prints one object per line | `internal/cli/inbox.go:145-200` | `docs/cli.md:285` | document (see §1.1) |
 | `dep` and `label` print `{}` | `internal/cli/commands.go:646-700` | | keep: a write with nothing to say |
 | `outbox --json` (`refused_at`, `refused`…) and `cache --json` | `internal/cli/outbox.go:400-431`; `internal/cli/cache.go:155-176` | `docs/cli.md:371-760` | keep |
 | No document carries a schema version | | | keep: fields are only added (rule 10's results), which is the promise to write into `docs/cli.md`: "a field may be added to any document; none is removed or changes type within 1.x" |
@@ -616,3 +688,71 @@ the rules above.
   sections of `docs/cli.md` §Connect a repository.
 - **identity.md:** `ARIES_HOST_KEY`, `login.enroll.host_keys` and the
   enrollment key.
+
+## Questions for the maintainer
+
+1. **The default issue id prefix.** `sf` is left over from the former name (§3.3). What should a new project's default be?
+   *Recommendation:* `ar`, set in `internal/server/settings.go:270` and for `aries admin project add` without `--prefix`. Existing ids keep their prefix, since no server runs on a release that made them.
+
+2. **Should `aries` refuse unknown keys in `.aries.yaml`?** (§3.2)
+   *Recommendation:* no. Warn once and go on, from 1.0. A committed file is read by every version of `aries` on a team, and the HTTPS transport will add keys to it. Keep `ariesd.yaml` strict, since an operator upgrades the file and the binary together.
+
+3. **One naming rule for `limits:`?** (§3.4, §9)
+   *Recommendation:* yes:
+   - `THING_per_SCOPE` for counts (`gates_per_project`, `principals_per_server`);
+   - a `_bytes` suffix for sizes;
+   - `_per_minute` or `_rate` (a second) for rates;
+   - thresholds that bound nothing (`conflict_age`, `due_soon`) and `telemetry_requests` move out of `limits:`.
+
+   The rename costs about a day before 1.0, and is never cheaper. If that is too much, do the `_bytes` and the moves alone (two hours) and hold identity.md's limits to the rule.
+
+4. **CLI verbs and nouns.** (§1.2, §1.4, §1.5)
+   *Recommendation:*
+   - `remove` everywhere a thing is deleted (`dep remove`, `label remove`, which already work as hidden aliases), keeping `rm` as a hidden alias;
+   - `admin price` and `admin plan` in the singular, with `list|set`;
+   - `aries hours` for `aries log`, keeping `log` as an alias through 1.x;
+   - keep `pin`/`unpin` at the top level while memories are the only thing pinned;
+   - `start --new-branch` for the switch;
+   - `cost --group-by`;
+   - drop `gate add --by` and `dep -t`;
+   - `gate add --issue` for `--subject`.
+
+5. **Which version does the protocol settle at, 5 or 8?** (§4.1) Decision 78 says "one version above any released one" (5) and also "fold G0 into version 8".
+   *Recommendation:* 8, spoken alone (`Proto = ProtoMin = ProtoMax = 8`). The code, the tests and every comment already say 8, and no client of 5 to 8 was released, so either is safe; 8 changes less. Delete the step-down code either way. Make `dep.rm` take its idempotency key as `dep.add` does, rather than accept and ignore it.
+
+6. **The protocol's names for an issue, and the inbox's kinds.** (§4.3, §4.5)
+   *Recommendation:* adopt the rule the code nearly follows, written into `internal/proto/doc.go`: `id` for the issue an op is about, `issue` where the record is something else. Then rename:
+   - `Issue.parent_id` to `parent`;
+   - `Claim.id` and `Overlap.id` to `issue`;
+   - `HoursLogArgs.id` to `issue`;
+   - `PrincipalResult.id`, `MemberSetResult.id` and `KeyResult.id` to what they hold;
+   - `LockReleaseResult.released` to `epoch`;
+   - `due_at` to `due`;
+   - the inbox kinds `assigned`, `mention`, `handoff` and `conflict` to `issue.assigned`, `issue.mentioned`, `issue.handoff` and `conflict.parked`.
+
+7. **`ARIES_PUBKEY_PEM` in `install.sh`.** (§3.1) It swaps the release signing key with only a warning.
+   *Recommendation:* remove it from the shipped script. Let the tests run a copy of `install.sh` with the key line replaced, or read the key from a file that only the test harness writes. Keep `ARIES_BASE_URL` documented as tests only, or remove it the same way.
+
+8. **Fields and flags that only `import-bd` uses.** (§1.3, §4.3) These are `create --id`, and `Issue`'s `expires_at`, `ephemeral`, `pinned`, `template` and `metadata`.
+   *Recommendation:* hide `create --id` (unlisted, kept for scripts that import), and remove the five fields from the wire before the settle. `export-bd` reads them from the store. Adding them back in 1.x is compatible.
+
+9. **`lock run`'s exit code.** It passes its command's code through, and 130 for an interrupt, so 1, 2 and 3 from `lock run` are the command's (§1.1).
+   *Recommendation:* keep it, since that is what makes `lock run` usable in scripts and CI, and add it to `docs/cli.md` §Exit codes and `cmd/aries/main.go`'s comment.
+
+10. **`aries upgrade --to`.** `ariesd upgrade` takes `--to vX.Y.Z`; `aries upgrade` does not (§2).
+    *Recommendation:* add `--to` to `aries upgrade` in 1.x. It is a compatible addition, so nothing needs doing before 1.0.
+
+11. **The `latest` setting**, which an operator types by hand so that `prime` can say the server is older (§3.3).
+    *Recommendation:* remove it before 1.0. It goes stale silently, and `aries upgrade --check` and `ariesd upgrade --check` already ask the release source. If it stays, document that `prime` trusts it.
+
+12. **The MCP `cost` tool.** (§5)
+    *Recommendation:* remove it for 1.0. Its ~105 schema tokens are what decision 76's two owed additions need, it is the one tool that does no work an agent hands off, and adding it back later is compatible. If it stays, give `since` a default rather than requiring it.
+
+13. **Are `ariesd`'s log event names part of 1.0's promise?** (§6)
+    *Recommendation:* yes. Operators alert on them, and the guide lists every one. Say in `docs/server.md` §Events that a name is kept and fields may be added within 1.x, and treat the metric names and their attribute values the same way.
+
+14. **Branch prefixes.** `start --branch` uses this repository's own convention (`fix/`, `maintenance/`, `feature/`) in every team's repository (§7).
+    *Recommendation:* keep the default for 1.0, document the map, and drop its unreachable `docs` entry. Add a per-project setting in 1.x.
+
+15. **The CLI's JSON error.** (§8.1)
+    *Recommendation:* print `{"error":{"code","message","fix","req"}}`, the same shape the MCP server gives an agent, and write into `docs/cli.md` the promise that a JSON document only gains fields within 1.x.
