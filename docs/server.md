@@ -175,8 +175,11 @@ Its steps, and the sections of this guide each one follows:
 
 What was run, on 14 October 2026, with `ariesd` and `aries` built from
 the source tree for linux/arm64 and installed by `install.sh` from a
-release tree in a directory, signed with a test key
-(`ARIES_PUBKEY_PEM`), since the installer is newer than any release:
+release tree in a directory, signed with a test key, since the
+installer is newer than any release. That run set the key with
+`ARIES_PUBKEY_PEM`, which `install.sh` no longer reads (decision 88);
+to repeat it, run the installer from a checkout whose `install.sh`
+holds the test key in place of the release key:
 
 - **In Docker** (Docker Desktop on an Apple silicon Mac), Ubuntu 24.04.5
   with systemd 255 as its first process: a dry run that changed

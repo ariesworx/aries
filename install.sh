@@ -26,10 +26,6 @@ and `ariesd upgrade` read them: "github", or a static tree (index.json
 and vX.Y.Z/FILE) as an https URL, a file:// URL or the absolute path of a
 directory. Plain http is accepted only to 127.0.0.1 or [::1]. A mirror is
 not trusted: the signature and the checksum are checked the same.
-
-For tests of GitHub's layout, ARIES_BASE_URL replaces
-https://github.com/ariesworx/aries/releases; it must serve /latest (a
-redirect to /tag/vX.Y.Z) and /download/vX.Y.Z/FILE.
 EOF
 }
 
@@ -43,7 +39,8 @@ DEFAULT_RELEASES=github
 # The release signing public key as a PEM SubjectPublicKeyInfo. It must
 # match internal/release/keys.go (PY3QJCqgGjLI5r/3LarwbF9Pnm/MQyEKxROSTrmZT7c=);
 # the body is base64 of 302a300506032b6570032100 followed by the 32 key bytes.
-# Rotate it in the same pull request as keys.go (RELEASING.md).
+# Rotate it in the same pull request as keys.go (RELEASING.md). No
+# variable replaces it: tests run a copy of this script with their own.
 RELEASE_PUBKEY_PEM='-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAPY3QJCqgGjLI5r/3LarwbF9Pnm/MQyEKxROSTrmZT7c=
 -----END PUBLIC KEY-----'
@@ -78,16 +75,13 @@ done
 # The layout: github (GitHub's release pages, redirects followed), static
 # (a tree over HTTP, where no redirect is followed, so that the host named
 # is the only one asked) or dir (the same tree in a directory).
-releases=${ARIES_RELEASES:-}
-if [ -z "$releases" ]; then
-	# ARIES_BASE_URL names a host of GitHub's layout, whatever the default.
-	if [ -n "${ARIES_BASE_URL:-}" ]; then releases=github; else releases=$DEFAULT_RELEASES; fi
-fi
+releases=${ARIES_RELEASES:-$DEFAULT_RELEASES}
 # The refusals never repeat the value, which may hold a credential.
 case $releases in
 github)
 	layout=github
-	base=${ARIES_BASE_URL:-https://github.com/ariesworx/aries/releases} ;;
+	# Tests run a copy of this script with another URL on this line.
+	base=https://github.com/ariesworx/aries/releases ;;
 https://*[@?#]* | http://*[@?#]*)
 	die "ARIES_RELEASES must not hold a user name, a password, a query or a fragment" \
 		"set it to the plain URL of the mirror" ;;
@@ -108,12 +102,6 @@ file:///*)
 		"unset ARIES_RELEASES to install from the default, or set it to where your mirror is" ;;
 esac
 base=${base%/}
-pubkey=$RELEASE_PUBKEY_PEM
-if [ -n "${ARIES_PUBKEY_PEM:-}" ]; then
-	pubkey=$ARIES_PUBKEY_PEM
-	warn "ARIES_PUBKEY_PEM is set: trusting THAT key, not the release key."
-	warn "Only tests should set it; unset it unless you made the release yourself."
-fi
 
 os=$(uname -s)
 case $os in
@@ -231,7 +219,7 @@ sig_capable() {
 		openssl pkeyutl -verify -rawin -pubin -inkey "$tmp/probe/pub" -in "$tmp/probe/msg" -sigfile "$tmp/probe/sig" >"$tmp/probe/out" 2>&1
 }
 if sig_capable; then
-	printf '%s\n' "$pubkey" >"$tmp/release.pem"
+	printf '%s\n' "$RELEASE_PUBKEY_PEM" >"$tmp/release.pem"
 	if ! openssl base64 -d -A -in "$tmp/checksums.txt.sig" -out "$tmp/checksums.sig" 2>"$tmp/err" ||
 		[ "$(wc -c <"$tmp/checksums.sig" | tr -d ' ')" != 64 ] ||
 		! openssl pkeyutl -verify -rawin -pubin -inkey "$tmp/release.pem" \

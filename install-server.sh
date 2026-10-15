@@ -639,9 +639,9 @@ install_ariesd() {
 }
 
 # run_installer USER DIR ARGS... runs install.sh as USER in DIR, which
-# checks the release's signature and checksum. It is given only the
-# variables it documents; ARIES_PUBKEY_PEM is for tests, and install.sh
-# warns when it is set.
+# checks the release's signature against the key it holds, which no
+# variable replaces, and the checksum. It is given only the variables it
+# documents.
 run_installer() {
 	_user=$1 _in=$2
 	shift 2
@@ -653,14 +653,6 @@ run_installer() {
 	if [ -n "$releases" ]; then
 		set -- "ARIES_RELEASES=$releases" "$@"
 		_show="$_show $(quote "ARIES_RELEASES=$releases")"
-	fi
-	if [ -n "${ARIES_BASE_URL:-}" ]; then
-		set -- "ARIES_BASE_URL=$ARIES_BASE_URL" "$@"
-		_show="$_show $(quote "ARIES_BASE_URL=$ARIES_BASE_URL")"
-	fi
-	if [ -n "${ARIES_PUBKEY_PEM:-}" ]; then
-		set -- "ARIES_PUBKEY_PEM=$ARIES_PUBKEY_PEM" "$@"
-		_show="$_show ARIES_PUBKEY_PEM=(as set)"
 	fi
 	_show="as $_user, in $_in: ${_show:+env$_show }sh install.sh $_args"
 	changes=$((changes + 1))

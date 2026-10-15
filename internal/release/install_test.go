@@ -105,6 +105,43 @@ func (f *fakeRelease) setChecksums(key ed25519.PrivateKey, sums string) {
 	f.files[release.SignatureName] = append(release.EncodeSignature(ed25519.Sign(key, []byte(sums))), '\n')
 }
 
+// releasesURL is where install.sh reads GitHub's layout from.
+const releasesURL = "https://github.com/ariesworx/aries/releases"
+
+// installCopy writes a copy of install.sh for a test and returns its
+// path. The shipped script trusts its own key and reads GitHub, with no
+// variable to change either, so a test that signs its own release, or
+// serves GitHub's layout itself, runs a copy with pubPEM in place of the
+// release key and githubBase in place of GitHub's URL; an empty value
+// keeps the script's own.
+func installCopy(t *testing.T, pubPEM, githubBase string) string {
+	t.Helper()
+	b, err := os.ReadFile(installScript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	if pubPEM != "" {
+		key := regexp.MustCompile(`(?s)-----BEGIN PUBLIC KEY-----.*?-----END PUBLIC KEY-----\n?`)
+		if !key.MatchString(src) {
+			t.Fatal("install.sh holds no PEM public key to replace")
+		}
+		src = key.ReplaceAllLiteralString(src, strings.TrimSuffix(pubPEM, "\n"))
+	}
+	if githubBase != "" {
+		line := "base=" + releasesURL + " ;;"
+		if !strings.Contains(src, line) {
+			t.Fatalf("install.sh has no %q to replace", line)
+		}
+		src = strings.Replace(src, line, "base="+githubBase+" ;;", 1)
+	}
+	p := filepath.Join(t.TempDir(), "install.sh")
+	if err := os.WriteFile(p, []byte(src), 0o600); err != nil { //nolint:gosec // the test's own temp dir
+		t.Fatal(err)
+	}
+	return p
+}
+
 // script writes an executable shell script into dir.
 func script(t *testing.T, dir, name, body string) {
 	t.Helper()
@@ -113,19 +150,19 @@ func script(t *testing.T, dir, name, body string) {
 	}
 }
 
-// runInstall runs install.sh against srv with fake (holding at least a
-// uname) first on PATH, and returns its combined output and whether it
-// succeeded.
-func runInstall(t *testing.T, srv *httptest.Server, fake string, env []string, args ...string) (string, bool) {
+// runInstall runs a copy of install.sh that reads GitHub's layout from
+// srv and trusts pubPEM (or, when it is "", the release key), with fake
+// (holding at least a uname) first on PATH, and returns its combined
+// output and whether it succeeded.
+func runInstall(t *testing.T, srv *httptest.Server, pubPEM, fake string, env []string, args ...string) (string, bool) {
 	t.Helper()
 	home := t.TempDir()
-	cmd := exec.Command("sh", append([]string{installScript}, args...)...) //nolint:gosec // the test's own arguments
+	cmd := exec.Command("sh", append([]string{installCopy(t, pubPEM, srv.URL)}, args...)...) //nolint:gosec // the test's own arguments
 	cmd.Env = append([]string{
 		"PATH=" + fake + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"HOME=" + home,
 		"SHELL=/bin/zsh",
 		"TMPDIR=" + t.TempDir(),
-		"ARIES_BASE_URL=" + srv.URL,
 	}, env...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err == nil
@@ -170,15 +207,17 @@ func TestInstallScript(t *testing.T) {
 		name      string
 		arch      string
 		args      []string
-		noPEM     bool // use the key embedded in install.sh
-		noOpenSSL bool // put a failing openssl first on PATH
+		env       []string // "=TEST" in a value stands for the test's key
+		noPEM     bool     // use the key embedded in install.sh
+		noOpenSSL bool     // put a failing openssl first on PATH
 		edit      func(*fakeRelease, ed25519.PrivateKey)
 		needSig   bool // needs a working openssl
 		ok        bool
 		want      []string // in the output
+		noOut     []string // not in the output
 	}{
 		{name: "latest", arch: "x86_64", ok: true,
-			want: []string{"ARIES_PUBKEY_PEM is set", "installed aries v1.2.3 (protocol 1) to ", `export PATH="`, "~/.zshrc"}},
+			want: []string{"installed aries v1.2.3 (protocol 1) to ", `export PATH="`, "~/.zshrc"}},
 		{name: "pinned version, aarch64 maps to arm64", arch: "aarch64", args: []string{"--version", "1.2.3"}, ok: true,
 			edit: func(f *fakeRelease, k ed25519.PrivateKey) {
 				name := release.ArchiveName("aries", "v1.2.3", "linux", "arm64")
@@ -198,6 +237,9 @@ func TestInstallScript(t *testing.T) {
 			want: []string{"install.sh: the signature on v1.2.3's checksums.txt does not verify", "fix: "}},
 		{name: "test release against the real key", arch: "x86_64", noPEM: true, needSig: true,
 			want: []string{"does not verify"}},
+		{name: "a key in the environment is not trusted", arch: "x86_64", noPEM: true, needSig: true,
+			env:  []string{"ARIES_PUBKEY_PEM=TEST"},
+			want: []string{"does not verify"}, noOut: []string{"ARIES_PUBKEY_PEM"}},
 		{name: "unknown arch", arch: "riscv64",
 			want: []string{"install.sh: unsupported architecture riscv64", "fix: "}},
 		{name: "--server fetches ariesd", arch: "x86_64", args: []string{"--server"},
@@ -223,8 +265,11 @@ func TestInstallScript(t *testing.T) {
 			t.Cleanup(srv.Close)
 			dir := filepath.Join(t.TempDir(), "bin")
 			env := []string{"ARIES_DIR=" + dir}
-			if !tc.noPEM {
-				env = append(env, "ARIES_PUBKEY_PEM="+pubPEM)
+			for _, e := range tc.env {
+				env = append(env, strings.Replace(e, "=TEST", "="+pubPEM, 1))
+			}
+			if tc.noPEM {
+				pubPEM = ""
 			}
 			fake := t.TempDir()
 			script(t, fake, "uname", fmt.Sprintf("case $1 in -s) echo Linux ;; -m) echo %s ;; *) exit 1 ;; esac\n", tc.arch))
@@ -234,13 +279,18 @@ func TestInstallScript(t *testing.T) {
 			if tc.ok && !canVerify && !tc.noOpenSSL {
 				tc.want = append(tc.want, "signature not checked")
 			}
-			out, ok := runInstall(t, srv, fake, env, tc.args...)
+			out, ok := runInstall(t, srv, pubPEM, fake, env, tc.args...)
 			if ok != tc.ok {
 				t.Fatalf("succeeded = %v, want %v; output:\n%s", ok, tc.ok, out)
 			}
 			for _, w := range tc.want {
 				if !strings.Contains(out, w) {
 					t.Errorf("output lacks %q:\n%s", w, out)
+				}
+			}
+			for _, w := range tc.noOut {
+				if strings.Contains(out, w) {
+					t.Errorf("output holds %q:\n%s", w, out)
 				}
 			}
 			bin := filepath.Join(dir, "aries")
