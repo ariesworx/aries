@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"math/rand/v2"
@@ -33,10 +34,13 @@ import (
 //
 // A session is cut by its dials: while it is cut, its `sfx mcp` dials
 // fail as an unreachable server's do (code unavailable), and the
-// connection it had is closed, so a request in flight is lost as on a
-// network that drops. A dial that was under way when the cut came is
-// closed as it completes. Whatever the timing, then, the session reaches
-// the server only through a connection made while it was not cut; what
+// connection it had fails its next request, sending nothing, as one whose
+// network dropped, which `sfx mcp` closes itself. (Closing it from the
+// cutting goroutine raced the SSH channel's writes, under -race.) A dial
+// that was under way when the cut came is closed as it completes.
+// Whatever the timing, then, a request made while the session is cut
+// reaches nothing, and one that reaches the server went on a connection
+// made while it was not cut; what
 // it is told (queued, or answered) is what the check holds the log to,
 // and the check goes by keys and markers in the log's own order, never
 // by a clock.
@@ -245,6 +249,10 @@ func (ms *mcpSession) cutSpan() (store, real time.Duration) {
 // server's do (client.Unreachable).
 var errCut = proto.Errf(proto.CodeUnavailable, "retry once the network is back", "soak: the network between this session and the server is cut")
 
+// errCutConn is how a connection fails once its session is cut off: as
+// one whose network dropped, which sfx mcp closes and dials again.
+var errCutConn = errors.New("soak: the connection's network is cut")
+
 // partitionStep cuts the agent off once it has been connected for a
 // while, and lets it back once its cut is over: each span from cutMin
 // to cutMax, as the session's own choices, which a seed replays.
@@ -259,17 +267,14 @@ func (ms *mcpSession) partitionStep() {
 	case ms.cutUntil.IsZero():
 		_, gap := ms.cutSpan()
 		ms.cutUntil = now.Add(gap) // the first cut comes then
-	case ms.cut && now.After(ms.cutUntil):
+	case ms.cut.Load() && now.After(ms.cutUntil):
 		_, gap := ms.cutSpan()
-		ms.cut, ms.cutUntil = false, now.Add(gap)
-	case !ms.cut && now.After(ms.cutUntil):
+		ms.cut.Store(false)
+		ms.cutUntil = now.Add(gap)
+	case !ms.cut.Load() && now.After(ms.cutUntil):
 		d, span := ms.cutSpan()
-		ms.cut, ms.cutUntil = true, now.Add(span)
-		if ms.cur != nil {
-			ms.cur.ln.broke()
-			_ = ms.cur.Close()
-			ms.cur = nil
-		}
+		ms.cut.Store(true)
+		ms.cutUntil = now.Add(span)
 		ms.s.part.mu.Lock()
 		ms.s.part.cuts++
 		ms.s.part.cutFor += d
@@ -278,18 +283,10 @@ func (ms *mcpSession) partitionStep() {
 }
 
 // rejoin ends the agent's cut, as the end of the run does.
-func (ms *mcpSession) rejoin() {
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
-	ms.cut = false
-}
+func (ms *mcpSession) rejoin() { ms.cut.Store(false) }
 
 // isCut reports whether the agent is cut off now.
-func (ms *mcpSession) isCut() bool {
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
-	return ms.cut
-}
+func (ms *mcpSession) isCut() bool { return ms.cut.Load() }
 
 // write calls a tool that writes, and notes a write it was told it
 // queued, with its entry's key read from the outbox, and the markers the

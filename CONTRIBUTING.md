@@ -504,8 +504,9 @@ data directory, as `sfx mcp` does by default, and is cut off from the
 server for 2 to 30 minutes of the store's clock at a time, after
 connected spans as long, each as the seed chooses. A session is cut by
 its dials: they fail as an unreachable server's do, and the connection
-it had is closed, so a request in flight is lost as on a network that
-drops; a dial under way when the cut comes is closed as it completes. It
+it had fails its next request without sending it, as a dropped one does,
+and `sfx mcp` closes it; a dial under way when the cut comes is closed
+as it completes. It
 goes on working meanwhile: its writes are queued, its reads of its own
 work answered from the cache, its starts refused, and its leases lapse
 on the server, where others take its issues. Let back, its next

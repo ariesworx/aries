@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -977,9 +978,29 @@ type tracedConn struct {
 	*mcpserver.RepoConn
 	ss *session
 	ln *line
+	// cut, in the partition mode, reports whether the session is cut off
+	// from the server; dead, that the connection was found so, which
+	// lasts (soak_partition_test.go).
+	cut  func() bool
+	dead atomic.Bool
+}
+
+// Err is the connection's error: as one that dropped, once its session
+// was found cut off.
+func (c *tracedConn) Err() error {
+	if c.dead.Load() || c.cut != nil && c.cut() {
+		c.dead.Store(true)
+		return errCutConn
+	}
+	return c.RepoConn.Err()
 }
 
 func (c *tracedConn) Call(_ context.Context, op string, args, res any) error {
+	if err := c.Err(); errors.Is(err, errCutConn) {
+		// The network is cut: nothing reaches the server.
+		c.ln.broke()
+		return err
+	}
 	a, watch := args.(proto.WatchArgs)
 	if watch {
 		c.ln.watching(a.Events)
@@ -1017,9 +1038,9 @@ type mcpSession struct {
 	// off is the session's outbox and cache, in the partition mode; cut
 	// says the session is cut off from the server; cutUntil is when, in
 	// real time, it is let back, or, while it is not cut, when it is cut
-	// next. mu guards cut and cutUntil.
+	// next. The session's own goroutine alone sets them.
 	off      *offline.Client
-	cut      bool
+	cut      atomic.Bool
 	cutUntil time.Time
 }
 
@@ -1029,7 +1050,7 @@ func (ms *mcpSession) open() error {
 	opts := mcpserver.Options{Version: "v0.2.0", RenewEvery: -1, Dir: ms.u.repo,
 		Dial: func(ctx context.Context) (mcpserver.Conn, error) {
 			ms.mu.Lock()
-			if ms.cut {
+			if ms.cut.Load() {
 				ms.mu.Unlock()
 				return nil, errCut
 			}
@@ -1048,9 +1069,12 @@ func (ms *mcpSession) open() error {
 				return nil, err
 			}
 			tc := &tracedConn{RepoConn: c, ss: ms.session, ln: ln}
+			if ms.s.part != nil {
+				tc.cut = ms.isCut
+			}
 			ms.mu.Lock()
 			defer ms.mu.Unlock()
-			if ms.cut {
+			if ms.cut.Load() {
 				// Cut while it dialed: the network dropped it.
 				ln.broke()
 				_ = c.Close()
