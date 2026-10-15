@@ -26,15 +26,13 @@ import (
 	"github.com/ariesworx/aries/internal/lazyregexp"
 )
 
-// branchTypes maps an issue type to its branch prefix. The prefixes are
-// the Aries repository's own branch types: feature/, fix/, maintenance/
-// and docs/.
+// branchTypes maps an issue type to its branch prefix, for the types
+// with one other than feature. The prefixes are the Aries repository's
+// own branch types, and docs/cli.md lists the map.
 var branchTypes = map[string]string{
-	"bug":     "fix",
-	"feature": "feature",
-	"task":    "maintenance",
-	"chore":   "maintenance",
-	"docs":    "docs",
+	"bug":   "fix",
+	"task":  "maintenance",
+	"chore": "maintenance",
 }
 
 // BranchType returns the branch prefix for an issue type: feature for any

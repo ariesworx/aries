@@ -227,6 +227,21 @@ waiting in the outbox
 | `handoff ID NOTE` | Leave a note for whoever continues. Fields: `--state done\|partial\|blocked`, `--next TEXT`, `--branch B`, `--worktree DIR`, and `--to P` to put it in P's inbox. `--release` ends your claim and unassigns the issue, and takes `--epoch N` like `finish`. It sends the issue's paths like `finish` |
 | `away DURATION` | Extend all your claims, in every session, to at least now plus DURATION, for example before you go offline or on leave: a claim with less than DURATION left is extended, whatever it has left, and none is shortened. DURATION is from 1m to the server's `away_max`, 7d unless its admin set another ([Limits](server.md#limits)). Each claim it extends is on the record, as a `claim.away` event in the issue's history, and the reaper, and a clock that jumps forward on the server, honor it as any lease. There is no `--back`: when you are back sooner, `finish` or `handoff --release` what you are done with, and the rest holds until the time you gave. Only from your own terminal (session `cli`): it is refused when `aries` runs with another session id, as in an agent's session, and no MCP tool does it. It then sends the paths the work on each claim touched, read from git, one issue at a time |
 
+The branch `start` names is `TYPE/ID-SLUG`: the issue's id, then its
+title in lowercase letters and digits joined by hyphens, at most 40
+characters, as in `fix/sf-a1b2c3d4-fix-the-login-redirect`. TYPE comes
+from the issue's type:
+
+| Issue type | Branch prefix |
+|---|---|
+| `bug` | `fix/` |
+| `task`, `chore` | `maintenance/` |
+| `feature`, `epic`, `gate` | `feature/` |
+
+The map is the same in every repository; a setting for it may come in a
+1.x release. A [CI job](ci.md) finds the issue in such a branch's name,
+which works for a project whose prefix has no hyphen of its own.
+
 ### Find and change issues
 
 | Command | Does |
