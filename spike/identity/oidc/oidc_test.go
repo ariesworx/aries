@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/ariesworx/aries/spike/identity/jose"
 )
 
 func enc(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
@@ -160,5 +162,38 @@ func TestDiscoverRefusesAnotherIssuer(t *testing.T) {
 	is := newIssuer(t)
 	if _, err := Discover(t.Context(), is.srv.Client(), is.srv.URL+"/realms/other"); err == nil {
 		t.Errorf("Discover(another issuer's path) = nil error, want a refusal")
+	}
+}
+
+// TestStaticKeysFetchNothing: on a network with no route to the issuer's
+// key set, the operator supplies the set as a file, and the verifier
+// checks tokens against it and fetches nothing, even for a key it does
+// not hold (transport.md, air-gapped sign-in).
+func TestStaticKeysFetchNothing(t *testing.T) {
+	t.Parallel()
+	is := newIssuer(t)
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	set := jose.Set{Keys: []jose.JWK{{Kty: "RSA", Use: "sig", Kid: is.kid, N: enc(is.key.N.Bytes()), E: enc(big.NewInt(int64(is.key.E)).Bytes())}}}
+	v, err := NewStatic(Config{Issuer: is.srv.URL, Audience: "aries-cli"}, set, func() time.Time { return now })
+	if err != nil {
+		t.Fatalf("NewStatic = %v", err)
+	}
+	claims := map[string]any{"iss": is.srv.URL, "sub": "s-1", "aud": "aries-cli", "iat": now.Unix(), "exp": now.Add(time.Minute).Unix()}
+	if _, err := v.Verify(t.Context(), is.token(t, is.kid, is.key, claims), Expect{}); err != nil {
+		t.Errorf("Verify(a token of a key in the file) = %v, want nil", err)
+	}
+	if _, err := v.Verify(t.Context(), is.token(t, "rotated", is.other, claims), Expect{}); err == nil || !strings.Contains(err.Error(), "key set file") {
+		t.Errorf("Verify(a token of a key not in the file) = %v, want a refusal naming the key set file", err)
+	}
+	if got := is.jwks.Load(); got != 0 {
+		t.Errorf("the issuer's key set was fetched %d times, want 0", got)
+	}
+}
+
+func TestNewStaticRefusesEmptySet(t *testing.T) {
+	t.Parallel()
+	set := jose.Set{Keys: []jose.JWK{{Kty: "RSA", Use: "enc", Kid: "e"}}}
+	if _, err := NewStatic(Config{Issuer: "https://idp.example.com", Audience: "a"}, set, time.Now); err == nil {
+		t.Error("NewStatic(a set with no signing key) = nil error, want a refusal")
 	}
 }

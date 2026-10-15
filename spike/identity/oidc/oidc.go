@@ -130,6 +130,7 @@ type Verifier struct {
 
 	mu      sync.Mutex
 	keys    map[string]crypto.PublicKey
+	static  bool // keys came from a file and are never fetched
 	fetched time.Time
 	// Fetches counts key set fetches, for the spike's report.
 	Fetches int
@@ -141,6 +142,31 @@ func New(cfg Config, d *Discovery, c *http.Client, now func() time.Time) *Verifi
 	return &Verifier{cfg: cfg, client: c, now: now, jwks: d.JWKSURI}
 }
 
+// NewStatic makes a verifier whose signing keys are set, as read from a
+// key set file the operator supplies on a network that cannot reach the
+// issuer's (transport.md, the air-gapped profile). It fetches nothing,
+// ever: a token signed by a key not in set is refused until the operator
+// replaces the file.
+func NewStatic(cfg Config, set jose.Set, now func() time.Time) (*Verifier, error) {
+	keys := signingKeys(set)
+	if len(keys) == 0 {
+		return nil, errors.New("the key set file holds no signing key")
+	}
+	return &Verifier{cfg: cfg, now: now, keys: keys, static: true}, nil
+}
+
+func signingKeys(set jose.Set) map[string]crypto.PublicKey {
+	keys := make(map[string]crypto.PublicKey)
+	for _, k := range set.Keys {
+		pub, err := k.PublicKey()
+		if err != nil || k.Kid == "" {
+			continue // an encryption key, or one of a kind not used for signing here
+		}
+		keys[k.Kid] = pub
+	}
+	return keys
+}
+
 // key returns the signing key kid names, fetching the set when it is not
 // known and the last fetch is at least Refetch ago.
 func (v *Verifier) key(ctx context.Context, kid string) (crypto.PublicKey, error) {
@@ -148,6 +174,9 @@ func (v *Verifier) key(ctx context.Context, kid string) (crypto.PublicKey, error
 	defer v.mu.Unlock()
 	if k, ok := v.keys[kid]; ok {
 		return k, nil
+	}
+	if v.static {
+		return nil, fmt.Errorf("no key %q in the key set file; the operator replaces it when the issuer rotates its keys", kid)
 	}
 	if !v.fetched.IsZero() && v.now().Sub(v.fetched) < v.cfg.Refetch {
 		return nil, fmt.Errorf("no key %q, and the key set was fetched %s ago", kid, v.now().Sub(v.fetched).Round(time.Second))
@@ -161,14 +190,7 @@ func (v *Verifier) key(ctx context.Context, kid string) (crypto.PublicKey, error
 	if len(set.Keys) > maxKeys {
 		return nil, fmt.Errorf("the key set has %d keys, over %d", len(set.Keys), maxKeys)
 	}
-	keys := make(map[string]crypto.PublicKey)
-	for _, k := range set.Keys {
-		pub, err := k.PublicKey()
-		if err != nil || k.Kid == "" {
-			continue // an encryption key, or one of a kind not used for signing here
-		}
-		keys[k.Kid] = pub
-	}
+	keys := signingKeys(set)
 	v.keys = keys
 	if k, ok := keys[kid]; ok {
 		return k, nil
