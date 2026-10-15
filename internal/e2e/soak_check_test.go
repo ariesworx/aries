@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -674,6 +675,16 @@ func (r *replay) comment(e sevent, f txFacts) {
 	_ = json.Unmarshal(e.after, &c)
 	if f.kept[c.ID] {
 		return // a late write kept as a comment; issue.kept has its markers
+	}
+	if rest, ok := strings.CutPrefix(c.Body, "Update from rev "); ok && strings.Contains(rest, ", kept as a comment: ") {
+		// A replayed update that found the issue closed since, kept as
+		// a comment (design §18.7): the title it set is its marker.
+		for line := range strings.SplitSeq(rest, "\n") {
+			if title, ok := strings.CutPrefix(line, "title: "); ok {
+				r.markers[title]++
+			}
+		}
+		return
 	}
 	r.markers[c.Body]++
 	if c.Kind != "handoff" {

@@ -69,6 +69,8 @@ func TestReplayCatches(t *testing.T) {
 		want string // a substring of the one violation; empty: none
 		// guards and overs count the checks deferred to the end of a run.
 		guards, overs int
+		// markers are markers the log must count so.
+		markers map[string]int
 	}{
 		{
 			name: "a clean story",
@@ -317,6 +319,16 @@ func TestReplayCatches(t *testing.T) {
 			want: "but the issue had not moved on",
 		},
 		{
+			name: "a replayed update kept as a comment, the issue closed since",
+			log: func(b *logBuilder) *logBuilder {
+				return b.create(alice, "sf-1").
+					add(time.Minute, bob, "issue.close", "sf-1", `{"status": "open"}`, `{"status": "closed", "close_reason": "done bob-1"}`).
+					add(time.Minute, alice, "comment.add", "sf-1", "",
+						`{"id": "c1", "body": "Update from rev 1, kept as a comment: the issue was closed since.\ntitle: retitled alice-2"}`)
+			},
+			markers: map[string]int{"retitled alice-2": 1},
+		},
+		{
 			name: "an away that cut a lease short",
 			log: func(b *logBuilder) *logBuilder {
 				b.create(alice, "sf-1").take(alice, "sf-1", 1, time.Hour, "")
@@ -343,6 +355,11 @@ func TestReplayCatches(t *testing.T) {
 				t.Errorf("replay found %q, want no violation", got)
 			case tc.want != "" && (len(got) != 1 || !strings.Contains(got[0], tc.want)):
 				t.Errorf("replay found %q, want one violation containing %q", got, tc.want)
+			}
+			for m, n := range tc.markers {
+				if r.markers[m] != n {
+					t.Errorf("replay counted marker %q %d times, want %d", m, r.markers[m], n)
+				}
 			}
 			if len(r.guards) != tc.guards || len(r.overs) != tc.overs {
 				t.Errorf("replay deferred %d guard and %d takeover checks, want %d and %d", len(r.guards), len(r.overs), tc.guards, tc.overs)
