@@ -1,6 +1,6 @@
 //go:build !unix
 
-package dolttest
+package pgtest
 
 // endWithParent does nothing where a process is not told that its parent
 // is gone.

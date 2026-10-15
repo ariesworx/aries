@@ -1,6 +1,6 @@
 //go:build !unix
 
-package dolttest
+package pgtest
 
 import "os/exec"
 
@@ -18,3 +18,5 @@ func (*watcher) dismiss() {}
 func ownGroup(*exec.Cmd) {}
 
 func killGroup(cmd *exec.Cmd) error { return cmd.Process.Kill() }
+
+func removeSegment(string) error { return nil }

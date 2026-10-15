@@ -1,10 +1,10 @@
-package dolttest
+package pgtest
 
 import (
 	"database/sql"
 	"errors"
+	"net/url"
 	"os"
-	"strings"
 	"testing"
 	"time"
 )
@@ -14,13 +14,13 @@ import (
 const patience = time.Minute
 
 // newPool makes a pool of at most limit servers for one test, which
-// closes it. It skips without dolt, as startOrSkip does.
+// closes it. It skips without Postgres, as startOrSkip does.
 func newPool(t *testing.T, limit int) *Pool {
 	t.Helper()
-	if _, err := lookDolt(); errors.Is(err, ErrNoDolt) {
-		t.Skip("dolt is not on PATH: install dolt to run the dolttest tests")
+	if _, err := lookPostgres(); errors.Is(err, ErrNoPostgres) {
+		t.Skip("postgres is not on PATH: run scripts/install-postgres.sh to run the pgtest tests")
 	}
-	p := NewPool("dolttest-pool-", Options{})
+	p := NewPool("pgtest-pool-")
 	p.limit = limit
 	t.Cleanup(func() {
 		if err := p.Close(); err != nil {
@@ -185,10 +185,10 @@ func TestPoolDatabase(t *testing.T) {
 		if dsn, err = p.Database(t); err != nil {
 			t.Fatalf("Database = %v", err)
 		}
-		if !strings.Contains(dsn, srv.socket) {
-			t.Errorf("Database = %q, which is not on the test's server (%s)", dsn, srv.socket)
+		if u, err := url.Parse(dsn); err != nil || u.Query().Get("host") != srv.dir {
+			t.Errorf("Database = %q, which is not on the test's server (%s)", dsn, srv.dir)
 		}
-		db, err := sql.Open("mysql", dsn)
+		db, err := sql.Open("pgx", dsn)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -203,9 +203,9 @@ func TestPoolDatabase(t *testing.T) {
 	}
 }
 
-// A database a test leaves on its server, as the daemon's own CREATE
-// DATABASE for a new project does, is dropped when the test gives the
-// server up: the next test finds a server that holds none.
+// A database or a role a test leaves on its server is dropped when the
+// test gives the server up: the next test finds a server that holds
+// none.
 func TestPoolDropsWhatATestLeaves(t *testing.T) {
 	t.Parallel()
 	p := newPool(t, 1)
@@ -215,23 +215,24 @@ func TestPoolDropsWhatATestLeaves(t *testing.T) {
 		if srv, err = p.Server(t); err != nil {
 			t.Fatalf("Server = %v", err)
 		}
-		root, err := sql.Open("mysql", srv.RootDSN(""))
+		root, err := sql.Open("pgx", srv.RootDSN(superuser))
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer func() { _ = root.Close() }()
-		for _, name := range []string{"left_behind", "left_too"} {
-			if _, err := root.ExecContext(t.Context(), "CREATE DATABASE "+name); err != nil {
-				t.Fatal(err)
+		for _, q := range []string{"CREATE DATABASE left_behind", "CREATE DATABASE left_too", "CREATE ROLE left_role",
+			"GRANT CONNECT ON DATABASE postgres TO left_role"} {
+			if _, err := root.ExecContext(t.Context(), q); err != nil {
+				t.Fatalf("%s: %v", q, err)
 			}
 		}
 	})
-	root, err := sql.Open("mysql", srv.RootDSN(""))
+	root, err := sql.Open("pgx", srv.RootDSN(superuser))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = root.Close() }()
-	rows, err := root.QueryContext(t.Context(), "SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'left%'")
+	rows, err := root.QueryContext(t.Context(), "SELECT datname FROM pg_database WHERE datname LIKE 'left%' UNION ALL SELECT rolname FROM pg_roles WHERE rolname LIKE 'left%'")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +242,7 @@ func TestPoolDropsWhatATestLeaves(t *testing.T) {
 		if err := rows.Scan(&name); err != nil {
 			t.Fatal(err)
 		}
-		t.Errorf("the database %s is still on the server after the test that made it", name)
+		t.Errorf("%s is still on the server after the test that made it", name)
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
@@ -283,7 +284,7 @@ func TestPoolClose(t *testing.T) {
 			t.Errorf("the directory of a closed pool's server is still there: %s (%v)", s.dir, err)
 		}
 		if err := s.cmd.Process.Signal(os.Interrupt); !errors.Is(err, os.ErrProcessDone) {
-			t.Errorf("dolt of a closed pool still runs in %s: signaling it = %v", s.dir, err)
+			t.Errorf("postgres of a closed pool still runs in %s: signaling it = %v", s.dir, err)
 		}
 	}
 	if _, err := p.take("TestC"); err == nil {
@@ -291,16 +292,16 @@ func TestPoolClose(t *testing.T) {
 	}
 }
 
-// Without dolt the pool's error is Start's, so callers skip or fail by
+// Without Postgres the pool's error is Start's, so callers skip or fail by
 // it as before.
-func TestPoolWithoutDolt(t *testing.T) {
+func TestPoolWithoutPostgres(t *testing.T) {
 	// Serial: sets the process's environment (t.Setenv).
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv(RequireEnv, "")
-	p := NewPool("dolttest-pool-", Options{})
+	p := NewPool("pgtest-pool-")
 	t.Cleanup(func() { _ = p.Close() })
 	p.Warm()
-	if _, err := p.Server(t); !errors.Is(err, ErrNoDolt) {
-		t.Errorf("Server without dolt on PATH = %v, want ErrNoDolt", err)
+	if _, err := p.Server(t); !errors.Is(err, ErrNoPostgres) {
+		t.Errorf("Server without postgres on PATH = %v, want ErrNoPostgres", err)
 	}
 }
