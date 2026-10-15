@@ -91,24 +91,31 @@ var PrincipalPattern = lazyregexp.New(`^[a-z][a-z0-9._-]{0,63}$`)
 // preceding character is matched and ignored).
 var mentionPattern = lazyregexp.New(`(?:^|[^A-Za-z0-9._@+-])@([a-z][a-z0-9._-]{0,63})`)
 
+// unlimitedKinds are the items the Notices limit does not count.
+var unlimitedKinds = []InboxKind{InboxClaimLost, InboxLockGranted, InboxLockLost}
+
 // notify records an item in w's transaction and queues it to be pushed
 // once the transaction commits. Nothing is written for the actor's own
 // principal, unless the item concerns one of its other sessions or is a
 // conflict item, and nothing past the Notices limit on what the actor
-// sent the recipient in the last minute; claim.lost items, and items for
-// the actor's own principal, are exempt from the limit. Recording an item may mark the recipient's oldest
+// sent the recipient in the last minute; claim.lost, lock.granted and
+// lock.lost items, and items for the actor's own principal, are exempt
+// from the limit. Recording an item may mark the recipient's oldest
 // unread items read (capUnread).
 func (w *wtx) notify(ctx context.Context, it InboxItem) error {
 	if it.To == w.actor.Principal && (it.Session == "" || it.Session == w.actor.Session) && it.Kind != InboxConflict {
 		return nil
 	}
 	// The limit keeps one principal from flooding another's inbox; what
-	// the actor is told of its own writes floods nobody's.
-	if it.Kind != InboxClaimLost && it.To != w.actor.Principal {
+	// the actor is told of its own writes floods nobody's. A lease's end,
+	// and a lock's grant, are the recipient's own business, which another
+	// principal's writes only happen to cause.
+	if !slices.Contains(unlimitedKinds, it.Kind) && it.To != w.actor.Principal {
 		var sent int
 		if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM inbox
-  WHERE to_principal = ? AND from_principal = ? AND kind <> ? AND at > ?`,
-			it.To, w.actor.Principal, string(InboxClaimLost), w.now.Add(-time.Minute)).Scan(&sent); err != nil {
+  WHERE to_principal = ? AND from_principal = ? AND kind NOT IN (?, ?, ?) AND at > ?`,
+			it.To, w.actor.Principal, string(InboxClaimLost), string(InboxLockGranted), string(InboxLockLost),
+			w.now.Add(-time.Minute)).Scan(&sent); err != nil {
 			return fmt.Errorf("count notices: %w", err)
 		}
 		if sent >= w.lim.Notices {

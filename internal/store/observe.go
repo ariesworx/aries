@@ -27,6 +27,10 @@ type Observer interface {
 	// why a claim was released, when its claim.release event gives a
 	// reason ([Store.EndClaims]), and empty for every other change.
 	ClaimChanged(change ClaimChange, reason string)
+	// LockChanged reports a change of a lock's hold or queue that
+	// committed. waited is, for LockGranted, how long the place waited
+	// on the store's clock, and zero otherwise.
+	LockChanged(change LockChange, waited time.Duration)
 }
 
 // Tracer is told where a write's time goes, as it goes, under the
@@ -127,4 +131,32 @@ type claimChange struct {
 // claimed notes a change of a claim for the store's observer.
 func (w *wtx) claimed(change ClaimChange, reason string) {
 	w.claims = append(w.claims, claimChange{change, reason})
+}
+
+// LockChange is what happened to a lock's hold or queue, as an
+// [Observer] is told. They are the lock events, and LockRenewed, a hold
+// or a place a renewal or an acquire again extended, which is not one.
+type LockChange string
+
+// The changes of a lock.
+const (
+	LockAcquired  LockChange = "acquire"
+	LockWaited    LockChange = "wait"
+	LockGranted   LockChange = "grant"
+	LockRenewed   LockChange = "renew"
+	LockReleased  LockChange = "release"
+	LockExpired   LockChange = "expire"
+	LockWithdrawn LockChange = "leave"
+)
+
+// lockChange is one change of a lock an attempt made, reported once the
+// attempt commits.
+type lockChange struct {
+	change LockChange
+	waited time.Duration
+}
+
+// locked notes a change of a lock for the store's observer.
+func (w *wtx) locked(change LockChange, waited time.Duration) {
+	w.locks = append(w.locks, lockChange{change, waited})
 }

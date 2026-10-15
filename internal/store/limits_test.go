@@ -21,7 +21,8 @@ func TestLimitsDefaultsAndValidate(t *testing.T) {
 	for _, l := range []Limits{{Labels: -1}, {AcceptanceItems: -1}, {Deps: -1}, {Sessions: -1}, {InboxUnread: -1}, {Notices: -1},
 		{UsageRecords: -1}, {UsagePerDay: -1}, {Paths: -1}, {MemoryBody: -1}, {MemoryTags: -1}, {MemoryTagLength: -1},
 		{Memories: -1}, {MemoryKeyLength: -1}, {Prices: -1}, {HoursPerDay: -1}, {HoursNote: -1}, {Plans: -1}, {PlanPrincipals: -1},
-		{ConflictsPerIssue: -1}, {ConflictsPerPrincipal: -1}, {GateApprovers: -1}, {OpenGates: -1}, {GateChecks: -1}, {GateEvidence: -1}} {
+		{ConflictsPerIssue: -1}, {ConflictsPerPrincipal: -1}, {GateApprovers: -1}, {OpenGates: -1}, {GateChecks: -1}, {GateEvidence: -1},
+		{Locks: -1}, {LockCapacity: -1}, {LockWaiters: -1}, {LockWaits: -1}} {
 		if err := l.Validate(); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%+v.Validate() = %v, want ErrInvalid", l, err)
 		}
@@ -36,13 +37,15 @@ func TestLimitsDefaultsAndValidate(t *testing.T) {
 		{Limits{Prices: 10001}, "prices"}, {Limits{HoursNote: 65536}, "hours_note"},
 		{Limits{Plans: 10001}, "plans"}, {Limits{PlanPrincipals: 1001}, "plan_principals"},
 		{Limits{GateChecks: 101}, "gate_checks"}, {Limits{GateEvidence: 4097}, "gate_evidence"},
+		{Limits{Locks: 10001}, "locks"}, {Limits{LockCapacity: 1001}, "lock_capacity"},
+		{Limits{LockWaiters: 1001}, "lock_waiters"}, {Limits{LockWaits: 1001}, "lock_waits_per_principal"},
 	} {
 		if err := tc.l.Validate(); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), tc.name) {
 			t.Errorf("%+v.Validate() = %v, want ErrInvalid naming %s", tc.l, err, tc.name)
 		}
 	}
 	if err := (Limits{MemoryBody: 65535, MemoryTagLength: 255, MemoryKeyLength: 255, Prices: 10000, HoursNote: 65535, Plans: 10000, PlanPrincipals: 10,
-		GateChecks: 100, GateEvidence: 4096}).Validate(); err != nil {
+		GateChecks: 100, GateEvidence: 4096, Locks: 10000, LockCapacity: 1000, LockWaiters: 1000, LockWaits: 1000}).Validate(); err != nil {
 		t.Errorf("limits at their most: %v, want nil", err)
 	}
 	// A cost report reads every plan's principals: plans times

@@ -457,9 +457,9 @@ func (s *Store) SettleClock(ctx context.Context) error {
 	jump := after.Sub(v.at)
 	// To the microsecond, as the column that holds a lease is.
 	extend := max(0, jump-v.slack).Truncate(time.Microsecond)
-	var n int
+	var n, locks int
 	err := s.writeRetry(ctx, ClockActor, true, func(w *wtx) error {
-		n = 0
+		n, locks = 0, 0
 		if s.hasClaims && extend > 0 {
 			live, err := s.liveClaims(ctx, w)
 			if err != nil {
@@ -476,9 +476,13 @@ func (s *Store) SettleClock(ctx context.Context) error {
 				}
 				n++
 			}
+			// A lock's holds and places are leases too (design §20.5).
+			if locks, err = extendLocks(ctx, w, extend); err != nil {
+				return err
+			}
 		}
 		return w.event(ctx, OpClockStep, ClockTarget, map[string]any{"at": w.now},
-			map[string]any{"at": after, "step_us": v.pending.Microseconds(), "extended_us": extend.Microseconds(), "claims": n})
+			map[string]any{"at": after, "step_us": v.pending.Microseconds(), "extended_us": extend.Microseconds(), "claims": n, "locks": locks})
 	})
 	if err != nil {
 		return fmt.Errorf("settle a clock step: %w", err)
@@ -490,7 +494,7 @@ func (s *Store) SettleClock(ctx context.Context) error {
 	t.mu.Unlock()
 	s.clock.setSettled(s.db, v.forward)
 	s.opts.Logger.Warn("clock step settled", "event", logs.ClockStepSettled, "step", v.pending.String(), "from", v.at, "to", after,
-		"extended", extend.String(), "claims", n)
+		"extended", extend.String(), "claims", n, "locks", locks)
 	return nil
 }
 
