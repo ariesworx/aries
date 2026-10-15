@@ -85,13 +85,18 @@ func TestAwayIsRecorded(t *testing.T) {
 	}
 
 	// Asking again for no more than it has extends nothing, and records
-	// nothing.
+	// nothing; nor does asking again a moment later, as `sfx away` does
+	// when it sends each claim's paths.
 	seq = lastSeq(t, s)
 	if _, err := s.RenewClaims(ctx, alice, 24*time.Hour, true, nil); err != nil {
 		t.Fatal(err)
 	}
-	if got := lastSeq(t, s); got != seq {
-		t.Errorf("an away that extended nothing recorded %d events, want none", got-seq)
+	clk.add(30 * time.Second)
+	if _, err := s.RenewClaims(ctx, alice, 2*24*time.Hour, true, map[IssueID][]string{a.ID: {"go.mod"}}); err != nil {
+		t.Fatal(err)
+	}
+	if ops := opsSince(t, s, seq); len(ops) != 1 || ops[0] != OpIssuePaths {
+		t.Errorf("aways that extended nothing recorded %v, want only the paths sent", ops)
 	}
 }
 

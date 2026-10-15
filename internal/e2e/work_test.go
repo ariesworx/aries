@@ -135,9 +135,10 @@ func TestStartHandoffFinish(t *testing.T) {
 	for _, e := range h.Events {
 		ops = append(ops, e.Op+"/"+e.Principal)
 	}
-	// sfx away sent the files alice's branch had changed (the world's
-	// untracked key and config): files to issues, design §12 item 3.
-	want := "issue.create/alice claim.take/alice issue.update/alice issue.paths/alice claim.release/alice comment.add/alice issue.update/alice claim.take/bob issue.update/bob acceptance.tick/bob comment.add/bob claim.release/bob issue.close/bob"
+	// sfx away extended her claim, on the record, and sent the files
+	// alice's branch had changed (the world's untracked key and
+	// config): files to issues, design §12 item 3.
+	want := "issue.create/alice claim.take/alice issue.update/alice claim.away/alice issue.paths/alice claim.release/alice comment.add/alice issue.update/alice claim.take/bob issue.update/bob acceptance.tick/bob comment.add/bob claim.release/bob issue.close/bob"
 	if got := strings.Join(ops, " "); got != want {
 		t.Fatalf("history:\n got %s\nwant %s", got, want)
 	}

@@ -453,9 +453,12 @@ func renewDue(c Claim, now time.Time, lease time.Duration) bool {
 }
 
 // awayDue reports whether going away for lease at now extends c: whether
-// it has less than lease left.
+// it has less than lease left, by more than MinLease. A lease within a
+// minute of it is left as it is, so that `sfx away`, which sends each
+// claim's paths in a renew of its own, does not extend every claim again
+// a moment later, each time on the record.
 func awayDue(c Claim, now time.Time, lease time.Duration) bool {
-	return c.ExpiresAt.Before(now.Add(lease))
+	return c.ExpiresAt.Before(now.Add(lease - MinLease))
 }
 
 // ReapClaims ends every claim whose lease has run out: the claim loses its
