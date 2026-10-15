@@ -353,6 +353,17 @@ which keys `sfx` offers decides who you are.
   of a name that is taken says so. And a key belongs to one principal,
   so a project admin who may add keys to someone can tell that a key is
   on the server: a new key is added, and one already there is refused.
+- **A gate is passed by whom it names, from where it says.** A human
+  gate's approvers pass it from the session `cli`, their own terminal; a
+  ci gate's principals report its check from the session `ci`, a CI
+  job's, or `cli` ([CI gates](ci.md#who-may-report)). A session is the
+  client's word, not a credential: refusing an agent's session is a speed
+  bump against an agent that signs in with a person's or CI's key, not a
+  wall. A CI pass is worth what the CI principal's key and the workflow
+  that holds it are worth: whoever can edit the workflow can pass the
+  gate ([What this costs](ci.md#what-this-costs)). A report's evidence
+  is refused when it looks like a secret, and a link with a user or
+  password is refused outright.
 - **Every change is an event**, written in the same transaction as the
   change, with its principal, session and time. Clients cannot edit or
   delete events.

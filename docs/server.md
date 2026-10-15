@@ -2153,6 +2153,8 @@ limits:
 | `conflict_age` | `1d` | How long a conflict is open before `digest` lists it, under old conflicts. It bounds nothing |
 | `gate_approvers` | 10 | Principals one [gate](concepts.md#gates) names (at most 100). More are refused with `invalid` |
 | `open_gates` | 1000 | Open gates in a project. One more is refused with `busy`, and its fix says to pass or waive an open one (`sfx gate list`) or raise the limit. The gates on one issue are its dependencies, so `deps_per_issue` bounds them |
+| `gate_checks` | 20 | [CI gates](ci.md) whose subject is one issue, which is its checks, one gate each (at most 100). One more is refused with `invalid` |
+| `gate_evidence` | 1024 | Bytes of a CI report's evidence, its commit, link and reason together (at most 4096). More is refused with `invalid`, as is a link with a user or password, or evidence that looks like a secret |
 | `due_soon` | `1d` | How far ahead of its due date `digest` and `prime` list an issue as due soon ([Dates](concepts.md#dates)). Up to a year. It bounds nothing |
 | `away_max` | `7d` | The longest `sfx away` may extend a person's claims, in every session, ahead of an absence; asking for longer is refused with `invalid`, its fix naming the cap. A claim so extended holds its issue against everyone else until then, so this bounds how long work can be held by someone who is not doing it. From `1h` to `30d` |
 | `open_stores` | 64 | With `control_db`: project stores open at once. Each holds one connection to Dolt when idle and up to nine under load. At the cap, a connection to another project closes the store that has been without connections longest; when every open store has one, it is refused with `busy` |

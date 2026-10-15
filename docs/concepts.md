@@ -93,6 +93,46 @@ for a person to approve before any of it starts.
   (`gate.passed`). Every change is an event, and a watching board
   (`sfx tui`) shows the pass as it happens.
 
+### CI gates
+
+A gate of kind `ci` waits for a check rather than a person: CI reports
+it, by running `sfx` as a principal of its own
+([CI gates](ci.md)). The gate names the check (`build`, `test`,
+`landed`, …), its *subject*, the issue whose branch the check runs on,
+and the CI principals that report it:
+
+```sh
+sfx gate add --kind ci --check build --subject sf-a1b2 --by ci-example --blocks sf-c3d4
+```
+
+`sf-c3d4` is then held until CI reports `build` passed on `sf-a1b2`'s
+branch. An issue has at most one ci gate for each check, so a job that
+knows only its branch and its check finds the gate; to hold another
+issue behind the same check, `sfx dep add ISSUE GATE`. A ci gate may
+hold nothing back, and then only records the check on its subject.
+
+- **Who reports.** Only a principal the gate names, from a CI job (the
+  session `ci`, which `sfx` takes where `CI=true`) or from that
+  principal's own terminal; never from an agent's session. A person the
+  gate does not name, an admin included, cannot pass it; an admin
+  waives it, as any gate. A human gate is unchanged: only its approvers,
+  from their own terminal.
+- **Pass and fail.** `sfx gate pass` closes the gate, and a pass of a
+  closed gate changes nothing, so reruns are harmless. `sfx gate fail`
+  records the evidence (the commit, a link to the run, a short reason),
+  leaves the gate open, and tells the subject's holder, or its assignee
+  when nobody holds it (`gate.failed`); a later pass closes the matter
+  and tells them too. A failure of a passed gate, from a later commit,
+  reopens it, so what it held is held again; work already started goes
+  on. A waived gate takes no report until it is rearmed.
+- **Closed is not landed.** Closing an issue is its worker's say-so.
+  The check `landed` is reported by the job on the default branch after
+  the merge; until then `sfx show` says `closed, not landed`, and after
+  it `closed, landed` and when. A revert re-arms it only if something
+  runs `sfx gate rearm`.
+
+`sfx show` lists an issue's checks, each with its last report.
+
 ## Dates
 
 An issue may have a `defer_until` date, before which it is not ready,

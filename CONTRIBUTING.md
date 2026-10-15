@@ -128,6 +128,7 @@ up in a Linux VM you can throw away.
 |---|---|
 | An `sfx` command or flag, `sfx admin` among them | [docs/cli.md](docs/cli.md) |
 | Agent setup, hooks or MCP tools | [docs/agents.md](docs/agents.md) |
+| CI gates, what a CI job runs, or the example workflows | [docs/ci.md](docs/ci.md), whose workflows pin each action by commit |
 | What is queued while the server cannot be reached, what a queued write prints, `sfx outbox`, or where the outbox is kept and whose it is | [When the server cannot be reached](docs/cli.md#when-the-server-cannot-be-reached) in docs/cli.md, [the same](docs/agents.md#when-the-server-cannot-be-reached) in docs/agents.md for what an agent is told, [The outbox](docs/security-model.md#the-outbox) in the security model, and `doc.go` of `internal/offline` and `internal/outbox`. Keep saying that none of it has run on Windows until it has |
 | What an issue, claim, handoff, memory or cost is or does | [docs/concepts.md](docs/concepts.md) |
 | A server setting or `starfixd` command | [Settings](docs/server.md#settings) and [starfixd commands](docs/server.md#starfixd-commands) in docs/server.md |
