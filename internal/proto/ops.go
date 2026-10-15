@@ -585,6 +585,12 @@ type RenewArgs struct {
 // a harness session id: one per principal and machine.
 const CLISession = "cli"
 
+// CISession is the session of `sfx` run by a CI job without a harness
+// session id: where the environment says CI=true, as GitHub Actions and
+// GitLab CI set it. The server takes a ci gate's report from it, as from
+// CLISession, and a human gate's decision from CLISession alone.
+const CISession = "ci"
+
 // ClaimsResult lists claims: renew's soonest to expire first, claims'
 // longest held first. claims also sets Now, the server's clock, and More,
 // the claims left out by its limit (0 takes 100; at most 500).

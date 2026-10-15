@@ -85,6 +85,12 @@ type Limits struct {
 	// OpenGates caps the open gates in a project; an add past it is
 	// refused as busy until one is passed or waived.
 	OpenGates int `yaml:"open_gates"`
+	// GateChecks caps the ci gates whose subject is one issue, which is
+	// the checks it has, one gate each (design §20.3); at most 100.
+	GateChecks int `yaml:"gate_checks"`
+	// GateEvidence caps a CI report's evidence, its commit, link and
+	// reason together, in bytes; at most 4,096.
+	GateEvidence int `yaml:"gate_evidence"`
 }
 
 // DefaultLimits are the limits a zero field takes.
@@ -92,7 +98,8 @@ var DefaultLimits = Limits{Labels: 50, AcceptanceItems: 200, Deps: 200, Sessions
 	UsageRecords: 500, UsagePerDay: 50000, Paths: proto.MaxPaths,
 	MemoryBody: 4096, MemoryTags: 20, MemoryTagLength: 64, Memories: 1000, MemoryKeyLength: 128,
 	Prices: 1000, HoursPerDay: 50, HoursNote: 500, Plans: 1000, PlanPrincipals: 100,
-	ConflictsPerIssue: 20, ConflictsPerPrincipal: 100, GateApprovers: 10, OpenGates: 1000}
+	ConflictsPerIssue: 20, ConflictsPerPrincipal: 100, GateApprovers: 10, OpenGates: 1000,
+	GateChecks: 20, GateEvidence: 1024}
 
 // Column sizes that bound the memory limits: a body is TEXT, and a key
 // and a tag VARCHAR(255).
@@ -133,6 +140,7 @@ func (l Limits) withDefaults() Limits {
 		{&l.PlanPrincipals, &DefaultLimits.PlanPrincipals},
 		{&l.ConflictsPerIssue, &DefaultLimits.ConflictsPerIssue}, {&l.ConflictsPerPrincipal, &DefaultLimits.ConflictsPerPrincipal},
 		{&l.GateApprovers, &DefaultLimits.GateApprovers}, {&l.OpenGates, &DefaultLimits.OpenGates},
+		{&l.GateChecks, &DefaultLimits.GateChecks}, {&l.GateEvidence, &DefaultLimits.GateEvidence},
 	} {
 		if *f.v == 0 {
 			*f.v = *f.d
@@ -156,6 +164,7 @@ func (l Limits) Validate() error {
 		{"hours_per_day", l.HoursPerDay}, {"hours_note", l.HoursNote}, {"plans", l.Plans},
 		{"plan_principals", l.PlanPrincipals}, {"conflicts_per_issue", l.ConflictsPerIssue},
 		{"conflicts_per_principal", l.ConflictsPerPrincipal}, {"gate_approvers", l.GateApprovers}, {"open_gates", l.OpenGates},
+		{"gate_checks", l.GateChecks}, {"gate_evidence", l.GateEvidence},
 	} {
 		if f.v < 0 {
 			return fmt.Errorf("%w: limit %s is %d; give a positive number, or leave it out for the default", ErrInvalid, f.name, f.v)
@@ -169,6 +178,7 @@ func (l Limits) Validate() error {
 		{"memory_key_length", l.MemoryKeyLength, maxMemoryName}, {"prices", l.Prices, maxPrices},
 		{"hours_note", l.HoursNote, maxText}, {"plans", l.Plans, maxPlans},
 		{"plan_principals", l.PlanPrincipals, maxPlanPrincipals}, {"gate_approvers", l.GateApprovers, maxGateApprovers},
+		{"gate_checks", l.GateChecks, maxGateChecks}, {"gate_evidence", l.GateEvidence, maxGateEvidence},
 	} {
 		if f.v > f.most {
 			return fmt.Errorf("%w: limit %s is %d; it can be at most %d", ErrInvalid, f.name, f.v, f.most)
