@@ -113,18 +113,16 @@ func migrate(ctx context.Context, db *sql.DB, now time.Time, sc schema, apply bo
 	if err != nil {
 		return 0, err
 	}
-	var foreign int
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.tables
-  WHERE table_schema = DATABASE() AND table_name = ?`, sc.foreign).Scan(&foreign); err != nil {
+	foreign, err := countTables(ctx, db, sc.foreign)
+	if err != nil {
 		return 0, fmt.Errorf("read tables: %w", err)
 	}
 	if foreign > 0 {
 		return 0, fmt.Errorf("%w: the database does not hold %s: it has the table %s; check the dsn", ErrInvalid, sc.kind, sc.foreign)
 	}
 	if !apply {
-		var versioned int
-		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.tables
-  WHERE table_schema = DATABASE() AND table_name = ?`, sc.table).Scan(&versioned); err != nil {
+		versioned, err := countTables(ctx, db, sc.table)
+		if err != nil {
 			return 0, fmt.Errorf("read tables: %w", err)
 		}
 		if versioned == 0 {
@@ -160,4 +158,33 @@ func migrate(ctx context.Context, db *sql.DB, now time.Time, sc schema, apply bo
 		n++
 	}
 	return n, nil
+}
+
+// countTables counts the tables named name in db's current database.
+//
+// It lists them with SHOW TABLES, which reads that database alone. A
+// query of information_schema reads every database on the server, and
+// Dolt (2.4) fails it with "no root value found in session" or "no state
+// for database" when it meets one that another connection is creating
+// or dropping: in tests, where databases come and go beside each other,
+// and on a server, where an admin adds a project while the daemon opens
+// another's store (docs/design/database.md). A database holds a few
+// dozen tables, so they are listed and compared here.
+func countTables(ctx context.Context, db *sql.DB, name string) (int, error) {
+	rows, err := db.QueryContext(ctx, `SHOW TABLES`)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = rows.Close() }()
+	n := 0
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err != nil {
+			return 0, err
+		}
+		if t == name {
+			n++
+		}
+	}
+	return n, rows.Err()
 }
