@@ -100,7 +100,7 @@ func TestLeftoversScript(t *testing.T) {
 		// pipe of the test's), which the test does once the script has
 		// reported, so that nothing here depends on how long anything
 		// takes and the test leaves no process.
-		// Its command line names the directory, as a dolt sql-server's does.
+		// Its command line names the directory, as a Postgres server's does.
 		{name: "a process left running fails a command that passed",
 			shell:  `sh -c 'read -r x <"$HOLD"' "$TMPDIR/job" >/dev/null 2>&1 &`,
 			settle: "0", status: 1, want: []string{"leftovers.sh: the command left 1 process running", "/job"}, not: []string{"under its temporary directory"}},

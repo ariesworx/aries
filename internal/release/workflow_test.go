@@ -131,13 +131,13 @@ func TestReleaseSigningIsApproved(t *testing.T) {
 	}
 }
 
-// TestCIRequiresDolt pins that CI runs the Dolt-backed tests rather than
+// TestCIRequiresPostgres pins that CI runs the Postgres-backed tests rather than
 // skipping them, in random order.
-func TestCIRequiresDolt(t *testing.T) {
+func TestCIRequiresPostgres(t *testing.T) {
 	t.Parallel()
 	test := readWorkflow(t, "ci.yml").Jobs["test"]
-	if got := test.Env["ARIES_REQUIRE_DOLT"]; got != "1" {
-		t.Errorf("ci.yml test job ARIES_REQUIRE_DOLT = %q, want 1", got)
+	if got := test.Env["ARIES_REQUIRE_POSTGRES"]; got != "1" {
+		t.Errorf("ci.yml test job ARIES_REQUIRE_POSTGRES = %q, want 1", got)
 	}
 	var shuffled bool
 	for _, s := range test.Steps {

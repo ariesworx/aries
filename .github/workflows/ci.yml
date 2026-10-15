@@ -16,8 +16,12 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  DOLT_VERSION: 2.4.2
-  DOLT_SHA256: 5d95a271149dc6ea97f47157af7ba9a0df5e8d4e9bbac4d79c169f2faa3cfb9e
+  # The major version of Postgres the tests run on (version.PostgresMajor,
+  # internal/version), from the PostgreSQL project's apt repository.
+  POSTGRES_MAJOR: "18"
+  # The fingerprint of that repository's signing key, ACCC4CF8, which the
+  # key downloaded is checked against before apt trusts it.
+  PGDG_KEY_FINGERPRINT: B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8
 
 # AGENTS.md's Commands block lists this gate, and scripts/gate.sh runs it
 # on a contributor's machine: change all three together. Tests in
@@ -123,7 +127,8 @@ jobs:
       - name: AppArmor profile syntax
         run: /usr/sbin/apparmor_parser -Q -K -I deploy/apparmor deploy/apparmor/ariesd
 
-  # The store tests run against a real dolt sql-server, pinned and verified.
+  # The store tests run against a real Postgres, from the PostgreSQL
+  # project's apt repository, whose key is checked.
   test:
     runs-on: ubuntu-24.04
     # A hang ends here, not at GitHub's six hours. The slowest of 78 test
@@ -133,9 +138,10 @@ jobs:
     # hangs is still reported by go test, with its stacks.
     timeout-minutes: 30
     env:
-      # A Dolt-backed test fails rather than skips when dolt is missing, so
-      # the job cannot pass without running them (internal/dolttest).
-      ARIES_REQUIRE_DOLT: "1"
+      # A test on Postgres fails rather than skips when postgres is
+      # missing, so the job cannot pass without running them
+      # (internal/pgtest).
+      ARIES_REQUIRE_POSTGRES: "1"
       # The memory file system the tests' temporary files go on, when it
       # is fit for them ("temporary directory for the tests", below). Set
       # it to "" to put them back on the runner's disk, in /tmp.
@@ -163,24 +169,39 @@ jobs:
         with:
           path: ~/.cache/go-build
           key: go-build-test-${{ runner.os }}-${{ runner.arch }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}
-      - name: Install dolt
+      - name: Install Postgres
+        # Its programs only: no cluster is made or started, since each
+        # test package starts its own servers (internal/pgtest). The key is
+        # checked against its fingerprint before apt is told to trust it.
         run: |
-          cd "$RUNNER_TEMP"
-          curl -fsSL -o dolt.tgz "https://github.com/dolthub/dolt/releases/download/v${DOLT_VERSION}/dolt-linux-amd64.tar.gz"
-          echo "${DOLT_SHA256}  dolt.tgz" | sha256sum -c -
-          tar xzf dolt.tgz && sudo install -m 0755 dolt-linux-amd64/bin/dolt /usr/local/bin/dolt
-          dolt config --global --add metrics.disabled true
+          key=$RUNNER_TEMP/pgdg.asc
+          curl -fsSL -o "$key" https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          got=$(gpg --show-keys --with-colons "$key" | awk -F: '$1 == "fpr" { print $10; exit }')
+          if [ "$got" != "$PGDG_KEY_FINGERPRINT" ]; then
+            echo "::error::the apt repository's key has fingerprint ${got:-none}, want $PGDG_KEY_FINGERPRINT"
+            exit 1
+          fi
+          sudo install -D -m 0644 "$key" /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" |
+            sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo install -d /etc/postgresql-common/createcluster.d
+          echo "create_main_cluster = false" | sudo tee /etc/postgresql-common/createcluster.d/aries-ci.conf
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends "postgresql-$POSTGRES_MAJOR"
+          echo "/usr/lib/postgresql/$POSTGRES_MAJOR/bin" >>"$GITHUB_PATH"
+          "/usr/lib/postgresql/$POSTGRES_MAJOR/bin/postgres" --version
       - name: temporary directory for the tests
         id: tmp
-        # Each package's Dolt keeps its databases under the temporary
-        # directory, and most of the suite's time is Dolt waiting for the
-        # disk (docs/design/ci-analysis.md, §4.5). This picks a directory
-        # in memory for the next step, or /tmp, where they have always
-        # been, with a warning that says why.
+        # Each package's Postgres servers keep their data under the
+        # temporary directory, and on disk much of the suite's time was the
+        # database waiting for it (docs/design/ci-analysis.md, §4.5, which
+        # measured Dolt). This picks a directory in memory for the next
+        # step, or /tmp, where they have always been, with a warning that
+        # says why.
         #
         # The files count as memory. A run's were a quarter of a gigabyte
-        # at their most when measured, and every Dolt and test binary
-        # together 2 GB more, of the runner's 16 GB; the mount must have
+        # at their most when measured on Dolt, and every database server
+        # and test binary together 2 GB more, of the runner's 16 GB; the mount must have
         # 4 GB free and the machine 8 GB, or the files stay on disk. A
         # mount that fills fails the tests' writes, and the tests with
         # them; it does not block them.
@@ -227,7 +248,7 @@ jobs:
         # each t.TempDir there too, since GOTMPDIR is set.
         #
         # scripts/leftovers.sh gives the tests a TMPDIR of their own under
-        # the directory the step above chose, so Dolt's files stay where
+        # the directory the step above chose, so Postgres's files stay where
         # that step put them, and a GOTMPDIR of their own under /tmp. It
         # fails the step when the tests passed but left a file in either
         # or a process running, and names each, with the test that
@@ -271,7 +292,7 @@ jobs:
         run: |
           log=$RUNNER_TEMP/peer-check.log
           failed=0
-          (cd internal/server && sudo env "PATH=$PATH" ARIES_REQUIRE_DOLT=1 GITHUB_ACTIONS=true \
+          (cd internal/server && sudo env "PATH=$PATH" ARIES_REQUIRE_POSTGRES=1 GITHUB_ACTIONS=true \
             ../../scripts/leftovers.sh "$RUNNER_TEMP/server.test" -test.run '^TestCheckPeer' -test.v) >"$log" 2>&1 || failed=1
           cat "$log"
           for t in TestCheckPeerOtherUID TestCheckPeerKeepsStatusFromOtherUsers; do

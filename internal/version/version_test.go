@@ -29,6 +29,7 @@ const (
 	goModFile        = "../../go.mod"
 	miseFile         = "../../mise.toml"
 	sumsFile         = "postgres.sha256"
+	releaseFile      = "../../.github/workflows/release.yml"
 )
 
 // TestPostgresMajor keeps PostgresMajor the major version of the pinned
@@ -58,6 +59,21 @@ func TestPostgresMatchesContributing(t *testing.T) {
 	t.Parallel()
 	if got := setting(t, contributingFile, `install-postgres\.sh`+"`"+` (?:builds|installs) Postgres ([0-9.]+)`); got != Postgres {
 		t.Errorf("CONTRIBUTING.md says scripts/install-postgres.sh builds Postgres %s, version.Postgres is %s; change both together", got, Postgres)
+	}
+}
+
+// TestReleaseNotesNameThePin keeps the release's notes saying which
+// Postgres it was tested with: the release workflow reads the pin from
+// version.go with sed, and fails the release if it finds none.
+func TestReleaseNotesNameThePin(t *testing.T) {
+	t.Parallel()
+	got := setting(t, releaseFile, `(?m)^\s*postgres="\$\(sed -n '(s/\^const Postgres = .*/p)' internal/version/version\.go\)"$`)
+	sed := regexp.MustCompile(`^s/\^const Postgres = "\\\(\.\*\\\)"\$/\\1/p$`)
+	if !sed.MatchString(got) {
+		t.Fatalf("release.yml reads the pin with sed %q, want s/^const Postgres = \"\\(.*\\)\"$/\\1/p", got)
+	}
+	if setting(t, "version.go", `(?m)^const Postgres = "(.*)"$`) != Postgres {
+		t.Errorf("version.go has no line const Postgres = %q for release.yml to read", Postgres)
 	}
 }
 
