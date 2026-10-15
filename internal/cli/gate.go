@@ -217,7 +217,8 @@ func (r *runner) branchOf(ctx context.Context, in *proto.GateArgs) error {
 	}
 	b, err := gitx.CurrentBranch(ctx, r.dir)
 	if err != nil {
-		return fmt.Errorf("read the branch: %w", err)
+		return proto.Errf(proto.CodeInvalid, "run it in the repository's checkout, or give the branch with --branch NAME",
+			fmt.Sprintf("read the branch: %v", err))
 	}
 	if b == "" {
 		return proto.Errf(proto.CodeNotFound, "give the branch with --branch NAME",
@@ -233,7 +234,8 @@ func (r *runner) branchOf(ctx context.Context, in *proto.GateArgs) error {
 func (r *runner) commitOf(ctx context.Context, in *proto.GateArgs) error {
 	msg, err := gitx.HeadMessage(ctx, r.dir)
 	if err != nil {
-		return fmt.Errorf("read HEAD's commit: %w", err)
+		return proto.Errf(proto.CodeInvalid, "run it in the repository's checkout, or give the issue with --issue ID",
+			fmt.Sprintf("read HEAD's commit: %v", err))
 	}
 	if id, ok := gitx.IDFromMessage(msg); ok {
 		in.Subject = id
