@@ -274,7 +274,10 @@ and what a test that passes there does not do.
     server is refused at the handshake with code `version` (exit code 3)
     and told to have the server upgraded, rather than failing on its
     first request. Clients ignore unknown result fields and frame
-    types, so adding those needs no bump.
+    types, so adding those needs no bump. A version no release has
+    carried takes further changes without another bump; the protocol is
+    settled at the next release (design decision 78). Keep the protocol
+    number out of routine output.
 11. **Every refusal says what to do next.** Return a `proto.Error` with a
     typed `Code`, a message naming the cause and a `Fix` naming the next
     action (`proto.Errf(code, fix, msg)`). Match `internal/server/errors.go`.
