@@ -1,135 +1,135 @@
-# Alert rules for one starfix server, in Prometheus's rule format, which
+# Alert rules for one Aries server, in Prometheus's rule format, which
 # most monitoring systems read or translate. They are an example that is
 # tested, not a product (docs/server.md, Observability): a test in
 # internal/telemetry fails if a rule names a metric, a label or a label
-# value that starfixd does not have, and the Docker test server's
+# value that ariesd does not have, and the Docker test server's
 # `prometheus` profile loads this file into a real Prometheus.
 #
 # What they assume:
-#   - starfixd's /metrics is scraped as job "starfixd" and Dolt's as job
+#   - ariesd's /metrics is scraped as job "ariesd" and Dolt's as job
 #     "dolt" (prometheus.yaml and collector.yaml beside this file do).
-#   - The names are the ones on /metrics. Metrics that starfixd pushes
+#   - The names are the ones on /metrics. Metrics that ariesd pushes
 #     over OTLP arrive under their OpenTelemetry names
-#     (starfix.request.duration); most backends store them under these
+#     (aries.request.duration); most backends store them under these
 #     same Prometheus names, and docs/server.md lists both.
-#   - One starfixd. For several, add `by (instance)` to each sum.
+#   - One ariesd. For several, add `by (instance)` to each sum.
 #
 # The thresholds are starting points. Those of Dolt's collector come
 # from measurements on one machine and one shape of load (docs/server.md,
 # Dolt's memory); the rest are round numbers to be set against a
 # server's own history.
 #
-# A counter of starfixd's has no series until it first counts, and
+# A counter of ariesd's has no series until it first counts, and
 # Prometheus sees no increase in a series' first sample. So a rule on a
 # counter that should stay at nothing also fires when the series is new
 # and already above zero: `m > 0 unless m offset 15m`.
 #
 # Not here, because no metric says it: whether /readyz answers ready.
 # Probe http://127.0.0.1:9464/readyz from the machine with whatever
-# probes HTTP for you; StarfixdDown, StarfixReaperStalled,
-# StarfixKeysFileWriteFailing and DoltDown cover the same ground from
+# probes HTTP for you; AriesdDown, AriesReaperStalled,
+# AriesKeysFileWriteFailing and DoltDown cover the same ground from
 # the metrics.
 
 groups:
-  - name: starfixd
+  - name: ariesd
     rules:
-      - alert: StarfixdDown
-        expr: up{job="starfixd"} == 0
+      - alert: AriesdDown
+        expr: up{job="ariesd"} == 0
         for: 2m
         labels:
           severity: critical
         annotations:
-          summary: starfixd's telemetry listener does not answer.
+          summary: ariesd's telemetry listener does not answer.
           description: >-
-            Nobody can reach the tracker if starfixd is down. Run
-            `systemctl status starfixd` and read `journalctl -u starfixd`.
-            A Dolt whose unit stops takes starfixd down with it.
+            Nobody can reach the tracker if ariesd is down. Run
+            `systemctl status ariesd` and read `journalctl -u ariesd`.
+            A Dolt whose unit stops takes ariesd down with it.
 
-      - alert: StarfixReaperStalled
-        expr: time() - starfix_reaper_last_run_time_seconds > 120
+      - alert: AriesReaperStalled
+        expr: time() - aries_reaper_last_run_time_seconds > 120
         for: 1m
         labels:
           severity: critical
         annotations:
-          summary: starfixd's reaper has not finished a tick for two minutes.
+          summary: ariesd's reaper has not finished a tick for two minutes.
           description: >-
             The reaper runs every 30 seconds: it ends expired claims,
             rereads the control database and feeds systemd's watchdog.
             Stuck, expired claims are not returned to open, and the
-            watchdog restarts starfixd after `WatchdogSec`. Look for a
+            watchdog restarts ariesd after `WatchdogSec`. Look for a
             Dolt that hangs (DoltDown, `/readyz`).
 
-      - alert: StarfixKeysFileWriteFailing
+      - alert: AriesKeysFileWriteFailing
         expr: >-
-          increase(starfix_keys_file_writes_total{result="failed"}[5m]) > 0
-          or (starfix_keys_file_writes_total{result="failed"} > 0
-          unless starfix_keys_file_writes_total{result="failed"} offset 5m)
+          increase(aries_keys_file_writes_total{result="failed"}[5m]) > 0
+          or (aries_keys_file_writes_total{result="failed"} > 0
+          unless aries_keys_file_writes_total{result="failed"} offset 5m)
         labels:
           severity: critical
         annotations:
-          summary: starfixd cannot write the keys file sshd reads.
+          summary: ariesd cannot write the keys file sshd reads.
           description: >-
             sshd is reading an older list of keys: a key that was removed
-            may still sign in, and one that was added cannot. starfixd's
+            may still sign in, and one that was added cannot. ariesd's
             log has the cause at error level, every 30 seconds
             (docs/server.md, Keys from the store).
 
-      - alert: StarfixClockBehind
-        expr: starfix_clock_behind_seconds > 0
+      - alert: AriesClockBehind
+        expr: aries_clock_behind_seconds > 0
         for: 1m
         labels:
           severity: critical
         annotations:
-          summary: The server's clock is behind starfix's own history.
+          summary: The server's clock is behind aries's own history.
           description: >-
-            starfixd serves, with its time running on from the history
+            ariesd serves, with its time running on from the history
             at half speed, and with `clock_behind: stop` it will not
             start again. Correct the clock (docs/server.md, The server's
             clock).
 
-      - alert: StarfixClockStepped
+      - alert: AriesClockStepped
         expr: >-
-          sum by (direction) (increase(starfix_clock_steps_total[15m])) > 0
-          or sum by (direction) (starfix_clock_steps_total > 0
-          unless starfix_clock_steps_total offset 15m)
+          sum by (direction) (increase(aries_clock_steps_total[15m])) > 0
+          or sum by (direction) (aries_clock_steps_total > 0
+          unless aries_clock_steps_total offset 15m)
         labels:
           severity: warning
         annotations:
           summary: The server's clock was set {{ $labels.direction }}, or the machine was suspended.
           description: >-
-            starfixd extended every live lease by a forward step and
+            ariesd extended every live lease by a forward step and
             holds its time through a backward one. Find what set the
             clock: `timedatectl timesync-status`, the hypervisor's log.
 
-      - alert: StarfixProjectUnavailable
+      - alert: AriesProjectUnavailable
         expr: >-
-          increase(starfix_handshakes_total{result="unavailable"}[5m]) > 0
-          or (starfix_handshakes_total{result="unavailable"} > 0
-          unless starfix_handshakes_total{result="unavailable"} offset 5m)
+          increase(aries_handshakes_total{result="unavailable"}[5m]) > 0
+          or (aries_handshakes_total{result="unavailable"} > 0
+          unless aries_handshakes_total{result="unavailable"} offset 5m)
         labels:
           severity: critical
         annotations:
           summary: Connections are refused because a project's database cannot be opened.
           description: >-
-            starfixd's log names the project and the cause at error
+            ariesd's log names the project and the cause at error
             level. Most often Dolt is unreachable, or the project's
-            database was not granted to starfixd's account.
+            database was not granted to ariesd's account.
 
-      - alert: StarfixRequestsFailing
-        expr: sum(rate(starfix_project_requests_total{result_class="error"}[5m])) > 0
+      - alert: AriesRequestsFailing
+        expr: sum(rate(aries_project_requests_total{result_class="error"}[5m])) > 0
         for: 5m
         labels:
           severity: critical
         annotations:
-          summary: starfixd is answering requests with its own failures.
+          summary: ariesd is answering requests with its own failures.
           description: >-
             `result_class="error"` is a request answered `unavailable`:
             the server's failure, not a refusal of what was asked. Read
-            starfixd's log at error level, and check Dolt.
+            ariesd's log at error level, and check Dolt.
 
-      - alert: StarfixWriteLatencyHigh
+      - alert: AriesWriteLatencyHigh
         expr: >-
-          histogram_quantile(0.99, sum by (le) (rate(starfix_store_write_duration_seconds_bucket[5m]))) > 1
+          histogram_quantile(0.99, sum by (le) (rate(aries_store_write_duration_seconds_bucket[5m]))) > 1
         for: 10m
         labels:
           severity: warning
@@ -138,13 +138,13 @@ groups:
           description: >-
             A write's time includes its wait for the project's one
             writer and any retry, so this is what a client waits. See
-            StarfixWritesQueueing and DoltCollectorPastTheCliff, and
-            `sfx admin status` for each project's P50 and P99.
+            AriesWritesQueueing and DoltCollectorPastTheCliff, and
+            `aries admin status` for each project's P50 and P99.
 
-      - alert: StarfixWritesQueueing
+      - alert: AriesWritesQueueing
         expr: >-
-          sum(rate(starfix_store_write_retries_total[5m]))
-          / sum(rate(starfix_store_write_duration_seconds_count[5m])) > 0.2
+          sum(rate(aries_store_write_retries_total[5m]))
+          / sum(rate(aries_store_write_duration_seconds_count[5m])) > 0.2
         for: 10m
         labels:
           severity: warning
@@ -155,11 +155,11 @@ groups:
             writer alone; a trace does, in the `store.write.wait` span of
             each attempt (docs/server.md, Traces).
 
-      - alert: StarfixWritesRateLimited
+      - alert: AriesWritesRateLimited
         expr: >-
-          sum by (limit) (increase(starfix_limit_refusals_total{limit=~"write_rate|control_write_rate"}[5m])) > 0
-          or sum by (limit) (starfix_limit_refusals_total{limit=~"write_rate|control_write_rate"} > 0
-          unless starfix_limit_refusals_total{limit=~"write_rate|control_write_rate"} offset 5m)
+          sum by (limit) (increase(aries_limit_refusals_total{limit=~"write_rate|control_write_rate"}[5m])) > 0
+          or sum by (limit) (aries_limit_refusals_total{limit=~"write_rate|control_write_rate"} > 0
+          unless aries_limit_refusals_total{limit=~"write_rate|control_write_rate"} offset 5m)
         for: 10m
         labels:
           severity: warning
@@ -167,28 +167,28 @@ groups:
           summary: Writes are refused at the {{ $labels.limit }} limit.
           description: >-
             A principal writes faster than the limit allows and is told
-            to try again. Find who in starfixd's log, and raise the
+            to try again. Find who in ariesd's log, and raise the
             limit only if the load is wanted (docs/server.md, Limits).
 
-      - alert: StarfixConnectionCapReached
+      - alert: AriesConnectionCapReached
         expr: >-
-          sum by (limit) (increase(starfix_limit_refusals_total{limit=~"conns|conns_per_principal|handshakes_per_principal|handshake_sockets"}[5m])) > 0
-          or sum by (limit) (starfix_limit_refusals_total{limit=~"conns|conns_per_principal|handshakes_per_principal|handshake_sockets"} > 0
-          unless starfix_limit_refusals_total{limit=~"conns|conns_per_principal|handshakes_per_principal|handshake_sockets"} offset 5m)
+          sum by (limit) (increase(aries_limit_refusals_total{limit=~"conns|conns_per_principal|handshakes_per_principal|handshake_sockets"}[5m])) > 0
+          or sum by (limit) (aries_limit_refusals_total{limit=~"conns|conns_per_principal|handshakes_per_principal|handshake_sockets"} > 0
+          unless aries_limit_refusals_total{limit=~"conns|conns_per_principal|handshakes_per_principal|handshake_sockets"} offset 5m)
         labels:
           severity: warning
         annotations:
           summary: Connections are refused at the {{ $labels.limit }} limit.
           description: >-
-            `sfx admin status` shows who holds the connections. Raise
+            `aries admin status` shows who holds the connections. Raise
             the limit under `limits:` if they are wanted (docs/server.md,
             Limits).
 
-      - alert: StarfixStoreCapReached
+      - alert: AriesStoreCapReached
         expr: >-
-          increase(starfix_limit_refusals_total{limit="open_stores"}[5m]) > 0
-          or (starfix_limit_refusals_total{limit="open_stores"} > 0
-          unless starfix_limit_refusals_total{limit="open_stores"} offset 5m)
+          increase(aries_limit_refusals_total{limit="open_stores"}[5m]) > 0
+          or (aries_limit_refusals_total{limit="open_stores"} > 0
+          unless aries_limit_refusals_total{limit="open_stores"} offset 5m)
         labels:
           severity: warning
         annotations:
@@ -198,50 +198,50 @@ groups:
             `open_stores` caps them. Raise it under `limits:` with Dolt's
             memory in mind (docs/server.md, Limits and Dolt's memory).
 
-      - alert: StarfixTelemetryMetricsExportFailing
+      - alert: AriesTelemetryMetricsExportFailing
         expr: >-
-          increase(starfix_telemetry_dropped_total{signal="metrics"}[15m]) > 0
-          or (starfix_telemetry_dropped_total{signal="metrics"} > 0
-          unless starfix_telemetry_dropped_total{signal="metrics"} offset 15m)
+          increase(aries_telemetry_dropped_total{signal="metrics"}[15m]) > 0
+          or (aries_telemetry_dropped_total{signal="metrics"} > 0
+          unless aries_telemetry_dropped_total{signal="metrics"} offset 15m)
         for: 15m
         labels:
           severity: warning
         annotations:
-          summary: starfixd's pushes of metrics to its collector are failing.
+          summary: ariesd's pushes of metrics to its collector are failing.
           description: >-
             Nothing is lost for good: totals are cumulative, and the
             next push that works carries them. Requests are not slowed.
             Check the collector on the machine (docs/server.md, When the
             collector is down).
 
-      - alert: StarfixTelemetrySpansDropped
+      - alert: AriesTelemetrySpansDropped
         expr: >-
-          increase(starfix_telemetry_dropped_total{signal="traces"}[15m]) > 0
-          or (starfix_telemetry_dropped_total{signal="traces"} > 0
-          unless starfix_telemetry_dropped_total{signal="traces"} offset 15m)
+          increase(aries_telemetry_dropped_total{signal="traces"}[15m]) > 0
+          or (aries_telemetry_dropped_total{signal="traces"} > 0
+          unless aries_telemetry_dropped_total{signal="traces"} offset 15m)
         labels:
           severity: warning
         annotations:
-          summary: starfixd dropped spans it could not export.
+          summary: ariesd dropped spans it could not export.
           description: >-
             A span that is not exported is gone: the collector was down
             or refusing, or spans finished faster than the queue of
             `OTEL_BSP_MAX_QUEUE_SIZE` drained. Requests are not slowed
             (docs/server.md, When the collector is down).
 
-      - alert: StarfixTelemetryLogRecordsDropped
+      - alert: AriesTelemetryLogRecordsDropped
         expr: >-
-          increase(starfix_telemetry_dropped_total{signal="logs"}[15m]) > 0
-          or (starfix_telemetry_dropped_total{signal="logs"} > 0
-          unless starfix_telemetry_dropped_total{signal="logs"} offset 15m)
+          increase(aries_telemetry_dropped_total{signal="logs"}[15m]) > 0
+          or (aries_telemetry_dropped_total{signal="logs"} > 0
+          unless aries_telemetry_dropped_total{signal="logs"} offset 15m)
         labels:
           severity: warning
         annotations:
-          summary: starfixd dropped log records it could not export.
+          summary: ariesd dropped log records it could not export.
           description: >-
             The records are gone from the export and the lines are not:
-            the journal has every one (`journalctl -u starfixd`). The
-            collector was down or refusing, or starfixd logged faster
+            the journal has every one (`journalctl -u ariesd`). The
+            collector was down or refusing, or ariesd logged faster
             than the queue of `OTEL_BLRP_MAX_QUEUE_SIZE` drained. Logging
             is not slowed (docs/server.md, When the collector is down).
 
@@ -252,9 +252,9 @@ groups:
       # journal or the backend that receives the records. Three events
       # the guide says to alert on have a rule above from the metric
       # that counts the same thing: `keys_file.write_failed`
-      # (StarfixKeysFileWriteFailing), `project.open_failed` at a
-      # handshake (StarfixProjectUnavailable) and
-      # `telemetry.export_failed` (the three StarfixTelemetry rules).
+      # (AriesKeysFileWriteFailing), `project.open_failed` at a
+      # handshake (AriesProjectUnavailable) and
+      # `telemetry.export_failed` (the three AriesTelemetry rules).
 
   - name: dolt
     rules:
@@ -266,15 +266,15 @@ groups:
         annotations:
           summary: Dolt's metrics endpoint does not answer.
           description: >-
-            Run `systemctl status dolt`. starfixd's `/readyz` says
+            Run `systemctl status dolt`. ariesd's `/readyz` says
             whether Dolt still answers queries.
 
       - alert: DoltCollectorPastTheCliff
         expr: >-
           (
             100 * sum(increase(go_gc_duration_seconds_count{job="dolt"}[10m]))
-              / sum(increase(starfix_store_write_duration_seconds_count[10m])) > 14
-            and sum(increase(starfix_store_write_duration_seconds_count[10m])) >= 500
+              / sum(increase(aries_store_write_duration_seconds_count[10m])) > 14
+            and sum(increase(aries_store_write_duration_seconds_count[10m])) >= 500
             or sum(increase(go_gc_duration_seconds_count{job="dolt"}[10m])) > 70
           )
           and on() go_gc_gomemlimit_bytes{job="dolt"} < 2^62
@@ -287,13 +287,13 @@ groups:
             Past this, Dolt spent nine times the CPU or more for each
             write where it was measured. Raise `GOMEMLIMIT` in Dolt's
             unit, or lower `open_stores` (docs/server.md, Dolt's
-            memory). `sfx admin status` shows the same figure.
+            memory). `aries admin status` shows the same figure.
 
       - alert: DoltCollectorBusy
         expr: >-
           100 * sum(increase(go_gc_duration_seconds_count{job="dolt"}[10m]))
-            / sum(increase(starfix_store_write_duration_seconds_count[10m])) >= 3
-          and sum(increase(starfix_store_write_duration_seconds_count[10m])) >= 500
+            / sum(increase(aries_store_write_duration_seconds_count[10m])) >= 3
+          and sum(increase(aries_store_write_duration_seconds_count[10m])) >= 500
           and on() go_gc_gomemlimit_bytes{job="dolt"} < 2^62
         for: 30m
         labels:

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Conflicts (design §18.7). An update queued while the server could not
@@ -546,7 +546,7 @@ func tellParked(ctx context.Context, w *wtx, id IssueID, base Rev, parked []Park
 	}
 	what := strings.Join(fields, ", ")
 	if err := w.notify(ctx, InboxItem{To: w.actor.Principal, Kind: InboxConflict, Issue: id,
-		Body: fmt.Sprintf("your update from rev %d parked %s: someone changed it since; a person resolves it (sfx conflicts %s)", base, what, id)}); err != nil {
+		Body: fmt.Sprintf("your update from rev %d parked %s: someone changed it since; a person resolves it (aries conflicts %s)", base, what, id)}); err != nil {
 		return err
 	}
 	c, err := loadClaim(ctx, w.tx, id)
@@ -554,7 +554,7 @@ func tellParked(ctx context.Context, w *wtx, id IssueID, base Rev, parked []Park
 		return err
 	}
 	return w.notify(ctx, InboxItem{To: c.Holder.Principal, Session: c.Holder.Session, Kind: InboxConflict, Issue: id,
-		Body: fmt.Sprintf("%s's update from rev %d parked %s against the issue you hold (sfx conflicts %s)", w.actor.Principal, base, what, id)})
+		Body: fmt.Sprintf("%s's update from rev %d parked %s against the issue you hold (aries conflicts %s)", w.actor.Principal, base, what, id)})
 }
 
 // keepAsComment keeps patch, an update from rev base of before, which

@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/cli"
-	"github.com/ariesworx/starfix/internal/mcpserver"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/cli"
+	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // A tool call whose response is lost to a dropped connection, after the
@@ -62,7 +62,7 @@ func TestCLIAcceptanceAndSimilar(t *testing.T) {
 	}
 
 	r = alice.run("v0.2.0", "close", id)
-	if r.code == 0 || !strings.Contains(r.stderr, "fix: tick what is met with `sfx accept "+id+" 1 2`") || !strings.Contains(r.stderr, "--force") {
+	if r.code == 0 || !strings.Contains(r.stderr, "fix: tick what is met with `aries accept "+id+" 1 2`") || !strings.Contains(r.stderr, "--force") {
 		t.Fatalf("close with open items: exit %d\n%s", r.code, r.stderr)
 	}
 	if out := alice.ok("accept", id, "1"); !strings.Contains(out, "1 [x] redirects home (alice)") || strings.Contains(out, "every item") {
@@ -76,7 +76,7 @@ func TestCLIAcceptanceAndSimilar(t *testing.T) {
 
 	forced := strings.TrimSpace(alice.ok("create", "Obsolete", "--acceptance", "- never done"))
 	r = alice.run("v0.2.0", "close", forced, "--force")
-	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "sfx: close --force is for starfix admins\nfix: ") {
+	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "aries: close --force is for aries admins\nfix: ") {
 		t.Fatalf("close --force by alice: exit %d\n%s", r.code, r.stderr)
 	}
 	dana.ok("close", forced, "--force")

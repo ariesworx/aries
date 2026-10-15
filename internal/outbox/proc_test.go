@@ -24,16 +24,16 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // A child is told what to be through its environment.
 const (
-	childEnv = "STARFIX_OUTBOX_TEST_CHILD" // the mode; empty in a test binary that is not a child
-	dirEnv   = "STARFIX_OUTBOX_TEST_DIR"   // the outbox's directory
-	idEnv    = "STARFIX_OUTBOX_TEST_ID"    // which child this is
-	nEnv     = "STARFIX_OUTBOX_TEST_N"     // how many entries, or which one
-	logEnv   = "STARFIX_OUTBOX_TEST_LOG"   // the stand-in server's log of what it was sent
+	childEnv = "ARIES_OUTBOX_TEST_CHILD" // the mode; empty in a test binary that is not a child
+	dirEnv   = "ARIES_OUTBOX_TEST_DIR"   // the outbox's directory
+	idEnv    = "ARIES_OUTBOX_TEST_ID"    // which child this is
+	nEnv     = "ARIES_OUTBOX_TEST_N"     // how many entries, or which one
+	logEnv   = "ARIES_OUTBOX_TEST_LOG"   // the stand-in server's log of what it was sent
 )
 
 func TestMain(m *testing.M) {
@@ -72,7 +72,7 @@ func childKey(id, i int) string { return fmt.Sprintf("p%d-%d", id, i) }
 func childEntry(id, i int) Entry {
 	return Entry{
 		Op:      proto.OpHandoff,
-		Args:    fmt.Appendf(nil, `{"id":"sfx-1","note":"%s","idem":"%s"}`, strings.Repeat("handoff text ", 40), childKey(id, i)),
+		Args:    fmt.Appendf(nil, `{"id":"aries-1","note":"%s","idem":"%s"}`, strings.Repeat("handoff text ", 40), childKey(id, i)),
 		Session: "s-" + strconv.Itoa(id),
 	}
 }
@@ -130,7 +130,7 @@ func runChild(mode string, in *bufio.Reader) error {
 		if err != nil {
 			return err
 		}
-		if _, err := f.WriteString(`{"seq":3,"op":"handoff","args":{"id":"sfx-1","note":"the first half of`); err != nil {
+		if _, err := f.WriteString(`{"seq":3,"op":"handoff","args":{"id":"aries-1","note":"the first half of`); err != nil {
 			return err
 		}
 		if err := f.Sync(); err != nil {

@@ -53,7 +53,7 @@ func ownedByMe(fi fs.FileInfo) error {
 		return nil
 	}
 	if uid := os.Getuid(); int(st.Uid) != uid {
-		return fmt.Errorf("owned by uid %d, not the daemon's uid %d; fix: chown it to the starfixd user", st.Uid, uid)
+		return fmt.Errorf("owned by uid %d, not the daemon's uid %d; fix: chown it to the ariesd user", st.Uid, uid)
 	}
 	return nil
 }

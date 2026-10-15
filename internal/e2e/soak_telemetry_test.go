@@ -17,14 +17,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/logs"
-	"github.com/ariesworx/starfix/internal/server"
-	"github.com/ariesworx/starfix/internal/store"
-	"github.com/ariesworx/starfix/internal/telemetry"
+	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/server"
+	"github.com/ariesworx/aries/internal/store"
+	"github.com/ariesworx/aries/internal/telemetry"
 )
 
 // The soak with the daemon's telemetry on (design §16.6 and §16.7),
-// which STARFIX_SOAK_TELEMETRY asks for. It is off by default: the
+// which ARIES_SOAK_TELEMETRY asks for. It is off by default: the
 // gate's short soak runs as it always has.
 //
 //	check    The instruments and spans are read in process when the run
@@ -208,7 +208,7 @@ func newSoakTel(t *testing.T, mode string, logger *slog.Logger) *soakTel {
 	})
 	st.tel, st.metricsURL = tel, "http://"+l.Addr().String()+"/metrics"
 	t.Cleanup(func() {
-		// As `starfixd serve` stops it: the last exports get 5 seconds,
+		// As `ariesd serve` stops it: the last exports get 5 seconds,
 		// and a collector that is not there must not hold the stop for
 		// longer (design §16.6).
 		sctx, stop := context.WithTimeout(context.Background(), 5*time.Second)
@@ -229,7 +229,7 @@ func newSoakTel(t *testing.T, mode string, logger *slog.Logger) *soakTel {
 // instruments and the spans must show.
 type telWant struct {
 	// claims counts the claim events of every project's log, by the
-	// event and reason starfix.claims has for them.
+	// event and reason aries.claims has for them.
 	claims map[[2]string]int
 	// control counts the changes in the control log that a request
 	// made, by the request's op. One change is one transaction, named
@@ -249,7 +249,7 @@ type telWant struct {
 	refused map[[2]string]int
 	// closed is how many connections the run saw the server close as
 	// access ended, and ended names the reasons, as
-	// starfix.connections.dropped has them, that the control log has a
+	// aries.connections.dropped has them, that the control log has a
 	// change for.
 	closed int
 	ended  map[string]bool
@@ -262,7 +262,7 @@ func count(n uint64) int {
 }
 
 // claimReasons maps the reason a claim.release event gives (decision 21)
-// to the reason starfix.claims counts it under.
+// to the reason aries.claims counts it under.
 var claimReasons = map[string]string{
 	lostMembership: telemetry.ReasonMembership, lostDisabled: telemetry.ReasonDisabled, lostArchived: telemetry.ReasonArchived,
 }
@@ -278,7 +278,7 @@ func compareTelemetry(snap telemetry.Snapshot, spans *spanTally, want telWant) [
 	// Claims: counted from the store after each write commits, so they
 	// are the log's, exactly. A renewal is no event, and is not held to
 	// anything.
-	const claims = "starfix.claims"
+	const claims = "aries.claims"
 	seen := map[[2]string]bool{}
 	for _, p := range snap.Series(claims) {
 		k := [2]string{p.Attrs[telemetry.KeyEvent], p.Attrs[telemetry.KeyReason]}
@@ -299,7 +299,7 @@ func compareTelemetry(snap telemetry.Snapshot, spans *spanTally, want telWant) [
 	// Writes: every transaction that recorded an event was a write that
 	// committed, and every such write was an attempt that ended ok; a
 	// write lost to another transaction is one retry and one span.
-	const writes, retries = "starfix.store.write.duration", "starfix.store.write.retries"
+	const writes, retries = "aries.store.write.duration", "aries.store.write.retries"
 	attempts, lost := spans.attempts, spans.retried
 	for _, id := range slices.Sorted(maps.Keys(want.txs)) {
 		wrote := count(snap.Observations(writes, telemetry.KeyProject, id))
@@ -316,7 +316,7 @@ func compareTelemetry(snap telemetry.Snapshot, spans *spanTally, want telWant) [
 
 	// Requests: one observation and one span each, with one result; and
 	// the server answered at least what the journal saw answered.
-	const requests, byProject, handshakes = "starfix.request.duration", "starfix.project.requests", "starfix.handshakes"
+	const requests, byProject, handshakes = "aries.request.duration", "aries.project.requests", "aries.handshakes"
 	measured, traced, shaken := map[opResult]int{}, spans.requests, spans.handshakes
 	total := 0
 	for _, p := range snap.Series(requests) {
@@ -367,7 +367,7 @@ func compareTelemetry(snap telemetry.Snapshot, spans *spanTally, want telWant) [
 	// already held, succeeds and records nothing. What keeps it from
 	// being ahead wrongly is the other count of the same requests, made
 	// where each is answered: the two agree exactly.
-	const control = "starfix.control.writes"
+	const control = "aries.control.writes"
 	changed := map[string]int{}
 	for _, p := range snap.Series(control) {
 		if p.Attrs[telemetry.KeyResult] == telemetry.ResultOK {
@@ -389,7 +389,7 @@ func compareTelemetry(snap telemetry.Snapshot, spans *spanTally, want telWant) [
 	// Connections the server closed: at least those the run saw closed
 	// as access ended, and none for a reason the control log has no
 	// change for.
-	const dropped = "starfix.connections.dropped"
+	const dropped = "aries.connections.dropped"
 	ended := 0
 	for _, p := range snap.Series(dropped) {
 		reason := p.Attrs[telemetry.KeyReason]
@@ -511,7 +511,7 @@ func (s *soak) checkTelemetry() {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "soak: telemetry, against the event logs: %d series of %d instruments, %d spans\n", len(snap), len(snap.Names()), s.tel.spans.n)
-	const claims = "starfix.claims"
+	const claims = "aries.claims"
 	fmt.Fprintf(&b, "  claims: taken %g, expired %g, released %g (%g for a membership, %g for a disabled principal, %g for an archive), renewed %g\n",
 		snap.Sum(claims, telemetry.KeyEvent, telemetry.ClaimTake), snap.Sum(claims, telemetry.KeyEvent, telemetry.ClaimExpire),
 		snap.Sum(claims, telemetry.KeyEvent, telemetry.ClaimRelease),
@@ -522,21 +522,21 @@ func (s *soak) checkTelemetry() {
 	fmt.Fprintf(&b, "  audit stream: %d lines for the %d access changes in the control store's log that a request made\n", len(lines), changes)
 	b.WriteString("  control writes that succeeded, and the changes in the log:")
 	for _, op := range slices.Sorted(maps.Keys(want.control)) {
-		fmt.Fprintf(&b, " %s %g/%d;", op, snap.Sum("starfix.control.writes", telemetry.KeyOp, op, telemetry.KeyResult, telemetry.ResultOK), want.control[op])
+		fmt.Fprintf(&b, " %s %g/%d;", op, snap.Sum("aries.control.writes", telemetry.KeyOp, op, telemetry.KeyResult, telemetry.ResultOK), want.control[op])
 	}
 	b.WriteString("\n")
 	for _, p := range s.projs {
 		fmt.Fprintf(&b, "  project %s: %d writes committed for %d transactions with events, %g retries\n", p.name,
-			snap.Observations("starfix.store.write.duration", telemetry.KeyProject, p.id), want.txs[p.id],
-			snap.Sum("starfix.store.write.retries", telemetry.KeyProject, p.id))
+			snap.Observations("aries.store.write.duration", telemetry.KeyProject, p.id), want.txs[p.id],
+			snap.Sum("aries.store.write.retries", telemetry.KeyProject, p.id))
 	}
 	journaled := 0
 	for _, n := range want.acked {
 		journaled += n
 	}
 	fmt.Fprintf(&b, "  requests: %g measured, %g of them ok (the sessions saw %d answered ok); handshakes %g; connections closed by the server %g (the run saw %d close as access ended)\n",
-		snap.Sum("starfix.project.requests"), snap.Sum("starfix.project.requests", telemetry.KeyResultClass, telemetry.ClassOK), journaled,
-		snap.Sum("starfix.handshakes"), snap.Sum("starfix.connections.dropped"), want.closed)
+		snap.Sum("aries.project.requests"), snap.Sum("aries.project.requests", telemetry.KeyResultClass, telemetry.ClassOK), journaled,
+		snap.Sum("aries.handshakes"), snap.Sum("aries.connections.dropped"), want.closed)
 	s.t.Log(b.String())
 }
 
@@ -557,7 +557,7 @@ func (s *soak) checkDeadCollector() {
 	}
 	for _, signal := range []string{telemetry.SignalMetrics, telemetry.SignalTraces} {
 		if dropped[signal] <= 0 {
-			s.mon.fail("", "telemetry: starfix_telemetry_dropped_total{signal=%q} is %g after a run with a collector that is not there (%s), want more than 0",
+			s.mon.fail("", "telemetry: aries_telemetry_dropped_total{signal=%q} is %g after a run with a collector that is not there (%s), want more than 0",
 				signal, dropped[signal], s.tel.mode)
 		}
 	}
@@ -574,7 +574,7 @@ func (s *soak) checkDeadCollector() {
 		s.tel.mode, dropped[telemetry.SignalMetrics], dropped[telemetry.SignalTraces])
 }
 
-// scrapeDropped reads starfix_telemetry_dropped_total, by signal, from
+// scrapeDropped reads aries_telemetry_dropped_total, by signal, from
 // a /metrics endpoint.
 func scrapeDropped(ctx context.Context, url string) (map[string]float64, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -593,7 +593,7 @@ func scrapeDropped(ctx context.Context, url string) (map[string]float64, error) 
 	sc := bufio.NewScanner(resp.Body)
 	for sc.Scan() {
 		series, value, ok := strings.Cut(sc.Text(), " ")
-		if !ok || !strings.HasPrefix(series, "starfix_telemetry_dropped_total{") {
+		if !ok || !strings.HasPrefix(series, "aries_telemetry_dropped_total{") {
 			continue
 		}
 		v, err := strconv.ParseFloat(value, 64)
@@ -700,7 +700,7 @@ func TestAuditCheckCatches(t *testing.T) {
 		{by: store.OperatorPrincipal, op: "project.add", target: "p1"},
 		{by: "root", op: "principal.add", target: "alice"},
 		{by: "root", op: "member.set", target: "p1/alice"},
-		{by: "starfixd", op: "clock.step", target: "clock"},
+		{by: "ariesd", op: "clock.step", target: "clock"},
 		{by: "root", op: "key.remove", target: "SHA256:abc"},
 	}
 	right := []auditLine{{2, "principal.add", "root", "alice"}, {3, "member.set", "root", "p1/alice"}, {5, "key.remove", "root", "SHA256:abc"}}
@@ -778,21 +778,21 @@ func TestTelemetryCheckCatches(t *testing.T) {
 	// show and two handshakes; one connection closed with a membership.
 	snap := func() telemetry.Snapshot {
 		return telemetry.Snapshot{
-			point("starfix.claims", 3, "event", "take", "reason", "none"),
-			point("starfix.claims", 1, "event", "expire", "reason", "none"),
-			point("starfix.claims", 1, "event", "release", "reason", "none"),
-			point("starfix.claims", 1, "event", "release", "reason", "membership"),
-			point("starfix.claims", 7, "event", "renew", "reason", "none"),
-			point("starfix.control.writes", 1, "op", "member.remove", "result", "ok"),
-			hist("starfix.store.write.duration", 5, "project", pa),
-			point("starfix.store.write.retries", 1, "project", pa),
-			hist("starfix.request.duration", 2, "op", "create", "result", "ok"),
-			hist("starfix.request.duration", 1, "op", "show", "result", "not_found"),
-			hist("starfix.request.duration", 1, "op", "member.remove", "result", "ok"),
-			point("starfix.project.requests", 3, "project", pa, "result_class", "ok"),
-			point("starfix.project.requests", 1, "project", pa, "result_class", "refused"),
-			point("starfix.handshakes", 2, "result", "ok"),
-			point("starfix.connections.dropped", 1, "reason", "membership"),
+			point("aries.claims", 3, "event", "take", "reason", "none"),
+			point("aries.claims", 1, "event", "expire", "reason", "none"),
+			point("aries.claims", 1, "event", "release", "reason", "none"),
+			point("aries.claims", 1, "event", "release", "reason", "membership"),
+			point("aries.claims", 7, "event", "renew", "reason", "none"),
+			point("aries.control.writes", 1, "op", "member.remove", "result", "ok"),
+			hist("aries.store.write.duration", 5, "project", pa),
+			point("aries.store.write.retries", 1, "project", pa),
+			hist("aries.request.duration", 2, "op", "create", "result", "ok"),
+			hist("aries.request.duration", 1, "op", "show", "result", "not_found"),
+			hist("aries.request.duration", 1, "op", "member.remove", "result", "ok"),
+			point("aries.project.requests", 3, "project", pa, "result_class", "ok"),
+			point("aries.project.requests", 1, "project", pa, "result_class", "refused"),
+			point("aries.handshakes", 2, "result", "ok"),
+			point("aries.connections.dropped", 1, "reason", "membership"),
 		}
 	}
 	spans := func() []telemetry.SpanData {
@@ -838,9 +838,9 @@ func TestTelemetryCheckCatches(t *testing.T) {
 	}
 	// A change asked for again, after its answer was lost, succeeds
 	// twice and is in the log once.
-	again := set(snap(), "starfix.control.writes", 2, 0, "op", "member.remove", "result", "ok")
-	again = set(again, "starfix.request.duration", 0, 2, "op", "member.remove", "result", "ok")
-	again = set(again, "starfix.project.requests", 4, 0, "project", pa, "result_class", "ok")
+	again := set(snap(), "aries.control.writes", 2, 0, "op", "member.remove", "result", "ok")
+	again = set(again, "aries.request.duration", 0, 2, "op", "member.remove", "result", "ok")
+	again = set(again, "aries.project.requests", 4, 0, "project", pa, "result_class", "ok")
 	resent := append(spans(), span("member.remove", "server", "op", "member.remove", "result", "ok", "principal", "p_0123456789abcdef"))
 	if got := compareTelemetry(again, tally(resent), want()); len(got) > 0 {
 		t.Errorf("compareTelemetry with a control write sent again after a lost answer = %q, want nothing", got)
@@ -852,77 +852,77 @@ func TestTelemetryCheckCatches(t *testing.T) {
 		want  func(*telWant)
 		says  string
 	}{
-		{name: "a take not counted", says: `starfix.claims{event=take,reason=none} is 2, and the projects' event logs have 3`,
+		{name: "a take not counted", says: `aries.claims{event=take,reason=none} is 2, and the projects' event logs have 3`,
 			snap: func(s telemetry.Snapshot) telemetry.Snapshot {
-				return set(s, "starfix.claims", 2, 0, "event", "take", "reason", "none")
+				return set(s, "aries.claims", 2, 0, "event", "take", "reason", "none")
 			}},
-		{name: "an expiry counted twice", says: `starfix.claims{event=expire,reason=none} is 2`,
+		{name: "an expiry counted twice", says: `aries.claims{event=expire,reason=none} is 2`,
 			snap: func(s telemetry.Snapshot) telemetry.Snapshot {
-				return set(s, "starfix.claims", 2, 0, "event", "expire", "reason", "none")
+				return set(s, "aries.claims", 2, 0, "event", "expire", "reason", "none")
 			}},
 		{name: "a release for an archive counted as plain", says: `no series for event=release, reason=archived`,
 			want: func(w *telWant) { w.claims[[2]string{"release", "archived"}] = 1 }},
-		{name: "a release under a reason the log does not give", says: `starfix.claims{event=release,reason=disabled} is 1, and the projects' event logs have 0`,
+		{name: "a release under a reason the log does not give", says: `aries.claims{event=release,reason=disabled} is 1, and the projects' event logs have 0`,
 			snap: func(s telemetry.Snapshot) telemetry.Snapshot {
-				return set(s, "starfix.claims", 1, 0, "event", "release", "reason", "disabled")
+				return set(s, "aries.claims", 1, 0, "event", "release", "reason", "disabled")
 			}},
-		{name: "a control write counted twice", says: `starfix.control.writes{op=member.remove,result=ok} is 2, and starfix.request.duration has 1 observations`,
+		{name: "a control write counted twice", says: `aries.control.writes{op=member.remove,result=ok} is 2, and aries.request.duration has 1 observations`,
 			snap: func(s telemetry.Snapshot) telemetry.Snapshot {
-				return set(s, "starfix.control.writes", 2, 0, "op", "member.remove", "result", "ok")
+				return set(s, "aries.control.writes", 2, 0, "op", "member.remove", "result", "ok")
 			}},
-		{name: "a control write not counted", says: `starfix.control.writes{op=member.remove,result=ok} is 0, and the control store's log has 1 changes`,
+		{name: "a control write not counted", says: `aries.control.writes{op=member.remove,result=ok} is 0, and the control store's log has 1 changes`,
 			snap: func(s telemetry.Snapshot) telemetry.Snapshot {
-				return set(s, "starfix.control.writes", 0, 0, "op", "member.remove", "result", "ok")
+				return set(s, "aries.control.writes", 0, 0, "op", "member.remove", "result", "ok")
 			}},
-		{name: "a control write the log lacks", says: `starfix.control.writes{op=key.add,result=ok} is 1, and starfix.request.duration has 0 observations`,
+		{name: "a control write the log lacks", says: `aries.control.writes{op=key.add,result=ok} is 1, and aries.request.duration has 0 observations`,
 			snap: func(s telemetry.Snapshot) telemetry.Snapshot {
-				return set(s, "starfix.control.writes", 1, 0, "op", "key.add", "result", "ok")
+				return set(s, "aries.control.writes", 1, 0, "op", "key.add", "result", "ok")
 			}},
 		{name: "fewer writes than transactions", says: `has 3 observations, and the project's event log has 4 transactions`,
 			snap: func(s telemetry.Snapshot) telemetry.Snapshot {
-				return set(s, "starfix.store.write.duration", 0, 3, "project", pa)
+				return set(s, "aries.store.write.duration", 0, 3, "project", pa)
 			}},
 		{name: "a write with no span", says: `4 spans of a write attempt that ended ok`,
 			spans: func(s []telemetry.SpanData) []telemetry.SpanData { return s[1:] }},
-		{name: "a retry not counted", says: `starfix.store.write.retries{project=` + pa + `} is 0, and 1 spans`,
+		{name: "a retry not counted", says: `aries.store.write.retries{project=` + pa + `} is 0, and 1 spans`,
 			snap: func(s telemetry.Snapshot) telemetry.Snapshot {
-				return set(s, "starfix.store.write.retries", 0, 0, "project", pa)
+				return set(s, "aries.store.write.retries", 0, 0, "project", pa)
 			}},
-		{name: "a request with no span", says: `starfix.request.duration{op=show,result=not_found} has 1 observations, and 0 spans`,
+		{name: "a request with no span", says: `aries.request.duration{op=show,result=not_found} has 1 observations, and 0 spans`,
 			spans: func(s []telemetry.SpanData) []telemetry.SpanData {
 				return slices.DeleteFunc(s, func(sp telemetry.SpanData) bool { return sp.Name == "show" })
 			}},
-		{name: "a request measured under another result", says: `starfix.request.duration{op=create,result=ok} has 1 observations, and 2 spans`,
+		{name: "a request measured under another result", says: `aries.request.duration{op=create,result=ok} has 1 observations, and 2 spans`,
 			snap: func(s telemetry.Snapshot) telemetry.Snapshot {
-				s = set(s, "starfix.request.duration", 0, 1, "op", "create", "result", "ok")
-				return set(s, "starfix.request.duration", 0, 1, "op", "create", "result", "invalid")
+				s = set(s, "aries.request.duration", 0, 1, "op", "create", "result", "ok")
+				return set(s, "aries.request.duration", 0, 1, "op", "create", "result", "invalid")
 			}},
-		{name: "a request not counted for its project", says: `starfix.project.requests counts 3 requests, and starfix.request.duration has 4`,
+		{name: "a request not counted for its project", says: `aries.project.requests counts 3 requests, and aries.request.duration has 4`,
 			snap: func(s telemetry.Snapshot) telemetry.Snapshot {
-				return set(s, "starfix.project.requests", 0, 0, "project", pa, "result_class", "refused")
+				return set(s, "aries.project.requests", 0, 0, "project", pa, "result_class", "refused")
 			}},
 		{name: "fewer answered than the sessions saw", says: `the sessions saw 3 answered ok`,
 			want: func(w *telWant) { w.acked["create"] = 3 }},
 		{name: "fewer refused than the sessions saw", says: `the sessions saw 2 refused so`,
 			want: func(w *telWant) { w.refused[[2]string{"show", "not_found"}] = 2 }},
-		{name: "a handshake not counted", says: `starfix.handshakes{result=ok} is 1, and 2 spans`,
+		{name: "a handshake not counted", says: `aries.handshakes{result=ok} is 1, and 2 spans`,
 			snap: func(s telemetry.Snapshot) telemetry.Snapshot {
-				return set(s, "starfix.handshakes", 1, 0, "result", "ok")
+				return set(s, "aries.handshakes", 1, 0, "result", "ok")
 			}},
 		{name: "a closed connection not counted", says: `counts 0 connections closed as access ended, and the run saw 1`,
 			snap: func(s telemetry.Snapshot) telemetry.Snapshot {
-				return set(s, "starfix.connections.dropped", 0, 0, "reason", "membership")
+				return set(s, "aries.connections.dropped", 0, 0, "reason", "membership")
 			}},
-		{name: "a connection closed for a reason the log lacks", says: `starfix.connections.dropped{reason=archived} is 1`,
+		{name: "a connection closed for a reason the log lacks", says: `aries.connections.dropped{reason=archived} is 1`,
 			snap: func(s telemetry.Snapshot) telemetry.Snapshot {
-				return set(s, "starfix.connections.dropped", 1, 0, "reason", "archived")
+				return set(s, "aries.connections.dropped", 1, 0, "reason", "archived")
 			}},
 		{name: "a principal by name", says: `has principal="alice", want a stand-in`,
 			spans: func(s []telemetry.SpanData) []telemetry.SpanData {
 				return append(s, span("show", "server", "op", "show", "result", "not_found", "principal", "alice"))
 			},
 			snap: func(s telemetry.Snapshot) telemetry.Snapshot {
-				return set(s, "starfix.request.duration", 0, 2, "op", "show", "result", "not_found")
+				return set(s, "aries.request.duration", 0, 2, "op", "show", "result", "not_found")
 			}},
 		{name: "a session id in another attribute", says: `carries project="lib-alice-1g0"`,
 			spans: func(s []telemetry.SpanData) []telemetry.SpanData {
@@ -949,7 +949,7 @@ func TestTelemetryCheckCatches(t *testing.T) {
 	}
 }
 
-// STARFIX_SOAK_TELEMETRY takes one of three words, and nothing else.
+// ARIES_SOAK_TELEMETRY takes one of three words, and nothing else.
 func TestSoakTelemetryConfig(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -960,13 +960,13 @@ func TestSoakTelemetryConfig(t *testing.T) {
 		{"1", "", true}, {"on", "", true},
 	} {
 		cfg, err := soakConfigFrom(func(k string) string {
-			if k == "STARFIX_SOAK_TELEMETRY" {
+			if k == "ARIES_SOAK_TELEMETRY" {
 				return tc.value
 			}
 			return ""
 		})
 		if (err != nil) != tc.refused || cfg.telemetry != tc.want {
-			t.Errorf("soakConfigFrom with STARFIX_SOAK_TELEMETRY=%q = telemetry %q, %v; want %q, refused %v", tc.value, cfg.telemetry, err, tc.want, tc.refused)
+			t.Errorf("soakConfigFrom with ARIES_SOAK_TELEMETRY=%q = telemetry %q, %v; want %q, refused %v", tc.value, cfg.telemetry, err, tc.want, tc.refused)
 		}
 	}
 }

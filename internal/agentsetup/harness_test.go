@@ -20,14 +20,14 @@ func hookOf(t *testing.T, agent string, global bool) Target {
 
 // Each harness gets the hook in its own format. Applying twice changes
 // nothing; a new command updates the hook in place; removing gives the
-// file back without it; another tool's prime hook is never starfix's.
+// file back without it; another tool's prime hook is never Aries's.
 func TestHookFormats(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		agent  string
 		global bool
 		// want is a new file; removed is what Remove leaves of it, ""
-		// meaning the file is starfix's own and may be deleted.
+		// meaning the file is Aries's own and may be deleted.
 		want, removed string
 	}{
 		{agent: "gemini", removed: "{}\n", want: `{
@@ -38,7 +38,7 @@ func TestHookFormats(t *testing.T) {
         "hooks": [
           {
             "type": "command",
-            "command": "sfx prime --hook=gemini",
+            "command": "aries prime --hook=gemini",
             "timeout": 15000
           }
         ]
@@ -48,7 +48,7 @@ func TestHookFormats(t *testing.T) {
         "hooks": [
           {
             "type": "command",
-            "command": "sfx prime --hook=gemini",
+            "command": "aries prime --hook=gemini",
             "timeout": 15000
           }
         ]
@@ -58,7 +58,7 @@ func TestHookFormats(t *testing.T) {
         "hooks": [
           {
             "type": "command",
-            "command": "sfx prime --hook=gemini",
+            "command": "aries prime --hook=gemini",
             "timeout": 15000
           }
         ]
@@ -75,7 +75,7 @@ func TestHookFormats(t *testing.T) {
         "hooks": [
           {
             "type": "command",
-            "command": "sfx prime --hook=codex"
+            "command": "aries prime --hook=codex"
           }
         ]
       }
@@ -88,7 +88,7 @@ func TestHookFormats(t *testing.T) {
   "hooks": {
     "sessionStart": [
       {
-        "command": "sfx prime --hook=cursor",
+        "command": "aries prime --hook=cursor",
         "timeout": 30
       }
     ]
@@ -100,7 +100,7 @@ func TestHookFormats(t *testing.T) {
     "SessionStart": [
       {
         "type": "command",
-        "command": "sfx prime --hook=vscode",
+        "command": "aries prime --hook=vscode",
         "timeout": 15
       }
     ]
@@ -114,7 +114,7 @@ func TestHookFormats(t *testing.T) {
         "hooks": [
           {
             "type": "command",
-            "command": "sfx prime --hook=junie"
+            "command": "aries prime --hook=junie"
           }
         ]
       }
@@ -134,7 +134,7 @@ func TestHookFormats(t *testing.T) {
 				t.Fatalf("second Apply = %s, %v\n%s", res, err, again)
 			}
 			if !h.Registered(out, DefaultEntry) || h.Registered(nil, DefaultEntry) ||
-				h.Registered(out, Entry{Command: "/opt/sfx"}) {
+				h.Registered(out, Entry{Command: "/opt/aries"}) {
 				t.Fatal("Registered disagrees")
 			}
 			if s := h.Snippet(DefaultEntry); s != tc.want {
@@ -148,7 +148,7 @@ func TestHookFormats(t *testing.T) {
 				t.Fatalf("second Remove = %s", res)
 			}
 
-			moved := Entry{Command: "/opt/star fix/sfx"}
+			moved := Entry{Command: "/opt/star fix/aries"}
 			up, res, err := h.Apply(out, moved)
 			if err != nil || res != Updated || !h.Registered(up, moved) || h.Registered(up, DefaultEntry) {
 				t.Fatalf("Apply(moved) = %s, %v\n%s", res, err, up)
@@ -157,7 +157,7 @@ func TestHookFormats(t *testing.T) {
 				t.Fatalf("Apply(moved) left %d hooks, want %d:\n%s", got, want, up)
 			}
 
-			other := strings.ReplaceAll(tc.want, "sfx prime", "bd prime")
+			other := strings.ReplaceAll(tc.want, "aries prime", "bd prime")
 			if _, res, err := h.Remove([]byte(other), DefaultEntry); err != nil || res != Unchanged {
 				t.Fatalf("Remove(another tool's hook) = %s, %v", res, err)
 			}
@@ -165,19 +165,19 @@ func TestHookFormats(t *testing.T) {
 			if err != nil || res != Added || !strings.Contains(string(both), "bd prime") {
 				t.Fatalf("Apply beside another tool's hook = %s, %v\n%s", res, err, both)
 			}
-			if rm, _, _ := h.Remove(both, DefaultEntry); !strings.Contains(string(rm), "bd prime") || strings.Contains(string(rm), "sfx prime") {
+			if rm, _, _ := h.Remove(both, DefaultEntry); !strings.Contains(string(rm), "bd prime") || strings.Contains(string(rm), "aries prime") {
 				t.Fatalf("Remove took the other hook, or left its own:\n%s", rm)
 			}
 		})
 	}
 }
 
-// Gemini matches SessionStart sources exactly, so starfix keeps one group
+// Gemini matches SessionStart sources exactly, so Aries keeps one group
 // per source; a missing group is added back and the others are kept.
 func TestGeminiHookAddsMissingSource(t *testing.T) {
 	t.Parallel()
 	h := hookOf(t, "gemini", false)
-	in := `{"hooks": {"SessionStart": [{"matcher": "startup", "hooks": [{"type": "command", "command": "sfx prime --hook=gemini", "timeout": 5000}]}]}}`
+	in := `{"hooks": {"SessionStart": [{"matcher": "startup", "hooks": [{"type": "command", "command": "aries prime --hook=gemini", "timeout": 5000}]}]}}`
 	if h.Registered([]byte(in), DefaultEntry) {
 		t.Fatal("Registered with only the startup group")
 	}
@@ -245,13 +245,13 @@ func TestJunieMCP(t *testing.T) {
 	out, res, err := Agents["junie"].Apply(nil, DefaultEntry)
 	want := `{
   "mcpServers": {
-    "starfix": {
-      "command": "sfx",
+    "aries": {
+      "command": "aries",
       "args": [
         "mcp"
       ],
       "env": {
-        "STARFIX_HARNESS": "junie"
+        "ARIES_HARNESS": "junie"
       }
     }
   }
@@ -279,7 +279,7 @@ func TestJetBrainsRule(t *testing.T) {
 	}
 	// The MCP server is added by hand: the steps and the JSON to paste.
 	steps := a.Steps(DefaultEntry)
-	for _, w := range []string{"Settings › Tools › AI Assistant › Model Context Protocol (MCP)", "Project", `"STARFIX_HARNESS": "jetbrains"`} {
+	for _, w := range []string{"Settings › Tools › AI Assistant › Model Context Protocol (MCP)", "Project", `"ARIES_HARNESS": "jetbrains"`} {
 		if !strings.Contains(steps, w) {
 			t.Errorf("Steps lack %q:\n%s", w, steps)
 		}

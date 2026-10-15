@@ -14,10 +14,10 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/clienttest"
-	"github.com/ariesworx/starfix/internal/outbox"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/clienttest"
+	"github.com/ariesworx/aries/internal/outbox"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // TestMain keeps every test here away from the real home directory,
@@ -29,7 +29,7 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// repo is a checkout whose .starfix.yaml names a server nothing runs,
+// repo is a checkout whose .aries.yaml names a server nothing runs,
 // with two key files: `key:` names the first.
 type repo struct {
 	dir        string
@@ -104,7 +104,7 @@ func TestConnectedSaysWhenAKeyMoved(t *testing.T) {
 	}
 	bob := &keyedConn{fakeConn: fakeConn{who: "bob"}, key: r.mine}
 	want := "outbox: the server now takes this key for bob, not alice, so 1 write queued as alice is not sent with it; " +
-		"fix: sign in with a key of alice's to send them, or run `sfx outbox --principal alice` to see or drop them"
+		"fix: sign in with a key of alice's to send them, or run `aries outbox --principal alice` to see or drop them"
 	if got := c.Connected(bob); got != want {
 		t.Errorf("Connected after the key moved = %q\nwant %q", got, want)
 	}
@@ -123,7 +123,7 @@ func TestConnectedSaysWhenAKeyMoved(t *testing.T) {
 	}
 }
 
-// TestClientKeepsForWhoeverTheKeyWas pins the rule from the keys sfx
+// TestClientKeepsForWhoeverTheKeyWas pins the rule from the keys aries
 // would offer to an outbox: nothing is queued until the server has taken
 // one of them for someone, and the write then goes to that principal's
 // outbox, whichever key the environment names now.
@@ -242,7 +242,7 @@ func TestNotice(t *testing.T) {
 	c := newRepo(t).newClient(t, nil)
 	c.Outbox = outbox.Options{}
 	conn := &fakeConn{who: "alice", answers: map[string]error{
-		"sf-gone": proto.Errf(proto.CodeNotFound, "find the id with `sfx list`", "issue sf-gone not found"),
+		"sf-gone": proto.Errf(proto.CodeNotFound, "find the id with `aries list`", "issue sf-gone not found"),
 		"sf-slow": proto.Errf(proto.CodeUnavailable, "retry", "the server could not complete comment"),
 	}}
 	if got := c.Notice(conn); got != "" {
@@ -255,7 +255,7 @@ func TestNotice(t *testing.T) {
 		}
 	}
 	keep("sf-gone")
-	if got, want := c.Notice(conn), "outbox: 1 write made while the server was away waits to be sent, which sfx does by itself"; got != want {
+	if got, want := c.Notice(conn), "outbox: 1 write made while the server was away waits to be sent, which aries does by itself"; got != want {
 		t.Errorf("Notice = %q, want %q", got, want)
 	}
 	keep("sf-slow")
@@ -263,7 +263,7 @@ func TestNotice(t *testing.T) {
 	if _, err := c.Replay(t.Context(), conn); err != nil {
 		t.Fatal(err)
 	}
-	want := "outbox: 1 write made while the server was away was refused and 2 wait to be sent: tell the user to run `sfx outbox`"
+	want := "outbox: 1 write made while the server was away was refused and 2 wait to be sent: tell the user to run `aries outbox`"
 	if got := c.Notice(conn); got != want {
 		t.Errorf("Notice = %q, want %q", got, want)
 	}

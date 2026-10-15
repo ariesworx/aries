@@ -8,7 +8,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 func cmdLog(ctx context.Context, r *runner, args []string) error {
@@ -43,7 +43,7 @@ func cmdLog(ctx context.Context, r *runner, args []string) error {
 		return nil
 	case len(pos) == 0:
 		if logging {
-			return usagef(usage, "--on and --note are for logging: sfx log DURATION ID")
+			return usagef(usage, "--on and --note are for logging: aries log DURATION ID")
 		}
 		var out proto.HoursResult
 		if err := r.call(ctx, proto.OpHours, list, &out); err != nil {
@@ -56,9 +56,9 @@ func cmdLog(ctx context.Context, r *runner, args []string) error {
 		printHours(r.env.Stdout, out)
 		return nil
 	case len(pos) != 2:
-		return usagef(usage, "log needs a time and an issue id, such as sfx log 1.5h sf-a1b2")
+		return usagef(usage, "log needs a time and an issue id, such as aries log 1.5h sf-a1b2")
 	case listing:
-		return usagef(usage, "--issue, --by and -n are for listing; sfx log DURATION ID logs")
+		return usagef(usage, "--issue, --by and -n are for listing; aries log DURATION ID logs")
 	}
 	d, err := proto.ParseHours(pos[0])
 	if err != nil {
@@ -187,7 +187,7 @@ func adminPlans(ctx context.Context, r *runner, args []string) error {
 // each row's monthly total.
 func printPlans(w io.Writer, res proto.PlansResult) {
 	if len(res.Plans) == 0 {
-		_, _ = fmt.Fprintln(w, "no plans; an admin sets one with `sfx admin plans set`")
+		_, _ = fmt.Fprintln(w, "no plans; an admin sets one with `aries admin plans set`")
 		return
 	}
 	_, _ = fmt.Fprintln(w, "USD a seat a month")

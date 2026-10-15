@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/telemetry"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/telemetry"
 )
 
 // noLeak fails the test if, once its cleanups have run, more goroutines

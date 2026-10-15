@@ -22,8 +22,8 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/safetext"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/safetext"
 )
 
 // Options describe this client to the server.
@@ -56,7 +56,7 @@ type Options struct {
 	OnPush func(proto.Push)
 }
 
-// Conn is one session with starfixd. Calls are serialized. A reader
+// Conn is one session with ariesd. Calls are serialized. A reader
 // goroutine reads every frame the server sends: responses go to the call
 // waiting for them, pushed events to Options.OnPush, and frame types it
 // does not know are skipped.
@@ -135,7 +135,7 @@ func (c *Conn) Done() <-chan struct{} { return c.done }
 
 // RemoteCommand is what the client asks sshd to run. The key's forced
 // command overrides it anyway.
-const RemoteCommand = "starfixd stdio"
+const RemoteCommand = "ariesd stdio"
 
 // Dial connects to the server named in cfg, verifies that its host key is
 // one of those pinned, authenticates, and completes the version
@@ -235,7 +235,7 @@ func Dial(ctx context.Context, cfg *Config, opts Options) (*Conn, error) {
 // Key says which key signed this connection in.
 func (c *Conn) Key() KeyInfo { return c.key }
 
-// SkippedKeys says which default identity files sfx found and could not
+// SkippedKeys says which default identity files aries found and could not
 // use for this connection, and why each.
 func (c *Conn) SkippedKeys() []string { return c.skipped }
 
@@ -373,10 +373,10 @@ func start(ctx context.Context, client *ssh.Client, nc *transport, far string, c
 	sess.Stderr = c.stderr
 	if err := sess.Start(RemoteCommand); err != nil {
 		if ctx.Err() != nil {
-			return nil, gaveUp(ctx, far, "start starfixd", opts.Timeout, c.stderr.String())
+			return nil, gaveUp(ctx, far, "start ariesd", opts.Timeout, c.stderr.String())
 		}
-		return nil, proto.Errf(proto.CodeUnavailable, "check that this key's authorized_keys line forces `starfixd stdio --principal NAME`",
-			fmt.Sprintf("the server would not start starfixd: %v", err))
+		return nil, proto.Errf(proto.CodeUnavailable, "check that this key's authorized_keys line forces `ariesd stdio --principal NAME`",
+			fmt.Sprintf("the server would not start ariesd: %v", err))
 	}
 	if err := c.enc.Encode(&proto.Frame{T: proto.FrameHello, Version: opts.Version, Proto: p,
 		Project: cfg.Project, Session: opts.Session, Machine: opts.Machine, Harness: opts.Harness}); err != nil {
@@ -399,7 +399,7 @@ func start(ctx context.Context, client *ssh.Client, nc *transport, far string, c
 		return nil, c.lost(err)
 	}
 	if w.T != proto.FrameWelcome {
-		return nil, proto.Errf(proto.CodeVersion, "upgrade starfix to match the server",
+		return nil, proto.Errf(proto.CodeVersion, "upgrade aries to match the server",
 			fmt.Sprintf("expected a welcome from the server, got a %q frame", w.T))
 	}
 	if w.Err != nil {
@@ -477,7 +477,7 @@ func gaveUp(ctx context.Context, far, step string, timeout time.Duration, said s
 		msg = fmt.Sprintf("stopped waiting for %s to %s: %v", far, step, ctx.Err())
 	}
 	return proto.Errf(proto.CodeUnavailable,
-		"retry; if it persists, ask the server admin to check sshd and starfixd on the server, where `starfixd status` reports on the daemon",
+		"retry; if it persists, ask the server admin to check sshd and ariesd on the server, where `ariesd status` reports on the daemon",
 		msg+quoteStderr(said, "server"))
 }
 
@@ -506,7 +506,7 @@ func (c *Conn) lost(err error) *proto.Error {
 	}
 	msg += quoteStderr(c.stderr.String(), "server")
 	return proto.Errf(proto.CodeUnavailable,
-		"retry; if it persists, check that this key's authorized_keys line forces `starfixd stdio --principal NAME` and that starfixd is running", msg)
+		"retry; if it persists, check that this key's authorized_keys line forces `ariesd stdio --principal NAME` and that ariesd is running", msg)
 }
 
 // Session is the session id the server recorded for this connection.
@@ -566,7 +566,7 @@ const requestTimeout = 75 * time.Second
 // writes to the control store. After the write the server reads the
 // control store's log for the audit stream, with a request timeout of
 // its own and behind a lock the reaper takes too; and an archive also
-// opens the project's store to end its claims, with another. Only `sfx
+// opens the project's store to end its claims, with another. Only `aries
 // admin` sends them, for a person who can interrupt it. internal/server
 // holds this list to its own (controlWrites).
 var waitedOn = map[string]bool{
@@ -630,8 +630,8 @@ func (c *Conn) Call(ctx context.Context, op string, args, result any) error {
 			c.broken = fmt.Errorf("%s: %w", op, ctx.Err())
 		case late.Load():
 			c.broken = proto.Errf(proto.CodeUnavailable,
-				"retry, which connects again; if it persists, ask the server admin to check sshd and starfixd on the server, where `starfixd status` reports on the daemon",
-				fmt.Sprintf("the server did not answer %s within %s, so sfx closed the connection", op, wait)+quoteStderr(c.stderr.String(), "server"))
+				"retry, which connects again; if it persists, ask the server admin to check sshd and ariesd on the server, where `ariesd status` reports on the daemon",
+				fmt.Sprintf("the server did not answer %s within %s, so aries closed the connection", op, wait)+quoteStderr(c.stderr.String(), "server"))
 		default:
 			c.broken = c.lost(err)
 		}
@@ -719,16 +719,16 @@ const (
 	byAgent   = "ssh-agent"
 )
 
-// maxOffered is the most keys sfx offers a server when none is
+// maxOffered is the most keys aries offers a server when none is
 // configured. sshd counts every key it refuses and hangs up at
 // MaxAuthTries, six by default, so five leaves the server able to
 // answer; a refusal then says which keys were left out.
 const maxOffered = 5
 
-// defaultIdentities are the files of ~/.ssh that sfx tries when no key
+// defaultIdentities are the files of ~/.ssh that aries tries when no key
 // is configured, in the order of ssh_config(5)'s default for
 // IdentityFile. The _sk names are keys held on a hardware token: their
-// files hold a handle, not a key sfx can sign with, so they are used
+// files hold a handle, not a key aries can sign with, so they are used
 // only through ssh-agent. A certificate beside a key (NAME-cert.pub) is
 // not read: certificates are not supported yet (design §17), and
 // nothing here stands in their way.
@@ -747,7 +747,7 @@ type identity struct {
 	// offered, past maxOffered.
 	skipped []string
 	left    []KeyInfo
-	// notRead says the variable sfx never reads (EnvNotRead) is set.
+	// notRead says the variable aries never reads (EnvNotRead) is set.
 	notRead bool
 	// signed is the index of the signer that last signed, or -1. The
 	// server asks for a signature only from a key it accepts.
@@ -853,13 +853,13 @@ func noteSigner(s ssh.Signer, note func()) ssh.Signer {
 // OpenSSH's IdentitiesOnly: whatever ssh-agent holds, the server is
 // shown that key and no other, so a process given a narrow principal's
 // key cannot sign in as whoever's agent socket it inherited. The file
-// signs when it is a private key sfx can read. ssh-agent signs for that
+// signs when it is a private key aries can read. ssh-agent signs for that
 // one key, found by its public half, when the file is
 // passphrase-protected, when it is the public key (a .pub file), and
 // when the private key is missing and its .pub is there, which is how
 // OpenSSH treats an IdentityFile whose key is in the agent.
 //
-// With no key configured, sfx does as ssh does: the default identity
+// With no key configured, aries does as ssh does: the default identity
 // files of ~/.ssh (defaultIdentities), in order, then the keys
 // ssh-agent holds that are not among them, each key once, and
 // maxOffered at most. A default file that needs a passphrase, or a
@@ -918,13 +918,13 @@ func (id *identity) agentSigners(getenv func(string) string) []ssh.Signer {
 }
 
 // noted adds to a refusal that EnvNotRead is set, when it is: someone
-// who set it meant sfx to use a key, and should learn that it did not.
+// who set it meant aries to use a key, and should learn that it did not.
 // The variable's value is never read, so it cannot be repeated.
 func (id *identity) noted(e *proto.Error) *proto.Error {
 	if !id.notRead {
 		return e
 	}
-	return proto.Errf(e.Code, e.Fix, fmt.Sprintf("%s; %s is set, and sfx does not read it: %s names a key file, by its path", e.Message, EnvNotRead, EnvKeyFile))
+	return proto.Errf(e.Code, e.Fix, fmt.Sprintf("%s; %s is set, and aries does not read it: %s names a key file, by its path", e.Message, EnvNotRead, EnvKeyFile))
 }
 
 // unconfigured gathers the keys to offer when none is configured.
@@ -1008,7 +1008,7 @@ func readDefaultIdentity(path string) (signer ssh.Signer, pub ssh.PublicKey, why
 		return k
 	}
 	if strings.HasSuffix(path, "_sk") {
-		const hardware = "it is a hardware-backed key, which sfx uses only through ssh-agent"
+		const hardware = "it is a hardware-backed key, which aries uses only through ssh-agent"
 		if pub = beside(); pub == nil {
 			return nil, nil, hardware + ", and it has no .pub beside it to ask ssh-agent by"
 		}
@@ -1025,7 +1025,7 @@ func readDefaultIdentity(path string) (signer ssh.Signer, pub ssh.PublicKey, why
 		return nil, pub, "it is passphrase-protected"
 	}
 	if err != nil {
-		return nil, nil, "it is not a private key sfx can read"
+		return nil, nil, "it is not a private key aries can read"
 	}
 	return s, nil, ""
 }
@@ -1101,16 +1101,16 @@ func (id *identity) refusedKeys(addr string, err error) *proto.Error {
 	}
 	if id.from != "" {
 		return id.noted(proto.Errf(proto.CodeAuth,
-			fmt.Sprintf("send your public key, the .pub of that file, to the starfix admin, who adds it with `sfx admin key add NAME FILE.pub`; while %s names a key, sfx offers no other, so unset it to offer your default identities and ssh-agent's keys instead", id.from),
-			fmt.Sprintf("%s accepted no key: sfx offered %s, the one key %s names (%s)", addr, id.keys[0].Fingerprint, id.from, id.keys[0].Path)))
+			fmt.Sprintf("send your public key, the .pub of that file, to the aries admin, who adds it with `aries admin key add NAME FILE.pub`; while %s names a key, aries offers no other, so unset it to offer your default identities and ssh-agent's keys instead", id.from),
+			fmt.Sprintf("%s accepted no key: aries offered %s, the one key %s names (%s)", addr, id.keys[0].Fingerprint, id.from, id.keys[0].Path)))
 	}
-	msg := fmt.Sprintf("%s accepted none of the %d keys sfx offered: %s", addr, len(id.keys), id.offered())
+	msg := fmt.Sprintf("%s accepted none of the %d keys aries offered: %s", addr, len(id.keys), id.offered())
 	if len(id.keys) == 1 {
-		msg = fmt.Sprintf("%s accepted no key: sfx offered the one key it found, %s", addr, id.offered())
+		msg = fmt.Sprintf("%s accepted no key: aries offered the one key it found, %s", addr, id.offered())
 	}
 	if hungUp {
 		// A server whose MaxAuthTries is below sshd's default.
-		msg = fmt.Sprintf("%s closed the connection after too many refused keys: sfx had %d to offer (%s), more than this server tries", addr, len(id.keys), id.offered())
+		msg = fmt.Sprintf("%s closed the connection after too many refused keys: aries had %d to offer (%s), more than this server tries", addr, len(id.keys), id.offered())
 	}
 	if n := len(id.left); n > 0 {
 		msg += fmt.Sprintf("; %d more keys that ssh-agent holds were not offered, since sshd hangs up after a few refused keys", n)
@@ -1118,9 +1118,9 @@ func (id *identity) refusedKeys(addr string, err error) *proto.Error {
 	if len(id.skipped) > 0 {
 		msg += "; skipped " + strings.Join(id.skipped, "; ")
 	}
-	fix := fmt.Sprintf("send your public key (`ssh-add -L` lists ssh-agent's) to the starfix admin, who adds it with `sfx admin key add NAME FILE.pub`, or name your key file with %s; once a key is accepted, `sfx whoami` says which key and principal you are", EnvKeyFile)
+	fix := fmt.Sprintf("send your public key (`ssh-add -L` lists ssh-agent's) to the aries admin, who adds it with `aries admin key add NAME FILE.pub`, or name your key file with %s; once a key is accepted, `aries whoami` says which key and principal you are", EnvKeyFile)
 	if len(id.left) > 0 || hungUp {
-		fix = fmt.Sprintf("name your key, so that sfx offers it alone: set %s in your environment to its file, the private key or its .pub; `ssh-add -L` lists what ssh-agent holds", EnvKeyFile)
+		fix = fmt.Sprintf("name your key, so that aries offers it alone: set %s in your environment to its file, the private key or its .pub; `ssh-add -L` lists what ssh-agent holds", EnvKeyFile)
 	}
 	return id.noted(proto.Errf(proto.CodeAuth, fix, msg))
 }

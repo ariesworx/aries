@@ -15,15 +15,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/logs"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
-	"github.com/ariesworx/starfix/internal/telemetry"
+	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
+	"github.com/ariesworx/aries/internal/telemetry"
 	"github.com/go-sql-driver/mysql"
 )
 
 // BenchmarkRetained says what the daemon holds for each thing a client
-// can make it hold (docs/design/profile-starfixd.md): the live heap,
+// can make it hold (docs/design/profile-ariesd.md): the live heap,
 // the goroutine stacks and the goroutines that one more connection,
 // watcher, open store or map entry adds, read after a collection. The
 // figures are the daemon's side alone: what the benchmark's own end of
@@ -533,7 +533,7 @@ func BenchmarkRetainedStores(b *testing.B) {
 }
 
 // BenchmarkStatus is the status report of a server of many projects, as
-// `sfx admin status` asks for it, and the handshake that opens no
+// `aries admin status` asks for it, and the handshake that opens no
 // store: the control index's answers, and the registry's.
 func BenchmarkStatus(b *testing.B) {
 	m := newBenchMulti(b, 2)

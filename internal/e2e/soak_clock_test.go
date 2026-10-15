@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/server"
+	"github.com/ariesworx/aries/internal/server"
 )
 
 // The soak's clock chaos (design §14, decision 37). While the sessions
@@ -315,7 +315,7 @@ func (r *replay) clockStep(e sevent) {
 	_ = json.Unmarshal(e.after, &a)
 	_ = json.Unmarshal(e.before, &b)
 	r.locks.jumps = append(r.locks.jumps, clockJump{seq: e.seq, from: b.At, to: a.At})
-	if e.actor != (sessKey{"starfixd", "clock"}) || e.target != "clock" {
+	if e.actor != (sessKey{"ariesd", "clock"}) || e.target != "clock" {
 		r.fail(e.target, "event %d: clock.step by %s on %q, not by the server on its clock", e.seq, e.actor, e.target)
 	}
 	if a.Extended < 0 || (a.Extended == 0 && a.Claims != 0) {

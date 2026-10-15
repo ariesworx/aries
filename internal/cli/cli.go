@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/board"
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/mcpserver"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/safetext"
+	"github.com/ariesworx/aries/internal/board"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/safetext"
 )
 
 // Exit codes, as [Run] returns them.
@@ -25,7 +25,7 @@ const (
 	ExitOK = 0
 	// ExitFailure: the command failed, or the server refused it.
 	ExitFailure = 1
-	// ExitUsage: a mistake on the command line. Bare sfx prints help and
+	// ExitUsage: a mistake on the command line. Bare aries prints help and
 	// exits with it too.
 	ExitUsage = 2
 	// ExitVersion: this client's protocol version is outside the server's
@@ -38,7 +38,7 @@ const (
 // comment names; Stdout and Stderr must be set.
 type Env struct {
 	// Stdin is read for a text given as "-", by prime --hook, usage
-	// --hook and sfx mcp. Default empty.
+	// --hook and aries mcp. Default empty.
 	Stdin io.Reader
 	// Stdout and Stderr receive all output.
 	Stdout, Stderr io.Writer
@@ -53,15 +53,15 @@ type Env struct {
 	// its transcript offsets. Default os.UserCacheDir.
 	UserCacheDir func() (string, error)
 	// GOOS and Executable are used only by `setup claude-desktop`: the
-	// platform, and the absolute path of this sfx. Defaults runtime.GOOS,
-	// and sfx's entry on PATH when that is this program, else
+	// platform, and the absolute path of this aries. Defaults runtime.GOOS,
+	// and aries's entry on PATH when that is this program, else
 	// os.Executable.
 	GOOS       string
 	Executable func() (string, error)
 	// Version is this binary's build version.
 	Version string
 	// Upgrader overrides what `upgrade` uses. Nil uses the releases
-	// $STARFIX_RELEASES names, or the default source, the built-in
+	// $ARIES_RELEASES names, or the default source, the built-in
 	// release keys and this executable.
 	Upgrader *Upgrader
 	// Now is the time in the user's time zone, whose date `log` sends as
@@ -72,7 +72,7 @@ type Env struct {
 	// terminals.
 	Terminal func() bool
 	// Environ is the environment `lock run` gives the command it runs,
-	// with STARFIX_LOCK_EPOCH added. Default os.Environ.
+	// with ARIES_LOCK_EPOCH added. Default os.Environ.
 	Environ func() []string
 	// After is the clock `lock` waits on: how often it renews a place in
 	// a queue or a hold, and how long it gives a command to stop. Default
@@ -103,7 +103,7 @@ func usagef(usage, format string, a ...any) error {
 	return &usageError{msg: fmt.Sprintf(format, a...), usage: usage}
 }
 
-// command is one sfx command: its name, its usage line without "sfx ",
+// command is one aries command: its name, its usage line without "aries ",
 // the summary help prints, and the function that runs it.
 type command struct {
 	name    string
@@ -161,8 +161,8 @@ func init() {
 		{"setup", "setup AGENT|--all [--write|--check|--remove] [--global [--key-file PATH]] [--command PATH]", "set agents up: MCP config, instruction pointer, session hook", cmdSetup},
 		{"admin", "admin prices [set MODEL --from DATE|TIME --input USD --output USD --cache-write USD --cache-write-1h USD --cache-read USD] | admin plans [set NAME --from YYYY-MM --fee USD --seats N [--principal P]...] | " + adminUsage,
 			"list model prices and subscription plans, or set one; manage a server's projects, principals, members and keys (admins only)", cmdAdmin},
-		{"upgrade", "upgrade [--check] [--rollback]", "replace sfx with the latest verified release; --rollback undoes it", cmdUpgrade},
-		{"version", "version", "print the starfix version", cmdVersion},
+		{"upgrade", "upgrade [--check] [--rollback]", "replace aries with the latest verified release; --rollback undoes it", cmdUpgrade},
+		{"version", "version", "print the aries version", cmdVersion},
 	}
 }
 
@@ -204,7 +204,7 @@ type runner struct {
 	// unsent; "" when it did not.
 	moved string
 	// dir is the directory commands run in, where the search for
-	// .starfix.yaml starts: -C's, else the hook input's cwd for prime
+	// .aries.yaml starts: -C's, else the hook input's cwd for prime
 	// --hook, else ".".
 	dir string
 	// conn is the connection connect opened, if any; Run closes it.
@@ -216,7 +216,7 @@ type runner struct {
 	// one note at most (usage --hook).
 	quiet bool
 	// onPush, if set before connecting, takes the events the server
-	// pushes (sfx watch).
+	// pushes (aries watch).
 	onPush func(proto.Push)
 	// rawOut and rawErr are standard output and error before wrapOutput:
 	// rawOut for JSON, and both for the command `lock run` runs, whose
@@ -239,7 +239,7 @@ func (r *runner) wrapOutput() {
 	r.env.Stdout, r.env.Stderr, r.outs = out, errw, []*safetext.Writer{out, errw}
 }
 
-// mcpOut is standard output for a protocol, not for text: sfx mcp's
+// mcpOut is standard output for a protocol, not for text: aries mcp's
 // JSON-RPC, which encoding/json already escapes.
 func (r *runner) mcpOut() io.Writer {
 	if r.rawOut != nil {
@@ -268,11 +268,11 @@ func (r *runner) flush() {
 	}
 }
 
-// Run executes one sfx command line, without the program name, and
+// Run executes one aries command line, without the program name, and
 // returns its exit code: [ExitUsage] for a mistake on the command line or
-// a bare sfx, which prints help; [ExitVersion] when this client's protocol
+// a bare aries, which prints help; [ExitVersion] when this client's protocol
 // version is outside the server's range; [ExitFailure] for any other
-// failure. It prints a failure on Stderr as an `sfx:` line and, when the
+// failure. It prints a failure on Stderr as an `aries:` line and, when the
 // error has one, a `fix:` line, or with --json as one JSON document on
 // Stdout. Run keeps no state between calls.
 func Run(ctx context.Context, args []string, env Env) int {
@@ -295,7 +295,7 @@ func Run(ctx context.Context, args []string, env Env) int {
 		env.GOOS = runtime.GOOS
 	}
 	if env.Executable == nil {
-		env.Executable = sfxPath
+		env.Executable = ariesPath
 	}
 	if env.Stdin == nil {
 		env.Stdin = strings.NewReader("")
@@ -320,7 +320,7 @@ func Run(ctx context.Context, args []string, env Env) int {
 	if len(args) == 0 || args[0] == "help" {
 		if len(args) > 1 {
 			if c := lookup(args[1]); c != nil {
-				_, _ = fmt.Fprintf(env.Stdout, "usage: sfx %s\n\n%s\n", c.usage, c.summary)
+				_, _ = fmt.Fprintf(env.Stdout, "usage: aries %s\n\n%s\n", c.usage, c.summary)
 				return ExitOK
 			}
 		}
@@ -352,7 +352,7 @@ func Run(ctx context.Context, args []string, env Env) int {
 }
 
 // globalUsage is the usage line of a mistake before the command name.
-const globalUsage = "sfx [-C DIR] [--json] [--no-queue] COMMAND"
+const globalUsage = "aries [-C DIR] [--json] [--no-queue] COMMAND"
 
 // globals consumes -C DIR, --json, --no-queue and -h before the command
 // name.
@@ -386,14 +386,14 @@ func (r *runner) globals(args []string) ([]string, error) {
 
 // help prints the list of commands to w.
 func (r *runner) help(w io.Writer) {
-	_, _ = fmt.Fprintln(w, "usage: sfx [-C DIR] [--json] [--no-queue] COMMAND [ARGS]")
+	_, _ = fmt.Fprintln(w, "usage: aries [-C DIR] [--json] [--no-queue] COMMAND [ARGS]")
 	_, _ = fmt.Fprintln(w)
 	for _, c := range commands {
 		_, _ = fmt.Fprintf(w, "  %-9s %s\n", c.name, c.summary)
 	}
 	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "`sfx help COMMAND` shows a command's usage. --json prints one JSON document.")
-	_, _ = fmt.Fprintln(w, "A write that cannot reach the server is queued and sent later (`sfx outbox`); --no-queue makes it fail.")
+	_, _ = fmt.Fprintln(w, "`aries help COMMAND` shows a command's usage. --json prints one JSON document.")
+	_, _ = fmt.Fprintln(w, "A write that cannot reach the server is queued and sent later (`aries outbox`); --no-queue makes it fail.")
 }
 
 // fail reports err and returns its exit code. A usage error's fix is the
@@ -415,9 +415,9 @@ func (r *runner) fail(err error) int {
 	switch {
 	case errors.As(err, &ue):
 		code, exit, msg = proto.CodeInvalid, ExitUsage, ue.msg
-		fix = "run `sfx help` for the commands"
+		fix = "run `aries help` for the commands"
 		if ue.usage != "" {
-			fix = "usage: sfx " + ue.usage
+			fix = "usage: aries " + ue.usage
 		}
 	case errors.As(err, &pe):
 		code, msg, fix, req = pe.Code, pe.Message, pe.Fix, pe.Req
@@ -436,7 +436,7 @@ func (r *runner) fail(err error) int {
 		r.emit(doc)
 	} else {
 		// The message and fix may be the server's: one line each.
-		_, _ = fmt.Fprintf(r.env.Stderr, "sfx: %s\n", safetext.Line(msg))
+		_, _ = fmt.Fprintf(r.env.Stderr, "aries: %s\n", safetext.Line(msg))
 		if fix != "" {
 			_, _ = fmt.Fprintf(r.env.Stderr, "fix: %s\n", safetext.Line(fix))
 		}
@@ -453,7 +453,7 @@ func (r *runner) fail(err error) int {
 func (r *runner) emit(v any) {
 	b, err := json.Marshal(v)
 	if err != nil {
-		_, _ = fmt.Fprintf(r.env.Stderr, "sfx: encode output: %v\n", err)
+		_, _ = fmt.Fprintf(r.env.Stderr, "aries: encode output: %v\n", err)
 		return
 	}
 	out := r.rawOut
@@ -468,7 +468,7 @@ func (r *runner) emit(v any) {
 // document, and this is not called.
 func (r *runner) warn(warning string) {
 	if warning != "" {
-		_, _ = fmt.Fprintf(r.env.Stderr, "sfx: warning: %s\n", esc(warning))
+		_, _ = fmt.Fprintf(r.env.Stderr, "aries: warning: %s\n", esc(warning))
 	}
 }
 
@@ -485,7 +485,7 @@ func (r *runner) connect(ctx context.Context) (*mcpserver.RepoConn, error) {
 		return nil, err
 	}
 	if w := c.Warning(r.env.Version); w != "" && !r.quiet {
-		_, _ = fmt.Fprintf(r.env.Stderr, "sfx: %s\n", esc(w))
+		_, _ = fmt.Fprintf(r.env.Stderr, "aries: %s\n", esc(w))
 	}
 	r.conn = c
 	if err := r.delivered(ctx); err != nil {
@@ -507,7 +507,7 @@ func (r *runner) clientOptions() client.Options {
 		session = client.DefaultSession(r.env.Getenv)
 	}
 	// The trace context is the environment's, read once for the process:
-	// right for a command, which is one piece of work. `sfx mcp` lives
+	// right for a command, which is one piece of work. `aries mcp` lives
 	// for many agent turns: a tool call that brings a trace context of
 	// its own, in its request's metadata, sends that one instead
 	// (mcpserver, client.WithTrace), and every other request of the

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // iapConn is the SSH transport through Google Cloud IAP: the stdin and
@@ -38,7 +38,7 @@ func iapArgs(iap *IAP, port int) []string {
 // dialIAP starts gcloud's tunnel to the instance cfg names.
 //
 // The program is always gcloud, found on PATH, and never a command from
-// the config: .starfix.yaml is committed, so a command there would be code
+// the config: .aries.yaml is committed, so a command there would be code
 // execution from a cloned repository. exec.LookPath also refuses a gcloud
 // in the current directory (exec.ErrDot), so a checkout cannot plant one.
 // On Windows it finds gcloud.cmd, which os/exec runs through cmd.exe; that
@@ -134,7 +134,7 @@ func (c *iapConn) failed(err error, timeout time.Duration) *proto.Error {
 			fmt.Sprintf("timed out after %s reaching %s through IAP%s", timeout, c, said))
 	}
 	return proto.Errf(proto.CodeUnavailable,
-		"ask the starfix admin for the IAP-secured Tunnel User role on the instance, run `gcloud auth login`, then try "+try,
+		"ask the aries admin for the IAP-secured Tunnel User role on the instance, run `gcloud auth login`, then try "+try,
 		fmt.Sprintf("the IAP tunnel to %s closed before the SSH handshake: %v%s", c, err, said))
 }
 

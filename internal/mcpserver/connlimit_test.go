@@ -9,7 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // turns is a dial that answers each attempt with the next of its
@@ -81,7 +81,7 @@ func TestAtConnLimitWaitsBeforeDialingAgain(t *testing.T) {
 	refused := func(when string) {
 		t.Helper()
 		res := callTool(t, cs, "ready", nil)
-		if got := text(t, res); !res.IsError || !strings.HasPrefix(got, "busy: alice is at its connection limit (2)\nfix: the user's other starfix sessions") {
+		if got := text(t, res); !res.IsError || !strings.HasPrefix(got, "busy: alice is at its connection limit (2)\nfix: the user's other aries sessions") {
 			t.Fatalf("ready %s = %q, want the refusal at the connection limit", when, got)
 		}
 	}
@@ -121,8 +121,8 @@ func TestAtConnLimitWaitsBeforeDialingAgain(t *testing.T) {
 func TestOtherDialRefusalsDialAgain(t *testing.T) {
 	t.Parallel()
 	d := &turns{next: []any{
-		proto.Errf(proto.CodeBusy, "close other starfix sessions, or wait for them to end, and retry", "the server is at its connection limit (1024)"),
-		proto.Errf(proto.CodeBusy, "wait for your other starfix sessions to finish connecting, or close them, and retry",
+		proto.Errf(proto.CodeBusy, "close other aries sessions, or wait for them to end, and retry", "the server is at its connection limit (1024)"),
+		proto.Errf(proto.CodeBusy, "wait for your other aries sessions to finish connecting, or close them, and retry",
 			"alice has 16 connections that have not said hello, the most a principal may (16)"),
 		&fakeConn{who: "alice", reply: func(string, any) (any, error) { return proto.ListResult{Issues: []proto.Summary{}}, nil }},
 	}}

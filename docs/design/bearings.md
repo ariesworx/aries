@@ -1,14 +1,14 @@
-# Bearings: an agent orchestrator on starfix
+# Bearings: an agent orchestrator on Aries
 
 Status: **draft specification**, open for review. Companion to
-[starfix.md](starfix.md).
+[aries.md](aries.md).
 
 Bearings runs and supervises many AI coding agents across sessions and machines.
-starfix holds all state: issues, claims, leases, memory, events and costs.
+Aries holds all state: issues, claims, leases, memory, events and costs.
 Bearings holds none. It is the deterministic Go layer that starts agents, keeps
 their claims honest, routes work to them and lands their output safely.
 
-The name follows starfix: a navigator fixes a position from several star
+The name follows aries: a navigator fixes a position from several star
 bearings, as Bearings lands one change from many agents.
 
 The design draws on Gas Town and its successor Gas City, which proved the idea
@@ -22,11 +22,11 @@ removes.
 1. **Go supervises; LLMs judge.** Spawning, reaping, routing, budgeting and
    merging are deterministic Go reacting to events. A model is called only for
    a question that needs judgment, such as "why is this agent stuck?".
-2. **Stateless.** Every fact lives in starfix. A Bearings restart loses nothing
+2. **Stateless.** Every fact lives in Aries. A Bearings restart loses nothing
    and adopts its running children.
-3. **Event-driven, never polling.** Bearings subscribes to the starfix event
+3. **Event-driven, never polling.** Bearings subscribes to the Aries event
    stream (`evt` frames pushed over the SSH connection). No status loops, no per-operation CLI processes.
-4. **Identity is the SSH principal plus the session**, as in starfix. Never a
+4. **Identity is the SSH principal plus the session**, as in Aries. Never a
    path, a working directory or an environment variable.
 5. **Safe by default.** Pull-request mode with a human gate. No merge without
    green CI, never a force-push, never a push to a protected branch. Agents run
@@ -36,7 +36,7 @@ removes.
    operator has allowed, and refuses everything else at config load.
 7. **One static binary, Go only.** No Node, Python or TypeScript components. No
    hard dependency on tmux.
-8. **Terse.** Same output rules as starfix: failures print, passes only with
+8. **Terse.** Same output rules as aries: failures print, passes only with
    `-v`, one summary line, `--json` for machines.
 
 ## 2. Architecture
@@ -50,28 +50,28 @@ removes.
  │  agent CLIs (Claude Code, Codex, Gemini), one process group │
  │  and one git worktree each, optionally sandboxed            │
  └──────┬──────────────────────────────────────────────────────┘
-        │ starfix client: MCP for agents, RPC + event push for bearingsd
+        │ aries client: MCP for agents, RPC + event push for bearingsd
         ▼
-     starfixd ─── Dolt
+     ariesd ─── Dolt
 ```
 
 - `bearingsd` runs on every machine that runs agents, because it owns their
   processes and worktrees: a developer's laptop, a headless server, or both.
-  Several can share one starfix server; that is the multi-machine story, and it
-  mostly falls out of starfix's single authority and leases.
+  Several can share one Aries server; that is the multi-machine story, and it
+  mostly falls out of Aries's single authority and leases.
 - **Deployment order.** Developer machines first, until Bearings is proven:
   supervise agents on the developer's machine under their own logins. Then a
   server `bearingsd` that keeps working when no developer is online. The merge
   train (§3.5) holds push credentials and the branch lock, so it runs in
   exactly one place, on that server.
-- Agents talk to starfix through its MCP server. Bearings never types into an
+- Agents talk to Aries through its MCP server. Bearings never types into an
   agent's terminal.
 - `bearings` is the operator CLI. It talks to the local `bearingsd` over a unix
   socket.
 
 ## 3. Components
 
-Each row names the starfix primitive it builds on and the Gas Town failure it
+Each row names the Aries primitive it builds on and the Gas Town failure it
 addresses.
 
 | # | Component | Uses | Removes |
@@ -82,8 +82,8 @@ addresses.
 | 4 | **Conflict log; reservations later** | events; later reservations | rework from overlapping work, unmeasured |
 | 5 | **Safe merge train** | locks, gates, events | merges on red CI, force-push recovery |
 | 6 | **Structured handoff** | handoffs, scoped memory, prime | lost reasoning when a session ends |
-| 7 | **Budget and concurrency governor** | semaphores, cost tracking (starfix §12.1) | rate-limit exhaustion, runaway spend |
-| 8 | **MCP inbox instead of keystrokes** | inbox, event push, `sfx setup` | send-keys fragility, provider-specific hooks |
+| 7 | **Budget and concurrency governor** | semaphores, cost tracking (Aries §12.1) | rate-limit exhaustion, runaway spend |
+| 8 | **MCP inbox instead of keystrokes** | inbox, event push, `aries setup` | send-keys fragility, provider-specific hooks |
 | 9 | **Dispatch policy** | ready, claims, labels | first-come dispatch, manual assignment |
 | 10 | **Formula runner** | molecules, idempotency keys, gates | duplicate workflow instances |
 | 11 | **Observability** | events, agents, digest | many stores, polling dashboards |
@@ -112,7 +112,7 @@ addresses.
   never from scraping terminal text.
 - `blocked{usage_limit, until}` pauses the agent and its claims without being
   reaped, and resumes it at `until`.
-- State changes are starfix events, so every observer sees the same truth.
+- State changes are Aries events, so every observer sees the same truth.
 
 ### 3.3 Event-driven patrol
 
@@ -137,16 +137,16 @@ rely on it alone.
 - **Reservations are deferred.** If the log shows rework is expensive, add
   reservations: before dispatch, reserve the paths an issue will touch, and hold
   overlapping issues until the first merges. Sources, in order: paths in the
-  issue's `design` field; files similar past issues touched (starfix's
+  issue's `design` field; files similar past issues touched (Aries's
   files-to-issues index); reserve on first write. No model call unless data
   shows it is needed.
 
 ### 3.5 Safe merge train
 
-- A starfix lock (FIFO, leased) guards each target branch.
+- An Aries lock (FIFO, leased) guards each target branch.
 - Batch ready branches, test the batch tip, bisect on red, and eject the
   culprit back to its issue with the failure attached.
-- Gates come from the starfix gate runner: required CI checks and, by default,
+- Gates come from the Aries gate runner: required CI checks and, by default,
   human approval.
 - **Queue only until the server runs.** The train orders, tests and opens pull
   requests; a human merges. Merging by the train waits for the server
@@ -168,23 +168,23 @@ forking.
 
 - Server-side semaphores cap active agents per developer, project and provider.
 - Spend budgets in tokens or dollars per issue, per formula run and per day,
-  using starfix's token capture and price table (§12.1). Subscription plans use
+  using Aries's token capture and price table (§12.1). Subscription plans use
   the amortized cost.
 - At a threshold the governor stops dispatching, lets running agents finish
   their current step, and posts to the inbox.
 
 ### 3.7.1 Accounting split
 
-starfix owns the accounting: token usage per issue, session and `account`, the
-price table, list-price and amortized cost, `sfx cost`, `sfx log` and
-the MCP `cost` tool (starfix §12.1). Bearings keeps no ledger. It does two
+Aries owns the accounting: token usage per issue, session and `account`, the
+price table, list-price and amortized cost, `aries cost`, `aries log` and
+the MCP `cost` tool (Aries §12.1). Bearings keeps no ledger. It does two
 things:
 
 - **Capture.** Because it launches each agent, Bearings reads the harness's
-  usage output at the end of each turn or session and reports it to starfix
+  usage output at the end of each turn or session and reports it to Aries
   against the claimed issue. This covers harnesses whose hooks cannot report
   usage.
-- **Enforce.** The governor reads cost back from starfix to apply budgets.
+- **Enforce.** The governor reads cost back from Aries to apply budgets.
 
 The numbers are the same whether work ran under Bearings or by hand.
 
@@ -202,9 +202,9 @@ calls (§3.3) go through the same CLI in headless mode.
 
 ### 3.8 MCP inbox instead of keystrokes
 
-Nudges, mail and operator instructions go to the starfix inbox. The agent reads
+Nudges, mail and operator instructions go to the Aries inbox. The agent reads
 them through its MCP `inbox` tool, or a session-start or prompt-submit hook that
-reads the local starfix cache. tmux, if used at all, is a viewer.
+reads the local Aries cache. tmux, if used at all, is a viewer.
 
 ### 3.9 Dispatch policy
 
@@ -216,7 +216,7 @@ reads the local starfix cache. tmux, if used at all, is a viewer.
 
 ### 3.10 Formula runner
 
-TOML workflow templates instantiated as starfix molecules with idempotency keys,
+TOML workflow templates instantiated as Aries molecules with idempotency keys,
 so a retried start never duplicates a run. Steps advance on events. A step can
 require a gate: CI, a human approval, or a named reviewer.
 
@@ -226,20 +226,20 @@ require a gate: CI, a human approval, or a named reviewer.
 - `bearings board`: live TUI (bubbletea) over the event stream.
 - `bearingsd --http`: a server-rendered status page (`html/template`), no
   JavaScript framework.
-- The starfix `digest` covers "what happened in the last N hours".
+- The Aries `digest` covers "what happened in the last N hours".
 - OpenTelemetry traces and metrics, optional.
 
 ### 3.12 Sandboxed workers
 
 Run each agent in a container with only its worktree mounted and a network
 allowlist. Containers, not bubblewrap, so one design runs on macOS (most
-developers, through the local container runtime's VM) and Linux (servers). Inject a session-scoped credential that starfixd maps to
+developers, through the local container runtime's VM) and Linux (servers). Inject a session-scoped credential that ariesd maps to
 (principal, session). No ambient `~/.ssh`, no git push rights. Unrestricted
 agent permissions are allowed only here.
 
 ### 3.13 Epics: distributed work on one goal
 
-An epic is a starfix issue of type `epic` whose children point to it with
+An epic is an Aries issue of type `epic` whose children point to it with
 `parent_id`. Bearings never dispatches the epic itself; it runs the children,
 possibly on several machines at once, and lands them as one change. That is the
 hardest coordination problem Bearings has, because siblings share a goal, often
@@ -262,8 +262,8 @@ share files, and depend on each other's code, not just each other's status.
 1. **Plan, then approve.** A planning step (a person, or an agent at a person's
    request) splits the epic into children sized for one session each, with
    dependencies and an epic-level `design` (interfaces, conventions, out of
-   scope). Dispatch starts only after a human approves the plan through a
-   starfix gate. Parallelism comes from the dependency graph, so a poor split
+   scope). Dispatch starts only after a human approves the plan through an
+   Aries gate. Parallelism comes from the dependency graph, so a poor split
    costs more than any scheduler can win back.
 2. **One integration branch per epic.** The merge train creates
    `epic/<id>` from `main`. Children branch from its tip and land on it through
@@ -273,14 +273,14 @@ share files, and depend on each other's code, not just each other's status.
    pull request to `main`, as for standalone issues.
 3. **"Landed", not "closed", unblocks.** A child's dependents become dispatchable
    when it has *landed* on the epic branch, not when its agent closes it. The
-   merge train records a `landed {issue, branch, sha}` event in starfix, and the
+   merge train records a `landed {issue, branch, sha}` event in Aries, and the
    dispatcher requires every blocker to be landed. Workers on any machine fetch
    the epic branch before creating a worktree, so they always start from code
    that contains their blockers.
 4. **Shared epic context.** `prime` for a child includes the epic's `design`, the
    epic's decision log, and short handoffs from landed siblings. When an agent
    makes a decision others must follow (an interface, a name, a schema), it
-   records it with the starfix MCP tools as an epic decision; Bearings pushes it
+   records it with the Aries MCP tools as an epic decision; Bearings pushes it
    to the inboxes of running siblings, whose next prompt sees it.
 5. **Lower parallelism, measured conflicts.** Siblings collide more than
    unrelated issues, so each epic has its own cap (`max_parallel`, default 3)
@@ -308,13 +308,13 @@ share files, and depend on each other's code, not just each other's status.
     close-eligible. The epic closes when that pull request merges. Cancelling an
     epic stops its agents, releases claims and keeps every branch.
 
-**What starfix needs** (beyond stage 3): a `landed` event and "blockers landed"
+**What Aries needs** (beyond stage 3): a `landed` event and "blockers landed"
 in the ready query used for dispatch (stage 6, with gates); epic decisions as
 epic-tagged memory (stage 4); `epic status` and close-eligible (bd parity);
 `cost --by epic` (stage 4, already designed).
 
 **Distributed by construction.** Nothing in this design depends on where an
-agent runs. Claims, the landed event, decisions and budgets live in starfix;
+agent runs. Claims, the landed event, decisions and budgets live in Aries;
 code moves only through the epic branch on the git remote. A laptop and a
 server can work the same epic, and a child resumed on another machine starts
 from its handoff and the branch.
@@ -328,14 +328,14 @@ weekend, but no LLM leads it (decision 11).
   project, epic or label set), a budget, a pull-request cap and an expiry of
   at most 72 hours. Workers may start work only inside an open window.
   Expiry is the dead-man switch; closing the window is the kill switch.
-  starfixd stores and enforces it, so a crashed or misbehaving `bearingsd`
+  ariesd stores and enforces it, so a crashed or misbehaving `bearingsd`
   cannot extend it.
 - **Pre-approved queue.** Before leaving, people approve the work in scope.
   Stateless workers pull ready issues from it with leases. A model plans only
   while a person is present; unattended, nothing adds work to the queue.
 - **Where it runs.** On a server the team controls (decision 12). Hosted
   agent sandboxes generally reach the internet only through HTTP proxies or
-  domain allowlists, and starfix speaks SSH.
+  domain allowlists, and Aries speaks SSH.
 - **Credentials.** Provider API keys only, never a subscription login
   (decision 14). Pushes use a bot identity that cannot bypass branch rules or
   change workflows, with short-lived tokens checked before a window opens.
@@ -348,7 +348,7 @@ weekend, but no LLM leads it (decision 11).
 - **Circuit breakers.** The governor stops dispatch on repeated failures,
   error-rate spikes, provider rate limits or outages, and budget exhaustion,
   and never retries into a storm.
-- **Starfix needs:** the window itself; narrower default rights, so a worker
+- **Aries needs:** the window itself; narrower default rights, so a worker
   cannot edit or close work outside its claim; distinct agent identities
   instead of many sessions under one developer's key; a person's claim that
   lapses during a window parks instead of becoming ready; and a claim epoch
@@ -394,7 +394,7 @@ mode = "none"          # "none" or "container"
 | A mandatory planning agent as the only interface | Optional. The CLI, inbox and digest are the interface |
 | Identity from path, cwd or environment variables | Forgeable; identity is principal plus session |
 | tmux as IPC or a hard dependency | Fragile; the inbox replaces it |
-| Mail stored as issues | starfix has an inbox |
+| Mail stored as issues | Aries has an inbox |
 | Federation, reputation, ledgers | Conflicts with one authority |
 | Release workflows that push upstream with user credentials | Only the merge train pushes, and only to unprotected branches |
 | Autonomous merge to main by default | Default is PR plus human gate |
@@ -405,9 +405,9 @@ mode = "none"          # "none" or "container"
 
 ## 6. Plan
 
-Bearings stages depend on starfix stages ([starfix.md §13](starfix.md#13-plan)).
+Bearings stages depend on Aries stages ([aries.md §13](aries.md#13-plan)).
 
-| Stage | Delivers | Needs starfix |
+| Stage | Delivers | Needs Aries |
 |---|---|---|
 | B0 | Supervisor (§3.1), typed state (§3.2), `bearings who`, provider allowlist, one provider (Claude Code) | 3 (leases, agents, inbox, event push) |
 | B1 | Event-driven patrol (§3.3), handoff (§3.6), inbox delivery (§3.8), conflict log (§3.4), Codex and Gemini | 3 |
@@ -416,10 +416,10 @@ Bearings stages depend on starfix stages ([starfix.md §13](starfix.md#13-plan))
 | B4 | Sandboxed workers (§3.12), HTML status page, OpenTelemetry | 3 |
 | B5 | Server `bearingsd` running unattended inside autonomy windows (§3.14); merge train may merge into `epic/*` (opt-in) | 3 plus the autonomy window, scoped rights and git fencing (§3.14) |
 | — | Reservations (§3.4), only if the conflict log shows rework is expensive | 6 (reservations) |
-| — | Gas City shim: an `exec:` beads provider backed by starfix, so Gas City users can try it | 1 (issues, deps, ready) |
+| — | Gas City shim: an `exec:` beads provider backed by Aries, so Gas City users can try it | 1 (issues, deps, ready) |
 
 B5 is built right after B1, ahead of B2–B4 (decision 13): unattended work
-is the goal, and B5 needs only the starfix primitives in §3.14.
+is the goal, and B5 needs only the Aries primitives in §3.14.
 
 Gate for B0: a dozen agents across two machines run for a day with no stuck
 claims, no orphaned processes and no reaped live agents.
@@ -433,7 +433,7 @@ claims, no orphaned processes and no reaped live agents.
 | 3 | Sandboxes are containers, on macOS and Linux (§3.12). |
 | 4 | Build the Gas City shim (§6). |
 | 5 | Worktrees and pull requests handle conflicts; log them, and defer reservations until the log justifies them (§3.4). |
-| 6 | Bearings lives in this repository as `cmd/bearings` and `cmd/bearingsd`, in the same Go module, released under one tag with starfix, so it never ships against a protocol starfix does not speak. |
+| 6 | Bearings lives in this repository as `cmd/bearings` and `cmd/bearingsd`, in the same Go module, released under one tag with Aries, so it never ships against a protocol Aries does not speak. |
 | 7 | Epics integrate on an `epic/<id>` branch by default; small epics may opt into `integration = "trunk"` (§3.13). |
 | 8 | A human accepts discovered children; a per-epic policy may come later, once spend forecasts are trustworthy (§3.13). |
 | 9 | A person or a planning agent may plan an epic; dispatch always waits for a human to approve the plan (§3.13). |

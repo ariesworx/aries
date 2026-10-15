@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Cost (design §12.1): the list-price equivalent of tokens, computed when

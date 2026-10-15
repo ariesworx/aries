@@ -6,11 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Token usage (design §12.1). A harness reports what each request cost,
-// as counts by model; sfx sends those records here, and AddUsage keeps
+// as counts by model; aries sends those records here, and AddUsage keeps
 // one row per (principal, session, request id), so a batch sent twice is
 // stored once. Nothing about an issue is stored with a row: which issue
 // it belongs to is worked out when read, from the session's claims

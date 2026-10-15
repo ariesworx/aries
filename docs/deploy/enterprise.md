@@ -11,10 +11,10 @@ $114 with an e2-standard-4 ([Costs](#costs)).
 
 ```text
 laptops ───┐  gcloud: IAP TCP forwarding,
-CI runners ┘  for members of starfix-users@example.com only
+CI runners ┘  for members of aries-users@example.com only
      │
      ▼
-Google Cloud IAP ──▶ VM with no public address ──▶ sshd ─▶ starfixd ─▶ Dolt (data disk)
+Google Cloud IAP ──▶ VM with no public address ──▶ sshd ─▶ ariesd ─▶ Dolt (data disk)
                       ├─ Cloud NAT, outbound only: releases and OS updates
                       ├─ daily disk snapshots, kept 14 days
                       └─ daily dumps ─▶ Cloud Storage, under a retention policy
@@ -28,11 +28,11 @@ Google Cloud IAP ──▶ VM with no public address ──▶ sshd ─▶ starf
 | Access | IAP TCP forwarding. The IAP-secured Tunnel User role goes to a Google group | Leaving the group cuts a person off at the network, even before their key line is removed |
 | Identity | One principal per person, with keys in ssh-agent; service principals for CI | Every change names a person or a known automation |
 | CI | Workload Identity Federation, so no service account key exists, and an SSH key from the CI's secret store | Nothing long-lived to leak from CI but the SSH key, which is revoked alone |
-| Server | e2-standard-4 (4 vCPUs, 16 GB), the machine the load test used, with Ubuntu 24.04 LTS, a supported platform; e2-standard-2 for a smaller company | Headroom for many agents. If the server holds [several projects](../server.md#serving-many-projects), size it by what all of them write between restarts of Dolt, which is what Dolt's memory follows: about 100 to 180 MB for each small project in use and 1 to 2 GB for a large one in [the measurements](../../spike/multidb/RESULTS.md) ([Dolt's memory](../server.md#dolts-memory)) |
+| Server | e2-standard-4 (4 vCPUs, 16 GB), the machine the load test used, with Ubuntu 24.04 LTS, a supported platform; e2-standard-2 for a smaller company | Headroom for many agents. If the server holds [several projects](../server.md#serving-many-projects), size it by what all of them write between restarts of Dolt, which is what Dolt's memory follows: about 100 to 180 MB for each small project in use and 1 to 2 GB for a large one in [the measurements](https://github.com/ariesworx/aries/blob/fbbbf4655665845db81a72d2bbd1845472fd1c5a/spike/multidb/RESULTS.md) ([Dolt's memory](../server.md#dolts-memory)) |
 | Disks | A 20 GB boot disk, and a 50 GB data disk mounted at `/var/lib/dolt` | The boot disk can be rebuilt without touching the data |
 | Outbound | Cloud NAT | Upgrades download releases from GitHub, and the OS needs updates |
 | Backups | Daily snapshots kept 14 days, and daily dumps to a bucket with a retention policy. The VM may create objects there and do nothing else | A compromised VM cannot delete or overwrite a backup |
-| Monitoring | Alerts on the VM stopping, on disk use over 80% (reported by the Ops Agent), and on `level=ERROR` lines in starfixd's journal; a budget with alerts | Problems surface before people notice |
+| Monitoring | Alerts on the VM stopping, on disk use over 80% (reported by the Ops Agent), and on `level=ERROR` lines in ariesd's journal; a budget with alerts | Problems surface before people notice |
 | Admins | Two named admins. Key lines are managed by your configuration management | Changes to access are reviewed like code |
 
 ## Build it
@@ -41,9 +41,9 @@ Google Cloud IAP ──▶ VM with no public address ──▶ sshd ─▶ starf
    through Cloud NAT. With example names:
 
    ```sh
-   gcloud compute firewall-rules create allow-iap-ssh --network default --allow tcp:22 --source-ranges 35.235.240.0/20 --target-tags starfix
-   gcloud compute routers create starfix-router --network default --region us-central1
-   gcloud compute routers nats create starfix-nat --router starfix-router --region us-central1 --auto-allocate-nat-external-ips --nat-all-subnet-ip-ranges
+   gcloud compute firewall-rules create allow-iap-ssh --network default --allow tcp:22 --source-ranges 35.235.240.0/20 --target-tags aries
+   gcloud compute routers create aries-router --network default --region us-central1
+   gcloud compute routers nats create aries-nat --router aries-router --region us-central1 --auto-allocate-nat-external-ips --nat-all-subnet-ip-ranges
    ```
 
 2. **The VM.** Give it its own service account, with only the roles to
@@ -51,7 +51,7 @@ Google Cloud IAP ──▶ VM with no public address ──▶ sshd ─▶ starf
    data disk:
 
    ```sh
-   gcloud compute instances create starfix --zone us-central1-a --machine-type e2-standard-4 --no-address --shielded-secure-boot --image-family ubuntu-2404-lts-amd64 --image-project ubuntu-os-cloud --boot-disk-size 20GB --boot-disk-type pd-balanced --create-disk name=starfix-data,size=50GB,type=pd-balanced,auto-delete=no --tags starfix --service-account starfix-vm@example-project.iam.gserviceaccount.com --scopes cloud-platform
+   gcloud compute instances create aries --zone us-central1-a --machine-type e2-standard-4 --no-address --shielded-secure-boot --image-family ubuntu-2404-lts-amd64 --image-project ubuntu-os-cloud --boot-disk-size 20GB --boot-disk-type pd-balanced --create-disk name=aries-data,size=50GB,type=pd-balanced,auto-delete=no --tags aries --service-account aries-vm@example-project.iam.gserviceaccount.com --scopes cloud-platform
    ```
 
    Add a 14-day snapshot schedule for both disks, as in the
@@ -70,7 +70,7 @@ Google Cloud IAP ──▶ VM with no public address ──▶ sshd ─▶ starf
    the project:
 
    ```sh
-   gcloud compute instances add-iam-policy-binding starfix --zone us-central1-a --member group:starfix-users@example.com --role roles/iap.tunnelResourceAccessor
+   gcloud compute instances add-iam-policy-binding aries --zone us-central1-a --member group:aries-users@example.com --role roles/iap.tunnelResourceAccessor
    ```
 
 5. **The host key.** Publish the fingerprint where developers already
@@ -78,13 +78,13 @@ Google Cloud IAP ──▶ VM with no public address ──▶ sshd ─▶ starf
    attribute at boot, so `gcloud compute instances get-guest-attributes`
    shows it to anyone who may look the instance up.
 
-6. **The repositories.** Each `.starfix.yaml` gets an `iap` block
+6. **The repositories.** Each `.aries.yaml` gets an `iap` block
    ([Servers without a public IP](../cli.md#servers-without-a-public-ip-google-cloud-iap)):
 
    ```yaml
    project: 6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f
    server:
-     host: starfix
+     host: aries
      host_key: SHA256:…
      iap:
        project: example-project
@@ -95,8 +95,8 @@ Google Cloud IAP ──▶ VM with no public address ──▶ sshd ─▶ starf
    service account create objects in it and nothing else:
 
    ```sh
-   gcloud storage buckets create gs://example-starfix-backups --location us-central1 --uniform-bucket-level-access --retention-period 30d
-   gcloud storage buckets add-iam-policy-binding gs://example-starfix-backups --member serviceAccount:starfix-vm@example-project.iam.gserviceaccount.com --role roles/storage.objectCreator
+   gcloud storage buckets create gs://example-aries-backups --location us-central1 --uniform-bucket-level-access --retention-period 30d
+   gcloud storage buckets add-iam-policy-binding gs://example-aries-backups --member serviceAccount:aries-vm@example-project.iam.gserviceaccount.com --role roles/storage.objectCreator
    ```
 
    Extend the daily [dump](../server.md#backups-and-restore) to copy each
@@ -118,14 +118,14 @@ Google Cloud IAP ──▶ VM with no public address ──▶ sshd ─▶ starf
 - **Overrides are on the record.** When a claim is stuck, an admin can
   change the issue or force a close, and each override is an
   `admin.override` event naming the holder.
-- **Every change is an event.** `sfx history ID` shows who changed an
-  issue and when, and `sfx digest --by PRINCIPAL` shows one person's or
+- **Every change is an event.** `aries history ID` shows who changed an
+  issue and when, and `aries digest --by PRINCIPAL` shows one person's or
   automation's work over a window.
 - **Offboarding:** remove the person from the group, delete their key
   lines, and stop their open sessions
   ([Principals](../server.md#principals)).
 - **Upgrades:** take a dump, upgrade the server, then tell people to run
-  `sfx upgrade` ([Upgrades](../server.md#upgrades)).
+  `aries upgrade` ([Upgrades](../server.md#upgrades)).
 
 ## Costs
 
@@ -150,7 +150,7 @@ Google Cloud list prices, us-central1, on demand, read on 7 October 2026:
   key version a month and $0.03 per 10,000 operations.
 - **Alerting is free for now.** Cloud Monitoring starts charging for
   alerting no sooner than 1 September 2027, at $0.35 per metric reference
-  a month. Logging's first 50 GB a month per project is free, and starfixd
+  a month. Logging's first 50 GB a month per project is free, and ariesd
   at `info` logs little.
 
 Sources: [VM pricing](https://cloud.google.com/products/compute/pricing/general-purpose),
@@ -163,7 +163,7 @@ Sources: [VM pricing](https://cloud.google.com/products/compute/pricing/general-
 
 ## On other clouds
 
-The same shape works anywhere a VM can have no public address. starfix
+The same shape works anywhere a VM can have no public address. Aries
 supports only Google Cloud IAP natively. Elsewhere, put the server behind
 a VPN such as WireGuard, and point `host` at its private address.
 

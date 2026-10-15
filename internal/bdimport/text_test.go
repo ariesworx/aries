@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/safetext"
+	"github.com/ariesworx/aries/internal/safetext"
 )
 
 // bd stores any text, and the store refuses control and bidi characters.

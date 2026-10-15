@@ -7,7 +7,7 @@ import (
 
 // Observer is told what a store's writer did, as it does it, so that the
 // daemon can measure a store without the store knowing how (design
-// §16.4): starfixd's metrics are built on it. Every method is called on
+// §16.4): ariesd's metrics are built on it. Every method is called on
 // the goroutine that did the work, after the work is done and outside
 // any transaction, so an implementation must return at once, read no
 // database, and be safe for concurrent use.
@@ -31,7 +31,7 @@ type Observer interface {
 
 // Tracer is told where a write's time goes, as it goes, under the
 // context of the request that asked for it, so that the daemon can
-// trace a store without the store knowing how (design §16.4): starfixd's
+// trace a store without the store knowing how (design §16.4): ariesd's
 // spans below a request's are built on it. It is told of nothing an
 // [Observer] measures, and changes none of those figures.
 type Tracer interface {

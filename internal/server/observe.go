@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/logs"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
-	"github.com/ariesworx/starfix/internal/telemetry"
+	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
+	"github.com/ariesworx/aries/internal/telemetry"
 )
 
 // What the daemon measures of itself (design §16.4), and whether it is
@@ -322,7 +322,7 @@ type doltCheck struct {
 // stands, so a caller may ask as often as it likes.
 func (s *Server) Ready(ctx context.Context) string {
 	if !s.listening.Load() {
-		return "starfixd is not listening on its socket"
+		return "ariesd is not listening on its socket"
 	}
 	if err := s.checkDolt(ctx); err != nil {
 		return "the last check of Dolt failed"

@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# The starfix test server's entrypoint (deploy/docker/Dockerfile), doing
+# The Aries test server's entrypoint (deploy/docker/Dockerfile), doing
 # what docs/server.md's steps 2 to 6 do on a machine, and then what its
 # "Serving many projects" does: the server holds many projects, and sshd
-# reads the keys of its control database from a file starfixd writes,
-# /state/ssh/starfix_keys, beside authorized_keys.
+# reads the keys of its control database from a file ariesd writes,
+# /state/ssh/aries_keys, beside authorized_keys.
 #
-# On the first start it makes the sshd host key, gives Dolt's starfix
+# On the first start it makes the sshd host key, gives Dolt's aries
 # account a random password, which only the 0600 config file holds, and
 # writes the config. Then, once, it creates the control database, grants
 # a block of database names for new projects, and names both in the
 # config. On every start it installs the principals given in
-# STARFIX_KEYS or /etc/starfix-keys, runs `starfixd control init`, which
+# ARIES_KEYS or /etc/aries-keys, runs `ariesd control init`, which
 # adopts the project and imports those principals and keys, runs dolt,
-# starfixd and sshd, and prints the .starfix.yaml a client needs. When
+# ariesd and sshd, and prints the .aries.yaml a client needs. When
 # one of the three exits, it stops the other two and exits 1.
 #
-# With STARFIX_TELEMETRY=1 starfixd also reports on itself, set up as
+# With ARIES_TELEMETRY=1 ariesd also reports on itself, set up as
 # docs/server.md's Observability sets a server up: it serves /metrics,
 # /healthz and /readyz on loopback, and pushes metrics, traces and logs over
 # OTLP to a collector on loopback, which the compose file's `telemetry`
@@ -25,23 +25,23 @@ set -euo pipefail
 umask 077
 
 state=/state
-config=/etc/starfix/starfixd.yaml
+config=/etc/aries/ariesd.yaml
 authorized=$state/ssh/authorized_keys
 hostkey=$state/hostkeys/ssh_host_ed25519_key
-keys_file=/etc/starfix-keys
-ready=/run/starfix-ready
-port=${STARFIX_PORT:-2222}
+keys_file=/etc/aries-keys
+ready=/run/aries-ready
+port=${ARIES_PORT:-2222}
 # The server of many projects: its control database, the name the
 # project it starts with is adopted under, and the block of database
-# names `sfx admin project add` takes from.
-control_db=starfix_control
+# names `aries admin project add` takes from.
+control_db=aries_control
 first_project=first
-project_dbs_prefix=starfix_p
+project_dbs_prefix=aries_p
 project_dbs_count=8
 # Dolt's metrics endpoint, as /etc/dolt/config.yaml sets it: loopback
 # only, since it has no authentication.
 dolt_metrics_url=http://127.0.0.1:11228/metrics
-# starfixd's telemetry, with STARFIX_TELEMETRY=1: its loopback listener,
+# ariesd's telemetry, with ARIES_TELEMETRY=1: its loopback listener,
 # the collector it pushes to, and the key its stand-ins for people are
 # made with, which is on the volume so that a person keeps one stand-in
 # across a rebuild. Its log records are exported too, which a server
@@ -64,9 +64,9 @@ blob_re='^[A-Za-z0-9+/]+={0,3}$'
 pids=()   # children, in the order they started
 names=()  # their names, for the log
 
-log() { printf 'starfix-docker: %s\n' "$*" >&2; }
+log() { printf 'aries-docker: %s\n' "$*" >&2; }
 
-# stop ends the children, last started first, so starfixd closes the store
+# stop ends the children, last started first, so ariesd closes the store
 # before Dolt goes away.
 stop() {
   trap - TERM INT
@@ -135,8 +135,8 @@ setting() { sed -n "s/^$1: //p" "$config"; }
 # when the config it replaces names a control database, it also names
 # the control database and the block of project databases (opt_in). It
 # always names Dolt's metrics endpoint, which the image's Dolt config
-# turns on, so that `sfx admin status` shows Dolt's figures; and, with
-# STARFIX_TELEMETRY=1, starfixd's own listener and the stand-ins' key.
+# turns on, so that `aries admin status` shows Dolt's figures; and, with
+# ARIES_TELEMETRY=1, ariesd's own listener and the stand-ins' key.
 write_config() {
   local many=${4:-}
   if [[ -f $config && -n $(setting control_db) ]]; then
@@ -151,24 +151,24 @@ write_config() {
     if telemetry_on; then
       printf '  listen: %s\n  principals_key: %s\n' "$telemetry_listen" "$telemetry_key"
     fi
-  } | install -o starfix -g starfix -m 0600 /dev/stdin "$config"
+  } | install -o aries -g aries -m 0600 /dev/stdin "$config"
 }
 
 # watch_dolt moves a volume that an image from before Dolt's metrics
-# made: its config does not say where starfixd reads them. Dolt's own
+# made: its config does not say where ariesd reads them. Dolt's own
 # config is the image's, so Dolt serves them from this start on.
 watch_dolt() {
   if grep -q '^  dolt_metrics_url: ' "$config"; then
     return 0
   fi
   write_config "$(setting dsn)" "$(setting project)" "$(setting admins | tr -d '[]')"
-  log "starfixd now reads Dolt's metrics at $dolt_metrics_url, for sfx admin status"
+  log "ariesd now reads Dolt's metrics at $dolt_metrics_url, for aries admin status"
 }
 
-telemetry_on() { [[ ${STARFIX_TELEMETRY:-} == 1 ]]; }
+telemetry_on() { [[ ${ARIES_TELEMETRY:-} == 1 ]]; }
 
-# watch_self brings the config in step with STARFIX_TELEMETRY, which may
-# differ from the start that wrote it: on, starfixd's listener and the
+# watch_self brings the config in step with ARIES_TELEMETRY, which may
+# differ from the start that wrote it: on, ariesd's listener and the
 # stand-ins' key are named and the key's directory is made; off, they
 # are not named. The key is never removed here: deleting it makes every
 # earlier stand-in unlinkable, which is for whoever runs the server to
@@ -179,7 +179,7 @@ watch_self() {
     has=1
   fi
   if telemetry_on; then
-    install -d -o starfix -g starfix -m 0700 "$state/telemetry"
+    install -d -o aries -g aries -m 0700 "$state/telemetry"
     if ((has)); then
       return 0
     fi
@@ -188,33 +188,33 @@ watch_self() {
   fi
   write_config "$(setting dsn)" "$(setting project)" "$(setting admins | tr -d '[]')"
   if telemetry_on; then
-    log "starfixd serves /metrics, /healthz and /readyz on $telemetry_listen, and pushes metrics, traces and log records to $telemetry_endpoint"
+    log "ariesd serves /metrics, /healthz and /readyz on $telemetry_listen, and pushes metrics, traces and log records to $telemetry_endpoint"
   else
-    log "starfixd's telemetry is off: STARFIX_TELEMETRY is not set"
+    log "ariesd's telemetry is off: ARIES_TELEMETRY is not set"
   fi
 }
 
 prepare() {
   rm -f "$ready" /run/sshd.pid
   install -d -o dolt -g dolt -m 0700 "$state/dolt" "$state/dolt/data" "$state/dolt/cfg"
-  install -d -o root -g starfix -m 0750 "$state/starfix"
-  install -d -o starfix -g starfix -m 0700 "$state/ssh" /run/starfix
+  install -d -o root -g aries -m 0750 "$state/aries"
+  install -d -o aries -g aries -m 0700 "$state/ssh" /run/aries
   install -d -o root -g root -m 0700 "$state/hostkeys"
   install -d -m 0755 /run/sshd
   if [[ ! -f $hostkey ]]; then
-    ssh-keygen -q -t ed25519 -N '' -C starfix-docker -f "$hostkey"
+    ssh-keygen -q -t ed25519 -N '' -C aries-docker -f "$hostkey"
   fi
 }
 
 # many_sql prints the SQL of "Serving many projects, Opt in", steps 1 and
 # 4: the control database, and a block of database names for the
-# projects `sfx admin project add` creates, each granted to starfixd's
+# projects `aries admin project add` creates, each granted to ariesd's
 # account by its exact name, since Dolt ignores a grant on a pattern.
 many_sql() {
   local i
-  printf "CREATE DATABASE IF NOT EXISTS %s;\nGRANT ALL ON %s.* TO 'starfix'@'localhost';\n" "$control_db" "$control_db"
+  printf "CREATE DATABASE IF NOT EXISTS %s;\nGRANT ALL ON %s.* TO 'aries'@'localhost';\n" "$control_db" "$control_db"
   for ((i = 1; i <= project_dbs_count; i++)); do
-    printf "GRANT ALL ON %s%03d.* TO 'starfix'@'localhost';\n" "$project_dbs_prefix" "$i"
+    printf "GRANT ALL ON %s%03d.* TO 'aries'@'localhost';\n" "$project_dbs_prefix" "$i"
   done
 }
 
@@ -223,21 +223,21 @@ many_sql() {
 # The control database and the block of project databases are made in
 # the same pass, before root's password is set and forgotten.
 init_store() {
-  if [[ -d $state/dolt/data/starfix ]]; then
+  if [[ -d $state/dolt/data/aries ]]; then
     die "the volume holds a database but no config, from a first start that failed" \
       "remove the volume (docker compose down -v) and start again"
   fi
-  local dbpw rootpw project=${STARFIX_PROJECT:-$(cat /proc/sys/kernel/random/uuid)}
+  local dbpw rootpw project=${ARIES_PROJECT:-$(cat /proc/sys/kernel/random/uuid)}
   dbpw=$(random_hex)
   rootpw=$(random_hex)
   {
-    printf "CREATE DATABASE starfix;\nCREATE USER 'starfix'@'localhost' IDENTIFIED BY '%s';\nGRANT ALL ON starfix.* TO 'starfix'@'localhost';\n" "$dbpw"
+    printf "CREATE DATABASE aries;\nCREATE USER 'aries'@'localhost' IDENTIFIED BY '%s';\nGRANT ALL ON aries.* TO 'aries'@'localhost';\n" "$dbpw"
     many_sql
     printf "ALTER USER 'root'@'localhost' IDENTIFIED BY '%s';\n" "$rootpw"
   } |
     (run_as dolt /var/lib/dolt env DOLT_CLI_PASSWORD= dolt --host 127.0.0.1 --port 3306 --no-tls -u root sql >/dev/null) ||
     die "could not create the databases and the account" "read Dolt's log above"
-  write_config "starfix:$dbpw@tcp(127.0.0.1:3306)/starfix" "$project" "" many
+  write_config "aries:$dbpw@tcp(127.0.0.1:3306)/aries" "$project" "" many
   log "created project $project, the control database $control_db and $project_dbs_count database names for new projects"
 }
 
@@ -250,7 +250,7 @@ opt_in() {
   if [[ -n $(setting control_db) ]]; then
     return 0
   fi
-  many_sql | (run_as dolt /var/lib/dolt/data/starfix dolt sql >/dev/null) ||
+  many_sql | (run_as dolt /var/lib/dolt/data/aries dolt sql >/dev/null) ||
     die "could not create the control database on a volume from an older image" \
       "read Dolt's log above, or remove the volume (docker compose down -v) and start again"
   write_config "$(setting dsn)" "$(setting project)" "$(setting admins | tr -d '[]')" many
@@ -260,24 +260,24 @@ opt_in() {
 # adopt is "Opt in" step 3, run on every start because it is safe to run
 # again: it records the database as the first project and imports the
 # principals and keys of authorized_keys, adding what is new. It removes
-# nothing: a principal dropped from STARFIX_KEYS keeps its row and keys
-# in the control database, and is removed with sfx admin. And it undoes
-# nothing an admin did with sfx admin: a member removed from the first
+# nothing: a principal dropped from ARIES_KEYS keeps its row and keys
+# in the control database, and is removed with aries admin. And it undoes
+# nothing an admin did with aries admin: a member removed from the first
 # project, a key removed and a principal disabled stay so across a
 # start, each named in this log, though their lines are still in
-# STARFIX_KEYS. It is never run here with --restore-removed-access,
+# ARIES_KEYS. It is never run here with --restore-removed-access,
 # which overrides those admins; docs/deploy/docker.md says how to.
 adopt() {
   if [[ ! -f $authorized ]]; then
-    install -o starfix -g starfix -m 0600 /dev/null "$authorized"
+    install -o aries -g aries -m 0600 /dev/null "$authorized"
   fi
-  (run_as starfix /var/lib/starfix starfixd control init --name "$first_project" >&2) ||
-    die "starfixd control init failed" "read the error above"
+  (run_as aries /var/lib/aries ariesd control init --name "$first_project" >&2) ||
+    die "ariesd control init failed" "read the error above"
 }
 
-# parse_principals reads STARFIX_KEYS and /etc/starfix-keys, one
+# parse_principals reads ARIES_KEYS and /etc/aries-keys, one
 # "NAME TYPE KEY [COMMENT]" per line, into key_lines and admins
-# (STARFIX_ADMINS, or else the first name). It runs before anything is
+# (ARIES_ADMINS, or else the first name). It runs before anything is
 # written, so a bad line leaves the volume as it was.
 key_lines=()
 admins=()
@@ -287,25 +287,25 @@ parse_principals() {
     [[ -z $name || $name == \#* ]] && continue
     [[ $name =~ $name_re ]] ||
       die "principal name '$name' is not valid" "use lowercase letters, digits, '.', '_' or '-', starting with a letter"
-    case $name in starfixd | import | starfixd-upgrade)
+    case $name in ariesd | import | ariesd-upgrade)
       die "principal name '$name' is reserved" "choose another name" ;;
     esac
     if ! [[ $type =~ $type_re && $blob =~ $blob_re ]] ||
       ! printf '%s %s\n' "$type" "$blob" | ssh-keygen -lf /dev/stdin >/dev/null 2>&1; then
       die "the key for '$name' is not an SSH public key" "give lines like: alice ssh-ed25519 AAAA..."
     fi
-    key_lines+=("restrict,command=\"/usr/local/bin/starfixd stdio --principal $name\" $type $blob $name")
+    key_lines+=("restrict,command=\"/usr/local/bin/ariesd stdio --principal $name\" $type $blob $name")
     [[ " ${principals[*]} " == *" $name "* ]] || principals+=("$name")
   done < <(
-    printf '%s\n' "${STARFIX_KEYS:-}"
+    printf '%s\n' "${ARIES_KEYS:-}"
     if [[ -r $keys_file ]]; then cat "$keys_file"; fi
   )
   if ((${#key_lines[@]} == 0)); then
     return 0
   fi
-  IFS=', ' read -r -a admins <<<"${STARFIX_ADMINS:-${principals[0]}}"
+  IFS=', ' read -r -a admins <<<"${ARIES_ADMINS:-${principals[0]}}"
   for a in "${admins[@]}"; do
-    [[ $a =~ $name_re ]] || die "admin name '$a' is not valid" "list principal names in STARFIX_ADMINS, comma-separated"
+    [[ $a =~ $name_re ]] || die "admin name '$a' is not valid" "list principal names in ARIES_ADMINS, comma-separated"
   done
 }
 
@@ -316,7 +316,7 @@ install_principals() {
   if ((${#key_lines[@]} == 0)); then
     return 0
   fi
-  printf '%s\n' "${key_lines[@]}" | install -o starfix -g starfix -m 0600 /dev/stdin "$authorized"
+  printf '%s\n' "${key_lines[@]}" | install -o aries -g aries -m 0600 /dev/stdin "$authorized"
   local quoted
   quoted=$(printf '"%s", ' "${admins[@]}")
   write_config "$(setting dsn)" "$(setting project)" "${quoted%, }"
@@ -329,19 +329,19 @@ report() {
   admins=$(setting admins | tr -d '[]"')
   principals=$( (sed -n 's/.*--principal \([^"]*\)".*/\1/p' "$authorized" 2>/dev/null || true) | sort -u | paste -sd, - | sed 's/,/, /g')
   if [[ -z $principals ]]; then
-    log "no principals in authorized_keys, so only those an admin added with sfx admin can connect"
-    log "fix: set STARFIX_KEYS to \"alice \$(cat ~/.ssh/id_ed25519.pub)\" and start again"
+    log "no principals in authorized_keys, so only those an admin added with aries admin can connect"
+    log "fix: set ARIES_KEYS to \"alice \$(cat ~/.ssh/id_ed25519.pub)\" and start again"
   fi
   cat <<EOF
 
-starfix test server ready (not for production)
+Aries test server ready (not for production)
   host key    $fpr
   project     $project
   principals  ${principals:-none}
   admins      ${admins}
-  more        sfx admin project add NAME ($project_dbs_count database names granted); sfx admin principal add NAME --key FILE
+  more        aries admin project add NAME ($project_dbs_count database names granted); aries admin principal add NAME --key FILE
 
-Save this as .starfix.yaml in a scratch repository:
+Save this as .aries.yaml in a scratch repository:
 
 project: $project
 server:
@@ -355,28 +355,28 @@ EOF
 main() {
   trap 'stop; exit 0' TERM INT
   parse_principals
-  if [[ -n ${STARFIX_PROJECT:-} && ! ${STARFIX_PROJECT} =~ $uuid_re ]]; then
-    die "STARFIX_PROJECT is not a lowercase UUID" "unset it for a random one, or give one like 6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+  if [[ -n ${ARIES_PROJECT:-} && ! ${ARIES_PROJECT} =~ $uuid_re ]]; then
+    die "ARIES_PROJECT is not a lowercase UUID" "unset it for a random one, or give one like 6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
   fi
-  if [[ -n ${STARFIX_TELEMETRY:-} ]] && ! telemetry_on; then
-    die "STARFIX_TELEMETRY is '${STARFIX_TELEMETRY}'" "set it to 1 for starfixd's telemetry, or leave it unset for none"
+  if [[ -n ${ARIES_TELEMETRY:-} ]] && ! telemetry_on; then
+    die "ARIES_TELEMETRY is '${ARIES_TELEMETRY}'" "set it to 1 for ariesd's telemetry, or leave it unset for none"
   fi
   prepare
 
   local first=0
   [[ -f $config ]] || first=1
   if ((first)); then
-    (run_as dolt /var/lib/dolt sh -c 'dolt config --global --add user.name "starfix server" &&
-      dolt config --global --add user.email starfix@localhost &&
+    (run_as dolt /var/lib/dolt sh -c 'dolt config --global --add user.name "aries server" &&
+      dolt config --global --add user.email aries@localhost &&
       dolt config --global --add metrics.disabled true' >/dev/null)
   fi
   start dolt run_as dolt /var/lib/dolt/data dolt sql-server --config /etc/dolt/config.yaml
   wait_for dolt port_open 3306
   if ((first)); then
     init_store
-  elif [[ -n ${STARFIX_PROJECT:-} && ${STARFIX_PROJECT} != "$(setting project)" ]]; then
-    die "STARFIX_PROJECT is not the project this volume holds, $(setting project)" \
-      "unset STARFIX_PROJECT, or remove the volume (docker compose down -v) for a new project"
+  elif [[ -n ${ARIES_PROJECT:-} && ${ARIES_PROJECT} != "$(setting project)" ]]; then
+    die "ARIES_PROJECT is not the project this volume holds, $(setting project)" \
+      "unset ARIES_PROJECT, or remove the volume (docker compose down -v) for a new project"
   fi
   opt_in
   watch_dolt
@@ -385,11 +385,11 @@ main() {
   adopt
 
   if telemetry_on; then
-    start starfixd run_as starfix /var/lib/starfix env "${telemetry_env[@]}" starfixd serve
+    start ariesd run_as aries /var/lib/aries env "${telemetry_env[@]}" ariesd serve
   else
-    start starfixd run_as starfix /var/lib/starfix starfixd serve
+    start ariesd run_as aries /var/lib/aries ariesd serve
   fi
-  wait_for starfixd test -S /run/starfix/starfixd.sock
+  wait_for ariesd test -S /run/aries/ariesd.sock
 
   /usr/sbin/sshd -t || die "sshd refuses its config" "read the error above"
   start sshd env -i PATH=/usr/sbin:/usr/bin:/bin /usr/sbin/sshd -D -e

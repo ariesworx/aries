@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// Going away (`sfx away D`, design §18.6) extends every claim the
+// Going away (`aries away D`, design §18.6) extends every claim the
 // principal holds, in every session, to at least now plus D: a claim
 // with less left than D, however much, is extended, which a renewal,
 // extending only past half its lease, would not do.
@@ -85,7 +85,7 @@ func TestAwayIsRecorded(t *testing.T) {
 	}
 
 	// Asking again for no more than it has extends nothing, and records
-	// nothing; nor does asking again a moment later, as `sfx away` does
+	// nothing; nor does asking again a moment later, as `aries away` does
 	// when it sends each claim's paths.
 	seq = lastSeq(t, s)
 	if _, err := s.RenewClaims(ctx, alice, 24*time.Hour, true, nil); err != nil {

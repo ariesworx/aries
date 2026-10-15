@@ -20,16 +20,16 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/mcpserver"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/server"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/server"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // Stage 3a in the soak (design §15): the run's server holds three
 // projects, and while the sessions work in two of them an admin, the
-// conductor, ends and restores access, as `sfx admin` does, over the
+// conductor, ends and restores access, as `aries admin` does, over the
 // protocol and under the same chaos:
 //
 //	first   alice, bob, carol (its admin), dave
@@ -38,7 +38,7 @@ import (
 //
 // dave and root are server admins. alice's and bob's keys are only in
 // the control store, so the keys file the daemon writes is what lets
-// them in; erin's is in the store and in authorized_keys, as `starfixd
+// them in; erin's is in the store and in authorized_keys, as `ariesd
 // control init` leaves a key, and sshd takes the keys file's line while
 // the store holds it, since it reads that file first (decision 26); the
 // others' are lines of authorized_keys.
@@ -124,7 +124,7 @@ func (s *soak) setup() {
 		users := map[*sproj]*user{first: u}
 		for i := 1; i < len(in); i++ {
 			p := byLetter[in[i]]
-			v := u.in(fmt.Sprintf("project: %s\nserver:\n  host: 127.0.0.1\n  port: %d\n  user: starfix\n  host_key: %s\n", p.id, s.w.addr.Port, s.w.hostFpr))
+			v := u.in(fmt.Sprintf("project: %s\nserver:\n  host: 127.0.0.1\n  port: %d\n  user: aries\n  host_key: %s\n", p.id, s.w.addr.Port, s.w.hostFpr))
 			v.pubFile = u.pubFile
 			users[p] = v
 		}
@@ -753,7 +753,7 @@ func (cd *conductor) key(principal string, p *sproj) {
 }
 
 // fileKey removes erin's key from the store while authorized_keys still
-// has its line, as after `starfixd control init`. sshd reads the keys
+// has its line, as after `ariesd control init`. sshd reads the keys
 // file first (decision 26), so while the store holds the key erin's
 // connections name it, and the removal closes them. The key is not
 // revoked: sshd then takes the line of authorized_keys, and the daemon,
@@ -1069,7 +1069,7 @@ func (cd *conductor) closedStore() {
 		s.t.Errorf("read the events of %s: %v", id, err)
 		return
 	}
-	if by != "starfixd" || session != "access" || !strings.Contains(after, lostMembership) {
+	if by != "ariesd" || session != "access" || !strings.Contains(after, lostMembership) {
 		s.mon.fail(id, "%s: the claim on %s was last released by %q/%q with %q; want the server's own release at the store's opening, for %q",
 			why, id, by, session, after, lostMembership)
 	}
@@ -1138,7 +1138,7 @@ func (s *soak) checkLost(p *sproj) {
 			s.mon.fail(l.issue, "event %d released %s's claim on %s for %q, but the control log shows no such loss of access while it was held (%s to %s)",
 				l.seq, l.holder, l.issue, l.reason, stamp(from), stamp(until.Add(-eps)))
 		}
-		if l.by == (sessKey{"starfixd", "access"}) {
+		if l.by == (sessKey{"ariesd", "access"}) {
 			continue
 		}
 		var admin string
@@ -1253,7 +1253,7 @@ func (c *ctlReplay) dialFault(d dialRec, key string) string {
 
 // checkControl: at rest, the daemon's memory of the control store, which
 // every handshake and every key lookup is answered from, is what its
-// tables hold and its event log explains; and `sfx admin status` counts
+// tables hold and its event log explains; and `aries admin status` counts
 // the same.
 func (s *soak) checkControl(ctx context.Context) {
 	if err := s.snapshotControl(); err != nil {
@@ -1352,7 +1352,7 @@ func (s *soak) reportAccess(b *bytes.Buffer) {
 		p.rep.mu.Lock()
 		for _, l := range p.rep.lost {
 			byReason[l.reason]++
-			if l.by.principal == "starfixd" {
+			if l.by.principal == "ariesd" {
 				byServer++
 			}
 		}

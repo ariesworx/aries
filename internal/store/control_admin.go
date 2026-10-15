@@ -10,7 +10,7 @@ import (
 	"github.com/go-sql-driver/mysql"
 )
 
-// What `sfx admin` needs of the control store beyond its rows: a
+// What `aries admin` needs of the control store beyond its rows: a
 // project's database created, and the questions the daemon asks before
 // it answers an admin (which project a name means, who is within whose
 // reach).
@@ -70,7 +70,7 @@ func (c *Control) CreateDatabase(ctx context.Context, actor Actor, project strin
 // with access as claims do, by two reads through the control store's own
 // connection: the
 // account reaches every project's database, and no store is opened for
-// it. starfixd asks it of each archived project at start, so that one
+// it. ariesd asks it of each archived project at start, so that one
 // with nothing to end costs a query and not a store.
 //
 // It reads the claims table as this binary's schema has it, without
@@ -87,7 +87,7 @@ func (c *Control) HeldClaims(ctx context.Context, db string) (int, error) {
 		return 0, fmt.Errorf("count the claims held in %s: %w", db, err)
 	}
 	// Holds and places in a lock's queue end with access too. A database
-	// an older starfixd migrated has no lock tables, and so holds none.
+	// an older ariesd migrated has no lock tables, and so holds none.
 	var locks int
 	err := c.s.r.QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM `"+db+"`.lock_holders) + (SELECT COUNT(*) FROM `"+db+"`.lock_waiters)").Scan(&locks)
 	if me, ok := errors.AsType[*mysql.MySQLError](err); ok && me.Number == 1146 {

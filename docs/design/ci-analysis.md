@@ -19,7 +19,7 @@ Every statement is one of three kinds, and says which where it matters:
 
 Two limits to keep in mind throughout. The local runs were on Apple silicon: the Linux container is arm64 and CI is amd64 on slower processors, so local seconds are shapes, not predictions. And from about 14:25 local time three other agents were loading the same machine; wall times taken after that are marked **loaded**, and where a wall time matters this document uses the runs taken before, or says so.
 
-Three things are deliberately not here, because other pieces of work have them: profiles of `starfixd` and the store as a product, profiles of the `sfx` client, and running tests in parallel within a package (`t.Parallel`, shared fixtures). [§4.1](#41-numbers-for-the-work-on-parallel-tests) gives the numbers that last piece needs.
+Three things are deliberately not here, because other pieces of work have them: profiles of `ariesd` and the store as a product, profiles of the `aries` client, and running tests in parallel within a package (`t.Parallel`, shared fixtures). [§4.1](#41-numbers-for-the-work-on-parallel-tests) gives the numbers that last piece needs.
 
 ## 1. Summary
 
@@ -46,7 +46,7 @@ Locally, at CI's shape (a Linux container with four processors, `GOMAXPROCS=4 -p
 | CPU without the race detector | 128 s | Dolt 88 s, the test binaries 27 s: the race detector costs the test binaries 2.8 times their CPU and the run 30% of its wall time. Dolt is then 69% of all CPU |
 | Build, empty cache | 38 s wall, 84 s CPU | 9 s wall and 6 s CPU from a warm cache |
 | Memory, peak of every Dolt and test binary together | 2.0 GB | The container's own peak with file cache, 2.4 to 3.4 GB. The runner has 16 GB |
-| Largest single process | 1.4 to 1.6 GB | The Dolt of `cmd/starfixd`, which drops no database |
+| Largest single process | 1.4 to 1.6 GB | The Dolt of `cmd/ariesd`, which drops no database |
 
 The test binaries themselves do very little. Profiled without the race detector, the four heaviest spend 1% to 4% of their wall time on a processor, and at most 16% of that is the harness's own code ([§9](#9-profiles-of-the-test-binaries)). The time is Dolt's, and most of the wall time is Dolt waiting for the disk: the same tests took 3 to 7 times as long when other work loaded the machine's disk, with almost the same CPU, and did not slow at all with their files on memory ([§4.5](#45-the-disk)).
 
@@ -89,7 +89,7 @@ Ranked by saving against risk. **ci.yml** marks a change to the file that gates 
 | 6 | Skip `test` and `codeql` for a pull request that changes only `docs/design/` | **ci.yml**, `codeql.yml` | A whole run, for about one pull request in five | Medium |
 | 7 | A merge queue in place of "update branch, wait, merge" | **ci.yml**, `codeql.yml`, repository settings | Reruns that cascade when several pull requests are open | Medium |
 | 8 | Fixed cost per test: 32 ms of database setup, and up to 0.75 s of waiting for the disk | test-only | For the work on parallel tests to judge; the numbers are in §4.1 and §4.3 | |
-| | **Do nothing**: sharding the `test` job, `-p`, `-shuffle`, the coverage profile, a `-timeout` flag, the weekly `vuln` run, the release's rerun of the gate, the dependency groups, the runs on `main`, dropping databases in `cmd/starfixd` and `internal/bdimport` | | | §2.9 |
+| | **Do nothing**: sharding the `test` job, `-p`, `-shuffle`, the coverage profile, a `-timeout` flag, the weekly `vuln` run, the release's rerun of the gate, the dependency groups, the runs on `main`, dropping databases in `cmd/ariesd` and `internal/bdimport` | | | §2.9 |
 
 ### 2.1 Run the peer check from a built binary (ci.yml)
 
@@ -97,7 +97,7 @@ Ranked by saving against risk. **ci.yml** marks a change to the file that gates 
 
 ```sh
 go test -race -c -o "$RUNNER_TEMP/server.test" ./internal/server
-cd internal/server && sudo env "PATH=$PATH" STARFIX_REQUIRE_DOLT=1 "$RUNNER_TEMP/server.test" -test.run '^TestCheckPeer' -test.count=1 -test.v
+cd internal/server && sudo env "PATH=$PATH" ARIES_REQUIRE_DOLT=1 "$RUNNER_TEMP/server.test" -test.run '^TestCheckPeer' -test.count=1 -test.v
 ```
 
 **Saving.** Measured in CI: the step took 34 to 52 s in the 31 runs before #92 and 47 to 50 s in the 3 after, and the tests in it 4.5 to 4.7 s (8 logs). It was 17 to 26 s a week ago: it grows with the dependencies. Measured locally, in the container at four processors: the step as CI runs it took 23.3 s and 49.2 s of CPU; building the binary from the warm cache took 4.3 s and 7.2 s of CPU and running the two tests 6.4 s, 10.7 s in all. That is 54% of the wall time and 84% of the CPU. Estimated for CI, where the step is about twice as long as in the container: 30 to 35 s off every `test` job, and about 80 s of CPU.
@@ -130,7 +130,7 @@ So the cache CI restores today saves a race build about a fifth of its CPU (81 s
 
 **What it could break.** Go's build cache is addressed by the content of its inputs, so a stale entry is not used, only kept (inferred from how the cache works; not tested here). A cache written by a pull request is visible only to that pull request, and `main`'s to all, which is GitHub's rule and protects `main` from a fork. The release's `gate` job calls `ci.yml` and would restore the same caches, as it restores today's; `release.yml`'s `build` job sets `cache: false` and is not affected. The real risk is ordinary: a wrong path or key saves nothing and nobody notices.
 
-**How to tell it worked.** In the `test` job's log, the first package result is printed within about 20 s of the step's start, not 27 to 45 s, and `internal/server`'s result arrives at its own duration plus about 20 s. The cache list (`gh api repos/ariesworx/starfix/actions/caches`) shows a second and third key, and total use stays under 10 GB; it is 1.87 GB today in 37 caches.
+**How to tell it worked.** In the `test` job's log, the first package result is printed within about 20 s of the step's start, not 27 to 45 s, and `internal/server`'s result arrives at its own duration plus about 20 s. The cache list (`gh api repos/ariesworx/aries/actions/caches`) shows a second and third key, and total use stays under 10 GB; it is 1.87 GB today in 37 caches.
 
 **Moves together.** Nothing outside `ci.yml`: no command of the gate changes. `internal/release/workflow_test.go` requires every action to be pinned by commit with a version comment.
 
@@ -197,7 +197,7 @@ Not a proposal of this document: the work on parallel tests has it. The numbers 
 - **The release's rerun of the gate.** Two release runs read: `lint` 87 and 88 s, `test` 144 and 171 s. It is what makes a tag's build independent of what CI said about a branch.
 - **The dependency groups.** Dependabot opens at most one grouped pull request for each ecosystem a week; the two this week took two runs each.
 - **The runs on `main` after each merge.** With branches required to be up to date, a merge's tree is the tree the pull request's last run tested, so the run repeats it. It also fills the caches every pull request reads, gives code scanning its baseline, and failed 9 times in 90; the two failures opened were tests that depended on timing. That is information, and nothing waits for it.
-- **Dropping databases in `cmd/starfixd` and `internal/bdimport`.** [§5.3](#53-cmdstarfixd-and-internalbdimport).
+- **Dropping databases in `cmd/ariesd` and `internal/bdimport`.** [§5.3](#53-cmdariesd-and-internalbdimport).
 - **The 16 MB buffer in `internal/e2e`'s leak check.** [§9](#9-profiles-of-the-test-binaries).
 
 ## 3. The real CI, from GitHub's records
@@ -252,7 +252,7 @@ From the `go test` step's log, which prints each package's time. Five runs befor
 | `internal/server` | 245 to 354 | 131 to 139 |
 | `internal/store` | 154 to 216 | 83 to 88 |
 | `internal/e2e` | 66 to 82 | 61 to 69 |
-| `cmd/starfixd` | 22 to 32 | 22 to 28 |
+| `cmd/ariesd` | 22 to 32 | 22 to 28 |
 | `internal/telemetry` | 11 to 17 | 15 to 18 |
 | `internal/client` | 13 to 17 | 17 |
 | `internal/bdimport` | 9 to 14 | 10 to 12 |
@@ -310,7 +310,7 @@ The file `numbers/per-test-seconds.tsv` in the scratch directory ([§10](#10-met
 | `internal/server` | 79 | 221 | 0.35 s | 14, which are 51 s of it | 108 |
 | `internal/e2e` | 42 | 79 | 0.51 s | 2: `TestSoak` 23 s, `TestCheckLeaksBaseline` 2.7 s | 26 |
 | `internal/store` | 41 | 277 | 0.14 s | 2 | 172 |
-| `cmd/starfixd` | 9 | 45 | 0.17 s | 0 | 20 |
+| `cmd/ariesd` | 9 | 45 | 0.17 s | 0 | 20 |
 | `internal/client` | 9 | 31 | 0.26 s | 5 | 26 |
 | `internal/telemetry` | 8 | 58 | 0.15 s | 4 | 46 |
 | `internal/bdimport` | 4 | 11 | 0.27 s | 1 | 4 |
@@ -410,7 +410,7 @@ Peak resident memory of each package's Dolt: in the container the kernel's own r
 | `internal/server` | 5,599 | 5,749 | 512 | 502 |
 | `internal/store` | 4,443 | 3,510 when it was killed | 382 | 348 |
 | `internal/e2e` | 1,402 | 1,462 | 918 | 497 |
-| `cmd/starfixd` | 1,351 | 1,405 | 1,389 to 1,566 | 1,380 |
+| `cmd/ariesd` | 1,351 | 1,405 | 1,389 to 1,566 | 1,380 |
 | `internal/bdimport` | 522 | 566 | 559 | 502 |
 | a fresh Dolt (`internal/dolttest`, `internal/doltmetrics`) | 77 to 121 | | 98 | 58 to 77 |
 | Every Dolt and test binary together, at the worst moment | 8,815 (five packages at once) | the limit | 1,962 to 2,180 | 2,884 |
@@ -419,13 +419,13 @@ The run of the parent commit in the container reached its 7 GB limit and the ker
 
 ### 5.2 Headroom on the runner
 
-The runner has 16 GB (read, §3.4), and all three jobs use that runner. Before #92, `internal/server` and `internal/store` ran side by side for minutes with Dolts of 5.6 and 4.4 GB, with `internal/e2e`'s and `cmd/starfixd`'s 1.4 GB each beside them early on: 9 to 13 GB at the worst, so 3 to 7 GB to spare, and less with each test added (inferred from the peaks; the runner's own memory was not measured). After #92 the same sum is about 2 GB, and the container's peak with file cache 2.4 to 3.4 GB: 12 GB or more to spare.
+The runner has 16 GB (read, §3.4), and all three jobs use that runner. Before #92, `internal/server` and `internal/store` ran side by side for minutes with Dolts of 5.6 and 4.4 GB, with `internal/e2e`'s and `cmd/ariesd`'s 1.4 GB each beside them early on: 9 to 13 GB at the worst, so 3 to 7 GB to spare, and less with each test added (inferred from the peaks; the runner's own memory was not measured). After #92 the same sum is about 2 GB, and the container's peak with file cache 2.4 to 3.4 GB: 12 GB or more to spare.
 
-### 5.3 `cmd/starfixd` and `internal/bdimport`
+### 5.3 `cmd/ariesd` and `internal/bdimport`
 
 Neither drops its databases, and the two are different cases.
 
-- **`cmd/starfixd`** now has the largest Dolt of the run, 1.4 to 1.6 GB, about a hundred databases' worth at 14 MB each. Its tests ask their own helper for a database in only 14 places; the rest are project databases that `starfixd control init` and the daemon create, as the product does, so dropping them is not one line in a helper. It costs memory, not time: the package takes 9 s in the container and 22 to 28 s in CI, before and after #92 alike. With 12 GB to spare, **do nothing**, unless the work on parallel tests is in that package anyway.
+- **`cmd/ariesd`** now has the largest Dolt of the run, 1.4 to 1.6 GB, about a hundred databases' worth at 14 MB each. Its tests ask their own helper for a database in only 14 places; the rest are project databases that `ariesd control init` and the daemon create, as the product does, so dropping them is not one line in a helper. It costs memory, not time: the package takes 9 s in the container and 22 to 28 s in CI, before and after #92 alike. With 12 GB to spare, **do nothing**, unless the work on parallel tests is in that package anyway.
 - **`internal/bdimport`** has 11 tests and so 11 databases, about 150 MB of databases at most. Its Dolt reaches 560 MB because of what the imports write, not how many databases it holds (inferred from the count). Dropping them would not change it. **Do nothing.**
 
 `internal/e2e`'s Dolt, 0.5 to 0.9 GB with every database dropped, is the same: a Dolt that has done a soak's writes holds that much whatever is dropped afterward.
@@ -440,7 +440,7 @@ Host: `go test -race -shuffle=on -count=1 ./...` in the worktree, before the mac
 |---|---|---|
 | Processes: `dolt sql-server`, test binaries, watcher shells, ssh-agents, `gcloud` stand-ins | None new. The one ssh-agent was the machine's own | None: only the measuring script |
 | Listening TCP ports | None new | None |
-| The temporary directory | Six directories `tmp.XXXXXXXXXX`, 88 KB, from `scripts.TestGate…` through `gate.sh` (§2.5). Nothing from any Dolt-backed test: no `starfix-dolt-*`, `starfix-server-*`, `starfix-e2e-*`, `sf*` | Nothing but the coverage profile the command named |
+| The temporary directory | Six directories `tmp.XXXXXXXXXX`, 88 KB, from `scripts.TestGate…` through `gate.sh` (§2.5). Nothing from any Dolt-backed test: no `aries-dolt-*`, `aries-server-*`, `aries-e2e-*`, `sf*` | Nothing but the coverage profile the command named |
 | `/tmp` | Nothing new | (the same directory) |
 | The home directory, `~/.ssh`, `~/.config`, `~/.cache` | Nothing new | Nothing from tests: `.cache` is the Dolt download, `.dolt` and `.config` are from the measuring script's own `dolt version` and from `go` |
 | The repository | `git status` clean | Mounted read-only, and every test passed, so nothing tries to write there |
@@ -528,9 +528,9 @@ A `-timeout` is still not warranted in either direction. Raising it would hide t
 
 Go's own profilers, on the host, without the race detector, which distorts both time and memory: `go test -count=1 -cpuprofile … -memprofile …` for each of the four heaviest packages, one at a time, in a scratch copy. The machine was loaded while these ran, which changes the wall times and not the shares.
 
-Each sample was given to the starfix function nearest the work: **harness** if that function is in a `_test.go` file or in `internal/dolttest`, `internal/clienttest`, `internal/iaptest` or `internal/release/releasetest`; **product** if it is product code, whatever called it; **neither** if the stack has no starfix function at all, which is the collector, the scheduler waking goroutines, and the libraries' own goroutines (the SSH key exchange, the MCP SDK's readers).
+Each sample was given to the Aries function nearest the work: **harness** if that function is in a `_test.go` file or in `internal/dolttest`, `internal/clienttest`, `internal/iaptest` or `internal/release/releasetest`; **product** if it is product code, whatever called it; **neither** if the stack has no Aries function at all, which is the collector, the scheduler waking goroutines, and the libraries' own goroutines (the SSH key exchange, the MCP SDK's readers).
 
-| | `internal/store` | `internal/server` | `internal/e2e` | `cmd/starfixd` |
+| | `internal/store` | `internal/server` | `internal/e2e` | `cmd/ariesd` |
 |---|---|---|---|---|
 | Wall time, alone | 284 s | 387 s | 168 s | 115 s |
 | CPU of `go test` and everything under it, Dolt included | 48 s | 64 s | 38 s | 16 s |
@@ -544,12 +544,12 @@ Each sample was given to the starfix function nearest the work: **harness** if t
 | of which product | 91% | 85% | 26% | 45% |
 | In use at the end | 2.5 MB | 3.0 MB | 7.5 MB | 4.6 MB |
 
-**CPU.** The test binaries are idle. Between 96% and 99% of the time no goroutine of theirs is on a processor, and of the little CPU they use two thirds is the runtime parking and waking goroutines around a socket (`runtime.kevent`, `pthread_cond_wait`, `pthread_cond_signal` and the system call itself are 80% of `internal/store`'s samples). The harness's own largest items are `dolttest.Server.DropDatabase` and `NewDatabase` (3.4% of `internal/store`'s 4.7 s, which is 0.16 s), `e2e.(*world).serveSSH` (2.5% of 5.9 s) and `cmd/starfixd.newSite` (7% of 1.0 s). Keys are not a cost: every key the tests make is ed25519, made in microseconds, and key generation does not appear; the SSH key exchange is 12% of `internal/e2e`'s 5.9 s, which is 0.7 s over 79 tests.
+**CPU.** The test binaries are idle. Between 96% and 99% of the time no goroutine of theirs is on a processor, and of the little CPU they use two thirds is the runtime parking and waking goroutines around a socket (`runtime.kevent`, `pthread_cond_wait`, `pthread_cond_signal` and the system call itself are 80% of `internal/store`'s samples). The harness's own largest items are `dolttest.Server.DropDatabase` and `NewDatabase` (3.4% of `internal/store`'s 4.7 s, which is 0.16 s), `e2e.(*world).serveSSH` (2.5% of 5.9 s) and `cmd/ariesd.newSite` (7% of 1.0 s). Keys are not a cost: every key the tests make is ed25519, made in microseconds, and key generation does not appear; the SSH key exchange is 12% of `internal/e2e`'s 5.9 s, which is 0.7 s over 79 tests.
 
 **Allocations.** Two things stand out, and neither matters.
 
 - `internal/e2e.connGoroutines` (`soak_final_test.go` line 837) allocates a 16 MB buffer on every call, to hold the stacks of all goroutines, and `checkLeaks` calls it in a loop: 832 MB, 52% of everything that test binary allocates. A buffer kept between calls would remove it. The saving is a few tenths of a second of clearing memory and some of the 117 MB peak; **not worth a change on its own**, and worth knowing for whoever next edits the leak check.
-- `internal/release/releasetest.TarGz` is 30% of `cmd/starfixd`'s allocations, which is 26 MB.
+- `internal/release/releasetest.TarGz` is 30% of `cmd/ariesd`'s allocations, which is 26 MB.
 
 The largest product items are the ones the tests are there to exercise: `store.divide` is 54% of `internal/store`'s allocations (the tests of cost division at size), and `proto.NewDecoder` 20% of `internal/server`'s and 7.5% of `internal/e2e`'s, a buffer for each connection opened. Those belong to the profiling of the product and are only named here.
 
@@ -567,7 +567,7 @@ Everything is in a scratch directory on the machine that ran it, outside the rep
 | `out-c/` | Each container run: `go test -json`, a line a second for every Dolt and test binary (resident memory, its peak, CPU), and a report of wall time, the container's CPU and memory, and what was left |
 | `out/`, `snap/` | The host runs and the lists of the host before and after |
 | `numbers/per-test-seconds.tsv` | Every test's and package's seconds in five runs (§4.1) |
-| `prof/` | The profiles of §9 (`t-store`, `t-server`, `t-e2e`, `t-starfixd`: `.cpu`, `.mem`, the test binary, and a `.summary`). Also `ops-count-50.txt`, a count of round trips to Dolt for each op, taken before the profiling of the product passed to other work, and not written up here |
+| `prof/` | The profiles of §9 (`t-store`, `t-server`, `t-e2e`, `t-ariesd`: `.cpu`, `.mem`, the test binary, and a `.summary`). Also `ops-count-50.txt`, a count of round trips to Dolt for each op, taken before the profiling of the product passed to other work, and not written up here |
 | `scripts/` | What produced each of them |
 | `before-src/`, `after-src/`, `prof-src/` | `git archive` of `7ea0d7e` and of `32a6eaf`, and a copy of the second with the measuring tests added (`zz_*`). None is a git checkout |
 

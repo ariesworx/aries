@@ -267,7 +267,7 @@ func (c *Control) Principals(ctx context.Context) ([]Principal, error) {
 
 // validActorName refuses, with ErrInvalid, a name no actor of an event
 // or a row can have. Unlike validPrincipal it allows a [Reserved] name:
-// the operator's `starfixd control init` writes as one.
+// the operator's `ariesd control init` writes as one.
 func validActorName(name string) error {
 	if !PrincipalPattern.MatchString(name) {
 		return fmt.Errorf("%w: %q is not a principal's name", ErrInvalid, name)

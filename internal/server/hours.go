@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // hoursLog logs the caller's own time on an issue; the principal is the

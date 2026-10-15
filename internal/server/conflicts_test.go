@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // TestConflictOps: a replayed update (park) parks the field another
@@ -70,8 +70,8 @@ func TestConflictOps(t *testing.T) {
 		t.Errorf("resolving it again = %v, want invalid", perr)
 	}
 	if _, perr := call[proto.WriteResult](t, s, alice, proto.OpResolve, proto.ResolveArgs{ID: 999, Choice: proto.ChoiceMine}); perr == nil ||
-		perr.Code != proto.CodeNotFound || !strings.Contains(perr.Fix, "sfx conflicts") {
-		t.Errorf("resolving a conflict that is not there = %v, want not_found naming sfx conflicts", perr)
+		perr.Code != proto.CodeNotFound || !strings.Contains(perr.Fix, "aries conflicts") {
+		t.Errorf("resolving a conflict that is not there = %v, want not_found naming aries conflicts", perr)
 	}
 	h := mustCall[proto.HistoryResult](t, s, alice, proto.OpHistory, proto.PageArgs{ID: is.ID})
 	var ops []string
@@ -96,7 +96,7 @@ func TestConflictCapRefused(t *testing.T) {
 	mustCall[proto.UpdateResult](t, s, alice, proto.OpUpdate, proto.UpdateArgs{ID: is.ID, Rev: is.Rev, Title: &mine, Park: true})
 	_, perr := call[proto.UpdateResult](t, s, alice, proto.OpUpdate, proto.UpdateArgs{ID: is.ID, Rev: is.Rev, Body: &mine, Park: true})
 	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Message, "open conflicts") ||
-		!strings.Contains(perr.Fix, "sfx resolve") || !strings.Contains(perr.Fix, "conflicts_per_issue") {
+		!strings.Contains(perr.Fix, "aries resolve") || !strings.Contains(perr.Fix, "conflicts_per_issue") {
 		t.Errorf("an update past the cap = %+v; want invalid, saying to resolve them or raise conflicts_per_issue", perr)
 	}
 }

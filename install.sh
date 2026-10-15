@@ -1,10 +1,10 @@
 #!/bin/sh
-# Install sfx (or, with --server, starfixd) from a release, after checking
+# Install aries (or, with --server, ariesd) from a release, after checking
 # the release's Ed25519 signature and the archive's sha256. Where the
 # release is read from is not trusted: see DEFAULT_RELEASES below.
 #
-#   curl -fsSL https://raw.githubusercontent.com/ariesworx/starfix/main/install.sh | sh
-#   curl -fsSL https://raw.githubusercontent.com/ariesworx/starfix/main/install.sh | sh -s -- --version v0.1.0
+#   curl -fsSL https://raw.githubusercontent.com/ariesworx/aries/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/ariesworx/aries/main/install.sh | sh -s -- --version v0.1.0
 #
 # Run with -h for the options. Needs curl or wget (neither, to install from
 # a directory), tar, and sha256sum or shasum; openssl 3 checks the
@@ -15,25 +15,25 @@ usage() {
 	cat <<'EOF'
 usage: install.sh [--version vX.Y.Z] [--dir DIR] [--server] [--require-signature]
 
-  --version V          release to install (default: the latest; env STARFIX_VERSION)
-  --dir DIR            where to put the binary (default: ~/.local/bin; env STARFIX_DIR)
-  --server             install starfixd instead of sfx (Linux only)
+  --version V          release to install (default: the latest; env ARIES_VERSION)
+  --dir DIR            where to put the binary (default: ~/.local/bin; env ARIES_DIR)
+  --server             install ariesd instead of aries (Linux only)
   --require-signature  fail, rather than warn, when openssl cannot check the signature
   -h, --help           show this help
 
-Releases are read from $STARFIX_RELEASES when it is set, as `sfx upgrade`
-and `starfixd upgrade` read them: "github", or a static tree (index.json
+Releases are read from $ARIES_RELEASES when it is set, as `aries upgrade`
+and `ariesd upgrade` read them: "github", or a static tree (index.json
 and vX.Y.Z/FILE) as an https URL, a file:// URL or the absolute path of a
 directory. Plain http is accepted only to 127.0.0.1 or [::1]. A mirror is
 not trusted: the signature and the checksum are checked the same.
 
-For tests of GitHub's layout, STARFIX_BASE_URL replaces
-https://github.com/ariesworx/starfix/releases; it must serve /latest (a
+For tests of GitHub's layout, ARIES_BASE_URL replaces
+https://github.com/ariesworx/aries/releases; it must serve /latest (a
 redirect to /tag/vX.Y.Z) and /download/vX.Y.Z/FILE.
 EOF
 }
 
-# Where releases are read from when STARFIX_RELEASES is not set: github,
+# Where releases are read from when ARIES_RELEASES is not set: github,
 # or the https URL of a static tree. It is DefaultSource in
 # internal/release/static.go, and changes with it in the release that
 # precedes making the repository private (RELEASING.md). A test fails
@@ -41,11 +41,11 @@ EOF
 DEFAULT_RELEASES=github
 
 # The release signing public key as a PEM SubjectPublicKeyInfo. It must
-# match internal/release/keys.go (Lsz75EL8k/kqkFSEtvkCB6bVC8BKiuI3zzux00wv/Gs=);
+# match internal/release/keys.go (PY3QJCqgGjLI5r/3LarwbF9Pnm/MQyEKxROSTrmZT7c=);
 # the body is base64 of 302a300506032b6570032100 followed by the 32 key bytes.
 # Rotate it in the same pull request as keys.go (RELEASING.md).
 RELEASE_PUBKEY_PEM='-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEALsz75EL8k/kqkFSEtvkCB6bVC8BKiuI3zzux00wv/Gs=
+MCowBQYDK2VwAyEAPY3QJCqgGjLI5r/3LarwbF9Pnm/MQyEKxROSTrmZT7c=
 -----END PUBLIC KEY-----'
 
 say() { printf '%s\n' "$*"; }
@@ -57,9 +57,9 @@ die() { # message fix
 }
 have() { _have=$(command -v "$1" 2>&1) && [ -n "$_have" ]; }
 
-version=${STARFIX_VERSION:-}
-dir=${STARFIX_DIR:-${HOME:?HOME is not set}/.local/bin}
-bin=sfx
+version=${ARIES_VERSION:-}
+dir=${ARIES_DIR:-${HOME:?HOME is not set}/.local/bin}
+bin=aries
 require_sig=0
 while [ $# -gt 0 ]; do
 	case $1 in
@@ -67,7 +67,7 @@ while [ $# -gt 0 ]; do
 	--version=*) version=${1#--version=} ;;
 	--dir) [ $# -ge 2 ] || die "--dir needs a value" "--dir \$HOME/.local/bin"; dir=$2; shift ;;
 	--dir=*) dir=${1#--dir=} ;;
-	--server) bin=starfixd ;;
+	--server) bin=ariesd ;;
 	--require-signature) require_sig=1 ;;
 	-h | --help) usage; exit 0 ;;
 	*) usage >&2; die "unknown option $1" "run with -h for the options" ;;
@@ -78,18 +78,18 @@ done
 # The layout: github (GitHub's release pages, redirects followed), static
 # (a tree over HTTP, where no redirect is followed, so that the host named
 # is the only one asked) or dir (the same tree in a directory).
-releases=${STARFIX_RELEASES:-}
+releases=${ARIES_RELEASES:-}
 if [ -z "$releases" ]; then
-	# STARFIX_BASE_URL names a host of GitHub's layout, whatever the default.
-	if [ -n "${STARFIX_BASE_URL:-}" ]; then releases=github; else releases=$DEFAULT_RELEASES; fi
+	# ARIES_BASE_URL names a host of GitHub's layout, whatever the default.
+	if [ -n "${ARIES_BASE_URL:-}" ]; then releases=github; else releases=$DEFAULT_RELEASES; fi
 fi
 # The refusals never repeat the value, which may hold a credential.
 case $releases in
 github)
 	layout=github
-	base=${STARFIX_BASE_URL:-https://github.com/ariesworx/starfix/releases} ;;
+	base=${ARIES_BASE_URL:-https://github.com/ariesworx/aries/releases} ;;
 https://*[@?#]* | http://*[@?#]*)
-	die "STARFIX_RELEASES must not hold a user name, a password, a query or a fragment" \
+	die "ARIES_RELEASES must not hold a user name, a password, a query or a fragment" \
 		"set it to the plain URL of the mirror" ;;
 https://?* | http://127.0.0.1 | http://127.0.0.1[:/]* | 'http://[::1]' | 'http://[::1]'[:/]*)
 	layout=static
@@ -104,14 +104,14 @@ file:///*)
 	layout=dir
 	base=$releases ;;
 *)
-	die "STARFIX_RELEASES is not an https URL, a file:// URL or the absolute path of a directory (plain http is accepted only to 127.0.0.1 or [::1])" \
-		"unset STARFIX_RELEASES to install from the default, or set it to where your mirror is" ;;
+	die "ARIES_RELEASES is not an https URL, a file:// URL or the absolute path of a directory (plain http is accepted only to 127.0.0.1 or [::1])" \
+		"unset ARIES_RELEASES to install from the default, or set it to where your mirror is" ;;
 esac
 base=${base%/}
 pubkey=$RELEASE_PUBKEY_PEM
-if [ -n "${STARFIX_PUBKEY_PEM:-}" ]; then
-	pubkey=$STARFIX_PUBKEY_PEM
-	warn "STARFIX_PUBKEY_PEM is set: trusting THAT key, not the release key."
+if [ -n "${ARIES_PUBKEY_PEM:-}" ]; then
+	pubkey=$ARIES_PUBKEY_PEM
+	warn "ARIES_PUBKEY_PEM is set: trusting THAT key, not the release key."
 	warn "Only tests should set it; unset it unless you made the release yourself."
 fi
 
@@ -121,17 +121,17 @@ Linux) os=linux ;;
 Darwin) os=darwin ;;
 MINGW* | MSYS* | CYGWIN* | Windows*)
 	die "this script does not install on Windows" \
-		"download sfx_<version>_windows_<arch>.zip from https://github.com/ariesworx/starfix/releases, or run this script in WSL" ;;
-*) die "unsupported OS $os" "build from source: go install github.com/ariesworx/starfix/cmd/sfx@latest" ;;
+		"download aries_<version>_windows_<arch>.zip from https://github.com/ariesworx/aries/releases, or run this script in WSL" ;;
+*) die "unsupported OS $os" "build from source: go install github.com/ariesworx/aries/cmd/aries@latest" ;;
 esac
 arch=$(uname -m)
 case $arch in
 x86_64 | amd64) arch=amd64 ;;
 arm64 | aarch64) arch=arm64 ;;
-*) die "unsupported architecture $arch" "releases cover amd64 and arm64; build from source: go install github.com/ariesworx/starfix/cmd/$bin@latest" ;;
+*) die "unsupported architecture $arch" "releases cover amd64 and arm64; build from source: go install github.com/ariesworx/aries/cmd/$bin@latest" ;;
 esac
-if [ "$bin" = starfixd ] && [ "$os" != linux ]; then
-	die "starfixd runs on Linux only" "run --server on the Linux server, or drop --server to install sfx"
+if [ "$bin" = ariesd ] && [ "$os" != linux ]; then
+	die "ariesd runs on Linux only" "run --server on the Linux server, or drop --server to install aries"
 fi
 
 # fetch URL FILE. From a static tree, anything but the file itself is a
@@ -167,7 +167,7 @@ else
 fi
 
 # With a template: mktemp -d alone ignores TMPDIR on macOS.
-tmp=$(mktemp -d "${TMPDIR:-/tmp}/starfix-install.XXXXXX" 2>&1) || die "cannot make a temporary directory: $tmp" "set TMPDIR to a writable directory"
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/aries-install.XXXXXX" 2>&1) || die "cannot make a temporary directory: $tmp" "set TMPDIR to a writable directory"
 cleanup() { rm -rf "$tmp"; [ -z "${dest:-}" ] || rm -f "$dir/.$bin.tmp"; }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
@@ -180,17 +180,17 @@ tag_re='^v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(-[0-9A-Z
 # only chooses the tag to ask for, and only a release version is a tag.
 if [ -z "$version" ] && [ "$layout" != github ]; then
 	fetch "$base/index.json" "$tmp/index.json" ||
-		die "cannot read $base/index.json" "check STARFIX_RELEASES, or pass --version vX.Y.Z"
+		die "cannot read $base/index.json" "check ARIES_RELEASES, or pass --version vX.Y.Z"
 	[ "$(wc -c <"$tmp/index.json" | tr -d ' ')" -le 1048576 ] ||
-		die "$base/index.json is larger than 1048576 bytes" "check STARFIX_RELEASES, or pass --version vX.Y.Z"
+		die "$base/index.json is larger than 1048576 bytes" "check ARIES_RELEASES, or pass --version vX.Y.Z"
 	# shellcheck disable=SC2020 # five characters, each to a newline
 	tr '{},[]' '\n\n\n\n\n' <"$tmp/index.json" | tr -d '\r' |
 		sed -n 's/^[[:space:]]*"tag"[[:space:]]*:[[:space:]]*"\([^"]*\)"[[:space:]]*$/\1/p' >"$tmp/tags"
 	if grep -Evq "$tag_re" "$tmp/tags"; then
-		die "$base/index.json names a tag that is not a release version" "check STARFIX_RELEASES, or pass --version vX.Y.Z"
+		die "$base/index.json names a tag that is not a release version" "check ARIES_RELEASES, or pass --version vX.Y.Z"
 	fi
 	version=$(grep -v -e - "$tmp/tags" | sed 's/^v//' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
-	[ -n "$version" ] || die "$base/index.json lists no release" "check STARFIX_RELEASES, or pass --version vX.Y.Z"
+	[ -n "$version" ] || die "$base/index.json lists no release" "check ARIES_RELEASES, or pass --version vX.Y.Z"
 fi
 
 # The latest release on GitHub, from where /latest redirects
@@ -237,7 +237,7 @@ if sig_capable; then
 		! openssl pkeyutl -verify -rawin -pubin -inkey "$tmp/release.pem" \
 			-in "$tmp/checksums.txt" -sigfile "$tmp/checksums.sig" >"$tmp/out" 2>&1; then
 		die "the signature on $version's checksums.txt does not verify; nothing was installed" \
-			"do not use this download; report it at https://github.com/ariesworx/starfix/issues"
+			"do not use this download; report it at https://github.com/ariesworx/aries/issues"
 	fi
 elif [ "$require_sig" = 1 ]; then
 	die "openssl cannot check Ed25519 signatures, and --require-signature is set" \
@@ -251,11 +251,11 @@ want=$(awk -v n="$archive" '$2 == n || $2 == "*" n {print $1; exit}' "$tmp/check
 [ -n "$want" ] || die "$archive is not listed in $version's checksums.txt" "check that release $version has $archive"
 got=$(sha256 "$tmp/$archive")
 [ "$got" = "$want" ] || die "checksum mismatch for $archive (got $got, want $want); nothing was installed" \
-	"retry; if it persists, report it at https://github.com/ariesworx/starfix/issues"
+	"retry; if it persists, report it at https://github.com/ariesworx/aries/issues"
 
 mkdir "$tmp/x"
 tar -xzf "$tmp/$archive" -C "$tmp/x" "$bin" || die "cannot unpack $bin from $archive" "retry the download"
-[ -f "$tmp/x/$bin" ] || die "$archive holds no $bin" "report it at https://github.com/ariesworx/starfix/issues"
+[ -f "$tmp/x/$bin" ] || die "$archive holds no $bin" "report it at https://github.com/ariesworx/aries/issues"
 
 mkdir -p "$dir" || die "cannot create $dir" "pass --dir with a directory you can write"
 dest=$dir/$bin

@@ -3,7 +3,7 @@ package store
 import (
 	"fmt"
 
-	"github.com/ariesworx/starfix/internal/safetext"
+	"github.com/ariesworx/aries/internal/safetext"
 )
 
 // Free text is checked here, one rule for every field (safetext): a

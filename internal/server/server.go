@@ -17,13 +17,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/doltmetrics"
-	"github.com/ariesworx/starfix/internal/lazyregexp"
-	"github.com/ariesworx/starfix/internal/logs"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/safetext"
-	"github.com/ariesworx/starfix/internal/store"
-	"github.com/ariesworx/starfix/internal/telemetry"
+	"github.com/ariesworx/aries/internal/doltmetrics"
+	"github.com/ariesworx/aries/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/safetext"
+	"github.com/ariesworx/aries/internal/store"
+	"github.com/ariesworx/aries/internal/telemetry"
 )
 
 // Config configures a Server.
@@ -86,7 +86,7 @@ type Config struct {
 	// server only reads it, to say which of the store's keys are in it
 	// too. Empty reads none. It is never KeysFile.
 	AuthorizedKeys string
-	// Bridge is the path of starfixd in the forced command of each line
+	// Bridge is the path of ariesd in the forced command of each line
 	// of KeysFile ([ValidBridge]). Empty takes DefaultBridge.
 	Bridge string
 	// Clock is the process's clock, the one its stores were opened with
@@ -266,13 +266,13 @@ func New(cfg Config) (*Server, error) {
 	case cfg.ClockBehind != ClockStop && cfg.ClockBehind != ClockWarn:
 		return nil, fmt.Errorf("server: clock_behind %q is not %s or %s", cfg.ClockBehind, ClockStop, ClockWarn)
 	case !ValidBridge(cfg.Bridge):
-		return nil, fmt.Errorf("server: the path of starfixd for the forced command, %q, must be absolute, of letters, digits and ._+-", cfg.Bridge)
+		return nil, fmt.Errorf("server: the path of ariesd for the forced command, %q, must be absolute, of letters, digits and ._+-", cfg.Bridge)
 	case cfg.KeysFile != "" && (!multi || !filepath.IsAbs(cfg.KeysFile)):
 		return nil, fmt.Errorf("server: a keys file needs a control store and an absolute path, not %q", cfg.KeysFile)
 	case cfg.AuthorizedKeys != "" && !filepath.IsAbs(cfg.AuthorizedKeys):
 		return nil, fmt.Errorf("server: the authorized_keys file needs an absolute path, not %q", cfg.AuthorizedKeys)
 	case cfg.KeysFile != "" && filepath.Clean(cfg.KeysFile) == filepath.Clean(cfg.AuthorizedKeys):
-		return nil, fmt.Errorf("server: the keys file %s is the authorized_keys file, which starfixd never writes", cfg.KeysFile)
+		return nil, fmt.Errorf("server: the keys file %s is the authorized_keys file, which ariesd never writes", cfg.KeysFile)
 	}
 	s := &Server{cfg: cfg, conns: map[net.Conn]owner{}, now: time.Now, started: time.Now(), unopened: map[string]store.Project{}}
 	s.writes = buckets{rate: cfg.Limits.WriteRate, burst: float64(cfg.Limits.WriteBurst)}
@@ -327,7 +327,7 @@ func (s *Server) openProject(ctx context.Context, p store.Project) (*served, err
 
 // openStore opens p's store with Config.Open, within RequestTimeout. It
 // is a store.open span, with the store's migrations beneath it, and one
-// observation of starfix.store.open.duration when it succeeds.
+// observation of aries.store.open.duration when it succeeds.
 func (s *Server) openStore(ctx context.Context, p store.Project) (*store.Store, error) {
 	ctx, span := s.cfg.Telemetry.Start(ctx, telemetry.SpanStoreOpen)
 	defer span.End()
@@ -385,7 +385,7 @@ func (s *Server) OpenStores() int {
 }
 
 // refresh reads the control store's index again, so that what the
-// operator's `starfixd control init` wrote beside the daemon counts
+// operator's `ariesd control init` wrote beside the daemon counts
 // without a restart, and writes the keys file if it no longer holds what
 // the index does: after such a change, after a write that failed, or
 // after someone edited the file.
@@ -602,7 +602,7 @@ func (s *Server) Reap(ctx context.Context) {
 	s.each(func(pr *served) { pr.reap(ctx) })
 }
 
-// Handshake timeouts: the bridge frame comes at once, from `starfixd
+// Handshake timeouts: the bridge frame comes at once, from `ariesd
 // stdio` on this machine; the hello follows the SSH session start.
 //
 // helloTimeout is how long a connection that has said who it is may hold
@@ -623,7 +623,7 @@ const (
 	helloTimeout  = 10 * time.Second
 )
 
-// staleKeysFrame is the type of the first frame `starfixd keys` sent,
+// staleKeysFrame is the type of the first frame `ariesd keys` sent,
 // when sshd asked the daemon about each key through that command. The
 // command is gone (design §14, decision 22) and was never in a release.
 // A root-owned copy of an unreleased build may still be some sshd's
@@ -729,7 +729,7 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 	}
 	if sess.proj == nil {
 		// The health probe of a server of many projects: the welcome was
-		// its answer. `starfixd status` asks on.
+		// its answer. `ariesd status` asks on.
 		hspan.End()
 		s.serveStatus(ctx, sess)
 		return
@@ -771,7 +771,7 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 			case errors.As(err, &ne) && ne.Timeout():
 				log.Debug("idle connection closed", "event", logs.ConnIdleClosed, "after", idle)
 				s.cfg.Telemetry.Count(telemetry.ConnectionsDropped, telemetry.DropIdle)
-				_ = s.send(sess, 0, nil, proto.Errf(proto.CodeUnavailable, "reconnect; starfix does so on the next command",
+				_ = s.send(sess, 0, nil, proto.Errf(proto.CodeUnavailable, "reconnect; aries does so on the next command",
 					fmt.Sprintf("connection closed after %s idle", proto.Span(idle))))
 			default:
 				s.refusals.line(ctx, log, key, s.now(), slog.LevelInfo, logs.ConnReadFailed, "read failed", "err", err)
@@ -783,7 +783,7 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 			return
 		}
 		if f.T != proto.FrameReq {
-			_ = s.send(sess, f.ID, nil, proto.Errf(proto.CodeInvalid, proto.FixUpgrade+" starfix to match the server",
+			_ = s.send(sess, f.ID, nil, proto.Errf(proto.CodeInvalid, proto.FixUpgrade+" aries to match the server",
 				fmt.Sprintf("unexpected %q frame after the handshake", f.T)))
 			return
 		}
@@ -924,7 +924,7 @@ func (s *Server) busyControlWrites(principal string, wait time.Duration) *proto.
 	l := s.cfg.Limits
 	s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitControlWriteRate)
 	return proto.Errf(proto.CodeBusy,
-		fmt.Sprintf("wait %s and retry; the server's operator can raise control_write_rate and control_write_burst under limits: in starfixd's config", wait),
+		fmt.Sprintf("wait %s and retry; the server's operator can raise control_write_rate and control_write_burst under limits: in ariesd's config", wait),
 		fmt.Sprintf("%s is over the limit on access changes (%g a second, bursts of %d)", principal, l.ControlWriteRate, l.ControlWriteBurst))
 }
 
@@ -956,7 +956,7 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 		s.cfg.Logger.DebugContext(ctx, "key lookup closed unanswered: keys reach sshd by the keys file now", "event", logs.ConnKeyLookup)
 		return nil, nil
 	}
-	// The upgrade's probe and `starfixd status`, alone of the reserved
+	// The upgrade's probe and `ariesd status`, alone of the reserved
 	// names, are welcomed: they connect here directly, and Bridge refuses
 	// their names to every key.
 	if f.T != proto.FrameBridge || !PrincipalPattern.MatchString(f.Principal) ||
@@ -988,7 +988,7 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 	}
 	// From here the connection is somebody's, so it is refused or
 	// counted as theirs before it is waited on. The upgrade's probe and
-	// `starfixd status` are the daemon's own, and neither.
+	// `ariesd status` are the daemon's own, and neither.
 	own := f.Principal == ProbePrincipal || f.Principal == StatusPrincipal
 	if !own {
 		if e := s.standing(f.Principal); e != nil {
@@ -997,7 +997,7 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 		if most := s.cfg.Limits.Handshakes; !s.hellos.enter(f.Principal, most) {
 			s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitHandshakes)
 			return refuse(proto.Errf(proto.CodeBusy,
-				"wait for your other starfix sessions to finish connecting, or close them, and retry; the server's operator can raise handshakes_per_principal under limits: in starfixd's config",
+				"wait for your other aries sessions to finish connecting, or close them, and retry; the server's operator can raise handshakes_per_principal under limits: in ariesd's config",
 				fmt.Sprintf("%s has %d connections that have not said hello, the most a principal may (%d)", f.Principal, most, most)))
 		}
 	}
@@ -1012,10 +1012,10 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 	_ = c.SetReadDeadline(time.Time{})
 	s.greeted(c)
 	if f.T != proto.FrameHello {
-		return refuse(proto.Errf(proto.CodeInvalid, proto.FixUpgrade+" starfix to match the server",
+		return refuse(proto.Errf(proto.CodeInvalid, proto.FixUpgrade+" aries to match the server",
 			fmt.Sprintf("expected a hello, got a %q frame", f.T)))
 	}
-	// The health check of `starfixd upgrade` is run by the binary being
+	// The health check of `ariesd upgrade` is run by the binary being
 	// replaced, so it speaks that binary's protocol. It asks only whether
 	// this daemon answers and sends no request, so it is welcomed whatever
 	// it speaks: otherwise no upgrade could cross a raised ProtoMin, since
@@ -1028,10 +1028,10 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 		sess.proto = f.Proto
 	}
 	if sess.actor.Principal == StatusPrincipal {
-		// `starfixd status` asks about the server, whichever project it
+		// `ariesd status` asks about the server, whichever project it
 		// names, and holds no connection slot (serveStatus). Unlike the
 		// probe it sends a request and reads a result, so it has passed
-		// the protocol check above: a `starfixd status` of another
+		// the protocol check above: an `ariesd status` of another
 		// version is refused with `version`, as any client is.
 		w.Session, w.Principal = statusSession, StatusPrincipal
 		return sess, sess.enc.Encode(w)
@@ -1073,7 +1073,7 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 		sess.actor.Machine = "unknown"
 	}
 	if !validActorPart(sess.actor.Session) || !validActorPart(sess.actor.Machine) {
-		return refuse(proto.Errf(proto.CodeInvalid, "set STARFIX_SESSION to 1-255 printable characters",
+		return refuse(proto.Errf(proto.CodeInvalid, "set ARIES_SESSION to 1-255 printable characters",
 			"session and machine must be 1-255 printable characters, without control or bidirectional characters"))
 	}
 	sess.harness = f.Harness
@@ -1090,13 +1090,13 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 		case errors.Is(err, errStoresFull):
 			s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitOpenStores)
 			return refuse(proto.Errf(proto.CodeBusy,
-				"retry in a minute; the server admin can raise open_stores under limits: in starfixd's config",
+				"retry in a minute; the server admin can raise open_stores under limits: in ariesd's config",
 				fmt.Sprintf("the server has its limit of %d projects open, each with a connection", s.cfg.Limits.OpenStores)))
 		case err != nil:
 			if ctx.Err() == nil {
 				s.cfg.Logger.ErrorContext(ctx, "open project store", "event", logs.ProjectOpenFailed, "project", row.ID, "database", row.DBName, "err", err)
 			}
-			return refuse(proto.Errf(proto.CodeUnavailable, "retry; if it persists, the server admin should check the starfixd log",
+			return refuse(proto.Errf(proto.CodeUnavailable, "retry; if it persists, the server admin should check the ariesd log",
 				fmt.Sprintf("the server could not open project %q", row.ID)))
 		}
 		sess.held, sess.proj = held, held.pr
@@ -1131,20 +1131,20 @@ func (s *Server) silentDolt(ctx context.Context, key string, p store.Project) *p
 	s.refusals.line(ctx, s.cfg.Logger, key, s.now(), slog.LevelError, logs.DoltCheckFailed, "the check of Dolt failed; project store not opened",
 		"project", p.ID, "database", p.DBName, "err", err)
 	return proto.Errf(proto.CodeUnavailable,
-		"retry in a minute; if it persists, the server's operator should run `starfixd status` on the server, which answers without the database, and see to Dolt (docs/server.md, Troubleshooting)",
+		"retry in a minute; if it persists, the server's operator should run `ariesd status` on the server, which answers without the database, and see to Dolt (docs/server.md, Troubleshooting)",
 		fmt.Sprintf("the server's database does not answer, so project %q was not opened", p.ID))
 }
 
 // notServed refuses a hello for a project the server does not serve.
 func notServed(project string) *proto.Error {
-	return proto.Errf(proto.CodeNotFound, "check `project` in .starfix.yaml, or the server address",
+	return proto.Errf(proto.CodeNotFound, "check `project` in .aries.yaml, or the server address",
 		fmt.Sprintf("project %q is not served by this server", project))
 }
 
 // disabledErr refuses a principal whose row is disabled.
 func disabledErr(principal string) *proto.Error {
 	return proto.Errf(proto.CodeForbidden,
-		fmt.Sprintf("ask a server admin, or a project admin who administers every project you belong to, to run `sfx admin principal enable %s`", principal),
+		fmt.Sprintf("ask a server admin, or a project admin who administers every project you belong to, to run `aries admin principal enable %s`", principal),
 		fmt.Sprintf("%s is disabled on this server", principal))
 }
 
@@ -1164,7 +1164,7 @@ func (s *Server) standing(principal string) *proto.Error {
 		return disabledErr(principal)
 	case !known:
 		return proto.Errf(proto.CodeForbidden,
-			fmt.Sprintf("ask a server admin, or an admin of the project, to add you: `sfx admin principal add %s`, run in the project's repository", principal),
+			fmt.Sprintf("ask a server admin, or an admin of the project, to add you: `aries admin principal add %s`, run in the project's repository", principal),
 			fmt.Sprintf("%s is not a principal of this server", principal))
 	}
 	return nil
@@ -1188,7 +1188,7 @@ func (s *Server) admit(principal, project string) (store.Access, *proto.Error) {
 	}
 	if acc.Role == "" {
 		return acc, proto.Errf(proto.CodeForbidden,
-			fmt.Sprintf("ask a server admin, or one of the project's admins, to add you: `sfx admin member add %s`, run in this repository", principal),
+			fmt.Sprintf("ask a server admin, or one of the project's admins, to add you: `aries admin member add %s`, run in this repository", principal),
 			fmt.Sprintf("%s is not a member of project %q", principal, project))
 	}
 	return acc, nil

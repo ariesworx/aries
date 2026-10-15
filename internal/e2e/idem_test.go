@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/cli"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/cli"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // TestReplayAfterADayAppliesOnce is F2's gate, its first half: "A replay
@@ -44,12 +44,12 @@ func TestReplayAfterADayAppliesOnce(t *testing.T) {
 		{"accept", id, "1"},
 	} {
 		if out := alice.ok(args...); !strings.HasPrefix(out, "queued (") {
-			t.Fatalf("sfx %s with the server away printed %q, want it queued", strings.Join(args, " "), out)
+			t.Fatalf("aries %s with the server away printed %q, want it queued", strings.Join(args, " "), out)
 		}
 	}
 	clk.add(25 * time.Hour)
 	w.start()
-	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "sfx: outbox: delivered 5\n" {
+	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "aries: outbox: delivered 5\n" {
 		t.Fatalf("the first command a day later = exit %d, stderr %q; want the five writes delivered", r.code, r.stderr)
 	}
 	check := func(when string) {
@@ -98,7 +98,7 @@ func TestReplayPastTheWindowIsKept(t *testing.T) {
 	clk.add(8 * 24 * time.Hour)
 	w.start()
 
-	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "sfx: outbox: stale 2 (see `sfx outbox`)\n" {
+	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "aries: outbox: stale 2 (see `aries outbox`)\n" {
 		t.Fatalf("the first command eight days later = exit %d, stderr %q; want both entries found stale", r.code, r.stderr)
 	}
 	if n := bob.comments(id); n != 1 {
@@ -110,14 +110,14 @@ func TestReplayPastTheWindowIsKept(t *testing.T) {
 		"     stale: it waited 192h0m0s, and an entry is sent for 168h0m0s\n",
 	} {
 		if !strings.Contains(out, want) {
-			t.Errorf("sfx outbox lacks %q:\n%s", want, out)
+			t.Errorf("aries outbox lacks %q:\n%s", want, out)
 		}
 	}
 	// Retried by hand: the label, never sent, applies; the comment's key
 	// is the server's from eight days ago, and is refused stale.
 	alice.ok("outbox", "retry", "1")
 	alice.ok("outbox", "retry", "2")
-	if r := alice.run("v0.2.0", "ready"); r.stderr != "sfx: outbox: delivered 1, refused 1 (see `sfx outbox`)\n" {
+	if r := alice.run("v0.2.0", "ready"); r.stderr != "aries: outbox: delivered 1, refused 1 (see `aries outbox`)\n" {
 		t.Errorf("the command after the retries said %q, want the label delivered and the comment refused", r.stderr)
 	}
 	out = alice.ok("outbox")
@@ -128,7 +128,7 @@ func TestReplayPastTheWindowIsKept(t *testing.T) {
 		"     fix: nothing to do if that was this request; if the change is still wanted, make it again by hand",
 	} {
 		if !strings.Contains(out, want) {
-			t.Errorf("sfx outbox after the retries lacks %q:\n%s", want, out)
+			t.Errorf("aries outbox after the retries lacks %q:\n%s", want, out)
 		}
 	}
 	if !strings.Contains(out, "     stale: ") {
@@ -142,7 +142,7 @@ func TestReplayPastTheWindowIsKept(t *testing.T) {
 	}
 }
 
-// firstRefused is the number of the first refused entry `sfx outbox`
+// firstRefused is the number of the first refused entry `aries outbox`
 // lists in out.
 func firstRefused(t *testing.T, out string) string {
 	t.Helper()

@@ -116,7 +116,7 @@ func TestReleaseSigningIsApproved(t *testing.T) {
 	}
 	var downloads int
 	for i, st := range sign.Steps {
-		if strings.Contains(st.Run, "STARFIX_RELEASE_KEY") && i == 0 {
+		if strings.Contains(st.Run, "ARIES_RELEASE_KEY") && i == 0 {
 			t.Error("sign-and-publish reads the key in its first step, before its checks")
 		}
 		if strings.HasPrefix(st.Uses, "actions/download-artifact@") {
@@ -136,8 +136,8 @@ func TestReleaseSigningIsApproved(t *testing.T) {
 func TestCIRequiresDolt(t *testing.T) {
 	t.Parallel()
 	test := readWorkflow(t, "ci.yml").Jobs["test"]
-	if got := test.Env["STARFIX_REQUIRE_DOLT"]; got != "1" {
-		t.Errorf("ci.yml test job STARFIX_REQUIRE_DOLT = %q, want 1", got)
+	if got := test.Env["ARIES_REQUIRE_DOLT"]; got != "1" {
+		t.Errorf("ci.yml test job ARIES_REQUIRE_DOLT = %q, want 1", got)
 	}
 	var shuffled bool
 	for _, s := range test.Steps {

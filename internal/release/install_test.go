@@ -17,8 +17,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/release"
-	"github.com/ariesworx/starfix/internal/release/releasetest"
+	"github.com/ariesworx/aries/internal/release"
+	"github.com/ariesworx/aries/internal/release/releasetest"
 )
 
 // installScript is the repository's install.sh, relative to this package.
@@ -79,9 +79,9 @@ func (f *fakeRelease) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-const fakeSfx = "#!/bin/sh\necho 'starfix v1.2.3 (protocol 1)'\n"
+const fakeAries = "#!/bin/sh\necho 'aries v1.2.3 (protocol 1)'\n"
 
-// newFakeRelease returns a release v1.2.3 holding sfx for linux/amd64,
+// newFakeRelease returns a release v1.2.3 holding aries for linux/amd64,
 // signed with a fresh key, and that key as a PEM.
 func newFakeRelease(t *testing.T) (*fakeRelease, ed25519.PrivateKey, string) {
 	t.Helper()
@@ -93,8 +93,8 @@ func newFakeRelease(t *testing.T) (*fakeRelease, ed25519.PrivateKey, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	name := release.ArchiveName("sfx", "v1.2.3", "linux", "amd64")
-	archive := releasetest.TarGz(t, "sfx", []byte(fakeSfx))
+	name := release.ArchiveName("aries", "v1.2.3", "linux", "amd64")
+	archive := releasetest.TarGz(t, "aries", []byte(fakeAries))
 	f := &fakeRelease{tag: "v1.2.3", files: map[string][]byte{name: archive}}
 	f.setChecksums(priv, fmt.Sprintf("%x  %s\n", sha256.Sum256(archive), name))
 	return f, priv, string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
@@ -125,7 +125,7 @@ func runInstall(t *testing.T, srv *httptest.Server, fake string, env []string, a
 		"HOME=" + home,
 		"SHELL=/bin/zsh",
 		"TMPDIR=" + t.TempDir(),
-		"STARFIX_BASE_URL=" + srv.URL,
+		"ARIES_BASE_URL=" + srv.URL,
 	}, env...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err == nil
@@ -178,19 +178,19 @@ func TestInstallScript(t *testing.T) {
 		want      []string // in the output
 	}{
 		{name: "latest", arch: "x86_64", ok: true,
-			want: []string{"STARFIX_PUBKEY_PEM is set", "installed starfix v1.2.3 (protocol 1) to ", `export PATH="`, "~/.zshrc"}},
+			want: []string{"ARIES_PUBKEY_PEM is set", "installed aries v1.2.3 (protocol 1) to ", `export PATH="`, "~/.zshrc"}},
 		{name: "pinned version, aarch64 maps to arm64", arch: "aarch64", args: []string{"--version", "1.2.3"}, ok: true,
 			edit: func(f *fakeRelease, k ed25519.PrivateKey) {
-				name := release.ArchiveName("sfx", "v1.2.3", "linux", "arm64")
-				f.files[name] = f.files[release.ArchiveName("sfx", "v1.2.3", "linux", "amd64")]
+				name := release.ArchiveName("aries", "v1.2.3", "linux", "arm64")
+				f.files[name] = f.files[release.ArchiveName("aries", "v1.2.3", "linux", "amd64")]
 				f.setChecksums(k, fmt.Sprintf("%x  %s\n", sha256.Sum256(f.files[name]), name))
 			},
-			want: []string{"installed starfix v1.2.3"}},
+			want: []string{"installed aries v1.2.3"}},
 		{name: "bad checksum", arch: "x86_64",
 			edit: func(f *fakeRelease, k ed25519.PrivateKey) {
-				f.setChecksums(k, fmt.Sprintf("%064x  %s\n", 0, release.ArchiveName("sfx", "v1.2.3", "linux", "amd64")))
+				f.setChecksums(k, fmt.Sprintf("%064x  %s\n", 0, release.ArchiveName("aries", "v1.2.3", "linux", "amd64")))
 			},
-			want: []string{"install.sh: checksum mismatch for sfx_1.2.3_linux_amd64.tar.gz", "nothing was installed", "fix: "}},
+			want: []string{"install.sh: checksum mismatch for aries_1.2.3_linux_amd64.tar.gz", "nothing was installed", "fix: "}},
 		{name: "bad signature", arch: "x86_64", needSig: true,
 			edit: func(f *fakeRelease, _ ed25519.PrivateKey) {
 				f.setChecksums(otherKey, string(f.files[release.ChecksumsName]))
@@ -200,10 +200,10 @@ func TestInstallScript(t *testing.T) {
 			want: []string{"does not verify"}},
 		{name: "unknown arch", arch: "riscv64",
 			want: []string{"install.sh: unsupported architecture riscv64", "fix: "}},
-		{name: "--server fetches starfixd", arch: "x86_64", args: []string{"--server"},
-			want: []string{"cannot download", "starfixd_1.2.3_linux_amd64.tar.gz"}},
+		{name: "--server fetches ariesd", arch: "x86_64", args: []string{"--server"},
+			want: []string{"cannot download", "ariesd_1.2.3_linux_amd64.tar.gz"}},
 		{name: "no openssl warns", arch: "x86_64", noOpenSSL: true, ok: true,
-			want: []string{"warning: signature not checked", "installed starfix v1.2.3"}},
+			want: []string{"warning: signature not checked", "installed aries v1.2.3"}},
 		{name: "no openssl with --require-signature", arch: "x86_64", noOpenSSL: true, args: []string{"--require-signature"},
 			want: []string{"install.sh: openssl cannot check Ed25519 signatures", "fix: "}},
 		{name: "bad option", arch: "x86_64", args: []string{"--nope"},
@@ -222,9 +222,9 @@ func TestInstallScript(t *testing.T) {
 			srv := httptest.NewServer(f)
 			t.Cleanup(srv.Close)
 			dir := filepath.Join(t.TempDir(), "bin")
-			env := []string{"STARFIX_DIR=" + dir}
+			env := []string{"ARIES_DIR=" + dir}
 			if !tc.noPEM {
-				env = append(env, "STARFIX_PUBKEY_PEM="+pubPEM)
+				env = append(env, "ARIES_PUBKEY_PEM="+pubPEM)
 			}
 			fake := t.TempDir()
 			script(t, fake, "uname", fmt.Sprintf("case $1 in -s) echo Linux ;; -m) echo %s ;; *) exit 1 ;; esac\n", tc.arch))
@@ -243,7 +243,7 @@ func TestInstallScript(t *testing.T) {
 					t.Errorf("output lacks %q:\n%s", w, out)
 				}
 			}
-			bin := filepath.Join(dir, "sfx")
+			bin := filepath.Join(dir, "aries")
 			fi, err := os.Stat(bin)
 			if !tc.ok {
 				if err == nil {
@@ -257,11 +257,11 @@ func TestInstallScript(t *testing.T) {
 			if fi.Mode().Perm() != 0o755 {
 				t.Errorf("mode %v, want 0755", fi.Mode().Perm())
 			}
-			if b, _ := os.ReadFile(bin); string(b) != fakeSfx { //nolint:gosec // test temp dir
-				t.Errorf("installed %q, want the archive's sfx", b)
+			if b, _ := os.ReadFile(bin); string(b) != fakeAries { //nolint:gosec // test temp dir
+				t.Errorf("installed %q, want the archive's aries", b)
 			}
 			if entries, _ := os.ReadDir(dir); len(entries) != 1 {
-				t.Errorf("%s holds %d entries, want only sfx", dir, len(entries))
+				t.Errorf("%s holds %d entries, want only aries", dir, len(entries))
 			}
 		})
 	}

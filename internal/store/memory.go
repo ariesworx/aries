@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
-	"github.com/ariesworx/starfix/internal/safetext"
-	"github.com/ariesworx/starfix/internal/secretscan"
+	"github.com/ariesworx/aries/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/safetext"
+	"github.com/ariesworx/aries/internal/secretscan"
 )
 
 // Memory (design §6). A memory is a keyed note that agents and people keep
@@ -20,7 +20,7 @@ import (
 // record per scope. A user-scope memory is its author's alone, on every
 // machine and agent, and the store enforces that: every read and write is
 // for the actor's own user scope, so another principal's user memories
-// are not there to find. starfixd serves one project, so team and project
+// are not there to find. ariesd serves one project, so team and project
 // memories reach the same principals and differ in intent: a project
 // memory is a fact about the repository, a team memory how the people
 // work.
@@ -512,7 +512,7 @@ func (s *Store) Remember(ctx context.Context, actor Actor, in NewMemory) (Memory
 // It counts, then the caller inserts, and Dolt sees no conflict between
 // overlapping transactions that insert different keys. One Store's
 // writes run one at a time on its writer connection, so only two stores
-// writing one database at once (two starfixd processes) can each pass
+// writing one database at once (two ariesd processes) can each pass
 // the count and together exceed the cap: by at most one memory per
 // store.
 func (w *wtx) checkCap(ctx context.Context, scope Scope, except string) error {

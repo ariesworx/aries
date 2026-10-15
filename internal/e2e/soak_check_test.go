@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // The soak's invariants. The monitor checks what each acknowledged answer
@@ -248,7 +248,7 @@ type sevent struct {
 }
 
 // reaper is who the reaper's changes are recorded as.
-var reaper = sessKey{"starfixd", "reaper"}
+var reaper = sessKey{"ariesd", "reaper"}
 
 // rIssue is an issue as the replay rebuilds it.
 type rIssue struct {

@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/lazyregexp"
 )
 
 // Operations. Each names its argument and result types.
@@ -585,11 +585,11 @@ type RenewArgs struct {
 	Paths map[string][]string `json:"paths,omitempty"`
 }
 
-// CLISession is the session of a person's own `sfx` commands, run without
+// CLISession is the session of a person's own `aries` commands, run without
 // a harness session id: one per principal and machine.
 const CLISession = "cli"
 
-// CISession is the session of `sfx` run by a CI job without a harness
+// CISession is the session of `aries` run by a CI job without a harness
 // session id: where the environment says CI=true, as GitHub Actions and
 // GitLab CI set it. The server takes a ci gate's report from it, as from
 // CLISession, and a human gate's decision from CLISession alone.

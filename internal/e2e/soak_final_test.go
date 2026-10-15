@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/mcpserver"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // verify runs the checks that need the whole run, once it is at rest: the
@@ -905,7 +905,7 @@ func (s *soak) explain() {
 	if shown > 30 {
 		s.t.Errorf("soak: … and %d more", shown-30)
 	}
-	s.t.Errorf("soak: replay this run with STARFIX_SOAK_SEED=%d (the interleaving differs; the choices do not)", s.cfg.seed)
+	s.t.Errorf("soak: replay this run with ARIES_SOAK_SEED=%d (the interleaving differs; the choices do not)", s.cfg.seed)
 	for _, id := range issues[:min(len(issues), 3)] {
 		s.t.Errorf("soak: the story of %s:\n%s", id, s.story(id))
 	}

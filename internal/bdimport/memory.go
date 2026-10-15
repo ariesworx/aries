@@ -8,9 +8,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ariesworx/starfix/internal/safetext"
-	"github.com/ariesworx/starfix/internal/secretscan"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/safetext"
+	"github.com/ariesworx/aries/internal/secretscan"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // bdMemory is a bd memory record, one entry of bd's kv.memory.* store as

@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// DefaultSocket is where starfixd listens unless configured otherwise.
-const DefaultSocket = "/run/starfix/starfixd.sock"
+// DefaultSocket is where ariesd listens unless configured otherwise.
+const DefaultSocket = "/run/aries/ariesd.sock"
 
 // Listen opens the daemon's unix socket at path, mode 0600. The directory
 // is created 0700 if missing, and refused if its group or others have any
@@ -39,7 +39,7 @@ func Listen(path string) (net.Listener, error) {
 		}
 		if c, err := net.DialTimeout("unix", path, time.Second); err == nil {
 			_ = c.Close()
-			return nil, fmt.Errorf("another starfixd is listening on %s; fix: stop it first", path)
+			return nil, fmt.Errorf("another ariesd is listening on %s; fix: stop it first", path)
 		}
 		if err := os.Remove(path); err != nil {
 			return nil, fmt.Errorf("remove stale socket: %w", err)

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 func TestPrintPrices(t *testing.T) {
@@ -17,7 +17,7 @@ func TestPrintPrices(t *testing.T) {
 		res  proto.PricesResult
 		want string
 	}{
-		{"none", proto.PricesResult{}, "no prices; an admin sets one with `sfx admin prices set`\n"},
+		{"none", proto.PricesResult{}, "no prices; an admin sets one with `aries admin prices set`\n"},
 		{"some", proto.PricesResult{Prices: []proto.Price{
 			{Model: "example-large", From: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 				Rates: proto.Rates{Input: 4_000_000, Output: 20_000_000, CacheWrite: 5_000_000, CacheWrite1h: 8_000_000, CacheRead: 400_000},
@@ -62,7 +62,7 @@ func TestPrintCost(t *testing.T) {
 			"cost by model, 2026-10-01 00:00 UTC to 2026-10-01 01:00 UTC (1h), list price\n" +
 				"  mystery  unpriced  7 tokens\n" +
 				"total unpriced, 7 tokens\n" +
-				"unpriced: no price for mystery; an admin sets one with `sfx admin prices set`\n"},
+				"unpriced: no price for mystery; an admin sets one with `aries admin prices set`\n"},
 		{"empty", proto.CostResult{By: "account", Since: since, Until: since.Add(7 * 24 * time.Hour), Total: proto.CostGroup{CostUSD: "0"}},
 			"cost by account, 2026-10-01 00:00 UTC to 2026-10-08 00:00 UTC (7d): no tokens\n"},
 		{"groups", proto.CostResult{By: "issue", Since: since, Until: since.Add(24 * time.Hour), Groups: []proto.CostGroup{
@@ -80,7 +80,7 @@ func TestPrintCost(t *testing.T) {
 				"  sf-c3                                                      $1.00     9 tokens     unpriced\n" +
 				"total $13.35, 1.2M tokens\n" +
 				"split: shared by time with other work, so an estimate\n" +
-				"unpriced: no price for mystery and 3 more; an admin sets one with `sfx admin prices set`\n" +
+				"unpriced: no price for mystery and 3 more; an admin sets one with `aries admin prices set`\n" +
 				"partial: more records than the server reads; narrow the window\n"},
 	}
 	for _, tc := range tests {
@@ -164,7 +164,7 @@ func TestCostUsage(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			code, out, errb := runCLI(t, tc.args...)
-			if code != ExitUsage || !strings.Contains(errb, tc.stderr) || !strings.Contains(errb, "fix: usage: sfx ") {
+			if code != ExitUsage || !strings.Contains(errb, tc.stderr) || !strings.Contains(errb, "fix: usage: aries ") {
 				t.Fatalf("exit %d (want %d), stdout %q, stderr %q; want it to name %q and the usage", code, ExitUsage, out, errb, tc.stderr)
 			}
 		})
@@ -178,7 +178,7 @@ func TestAdminJSONBeforeSubcommand(t *testing.T) {
 	empty := t.TempDir()
 	for _, sub := range []string{"prices", "plans"} {
 		code, out, errb := runCLI(t, "-C", empty, "admin", "--json", sub)
-		if code != ExitFailure || errb != "" || !strings.Contains(out, `".starfix.yaml not found here or in any parent directory"`) {
+		if code != ExitFailure || errb != "" || !strings.Contains(out, `".aries.yaml not found here or in any parent directory"`) {
 			t.Errorf("admin --json %s outside a repository: exit %d, stdout %q, stderr %q; want exit %d and a JSON error", sub, code, out, errb, ExitFailure)
 		}
 	}

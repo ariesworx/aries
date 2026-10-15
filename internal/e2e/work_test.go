@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/cli"
-	"github.com/ariesworx/starfix/internal/mcpserver"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/cli"
+	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // gitInit makes dir a repository with one commit. TestMain isolates it
@@ -70,8 +70,8 @@ func TestStartHandoffFinish(t *testing.T) {
 	}
 
 	r := bob.run("v0.2.0", "start", id)
-	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "sfx: "+id+" is in progress by alice; next ready: ") ||
-		!strings.Contains(r.stderr, "fix: take that one with `sfx start sf-") {
+	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "aries: "+id+" is in progress by alice; next ready: ") ||
+		!strings.Contains(r.stderr, "fix: take that one with `aries start sf-") {
 		t.Fatalf("bob start: exit %d\n%s", r.code, r.stderr)
 	}
 
@@ -100,8 +100,8 @@ func TestStartHandoffFinish(t *testing.T) {
 
 	// Only bob, or an admin, may change it while he holds it (D1).
 	r = alice.run("v0.2.0", "finish", id)
-	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "sfx: "+id+" is held by bob (session cli) until ") ||
-		!strings.Contains(r.stderr, "fix: ask bob to hand it off (`sfx handoff "+id+" --release`)") {
+	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "aries: "+id+" is held by bob (session cli) until ") ||
+		!strings.Contains(r.stderr, "fix: ask bob to hand it off (`aries handoff "+id+" --release`)") {
 		t.Fatalf("alice finish: exit %d\n%s", r.code, r.stderr)
 	}
 	r = alice.run("v0.2.0", "update", id, "--title", "mine", "--json")
@@ -109,7 +109,7 @@ func TestStartHandoffFinish(t *testing.T) {
 		t.Fatalf("alice update: exit %d %+v", r.code, e)
 	}
 	r = bob.run("v0.2.0", "finish", id, "--reason", "fixed")
-	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "acceptance items neither ticked nor waived: 1\nfix: tick what is met with `sfx accept "+id+" 1`") {
+	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "acceptance items neither ticked nor waived: 1\nfix: tick what is met with `aries accept "+id+" 1`") {
 		t.Fatalf("finish with the item open: exit %d\n%s", r.code, r.stderr)
 	}
 	f := decode[proto.FinishResult](t, bob.ok("finish", id, "--reason", "fixed", "--handoff", "cookie path is gone", "--tick", "1",
@@ -135,7 +135,7 @@ func TestStartHandoffFinish(t *testing.T) {
 	for _, e := range h.Events {
 		ops = append(ops, e.Op+"/"+e.Principal)
 	}
-	// sfx away extended her claim, on the record, and sent the files
+	// aries away extended her claim, on the record, and sent the files
 	// alice's branch had changed (the world's untracked key and
 	// config): files to issues, design §12 item 3.
 	want := "issue.create/alice claim.take/alice issue.update/alice claim.away/alice issue.paths/alice claim.release/alice comment.add/alice issue.update/alice claim.take/bob issue.update/bob acceptance.tick/bob comment.add/bob claim.release/bob issue.close/bob"

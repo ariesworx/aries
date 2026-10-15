@@ -1,9 +1,9 @@
-// Package proto is the wire protocol between starfix and starfixd.
+// Package proto is the wire protocol between aries and ariesd.
 //
 // # Transport
 //
 // The client opens an SSH session to the server's own sshd. Each developer
-// key's authorized_keys line forces `starfixd stdio --principal NAME`, so
+// key's authorized_keys line forces `ariesd stdio --principal NAME`, so
 // the principal comes from the key that authenticated, never from the
 // client. That bridge connects to the daemon's unix socket, writes a bridge
 // frame naming the principal, then copies bytes both ways. The daemon
@@ -58,7 +58,7 @@
 //
 // A client whose protocol version is outside [min,max] gets a welcome
 // carrying err with code "version", whose fix says which side to upgrade
-// (CheckProto), and the connection closes. The health check of `starfixd
+// (CheckProto), and the connection closes. The health check of `ariesd
 // upgrade`, which only the daemon's own user can send, is welcomed
 // whatever version it speaks.
 //

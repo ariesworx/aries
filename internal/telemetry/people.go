@@ -16,7 +16,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/ariesworx/starfix/internal/logs"
+	"github.com/ariesworx/aries/internal/logs"
 )
 
 // How a person appears in what leaves the machine through telemetry: a
@@ -107,7 +107,7 @@ func openPeople(cfg Config, wanted, memory bool, log *slog.Logger) (*people, err
 		p.mode = PrincipalsPseudonym
 	}
 	if !ValidPrincipals(p.mode) {
-		return p, fmt.Errorf("telemetry: principals %q is not %s, %s or %s; fix: set telemetry: principals: to one of them in starfixd's config file, or leave it out for %s",
+		return p, fmt.Errorf("telemetry: principals %q is not %s, %s or %s; fix: set telemetry: principals: to one of them in ariesd's config file, or leave it out for %s",
 			cfg.Principals, PrincipalsPseudonym, PrincipalsName, PrincipalsOmit, PrincipalsPseudonym)
 	}
 	p.wanted = wanted && p.mode == PrincipalsPseudonym
@@ -136,7 +136,7 @@ func (p *people) load() *keyState {
 			cause = p.pathErr.Error()
 		}
 		return &keyState{problem: &keyProblem{cause: cause, fixes: []string{
-			"set telemetry: principals_key: to an absolute path in starfixd's config file, in a directory starfixd may write to",
+			"set telemetry: principals_key: to an absolute path in ariesd's config file, in a directory ariesd may write to",
 			p.orDoWithout(),
 		}}}
 	}
@@ -158,9 +158,9 @@ func (p *people) load() *keyState {
 	if err != nil {
 		dir := filepath.Dir(p.path)
 		return &keyState{problem: &keyProblem{cause: "it cannot be made: " + err.Error(), fixes: []string{
-			fmt.Sprintf("make its directory, owned by the user starfixd runs as: install -d -m 0700 -o starfix -g starfix %s", dir),
-			fmt.Sprintf("under systemd, let starfixd write there with a drop-in: ReadWritePaths=%s (docs/server.md, Traces)", dir),
-			"with the AppArmor profiles, starfixd-serve must allow the file: deploy/apparmor, and its tunables if the path is not the default",
+			fmt.Sprintf("make its directory, owned by the user ariesd runs as: install -d -m 0700 -o aries -g aries %s", dir),
+			fmt.Sprintf("under systemd, let ariesd write there with a drop-in: ReadWritePaths=%s (docs/server.md, Traces)", dir),
+			"with the AppArmor profiles, ariesd-serve must allow the file: deploy/apparmor, and its tunables if the path is not the default",
 			p.orDoWithout(),
 		}}}
 	}
@@ -187,7 +187,7 @@ func (p *people) report(prob *keyProblem) {
 	for _, fix := range prob.fixes {
 		p.log.Error("fix", "event", logs.TelemetryKeyUnavailable, logs.KeyFix, fix)
 	}
-	p.log.Error("starfixd serves as it is, and looks for the key again at each tick of its reaper: no restart is needed", "event", logs.TelemetryKeyUnavailable)
+	p.log.Error("ariesd serves as it is, and looks for the key again at each tick of its reaper: no restart is needed", "event", logs.TelemetryKeyUnavailable)
 }
 
 // RetryKey looks for the stand-in key again when spans are to carry
@@ -249,15 +249,15 @@ func (t *Telemetry) People() People {
 // nor a problem for a file that does not exist. A problem never repeats
 // what the file holds.
 func readKey(path string) ([]byte, *keyProblem) {
-	replace := "delete it, and starfixd makes a new key: stand-ins made with the old one can then no longer be resolved"
+	replace := "delete it, and ariesd makes a new key: stand-ins made with the old one can then no longer be resolved"
 	f, err := os.Open(path) //nolint:gosec // the operator names the key file
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
 		}
 		return nil, &keyProblem{cause: "it cannot be read: " + err.Error(), fixes: []string{
-			"make the file readable by the user starfixd runs as, and by nobody else (mode 0600)",
-			"with the AppArmor profiles, starfixd-serve must allow the file: deploy/apparmor, and its tunables if the path is not the default",
+			"make the file readable by the user ariesd runs as, and by nobody else (mode 0600)",
+			"with the AppArmor profiles, ariesd-serve must allow the file: deploy/apparmor, and its tunables if the path is not the default",
 		}}
 	}
 	defer func() { _ = f.Close() }()
@@ -267,7 +267,7 @@ func readKey(path string) ([]byte, *keyProblem) {
 	}
 	if !fi.Mode().IsRegular() {
 		return nil, &keyProblem{cause: "its path holds something that is not a regular file", damaged: true,
-			fixes: []string{"move it away, and starfixd makes a new key there"}}
+			fixes: []string{"move it away, and ariesd makes a new key there"}}
 	}
 	if perm := fi.Mode().Perm(); perm&0o077 != 0 {
 		return nil, &keyProblem{cause: fmt.Sprintf("its file is mode %04o: others can read it, and whoever has can test a name against a stand-in", perm), damaged: true,
@@ -322,7 +322,7 @@ func standIn(key []byte, prefix, domain, value string) string {
 
 // plainID reports whether s may go on a span as it is: 1 to 255 bytes
 // of printable ASCII with no space, as a principal's name and the
-// session ids starfix makes are.
+// session ids Aries makes are.
 func plainID(s string) bool {
 	if s == "" || len(s) > 255 {
 		return false

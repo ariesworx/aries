@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/lazyregexp"
 )
 
 // backupTagPattern bounds a backup tag name to what Dolt accepts as a ref.
@@ -36,7 +36,7 @@ func (s *Store) BackupTag(ctx context.Context, name string) (string, error) {
 		return "", fmt.Errorf("backup tag: %w", err)
 	}
 	defer func() { _ = c.Close() }()
-	if _, err := c.ExecContext(ctx, `CALL DOLT_COMMIT('-Am', ?, '--skip-empty')`, "starfix: backup before upgrade"); err != nil {
+	if _, err := c.ExecContext(ctx, `CALL DOLT_COMMIT('-Am', ?, '--skip-empty')`, "aries: backup before upgrade"); err != nil {
 		return "", fmt.Errorf("backup commit: %w", err)
 	}
 	var head string

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/logs"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // jsonLine is one line of the daemon's log in JSON.
@@ -23,7 +23,7 @@ func (l jsonLine) str(key string) string {
 }
 
 // jsonLogged has m's server log in JSON, at debug, through the logger
-// starfixd makes, and returns where the lines go. It is called before
+// ariesd makes, and returns where the lines go. It is called before
 // the server opens a store, since a store's logger is made when it
 // opens.
 func jsonLogged(t *testing.T, m *multi) *syncBuffer {
@@ -122,7 +122,7 @@ func TestAuditStream(t *testing.T) {
 	if _, perr := ask[proto.PrincipalResult](d, proto.OpPrincipalDisable, proto.PrincipalArgs{Name: "nobody"}); perr == nil {
 		t.Fatal("disabling a principal that does not exist succeeded")
 	}
-	// A change made beside the daemon, as `starfixd control init` makes
+	// A change made beside the daemon, as `ariesd control init` makes
 	// one, is in the stream after the reaper's next tick.
 	m.project(t, projB, "erin=admin")
 	before := len(auditLines(jsonLines(t, out.String())))

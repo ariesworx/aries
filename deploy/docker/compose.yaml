@@ -1,55 +1,55 @@
-# A local starfix test server, for testing only: docs/deploy/docker.md.
+# A local Aries test server, for testing only: docs/deploy/docker.md.
 #
-#   STARFIX_KEYS="alice $(cat ~/.ssh/id_ed25519.pub)" docker compose -f deploy/docker/compose.yaml up -d --build
+#   ARIES_KEYS="alice $(cat ~/.ssh/id_ed25519.pub)" docker compose -f deploy/docker/compose.yaml up -d --build
 #
-# STARFIX_KEYS holds "NAME TYPE KEY" lines, one principal key each;
-# STARFIX_ADMINS (comma-separated) defaults to the first name;
-# STARFIX_PROJECT fixes the project UUID on the first start;
-# STARFIX_PORT is the port on 127.0.0.1, 2222 by default;
-# STARFIX_IMAGE is the image to run, starfix-dev:local by default.
+# ARIES_KEYS holds "NAME TYPE KEY" lines, one principal key each;
+# ARIES_ADMINS (comma-separated) defaults to the first name;
+# ARIES_PROJECT fixes the project UUID on the first start;
+# ARIES_PORT is the port on 127.0.0.1, 2222 by default;
+# ARIES_IMAGE is the image to run, aries-dev:local by default.
 #
 # Telemetry is off unless asked for (docs/deploy/docker.md, "Telemetry"):
 #
-#   STARFIX_TELEMETRY=1 docker compose --profile telemetry up -d --build --wait
+#   ARIES_TELEMETRY=1 docker compose --profile telemetry up -d --build --wait
 #
-# STARFIX_TELEMETRY=1 has starfixd serve /metrics and push metrics, logs and
+# ARIES_TELEMETRY=1 has ariesd serve /metrics and push metrics, logs and
 # traces to a collector on loopback; the `telemetry` profile runs that
 # collector, and the `prometheus` profile a Prometheus with the alert
-# rules. Both run in the server's network namespace, because starfixd's
+# rules. Both run in the server's network namespace, because ariesd's
 # listener and Dolt's metrics answer on loopback alone. Neither
 # publishes a port or keeps a volume.
-name: starfix-dev
+name: aries-dev
 services:
-  starfix:
+  aries:
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile
-    image: ${STARFIX_IMAGE:-starfix-dev:local}
+    image: ${ARIES_IMAGE:-aries-dev:local}
     # docker-init reaps the processes sshd leaves behind and forwards stop
     # signals to the entrypoint.
     init: true
     environment:
-      STARFIX_KEYS: ${STARFIX_KEYS:-}
-      STARFIX_ADMINS: ${STARFIX_ADMINS:-}
-      STARFIX_PROJECT: ${STARFIX_PROJECT:-}
-      STARFIX_PORT: ${STARFIX_PORT:-2222}
-      STARFIX_TELEMETRY: ${STARFIX_TELEMETRY:-}
+      ARIES_KEYS: ${ARIES_KEYS:-}
+      ARIES_ADMINS: ${ARIES_ADMINS:-}
+      ARIES_PROJECT: ${ARIES_PROJECT:-}
+      ARIES_PORT: ${ARIES_PORT:-2222}
+      ARIES_TELEMETRY: ${ARIES_TELEMETRY:-}
     ports:
-      - 127.0.0.1:${STARFIX_PORT:-2222}:22
+      - 127.0.0.1:${ARIES_PORT:-2222}:22
     volumes:
       - state:/state
 
-  # An OpenTelemetry Collector that receives what starfixd pushes,
-  # scrapes starfixd and Dolt, and prints all of it:
+  # An OpenTelemetry Collector that receives what ariesd pushes,
+  # scrapes ariesd and Dolt, and prints all of it:
   # `docker compose logs collector`.
   collector:
     profiles: [telemetry]
     # otel/opentelemetry-collector:0.162.0, the core distribution
     image: otel/opentelemetry-collector@sha256:310a800ad69ee430e7c541796852a242c9c7db97aaad4daa5ccf843c525fbdb2
     command: ["--config", "/etc/otelcol/config.yaml"]
-    network_mode: service:starfix
+    network_mode: service:aries
     depends_on:
-      starfix:
+      aries:
         condition: service_started
     read_only: true
     cap_drop: [ALL]
@@ -63,7 +63,7 @@ services:
         max-size: 20m
         max-file: "2"
 
-  # A Prometheus that scrapes starfixd and Dolt and evaluates the alert
+  # A Prometheus that scrapes ariesd and Dolt and evaluates the alert
   # rules. Its data is in memory and goes with the container. It
   # listens on loopback in the server's namespace and publishes no port:
   # docs/deploy/docker.md says how to ask it a question.
@@ -76,9 +76,9 @@ services:
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=2h
       - --web.listen-address=127.0.0.1:9090
-    network_mode: service:starfix
+    network_mode: service:aries
     depends_on:
-      starfix:
+      aries:
         condition: service_started
     read_only: true
     cap_drop: [ALL]

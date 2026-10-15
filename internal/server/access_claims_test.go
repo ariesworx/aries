@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // held starts a new issue as c's principal, with an hour's lease, and
@@ -174,12 +174,12 @@ func TestAccessEndsClaimsOfAClosedStore(t *testing.T) {
 
 	// The next connection opens the store, which ends their claims first.
 	r := mustDialTo(t, m.Server, dana, projB)
-	released(t, r, ids[0], "bob", "starfixd", "access", "membership removed")
-	released(t, r, ids[1], "carol", "starfixd", "access", "principal disabled")
+	released(t, r, ids[0], "bob", "ariesd", "access", "membership removed")
+	released(t, r, ids[1], "carol", "ariesd", "access", "principal disabled")
 	if got := claimOf(r, ids[2]); got != "erin" {
 		t.Errorf("erin, who still has access, lost her claim: %s is held by %q", ids[2], got)
 	}
-	if !strings.Contains(m.log.String(), "issue="+ids[0]+` principal=bob session=s-b epoch=1 by=starfixd reason="membership removed"`) {
+	if !strings.Contains(m.log.String(), "issue="+ids[0]+` principal=bob session=s-b epoch=1 by=ariesd reason="membership removed"`) {
 		t.Errorf("the log lacks the release of bob's claim:\n%s", m.log.String())
 	}
 
@@ -211,7 +211,7 @@ func TestAccessEndsClaimsOfAClosedStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustAsk[proto.ProjectResult](d, proto.OpProjectActivate, proto.ProjectArgs{Project: projB})
-	released(t, mustDialTo(t, m.Server, dana, projB), ids[2], "erin", "starfixd", "access", "project archived")
+	released(t, mustDialTo(t, m.Server, dana, projB), ids[2], "erin", "ariesd", "access", "project archived")
 }
 
 // TestSweep checks the reaper tick's sweep: it ends the claims of
@@ -232,7 +232,7 @@ func TestSweep(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.Sweep(t.Context())
-	released(t, d, bobs, "bob", "starfixd", "access", "membership removed")
+	released(t, d, bobs, "bob", "ariesd", "access", "membership removed")
 	if got := claimOf(d, carols); got != "carol" {
 		t.Errorf("the sweep ended carol's claim: held by %q", got)
 	}
@@ -338,12 +338,12 @@ func TestReleaseArchived(t *testing.T) {
 			t.Errorf("%s is still claimed by %s in the archived project after ReleaseArchived", id, cl.Holder.Principal)
 		}
 		want := []string{"issue.create by " + who + "/s-" + who[:1], "claim.take by " + who + "/s-" + who[:1], "issue.update by " + who + "/s-" + who[:1],
-			"claim.release by starfixd/access", "issue.update by starfixd/access"}
+			"claim.release by ariesd/access", "issue.update by ariesd/access"}
 		if got := historyOps(t, st, id); !slices.Equal(got, want) {
 			t.Errorf("the history of %s:\n%v\nwant\n%v", id, got, want)
 		}
 	}
-	if !strings.Contains(m.log.String(), "issue="+carols+` principal=carol session=s-c epoch=1 by=starfixd reason="project archived"`) {
+	if !strings.Contains(m.log.String(), "issue="+carols+` principal=carol session=s-c epoch=1 by=ariesd reason="project archived"`) {
 		t.Errorf("the log lacks the release of carol's claim:\n%s", m.log.String())
 	}
 	if got := claimOf(a, alices); got != "alice" {
@@ -360,7 +360,7 @@ func TestReleaseArchived(t *testing.T) {
 		t.Errorf("after a second ReleaseArchived %d stores were opened in all, want 3: the unreadable project's again, and not proj-b's", opens)
 	}
 	want := []string{"issue.create by carol/s-c", "claim.take by carol/s-c", "issue.update by carol/s-c",
-		"claim.release by starfixd/access", "issue.update by starfixd/access"}
+		"claim.release by ariesd/access", "issue.update by ariesd/access"}
 	if got := historyOps(t, st, carols); !slices.Equal(got, want) {
 		t.Errorf("after a second ReleaseArchived the history of %s is\n%v\nwant\n%v", carols, got, want)
 	}
@@ -368,11 +368,11 @@ func TestReleaseArchived(t *testing.T) {
 	// The holder is told, where she reads it once the project is back.
 	d := mustDialTo(t, m.Server, dana, projA)
 	mustAsk[proto.ProjectResult](d, proto.OpProjectActivate, proto.ProjectArgs{Project: projB})
-	released(t, mustDialTo(t, m.Server, dana, projB), carols, "carol", "starfixd", "access", "project archived")
+	released(t, mustDialTo(t, m.Server, dana, projB), carols, "carol", "ariesd", "access", "project archived")
 	in := mustAsk[proto.InboxResult](mustDialTo(t, m.Server, carol, projB), proto.OpInbox, proto.InboxArgs{})
 	if len(in.Items) != 1 || in.Items[0].Kind != "claim.lost" || in.Items[0].Issue != carols ||
-		!strings.Contains(in.Items[0].Body, "project archived by starfixd") {
-		t.Errorf("carol's inbox = %+v; want one claim.lost for %s saying project archived by starfixd", in.Items, carols)
+		!strings.Contains(in.Items[0].Body, "project archived by ariesd") {
+		t.Errorf("carol's inbox = %+v; want one claim.lost for %s saying project archived by ariesd", in.Items, carols)
 	}
 
 	// A server of one project has nothing archived.
@@ -382,7 +382,7 @@ func TestReleaseArchived(t *testing.T) {
 }
 
 // TestReleaseArchivedDoesNotMigrate pins the other half of decision 24:
-// the database of an archived project that an older starfixd last
+// the database of an archived project that an older ariesd last
 // migrated is left exactly as it is, claims included. Activating the
 // project migrates it and ends them, as before.
 func TestReleaseArchivedDoesNotMigrate(t *testing.T) {
@@ -433,7 +433,7 @@ func TestReleaseArchivedDoesNotMigrate(t *testing.T) {
 	if claims != 1 {
 		t.Errorf("%d claims in the database ReleaseArchived must not touch, want erin's 1 (%s)", claims, erins)
 	}
-	if !strings.Contains(m.log.String(), `msg="archived project not opened at start: its database awaits this starfixd's migrations, and any claim in it ends when the project is activated" event=project.not_opened project=`+projB) {
+	if !strings.Contains(m.log.String(), `msg="archived project not opened at start: its database awaits this ariesd's migrations, and any claim in it ends when the project is activated" event=project.not_opened project=`+projB) {
 		t.Errorf("no log line saying the archived project was left alone:\n%s", m.log.String())
 	}
 }

@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/logs"
+	"github.com/ariesworx/aries/internal/logs"
 )
 
 // The control store (design §15). One server serves many projects, each
@@ -33,7 +33,7 @@ type ControlOptions struct {
 	// Admins are the server admins: the principals who may make every
 	// change. Project admins, a role in the store, may make some
 	// (control_authz.go). None may be a [Reserved] name. They come from
-	// starfixd's config file, so nothing over the protocol makes one.
+	// ariesd's config file, so nothing over the protocol makes one.
 	Admins []string
 	// Limits bound the rows the store holds. Zero fields take
 	// [DefaultControlLimits].
@@ -63,7 +63,7 @@ type ControlOptions struct {
 	// [Options.Tracer] is.
 	Tracer Tracer
 	// Operator marks a store opened by a command the operator runs on
-	// the server (`starfixd control init`), not by the daemon: its writes
+	// the server (`ariesd control init`), not by the daemon: its writes
 	// by [OperatorPrincipal] are allowed as a server admin's are. The
 	// daemon never sets it, so no connection gains anything from the
 	// name, which is reserved besides.
@@ -105,11 +105,11 @@ type Control struct {
 // with the [*TakenError] of a key another principal has, after the
 // checks of who may add one.
 //
-// starfixd gives it the keys of the authorized_keys file its operator
+// ariesd gives it the keys of the authorized_keys file its operator
 // maintains by hand. sshd reads the keys file written from this store
 // before that file (design §14, decision 26), so a key of that file
 // added here under another name would sign its owner in as someone
-// else. The operator's `starfixd control init`, which imports that file,
+// else. The operator's `ariesd control init`, which imports that file,
 // sets none.
 //
 // owner runs inside a write, which may be retried: it must be fast, safe
@@ -207,7 +207,7 @@ func (w *cwtx) indexed(fn func(*index)) { w.index = append(w.index, fn) }
 //
 // In the operator's store (ControlOptions.Operator) the operator's
 // principal writes as a server admin does: the equivalent of
-// [Store.ImportIssue]'s exemption, for `starfixd control init`.
+// [Store.ImportIssue]'s exemption, for `ariesd control init`.
 //
 // A write that fails, rather than being refused, may have committed all
 // the same (a connection lost during COMMIT does not say), so the index
@@ -258,7 +258,7 @@ func (c *Control) write(ctx context.Context, actor Actor, fn func(*cwtx) error) 
 		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
 		if lerr := c.load(rctx); lerr != nil {
-			c.log.ErrorContext(ctx, "reload of the control index failed; it may be stale until starfixd restarts", "event", logs.ControlIndexStale, "err", lerr)
+			c.log.ErrorContext(ctx, "reload of the control index failed; it may be stale until ariesd restarts", "event", logs.ControlIndexStale, "err", lerr)
 		}
 	}
 	return err
@@ -412,7 +412,7 @@ func (c *Control) ActiveProjects() int {
 }
 
 // Reload reads the index again from the database, so that it holds what
-// another process wrote: `starfixd control init` run beside the daemon.
+// another process wrote: `ariesd control init` run beside the daemon.
 // It waits for a write in progress, so no change of this store's is
 // lost.
 func (c *Control) Reload(ctx context.Context) error {

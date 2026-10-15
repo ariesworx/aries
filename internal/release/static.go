@@ -14,10 +14,10 @@ import (
 	"strings"
 )
 
-// EnvReleases names the environment variable that says where sfx,
-// starfixd and install.sh read releases from, in place of
+// EnvReleases names the environment variable that says where aries,
+// ariesd and install.sh read releases from, in place of
 // [DefaultSource]: a location [Open] accepts.
-const EnvReleases = "STARFIX_RELEASES"
+const EnvReleases = "ARIES_RELEASES"
 
 // SourceGitHub is the location that names GitHub's API for [Repo].
 const SourceGitHub = "github"

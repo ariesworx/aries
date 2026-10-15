@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 func memories(n, bodyLen int) []proto.Memory {
@@ -260,17 +260,17 @@ func TestMemoryErrorsNameTheNextStep(t *testing.T) {
 		err  *proto.Error
 		want string
 	}{
-		{"exists", proto.Errf(proto.CodeConflict, "recall it with `sfx recall --key k --scope project`, merge, and retry with --rev 2",
+		{"exists", proto.Errf(proto.CodeConflict, "recall it with `aries recall --key k --scope project`, merge, and retry with --rev 2",
 			"memory k exists in project scope at rev 2, written by bob"),
 			"call recall with the key and scope for its body and rev, merge your change into it, then remember again with that rev"},
-		{"missing", proto.Errf(proto.CodeNotFound, "find the key with `sfx memories --scope team`; remember it with no rev to create it",
+		{"missing", proto.Errf(proto.CodeNotFound, "find the key with `aries memories --scope team`; remember it with no rev to create it",
 			"memory k not found in team scope"),
 			"call recall to find the key and its scope; remember without rev creates it"},
 		{"secret", proto.Errf(proto.CodeInvalid, "remove the secret and remember the rest", "the memory's body looks like it holds a secret (JSON web token)"),
 			"never store a secret: remember the rest, naming where the secret is kept (a vault path or an environment variable) instead"},
-		{"cap", proto.Errf(proto.CodeInvalid, "forget memories no longer needed with `sfx forget KEY --scope project`",
+		{"cap", proto.Errf(proto.CodeInvalid, "forget memories no longer needed with `aries forget KEY --scope project`",
 			"alice may hold at most 1000 memories in project scope"),
-			"call forget on memories that no longer hold, or tell the user, quoting the server: \"forget memories no longer needed with `sfx forget KEY --scope project`\""},
+			"call forget on memories that no longer hold, or tell the user, quoting the server: \"forget memories no longer needed with `aries forget KEY --scope project`\""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

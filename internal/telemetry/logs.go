@@ -14,7 +14,7 @@ import (
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
 
-	"github.com/ariesworx/starfix/internal/logs"
+	"github.com/ariesworx/aries/internal/logs"
 )
 
 // Logs over OTLP (design §16.4). The journal is the logs' home; with
@@ -39,7 +39,7 @@ const maxWord = 64
 func (t *Telemetry) Logging() bool { return t != nil && t.logger != nil }
 
 // LogHandler returns the handler that exports each record it is given
-// over OTLP, or nil when logs are not exported. starfixd's log handler
+// over OTLP, or nil when logs are not exported. ariesd's log handler
 // gives it every record it writes to the journal (logs.Handler.Tap),
 // whole. Handle only puts the record in a bounded queue, or counts it
 // as dropped when the queue is full: it never waits for an export.
@@ -236,7 +236,7 @@ func (t *Telemetry) logging(res *resource.Resource, procs ...sdklog.Processor) {
 // bound is enforced here, a step earlier, where it can be counted, as
 // for spans (batcher): a record is passed on only while fewer than
 // le.queue are waiting, and one that is not is counted on
-// starfix.telemetry.dropped, as are the records of an export that
+// aries.telemetry.dropped, as are the records of an export that
 // failed.
 func (t *Telemetry) logBatcher(exp sdklog.Exporter, le logEnv) sdklog.Processor {
 	g := &logGate{t: t, max: int64(le.queue)}
@@ -306,7 +306,7 @@ func (g *logGate) Shutdown(ctx context.Context) error {
 
 // guardedLogs is the log exporter with its failures handled here, once:
 // the records of a failed export are counted on
-// starfix.telemetry.dropped and the failure logged, sampled, and never
+// aries.telemetry.dropped and the failure logged, sampled, and never
 // returned to the SDK, whose handler would log each one.
 //
 // The line that says an export failed is itself a record, and is

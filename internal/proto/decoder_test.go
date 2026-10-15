@@ -14,7 +14,7 @@ import (
 )
 
 // scanDecoder is the Decoder as it was before it stopped keeping its
-// largest buffer (docs/design/profile-starfixd.md, proposal 1): a
+// largest buffer (docs/design/profile-ariesd.md, proposal 1): a
 // bufio.Scanner that starts at 64 KiB and doubles to MaxFrame. The tests
 // below hold Decoder to it, frame for frame and error for error.
 type scanDecoder struct{ s *bufio.Scanner }
@@ -232,8 +232,8 @@ func FuzzDecoder(f *testing.F) {
 
 // A Decoder keeps 4 KiB to read with, and gives back what it grew to
 // read a larger frame once that frame is decoded: a server holds one for
-// each connection, and sfx mcp one for as long as it runs
-// (docs/design/profile-starfixd.md, proposal 1; profile-sfx.md,
+// each connection, and aries mcp one for as long as it runs
+// (docs/design/profile-ariesd.md, proposal 1; profile-aries.md,
 // proposal 5).
 func TestDecoderRetains(t *testing.T) {
 	// Serial: it measures the heap, which a test running beside it would move.

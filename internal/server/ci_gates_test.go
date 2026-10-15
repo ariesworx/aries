@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
-// ciJob is a CI job: a principal of its own, in the session CI's sfx
+// ciJob is a CI job: a principal of its own, in the session CI's aries
 // takes.
 var ciJob = store.Actor{Principal: "ci-example", Session: proto.CISession, Machine: "runner-1"}
 
@@ -41,11 +41,11 @@ func TestCIGateFromBranch(t *testing.T) {
 		msg, fix string
 	}{
 		{"a branch that names no issue", ciJob, proto.GateArgs{Check: "build", Branch: "main"}, proto.CodeNotFound,
-			"branch main names no issue", "sfx start --branch"},
+			"branch main names no issue", "aries start --branch"},
 		{"a branch naming an issue with no such gate", ciJob, proto.GateArgs{Check: "build", Branch: "fix/" + next.ID}, proto.CodeNotFound,
-			next.ID + " has no ci gate for check build", "sfx gate add --kind ci --check build --subject " + next.ID},
+			next.ID + " has no ci gate for check build", "aries gate add --kind ci --check build --subject " + next.ID},
 		{"a check of no gate", ciJob, proto.GateArgs{Check: "test", Branch: branch}, proto.CodeNotFound,
-			"check test", "sfx gate list"},
+			"check test", "aries gate list"},
 		{"a principal the gate does not name", bob, proto.GateArgs{Check: "build", Branch: branch}, proto.CodeForbidden,
 			"ci-example", proto.FixGate},
 		{"an agent's session", store.Actor{Principal: "ci-example", Session: "s-1", Machine: "m"},

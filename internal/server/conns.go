@@ -5,10 +5,10 @@ import (
 	"net"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/logs"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
-	"github.com/ariesworx/starfix/internal/telemetry"
+	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
+	"github.com/ariesworx/aries/internal/telemetry"
 )
 
 // owner says whose a connection is, once its handshake is done: the
@@ -90,7 +90,7 @@ func (s *Server) keyHolds(principal, fingerprint string) *proto.Error {
 		return nil
 	}
 	return proto.Errf(proto.CodeAuth,
-		fmt.Sprintf("use another of your keys, or ask an admin to add this one again: `sfx admin key add %s FILE.pub`", principal),
+		fmt.Sprintf("use another of your keys, or ask an admin to add this one again: `aries admin key add %s FILE.pub`", principal),
 		fmt.Sprintf("the key that signed in is no longer one the server holds for %s", principal))
 }
 

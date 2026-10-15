@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/lazyregexp"
 )
 
 // Human hours (design §12.1). A person logs the time they spent on an
@@ -201,7 +201,7 @@ func (s *Store) LogHours(ctx context.Context, actor Actor, in NewHours) (HoursEn
 // names the undo that removed it, which returns the entry again.
 func (s *Store) DeleteHours(ctx context.Context, actor Actor, id, idem string) (HoursEntry, error) {
 	if !hoursIDPattern.MatchString(id) {
-		return HoursEntry{}, fmt.Errorf("%w: entry %q must be an hours entry id, as sfx log prints it", ErrInvalid, id)
+		return HoursEntry{}, fmt.Errorf("%w: entry %q must be an hours entry id, as aries log prints it", ErrInvalid, id)
 	}
 	if err := validIdem(idem); err != nil {
 		return HoursEntry{}, err

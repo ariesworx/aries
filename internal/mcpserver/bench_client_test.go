@@ -10,11 +10,11 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
-// Benchmarks of what `sfx mcp` does besides talk to the server
-// (docs/design/profile-sfx.md): building the tools at start, sending
+// Benchmarks of what `aries mcp` does besides talk to the server
+// (docs/design/profile-aries.md): building the tools at start, sending
 // their schemas, and holding results under the token budget. Run with:
 //
 //	go test -run '^$' -bench Client -benchmem ./internal/mcpserver/
@@ -68,7 +68,7 @@ func benchIssues(n int) []proto.Summary {
 	return out
 }
 
-// BenchmarkClientNew is what `sfx mcp` builds before it reads its first
+// BenchmarkClientNew is what `aries mcp` builds before it reads its first
 // message: the server and every tool's input schema, inferred by
 // reflection.
 func BenchmarkClientNew(b *testing.B) {

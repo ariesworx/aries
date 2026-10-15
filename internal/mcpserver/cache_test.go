@@ -7,7 +7,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // heldWork is a server with one issue alice holds, sf-1, and another she
@@ -25,7 +25,7 @@ func (h *heldWork) reply(op string, args any) (any, error) {
 		if a := args.(proto.ShowArgs); a.ID == "sf-2" {
 			return proto.ShowResult{Issue: proto.Issue{ID: "sf-2", Title: h.title2, Status: "open"}}, nil
 		}
-		return proto.ShowResult{}, proto.Errf(proto.CodeNotFound, "find the id with `sfx list`", "issue not found")
+		return proto.ShowResult{}, proto.Errf(proto.CodeNotFound, "find the id with `aries list`", "issue not found")
 	case proto.OpList:
 		return proto.ListResult{Issues: []proto.Summary{working}}, nil
 	case proto.OpReady:
@@ -83,7 +83,7 @@ func TestCachedToolCalls(t *testing.T) {
 	isCached := func(tool string, res *mcp.CallToolResult) {
 		t.Helper()
 		line := lastLine(t, res)
-		if res.IsError || !strings.HasPrefix(line, "cached: starfix cannot reach its server, so this is this machine's copy from ") ||
+		if res.IsError || !strings.HasPrefix(line, "cached: aries cannot reach its server, so this is this machine's copy from ") ||
 			!strings.HasSuffix(line, "and may be out of date") {
 			t.Errorf("%s with the server down = %q (error %v); want the cached answer, and the line that says so", tool, line, res.IsError)
 		}

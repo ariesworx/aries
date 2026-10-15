@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/secretscan"
+	"github.com/ariesworx/aries/internal/secretscan"
 )
 
 func mustRemember(t *testing.T, s *Store, a Actor, in NewMemory) Memory {
@@ -930,7 +930,7 @@ func TestIssueMemories(t *testing.T) {
 
 // bd's memories are imported once, as project memories: a key already
 // stored is kept, whatever the file says, so importing again changes
-// nothing and never undoes an edit made in starfix.
+// nothing and never undoes an edit made in Aries.
 func TestImportMemory(t *testing.T) {
 	t.Parallel()
 	s := openStore(t, newDSN(t), Options{Limits: Limits{Memories: 1}})

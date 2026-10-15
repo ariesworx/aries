@@ -11,8 +11,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/ariesworx/starfix/internal/mcpserver"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // clock is a test clock for the store, moved by hand.
@@ -147,7 +147,7 @@ func TestInboxLostClaimAndHandoff(t *testing.T) {
 	}
 }
 
-// A mention reaches a known principal's inbox, and `sfx watch --json`
+// A mention reaches a known principal's inbox, and `aries watch --json`
 // prints it as it happens, one object per line, until interrupted.
 func TestInboxMentionAndWatch(t *testing.T) {
 	t.Parallel()
@@ -161,7 +161,7 @@ func TestInboxMentionAndWatch(t *testing.T) {
 	var out, errb lines
 	code := make(chan int, 1)
 	go func() { code <- bob.runTo(ctx, &out, &errb, "v0.2.0", "watch", "--json") }()
-	waitFor(t, "sfx watch to start", func() bool { return strings.Contains(errb.String(), "watching your inbox") })
+	waitFor(t, "aries watch to start", func() bool { return strings.Contains(errb.String(), "watching your inbox") })
 
 	alice.ok("comment", id, "@bob can you look at this?")
 	waitFor(t, "the pushed mention", func() bool { return strings.Contains(out.String(), "\n") })

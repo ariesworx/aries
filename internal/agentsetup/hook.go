@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/lazyregexp"
 )
 
-// The SessionStart hook runs `sfx prime --hook=AGENT` (bare --hook for
+// The SessionStart hook runs `aries prime --hook=AGENT` (bare --hook for
 // Claude Code) when a session starts, so the agent begins oriented.
-// Claude Code also gets usage hooks: `sfx usage --hook` on Stop,
+// Claude Code also gets usage hooks: `aries usage --hook` on Stop,
 // SubagentStop and SessionEnd sends the turn's token counts from its
 // transcript. Stop and SubagentStop run async, so a slow server never
 // holds up the agent; SessionEnd, which sends the session's last
@@ -23,30 +23,30 @@ import (
 // Claude Code's form, which Codex and Junie share, nests the hook in a
 // group:
 //
-//	{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "sfx prime --hook"}]}]}}
+//	{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "aries prime --hook"}]}]}}
 //
 // Gemini CLI uses the same nesting but matches a group's matcher to the
 // session's source exactly, so it gets one group per source. Cursor and
 // VS Code put the hook straight in the event's list (hookStyle.flat).
 //
-// A hook is starfix's when its whole command is one that setup writes:
+// A hook is Aries's when its whole command is one that setup writes:
 // a single program word, bare or single-quoted as shellQuote writes it,
-// naming sfx or the program setup was given, then the hook's verb (prime
+// naming aries or the program setup was given, then the hook's verb (prime
 // or usage) and --hook, with or without =AGENT. Any other hook, a
-// person's compound command that ends in `sfx prime --hook` included, is
+// person's compound command that ends in `aries prime --hook` included, is
 // left alone.
 
-// hookStyle is how one harness writes one of starfix's hooks.
+// hookStyle is how one harness writes one of Aries's hooks.
 type hookStyle struct {
 	// event is the key under "hooks" that lists the event's hooks.
 	event string
-	// verb is the sfx command the hook runs with --hook: prime or usage.
+	// verb is the aries command the hook runs with --hook: prime or usage.
 	verb string
 	// flat puts hooks straight in the event's list, not in groups.
 	flat bool
 	// matchers are the groups' matchers, one group each; "" writes a
 	// group without one, and a flat style has the one "". With a single
-	// matcher, starfix's hook may sit in any group: the person may have
+	// matcher, Aries's hook may sit in any group: the person may have
 	// moved it.
 	matchers []string
 	// untyped hooks have no "type": "command".
@@ -57,7 +57,7 @@ type hookStyle struct {
 	timeout int
 	// version is written as the file's "version" when it has none.
 	version int
-	// own: the file is starfix's alone, deleted when Remove empties it.
+	// own: the file is Aries's alone, deleted when Remove empties it.
 	own bool
 }
 
@@ -72,14 +72,14 @@ var (
 	// cursorHook: Cursor's hooks are flat and untyped, under
 	// sessionStart, in a file with a version.
 	cursorHook = hookStyle{event: "sessionStart", verb: "prime", flat: true, matchers: []string{""}, untyped: true, timeout: 30, version: 1}
-	// vscodeHook: VS Code's hooks are flat, in a file of starfix's own
-	// (.github/hooks/starfix.json).
+	// vscodeHook: VS Code's hooks are flat, in a file of Aries's own
+	// (.github/hooks/aries.json).
 	vscodeHook = hookStyle{event: "SessionStart", verb: "prime", flat: true, matchers: []string{""}, timeout: 15, own: true}
 )
 
 // UsageTimeout is the timeout setup gives Claude Code's async usage hooks
 // (Stop and SubagentStop), and SessionEndTimeout its synchronous
-// SessionEnd hook, which Claude Code waits for as it exits. `sfx usage
+// SessionEnd hook, which Claude Code waits for as it exits. `aries usage
 // --hook` gives up before each.
 const (
 	UsageTimeout      = 30 * time.Second
@@ -118,7 +118,7 @@ func shellQuote(s string) string {
 
 // HookCommand is the command the harness's SessionStart hook runs: e's
 // program, quoted for the shell, then prime --hook=harness, or bare
-// --hook for Claude Code, which sfx prime reads as claude-code.
+// --hook for Claude Code, which aries prime reads as claude-code.
 func HookCommand(e Entry, harness string) string {
 	return hookStyle{verb: "prime"}.command(e, harness)
 }
@@ -146,7 +146,7 @@ func (a Agent) HookOutput(context string) any {
 }
 
 // Hooks lists the agents setup writes a hook for, sorted: the values
-// `sfx prime --hook=` takes.
+// `aries prime --hook=` takes.
 func Hooks() []string {
 	var out []string
 	for _, n := range Names() {
@@ -158,7 +158,7 @@ func Hooks() []string {
 }
 
 // UsageHooks lists the agents setup writes usage hooks for, sorted: the
-// values `sfx usage --hook=` takes.
+// values `aries usage --hook=` takes.
 func UsageHooks() []string {
 	var out []string
 	for _, n := range Names() {
@@ -196,9 +196,9 @@ func hookParts(h object) (cmd string, ok bool) {
 	return cmd, true
 }
 
-// ours reports whether h is this style's starfix hook: it runs exactly
+// ours reports whether h is this style's Aries hook: it runs exactly
 // s.command(e, harness), or one program word as shellQuote writes it,
-// naming sfx or e's program, then s.verb --hook with or without =AGENT.
+// naming aries or e's program, then s.verb --hook with or without =AGENT.
 func (s hookStyle) ours(h object, e Entry, harness string) bool {
 	cmd, ok := hookParts(h)
 	if !ok {
@@ -208,7 +208,7 @@ func (s hookStyle) ours(h object, e Entry, harness string) bool {
 		return true
 	}
 	m := hookCmd.FindStringSubmatch(cmd)
-	return m != nil && m[2] == s.verb && (program(m[1]) == "sfx" || program(m[1]) == program(e.Command))
+	return m != nil && m[2] == s.verb && (program(m[1]) == "aries" || program(m[1]) == program(e.Command))
 }
 
 // exact reports whether h runs exactly the command setup writes, async
@@ -355,7 +355,7 @@ func (s hookStyle) slot(matcher string) int {
 }
 
 // marshal writes the list back into the document, dropping the levels
-// it leaves empty, and formats it. A file of starfix's own that is left
+// it leaves empty, and formats it. A file of Aries's own that is left
 // empty comes back nil, to be deleted.
 func (d *hookDoc) marshal() ([]byte, error) {
 	if len(d.list) > 0 {
@@ -399,7 +399,7 @@ func (s hookStyle) group(matcher string, e Entry, harness string) json.RawMessag
 	return g.set("hooks", marshalArray([]json.RawMessage{s.entry(e, harness)})).marshal()
 }
 
-// apply puts the hook in place: it updates an existing starfix hook's
+// apply puts the hook in place: it updates an existing Aries hook's
 // command and async setting (fix), keeping its other keys, and adds a hook, or a group holding
 // one, for each matcher that has none. A duplicate is dropped.
 func (s hookStyle) apply(content []byte, e Entry, harness string) ([]byte, Result, error) {
@@ -451,7 +451,7 @@ func (s hookStyle) apply(content []byte, e Entry, harness string) ([]byte, Resul
 	return out, res, err
 }
 
-// remove takes out every starfix hook, keeping the person's hooks and
+// remove takes out every Aries hook, keeping the person's hooks and
 // dropping the groups it empties.
 func (s hookStyle) remove(content []byte, e Entry, harness string) ([]byte, Result, error) {
 	d, err := s.open(content)
@@ -524,8 +524,8 @@ func applyHooks(styles []hookStyle, content []byte, e Entry, harness string) ([]
 	return out, Updated, nil
 }
 
-// removeHooks takes every style's starfix hooks out; empty output means
-// the file was starfix's own and may be deleted.
+// removeHooks takes every style's Aries hooks out; empty output means
+// the file was Aries's own and may be deleted.
 func removeHooks(styles []hookStyle, content []byte, e Entry, harness string) ([]byte, Result, error) {
 	out, removed := content, false
 	for _, s := range styles {

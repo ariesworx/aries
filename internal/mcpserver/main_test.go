@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/clienttest"
+	"github.com/ariesworx/aries/internal/clienttest"
 )
 
 // TestMain keeps every test here away from the real home directory and

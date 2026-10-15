@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 func TestParseSince(t *testing.T) {
@@ -107,7 +107,7 @@ func TestDispatchDigest(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, perr := call[proto.DigestResult](t, s, bob, proto.OpDigest, tc.args)
 			if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Message, tc.msg) ||
-				!strings.Contains(perr.Fix, "`sfx digest -h`") {
+				!strings.Contains(perr.Fix, "`aries digest -h`") {
 				t.Fatalf("got %+v", perr)
 			}
 		})

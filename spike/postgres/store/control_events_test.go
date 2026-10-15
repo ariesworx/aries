@@ -2,7 +2,7 @@ package store
 
 import "testing"
 
-// TestControlLastEvent pins the read `starfixd control init` decides by
+// TestControlLastEvent pins the read `ariesd control init` decides by
 // when it is run again: the newest event on a key, a membership or a
 // principal says whether an admin removed it since.
 func TestControlLastEvent(t *testing.T) {

@@ -18,11 +18,11 @@ Installs the pinned Dolt into DIR/dolt-VERSION/bin and prints that
 directory, alone, on standard output; everything else goes to standard
 error. When the pinned Dolt is already there it downloads nothing.
 
-  --dir DIR   the cache directory (default: $XDG_CACHE_HOME/starfix, or
-              ~/.cache/starfix; env STARFIX_DOLT_DIR)
+  --dir DIR   the cache directory (default: $XDG_CACHE_HOME/aries, or
+              ~/.cache/aries; env ARIES_DOLT_DIR)
   -h, --help  show this help
 
-For testing and mirrors, STARFIX_DOLT_BASE_URL replaces
+For testing and mirrors, ARIES_DOLT_BASE_URL replaces
 https://github.com/dolthub/dolt/releases/download; it must serve
 /vX.Y.Z/FILE. The checksum is still the pinned one.
 EOF
@@ -36,22 +36,22 @@ die() { # message fix
 }
 have() { _have=$(command -v "$1" 2>&1) && [ -n "$_have" ]; }
 
-dir=${STARFIX_DOLT_DIR:-}
+dir=${ARIES_DOLT_DIR:-}
 while [ $# -gt 0 ]; do
 	case $1 in
-	--dir) [ $# -ge 2 ] || die "--dir needs a value" "--dir \$HOME/.cache/starfix"; dir=$2; shift ;;
+	--dir) [ $# -ge 2 ] || die "--dir needs a value" "--dir \$HOME/.cache/aries"; dir=$2; shift ;;
 	--dir=*) dir=${1#--dir=} ;;
 	-h | --help) usage; exit 0 ;;
 	*) usage >&2; die "unknown option $1" "run with -h for the options" ;;
 	esac
 	shift
 done
-[ -n "$dir" ] || dir=${XDG_CACHE_HOME:-${HOME:?HOME is not set}/.cache}/starfix
+[ -n "$dir" ] || dir=${XDG_CACHE_HOME:-${HOME:?HOME is not set}/.cache}/aries
 dir=${dir%/}
 
 # The pins: one "SHA256  vVERSION/ARCHIVE" line for each platform.
 sums=$(dirname "$0")/../internal/version/dolt.sha256
-[ -r "$sums" ] || die "cannot read $sums" "run this script from a checkout of starfix"
+[ -r "$sums" ] || die "cannot read $sums" "run this script from a checkout of aries"
 have awk || die "awk is not installed" "install awk"
 version=$(awk '$2 ~ /^v[0-9][0-9.]*\/dolt-/ {sub(/\/.*/, "", $2); print substr($2, 2); exit}' "$sums")
 [ -n "$version" ] || die "$sums names no release" "restore it: git checkout internal/version/dolt.sha256"
@@ -104,25 +104,25 @@ else
 fi
 
 # With a template: mktemp -d alone ignores TMPDIR on macOS.
-tmp=$(mktemp -d "${TMPDIR:-/tmp}/starfix-dolt.XXXXXX" 2>&1) || die "cannot make a temporary directory: $tmp" "set TMPDIR to a writable directory"
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/aries-dolt.XXXXXX" 2>&1) || die "cannot make a temporary directory: $tmp" "set TMPDIR to a writable directory"
 stage=
 cleanup() { rm -rf "$tmp"; [ -z "$stage" ] || rm -rf "$stage"; }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 
-base=${STARFIX_DOLT_BASE_URL:-https://github.com/dolthub/dolt/releases/download}
+base=${ARIES_DOLT_BASE_URL:-https://github.com/dolthub/dolt/releases/download}
 url=${base%/}/v$version/$archive
 say "downloading $url"
 fetch "$url" "$tmp/$archive" ||
 	die "cannot download $url" "check the network, and that Dolt's release v$version has $archive"
 got=$(sha256 "$tmp/$archive")
 [ "$got" = "$want" ] || die "checksum mismatch for $archive (got $got, want $want); nothing was installed" \
-	"retry; if it persists, do not use this download, and report it at https://github.com/ariesworx/starfix/issues"
+	"retry; if it persists, do not use this download, and report it at https://github.com/ariesworx/aries/issues"
 
 member=dolt-$os-$arch/bin/dolt
 mkdir "$tmp/x"
 tar -xzf "$tmp/$archive" -C "$tmp/x" "$member" || die "cannot unpack $member from $archive" "retry the download"
-[ -f "$tmp/x/$member" ] || die "$archive holds no $member" "report it at https://github.com/ariesworx/starfix/issues"
+[ -f "$tmp/x/$member" ] || die "$archive holds no $member" "report it at https://github.com/ariesworx/aries/issues"
 
 # Build the directory beside its final name and rename it, so a run that
 # is interrupted leaves nothing that looks installed.

@@ -17,20 +17,20 @@ func TestBackupTag(t *testing.T) {
 	if _, err := s.CreateIssue(ctx, alice, NewIssue{Title: "before upgrade"}); err != nil {
 		t.Fatal(err)
 	}
-	name, err := s.BackupTag(ctx, "starfix-v0.2.0")
-	if err != nil || name != "starfix-v0.2.0" {
+	name, err := s.BackupTag(ctx, "aries-v0.2.0")
+	if err != nil || name != "aries-v0.2.0" {
 		t.Fatalf("BackupTag = %q, %v", name, err)
 	}
 	var n int
-	if err := s.r.QueryRowContext(ctx, `SELECT COUNT(*) FROM issues AS OF 'starfix-v0.2.0'`).Scan(&n); err != nil || n != 1 {
+	if err := s.r.QueryRowContext(ctx, `SELECT COUNT(*) FROM issues AS OF 'aries-v0.2.0'`).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("issues at the tag: %d, %v", n, err)
 	}
 
 	// Again with nothing new: the same tag, nothing made.
-	if name, err := s.BackupTag(ctx, "starfix-v0.2.0"); err != nil || name != "starfix-v0.2.0" {
+	if name, err := s.BackupTag(ctx, "aries-v0.2.0"); err != nil || name != "aries-v0.2.0" {
 		t.Fatalf("second BackupTag = %q, %v", name, err)
 	}
-	if got := tags(t, s); got != "starfix-v0.2.0" {
+	if got := tags(t, s); got != "aries-v0.2.0" {
 		t.Fatalf("tags after a repeat: %s", got)
 	}
 
@@ -38,15 +38,15 @@ func TestBackupTag(t *testing.T) {
 	if _, err := s.CreateIssue(ctx, alice, NewIssue{Title: "after rollback"}); err != nil {
 		t.Fatal(err)
 	}
-	name, err = s.BackupTag(ctx, "starfix-v0.2.0")
-	if err != nil || name != "starfix-v0.2.0-20261007t120000z" {
+	name, err = s.BackupTag(ctx, "aries-v0.2.0")
+	if err != nil || name != "aries-v0.2.0-20261007t120000z" {
 		t.Fatalf("BackupTag after writes = %q, %v", name, err)
 	}
-	if got := tags(t, s); got != "starfix-v0.2.0,starfix-v0.2.0-20261007t120000z" {
+	if got := tags(t, s); got != "aries-v0.2.0,aries-v0.2.0-20261007t120000z" {
 		t.Fatalf("tags: %s", got)
 	}
 
-	for _, bad := range []string{"", "-v1", "Starfix", "a b", "x'; DROP TABLE issues; --"} {
+	for _, bad := range []string{"", "-v1", "Aries", "a b", "x'; DROP TABLE issues; --"} {
 		if _, err := s.BackupTag(ctx, bad); err == nil {
 			t.Errorf("BackupTag(%q) accepted", bad)
 		}

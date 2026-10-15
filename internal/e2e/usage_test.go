@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/cli"
-	"github.com/ariesworx/starfix/internal/mcpserver"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/cli"
+	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // usageCall sends a usage request on a raw session and returns its result.
@@ -49,13 +49,13 @@ func TestTokenUsage(t *testing.T) {
 	clk := &clock{t: time.Now().UTC()}
 	w := newWorld(t, daemonOpts{now: clk.now})
 	alice := w.newUser("alice", "")
-	alice.env["STARFIX_SESSION"] = "s-agent"
+	alice.env["ARIES_SESSION"] = "s-agent"
 	epic := strings.TrimSpace(alice.ok("create", "Client work", "-t", "epic", "--account", "acme"))
 	task := strings.TrimSpace(alice.ok("create", "Do the work", "--parent", epic))
 	other := strings.TrimSpace(alice.ok("create", "Internal chore"))
 	alice.ok("start", task)
 
-	// What PR 2's hook will send: records for the session sfx claimed in,
+	// What PR 2's hook will send: records for the session aries claimed in,
 	// of requests made while it held the issue.
 	clk.add(20 * time.Second)
 	at := clk.now().Add(-10 * time.Second)
@@ -99,7 +99,7 @@ func TestTokenUsage(t *testing.T) {
 	}
 	r := alice.run("v0.2.0", "update", other, "--account", "Acme Corp")
 	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "must be a code name") ||
-		!strings.Contains(r.stderr, "fix: correct it and retry; `sfx update -h` lists the options") {
+		!strings.Contains(r.stderr, "fix: correct it and retry; `aries update -h` lists the options") {
 		t.Errorf("update --account \"Acme Corp\": exit %d\n%s", r.code, r.stderr)
 	}
 
@@ -123,7 +123,7 @@ func TestTokenUsage(t *testing.T) {
 	}
 }
 
-// usageHook runs `sfx usage --hook` as this user with the hook input
+// usageHook runs `aries usage --hook` as this user with the hook input
 // given, keeping its offsets in cache.
 func (u *user) usageHook(cache string, input map[string]string) result {
 	u.w.t.Helper()
@@ -197,7 +197,7 @@ func toolResult(session string) map[string]any {
 // though a tool result splits it: at Stop the last response of each file
 // waits; SubagentStop sends the stopped subagent's, and SessionEnd the
 // rest. The records go to the session the connection names: the hook's
-// session_id, unless STARFIX_SESSION is set, as for prime --hook and sfx
+// session_id, unless ARIES_SESSION is set, as for prime --hook and aries
 // mcp.
 func TestUsageHookCapture(t *testing.T) {
 	t.Parallel()
@@ -207,7 +207,7 @@ func TestUsageHookCapture(t *testing.T) {
 		env             map[string]string
 	}{
 		{name: "hook session id", principal: "alice", env: map[string]string{"CLAUDE_CODE_SESSION_ID": "7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f"}},
-		{name: "STARFIX_SESSION wins", principal: "bob", env: map[string]string{"STARFIX_SESSION": "s-agent"}},
+		{name: "ARIES_SESSION wins", principal: "bob", env: map[string]string{"ARIES_SESSION": "s-agent"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -279,7 +279,7 @@ func TestUsageHookDropsRefusedRecord(t *testing.T) {
 	in := map[string]string{"session_id": sess, "transcript_path": main, "cwd": filepath.Join(u.repo, "src"), "hook_event_name": "Stop"}
 	cache := t.TempDir()
 	r := u.usageHook(cache, in)
-	if r.code != 0 || r.stdout != "" || !strings.HasPrefix(r.stderr, "starfix: 1 token usage record refused and dropped: ") ||
+	if r.code != 0 || r.stdout != "" || !strings.HasPrefix(r.stderr, "aries: 1 token usage record refused and dropped: ") ||
 		!strings.Contains(r.stderr, "; fix: ") || strings.Count(r.stderr, "\n") != 1 {
 		t.Fatalf("usage --hook with a record ahead of the server: exit %d, stdout %q, stderr %q; want one note on the dropped record", r.code, r.stdout, r.stderr)
 	}

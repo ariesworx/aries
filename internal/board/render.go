@@ -6,8 +6,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/safetext"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/safetext"
 )
 
 // Layout: below wideMin columns the board is one column; a held issue's
@@ -95,7 +95,7 @@ func (m *Model) Frame(width, height int, now time.Time, color bool) []string {
 
 // header names the board and says how the connection stands.
 func (m *Model) header(width int) line {
-	left := styled("starfix "+esc(m.title), bold)
+	left := styled("aries "+esc(m.title), bold)
 	var right []span
 	switch m.status.State {
 	case StateLive:

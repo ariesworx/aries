@@ -5,7 +5,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // printFiles prints an issue's likely files, declared first, and the

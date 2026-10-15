@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Smoke test of the Docker test server (docs/deploy/docker.md). It builds
-# the image and sfx from this checkout, starts a throwaway server with two
-# principals, drives sfx through the main surfaces end to end, then
+# the image and aries from this checkout, starts a throwaway server with two
+# principals, drives aries through the main surfaces end to end, then
 # through a server of many projects (a second project, and a person
 # whose key only the control database holds, which sshd reads from the
-# keys file starfixd writes), runs the commands of docs/ci.md's workflows
+# keys file ariesd writes), runs the commands of docs/ci.md's workflows
 # as a CI job would, holds a lock around a command, restarts the server to check that its state
 # persists, then removes the server and its volume. It exits non-zero on
 # the first failure.
@@ -12,17 +12,17 @@
 #   deploy/docker/smoke.sh [DOCKER BUILD FLAGS...]
 #
 # Flags go to `docker build`, for example --secret id=ca,src=FILE behind a
-# TLS-intercepting proxy. SFX names an sfx binary to use instead of
-# building one. STARFIX_PORT is the port on 127.0.0.1, 2223 by default, so
-# a dev server on 2222 is left alone. STARFIX_IMAGE names an image to test
-# instead of building starfix-dev:local: a variant of it, built FROM it,
-# such as those docs/deploy/docker.md describes. STARFIX_SMOKE_LOG names
-# a file to save the server's log to (sshd's, starfixd's and Dolt's)
-# before the server is removed. STARFIX_SMOKE_PROJECT names the Compose
-# project, starfix-smoke by default, so that two runs on one machine,
-# each with its own STARFIX_PORT, do not remove each other's server.
+# TLS-intercepting proxy. ARIES names an aries binary to use instead of
+# building one. ARIES_PORT is the port on 127.0.0.1, 2223 by default, so
+# a dev server on 2222 is left alone. ARIES_IMAGE names an image to test
+# instead of building aries-dev:local: a variant of it, built FROM it,
+# such as those docs/deploy/docker.md describes. ARIES_SMOKE_LOG names
+# a file to save the server's log to (sshd's, ariesd's and Dolt's)
+# before the server is removed. ARIES_SMOKE_PROJECT names the Compose
+# project, aries-smoke by default, so that two runs on one machine,
+# each with its own ARIES_PORT, do not remove each other's server.
 #
-# STARFIX_SMOKE_TELEMETRY=1 runs all of it with starfixd's telemetry on
+# ARIES_SMOKE_TELEMETRY=1 runs all of it with ariesd's telemetry on
 # and the compose file's `telemetry` and `prometheus` profiles, and then
 # checks the harness of deploy/observability (telemetry_checks, below):
 # what reaches the collector, the alert rules in a real Prometheus,
@@ -31,12 +31,12 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
-port=${STARFIX_PORT:-2223}
+port=${ARIES_PORT:-2223}
 work=$(mktemp -d)
-compose=(docker compose -p "${STARFIX_SMOKE_PROJECT:-starfix-smoke}" -f "$root/deploy/docker/compose.yaml")
+compose=(docker compose -p "${ARIES_SMOKE_PROJECT:-aries-smoke}" -f "$root/deploy/docker/compose.yaml")
 telemetry=
 sidecars=()
-case ${STARFIX_SMOKE_TELEMETRY:-} in
+case ${ARIES_SMOKE_TELEMETRY:-} in
 '') ;;
 1)
   telemetry=1
@@ -44,7 +44,7 @@ case ${STARFIX_SMOKE_TELEMETRY:-} in
   compose+=(--profile telemetry --profile prometheus)
   ;;
 *)
-  printf 'smoke: STARFIX_SMOKE_TELEMETRY is %s\nfix: set it to 1, or leave it unset\n' "$STARFIX_SMOKE_TELEMETRY" >&2
+  printf 'smoke: ARIES_SMOKE_TELEMETRY is %s\nfix: set it to 1, or leave it unset\n' "$ARIES_SMOKE_TELEMETRY" >&2
   exit 2
   ;;
 esac
@@ -55,12 +55,12 @@ last=
 # The test's own ssh-agent (start_agent), never the caller's: its socket,
 # on a short path, since a socket's is limited to about 100 bytes, and
 # its pid.
-agent_sock=/tmp/sfx-smoke-$$.sock
+agent_sock=/tmp/aries-smoke-$$.sock
 agent_pid=
 
 cleanup() {
-  if [[ -n ${STARFIX_SMOKE_LOG:-} ]]; then
-    "${compose[@]}" logs --no-log-prefix starfix >"$STARFIX_SMOKE_LOG" 2>&1 || true
+  if [[ -n ${ARIES_SMOKE_LOG:-} ]]; then
+    "${compose[@]}" logs --no-log-prefix aries >"$ARIES_SMOKE_LOG" 2>&1 || true
   fi
   "${compose[@]}" down -v >/dev/null 2>&1 || true
   if [[ -n $agent_pid ]]; then
@@ -79,25 +79,25 @@ fail() {
   exit 1
 }
 
-# sfx_as WHO ARGS... runs sfx in WHO's scratch repository, with its own
-# session. WHO's key is named with STARFIX_KEY_FILE, so it is the only
-# key sfx offers (design, decision 35). Nothing of the caller's can sign
+# aries_as WHO ARGS... runs aries in WHO's scratch repository, with its own
+# session. WHO's key is named with ARIES_KEY_FILE, so it is the only
+# key aries offers (design, decision 35). Nothing of the caller's can sign
 # in: the home is a directory of the test's own, with no .ssh, and the
 # caller's ssh-agent socket is never passed on. Four variables change
 # that for the checks of the rule itself: smoke_key names another key
 # file, or none when it is empty; smoke_agent is an ssh-agent socket of
 # the test's own; smoke_home is another home directory; and smoke_old is
-# a value for STARFIX_KEY, the variable sfx never reads. smoke_session
+# a value for ARIES_KEY, the variable aries never reads. smoke_session
 # is another session, or none when it is empty, as in a CI job, where
-# sfx takes the session ci from CI=true. The session variables of an
+# aries takes the session ci from CI=true. The session variables of an
 # agent harness the test may run under are cleared, so they name none.
-sfx_as() {
+aries_as() {
   local who=$1
   shift
   local key=${smoke_key-$work/keys/${who%-web}}
   (cd "$work/$who" && HOME="${smoke_home-$work/home}" XDG_CACHE_HOME="$work/home/.cache" SSH_AUTH_SOCK="${smoke_agent-}" \
-    STARFIX_KEY_FILE="$key" STARFIX_KEY="${smoke_old-}" STARFIX_SESSION="${smoke_session-smoke-$who}" \
-    CLAUDE_CODE_SESSION_ID='' CLAUDE_SESSION_ID='' "$sfx" "$@")
+    ARIES_KEY_FILE="$key" ARIES_KEY="${smoke_old-}" ARIES_SESSION="${smoke_session-smoke-$who}" \
+    CLAUDE_CODE_SESSION_ID='' CLAUDE_SESSION_ID='' "$aries" "$@")
 }
 
 # start_agent runs an ssh-agent of the test's own on agent_sock, and
@@ -119,13 +119,13 @@ agent_add() {
   SSH_AUTH_SOCK=$agent_sock ssh-add -q "$@" 2>/dev/null || fail "could not add a key to the test's ssh-agent"
 }
 
-# expect NAME PATTERN WHO ARGS... runs sfx as WHO, and fails unless it
+# expect NAME PATTERN WHO ARGS... runs aries as WHO, and fails unless it
 # exits 0 and prints a line matching the extended regexp PATTERN.
 expect() {
   local name=$1 pattern=$2
   shift 2
-  last=$(sfx_as "$@" 2>&1) || fail "$name: sfx ${*:2} exited $?" "$last"
-  grep -Eq -- "$pattern" <<<"$last" || fail "$name: sfx ${*:2} printed nothing matching /$pattern/" "$last"
+  last=$(aries_as "$@" 2>&1) || fail "$name: aries ${*:2} exited $?" "$last"
+  grep -Eq -- "$pattern" <<<"$last" || fail "$name: aries ${*:2} printed nothing matching /$pattern/" "$last"
   passed=$((passed + 1))
 }
 
@@ -133,10 +133,10 @@ expect() {
 refuse() {
   local name=$1 pattern=$2
   shift 2
-  if last=$(sfx_as "$@" 2>&1); then
-    fail "$name: sfx ${*:2} succeeded, want a refusal" "$last"
+  if last=$(aries_as "$@" 2>&1); then
+    fail "$name: aries ${*:2} succeeded, want a refusal" "$last"
   fi
-  grep -Eq -- "$pattern" <<<"$last" || fail "$name: sfx ${*:2} printed nothing matching /$pattern/" "$last"
+  grep -Eq -- "$pattern" <<<"$last" || fail "$name: aries ${*:2} printed nothing matching /$pattern/" "$last"
   passed=$((passed + 1))
 }
 
@@ -148,25 +148,25 @@ absent() {
   passed=$((passed + 1))
 }
 
-# server_setting KEY prints KEY's value from the newest .starfix.yaml the
+# server_setting KEY prints KEY's value from the newest .aries.yaml the
 # server printed.
 server_setting() {
-  "${compose[@]}" logs --no-log-prefix starfix 2>/dev/null | sed -n "s/^ *$1: //p" | tail -n 1
+  "${compose[@]}" logs --no-log-prefix aries 2>/dev/null | sed -n "s/^ *$1: //p" | tail -n 1
 }
 
 # in_server CMD... runs CMD in the server's container, as root.
-in_server() { "${compose[@]}" exec -T starfix "$@"; }
+in_server() { "${compose[@]}" exec -T aries "$@"; }
 
-# keys_file checks the file starfixd writes for sshd: there, a regular
-# file of mode 0600 that starfix owns, starting with the comment that
+# keys_file checks the file ariesd writes for sshd: there, a regular
+# file of mode 0600 that aries owns, starting with the comment that
 # says who writes it.
-keys_file=/var/lib/starfix/.ssh/starfix_keys
+keys_file=/var/lib/aries/.ssh/aries_keys
 check_keys_file() {
   local got
   got=$(in_server stat -L -c '%F %a %U:%G' "$keys_file" 2>&1) || fail "$1: no keys file at $keys_file" "$got"
-  [[ $got == "regular file 600 starfix:starfix" ]] || fail "$1: the keys file is '$got', want a regular file, 600, starfix:starfix"
+  [[ $got == "regular file 600 aries:aries" ]] || fail "$1: the keys file is '$got', want a regular file, 600, aries:aries"
   got=$(in_server head -n 1 "$keys_file")
-  [[ $got == "# Generated by starfixd"* ]] || fail "$1: the keys file does not start with starfixd's comment" "$got"
+  [[ $got == "# Generated by ariesd"* ]] || fail "$1: the keys file does not start with ariesd's comment" "$got"
   passed=$((passed + 1))
 }
 
@@ -184,20 +184,20 @@ not_in_keys_file() {
   passed=$((passed + 1))
 }
 
-# no_failed_write fails if starfixd logged that it could not write the
+# no_failed_write fails if ariesd logged that it could not write the
 # keys file, or never logged writing it.
 no_failed_write() {
   local log
-  log=$("${compose[@]}" logs --no-log-prefix starfix 2>&1)
+  log=$("${compose[@]}" logs --no-log-prefix aries 2>&1)
   if grep -q 'keys file is out of date' <<<"$log"; then
-    fail "$1: starfixd logged a failed write of the keys file" "$(grep 'keys file' <<<"$log")"
+    fail "$1: ariesd logged a failed write of the keys file" "$(grep 'keys file' <<<"$log")"
   fi
-  grep -q 'msg="keys file written"' <<<"$log" || fail "$1: starfixd never logged writing the keys file" "$(tail -n 20 <<<"$log")"
+  grep -q 'msg="keys file written"' <<<"$log" || fail "$1: ariesd never logged writing the keys file" "$(tail -n 20 <<<"$log")"
   passed=$((passed + 1))
 }
 
 up() {
-  STARFIX_IMAGE=$image STARFIX_KEYS=$keys STARFIX_ADMINS=alice STARFIX_PORT=$port STARFIX_TELEMETRY=$telemetry \
+  ARIES_IMAGE=$image ARIES_KEYS=$keys ARIES_ADMINS=alice ARIES_PORT=$port ARIES_TELEMETRY=$telemetry \
     "${compose[@]}" up -d --no-build --wait --wait-timeout 120 >/dev/null 2>&1 ||
     fail "the server did not become healthy" "$("${compose[@]}" logs --no-log-prefix 2>&1 | tail -n 40)"
 }
@@ -205,11 +205,11 @@ up() {
 # restart_server restarts the server's container and waits for it. The
 # collector and Prometheus live in its network namespace, which a
 # restart replaces, so they are restarted after it: at once, so that
-# the collector listens again before starfixd, which starts after Dolt,
+# the collector listens again before ariesd, which starts after Dolt,
 # has anything to send.
 restart_server() {
   local t0=$SECONDS
-  "${compose[@]}" restart starfix >/dev/null 2>&1
+  "${compose[@]}" restart aries >/dev/null 2>&1
   restart_took=$((SECONDS - t0))
   if ((${#sidecars[@]})); then
     "${compose[@]}" restart "${sidecars[@]}" >/dev/null 2>&1 || fail "could not restart ${sidecars[*]} after the server"
@@ -218,7 +218,7 @@ restart_server() {
 }
 
 # What follows, to telemetry_checks, runs only with
-# STARFIX_SMOKE_TELEMETRY=1.
+# ARIES_SMOKE_TELEMETRY=1.
 
 # http_get PORT PATH prints what the server answers on loopback inside
 # its container, headers and all. The image has no curl, so bash asks.
@@ -230,9 +230,9 @@ http_get() {
 # span it received, in its debug exporter's text.
 collector_log() { "${compose[@]}" logs --no-log-prefix collector 2>&1; }
 
-# starfixd_log prints the server's log since starfixd last started.
-starfixd_log() {
-  "${compose[@]}" logs --no-log-prefix starfix 2>&1 | awk '/msg="telemetry on"/ { n = 0 } { line[n++] = $0 } END { for (i = 0; i < n; i++) print line[i] }'
+# ariesd_log prints the server's log since ariesd last started.
+ariesd_log() {
+  "${compose[@]}" logs --no-log-prefix aries 2>&1 | awk '/msg="telemetry on"/ { n = 0 } { line[n++] = $0 } END { for (i = 0; i < n; i++) print line[i] }'
 }
 
 # spans reads the collector's log on stdin and prints each span it
@@ -261,7 +261,7 @@ spans() {
 
 # records reads the collector's log on stdin and prints each log record
 # it received as one line: its event, its trace and span, and its
-# attributes. The record's body, which is a fixed message of starfixd's,
+# attributes. The record's body, which is a fixed message of ariesd's,
 # is left out.
 records() {
   awk '
@@ -342,28 +342,28 @@ record_arrived() {
 }
 
 # dropped SIGNAL prints how many exports of metrics, or spans or log
-# records, starfixd has counted as dropped since it started.
+# records, ariesd has counted as dropped since it started.
 dropped() {
-  http_get 9464 /metrics | awk -v signal="signal=\"$1\"" '/^starfix_telemetry_dropped_total/ && index($0, signal) { n = $NF } END { print n + 0 }'
+  http_get 9464 /metrics | awk -v signal="signal=\"$1\"" '/^aries_telemetry_dropped_total/ && index($0, signal) { n = $NF } END { print n + 0 }'
 }
 
 # shellcheck disable=SC2317,SC2329
 dropped_more() {
   local now
   now=$(dropped "$1")
-  last="starfix_telemetry_dropped_total{signal=\"$1\"} is $now, and was $2 before"
+  last="aries_telemetry_dropped_total{signal=\"$1\"} is $now, and was $2 before"
   ((now > $2))
 }
 
-# logged PATTERN prints how many lines of starfixd's log, since it last
+# logged PATTERN prints how many lines of ariesd's log, since it last
 # started, match PATTERN.
-logged() { starfixd_log | grep -c -- "$1" || true; }
+logged() { ariesd_log | grep -c -- "$1" || true; }
 
 # shellcheck disable=SC2317,SC2329
 logged_once_more() {
   local now
   now=$(logged "$1")
-  last="starfixd logged /$1/ $now times since it started, and $2 times before"
+  last="ariesd logged /$1/ $now times since it started, and $2 times before"
   ((now == $2 + 1))
 }
 
@@ -397,9 +397,9 @@ alert_is() {
 batch() {
   local i
   for i in 1 2 3 4 5 6; do
-    sfx_as alice show "$a" || fail "batch $1: sfx show exited $?"
-    sfx_as alice ready || fail "batch $1: sfx ready exited $?"
-    sfx_as alice comment "$b" "telemetry batch $1 $i" >/dev/null || fail "batch $1: sfx comment exited $?"
+    aries_as alice show "$a" || fail "batch $1: aries show exited $?"
+    aries_as alice ready || fail "batch $1: aries ready exited $?"
+    aries_as alice comment "$b" "telemetry batch $1 $i" >/dev/null || fail "batch $1: aries comment exited $?"
   done
 }
 
@@ -420,14 +420,14 @@ dolt_series=(dss_concurrent_connections dss_query_duration process_resident_memo
 # the server the checks above have used, which has run since the
 # restart with its telemetry on.
 telemetry_checks() {
-  local pushed=(starfix.request.duration starfix.project.requests starfix.connections starfix.handshakes
-    starfix.store.write.duration starfix.store.commit.duration starfix.stores.open starfix.store.open.duration
-    starfix.claims starfix.control.writes starfix.keys_file.writes starfix.keys_file.last_write.time
-    starfix.reaper.duration starfix.reaper.last_run.time starfix.clock.behind)
-  local scraped=(starfix_request_duration_seconds starfix_project_requests_total starfix_connections starfix_handshakes_total
-    starfix_store_write_duration_seconds starfix_store_commit_duration_seconds starfix_stores_open starfix_store_open_duration_seconds
-    starfix_claims_total starfix_control_writes_total starfix_keys_file_writes_total starfix_keys_file_last_write_time_seconds
-    starfix_reaper_duration_seconds starfix_reaper_last_run_time_seconds starfix_clock_behind_seconds)
+  local pushed=(aries.request.duration aries.project.requests aries.connections aries.handshakes
+    aries.store.write.duration aries.store.commit.duration aries.stores.open aries.store.open.duration
+    aries.claims aries.control.writes aries.keys_file.writes aries.keys_file.last_write.time
+    aries.reaper.duration aries.reaper.last_run.time aries.clock.behind)
+  local scraped=(aries_request_duration_seconds aries_project_requests_total aries_connections aries_handshakes_total
+    aries_store_write_duration_seconds aries_store_commit_duration_seconds aries_stores_open aries_store_open_duration_seconds
+    aries_claims_total aries_control_writes_total aries_keys_file_writes_total aries_keys_file_last_write_time_seconds
+    aries_reaper_duration_seconds aries_reaper_last_run_time_seconds aries_clock_behind_seconds)
   local name='     -> Name: ' traced server_span attempt_span stand_in rules log all bad job t0 alive_took alive dead
   local metrics0 traces0 logs0 warned_metrics warned_traces warned_logs recovered queries query refused_took frozen_took frozen_restart
   local req seq subject
@@ -463,7 +463,7 @@ telemetry_checks() {
   [[ -z $bad ]] || fail "a span names a principal or a session by something other than a stand-in" "$(sort -u <<<"$bad" | head -n 5)"
   passed=$((passed + 1))
 
-  # starfixd's log, exported (docs/server.md, Logs over OTLP). A
+  # ariesd's log, exported (docs/server.md, Logs over OTLP). A
   # record carries the ids of the span its line was logged under: a
   # request the test traces and the server refuses has a line at info,
   # so a record, in the test's trace and with the id of the server's
@@ -478,18 +478,18 @@ telemetry_checks() {
   req=$(sed -n 's/.* req=\([0-9a-f]*\) .*/\1/p' <<<"$last")
   # The journal has the same line, found by the request's id, with the
   # name the record leaves out.
-  last=$("${compose[@]}" logs --no-log-prefix starfix 2>&1 | grep -F " req=$req " || true)
+  last=$("${compose[@]}" logs --no-log-prefix aries 2>&1 | grep -F " req=$req " || true)
   grep -Eq " principal=alice .* event=request.refused op=show .* code=not_found req=$req trace_id=$trace_id span_id=$server_span\$" <<<"$last" ||
-    fail "starfixd's own log has no line for the refused request, by its id $req, naming alice and the trace" "$last"
+    fail "ariesd's own log has no line for the refused request, by its id $req, naming alice and the trace" "$last"
   passed=$((passed + 1))
   # An access change is a record of the audit stream at the collector:
   # who made it and whom it changed are stand-ins, which a server admin
   # resolves, and the line in the server's log, by the event's number,
   # has the names.
   expect "an access change" '^principal erin added, a member of project first$' alice admin principal add erin
-  last=$("${compose[@]}" logs --no-log-prefix starfix 2>&1 | grep -E ' event=audit[.]principal[.]add audit=true seq=[0-9]+ at=[^ ]+ principal=alice session=[^ ]+ op=principal[.]add target=erin subject=erin$' || true)
+  last=$("${compose[@]}" logs --no-log-prefix aries 2>&1 | grep -E ' event=audit[.]principal[.]add audit=true seq=[0-9]+ at=[^ ]+ principal=alice session=[^ ]+ op=principal[.]add target=erin subject=erin$' || true)
   seq=$(sed -n 's/.* seq=\([0-9]*\) .*/\1/p' <<<"$last")
-  [[ $seq =~ ^[0-9]+$ ]] || fail "starfixd's own log has no one audit line for the principal alice added, naming alice and erin" "$last"
+  [[ $seq =~ ^[0-9]+$ ]] || fail "ariesd's own log has no one audit line for the principal alice added, naming alice and erin" "$last"
   passed=$((passed + 1))
   await 30 "its audit record arrives, with the event's number" record_arrived \
     "^record event=audit.principal.add trace= span= event=audit.principal.add audit=true seq=$seq at=[^ ]+ principal=$stand_in session=s_[0-9a-f]{16} op=principal.add subject=p_[0-9a-f]{16} "
@@ -515,12 +515,12 @@ telemetry_checks() {
   fi
   passed=$((passed + 1))
 
-  echo "smoke: telemetry: metrics from starfixd, pushed and scraped, and from Dolt"
-  await 90 "starfixd's metrics arrive over OTLP" arrived "$name" "${pushed[@]}"
-  await 60 "starfixd's metrics arrive by a scrape of /metrics" arrived "$name" "${scraped[@]}"
+  echo "smoke: telemetry: metrics from ariesd, pushed and scraped, and from Dolt"
+  await 90 "ariesd's metrics arrive over OTLP" arrived "$name" "${pushed[@]}"
+  await 60 "ariesd's metrics arrive by a scrape of /metrics" arrived "$name" "${scraped[@]}"
   await 60 "Dolt's metrics arrive by a scrape" arrived "$name" "${dolt_series[@]}"
   log=$(collector_log)
-  for job in starfixd dolt; do
+  for job in ariesd dolt; do
     grep -Fq -- "     -> service.name: Str($job)" <<<"$log" || fail "the collector received nothing whose resource is the service $job"
   done
   passed=$((passed + 1))
@@ -528,7 +528,7 @@ telemetry_checks() {
   echo "smoke: telemetry: the alert rules in Prometheus, and /readyz"
   rules=$(grep -c '^ *- alert: ' "$root/deploy/observability/alerts.yaml")
   await 90 "Prometheus evaluates every alert rule" rules_healthy "$rules"
-  await 30 "no span has been dropped, so its alert is quiet" alert_is StarfixTelemetrySpansDropped inactive
+  await 30 "no span has been dropped, so its alert is quiet" alert_is AriesTelemetrySpansDropped inactive
   # Every query of the dashboard is one that Prometheus can run.
   queries=0
   while IFS= read -r query; do
@@ -585,16 +585,16 @@ telemetry_checks() {
   await 10 "one warning for traces" logged_once_more 'a trace export failed' "$warned_traces"
   await 30 "the log records lost are counted" dropped_more logs "$logs0"
   await 10 "one warning for logs" logged_once_more 'a log export failed' "$warned_logs"
-  await 90 "the alert for dropped spans fires" alert_is StarfixTelemetrySpansDropped firing
-  await 60 "the alert for dropped log records fires" alert_is StarfixTelemetryLogRecordsDropped firing
+  await 90 "the alert for dropped spans fires" alert_is AriesTelemetrySpansDropped firing
+  await 60 "the alert for dropped log records fires" alert_is AriesTelemetryLogRecordsDropped firing
   "${compose[@]}" start collector >/dev/null 2>&1 || fail "could not start the collector again"
   new_traceparent
   TRACEPARENT=$traceparent expect "a request once the collector is back" "^$traced " alice show "$traced"
   await 60 "its span arrives" span_arrived "^span trace=$trace_id parent=$parent_id id=[0-9a-f]{16} name=show "
-  await 30 "starfixd says its exports of metrics work again" logged_once_more 'event=telemetry.export_recovered signal=metrics' "$recovered"
+  await 30 "ariesd says its exports of metrics work again" logged_once_more 'event=telemetry.export_recovered signal=metrics' "$recovered"
   [[ $(logged 'a metrics export failed') == $((warned_metrics + 1)) && $(logged 'a trace export failed') == $((warned_traces + 1)) &&
     $(logged 'a log export failed') == $((warned_logs + 1)) ]] ||
-    fail "starfixd warned of failed exports more than once for each signal while the collector was stopped" "$(starfixd_log | grep 'export')"
+    fail "ariesd warned of failed exports more than once for each signal while the collector was stopped" "$(ariesd_log | grep 'export')"
   passed=$((passed + 1))
 
   echo "smoke: telemetry: a collector that never answers changes nothing, and does not hold a stop"
@@ -606,11 +606,11 @@ telemetry_checks() {
     fail "with the collector frozen, the requests took ${frozen_took}s, and ${alive_took}s with it running"
   [[ $dead == "$alive" ]] || fail "with the collector frozen, the requests answered something else" "$(diff <(printf '%s\n' "$alive") <(printf '%s\n' "$dead"))"
   passed=$((passed + 2))
-  # starfixd gives its last exports 5 seconds when it stops. Docker is
+  # ariesd gives its last exports 5 seconds when it stops. Docker is
   # told to wait for 30, so that the time measured is the server's own;
   # 3 more are for a clock read in whole seconds.
   t0=$SECONDS
-  "${compose[@]}" restart -t 30 starfix >/dev/null 2>&1 || fail "could not restart the server with the collector frozen"
+  "${compose[@]}" restart -t 30 aries >/dev/null 2>&1 || fail "could not restart the server with the collector frozen"
   frozen_restart=$((SECONDS - t0))
   ((frozen_restart <= restart_took + 5 + 3)) ||
     fail "with the collector frozen, restarting the server took ${frozen_restart}s, and ${restart_took}s with it running: more than the 5s its last exports may take"
@@ -627,18 +627,18 @@ telemetry_checks() {
   await 30 "its log record arrives at the collector" record_arrived "^record event=request.refused trace=$trace_id "
 }
 
-image=${STARFIX_IMAGE:-starfix-dev:local}
-if [[ -n ${STARFIX_IMAGE:-} ]]; then
-  echo "smoke: testing the image $image, and building sfx"
+image=${ARIES_IMAGE:-aries-dev:local}
+if [[ -n ${ARIES_IMAGE:-} ]]; then
+  echo "smoke: testing the image $image, and building aries"
 else
-  echo "smoke: building the image and sfx"
+  echo "smoke: building the image and aries"
   docker build -q -f "$root/deploy/docker/Dockerfile" -t "$image" "$@" "$root" >/dev/null
 fi
-if [[ -n ${SFX:-} ]]; then
-  sfx=$SFX
+if [[ -n ${ARIES:-} ]]; then
+  aries=$ARIES
 else
-  sfx=$work/sfx
-  (cd "$root" && CGO_ENABLED=0 go build -trimpath -o "$sfx" ./cmd/sfx)
+  aries=$work/aries
+  (cd "$root" && CGO_ENABLED=0 go build -trimpath -o "$aries" ./cmd/aries)
 fi
 
 mkdir -p "$work/keys" "$work/home" "$work/alice" "$work/bob" "$work/carol" "$work/alice-web" "$work/bob-web" "$work/transcripts" \
@@ -655,13 +655,13 @@ up
 project=$(server_setting project)
 host_key=$(server_setting host_key)
 [[ $project =~ ^[0-9a-f-]{36}$ && $host_key == SHA256:* ]] ||
-  fail "the server printed no .starfix.yaml" "$("${compose[@]}" logs --no-log-prefix 2>&1 | tail -n 20)"
+  fail "the server printed no .aries.yaml" "$("${compose[@]}" logs --no-log-prefix 2>&1 | tail -n 20)"
 for who in alice bob; do
   printf 'project: %s\nserver:\n  host: localhost\n  port: %s\n  host_key: %s\n' \
-    "$project" "$port" "$host_key" >"$work/$who/.starfix.yaml"
+    "$project" "$port" "$host_key" >"$work/$who/.aries.yaml"
 done
 
-# Which key sfx offers. alice is the server admin and bob a member; an
+# Which key aries offers. alice is the server admin and bob a member; an
 # agent that holds alice's key behind six the server does not know is in
 # the environment throughout.
 echo "smoke: a configured key is the only key offered"
@@ -672,17 +672,17 @@ for i in 1 2 3 4 5 6; do
 done
 agent_add "$work/keys/alice"
 bob_key_fp=$(ssh-keygen -lf "$work/keys/bob.pub" | cut -d' ' -f2 | sed 's/[+/.]/[&]/g')
-smoke_agent=$agent_sock expect "STARFIX_KEY_FILE wins over the agent's keys" '^principal +bob$' bob whoami
-grep -Eq -- "^key +$bob_key_fp, from the file $work/keys/bob, which STARFIX_KEY_FILE names\$" <<<"$last" || fail "whoami does not name bob's key, its file and what named it" "$last"
+smoke_agent=$agent_sock expect "ARIES_KEY_FILE wins over the agent's keys" '^principal +bob$' bob whoami
+grep -Eq -- "^key +$bob_key_fp, from the file $work/keys/bob, which ARIES_KEY_FILE names\$" <<<"$last" || fail "whoami does not name bob's key, its file and what named it" "$last"
 passed=$((passed + 1))
-# The same with the key in the checkout, named by key: in .starfix.yaml.
-cp "$work/keys/bob" "$work/bob-key/id" && cp "$work/bob/.starfix.yaml" "$work/bob-key/.starfix.yaml"
-printf 'key: id\n' >>"$work/bob-key/.starfix.yaml"
-smoke_agent=$agent_sock smoke_key='' expect "key: in .starfix.yaml wins over the agent's keys" '^principal +bob$' bob-key whoami
+# The same with the key in the checkout, named by key: in .aries.yaml.
+cp "$work/keys/bob" "$work/bob-key/id" && cp "$work/bob/.aries.yaml" "$work/bob-key/.aries.yaml"
+printf 'key: id\n' >>"$work/bob-key/.aries.yaml"
+smoke_agent=$agent_sock smoke_key='' expect "key: in .aries.yaml wins over the agent's keys" '^principal +bob$' bob-key whoami
 # The variable comes before key:, which names bob's key here.
-smoke_agent=$agent_sock smoke_key="$work/keys/alice" expect "STARFIX_KEY_FILE wins over key:" '^principal +alice$' bob-key whoami
+smoke_agent=$agent_sock smoke_key="$work/keys/alice" expect "ARIES_KEY_FILE wins over key:" '^principal +alice$' bob-key whoami
 # A key: that leads out of the checkout is not followed.
-sed "s|^key: .*|key: $work/keys/alice|" "$work/bob-key/.starfix.yaml" >"$work/bob-out/.starfix.yaml"
+sed "s|^key: .*|key: $work/keys/alice|" "$work/bob-key/.aries.yaml" >"$work/bob-out/.aries.yaml"
 smoke_agent=$agent_sock smoke_key='' refuse "key: outside the repository" 'outside the repository' bob-out whoami
 # The .pub alone: the agent signs with that one key, and offers no other.
 smoke_agent=$agent_sock smoke_key="$work/keys/alice.pub" expect "a .pub names one of the agent's keys" '^principal +alice$' alice whoami
@@ -698,12 +698,12 @@ cp "$work/keys/bob" "$work/home-bob/.ssh/id_ed25519"
 smoke_home="$work/home-bob" smoke_agent=$agent_sock smoke_key='' expect "a default identity comes before the agent's keys" '^principal +bob$' bob whoami
 grep -Eq -- "^key +$bob_key_fp, from the file $work/home-bob/[.]ssh/id_ed25519, a default identity\$" <<<"$last" || fail "whoami does not say bob's key is a default identity" "$last"
 passed=$((passed + 1))
-# The agent holds seven keys, alice's last. sfx offers five, one fewer
+# The agent holds seven keys, alice's last. aries offers five, one fewer
 # than sshd tries, so the server answers instead of hanging up, and the
 # refusal says what was left out and what to do.
-smoke_agent=$agent_sock smoke_key='' refuse "no more keys are offered than sshd tries" 'accepted none of the 5 keys sfx offered' alice whoami
+smoke_agent=$agent_sock smoke_key='' refuse "no more keys are offered than sshd tries" 'accepted none of the 5 keys aries offered' alice whoami
 grep -q '2 more keys that ssh-agent holds were not offered' <<<"$last" || fail "the refusal does not say how many keys were left out" "$last"
-grep -q 'STARFIX_KEY_FILE' <<<"$last" || fail "the refusal does not name STARFIX_KEY_FILE" "$last"
+grep -q 'ARIES_KEY_FILE' <<<"$last" || fail "the refusal does not name ARIES_KEY_FILE" "$last"
 absent "sshd did not hang up" 'too many refused keys'
 passed=$((passed + 2))
 # A default identity that needs a passphrase is skipped, and said to be.
@@ -715,18 +715,18 @@ agent_add "$work/keys/alice"
 smoke_agent=$agent_sock smoke_key='' expect "the agent's key, with nothing configured" '^principal +alice$' alice whoami
 grep -Eq -- '^key +SHA256:.*, from ssh-agent; no key is configured' <<<"$last" || fail "whoami does not say the key came from ssh-agent" "$last"
 passed=$((passed + 1))
-# STARFIX_KEY is never read: holding a private key, as an earlier CI
+# ARIES_KEY is never read: holding a private key, as an earlier CI
 # recipe had it, it signs nobody in, and no part of it is printed.
 old_value=$(cat "$work/keys/alice")
-smoke_old=$old_value smoke_key='' refuse "STARFIX_KEY is not read" 'STARFIX_KEY is set, and sfx does not read it' alice whoami
+smoke_old=$old_value smoke_key='' refuse "ARIES_KEY is not read" 'ARIES_KEY is set, and aries does not read it' alice whoami
 if grep -qF -- "$(sed -n 2p "$work/keys/alice")" <<<"$last"; then
-  fail "the refusal repeats what STARFIX_KEY holds"
+  fail "the refusal repeats what ARIES_KEY holds"
 fi
 passed=$((passed + 1))
-smoke_old=$old_value expect "STARFIX_KEY beside STARFIX_KEY_FILE changes nothing" '^principal +bob$' bob whoami
-absent "a set STARFIX_KEY is not mentioned when sign-in works" 'STARFIX_KEY is set'
+smoke_old=$old_value expect "ARIES_KEY beside ARIES_KEY_FILE changes nothing" '^principal +bob$' bob whoami
+absent "a set ARIES_KEY is not mentioned when sign-in works" 'ARIES_KEY is set'
 
-echo "smoke: driving sfx"
+echo "smoke: driving aries"
 expect "create" '^sf-[a-z0-9]+$' alice create "Fix the login redirect" -p 1 -t bug
 a=$last
 expect "create" '^sf-[a-z0-9]+$' alice create "Add a sign-out button" -p 2 -t feature
@@ -783,15 +783,15 @@ refuse "plans set as bob" '"c":"forbidden"' bob --json admin plans set team --fr
   --fee 1 --seats 1 --principal bob
 
 # Many projects, and keys from the control database. alice is the server
-# admin; `starfixd control init` made bob a member of the first project.
+# admin; `ariesd control init` made bob a member of the first project.
 echo "smoke: a second project, and a key the control database holds"
-expect "project list" '^first +[0-9a-f-]{36} +sf +internal +active +starfix$' alice admin project list
-expect "project add" '^project web \([0-9a-f-]{36}\) created in database starfix_p001: active$' alice admin project add web
+expect "project list" '^first +[0-9a-f-]{36} +sf +internal +active +aries$' alice admin project list
+expect "project add" '^project web \([0-9a-f-]{36}\) created in database aries_p001: active$' alice admin project add web
 web=$(sed -n 's/^project: //p' <<<"$last")
-[[ $web =~ ^[0-9a-f-]{36}$ && $web != "$project" ]] || fail "project add printed no .starfix.yaml for the new project" "$last"
+[[ $web =~ ^[0-9a-f-]{36}$ && $web != "$project" ]] || fail "project add printed no .aries.yaml for the new project" "$last"
 for who in alice bob; do
   printf 'project: %s\nserver:\n  host: localhost\n  port: %s\n  host_key: %s\n' \
-    "$web" "$port" "$host_key" >"$work/$who-web/.starfix.yaml"
+    "$web" "$port" "$host_key" >"$work/$who-web/.aries.yaml"
 done
 expect "create in the second project" '^web-[a-z0-9]+$' alice-web create "First in web" -p 2 -t task
 w=$last
@@ -802,7 +802,7 @@ absent "the first project does not" "^$w "
 refuse "a non-member of the second project" 'bob is not a member of project' bob-web ready
 # bob has a key in the control database, which would sign in to web too:
 # it is shown, and he is added only once it is accepted (decision 36).
-refuse "member add shows the keys first" '^sfx: bob was not added to project web: it has 1 key' alice-web admin member add bob
+refuse "member add shows the keys first" '^aries: bob was not added to project web: it has 1 key' alice-web admin member add bob
 grep -Eq -- '^SHA256:[A-Za-z0-9+/]{43} +ssh-ed25519 +bob +import +.* +yes$' <<<"$last" ||
   fail "member add did not list bob's key, who added it and that the operator did" "$last"
 grep -q -- '--accept-keys' <<<"$last" || fail "the refusal does not name --accept-keys" "$last"
@@ -814,19 +814,19 @@ expect "a member of the second project" "^$w " bob-web ready
 # The keys file is written before the server listens, with the keys
 # `control init` imported. Those are lines of authorized_keys too. sshd
 # reads the keys file first, so alice's own connection came in by its
-# line, which names her key: starfixd counts no connection of hers as let
+# line, which names her key: ariesd counts no connection of hers as let
 # in by authorized_keys, which it reads, and marks her key as in both.
 # With bob's key out of the store, sshd falls back to its line of
 # authorized_keys, and his own connection is then counted as by hand.
 check_keys_file "the keys file at the start"
-in_keys_file "an imported key" '^restrict,command="/usr/local/bin/starfixd stdio --principal alice --key SHA256:[A-Za-z0-9+/]{43}" ssh-ed25519 [A-Za-z0-9+/=]+$'
+in_keys_file "an imported key" '^restrict,command="/usr/local/bin/ariesd stdio --principal alice --key SHA256:[A-Za-z0-9+/]{43}" ssh-ed25519 [A-Za-z0-9+/=]+$'
 in_keys_file "an imported key" 'stdio --principal bob --key SHA256:'
 expect "a key in both files is marked" ' +import +.* +authorized_keys$' alice admin key list alice
 absent "sshd took the line of the keys file, not of authorized_keys" 'came in by a line of the server.s hand-maintained authorized_keys file'
 expect "bob lists his own key, in both files" ' +import +.* +authorized_keys$' bob admin key list bob
 absent "sshd took the line of the keys file for bob too" 'came in by a line of the server.s hand-maintained authorized_keys file'
 bob_fp=$(ssh-keygen -lf "$work/keys/bob.pub" | cut -d' ' -f2)
-expect "removing a key that authorized_keys still holds warns" '^sfx: warning: sshd will still accept key SHA256:.*: the connections it had signed in were closed, but it is also a line of the server.s authorized_keys file' \
+expect "removing a key that authorized_keys still holds warns" '^aries: warning: sshd will still accept key SHA256:.*: the connections it had signed in were closed, but it is also a line of the server.s authorized_keys file' \
   alice admin key remove "$bob_fp"
 not_in_keys_file "the removed key" 'stdio --principal bob '
 expect "and the key still signs in, by authorized_keys" "^$b " bob ready
@@ -834,20 +834,20 @@ expect "sshd then takes the line of authorized_keys" "^1 open connection of bob 
 expect "key add, back in both files" ' added to bob$' alice admin key add bob "$work/keys/bob.pub"
 
 # carol's key is in no authorized_keys file: sshd reads it from the keys
-# file starfixd writes from the control database, with no restart.
+# file ariesd writes from the control database, with no restart.
 ssh-keygen -q -t ed25519 -N '' -C carol@example.com -f "$work/keys/carol"
 carol_fp=$(ssh-keygen -lf "$work/keys/carol.pub" | cut -d' ' -f2)
 # A fingerprint is base64, whose + and / mean something in a pattern.
 carol_re=$(sed 's/[+/.]/[&]/g' <<<"$carol_fp")
 printf 'project: %s\nserver:\n  host: localhost\n  port: %s\n  host_key: %s\n' \
-  "$project" "$port" "$host_key" >"$work/carol/.starfix.yaml"
-refuse "a key nobody added" 'accepted no key: sfx offered SHA256:' carol ready
+  "$project" "$port" "$host_key" >"$work/carol/.aries.yaml"
+refuse "a key nobody added" 'accepted no key: aries offered SHA256:' carol ready
 expect "principal add --key" "^key $carol_re added to carol\$" alice admin principal add carol --key "$work/keys/carol.pub"
-if "${compose[@]}" exec -T starfix grep -q carol /state/ssh/authorized_keys; then
+if "${compose[@]}" exec -T aries grep -q carol /state/ssh/authorized_keys; then
   fail "carol has a line in authorized_keys; her key was to be in the control database alone"
 fi
 passed=$((passed + 1))
-in_keys_file "a key added with sfx admin" "stdio --principal carol --key $carol_re\" ssh-ed25519 "
+in_keys_file "a key added with aries admin" "stdio --principal carol --key $carol_re\" ssh-ed25519 "
 check_keys_file "the keys file after a key was added"
 expect "a key from the control database" "^$b " carol ready
 expect "it signs in as its principal" '^[a-z0-9]+$' carol comment "$b" "carol was here"
@@ -856,8 +856,8 @@ refuse "a private key file is not sent" 'holds a private key, which never leaves
 refuse "nobody adds a key to their own account" 'nobody adds a key to their own account' alice admin key add alice "$work/keys/carol.pub"
 # Anyone may remove a key of their own (decision 38), but not the one
 # the connection signed in with: sshd took carol's line from the keys
-# file, so starfixd knows which key that is.
-refuse "the key in use is not removed by its own connection" "^sfx: key $carol_re is the key this connection signed in with" carol admin key remove "$carol_fp"
+# file, so ariesd knows which key that is.
+refuse "the key in use is not removed by its own connection" "^aries: key $carol_re is the key this connection signed in with" carol admin key remove "$carol_fp"
 expect "key remove" "^key $carol_re removed from carol\$" alice admin key remove "$carol_fp"
 absent "removing a key only the store holds warns of nothing" 'warning'
 not_in_keys_file "a removed key" 'stdio --principal carol '
@@ -870,15 +870,15 @@ refuse "a disabled principal's key" 'accepted no key' carol ready
 expect "status shows the keys file" "^keys file $keys_file: 2 keys, written " alice admin status
 # A CI job reports a check, as the workflows of docs/ci.md run it: its
 # own principal, CI=true and the branch in GITHUB_HEAD_REF, with no
-# session named, so sfx takes the session ci.
+# session named, so aries takes the session ci.
 echo "smoke: a CI job reports a check on the issue its branch names"
 mkdir -p "$work/ci-example"
 ssh-keygen -q -t ed25519 -N '' -C ci-example@example.com -f "$work/keys/ci-example"
 printf 'project: %s\nserver:\n  host: localhost\n  port: %s\n  host_key: %s\n' \
-  "$project" "$port" "$host_key" >"$work/ci-example/.starfix.yaml"
+  "$project" "$port" "$host_key" >"$work/ci-example/.aries.yaml"
 expect "a principal for CI" ' added to ci-example$' alice admin principal add ci-example --key "$work/keys/ci-example.pub"
-ci_subject=$(sfx_as alice create "Parse the config" 2>/dev/null) || fail "sfx create of the CI subject exited $?"
-ci_next=$(sfx_as alice create "Use the parsed config" 2>/dev/null) || fail "sfx create of the dependent exited $?"
+ci_subject=$(aries_as alice create "Parse the config" 2>/dev/null) || fail "aries create of the CI subject exited $?"
+ci_next=$(aries_as alice create "Use the parsed config" 2>/dev/null) || fail "aries create of the dependent exited $?"
 expect "a ci gate" '^[a-z0-9]+-[a-z0-9]+$' alice gate add --kind ci --check build --subject "$ci_subject" --by ci-example --blocks "$ci_next"
 ci_branch="feature/$ci_subject-parse-the-config"
 CI=true GITHUB_HEAD_REF=$ci_branch smoke_session='' expect "a CI job's failure" ' failed$' \
@@ -899,12 +899,12 @@ CI=true GITHUB_HEAD_REF=dependabot/go_modules/lib-1.2.3 smoke_session='' expect 
 # holder; the list shows it; a release frees it.
 echo "smoke: a lock held around a command"
 # shellcheck disable=SC2016 # the command's own shell expands the epoch
-expect "lock run" '^ran under epoch [0-9]+$' alice lock run deploy/smoke -- sh -c 'echo "ran under epoch $STARFIX_LOCK_EPOCH"'
+expect "lock run" '^ran under epoch [0-9]+$' alice lock run deploy/smoke -- sh -c 'echo "ran under epoch $ARIES_LOCK_EPOCH"'
 lock_code=0
-sfx_as alice lock run deploy/smoke -- sh -c 'exit 7' >/dev/null 2>&1 || lock_code=$?
-((lock_code == 7)) || fail "lock run: the command exited 7, and sfx exited $lock_code"
+aries_as alice lock run deploy/smoke -- sh -c 'exit 7' >/dev/null 2>&1 || lock_code=$?
+((lock_code == 7)) || fail "lock run: the command exited 7, and aries exited $lock_code"
 passed=$((passed + 1))
-lock_epoch=$(sfx_as alice lock acquire deploy/smoke 2>/dev/null) || fail "lock acquire exited $?"
+lock_epoch=$(aries_as alice lock acquire deploy/smoke 2>/dev/null) || fail "lock acquire exited $?"
 [[ $lock_epoch =~ ^[0-9]+$ ]] || fail "lock acquire printed '$lock_epoch', want the epoch"
 refuse "a held lock" 'held by alice' bob lock acquire deploy/smoke
 expect "lock list" '^deploy/smoke +1/1 +alice/smoke-alice epoch ' bob lock list
@@ -914,7 +914,7 @@ expect "no lock held" '^no locks held$' bob lock list
 no_failed_write "before the restart"
 
 # Dolt's own metrics (docs/server.md, step 2): the endpoint answers on
-# loopback in the container and on no other address, and starfixd reads
+# loopback in the container and on no other address, and ariesd reads
 # it for the status report. The image has no curl, so bash asks.
 echo "smoke: Dolt's metrics, and its figures in the status"
 last=$(in_server bash -c 'exec 3<>/dev/tcp/127.0.0.1/11228 && printf "GET /metrics HTTP/1.0\r\n\r\n" >&3 && cat <&3' 2>&1) ||
@@ -933,10 +933,10 @@ fi
 passed=$((passed + 1))
 expect "status shows Dolt's figures" '^Dolt 2\.[0-9]+\.[0-9]+, up [0-9a-z ]+, [0-9]+ connections?, [0-9]+ MiB resident, no memory limit$' alice admin status
 expect "status --json carries them" '"dolt":\{"read_at":"[^"]+","version":"2\.[0-9.]+","started_at":"[^"]+","uptime_seconds":[0-9]+,"resident_bytes":[0-9]+,"conns":[0-9]+,"mem_limit_bytes":0' alice --json admin status
-# The collector's cycles are set against starfixd's writes once it has
+# The collector's cycles are set against ariesd's writes once it has
 # read twice, 15 seconds apart.
 for ((i = 0; i < 60; i++)); do
-  if sfx_as alice admin status 2>/dev/null | grep -q "^Dolt's collector: "; then
+  if aries_as alice admin status 2>/dev/null | grep -q "^Dolt's collector: "; then
     break
   fi
   sleep 0.5
@@ -945,8 +945,8 @@ expect "status shows Dolt's collector against the writes" "^Dolt's collector: [0
 # bob is no server admin: Dolt is the server's, and he is shown none of it.
 refuse "Dolt's figures are for server admins" 'may not see the server.s status' bob admin status
 
-# What a restart must not undo. The container runs `starfixd control
-# init` at every start, and bob's line is still in STARFIX_KEYS.
+# What a restart must not undo. The container runs `ariesd control
+# init` at every start, and bob's line is still in ARIES_KEYS.
 expect "member remove before the restart" '^bob removed from project first$' alice admin member remove bob
 refuse "a removed member" 'bob is not a member of project' bob ready
 
@@ -968,20 +968,20 @@ no_failed_write "after the restart"
 refuse "a restart does not put a removed member back" 'bob is not a member of project' bob ready
 # The log is read whole first: under pipefail, a grep that stops at its
 # first match would fail the pipeline that feeds it.
-last=$("${compose[@]}" logs --no-log-prefix starfix 2>&1)
+last=$("${compose[@]}" logs --no-log-prefix aries 2>&1)
 grep -Eq 'authorized_keys line [0-9]+: bob was removed from the project by alice on .*; kept removed' <<<"$last" ||
   fail "the start did not report bob's membership as kept removed" "$(grep -E 'authorized_keys|left as admins' <<<"$last" | tail -n 10)"
 passed=$((passed + 1))
 # The operator puts him back on purpose, as docs/deploy/docker.md says
 # to; the running server reads the control database again within half a
 # minute.
-last=$("${compose[@]}" exec -T -u starfix -w /var/lib/starfix starfix starfixd control init --name first --restore-removed-access 2>&1) ||
+last=$("${compose[@]}" exec -T -u aries -w /var/lib/aries aries ariesd control init --name first --restore-removed-access 2>&1) ||
   fail "control init --restore-removed-access failed" "$last"
 grep -Eq '^restored from this file, over what admins had set: 0 keys, 1 membership, 0 principals enabled$' <<<"$last" ||
   fail "control init --restore-removed-access did not say it restored bob's membership" "$last"
 passed=$((passed + 1))
 for ((i = 0; i < 90; i++)); do
-  if sfx_as bob ready >/dev/null 2>&1; then
+  if aries_as bob ready >/dev/null 2>&1; then
     break
   fi
   sleep 0.5
@@ -997,9 +997,9 @@ echo "smoke: a key of authorized_keys keeps its principal"
 mkdir -p "$work/dave"
 ssh-keygen -q -t ed25519 -N '' -C dave@example.com -f "$work/keys/dave"
 printf 'project: %s\nserver:\n  host: localhost\n  port: %s\n  host_key: %s\n' \
-  "$project" "$port" "$host_key" >"$work/dave/.starfix.yaml"
+  "$project" "$port" "$host_key" >"$work/dave/.aries.yaml"
 by_hand() {
-  printf 'restrict,command="/usr/local/bin/starfixd stdio --principal %s" %s\n' "$1" "$(cat "$2")" |
+  printf 'restrict,command="/usr/local/bin/ariesd stdio --principal %s" %s\n' "$1" "$(cat "$2")" |
     in_server sh -c 'cat >> /state/ssh/authorized_keys'
 }
 by_hand alice "$work/keys/dave.pub"
@@ -1014,7 +1014,7 @@ not_in_keys_file "the refused key" "--key $dave_re\""
 expect "and it still signs its owner in as themselves" '^alice +active' dave admin principal list
 
 # The other order: the control database holds carol's key, for carol, and
-# then the operator gives the same key to alice by hand. starfixd holds
+# then the operator gives the same key to alice by hand. ariesd holds
 # carol's line back from its file, so sshd reaches the operator's.
 refuse "carol's key signs in as carol, who is no server admin" 'for server admins' carol admin principal list
 by_hand alice "$work/keys/carol.pub"
@@ -1027,23 +1027,23 @@ expect "that key signs in as the principal the operator's line names" '^alice +a
 expect "status counts the key held back" '^keys held back from it: 1,' alice admin status
 no_failed_write "at the end"
 
-# starfixd's log follows its schema (docs/server.md, Logs): every line it
-# wrote names an event, and an access change made with `sfx admin` is a
+# ariesd's log follows its schema (docs/server.md, Logs): every line it
+# wrote names an event, and an access change made with `aries admin` is a
 # line of the audit stream, read back from the control database's log.
-# Only starfixd writes lines that start with time= and have level=;
+# Only ariesd writes lines that start with time= and have level=;
 # sshd's and Dolt's are theirs.
 echo "smoke: the log's schema and the audit stream"
-last=$("${compose[@]}" logs --no-log-prefix starfix 2>&1 | grep -E '^time=[^ ]+ level=[A-Z]+ msg=' || true)
-[[ -n $last ]] || fail "starfixd logged no line"
+last=$("${compose[@]}" logs --no-log-prefix aries 2>&1 | grep -E '^time=[^ ]+ level=[A-Z]+ msg=' || true)
+[[ -n $last ]] || fail "ariesd logged no line"
 if unnamed=$(grep -Ev ' event=[a-z_]+([.][a-z_]+)+( |$)' <<<"$last"); then
-  fail "a line of starfixd's log names no event" "$(head -n 5 <<<"$unnamed")"
+  fail "a line of ariesd's log names no event" "$(head -n 5 <<<"$unnamed")"
 fi
 passed=$((passed + 1))
 grep -Eq ' event=audit[.]key[.]add audit=true seq=[0-9]+ at=[^ ]+ principal=alice session=[^ ]+ op=key[.]add target=SHA256:[^ ]+ fingerprint=SHA256:[^ ]+ subject=carol$' <<<"$last" ||
   fail "the audit stream has no line for the key alice added to carol" "$(grep -F ' audit=true ' <<<"$last" | tail -n 10)"
 passed=$((passed + 1))
 if grep -Eq 'ssh-ed25519 AAAA' <<<"$last"; then
-  fail "starfixd's log holds a key's text" "$(grep -E 'ssh-ed25519 AAAA' <<<"$last" | cut -c1-200 | head -n 3)"
+  fail "ariesd's log holds a key's text" "$(grep -E 'ssh-ed25519 AAAA' <<<"$last" | cut -c1-200 | head -n 3)"
 fi
 passed=$((passed + 1))
 

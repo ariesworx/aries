@@ -9,14 +9,14 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/ariesworx/starfix/internal/cli"
-	"github.com/ariesworx/starfix/internal/mcpserver"
-	"github.com/ariesworx/starfix/internal/offline"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/cli"
+	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/offline"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
-const cachedPrefix = "cached: starfix cannot reach its server, so this is this machine's copy from "
+const cachedPrefix = "cached: aries cannot reach its server, so this is this machine's copy from "
 
 // hookContext runs prime --hook as u and returns the context it gives
 // the harness, failing the test unless it exits 0 with one JSON
@@ -30,7 +30,7 @@ func (u *user) hookContext() string {
 		} `json:"hookSpecificOutput"`
 	}
 	if err := json.Unmarshal([]byte(r.stdout), &doc); err != nil || r.code != cli.ExitOK || r.stderr != "" || strings.Count(r.stdout, "\n") != 1 {
-		u.w.t.Fatalf("sfx prime --hook = exit %d, %q (%v), stderr %q; want one JSON document and nothing else", r.code, r.stdout, err, r.stderr)
+		u.w.t.Fatalf("aries prime --hook = exit %d, %q (%v), stderr %q; want one JSON document and nothing else", r.code, r.stdout, err, r.stderr)
 	}
 	return doc.HookSpecificOutput.AdditionalContext
 }
@@ -55,8 +55,8 @@ func TestCacheGateCLI(t *testing.T) {
 	w.stop()
 	r := alice.run("v0.2.0", "show", id)
 	if r.code != cli.ExitOK || !strings.Contains(r.stdout, "Held through the outage\n") || !strings.Contains(r.stdout, "the plan") ||
-		!strings.HasPrefix(r.stderr, "sfx: "+cachedPrefix) || strings.Count(r.stderr, "\n") != 1 {
-		t.Errorf("sfx show of held work with the server down = exit %d\nstdout %q\nstderr %q\nwant the issue, and one line on stderr that it is cached", r.code, r.stdout, r.stderr)
+		!strings.HasPrefix(r.stderr, "aries: "+cachedPrefix) || strings.Count(r.stderr, "\n") != 1 {
+		t.Errorf("aries show of held work with the server down = exit %d\nstdout %q\nstderr %q\nwant the issue, and one line on stderr that it is cached", r.code, r.stdout, r.stderr)
 	}
 	r = alice.run("v0.2.0", "show", id, "--json")
 	var doc struct {
@@ -65,36 +65,36 @@ func TestCacheGateCLI(t *testing.T) {
 		Issue    proto.Issue
 	}
 	if err := json.Unmarshal([]byte(r.stdout), &doc); err != nil || r.code != cli.ExitOK || !doc.Cached || doc.CachedAt.IsZero() || doc.Issue.ID != id {
-		t.Errorf("sfx show --json with the server down = exit %d, %q (%v); want the issue with cached: true and when", r.code, r.stdout, err)
+		t.Errorf("aries show --json with the server down = exit %d, %q (%v); want the issue with cached: true and when", r.code, r.stdout, err)
 	}
 	r = alice.run("v0.2.0", "prime")
 	if r.code != cli.ExitOK || !strings.Contains(r.stdout, "you are alice") || !strings.Contains(r.stdout, "notice: "+cachedPrefix) ||
-		!strings.Contains(r.stdout, "in progress:\n  "+id+" P2 \"Held through the outage\"\n") || !strings.HasPrefix(r.stderr, "sfx: "+cachedPrefix) {
-		t.Errorf("sfx prime with the server down = exit %d\nstdout:\n%s\nstderr %q\nwant the cached prime with the held issue, saying it is cached", r.code, r.stdout, r.stderr)
+		!strings.Contains(r.stdout, "in progress:\n  "+id+" P2 \"Held through the outage\"\n") || !strings.HasPrefix(r.stderr, "aries: "+cachedPrefix) {
+		t.Errorf("aries prime with the server down = exit %d\nstdout:\n%s\nstderr %q\nwant the cached prime with the held issue, saying it is cached", r.code, r.stdout, r.stderr)
 	}
 	if ctx := alice.hookContext(); !strings.Contains(ctx, "notice: "+cachedPrefix) || !strings.Contains(ctx, id) {
-		t.Errorf("sfx prime --hook with the server down gave the context:\n%s\nwant the cached prime, saying it is cached", ctx)
+		t.Errorf("aries prime --hook with the server down gave the context:\n%s\nwant the cached prime, saying it is cached", ctx)
 	}
 	r = alice.run("v0.2.0", "ready")
-	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "sfx: starfixd is not running on the server; ready is not answered from this machine's copy, since it says what others are doing now (server last reached ") ||
-		!strings.Contains(r.stderr, "; meanwhile `sfx prime` and `sfx show ID` answer from this machine's copy of what you read\n") {
-		t.Errorf("sfx ready with the server down = exit %d, stderr:\n%s\nwant it refused, saying when the server was last reached, with a fix", r.code, r.stderr)
+	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "aries: ariesd is not running on the server; ready is not answered from this machine's copy, since it says what others are doing now (server last reached ") ||
+		!strings.Contains(r.stderr, "; meanwhile `aries prime` and `aries show ID` answer from this machine's copy of what you read\n") {
+		t.Errorf("aries ready with the server down = exit %d, stderr:\n%s\nwant it refused, saying when the server was last reached, with a fix", r.code, r.stderr)
 	}
 	// bob, on the same machine, is never shown alice's copy.
 	for _, args := range [][]string{{"show", id}, {"prime"}} {
 		if r := bob.run("v0.2.0", args...); r.code != cli.ExitFailure || strings.Contains(r.stdout, "Held through") || strings.Contains(r.stderr, "cached") {
-			t.Errorf("bob's sfx %s on alice's machine with the server down = exit %d, %q, %q; want her copy kept from him", strings.Join(args, " "), r.code, r.stdout, r.stderr)
+			t.Errorf("bob's aries %s on alice's machine with the server down = exit %d, %q, %q; want her copy kept from him", strings.Join(args, " "), r.code, r.stdout, r.stderr)
 		}
 	}
-	if ctx := bob.hookContext(); !strings.HasPrefix(ctx, "starfix: prime failed: ") || strings.Contains(ctx, id) {
-		t.Errorf("bob's sfx prime --hook on alice's machine gave:\n%s\nwant the failure's note, and nothing of alice's", ctx)
+	if ctx := bob.hookContext(); !strings.HasPrefix(ctx, "aries: prime failed: ") || strings.Contains(ctx, id) {
+		t.Errorf("bob's aries prime --hook on alice's machine gave:\n%s\nwant the failure's note, and nothing of alice's", ctx)
 	}
 
 	// Back: the server is asked, and nothing says cached.
 	w.start()
 	alice.ok("update", id, "--title", "Renamed after the outage")
 	if r := alice.run("v0.2.0", "show", id); r.code != cli.ExitOK || r.stderr != "" || !strings.Contains(r.stdout, "Renamed after the outage") {
-		t.Errorf("sfx show with the server back = exit %d\nstdout %q\nstderr %q\nwant the server's answer", r.code, r.stdout, r.stderr)
+		t.Errorf("aries show with the server back = exit %d\nstdout %q\nstderr %q\nwant the server's answer", r.code, r.stdout, r.stderr)
 	}
 }
 
@@ -163,20 +163,20 @@ func TestAccessEndedDeletesTheCache(t *testing.T) {
 	alice.ok("show", id)
 	alice.ok("prime")
 	if out := alice.ok("cache"); !strings.HasPrefix(out, "alice's cache: 2 answers, ") {
-		t.Fatalf("sfx cache before access ended:\n%s", out)
+		t.Fatalf("aries cache before access ended:\n%s", out)
 	}
 	if _, err := w.ctl.RemoveMember(t.Context(), dana, "alice", project); err != nil {
 		t.Fatal(err)
 	}
 	r := alice.run("v0.2.0", "ready")
-	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "sfx: cache: 2 answers alice read from this project were deleted from this machine\n") {
+	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "aries: cache: 2 answers alice read from this project were deleted from this machine\n") {
 		t.Errorf("the first command after access ended = exit %d, stderr:\n%s\nwant the cache deleted, and a line that says so", r.code, r.stderr)
 	}
 	if out := alice.ok("cache"); out != "this machine keeps nothing read from the server for this project\n" {
-		t.Errorf("sfx cache after access ended:\n%s", out)
+		t.Errorf("aries cache after access ended:\n%s", out)
 	}
 	w.stop()
 	if r := alice.run("v0.2.0", "show", id); r.code != cli.ExitFailure || strings.Contains(r.stdout, "Read before") {
-		t.Errorf("sfx show with the server down, after access ended = exit %d, %q; want nothing shown", r.code, r.stdout)
+		t.Errorf("aries show with the server down, after access ended = exit %d, %q; want nothing shown", r.code, r.stdout)
 	}
 }

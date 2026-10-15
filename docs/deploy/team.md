@@ -9,8 +9,8 @@ DigitalOcean droplet ([Costs](#costs)).
 
 ```text
 laptops: people and their agents ──┐
-cloud sandboxes: agents ───────────┼──SSH, host key pinned──▶ starfix.example.com:22
-CI runners: ci-bot ────────────────┘                          sshd ─▶ starfixd ─▶ Dolt
+cloud sandboxes: agents ───────────┼──SSH, host key pinned──▶ aries.example.com:22
+CI runners: ci-bot ────────────────┘                          sshd ─▶ ariesd ─▶ Dolt
 ```
 
 ## Choices this example makes
@@ -18,7 +18,7 @@ CI runners: ci-bot ────────────────┘          
 | Choice | This example | Why |
 |---|---|---|
 | Server | One e2-small VM (2 shared vCPUs, 2 GB) with Ubuntu 24.04 LTS, a supported platform, and a 20 GB balanced disk | Room to spare for a team ([What a server needs](../server.md#what-a-server-needs)) |
-| Address | A static public IPv4 address and a DNS name, `starfix.example.com` | Cloud sandboxes and CI runners cannot easily join a private network |
+| Address | A static public IPv4 address and a DNS name, `aries.example.com` | Cloud sandboxes and CI runners cannot easily join a private network |
 | Port | 22, open to the internet, keys only, rate-limited | sshd refuses everything but the listed keys |
 | Identity | One principal per person, and one per automated agent (`ci-bot`, `cloud-agent`) | A leaked CI key is revoked without touching anyone else |
 | Admins | Two people | Someone can always override a stuck claim |
@@ -30,14 +30,14 @@ CI runners: ci-bot ────────────────┘          
    names:
 
    ```sh
-   gcloud compute addresses create starfix --region us-central1
-   gcloud compute instances create starfix --zone us-central1-a --machine-type e2-small --image-family ubuntu-2404-lts-amd64 --image-project ubuntu-os-cloud --boot-disk-size 20GB --boot-disk-type pd-balanced --address starfix
-   gcloud compute resource-policies create snapshot-schedule starfix-daily --region us-central1 --daily-schedule --start-time 04:00 --max-retention-days 7
-   gcloud compute disks add-resource-policies starfix --zone us-central1-a --resource-policies starfix-daily
+   gcloud compute addresses create aries --region us-central1
+   gcloud compute instances create aries --zone us-central1-a --machine-type e2-small --image-family ubuntu-2404-lts-amd64 --image-project ubuntu-os-cloud --boot-disk-size 20GB --boot-disk-type pd-balanced --address aries
+   gcloud compute resource-policies create snapshot-schedule aries-daily --region us-central1 --daily-schedule --start-time 04:00 --max-retention-days 7
+   gcloud compute disks add-resource-policies aries --zone us-central1-a --resource-policies aries-daily
    ```
 
    In a project with the default network, its `default-allow-ssh` rule
-   already admits port 22. Point `starfix.example.com` at the address.
+   already admits port 22. Point `aries.example.com` at the address.
 
 2. **Set the server up** with [Running a server](../server.md#set-up-a-server),
    steps 1 to 6. List both admins in step 4, as `admins: [alice, bob]`.
@@ -64,47 +64,47 @@ CI runners: ci-bot ────────────────┘          
    ```
 
    Add `ci-bot.pub` on the server under the principal `ci-bot`, store the
-   contents of `ci-bot` as the repository secret `STARFIX_CI_PRIVATE_KEY`,
+   contents of `ci-bot` as the repository secret `ARIES_CI_PRIVATE_KEY`,
    then delete both files. Do the same for a cloud agent's sandbox, with
    its own name. The secret's name is yours to choose, with one
-   exception: do not call it `STARFIX_KEY_FILE`, which `sfx` reads as the
+   exception: do not call it `ARIES_KEY_FILE`, which `aries` reads as the
    *path* of a key file and never as the key
    ([Your key is your identity](../cli.md#your-key-is-your-identity)).
 
-5. **Connect the repositories.** Commit a `.starfix.yaml` to each:
+5. **Connect the repositories.** Commit a `.aries.yaml` to each:
 
    ```yaml
    project: 6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f
    server:
-     host: starfix.example.com
+     host: aries.example.com
      host_key: SHA256:…
    ```
 
-   Then run `sfx setup --all --write` and commit what it writes
+   Then run `aries setup --all --write` and commit what it writes
    ([agent guide](../agents.md)).
 
 6. **Give CI the key as a file.** In GitHub Actions, one step installs
-   `sfx`, writes the secret to a file only the job's user can read, and
-   sets `STARFIX_KEY_FILE` to that file's path for the steps after it,
-   whether they run `sfx` or an agent. A last step deletes the file:
+   `aries`, writes the secret to a file only the job's user can read, and
+   sets `ARIES_KEY_FILE` to that file's path for the steps after it,
+   whether they run `aries` or an agent. A last step deletes the file:
 
    ```yaml
-   - name: Connect to starfix
+   - name: Connect to aries
      env:
-       STARFIX_CI_PRIVATE_KEY: ${{ secrets.STARFIX_CI_PRIVATE_KEY }}
+       ARIES_CI_PRIVATE_KEY: ${{ secrets.ARIES_CI_PRIVATE_KEY }}
      run: |
-       curl -fsSL https://raw.githubusercontent.com/ariesworx/starfix/main/install.sh | sh
+       curl -fsSL https://raw.githubusercontent.com/ariesworx/aries/main/install.sh | sh
        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
        umask 077
-       key="$RUNNER_TEMP/starfix-ci-key"
-       printf '%s\n' "$STARFIX_CI_PRIVATE_KEY" > "$key"
-       echo "STARFIX_KEY_FILE=$key" >> "$GITHUB_ENV"
+       key="$RUNNER_TEMP/aries-ci-key"
+       printf '%s\n' "$ARIES_CI_PRIVATE_KEY" > "$key"
+       echo "ARIES_KEY_FILE=$key" >> "$GITHUB_ENV"
 
-   # … the steps that run sfx or an agent …
+   # … the steps that run aries or an agent …
 
-   - name: Remove the starfix key
+   - name: Remove the aries key
      if: always()
-     run: rm -f "$STARFIX_KEY_FILE"
+     run: rm -f "$ARIES_KEY_FILE"
    ```
 
    `umask 077` comes before the file is written, so it is never readable
@@ -113,7 +113,7 @@ CI runners: ci-bot ────────────────┘          
    into `GITHUB_ENV`. The secret itself is in the environment of that one
    step alone.
 
-   With `STARFIX_KEY_FILE` set, `sfx` offers that key and no other, so
+   With `ARIES_KEY_FILE` set, `aries` offers that key and no other, so
    the job is `ci-bot` and nothing else, whatever other keys a runner or
    a later step has loaded. A key loaded into ssh-agent with nothing
    naming it is one key among those the agent holds, and the server takes
@@ -121,54 +121,54 @@ CI runners: ci-bot ────────────────┘          
 
    **When a step runs code that must not read the key**, such as an agent
    working on a pull request, keep the private key out of the file
-   system: load it into an ssh-agent, and give `STARFIX_KEY_FILE` the
-   *public* key's path. `sfx` then has the agent sign with that one key
+   system: load it into an ssh-agent, and give `ARIES_KEY_FILE` the
+   *public* key's path. `aries` then has the agent sign with that one key
    and still offers no other. The steps after can use the key, and cannot
    copy it:
 
    ```yaml
-   - name: Connect to starfix
+   - name: Connect to aries
      env:
-       STARFIX_CI_PRIVATE_KEY: ${{ secrets.STARFIX_CI_PRIVATE_KEY }}
+       ARIES_CI_PRIVATE_KEY: ${{ secrets.ARIES_CI_PRIVATE_KEY }}
      run: |
-       curl -fsSL https://raw.githubusercontent.com/ariesworx/starfix/main/install.sh | sh
+       curl -fsSL https://raw.githubusercontent.com/ariesworx/aries/main/install.sh | sh
        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
        eval "$(ssh-agent -s)" > /dev/null
-       printf '%s\n' "$STARFIX_CI_PRIVATE_KEY" | ssh-add -q -
-       ssh-add -L > "$RUNNER_TEMP/starfix-ci-key.pub"
+       printf '%s\n' "$ARIES_CI_PRIVATE_KEY" | ssh-add -q -
+       ssh-add -L > "$RUNNER_TEMP/aries-ci-key.pub"
        echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> "$GITHUB_ENV"
-       echo "STARFIX_KEY_FILE=$RUNNER_TEMP/starfix-ci-key.pub" >> "$GITHUB_ENV"
+       echo "ARIES_KEY_FILE=$RUNNER_TEMP/aries-ci-key.pub" >> "$GITHUB_ENV"
    ```
 
-   Either way, check with `sfx whoami` as the next step: it prints the
+   Either way, check with `aries whoami` as the next step: it prints the
    principal, and the key's fingerprint and file, and never the key.
 
    A cloud sandbox does the same in its setup script: the key from its
    own secret store, written under `umask 077` to a file outside the
-   checkout, and `STARFIX_KEY_FILE` set to that path for the agent.
+   checkout, and `ARIES_KEY_FILE` set to that path for the agent.
 
 ## Day to day
 
-- **Who is doing what.** `sfx who` lists every session at work, with its
+- **Who is doing what.** `aries who` lists every session at work, with its
   principal, machine and agent, and the issues it holds.
-- **Hand work across.** `sfx handoff ID NOTE --to ci-bot --release` passes
+- **Hand work across.** `aries handoff ID NOTE --to ci-bot --release` passes
   an issue to another principal's inbox, with what is done and what is
   next ([Handoffs](../concepts.md#handoffs)).
 - **Get noticed.** `@bob` in a comment puts a mention in bob's inbox. An
   agent hears about new items on its next tool call.
-- **Standups write themselves.** `sfx digest --since 7d` gives the week's
+- **Standups write themselves.** `aries digest --since 7d` gives the week's
   closed, started, stalled and blocked work as data, for a person or an
   agent to summarize.
 - **Keep an eye on it.** The provider's console shows the VM's CPU,
-  memory and disk, and `journalctl -u starfixd` shows refusals and errors
+  memory and disk, and `journalctl -u ariesd` shows refusals and errors
   ([Logs](../server.md#logs)). If the server holds several projects,
-  `sfx admin status` shows each one's connections and writes
+  `aries admin status` shows each one's connections and writes
   ([Watching a server](../server.md#watching-a-server)), and the memory
   to watch is Dolt's, on the VM: it grows with what every project writes
   until Dolt is restarted, so a second project on the same 2 GB shares
   what the first has left ([Dolt's memory](../server.md#dolts-memory)
   says how much to expect and how to get it back).
-- **Upgrades:** the server first, then each person runs `sfx upgrade`
+- **Upgrades:** the server first, then each person runs `aries upgrade`
   ([Upgrades](../server.md#upgrades)).
 
 ## Costs
@@ -181,7 +181,7 @@ Google Cloud list prices, us-central1, on demand, read on 7 October 2026:
 | 20 GB balanced persistent disk ($0.10 per GB) | $2.00 |
 | Static external IPv4 address, in use ($0.005 an hour) | $3.65 |
 | Daily snapshots kept a week ($0.05 per GB stored; they are incremental) | under $1.00 |
-| Internet egress (first 1 GB free; starfix sends little) | about $0 |
+| Internet egress (first 1 GB free; Aries sends little) | about $0 |
 | **Total** | **about $19** |
 
 - **Commit to save.** A 1-year commitment takes 37% off the VM, and 3

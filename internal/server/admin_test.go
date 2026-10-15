@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 	"github.com/go-sql-driver/mysql"
 	"golang.org/x/crypto/ssh"
 )
@@ -184,7 +184,7 @@ func TestAdminRoles(t *testing.T) {
 		"erin":  mustDialTo(t, m.Server, erin, projB),  // admin of b
 	}
 	const (
-		forServer   = "ask a server admin (admins: in starfixd's config) to run it"
+		forServer   = "ask a server admin (admins: in ariesd's config) to run it"
 		forProject  = "ask one of the project's admins, or a server admin, to run it"
 		forReach    = "check the name, or ask a server admin to run it; a project admin may only while every project the principal belongs to is one they administer"
 		forAnyAdmin = "ask a server admin to run it, or a project admin who administers every project the principal belongs to"
@@ -360,29 +360,29 @@ func TestAdminRefusals(t *testing.T) {
 		fix  string
 	}{
 		{"unknown project by name", proto.OpMembers, proto.MembersArgs{Project: "proj-z"}, proto.CodeNotFound,
-			`project "proj-z" not found`, "list the projects with `sfx admin project list`"},
+			`project "proj-z" not found`, "list the projects with `aries admin project list`"},
 		{"unknown project by id", proto.OpProjectArchive, proto.ProjectArgs{Project: projC}, proto.CodeNotFound,
-			`project "` + projC + `" not found`, "list the projects with `sfx admin project list`"},
+			`project "` + projC + `" not found`, "list the projects with `aries admin project list`"},
 		{"archive names no project", proto.OpProjectArchive, proto.ProjectArgs{}, proto.CodeInvalid,
-			"no project named", "name the project: `sfx admin project archive PROJECT`"},
+			"no project named", "name the project: `aries admin project archive PROJECT`"},
 		{"unknown principal", proto.OpMemberSet, proto.MemberSetArgs{Name: "nobody"}, proto.CodeNotFound,
-			"principal nobody not found", "add the principal first with `sfx admin principal add NAME`"},
+			"principal nobody not found", "add the principal first with `aries admin principal add NAME`"},
 		{"not a member", proto.OpMemberRemove, proto.MemberArgs{Name: "erin"}, proto.CodeNotFound,
-			"member erin of project " + projA + " not found", "see who is a member with `sfx admin member list`"},
+			"member erin of project " + projA + " not found", "see who is a member with `aries admin member list`"},
 		{"disable an unknown principal", proto.OpPrincipalDisable, proto.PrincipalArgs{Name: "nobody"}, proto.CodeNotFound,
 			"principal nobody not found", "check the name"},
 		{"principal name taken", proto.OpPrincipalAdd, proto.PrincipalAddArgs{Name: "bob"}, proto.CodeExists,
-			`a principal named "bob" already exists`, "add them with `sfx admin member add bob`"},
+			`a principal named "bob" already exists`, "add them with `aries admin member add bob`"},
 		{"bad principal name", proto.OpPrincipalAdd, proto.PrincipalAddArgs{Name: "Bob Smith"}, proto.CodeInvalid,
-			`principal "Bob Smith" must be a lowercase letter`, "`sfx admin principal add -h` shows the usage"},
+			`principal "Bob Smith" must be a lowercase letter`, "`aries admin principal add -h` shows the usage"},
 		{"reserved principal name", proto.OpPrincipalAdd, proto.PrincipalAddArgs{Name: "import"}, proto.CodeInvalid,
 			"a name the server uses itself", "correct it and retry"},
 		{"bad role", proto.OpMemberSet, proto.MemberSetArgs{Name: "bob", Role: "owner"}, proto.CodeInvalid,
-			`role "owner" must be member or admin`, "`sfx admin member add -h` shows the usage"},
+			`role "owner" must be member or admin`, "`aries admin member add -h` shows the usage"},
 		{"project and no project", proto.OpPrincipalAdd, proto.PrincipalAddArgs{Name: "hal", Project: projA, Unassigned: true}, proto.CodeInvalid,
 			"a project or to none", "--project or --no-project"},
 		{"members past the cap", proto.OpMemberSet, proto.MemberSetArgs{Name: "frank"}, proto.CodeInvalid,
-			"a project keeps at most 3 members", "ask the server's operator to raise members_per_project under limits: in starfixd's config"},
+			"a project keeps at most 3 members", "ask the server's operator to raise members_per_project under limits: in ariesd's config"},
 		{"limit out of range", proto.OpProjects, proto.AdminListArgs{Limit: proto.AdminListMax + 1}, proto.CodeInvalid,
 			"limit 1001 is out of range", "give -n from 1 to 1000"},
 		{"unknown argument", proto.OpProjectAdd, json.RawMessage(`{"name":"new","colour":1}`), proto.CodeInvalid, "bad arguments", proto.FixUpgrade},
@@ -500,9 +500,9 @@ func TestAdminProjectAdd(t *testing.T) {
 	// The third name was never granted: the database is created and
 	// cannot be used. The refusal gives the SQL, and the row stays.
 	_, perr = ask[proto.ProjectAddResult](d, proto.OpProjectAdd, proto.ProjectAddArgs{Name: "three"})
-	wantSQL := fmt.Sprintf("GRANT ALL ON %s.* TO 'starfix'@'localhost';", b.Name(3))
+	wantSQL := fmt.Sprintf("GRANT ALL ON %s.* TO 'aries'@'localhost';", b.Name(3))
 	if perr == nil || perr.Code != proto.CodeUnavailable || !strings.Contains(perr.Message, "was never granted database "+b.Name(3)) ||
-		!strings.Contains(perr.Fix, wantSQL) || !strings.Contains(perr.Fix, "as Dolt's root") || !strings.Contains(perr.Fix, "`sfx admin project add three` again") {
+		!strings.Contains(perr.Fix, wantSQL) || !strings.Contains(perr.Fix, "as Dolt's root") || !strings.Contains(perr.Fix, "`aries admin project add three` again") {
 		t.Fatalf("project.add of a name not granted = %+v\nwant unavailable, with a fix giving %q and the command to run again", perr, wantSQL)
 	}
 	if got := state("three"); got != store.ProjectCreating {
@@ -514,7 +514,7 @@ func TestAdminProjectAdd(t *testing.T) {
 		t.Errorf("a handshake for a project still being created = %+v, want not found", w.Err)
 	}
 	_, perr = ask[proto.ProjectResult](d, proto.OpProjectActivate, proto.ProjectArgs{Project: "three"})
-	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Fix, "`sfx admin project add three` again") {
+	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Fix, "`aries admin project add three` again") {
 		t.Errorf("project.activate of a project still being created = %+v, want invalid with a fix naming project add", perr)
 	}
 	// A rerun with other settings is refused: they cannot change.
@@ -604,7 +604,7 @@ func TestAdminArchive(t *testing.T) {
 	onlyA := mustDialTo(t, m.Server, dana, projA)
 	_, perr := ask[proto.ProjectResult](onlyA, proto.OpProjectArchive, proto.ProjectArgs{Project: projA})
 	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Message, "proj-a is the server's only active project") ||
-		!strings.Contains(perr.Fix, "`sfx admin project activate PROJECT`") {
+		!strings.Contains(perr.Fix, "`aries admin project activate PROJECT`") {
 		t.Errorf("project.archive of the last active project = %+v; want invalid, with a fix naming activate", perr)
 	}
 	if p, _ := m.ctl.ProjectNamed("proj-a"); p.State != store.ProjectActive {
@@ -919,7 +919,7 @@ func TestOpenProjects(t *testing.T) {
 		t.Errorf("the probe after every project opened = %+v (%v), want a welcome", w, w.Err)
 	}
 
-	// A project whose database starfixd cannot open: never created.
+	// A project whose database ariesd cannot open: never created.
 	const broken = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
 	if _, err := m.ctl.AddProject(t.Context(), dana, store.NewProject{ID: broken, Name: "proj-d", Prefix: "pd", Account: "internal",
 		DBName: "not_made_yet"}); err != nil {
@@ -979,7 +979,7 @@ func TestOpenProjectsRecovers(t *testing.T) {
 func TestReleasedClientsRefused(t *testing.T) {
 	t.Parallel()
 	s := newServer(t)
-	const fix = "upgrade this client: run `sfx upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `sfx mcp`"
+	const fix = "upgrade this client: run `aries upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `aries mcp`"
 	for _, tc := range []struct {
 		release string
 		proto   int
@@ -990,7 +990,7 @@ func TestReleasedClientsRefused(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := fmt.Sprintf("starfix speaks protocol %d; the server (v0.2.0) needs protocols %d to %d", tc.proto, proto.ProtoMin, proto.ProtoMax)
+			want := fmt.Sprintf("aries speaks protocol %d; the server (v0.2.0) needs protocols %d to %d", tc.proto, proto.ProtoMin, proto.ProtoMax)
 			if w.T != proto.FrameWelcome || w.Err == nil || w.Err.Code != proto.CodeVersion || w.Err.Message != want || w.Err.Fix != fix ||
 				w.Min != proto.ProtoMin || w.Max != proto.ProtoMax {
 				t.Fatalf("a protocol %d hello = %+v (%+v)\nwant a welcome refusing it with code version, %q\nfix %q", tc.proto, w, w.Err, want, fix)
@@ -999,11 +999,11 @@ func TestReleasedClientsRefused(t *testing.T) {
 	}
 }
 
-// The health check of `starfixd upgrade` is run by the binary being
+// The health check of `ariesd upgrade` is run by the binary being
 // replaced, which speaks its own protocol to the daemon that replaced
-// it. The daemon answers it whatever it speaks: a v0.4.0 starfixd that
+// it. The daemon answers it whatever it speaks: a v0.4.0 ariesd that
 // was refused would take the new daemon for dead and put itself back.
-func TestProbeOfAnOlderStarfixdIsAnswered(t *testing.T) {
+func TestProbeOfAnOlderAriesdIsAnswered(t *testing.T) {
 	t.Parallel()
 	s := newServer(t)
 	for _, p := range []int{2, 4, proto.Proto, proto.ProtoMax + 1} {
@@ -1037,8 +1037,8 @@ func TestHandshakeOlderServerRefusesThisClient(t *testing.T) {
 				t.Fatal(err)
 			}
 			if f.Err == nil || f.Err.Code != proto.CodeVersion || !strings.Contains(f.Err.Message, tc.accepts) ||
-				!strings.Contains(f.Err.Fix, "starfixd upgrade") || strings.Contains(f.Err.Fix, "sfx upgrade") {
-				t.Fatalf("a protocol %d client to a %s server = %+v, want a version refusal that says it %s and names starfixd upgrade alone",
+				!strings.Contains(f.Err.Fix, "ariesd upgrade") || strings.Contains(f.Err.Fix, "aries upgrade") {
+				t.Fatalf("a protocol %d client to a %s server = %+v, want a version refusal that says it %s and names ariesd upgrade alone",
 					proto.Proto, tc.release, f.Err, tc.accepts)
 			}
 		})
@@ -1053,15 +1053,15 @@ func TestProjectDBs(t *testing.T) {
 		err  string
 	}{
 		{"none", ProjectDBs{}, ""},
-		{"a block", ProjectDBs{Prefix: "starfix_p", Count: 100}, ""},
+		{"a block", ProjectDBs{Prefix: "aries_p", Count: 100}, ""},
 		{"the most", ProjectDBs{Prefix: "p", Count: MaxProjectDBs}, ""},
 		{"no prefix", ProjectDBs{Count: 10}, "does not start a database name"},
-		{"prefix with a capital", ProjectDBs{Prefix: "Starfix", Count: 10}, "does not start a database name"},
+		{"prefix with a capital", ProjectDBs{Prefix: "Aries", Count: 10}, "does not start a database name"},
 		{"prefix with a quote", ProjectDBs{Prefix: "p`; DROP", Count: 10}, "does not start a database name"},
 		{"prefix too long", ProjectDBs{Prefix: strings.Repeat("p", 62), Count: 10}, "does not start a database name"},
-		{"no count", ProjectDBs{Prefix: "starfix_p"}, "count 0 must be 1 to 999"},
-		{"negative count", ProjectDBs{Prefix: "starfix_p", Count: -1}, "count -1 must be 1 to 999"},
-		{"too many", ProjectDBs{Prefix: "starfix_p", Count: 1000}, "count 1000 must be 1 to 999"},
+		{"no count", ProjectDBs{Prefix: "aries_p"}, "count 0 must be 1 to 999"},
+		{"negative count", ProjectDBs{Prefix: "aries_p", Count: -1}, "count -1 must be 1 to 999"},
+		{"too many", ProjectDBs{Prefix: "aries_p", Count: 1000}, "count 1000 must be 1 to 999"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1071,20 +1071,20 @@ func TestProjectDBs(t *testing.T) {
 			}
 		})
 	}
-	b := ProjectDBs{Prefix: "starfix_p", Count: 3}
-	if got := []string{b.Name(1), b.Name(3)}; !slices.Equal(got, []string{"starfix_p001", "starfix_p003"}) {
+	b := ProjectDBs{Prefix: "aries_p", Count: 3}
+	if got := []string{b.Name(1), b.Name(3)}; !slices.Equal(got, []string{"aries_p001", "aries_p003"}) {
 		t.Errorf("names = %v", got)
 	}
-	for name, want := range map[string]bool{"starfix_p001": true, "starfix_p003": true, "starfix_p004": false, "starfix_p000": false,
-		"starfix_p01": false, "starfix_p0001": false, "starfix_p00a": false, "starfix_control": false, "other001": false} {
+	for name, want := range map[string]bool{"aries_p001": true, "aries_p003": true, "aries_p004": false, "aries_p000": false,
+		"aries_p01": false, "aries_p0001": false, "aries_p00a": false, "aries_control": false, "other001": false} {
 		if got := b.holds(name); got != want {
 			t.Errorf("holds(%q) = %t, want %t", name, got, want)
 		}
 	}
-	if n, ok := b.free(map[string]bool{"starfix_p001": true, "starfix_p003": true}); !ok || n != "starfix_p002" {
-		t.Errorf("free = %q, %t; want the lowest unused, starfix_p002", n, ok)
+	if n, ok := b.free(map[string]bool{"aries_p001": true, "aries_p003": true}); !ok || n != "aries_p002" {
+		t.Errorf("free = %q, %t; want the lowest unused, aries_p002", n, ok)
 	}
-	if n, ok := b.free(map[string]bool{"starfix_p001": true, "starfix_p002": true, "starfix_p003": true}); ok {
+	if n, ok := b.free(map[string]bool{"aries_p001": true, "aries_p002": true, "aries_p003": true}); ok {
 		t.Errorf("free of a full block = %q, want none", n)
 	}
 	if _, err := New(Config{Control: nil, Store: newServer(t).cfg.Store, Project: project, ProjectDBs: ProjectDBs{Prefix: "X", Count: 1}}); err == nil {

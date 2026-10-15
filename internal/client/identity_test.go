@@ -1,6 +1,6 @@
 package client
 
-// Which keys sfx offers a server (design §14, decision 35; security
+// Which keys aries offers a server (design §14, decision 35; security
 // review of stage 3a, F-1). Every key and agent here is made for the
 // test: nothing reads the environment's SSH_AUTH_SOCK.
 
@@ -22,7 +22,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // keyPair is a key made for a test.
@@ -119,8 +119,8 @@ func agentWith(t *testing.T, keys ...keyPair) string {
 // connection authenticated as, and refuses the session it then asks for.
 // Like OpenSSH, it hangs up after six refused keys.
 type fakeSSHD struct {
-	root     string // the repository: where .starfix.yaml would be
-	home     string // the home directory of whoever runs sfx: empty, unless a test fills it
+	root     string // the repository: where .aries.yaml would be
+	home     string // the home directory of whoever runs aries: empty, unless a test fills it
 	port     int
 	hostKey  string
 	signedIn chan string
@@ -174,13 +174,13 @@ func newFakeSSHD(t *testing.T, principals map[string]keyPair) *fakeSSHD {
 					return
 				}
 				d.signedIn <- conn.Permissions.Extensions["principal"]
-				// It runs no starfixd, and says so as sshd would: it refuses
+				// It runs no ariesd, and says so as sshd would: it refuses
 				// the session, and the client hangs up. Closing the
 				// connection here instead would leave the client's error to
 				// how the close fell against its request.
 				wg.Go(func() { ssh.DiscardRequests(reqs) })
 				for ch := range chans {
-					_ = ch.Reject(ssh.Prohibited, "no starfixd here")
+					_ = ch.Reject(ssh.Prohibited, "no ariesd here")
 				}
 			})
 		}
@@ -188,14 +188,14 @@ func newFakeSSHD(t *testing.T, principals map[string]keyPair) *fakeSSHD {
 	return d
 }
 
-// dial runs Dial against d as a checkout whose .starfix.yaml has key as
+// dial runs Dial against d as a checkout whose .aries.yaml has key as
 // its `key:`, with env as the environment. The stand-in runs no
-// starfixd, so a Dial that authenticates still fails afterward: who is
+// ariesd, so a Dial that authenticates still fails afterward: who is
 // the principal sshd took the connection for, or "" when it let none in.
 func (d *fakeSSHD) dial(t *testing.T, key string, env map[string]string) (who string, offered []string, err error) {
 	t.Helper()
 	cfg := &Config{Project: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", Key: key, Root: d.root}
-	cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.HostKey = "127.0.0.1", d.port, "starfix", d.hostKey
+	cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.HostKey = "127.0.0.1", d.port, "aries", d.hostKey
 	d.mu.Lock()
 	d.offered = nil
 	d.mu.Unlock()
@@ -203,7 +203,7 @@ func (d *fakeSSHD) dial(t *testing.T, key string, env map[string]string) (who st
 		UserHomeDir: func() (string, error) { return d.home, nil }})
 	if err == nil {
 		_ = c.Close()
-		t.Fatal("Dial succeeded against a stand-in that runs no starfixd")
+		t.Fatal("Dial succeeded against a stand-in that runs no ariesd")
 	}
 	select {
 	case who = <-d.signedIn:
@@ -217,7 +217,7 @@ func (d *fakeSSHD) dial(t *testing.T, key string, env map[string]string) (who st
 // TestConfiguredKeyIsTheOnlyKeyOffered is the review's scenario: the
 // config names the key of a narrow principal, sandbox, and ssh-agent
 // holds the developer's own, a server admin's, which the server also
-// knows. sfx once offered the agent's keys first and signed in as the
+// knows. aries once offered the agent's keys first and signed in as the
 // admin.
 func TestConfiguredKeyIsTheOnlyKeyOffered(t *testing.T) {
 	t.Parallel()
@@ -226,10 +226,10 @@ func TestConfiguredKeyIsTheOnlyKeyOffered(t *testing.T) {
 	sandbox.write(t, d.root, "id_sandbox", "", false)
 	who, offered, _ := d.dial(t, "id_sandbox", map[string]string{"SSH_AUTH_SOCK": agentWith(t, admin)})
 	if who != "sandbox" {
-		t.Errorf("with key: naming sandbox's key and the admin's key in ssh-agent, sfx signed in as %q, want sandbox", who)
+		t.Errorf("with key: naming sandbox's key and the admin's key in ssh-agent, aries signed in as %q, want sandbox", who)
 	}
 	if !slices.Equal(offered, []string{sandbox.fingerprint()}) {
-		t.Errorf("sfx offered %v, want the configured key alone, %s", offered, sandbox.fingerprint())
+		t.Errorf("aries offered %v, want the configured key alone, %s", offered, sandbox.fingerprint())
 	}
 }
 
@@ -255,7 +255,7 @@ func TestWhichKeysAreOffered(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		key     string            // key: in .starfix.yaml
+		key     string            // key: in .aries.yaml
 		env     map[string]string // the environment
 		who     string            // the principal signed in; "" is refused
 		offered []keyPair
@@ -275,9 +275,9 @@ func TestWhichKeysAreOffered(t *testing.T) {
 			who: "me", offered: []keyPair{mine}},
 		{name: "a private key that is missing, with its .pub there", key: "only", env: map[string]string{"SSH_AUTH_SOCK": both},
 			who: "me", offered: []keyPair{mine}},
-		{name: "STARFIX_KEY, a file anywhere, wins over key:", key: "unknown", env: map[string]string{EnvKeyFile: envKey, "SSH_AUTH_SOCK": both},
+		{name: "ARIES_KEY, a file anywhere, wins over key:", key: "unknown", env: map[string]string{EnvKeyFile: envKey, "SSH_AUTH_SOCK": both},
 			who: "me", offered: []keyPair{mine}},
-		{name: "STARFIX_KEY naming a .pub", env: map[string]string{EnvKeyFile: envPub, "SSH_AUTH_SOCK": both},
+		{name: "ARIES_KEY naming a .pub", env: map[string]string{EnvKeyFile: envPub, "SSH_AUTH_SOCK": both},
 			who: "me", offered: []keyPair{mine}},
 		{name: "a configured key the server does not know, with one it knows in ssh-agent", key: "unknown", env: map[string]string{"SSH_AUTH_SOCK": both},
 			who: "", offered: []keyPair{third}},
@@ -296,7 +296,7 @@ func TestWhichKeysAreOffered(t *testing.T) {
 	}
 }
 
-// TestKeyRefusals pins what sfx says when it has no key to offer, or the
+// TestKeyRefusals pins what aries says when it has no key to offer, or the
 // server takes none: each refusal names the cause and the next action,
 // and names keys by fingerprint only.
 func TestKeyRefusals(t *testing.T) {
@@ -331,13 +331,13 @@ func TestKeyRefusals(t *testing.T) {
 		offered int      // keys that reached the server
 	}{
 		{name: "the configured key is not one the server knows", key: "unknown", env: map[string]string{"SSH_AUTH_SOCK": agentWith(t, mine)},
-			code: proto.CodeAuth, msg: []string{"accepted no key", stranger.fingerprint(), "key: in .starfix.yaml"},
-			fix: []string{"sfx admin key add", "offers no other"}, offered: 1},
+			code: proto.CodeAuth, msg: []string{"accepted no key", stranger.fingerprint(), "key: in .aries.yaml"},
+			fix: []string{"aries admin key add", "offers no other"}, offered: 1},
 		{name: "none of ssh-agent's keys is known", env: map[string]string{"SSH_AUTH_SOCK": none},
 			code: proto.CodeAuth, msg: []string{"accepted no key", "the one key it found", stranger.fingerprint() + " (ssh-agent)"},
-			fix: []string{"ssh-add -L", "sfx admin key add", EnvKeyFile}, offered: 1},
+			fix: []string{"ssh-add -L", "aries admin key add", EnvKeyFile}, offered: 1},
 		{name: "ssh-agent holds more keys than sshd tries", env: map[string]string{"SSH_AUTH_SOCK": many},
-			code: proto.CodeAuth, msg: []string{"accepted none of the 5 keys sfx offered", crowd[0].fingerprint(), "3 more keys that ssh-agent holds were not offered"},
+			code: proto.CodeAuth, msg: []string{"accepted none of the 5 keys aries offered", crowd[0].fingerprint(), "3 more keys that ssh-agent holds were not offered"},
 			fix: []string{EnvKeyFile, "ssh-add -L"}, offered: 5},
 		{name: "no key and no agent", code: proto.CodeAuth, msg: []string{"no SSH key available"}, fix: []string{"ssh-add", EnvKeyFile}},
 		{name: "a passphrase-protected key that ssh-agent does not hold", key: "locked", env: map[string]string{"SSH_AUTH_SOCK": none},
@@ -349,7 +349,7 @@ func TestKeyRefusals(t *testing.T) {
 		{name: "a key file that is not there", key: "missing", code: proto.CodeAuth, msg: []string{"cannot read key file"}, fix: []string{"key:", EnvKeyFile}},
 		{name: "a key path that is a directory", key: ".", code: proto.CodeAuth, msg: []string{"cannot read key file"}, fix: []string{"key:"}},
 		{name: "a file that is no key", key: "garbage", code: proto.CodeAuth, msg: []string{"cannot parse key file"}, fix: []string{"OpenSSH"}},
-		{name: "STARFIX_KEY naming a file that is not there", env: map[string]string{EnvKeyFile: filepath.Join(outside, "nope")},
+		{name: "ARIES_KEY naming a file that is not there", env: map[string]string{EnvKeyFile: filepath.Join(outside, "nope")},
 			code: proto.CodeAuth, msg: []string{"cannot read key file"}, fix: []string{EnvKeyFile}},
 		// What a committed file may name: a file inside the repository.
 		{name: "key: with an absolute path", key: elsewhere, env: map[string]string{"SSH_AUTH_SOCK": none},
@@ -441,7 +441,7 @@ func TestKeyPathStaysInTheRepository(t *testing.T) {
 }
 
 // TestKeyOfAConnection pins what a connection says of the key that
-// signed it in, for `sfx whoami`.
+// signed it in, for `aries whoami`.
 func TestKeyOfAConnection(t *testing.T) {
 	t.Parallel()
 	mine, other := newKeyPair(t), newKeyPair(t)

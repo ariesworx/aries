@@ -1,5 +1,5 @@
-// Package agentsetup registers `sfx mcp` with agent harnesses: the file
-// edits behind `sfx setup` (docs/design/starfix.md §5 and its "As built"
+// Package agentsetup registers `aries mcp` with agent harnesses: the file
+// edits behind `aries setup` (docs/design/aries.md §5 and its "As built"
 // notes). [Agents] holds each supported harness and every path setup
 // writes for it.
 //
@@ -8,8 +8,8 @@
 // For each harness setup maintains up to three parts, each a [Target]
 // from [Agent.Targets]: the MCP server registration, a marker-delimited
 // pointer in the agent's instruction file, and, where the harness has
-// one, a SessionStart hook that runs `sfx prime --hook` (Claude Code) or
-// `sfx prime --hook=AGENT`. Claude Code's hook file also gets `sfx usage
+// one, a SessionStart hook that runs `aries prime --hook` (Claude Code) or
+// `aries prime --hook=AGENT`. Claude Code's hook file also gets `aries usage
 // --hook` on Stop, SubagentStop and SessionEnd, which sends the session's
 // token counts; [UsageHooks] lists the agents that get it. A desktop app (Claude Desktop) has only its
 // user-global MCP config, with one entry per project ([DesktopEntry],
@@ -26,13 +26,13 @@
 // keeps its other servers, its other keys and their order, and applying a
 // registration that is already in place returns the content unchanged,
 // byte for byte. A JSON file that does change comes back indented with
-// two spaces. Codex's TOML keeps everything outside the starfix tables as
+// two spaces. Codex's TOML keeps everything outside the Aries tables as
 // written, comments included, apart from blank lines next to the entry
 // and at the end of the file.
 //
-// The starfix entry itself is replaced wholesale: an extra key (cwd,
+// The Aries entry itself is replaced wholesale: an extra key (cwd,
 // another env variable such as PATH or LD_PRELOAD) could make a server
-// named starfix run something else, so [Agent.Registered] fails on one
+// named aries run something else, so [Agent.Registered] fails on one
 // and [Agent.Apply] drops it. The entry's env sets [HarnessEnv] to the
 // agent's name, so the agents registry knows which harness each session
 // runs under. A JSON file with a duplicate key, at a level setup reads,

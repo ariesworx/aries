@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/version"
+	"github.com/ariesworx/aries/internal/version"
 )
 
 // shortDir makes a directory for a server, removed when t ends. Not
@@ -33,7 +33,7 @@ func shortDir(t *testing.T) string {
 }
 
 // startOrSkip starts a server for this package's own tests. It skips without
-// dolt unless STARFIX_REQUIRE_DOLT is set, as every Dolt-backed package does.
+// dolt unless ARIES_REQUIRE_DOLT is set, as every Dolt-backed package does.
 func startOrSkip(t *testing.T) *Server {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)

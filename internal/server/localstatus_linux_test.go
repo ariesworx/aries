@@ -16,7 +16,7 @@ import (
 )
 
 // TestStatusHelperProcess is TestCheckPeerKeepsStatusFromOtherUsers's
-// child: it runs `starfixd status`'s request and prints how it ended.
+// child: it runs `ariesd status`'s request and prints how it ended.
 func TestStatusHelperProcess(t *testing.T) {
 	t.Parallel()
 	addr := os.Getenv(statusHelperEnv)
@@ -27,7 +27,7 @@ func TestStatusHelperProcess(t *testing.T) {
 	fmt.Printf("STATUS uid=%d server=%t projects=%d err=%v\n", os.Getuid(), res.Server != nil, len(res.Projects), err)
 }
 
-// `starfixd status` is not a way for any local user to read the status:
+// `ariesd status` is not a way for any local user to read the status:
 // asked by another user, through a real socket, the daemon answers
 // nothing, and the same request by the daemon's own user is answered.
 // Changing uid needs root; CI runs the tests named TestCheckPeer under
@@ -67,7 +67,7 @@ func TestCheckPeerKeepsStatusFromOtherUsers(t *testing.T) {
 	if err := os.WriteFile(bin, b, 0o755); err != nil { //nolint:gosec // the child runs as another user
 		t.Fatal(err)
 	}
-	addr := "@starfix-status-test-" + filepath.Base(dir)
+	addr := "@aries-status-test-" + filepath.Base(dir)
 	l, err := net.Listen("unix", addr)
 	if err != nil {
 		t.Fatal(err)
@@ -106,7 +106,7 @@ func TestCheckPeerKeepsStatusFromOtherUsers(t *testing.T) {
 		t.Errorf("status asked by the daemon's own user: %q, want the server and its project", got)
 	}
 	got := ask(nobody)
-	if !strings.Contains(got, "uid=65534 server=false projects=0") || !strings.Contains(got, "fix: run it as the user starfixd runs as") {
+	if !strings.Contains(got, "uid=65534 server=false projects=0") || !strings.Contains(got, "fix: run it as the user ariesd runs as") {
 		t.Errorf("status asked by uid %d: %q, want nothing answered and a fix", nobody, got)
 	}
 	if !strings.Contains(log.String(), "refused socket peer") || !strings.Contains(log.String(), "peer uid 65534") {

@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/dolttest"
+	"github.com/ariesworx/aries/internal/dolttest"
 )
 
 // dolts are the package's Dolt servers: a test has one to itself while it
 // runs, so the tests can run in parallel (dolttest.Pool).
-var dolts = dolttest.NewPool("starfix-dolt-", dolttest.Options{})
+var dolts = dolttest.NewPool("aries-dolt-", dolttest.Options{})
 
 func TestMain(m *testing.M) {
 	os.Exit(run(m))

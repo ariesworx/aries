@@ -3,7 +3,7 @@ package store
 import "testing"
 
 // LastEventSeq is where a reader of the control store's log starts when
-// it wants only what happens from now on: starfixd's audit stream.
+// it wants only what happens from now on: ariesd's audit stream.
 func TestControlLastEventSeq(t *testing.T) {
 	t.Parallel()
 	c := newControl(t)

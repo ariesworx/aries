@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/lazyregexp"
 )
 
 // ProjectState is where a project is in its life.
@@ -35,7 +35,7 @@ const (
 // it, as the control store reads it back: times in UTC to the
 // microsecond.
 type Project struct {
-	// ID is the project's lowercase UUID, as .starfix.yaml names it.
+	// ID is the project's lowercase UUID, as .aries.yaml names it.
 	ID string `json:"id"`
 	// Name is a code name, unique on the server.
 	Name string `json:"name"`

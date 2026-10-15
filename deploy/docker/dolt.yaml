@@ -4,7 +4,7 @@ listener:
   host: 127.0.0.1
   port: 3306
 # Dolt's own metrics, on loopback only: the endpoint has no
-# authentication. starfixd reads it for `sfx admin status`
+# authentication. ariesd reads it for `aries admin status`
 # (telemetry: dolt_metrics_url: in its config).
 metrics:
   host: 127.0.0.1

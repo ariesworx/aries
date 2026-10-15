@@ -10,7 +10,7 @@ name: release
 # approval. It used to be a required reviewer on the `release` environment,
 # which GitHub enforces on a private repository only for its Enterprise
 # plan; a run that one named person must start holds on every plan.
-# `sfx upgrade` and `starfixd upgrade` refuse a release whose
+# `aries upgrade` and `ariesd upgrade` refuse a release whose
 # checksums.txt.sig does not verify against internal/release/keys.go. See
 # RELEASING.md.
 on:
@@ -83,7 +83,7 @@ jobs:
           set -euo pipefail
           dist="$RUNNER_TEMP/dist"
           ver="${TAG#v}"
-          ldflags="-s -w -X github.com/ariesworx/starfix/internal/version.Version=${TAG}"
+          ldflags="-s -w -X github.com/ariesworx/aries/internal/version.Version=${TAG}"
           export CGO_ENABLED=0
           SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
           mkdir -p "$dist"
@@ -104,9 +104,9 @@ jobs:
             fi
           }
           for os in linux darwin windows; do
-            for arch in amd64 arm64; do build sfx "$os" "$arch"; done
+            for arch in amd64 arm64; do build aries "$os" "$arch"; done
           done
-          for arch in amd64 arm64; do build starfixd linux "$arch"; done
+          for arch in amd64 arm64; do build ariesd linux "$arch"; done
           (cd "$dist" && sha256sum -- *.tar.gz *.zip > checksums.txt)
           cat "$dist/checksums.txt"
 
@@ -133,7 +133,7 @@ jobs:
   sign-and-publish:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
-    # The environment holds STARFIX_RELEASE_KEY and RELEASE_APPROVER. It
+    # The environment holds ARIES_RELEASE_KEY and RELEASE_APPROVER. It
     # admits only v* tags, which only the maintainer can push, so the
     # workflow that reads the key is always one the maintainer tagged; and
     # the first step refuses anyone but the approver, so nobody else's run
@@ -203,10 +203,10 @@ jobs:
         # The key reaches only this step, through the environment; the tool
         # refuses a key that internal/release/keys.go at this tag lacks.
         env:
-          STARFIX_RELEASE_KEY: ${{ secrets.STARFIX_RELEASE_KEY }}
+          ARIES_RELEASE_KEY: ${{ secrets.ARIES_RELEASE_KEY }}
         run: |
-          if [[ -z "${STARFIX_RELEASE_KEY:-}" ]]; then
-            echo "::error::the release environment has no STARFIX_RELEASE_KEY secret (RELEASING.md, one-time setup)"
+          if [[ -z "${ARIES_RELEASE_KEY:-}" ]]; then
+            echo "::error::the release environment has no ARIES_RELEASE_KEY secret (RELEASING.md, one-time setup)"
             exit 1
           fi
           go run ./internal/tools/releasekey sign "$RUNNER_TEMP/dist/checksums.txt"
@@ -222,6 +222,6 @@ jobs:
           test -n "$dolt"
           pre=()
           [[ $TAG == *-* ]] && pre=(--prerelease)
-          notes="Tested with Dolt ${dolt}. \`sfx upgrade\` and \`starfixd upgrade\` verify these files; to check a manual download, see README, Install."
+          notes="Tested with Dolt ${dolt}. \`aries upgrade\` and \`ariesd upgrade\` verify these files; to check a manual download, see README, Install."
           gh release create "$TAG" "$RUNNER_TEMP"/dist/* --verify-tag --title "$TAG" \
             --notes "$notes" --generate-notes "${pre[@]}"

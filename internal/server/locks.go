@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/logs"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // Locks (design §20.5; stage 6, slice G2). The rules are the store's
@@ -153,7 +153,7 @@ func lockBusyErr(e *store.LockBusyError) *proto.Error {
 		msg += fmt.Sprintf("; %d waiting", e.Waiters)
 	}
 	return proto.Errf(proto.CodeBusy,
-		fmt.Sprintf("wait for it in its queue: `sfx lock acquire %s --wait`, or `sfx lock run %s --wait -- CMD`; or retry once a lease ends", e.Name, e.Name),
+		fmt.Sprintf("wait for it in its queue: `aries lock acquire %s --wait`, or `aries lock run %s --wait -- CMD`; or retry once a lease ends", e.Name, e.Name),
 		msg)
 }
 
@@ -166,7 +166,7 @@ func lockEpochErr(e *store.LockEpochError) *proto.Error {
 	}
 	if e.Place {
 		return proto.Errf(proto.CodeConflict,
-			fmt.Sprintf("acquire it again to wait (`sfx lock acquire %s --wait`): a place lapses 2m after its last renewal", e.Name),
+			fmt.Sprintf("acquire it again to wait (`aries lock acquire %s --wait`): a place lapses 2m after its last renewal", e.Name),
 			fmt.Sprintf("lock %s: no place in its queue is yours%s", e.Name, held))
 	}
 	return proto.Errf(proto.CodeConflict,
@@ -181,7 +181,7 @@ func lockCapacityErr(e *store.LockCapacityError) *proto.Error {
 	msg := strings.TrimPrefix(e.Error(), store.ErrInvalid.Error()+": ")
 	if e.Capacity == 0 {
 		return proto.Errf(proto.CodeInvalid,
-			fmt.Sprintf("give --capacity from 1 to %d, or ask the server admin to raise lock_capacity under limits: in starfixd's config", e.Max), msg)
+			fmt.Sprintf("give --capacity from 1 to %d, or ask the server admin to raise lock_capacity under limits: in ariesd's config", e.Max), msg)
 	}
 	return proto.Errf(proto.CodeInvalid,
 		fmt.Sprintf("leave --capacity out, or give --capacity %d: a lock keeps the capacity its first acquire gave it until nobody holds or waits for it", e.Capacity),
@@ -194,21 +194,21 @@ func lockName(op, name string) *proto.Error {
 		return nil
 	}
 	return proto.Errf(proto.CodeInvalid,
-		fmt.Sprintf("name a lock with a lowercase letter or digit, then lowercase letters, digits and . _ / -, at most %d in all, such as deploy/prod; `sfx %s -h` shows the usage",
+		fmt.Sprintf("name a lock with a lowercase letter or digit, then lowercase letters, digits and . _ / -, at most %d in all, such as deploy/prod; `aries %s -h` shows the usage",
 			store.MaxLockName, command(op)),
 		fmt.Sprintf("lock name %q is not one a lock may have", name))
 }
 
 // lockLimitErr refuses an acquire past one of the lock limits.
 func lockLimitErr(e *store.LockLimitError) *proto.Error {
-	fix := fmt.Sprintf("ask the server admin to raise %s under limits: in starfixd's config", e.Limit)
+	fix := fmt.Sprintf("ask the server admin to raise %s under limits: in ariesd's config", e.Limit)
 	switch e.Limit {
 	case "locks":
-		fix = "release the locks nobody needs (`sfx lock list` shows them, and a lock nobody holds or waits for is gone), or " + fix
+		fix = "release the locks nobody needs (`aries lock list` shows them, and a lock nobody holds or waits for is gone), or " + fix
 	case "lock_waiters":
 		fix = "retry later without --wait, or " + fix
 	case "lock_waits_per_principal":
-		fix = "leave a queue you no longer need (`sfx lock leave NAME`), or " + fix
+		fix = "leave a queue you no longer need (`aries lock leave NAME`), or " + fix
 	}
 	return proto.Errf(proto.CodeBusy, fix, strings.TrimPrefix(e.Error(), store.ErrBusy.Error()+": "))
 }

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/lazyregexp"
 )
 
 // The acceptance checklist (design §12 item 4): an issue's acceptance

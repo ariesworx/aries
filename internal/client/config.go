@@ -14,15 +14,15 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // ConfigFile is the committed, per-repository configuration. It holds no
 // secrets.
-const ConfigFile = ".starfix.yaml"
+const ConfigFile = ".aries.yaml"
 
-// Config is .starfix.yaml.
+// Config is .aries.yaml.
 type Config struct {
 	// Project is the project's UUID.
 	Project string `yaml:"project"`
@@ -32,7 +32,7 @@ type Config struct {
 		Host string `yaml:"host"`
 		// Port defaults to 22.
 		Port int `yaml:"port"`
-		// User is the SSH account starfixd runs as. Default "starfix".
+		// User is the SSH account ariesd runs as. Default "aries".
 		User string `yaml:"user"`
 		// HostKey is the server's pinned ED25519 fingerprint, SHA256:…,
 		// when one key is pinned. Pinned is what the client checks.
@@ -60,7 +60,7 @@ type Config struct {
 // start-iap-tunnel`. Each field becomes an argument to gcloud, so each is
 // held to Google Cloud's own naming rules.
 //
-// There is deliberately no general proxy command: .starfix.yaml is
+// There is deliberately no general proxy command: .aries.yaml is
 // committed, so a command in it would run whatever a cloned repository
 // says. IAP is the one transport supported this way; another would be
 // added the same way, as validated names rather than a command line.
@@ -101,7 +101,7 @@ func (e noConfigError) Unwrap() error { return e.pe }
 
 func (noConfigError) Is(target error) bool { return target == ErrNoConfig }
 
-// LoadConfig finds .starfix.yaml in dir or the nearest parent that has
+// LoadConfig finds .aries.yaml in dir or the nearest parent that has
 // one. The search stops at the repository's top level (the first
 // directory holding .git, a directory or a worktree's file) and at the
 // home directory, never above them: a config in a shared parent such as
@@ -151,7 +151,7 @@ func loadConfig(dir, home string) (*Config, error) {
 		parent := filepath.Dir(dir)
 		if parent == dir || isRepoTop(dir) || sameDir(dir, homeInfo) {
 			return nil, noConfigError{proto.Errf(proto.CodeInvalid,
-				"run starfix inside a repository that has one, or pass -C DIR; the search stops at the repository's top level and at your home directory",
+				"run aries inside a repository that has one, or pass -C DIR; the search stops at the repository's top level and at your home directory",
 				ConfigFile+" not found here or in any parent directory")}
 		}
 		dir = parent
@@ -184,7 +184,7 @@ func checkConfigFile(path string, fi fs.FileInfo) error {
 	if !OwnedByUser(fi) {
 		return proto.Errf(proto.CodeInvalid,
 			"check where it came from; if it is your project's, copy it into your checkout as your own file, else delete it",
-			path+" is owned by another user; starfix reads only your own "+ConfigFile)
+			path+" is owned by another user; aries reads only your own "+ConfigFile)
 	}
 	if groupOrWorldWritable(fi) {
 		return proto.Errf(proto.CodeInvalid, "run `chmod go-w "+path+"`",
@@ -209,7 +209,7 @@ func ParseConfig(b []byte) (*Config, error) {
 		c.Server.Port = 22
 	}
 	if c.Server.User == "" {
-		c.Server.User = "starfix"
+		c.Server.User = "aries"
 	}
 	if c.Server.IAP != nil && c.Server.IAP.Instance == "" {
 		c.Server.IAP.Instance = c.Server.Host
@@ -307,7 +307,7 @@ func andList(items []string) string {
 	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
 }
 
-// ForProject returns the .starfix.yaml of another project on the same
+// ForProject returns the .aries.yaml of another project on the same
 // server: this config's server block with project in place of its own.
 // It is what an admin commits to a new project's repository, so it holds
 // only what a committed config may: never Key, which is a path on this
@@ -334,7 +334,7 @@ func (c *Config) ForProject(project string) ([]byte, error) {
 	}
 	out.Project, out.Server.Host = project, c.Server.Host
 	// One key is written as every config before the list had it, which
-	// an sfx that knows no list reads too.
+	// an aries that knows no list reads too.
 	if pinned := c.Pinned(); len(pinned) == 1 {
 		out.Server.HostKey = pinned[0]
 	} else {
@@ -343,7 +343,7 @@ func (c *Config) ForProject(project string) ([]byte, error) {
 	if c.Server.Port != 22 {
 		out.Server.Port = c.Server.Port
 	}
-	if c.Server.User != "starfix" {
+	if c.Server.User != "aries" {
 		out.Server.User = c.Server.User
 	}
 	if p := c.Server.IAP; p != nil {
@@ -364,17 +364,17 @@ func (c *Config) ForProject(project string) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// EnvKeyFile is the environment variable that names the key file sfx
+// EnvKeyFile is the environment variable that names the key file aries
 // offers, by any path. It wins over Key, and is how one person chooses a
 // key without editing the committed file. It holds a path, as ssh's
 // IdentityFile does, never a key.
-const EnvKeyFile = "STARFIX_KEY_FILE"
+const EnvKeyFile = "ARIES_KEY_FILE"
 
-// EnvNotRead is a variable sfx never reads. Deployments used the name
+// EnvNotRead is a variable aries never reads. Deployments used the name
 // for a secret holding a private key's text, which they piped to
 // ssh-add, so its value is never a path, and never printed: a refusal
 // may say only that the variable is set and not read.
-const EnvNotRead = "STARFIX_KEY"
+const EnvNotRead = "ARIES_KEY"
 
 // maxKeyPath bounds a path that names a key file: PATH_MAX on Linux.
 const maxKeyPath = 4096
@@ -396,7 +396,7 @@ func notAPath(s string) string {
 	return ""
 }
 
-// KeyFile returns the key file sfx is to offer, and no other key with it
+// KeyFile returns the key file aries is to offer, and no other key with it
 // (design §14, decision 35), and what named it, for a refusal:
 // EnvKeyFile's value, any path on the machine ("~/" is the home
 // directory home gives, and a relative path is relative to the working
@@ -436,7 +436,7 @@ func (c *Config) KeyFile(getenv func(string) string, home func() (string, error)
 // The config file is committed, so in a cloned repository someone else
 // chose Key. It may therefore name only a file inside the repository: a
 // relative path that, with symbolic links resolved, stays under Root.
-// Otherwise a cloned file could make sfx read a key anywhere on the
+// Otherwise a cloned file could make aries read a key anywhere on the
 // machine and show its public half to the server the same file names.
 // An absolute path, one under "~", and one that climbs or links out are
 // refused with CodeInvalid; a key elsewhere is named with EnvKeyFile. The

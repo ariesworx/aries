@@ -46,7 +46,7 @@ func TestSwapInstallRollback(t *testing.T) {
 	for _, goos := range []string{"linux", "windows"} {
 		t.Run(goos, func(t *testing.T) {
 			dir := t.TempDir()
-			exe := filepath.Join(dir, "sfx")
+			exe := filepath.Join(dir, "aries")
 			writeExe(t, exe, "old")
 			s := Swap{Exe: exe, GOOS: goos}
 
@@ -66,9 +66,9 @@ func TestSwapInstallRollback(t *testing.T) {
 			if runtime.GOOS != "windows" && fi.Mode().Perm() != 0o755 {
 				t.Errorf("exe mode = %v, want 0755", fi.Mode().Perm())
 			}
-			want := []string{"sfx", "sfx.prev"}
+			want := []string{"aries", "aries.prev"}
 			if goos == "windows" {
-				want = []string{"sfx", "sfx.old", "sfx.prev"}
+				want = []string{"aries", "aries.old", "aries.prev"}
 			}
 			if got := entries(t, dir); strings.Join(got, " ") != strings.Join(want, " ") {
 				t.Errorf("dir holds %v, want %v", got, want)
@@ -101,7 +101,7 @@ func TestSwapInstallRollback(t *testing.T) {
 func TestSwapCheckFailureLeavesExe(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	exe := filepath.Join(dir, "starfixd")
+	exe := filepath.Join(dir, "ariesd")
 	writeExe(t, exe, "old")
 	var staged string
 	s := Swap{Exe: exe, Check: func(_ context.Context, p string) error {
@@ -144,9 +144,9 @@ func TestVersionCheck(t *testing.T) {
 		name, script, want string
 		ok                 bool
 	}{
-		{"match", "echo 'starfix v1.2.0 (protocol 1)'", "v1.2.0", true},
-		{"server match", "echo 'starfixd v1.2.0 (protocol 1-1)'", "v1.2.0", true},
-		{"other version", "echo 'starfix v1.1.0 (protocol 1)'", "v1.2.0", false},
+		{"match", "echo 'aries v1.2.0 (protocol 1)'", "v1.2.0", true},
+		{"server match", "echo 'ariesd v1.2.0 (protocol 1-1)'", "v1.2.0", true},
+		{"other version", "echo 'aries v1.1.0 (protocol 1)'", "v1.2.0", false},
 		{"fails", "exit 3", "v1.2.0", false},
 	}
 	for i, tt := range tests {

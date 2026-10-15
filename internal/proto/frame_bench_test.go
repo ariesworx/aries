@@ -10,7 +10,7 @@ import (
 )
 
 // The benchmarks of this file are a frame's cost on the wire, apart
-// from everything a request does with it (docs/design/profile-starfixd.md):
+// from everything a request does with it (docs/design/profile-ariesd.md):
 // what the daemon pays to read a request and to write its answer.
 //
 //	go test -run '^$' -bench 'Frame' -benchmem ./internal/proto/

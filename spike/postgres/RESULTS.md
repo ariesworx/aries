@@ -1,6 +1,6 @@
-# starfix: Postgres spike results
+# aries: Postgres spike results
 
-**Verdict: switch to Postgres, and only to Postgres, before stage 6 adds more migrations.** The store ports with little change: its whole test suite runs on Postgres 18 with about 130 lines of the store changed (in 10 files, besides the new connector) and the migrations translated mechanically, and every test that fails there tests Dolt itself or Dolt's optimistic concurrency. On the same machine, with the same durability, Postgres makes 2.5 times as many claims a second as Dolt with one claimer in raw SQL and up to 11 times with twenty (1.3 times in the one autocommit run), 4.6 times as many through the store as starfixd runs it, 2.3 to 6 times the writes of stage 0's mix from 8 writers up (though a third of Dolt's with a single writer, section 3.2), answers the ready, blocked and digest queries 2.7 to 3.9 times faster at 10,000 issues, and runs the store's tests in a quarter of the time. It needs about a tenth of Dolt's memory per project (13 MiB against 120) and gives it back when a project closes. Writes through the store come out even, since one writer per project waits for one flush per write on either (section 3.3). Its replication carries roles and grants, where Dolt's does not, and buying a standby with failover is ordinary. The cost is not the store; it is the installer, the AppArmor profile, the Docker server and the server guide, about 7 to 9 weeks in all (section 5). Keep one backend, put an interface in front of the store for the server's sake, and move existing servers once with a copy (`starfixd migrate-from-dolt`), not by supporting both (section 6). A MySQL-family database (MySQL 8.4 with InnoDB) would be the cheaper port, since the store's SQL is already MySQL's and it has row locks and `SKIP LOCKED`, but it has neither transactional DDL nor `LISTEN/NOTIFY`, and was not measured here.
+**Verdict: switch to Postgres, and only to Postgres, before stage 6 adds more migrations.** The store ports with little change: its whole test suite runs on Postgres 18 with about 130 lines of the store changed (in 10 files, besides the new connector) and the migrations translated mechanically, and every test that fails there tests Dolt itself or Dolt's optimistic concurrency. On the same machine, with the same durability, Postgres makes 2.5 times as many claims a second as Dolt with one claimer in raw SQL and up to 11 times with twenty (1.3 times in the one autocommit run), 4.6 times as many through the store as ariesd runs it, 2.3 to 6 times the writes of stage 0's mix from 8 writers up (though a third of Dolt's with a single writer, section 3.2), answers the ready, blocked and digest queries 2.7 to 3.9 times faster at 10,000 issues, and runs the store's tests in a quarter of the time. It needs about a tenth of Dolt's memory per project (13 MiB against 120) and gives it back when a project closes. Writes through the store come out even, since one writer per project waits for one flush per write on either (section 3.3). Its replication carries roles and grants, where Dolt's does not, and buying a standby with failover is ordinary. The cost is not the store; it is the installer, the AppArmor profile, the Docker server and the server guide, about 7 to 9 weeks in all (section 5). Keep one backend, put an interface in front of the store for the server's sake, and move existing servers once with a copy (`ariesd migrate-from-dolt`), not by supporting both (section 6). A MySQL-family database (MySQL 8.4 with InnoDB) would be the cheaper port, since the store's SQL is already MySQL's and it has row locks and `SKIP LOCKED`, but it has neither transactional DDL nor `LISTEN/NOTIFY`, and was not measured here.
 
 Two things in the store are worth fixing on main whatever is decided (section 2): `Blocked` and the digest pick the ancestor an issue is blocked through by the order Dolt happens to emit rows, and one recursive query in gates.go is outside the SQL standard.
 
@@ -12,16 +12,16 @@ Two things in the store are worth fixing on main whatever is decided (section 2)
 | `store/pgmigrations`, `store/pgcontrolmigrations` | Both migration sets in Postgres's dialect, translated mechanically and reviewed |
 | `store/pgdialect.go` | The Postgres connector: a `driver.Connector` over pgx that rewrites each statement from the store's dialect as it is sent, error codes, the account check |
 | `store/spike_race_test.go` | The races of `cas_test.go`, `work_test.go` and `memory_test.go` without their barrier, over four stores on one database |
-| `pgtest/` | Starts the pinned Postgres for tests and measurements as `internal/dolttest` starts Dolt: a temporary data directory, loopback, a superuser only it uses, a `starfix` role that owns a database (or schema) per test, and dolttest's watcher, which kills the server and removes its files if the process that started it dies |
-| `install.sh` | Installs the pinned Postgres under `~/.cache/starfix/postgres-18.6`, checking the SHA-256 of the download and of the archive inside it |
+| `pgtest/` | Starts the pinned Postgres for tests and measurements as `internal/dolttest` starts Dolt: a temporary data directory, loopback, a superuser only it uses, an `aries` role that owns a database (or schema) per test, and dolttest's watcher, which kills the server and removes its files if the process that started it dies |
+| `install.sh` | Installs the pinned Postgres under `~/.cache/aries/postgres-18.6`, checking the SHA-256 of the download and of the archive inside it |
 | `race/` | The measurements: stage 0's claim race and write mix in raw SQL on both backends, the same through the store, and memory per project |
 
 To rerun: `spike/postgres/install.sh`, put Dolt 2.4.2 on `PATH` (`scripts/install-dolt.sh`), then from `spike/postgres`:
 
 ```sh
-STARFIX_BACKEND=postgres go test ./store          # or postgres-schema, or dolt (the default)
+ARIES_BACKEND=postgres go test ./store          # or postgres-schema, or dolt (the default)
 go run ./race -backend postgres claims -workers 20 -pick 16
-go test ./store -run '^$' -bench 'Scale/issues=10000/' -benchtime 20x   # with STARFIX_BACKEND
+go test ./store -run '^$' -bench 'Scale/issues=10000/' -benchtime 20x   # with ARIES_BACKEND
 ```
 
 ## Environment
@@ -35,7 +35,7 @@ go test ./store -run '^$' -bench 'Scale/issues=10000/' -benchtime 20x   # with S
 | Client | Go 1.27.2, go-sql-driver/mysql v1.10.1, pgx v5.11.0 through `database/sql` |
 | Load | Another session ran the repository's gate (with Dolt servers of its own) on the same machine during some runs. Each run records the load average; it ran from 4 to 11 against 16 cores. Treat differences under about 20% as noise |
 
-## 1. Inventory: what in starfix is Dolt's or MySQL's
+## 1. Inventory: what in Aries is Dolt's or MySQL's
 
 The store's SQL is far more portable than the review assumed. Of about 230 statements, all use `?` placeholders (Postgres numbers them), and fewer than 30 use anything else that differs:
 
@@ -59,7 +59,7 @@ The store's SQL is far more portable than the review assumed. Of about 230 state
 | Migrations, both sets | `DATETIME(6)`, `TINYINT`, `KEY` inside `CREATE TABLE`, `COLLATE utf8mb4_0900_bin`, backquotes, `DROP INDEX … ON` | 19 files, 570 lines | Mechanical: a 15-line script translated them; reviewed by hand |
 | `internal/dolttest` | Starts Dolt, grants databases by name, the pool | 1,100 lines | Replace: `pgtest` here is 330 lines |
 | `internal/server` | `mysql.ParseDSN` to derive a project's DSN and refuse a password in it (`project.go`, `settings.go`); the `GRANT` in a fix (`admin.go`); `doltwatch.go` and `internal/doltmetrics` (Dolt's Prometheus figures in the status report) | 4 sites, 600 lines | Medium: the DSN logic moves behind the store; Dolt's figures become `pg_stat_*` |
-| `cmd/starfixd` | `mysql.ParseDSN`, `GRANT` text (`control.go`), `dolt_metrics_url` | 3 | Small |
+| `cmd/ariesd` | `mysql.ParseDSN`, `GRANT` text (`control.go`), `dolt_metrics_url` | 3 | Small |
 | Operations | `install-server.sh` (1,002 lines, 100 mentions of Dolt), `deploy/docker` (Dockerfile, entrypoint, `smoke.sh`), `deploy/apparmor`, `docs/server.md` (3,946 lines, 304 mentions), `docs/deploy`, `scripts/install-dolt.sh`, the pin and `dolt.sha256`, CI's `DOLT_VERSION` | about 2,000 lines touched | Large: this, not the store, is most of the port |
 
 ## 2. The port, and the store's tests on both backends
@@ -108,12 +108,12 @@ For the second group, `store/spike_race_test.go` races four stores on one databa
 
 - **Dolt tops out at 80 to 200 claims/s here however many connections push, as in stage 0**; concurrency adds conflicts and queueing. On this Mac, with a full fsync per commit, a single claimer is slower than stage 0's Linux figure (82/s against 182/s).
 - **Postgres scales with writers**: 207/s with one, 1,300 with 20 contending on the top 16, 2,184 to 2,322 with 20 that do not collide. It group-commits concurrent transactions into one WAL flush; Dolt does not.
-- **`SKIP LOCKED` is the work queue Dolt cannot have**: 20 workers, 2,322 claims/s, no failed attempt, p99 16 ms. On Dolt, the best is starfixd serializing claims itself (stage 0's rule 2).
+- **`SKIP LOCKED` is the work queue Dolt cannot have**: 20 workers, 2,322 claims/s, no failed attempt, p99 16 ms. On Dolt, the best is ariesd serializing claims itself (stage 0's rule 2).
 - **Rule 6 is Dolt's alone.** Under row locks, a second writer of the same row waits for the first and then either matches no row (read committed: "failed" above, 49% to 95% under contention, with no lost update, verified) or gets 40001 (repeatable read). `rev = rev + 1` is a true compare-and-swap; no `write_id` is needed.
 
 ### 3.2 The write mix in raw SQL (stage 0's experiment)
 
-Each request: read an issue's rev, CAS-update its title and priority, insert a comment half the time, insert an event; one transaction. Dolt with a `DOLT_COMMIT` once a second, as starfixd does. 15 s a run.
+Each request: read an issue's rev, CAS-update its title and priority, insert a comment half the time, insert an event; one transaction. Dolt with a `DOLT_COMMIT` once a second, as ariesd does. 15 s a run.
 
 | Writers | Dolt requests/s | Dolt p50 / p99 ms | Postgres requests/s | Postgres p50 / p99 ms |
 |---|---|---|---|---|
@@ -124,9 +124,9 @@ Each request: read an issue's rev, CAS-update its title and priority, insert a c
 
 Dolt's commit once a second took 7.7 ms p50 with one writer and 109 ms with 20. Here a single Postgres writer was slower than Dolt's: each of its commits waits for one `F_FULLFSYNC` of the WAL (16 ms), while Dolt's single writer evidently did not wait for one per transaction (5.1 ms, under the 12 ms its single claimer took). Whether Dolt syncs each transaction to the drive was not established; if it does not, its single-writer figures are not durable ones. From 8 writers up, Postgres's group commit wins, 2.3 to 6 times.
 
-### 3.3 Through the store, as starfixd runs it
+### 3.3 Through the store, as ariesd runs it
 
-One store (one writer connection, as starfixd has per project), 1,000 open issues, each worker an agent calling `StartIssue` for the top ready issue until none is left. Verified: no issue taken twice, every claim held by its taker at epoch 1.
+One store (one writer connection, as ariesd has per project), 1,000 open issues, each worker an agent calling `StartIssue` for the top ready issue until none is left. Verified: no issue taken twice, every claim held by its taker at epoch 1.
 
 | Agents | Dolt claims/s | Dolt p50 / p99 ms | Postgres claims/s | Postgres p50 / p99 ms |
 |---|---|---|---|---|
@@ -194,16 +194,16 @@ Stage 3a's experiment: stores opened one after another and left open, each loade
 | Loss on failover | A planned switch (`dolt_assume_cluster_role` on the primary) is lossless. Promoting a standby after the primary died "is not guaranteed to be lossless"; the guide says nothing of a commit waiting for the standby | Asynchronous by default; with `synchronous_standby_names` and `synchronous_commit = on` (or `remote_apply`) a commit returns only once the standby has it, so promotion loses nothing acknowledged |
 | Who promotes | Nobody: "a server never automatically transitions to be a primary." Something outside must call `dolt_assume_cluster_role('primary', N)` | Nobody, in core Postgres either. Patroni (with etcd or Consul), pg_auto_failover, or a managed service (Amazon RDS and Aurora, Google Cloud SQL and AlloyDB, Azure Database for PostgreSQL) does it, each widely run |
 | Fencing | Epochs: a role change needs a higher epoch; a primary that meets a higher epoch becomes a standby and kills its connections; two primaries at one epoch both go read-only (`detected_broken_config`) | Patroni holds a leader lease in its store and demotes a primary that loses it, with a watchdog to reset a node that cannot. Managed services fence inside their control plane |
-| What starfixd adds on either | One daemon per project as the only writer, so after a failover the daemon must follow the primary and no old daemon may write. Starfixd can fence itself on Postgres: its writer connection takes a session advisory lock on the project (`pg_try_advisory_lock(project)`), which the database drops when the connection dies, so a second daemon cannot open the project's writer while the first holds it. Dolt has no advisory locks; it would need its own lease row and the clock rule (19). Not built or measured here |
-| The host key | Every `.starfix.yaml` pins the server's SSH host key, so a standby daemon must hold the same key, or clients a list of keys; the same on both |
+| What ariesd adds on either | One daemon per project as the only writer, so after a failover the daemon must follow the primary and no old daemon may write. Ariesd can fence itself on Postgres: its writer connection takes a session advisory lock on the project (`pg_try_advisory_lock(project)`), which the database drops when the connection dies, so a second daemon cannot open the project's writer while the first holds it. Dolt has no advisory locks; it would need its own lease row and the clock rule (19). Not built or measured here |
+| The host key | Every `.aries.yaml` pins the server's SSH host key, so a standby daemon must hold the same key, or clients a list of keys; the same on both |
 
-**Reading.** The database side of a standby is a solved problem on Postgres that an operator can buy; on Dolt it is a feature that replicates data but not the accounts that guard it, with promotion left to the operator. starfixd's own part (moving the daemon and its host key, and fencing so two daemons never write a project) is the same work on either, and slightly smaller on Postgres because of advisory locks.
+**Reading.** The database side of a standby is a solved problem on Postgres that an operator can buy; on Dolt it is a feature that replicates data but not the accounts that guard it, with promotion left to the operator. ariesd's own part (moving the daemon and its host key, and fencing so two daemons never write a project) is the same work on either, and slightly smaller on Postgres because of advisory locks.
 
-### 4.2 Several starfixd processes on one Postgres
+### 4.2 Several ariesd processes on one Postgres
 
-Postgres has what Dolt lacks for this: row locks that block (`SELECT … FOR UPDATE`), `SKIP LOCKED` for a work queue, and `LISTEN/NOTIFY` to tell other processes of a write. Section 3 measures the first two. But starfixd is built on one writer per project, and its in-memory state would block several daemons writing one project:
+Postgres has what Dolt lacks for this: row locks that block (`SELECT … FOR UPDATE`), `SKIP LOCKED` for a work queue, and `LISTEN/NOTIFY` to tell other processes of a write. Section 3 measures the first two. But ariesd is built on one writer per project, and its in-memory state would block several daemons writing one project:
 
-| State in starfixd's memory | Why it blocks a second writer |
+| State in ariesd's memory | Why it blocks a second writer |
 |---|---|
 | The event log's next seq (`lastEventSeq`, then seq+1 in the same transaction), and the inbox's next id | Two writers append the same seq; one fails and retries. The spike's barrier-free races (section 2) show it stays correct on Postgres, but every write to a project then contends on the log's tail, which is a single writer by another name. A sequence would not fix it: sequence values become visible out of order, and readers that page the log by seq would skip events |
 | The store's time (`storeTime`, `Clock`, rule 19): the latest time it gave out, the steps it settled into leases | Two daemons would each settle a clock step into the same leases, and their times would interleave backward. The clock rule assumes one process per database |
@@ -216,15 +216,15 @@ So "several daemons on one Postgres" works today only as **several daemons, each
 
 ### 4.3 Placing projects across servers
 
-- **Shard by project.** A project is already one database with one writer, so it is the unit: a project lives on one database server and is served by one daemon at a time. The control database records where (`projects.db_name` today; it would gain a server or cluster name), and `sfx`'s `.starfix.yaml` names the daemon it connects to, so a client never needs to know.
+- **Shard by project.** A project is already one database with one writer, so it is the unit: a project lives on one database server and is served by one daemon at a time. The control database records where (`projects.db_name` today; it would gain a server or cluster name), and `aries`'s `.aries.yaml` names the daemon it connects to, so a client never needs to know.
 - **Database or schema per project on Postgres.** Both pass the whole store suite (section 2). A database per project needs a connection pool per project, since a Postgres connection cannot change database, and Postgres runs a process per connection (section 3.5 measures it). A schema per project in one database lets one pool serve every project (`SET search_path` per transaction, or schema-qualified names), and lets the control store and stage 6's cross-project mirror read another project's tables in one query, as `Control.HeldClaims` does on Dolt today with `` `db`.claims `` (impossible across Postgres databases). The cost: one database's catalog grows with every project (22 tables with the migrations table, and 34 indexes, each), and a dump or restore is per schema rather than per database. **Schema per project is the better fit**, with one database per server.
 - **The control database** stays one per server (or one for a set of servers, holding where each project lives). On Postgres it can be a schema beside the projects', so the handshake's membership check and the keys file read the same database.
 - **Moving a project** between servers is a dump of its schema and a restore (or logical replication of that schema), during which its daemon refuses writes; on Dolt it is a `dolt push` of the database plus grants by hand.
 
 ### 4.4 What replaces tag-before-upgrade, and history
 
-- **Tag before upgrade** (`BackupTag`: a Dolt commit and tag, which `starfixd upgrade` takes before migrating) has no Postgres equivalent. Two things replace it. Postgres runs DDL in transactions, so a migration and its `schema_migrations` row commit together or not at all; a failed migration leaves the old schema, which Dolt cannot promise (its DDL commits as it goes, as MySQL's does). And the restore point becomes `pg_dump` of the project's schema before migrating, or a point-in-time recovery target where the operator runs WAL archiving or a managed service with snapshots. `BackupTag` would become "dump to `/var/backups/starfix` before migrating", a few dozen lines.
-- **History.** starfix reads none of Dolt's history: conflicts, audit, the digest and offline replay all come from the event log (rule 7), which is the truth on either backend. What Dolt's commit-a-second gives today is a second copy for forensics (`dolt diff`, `AS OF`) and the backups' consistency. On Postgres the event log plus backups with WAL archiving (point-in-time recovery to any second) cover both. The commit-a-second loop, `Flush`, the dirty flag and the `Committed` instrument go away.
+- **Tag before upgrade** (`BackupTag`: a Dolt commit and tag, which `ariesd upgrade` takes before migrating) has no Postgres equivalent. Two things replace it. Postgres runs DDL in transactions, so a migration and its `schema_migrations` row commit together or not at all; a failed migration leaves the old schema, which Dolt cannot promise (its DDL commits as it goes, as MySQL's does). And the restore point becomes `pg_dump` of the project's schema before migrating, or a point-in-time recovery target where the operator runs WAL archiving or a managed service with snapshots. `BackupTag` would become "dump to `/var/backups/aries` before migrating", a few dozen lines.
+- **History.** Aries reads none of Dolt's history: conflicts, audit, the digest and offline replay all come from the event log (rule 7), which is the truth on either backend. What Dolt's commit-a-second gives today is a second copy for forensics (`dolt diff`, `AS OF`) and the backups' consistency. On Postgres the event log plus backups with WAL archiving (point-in-time recovery to any second) cover both. The commit-a-second loop, `Flush`, the dirty flag and the `Committed` instrument go away.
 
 ## 5. Cost of the full port
 
@@ -233,9 +233,9 @@ An estimate from the inventory (section 1) and what the spike took, not a measur
 | Slice | What | Size |
 |---|---|---|
 | P0 | The store interface (6.1), on Dolt, with the server's tests on a fake where they test the server and not the database. Worth doing whatever is decided | 1 to 2 weeks |
-| P1 | The store on Postgres, in place: Postgres's SQL written where each query is (no rewriting driver), one migration set in Postgres's dialect (squashed to the current version, numbered to match), error mapping with 23505 retried, the account check on `pg_roles`, the committer and `BackupTag` removed, the eight barrier tests rewritten as section 2's barrier-free races, the eleven Dolt tests replaced. `pgtest` replaces `dolttest` in the packages that start a database (store, server, e2e, bdimport, `cmd/starfixd`, doltmetrics), with its pin and checksums for linux-amd64, linux-arm64 and darwin-arm64 | 2 weeks |
-| P2 | The daemon: a schema per project in one database, created by the daemon's role (`CREATE SCHEMA … AUTHORIZATION`) instead of root's grant of a database name; the control store as a schema beside them; `HeldClaims` as a schema-qualified query; the DSN logic in `internal/server` and `cmd/starfixd` behind the store; the status report's database figures from `pg_stat_*` in place of `internal/doltmetrics` and `doltwatch.go`; the writer's advisory lock per project | 1 to 2 weeks |
-| P3 | `starfixd migrate-from-dolt` (6.4), for existing servers | 1 week |
+| P1 | The store on Postgres, in place: Postgres's SQL written where each query is (no rewriting driver), one migration set in Postgres's dialect (squashed to the current version, numbered to match), error mapping with 23505 retried, the account check on `pg_roles`, the committer and `BackupTag` removed, the eight barrier tests rewritten as section 2's barrier-free races, the eleven Dolt tests replaced. `pgtest` replaces `dolttest` in the packages that start a database (store, server, e2e, bdimport, `cmd/ariesd`, doltmetrics), with its pin and checksums for linux-amd64, linux-arm64 and darwin-arm64 | 2 weeks |
+| P2 | The daemon: a schema per project in one database, created by the daemon's role (`CREATE SCHEMA … AUTHORIZATION`) instead of root's grant of a database name; the control store as a schema beside them; `HeldClaims` as a schema-qualified query; the DSN logic in `internal/server` and `cmd/ariesd` behind the store; the status report's database figures from `pg_stat_*` in place of `internal/doltmetrics` and `doltwatch.go`; the writer's advisory lock per project | 1 to 2 weeks |
+| P3 | `ariesd migrate-from-dolt` (6.4), for existing servers | 1 week |
 | P4 | Operations: `install-server.sh`, `deploy/docker` and `smoke.sh`, the AppArmor profile, `docs/server.md` and `docs/deploy`, backups (`pg_dump` per schema, or WAL archiving), upgrades, CI (`DOLT_VERSION` and the Dolt jobs), `RELEASING.md`'s pin procedure | 2 weeks |
 | P5 | The soak gates of stages 3, 3a and 5 rerun on Postgres, on Linux | days, mostly waiting |
 
@@ -245,13 +245,13 @@ About 7 to 9 weeks in all, of which the store is the smaller part. Stage 6 has d
 
 ### 6.1 The store interface
 
-What `internal/server`, `cmd/starfixd` and `internal/bdimport` use of `internal/store` today (counted on `5d6e951`):
+What `internal/server`, `cmd/ariesd` and `internal/bdimport` use of `internal/store` today (counted on `5d6e951`):
 
 | | Count |
 |---|---|
 | Exported methods on `*Store` | 104, of which **86** are called from those packages |
 | Exported methods on `*Control` | 53, of which **49** are called |
-| Distinct `store.X` identifiers those packages name | **281** (742 references), from 35 files: 26 in `internal/server`, 5 in `cmd/starfixd`, 4 in `internal/bdimport` |
+| Distinct `store.X` identifiers those packages name | **281** (742 references), from 35 files: 26 in `internal/server`, 5 in `cmd/ariesd`, 4 in `internal/bdimport` |
 | Error types and sentinels they match | 35: `ErrNotFound`, `ErrConflict`, `ErrExists`, `ErrCycle`, `ErrInvalid`, `ErrForbidden`, `ErrBusy`, `ErrNothingReady`, `ErrSchemaOld`, `ErrSchemaTooNew`, `ErrStatusInProgress`, and 24 typed errors (`HeldError`, `StaleEpochError`, `ForbiddenError`, `IdemError`, `UnsafeAccountError`, …) |
 
 An interface would be two: **`Project`** (about 86 methods: issues, deps, work, claims, inbox, memory, usage, hours, prices, plans, gates, conflicts, digest, the reaper's `ReapClaims`/`EndClaims`/`Prune`, `Stats`, `Ping`, `Close`, `Now`) and **`Controller`** (about 49: projects, principals, keys, members, the index reads at the handshake, `CreateDatabase`, `HeldClaims`). Both are large because the store is the domain layer, not a repository: each method is one authorized, evented, idempotent operation. Splitting either by area (work, memory, cost, gates, admin) would give interfaces of 10 to 20 methods each, which is the size Go fakes stay readable at.
@@ -262,7 +262,7 @@ Where the server reaches past the methods, and would keep reaching:
 - **The clock.** `store.NewClock`, `ClockOptions`, `ClockState` and `Options.Clock`: the daemon makes one `Clock` and gives it to every store (rule 19). Backend-neutral; it would be an argument to each backend's `Open`.
 - **Observer and Tracer** (`Options.Observer`, `Options.Tracer`, `StageAttempt`, `StageWait`, `StageMigrate`, `StageCommit`): the telemetry hooks. `Observer.Committed` and `StageCommit` report Dolt's commit-a-second and would mean nothing on Postgres.
 - **Construction and the account.** `store.Open`, `OpenControl`, `OpenConflicts`, `Options`, `ControlOptions`, `Limits`, `ControlLimits`, `ValidDBName`, `DatabaseDenied` (which matches Dolt's error 1105/1044), and `UnsafeAccountError`, whose fix text is Dolt's `GRANT`. Each backend would have its own `Open`; the error helpers would move behind it.
-- **The DSN.** `internal/server/project.go`, `settings.go` and `cmd/starfixd/control.go` parse it with `mysql.ParseDSN` to derive a project's DSN from the control database's and to refuse a password in it (rule 2). That is backend knowledge outside the store, and would move behind the interface (a `Backend.ProjectDSN(name)`).
+- **The DSN.** `internal/server/project.go`, `settings.go` and `cmd/ariesd/control.go` parse it with `mysql.ParseDSN` to derive a project's DSN from the control database's and to refuse a password in it (rule 2). That is backend knowledge outside the store, and would move behind the interface (a `Backend.ProjectDSN(name)`).
 - **Dolt's own telemetry.** `internal/doltmetrics` and `internal/server/doltwatch.go` read Dolt's Prometheus endpoint and set its collector's cycles against the stores' writes. Dolt-only by nature; Postgres's equivalent is `pg_stat_*` or `postgres_exporter`.
 
 **What a fake behind the interface would make easier.** `internal/server`'s tests (and `internal/e2e`'s) start a real Dolt for every test today, through `dolttest`'s pool. A fake `Project` would let the dispatch, error mapping (`errors.go`, rule 11), authorization at the handshake, connection limits, watchers and the registry's open and close be tested in milliseconds, and let the rare paths (a store that fails to open, a write that returns `ErrBusy`, a migration refused as too new) be driven directly instead of staged. The store's own tests would still run against the real database: what they test (CAS, events, recursive queries, the clock against the database's history) is exactly what a fake cannot.
@@ -298,7 +298,7 @@ So the seam touches 10 of the store's 55 files and changes about 130 of its 18,4
 
 The second backend's cost is not the port, which section 2 shows is small for the store; it is that every later change pays it again. **Pick one.** Breadth (managed, on-premises, every cloud) comes from the many services that speak Postgres's protocol, not from a second engine: a store written for Postgres runs unchanged on RDS, Aurora, Cloud SQL, AlloyDB, Azure, Crunchy, Neon or a self-run Patroni cluster. This confirms the view in the request, with one refinement: build the interface (6.1) for the server's tests and for clarity, not as a plug for a second backend.
 
-### 6.4 A one-way move: `starfixd migrate-from-dolt`
+### 6.4 A one-way move: `ariesd migrate-from-dolt`
 
 If the switch is made, a project moves once, by copy, not by replay:
 
@@ -308,18 +308,18 @@ If the switch is made, a project moves once, by copy, not by replay:
 
 Replaying the event log instead would rebuild state from events that compact large texts (`EventTextMax`) and that some bookkeeping skips (`wtx.quiet`), so it cannot reproduce the tables; copying can. bdimport's export and import (`export-bd`, `import-bd`) are not a substitute either: they carry issues, deps and comments, not claims, memories, usage, gates or the log.
 
-Size: a command in `cmd/starfixd` and a copier in the store, about 400 to 600 lines with tests (a table list, a batch copier, the checks), run against `dolttest` and `pgtest` side by side. The control database moves the same way. Kept for one or two releases, then removed with the Dolt code.
+Size: a command in `cmd/ariesd` and a copier in the store, about 400 to 600 lines with tests (a table list, a batch copier, the checks), run against `dolttest` and `pgtest` side by side. The control database moves the same way. Kept for one or two releases, then removed with the Dolt code.
 
 ## 7. What was not measured
 
 - **Linux.** Everything ran on macOS on Apple silicon, where a durable commit costs a full cache flush on both. Production is Linux; the soak gates should be rerun there before any switch (slice P5). Stage 0's Linux Dolt figures are not comparable with these.
 - **Whether Dolt syncs each transaction.** Its single writer committed in 5 ms where a full flush costs about 12 to 16 ms here (section 3.2). If Dolt does not flush each transaction, its single-writer figures are not durable ones and the gap there is larger than shown.
 - **A standby on either backend**, failover times, or a synchronous standby's cost per commit. Section 4.1 is from the documentation.
-- **Several starfixd processes on one database**, `LISTEN/NOTIFY`, and the advisory-lock fence: written up (4.1, 4.2), not built. The barrier-free races (section 2) are the nearest evidence: several stores on one database stay correct on Postgres.
+- **Several ariesd processes on one database**, `LISTEN/NOTIFY`, and the advisory-lock fence: written up (4.1, 4.2), not built. The barrier-free races (section 2) are the nearest evidence: several stores on one database stay correct on Postgres.
 - **MySQL 8.4 or MariaDB.** Not installed; no figures.
 - **One connection pool for many schemas.** The store opens its own pool per project on either layout, so the schema-per-project memory figures still have a writer and readers per project. A shared pool (`SET search_path` per transaction) would cut Postgres's per-project memory further; not built.
 - **Hundreds of projects.** A run of 200 schemas (with 2 readers each) was stopped at 10, where it matched the 50-schema run; loading through the store takes about half a minute a project, so it would have run over an hour.
 - **Long runs and growth:** minutes, not days; no vacuum or bloat on Postgres, no garbage collection on Dolt beyond stage 3a's.
 - **Load from another session**, which ran the repository's gate during some runs (Environment). Each run records its load average.
-- **The rest of the module's tests** (`internal/server`, `internal/e2e`, `cmd/starfixd`, `internal/bdimport`) on Postgres: only the store was ported.
+- **The rest of the module's tests** (`internal/server`, `internal/e2e`, `cmd/ariesd`, `internal/bdimport`) on Postgres: only the store was ported.
 - **Vectors and full-text search** on Postgres (`pgvector`, `pg_trgm`).

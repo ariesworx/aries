@@ -32,7 +32,7 @@ func runLeftovers(t *testing.T, base, hold, settle, shell string, env ...string)
 			cmd.Env = append(cmd.Env, kv)
 		}
 	}
-	cmd.Env = append(cmd.Env, "TMPDIR="+base, "HOLD="+hold, "STARFIX_LEFTOVERS_WAIT="+settle)
+	cmd.Env = append(cmd.Env, "TMPDIR="+base, "HOLD="+hold, "ARIES_LEFTOVERS_WAIT="+settle)
 	cmd.Env = append(cmd.Env, env...)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
@@ -77,9 +77,9 @@ func TestLeftoversScript(t *testing.T) {
 				"fix: "}, not: []string{"::error", ": t.TempDir", ": os.MkdirTemp"}},
 		// A directory's name says which test made it: t.TempDir names it
 		// for the test, and the short ones are os.MkdirTemp's prefixes.
-		{name: "directories left behind are counted and named, with whose they are", shell: `mkdir -p "$TMPDIR/TestOne123/001" "$TMPDIR/sfe456" "$TMPDIR/starfix-test-home-789" && echo x >"$TMPDIR/TestOne123/001/f"`,
+		{name: "directories left behind are counted and named, with whose they are", shell: `mkdir -p "$TMPDIR/TestOne123/001" "$TMPDIR/sfe456" "$TMPDIR/aries-test-home-789" && echo x >"$TMPDIR/TestOne123/001/f"`,
 			status: 1, want: []string{"left 3 entries", "  TestOne123 (", " KB): t.TempDir of TestOne\n", "  sfe456 (", " KB): os.MkdirTemp(\"\", \"sfe\")\n",
-				"  starfix-test-home-789 (", " KB): os.MkdirTemp(\"\", \"starfix-test-home-\")\n"}},
+				"  aries-test-home-789 (", " KB): os.MkdirTemp(\"\", \"aries-test-home-\")\n"}},
 		{name: "a test's directory left by a failing command is named too", shell: `mkdir "$TMPDIR/TestDiedToo1"; exit 4`,
 			status: 4, want: []string{"TestDiedToo1 (", " KB): t.TempDir of TestDiedToo\n"}},
 		{name: "with GOTMPDIR, the command is given one of its own under it", gotmp: true,

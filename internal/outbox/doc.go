@@ -112,7 +112,7 @@
 // applies one again, so an entry sent later than the window either
 // applies once (its key is new to the server) or is refused stale (its
 // key was applied, and the answer lost). The cap only decides when a
-// person, rather than sfx, says that a write that old still stands. The byte cap is on the file as it is, so entries that
+// person, rather than aries, says that a write that old still stands. The byte cap is on the file as it is, so entries that
 // were answered and not yet compacted away count until the next replay
 // ends. The answered file holds one line for an entry that waits, at
 // most, after each compaction, the text of a refusal is cut to 1,024

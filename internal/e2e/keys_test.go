@@ -10,14 +10,14 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ariesworx/starfix/internal/cli"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/server"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/cli"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/server"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // keysWorld is a server of many projects whose sshd reads the keys file
-// starfixd writes, before the authorized_keys file kept by hand, as an
+// ariesd writes, before the authorized_keys file kept by hand, as an
 // sshd with the AuthorizedKeysFile of the server guide does. dana and
 // sam are its server admins.
 func keysWorld(t *testing.T, lim server.Limits) *world {
@@ -67,8 +67,8 @@ func (w *world) controlEvents() []string {
 }
 
 // TestKeysFromTheStore is the whole path of this stage's keys: an admin
-// adds a person and their key with `sfx admin`, with no line in
-// authorized_keys; the person connects with that key, because starfixd
+// adds a person and their key with `aries admin`, with no line in
+// authorized_keys; the person connects with that key, because ariesd
 // wrote it to the file sshd reads; the admin removes the key; the
 // person's open connection closes and the next is refused.
 func TestKeysFromTheStore(t *testing.T) {
@@ -174,7 +174,7 @@ func TestStaleKeysFileIsNotAHole(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) }) //nolint:gosec // back to what it was
-	const stale = "sfx: warning: the change is recorded, but starfixd could not write the keys file sshd reads, so sshd may still be reading the old one: "
+	const stale = "aries: warning: the change is recorded, but ariesd could not write the keys file sshd reads, so sshd may still be reading the old one: "
 	r := dana.run("v0.2.0", "admin", "key", "remove", bob.fingerprint())
 	if r.code != cli.ExitOK || r.stdout != "key "+bob.fingerprint()+" removed from bob\n" || !strings.HasPrefix(r.stderr, stale) {
 		t.Fatalf("key remove with the keys file unwritable: exit %d\nstdout %q\nstderr %q\nwant the key removed, and a warning that sshd may read the old file", r.code, r.stdout, r.stderr)
@@ -184,8 +184,8 @@ func TestStaleKeysFileIsNotAHole(t *testing.T) {
 		t.Errorf("principal disable with the keys file unwritable: exit %d\nstdout %q\nstderr %q\nwant her disabled, and the warning", r.code, r.stdout, r.stderr)
 	}
 	r = dana.run("v0.2.0", "admin", "key", "remove", frank.fingerprint())
-	if r.code != cli.ExitOK || !strings.HasPrefix(r.stderr, "sfx: warning: sshd will still accept key "+frank.fingerprint()) ||
-		!strings.Contains(r.stderr, "; and the change is recorded, but starfixd could not write the keys file sshd reads") {
+	if r.code != cli.ExitOK || !strings.HasPrefix(r.stderr, "aries: warning: sshd will still accept key "+frank.fingerprint()) ||
+		!strings.Contains(r.stderr, "; and the change is recorded, but ariesd could not write the keys file sshd reads") {
 		t.Errorf("key remove of a key also in authorized_keys, with the keys file unwritable: exit %d\nstderr %q\nwant both warnings in the one line", r.code, r.stderr)
 	}
 	if got := readFile(t, w.keysFile); got != fresh {
@@ -260,7 +260,7 @@ func readFile(t *testing.T, path string) string {
 	return string(b)
 }
 
-// TestAdminKeyCommands runs `sfx admin key` and `principal add --key`
+// TestAdminKeyCommands runs `aries admin key` and `principal add --key`
 // through SSH and the daemon, in text and --json, as those who may and
 // those who may not.
 func TestAdminKeyCommands(t *testing.T) {
@@ -333,7 +333,7 @@ func TestAdminKeyCommands(t *testing.T) {
 	before := w.controlEvents()
 	const ownFix = "ask another admin to run it: a server admin, or a project admin who administers every project you belong to; the server's operator can also change authorized_keys on the server"
 	listFix := func(who string) string {
-		return "ask a server admin, or an admin of a project the principal belongs to; `sfx admin key list " + who + "` lists your own"
+		return "ask a server admin, or an admin of a project the principal belongs to; `aries admin key list " + who + "` lists your own"
 	}
 	for _, tc := range []struct {
 		name string
@@ -359,7 +359,7 @@ func TestAdminKeyCommands(t *testing.T) {
 			"check the name, or ask a server admin to run it; a project admin may only while every project the principal belongs to is one they administer"},
 		{"an admin without reach removes one", erin, []string{"admin", "key", "remove", laptop.fingerprint()}, proto.CodeForbidden,
 			"erin may not remove that key: it is no key of a principal erin may manage",
-			"check the fingerprint with `sfx admin key list NAME`, or ask a server admin to run it"},
+			"check the fingerprint with `aries admin key list NAME`, or ask a server admin to run it"},
 		{"a member adds their own", bob, []string{"admin", "key", "add", "bob", fourth.pub()}, proto.CodeForbidden,
 			"bob may not add a key to bob: nobody adds a key to their own account", ownFix},
 		{"a project admin adds their own", alice, []string{"admin", "key", "add", "alice", fourth.pub()}, proto.CodeForbidden,
@@ -368,14 +368,14 @@ func TestAdminKeyCommands(t *testing.T) {
 			"dana may not add a key to dana: nobody adds a key to their own account", ownFix},
 		{"a key past the cap", dana, []string{"admin", "key", "add", "bob", fourth.pub()}, proto.CodeInvalid,
 			"a principal keeps at most 3 keys",
-			"remove a key the principal no longer uses with `sfx admin key remove FINGERPRINT`, or ask the server's operator to raise keys_per_principal under limits: in starfixd's config"},
+			"remove a key the principal no longer uses with `aries admin key remove FINGERPRINT`, or ask the server's operator to raise keys_per_principal under limits: in ariesd's config"},
 		{"a key another principal has", dana, []string{"admin", "key", "add", "carol", phone.pub()}, proto.CodeExists,
 			"key " + phone.fingerprint() + " already belongs to another principal",
 			"use another key: a key belongs to one principal, and an agent or a machine that needs less access gets a key and a principal of its own"},
 		{"a principal that does not exist", dana, []string{"admin", "key", "add", "nobody", fourth.pub()}, proto.CodeNotFound,
-			"principal nobody not found", "check the name; a server admin lists them with `sfx admin principal list`"},
+			"principal nobody not found", "check the name; a server admin lists them with `aries admin principal list`"},
 		{"a fingerprint no key has", dana, []string{"admin", "key", "remove", fourth.fingerprint()}, proto.CodeNotFound,
-			"key " + fourth.fingerprint() + " not found", "list a principal's keys, with their fingerprints, with `sfx admin key list NAME`"},
+			"key " + fourth.fingerprint() + " not found", "list a principal's keys, with their fingerprints, with `aries admin key list NAME`"},
 		// The private key beside the .pub file: refused here, and nothing
 		// sent.
 		{"a private key file", dana, []string{"admin", "key", "add", "bob", filepath.Join(fourth.repo, "id_ed25519")}, proto.CodeInvalid,
@@ -387,7 +387,7 @@ func TestAdminKeyCommands(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if e := tc.u.refused(tc.code, tc.args...); e.Message != tc.msg || e.Fix != tc.fix {
-				t.Errorf("sfx %s\n got %q\n     fix %q\nwant %q\n     fix %q", strings.Join(tc.args, " "), e.Message, e.Fix, tc.msg, tc.fix)
+				t.Errorf("aries %s\n got %q\n     fix %q\nwant %q\n     fix %q", strings.Join(tc.args, " "), e.Message, e.Fix, tc.msg, tc.fix)
 			}
 		})
 	}
@@ -455,8 +455,8 @@ func TestDisabledWins(t *testing.T) {
 	dw.closedByServer(t, "dana, a disabled server admin,")
 	for _, args := range [][]string{{"list"}, {"admin", "principal", "list"}, {"admin", "principal", "enable", "dana"}} {
 		e := dana.refused(proto.CodeForbidden, args...)
-		if e.Message != "dana is disabled on this server" || !strings.Contains(e.Fix, "`sfx admin principal enable dana`") {
-			t.Errorf("sfx %s by a disabled server admin: %+v", strings.Join(args, " "), e)
+		if e.Message != "dana is disabled on this server" || !strings.Contains(e.Fix, "`aries admin principal enable dana`") {
+			t.Errorf("aries %s by a disabled server admin: %+v", strings.Join(args, " "), e)
 		}
 	}
 	sam.ok("admin", "principal", "enable", "dana")
@@ -467,7 +467,7 @@ func TestDisabledWins(t *testing.T) {
 	dana.ok("admin", "principal", "disable", "sam")
 	e := dana.refused(proto.CodeInvalid, "admin", "principal", "disable", "dana")
 	if e.Message != "dana is the last server admin who is not disabled; without one, nobody could enable anyone from here" ||
-		e.Fix != "enable another server admin first with `sfx admin principal enable NAME`, or ask the server's operator to name another under admins: in starfixd's config" {
+		e.Fix != "enable another server admin first with `aries admin principal enable NAME`, or ask the server's operator to name another under admins: in ariesd's config" {
 		t.Errorf("disabling the last enabled server admin: %+v", e)
 	}
 	dana.ok("list")
@@ -529,7 +529,7 @@ func TestAdminKeyOnAServerOfOneProject(t *testing.T) {
 	} {
 		if e := d.refused(proto.CodeInvalid, args...); !strings.Contains(e.Message, "this server holds one project") ||
 			!strings.Contains(e.Fix, "setting control_db (docs/server.md, Serving many projects, Opt in)") {
-			t.Errorf("sfx %s on a server of one project: %+v", strings.Join(args, " "), e)
+			t.Errorf("aries %s on a server of one project: %+v", strings.Join(args, " "), e)
 		}
 	}
 }

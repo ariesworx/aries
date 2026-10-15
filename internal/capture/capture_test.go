@@ -13,7 +13,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // sink is a Send that keeps what it is sent, failing while fail is set.
@@ -79,7 +79,7 @@ type layout struct {
 func newLayout(t *testing.T) layout {
 	t.Helper()
 	dir := t.TempDir()
-	l := layout{dir: dir, main: filepath.Join(dir, session+".jsonl"), state: filepath.Join(t.TempDir(), "starfix")}
+	l := layout{dir: dir, main: filepath.Join(dir, session+".jsonl"), state: filepath.Join(t.TempDir(), "aries")}
 	subdir := filepath.Join(dir, session, "subagents")
 	if err := os.MkdirAll(subdir, 0o700); err != nil {
 		t.Fatal(err)
@@ -229,7 +229,7 @@ func TestClaudeBatches(t *testing.T) {
 	if err := os.WriteFile(small, []byte(claudeLine("msg_small", "req_01", "claude-x", `{"input_tokens":1}`)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	state := filepath.Join(t.TempDir(), "starfix")
+	state := filepath.Join(t.TempDir(), "aries")
 	in := Input{Session: session, Files: []string{small, big}, StateDir: state, Final: true}
 	// small fills batch 1 with 499 of big's; batch 2 holds big's last 2.
 	calls := 0
@@ -299,8 +299,8 @@ func TestClaudeTruncatedOrReplaced(t *testing.T) {
 	}
 }
 
-// A transcript in a format sfx does not know sends nothing and says so,
-// with the version; its offset stays, so a later sfx can read it.
+// A transcript in a format aries does not know sends nothing and says so,
+// with the version; its offset stays, so a later aries can read it.
 func TestClaudeUnrecognized(t *testing.T) {
 	t.Parallel()
 	l := newLayout(t)
@@ -474,7 +474,7 @@ func TestClaudeDropsRefusedRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &sink{refuse: func(r proto.UsageRecord) bool { return r.RequestID == "msg_bad" }}
-	in := Input{Session: session, Files: []string{path}, StateDir: filepath.Join(t.TempDir(), "starfix"), Send: s.send, Final: true}
+	in := Input{Session: session, Files: []string{path}, StateDir: filepath.Join(t.TempDir(), "aries"), Send: s.send, Final: true}
 	res, err := Claude(t.Context(), in)
 	got := s.ids()
 	slices.Sort(got)

@@ -119,7 +119,7 @@ func TestCheckPeerOtherUID(t *testing.T) {
 	if err := os.WriteFile(bin, b, 0o755); err != nil { //nolint:gosec // the child runs as another user
 		t.Fatal(err)
 	}
-	addr := "@starfix-peer-test-" + filepath.Base(dir)
+	addr := "@aries-peer-test-" + filepath.Base(dir)
 	l, err := net.Listen("unix", addr)
 	if err != nil {
 		t.Fatal(err)

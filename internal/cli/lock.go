@@ -15,8 +15,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 const lockUsage = "lock acquire NAME [--capacity N] [--for DURATION] [--wait]" +
@@ -112,7 +112,7 @@ func lockAcquire(ctx context.Context, r *runner, args []string) error {
 		return nil
 	}
 	_, _ = fmt.Fprintf(r.env.Stdout, "%d\n", held.Epoch)
-	_, _ = fmt.Fprintf(r.env.Stderr, "sfx: you hold %s at epoch %d until %s; renew it with `sfx lock renew %s %d`, release it with `sfx lock release %s %d`\n",
+	_, _ = fmt.Fprintf(r.env.Stderr, "aries: you hold %s at epoch %d until %s; renew it with `aries lock renew %s %d`, release it with `aries lock release %s %d`\n",
 		esc(held.Name), held.Epoch, when(held.ExpiresAt), esc(held.Name), held.Epoch, esc(held.Name), held.Epoch)
 	return nil
 }
@@ -147,7 +147,7 @@ func (r *runner) takeLock(ctx context.Context, name string, f acquireFlags, watc
 	}
 	for !out.Held {
 		if !r.json {
-			_, _ = fmt.Fprintf(r.env.Stderr, "sfx: waiting for %s, place %d in its queue\n", esc(name), out.Position)
+			_, _ = fmt.Fprintf(r.env.Stderr, "aries: waiting for %s, place %d in its queue\n", esc(name), out.Position)
 		}
 		select {
 		case <-ctx.Done():
@@ -223,7 +223,7 @@ func nameEpoch(cmd string, pos []string) (string, int64, error) {
 	}
 	epoch, err := strconv.ParseInt(pos[1], 10, 64)
 	if err != nil || epoch < 1 {
-		return "", 0, usagef(lockUsage, "lock %s: the epoch %q is not a number from 1; `sfx lock acquire` printed it", cmd, pos[1])
+		return "", 0, usagef(lockUsage, "lock %s: the epoch %q is not a number from 1; `aries lock acquire` printed it", cmd, pos[1])
 	}
 	return pos[0], epoch, nil
 }
@@ -295,7 +295,7 @@ func lockLeave(ctx context.Context, r *runner, args []string) error {
 	case out.Left:
 		_, _ = fmt.Fprintf(r.env.Stdout, "left the queue of %s\n", esc(out.Name))
 	case out.Epoch > 0:
-		_, _ = fmt.Fprintf(r.env.Stdout, "you hold %s at epoch %d: release it with `sfx lock release %s %d`\n", esc(out.Name), out.Epoch, esc(out.Name), out.Epoch)
+		_, _ = fmt.Fprintf(r.env.Stdout, "you hold %s at epoch %d: release it with `aries lock release %s %d`\n", esc(out.Name), out.Epoch, esc(out.Name), out.Epoch)
 	default:
 		_, _ = fmt.Fprintf(r.env.Stdout, "you have no place in the queue of %s\n", esc(out.Name))
 	}
@@ -356,21 +356,21 @@ func printLocks(w io.Writer, locks []proto.Lock) {
 }
 
 // lockRun runs a command under lock NAME: it takes the lock, waiting in
-// its queue with --wait, runs the command with STARFIX_LOCK_EPOCH set to
+// its queue with --wait, runs the command with ARIES_LOCK_EPOCH set to
 // the hold's epoch, renews the hold while the command runs, releases it
 // when the command exits, and exits with the command's exit code.
 //
 // An interrupt (ctrl-c, SIGTERM) is passed to the command, which is
 // killed if it has not stopped within stopGrace; the hold is released
-// once it has, and sfx exits 130 if the command died of it. Interrupted
+// once it has, and aries exits 130 if the command died of it. Interrupted
 // while waiting, it gives up its place. A hold that is lost, because the
 // server says it ended (its lease ran out while the server could not be
 // reached, or the principal lost access), stops the command the same
-// way, and sfx exits 1: what the lock guards is no longer guarded.
+// way, and aries exits 1: what the lock guards is no longer guarded.
 //
-// sfx killed outright releases nothing: the hold lasts until its lease
+// aries killed outright releases nothing: the hold lasts until its lease
 // runs out, at most --for after the last renewal, and the reaper then
-// grants it to the next waiter. The command, if it outlives sfx, runs on
+// grants it to the next waiter. The command, if it outlives aries, runs on
 // without the lock; a resource that checks the epoch refuses it once the
 // lock is granted again.
 //
@@ -449,7 +449,7 @@ func (r *runner) holdWhile(ctx context.Context, name string, epoch int64, lease 
 		case err == nil:
 			every = lease / 3
 		case ok && pe.Code == proto.CodeConflict:
-			_, _ = fmt.Fprintf(r.env.Stderr, "sfx: lost lock %s: %s; stopping the command\n", esc(name), esc(pe.Message))
+			_, _ = fmt.Fprintf(r.env.Stderr, "aries: lost lock %s: %s; stopping the command\n", esc(name), esc(pe.Message))
 			_ = r.stop(cmd, done)
 			return 1, true
 		case ctx.Err() == nil:
@@ -507,7 +507,7 @@ func (r *runner) releaseLock(ctx context.Context, name string, epoch int64) {
 	if pe, ok := errors.AsType[*proto.Error](err); ok {
 		msg = pe.Message
 	}
-	_, _ = fmt.Fprintf(r.env.Stderr, "sfx: could not release lock %s at epoch %d: %s; it ends with its lease\n", esc(name), epoch, esc(msg))
+	_, _ = fmt.Fprintf(r.env.Stderr, "aries: could not release lock %s at epoch %d: %s; it ends with its lease\n", esc(name), epoch, esc(msg))
 }
 
 // exitError is a command's exit code, which Run returns as its own and

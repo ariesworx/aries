@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/cli"
-	"github.com/ariesworx/starfix/internal/mcpserver"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/cli"
+	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // A person going away extends their claims first (design §18.6): with
-// `sfx away 3d`, a claim taken for an hour holds for three days, against
+// `aries away 3d`, a claim taken for an hour holds for three days, against
 // another principal's start, and lets go after.
 func TestAwayHoldsPastTheLease(t *testing.T) {
 	t.Parallel()
@@ -23,10 +23,10 @@ func TestAwayHoldsPastTheLease(t *testing.T) {
 	id := strings.TrimSpace(alice.ok("create", "Held while away"))
 	alice.ok("start", id, "--for", "1h")
 	if out := alice.ok("away", "3d"); !strings.Contains(out, id+" held until ") {
-		t.Fatalf("sfx away 3d printed %q, want the claim held", out)
+		t.Fatalf("aries away 3d printed %q, want the claim held", out)
 	}
-	if r := alice.run("v0.2.0", "away", "8d"); r.code != cli.ExitFailure || !strings.Contains(r.stderr, "fix: give `sfx away` a duration from 1m to at most 7d, this server's away_max") {
-		t.Errorf("sfx away 8d = exit %d, %q; want refused, naming the cap", r.code, r.stderr)
+	if r := alice.run("v0.2.0", "away", "8d"); r.code != cli.ExitFailure || !strings.Contains(r.stderr, "fix: give `aries away` a duration from 1m to at most 7d, this server's away_max") {
+		t.Errorf("aries away 8d = exit %d, %q; want refused, naming the cap", r.code, r.stderr)
 	}
 
 	clk.add(2 * 24 * time.Hour)
@@ -74,7 +74,7 @@ func lateWorld(t *testing.T, args map[string]any) (w *world, clk *clock, alice, 
 func TestLateFinishNobodyTookIt(t *testing.T) {
 	t.Parallel()
 	_, _, alice, bob, _, id := lateWorld(t, map[string]any{"reason": "done offline", "handoff": "all of it"})
-	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "sfx: outbox: delivered 1\n" {
+	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "aries: outbox: delivered 1\n" {
 		t.Fatalf("the first command with the server back = exit %d, stderr %q; want the finish delivered", r.code, r.stderr)
 	}
 	s := decode[proto.ShowResult](t, bob.ok("show", id, "--json"))
@@ -97,7 +97,7 @@ func TestLateFinishTakenByAnother(t *testing.T) {
 		"discovered": []any{map[string]any{"title": "Found offline"}}})
 	bob.ok("start", id)
 
-	const kept = "sfx: outbox: delivered 1 (1 kept as a comment, as the issue moved on while it waited: `sfx inbox` says why)\n"
+	const kept = "aries: outbox: delivered 1 (1 kept as a comment, as the issue moved on while it waited: `aries inbox` says why)\n"
 	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != kept {
 		t.Fatalf("the first command with the server back = exit %d, stderr %q; want %q", r.code, r.stderr, kept)
 	}
@@ -166,19 +166,19 @@ func TestClientStepsDownToProtocol7(t *testing.T) {
 	clk.add(2 * time.Hour)
 	w.start()
 	bob.ok("start", id)
-	if r := alice.run("v0.2.0", "ready"); r.stderr != "sfx: outbox: refused 2 (see `sfx outbox`)\n" {
+	if r := alice.run("v0.2.0", "ready"); r.stderr != "aries: outbox: refused 2 (see `aries outbox`)\n" {
 		t.Errorf("the replay to a server of 7 said %q, want the finish and the update refused", r.stderr)
 	}
 	out := alice.ok("outbox")
 	if !strings.Contains(out, "     forbidden: ") {
-		t.Errorf("sfx outbox with the server at 7:\n%s", out)
+		t.Errorf("aries outbox with the server at 7:\n%s", out)
 	}
 
 	w.stop()
 	w.opts.protoMin, w.opts.protoMax = 0, 0
 	w.start()
 	alice.ok("outbox", "retry", firstRefused(t, out))
-	if r := alice.run("v0.2.0", "ready"); r.stderr != "sfx: outbox: delivered 1 (1 kept as a comment, as the issue moved on while it waited: `sfx inbox` says why)\n" {
+	if r := alice.run("v0.2.0", "ready"); r.stderr != "aries: outbox: delivered 1 (1 kept as a comment, as the issue moved on while it waited: `aries inbox` says why)\n" {
 		t.Errorf("the retry at 8 said %q, want it kept as a comment", r.stderr)
 	}
 	if s := decode[proto.ShowResult](t, bob.ok("show", id, "--json")); s.Issue.Status != "in_progress" || s.Claim == nil || s.Claim.By != "bob" {

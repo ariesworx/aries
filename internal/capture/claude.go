@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Claude Code writes one transcript per session, as JSON lines, and one
@@ -30,7 +30,7 @@ import (
 // versions: what is read here was checked against version 2.1.x, and a
 // live transcript, on 8 Oct 2026.
 
-// Harness is the harness name records carry: `sfx setup`'s agent name.
+// Harness is the harness name records carry: `aries setup`'s agent name.
 const Harness = "claude-code"
 
 // maxLine bounds a transcript line. Assistant lines are far shorter; a

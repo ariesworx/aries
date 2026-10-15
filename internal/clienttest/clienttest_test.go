@@ -13,12 +13,12 @@ import (
 )
 
 // TestEveryConnectingPackageIsIsolated reads the module's tests: a
-// package whose tests can make sfx choose a key (they import the client,
+// package whose tests can make aries choose a key (they import the client,
 // or something that connects with it) must call Isolate, which is what
 // keeps them from the developer's ~/.ssh and ssh-agent.
 func TestEveryConnectingPackageIsIsolated(t *testing.T) {
 	t.Parallel()
-	const module = `"github.com/ariesworx/starfix/internal/`
+	const module = `"github.com/ariesworx/aries/internal/`
 	connects := []string{module + `client"`, module + `cli"`, module + `mcpserver"`, module + `board"`, module + `offline"`}
 	needs, has := map[string]string{}, map[string]bool{}
 	root := filepath.Join("..", "..")
@@ -41,7 +41,7 @@ func TestEveryConnectingPackageIsIsolated(t *testing.T) {
 		}
 		src, dir := string(b), filepath.Dir(path)
 		// A package's own tests count too: client, cli, mcpserver, board.
-		own := `"github.com/ariesworx/starfix/` + filepath.ToSlash(strings.TrimPrefix(dir, root+string(filepath.Separator))) + `"`
+		own := `"github.com/ariesworx/aries/` + filepath.ToSlash(strings.TrimPrefix(dir, root+string(filepath.Separator))) + `"`
 		for _, imp := range connects {
 			if strings.Contains(src, imp) || own == imp {
 				needs[dir] = path
@@ -163,9 +163,9 @@ func TestIsolate(t *testing.T) {
 	// Serial: sets the process's environment (t.Setenv, Isolate).
 	t.Setenv("HOME", "/somebody/else")
 	t.Setenv("SSH_AUTH_SOCK", "/tmp/somebody.sock")
-	t.Setenv("STARFIX_KEY_FILE", "/somebody/else/.ssh/id_ed25519")
-	t.Setenv("STARFIX_DATA_DIR", "/somebody/else/data")
-	t.Setenv("STARFIX_NO_QUEUE", "1")
+	t.Setenv("ARIES_KEY_FILE", "/somebody/else/.ssh/id_ed25519")
+	t.Setenv("ARIES_DATA_DIR", "/somebody/else/data")
+	t.Setenv("ARIES_NO_QUEUE", "1")
 	restore := Isolate()
 	home, err := os.UserHomeDir()
 	if err != nil || home == "/somebody/else" {
@@ -179,11 +179,11 @@ func TestIsolate(t *testing.T) {
 	}
 	// What a test queues goes to a directory of the test binary's own,
 	// never to the outbox of whoever runs the tests.
-	data := os.Getenv("STARFIX_DATA_DIR")
+	data := os.Getenv("ARIES_DATA_DIR")
 	if st, err := os.Stat(data); err != nil || !st.IsDir() || data == "/somebody/else/data" || data == home { //nolint:gosec // the directory Isolate just made
-		t.Errorf("STARFIX_DATA_DIR under Isolate = %q (%v), want a directory of the test's own, apart from its home", data, err)
+		t.Errorf("ARIES_DATA_DIR under Isolate = %q (%v), want a directory of the test's own, apart from its home", data, err)
 	}
-	for _, k := range []string{"SSH_AUTH_SOCK", "STARFIX_KEY_FILE", "STARFIX_KEY", "STARFIX_NO_QUEUE"} {
+	for _, k := range []string{"SSH_AUTH_SOCK", "ARIES_KEY_FILE", "ARIES_KEY", "ARIES_NO_QUEUE"} {
 		if v, ok := os.LookupEnv(k); ok {
 			t.Errorf("%s = %q under Isolate, want it unset", k, v)
 		}
@@ -195,8 +195,8 @@ func TestIsolate(t *testing.T) {
 	if got := os.Getenv("SSH_AUTH_SOCK"); got != "/tmp/somebody.sock" {
 		t.Errorf("SSH_AUTH_SOCK after restore = %q, want what it was", got)
 	}
-	if got := os.Getenv("STARFIX_DATA_DIR"); got != "/somebody/else/data" {
-		t.Errorf("STARFIX_DATA_DIR after restore = %q, want what it was", got)
+	if got := os.Getenv("ARIES_DATA_DIR"); got != "/somebody/else/data" {
+		t.Errorf("ARIES_DATA_DIR after restore = %q, want what it was", got)
 	}
 	for _, dir := range []string{home, data} {
 		if _, err := os.Stat(dir); !os.IsNotExist(err) { //nolint:gosec // the directories Isolate made

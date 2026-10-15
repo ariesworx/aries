@@ -7,7 +7,7 @@ import (
 
 func TestApply(t *testing.T) {
 	t.Parallel()
-	custom := Entry{Command: `C:\tools\starfix.exe`, Args: []string{"mcp"}}
+	custom := Entry{Command: `C:\tools\aries.exe`, Args: []string{"mcp"}}
 	tests := []struct {
 		name, agent, in, want string
 		entry                 Entry
@@ -15,14 +15,14 @@ func TestApply(t *testing.T) {
 	}{
 		{name: "claude new file", agent: "claude-code", result: Added, want: `{
   "mcpServers": {
-    "starfix": {
+    "aries": {
       "type": "stdio",
-      "command": "sfx",
+      "command": "aries",
       "args": [
         "mcp"
       ],
       "env": {
-        "STARFIX_HARNESS": "claude-code"
+        "ARIES_HARNESS": "claude-code"
       }
     }
   }
@@ -37,14 +37,14 @@ func TestApply(t *testing.T) {
       "type": "http",
       "url": "https://mcp.example.com"
     },
-    "starfix": {
+    "aries": {
       "type": "stdio",
-      "command": "sfx",
+      "command": "aries",
       "args": [
         "mcp"
       ],
       "env": {
-        "STARFIX_HARNESS": "claude-code"
+        "ARIES_HARNESS": "claude-code"
       }
     }
   },
@@ -52,17 +52,17 @@ func TestApply(t *testing.T) {
 }
 `},
 		{name: "claude replaces the entry wholesale", agent: "claude-code", result: Updated, entry: custom,
-			in: `{"mcpServers": {"starfix": {"command": "old", "env": {"STARFIX_SESSION": "x"}, "args": []}}}`,
+			in: `{"mcpServers": {"aries": {"command": "old", "env": {"ARIES_SESSION": "x"}, "args": []}}}`,
 			want: `{
   "mcpServers": {
-    "starfix": {
+    "aries": {
       "type": "stdio",
-      "command": "C:\\tools\\starfix.exe",
+      "command": "C:\\tools\\aries.exe",
       "args": [
         "mcp"
       ],
       "env": {
-        "STARFIX_HARNESS": "claude-code"
+        "ARIES_HARNESS": "claude-code"
       }
     }
   }
@@ -70,13 +70,13 @@ func TestApply(t *testing.T) {
 `},
 		{name: "gemini new file", agent: "gemini", result: Added, in: "\n", want: `{
   "mcpServers": {
-    "starfix": {
-      "command": "sfx",
+    "aries": {
+      "command": "aries",
       "args": [
         "mcp"
       ],
       "env": {
-        "STARFIX_HARNESS": "gemini"
+        "ARIES_HARNESS": "gemini"
       }
     }
   }
@@ -84,14 +84,14 @@ func TestApply(t *testing.T) {
 `},
 		{name: "vscode new file", agent: "vscode", result: Added, want: `{
   "servers": {
-    "starfix": {
+    "aries": {
       "type": "stdio",
-      "command": "sfx",
+      "command": "aries",
       "args": [
         "mcp"
       ],
       "env": {
-        "STARFIX_HARNESS": "vscode"
+        "ARIES_HARNESS": "vscode"
       }
     }
   }
@@ -111,14 +111,14 @@ func TestApply(t *testing.T) {
       "type": "http",
       "url": "https://mcp.example.com"
     },
-    "starfix": {
+    "aries": {
       "type": "stdio",
-      "command": "sfx",
+      "command": "aries",
       "args": [
         "mcp"
       ],
       "env": {
-        "STARFIX_HARNESS": "vscode"
+        "ARIES_HARNESS": "vscode"
       }
     }
   }
@@ -126,44 +126,44 @@ func TestApply(t *testing.T) {
 `},
 		{name: "cursor new file", agent: "cursor", result: Added, want: `{
   "mcpServers": {
-    "starfix": {
-      "command": "sfx",
+    "aries": {
+      "command": "aries",
       "args": [
         "mcp"
       ],
       "env": {
-        "STARFIX_HARNESS": "cursor"
+        "ARIES_HARNESS": "cursor"
       }
     }
   }
 }
 `},
 		{name: "codex new file", agent: "codex", result: Added,
-			want: "[mcp_servers.starfix]\ncommand = \"sfx\"\nargs = [\"mcp\"]\n\n[mcp_servers.starfix.env]\nSTARFIX_HARNESS = \"codex\"\n"},
+			want: "[mcp_servers.aries]\ncommand = \"aries\"\nargs = [\"mcp\"]\n\n[mcp_servers.aries.env]\nARIES_HARNESS = \"codex\"\n"},
 		{name: "codex appends after other tables", agent: "codex", result: Added,
 			in:   "model = \"o4\"\n\n[mcp_servers.other]\ncommand = \"x\"\n",
-			want: "model = \"o4\"\n\n[mcp_servers.other]\ncommand = \"x\"\n\n[mcp_servers.starfix]\ncommand = \"sfx\"\nargs = [\"mcp\"]\n\n[mcp_servers.starfix.env]\nSTARFIX_HARNESS = \"codex\"\n"},
+			want: "model = \"o4\"\n\n[mcp_servers.other]\ncommand = \"x\"\n\n[mcp_servers.aries]\ncommand = \"aries\"\nargs = [\"mcp\"]\n\n[mcp_servers.aries.env]\nARIES_HARNESS = \"codex\"\n"},
 		{name: "codex replaces the entry in place, keeping the comment above", agent: "codex", result: Updated, entry: custom,
-			in:   "# top\n[mcp_servers.\"starfix\"] # ours\nargs = [\n  \"serve\",\n]\nstartup_timeout_sec = 20\n\n[mcp_servers.starfix.env]\nA = \"b\"\n",
-			want: "# top\n[mcp_servers.starfix]\ncommand = \"C:\\\\tools\\\\starfix.exe\"\nargs = [\"mcp\"]\n\n[mcp_servers.starfix.env]\nSTARFIX_HARNESS = \"codex\"\n"},
+			in:   "# top\n[mcp_servers.\"aries\"] # ours\nargs = [\n  \"serve\",\n]\nstartup_timeout_sec = 20\n\n[mcp_servers.aries.env]\nA = \"b\"\n",
+			want: "# top\n[mcp_servers.aries]\ncommand = \"C:\\\\tools\\\\aries.exe\"\nargs = [\"mcp\"]\n\n[mcp_servers.aries.env]\nARIES_HARNESS = \"codex\"\n"},
 		{name: "codex adds the env table after its own, before the next", agent: "codex", result: Updated,
-			in:   "[mcp_servers.starfix]\ncommand = \"sfx\"\nargs = [\"mcp\"]\n\n[other]\ny = 2\n",
-			want: "[mcp_servers.starfix]\ncommand = \"sfx\"\nargs = [\"mcp\"]\n\n[mcp_servers.starfix.env]\nSTARFIX_HARNESS = \"codex\"\n\n[other]\ny = 2\n"},
+			in:   "[mcp_servers.aries]\ncommand = \"aries\"\nargs = [\"mcp\"]\n\n[other]\ny = 2\n",
+			want: "[mcp_servers.aries]\ncommand = \"aries\"\nargs = [\"mcp\"]\n\n[mcp_servers.aries.env]\nARIES_HARNESS = \"codex\"\n\n[other]\ny = 2\n"},
 		{name: "codex corrects a wrong harness", agent: "codex", result: Updated,
-			in:   "[mcp_servers.starfix]\ncommand = \"sfx\"\nargs = [\"mcp\"]\n\n[mcp_servers.starfix.env]\nA = \"b\"\nSTARFIX_HARNESS = \"gemini\"\n",
-			want: "[mcp_servers.starfix]\ncommand = \"sfx\"\nargs = [\"mcp\"]\n\n[mcp_servers.starfix.env]\nSTARFIX_HARNESS = \"codex\"\n"},
+			in:   "[mcp_servers.aries]\ncommand = \"aries\"\nargs = [\"mcp\"]\n\n[mcp_servers.aries.env]\nA = \"b\"\nARIES_HARNESS = \"gemini\"\n",
+			want: "[mcp_servers.aries]\ncommand = \"aries\"\nargs = [\"mcp\"]\n\n[mcp_servers.aries.env]\nARIES_HARNESS = \"codex\"\n"},
 		{name: "claude drops other env variables", agent: "claude-code", result: Updated,
-			in: `{"mcpServers": {"starfix": {"type": "stdio", "command": "sfx", "args": ["mcp"], "env": {"STARFIX_HARNESS": "codex", "A": "b"}}}}`,
+			in: `{"mcpServers": {"aries": {"type": "stdio", "command": "aries", "args": ["mcp"], "env": {"ARIES_HARNESS": "codex", "A": "b"}}}}`,
 			want: `{
   "mcpServers": {
-    "starfix": {
+    "aries": {
       "type": "stdio",
-      "command": "sfx",
+      "command": "aries",
       "args": [
         "mcp"
       ],
       "env": {
-        "STARFIX_HARNESS": "claude-code"
+        "ARIES_HARNESS": "claude-code"
       }
     }
   }
@@ -200,7 +200,7 @@ func TestApply(t *testing.T) {
 // formatting is not ours.
 func TestApplyLeavesRegisteredFileAlone(t *testing.T) {
 	t.Parallel()
-	in := `{"mcpServers":{"starfix":{"env":{"STARFIX_HARNESS":"claude-code"},"args":["mcp"],"command":"sfx","type":"stdio"}}}`
+	in := `{"mcpServers":{"aries":{"env":{"ARIES_HARNESS":"claude-code"},"args":["mcp"],"command":"aries","type":"stdio"}}}`
 	out, res, err := Agents["claude-code"].Apply([]byte(in), DefaultEntry)
 	if err != nil || res != Unchanged || string(out) != in {
 		t.Fatalf("%s %v %s", res, err, out)
@@ -210,9 +210,9 @@ func TestApplyLeavesRegisteredFileAlone(t *testing.T) {
 func TestRemove(t *testing.T) {
 	t.Parallel()
 	tests := []struct{ agent, in, want string }{
-		{"claude-code", `{"mcpServers": {"a": {}, "starfix": {"command": "starfix"}}}`, "{\n  \"mcpServers\": {\n    \"a\": {}\n  }\n}\n"},
-		{"vscode", `{"servers": {"starfix": {"command": "sfx"}}, "mcpServers": {"starfix": {}}}`, "{\n  \"servers\": {},\n  \"mcpServers\": {\n    \"starfix\": {}\n  }\n}\n"},
-		{"codex", "x = 1\n\n[mcp_servers.starfix]\ncommand = \"starfix\"\n\n[mcp_servers.starfix.env]\nA = \"b\"\n\n[other]\ny = 2\n",
+		{"claude-code", `{"mcpServers": {"a": {}, "aries": {"command": "aries"}}}`, "{\n  \"mcpServers\": {\n    \"a\": {}\n  }\n}\n"},
+		{"vscode", `{"servers": {"aries": {"command": "aries"}}, "mcpServers": {"aries": {}}}`, "{\n  \"servers\": {},\n  \"mcpServers\": {\n    \"aries\": {}\n  }\n}\n"},
+		{"codex", "x = 1\n\n[mcp_servers.aries]\ncommand = \"aries\"\n\n[mcp_servers.aries.env]\nA = \"b\"\n\n[other]\ny = 2\n",
 			"x = 1\n\n[other]\ny = 2\n"},
 	}
 	for _, tc := range tests {
@@ -241,7 +241,7 @@ func TestSnippets(t *testing.T) {
 	for _, name := range Names() {
 		a := Agents[name]
 		s := a.Snippet(DefaultEntry)
-		if !strings.Contains(s, "starfix") || !strings.Contains(s, "mcp") {
+		if !strings.Contains(s, "aries") || !strings.Contains(s, "mcp") {
 			t.Errorf("%s snippet: %s", name, s)
 		}
 		if !a.Registered([]byte(s), DefaultEntry) {

@@ -79,9 +79,9 @@ jobs:
         # apparmor_parser is part of Ubuntu and of GitHub's Ubuntu runners.
         # -Q compiles without loading and -K skips the cache, so it needs
         # no root and changes nothing; -I finds this checkout's tunables.
-        # It checks syntax only, not that starfixd works when confined
+        # It checks syntax only, not that ariesd works when confined
         # (deploy/apparmor/README.md).
-        run: /usr/sbin/apparmor_parser -Q -K -I deploy/apparmor deploy/apparmor/starfixd
+        run: /usr/sbin/apparmor_parser -Q -K -I deploy/apparmor deploy/apparmor/ariesd
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
       - name: cross-platform build
@@ -117,7 +117,7 @@ jobs:
         with:
           persist-credentials: false
       - name: AppArmor profile syntax
-        run: /usr/sbin/apparmor_parser -Q -K -I deploy/apparmor deploy/apparmor/starfixd
+        run: /usr/sbin/apparmor_parser -Q -K -I deploy/apparmor deploy/apparmor/ariesd
 
   # The store tests run against a real dolt sql-server, pinned and verified.
   test:
@@ -131,7 +131,7 @@ jobs:
     env:
       # A Dolt-backed test fails rather than skips when dolt is missing, so
       # the job cannot pass without running them (internal/dolttest).
-      STARFIX_REQUIRE_DOLT: "1"
+      ARIES_REQUIRE_DOLT: "1"
       # The memory file system the tests' temporary files go on, when it
       # is fit for them ("temporary directory for the tests", below). Set
       # it to "" to put them back on the runner's disk, in /tmp.
@@ -188,7 +188,7 @@ jobs:
             kind=$(stat -f -c %T "$TESTS_TMPFS" 2>/dev/null) || kind=missing
             free_mb=$(df -Pm "$TESTS_TMPFS" 2>/dev/null | awk 'NR == 2 { print $4 }')
             mem_mb=$(awk '$1 == "MemAvailable:" { print int($2 / 1024) }' /proc/meminfo)
-            try=$TESTS_TMPFS/starfix-tests
+            try=$TESTS_TMPFS/aries-tests
             # The tests run programs they write there: stand-ins for the
             # tools scripts/gate.sh calls, and a binary to upgrade to.
             probe() {
@@ -267,7 +267,7 @@ jobs:
         run: |
           log=$RUNNER_TEMP/peer-check.log
           failed=0
-          (cd internal/server && sudo env "PATH=$PATH" STARFIX_REQUIRE_DOLT=1 GITHUB_ACTIONS=true \
+          (cd internal/server && sudo env "PATH=$PATH" ARIES_REQUIRE_DOLT=1 GITHUB_ACTIONS=true \
             ../../scripts/leftovers.sh "$RUNNER_TEMP/server.test" -test.run '^TestCheckPeer' -test.v) >"$log" 2>&1 || failed=1
           cat "$log"
           for t in TestCheckPeerOtherUID TestCheckPeerKeepsStatusFromOtherUsers; do

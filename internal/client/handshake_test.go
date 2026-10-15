@@ -12,7 +12,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // welcomer is a stand-in for sshd and the daemon behind it: it accepts
@@ -77,7 +77,7 @@ func newWelcomer(t *testing.T, answer func(hello *proto.Frame) *proto.Frame) *we
 	return w
 }
 
-// session runs one session: the request to run starfixd, the hello and
+// session runs one session: the request to run ariesd, the hello and
 // its answer.
 func (w *welcomer) session(ch ssh.Channel, reqs <-chan *ssh.Request) {
 	defer func() { _ = ch.Close() }()
@@ -117,7 +117,7 @@ func (w *welcomer) dial(t *testing.T) (*Conn, error) {
 func (w *welcomer) dialPinned(t *testing.T, hostKeys ...string) (*Conn, error) {
 	t.Helper()
 	cfg := &Config{Project: testProject, Key: "id", Root: t.TempDir()}
-	cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.HostKeys = "127.0.0.1", w.port, "starfix", hostKeys
+	cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.HostKeys = "127.0.0.1", w.port, "aries", hostKeys
 	newKeyPair(t).write(t, cfg.Root, "id", "", false)
 	c, err := Dial(t.Context(), cfg, Options{Timeout: patience, Getenv: noEnv,
 		UserHomeDir: func() (string, error) { return cfg.Root, nil }})

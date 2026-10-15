@@ -9,15 +9,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/agentsetup"
-	"github.com/ariesworx/starfix/internal/capture"
+	"github.com/ariesworx/aries/internal/agentsetup"
+	"github.com/ariesworx/aries/internal/capture"
 )
 
 // hookSession is the Claude Code session in these tests.
 const hookSession = "0b1c2d3e-4f5a-4b6c-8d7e-9f0a1b2c3d4e"
 
 // transcriptLine is an assistant line of hookSession with usage, or in
-// a format sfx does not know when unknown is set.
+// a format aries does not know when unknown is set.
 func transcriptLine(t *testing.T, id string, unknown bool) string {
 	t.Helper()
 	msg := map[string]any{"id": id, "model": "claude-x", "content": []any{map[string]any{"type": "text", "text": "Fixture reply."}},
@@ -45,7 +45,7 @@ func writeTranscript(t *testing.T, lines string) string {
 	return path
 }
 
-// usageHook runs `sfx usage` with args and stdin as the hook's input,
+// usageHook runs `aries usage` with args and stdin as the hook's input,
 // keeping its state under cache.
 func usageHook(t *testing.T, cache, stdin string, args ...string) (int, string, string) {
 	t.Helper()
@@ -56,14 +56,14 @@ func usageHook(t *testing.T, cache, stdin string, args ...string) (int, string, 
 	return code, out.String(), errb.String()
 }
 
-// The hook always exits 0 and prints nothing on stdout. Outside a starfix
+// The hook always exits 0 and prints nothing on stdout. Outside an Aries
 // repository, or with nothing new to send, it says nothing at all; any
 // failure is one line on stderr with a fix, and never transcript text.
 func TestUsageHookNeverFails(t *testing.T) {
 	t.Parallel()
 	repo, _ := repoWithConfig(t) // no SSH key: connecting fails
 	broken := t.TempDir()
-	if err := os.WriteFile(filepath.Join(broken, ".starfix.yaml"), []byte("colour: blue\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(broken, ".aries.yaml"), []byte("colour: blue\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	user := `{"type":"user","sessionId":"` + hookSession + `","message":{"role":"user","content":"Fixture prompt."}}` + "\n"
@@ -89,18 +89,18 @@ func TestUsageHookNeverFails(t *testing.T) {
 		// note is in the one stderr line; "" means no output at all.
 		note string
 	}{
-		{name: "not a starfix repository", stdin: input(t.TempDir(), records)},
+		{name: "not an aries repository", stdin: input(t.TempDir(), records)},
 		{name: "-C not a repository", args: []string{"-C", t.TempDir()}, stdin: input("", records)},
 		{name: "nothing new to send", stdin: input(repo, empty)},
 		{name: "an open response waits at Stop", stdin: input(repo, open)},
-		{name: "an open response is sent at SessionEnd", stdin: inputAt(repo, open, "SessionEnd"), note: "starfix: token usage not sent: "},
-		{name: "cannot connect", stdin: input(repo, records), note: "starfix: token usage not sent: "},
-		{name: "bad config", stdin: input(broken, records), note: "starfix: token usage not sent: "},
+		{name: "an open response is sent at SessionEnd", stdin: inputAt(repo, open, "SessionEnd"), note: "aries: token usage not sent: "},
+		{name: "cannot connect", stdin: input(repo, records), note: "aries: token usage not sent: "},
+		{name: "bad config", stdin: input(broken, records), note: "aries: token usage not sent: "},
 		{name: "unknown format", stdin: input(repo, unknown),
-			note: "starfix: token usage not sent: transcript format not recognized (Claude Code 9.0.0)"},
-		{name: "no hook input", args: []string{"-C", repo}, note: `starfix: token usage not sent: "no session_id and transcript_path in the hook input"`},
+			note: "aries: token usage not sent: transcript format not recognized (Claude Code 9.0.0)"},
+		{name: "no hook input", args: []string{"-C", repo}, note: `aries: token usage not sent: "no session_id and transcript_path in the hook input"`},
 		{name: "input not JSON", args: []string{"-C", repo}, stdin: "hello", note: "no session_id and transcript_path"},
-		{name: "--json changes nothing", args: []string{"--json"}, stdin: input(repo, records), note: "starfix: token usage not sent: "},
+		{name: "--json changes nothing", args: []string{"--json"}, stdin: input(repo, records), note: "aries: token usage not sent: "},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -133,12 +133,12 @@ func TestUsageRefusesArguments(t *testing.T) {
 		{[]string{"usage", "--hook=aider"}},
 	}
 	for _, tc := range tests {
-		if code, _, errb := runCLI(t, tc.args...); code != ExitUsage || !strings.Contains(errb, "usage: sfx usage --hook[=AGENT]") {
-			t.Errorf("sfx %v: exit %d, stderr %q; want %d and the usage line", tc.args, code, errb, ExitUsage)
+		if code, _, errb := runCLI(t, tc.args...); code != ExitUsage || !strings.Contains(errb, "usage: aries usage --hook[=AGENT]") {
+			t.Errorf("aries %v: exit %d, stderr %q; want %d and the usage line", tc.args, code, errb, ExitUsage)
 		}
 	}
 	if code, _, errb := runCLI(t, "-C", t.TempDir(), "usage", "--hook="+capture.Harness); code != ExitOK || errb != "" {
-		t.Errorf("sfx usage --hook=%s outside a repository: exit %d, stderr %q; want 0 and nothing", capture.Harness, code, errb)
+		t.Errorf("aries usage --hook=%s outside a repository: exit %d, stderr %q; want 0 and nothing", capture.Harness, code, errb)
 	}
 }
 

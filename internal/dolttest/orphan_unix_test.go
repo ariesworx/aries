@@ -22,13 +22,13 @@ import (
 // nothing until it is killed, as a test binary that hangs does. Its value
 // is the directory, then a colon and "stopped" for a helper that stops the
 // server first.
-const orphanEnv = "STARFIX_DOLTTEST_ORPHAN"
+const orphanEnv = "ARIES_DOLTTEST_ORPHAN"
 
 // poolEnv makes the test binary a helper process that stands for a test
 // binary with a pool: it warms a pool, prints its own process id, dolt's
 // and the server's directory, and does nothing more, as a test binary in
 // the middle of its tests.
-const poolEnv = "STARFIX_DOLTTEST_POOL"
+const poolEnv = "ARIES_DOLTTEST_POOL"
 
 func TestMain(m *testing.M) {
 	if v := os.Getenv(orphanEnv); v != "" {

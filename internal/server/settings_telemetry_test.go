@@ -36,9 +36,9 @@ func TestResolveSettingsTelemetry(t *testing.T) {
 		{name: "principals left out", body: "telemetry:\n  principals: omit\n", perProject: true, principals: "omit"},
 		{name: "principals of another kind", body: "telemetry:\n  principals: hashed\n", err: "is not pseudonym, name or omit; fix: "},
 		{name: "principals in capitals", body: "telemetry:\n  principals: Name\n", err: "is not pseudonym, name or omit; fix: "},
-		{name: "a key file of its own", body: "telemetry:\n  principals_key: /srv/starfix/standins.key\n", perProject: true, key: "/srv/starfix/standins.key"},
+		{name: "a key file of its own", body: "telemetry:\n  principals_key: /srv/aries/standins.key\n", perProject: true, key: "/srv/aries/standins.key"},
 		{name: "a key file under the home directory", body: "telemetry:\n  principals_key: state/standins.key\n", perProject: true,
-			key: "/var/lib/starfix/state/standins.key"},
+			key: "/var/lib/aries/state/standins.key"},
 		{name: "listen on loopback", body: "telemetry:\n  listen: 127.0.0.1:9464\n", listen: "127.0.0.1:9464", perProject: true},
 		{name: "listen on IPv6 loopback", body: "telemetry:\n  listen: \"[::1]:9464\"\n", listen: "[::1]:9464", perProject: true},
 		{name: "a name is resolved when the daemon starts", body: "telemetry:\n  listen: localhost:9464\n", listen: "localhost:9464", perProject: true},
@@ -104,8 +104,8 @@ func TestResolveSettingsTelemetry(t *testing.T) {
 			if want := cmp.Or(tc.principals, "pseudonym"); s.Telemetry.Principals != want {
 				t.Errorf("ResolveSettings(%q).Telemetry.Principals = %q, want %q", tc.body, s.Telemetry.Principals, want)
 			}
-			if got, want := s.PrincipalsKey("/var/lib/starfix"), cmp.Or(tc.key, "/var/lib/starfix/telemetry/principals.key"); got != want {
-				t.Errorf("ResolveSettings(%q).PrincipalsKey(/var/lib/starfix) = %q, want %q", tc.body, got, want)
+			if got, want := s.PrincipalsKey("/var/lib/aries"), cmp.Or(tc.key, "/var/lib/aries/telemetry/principals.key"); got != want {
+				t.Errorf("ResolveSettings(%q).PrincipalsKey(/var/lib/aries) = %q, want %q", tc.body, got, want)
 			}
 		})
 	}

@@ -18,11 +18,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/dolttest"
-	"github.com/ariesworx/starfix/internal/logs"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
-	"github.com/ariesworx/starfix/internal/telemetry"
+	"github.com/ariesworx/aries/internal/dolttest"
+	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
+	"github.com/ariesworx/aries/internal/telemetry"
 )
 
 // measured makes a Telemetry whose instruments a test reads in process.
@@ -46,7 +46,7 @@ func snapshot(t *testing.T, m *telemetry.Manual) telemetry.Snapshot {
 }
 
 // newServerTel is newServerWith on a server and a store measured and
-// traced by tel, as `starfixd serve` builds them for one project.
+// traced by tel, as `ariesd serve` builds them for one project.
 func newServerTel(t *testing.T, lim Limits, tel *telemetry.Telemetry) *Server {
 	t.Helper()
 	dsn := newDatabase(t)
@@ -91,13 +91,13 @@ func check(t *testing.T, snap telemetry.Snapshot, wants []want) {
 		}
 	}
 	if t.Failed() {
-		t.Logf("collected:\n%s", starfixOnly(snap))
+		t.Logf("collected:\n%s", ariesOnly(snap))
 	}
 }
 
-// starfixOnly is snap without the Go runtime's metrics.
-func starfixOnly(snap telemetry.Snapshot) telemetry.Snapshot {
-	return slices.DeleteFunc(slices.Clone(snap), func(p telemetry.Point) bool { return !strings.HasPrefix(p.Name, "starfix.") })
+// ariesOnly is snap without the Go runtime's metrics.
+func ariesOnly(snap telemetry.Snapshot) telemetry.Snapshot {
+	return slices.DeleteFunc(slices.Clone(snap), func(p telemetry.Point) bool { return !strings.HasPrefix(p.Name, "aries.") })
 }
 
 // A known sequence of requests through a server of one project gives
@@ -132,41 +132,41 @@ func TestMetricsOfRequests(t *testing.T) {
 
 	open := snapshot(t, m)
 	check(t, open, []want{
-		{"starfix.handshakes", []string{"result", "ok"}, 1},
-		{"starfix.connections", []string{"project", project}, 1},
-		{"starfix.request.duration", []string{"op", "create", "result", "ok"}, 2},
-		{"starfix.request.duration", []string{"op", "create", "result", "invalid"}, 1},
-		{"starfix.request.duration", []string{"op", "list", "result", "ok"}, 1},
-		{"starfix.request.duration", []string{"op", "show", "result", "not_found"}, 1},
-		{"starfix.request.duration", []string{"op", "unknown", "result", "invalid"}, 1},
-		{"starfix.request.duration", []string{"op", "project.archive", "result", "invalid"}, 1},
-		{"starfix.request.duration", []string{"op", "start", "result", "ok"}, 1},
-		{"starfix.request.duration", []string{"op", "finish", "result", "ok"}, 1},
-		{"starfix.project.requests", []string{"project", project, "result_class", "ok"}, 5},
-		{"starfix.project.requests", []string{"project", project, "result_class", "refused"}, 4},
-		{"starfix.project.requests", []string{"project", project, "result_class", "error"}, 0},
-		{"starfix.control.writes", []string{"op", "project.archive", "result", "invalid"}, 1},
-		{"starfix.claims", []string{"event", "take", "reason", "none"}, 1},
-		{"starfix.claims", []string{"event", "release", "reason", "none"}, 1},
-		{"starfix.claims", []string{"event", "expire", "reason", "none"}, 0},
-		{"starfix.store.commit.duration", nil, 1},
-		{"starfix.stores.open", nil, 1},
+		{"aries.handshakes", []string{"result", "ok"}, 1},
+		{"aries.connections", []string{"project", project}, 1},
+		{"aries.request.duration", []string{"op", "create", "result", "ok"}, 2},
+		{"aries.request.duration", []string{"op", "create", "result", "invalid"}, 1},
+		{"aries.request.duration", []string{"op", "list", "result", "ok"}, 1},
+		{"aries.request.duration", []string{"op", "show", "result", "not_found"}, 1},
+		{"aries.request.duration", []string{"op", "unknown", "result", "invalid"}, 1},
+		{"aries.request.duration", []string{"op", "project.archive", "result", "invalid"}, 1},
+		{"aries.request.duration", []string{"op", "start", "result", "ok"}, 1},
+		{"aries.request.duration", []string{"op", "finish", "result", "ok"}, 1},
+		{"aries.project.requests", []string{"project", project, "result_class", "ok"}, 5},
+		{"aries.project.requests", []string{"project", project, "result_class", "refused"}, 4},
+		{"aries.project.requests", []string{"project", project, "result_class", "error"}, 0},
+		{"aries.control.writes", []string{"op", "project.archive", "result", "invalid"}, 1},
+		{"aries.claims", []string{"event", "take", "reason", "none"}, 1},
+		{"aries.claims", []string{"event", "release", "reason", "none"}, 1},
+		{"aries.claims", []string{"event", "expire", "reason", "none"}, 0},
+		{"aries.store.commit.duration", nil, 1},
+		{"aries.stores.open", nil, 1},
 	})
 	// The handshake's presence touch, two creates, a start and a finish
 	// each changed a row; what the request did beyond that is the
 	// store's business, so the count has a floor, not a value.
-	if n := open.Observations("starfix.store.write.duration", "project", project); n < 4 {
-		t.Errorf("starfix.store.write.duration has %d observations, want at least the 4 writes that committed", n)
+	if n := open.Observations("aries.store.write.duration", "project", project); n < 4 {
+		t.Errorf("aries.store.write.duration has %d observations, want at least the 4 writes that committed", n)
 	}
-	if n, st := open.Observations("starfix.store.write.duration"), s.cfg.Store.WriteStats().Samples; float64(n) != float64(st) {
-		t.Errorf("starfix.store.write.duration has %d observations and status counts %d writes: they are one measurement", n, st)
+	if n, st := open.Observations("aries.store.write.duration"), s.cfg.Store.WriteStats().Samples; float64(n) != float64(st) {
+		t.Errorf("aries.store.write.duration has %d observations and status counts %d writes: they are one measurement", n, st)
 	}
-	if total := open.Observations("starfix.request.duration"); total != 9 {
-		t.Errorf("starfix.request.duration has %d observations in all, want the 9 requests", total)
+	if total := open.Observations("aries.request.duration"); total != 9 {
+		t.Errorf("aries.request.duration has %d observations in all, want the 9 requests", total)
 	}
 
 	c.hangUp()
-	check(t, snapshot(t, m), []want{{"starfix.connections", []string{"project", project}, 0}})
+	check(t, snapshot(t, m), []want{{"aries.connections", []string{"project", project}, 0}})
 }
 
 // Handshakes are counted by how they end.
@@ -210,17 +210,17 @@ func TestMetricsOfHandshakes(t *testing.T) {
 	}
 	snap := snapshot(t, m)
 	check(t, snap, []want{
-		{"starfix.handshakes", []string{"result", "ok"}, 1},
-		{"starfix.handshakes", []string{"result", "busy"}, 1},
-		{"starfix.handshakes", []string{"result", "not_found"}, 2},
-		{"starfix.handshakes", []string{"result", "version"}, 1},
-		{"starfix.handshakes", []string{"result", "invalid"}, 1},
-		{"starfix.handshakes", []string{"result", "failed"}, 2},
-		{"starfix.limit.refusals", []string{"limit", "conns_per_principal"}, 1},
-		{"starfix.limit.refusals", []string{"limit", "conns"}, 0},
+		{"aries.handshakes", []string{"result", "ok"}, 1},
+		{"aries.handshakes", []string{"result", "busy"}, 1},
+		{"aries.handshakes", []string{"result", "not_found"}, 2},
+		{"aries.handshakes", []string{"result", "version"}, 1},
+		{"aries.handshakes", []string{"result", "invalid"}, 1},
+		{"aries.handshakes", []string{"result", "failed"}, 2},
+		{"aries.limit.refusals", []string{"limit", "conns_per_principal"}, 1},
+		{"aries.limit.refusals", []string{"limit", "conns"}, 0},
 	})
-	if got := snap.Sum("starfix.handshakes"); got != 8 {
-		t.Errorf("starfix.handshakes counts %v in all, want the 8 handshakes", got)
+	if got := snap.Sum("aries.handshakes"); got != 8 {
+		t.Errorf("aries.handshakes counts %v in all, want the 8 handshakes", got)
 	}
 }
 
@@ -249,16 +249,16 @@ func TestMetricsStayBounded(t *testing.T) {
 			t.Fatalf("a hello for project %.20q was welcomed", proj)
 		}
 	}
-	snap := starfixOnly(snapshot(t, m))
+	snap := ariesOnly(snapshot(t, m))
 	check(t, snap, []want{
-		{"starfix.request.duration", []string{"op", "unknown", "result", "invalid"}, float64(len(hostile))},
+		{"aries.request.duration", []string{"op", "unknown", "result", "invalid"}, float64(len(hostile))},
 	})
 	limits := map[string]int{
-		"starfix.request.duration":    3, // unknown/invalid, show/not_found, show/invalid
-		"starfix.project.requests":    1,
-		"starfix.handshakes":          3, // ok, not_found, invalid
-		"starfix.connections":         1,
-		"starfix.connections.dropped": 0,
+		"aries.request.duration":    3, // unknown/invalid, show/not_found, show/invalid
+		"aries.project.requests":    1,
+		"aries.handshakes":          3, // ok, not_found, invalid
+		"aries.connections":         1,
+		"aries.connections.dropped": 0,
 	}
 	for name, most := range limits {
 		if n := len(snap.Series(name)); n > most {
@@ -306,12 +306,12 @@ func TestMetricsOfLimits(t *testing.T) {
 	// which the client may read first: wait for the handler.
 	refused.hangUp()
 	check(t, snapshot(t, m), []want{
-		{"starfix.limit.refusals", []string{"limit", "write_rate"}, 3},
-		{"starfix.limit.refusals", []string{"limit", "conns"}, 1},
-		{"starfix.request.duration", []string{"op", "create", "result", "busy"}, 3},
-		{"starfix.request.duration", []string{"op", "create", "result", "ok"}, 2},
-		{"starfix.handshakes", []string{"result", "busy"}, 1},
-		{"starfix.handshakes", []string{"result", "ok"}, 2},
+		{"aries.limit.refusals", []string{"limit", "write_rate"}, 3},
+		{"aries.limit.refusals", []string{"limit", "conns"}, 1},
+		{"aries.request.duration", []string{"op", "create", "result", "busy"}, 3},
+		{"aries.request.duration", []string{"op", "create", "result", "ok"}, 2},
+		{"aries.handshakes", []string{"result", "busy"}, 1},
+		{"aries.handshakes", []string{"result", "ok"}, 2},
 	})
 }
 
@@ -355,33 +355,33 @@ func TestMetricsOfManyProjects(t *testing.T) {
 
 	snap := snapshot(t, m)
 	check(t, snap, []want{
-		{"starfix.handshakes", []string{"result", "ok"}, 4},
-		{"starfix.connections", []string{"project", projA}, 2},
-		{"starfix.connections", []string{"project", projB}, 1},
-		{"starfix.project.requests", []string{"project", projA, "result_class", "ok"}, 5},
-		{"starfix.project.requests", []string{"project", projA, "result_class", "refused"}, 1},
-		{"starfix.project.requests", []string{"project", projB, "result_class", "ok"}, 2},
-		{"starfix.control.writes", []string{"op", "member.remove", "result", "forbidden"}, 1},
-		{"starfix.control.writes", []string{"op", "member.remove", "result", "ok"}, 1},
-		{"starfix.control.writes", []string{"op", "key.add", "result", "ok"}, 1},
-		{"starfix.connections.dropped", []string{"reason", "membership"}, 1},
-		{"starfix.claims", []string{"event", "take", "reason", "none"}, 1},
-		{"starfix.claims", []string{"event", "release", "reason", "membership"}, 1},
-		{"starfix.store.open.duration", []string{"migrated", "true"}, 2},
-		{"starfix.store.open.duration", []string{"migrated", "false"}, 0},
-		{"starfix.stores.open", nil, 2},
-		{"starfix.keys_file.writes", []string{"result", "ok"}, 2}, // the start's, and the key added
-		{"starfix.keys_file.writes", []string{"result", "failed"}, 0},
+		{"aries.handshakes", []string{"result", "ok"}, 4},
+		{"aries.connections", []string{"project", projA}, 2},
+		{"aries.connections", []string{"project", projB}, 1},
+		{"aries.project.requests", []string{"project", projA, "result_class", "ok"}, 5},
+		{"aries.project.requests", []string{"project", projA, "result_class", "refused"}, 1},
+		{"aries.project.requests", []string{"project", projB, "result_class", "ok"}, 2},
+		{"aries.control.writes", []string{"op", "member.remove", "result", "forbidden"}, 1},
+		{"aries.control.writes", []string{"op", "member.remove", "result", "ok"}, 1},
+		{"aries.control.writes", []string{"op", "key.add", "result", "ok"}, 1},
+		{"aries.connections.dropped", []string{"reason", "membership"}, 1},
+		{"aries.claims", []string{"event", "take", "reason", "none"}, 1},
+		{"aries.claims", []string{"event", "release", "reason", "membership"}, 1},
+		{"aries.store.open.duration", []string{"migrated", "true"}, 2},
+		{"aries.store.open.duration", []string{"migrated", "false"}, 0},
+		{"aries.stores.open", nil, 2},
+		{"aries.keys_file.writes", []string{"result", "ok"}, 2}, // the start's, and the key added
+		{"aries.keys_file.writes", []string{"result", "failed"}, 0},
 	})
-	if at := snap.Value("starfix.keys_file.last_write.time"); time.Since(time.Unix(int64(at), 0)) > time.Hour {
-		t.Errorf("starfix.keys_file.last_write.time = %v, want a time just now", at)
+	if at := snap.Value("aries.keys_file.last_write.time"); time.Since(time.Unix(int64(at), 0)) > time.Hour {
+		t.Errorf("aries.keys_file.last_write.time = %v, want a time just now", at)
 	}
-	if n := snap.Observations("starfix.store.write.duration", "project", projA); n < 2 {
-		t.Errorf("starfix.store.write.duration{project=A} has %d observations, want bob's writes", n)
+	if n := snap.Observations("aries.store.write.duration", "project", projA); n < 2 {
+		t.Errorf("aries.store.write.duration{project=A} has %d observations, want bob's writes", n)
 	}
 	// Each project's own series: B took no write beyond presence.
-	if nA, nB := snap.Observations("starfix.store.write.duration", "project", projA), snap.Observations("starfix.store.write.duration", "project", projB); nB >= nA {
-		t.Errorf("starfix.store.write.duration: project B has %d observations, A %d; want B's fewer", nB, nA)
+	if nA, nB := snap.Observations("aries.store.write.duration", "project", projA), snap.Observations("aries.store.write.duration", "project", projB); nB >= nA {
+		t.Errorf("aries.store.write.duration: project B has %d observations, A %d; want B's fewer", nB, nA)
 	}
 
 	// A store closed for idleness and opened again has nothing to migrate.
@@ -390,12 +390,12 @@ func TestMetricsOfManyProjects(t *testing.T) {
 	d.hangUp()
 	ck.advance(time.Hour)
 	mu.CloseIdleStores()
-	check(t, snapshot(t, m), []want{{"starfix.stores.open", nil, 0}, {"starfix.connections", []string{"project", projA}, 0}})
+	check(t, snapshot(t, m), []want{{"aries.stores.open", nil, 0}, {"aries.connections", []string{"project", projA}, 0}})
 	mustDialTo(t, mu.Server, alice, projB)
 	check(t, snapshot(t, m), []want{
-		{"starfix.stores.open", nil, 1},
-		{"starfix.store.open.duration", []string{"migrated", "false"}, 1},
-		{"starfix.store.open.duration", []string{"migrated", "true"}, 2},
+		{"aries.stores.open", nil, 1},
+		{"aries.store.open.duration", []string{"migrated", "false"}, 1},
+		{"aries.store.open.duration", []string{"migrated", "true"}, 2},
 	})
 }
 
@@ -411,7 +411,7 @@ func TestMetricsWithoutProjects(t *testing.T) {
 	b := mustDialTo(t, mu.Server, alice, projB)
 	mustAsk[proto.CreateResult](a, proto.OpCreate, proto.CreateArgs{Title: "in A"})
 	mustAsk[proto.CreateResult](b, proto.OpCreate, proto.CreateArgs{Title: "in B"})
-	snap := starfixOnly(snapshot(t, m))
+	snap := ariesOnly(snapshot(t, m))
 	for _, p := range snap {
 		if _, ok := p.Attrs["project"]; ok {
 			t.Errorf("%s has a project attribute with per_project off: %v", p.Name, p.Attrs)
@@ -423,14 +423,14 @@ func TestMetricsWithoutProjects(t *testing.T) {
 		}
 	}
 	check(t, snap, []want{
-		{"starfix.connections", nil, 2},
-		{"starfix.project.requests", []string{"result_class", "ok"}, 2},
+		{"aries.connections", nil, 2},
+		{"aries.project.requests", []string{"result_class", "ok"}, 2},
 	})
-	if n := snap.Observations("starfix.store.write.duration"); n < 2 {
-		t.Errorf("starfix.store.write.duration has %d observations, want both projects' writes in the one series", n)
+	if n := snap.Observations("aries.store.write.duration"); n < 2 {
+		t.Errorf("aries.store.write.duration has %d observations, want both projects' writes in the one series", n)
 	}
-	if n := len(snap.Series("starfix.store.write.duration")); n != 1 {
-		t.Errorf("starfix.store.write.duration has %d series with per_project off, want 1", n)
+	if n := len(snap.Series("aries.store.write.duration")); n != 1 {
+		t.Errorf("aries.store.write.duration has %d series with per_project off, want 1", n)
 	}
 }
 
@@ -461,7 +461,7 @@ func TestReadyFollowsTheKeysFile(t *testing.T) {
 	if why := mu.Ready(t.Context()); why != "the last write of the keys file failed" {
 		t.Errorf("Ready() with the keys file unwritable = %q, want it to name the keys file", why)
 	}
-	check(t, snapshot(t, m), []want{{"starfix.keys_file.writes", []string{"result", "failed"}, 2}})
+	check(t, snapshot(t, m), []want{{"aries.keys_file.writes", []string{"result", "failed"}, 2}})
 
 	if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // writable again
 		t.Fatal(err)
@@ -471,8 +471,8 @@ func TestReadyFollowsTheKeysFile(t *testing.T) {
 		t.Errorf("Ready() after the keys file was written = %q, want ready", why)
 	}
 	check(t, snapshot(t, m), []want{
-		{"starfix.keys_file.writes", []string{"result", "failed"}, 2},
-		{"starfix.keys_file.writes", []string{"result", "ok"}, 2}, // the start's, and this one
+		{"aries.keys_file.writes", []string{"result", "failed"}, 2},
+		{"aries.keys_file.writes", []string{"result", "ok"}, 2}, // the start's, and this one
 	})
 }
 
@@ -522,7 +522,7 @@ func TestReadyFollowsDolt(t *testing.T) {
 	s.dolt.now = func() time.Time { return time.Unix(0, now.Load()) }
 	later := func() { now.Add(int64(doltCheckEvery)) }
 
-	if why := s.Ready(ctx); why != "starfixd is not listening on its socket" {
+	if why := s.Ready(ctx); why != "ariesd is not listening on its socket" {
 		t.Errorf("Ready() before Serve = %q, want it to say the daemon is not listening", why)
 	}
 	l := newFakeListener()
@@ -578,7 +578,7 @@ func TestReadyFollowsDolt(t *testing.T) {
 
 	stop()
 	<-done
-	if why := s.Ready(ctx); why != "starfixd is not listening on its socket" {
+	if why := s.Ready(ctx); why != "ariesd is not listening on its socket" {
 		t.Errorf("Ready() after Serve returned = %q, want it to say the daemon is not listening", why)
 	}
 }
@@ -609,11 +609,11 @@ func TestReaperMetricsAndHeartbeat(t *testing.T) {
 	go func() { done <- s.Serve(ctx, newFakeListener()) }()
 	waitFor(t, "two ticks of the reaper and some heartbeats", func() bool {
 		snap := snapshot(t, m)
-		return snap.Observations("starfix.reaper.duration") >= 2 && beats.Load() >= 3
+		return snap.Observations("aries.reaper.duration") >= 2 && beats.Load() >= 3
 	})
 	snap := snapshot(t, m)
-	if at := snap.Value("starfix.reaper.last_run.time"); time.Since(time.Unix(int64(at), 0)) > time.Minute {
-		t.Errorf("starfix.reaper.last_run.time = %v, want a time just now", at)
+	if at := snap.Value("aries.reaper.last_run.time"); time.Since(time.Unix(int64(at), 0)) > time.Minute {
+		t.Errorf("aries.reaper.last_run.time = %v, want a time just now", at)
 	}
 	cancel()
 	if err := <-done; err != nil {
@@ -632,7 +632,7 @@ func slogTo(w io.Writer) *slog.Logger {
 	return slog.New(logs.NewHandler(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelDebug}), LogIDs))
 }
 
-// `starfixd status` gets the report a server admin gets, over the
+// `ariesd status` gets the report a server admin gets, over the
 // daemon's socket and with no key, and nothing else.
 func TestLocalStatus(t *testing.T) {
 	t.Parallel()
@@ -688,7 +688,7 @@ func TestLocalStatus(t *testing.T) {
 			return out
 		}
 		if !slices.Equal(names(got), names(over)) || len(got.Projects) != 2 {
-			t.Errorf("Status() lists %v, and `sfx admin status` for a server admin lists %v: want the same two", names(got), names(over))
+			t.Errorf("Status() lists %v, and `aries admin status` for a server admin lists %v: want the same two", names(got), names(over))
 		}
 		// The status connection is no session: it holds no slot and is in
 		// no project's who.
@@ -748,7 +748,7 @@ func TestLocalStatus(t *testing.T) {
 		s := newServer(t)
 		s.cfg.PeerCheck = func(net.Conn) error { return errors.New("peer uid 1001 is not the daemon's uid 999") }
 		_, err := Status(t.Context(), serve(t, s), "v0.2.0")
-		if err == nil || !strings.Contains(err.Error(), "fix: run it as the user starfixd runs as") {
+		if err == nil || !strings.Contains(err.Error(), "fix: run it as the user ariesd runs as") {
 			t.Errorf("Status() from a refused peer = %v, want a refusal with a fix", err)
 		}
 	})
@@ -767,7 +767,7 @@ func TestLocalStatus(t *testing.T) {
 			return &proto.Frame{T: proto.FrameWelcome, Principal: StatusPrincipal}
 		})
 		_, err := Status(t.Context(), sock, "v0.2.0")
-		if err == nil || !strings.Contains(err.Error(), "the daemon did not answer") || !strings.Contains(err.Error(), "fix: see starfixd's log") {
+		if err == nil || !strings.Contains(err.Error(), "the daemon did not answer") || !strings.Contains(err.Error(), "fix: see ariesd's log") {
 			t.Errorf("Status() from a daemon that does not answer = %v, want an error that says so, with a fix", err)
 		}
 	})

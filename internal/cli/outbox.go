@@ -12,11 +12,11 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/mcpserver"
-	"github.com/ariesworx/starfix/internal/offline"
-	"github.com/ariesworx/starfix/internal/outbox"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/offline"
+	"github.com/ariesworx/aries/internal/outbox"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // away is this invocation's way to its outboxes (internal/offline).
@@ -26,7 +26,7 @@ func (r *runner) away() *offline.Client {
 		Now: r.env.Now, Session: o.Session, Machine: o.Machine}
 }
 
-// missed notes, for `sfx outbox`, what err says of the server: that it
+// missed notes, for `aries outbox`, what err says of the server: that it
 // was not reached just now, or that it refused the principal's access to
 // the project, which refuses what the principal queued for it, and says
 // so on Stderr. A hook notes nothing of that. Access ended also deletes
@@ -34,7 +34,7 @@ func (r *runner) away() *offline.Client {
 // nothing of it.
 func (r *runner) missed(err error) {
 	if line := r.away().Forget(err); line != "" && !r.hook {
-		_, _ = fmt.Fprintf(r.env.Stderr, "sfx: %s\n", esc(line))
+		_, _ = fmt.Fprintf(r.env.Stderr, "aries: %s\n", esc(line))
 	}
 	switch {
 	case r.hook:
@@ -42,7 +42,7 @@ func (r *runner) missed(err error) {
 		r.away().Missed()
 	default:
 		if line := r.away().Ended(err); line != "" {
-			_, _ = fmt.Fprintf(r.env.Stderr, "sfx: %s\n", esc(line))
+			_, _ = fmt.Fprintf(r.env.Stderr, "aries: %s\n", esc(line))
 		}
 	}
 }
@@ -63,14 +63,14 @@ func (r *runner) delivered(ctx context.Context) error {
 		return nil
 	}
 	if r.moved != "" {
-		_, _ = fmt.Fprintf(r.env.Stderr, "sfx: %s\n", esc(r.moved))
+		_, _ = fmt.Fprintf(r.env.Stderr, "aries: %s\n", esc(r.moved))
 	}
 	rep, err := off.Replay(ctx, r.conn)
 	if err != nil {
-		_, _ = fmt.Fprintf(r.env.Stderr, "sfx: outbox: %s\n", esc(err.Error()))
+		_, _ = fmt.Fprintf(r.env.Stderr, "aries: outbox: %s\n", esc(err.Error()))
 	}
 	if line := replayLine(rep); line != "" {
-		_, _ = fmt.Fprintf(r.env.Stderr, "sfx: %s\n", line)
+		_, _ = fmt.Fprintf(r.env.Stderr, "aries: %s\n", line)
 	}
 	if r.conn.Err() == nil {
 		return nil
@@ -121,10 +121,10 @@ func replayLine(rep outbox.Report) string {
 	line := "outbox: " + strings.Join(parts, ", ")
 	var notes []string
 	if rep.Parked > 0 {
-		notes = append(notes, fmt.Sprintf("%d parked conflicts for a person to resolve: `sfx conflicts`", rep.Parked))
+		notes = append(notes, fmt.Sprintf("%d parked conflicts for a person to resolve: `aries conflicts`", rep.Parked))
 	}
 	if rep.Kept > 0 {
-		notes = append(notes, fmt.Sprintf("%d kept as a comment, as the issue moved on while it waited: `sfx inbox` says why", rep.Kept))
+		notes = append(notes, fmt.Sprintf("%d kept as a comment, as the issue moved on while it waited: `aries inbox` says why", rep.Kept))
 	}
 	if len(notes) > 0 {
 		line = strings.Replace(line, fmt.Sprintf("delivered %d", rep.Delivered),
@@ -134,7 +134,7 @@ func replayLine(rep outbox.Report) string {
 		line += fmt.Sprintf(", %d still waiting", rep.Pending)
 	}
 	if rep.Refused+rep.Stale+rep.Pending > 0 {
-		line += " (see `sfx outbox`)"
+		line += " (see `aries outbox`)"
 	}
 	return line
 }
@@ -159,7 +159,7 @@ func (r *runner) unqueued(op string, err error) error {
 // send runs one write. When it does not reach the server and is one the
 // outbox queues, it is kept there instead, and send returns it: the
 // caller prints that it was queued (queued), never a result. With
-// --no-queue or STARFIX_NO_QUEUE the write fails as it did before there
+// --no-queue or ARIES_NO_QUEUE the write fails as it did before there
 // was an outbox. A write that could be neither sent nor queued fails
 // with the outbox's refusal.
 func (r *runner) send(ctx context.Context, op string, args, result any) (*offline.Kept, error) {
@@ -224,7 +224,7 @@ func (r *runner) queued(ks ...*offline.Kept) {
 	for _, k := range ks {
 		e := k.Entry
 		line := fmt.Sprintf("queued (server unreachable since %s): entry %d, %s", when(k.Since), e.Seq, esc(strings.TrimSpace(e.Op+" "+offline.Target(e))))
-		line += "; sfx sends it when the server answers (`sfx outbox` lists what waits)"
+		line += "; aries sends it when the server answers (`aries outbox` lists what waits)"
 		if e.Op == proto.OpCreate {
 			line += "; the issue has no id until then, so nothing queued can refer to it"
 		}
@@ -307,15 +307,15 @@ func former(l *offline.Local, hostKey string) (offline.Former, error) {
 			return f, nil
 		}
 	}
-	return offline.Former{}, proto.Errf(proto.CodeNotFound, "`sfx outbox` names the old host keys this machine keeps writes under",
+	return offline.Former{}, proto.Errf(proto.CodeNotFound, "`aries outbox` names the old host keys this machine keeps writes under",
 		fmt.Sprintf("this machine keeps nothing for this project under the host key %s", hostKey))
 }
 
-// rekeyedOutbox is an outbox of `sfx outbox --json` kept for the project
+// rekeyedOutbox is an outbox of `aries outbox --json` kept for the project
 // under a host key the server no longer has.
 type rekeyedOutbox struct {
 	HostKey string `json:"host_key"`
-	// Address is where the server was, or "" when sfx did not note it;
+	// Address is where the server was, or "" when aries did not note it;
 	// SameAddress says it is where the checkout names the server now,
 	// which `outbox retry N --host-key` needs.
 	Address     string `json:"address,omitempty"`
@@ -346,7 +346,7 @@ func rekeyed(l *offline.Local, cfg *client.Config) []rekeyedOutbox {
 func (o rekeyedOutbox) at() string {
 	switch {
 	case o.Address == "":
-		return "at an address sfx did not note"
+		return "at an address aries did not note"
 	case o.SameAddress:
 		return "at " + o.Address
 	}
@@ -361,14 +361,14 @@ func (r *runner) adopt(l *offline.Local, cfg *client.Config, f offline.Former, w
 	switch {
 	case errors.Is(err, offline.ErrOtherAddress):
 		return proto.Errf(proto.CodeInvalid,
-			fmt.Sprintf("if it is the same server, set server.host and server.port back to what they were and retry; otherwise `sfx outbox drop %d --host-key %s` removes it", seq, f.HostKey),
+			fmt.Sprintf("if it is the same server, set server.host and server.port back to what they were and retry; otherwise `aries outbox drop %d --host-key %s` removes it", seq, f.HostKey),
 			fmt.Sprintf("entry %d was queued for the server at %s, and this checkout names %s, so it is not known to be the same server",
-				seq, cmp.Or(f.Address, "an address sfx did not note"), offline.Address(cfg)))
+				seq, cmp.Or(f.Address, "an address aries did not note"), offline.Address(cfg)))
 	case errors.Is(err, offline.ErrNoEntry):
-		return proto.Errf(proto.CodeNotFound, "`sfx outbox --host-key "+f.HostKey+"` lists the entries and their numbers",
+		return proto.Errf(proto.CodeNotFound, "`aries outbox --host-key "+f.HostKey+"` lists the entries and their numbers",
 			fmt.Sprintf("no entry %d in %s's outbox under the host key %s", seq, cmp.Or(who, "this machine"), f.HostKey))
 	case errors.Is(err, outbox.ErrBusy):
-		return proto.Errf(proto.CodeBusy, "run it again in a few seconds", "another sfx is sending an outbox now, so it cannot be changed")
+		return proto.Errf(proto.CodeBusy, "run it again in a few seconds", "another aries is sending an outbox now, so it cannot be changed")
 	case err != nil:
 		return outboxFailed(l, err)
 	}
@@ -380,12 +380,12 @@ func (r *runner) adopt(l *offline.Local, cfg *client.Config, f offline.Former, w
 		}{seq, e.Seq, "waiting"})
 		return nil
 	}
-	_, _ = fmt.Fprintf(r.env.Stdout, "entry %d (%s) of the outbox under the old host key is entry %d of this server's now: the next sfx command that reaches the server sends it\n",
+	_, _ = fmt.Fprintf(r.env.Stdout, "entry %d (%s) of the outbox under the old host key is entry %d of this server's now: the next aries command that reaches the server sends it\n",
 		seq, esc(strings.TrimSpace(e.Op+" "+offline.Target(e))), e.Seq)
 	return nil
 }
 
-// outboxEntry is one entry of `sfx outbox --json`.
+// outboxEntry is one entry of `aries outbox --json`.
 type outboxEntry struct {
 	Entry uint64 `json:"entry"`
 	Op    string `json:"op"`
@@ -420,7 +420,7 @@ type otherOutbox struct {
 	Refused   int    `json:"refused"`
 }
 
-// outboxDoc is `sfx outbox --json`.
+// outboxDoc is `aries outbox --json`.
 type outboxDoc struct {
 	Principal string `json:"principal"`
 	// HostKey and Address are those of `--host-key`: the old host key
@@ -518,16 +518,16 @@ func (r *runner) outboxList(l *offline.Local, cfg *client.Config, who string) er
 	}
 	r.printEntries(doc)
 	if len(doc.Pending)+len(doc.Refused) > 0 {
-		p("`sfx outbox retry N` sends a refused entry again; `sfx outbox drop N` removes an entry for good\n")
+		p("`aries outbox retry N` sends a refused entry again; `aries outbox drop N` removes an entry for good\n")
 	}
 	for _, o := range doc.Others {
-		p("%s's outbox on this machine: %d waiting, %d refused; sfx sends it on a connection as %s (`sfx outbox --principal %s` lists it)\n",
+		p("%s's outbox on this machine: %d waiting, %d refused; aries sends it on a connection as %s (`aries outbox --principal %s` lists it)\n",
 			esc(o.Principal), o.Pending, o.Refused, esc(o.Principal), esc(o.Principal))
 	}
 	for _, o := range doc.Rekeyed {
 		// The host key and the address are this machine's own record, and
 		// a principal's name the server's: escaped all the same.
-		lists := "`sfx outbox --host-key " + esc(o.HostKey)
+		lists := "`aries outbox --host-key " + esc(o.HostKey)
 		if o.Principal != who {
 			lists += " --principal " + esc(o.Principal)
 		}
@@ -560,9 +560,9 @@ func (r *runner) formerList(cfg *client.Config, f offline.Former, who string) er
 	p("nothing here is sent by itself: the server's host key changed, which only a person can confirm is the same server\n")
 	key := esc(f.HostKey)
 	if o.SameAddress {
-		p("`sfx outbox retry N --host-key %s` moves entry N to this server's outbox, which sends it; `sfx outbox drop N --host-key %s` removes it for good\n", key, key)
+		p("`aries outbox retry N --host-key %s` moves entry N to this server's outbox, which sends it; `aries outbox drop N --host-key %s` removes it for good\n", key, key)
 	} else {
-		p("this checkout names the server at %s, so its entries are not moved to it; `sfx outbox drop N --host-key %s` removes one for good\n",
+		p("this checkout names the server at %s, so its entries are not moved to it; `aries outbox drop N --host-key %s` removes one for good\n",
 			esc(offline.Address(cfg)), key)
 	}
 	return nil
@@ -629,10 +629,10 @@ func (r *runner) outboxChange(l *offline.Local, who, action string, seq uint64) 
 	if who != "" {
 		of = who + "'s outbox"
 	}
-	missing := proto.Errf(proto.CodeNotFound, "`sfx outbox` lists the entries and their numbers", fmt.Sprintf("no entry %d in %s", seq, of))
+	missing := proto.Errf(proto.CodeNotFound, "`aries outbox` lists the entries and their numbers", fmt.Sprintf("no entry %d in %s", seq, of))
 	if action == "retry" {
 		missing = proto.Errf(proto.CodeNotFound,
-			"`sfx outbox` lists the entries; only a refused one is retried, and one that waits is sent by itself",
+			"`aries outbox` lists the entries; only a refused one is retried, and one that waits is sent by itself",
 			fmt.Sprintf("no refused entry %d in %s", seq, of))
 	}
 	ob, ok, err := l.Existing(who)
@@ -667,7 +667,7 @@ func (r *runner) outboxChange(l *offline.Local, who, action string, seq uint64) 
 	case errors.Is(err, outbox.ErrNotFound):
 		return missing
 	case errors.Is(err, outbox.ErrBusy):
-		return proto.Errf(proto.CodeBusy, "run it again in a few seconds", "another sfx is sending this outbox now, so it cannot be changed")
+		return proto.Errf(proto.CodeBusy, "run it again in a few seconds", "another aries is sending this outbox now, so it cannot be changed")
 	case err != nil:
 		return outboxFailed(l, err)
 	}
@@ -679,7 +679,7 @@ func (r *runner) outboxChange(l *offline.Local, who, action string, seq uint64) 
 		return nil
 	}
 	if action == "retry" {
-		_, _ = fmt.Fprintf(r.env.Stdout, "entry %d (%s) waits again: the next sfx command that reaches the server sends it\n", seq, esc(what))
+		_, _ = fmt.Fprintf(r.env.Stdout, "entry %d (%s) waits again: the next aries command that reaches the server sends it\n", seq, esc(what))
 	} else {
 		_, _ = fmt.Fprintf(r.env.Stdout, "dropped entry %d (%s): it will not be sent\n", seq, esc(what))
 	}

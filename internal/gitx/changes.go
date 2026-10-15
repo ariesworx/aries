@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Files to issues (design §12 item 3): the paths an issue's work touched,
@@ -31,7 +31,7 @@ type Changes struct {
 	Uncommitted []string
 }
 
-// Commit is one commit: the issue its Starfix: trailer names, if any, and
+// Commit is one commit: the issue its Aries: trailer names, if any, and
 // the paths it touched, in git's order.
 type Commit struct {
 	Trailer string
@@ -85,7 +85,7 @@ func (c Changes) Paths(id string) []string {
 const gitTimeout = 5 * time.Second
 
 // IssuePaths returns the paths the work on each issue in ids touched, in
-// the repository holding dir (ReadChanges), as sfx sends them to the
+// the repository holding dir (ReadChanges), as aries sends them to the
 // server: only paths it accepts (proto.CheckPath, and no directory
 // prefix), most recent first, at most proto.MaxPaths in all, filled in
 // ids' order. Issues with none are left out. It returns nil when git

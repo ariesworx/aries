@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/secretscan"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/secretscan"
 )
 
 // Entry is one queued operation.

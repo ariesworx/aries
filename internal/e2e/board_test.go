@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/board"
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/mcpserver"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/board"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // boardView is a board model fed by Live over a real connection, drawn
@@ -20,7 +20,7 @@ type boardView struct {
 	updates chan board.Update
 }
 
-// board starts Live for this user, as `sfx tui` does, until the test
+// board starts Live for this user, as `aries tui` does, until the test
 // ends.
 func (u *user) board() *boardView {
 	t := u.w.t

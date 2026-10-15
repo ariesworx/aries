@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/outbox"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/outbox"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 func mustStats(t *testing.T, o *outbox.Outbox) outbox.Stats {
@@ -23,7 +23,7 @@ func mustStats(t *testing.T, o *outbox.Outbox) outbox.Stats {
 }
 
 func comment(i int) outbox.Entry {
-	return outbox.Entry{Op: proto.OpComment, Args: fmt.Appendf(nil, `{"id":"sfx-1","body":"body %d","idem":"c-%d"}`, i, i)}
+	return outbox.Entry{Op: proto.OpComment, Args: fmt.Appendf(nil, `{"id":"aries-1","body":"body %d","idem":"c-%d"}`, i, i)}
 }
 
 // wait is a WaitStats of one wait of d, which falls in bucket.
@@ -248,11 +248,11 @@ func TestStatsHoldNoText(t *testing.T) {
 	t.Parallel()
 	clk := newClock()
 	o, dir := open(t, outbox.Options{}, clk)
-	texts := []string{"zebra-note", "quagga-key", "okapi-session", "tapir-machine", "sfx-4242", "gnu-message", "ibex-fix"}
+	texts := []string{"zebra-note", "quagga-key", "okapi-session", "tapir-machine", "aries-4242", "gnu-message", "ibex-fix"}
 	for i := range 3 {
 		mustAppend(t, o, outbox.Entry{
 			Op:      proto.OpHandoff,
-			Args:    fmt.Appendf(nil, `{"id":"sfx-4242","note":"zebra-note","idem":"quagga-key-%d"}`, i),
+			Args:    fmt.Appendf(nil, `{"id":"aries-4242","note":"zebra-note","idem":"quagga-key-%d"}`, i),
 			Session: "okapi-session", Machine: "tapir-machine",
 		})
 	}

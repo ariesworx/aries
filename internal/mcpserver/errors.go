@@ -5,16 +5,16 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/offline"
-	"github.com/ariesworx/starfix/internal/outbox"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/safetext"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/offline"
+	"github.com/ariesworx/aries/internal/outbox"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/safetext"
 )
 
 // explain rephrases an error for an agent (design §12 item 5). The server's
 // code and message are kept; its fix, written for a person at a shell
-// (`sfx show …`), becomes the agent's next step in terms of tools.
+// (`aries show …`), becomes the agent's next step in terms of tools.
 // Fixes only a person can carry out (keys, config, upgrades) are handed to
 // the user, quoted: the server chose that text, so it is relayed as data
 // for the user, never as the agent's instruction (C-4). The message is
@@ -41,24 +41,24 @@ func explain(err error) toolErr {
 	case errors.As(err, &unq):
 		// No claim is taken, and nothing undone, without the server
 		// (design §14, decision 39): the agent goes on with what it holds.
-		e.Fix = "starfix cannot reach its server, and this was not queued (" + unq.why +
+		e.Fix = "aries cannot reach its server, and this was not queued (" + unq.why +
 			"): carry on with the work you hold and call it again later; if it still fails, tell the user"
 	case errors.Is(err, offline.ErrNotQueued) && errors.Is(err, outbox.ErrSecret):
 		e.Fix = nextStep(pe)
 	case errors.Is(err, offline.ErrNotQueued) && errors.Is(err, outbox.ErrTooLarge):
-		e.Fix = "starfix cannot reach its server, and this is too long to keep for later: shorten the text and call it again"
+		e.Fix = "aries cannot reach its server, and this is too long to keep for later: shorten the text and call it again"
 	case errors.Is(err, offline.ErrNotQueued):
 		// The outbox is the person's to manage, never the agent's (rule
-		// 12): the person's fix is in `sfx outbox`, which says the same.
-		e.Fix = "starfix cannot reach its server and could not keep this for later: keep the text, call it again when a call succeeds, and tell the user"
+		// 12): the person's fix is in `aries outbox`, which says the same.
+		e.Fix = "aries cannot reach its server and could not keep this for later: keep the text, call it again when a call succeeds, and tell the user"
 	case errors.As(err, &lost) && lost.retried:
-		e.Fix = "starfix reconnected and the retry failed too; try again later, and if it persists tell the user" + personFix(pe)
+		e.Fix = "aries reconnected and the retry failed too; try again later, and if it persists tell the user" + personFix(pe)
 	case errors.As(err, &lost):
 		e.Fix = "the connection dropped and the next call reconnects; this write may have applied, so check with show before repeating it"
 	case proto.AtConnLimit(err):
 		// Only the user can free a connection. The agent learns what
 		// waiting costs: its claims lapse, and busy is never queued.
-		e.Fix = "the user's other starfix sessions hold every connection the server allows them, so this session cannot reach it until one closes. " +
+		e.Fix = "the user's other aries sessions hold every connection the server allows them, so this session cannot reach it until one closes. " +
 			"Tell the user now: they can close some, or ask the server's operator to raise conns_per_principal. " +
 			"Until then, issues you hold go back to open unless renewed within their " + Lease + " lease, and writes are not kept for later; never run an admin command yourself"
 	case errors.As(err, &dial) && pe != nil && pe.Code == proto.CodeForbidden:
@@ -69,9 +69,9 @@ func explain(err error) toolErr {
 		e.Fix = "you have no access to this project: stop and tell the user, who must ask one of its admins; never run an admin command yourself" + personFix(pe)
 	case errors.As(err, &dial):
 		if pe == nil || pe.Fix == "" {
-			e.Fix = "tell the user starfix cannot connect: check " + client.ConfigFile + " and the network"
+			e.Fix = "tell the user aries cannot connect: check " + client.ConfigFile + " and the network"
 		} else {
-			e.Fix = "tell the user starfix cannot connect" + personFix(pe)
+			e.Fix = "tell the user aries cannot connect" + personFix(pe)
 		}
 	case pe == nil:
 		e.Fix = "retry once; if it fails again, tell the user"
@@ -145,12 +145,12 @@ func nextStep(pe *proto.Error) string {
 		return "call finish with ticked: [numbers met] and waived: {number: reason} for the rest; show lists the items"
 	case proto.CodeForbidden:
 		if strings.HasPrefix(pe.Fix, proto.FixGate) {
-			return "passing a gate is a person's act at their own terminal: tell the user it waits for the approvers named above; never run sfx gate yourself"
+			return "passing a gate is a person's act at their own terminal: tell the user it waits for the approvers named above; never run aries gate yourself"
 		}
 		if strings.HasPrefix(pe.Fix, proto.FixAsk) {
 			return "someone else holds this issue: do not change it; leave a comment, pick other work with start, or tell the user"
 		}
-		return "this is for a starfix admin: tell the user"
+		return "this is for an aries admin: tell the user"
 	case proto.CodeUnavailable:
 		return "retry once; if it fails again, tell the user" + personFix(pe) + requestID(pe)
 	case proto.CodeBusy:
@@ -173,7 +173,7 @@ func requestID(pe *proto.Error) string {
 // personFix relays the server's fix for the user, quoted.
 func personFix(pe *proto.Error) string {
 	if pe == nil || pe.Fix == "" {
-		return ": starfix cannot reach its server"
+		return ": aries cannot reach its server"
 	}
 	return ", quoting the server: " + strconv.Quote(pe.Fix)
 }

@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/logs"
+	"github.com/ariesworx/aries/internal/logs"
 )
 
 // The loopback listener (design §16.3, decision 29): one HTTP listener,
@@ -244,7 +244,7 @@ func (cc *cappedConn) Close() error {
 	return cc.Conn.Close()
 }
 
-// listenerLog is the HTTP server's error log over starfixd's logger:
+// listenerLog is the HTTP server's error log over ariesd's logger:
 // each thing it says is one line of the schema, with what it said, which
 // is the standard library's text, in one field.
 type listenerLog struct{ log *slog.Logger }

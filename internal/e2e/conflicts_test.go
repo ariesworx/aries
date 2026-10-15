@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/cli"
-	"github.com/ariesworx/starfix/internal/mcpserver"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/cli"
+	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // TestConflictParkedAndResolved is F4's gate: "Two edits of one field
@@ -20,7 +20,7 @@ import (
 // edits its title and body from the rev she read. Her replay applies the
 // body and parks the title; both sessions are told; the agent reads the
 // conflict in show and proposes; and alice, a person, approves the
-// proposal with `sfx resolve --accept`.
+// proposal with `aries resolve --accept`.
 func TestConflictParkedAndResolved(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, daemonOpts{})
@@ -40,7 +40,7 @@ func TestConflictParkedAndResolved(t *testing.T) {
 	}
 	w.start()
 	r := alice.run("v0.2.0", "ready")
-	if r.code != cli.ExitOK || r.stderr != "sfx: outbox: delivered 1 (1 parked conflicts for a person to resolve: `sfx conflicts`)\n" {
+	if r.code != cli.ExitOK || r.stderr != "aries: outbox: delivered 1 (1 parked conflicts for a person to resolve: `aries conflicts`)\n" {
 		t.Fatalf("the replay = exit %d, stderr %q; want it delivered and parked", r.code, r.stderr)
 	}
 	s := decode[proto.ShowResult](t, alice.ok("show", id, "--json"))
@@ -55,7 +55,7 @@ func TestConflictParkedAndResolved(t *testing.T) {
 	list := alice.ok("conflicts", id)
 	for _, want := range []string{"#" + strconv.FormatInt(c.ID, 10) + " " + id + " title: alice's update from rev", "mine:   Alice's title", "theirs: The agent's title"} {
 		if !strings.Contains(list, want) {
-			t.Errorf("sfx conflicts lacks %q:\n%s", want, list)
+			t.Errorf("aries conflicts lacks %q:\n%s", want, list)
 		}
 	}
 
@@ -87,7 +87,7 @@ func TestConflictParkedAndResolved(t *testing.T) {
 	}
 	one := alice.ok("conflicts", strconv.FormatInt(c.ID, 10))
 	if !strings.Contains(one, "proposed by alice: text: Alice's title, the agent's wording (keeps alice's subject with the agent's wording)") {
-		t.Errorf("sfx conflicts N lacks the proposal:\n%s", one)
+		t.Errorf("aries conflicts N lacks the proposal:\n%s", one)
 	}
 
 	// A person approves it.
@@ -97,7 +97,7 @@ func TestConflictParkedAndResolved(t *testing.T) {
 		t.Errorf("after the approval the issue is %q with conflicts %+v; want the proposal applied and none left", s.Issue.Title, s.Conflicts)
 	}
 	if out := alice.ok("conflicts"); out != "no open conflicts\n" {
-		t.Errorf("sfx conflicts after the approval = %q", out)
+		t.Errorf("aries conflicts after the approval = %q", out)
 	}
 	ops, _ := alice.history(id)
 	for _, op := range []string{"conflict.park", "conflict.propose", "conflict.resolve"} {

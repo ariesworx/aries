@@ -10,7 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // lines returns a result's text blocks after the first.
@@ -34,7 +34,7 @@ func TestInboxLine(t *testing.T) {
 	t.Parallel()
 	f := &fakeConn{reply: func(op string, _ any) (any, error) {
 		if op == proto.OpClose {
-			return nil, proto.Errf(proto.CodeNotFound, "find the id with `sfx list`", "issue sf-x not found")
+			return nil, proto.Errf(proto.CodeNotFound, "find the id with `aries list`", "issue sf-x not found")
 		}
 		return proto.ListResult{Issues: []proto.Summary{}}, nil
 	}}
@@ -71,7 +71,7 @@ func TestInboxLine(t *testing.T) {
 	}
 }
 
-// sfx mcp watches on each new connection, and again after a resync.
+// aries mcp watches on each new connection, and again after a resync.
 func TestWatchOnEachConnection(t *testing.T) {
 	t.Parallel()
 	ok := func(string, any) (any, error) { return proto.ListResult{}, nil }
@@ -158,7 +158,7 @@ func TestPrimeInbox(t *testing.T) {
 			name: "lost claims and mentions",
 			inbox: func() (any, error) {
 				return proto.InboxResult{Unread: 5, Items: []proto.InboxItem{
-					{ID: 9, Kind: "claim.lost", Issue: "sf-2", Body: "lease expired", From: "starfixd", At: at},
+					{ID: 9, Kind: "claim.lost", Issue: "sf-2", Body: "lease expired", From: "ariesd", At: at},
 					{ID: 8, Kind: "mention", Issue: "sf-3", Body: "@alice look", From: "bob", At: at},
 					{ID: 7, Kind: "claim.lost", Issue: "sf-4", Body: "taken by bob/s-b", From: "bob", At: at},
 					{ID: 6, Kind: "assigned", Issue: "sf-5", Body: "Fix it", From: "bob", At: at},
@@ -166,7 +166,7 @@ func TestPrimeInbox(t *testing.T) {
 			},
 			unread: 5, lost: []string{"sf-2", "sf-4"},
 			text: []string{"lost claim (stop work on it): sf-2 sf-4", "inbox: 5 unread (call inbox)",
-				"  #9 claim.lost sf-2 from starfixd: \"lease expired\"", "  #8 mention sf-3 from bob: \"@alice look\""},
+				"  #9 claim.lost sf-2 from ariesd: \"lease expired\"", "  #8 mention sf-3 from bob: \"@alice look\""},
 		},
 		{
 			name:    "empty",
@@ -176,7 +176,7 @@ func TestPrimeInbox(t *testing.T) {
 		{
 			name: "a server without the inbox",
 			inbox: func() (any, error) {
-				return nil, proto.Errf(proto.CodeInvalid, "upgrade starfix to match the server", `unknown operation "inbox"`)
+				return nil, proto.Errf(proto.CodeInvalid, "upgrade aries to match the server", `unknown operation "inbox"`)
 			},
 			missing: []string{"inbox:", "lost claim"},
 		},

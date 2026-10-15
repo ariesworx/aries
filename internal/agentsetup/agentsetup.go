@@ -8,15 +8,15 @@ import (
 )
 
 // ServerName is the name the MCP server is registered under.
-const ServerName = "starfix"
+const ServerName = "aries"
 
 // HarnessEnv is the variable setup sets, in the server's env, to the
-// agent's Name; `sfx mcp` sends it to the server (client.HarnessFromEnv).
-const HarnessEnv = "STARFIX_HARNESS"
+// agent's Name; `aries mcp` sends it to the server (client.HarnessFromEnv).
+const HarnessEnv = "ARIES_HARNESS"
 
 // Agent is one supported harness.
 type Agent struct {
-	// Name is what `sfx setup` takes.
+	// Name is what `aries setup` takes.
 	Name string
 	// Title is the harness's own name.
 	Title string
@@ -29,7 +29,7 @@ type Agent struct {
 	// NoGlobal is the fix given when Global is "".
 	NoGlobal string
 	// Pointer is the instruction file, relative to the repository root,
-	// that gets the starfix block; GlobalPointer is the home one, or "".
+	// that gets the Aries block; GlobalPointer is the home one, or "".
 	Pointer, GlobalPointer string
 	// Hook is the settings file, relative to the repository root, that
 	// gets the SessionStart hook, and Claude Code's usage hooks;
@@ -101,31 +101,31 @@ var Agents = map[string]Agent{
 		format: jsonGemini, hooks: []hookStyle{geminiHook},
 		Note: "Gemini CLI loads a project's .gemini/settings.json, its MCP server and hooks included, only in a trusted folder: trust the folder when Gemini CLI asks."},
 	"cursor": {Name: "cursor", Title: "Cursor", Project: ".cursor/mcp.json", Global: ".cursor/mcp.json",
-		Pointer: ".cursor/rules/starfix.mdc", // user rules live in Cursor's settings, not a file
+		Pointer: ".cursor/rules/aries.mdc", // user rules live in Cursor's settings, not a file
 		Hook:    ".cursor/hooks.json", GlobalHook: ".cursor/hooks.json",
 		format: jsonGemini, pointer: cursorRule, hooks: []hookStyle{cursorHook},
-		Note: "Cursor starts a project's .cursor/mcp.json servers only once enabled: turn starfix on in Cursor Settings › MCP."},
+		Note: "Cursor starts a project's .cursor/mcp.json servers only once enabled: turn aries on in Cursor Settings › MCP."},
 	"vscode": {Name: "vscode", Title: "VS Code", Project: ".vscode/mcp.json",
 		NoGlobal: "drop --global and commit .vscode/mcp.json, or run `MCP: Add Server` in VS Code and choose Global",
 		Pointer:  ".github/copilot-instructions.md",
-		Hook:     ".github/hooks/starfix.json",
+		Hook:     ".github/hooks/aries.json",
 		format:   jsonVSCode, hooks: []hookStyle{vscodeHook},
-		Note: "VS Code asks you to trust the starfix server in .vscode/mcp.json before it starts it. Agent hooks are a Preview feature: .github/hooks/starfix.json runs only where VS Code has them enabled."},
+		Note: "VS Code asks you to trust the aries server in .vscode/mcp.json before it starts it. Agent hooks are a Preview feature: .github/hooks/aries.json runs only where VS Code has them enabled."},
 	"junie": {Name: "junie", Title: "Junie", Project: ".junie/mcp/mcp.json", Global: ".junie/mcp/mcp.json",
 		Pointer: "AGENTS.md", GlobalPointer: ".junie/AGENTS.md",
 		GlobalHook: ".junie/config.json", // Junie ignores hooks in a project's config
 		format:     jsonGemini, hooks: []hookStyle{claudeHook},
-		Note: "Junie runs hooks only from ~/.junie/config.json, never a project's: run `sfx setup junie --global --write` for the SessionStart hook."},
+		Note: "Junie runs hooks only from ~/.junie/config.json, never a project's: run `aries setup junie --global --write` for the SessionStart hook."},
 	"jetbrains": {Name: "jetbrains", Title: "JetBrains AI Assistant",
-		NoGlobal: "drop --global: AI Assistant keeps its MCP servers in the IDE's settings, so add starfix there with scope Global",
-		Pointer:  ".aiassistant/rules/starfix.md",
+		NoGlobal: "drop --global: AI Assistant keeps its MCP servers in the IDE's settings, so add aries there with scope Global",
+		Pointer:  ".aiassistant/rules/aries.md",
 		format:   jsonGemini, pointer: jetbrainsRule,
 		Note: "AI Assistant has no MCP file setup can edit. In the IDE open Settings › Tools › AI Assistant › Model Context Protocol (MCP), click Add, paste this JSON, and set the scope to Project:"},
 	// Claude Desktop reads no project files and starts its servers with
 	// no working directory and without the shell's PATH: see desktop.go.
 	"claude-desktop": {Name: "claude-desktop", Title: "Claude Desktop", Desktop: true,
 		AppConfig: "Claude/claude_desktop_config.json", format: jsonGemini,
-		Note: "Quit Claude Desktop completely and reopen it to start the server. Each launch is a new starfix session."},
+		Note: "Quit Claude Desktop completely and reopen it to start the server. Each launch is a new aries session."},
 }
 
 // Names lists the supported agents, sorted.
@@ -149,17 +149,17 @@ type Entry struct {
 	// and only the JSON formats honor it.
 	Server string
 	// KeyFile, when set, is written into the entry's environment as
-	// KeyFileEnv: the key file the agent's sfx signs in with, and then
+	// KeyFileEnv: the key file the agent's aries signs in with, and then
 	// the only key it offers (design §14, decision 35). It is a path on
 	// one person's machine, so the caller sets it only for a file that is
 	// that person's own, never for one a repository commits.
 	KeyFile string
 }
 
-// KeyFileEnv is the environment variable that names the key file sfx
+// KeyFileEnv is the environment variable that names the key file aries
 // signs in with (client.EnvKeyFile). Beside HarnessEnv it is the one
-// variable a starfix entry may hold.
-const KeyFileEnv = "STARFIX_KEY_FILE"
+// variable an Aries entry may hold.
+const KeyFileEnv = "ARIES_KEY_FILE"
 
 // KeyFile returns the key file that the entry in content under e's name
 // sets, or "" when it sets none or there is no such entry.
@@ -192,9 +192,9 @@ func (e Entry) server() string {
 	return e.Server
 }
 
-// DefaultEntry runs `sfx mcp` from PATH. The harness starts it in the
-// project directory, where it finds .starfix.yaml.
-var DefaultEntry = Entry{Command: "sfx", Args: []string{"mcp"}}
+// DefaultEntry runs `aries mcp` from PATH. The harness starts it in the
+// project directory, where it finds .aries.yaml.
+var DefaultEntry = Entry{Command: "aries", Args: []string{"mcp"}}
 
 // Result says what Apply or Remove did.
 type Result int
@@ -378,7 +378,7 @@ func (t Target) Snippet(e Entry) string {
 	return t.agent.Snippet(e)
 }
 
-// MissingHooks lists the events whose starfix hook content lacks, as
+// MissingHooks lists the events whose Aries hook content lacks, as
 // Apply would write it, for a hook target; nil for any other kind.
 func (t Target) MissingHooks(content []byte, e Entry) []string {
 	if t.Kind != KindHook {

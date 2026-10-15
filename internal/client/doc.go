@@ -1,7 +1,7 @@
-// Package client connects to starfixd over SSH and speaks the protocol.
+// Package client connects to ariesd over SSH and speaks the protocol.
 //
 // The SSH client runs in-process (golang.org/x/crypto/ssh); no system ssh
-// is used. The server's ED25519 host key is pinned in .starfix.yaml, one
+// is used. The server's ED25519 host key is pinned in .aries.yaml, one
 // fingerprint or a list of them while a key is rotated ([Config.Pinned]),
 // and checked on every connection: a key that is none of them is refused,
 // and an unpinned host is never trusted on first use. The developer authenticates with a key
@@ -20,7 +20,7 @@
 // harness a process runs under, so the server can tell one agent's claims
 // from another's.
 //
-// The design is docs/design/starfix.md: §2, with its note on the IAP
+// The design is docs/design/aries.md: §2, with its note on the IAP
 // transport, and §5's note on security review batch 3 for bounded config
 // discovery.
 package client

@@ -7,15 +7,15 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/outbox"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/outbox"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // EnvNoQueue is the variable that, set to anything but "", "0" or "false", makes a write that
 // does not reach the server fail as it did before there was an outbox:
-// `sfx --no-queue` for a script or a CI job that must know.
-const EnvNoQueue = "STARFIX_NO_QUEUE"
+// `aries --no-queue` for a script or a CI job that must know.
+const EnvNoQueue = "ARIES_NO_QUEUE"
 
 // NoQueue reports whether the environment turns queueing off.
 func NoQueue(getenv func(string) string) bool {
@@ -30,7 +30,7 @@ func NoQueue(getenv func(string) string) bool {
 // its environment, and what it calls itself. The zero value is not
 // usable: Dir, GOOS, Getenv and UserHomeDir must be set.
 type Client struct {
-	// Dir is where the search for .starfix.yaml starts.
+	// Dir is where the search for .aries.yaml starts.
 	Dir string
 	// GOOS, Getenv and UserHomeDir find the data directory ([DataDir])
 	// and the keys the process would offer ([client.Offered]).
@@ -108,11 +108,11 @@ func (c *Client) Connected(conn Conn) (moved string) {
 		return ""
 	}
 	return fmt.Sprintf("outbox: the server now takes this key for %s, not %s, so %s queued as %s %s not sent with it; "+
-		"fix: sign in with a key of %s's to send them, or run `sfx outbox --principal %s` to see or drop them",
+		"fix: sign in with a key of %s's to send them, or run `aries outbox --principal %s` to see or drop them",
 		conn.Principal(), was, writes(n.Pending+n.Refused), was, was2(n.Pending+n.Refused), was, was)
 }
 
-// Missed notes that the server was not reached just now, for `sfx
+// Missed notes that the server was not reached just now, for `aries
 // outbox` to show.
 func (c *Client) Missed() {
 	if l, _, err := c.Local(); err == nil {
@@ -140,7 +140,7 @@ func (c *Client) Ended(err error) string {
 	if n == 0 {
 		return ""
 	}
-	return fmt.Sprintf("outbox: %s queued as %s %s refused with it, and kept: `sfx outbox` lists %s, to retry once access is back or drop",
+	return fmt.Sprintf("outbox: %s queued as %s %s refused with it, and kept: `aries outbox` lists %s, to retry once access is back or drop",
 		writes(n), who, was(n), them(n))
 }
 
@@ -298,21 +298,21 @@ func (c *Client) Rekeyed() string {
 	if total == 1 {
 		itself = "is not sent by itself"
 	}
-	return fmt.Sprintf("outbox: %s queued under the server's old host key %s: tell the user to run `sfx outbox`", writes(total), itself)
+	return fmt.Sprintf("outbox: %s queued under the server's old host key %s: tell the user to run `aries outbox`", writes(total), itself)
 }
 
 func notice(n Count) string {
 	const made = " made while the server was away "
 	switch {
 	case n.Refused > 0 && n.Pending > 0:
-		return fmt.Sprintf("outbox: %s%s%s refused and %d wait to be sent: tell the user to run `sfx outbox`",
+		return fmt.Sprintf("outbox: %s%s%s refused and %d wait to be sent: tell the user to run `aries outbox`",
 			writes(n.Refused), made, was(n.Refused), n.Pending)
 	case n.Refused > 0:
-		return fmt.Sprintf("outbox: %s%s%s refused: tell the user to run `sfx outbox`", writes(n.Refused), made, was(n.Refused))
+		return fmt.Sprintf("outbox: %s%s%s refused: tell the user to run `aries outbox`", writes(n.Refused), made, was(n.Refused))
 	case n.Pending == 1:
-		return "outbox: 1 write" + made + "waits to be sent, which sfx does by itself"
+		return "outbox: 1 write" + made + "waits to be sent, which aries does by itself"
 	case n.Pending > 0:
-		return fmt.Sprintf("outbox: %d writes%swait to be sent, which sfx does by itself", n.Pending, made)
+		return fmt.Sprintf("outbox: %d writes%swait to be sent, which aries does by itself", n.Pending, made)
 	}
 	return ""
 }

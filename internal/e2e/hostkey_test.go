@@ -7,11 +7,11 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ariesworx/starfix/internal/cli"
+	"github.com/ariesworx/aries/internal/cli"
 )
 
 // TestHostKeyRotation is the operator's rotation of the server's host
-// key as docs/server.md has it: the new key is added to .starfix.yaml
+// key as docs/server.md has it: the new key is added to .aries.yaml
 // beside the old one, the server's sshd is switched to it, and the old
 // key is removed from the file. A checkout that pins both connects
 // before and after the switch, and what it queued in between is sent,
@@ -29,9 +29,9 @@ func TestHostKeyRotation(t *testing.T) {
 	for _, u := range []*user{alice, bob} {
 		u.configure("host_key: "+old, "host_keys: ["+old+", "+nextFpr+"]")
 	}
-	want := fmt.Sprintf("server     starfix@127.0.0.1:%d, host keys %s and %s\n", w.addr.Port, old, nextFpr)
+	want := fmt.Sprintf("server     aries@127.0.0.1:%d, host keys %s and %s\n", w.addr.Port, old, nextFpr)
 	if got := alice.ok("whoami"); !strings.Contains(got, want) {
-		t.Errorf("sfx whoami pinning two keys =\n%swant it to say\n%s", got, want)
+		t.Errorf("aries whoami pinning two keys =\n%swant it to say\n%s", got, want)
 	}
 	type whoami struct {
 		Server struct {
@@ -41,7 +41,7 @@ func TestHostKeyRotation(t *testing.T) {
 	}
 	doc := decode[whoami](t, alice.ok("whoami", "--json"))
 	if doc.Server.HostKey != "" || len(doc.Server.HostKeys) != 2 || doc.Server.HostKeys[0] != old || doc.Server.HostKeys[1] != nextFpr {
-		t.Errorf("sfx whoami --json pinning two keys has server %+v, want host_keys [%s %s] and no host_key", doc.Server, old, nextFpr)
+		t.Errorf("aries whoami --json pinning two keys has server %+v, want host_keys [%s %s] and no host_key", doc.Server, old, nextFpr)
 	}
 
 	// 2. While the server is away, alice queues a write; it comes back
@@ -50,11 +50,11 @@ func TestHostKeyRotation(t *testing.T) {
 	alice.ok("comment", id, "queued before the switch")
 	w.useHostKey(next)
 	w.start()
-	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "sfx: outbox: delivered 1\n" {
+	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "aries: outbox: delivered 1\n" {
 		t.Errorf("alice's first command after the switch = exit %d, stderr %q; want her queued write delivered", r.code, r.stderr)
 	}
 	r := carol.run("v0.2.0", "ready")
-	if wantMsg := "host key mismatch for 127.0.0.1: the server presented " + nextFpr + ", but .starfix.yaml pins " + old; r.code != cli.ExitFailure ||
+	if wantMsg := "host key mismatch for 127.0.0.1: the server presented " + nextFpr + ", but .aries.yaml pins " + old; r.code != cli.ExitFailure ||
 		!strings.Contains(r.stderr, wantMsg) || !strings.Contains(r.stderr, "server.host_keys") {
 		t.Errorf("carol, pinning the old key alone, after the switch = exit %d, stderr:\n%s\nwant refused with %q", r.code, r.stderr, wantMsg)
 	}
@@ -64,11 +64,11 @@ func TestHostKeyRotation(t *testing.T) {
 	w.stop()
 	alice.ok("comment", id, "queued after the old key was removed")
 	w.start()
-	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "sfx: outbox: delivered 1\n" {
+	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "aries: outbox: delivered 1\n" {
 		t.Errorf("alice's first command pinning the new key alone = exit %d, stderr %q; want her queued write delivered", r.code, r.stderr)
 	}
 	if out := alice.ok("outbox"); strings.Contains(out, "old host key") {
-		t.Errorf("sfx outbox after the rotation speaks of an old host key:\n%s", out)
+		t.Errorf("aries outbox after the rotation speaks of an old host key:\n%s", out)
 	}
 	if n := bob.comments(id); n != 2 {
 		t.Errorf("the issue has %d comments, want the 2 alice queued, each sent once", n)

@@ -11,7 +11,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/lazyregexp"
 )
 
 // ImportOutcome is what an import write did, or would do.

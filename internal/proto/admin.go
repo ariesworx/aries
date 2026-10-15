@@ -3,7 +3,7 @@ package proto
 import "time"
 
 // Access management on a server of many projects (protocol 5, design
-// §15): projects, principals and memberships, for `sfx admin`. Every op
+// §15): projects, principals and memberships, for `aries admin`. Every op
 // rides an ordinary connection, which names a project the caller may
 // reach; an op that acts on a project takes Project, a project's UUID or
 // its name, and acts on the connection's project when it is empty. A
@@ -389,7 +389,7 @@ type KeysResult struct {
 }
 
 // KeyRemoveArgs names the key to remove by its SHA-256 fingerprint, as
-// `sfx admin key list` and `ssh-keygen -lf FILE.pub` print it.
+// `aries admin key list` and `ssh-keygen -lf FILE.pub` print it.
 type KeyRemoveArgs struct {
 	Fingerprint string `json:"fingerprint"`
 }
@@ -413,7 +413,7 @@ type StatusResult struct {
 }
 
 // ServerStatus is the daemon as a whole. Each count stands beside the
-// limit that caps it. HeapBytes is the memory starfixd's own heap holds
+// limit that caps it. HeapBytes is the memory ariesd's own heap holds
 // in live and not yet collected objects, and SysBytes all the memory it
 // has from the operating system (Go's runtime.MemStats HeapAlloc and
 // Sys). Projects and Principals count the control store's rows by state.
@@ -434,7 +434,7 @@ type ServerStatus struct {
 	Principals    map[string]int `json:"principals"`
 	KeysFile      *KeysFile      `json:"keys_file,omitempty"`
 	Clock         *ClockStatus   `json:"clock,omitempty"`
-	// Dolt is what starfixd last read from Dolt's own metrics endpoint;
+	// Dolt is what ariesd last read from Dolt's own metrics endpoint;
 	// nil when it reads none (telemetry.dolt_metrics_url is not set).
 	Dolt *DoltStatus `json:"dolt,omitempty"`
 	// Traces is how people appear in the traces the server exports;
@@ -458,10 +458,10 @@ type TracesStatus struct {
 }
 
 // DoltStatus is Dolt as its own metrics endpoint describes it (design
-// §16.5), read by starfixd on a timer and never for a request. Unknown
+// §16.5), read by ariesd on a timer and never for a request. Unknown
 // means the latest read failed: the figures are then left out, and
 // ReadAt is the last read that succeeded, or nil when none has since
-// starfixd started. Otherwise each figure Dolt did not give is left out
+// ariesd started. Otherwise each figure Dolt did not give is left out
 // on its own.
 type DoltStatus struct {
 	Unknown bool       `json:"unknown,omitempty"`
@@ -473,7 +473,7 @@ type DoltStatus struct {
 	UptimeSeconds *int64     `json:"uptime_seconds,omitempty"`
 	// ResidentBytes is the resident memory of Dolt's process.
 	ResidentBytes *uint64 `json:"resident_bytes,omitempty"`
-	// Conns is how many clients are connected to Dolt: starfixd's own
+	// Conns is how many clients are connected to Dolt: ariesd's own
 	// pooled connections, and anyone else's.
 	Conns *int `json:"conns,omitempty"`
 	// MemLimitBytes is Dolt's Go memory limit (GOMEMLIMIT); zero says it
@@ -485,15 +485,16 @@ type DoltStatus struct {
 }
 
 // DoltGC is how often Dolt's garbage collector ran against how much
-// starfixd wrote, over the latest window of up to ten minutes: what
+// ariesd wrote, over the latest window of up to ten minutes: what
 // tells a Go memory limit with room from one that is too low
-// (spike/multidb/RESULTS.md, section 5).
+// (stage 3a's measurements of many databases in one Dolt, section 5,
+// now in git history).
 type DoltGC struct {
 	// WindowSeconds is how long the window is: less than ten minutes
-	// soon after starfixd or Dolt started.
+	// soon after ariesd or Dolt started.
 	WindowSeconds int64 `json:"window_seconds"`
 	// Cycles is the collector's cycles in the window, and Writes the
-	// transactions starfixd's project stores committed in it.
+	// transactions ariesd's project stores committed in it.
 	Cycles int64 `json:"cycles"`
 	Writes int64 `json:"writes"`
 	// Per100Writes is Cycles for each 100 of Writes; left out when
@@ -557,7 +558,7 @@ type KeysFile struct {
 //
 // The rest is set only while the store is open, and starts afresh each
 // time it opens: Sessions, how many sessions were seen in the last five
-// minutes, as `sfx who` lists them; Writes; and LastUsed, when the store
+// minutes, as `aries who` lists them; Writes; and LastUsed, when the store
 // last answered a request, or was opened if it has answered none.
 //
 // Sessions is the one figure read from the database, within a bound.

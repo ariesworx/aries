@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 func costReply(groups []proto.CostGroup) func(string, any) (any, error) {

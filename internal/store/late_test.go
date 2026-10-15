@@ -302,7 +302,7 @@ func TestLiveFinishAfterLapseIsMarked(t *testing.T) {
 
 // A lease lapsed when the claim's holder had it until its lease ran out,
 // and not when it let the claim go itself. A finish that names no epoch,
-// as `sfx finish` without --epoch sends, was made under the claim of
+// as `aries finish` without --epoch sends, was made under the claim of
 // its own principal, if that is the one that lapsed.
 func TestLapsedOnlyWhenTheLeaseRanOut(t *testing.T) {
 	t.Parallel()

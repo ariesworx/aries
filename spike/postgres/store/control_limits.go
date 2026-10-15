@@ -71,7 +71,7 @@ func (l ControlLimits) Validate() error {
 }
 
 // ControlLimitError refuses a new row when the control store holds Max
-// of them already. Limit names the limit as starfixd's settings will
+// of them already. Limit names the limit as ariesd's settings will
 // (projects, principals, principals_per_creator, keys_per_principal,
 // members_per_project). It wraps ErrInvalid.
 type ControlLimitError struct {

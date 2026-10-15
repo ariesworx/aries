@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
-	"github.com/ariesworx/starfix/internal/telemetry"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
+	"github.com/ariesworx/aries/internal/telemetry"
 	"github.com/go-sql-driver/mysql"
 )
 
@@ -122,7 +122,7 @@ func newMultiTel(t *testing.T, lim Limits, ck *clock, tel *telemetry.Telemetry, 
 		t.Fatal(err)
 	}
 	m := &multi{ctl: ctl, dsn: dsn, log: &syncBuffer{}, opens: map[string]int{}, tel: tel,
-		keysFile: filepath.Join(sshDir, "starfix_keys"), byHand: filepath.Join(sshDir, "authorized_keys")}
+		keysFile: filepath.Join(sshDir, "aries_keys"), byHand: filepath.Join(sshDir, "authorized_keys")}
 	open := ProjectOpener(dsn, ctl, store.Options{CommitInterval: -1, Limits: lim.Limits, Now: now}, tel)
 	m.Server, err = New(Config{Control: ctl, Version: "v0.2.0", PeerCheck: func(net.Conn) error { return nil }, Limits: lim,
 		KeysFile: m.keysFile, AuthorizedKeys: m.byHand, Telemetry: tel,
@@ -350,18 +350,18 @@ func TestMultiHandshake(t *testing.T) {
 			case tc.code != proto.CodeForbidden || w.Err == nil:
 			case tc.name == "disabled member":
 				// A disabled principal is told so, and what undoes it.
-				if w.Err.Message != "frank is disabled on this server" || !strings.Contains(w.Err.Fix, "`sfx admin principal enable frank`") {
+				if w.Err.Message != "frank is disabled on this server" || !strings.Contains(w.Err.Fix, "`aries admin principal enable frank`") {
 					t.Errorf("forbidden = %q, fix %q; want the principal told it is disabled, and the command that enables it", w.Err.Message, w.Err.Fix)
 				}
 			case tc.name == "no principal row":
 				// Refused on the bridge frame, before a project is named
 				// (review F-4): it is told it has no principal, and the
 				// command that makes one.
-				if w.Err.Message != "ivy is not a principal of this server" || !strings.Contains(w.Err.Fix, "`sfx admin principal add ivy`") {
+				if w.Err.Message != "ivy is not a principal of this server" || !strings.Contains(w.Err.Fix, "`aries admin principal add ivy`") {
 					t.Errorf("forbidden = %q, fix %q; want the principal told the server does not know it, and the command that adds it", w.Err.Message, w.Err.Fix)
 				}
 			default:
-				if !strings.HasPrefix(w.Err.Fix, "ask a server admin, or one of the project's admins, to add you: `sfx admin member add "+tc.principal+"`") ||
+				if !strings.HasPrefix(w.Err.Fix, "ask a server admin, or one of the project's admins, to add you: `aries admin member add "+tc.principal+"`") ||
 					!strings.Contains(w.Err.Message, tc.principal+" is not a member of project") {
 					t.Errorf("forbidden = %q, fix %q; want the principal named, whom to ask and the command they run", w.Err.Message, w.Err.Fix)
 				}
@@ -791,7 +791,7 @@ func TestMultiOpenFailure(t *testing.T) {
 	}
 }
 
-// TestControlReloadedOnTick checks that what `starfixd control init`
+// TestControlReloadedOnTick checks that what `ariesd control init`
 // wrote from another process counts in the daemon without a restart.
 func TestControlReloadedOnTick(t *testing.T) {
 	t.Parallel()
@@ -818,12 +818,12 @@ func TestDatabaseDSN(t *testing.T) {
 		name, dsn, db, want string
 		err                 string
 	}{
-		{"tcp with a password", "starfix:pw@tcp(127.0.0.1:3306)/starfix", "starfix_control", "starfix:pw@tcp(127.0.0.1:3306)/starfix_control", ""},
-		{"socket", "starfix@unix(/run/dolt.sock)/starfix", "p2", "starfix@unix(/run/dolt.sock)/p2", ""},
-		{"parameters kept", "starfix@tcp(db:3306)/starfix?tls=true", "p2", "starfix@tcp(db:3306)/p2?tls=true", ""},
-		{"quoting refused", "starfix@tcp(db:3306)/starfix", "p2`; DROP", "", "must be a lowercase letter"},
-		{"upper case refused", "starfix@tcp(db:3306)/starfix", "Starfix", "", "must be a lowercase letter"},
-		{"empty refused", "starfix@tcp(db:3306)/starfix", "", "", "must be a lowercase letter"},
+		{"tcp with a password", "aries:pw@tcp(127.0.0.1:3306)/aries", "aries_control", "aries:pw@tcp(127.0.0.1:3306)/aries_control", ""},
+		{"socket", "aries@unix(/run/dolt.sock)/aries", "p2", "aries@unix(/run/dolt.sock)/p2", ""},
+		{"parameters kept", "aries@tcp(db:3306)/aries?tls=true", "p2", "aries@tcp(db:3306)/p2?tls=true", ""},
+		{"quoting refused", "aries@tcp(db:3306)/aries", "p2`; DROP", "", "must be a lowercase letter"},
+		{"upper case refused", "aries@tcp(db:3306)/aries", "Aries", "", "must be a lowercase letter"},
+		{"empty refused", "aries@tcp(db:3306)/aries", "", "", "must be a lowercase letter"},
 		{"bad dsn", "::::", "p2", "", "parse dsn"},
 	}
 	for _, tc := range tests {
@@ -852,7 +852,7 @@ func TestResolveSettingsControl(t *testing.T) {
 		}
 		return p
 	}
-	const dsn = "dsn: starfix@tcp(127.0.0.1:3306)/starfix\n"
+	const dsn = "dsn: aries@tcp(127.0.0.1:3306)/aries\n"
 	tests := []struct {
 		name  string
 		body  string
@@ -861,14 +861,14 @@ func TestResolveSettingsControl(t *testing.T) {
 		err   string
 	}{
 		{name: "no control database by default", body: dsn, check: func(s Settings) bool { return s.ControlDB == "" }},
-		{name: "from the file", body: dsn + "control_db: starfix_control\n", check: func(s Settings) bool {
+		{name: "from the file", body: dsn + "control_db: aries_control\n", check: func(s Settings) bool {
 			got, err := s.ControlDSN()
-			return s.ControlDB == "starfix_control" && err == nil && got == "starfix@tcp(127.0.0.1:3306)/starfix_control"
+			return s.ControlDB == "aries_control" && err == nil && got == "aries@tcp(127.0.0.1:3306)/aries_control"
 		}},
-		{name: "environment beats the file", body: dsn + "control_db: starfix_control\n", env: map[string]string{EnvControlDB: "other_control"},
+		{name: "environment beats the file", body: dsn + "control_db: aries_control\n", env: map[string]string{EnvControlDB: "other_control"},
 			check: func(s Settings) bool { return s.ControlDB == "other_control" }},
-		{name: "not a database name", body: dsn + "control_db: Starfix-Control\n", err: `control_db "Starfix-Control" is not a database name; fix:`},
-		{name: "the project's own database", body: dsn + "control_db: starfix\n", err: `control_db "starfix" is the database in the DSN`},
+		{name: "not a database name", body: dsn + "control_db: Aries-Control\n", err: `control_db "Aries-Control" is not a database name; fix:`},
+		{name: "the project's own database", body: dsn + "control_db: aries\n", err: `control_db "aries" is the database in the DSN`},
 		{name: "limits default", body: dsn, check: func(l Settings) bool {
 			return l.Limits.Control == store.DefaultControlLimits && l.Limits.OpenStores == 64 && l.Limits.StoreIdle == Duration(10*time.Minute)
 		}},
@@ -898,45 +898,45 @@ func TestResolveSettingsControl(t *testing.T) {
 		{name: "negative control_write_rate", body: "limits:\n  control_write_rate: -1\n", err: "limit control_write_rate must be zero or a positive number; fix:"},
 		{name: "control_write_rate not a number", body: "limits:\n  control_write_rate: .nan\n", err: "limit control_write_rate must be zero or a positive number; fix:"},
 		{name: "negative control_write_burst", body: "limits:\n  control_write_burst: -1\n", err: "limit control_write_burst must be zero or a positive number; fix:"},
-		{name: "the keys file, the hand-maintained file and the bridge by default", body: dsn + "control_db: starfix_control\n",
+		{name: "the keys file, the hand-maintained file and the bridge by default", body: dsn + "control_db: aries_control\n",
 			check: func(s Settings) bool {
-				return s.KeysFile == ".ssh/starfix_keys" && s.AuthorizedKeys == ".ssh/authorized_keys" && s.Bridge == "/usr/local/bin/starfixd"
+				return s.KeysFile == ".ssh/aries_keys" && s.AuthorizedKeys == ".ssh/authorized_keys" && s.Bridge == "/usr/local/bin/ariesd"
 			}},
-		{name: "the three set in the file", body: "keys_file: /srv/starfix/keys\nauthorized_keys: /srv/starfix/authorized_keys\nbridge: /opt/starfix/bin/starfixd\n",
+		{name: "the three set in the file", body: "keys_file: /srv/aries/keys\nauthorized_keys: /srv/aries/authorized_keys\nbridge: /opt/aries/bin/ariesd\n",
 			check: func(s Settings) bool {
-				return s.KeysFile == "/srv/starfix/keys" && s.AuthorizedKeys == "/srv/starfix/authorized_keys" && s.Bridge == "/opt/starfix/bin/starfixd"
+				return s.KeysFile == "/srv/aries/keys" && s.AuthorizedKeys == "/srv/aries/authorized_keys" && s.Bridge == "/opt/aries/bin/ariesd"
 			}},
-		{name: "the environment wins over the file", body: "keys_file: /srv/starfix/keys\nbridge: /opt/starfix/bin/starfixd\n",
-			env: map[string]string{EnvKeysFile: "keys/starfix", EnvAuthorizedKeys: "keys/by_hand", EnvBridge: "/usr/bin/starfixd"},
+		{name: "the environment wins over the file", body: "keys_file: /srv/aries/keys\nbridge: /opt/aries/bin/ariesd\n",
+			env: map[string]string{EnvKeysFile: "keys/aries", EnvAuthorizedKeys: "keys/by_hand", EnvBridge: "/usr/bin/ariesd"},
 			check: func(s Settings) bool {
-				return s.KeysFile == "keys/starfix" && s.AuthorizedKeys == "keys/by_hand" && s.Bridge == "/usr/bin/starfixd"
+				return s.KeysFile == "keys/aries" && s.AuthorizedKeys == "keys/by_hand" && s.Bridge == "/usr/bin/ariesd"
 			}},
-		{name: "a bridge that is not absolute", body: "bridge: starfixd\n", err: `bridge "starfixd" cannot be written into a forced command; fix:`},
-		{name: "a bridge that needs quoting", body: "bridge: '/usr/local/bin/starfixd --socket /tmp/x'\n",
+		{name: "a bridge that is not absolute", body: "bridge: ariesd\n", err: `bridge "ariesd" cannot be written into a forced command; fix:`},
+		{name: "a bridge that needs quoting", body: "bridge: '/usr/local/bin/ariesd --socket /tmp/x'\n",
 			err: `cannot be written into a forced command; fix:`},
-		{name: "a bridge that closes the quotes", body: `bridge: '/usr/local/bin/starfixd" ssh-ed25519 AAAA'` + "\n",
+		{name: "a bridge that closes the quotes", body: `bridge: '/usr/local/bin/ariesd" ssh-ed25519 AAAA'` + "\n",
 			err: `cannot be written into a forced command; fix:`},
 		{name: "a keys file that is the authorized_keys file", body: "keys_file: .ssh/authorized_keys\n",
-			err: `keys_file ".ssh/authorized_keys" is the authorized_keys file, which starfixd reads and never writes; fix:`},
+			err: `keys_file ".ssh/authorized_keys" is the authorized_keys file, which ariesd reads and never writes; fix:`},
 		{name: "the same file under another spelling", body: "keys_file: /srv/keys\nauthorized_keys: /srv/x/../keys\n",
-			err: `is the authorized_keys file, which starfixd reads and never writes; fix:`},
-		{name: "no block of project databases by default", body: dsn + "control_db: starfix_control\n",
+			err: `is the authorized_keys file, which ariesd reads and never writes; fix:`},
+		{name: "no block of project databases by default", body: dsn + "control_db: aries_control\n",
 			check: func(s Settings) bool { return s.ProjectDBs == ProjectDBs{} }},
-		{name: "a block of project databases", body: dsn + "control_db: starfix_control\nproject_dbs:\n  prefix: starfix_p\n  count: 100\n",
+		{name: "a block of project databases", body: dsn + "control_db: aries_control\nproject_dbs:\n  prefix: aries_p\n  count: 100\n",
 			check: func(s Settings) bool {
-				return s.ProjectDBs == ProjectDBs{Prefix: "starfix_p", Count: 100} && s.ProjectDBs.Name(100) == "starfix_p100"
+				return s.ProjectDBs == ProjectDBs{Prefix: "aries_p", Count: 100} && s.ProjectDBs.Name(100) == "aries_p100"
 			}},
-		{name: "a block that holds the DSN's database", body: "dsn: starfix@tcp(127.0.0.1:3306)/starfix_p001\ncontrol_db: starfix_control\nproject_dbs:\n  prefix: starfix_p\n  count: 9\n",
+		{name: "a block that holds the DSN's database", body: "dsn: aries@tcp(127.0.0.1:3306)/aries_p001\ncontrol_db: aries_control\nproject_dbs:\n  prefix: aries_p\n  count: 9\n",
 			check: func(s Settings) bool { return s.ProjectDBs.Count == 9 }},
-		{name: "a block without a control database", body: dsn + "project_dbs:\n  prefix: starfix_p\n  count: 100\n",
+		{name: "a block without a control database", body: dsn + "project_dbs:\n  prefix: aries_p\n  count: 100\n",
 			err: "project_dbs is set without control_db; fix:"},
-		{name: "a block that holds the control database", body: dsn + "control_db: starfix_p007\nproject_dbs:\n  prefix: starfix_p\n  count: 100\n",
-			err: "project_dbs holds starfix_p007, the control database; fix:"},
-		{name: "a block with a bad prefix", body: dsn + "control_db: starfix_control\nproject_dbs:\n  prefix: Starfix-P\n  count: 100\n",
-			err: `project_dbs prefix "Starfix-P" does not start a database name; fix:`},
-		{name: "a block with no count", body: dsn + "control_db: starfix_control\nproject_dbs:\n  prefix: starfix_p\n",
+		{name: "a block that holds the control database", body: dsn + "control_db: aries_p007\nproject_dbs:\n  prefix: aries_p\n  count: 100\n",
+			err: "project_dbs holds aries_p007, the control database; fix:"},
+		{name: "a block with a bad prefix", body: dsn + "control_db: aries_control\nproject_dbs:\n  prefix: Aries-P\n  count: 100\n",
+			err: `project_dbs prefix "Aries-P" does not start a database name; fix:`},
+		{name: "a block with no count", body: dsn + "control_db: aries_control\nproject_dbs:\n  prefix: aries_p\n",
 			err: "project_dbs count 0 must be 1 to 999; fix:"},
-		{name: "a block past the most", body: dsn + "control_db: starfix_control\nproject_dbs:\n  prefix: starfix_p\n  count: 1000\n",
+		{name: "a block past the most", body: dsn + "control_db: aries_control\nproject_dbs:\n  prefix: aries_p\n  count: 1000\n",
 			err: "project_dbs count 1000 must be 1 to 999; fix:"},
 	}
 	for _, tc := range tests {

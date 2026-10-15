@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // countingWriter counts the writes that reach it.
@@ -20,8 +20,8 @@ func (w *countingWriter) Write(p []byte) (int, error) {
 }
 
 // The issue table reaches its writer in one write, whatever its length:
-// written cell by cell, `sfx list -n 500` was 4,000 writes to standard
-// output (docs/design/profile-sfx.md, proposal 6).
+// written cell by cell, `aries list -n 500` was 4,000 writes to standard
+// output (docs/design/profile-aries.md, proposal 6).
 func TestPrintSummariesOneWrite(t *testing.T) {
 	t.Parallel()
 	for _, n := range []int{1, 10, 500} {

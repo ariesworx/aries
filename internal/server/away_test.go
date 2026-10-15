@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
-// `sfx away` reaches as far as the server's away_max (rule 18), 7 days
+// `aries away` reaches as far as the server's away_max (rule 18), 7 days
 // by default; past it, renew with all is refused invalid, with a fix
 // that names the cap and who can raise it.
 func TestAwayMax(t *testing.T) {

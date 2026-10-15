@@ -2,7 +2,7 @@
 // terminal or posing as a program's own output. It is the one definition
 // of an unsafe character, used by the store to refuse such text, by the
 // importer to clean it, and by every client to escape what it prints
-// (docs/design/starfix.md §7, "As built (untrusted text)").
+// (docs/design/aries.md §7, "As built (untrusted text)").
 //
 // Unsafe characters are the C0 controls (newline and tab included), DEL,
 // the C1 controls, the Unicode bidirectional controls and marks, and the

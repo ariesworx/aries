@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // fixedNow is the clock of the hours and plans tests: noon on 7 Oct
@@ -61,14 +61,14 @@ func TestDispatchHours(t *testing.T) {
 		msg   string
 		fix   string
 	}{
-		{"under a minute", alice, proto.OpHoursLog, `{"id":"` + is.ID + `","seconds":30}`, proto.CodeInvalid, "duration", "sfx log -h"},
-		{"over a day", alice, proto.OpHoursLog, `{"id":"` + is.ID + `","seconds":9223372036854775807}`, proto.CodeInvalid, "seconds", "sfx log -h"},
-		{"bad day", alice, proto.OpHoursLog, `{"id":"` + is.ID + `","seconds":60,"on":"tomorrow"}`, proto.CodeInvalid, `on "tomorrow"`, "sfx log -h"},
-		{"no issue", alice, proto.OpHoursLog, `{"id":"sf-none","seconds":60}`, proto.CodeNotFound, "sf-none", "sfx list"},
+		{"under a minute", alice, proto.OpHoursLog, `{"id":"` + is.ID + `","seconds":30}`, proto.CodeInvalid, "duration", "aries log -h"},
+		{"over a day", alice, proto.OpHoursLog, `{"id":"` + is.ID + `","seconds":9223372036854775807}`, proto.CodeInvalid, "seconds", "aries log -h"},
+		{"bad day", alice, proto.OpHoursLog, `{"id":"` + is.ID + `","seconds":60,"on":"tomorrow"}`, proto.CodeInvalid, `on "tomorrow"`, "aries log -h"},
+		{"no issue", alice, proto.OpHoursLog, `{"id":"sf-none","seconds":60}`, proto.CodeNotFound, "sf-none", "aries list"},
 		{"unknown field", alice, proto.OpHoursLog, `{"id":"` + is.ID + `","seconds":60,"rate":300}`, proto.CodeInvalid, "unknown field", proto.FixUpgrade},
 		{"another's entry", bob, proto.OpHoursDelete, `{"id":"` + mine.ID + `"}`, proto.CodeForbidden,
-			"undoing another person's hours is for starfix admins", "ask a starfix admin"},
-		{"no entry", alice, proto.OpHoursDelete, `{"id":"nosuchentry"}`, proto.CodeNotFound, "hours entry nosuchentry not found", "sfx log --issue"},
+			"undoing another person's hours is for aries admins", "ask an aries admin"},
+		{"no entry", alice, proto.OpHoursDelete, `{"id":"nosuchentry"}`, proto.CodeNotFound, "hours entry nosuchentry not found", "aries log --issue"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -111,7 +111,7 @@ func TestDispatchHoursLimit(t *testing.T) {
 	mustCall[proto.HoursLogResult](t, s, alice, proto.OpHoursLog, proto.HoursLogArgs{ID: is.ID, Seconds: 60})
 	_, perr := call[proto.HoursLogResult](t, s, alice, proto.OpHoursLog, proto.HoursLogArgs{ID: is.ID, Seconds: 60})
 	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Message, "alice has 1 entries on 2026-10-07") ||
-		!strings.Contains(perr.Fix, "sfx log --undo") || !strings.Contains(perr.Fix, "hours_per_day under limits:") {
+		!strings.Contains(perr.Fix, "aries log --undo") || !strings.Contains(perr.Fix, "hours_per_day under limits:") {
 		t.Fatalf("a second entry with hours_per_day 1: %+v, want invalid naming the limit", perr)
 	}
 }
@@ -124,7 +124,7 @@ func TestDispatchHoursDayFull(t *testing.T) {
 	is := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work"})
 	mustCall[proto.HoursLogResult](t, s, alice, proto.OpHoursLog, proto.HoursLogArgs{ID: is.ID, Seconds: 22*3600 + 1800})
 	_, perr := call[proto.HoursLogResult](t, s, alice, proto.OpHoursLog, proto.HoursLogArgs{ID: is.ID, Seconds: 2 * 3600})
-	const fix = "you can log at most 1.5h more on 2026-10-07; undo an entry with `sfx log --undo ID` to change it"
+	const fix = "you can log at most 1.5h more on 2026-10-07; undo an entry with `aries log --undo ID` to change it"
 	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Message, "at most 24h") || perr.Fix != fix {
 		t.Fatalf("2h on a day with 22.5h logged: %+v, want invalid with fix %q", perr, fix)
 	}
@@ -152,10 +152,10 @@ func TestDispatchPlans(t *testing.T) {
 		msg   string
 		fix   string
 	}{
-		{"not an admin", alice, `{"name":"team","from":"2026-09","fee":1,"seats":1}`, proto.CodeForbidden, "plans set is for starfix admins", "ask a starfix admin"},
-		{"bad from", dana, `{"name":"team","from":"2026-13","fee":1,"seats":1}`, proto.CodeInvalid, `from "2026-13"`, "sfx admin plans set -h"},
-		{"a date", dana, `{"name":"team","from":"2026-09-01","fee":1,"seats":1}`, proto.CodeInvalid, `from "2026-09-01"`, "sfx admin plans set -h"},
-		{"bad name", dana, `{"name":"Team","from":"2026-09","fee":1,"seats":1}`, proto.CodeInvalid, "name", "sfx admin plans set -h"},
+		{"not an admin", alice, `{"name":"team","from":"2026-09","fee":1,"seats":1}`, proto.CodeForbidden, "plans set is for aries admins", "ask an aries admin"},
+		{"bad from", dana, `{"name":"team","from":"2026-13","fee":1,"seats":1}`, proto.CodeInvalid, `from "2026-13"`, "aries admin plans set -h"},
+		{"a date", dana, `{"name":"team","from":"2026-09-01","fee":1,"seats":1}`, proto.CodeInvalid, `from "2026-09-01"`, "aries admin plans set -h"},
+		{"bad name", dana, `{"name":"Team","from":"2026-09","fee":1,"seats":1}`, proto.CodeInvalid, "name", "aries admin plans set -h"},
 		{"unknown field", dana, `{"name":"team","from":"2026-09","fee":1,"seats":1,"currency":"EUR"}`, proto.CodeInvalid, "unknown field", proto.FixUpgrade},
 	}
 	for _, tc := range tests {

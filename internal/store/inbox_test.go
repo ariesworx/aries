@@ -70,7 +70,7 @@ func TestInboxKinds(t *testing.T) {
 				return is.ID
 			},
 			reader: alice,
-			want:   []item{{"alice", "sess-a", InboxClaimLost, "", "starfixd"}},
+			want:   []item{{"alice", "sess-a", InboxClaimLost, "", "ariesd"}},
 		},
 		{
 			name: "takeover after expiry tells the losing session",

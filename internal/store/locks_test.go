@@ -274,7 +274,7 @@ func TestLockFIFO(t *testing.T) {
 		!strings.Contains(items[0].Body, "epoch 2") {
 		t.Errorf("bob's pushed items = %+v, want one lock.granted for merge/main at epoch 2 in his session", items)
 	}
-	// bob learns of it by renewing his place, as sfx lock run does.
+	// bob learns of it by renewing his place, as aries lock run does.
 	st, err := s.RenewLock(ctx, bob, "merge/main", 0, 0)
 	if err != nil || st.Held == nil || st.Held.Epoch != 2 {
 		t.Errorf("RenewLock of bob's place once granted = %+v, %v; want his hold at epoch 2", st, err)
@@ -602,7 +602,7 @@ func TestLockLimits(t *testing.T) {
 	}
 }
 
-// The count starfixd makes of an archived project, to know whether to
+// The count ariesd makes of an archived project, to know whether to
 // open it at start and end what is held there, counts holds and places
 // in a lock's queue beside claims: losing access ends them too.
 func TestHeldClaimsCountsLocks(t *testing.T) {

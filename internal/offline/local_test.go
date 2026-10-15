@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/outbox"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/outbox"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 const (
@@ -39,7 +39,7 @@ func newLocal(t *testing.T, o outbox.Options) (*Local, *clock) {
 	return Open(ownDir(t), hostKey, project, Options{Now: c.now, Outbox: o}), c
 }
 
-// ownDir is a new directory that is the test's alone, as sfx's data
+// ownDir is a new directory that is the test's alone, as aries's data
 // directory must be.
 func ownDir(t *testing.T) string {
 	t.Helper()
@@ -68,14 +68,14 @@ func TestDataDir(t *testing.T) {
 		home func() (string, error)
 		want string // "" for an error
 	}{
-		{"the override wins", "linux", map[string]string{EnvDataDir: abs("/data/sfx"), "XDG_DATA_HOME": abs("/xdg")}, home, abs("/data/sfx")},
+		{"the override wins", "linux", map[string]string{EnvDataDir: abs("/data/aries"), "XDG_DATA_HOME": abs("/xdg")}, home, abs("/data/aries")},
 		{"a relative override is refused", "linux", map[string]string{EnvDataDir: "data"}, home, ""},
-		{"linux: XDG_DATA_HOME", "linux", map[string]string{"XDG_DATA_HOME": abs("/xdg")}, home, filepath.Join(abs("/xdg"), "starfix")},
-		{"linux: a relative XDG_DATA_HOME is ignored", "linux", map[string]string{"XDG_DATA_HOME": "xdg"}, home, filepath.FromSlash("/home/alice/.local/share/starfix")},
-		{"linux: the home directory", "linux", nil, home, filepath.FromSlash("/home/alice/.local/share/starfix")},
+		{"linux: XDG_DATA_HOME", "linux", map[string]string{"XDG_DATA_HOME": abs("/xdg")}, home, filepath.Join(abs("/xdg"), "aries")},
+		{"linux: a relative XDG_DATA_HOME is ignored", "linux", map[string]string{"XDG_DATA_HOME": "xdg"}, home, filepath.FromSlash("/home/alice/.local/share/aries")},
+		{"linux: the home directory", "linux", nil, home, filepath.FromSlash("/home/alice/.local/share/aries")},
 		{"linux: no home", "linux", nil, noHome, ""},
-		{"macOS", "darwin", nil, home, filepath.FromSlash("/home/alice/Library/Application Support/starfix")},
-		{"Windows: local, never roaming", "windows", map[string]string{"LocalAppData": abs("/local"), "AppData": abs("/roaming")}, home, filepath.Join(abs("/local"), "starfix")},
+		{"macOS", "darwin", nil, home, filepath.FromSlash("/home/alice/Library/Application Support/aries")},
+		{"Windows: local, never roaming", "windows", map[string]string{"LocalAppData": abs("/local"), "AppData": abs("/roaming")}, home, filepath.Join(abs("/local"), "aries")},
 		{"Windows: without LocalAppData", "windows", map[string]string{"AppData": abs("/roaming")}, home, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -96,7 +96,7 @@ func TestDataDir(t *testing.T) {
 // cannot say. With a key configured, it is the principal the server last
 // took that key for. With none, it is the principal of the key the
 // server accepted the last time none was configured, and only while
-// that key is still among those sfx would offer. Otherwise it is
+// that key is still among those aries would offer. Otherwise it is
 // nobody's, and nothing is queued.
 func TestPrincipalRule(t *testing.T) {
 	t.Parallel()
@@ -179,7 +179,7 @@ func TestPrincipalRule(t *testing.T) {
 }
 
 // TestDirectoryMustBeTheUsersOwn pins that a data directory others can
-// read or write is refused, with a fix, and never chmodded: sfx did not
+// read or write is refused, with a fix, and never chmodded: aries did not
 // make it that way, and what it would keep there is a person's text.
 func TestDirectoryMustBeTheUsersOwn(t *testing.T) {
 	t.Parallel()
@@ -205,7 +205,7 @@ func TestDirectoryMustBeTheUsersOwn(t *testing.T) {
 				t.Fatal(err)
 			}
 			dir := tc.dir(l)
-			if err := os.Chmod(dir, tc.mode); err != nil { //nolint:gosec // the mode sfx must refuse
+			if err := os.Chmod(dir, tc.mode); err != nil { //nolint:gosec // the mode aries must refuse
 				t.Fatal(err)
 			}
 			check := func(what string, err error) {
@@ -297,7 +297,7 @@ func TestOutboxDirectoryPerPrincipal(t *testing.T) {
 	}
 }
 
-var errReach = proto.Errf(proto.CodeUnavailable, "check server.host and server.port in .starfix.yaml, and your network",
+var errReach = proto.Errf(proto.CodeUnavailable, "check server.host and server.port in .aries.yaml, and your network",
 	"cannot reach 127.0.0.1:2222: connection refused")
 
 func entry(op, id string) outbox.Entry {
@@ -379,7 +379,7 @@ func TestKeepRefusals(t *testing.T) {
 				}
 				return l
 			},
-			code: proto.CodeBusy, is: outbox.ErrFull, msg: "1 entries wait, which is the cap", fix: "`sfx outbox drop N`"},
+			code: proto.CodeBusy, is: outbox.ErrFull, msg: "1 entries wait, which is the cap", fix: "`aries outbox drop N`"},
 		{name: "too large", e: big, who: "alice",
 			local: func(t *testing.T) *Local { l, _ := newLocal(t, outbox.Options{MaxEntryBytes: 1024}); return l },
 			code:  proto.CodeInvalid, is: outbox.ErrTooLarge, msg: "the cap is 1024", fix: "shorten its text"},
@@ -498,7 +498,7 @@ func TestReplay(t *testing.T) {
 	}{
 		{name: "all applied", delivered: 3, calls: []string{"comment sf-a", "comment sf-b", "remember style"}},
 		{name: "one refused, the rest go on",
-			answers:   map[string]error{"sf-a": proto.Errf(proto.CodeNotFound, "find the id with `sfx list`", "issue sf-a not found")},
+			answers:   map[string]error{"sf-a": proto.Errf(proto.CodeNotFound, "find the id with `aries list`", "issue sf-a not found")},
 			delivered: 2, refused: []string{"sf-a not_found"}, calls: []string{"comment sf-a", "comment sf-b", "remember style"}},
 		{name: "forbidden is a refusal, kept", answers: map[string]error{"sf-b": proto.Errf(proto.CodeForbidden, "ask bob", "bob holds sf-b")},
 			delivered: 2, refused: []string{"sf-b forbidden"}, calls: []string{"comment sf-a", "comment sf-b", "remember style"}},
@@ -609,7 +609,7 @@ func TestEnded(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	ended := proto.Errf(proto.CodeForbidden, "ask a server admin to run `sfx admin principal enable alice`", "alice is disabled on this server")
+	ended := proto.Errf(proto.CodeForbidden, "ask a server admin to run `aries admin principal enable alice`", "alice is disabled on this server")
 	if n, err := l.Ended("alice", ended); err != nil || n != 2 {
 		t.Fatalf("Ended(alice) = %d, %v; want her 2 entries refused", n, err)
 	}
@@ -796,7 +796,7 @@ func TestReplayByProtocol(t *testing.T) {
 	}
 	r := list.Refused[0]
 	if r.Code != string(proto.CodeVersion) || !strings.Contains(r.Message, "the server speaks protocol 5, which takes no idempotency key for update") ||
-		!strings.Contains(r.Fix, "`sfx outbox retry 1`") {
+		!strings.Contains(r.Fix, "`aries outbox retry 1`") {
 		t.Errorf("the update is refused as %s: %q, fix %q; want version, saying why, with a fix", r.Code, r.Message, r.Fix)
 	}
 	if err := ob.Retry(r.Entry.Seq); err != nil {
@@ -842,7 +842,7 @@ func TestRekeyed(t *testing.T) {
 	queuedAt(t, root, otherKey, project, there, 1)
 	queuedAt(t, root, oldKey, strings.Replace(project, "6f1c", "0000", 1), here, 1)
 	cur := queuedAt(t, root, hostKey, project, here, 0)
-	// A directory left by an sfx from before addresses were noted.
+	// A directory left by an aries from before addresses were noted.
 	unnoted := Open(root, keyX, project, Options{Now: func() time.Time { return t0 }})
 	if _, err := unnoted.Reached("alice", keyA, true, 0); err != nil {
 		t.Fatal(err)

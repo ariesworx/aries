@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 func TestPrintGates(t *testing.T) {
@@ -52,7 +52,7 @@ func TestPrintIssueGatesAndDates(t *testing.T) {
 	printIssue(&b, s)
 	for _, want := range []string{
 		"not before 2026-10-18 00:00 UTC; due 2026-10-20 17:00 UTC\n",
-		"held by gate sf-g1, which carol may pass: `sfx gate pass sf-g1`\n",
+		"held by gate sf-g1, which carol may pass: `aries gate pass sf-g1`\n",
 	} {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("printIssue:\n%s\nwant a line %q", b.String(), want)

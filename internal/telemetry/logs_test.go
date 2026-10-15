@@ -18,8 +18,8 @@ import (
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
 
-	"github.com/ariesworx/starfix/internal/logs"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Invented ids, in the shapes an exported record takes.
@@ -30,7 +30,7 @@ const (
 )
 
 // logged makes a Telemetry whose exported log records a test reads in
-// process, and the logger that feeds it as starfixd's does.
+// process, and the logger that feeds it as ariesd's does.
 func logged(t *testing.T, cfg Config) (*Telemetry, *Manual, *slog.Logger) {
 	t.Helper()
 	tel, m := traced(t, cfg)
@@ -248,7 +248,7 @@ func TestLogPush(t *testing.T) {
 	if got := hdr.Get("x-test"); got != "one two" {
 		t.Errorf("export header x-test = %q, want %q", got, "one two")
 	}
-	for _, s := range []string{"claim expired", "claim.expired", "sf-a1b2", "service.name", "starfixd", "service.instance.id", "p_", "s_"} {
+	for _, s := range []string{"claim expired", "claim.expired", "sf-a1b2", "service.name", "ariesd", "service.instance.id", "p_", "s_"} {
 		if !bytes.Contains(body, []byte(s)) {
 			t.Errorf("the export does not carry %q", s)
 		}
@@ -383,7 +383,7 @@ func batched(t *testing.T, tel *Telemetry, exp sdklog.Exporter, le logEnv) *slog
 }
 
 // Every record is exported or counted as dropped, exactly, on
-// starfix.telemetry.dropped{signal="logs"}.
+// aries.telemetry.dropped{signal="logs"}.
 func TestDroppedLogsAreCounted(t *testing.T) {
 	// Serial: counts the process's goroutines (noLeak).
 	for _, tc := range []struct {
@@ -407,7 +407,7 @@ func TestDroppedLogsAreCounted(t *testing.T) {
 			if err := tel.stopLogs(t.Context()); err != nil {
 				t.Fatalf("stopLogs: %v", err)
 			}
-			dropped := int(collect(t, m).Value("starfix.telemetry.dropped", "signal", "logs"))
+			dropped := int(collect(t, m).Value("aries.telemetry.dropped", "signal", "logs"))
 			if tc.fail {
 				if dropped != lines {
 					t.Errorf("dropped = %d with an exporter that refuses, want all %d", dropped, lines)
@@ -449,7 +449,7 @@ func TestStopCutsShortASlowLogExport(t *testing.T) {
 	if err == nil {
 		t.Errorf("stopLogs = nil, want it to say the deadline passed")
 	}
-	if dropped := int(collect(t, m).Value("starfix.telemetry.dropped", "signal", "logs")); dropped != lines {
+	if dropped := int(collect(t, m).Value("aries.telemetry.dropped", "signal", "logs")); dropped != lines {
 		t.Errorf("dropped = %d, want the %d records the stop abandoned", dropped, lines)
 	}
 }
@@ -525,13 +525,13 @@ func TestDeadCollectorLogs(t *testing.T) {
 			}
 			text := promText(t, tel)
 			var dropped int
-			if _, err := fmt.Sscanf(grep(text, `starfix_telemetry_dropped_total{signal="logs"}`), `starfix_telemetry_dropped_total{signal="logs"} %d`, &dropped); err != nil {
+			if _, err := fmt.Sscanf(grep(text, `aries_telemetry_dropped_total{signal="logs"}`), `aries_telemetry_dropped_total{signal="logs"} %d`, &dropped); err != nil {
 				t.Fatalf("no count of dropped log records on /metrics: %v\n%s", err, grep(text, "dropped"))
 			}
 			// The lines, and the few of the daemon's own that were
 			// exported with them: the start-up line and the warning.
 			if dropped < lines || dropped > lines+4 {
-				t.Errorf("starfix.telemetry.dropped{signal=logs} = %d, want every one of the %d lines", dropped, lines)
+				t.Errorf("aries.telemetry.dropped{signal=logs} = %d, want every one of the %d lines", dropped, lines)
 			}
 		})
 	}

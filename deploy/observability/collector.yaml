@@ -1,10 +1,10 @@
-# An OpenTelemetry Collector for one starfix server: an example that is
+# An OpenTelemetry Collector for one Aries server: an example that is
 # tested, not a product (docs/server.md, Observability). The Docker test
 # server's `telemetry` profile runs it as it is here, and its smoke test
 # reads what it prints (docs/deploy/docker.md).
 #
-# It runs on the server itself. starfixd's listener and Dolt's metrics
-# have no authentication and answer on loopback only, and starfixd sends
+# It runs on the server itself. ariesd's listener and Dolt's metrics
+# have no authentication and answer on loopback only, and ariesd sends
 # to a collector on loopback with no credential, so this is the one
 # place that knows where the telemetry goes and holds the token for it.
 #
@@ -12,7 +12,7 @@
 # component here is in that distribution; none needs the contrib one.
 
 receivers:
-  # starfixd pushes its metrics and traces here: in its environment,
+  # ariesd pushes its metrics and traces here: in its environment,
   # OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318. With
   # OTEL_LOGS_EXPORTER=otlp beside it, its log records come too.
   otlp:
@@ -21,7 +21,7 @@ receivers:
         endpoint: 127.0.0.1:4318
 
   # Dolt can only be scraped: `metrics:` in its config, port 11228.
-  # Nothing of it is per database, and starfixd does not export it again.
+  # Nothing of it is per database, and ariesd does not export it again.
   prometheus/dolt:
     config:
       scrape_configs:
@@ -30,24 +30,24 @@ receivers:
           static_configs:
             - targets: ["127.0.0.1:11228"]
 
-  # starfixd's own /metrics: `telemetry: listen: 127.0.0.1:9464` in its
+  # ariesd's own /metrics: `telemetry: listen: 127.0.0.1:9464` in its
   # config. These are the instruments it also pushes, under the names
   # Prometheus gives them, which are the names the alert rules use
   # (alerts.yaml). KEEP ONE of the two on a real server, or every
-  # figure of starfixd's reaches the backend twice: take this receiver
+  # figure of ariesd's reaches the backend twice: take this receiver
   # out of the `metrics` pipeline below, or set
-  # OTEL_METRICS_EXPORTER=none in starfixd's environment and keep the
+  # OTEL_METRICS_EXPORTER=none in ariesd's environment and keep the
   # traces. Both are here because the test server checks both.
-  prometheus/starfixd:
+  prometheus/ariesd:
     config:
       scrape_configs:
-        - job_name: starfixd
+        - job_name: ariesd
           scrape_interval: 15s
           static_configs:
             - targets: ["127.0.0.1:9464"]
 
 processors:
-  # Refuses data, which starfixd then counts as dropped, before the
+  # Refuses data, which ariesd then counts as dropped, before the
   # collector's memory runs out.
   memory_limiter:
     check_interval: 1s
@@ -57,7 +57,7 @@ processors:
   # else of the log, remove the comment marks and name `filter/audit`
   # after `memory_limiter` in a logs pipeline of its own: it drops every
   # record that is not one of the stream's. A record names people by
-  # stand-ins unless starfixd's `telemetry: principals:` says otherwise
+  # stand-ins unless ariesd's `telemetry: principals:` says otherwise
   # (docs/server.md, Logs over OTLP).
   #
   # filter/audit:
@@ -87,14 +87,14 @@ exporters:
 service:
   pipelines:
     metrics:
-      receivers: [otlp, prometheus/starfixd, prometheus/dolt]
+      receivers: [otlp, prometheus/ariesd, prometheus/dolt]
       processors: [memory_limiter]
       exporters: [debug]
     traces:
       receivers: [otlp]
       processors: [memory_limiter]
       exporters: [debug]
-    # The records starfixd exports of the lines it logs, when asked
+    # The records ariesd exports of the lines it logs, when asked
     # (OTEL_LOGS_EXPORTER=otlp). The journal stays the logs' home and
     # has every field; a record has ids, codes and numbers, and no
     # text. The audit stream is among them, with audit=true.

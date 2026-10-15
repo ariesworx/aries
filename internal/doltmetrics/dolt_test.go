@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/dolttest"
+	"github.com/ariesworx/aries/internal/dolttest"
 )
 
 // A real Dolt, with its metrics endpoint on and a Go memory limit: every

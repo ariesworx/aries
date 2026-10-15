@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
-	"github.com/ariesworx/starfix/internal/telemetry"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
+	"github.com/ariesworx/aries/internal/telemetry"
 )
 
 // plantedText marks every piece of text a test puts where a person or an
@@ -209,7 +209,7 @@ func TestExportedSpansCarryNoText(t *testing.T) {
 	all := bytes.Join(posted, nil)
 	mu.Unlock()
 	// The export is there, and readable: it is not compressed.
-	for _, want := range []string{"create", "store.write.attempt", "handshake", "starfixd", projA, "p_"} {
+	for _, want := range []string{"create", "store.write.attempt", "handshake", "ariesd", projA, "p_"} {
 		if !bytes.Contains(all, []byte(want)) {
 			t.Fatalf("the %d bytes exported do not hold %q: the test reads nothing", len(all), want)
 		}

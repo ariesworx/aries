@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/outbox"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/outbox"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 func TestPrintConflicts(t *testing.T) {
@@ -30,7 +30,7 @@ func TestPrintConflicts(t *testing.T) {
   mine:   Fix the login redirect
   theirs: Fix login\nand logout
   advice: theirs is from bob, who holds the issue; take theirs
-resolve with ` + "`sfx resolve N --mine|--theirs|--text TEXT|--accept`; `sfx conflicts N` shows one whole" + `
+resolve with ` + "`aries resolve N --mine|--theirs|--text TEXT|--accept`; `aries conflicts N` shows one whole" + `
 `},
 		{"a proposal, and more", []proto.Conflict{proposed}, 3, `#3 sf-a1 title: alice's update from rev 4, parked 2h ago, against bob's of 3h ago
   base:   Fix login
@@ -38,8 +38,8 @@ resolve with ` + "`sfx resolve N --mine|--theirs|--text TEXT|--accept`; `sfx con
   theirs: Fix login\nand logout
   advice: theirs is from bob, who holds the issue; take theirs
   proposed by agent-7: text: Fix the login and logout redirects (keeps both)
-more: ` + "`sfx conflicts --after 3`" + `
-resolve with ` + "`sfx resolve N --mine|--theirs|--text TEXT|--accept`; `sfx conflicts N` shows one whole" + `
+more: ` + "`aries conflicts --after 3`" + `
+resolve with ` + "`aries resolve N --mine|--theirs|--text TEXT|--accept`; `aries conflicts N` shows one whole" + `
 `},
 	}
 	for _, tc := range tests {
@@ -88,7 +88,7 @@ func TestShowSaysConflicts(t *testing.T) {
 	var b bytes.Buffer
 	printIssue(&b, proto.ShowResult{Issue: proto.Issue{ID: "sf-a1", Title: "t", Status: "open", Type: "task", Rev: 3},
 		Conflicts: []proto.Conflict{{ID: 3, Field: "title"}, {ID: 4, Field: "body"}}})
-	if want := "conflicts: 2 open (title, body): `sfx conflicts sf-a1`\n"; !strings.Contains(b.String(), want) {
+	if want := "conflicts: 2 open (title, body): `aries conflicts sf-a1`\n"; !strings.Contains(b.String(), want) {
 		t.Errorf("printIssue:\n%s\nwant a line %q", b.String(), want)
 	}
 }
@@ -96,7 +96,7 @@ func TestShowSaysConflicts(t *testing.T) {
 func TestReplayLineParked(t *testing.T) {
 	t.Parallel()
 	got := replayLine(outbox.Report{Delivered: 3, Parked: 1})
-	if want := "outbox: delivered 3 (1 parked conflicts for a person to resolve: `sfx conflicts`)"; got != want {
+	if want := "outbox: delivered 3 (1 parked conflicts for a person to resolve: `aries conflicts`)"; got != want {
 		t.Errorf("replayLine = %q, want %q", got, want)
 	}
 }
@@ -110,9 +110,9 @@ func TestReplayLineKept(t *testing.T) {
 		want string
 	}{
 		{outbox.Report{Delivered: 2, Kept: 1},
-			"outbox: delivered 2 (1 kept as a comment, as the issue moved on while it waited: `sfx inbox` says why)"},
+			"outbox: delivered 2 (1 kept as a comment, as the issue moved on while it waited: `aries inbox` says why)"},
 		{outbox.Report{Delivered: 3, Parked: 1, Kept: 1},
-			"outbox: delivered 3 (1 parked conflicts for a person to resolve: `sfx conflicts`; 1 kept as a comment, as the issue moved on while it waited: `sfx inbox` says why)"},
+			"outbox: delivered 3 (1 parked conflicts for a person to resolve: `aries conflicts`; 1 kept as a comment, as the issue moved on while it waited: `aries inbox` says why)"},
 	} {
 		if got := replayLine(tc.rep); got != tc.want {
 			t.Errorf("replayLine(%+v) = %q, want %q", tc.rep, got, tc.want)

@@ -87,7 +87,7 @@ func countSQL(tb testing.TB, dsn string) (string, *sqlCounter) {
 		tb.Fatalf("the test Dolt's DSN is on %q, and the counter passes on a unix socket only", cfg.Net)
 	}
 	// A unix socket's path is short; the test's own directory may not be.
-	dir, err := os.MkdirTemp("", "sfxsql")
+	dir, err := os.MkdirTemp("", "ariessql")
 	if err != nil {
 		tb.Fatal(err)
 	}

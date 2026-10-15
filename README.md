@@ -1,11 +1,24 @@
-# starfix
+# Aries
 
-[![ci](https://github.com/ariesworx/starfix/actions/workflows/ci.yml/badge.svg)](https://github.com/ariesworx/starfix/actions/workflows/ci.yml)
+[![ci](https://github.com/ariesworx/aries/actions/workflows/ci.yml/badge.svg)](https://github.com/ariesworx/aries/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
+Aries takes its name from the first point of Aries: the point on the
+celestial sphere where the Sun crosses the celestial equator northward at
+the March equinox. Celestial navigation measures the sky from it. A
+star's sidereal hour angle is its angle westward from the first point of
+Aries, and the almanac gives that point's hour angle for every second of
+the year. With those figures, a clock and a sextant sight of two or
+three stars, anyone anywhere on the globe can fix their position and
+chart a course, with no signal from anyone else. Aries does the same for
+AI coding agents: one shared reference that every agent, on any machine
+and with any model, measures its work against (who holds what, what is
+ready, what was learned), so that each can fix where it stands and
+chart its next step.
 
 **An issue tracker built for AI coding agents.** Agents claim work, hand
 it off and see who else is working, across sessions and machines. They
-reach starfix through MCP (Model Context Protocol), the standard way
+reach Aries through MCP (Model Context Protocol), the standard way
 coding agents call tools, and people use the same tracker from the
 command line. One small Go server keeps the data in
 [Dolt](https://github.com/dolthub/dolt), a SQL database with Git-style
@@ -23,14 +36,14 @@ history.
 > to 7 days; a cache shows a session the work it holds while the server
 > is away, saying so; a write that arrives after others changed the
 > issue is parked as a conflict for a person, or kept as a comment; and
-> `sfx away` holds a person's claims through a planned absence. None of
+> `aries away` holds a person's claims through a planned absence. None of
 > it has run on Windows. Not ready for production use
 > yet; see the [roadmap](#roadmap).
 
-## Why starfix
+## Why Aries
 
 When several agents work on one codebase, they have to agree on who does
-what. starfix makes that safe:
+what. Aries makes that safe:
 
 - **Claims can't go stale.** An agent claims an issue with a lease. If the
   agent dies, the lease lapses within 15 minutes and the issue is ready
@@ -65,31 +78,31 @@ what. starfix makes that safe:
 | Log the hours people spend on an issue | `log` | [Human hours](docs/concepts.md#human-hours) |
 | Serve many projects from one server, and manage projects, people, keys and memberships from any machine | `admin project`, `admin principal`, `admin key`, `admin member`, `admin status` | [Serving many projects](docs/server.md#serving-many-projects) |
 | Set up Claude Code, Codex, Gemini CLI, Cursor, VS Code, Junie, JetBrains AI Assistant or Claude Desktop | `setup` | [Agents](docs/agents.md) |
-| Move a bd (beads) backlog over, keeping its IDs | `starfixd import-bd` | [Moving from bd](docs/migrate-from-bd.md) |
-| Reach a server that has no public address, through Google Cloud IAP | `iap:` in `.starfix.yaml` | [Using sfx](docs/cli.md#servers-without-a-public-ip-google-cloud-iap) |
-| Upgrade clients and the server from signed releases | `upgrade` | [Installing starfix](docs/install.md#upgrade-and-roll-back) |
+| Move a bd (beads) backlog over, keeping its IDs | `ariesd import-bd` | [Moving from bd](docs/migrate-from-bd.md) |
+| Reach a server that has no public address, through Google Cloud IAP | `iap:` in `.aries.yaml` | [Using `aries`](docs/cli.md#servers-without-a-public-ip-google-cloud-iap) |
+| Upgrade clients and the server from signed releases | `upgrade` | [Installing Aries](docs/install.md#upgrade-and-roll-back) |
 
 Planned: an offline cache and conflict handling, and **Bearings**, an orchestrator that runs
-and supervises many agents on top of starfix
+and supervises many agents on top of Aries
 ([design](docs/design/bearings.md)).
 
 ## How it works
 
 ```text
  agent ──MCP──┐                             the server
-              ├─▶ sfx ══ SSH ══▶ sshd ─▶ starfixd stdio --principal NAME
+              ├─▶ aries ══ SSH ══▶ sshd ─▶ ariesd stdio --principal NAME
  person ─CLI──┘   (pinned host key)            │ unix socket, 0700
                                                ▼
-                                         starfixd serve ─▶ Dolt (loopback)
+                                         ariesd serve ─▶ Dolt (loopback)
 ```
 
-- **`sfx`** is the client: a command line for people, and an MCP server
+- **`aries`** is the client: a command line for people, and an MCP server
   for agents. It runs on Linux, macOS and Windows. The name is short for
-  starfix.
+  Aries.
 - **sshd** checks the key. Each key's line in `authorized_keys` runs one
-  fixed command, `starfixd stdio --principal NAME`, so the key, not the
+  fixed command, `ariesd stdio --principal NAME`, so the key, not the
   client, decides your principal: the name the server knows you by.
-- **`starfixd serve`** owns the data. It applies every change in order,
+- **`ariesd serve`** owns the data. It applies every change in order,
   records each as an event in the same transaction, and stores it in Dolt.
   It runs on Linux.
 - Messages are newline-delimited JSON. Each connection opens with a
@@ -110,24 +123,24 @@ Costs are Google Cloud list prices for us-central1, read in October 2026.
 
 **To join a project that has a server:**
 
-1. [Install `sfx`](#install).
+1. [Install `aries`](#install).
 2. Send your public SSH key, such as `~/.ssh/id_ed25519.pub`, to the
-   server's admin. `sfx` signs in with the key `ssh` would use: a default
+   server's admin. `aries` signs in with the key `ssh` would use: a default
    file in `~/.ssh`, or a key in ssh-agent. To use another, set
-   `STARFIX_KEY_FILE` to its path
+   `ARIES_KEY_FILE` to its path
    ([Your key is your identity](docs/cli.md#your-key-is-your-identity)).
-3. In the repository, which has a committed `.starfix.yaml`, check the
+3. In the repository, which has a committed `.aries.yaml`, check the
    connection:
 
    ```sh
-   sfx ready
+   aries ready
    ```
 
 4. If nobody has set your agent up in this repository yet, do it and
    commit what setup writes. For Claude Code:
 
    ```sh
-   sfx setup claude-code --write
+   aries setup claude-code --write
    ```
 
    The files tell agents to call `prime` when a session starts, then
@@ -144,14 +157,14 @@ machine.
 On Linux or macOS:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ariesworx/starfix/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ariesworx/aries/main/install.sh | sh
 ```
 
 The script checks the release's checksum, and its signature when
-OpenSSL 3 is installed, then installs `sfx` into `~/.local/bin`. It never
+OpenSSL 3 is installed, then installs `aries` into `~/.local/bin`. It never
 uses sudo. On Windows, download the zip
-from the [releases page](https://github.com/ariesworx/starfix/releases).
-[Installing starfix](docs/install.md) covers the options, the server
+from the [releases page](https://github.com/ariesworx/aries/releases).
+[Installing Aries](docs/install.md) covers the options, the server
 binary, building from source and verifying a download by hand. A server
 on Ubuntu 24.04 LTS or 26.04 LTS is set up by one script, `install-server.sh`
 ([With the installer](docs/server.md#with-the-installer)).
@@ -160,14 +173,14 @@ on Ubuntu 24.04 LTS or 26.04 LTS is set up by one script, `install-server.sh`
 
 | Guide | Covers |
 |---|---|
-| [How starfix works](docs/concepts.md) | Identity, issues, dependencies, claims and leases, handoffs, the inbox, the digest |
-| [Using sfx](docs/cli.md) | Connecting a repository, every command, exit codes |
+| [How Aries works](docs/concepts.md) | Identity, issues, dependencies, claims and leases, handoffs, the inbox, the digest |
+| [Using `aries`](docs/cli.md) | Connecting a repository, every command, exit codes |
 | [Agents](docs/agents.md) | Setting agents up, session-start hooks, MCP tools, sessions |
 | [CI gates](docs/ci.md) | Holding work until CI reports a check, landing, and workflows for GitHub Actions and GitLab CI, with what they cost |
 | [Running a server](docs/server.md) | Setup step by step, principals, admins, settings, limits, metrics and health, upgrades, backups, troubleshooting |
-| [Operating with Claude Code](docs/server.md#operate-a-server-with-claude-code) | The `starfix-ops` plugin: deploy and run a server by talking to Claude, with every change shown and approved first |
+| [Operating with Claude Code](docs/server.md#operate-a-server-with-claude-code) | The `aries-ops` plugin: deploy and run a server by talking to Claude, with every change shown and approved first |
 | [Deployment examples](docs/deploy/README.md) | Local, team and enterprise deployments, with costs, and a Docker test server |
-| [Installing starfix](docs/install.md) | Install options, manual downloads, verifying releases, upgrades |
+| [Installing Aries](docs/install.md) | Install options, manual downloads, verifying releases, upgrades |
 | [Moving from bd](docs/migrate-from-bd.md) | Importing a beads backlog, and exporting it back |
 | [Security model](docs/security-model.md) | Identity, host keys, the Dolt account, untrusted text, releases, CI checks |
 | [Design documents](docs/design/README.md) | Principles, architecture, data model, the Dolt spike, Bearings |
@@ -182,15 +195,31 @@ on Ubuntu 24.04 LTS or 26.04 LTS is set up by one script, `install-server.sh`
 | 1 | Store, server, SSH transport, version handshake, issue CLI, bd import | Done |
 | 2 | MCP server, `start`/`finish`, `digest`, `prime`, `upgrade`, agent setup | Done |
 | 3 | Claims with leases, agents registry, inbox, event push, handoff, files to issues, live board, token capture | In progress. Built: claims, agents registry, inbox, event push, structured handoffs, idempotency, files to issues, acceptance checklists, similar closed issues, the live board, accounts, time and token reporting, and token capture for Claude Code. The stage's gate, a multi-session soak test, passes. Left: token capture for Codex and Gemini CLI, held until the maintainer uses them and their formats can be checked against real files |
-| 3a | Many projects on one server, each with its own database and writer; keys and project memberships in the store; server and project admins; `sfx admin` | Built, and its gate passes in the test stack, against a real sshd in Docker, and under systemd on an Ubuntu 24.04 virtual machine; not yet checked on a cloud provider's machine ([§15](docs/design/starfix.md#15-projects-and-access)). Built: the control store; a server that holds many projects when `control_db` is set, with membership checked at connection, project admins, and `starfixd control init` to adopt the existing project and import `authorized_keys`; `sfx admin` to create, archive and activate projects and to manage principals, members and keys from anywhere, with connections closed and claims released when access ends; keys written from the store to a file sshd reads, so adding a person needs no shell on the server; `sfx admin status` to watch the server and each project; and the soak test across two projects ([Serving many projects](docs/server.md#serving-many-projects)). To verify: the setup on a machine of each cloud provider, which only the Docker test server, that virtual machine (arm64) and a stand-in for a provider's login agent have run; and Dolt's memory with several projects on Linux. The supported server platform is Ubuntu LTS, with optional AppArmor profiles for starfixd ([Confine starfixd with AppArmor](docs/server.md#confine-starfixd-with-apparmor)); systems that run SELinux are not supported yet |
-| 3b | Observability: OpenTelemetry traces and metrics from `starfixd`, a loopback endpoint for metrics and health, a log schema and audit stream, Dolt's metrics, and a Collector harness | Built ([§16](docs/design/starfix.md#16-observability)): metrics, pushed over OTLP/HTTP and offered to a Prometheus scraper; traces, pushed over OTLP/HTTP, from the caller's trace context through the request into the store, with people named by a stand-in ([Traces](docs/server.md#traces)); the loopback listener with `/metrics`, `/healthz` and `/readyz`; readiness and a watchdog for systemd; `starfixd status`; Dolt's own metrics, turned on in the guide and the Docker image, with its memory, connections, uptime and collector in `sfx admin status` ([Observability](docs/server.md#observability)); and a log schema with stable event names, a request id on every line of a request and in its refusal, the audit stream of access changes, and the same lines over OTLP as an option ([Logs](docs/server.md#logs)); and the harness: a Collector's configuration, alert rules and a dashboard as tested examples ([deploy/observability](deploy/observability)), Compose profiles that run a Collector and a Prometheus beside the Docker test server ([Telemetry](docs/deploy/docker.md#telemetry)), a smoke test of what reaches them in all three signals, and a soak that holds the instruments, the spans and the audit stream to the event logs. Metrics, traces and the listener were run under systemd with the AppArmor profiles enforced, on an Ubuntu 24.04 virtual machine. Not yet verified: the log schema and logs over OTLP under systemd and AppArmor; the harness anywhere but Docker on a Mac (arm64), so not on amd64, not with a Collector as a unit on a server, and not against a hosted backend; the dashboard in a Grafana; and the alert thresholds against real traffic |
-| 4 | Team and personal memory with tags; prices and `sfx cost` | Done. Built: scoped, tagged memory with pins and issue links (`remember`, `recall`, `forget`, `memories`, `pin`), ranked in `prime` and `start`, private user scope, a secrets lint, and import of bd's memories; prices (`sfx admin prices`), `sfx cost` and the MCP `cost` tool, and the cost in `show` and `digest`; human hours (`sfx log`) in `show`, `digest` and `sfx cost`; subscription plans (`sfx admin plans`) and their amortized cost in `sfx cost` |
-| 5 | Offline cache, outbox, conflict resolution | Built, and its gate, the partition tests, passes in the test stack ([§18](docs/design/starfix.md#18-working-without-the-server-the-stage-5-design)): the outbox for `create`, `comment`, `handoff`, `remember`, logged hours and `finish`, and since protocol 6 for `update`, labels, `dep add`, `accept` and token usage, sent once each when the server answers, within a window of 7 days (`idem_window`); `sfx outbox` and the refused list ([When the server cannot be reached](docs/cli.md#when-the-server-cannot-be-reached)); the cache of a session's own context; since protocol 7 conflicts: a replayed update parks the fields others changed, for a person to resolve with `sfx resolve`, and an agent may propose ([Conflicts](docs/cli.md#conflicts)); `sfx away` within the server's `away_max`; and since protocol 8 the late `finish`: one that arrives after its lease lapsed applies if nobody took the issue, and is kept as a comment if somebody did. Not run: any of it on Windows, or against a real network that partitions rather than the soak's cut dials. Not built: claims made offline, and a full local copy of the project (decisions 39 and 40) |
-| 6 | Locks, gates, formulas, swarm, cross-project | In progress: slices G0, G1 and G2 are built: human gates (`sfx gate`; agents may add one, a person passes it), dates on an issue (`--defer-until`, `--due`, listed by `digest` and `prime`), CI gates, which a CI job's `sfx gate pass` or `fail` reports by its branch, with `landed` telling closed from landed ([CI gates](docs/ci.md)), and locks: leased, fenced, first-in-first-out mutexes and semaphores that a script holds around a command with `sfx lock run` ([Locks](docs/concepts.md#locks); [§20](docs/design/starfix.md#20-coordination-across-agents-and-projects-the-stage-6-design)) |
+| 3a | Many projects on one server, each with its own database and writer; keys and project memberships in the store; server and project admins; `aries admin` | Built, and its gate passes in the test stack, against a real sshd in Docker, and under systemd on an Ubuntu 24.04 virtual machine; not yet checked on a cloud provider's machine ([§15](docs/design/aries.md#15-projects-and-access)). Built: the control store; a server that holds many projects when `control_db` is set, with membership checked at connection, project admins, and `ariesd control init` to adopt the existing project and import `authorized_keys`; `aries admin` to create, archive and activate projects and to manage principals, members and keys from anywhere, with connections closed and claims released when access ends; keys written from the store to a file sshd reads, so adding a person needs no shell on the server; `aries admin status` to watch the server and each project; and the soak test across two projects ([Serving many projects](docs/server.md#serving-many-projects)). To verify: the setup on a machine of each cloud provider, which only the Docker test server, that virtual machine (arm64) and a stand-in for a provider's login agent have run; and Dolt's memory with several projects on Linux. The supported server platform is Ubuntu LTS, with optional AppArmor profiles for ariesd ([Confine ariesd with AppArmor](docs/server.md#confine-ariesd-with-apparmor)); systems that run SELinux are not supported yet |
+| 3b | Observability: OpenTelemetry traces and metrics from `ariesd`, a loopback endpoint for metrics and health, a log schema and audit stream, Dolt's metrics, and a Collector harness | Built ([§16](docs/design/aries.md#16-observability)): metrics, pushed over OTLP/HTTP and offered to a Prometheus scraper; traces, pushed over OTLP/HTTP, from the caller's trace context through the request into the store, with people named by a stand-in ([Traces](docs/server.md#traces)); the loopback listener with `/metrics`, `/healthz` and `/readyz`; readiness and a watchdog for systemd; `ariesd status`; Dolt's own metrics, turned on in the guide and the Docker image, with its memory, connections, uptime and collector in `aries admin status` ([Observability](docs/server.md#observability)); and a log schema with stable event names, a request id on every line of a request and in its refusal, the audit stream of access changes, and the same lines over OTLP as an option ([Logs](docs/server.md#logs)); and the harness: a Collector's configuration, alert rules and a dashboard as tested examples ([deploy/observability](deploy/observability)), Compose profiles that run a Collector and a Prometheus beside the Docker test server ([Telemetry](docs/deploy/docker.md#telemetry)), a smoke test of what reaches them in all three signals, and a soak that holds the instruments, the spans and the audit stream to the event logs. Metrics, traces and the listener were run under systemd with the AppArmor profiles enforced, on an Ubuntu 24.04 virtual machine. Not yet verified: the log schema and logs over OTLP under systemd and AppArmor; the harness anywhere but Docker on a Mac (arm64), so not on amd64, not with a Collector as a unit on a server, and not against a hosted backend; the dashboard in a Grafana; and the alert thresholds against real traffic |
+| 4 | Team and personal memory with tags; prices and `aries cost` | Done. Built: scoped, tagged memory with pins and issue links (`remember`, `recall`, `forget`, `memories`, `pin`), ranked in `prime` and `start`, private user scope, a secrets lint, and import of bd's memories; prices (`aries admin prices`), `aries cost` and the MCP `cost` tool, and the cost in `show` and `digest`; human hours (`aries log`) in `show`, `digest` and `aries cost`; subscription plans (`aries admin plans`) and their amortized cost in `aries cost` |
+| 5 | Offline cache, outbox, conflict resolution | Built, and its gate, the partition tests, passes in the test stack ([§18](docs/design/aries.md#18-working-without-the-server-the-stage-5-design)): the outbox for `create`, `comment`, `handoff`, `remember`, logged hours and `finish`, and since protocol 6 for `update`, labels, `dep add`, `accept` and token usage, sent once each when the server answers, within a window of 7 days (`idem_window`); `aries outbox` and the refused list ([When the server cannot be reached](docs/cli.md#when-the-server-cannot-be-reached)); the cache of a session's own context; since protocol 7 conflicts: a replayed update parks the fields others changed, for a person to resolve with `aries resolve`, and an agent may propose ([Conflicts](docs/cli.md#conflicts)); `aries away` within the server's `away_max`; and since protocol 8 the late `finish`: one that arrives after its lease lapsed applies if nobody took the issue, and is kept as a comment if somebody did. Not run: any of it on Windows, or against a real network that partitions rather than the soak's cut dials. Not built: claims made offline, and a full local copy of the project (decisions 39 and 40) |
+| 6 | Locks, gates, formulas, swarm, cross-project | In progress: slices G0, G1 and G2 are built: human gates (`aries gate`; agents may add one, a person passes it), dates on an issue (`--defer-until`, `--due`, listed by `digest` and `prime`), CI gates, which a CI job's `aries gate pass` or `fail` reports by its branch, with `landed` telling closed from landed ([CI gates](docs/ci.md)), and locks: leased, fenced, first-in-first-out mutexes and semaphores that a script holds around a command with `aries lock run` ([Locks](docs/concepts.md#locks); [§20](docs/design/aries.md#20-coordination-across-agents-and-projects-the-stage-6-design)) |
 | 7 | Scheduled digests, GitHub sync, compaction, vectors | |
 
-The Bearings stages (B0 to B5) start once starfix stage 3 lands; see the
+**v1.0.0.** The next release is v1.0.0. It holds the rename to Aries;
+the move from Dolt to Postgres, slices P0, P1, P2, P4 and P5 of
+[decision 79](docs/design/aries.md#14-decisions); stage 6's slices G0
+to G2; and a hardening pass: a review of every public name, flag,
+variable and setting, the protocol settled at one version (decision
+78), and the open follow-ups. Stage 6's G3 to G5 come in 1.x releases
+as compatible additions.
+
+The Bearings stages (B0 to B5) start once Aries stage 3 lands; see the
 [Bearings plan](docs/design/bearings.md#6-plan).
+
+## Names
+
+**Aries** is the coordination server and its client, `ariesd` and
+`aries`. **Bearings** is the orchestrator planned on top of it, a design
+only. **Sextant** is reserved for future observability: metrics,
+monitoring, tracing, and cost and usage reporting. It is a name only;
+nothing moves under it now.
 
 ## Contributing
 
@@ -200,7 +229,7 @@ contributor follows, person or agent.
 
 ## Relationship to beads
 
-starfix is an independent project, inspired by and able to import from
+Aries is an independent project, inspired by and able to import from
 [beads](https://github.com/gastownhall/beads) (`bd`). It is not part of, or
 endorsed by, the beads or Dolt projects.
 

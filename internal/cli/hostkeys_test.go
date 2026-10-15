@@ -14,7 +14,7 @@ func TestOutboxHostKeyThatIsPinned(t *testing.T) {
 	t.Parallel()
 	a := newAway(t)
 	const newKey = "SHA256:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
-	cfgPath := filepath.Join(a.repo, ".starfix.yaml")
+	cfgPath := filepath.Join(a.repo, ".aries.yaml")
 	b, err := os.ReadFile(cfgPath) //nolint:gosec // the test's own file
 	if err != nil {
 		t.Fatal(err)
@@ -26,12 +26,12 @@ func TestOutboxHostKeyThatIsPinned(t *testing.T) {
 	a.reachedAs(t, "alice")
 	for _, key := range []string{awayHostKey, newKey} {
 		code, out, errb := a.run(t, "outbox", "--host-key", key)
-		want := "sfx: " + key + " is pinned in .starfix.yaml now: leave out --host-key\n"
+		want := "aries: " + key + " is pinned in .aries.yaml now: leave out --host-key\n"
 		if code != ExitUsage || out != "" || !strings.HasPrefix(errb, want) {
-			t.Errorf("sfx outbox --host-key %s = exit %d, stdout %q, stderr %q; want exit %d and %q", key, code, out, errb, ExitUsage, want)
+			t.Errorf("aries outbox --host-key %s = exit %d, stdout %q, stderr %q; want exit %d and %q", key, code, out, errb, ExitUsage, want)
 		}
 	}
 	if code, out, errb := a.run(t, "outbox"); code != ExitOK || out != "alice's outbox is empty\nno failure to reach the server is recorded\n" {
-		t.Errorf("sfx outbox, pinning two keys = exit %d, stdout %q, stderr %q; want alice's empty outbox", code, out, errb)
+		t.Errorf("aries outbox, pinning two keys = exit %d, stdout %q, stderr %q; want alice's empty outbox", code, out, errb)
 	}
 }

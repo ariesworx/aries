@@ -9,9 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/logs"
-	"github.com/ariesworx/starfix/internal/store"
-	"github.com/ariesworx/starfix/internal/telemetry"
+	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/store"
+	"github.com/ariesworx/aries/internal/telemetry"
 	"github.com/go-sql-driver/mysql"
 )
 
@@ -33,7 +33,7 @@ type served struct {
 	timeout time.Duration
 	// used is when the project last answered a request, or was opened if
 	// it has answered none, in Unix nanoseconds on the server's clock:
-	// what `sfx admin status` shows as last used.
+	// what `aries admin status` shows as last used.
 	used atomic.Int64
 	// tel counts the refusals at the store's caps (observeLimit); nil
 	// counts none.
@@ -122,11 +122,11 @@ func ProjectOpener(dsn string, ctl *store.Control, opts store.Options, tel *tele
 }
 
 // ProjectDBs is the block of database names the operator granted
-// starfixd's account for new projects (design §15.5, 1, decision 16):
+// ariesd's account for new projects (design §15.5, 1, decision 16):
 // Prefix followed by a number of three digits, from 001 to Count, so
-// {starfix_p, 100} is starfix_p001 to starfix_p100. Dolt honors a grant
+// {aries_p, 100} is aries_p001 to aries_p100. Dolt honors a grant
 // only on an exact name, so the names are fixed and listed, not matched.
-// The zero value is no block: `sfx admin project add` is then refused.
+// The zero value is no block: `aries admin project add` is then refused.
 type ProjectDBs struct {
 	// Prefix starts each name: a lowercase letter, then lowercase
 	// letters, digits and underscores.
@@ -150,9 +150,9 @@ func (b ProjectDBs) Validate() error {
 	case b == ProjectDBs{}:
 		return nil
 	case !store.ValidDBName(b.Name(MaxProjectDBs)):
-		return fmt.Errorf("project_dbs prefix %q does not start a database name; fix: set it to a lowercase letter, then lowercase letters, digits and underscores, at most 61, such as starfix_p", b.Prefix)
+		return fmt.Errorf("project_dbs prefix %q does not start a database name; fix: set it to a lowercase letter, then lowercase letters, digits and underscores, at most 61, such as aries_p", b.Prefix)
 	case b.Count < 1 || b.Count > MaxProjectDBs:
-		return fmt.Errorf("project_dbs count %d must be 1 to %d; fix: set it to how many names you granted starfixd's account", b.Count, MaxProjectDBs)
+		return fmt.Errorf("project_dbs count %d must be 1 to %d; fix: set it to how many names you granted ariesd's account", b.Count, MaxProjectDBs)
 	}
 	return nil
 }

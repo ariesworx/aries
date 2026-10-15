@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // parseTime reads a price's from or a cost report's until: a date

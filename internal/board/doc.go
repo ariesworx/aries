@@ -1,4 +1,4 @@
-// Package board is `sfx tui`, the live board (design §12 item 7): the
+// Package board is `aries tui`, the live board (design §12 item 7): the
 // ready issues, the held ones with their holders and how long each has
 // been held, the blocked ones, and a tail of the events the server
 // pushes, kept current over the client's one SSH connection.

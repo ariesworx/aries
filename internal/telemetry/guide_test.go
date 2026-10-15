@@ -19,7 +19,7 @@ func TestGuideListsEveryInstrument(t *testing.T) {
 	guide := string(b)
 	rows := map[string]string{}
 	for line := range strings.Lines(guide) {
-		if cells := strings.Split(line, "|"); len(cells) >= 5 && strings.HasPrefix(strings.TrimSpace(cells[1]), "`starfix.") {
+		if cells := strings.Split(line, "|"); len(cells) >= 5 && strings.HasPrefix(strings.TrimSpace(cells[1]), "`aries.") {
 			rows[strings.Trim(strings.TrimSpace(cells[1]), "`")] = line
 		}
 	}

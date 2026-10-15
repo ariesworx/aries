@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ariesworx/starfix/internal/gitx"
-	"github.com/ariesworx/starfix/internal/offline"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/gitx"
+	"github.com/ariesworx/aries/internal/offline"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // started is start's JSON output: the server's result and the suggested
@@ -21,13 +21,13 @@ type started struct {
 }
 
 // cliLease is how long a claim taken from a terminal lasts: nothing renews
-// it, so it covers a working day. `sfx away` extends it.
+// it, so it covers a working day. `aries away` extends it.
 const cliLease = "8h"
 
 func cmdStart(ctx context.Context, r *runner, args []string) error {
 	const usage = "start [ID] [--for DURATION] [--take] [--branch | --worktree DIR]"
 	fs := r.newFlags("start")
-	lease := fs.String("for", cliLease, "how long the claim lasts (1m to 24h); `sfx away` extends it")
+	lease := fs.String("for", cliLease, "how long the claim lasts (1m to 24h); `aries away` extends it")
 	take := fs.Bool("take", false, "take it over from another session of yours that holds it")
 	branch := fs.Bool("branch", false, "create or switch to the issue's branch here")
 	worktree := fs.String("worktree", "", "create a worktree at DIR on the issue's branch")
@@ -62,7 +62,7 @@ func cmdStart(ctx context.Context, r *runner, args []string) error {
 	}
 	if err != nil {
 		return proto.Errf(proto.CodeUnavailable,
-			fmt.Sprintf("the issue is yours; fix that, then rerun `sfx start %s` with the same flag", is.ID),
+			fmt.Sprintf("the issue is yours; fix that, then rerun `aries start %s` with the same flag", is.ID),
 			fmt.Sprintf("started %s, but %v", is.ID, err))
 	}
 	if r.json {

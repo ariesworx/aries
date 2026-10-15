@@ -3,8 +3,8 @@ package server
 import (
 	"context"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/telemetry"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/telemetry"
 )
 
 // traceKey is the context key of a request's trace context.

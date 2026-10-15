@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/logs"
+	"github.com/ariesworx/aries/internal/logs"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -200,31 +200,31 @@ func TestRecord(t *testing.T) {
 		attrs []string
 		want  float64
 	}{
-		{"starfix.handshakes", []string{"result", "ok"}, 2},
-		{"starfix.handshakes", []string{"result", "busy"}, 1},
-		{"starfix.connections", []string{"project", projA}, 1},
-		{"starfix.keys_file.last_write.time", nil, 1700000060},
-		{"starfix.project.requests", []string{"project", projA, "result_class", "ok"}, 1},
-		{"starfix.project.requests", []string{"project", projB, "result_class", "refused"}, 1},
-		{"starfix.claims", []string{"event", "release", "reason", "archived"}, 1},
-		{"starfix.stores.open", nil, 3},
-		{"starfix.request.duration", []string{"op", "show", "result", "ok"}, 2.004},
+		{"aries.handshakes", []string{"result", "ok"}, 2},
+		{"aries.handshakes", []string{"result", "busy"}, 1},
+		{"aries.connections", []string{"project", projA}, 1},
+		{"aries.keys_file.last_write.time", nil, 1700000060},
+		{"aries.project.requests", []string{"project", projA, "result_class", "ok"}, 1},
+		{"aries.project.requests", []string{"project", projB, "result_class", "refused"}, 1},
+		{"aries.claims", []string{"event", "release", "reason", "archived"}, 1},
+		{"aries.stores.open", nil, 3},
+		{"aries.request.duration", []string{"op", "show", "result", "ok"}, 2.004},
 	} {
 		p, ok := snap.Find(tc.name, tc.attrs...)
 		if !ok || p.Value != tc.want {
 			t.Errorf("%s%v = %v (found %t), want %v\n%s", tc.name, tc.attrs, p.Value, ok, tc.want, snap)
 		}
 	}
-	if n := snap.Observations("starfix.request.duration", "op", "show"); n != 2 {
-		t.Errorf("observations of starfix.request.duration{op=show} = %d, want 2", n)
+	if n := snap.Observations("aries.request.duration", "op", "show"); n != 2 {
+		t.Errorf("observations of aries.request.duration{op=show} = %d, want 2", n)
 	}
-	if n := snap.Observations("starfix.request.duration"); n != 3 {
-		t.Errorf("observations of starfix.request.duration = %d, want 3", n)
+	if n := snap.Observations("aries.request.duration"); n != 3 {
+		t.Errorf("observations of aries.request.duration = %d, want 3", n)
 	}
 	// Every histogram has the one short list of buckets.
-	p, _ := snap.Find("starfix.request.duration", "op", "show", "result", "ok")
+	p, _ := snap.Find("aries.request.duration", "op", "show", "result", "ok")
 	if !slices.Equal(p.Bounds, Buckets) {
-		t.Errorf("buckets of starfix.request.duration = %v, want %v", p.Bounds, Buckets)
+		t.Errorf("buckets of aries.request.duration = %v, want %v", p.Bounds, Buckets)
 	}
 	if first, last := Buckets[0], Buckets[len(Buckets)-1]; first != 0.005 || last != 10 {
 		t.Errorf("Buckets run from %v to %v, want 5 ms to 10 s", first, last)
@@ -242,28 +242,28 @@ var allKeys = []string{"op", "result", "result_class", "project", "reason", "lim
 
 // wantKeys is each instrument's attribute keys (design §16.4).
 var wantKeys = map[string][]string{
-	"starfix.request.duration":          {"op", "result"},
-	"starfix.project.requests":          {"project", "result_class"},
-	"starfix.connections":               {"project"},
-	"starfix.handshakes":                {"result"},
-	"starfix.connections.dropped":       {"reason"},
-	"starfix.limit.refusals":            {"limit"},
-	"starfix.store.write.duration":      {"project"},
-	"starfix.store.write.retries":       {"project"},
-	"starfix.store.commit.duration":     nil,
-	"starfix.stores.open":               nil,
-	"starfix.store.open.duration":       {"migrated"},
-	"starfix.claims":                    {"event", "reason"},
-	"starfix.locks":                     {"event"},
-	"starfix.lock.wait.duration":        nil,
-	"starfix.control.writes":            {"op", "result"},
-	"starfix.keys_file.writes":          {"result"},
-	"starfix.keys_file.last_write.time": nil,
-	"starfix.reaper.duration":           nil,
-	"starfix.reaper.last_run.time":      nil,
-	"starfix.clock.behind":              nil,
-	"starfix.clock.steps":               {"direction"},
-	"starfix.telemetry.dropped":         {"signal"},
+	"aries.request.duration":          {"op", "result"},
+	"aries.project.requests":          {"project", "result_class"},
+	"aries.connections":               {"project"},
+	"aries.handshakes":                {"result"},
+	"aries.connections.dropped":       {"reason"},
+	"aries.limit.refusals":            {"limit"},
+	"aries.store.write.duration":      {"project"},
+	"aries.store.write.retries":       {"project"},
+	"aries.store.commit.duration":     nil,
+	"aries.stores.open":               nil,
+	"aries.store.open.duration":       {"migrated"},
+	"aries.claims":                    {"event", "reason"},
+	"aries.locks":                     {"event"},
+	"aries.lock.wait.duration":        nil,
+	"aries.control.writes":            {"op", "result"},
+	"aries.keys_file.writes":          {"result"},
+	"aries.keys_file.last_write.time": nil,
+	"aries.reaper.duration":           nil,
+	"aries.reaper.last_run.time":      nil,
+	"aries.clock.behind":              nil,
+	"aries.clock.steps":               {"direction"},
+	"aries.telemetry.dropped":         {"signal"},
 }
 
 // hostile are strings a client might choose, none of them a value any
@@ -318,7 +318,7 @@ func TestAttributeKeys(t *testing.T) {
 			snap := collect(t, m)
 			seen := map[string]bool{}
 			for _, p := range snap {
-				if !strings.HasPrefix(p.Name, "starfix.") {
+				if !strings.HasPrefix(p.Name, "aries.") {
 					continue
 				}
 				seen[p.Name] = true
@@ -360,31 +360,31 @@ func TestSeriesAreBounded(t *testing.T) {
 	ops, res := len(testOps)+1, len(results)+1 // and the fallback
 	projects := 3 + 1
 	for name, most := range map[string]int{
-		"starfix.request.duration":          ops * res,
-		"starfix.project.requests":          projects * 4,
-		"starfix.connections":               projects,
-		"starfix.handshakes":                res,
-		"starfix.connections.dropped":       8,
-		"starfix.limit.refusals":            len(limits) + 1,
-		"starfix.store.write.duration":      projects,
-		"starfix.store.write.retries":       projects,
-		"starfix.store.commit.duration":     1,
-		"starfix.stores.open":               1,
-		"starfix.store.open.duration":       3,
-		"starfix.claims":                    5 * 5,
-		"starfix.control.writes":            ops * res,
-		"starfix.keys_file.writes":          3,
-		"starfix.keys_file.last_write.time": 1,
-		"starfix.reaper.duration":           1,
-		"starfix.reaper.last_run.time":      1,
-		"starfix.telemetry.dropped":         2,
+		"aries.request.duration":          ops * res,
+		"aries.project.requests":          projects * 4,
+		"aries.connections":               projects,
+		"aries.handshakes":                res,
+		"aries.connections.dropped":       8,
+		"aries.limit.refusals":            len(limits) + 1,
+		"aries.store.write.duration":      projects,
+		"aries.store.write.retries":       projects,
+		"aries.store.commit.duration":     1,
+		"aries.stores.open":               1,
+		"aries.store.open.duration":       3,
+		"aries.claims":                    5 * 5,
+		"aries.control.writes":            ops * res,
+		"aries.keys_file.writes":          3,
+		"aries.keys_file.last_write.time": 1,
+		"aries.reaper.duration":           1,
+		"aries.reaper.last_run.time":      1,
+		"aries.telemetry.dropped":         2,
 	} {
 		if n := len(snap.Series(name)); n == 0 || n > most {
 			t.Errorf("%s has %d series, want 1 to %d", name, n, most)
 		}
 	}
 	for _, p := range snap {
-		if !strings.HasPrefix(p.Name, "starfix.") {
+		if !strings.HasPrefix(p.Name, "aries.") {
 			continue
 		}
 		for k, v := range p.Attrs {
@@ -394,16 +394,16 @@ func TestSeriesAreBounded(t *testing.T) {
 		}
 	}
 	// The hostile ops all became one value.
-	if v := snap.Sum("starfix.request.duration", "op", Unknown); v == 0 {
-		t.Errorf("no series of starfix.request.duration has op=%s", Unknown)
+	if v := snap.Sum("aries.request.duration", "op", Unknown); v == 0 {
+		t.Errorf("no series of aries.request.duration has op=%s", Unknown)
 	}
 	// Only as many projects as the cap are named; the rest are other.
 	named := map[string]bool{}
-	for _, p := range snap.Series("starfix.connections") {
+	for _, p := range snap.Series("aries.connections") {
 		named[p.Attrs["project"]] = true
 	}
 	if len(named) != 4 || !named[Other] {
-		t.Errorf("starfix.connections names projects %v, want 3 and %q", slices.Sorted(maps.Keys(named)), Other)
+		t.Errorf("aries.connections names projects %v, want 3 and %q", slices.Sorted(maps.Keys(named)), Other)
 	}
 }
 
@@ -498,28 +498,28 @@ func TestPrometheusNames(t *testing.T) {
 	types, samples := parseProm(t, text)
 
 	want := map[string]string{
-		"starfix.request.duration":          "starfix_request_duration_seconds",
-		"starfix.project.requests":          "starfix_project_requests_total",
-		"starfix.connections":               "starfix_connections",
-		"starfix.handshakes":                "starfix_handshakes_total",
-		"starfix.connections.dropped":       "starfix_connections_dropped_total",
-		"starfix.limit.refusals":            "starfix_limit_refusals_total",
-		"starfix.store.write.duration":      "starfix_store_write_duration_seconds",
-		"starfix.store.write.retries":       "starfix_store_write_retries_total",
-		"starfix.store.commit.duration":     "starfix_store_commit_duration_seconds",
-		"starfix.stores.open":               "starfix_stores_open",
-		"starfix.store.open.duration":       "starfix_store_open_duration_seconds",
-		"starfix.claims":                    "starfix_claims_total",
-		"starfix.locks":                     "starfix_locks_total",
-		"starfix.lock.wait.duration":        "starfix_lock_wait_duration_seconds",
-		"starfix.control.writes":            "starfix_control_writes_total",
-		"starfix.keys_file.writes":          "starfix_keys_file_writes_total",
-		"starfix.keys_file.last_write.time": "starfix_keys_file_last_write_time_seconds",
-		"starfix.reaper.duration":           "starfix_reaper_duration_seconds",
-		"starfix.reaper.last_run.time":      "starfix_reaper_last_run_time_seconds",
-		"starfix.clock.behind":              "starfix_clock_behind_seconds",
-		"starfix.clock.steps":               "starfix_clock_steps_total",
-		"starfix.telemetry.dropped":         "starfix_telemetry_dropped_total",
+		"aries.request.duration":          "aries_request_duration_seconds",
+		"aries.project.requests":          "aries_project_requests_total",
+		"aries.connections":               "aries_connections",
+		"aries.handshakes":                "aries_handshakes_total",
+		"aries.connections.dropped":       "aries_connections_dropped_total",
+		"aries.limit.refusals":            "aries_limit_refusals_total",
+		"aries.store.write.duration":      "aries_store_write_duration_seconds",
+		"aries.store.write.retries":       "aries_store_write_retries_total",
+		"aries.store.commit.duration":     "aries_store_commit_duration_seconds",
+		"aries.stores.open":               "aries_stores_open",
+		"aries.store.open.duration":       "aries_store_open_duration_seconds",
+		"aries.claims":                    "aries_claims_total",
+		"aries.locks":                     "aries_locks_total",
+		"aries.lock.wait.duration":        "aries_lock_wait_duration_seconds",
+		"aries.control.writes":            "aries_control_writes_total",
+		"aries.keys_file.writes":          "aries_keys_file_writes_total",
+		"aries.keys_file.last_write.time": "aries_keys_file_last_write_time_seconds",
+		"aries.reaper.duration":           "aries_reaper_duration_seconds",
+		"aries.reaper.last_run.time":      "aries_reaper_last_run_time_seconds",
+		"aries.clock.behind":              "aries_clock_behind_seconds",
+		"aries.clock.steps":               "aries_clock_steps_total",
+		"aries.telemetry.dropped":         "aries_telemetry_dropped_total",
 	}
 	promType := map[Kind]string{Counter: "counter", UpDownCounter: "gauge", Gauge: "gauge", Histogram: "histogram"}
 	for _, d := range Instruments() {
@@ -541,11 +541,11 @@ func TestPrometheusNames(t *testing.T) {
 		}
 	}
 	for _, s := range []string{
-		`starfix_handshakes_total{result="ok"} `,
-		`starfix_request_duration_seconds_bucket{op="show",result="ok",le="0.005"} `,
-		`starfix_request_duration_seconds_bucket{op="show",result="ok",le="10"} `,
-		`starfix_project_requests_total{project="` + projA + `",result_class="other"} `,
-		`service_name="starfixd"`, `service_version="v1.2.3"`, `service_instance_id="`,
+		`aries_handshakes_total{result="ok"} `,
+		`aries_request_duration_seconds_bucket{op="show",result="ok",le="0.005"} `,
+		`aries_request_duration_seconds_bucket{op="show",result="ok",le="10"} `,
+		`aries_project_requests_total{project="` + projA + `",result_class="other"} `,
+		`service_name="ariesd"`, `service_version="v1.2.3"`, `service_instance_id="`,
 		"go_goroutine_count ",
 	} {
 		if !strings.Contains(text, s) {
@@ -656,7 +656,7 @@ func TestPushAndPull(t *testing.T) {
 				// the reader's first interval, 50 ms from New, ends before
 				// the two recordings above are made, and that export has
 				// neither.
-				body, hdr, path := col.carrying(t, "starfix.handshakes")
+				body, hdr, path := col.carrying(t, "aries.handshakes")
 				if path != "/v1/metrics" {
 					t.Errorf("export posted to %q, want /v1/metrics", path)
 				}
@@ -666,7 +666,7 @@ func TestPushAndPull(t *testing.T) {
 				if ct := hdr.Get("Content-Type"); ct != "application/x-protobuf" {
 					t.Errorf("export Content-Type = %q, want application/x-protobuf", ct)
 				}
-				for _, s := range []string{"starfix.handshakes", "starfix.request.duration", "service.name", "starfixd", "service.instance.id", "go.goroutine.count"} {
+				for _, s := range []string{"aries.handshakes", "aries.request.duration", "service.name", "ariesd", "service.instance.id", "go.goroutine.count"} {
 					if !bytes.Contains(body, []byte(s)) {
 						t.Errorf("the export does not carry %q", s)
 					}
@@ -676,7 +676,7 @@ func TestPushAndPull(t *testing.T) {
 				t.Errorf("Prometheus handler made = %t, want %t", tel.pull != nil, tc.pull)
 			}
 			if tc.pull {
-				if text := promText(t, tel); !strings.Contains(text, `starfix_handshakes_total{result="ok"} 1`) {
+				if text := promText(t, tel); !strings.Contains(text, `aries_handshakes_total{result="ok"} 1`) {
 					t.Errorf("/metrics lacks the handshake counted:\n%s", text)
 				}
 			}
@@ -730,7 +730,7 @@ func TestTokenIsNeverLogged(t *testing.T) {
 	for !strings.Contains(log.String(), "export failed") && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if text := promText(t, tel); !strings.Contains(text, `starfix_telemetry_dropped_total{signal="metrics"}`) {
+	if text := promText(t, tel); !strings.Contains(text, `aries_telemetry_dropped_total{signal="metrics"}`) {
 		t.Errorf("/metrics does not count the failed export:\n%s", text)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -887,8 +887,8 @@ func TestResource(t *testing.T) {
 		return m
 	}
 	a := attrs(env{})
-	if a["service.name"] != "starfixd" || a["service.version"] != "v9" || !uuidLike(a["service.instance.id"]) {
-		t.Errorf("default resource = %v, want service.name starfixd, version v9 and a UUID instance id", a)
+	if a["service.name"] != "ariesd" || a["service.version"] != "v9" || !uuidLike(a["service.instance.id"]) {
+		t.Errorf("default resource = %v, want service.name ariesd, version v9 and a UUID instance id", a)
 	}
 	if b := attrs(env{}); b["service.instance.id"] == a["service.instance.id"] {
 		t.Errorf("two resources share the instance id %q", a["service.instance.id"])
@@ -950,8 +950,8 @@ func TestExportFailsWhileNewMakesTheInstruments(t *testing.T) {
 	more(3)
 	stop.Store(true)
 	wg.Wait()
-	if got, want := int64(collect(t, m).Value("starfix.telemetry.dropped", "signal", "metrics")), failed.Load(); got != want {
-		t.Errorf("starfix.telemetry.dropped = %d after %d exports failed, some of them before the instruments were made; want every one counted", got, want)
+	if got, want := int64(collect(t, m).Value("aries.telemetry.dropped", "signal", "metrics")), failed.Load(); got != want {
+		t.Errorf("aries.telemetry.dropped = %d after %d exports failed, some of them before the instruments were made; want every one counted", got, want)
 	}
 }
 
@@ -1047,8 +1047,8 @@ func TestExportCanceledAtStop(t *testing.T) {
 			if err := g.Export(t.Context(), &metricdata.ResourceMetrics{}); err != nil {
 				t.Errorf("Export = %v, want nil: the failure is handled here", err)
 			}
-			if got := collect(t, m).Value("starfix.telemetry.dropped", "signal", "metrics"); got != tc.dropped {
-				t.Errorf("starfix.telemetry.dropped = %v, want %v", got, tc.dropped)
+			if got := collect(t, m).Value("aries.telemetry.dropped", "signal", "metrics"); got != tc.dropped {
+				t.Errorf("aries.telemetry.dropped = %v, want %v", got, tc.dropped)
 			}
 			if logged := strings.Contains(log.String(), "export failed"); logged != (tc.dropped > 0) {
 				t.Errorf("export failure logged = %t, want %t:\n%s", logged, tc.dropped > 0, log)

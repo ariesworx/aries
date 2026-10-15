@@ -2,13 +2,13 @@
 
 A [ci gate](concepts.md#ci-gates) holds work back until CI reports a
 check, such as `build` or `test`, passed on the issue the work depends
-on. It is also how starfix tells *closed* from *landed*: an agent closes
+on. It is also how Aries tells *closed* from *landed*: an agent closes
 an issue when it thinks it is done, and the check `landed` is reported by
 the job on the default branch after the merge.
 
-CI reports the way any client does: the job runs `sfx` as a principal of
-its own. starfixd polls nothing, receives no webhook, and calls no CI
-host ([design §20.4](design/starfix.md#204-how-ci-results-reach-the-server)).
+CI reports the way any client does: the job runs `aries` as a principal of
+its own. ariesd polls nothing, receives no webhook, and calls no CI
+host ([design §20.4](design/aries.md#204-how-ci-results-reach-the-server)).
 Read [What this costs](#what-this-costs) before you set it up.
 
 ## Set it up
@@ -20,17 +20,17 @@ Read [What this costs](#what-this-costs) before you set it up.
 
    ```sh
    ssh-keygen -t ed25519 -N '' -C ci-example -f ci-example
-   sfx admin principal add ci-example --key ci-example.pub   # a server of many projects
+   aries admin principal add ci-example --key ci-example.pub   # a server of many projects
    ```
 
    On a server of one project, add a line to `authorized_keys` instead
    ([Principals](server.md#principals)). Store the contents of
-   `ci-example` as the secret `STARFIX_CI_PRIVATE_KEY`, then delete both
-   files. Never name the secret `STARFIX_KEY_FILE`, which `sfx` reads as
+   `ci-example` as the secret `ARIES_CI_PRIVATE_KEY`, then delete both
+   files. Never name the secret `ARIES_KEY_FILE`, which `aries` reads as
    a path.
 
-2. **A path from CI to sshd.** The job connects as `sfx` does from a
-   laptop, with the repository's committed `.starfix.yaml`: to a public
+2. **A path from CI to sshd.** The job connects as `aries` does from a
+   laptop, with the repository's committed `.aries.yaml`: to a public
    address, or through [Google Cloud IAP](cli.md#servers-without-a-public-ip-google-cloud-iap)
    with `gcloud` signed in within the job.
 
@@ -38,13 +38,13 @@ Read [What this costs](#what-this-costs) before you set it up.
 
    ```sh
    # sf-c3d4 waits until CI reports build passed on sf-a1b2's branch
-   sfx gate add --kind ci --check build --subject sf-a1b2 --by ci-example --blocks sf-c3d4
+   aries gate add --kind ci --check build --subject sf-a1b2 --by ci-example --blocks sf-c3d4
    # record whether sf-a1b2 landed; nothing waits on it
-   sfx gate add --kind ci --check landed --subject sf-a1b2 --by ci-example
+   aries gate add --kind ci --check landed --subject sf-a1b2 --by ci-example
    ```
 
    An issue has one ci gate for each check. To hold another issue behind
-   the same check, `sfx dep add sf-e5f6 GATE`.
+   the same check, `aries dep add sf-e5f6 GATE`.
 
 4. **The workflow.** Add one of the examples below. Each runs on every
    pull request or merge request and on the default branch, and passes
@@ -53,34 +53,34 @@ Read [What this costs](#what-this-costs) before you set it up.
 
 ## How a job finds its issue
 
-`sfx gate pass --check build --from-branch` reads the branch from the CI
+`aries gate pass --check build --from-branch` reads the branch from the CI
 system's variables (`GITHUB_HEAD_REF`, `GITHUB_REF_NAME`,
 `CI_MERGE_REQUEST_SOURCE_BRANCH_NAME`, `CI_COMMIT_BRANCH`, in that
 order), since CI checks out a detached HEAD, and else from git. The
 server reads the issue from the branch with the project's prefix, as
-`sfx start --branch` names one: `feature/sf-a1b2-parse-the-config` is
+`aries start --branch` names one: `feature/sf-a1b2-parse-the-config` is
 `sf-a1b2`, and so is `alice/feature/sf-a1b2`.
 
 After a merge the default branch names no issue, so the `landed` job
-passes `--from-commit`: the issue named by HEAD's `Starfix: sf-a1b2`
+passes `--from-commit`: the issue named by HEAD's `Aries: sf-a1b2`
 trailer, or else the branch a merge commit merged (`Merge pull request
 #12 from example/feature/sf-a1b2-…`, `Merge branch 'feature/sf-a1b2-…'
 into 'main'`). A squash merge keeps neither unless the squashed message
 holds the trailer: on GitHub, make the default squash message the pull
-request's title and description, and put `Starfix: sf-a1b2` in the
+request's title and description, and put `Aries: sf-a1b2` in the
 description.
 
-`--issue ID` and `--branch NAME` name the issue directly, and `sfx gate
+`--issue ID` and `--branch NAME` name the issue directly, and `aries gate
 pass GATE` reports on a gate by its id.
 
 ## Who may report
 
 Only a principal the gate names (`--by`), and only from a CI job's
 session or that principal's own terminal: never from an agent's session.
-`sfx` runs in the session `ci` where `CI=true`, as GitHub Actions and
+`aries` runs in the session `ci` where `CI=true`, as GitHub Actions and
 GitLab CI set it, unless an agent harness names its own session. Nobody
 else passes or fails a ci gate, an admin included: an admin waives one
-(`sfx gate waive GATE --reason TEXT`), as any gate. Human gates are
+(`aries gate waive GATE --reason TEXT`), as any gate. Human gates are
 unchanged: only their approvers, from their own terminals; the session
 `ci` does not pass one.
 
@@ -98,11 +98,11 @@ the server cannot be reached; nothing is queued.
 
 ## GitHub Actions
 
-`.github/workflows/starfix.yml`, beside your build. The `report` job runs
-after `build` whether it passed or failed, and tells starfix which:
+`.github/workflows/aries.yml`, beside your build. The `report` job runs
+after `build` whether it passed or failed, and tells Aries which:
 
 ```yaml
-name: starfix
+name: aries
 on:
   pull_request:
   push:
@@ -122,16 +122,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Connect to starfix
+      - name: Connect to aries
         env:
-          STARFIX_CI_PRIVATE_KEY: ${{ secrets.STARFIX_CI_PRIVATE_KEY }}
+          ARIES_CI_PRIVATE_KEY: ${{ secrets.ARIES_CI_PRIVATE_KEY }}
         run: |
-          curl -fsSL https://raw.githubusercontent.com/ariesworx/starfix/main/install.sh | sh -s -- --require-signature
+          curl -fsSL https://raw.githubusercontent.com/ariesworx/aries/main/install.sh | sh -s -- --require-signature
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           umask 077
-          key="$RUNNER_TEMP/starfix-ci-key"
-          printf '%s\n' "$STARFIX_CI_PRIVATE_KEY" > "$key"
-          echo "STARFIX_KEY_FILE=$key" >> "$GITHUB_ENV"
+          key="$RUNNER_TEMP/aries-ci-key"
+          printf '%s\n' "$ARIES_CI_PRIVATE_KEY" > "$key"
+          echo "ARIES_KEY_FILE=$key" >> "$GITHUB_ENV"
       - name: Report the build
         if: github.event_name == 'pull_request'
         env:
@@ -141,15 +141,15 @@ jobs:
         run: |
           verb=fail
           if [ "$RESULT" = success ]; then verb=pass; fi
-          sfx gate "$verb" --check build --from-branch --optional --sha "$SHA" --url "$RUN" --reason "build: $RESULT"
+          aries gate "$verb" --check build --from-branch --optional --sha "$SHA" --url "$RUN" --reason "build: $RESULT"
       - name: Report landed
         if: github.event_name == 'push' && needs.build.result == 'success'
         env:
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: sfx gate pass --check landed --from-commit --optional --sha "$GITHUB_SHA" --url "$RUN"
-      - name: Remove the starfix key
+        run: aries gate pass --check landed --from-commit --optional --sha "$GITHUB_SHA" --url "$RUN"
+      - name: Remove the aries key
         if: always()
-        run: rm -f "$STARFIX_KEY_FILE"
+        run: rm -f "$ARIES_KEY_FILE"
 ```
 
 The key reaches a file the way the [team deployment](deploy/team.md)
@@ -164,7 +164,7 @@ key to code from the fork.
 ## GitLab CI
 
 In `.gitlab-ci.yml`, beside your build's jobs. Store the key as a CI/CD
-variable named `STARFIX_CI_PRIVATE_KEY` of type *File*: GitLab writes it
+variable named `ARIES_CI_PRIVATE_KEY` of type *File*: GitLab writes it
 to a file and puts the file's path in the variable, so the key is in no
 command line and no log.
 
@@ -176,37 +176,37 @@ test:
   script:
     - make test # your build and tests
 
-.starfix:
+.aries:
   stage: report
   variables:
-    STARFIX_KEY_FILE: $STARFIX_CI_PRIVATE_KEY # a File variable: its value is a path
+    ARIES_KEY_FILE: $ARIES_CI_PRIVATE_KEY # a File variable: its value is a path
   before_script:
-    - curl -fsSL https://raw.githubusercontent.com/ariesworx/starfix/main/install.sh | sh -s -- --require-signature
+    - curl -fsSL https://raw.githubusercontent.com/ariesworx/aries/main/install.sh | sh -s -- --require-signature
     - export PATH="$HOME/.local/bin:$PATH"
 
 build passed:
-  extends: .starfix
+  extends: .aries
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       when: on_success
   script:
-    - sfx gate pass --check build --from-branch --optional --sha "$CI_COMMIT_SHA" --url "$CI_PIPELINE_URL"
+    - aries gate pass --check build --from-branch --optional --sha "$CI_COMMIT_SHA" --url "$CI_PIPELINE_URL"
 
 build failed:
-  extends: .starfix
+  extends: .aries
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       when: on_failure
   script:
-    - sfx gate fail --check build --from-branch --optional --sha "$CI_COMMIT_SHA" --url "$CI_PIPELINE_URL" --reason "pipeline failed"
+    - aries gate fail --check build --from-branch --optional --sha "$CI_COMMIT_SHA" --url "$CI_PIPELINE_URL" --reason "pipeline failed"
 
 landed:
-  extends: .starfix
+  extends: .aries
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       when: on_success
   script:
-    - sfx gate pass --check landed --from-commit --optional --sha "$CI_COMMIT_SHA" --url "$CI_PIPELINE_URL"
+    - aries gate pass --check landed --from-commit --optional --sha "$CI_COMMIT_SHA" --url "$CI_PIPELINE_URL"
 ```
 
 The image the report jobs run in needs `curl`, `git` and CA
@@ -217,7 +217,7 @@ names.
 
 ## What this costs
 
-Plainly, as [design §20.4 and §20.13](design/starfix.md#2013-what-this-does-not-solve)
+Plainly, as [design §20.4 and §20.13](design/aries.md#2013-what-this-does-not-solve)
 put it:
 
 - **A pass is worth what the CI principal's key is worth.** Whoever can
@@ -230,7 +230,7 @@ put it:
 - **The key is stored, and lasts until revoked.** Until workload sign-in
   is built (decisions 52 and 56, [access research §7](design/access-research.md)),
   CI holds a long-lived private key in its secret store, not a
-  credential that lasts the job. Revoke it with `sfx admin key remove
+  credential that lasts the job. Revoke it with `aries admin key remove
   FINGERPRINT` when it may have leaked; that closes its connections too.
 - **The CI principal has a member's rights.** It can create, update,
   close and comment on issues like any member, until decision 8 gives
@@ -246,9 +246,9 @@ put it:
   agents, as data. Do not put secrets in a reason or a URL; the server
   refuses what looks like one, which is no promise that it finds every
   secret.
-- **A revert does not un-land an issue.** Run `sfx gate rearm GATE`
+- **A revert does not un-land an issue.** Run `aries gate rearm GATE`
   after a revert; work already started on what the gate held goes on.
 
 Not yet run on GitHub's or GitLab's hosted runners: the end-to-end test
-(`TestCIGate` in `internal/e2e`) runs the same `sfx` commands, with the
+(`TestCIGate` in `internal/e2e`) runs the same `aries` commands, with the
 same variables, against a real daemon.

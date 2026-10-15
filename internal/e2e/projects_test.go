@@ -7,9 +7,9 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 
-	"github.com/ariesworx/starfix/internal/cli"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/cli"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // second is the second project of the worlds that serve many.
@@ -20,7 +20,7 @@ const second = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
 var dana = store.Actor{Principal: "dana", Session: "e2e", Machine: "server"}
 
 // addProject adds an active project in a database of its own, through
-// the daemon's control store, for the tests that are not about `sfx
+// the daemon's control store, for the tests that are not about `aries
 // admin project add` (admin_test.go).
 func (w *world) addProject(id, name, prefix string) {
 	t := w.t
@@ -99,7 +99,7 @@ func TestTwoProjects(t *testing.T) {
 	bob1.ok("list")
 	r := bob2.run("v0.2.0", "list")
 	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, `bob is not a member of project "`+second+`"`) ||
-		!strings.Contains(r.stderr, "fix: ask a server admin, or one of the project's admins, to add you: `sfx admin member add bob`, run in this repository") {
+		!strings.Contains(r.stderr, "fix: ask a server admin, or one of the project's admins, to add you: `aries admin member add bob`, run in this repository") {
 		t.Errorf("bob in the second project: exit %d\n%s", r.code, r.stderr)
 	}
 	// So is someone the control store has never heard of, before a project is named.

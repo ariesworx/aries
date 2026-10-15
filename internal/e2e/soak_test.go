@@ -22,9 +22,9 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/server"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/server"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // TestSoak is the gate of stages 3 and 3a (design §13): many agent
@@ -47,13 +47,13 @@ import (
 // lock's capacity, grants in the order of the live waiters, epochs that
 // only rise, and a dead holder's lock passed on soon after its lease.
 //
-// A short run is part of `go test`. Set STARFIX_SOAK to a duration, such
-// as 10m, for a long one, and STARFIX_SOAK_SEED to replay a run's choices;
+// A short run is part of `go test`. Set ARIES_SOAK to a duration, such
+// as 10m, for a long one, and ARIES_SOAK_SEED to replay a run's choices;
 // the seed is printed at the start and with any failure.
-// STARFIX_SOAK_TELEMETRY turns the daemon's telemetry on for the run
+// ARIES_SOAK_TELEMETRY turns the daemon's telemetry on for the run
 // (soak_telemetry_test.go): check holds its instruments and spans to
 // the event logs, and refused and hang give it a collector that is not
-// there. STARFIX_SOAK_PARTITION=1 cuts agents off from the server for
+// there. ARIES_SOAK_PARTITION=1 cuts agents off from the server for
 // minutes at a time, the gate of stage 5 (soak_partition_test.go). See
 // CONTRIBUTING.md, "The soak test".
 func TestSoak(t *testing.T) {
@@ -62,13 +62,13 @@ func TestSoak(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("soak: seed %d, %s of work, %d principals × %d sessions in 2 projects, store clock ×%g; replay with STARFIX_SOAK_SEED=%d",
+	t.Logf("soak: seed %d, %s of work, %d principals × %d sessions in 2 projects, store clock ×%g; replay with ARIES_SOAK_SEED=%d",
 		cfg.seed, cfg.duration, len(cfg.principals), cfg.sessions, cfg.speed, cfg.seed)
 	if cfg.telemetry != telOff {
-		t.Logf("soak: telemetry on (STARFIX_SOAK_TELEMETRY=%s)", cfg.telemetry)
+		t.Logf("soak: telemetry on (ARIES_SOAK_TELEMETRY=%s)", cfg.telemetry)
 	}
 	if cfg.partition {
-		t.Logf("soak: partition mode on (STARFIX_SOAK_PARTITION): agents are cut off from the server for %s to %s at a time", cutMin, cutMax)
+		t.Logf("soak: partition mode on (ARIES_SOAK_PARTITION): agents are cut off from the server for %s to %s at a time", cutMin, cutMax)
 	}
 	s := newSoak(t, cfg)
 	s.run()
@@ -87,14 +87,14 @@ type soakConfig struct {
 	// admin is the server admin who works beside the others, and root
 	// the one who manages access while they do.
 	admin, root string
-	// sessions per principal; the first of each is an agent running `sfx
+	// sessions per principal; the first of each is an agent running `aries
 	// mcp`, the others use the client library directly.
 	sessions int
 	// speed is how many times faster than real time the store's clock
 	// runs.
 	speed float64
 	// lease is the range of leases the client library sessions ask for,
-	// on the store's clock; `sfx mcp` asks for its own 15m.
+	// on the store's clock; `aries mcp` asks for its own 15m.
 	leaseMin, leaseMax time.Duration
 	// vanish is the chance, each step, that a session dies without a word.
 	vanish float64
@@ -118,8 +118,8 @@ type soakConfig struct {
 	partition bool
 }
 
-// soakConfigFrom reads STARFIX_SOAK (a duration; empty runs the short
-// soak), STARFIX_SOAK_SEED (empty picks one) and STARFIX_SOAK_TELEMETRY
+// soakConfigFrom reads ARIES_SOAK (a duration; empty runs the short
+// soak), ARIES_SOAK_SEED (empty picks one) and ARIES_SOAK_TELEMETRY
 // (check, refused or hang; empty leaves telemetry off).
 func soakConfigFrom(getenv func(string) string) (soakConfig, error) {
 	cfg := soakConfig{
@@ -136,30 +136,30 @@ func soakConfigFrom(getenv func(string) string) (soakConfig, error) {
 			StoreIdle: server.Duration(300 * time.Millisecond),
 		},
 	}
-	if v := getenv("STARFIX_SOAK"); v != "" {
+	if v := getenv("ARIES_SOAK"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil || d <= 0 {
-			return soakConfig{}, fmt.Errorf("STARFIX_SOAK=%q: want a duration such as 10m", v)
+			return soakConfig{}, fmt.Errorf("ARIES_SOAK=%q: want a duration such as 10m", v)
 		}
 		cfg.duration = d
 		cfg.restarts = max(1, int(d/(2*time.Minute)))
 	}
-	if v := getenv("STARFIX_SOAK_SEED"); v != "" {
+	if v := getenv("ARIES_SOAK_SEED"); v != "" {
 		n, err := strconv.ParseUint(v, 10, 64)
 		if err != nil {
-			return soakConfig{}, fmt.Errorf("STARFIX_SOAK_SEED=%q: want an unsigned integer", v)
+			return soakConfig{}, fmt.Errorf("ARIES_SOAK_SEED=%q: want an unsigned integer", v)
 		}
 		cfg.seed = n
 	}
 	var err error
-	if cfg.partition, err = partitionFrom(getenv("STARFIX_SOAK_PARTITION")); err != nil {
+	if cfg.partition, err = partitionFrom(getenv("ARIES_SOAK_PARTITION")); err != nil {
 		return soakConfig{}, err
 	}
-	switch v := getenv("STARFIX_SOAK_TELEMETRY"); v {
+	switch v := getenv("ARIES_SOAK_TELEMETRY"); v {
 	case telOff, telCheck, telRefused, telHang:
 		cfg.telemetry = v
 	default:
-		return soakConfig{}, fmt.Errorf("STARFIX_SOAK_TELEMETRY=%q: want %s, %s or %s, or nothing for no telemetry", v, telCheck, telRefused, telHang)
+		return soakConfig{}, fmt.Errorf("ARIES_SOAK_TELEMETRY=%q: want %s, %s or %s, or nothing for no telemetry", v, telCheck, telRefused, telHang)
 	}
 	return cfg, nil
 }
@@ -417,7 +417,7 @@ func (s *soak) slot(ctx context.Context, p string, proj *sproj, slot int, seed u
 			base.renewEvery = s.clock.real(base.lease) / 8
 			ms := &mcpSession{session: base, held: map[string]int{}}
 			if err := ms.open(); err != nil {
-				s.mon.fail("", "%s: start sfx mcp: %v", base.key, err)
+				s.mon.fail("", "%s: start aries mcp: %v", base.key, err)
 				return
 			}
 			a = ms

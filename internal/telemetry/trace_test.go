@@ -19,7 +19,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // An invented trace context, as a client sends one.
@@ -343,8 +343,8 @@ func TestReadEnvTraces(t *testing.T) {
 			"OTEL_BSP_SCHEDULE_DELAY": "250", "OTEL_BSP_EXPORT_TIMEOUT": "1500"},
 			queue: 100, batch: 10, delay: 250 * time.Millisecond, export: 1500 * time.Millisecond},
 		{name: "a batch larger than a small queue is the queue", env: env{"OTEL_BSP_MAX_QUEUE_SIZE": "100"}, queue: 100, batch: 100},
-		{name: "an exporter starfixd does not have", env: env{"OTEL_TRACES_EXPORTER": "zipkin"}, wantErr: "otlp or none"},
-		{name: "a sampler starfixd does not have", env: env{"OTEL_TRACES_SAMPLER": "jaeger_remote"}, wantErr: "OTEL_TRACES_SAMPLER"},
+		{name: "an exporter ariesd does not have", env: env{"OTEL_TRACES_EXPORTER": "zipkin"}, wantErr: "otlp or none"},
+		{name: "a sampler ariesd does not have", env: env{"OTEL_TRACES_SAMPLER": "jaeger_remote"}, wantErr: "OTEL_TRACES_SAMPLER"},
 		{name: "a ratio that is not a number", env: env{"OTEL_TRACES_SAMPLER": "traceidratio", "OTEL_TRACES_SAMPLER_ARG": "half"}, wantErr: "0 to 1"},
 		{name: "a ratio past 1", env: env{"OTEL_TRACES_SAMPLER": "traceidratio", "OTEL_TRACES_SAMPLER_ARG": "1.5"}, wantErr: "0 to 1"},
 		{name: "grpc for traces", env: env{"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "grpc", "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:4317"},
@@ -453,7 +453,7 @@ func TestTracePush(t *testing.T) {
 	if got := hdr.Get("x-test"); got != "one two" {
 		t.Errorf("export header x-test = %q, want %q", got, "one two")
 	}
-	for _, s := range []string{"create", "store.write.attempt", "service.name", "starfixd", "service.instance.id", "principal", "p_"} {
+	for _, s := range []string{"create", "store.write.attempt", "service.name", "ariesd", "service.instance.id", "principal", "p_"} {
 		if !bytes.Contains(body, []byte(s)) {
 			t.Errorf("the export does not carry %q", s)
 		}
@@ -576,7 +576,7 @@ func TestTraceTokenIsNeverLogged(t *testing.T) {
 	_ = tel.stopTraces(ctx)
 	// The spans a refusing collector lost are counted where a scrape
 	// sees them.
-	if text := promText(t, tel); !strings.Contains(text, `starfix_telemetry_dropped_total{signal="traces"} 3`) {
+	if text := promText(t, tel); !strings.Contains(text, `aries_telemetry_dropped_total{signal="traces"} 3`) {
 		t.Errorf("/metrics does not count the 3 spans lost:\n%s", grep(text, "dropped"))
 	}
 	out := log.String()
@@ -670,11 +670,11 @@ func TestDeadCollectorTraces(t *testing.T) {
 			// Every span was dropped, at the queue or with its export.
 			text := promText(t, tel)
 			var dropped int
-			if _, err := fmt.Sscanf(grep(text, `starfix_telemetry_dropped_total{signal="traces"}`), `starfix_telemetry_dropped_total{signal="traces"} %d`, &dropped); err != nil {
+			if _, err := fmt.Sscanf(grep(text, `aries_telemetry_dropped_total{signal="traces"}`), `aries_telemetry_dropped_total{signal="traces"} %d`, &dropped); err != nil {
 				t.Fatalf("no count of dropped spans on /metrics: %v\n%s", err, grep(text, "dropped"))
 			}
 			if dropped != spans {
-				t.Errorf("starfix.telemetry.dropped{signal=traces} = %d, want every one of the %d spans", dropped, spans)
+				t.Errorf("aries.telemetry.dropped{signal=traces} = %d, want every one of the %d spans", dropped, spans)
 			}
 		})
 	}
@@ -733,7 +733,7 @@ func TestDroppedSpansAreCounted(t *testing.T) {
 			if err := tel.stopTraces(t.Context()); err != nil {
 				t.Fatalf("stopTraces: %v", err)
 			}
-			dropped := int(collect(t, m).Value("starfix.telemetry.dropped", "signal", "traces"))
+			dropped := int(collect(t, m).Value("aries.telemetry.dropped", "signal", "traces"))
 			if tc.fail {
 				if dropped != ended {
 					t.Errorf("dropped = %d with an exporter that refuses, want all %d", dropped, ended)
@@ -777,7 +777,7 @@ func TestStopCutsShortASlowExport(t *testing.T) {
 	if err == nil {
 		t.Errorf("stopTraces = nil, want it to say the deadline passed")
 	}
-	if dropped := int(collect(t, m).Value("starfix.telemetry.dropped", "signal", "traces")); dropped != ended {
+	if dropped := int(collect(t, m).Value("aries.telemetry.dropped", "signal", "traces")); dropped != ended {
 		t.Errorf("dropped = %d, want the %d spans the stop abandoned", dropped, ended)
 	}
 }

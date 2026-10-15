@@ -157,7 +157,7 @@ type SpanData struct {
 	// description; both are empty otherwise.
 	Status, StatusNote string
 	// Events and Links count what the span carries beyond attributes,
-	// and TraceState is its tracestate; starfixd's spans carry none.
+	// and TraceState is its tracestate; ariesd's spans carry none.
 	Events, Links int
 	TraceState    string
 	// Start and End are when the span began and ended.

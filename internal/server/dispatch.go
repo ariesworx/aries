@@ -8,9 +8,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/ariesworx/starfix/internal/logs"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // Dispatch runs one operation for actor. args is the raw JSON of the op's
@@ -40,7 +40,7 @@ func (s *Server) Dispatch(ctx context.Context, actor store.Actor, op string, arg
 func (pr *served) dispatch(ctx context.Context, actor store.Actor, op string, args json.RawMessage) (any, *proto.Error) {
 	h, ok := handlers[op]
 	if !ok {
-		return nil, proto.Errf(proto.CodeInvalid, proto.FixUpgrade+" starfix to match the server, or check the operation name",
+		return nil, proto.Errf(proto.CodeInvalid, proto.FixUpgrade+" aries to match the server, or check the operation name",
 			fmt.Sprintf("unknown operation %q", op))
 	}
 	return h(ctx, pr, actor, args)
@@ -494,20 +494,20 @@ func lease(op, s string) (time.Duration, *proto.Error) {
 	}
 	d, err := proto.ParseDuration(s)
 	if err != nil || d < store.MinLease || d > store.MaxClaimLease {
-		return 0, proto.Errf(proto.CodeInvalid, fmt.Sprintf("give a lease from 1m to 24h; `sfx %s -h` lists the options", command(op)),
+		return 0, proto.Errf(proto.CodeInvalid, fmt.Sprintf("give a lease from 1m to 24h; `aries %s -h` lists the options", command(op)),
 			fmt.Sprintf("lease %q is not a duration from 1m to 24h", s))
 	}
 	return d, nil
 }
 
-// awayLease parses the duration of `sfx away`, a renew with All: from
+// awayLease parses the duration of `aries away`, a renew with All: from
 // store.MinLease to the store's AwayMax, the server's away_max.
 func awayLease(s string, most time.Duration) (time.Duration, *proto.Error) {
 	d, err := proto.ParseDuration(s)
 	if err != nil || d < store.MinLease || d > most {
 		upTo := store.LeaseText(most)
 		return 0, proto.Errf(proto.CodeInvalid,
-			fmt.Sprintf("give `sfx away` a duration from 1m to at most %s, this server's away_max; a server admin can raise away_max under limits:", upTo),
+			fmt.Sprintf("give `aries away` a duration from 1m to at most %s, this server's away_max; a server admin can raise away_max under limits:", upTo),
 			fmt.Sprintf("away %q is not a duration from 1m to %s", s, upTo))
 	}
 	return d, nil
@@ -520,7 +520,7 @@ func start(ctx context.Context, pr *served, a store.Actor, in proto.StartArgs) (
 	}
 	is, claim, err := pr.store.StartIssue(ctx, a, store.IssueID(in.ID), d, in.Take)
 	if errors.Is(err, store.ErrNothingReady) {
-		return nil, proto.Errf(proto.CodeNotFound, proto.FixSeeBlocked+" with `sfx blocked`, or create an issue",
+		return nil, proto.Errf(proto.CodeNotFound, proto.FixSeeBlocked+" with `aries blocked`, or create an issue",
 			"nothing is ready to start")
 	}
 	if held, ok := errors.AsType[*store.HeldError](err); ok {
@@ -613,11 +613,11 @@ func renew(ctx context.Context, pr *served, a store.Actor, in proto.RenewArgs) (
 	var perr *proto.Error
 	if in.All {
 		// Renewing every session's claims is a person's call before going
-		// away (`sfx away`), not an agent's: only their own terminal's
+		// away (`aries away`), not an agent's: only their own terminal's
 		// session may ask (S-12).
 		if a.Session != proto.CLISession {
 			return nil, proto.Errf(proto.CodeInvalid,
-				"run `sfx away` from your own terminal, outside an agent session; an agent renews only its own claims",
+				"run `aries away` from your own terminal, outside an agent session; an agent renews only its own claims",
 				fmt.Sprintf("session %s may renew only its own claims", a.Session))
 		}
 		d, perr = awayLease(in.Lease, pr.store.AwayMax())

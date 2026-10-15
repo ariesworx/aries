@@ -12,7 +12,7 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Connections between their bridge frame and their hello (security
@@ -48,7 +48,7 @@ func serveOn(t *testing.T, s *Server) string {
 }
 
 // halfOpen is a connection that has sent its bridge frame, as the
-// `starfixd stdio` of an SSH session does at once, and no hello.
+// `ariesd stdio` of an SSH session does at once, and no hello.
 type halfOpen struct {
 	t   *testing.T
 	nc  net.Conn
@@ -153,11 +153,11 @@ func TestBridgeFrameRefusals(t *testing.T) {
 		name, principal, msg, fix string
 	}{
 		{"disabled", "mallory", "mallory is disabled on this server",
-			"ask a server admin, or a project admin who administers every project you belong to, to run `sfx admin principal enable mallory`"},
+			"ask a server admin, or a project admin who administers every project you belong to, to run `aries admin principal enable mallory`"},
 		{"a disabled server admin", "sam", "sam is disabled on this server",
-			"ask a server admin, or a project admin who administers every project you belong to, to run `sfx admin principal enable sam`"},
+			"ask a server admin, or a project admin who administers every project you belong to, to run `aries admin principal enable sam`"},
 		{"unknown to the control store", "nobody", "nobody is not a principal of this server",
-			"ask a server admin, or an admin of the project, to add you: `sfx admin principal add nobody`, run in the project's repository"},
+			"ask a server admin, or an admin of the project, to add you: `aries admin principal add nobody`, run in the project's repository"},
 	}
 	for _, tc := range refused {
 		t.Run(tc.name, func(t *testing.T) {
@@ -218,7 +218,7 @@ func TestHandshakesPerPrincipal(t *testing.T) {
 	waitUntil(t, "alice's two connections to be counted", func() bool { return s.hellos.count("alice") == 2 })
 
 	f, closed := openHalf(t, sock, "alice").answer()
-	const fix = "wait for your other starfix sessions to finish connecting, or close them, and retry; the server's operator can raise handshakes_per_principal under limits: in starfixd's config"
+	const fix = "wait for your other aries sessions to finish connecting, or close them, and retry; the server's operator can raise handshakes_per_principal under limits: in ariesd's config"
 	if closed || f.Err == nil || f.Err.Code != proto.CodeBusy || f.Err.Fix != fix ||
 		f.Err.Message != "alice has 2 connections that have not said hello, the most a principal may (2)" {
 		t.Fatalf("alice's third connection before a hello = %+v (closed unread: %v)\nwant busy and the fix %q", f, closed, fix)
@@ -255,7 +255,7 @@ func TestHandshakesPerPrincipalIsCounted(t *testing.T) {
 	if f, closed := openHalf(t, sock, "alice").answer(); closed || f.Err == nil || f.Err.Code != proto.CodeBusy {
 		t.Fatalf("alice's second connection before a hello = %+v (closed unread: %v), want busy", f, closed)
 	}
-	const name, limit = "starfix.limit.refusals", "handshakes_per_principal"
+	const name, limit = "aries.limit.refusals", "handshakes_per_principal"
 	waitUntil(t, "the refusal to be counted as "+name+"{limit="+limit+"}", func() bool {
 		return snapshot(t, m).Value(name, "limit", limit) == 1
 	})

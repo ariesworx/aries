@@ -5,15 +5,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/doltmetrics"
-	"github.com/ariesworx/starfix/internal/logs"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/doltmetrics"
+	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Dolt's own figures in the status report (design §16.5, decision 30).
 // With Config.DoltMetrics set, the daemon reads Dolt's metrics endpoint
 // on a timer of its own, never for a request, and keeps the last
-// answer for `sfx admin status` and `starfixd status`. Dolt's metrics
+// answer for `aries admin status` and `ariesd status`. Dolt's metrics
 // are not exported again: a collector scrapes Dolt itself.
 //
 // A read that fails makes the report say "unknown" with the last read
@@ -25,7 +25,8 @@ import (
 // collector for each 100 writes the daemon made, over the latest
 // doltWindow. Under a Go memory limit it is what told a limit with room
 // from one too low, where resident memory against the limit did not
-// (spike/multidb/RESULTS.md, section 5).
+// (stage 3a's measurements of many databases in one Dolt, section 5,
+// now in git history).
 
 const (
 	// DefaultDoltMetricsEvery is how often Dolt's metrics are read.

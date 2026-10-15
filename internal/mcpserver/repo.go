@@ -5,8 +5,8 @@ import (
 	"errors"
 	"path/filepath"
 
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // RepoConn is a *client.Conn that knows its repository.
@@ -19,7 +19,7 @@ type RepoConn struct {
 // the project UUID.
 func (c *RepoConn) Project() string { return c.name }
 
-// DialRepo connects to the server named by the .starfix.yaml at or above
+// DialRepo connects to the server named by the .aries.yaml at or above
 // dir. The config is read on every dial, so a fix to it takes effect on
 // the next tool call without restarting the agent.
 func DialRepo(ctx context.Context, dir string, opts client.Options) (*RepoConn, error) {

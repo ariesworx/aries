@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/logs"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
-	"github.com/ariesworx/starfix/internal/telemetry"
+	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
+	"github.com/ariesworx/aries/internal/telemetry"
 )
 
 // The server's clock (design §14, decision 37). Each store keeps its own
@@ -18,7 +18,7 @@ import (
 // it finds wrong: it refuses to start, or starts with a warning, when
 // the clock is behind a database's history (Config.ClockBehind), and it
 // reports that, and every step it sees while it runs, in its log and in
-// `sfx admin status`.
+// `aries admin status`.
 
 // What a daemon does at start when its clock is behind the history of
 // one of its databases by more than Config.BehindTolerance.
@@ -71,9 +71,9 @@ func (e *ClockBehindError) Error() string {
 	}
 	accept := e.History.UTC().Truncate(time.Second).Add(2 * time.Second).Format(time.RFC3339)
 	return fmt.Sprintf("the server's clock is behind its own history: the clock reads %s, and the latest event of %s%s is at %s, %s later; "+
-		"fix: check the clock (`timedatectl` must say \"System clock synchronized: yes\"; `timedatectl timesync-status` names the source), correct it, and start starfixd again. "+
-		"If the clock is right and the history is ahead of it, as after restoring a database written by a machine whose clock ran ahead, start once with `starfixd serve --accept-clock-behind %s`: "+
-		"starfixd's time then runs on from the history at half speed until the clock has caught up. "+
+		"fix: check the clock (`timedatectl` must say \"System clock synchronized: yes\"; `timedatectl timesync-status` names the source), correct it, and start ariesd again. "+
+		"If the clock is right and the history is ahead of it, as after restoring a database written by a machine whose clock ran ahead, start once with `ariesd serve --accept-clock-behind %s`: "+
+		"ariesd's time then runs on from the history at half speed until the clock has caught up. "+
 		"To start with a warning whenever the clock is behind, set clock_behind: warn",
 		e.Clock.UTC().Format(time.RFC3339), e.Log, also, e.History.UTC().Format(time.RFC3339),
 		e.History.Sub(e.Clock).Round(time.Second), accept)
@@ -97,8 +97,8 @@ func (e *ClockBehindError) Lines() []string {
 		fmt.Sprintf("  the clock reads   %s", e.Clock.UTC().Format(time.RFC3339)),
 		fmt.Sprintf("  the latest event  %s, %s later", e.History.UTC().Format(time.RFC3339), e.History.Sub(e.Clock).Round(time.Second)),
 		fmt.Sprintf("  is in %s%s", e.Log, also),
-		"fix: if the clock is wrong, correct it (`timedatectl` must say synchronized: yes), then `systemctl start starfixd`",
-		fmt.Sprintf("fix: if the clock is right and the history is ahead, start once with: starfixd serve --accept-clock-behind %s", accept),
+		"fix: if the clock is wrong, correct it (`timedatectl` must say synchronized: yes), then `systemctl start ariesd`",
+		fmt.Sprintf("fix: if the clock is right and the history is ahead, start once with: ariesd serve --accept-clock-behind %s", accept),
 		"fix: or set clock_behind: warn in the config file, to start with a warning (docs/server.md, The server's clock)",
 	}
 }
@@ -204,7 +204,7 @@ func (s *Server) reportBehind(ctx context.Context, b *behindLog) {
 		}
 		log.ErrorContext(ctx, "clock behind history", "event", logs.ClockBehind, "log", b.log, "clock", b.clock, "history", b.history,
 			"behind", b.by.Round(time.Second).String(), "since", b.since,
-			"effect", "starfixd's time runs on from the history at half speed until the clock has caught up; "+restart,
+			"effect", "ariesd's time runs on from the history at half speed until the clock has caught up; "+restart,
 			"fix", "check the clock with `timedatectl` and `timedatectl timesync-status`, and correct it; if the history is what is wrong, do nothing: the clock catches up")
 	}
 }
@@ -235,7 +235,7 @@ func (s *Server) CheckClock(ctx context.Context) {
 	if fresh > 0 {
 		dir, effect := "forward", "every live lease is extended by the step, so no claim ends for it (a clock.step event in each log)"
 		if steps.LastBy < 0 {
-			dir, effect = "backward", "starfixd's time does not go back: it runs on at half speed until the clock has caught up"
+			dir, effect = "backward", "ariesd's time does not go back: it runs on at half speed until the clock has caught up"
 		}
 		log.WarnContext(ctx, "clock stepped", "event", logs.ClockStepped, "direction", dir, "step", steps.LastBy.Round(time.Millisecond).String(), "clock", steps.LastAt,
 			"steps", fresh, "forward_since_start", steps.Forward, "backward_since_start", steps.Backward, "effect", effect,
@@ -298,7 +298,7 @@ func (pr *served) logName() string { return ProjectLog(pr.id, pr.db) }
 // BehindHistory returns, as the refusal serve would give, that the
 // clock is behind the latest event of the database st was read from,
 // named log, by more than tolerance; and nil when it is not, or the
-// database holds no event. `starfixd upgrade` asks it before it swaps
+// database holds no event. `ariesd upgrade` asks it before it swaps
 // anything.
 func BehindHistory(tolerance time.Duration, log string, st store.ClockState) *ClockBehindError {
 	if st.Mark.IsZero() || st.Mark.Sub(st.Clock) <= tolerance {
@@ -307,7 +307,7 @@ func BehindHistory(tolerance time.Duration, log string, st store.ClockState) *Cl
 	return &ClockBehindError{Log: log, Clock: st.Clock, History: st.Mark}
 }
 
-// clockStatus is the clock as `sfx admin status` shows it.
+// clockStatus is the clock as `aries admin status` shows it.
 func (s *Server) clockStatus() *proto.ClockStatus {
 	steps := s.cfg.Clock.Steps()
 	out := &proto.ClockStatus{Now: s.cfg.Clock.Now(), StepsForward: steps.Forward, StepsBackward: steps.Backward}

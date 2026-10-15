@@ -16,17 +16,17 @@ import (
 
 // soakProfileEnv names the directory TestSoakProfile writes to; unset,
 // the test is skipped.
-const soakProfileEnv = "STARFIX_SOAK_PROFILE"
+const soakProfileEnv = "ARIES_SOAK_PROFILE"
 
 // TestSoakProfile is the soak, measured for what it holds and what its
-// garbage collector does (docs/design/profile-starfixd.md): the same
+// garbage collector does (docs/design/profile-ariesd.md): the same
 // run as TestSoak, with a heap profile and a goroutine profile taken
 // after a forced collection early in the work, late in it and at rest,
 // and the runtime's own counts read every five seconds between. It
-// writes to the directory STARFIX_SOAK_PROFILE names, and is skipped
+// writes to the directory ARIES_SOAK_PROFILE names, and is skipped
 // without it:
 //
-//	STARFIX_SOAK_PROFILE=/tmp/soak STARFIX_SOAK=2m go test -run 'TestSoakProfile$' -memprofilerate 4096 -timeout 30m -v ./internal/e2e/
+//	ARIES_SOAK_PROFILE=/tmp/soak ARIES_SOAK=2m go test -run 'TestSoakProfile$' -memprofilerate 4096 -timeout 30m -v ./internal/e2e/
 //
 // Run it without -race, which distorts both memory and the collector.
 // -memprofilerate 4096 samples an allocation in each 4 KiB, where the

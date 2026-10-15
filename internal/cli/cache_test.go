@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/mcpserver"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // keptAs seeds principal's cache as connected reads would have, at the
@@ -35,7 +35,7 @@ func (a *away) keptAs(t *testing.T, principal string) {
 	}
 }
 
-const cachedLine = "sfx: cached: starfix cannot reach its server, so this is this machine's copy from 2026-10-13 14:02 UTC (3h old), and may be out of date\n"
+const cachedLine = "aries: cached: aries cannot reach its server, so this is this machine's copy from 2026-10-13 14:02 UTC (3h old), and may be out of date\n"
 
 // TestCachedReads is slice F3's gate for a person (design §18.10): with
 // the server away, show of held work, prime, inbox and digest print this
@@ -58,7 +58,7 @@ func TestCachedReads(t *testing.T) {
 	} {
 		code, out, errb := a.run(t, tc.args...)
 		if code != ExitOK || !strings.Contains(out, tc.want) || errb != cachedLine {
-			t.Errorf("sfx %s with the server away = exit %d\nstdout %q, want it to hold %q\nstderr %q\nwant   %q",
+			t.Errorf("aries %s with the server away = exit %d\nstdout %q, want it to hold %q\nstderr %q\nwant   %q",
 				strings.Join(tc.args, " "), code, out, tc.want, errb, cachedLine)
 		}
 	}
@@ -71,31 +71,31 @@ func TestCachedReads(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(out), &doc); err != nil || code != ExitOK || errb != "" || !doc.Cached ||
 		!doc.CachedAt.Equal(time.Date(2026, 10, 13, 14, 2, 0, 0, time.UTC)) || doc.Issue.Title != "Held work" {
-		t.Errorf("sfx show --json with the server away = exit %d, %q (%v), stderr %q; want the issue with cached: true and when", code, out, err, errb)
+		t.Errorf("aries show --json with the server away = exit %d, %q (%v), stderr %q; want the issue with cached: true and when", code, out, err, errb)
 	}
 
 	code, out, errb = a.run(t, "prime")
 	for _, want := range []string{
-		"starfix: project demo, you are alice, session cli\n",
-		"notice: " + strings.TrimPrefix(strings.TrimSuffix(cachedLine, "\n"), "sfx: ") + "\n",
+		"aries: project demo, you are alice, session cli\n",
+		"notice: " + strings.TrimPrefix(strings.TrimSuffix(cachedLine, "\n"), "aries: ") + "\n",
 		"next: carry on with the work in progress; nothing can be started until the server answers",
 		"in progress:\n  sf-a1b2 P0 \"Held work\"\n",
 		"ready:\n  (not shown while the server cannot be reached)\n",
 	} {
 		if !strings.Contains(out, want) {
-			t.Errorf("sfx prime with the server away lacks %q:\n%s", want, out)
+			t.Errorf("aries prime with the server away lacks %q:\n%s", want, out)
 		}
 	}
 	if code != ExitOK || errb != cachedLine || strings.Contains(out, "sf-c3d4") {
-		t.Errorf("sfx prime with the server away = exit %d, stderr %q; want the cached prime without its ready issues, and the line on stderr", code, errb)
+		t.Errorf("aries prime with the server away = exit %d, stderr %q; want the cached prime without its ready issues, and the line on stderr", code, errb)
 	}
 
 	// What was never read fails as it did.
-	if code, _, errb := a.run(t, "show", "sf-zzzz"); code != ExitFailure || !strings.HasPrefix(errb, "sfx: ") || strings.Contains(errb, "cached") {
-		t.Errorf("sfx show of an issue never read = exit %d, %q; want the failure as before", code, errb)
+	if code, _, errb := a.run(t, "show", "sf-zzzz"); code != ExitFailure || !strings.HasPrefix(errb, "aries: ") || strings.Contains(errb, "cached") {
+		t.Errorf("aries show of an issue never read = exit %d, %q; want the failure as before", code, errb)
 	}
 	if code, _, errb := a.run(t, "inbox", "--all"); code != ExitFailure || strings.Contains(errb, "cached") {
-		t.Errorf("sfx inbox --all, never read = exit %d, %q; want the failure as before", code, errb)
+		t.Errorf("aries inbox --all, never read = exit %d, %q; want the failure as before", code, errb)
 	}
 }
 
@@ -115,10 +115,10 @@ func TestPrimeHookFromCache(t *testing.T) {
 		} `json:"hookSpecificOutput"`
 	}
 	if err := json.Unmarshal([]byte(out), &doc); err != nil || code != ExitOK || errb != "" || strings.Count(out, "\n") != 1 {
-		t.Fatalf("sfx prime --hook with the server away = exit %d, %q (%v), stderr %q; want one JSON document and nothing else", code, out, err, errb)
+		t.Fatalf("aries prime --hook with the server away = exit %d, %q (%v), stderr %q; want one JSON document and nothing else", code, out, err, errb)
 	}
 	ctx := doc.HookSpecificOutput.AdditionalContext
-	if !strings.Contains(ctx, "notice: cached: starfix cannot reach its server") || !strings.Contains(ctx, `sf-a1b2 P0 "Held work"`) ||
+	if !strings.Contains(ctx, "notice: cached: aries cannot reach its server") || !strings.Contains(ctx, `sf-a1b2 P0 "Held work"`) ||
 		!strings.Contains(ctx, "notice: outbox: 1 write made while the server was away waits to be sent") {
 		t.Errorf("the hook's context with the server away:\n%s\nwant the cached prime, saying it is cached, with the outbox's notice", ctx)
 	}
@@ -126,8 +126,8 @@ func TestPrimeHookFromCache(t *testing.T) {
 	b := newAway(t)
 	b.reachedAs(t, "alice")
 	code, out, _ = b.run(t, "prime", "--hook")
-	if err := json.Unmarshal([]byte(out), &doc); err != nil || code != ExitOK || !strings.HasPrefix(doc.HookSpecificOutput.AdditionalContext, "starfix: prime failed: ") {
-		t.Errorf("sfx prime --hook with nothing cached = exit %d, %q (%v); want the failure's note", code, out, err)
+	if err := json.Unmarshal([]byte(out), &doc); err != nil || code != ExitOK || !strings.HasPrefix(doc.HookSpecificOutput.AdditionalContext, "aries: prime failed: ") {
+		t.Errorf("aries prime --hook with nothing cached = exit %d, %q (%v); want the failure's note", code, out, err)
 	}
 }
 
@@ -143,8 +143,8 @@ func TestCacheRefusals(t *testing.T) {
 	for _, cmd := range []string{"ready", "blocked", "list", "who"} {
 		code, _, errb := a.run(t, cmd)
 		if code != ExitFailure || !strings.Contains(errb, "; "+cmd+" is not answered from this machine's copy, since it says what others are doing now (server last reached 2026-10-13 14:02 UTC)\n") ||
-			!strings.Contains(errb, "; meanwhile `sfx prime` and `sfx show ID` answer from this machine's copy of what you read\n") {
-			t.Errorf("sfx %s with the server away = exit %d, stderr:\n%s\nwant it refused, saying when the server was last reached, with a fix", cmd, code, errb)
+			!strings.Contains(errb, "; meanwhile `aries prime` and `aries show ID` answer from this machine's copy of what you read\n") {
+			t.Errorf("aries %s with the server away = exit %d, stderr:\n%s\nwant it refused, saying when the server was last reached, with a fix", cmd, code, errb)
 		}
 	}
 	// The server took this machine's key for bob since: alice's copy is
@@ -152,12 +152,12 @@ func TestCacheRefusals(t *testing.T) {
 	a.reachedAs(t, "bob")
 	for _, args := range [][]string{{"show", "sf-a1b2"}, {"prime"}, {"inbox"}} {
 		if code, out, errb := a.run(t, args...); code != ExitFailure || strings.Contains(out, "Held work") || strings.Contains(errb, "cached") {
-			t.Errorf("sfx %s as bob = exit %d, %q, %q; want alice's copy kept from him", strings.Join(args, " "), code, out, errb)
+			t.Errorf("aries %s as bob = exit %d, %q, %q; want alice's copy kept from him", strings.Join(args, " "), code, out, errb)
 		}
 	}
 }
 
-// sfx cache says what this machine keeps, and sfx cache clear deletes
+// aries cache says what this machine keeps, and aries cache clear deletes
 // it, every principal's, and leaves the outbox.
 func TestCacheCommand(t *testing.T) {
 	t.Parallel()
@@ -171,22 +171,22 @@ func TestCacheCommand(t *testing.T) {
 		"alice's cache: 4 answers, ",
 		"bob's cache: 4 answers, ",
 		", kept from 2026-10-13 14:02 UTC to 2026-10-13 14:02 UTC\n",
-		"`sfx cache clear` deletes them from this machine\n",
+		"`aries cache clear` deletes them from this machine\n",
 	} {
 		if code != ExitOK || !strings.Contains(out, want) {
-			t.Errorf("sfx cache = exit %d, lacks %q:\n%s", code, want, out)
+			t.Errorf("aries cache = exit %d, lacks %q:\n%s", code, want, out)
 		}
 	}
 	if code, out, _ := a.run(t, "cache", "clear"); code != ExitOK || out != "deleted 8 cached answers from this machine\n" {
-		t.Errorf("sfx cache clear = exit %d, %q", code, out)
+		t.Errorf("aries cache clear = exit %d, %q", code, out)
 	}
 	if code, out, _ := a.run(t, "cache", "--json"); code != ExitOK || !strings.HasPrefix(out, `{"caches":[]`) {
-		t.Errorf("sfx cache --json after clear = exit %d, %q; want no caches", code, out)
+		t.Errorf("aries cache --json after clear = exit %d, %q; want no caches", code, out)
 	}
 	if got := a.pending(t, "alice"); len(got) != 1 {
-		t.Errorf("alice's outbox after sfx cache clear holds %v, want her comment still there", got)
+		t.Errorf("alice's outbox after aries cache clear holds %v, want her comment still there", got)
 	}
 	if code, _, _ := a.run(t, "cache", "drop"); code != ExitUsage {
-		t.Errorf("sfx cache drop = exit %d, want a usage error", code)
+		t.Errorf("aries cache drop = exit %d, want a usage error", code)
 	}
 }

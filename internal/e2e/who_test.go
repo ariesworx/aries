@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
-// Two sessions of one person, under two harnesses, show up in `sfx who`
+// Two sessions of one person, under two harnesses, show up in `aries who`
 // for another, with the claim the first holds.
 func TestWhoListsSessions(t *testing.T) {
 	t.Parallel()
@@ -20,10 +20,10 @@ func TestWhoListsSessions(t *testing.T) {
 	w := newWorld(t, daemonOpts{now: clk.now})
 	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
 
-	alice.env = map[string]string{"STARFIX_SESSION": "s-one", "CLAUDECODE": "1"}
+	alice.env = map[string]string{"ARIES_SESSION": "s-one", "CLAUDECODE": "1"}
 	id := strings.TrimSpace(alice.ok("create", "Wire the registry"))
 	alice.ok("start", id)
-	alice.env = map[string]string{"STARFIX_SESSION": "s-two", "GEMINI_CLI": "1"}
+	alice.env = map[string]string{"ARIES_SESSION": "s-two", "GEMINI_CLI": "1"}
 	alice.ok("ready")
 
 	got := decode[proto.WhoResult](t, bob.ok("who", "--json"))
@@ -44,7 +44,7 @@ func TestWhoListsSessions(t *testing.T) {
 		"bob/cli on laptop-test seen just now",
 	} {
 		if !strings.Contains(out, line+"\n") {
-			t.Errorf("sfx who lacks %q:\n%s", line, out)
+			t.Errorf("aries who lacks %q:\n%s", line, out)
 		}
 	}
 }

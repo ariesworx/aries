@@ -33,7 +33,7 @@ Each entry left is named with what probably made it: the t.TempDir of
 the test it is named for (a subtest's name loses its slash), or
 os.MkdirTemp with its prefix.
 
-  STARFIX_LEFTOVERS_WAIT  seconds to wait for processes to end before
+  ARIES_LEFTOVERS_WAIT  seconds to wait for processes to end before
                           they count as left (default 15: the watcher of
                           a killed test's Dolt takes up to 10 to end it)
   GITHUB_ACTIONS=true     also print the report as an error annotation
@@ -46,8 +46,8 @@ case ${1:-} in
 '') usage >&2; exit 2 ;;
 esac
 
-wait_secs=${STARFIX_LEFTOVERS_WAIT:-15}
-case $wait_secs in '' | *[!0-9]*) printf 'leftovers.sh: STARFIX_LEFTOVERS_WAIT is %s, not a number of seconds\n' "$wait_secs" >&2; exit 2 ;; esac
+wait_secs=${ARIES_LEFTOVERS_WAIT:-15}
+case $wait_secs in '' | *[!0-9]*) printf 'leftovers.sh: ARIES_LEFTOVERS_WAIT is %s, not a number of seconds\n' "$wait_secs" >&2; exit 2 ;; esac
 
 dir=
 godir=

@@ -1,6 +1,6 @@
 // Package statustext prints the daemon's status report
-// (proto.StatusResult) as text: what `sfx admin status` shows an admin
-// over SSH and `starfixd status` shows the operator on the server, so
+// (proto.StatusResult) as text: what `aries admin status` shows an admin
+// over SSH and `ariesd status` shows the operator on the server, so
 // the two cannot drift apart. Everything from the server goes through
 // safetext, so a name cannot start a line of its own.
 package statustext
@@ -15,8 +15,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/safetext"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/safetext"
 )
 
 // esc makes a string from the server safe to print on one line.
@@ -33,12 +33,12 @@ func when(t time.Time) string { return t.UTC().Format("2006-01-02 15:04 UTC") }
 func Print(w io.Writer, res proto.StatusResult) {
 	p := func(format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }
 	if s := res.Server; s != nil {
-		p("starfixd %s, up %s\n", esc(s.Version), uptime(s.UptimeSeconds))
+		p("ariesd %s, up %s\n", esc(s.Version), uptime(s.UptimeSeconds))
 		p("stores %d of %d, connections %d of %d\n", s.OpenStores, s.OpenStoresMax, s.Conns, s.ConnsMax)
 		if k := s.KeysFile; k != nil {
 			p("keys file %s: %s\n", esc(k.Path), keysFile(*k))
 			if k.HeldBack > 0 {
-				p("keys held back from it: %d, which the server's authorized_keys file gives to another principal; sshd takes that file's line for them, and starfixd's log names each\n", k.HeldBack)
+				p("keys held back from it: %d, which the server's authorized_keys file gives to another principal; sshd takes that file's line for them, and ariesd's log names each\n", k.HeldBack)
 			}
 		}
 		if c := s.Clock; c != nil {
@@ -47,7 +47,7 @@ func Print(w io.Writer, res proto.StatusResult) {
 		if tr := s.Traces; tr != nil {
 			p("%s", tracesLine(*tr))
 		}
-		p("starfixd's memory %d MiB in use, %d MiB from the system; %d goroutines\n", mib(s.HeapBytes), mib(s.SysBytes), s.Goroutines)
+		p("ariesd's memory %d MiB in use, %d MiB from the system; %d goroutines\n", mib(s.HeapBytes), mib(s.SysBytes), s.Goroutines)
 		if d := s.Dolt; d != nil {
 			p("%s", doltLines(*d))
 		}
@@ -96,10 +96,10 @@ func Print(w io.Writer, res proto.StatusResult) {
 		p("and %d more; list them with --after %s\n", res.More, esc(res.Projects[len(res.Projects)-1].Name))
 	}
 	for _, cause := range causes {
-		p("sessions: unknown for %s (%s); the rest is what starfixd holds in memory. Check Dolt on the server (docs/server.md, Troubleshooting)\n", plural(unknown[cause], "project"), esc(cause))
+		p("sessions: unknown for %s (%s); the rest is what ariesd holds in memory. Check Dolt on the server (docs/server.md, Troubleshooting)\n", plural(unknown[cause], "project"), esc(cause))
 	}
 	if byFile {
-		p("BY HAND: connections sshd let in by the server's hand-maintained authorized_keys file, not by a key from the store; `sfx admin key remove` does not close them\n")
+		p("BY HAND: connections sshd let in by the server's hand-maintained authorized_keys file, not by a key from the store; `aries admin key remove` does not close them\n")
 	}
 }
 
@@ -113,9 +113,9 @@ func keysFile(k proto.KeysFile) string {
 	}
 	switch {
 	case k.Failed && k.WrittenAt != nil:
-		return fmt.Sprintf("THE LAST WRITE FAILED, so sshd may be reading an older list (%s, written %s); see starfixd's log", keys, when(*k.WrittenAt))
+		return fmt.Sprintf("THE LAST WRITE FAILED, so sshd may be reading an older list (%s, written %s); see ariesd's log", keys, when(*k.WrittenAt))
 	case k.Failed:
-		return "THE LAST WRITE FAILED, so sshd may be reading an older list; see starfixd's log"
+		return "THE LAST WRITE FAILED, so sshd may be reading an older list; see ariesd's log"
 	case k.WrittenAt == nil:
 		return keys
 	}
@@ -196,7 +196,7 @@ func tracesLine(tr proto.TracesStatus) string {
 		if tr.Damaged {
 			state = "CANNOT BE TRUSTED"
 		}
-		return fmt.Sprintf("TRACES SAY NOTHING ABOUT WHO: the key for stand-ins, %s, %s: %s. starfixd's log has the fix (`telemetry: spans say nothing about who`), and starfixd looks again every half minute\n",
+		return fmt.Sprintf("TRACES SAY NOTHING ABOUT WHO: the key for stand-ins, %s, %s: %s. ariesd's log has the fix (`telemetry: spans say nothing about who`), and ariesd looks again every half minute\n",
 			esc(tr.KeyFile), state, esc(tr.Cause))
 	}
 	return "traces: " + esc(tr.People) + "\n"
@@ -217,23 +217,23 @@ func clockLines(c proto.ClockStatus) string {
 		if n == 1 {
 			times = "time"
 		}
-		fmt.Fprintf(&b, "clock: set %d %s since starfixd started (%d forward, %d back)%s; see starfixd's log for `clock stepped`\n",
+		fmt.Fprintf(&b, "clock: set %d %s since ariesd started (%d forward, %d back)%s; see ariesd's log for `clock stepped`\n",
 			n, times, c.StepsForward, c.StepsBackward, last)
 	}
 	if h := c.Behind; h != nil {
 		restart := ""
 		if h.RefusesStart {
-			restart = " STARFIXD WILL NOT START AGAIN until the clock is corrected (clock_behind: stop)."
+			restart = " ARIESD WILL NOT START AGAIN until the clock is corrected (clock_behind: stop)."
 		}
-		fmt.Fprintf(&b, "CLOCK BEHIND HISTORY: the server's clock is %s behind the latest event of %s (%s), since %s. starfixd's time runs on from there at half speed until the clock has caught up.%s On the server, check `timedatectl`\n",
+		fmt.Fprintf(&b, "CLOCK BEHIND HISTORY: the server's clock is %s behind the latest event of %s (%s), since %s. ariesd's time runs on from there at half speed until the clock has caught up.%s On the server, check `timedatectl`\n",
 			(time.Duration(h.Seconds) * time.Second).String(), esc(h.Log), when(h.History), when(h.Since), restart)
 	}
 	return b.String()
 }
 
 // What the collector's cycles for each 100 writes said of a Go memory
-// limit in one set of measurements (spike/multidb/RESULTS.md, section
-// 5: Linux on arm64 in a container, synthetic issues of one shape):
+// limit in one set of measurements (stage 3a's, section 5, now in git
+// history: Linux on arm64 in a container, synthetic issues of one shape):
 // every run whose limit cost at most twice the CPU made fewer than
 // gcRoom, and every run past the cliff more than gcTooLow.
 const (
@@ -250,17 +250,17 @@ const (
 	gcMinWrites = 500
 )
 
-// doltLines says what starfixd last read of Dolt's own metrics: one
+// doltLines says what ariesd last read of Dolt's own metrics: one
 // line of Dolt's figures, with "unknown" for each it did not give, and
-// one of its collector's cycles against starfixd's writes, once two
+// one of its collector's cycles against ariesd's writes, once two
 // reads have succeeded. When the latest read failed it is one line
 // saying so, with the last read that succeeded.
 func doltLines(d proto.DoltStatus) string {
 	if d.Unknown {
 		if d.ReadAt == nil {
-			return "Dolt: unknown: starfixd has not read Dolt's metrics since it started; see starfixd's log\n"
+			return "Dolt: unknown: ariesd has not read Dolt's metrics since it started; see ariesd's log\n"
 		}
-		return fmt.Sprintf("Dolt: unknown: starfixd could not read Dolt's metrics, and last could at %s; see starfixd's log\n", when(*d.ReadAt))
+		return fmt.Sprintf("Dolt: unknown: ariesd could not read Dolt's metrics, and last could at %s; see ariesd's log\n", when(*d.ReadAt))
 	}
 	parts := []string{"Dolt, version unknown", "uptime unknown", "connections unknown", "memory unknown", "memory limit unknown"}
 	if d.Version != "" {

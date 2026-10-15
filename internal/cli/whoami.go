@@ -6,15 +6,15 @@ import (
 	"io"
 	"strings"
 
-	"github.com/ariesworx/starfix/internal/client"
+	"github.com/ariesworx/aries/internal/client"
 )
 
-// whoami is what `sfx whoami` reports: who the server takes this
+// whoami is what `aries whoami` reports: who the server takes this
 // connection for, and which key signed it in.
 type whoami struct {
 	// Principal is the name the server has for the key that signed in.
 	Principal string `json:"principal"`
-	// Project is the project's UUID, from .starfix.yaml.
+	// Project is the project's UUID, from .aries.yaml.
 	Project string       `json:"project"`
 	Server  whoamiServer `json:"server"`
 	Session string       `json:"session"`
@@ -80,7 +80,7 @@ func printWhoami(w io.Writer, me whoami) {
 	}
 	who := me.Principal
 	if who == "" {
-		who = "unknown (the server is older than this sfx and does not say)"
+		who = "unknown (the server is older than this aries and does not say)"
 	}
 	p("principal", "%s", esc(who))
 	p("project", "%s", esc(me.Project))
@@ -104,7 +104,7 @@ func printWhoami(w io.Writer, me whoami) {
 	case me.Key.Path != "":
 		p("key", "%s, signed by ssh-agent for %s%s", esc(me.Key.Fingerprint), esc(me.Key.Path), chosen)
 	default:
-		p("key", "%s, from ssh-agent; no key is configured, so sfx offered your default identities and then ssh-agent's keys", esc(me.Key.Fingerprint))
+		p("key", "%s, from ssh-agent; no key is configured, so aries offered your default identities and then ssh-agent's keys", esc(me.Key.Fingerprint))
 	}
 	for _, s := range me.Skipped {
 		p("skipped", "%s", esc(s))

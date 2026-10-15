@@ -1,6 +1,6 @@
 package client
 
-// What sfx offers when no key is configured (decision 35, the
+// What aries offers when no key is configured (decision 35, the
 // unconfigured case), and what it does with a key put where a path
 // belongs. Every home directory and agent here is the test's own.
 
@@ -14,7 +14,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // sshDir makes home/.ssh and returns it.
@@ -81,7 +81,7 @@ func TestDefaultIdentities(t *testing.T) {
 				hardware.writePub(t, dir, "id_ecdsa_sk.pub")
 				edNamed.write(t, dir, "id_ed25519", "", false)
 			},
-			offered: fps(edNamed), by: []string{"default identity"}, skipped: []string{"id_ecdsa_sk: it is a hardware-backed key, which sfx uses only through ssh-agent, and ssh-agent does not hold it"}},
+			offered: fps(edNamed), by: []string{"default identity"}, skipped: []string{"id_ecdsa_sk: it is a hardware-backed key, which aries uses only through ssh-agent, and ssh-agent does not hold it"}},
 		{name: "a file that is no key is skipped, and the rest used",
 			files: func(t *testing.T, dir string) {
 				if err := os.WriteFile(filepath.Join(dir, "id_rsa"), []byte("not a key\n"), 0o600); err != nil {
@@ -89,7 +89,7 @@ func TestDefaultIdentities(t *testing.T) {
 				}
 				edNamed.write(t, dir, "id_ed25519", "", false)
 			},
-			offered: fps(edNamed), by: []string{"default identity"}, skipped: []string{"id_rsa: it is not a private key sfx can read"}},
+			offered: fps(edNamed), by: []string{"default identity"}, skipped: []string{"id_rsa: it is not a private key aries can read"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -126,7 +126,7 @@ func TestDefaultIdentities(t *testing.T) {
 }
 
 // TestOffersAreCapped pins the cap on the unconfigured case, against the
-// stand-in sshd, which like OpenSSH hangs up after six refused keys: sfx
+// stand-in sshd, which like OpenSSH hangs up after six refused keys: aries
 // offers five, so the server answers, and the refusal says what was
 // offered, what was left out, and how to name the key.
 func TestOffersAreCapped(t *testing.T) {
@@ -151,7 +151,7 @@ func TestOffersAreCapped(t *testing.T) {
 	if !slices.Equal(offered, want) {
 		t.Errorf("the server was offered %v\nwant the default identity and then the agent's first keys, %d in all: %v", offered, maxOffered, want)
 	}
-	for _, s := range []string{"accepted none of the 5 keys sfx offered", crowd[0].fingerprint() + " (" + filepath.Join(d.home, ".ssh", "id_ed25519") + ")",
+	for _, s := range []string{"accepted none of the 5 keys aries offered", crowd[0].fingerprint() + " (" + filepath.Join(d.home, ".ssh", "id_ed25519") + ")",
 		crowd[1].fingerprint() + " (ssh-agent)", "3 more keys that ssh-agent holds were not offered"} {
 		if !strings.Contains(pe.Message, s) {
 			t.Errorf("message %q lacks %q", pe.Message, s)
@@ -169,9 +169,9 @@ func TestOffersAreCapped(t *testing.T) {
 }
 
 // TestAKeyIsNeverTakenForAPath pins rule 2 for the two variables. Some
-// deployments keep a private key's text in a secret named STARFIX_KEY:
-// sfx never reads that variable, and never prints its value. And
-// STARFIX_KEY_FILE holds a path: a value that is plainly a key is
+// deployments keep a private key's text in a secret named ARIES_KEY:
+// aries never reads that variable, and never prints its value. And
+// ARIES_KEY_FILE holds a path: a value that is plainly a key is
 // refused without being repeated.
 func TestAKeyIsNeverTakenForAPath(t *testing.T) {
 	t.Parallel()
@@ -199,14 +199,14 @@ func TestAKeyIsNeverTakenForAPath(t *testing.T) {
 		}
 	}
 
-	t.Run("STARFIX_KEY is not read", func(t *testing.T) {
+	t.Run("ARIES_KEY is not read", func(t *testing.T) {
 		env := map[string]string{EnvNotRead: material}
 		if who, offered, _ := d.dial(t, "mine", env); who != "me" || len(offered) != 1 {
 			t.Errorf("with %s holding a key and key: naming another: signed in as %q, %d keys offered; want me, by the configured key", EnvNotRead, who, len(offered))
 		}
 		for _, tc := range []struct{ name, key, note string }{
-			{"the configured key is refused", "unknown", EnvNotRead + " is set, and sfx does not read it"},
-			{"no key at all", "", EnvNotRead + " is set, and sfx does not read it"},
+			{"the configured key is refused", "unknown", EnvNotRead + " is set, and aries does not read it"},
+			{"no key at all", "", EnvNotRead + " is set, and aries does not read it"},
 		} {
 			who, _, err := d.dial(t, tc.key, env)
 			pe, ok := err.(*proto.Error)
@@ -221,7 +221,7 @@ func TestAKeyIsNeverTakenForAPath(t *testing.T) {
 		}
 	})
 
-	t.Run("STARFIX_KEY_FILE holding a key", func(t *testing.T) {
+	t.Run("ARIES_KEY_FILE holding a key", func(t *testing.T) {
 		for name, value := range map[string]string{
 			"a private key":          material,
 			"its first line":         strings.Split(material, "\n")[0],

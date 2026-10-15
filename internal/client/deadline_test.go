@@ -7,7 +7,7 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // stall is how a stand-in server treats the request it is to leave
@@ -106,10 +106,10 @@ func TestCallDeadline(t *testing.T) {
 				if !ok || pe.Code != proto.CodeUnavailable {
 					t.Fatalf("Call(%s) to a server that did not answer = %v, want an unavailable *proto.Error", tc.op, err)
 				}
-				if want := "the server did not answer " + tc.op + " within 1m15s, so sfx closed the connection"; pe.Message != want {
+				if want := "the server did not answer " + tc.op + " within 1m15s, so aries closed the connection"; pe.Message != want {
 					t.Errorf("Call(%s) message = %q, want %q", tc.op, pe.Message, want)
 				}
-				if !strings.Contains(pe.Fix, "retry") || !strings.Contains(pe.Fix, "starfixd status") {
+				if !strings.Contains(pe.Fix, "retry") || !strings.Contains(pe.Fix, "ariesd status") {
 					t.Errorf("Call(%s) fix = %q, want it to say to retry, and what the admin checks", tc.op, pe.Fix)
 				}
 				if !Unreachable(err) {
@@ -135,7 +135,7 @@ func TestCallDeadline(t *testing.T) {
 
 // RequestTimeout outlasts the server's own request timeout, a minute,
 // for every op but those the server may take longer over, which only
-// `sfx admin` sends.
+// `aries admin` sends.
 func TestRequestTimeout(t *testing.T) {
 	t.Parallel()
 	const server = time.Minute

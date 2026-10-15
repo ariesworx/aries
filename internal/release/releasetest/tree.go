@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/release"
+	"github.com/ariesworx/aries/internal/release"
 )
 
 // Tree is a static release tree, the layout RELEASING.md describes,

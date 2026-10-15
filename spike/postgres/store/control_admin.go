@@ -10,7 +10,7 @@ import (
 	"github.com/go-sql-driver/mysql"
 )
 
-// What `sfx admin` needs of the control store beyond its rows: a
+// What `aries admin` needs of the control store beyond its rows: a
 // project's database created, and the questions the daemon asks before
 // it answers an admin (which project a name means, who is within whose
 // reach).
@@ -68,7 +68,7 @@ func (c *Control) CreateDatabase(ctx context.Context, actor Actor, project strin
 // HeldClaims returns how many claims are held in the project database
 // named db, by one read through the control store's own connection: the
 // account reaches every project's database, and no store is opened for
-// it. starfixd asks it of each archived project at start, so that one
+// it. ariesd asks it of each archived project at start, so that one
 // with nothing to end costs a query and not a store.
 //
 // It reads the claims table as this binary's schema has it, without

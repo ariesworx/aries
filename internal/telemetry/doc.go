@@ -1,9 +1,9 @@
-// Package telemetry is starfixd's metrics and traces, and the only
+// Package telemetry is ariesd's metrics and traces, and the only
 // package that imports the OpenTelemetry SDK, its exporters or the
 // Prometheus client (design §16.2, decision 28). The server, the store's
 // hooks and the commands see what is declared here and nothing of the
 // SDK, so the SDK can be replaced, or left out of a test, in this one
-// place. `sfx` links none of it; a test fails if it ever does.
+// place. `aries` links none of it; a test fails if it ever does.
 //
 // A [Telemetry] records measurements on the instruments of
 // instruments.go, each with a fixed set of attribute keys whose values

@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // The gate tool (design §20.3; decision 76): an agent may hold work back

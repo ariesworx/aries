@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // lockedWriter is a buffer a command's output and a test's reads may
@@ -47,7 +47,7 @@ func (w *world) lockEvents(t *testing.T, name string) string {
 	return strings.Join(ops, " ")
 }
 
-// locksOf is what `sfx lock list --json` says.
+// locksOf is what `aries lock list --json` says.
 func locksOf(u *user) []proto.Lock {
 	u.w.t.Helper()
 	return decode[proto.LocksResult](u.w.t, u.ok("lock", "list", "--json")).Locks
@@ -82,7 +82,7 @@ func TestLockCommands(t *testing.T) {
 	}
 }
 
-// sfx lock refuses at once when the server cannot be reached, and queues
+// aries lock refuses at once when the server cannot be reached, and queues
 // nothing: a script fails before its critical section.
 func TestLockOffline(t *testing.T) {
 	t.Parallel()
@@ -96,11 +96,11 @@ func TestLockOffline(t *testing.T) {
 	} {
 		r := alice.run("v0.2.0", args...)
 		if r.code != 1 || !strings.Contains(r.stderr, "not queued") {
-			t.Errorf("sfx %s offline = exit %d, %q; want 1, saying it was not queued", strings.Join(args, " "), r.code, r.stderr)
+			t.Errorf("aries %s offline = exit %d, %q; want 1, saying it was not queued", strings.Join(args, " "), r.code, r.stderr)
 		}
 	}
 	if r := alice.run("v0.2.0", "lock", "list"); r.code != 1 || !strings.Contains(r.stderr, "not answered from this machine's copy") {
-		t.Errorf("sfx lock list offline = exit %d, %q; want 1, saying it is not answered from the cache", r.code, r.stderr)
+		t.Errorf("aries lock list offline = exit %d, %q; want 1, saying it is not answered from the cache", r.code, r.stderr)
 	}
 	if r := alice.run("v0.2.0", "outbox", "--json"); !strings.Contains(r.stdout, `"pending":[]`) && !strings.Contains(r.stdout, `"entries":[]`) &&
 		strings.Contains(r.stdout, "lock") {
@@ -108,7 +108,7 @@ func TestLockOffline(t *testing.T) {
 	}
 }
 
-// sfx lock run runs the command under the lock, with the epoch in its
+// aries lock run runs the command under the lock, with the epoch in its
 // environment, passes its exit code through, and releases the lock when
 // it exits.
 func TestLockRunExitCode(t *testing.T) {
@@ -119,8 +119,8 @@ func TestLockRunExitCode(t *testing.T) {
 		script string
 		code   int
 	}{
-		{`test "$STARFIX_LOCK_EPOCH" = 1 && echo held`, 0},
-		{`test "$STARFIX_LOCK_EPOCH" = 2 && exit 7`, 7},
+		{`test "$ARIES_LOCK_EPOCH" = 1 && echo held`, 0},
+		{`test "$ARIES_LOCK_EPOCH" = 2 && exit 7`, 7},
 		{`exit 3`, 3},
 	} {
 		r := alice.run("v0.2.0", "lock", "run", "deploy", "--", "sh", "-c", tc.script)
@@ -140,7 +140,7 @@ func TestLockRunExitCode(t *testing.T) {
 }
 
 // An interrupt reaches the command, and the lock is released once it
-// has stopped; sfx exits 130, as the command died of it.
+// has stopped; aries exits 130, as the command died of it.
 func TestLockRunInterrupt(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, daemonOpts{})
@@ -194,7 +194,7 @@ func TestLockRunWaitsAndRenews(t *testing.T) {
 	// clock, under a lease of one: the renewals keep it hers.
 	first := make(chan result, 1)
 	go func() {
-		first <- alice.run("v0.2.0", "lock", "run", "deploy", "--for", "1m", "--", "sh", "-c", "sleep 3; echo first $STARFIX_LOCK_EPOCH")
+		first <- alice.run("v0.2.0", "lock", "run", "deploy", "--for", "1m", "--", "sh", "-c", "sleep 3; echo first $ARIES_LOCK_EPOCH")
 	}()
 	deadline := time.Now().Add(20 * time.Second)
 	for len(locksOf(bob)) == 0 {
@@ -203,7 +203,7 @@ func TestLockRunWaitsAndRenews(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	second := bob.run("v0.2.0", "lock", "run", "deploy", "--wait", "--", "sh", "-c", "echo second $STARFIX_LOCK_EPOCH")
+	second := bob.run("v0.2.0", "lock", "run", "deploy", "--wait", "--", "sh", "-c", "echo second $ARIES_LOCK_EPOCH")
 	a := <-first
 	if a.code != 0 || strings.TrimSpace(a.stdout) != "first 1" {
 		t.Errorf("alice's run = exit %d, %q %q; want 0 and first 1", a.code, a.stdout, a.stderr)

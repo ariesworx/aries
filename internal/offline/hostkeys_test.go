@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // newKey is the host key a server rotates to from oldKey.
@@ -95,7 +95,7 @@ func TestFindAcrossARotation(t *testing.T) {
 }
 
 // TestClientAcrossARotation is TestFindAcrossARotation through the
-// committed config, as sfx reads it on every command: host_key, then
+// committed config, as aries reads it on every command: host_key, then
 // host_keys with both, then host_key with the new one. What alice queued
 // before is sent on a connection after, and nothing is said of an old
 // host key.

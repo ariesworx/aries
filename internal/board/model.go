@@ -5,7 +5,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // TailMax is how many pushed events the board keeps for its tail.

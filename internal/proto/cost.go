@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/lazyregexp"
 )
 
 // Prices and cost reports (protocol 4, design §12.1). Rates are integer

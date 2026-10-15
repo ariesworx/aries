@@ -14,8 +14,8 @@ import (
 // sets the agent up.
 func TestSetupWarnsWithoutGcloud(t *testing.T) {
 	// Serial: sets the process's environment (t.Setenv).
-	const iap = "  iap:\n    project: example-project\n    zone: us-central1-a\n    instance: starfix-1\n"
-	const warning = "sfx: server.iap in .starfix.yaml needs gcloud, which is not on PATH\nfix: install the Google Cloud CLI"
+	const iap = "  iap:\n    project: example-project\n    zone: us-central1-a\n    instance: aries-1\n"
+	const warning = "aries: server.iap in .aries.yaml needs gcloud, which is not on PATH\nfix: install the Google Cloud CLI"
 	withGcloud := t.TempDir()
 	if err := os.WriteFile(filepath.Join(withGcloud, "gcloud"), []byte("#!/bin/sh\n"), 0o700); err != nil { //nolint:gosec // an executable stand-in
 		t.Fatal(err)
@@ -34,12 +34,12 @@ func TestSetupWarnsWithoutGcloud(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("PATH", tc.path)
 			root := t.TempDir()
-			if err := os.WriteFile(filepath.Join(root, ".starfix.yaml"), []byte(tc.config), 0o600); err != nil {
+			if err := os.WriteFile(filepath.Join(root, ".aries.yaml"), []byte(tc.config), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			code, _, stderr := runIn(t, t.TempDir(), "-C", root, "setup", "codex")
 			if code != 0 || strings.Contains(stderr, warning) != tc.warn {
-				t.Errorf("sfx setup codex (PATH %s) = exit %d, stderr %q; want exit 0, warning %v", tc.path, code, stderr, tc.warn)
+				t.Errorf("aries setup codex (PATH %s) = exit %d, stderr %q; want exit 0, warning %v", tc.path, code, stderr, tc.warn)
 			}
 		})
 	}

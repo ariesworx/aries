@@ -21,14 +21,14 @@ func TestAccountProblems(t *testing.T) {
 		filePriv  sql.NullString
 		want      []string // substrings, one per problem
 	}{
-		{name: "least privilege", user: "starfix", filePriv: dir},
-		{name: "usage only", user: "starfix", global: []string{"USAGE"}, filePriv: dir},
-		{name: "secure_file_priv NULL disables file access", user: "starfix"},
+		{name: "least privilege", user: "aries", filePriv: dir},
+		{name: "usage only", user: "aries", global: []string{"USAGE"}, filePriv: dir},
+		{name: "secure_file_priv NULL disables file access", user: "aries"},
 		{name: "root", user: "root", filePriv: dir, want: []string{"root"}},
-		{name: "file", user: "starfix", global: []string{"FILE"}, filePriv: dir, want: []string{"FILE"}},
-		{name: "super and select", user: "starfix", global: []string{"SELECT", "SUPER"}, filePriv: dir, want: []string{"SELECT, SUPER"}},
-		{name: "grant option", user: "starfix", grantable: true, filePriv: dir, want: []string{"GRANT OPTION"}},
-		{name: "empty secure_file_priv", user: "starfix", filePriv: sql.NullString{Valid: true}, want: []string{"secure_file_priv"}},
+		{name: "file", user: "aries", global: []string{"FILE"}, filePriv: dir, want: []string{"FILE"}},
+		{name: "super and select", user: "aries", global: []string{"SELECT", "SUPER"}, filePriv: dir, want: []string{"SELECT, SUPER"}},
+		{name: "grant option", user: "aries", grantable: true, filePriv: dir, want: []string{"GRANT OPTION"}},
+		{name: "empty secure_file_priv", user: "aries", filePriv: sql.NullString{Valid: true}, want: []string{"secure_file_priv"}},
 		{name: "dolt default root", user: "root", global: []string{"FILE", "SUPER"}, grantable: true,
 			filePriv: sql.NullString{Valid: true}, want: []string{"root", "FILE, SUPER", "GRANT OPTION", "secure_file_priv"}},
 	}
@@ -58,8 +58,8 @@ func rootDSN(t *testing.T, dsn string) string {
 }
 
 // S-2: a store opened as Dolt's root, which can read and write files and
-// rewrite the event log behind starfixd's back, is refused unless the
-// caller explicitly allows it (starfixd allows it only with --dev).
+// rewrite the event log behind ariesd's back, is refused unless the
+// caller explicitly allows it (ariesd allows it only with --dev).
 func TestOpenRefusesUnsafeAccount(t *testing.T) {
 	t.Parallel()
 	dsn := newDSN(t)

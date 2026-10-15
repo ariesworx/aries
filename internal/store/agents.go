@@ -8,7 +8,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/lazyregexp"
 )
 
 // Agents registry (design §3, §7): who is at work, on which machine and
@@ -36,7 +36,7 @@ type Agent struct {
 	Claims   []IssueID `json:"claims,omitempty"`
 }
 
-// harnessPattern is what a harness name may look like: the `sfx setup`
+// harnessPattern is what a harness name may look like: the `aries setup`
 // agent names and others like them.
 var harnessPattern = lazyregexp.New(`^[a-z0-9-]{1,32}$`)
 

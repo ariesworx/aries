@@ -9,12 +9,12 @@ import (
 	"testing"
 )
 
-// The SDK is starfixd's alone (design §16.2, decision 28). These tests
+// The SDK is ariesd's alone (design §16.2, decision 28). These tests
 // ask the go tool, which `go test` puts on PATH, what the module's
 // packages import.
 
 const (
-	module = "github.com/ariesworx/starfix"
+	module = "github.com/ariesworx/aries"
 	// here is the one package that may import the SDK.
 	here = module + "/internal/telemetry"
 )
@@ -70,42 +70,42 @@ func goList(t *testing.T, goos string, args ...string) []pkg {
 	return pkgs
 }
 
-// sfx, on every system it is built for, links nothing of the SDK: not
+// aries, on every system it is built for, links nothing of the SDK: not
 // directly, and not through any package it imports.
-func TestSfxLinksNoSDK(t *testing.T) {
+func TestAriesLinksNoSDK(t *testing.T) {
 	t.Parallel()
 	for _, goos := range []string{"linux", "darwin", "windows"} {
 		t.Run(goos, func(t *testing.T) {
-			deps := goList(t, goos, "-deps", "./cmd/sfx")
+			deps := goList(t, goos, "-deps", "./cmd/aries")
 			found := false
 			for _, p := range deps {
-				if p.ImportPath == module+"/cmd/sfx" {
+				if p.ImportPath == module+"/cmd/aries" {
 					found = true
 				}
 				if isSDK(p.ImportPath) {
-					t.Errorf("cmd/sfx links %s: the OpenTelemetry SDK is for starfixd only (docs/design/starfix.md §16.2)", p.ImportPath)
+					t.Errorf("cmd/aries links %s: the OpenTelemetry SDK is for ariesd only (docs/design/aries.md §16.2)", p.ImportPath)
 				}
 				if p.ImportPath == here {
-					t.Errorf("cmd/sfx links %s, which imports the SDK", here)
+					t.Errorf("cmd/aries links %s, which imports the SDK", here)
 				}
 			}
 			if !found {
-				t.Fatalf("go list -deps ./cmd/sfx did not list cmd/sfx among %d packages: the test reads nothing", len(deps))
+				t.Fatalf("go list -deps ./cmd/aries did not list cmd/aries among %d packages: the test reads nothing", len(deps))
 			}
 		})
 	}
 }
 
-// starfixd does link it: the test above would pass for a tool that
+// ariesd does link it: the test above would pass for a tool that
 // listed nothing.
-func TestStarfixdLinksTheSDK(t *testing.T) {
+func TestAriesdLinksTheSDK(t *testing.T) {
 	t.Parallel()
-	for _, p := range goList(t, "linux", "-deps", "./cmd/starfixd") {
+	for _, p := range goList(t, "linux", "-deps", "./cmd/ariesd") {
 		if isSDK(p.ImportPath) {
 			return
 		}
 	}
-	t.Errorf("cmd/starfixd links no package of the SDK: isSDK no longer matches what the SDK is")
+	t.Errorf("cmd/ariesd links no package of the SDK: isSDK no longer matches what the SDK is")
 }
 
 // Only this package imports the SDK directly, in code or in tests, so

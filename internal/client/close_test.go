@@ -8,7 +8,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // fullConn is the client's end of a connection whose peer, once full,
@@ -112,7 +112,7 @@ func bridgedConn(t *testing.T) (*Conn, *fullConn) {
 	})
 	nc := &transport{Conn: near}
 	//nolint:gosec // G106: both ends are the test's
-	cc, chans, reqs, err := ssh.NewClientConn(nc, "the server", &ssh.ClientConfig{User: "starfix", HostKeyCallback: ssh.InsecureIgnoreHostKey()})
+	cc, chans, reqs, err := ssh.NewClientConn(nc, "the server", &ssh.ClientConfig{User: "aries", HostKeyCallback: ssh.InsecureIgnoreHostKey()})
 	if err != nil {
 		t.Fatal(err)
 	}

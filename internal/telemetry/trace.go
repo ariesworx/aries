@@ -12,8 +12,8 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/ariesworx/starfix/internal/logs"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Traces (design §16.4). A span is started here and nowhere else, so
@@ -355,7 +355,7 @@ func (te traceEnv) shownSampler() string {
 // earlier, where it can be counted: a span is passed on only while fewer
 // than te.queue are waiting, which leaves the SDK's own queue never
 // full, and one that is not passed on is counted on
-// starfix.telemetry.dropped, as are the spans of an export that failed.
+// aries.telemetry.dropped, as are the spans of an export that failed.
 func (t *Telemetry) batcher(exp sdktrace.SpanExporter, te traceEnv) sdktrace.SpanProcessor {
 	g := &gate{t: t, max: int64(te.queue)}
 	g.ctx, g.cancel = context.WithCancel(context.Background())
@@ -419,7 +419,7 @@ func (g *gate) Shutdown(ctx context.Context) error {
 
 // guardedSpans is the trace exporter with its failures handled here,
 // once: the spans of a failed export are counted on
-// starfix.telemetry.dropped and the failure logged, sampled, and never
+// aries.telemetry.dropped and the failure logged, sampled, and never
 // returned to the SDK, whose handler would log each one.
 type guardedSpans struct {
 	exp sdktrace.SpanExporter

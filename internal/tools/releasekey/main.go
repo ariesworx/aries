@@ -1,10 +1,10 @@
-// Command releasekey makes and uses the starfix release signing key. It is
-// not part of sfx or starfixd.
+// Command releasekey makes and uses the Aries release signing key. It is
+// not part of aries or ariesd.
 //
 //	releasekey gen KEYFILE
 //		new key pair: private key to KEYFILE (0600), public key to stdout
 //	releasekey sign FILE
-//		sign FILE into FILE.sig with $STARFIX_RELEASE_KEY
+//		sign FILE into FILE.sig with $ARIES_RELEASE_KEY
 //	releasekey verify [--key BASE64]... FILE [SIG]
 //		check SIG (default FILE.sig) against the keys in keys.go, or the --key ones
 //
@@ -28,15 +28,15 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ariesworx/starfix/internal/release"
+	"github.com/ariesworx/aries/internal/release"
 )
 
 // EnvKey holds the private key for sign.
-const EnvKey = "STARFIX_RELEASE_KEY"
+const EnvKey = "ARIES_RELEASE_KEY"
 
 const usage = `usage:
   releasekey gen KEYFILE
-  releasekey sign FILE                (private key in $STARFIX_RELEASE_KEY)
+  releasekey sign FILE                (private key in $ARIES_RELEASE_KEY)
   releasekey verify [--key BASE64]... FILE [SIG]`
 
 // env is what run needs from the process, so tests can supply their own.

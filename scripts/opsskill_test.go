@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/cli"
+	"github.com/ariesworx/aries/internal/cli"
 )
 
 // The operations skill: a Claude Code plugin in this repository, listed
@@ -24,8 +24,8 @@ import (
 // reads.
 const (
 	opsMarketplace = ".claude-plugin/marketplace.json"
-	opsPlugin      = "plugins/starfix-ops"
-	opsSkill       = opsPlugin + "/skills/starfix-ops"
+	opsPlugin      = "plugins/aries-ops"
+	opsSkill       = opsPlugin + "/skills/aries-ops"
 )
 
 // opsSkillFiles returns the skill's Markdown files, SKILL.md and each
@@ -242,7 +242,7 @@ var (
 	usageFlag   = regexp.MustCompile(`(?:^|[\s\[|(])(--?[A-Za-z][A-Za-z0-9-]*)`)
 )
 
-// parseUsage reads usage text in the form sfx and starfixd print it: one
+// parseUsage reads usage text in the form aries and ariesd print it: one
 // form per line, or forms joined by " | ", where a form that does not
 // start with its command's name continues the form before it, such as
 // "admin key add NAME FILE | list NAME". prefix is the program's own
@@ -286,9 +286,9 @@ func parseUsage(text, prefix string, names []string) []usagePath {
 	return paths
 }
 
-// sfxUsage returns the forms of every sfx command, from `sfx help` and
-// `sfx help COMMAND`, which is how sfx states its own usage.
-func sfxUsage(t *testing.T) []usagePath {
+// ariesUsage returns the forms of every aries command, from `aries help` and
+// `aries help COMMAND`, which is how aries states its own usage.
+func ariesUsage(t *testing.T) []usagePath {
 	t.Helper()
 	help := func(args ...string) string {
 		var out, errOut bytes.Buffer
@@ -300,7 +300,7 @@ func sfxUsage(t *testing.T) []usagePath {
 			},
 		})
 		if code != cli.ExitOK {
-			t.Fatalf("sfx help %s = exit %d: %s", strings.Join(args, " "), code, errOut.String())
+			t.Fatalf("aries help %s = exit %d: %s", strings.Join(args, " "), code, errOut.String())
 		}
 		return out.String()
 	}
@@ -309,32 +309,32 @@ func sfxUsage(t *testing.T) []usagePath {
 		names = append(names, m[1])
 	}
 	if len(names) < 10 {
-		t.Fatalf("sfx help lists %d commands: %v", len(names), names)
+		t.Fatalf("aries help lists %d commands: %v", len(names), names)
 	}
 	var paths []usagePath
 	for _, n := range names {
-		usage, _, _ := strings.Cut(strings.TrimPrefix(help(n), "usage: sfx "), "\n")
-		paths = append(paths, parseUsage(usage, "sfx", []string{n})...)
+		usage, _, _ := strings.Cut(strings.TrimPrefix(help(n), "usage: aries "), "\n")
+		paths = append(paths, parseUsage(usage, "aries", []string{n})...)
 	}
 	return paths
 }
 
-// starfixdUsage returns the forms of every starfixd command, from the
-// usage text starfixd prints (cmd/starfixd/main.go).
-func starfixdUsage(t *testing.T) []usagePath {
+// ariesdUsage returns the forms of every ariesd command, from the
+// usage text ariesd prints (cmd/ariesd/main.go).
+func ariesdUsage(t *testing.T) []usagePath {
 	t.Helper()
-	m := regexp.MustCompile("(?s)\nconst usage = `usage:\n(.*?)\n\n").FindStringSubmatch(read(t, "cmd/starfixd/main.go"))
+	m := regexp.MustCompile("(?s)\nconst usage = `usage:\n(.*?)\n\n").FindStringSubmatch(read(t, "cmd/ariesd/main.go"))
 	if m == nil {
-		t.Fatal("cmd/starfixd/main.go has no const usage = `usage: …` block")
+		t.Fatal("cmd/ariesd/main.go has no const usage = `usage: …` block")
 	}
 	var names []string
-	for _, l := range regexp.MustCompile(`(?m)^  starfixd ([a-z][a-z0-9-]*)`).FindAllStringSubmatch(m[1], -1) {
+	for _, l := range regexp.MustCompile(`(?m)^  ariesd ([a-z][a-z0-9-]*)`).FindAllStringSubmatch(m[1], -1) {
 		names = append(names, l[1])
 	}
-	return parseUsage(m[1], "starfixd", names)
+	return parseUsage(m[1], "ariesd", names)
 }
 
-// invocation is a command line of sfx or starfixd that the skill gives.
+// invocation is a command line of aries or ariesd that the skill gives.
 type invocation struct {
 	file, line string
 	program    string
@@ -345,20 +345,21 @@ type invocation struct {
 // globalFlags are the flags a program takes before or after any of its
 // commands, with whether each takes a value.
 var globalFlags = map[string]map[string]bool{
-	"sfx":      {"-C": true, "--json": false, "--no-queue": false, "-h": false, "--help": false},
-	"starfixd": {"-h": false, "--help": false},
+	"aries":  {"-C": true, "--json": false, "--no-queue": false, "-h": false, "--help": false},
+	"ariesd": {"-h": false, "--help": false},
 }
 
 // notACommand are the words before which a program's name is looked up
-// or matched, not run: command -v starfixd, pgrep starfixd.
-var notACommand = []string{"which", "-v", "pgrep", "pkill"}
+// or matched, not run: command -v ariesd, pgrep ariesd; or is another
+// thing of the same name, as the account in sudo -u aries.
+var notACommand = []string{"which", "-v", "pgrep", "pkill", "-u"}
 
 // skillCode returns the code of a Markdown text, line by line: each line
 // of a fenced block of commands, with a line that ends in a backslash
 // joined to the next, and each `span` of a paragraph, which may run
 // across its lines. A block of another language (markdown, yaml) is not
 // commands, and neither is text in "double quotes": that is how the
-// skill quotes a message such as "starfixd is not running on the
+// skill quotes a message such as "ariesd is not running on the
 // server".
 func skillCode(text string) []string {
 	var code []string
@@ -405,7 +406,7 @@ func skillCode(text string) []string {
 	return code
 }
 
-// skillInvocations returns every sfx and starfixd command line in the
+// skillInvocations returns every aries and ariesd command line in the
 // skill's code: the words that name the command, and its flags.
 func skillInvocations(t *testing.T) []invocation {
 	t.Helper()
@@ -417,7 +418,7 @@ func skillInvocations(t *testing.T) []invocation {
 			for _, f := range strings.Fields(line) {
 				toks = append(toks, strings.Trim(f, `'"()$`))
 			}
-			unit := false // in a systemctl or journalctl command, starfixd is a unit
+			unit := false // in a systemctl or journalctl command, ariesd is a unit
 			for i, tok := range toks {
 				switch {
 				case strings.HasSuffix(tok, "systemctl"), strings.HasSuffix(tok, "journalctl"):
@@ -429,11 +430,11 @@ func skillInvocations(t *testing.T) []invocation {
 					continue
 				}
 				program := tok[strings.LastIndex(tok, "/")+1:]
-				if program != "sfx" && program != "starfixd" {
+				if program != "aries" && program != "ariesd" {
 					continue
 				}
 				if strings.Contains(tok, "/") && !strings.HasPrefix(tok, "/") {
-					continue // a relative path such as cmd/sfx is the source, not the program
+					continue // a relative path such as cmd/aries is the source, not the program
 				}
 				if i > 0 && slices.Contains(notACommand, toks[i-1]) {
 					continue
@@ -472,13 +473,13 @@ func skillInvocations(t *testing.T) []invocation {
 	return invs
 }
 
-// TestOpsSkillCommandsExist checks every sfx and starfixd command the
+// TestOpsSkillCommandsExist checks every aries and ariesd command the
 // skill gives against the commands' own usage: the command, the words of
 // its subcommand, and each flag it passes. A command or flag renamed or
 // removed in the code then fails here, naming the skill's file.
 func TestOpsSkillCommandsExist(t *testing.T) {
 	t.Parallel()
-	usage := map[string][]usagePath{"sfx": sfxUsage(t), "starfixd": starfixdUsage(t)}
+	usage := map[string][]usagePath{"aries": ariesUsage(t), "ariesd": ariesdUsage(t)}
 	invs := skillInvocations(t)
 	count := map[string]int{}
 	for _, inv := range invs {
@@ -500,7 +501,7 @@ func TestOpsSkillCommandsExist(t *testing.T) {
 		if len(best) == 0 && len(inv.flags) == 0 && slices.ContainsFunc(usage[inv.program], func(u usagePath) bool {
 			return len(u.words) > len(inv.words) && slices.Equal(u.words[:len(inv.words)], inv.words)
 		}) {
-			continue // a group of commands named in a sentence, such as `sfx admin`
+			continue // a group of commands named in a sentence, such as `aries admin`
 		}
 		if len(best) == 0 {
 			t.Errorf("%s: %s %s is no command of %s's usage: %q", inv.file, inv.program, strings.Join(inv.words, " "), inv.program, inv.line)
@@ -519,7 +520,7 @@ func TestOpsSkillCommandsExist(t *testing.T) {
 			}
 		}
 	}
-	for _, p := range []string{"sfx", "starfixd"} {
+	for _, p := range []string{"aries", "ariesd"} {
 		if count[p] < 5 {
 			t.Errorf("the skill gives %d %s commands; the test finds fewer than expected, so its reading of the skill is wrong", count[p], p)
 		}
@@ -548,7 +549,7 @@ func readJSON(t *testing.T, path string, v any) {
 // marketplace's name, owner and plugins, each entry's name and a
 // relative source inside the repository, and the manifest's name the
 // entry's. The manifest sets no version: the plugin is versioned with
-// starfix's releases, by the tag an operator adds the marketplace at,
+// Aries's releases, by the tag an operator adds the marketplace at,
 // and a version string here would hold every operator on it.
 func TestOpsPluginManifests(t *testing.T) {
 	t.Parallel()
@@ -587,8 +588,8 @@ func TestOpsPluginManifests(t *testing.T) {
 		}
 		sources[name] = strings.TrimPrefix(source, "./")
 	}
-	if sources["starfix-ops"] != opsPlugin {
-		t.Fatalf("%s lists starfix-ops at %q, not ./%s", opsMarketplace, sources["starfix-ops"], opsPlugin)
+	if sources["aries-ops"] != opsPlugin {
+		t.Fatalf("%s lists aries-ops at %q, not ./%s", opsMarketplace, sources["aries-ops"], opsPlugin)
 	}
 
 	manifest := opsPlugin + "/.claude-plugin/plugin.json"
@@ -603,8 +604,8 @@ func TestOpsPluginManifests(t *testing.T) {
 			t.Errorf("%s: field %q is not one this plugin uses (%s); a component field would move its skill from skills/", manifest, k, strings.Join(known, ", "))
 		}
 	}
-	if name, _ := plugin["name"].(string); name != "starfix-ops" {
-		t.Errorf("%s: name %q is not the marketplace entry's, starfix-ops", manifest, name)
+	if name, _ := plugin["name"].(string); name != "aries-ops" {
+		t.Errorf("%s: name %q is not the marketplace entry's, aries-ops", manifest, name)
 	}
 	if d, _ := plugin["description"].(string); d == "" {
 		t.Errorf("%s: description is empty", manifest)

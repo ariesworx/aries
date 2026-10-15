@@ -8,13 +8,13 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Errors returned by the store, always wrapped with context. Test with
 // [errors.Is].
 //
-// starfixd's error mapping (internal/server/errors.go) chooses the next
+// ariesd's error mapping (internal/server/errors.go) chooses the next
 // step by error, or by a typed error such as [*StateError], never by
 // message. It shows the messages, trimmed, and its tests pin what it
 // shows.
@@ -36,7 +36,7 @@ var (
 	// ErrNothingReady means StartIssue was asked for the top ready issue
 	// and none is ready. It wraps ErrNotFound.
 	ErrNothingReady = fmt.Errorf("nothing is ready to start: %w", ErrNotFound)
-	// ErrSchemaTooNew means a newer starfixd migrated the database.
+	// ErrSchemaTooNew means a newer ariesd migrated the database.
 	ErrSchemaTooNew = errors.New("database schema is newer than this binary")
 	// ErrSchemaOld means this binary has migrations the database lacks,
 	// and was asked not to apply them (Options.NoMigrate).

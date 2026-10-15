@@ -6,8 +6,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ariesworx/starfix/internal/logs"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // The audit stream (design §16.4, decision 30): each event of the
@@ -16,7 +16,7 @@ import (
 // journal. The event log is the record, and the stream its copy: the
 // lines are read from the log, after the write that made them has
 // committed, so a line says what an event says and nothing else, and
-// there is a line for a change whoever made it, `starfixd control init`
+// there is a line for a change whoever made it, `ariesd control init`
 // run beside the daemon included.
 //
 // The daemon keeps only how far it has read, in memory. It starts at the

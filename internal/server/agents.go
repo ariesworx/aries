@@ -6,12 +6,12 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/logs"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
-// The note of a session in its project's registry, which `sfx who`
+// The note of a session in its project's registry, which `aries who`
 // reads, is a write, and so waits on Dolt. A connection makes it beside
 // the wait for its first request, not before it, and each request waits
 // for it (presence.ensure): so that none reads or writes a store for a

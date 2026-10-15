@@ -8,11 +8,11 @@ import (
 	"net"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
-// `starfixd status` (design §16.4): the status report of `sfx admin
+// `ariesd status` (design §16.4): the status report of `aries admin
 // status`, for someone on the server with no admin key. It reaches the
 // daemon as the upgrade's health probe does (probe.go): over the
 // daemon's own socket, as the daemon's own user, under a reserved
@@ -21,11 +21,11 @@ import (
 // that the peer runs as its own user (CheckPeer). No SSH key reaches it,
 // since Bridge refuses a reserved principal to every key.
 
-// StatusPrincipal is the principal `starfixd status` connects as. It is
+// StatusPrincipal is the principal `ariesd status` connects as. It is
 // reserved (store.ReservedPrincipals), as ProbePrincipal is. A
 // connection under it is in no project, holds no connection slot, is
 // not listed in who, and is answered one thing: the status report.
-const StatusPrincipal = "starfixd-status"
+const StatusPrincipal = "ariesd-status"
 
 // statusSession is the session a status connection is welcomed as.
 const statusSession = "status"
@@ -45,7 +45,7 @@ func (s *Server) serveStatus(ctx context.Context, sess *session) {
 			return
 		}
 		if f.T != proto.FrameReq || f.Op != proto.OpStatus {
-			_ = s.send(sess, f.ID, nil, proto.Errf(proto.CodeInvalid, "run `starfixd status`, which asks for nothing else",
+			_ = s.send(sess, f.ID, nil, proto.Errf(proto.CodeInvalid, "run `ariesd status`, which asks for nothing else",
 				fmt.Sprintf("this connection answers only %q requests", proto.OpStatus)))
 			return
 		}
@@ -76,7 +76,7 @@ func (s *Server) localStatus(ctx context.Context, in proto.StatusArgs) (any, *pr
 
 // Status connects to the daemon's socket as the daemon's own user, as
 // Probe does, and returns the status report a server admin gets from
-// `sfx admin status`, with every project: it asks page after page. It
+// `aries admin status`, with every project: it asks page after page. It
 // gives up after 30 seconds.
 func Status(ctx context.Context, socket, clientVersion string) (proto.StatusResult, error) {
 	var out proto.StatusResult
@@ -85,7 +85,7 @@ func Status(ctx context.Context, socket, clientVersion string) (proto.StatusResu
 	var d net.Dialer
 	c, err := d.DialContext(ctx, "unix", socket)
 	if err != nil {
-		return out, fmt.Errorf("connect to %s: %w; fix: run it on the server as the user starfixd runs as, and start the daemon if it is stopped (`systemctl start starfixd`)", socket, err)
+		return out, fmt.Errorf("connect to %s: %w; fix: run it on the server as the user ariesd runs as, and start the daemon if it is stopped (`systemctl start ariesd`)", socket, err)
 	}
 	defer func() { _ = c.Close() }()
 	if dl, ok := ctx.Deadline(); ok {
@@ -105,7 +105,7 @@ func Status(ctx context.Context, socket, clientVersion string) (proto.StatusResu
 		w, err = dec.Decode()
 	}
 	if err != nil {
-		return out, fmt.Errorf("handshake: %w; fix: run it as the user starfixd runs as, which is the only one the daemon answers on its socket", err)
+		return out, fmt.Errorf("handshake: %w; fix: run it as the user ariesd runs as, which is the only one the daemon answers on its socket", err)
 	}
 	if w.T != proto.FrameWelcome {
 		return out, fmt.Errorf("handshake: got a %q frame, not a welcome", w.T)
@@ -122,7 +122,7 @@ func Status(ctx context.Context, socket, clientVersion string) (proto.StatusResu
 		// The daemon bounds the report's reads of Dolt
 		// (statusReadTimeout), so one that welcomes and then does not
 		// answer is itself stuck, or went away.
-		const noAnswer = "status: the daemon did not answer: %w; fix: see starfixd's log (`journalctl -u starfixd`) for what it waits on, and restart it if that does not end (`systemctl restart starfixd`)"
+		const noAnswer = "status: the daemon did not answer: %w; fix: see ariesd's log (`journalctl -u ariesd`) for what it waits on, and restart it if that does not end (`systemctl restart ariesd`)"
 		if err := enc.Encode(req); err != nil {
 			return out, fmt.Errorf(noAnswer, err)
 		}

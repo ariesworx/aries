@@ -3,7 +3,7 @@ package client
 import (
 	"errors"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Unreachable reports whether err, from [Dial] or [Conn.Call], says the

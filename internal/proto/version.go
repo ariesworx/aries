@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/lazyregexp"
 )
 
 // Protocol versions. A client speaks Proto; a server accepts any client in
@@ -17,7 +17,7 @@ import (
 //
 // This build speaks protocols 7 and 8, and accepts both. Making 5 the
 // minimum was a reset, made once, on 12 Oct 2026 (design §14, decision
-// 25): nobody ran starfix in production yet and it was under active
+// 25): nobody ran Aries in production yet and it was under active
 // development, so the maintainer chose to refuse every released client
 // (v0.2.x to v0.4.x, protocols 2 to 4) rather than go on carrying them.
 // It is not a change to the rule above, which holds for every bump after
@@ -28,7 +28,7 @@ import (
 // A refused client is told which side to upgrade (CheckProto). A client
 // older than the server prints the message and fix the server sends, as
 // they are, so those words are all a released client can be told; a
-// client newer than the server writes its own. `starfixd upgrade` is run
+// client newer than the server writes its own. `ariesd upgrade` is run
 // by the old binary, whose health check then speaks the old protocol to
 // the new daemon: the daemon answers that check whatever protocol it
 // speaks (server.ProbePrincipal), or no upgrade could cross a raised
@@ -66,7 +66,7 @@ import (
 // principal.disable, principal.enable, member.set, members and
 // member.remove ops; keys in the control store (design §15.2): the
 // key.add, keys and key.remove ops and principal.add's keys; and the
-// status op (design §15.4, `sfx admin status`). Results carry released
+// status op (design §15.4, `aries admin status`). Results carry released
 // (on the ops that end access), warning, in_authorized_keys, file_conns
 // and status's keys_file, clock, dolt and traces. It also adds the trace
 // context on a request
@@ -111,7 +111,7 @@ import (
 // result's traces, which says how people appear in those spans. A server
 // built from main before it refuses the op as unknown, with code
 // invalid, and leaves the field out. The
-// trace context a tool call brings `sfx mcp` rides tp and ts as the
+// trace context a tool call brings `aries mcp` rides tp and ts as the
 // environment's does, so the wire did not change for it.
 //
 // 6 (not yet released; stage 5, slice F2, design §18.5) adds an
@@ -172,7 +172,7 @@ import (
 // list's and ready's due_at and defer_until, and digest's ready,
 // due_soon and overdue. A server built from main before G0 refuses the
 // new ops and arguments as unknown, with code invalid and a fix that
-// says to upgrade, and `sfx mcp`'s prime goes without dates there.
+// says to upgrade, and `aries mcp`'s prime goes without dates there.
 //
 // Slice G1 (design §20.4), CI gates, joined 8 too: the op gate.fail;
 // kind, check and subject on gate.add, and blocks there made optional
@@ -187,11 +187,11 @@ import (
 // lock.acquire, lock.renew, lock.release, lock.leave and locks, and the
 // inbox kinds lock.granted and lock.lost, which a client shows as it
 // shows any kind. A server built before G2 refuses the new ops as
-// unknown, with code invalid and a fix that says to upgrade, and `sfx
+// unknown, with code invalid and a fix that says to upgrade, and `aries
 // lock` fails before it runs anything.
 //
 // The bridge frame is not part of this protocol: it passes between two
-// starfixd processes on the server (frame.go), and carries no version.
+// ariesd processes on the server (frame.go), and carries no version.
 // It is read leniently, so a bridge from before a binary swap works
 // against the daemon after it, and the reverse.
 const (
@@ -222,21 +222,21 @@ func Speak(lo, hi int) (int, bool) {
 // The server runs it on a hello and sends the error in its welcome; the
 // client runs it on the welcome's range. A client below the range is
 // therefore told by the server, in words a released client prints as
-// they are: its fix names `sfx upgrade`, which asks the releases and not
+// they are: its fix names `aries upgrade`, which asks the releases and not
 // the server, so it works for a client the server refuses; the install
 // script, for one too old to have it; and the agent to restart, since
-// the `sfx mcp` an agent's harness started is the old binary until then.
+// the `aries mcp` an agent's harness started is the old binary until then.
 func CheckProto(p, lo, hi int, serverVersion string) *Error {
 	switch {
 	case lo < 1 || hi < lo:
-		return Errf(CodeVersion, "ask the server admin to check starfixd's protocol range",
+		return Errf(CodeVersion, "ask the server admin to check ariesd's protocol range",
 			fmt.Sprintf("server advertises an empty protocol range [%d,%d]", lo, hi))
 	case p < lo:
-		return Errf(CodeVersion, "upgrade this client: run `sfx upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `sfx mcp`",
-			fmt.Sprintf("starfix speaks protocol %d; the server (%s) needs %s", p, orDev(serverVersion), protoRange(lo, hi)))
+		return Errf(CodeVersion, "upgrade this client: run `aries upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `aries mcp`",
+			fmt.Sprintf("aries speaks protocol %d; the server (%s) needs %s", p, orDev(serverVersion), protoRange(lo, hi)))
 	case p > hi:
-		return Errf(CodeVersion, "ask the server admin to run `starfixd upgrade`, or install the starfix release that matches the server",
-			fmt.Sprintf("starfix speaks protocol %d; the server (%s) is older and accepts %s", p, orDev(serverVersion), protoRange(lo, hi)))
+		return Errf(CodeVersion, "ask the server admin to run `ariesd upgrade`, or install the aries release that matches the server",
+			fmt.Sprintf("aries speaks protocol %d; the server (%s) is older and accepts %s", p, orDev(serverVersion), protoRange(lo, hi)))
 	}
 	return nil
 }
@@ -387,7 +387,7 @@ func parseVersion(s string) (semver, bool) {
 // its server, or "" when there is nothing to say.
 func OlderClientWarning(client, server string) string {
 	if c, ok := CompareVersions(client, server); ok && c < 0 {
-		return fmt.Sprintf("starfix %s is older than the server (%s); run `sfx upgrade`", client, server)
+		return fmt.Sprintf("aries %s is older than the server (%s); run `aries upgrade`", client, server)
 	}
 	return ""
 }
@@ -396,7 +396,7 @@ func OlderClientWarning(client, server string) string {
 // the latest release it knows of, or "".
 func OlderServerWarning(server, latest string) string {
 	if c, ok := CompareVersions(server, latest); ok && c < 0 {
-		return fmt.Sprintf("the server runs starfixd %s; %s is out: ask the admin to run `starfixd upgrade`", server, latest)
+		return fmt.Sprintf("the server runs ariesd %s; %s is out: ask the admin to run `ariesd upgrade`", server, latest)
 	}
 	return ""
 }

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // TestRefusalsDoNotSayWhatExists pins that what a project admin is
@@ -78,7 +78,7 @@ func TestRefusalsDoNotSayWhatExists(t *testing.T) {
 		// principal (F-5) is refused in the same words: a project admin
 		// cannot tell that file from the store, or either from the other.
 		typ, blob, handFP, _ := testKey(t, "dana by hand")
-		m.writeByHand(t, `restrict,command="/usr/local/bin/starfixd stdio --principal dana" `+typ+" "+blob+" dana@example.com\n")
+		m.writeByHand(t, `restrict,command="/usr/local/bin/ariesd stdio --principal dana" `+typ+" "+blob+" dana@example.com\n")
 		byHand := refusal(t, a, proto.OpKeyAdd, proto.KeyAddArgs{Name: "bob", Key: typ + " " + blob}, "bob")
 		if byHand != elsewhere {
 			t.Errorf("key.add of a key that authorized_keys gives to another principal = %+v\nof a key the store holds for one = %+v\nwant the same refusal", byHand, elsewhere)

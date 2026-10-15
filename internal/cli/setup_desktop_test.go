@@ -10,7 +10,7 @@ import (
 )
 
 // desktopEnv is a macOS or Windows machine: its home, %APPDATA% and the
-// running sfx are injected, never read from the test's environment.
+// running aries are injected, never read from the test's environment.
 type desktopEnv struct {
 	goos, home, appdata, exe string
 }
@@ -39,8 +39,8 @@ func readFile(t *testing.T, path string) string {
 	return string(b)
 }
 
-// sfx setup claude-desktop writes one entry per project into the
-// app's per-user config: the absolute sfx, -C the repository root, and
+// aries setup claude-desktop writes one entry per project into the
+// app's per-user config: the absolute aries, -C the repository root, and
 // the harness. Writing, checking and removing are each idempotent, two
 // projects coexist, and the person's own servers and keys stay.
 func TestSetupClaudeDesktop(t *testing.T) {
@@ -52,14 +52,14 @@ func TestSetupClaudeDesktop(t *testing.T) {
 	}{
 		{name: "macOS",
 			env: func(home string) desktopEnv {
-				return desktopEnv{goos: "darwin", home: home, exe: "/opt/homebrew/bin/sfx"}
+				return desktopEnv{goos: "darwin", home: home, exe: "/opt/homebrew/bin/aries"}
 			},
 			path: func(home string) string {
 				return filepath.Join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json")
 			}},
 		{name: "Windows",
 			env: func(home string) desktopEnv {
-				return desktopEnv{goos: "windows", home: home, appdata: filepath.Join(home, "AppData", "Roaming"), exe: `C:\Users\alice\bin\sfx.exe`}
+				return desktopEnv{goos: "windows", home: home, appdata: filepath.Join(home, "AppData", "Roaming"), exe: `C:\Users\alice\bin\aries.exe`}
 			},
 			// The test runs on the host, so the Windows separator is
 			// only right on Windows; the host opens the file either way.
@@ -80,14 +80,14 @@ func TestSetupClaudeDesktop(t *testing.T) {
 				t.Fatalf("print: exit %d, files %v\n%s%s", code, snapshot(t, home), out, errb)
 			}
 			for _, want := range []string{"# MCP server: add to " + cfg, `"command": ` + jsonString(d.exe), `"-C"`, jsonString(widget),
-				`"STARFIX_HARNESS": "claude-desktop"`, "Quit Claude Desktop",
-				"session id: Claude Desktop gives sfx mcp none; sfx mcp picks its own per process (m-…) unless STARFIX_SESSION is set\n"} {
+				`"ARIES_HARNESS": "claude-desktop"`, "Quit Claude Desktop",
+				"session id: Claude Desktop gives aries mcp none; aries mcp picks its own per process (m-…) unless ARIES_SESSION is set\n"} {
 				if !strings.Contains(out, want) {
 					t.Errorf("print lacks %q:\n%s", want, out)
 				}
 			}
 			if code, _, errb := d.run(t, "-C", widget, "setup", "claude-desktop", "--check"); code != ExitFailure ||
-				!strings.Contains(errb, "fix: run `sfx setup claude-desktop --write`") {
+				!strings.Contains(errb, "fix: run `aries setup claude-desktop --write`") {
 				t.Fatalf("check before write: exit %d %s", code, errb)
 			}
 
@@ -100,11 +100,11 @@ func TestSetupClaudeDesktop(t *testing.T) {
 				t.Fatal(err)
 			}
 			code, out, errb = d.run(t, "-C", widget, "setup", "claude-desktop", "--write")
-			if code != ExitOK || out != cfg+": added\nQuit Claude Desktop completely and reopen it to start the server. Each launch is a new starfix session.\n" {
+			if code != ExitOK || out != cfg+": added\nQuit Claude Desktop completely and reopen it to start the server. Each launch is a new aries session.\n" {
 				t.Fatalf("write: exit %d\n%s%s", code, out, errb)
 			}
 			first := readFile(t, cfg)
-			for _, want := range []string{`"files": {`, `"globalShortcut": "Alt+Space"`, `"starfix-` + filepath.Base(widget) + `": {`} {
+			for _, want := range []string{`"files": {`, `"globalShortcut": "Alt+Space"`, `"aries-` + filepath.Base(widget) + `": {`} {
 				if !strings.Contains(first, want) {
 					t.Errorf("config lacks %s:\n%s", want, first)
 				}
@@ -141,7 +141,7 @@ func TestSetupClaudeDesktop(t *testing.T) {
 				t.Fatalf("second remove: exit %d %s", code, out)
 			}
 			if code, _, _ := d.run(t, "-C", widget, "setup", "claude-desktop", "--remove"); code != ExitOK ||
-				strings.Contains(readFile(t, cfg), "starfix") || !strings.Contains(readFile(t, cfg), `"globalShortcut"`) {
+				strings.Contains(readFile(t, cfg), "aries") || !strings.Contains(readFile(t, cfg), `"globalShortcut"`) {
 				t.Fatalf("remove widget: exit %d\n%s", code, readFile(t, cfg))
 			}
 		})
@@ -159,7 +159,7 @@ func TestSetupClaudeDesktopNewFile(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
 	root, sub := repoWithConfig(t)
-	d := desktopEnv{goos: "darwin", home: home, exe: "/usr/local/bin/sfx"}
+	d := desktopEnv{goos: "darwin", home: home, exe: "/usr/local/bin/aries"}
 	if code, _, errb := d.run(t, "-C", sub, "setup", "claude-desktop", "--write", "--global"); code != ExitOK {
 		t.Fatalf("exit %d %s", code, errb)
 	}
@@ -187,7 +187,7 @@ func TestSetupClaudeDesktopNewFile(t *testing.T) {
 func TestSetupClaudeDesktopRefusals(t *testing.T) {
 	t.Parallel()
 	_, sub := repoWithConfig(t)
-	mac := desktopEnv{goos: "darwin", home: t.TempDir(), exe: "/usr/local/bin/sfx"}
+	mac := desktopEnv{goos: "darwin", home: t.TempDir(), exe: "/usr/local/bin/aries"}
 	tests := []struct {
 		name string
 		env  desktopEnv
@@ -195,16 +195,16 @@ func TestSetupClaudeDesktopRefusals(t *testing.T) {
 		code int
 		want string
 	}{
-		{name: "Linux", env: desktopEnv{goos: "linux", home: t.TempDir(), exe: "/usr/bin/sfx"},
+		{name: "Linux", env: desktopEnv{goos: "linux", home: t.TempDir(), exe: "/usr/bin/aries"},
 			args: []string{"-C", sub, "setup", "claude-desktop"}, code: ExitFailure, want: "Claude Desktop runs only on macOS and Windows"},
-		{name: "Windows without APPDATA", env: desktopEnv{goos: "windows", home: t.TempDir(), exe: `C:\sfx.exe`},
+		{name: "Windows without APPDATA", env: desktopEnv{goos: "windows", home: t.TempDir(), exe: `C:\aries.exe`},
 			args: []string{"-C", sub, "setup", "claude-desktop", "--write"}, code: ExitFailure, want: "APPDATA"},
-		{name: "outside a starfix repository", env: mac,
-			args: []string{"-C", t.TempDir(), "setup", "claude-desktop", "--write"}, code: ExitFailure, want: ".starfix.yaml not found"},
+		{name: "outside an aries repository", env: mac,
+			args: []string{"-C", t.TempDir(), "setup", "claude-desktop", "--write"}, code: ExitFailure, want: ".aries.yaml not found"},
 		{name: "relative command", env: mac,
-			args: []string{"-C", sub, "setup", "claude-desktop", "--command", "sfx"}, code: ExitUsage, want: "absolute path"},
-		{name: "relative Windows command", env: desktopEnv{goos: "windows", home: t.TempDir(), appdata: t.TempDir(), exe: `C:\sfx.exe`},
-			args: []string{"-C", sub, "setup", "claude-desktop", "--command", `bin\sfx.exe`}, code: ExitUsage, want: "absolute path"},
+			args: []string{"-C", sub, "setup", "claude-desktop", "--command", "aries"}, code: ExitUsage, want: "absolute path"},
+		{name: "relative Windows command", env: desktopEnv{goos: "windows", home: t.TempDir(), appdata: t.TempDir(), exe: `C:\aries.exe`},
+			args: []string{"-C", sub, "setup", "claude-desktop", "--command", `bin\aries.exe`}, code: ExitUsage, want: "absolute path"},
 		{name: "executable not found", env: desktopEnv{goos: "darwin", home: t.TempDir()},
 			args: []string{"-C", sub, "setup", "claude-desktop"}, code: ExitFailure, want: "--command"},
 	}
@@ -226,8 +226,8 @@ func TestSetupClaudeDesktopCommand(t *testing.T) {
 	t.Parallel()
 	_, sub := repoWithConfig(t)
 	d := desktopEnv{goos: "windows", home: t.TempDir(), appdata: t.TempDir(), exe: `C:\ignored.exe`}
-	code, out, errb := d.run(t, "-C", sub, "setup", "claude-desktop", "--command", `D:\tools\sfx.exe`)
-	if code != ExitOK || !strings.Contains(out, `"command": "D:\\tools\\sfx.exe"`) {
+	code, out, errb := d.run(t, "-C", sub, "setup", "claude-desktop", "--command", `D:\tools\aries.exe`)
+	if code != ExitOK || !strings.Contains(out, `"command": "D:\\tools\\aries.exe"`) {
 		t.Fatalf("exit %d\n%s%s", code, out, errb)
 	}
 }
@@ -237,13 +237,13 @@ func TestSetupClaudeDesktopCommand(t *testing.T) {
 func TestSetupClaudeDesktopNameClash(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
-	d := desktopEnv{goos: "darwin", home: home, exe: "/usr/local/bin/sfx"}
+	d := desktopEnv{goos: "darwin", home: home, exe: "/usr/local/bin/aries"}
 	one, two := filepath.Join(t.TempDir(), "widget"), filepath.Join(t.TempDir(), "widget")
 	for _, dir := range []string{one, two} {
 		if err := os.Mkdir(dir, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, ".starfix.yaml"), []byte(testConfig), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, ".aries.yaml"), []byte(testConfig), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -253,7 +253,7 @@ func TestSetupClaudeDesktopNameClash(t *testing.T) {
 	before := snapshot(t, home)
 	for _, mode := range []string{"--write", "--remove", "--check"} {
 		code, _, errb := d.run(t, "-C", two, "setup", "claude-desktop", mode)
-		if code != ExitFailure || !strings.Contains(errb, "starfix-widget already starts "+one) || !strings.Contains(errb, "fix: ") {
+		if code != ExitFailure || !strings.Contains(errb, "aries-widget already starts "+one) || !strings.Contains(errb, "fix: ") {
 			t.Errorf("%s: exit %d %s", mode, code, errb)
 		}
 	}
@@ -267,7 +267,7 @@ func TestSetupAllSkipsDesktop(t *testing.T) {
 	t.Parallel()
 	_, sub := repoWithConfig(t)
 	home := t.TempDir()
-	d := desktopEnv{goos: "darwin", home: home, exe: "/usr/local/bin/sfx"}
+	d := desktopEnv{goos: "darwin", home: home, exe: "/usr/local/bin/aries"}
 	for _, args := range [][]string{{"setup", "--all", "--write"}, {"setup", "--all", "--global", "--write"}} {
 		code, out, errb := d.run(t, append([]string{"-C", sub}, args...)...)
 		if code != ExitOK || strings.Contains(out, "claude-desktop") {

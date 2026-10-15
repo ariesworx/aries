@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// sfx mcp speaks JSON-RPC on standard output, which the text escaping must
+// aries mcp speaks JSON-RPC on standard output, which the text escaping must
 // not touch: an escape like \x7f inside a JSON string is invalid JSON.
 func TestMCPWritesRawStdout(t *testing.T) {
 	t.Parallel()

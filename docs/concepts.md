@@ -1,6 +1,6 @@
-# How starfix works
+# How Aries works
 
-This page explains the ideas behind every `sfx` command and MCP tool:
+This page explains the ideas behind every `aries` command and MCP tool:
 identity, issues, claims, handoffs, the inbox, the registry of who is at
 work and memory.
 The [CLI reference](cli.md) and the [agent guide](agents.md) build on it.
@@ -18,28 +18,28 @@ The [CLI reference](cli.md) and the [agent guide](agents.md) build on it.
   machine. Its id comes from the environment
   ([Sessions](agents.md#sessions)).
 
-The names `starfixd` (the server's own actions, such as ending expired
-claims), `import` (the bd importer and `starfixd control init`) and
-`starfixd-upgrade` (the health check `starfixd upgrade` runs) and
-`starfixd-status` (`starfixd status`, run on the server) are
+The names `ariesd` (the server's own actions, such as ending expired
+claims), `import` (the bd importer and `ariesd control init`) and
+`ariesd-upgrade` (the health check `ariesd upgrade` runs) and
+`ariesd-status` (`ariesd status`, run on the server) are
 reserved.
 
 ## Issues
 
 An issue has an id such as `sf-a1b2c3d4`, a title, a type (`bug`,
 `feature`, `task`, `epic`, `chore`, or `gate`, which only
-[`sfx gate add`](#gates) makes), a priority from 0 (critical) to 4
+[`aries gate add`](#gates) makes), a priority from 0 (critical) to 4
 (backlog) and a status: `open`, `in_progress`, `blocked`, `deferred` or
 `closed`. It can also carry a body, labels, a parent issue, comments,
 acceptance criteria and [dates](#dates).
 
 Every change is recorded as an event in the same transaction as the change
-itself. The event log is the history: `sfx history ID` reads it, and
+itself. The event log is the history: `aries history ID` reads it, and
 `ready`, `blocked` and `digest` are computed from it when you ask.
 
 ## Dependencies: ready and blocked
 
-`sfx dep add FROM TO` records that FROM depends on TO. A dependency of type
+`aries dep add FROM TO` records that FROM depends on TO. A dependency of type
 `blocks` (the default) or `conditional-blocks` holds FROM back until TO is
 closed. The other types (`related`, `discovered-from`, `duplicates`,
 `supersedes`, `waits-for`) only link issues.
@@ -64,7 +64,7 @@ a [gate](#gates).
 A gate holds issues back until a person passes it. It is an issue of
 type `gate`, and what it holds depends on it with an ordinary `blocks`
 edge, so everything above applies: a gate on an epic holds every issue
-under it, and whatever waits on those. `sfx gate add --blocks ID`
+under it, and whatever waits on those. `aries gate add --blocks ID`
 makes the gate and the edge in one step, naming its approvers with
 `--approver P`, or none, which leaves it to the project's admins. An
 agent may add one too (the MCP `gate` tool), and so hold its own plan
@@ -72,7 +72,7 @@ for a person to approve before any of it starts.
 
 - **Held means held.** A gate is never ready and cannot be started, and
   neither can anything it holds. `close`, `finish`, `reopen` and a status
-  change of a gate are refused: only `sfx gate pass`, `waive` and
+  change of a gate are refused: only `aries gate pass`, `waive` and
   `rearm` open or close one. Closing or finishing what a gate holds,
   removing its edge to the gate, or moving it out from under a gated
   parent is refused too, unless you could pass the gate yourself. Setting
@@ -80,45 +80,45 @@ for a person to approve before any of it starts.
 - **Who passes it.** The principals the gate names; when it names none,
   the project's admins, but not the one who made it (a person working
   alone names themselves). Only from your own terminal: a pass from an
-  agent's session, `sfx gate pass` run in an agent's shell included, is
+  agent's session, `aries gate pass` run in an agent's shell included, is
   refused, since the agent signs in with your key. That is a speed bump,
   not a wall: an agent holding your key can pass your gates until agents
   have identities of their own.
-- **Waive and rearm.** `sfx gate waive ID --reason TEXT` passes a gate
-  as an admin may, whoever it names, on the record. `sfx gate rearm ID`
+- **Waive and rearm.** `aries gate waive ID --reason TEXT` passes a gate
+  as an admin may, whoever it names, on the record. `aries gate rearm ID`
   reopens a passed gate, by its approvers or an admin, so that it holds
   again; work already started on what it holds goes on.
 - **Who is told.** The approvers, in their inbox, when a gate is added
   (`gate.pending`); the assignees of what it held when it passes
   (`gate.passed`). Every change is an event, and a watching board
-  (`sfx tui`) shows the pass as it happens.
+  (`aries tui`) shows the pass as it happens.
 
 ### CI gates
 
 A gate of kind `ci` waits for a check rather than a person: CI reports
-it, by running `sfx` as a principal of its own
+it, by running `aries` as a principal of its own
 ([CI gates](ci.md)). The gate names the check (`build`, `test`,
 `landed`, …), its *subject*, the issue whose branch the check runs on,
 and the CI principals that report it:
 
 ```sh
-sfx gate add --kind ci --check build --subject sf-a1b2 --by ci-example --blocks sf-c3d4
+aries gate add --kind ci --check build --subject sf-a1b2 --by ci-example --blocks sf-c3d4
 ```
 
 `sf-c3d4` is then held until CI reports `build` passed on `sf-a1b2`'s
 branch. An issue has at most one ci gate for each check, so a job that
 knows only its branch and its check finds the gate; to hold another
-issue behind the same check, `sfx dep add ISSUE GATE`. A ci gate may
+issue behind the same check, `aries dep add ISSUE GATE`. A ci gate may
 hold nothing back, and then only records the check on its subject.
 
 - **Who reports.** Only a principal the gate names, from a CI job (the
-  session `ci`, which `sfx` takes where `CI=true`) or from that
+  session `ci`, which `aries` takes where `CI=true`) or from that
   principal's own terminal; never from an agent's session. A person the
   gate does not name, an admin included, cannot pass it; an admin
   waives it, as any gate. A human gate is unchanged: only its approvers,
   from their own terminal.
-- **Pass and fail.** `sfx gate pass` closes the gate, and a pass of a
-  closed gate changes nothing, so reruns are harmless. `sfx gate fail`
+- **Pass and fail.** `aries gate pass` closes the gate, and a pass of a
+  closed gate changes nothing, so reruns are harmless. `aries gate fail`
   records the evidence (the commit, a link to the run, a short reason),
   leaves the gate open, and tells the subject's holder, or its assignee
   when nobody holds it (`gate.failed`); a later pass closes the matter
@@ -127,23 +127,23 @@ hold nothing back, and then only records the check on its subject.
   on. A waived gate takes no report until it is rearmed.
 - **Closed is not landed.** Closing an issue is its worker's say-so.
   The check `landed` is reported by the job on the default branch after
-  the merge; until then `sfx show` says `closed, not landed`, and after
+  the merge; until then `aries show` says `closed, not landed`, and after
   it `closed, landed` and when. A revert re-arms it only if something
-  runs `sfx gate rearm`.
+  runs `aries gate rearm`.
 
-`sfx show` lists an issue's checks, each with its last report.
+`aries show` lists an issue's checks, each with its last report.
 
 ## Dates
 
 An issue may have a `defer_until` date, before which it is not ready,
 and a `due` date. Set them with `--defer-until DATE` and `--due DATE` on
-`sfx create` and `sfx update` (a date, `2026-11-02`, is midnight UTC; or
+`aries create` and `aries update` (a date, `2026-11-02`, is midnight UTC; or
 an RFC 3339 time); an empty value clears one. A deferred parent defers
 its children.
 
 Nothing runs when a date passes: an issue deferred to a date becomes
 ready when the date is past, as `ready` computes it, and nothing ends,
-expires or is reassigned when an issue falls due. `sfx digest` and
+expires or is reassigned when an issue falls due. `aries digest` and
 `prime` notice them instead: the issues that became ready in their
 window because their date came, those due within the server's
 `due_soon` (a day by default), and those overdue, each from the
@@ -158,7 +158,7 @@ A **lock** is a name in the project, such as `merge/main` or
 a shared staging database, an API with a rate limit. It is tied to no
 issue, and holding one changes no issue; a claim is the lock on an
 issue. A script, a CI job or a person takes one, most simply with
-`sfx lock run NAME -- CMD`, which holds the lock while CMD runs
+`aries lock run NAME -- CMD`, which holds the lock while CMD runs
 ([Locks](cli.md#locks)). Agents do not take locks themselves: there is
 no agent tool for them.
 
@@ -173,8 +173,8 @@ no agent tool for them.
   before the server's reaper ends it.
 - **Epochs fence.** Every grant gets the project's next **epoch**, so a
   lock's epochs only rise. A renewal or a release names its epoch, and
-  one that no longer holds is refused. `sfx lock run` gives the command
-  `STARFIX_LOCK_EPOCH`, so that a resource that remembers the highest
+  one that no longer holds is refused. `aries lock run` gives the command
+  `ARIES_LOCK_EPOCH`, so that a resource that remembers the highest
   epoch it has seen can refuse a holder that lost the lock without
   knowing it.
 - **Waiting.** A lock that is full is refused, or with `--wait` the
@@ -190,7 +190,7 @@ no agent tool for them.
   itself. Each grant, wait, release, expiry and leave is an event of
   the project, `lock:NAME` in its log.
 - **Never offline.** No lock command waits in the outbox: without the
-  server, `sfx lock` fails at once, before the critical section.
+  server, `aries lock` fails at once, before the critical section.
 
 ## Claims and leases
 
@@ -207,8 +207,8 @@ it or link it.
 
 | Who claims | Lease | Kept alive by |
 |---|---|---|
-| An agent, through MCP | 15 minutes | `sfx mcp` renews it every minute while the agent runs |
-| A person, from a terminal | 8 hours (`--for`, at most 24 hours) | `sfx away 4h` extends all your claims, up to 7 days unless the server sets another `away_max` |
+| An agent, through MCP | 15 minutes | `aries mcp` renews it every minute while the agent runs |
+| A person, from a terminal | 8 hours (`--for`, at most 24 hours) | `aries away 4h` extends all your claims, up to 7 days unless the server sets another `away_max` |
 
 When a lease runs out, the server returns the issue to `open`. So a
 session that crashes lets its work go within 15 minutes, and nothing stays
@@ -220,9 +220,9 @@ A claim's **epoch** is a number that rises with each new holder, and
 `show` prints it.
 `finish` and `handoff --release` refuse a stale epoch, so a session that
 lost its claim cannot close work that someone else has since taken.
-`sfx mcp` sends the epoch of each claim it took; from a terminal, pass
+`aries mcp` sends the epoch of each claim it took; from a terminal, pass
 `--epoch N` for the same check. Another session of your own takes over a
-live claim only when you ask (`sfx start ID --take`). The same session
+live claim only when you ask (`aries start ID --take`). The same session
 reconnecting keeps its claim.
 
 **Admins** are principals named in the server's config. Only an admin may
@@ -234,7 +234,7 @@ A server may hold **many projects**, each with its own issues, memories
 and members. You reach a project only as a member of it, or as one of
 the server's admins. A member whose role in a project is `admin` has an
 admin's rights in that project, and adds and removes its members with
-`sfx admin member`; the server's admins also create and archive
+`aries admin member`; the server's admins also create and archive
 projects. When your membership is removed, your sessions in that project
 end and your claims there are released; when your principal is
 disabled, that happens in every project, and you are refused everywhere
@@ -252,7 +252,7 @@ A unit of work is two steps:
 2. `finish` closes the issue, records a handoff note and files any work
    found on the way as new issues, linked `discovered-from`.
 
-`sfx start --branch` also checks the branch out, and `--worktree DIR`
+`aries start --branch` also checks the branch out, and `--worktree DIR`
 creates a worktree on it. The MCP `start` tool never runs git; the agent
 does.
 
@@ -263,7 +263,7 @@ it finishes what it holds and files new work: `finish`, `handoff`,
 the machine and sent, once each, when the server answers. It starts
 nothing new: `start` takes a claim, and no claim is made without the
 server. A lease still runs out on the server's clock while you are
-away (`sfx away` extends yours before a planned absence). A queued
+away (`aries away` extends yours before a planned absence). A queued
 `finish` or `handoff` that arrives after its lease ran out still
 applies if nobody took the issue since, and the issue's history says
 the lease had lapsed (`claim.lapsed`); if somebody did take it, or the
@@ -280,16 +280,16 @@ The server keeps, for each issue, the paths its work is likely to touch,
 so that two sessions are not sent to edit the same files. They come from
 two sources:
 
-- **Commit paths** are what the work did. `sfx` reads them from git and
-  sends them: `sfx mcp` with a renewal (at most every five minutes per
-  issue) and with `finish` and `handoff`, and a terminal's `sfx finish`,
+- **Commit paths** are what the work did. `aries` reads them from git and
+  sends them: `aries mcp` with a renewal (at most every five minutes per
+  issue) and with `finish` and `handoff`, and a terminal's `aries finish`,
   `handoff` and `away`. An issue's paths are those of the commits since
-  the default branch whose `Starfix:` trailer names it, or, on the
+  the default branch whose `Aries:` trailer names it, or, on the
   issue's own branch, every commit on it and the uncommitted files.
   Commits a merge brought in are not counted. Earlier holders' paths
   stay with the issue.
 - **Declared paths** are what someone expects the work to touch, given
-  with `sfx create --paths` or `sfx update --paths`, relative to the
+  with `aries create --paths` or `aries update --paths`, relative to the
   current directory. A path ending in `/` is a directory and covers
   everything under it. `update --paths`
   replaces the declared set, and an empty value clears it.
@@ -308,13 +308,13 @@ than 10 held issues share, such as `go.mod`. `start` with no id takes
 the first issue that overlaps nothing, if there is one.
 
 Reading git is a hint, never a requirement: with no git, no repository
-or a detached HEAD, `sfx` sends nothing and the work goes on.
+or a detached HEAD, `aries` sends nothing and the work goes on.
 
 ## Acceptance criteria
 
 The acceptance text of an issue becomes a checklist: each Markdown list
 item (`- [ ] x`, `- x`, `1. x`) is one item, or the whole text is one item.
-`sfx accept ID N` ticks item N; `--undo` unticks it, and
+`aries accept ID N` ticks item N; `--undo` unticks it, and
 `--waive REASON` waives it. `finish` can tick or waive items in the same
 step (`--tick 1,3`, `--waive 2=REASON`).
 
@@ -326,7 +326,7 @@ imported with. Later edits to the text tick nothing.
 
 ## Handoffs
 
-`sfx handoff ID NOTE` leaves a note for whoever continues. It can say how
+`aries handoff ID NOTE` leaves a note for whoever continues. It can say how
 far the work got (`--state done|partial|blocked`), what to do next
 (`--next`), and which `--branch` or `--worktree` holds it. `--to P` puts
 the handoff in P's inbox, and `--release` ends your claim and unassigns the
@@ -348,29 +348,29 @@ transaction as its cause:
 | `assigned` | Someone else assigned you an issue |
 | `conflict` | An update of yours, queued while the server was away, parked fields someone else had changed, or was kept as a comment because the issue was closed meanwhile; a `finish` or `handoff` of yours, queued the same way, was kept as a comment because the issue had moved on; or another principal's parked fields, or another session's late `finish` or `handoff` kept as a comment, on an issue you hold ([Conflicts](cli.md#conflicts)). An item about your own write reaches every session of yours; one about the issue you hold, the session that holds it |
 
-`sfx inbox` lists unread items and `--ack` marks them read. `sfx watch`
-prints them as they arrive. An agent's `sfx mcp` asks the server to push
+`aries inbox` lists unread items and `--ack` marks them read. `aries watch`
+prints them as they arrive. An agent's `aries mcp` asks the server to push
 new items, and adds `inbox: N new (call inbox)` to the agent's next tool
 result.
 
 ## Who is at work
 
-`sfx who` lists every session that connected or renewed in the last 5
+`aries who` lists every session that connected or renewed in the last 5
 minutes, with its principal, machine, harness and the issues it holds. The
-server records a session when it connects, and `sfx mcp` keeps it present
+server records a session when it connects, and `aries mcp` keeps it present
 while the agent runs.
 
-`sfx tui` shows the same work live: what is ready, each held issue with
+`aries tui` shows the same work live: what is ready, each held issue with
 its holder and how long they have held it, what is blocked, and every
 change as the server pushes it ([The live board](cli.md#the-live-board)).
 
 ## The digest
 
-`sfx digest` summarizes a time window (`--since 24h` by default, `7d`, a
+`aries digest` summarizes a time window (`--since 24h` by default, `7d`, a
 date or a time): what closed, started, is in progress or stalled, is
 blocked, was handed off, created or discovered. An issue in progress with
 no activity for 48 hours counts as stalled. The digest is structured data
-for a standup or a status report. starfix runs no model; the agent writes
+for a standup or a status report. Aries runs no model; the agent writes
 any narrative. It also totals the time issues were held in the window,
 the hours people logged, the tokens reported in it and their cost at
 list price ([below](#accounts-time-and-tokens)).
@@ -380,7 +380,7 @@ list price ([below](#accounts-time-and-tokens)).
 A memory is something worth knowing in a later session: how deploys
 work, a decision and its reason, a person's preferences. Each has a
 **key**, a **body**, optional **tags**, an optional **issue** it is
-about, and a **pin**. `sfx remember` and the MCP `remember` tool write
+about, and a **pin**. `aries remember` and the MCP `remember` tool write
 one, `recall` searches them and `forget` deletes one.
 
 **Scopes.** Every memory has one of three:
@@ -429,7 +429,7 @@ no search by meaning yet.
 relevant to your in-progress issues (linked to one of them, or tagged
 with one of their labels), then the newest, as many as fit its budget;
 never in key order. `start` shows up to five memories relevant to the
-issue it takes. Pinning is a person's call: `sfx pin KEY` and `sfx
+issue it takes. Pinning is a person's call: `aries pin KEY` and `aries
 unpin KEY`. Agents cannot pin.
 
 **No secrets.** The server refuses a memory that looks like it holds a
@@ -447,7 +447,7 @@ How large a memory may be, and how many each principal may keep, are
 
 Every issue reports its time and tokens against an **account**: a
 client's engagement code name or an internal department, never a real
-client name. Set one with `sfx create --account NAME` or `sfx update ID
+client name. Set one with `aries create --account NAME` or `aries update ID
 --account NAME`; an issue without one inherits its parent's, up the chain,
 and then the server's `account:` setting, `internal` by default. Account
 names are lowercase letters, digits and inner hyphens.
@@ -462,8 +462,8 @@ them: the client sends what the harness recorded for each request (model,
 input, output, cache write and cache read), keyed by the harness's own
 request id, so sending a record twice stores it once. A count the harness
 did not report stays unknown, which `show` leaves out rather than printing
-0. So far `sfx` captures Claude Code's tokens, from its local transcripts
-through hooks that `sfx setup claude-code` installs, and sends only the
+0. So far `aries` captures Claude Code's tokens, from its local transcripts
+through hooks that `aries setup claude-code` installs, and sends only the
 counts ([Token usage hooks](agents.md#token-usage-hooks-claude-code)).
 Other harnesses report time only until their capture is built.
 
@@ -489,12 +489,12 @@ issues' costs add up to the record's. A model with no price is shown with
 its tokens and marked unpriced, never guessed at. A server with no
 prices at all shows no cost.
 
-`show` gives an issue's running cost, `digest` a window's, and `sfx cost
+`show` gives an issue's running cost, `digest` a window's, and `aries cost
 --since 7d --by account` a report by account, issue, epic (the nearest
 epic up the parent chain), person (who reported the tokens) or model.
 Tokens no issue was held for are `(unattributed)`, issues under no epic
 are `(no epic)`, and a group is marked `split` when part of it came from
-a record shared with another group. Invoicing stays outside starfix.
+a record shared with another group. Invoicing stays outside Aries.
 
 **Amortized cost** is what flat-rate plans really cost, spread over the
 work. An admin records each plan's fee a seat a month, its seats and the
@@ -512,14 +512,14 @@ time: the current month has cost only the part of its fee that has
 passed (on the 8th of a 31-day month, a week's worth), split the same
 way, and a window that reaches past now charges nothing for the months
 to come. A principal on no plan adds nothing. Reports show amortized cost beside the list-price
-equivalent, never instead of it, and only `sfx cost` and the `cost` tool
+equivalent, never instead of it, and only `aries cost` and the `cost` tool
 show it, since `show` and `digest` would have to read whole months.
 
 ### Human hours
 
-People log their own time with `sfx log 1.5h ID`: an entry is one
+People log their own time with `aries log 1.5h ID`: an entry is one
 person's time on one issue for one day, from a minute to 24 hours, with
-an optional note. The day is the logger's calendar day: `sfx log` sends
+an optional note. The day is the logger's calendar day: `aries log` sends
 today's date in your time zone unless `--on` gives another, and the
 server takes any date from a year back to a day past its own today
 (UTC). It counts against the issue's account, resolved
@@ -528,12 +528,12 @@ day add up to at most 24 hours. Each entry and each undo is an event on
 the issue, so `history` shows it; a person may undo only their own entry,
 and an admin anyone's.
 
-`show` gives an issue's hours by person, `digest` and `sfx cost` the
+`show` gives an issue's hours by person, `digest` and `aries cost` the
 hours of the days their window overlaps: a day counts whole when the
 window touches it, so the default `digest --since 24h` at a morning
 standup counts yesterday's hours, and windows from midnight to midnight
 count each day once. Days are dates, compared with the window in UTC; a
 window that reaches now also counts entries for tomorrow (UTC), already
-today east of it. In `sfx cost` the hours go with their issue's
+today east of it. In `aries cost` the hours go with their issue's
 account, epic or issue, or with who logged them; by model they are the
 group `(human)`.

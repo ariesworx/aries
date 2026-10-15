@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 func TestDispatchInbox(t *testing.T) {
@@ -45,8 +45,8 @@ func TestDispatchInbox(t *testing.T) {
 		args any
 		fix  string
 	}{
-		{"ack nothing", proto.OpAck, proto.AckArgs{}, "sfx inbox -h"},
-		{"inbox limit", proto.OpInbox, proto.InboxArgs{Limit: 101}, "sfx inbox -h"},
+		{"ack nothing", proto.OpAck, proto.AckArgs{}, "aries inbox -h"},
+		{"inbox limit", proto.OpInbox, proto.InboxArgs{Limit: 101}, "aries inbox -h"},
 		{"watch without a connection", proto.OpWatch, proto.WatchArgs{}, "watch"},
 	} {
 		_, perr := call[proto.Empty](t, s, bob, tc.op, tc.args)

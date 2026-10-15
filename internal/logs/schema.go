@@ -1,4 +1,4 @@
-// Package logs is the schema of starfixd's log (design §16.4): the
+// Package logs is the schema of ariesd's log (design §16.4): the
 // names of a line's fields, the stable name of each event a line
 // reports, the id of a request, and the handler that puts a request's id
 // and its trace's ids on every line logged for it.

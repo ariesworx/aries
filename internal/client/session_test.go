@@ -3,7 +3,7 @@ package client
 import (
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 func TestSessionFromEnv(t *testing.T) {
@@ -17,7 +17,7 @@ func TestSessionFromEnv(t *testing.T) {
 		{"claude code", map[string]string{"CLAUDE_CODE_SESSION_ID": "cc-1"}, "cc-1"},
 		{"older claude spelling", map[string]string{"CLAUDE_SESSION_ID": "c-1"}, "c-1"},
 		{"claude code over older", map[string]string{"CLAUDE_SESSION_ID": "c-1", "CLAUDE_CODE_SESSION_ID": "cc-1"}, "cc-1"},
-		{"starfix wins", map[string]string{"STARFIX_SESSION": "sf-1", "CLAUDE_CODE_SESSION_ID": "cc-1"}, "sf-1"},
+		{"aries wins", map[string]string{"ARIES_SESSION": "sf-1", "CLAUDE_CODE_SESSION_ID": "cc-1"}, "sf-1"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -28,7 +28,7 @@ func TestSessionFromEnv(t *testing.T) {
 	}
 }
 
-// Without a harness's session, a person's sfx takes the session cli and a
+// Without a harness's session, a person's aries takes the session cli and a
 // CI job's, where CI=true as GitHub Actions and GitLab CI set it, ci.
 func TestDefaultSession(t *testing.T) {
 	t.Parallel()
@@ -41,7 +41,7 @@ func TestDefaultSession(t *testing.T) {
 		{"a CI job", map[string]string{"CI": "true"}, proto.CISession},
 		{"CI set to something else", map[string]string{"CI": "1"}, proto.CLISession},
 		{"a harness in a CI job", map[string]string{"CI": "true", "CLAUDE_CODE_SESSION_ID": "cc-1"}, "cc-1"},
-		{"named by hand in a CI job", map[string]string{"CI": "true", "STARFIX_SESSION": "deploy"}, "deploy"},
+		{"named by hand in a CI job", map[string]string{"CI": "true", "ARIES_SESSION": "deploy"}, "deploy"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -64,7 +64,7 @@ func TestHarnessFromEnv(t *testing.T) {
 		{"gemini cli", map[string]string{"GEMINI_CLI": "1"}, "gemini"},
 		{"only the value 1 counts", map[string]string{"CLAUDECODE": "0", "GEMINI_CLI": "yes"}, ""},
 		{"claude code over gemini", map[string]string{"GEMINI_CLI": "1", "CLAUDECODE": "1"}, "claude-code"},
-		{"starfix wins", map[string]string{"STARFIX_HARNESS": "codex", "CLAUDECODE": "1"}, "codex"},
+		{"aries wins", map[string]string{"ARIES_HARNESS": "codex", "CLAUDECODE": "1"}, "codex"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

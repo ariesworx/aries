@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // A create-type request sent twice with one key is applied once; the same
@@ -62,7 +62,7 @@ func TestDispatchAcceptance(t *testing.T) {
 
 	_, perr := call[proto.FinishResult](t, s, alice, proto.OpFinish, proto.FinishArgs{ID: a.ID})
 	if perr == nil || perr.Code != proto.CodeAcceptance || !strings.Contains(perr.Message, "1, 3") ||
-		!strings.Contains(perr.Fix, "sfx accept "+a.ID+" 1 3") {
+		!strings.Contains(perr.Fix, "aries accept "+a.ID+" 1 3") {
 		t.Fatalf("finish with open items = %+v", perr)
 	}
 	_, perr = call[proto.WriteResult](t, s, alice, proto.OpClose, proto.CloseArgs{ID: a.ID})
@@ -86,7 +86,7 @@ func TestDispatchAcceptance(t *testing.T) {
 
 	b := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "other", Acceptance: "must be fast"})
 	if _, perr := call[proto.WriteResult](t, s, bob, proto.OpClose, proto.CloseArgs{ID: b.ID, Force: true}); perr == nil ||
-		perr.Code != proto.CodeForbidden || perr.Message != "close --force is for starfix admins" {
+		perr.Code != proto.CodeForbidden || perr.Message != "close --force is for aries admins" {
 		t.Fatalf("force close by bob = %+v", perr)
 	}
 	mustCall[proto.WriteResult](t, s, dana, proto.OpClose, proto.CloseArgs{ID: b.ID, Force: true})

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // TestDispatchHeldIssue maps each guarded write on an issue alice holds,
@@ -59,8 +59,8 @@ func TestDispatchHeldIssue(t *testing.T) {
 				}
 				if perr == nil || perr.Code != ac.code ||
 					!strings.Contains(perr.Message, c.ID+" is held by alice (session s-a) until ") ||
-					!strings.Contains(perr.Fix, "ask alice to hand it off (`sfx handoff "+c.ID+" --release`)") ||
-					!strings.Contains(perr.Fix, "starfix admin") {
+					!strings.Contains(perr.Fix, "ask alice to hand it off (`aries handoff "+c.ID+" --release`)") ||
+					!strings.Contains(perr.Fix, "aries admin") {
 					t.Fatalf("%s by %s = %+v, want %s naming alice", o.name, ac.name, perr, ac.code)
 				}
 			})
@@ -134,7 +134,7 @@ func TestSecCrossPrincipal(t *testing.T) {
 	// update cannot make a hold without a lease.
 	d := mustCall[proto.CreateResult](t, s, bob, proto.OpCreate, proto.CreateArgs{Title: "w"})
 	_, perr := call[proto.Empty](t, s, bob, proto.OpUpdate, proto.UpdateArgs{ID: d.ID, Rev: d.Rev, Status: sp("in_progress"), Assignee: sp("bob")})
-	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Fix, "sfx start "+d.ID) {
+	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Fix, "aries start "+d.ID) {
 		t.Fatalf("update status in_progress = %+v", perr)
 	}
 }
@@ -147,7 +147,7 @@ func TestSecChecklistBypass(t *testing.T) {
 	c := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "x", Acceptance: "- [ ] tests pass\n- [ ] docs"})
 	u := mustCall[proto.WriteResult](t, s, bob, proto.OpUpdate, proto.UpdateArgs{ID: c.ID, Rev: c.Rev, Acceptance: sp("- [x] tests pass\n- [x] docs")})
 	if _, perr := call[proto.WriteResult](t, s, bob, proto.OpClose, proto.CloseArgs{ID: c.ID, Rev: u.Rev}); perr == nil ||
-		perr.Code != proto.CodeAcceptance || !strings.Contains(perr.Fix, "starfix admin") {
+		perr.Code != proto.CodeAcceptance || !strings.Contains(perr.Fix, "aries admin") {
 		t.Fatalf("close after ticking in text = %+v, want acceptance", perr)
 	}
 	_, perr := call[proto.WriteResult](t, s, bob, proto.OpUpdate, proto.UpdateArgs{ID: c.ID, Rev: u.Rev, Acceptance: sp("")})

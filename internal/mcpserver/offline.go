@@ -9,10 +9,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/offline"
-	"github.com/ariesworx/starfix/internal/outbox"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/offline"
+	"github.com/ariesworx/aries/internal/outbox"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // sent remembers the writes a tool call sent, or would have sent, in
@@ -107,10 +107,10 @@ func (e *unqueuedError) Unwrap() error { return e.err }
 // error, and never an id and a rev as a write that was made returns
 // (design §18.2, §18.8).
 func queuedResult(k offline.Kept, n int) *mcp.CallToolResult {
-	line := "queued: starfix cannot reach its server, so this " + k.Entry.Op +
+	line := "queued: aries cannot reach its server, so this " + k.Entry.Op +
 		" waits on this machine and is sent when the server answers. Carry on, and do not repeat it."
 	if n > 1 {
-		line = fmt.Sprintf("queued: starfix cannot reach its server, so these %d writes (%s) wait on this machine and are sent when the server answers. Carry on, and do not repeat them.",
+		line = fmt.Sprintf("queued: aries cannot reach its server, so these %d writes (%s) wait on this machine and are sent when the server answers. Carry on, and do not repeat them.",
 			n, k.Entry.Op)
 	}
 	if k.Entry.Op == proto.OpCreate {

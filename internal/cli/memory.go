@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // memoryScopes are the scopes a memory may have; empty is project.
@@ -130,7 +130,7 @@ func cmdMemories(ctx context.Context, r *runner, args []string) error {
 		return err
 	}
 	if len(pos) > 0 {
-		return usagef(usage, "memories takes no arguments; search with `sfx recall TEXT`")
+		return usagef(usage, "memories takes no arguments; search with `aries recall TEXT`")
 	}
 	if err := checkScope(usage, *scope); err != nil {
 		return err

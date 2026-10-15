@@ -3,8 +3,8 @@ package server
 import (
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // TestProjectAdminCannotFillTheServersPrincipals pins the cap on what
@@ -23,7 +23,7 @@ func TestProjectAdminCannotFillTheServersPrincipals(t *testing.T) {
 		mustAsk[proto.PrincipalAddResult](a, proto.OpPrincipalAdd, proto.PrincipalAddArgs{Name: name})
 	}
 	_, perr := ask[proto.PrincipalAddResult](a, proto.OpPrincipalAdd, proto.PrincipalAddArgs{Name: "filler-3"})
-	const fix = "ask a server admin to add the principal, or the server's operator to raise principals_per_creator under limits: in starfixd's config"
+	const fix = "ask a server admin to add the principal, or the server's operator to raise principals_per_creator under limits: in ariesd's config"
 	if perr == nil || perr.Code != proto.CodeInvalid || perr.Message != "a principal who is no server admin creates at most 2 principals" || perr.Fix != fix {
 		t.Errorf("principal.add by alice, who created 2, with principals_per_creator 2 = %+v\nwant invalid and the fix %q", perr, fix)
 	}

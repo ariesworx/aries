@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Files to issues (design §12 item 3). An issue's paths are the files its

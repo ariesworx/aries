@@ -56,7 +56,7 @@ func TestBatchedCommits(t *testing.T) {
 
 	// The migration is committed by the first tick.
 	tick()
-	base := commits("starfix: events through 0")
+	base := commits("aries: events through 0")
 
 	// Not mustCreate: t.Fatal must not run off the test goroutine.
 	var wg sync.WaitGroup
@@ -69,7 +69,7 @@ func TestBatchedCommits(t *testing.T) {
 		t.Fatal(err)
 	}
 	tick()
-	if n := commits("starfix: events through 20"); n != base+1 {
+	if n := commits("aries: events through 20"); n != base+1 {
 		t.Errorf("20 writes then a tick made %d commits, want 1", n-base)
 	}
 
@@ -77,13 +77,13 @@ func TestBatchedCommits(t *testing.T) {
 	for range 3 {
 		tick()
 	}
-	if n := commits("starfix: events through 20"); n != base+1 {
+	if n := commits("aries: events through 20"); n != base+1 {
 		t.Errorf("idle ticks made %d empty commits", n-base-1)
 	}
 
 	mustCreate(t, s, NewIssue{})
 	tick()
-	if n := commits("starfix: events through 21"); n != base+2 {
+	if n := commits("aries: events through 21"); n != base+2 {
 		t.Errorf("one write then a tick made %d commits, want 1", n-base-1)
 	}
 }

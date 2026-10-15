@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // The access commands refuse bad usage before dialing.
@@ -54,8 +54,8 @@ func TestAdminAccessUsage(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			code, out, errb := runCLI(t, append([]string{"-C", empty}, tc.args...)...)
 			group := tc.args[slices.IndexFunc(tc.args, func(a string) bool { return slices.Contains(adminGroups, a) })]
-			if code != ExitUsage || out != "" || !strings.Contains(errb, tc.stderr) || !strings.Contains(errb, "fix: usage: sfx admin "+group+" ") {
-				t.Errorf("sfx %s: exit %d (want %d), stdout %q, stderr %q; want it to name %q and the group's usage",
+			if code != ExitUsage || out != "" || !strings.Contains(errb, tc.stderr) || !strings.Contains(errb, "fix: usage: aries admin "+group+" ") {
+				t.Errorf("aries %s: exit %d (want %d), stdout %q, stderr %q; want it to name %q and the group's usage",
 					strings.Join(tc.args, " "), code, ExitUsage, out, errb, tc.stderr)
 			}
 		})
@@ -66,7 +66,7 @@ func TestAdminAccessUsage(t *testing.T) {
 		"admin principal add NAME [--key FILE]... [--project P | --no-project] | list [--created-by NAME] | disable NAME | enable NAME | whois STAND-IN",
 		"admin member add NAME [--project P] [--role admin] [--accept-keys] | list [--project P] [--added-by NAME] | remove NAME [--project P]"} {
 		if !strings.Contains(help, want) {
-			t.Errorf("sfx help admin lacks %q:\n%s", want, help)
+			t.Errorf("aries help admin lacks %q:\n%s", want, help)
 		}
 	}
 }
@@ -82,11 +82,11 @@ func TestPrintAdminLists(t *testing.T) {
 	}{
 		{"projects, for a server admin", func(w *bytes.Buffer) {
 			printProjects(w, proto.ProjectsResult{Projects: []proto.Project{
-				{ID: a, Name: "acme", Prefix: "sf", Account: "internal", State: "active", Database: "starfix", CreatedBy: "import"},
-				{ID: b, Name: "web", Prefix: "web", Account: "acme-2026", State: "archived", Database: "starfix_p001", CreatedBy: "dana"}}, More: 3})
+				{ID: a, Name: "acme", Prefix: "sf", Account: "internal", State: "active", Database: "aries", CreatedBy: "import"},
+				{ID: b, Name: "web", Prefix: "web", Account: "acme-2026", State: "archived", Database: "aries_p001", CreatedBy: "dana"}}, More: 3})
 		}, "NAME  ID                                    PREFIX  ACCOUNT    STATE     DATABASE\n" +
-			"acme  " + a + "  sf      internal   active    starfix\n" +
-			"web   " + b + "  web     acme-2026  archived  starfix_p001\n" +
+			"acme  " + a + "  sf      internal   active    aries\n" +
+			"web   " + b + "  web     acme-2026  archived  aries_p001\n" +
 			"and 3 more; list them with --after web\n"},
 		{"projects, for a member", func(w *bytes.Buffer) {
 			printProjects(w, proto.ProjectsResult{Projects: []proto.Project{{ID: a, Name: "acme", Prefix: "sf", Account: "internal", State: "active", Role: "member"}}})
@@ -154,9 +154,9 @@ func TestPrintAdminLists(t *testing.T) {
 		// A comment from someone else cannot start a line of its own.
 		{"a hostile key comment", func(w *bytes.Buffer) {
 			printCarried(w, proto.MemberSetResult{ID: "bob", ProjectName: "acme", Carried: []proto.CarriedKey{
-				{Fingerprint: "SHA256:x", Type: "ssh-ed25519", Comment: "ok\nsfx: bob added", AddedBy: "dana", AddedAt: at, AdderAdministers: true}}})
-		}, "FINGERPRINT  TYPE         COMMENT             ADDED BY  ADDED                 ADMIN HERE\n" +
-			"SHA256:x     ssh-ed25519  ok\\nsfx: bob added  dana      2026-10-11 09:30 UTC  yes\n"},
+				{Fingerprint: "SHA256:x", Type: "ssh-ed25519", Comment: "ok\naries: bob added", AddedBy: "dana", AddedAt: at, AdderAdministers: true}}})
+		}, "FINGERPRINT  TYPE         COMMENT               ADDED BY  ADDED                 ADMIN HERE\n" +
+			"SHA256:x     ssh-ed25519  ok\\naries: bob added  dana      2026-10-11 09:30 UTC  yes\n"},
 		// A name from the server cannot start a line of its own.
 		{"a hostile project name", func(w *bytes.Buffer) {
 			printMembers(w, proto.MembersResult{Project: a, ProjectName: "acme\nfix: run this"})

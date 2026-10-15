@@ -12,13 +12,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/dolttest"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/dolttest"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // dolts are the package's Dolt servers: a test has one to itself while it
 // runs, so the tests can run in parallel (dolttest.Pool).
-var dolts = dolttest.NewPool("starfix-bdimport-", dolttest.Options{})
+var dolts = dolttest.NewPool("aries-bdimport-", dolttest.Options{})
 
 func TestMain(m *testing.M) {
 	os.Exit(run(m))
@@ -204,7 +204,7 @@ func TestImportBacklog(t *testing.T) {
 		`field: field estimated_minutes is not stored [acme-7k2.1]`,
 		`field: field external_ref is not stored [acme-q4m]`,
 		`field: field started_at is not stored [acme-7k2.1]`,
-		`label: label "has space" is not a valid starfix label; skipped [acme-t3m]`,
+		`label: label "has space" is not a valid aries label; skipped [acme-t3m]`,
 		`status: status hooked stored as in_progress, labeled bd-status:hooked [acme-h7k]`,
 		`status: status pinned stored as open with the pinned flag [acme-p1n]`,
 		`tombstone: tombstones (issues deleted in bd) are skipped [acme-old]`,
@@ -659,7 +659,7 @@ func TestCommentIDs(t *testing.T) {
 		{"uuid", `"9b2f6c1e-1d4a-5e8b-9c3d-2a1b0f9e8d7c"`, false},
 		{"legacy integer", `17`, false},
 		{"missing", ``, false},
-		{"starfix form", `"abcdefghijklmnop"`, true},
+		{"aries form", `"abcdefghijklmnop"`, true},
 	}
 	seen := map[string]bool{}
 	for _, tc := range cases {
@@ -669,10 +669,10 @@ func TestCommentIDs(t *testing.T) {
 				t.Errorf("not deterministic: %s, %s", got, again)
 			}
 			if !commentIDShape.MatchString(got) {
-				t.Errorf("id %q is not in starfix form", got)
+				t.Errorf("id %q is not in aries form", got)
 			}
 			if tc.keep && got != strings.Trim(tc.raw, `"`) {
-				t.Errorf("starfix id changed to %s", got)
+				t.Errorf("aries id changed to %s", got)
 			}
 			if other := commentID("ex-b1", json.RawMessage(tc.raw), c); !tc.keep && other == got {
 				t.Errorf("same id on another issue")

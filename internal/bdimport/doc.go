@@ -1,4 +1,4 @@
-// Package bdimport moves a bd (beads) backlog into the starfix store and
+// Package bdimport moves a bd (beads) backlog into the Aries store and
 // back out again, as bd's JSONL export: one issue per line, with its
 // labels, outgoing dependencies and comments embedded.
 //
@@ -7,10 +7,10 @@
 // bd IDs are preserved unchanged (design §3: "bd IDs survive import
 // unchanged"). Commit trailers, branch names, pull requests, documents and
 // other trackers already cite them, and a mapping would break every one of
-// those references or need a lookup table kept forever. starfix IDs are
+// those references or need a lookup table kept forever. Aries IDs are
 // "<prefix>-<suffix>" with any prefix, so bd's own prefixes and dotted
 // child IDs (bd-a3f.2) are valid as they are; the configured prefix only
-// shapes IDs starfix generates. An ID that is not valid starfix syntax is
+// shapes IDs Aries generates. An ID that is not valid Aries syntax is
 // reported and its issue skipped, never renamed.
 //
 // # What maps where
@@ -34,10 +34,10 @@
 //     metadata.
 //   - Comments keep their author, text and time. A bd comment ID becomes a
 //     16-character ID derived from the issue and the bd ID, so re-importing
-//     finds the same comment; an ID already in that form is kept, so a
-//     starfix export re-imports unchanged. bd has no comment kinds, so a
-//     starfix handoff note exports as a plain comment.
-//   - An issue's account is starfix's own and bd has no field for it, so
+//     finds the same comment; an ID already in that form is kept, so an
+//     Aries export re-imports unchanged. bd has no comment kinds, so an
+//     Aries handoff note exports as a plain comment.
+//   - An issue's account is Aries's own and bd has no field for it, so
 //     export leaves it out and import never writes it. Re-importing an
 //     export keeps each issue's stored account and reads as unchanged.
 //   - Memory records ({"_type":"memory","key":…,"value":…}, bd's
@@ -46,7 +46,7 @@
 //     store already holds is kept as it is, since bd records no time to
 //     tell which side is newer; one that looks like a secret is refused
 //     like any memory. Export writes issues only, as it did before
-//     memories: starfix's scopes, tags and links have no bd form.
+//     memories: Aries's scopes, tags and links have no bd form.
 //
 // Everything else is reported, never dropped silently: other dependency
 // types (replies-to, tracks, authored-by and the rest), external:

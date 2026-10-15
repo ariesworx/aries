@@ -9,7 +9,7 @@ import (
 )
 
 // Benchmarks of the frame codec as the client uses it
-// (docs/design/profile-sfx.md). Run with:
+// (docs/design/profile-aries.md). Run with:
 //
 //	go test -run '^$' -bench Client -benchmem ./internal/proto/
 

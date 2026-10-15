@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/cli"
-	"github.com/ariesworx/starfix/internal/mcpserver"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/cli"
+	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Prices and cost, through the CLI to a real daemon: an admin sets a
@@ -17,7 +17,7 @@ func TestCostCLI(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, daemonOpts{admins: []string{"dana"}})
 	alice, dana := w.newUser("alice", ""), w.newUser("dana", "")
-	alice.env["STARFIX_SESSION"] = "s-agent"
+	alice.env["ARIES_SESSION"] = "s-agent"
 	epic := strings.TrimSpace(alice.ok("create", "Client work", "-t", "epic", "--account", "acme"))
 	task := strings.TrimSpace(alice.ok("create", "Do the work", "--parent", epic))
 	alice.ok("start", task)
@@ -31,8 +31,8 @@ func TestCostCLI(t *testing.T) {
 		t.Fatalf("admin prices set again: %+v, want unchanged", got)
 	}
 	r := alice.run("v0.2.0", set...)
-	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "sfx: prices set is for starfix admins\n") ||
-		!strings.Contains(r.stderr, "fix: ask a starfix admin") {
+	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "aries: prices set is for aries admins\n") ||
+		!strings.Contains(r.stderr, "fix: ask an aries admin") {
 		t.Fatalf("admin prices set by alice: exit %d\n%s", r.code, r.stderr)
 	}
 	if got := alice.ok("admin", "prices"); !strings.Contains(got, "example-large  2026-01-01  4      20      5            8               0.4         dana\n") {
@@ -62,7 +62,7 @@ func TestCostCLI(t *testing.T) {
 		"cost by account, ",
 		"  acme  $8.35  4.3M tokens  unpriced\n",
 		"total $8.35, 4.3M tokens\n",
-		"unpriced: no price for example-unpriced; an admin sets one with `sfx admin prices set`\n",
+		"unpriced: no price for example-unpriced; an admin sets one with `aries admin prices set`\n",
 	} {
 		if !strings.Contains(report, want) {
 			t.Errorf("cost lacks %q:\n%s", want, report)
@@ -84,7 +84,7 @@ func TestCostCLI(t *testing.T) {
 	}
 
 	if r := alice.run("v0.2.0", "cost", "--since", "2026-02-01", "--until", "2026-01-01"); r.code != cli.ExitFailure ||
-		!strings.Contains(r.stderr, "is before since") || !strings.Contains(r.stderr, "fix: correct it and retry; `sfx cost -h` lists the options") {
+		!strings.Contains(r.stderr, "is before since") || !strings.Contains(r.stderr, "fix: correct it and retry; `aries cost -h` lists the options") {
 		t.Errorf("cost with until before since: exit %d\n%s", r.code, r.stderr)
 	}
 }
