@@ -681,7 +681,7 @@ func TestHarnessImagesArePinned(t *testing.T) {
 			t.Errorf("%s:%d: the line above %q does not give the image's version, as in `# name:1.2.3`", composeFile, i+1, line)
 		}
 	}
-	if n != 2 {
-		t.Errorf("%s runs %d images besides the one it builds, want 2: the collector and Prometheus", composeFile, n)
+	if n != 3 {
+		t.Errorf("%s runs %d images besides the one it builds, want 3: the collector, Prometheus and Keycloak", composeFile, n)
 	}
 }

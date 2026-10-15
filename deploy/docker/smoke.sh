@@ -28,6 +28,16 @@
 # what reaches the collector, the alert rules in a real Prometheus,
 # /readyz, and that a collector that is down or hangs changes nothing.
 # It pulls two more images.
+#
+# ARIES_SMOKE_IDENTITY=1 also runs the compose file's `identity`
+# profile, Keycloak, and then checks it (identity_checks, below): its
+# discovery document and keys, from this machine and from the server's
+# container, the realm and its clients, a sign-in with PKCE and a nonce
+# as a browser would make it, the device grant, and a token for the
+# service principal. It prints claims, never a password, a secret or a
+# token. Keycloak is on 127.0.0.1:ARIES_IDENTITY_PORT, 8181 by default,
+# so a dev Keycloak on 8180 is left alone. It needs curl and openssl,
+# and pulls one more image.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -45,6 +55,19 @@ case ${ARIES_SMOKE_TELEMETRY:-} in
   ;;
 *)
   printf 'smoke: ARIES_SMOKE_TELEMETRY is %s\nfix: set it to 1, or leave it unset\n' "$ARIES_SMOKE_TELEMETRY" >&2
+  exit 2
+  ;;
+esac
+identity=
+case ${ARIES_SMOKE_IDENTITY:-} in
+'') ;;
+1)
+  identity=1
+  compose+=(--profile identity)
+  export ARIES_IDENTITY_PORT=${ARIES_IDENTITY_PORT:-8181}
+  ;;
+*)
+  printf 'smoke: ARIES_SMOKE_IDENTITY is %s\nfix: set it to 1, or leave it unset\n' "$ARIES_SMOKE_IDENTITY" >&2
   exit 2
   ;;
 esac
@@ -627,6 +650,200 @@ telemetry_checks() {
   await 30 "its log record arrives at the collector" record_arrived "^record event=request.refused trace=$trace_id "
 }
 
+# What follows, to identity_checks, runs only with ARIES_SMOKE_IDENTITY=1.
+# None of it puts a password, a secret, a code or a token in an
+# argument or in what it prints: each goes from Keycloak's volume, or
+# from one answer to the next request, through a pipe or a variable.
+
+# kc_curl ARGS... is curl to Keycloak from this machine, which reaches
+# keycloak.localhost on loopback. --resolve says so for a curl that
+# does not resolve *.localhost itself.
+kc_curl() {
+  curl -sS --max-time 20 --resolve "keycloak.localhost:$ARIES_IDENTITY_PORT:127.0.0.1" "$@"
+}
+
+# kc_secret NAME writes the generated secret in NAME's file on
+# Keycloak's volume to stdout, for a pipe.
+kc_secret() { "${compose[@]}" exec -T keycloak cat "/opt/keycloak/data/aries/$1"; }
+
+# kc_get_in_server PATH prints the body of what Keycloak answers to GET
+# PATH, asked from the server's container by the issuer's name. The
+# image has no curl, so bash asks.
+kc_get_in_server() {
+  # The script is the container's bash's, which expands $1 and $2.
+  # shellcheck disable=SC2016
+  in_server bash -c 'exec 3<>"/dev/tcp/keycloak.localhost/$1" &&
+    printf "GET %s HTTP/1.0\r\nHost: keycloak.localhost:%s\r\n\r\n" "$2" "$1" >&3 &&
+    sed "1,/^\r$/d" <&3' - "$ARIES_IDENTITY_PORT" "$1" 2>&1
+}
+
+# jwt_part TOKEN N prints the Nth part of a compact JWT, decoded: 1 is
+# its header, 2 its claims. Never the signature, nor the token.
+jwt_part() {
+  local p
+  p=$(cut -d. -f"$2" <<<"$1" | tr '_-' '/+')
+  while ((${#p} % 4)); do p+='='; done
+  openssl base64 -d -A <<<"$p"
+}
+
+# json_string NAME prints the string NAME holds in the JSON on stdin.
+json_string() { sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
+
+# has NAME TEXT PATTERN fails unless TEXT matches the extended regexp.
+has() {
+  grep -Eq -- "$3" <<<"$2" || fail "$1: nothing matches /$3/" "$2"
+  passed=$((passed + 1))
+}
+
+# pkce_challenge VERIFIER prints S256 of VERIFIER, base64url.
+pkce_challenge() {
+  printf '%s' "$1" | openssl dgst -sha256 -binary | openssl base64 -A | tr '+/' '-_' | tr -d '='
+}
+
+random_b64url() { openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n'; }
+
+# browser_sign_in WHO VERIFIER signs WHO in to aries-cli as a browser
+# would, by the code flow with PKCE (S256 of a verifier of its own), a
+# nonce and prompt=login, and exchanges the code with VERIFIER, which
+# is the right one or not. WHO's password goes from Keycloak's volume
+# to the login form through a pipe. It sets token_answer to Keycloak's
+# answer to the exchange, and nonce to the nonce sent.
+redirect_uri=http://127.0.0.1:53682/callback
+token_answer=
+nonce=
+browser_sign_in() {
+  local who=$1 verifier state page action location code jar
+  # Keycloak marks its cookies Secure, which a browser sends to
+  # http://*.localhost and curl does not: they go back to the form in a
+  # Cookie header made from the page's, read from a file.
+  jar=$(mktemp "$work/kc-jar.XXXXXX")
+  state=$(random_b64url)
+  nonce=$(random_b64url)
+  verifier=$(random_b64url)$(random_b64url)
+  page=$(kc_curl -D "$jar" -G "$issuer/protocol/openid-connect/auth" \
+    --data-urlencode client_id=aries-cli --data-urlencode response_type=code \
+    --data-urlencode 'scope=openid email' --data-urlencode "redirect_uri=$redirect_uri" \
+    --data-urlencode "state=$state" --data-urlencode "nonce=$nonce" \
+    --data-urlencode "code_challenge=$(pkce_challenge "$verifier")" --data-urlencode code_challenge_method=S256 \
+    --data-urlencode prompt=login) || fail "the sign-in page did not load" "$page"
+  printf 'Cookie: %s\n' "$(sed -n 's/^[Ss]et-[Cc]ookie: \([^;]*\);.*/\1/p' "$jar" | paste -sd ';' -)" >"$jar.cookie"
+  action=$(grep -o 'action="[^"]*"' <<<"$page" | head -n 1 | sed 's/^action="//; s/"$//; s/&amp;/\&/g')
+  [[ $action == "$issuer/login-actions/authenticate?"* ]] || fail "the sign-in page has no login form" "$(head -c 400 <<<"$page")"
+  location=$(kc_secret "$who.pass" | kc_curl -H @"$jar.cookie" -o /dev/null -w '%{redirect_url}' \
+    --data-urlencode "username=$who" --data-urlencode 'password@-' "$action") ||
+    fail "the login form was not accepted"
+  rm -f "$jar" "$jar.cookie"
+  [[ $location == "$redirect_uri?"* ]] || fail "signing in as $who did not return to the loopback redirect" "${location:-(no redirect)}"
+  [[ $location == *"state=$state"* ]] || fail "the redirect does not carry the state sent"
+  code=$(sed -n 's/.*[?&]code=\([^&]*\).*/\1/p' <<<"$location")
+  [[ -n $code ]] || fail "the redirect carries no code"
+  [[ $2 == right ]] || verifier=$(random_b64url)$(random_b64url)
+  token_answer=$(printf 'grant_type=authorization_code&client_id=aries-cli&code=%s&redirect_uri=%s&code_verifier=%s' \
+    "$code" "$redirect_uri" "$verifier" | kc_curl --data-binary @- "$issuer/protocol/openid-connect/token") || true
+}
+
+# identity_checks checks the `identity` profile: Keycloak and the realm
+# identity.sh makes (docs/deploy/docker.md, "Sign-in with a local
+# identity provider").
+identity_checks() {
+  local issuer=http://keycloak.localhost:$ARIES_IDENTITY_PORT/realms/aries
+  local body token claims header answer
+
+  echo "smoke: identity: the discovery document and keys, from here and from the server's container"
+  body=$(kc_curl "$issuer/.well-known/openid-configuration") || fail "no discovery document at $issuer" "$body"
+  has "the issuer is the one URL" "$body" "\"issuer\":\"$issuer\""
+  has "the device grant is offered" "$body" "\"device_authorization_endpoint\":\"$issuer/protocol/openid-connect/auth/device\""
+  has "PKCE with S256 is offered" "$body" '"code_challenge_methods_supported":\[[^]]*"S256"'
+  has "the claims sign-in needs are offered" "$body" '"claims_supported":\[[^]]*"auth_time"[^]]*"email"[^]]*"nonce"'
+  body=$(kc_curl "$issuer/protocol/openid-connect/certs") || fail "no JWKS" "$body"
+  has "an ES256 signing key" "$body" '"kty":"EC"[^}]*"alg":"ES256"|"alg":"ES256"[^}]*"kty":"EC"'
+  has "an RS256 signing key" "$body" '"alg":"RS256"'
+  body=$(kc_get_in_server "/realms/aries/.well-known/openid-configuration")
+  has "the server's container reaches it by the same name, with the same issuer" "$body" "\"issuer\":\"$issuer\""
+  body=$(kc_get_in_server "/realms/aries/protocol/openid-connect/certs")
+  has "and its keys" "$body" '"alg":"ES256"'
+
+  echo "smoke: identity: the realm, its clients and its people"
+  body=$("${compose[@]}" exec -T keycloak /opt/aries/identity.sh show 2>&1) || fail "identity.sh show failed" "$body"
+  printf '%s\n' "$body" | sed 's/^/  | /'
+  has "the realm" "$body" '^realm aries enabled=true$'
+  has "aries login's client: public, PKCE, the device grant, ES256" "$body" \
+    '^client aries-cli public=true code=true service=false password=false pkce=S256 device=true id_token=ES256$'
+  has "the server's client: confidential" "$body" '^client aries-server public=false code=true service=false password=false pkce=S256 '
+  has "the service principal's client: client credentials only" "$body" '^client ci-example public=false code=false service=true password=false '
+  has "alice, verified" "$body" '^user alice email=alice@example.com email_verified=true enabled=true$'
+  has "bob, verified" "$body" '^user bob email=bob@example.com email_verified=true enabled=true$'
+  has "every secret's file is 0600" "$body" '^file aries-server.secret 600$'
+  if grep -E '^file ' <<<"$body" | grep -Ev ' 600$' >/dev/null; then
+    fail "a secret's file is not 0600" "$body"
+  fi
+  passed=$((passed + 1))
+  has "in a 0700 directory" "$body" '^dir 700$'
+  if "${compose[@]}" logs --no-log-prefix keycloak 2>&1 | grep -Fq -f <(
+    for f in admin.pass alice.pass bob.pass aries-server.secret ci-example.secret; do
+      kc_secret "$f"
+      echo
+    done
+  ); then
+    fail "Keycloak's log holds a generated password or secret"
+  fi
+  passed=$((passed + 1))
+
+  echo "smoke: identity: alice signs in with PKCE and a nonce"
+  browser_sign_in alice right
+  token=$(json_string id_token <<<"$token_answer")
+  [[ -n $token ]] || fail "the code exchange returned no ID token" \
+    "$(json_string error <<<"$token_answer"): $(json_string error_description <<<"$token_answer")"
+  header=$(jwt_part "$token" 1)
+  claims=$(jwt_part "$token" 2)
+  token=
+  printf '  claims: %s\n' "$claims"
+  has "signed ES256" "$header" '"alg":"ES256"'
+  has "the issuer" "$claims" "\"iss\":\"$issuer\""
+  has "for aries login" "$claims" '"aud":"aries-cli"'
+  has "the nonce sent" "$claims" "\"nonce\":\"$nonce\""
+  has "auth_time" "$claims" '"auth_time":[0-9]+[,}]'
+  has "her address" "$claims" '"email":"alice@example.com"'
+  has "verified" "$claims" '"email_verified":true'
+  if grep -q '"refresh_token"' <<<"$token_answer"; then
+    fail "the exchange returned a refresh token"
+  fi
+  passed=$((passed + 1))
+  token_answer=
+  browser_sign_in alice wrong
+  has "a code exchanged with the wrong PKCE verifier is refused" "$token_answer" '"error":"invalid_grant"'
+  token_answer=
+
+  echo "smoke: identity: the device grant"
+  answer=$(kc_curl "$issuer/protocol/openid-connect/auth/device" -d client_id=aries-cli -d 'scope=openid email' \
+    --data-urlencode "code_challenge=$(pkce_challenge "$(random_b64url)")" -d code_challenge_method=S256) ||
+    fail "the device grant did not answer" "$answer"
+  has "a user code" "$answer" '"user_code":"[A-Z]{4}-[A-Z]{4}"'
+  has "and a page to enter it on" "$answer" "\"verification_uri\":\"$issuer/device\""
+  answer=
+
+  echo "smoke: identity: a token for the service principal"
+  answer=$({
+    printf 'user = "ci-example:'
+    kc_secret ci-example.secret
+    printf '"\n'
+  } | kc_curl -K - -d grant_type=client_credentials "$issuer/protocol/openid-connect/token") || true
+  token=$(json_string access_token <<<"$answer")
+  answer=
+  [[ -n $token ]] || fail "the client-credentials grant returned no token"
+  claims=$(jwt_part "$token" 2)
+  token=
+  printf '  claims: %s\n' "$claims"
+  has "the issuer" "$claims" "\"iss\":\"$issuer\""
+  has "for the workload audience" "$claims" '"aud":(\["aries.example.com"|"aries.example.com"|\[[^]]*"aries.example.com")'
+  has "from ci-example" "$claims" '"azp":"ci-example"'
+  has "with the claims a trust rule matches" "$claims" '"repository":"example/app"'
+  answer=$(printf 'user = "ci-example:not-the-secret"\n' |
+    kc_curl -K - -d grant_type=client_credentials "$issuer/protocol/openid-connect/token") || true
+  has "a wrong secret is refused" "$answer" '"error":"(invalid_client|unauthorized_client)"'
+  answer=
+}
+
 image=${ARIES_IMAGE:-aries-dev:local}
 if [[ -n ${ARIES_IMAGE:-} ]]; then
   echo "smoke: testing the image $image, and building aries"
@@ -1050,6 +1267,10 @@ passed=$((passed + 1))
 if [[ -n $telemetry ]]; then
   telemetry_checks
   no_failed_write "after the telemetry checks"
+fi
+
+if [[ -n $identity ]]; then
+  identity_checks
 fi
 
 echo "smoke: ok, $passed checks passed"

@@ -261,6 +261,101 @@ ariesd's log still goes to the container's output, whole, as before:
 `docker compose logs aries`. What the collector receives of it is
 less, by design: ids, codes and numbers, and no text.
 
+## Sign-in with a local identity provider
+
+**For** developing and testing sign-in
+([docs/design/identity.md](../design/identity.md)) on your own machine,
+with no account at Google, Entra ID, Okta or GitHub and no internet:
+Keycloak stands in for them until a final check against the real
+providers. Sign-in itself is not built yet; this is the fixture it will
+be tested against.
+
+**A test fixture, never production.** Keycloak runs in development mode
+over plain HTTP, its database is a file on a volume, and its realm is
+made by a script with generated passwords.
+
+```sh
+docker compose --profile identity up -d --wait
+docker compose --profile identity logs --no-log-prefix keycloak | grep -A 9 'Keycloak ready'
+```
+
+The first start pulls Keycloak 26.8.1, the release
+[spike/identity](../../spike/identity/RESULTS.md) ran against, pinned
+by digest. Once the image is pulled, a start, the first included,
+took about half a minute on an Apple silicon Mac. `ARIES_IDENTITY_PORT` sets the port, 8180 by default.
+
+| | |
+|---|---|
+| Issuer | `http://keycloak.localhost:8180/realms/aries`, the same from a browser on your machine, where `*.localhost` is loopback, and from the server's container, where it is the name of Keycloak's container on the compose network. Keycloak listens on the same port inside and out, so one URL works from both |
+| Discovery | `http://keycloak.localhost:8180/realms/aries/.well-known/openid-configuration` |
+| Admin console | `http://keycloak.localhost:8180/admin/`, user `admin` |
+| People | `alice@example.com` and `bob@example.com` (usernames `alice` and `bob`), addresses verified |
+| `aries-cli` | Public, for `aries login`: the code flow with PKCE (S256 required), redirects to `http://127.0.0.1/*` on any port and to Keycloak's own code page (`urn:ietf:wg:oauth:2.0:oob`), the device grant on for testing, ID tokens signed ES256, no refresh tokens |
+| `aries-server` | Confidential, standing for the server: the code flow with PKCE and the same redirects, for a code the server exchanges itself; its secret in `aries-server.secret` |
+| `ci-example` | A service principal: the client-credentials grant only, its tokens for the audience `aries.example.com`, with made-up claims in the shape of a GitHub Actions token (`repository_id`, `repository`, `ref`, `workflow_ref`) for trust rules to match; its secret in `ci-example.secret` |
+| Claims | ID tokens carry `email`, `email_verified`, `nonce` (the one sent) and `auth_time`; the realm has an ES256 key beside the default RS256 one; tokens live five minutes |
+
+**The passwords and secrets.** The first start generates the admin's
+password, alice's and bob's, and the two client secrets, and writes
+each to a file of its own, mode 0600, in `/opt/keycloak/data/aries`
+(mode 0700) on the `identity` volume. None is printed, logged or
+passed as an argument. Print one to your own terminal when you need it:
+
+```sh
+docker compose --profile identity exec keycloak cat /opt/keycloak/data/aries/alice.pass; echo
+```
+
+The files are `admin.pass`, `alice.pass`, `bob.pass`,
+`aries-server.secret` and `ci-example.secret`. To see the realm, its
+clients and its people, with no secret:
+
+```sh
+docker compose --profile identity exec keycloak /opt/aries/identity.sh show
+```
+
+- **Made by a script, with no clicks.**
+  [identity/identity.sh](../../deploy/docker/identity/identity.sh) is
+  the container's entrypoint: it starts Keycloak and, with Keycloak's
+  own `kcadm.sh`, makes whatever the realm lacks, on every start. What
+  is there is kept as it is, edits in the admin console included. To
+  start over, or to pick up a change to the script's realm, remove the
+  volume: `docker compose --profile identity down -v`, which removes
+  the server's volume too, or `docker compose --profile identity rm -sf
+  keycloak` and `docker volume rm aries-dev_identity` for Keycloak's
+  alone.
+- **A browser on your machine** opens the issuer's pages directly. It
+  must resolve `keycloak.localhost` to loopback, and send Keycloak's
+  cookies, which are marked `Secure`, to it over HTTP, as browsers do
+  for a `localhost` name they treat as secure. A Chromium-based browser
+  on macOS did both; others were not tried. macOS's resolver, Go's and
+  curl resolve the name too. A tool that does not can be given
+  `keycloak.localhost:8180:127.0.0.1` (curl's `--resolve`).
+- **The server's container** reaches Keycloak by the same name. Nothing
+  in the server uses it yet, and the server's image is unchanged by the
+  profile.
+- **Air-gapped.** Nothing Keycloak does needs the internet once its
+  image is pulled. To show that, put the compose network out of reach
+  with an override file:
+
+  ```yaml
+  # airgap.yaml
+  networks:
+    default:
+      internal: true
+  ```
+
+  ```sh
+  docker compose -f deploy/docker/compose.yaml -f airgap.yaml --profile identity up -d --wait
+  ```
+
+  On an internal network neither container can reach anything outside
+  it and Docker publishes no port, so you cannot reach either from your
+  machine; the server's container still reaches Keycloak by name and
+  gets its discovery document, its keys and a client-credentials token
+  ([Run the smoke test](#with-the-identity-provider) has what was run).
+  On a machine with no network at all, the default network and the
+  loopback ports work as they do online.
+
 ## Test a change
 
 After you change the code, rebuild the image and `aries`:
@@ -375,6 +470,56 @@ and a half minutes):
   seconds ariesd gives its last exports, and 3 for a clock read in
   whole seconds.
 
+### With the identity provider
+
+```sh
+ARIES_SMOKE_IDENTITY=1 deploy/docker/smoke.sh
+```
+
+This runs the same checks with the `identity` profile of
+[Sign-in with a local identity provider](#sign-in-with-a-local-identity-provider),
+which pulls Keycloak, on `127.0.0.1:8181` (`ARIES_IDENTITY_PORT`) so
+that a Keycloak of your own on 8180 is left alone, and then checks it.
+It needs `curl` and `openssl` on your machine. It prints the claims of
+the tokens it gets and never a password, a secret, a code or a token,
+which go from Keycloak's volume to each request through pipes. 186
+checks passed on 15 October 2026, 34 of them Keycloak's:
+
+- **One issuer.** The discovery document from your machine and from
+  the server's container, by name, names the same issuer, offers PKCE
+  with S256 and the device grant, and lists `auth_time`, `email` and
+  `nonce`; the key set has an ES256 and an RS256 signing key.
+- **The realm.** `identity.sh show` lists the three clients as above,
+  alice and bob with verified addresses, and every secret's file 0600
+  in a 0700 directory; and none of the generated passwords and secrets
+  is in Keycloak's log.
+- **A sign-in, as a browser makes one.** alice signs in to `aries-cli`
+  by the code flow with PKCE, a nonce and `prompt=login`, to a loopback
+  redirect with the state sent; the ID token for the code is signed
+  ES256 and carries the issuer, `aud` `aries-cli`, the nonce sent,
+  `auth_time`, `email` `alice@example.com` and `email_verified` true,
+  and no refresh token comes with it. A second code, exchanged with the
+  wrong PKCE verifier, is refused (`invalid_grant`).
+- **The device grant** answers with a user code and Keycloak's page to
+  enter it on.
+- **A service principal.** `ci-example`'s secret gets a token by the
+  client-credentials grant, for `aries.example.com`, with `azp`
+  `ci-example` and the made-up `repository` claim; a wrong secret is
+  refused.
+
+Without `ARIES_SMOKE_IDENTITY` the smoke test is as before: 152 checks
+on 15 October 2026, and no Keycloak.
+
+**On an internal network** (`internal: true`, the override above), run
+by hand on 15 October 2026 since the smoke test reaches the server
+from your machine: both containers became healthy; neither could open
+a connection to an address or a name outside (`1.1.1.1:443`,
+`example.com:443`); no port was published; `identity.sh show` listed
+the realm as above; and from the server's container, by name, the
+discovery document named the issuer, the key set had the ES256 and
+RS256 keys, and a client-credentials token for `ci-example` came back
+with the issuer, `aries.example.com` and the made-up claims.
+
 ### What was checked with variants of the image
 
 The keys file replaced an sshd `AuthorizedKeysCommand` that asked
@@ -436,6 +581,7 @@ covers what `aries` and ariesd say. These are the test server's own:
 | Read the keys file ariesd writes for sshd | `docker compose exec aries cat /var/lib/aries/.ssh/aries_keys` (public keys only) |
 | See which files sshd reads for the account | `docker compose exec aries sshd -T -C user=aries \| grep -i authorizedkeys` |
 | Read the config | `docker compose exec aries cat /etc/aries/ariesd.yaml` (it holds the password) |
+| See Keycloak's realm, clients and people, with the [identity profile](#sign-in-with-a-local-identity-provider) | `docker compose --profile identity exec keycloak /opt/aries/identity.sh show` (no secret) |
 
 ## Stop and wipe
 
@@ -445,6 +591,10 @@ docker compose down              # remove the container, keep the volume
 docker compose down -v           # remove the volume too: data, host key and project
 docker image rm aries-dev:local
 ```
+
+With the identity profile, give `--profile identity` to `down`, so
+that Keycloak's container goes too; `down -v` then also removes its
+volume, with its realm and generated passwords.
 
 After `down -v`, the next start makes a new project and host key, so
 update `.aries.yaml`.
@@ -461,3 +611,4 @@ update `.aries.yaml`.
 | sshd serves every account | `AllowUsers aries`, with passwords off | Nobody else signs in |
 | A daily dump | No backups | It is for testing |
 | Telemetry is set in ariesd's unit and config, and a collector runs on the machine | `ARIES_TELEMETRY=1` sets both, and the collector runs in a container that shares the server's network namespace; metrics are exported every 5 seconds and spans within 1, and the log is exported too, which a real server does only when asked | One variable to try it, and something to look at soon after |
+| Sign-in, once built, is at the organization's identity provider, over HTTPS | Keycloak in development mode, over HTTP on `keycloak.localhost`, with a realm made by a script and generated passwords, with the `identity` profile | To develop and test sign-in with no account and no internet; never for production |
