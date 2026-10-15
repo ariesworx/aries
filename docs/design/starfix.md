@@ -663,6 +663,18 @@ Maintainer, 13 Oct 2026, on the seven questions of the stage 5 design (§18.11).
 63. `opkssh` is tried privately in the spike and not yet documented as a way in. "Not yet, trial it."
 64. A server installer comes before sign-in; `starfixd doctor` after it. "Installer before."
 65. Tunnels other than IAP are added when someone asks, as IAP was; Tailscale and WireGuard are documented now as network layers. "On request; document now."
+66. Gates are issues of a new type, with a side table (§20.3). "Gates are issues."
+67. CI reaches the server by running `sfx` as a principal of its own; starfixd neither polls a CI host nor receives webhooks (§20.4). "CI runs sfx."
+68. A human gate is passed by the principals it names, or by the project's admins when it names none, only from the session `cli`, and by its creator only when named. "Named people, else admins."
+69. There are no timer, issue or gh gate kinds: a timer is `defer_until`, an issue gate a `blocks` edge, gh the `ci` kind. "Yes, no extra kinds."
+70. Locks are per project, first in first out with waiter leases, over the CLI and the protocol only; an agent does not take one itself. "Per project, CLI only."
+71. Formulas are files in the repository that `sfx` reads; the server gets `graph.create` with run keys and the `graph` read. "Files in the repository."
+72. Wisps are dropped, with squash and burn. "Drop them."
+73. Swarm is computed by the client over `graph`. "In the client."
+74. Cross-project dependencies include edges to another project's issues, not only capabilities. Changed from the proposal, which deferred issue edges (§20.7). "Edges to issues too."
+75. Reservations wait for evidence of rework at merge, and are built then as §20.8 has them. "Wait for evidence."
+76. The MCP tool-schema budget rises from about 2,700 to about 3,000 estimated tokens, for: a gate tool for agents (add a gate and read gates; passing stays a person's, decision 68), `defer_until` and `due` on the create and update tools, linking an issue to an issue or capability in another project, and, once reservations are built, `start`'s reserve. Changed from the proposal, which kept the budget. Asked which tools the room pays for: "A gate tool for agents, Dates on the MCP tools, A cross-project dependency tool, Reservations for agents"; and the size: "3,000 tokens."
+77. Each slice that adds ops raises the protocol by one, keeping `ProtoMin` one back. "One bump per slice."
 
 ## 15. Projects and access
 
@@ -1955,7 +1967,7 @@ The maintainer answered the six questions on 14 Oct 2026; they are decisions 46 
 
 ## 20. Coordination across agents and projects: the stage 6 design
 
-Designed 15 Oct 2026, from §3, §4, §7, §13 and what stages 1 to 5 built. **Proposed, not decided, and nothing here is built.** Where this differs from the rows of §3, §4 and §7, it says so and why; they stay as the plan they were.
+Designed 15 Oct 2026, from §3, §4, §7, §13 and what stages 1 to 5 built. **Decided 15 Oct 2026 (§20.11; §14, decisions 66 to 77), and nothing here is built.** Two answers differ from the proposal below: cross-project edges include another project's issues (decision 74), and the MCP budget rises to about 3,000 tokens for agent tools (decision 76); each section says where. Where this differs from the rows of §3, §4 and §7, it says so and why; they stay as the plan they were.
 
 In short: stage 6 is six parts, ordered by the failure each prevents and built so that each is useful without the next. **Gates** are issues of a new type that only a named person, or a CI job with a principal of its own, can close; everything the blocked derivation already does then applies to them unchanged. **CI reaches the server by running `sfx`**, as any client does: no listener, no polling, no webhook. **Locks** are leased, fenced, first-in-first-out mutexes and semaphores for a merge train, a deploy or a shared resource, held by a client that renews them. **Graphs**: one write creates a whole plan or formula run, idempotently; templates are files in the repository that `sfx` reads; waves and parallelism are computed by the client over one new read. **Cross-project** dependencies start as named capabilities a project ships, mirrored into the projects that wait on them. **Reservations** of paths, tied to a claim, come last, and only if rework shows they are needed. starfixd gains no runner, no template engine, no outbound call and no port; the MCP tool set gains about 20 estimated tokens, at the last slice.
 
@@ -2086,7 +2098,7 @@ Each project is its own database with its own writer (decision 11), so no transa
 - **An edge** to it is a `deps` row in A whose target is `cap:PROJECT/NAME`, made by `sfx dep add ID cap:…`. The blocked derivation counts such a target as unclosed unless the edge's mirrored state is `shipped`, so an edge in any other state blocks.
 - **The relay.** When the daemon commits a ship or unship, it writes the new state onto the edges of each open project that has one, as `starfixd`, with a `dep.target` event and an inbox item to each dependent's assignee (`dep.shipped`). Each store keeps its `cap:` targets in memory, loaded at open and kept by its own `dep` writes. **The reconcile:** at a store's open and on each reaper tick, edges whose mirrored state differs from the index are written the same way, so a relay lost to a crash, or a store closed at the time, costs a tick and never a wrong answer for long.
 - **Visibility.** A capability is visible to the members of its project. Linking to one needs membership in both projects: the person who bridges them agrees to tell A. A link to a capability the caller cannot see is refused `not_found`, so the refusal is no oracle. Once made, the edge shows the target's name and state to every member of A: one bit, on a bridge's say. A capability removed, or an owner archived, shows `unknown` and blocks; `sfx dep rm` frees it.
-- **Edges to another project's issues** (`B/ISSUE`) would use the same mirror, reading B's store in the relay and the reconcile instead of the index, and would show A only open or closed. Deferred until someone asks: capabilities answer "my work waits for their feature", and an issue edge shows B's backlog to A.
+- **Decided otherwise (decision 74): edges to another project's issues are built in stage 6 too,** on the mirror (option B), showing A only whether the issue is open or closed, with the same rule for linking (a member of both projects) and the same refusal for an issue the caller cannot see. As first proposed: edges to another project's issues (`B/ISSUE`) would use the same mirror, reading B's store in the relay and the reconcile instead of the index, and would show A only open or closed. Deferred until someone asks: capabilities answer "my work waits for their feature", and an issue edge shows B's backlog to A.
 - **Cross-project gates** follow: a gate in A that waits on B is an edge to B's capability, or a gate whose approvers are B's people.
 
 ### 20.8 Reservations
@@ -2155,6 +2167,8 @@ Each project is its own database with its own writer (decision 11), so no transa
 G0 alone is worth releasing: a person can hold agents back and know they stay held. G1 turns gates from assertions into outcomes. G2 and G3 are what Bearings B3 waits for. G4 waits for a server of several projects to ask, and G5 for evidence.
 
 ### 20.11 Decisions for the maintainer
+
+The maintainer answered the twelve questions on 15 Oct 2026; they are decisions 66 to 77 of §14, which has the answers. Ten stand as proposed. The ninth (decision 74) brings edges to another project's issues into stage 6, on the mirror of §20.7 (option B), beside capabilities. The eleventh (decision 76) raises the MCP budget to about 3,000 tokens for a gate tool, dates on create and update, a cross-project link and, later, reservations. The questions as they were put follow.
 
 1. **Gates are issues** of a new type with a side table, not a blocker kind beside issues. Recommended (§20.3, A). Cost: three special cases (`ready`, `start`, `close`) and a type that lists show.
 2. **CI reaches the server by running `sfx`** as a principal of its own; no polling and no webhook in starfixd (§20.4). Recommended. Cost: CI needs a network path to sshd and, until workload sign-in, a stored key; the CI principal has a member's rights until decision 8 narrows them.
