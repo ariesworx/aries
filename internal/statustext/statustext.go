@@ -232,8 +232,8 @@ func clockLines(c proto.ClockStatus) string {
 }
 
 // What the collector's cycles for each 100 writes said of a Go memory
-// limit in one set of measurements (spike/multidb/RESULTS.md, section
-// 5: Linux on arm64 in a container, synthetic issues of one shape):
+// limit in one set of measurements (stage 3a's, section 5, now in git
+// history: Linux on arm64 in a container, synthetic issues of one shape):
 // every run whose limit cost at most twice the CPU made fewer than
 // gcRoom, and every run past the cliff more than gcTooLow.
 const (

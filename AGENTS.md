@@ -63,8 +63,6 @@ stage is in progress.
 | `mise.toml` | Go, golangci-lint and shellcheck versions for contributors who use mise; optional |
 | `install-server.sh` | The server installer: does docs/server.md's setup, for a server of many projects, on a fresh Ubuntu 24.04 LTS or 26.04 LTS machine, as root, each step checking before it acts; `--dry-run` changes nothing. It installs the binaries through `install.sh`, holds no release key, and holds the Dolt pin, which `internal/version` keeps in step. `scripts/installserver_test.go` fails when its steps, or the text of a file it writes, differ from the guide's ([With the installer](docs/server.md#with-the-installer)) |
 | `install.sh` | The one-line installer for `sfx` and `starfixd`, from GitHub or from a static tree (`STARFIX_RELEASES`); `internal/release/install_test.go` and `install_static_test.go` run it against each, and tests check that its key is in `keys.go` and its `DEFAULT_RELEASES` is `release.DefaultSource` |
-| `spike/dolt` | Stage 0 measurements, kept as evidence; not maintained and excluded from lint |
-| `spike/multidb` | Stage 3a measurements of many databases in one Dolt, kept as evidence; not maintained and excluded from lint |
 | `spike/outbox` | Stage 5 (slice F0) measurements of the local store of design §18.4 under many processes: file locks, the outbox, replay, compaction and the cache. Kept as evidence; not maintained and excluded from lint |
 | `spike/postgres` | Measurements of the store on Postgres beside Dolt, a module of its own with a copy of the store at the time, kept as the evidence for decision 79 (design §14). Not maintained and excluded from lint |
 | `docs` | User guides: concepts, `sfx`, agents, CI gates and their workflows, running a server, deployment examples, install, moving from bd, the security model |
@@ -242,7 +240,7 @@ and what a test that passes there does not do.
 6. **Every `UPDATE` sets `write_id = ?`** to a value unique to that write.
    Dolt detects conflicts per cell, not per row, so `rev = rev + 1` alone
    lets two concurrent writers both succeed silently (stage 0,
-   `spike/dolt/RESULTS.md`). `wtx.exec` refuses an `UPDATE` without it.
+   summarized in `spike/postgres/RESULTS.md`). `wtx.exec` refuses an `UPDATE` without it.
    `SELECT ... FOR UPDATE` does not lock in Dolt; do not use it.
 7. **Every mutation appends an event** with `wtx.event`, in the same
    transaction. `writeOnce` refuses a transaction that changed rows but

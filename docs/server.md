@@ -62,7 +62,7 @@ For complete deployments with costs, see the
   14 October 2026; [the profile](design/profile-starfixd.md#2-a-bridge-that-is-not-the-whole-of-starfixd)
   has how). Under the stage 0 load test Dolt reached 1.4 GB and about
   250 writes a second on 4 vCPUs
-  ([results](../spike/dolt/RESULTS.md)), roughly ten times what a busy
+  ([results](https://github.com/ariesworx/aries/blob/fbbbf4655665845db81a72d2bbd1845472fd1c5a/spike/dolt/RESULTS.md)), roughly ten times what a busy
   team of agents needs. 2 GB of memory suits a team with one project of
   a few thousand issues; [Dolt's memory](#dolts-memory) says how it grows
   and how to get it back. The data starts at under 1 MB.
@@ -3826,7 +3826,7 @@ past either it is refused with `invalid`.
 Watch the size of `/var/lib/dolt/data`. If it grows, run `dolt gc` in a
 quiet hour: `cd /var/lib/dolt/data/starfix && sudo -u dolt -H dolt gc`.
 It grows faster than the rows suggest: in
-[the measurements](../spike/multidb/RESULTS.md) Dolt's files took 28 to
+[the measurements](https://github.com/ariesworx/aries/blob/fbbbf4655665845db81a72d2bbd1845472fd1c5a/spike/multidb/RESULTS.md) Dolt's files took 28 to
 56 KiB for each write, 6.5 GiB for a project of 30,000 small issues, and
 its garbage collection made them 7 to 47 times smaller. It is also how
 to get Dolt's memory back ([Dolt's memory](#dolts-memory)).
@@ -3834,7 +3834,7 @@ to get Dolt's memory back ([Dolt's memory](#dolts-memory)).
 ## Dolt's memory
 
 Dolt, not starfixd, is what the machine's memory goes to. These figures
-are from [one set of measurements](../spike/multidb/RESULTS.md): Linux
+are from [one set of measurements](https://github.com/ariesworx/aries/blob/fbbbf4655665845db81a72d2bbd1845472fd1c5a/spike/multidb/RESULTS.md): Linux
 on arm64, in a container on a laptop, with synthetic issues of one shape
 written as fast as a writer can. Take the shape from them, and check the
 sizes on your own server.

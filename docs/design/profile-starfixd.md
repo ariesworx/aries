@@ -26,7 +26,7 @@ apart between runs ([§4.8](#48-what-load-did-to-the-times)). Read the
 times for their order of size and their shape, never for a few percent.
 
 Dolt's own memory is not here. Stage 3a measured it
-([spike/multidb/RESULTS.md](../../spike/multidb/RESULTS.md),
+([spike/multidb/RESULTS.md](https://github.com/ariesworx/aries/blob/fbbbf4655665845db81a72d2bbd1845472fd1c5a/spike/multidb/RESULTS.md),
 [docs/server.md](../server.md#dolts-memory)): 95 to 180 MiB for each
 small project written to. That is Dolt's, beside which everything
 below is small.
@@ -1353,7 +1353,7 @@ reading.
   the counts will be the same on Linux; resident memory, the bridge's
   size and every time will not. The commit is where it matters most:
   stage 0 measured 233 writes a second for one writer on Linux, 4.3 ms
-  each ([spike/dolt/RESULTS.md](../../spike/dolt/RESULTS.md)), against
+  each ([spike/dolt/RESULTS.md](https://github.com/ariesworx/aries/blob/fbbbf4655665845db81a72d2bbd1845472fd1c5a/spike/dolt/RESULTS.md)), against
   9 to 15 ms here. Whether the difference is the operating system's
   durable write, this machine's load or Dolt's version was not looked
   into, and nor was what Dolt does in a commit.

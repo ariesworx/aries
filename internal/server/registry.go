@@ -19,7 +19,7 @@ import (
 //
 // Closing a store gives back its connections to Dolt, the writer and the
 // readers, and nothing else: Dolt's memory follows the data written and
-// stays (spike/multidb).
+// stays (stage 3a's measurements).
 type registry struct {
 	// open opens a project's store and readies it to serve.
 	open func(context.Context, store.Project) (*served, error)

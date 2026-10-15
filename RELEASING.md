@@ -114,7 +114,8 @@ The digests come from the same place as the archives, so the pin
 protects against an archive that changes after it was pinned, not
 against a release that was bad when it was pinned. Run the whole gate
 against the new Dolt before merging: a Dolt release can change behavior
-the store depends on (`spike/dolt/RESULTS.md`).
+the store depends on (stage 0, summarized in
+`spike/postgres/RESULTS.md`).
 
 ## Cutting a release
 

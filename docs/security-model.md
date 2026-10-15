@@ -407,7 +407,7 @@ and still nothing on `*.*`. It can create a database, because Dolt checks
 `CREATE DATABASE` against the connection's current database; it can use
 one only where root granted that name, so `sfx admin project add` cannot
 reach a database outside the block
-([measurements](../spike/multidb/RESULTS.md)).
+([measurements](https://github.com/ariesworx/aries/blob/fbbbf4655665845db81a72d2bbd1845472fd1c5a/spike/multidb/RESULTS.md)).
 
 A passwordless `root` cannot be seen from a least-privileged account, so
 starfixd cannot check for it. [Step

@@ -151,7 +151,7 @@ Evidence is a file, a test or a section. "Searched" names the patterns looked fo
 | High availability, failover, multi-region | Absent | "No high availability" ([deploy/README.md](../deploy/README.md)); searched `replica`, `standby`, `failover` in `docs/` |
 | Metrics, traces, health checks | Designed; first slice in flight | Starfix §16 |
 | `sfx admin status` | Built, tested | `internal/server/status.go`; `status_test.go` |
-| Scale measurements | Built, on a laptop | [spike/dolt](../../spike/dolt/RESULTS.md) (4 vCPU Linux, about 250 writes a second); [spike/multidb](../../spike/multidb/RESULTS.md) (macOS; lists four things not measured) |
+| Scale measurements | Built, on a laptop | [spike/dolt](https://github.com/ariesworx/aries/blob/fbbbf4655665845db81a72d2bbd1845472fd1c5a/spike/dolt/RESULTS.md) (4 vCPU Linux, about 250 writes a second); [spike/multidb](https://github.com/ariesworx/aries/blob/fbbbf4655665845db81a72d2bbd1845472fd1c5a/spike/multidb/RESULTS.md) (macOS; lists four things not measured) |
 | SELinux; AppArmor profile | Unsupported; Decided | Decision 23 |
 
 ### 8. Bearings

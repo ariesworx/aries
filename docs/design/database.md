@@ -85,7 +85,7 @@ Vectors don't decide the database: every row above works behind starfixd, and th
 
 ## Spike (one day, before any schema work)
 
-Done 6 Oct 2026: Dolt is OK with the conditions above. Results: `spike/dolt/RESULTS.md`.
+Done 6 Oct 2026: Dolt is OK with the conditions above. Results: `spike/dolt/RESULTS.md`, removed by decision 79 and summarized in `spike/postgres/RESULTS.md`.
 
 1. 20–50 goroutines claiming from one ready queue through compare-and-set: conflict rate, p99 latency, double claims (must be 0).
 2. A sustained write mix with a Dolt commit per request versus batched commits: throughput and p99.

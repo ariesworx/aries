@@ -37,7 +37,7 @@ To try starfix, or test a branch, on any machine with Docker, use the
 - **Size the machine by what is written between restarts of Dolt.** Dolt's
   memory grows as it writes and a restart gives most of it back; a
   project that merely exists or sits idle adds nothing measurable. In
-  [the measurements](../../spike/multidb/RESULTS.md), on macOS and then
+  [the measurements](https://github.com/ariesworx/aries/blob/fbbbf4655665845db81a72d2bbd1845472fd1c5a/spike/multidb/RESULTS.md), on macOS and then
   on Linux in a container, one project took about 1.1 GB by 3,000 issues
   and 2.1 GB by 30,000, and each further small project that was written
   to added 100 to 180 MB; after a restart Dolt took 14 to 42% of that.

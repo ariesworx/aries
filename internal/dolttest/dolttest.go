@@ -15,9 +15,10 @@
 // test one to itself while it runs, so that the tests can run in
 // parallel, and drops what a test left on it.
 //
-// Measurements (spike/multidb) also use [StartWith], for Dolt's metrics
-// endpoint and extra environment, [Server.Restart], for a new dolt process
-// on the same data, and [Server.PID].
+// Tests of Dolt's metrics also use [StartWith], for its metrics
+// endpoint and extra environment; tests and measurements use
+// [Server.Restart], for a new dolt process on the same data, and
+// [Server.PID].
 //
 // A server does not outlive the process that started it. A test binary
 // that is killed (a go test timeout, a canceled run, a stopped agent)

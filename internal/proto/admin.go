@@ -487,7 +487,8 @@ type DoltStatus struct {
 // DoltGC is how often Dolt's garbage collector ran against how much
 // starfixd wrote, over the latest window of up to ten minutes: what
 // tells a Go memory limit with room from one that is too low
-// (spike/multidb/RESULTS.md, section 5).
+// (stage 3a's measurements of many databases in one Dolt, section 5,
+// now in git history).
 type DoltGC struct {
 	// WindowSeconds is how long the window is: less than ten minutes
 	// soon after starfixd or Dolt started.
