@@ -55,7 +55,7 @@
 // the server cannot be reached, for the principal the keys this process
 // would offer belong to, by the outbox's rule ([Client.Cached]). It is
 // never shown in place of a server that answers, and never what ready,
-// blocked, list, who or claims would say ([RefusedOffline]).
+// blocked, list, who, claims, gates or dates would say ([RefusedOffline]).
 //
 // Its bounds are [CacheOptions]: 500 answers, 16 MiB and 1 MiB an answer
 // for each principal, and 7 days, the outbox's age cap. Each write

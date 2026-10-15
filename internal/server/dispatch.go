@@ -93,6 +93,12 @@ var handlers = map[string]handler{
 	proto.OpConflicts:   typed(conflicts),
 	proto.OpPropose:     typed(propose),
 	proto.OpResolve:     typed(resolve),
+	proto.OpGateAdd:     typed(gateAdd),
+	proto.OpGatePass:    typed(gatePass),
+	proto.OpGateWaive:   typed(gateWaive),
+	proto.OpGateRearm:   typed(gateRearm),
+	proto.OpGates:       typed(gates),
+	proto.OpDates:       typed(dates),
 }
 
 // typed decodes args strictly into A and calls fn.
@@ -116,6 +122,13 @@ func create(ctx context.Context, pr *served, a store.Actor, in proto.CreateArgs)
 	if in.Priority != nil {
 		p := store.Priority(*in.Priority)
 		n.Priority = &p
+	}
+	var perr *proto.Error
+	if n.DeferUntil, perr = issueDate("defer_until", in.DeferUntil); perr != nil {
+		return nil, perr
+	}
+	if n.DueAt, perr = issueDate("due", in.Due); perr != nil {
+		return nil, perr
 	}
 	is, err := pr.store.CreateIssue(ctx, a, n)
 	if err != nil {
@@ -191,6 +204,23 @@ func show(ctx context.Context, pr *served, a store.Actor, in proto.ShowArgs) (an
 	}
 	for _, c := range cs {
 		out.Conflicts = append(out.Conflicts, wireConflict(c, !in.Full))
+	}
+	if v.Issue.Type == store.TypeGate {
+		g, err := pr.store.GateOf(ctx, v.Issue.ID)
+		if err != nil {
+			return nil, pr.mapErr(ctx, proto.OpShow, in.ID, 0, err)
+		}
+		if g != nil {
+			w := wireGate(*g)
+			out.Gate = &w
+		}
+	}
+	holding, err := pr.store.GatesHolding(ctx, v.Issue.ID)
+	if err != nil {
+		return nil, pr.mapErr(ctx, proto.OpShow, in.ID, 0, err)
+	}
+	if len(holding) > 0 {
+		out.Gates = wireGates(holding)
 	}
 	if len(deps) > proto.MaxShowDeps {
 		deps, out.DepsMore = deps[:proto.MaxShowDeps], len(deps)-proto.MaxShowDeps
@@ -271,6 +301,17 @@ func blocked(ctx context.Context, pr *served, _ store.Actor, in proto.LimitArgs)
 		return nil, pr.mapErr(ctx, proto.OpBlocked, "", 0, err)
 	}
 	out := proto.BlockedResult{Issues: []proto.BlockedIssue{}}
+	var blockers []store.IssueID
+	for _, b := range bs {
+		blockers = append(blockers, b.BlockedBy...)
+	}
+	gs, err := pr.gatesOf(ctx, blockers)
+	if err != nil {
+		return nil, pr.mapErr(ctx, proto.OpBlocked, "", 0, err)
+	}
+	if len(gs) > 0 {
+		out.Gates = gs
+	}
 	for _, b := range bs {
 		bi := proto.BlockedIssue{Summary: summary(b.Summary), Via: string(b.Via), BlockedBy: []string{}}
 		if len(b.BlockedBy) > proto.MaxBlockers {
@@ -304,6 +345,17 @@ func update(ctx context.Context, pr *served, a store.Actor, in proto.UpdateArgs)
 		p.ParentID = &pid
 	}
 	p.Paths = in.Paths
+	var perr *proto.Error
+	if in.DeferUntil != nil {
+		if p.DeferUntil, perr = issueDate("defer_until", *in.DeferUntil); perr != nil {
+			return nil, perr
+		}
+	}
+	if in.Due != nil {
+		if p.DueAt, perr = issueDate("due", *in.Due); perr != nil {
+			return nil, perr
+		}
+	}
 	if !in.Park {
 		is, err := pr.store.UpdateIssue(ctx, a, store.IssueID(in.ID), store.Rev(in.Rev), p)
 		if err != nil {
@@ -608,7 +660,16 @@ func wireComment(c store.Comment) proto.Comment {
 }
 
 func summary(sm store.Summary) proto.Summary {
-	return proto.Summary{ID: string(sm.ID), Title: sm.Title, Status: string(sm.Status), Priority: int(sm.Priority)}
+	return proto.Summary{ID: string(sm.ID), Title: sm.Title, Status: string(sm.Status), Priority: int(sm.Priority),
+		DueAt: timeOrNil(sm.DueAt), DeferUntil: timeOrNil(sm.DeferUntil)}
+}
+
+// timeOrNil is t, or nil for the zero time.
+func timeOrNil(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
 }
 
 func summaries(sms []store.Summary) []proto.Summary {

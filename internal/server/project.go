@@ -41,6 +41,9 @@ type served struct {
 	// conflictAge is how long a conflict is open before digest lists it
 	// (Limits.ConflictAge).
 	conflictAge time.Duration
+	// dueSoon is how far ahead a due date makes an issue due soon
+	// (Limits.DueSoon).
+	dueSoon time.Duration
 }
 
 // reap ends the project's expired claims now and logs each.

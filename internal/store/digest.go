@@ -48,6 +48,9 @@ type DigestFilter struct {
 	// ConflictAge is how long a conflict is open before Conflicts lists
 	// it; 0 takes DefaultConflictAge.
 	ConflictAge time.Duration
+	// DueSoon is how far ahead a due date makes an issue due soon; 0
+	// takes DefaultDueSoon.
+	DueSoon time.Duration
 }
 
 // DigestItem is one issue in a digest section. What By and At mean depends
@@ -107,6 +110,10 @@ type Digest struct {
 	// first; By is the author of the parked update, At when it was
 	// parked, and Note names the field and the conflict.
 	Conflicts DigestSection
+	// Ready, DueSoon and Overdue are the issues whose defer_until passed
+	// in the window and are ready now, those due within the filter's
+	// DueSoon, and those past their due date, as [Dates] has them.
+	Ready, DueSoon, Overdue DigestSection
 	// Usage totals the time held and the tokens reported in the window
 	// (design §12.1), filtered like the sections.
 	Usage DigestUsage
@@ -213,6 +220,11 @@ func (q *digestQuery) run(ctx context.Context, d *Digest) error {
 	if err := q.conflicts(ctx, d); err != nil {
 		return err
 	}
+	var dt Dates
+	if err := q.dates(ctx, &dt); err != nil {
+		return fmt.Errorf("dates: %w", err)
+	}
+	d.Ready, d.DueSoon, d.Overdue = dt.Ready, dt.DueSoon, dt.Overdue
 	if err := q.usage(ctx, d); err != nil {
 		return err
 	}

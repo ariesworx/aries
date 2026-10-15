@@ -118,6 +118,20 @@ func (s *Store) start(ctx context.Context, actor Actor, id IssueID, ranked []Iss
 		if before.Status == StatusClosed {
 			return &StateError{ID: target, Reason: StateClosed}
 		}
+		if before.Type == TypeGate {
+			return isGateError(ctx, w.tx, target, "start")
+		}
+		gates, err := holdingGates(ctx, w.tx, target)
+		if err != nil {
+			return err
+		}
+		if len(gates) > 0 {
+			g, err := loadGate(ctx, w.tx, gates[0])
+			if err != nil {
+				return err
+			}
+			return heldError(target, g, "start")
+		}
 		c, err := loadClaim(ctx, w.tx, target)
 		if err != nil {
 			return err

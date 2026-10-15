@@ -265,6 +265,23 @@ func TestMergeRules(t *testing.T) {
 		}
 	})
 
+	t.Run("dates merge as fields: one nobody changed applies, one changed parks", func(t *testing.T) {
+		day := time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)
+		is := mustCreate(t, s, NewIssue{Title: "dated", DueAt: ptr(day)})
+		mustUpdate(t, s, bob, is.ID, IssuePatch{DueAt: ptr(day.Add(24 * time.Hour))})
+		m := merge(t, s, alice, is.ID, is.Rev, IssuePatch{DueAt: ptr(day.Add(48 * time.Hour)), DeferUntil: ptr(day)})
+		if len(m.Parked) != 1 || m.Parked[0].Field != "due_at" {
+			t.Fatalf("parked = %+v, want due_at", m.Parked)
+		}
+		if m.DueAt == nil || !m.DueAt.Equal(day.Add(24*time.Hour)) || m.DeferUntil == nil || !m.DeferUntil.Equal(day) {
+			t.Errorf("issue = due %v, defer %v; want bob's due date kept and the defer applied", m.DueAt, m.DeferUntil)
+		}
+		c := openConflicts(t, s, is.ID)[0]
+		if c.Base != "2026-11-02T00:00:00Z" || c.Mine != "2026-11-04T00:00:00Z" || c.Theirs != "2026-11-03T00:00:00Z" {
+			t.Errorf("conflict = base %q mine %q theirs %q; want the three dates", c.Base, c.Mine, c.Theirs)
+		}
+	})
+
 	t.Run("another principal's claim refuses it", func(t *testing.T) {
 		is := mustCreate(t, s, NewIssue{Title: "twelve"})
 		if _, _, err := s.StartIssue(t.Context(), bob, is.ID, time.Hour, false); err != nil {

@@ -110,7 +110,7 @@ var commands []command
 
 func init() {
 	commands = []command{
-		{"create", "create TITLE... [-p N] [-t TYPE] [--body TEXT|-] [--parent ID] [--label L]...", "create an issue and print its id", cmdCreate},
+		{"create", "create TITLE... [-p N] [-t TYPE] [--body TEXT|-] [--parent ID] [--label L]... [--defer-until DATE] [--due DATE]", "create an issue and print its id", cmdCreate},
 		{"show", "show ID [--compact]", "show an issue and its dependencies", cmdShow},
 		{"list", "list [--status S,S] [--all] [-t TYPE] [-p N,N] [--assignee A] [--parent ID] [--label L]... [-n N] [--cursor C]", "list issues (open ones unless --status or --all)", cmdList},
 		{"ready", "ready [-n N]", "list issues nothing holds back", cmdReady},
@@ -118,6 +118,7 @@ func init() {
 		{"update", "update ID [--rev N] [--title T] [--body TEXT|-] [--status S] [-p N] [-t TYPE] [--assignee A] [--parent ID] ...", "change an issue's fields", cmdUpdate},
 		{"close", "close ID [--reason TEXT] [--rev N] [--force]", "close an issue (--force, admins only: despite open acceptance items)", cmdClose},
 		{"reopen", "reopen ID [--rev N]", "reopen a closed issue", cmdReopen},
+		{"gate", gateUsage, "hold issues back until a person passes a gate: add, pass, waive, rearm or list gates", cmdGate},
 		{"dep", "dep add|rm FROM TO [--type T]", "add or remove a dependency: FROM depends on TO", cmdDep},
 		{"label", "label add|rm ID LABEL...", "add or remove labels", cmdLabel},
 		{"comment", "comment ID TEXT...|-", "add a comment", cmdComment},

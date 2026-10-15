@@ -389,3 +389,21 @@ func TestCachedLine(t *testing.T) {
 		t.Errorf("CachedLine = %q\nwant %q", got, want)
 	}
 }
+
+// The reads that say what holds work back now are refused offline, as
+// ready is; a copy of them would be wrong in the way that matters.
+func TestRefusedOffline(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		op   string
+		want bool
+	}{
+		{proto.OpReady, true}, {proto.OpBlocked, true}, {proto.OpList, true}, {proto.OpWho, true}, {proto.OpClaims, true},
+		{proto.OpGates, true}, {proto.OpDates, true},
+		{proto.OpShow, false}, {proto.OpDigest, false}, {proto.OpInbox, false},
+	} {
+		if got := RefusedOffline(tc.op); got != tc.want {
+			t.Errorf("RefusedOffline(%q) = %v, want %v", tc.op, got, tc.want)
+		}
+	}
+}

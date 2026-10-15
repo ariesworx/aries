@@ -37,6 +37,8 @@ var opArgs = map[string]any{
 	proto.OpHoursLog: proto.HoursLogArgs{}, proto.OpHoursDelete: proto.HoursDeleteArgs{}, proto.OpHours: proto.HoursArgs{},
 	proto.OpPlanSet: proto.PlanSetArgs{}, proto.OpPlans: proto.PlansArgs{},
 	proto.OpConflicts: proto.ConflictsArgs{}, proto.OpPropose: proto.ProposeArgs{}, proto.OpResolve: proto.ResolveArgs{},
+	proto.OpGateAdd: proto.GateAddArgs{}, proto.OpGatePass: proto.GateArgs{}, proto.OpGateWaive: proto.GateArgs{},
+	proto.OpGateRearm: proto.GateArgs{}, proto.OpGates: proto.GatesArgs{}, proto.OpDates: proto.DatesArgs{},
 
 	proto.OpProjectAdd: proto.ProjectAddArgs{}, proto.OpProjects: proto.AdminListArgs{}, proto.OpProjectArchive: proto.ProjectArgs{},
 	proto.OpProjectActivate: proto.ProjectArgs{}, proto.OpPrincipalAdd: proto.PrincipalAddArgs{}, proto.OpPrincipals: proto.PrincipalsArgs{},

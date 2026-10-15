@@ -282,14 +282,16 @@ and what a test that passes there does not do.
     rewords the fix as the agent's next tool call (`errors.go`).
 12. **MCP is for agents and stays small.** No admin tools over MCP: import,
     export, setup, upgrade, settings, prices, plans, projects, principals,
-    members, keys and the server's status are CLI only. An agent refused for want of access is told
+    members, keys and the server's status are CLI only, and so are passing,
+    waiving and rearming a gate, a person's act from the session `cli`
+    (agents may add and list gates). An agent refused for want of access is told
     to ask a person, never to run an admin command
     (`internal/mcpserver/errors.go`).
     Identity is implicit: the principal comes from the SSH key and the
     session from the environment, never from a tool argument. A trace
     context is the request's metadata (`_meta`), never an argument. Results are capped
     (`budget.go`: 2,000 tokens, prime and digest 1,500) and the whole tool
-    schema set at about 2,700 estimated tokens; the tests enforce both and
+    schema set at about 3,000 estimated tokens (decision 76); the tests enforce both and
     pin the tool list. Keep schema descriptions terse.
 13. **Output stays terse.** Writes return `{id, rev}`; lists return the
     compact summary. `sfx --json` prints exactly one JSON document, errors

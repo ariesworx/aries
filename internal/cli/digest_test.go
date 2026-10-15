@@ -54,6 +54,20 @@ discovered 1
 old conflicts 1
   sf-a1  P1  Fix the login redirect  alice  parked 2d2h ago  title (conflict 3)
 `},
+		{"dates", proto.DigestResult{
+			Since: ago(24 * time.Hour), Until: until,
+			Totals:  proto.DigestTotals{Events: 2, Ready: 1, DueSoon: 1, Overdue: 2},
+			Ready:   []proto.DigestItem{{ID: "sf-m1", Title: "Maintenance window", Priority: 1, By: "bob", At: ago(2 * time.Hour)}},
+			DueSoon: []proto.DigestItem{{ID: "sf-r1", Title: "Quarterly report", Priority: 2, At: until.Add(20 * time.Hour)}},
+			Overdue: []proto.DigestItem{{ID: "sf-m1", Title: "Maintenance window", Priority: 1, By: "bob", At: ago(time.Hour)}},
+		}, `since 2026-10-06 12:00 UTC (1d): 2 events
+ready since its date 1
+  sf-m1  P1  Maintenance window  bob  from 2026-10-07 10:00 UTC
+due soon 1
+  sf-r1  P2  Quarterly report    due 2026-10-08 08:00 UTC, in 20h
+overdue 2, 1 shown
+  sf-m1  P1  Maintenance window  bob  due 2026-10-07 11:00 UTC, 1h ago
+`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

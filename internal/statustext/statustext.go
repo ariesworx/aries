@@ -33,7 +33,7 @@ func when(t time.Time) string { return t.UTC().Format("2006-01-02 15:04 UTC") }
 func Print(w io.Writer, res proto.StatusResult) {
 	p := func(format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }
 	if s := res.Server; s != nil {
-		p("starfixd %s, protocol %d to %d, up %s\n", esc(s.Version), s.ProtoMin, s.ProtoMax, uptime(s.UptimeSeconds))
+		p("starfixd %s, up %s\n", esc(s.Version), uptime(s.UptimeSeconds))
 		p("stores %d of %d, connections %d of %d\n", s.OpenStores, s.OpenStoresMax, s.Conns, s.ConnsMax)
 		if k := s.KeysFile; k != nil {
 			p("keys file %s: %s\n", esc(k.Path), keysFile(*k))

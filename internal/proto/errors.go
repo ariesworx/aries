@@ -120,4 +120,10 @@ const (
 	// FixForgetSome: invalid, the caller holds as many memories in the
 	// scope as the server allows.
 	FixForgetSome = "forget memories"
+	// FixGate: invalid or forbidden, a gate holds the issue, or the
+	// change is a gate's approvers' or a person's to make; the fix names
+	// who (protocol 8).
+	FixGate = "wait for"
+	// FixGateAdd: invalid, an issue is made a gate only by gate add.
+	FixGateAdd = "add a gate with"
 )

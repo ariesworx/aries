@@ -281,7 +281,7 @@ func New(cfg Config) (*Server, error) {
 	s.slots.tel = cfg.Telemetry
 	if !multi {
 		s.single = &served{id: cfg.Project, store: cfg.Store, account: cfg.Account, log: cfg.Logger, timeout: cfg.RequestTimeout, tel: cfg.Telemetry,
-			conflictAge: time.Duration(cfg.Limits.ConflictAge)}
+			conflictAge: time.Duration(cfg.Limits.ConflictAge), dueSoon: time.Duration(cfg.Limits.DueSoon)}
 		s.single.used.Store(s.now().UnixNano()) // opened now, as openProject notes for a project of many
 		cfg.Telemetry.Watch(telemetry.StoresOpen, func() float64 { return float64(s.OpenStores()) })
 		if err := s.startClock([]*behindLog{s.startBehind(s.single.logName(), cfg.Store.ClockState())}); err != nil {
@@ -313,7 +313,7 @@ func (s *Server) openProject(ctx context.Context, p store.Project) (*served, err
 		return nil, err
 	}
 	pr := &served{id: p.ID, db: p.DBName, store: st, account: p.Account, log: s.cfg.Logger.With("project", p.ID), timeout: s.cfg.RequestTimeout,
-		tel: s.cfg.Telemetry, conflictAge: time.Duration(s.cfg.Limits.ConflictAge)}
+		tel: s.cfg.Telemetry, conflictAge: time.Duration(s.cfg.Limits.ConflictAge), dueSoon: time.Duration(s.cfg.Limits.DueSoon)}
 	pr.used.Store(s.now().UnixNano())
 	pr.log.InfoContext(ctx, "project store opened", "event", logs.ProjectOpened, "name", p.Name, "database", p.DBName)
 	s.mu.Lock()

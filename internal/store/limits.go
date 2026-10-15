@@ -79,6 +79,12 @@ type Limits struct {
 	// refused, and nothing of it applies.
 	ConflictsPerIssue     int `yaml:"conflicts_per_issue"`
 	ConflictsPerPrincipal int `yaml:"conflicts_per_principal"`
+	// GateApprovers caps the principals one gate names (design §20.9);
+	// at most 100.
+	GateApprovers int `yaml:"gate_approvers"`
+	// OpenGates caps the open gates in a project; an add past it is
+	// refused as busy until one is passed or waived.
+	OpenGates int `yaml:"open_gates"`
 }
 
 // DefaultLimits are the limits a zero field takes.
@@ -86,7 +92,7 @@ var DefaultLimits = Limits{Labels: 50, AcceptanceItems: 200, Deps: 200, Sessions
 	UsageRecords: 500, UsagePerDay: 50000, Paths: proto.MaxPaths,
 	MemoryBody: 4096, MemoryTags: 20, MemoryTagLength: 64, Memories: 1000, MemoryKeyLength: 128,
 	Prices: 1000, HoursPerDay: 50, HoursNote: 500, Plans: 1000, PlanPrincipals: 100,
-	ConflictsPerIssue: 20, ConflictsPerPrincipal: 100}
+	ConflictsPerIssue: 20, ConflictsPerPrincipal: 100, GateApprovers: 10, OpenGates: 1000}
 
 // Column sizes that bound the memory limits: a body is TEXT, and a key
 // and a tag VARCHAR(255).
@@ -94,6 +100,10 @@ const (
 	maxMemoryBody = maxText
 	maxMemoryName = 255
 )
+
+// maxGateApprovers bounds the gate_approvers limit: a gate's approvers
+// are one JSON column, read whole with the gate.
+const maxGateApprovers = 100
 
 // maxPrices bounds the prices limit: every cost report, show and digest
 // reads the whole prices table into memory.
@@ -122,6 +132,7 @@ func (l Limits) withDefaults() Limits {
 		{&l.HoursNote, &DefaultLimits.HoursNote}, {&l.Plans, &DefaultLimits.Plans},
 		{&l.PlanPrincipals, &DefaultLimits.PlanPrincipals},
 		{&l.ConflictsPerIssue, &DefaultLimits.ConflictsPerIssue}, {&l.ConflictsPerPrincipal, &DefaultLimits.ConflictsPerPrincipal},
+		{&l.GateApprovers, &DefaultLimits.GateApprovers}, {&l.OpenGates, &DefaultLimits.OpenGates},
 	} {
 		if *f.v == 0 {
 			*f.v = *f.d
@@ -144,7 +155,7 @@ func (l Limits) Validate() error {
 		{"memories_per_scope", l.Memories}, {"memory_key_length", l.MemoryKeyLength}, {"prices", l.Prices},
 		{"hours_per_day", l.HoursPerDay}, {"hours_note", l.HoursNote}, {"plans", l.Plans},
 		{"plan_principals", l.PlanPrincipals}, {"conflicts_per_issue", l.ConflictsPerIssue},
-		{"conflicts_per_principal", l.ConflictsPerPrincipal},
+		{"conflicts_per_principal", l.ConflictsPerPrincipal}, {"gate_approvers", l.GateApprovers}, {"open_gates", l.OpenGates},
 	} {
 		if f.v < 0 {
 			return fmt.Errorf("%w: limit %s is %d; give a positive number, or leave it out for the default", ErrInvalid, f.name, f.v)
@@ -157,7 +168,7 @@ func (l Limits) Validate() error {
 		{"memory_body", l.MemoryBody, maxMemoryBody}, {"memory_tag_length", l.MemoryTagLength, maxMemoryName},
 		{"memory_key_length", l.MemoryKeyLength, maxMemoryName}, {"prices", l.Prices, maxPrices},
 		{"hours_note", l.HoursNote, maxText}, {"plans", l.Plans, maxPlans},
-		{"plan_principals", l.PlanPrincipals, maxPlanPrincipals},
+		{"plan_principals", l.PlanPrincipals, maxPlanPrincipals}, {"gate_approvers", l.GateApprovers, maxGateApprovers},
 	} {
 		if f.v > f.most {
 			return fmt.Errorf("%w: limit %s is %d; it can be at most %d", ErrInvalid, f.name, f.v, f.most)

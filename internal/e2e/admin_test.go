@@ -715,8 +715,8 @@ func TestMCPNotAMember(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tools.Tools) != 24 {
-		t.Errorf("MCP has %d tools, want the 24 it had: access is managed with sfx admin only", len(tools.Tools))
+	if len(tools.Tools) != 25 {
+		t.Errorf("MCP has %d tools, want its 25: access is managed with sfx admin only", len(tools.Tools))
 	}
 	for _, tool := range tools.Tools {
 		if strings.HasPrefix(tool.Name, "admin") || slices.Contains([]string{"project", "projects", "principal", "principals", "member", "members", "key", "keys"}, tool.Name) {
