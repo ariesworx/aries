@@ -64,6 +64,11 @@ Drop `--dry-run` to set the server up.
 [With the installer](server.md#with-the-installer) has its options, its
 steps and what it leaves to you.
 
+To have Claude Code do this from your workstation, and run the server
+afterwards, with every change shown to you before it runs, install the
+`starfix-ops` plugin from this repository
+([Operate a server with Claude Code](server.md#operate-a-server-with-claude-code)).
+
 ## Download by hand
 
 Each [release](https://github.com/ariesworx/starfix/releases) carries:
