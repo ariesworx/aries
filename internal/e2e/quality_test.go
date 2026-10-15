@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/cli"
-	"github.com/ariesworx/starfix/internal/mcpserver"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/cli"
+	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // A tool call whose response is lost to a dropped connection, after the

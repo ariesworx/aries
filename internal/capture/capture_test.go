@@ -13,7 +13,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // sink is a Send that keeps what it is sent, failing while fail is set.

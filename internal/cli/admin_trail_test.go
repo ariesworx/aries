@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // The lists of what one account added (security review of stage 3a,

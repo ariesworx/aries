@@ -24,7 +24,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // A child is told what to be through its environment.

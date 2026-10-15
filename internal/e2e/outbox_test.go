@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/cli"
-	"github.com/ariesworx/starfix/internal/mcpserver"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/cli"
+	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // ops returns the ops of an issue's events, oldest first, and the

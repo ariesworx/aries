@@ -19,11 +19,11 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
-	"github.com/ariesworx/starfix/internal/logs"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
-	"github.com/ariesworx/starfix/internal/telemetry"
+	"github.com/ariesworx/aries/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
+	"github.com/ariesworx/aries/internal/telemetry"
 )
 
 // Keys from the control store (design §15.2, decision 22). The daemon

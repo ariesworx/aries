@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/server"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/server"
+	"github.com/ariesworx/aries/internal/store"
 	"github.com/go-sql-driver/mysql"
 	"golang.org/x/crypto/ssh"
 )

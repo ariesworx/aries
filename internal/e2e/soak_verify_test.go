@@ -9,9 +9,9 @@ import (
 	"slices"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/mcpserver"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // querier is a *sql.Tx or *sql.DB.

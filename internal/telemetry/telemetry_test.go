@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/logs"
+	"github.com/ariesworx/aries/internal/logs"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"

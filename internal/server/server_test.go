@@ -19,10 +19,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/clienttest"
-	"github.com/ariesworx/starfix/internal/dolttest"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/clienttest"
+	"github.com/ariesworx/aries/internal/dolttest"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // dolts are the package's Dolt servers: a test has one to itself while it

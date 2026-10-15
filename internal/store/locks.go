@@ -9,7 +9,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/lazyregexp"
 )
 
 // Locks (design §20.5; decision 70). A lock is a name in the project,

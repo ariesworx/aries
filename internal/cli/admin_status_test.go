@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // `sfx admin status` refuses bad usage before dialing.

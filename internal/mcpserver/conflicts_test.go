@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // TestCommentProposes: comment with a conflict sends the agent's

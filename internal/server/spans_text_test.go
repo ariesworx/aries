@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
-	"github.com/ariesworx/starfix/internal/telemetry"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
+	"github.com/ariesworx/aries/internal/telemetry"
 )
 
 // plantedText marks every piece of text a test puts where a person or an

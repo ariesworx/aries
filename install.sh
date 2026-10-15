@@ -28,7 +28,7 @@ directory. Plain http is accepted only to 127.0.0.1 or [::1]. A mirror is
 not trusted: the signature and the checksum are checked the same.
 
 For tests of GitHub's layout, STARFIX_BASE_URL replaces
-https://github.com/ariesworx/starfix/releases; it must serve /latest (a
+https://github.com/ariesworx/aries/releases; it must serve /latest (a
 redirect to /tag/vX.Y.Z) and /download/vX.Y.Z/FILE.
 EOF
 }
@@ -87,7 +87,7 @@ fi
 case $releases in
 github)
 	layout=github
-	base=${STARFIX_BASE_URL:-https://github.com/ariesworx/starfix/releases} ;;
+	base=${STARFIX_BASE_URL:-https://github.com/ariesworx/aries/releases} ;;
 https://*[@?#]* | http://*[@?#]*)
 	die "STARFIX_RELEASES must not hold a user name, a password, a query or a fragment" \
 		"set it to the plain URL of the mirror" ;;
@@ -121,14 +121,14 @@ Linux) os=linux ;;
 Darwin) os=darwin ;;
 MINGW* | MSYS* | CYGWIN* | Windows*)
 	die "this script does not install on Windows" \
-		"download sfx_<version>_windows_<arch>.zip from https://github.com/ariesworx/starfix/releases, or run this script in WSL" ;;
-*) die "unsupported OS $os" "build from source: go install github.com/ariesworx/starfix/cmd/sfx@latest" ;;
+		"download sfx_<version>_windows_<arch>.zip from https://github.com/ariesworx/aries/releases, or run this script in WSL" ;;
+*) die "unsupported OS $os" "build from source: go install github.com/ariesworx/aries/cmd/sfx@latest" ;;
 esac
 arch=$(uname -m)
 case $arch in
 x86_64 | amd64) arch=amd64 ;;
 arm64 | aarch64) arch=arm64 ;;
-*) die "unsupported architecture $arch" "releases cover amd64 and arm64; build from source: go install github.com/ariesworx/starfix/cmd/$bin@latest" ;;
+*) die "unsupported architecture $arch" "releases cover amd64 and arm64; build from source: go install github.com/ariesworx/aries/cmd/$bin@latest" ;;
 esac
 if [ "$bin" = starfixd ] && [ "$os" != linux ]; then
 	die "starfixd runs on Linux only" "run --server on the Linux server, or drop --server to install sfx"
@@ -237,7 +237,7 @@ if sig_capable; then
 		! openssl pkeyutl -verify -rawin -pubin -inkey "$tmp/release.pem" \
 			-in "$tmp/checksums.txt" -sigfile "$tmp/checksums.sig" >"$tmp/out" 2>&1; then
 		die "the signature on $version's checksums.txt does not verify; nothing was installed" \
-			"do not use this download; report it at https://github.com/ariesworx/starfix/issues"
+			"do not use this download; report it at https://github.com/ariesworx/aries/issues"
 	fi
 elif [ "$require_sig" = 1 ]; then
 	die "openssl cannot check Ed25519 signatures, and --require-signature is set" \
@@ -251,11 +251,11 @@ want=$(awk -v n="$archive" '$2 == n || $2 == "*" n {print $1; exit}' "$tmp/check
 [ -n "$want" ] || die "$archive is not listed in $version's checksums.txt" "check that release $version has $archive"
 got=$(sha256 "$tmp/$archive")
 [ "$got" = "$want" ] || die "checksum mismatch for $archive (got $got, want $want); nothing was installed" \
-	"retry; if it persists, report it at https://github.com/ariesworx/starfix/issues"
+	"retry; if it persists, report it at https://github.com/ariesworx/aries/issues"
 
 mkdir "$tmp/x"
 tar -xzf "$tmp/$archive" -C "$tmp/x" "$bin" || die "cannot unpack $bin from $archive" "retry the download"
-[ -f "$tmp/x/$bin" ] || die "$archive holds no $bin" "report it at https://github.com/ariesworx/starfix/issues"
+[ -f "$tmp/x/$bin" ] || die "$archive holds no $bin" "report it at https://github.com/ariesworx/aries/issues"
 
 mkdir -p "$dir" || die "cannot create $dir" "pass --dir with a directory you can write"
 dest=$dir/$bin

@@ -9,11 +9,11 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/ariesworx/starfix/internal/cli"
-	"github.com/ariesworx/starfix/internal/mcpserver"
-	"github.com/ariesworx/starfix/internal/offline"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/cli"
+	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/offline"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 const cachedPrefix = "cached: starfix cannot reach its server, so this is this machine's copy from "

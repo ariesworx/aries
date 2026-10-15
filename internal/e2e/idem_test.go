@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/cli"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/cli"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // TestReplayAfterADayAppliesOnce is F2's gate, its first half: "A replay

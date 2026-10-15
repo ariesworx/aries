@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/cli"
-	"github.com/ariesworx/starfix/internal/client"
+	"github.com/ariesworx/aries/internal/cli"
+	"github.com/ariesworx/aries/internal/client"
 )
 
 // TestWhoami runs `sfx whoami` through SSH and the daemon: it names the

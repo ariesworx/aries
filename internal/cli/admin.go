@@ -10,8 +10,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Access management (design §15.4): `sfx admin project`, `principal`,

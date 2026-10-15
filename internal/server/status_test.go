@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // byName indexes a status report's projects.

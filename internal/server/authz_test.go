@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // TestDispatchHeldIssue maps each guarded write on an issue alice holds,

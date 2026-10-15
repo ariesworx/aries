@@ -83,7 +83,7 @@ jobs:
           set -euo pipefail
           dist="$RUNNER_TEMP/dist"
           ver="${TAG#v}"
-          ldflags="-s -w -X github.com/ariesworx/starfix/internal/version.Version=${TAG}"
+          ldflags="-s -w -X github.com/ariesworx/aries/internal/version.Version=${TAG}"
           export CGO_ENABLED=0
           SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
           mkdir -p "$dist"

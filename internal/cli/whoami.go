@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/ariesworx/starfix/internal/client"
+	"github.com/ariesworx/aries/internal/client"
 )
 
 // whoami is what `sfx whoami` reports: who the server takes this

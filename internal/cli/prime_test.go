@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // primeHook runs `sfx prime --hook` with stdin as the hook's input.

@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // People at their own terminals: the session a gate is passed from.

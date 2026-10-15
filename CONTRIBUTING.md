@@ -15,7 +15,7 @@ With [mise](https://mise.jdx.dev), which reads the tool versions from
 [mise.toml](mise.toml):
 
 ```sh
-git clone https://github.com/ariesworx/starfix && cd starfix
+git clone https://github.com/ariesworx/aries && cd starfix
 mise install        # Go, golangci-lint and shellcheck
 scripts/gate.sh     # fetches the pinned Dolt, then runs what CI runs
 ```

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/logs"
+	"github.com/ariesworx/aries/internal/logs"
 	"github.com/go-logr/logr"
 	"go.opentelemetry.io/otel"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"

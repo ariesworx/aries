@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/lazyregexp"
 )
 
 // backupTagPattern bounds a backup tag name to what Dolt accepts as a ref.

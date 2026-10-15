@@ -23,7 +23,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/lazyregexp"
 )
 
 // branchTypes maps an issue type to its branch prefix. The prefixes are

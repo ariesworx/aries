@@ -46,9 +46,9 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"github.com/ariesworx/starfix/internal/dolttest"
-	"github.com/ariesworx/starfix/spike/postgres/pgtest"
-	"github.com/ariesworx/starfix/spike/postgres/store"
+	"github.com/ariesworx/aries/internal/dolttest"
+	"github.com/ariesworx/aries/spike/postgres/pgtest"
+	"github.com/ariesworx/aries/spike/postgres/store"
 )
 
 var (

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // The cache's default bounds (doc.go, "The cache"), for each principal's

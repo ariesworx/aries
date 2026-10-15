@@ -15,8 +15,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/safetext"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/safetext"
 )
 
 // esc makes a string from the server safe to print on one line.

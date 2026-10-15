@@ -14,8 +14,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // `sfx admin key`: a principal's public SSH keys, which the server's

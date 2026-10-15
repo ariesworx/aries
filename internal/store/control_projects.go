@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/lazyregexp"
 )
 
 // ProjectState is where a project is in its life.

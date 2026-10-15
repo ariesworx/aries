@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/cli"
-	"github.com/ariesworx/starfix/internal/iaptest"
+	"github.com/ariesworx/aries/internal/cli"
+	"github.com/ariesworx/aries/internal/iaptest"
 )
 
 // viaIAP points this user's .starfix.yaml at the world's server through

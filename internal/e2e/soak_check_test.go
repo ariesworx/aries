@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // The soak's invariants. The monitor checks what each acknowledged answer

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/lazyregexp"
 )
 
 // Human hours (design §12.1). A person logs the time they spent on an

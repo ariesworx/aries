@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/gitx"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/gitx"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Values the server accepts. The input schemas carry them as enums, so a

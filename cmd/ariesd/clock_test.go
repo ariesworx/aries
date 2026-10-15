@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/server"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/server"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // writtenAhead writes one event to the database at dsn by a clock ahead

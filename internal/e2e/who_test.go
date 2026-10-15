@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Two sessions of one person, under two harnesses, show up in `sfx who`

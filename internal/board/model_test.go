@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 var t0 = time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)

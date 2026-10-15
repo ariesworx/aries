@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Benchmarks of the outbox as a client would use it

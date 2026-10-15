@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/cli"
-	"github.com/ariesworx/starfix/internal/mcpserver"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/cli"
+	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // usageCall sends a usage request on a raw session and returns its result.

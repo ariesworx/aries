@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/release"
+	"github.com/ariesworx/aries/internal/release"
 )
 
 // goldenIndex is index.json exactly as Encode writes it. install.sh reads

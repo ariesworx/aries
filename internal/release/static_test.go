@@ -16,8 +16,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/release"
-	"github.com/ariesworx/starfix/internal/release/releasetest"
+	"github.com/ariesworx/aries/internal/release"
+	"github.com/ariesworx/aries/internal/release/releasetest"
 )
 
 // newTree is a tree of three releases: v1.1.0, v1.2.0 with sfx for linux

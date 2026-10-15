@@ -7,7 +7,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ariesworx/starfix/internal/cli"
+	"github.com/ariesworx/aries/internal/cli"
 )
 
 // TestHostKeyRotation is the operator's rotation of the server's host

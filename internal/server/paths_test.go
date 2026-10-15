@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // Files to issues through the protocol: renew records the paths a

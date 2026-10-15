@@ -31,7 +31,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/release"
+	"github.com/ariesworx/aries/internal/release"
 )
 
 // Repo is the repository the fake serves.

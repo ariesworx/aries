@@ -11,9 +11,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/bdimport"
-	"github.com/ariesworx/starfix/internal/server"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/bdimport"
+	"github.com/ariesworx/aries/internal/server"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // exitError ends the program with a code after the command has already

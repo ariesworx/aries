@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/cli"
-	"github.com/ariesworx/starfix/internal/mcpserver"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/cli"
+	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // gitInit makes dir a repository with one commit. TestMain isolates it

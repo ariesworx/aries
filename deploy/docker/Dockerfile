@@ -42,7 +42,7 @@ ARG VERSION=dev
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
-      -ldflags "-s -w -X github.com/ariesworx/starfix/internal/version.Version=${VERSION}" \
+      -ldflags "-s -w -X github.com/ariesworx/aries/internal/version.Version=${VERSION}" \
       -o /out/ ./cmd/starfixd ./cmd/sfx
 
 # ubuntu:24.04.5, the release docs/server.md's steps were tested on

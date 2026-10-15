@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Files to issues (design §12 item 3): the paths an issue's work touched,

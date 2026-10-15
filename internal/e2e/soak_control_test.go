@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // The control store's side of the soak: a replay of its own event log,

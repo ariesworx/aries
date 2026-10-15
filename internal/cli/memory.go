@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // memoryScopes are the scopes a memory may have; empty is project.

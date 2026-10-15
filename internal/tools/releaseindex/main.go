@@ -34,7 +34,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/release"
+	"github.com/ariesworx/aries/internal/release"
 )
 
 const usage = `usage:

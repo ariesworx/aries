@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ariesworx/starfix/internal/board"
-	"github.com/ariesworx/starfix/internal/mcpserver"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/board"
+	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // cmdTUI shows the live board (internal/board) until q. It needs a

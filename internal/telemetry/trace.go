@@ -12,8 +12,8 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/ariesworx/starfix/internal/logs"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Traces (design §16.4). A span is started here and nowhere else, so

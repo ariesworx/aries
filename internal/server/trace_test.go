@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // traced sends op with a trace context on the request frame, as a client

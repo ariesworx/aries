@@ -1,6 +1,6 @@
 # starfix
 
-[![ci](https://github.com/ariesworx/starfix/actions/workflows/ci.yml/badge.svg)](https://github.com/ariesworx/starfix/actions/workflows/ci.yml)
+[![ci](https://github.com/ariesworx/aries/actions/workflows/ci.yml/badge.svg)](https://github.com/ariesworx/aries/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 **An issue tracker built for AI coding agents.** Agents claim work, hand
@@ -150,7 +150,7 @@ curl -fsSL https://raw.githubusercontent.com/ariesworx/starfix/main/install.sh |
 The script checks the release's checksum, and its signature when
 OpenSSL 3 is installed, then installs `sfx` into `~/.local/bin`. It never
 uses sudo. On Windows, download the zip
-from the [releases page](https://github.com/ariesworx/starfix/releases).
+from the [releases page](https://github.com/ariesworx/aries/releases).
 [Installing starfix](docs/install.md) covers the options, the server
 binary, building from source and verifying a download by hand. A server
 on Ubuntu 24.04 LTS or 26.04 LTS is set up by one script, `install-server.sh`

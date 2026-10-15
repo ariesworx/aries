@@ -15,7 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // MaxBatch is the most records one usage call sends: the server's

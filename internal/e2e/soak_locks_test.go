@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/mcpserver"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Locks in the soak: the gate of stage 6's slice G2 (design §20.10).

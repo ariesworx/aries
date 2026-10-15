@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // newKey is the host key a server rotates to from oldKey.

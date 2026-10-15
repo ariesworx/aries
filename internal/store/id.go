@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/lazyregexp"
 )
 
 // IssueID is "<prefix>-<suffix>". New IDs have an 8-character suffix (40

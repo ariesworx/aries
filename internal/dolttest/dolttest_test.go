@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/version"
+	"github.com/ariesworx/aries/internal/version"
 )
 
 // shortDir makes a directory for a server, removed when t ends. Not

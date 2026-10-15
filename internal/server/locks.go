@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/logs"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // Locks (design §20.5; stage 6, slice G2). The rules are the store's

@@ -16,7 +16,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/lazyregexp"
 )
 
 // Kind names what a [Finding] looks like. It never holds the text found.

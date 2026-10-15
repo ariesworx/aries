@@ -8,7 +8,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/lazyregexp"
 )
 
 // Agents registry (design §3, §7): who is at work, on which machine and

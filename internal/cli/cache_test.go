@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/mcpserver"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // keptAs seeds principal's cache as connected reads would have, at the

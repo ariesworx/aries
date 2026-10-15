@@ -3,7 +3,7 @@
   "description": "Claude Code plugins for running starfix, from the starfix repository",
   "owner": {
     "name": "starfix maintainers",
-    "url": "https://github.com/ariesworx/starfix"
+    "url": "https://github.com/ariesworx/aries"
   },
   "plugins": [
     {

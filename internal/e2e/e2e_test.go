@@ -36,16 +36,16 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ariesworx/starfix/internal/cli"
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/clienttest"
-	"github.com/ariesworx/starfix/internal/dolttest"
-	"github.com/ariesworx/starfix/internal/iaptest"
-	"github.com/ariesworx/starfix/internal/offline"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/server"
-	"github.com/ariesworx/starfix/internal/store"
-	"github.com/ariesworx/starfix/internal/telemetry"
+	"github.com/ariesworx/aries/internal/cli"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/clienttest"
+	"github.com/ariesworx/aries/internal/dolttest"
+	"github.com/ariesworx/aries/internal/iaptest"
+	"github.com/ariesworx/aries/internal/offline"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/server"
+	"github.com/ariesworx/aries/internal/store"
+	"github.com/ariesworx/aries/internal/telemetry"
 )
 
 // dolts are the package's Dolt servers: a test has one to itself while it

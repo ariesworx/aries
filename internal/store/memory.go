@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
-	"github.com/ariesworx/starfix/internal/safetext"
-	"github.com/ariesworx/starfix/internal/secretscan"
+	"github.com/ariesworx/aries/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/safetext"
+	"github.com/ariesworx/aries/internal/secretscan"
 )
 
 // Memory (design §6). A memory is a keyed note that agents and people keep

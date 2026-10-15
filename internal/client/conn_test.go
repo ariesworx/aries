@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // fakeServer is the far end of a Conn over net.Pipe.

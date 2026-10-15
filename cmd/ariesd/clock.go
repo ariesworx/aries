@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/server"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/server"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // clockPreflight asks, before an upgrade swaps anything, what serve

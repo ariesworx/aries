@@ -17,8 +17,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/ariesworx/starfix/internal/outbox"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/outbox"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // start is where every test's clock begins.

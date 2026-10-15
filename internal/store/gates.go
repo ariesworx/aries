@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Gates (design §20.3; decisions 66, 68 and 69). A gate is an issue of

@@ -6,8 +6,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // usage stores the usage records a client sends for its own session

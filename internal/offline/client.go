@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/outbox"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/outbox"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // EnvNoQueue is the variable that, set to anything but "", "0" or "false", makes a write that

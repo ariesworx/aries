@@ -19,9 +19,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/outbox"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/outbox"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // EnvDataDir names the directory sfx keeps its outboxes in, in place of

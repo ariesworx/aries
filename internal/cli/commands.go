@@ -12,10 +12,10 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/gitx"
-	"github.com/ariesworx/starfix/internal/offline"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/gitx"
+	"github.com/ariesworx/aries/internal/offline"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // maxStdin bounds text read from standard input with "-".

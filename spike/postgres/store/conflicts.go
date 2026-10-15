@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Conflicts (design §18.7). An update queued while the server could not

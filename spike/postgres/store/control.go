@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/logs"
+	"github.com/ariesworx/aries/internal/logs"
 )
 
 // The control store (design §15). One server serves many projects, each

@@ -4,8 +4,8 @@ import (
 	"net"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // A claim that ends with its project's archive is counted once, as a

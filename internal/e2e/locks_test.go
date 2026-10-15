@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // lockedWriter is a buffer a command's output and a test's reads may

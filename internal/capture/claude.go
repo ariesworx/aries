@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Claude Code writes one transcript per session, as JSON lines, and one

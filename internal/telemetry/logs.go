@@ -14,7 +14,7 @@ import (
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
 
-	"github.com/ariesworx/starfix/internal/logs"
+	"github.com/ariesworx/aries/internal/logs"
 )
 
 // Logs over OTLP (design §16.4). The journal is the logs' home; with

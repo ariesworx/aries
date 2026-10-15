@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // TestUnqueued pins which ops a caller is told are not queued, and why:

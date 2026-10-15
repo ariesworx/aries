@@ -5,9 +5,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/doltmetrics"
-	"github.com/ariesworx/starfix/internal/logs"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/doltmetrics"
+	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Dolt's own figures in the status report (design §16.5, decision 30).

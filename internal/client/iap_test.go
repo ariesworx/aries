@@ -20,9 +20,9 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ariesworx/starfix/internal/clienttest"
-	"github.com/ariesworx/starfix/internal/iaptest"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/clienttest"
+	"github.com/ariesworx/aries/internal/iaptest"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 func TestMain(m *testing.M) {

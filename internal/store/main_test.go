@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/dolttest"
+	"github.com/ariesworx/aries/internal/dolttest"
 )
 
 // dolts are the package's Dolt servers: a test has one to itself while it

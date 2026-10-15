@@ -1,9 +1,9 @@
-module github.com/ariesworx/starfix/spike/postgres
+module github.com/ariesworx/aries/spike/postgres
 
 go 1.27
 
 require (
-	github.com/ariesworx/starfix v0.0.0
+	github.com/ariesworx/aries v0.0.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/jackc/pgx/v5 v5.11.0
 	golang.org/x/crypto v0.58.0
@@ -19,4 +19,4 @@ require (
 	golang.org/x/text v0.43.0 // indirect
 )
 
-replace github.com/ariesworx/starfix => ../..
+replace github.com/ariesworx/aries => ../..

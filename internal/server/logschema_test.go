@@ -17,9 +17,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/logs"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/telemetry"
+	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/telemetry"
 )
 
 // slogKeys are the fields slog itself gives a line.

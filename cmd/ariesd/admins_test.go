@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // TestServeWarnsOfAnAdminSomeoneElseMade pins a note of the security

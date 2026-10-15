@@ -81,7 +81,7 @@ func initBytes(t *testing.T, trace string) (own map[string]int, all, pkgs int) {
 		}
 		pkgs++
 		all += n
-		if strings.HasPrefix(f[1], "github.com/ariesworx/starfix/") && n > 0 {
+		if strings.HasPrefix(f[1], "github.com/ariesworx/aries/") && n > 0 {
 			own[f[1]] = n
 		}
 	}

@@ -18,7 +18,7 @@ import (
 // keeps them from the developer's ~/.ssh and ssh-agent.
 func TestEveryConnectingPackageIsIsolated(t *testing.T) {
 	t.Parallel()
-	const module = `"github.com/ariesworx/starfix/internal/`
+	const module = `"github.com/ariesworx/aries/internal/`
 	connects := []string{module + `client"`, module + `cli"`, module + `mcpserver"`, module + `board"`, module + `offline"`}
 	needs, has := map[string]string{}, map[string]bool{}
 	root := filepath.Join("..", "..")
@@ -41,7 +41,7 @@ func TestEveryConnectingPackageIsIsolated(t *testing.T) {
 		}
 		src, dir := string(b), filepath.Dir(path)
 		// A package's own tests count too: client, cli, mcpserver, board.
-		own := `"github.com/ariesworx/starfix/` + filepath.ToSlash(strings.TrimPrefix(dir, root+string(filepath.Separator))) + `"`
+		own := `"github.com/ariesworx/aries/` + filepath.ToSlash(strings.TrimPrefix(dir, root+string(filepath.Separator))) + `"`
 		for _, imp := range connects {
 			if strings.Contains(src, imp) || own == imp {
 				needs[dir] = path

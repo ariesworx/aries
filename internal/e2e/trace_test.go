@@ -13,10 +13,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/ariesworx/starfix/internal/cli"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/server"
-	"github.com/ariesworx/starfix/internal/telemetry"
+	"github.com/ariesworx/aries/internal/cli"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/server"
+	"github.com/ariesworx/aries/internal/telemetry"
 )
 
 // lockedBuffer is a log sink read while the daemon still writes to it.

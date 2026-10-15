@@ -15,10 +15,10 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/gitx"
-	"github.com/ariesworx/starfix/internal/offline"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/gitx"
+	"github.com/ariesworx/aries/internal/offline"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Conn is the part of *client.Conn the server uses, so tests can stand in

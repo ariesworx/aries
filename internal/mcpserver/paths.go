@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/gitx"
+	"github.com/ariesworx/aries/internal/gitx"
 )
 
 // Files to issues (design §12 item 3), client side: the paths an issue's

@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/server"
+	"github.com/ariesworx/aries/internal/server"
 )
 
 // The soak's clock chaos (design §14, decision 37). While the sessions

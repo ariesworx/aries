@@ -14,11 +14,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/release"
-	"github.com/ariesworx/starfix/internal/server"
-	"github.com/ariesworx/starfix/internal/store"
-	"github.com/ariesworx/starfix/internal/version"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/release"
+	"github.com/ariesworx/aries/internal/server"
+	"github.com/ariesworx/aries/internal/store"
+	"github.com/ariesworx/aries/internal/version"
 )
 
 // releasesURL lists the releases, for fix lines.

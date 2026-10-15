@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/cli"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/safetext"
+	"github.com/ariesworx/aries/internal/cli"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/safetext"
 )
 
 // plant rewrites a stored row behind the store's back, as data written

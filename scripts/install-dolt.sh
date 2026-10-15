@@ -117,12 +117,12 @@ fetch "$url" "$tmp/$archive" ||
 	die "cannot download $url" "check the network, and that Dolt's release v$version has $archive"
 got=$(sha256 "$tmp/$archive")
 [ "$got" = "$want" ] || die "checksum mismatch for $archive (got $got, want $want); nothing was installed" \
-	"retry; if it persists, do not use this download, and report it at https://github.com/ariesworx/starfix/issues"
+	"retry; if it persists, do not use this download, and report it at https://github.com/ariesworx/aries/issues"
 
 member=dolt-$os-$arch/bin/dolt
 mkdir "$tmp/x"
 tar -xzf "$tmp/$archive" -C "$tmp/x" "$member" || die "cannot unpack $member from $archive" "retry the download"
-[ -f "$tmp/x/$member" ] || die "$archive holds no $member" "report it at https://github.com/ariesworx/starfix/issues"
+[ -f "$tmp/x/$member" ] || die "$archive holds no $member" "report it at https://github.com/ariesworx/aries/issues"
 
 # Build the directory beside its final name and rename it, so a run that
 # is interrupted leaves nothing that looks installed.

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/dolttest"
-	"github.com/ariesworx/starfix/spike/postgres/pgtest"
+	"github.com/ariesworx/aries/internal/dolttest"
+	"github.com/ariesworx/aries/spike/postgres/pgtest"
 )
 
 // dolts are the package's Dolt servers: a test has one to itself while it

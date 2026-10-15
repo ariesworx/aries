@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/agentsetup"
-	"github.com/ariesworx/starfix/internal/capture"
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/agentsetup"
+	"github.com/ariesworx/aries/internal/capture"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // usageTimeout bounds `usage --hook`, a little inside the timeout setup

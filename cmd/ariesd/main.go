@@ -53,13 +53,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/doltmetrics"
-	"github.com/ariesworx/starfix/internal/logs"
-	"github.com/ariesworx/starfix/internal/sdnotify"
-	"github.com/ariesworx/starfix/internal/server"
-	"github.com/ariesworx/starfix/internal/store"
-	"github.com/ariesworx/starfix/internal/telemetry"
-	"github.com/ariesworx/starfix/internal/version"
+	"github.com/ariesworx/aries/internal/doltmetrics"
+	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/sdnotify"
+	"github.com/ariesworx/aries/internal/server"
+	"github.com/ariesworx/aries/internal/store"
+	"github.com/ariesworx/aries/internal/telemetry"
+	"github.com/ariesworx/aries/internal/version"
 )
 
 const usage = `usage:

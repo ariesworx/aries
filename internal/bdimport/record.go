@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
-	"github.com/ariesworx/starfix/internal/safetext"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/safetext"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // bdIssue is one issue line of bd's JSONL export (bd 1.2.2,

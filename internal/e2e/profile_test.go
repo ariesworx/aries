@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/server"
+	"github.com/ariesworx/aries/internal/server"
 )
 
 // TestProfileServer serves a world to sfx binaries started outside the

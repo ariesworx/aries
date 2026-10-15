@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ariesworx/starfix/internal/agentsetup"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/agentsetup"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // setupDesktop sets a desktop app up for the project setup runs in. The

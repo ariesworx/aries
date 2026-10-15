@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
-	"github.com/ariesworx/starfix/internal/secretscan"
+	"github.com/ariesworx/aries/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/secretscan"
 )
 
 // CI gates (design §20.3 and §20.4; decision 67; stage 6, slice G1). A

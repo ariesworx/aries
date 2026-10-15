@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/logs"
+	"github.com/ariesworx/aries/internal/logs"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
@@ -30,7 +30,7 @@ import (
 
 // scope names the meter starfixd's instruments belong to, and the
 // tracer of its spans.
-const scope = "github.com/ariesworx/starfix"
+const scope = "github.com/ariesworx/aries"
 
 // DefaultProjects is how many distinct projects an instrument's project
 // attribute takes when Config.Projects is zero: the default of the

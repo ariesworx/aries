@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // BenchmarkProcess is what a running starfixd costs as the operating

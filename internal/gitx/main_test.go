@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/clienttest"
+	"github.com/ariesworx/aries/internal/clienttest"
 )
 
 // TestMain keeps the git these tests start from the configuration of

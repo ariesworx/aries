@@ -21,8 +21,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/server"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/server"
 )
 
 // logBuffer is a log sink read while the daemon still writes to it.

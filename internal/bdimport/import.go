@@ -11,7 +11,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // Options configure Import.

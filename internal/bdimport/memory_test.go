@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 func memoryLine(key, value string) string {

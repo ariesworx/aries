@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/release"
-	"github.com/ariesworx/starfix/internal/release/releasetest"
-	"github.com/ariesworx/starfix/internal/server"
+	"github.com/ariesworx/aries/internal/release"
+	"github.com/ariesworx/aries/internal/release/releasetest"
+	"github.com/ariesworx/aries/internal/server"
 )
 
 const upgradeProject = "00000000-0000-4000-8000-0000000000aa"

@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/lazyregexp"
 )
 
 // Idempotency (design §7, §8, §18.5): a write may carry a client key:

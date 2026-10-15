@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/safetext"
-	"github.com/ariesworx/starfix/internal/secretscan"
+	"github.com/ariesworx/aries/internal/safetext"
+	"github.com/ariesworx/aries/internal/secretscan"
 )
 
 // The benchmarks of this file say how the store's reads and writes grow

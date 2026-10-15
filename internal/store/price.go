@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Prices (design §12.1). An admin records each model's list rates from an

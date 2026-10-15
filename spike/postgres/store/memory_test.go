@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/secretscan"
+	"github.com/ariesworx/aries/internal/secretscan"
 )
 
 func mustRemember(t *testing.T, s *Store, a Actor, in NewMemory) Memory {

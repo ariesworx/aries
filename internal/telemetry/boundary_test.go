@@ -14,7 +14,7 @@ import (
 // packages import.
 
 const (
-	module = "github.com/ariesworx/starfix"
+	module = "github.com/ariesworx/aries"
 	// here is the one package that may import the SDK.
 	here = module + "/internal/telemetry"
 )

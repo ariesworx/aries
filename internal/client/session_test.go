@@ -3,7 +3,7 @@ package client
 import (
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 func TestSessionFromEnv(t *testing.T) {

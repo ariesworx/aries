@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/statustext"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/statustext"
 )
 
 // `sfx admin status`: what the daemon knows of itself and of its

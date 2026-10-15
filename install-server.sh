@@ -276,7 +276,7 @@ ensure_dir() {
 # file of the repository, where the text is long.
 put() {
 	wrote=0
-	"$5" >"$tmp/new" || die "cannot make $1" "report it at https://github.com/ariesworx/starfix/issues"
+	"$5" >"$tmp/new" || die "cannot make $1" "report it at https://github.com/ariesworx/aries/issues"
 	if [ -e "$1" ] || [ -L "$1" ]; then
 		if [ -f "$1" ] && [ ! -L "$1" ] && cmp -s "$tmp/new" "$1"; then
 			ok "$1"
@@ -526,12 +526,12 @@ install_dolt() {
 	curl -fsSL --retry 2 -o "$tmp/$_archive" "$_url" || die "cannot download $_url" "check the network"
 	_got=$(sha256sum "$tmp/$_archive" | cut -d' ' -f1)
 	[ "$_got" = "$dolt_sha256" ] || die "checksum mismatch for $_archive (got $_got, want $dolt_sha256); nothing was installed" \
-		"retry; if it persists, do not use this download, and report it at https://github.com/ariesworx/starfix/issues"
+		"retry; if it persists, do not use this download, and report it at https://github.com/ariesworx/aries/issues"
 	say "   SHA-256 $_got, as pinned"
 	tar -xzf "$tmp/$_archive" -C "$tmp" "dolt-linux-$arch/bin/dolt" || die "cannot unpack $_archive" "retry"
 	_got=$(HOME=$tmp "$tmp/dolt-linux-$arch/bin/dolt" version 2>/dev/null | head -n 1) || _got=
 	[ "$_got" = "dolt version $dolt_version" ] || die "the dolt in $_archive does not run here; nothing was installed" \
-		"report it at https://github.com/ariesworx/starfix/issues"
+		"report it at https://github.com/ariesworx/aries/issues"
 	act install -m 0755 "$tmp/dolt-linux-$arch/bin/dolt" /usr/local/bin/dolt
 }
 
@@ -827,7 +827,7 @@ run_starfixd_unit() {
 	# to stderr.
 	if [ ! -e /etc/sudoers.d/starfix ]; then
 		sudoers >"$tmp/sudoers"
-		visudo -c -q -f "$tmp/sudoers" >/dev/null || die "visudo refuses the sudo rule" "report it at https://github.com/ariesworx/starfix/issues"
+		visudo -c -q -f "$tmp/sudoers" >/dev/null || die "visudo refuses the sudo rule" "report it at https://github.com/ariesworx/aries/issues"
 	fi
 	put /etc/sudoers.d/starfix 440 root root sudoers
 	reload_units

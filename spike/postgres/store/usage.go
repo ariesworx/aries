@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Token usage (design §12.1). A harness reports what each request cost,

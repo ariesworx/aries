@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/iaptest"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/iaptest"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Through IAP the connection is gcloud, a child process: a Dial that

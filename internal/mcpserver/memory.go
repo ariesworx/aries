@@ -3,7 +3,7 @@ package mcpserver
 import (
 	"context"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // scopes are the memory scopes, the default first.

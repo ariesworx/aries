@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/logs"
+	"github.com/ariesworx/aries/internal/logs"
 )
 
 // The server's clock is relied on and not trusted to be right (design

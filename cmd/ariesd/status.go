@@ -9,11 +9,11 @@ import (
 	"io"
 	"io/fs"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/safetext"
-	"github.com/ariesworx/starfix/internal/server"
-	"github.com/ariesworx/starfix/internal/statustext"
-	"github.com/ariesworx/starfix/internal/version"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/safetext"
+	"github.com/ariesworx/aries/internal/server"
+	"github.com/ariesworx/aries/internal/statustext"
+	"github.com/ariesworx/aries/internal/version"
 )
 
 // statusCmd runs `starfixd status [--json]`: it asks the running daemon,

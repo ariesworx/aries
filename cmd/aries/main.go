@@ -16,8 +16,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/ariesworx/starfix/internal/cli"
-	"github.com/ariesworx/starfix/internal/version"
+	"github.com/ariesworx/aries/internal/cli"
+	"github.com/ariesworx/aries/internal/version"
 )
 
 func main() {

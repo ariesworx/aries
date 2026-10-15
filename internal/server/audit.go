@@ -6,8 +6,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ariesworx/starfix/internal/logs"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // The audit stream (design §16.4, decision 30): each event of the

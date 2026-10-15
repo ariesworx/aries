@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/release"
+	"github.com/ariesworx/aries/internal/release"
 )
 
 // result is what one run returned and printed.

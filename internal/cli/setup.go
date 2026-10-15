@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ariesworx/starfix/internal/agentsetup"
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/agentsetup"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // cmdSetup prints, or with --write makes, an agent's starfix setup: the

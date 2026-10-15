@@ -8,7 +8,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Amortized cost (design §12.1): what flat-rate plans actually cost,

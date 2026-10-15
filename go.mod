@@ -1,4 +1,4 @@
-module github.com/ariesworx/starfix
+module github.com/ariesworx/aries
 
 go 1.27
 

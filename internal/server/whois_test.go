@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/telemetry"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/telemetry"
 )
 
 // aliasOn returns the principal a span of the request op carries.

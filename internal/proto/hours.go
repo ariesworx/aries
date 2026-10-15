@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/lazyregexp"
 )
 
 // Human hours and subscription plans (protocol 4, design §12.1). A

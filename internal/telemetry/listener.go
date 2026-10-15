@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/logs"
+	"github.com/ariesworx/aries/internal/logs"
 )
 
 // The loopback listener (design §16.3, decision 29): one HTTP listener,

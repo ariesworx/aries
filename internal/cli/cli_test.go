@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 func runCLI(t *testing.T, args ...string) (int, string, string) {

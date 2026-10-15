@@ -6,8 +6,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/safetext"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/safetext"
 )
 
 // Layout: below wideMin columns the board is one column; a held issue's

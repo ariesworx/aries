@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/release"
-	"github.com/ariesworx/starfix/internal/release/releasetest"
+	"github.com/ariesworx/aries/internal/release"
+	"github.com/ariesworx/aries/internal/release/releasetest"
 )
 
 type upgradeFixture struct {

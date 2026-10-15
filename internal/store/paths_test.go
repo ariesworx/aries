@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // filesOf returns an issue's paths as "source:path", in show's order.

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/cli"
+	"github.com/ariesworx/aries/internal/cli"
 )
 
 // The operations skill: a Claude Code plugin in this repository, listed

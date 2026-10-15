@@ -28,7 +28,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ariesworx/starfix/internal/release"
+	"github.com/ariesworx/aries/internal/release"
 )
 
 // EnvKey holds the private key for sign.

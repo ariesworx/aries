@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/safetext"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/safetext"
 )
 
 // Benchmarks of the command line apart from the connection

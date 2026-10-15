@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
-	"github.com/ariesworx/starfix/internal/safetext"
+	"github.com/ariesworx/aries/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/safetext"
 )
 
 // Rev is an issue's revision. It starts at 1 and rises by one with every

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // noEnv is an environment with nothing set: no ssh-agent, no key file.

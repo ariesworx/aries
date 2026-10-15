@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // IndexName is the file at the root of a static release tree that lists

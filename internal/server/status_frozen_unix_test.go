@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/dolttest"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/statustext"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/dolttest"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/statustext"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // The status report while Dolt does not answer. Dolt is stopped with

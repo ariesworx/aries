@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/agentsetup"
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/mcpserver"
-	"github.com/ariesworx/starfix/internal/offline"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/agentsetup"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/offline"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 func cmdPrime(ctx context.Context, r *runner, args []string) error {

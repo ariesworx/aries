@@ -3,7 +3,7 @@ package telemetry
 import (
 	"slices"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Instrument names one of starfixd's instruments (design §16.4).

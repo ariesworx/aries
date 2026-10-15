@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/logs"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // registry holds the open project stores of a server of many projects

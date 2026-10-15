@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/lazyregexp"
 )
 
 // The SessionStart hook runs `sfx prime --hook=AGENT` (bare --hook for

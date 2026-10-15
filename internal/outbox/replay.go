@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // CodeStale is the code of a [Refusal] this package made itself: the

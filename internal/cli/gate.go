@@ -9,8 +9,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/ariesworx/starfix/internal/gitx"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/gitx"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 const gateUsage = "gate add --blocks ID [--approver P]... [--title T]" +

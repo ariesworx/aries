@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/dolttest"
-	"github.com/ariesworx/starfix/internal/logs"
+	"github.com/ariesworx/aries/internal/dolttest"
+	"github.com/ariesworx/aries/internal/logs"
 )
 
 // lockedBuffer is a buffer a logger may write to from any goroutine.

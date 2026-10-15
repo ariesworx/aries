@@ -3,8 +3,8 @@ package server
 import (
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // TestProjectAdminCannotFillTheServersPrincipals pins the cap on what

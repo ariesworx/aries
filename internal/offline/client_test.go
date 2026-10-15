@@ -14,10 +14,10 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/clienttest"
-	"github.com/ariesworx/starfix/internal/outbox"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/clienttest"
+	"github.com/ariesworx/aries/internal/outbox"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // TestMain keeps every test here away from the real home directory,

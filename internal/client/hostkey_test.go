@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // TestDialPinsAnyListedHostKey: a dial takes the server for itself when

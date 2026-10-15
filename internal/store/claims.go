@@ -8,7 +8,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Claims (design §7). Taking an issue leases it to the actor: the holder

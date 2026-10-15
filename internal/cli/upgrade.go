@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/release"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/release"
 )
 
 // releasesURL is where a person installs a release by hand.

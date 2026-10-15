@@ -22,9 +22,9 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/server"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/server"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // TestSoak is the gate of stages 3 and 3a (design §13): many agent

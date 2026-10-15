@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // printIssueUsage prints show's account, time held and tokens by model.

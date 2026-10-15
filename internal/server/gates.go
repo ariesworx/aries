@@ -7,10 +7,10 @@ import (
 	"slices"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/gitx"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/safetext"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/gitx"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/safetext"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // Gates and dates (design §20.3; stage 6, slice G0). Who may pass, waive

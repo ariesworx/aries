@@ -7,7 +7,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // ProbePrincipal is the principal a health probe connects as. It is

@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/lazyregexp"
+	"github.com/ariesworx/aries/internal/lazyregexp"
 )
 
 // Operations. Each names its argument and result types.

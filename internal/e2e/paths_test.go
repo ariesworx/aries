@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/mcpserver"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // gitIn runs git in dir, failing the test on error.

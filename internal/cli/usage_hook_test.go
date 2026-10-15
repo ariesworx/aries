@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/agentsetup"
-	"github.com/ariesworx/starfix/internal/capture"
+	"github.com/ariesworx/aries/internal/agentsetup"
+	"github.com/ariesworx/aries/internal/capture"
 )
 
 // hookSession is the Claude Code session in these tests.

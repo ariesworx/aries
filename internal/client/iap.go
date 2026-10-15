@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // iapConn is the SSH transport through Google Cloud IAP: the stdin and

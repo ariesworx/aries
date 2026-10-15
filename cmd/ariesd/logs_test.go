@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // With OTEL_LOGS_EXPORTER=otlp the daemon's log lines also go out over

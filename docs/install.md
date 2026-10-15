@@ -36,7 +36,7 @@ Options go after `sh -s --`, for example
 | | `STARFIX_RELEASES` | Read releases from a mirror instead of the default ([below](#where-releases-are-read-from)) |
 
 On Windows, download the zip from the
-[releases page](https://github.com/ariesworx/starfix/releases) and put
+[releases page](https://github.com/ariesworx/aries/releases) and put
 `sfx.exe` on your `PATH`, or run the script inside WSL.
 
 **First run.** `sfx` needs no configuration of its own beyond the
@@ -71,7 +71,7 @@ afterwards, with every change shown to you before it runs, install the
 
 ## Download by hand
 
-Each [release](https://github.com/ariesworx/starfix/releases) carries:
+Each [release](https://github.com/ariesworx/aries/releases) carries:
 
 - `sfx` for Linux, macOS and Windows, and `starfixd` for Linux, on amd64
   and arm64, as `<binary>_<version>_<os>_<arch>.tar.gz` (`.zip` on
@@ -136,8 +136,8 @@ set `STARFIX_RELEASES` to its URL.
 ## Build from source
 
 ```sh
-go install github.com/ariesworx/starfix/cmd/sfx@latest
-go install github.com/ariesworx/starfix/cmd/starfixd@latest
+go install github.com/ariesworx/aries/cmd/sfx@latest
+go install github.com/ariesworx/aries/cmd/starfixd@latest
 ```
 
 Each builds the same code, unsigned, into `$(go env GOBIN)` or
@@ -152,7 +152,7 @@ Work from a checkout of the release's tag, so the public key comes from the
 repository rather than from the download. For release v0.2.0 on Linux:
 
 ```sh
-git clone --branch v0.2.0 https://github.com/ariesworx/starfix
+git clone --branch v0.2.0 https://github.com/ariesworx/aries
 cd starfix
 gh release download v0.2.0 -p checksums.txt -p checksums.txt.sig -p 'sfx_0.2.0_linux_amd64.tar.gz'
 go run ./internal/tools/releasekey verify checksums.txt

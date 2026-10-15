@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/doltmetrics"
-	"github.com/ariesworx/starfix/internal/dolttest"
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/statustext"
+	"github.com/ariesworx/aries/internal/doltmetrics"
+	"github.com/ariesworx/aries/internal/dolttest"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/statustext"
 )
 
 // fakeDolt stands in for Dolt's metrics endpoint: an HTTP server on

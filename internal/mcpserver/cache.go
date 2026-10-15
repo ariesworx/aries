@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/client"
-	"github.com/ariesworx/starfix/internal/offline"
+	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/offline"
 )
 
 // keeper is a Conn that keeps each answer the cache keeps

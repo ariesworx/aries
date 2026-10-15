@@ -3,8 +3,8 @@ package server
 import (
 	"context"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // conflicts lists open conflicts, of an issue or all, a page at a time,

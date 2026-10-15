@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Limits bound what one request, or one principal, can make the store

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // TestRefusalsDoNotSayWhatExists pins that what a project admin is

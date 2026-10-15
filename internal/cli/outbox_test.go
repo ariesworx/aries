@@ -18,9 +18,9 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ariesworx/starfix/internal/offline"
-	"github.com/ariesworx/starfix/internal/outbox"
-	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/aries/internal/offline"
+	"github.com/ariesworx/aries/internal/outbox"
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 const (

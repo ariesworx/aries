@@ -7,8 +7,8 @@ import (
 	"io"
 	"net"
 
-	"github.com/ariesworx/starfix/internal/proto"
-	"github.com/ariesworx/starfix/internal/store"
+	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // Bridge is `starfixd stdio`, the forced command of every developer key. It
