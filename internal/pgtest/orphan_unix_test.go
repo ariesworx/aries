@@ -269,8 +269,10 @@ func segmentExists(t *testing.T, id string) bool {
 	if err != nil {
 		t.Fatalf("ipcs: %v", err)
 	}
+	// A segment's line is "m ID KEY …" on macOS and "KEY ID …" on Linux,
+	// where KEY is hexadecimal.
 	for line := range strings.SplitSeq(string(out), "\n") {
-		if f := strings.Fields(line); len(f) > 1 && f[0] == "m" && f[1] == id {
+		if f := strings.Fields(line); len(f) > 1 && (f[0] == "m" || strings.HasPrefix(f[0], "0x")) && f[1] == id {
 			return true
 		}
 	}
