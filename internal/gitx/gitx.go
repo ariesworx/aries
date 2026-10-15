@@ -1,6 +1,7 @@
-// Package gitx is starfix's git awareness, on the client only: the branch
+// Package gitx is starfix's git awareness, on the client: the branch
 // name an issue suggests ([Branch]), the issue a branch or commit message
-// names ([IDFromBranch], [IDFromMessage], [BranchFor]), creating that
+// names ([IDFromBranch], [IDFromMessage], [BranchFor]), which the server
+// reads too, for a CI job that reports a check by its branch, creating that
 // branch or a worktree on it ([Switch], [AddWorktree]), and the paths an
 // issue's work touched ([ReadChanges]). The design is
 // docs/design/starfix.md §12 items 2 and 3, and the branch scheme is in

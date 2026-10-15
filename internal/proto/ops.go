@@ -226,6 +226,10 @@ type ShowResult struct {
 	// that hold it, directly or through a parent or a blocker (protocol 8).
 	Gate  *Gate  `json:"gate,omitempty"`
 	Gates []Gate `json:"gates,omitempty"`
+	// Checks are the ci gates whose subject the issue is, open or
+	// closed, by check: a closed issue whose landed check is open is
+	// closed and not landed (protocol 8, slice G1).
+	Checks []Gate `json:"checks,omitempty"`
 }
 
 // Tokens are token counts. A count left out is unknown, which is not 0.

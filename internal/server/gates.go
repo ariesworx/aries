@@ -1,12 +1,15 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
 	"time"
 
+	"github.com/ariesworx/starfix/internal/gitx"
 	"github.com/ariesworx/starfix/internal/proto"
+	"github.com/ariesworx/starfix/internal/safetext"
 	"github.com/ariesworx/starfix/internal/store"
 )
 
@@ -16,16 +19,70 @@ import (
 // is held to the same.
 
 func gateAdd(ctx context.Context, pr *served, a store.Actor, in proto.GateAddArgs) (any, *proto.Error) {
-	g, err := pr.store.AddGate(ctx, a, store.NewGate{Blocks: store.IssueID(in.Blocks), Title: in.Title,
-		Approvers: in.Approvers, IdempotencyKey: in.Idem})
+	g, err := pr.store.AddGate(ctx, a, store.NewGate{Kind: store.GateKind(in.Kind), Blocks: store.IssueID(in.Blocks), Title: in.Title,
+		Approvers: in.Approvers, Check: in.Check, Subject: store.IssueID(in.Subject), IdempotencyKey: in.Idem})
 	if err != nil {
-		return nil, pr.mapErr(ctx, proto.OpGateAdd, in.Blocks, 0, err)
+		return nil, pr.mapErr(ctx, proto.OpGateAdd, cmp.Or(in.Blocks, in.Subject), 0, err)
 	}
 	return wireGate(g), nil
 }
 
+// gatePass passes a gate: a person's decision by the gate's id, or a CI
+// job's report of a check (proto.GateArgs.Reported).
 func gatePass(ctx context.Context, pr *served, a store.Actor, in proto.GateArgs) (any, *proto.Error) {
+	if in.Reported() {
+		return gateReport(ctx, pr, a, proto.OpGatePass, in, pr.store.PassCheck)
+	}
 	return gateDecide(ctx, pr, a, proto.OpGatePass, in, pr.store.PassGate)
+}
+
+func gateFail(ctx context.Context, pr *served, a store.Actor, in proto.GateArgs) (any, *proto.Error) {
+	return gateReport(ctx, pr, a, proto.OpGateFail, in, pr.store.FailCheck)
+}
+
+// gateReport runs a CI job's report of a check, passed or failed.
+func gateReport(ctx context.Context, pr *served, a store.Actor, op string, in proto.GateArgs,
+	report func(context.Context, store.Actor, store.Report) (store.Gate, error)) (any, *proto.Error) {
+	subject, perr := pr.reportSubject(in)
+	if perr != nil {
+		return nil, perr
+	}
+	g, err := report(ctx, a, store.Report{Gate: store.IssueID(in.ID), Subject: subject, Check: in.Check,
+		SHA: in.SHA, URL: in.URL, Reason: in.Reason})
+	if err != nil {
+		return nil, pr.mapErr(ctx, op, cmp.Or(in.ID, string(subject)), 0, err)
+	}
+	return wireGate(g), nil
+}
+
+// maxBranch bounds a branch name a report gives, as git's refs are in
+// practice.
+const maxBranch = 255
+
+// reportSubject is the issue a report names: in.Subject, or the issue
+// in.Branch names with the project's prefix, as `sfx start --branch`
+// names a branch (gitx.Branch). A branch that names none, or another
+// issue than in.Subject, is refused.
+func (pr *served) reportSubject(in proto.GateArgs) (store.IssueID, *proto.Error) {
+	if in.Branch == "" {
+		return store.IssueID(in.Subject), nil
+	}
+	if len(in.Branch) > maxBranch || !safetext.ValidLine(in.Branch) {
+		return "", proto.Errf(proto.CodeInvalid, "give the branch's name as git prints it",
+			fmt.Sprintf("branch must be one line of at most %d bytes", maxBranch))
+	}
+	id, ok := gitx.IDFromBranch(in.Branch, pr.store.Prefix())
+	if !ok {
+		return "", proto.Errf(proto.CodeInvalid,
+			"report on a branch named for its issue, as `sfx start --branch` names it ("+gitx.Branch("task", pr.store.Prefix()+"-a1b2", "title")+
+				"), or name the issue with --issue ID",
+			fmt.Sprintf("branch %s names no issue of this project", in.Branch))
+	}
+	if in.Subject != "" && in.Subject != id {
+		return "", proto.Errf(proto.CodeInvalid, "give one of --branch and --issue",
+			fmt.Sprintf("branch %s names %s, not %s", in.Branch, id, in.Subject))
+	}
+	return store.IssueID(id), nil
 }
 
 func gateWaive(ctx context.Context, pr *served, a store.Actor, in proto.GateArgs) (any, *proto.Error) {
@@ -102,9 +159,13 @@ func wireGates(gs []store.Gate) []proto.Gate {
 
 func wireGate(g store.Gate) proto.Gate {
 	out := proto.Gate{ID: string(g.ID), Title: g.Title, Kind: string(g.Kind), Approvers: g.Approvers,
-		Outcome: string(g.Outcome), By: g.By, At: g.At, Reason: g.Reason, CreatedBy: g.CreatedBy, CreatedAt: g.CreatedAt.UTC()}
+		Outcome: string(g.Outcome), By: g.By, At: g.At, Reason: g.Reason, CreatedBy: g.CreatedBy, CreatedAt: g.CreatedAt.UTC(),
+		Check: g.Check, Subject: string(g.Subject)}
 	if out.Approvers == nil {
 		out.Approvers = []string{}
+	}
+	if r := g.Report; r != nil {
+		out.Report = &proto.GateReport{Result: string(r.Result), By: r.By, At: r.At.UTC(), SHA: r.SHA, URL: r.URL, Reason: r.Reason}
 	}
 	for _, id := range g.Holds {
 		out.Holds = append(out.Holds, string(id))
@@ -140,6 +201,19 @@ func gateErr(e *store.GateError) *proto.Error {
 		return proto.Errf(proto.CodeForbidden,
 			fmt.Sprintf(proto.FixGate+" %s to pass gate %s, or a project admin to waive it", who, e.Gate),
 			fmt.Sprintf("waiving gate %s is for the project's admins", e.Gate))
+	case store.GateNotCI:
+		return proto.Errf(proto.CodeForbidden,
+			fmt.Sprintf(proto.FixGate+" CI to report check %s as %s, from its job; a person named by the gate may run `sfx gate %s %s` at their own terminal", e.Check, who, e.Op, e.Gate),
+			fmt.Sprintf("gate %s takes reports from a CI job or a person's terminal, and this request came from an agent's session", e.Gate))
+	case store.GateNoCheck:
+		return proto.Errf(proto.CodeNotFound,
+			fmt.Sprintf("add one with `sfx gate add --kind ci --check %s --subject %s --by PRINCIPAL`; `sfx gate list` lists the gates", e.Check, e.ID),
+			fmt.Sprintf("%s has no ci gate for check %s", e.ID, e.Check))
+	}
+	if e.Check != "" {
+		return proto.Errf(proto.CodeForbidden,
+			fmt.Sprintf(proto.FixGate+" CI to report check %s as %s, the principal gate %s names; an admin may waive it (`sfx gate waive %s --reason TEXT`)", e.Check, who, e.Gate, e.Gate),
+			fmt.Sprintf("only %s may %s gate %s", who, e.Op, e.Gate))
 	}
 	return proto.Errf(proto.CodeForbidden,
 		fmt.Sprintf(proto.FixGate+" %s to %s gate %s (`sfx gate %s %s`)", who, e.Op, e.Gate, e.Op, e.Gate),

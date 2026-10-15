@@ -13,25 +13,72 @@ const (
 	OpGateRearm = "gate.rearm" // GateArgs → Gate
 	OpGates     = "gates"      // GatesArgs → GatesResult
 	OpDates     = "dates"      // DatesArgs → DatesResult
+
+	// OpGateFail reports a ci gate's check failed (stage 6, slice G1;
+	// protocol 8).
+	OpGateFail = "gate.fail" // GateArgs → Gate
 )
 
-// GateAddArgs adds a human gate that holds issue Blocks back until one of
-// Approvers passes it; with none, the project's admins other than its
-// creator. Title defaults to "Approve " and the held issue's id. Idem,
-// an idempotency key, makes a retry return the first result.
+// Gate kinds.
+const (
+	GateHuman = "human"
+	GateCI    = "ci"
+)
+
+// GateAddArgs adds a gate that holds issue Blocks back. A human gate
+// (Kind empty or human) waits for one of Approvers to pass it; with none,
+// the project's admins other than its creator. A ci gate (Kind ci; slice
+// G1) waits for one of Approvers, CI principals, to report Check passed
+// on Subject, the issue whose branch the check runs on; it may hold
+// nothing back, and then records the check alone. Title defaults to
+// "Approve " and the held issue's id, or for a ci gate to "CHECK of
+// SUBJECT". Idem, an idempotency key, makes a retry return the first
+// result.
 type GateAddArgs struct {
-	Blocks    string   `json:"blocks"`
+	Blocks    string   `json:"blocks,omitempty"`
 	Title     string   `json:"title,omitempty"`
 	Approvers []string `json:"approvers,omitempty"`
+	Kind      string   `json:"kind,omitempty"`
+	Check     string   `json:"check,omitempty"`
+	Subject   string   `json:"subject,omitempty"`
 	Idem      string   `json:"idem,omitempty"`
 }
 
-// GateArgs passes, waives or rearms gate ID, with a reason, which a waive
-// needs. The server takes these only from CLISession, a person's own
-// terminal.
+// GateArgs passes, fails, waives or rearms gate ID, with a reason, which
+// a waive needs. The server takes a human gate's decisions only from
+// CLISession, a person's own terminal.
+//
+// A ci gate's report (gate.pass or gate.fail; slice G1) names the gate by
+// ID, or by Check and the issue it ran on: Subject, or Branch, a branch
+// name the server reads the issue from with the project's prefix, as
+// `sfx start --branch` names it. SHA (the commit), URL (a link to the
+// run) and Reason are its evidence. The server takes it from a principal
+// the gate names, in CISession or CLISession.
 type GateArgs struct {
-	ID     string `json:"id"`
-	Reason string `json:"reason,omitempty"`
+	ID      string `json:"id,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+	Check   string `json:"check,omitempty"`
+	Subject string `json:"subject,omitempty"`
+	Branch  string `json:"branch,omitempty"`
+	SHA     string `json:"sha,omitempty"`
+	URL     string `json:"url,omitempty"`
+}
+
+// Reported reports whether a's pass is a CI job's report: it names a
+// check, or carries evidence, rather than a gate alone.
+func (a GateArgs) Reported() bool {
+	return a.Check != "" || a.Subject != "" || a.Branch != "" || a.SHA != "" || a.URL != ""
+}
+
+// GateReport is a ci gate's last report: passed or failed, by whom and
+// when, with its evidence.
+type GateReport struct {
+	Result string    `json:"result"`
+	By     string    `json:"by"`
+	At     time.Time `json:"at"`
+	SHA    string    `json:"sha,omitempty"`
+	URL    string    `json:"url,omitempty"`
+	Reason string    `json:"reason,omitempty"`
 }
 
 // GatesArgs lists open gates, or with All every gate, oldest first, at
@@ -44,19 +91,23 @@ type GatesArgs struct {
 // Gate is a gate. Approvers is empty when the project's admins pass it.
 // Outcome is empty while it is open, else passed or waived, By and At
 // saying who and when. Holds are the issues that depend on it directly;
-// a gate on an epic holds its descendants too.
+// a gate on an epic holds its descendants too. A ci gate's Approvers
+// report its Check on its Subject, and Report is the last report.
 type Gate struct {
-	ID        string     `json:"id"`
-	Title     string     `json:"title"`
-	Kind      string     `json:"kind"`
-	Approvers []string   `json:"approvers"`
-	Outcome   string     `json:"outcome,omitempty"`
-	By        string     `json:"by,omitempty"`
-	At        *time.Time `json:"at,omitempty"`
-	Reason    string     `json:"reason,omitempty"`
-	CreatedBy string     `json:"created_by"`
-	CreatedAt time.Time  `json:"created_at"`
-	Holds     []string   `json:"holds,omitempty"`
+	ID        string      `json:"id"`
+	Title     string      `json:"title"`
+	Kind      string      `json:"kind"`
+	Approvers []string    `json:"approvers"`
+	Check     string      `json:"check,omitempty"`
+	Subject   string      `json:"subject,omitempty"`
+	Report    *GateReport `json:"report,omitempty"`
+	Outcome   string      `json:"outcome,omitempty"`
+	By        string      `json:"by,omitempty"`
+	At        *time.Time  `json:"at,omitempty"`
+	Reason    string      `json:"reason,omitempty"`
+	CreatedBy string      `json:"created_by"`
+	CreatedAt time.Time   `json:"created_at"`
+	Holds     []string    `json:"holds,omitempty"`
 }
 
 // GatesResult lists gates.

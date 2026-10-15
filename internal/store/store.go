@@ -368,6 +368,9 @@ func (s *Store) commit(ctx context.Context) error {
 // backward and from jumping forward unsettled (clock.go).
 func (s *Store) Now() time.Time { return s.now() }
 
+// Prefix returns what the issue ids the store makes start with.
+func (s *Store) Prefix() string { return s.opts.Prefix }
+
 func (s *Store) now() time.Time { return s.readTime().at }
 
 // beginRead starts a read of several queries on one read-only
