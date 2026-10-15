@@ -538,7 +538,7 @@ Agreed 6 Oct 2026. Extends item 10.
 | 3b | Observability (§16): OpenTelemetry traces and metrics from starfixd, a loopback endpoint for metrics and health, a log schema and audit stream, Dolt's metrics, and a Collector harness | The Docker harness receives every signal from starfixd and Dolt; the soak's counters equal its event logs; a dead collector changes no request |
 | 4 | Memory with scopes and tags, migrated from bd `kv.memory.*`; prices, `sfx cost` and `sfx log` (§12.1) | |
 | 5 | Offline cache, outbox, conflict parking and resolution (§8; the design, in slices, is §18) | Partition tests. **Met in the test stack** (§18, As built, F5): the soak with agents cut from the server for minutes at a time holds every write they queued to their outboxes and the event logs. Not verified: any of it on Windows, a real network partition rather than cut dials, and the cost of comparing a field against an old rev on a long history |
-| 6 | Locks, reservations, gates, molecules/formulas, swarm, cross-project | |
+| 6 | Locks, reservations, gates, molecules/formulas, swarm, cross-project (a design in slices, proposed and not decided, is §20) | |
 | 7 | Scheduled digests (draft only), GitHub sync, compaction, duplicate check, vectors, other trackers | |
 
 bd stays in use until stage 2 passes on a real project.
@@ -1952,3 +1952,244 @@ The maintainer answered the six questions on 14 Oct 2026; they are decisions 46 
 - It does not work offline: the client holds no vectors (§18).
 - A person who could read an item can recover much of its text from its vector. The files are protected as the database is, and a remote endpoint sees the text itself.
 - Not tested: everything. In particular the claim that 50,000 vectors compare in tens of milliseconds on the smallest server the guide sizes, the memory of many projects with vectors loaded beside Dolt's, and whether any model beats word overlap on real starfix data, which is V0.
+
+## 20. Coordination across agents and projects: the stage 6 design
+
+Designed 15 Oct 2026, from §3, §4, §7, §13 and what stages 1 to 5 built. **Proposed, not decided, and nothing here is built.** Where this differs from the rows of §3, §4 and §7, it says so and why; they stay as the plan they were.
+
+In short: stage 6 is six parts, ordered by the failure each prevents and built so that each is useful without the next. **Gates** are issues of a new type that only a named person, or a CI job with a principal of its own, can close; everything the blocked derivation already does then applies to them unchanged. **CI reaches the server by running `sfx`**, as any client does: no listener, no polling, no webhook. **Locks** are leased, fenced, first-in-first-out mutexes and semaphores for a merge train, a deploy or a shared resource, held by a client that renews them. **Graphs**: one write creates a whole plan or formula run, idempotently; templates are files in the repository that `sfx` reads; waves and parallelism are computed by the client over one new read. **Cross-project** dependencies start as named capabilities a project ships, mirrored into the projects that wait on them. **Reservations** of paths, tied to a claim, come last, and only if rework shows they are needed. starfixd gains no runner, no template engine, no outbound call and no port; the MCP tool set gains about 20 estimated tokens, at the last slice.
+
+### 20.1 What each part is for, in order of worth
+
+| Part | The failure it prevents | What prevents it today | Who needs it first |
+|---|---|---|---|
+| Human gates | An agent starts an epic's children before a person approved the plan; an agent "unblocks" work a person held back | Nothing: `blocked` and `deferred` are statuses any agent's `update` sets back to `open` | Every team; Bearings §3.13 (plan approval) |
+| CI gates and outcomes | A dependent starts on code that is closed but not merged, or merged red ("closed is not landed", Bearings §3.13) | Nothing: `close` is the agent's own assertion | Every team with CI; Bearings B3; enterprise review E8 |
+| Locks | Two merges or two deploys at once; a crashed holder of bd's merge slot blocks everyone forever (§7) | CI concurrency groups, inside one CI system only | Bearings' merge train (§3.5) and governor (§3.7); scripts that deploy |
+| Graphs (pour, `graph`, swarm) | A retried or crashed instantiation leaves a duplicate or half a checklist; a release checklist retyped by hand each time | Per-call idempotency keys; children filed under a gated parent (§20.6) | Bearings' formula runner (§3.10); repeated procedures |
+| Cross-project capabilities | Work in one project waits on another team's feature, and only a person remembers to look | A comment | Servers of several projects |
+| Reservations | Two agents edit the same files and one redoes its work at merge | Worktrees, and `ready` ranking down issues whose paths overlap held ones (§12, As built, files to issues) | Nobody yet: Bearings decision 5 waits for its conflict log |
+
+Swarm is the least of these: a view, not a guard, and it rides the graph read. The first two rows are governance as much as coordination, which is why they come first.
+
+### 20.2 Principles kept, and what they rule out
+
+- **One authority, and the event log is the truth (principles 2, 3).** Every gate passed, lock granted and capability shipped is an event in a log; ready and blocked stay derived at read time. A dependency on another project is derived from the depending project's own log (§20.7), not from a read of another database during `ready`.
+- **Every claim is fenced (principle 4).** A lock is a claim on a name: an epoch that only rises, a lease on the store's clock (rule 19), and the reaper. A reservation lives and dies with the claim it belongs to and has no lease of its own.
+- **The harness does the chores (principle 5).** `sfx lock run NAME -- CMD` takes, renews and releases a lock around a command; nothing asks a model to renew a lock.
+- **Fail closed and loud (principle 6).** A dependency on something the server cannot resolve blocks and says so; it is never read as satisfied. Every refusal names the holder or the approvers and the next step (rule 11).
+- **MCP stays small (rule 12).** Agents see gates, locks and capabilities in the results they already get (`show`, `blocked`, `ready`); none of the new verbs is an MCP tool. Passing a gate, like resolving a conflict (decision 42), is a person's act.
+- **Small binaries, one way in (rule 4, decision 9).** No new dependency, no listener, and no call from starfixd to anything but Dolt and, when configured, a collector.
+- **What this rules out:** a gate runner that polls anything; webhooks into starfixd; a template language on the server; ephemeral issues that are deleted; a lock or a reservation queued offline.
+
+### 20.3 Gates
+
+**A gate is an issue of type `gate`,** with a row in a new `gates` table, keyed by the issue, for what is not an issue's: its kind, who may pass it, its subject and its evidence. What it holds back depends on it with an ordinary `blocks` edge.
+
+| Option | For | Against |
+|---|---|---|
+| **A. A gate is an issue (recommended)** | The blocked derivation, `blocked`'s "by what", history, comments, the inbox, event push and cross-project edges work unchanged; a descendant of a gated parent is blocked already (`blockedCTE`), so one gate on an epic holds its whole plan; bd's gates were issues too, so import maps | A new issue type, left out of `ready`, refused by `start`, and guarded on `close` |
+| B. A `gates` table, and a blocker kind the derivation joins | Gates apart from issues in lists | A second blocker kind in `blockedCTE`, `blocked`, `show`, the board and the soak's replay; no history or comments of its own |
+| C. A new issue state | None | A state is one issue's; a gate is shared by many issues |
+
+**Kinds.** Of §3's five (human, timer, gh, issue, capability), two remain kinds:
+
+| Kind | Passed by | Spec |
+|---|---|---|
+| `human` | `sfx gate pass G` by a principal the gate names, or by a project admin when it names none | `approvers`: up to 10 principals |
+| `ci` | `sfx gate pass --check NAME` from a CI job, by a principal the gate names (§20.4) | `check`: a name such as `build` or `landed`; `by`: the principals that may report it; `subject`: the issue whose branch the check runs on |
+
+The other three are not kinds. A **timer** is `defer_until`, which the schema and `ready` already honor and only the wire lacks (`create` and `update` gain it, and `sfx update --defer-until`), derived at read time with no runner.
+
+**Dates on an issue** (added 15 Oct 2026, at the maintainer's request: "a maintenance upgrade at a specific date"). The schema already has `defer_until` (not before) and `due_at` (due by), and nothing on the wire sets either. G0 puts both on `create` and `update` (`sfx create --defer-until DATE --due DATE`, `sfx update --defer-until DATE --due DATE`, an empty value clears one, and the same two arguments on the MCP tools only if they fit the budget, else CLI only), shows them in `show` and `list`, and makes them noticed with no runner: `digest` and `prime` list the issues that became ready since the reader last asked because their `defer_until` passed, the issues due within a window (a setting, a day by default) and those overdue, each computed at read time from the store's time (rule 19). A deferred issue still drops out of `ready` until its date, as today. A date is a claim about the calendar, not a lease: nothing ends, expires or is reassigned when it passes. A maintenance window is then an issue deferred to the window's start and due at its end, behind a human gate if a person must approve it first. An **issue** gate is a `blocks` edge, which exists. A **capability** gate is a dependency on a capability (§20.7). So there is no gate runner: what is time is derived, and what is an event arrives as a request.
+
+**Rules.**
+- `ready` and `start` leave gates out, as they leave out templates. `close`, `finish`, an `update` of status and `reopen` on a gate are refused `invalid`, with a fix naming `sfx gate pass` and the approvers. Only `gate.pass` closes a gate and only `gate.rearm` reopens one, each by those the gate names or an admin, in one write with `issue.close` or `issue.reopen`. Anyone else is refused `forbidden`, naming the approvers.
+- `gate.fail` records a failed check with its evidence (a URL and a commit, 1 KiB at most), leaves the gate open, and tells the subject's holder or assignee (inbox kind `gate.failed`). `gate.waive`, by an admin, passes a gate with a reason, as an acceptance item is waived.
+- `sfx gate add --blocks ID [--kind human|ci] …` creates the gate and its edge in one write. A gate cannot be a descendant of what it blocks: the cycle check already refuses that, a parent link being an edge.
+- Who is told: the approvers when a gate is added (`gate.pending`), and the assignees of the issues it held when it passes (`gate.passed`), which is how a waiting agent learns, through its inbox line.
+- An agent sees a gate as a blocker in `blocked` and `show`, with its kind and approvers, in the result alone. No MCP tool creates or passes one.
+- **Who approves is a principal, not a person.** Until agents have identities of their own (decision 8, §17.6), an agent holding its person's key can run `sfx gate pass` in a shell. As with `sfx away`, the server accepts a human gate's pass only from the session `cli`: a speed bump, not a wall (§7, As built, authorization and holds). Whether the gate's creator may pass it is decision 3.
+- **bd import** maps bd's `gate` issues, today tasks labeled `bd-type:gate`, to `human` gates with no approvers.
+
+### 20.4 How CI results reach the server
+
+Decision 9 keeps SSH the only transport; starfixd calls out to nothing but Dolt and, when configured, a collector, and listens on loopback alone (decision 29). So the question is who carries a check's result to the server.
+
+| Option | What it adds | Cost |
+|---|---|---|
+| **1. CI runs `sfx` (recommended)** | A CI job, as a principal of its own (`ci-example`, a member of the project), runs `sfx gate pass --check build --from-branch --sha "$SHA" --evidence "$RUN_URL"`; `--from-branch` takes the issue from the branch name (`internal/gitx`, as `sfx start --branch` names it). A failure runs `sfx gate fail`. The job on the default branch after a merge passes `landed` | CI needs a path to sshd (a public port, or the IAP transport with `gcloud` signed in in the job), and a key in its secret store until workload sign-in (decisions 52 and 56, access-research §7) gives it one that lasts the job. The CI principal has a member's rights until decision 8's narrower ones |
+| 2. starfixd polls the host's API | Results without touching CI | The daemon's first call to a vendor: a token on the server (rule 2); DNS and certificate rules in the shipped AppArmor profile, which has them today only in `local/`; an adapter per host (GitHub, GitLab, …) in starfixd, against §16.1's rule that nothing in starfixd names a vendor; rate limits; repository settings per project; results a poll late |
+| 3. A webhook receiver | Results the moment the host sends them | A listener another machine reaches, which decisions 9 and 29 exclude for starfixd. As a separate process it holds a key and calls the server as `sfx` does, so it is option 1 run by someone else, plus TLS and a webhook secret |
+
+With option 1 the server side is one op whoever carries it: a relay (option 3) is a client, built outside starfixd if anyone asks, and needs no server change. The guide gets a workflow for GitHub Actions and one for GitLab CI. **What a pass is worth** is what the CI principal's key is worth: whoever can change the workflow can pass the gate (§20.13).
+
+### 20.5 Locks
+
+**For** a merge train (one lock for each target branch, Bearings §3.5), a deploy (one for each environment), a shared resource (a staging database, an API with a rate limit, as a semaphore), and Bearings' governor (a semaphore of the agents one provider may run at once, §3.7). Not for issues: a claim is the lock on an issue.
+
+**API** (protocol ops and `sfx lock`; no MCP tool):
+
+| Op | Does |
+|---|---|
+| `lock.acquire NAME [capacity] [lease] [wait]` | Granted at once if fewer than capacity hold it and nobody waits; else, with `wait`, joins the queue and returns its place; else refused `busy`, naming the holders and when their leases end. Granted, returns `{epoch, expires_at}` |
+| `lock.renew NAME EPOCH` | Extends the caller's hold, or its place in the queue; quiet, as claim renewals are |
+| `lock.release NAME EPOCH` | Ends the hold, and grants the next waiter in the same write |
+| `lock.leave NAME` | Leaves the queue |
+| `locks [NAME]` | Holders, waiters and epochs; a read |
+
+- **Semantics.** A lock is a name in the project (`[a-z0-9][a-z0-9._/-]{0,63}`), made by its first acquire with its capacity (1 by default, at most 64); a later acquire naming another capacity is refused. A holder is (principal, session, machine), as a claim's. The epoch rises by one at each grant and is the **fencing token**: `renew` and `release` with another epoch are refused `conflict`, and `sfx lock run` gives the command `STARFIX_LOCK_EPOCH` for a resource that can check it.
+- **FIFO with waiter expiry.** Waiters are served in the order they joined. A waiter keeps its place by renewing (a 2-minute lease, renewed every 30 seconds by `sfx lock run` or Bearings), so a waiter that died leaves the queue at its lease and never holds the lock up. A grant goes to the earliest waiter whose lease is live, and is pushed to its session as an inbox item (`lock.granted`).
+- **Leases and the reaper.** A hold's lease is 15 minutes by default and at most 24 hours (`MaxClaimLease`). The reaper ends lapsed holds (`lock.expire`), drops lapsed waiters and grants the next, on its 30-second tick; a lapsed hold holds nothing even before the reaper runs, as a claim's, so an acquire finds it free. A clock jump forward is settled for locks as for claims: the settle adds it to every live hold and wait (decision 37). Lost access (decision 21) ends the principal's holds and waits with its claims, each with its event, and the holder's session gets `lock.lost`.
+- **Relation to claims.** The same machinery, separate rows: a lock is tied to no issue, and holding one changes no issue.
+- **Scope.** A project's, in its database and through its writer. A lock shared by projects (one staging environment for several repositories) would live in the control store; deferred until asked.
+- **Events.** `lock.acquire`, `lock.wait`, `lock.grant`, `lock.release`, `lock.expire`, `lock.leave`, targeting `lock:NAME`, which never parses as an issue id, so the board's issue push does not carry them. Renewals are quiet (rule 7).
+- **Offline,** never queued (§18.3): `sfx lock` refuses at once when the server cannot be reached, so a script fails before its critical section, not inside it.
+
+### 20.6 Graphs: molecules, formulas and swarm
+
+**What of bd's to keep.**
+
+| bd | Here |
+|---|---|
+| Formula (a workflow with variables) | A file in the repository, `sfx pour FILE --run KEY --var k=v`. `sfx` parses it; the server sees only the graph it yields |
+| Proto (a template epic), `cook` | A template issue (`template`, a column since migration 0001 that `ready` already leaves out) with its children and edges, poured by `sfx pour --from ID`. `cook` is not a step: the client compiles at pour time |
+| Pour, molecule | One `graph.create` write: the issues, parents, edges and labels, by local references, all or nothing |
+| Bond | Edges between graphs: `dep`, or `pour --after ID` |
+| Wisp, squash, burn | **Dropped.** An issue that expires and is purged is history deleted, and nothing deletes an issue. The `ephemeral` flag bd import sets stays, and nothing purges it |
+| Distill (an epic back into a formula) | Deferred; client-side over `graph`, if asked |
+
+**On the server, two ops.**
+- `graph.create`: up to 200 issues and 1,000 edges, with local references (`@build`) given new ids in the write, the cycle check run over the result, one `issue.create` event an issue and one `graph.create` naming the run. It takes an idempotency key, as `create` does, and is queued offline as `create` is. A **run key** (`--run release-1.4`), unique in the project, is kept in a small `graph_runs` table: a second pour of the same formula and run key returns the first run's root whoever pours it, so two Bearings machines with different principals cannot start one run twice, which a principal's idempotency key cannot promise.
+- `graph ROOT`: a read of the open descendants of an issue, or of a label's issues, with their status, priority and blocking edges among them and to outside, at most 2,000 issues, in one snapshot.
+
+**Templates in the repository, recommended.** A formula changes with the code it drives, is reviewed in its pull request, and needs no catalog, no versions and no template language in starfixd. A run's root records the formula's name, its `version` and the file's SHA-256 in `metadata`, so a run says what it came from. Template issues in the store are kept for bd parity only; they are poured by the client over `graph`, so they cost the server nothing more.
+
+**The line with Bearings.** starfix instantiates and derives: a formula's steps advance because closing one makes the next ready, with gates where a step needs a person or CI, and no runner. Bearings' formula runner (§3.10) decides which ready step goes to which agent, cancels a run and bounds its spend. A team without Bearings runs a formula from `ready`, step by step.
+
+**Swarm** is computed by the client from `graph`: wave 1 is what is ready now, wave *n* what waits only on earlier waves, maximum parallelism the widest wave, and what is blocked from outside the set is listed apart. `sfx swarm ID` prints it, and `sfx graph ID --format mermaid|dot|text` the graph (§4's Port row). One function in a shared package serves `sfx` and Bearings' dispatcher. It is not an MCP tool.
+
+**Agents' plans need none of this at first.** A planning agent that files an epic's children one `create` at a time can race an agent that starts child 3 before its edge to child 2 exists. Gating the epic first (§20.3) closes that: the children are blocked through their parent until a person passes the gate, and by then every edge exists. So `graph.create` matters for formulas more than for agents, and needs no MCP tool at first.
+
+### 20.7 Cross-project dependencies
+
+Each project is its own database with its own writer (decision 11), so no transaction spans two. §15.5 item 5 said the edges "become reads across databases, checked against the reader's memberships"; this refines it.
+
+| Option | How `ready` in project A learns about B | Cost |
+|---|---|---|
+| A. Read through | `ready` in A reads B's database during its query | A's log no longer explains A's ready; a slow, closed or archived B slows or breaks A's every `ready` |
+| **B. A mirror (recommended)** | The target's state is kept on the edge in A (`deps.metadata`), written by A's writer with an event when it changes; ready reads A alone | A relay and a reconcile (below); at most a reaper tick late when the relay was missed |
+| C. Capabilities (bd's `ship`) | Edges name a capability B publishes, not B's issues | Coarser than an issue; but B chooses what it says, and A's members learn nothing else of B |
+
+**Recommended: C, on B's mechanism; edges to another project's issues wait.**
+- **A capability** is a row of the control store (`capabilities`: project, name, state `pending` or `shipped`, who and when, `rev`, `write_id`), with `capability.add`, `capability.ship` and `capability.unship` in the control log. Any member of the owning project ships it: `sfx ship NAME`. It joins the control store's in-memory index beside projects, roles and keys, so reading it costs nothing (§15.1, As built).
+- **An edge** to it is a `deps` row in A whose target is `cap:PROJECT/NAME`, made by `sfx dep add ID cap:…`. The blocked derivation counts such a target as unclosed unless the edge's mirrored state is `shipped`, so an edge in any other state blocks.
+- **The relay.** When the daemon commits a ship or unship, it writes the new state onto the edges of each open project that has one, as `starfixd`, with a `dep.target` event and an inbox item to each dependent's assignee (`dep.shipped`). Each store keeps its `cap:` targets in memory, loaded at open and kept by its own `dep` writes. **The reconcile:** at a store's open and on each reaper tick, edges whose mirrored state differs from the index are written the same way, so a relay lost to a crash, or a store closed at the time, costs a tick and never a wrong answer for long.
+- **Visibility.** A capability is visible to the members of its project. Linking to one needs membership in both projects: the person who bridges them agrees to tell A. A link to a capability the caller cannot see is refused `not_found`, so the refusal is no oracle. Once made, the edge shows the target's name and state to every member of A: one bit, on a bridge's say. A capability removed, or an owner archived, shows `unknown` and blocks; `sfx dep rm` frees it.
+- **Edges to another project's issues** (`B/ISSUE`) would use the same mirror, reading B's store in the relay and the reconcile instead of the index, and would show A only open or closed. Deferred until someone asks: capabilities answer "my work waits for their feature", and an issue edge shows B's backlog to A.
+- **Cross-project gates** follow: a gate in A that waits on B is an edge to B's capability, or a gate whose approvers are B's people.
+
+### 20.8 Reservations
+
+**What a reservation guards, and what it cannot.** starfix sees no file writes. A reservation guards only what passes through starfix: another session's reservation of overlapping paths is refused with the holder named, and `ready` and `start` treat reserved paths as held. An agent that edits a reserved file is not stopped; it meets the conflict at merge, as today. So a reservation adds exclusivity among those who ask, beside what files-to-issues already does without being asked: rank down work that overlaps held issues' paths.
+
+**The form recommended, when it is built.**
+- **Tied to a claim.** A reservation names the issue and the claim's epoch, and lives exactly as long as that claim: no lease, nothing to renew, ended with the claim by `finish`, a releasing `handoff`, the reaper and lost access. Rows of ended claims are pruned as bookkeeping.
+- **Paths, not globs.** A file, or a directory prefix ending in `/`, checked by `proto.CheckPath` and matched as declared paths are. §7's `reserve <glob>` would need a glob matcher on the server and an index no arbitrary pattern allows.
+- **Exclusive first.** Shared reservations conflict only with exclusive ones and add a mode to every check; deferred.
+- **The seam is `loadHeld`** (§12, As built, files to issues): a live reservation joins the held set with its issue, so `ready`'s `overlaps`, `start`'s choice and `show` cover it unchanged. The one new check is in the reserving write: an overlap with another claim's reservation is refused `conflict`, naming the holder, the issue and the paths.
+- **API.** `start` gains `reserve: [paths]` (protocol and MCP, about 20 estimated tokens), and `sfx reserve ID PATH…` adds to a held issue's. Bearings reserves before dispatch through the protocol (§3.4).
+- **Offline,** never queued: it is a claim.
+
+### 20.9 What changes on the server
+
+- **Ops,** each a protocol change (rule 10): `gate.add`, `gate.pass`, `gate.fail`, `gate.waive`, `gate.rearm`; `defer_until` and `due_at` on `create` and `update`; `lock.acquire`, `lock.renew`, `lock.release`, `lock.leave`, `locks`; `graph.create`, `graph`; `capability.add`, `capability.ship`, `capability.unship`, `capabilities`; `cap:` targets on `dep.add` (a new value, which an older server refuses as `invalid`); `reserve`, and `reserve` on `start`. Each slice that adds any raises `Proto` and `ProtoMax` by one and keeps `ProtoMin` one back, as stage 5 did, unless the maintainer folds unreleased versions as decision 25 did.
+- **Migrations.** Project set: `gates`; `locks`, `lock_holders` and `lock_waiters` (normalized, where §3 has a `queue[]`); `graph_runs`; `reservations`. Control set: `capabilities`. The `gate` type needs none.
+- **Events:** `gate.add`, `gate.pass`, `gate.fail`, `gate.waive`, `gate.rearm`; the six `lock.*`; `graph.create`; `dep.target`; `reservation.add`; `capability.add`, `capability.ship`, `capability.unship` in the control log.
+- **Inbox kinds:** `gate.pending`, `gate.passed`, `gate.failed`, `lock.granted`, `lock.lost`, `dep.shipped`.
+- **The reaper's tick** gains lapsed locks and waiters and the capability reconcile. Nothing else runs on a timer.
+- **Limits** (rule 18), each a `limits:` setting with a row in `docs/server.md`, refused `invalid` or `busy` with a fix:
+
+  | Limit | Default |
+  |---|---|
+  | `locks` (names in a project) | 200 |
+  | `lock_capacity` | 64 |
+  | `lock_waiters` (one lock's queue) | 100 |
+  | `lock_waits_per_principal` | 20 |
+  | `gate_approvers` | 10 |
+  | `open_gates` (a project) | 1,000 |
+  | `graph_issues`, `graph_edges` (one `graph.create`) | 200, 1,000 |
+  | `graph_read` (issues one `graph` returns) | 2,000 |
+  | `capabilities` (a project) | 100 |
+  | `reservations_per_principal` (paths) | 500 |
+
+- **Telemetry** (§16.4), attributes from fixed lists only: `starfix.locks` (counter, `event`), `starfix.lock.wait.duration` (histogram), `starfix.gates` (counter, `kind` and `event`), `starfix.capability.relays` (counter, `result`), `starfix.reservations` (counter, `event`). A lock's or a capability's name is a person's text and goes on no metric or span (rule 2). Log events (`lock.expired`, `gate.failed`, `capability.relay_failed`) join `internal/logs`.
+- **AppArmor:** nothing, on the recommended path. Option 2 of §20.4 would add network and certificate rules to the shipped profile.
+- **Offline** (§18.3):
+
+  | Queued | Never queued |
+  |---|---|
+  | `graph.create` (an addition, with its key); `dep.add` to a capability | Every `lock.*` and `reserve` (claims); every `gate.*` (a decision on a state the client cannot see, as `close` is); `capability.ship` (a person's act); `graph` and `locks` (reads, refused offline as `ready` is) |
+
+- **MCP cost,** against the budget of about 2,700 estimated tokens, which the 24 tools spend to about 2,696 (8,086 bytes):
+
+  | Slice | Schema change | Estimated tokens |
+  |---|---|---|
+  | G0 to G4 | None. Gates, locks and capabilities reach agents as fields of `show`, `blocked` and `ready` results, and `cap:…` is a value of `dep`'s `depends_on` | 0 |
+  | G5 | `start`'s `reserve` | about 20 |
+  | Not proposed: a `gate`, `lock` or `reserve` tool | About 70 to 110 each, as `close` (75) and `label` (96) are | 210 to 330 |
+
+  So stage 6 needs no decision to raise the budget: about 20 tokens at its last slice, paid for by trimming a description (`inbox`'s, 74 tokens, can say less). A tool for each verb would need it raised to about 3,000.
+
+### 20.10 Plan
+
+| Slice | Delivers | Gate |
+|---|---|---|
+| G0 | Human gates: the `gate` type and `gates` table, `sfx gate add`, `pass`, `waive`, `rearm` and `list`, the guards, the inbox items; `defer_until` and `due_at` on the wire, shown in `show` and `list`, and the newly ready, due soon and overdue in `digest` and `prime` | An issue behind a human gate is never in `ready`, and no MCP tool or CLI command of a non-approver starts it or closes or reopens the gate; an approver's pass from `cli` makes it ready and pushes the event to a watching board; anyone else is refused, naming the approvers |
+| G1 | CI gates: the `ci` kind, `--check`, `--from-branch`, `gate.fail` with evidence, `landed`; the guide's workflows for GitHub Actions and GitLab CI | e2e: a CI principal passes the `build` gate of the issue its branch names and the dependent becomes ready; a principal the gate does not name is refused; a failure tells the subject's holder. The Docker test server runs the workflow's commands (`smoke.sh`, not CI) |
+| G2 | Locks: the tables, ops and reaper's part, `sfx lock run`, the `lock.granted` push, the clock's settle, lost access | A soak of sessions contending for locks of capacity 1 and 3 through dropped answers, dropped connections, daemon restarts and clock jumps: the log's replay never shows more holders than capacity, grants follow the order of live waiters, epochs only rise, and a killed holder's lock is granted within a tick of its lease |
+| G3 | `graph.create` with run keys, `graph`, `sfx pour`, `sfx graph`, `sfx swarm` | A formula pours whole or not at all; the same run key twice, by two principals, makes one run; its steps become ready as earlier ones close, with no runner; waves are golden-tested |
+| G4 | Capabilities: the control table, `sfx ship`, `cap:` edges, the relay and the reconcile | An issue waiting on another project's capability becomes ready when a member of that project ships it, at once with its store open and at open with it closed, with an event in its own log and an inbox item; a non-member cannot link to it; an archived owner blocks as `unknown`; the soak across two projects holds every mirror to the control log |
+| G5 | Reservations, **only if** Bearings' conflict log or users show rework at merge | Two sessions reserve overlapping paths and the second is refused, naming the first; a reservation ends with its claim however the claim ends; MCP within budget |
+
+G0 alone is worth releasing: a person can hold agents back and know they stay held. G1 turns gates from assertions into outcomes. G2 and G3 are what Bearings B3 waits for. G4 waits for a server of several projects to ask, and G5 for evidence.
+
+### 20.11 Decisions for the maintainer
+
+1. **Gates are issues** of a new type with a side table, not a blocker kind beside issues. Recommended (§20.3, A). Cost: three special cases (`ready`, `start`, `close`) and a type that lists show.
+2. **CI reaches the server by running `sfx`** as a principal of its own; no polling and no webhook in starfixd (§20.4). Recommended. Cost: CI needs a network path to sshd and, until workload sign-in, a stored key; the CI principal has a member's rights until decision 8 narrows them.
+3. **Who passes a human gate.** Recommended: the principals it names, or the project's admins when it names none; only from the session `cli`; the gate's creator only when named. Cost: a person working alone names themselves.
+4. **No timer, issue or gh gate kinds.** Recommended: timers are `defer_until` on the wire, issue gates are `blocks` edges, gh is the `ci` kind. Cost: none found.
+5. **Locks are per project, first in first out with waiter leases, over the CLI and the protocol only.** Recommended. Cost: no lock shared by projects yet; an agent cannot take a lock itself, so Bearings or a script holds it for the agent.
+6. **Formulas are files in the repository** read by `sfx`; the server gets `graph.create` with run keys and the `graph` read; template issues stay for bd parity. Recommended. Cost: no catalog of formulas on the server; a formula's history is git's.
+7. **Wisps are dropped,** with squash and burn. Recommended. Cost: bd users of wisps get ordinary issues.
+8. **Swarm is computed by the client** over `graph`, with no server op and no MCP tool. Recommended.
+9. **Cross-project starts with capabilities,** mirrored into the waiting project and visible to it as one bit through a member of both; edges to another project's issues wait for a request. Recommended. Cost: coarser than bd's `external:` edges.
+10. **Reservations wait for evidence,** and when built are tied to a claim, paths and prefixes (no globs), exclusive only, set through `start`. Recommended. Cost: §7's row stays unbuilt until then.
+11. **No rise in the MCP budget** for stage 6: about 20 tokens, trimmed elsewhere. Recommended.
+12. **One protocol bump for each slice** that adds ops, `ProtoMin` one back. Recommended, as in stage 5; folding unreleased bumps, as decision 25 did, is the alternative.
+
+### 20.12 What to cut, defer, or leave to Bearings and the client
+
+| | What | Why |
+|---|---|---|
+| Cut | Wisps, squash and burn; `cook` as a step; timer, issue and gh gate kinds; globs; a gate runner | Each deletes history, or does what an existing part already does |
+| Defer | Reservations (G5); edges to another project's issues; shared reservations; locks across projects; MCP tools for gates, locks or reservations; distill; a webhook relay | No failure seen yet needs them, or a cheaper part covers the common case |
+| Leave to Bearings | The merge train's batching and bisecting (the host's merge queue does it, enterprise review §8); dispatching a formula's steps; sizing pools from waves; a run's budget | Policy over primitives; the server holds the primitives |
+| Leave to the client | Parsing formulas, pouring templates, computing waves, drawing graphs, holding a lock around a command | One read and one write serve them; the rest needs no authority |
+
+In all, starfixd gains a gate type with its table, a run key, a lock table with its part of the reaper, one read and, at G4, a control table with a relay. It gains no runner, no template engine, no outbound call and no port.
+
+### 20.13 What this does not solve
+
+- **starfix sees no file writes.** A reservation binds only those who ask starfix; worktrees and merges are still the safety net.
+- **A fencing token protects only a resource that checks it.** A deploy script that ignores `STARFIX_LOCK_EPOCH` can run on after its lease ran out, through a pause the lease did not see.
+- **A CI pass is as good as the CI principal's key** and the workflow that holds it: whoever can edit the workflow can pass the gate. Required checks and branch protection stay the host's.
+- **A human gate is passed by a principal.** An agent holding its person's key passes its person's gates until agents are principals of their own (decision 8).
+- **A revert** re-arms a `landed` gate only if something runs `sfx gate rearm`; work already begun on what it held is not stopped.
+- **No change spans two projects atomically;** a mirrored capability is at most a reaper tick behind when its relay was lost.
+- Git push fencing by claim epoch, budgets and autonomy windows (decision 8; enterprise review E3 and E13) are not stage 6's.
+
+### 20.14 Not tested
+
+Everything: this is a design. In particular: the blocked derivation with many gate issues at 50,000 issues (the query is unchanged, its data is not); how long a lock takes to pass on at the reaper's 30-second tick under contention; the reconcile's cost for a daemon that opens hundreds of projects at start; and whether a hosted CI runner can reach a server behind IAP with `gcloud` in the job.
