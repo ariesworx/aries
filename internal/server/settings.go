@@ -65,8 +65,6 @@ type Settings struct {
 	Project string `yaml:"project"`
 	// Prefix is the issue-ID prefix for generated IDs. Default "sf".
 	Prefix string `yaml:"prefix"`
-	// Latest is the latest release, set by hand on air-gapped servers.
-	Latest string `yaml:"latest"`
 	// SystemdUnit is the unit `ariesd upgrade` restarts. Empty means
 	// upgrade installs the binary and leaves the restart to the admin,
 	// unless --restart is given.
@@ -267,7 +265,7 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 			v   string
 		}{
 			{&out.DSN, s.DSN}, {&out.Socket, s.Socket}, {&out.Project, s.Project},
-			{&out.Prefix, s.Prefix}, {&out.Latest, s.Latest}, {&out.SystemdUnit, s.SystemdUnit},
+			{&out.Prefix, s.Prefix}, {&out.SystemdUnit, s.SystemdUnit},
 			{&out.Releases, s.Releases},
 			{&out.LogLevel, s.LogLevel}, {&out.LogFormat, s.LogFormat}, {&out.Account, s.Account},
 			{&out.ControlDB, s.ControlDB}, {&out.KeysFile, s.KeysFile}, {&out.AuthorizedKeys, s.AuthorizedKeys},

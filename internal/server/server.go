@@ -49,8 +49,6 @@ type Config struct {
 	// ProtoMin and ProtoMax bound the client protocol versions accepted.
 	// Zero takes proto.ProtoMin and proto.ProtoMax.
 	ProtoMin, ProtoMax int
-	// Latest is the latest release the server knows of; may be empty.
-	Latest string
 	// Logger receives the daemon's log: each request at debug, refusals
 	// sampled per principal (Limits.RefusalLogs), and reaping, pruning
 	// and store failures. Nil discards.
@@ -954,7 +952,7 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 	sess.key = f.Principal
 	sess.fingerprint = f.Key
 
-	w := &proto.Frame{T: proto.FrameWelcome, Version: s.cfg.Version, Min: s.cfg.ProtoMin, Max: s.cfg.ProtoMax, Latest: s.cfg.Latest}
+	w := &proto.Frame{T: proto.FrameWelcome, Version: s.cfg.Version, Min: s.cfg.ProtoMin, Max: s.cfg.ProtoMax}
 	// A refusal past the bridge frame returns sess, so the caller knows
 	// whose it is.
 	refuse := func(e *proto.Error) (*session, error) {

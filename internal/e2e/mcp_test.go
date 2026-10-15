@@ -100,7 +100,7 @@ func (a *agent) ok(name string, args map[string]any) string {
 
 func TestMCPAgentSession(t *testing.T) {
 	t.Parallel()
-	w := newWorld(t, daemonOpts{latest: "v0.3.0"})
+	w := newWorld(t, daemonOpts{})
 	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
 	alice.env["CLAUDE_CODE_SESSION_ID"] = "cc-e2e"
 	ag := alice.mcp("v0.2.0")
@@ -115,7 +115,7 @@ func TestMCPAgentSession(t *testing.T) {
 
 	p := decode[mcpserver.Prime](t, ag.ok("prime", nil))
 	if p.You != "alice" || p.Session != "cc-e2e" || len(p.Working) != 0 || len(p.Ready) != 0 ||
-		len(p.Notices) != 1 || !strings.Contains(p.Notices[0], "v0.3.0 is out") {
+		len(p.Notices) != 0 {
 		t.Fatalf("prime: %+v", p)
 	}
 

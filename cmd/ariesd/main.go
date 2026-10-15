@@ -413,7 +413,7 @@ func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h 
 	// One clock for the process: every store reads it, so each learns
 	// of a step whichever noticed it, and the server reports them.
 	clk := store.NewClock(store.ClockOptions{StepTolerance: time.Duration(s.ClockStepTolerance)})
-	cfg := server.Config{Version: version.Version, Latest: s.Latest, Logger: log, Limits: s.Limits, Account: s.Account,
+	cfg := server.Config{Version: version.Version, Logger: log, Limits: s.Limits, Account: s.Account,
 		Telemetry: h.tel, Heartbeat: h.heartbeat, HeartbeatEvery: h.heartbeatEvery, NoAudit: !s.Telemetry.Audit(),
 		Clock: clk, ClockBehind: s.ClockBehind, BehindTolerance: time.Duration(s.ClockBehindTolerance), AcceptHistory: s.AcceptClockBehind}
 	opts := store.Options{Logger: log, AllowUnsafeAccount: s.AllowUnsafeAccount, Limits: s.Limits.Limits,

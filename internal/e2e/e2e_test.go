@@ -151,8 +151,6 @@ type daemonOpts struct {
 	protoMin, protoMax int
 	// noDaemon starts only the SSH server, so the bridge finds no daemon.
 	noDaemon bool
-	// latest is the newest release the server knows of.
-	latest string
 	// now, if set, is the store's clock. The reaper and the agents'
 	// renewals are then off, so claims expire only when the test says.
 	now func() time.Time
@@ -290,7 +288,7 @@ func (w *world) startDaemon() error {
 		return err
 	}
 	srv, err := server.New(server.Config{Store: st, Project: project, Version: "v0.2.0",
-		ProtoMin: o.protoMin, ProtoMax: o.protoMax, Latest: o.latest, ReapInterval: o.reap, Limits: o.limits,
+		ProtoMin: o.protoMin, ProtoMax: o.protoMax, ReapInterval: o.reap, Limits: o.limits,
 		Logger: o.logger, Clock: clk, AcceptHistory: w.acceptHistory, Telemetry: o.telemetry})
 	if err != nil {
 		cancel()
@@ -408,7 +406,7 @@ func (w *world) startMany() error {
 	}
 	srv, err := server.New(server.Config{Control: ctl, Version: "v0.2.0", ProjectDBs: w.block,
 		Open:     server.ProjectOpener(w.dsn, ctl, store.Options{Now: o.now, Clock: clk, Limits: o.limits.Limits, Logger: o.logger, IdemWindow: time.Duration(o.limits.IdemWindow), AwayMax: time.Duration(o.limits.AwayMax)}, o.telemetry),
-		ProtoMin: o.protoMin, ProtoMax: o.protoMax, Latest: o.latest, ReapInterval: o.reap, Limits: o.limits, Logger: o.logger,
+		ProtoMin: o.protoMin, ProtoMax: o.protoMax, ReapInterval: o.reap, Limits: o.limits, Logger: o.logger,
 		KeysFile: w.keysFile, AuthorizedKeys: w.handFile, Clock: clk, AcceptHistory: w.acceptHistory, Telemetry: o.telemetry})
 	if err != nil {
 		return fail(err)

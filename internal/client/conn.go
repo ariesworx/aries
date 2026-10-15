@@ -544,20 +544,14 @@ func (c *Conn) Err() error {
 	return c.broken
 }
 
-// Notices returns the one-line version notices for an agent or person: this
-// client older than the server, and the server older than the latest
-// release it knows of.
+// Notices returns the one-line version notices for an agent or person:
+// this client older than the server. The welcome's latest, the release
+// an operator typed in by hand, is no longer read (decision 88).
 func (c *Conn) Notices(clientVersion string) []string {
-	var out []string
-	for _, n := range []string{
-		proto.OlderClientWarning(clientVersion, c.Welcome.Version),
-		proto.OlderServerWarning(c.Welcome.Version, c.Welcome.Latest),
-	} {
-		if n != "" {
-			out = append(out, n)
-		}
+	if n := proto.OlderClientWarning(clientVersion, c.Welcome.Version); n != "" {
+		return []string{n}
 	}
-	return out
+	return nil
 }
 
 // Warning returns a one-line notice for the person when this client is

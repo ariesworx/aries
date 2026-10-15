@@ -2153,7 +2153,6 @@ the config file (`/etc/aries/ariesd.yaml`, or `--config FILE`, or
 | `releases` | Where `ariesd upgrade` reads releases from: the `https://` URL of a mirror, or the absolute path of a directory ([Upgrades](#upgrades)) | GitHub | `ARIES_RELEASES`, the variable `aries` and `install.sh` read |
 | `log_level` | `debug`, `info`, `warn` or `error` ([Logs](#logs)) | `info` | `--log-level`, `ARIESD_LOG_LEVEL` |
 | `log_format` | `text` (key=value) or `json`, for a log shipper | `text` | `--log-format`, `ARIESD_LOG_FORMAT` |
-| `latest` | The newest Aries release, set by hand. Clients' `prime` notes when this server is older | none | |
 | `account` | The project's account: what an issue's time and tokens report against when neither it nor an ancestor sets one ([Accounts, time and tokens](concepts.md#accounts-time-and-tokens)). A code name: lowercase letters, digits and inner hyphens | `internal` | |
 | `clock_behind` | What `serve` does when it finds the clock behind the server's own history by more than `clock_behind_tolerance`: `stop` refuses to start, `warn` starts with a warning that repeats ([The server's clock](#the-servers-clock)). Any other value is refused | `stop` | `ARIESD_CLOCK_BEHIND` |
 | `clock_behind_tolerance` | How far behind its history the clock may be at start before `clock_behind` applies. 1s to 24h. Raise it only for a machine known to boot with a clock further off than this and no time service to correct it; lower it if ariesd always starts after synchronization | `2m` | |
