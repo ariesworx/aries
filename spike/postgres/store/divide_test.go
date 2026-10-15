@@ -1,0 +1,291 @@
+package store
+
+import (
+	"fmt"
+	"math"
+	"math/big"
+	"math/rand/v2"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+)
+
+// manyHolds is a session that took n issues in turn, each held two
+// minutes and overlapping the next by one, and a turn record across all
+// of them: the first and last minutes are held by one issue, every other
+// minute by two.
+func manyHolds(n int) ([]hold, usageRow) {
+	t0 := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	minute := func(n int) time.Time { return t0.Add(time.Duration(n) * time.Minute) }
+	key := sessionKey{"alice", "sess-a"}
+	holds := make([]hold, n)
+	for i := range holds {
+		holds[i] = hold{issue: IssueID(fmt.Sprintf("tst-%04d", i)), key: key, start: minute(i), end: minute(i + 2)}
+	}
+	return holds, usageRow{key: key, model: "opus", from: minute(0), to: minute(n + 1), Tokens: Tokens{Input: n64(int64(n+1) * 1000)}}
+}
+
+// A long record over many holds divides in time that grows with the
+// holds, and not with the holds times the pieces, of which there are as
+// many. A record of 2000 holds is timed against one of 125, a sixteenth
+// as long: if the time grows with the holds, a hold costs the same in
+// both, and when every piece rescanned every hold, a hold of the long
+// record cost sixteen times as much.
+//
+// What is compared is the fastest of many divisions of each, which is
+// the one the machine did not interrupt: a division is a few
+// milliseconds at most, and the scheduler of a busy machine takes the
+// processor away for longer than that, from whichever of the two is
+// running. No number of seconds tells the two algorithms apart on every
+// machine. Rescanning, 200 records of 1000 holds took 15s under -race on
+// a laptop; swept, they take 0.4s there, and took 8s where the tests had
+// part of half a processor.
+//
+// And the time compared is the processor's, not the clock's
+// (onProcessor). Where the tests of four packages had half a processor
+// between them and ran in parallel, no division of the long record in
+// two hundred went uninterrupted: the fastest took 100 ms by the clock,
+// the length of the pause the machine gave everything.
+func TestDivideTimeGrowsWithHolds(t *testing.T) {
+	// Serial: compares the processor time work took, which a test running beside it would add to.
+	const few, many = 125, 2000
+	fewHolds, fewRecord := manyHolds(few)
+	manyOf, manyRecord := manyHolds(many)
+	fewIndex, manyIndex := newHoldIndex(fewHolds), newHoldIndex(manyOf)
+	now := onProcessor(t)
+	fastest := func(r usageRow, x *holdIndex, was time.Duration) time.Duration {
+		at := now()
+		divide(r, x)
+		return min(was, now()-at)
+	}
+	fewest, most := time.Duration(math.MaxInt64), time.Duration(math.MaxInt64)
+	for range 200 {
+		most = fastest(manyRecord, manyIndex, most)
+		for range many / few {
+			fewest = fastest(fewRecord, fewIndex, fewest)
+		}
+	}
+	// Four is halfway, as ratios go, between the same cost and sixteen
+	// times it. Swept, a hold of the long record costs up to half again
+	// as much, for the sorting.
+	perHold := (float64(most) / many) / (float64(fewest) / few)
+	if perHold > 4 {
+		t.Errorf("a record of %d holds divides in %s at best and one of %d in %s: %.1f times as long for each hold, want under 4, as when the time grows with the holds alone",
+			many, most, few, fewest, perHold)
+	}
+	t.Logf("%d holds: %s; %d holds: %s; %.1f times as long for each hold", many, most, few, fewest, perHold)
+}
+
+// A long record over many holds divides exactly.
+func TestDivideManyHolds(t *testing.T) {
+	t.Parallel()
+	holds, r := manyHolds(1000)
+	d := divide(r, newHoldIndex(holds))
+	parts := d.parts(*r.Input)
+	if len(parts) != len(holds)+1 {
+		t.Fatalf("divide gave %d parts, want %d issues and unheld", len(parts), len(holds)+1)
+	}
+	for i, got := range parts {
+		want := int64(1000)
+		switch i {
+		case 0, len(holds) - 1: // one minute alone, one minute shared
+			want = 1500
+		case len(holds): // unheld
+			want = 0
+		}
+		if got != want {
+			t.Errorf("part %d of %d = %d, want %d", i, len(parts), got, want)
+		}
+	}
+}
+
+func BenchmarkDivide(b *testing.B) {
+	holds, r := manyHolds(1000)
+	x := newHoldIndex(holds)
+	for b.Loop() {
+		divide(r, x)
+	}
+}
+
+// The 1-hour cache writes are part of the cache writes, so each part's
+// 1-hour writes are part of its cache writes. Divided independently,
+// weights 3:1:10 gave 7 writes as 2, 0 and 5 and their 6 1-hour writes
+// as 1, 1 and 4: the second part had more 1-hour writes than writes.
+func TestShareKeepsCacheWrite1hWithinCacheWrite(t *testing.T) {
+	t.Parallel()
+	d := division{issues: []IssueID{"tst-a", "tst-b"}, weights: []float64{3, 1, 10}}
+	tests := []struct {
+		name     string
+		in       Tokens
+		cw, cw1h []int64 // per part; nil for unknown
+	}{
+		{"both known", Tokens{CacheWrite: n64(7), CacheWrite1h: n64(6)}, []int64{1, 1, 5}, []int64{1, 1, 4}},
+		{"all 1h", Tokens{CacheWrite: n64(6), CacheWrite1h: n64(6)}, []int64{1, 1, 4}, []int64{1, 1, 4}},
+		{"1h unknown", Tokens{CacheWrite: n64(7)}, []int64{2, 0, 5}, nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var cw, cw1h int64
+			for b := range d.weights {
+				got := d.share(tc.in, b)
+				if *got.CacheWrite != tc.cw[b] {
+					t.Errorf("share(%s, %d).CacheWrite = %d, want %d", tokensText(ModelUsage{Tokens: tc.in}), b, *got.CacheWrite, tc.cw[b])
+				}
+				cw += *got.CacheWrite
+				if tc.cw1h == nil {
+					if got.CacheWrite1h != nil {
+						t.Errorf("share(%s, %d).CacheWrite1h = %d, want unknown", tokensText(ModelUsage{Tokens: tc.in}), b, *got.CacheWrite1h)
+					}
+					continue
+				}
+				if *got.CacheWrite1h != tc.cw1h[b] {
+					t.Errorf("share(%s, %d).CacheWrite1h = %d, want %d", tokensText(ModelUsage{Tokens: tc.in}), b, *got.CacheWrite1h, tc.cw1h[b])
+				}
+				cw1h += *got.CacheWrite1h
+			}
+			if cw != *tc.in.CacheWrite {
+				t.Errorf("parts of %s sum to %d cache writes, want %d", tokensText(ModelUsage{Tokens: tc.in}), cw, *tc.in.CacheWrite)
+			}
+			if tc.cw1h != nil && cw1h != *tc.in.CacheWrite1h {
+				t.Errorf("parts of %s sum to %d 1-hour writes, want %d", tokensText(ModelUsage{Tokens: tc.in}), cw1h, *tc.in.CacheWrite1h)
+			}
+		})
+	}
+}
+
+// splitExact divides an amount in proportion to whole weights, exactly:
+// the parts sum to it, and what floors leave goes to the largest
+// remainders, ties to the earlier part.
+func TestSplitExact(t *testing.T) {
+	t.Parallel()
+	huge, _ := new(big.Int).SetString("1000000000000000000000000000000", 10)
+	tests := []struct {
+		total   *big.Int
+		weights []int64
+		want    string
+	}{
+		{big.NewInt(100), []int64{1, 2, 3, 4}, "10 20 30 40"},
+		{big.NewInt(10), []int64{1, 1, 1}, "4 3 3"},
+		{big.NewInt(10), []int64{3, 3, 1}, "4 4 2"},
+		{big.NewInt(7), []int64{0, 1, 0}, "0 7 0"},
+		{big.NewInt(1), []int64{1, 1}, "1 0"},
+		{big.NewInt(0), []int64{5, 5}, "0 0"},
+		{big.NewInt(9), []int64{0, 0}, "0 0"},
+		{huge, []int64{3, 7}, "300000000000000000000000000000 700000000000000000000000000000"},
+		{big.NewInt(1_000_000_007), []int64{1_000_000_000_000, 999_999_999_999, 1}, "500000004 500000003 0"},
+	}
+	for _, tc := range tests {
+		parts := splitExact(tc.total, tc.weights)
+		var got []string
+		for _, p := range parts {
+			got = append(got, p.String())
+		}
+		if strings.Join(got, " ") != tc.want {
+			t.Errorf("splitExact(%s, %v) = %v, want %s", tc.total, tc.weights, got, tc.want)
+		}
+	}
+}
+
+// apportion is exact in the weights it is given, so two parts whose
+// quotas leave the same remainder tie, and the tie goes to the earlier
+// part, on every platform. Computed in floating point, a remainder's last
+// bit depended on whether the compiler fused a multiply and a subtract
+// (arm64 does, amd64 does not), and weights 3:1:10 gave 7 as 1, 1 and 5
+// on one and 2, 0 and 5 on the other.
+func TestApportionTies(t *testing.T) {
+	t.Parallel()
+	third := float64(time.Hour) / 3
+	tests := []struct {
+		name    string
+		n       int64
+		weights []float64
+		want    []int64
+	}{
+		{"quotas 1.5, 0.5 and 5", 7, []float64{3, 1, 10}, []int64{2, 0, 5}},
+		{"the same, later part first", 7, []float64{1, 3, 10}, []int64{1, 1, 5}},
+		{"halves of a nanosecond", 7, []float64{1.5, 0.5, 5}, []int64{2, 0, 5}},
+		{"three equal parts", 10, []float64{1, 1, 1}, []int64{4, 3, 3}},
+		{"three equal thirds of an hour", 10, []float64{third, third, third}, []int64{4, 3, 3}},
+		{"two leftovers among four ties", 6, []float64{7, 7, 7, 7}, []int64{2, 2, 1, 1}},
+		{"a tie after a larger remainder", 9, []float64{1, 1, 6, 4}, []int64{1, 1, 4, 3}},
+		{"a part with no weight between ties", 1, []float64{5, 0, 5}, []int64{1, 0, 0}},
+		{"no weight first", 3, []float64{0, 1, 1}, []int64{0, 2, 1}},
+		{"one part", 7, []float64{0, 2.5, 0}, []int64{0, 7, 0}},
+		{"nothing to divide", 0, []float64{3, 1}, []int64{0, 0}},
+		{"no weight at all", 9, []float64{0, 0}, []int64{0, 0}},
+		{"an hour beside a nanosecond", 2, []float64{float64(time.Hour), 1}, []int64{2, 0}},
+		{"more than float64 holds exactly", 1<<62 + 1, []float64{1, 1}, []int64{1<<61 + 1, 1 << 61}},
+		{"weights too far apart for 64 bits", 3, []float64{0x1p70, 0x1p70, 0x1p-70}, []int64{2, 1, 0}},
+		{"a tie among tiny weights", 7, []float64{3 * 0x1p-80, 0x1p-80, 10 * 0x1p-80}, []int64{2, 0, 5}},
+		{"ties among weights too far apart", 5, []float64{0x1p80, 0x1p80, 0x1p-80, 0x1p-80}, []int64{3, 2, 0, 0}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := apportion(tc.n, tc.weights); !slices.Equal(got, tc.want) {
+				t.Errorf("apportion(%d, %v) = %v, want %v", tc.n, tc.weights, got, tc.want)
+			}
+		})
+	}
+}
+
+// Whichever arithmetic apportion picks for its weights, it gives what
+// exact rationals give: each part its quota rounded down, and the rest
+// one each to the largest remainders, the earlier part first in a tie.
+func TestApportionMatchesRationals(t *testing.T) {
+	t.Parallel()
+	rng := rand.New(rand.NewPCG(1, 2)) //nolint:gosec // a fixed seed: the same cases every run
+	exact := func(n int64, weights []float64) []int64 {
+		total := new(big.Rat)
+		for _, w := range weights {
+			total.Add(total, new(big.Rat).SetFloat64(w))
+		}
+		parts := make([]int64, len(weights))
+		rems := make([]*big.Rat, len(weights))
+		order := make([]int, len(weights))
+		left := n
+		for i, w := range weights {
+			q := new(big.Rat).SetFloat64(w)
+			q.Mul(q, new(big.Rat).SetInt64(n)).Quo(q, total)
+			f := new(big.Int).Quo(q.Num(), q.Denom())
+			parts[i], rems[i], order[i] = f.Int64(), q.Sub(q, new(big.Rat).SetInt(f)), i
+			left -= parts[i]
+		}
+		slices.SortStableFunc(order, func(a, b int) int { return rems[b].Cmp(rems[a]) })
+		for _, i := range order[:left] {
+			parts[i]++
+		}
+		return parts
+	}
+	for range 2000 {
+		weights := make([]float64, 1+rng.IntN(6))
+		for i := range weights {
+			switch rng.IntN(5) {
+			case 0: // none
+			case 1: // whole and small, so remainders tie
+				weights[i] = float64(1 + rng.IntN(4))
+			case 2: // a duration shared
+				weights[i] = float64(rng.Int64N(int64(time.Hour))) / float64(1+rng.IntN(5))
+			case 3: // far from the others
+				weights[i] = math.Ldexp(float64(1+rng.IntN(7)), rng.IntN(300)-150)
+			default:
+				weights[i] = float64(rng.Int64N(int64(24 * time.Hour)))
+			}
+		}
+		if !slices.ContainsFunc(weights, func(w float64) bool { return w > 0 }) {
+			continue
+		}
+		n := rng.Int64N(1 << rng.IntN(62))
+		if got, want := apportion(n, weights), exact(n, weights); !slices.Equal(got, want) {
+			t.Fatalf("apportion(%d, %v) = %v, want %v", n, weights, got, want)
+		}
+	}
+}
+
+func BenchmarkApportion(b *testing.B) {
+	holds, r := manyHolds(1000)
+	d := divide(r, newHoldIndex(holds))
+	for b.Loop() {
+		d.parts(*r.Input)
+	}
+}

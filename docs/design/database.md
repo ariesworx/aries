@@ -2,6 +2,8 @@
 
 6 October 2026. This is based on a survey of bd 1.2.2's source, DoltHub's own benchmarks and posts, and running Dolt 2.4.2. Sources are at the end.
 
+**Decided 15 Oct 2026: the backend moves to Postgres** (design §14, decision 79), on the evidence of the Postgres spike ([spike/postgres/RESULTS.md](../../spike/postgres/RESULTS.md)). What follows is the reasoning of 6 October, kept as it was. Its premise, that Dolt's history, `AS OF` and merge come for free, did not hold in use: the store reads none of them, since conflicts, audit and replay all come from the event log (rule 7). Its fallback, "Postgres behind the same starfixd interface", is the plan now.
+
 ## Answer
 
 Yes, keep Dolt, with two conditions:

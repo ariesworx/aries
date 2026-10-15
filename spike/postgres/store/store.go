@@ -1,0 +1,885 @@
+package store
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"database/sql"
+	"database/sql/driver"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"maps"
+	"math/rand/v2"
+	"slices"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+	"unicode/utf8"
+
+	"github.com/ariesworx/starfix/internal/logs"
+	"github.com/go-sql-driver/mysql"
+)
+
+// Options configure a Store. The zero value is usable.
+type Options struct {
+	// Prefix is used for IDs the store generates. Default "sf".
+	Prefix string
+	// CommitInterval is how often pending writes become a Dolt commit.
+	// Default 1s; negative disables the background committer (call Flush).
+	CommitInterval time.Duration
+	// MaxAttempts bounds retries of a write that loses to a concurrent
+	// transaction. Default 5.
+	MaxAttempts int
+	// Readers caps the read pool. Default 8.
+	Readers int
+	// Now is the server clock. Default time.Now.
+	Now func() time.Time
+	// Clock, when set, is the server clock in place of Now: the one
+	// [Clock] a process shares among its stores, so that each learns of
+	// the clock's steps (clock.go). Unset, the store makes its own from
+	// Now.
+	Clock *Clock
+	// ClientAhead is how far past the store's time a time a client
+	// supplies may be. Default [DefaultClientAhead], at most
+	// [MaxClientAhead].
+	ClientAhead time.Duration
+	// IdemWindow is how long an idempotency key gives back its request's
+	// result (idem.go). Default [DefaultIdemWindow]; one that is not
+	// positive is refused.
+	IdemWindow time.Duration
+	// AwayMax is the longest lease a renewal of every session's claims
+	// (`sfx away`) may ask for. Default [MaxLease]; one that is negative,
+	// or under [MinLease], is refused.
+	AwayMax time.Duration
+	// Logger receives background committer errors, and the warning that
+	// AllowUnsafeAccount let an unsafe account through. Default discards.
+	Logger *slog.Logger
+	// Admins are the principals who may change issues others hold and
+	// force a close. None may be a [Reserved] name.
+	Admins []string
+	// IsAdmin, when set, is asked as well as Admins, on every write and
+	// admin-only request, so its answer may change while the store is
+	// open: a multi-project starfixd answers from the control store's
+	// project admins ([Control.Access]). It must be fast, read no
+	// database, and be safe for concurrent use.
+	IsAdmin func(principal string) bool
+	// AllowUnsafeAccount opens the store even when the database account
+	// is root, holds rights beyond its database, or the server leaves
+	// secure_file_priv empty. Off, Open refuses such an account with an
+	// [*UnsafeAccountError]; starfixd turns it on only for --dev
+	// --allow-unsafe-dolt.
+	AllowUnsafeAccount bool
+	// Limits bound requests and per-principal rows. Zero fields take
+	// [DefaultLimits].
+	Limits Limits
+	// Observer, when set, is told of each write, retry, Dolt commit and
+	// change of a claim, for the daemon's metrics. See [Observer].
+	Observer Observer
+	// Tracer, when set, is told where a write's time goes, under the
+	// caller's context, for the daemon's traces. See [Tracer].
+	Tracer Tracer
+	// NoMigrate opens the database only as it is: one that this binary's
+	// migrations have not all been applied to is refused with
+	// [ErrSchemaOld], and nothing in it is changed. starfixd sets it for
+	// the database of an archived project, which is migrated when the
+	// project is activated and not before.
+	NoMigrate bool
+
+	// tick, when set by tests, replaces the committer's CommitInterval
+	// ticker, so a test decides when each commit happens.
+	tick <-chan time.Time
+}
+
+// Store is the server-side issue store. It is safe for concurrent use.
+// [Open] returns one, and [Store.Close] releases it.
+type Store struct {
+	// w is the single writer connection; r is the read pool.
+	w, r *sql.DB
+	opts Options
+	// dirty is set by a write that changed rows since the last Dolt
+	// commit, and cleared by Flush.
+	dirty atomic.Bool
+
+	// stop asks the committer to return; it closes done when it has.
+	stop      chan struct{}
+	done      chan struct{}
+	closeOnce sync.Once
+	closeErr  error
+
+	// watch holds the open inbox watches; publish feeds them after each
+	// commit that wrote inbox items.
+	watch watchers
+	// similar caches closed titles for SimilarClosed (similar.go).
+	similar similarCache
+	// stats counts the writes that committed (stats.go).
+	stats writeStats
+	// clock is the server clock, and tm the store's own time, which the
+	// clock cannot move backward (clock.go). hasClaims is false for the
+	// control database, which has no leases to settle; settling
+	// serializes SettleClock. db names the database to the clock, which
+	// remembers what each has settled: its server's address and its name.
+	clock     *Clock
+	tm        storeTime
+	hasClaims bool
+	settling  sync.Mutex
+	db        string
+	// pg is set when the store is on Postgres (pgdialect.go).
+	pg bool
+	// migrated is how many migrations Open applied.
+	migrated int
+
+	// beforeCommit, when set by tests, runs inside every write transaction
+	// just before COMMIT.
+	beforeCommit func(context.Context) error
+	// wrapRead, when set by tests, wraps the querier beginRead returns, so
+	// a test can act between a read's queries.
+	wrapRead func(querier) querier
+}
+
+// Open connects to the Dolt database named in dsn (go-sql-driver/mysql
+// format), checks the account, applies pending migrations and starts the
+// committer. ctx bounds only the opening; the caller must Close the
+// store.
+//
+// Open refuses, with [ErrInvalid], a dsn that names no database and an
+// invalid prefix, admin or limit in opts. It refuses an unsafe account
+// with an [*UnsafeAccountError] unless opts.AllowUnsafeAccount is set,
+// a database a newer binary migrated with [ErrSchemaTooNew], and, with
+// opts.NoMigrate, one with migrations pending with [ErrSchemaOld].
+func Open(ctx context.Context, dsn string, opts Options) (*Store, error) {
+	return open(ctx, dsn, opts, projectSchema)
+}
+
+// open is Open for the database sc describes: a project's, or the
+// control database, whose store ([Control]) wraps the Store it returns
+// for its writer, committer and event log.
+func open(ctx context.Context, dsn string, opts Options, sc schema) (*Store, error) {
+	if opts.Logger == nil {
+		opts.Logger = slog.New(slog.DiscardHandler)
+	}
+	var conn driver.Connector
+	var where string
+	pg := isPostgres(dsn)
+	if pg {
+		c, w, err := pgConnector(dsn)
+		if err != nil {
+			return nil, err
+		}
+		conn, where = c, w
+		sc = sc.postgres()
+	} else {
+		cfg, err := mysql.ParseDSN(dsn)
+		if err != nil {
+			return nil, fmt.Errorf("parse dsn: %w", err)
+		}
+		if cfg.DBName == "" {
+			return nil, fmt.Errorf("%w: dsn names no database", ErrInvalid)
+		}
+		cfg.ParseTime = true
+		cfg.Loc = time.UTC
+		cfg.InterpolateParams = false
+		// What the driver says of a connection that died goes to the
+		// store's logger; its own prints to the process's stderr.
+		cfg.Logger = driverLog{opts.Logger}
+		if conn, err = mysql.NewConnector(cfg); err != nil {
+			return nil, fmt.Errorf("connector: %w", err)
+		}
+		where = cfg.Addr + "/" + cfg.DBName
+	}
+	if opts.Prefix == "" {
+		opts.Prefix = "sf"
+	}
+	if !prefixPattern.MatchString(opts.Prefix) {
+		return nil, fmt.Errorf("%w: prefix %q", ErrInvalid, opts.Prefix)
+	}
+	if err := checkAdmins(opts.Admins); err != nil {
+		return nil, err
+	}
+	if err := opts.Limits.Validate(); err != nil {
+		return nil, err
+	}
+	opts.Limits = opts.Limits.withDefaults()
+	if opts.ClientAhead < 0 || opts.ClientAhead > MaxClientAhead {
+		return nil, fmt.Errorf("%w: client times may be up to %s ahead, not %s", ErrInvalid, MaxClientAhead, opts.ClientAhead)
+	}
+	if opts.ClientAhead == 0 {
+		opts.ClientAhead = DefaultClientAhead
+	}
+	if opts.IdemWindow < 0 {
+		return nil, fmt.Errorf("%w: an idempotency window must be more than zero, not %s", ErrInvalid, opts.IdemWindow)
+	}
+	if opts.IdemWindow == 0 {
+		opts.IdemWindow = DefaultIdemWindow
+	}
+	if opts.AwayMax != 0 && opts.AwayMax < MinLease {
+		return nil, fmt.Errorf("%w: away may reach at least %s, not %s", ErrInvalid, MinLease, opts.AwayMax)
+	}
+	if opts.AwayMax == 0 {
+		opts.AwayMax = MaxLease
+	}
+	opts.Admins = slices.Clone(opts.Admins)
+	if opts.CommitInterval == 0 {
+		opts.CommitInterval = time.Second
+	}
+	if opts.MaxAttempts <= 0 {
+		opts.MaxAttempts = 5
+	}
+	if opts.Readers <= 0 {
+		opts.Readers = 8
+	}
+	if opts.Now == nil {
+		opts.Now = time.Now
+	}
+
+	s := &Store{
+		w:    sql.OpenDB(conn),
+		r:    sql.OpenDB(conn),
+		opts: opts,
+		stop: make(chan struct{}),
+		done: make(chan struct{}),
+
+		clock: opts.Clock, hasClaims: sc.table == projectSchema.table,
+		db: where, pg: pg,
+	}
+	if s.clock == nil {
+		s.clock = NewClock(ClockOptions{Now: opts.Now})
+	}
+	// One writer connection: writes are serialized in this process, so the
+	// event sequence is gapless without contention (stage 0: one writer
+	// ran at 233 req/s, within 15% of the best pool).
+	s.w.SetMaxOpenConns(1)
+	s.w.SetMaxIdleConns(1)
+	s.r.SetMaxOpenConns(opts.Readers)
+	s.r.SetMaxIdleConns(opts.Readers)
+
+	check := checkAccount
+	if pg {
+		check = checkPGAccount
+	}
+	if err := check(ctx, s.w); err != nil {
+		var ua *UnsafeAccountError
+		if !opts.AllowUnsafeAccount || !errors.As(err, &ua) {
+			return nil, errors.Join(err, s.w.Close(), s.r.Close())
+		}
+		opts.Logger.Warn("dolt account is unsafe; allowed for development", "event", logs.StoreUnsafeAccount,
+			"account", ua.User, "problems", strings.Join(ua.Problems, "; "))
+	}
+	mctx, migrated := s.begin(ctx, StageMigrate, 0)
+	n, err := migrate(mctx, s.w, s.now(), sc, !opts.NoMigrate)
+	migrated(outcomeOf(err))
+	if err != nil {
+		return nil, errors.Join(err, s.w.Close(), s.r.Close())
+	}
+	s.migrated = n
+	if n > 0 {
+		s.dirty.Store(true)
+	}
+	if err := s.initTime(ctx); err != nil {
+		return nil, errors.Join(err, s.w.Close(), s.r.Close())
+	}
+	if opts.CommitInterval > 0 {
+		go s.commitLoop(opts.CommitInterval) //nolint:gosec // outlives Open's ctx; stopped by Close
+	} else {
+		close(s.done)
+	}
+	return s, nil
+}
+
+// Migrated returns how many migrations opening the store applied: zero
+// for a database that was already at this binary's schema.
+func (s *Store) Migrated() int { return s.migrated }
+
+// Ping checks that Dolt answers, on a connection of the read pool. It is
+// what a health check asks: cheap, and it reads no table.
+func (s *Store) Ping(ctx context.Context) error {
+	if err := s.r.PingContext(ctx); err != nil {
+		return fmt.Errorf("ping dolt: %w", err)
+	}
+	return nil
+}
+
+// Close stops the committer, makes a final Dolt commit of pending writes
+// and closes the connections. It is safe to call more than once; every
+// call returns the first one's error.
+func (s *Store) Close() error {
+	s.closeOnce.Do(func() {
+		close(s.stop)
+		<-s.done
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		s.closeErr = errors.Join(s.Flush(ctx), s.w.Close(), s.r.Close())
+	})
+	return s.closeErr
+}
+
+// commitLoop flushes every interval, or on each test tick, until Close
+// stops it. A failed commit is logged and tried again on the next tick,
+// since Flush leaves the writes pending.
+func (s *Store) commitLoop(every time.Duration) {
+	defer close(s.done)
+	tick := s.opts.tick
+	if tick == nil {
+		t := time.NewTicker(every)
+		defer t.Stop()
+		tick = t.C
+	}
+	for {
+		select {
+		case <-s.stop:
+			return
+		case <-tick:
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			if err := s.Flush(ctx); err != nil {
+				s.opts.Logger.Error("dolt commit failed", "event", logs.StoreCommitFailed, "err", err)
+			}
+			cancel()
+		}
+	}
+}
+
+// Flush makes a Dolt commit now if any write happened since the last one.
+// The message names the last event sequence it covers. When the commit
+// fails, the writes stay pending for the next Flush.
+func (s *Store) Flush(ctx context.Context) error {
+	if !s.dirty.Swap(false) {
+		return nil
+	}
+	start := time.Now()
+	cctx, committed := s.begin(ctx, StageCommit, 0)
+	err := s.commit(cctx)
+	committed(outcomeOf(err))
+	if err != nil {
+		s.dirty.Store(true)
+	}
+	if o := s.opts.Observer; o != nil {
+		o.Committed(time.Since(start), err)
+	}
+	return err
+}
+
+// commit makes a Dolt commit of the working set, named for the last
+// event sequence.
+func (s *Store) commit(ctx context.Context) error {
+	if s.pg {
+		return nil // no commit graph: what is committed is the history there is
+	}
+	// Hold the single writer connection so no write lands between reading
+	// the sequence and committing.
+	c, err := s.w.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("dolt commit: %w", err)
+	}
+	defer func() { _ = c.Close() }()
+	seq, err := lastEventSeq(ctx, c)
+	if err != nil {
+		return fmt.Errorf("dolt commit: %w", err)
+	}
+	msg := fmt.Sprintf("starfix: events through %d", seq)
+	if _, err := c.ExecContext(ctx, `CALL DOLT_COMMIT('-Am', ?, '--skip-empty')`, msg); err != nil {
+		return fmt.Errorf("dolt commit: %w", err)
+	}
+	return nil
+}
+
+// Now reads the store's time, in UTC to the microsecond: the server
+// clock (Options.Clock, or Options.Now), which the store keeps from going
+// backward and from jumping forward unsettled (clock.go).
+func (s *Store) Now() time.Time { return s.now() }
+
+func (s *Store) now() time.Time { return s.readTime().at }
+
+// beginRead starts a read of several queries on one read-only
+// transaction, so that they see one snapshot: a write that commits while
+// the read runs shows in none of them. It returns the transaction to run
+// the queries on and a func that ends it, to call once they are done.
+func (s *Store) beginRead(ctx context.Context) (querier, func(), error) {
+	tx, err := s.r.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, nil, fmt.Errorf("begin read: %w", err)
+	}
+	var q querier = tx
+	if s.wrapRead != nil {
+		q = s.wrapRead(q)
+	}
+	return q, func() { _ = tx.Rollback() }, nil // read-only: nothing to keep
+}
+
+// querier is satisfied by *sql.DB, *sql.Conn and *sql.Tx.
+type querier interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// wtx is one attempt at a write transaction. Every attempt gets a fresh
+// one, so none of a failed attempt's events, inbox items or idempotency
+// stamp carries into the rerun.
+//
+// The transaction's connection serves one result set at a time: read
+// rows to the end and close them before running the next statement.
+type wtx struct {
+	tx    *sql.Tx
+	actor Actor
+	// admin is set when actor's principal is one of the store's admins.
+	admin bool
+	// now is the attempt's server time, used for every timestamp it
+	// writes.
+	now time.Time
+	// mutated is set once a statement changed a row; writeOnce then
+	// requires an event unless quiet is set.
+	mutated bool
+	events  int
+	// quiet allows a mutation with no event, for bookkeeping that is not
+	// history: a lease renewal, a registry touch, an inbox ack, a prune.
+	quiet bool
+	// touched is set once a statement run by touch changed a row: a
+	// change the store must commit to Dolt, but that leaves mutated, and
+	// so the event check, alone.
+	touched bool
+	// inbox are the items this attempt wrote, pushed once it commits.
+	inbox []InboxItem
+	// firstSeq is the seq flush gave the first pending event.
+	firstSeq int64
+	// pending are the events recorded, written by flush.
+	pending []pendingEvent
+	// idem is the operation's idempotency stamp, when it has a key, and
+	// window how long a key gives back its result (Options.IdemWindow).
+	idem   *idemStamp
+	window time.Duration
+	// lim are the store's limits.
+	lim Limits
+	// closedChanged is set when the attempt closed or reopened an issue,
+	// or changed a closed one, so the similar-title cache is stale once
+	// it commits.
+	closedChanged bool
+	// claims are the changes of a claim the attempt made, told to the
+	// store's observer once it commits (observe.go).
+	claims []claimChange
+}
+
+// exec runs a mutating statement. It refuses an UPDATE that does not set
+// write_id: without it Dolt merges concurrent writes silently (stage 0).
+func (w *wtx) exec(ctx context.Context, q string, args ...any) (int64, error) {
+	n, err := w.run(ctx, q, args...)
+	if n > 0 {
+		w.mutated = true
+	}
+	return n, err
+}
+
+// touch runs a statement that is bookkeeping within a write that may
+// also make history, such as refreshing the time of an issue's paths
+// during a finish. Unlike setting quiet, it exempts only its own change
+// from the event check: anything else the write changes still needs an
+// event.
+func (w *wtx) touch(ctx context.Context, q string, args ...any) error {
+	n, err := w.run(ctx, q, args...)
+	if n > 0 {
+		w.touched = true
+	}
+	return err
+}
+
+// run executes q for exec and touch, refusing an UPDATE without write_id.
+func (w *wtx) run(ctx context.Context, q string, args ...any) (int64, error) {
+	if strings.HasPrefix(strings.TrimSpace(q), "UPDATE") && !strings.Contains(q, "write_id = ?") {
+		return 0, errors.New("store: UPDATE without write_id")
+	}
+	res, err := w.tx.ExecContext(ctx, q, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// event records an event for op on target, with the before and after
+// states as JSON (nil is NULL). Every change that is history records at
+// least one. Events are buffered and written in order, with the next
+// gapless sequence numbers, once the operation's closure returns (flush),
+// so the last can carry the operation's idempotency stamp and result.
+func (w *wtx) event(_ context.Context, op Op, target string, before, after any) error {
+	b, err := jsonOrNull(before)
+	if err != nil {
+		return err
+	}
+	a, err := jsonOrNull(after)
+	if err != nil {
+		return err
+	}
+	w.pending = append(w.pending, pendingEvent{op: op, target: target, before: b, after: a})
+	w.events++
+	return nil
+}
+
+// revEvent is event for the one event of a write that changed issue id's
+// row: it records rev, the issue's rev after the write, with it, which
+// is how a replayed update finds the state at the rev it was based on
+// (conflicts.go). before and after are the changed fields, as diff gives
+// them, or nil before a create.
+func (w *wtx) revEvent(ctx context.Context, op Op, id IssueID, rev Rev, before, after any) error {
+	if err := w.event(ctx, op, string(id), before, after); err != nil {
+		return err
+	}
+	w.pending[len(w.pending)-1].rev = rev
+	return nil
+}
+
+// issueEvent records op for a write that took an issue from before to
+// after, with the fields it changed and extra added to the after state,
+// and closes the open conflicts on those fields: a later change to a
+// field decides it (design §18.7).
+func (w *wtx) issueEvent(ctx context.Context, op Op, before, after Issue, extra map[string]any) error {
+	b, a := diff(before, after)
+	maps.Copy(a, extra)
+	if err := w.revEvent(ctx, op, after.ID, after.Rev, b, a); err != nil {
+		return err
+	}
+	return supersede(ctx, w, after.ID, b)
+}
+
+// pendingEvent is an event recorded but not yet written. rev is set on
+// the event of a change to an issue's row (revEvent).
+type pendingEvent struct {
+	op            Op
+	target        string
+	before, after any
+	rev           Rev
+}
+
+// flush writes the buffered events with the next sequence numbers. The
+// last carries the idempotency stamp, if the operation has one.
+func (w *wtx) flush(ctx context.Context) error {
+	if len(w.pending) == 0 {
+		if w.idem != nil && w.idem.result != nil {
+			return errors.New("store: idempotent operation recorded no event")
+		}
+		return nil
+	}
+	seq, err := lastEventSeq(ctx, w.tx)
+	if err != nil {
+		return fmt.Errorf("next event seq: %w", err)
+	}
+	for i, e := range w.pending {
+		seq++
+		var key, args, result any
+		if st := w.idem; st != nil && i == len(w.pending)-1 {
+			if st.result == nil {
+				return errors.New("store: idempotent operation set no result")
+			}
+			key, args, result = st.key, st.args, string(st.result)
+		}
+		q, vals := insertEvent, []any{seq, w.now, w.actor.Principal, w.actor.Session, w.actor.Machine, string(e.op),
+			e.target, e.before, e.after, key, args, result}
+		if e.rev > 0 {
+			// Only a project's database has the column: the control
+			// database's events change no issue.
+			q, vals = insertRevEvent, append(vals, int64(e.rev))
+		}
+		if _, err := w.exec(ctx, q, vals...); err != nil {
+			if key != nil && isDuplicate(err) {
+				// A concurrent request with the same key committed first;
+				// the rerun replays it.
+				return fmt.Errorf("%w: idempotency key %q: %w", errRetry, w.idem.key, err)
+			}
+			return fmt.Errorf("insert event: %w", err)
+		}
+	}
+	w.firstSeq = seq - int64(len(w.pending)) + 1
+	return nil
+}
+
+// The statements that write an event, without and with the issue's rev.
+const (
+	insertEvent = `INSERT INTO events
+  (seq, at, principal, session, machine, op, target, before_state, after_state, idem_key, idem_args, idem_result)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	insertRevEvent = `INSERT INTO events
+  (seq, at, principal, session, machine, op, target, before_state, after_state, idem_key, idem_args, idem_result, rev)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+)
+
+// issueEvents returns the events flush wrote on issues, without their
+// states, for the event watches.
+func (w *wtx) issueEvents() []Event {
+	var evs []Event
+	for i, e := range w.pending {
+		if IssueID(e.target).Validate() == nil {
+			evs = append(evs, Event{Seq: w.firstSeq + int64(i), At: w.now, Actor: w.actor, Op: e.op, Target: e.target})
+		}
+	}
+	return evs
+}
+
+// lastEventSeq returns the highest event seq, or 0. It avoids MAX(): Dolt
+// 2.4.2 returns no row at all for MAX over an empty table's primary key.
+func lastEventSeq(ctx context.Context, q querier) (int64, error) {
+	return lastKey(ctx, q, `SELECT seq FROM events ORDER BY seq DESC LIMIT 1`)
+}
+
+// lastKey runs query, which selects one integer in descending order with
+// LIMIT 1, and returns it, or 0 when the table is empty.
+func lastKey(ctx context.Context, q querier, query string) (int64, error) {
+	var n int64
+	err := q.QueryRowContext(ctx, query).Scan(&n)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return n, err
+}
+
+// sumInt returns SQL for the exact sum of the integer expression expr,
+// as a DECIMAL, which scans into an int64. Dolt 2.4.2 sums integers as a
+// DOUBLE, rounded past 2⁵³ and sent in exponent form from 10⁶ ("1e+06"),
+// which no integer scan accepts. Summing DECIMALs is exact, and casting
+// the result keeps Dolt from sending it as a DOUBLE too. A sum past the
+// int64 range fails the scan rather than being clamped to it, as a CAST
+// to SIGNED would.
+func sumInt(expr string) string {
+	return "CAST(SUM(CAST(" + expr + " AS DECIMAL(65, 0))) AS DECIMAL(65, 0))"
+}
+
+// jsonOrNull encodes an event state as compacted JSON text, or returns
+// nil, which is NULL, for a nil state.
+func jsonOrNull(v any) (any, error) {
+	if v == nil {
+		return nil, nil
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("encode event state: %w", err)
+	}
+	if b, err = compactState(b); err != nil {
+		return nil, err
+	}
+	return string(b), nil
+}
+
+// Event text bounds (S-10). An event keeps the before and after of what
+// changed, and Dolt keeps every version, so without a bound an edit loop
+// over four 64 KiB fields would grow the log by 256 KiB a write. A string
+// longer than EventTextMax is kept as its first EventTextKeep bytes, its
+// length and its SHA-256: enough to tell what changed and to check a
+// copy, while the text itself lives in the issue or comment row.
+const (
+	EventTextMax  = 8 << 10
+	EventTextKeep = 512
+)
+
+// compactState shortens every string in the JSON document b longer than
+// EventTextMax, keeping it a string so readers decode it as before.
+func compactState(b []byte) ([]byte, error) {
+	if len(b) <= EventTextMax {
+		return b, nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, fmt.Errorf("compact event state: %w", err)
+	}
+	changed := false
+	var walk func(any) any
+	walk = func(v any) any {
+		switch x := v.(type) {
+		case string:
+			if len(x) > EventTextMax {
+				changed = true
+				return elide(x)
+			}
+		case map[string]any:
+			for k, e := range x {
+				x[k] = walk(e)
+			}
+		case []any:
+			for i, e := range x {
+				x[i] = walk(e)
+			}
+		}
+		return v
+	}
+	v = walk(v)
+	if !changed {
+		return b, nil
+	}
+	out, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("compact event state: %w", err)
+	}
+	return out, nil
+}
+
+// elide is s's first EventTextKeep bytes, on a rune boundary, then its
+// length and SHA-256.
+func elide(s string) string {
+	n := EventTextKeep
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	sum := sha256.Sum256([]byte(s))
+	return fmt.Sprintf("%s… [%d bytes, sha256:%s]", s[:n], len(s), hex.EncodeToString(sum[:]))
+}
+
+// write runs fn in a transaction on the writer connection as actor,
+// retrying when a concurrent transaction wins (see retryable). It
+// refuses an invalid actor with ErrInvalid before trying. fn must be safe
+// to rerun: each attempt starts from a fresh wtx, and fn must set every
+// result it hands back afresh. Between attempts write waits a random,
+// growing backoff; when ctx ends first, or attempts reach
+// Options.MaxAttempts, it gives up, the latter with ErrConflict.
+//
+// It settles a forward step of the clock before it waits for the writer,
+// so that leases get the step as soon as a write knows of it, and each
+// attempt looks again once its transaction has begun (writeOnce), since
+// the clock may step while the write waits.
+func (s *Store) write(ctx context.Context, actor Actor, fn func(*wtx) error) error {
+	if err := actor.validate(); err != nil {
+		return err
+	}
+	if err := s.SettleClock(ctx); err != nil {
+		return err
+	}
+	return s.writeRetry(ctx, actor, false, fn)
+}
+
+// writeRetry is write for an actor already checked, without settling the
+// clock first. settle is set for SettleClock's own write, which is dated
+// on the time before the step it settles.
+func (s *Store) writeRetry(ctx context.Context, actor Actor, settle bool, fn func(*wtx) error) error {
+	start := time.Now()
+	for attempt := 1; ; attempt++ {
+		actx, attempted := s.begin(ctx, StageAttempt, attempt)
+		changed, err := s.writeOnce(actx, actor, settle, fn)
+		attempted(outcomeOf(err))
+		if err == nil {
+			if changed {
+				took := time.Since(start)
+				s.stats.record(time.Now(), took)
+				if o := s.opts.Observer; o != nil {
+					o.Wrote(took)
+				}
+			}
+			return nil
+		}
+		if !retryable(err) {
+			return err
+		}
+		if attempt >= s.opts.MaxAttempts {
+			return fmt.Errorf("%w: gave up after %d attempts: %w", ErrConflict, attempt, err)
+		}
+		if o := s.opts.Observer; o != nil {
+			o.Retried()
+		}
+		d := time.Duration(rand.Int64N(int64(5*time.Millisecond) << min(attempt, 5))) //nolint:gosec // jitter, not security
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("write retry: %w", ctx.Err())
+		case <-time.After(d):
+		}
+	}
+}
+
+// beginWrite waits for the writer, begins a transaction on it and then
+// reads the store's time: the attempt's time, and whether a forward step
+// of the clock is pending now that the wait is over.
+func (s *Store) beginWrite(ctx context.Context) (*sql.Tx, view, error) {
+	// The writer is one connection, so this is where a write waits for
+	// the writes ahead of it.
+	_, waited := s.begin(ctx, StageWait, 0)
+	tx, err := s.w.BeginTx(ctx, nil)
+	waited(outcomeOf(err))
+	if err != nil {
+		return nil, view{}, fmt.Errorf("begin: %w", err)
+	}
+	return tx, s.readTime(), nil
+}
+
+// writeOnce makes one attempt: it runs fn in a new transaction, refuses a
+// mutation that recorded no event unless the attempt is quiet, writes the
+// buffered events and commits. Only once the commit succeeds does it mark
+// the store dirty, invalidate the similar-title cache and push inbox
+// items and issue events, so a rolled-back attempt leaves no trace.
+//
+// No attempt goes on with a forward step of the clock pending, but the
+// settle's own (settle). A write settles the clock before it waits for
+// the writer, and the clock may step while it waits, or between two
+// attempts; dated on the time before the step, it would put what it
+// records before what caused it in another store's log. So the attempt
+// gives the writer up, settles, and begins again on the time after the
+// step. If the clock has stepped yet again by then, the attempt ends as
+// one that lost to a concurrent transaction does, and write's bound on
+// attempts is the bound on this: a clock that steps at every attempt gets
+// the write refused, and never an event dated before a step.
+func (s *Store) writeOnce(ctx context.Context, actor Actor, settle bool, fn func(*wtx) error) (changed bool, err error) {
+	tx, v, err := s.beginWrite(ctx)
+	if err != nil {
+		return false, err
+	}
+	if v.pending > 0 && !settle {
+		// Rolled back first: the settle is a write, and waits for the
+		// writer this attempt holds.
+		if err := rollback(tx); err != nil {
+			return false, err
+		}
+		if err := s.SettleClock(ctx); err != nil {
+			return false, err
+		}
+		if tx, v, err = s.beginWrite(ctx); err != nil {
+			return false, err
+		}
+		if v.pending > 0 {
+			return false, errors.Join(fmt.Errorf("%w: the clock stepped forward again while a step was settled", errRetry), rollback(tx))
+		}
+	}
+	w := &wtx{tx: tx, actor: actor, admin: s.IsAdmin(actor.Principal), now: v.at, lim: s.opts.Limits, window: s.opts.IdemWindow}
+	if err := fn(w); err != nil {
+		return false, errors.Join(err, rollback(tx))
+	}
+	if w.mutated && w.events == 0 && !w.quiet {
+		return false, errors.Join(errors.New("store: mutation without an event"), rollback(tx))
+	}
+	if err := w.flush(ctx); err != nil {
+		return false, errors.Join(err, rollback(tx))
+	}
+	if s.beforeCommit != nil {
+		if err := s.beforeCommit(ctx); err != nil {
+			return false, errors.Join(err, rollback(tx))
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("commit: %w", err)
+	}
+	changed = w.mutated || w.touched
+	if changed {
+		s.dirty.Store(true)
+	}
+	if w.closedChanged {
+		s.similar.invalidate()
+	}
+	if o := s.opts.Observer; o != nil {
+		for _, c := range w.claims {
+			o.ClaimChanged(c.change, c.reason)
+		}
+	}
+	// Counted after the commit: every watch subscribed before it is
+	// counted, and one subscribed later is not owed this write's events.
+	var evs []Event
+	if s.watch.events.Load() > 0 {
+		evs = w.issueEvents()
+	}
+	if len(w.inbox) > 0 || len(evs) > 0 {
+		s.publish(w.inbox, evs)
+	}
+	return changed, nil
+}
+
+// rollback rolls tx back; a transaction already done is not an error.
+func rollback(tx *sql.Tx) error {
+	if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+		return fmt.Errorf("rollback: %w", err)
+	}
+	return nil
+}
