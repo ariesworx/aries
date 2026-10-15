@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"os/exec"
+	"strconv"
 	"testing"
 	"time"
 
@@ -43,7 +44,7 @@ func TestExitCodeOf(t *testing.T) {
 	t.Parallel()
 	exited := func(code int) error {
 		t.Helper()
-		err := exec.Command("sh", "-c", "exit "+string(rune('0'+code))).Run()
+		err := exec.Command("sh", "-c", "exit "+strconv.Itoa(code)).Run() //nolint:gosec // a script of the test's own
 		if _, ok := errors.AsType[*exec.ExitError](err); !ok {
 			t.Skipf("sh -c exit %d = %v: no POSIX shell here", code, err)
 		}

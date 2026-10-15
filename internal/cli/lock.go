@@ -435,15 +435,12 @@ func lockRun(ctx context.Context, r *runner, args []string) error {
 // stops the command; lost reports the latter, and the code is then 1.
 func (r *runner) holdWhile(ctx context.Context, name string, epoch int64, lease time.Duration, cmd *exec.Cmd, done <-chan error) (code int, lost bool) {
 	every := lease / 3
-	interrupted := false
 	for {
 		select {
 		case err := <-done:
-			return exitCodeOf(err, interrupted), false
+			return exitCodeOf(err, false), false
 		case <-ctx.Done():
-			interrupted = true
-			err := r.stop(cmd, done)
-			return exitCodeOf(err, true), false
+			return exitCodeOf(r.stop(cmd, done), true), false
 		case <-r.after(every):
 		}
 		var out proto.LockResult

@@ -222,7 +222,7 @@ func (ls *lockSession) run(ctx context.Context) {
 				ls.count(func(st *lockStats) { st.vanished++ }) // a waiter dies: its place lapses
 				return
 			case ls.chance(0.02):
-				ls.call(ctx, proto.OpLockLeave, proto.LockLeaveArgs{Name: ls.name}, &proto.LockLeaveResult{})
+				_, _ = ls.call(ctx, proto.OpLockLeave, proto.LockLeaveArgs{Name: ls.name}, &proto.LockLeaveResult{}) // the journal has it
 			}
 			out, perr = ls.call(ctx, proto.OpLockRenew, proto.LockRenewArgs{Name: ls.name}, &r)
 			if out == refused && perr.Code == proto.CodeConflict {
@@ -254,7 +254,7 @@ func (ls *lockSession) run(ctx context.Context) {
 			}
 		}
 		if kept {
-			ls.call(ctx, proto.OpLockRelease, proto.LockReleaseArgs{Name: ls.name, Epoch: epoch}, &proto.LockReleaseResult{})
+			_, _ = ls.call(ctx, proto.OpLockRelease, proto.LockReleaseArgs{Name: ls.name, Epoch: epoch}, &proto.LockReleaseResult{}) // the journal has it
 		}
 		pause(ctx, time.Duration(ls.rng.IntN(int(s.cfg.think)+1)))
 	}
