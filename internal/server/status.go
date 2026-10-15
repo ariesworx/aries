@@ -17,25 +17,20 @@ import (
 // sessions seen lately). It opens no store, reads no control table and
 // writes nothing.
 //
-// It answers when Dolt does not: those counts are bounded
+// It answers when the database does not: those counts are bounded
 // (statusReadTimeout), and one that does not come back is reported as
-// unknown with the cause, never as zero. Nothing else in it waits on
-// Dolt, or on a lock held by something that does.
+// unknown with the cause, never as zero. Nothing else in it waits on the
+// database, or on a lock held by something that does.
 //
-// Of Dolt, which is another process under another user, it says what
-// the daemon last read from Dolt's own metrics endpoint, when it is
-// told where that is (doltwatch.go): the report itself reads nothing.
-// It does not say a database's size on disk. Dolt gives its
-// least-privileged account no table or function for that
-// (information_schema.tables estimates the current rows and leaves out
-// the history, which is most of a Dolt database), and the files are
-// Dolt's user's to read.
+// It says nothing yet of Postgres itself, which is another process
+// under another user: its own figures (pg_stat_*) come with the port's
+// next slice (decision 79).
 
 // statusReadTimeout bounds the report's reads of the database, all of
 // them together: they run at once and share the one deadline, so the
 // report takes this long at most however many stores are open and
-// whatever Dolt is doing. It is the bound /readyz gives its own check of
-// Dolt (doltCheckTimeout): a count on an index that has not come back
+// whatever the database is doing. It is the bound /readyz gives its own
+// check of the database (dbCheckTimeout): a count on an index that has not come back
 // in two seconds is not coming, and someone asking why the server is
 // slow should not wait longer than that to be told. On a connection it
 // covers the wait for the note of the asker's session as well
@@ -75,7 +70,7 @@ func status(ctx context.Context, s *Server, sess *session, in proto.StatusArgs) 
 // report is the status of the projects rows, sorted by name, as in pages
 // them, and of the server itself when server is set. by is when its
 // reads of the database give up, for a caller that has already spent
-// part of statusReadTimeout waiting on Dolt; the zero time is
+// part of statusReadTimeout waiting on the database; the zero time is
 // statusReadTimeout from now.
 func (s *Server) report(ctx context.Context, rows []store.Project, server bool, in proto.StatusArgs, by time.Time) (any, *proto.Error) {
 	if by.IsZero() {
@@ -164,7 +159,6 @@ func (s *Server) serverStatus() *proto.ServerStatus {
 		Projects: map[string]int{}, Principals: map[string]int{},
 		KeysFile: s.keysStatus(),
 		Clock:    s.clockStatus(),
-		Dolt:     s.doltStatus(),
 		Traces:   s.tracesStatus(),
 	}
 	if s.cfg.Control == nil {

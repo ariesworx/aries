@@ -7,9 +7,9 @@ says how to use each, and lists the alerts.
 
 | File | Is |
 |---|---|
-| [collector.yaml](collector.yaml) | An OpenTelemetry Collector's configuration: OTLP in from ariesd, scrapes of ariesd's `/metrics` and of Dolt's, and one exporter to replace with your backend's |
+| [collector.yaml](collector.yaml) | An OpenTelemetry Collector's configuration: OTLP in from ariesd, a scrape of ariesd's `/metrics`, and one exporter to replace with your backend's |
 | [alerts.yaml](alerts.yaml) | Alert rules in Prometheus's rule format |
-| [prometheus.yaml](prometheus.yaml) | A Prometheus configuration that scrapes both endpoints and loads the rules |
+| [prometheus.yaml](prometheus.yaml) | A Prometheus configuration that scrapes ariesd and loads the rules |
 | [dashboard.json](dashboard.json) | One dashboard, in Grafana's format |
 
 Nothing here names a vendor or a host: a backend is
@@ -23,14 +23,14 @@ environment.
   label values that ariesd's instruments have, so renaming an
   instrument fails the build; the rules cover what the design says an
   operator is told of, each signal ariesd can drop among them; the
-  scrape jobs of both configurations are the two the rules select by,
-  at the addresses the server guide gives; and the images the Docker
+  scrape job of both configurations is the one the rules select by,
+  at the address the server guide gives; and the images the Docker
   test server runs them in are pinned by digest.
 - **By the Docker smoke test**, when asked
   (`ARIES_SMOKE_TELEMETRY=1 deploy/docker/smoke.sh`,
   [docs/deploy/docker.md](../../docs/deploy/docker.md#with-the-telemetry-harness)):
   a real Collector receives ariesd's metrics, traces and log records
-  and scrapes Dolt, and a real Prometheus loads every rule, evaluates
+  and a real Prometheus loads every rule, evaluates
   each without error and runs every query of the dashboard. CI does not
   run it.
 

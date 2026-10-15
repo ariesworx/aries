@@ -10,14 +10,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"time"
 
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/release"
 	"github.com/ariesworx/aries/internal/server"
-	"github.com/ariesworx/aries/internal/store"
 	"github.com/ariesworx/aries/internal/version"
 )
 
@@ -44,8 +42,6 @@ type upgradeDeps struct {
 	exe string
 	// check runs the staged binary and wants it to report tag.
 	check func(ctx context.Context, path, tag string) error
-	// backup tags the store before the swap and returns the tag made.
-	backup func(ctx context.Context, env adminEnv, fl server.Settings, cfgPath, tag string) (string, error)
 	// clock says, with a *server.ClockBehindError, that the clock is
 	// behind the server's history, so that serve may refuse to start.
 	// Nil skips the question.
@@ -69,7 +65,6 @@ func osUpgradeDeps() upgradeDeps {
 		check: func(ctx context.Context, path, tag string) error {
 			return release.VersionCheck(tag)(ctx, path)
 		},
-		backup:  backupStore,
 		clock:   clockPreflight,
 		restart: systemctlRestart,
 		probe: func(ctx context.Context, socket, project string) (string, error) {
@@ -201,25 +196,21 @@ func upgradeCmd(ctx context.Context, env adminEnv, d upgradeDeps, args []string)
 		case isBehind:
 			_, _ = fmt.Fprintf(env.stderr, "ariesd: warning: %v\n", behind)
 		case err != nil:
-			return fmt.Errorf("check the clock against the server's history before upgrading: %w; fix: nothing was changed; make sure dolt sql-server is running and retry", err)
+			return fmt.Errorf("check the clock against the server's history before upgrading: %w; fix: nothing was changed; make sure Postgres is running and retry", err)
 		}
-	}
-	tag, err := d.backup(ctx, env, fl, cfgPath, "aries-"+cur)
-	if err != nil {
-		return fmt.Errorf("backup before upgrade: %w; fix: nothing was changed; make sure dolt sql-server is running and retry", err)
 	}
 	swap := release.Swap{Exe: exe, GOOS: d.goos, Check: func(ctx context.Context, p string) error { return d.check(ctx, p, rel.Tag) }}
 	if err := swap.Install(ctx, bin); err != nil {
 		return swapFailure(exe, err)
 	}
 	if unit == "" {
-		_, _ = fmt.Fprintf(env.stdout, "installed ariesd %s (was %s; backup tag %s); restart it to run the new version: sudo systemctl restart ariesd\n",
-			rel.Tag, cur, tag)
+		_, _ = fmt.Fprintf(env.stdout, "installed ariesd %s (was %s); restart it to run the new version: sudo systemctl restart ariesd\n",
+			rel.Tag, cur)
 		return nil
 	}
 	herr := restartHealthy(ctx, d, s, unit, rel.Tag)
 	if herr == nil {
-		_, _ = fmt.Fprintf(env.stdout, "ariesd upgraded %s -> %s (backup tag %s; %s restarted and healthy)\n", cur, rel.Tag, tag, unit)
+		_, _ = fmt.Fprintf(env.stdout, "ariesd upgraded %s -> %s (%s restarted and healthy)\n", cur, rel.Tag, unit)
 		return nil
 	}
 	// Put the old binary back and restart it, then say what happened.
@@ -228,8 +219,8 @@ func upgradeCmd(ctx context.Context, env adminEnv, d upgradeDeps, args []string)
 			rel.Tag, herr, cur, err, swap.Prev(), exe, unit)
 	}
 	if err := restartHealthy(ctx, d, s, unit, cur); err != nil {
-		return fmt.Errorf("ariesd %s is unhealthy (%w); restored %s, which is not healthy either (%w); fix: check `journalctl -u %s`; the data is tagged %s",
-			rel.Tag, herr, cur, err, unit, tag)
+		return fmt.Errorf("ariesd %s is unhealthy (%w); restored %s, which is not healthy either (%w); fix: check `journalctl -u %s`; the old binary refuses a schema the new one migrated, so restore that from the backup taken before the upgrade",
+			rel.Tag, herr, cur, err, unit)
 	}
 	return fmt.Errorf("ariesd %s is unhealthy (%w); restored %s, which is running; fix: check `journalctl -u %s` and report it at %s",
 		rel.Tag, herr, cur, unit, releasesURL)
@@ -335,77 +326,6 @@ func systemctlRestart(ctx context.Context, unit string) error {
 			unit, err, strings.TrimSpace(string(out)), unit)
 	}
 	return nil
-}
-
-// backupStore commits every write so far to the daemon's database and tags
-// the commit tag (aries-<old version>). It returns the tag made: tag, or
-// tag-<UTC time> when tag already marks an older commit
-// (store.Store.BackupTag).
-//
-// On a server of many projects (control_db) it does so in every database
-// the new binary may migrate: the control database, and the database of
-// every project that has one, archived projects included, since one can
-// be activated again. A project still being created may have no
-// database yet and is left out. It stops at the first failure, before
-// the binary is replaced. The tags made are returned together; they
-// differ only when a database already held tag at an older commit.
-func backupStore(ctx context.Context, env adminEnv, fl server.Settings, cfgPath, tag string) (string, error) {
-	s, err := server.ResolveSettings(fl, cfgPath, env.getenv)
-	if err != nil {
-		return "", err
-	}
-	if s.ControlDB == "" {
-		st, err := openAdminStore(ctx, env, fl, cfgPath, "")
-		if err != nil {
-			return "", err
-		}
-		name, err := st.BackupTag(ctx, tag)
-		return name, closeStore(err, st)
-	}
-	if s.DSN == "" {
-		return "", errors.New("no database DSN; fix: set $ARIESD_DSN or dsn: in the config file")
-	}
-	ctl, err := openControl(ctx, s, store.ControlOptions{CommitInterval: -1})
-	if err != nil {
-		return "", err
-	}
-	name, err := ctl.BackupTag(ctx, tag)
-	var projects []store.Project
-	if err == nil {
-		projects, err = ctl.Projects(ctx)
-	}
-	if err = closeControl(err, ctl); err != nil {
-		return "", fmt.Errorf("control database %s: %w", s.ControlDB, err)
-	}
-	tags := []string{name}
-	for _, p := range projects {
-		if p.State == store.ProjectCreating {
-			continue
-		}
-		name, err := backupProject(ctx, s, p, tag)
-		if err != nil {
-			return "", fmt.Errorf("project %s (database %s): %w", p.Name, p.DBName, err)
-		}
-		if !slices.Contains(tags, name) {
-			tags = append(tags, name)
-		}
-	}
-	return strings.Join(tags, ", "), nil
-}
-
-// backupProject tags project p's database, as backupStore describes.
-func backupProject(ctx context.Context, s server.Settings, p store.Project, tag string) (string, error) {
-	dsn, err := server.DatabaseDSN(s.DSN, p.DBName)
-	if err != nil {
-		return "", err
-	}
-	st, err := store.Open(ctx, dsn, store.Options{Prefix: p.Prefix, CommitInterval: -1, AllowUnsafeAccount: s.AllowUnsafeDolt,
-		Limits: s.Limits.Limits})
-	if err != nil {
-		return "", fmt.Errorf("open store: %w", err)
-	}
-	name, err := st.BackupTag(ctx, tag)
-	return name, closeStore(err, st)
 }
 
 // fetchFailure explains a failed fetch of release tag, with a fix for each

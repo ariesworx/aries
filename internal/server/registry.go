@@ -17,9 +17,8 @@ import (
 // connection is closed to make room, and when every store has
 // connections the handshake is refused.
 //
-// Closing a store gives back its connections to Dolt, the writer and the
-// readers, and nothing else: Dolt's memory follows the data written and
-// stays (stage 3a's measurements).
+// Closing a store gives back its connections to the database, the writer
+// and the readers, and the server processes that served them.
 type registry struct {
 	// open opens a project's store and readies it to serve.
 	open func(context.Context, store.Project) (*served, error)

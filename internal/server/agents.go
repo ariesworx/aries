@@ -12,13 +12,13 @@ import (
 )
 
 // The note of a session in its project's registry, which `aries who`
-// reads, is a write, and so waits on Dolt. A connection makes it beside
+// reads, is a write, and so waits on the database. A connection makes it beside
 // the wait for its first request, not before it, and each request waits
 // for it (presence.ensure): so that none reads or writes a store for a
 // session the registry has not been told of, and none waits for the
 // note longer than it may wait at all. That is the request timeout for
 // every op but `status`, which is what an admin asks when the database
-// is in trouble and waits on Dolt for statusReadTimeout, the note
+// is in trouble and waits on the database for statusReadTimeout, the note
 // included.
 
 // presence is the note of one connection's session. The connection's
@@ -82,10 +82,10 @@ func (p *presence) ensure(ctx context.Context) {
 // noteGrace is how long a connection that has ended waits for the note
 // of its session to finish before giving it up. A connection that
 // asked for anything has waited for the note already, so this is for
-// one that said hello and left: it is listed by who when Dolt answers,
+// one that said hello and left: it is listed by who when the database answers,
 // as it was when the note came before the first request, and holds its
 // place and its project's store no longer than the status report waits
-// on Dolt when Dolt does not.
+// on the database when the database does not.
 const noteGrace = statusReadTimeout
 
 // end waits for the first note to finish, giving it up after noteGrace.

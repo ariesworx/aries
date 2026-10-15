@@ -90,8 +90,10 @@ type Server struct {
 	dir  string
 	bin  string
 	cmd  *exec.Cmd
-	exit chan error   // receives cmd.Wait's result, once, when the server exits
-	n    atomic.Int64 // databases made, for unique names
+	exit chan error // receives cmd.Wait's result, once, when the server exits
+	// stopped is set once Stop has seen this launch's server exit.
+	stopped bool
+	n       atomic.Int64 // databases made, for unique names
 }
 
 // lookPostgres finds the directory holding postgres and initdb, from
@@ -157,7 +159,7 @@ func Start(ctx context.Context, dir string) (*Server, error) {
 	}
 	// The socket is reached by whoever can reach the directory, and the
 	// superuser signs in without a password.
-	if err := os.Chmod(dir, 0o700); err != nil {
+	if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // a directory, which its owner must be able to enter
 		return nil, fmt.Errorf("pgtest: %w", err)
 	}
 	s := &Server{dir: dir, bin: bin}
@@ -175,9 +177,9 @@ func Start(ctx context.Context, dir string) (*Server, error) {
 // data is the server's data directory.
 func (s *Server) data() string { return filepath.Join(s.dir, "data") }
 
-// Restart stops the server and starts Postgres again on the same data
-// and socket, so the DSNs handed out before still work. ctx bounds only
-// the startup.
+// Restart stops the server, unless it is stopped already, and starts
+// Postgres again on the same data and socket, so the DSNs handed out
+// before still work. ctx bounds only the startup.
 func (s *Server) Restart(ctx context.Context) error {
 	if err := s.Stop(); err != nil {
 		return err
@@ -185,9 +187,10 @@ func (s *Server) Restart(ctx context.Context) error {
 	return s.launch(ctx)
 }
 
-// PID is the process id of the postmaster, which leads the process group
-// of every backend: signal the group (-PID) to reach them all. It changes
-// at each Restart.
+// PID is the process id of the postmaster. Each process it starts, a
+// backend for each connection among them, is a session of its own, and
+// exits when the postmaster is gone; [Server.Signal] reaches them all.
+// It changes at each Restart.
 func (s *Server) PID() int { return s.cmd.Process.Pid }
 
 // settings are the server's, as -c NAME=VALUE: the socket in its own
@@ -238,7 +241,7 @@ func (s *Server) launch(ctx context.Context) error {
 		return fmt.Errorf("pgtest: start postgres: %w", err)
 	}
 	exit := make(chan error, 1)
-	s.cmd, s.exit = cmd, exit
+	s.cmd, s.exit, s.stopped = cmd, exit, false
 	watched := w.watch(cmd.Process.Pid)
 	// The watcher goes before exit is sent, so nothing of this launch
 	// runs once Stop has returned.
@@ -402,22 +405,24 @@ func (s *Server) dropAll() error {
 // Stop asks the server to shut down fast and waits for it to exit,
 // killing its process group after 10 seconds. Once it returns, nothing
 // the server or its launch started still runs, the watcher included, so
-// the caller can remove its directory. Call it once per launch: a second
-// call waits 10 seconds and fails.
+// the caller can remove its directory. Stopping a server that is stopped
+// does nothing.
 func (s *Server) Stop() error {
-	if s.cmd == nil || s.cmd.Process == nil {
+	if s.cmd == nil || s.cmd.Process == nil || s.stopped {
 		return nil
 	}
 	// SIGINT is Postgres's fast shutdown: it ends the sessions and stops.
 	_ = s.cmd.Process.Signal(os.Interrupt)
 	select {
 	case <-s.exit:
+		s.stopped = true
 		return nil
 	case <-time.After(10 * time.Second):
 		if err := killGroup(s.cmd); err != nil {
 			return fmt.Errorf("pgtest: kill: %w", err)
 		}
 		<-s.exit
+		s.stopped = true
 		return removeSegment(s.data())
 	}
 }

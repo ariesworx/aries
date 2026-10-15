@@ -103,6 +103,35 @@ func killGroup(cmd *exec.Cmd) error {
 	return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 }
 
+// Signal sends sig to the postmaster and to every process it started,
+// each of which Postgres makes a session of its own: a signal to the
+// postmaster's process group reaches none of them. A test stops them
+// all with SIGSTOP, so that a connection open to the server waits and
+// is not refused, as with a server that is swapping, and continues
+// them with SIGCONT. The postmaster is signaled first, so that it starts
+// no process the signal misses.
+func (s *Server) Signal(sig syscall.Signal) error {
+	pid := s.PID()
+	if err := syscall.Kill(pid, sig); err != nil {
+		return fmt.Errorf("pgtest: signal the postmaster: %w", err)
+	}
+	out, err := exec.Command("ps", "-A", "-o", "pid=,ppid=").Output()
+	if err != nil {
+		return fmt.Errorf("pgtest: list the server's processes: %w", err)
+	}
+	for line := range strings.SplitSeq(string(out), "\n") {
+		f := strings.Fields(line)
+		if len(f) != 2 || f[1] != strconv.Itoa(pid) {
+			continue
+		}
+		if child, err := strconv.Atoi(f[0]); err == nil {
+			// One that has just exited cannot be signaled, and needs not be.
+			_ = syscall.Kill(child, sig)
+		}
+	}
+	return nil
+}
+
 // removeSegment removes the System V shared memory segment that the
 // server on data named in its postmaster.pid, which a server that was
 // killed leaves behind; the watcher's script does the same.

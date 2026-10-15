@@ -131,7 +131,7 @@ var keys = map[string]Kind{
 	// Locks: a lock's name is text a person chose, so it stays in the
 	// journal (design §20.9); how many is a number.
 	"lock": KindLocal, "locks": KindWord, "waiting": KindWord,
-	// Dolt's metrics, and the check of Dolt.
+	// The check of the database, and how often things are done.
 	"url": KindLocal, "failures": KindWord, "after_failures": KindWord, "every": KindWord,
 	// The daemon's start, and the admins its config file names.
 	"version": KindLocal, "socket": KindLocal, "control_db": KindLocal, "projects": KindWord, "admins": KindLocal, "addr": KindLocal,

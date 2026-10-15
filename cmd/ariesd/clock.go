@@ -44,7 +44,7 @@ func clockPreflight(ctx context.Context, env adminEnv, fl server.Settings, cfgPa
 			worst.More++
 		}
 	}
-	opts := store.Options{CommitInterval: -1, NoMigrate: true, AllowUnsafeAccount: s.AllowUnsafeDolt, Limits: s.Limits.Limits}
+	opts := store.Options{NoMigrate: true, AllowUnsafeAccount: s.AllowUnsafeAccount, Limits: s.Limits.Limits}
 	if s.ControlDB == "" {
 		st, err := store.Open(ctx, s.DSN, opts)
 		if err != nil {
@@ -53,7 +53,7 @@ func clockPreflight(ctx context.Context, env adminEnv, fl server.Settings, cfgPa
 		look(server.ProjectLog(s.Project, ""), st.ClockState())
 		return closeStore(asError(worst), st)
 	}
-	ctl, err := openControl(ctx, s, store.ControlOptions{CommitInterval: -1})
+	ctl, err := openControl(ctx, s, store.ControlOptions{})
 	if err != nil {
 		return err
 	}
@@ -66,7 +66,7 @@ func clockPreflight(ctx context.Context, env adminEnv, fl server.Settings, cfgPa
 		if p.State != store.ProjectActive {
 			continue
 		}
-		dsn, err := server.DatabaseDSN(s.DSN, p.DBName)
+		dsn, err := server.SchemaDSN(s.DSN, p.DBName)
 		if err != nil {
 			return err
 		}

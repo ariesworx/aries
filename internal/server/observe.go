@@ -182,15 +182,15 @@ func (pr *served) observeLimit(op string, err error) {
 }
 
 // storeObserver is a project store's [store.Observer]: it records the
-// store's writes, retries, Dolt commits and changes of a claim.
+// store's writes, retries and changes of a claim or a lock.
 type storeObserver struct {
 	tel     *telemetry.Telemetry
 	project string
 }
 
 // StoreObserver returns the observer to open project's store with
-// (store.Options.Observer), so that its writes, retries, Dolt commits
-// and claims are measured by tel. A nil tel returns nil: the store then
+// (store.Options.Observer), so that its writes, retries, claims and
+// locks are measured by tel. A nil tel returns nil: the store then
 // calls nothing.
 func StoreObserver(tel *telemetry.Telemetry, project string) store.Observer {
 	if !tel.Enabled() {
@@ -205,10 +205,6 @@ func (o storeObserver) Wrote(took time.Duration) {
 
 func (o storeObserver) Retried() { o.tel.Count(telemetry.StoreWriteRetries, o.project) }
 
-func (o storeObserver) Committed(took time.Duration, _ error) {
-	o.tel.Record(telemetry.StoreCommitDuration, took.Seconds())
-}
-
 func (o storeObserver) ClaimChanged(change store.ClaimChange, reason string) {
 	o.tel.Count(telemetry.Claims, string(change), claimReason(reason))
 }
@@ -221,8 +217,7 @@ func (o storeObserver) LockChanged(change store.LockChange, waited time.Duration
 }
 
 // storeTracer is a store's [store.Tracer]: a span for each attempt of a
-// write, for its wait for the writer, for each Dolt commit and for the
-// migrations of an open, under the span of whatever asked for the work.
+// write, for its wait for the writer and for the migrations of an open, under the span of whatever asked for the work.
 type storeTracer struct {
 	tel     *telemetry.Telemetry
 	project string
@@ -243,7 +238,6 @@ func StoreTracer(tel *telemetry.Telemetry, project string) store.Tracer {
 var stageSpans = map[store.Stage]telemetry.SpanName{
 	store.StageAttempt: telemetry.SpanWriteAttempt,
 	store.StageWait:    telemetry.SpanWriteWait,
-	store.StageCommit:  telemetry.SpanStoreCommit,
 	store.StageMigrate: telemetry.SpanStoreMigrate,
 }
 
@@ -291,16 +285,16 @@ func claimReason(reason string) string {
 	return telemetry.Other
 }
 
-// How /readyz's check of Dolt is paced: one cheap query, bounded by
-// doltCheckTimeout, whose answer stands for doltCheckEvery. However
-// often /readyz is asked, Dolt is asked at most that often.
+// How /readyz's check of the database is paced: one cheap query, bounded
+// by dbCheckTimeout, whose answer stands for dbCheckEvery. However often
+// /readyz is asked, the database is asked at most that often.
 const (
-	doltCheckEvery   = 5 * time.Second
-	doltCheckTimeout = 2 * time.Second
+	dbCheckEvery   = 5 * time.Second
+	dbCheckTimeout = 2 * time.Second
 )
 
-// doltCheck is the last check of Dolt and when it was made.
-type doltCheck struct {
+// dbCheck is the last check of the database and when it was made.
+type dbCheck struct {
 	// mu is held while a check runs, so that requests arriving together
 	// share one.
 	mu  sync.Mutex
@@ -313,19 +307,19 @@ type doltCheck struct {
 
 // Ready says why the daemon is not ready to serve, in one line, or
 // returns "" when it is: it is listening on its socket, its last check
-// of Dolt passed, and, when it writes a keys file, the last write did
-// not fail. It is what /readyz answers from.
+// of the database passed, and, when it writes a keys file, the last
+// write did not fail. It is what /readyz answers from.
 //
-// The check of Dolt is a ping on a pooled connection to the control
-// database, or to the one project's, made at most every doltCheckEvery
-// and bounded by doltCheckTimeout; between checks the last answer
+// The check of the database is a ping on a pooled connection to the
+// control store, or to the one project's, made at most every dbCheckEvery
+// and bounded by dbCheckTimeout; between checks the last answer
 // stands, so a caller may ask as often as it likes.
 func (s *Server) Ready(ctx context.Context) string {
 	if !s.listening.Load() {
 		return "ariesd is not listening on its socket"
 	}
-	if err := s.checkDolt(ctx); err != nil {
-		return "the last check of Dolt failed"
+	if err := s.checkDatabase(ctx); err != nil {
+		return "the last check of the database failed"
 	}
 	if k := s.keysStatus(); k != nil && k.Failed {
 		return "the last write of the keys file failed"
@@ -333,22 +327,22 @@ func (s *Server) Ready(ctx context.Context) string {
 	return ""
 }
 
-// checkDolt returns the last check's error, checking again if it is
-// older than doltCheckEvery.
-func (s *Server) checkDolt(ctx context.Context) error {
-	d := &s.dolt
+// checkDatabase returns the last check's error, checking again if it is
+// older than dbCheckEvery.
+func (s *Server) checkDatabase(ctx context.Context) error {
+	d := &s.db
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	now := time.Now
 	if d.now != nil {
 		now = d.now
 	}
-	if !d.at.IsZero() && now().Sub(d.at) < doltCheckEvery {
+	if !d.at.IsZero() && now().Sub(d.at) < dbCheckEvery {
 		return d.err
 	}
 	// The answer stands for every caller for a while, so the check does
 	// not end with the request that happened to start it.
-	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), doltCheckTimeout)
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbCheckTimeout)
 	defer cancel()
 	if s.cfg.Control != nil {
 		d.err = s.cfg.Control.Ping(cctx)
@@ -357,7 +351,7 @@ func (s *Server) checkDolt(ctx context.Context) error {
 	}
 	d.at = now()
 	if d.err != nil {
-		s.refusals.line(ctx, s.cfg.Logger, "", s.now(), slog.LevelError, logs.DoltCheckFailed, "the check of Dolt failed; /readyz answers not ready", "err", d.err)
+		s.refusals.line(ctx, s.cfg.Logger, "", s.now(), slog.LevelError, logs.DatabaseCheckFailed, "the check of the database failed; /readyz answers not ready", "err", d.err)
 	}
 	return d.err
 }
