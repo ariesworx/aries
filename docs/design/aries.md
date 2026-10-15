@@ -200,6 +200,8 @@ You asked to port every feature. Every bd feature is listed here as **Port** (sa
 - **Hooks.** A hook is Aries's only when its whole command is one setup writes: one program word, bare or single-quoted as setup quotes it, naming `aries` or the `--command` program, then `prime --hook[=AGENT]`. A compound command that ends the same way is the person's and is never rewritten or removed.
 - **The global hook (C-14) is documented, not gated.** A hook in the home directory runs in every repository with a `.aries.yaml` that the agent opens and dials the server that file names. Gating the dial on a per-user record of trusted servers is C-7's fix (`aries trust`, batch 6), which changes the dial path every command shares; until it lands, setup prints a note when it writes or prints a global hook, and the agent guide (`docs/agents.md`) says to prefer per-project hooks. Bounded discovery already removes the shared-parent case.
 
+**As built, 15 Oct 2026 (the cost tool, decision 88).** The `cost` tool is removed for 1.0 (the surface review's question 12): it is the one tool that does no work an agent does or hands off, and its schema was about 106 estimated tokens of the budget decision 76's owed additions need. The 24 tools measure about 2,770 estimated tokens (8,310 bytes), against 2,876 with it. People run `aries cost`; an agent still sees an issue's cost in `show` and the window's in `digest`. A tool added back in 1.x is a compatible change.
+
 ## 6. Memory
 
 | Scope | Visible to | Typical use |

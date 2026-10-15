@@ -86,10 +86,6 @@ func TestHoursAndPlansCLI(t *testing.T) {
 	if is := decode[mcpserver.Issue](t, ag.ok("show", map[string]any{"id": task})); !strings.Contains(is.Usage, "; logged 1.75h") {
 		t.Errorf("mcp show usage %q, want the hours", is.Usage)
 	}
-	c := decode[mcpserver.Cost](t, ag.ok("cost", map[string]any{"since": month + "-01", "by": "issue"}))
-	if len(c.Groups) != 1 || c.Groups[0] != task+" Do the work: unpriced, amortized $30.00, 1k tokens, 1.75h logged" {
-		t.Errorf("mcp cost = %+v", c)
-	}
 
 	if got := alice.ok("hours", "--undo", e.ID); got != "undone: entry "+e.ID+"\n" {
 		t.Errorf("log --undo = %q", got)

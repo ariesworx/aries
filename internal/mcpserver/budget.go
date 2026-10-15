@@ -54,8 +54,8 @@ func size(v any) int {
 // zero, where omitempty drops its key and the next item writes it again,
 // so its key must also be shorter than any item. A field that could grow
 // by more than an item shrinks, such as a summary of the dropped items,
-// breaks this; its caller drops one item at a time instead (cost and
-// show's files).
+// breaks this; its caller drops one item at a time instead (show's
+// files).
 func fitPrefix(n, least int, fits func(k int) bool) int {
 	if n <= least || fits(n) {
 		return n

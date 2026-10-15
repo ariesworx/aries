@@ -512,8 +512,8 @@ time: the current month has cost only the part of its fee that has
 passed (on the 8th of a 31-day month, a week's worth), split the same
 way, and a window that reaches past now charges nothing for the months
 to come. A principal on no plan adds nothing. Reports show amortized cost beside the list-price
-equivalent, never instead of it, and only `aries cost` and the `cost` tool
-show it, since `show` and `digest` would have to read whole months.
+equivalent, never instead of it, and only `aries cost` shows it, since
+`show` and `digest` would have to read whole months.
 
 ### Human hours
 

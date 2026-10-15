@@ -142,7 +142,6 @@ func TestResultsMarkOthersText(t *testing.T) {
 		{"prime", nil, true},
 		{"who", nil, true},
 		{"create", map[string]any{"title": "new"}, true},
-		{"cost", map[string]any{"since": "7d", "by": "issue"}, true},
 		{"comment", map[string]any{"id": "sf-1", "body": "hi"}, false},
 	} {
 		res := callTool(t, cs, tc.tool, tc.args)

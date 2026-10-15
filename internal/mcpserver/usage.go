@@ -19,6 +19,18 @@ const (
 	usageModelLen = 64
 )
 
+// costText is a cost for an agent: "$8.35", "$8.35, some unpriced", or
+// "unpriced" when no token had a price, which is not free.
+func costText(usd string, unpriced bool) string {
+	switch {
+	case unpriced && strings.Trim(usd, "0.") == "":
+		return "unpriced"
+	case unpriced:
+		return proto.Dollars(usd) + ", some unpriced"
+	}
+	return proto.Dollars(usd)
+}
+
 // issueUsageLine is show's usage in one line: "held 1h; logged 1.5h;
 // cost $8.35; opus 950 in, 12k out; split by time". An issue never held,
 // with no tokens and no hours logged, has none.

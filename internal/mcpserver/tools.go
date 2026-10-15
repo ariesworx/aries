@@ -735,7 +735,6 @@ func (s *Server) register() {
 		ann: write, retry: true, enums: enums{"action": gateActions}},
 		func(ctx context.Context, c Conn, in GateIn) (any, error) { return gate(ctx, c, in) })
 	s.registerMemory()
-	s.registerCost()
 }
 
 // list is the list tool. A page that would pass MaxResultTokens is asked
