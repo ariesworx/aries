@@ -691,6 +691,16 @@ the rules above.
 
 ## Questions for the maintainer
 
+**Decided 15 Oct 2026 (decision 88).** The maintainer accepted all
+fifteen recommendations below ("Accept all 15"), and asked for the
+changes "now where safe, rest after P1". Made now: questions 2, 4, 7, 9,
+12, 14 and 15, and 11's setting, which touch neither the store, the
+protocol nor the server's dispatch, and the names of §9 in identity.md
+and transport.md. After the Postgres port's slice P1: questions 1, 3, 5,
+6 and 8; the welcome frame's `latest`, which goes with question 5's
+settling; and 13, whose promise is written once those names settle.
+Question 10 is for 1.x.
+
 1. **The default issue id prefix.** `sf` is left over from the former name (§3.3). What should a new project's default be?
    *Recommendation:* `ar`, set in `internal/server/settings.go:270` and for `aries admin project add` without `--prefix`. Existing ids keep their prefix, since no server runs on a release that made them.
 
