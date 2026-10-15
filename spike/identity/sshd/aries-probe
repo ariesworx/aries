@@ -1,0 +1,13 @@
+#!/bin/sh
+# The forced command of every line: says which line admitted the
+# connection and in which zone the machine runs. "hold" prints a line
+# every five seconds for two minutes.
+echo "case=$1 zone=$(date +%Z%z) openssh=$(ssh -V 2>&1 | cut -d, -f1) args=$*"
+if [ "$1" = hold ]; then
+    i=0
+    while [ "$i" -lt 24 ]; do
+        sleep 5
+        echo "tick $i"
+        i=$((i + 1))
+    done
+fi
