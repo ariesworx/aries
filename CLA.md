@@ -1,11 +1,6 @@
 # Aries Contributor License Agreement
 
-> **DRAFT, NOT IN EFFECT.** This agreement has not been reviewed by
-> counsel and binds no one. It is published for review only. The notes
-> for counsel at the end are part of the draft and are removed before
-> it is adopted.
-
-Version 1.0, draft of 15 October 2026
+Version 1.0, in effect from 15 October 2026
 
 This Contributor License Agreement (the "Agreement") is between
 Ariesworx LLC ("Ariesworx") and the person or legal entity named when it
@@ -148,7 +143,7 @@ That successor is bound by section 5.
 ## 12. General
 
 1. **Governing law.** This Agreement is governed by the laws of
-   [STATE OR COUNTRY, TO BE DECIDED WITH COUNSEL], without regard to its
+   the State of Wisconsin, United States, without regard to its
    conflict of laws rules.
 2. **Whole agreement.** This Agreement is the whole agreement between
    You and Ariesworx about Your Contributions. It applies to every
@@ -161,48 +156,9 @@ That successor is bound by section 5.
 ## 13. How to sign
 
 You sign this Agreement electronically when You first open a pull
-request to Aries. You do so by following the instructions the
-contributor-agreement check posts on the pull request. Signing records
-Your GitHub account, Your name and the date, and You agree that this
-record is Your signature. To sign on behalf of a legal entity, contact
+request to Aries. The contributor-agreement check posts this Agreement on
+the pull request; You sign by commenting there, exactly: "I have read the
+CLA Document and I hereby sign the CLA". Signing records Your GitHub
+account, the comment and its date, and You agree that this record is Your
+signature. To sign on behalf of a legal entity, contact
 Ariesworx before Submitting, as section 6.3 describes.
-
----
-
-## Notes for counsel (remove before adoption)
-
-Questions and choices this draft leaves open:
-
-1. **Governing law and venue** (section 12.1). Ariesworx LLC's state of
-   organization is the usual choice. Add a venue clause if wanted.
-2. **License or assignment.** The draft grants a broad license
-   (section 3) rather than assigning copyright. A license is simpler
-   for contributors to accept, and is enough to offer a commercial
-   license beside the AGPL. Confirm it is enough for the planned
-   commercial terms, including enforcement of the AGPL against third
-   parties, where an assignment would make Ariesworx the sole
-   rightholder.
-3. **The open source commitment** (section 5). This reassures
-   contributors that a relicense cannot take their work closed only.
-   Confirm its wording, and that it binds a successor (section 11).
-4. **Sublicensing to recipients** (sections 3 and 4). The grants run to
-   Ariesworx "and those who receive Aries from Ariesworx", which lets
-   commercial licensees rely on them directly. Confirm this is wanted,
-   or narrow it to Ariesworx with a right to sublicense.
-5. **Patent termination** (section 4). This follows common CLA
-   practice. Confirm its scope.
-6. **Generated content** (section 6.6). This is new ground for CLAs.
-   Confirm the representation is reasonable, and whether contributors
-   should name the tools they used.
-7. **Entities** (section 6.3). The draft folds a corporate agreement
-   into one document, with a list of authorized people kept in
-   writing. Decide whether a separate entity agreement, with a
-   schedule of authorized contributors, is wanted instead.
-8. **Electronic signature** (section 13). The likely mechanism is a
-   GitHub app such as CLA Assistant, which records the account, the
-   date and the version signed. Confirm this suffices as signature and
-   record.
-9. **Retroactivity** (section 12.2). The draft covers Contributions
-   made before signing. Confirm this is enforceable as written.
-10. **Export control, and contributors under sanctions.** Not
-    addressed; add if needed.
