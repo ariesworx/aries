@@ -119,9 +119,16 @@ func replayLine(rep outbox.Report) string {
 		return ""
 	}
 	line := "outbox: " + strings.Join(parts, ", ")
+	var notes []string
 	if rep.Parked > 0 {
+		notes = append(notes, fmt.Sprintf("%d parked conflicts for a person to resolve: `sfx conflicts`", rep.Parked))
+	}
+	if rep.Kept > 0 {
+		notes = append(notes, fmt.Sprintf("%d kept as a comment, as the issue moved on while it waited: `sfx inbox` says why", rep.Kept))
+	}
+	if len(notes) > 0 {
 		line = strings.Replace(line, fmt.Sprintf("delivered %d", rep.Delivered),
-			fmt.Sprintf("delivered %d (%d parked conflicts for a person to resolve: `sfx conflicts`)", rep.Delivered, rep.Parked), 1)
+			fmt.Sprintf("delivered %d (%s)", rep.Delivered, strings.Join(notes, "; ")), 1)
 	}
 	if rep.Pending > 0 {
 		line += fmt.Sprintf(", %d still waiting", rep.Pending)

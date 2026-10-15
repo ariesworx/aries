@@ -1488,7 +1488,7 @@ It does not wait for a database that does not answer
 ([When Dolt does not answer](#when-dolt-does-not-answer)).
 
 ```text
-starfixd v0.5.0, protocol 6 to 7, up 3d 4h
+starfixd v0.5.0, protocol 7 to 8, up 3d 4h
 stores 2 of 64, connections 14 of 1024
 keys file /var/lib/starfix/.ssh/starfix_keys: 31 keys, written 2026-10-11 09:12 UTC
 starfixd's memory 42 MiB in use, 78 MiB from the system; 112 goroutines
@@ -3377,19 +3377,21 @@ document: the report, or `{"error": …}` and exit code 1.
 
 ## Upgrades
 
-This release speaks protocols 6 and 7, and accepts both. Protocol 6
-adds idempotency keys to the writes an outbox may queue, and the
+This release speaks protocols 7 and 8, and accepts both. Protocol 6
+added idempotency keys to the writes an outbox may queue, and the
 refusal `stale` ([When the server cannot be reached](cli.md#when-the-server-cannot-be-reached)).
-Protocol 7 adds conflicts: a queued update replayed after others
+Protocol 7 added conflicts: a queued update replayed after others
 changed the issue is compared field by field and what conflicts is
-parked for a person ([Conflicts](cli.md#conflicts)); an `sfx` of
-protocol 6 is served as it was. This `sfx` against a server of
-protocol 6 speaks 6: refused at its first hello, it says hello again in
-6 on the same connection, and a queued update it replays there is
-refused as `conflict` when it is stale, as before, and kept in `sfx
-outbox`. Neither speaks protocol 5, which no release spoke: a server of
-this release refuses an `sfx` of 5, and this `sfx` is refused by a
-server of 5 alone. **It refuses every earlier
+parked for a person ([Conflicts](cli.md#conflicts)). Protocol 8 adds
+the late finish: a queued `finish` or `handoff` replayed after its
+claim's lease ran out applies if nobody took the issue since, and is
+otherwise kept as a comment rather than refused; an `sfx` of protocol 7
+is served as it was. This `sfx` against a server of protocol 7 speaks
+7: refused at its first hello, it says hello again in 7 on the same
+connection, and a queued finish it replays there after the issue moved
+on is refused, as before, and kept in `sfx outbox`. Neither speaks
+protocol 6, which no release spoke: a server of this release refuses an
+`sfx` of 6, and this `sfx` is refused by a server of 6 alone. **It refuses every earlier
 release's `sfx`**: v0.2.x (protocol 2), v0.3.x (protocol 3) and v0.4.x
 (protocol 4). That is a break made once, on purpose,
 while nobody runs starfix in production and it changes quickly
@@ -3418,7 +3420,7 @@ What each side sees meanwhile, with exit code 3:
 
 | Who | Is told |
 |---|---|
-| An older `sfx` against this server | `sfx: starfix speaks protocol 4; the server (v0.5.0) needs protocols 6 to 7` and `fix: upgrade this client: run `sfx upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `sfx mcp``. The old `sfx` prints the server's words, so it says this whatever its version |
+| An older `sfx` against this server | `sfx: starfix speaks protocol 4; the server (v0.5.0) needs protocols 7 to 8` and `fix: upgrade this client: run `sfx upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `sfx mcp``. The old `sfx` prints the server's words, so it says this whatever its version |
 | An agent on an older `sfx mcp` | Every tool call fails with code `version` and that message, and the fix `tell the user starfix cannot connect, quoting the server:` followed by the line above. The session's start says the same in one line. The agent cannot fix it: the person upgrades `sfx` and restarts the agent |
 | This `sfx` against an older server | `sfx: starfix speaks protocol 7; the server (v0.4.0) is older and accepts protocols 2 to 4` and `fix: ask the server admin to run `starfixd upgrade`, or install the starfix release that matches the server` |
 

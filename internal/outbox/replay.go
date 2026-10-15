@@ -32,9 +32,11 @@ type Outcome struct {
 	Message string
 	Fix     string
 	// Parked says the server applied the entry in part and parked the
-	// rest as conflicts for a person to resolve, or kept it as a comment
-	// (design §18.7). It is delivered all the same: the server has it.
-	Parked bool
+	// rest as conflicts for a person to resolve (design §18.7); Kept,
+	// that it applied none of it, because the issue had moved on while it
+	// waited, and kept it as a comment (§18.6, §18.7). Either is delivered
+	// all the same: the server has it.
+	Parked, Kept bool
 }
 
 // Report is what one call of Replay did.
@@ -45,8 +47,9 @@ type Report struct {
 	// Delivered, Refused and Stale count the entries that left the
 	// pending set.
 	Delivered, Refused, Stale int
-	// Parked counts the delivered entries that parked conflicts.
-	Parked int
+	// Parked counts the delivered entries that parked conflicts, and
+	// Kept those kept as a comment.
+	Parked, Kept int
 	// Pending counts the entries still waiting to be sent.
 	Pending int
 	// Stopped is why replay ended with entries still pending: the error
@@ -153,10 +156,13 @@ rounds:
 				counts = append(counts, func(s *Stats) { s.refused(e.Op, a.At) })
 			} else {
 				rep.Delivered++
-				parked := out.Parked
-				if parked {
+				if out.Parked {
 					rep.Parked++
 				}
+				if out.Kept {
+					rep.Kept++
+				}
+				parked := out.Parked || out.Kept
 				counts = append(counts, func(s *Stats) { s.delivered(e.Op, a.At, a.At.Sub(e.At), parked) })
 			}
 		}

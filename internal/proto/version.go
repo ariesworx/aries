@@ -15,7 +15,7 @@ import (
 // that a new server still serves the clients people already have
 // (AGENTS.md, rule 10).
 //
-// This build speaks protocols 6 and 7, and accepts both. Making 5 the
+// This build speaks protocols 7 and 8, and accepts both. Making 5 the
 // minimum was a reset, made once, on 12 Oct 2026 (design §14, decision
 // 25): nobody ran starfix in production yet and it was under active
 // development, so the maintainer chose to refuse every released client
@@ -146,14 +146,28 @@ import (
 // conflict, as before, and waits in the outbox's refused list. A server
 // of 5 alone is too old for it, and refuses it with code version.
 //
+// 8 (not yet released; stage 5, slice F5, design §18.6) adds park to
+// finish and handoff, which an outbox sends when it replays them: a
+// finish or handoff made under a claim whose lease ran out before it
+// arrived still applies if nobody took the issue since, and is
+// otherwise kept as a comment, with a finish's discovered issues
+// created, rather than refused. Without park the server fences them as
+// it always did. Their results gained lapsed and comment, which need no
+// version. ProtoMin moved to 7, by the rule above, so a client of 6,
+// which no release is, is refused. A client of 8 speaks 7 to a server of
+// 7 (Speak) and sends finish and handoff without park there
+// (ForProtocol): one that arrives after the issue moved on is refused,
+// as before, and waits in the outbox's refused list. A server of 6 alone
+// is too old for it, and refuses it with code version.
+//
 // The bridge frame is not part of this protocol: it passes between two
 // starfixd processes on the server (frame.go), and carries no version.
 // It is read leniently, so a bridge from before a binary swap works
 // against the daemon after it, and the reverse.
 const (
-	Proto    = 7
-	ProtoMin = 6
-	ProtoMax = 7
+	Proto    = 8
+	ProtoMin = 7
+	ProtoMax = 8
 )
 
 // Speak returns the protocol this build speaks to a server that accepts

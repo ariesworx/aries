@@ -422,10 +422,12 @@ func (r *replay) flush() {
 // at the whole transaction.
 type txFacts struct {
 	create, update, override map[string]bool
+	// kept are the comments late writes were kept as (issue.kept), by id.
+	kept map[string]bool
 }
 
 func factsOf(tx []sevent) txFacts {
-	f := txFacts{create: map[string]bool{}, update: map[string]bool{}, override: map[string]bool{}}
+	f := txFacts{create: map[string]bool{}, update: map[string]bool{}, override: map[string]bool{}, kept: map[string]bool{}}
 	for _, e := range tx {
 		switch e.op {
 		case "issue.create":
@@ -434,6 +436,12 @@ func factsOf(tx []sevent) txFacts {
 			f.update[e.target] = true
 		case "admin.override":
 			f.override[e.target] = true
+		case "issue.kept":
+			var k struct {
+				Comment string `json:"comment"`
+			}
+			_ = json.Unmarshal(e.after, &k)
+			f.kept[k.Comment] = true
 		}
 	}
 	return f
@@ -524,6 +532,12 @@ func (r *replay) apply(tx []sevent) {
 			r.release(e)
 		case "admin.override":
 			r.override(e)
+		case "claim.lapsed":
+			r.lapsed(e)
+		case "issue.kept":
+			r.kept(e)
+		case "claim.away":
+			r.away(e)
 		case "usage.add":
 			r.usage[e.actor]++
 		default:
@@ -636,10 +650,14 @@ func (r *replay) close(e sevent) {
 
 func (r *replay) comment(e sevent, f txFacts) {
 	var c struct {
+		ID   string `json:"id"`
 		Body string `json:"body"`
 		Kind string `json:"kind"`
 	}
 	_ = json.Unmarshal(e.after, &c)
+	if f.kept[c.ID] {
+		return // a late write kept as a comment; issue.kept has its markers
+	}
 	r.markers[c.Body]++
 	if c.Kind != "handoff" {
 		return
@@ -647,6 +665,74 @@ func (r *replay) comment(e sevent, f txFacts) {
 	r.guard(e, f)
 	cl := r.claimAtChange(e.target)
 	r.handedAt[c.Body] = atEpoch{issue: e.target, epoch: cl.epoch, holder: cl.holder, actor: e.actor, seq: e.seq}
+}
+
+// lapsed applies a claim.lapsed: a late finish or handoff applied under
+// a claim whose lease had run out, which must be the issue's claim now,
+// as nobody took it since. Its before state names the claim: with its
+// holder and expiry while the reaper had not ended it, and the epoch
+// alone once it had.
+func (r *replay) lapsed(e sevent) {
+	c := r.claim(e.target)
+	var b claimState
+	_ = json.Unmarshal(e.before, &b)
+	who := sessKey{b.Holder.Principal, b.Holder.Session}
+	switch {
+	case b.Epoch != c.epoch:
+		r.fail(e.target, "event %d: %s's late write under epoch %d applied, but epoch %d was taken since", e.seq, e.actor, b.Epoch, c.epoch)
+	case who != c.holder:
+		r.fail(e.target, "event %d: a late write's lapsed claim names %s, but %s holds epoch %d", e.seq, who, c.holder, c.epoch)
+	case who != (sessKey{}) && b.ExpiresAt.After(e.at):
+		r.fail(e.target, "event %d: claim.lapsed at %s for a lease that ran to %s", e.seq, stamp(e.at), stamp(b.ExpiresAt))
+	}
+}
+
+// keptState is an issue.kept event's after state.
+type keptState struct {
+	Op      string `json:"op"`
+	Epoch   int64  `json:"epoch"`
+	Comment string `json:"comment"`
+	Reason  string `json:"reason"`
+	Note    string `json:"note"`
+}
+
+// kept applies an issue.kept: a late finish or handoff kept as a comment
+// because the issue had moved on. It must have: closed, a later epoch
+// taken, or held by another principal. Its reason and note are the
+// markers of the write it kept.
+func (r *replay) kept(e sevent) {
+	var k keptState
+	_ = json.Unmarshal(e.after, &k)
+	for _, m := range []string{k.Reason, k.Note} {
+		if m != "" {
+			r.markers[m]++
+		}
+	}
+	c, is := r.claim(e.target), r.issues[e.target]
+	moved := is.status == "closed" || k.Epoch != 0 && k.Epoch < c.epoch ||
+		c.holder != (sessKey{}) && c.holder.principal != e.actor.principal
+	if !moved {
+		r.fail(e.target, "event %d kept %s's late %s under epoch %d as a comment, but the issue had not moved on: epoch %d held by %q",
+			e.seq, e.actor, k.Op, k.Epoch, c.epoch, c.holder)
+	}
+}
+
+// away applies a claim.away: a person extending the claim the issue is
+// under, never shortening it.
+func (r *replay) away(e sevent) {
+	c := r.claim(e.target)
+	var b claimState
+	_ = json.Unmarshal(e.before, &b)
+	var a struct {
+		ExpiresAt time.Time `json:"expires_at"`
+	}
+	_ = json.Unmarshal(e.after, &a)
+	if who := (sessKey{b.Holder.Principal, b.Holder.Session}); who != c.holder || b.Epoch != c.epoch || who.principal != e.actor.principal {
+		r.fail(e.target, "event %d: %s extended %s's epoch %d, but %s holds epoch %d", e.seq, e.actor, who, b.Epoch, c.holder, c.epoch)
+	}
+	if a.ExpiresAt.Before(b.ExpiresAt) {
+		r.fail(e.target, "event %d: claim.away cut a lease from %s to %s", e.seq, stamp(b.ExpiresAt), stamp(a.ExpiresAt))
+	}
 }
 
 // claimAtChange is the claim a change to issue was made under: the one a

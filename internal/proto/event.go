@@ -10,9 +10,11 @@ import (
 
 // Changed summarizes an event in a few words: the fields an update, close
 // or reopen touched, the label, the edge, the acceptance item, the claim's
-// epoch and holder, the new issue's title, whose hours on which day, or a
-// conflict's number and field, and how it was resolved. It returns "" for
-// any other op.
+// epoch and holder (and how far away extended it, or what a late write
+// did under it once it lapsed), the comment a late write was kept as,
+// the new issue's title, whose hours on which day, or a conflict's
+// number and field, and how it was resolved. It returns "" for any other
+// op.
 func (e Event) Changed() string {
 	// The summary is best effort: a state that is absent or not an object
 	// leaves its map nil, and it contributes nothing.
@@ -66,10 +68,22 @@ func (e Event) Changed() string {
 		}
 		return out
 	case "claim.take", "claim.expire", "claim.release":
-		if h, ok := pick["holder"].(map[string]any); ok {
-			return fmt.Sprintf("epoch %v, %v/%v", pick["epoch"], h["principal"], h["session"])
-		}
-		return fmt.Sprintf("epoch %v", pick["epoch"])
+		return claimText(pick)
+	case "claim.away":
+		return fmt.Sprintf("%s, until %v", claimText(before), after["expires_at"])
+	case "claim.lapsed":
+		return fmt.Sprintf("%s: %v", claimText(before), after["op"])
+	case "issue.kept":
+		return fmt.Sprintf("%v as comment %v: %v", after["op"], after["comment"], after["why"])
 	}
 	return ""
+}
+
+// claimText names the claim a claim event's state holds: its epoch, and
+// its holder when it has one.
+func claimText(state map[string]any) string {
+	if h, ok := state["holder"].(map[string]any); ok {
+		return fmt.Sprintf("epoch %v, %v/%v", state["epoch"], h["principal"], h["session"])
+	}
+	return fmt.Sprintf("epoch %v", state["epoch"])
 }

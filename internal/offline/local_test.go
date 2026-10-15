@@ -427,6 +427,9 @@ type fakeConn struct {
 	speaks int
 	// parks are the issues on which a replayed update parks a field.
 	parks map[string]bool
+	// keeps are the issues on which a replayed finish or handoff is
+	// kept as a comment.
+	keeps map[string]bool
 }
 
 func (f *fakeConn) Principal() string { return f.who }
@@ -454,6 +457,12 @@ func (f *fakeConn) Call(_ context.Context, op string, args, out any) error {
 		name += " park"
 		if res, ok := out.(*proto.UpdateResult); ok && f.parks[a.ID] {
 			res.Parked = []proto.ParkedField{{Field: "title", Conflict: 1}}
+		}
+		if res, ok := out.(*proto.FinishResult); ok && f.keeps[a.ID] {
+			res.Comment = "c-" + a.ID
+		}
+		if res, ok := out.(*proto.HandoffResult); ok && f.keeps[a.ID] {
+			res.Comment = "c-" + a.ID
 		}
 	}
 	f.calls = append(f.calls, name)
@@ -556,7 +565,7 @@ func TestReplayRetriesWithoutPaths(t *testing.T) {
 	if err != nil || rep.Delivered != 1 || rep.Refused != 0 {
 		t.Errorf("Replay = %+v, %v; want the handoff delivered", rep, err)
 	}
-	if want := []string{"handoff sf-a", "handoff sf-a -paths"}; !slices.Equal(c.calls, want) {
+	if want := []string{"handoff sf-a park", "handoff sf-a -paths park"}; !slices.Equal(c.calls, want) {
 		t.Errorf("Replay sent %v, want %v", c.calls, want)
 	}
 }
@@ -713,6 +722,42 @@ func TestReplayParks(t *testing.T) {
 			rep, err := l.Replay(t.Context(), c)
 			if err != nil || rep.Delivered != 3 || rep.Parked != tc.parked || !slices.Equal(c.calls, tc.calls) {
 				t.Errorf("Replay = %+v, %v, sending %v; want 3 delivered, %d parked, sending %v", rep, err, c.calls, tc.parked, tc.calls)
+			}
+		})
+	}
+}
+
+// TestReplayKeepsLate: a replayed finish or handoff asks the server to
+// keep it as a comment where the issue moved on since its claim (park,
+// protocol 8), and one it kept is delivered and counted as kept; to a
+// server of 7 they go as they are, and one the server refuses waits in
+// the refused list.
+func TestReplayKeepsLate(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		speaks int
+		calls  []string
+		kept   int
+	}{
+		{"a server of 8", 8, []string{"finish sf-a park", "handoff sf-b -paths park", "finish sf-c park"}, 2},
+		{"a server of 7", 7, []string{"finish sf-a", "handoff sf-b -paths", "finish sf-c"}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			l, _ := newLocal(t, outbox.Options{})
+			if _, err := l.Reached("alice", keyA, true, tc.speaks); err != nil {
+				t.Fatal(err)
+			}
+			for _, e := range []outbox.Entry{entry(proto.OpFinish, "sf-a"), entry(proto.OpHandoff, "sf-b"), entry(proto.OpFinish, "sf-c")} {
+				if _, err := l.Keep("alice", e, errReach); err != nil {
+					t.Fatal(err)
+				}
+			}
+			c := &fakeConn{who: "alice", speaks: tc.speaks, keeps: map[string]bool{"sf-a": true, "sf-b": true}}
+			rep, err := l.Replay(t.Context(), c)
+			if err != nil || rep.Delivered != 3 || rep.Kept != tc.kept || rep.Parked != 0 || !slices.Equal(c.calls, tc.calls) {
+				t.Errorf("Replay = %+v, %v, sending %v; want 3 delivered, %d kept, sending %v", rep, err, c.calls, tc.kept, tc.calls)
 			}
 		})
 	}

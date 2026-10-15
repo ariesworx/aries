@@ -603,15 +603,23 @@ type FinishArgs struct {
 	// Paths are the paths the issue's work touched, as the client found
 	// them in git, most recent first; at most MaxPaths (protocol 3).
 	Paths []string `json:"paths,omitempty"`
+	// Park, which a finish replayed from an outbox sends (protocol 8),
+	// asks the server to keep the finish as a comment where the issue
+	// moved on since Epoch, rather than refuse it (design §18.6).
+	Park bool `json:"park,omitempty"`
 	HandoffFields
 }
 
-// FinishResult is the closed issue's revision and the discovered issues'
-// IDs, in the order given.
+// FinishResult is the issue's revision and the discovered issues' IDs,
+// in the order given. A finish sent with park says Lapsed when it
+// applied after its claim's lease ran out, and Comment when it was kept
+// as that comment instead, the issue left as it was.
 type FinishResult struct {
 	ID      string   `json:"id"`
 	Rev     int64    `json:"rev"`
 	Created []string `json:"created,omitempty"`
+	Lapsed  bool     `json:"lapsed,omitempty"`
+	Comment string   `json:"comment,omitempty"`
 }
 
 // HandoffArgs records a handoff note and its fields. Release also lets
@@ -627,7 +635,17 @@ type HandoffArgs struct {
 	Idem    string `json:"idem,omitempty"`
 	// Paths are as FinishArgs' (protocol 3).
 	Paths []string `json:"paths,omitempty"`
+	// Park is as FinishArgs' (protocol 8).
+	Park bool `json:"park,omitempty"`
 	HandoffFields
+}
+
+// HandoffResult is the issue's revision, with Lapsed and Comment as in
+// FinishResult.
+type HandoffResult struct {
+	WriteResult
+	Lapsed  bool   `json:"lapsed,omitempty"`
+	Comment string `json:"comment,omitempty"`
 }
 
 // DigestArgs selects a digest. Since is an RFC 3339 time, a date

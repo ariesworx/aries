@@ -493,19 +493,36 @@ func finish(ctx context.Context, pr *served, a store.Actor, in proto.FinishArgs)
 		}
 		f.Discovered = append(f.Discovered, n)
 	}
-	is, ids, err := pr.store.FinishIssue(ctx, a, store.IssueID(in.ID), in.Epoch, f)
+	var done store.Finished
+	var err error
+	if in.Park {
+		// A replay from an outbox: kept as a comment where the issue
+		// moved on, rather than refused (design §18.6).
+		done, err = pr.store.ReplayFinish(ctx, a, store.IssueID(in.ID), in.Epoch, f)
+	} else {
+		done.Issue, done.IDs, err = pr.store.FinishIssue(ctx, a, store.IssueID(in.ID), in.Epoch, f)
+	}
 	if err != nil {
 		return nil, pr.mapErr(ctx, proto.OpFinish, in.ID, 0, err)
 	}
-	out := proto.FinishResult{ID: string(is.ID), Rev: int64(is.Rev)}
-	for _, id := range ids {
+	out := proto.FinishResult{ID: string(done.ID), Rev: int64(done.Rev), Lapsed: done.Lapsed, Comment: done.Comment}
+	for _, id := range done.IDs {
 		out.Created = append(out.Created, string(id))
 	}
 	return out, nil
 }
 
 func handoff(ctx context.Context, pr *served, a store.Actor, in proto.HandoffArgs) (any, *proto.Error) {
-	is, err := pr.store.HandoffIssue(ctx, a, store.IssueID(in.ID), in.Epoch, storeHandoff(in.Note, in.HandoffFields), in.Release, in.Idem, in.Paths)
+	h := storeHandoff(in.Note, in.HandoffFields)
+	if in.Park {
+		done, err := pr.store.ReplayHandoff(ctx, a, store.IssueID(in.ID), in.Epoch, h, in.Release, in.Idem, in.Paths)
+		if err != nil {
+			return nil, pr.mapErr(ctx, proto.OpHandoff, in.ID, 0, err)
+		}
+		return proto.HandoffResult{WriteResult: proto.WriteResult{ID: string(done.ID), Rev: int64(done.Rev)},
+			Lapsed: done.Lapsed, Comment: done.Comment}, nil
+	}
+	is, err := pr.store.HandoffIssue(ctx, a, store.IssueID(in.ID), in.Epoch, h, in.Release, in.Idem, in.Paths)
 	if err != nil {
 		return nil, pr.mapErr(ctx, proto.OpHandoff, in.ID, 0, err)
 	}

@@ -688,23 +688,37 @@ func (l *Local) Replay(ctx context.Context, c Conn) (outbox.Report, error) {
 				Fix: fmt.Sprintf("once the server runs a starfixd of protocol %d or later, `sfx outbox retry %d` sends it; or make the change by hand now, and `sfx outbox drop %d`",
 					proto.ProtoKeys, e.Seq, e.Seq)}, nil
 		}
-		args, out := e.Args, any(nil)
 		var merged proto.UpdateResult
-		if e.Op == proto.OpUpdate {
+		var late proto.HandoffResult // a finish's comment decodes into it too
+		var out any
+		switch e.Op {
+		case proto.OpUpdate:
 			// The server compares it with the issue at its rev, and parks
 			// what someone else changed since (design §18.7). A server of
 			// 6 is sent it without park (proto.ForProtocol), and refuses
 			// it when it is stale, as before.
-			args, out = withPark(e.Args), &merged
+			out = &merged
+		case proto.OpFinish, proto.OpHandoff:
+			// The server applies it if nobody took the issue since its
+			// claim, lapsed or not, and keeps it as a comment if somebody
+			// did (design §18.6). A server of 7 is sent it without park,
+			// and refuses it then, as before.
+			out = &late
 		}
-		err := c.Call(ctx, e.Op, args, out)
+		park := func(args json.RawMessage) json.RawMessage {
+			if out == nil {
+				return args
+			}
+			return withPark(args)
+		}
+		err := c.Call(ctx, e.Op, park(e.Args), out)
 		if pe, ok := errors.AsType[*proto.Error](err); ok && pe.Code == proto.CodeInvalid && c.Err() == nil {
 			if bare, had := withoutPaths(e); had {
-				err = c.Call(ctx, e.Op, bare, nil)
+				err = c.Call(ctx, e.Op, park(bare), out)
 			}
 		}
 		if err == nil {
-			return outbox.Outcome{Parked: len(merged.Parked) > 0 || merged.Comment != ""}, nil
+			return outbox.Outcome{Parked: len(merged.Parked) > 0, Kept: merged.Comment != "" || late.Comment != ""}, nil
 		}
 		pe, ok := errors.AsType[*proto.Error](err)
 		if !ok || c.Err() != nil || pe.Code == proto.CodeUnavailable || pe.Code == proto.CodeBusy {

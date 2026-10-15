@@ -340,7 +340,9 @@ shown while the server cannot be reached, saying so
 ([What is shown from the cache](#what-is-shown-from-the-cache)). A
 queued `update` that arrives after someone else changed the same field
 is not refused: the server applies what nobody else changed and parks
-the rest as a [conflict](#conflicts) for a person to resolve. Any other
+the rest as a [conflict](#conflicts) for a person to resolve. A queued
+`finish` or `handoff` that arrives after its claim lapsed is not
+refused either: see a late finish, below. Any other
 queued write that no longer fits is refused when it arrives, and waits
 for you. And a write waits 7 days at most, the server's window for a
 key (`idem_window` in [the server's limits](server.md#limits)).
@@ -350,13 +352,30 @@ was based on, which offline only you know: `sfx update ID --rev N ...`.
 Without `--rev` it first reads the issue's rev from the server, and with
 the server away it fails, saying to give `--rev`.
 
-**A server of protocol 6.** Conflicts are protocol 7's. Against a
-server that speaks only protocol 6, `sfx` speaks 6, and a queued
-`update` it replays there is refused as `conflict` when the issue
-changed since its rev, as before: it moves to the refused list, and
-`sfx outbox retry N` sends it again once the server is upgraded, when
-it parks. This `sfx` does not speak protocol 5, which no release spoke:
-a server of 5 alone refuses it with `version` (exit code 3). A record
+**A late finish.** Your claim's lease runs out on the server's clock
+while you cannot reach it, unless `sfx away` extended it first; after
+that the reaper reopens the issue and anyone may take it. A queued
+`finish` or `handoff` that arrives after its lease ran out is decided
+on what happened meanwhile:
+
+| Since the lease ran out | What happens to the queued write |
+|---|---|
+| Nobody took the issue | It applies as it would have; the issue's history has a `claim.lapsed` event first, saying the lease had lapsed |
+| Someone took it, you in another session among them, or it was closed | It is kept as a comment on the issue, saying why, with its reason, note and fields; a `finish`'s discovered issues are still filed, discovered from the issue; nothing else of it applies. You get a `conflict` item in your inbox, every session of yours, and the session that holds the issue gets one too |
+
+It is delivered either way, and `sfx` says how many were kept:
+`outbox: delivered 2 (1 kept as a comment, as the issue moved on while it waited: `sfx inbox` says why)`.
+Only a write replayed from the outbox is treated so: a `finish` or
+`handoff` you run while the server answers is refused, as always, when
+another session has taken the issue since your epoch.
+
+**A server of protocol 7.** Late finishes are protocol 8's, and conflicts
+protocol 7's. Against a server that speaks only protocol 7, `sfx`
+speaks 7, and a queued `finish` or `handoff` it replays there after
+the issue moved on is refused, as before: it moves to the refused list,
+and `sfx outbox retry N` sends it again once the server is upgraded,
+when it is kept as a comment. This `sfx` does not speak protocol 6:
+a server of 6 alone refuses it with `version` (exit code 3). A record
 of a server last seen at 5, from an older `sfx`, still keeps an
 `update` from being queued for it, saying so.
 
