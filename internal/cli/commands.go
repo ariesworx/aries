@@ -792,6 +792,6 @@ func cmdVersion(_ context.Context, r *runner, _ []string) error {
 		r.emit(map[string]string{"version": r.env.Version, "protocol": strconv.Itoa(proto.Proto)})
 		return nil
 	}
-	_, _ = fmt.Fprintf(r.env.Stdout, "starfix %s (protocol %d)\n", r.env.Version, proto.Proto)
+	_, _ = fmt.Fprintf(r.env.Stdout, "starfix %s\n", r.env.Version)
 	return nil
 }

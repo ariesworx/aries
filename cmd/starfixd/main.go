@@ -55,7 +55,6 @@ import (
 
 	"github.com/ariesworx/starfix/internal/doltmetrics"
 	"github.com/ariesworx/starfix/internal/logs"
-	"github.com/ariesworx/starfix/internal/proto"
 	"github.com/ariesworx/starfix/internal/sdnotify"
 	"github.com/ariesworx/starfix/internal/server"
 	"github.com/ariesworx/starfix/internal/store"
@@ -188,7 +187,7 @@ func run(ctx context.Context, args []string) error {
 	case "status":
 		return statusCmd(ctx, osEnv(), args[1:])
 	case "version", "--version":
-		fmt.Printf("starfixd %s (protocol %d-%d)\n", version.Version, proto.ProtoMin, proto.ProtoMax)
+		fmt.Printf("starfixd %s\n", version.Version)
 		return nil
 	case "help", "-h", "--help":
 		fmt.Println(usage)

@@ -31,7 +31,7 @@ func TestRunWithoutServer(t *testing.T) {
 		{name: "no command prints help", args: nil, code: ExitUsage, stdout: "usage: sfx"},
 		{name: "help", args: []string{"help"}, code: ExitOK, stdout: "ready"},
 		{name: "help for a command", args: []string{"help", "dep"}, code: ExitOK, stdout: "usage: sfx dep add|rm FROM TO"},
-		{name: "version", args: []string{"version"}, code: ExitOK, stdout: "starfix v0.3.0 (protocol 8)"},
+		{name: "version", args: []string{"version"}, code: ExitOK, stdout: "starfix v0.3.0\n"},
 		{name: "version json", args: []string{"--json", "version"}, code: ExitOK, stdout: `{"protocol":"8","version":"v0.3.0"}`},
 		{name: "unknown global flag", args: []string{"--colour", "ready"}, code: ExitUsage, stderr: "unknown flag --colour"},
 		{name: "unknown command flag", args: []string{"ready", "--colour"}, code: ExitUsage, stderr: "fix: usage: sfx ready [-n N]"},

@@ -1488,7 +1488,7 @@ It does not wait for a database that does not answer
 ([When Dolt does not answer](#when-dolt-does-not-answer)).
 
 ```text
-starfixd v0.5.0, protocol 7 to 8, up 3d 4h
+starfixd v0.5.0, up 3d 4h
 stores 2 of 64, connections 14 of 1024
 keys file /var/lib/starfix/.ssh/starfix_keys: 31 keys, written 2026-10-11 09:12 UTC
 starfixd's memory 42 MiB in use, 78 MiB from the system; 112 goroutines
@@ -3870,7 +3870,7 @@ Dolt's collector: 1762 cycles for 12000 writes in 10m, 15 for each 100 writes: O
 | `export-bd [--project UUID] [-o FILE]` | Write the store in bd's JSONL format |
 | `upgrade [--check] [--to vX.Y.Z] [--rollback] [--restart]` | Replace the binary with a verified release ([Upgrades](#upgrades)) |
 | `status [--json] [--config FILE] [--socket PATH]` | Print the running daemon's [status report](#starfixd-status), as the user starfixd runs as |
-| `version` | Print the version and protocol range |
+| `version` | Print the version |
 
 ## Troubleshooting
 

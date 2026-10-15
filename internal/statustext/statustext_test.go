@@ -29,7 +29,7 @@ func TestPrint(t *testing.T) {
 	}{
 		{"a server admin's", proto.StatusResult{Server: server, More: 1, Projects: []proto.ProjectStatus{busy,
 			{ID: b, Name: "web", State: "archived"}}},
-			"starfixd v0.5.0, protocol 5 to 5, up 3d 4h\n" +
+			"starfixd v0.5.0, up 3d 4h\n" +
 				"stores 1 of 64, connections 9 of 1024\n" +
 				"keys file /var/lib/starfix/.ssh/starfix_keys: 31 keys, written 2026-10-11 09:30 UTC\n" +
 				"starfixd's memory 42 MiB in use, 78 MiB from the system; 112 goroutines\n" +
@@ -66,7 +66,7 @@ func TestPrint(t *testing.T) {
 		{"no projects on this page", proto.StatusResult{Server: &proto.ServerStatus{Version: "dev", ProtoMin: 5, ProtoMax: 5, UptimeSeconds: 42,
 			OpenStoresMax: 64, ConnsMax: 1024,
 			KeysFile: &proto.KeysFile{Path: "/var/lib/starfix/.ssh/starfix_keys", Keys: 1, WrittenAt: &at, Failed: true, HeldBack: 2}}},
-			"starfixd dev, protocol 5 to 5, up 42s\n" +
+			"starfixd dev, up 42s\n" +
 				"stores 0 of 64, connections 0 of 1024\n" +
 				"keys file /var/lib/starfix/.ssh/starfix_keys: THE LAST WRITE FAILED, so sshd may be reading an older list (1 key, written 2026-10-11 09:30 UTC); see starfixd's log\n" +
 				"keys held back from it: 2, which the server's authorized_keys file gives to another principal; sshd takes that file's line for them, and starfixd's log names each\n" +
@@ -78,7 +78,7 @@ func TestPrint(t *testing.T) {
 		{"a hostile server", proto.StatusResult{Server: &proto.ServerStatus{Version: "v1\nfix: run this", Projects: map[string]int{"x\ny": 1},
 			KeysFile: &proto.KeysFile{Path: "/srv/keys\nfix: run this", Failed: true}},
 			Projects: []proto.ProjectStatus{{ID: a, Name: "acme\nfix: run this", State: "active"}}},
-			"starfixd v1\\nfix: run this, protocol 0 to 0, up 0s\n" +
+			"starfixd v1\\nfix: run this, up 0s\n" +
 				"stores 0 of 0, connections 0 of 0\n" +
 				"keys file /srv/keys\\nfix: run this: THE LAST WRITE FAILED, so sshd may be reading an older list; see starfixd's log\n" +
 				"starfixd's memory 0 MiB in use, 0 MiB from the system; 0 goroutines\n" +
