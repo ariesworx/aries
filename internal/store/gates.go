@@ -732,14 +732,19 @@ const maxGateNotices = 100
 // holds, at most maxGateNotices, each naming the first such issue of
 // theirs and its title.
 func heldAssignees(ctx context.Context, q querier, g *gateRow) ([]InboxItem, error) {
+	// One recursive term over the edges, as holdingGates has it: the SQL
+	// standard, and so Postgres, refuses a CTE with two.
 	rows, err := q.QueryContext(ctx, `WITH RECURSIVE
+edges (src, dst) AS (
+  SELECT d.to_id, d.from_id FROM deps d JOIN issues f ON f.id = d.from_id
+  WHERE d.type IN (`+readyBlocking+`) AND f.status <> 'closed'
+  UNION ALL
+  SELECT parent_id, id FROM issues WHERE parent_id IS NOT NULL
+),
 held (id) AS (
   SELECT CAST(? AS CHAR(64))
   UNION
-  SELECT d.from_id FROM deps d JOIN held h ON d.to_id = h.id JOIN issues f ON f.id = d.from_id
-  WHERE d.type IN (`+readyBlocking+`) AND f.status <> 'closed'
-  UNION
-  SELECT c.id FROM issues c JOIN held h ON c.parent_id = h.id
+  SELECT e.dst FROM edges e JOIN held h ON e.src = h.id
 )
 SELECT i.assignee, i.id, i.title FROM held h JOIN issues i ON i.id = h.id
 WHERE i.id <> ? AND i.status <> 'closed' AND i.assignee IS NOT NULL ORDER BY i.assignee, i.id LIMIT ?`,

@@ -193,7 +193,10 @@ func deps(ctx context.Context, q querier, where string, args ...any) ([]Dep, err
 
 // blockedCTE yields blocked(id, via): unclosed issues with an unclosed
 // target of a readyBlocking edge, and their descendants, with via naming
-// the ancestor whose blockers apply. deferred(id) is the same for issues
+// the ancestor whose blockers apply and depth how far up the tree it is
+// (0: the issue itself). Callers that report one via order by depth, so
+// the nearest ancestor is named whatever order the engine emits rows in.
+// deferred(id) is the same for issues
 // deferred by status or by a future defer_until (parameter 1: now).
 const blockedCTE = `WITH RECURSIVE
 direct (id) AS (
@@ -202,10 +205,10 @@ direct (id) AS (
   JOIN issues t ON t.id = d.to_id
   WHERE d.type IN (` + readyBlocking + `) AND f.status <> 'closed' AND t.status <> 'closed'
 ),
-blocked (id, via) AS (
-  SELECT id, id FROM direct
+blocked (id, via, depth) AS (
+  SELECT id, id, 0 FROM direct
   UNION
-  SELECT c.id, b.via FROM issues c JOIN blocked b ON c.parent_id = b.id
+  SELECT c.id, b.via, b.depth + 1 FROM issues c JOIN blocked b ON c.parent_id = b.id
 ),
 deferred (id) AS (
   SELECT id FROM issues WHERE status = 'deferred' OR defer_until > ?
@@ -318,12 +321,12 @@ func (s *Store) Blocked(ctx context.Context, limit int) ([]BlockedIssue, error) 
 	}
 	defer end()
 	rows, err := tx.QueryContext(ctx, blockedCTE+`SELECT id, title, status, priority, via FROM (
-  SELECT i.id, i.title, i.status, i.priority, i.created_at, b.via,
+  SELECT i.id, i.title, i.status, i.priority, i.created_at, b.via, b.depth,
     DENSE_RANK() OVER (ORDER BY i.priority, i.created_at, i.id) AS n
   FROM issues i JOIN blocked b ON b.id = i.id
   WHERE i.status <> 'closed'
 ) x WHERE n <= ?
-ORDER BY priority, created_at, id, (via <> id)`, s.now(), limit)
+ORDER BY priority, created_at, id, depth`, s.now(), limit)
 	if err != nil {
 		return nil, fmt.Errorf("blocked: %w", err)
 	}

@@ -389,7 +389,7 @@ func (q *digestQuery) blocked(ctx context.Context, d *Digest) error {
 	rows, err := q.tx.QueryContext(ctx, blockedCTE+`SELECT i.id, i.title, i.priority, COALESCE(i.assignee, ''), b.via
 FROM issues i JOIN blocked b ON b.id = i.id
 WHERE i.status <> 'closed'`+fcond+`
-ORDER BY i.priority, i.created_at, i.id, (b.via <> i.id)
+ORDER BY i.priority, i.created_at, i.id, b.depth
 LIMIT ?`, append(append([]any{q.now}, fargs...), digestRows+1)...) //nolint:gosec // constant clauses; values are placeholders
 	if err != nil {
 		return fmt.Errorf("blocked: %w", err)

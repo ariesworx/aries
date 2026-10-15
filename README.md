@@ -165,6 +165,7 @@ on Ubuntu 24.04 LTS or 26.04 LTS is set up by one script, `install-server.sh`
 | [Agents](docs/agents.md) | Setting agents up, session-start hooks, MCP tools, sessions |
 | [CI gates](docs/ci.md) | Holding work until CI reports a check, landing, and workflows for GitHub Actions and GitLab CI, with what they cost |
 | [Running a server](docs/server.md) | Setup step by step, principals, admins, settings, limits, metrics and health, upgrades, backups, troubleshooting |
+| [Operating with Claude Code](docs/server.md#operate-a-server-with-claude-code) | The `starfix-ops` plugin: deploy and run a server by talking to Claude, with every change shown and approved first |
 | [Deployment examples](docs/deploy/README.md) | Local, team and enterprise deployments, with costs, and a Docker test server |
 | [Installing starfix](docs/install.md) | Install options, manual downloads, verifying releases, upgrades |
 | [Moving from bd](docs/migrate-from-bd.md) | Importing a beads backlog, and exporting it back |
