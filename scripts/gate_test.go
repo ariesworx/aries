@@ -1,6 +1,8 @@
 // Package scripts_test tests the contributor scripts beside it: that
 // gate.sh runs the commands AGENTS.md lists, what it reports, and what
-// install-dolt.sh installs and refuses.
+// install-dolt.sh installs and refuses. It also holds the server
+// installer and the operations skill (plugins/starfix-ops) to the
+// guides and the code.
 package scripts_test
 
 import (

@@ -817,6 +817,76 @@ What that showed, beyond what the installer's run says:
 - **The time service**: `time-sync.target` and `chrony-wait.service`
   ([Start starfixd after the clock is set](#start-starfixd-after-the-clock-is-set)).
 
+## Operate a server with Claude Code
+
+`starfix-ops` is a [Claude Code](https://code.claude.com/docs) plugin in
+this repository: a skill that lets an operations team deploy and run a
+server by talking to Claude, in place of running this guide's commands
+themselves. It drives the installer, `sfx admin` and `starfixd`, follows
+this guide's sections and names the one each step comes from; it does
+not replace them.
+
+Add the repository as a marketplace, at the release your server runs,
+and install the plugin, in Claude Code on your own workstation:
+
+```text
+/plugin marketplace add ariesworx/starfix@v0.6.0
+/plugin install starfix-ops@starfix
+```
+
+From a checkout, `claude plugin marketplace add ./starfix` does the
+same with the files as they are. The plugin has no version of its own:
+it is the one at the tag you add, so add the tag your server runs, and
+add the new one when you upgrade. Then ask, for example: "install a
+starfix server on the VM `starfix-1`", "offboard bob", "set up the daily
+backups" or "why does `sfx` say starfixd is not running?". `/starfix-ops:starfix-ops`
+calls it by name.
+
+What it does:
+
+| Area | Covers |
+|---|---|
+| Provisioning | The VM, its firewall and the private path (IAP or a VPN), vendor-neutral, with [the deployment examples](deploy/README.md) as worked cases |
+| First install | Preflight, [the installer](#with-the-installer)'s dry run and run, what it leaves to you, AppArmor, the first project and admin, and checking the result |
+| Day 2 | [Managing access](#managing-access) and offboarding, [upgrades](#upgrades), [backups and a rehearsed restore](#backups-and-restore), [telemetry](#observability), and [troubleshooting](#troubleshooting) from the status report and the logs |
+| Onboarding | A developer's or an agent's key, `.starfix.yaml`, and `sfx setup AGENT` ([agent guide](agents.md)) |
+
+How it works, and what it will not do:
+
+- **It runs on your workstation, never on the server.** It reaches the
+  server with your own `ssh` and its configuration, runs root steps
+  through `sudo -n`, and hands you any step that needs a password to
+  run in a terminal of your own.
+- **Every change is shown first, and runs only once you approve it**:
+  the command, the host, the user, and what it changes, after a dry run
+  where one exists. Read-only checks run freely. Offboarding, a restore,
+  archiving a project, removing a key or a member, and an upgrade need
+  you to name the target in your reply, and the backup or tag this guide
+  has for them is taken first. It stops and asks when what it finds
+  differs from what it expected.
+- **No secret passes through it.** Passwords are generated on the
+  server into 0600 files and never printed or put on a command line; it
+  never prints the config file's `dsn:` line, never reads a private key,
+  never runs `ssh-add` or forwards your agent, and never asks you to
+  paste a secret. A token for a hosted backend is yours to write.
+- **Admin is CLI only**: `sfx admin` and `starfixd`, never an MCP tool.
+- **It leaves a record**: a short summary of what was done, where, the
+  versions and what is left, in a file you choose on your workstation.
+- **Not in scope**: the release signing keys, and any machine you have
+  not named.
+
+Its files are under
+[plugins/starfix-ops](../plugins/starfix-ops/skills/starfix-ops/SKILL.md).
+`scripts/opsskill_test.go` fails when a command or flag it names is not
+one `sfx` or `starfixd` has, when a section it cites is no heading of
+these guides, or when its manifests or frontmatter are not what Claude
+Code reads. It has no database steps of its own: starfix's backend is
+moving to Postgres, and until that lands its `references/database.md`
+sends Claude to this guide's current sections and has it stop and ask
+before any database command. What was run: its read-only and admin commands against the
+[Docker test server](deploy/docker.md), on 15 October 2026; not on a
+virtual machine or a cloud provider's, and not a restore.
+
 ## Principals
 
 A principal is a name for a person or an agent identity, such as `alice`.
