@@ -65,6 +65,13 @@ var never = map[string]string{
 	proto.OpRenew:       "renewing a lease is the client's own chore",
 	proto.OpResolve:     "it decides between two changes on a state the client cannot see",
 	proto.OpPropose:     "it decides between two changes on a state the client cannot see",
+	// Gates (design §20.3, §20.9): never queued. Adding one later could
+	// hold back work someone started meanwhile, and a pass, waive or
+	// rearm is a person's decision at the moment they make it.
+	proto.OpGateAdd:   "it holds work back on a state the client cannot see",
+	proto.OpGatePass:  "it is a person's decision on a state the client cannot see",
+	proto.OpGateWaive: "it is a person's decision on a state the client cannot see",
+	proto.OpGateRearm: "it is a person's decision on a state the client cannot see",
 }
 
 // Queueable reports whether op is one the outbox queues.

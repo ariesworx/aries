@@ -102,6 +102,18 @@ func TestResolveSettingsLimits(t *testing.T) {
 		{name: "negative conflicts_per_issue", body: "limits:\n  conflicts_per_issue: -1\n", err: "conflicts_per_issue"},
 		{name: "negative conflicts_per_principal", body: "limits:\n  conflicts_per_principal: -1\n", err: "conflicts_per_principal"},
 		{name: "negative conflict_age", body: "limits:\n  conflict_age: -1h\n", err: "conflict_age"},
+		{name: "gate limits", body: "limits:\n  gate_approvers: 3\n  open_gates: 40\n  due_soon: 3d\n",
+			want: func(l Limits) bool {
+				return l.GateApprovers == 3 && l.OpenGates == 40 && l.DueSoon == Duration(3*24*time.Hour)
+			}},
+		{name: "gate limits default", body: "limits:\n  gate_approvers: 0\n",
+			want: func(l Limits) bool {
+				return l.GateApprovers == 10 && l.OpenGates == 1000 && l.DueSoon == Duration(24*time.Hour)
+			}},
+		{name: "negative gate_approvers", body: "limits:\n  gate_approvers: -1\n", err: "gate_approvers"},
+		{name: "gate_approvers past the most", body: "limits:\n  gate_approvers: 101\n", err: "gate_approvers is 101; it can be at most 100"},
+		{name: "negative open_gates", body: "limits:\n  open_gates: -1\n", err: "open_gates"},
+		{name: "due_soon past a year", body: "limits:\n  due_soon: 367d\n", err: "due_soon"},
 		{name: "memory body past the column", body: "limits:\n  memory_body: 70000\n", err: "memory_body"},
 		{name: "negative server limit", body: "limits:\n  write_burst: -1\n", err: "limit write_burst must be zero or a positive number"},
 		{name: "write rate not a number", body: "limits:\n  write_rate: .nan\n", err: "limit write_rate must be zero or a positive number"},

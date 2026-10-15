@@ -160,6 +160,20 @@ import (
 // as before, and waits in the outbox's refused list. A server of 6 alone
 // is too old for it, and refuses it with code version.
 //
+// Stage 6's first slice, G0 (design §20.3), joined 8 the same way, while
+// no release spoke it: on 15 Oct 2026 the maintainer set aside decision
+// 77's bump for each slice for work no release has spoken, so additions
+// join the current unreleased version, and at the next release the
+// protocol is settled to a single version above any released one and the
+// step-down code for the versions in between removed. G0 added the ops
+// gate.add, gate.pass, gate.waive, gate.rearm, gates and dates, and the
+// arguments defer_until and due on create and update. Its results gained
+// fields, which need no version: show's gate and gates, blocked's gates,
+// list's and ready's due_at and defer_until, and digest's ready,
+// due_soon and overdue. A server built from main before G0 refuses the
+// new ops and arguments as unknown, with code invalid and a fix that
+// says to upgrade, and `sfx mcp`'s prime goes without dates there.
+//
 // The bridge frame is not part of this protocol: it passes between two
 // starfixd processes on the server (frame.go), and carries no version.
 // It is read leniently, so a bridge from before a binary swap works

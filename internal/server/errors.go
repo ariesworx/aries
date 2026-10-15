@@ -79,7 +79,11 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 	var controlCap *store.ControlLimitError
 	var lastAdmin *store.LastAdminError
 	var conflictCap *store.ConflictLimitError
+	var gate *store.GateError
 	switch {
+	case errors.As(err, &gate):
+		return gateErr(gate)
+
 	case errors.As(err, &access):
 		return accessErr(access)
 
@@ -176,7 +180,10 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 
 	case errors.Is(err, store.ErrBusy):
 		fix := "retry later"
-		if op == proto.OpUsage {
+		switch op {
+		case proto.OpGateAdd:
+			fix = "pass or waive an open gate first (`sfx gate list`), or ask the server admin to raise open_gates under limits: in starfixd's config"
+		case proto.OpUsage:
 			fix = "retry later: the cap counts the last 24 hours; the server admin can raise usage_per_day under limits: in starfixd's config"
 		}
 		return proto.Errf(proto.CodeBusy, fix, strings.TrimPrefix(text, store.ErrBusy.Error()+": "))

@@ -62,6 +62,8 @@ func TestFixPhrases(t *testing.T) {
 	title := "moved on"
 	mustCall[proto.WriteResult](t, s, bob, proto.OpUpdate, proto.UpdateArgs{ID: moved.ID, Rev: moved.Rev, Title: &title})
 	items := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "items", Acceptance: "- [ ] one\n- [ ] two"})
+	gated := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "gated"})
+	gate := mustCall[proto.Gate](t, s, alice, proto.OpGateAdd, proto.GateAddArgs{Blocks: gated.ID, Approvers: []string{"carol"}})
 	// idle has one issue, which alice holds, so nothing else is ready.
 	idle := newServer(t)
 	only := mustCall[proto.WriteResult](t, idle, alice, proto.OpCreate, proto.CreateArgs{Title: "only"})
@@ -97,6 +99,10 @@ func TestFixPhrases(t *testing.T) {
 			proto.CodeAcceptance, proto.FixEditText},
 		{"held by another principal", s, bob, proto.OpUpdate, proto.UpdateArgs{ID: held.ID, Rev: heldRev, Title: &title},
 			proto.CodeForbidden, proto.FixAsk},
+		{"behind a gate", s, bob, proto.OpStart, proto.StartArgs{ID: gated.ID}, proto.CodeInvalid, proto.FixGate},
+		{"a gate closed", s, bob, proto.OpClose, proto.CloseArgs{ID: gate.ID}, proto.CodeInvalid, proto.FixGate},
+		{"a gate passed by someone else", s, bob, proto.OpGatePass, proto.GateArgs{ID: gate.ID}, proto.CodeForbidden, proto.FixGate},
+		{"an issue made a gate", s, bob, proto.OpCreate, proto.CreateArgs{Title: "x", Type: "gate"}, proto.CodeInvalid, proto.FixGateAdd},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

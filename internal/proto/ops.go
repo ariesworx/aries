@@ -108,6 +108,9 @@ type Summary struct {
 	// Overlaps, in ready, are the issues other sessions hold whose paths
 	// overlap this one's; ready lists such issues after the rest.
 	Overlaps []string `json:"overlaps,omitempty"`
+	// DueAt and DeferUntil are the issue's dates, in list and ready.
+	DueAt      *time.Time `json:"due_at,omitempty"`
+	DeferUntil *time.Time `json:"defer_until,omitempty"`
 }
 
 // Dep is a dependency edge: From depends on To.
@@ -168,6 +171,11 @@ type CreateArgs struct {
 	// directory prefix ending in "/" ([CheckPath]); at most MaxPaths
 	// (protocol 3).
 	Paths []string `json:"paths,omitempty"`
+	// DeferUntil keeps the issue out of ready until then, and Due is when
+	// it is due: each a date (2006-01-02) or a time (RFC 3339), as
+	// ParseDate reads them (protocol 8).
+	DeferUntil string `json:"defer_until,omitempty"`
+	Due        string `json:"due,omitempty"`
 }
 
 // WriteResult is what every issue write returns (design §9).
@@ -214,6 +222,10 @@ type ShowResult struct {
 	// Conflicts are the issue's open conflicts, at most MaxShowConflicts,
 	// their sides cut as long text is without Full (protocol 7).
 	Conflicts []Conflict `json:"conflicts,omitempty"`
+	// Gate is the issue's gate, when it is one; Gates are the open gates
+	// that hold it, directly or through a parent or a blocker (protocol 8).
+	Gate  *Gate  `json:"gate,omitempty"`
+	Gates []Gate `json:"gates,omitempty"`
 }
 
 // Tokens are token counts. A count left out is unknown, which is not 0.
@@ -380,9 +392,11 @@ type BlockedIssue struct {
 	More int `json:"more,omitempty"`
 }
 
-// BlockedResult lists blocked issues.
+// BlockedResult lists blocked issues. Gates are the open gates among
+// their blockers, with who may pass each (protocol 8).
 type BlockedResult struct {
 	Issues []BlockedIssue `json:"issues"`
+	Gates  []Gate         `json:"gates,omitempty"`
 }
 
 // UpdateArgs changes the fields that are set. Rev is the revision the
@@ -409,7 +423,11 @@ type UpdateArgs struct {
 	// Paths replaces the issue's declared paths; empty clears them
 	// (protocol 3).
 	Paths *[]string `json:"paths,omitempty"`
-	Idem  string    `json:"idem,omitempty"`
+	// DeferUntil and Due set the issue's dates, as CreateArgs's; empty
+	// clears one (protocol 8).
+	DeferUntil *string `json:"defer_until,omitempty"`
+	Due        *string `json:"due,omitempty"`
+	Idem       string  `json:"idem,omitempty"`
 	// Park, which a replayed update sends (protocol 7), asks the server
 	// to compare each field with the issue's state at Rev, rather than
 	// refuse a stale Rev: a field someone changed since is parked as a
@@ -688,6 +706,10 @@ type DigestTotals struct {
 	// Conflicts counts the conflicts open past the server's conflict_age
 	// (protocol 7).
 	Conflicts int `json:"conflicts,omitempty"`
+	// Ready, DueSoon and Overdue count the date sections (protocol 8).
+	Ready   int `json:"ready,omitempty"`
+	DueSoon int `json:"due_soon,omitempty"`
+	Overdue int `json:"overdue,omitempty"`
 }
 
 // DigestResult summarizes the window from Since to Until and the work in
@@ -709,6 +731,13 @@ type DigestResult struct {
 	// oldest first: By parked it, At is when, Note names the field and
 	// the conflict (protocol 7).
 	Conflicts []DigestItem `json:"conflicts,omitempty"`
+	// Ready lists the issues ready now whose defer_until passed in the
+	// window; DueSoon those due within the server's due_soon; Overdue
+	// those past their due date. At is the date, By the assignee
+	// (protocol 8).
+	Ready   []DigestItem `json:"ready,omitempty"`
+	DueSoon []DigestItem `json:"due_soon,omitempty"`
+	Overdue []DigestItem `json:"overdue,omitempty"`
 	// Usage totals the window's time and tokens (protocol 3).
 	Usage *DigestUsage `json:"usage,omitempty"`
 	// Truncated: a total is a lower bound, or items were left out to fit

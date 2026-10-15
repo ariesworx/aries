@@ -59,6 +59,9 @@ type Limits struct {
 	// ConflictAge is how long a conflict stays open before digest lists
 	// it (design §18.7).
 	ConflictAge Duration `yaml:"conflict_age"`
+	// DueSoon is how far ahead of its due date digest, dates and prime
+	// list an issue as due soon (design §20.3). Up to a year.
+	DueSoon Duration `yaml:"due_soon"`
 	// AwayMax is the longest a person's `sfx away` may extend their
 	// claims (design §18.6): every claim of theirs, in every session,
 	// holds that long without renewals, and nobody else may take it.
@@ -100,6 +103,7 @@ var DefaultLimits = Limits{
 	WriteRate: 10, WriteBurst: 100, RefusalLogs: 20,
 	AgentKeep: Duration(store.MaxAgentWindow), InboxKeep: Duration(30 * 24 * time.Hour),
 	IdemWindow: Duration(store.DefaultIdemWindow), ConflictAge: Duration(store.DefaultConflictAge), AwayMax: Duration(store.MaxLease),
+	DueSoon: Duration(store.DefaultDueSoon),
 	Control: store.DefaultControlLimits, OpenStores: 64, StoreIdle: Duration(10 * time.Minute),
 	ControlWriteRate: 1, ControlWriteBurst: 30,
 	TelemetryRequests: telemetry.DefaultRequests,
@@ -131,6 +135,7 @@ func (l Limits) WithDefaults() Limits {
 		{&l.Prices, &d.Prices}, {&l.HoursPerDay, &d.HoursPerDay}, {&l.HoursNote, &d.HoursNote}, {&l.Plans, &d.Plans},
 		{&l.PlanPrincipals, &d.PlanPrincipals},
 		{&l.ConflictsPerIssue, &d.ConflictsPerIssue}, {&l.ConflictsPerPrincipal, &d.ConflictsPerPrincipal},
+		{&l.GateApprovers, &d.GateApprovers}, {&l.OpenGates, &d.OpenGates},
 		{&l.Control.Projects, &d.Control.Projects}, {&l.Control.Principals, &d.Control.Principals},
 		{&l.Control.PrincipalsPerCreator, &d.Control.PrincipalsPerCreator},
 		{&l.Control.Keys, &d.Control.Keys}, {&l.Control.Members, &d.Control.Members}, {&l.OpenStores, &d.OpenStores},
@@ -142,7 +147,7 @@ func (l Limits) WithDefaults() Limits {
 	}
 	for _, f := range []struct{ v, d *Duration }{{&l.IdleTimeout, &d.IdleTimeout}, {&l.AgentKeep, &d.AgentKeep}, {&l.InboxKeep, &d.InboxKeep},
 		{&l.StoreIdle, &d.StoreIdle}, {&l.IdemWindow, &d.IdemWindow}, {&l.ConflictAge, &d.ConflictAge},
-		{&l.AwayMax, &d.AwayMax}} {
+		{&l.AwayMax, &d.AwayMax}, {&l.DueSoon, &d.DueSoon}} {
 		if *f.v == 0 {
 			*f.v = *f.d
 		}
@@ -174,6 +179,7 @@ func (l Limits) Validate() error {
 		{"write_rate", l.WriteRate < 0 || math.IsNaN(l.WriteRate) || math.IsInf(l.WriteRate, 0)},
 		{"write_burst", l.WriteBurst < 0}, {"refusal_logs", l.RefusalLogs < 0},
 		{"agent_keep", l.AgentKeep < 0}, {"inbox_keep", l.InboxKeep < 0}, {"conflict_age", l.ConflictAge < 0},
+		{"due_soon", l.DueSoon < 0 || time.Duration(l.DueSoon) > store.MaxDueSoon},
 		{"open_stores", l.OpenStores < 0}, {"store_idle", l.StoreIdle < 0},
 		{"control_write_rate", l.ControlWriteRate < 0 || math.IsNaN(l.ControlWriteRate) || math.IsInf(l.ControlWriteRate, 0)},
 		{"control_write_burst", l.ControlWriteBurst < 0}, {"telemetry_requests", l.TelemetryRequests < 0},
@@ -218,7 +224,7 @@ var readOps = map[string]bool{
 	proto.OpShow: true, proto.OpList: true, proto.OpReady: true, proto.OpBlocked: true, proto.OpComments: true,
 	proto.OpHistory: true, proto.OpDigest: true, proto.OpWho: true, proto.OpInbox: true, proto.OpWatch: true,
 	proto.OpClaims: true, proto.OpRecall: true, proto.OpPrices: true, proto.OpCost: true,
-	proto.OpHours: true, proto.OpPlans: true, proto.OpConflicts: true,
+	proto.OpHours: true, proto.OpPlans: true, proto.OpConflicts: true, proto.OpGates: true, proto.OpDates: true,
 	proto.OpProjects: true, proto.OpPrincipals: true, proto.OpMembers: true, proto.OpKeys: true,
 	proto.OpStatus: true, proto.OpPrincipalWhois: true,
 }

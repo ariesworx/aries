@@ -40,35 +40,39 @@ func digest(ctx context.Context, pr *served, _ store.Actor, in proto.DigestArgs)
 		return nil, pr.mapErr(ctx, proto.OpDigest, "", 0, err)
 	}
 	d, err := pr.store.Digest(ctx, store.DigestFilter{Since: since, Window: window, By: in.By, Label: in.Label,
-		ConflictAge: pr.conflictAge})
+		ConflictAge: pr.conflictAge, DueSoon: pr.dueSoon})
 	if err != nil {
 		return nil, pr.mapErr(ctx, proto.OpDigest, "", 0, err)
 	}
 	return wireDigest(d), nil
 }
 
-func wireDigest(d store.Digest) proto.DigestResult {
-	items := func(sec store.DigestSection) []proto.DigestItem {
-		var out []proto.DigestItem
-		for _, it := range sec.Items {
-			w := proto.DigestItem{ID: string(it.ID), Title: it.Title, Priority: int(it.Priority), By: it.By,
-				At: it.At.UTC(), Note: it.Note, From: string(it.From)}
-			for _, b := range it.BlockedBy {
-				w.BlockedBy = append(w.BlockedBy, string(b))
-			}
-			out = append(out, w)
+// digestItems is a digest section's items on the wire.
+func digestItems(sec store.DigestSection) []proto.DigestItem {
+	var out []proto.DigestItem
+	for _, it := range sec.Items {
+		w := proto.DigestItem{ID: string(it.ID), Title: it.Title, Priority: int(it.Priority), By: it.By,
+			At: it.At.UTC(), Note: it.Note, From: string(it.From)}
+		for _, b := range it.BlockedBy {
+			w.BlockedBy = append(w.BlockedBy, string(b))
 		}
-		return out
+		out = append(out, w)
 	}
+	return out
+}
+
+func wireDigest(d store.Digest) proto.DigestResult {
+	items := digestItems
 	return proto.DigestResult{
 		Since: d.Since.UTC(), Until: d.Now.UTC(),
 		Totals: proto.DigestTotals{Events: d.Events, Closed: d.Closed.Total, Started: d.Started.Total,
 			InProgress: d.InProgress.Total, Stalled: d.Stalled.Total, Blocked: d.Blocked.Total,
 			HandedOff: d.HandedOff.Total, Created: d.Created.Total, Discovered: d.Discovered.Total,
-			Conflicts: d.Conflicts.Total},
+			Conflicts: d.Conflicts.Total, Ready: d.Ready.Total, DueSoon: d.DueSoon.Total, Overdue: d.Overdue.Total},
 		Closed: items(d.Closed), Started: items(d.Started), InProgress: items(d.InProgress),
 		Stalled: items(d.Stalled), Blocked: items(d.Blocked), HandedOff: items(d.HandedOff),
 		Created: items(d.Created), Discovered: items(d.Discovered), Conflicts: items(d.Conflicts),
+		Ready: items(d.Ready), DueSoon: items(d.DueSoon), Overdue: items(d.Overdue),
 		Usage: wireDigestUsage(d.Usage), Truncated: d.Capped,
 	}
 }
