@@ -27,10 +27,11 @@ reserved.
 ## Issues
 
 An issue has an id such as `sf-a1b2c3d4`, a title, a type (`bug`,
-`feature`, `task`, `epic` or `chore`), a priority from 0 (critical) to 4
+`feature`, `task`, `epic`, `chore`, or `gate`, which only
+[`sfx gate add`](#gates) makes), a priority from 0 (critical) to 4
 (backlog) and a status: `open`, `in_progress`, `blocked`, `deferred` or
-`closed`. It can also carry a body, labels, a parent issue, comments and
-acceptance criteria.
+`closed`. It can also carry a body, labels, a parent issue, comments,
+acceptance criteria and [dates](#dates).
 
 Every change is recorded as an event in the same transaction as the change
 itself. The event log is the history: `sfx history ID` reads it, and
@@ -53,6 +54,62 @@ closed. The other types (`related`, `discovered-from`, `duplicates`,
 
 A `blocks`, `conditional-blocks` or `waits-for` dependency that would form
 a cycle is refused.
+
+A status of `blocked` or `deferred` is a note anyone may change back to
+`open`, an agent included. To hold work back so that it stays held, use
+a [gate](#gates).
+
+## Gates
+
+A gate holds issues back until a person passes it. It is an issue of
+type `gate`, and what it holds depends on it with an ordinary `blocks`
+edge, so everything above applies: a gate on an epic holds every issue
+under it, and whatever waits on those. `sfx gate add --blocks ID`
+makes the gate and the edge in one step, naming its approvers with
+`--approver P`, or none, which leaves it to the project's admins. An
+agent may add one too (the MCP `gate` tool), and so hold its own plan
+for a person to approve before any of it starts.
+
+- **Held means held.** A gate is never ready and cannot be started, and
+  neither can anything it holds. `close`, `finish`, `reopen` and a status
+  change of a gate are refused: only `sfx gate pass`, `waive` and
+  `rearm` open or close one. Closing or finishing what a gate holds,
+  removing its edge to the gate, or moving it out from under a gated
+  parent is refused too, unless you could pass the gate yourself. Setting
+  a held issue's status back to `open` is allowed and undoes nothing.
+- **Who passes it.** The principals the gate names; when it names none,
+  the project's admins, but not the one who made it (a person working
+  alone names themselves). Only from your own terminal: a pass from an
+  agent's session, `sfx gate pass` run in an agent's shell included, is
+  refused, since the agent signs in with your key. That is a speed bump,
+  not a wall: an agent holding your key can pass your gates until agents
+  have identities of their own.
+- **Waive and rearm.** `sfx gate waive ID --reason TEXT` passes a gate
+  as an admin may, whoever it names, on the record. `sfx gate rearm ID`
+  reopens a passed gate, by its approvers or an admin, so that it holds
+  again; work already started on what it holds goes on.
+- **Who is told.** The approvers, in their inbox, when a gate is added
+  (`gate.pending`); the assignees of what it held when it passes
+  (`gate.passed`). Every change is an event, and a watching board
+  (`sfx tui`) shows the pass as it happens.
+
+## Dates
+
+An issue may have a `defer_until` date, before which it is not ready,
+and a `due` date. Set them with `--defer-until DATE` and `--due DATE` on
+`sfx create` and `sfx update` (a date, `2026-11-02`, is midnight UTC; or
+an RFC 3339 time); an empty value clears one. A deferred parent defers
+its children.
+
+Nothing runs when a date passes: an issue deferred to a date becomes
+ready when the date is past, as `ready` computes it, and nothing ends,
+expires or is reassigned when an issue falls due. `sfx digest` and
+`prime` notice them instead: the issues that became ready in their
+window because their date came, those due within the server's
+`due_soon` (a day by default), and those overdue, each from the
+server's clock when you ask. A maintenance window is an issue deferred
+to the window's start and due at its end, behind a gate if a person
+must approve it first.
 
 ## Claims and leases
 

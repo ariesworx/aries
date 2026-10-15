@@ -192,10 +192,10 @@ first release runs SessionEnd async; `--check` names the hooks to fix.
 
 ## Tools
 
-The MCP server offers 24 tools: `prime`, `start`, `finish`, `handoff`,
+The MCP server offers 25 tools: `prime`, `start`, `finish`, `handoff`,
 `ready`, `blocked`, `list`, `show`, `create`, `update`, `close`, `reopen`,
 `dep`, `label`, `comment`, `comments`, `history`, `digest`, `who`,
-`inbox`, `remember`, `recall`, `forget` and `cost`. There are no admin
+`inbox`, `remember`, `recall`, `forget`, `cost` and `gate`. There are no admin
 tools: import, export, setup, upgrade, prices, plans and server settings
 stay on the command line. Hours are logged by people, with `sfx log`; no
 tool logs them.
@@ -254,6 +254,14 @@ tool logs them.
   `overlaps` with who holds them ([Files](concepts.md#files-what-an-issue-touches)).
   People declare files with `sfx create --paths` or `sfx update --paths`.
 - **Agents propose, people resolve conflicts.** See [Conflicts](#conflicts).
+- **Agents hold work back; people let it go.** See [Gates](#gates).
+- **Dates.** `create` and `update` take `defer_until` (not ready before)
+  and `due`, each a date (`2026-11-02`) or an RFC 3339 time; with
+  `update`, `""` clears one. `prime` lists, at most three each, the
+  issues `overdue`, `due_soon` (within the server's `due_soon`, a day
+  by default) and `ready_by_date` (ready in the last day because their
+  date came), and `digest` the same for its window. A date ends,
+  expires and reassigns nothing ([Dates](concepts.md#dates)).
 
 One SSH connection serves an MCP session. It opens on the first tool call
 and is redialed if it drops. Reads, `create`, `comment`, `finish`,
@@ -302,6 +310,30 @@ way (decision 42 of [the design](design/starfix.md#14-decisions)).
 Proposing is guarded as a change to the issue is, so it is refused on
 an issue another principal holds. Proposing rides `comment` rather than
 a tool of its own to keep the tools' schemas within their budget.
+
+### Gates
+
+A gate holds issues back until a person passes it
+([Gates](concepts.md#gates)). The `gate` tool has two actions:
+`add`, with `blocks` (the issue to hold; a gate on an epic holds the
+whole plan), `approvers` (principals; none leaves it to the project's
+admins) and an optional `title`; and `list`, the open gates with their
+approvers and what each holds. A planning agent gates its epic before
+filing the children, so none is started before a person approved the
+plan, and every edge exists by then.
+
+No tool passes, waives or rearms a gate, and none of the tools gets
+around one: `start` of a held issue, and `close`, `finish`, `reopen`
+or a status change of a gate, are refused `invalid`, and so are a
+`close` or `finish` of a held issue, a `dep` removal of the edge, and an
+`update` that moves a held issue out from under its gated parent. The
+fix tells the agent to pick other work or tell the user, naming the
+approvers. `show` gives an issue's `gates` that hold it; `blocked`
+lists the issue with the gate among its blockers. An agent hears that
+a gate passed through its `inbox` (`gate.passed`) when it is the
+assignee of what the gate held. Running `sfx gate pass` in the agent's
+shell is refused too: a pass counts only from the person's own
+terminal, the session `cli`, which an agent's harness session is not.
 
 ### When the server cannot be reached
 
