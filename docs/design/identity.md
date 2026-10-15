@@ -657,6 +657,8 @@ About 11 to 12 weeks in all, and N0 needs the maintainer's time for the registra
 
 ## 15. Decisions for the maintainer
 
+**Decided 15 Oct 2026** (design §14 of aries.md, decision 85): the maintainer accepted all twelve recommendations below as written, and kept the whole of this design in v1.0.0, with N1 to N7 worked beside the port's P4 and P5 where their files do not overlap. Asked: "Accept all twelve", and "Keep it all in v1.0.0".
+
 Each with a recommendation.
 
 1. **Which way in?** Decision 54 already says: spike both under AppArmor, the published enrollment key first. *Recommended:* the published enrollment key, unless N0 finds a reason against it under AppArmor or in sshd's logs. *Cost:* a known private key to explain. *Of the key command:* `AuthorizedKeysCommand` back in the block, and every stranger logged as accepted.
