@@ -488,6 +488,33 @@ store, through the keys file the daemon writes, as they reach sshd; at
 the end that file holds a line for exactly the keys the control tables
 give an active principal.
 
+### Locks
+
+Every run also has sessions contending for two locks of the first
+project, a mutex and a semaphore of three (`soak_locks_test.go`), the
+gate of stage 6's slice G2: under the same dropped answers, dropped
+connections, restarts, clock steps and access changes, with leases of a
+minute on the store's clock, half a second of real time. A session
+acquires, waiting in the queue or refused, holds a while renewing, and
+releases; or it dies holding or waiting, or stalls past its lease and
+finds the hold lost. The replay of the project's log checks, a
+transaction at a time, that no grant finds the lock at its capacity,
+that a grant goes to the first live waiter and an acquire at once only
+to an empty queue, that every epoch is the project's last plus one, that
+no hold or place ends before its lease, and that no transaction leaves
+a slot free while someone waits; each snapshot holds the lock tables to
+the replay; no epoch is told to two sessions; and at the end, every
+hold that lapsed was ended within two ticks of the reaper and 3
+seconds of real time after its lease, less any jump of the clock
+settled meanwhile, which is what lets a dead holder's lock pass on,
+unless a daemon restart fell between. The report
+gives the counts and how late the lapsed holds were ended. Run it longer
+after changing locks, the reaper or the clock:
+
+```sh
+STARFIX_REQUIRE_DOLT=1 STARFIX_SOAK=10m go test -race -timeout 45m -run 'TestSoak$' -v ./internal/e2e/
+```
+
 ### With the network cut
 
 `STARFIX_SOAK_PARTITION=1` turns on the partition mode

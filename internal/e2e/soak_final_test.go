@@ -61,6 +61,7 @@ func (s *soak) verifyProject(ctx context.Context, p *sproj, calls []call) {
 	defer func() { _ = eve.Close() }()
 	s.checkReady(ctx, p, eve)
 	s.checkUsage(ctx, p, eve, calls)
+	s.checkLocks(ctx, p)
 }
 
 // attempts gathers the requests that carried one marker, or one batch.

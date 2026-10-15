@@ -42,6 +42,11 @@ import (
 // closed. Whoever loses access must lose their connections and their
 // claims, and nothing of one project may show through another.
 //
+// Beside them, sessions contend for a mutex and a semaphore
+// (soak_locks_test.go), the gate of stage 6's slice G2: no grant past a
+// lock's capacity, grants in the order of the live waiters, epochs that
+// only rise, and a dead holder's lock passed on soon after its lease.
+//
 // A short run is part of `go test`. Set STARFIX_SOAK to a duration, such
 // as 10m, for a long one, and STARFIX_SOAK_SEED to replay a run's choices;
 // the seed is printed at the start and with any failure.
@@ -212,6 +217,9 @@ type sproj struct {
 	holding          holding
 	// foreign matches an issue id of another project of the run.
 	foreign *regexp.Regexp
+	// marks are the last event of the project's log at each daemon
+	// restart (soak_locks_test.go).
+	marks []int64
 }
 
 // soak is one run.
@@ -268,7 +276,9 @@ type soak struct {
 	clockStats clockStats
 	// part is the partition mode's, nil when it is off
 	// (soak_partition_test.go).
-	part     *partition
+	part *partition
+	// locks counts what the lock sessions did (soak_locks_test.go).
+	locks    lockStats
 	baseline int            // goroutines before any session started
 	connBase map[string]int // connGoroutines then
 	started  time.Time
@@ -302,7 +312,7 @@ func newSoak(t *testing.T, cfg soakConfig) *soak {
 	// every session of the run starts with lib- or mcp-.
 	names := append([]string{cfg.admin, cfg.root, "eve"}, cfg.principals...)
 	s.tel.people = func(v string) bool {
-		return slices.Contains(names, v) || strings.HasPrefix(v, "lib-") || strings.HasPrefix(v, "mcp-")
+		return slices.Contains(names, v) || strings.HasPrefix(v, "lib-") || strings.HasPrefix(v, "mcp-") || strings.HasPrefix(v, "lock-")
 	}
 	s.w = newWorld(t, daemonOpts{now: clock.now, clock: clock.read, reap: 100 * time.Millisecond, commit: 500 * time.Millisecond,
 		admins: []string{cfg.admin, cfg.root}, limits: cfg.limits, logger: slog.New(s.logs), telemetry: s.tel.tel,
@@ -355,6 +365,7 @@ func (s *soak) run() {
 			wg.Go(func() { s.slot(ctx, name, p, slot, seed) })
 		}
 	}
+	wg.Go(func() { s.lockSlots(ctx) })
 	var side sync.WaitGroup
 	side.Go(func() { s.chaos(ctx) })
 	side.Go(func() { s.sample(ctx) })
@@ -376,6 +387,7 @@ func (s *soak) run() {
 		s.checkClaimsOp(settle, p)
 		s.awaitReaped(p)
 	}
+	s.awaitLocksEnded(settle)
 	for _, a := range s.agents() {
 		if ln, c := a.liveLine(); ln != nil {
 			s.awaitWindow(a.base(), ln, c, bound{})
@@ -455,6 +467,7 @@ func (s *soak) chaos(ctx context.Context) {
 	ops := []string{proto.OpCreate, proto.OpComment, proto.OpFinish, proto.OpHandoff, proto.OpStart, proto.OpRenew,
 		proto.OpUsage, proto.OpUpdate, proto.OpLabelAdd, proto.OpDepAdd, proto.OpAccept, proto.OpClose,
 		proto.OpWatch, proto.OpInbox, proto.OpAck, proto.OpReady, proto.OpShow,
+		proto.OpLockAcquire, proto.OpLockRenew, proto.OpLockRelease, proto.OpLockLeave,
 		// What the admin sends too: an access change whose answer is lost
 		// was made all the same.
 		proto.OpMemberRemove, proto.OpMemberSet, proto.OpPrincipalDisable, proto.OpPrincipalEnable, proto.OpKeyRemove,
@@ -640,6 +653,7 @@ func (s *soak) report() {
 	}
 	s.reportAccess(&b)
 	s.reportPartition(&b, calls)
+	s.reportLocks(&b)
 	m := s.mon
 	m.mu.Lock()
 	fmt.Fprintf(&b, "  chaos: %d dropped answers, %d connection drops, %d daemon restarts; %d sessions vanished, %d stalled; %d dial failures; retries %v\n",
