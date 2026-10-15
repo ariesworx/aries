@@ -460,3 +460,62 @@ Tests hold the guide's tables to the code (`internal/logs`,
 | `GET /metrics`, `GET /healthz` (`ok`), `GET /readyz` | `listener.go:134-140` | keep |
 | Alert rule names `AriesdDown` and `Aries…` | `deploy/observability/alerts.yaml:36-232` | keep; `Dolt…` are settled elsewhere (§10) |
 | The dashboard and Collector configuration | `deploy/observability/dashboard.json`, `collector.yaml` | keep: examples, tested against the instruments, and not themselves frozen. Say in `deploy/observability/README.md` that they follow the instruments rather than bind them |
+
+## 7. Files and paths
+
+| Item | Defined | Documented | Finding |
+|---|---|---|---|
+| The client's data directory: `$XDG_DATA_HOME/aries` or `~/.local/share/aries` (Linux), `~/Library/Application Support/aries` (macOS), `%LocalAppData%\aries` (Windows); `ARIES_DATA_DIR` | `internal/offline/local.go:30-65` | `docs/cli.md:718-760` | keep |
+| In it: `seen.json` (versioned, `"v": 1`), `missed`, `reached`, `outbox-HASH/` (`outbox.ndjson`, `answered.ndjson`, `stats.json`, `append.lock`, `replay.lock`), `outbox-HASH.principal`, `cache-HASH/` (entries versioned) | `internal/offline/local.go:70-118`, `:255`, `:490`; `internal/offline/cache.go:60-113`; `internal/outbox/outbox.go:15-19` | `internal/offline/doc.go`; design §18 | keep as private: say in `docs/cli.md` §Where it is kept that the layout inside the directory is `aries`'s own and may change, so that it is not frozen. The directories are named by a hash of the pinned host key, which the HTTPS design changes (§10) |
+| The usage capture's state, `usage-offsets.json`, in the user's cache directory (`os.UserCacheDir()/aries`) | `internal/capture/capture.go:26`; `internal/cli/capture.go:108-119` | `docs/agents.md:148-150` | keep |
+| `.aries.yaml` | `internal/client/config.go:23` | `docs/cli.md` | keep (see §3.2) |
+| Design §2's "local store `~/.local/share/aries/<uuid>.db`" | `docs/design/aries.md:61` | | document: nothing writes that file; give the section an As built note |
+| `/etc/aries/ariesd.yaml` (0600 when it holds a password) | `internal/server/settings.go:27` | `docs/server.md:383-423` | keep |
+| The socket `/run/aries/ariesd.sock` (systemd's `RuntimeDirectory=aries`) | `internal/server/listen.go:14` | `docs/server.md:2140` | keep |
+| The `aries` system user, home `/var/lib/aries` | `install-server.sh:67`, `:611` | `docs/server.md` §3, §5 | keep |
+| `/opt/aries/bin/ariesd` with a link from `/usr/local/bin/ariesd`; `/usr/local/bin/aries` | `install-server.sh:380`, `:623-637` | `docs/server.md` §3 | keep |
+| `ariesd.service` (`Type=notify`, `WatchdogSec=120`, `RestartPreventExitStatus=75`) | `install-server.sh:364-398` | `docs/server.md:424-535` | keep. Its `Requires=dolt.service` and the `keys.conf` drop-in are settled elsewhere (§10) |
+| `/etc/sudoers.d/aries`, for `ariesd upgrade`'s restart | `install-server.sh:407` | `docs/server.md` | keep |
+| `/etc/aries/telemetry.env` | `docs/server.md:2822` | same | keep |
+| The installer's lock `/run/lock/aries-install-server.lock` | `install-server.sh:502` | undocumented | keep; not public |
+| The telemetry key `telemetry/principals.key` under ariesd's home | `internal/server/settings.go:184` | `docs/server.md:2158` | keep |
+| AppArmor profiles `ariesd-serve` and `ariesd-admin`, tunables `/etc/apparmor.d/tunables/ariesd`, overrides in `/etc/apparmor.d/local/` | `deploy/apparmor/ariesd:97`, `:200`; `deploy/apparmor/tunables/ariesd:16-43` | `deploy/apparmor/README.md`; `docs/server.md:2311-2542` | keep. The profile `ariesd`, attached by path to the bridge sshd runs, is settled elsewhere (§10) |
+| Release archives `<bin>_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows), the version without its `v`; `checksums.txt`, `checksums.txt.sig` | `internal/release/release.go:30-31`, `:240-250`; `.github/workflows/release.yml` | `RELEASING.md`; `docs/install.md` | keep: installers and mirrors depend on the names |
+| A static tree's `index.json` (`"format": 1`) | `internal/release/index.go:16-48` | `RELEASING.md` §Publishing to a static host | keep |
+| The tag pattern `vMAJOR.MINOR.PATCH[-pre]` | `internal/release/release.go` (`TagPattern`); `release.yml` | `RELEASING.md` | keep |
+| `install.sh`'s default `~/.local/bin` | `install.sh:61` | `docs/install.md` | keep |
+| The git trailer `Aries: ID` | `internal/gitx/gitx.go:98-99`, `:123` | `docs/ci.md:65-70`, `docs/concepts.md:287` | keep |
+| Branch names `TYPE/ID-SLUG`, the type `fix` for a bug, `maintenance` for a task or chore, `feature` otherwise; the slug at most 40 characters | `internal/gitx/gitx.go:29-88` | `docs/cli.md` (`start --branch`) | decide (question 14). The prefixes are this repository's own convention (`gitx.go:29-31`), applied to every team's repository with no way to change them. Recommend keeping the default and, in 1.x, a project setting for the map; nothing to change before 1.0 except documenting the map. The `docs` entry maps an issue type no issue can have (types are bug, feature, task, epic, chore): remove it |
+| Issue ids found in a branch: `branchID` allows no hyphen in the prefix, though `idShape` does | `internal/gitx/gitx.go:94-97` | | document: say that a prefix with a hyphen is not found in a branch name, or allow it, a compatible change |
+| `aries setup`'s files: `.mcp.json`, `.codex/config.toml`, `.gemini/settings.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.junie/mcp/mcp.json`, Claude Desktop's `claude_desktop_config.json`; hooks in `.claude/settings.json`, `.codex/hooks.json`, `.cursor/hooks.json`, `.github/hooks/aries.json`; rules in `.cursor/rules/aries.mdc`, `.aiassistant/rules/aries.md` | `internal/agentsetup/agentsetup.go:87-130` | `docs/agents.md` | keep: each harness's own paths |
+| The MCP server's entry name `aries`; Claude Desktop's `aries-DIRECTORY` | `internal/agentsetup/agentsetup.go:11`; `internal/agentsetup/desktop.go` | `docs/agents.md` | keep. identity.md's extension takes `aries` in Claude Desktop, which does not collide (§9) |
+| The pointer block's markers `<!-- aries:begin -->`, `<!-- aries:end -->` | `internal/agentsetup/pointer.go:12-13` | `docs/agents.md:43` | keep: `setup --remove` finds the block by them, in files people commit |
+| Hook commands `aries prime --hook[=AGENT]`, `aries usage --hook[=AGENT]` | `internal/agentsetup/hook.go:26`, `:211` | `docs/agents.md` | keep |
+| The Docker test server's image `aries-dev:local` and its variables | `deploy/docker/compose.yaml:27-38` | `docs/deploy/docker.md` | see §3.1 |
+
+## 8. Output formats
+
+### 8.1 `--json`
+
+| Item | Defined | Documented | Finding |
+|---|---|---|---|
+| One document per command (rule 13); writes print `{id, rev}`; lists the compact summaries | `internal/cli/cli.go`, each command's `r.emit` | `docs/cli.md`; rule 13 | keep |
+| An error: `{"error":{"c":…,"m":…,"fix":…,"req":…}}`, `proto.Error` printed as it is | `internal/cli/cli.go:431-433`; `internal/proto/errors.go:46-56` | `docs/cli.md:766` names `error.req` only | rename before 1.0 (question 15): print `{"error":{"code","message","fix","req"}}`, the shape the MCP server already gives an agent (`internal/mcpserver/mcpserver.go:715-737`). The one-letter keys are the wire's economy; a script reading `aries --json` should not need to know them, and the two documents for one error should match. Cost: a type for the printed error, the tests that read `c` and `m`, and a sentence in `docs/cli.md` |
+| `version --json` is `{"version":"…","protocol":"8"}`, the protocol a string | `internal/cli/commands.go:868-875` | | rename: make `protocol` a number, as `proto_min` and `proto_max` are in the status report |
+| `watch --json` prints one object per line | `internal/cli/inbox.go:145-200` | `docs/cli.md:285` | see §1.1 |
+| `dep` and `label` print `{}` | `internal/cli/commands.go:646-700` | | keep: a write with nothing to say |
+| `outbox --json` (`refused_at`, `refused`…) and `cache --json` | `internal/cli/outbox.go:400-431`; `internal/cli/cache.go:155-176` | `docs/cli.md:371-760` | keep |
+| No document carries a schema version | | | keep: fields are only added (rule 10's results), which is the promise to write into `docs/cli.md`: "a field may be added to any document; none is removed or changes type within 1.x" |
+| Times are RFC 3339 UTC throughout; an hours entry's day and a plan's month are `2006-01-02` and `2006-01` | `internal/proto` | `docs/cli.md` | keep |
+
+### 8.2 The status report, the board and the hooks
+
+| Item | Defined | Documented | Finding |
+|---|---|---|---|
+| `aries admin status` and `ariesd status` as text | `internal/statustext/statustext.go:33-` | `docs/server.md:1550-1748`, `:3430-3465` | keep as text for people; say in the guide that scripts read `--json` and the text may change |
+| The same report as JSON, `proto.StatusResult` | `internal/proto/admin.go:399-595` | `docs/server.md:3434-3440` | keep. Its `dolt`, `keys_file`, `file_conns` and `in_authorized_keys` are settled elsewhere (§10) |
+| `docs/cli.md:322` says the server's line shows "version and protocol range" | | | document: the text shows the version only; the range is in `--json`, as decision 78 wants |
+| `aries tui`, the board | `internal/board` | `docs/cli.md:326-370` | keep, unfrozen: a screen for people. Say so in the guide |
+| `prime --hook[=AGENT]`'s output in each harness's format (`hookSpecificOutput.additionalContext` for Claude Code) | `internal/agentsetup/hook.go:131-145`; `internal/cli/agent.go:20-60` | `docs/agents.md`; `CLAUDE.md` | keep: the harnesses define it |
+| The hook input `aries` reads (`session_id`, `sessionId`, `transcript_path`…) | `internal/cli/agent.go:86-91` | `docs/agents.md` | keep: the harnesses define it |
+| `prime`'s text, which agents read | `internal/mcpserver/prime.go`; `internal/cli/agent.go` | `docs/agents.md` | keep, unfrozen: agents read it as prose |
