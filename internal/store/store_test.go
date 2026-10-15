@@ -17,7 +17,7 @@ func TestMigrations(t *testing.T) {
 	if _, err := s.w.ExecContext(t.Context(), `INSERT INTO schema_migrations VALUES (99, 'future', NOW())`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Open(t.Context(), dsn, Options{}); !errors.Is(err, ErrSchemaTooNew) {
+	if _, err := testDB(t, dsn).Open(t.Context(), DefaultSchema, Options{}); !errors.Is(err, ErrSchemaTooNew) {
 		t.Errorf("open newer schema: %v, want ErrSchemaTooNew", err)
 	}
 }
@@ -29,7 +29,7 @@ func TestOpenNoMigrate(t *testing.T) {
 	t.Parallel()
 	dsn := newDSN(t)
 	// A database nothing has migrated: it is behind, and stays empty.
-	if _, err := Open(t.Context(), dsn, Options{NoMigrate: true}); !errors.Is(err, ErrSchemaOld) {
+	if _, err := testDB(t, dsn).Open(t.Context(), DefaultSchema, Options{NoMigrate: true}); !errors.Is(err, ErrSchemaOld) {
 		t.Fatalf("Open(NoMigrate) of an empty database: %v, want ErrSchemaOld", err)
 	}
 	s := openStore(t, dsn, Options{})
@@ -44,7 +44,7 @@ func TestOpenNoMigrate(t *testing.T) {
 	const tables = `SELECT COUNT(*) FROM pg_tables WHERE schemaname = current_schema()`
 	const version = `SELECT COUNT(*) FROM schema_migrations`
 
-	cur, err := Open(t.Context(), dsn, Options{NoMigrate: true})
+	cur, err := testDB(t, dsn).Open(t.Context(), DefaultSchema, Options{NoMigrate: true})
 	if err != nil {
 		t.Fatalf("Open(NoMigrate) of a migrated database: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestOpenNoMigrate(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := count(tables)
-	if _, err := Open(t.Context(), dsn, Options{NoMigrate: true}); !errors.Is(err, ErrSchemaOld) {
+	if _, err := testDB(t, dsn).Open(t.Context(), DefaultSchema, Options{NoMigrate: true}); !errors.Is(err, ErrSchemaOld) {
 		t.Errorf("Open(NoMigrate) of a database one migration behind: %v, want ErrSchemaOld", err)
 	}
 	if got := count(version); got != last-1 {
@@ -71,7 +71,7 @@ func TestOpenNoMigrate(t *testing.T) {
 	if _, err := s.w.ExecContext(t.Context(), `INSERT INTO schema_migrations VALUES (99, 'future', NOW())`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Open(t.Context(), dsn, Options{NoMigrate: true}); !errors.Is(err, ErrSchemaTooNew) {
+	if _, err := testDB(t, dsn).Open(t.Context(), DefaultSchema, Options{NoMigrate: true}); !errors.Is(err, ErrSchemaTooNew) {
 		t.Errorf("Open(NoMigrate) of a newer schema: %v, want ErrSchemaTooNew", err)
 	}
 }

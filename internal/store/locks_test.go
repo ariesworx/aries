@@ -613,13 +613,13 @@ func TestHeldClaimsCountsLocks(t *testing.T) {
 	if _, err := c.AddProject(t.Context(), dana, p); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.CreateDatabase(t.Context(), dana, projA); err != nil {
+	if err := c.CreateSchema(t.Context(), dana, projA); err != nil {
 		t.Fatal(err)
 	}
-	s := openStore(t, schemaDSN(t, dsn, p.DBName), Options{})
+	s := openStore(t, schemaDSN(t, dsn, p.Schema), Options{})
 	held := func() int {
 		t.Helper()
-		n, err := c.HeldClaims(t.Context(), p.DBName)
+		n, err := c.HeldClaims(t.Context(), p.Schema)
 		if err != nil {
 			t.Fatal(err)
 		}

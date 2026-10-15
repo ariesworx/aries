@@ -24,10 +24,10 @@ func (w *world) addProject(id, name, prefix string) {
 	t := w.t
 	t.Helper()
 	if _, err := w.ctl.AddProject(t.Context(), dana, store.NewProject{ID: id, Name: name, Prefix: prefix, Account: "internal",
-		DBName: "aries_" + strings.ReplaceAll(name, "-", "_")}); err != nil {
+		Schema: "aries_" + strings.ReplaceAll(name, "-", "_")}); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.ctl.CreateDatabase(t.Context(), dana, id); err != nil {
+	if err := w.ctl.CreateSchema(t.Context(), dana, id); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := w.ctl.ActivateProject(t.Context(), dana, id); err != nil {

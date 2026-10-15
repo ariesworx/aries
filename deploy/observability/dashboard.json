@@ -311,6 +311,44 @@
           "legendFormat": "goroutines"
         }
       ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Connections to Postgres: ariesd's pool, and waits for it",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aries_db_pool_conns",
+          "legendFormat": "held"
+        },
+        {
+          "refId": "B",
+          "expr": "aries_db_pool_in_use",
+          "legendFormat": "in use"
+        },
+        {
+          "refId": "C",
+          "expr": "rate(aries_db_pool_waits_total[5m])",
+          "legendFormat": "waits a second"
+        }
+      ]
     }
   ]
 }

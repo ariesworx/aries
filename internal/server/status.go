@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/ariesworx/aries/internal/logs"
@@ -22,9 +23,10 @@ import (
 // unknown with the cause, never as zero. Nothing else in it waits on the
 // database, or on a lock held by something that does.
 //
-// It says nothing yet of Postgres itself, which is another process
-// under another user: its own figures (pg_stat_*) come with the port's
-// next slice (decision 79).
+// Postgres is another process, under another user: what it says of
+// itself (pg_stat_database, pg_stat_activity and the size functions) is
+// read beside the stores' counts, under the same deadline, with what the
+// daemon's pool holds (Config.Postgres, store.DB.Stats).
 
 // statusReadTimeout bounds the report's reads of the database, all of
 // them together: they run at once and share the one deadline, so the
@@ -110,6 +112,15 @@ func (s *Server) report(ctx context.Context, rows []store.Project, server bool, 
 	// project's row.
 	rctx, cancel := context.WithDeadline(ctx, by)
 	defer cancel()
+	// Postgres's figures and the schemas' sizes are read beside the
+	// stores', under the same deadline.
+	var wg sync.WaitGroup
+	if pg := s.cfg.Postgres; pg != nil {
+		if server {
+			wg.Go(func() { out.Server.Postgres = s.postgresStatus(ctx, rctx, pg) })
+		}
+		wg.Go(func() { s.schemaSizes(ctx, rctx, pg, rows, out.Projects) })
+	}
 	s.eachAtOnce(func(pr *served) {
 		i, ok := at[pr.id]
 		if !ok {
@@ -136,6 +147,7 @@ func (s *Server) report(ctx context.Context, rows []store.Project, server bool, 
 			st.SessionsUnknown = sessionsFailed
 		}
 	})
+	wg.Wait()
 	return out, nil
 }
 
@@ -173,4 +185,53 @@ func (s *Server) serverStatus() *proto.ServerStatus {
 		out.Principals[string(state)] = n
 	}
 	return out
+}
+
+// postgresStatus is Postgres's own figures and the pool's, read by
+// rctx's deadline; when they cannot be read, the pool's alone, from
+// memory, and why the rest is unknown. ctx is the request's.
+func (s *Server) postgresStatus(ctx, rctx context.Context, pg Postgres) *proto.PostgresStatus {
+	st, err := pg.Stats(rctx)
+	out := &proto.PostgresStatus{Version: st.Version, Conns: st.Conns, ConnsMax: st.ConnsMax, DatabaseConns: st.DatabaseConns,
+		PoolConns: st.Pool.Conns, PoolInUse: st.Pool.InUse, PoolMax: st.Pool.Max, PoolWaits: st.Pool.Waits,
+		Commits: st.Commits, Rollbacks: st.Rollbacks, Deadlocks: st.Deadlocks, Conflicts: st.Conflicts,
+		TempBytes: st.TempBytes, DatabaseBytes: st.DatabaseBytes}
+	switch {
+	case err == nil:
+	case rctx.Err() != nil && ctx.Err() == nil:
+		out.Unknown = sessionsUnanswered
+	default:
+		if ctx.Err() == nil {
+			s.cfg.Logger.ErrorContext(ctx, "read Postgres's figures, for status", "event", logs.RequestPart, "err", err)
+		}
+		out.Unknown = sessionsFailed
+	}
+	return out
+}
+
+// schemaSizes sets the size on disk of the schema of each of rows, whose
+// status is the same row of out, by rctx's deadline. A size that cannot
+// be read is left out; the log says why. ctx is the request's.
+func (s *Server) schemaSizes(ctx, rctx context.Context, pg Postgres, rows []store.Project, out []proto.ProjectStatus) {
+	schemas := make([]string, 0, len(rows))
+	for _, p := range rows {
+		if p.Schema != "" {
+			schemas = append(schemas, p.Schema)
+		}
+	}
+	if len(schemas) == 0 {
+		return
+	}
+	sizes, err := pg.SchemaBytes(rctx, schemas)
+	if err != nil {
+		if ctx.Err() == nil && rctx.Err() == nil {
+			s.cfg.Logger.ErrorContext(ctx, "read the schemas' sizes, for status", "event", logs.RequestPart, "err", err)
+		}
+		return
+	}
+	for i, p := range rows {
+		if n, ok := sizes[p.Schema]; ok && p.Schema != "" {
+			out[i].SchemaBytes = &n
+		}
+	}
 }

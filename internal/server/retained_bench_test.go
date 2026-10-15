@@ -404,8 +404,8 @@ type benchMulti struct {
 func newBenchMulti(b *testing.B, n int) *benchMulti {
 	b.Helper()
 	ctx := b.Context()
-	dsn := newDatabase(b)
-	ctl, err := store.OpenControl(ctx, dsn, store.ControlOptions{Admins: []string{dana.Principal}})
+	db := openDB(b, newDatabase(b), benchLimits)
+	ctl, err := db.OpenControl(ctx, store.DefaultSchema, store.ControlOptions{Admins: []string{dana.Principal}})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -418,10 +418,10 @@ func newBenchMulti(b *testing.B, n int) *benchMulti {
 	for i := range n {
 		id := fmt.Sprintf("00000000-0000-4000-8000-%012d", i+1)
 		if _, err := ctl.AddProject(ctx, dana, store.NewProject{ID: id, Name: "proj-" + strconv.Itoa(i), Prefix: "p" + strconv.Itoa(i),
-			Account: "acct", DBName: "aries_p" + strconv.Itoa(i)}); err != nil {
+			Account: "acct", Schema: "aries_p" + strconv.Itoa(i)}); err != nil {
 			b.Fatal(err)
 		}
-		if err := ctl.CreateDatabase(ctx, dana, id); err != nil {
+		if err := ctl.CreateSchema(ctx, dana, id); err != nil {
 			b.Fatal(err)
 		}
 		if _, err := ctl.ActivateProject(ctx, dana, id); err != nil {
@@ -432,8 +432,8 @@ func newBenchMulti(b *testing.B, n int) *benchMulti {
 		}
 		m.ids = append(m.ids, id)
 	}
-	open := ProjectOpener(dsn, ctl, store.Options{}, nil)
-	m.s, err = New(Config{Control: ctl, Version: "v0.2.0", ReapInterval: -1, Limits: benchLimits, Open: open,
+	open := ProjectOpener(db, ctl, store.Options{}, nil)
+	m.s, err = New(Config{Control: ctl, Postgres: db, Version: "v0.2.0", ReapInterval: -1, Limits: benchLimits, Open: open,
 		PeerCheck: func(net.Conn) error { return nil }})
 	if err != nil {
 		b.Fatal(err)

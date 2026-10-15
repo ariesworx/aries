@@ -56,6 +56,9 @@ type multi struct {
 	*Server
 	ctl *store.Control
 	dsn string
+	// db is the pool the control store and every project's store are
+	// opened from, as a daemon's are.
+	db  *store.DB
 	log *syncBuffer
 	// keysFile is the file the server writes the store's keys to, and
 	// byHand the authorized_keys file it only reads.
@@ -108,7 +111,8 @@ func newMultiTel(t *testing.T, lim Limits, ck *clock, tel *telemetry.Telemetry, 
 	if ck != nil {
 		now = ck.now
 	}
-	ctl, err := store.OpenControl(t.Context(), dsn, store.ControlOptions{Admins: admins, Now: now,
+	db := openDB(t, dsn, lim)
+	ctl, err := db.OpenControl(t.Context(), store.DefaultSchema, store.ControlOptions{Admins: admins, Now: now,
 		Limits: lim.Control, Tracer: StoreTracer(tel, "")})
 	if err != nil {
 		t.Fatal(err)
@@ -120,10 +124,10 @@ func newMultiTel(t *testing.T, lim Limits, ck *clock, tel *telemetry.Telemetry, 
 	if err := os.Mkdir(sshDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	m := &multi{ctl: ctl, dsn: dsn, log: &syncBuffer{}, opens: map[string]int{}, tel: tel,
+	m := &multi{ctl: ctl, dsn: dsn, db: db, log: &syncBuffer{}, opens: map[string]int{}, tel: tel,
 		keysFile: filepath.Join(sshDir, "aries_keys"), byHand: filepath.Join(sshDir, "authorized_keys")}
-	open := ProjectOpener(dsn, ctl, store.Options{Limits: lim.Limits, Now: now}, tel)
-	m.Server, err = New(Config{Control: ctl, Version: "v0.2.0", PeerCheck: func(net.Conn) error { return nil }, Limits: lim,
+	open := ProjectOpener(db, ctl, store.Options{Limits: lim.Limits, Now: now}, tel)
+	m.Server, err = New(Config{Control: ctl, Postgres: db, Version: "v0.2.0", PeerCheck: func(net.Conn) error { return nil }, Limits: lim,
 		KeysFile: m.keysFile, AuthorizedKeys: m.byHand, Telemetry: tel,
 		ReapInterval: -1, Logger: slogTo(m.log),
 		Open: func(ctx context.Context, p store.Project) (Store, error) {
@@ -161,10 +165,10 @@ func (m *multi) project(t *testing.T, id string, members ...string) store.Projec
 	t.Helper()
 	n := id[len(id)-1:]
 	if _, err := m.ctl.AddProject(t.Context(), dana, store.NewProject{ID: id, Name: "proj-" + n, Prefix: "p" + n,
-		Account: "acct-" + n, DBName: "aries_" + n}); err != nil {
+		Account: "acct-" + n, Schema: "aries_" + n}); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.ctl.CreateDatabase(t.Context(), dana, id); err != nil {
+	if err := m.ctl.CreateSchema(t.Context(), dana, id); err != nil {
 		t.Fatal(err)
 	}
 	p, err := m.ctl.ActivateProject(t.Context(), dana, id)
@@ -306,7 +310,7 @@ func TestMultiHandshake(t *testing.T) {
 	}
 	const creating = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
 	if _, err := m.ctl.AddProject(t.Context(), dana, store.NewProject{ID: creating, Name: "proj-d", Prefix: "pd",
-		Account: "internal", DBName: "not_made_yet"}); err != nil {
+		Account: "internal", Schema: "not_made_yet"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -740,7 +744,7 @@ func TestMultiLogsNameTheProject(t *testing.T) {
 	c.hangUp()
 	got := m.log.String()
 	for _, want := range []string{
-		`msg="project store opened" project=` + projA + ` event=project.opened name=proj-a database=` + p.DBName,
+		`msg="project store opened" project=` + projA + ` event=project.opened name=proj-a schema=` + p.Schema,
 		`msg=connected project=` + projA + ` principal=alice`,
 		`msg=request project=` + projA + ` principal=alice`,
 	} {
@@ -750,12 +754,73 @@ func TestMultiLogsNameTheProject(t *testing.T) {
 	}
 }
 
+// Two daemons on one database. A second on the same control store is
+// refused that store, so it cannot start. One with a control store of
+// its own that names a project schema the first serves, as two adoptions
+// of one DSN would, is refused that project with what to do, until the
+// first gives it up.
+func TestSecondDaemonRefusedAServedProject(t *testing.T) {
+	t.Parallel()
+	m := newMulti(t, Limits{}, nil)
+	a := m.project(t, projA, "alice")
+	first := mustDialTo(t, m.Server, alice, projA)
+
+	db := openDB(t, m.dsn, Limits{})
+	if _, err := db.OpenControl(t.Context(), store.DefaultSchema, store.ControlOptions{Admins: []string{dana.Principal}}); err == nil {
+		t.Fatal("a second daemon opened the first's control store")
+	} else if _, ok := errors.AsType[*store.ServedError](err); !ok {
+		t.Fatalf("a second daemon's opening of the first's control store = %v, want a *store.ServedError", err)
+	}
+
+	// The second's own control store, made as `ariesd control init`
+	// makes one, adopting the first's project schema.
+	op, err := db.OpenControl(t.Context(), "other_control", store.ControlOptions{Admins: []string{dana.Principal}, Operator: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	operator := store.Actor{Principal: store.OperatorPrincipal, Session: "s", Machine: "m"}
+	if _, err := op.AddProject(t.Context(), operator, store.NewProject{ID: projA, Name: a.Name, Prefix: a.Prefix, Account: a.Account, Schema: a.Schema}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := op.ActivateProject(t.Context(), operator, projA); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := op.AddPrincipal(t.Context(), operator, "alice", projA); err != nil {
+		t.Fatal(err)
+	}
+	if err := op.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ctl, err := db.OpenControl(t.Context(), "other_control", store.ControlOptions{Admins: []string{dana.Principal}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ctl.Close() })
+	second, err := New(Config{Control: ctl, Postgres: db, Version: "v0.2.0", PeerCheck: func(net.Conn) error { return nil },
+		ReapInterval: -1, Open: ProjectOpener(db, ctl, store.Options{}, nil)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(second.stores.closeAll)
+
+	w, c := dialTo(t, second, alice, projA)
+	c.hangUp()
+	if w.Err == nil || w.Err.Code != proto.CodeUnavailable || !strings.Contains(w.Err.Message, "proj-a is served by another process on the same database") ||
+		!strings.Contains(w.Err.Fix, "stop the other process that writes schema "+a.Schema) || !strings.Contains(w.Err.Fix, store.FenceApplication) {
+		t.Fatalf("the second daemon's handshake for a project the first serves = %+v\nwant unavailable, saying another process serves it, with a fix naming the schema", w.Err)
+	}
+	// Once the first closes the project's store, the second may serve it.
+	first.hangUp()
+	waitFor(t, "the first daemon to close project a's store", func() bool { m.stores.closeAll(); return m.OpenStores() == 0 })
+	mustDialTo(t, second, alice, projA)
+}
+
 func TestMultiOpenFailure(t *testing.T) {
 	t.Parallel()
 	m := newMulti(t, Limits{}, nil)
-	// A project whose database the account was never granted.
+	// A project whose schema was never made.
 	if _, err := m.ctl.AddProject(t.Context(), dana, store.NewProject{ID: projA, Name: "proj-a", Prefix: "pa",
-		Account: "internal", DBName: "never_granted"}); err != nil {
+		Account: "internal", Schema: "never_granted"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := m.ctl.ActivateProject(t.Context(), dana, projA); err != nil {
@@ -768,7 +833,7 @@ func TestMultiOpenFailure(t *testing.T) {
 			t.Fatalf("handshake for a project whose store cannot open = %+v, want unavailable with a fix", w.Err)
 		}
 		if strings.Contains(w.Err.Message, "never_granted") {
-			t.Errorf("the refusal %q names the database, which is the server's business", w.Err.Message)
+			t.Errorf("the refusal %q names the schema, which is the server's business", w.Err.Message)
 		}
 	}
 	if got := m.opened(projA); got != 2 {
@@ -783,7 +848,7 @@ func TestMultiOpenFailure(t *testing.T) {
 	if total != 0 {
 		t.Errorf("%d connection slots held after the refusals, want 0", total)
 	}
-	if !strings.Contains(m.log.String(), `msg="open project store" event=project.open_failed project=`+projA+` database=never_granted`) {
+	if !strings.Contains(m.log.String(), `msg="open project store" event=project.open_failed project=`+projA+` schema=never_granted`) {
 		t.Errorf("no log line for the operator:\n%s", m.log.String())
 	}
 }
@@ -794,7 +859,7 @@ func TestControlReloadedOnTick(t *testing.T) {
 	t.Parallel()
 	m := newMulti(t, Limits{}, nil)
 	m.project(t, projA, "alice")
-	other, err := store.OpenControl(t.Context(), m.dsn, store.ControlOptions{Admins: []string{dana.Principal}})
+	other, err := store.OpenControl(t.Context(), m.dsn, store.ControlOptions{Admins: []string{dana.Principal}, Operator: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -826,7 +891,7 @@ func TestSchemaDSN(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := SchemaDSN(tc.dsn, tc.schema)
+			got, err := store.SchemaDSN(tc.dsn, tc.schema)
 			if tc.err != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.err) {
 					t.Fatalf("SchemaDSN(%q, %q) = %q, %v; want error containing %q", tc.dsn, tc.schema, got, err, tc.err)
@@ -858,19 +923,19 @@ func TestResolveSettingsControl(t *testing.T) {
 		check func(Settings) bool
 		err   string
 	}{
-		{name: "no control store by default", body: dsn, check: func(s Settings) bool { return s.ControlDB == "" }},
-		{name: "from the file", body: dsn + "control_db: aries_control\n", check: func(s Settings) bool {
+		{name: "no control store by default", body: dsn, check: func(s Settings) bool { return s.ControlSchema == "" }},
+		{name: "from the file", body: dsn + "control_schema: aries_control\n", check: func(s Settings) bool {
 			got, err := s.ControlDSN()
-			return s.ControlDB == "aries_control" && err == nil && got == "postgres://aries@127.0.0.1:5432/aries?search_path=aries_control"
+			return s.ControlSchema == "aries_control" && err == nil && got == "postgres://aries@127.0.0.1:5432/aries?search_path=aries_control"
 		}},
-		{name: "environment beats the file", body: dsn + "control_db: aries_control\n", env: map[string]string{EnvControlDB: "other_control"},
-			check: func(s Settings) bool { return s.ControlDB == "other_control" }},
-		{name: "not a schema name", body: dsn + "control_db: Aries-Control\n", err: `control_db "Aries-Control" is not a schema name; fix:`},
-		{name: "a name Postgres keeps", body: dsn + "control_db: pg_control\n", err: `control_db "pg_control" is not a schema name; fix:`},
-		{name: "the project's own schema", body: "dsn: postgres://aries@127.0.0.1:5432/aries?search_path=aries\ncontrol_db: aries\n",
-			err: `control_db "aries" is the schema the DSN names`},
-		{name: "the project's own schema, by default", body: dsn + "control_db: public\n", err: `control_db "public" is the schema the DSN names`},
-		{name: "another schema of the DSN's database", body: dsn + "control_db: aries\n", check: func(s Settings) bool { return s.ControlDB == "aries" }},
+		{name: "environment beats the file", body: dsn + "control_schema: aries_control\n", env: map[string]string{EnvControlSchema: "other_control"},
+			check: func(s Settings) bool { return s.ControlSchema == "other_control" }},
+		{name: "not a schema name", body: dsn + "control_schema: Aries-Control\n", err: `control_schema "Aries-Control" is not a schema name; fix:`},
+		{name: "a name Postgres keeps", body: dsn + "control_schema: pg_control\n", err: `control_schema "pg_control" is not a schema name; fix:`},
+		{name: "the project's own schema", body: "dsn: postgres://aries@127.0.0.1:5432/aries?search_path=aries\ncontrol_schema: aries\n",
+			err: `control_schema "aries" is the schema the DSN names`},
+		{name: "the project's own schema, by default", body: dsn + "control_schema: public\n", err: `control_schema "public" is the schema the DSN names`},
+		{name: "another schema of the DSN's database", body: dsn + "control_schema: aries\n", check: func(s Settings) bool { return s.ControlSchema == "aries" }},
 		{name: "limits default", body: dsn, check: func(l Settings) bool {
 			return l.Limits.Control == store.DefaultControlLimits && l.Limits.OpenStores == 64 && l.Limits.StoreIdle == Duration(10*time.Minute)
 		}},
@@ -900,7 +965,7 @@ func TestResolveSettingsControl(t *testing.T) {
 		{name: "negative control_write_rate", body: "limits:\n  control_write_rate: -1\n", err: "limit control_write_rate must be zero or a positive number; fix:"},
 		{name: "control_write_rate not a number", body: "limits:\n  control_write_rate: .nan\n", err: "limit control_write_rate must be zero or a positive number; fix:"},
 		{name: "negative control_write_burst", body: "limits:\n  control_write_burst: -1\n", err: "limit control_write_burst must be zero or a positive number; fix:"},
-		{name: "the keys file, the hand-maintained file and the bridge by default", body: dsn + "control_db: aries_control\n",
+		{name: "the keys file, the hand-maintained file and the bridge by default", body: dsn + "control_schema: aries_control\n",
 			check: func(s Settings) bool {
 				return s.KeysFile == ".ssh/aries_keys" && s.AuthorizedKeys == ".ssh/authorized_keys" && s.Bridge == "/usr/local/bin/ariesd"
 			}},
@@ -922,24 +987,12 @@ func TestResolveSettingsControl(t *testing.T) {
 			err: `keys_file ".ssh/authorized_keys" is the authorized_keys file, which ariesd reads and never writes; fix:`},
 		{name: "the same file under another spelling", body: "keys_file: /srv/keys\nauthorized_keys: /srv/x/../keys\n",
 			err: `is the authorized_keys file, which ariesd reads and never writes; fix:`},
-		{name: "no block of project schemas by default", body: dsn + "control_db: aries_control\n",
-			check: func(s Settings) bool { return s.ProjectDBs == ProjectDBs{} }},
-		{name: "a block of project schemas", body: dsn + "control_db: aries_control\nproject_dbs:\n  prefix: aries_p\n  count: 100\n",
+		{name: "a control schema named as a project's", body: dsn + "control_schema: project_control\n",
+			err: `control_schema "project_control" starts with project_, as the schemas ariesd makes for projects do; fix:`},
+		{name: "the database's connections", body: dsn + "limits:\n  db_conns_per_server: 10\n",
 			check: func(s Settings) bool {
-				return s.ProjectDBs == ProjectDBs{Prefix: "aries_p", Count: 100} && s.ProjectDBs.Name(100) == "aries_p100"
+				return s.Limits.DBConns == 10 && s.Limits.DBConnsPerProject == DefaultLimits.DBConnsPerProject
 			}},
-		{name: "a block that holds the DSN's schema", body: "dsn: postgres://aries@127.0.0.1:5432/aries?search_path=aries_p001\ncontrol_db: aries_control\nproject_dbs:\n  prefix: aries_p\n  count: 9\n",
-			check: func(s Settings) bool { return s.ProjectDBs.Count == 9 }},
-		{name: "a block without a control store", body: dsn + "project_dbs:\n  prefix: aries_p\n  count: 100\n",
-			err: "project_dbs is set without control_db; fix:"},
-		{name: "a block that holds the control store", body: dsn + "control_db: aries_p007\nproject_dbs:\n  prefix: aries_p\n  count: 100\n",
-			err: "project_dbs holds aries_p007, the control store's schema; fix:"},
-		{name: "a block with a bad prefix", body: dsn + "control_db: aries_control\nproject_dbs:\n  prefix: Aries-P\n  count: 100\n",
-			err: `project_dbs prefix "Aries-P" does not start a schema name; fix:`},
-		{name: "a block with no count", body: dsn + "control_db: aries_control\nproject_dbs:\n  prefix: aries_p\n",
-			err: "project_dbs count 0 must be 1 to 999; fix:"},
-		{name: "a block past the most", body: dsn + "control_db: aries_control\nproject_dbs:\n  prefix: aries_p\n  count: 1000\n",
-			err: "project_dbs count 1000 must be 1 to 999; fix:"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -957,5 +1010,22 @@ func TestResolveSettingsControl(t *testing.T) {
 				t.Errorf("settings = %+v", s)
 			}
 		})
+	}
+}
+
+// The settings the daemon had before it named project schemas itself
+// are unknown keys now, refused as any other is: nothing shipped them.
+func TestResolveSettingsRefusesOldSchemaSettings(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	for _, key := range []string{"control_db: aries_control", "project_dbs:\n  prefix: aries_p\n  count: 9"} {
+		p := filepath.Join(dir, "c.yaml")
+		if err := os.WriteFile(p, []byte("dsn: postgres://aries@127.0.0.1:5432/aries\n"+key+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		name, _, _ := strings.Cut(key, ":")
+		if _, err := ResolveSettings(Settings{}, p, func(string) string { return "" }); err == nil || !strings.Contains(err.Error(), name) {
+			t.Errorf("ResolveSettings with %s = %v, want it refused as unknown", name, err)
+		}
 	}
 }

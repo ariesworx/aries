@@ -36,12 +36,12 @@ const (
 // the control store's to come, and a config file naming dana as the
 // server admin.
 type site struct {
-	dsn       string // the adopted project's
-	db        string // its schema
-	controlDB string // the control store's schema
-	cfg       string // the config file
-	keysFile  string // the file the daemon writes the store's keys to
-	env       map[string]string
+	dsn           string // the adopted project's
+	db            string // its schema
+	controlSchema string // the control store's schema
+	cfg           string // the config file
+	keysFile      string // the file the daemon writes the store's keys to
+	env           map[string]string
 }
 
 // newSite makes a database for a project, owned by ariesd's role, and a
@@ -49,10 +49,10 @@ type site struct {
 // makes. extra is appended to the file.
 func newSite(t *testing.T, extra string) *site {
 	t.Helper()
-	s := &site{dsn: newDSN(t), controlDB: "aries_control"}
+	s := &site{dsn: newDSN(t), controlSchema: "aries_control"}
 	s.db = schemaName(t, s.dsn)
 	s.cfg = filepath.Join(t.TempDir(), "ariesd.yaml")
-	body := fmt.Sprintf("project: %s\nprefix: acme\naccount: acme-2026\ncontrol_db: %s\nadmins: [dana]\n%s", adopted, s.controlDB, extra)
+	body := fmt.Sprintf("project: %s\nprefix: acme\naccount: acme-2026\ncontrol_schema: %s\nadmins: [dana]\n%s", adopted, s.controlSchema, extra)
 	if err := os.WriteFile(s.cfg, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -120,13 +120,15 @@ func (s *site) settings(t *testing.T) server.Settings {
 }
 
 // control opens the site's control store as dana would administer it.
+// It is opened as the operator's tools open it, beside whatever else has
+// it open, without the writer's lock a daemon takes.
 func (s *site) control(t *testing.T) *store.Control {
 	t.Helper()
 	dsn, err := s.settings(t).ControlDSN()
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := store.OpenControl(t.Context(), dsn, store.ControlOptions{Admins: []string{"dana"}})
+	c, err := store.OpenControl(t.Context(), dsn, store.ControlOptions{Admins: []string{"dana"}, Operator: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +285,7 @@ func TestControlInit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Name != "acme" || p.Prefix != "acme" || p.Account != "acme-2026" || p.DBName != s.db || p.State != store.ProjectActive ||
+	if p.Name != "acme" || p.Prefix != "acme" || p.Account != "acme-2026" || p.Schema != s.db || p.State != store.ProjectActive ||
 		p.CreatedBy != store.OperatorPrincipal {
 		t.Errorf("adopted project = %+v; want the config's prefix and account, the DSN's database, active, created by the operator", p)
 	}
@@ -419,11 +421,11 @@ func TestControlInitRefusals(t *testing.T) {
 		{name: "arguments", args: []string{"init", "--name", "acme", "extra"}, usage: true, want: []string{"takes no arguments"}},
 		{name: "name not a code name", args: []string{"init", "--name", "Acme Corp", "--authorized-keys", keys},
 			want: []string{`project name "Acme Corp" must be a code name`, "fix: "}},
-		{name: "no control_db", args: []string{"init", "--name", "acme", "--authorized-keys", keys},
+		{name: "no control_schema", args: []string{"init", "--name", "acme", "--authorized-keys", keys},
 			edit: func(t *testing.T, s *site) { rewrite(t, s, "project: "+adopted+"\n") },
-			want: []string{"no control store; fix: set control_db:"}},
+			want: []string{"no control store; fix: set control_schema:"}},
 		{name: "no project", args: []string{"init", "--name", "acme", "--authorized-keys", keys},
-			edit: func(t *testing.T, s *site) { rewrite(t, s, "control_db: "+s.controlDB+"\n") },
+			edit: func(t *testing.T, s *site) { rewrite(t, s, "control_schema: "+s.controlSchema+"\n") },
 			want: []string{"no project to adopt; fix: set project:"}},
 		{name: "no authorized_keys file", args: []string{"init", "--name", "acme", "--authorized-keys", filepath.Join(t.TempDir(), "none")},
 			want: []string{"read authorized_keys:", "fix: give the file sshd reads for the aries account with --authorized-keys FILE"}},
@@ -456,9 +458,9 @@ func TestControlInitRefusals(t *testing.T) {
 				q.Set("search_path", "aries_p1")
 				u.RawQuery = q.Encode()
 				s.env[server.EnvDSN] = u.String()
-				rewrite(t, s, "project: "+adopted+"\ncontrol_db: "+s.db+"\n")
+				rewrite(t, s, "project: "+adopted+"\ncontrol_schema: "+s.db+"\n")
 			},
-			want: []string{"open the control store", "does not hold the control store", "fix: check control_db:"}},
+			want: []string{"open the control store", "does not hold the control store", "fix: check control_schema:"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -646,7 +648,7 @@ func TestServeOneProjectOpensNoControl(t *testing.T) {
 	db := s.superuser(t)
 	var n int
 	if err := db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM pg_tables
-  WHERE schemaname IN ($1, $2) AND tablename = 'control_migrations'`, s.db, s.controlDB).Scan(&n); err != nil {
+  WHERE schemaname IN ($1, $2) AND tablename = 'control_migrations'`, s.db, s.controlSchema).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	if n != 0 {
@@ -661,10 +663,10 @@ func addSecond(t *testing.T, s *site) store.Project {
 	c := s.control(t)
 	dana := store.Actor{Principal: "dana", Session: "s", Machine: "m"}
 	if _, err := c.AddProject(t.Context(), dana, store.NewProject{ID: second, Name: "other", Prefix: "oth", Account: "internal",
-		DBName: "aries_other"}); err != nil {
+		Schema: "aries_other"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.CreateDatabase(t.Context(), dana, second); err != nil {
+	if err := c.CreateSchema(t.Context(), dana, second); err != nil {
 		t.Fatal(err)
 	}
 	p, err := c.ActivateProject(t.Context(), dana, second)
@@ -733,11 +735,11 @@ func TestImportExportProject(t *testing.T) {
 	t.Run("a server of one project takes no --project", func(t *testing.T) {
 		rewrite(t, s, "project: "+adopted+"\n")
 		got := s.run(t, "", exportBD, "--project", adopted)
-		if _, usage := errors.AsType[usageError](got.err); !usage || !strings.Contains(got.err.Error(), "no control_db") {
-			t.Errorf("export-bd --project without control_db = %v, want a usage error", got.err)
+		if _, usage := errors.AsType[usageError](got.err); !usage || !strings.Contains(got.err.Error(), "no control_schema") {
+			t.Errorf("export-bd --project without control_schema = %v, want a usage error", got.err)
 		}
 		if n := exported(); n != 10 {
-			t.Errorf("export-bd without control_db wrote %d lines, want the DSN's 10", n)
+			t.Errorf("export-bd without control_schema wrote %d lines, want the DSN's 10", n)
 		}
 	})
 }
@@ -769,7 +771,7 @@ func TestServeMigratesEveryProject(t *testing.T) {
 	dana := store.Actor{Principal: "dana", Session: "s", Machine: "m"}
 	const third = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
 	const archived = "aries_shelved"
-	if _, err := c.AddProject(t.Context(), dana, store.NewProject{ID: third, Name: "shelved", Prefix: "sh", Account: "internal", DBName: archived}); err != nil {
+	if _, err := c.AddProject(t.Context(), dana, store.NewProject{ID: third, Name: "shelved", Prefix: "sh", Account: "internal", Schema: archived}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.ArchiveProject(t.Context(), dana, third); err != nil {
@@ -778,12 +780,12 @@ func TestServeMigratesEveryProject(t *testing.T) {
 	if err := c.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if n := tables(t, s, other.DBName, "issues"); n != 0 {
+	if n := tables(t, s, other.Schema, "issues"); n != 0 {
 		t.Fatalf("the second project's schema has an issues table before any ariesd opened it")
 	}
 
 	sock := serveSite(t, s)
-	if n := tables(t, s, other.DBName, "issues"); n != 1 {
+	if n := tables(t, s, other.Schema, "issues"); n != 1 {
 		t.Errorf("the second project's schema has %d issues tables once the daemon serves, want it migrated at start", n)
 	}
 	if n := tables(t, s, archived, "issues"); n != 0 {
@@ -806,7 +808,7 @@ func TestServeEndsClaimsOfArchivedProjects(t *testing.T) {
 		t.Fatalf("control init: %v", got.err)
 	}
 	other := addSecond(t, s)
-	dsn, err := server.SchemaDSN(s.dsn, other.DBName)
+	dsn, err := store.SchemaDSN(s.dsn, other.Schema)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -836,11 +838,11 @@ func TestServeEndsClaimsOfArchivedProjects(t *testing.T) {
 	serveSite(t, s)
 	root := s.superuser(t)
 	var held, released int
-	// other.DBName is a schema name the test chose.
-	if err := root.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM `+other.DBName+`.claims WHERE principal IS NOT NULL`).Scan(&held); err != nil {
+	// other.Schema is a schema name the test chose.
+	if err := root.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM `+other.Schema+`.claims WHERE principal IS NOT NULL`).Scan(&held); err != nil {
 		t.Fatal(err)
 	}
-	if err := root.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM `+other.DBName+`.events WHERE op = 'claim.release' AND principal = 'ariesd'`).Scan(&released); err != nil {
+	if err := root.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM `+other.Schema+`.events WHERE op = 'claim.release' AND principal = 'ariesd'`).Scan(&released); err != nil {
 		t.Fatal(err)
 	}
 	if held != 0 || released != 1 {
@@ -854,7 +856,7 @@ func TestServeEndsClaimsOfArchivedProjects(t *testing.T) {
 func siteRig(t *testing.T, s *site, sock string) *upgradeRig {
 	t.Helper()
 	r := newRig(t, "v0.2.0", "v0.3.0", "")
-	body := fmt.Sprintf("project: %s\ncontrol_db: %s\nadmins: [dana]\nsystemd_unit: ariesd\nsocket: %s\n", adopted, s.controlDB, sock)
+	body := fmt.Sprintf("project: %s\ncontrol_schema: %s\nadmins: [dana]\nsystemd_unit: ariesd\nsocket: %s\n", adopted, s.controlSchema, sock)
 	if err := os.WriteFile(r.cfg, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -883,7 +885,7 @@ func TestUpgradeChecksEveryProject(t *testing.T) {
 		}
 		c := s.control(t)
 		if _, err := c.AddProject(t.Context(), dana, store.NewProject{ID: second, Name: "broken", Prefix: "br", Account: "internal",
-			DBName: "not_made_yet"}); err != nil {
+			Schema: "not_made_yet"}); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := c.ActivateProject(t.Context(), dana, second); err != nil {
@@ -900,7 +902,7 @@ func TestUpgradeChecksEveryProject(t *testing.T) {
 		r := siteRig(t, s, sock)
 		_, err := r.run(t)
 		if err == nil || !strings.Contains(err.Error(), "ariesd v0.3.0 is unhealthy") ||
-			!strings.Contains(err.Error(), "could not open the database of an active project: broken (database not_made_yet)") {
+			!strings.Contains(err.Error(), "could not open the schema of an active project: broken (schema not_made_yet)") {
 			t.Fatalf("upgrade with a project that cannot be opened = %v\nwant it unhealthy, naming the project and its database", err)
 		}
 		if r.exeHolds(t) != "v0.2.0" || len(r.restarts) != 2 {

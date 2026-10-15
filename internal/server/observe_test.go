@@ -372,6 +372,12 @@ func TestMetricsOfManyProjects(t *testing.T) {
 	if at := snap.Value("aries.keys_file.last_write.time"); time.Since(time.Unix(int64(at), 0)) > time.Hour {
 		t.Errorf("aries.keys_file.last_write.time = %v, want a time just now", at)
 	}
+	// The pool every store shares: between requests it holds what it
+	// opened, none in use, and nobody waited for one.
+	if n := snap.Value("aries.db.pool.conns"); n < 1 || n > float64(DefaultLimits.DBConns) {
+		t.Errorf("aries.db.pool.conns = %v, want the pool's, 1 to %d", n, DefaultLimits.DBConns)
+	}
+	check(t, snap, []want{{"aries.db.pool.in_use", nil, 0}, {"aries.db.pool.waits", nil, 0}})
 	if n := snap.Observations("aries.store.write.duration", "project", projA); n < 2 {
 		t.Errorf("aries.store.write.duration{project=A} has %d observations, want bob's writes", n)
 	}

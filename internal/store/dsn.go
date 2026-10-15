@@ -79,9 +79,9 @@ func parseURL(dsn string) (*url.URL, error) {
 // SchemaDSN returns dsn with its search_path replaced by name: another
 // schema in the same database, as the same role. A server of many
 // projects reaches its control store and each project's this way, from
-// the one dsn it is configured with. name must be a [ValidDBName].
+// the one dsn it is configured with. name must be a [ValidSchemaName].
 func SchemaDSN(dsn, name string) (string, error) {
-	if !ValidDBName(name) {
+	if !ValidSchemaName(name) {
 		return "", fmt.Errorf("schema name %q must be a lowercase letter, then lowercase letters, digits and underscores, at most 64", name)
 	}
 	u, err := parseURL(dsn)
@@ -104,7 +104,7 @@ func quoteIdent(name string) string {
 
 // GrantSQL returns the statement that gives role the schema it was
 // refused, which another role made: what a fix names when ariesd's role
-// cannot use a project's schema ([DatabaseDenied]). role is as
+// cannot use a project's schema ([SchemaDenied]). role is as
 // [Control.Account] gives it; empty is the role the guides create.
 func GrantSQL(schema, role string) string {
 	if role == "" {
@@ -115,7 +115,7 @@ func GrantSQL(schema, role string) string {
 
 // CreateSchemaGrantSQL returns the statement that lets role make schemas
 // in database db: what a fix names when ariesd's role may not create a
-// project's ([Control.CreateDatabase]). role is as [Control.Account]
+// project's ([Control.CreateSchema]). role is as [Control.Account]
 // gives it; empty is the role the guides create.
 func CreateSchemaGrantSQL(db, role string) string {
 	if role == "" {

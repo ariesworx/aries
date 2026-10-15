@@ -376,19 +376,28 @@ func (t *Telemetry) Since(i Instrument, start time.Time, vals ...string) {
 	t.Record(i, time.Since(start).Seconds(), vals...)
 }
 
-// Watch has fn read gauge i whenever the instruments are collected: at
-// each export and each scrape. fn must be fast and safe for concurrent
-// use. Only [StoresOpen] is watched; any other instrument is ignored.
+// Watch has fn read instrument i whenever the instruments are collected:
+// at each export and each scrape. fn must be fast and safe for
+// concurrent use. Only the watched instruments are read so, the gauges
+// [StoresOpen], [DBPoolConns] and [DBPoolInUse] and the counter
+// [DBPoolWaits], whose fn returns a total that only grows; any other
+// instrument is ignored.
 func (t *Telemetry) Watch(i Instrument, fn func() float64) {
 	if t == nil || t.mp == nil || i < 0 || i >= numInstruments || !specs[i].watched {
 		return
 	}
 	sp := specs[i]
-	_, err := t.meter.Float64ObservableGauge(sp.name, metric.WithDescription(sp.desc), metric.WithUnit(sp.unit),
-		metric.WithFloat64Callback(func(_ context.Context, o metric.Float64Observer) error {
-			o.Observe(fn())
-			return nil
-		}))
+	observe := metric.WithFloat64Callback(func(_ context.Context, o metric.Float64Observer) error {
+		o.Observe(fn())
+		return nil
+	})
+	var err error
+	if sp.kind == Counter {
+		// A total kept elsewhere, which fn reads: it only grows.
+		_, err = t.meter.Float64ObservableCounter(sp.name, metric.WithDescription(sp.desc), metric.WithUnit(sp.unit), observe)
+	} else {
+		_, err = t.meter.Float64ObservableGauge(sp.name, metric.WithDescription(sp.desc), metric.WithUnit(sp.unit), observe)
+	}
 	if err != nil {
 		t.errs.failed(logs.TelemetrySDKError, "telemetry: an instrument could not be watched", fmt.Errorf("%s: %w", sp.name, err))
 	}

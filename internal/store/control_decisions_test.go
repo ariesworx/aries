@@ -288,7 +288,7 @@ func TestControlDisabledWins(t *testing.T) {
 		"add a key":           func() error { _, err := c.AddKey(ctx, dana, "bob", testKeyLine(t, "bob")); return err },
 		"disable a principal": func() error { _, err := c.DisablePrincipal(ctx, dana, "bob"); return err },
 		"enable herself":      func() error { _, err := c.EnablePrincipal(ctx, dana, "dana"); return err },
-		"create a database":   func() error { return c.CreateDatabase(ctx, dana, projA) },
+		"create a database":   func() error { return c.CreateSchema(ctx, dana, projA) },
 	} {
 		seq := controlSeq(t, c)
 		if err := do(); !errors.Is(err, ErrForbidden) {

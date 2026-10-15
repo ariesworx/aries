@@ -12,11 +12,12 @@ import (
 
 // clockPreflight asks, before an upgrade swaps anything, what serve
 // would find at its next start: whether the server's clock is behind
-// the latest event of the control database or of an active project's by
+// the latest event of the control store or of an active project's by
 // more than clock_behind_tolerance. It returns a
 // [*server.ClockBehindError] when it is; whether that refuses the start
-// is clock_behind's to say. It opens each database as it is, migrating
-// none, and writes nothing.
+// is clock_behind's to say. It opens each project's schema to read only
+// (store.Options.ReadOnly), as it is, beside the running daemon, which
+// holds their writers' locks: it migrates none and writes nothing.
 //
 // The daemon the upgrade restarts would refuse to start for it, the
 // health check would fail, and the upgrade would put the old binary
@@ -44,8 +45,8 @@ func clockPreflight(ctx context.Context, env adminEnv, fl server.Settings, cfgPa
 			worst.More++
 		}
 	}
-	opts := store.Options{NoMigrate: true, AllowUnsafeAccount: s.AllowUnsafeAccount, Limits: s.Limits.Limits}
-	if s.ControlDB == "" {
+	opts := store.Options{ReadOnly: true, AllowUnsafeAccount: s.AllowUnsafeAccount, Limits: s.Limits.Limits}
+	if s.ControlSchema == "" {
 		st, err := store.Open(ctx, s.DSN, opts)
 		if err != nil {
 			return fmt.Errorf("open store: %w", err)
@@ -53,20 +54,27 @@ func clockPreflight(ctx context.Context, env adminEnv, fl server.Settings, cfgPa
 		look(server.ProjectLog(s.Project, ""), st.ClockState())
 		return closeStore(asError(worst), st)
 	}
-	ctl, err := openControl(ctx, s, store.ControlOptions{})
+	ctl, err := openControl(ctx, s, nil, store.ControlOptions{ReadOnly: true})
+	if errors.Is(err, store.ErrSchemaOld) {
+		// A control store this binary must migrate before it can read
+		// it: the restarted daemon migrates it, then checks the clock
+		// itself. Migrating it here would change it under the daemon
+		// that still serves it.
+		return nil
+	}
 	if err != nil {
 		return err
 	}
 	look(server.ControlLog, ctl.ClockState())
 	projects, err := ctl.Projects(ctx)
 	if err = closeControl(err, ctl); err != nil {
-		return fmt.Errorf("control database %s: %w", s.ControlDB, err)
+		return fmt.Errorf("control schema %s: %w", s.ControlSchema, err)
 	}
 	for _, p := range projects {
 		if p.State != store.ProjectActive {
 			continue
 		}
-		dsn, err := server.SchemaDSN(s.DSN, p.DBName)
+		dsn, err := store.SchemaDSN(s.DSN, p.Schema)
 		if err != nil {
 			return err
 		}
@@ -78,9 +86,9 @@ func clockPreflight(ctx context.Context, env adminEnv, fl server.Settings, cfgPa
 			// it; its clock check passes it over too.
 			continue
 		}
-		look(server.ProjectLog(p.ID, p.DBName), st.ClockState())
+		look(server.ProjectLog(p.ID, p.Schema), st.ClockState())
 		if err := st.Close(); err != nil {
-			return fmt.Errorf("project %s (database %s): %w", p.Name, p.DBName, err)
+			return fmt.Errorf("project %s (schema %s): %w", p.Name, p.Schema, err)
 		}
 	}
 	return asError(worst)

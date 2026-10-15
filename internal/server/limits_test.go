@@ -53,6 +53,14 @@ func TestResolveSettingsLimits(t *testing.T) {
 				return l.Handshakes == 4 && l.ConnsPerPrincipal == DefaultLimits.ConnsPerPrincipal
 			}},
 		{name: "negative handshakes", body: "limits:\n  handshakes_per_principal: -1\n", err: "limit handshakes_per_principal must be zero or a positive number"},
+		{name: "database connections", body: "limits:\n  db_conns_per_server: 12\n  db_conns_per_project: 3\n",
+			want: func(l Limits) bool { return l.DBConns == 12 && l.DBConnsPerProject == 3 }},
+		{name: "database connections default", body: "limits:\n  db_conns_per_server: 0\n",
+			want: func(l Limits) bool { return l.DBConns == 32 && l.DBConnsPerProject == 8 }},
+		{name: "negative db_conns_per_server", body: "limits:\n  db_conns_per_server: -1\n", err: "limit db_conns_per_server must be zero or a positive number"},
+		{name: "negative db_conns_per_project", body: "limits:\n  db_conns_per_project: -1\n", err: "limit db_conns_per_project must be zero or a positive number"},
+		{name: "a project's connections past the server's", body: "limits:\n  db_conns_per_server: 4\n  db_conns_per_project: 5\n",
+			err: "limit db_conns_per_project, 5, is more than db_conns_per_server, 4; fix:"},
 		{name: "usage limits", body: "limits:\n  usage_records: 50\n  usage_per_day: 900\n",
 			want: func(l Limits) bool {
 				return l.UsageRecords == 50 && l.UsagePerDay == 900 && l.Labels == DefaultLimits.Labels

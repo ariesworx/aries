@@ -85,6 +85,23 @@ func newDatabase(t testing.TB) string {
 	return dsn
 }
 
+// openDB opens the pool a daemon would on dsn's database, sized by lim,
+// closed when t ends, after the stores t opened on it.
+func openDB(t testing.TB, dsn string, lim Limits) *store.DB {
+	t.Helper()
+	lim = lim.WithDefaults()
+	db, err := store.OpenDB(t.Context(), dsn, store.DBOptions{Conns: lim.DBConns})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close the DB: %v", err)
+		}
+	})
+	return db
+}
+
 // patience is how long a test waits for something that must happen: an
 // answer to a request, a connection the server closes, a condition it
 // polls. Nothing is asserted of it. It only turns a hang into a failure

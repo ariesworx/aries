@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/ariesworx/aries/internal/pgtest"
@@ -50,6 +51,41 @@ func newDSN(t testing.TB) string {
 	return dsn
 }
 
+// testDBs are the DBs openStore opened, one for each test database, as a
+// daemon has one for its database: the stores a test opens on one
+// database share its pool and its writers' locks, so that the test can
+// race several stores of one schema as one process's rivals. Each is
+// closed when the test that opened it ends, after its stores.
+var testDBs = struct {
+	sync.Mutex
+	m map[string]*DB
+}{m: map[string]*DB{}}
+
+// testDB returns the DB of dsn's database for t, opening it if no test
+// has it open.
+func testDB(t testing.TB, dsn string) *DB {
+	t.Helper()
+	testDBs.Lock()
+	defer testDBs.Unlock()
+	if db := testDBs.m[dsn]; db != nil {
+		return db
+	}
+	db, err := OpenDB(t.Context(), dsn, DBOptions{})
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	testDBs.m[dsn] = db
+	t.Cleanup(func() {
+		testDBs.Lock()
+		delete(testDBs.m, dsn)
+		testDBs.Unlock()
+		if err := db.Close(); err != nil {
+			t.Errorf("close the DB: %v", err)
+		}
+	})
+	return db
+}
+
 func openStore(t testing.TB, dsn string, opts Options) *Store {
 	t.Helper()
 	if opts.Prefix == "" {
@@ -58,7 +94,11 @@ func openStore(t testing.TB, dsn string, opts Options) *Store {
 	if opts.Admins == nil {
 		opts.Admins = []string{"dana"}
 	}
-	s, err := Open(t.Context(), dsn, opts)
+	d, err := ParseDSN(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := testDB(t, dsn).Open(t.Context(), d.Schema, opts)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}

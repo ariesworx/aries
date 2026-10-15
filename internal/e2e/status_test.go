@@ -53,8 +53,9 @@ func TestAdminStatus(t *testing.T) {
 		t.Errorf("status names the protocol, which only a mismatch needs:\n%s", text)
 	}
 	for _, want := range []string{"ariesd v0.2.0, up ", "stores 1 of 7, connections 2 of 1024\nkeys file " + w.keysFile + ": 0 keys, written ",
-		"projects: 2 active; principals: 2 active\n", "PROJECT  STATE   STORE   CONNS  BY HAND  SESSIONS  WRITES/MIN  P50",
-		"\nsecond   active  closed  0      -        -         -           -", "\nBY HAND: connections sshd let in by the server's hand-maintained authorized_keys file"} {
+		"projects: 2 active; principals: 2 active\n", "\npostgres 1", " in this database; ariesd's pool ", "\npostgres's database ",
+		"PROJECT  STATE   STORE   SIZE     CONNS  BY HAND  SESSIONS  WRITES/MIN  P50",
+		"\nsecond   active  closed  0 KiB    0      -        -         -           -", "\nBY HAND: connections sshd let in by the server's hand-maintained authorized_keys file"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("status lacks %q:\n%s", want, text)
 		}

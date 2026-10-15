@@ -234,7 +234,7 @@ func TestTracesEndToEnd(t *testing.T) {
 	dana.refused(proto.CodeInvalid, "admin", "principal", "whois", "alice")
 
 	// A daemon that traces nothing has made no stand-in to resolve.
-	plain := adminWorld(t, 0, 0)
+	plain := adminWorld(t)
 	if e := plain.newUser("dana", "").refused(proto.CodeUnavailable, "admin", "principal", "whois", alias); !strings.Contains(e.Message, "has no key for stand-ins: it exports no telemetry") {
 		t.Errorf("whois on a server with no key: %q", e.Message)
 	}

@@ -380,7 +380,7 @@ func TestOpenProjectsClockBehind(t *testing.T) {
 	// Project b's database was written by a machine whose clock ran a
 	// week ahead.
 	ahead := time.Now().Add(7 * 24 * time.Hour)
-	dsn, err := SchemaDSN(m.dsn, b.DBName)
+	dsn, err := store.SchemaDSN(m.dsn, b.Schema)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -391,22 +391,22 @@ func TestOpenProjectsClockBehind(t *testing.T) {
 	if !ok {
 		t.Fatalf("OpenProjects with project b's history a week ahead = %v, want a *ClockBehindError", err)
 	}
-	if !strings.Contains(behind.Log, b.DBName) || strings.Contains(behind.Log, a.DBName) || behind.More != 0 {
-		t.Errorf("the refusal names %q and %d more, want project b's database %s alone", behind.Log, behind.More, b.DBName)
+	if !strings.Contains(behind.Log, b.Schema) || strings.Contains(behind.Log, a.Schema) || behind.More != 0 {
+		t.Errorf("the refusal names %q and %d more, want project b's database %s alone", behind.Log, behind.More, b.Schema)
 	}
 
 	m.cfg.ClockBehind = ClockWarn
 	if err := m.OpenProjects(t.Context()); err != nil {
 		t.Fatalf("OpenProjects with clock_behind: warn = %v", err)
 	}
-	if !strings.Contains(m.log.String(), `msg="clock behind history"`) || !strings.Contains(m.log.String(), b.DBName) {
-		t.Errorf("the log lacks `clock behind history` naming %s:\n%s", b.DBName, m.log)
+	if !strings.Contains(m.log.String(), `msg="clock behind history"`) || !strings.Contains(m.log.String(), b.Schema) {
+		t.Errorf("the log lacks `clock behind history` naming %s:\n%s", b.Schema, m.log)
 	}
 	// Status says so to a server admin, with the database.
 	d := mustDialTo(t, m.Server, dana, projB)
 	m.CheckClock(t.Context())
 	res := mustAsk[proto.StatusResult](d, proto.OpStatus, proto.StatusArgs{})
-	if c := res.Server.Clock; c == nil || c.Behind == nil || !strings.Contains(c.Behind.Log, b.DBName) || c.Behind.RefusesStart ||
+	if c := res.Server.Clock; c == nil || c.Behind == nil || !strings.Contains(c.Behind.Log, b.Schema) || c.Behind.RefusesStart ||
 		c.Behind.Seconds < 6*24*3600 {
 		t.Errorf("status's clock = %+v, want it behind project b's history by about a week", res.Server.Clock)
 	}

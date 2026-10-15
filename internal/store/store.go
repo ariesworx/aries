@@ -18,9 +18,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/stdlib"
-
 	"github.com/ariesworx/aries/internal/logs"
 )
 
@@ -31,7 +28,8 @@ type Options struct {
 	// MaxAttempts bounds retries of a write that loses to a concurrent
 	// transaction. Default 5.
 	MaxAttempts int
-	// Readers caps the read pool. Default 8.
+	// Readers caps the connections the store's reads hold at once, of
+	// its DB's pool. Default [DefaultReaders].
 	Readers int
 	// Now is the server clock. Default time.Now.
 	Now func() time.Time
@@ -84,14 +82,27 @@ type Options struct {
 	// the database of an archived project, which is migrated when the
 	// project is activated and not before.
 	NoMigrate bool
+	// ReadOnly opens the schema to read it beside the process that
+	// writes it: it takes no writer's lock, migrates nothing (as
+	// NoMigrate does), and refuses every write with [ErrReadOnly].
+	// `ariesd export-bd` and the clock check of `ariesd upgrade` open a
+	// running daemon's schemas so.
+	ReadOnly bool
 }
 
 // Store is the server-side issue store. It is safe for concurrent use.
 // [Open] returns one, and [Store.Close] releases it.
 type Store struct {
-	// w is the single writer connection; r is the read pool.
-	w, r *sql.DB
-	opts Options
+	// w is the single writer and r the readers, each taking connections
+	// from pool, the DB the store was opened from, in schema. own is set
+	// when the store has pool to itself and closes it; fenced while it
+	// holds schema's writer's lock (fence.go).
+	w, r   *sql.DB
+	pool   *DB
+	schema string
+	own    bool
+	fenced bool
+	opts   Options
 
 	closeOnce sync.Once
 	closeErr  error
@@ -106,14 +117,14 @@ type Store struct {
 	// clock is the server clock, and tm the store's own time, which the
 	// clock cannot move backward (clock.go). hasClaims is false for the
 	// control database, which has no leases to settle; settling
-	// serializes SettleClock. db names the schema to the clock, which
-	// remembers what each has settled: its server's address, its
+	// serializes SettleClock. clockName names the schema to the clock,
+	// which remembers what each has settled: its server's address, its
 	// database and its name.
 	clock     *Clock
 	tm        storeTime
 	hasClaims bool
 	settling  sync.Mutex
-	db        string
+	clockName string
 	// migrated is how many migrations Open applied.
 	migrated int
 
@@ -130,8 +141,12 @@ type Store struct {
 }
 
 // Open connects to the Postgres schema named in dsn (a postgres:// URL,
-// dsn.go), checks the server's version and the role, and applies pending
-// migrations. ctx bounds only the opening; the caller must Close the
+// dsn.go), checks the server's version and the role, takes the schema's
+// writer's lock and applies pending migrations. The store has a [DB] of
+// its own, with a connection for its writer and one for each of its
+// readers, which closes with it: what a command that opens one store
+// needs. A daemon opens each project's from its one DB instead
+// ([DB.Open]). ctx bounds only the opening; the caller must Close the
 // store.
 //
 // Open refuses, with [ErrInvalid], a dsn that is not a postgres:// URL or
@@ -139,37 +154,59 @@ type Store struct {
 // prefix, admin or limit in opts. It refuses a server older than
 // Postgres [version.PostgresMin] with a [*ServerVersionError], an unsafe
 // role with an [*UnsafeAccountError] unless opts.AllowUnsafeAccount is
-// set, a schema the role may not use with an error [DatabaseDenied]
-// recognizes, a schema a newer binary migrated with [ErrSchemaTooNew],
-// and, with opts.NoMigrate, one with migrations pending with
+// set, a schema the role may not use with an error [SchemaDenied]
+// recognizes, a schema another process writes with a [*ServedError], a
+// schema a newer binary migrated with [ErrSchemaTooNew], and, with
+// opts.NoMigrate or opts.ReadOnly, one with migrations pending with
 // [ErrSchemaOld].
 func Open(ctx context.Context, dsn string, opts Options) (*Store, error) {
-	return open(ctx, dsn, opts, projectSchema, false)
+	return openOwn(ctx, dsn, max(opts.Readers, DefaultReaders)+1, func(db *DB, schema string) (*Store, error) {
+		return db.open(ctx, schema, opts, projectSchema, false)
+	})
 }
 
-// open is Open for the schema sc describes: a project's, or the control
-// store's, whose store ([Control]) wraps the Store it returns for its
-// writer and event log. create makes the schema the dsn names when it
-// does not exist, which only the operator's `ariesd control init` asks.
-func open(ctx context.Context, dsn string, opts Options, sc schema, create bool) (*Store, error) {
+// openOwn opens a DB of conns connections on dsn's database and, with
+// it, the store open makes of dsn's schema, which closes the DB when it
+// closes.
+func openOwn(ctx context.Context, dsn string, conns int, open func(*DB, string) (*Store, error)) (*Store, error) {
 	d, err := ParseDSN(dsn)
 	if err != nil {
 		return nil, err
 	}
-	if d.Database == "" {
-		return nil, fmt.Errorf("%w: dsn names no database", ErrInvalid)
-	}
-	cfg, err := pgx.ParseConfig(dsn)
+	db, err := OpenDB(ctx, dsn, DBOptions{Conns: conns})
 	if err != nil {
-		// pgx quotes the DSN, which may hold a password.
-		return nil, fmt.Errorf("%w: the dsn does not parse as a postgres:// URL", ErrInvalid)
+		return nil, err
 	}
-	// Every session works in UTC and in the one schema, and every
-	// transaction sees one snapshot (doc.go, Concurrency).
-	cfg.RuntimeParams["timezone"] = "UTC"
-	cfg.RuntimeParams["search_path"] = quoteIdent(d.Schema)
-	cfg.RuntimeParams["default_transaction_isolation"] = "repeatable read"
-	conn := stdlib.GetConnector(*cfg)
+	s, err := open(db, d.Schema)
+	if err != nil {
+		return nil, errors.Join(err, db.Close())
+	}
+	s.own = true
+	return s, nil
+}
+
+// Open opens the store of the project in schema, on db's connections, as
+// the package's Open does for the schema of a DSN, and refuses what that
+// refuses. Every store opened from db shares its pool, and its writer's
+// lock is db's: to every other process, two stores of one schema on one
+// db are one writer, so it is the caller's to open one store of a
+// project at a time. The caller must Close the store before db.
+func (db *DB) Open(ctx context.Context, schema string, opts Options) (*Store, error) {
+	return db.open(ctx, schema, opts, projectSchema, false)
+}
+
+// DefaultReaders is Options.Readers' default: the most connections one
+// store's reads hold at once.
+const DefaultReaders = 8
+
+// open opens a store of schema on db, which sc describes: a project's,
+// or the control store's, whose store ([Control]) wraps the Store it
+// returns for its writer and event log. create makes the schema when it
+// does not exist, which only the operator's `ariesd control init` asks.
+func (db *DB) open(ctx context.Context, schema string, opts Options, sc schema, create bool) (*Store, error) {
+	if schema == "" {
+		return nil, fmt.Errorf("%w: no schema named", ErrInvalid)
+	}
 	if opts.Logger == nil {
 		opts.Logger = slog.New(slog.DiscardHandler)
 	}
@@ -209,39 +246,44 @@ func open(ctx context.Context, dsn string, opts Options, sc schema, create bool)
 		opts.MaxAttempts = 5
 	}
 	if opts.Readers <= 0 {
-		opts.Readers = 8
+		opts.Readers = DefaultReaders
 	}
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
+	opts.NoMigrate = opts.NoMigrate || opts.ReadOnly
 
 	s := &Store{
-		w:    sql.OpenDB(conn),
-		r:    sql.OpenDB(conn),
+		// One writer: writes are serialized in this process, so the
+		// event sequence is gapless without contention (stage 0: one
+		// writer ran at 233 req/s, within 15% of the best pool).
+		w:    db.sqlDB(schema, 1),
+		r:    db.sqlDB(schema, opts.Readers),
 		opts: opts,
+		pool: db, schema: schema,
+		// Every writer holds its schema's lock but the operator's
+		// `ariesd control init`, which writes the control store beside
+		// the daemon (fence.go); create is set for that one alone.
+		fenced: !opts.ReadOnly && !create,
 
 		clock: opts.Clock, hasClaims: sc.table == projectSchema.table,
-		db: fmt.Sprintf("%s:%d/%s/%s", cfg.Host, cfg.Port, d.Database, d.Schema),
+		clockName: db.addr + "/" + schema,
 	}
 	if s.clock == nil {
 		s.clock = NewClock(ClockOptions{Now: opts.Now})
 	}
-	// One writer connection: writes are serialized in this process, so the
-	// event sequence is gapless without contention (stage 0: one writer
-	// ran at 233 req/s, within 15% of the best pool).
-	s.w.SetMaxOpenConns(1)
-	s.w.SetMaxIdleConns(1)
-	s.r.SetMaxOpenConns(opts.Readers)
-	s.r.SetMaxIdleConns(opts.Readers)
-
+	d := db.dsn
+	d.Schema = schema
 	if err := s.prepare(ctx, d, sc, create); err != nil {
-		return nil, errors.Join(err, s.w.Close(), s.r.Close())
+		return nil, errors.Join(err, s.close())
 	}
 	return s, nil
 }
 
 // prepare checks the server and the role, finds the schema d names,
-// migrates it and reads the store's time, for open.
+// takes its writer's lock, migrates it and reads the store's time, for
+// open. A store whose lock it cannot take is left unfenced, with
+// nothing to give back.
 func (s *Store) prepare(ctx context.Context, d DSN, sc schema, create bool) error {
 	if err := checkServer(ctx, s.w); err != nil {
 		return err
@@ -256,6 +298,12 @@ func (s *Store) prepare(ctx context.Context, d DSN, sc schema, create bool) erro
 	}
 	if err := checkSchema(ctx, s.w, d, create); err != nil {
 		return err
+	}
+	if s.fenced {
+		if err := s.pool.fence.take(ctx, s.schema); err != nil {
+			s.fenced = false
+			return err
+		}
 	}
 	mctx, migrated := s.begin(ctx, StageMigrate, 0)
 	n, err := migrate(mctx, s.w, s.now(), sc, !s.opts.NoMigrate)
@@ -283,10 +331,21 @@ func (s *Store) Ping(ctx context.Context) error {
 // Close closes the connections. It is safe to call more than once; every
 // call returns the first one's error.
 func (s *Store) Close() error {
-	s.closeOnce.Do(func() {
-		s.closeErr = errors.Join(s.w.Close(), s.r.Close())
-	})
+	s.closeOnce.Do(func() { s.closeErr = s.close() })
 	return s.closeErr
+}
+
+// close closes the store's database/sql pools, gives its writer's lock
+// up and, when the store has its DB to itself, closes that.
+func (s *Store) close() error {
+	err := errors.Join(s.w.Close(), s.r.Close())
+	if s.fenced {
+		s.pool.fence.release(s.schema)
+	}
+	if s.own {
+		err = errors.Join(err, s.pool.Close())
+	}
+	return err
 }
 
 // Now reads the store's time, in UTC to the microsecond: the server
@@ -693,13 +752,21 @@ func (s *Store) writeRetry(ctx context.Context, actor Actor, settle bool, fn fun
 // reads the store's time: the attempt's time, and whether a forward step
 // of the clock is pending now that the wait is over.
 func (s *Store) beginWrite(ctx context.Context) (*sql.Tx, view, error) {
-	// The writer is one connection, so this is where a write waits for
-	// the writes ahead of it.
+	if s.opts.ReadOnly {
+		return nil, view{}, ErrReadOnly
+	}
+	// The writer is one connection at a time, so this is where a write
+	// waits for the writes ahead of it.
 	_, waited := s.begin(ctx, StageWait, 0)
 	tx, err := s.w.BeginTx(ctx, nil)
 	waited(outcomeOf(err))
 	if err != nil {
 		return nil, view{}, fmt.Errorf("begin: %w", err)
+	}
+	if s.fenced {
+		if err := s.pool.fence.verify(ctx, tx, s.schema); err != nil {
+			return nil, view{}, errors.Join(err, rollback(tx))
+		}
 	}
 	return tx, s.readTime(), nil
 }

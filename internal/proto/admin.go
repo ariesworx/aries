@@ -67,13 +67,13 @@ type ProjectResult struct {
 	Released int    `json:"released,omitempty"`
 }
 
-// ProjectAddResult is the project created, and the schema it is in
-// (Database, a name from when each project had a database). Resumed: the project was already being created, and this request
-// finished it.
+// ProjectAddResult is the project created, and Schema, the schema the
+// server made for it in its database. Resumed: the project was already
+// being created, and this request finished it.
 type ProjectAddResult struct {
 	ProjectResult
-	Database string `json:"database"`
-	Resumed  bool   `json:"resumed,omitempty"`
+	Schema  string `json:"schema"`
+	Resumed bool   `json:"resumed,omitempty"`
 }
 
 // ProjectArgs names a project to archive or activate.
@@ -90,7 +90,8 @@ type AdminListArgs struct {
 }
 
 // Project is one project in a list. Role is the caller's role in it,
-// when it has one. Database and CreatedBy are for server admins.
+// when it has one. Schema, the schema that holds it, and CreatedBy are
+// for server admins.
 type Project struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
@@ -98,7 +99,7 @@ type Project struct {
 	Account   string `json:"account"`
 	State     string `json:"state"`
 	Role      string `json:"role,omitempty"`
-	Database  string `json:"database,omitempty"`
+	Schema    string `json:"schema,omitempty"`
 	CreatedBy string `json:"created_by,omitempty"`
 }
 
@@ -404,8 +405,9 @@ type StatusArgs struct {
 // now, from memory: for a server admin, Server and every project, in
 // every state; for a project admin, the active projects they administer
 // and no Server. Projects are by name, and More counts those after the
-// last one listed. The database is another process, so nothing here is
-// its memory or its disk.
+// last one listed. The database is another process: what it says of
+// itself is Server.Postgres, and each project's size on disk
+// ProjectStatus.SchemaBytes.
 type StatusResult struct {
 	Server   *ServerStatus   `json:"server,omitempty"`
 	Projects []ProjectStatus `json:"projects"`
@@ -437,6 +439,44 @@ type ServerStatus struct {
 	// Traces is how people appear in the traces the server exports;
 	// nil when it exports none.
 	Traces *TracesStatus `json:"traces,omitempty"`
+	// Postgres is the database server's own figures; nil from a server
+	// from before them.
+	Postgres *PostgresStatus `json:"postgres,omitempty"`
+}
+
+// PostgresStatus is what Postgres says of itself and of the database the
+// daemon's schemas are in, read with the daemon's own role, and the
+// daemon's pool of connections to it, from memory.
+//
+// Conns counts the client sessions on the Postgres server, of every
+// database and role, against ConnsMax, its max_connections;
+// DatabaseConns those in ariesd's database. PoolConns is how many
+// connections ariesd's pool holds, PoolInUse how many of them a request
+// is using, PoolMax the most it may hold (db_conns_per_server), and
+// PoolWaits how often a request waited for one, since the daemon
+// started. Commits, Rollbacks, Deadlocks, Conflicts (queries a standby
+// canceled) and TempBytes (written to temporary files) count since
+// Postgres last reset its statistics. DatabaseBytes is the database's
+// size on disk.
+//
+// When Postgres could not be read, Unknown says why in a few words and
+// only the pool's figures are set.
+type PostgresStatus struct {
+	Version       string `json:"version,omitempty"`
+	Conns         int    `json:"conns"`
+	ConnsMax      int    `json:"conns_max"`
+	DatabaseConns int    `json:"database_conns"`
+	PoolConns     int    `json:"pool_conns"`
+	PoolInUse     int    `json:"pool_in_use"`
+	PoolMax       int    `json:"pool_max"`
+	PoolWaits     int64  `json:"pool_waits"`
+	Commits       int64  `json:"commits"`
+	Rollbacks     int64  `json:"rollbacks"`
+	Deadlocks     int64  `json:"deadlocks"`
+	Conflicts     int64  `json:"conflicts"`
+	TempBytes     int64  `json:"temp_bytes"`
+	DatabaseBytes int64  `json:"database_bytes"`
+	Unknown       string `json:"unknown,omitempty"`
 }
 
 // TracesStatus is how people appear in the traces the server exports;
@@ -529,6 +569,10 @@ type ProjectStatus struct {
 	LastUsed  *time.Time   `json:"last_used,omitempty"`
 
 	SessionsUnknown string `json:"sessions_unknown,omitempty"`
+	// SchemaBytes is the size on disk of the project's schema, open or
+	// not; left out when it could not be read, or by a server from
+	// before it.
+	SchemaBytes *int64 `json:"schema_bytes,omitempty"`
 }
 
 // WriteStatus is how busy a project's one writer is. A write is a

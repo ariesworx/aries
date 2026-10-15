@@ -28,7 +28,7 @@ var (
 
 // The states of control rows, as the control store's events carry them.
 func projectState(id, state string, rev int) string {
-	return fmt.Sprintf(`{"id": %q, "name": "p-%s", "prefix": "p", "account": "internal", "db_name": "db_%s", "state": %q, "rev": %d}`, id, id[:1], id[:1], state, rev)
+	return fmt.Sprintf(`{"id": %q, "name": "p-%s", "prefix": "p", "account": "internal", "schema": "db_%s", "state": %q, "rev": %d}`, id, id[:1], id[:1], state, rev)
 }
 
 func principalState(name, state string, rev int) string {
@@ -182,7 +182,7 @@ func TestCtlReplayCompare(t *testing.T) {
 			tb := ctlTables{projects: map[string]store.Project{}, principals: map[string]store.Principal{}, members: map[mkey]store.Member{},
 				keys: map[string]store.PrincipalKey{}}
 			for k, v := range c.projects {
-				tb.projects[k] = store.Project{ID: v.ID, Name: v.Name, Prefix: v.Prefix, Account: v.Account, DBName: v.DBName, State: v.State, Rev: v.Rev}
+				tb.projects[k] = store.Project{ID: v.ID, Name: v.Name, Prefix: v.Prefix, Account: v.Account, Schema: v.Schema, State: v.State, Rev: v.Rev}
 			}
 			for k, v := range c.principals {
 				tb.principals[k] = v

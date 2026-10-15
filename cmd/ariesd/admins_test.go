@@ -51,7 +51,7 @@ func TestServeWarnsOfAnAdminSomeoneElseMade(t *testing.T) {
 	start := func(admins string) string {
 		t.Helper()
 		// The site's config, as newSite writes it, with other admins.
-		rewrite(t, s, fmt.Sprintf("project: %s\nprefix: acme\naccount: acme-2026\ncontrol_db: %s\nadmins: [%s]\n", adopted, s.controlDB, admins))
+		rewrite(t, s, fmt.Sprintf("project: %s\nprefix: acme\naccount: acme-2026\ncontrol_schema: %s\nadmins: [%s]\n", adopted, s.controlSchema, admins))
 		var log bytes.Buffer
 		d, err := openDaemon(ctx, s.settings(t), slog.New(slog.NewTextHandler(&log, nil)))
 		if err != nil {

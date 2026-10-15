@@ -36,18 +36,15 @@ type Settings struct {
 	DSN string `yaml:"dsn"`
 	// Socket is the daemon's unix socket. Default DefaultSocket.
 	Socket string `yaml:"socket"`
-	// ControlDB names the control store's schema, in DSN's database and
-	// as its role, and makes this a server of many projects (design
+	// ControlSchema names the control store's schema, in DSN's database
+	// and as its role, and makes this a server of many projects (design
 	// §15): each project's schema is then named by its row there, and
 	// DSN's, Project, Prefix and Account describe the project `ariesd
 	// control init` adopts, which the admin commands act on by default.
-	// Empty, the default, is a server of the one project in DSN. (The
-	// name is from when each was a database of its own.)
-	ControlDB string `yaml:"control_db"`
-	// ProjectDBs is the block of schema names for the projects `aries
-	// admin project add` creates, which DSN's role makes in its
-	// database. It needs ControlDB.
-	ProjectDBs ProjectDBs `yaml:"project_dbs"`
+	// The daemon names the schema of each project `aries admin project
+	// add` makes (store.ProjectSchema), so this may not start as those
+	// do. Empty, the default, is a server of the one project in DSN.
+	ControlSchema string `yaml:"control_schema"`
 	// KeysFile is the file a server of many projects writes the control
 	// database's keys to, in authorized_keys form, for sshd to read
 	// (design §15.2). AuthorizedKeys is the file of that form the
@@ -205,8 +202,8 @@ const (
 	EnvLogFormat = "ARIESD_LOG_FORMAT"
 	// EnvAdmins sets Admins, comma-separated.
 	EnvAdmins = "ARIESD_ADMINS"
-	// EnvControlDB sets ControlDB.
-	EnvControlDB = "ARIESD_CONTROL_DB"
+	// EnvControlSchema sets ControlSchema.
+	EnvControlSchema = "ARIESD_CONTROL_SCHEMA"
 	// EnvKeysFile, EnvAuthorizedKeys and EnvBridge set KeysFile,
 	// AuthorizedKeys and Bridge.
 	EnvKeysFile       = "ARIESD_KEYS_FILE"
@@ -220,8 +217,8 @@ const (
 
 // ResolveSettings merges, highest precedence first: flags, the environment,
 // the config file, and defaults. configPath "" means ARIESD_CONFIG, else
-// DefaultConfigFile if it exists; a named file must exist. Limits and
-// ProjectDBs come from the file only, Admins from the file unless ARIESD_ADMINS replaces
+// DefaultConfigFile if it exists; a named file must exist. Limits come
+// from the file only, Admins from the file unless ARIESD_ADMINS replaces
 // them, Telemetry from the file with its listen address from
 // ARIESD_TELEMETRY_LISTEN when that is set, and AllowUnsafeAccount from
 // flags only. It refuses a password in
@@ -229,8 +226,7 @@ const (
 // unknown key, or with a password and any access for group or others; an
 // admin name that is invalid or reserved; an invalid limit; an account
 // that is not a code name; a control schema that is not a schema name,
-// or is the DSN's own; a block of project schema names that is invalid,
-// set without a control schema, or holds its name; a systemd
+// is the DSN's own, or starts as a project's does; a systemd
 // unit that is not a unit name; a bridge path that would need quoting in
 // a forced command; a keys file that is the authorized_keys file; a
 // telemetry listen address that is not HOST:PORT or is an IP address
@@ -254,7 +250,7 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 		return Settings{}, err
 	}
 	env := Settings{DSN: getenv(EnvDSN), Socket: getenv(EnvSocket), Project: getenv(EnvProject),
-		LogLevel: getenv(EnvLogLevel), LogFormat: getenv(EnvLogFormat), ControlDB: getenv(EnvControlDB),
+		LogLevel: getenv(EnvLogLevel), LogFormat: getenv(EnvLogFormat), ControlSchema: getenv(EnvControlSchema),
 		KeysFile: getenv(EnvKeysFile), AuthorizedKeys: getenv(EnvAuthorizedKeys), Bridge: getenv(EnvBridge),
 		ClockBehind: getenv(EnvClockBehind)}
 	out := Settings{Socket: DefaultSocket, Prefix: "sf", LogLevel: "info", LogFormat: "text", Account: DefaultAccount,
@@ -268,7 +264,7 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 			{&out.Prefix, s.Prefix}, {&out.SystemdUnit, s.SystemdUnit},
 			{&out.Releases, s.Releases},
 			{&out.LogLevel, s.LogLevel}, {&out.LogFormat, s.LogFormat}, {&out.Account, s.Account},
-			{&out.ControlDB, s.ControlDB}, {&out.KeysFile, s.KeysFile}, {&out.AuthorizedKeys, s.AuthorizedKeys},
+			{&out.ControlSchema, s.ControlSchema}, {&out.KeysFile, s.KeysFile}, {&out.AuthorizedKeys, s.AuthorizedKeys},
 			{&out.Bridge, s.Bridge}, {&out.ClockBehind, s.ClockBehind},
 		} {
 			if f.v != "" {
@@ -282,7 +278,6 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 		return Settings{}, err
 	}
 	out.Limits = file.Limits
-	out.ProjectDBs = file.ProjectDBs
 	out.Telemetry = file.Telemetry
 	if v := getenv(EnvTelemetryListen); v != "" {
 		out.Telemetry.Listen = v
@@ -323,10 +318,7 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 	if !store.ValidAccount(out.Account) {
 		return Settings{}, fmt.Errorf("account %q is not a code name; fix: set account: to 1-64 lowercase letters, digits and inner hyphens, such as %s", out.Account, DefaultAccount)
 	}
-	if err := out.checkControlDB(); err != nil {
-		return Settings{}, err
-	}
-	if err := out.checkProjectDBs(); err != nil {
+	if err := out.checkControlSchema(); err != nil {
 		return Settings{}, err
 	}
 	if !ValidBridge(out.Bridge) {
@@ -375,39 +367,23 @@ func (s *Settings) resolveClock(file Settings) error {
 	return nil
 }
 
-// checkControlDB refuses a control schema that is not a schema name, or
-// that is the schema the DSN names: that one holds a project.
-func (s Settings) checkControlDB() error {
-	if s.ControlDB == "" {
+// checkControlSchema refuses a control schema that is not a schema name,
+// that is the schema the DSN names, which holds a project, or that
+// starts as the schemas the daemon names for projects do.
+func (s Settings) checkControlSchema() error {
+	if s.ControlSchema == "" {
 		return nil
 	}
-	if !store.ValidDBName(s.ControlDB) {
-		return fmt.Errorf("control_db %q is not a schema name; fix: set control_db: or %s to a lowercase letter, then lowercase letters, digits and underscores, not starting pg_, such as aries_control",
-			s.ControlDB, EnvControlDB)
-	}
-	if d, err := store.ParseDSN(s.DSN); err == nil && d.Schema == s.ControlDB {
-		return fmt.Errorf("control_db %q is the schema the DSN names, which holds a project; fix: set control_db: to a schema of its own, such as aries_control",
-			s.ControlDB)
-	}
-	return nil
-}
-
-// checkProjectDBs refuses a block of project schema names that is not
-// valid, that is set on a server of one project, or that holds the
-// control store's name. It may hold the DSN's schema: that one is the
-// adopted project's, and a name a project has is never given again.
-func (s Settings) checkProjectDBs() error {
-	b := s.ProjectDBs
-	if err := b.Validate(); err != nil {
-		return err
-	}
-	switch {
-	case b == ProjectDBs{}:
-		return nil
-	case s.ControlDB == "":
-		return errors.New("project_dbs is set without control_db; fix: set control_db: to serve many projects, or remove project_dbs: (docs/server.md, Serving many projects)")
-	case b.holds(s.ControlDB):
-		return fmt.Errorf("project_dbs holds %s, the control store's schema; fix: choose a prefix of its own, such as aries_p", s.ControlDB)
+	switch d, err := store.ParseDSN(s.DSN); {
+	case !store.ValidSchemaName(s.ControlSchema):
+		return fmt.Errorf("control_schema %q is not a schema name; fix: set control_schema: or %s to a lowercase letter, then lowercase letters, digits and underscores, not starting pg_, such as aries_control",
+			s.ControlSchema, EnvControlSchema)
+	case err == nil && d.Schema == s.ControlSchema:
+		return fmt.Errorf("control_schema %q is the schema the DSN names, which holds a project; fix: set control_schema: to a schema of its own, such as aries_control",
+			s.ControlSchema)
+	case strings.HasPrefix(s.ControlSchema, store.ProjectSchemaPrefix):
+		return fmt.Errorf("control_schema %q starts with %s, as the schemas ariesd makes for projects do; fix: set control_schema: to a schema of its own, such as aries_control",
+			s.ControlSchema, store.ProjectSchemaPrefix)
 	}
 	return nil
 }
@@ -436,9 +412,9 @@ func (s Settings) PrincipalsKey(home string) string {
 	return filepath.Join(home, s.Telemetry.PrincipalsKey)
 }
 
-// ControlDSN returns the DSN of the control store's schema (ControlDB),
+// ControlDSN returns the DSN of the control store's schema (ControlSchema),
 // which must be set.
-func (s Settings) ControlDSN() (string, error) { return SchemaDSN(s.DSN, s.ControlDB) }
+func (s Settings) ControlDSN() (string, error) { return store.SchemaDSN(s.DSN, s.ControlSchema) }
 
 // NewLogger returns ariesd's logger, writing to w at level (debug,
 // info, warn or error) in format (text or json). Its handler is a

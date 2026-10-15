@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -39,6 +40,16 @@ type Limits struct {
 	// IdleTimeout closes a connection that sends nothing for this long,
 	// unless it watches its inbox.
 	IdleTimeout Duration `yaml:"idle_timeout"`
+	// DBConns caps the daemon's pool of connections to Postgres, which
+	// every project's store and the control store share (store.DB); the
+	// daemon holds one more, which holds the writers' locks. Postgres's
+	// max_connections must leave room for them, beside everything else
+	// that connects. DBConnsPerProject caps the connections one project's
+	// reads hold at once, so that a busy project leaves the pool to the
+	// others; its writes hold one more, one at a time. It may not be
+	// more than DBConns.
+	DBConns           int `yaml:"db_conns_per_server"`
+	DBConnsPerProject int `yaml:"db_conns_per_project"`
 	// WriteRate is how many writes a second a principal's token bucket
 	// refills; WriteBurst how many it holds.
 	WriteRate  float64 `yaml:"write_rate"`
@@ -68,7 +79,7 @@ type Limits struct {
 	// From an hour to 30 days.
 	AwayMax Duration `yaml:"away_max"`
 
-	// The rest apply to a server of many projects (control_db) only.
+	// The rest apply to a server of many projects (control_schema) only.
 
 	// Control bounds the rows of the control store: projects,
 	// principals, principals one creator who is no server admin makes,
@@ -100,6 +111,7 @@ type Limits struct {
 // DefaultLimits are the limits a zero field takes.
 var DefaultLimits = Limits{
 	Limits: store.DefaultLimits, Conns: 1024, ConnsPerPrincipal: 64, Handshakes: 16, IdleTimeout: Duration(10 * time.Minute),
+	DBConns: store.DefaultConns, DBConnsPerProject: store.DefaultReaders,
 	WriteRate: 10, WriteBurst: 100, RefusalLogs: 20,
 	AgentKeep: Duration(store.MaxAgentWindow), InboxKeep: Duration(30 * 24 * time.Hour),
 	IdemWindow: Duration(store.DefaultIdemWindow), ConflictAge: Duration(store.DefaultConflictAge), AwayMax: Duration(store.MaxLease),
@@ -130,6 +142,7 @@ func (l Limits) WithDefaults() Limits {
 		{&l.Sessions, &d.Sessions}, {&l.InboxUnread, &d.InboxUnread}, {&l.Notices, &d.Notices},
 		{&l.UsageRecords, &d.UsageRecords}, {&l.UsagePerDay, &d.UsagePerDay}, {&l.Paths, &d.Paths},
 		{&l.Conns, &d.Conns}, {&l.ConnsPerPrincipal, &d.ConnsPerPrincipal}, {&l.Handshakes, &d.Handshakes}, {&l.WriteBurst, &d.WriteBurst},
+		{&l.DBConns, &d.DBConns}, {&l.DBConnsPerProject, &d.DBConnsPerProject},
 		{&l.RefusalLogs, &d.RefusalLogs}, {&l.MemoryBody, &d.MemoryBody}, {&l.MemoryTags, &d.MemoryTags},
 		{&l.MemoryTagLength, &d.MemoryTagLength}, {&l.Memories, &d.Memories}, {&l.MemoryKeyLength, &d.MemoryKeyLength},
 		{&l.Prices, &d.Prices}, {&l.HoursPerDay, &d.HoursPerDay}, {&l.HoursNote, &d.HoursNote}, {&l.Plans, &d.Plans},
@@ -177,6 +190,7 @@ func (l Limits) Validate() error {
 		bad  bool
 	}{
 		{"conns", l.Conns < 0}, {"conns_per_principal", l.ConnsPerPrincipal < 0}, {"handshakes_per_principal", l.Handshakes < 0},
+		{"db_conns_per_server", l.DBConns < 0}, {"db_conns_per_project", l.DBConnsPerProject < 0},
 		{"idle_timeout", l.IdleTimeout < 0},
 		{"write_rate", l.WriteRate < 0 || math.IsNaN(l.WriteRate) || math.IsInf(l.WriteRate, 0)},
 		{"write_burst", l.WriteBurst < 0}, {"refusal_logs", l.RefusalLogs < 0},
@@ -197,6 +211,9 @@ func (l Limits) Validate() error {
 	if a := time.Duration(l.AwayMax); a != 0 && (a < minAwayMax || a > maxAwayMax) {
 		return fmt.Errorf("limit away_max is %s; it must be from %s to %s; fix: correct limits: in the config file, or leave it out for the default, %s",
 			proto.Span(a), proto.Span(minAwayMax), proto.Span(maxAwayMax), proto.Span(store.MaxLease))
+	}
+	if srv, prj := cmp.Or(l.DBConns, DefaultLimits.DBConns), cmp.Or(l.DBConnsPerProject, DefaultLimits.DBConnsPerProject); prj > srv {
+		return fmt.Errorf("limit db_conns_per_project, %d, is more than db_conns_per_server, %d; fix: raise db_conns_per_server, or lower db_conns_per_project, under limits: in the config file", prj, srv)
 	}
 	return nil
 }

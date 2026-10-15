@@ -14,9 +14,9 @@ import (
 // ProjectState is where a project is in its life.
 type ProjectState string
 
-// Project states. A project is added as creating, before its database
-// exists; it is active once the database is migrated; and an archived
-// project is kept, with its database, and served to no one until it is
+// Project states. A project is added as creating, before its schema
+// exists; it is active once the schema is migrated; and an archived
+// project is kept, with its schema, and served to no one until it is
 // activated again.
 const (
 	ProjectCreating ProjectState = "creating"
@@ -43,10 +43,10 @@ type Project struct {
 	Prefix string `json:"prefix"`
 	// Account is what the project's issues report against by default.
 	Account string `json:"account"`
-	// DBName is the project's schema, which no other project has. The
-	// name, and the JSON key, are from when each project had a database
-	// of its own.
-	DBName    string       `json:"db_name"`
+	// Schema is the project's schema, which no other project has: one
+	// the daemon named ([ProjectSchema]), or the one `ariesd control
+	// init` adopted.
+	Schema    string       `json:"schema"`
 	State     ProjectState `json:"state"`
 	CreatedBy string       `json:"created_by"`
 	CreatedAt time.Time    `json:"created_at"`
@@ -61,18 +61,47 @@ type NewProject struct {
 	Name    string
 	Prefix  string
 	Account string
-	DBName  string
+	Schema  string
 }
 
 var (
 	// projectIDPattern is a lowercase UUID.
 	projectIDPattern = lazyregexp.New(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-	// dbNamePattern is deliberately narrower than what Postgres allows: the
+	// schemaNamePattern is deliberately narrower than what Postgres allows: the
 	// name is later written into CREATE SCHEMA and into queries, which
 	// take no placeholder for it, so it admits nothing that needs quoting.
 	// Postgres cuts a name past 63 bytes short.
-	dbNamePattern = lazyregexp.New(`^[a-z][a-z0-9_]{0,62}$`)
+	schemaNamePattern = lazyregexp.New(`^[a-z][a-z0-9_]{0,62}$`)
 )
+
+// ProjectSchemaPrefix starts the schema of every project `aries admin
+// project add` makes. The control store's schema may not start with it
+// (server.Settings), so neither can be taken for the other.
+const ProjectSchemaPrefix = "project_"
+
+// MaxProjectNameForSchema is the longest project name a schema can be
+// named for: ProjectSchemaPrefix and the name fill at most the 63 bytes
+// of a Postgres name.
+const MaxProjectNameForSchema = 63 - len(ProjectSchemaPrefix)
+
+// ProjectSchema returns the schema of a new project named name, by the
+// one rule the daemon names schemas with: [ProjectSchemaPrefix], then the
+// name with each hyphen made an underscore, which a schema name may hold
+// unquoted. A code name has no underscore, so two names never share a
+// schema. It refuses, with ErrInvalid, a name that is not a code name,
+// and one longer than [MaxProjectNameForSchema].
+//
+// A project adopted by `ariesd control init` keeps the schema its data
+// was in, whatever its name.
+func ProjectSchema(name string) (string, error) {
+	if !ValidAccount(name) {
+		return "", fmt.Errorf("%w: project name %q must be a code name: lowercase letters, digits and inner hyphens", ErrInvalid, name)
+	}
+	if len(name) > MaxProjectNameForSchema {
+		return "", fmt.Errorf("%w: project name %q is %d characters; one that names a schema has at most %d", ErrInvalid, name, len(name), MaxProjectNameForSchema)
+	}
+	return ProjectSchemaPrefix + strings.ReplaceAll(name, "-", "_"), nil
+}
 
 // validProjectID refuses, with ErrInvalid, an id that is not a lowercase
 // UUID.
@@ -83,15 +112,17 @@ func validProjectID(id string) error {
 	return nil
 }
 
-// ValidDBName reports whether n may be a project's schema name: a
+// ValidSchemaName reports whether n may be a project's schema name: a
 // lowercase letter, then lowercase letters, digits and underscores, at
 // most 63 in all, and not starting pg_, which Postgres keeps for its own.
-func ValidDBName(n string) bool { return dbNamePattern.MatchString(n) && !strings.HasPrefix(n, "pg_") }
+func ValidSchemaName(n string) bool {
+	return schemaNamePattern.MatchString(n) && !strings.HasPrefix(n, "pg_")
+}
 
 // validate refuses, with ErrInvalid, a project whose id is not a
 // lowercase UUID, whose name or account is not a code name
 // ([ValidAccount]), whose prefix is not an issue id prefix, or whose
-// database name is not [ValidDBName].
+// schema is not [ValidSchemaName].
 func (p NewProject) validate() error {
 	switch {
 	case validProjectID(p.ID) != nil:
@@ -102,21 +133,21 @@ func (p NewProject) validate() error {
 		return fmt.Errorf("%w: prefix %q must be lowercase letters, digits and inner hyphens, starting with a letter, at most 32", ErrInvalid, p.Prefix)
 	case !ValidAccount(p.Account):
 		return fmt.Errorf("%w: account %q must be a code name: 1-64 lowercase letters, digits and inner hyphens", ErrInvalid, p.Account)
-	case !ValidDBName(p.DBName):
-		return fmt.Errorf("%w: database name %q must be a lowercase letter, then lowercase letters, digits and underscores, at most 64", ErrInvalid, p.DBName)
+	case !ValidSchemaName(p.Schema):
+		return fmt.Errorf("%w: schema %q must be a lowercase letter, then lowercase letters, digits and underscores, at most 63", ErrInvalid, p.Schema)
 	}
 	return nil
 }
 
 // AddProject records a new project in state creating: the first step of
-// creating one, before its database exists ([Control.ActivateProject]
+// creating one, before its schema exists ([Control.ActivateProject]
 // is the last). Only a server admin may.
 //
 // It is safe to run again: given the id of a project that exists and
-// the same name, prefix, account and database, it returns that project
+// the same name, prefix, account and schema, it returns that project
 // as it is, in whatever state, and writes nothing. It refuses, with a
 // [*TakenError], an id that exists with other settings, and a name or a
-// database another project has; and with a [*ControlLimitError] a
+// schema another project has; and with a [*ControlLimitError] a
 // project past ControlLimits.Projects.
 func (c *Control) AddProject(ctx context.Context, actor Actor, in NewProject) (Project, error) {
 	if err := in.validate(); err != nil {
@@ -130,7 +161,7 @@ func (c *Control) AddProject(ctx context.Context, actor Actor, in NewProject) (P
 		cur, err := readProject(ctx, w.tx, in.ID)
 		switch {
 		case err == nil:
-			if cur.Name != in.Name || cur.Prefix != in.Prefix || cur.Account != in.Account || cur.DBName != in.DBName {
+			if cur.Name != in.Name || cur.Prefix != in.Prefix || cur.Account != in.Account || cur.Schema != in.Schema {
 				return &TakenError{Kind: TakenProjectID, Value: in.ID}
 			}
 			out = cur
@@ -144,7 +175,7 @@ func (c *Control) AddProject(ctx context.Context, actor Actor, in NewProject) (P
 			value string
 		}{
 			{TakenProjectName, `SELECT COUNT(*) FROM projects WHERE name = $1`, in.Name},
-			{TakenDBName, `SELECT COUNT(*) FROM projects WHERE db_name = $1`, in.DBName},
+			{TakenSchema, `SELECT COUNT(*) FROM projects WHERE schema_name = $1`, in.Schema},
 		} {
 			var n int
 			if err := w.tx.QueryRowContext(ctx, u.query, u.value).Scan(&n); err != nil {
@@ -157,12 +188,12 @@ func (c *Control) AddProject(ctx context.Context, actor Actor, in NewProject) (P
 		if err := w.room(ctx, limitProjects, w.lim.Projects, `SELECT COUNT(*) FROM projects`); err != nil {
 			return err
 		}
-		out = Project{ID: in.ID, Name: in.Name, Prefix: in.Prefix, Account: in.Account, DBName: in.DBName,
+		out = Project{ID: in.ID, Name: in.Name, Prefix: in.Prefix, Account: in.Account, Schema: in.Schema,
 			State: ProjectCreating, CreatedBy: w.actor.Principal, CreatedAt: w.now, UpdatedAt: w.now, Rev: 1}
 		if _, err := w.exec(ctx, `INSERT INTO projects
-  (id, name, prefix, account, db_name, state, created_by, created_at, updated_at, rev)
+  (id, name, prefix, account, schema_name, state, created_by, created_at, updated_at, rev)
   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1)`,
-			out.ID, out.Name, out.Prefix, out.Account, out.DBName, string(out.State), out.CreatedBy, w.now, w.now); err != nil {
+			out.ID, out.Name, out.Prefix, out.Account, out.Schema, string(out.State), out.CreatedBy, w.now, w.now); err != nil {
 			return fmt.Errorf("add project %s: %w", in.ID, err)
 		}
 		added := out
@@ -175,7 +206,7 @@ func (c *Control) AddProject(ctx context.Context, actor Actor, in NewProject) (P
 	return out, nil
 }
 
-// ActivateProject marks a project active: once its database is created
+// ActivateProject marks a project active: once its schema is created
 // and migrated, or again after it was archived (decision 18), which the
 // event's before state shows. Only a server admin may. A project already
 // active is returned as it is, so creating one can be run again.
@@ -184,7 +215,7 @@ func (c *Control) ActivateProject(ctx context.Context, actor Actor, id string) (
 }
 
 // ArchiveProject marks a project archived, whether it was active or
-// never finished being created. Only a server admin may. Its database,
+// never finished being created. Only a server admin may. Its schema,
 // members and name are kept. A project already archived is returned as
 // it is.
 func (c *Control) ArchiveProject(ctx context.Context, actor Actor, id string) (Project, error) {
@@ -259,11 +290,11 @@ func (c *Control) Projects(ctx context.Context) ([]Project, error) {
 	return out, nil
 }
 
-const projectSelect = `SELECT id, name, prefix, account, db_name, state, created_by, created_at, updated_at, rev FROM projects`
+const projectSelect = `SELECT id, name, prefix, account, schema_name, state, created_by, created_at, updated_at, rev FROM projects`
 
 func scanProject(r scanner) (Project, error) {
 	var p Project
-	if err := r.Scan(&p.ID, &p.Name, &p.Prefix, &p.Account, &p.DBName, &p.State, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt, &p.Rev); err != nil {
+	if err := r.Scan(&p.ID, &p.Name, &p.Prefix, &p.Account, &p.Schema, &p.State, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt, &p.Rev); err != nil {
 		return Project{}, err
 	}
 	p.CreatedAt, p.UpdatedAt = p.CreatedAt.UTC(), p.UpdatedAt.UTC()

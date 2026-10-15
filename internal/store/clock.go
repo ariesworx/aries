@@ -104,7 +104,7 @@ type Clock struct {
 	forward time.Duration
 	steps   ClockSteps
 	// settled is, for each database a store of the process has had open
-	// (Store.db), how much of forward that store had given its leases
+	// (Store.clockName), how much of forward that store had given its leases
 	// when it last settled, or opened (open). A store that opens the
 	// database again goes on from there: the process knows what it
 	// settled, and the times in the database's log cannot say, since a
@@ -408,7 +408,7 @@ func (s *Store) initTime(ctx context.Context) error {
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("read the latest event's time: %w", err)
 	}
-	r, settled := s.clock.open(s.db, mark.Valid)
+	r, settled := s.clock.open(s.clockName, mark.Valid)
 	t := &s.tm
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -492,7 +492,7 @@ func (s *Store) SettleClock(ctx context.Context) error {
 	t.settled = v.forward
 	t.slack = max(0, t.slack-jump)
 	t.mu.Unlock()
-	s.clock.setSettled(s.db, v.forward)
+	s.clock.setSettled(s.clockName, v.forward)
 	s.opts.Logger.Warn("clock step settled", "event", logs.ClockStepSettled, "step", v.pending.String(), "from", v.at, "to", after,
 		"extended", extend.String(), "claims", n, "locks", locks)
 	return nil

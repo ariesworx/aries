@@ -37,9 +37,12 @@ func osEnv() adminEnv {
 
 // openAdminStore resolves the daemon's settings and opens its store
 // directly, as the admin commands run on the server beside the daemon.
-// On a server of many projects (control_db) it opens the store of
-// project, or of the config file's project when project is empty.
-func openAdminStore(ctx context.Context, env adminEnv, fl server.Settings, cfgPath, project string) (*store.Store, error) {
+// On a server of many projects (control_schema) it opens the store of
+// project, or of the config file's project when project is empty. A
+// store opened to read only takes no writer's lock, and so opens while
+// the daemon serves the project; one to write is refused then, with a
+// fix that says to stop the daemon first.
+func openAdminStore(ctx context.Context, env adminEnv, fl server.Settings, cfgPath, project string, readOnly bool) (*store.Store, error) {
 	s, err := server.ResolveSettings(fl, cfgPath, env.getenv)
 	if err != nil {
 		return nil, err
@@ -49,22 +52,34 @@ func openAdminStore(ctx context.Context, env adminEnv, fl server.Settings, cfgPa
 	}
 	dsn, prefix := s.DSN, s.Prefix
 	switch {
-	case s.ControlDB != "":
+	case s.ControlSchema != "":
 		p, err := adminProject(ctx, s, project)
 		if err != nil {
 			return nil, err
 		}
-		if dsn, err = server.SchemaDSN(s.DSN, p.DBName); err != nil {
+		if dsn, err = store.SchemaDSN(s.DSN, p.Schema); err != nil {
 			return nil, err
 		}
 		prefix = p.Prefix
 	case project != "":
-		return nil, usageError("--project picks one project of a server of many; this server has no control_db and holds the one in its DSN")
+		return nil, usageError("--project picks one project of a server of many; this server has no control_schema and holds the one in its DSN")
 	}
-	st, err := store.Open(ctx, dsn, store.Options{Prefix: prefix, AllowUnsafeAccount: s.AllowUnsafeAccount,
-		Limits: s.Limits.Limits})
+	opts := store.Options{Prefix: prefix, AllowUnsafeAccount: s.AllowUnsafeAccount, Limits: s.Limits.Limits, ReadOnly: readOnly}
+	st, err := store.Open(ctx, dsn, opts)
+	if readOnly && errors.Is(err, store.ErrSchemaOld) {
+		// A schema behind this binary is one no daemon of this version
+		// serves, since serving migrates it: opened to write, it is
+		// migrated first, as the daemon would, and a daemon of an older
+		// version still serving it refuses the open with its lock.
+		opts.ReadOnly = false
+		st, err = store.Open(ctx, dsn, opts)
+	}
 	if _, ok := errors.AsType[*store.UnsafeAccountError](err); ok {
 		return nil, fmt.Errorf("open store: %w", err) // it names its own fix
+	}
+	if se, ok := errors.AsType[*store.ServedError](err); ok {
+		return nil, fmt.Errorf("open store: schema %s is being written by another process, most likely the running ariesd; "+
+			"fix: stop ariesd (sudo systemctl stop ariesd), run this again, then start it (export-bd and import-bd --dry-run only read, and run beside it)", se.Schema)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("open store: %w; fix: check the DSN and that Postgres is running", err)
@@ -83,7 +98,7 @@ func adminProject(ctx context.Context, s server.Settings, id string) (store.Proj
 	if id == "" {
 		return store.Project{}, errors.New("no project; fix: name one with --project UUID, or set project: in the config file")
 	}
-	ctl, err := openControl(ctx, s, store.ControlOptions{})
+	ctl, err := openControl(ctx, s, nil, store.ControlOptions{ReadOnly: true})
 	if err != nil {
 		return store.Project{}, err
 	}
@@ -172,7 +187,7 @@ func importBD(ctx context.Context, env adminEnv, args []string) (err error) {
 	}
 	actor := store.Actor{Principal: principal, Session: "import-bd-" + time.Now().UTC().Format("20060102T150405Z"), Machine: host}
 
-	st, err := openAdminStore(ctx, env, fl, cfgPath, project)
+	st, err := openAdminStore(ctx, env, fl, cfgPath, project, dryRun)
 	if err != nil {
 		return err
 	}
@@ -218,7 +233,7 @@ func exportBD(ctx context.Context, env adminEnv, args []string) (err error) {
 	if fs.NArg() > 0 {
 		return usageError("export-bd takes no arguments; use -o FILE")
 	}
-	st, err := openAdminStore(ctx, env, fl, cfgPath, project)
+	st, err := openAdminStore(ctx, env, fl, cfgPath, project, true)
 	if err != nil {
 		return err
 	}

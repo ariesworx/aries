@@ -95,7 +95,7 @@ func BenchmarkControlIndex(b *testing.B) {
 				})
 			})
 			grew("project", projects, func() {
-				plantControl(b, c, `INSERT INTO projects (id, name, prefix, account, db_name, state, created_by, created_at, updated_at, rev) VALUES `,
+				plantControl(b, c, `INSERT INTO projects (id, name, prefix, account, schema_name, state, created_by, created_at, updated_at, rev) VALUES `,
 					projects, func(p *params, i int) string {
 						return "(" + p.add(fmt.Sprintf("00000000-0000-4000-8000-%012d", i), fmt.Sprintf("project-%03d", i), fmt.Sprintf("p%d", i)) +
 							", 'acct', " + p.add(fmt.Sprintf("aries_p%03d", i)) + ", 'archived', 'dana', " + p.add(now, now) + ", 1)"

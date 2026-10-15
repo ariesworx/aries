@@ -135,9 +135,6 @@ type world struct {
 	// which tests add projects and members until `aries admin` can.
 	controlDSN string
 	ctl        *store.Control
-	// block is the daemon's block of database names for new projects
-	// (daemonOpts.dbs).
-	block server.ProjectDBs
 	// acceptHistory is the next daemon's --accept-clock-behind: the
 	// history it may start behind (server.Config.AcceptHistory). The
 	// caller holds daemonMu.
@@ -176,11 +173,6 @@ type daemonOpts struct {
 	// whose server admins are admins. No one else may connect until a
 	// test makes them a member.
 	many bool
-	// dbs is how many schema names the daemon may take for new projects
-	// (world.block), of which the first usable are free: the superuser
-	// makes each one past them a schema first, which the daemon's role
-	// may then not use. Zero is no block.
-	dbs, usable int
 	// keys makes the daemon write its keys file and the SSH server read
 	// it, as an sshd does whose AuthorizedKeysFile names that file and
 	// then the hand-kept authorized_keys (world.keys), the order of
@@ -280,24 +272,34 @@ func (w *world) startDaemon() error {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	clk := w.processClock()
-	st, err := store.Open(ctx, w.dsn, store.Options{Prefix: "sf", Now: o.now, Clock: clk, Admins: o.admins,
-		Limits: o.limits.Limits, Logger: o.logger, IdemWindow: time.Duration(o.limits.IdemWindow), AwayMax: time.Duration(o.limits.AwayMax),
-		Observer: server.StoreObserver(o.telemetry, project), Tracer: server.StoreTracer(o.telemetry, project)})
+	db, err := w.openDB(ctx)
 	if err != nil {
 		cancel()
 		return err
 	}
-	srv, err := server.New(server.Config{Store: st, Project: project, Version: "v0.2.0",
+	d, err := store.ParseDSN(w.dsn)
+	if err != nil {
+		cancel()
+		return errors.Join(err, db.Close())
+	}
+	st, err := db.Open(ctx, d.Schema, store.Options{Prefix: "sf", Now: o.now, Clock: clk, Admins: o.admins,
+		Limits: o.limits.Limits, Logger: o.logger, IdemWindow: time.Duration(o.limits.IdemWindow), AwayMax: time.Duration(o.limits.AwayMax),
+		Observer: server.StoreObserver(o.telemetry, project), Tracer: server.StoreTracer(o.telemetry, project)})
+	if err != nil {
+		cancel()
+		return errors.Join(err, db.Close())
+	}
+	srv, err := server.New(server.Config{Store: st, Project: project, Version: "v0.2.0", Postgres: db,
 		ProtoMin: o.protoMin, ProtoMax: o.protoMax, ReapInterval: o.reap, Limits: o.limits,
 		Logger: o.logger, Clock: clk, AcceptHistory: w.acceptHistory, Telemetry: o.telemetry})
 	if err != nil {
 		cancel()
-		return errors.Join(err, st.Close())
+		return errors.Join(err, st.Close(), db.Close())
 	}
 	l, err := server.Listen(w.socket)
 	if err != nil {
 		cancel()
-		return errors.Join(err, st.Close())
+		return errors.Join(err, st.Close(), db.Close())
 	}
 	done := make(chan error, 1)
 	go func() { done <- srv.Serve(ctx, l) }()
@@ -306,11 +308,17 @@ func (w *world) startDaemon() error {
 		if err := <-done; err != nil {
 			w.t.Errorf("serve: %v", err)
 		}
-		if err := st.Close(); err != nil {
+		if err := errors.Join(st.Close(), db.Close()); err != nil {
 			w.t.Errorf("close store: %v", err)
 		}
 	}
 	return nil
+}
+
+// openDB opens the pool a daemon opens on the world's database, sized by
+// its limits, as `ariesd serve` does.
+func (w *world) openDB(ctx context.Context) (*store.DB, error) {
+	return store.OpenDB(ctx, w.dsn, store.DBOptions{Conns: w.opts.limits.WithDefaults().DBConns})
 }
 
 // processClock returns the clock of a daemon about to start: a new
@@ -323,12 +331,16 @@ func (w *world) processClock() *store.Clock {
 	return store.NewClock(store.ClockOptions{Read: w.opts.clock})
 }
 
+// controlSchema is the schema of a server of many projects' control
+// store, beside the world's own.
+const controlSchema = "aries_control"
+
 // adopt makes the control store, in a schema beside the world's, and
 // records the world's schema in it as project, as the operator's
 // `ariesd control init` does before the daemon first serves many
 // projects.
 func (w *world) adopt(ctx context.Context) error {
-	dsn, err := store.SchemaDSN(w.dsn, "aries_control")
+	dsn, err := store.SchemaDSN(w.dsn, controlSchema)
 	if err != nil {
 		return err
 	}
@@ -342,7 +354,7 @@ func (w *world) adopt(ctx context.Context) error {
 	}
 	operator := store.Actor{Principal: store.OperatorPrincipal, Session: "e2e", Machine: "server"}
 	_, err = ctl.AddProject(ctx, operator, store.NewProject{ID: project, Name: "first", Prefix: "sf", Account: "internal",
-		DBName: d.Schema})
+		Schema: d.Schema})
 	if err == nil {
 		_, err = ctl.ActivateProject(ctx, operator, project)
 	}
@@ -350,14 +362,6 @@ func (w *world) adopt(ctx context.Context) error {
 		return err
 	}
 	w.controlDSN = dsn
-	if w.opts.dbs > 0 {
-		w.block = server.ProjectDBs{Prefix: "aries_p", Count: w.opts.dbs}
-		for i := w.opts.usable + 1; i <= w.opts.dbs; i++ {
-			if err := w.asSuperuser(ctx, "CREATE SCHEMA "+w.block.Name(i)); err != nil {
-				return err
-			}
-		}
-	}
 	return nil
 }
 
@@ -394,18 +398,23 @@ func (w *world) startMany() error {
 		}
 	}
 	clk := w.processClock()
-	ctl, err := store.OpenControl(ctx, w.controlDSN, store.ControlOptions{Admins: o.admins, Now: o.now, Clock: clk,
-		Limits: o.limits.Control, Logger: o.logger, Tracer: server.StoreTracer(o.telemetry, "")})
+	db, err := w.openDB(ctx)
 	if err != nil {
 		cancel()
 		return err
 	}
+	ctl, err := db.OpenControl(ctx, controlSchema, store.ControlOptions{Admins: o.admins, Now: o.now, Clock: clk,
+		Limits: o.limits.Control, Logger: o.logger, Tracer: server.StoreTracer(o.telemetry, "")})
+	if err != nil {
+		cancel()
+		return errors.Join(err, db.Close())
+	}
 	fail := func(err error) error {
 		cancel()
-		return errors.Join(err, ctl.Close())
+		return errors.Join(err, ctl.Close(), db.Close())
 	}
-	srv, err := server.New(server.Config{Control: ctl, Version: "v0.2.0", ProjectDBs: w.block,
-		Open:     server.ProjectOpener(w.dsn, ctl, store.Options{Now: o.now, Clock: clk, Limits: o.limits.Limits, Logger: o.logger, IdemWindow: time.Duration(o.limits.IdemWindow), AwayMax: time.Duration(o.limits.AwayMax)}, o.telemetry),
+	srv, err := server.New(server.Config{Control: ctl, Version: "v0.2.0", Postgres: db,
+		Open:     server.ProjectOpener(db, ctl, store.Options{Now: o.now, Clock: clk, Limits: o.limits.Limits, Logger: o.logger, IdemWindow: time.Duration(o.limits.IdemWindow), AwayMax: time.Duration(o.limits.AwayMax)}, o.telemetry),
 		ProtoMin: o.protoMin, ProtoMax: o.protoMax, ReapInterval: o.reap, Limits: o.limits, Logger: o.logger,
 		KeysFile: w.keysFile, AuthorizedKeys: w.handFile, Clock: clk, AcceptHistory: w.acceptHistory, Telemetry: o.telemetry})
 	if err != nil {
@@ -421,7 +430,7 @@ func (w *world) startMany() error {
 	if err := srv.OpenProjects(ctx); err != nil {
 		return fail(err)
 	}
-	if err := srv.ReleaseArchived(ctx, server.ProjectOpener(w.dsn, ctl,
+	if err := srv.ReleaseArchived(ctx, server.ProjectOpener(db, ctl,
 		store.Options{Now: o.now, Clock: clk, Limits: o.limits.Limits, Logger: o.logger, NoMigrate: true}, o.telemetry)); err != nil {
 		return fail(err)
 	}
@@ -437,7 +446,7 @@ func (w *world) startMany() error {
 		if err := <-done; err != nil {
 			w.t.Errorf("serve: %v", err)
 		}
-		if err := ctl.Close(); err != nil {
+		if err := errors.Join(ctl.Close(), db.Close()); err != nil {
 			w.t.Errorf("close control store: %v", err)
 		}
 	}

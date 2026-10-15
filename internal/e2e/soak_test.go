@@ -315,7 +315,7 @@ func newSoak(t *testing.T, cfg soakConfig) *soak {
 	}
 	s.w = newWorld(t, daemonOpts{now: clock.now, clock: clock.read, reap: 100 * time.Millisecond,
 		admins: []string{cfg.admin, cfg.root}, limits: cfg.limits, logger: slog.New(s.logs), telemetry: s.tel.tel,
-		many: true, keys: true, dbs: 4, usable: 4})
+		many: true, keys: true})
 	// Before anything connects: the stores the setup opens close again.
 	s.baseline, s.connBase = runtime.NumGoroutine(), connGoroutines()
 	s.setup()

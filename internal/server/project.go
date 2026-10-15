@@ -2,10 +2,7 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
-	"strconv"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -19,11 +16,11 @@ import (
 // (Config.Store) has one for its whole life; a server of many
 // (Config.Control) has one for each store its registry holds open.
 type served struct {
-	// id is the project's UUID, and db its database's name, which a
-	// server of one project is not told.
-	id, db  string
-	store   Store
-	account string
+	// id is the project's UUID, and schema the schema that holds it,
+	// which a server of one project is not told.
+	id, schema string
+	store      Store
+	account    string
 	// log is the daemon's logger, naming the project when the server
 	// holds many.
 	log *slog.Logger
@@ -81,94 +78,24 @@ func (pr *served) prune(ctx context.Context, lim Limits) {
 	}
 }
 
-// SchemaDSN returns dsn with its schema replaced by name: another schema
-// in the same database, as the same role ([store.SchemaDSN]). A server
-// of many projects reaches its control store and each project's this
-// way, from the one dsn it is configured with. name must be a
-// [store.ValidDBName], since it comes from settings or from the control
-// store and never from a client.
-func SchemaDSN(dsn, name string) (string, error) { return store.SchemaDSN(dsn, name) }
-
-// ProjectOpener returns a Config.Open for a daemon configured with dsn:
-// it opens a project's store on the project's own schema ([SchemaDSN]),
-// with opts, the project's prefix, and admins that
-// follow ctl as it changes: a server admin, or an active principal whose
-// role in the project is admin (design §15.3). Each store is measured
-// and traced by tel ([StoreObserver], [StoreTracer]), which may be nil.
-func ProjectOpener(dsn string, ctl Index, opts store.Options, tel *telemetry.Telemetry) func(context.Context, store.Project) (Store, error) {
+// ProjectOpener returns a Config.Open for a daemon whose database db
+// holds its projects' schemas: it opens a project's store on the
+// project's schema, from db's one pool, with opts, the project's prefix,
+// and admins that follow ctl as it changes: a server admin, or an active
+// principal whose role in the project is admin (design §15.3). Each
+// store is measured and traced by tel ([StoreObserver], [StoreTracer]),
+// which may be nil.
+func ProjectOpener(db *store.DB, ctl Index, opts store.Options, tel *telemetry.Telemetry) func(context.Context, store.Project) (Store, error) {
 	return func(ctx context.Context, p store.Project) (Store, error) {
-		d, err := SchemaDSN(dsn, p.DBName)
-		if err != nil {
-			return nil, err
-		}
 		o := opts
 		o.Prefix = p.Prefix
 		o.IsAdmin = func(principal string) bool { return ctl.Access(principal, p.ID).Role == store.RoleAdmin }
 		o.Observer = StoreObserver(tel, p.ID)
 		o.Tracer = StoreTracer(tel, p.ID)
-		st, err := store.Open(ctx, d, o)
+		st, err := db.Open(ctx, p.Schema, o)
 		if err != nil {
 			return nil, err // not a nil *store.Store in a Store that is not nil
 		}
 		return st, nil
 	}
-}
-
-// ProjectDBs is the block of schema names the operator set aside for
-// new projects (design §15.5, 1, decision 16): Prefix followed by a
-// number of three digits, from 001 to Count, so {aries_p, 100} is
-// aries_p001 to aries_p100. The zero value is no block: `aries admin
-// project add` is then refused. (Each name was once a database the
-// operator granted by name; with a schema each, which ariesd's role
-// makes itself, the block is kept until the daemon names schemas on
-// its own.)
-type ProjectDBs struct {
-	// Prefix starts each name: a lowercase letter, then lowercase
-	// letters, digits and underscores.
-	Prefix string `yaml:"prefix"`
-	// Count is how many names the block holds, at most MaxProjectDBs.
-	Count int `yaml:"count"`
-}
-
-// MaxProjectDBs is the most names a block may hold: what three digits
-// number.
-const MaxProjectDBs = 999
-
-// Name returns the block's i-th name, counting from 1.
-func (b ProjectDBs) Name(i int) string { return fmt.Sprintf("%s%03d", b.Prefix, i) }
-
-// Validate refuses a block whose names would not be schema names, or
-// that holds no name or more than MaxProjectDBs. The zero value is
-// valid.
-func (b ProjectDBs) Validate() error {
-	switch {
-	case b == ProjectDBs{}:
-		return nil
-	case !store.ValidDBName(b.Name(MaxProjectDBs)):
-		return fmt.Errorf("project_dbs prefix %q does not start a schema name; fix: set it to a lowercase letter, then lowercase letters, digits and underscores, at most 60, not starting pg_, such as aries_p", b.Prefix)
-	case b.Count < 1 || b.Count > MaxProjectDBs:
-		return fmt.Errorf("project_dbs count %d must be 1 to %d; fix: set it to how many projects the server may create", b.Count, MaxProjectDBs)
-	}
-	return nil
-}
-
-// holds reports whether name is one of the block's names.
-func (b ProjectDBs) holds(name string) bool {
-	num, ok := strings.CutPrefix(name, b.Prefix)
-	if !ok || b.Prefix == "" || len(num) != 3 {
-		return false
-	}
-	n, err := strconv.Atoi(num)
-	return err == nil && n >= 1 && n <= b.Count
-}
-
-// free returns the block's lowest name that is not in used, or false
-// when every name is.
-func (b ProjectDBs) free(used map[string]bool) (string, bool) {
-	for i := 1; i <= b.Count; i++ {
-		if n := b.Name(i); !used[n] {
-			return n, true
-		}
-	}
-	return "", false
 }

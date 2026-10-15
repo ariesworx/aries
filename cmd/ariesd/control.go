@@ -34,27 +34,39 @@ func controlCmd(ctx context.Context, env adminEnv, args []string) error {
 }
 
 // openControl opens the control store's schema s names, which must name
-// one. A failure names the SQL that creates the database, owned by
-// ariesd's role, since the usual cause is that nobody has yet.
-func openControl(ctx context.Context, s server.Settings, opts store.ControlOptions) (*store.Control, error) {
-	dsn, err := s.ControlDSN()
-	if err != nil {
-		return nil, err
-	}
+// one: from db, the daemon's pool, or with a pool of its own when db is
+// nil, as a command that opens only the control store does. A failure
+// names the SQL that creates the database, owned by ariesd's role, since
+// the usual cause is that nobody has yet.
+func openControl(ctx context.Context, s server.Settings, db *store.DB, opts store.ControlOptions) (*store.Control, error) {
 	opts.Admins, opts.Limits, opts.AllowUnsafeAccount = s.Admins, s.Limits.Control, s.AllowUnsafeAccount
-	ctl, err := store.OpenControl(ctx, dsn, opts)
+	var ctl *store.Control
+	var err error
+	if db != nil {
+		ctl, err = db.OpenControl(ctx, s.ControlSchema, opts)
+	} else {
+		var dsn string
+		if dsn, err = s.ControlDSN(); err != nil {
+			return nil, err
+		}
+		ctl, err = store.OpenControl(ctx, dsn, opts)
+	}
 	_, unsafe := errors.AsType[*store.UnsafeAccountError](err)
 	_, old := errors.AsType[*store.ServerVersionError](err)
+	_, served := errors.AsType[*store.ServedError](err)
 	switch {
-	case unsafe || old || store.DatabaseDenied(err):
+	case served:
+		return nil, fmt.Errorf("the control store %s is served by another ariesd on this database; fix: stop that ariesd first, or give this one a control_schema: of its own",
+			s.ControlSchema)
+	case unsafe || old || store.SchemaDenied(err):
 		return nil, fmt.Errorf("open the control store: %w", err) // it names its own fix
 	case errors.Is(err, store.ErrInvalid) || errors.Is(err, store.ErrSchemaTooNew):
-		return nil, fmt.Errorf("open the control store %s: %w; fix: check control_db:, run `ariesd control init` once to make the control store, and check that this ariesd is the newest that has run here",
-			s.ControlDB, err)
+		return nil, fmt.Errorf("open the control store %s: %w; fix: check control_schema:, run `ariesd control init` once to make the control store, and check that this ariesd is the newest that has run here",
+			s.ControlSchema, err)
 	case err != nil:
 		return nil, fmt.Errorf("open the control store %s: %w; fix: check that Postgres is running and the DSN's database exists; as a superuser, create it owned by ariesd's role: "+
 			"%s (docs/server.md, Serving many projects)",
-			s.ControlDB, err, store.CreateDatabaseSQL(s.DSN))
+			s.ControlSchema, err, store.CreateDatabaseSQL(s.DSN))
 	}
 	return ctl, nil
 }
@@ -198,8 +210,8 @@ func controlInit(ctx context.Context, env adminEnv, args []string) (err error) {
 	switch {
 	case s.DSN == "":
 		return errors.New("no database DSN; fix: set $ARIESD_DSN or dsn: in the config file")
-	case s.ControlDB == "":
-		return fmt.Errorf("no control store; fix: set control_db: in the config file or $%s, to a schema of its own such as aries_control", server.EnvControlDB)
+	case s.ControlSchema == "":
+		return fmt.Errorf("no control store; fix: set control_schema: in the config file or $%s, to a schema of its own such as aries_control", server.EnvControlSchema)
 	case s.Project == "":
 		return errors.New("no project to adopt; fix: set project: in the config file to the UUID this server serves")
 	}
@@ -207,7 +219,7 @@ func controlInit(ctx context.Context, env adminEnv, args []string) (err error) {
 	if err != nil {
 		return fmt.Errorf("dsn: %w", err)
 	}
-	if !store.ValidDBName(dsn.Schema) {
+	if !store.ValidSchemaName(dsn.Schema) {
 		return fmt.Errorf("schema %q the DSN names cannot be a project's: a project's schema is named with a lowercase letter, then lowercase letters, digits and underscores; "+
 			"fix: rename the schema so (ALTER SCHEMA ... RENAME TO ...) and name it in the DSN's search_path", dsn.Schema)
 	}
@@ -217,7 +229,7 @@ func controlInit(ctx context.Context, env adminEnv, args []string) (err error) {
 		return fmt.Errorf("read authorized_keys: %w; fix: give the file sshd reads for the aries account with --authorized-keys FILE", err)
 	}
 
-	ctl, err := openControl(ctx, s, store.ControlOptions{Operator: true})
+	ctl, err := openControl(ctx, s, nil, store.ControlOptions{Operator: true})
 	if err != nil {
 		return err
 	}
@@ -229,7 +241,7 @@ func controlInit(ctx context.Context, env adminEnv, args []string) (err error) {
 	}
 	actor := store.Actor{Principal: store.OperatorPrincipal, Session: "control-init-" + time.Now().UTC().Format("20060102T150405Z"), Machine: host}
 
-	p, err := ctl.AddProject(ctx, actor, store.NewProject{ID: s.Project, Name: name, Prefix: s.Prefix, Account: s.Account, DBName: dsn.Schema})
+	p, err := ctl.AddProject(ctx, actor, store.NewProject{ID: s.Project, Name: name, Prefix: s.Prefix, Account: s.Account, Schema: dsn.Schema})
 	if _, taken := errors.AsType[*store.TakenError](err); taken {
 		return fmt.Errorf("adopt project %s: %w; fix: an adopted project keeps its name, prefix, account and database, so give the --name it was adopted with and leave prefix:, account: and dsn: as they were",
 			s.Project, err)
@@ -255,7 +267,7 @@ func controlInit(ctx context.Context, env adminEnv, args []string) (err error) {
 		_, _ = fmt.Fprintf(env.stderr, "authorized_keys %s\n", note)
 	}
 	keys := imp.keys
-	_, _ = fmt.Fprintf(env.stdout, "project %s (%s) adopted from schema %s: %s\n", p.Name, p.ID, p.DBName, p.State)
+	_, _ = fmt.Fprintf(env.stdout, "project %s (%s) adopted from schema %s: %s\n", p.Name, p.ID, p.Schema, p.State)
 	_, _ = fmt.Fprintf(env.stdout, "principals: %s; keys: %s; members: %s; %d lines skipped\n", imp.principals, keys, imp.members, imp.skipped)
 	if k := imp.kept; k.any() {
 		_, _ = fmt.Fprintf(env.stdout, "left as admins set them: %s removed, %s removed, %s disabled; to put them back from this file, run it again with --restore-removed-access\n",

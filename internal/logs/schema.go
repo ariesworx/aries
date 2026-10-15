@@ -122,7 +122,7 @@ var keys = map[string]Kind{
 	"machine": KindLocal, "harness": KindLocal, "after": KindWord, "oldest": KindWord, "connections": KindWord, "own": KindWord,
 	"lines": KindWord, "per_minute": KindWord,
 	// A project and its store.
-	"name": KindLocal, "database": KindLocal, "resumed": KindWord, "agents": KindWord, "inbox": KindWord, "account": KindLocal, "problems": KindLocal,
+	"name": KindLocal, "schema": KindLocal, "resumed": KindWord, "agents": KindWord, "inbox": KindWord, "account": KindLocal, "problems": KindLocal,
 	// The keys file.
 	"path": KindLocal, "keys": KindWord,
 	// The clock.
@@ -134,7 +134,7 @@ var keys = map[string]Kind{
 	// The check of the database, and how often things are done.
 	"url": KindLocal, "failures": KindWord, "after_failures": KindWord, "every": KindWord,
 	// The daemon's start, and the admins its config file names.
-	"version": KindLocal, "socket": KindLocal, "control_db": KindLocal, "projects": KindWord, "admins": KindLocal, "addr": KindLocal,
+	"version": KindLocal, "socket": KindLocal, "control_schema": KindLocal, "projects": KindWord, "admins": KindLocal, "addr": KindLocal,
 	"admin": KindPrincipal, "created_by": KindPrincipal, "added_by": KindPrincipal,
 	// Telemetry.
 	"push": KindLocal, "push_interval": KindWord, "push_headers": KindWord, "pull": KindWord, "per_project": KindWord, "traces": KindLocal,

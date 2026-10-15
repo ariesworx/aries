@@ -23,7 +23,6 @@ import (
 	"github.com/ariesworx/aries/internal/client"
 	"github.com/ariesworx/aries/internal/mcpserver"
 	"github.com/ariesworx/aries/internal/proto"
-	"github.com/ariesworx/aries/internal/server"
 	"github.com/ariesworx/aries/internal/store"
 )
 
@@ -90,7 +89,7 @@ func (s *soak) setup() {
 	add := func(name, prefix string) *sproj {
 		var res proto.ProjectAddResult
 		call(proto.OpProjectAdd, proto.ProjectAddArgs{Name: name, Prefix: prefix}, &res)
-		dsn, err := server.SchemaDSN(s.w.dsn, res.Database)
+		dsn, err := store.SchemaDSN(s.w.dsn, res.Schema)
 		if err != nil {
 			t.Fatalf("soak setup: %v", err)
 		}

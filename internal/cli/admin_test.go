@@ -82,11 +82,11 @@ func TestPrintAdminLists(t *testing.T) {
 	}{
 		{"projects, for a server admin", func(w *bytes.Buffer) {
 			printProjects(w, proto.ProjectsResult{Projects: []proto.Project{
-				{ID: a, Name: "acme", Prefix: "sf", Account: "internal", State: "active", Database: "aries", CreatedBy: "import"},
-				{ID: b, Name: "web", Prefix: "web", Account: "acme-2026", State: "archived", Database: "aries_p001", CreatedBy: "dana"}}, More: 3})
+				{ID: a, Name: "acme", Prefix: "sf", Account: "internal", State: "active", Schema: "aries", CreatedBy: "import"},
+				{ID: b, Name: "web", Prefix: "web", Account: "acme-2026", State: "archived", Schema: "project_web", CreatedBy: "dana"}}, More: 3})
 		}, "NAME  ID                                    PREFIX  ACCOUNT    STATE     SCHEMA\n" +
 			"acme  " + a + "  sf      internal   active    aries\n" +
-			"web   " + b + "  web     acme-2026  archived  aries_p001\n" +
+			"web   " + b + "  web     acme-2026  archived  project_web\n" +
 			"and 3 more; list them with --after web\n"},
 		{"projects, for a member", func(w *bytes.Buffer) {
 			printProjects(w, proto.ProjectsResult{Projects: []proto.Project{{ID: a, Name: "acme", Prefix: "sf", Account: "internal", State: "active", Role: "member"}}})

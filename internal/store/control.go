@@ -61,8 +61,13 @@ type ControlOptions struct {
 	// by [OperatorPrincipal] are allowed as a server admin's are, and
 	// [OpenControl] makes the schema the DSN names if it does not exist. The
 	// daemon never sets it, so no connection gains anything from the
-	// name, which is reserved besides.
+	// name, which is reserved besides. Such a store takes no writer's
+	// lock, so that it may run beside the daemon (fence.go).
 	Operator bool
+	// ReadOnly opens the control store to read it beside the daemon, as
+	// [Options.ReadOnly] does a project's: no writer's lock, no
+	// migration, and every write refused with [ErrReadOnly].
+	ReadOnly bool
 }
 
 // Control is the server's control store: projects, principals, their
@@ -129,9 +134,36 @@ func OpenControl(ctx context.Context, dsn string, opts ControlOptions) (*Control
 	if err := opts.Limits.Validate(); err != nil {
 		return nil, err
 	}
-	s, err := open(ctx, dsn, Options{
+	var c *Control
+	_, err := openOwn(ctx, dsn, max(opts.Readers, DefaultReaders)+1, func(db *DB, schema string) (*Store, error) {
+		var err error
+		c, err = db.openControl(ctx, schema, opts)
+		if err != nil {
+			return nil, err
+		}
+		return c.s, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// OpenControl opens the control store in schema, on db's connections, as
+// the package's OpenControl does for the schema of a DSN, and refuses
+// what that refuses. The caller must Close it before db.
+func (db *DB) OpenControl(ctx context.Context, schema string, opts ControlOptions) (*Control, error) {
+	if err := opts.Limits.Validate(); err != nil {
+		return nil, err
+	}
+	return db.openControl(ctx, schema, opts)
+}
+
+// openControl is DB.OpenControl, with opts' limits checked.
+func (db *DB) openControl(ctx context.Context, schema string, opts ControlOptions) (*Control, error) {
+	s, err := db.open(ctx, schema, Options{
 		Admins: opts.Admins, Now: opts.Now, Clock: opts.Clock, Logger: opts.Logger, AllowUnsafeAccount: opts.AllowUnsafeAccount,
-		MaxAttempts: opts.MaxAttempts, Readers: opts.Readers, Tracer: opts.Tracer,
+		MaxAttempts: opts.MaxAttempts, Readers: opts.Readers, Tracer: opts.Tracer, ReadOnly: opts.ReadOnly,
 	}, controlSchema, opts.Operator)
 	if err != nil {
 		return nil, err
