@@ -1,0 +1,580 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"slices"
+	"time"
+
+	"github.com/ariesworx/starfix/internal/proto"
+)
+
+// Claims (design §7). Taking an issue leases it to the actor: the holder
+// is the (principal, session, machine) that took it, and the lease runs
+// out at ExpiresAt unless renewed. Each take of an issue by a new holder
+// raises its epoch, and a finish or release that names an older epoch is
+// refused, so a session that lost its claim cannot close work another has
+// since taken.
+//
+// A principal may take over its own claim from another session, but only
+// when it asks to (StartIssue's take): a person who restarts their agent
+// should not wait out the lease, and an agent sharing the person's key
+// should not fence the person out by accident. Another principal must wait
+// for the lease to expire. Only a claim holds an issue: an issue set
+// in_progress without one (at create, by an import, or before claims
+// existed) holds nothing, and update cannot set in_progress. The reaper
+// (ReapClaims) returns an issue whose lease ran out to open, unassigned,
+// if it is still in_progress under the holder's principal.
+
+// Lease bounds. DefaultLease is an agent's lease, renewed while it runs.
+// No lease is shorter than MinLease. A start, or a renewal of one
+// session's claims, may ask for up to MaxClaimLease; only a renewal of
+// every session's claims (`sfx away`) may reach further, up to the
+// store's AwayMax, which is MaxLease unless the server sets another
+// (away_max).
+const (
+	DefaultLease  = 15 * time.Minute
+	MinLease      = time.Minute
+	MaxClaimLease = 24 * time.Hour
+	MaxLease      = 7 * 24 * time.Hour
+)
+
+// Claim is an issue's current lease: Holder holds it from ClaimedAt
+// until ExpiresAt, under Epoch, which rises with each new holder.
+type Claim struct {
+	Issue     IssueID   `json:"issue"`
+	Holder    Actor     `json:"holder"`
+	Epoch     int64     `json:"epoch"`
+	ClaimedAt time.Time `json:"claimed_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// Event operations for claims. Renewals are not recorded: an agent renews
+// every minute, and the log would be mostly renewals. Every other change
+// of holder is: claim.take names the claim it replaced, if any;
+// claim.expire is the reaper ending a lapsed claim; claim.release is any
+// other end, by a releasing handoff, a close or finish, or an import, and
+// precedes the change that caused it; or by the holder losing access to
+// the project (EndClaims), when its after state gives the reason.
+// claim.expire and claim.release name the claim they end in their before
+// state.
+const (
+	OpClaimTake    Op = "claim.take"
+	OpClaimExpire  Op = "claim.expire"
+	OpClaimRelease Op = "claim.release"
+	OpClaimAway    Op = "claim.away"
+)
+
+// AwayMax returns the longest lease a renewal of every session's claims
+// may ask for (Options.AwayMax).
+func (s *Store) AwayMax() time.Duration { return s.opts.AwayMax }
+
+// ReaperActor is who the reaper's changes are recorded as.
+var ReaperActor = Actor{Principal: "starfixd", Session: "reaper", Machine: "server"}
+
+// claimRow is a claims row; Holder.Principal is empty once released.
+type claimRow struct {
+	Claim
+	// rev is the row's revision, for the compare-and-swap in writeClaim.
+	rev int64
+	// exists is false for an issue never claimed, which has no row yet.
+	exists bool
+}
+
+// active reports whether the row holds the issue at now.
+func (c claimRow) active(now time.Time) bool {
+	return c.Holder.Principal != "" && c.ExpiresAt.After(now)
+}
+
+// loadClaim reads the claim on id. An issue never claimed gets a
+// claimRow that does not exist yet, with epoch 0 and no holder.
+func loadClaim(ctx context.Context, q querier, id IssueID) (claimRow, error) {
+	var c claimRow
+	var p, sess, m sql.NullString
+	var at, exp sql.NullTime
+	err := q.QueryRowContext(ctx, `SELECT principal, session, machine, epoch, claimed_at, expires_at, rev
+  FROM claims WHERE issue_id = ?`, string(id)).Scan(&p, &sess, &m, &c.Epoch, &at, &exp, &c.rev)
+	if errors.Is(err, sql.ErrNoRows) {
+		return claimRow{Claim: Claim{Issue: id}}, nil
+	}
+	if err != nil {
+		return claimRow{}, fmt.Errorf("read claim on %s: %w", id, err)
+	}
+	c.Issue, c.exists = id, true
+	c.Holder = Actor{Principal: p.String, Session: sess.String, Machine: m.String}
+	c.ClaimedAt, c.ExpiresAt = at.Time.UTC(), exp.Time.UTC()
+	return c, nil
+}
+
+// checkEpoch refuses a finish or release naming epoch when epoch is set
+// and is not c's current one (*StaleEpochError).
+func checkEpoch(c claimRow, epoch int64) error {
+	if epoch != 0 && epoch != c.Epoch {
+		return &StaleEpochError{ID: c.Issue, Epoch: epoch, Current: c.Epoch, By: c.Holder}
+	}
+	return nil
+}
+
+// writeClaim inserts or updates the claim row. The caller records the
+// event, or explicitly writes quietly.
+func writeClaim(ctx context.Context, w *wtx, c claimRow) error {
+	wid := randomInt63()
+	var p, sess, m, at, exp any
+	if c.Holder.Principal != "" {
+		p, sess, m, at, exp = c.Holder.Principal, c.Holder.Session, c.Holder.Machine, c.ClaimedAt, c.ExpiresAt
+	}
+	if !c.exists {
+		_, err := w.exec(ctx, `INSERT INTO claims
+  (issue_id, principal, session, machine, epoch, claimed_at, expires_at, rev, write_id)
+  VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`, string(c.Issue), p, sess, m, c.Epoch, at, exp, wid)
+		if err != nil {
+			return fmt.Errorf("insert claim on %s: %w", c.Issue, err)
+		}
+		return nil
+	}
+	n, err := w.exec(ctx, `UPDATE claims SET principal = ?, session = ?, machine = ?, epoch = ?,
+  claimed_at = ?, expires_at = ?, rev = rev + 1, write_id = ? WHERE issue_id = ? AND rev = ?`,
+		p, sess, m, c.Epoch, at, exp, wid, string(c.Issue), c.rev)
+	if err != nil {
+		return fmt.Errorf("update claim on %s: %w", c.Issue, err)
+	}
+	if n != 1 {
+		return fmt.Errorf("claim on %s changed during update: %w", c.Issue, ErrConflict)
+	}
+	return nil
+}
+
+// releaseClaim drops the holder of an active or expired claim, keeping the
+// epoch. It writes nothing when there is no holder. The caller records
+// the end: the reaper as claim.expire, everyone else through endClaim.
+func releaseClaim(ctx context.Context, w *wtx, c claimRow) error {
+	if !c.exists || c.Holder.Principal == "" {
+		return nil
+	}
+	c.Holder = Actor{}
+	return writeClaim(ctx, w, c)
+}
+
+// endClaim releases c's holder, live or lapsed, and records claim.release
+// naming the claim it ends, so that no claim ends without an event of its
+// own. It records nothing when c has no holder.
+func endClaim(ctx context.Context, w *wtx, c claimRow) error {
+	return endClaimFor(ctx, w, c, "")
+}
+
+// endClaimFor is endClaim for a claim that ends for a reason no other
+// event gives: the event's after state then says it.
+func endClaimFor(ctx context.Context, w *wtx, c claimRow, reason string) error {
+	if !c.exists || c.Holder.Principal == "" {
+		return nil
+	}
+	if err := releaseClaim(ctx, w, c); err != nil {
+		return err
+	}
+	var after any // nil, not a nil map, so the state is NULL
+	if reason != "" {
+		after = map[string]string{"reason": reason}
+	}
+	w.claimed(ClaimReleased, reason)
+	return w.event(ctx, OpClaimRelease, string(c.Issue),
+		map[string]any{"holder": c.Holder, "epoch": c.Epoch, "expires_at": c.ExpiresAt}, after)
+}
+
+// checkLease refuses a lease outside [MinLease, most]; most is
+// MaxClaimLease, or the store's AwayMax.
+func checkLease(d, most time.Duration) error {
+	if d < MinLease || d > most {
+		return fmt.Errorf("%w: lease must be between %s and %s", ErrInvalid, "1m", LeaseText(most))
+	}
+	return nil
+}
+
+// LeaseText spells the upper bound of a lease, MaxClaimLease or an
+// AwayMax, as a refusal shows it: "24h" for a day, which a person asks
+// for so, and otherwise as proto.Span does.
+func LeaseText(d time.Duration) string {
+	if d == MaxClaimLease {
+		return "24h"
+	}
+	return proto.Span(d)
+}
+
+// takeClaim leases c to w's actor for lease. A new holder raises the
+// epoch, and the holder it replaced gets a claim.lost inbox item; the same
+// session taking again keeps the epoch and only extends the lease, which
+// is not an event.
+func takeClaim(ctx context.Context, w *wtx, c claimRow, lease time.Duration) (Claim, error) {
+	same := c.active(w.now) && c.Holder == w.actor
+	if !same && c.Holder.Principal != "" && c.Holder != w.actor {
+		// The holder lost it: to another session of its principal, or,
+		// once the lease lapsed, to anyone, before the reaper got to it.
+		why := "lease expired; "
+		if c.active(w.now) {
+			why = ""
+		}
+		if err := w.notify(ctx, InboxItem{To: c.Holder.Principal, Session: c.Holder.Session, Kind: InboxClaimLost, Issue: c.Issue,
+			Body: fmt.Sprintf("%staken by %s/%s (epoch %d): stop work on it", why, w.actor.Principal, w.actor.Session, c.Epoch+1)}); err != nil {
+			return Claim{}, err
+		}
+	}
+	// The claim replaced, live or lapsed, so attribution can end its hold
+	// when the lease ran out rather than at this take.
+	var replaced any // nil, not a nil map, so the state is NULL
+	if !same && c.Holder.Principal != "" {
+		replaced = map[string]any{"holder": c.Holder, "epoch": c.Epoch, "expires_at": c.ExpiresAt}
+	}
+	if !same {
+		c.Epoch++
+		c.ClaimedAt = w.now
+	}
+	c.Holder = w.actor
+	if exp := w.now.Add(lease); !same || exp.After(c.ExpiresAt) {
+		c.ExpiresAt = exp
+	}
+	if err := writeClaim(ctx, w, c); err != nil {
+		return Claim{}, err
+	}
+	if !same {
+		w.claimed(ClaimTaken, "")
+		if err := w.event(ctx, OpClaimTake, string(c.Issue), replaced,
+			map[string]any{"epoch": c.Epoch, "expires_at": c.ExpiresAt}); err != nil {
+			return Claim{}, err
+		}
+	} else {
+		w.quiet = true
+	}
+	return c.Claim, nil
+}
+
+// ClaimOf returns the active claim on an issue, or nil if none is live.
+func (s *Store) ClaimOf(ctx context.Context, id IssueID) (*Claim, error) {
+	if err := id.Validate(); err != nil {
+		return nil, err
+	}
+	c, err := loadClaim(ctx, s.r, id)
+	if err != nil || !c.active(s.now()) {
+		return nil, err
+	}
+	return &c.Claim, nil
+}
+
+// ClaimsOf returns the active claims principal holds, in every session,
+// soonest to expire first.
+func (s *Store) ClaimsOf(ctx context.Context, principal string) ([]Claim, error) {
+	return s.claims(ctx, s.r, `principal = ? AND expires_at > ?`, principal, s.now())
+}
+
+// ActiveClaims returns the live claims on every issue, longest held
+// first, at most limit of them (0 means DefaultPage, at most MaxPage),
+// and how many more there are.
+func (s *Store) ActiveClaims(ctx context.Context, limit int) ([]Claim, int, error) {
+	now := s.now()
+	q, done, err := s.beginRead(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer done()
+	cs, err := queryClaims(ctx, q, `principal IS NOT NULL AND expires_at > ? ORDER BY claimed_at, issue_id LIMIT ?`,
+		now, clampLimit(limit, DefaultPage, MaxPage))
+	if err != nil {
+		return nil, 0, err
+	}
+	var n int
+	if err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM claims WHERE principal IS NOT NULL AND expires_at > ?`, now).Scan(&n); err != nil {
+		return nil, 0, fmt.Errorf("count claims: %w", err)
+	}
+	return cs, max(0, n-len(cs)), nil
+}
+
+// claims reads the claims that where, a constant condition with
+// placeholders for args, selects, soonest to expire first.
+func (s *Store) claims(ctx context.Context, q querier, where string, args ...any) ([]Claim, error) {
+	return queryClaims(ctx, q, where+` ORDER BY expires_at, issue_id`, args...)
+}
+
+// queryClaims reads the claims that clause, a constant condition with its
+// order and placeholders for args, selects.
+func queryClaims(ctx context.Context, q querier, clause string, args ...any) ([]Claim, error) {
+	rows, err := q.QueryContext(ctx, `SELECT issue_id, principal, session, machine, epoch, claimed_at, expires_at
+  FROM claims WHERE `+clause, args...) //nolint:gosec // clause is a constant from the callers
+	if err != nil {
+		return nil, fmt.Errorf("claims: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := []Claim{}
+	for rows.Next() {
+		var c Claim
+		if err := rows.Scan(&c.Issue, &c.Holder.Principal, &c.Holder.Session, &c.Holder.Machine,
+			&c.Epoch, &c.ClaimedAt, &c.ExpiresAt); err != nil {
+			return nil, fmt.Errorf("claims: %w", err)
+		}
+		c.ClaimedAt, c.ExpiresAt = c.ClaimedAt.UTC(), c.ExpiresAt.UTC()
+		out = append(out, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("claims: %w", err)
+	}
+	return out, nil
+}
+
+// RenewClaims renews the actor's active claims and returns them all, with
+// their new expiry. Without allSessions it renews only the actor's own
+// session's, for up to MaxClaimLease: a claim with less than half of
+// lease left is extended to now+lease, and one with more is not
+// rewritten, so an agent renewing every minute writes about every
+// lease/2. Such renewals record no event.
+//
+// With allSessions it is a person going away (`sfx away`, design §18.6):
+// every claim the principal holds, in every session, is extended to at
+// least now+lease, for up to the store's AwayMax, and each claim it
+// extends records a claim.away event naming the claim as it was and its
+// new expiry. A lease out of range is refused with ErrInvalid, and a
+// lease is never shortened. A renewal that brings no paths and finds
+// nothing to extend writes nothing, and does not wait for the writer.
+//
+// paths maps an issue to the paths its work touched, most recent first:
+// they are recorded as commit paths of the claims renewed, at most the
+// paths_per_issue limit in all, taken in the order of the claims
+// returned; issues it does not renew are ignored. Paths for more than
+// proto.MaxPathIssues issues, or more than proto.MaxPaths for one, are
+// refused with ErrInvalid before anything is renewed. A renewal that adds
+// paths records an issue.paths event for each issue it adds them to.
+func (s *Store) RenewClaims(ctx context.Context, actor Actor, lease time.Duration, allSessions bool, paths map[IssueID][]string) ([]Claim, error) {
+	most, due := MaxClaimLease, renewDue
+	if allSessions {
+		most, due = s.opts.AwayMax, awayDue
+	}
+	if err := checkLease(lease, most); err != nil {
+		return nil, err
+	}
+	if len(paths) > proto.MaxPathIssues {
+		return nil, fmt.Errorf("%w: send paths for at most %d issues in one renew, not %d", ErrInvalid, proto.MaxPathIssues, len(paths))
+	}
+	checked := make(map[IssueID][]string, len(paths))
+	for id, ps := range paths {
+		if err := id.Validate(); err != nil {
+			return nil, err
+		}
+		var err error
+		if checked[id], err = checkPaths(ps, false); err != nil {
+			return nil, err
+		}
+	}
+	heldAt := func(ctx context.Context, q querier, now time.Time) ([]Claim, error) {
+		if allSessions {
+			return s.claims(ctx, q, `principal = ? AND expires_at > ?`, actor.Principal, now)
+		}
+		return s.claims(ctx, q, `principal = ? AND session = ? AND expires_at > ?`, actor.Principal, actor.Session, now)
+	}
+	if len(paths) == 0 {
+		// Most renewals extend nothing. Such a one is decided from a read,
+		// and does not wait for the writer behind other sessions' writes:
+		// it answers as a renewal that took the writer a moment earlier
+		// would. A lease it finds with more than half its time left
+		// cannot run out before the answer is sent. It settles a step of
+		// the clock first, as a write would, so it answers on the time
+		// after the step, with the step added to each lease.
+		if err := actor.validate(); err != nil {
+			return nil, err
+		}
+		now, err := s.settledNow(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out, err := heldAt(ctx, s.r, now)
+		if err != nil {
+			return nil, err
+		}
+		if !slices.ContainsFunc(out, func(c Claim) bool { return due(c, now, lease) }) {
+			return out, nil
+		}
+	}
+	var out []Claim
+	err := s.write(ctx, actor, func(w *wtx) error {
+		held, err := heldAt(ctx, w.tx, w.now)
+		if err != nil {
+			return err
+		}
+		out = held
+		for i, c := range held {
+			if !due(c, w.now, lease) {
+				continue
+			}
+			want := w.now.Add(lease)
+			row, err := loadClaim(ctx, w.tx, c.Issue)
+			if err != nil {
+				return err
+			}
+			row.ExpiresAt = want
+			if err := writeClaim(ctx, w, row); err != nil {
+				return err
+			}
+			out[i].ExpiresAt = want
+			w.claimed(ClaimRenewed, "")
+			if !allSessions {
+				w.quiet = true
+				continue
+			}
+			// The claims are the principal's own, so the guard passes
+			// each; going away is a change to the claim all the same.
+			if err := w.guard(ctx, row, "away"); err != nil {
+				return err
+			}
+			if err := w.event(ctx, OpClaimAway, string(c.Issue),
+				map[string]any{"holder": c.Holder, "epoch": c.Epoch, "expires_at": c.ExpiresAt},
+				map[string]any{"expires_at": want}); err != nil {
+				return err
+			}
+		}
+		// The claims are the actor's own, so wtx.guard would pass each.
+		budget := w.lim.Paths
+		for _, c := range held {
+			ps := checked[c.Issue]
+			ps = ps[:min(len(ps), budget)]
+			budget -= len(ps)
+			if err := recordCommitPaths(ctx, w, c.Issue, ps); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// renewDue reports whether a renewal for lease at now extends c: whether
+// c has less than half of lease left.
+func renewDue(c Claim, now time.Time, lease time.Duration) bool {
+	return c.ExpiresAt.Before(now.Add(lease).Add(-lease / 2))
+}
+
+// awayDue reports whether going away for lease at now extends c: whether
+// it has less than lease left, by more than MinLease. A lease within a
+// minute of it is left as it is, so that `sfx away`, which sends each
+// claim's paths in a renew of its own, does not extend every claim again
+// a moment later, each time on the record.
+func awayDue(c Claim, now time.Time, lease time.Duration) bool {
+	return c.ExpiresAt.Before(now.Add(lease - MinLease))
+}
+
+// ReapClaims ends every claim whose lease has run out: the claim loses its
+// holder, who gets a claim.lost inbox item, and an issue still in_progress
+// under the claim's principal goes back to open, unassigned. It returns
+// the claims it ended.
+func (s *Store) ReapClaims(ctx context.Context) ([]Claim, error) {
+	var out []Claim
+	err := s.write(ctx, ReaperActor, func(w *wtx) error {
+		out = nil
+		expired, err := s.claims(ctx, w.tx, `principal IS NOT NULL AND expires_at <= ?`, w.now)
+		if err != nil {
+			return err
+		}
+		for _, c := range expired {
+			row, err := loadClaim(ctx, w.tx, c.Issue)
+			if err != nil {
+				return err
+			}
+			if err := releaseClaim(ctx, w, row); err != nil {
+				return err
+			}
+			w.claimed(ClaimExpired, "")
+			if err := w.event(ctx, OpClaimExpire, string(c.Issue),
+				map[string]any{"holder": c.Holder, "epoch": c.Epoch, "expires_at": c.ExpiresAt}, nil); err != nil {
+				return err
+			}
+			if err := w.notify(ctx, InboxItem{To: c.Holder.Principal, Session: c.Holder.Session, Kind: InboxClaimLost, Issue: c.Issue,
+				Body: fmt.Sprintf("lease expired (epoch %d): stop work on it; start it again if it is still free", c.Epoch)}); err != nil {
+				return err
+			}
+			if err := reopenReleased(ctx, w, c); err != nil {
+				return err
+			}
+			out = append(out, c)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// EndClaims ends the claims of the holders who lost their access to the
+// project (decision 21): why is asked for each holder's principal, and a
+// reason it returns ("membership removed", say) ends that principal's
+// claims, live or lapsed, in every session; an empty one leaves them. It
+// returns the claims it ended.
+//
+// Each claim ends as the reaper ends one, with the reason on the record:
+// a claim.release event by actor whose after state gives the reason, a
+// claim.lost inbox item for the session that held it, and an issue still
+// in progress under the holder's principal back to open, unassigned, so
+// it is ready again. why runs inside the write, which may be retried, so
+// it must be fast, read no database and give the same answer again.
+//
+// EndClaims is for the daemon, when the control store has ended an
+// access, not for clients: like the reaper it does not ask whether actor
+// may change an issue someone holds (wtx.guard). The daemon passes the
+// admin whose change ended the access, or its own actor when it finds
+// the claims later.
+func (s *Store) EndClaims(ctx context.Context, actor Actor, why func(principal string) string) ([]Claim, error) {
+	var out []Claim
+	err := s.write(ctx, actor, func(w *wtx) error {
+		out = nil
+		held, err := s.claims(ctx, w.tx, `principal IS NOT NULL`)
+		if err != nil {
+			return err
+		}
+		for _, c := range held {
+			reason := why(c.Holder.Principal)
+			if reason == "" {
+				continue
+			}
+			row, err := loadClaim(ctx, w.tx, c.Issue)
+			if err != nil {
+				return err
+			}
+			if err := endClaimFor(ctx, w, row, reason); err != nil {
+				return err
+			}
+			if err := w.notify(ctx, InboxItem{To: c.Holder.Principal, Session: c.Holder.Session, Kind: InboxClaimLost, Issue: c.Issue,
+				Body: fmt.Sprintf("%s by %s (epoch %d): stop work on it", reason, w.actor.Principal, c.Epoch)}); err != nil {
+				return err
+			}
+			if err := reopenReleased(ctx, w, c); err != nil {
+				return err
+			}
+			out = append(out, c)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// reopenReleased returns the issue of c, a claim just ended, to open and
+// unassigned if it is still in progress under c's holder, and records
+// the change. An issue that is gone, or was moved on, is left as it is.
+func reopenReleased(ctx context.Context, w *wtx, c Claim) error {
+	is, err := loadIssue(ctx, w.tx, c.Issue)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if is.Status != StatusInProgress || is.Assignee != c.Holder.Principal {
+		return nil
+	}
+	after, err := casUpdate(ctx, w, is, []string{"status = ?", "assignee = ?"}, []any{string(StatusOpen), nil})
+	if err != nil {
+		return err
+	}
+	return w.issueEvent(ctx, OpIssueUpdate, is, after, nil)
+}
