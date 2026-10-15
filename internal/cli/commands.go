@@ -274,7 +274,15 @@ func printIssue(w io.Writer, s proto.ShowResult) {
 		p("%s\n", strings.Join(dates, "; "))
 	}
 	if g := s.Gate; g != nil {
-		p("%s gate, passed by %s; holds %s\n", esc(g.Kind), approverText(g.Approvers), strings.Join(escAll(g.Holds), ", "))
+		if g.Kind == proto.GateCI {
+			p("ci gate: check %s on %s, reported by %s; holds %s\n", esc(g.Check), esc(g.Subject), approverText(g.Approvers),
+				strings.Join(escAll(g.Holds), ", "))
+			if r := g.Report; r != nil && g.Outcome == "" {
+				p("last report: %s%s by %s at %s\n", esc(r.Result), evidenceText(*r), esc(r.By), when(r.At))
+			}
+		} else {
+			p("%s gate, passed by %s; holds %s\n", esc(g.Kind), approverText(g.Approvers), strings.Join(escAll(g.Holds), ", "))
+		}
 		if g.Outcome != "" {
 			p("%s by %s", esc(g.Outcome), esc(g.By))
 			if g.Reason != "" {
@@ -284,8 +292,13 @@ func printIssue(w io.Writer, s proto.ShowResult) {
 		}
 	}
 	for _, g := range s.Gates {
+		if g.Kind == proto.GateCI {
+			p("held by gate %s until %s reports %s passed on %s\n", esc(g.ID), approverText(g.Approvers), esc(g.Check), esc(g.Subject))
+			continue
+		}
 		p("held by gate %s, which %s may pass: `sfx gate pass %s`\n", esc(g.ID), approverText(g.Approvers), esc(g.ID))
 	}
+	printChecks(w, s)
 	p("created %s by %s; updated %s\n", when(is.CreatedAt), esc(is.CreatedBy), when(is.UpdatedAt))
 	if is.ClosedAt != nil {
 		p("closed %s", when(*is.ClosedAt))

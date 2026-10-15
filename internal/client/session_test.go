@@ -28,6 +28,30 @@ func TestSessionFromEnv(t *testing.T) {
 	}
 }
 
+// Without a harness's session, a person's sfx takes the session cli and a
+// CI job's, where CI=true as GitHub Actions and GitLab CI set it, ci.
+func TestDefaultSession(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"a terminal", nil, proto.CLISession},
+		{"a CI job", map[string]string{"CI": "true"}, proto.CISession},
+		{"CI set to something else", map[string]string{"CI": "1"}, proto.CLISession},
+		{"a harness in a CI job", map[string]string{"CI": "true", "CLAUDE_CODE_SESSION_ID": "cc-1"}, "cc-1"},
+		{"named by hand in a CI job", map[string]string{"CI": "true", "STARFIX_SESSION": "deploy"}, "deploy"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := DefaultSession(func(k string) string { return tc.env[k] }); got != tc.want {
+				t.Errorf("DefaultSession(%v) = %q, want %q", tc.env, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestHarnessFromEnv(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

@@ -73,8 +73,10 @@ func (pr *served) reportSubject(in proto.GateArgs) (store.IssueID, *proto.Error)
 	}
 	id, ok := gitx.IDFromBranch(in.Branch, pr.store.Prefix())
 	if !ok {
-		return "", proto.Errf(proto.CodeInvalid,
-			"report on a branch named for its issue, as `sfx start --branch` names it ("+gitx.Branch("task", pr.store.Prefix()+"-a1b2", "title")+
+		// not_found, as a subject with no gate for the check is: there is
+		// nothing to report on, which `sfx gate pass --optional` allows.
+		return "", proto.Errf(proto.CodeNotFound,
+			"report on a branch named for its issue, as `sfx start --branch` names it ("+gitx.Branch("feature", pr.store.Prefix()+"-a1b2", "title")+
 				"), or name the issue with --issue ID",
 			fmt.Sprintf("branch %s names no issue of this project", in.Branch))
 	}

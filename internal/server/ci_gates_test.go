@@ -39,7 +39,7 @@ func TestCIGateFromBranch(t *testing.T) {
 		// msg is in the message, and fix in the fix.
 		msg, fix string
 	}{
-		{"a branch that names no issue", ciJob, proto.GateArgs{Check: "build", Branch: "main"}, proto.CodeInvalid,
+		{"a branch that names no issue", ciJob, proto.GateArgs{Check: "build", Branch: "main"}, proto.CodeNotFound,
 			"branch main names no issue", "sfx start --branch"},
 		{"a branch naming an issue with no such gate", ciJob, proto.GateArgs{Check: "build", Branch: "fix/" + next.ID}, proto.CodeNotFound,
 			next.ID + " has no ci gate for check build", "sfx gate add --kind ci --check build --subject " + next.ID},

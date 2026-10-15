@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -114,5 +115,60 @@ func TestPrimeDates(t *testing.T) {
 	b, _ := json.Marshal(p)
 	if !strings.Contains(string(b), `"overdue":[{"id":"sf-o1"`) {
 		t.Errorf("prime JSON = %s, want its overdue", b)
+	}
+}
+
+// An agent sees a ci gate's check and last report in the gate tool's
+// list, and an issue's checks, with their evidence, in show; a closed
+// issue whose landed check waits has not landed.
+func TestCIGateResults(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 10, 15, 9, 30, 0, 0, time.UTC)
+	failed := &proto.GateReport{Result: "failed", By: "ci-example", At: at, SHA: "0123456789abcdef", URL: "https://ci.example.com/runs/7", Reason: "2 tests failed"}
+	f := &fakeConn{reply: func(op string, _ any) (any, error) {
+		switch op {
+		case proto.OpGates:
+			return proto.GatesResult{Gates: []proto.Gate{{ID: "sf-g1", Title: "build of sf-a1", Kind: "ci", Approvers: []string{"ci-example"},
+				Check: "build", Subject: "sf-a1", Holds: []string{"sf-b1"}, Report: failed}}}, nil
+		case proto.OpShow:
+			return proto.ShowResult{Issue: proto.Issue{ID: "sf-a1", Title: "Do it", Status: "closed", Rev: 4}, Checks: []proto.Gate{
+				{ID: "sf-g1", Kind: "ci", Check: "build", Approvers: []string{"ci-example"}, Report: failed},
+				{ID: "sf-g2", Kind: "ci", Check: "landed", Approvers: []string{"ci-example"}},
+			}}, nil
+		}
+		return nil, nil
+	}}
+	cs, _, _ := connectServer(t, f)
+	res := callTool(t, cs, "gate", map[string]any{"action": "list"})
+	if want := `{"id":"sf-g1","title":"build of sf-a1","approvers":["ci-example"],"holds":["sf-b1"],"check":"build","subject":"sf-a1",` +
+		`"report":"failed at 0123456789ab: https://ci.example.com/runs/7 2 tests failed"}`; res.IsError || !strings.Contains(text(t, res), want) {
+		t.Errorf("gate list = %s\nwant it to hold %s", text(t, res), want)
+	}
+	res = callTool(t, cs, "show", map[string]any{"id": "sf-a1"})
+	if want := `"checks":["build failed at 0123456789ab: https://ci.example.com/runs/7 2 tests failed (sf-g1)","landed waits for ci-example (sf-g2)"]`; res.IsError || !strings.Contains(text(t, res), want) {
+		t.Errorf("show = %s\nwant it to hold %s", text(t, res), want)
+	}
+}
+
+// Checks with long links still fit a result: the last are dropped.
+func TestShowChecksFit(t *testing.T) {
+	t.Parallel()
+	long := &proto.GateReport{Result: "failed", By: "ci-example", URL: "https://ci.example.com/" + strings.Repeat("r", 1000)}
+	var checks []proto.Gate
+	for i := range 20 {
+		checks = append(checks, proto.Gate{ID: fmt.Sprintf("sf-g%d", i), Kind: "ci", Check: fmt.Sprintf("c%d", i), Report: long})
+	}
+	f := &fakeConn{reply: func(string, any) (any, error) {
+		return proto.ShowResult{Issue: proto.Issue{ID: "sf-a1", Title: "Do it", Status: "open", Rev: 1}, Checks: checks}, nil
+	}}
+	cs, _, _ := connectServer(t, f)
+	out := text(t, callTool(t, cs, "show", map[string]any{"id": "sf-a1"}))
+	var got Issue
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatal(err)
+	}
+	if n := Tokens([]byte(out)); n > MaxResultTokens || len(got.Checks) == 0 || len(got.Checks) == 20 || !got.Truncated {
+		t.Errorf("show with 20 long checks = %d tokens, %d checks, truncated %v; want under %d, some checks, truncated",
+			n, len(got.Checks), got.Truncated, MaxResultTokens)
 	}
 }

@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"strings"
 
 	"github.com/ariesworx/starfix/internal/proto"
 )
@@ -41,12 +42,51 @@ type GateAdded struct {
 	Next      string   `json:"next"`
 }
 
-// GateLine is one gate in a list, compact.
+// GateLine is one gate in a list, compact. A ci gate's Approvers report
+// its Check on its Subject, and Report is the last report, in one line.
 type GateLine struct {
 	ID        string   `json:"id"`
 	Title     string   `json:"title"`
 	Approvers []string `json:"approvers"`
 	Holds     []string `json:"holds,omitempty"`
+	Check     string   `json:"check,omitempty"`
+	Subject   string   `json:"subject,omitempty"`
+	Report    string   `json:"report,omitempty"`
+}
+
+// reportLine is a CI report in one line: the result, the commit
+// shortened, the link and the reason, the reason cut to fit a result.
+func reportLine(r *proto.GateReport) string {
+	if r == nil {
+		return ""
+	}
+	s := r.Result
+	if r.SHA != "" {
+		s += " at " + r.SHA[:min(len(r.SHA), 12)]
+	}
+	reason, _ := cut(r.Reason, primeTitleLen)
+	if r.URL != "" || reason != "" {
+		s += ":"
+	}
+	for _, p := range []string{r.URL, reason} {
+		if p != "" {
+			s += " " + p
+		}
+	}
+	return s
+}
+
+// checkLine is one of an issue's checks in show: the check, then how it
+// stands, then its gate.
+func checkLine(g proto.Gate) string {
+	state := "waits for " + strings.Join(g.Approvers, ", ")
+	switch {
+	case g.Outcome == "waived":
+		state = "waived by " + g.By
+	case g.Report != nil && (g.Outcome != "" || g.Report.Result == "failed"):
+		state = reportLine(g.Report)
+	}
+	return g.Check + " " + state + " (" + g.ID + ")"
 }
 
 // Gates lists the open gates. More says some were left out to fit.
@@ -74,7 +114,8 @@ func gate(ctx context.Context, c Conn, in GateIn) (any, error) {
 		out := Gates{Gates: []GateLine{}}
 		for _, g := range r.Gates {
 			t, _ := cut(g.Title, primeTitleLen)
-			out.Gates = append(out.Gates, GateLine{ID: g.ID, Title: t, Approvers: g.Approvers, Holds: g.Holds})
+			out.Gates = append(out.Gates, GateLine{ID: g.ID, Title: t, Approvers: g.Approvers, Holds: g.Holds,
+				Check: g.Check, Subject: g.Subject, Report: reportLine(g.Report)})
 		}
 		out.fit()
 		out.mark()
