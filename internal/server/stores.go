@@ -57,7 +57,6 @@ type Issues interface {
 type Graph interface {
 	AddDep(ctx context.Context, actor store.Actor, from, to store.IssueID, typ store.DepType, idem string) error
 	RemoveDep(ctx context.Context, actor store.Actor, from, to store.IssueID, typ store.DepType) error
-	List(ctx context.Context, f store.Filter) (store.IssuePage, error)
 	ListSummaries(ctx context.Context, f store.Filter) (store.SummaryPage, error)
 	Ready(ctx context.Context, actor store.Actor, limit int) ([]store.ReadyIssue, error)
 	Blocked(ctx context.Context, limit int) ([]store.BlockedIssue, error)
