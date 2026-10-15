@@ -361,7 +361,7 @@ func (s *server) redirectOK(c *client, clientID, redirect string) bool {
 
 // authorize begins a sign-in: it checks the client's request and sends
 // the browser on to the provider, with the server's own PKCE, nonce and
-// prompt=login (decision 84). Nothing of the client's reaches the
+// prompt=login (decision 85). Nothing of the client's reaches the
 // provider.
 func (s *server) authorize(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
@@ -404,7 +404,7 @@ func (s *server) authorize(w http.ResponseWriter, r *http.Request) {
 }
 
 // callback is where the provider sends the browser back. The server
-// exchanges the code itself (decision 84), checks the ID token, finds the
+// exchanges the code itself (decision 85), checks the ID token, finds the
 // invited principal, and sends the browser on to the client with an
 // Aries code.
 func (s *server) callback(w http.ResponseWriter, r *http.Request) {

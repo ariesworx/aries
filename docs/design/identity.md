@@ -8,6 +8,21 @@
 
 **Where it lands.** After the Postgres port's slices P1 and P2 (decision 79), so its tables are written once, in the new migration sets, in Postgres's dialect, with no `write_id` (decision 79 removes rule 6's column). Nothing here changes `internal/store`'s SQL or migrations before then.
 
+**Revised by decision 86 (15 Oct 2026): HTTPS is the primary transport, and SSH a second one, off by default.** [transport.md](transport.md) is the design for both, and this document is revised to match. What it changes here, section by section:
+
+| Here | Now |
+|---|---|
+| §2's "SSH is the only transport" | Superseded: HTTPS first, SSH when an operator turns it on (transport.md §11) |
+| §3 Tables | Carry over; `principal_keys.origin` loses `login` and `workload` in 1.0, and transport.md §6.9 adds `grants`, `tokens` and `oauth_clients` |
+| §4 Expiring keys as how a sign-in lands | Replaced by Aries's own tokens (transport.md §6). `key add --expires`, the `Z` in `expiry-time`, the handshake's check and the close at the end stay, for SSH (transport.md §11.3) |
+| §5 The way in before sign-in | Dropped: HTTPS is the way in. The enrollment ops, `ariesd stdio --enroll` and `login.enroll` go |
+| §6 `aries login` | The flows, the URL path, invitations, GitHub, a day with `prompt=login`: carried over, through the server's authorization server (transport.md §6.2). The device grant becomes Aries's own. §6.8's key becomes a token and a DPoP key (transport.md §6.6) |
+| §6.4 The verifier | Carried over, with an offline mode and an `entra` kind with a configured authority (transport.md §8) |
+| §7 Service principals | Carried over; a match yields a token by token exchange, not a key (transport.md §7) |
+| §9 The Claude Desktop extension | Kept, thinner: no SSH, no enrollment (transport.md §10) |
+| §10 to §12 Settings, limits, CLI, protocol | Carried over less the enrollment's; transport.md §4.6 and §14 add the rest |
+| §14 Plan | Replaced by transport.md §15 |
+
 ## 1. Summary
 
 A person signs in with `aries login`. `aries` reaches the server over SSH by a path open before anyone is known ([§5](#5-the-way-in-before-sign-in)), makes a new key pair, and opens the provider's sign-in page in a browser: on the same machine with a loopback redirect, or anywhere at all by printing a URL and taking back the address the browser lands on ([§6.3](#63-sign-in-by-url-when-no-browser-can-be-opened)). The server checks the provider's ID token, whose nonce commits to the new key and the server's challenge, finds the person by (issuer, subject), and records the public key with an end time a day later. ariesd writes that key to the file sshd reads, with `expiry-time` on its line, and from then on `aries` signs in with it as with any key. Nobody adds a key for a new machine, a person who signs in holds no private key worth more than a day, and Aries holds no signing key.
@@ -27,6 +42,8 @@ A service principal (a CI job, an unattended agent, a cloud workload) does the s
 
 **Slices** ([§14](#14-plan)), after P1 and P2, about 11 to 12 weeks of one engineer in all:
 
+*Replaced by [transport.md §15](transport.md#15-plan), about 16.5 weeks for transport and identity together. The table is kept as it was decided.*
+
 | Slice | Delivers | Estimate |
 |---|---|---|
 | N0 | The real-tenant spikes and the way-in spike under AppArmor (decision 54) | 1 week, with the maintainer |
@@ -41,7 +58,7 @@ A service principal (a CI job, an unattended agent, a cloud workload) does the s
 
 ## 2. What stays as it is
 
-- **SSH is the only transport** (decision 9). ariesd opens no new port, and the provider never calls the server.
+- **SSH was the only transport** (decision 9), and ariesd opened no new port. Superseded by decision 86: HTTPS first, SSH a second transport off by default ([transport.md](transport.md)). The provider still never calls the server; the person's browser carries the redirects.
 - **sshd authenticates, and reads one file the daemon writes** (decisions 22 and 26). A signed-in key is a line of that file like any other; it only carries an end.
 - **The store decides.** Every line names its key's fingerprint, and the handshake refuses a key the store does not hold for that principal, or holds with an end that has passed. A stale line gets past sshd and no further.
 - **The first admin and break-glass** are a bare key in the hand-maintained `authorized_keys`, which works whatever ariesd or the provider is doing. A server admin who signs in by sign-on keeps one such key, offline.
@@ -136,6 +153,8 @@ Deleting a key whose end has passed is pruning, which rule 7 allows quietly (`wt
 
 ## 4. Expiring keys
 
+*Revised by decision 86: no longer how a sign-in lands, which is a token over HTTPS ([transport.md §6](transport.md#6-tokens)). Kept for keys an admin adds with `--expires` on a server with SSH on ([transport.md §11.3](transport.md#113-expiring-keys-and-sign-in-over-ssh)); §4.1's finding on `Z` and §4.2 to §4.4 hold for them.*
+
 ### 4.1 The line
 
 ```text
@@ -167,6 +186,8 @@ The daemon closes a connection whose key has ended with a close frame naming the
 
 ## 5. The way in before sign-in
 
+*Dropped by decision 86: HTTPS is the way in before sign-in ([transport.md §11.3](transport.md#113-expiring-keys-and-sign-in-over-ssh)). Kept as the record of what was weighed.*
+
 A machine nobody knows must hand the server a token before sshd knows its key. Decision 54 chose to spike two candidates under AppArmor, the published enrollment key first. This design is written so that the daemon's side is the same for both, and only sshd's configuration and the bridge's invocation differ; slice N0 runs both on the guide's server and the maintainer chooses.
 
 ### 5.1 The published enrollment key (first candidate)
@@ -193,13 +214,15 @@ Whichever path, the bridge runs with `--enroll`, puts `enroll: true` and the cli
 2. The client makes its key pair and computes the nonce: base64url of SHA-256 of `aries-login-v1`, 0, the challenge, 0, and the new public key's wire form. It runs the flow the person chose (§6) and gets back an authorization code.
 3. **`enroll.finish`** → the provider's name, the flow, the code, the PKCE verifier and the redirect URI (or, for a workload, the platform's token); the new public key; the machine's name; and a signature by the new key over `aries-enroll-v1`, the challenge, the host key fingerprint and the hash of the rest. The server checks the signature, spends the challenge, **exchanges the code itself** at the provider's token endpoint (§6.4), verifies the ID token, finds or binds the identity, writes the key with its end, rewrites the file, and answers with the principal, the fingerprint and the end. The client then connects as itself, with the new key.
 
-Each refusal is a `proto.Error` with a code and a fix ([§10.3](#103-refusals)), sent before the connection closes.
+Each refusal is a `proto.Error` with a code and a fix ([§10.3](#103-refusals-rule-11)), sent before the connection closes.
 
 ### 5.4 Bounds
 
 Strangers reach the handler, and sshd's `MaxStartups` and `PerSourcePenalties` no longer bound a caller who authenticates successfully, so the daemon bounds it: at most `enroll.conns` (32) enrollment connections at once, `enroll.rate` per source address (6 a minute, burst 10) and in total (120 a minute), `enroll.challenges` outstanding (1,000), an exchange's whole life 15 minutes (the device grant's poll included), and 64 KiB for a frame. Past any, `busy` with a fix to retry in a minute. Refusals are counted by provider and reason, never by address, and logged at debug, sampled, by address (aries.md §16.4's rules).
 
 ## 6. `aries login`
+
+*Revised by decision 86: the flows below run through the server's own authorization server, which redirects to the provider and back; the provider's redirect is the server's single callback, and the client's loopback receives an Aries code ([transport.md §6.2](transport.md#62-a-sign-in-end-to-end)). What a sign-in yields is a token bound to a key (transport.md §6.4), not a key in sshd's file.*
 
 ### 6.1 Flows, and which is the default
 
@@ -332,6 +355,8 @@ A macOS Keychain or Windows DPAPI store is possible later; a file is what `aries
 
 ## 7. Service principals
 
+*Revised by decision 86: a match yields a token by OAuth token exchange, RFC 8693 ([transport.md §7](transport.md#7-service-principals-over-https)), in place of §7.4's key.*
+
 ### 7.1 What one is, and its rights
 
 A principal of `kind: service`, with an `owner`, the person who answers for it (decision 8; aries.md §17.6). It is created like any principal and joined to projects as a member:
@@ -397,6 +422,8 @@ steps:
 An agent run by a person uses that person's signed-in key, as it uses their key today, and is told apart by session. One sign-in per machine per day serves any number of sessions. When the day ends, `aries mcp` sessions are closed and refused until the person signs in again ([§9.4](#94-signing-in-without-a-terminal)); unattended work belongs to service principals, which is the intent of decision 58.
 
 ## 9. The Claude Desktop extension
+
+*Revised by decision 86: kept, thinner. Its `aries mcp` reaches the server over HTTPS and signs in through the server's authorization server; the host key and key file settings go and `url` comes ([transport.md §10](transport.md#10-the-claude-desktop-extension)). Remote connectors serve Desktop users on internet-facing servers with no bundle at all (transport.md §9).*
 
 v1.0.0 ships a Claude Desktop extension: an MCP bundle (`.mcpb`), the format formerly called DXT, specified in the [`modelcontextprotocol/mcpb` repository](https://github.com/modelcontextprotocol/mcpb) ([MANIFEST.md](https://github.com/modelcontextprotocol/mcpb/blob/70fe3b34cd6dff1b3bba046638edc72a6467a4fb/MANIFEST.md), manifest version 0.3, and [CLI.md](https://github.com/modelcontextprotocol/mcpb/blob/70fe3b34cd6dff1b3bba046638edc72a6467a4fb/CLI.md), read at commit `70fe3b3` of 22 Apr 2026). A bundle is a zip archive of a local MCP server and a `manifest.json`; Claude for macOS and Windows installs it with one click and asks for the settings it declares (Read).
 
@@ -639,6 +666,8 @@ What each costs and what bounds it. Read with access-research.md §9, which this
 
 ## 14. Plan
 
+*Replaced by [transport.md §15](transport.md#15-plan) (decision 86). Kept as it was decided.*
+
 Each slice leaves `main` working and is off until configured. All after P1 and P2; N0 can start now, since it builds nothing. Estimates are one engineer's working weeks, from the size of comparable slices of stage 3a and the spike's code (about 960 lines for the verifier and the trust rules with their tests, and 1,400 for the flows and the stand-ins), not from a breakdown.
 
 | Slice | Delivers | Gate | Estimate |
@@ -659,6 +688,8 @@ About 11 to 12 weeks in all, and N0 needs the maintainer's time for the registra
 
 **Decided 15 Oct 2026** (design §14 of aries.md, decision 85): the maintainer accepted all twelve recommendations below as written, and kept the whole of this design in v1.0.0, with N1 to N7 worked beside the port's P4 and P5 where their files do not overlap. Asked: "Accept all twelve", and "Keep it all in v1.0.0".
 
+**Revised by decision 86.** Question 1 is moot (no way in over SSH: HTTPS is it); question 3's answer, the server exchanges the code, carries over and is now the only way; question 8's outbound rules are kept; question 9 holds, the project now in the connector's URL as well (transport.md §9.4). The rest stand. transport.md §16 asks the new questions.
+
 Each with a recommendation.
 
 1. **Which way in?** Decision 54 already says: spike both under AppArmor, the published enrollment key first. *Recommended:* the published enrollment key, unless N0 finds a reason against it under AppArmor or in sshd's logs. *Cost:* a known private key to explain. *Of the key command:* `AuthorizedKeysCommand` back in the block, and every stranger logged as accepted.
@@ -675,6 +706,8 @@ Each with a recommendation.
 12. **Where the display name lives.** *Recommended:* on `principals` (§3.1), since Postgres keeps no history. *Cost:* forgetting a person is an update, and old values stay in backups until they age out, as every row does.
 
 ## 16. Not established
+
+- **Since decision 86**: [transport.md §17](transport.md#17-not-established) lists what the HTTPS design leaves open; the SSH-specific items below stand only for `key add --expires`.
 
 - **Every real provider.** Google, Entra, Okta, GitHub, GitHub Actions, Google Cloud and Azure are from documentation; N0 runs them. In particular: whether each returns the nonce and `auth_time`, accepts a loopback redirect on any port, and honors `prompt=login` or `max_age`; whether Google's, Entra's and Okta's device grants return a nonce sent with the request, as Keycloak's did; whether a GitHub App's code exchange takes PKCE without the secret; whether a fresh Entra tenant already blocks the device grant; whether GitHub Actions and Google Cloud accept an audience of the form `AUD/n/NONCE`.
 - **The way in** under AppArmor and systemd: neither candidate has run with ariesd. The published key's derivation is designed, not tried.

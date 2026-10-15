@@ -28,7 +28,7 @@ To rerun, with Docker and Go on `PATH`: `spike/https/run.sh STATE_DIR`, with a d
 | The client | `spike` in the same Ubuntu image; Go 1.27.2; `github.com/modelcontextprotocol/go-sdk` v1.8.0, `golang.org/x/crypto` v0.58.0 |
 | The CA | Made by `spike ca`: ECDSA P-256, certificates for `aries.internal`, `keycloak.internal` and `proxy.internal`, two client certificates standing in for smart cards (alice; mallory, revoked by the CRL) |
 
-Five full runs were made; the figures below are the fourth's. The first three found the faults this file reports as findings, each fixed before the next; the fifth, after a change to logging only, agreed.
+Five full runs were made; the figures below are the fourth's. The first three found the faults this file reports as findings, each fixed before the next; the fifth, after a change to logging only, passed every check, with figures within the fourth's spread (WebSocket round trip 60 µs, connect 0.84 ms direct and 2.1 ms through nginx; SSH connect 80 ms). Its log shows the Go SDK's client sending `Mcp-Protocol-Version: 2026-07-28`.
 
 ## 2. No route out
 
@@ -72,7 +72,7 @@ Each pipe carried `internal/proto`'s frames: a hello and welcome, then `echo` re
 | The `cli` token at `/mcp` (another resource) | 401 |
 | Revoking the token with a connection open | Closed 1 ms after the revocation, with a close frame `{"c":"auth","m":"sign-in ended: revoked","fix":"run aries login"}`; the token then refused |
 | bob, who has an account at Keycloak and no invitation | The server's callback answered 403 "no invitation for this account" |
-| On `:8444`, keys from a file, a 15-second sign-in: a connection held past the end | Closed 5 ms after the grant's end (15 ms and 6 ms in runs 3 and 2), with `{"c":"auth","m":"sign-in ended at …","fix":"run aries login"}`; the token then refused, "the token expired" |
+| On `:8444`, keys from a file, a 15-second sign-in: a connection held past the end | Closed 5 ms after the grant's end (6, 15 and 8 ms in runs 2, 3 and 5), with `{"c":"auth","m":"sign-in ended at …","fix":"run aries login"}`; the token then refused, "the token expired" |
 
 The server on `:8444` read Keycloak's key set from the file the `jwks` step wrote and made no request for keys; its sign-in still called Keycloak's token endpoint, inside the network, for the code exchange.
 
