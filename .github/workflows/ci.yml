@@ -3,6 +3,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The merge queue runs the required checks (lint, test) on each pull
+  # request as it would merge, on a temporary branch of its own.
+  merge_group:
   # release.yml runs this same gate on the tagged commit before it builds.
   workflow_call:
 permissions:
@@ -29,7 +32,8 @@ env:
 #   restore keys: a cache is used by the Go and the modules that made it,
 #   or not at all.
 # - Only a push to main saves, and only when the key is new, which is once
-#   for each go.sum. A pull request reads main's caches and writes none.
+#   for each go.sum. A pull request, and the merge queue's run of one,
+#   reads main's caches and writes none.
 # - Any other run, the release's gate on a tag among them (workflow_call
 #   keeps the caller's github context), neither restores nor saves: it
 #   downloads every module and compiles everything.
@@ -53,14 +57,14 @@ jobs:
           cache: false
       - name: restore the module cache
         id: mod-cache
-        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.ref == 'refs/heads/main'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/go/pkg/mod
           key: go-mod-${{ runner.os }}-${{ runner.arch }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}
       - name: restore the build cache
         id: build-cache
-        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.ref == 'refs/heads/main'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/go-build
@@ -147,14 +151,14 @@ jobs:
           cache: false
       - name: restore the module cache
         # The lint job saves it.
-        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.ref == 'refs/heads/main'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/go/pkg/mod
           key: go-mod-${{ runner.os }}-${{ runner.arch }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}
       - name: restore the build cache
         id: build-cache
-        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.ref == 'refs/heads/main'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/go-build
