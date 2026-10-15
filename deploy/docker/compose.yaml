@@ -18,6 +18,17 @@
 # rules. Both run in the server's network namespace, because ariesd's
 # listener and Dolt's metrics answer on loopback alone. Neither
 # publishes a port or keeps a volume.
+#
+# The `identity` profile runs Keycloak, a local identity provider for
+# developing and testing sign-in with no external account and no
+# internet (docs/deploy/docker.md, "Sign-in with a local identity
+# provider"); a test fixture, never production:
+#
+#   docker compose --profile identity up -d --wait
+#
+# Its issuer is http://keycloak.localhost:PORT/realms/aries, the same
+# from a browser on the host and from the server's container;
+# ARIES_IDENTITY_PORT is that PORT, on 127.0.0.1, 8180 by default.
 name: aries-dev
 services:
   aries:
@@ -88,5 +99,37 @@ services:
     volumes:
       - ../observability/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
       - ../observability/alerts.yaml:/etc/prometheus/alerts.yaml:ro
+
+  # Keycloak, with the realm `aries` that identity.sh makes on every
+  # start where it lacks one: two people, a public client for `aries
+  # login`, a confidential one standing for the server and a
+  # client-credentials one standing for a service principal. The
+  # passwords and secrets it generates are 0600 files on the volume,
+  # never printed. It listens on the same port inside and out, so that
+  # its one issuer URL works from both.
+  keycloak:
+    profiles: [identity]
+    # quay.io/keycloak/keycloak:26.8.1, the release spike/identity ran against
+    image: quay.io/keycloak/keycloak@sha256:79c623a22abacf3fe6c00a5fb30f5b7843d717b234033b80995891c06116d244
+    entrypoint: ["bash", "/opt/aries/identity.sh"]
+    init: true
+    environment:
+      ARIES_IDENTITY_PORT: ${ARIES_IDENTITY_PORT:-8180}
+    ports:
+      - 127.0.0.1:${ARIES_IDENTITY_PORT:-8180}:${ARIES_IDENTITY_PORT:-8180}
+    networks:
+      default:
+        aliases: [keycloak.localhost]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - identity:/opt/keycloak/data
+      - ./identity:/opt/aries:ro
+    healthcheck:
+      test: ["CMD", "test", "-e", "/tmp/aries-identity-ready"]
+      start_period: 180s
+      start_interval: 1s
+      interval: 30s
 volumes:
   state:
+  identity:
