@@ -50,10 +50,12 @@ const soakLockLease = time.Minute
 // soakLockLate is how long after its lease a hold may still stand, in
 // real time: two ticks of the reaper, and room for the tick's wait for
 // the one writer of a busy project on a loaded machine. A run of four
-// minutes once saw two seconds, for a tick of a tenth of one. In a
-// server, whose tick is 30 seconds, it is the tick that counts.
+// minutes once saw two seconds, for a tick of a tenth of one, and CI's
+// shared runner, under the race detector, 3.4 seconds (15 Oct 2026); the
+// room is twice that. In a server, whose tick is 30 seconds, it is the
+// tick that counts.
 func (s *soak) soakLockLate() time.Duration {
-	return 2*100*time.Millisecond + 3*time.Second
+	return 2*100*time.Millisecond + 7*time.Second
 }
 
 // lockStats counts what the lock sessions did.
