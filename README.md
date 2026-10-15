@@ -205,7 +205,10 @@ on Ubuntu 24.04 LTS or 26.04 LTS is set up by one script, `install-server.sh`
 **v1.0.0.** The next release is v1.0.0. It holds the rename to Aries;
 the move from Dolt to Postgres, slices P0, P1, P2, P4 and P5 of
 [decision 79](docs/design/aries.md#14-decisions); stage 6's slices G0
-to G2; and a hardening pass: a review of every public name, flag,
+to G2; sign-in through your identity provider (Google Workspace,
+Microsoft Entra ID, Okta, Keycloak or GitHub) beside SSH keys, and
+service principals that sign in with their platform's workload identity
+(decision 83); and a hardening pass: a review of every public name, flag,
 variable and setting, the protocol settled at one version (decision
 78), and the open follow-ups. Stage 6's G3 to G5 come in 1.x releases
 as compatible additions.
