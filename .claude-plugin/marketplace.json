@@ -1,0 +1,15 @@
+{
+  "name": "starfix",
+  "description": "Claude Code plugins for running starfix, from the starfix repository",
+  "owner": {
+    "name": "starfix maintainers",
+    "url": "https://github.com/ariesworx/starfix"
+  },
+  "plugins": [
+    {
+      "name": "starfix-ops",
+      "source": "./plugins/starfix-ops",
+      "description": "Deploy and run a starfix server by the guides, from the operator's workstation, with every change shown and approved first"
+    }
+  ]
+}
