@@ -121,17 +121,26 @@ the store depends on (stage 0, summarized in
 
 When to cut the first one is the maintainer's call.
 
-1. Make sure the commit to tag is on `main` and its CI is green. The
+1. Update the release notes, `docs/releases/vX.Y.Z.md`
+   ([v1.0.0's](docs/releases/v1.0.0.md) is the model), by pull request:
+   what is new, breaking changes, security changes, removals, the
+   supported platforms, and what was not verified. Nothing may still be
+   marked **(planned)**: an item has landed, or it leaves the notes. A
+   release that needs more than `aries upgrade` and `ariesd upgrade`
+   also gets an upgrade guide beside them, as
+   [Upgrading to 1.0](docs/upgrade-to-1.0.md) is for v1.0.0; take its
+   draft mark off too.
+2. Make sure the commit to tag is on `main` and its CI is green. The
    `gate` job runs the same checks again on the tag, so a red commit
    stops there, but finding out first saves a tag.
-2. Tag and push; only the maintainer can (the tag ruleset below):
+3. Tag and push; only the maintainer can (the tag ruleset below):
 
    ```sh
    git tag -s v0.3.0 -m v0.3.0
    git push origin v0.3.0
    ```
 
-3. When `build` passes, its run's summary gives the command that signs
+4. When `build` passes, its run's summary gives the command that signs
    and publishes; run it. It names the tag and that run:
 
    ```sh
@@ -140,8 +149,14 @@ When to cut the first one is the maintainer's call.
 
    Nobody else's run of it is accepted, and neither is a build run of
    another tag or commit, or one that failed.
-4. Check the release page lists eight archives, `checksums.txt` and
+5. Check the release page lists eight archives, `checksums.txt` and
    `checksums.txt.sig`, then on any machine: `aries upgrade --check`.
+6. Put the release notes on the release page; the workflow writes only
+   a line and GitHub's generated list:
+
+   ```sh
+   gh release edit v0.3.0 --notes-file docs/releases/v0.3.0.md
+   ```
 
 A tag with a `-` (`v0.3.0-rc.1`) is published as a prerelease, which
 `aries upgrade` ignores; `ariesd upgrade --to v0.3.0-rc.1` installs it.

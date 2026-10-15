@@ -181,6 +181,8 @@ on Ubuntu 24.04 LTS or 26.04 LTS is set up by one script, `install-server.sh`
 | [Operating with Claude Code](docs/server.md#operate-a-server-with-claude-code) | The `aries-ops` plugin: deploy and run a server by talking to Claude, with every change shown and approved first |
 | [Deployment examples](docs/deploy/README.md) | Local, team and enterprise deployments, with costs, and a Docker test server |
 | [Installing Aries](docs/install.md) | Install options, manual downloads, verifying releases, upgrades |
+| [Upgrading to 1.0](docs/upgrade-to-1.0.md) | From v0.4.0 to v1.0.0: reinstalling `aries`, what to remove, and setting up a new server (a draft until v1.0.0 ships) |
+| [Release notes](docs/releases/v1.0.0.md) | What v1.0.0 adds, breaks, removes and supports, with what is still planned marked (a draft until it ships) |
 | [Moving from bd](docs/migrate-from-bd.md) | Importing a beads backlog, and exporting it back |
 | [Security model](docs/security-model.md) | Identity, host keys, the Dolt account, untrusted text, releases, CI checks |
 | [Design documents](docs/design/README.md) | Principles, architecture, data model, the Dolt spike, Bearings |
