@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -865,9 +864,12 @@ func printHistory(w io.Writer, evs []proto.Event) error {
 	return tw.Flush()
 }
 
-func cmdVersion(_ context.Context, r *runner, _ []string) error {
+func cmdVersion(_ context.Context, r *runner, args []string) error {
+	if _, err := parse(r.newFlags("version"), args, "version"); err != nil {
+		return err
+	}
 	if r.json {
-		r.emit(map[string]string{"version": r.env.Version, "protocol": strconv.Itoa(proto.Proto)})
+		r.emit(map[string]any{"version": r.env.Version, "protocol": proto.Proto})
 		return nil
 	}
 	_, _ = fmt.Fprintf(r.env.Stdout, "aries %s\n", r.env.Version)

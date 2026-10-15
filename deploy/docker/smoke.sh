@@ -478,7 +478,7 @@ telemetry_checks() {
 
   echo "smoke: telemetry: stand-ins, not names"
   expect "a server admin resolves the stand-in" "^$stand_in is alice\$" alice admin principal whois "$stand_in"
-  refuse "nobody else does" '"c":"forbidden"' bob --json admin principal whois "$stand_in"
+  refuse "nobody else does" '"code":"forbidden"' bob --json admin principal whois "$stand_in"
   log=$(collector_log)
   all=$(spans <<<"$log")
   grep -Eq ' principal=p_[0-9a-f]{16} session=s_[0-9a-f]{16} ' <<<"$all" || fail "no span says who, by a stand-in"
@@ -994,9 +994,9 @@ expect "digest discovered" "^ +$d " alice digest
 
 # A second principal reads, but is refused what only admins may do.
 expect "ready as bob" "^$b " bob ready
-refuse "prices set as bob" '"c":"forbidden"' bob --json admin prices set example-large --from 2026-02-01 \
+refuse "prices set as bob" '"code":"forbidden"' bob --json admin prices set example-large --from 2026-02-01 \
   --input 1 --output 1 --cache-write 1 --cache-write-1h 1 --cache-read 1
-refuse "plans set as bob" '"c":"forbidden"' bob --json admin plans set team --from "$(date -u +%Y-%m)" \
+refuse "plans set as bob" '"code":"forbidden"' bob --json admin plans set team --from "$(date -u +%Y-%m)" \
   --fee 1 --seats 1 --principal bob
 
 # Many projects, and keys from the control database. alice is the server

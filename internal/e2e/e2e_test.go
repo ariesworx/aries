@@ -929,6 +929,25 @@ func (u *user) ok(args ...string) string {
 	return r.stdout
 }
 
+// cliErr is a refusal as `aries --json` prints it, under "error".
+type cliErr struct {
+	Code    proto.Code `json:"code"`
+	Message string     `json:"message"`
+	Fix     string     `json:"fix"`
+	Req     string     `json:"req"`
+}
+
+// proto is the refusal as the wire carries it.
+func (e cliErr) proto() *proto.Error {
+	return &proto.Error{Code: e.Code, Message: e.Message, Fix: e.Fix, Req: e.Req}
+}
+
+// cliError is the refusal in s, a document `aries --json` printed.
+func cliError(t *testing.T, s string) cliErr {
+	t.Helper()
+	return decode[map[string]cliErr](t, s)["error"]
+}
+
 // decode unmarshals s as a T, failing the test if it cannot.
 func decode[T any](t *testing.T, s string) T {
 	t.Helper()
@@ -1039,7 +1058,7 @@ func TestConflict(t *testing.T) {
 		t.Fatalf("exit %d\nstderr %q\nwant   %q", r.code, r.stderr, want)
 	}
 	r = alice.run("v0.2.0", "update", id, "--rev", "1", "--title", "mine", "--json")
-	e := decode[map[string]proto.Error](t, r.stdout)["error"]
+	e := cliError(t, r.stdout)
 	if r.code != cli.ExitFailure || e.Code != proto.CodeConflict || !strings.Contains(e.Message, "now rev 2 by bob") {
 		t.Fatalf("json conflict: exit %d %+v", r.code, e)
 	}
@@ -1100,7 +1119,7 @@ func TestProtocolRangeRefusal(t *testing.T) {
 		t.Fatalf("stderr %q\nwant   %q", r.stderr, want)
 	}
 	r = alice.run("v0.2.0", "--json", "ready")
-	if e := decode[map[string]proto.Error](t, r.stdout)["error"]; r.code != cli.ExitVersion || e.Code != proto.CodeVersion {
+	if e := cliError(t, r.stdout); r.code != cli.ExitVersion || e.Code != proto.CodeVersion {
 		t.Fatalf("json: exit %d %+v", r.code, e)
 	}
 }

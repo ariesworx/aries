@@ -251,7 +251,7 @@ func TestNoQueue(t *testing.T) {
 				t.Errorf("alice's outbox holds %v, want nothing", got)
 			}
 			code, out, _ = a.run(t, append(tc.args, "--json")...)
-			var doc map[string]proto.Error
+			var doc map[string]jsonError
 			if err := json.Unmarshal([]byte(out), &doc); err != nil || code != ExitFailure || doc["error"].Code != proto.CodeUnavailable {
 				t.Errorf("with --json: exit %d, %q (%v); want one document with the unavailable error", code, out, err)
 			}
@@ -348,7 +348,7 @@ func TestNothingQueuedBeforeTheFirstHandshake(t *testing.T) {
 	}
 	code, out, _ = a.run(t, "handoff", "sf-a", "note", "--json")
 	var doc map[string]map[string]any
-	if err := json.Unmarshal([]byte(out), &doc); err != nil || code != ExitFailure || doc["error"]["c"] != "unavailable" || doc["queued"] != nil {
+	if err := json.Unmarshal([]byte(out), &doc); err != nil || code != ExitFailure || doc["error"]["code"] != "unavailable" || doc["queued"] != nil {
 		t.Errorf("with --json: exit %d, %q (%v); want one document with the error", code, out, err)
 	}
 }

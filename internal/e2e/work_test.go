@@ -105,7 +105,7 @@ func TestStartHandoffFinish(t *testing.T) {
 		t.Fatalf("alice finish: exit %d\n%s", r.code, r.stderr)
 	}
 	r = alice.run("v0.2.0", "update", id, "--title", "mine", "--json")
-	if e := decode[map[string]proto.Error](t, r.stdout)["error"]; r.code != cli.ExitFailure || e.Code != proto.CodeForbidden {
+	if e := cliError(t, r.stdout); r.code != cli.ExitFailure || e.Code != proto.CodeForbidden {
 		t.Fatalf("alice update: exit %d %+v", r.code, e)
 	}
 	r = bob.run("v0.2.0", "finish", id, "--reason", "fixed")

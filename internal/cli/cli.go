@@ -429,7 +429,7 @@ func (r *runner) fail(err error) int {
 		}
 	}
 	if r.json {
-		doc := map[string]any{"error": &proto.Error{Code: code, Message: msg, Fix: fix, Req: req}}
+		doc := map[string]any{"error": jsonError{Code: code, Message: msg, Fix: fix, Req: req}}
 		if rw, ok := errors.AsType[*refusedWith](err); ok {
 			doc[rw.key] = rw.value
 		}
@@ -445,6 +445,16 @@ func (r *runner) fail(err error) int {
 		}
 	}
 	return exit
+}
+
+// jsonError is a refusal as --json prints it: the shape the MCP server
+// gives an agent, with the request's id, rather than the wire's
+// one-letter keys, which a script should not need to know.
+type jsonError struct {
+	Code    proto.Code `json:"code"`
+	Message string     `json:"message"`
+	Fix     string     `json:"fix,omitempty"`
+	Req     string     `json:"req,omitempty"`
 }
 
 // emit writes v as one JSON document. encoding/json escapes the C0

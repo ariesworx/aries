@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 
@@ -32,7 +34,8 @@ func TestRunWithoutServer(t *testing.T) {
 		{name: "help", args: []string{"help"}, code: ExitOK, stdout: "ready"},
 		{name: "help for a command", args: []string{"help", "dep"}, code: ExitOK, stdout: "usage: aries dep add|rm FROM TO"},
 		{name: "version", args: []string{"version"}, code: ExitOK, stdout: "aries v0.3.0\n"},
-		{name: "version json", args: []string{"--json", "version"}, code: ExitOK, stdout: `{"protocol":"8","version":"v0.3.0"}`},
+		{name: "version json", args: []string{"--json", "version"}, code: ExitOK, stdout: `{"protocol":8,"version":"v0.3.0"}`},
+		{name: "version json after the command", args: []string{"version", "--json"}, code: ExitOK, stdout: `{"protocol":8,"version":"v0.3.0"}`},
 		{name: "unknown global flag", args: []string{"--colour", "ready"}, code: ExitUsage, stderr: "unknown flag --colour"},
 		{name: "unknown command flag", args: []string{"ready", "--colour"}, code: ExitUsage, stderr: "fix: usage: aries ready [-n N]"},
 		{name: "bad priority", args: []string{"-C", empty, "create", "x", "-p", "9"}, code: ExitUsage, stderr: "priority must be 0-4"},
@@ -120,18 +123,40 @@ func TestRunWithoutServer(t *testing.T) {
 	}
 }
 
+// --json prints a refusal as one document, {"error": {"code", "message",
+// "fix", "req"}}: the shape the MCP server gives an agent, with the
+// wire's one-letter keys spelled out.
 func TestJSONErrorIsOneDocument(t *testing.T) {
 	t.Parallel()
 	code, out, errb := runCLI(t, "-C", t.TempDir(), "show", "sf-aaaa", "--json")
 	if code != ExitFailure || errb != "" {
-		t.Fatalf("exit %d stderr %q", code, errb)
+		t.Fatalf("aries show --json outside a repository: exit %d, stderr %q; want %d and nothing", code, errb, ExitFailure)
 	}
-	var doc map[string]proto.Error
+	var doc map[string]map[string]any
 	if err := json.Unmarshal([]byte(out), &doc); err != nil {
-		t.Fatalf("%q: %v", out, err)
+		t.Fatalf("aries show --json printed %q: %v", out, err)
 	}
-	if e := doc["error"]; e.Code != proto.CodeInvalid || e.Fix == "" {
-		t.Fatalf("error: %+v", e)
+	e := doc["error"]
+	if e["code"] != string(proto.CodeInvalid) || e["message"] == "" || e["fix"] == "" {
+		t.Errorf("aries show --json error = %v, want code %q, a message and a fix", e, proto.CodeInvalid)
+	}
+	keys := slices.Sorted(maps.Keys(e))
+	if want := []string{"code", "fix", "message"}; !slices.Equal(keys, want) {
+		t.Errorf("aries show --json error has keys %q, want %q", keys, want)
+	}
+}
+
+// version --json gives the protocol as a number, as the status report
+// gives its range.
+func TestVersionJSON(t *testing.T) {
+	t.Parallel()
+	code, out, _ := runCLI(t, "version", "--json")
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(out), &doc); err != nil || code != ExitOK {
+		t.Fatalf("aries version --json: exit %d, %q (%v)", code, out, err)
+	}
+	if got, ok := doc["protocol"].(float64); !ok || got != proto.Proto {
+		t.Errorf("aries version --json protocol = %#v, want the number %d", doc["protocol"], proto.Proto)
 	}
 }
 

@@ -786,6 +786,27 @@ access control lists.
 | 2 | Usage error: an unknown flag or a missing argument |
 | 3 | The server refused this client's protocol version; the `fix:` line says which side to upgrade |
 
+With `--json`, a failure prints one document on standard output and
+nothing on standard error, in the shape the MCP server gives an agent:
+
+```text
+$ aries --json -C /tmp show sf-a1b2c3d4
+{"error":{"code":"invalid","message":".aries.yaml not found here or in any parent directory","fix":"run aries inside a repository that has one, or pass -C DIR; the search stops at the repository's top level and at your home directory"}}
+```
+
+`code` is one of the codes named in this guide (`invalid`, `not_found`,
+`forbidden`, `busy`, `unavailable` and the rest), `message` names the
+cause and `fix` the next step; `fix` is absent only when there is none
+to name. `req`, the id the server gave the request, is there when the
+server sent one, as above. A few refusals add a field of their own beside
+`error`, as `admin member add` adds `member`.
+
+Every document `--json` prints, a refusal's included, only gains fields
+within 1.x: a field may be added to any of them, and none is removed or
+changes its type. A script should ignore the fields it does not know.
+`version --json` gives `version`, the release, and `protocol`, the
+protocol it speaks, as a number.
+
 A refusal exits 1 like any other failure, and `--json` gives its code.
 When another principal holds an issue, a change to it is refused with
 `forbidden`, as is a change reserved for admins, and a connection to a
