@@ -507,7 +507,7 @@ func BenchmarkRetainedStores(b *testing.B) {
 			for range 8 {
 				wg.Go(func() {
 					for range 4 {
-						if _, err := pr.store.List(ctx, store.Filter{}); err != nil {
+						if _, err := realStore(pr.store).List(ctx, store.Filter{}); err != nil {
 							b.Error(err)
 						}
 					}

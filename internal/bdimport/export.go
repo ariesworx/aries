@@ -28,7 +28,7 @@ type exportIssue struct {
 // issue_type and status, so a backlog that came from bd goes back as it
 // came. Fields bd has no place for (expires_at, a comment's session) are
 // written under their own names, which bd ignores.
-func Export(ctx context.Context, st *store.Store, w io.Writer) (int, error) {
+func Export(ctx context.Context, st Source, w io.Writer) (int, error) {
 	deps, err := st.AllDeps(ctx)
 	if err != nil {
 		return 0, err

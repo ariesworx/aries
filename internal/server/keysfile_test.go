@@ -254,7 +254,7 @@ func TestKeysFileRefusals(t *testing.T) {
 
 	// The settings the server will not start with.
 	ctl := adminWorld(t, Limits{}).ctl
-	open := func(context.Context, store.Project) (*store.Store, error) { return nil, errors.New("not opened") }
+	open := func(context.Context, store.Project) (Store, error) { return nil, errors.New("not opened") }
 	for _, tc := range []struct {
 		name string
 		cfg  Config

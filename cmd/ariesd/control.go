@@ -14,7 +14,6 @@ import (
 
 	"github.com/ariesworx/aries/internal/server"
 	"github.com/ariesworx/aries/internal/store"
-	"github.com/go-sql-driver/mysql"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -52,13 +51,9 @@ func openControl(ctx context.Context, s server.Settings, opts store.ControlOptio
 			s.ControlDB, err)
 	}
 	if err != nil {
-		user := "aries"
-		if cfg, perr := mysql.ParseDSN(s.DSN); perr == nil && cfg.User != "" {
-			user = cfg.User
-		}
 		return nil, fmt.Errorf("open the control database %s: %w; fix: check that dolt sql-server is running, and as Dolt's root create the database and grant it: "+
-			"CREATE DATABASE IF NOT EXISTS %s; GRANT ALL ON %s.* TO '%s'@'localhost'; (docs/server.md, Serving many projects)",
-			s.ControlDB, err, s.ControlDB, s.ControlDB, user)
+			"%s (docs/server.md, Serving many projects)",
+			s.ControlDB, err, store.CreateDatabaseSQL(s.ControlDB, s.DSN))
 	}
 	return ctl, nil
 }
@@ -207,13 +202,13 @@ func controlInit(ctx context.Context, env adminEnv, args []string) (err error) {
 	case s.Project == "":
 		return errors.New("no project to adopt; fix: set project: in the config file to the UUID this server serves")
 	}
-	cfg, err := mysql.ParseDSN(s.DSN)
+	dsn, err := store.ParseDSN(s.DSN)
 	if err != nil {
 		return fmt.Errorf("dsn: %w", err)
 	}
-	if !store.ValidDBName(cfg.DBName) {
+	if !store.ValidDBName(dsn.Database) {
 		return fmt.Errorf("database %q in the DSN cannot be a project's: a project's database is named with a lowercase letter, then lowercase letters, digits and underscores; "+
-			"fix: copy the data to a database named so and set dsn: to it", cfg.DBName)
+			"fix: copy the data to a database named so and set dsn: to it", dsn.Database)
 	}
 	// Read before anything is written, so a wrong path changes nothing.
 	lines, problems, err := readAuthorizedKeys(keysFile)
@@ -234,7 +229,7 @@ func controlInit(ctx context.Context, env adminEnv, args []string) (err error) {
 	}
 	actor := store.Actor{Principal: store.OperatorPrincipal, Session: "control-init-" + time.Now().UTC().Format("20060102T150405Z"), Machine: host}
 
-	p, err := ctl.AddProject(ctx, actor, store.NewProject{ID: s.Project, Name: name, Prefix: s.Prefix, Account: s.Account, DBName: cfg.DBName})
+	p, err := ctl.AddProject(ctx, actor, store.NewProject{ID: s.Project, Name: name, Prefix: s.Prefix, Account: s.Account, DBName: dsn.Database})
 	if _, taken := errors.AsType[*store.TakenError](err); taken {
 		return fmt.Errorf("adopt project %s: %w; fix: an adopted project keeps its name, prefix, account and database, so give the --name it was adopted with and leave prefix:, account: and dsn: as they were",
 			s.Project, err)

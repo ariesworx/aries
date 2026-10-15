@@ -324,7 +324,7 @@ func TestStatusOneStoreSlow(t *testing.T) {
 	m := adminWorld(t, Limits{})
 	var theirs *store.Store
 	open := m.cfg.Open
-	m.cfg.Open = func(ctx context.Context, p store.Project) (*store.Store, error) {
+	m.cfg.Open = func(ctx context.Context, p store.Project) (Store, error) {
 		if p.ID != projB {
 			return open(ctx, p)
 		}

@@ -166,11 +166,11 @@ func (s *Server) open(ctx context.Context, op string, p store.Project) *proto.Er
 	case store.DatabaseDenied(err):
 		account, aerr := s.cfg.Control.Account(ctx)
 		if aerr != nil {
-			account = "'aries'@'localhost'"
+			account = "" // the account the guides create
 		}
 		return proto.Errf(proto.CodeUnavailable,
-			fmt.Sprintf("ask the server's operator to run this as Dolt's root, then run `aries %s %s` again: GRANT ALL ON %s.* TO %s; (docs/server.md, Serving many projects)",
-				command(op), p.Name, p.DBName, account),
+			fmt.Sprintf("ask the server's operator to run this as Dolt's root, then run `aries %s %s` again: %s (docs/server.md, Serving many projects)",
+				command(op), p.Name, store.GrantSQL(p.DBName, account)),
 			fmt.Sprintf("ariesd's Dolt account was never granted database %s, so project %s cannot use it", p.DBName, p.Name))
 	}
 	if ctx.Err() == nil {
@@ -926,7 +926,7 @@ func (s *Server) OpenProjects(ctx context.Context) error {
 // store's connection ([store.Control.HeldClaims]) and opens no store, so
 // a server with hundreds of archived projects starts as fast as one with
 // none. A server of one project has nothing archived.
-func (s *Server) ReleaseArchived(ctx context.Context, open func(context.Context, store.Project) (*store.Store, error)) error {
+func (s *Server) ReleaseArchived(ctx context.Context, open func(context.Context, store.Project) (Store, error)) error {
 	if s.cfg.Control == nil {
 		return nil
 	}
@@ -955,7 +955,7 @@ func (s *Server) ReleaseArchived(ctx context.Context, open func(context.Context,
 
 // releaseArchived ends every claim in the archived project p, whose
 // store it opens with open and closes again.
-func (s *Server) releaseArchived(ctx context.Context, p store.Project, open func(context.Context, store.Project) (*store.Store, error)) error {
+func (s *Server) releaseArchived(ctx context.Context, p store.Project, open func(context.Context, store.Project) (Store, error)) error {
 	octx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
 	defer cancel()
 	// Nearly every archived project holds no claim, and one read says

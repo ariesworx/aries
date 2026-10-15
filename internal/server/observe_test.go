@@ -126,7 +126,7 @@ func TestMetricsOfRequests(t *testing.T) {
 	}
 	mustAsk[proto.StartResult](c, proto.OpStart, proto.StartArgs{ID: a.ID})
 	mustAsk[proto.FinishResult](c, proto.OpFinish, proto.FinishArgs{ID: a.ID, Reason: "done"})
-	if err := s.cfg.Store.Flush(t.Context()); err != nil {
+	if err := realStore(s.cfg.Store).Flush(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 

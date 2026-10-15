@@ -27,7 +27,7 @@ type Options struct {
 // individual records go in the report and the rest still imports; the
 // error is for failures that stop the run (reading r, or the store
 // failing). See the package documentation for the mapping.
-func Import(ctx context.Context, st *store.Store, r io.Reader, opts Options) (*Report, error) {
+func Import(ctx context.Context, st Target, r io.Reader, opts Options) (*Report, error) {
 	rep := &Report{DryRun: opts.DryRun, Problems: []Problem{}}
 	lines, mems, err := parse(r, opts.Actor.Principal, rep)
 	if err != nil {
@@ -200,7 +200,7 @@ func warnMapping(rep *Report, kind, detail, id string, n int) {
 
 // importer carries state across the three passes.
 type importer struct {
-	st     *store.Store
+	st     Target
 	opts   Options
 	rep    *Report
 	inFile map[store.IssueID]*line
