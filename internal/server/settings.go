@@ -20,7 +20,6 @@ import (
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/store"
 	"github.com/ariesworx/aries/internal/telemetry"
-	"github.com/go-sql-driver/mysql"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -252,11 +251,11 @@ const (
 // from the file only.
 func ResolveSettings(flags Settings, configPath string, getenv func(string) string) (Settings, error) {
 	if flags.DSN != "" {
-		cfg, err := mysql.ParseDSN(flags.DSN)
+		d, err := store.ParseDSN(flags.DSN)
 		if err != nil {
 			return Settings{}, fmt.Errorf("--dsn: %w", err)
 		}
-		if cfg.Passwd != "" {
+		if d.Password {
 			return Settings{}, fmt.Errorf("--dsn holds a password, which would show in the process list; fix: set %s or dsn: in the config file instead", EnvDSN)
 		}
 	}
@@ -404,7 +403,7 @@ func (s Settings) checkControlDB() error {
 		return fmt.Errorf("control_db %q is not a database name; fix: set control_db: or %s to a lowercase letter, then lowercase letters, digits and underscores, such as aries_control",
 			s.ControlDB, EnvControlDB)
 	}
-	if cfg, err := mysql.ParseDSN(s.DSN); err == nil && cfg.DBName == s.ControlDB {
+	if d, err := store.ParseDSN(s.DSN); err == nil && d.Database == s.ControlDB {
 		return fmt.Errorf("control_db %q is the database in the DSN, which holds a project; fix: set control_db: to a database of its own, such as aries_control",
 			s.ControlDB)
 	}
@@ -532,7 +531,7 @@ func loadSettings(path string, required bool) (Settings, error) {
 		return s, fmt.Errorf("config %s: %w", path, err)
 	}
 	if s.DSN != "" {
-		if cfg, err := mysql.ParseDSN(s.DSN); err == nil && cfg.Passwd != "" {
+		if d, err := store.ParseDSN(s.DSN); err == nil && d.Password {
 			fi, err := os.Stat(path)
 			if err != nil {
 				return s, fmt.Errorf("config: %w", err)

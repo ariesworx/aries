@@ -166,11 +166,11 @@ func (s *Server) open(ctx context.Context, op string, p store.Project) *proto.Er
 	case store.DatabaseDenied(err):
 		account, aerr := s.cfg.Control.Account(ctx)
 		if aerr != nil {
-			account = "'aries'@'localhost'"
+			account = "" // the account the guides create
 		}
 		return proto.Errf(proto.CodeUnavailable,
-			fmt.Sprintf("ask the server's operator to run this as Dolt's root, then run `aries %s %s` again: GRANT ALL ON %s.* TO %s; (docs/server.md, Serving many projects)",
-				command(op), p.Name, p.DBName, account),
+			fmt.Sprintf("ask the server's operator to run this as Dolt's root, then run `aries %s %s` again: %s (docs/server.md, Serving many projects)",
+				command(op), p.Name, store.GrantSQL(p.DBName, account)),
 			fmt.Sprintf("ariesd's Dolt account was never granted database %s, so project %s cannot use it", p.DBName, p.Name))
 	}
 	if ctx.Err() == nil {

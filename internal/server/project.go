@@ -12,7 +12,6 @@ import (
 	"github.com/ariesworx/aries/internal/logs"
 	"github.com/ariesworx/aries/internal/store"
 	"github.com/ariesworx/aries/internal/telemetry"
-	"github.com/go-sql-driver/mysql"
 )
 
 // served is one project the daemon serves and what its requests need:
@@ -83,22 +82,12 @@ func (pr *served) prune(ctx context.Context, lim Limits) {
 }
 
 // DatabaseDSN returns dsn with its database replaced by name: another
-// database on the same Dolt server, as the same account. A server of
-// many projects reaches its control database and each project's this
-// way, from the one dsn it is configured with. name must be a
-// [store.ValidDBName], since it comes from settings or from the control
-// store and never from a client.
-func DatabaseDSN(dsn, name string) (string, error) {
-	cfg, err := mysql.ParseDSN(dsn)
-	if err != nil {
-		return "", fmt.Errorf("parse dsn: %w", err)
-	}
-	if !store.ValidDBName(name) {
-		return "", fmt.Errorf("database name %q must be a lowercase letter, then lowercase letters, digits and underscores, at most 64", name)
-	}
-	cfg.DBName = name
-	return cfg.FormatDSN(), nil
-}
+// database on the same server, as the same account
+// ([store.DatabaseDSN]). A server of many projects reaches its control
+// database and each project's this way, from the one dsn it is
+// configured with. name must be a [store.ValidDBName], since it comes
+// from settings or from the control store and never from a client.
+func DatabaseDSN(dsn, name string) (string, error) { return store.DatabaseDSN(dsn, name) }
 
 // ProjectOpener returns a Config.Open for a daemon configured with dsn:
 // it opens a project's store on the project's own database
