@@ -294,7 +294,10 @@ func TestMetricsOfLimits(t *testing.T) {
 			t.Fatalf("a write past the bucket = %v, want busy", perr)
 		}
 	}
-	dialPipe(t, s, bob)
+	// The server counts a handshake after writing its answer, which the
+	// client may read first; it serves the first request only after
+	// counting, so an answered request means bob's is counted.
+	mustAsk[proto.ListResult](dialPipe(t, s, bob), proto.OpReady, proto.LimitArgs{})
 	w, refused := handshakeAs(t, s, dana)
 	if w.Err == nil || w.Err.Code != proto.CodeBusy {
 		t.Fatalf("a third connection with conns: 2 = %+v, want busy", w.Err)
