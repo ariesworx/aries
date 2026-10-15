@@ -3465,60 +3465,36 @@ document: the report, or `{"error": …}` and exit code 1.
 
 ## Upgrades
 
-This release speaks protocols 7 and 8, and accepts both. Protocol 6
-added idempotency keys to the writes an outbox may queue, and the
-refusal `stale` ([When the server cannot be reached](cli.md#when-the-server-cannot-be-reached)).
-Protocol 7 added conflicts: a queued update replayed after others
-changed the issue is compared field by field and what conflicts is
-parked for a person ([Conflicts](cli.md#conflicts)). Protocol 8 adds
-the late finish: a queued `finish` or `handoff` replayed after its
-claim's lease ran out applies if nobody took the issue since, and is
-otherwise kept as a comment rather than refused; an `aries` of protocol 7
-is served as it was. Gates and dates (`aries gate`, `--defer-until`,
-`--due`) joined protocol 8 before any release spoke it, so a server
-built from main before them refuses those commands and flags as
-unknown, with a fix that says to upgrade, and serves everything else. This `aries` against a server of protocol 7 speaks
-7: refused at its first hello, it says hello again in 7 on the same
-connection, and a queued finish it replays there after the issue moved
-on is refused, as before, and kept in `aries outbox`. Neither speaks
-protocol 6, which no release spoke: a server of this release refuses an
-`aries` of 6, and this `aries` is refused by a server of 6 alone. **It refuses every earlier
-release's `aries`**: v0.2.x (protocol 2), v0.3.x (protocol 3) and v0.4.x
-(protocol 4). That is a break made once, on purpose,
-while nobody runs Aries in production and it changes quickly
-([design §14, decision 25](design/aries.md#14-decisions)). From here
-on the rule holds again: a release that changes the protocol still
-accepts the one before it, so the server is upgraded first and the
-clients after, at their own pace.
+**From v0.4.x or earlier, there is no upgrade in place.** v1.0.0 has
+new names for every binary, file, variable and path, a new release
+key, and a new database, and its server refuses every earlier client.
+A v0.4.x `ariesd upgrade` cannot find or verify it. Set up a new server
+and remove the former one, as [Upgrading to 1.0](upgrade-to-1.0.md)
+says. What follows is for upgrades between releases from v1.0.0 on.
 
-Crossing this one boundary, both sides must be upgraded, and until both
-are, the one upgraded first cannot talk to the other:
+**The protocol.** Each release's notes say whether it changes the
+protocol. One that does still accepts the version before it (design
+principle 9), so the server is upgraded first and the clients after, at
+their own pace:
 
-1. **Tell everyone first.** Once the server is upgraded, every `aries`
-   older than this release is refused until it is upgraded.
-2. **Upgrade the server,** as below. `ariesd upgrade` run by v0.4.0
-   works across the boundary: its health check is answered by the new
-   ariesd whatever protocol the old binary speaks.
-3. **Everyone upgrades `aries`:** `aries upgrade`, on each machine. It reads
-   the release from GitHub and asks the server nothing, so it works
-   while the server refuses that `aries`. Someone without it runs the
-   install script again ([Installing](install.md)).
-4. **Everyone restarts their agents.** The MCP server in an agent's
-   harness is an `aries mcp` process, started from the old binary, and it
-   stays the old one until the harness starts it again.
+1. **Upgrade the server,** as below. The health check of the old
+   binary that runs the upgrade is answered by the new ariesd whatever
+   protocol the old binary speaks.
+2. **Everyone upgrades `aries`:** `aries upgrade`, on each machine. It
+   reads the release from GitHub, or a mirror, and asks the server
+   nothing, so it works while the server refuses that `aries`.
+3. **Everyone restarts their agents.** The MCP server in an agent's
+   harness is an `aries mcp` process, started from the old binary, and
+   it stays the old one until the harness starts it again.
 
-What each side sees meanwhile, with exit code 3:
+What each side sees when its versions are outside the other's range,
+with exit code 3:
 
 | Who | Is told |
 |---|---|
-| An older `aries` against this server | `aries: aries speaks protocol 4; the server (v0.5.0) needs protocols 7 to 8` and `fix: upgrade this client: run `aries upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `aries mcp``. The old `aries` prints the server's words, so it says this whatever its version |
-| An agent on an older `aries mcp` | Every tool call fails with code `version` and that message, and the fix `tell the user aries cannot connect, quoting the server:` followed by the line above. The session's start says the same in one line. The agent cannot fix it: the person upgrades `aries` and restarts the agent |
-| This `aries` against an older server | `aries: aries speaks protocol 7; the server (v0.4.0) is older and accepts protocols 2 to 4` and `fix: ask the server admin to run `ariesd upgrade`, or install the aries release that matches the server` |
-
-Upgrading the clients first works too, in the sense that nothing is
-lost: each new `aries` is refused, as in the last row, until the server is
-upgraded. Server first is shorter, because step 3 is then one command
-that the refusal itself names.
+| An `aries` older than the server accepts | The server's message, naming both versions, and `fix: upgrade this client: run `aries upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `aries mcp``. The old `aries` prints the server's words, so it says this whatever its version |
+| An agent on such an `aries mcp` | Every tool call fails with code `version` and that message, and the fix `tell the user aries cannot connect, quoting the server:` followed by the line above. The session's start says the same in one line. The agent cannot fix it: the person upgrades `aries` and restarts the agent |
+| An `aries` newer than the server | A message that the server is older, and `fix: ask the server admin to run `ariesd upgrade`, or install the aries release that matches the server` |
 
 On the server, as the `aries` user:
 
@@ -3576,31 +3552,6 @@ As on a server of one project, the old binary refuses a database the new
 one has already migrated, since migrations only go forward. So after an
 upgrade that failed partway, the restored version may not serve the
 databases the new one reached; the tag of step 3 marks each as it was.
-
-**Upgrading to the first release that checks the clock.** A server
-whose clock once ran ahead may hold events dated after the present. It
-runs today, and after this upgrade it will not start
-([When the clock is behind the server's
-history](#when-the-clock-is-behind-the-servers-history)). The release
-before has no step 2, so its `ariesd upgrade` swaps the binary, the
-new daemon refuses to start, the health check fails and the old binary
-is put back: nothing is lost, and the upgrade reports the new version
-unhealthy, with the refusal in `journalctl -u ariesd`. To find out
-beforehand, compare the clock with each database's latest event, as
-Dolt's root:
-
-```sh
-date -u +%Y-%m-%dT%H:%M:%SZ
-cd /var/lib/dolt/data && sudo -u dolt -H dolt sql -q "SELECT MAX(at) FROM aries.events"
-```
-
-If an event is later than the clock by more than two minutes, either
-wait until the clock has passed it, or set `clock_behind: warn` for the
-upgrade, or start the new version once with `--accept-clock-behind`.
-Add `RestartPreventExitStatus=75`, `Wants=time-sync.target` and
-`time-sync.target` in `After=` to the unit
-([step 5](#5-run-ariesd-under-systemd)) before upgrading, and run
-`systemctl daemon-reload`.
 
 **Keys and the upgrade.** sshd runs nothing of Aries's to find a key
 ([Keys from the store](#keys-from-the-store)), so an upgrade has no

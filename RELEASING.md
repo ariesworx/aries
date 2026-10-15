@@ -39,46 +39,17 @@ The release notes name the Dolt version the release was tested with
 They also say, first, when the release changes the protocol
 (`internal/proto/version.go`): the version it speaks and the range it
 accepts, and which earlier releases keep working. Normally all of the
-one before do, since `ProtoMin` stays one version behind. **The first
-release after v0.4.0 is the exception:** it speaks and accepts protocol
-5 alone, so every earlier `aries` is refused by it, and it is refused by
-every earlier server. Its notes must lead with that, give the order
-(server, then every `aries`, then restart the agents) and link
-[Upgrades](docs/server.md#upgrades), which has the text each side
-prints.
+one before do, since `ProtoMin` stays one version behind. **v1.0.0 is
+the exception:** under decision 78 its protocol is settled at the
+release, to one version, and no number is given until then; it refuses
+every client and server of v0.4.x and earlier. Its notes
+([docs/releases/v1.0.0.md](docs/releases/v1.0.0.md)) lead with that and
+link [Upgrading to 1.0](docs/upgrade-to-1.0.md).
 
-**The same release changes which key `aries` signs in with, and its notes
-must say so beside the protocol.** A key named for `aries` is now the only
-key it offers the server, and `key:` in `.aries.yaml` may name only a
-file inside the repository. A `.aries.yaml` with a line such as `key:
-~/.ssh/id_ed25519`, which every earlier release accepted, is refused:
-`aries` says so, names the line to remove, and gives the replacement, the
-environment variable `ARIES_KEY_FILE=~/.ssh/id_ed25519`, which holds
-the key file's path. The notes give that one step and three more
-things. With no key named, `aries` now tries the default identity files of
-`~/.ssh` before ssh-agent's keys, as `ssh` does, and offers five keys at
-most, so a person whose key is `~/.ssh/id_ed25519` needs no ssh-agent,
-and one with several registered keys may sign in by a different one
-than before. A CI job that followed the team guide's earlier recipe has
-a secret named `ARIES_KEY` holding a private key: `aries` never reads
-it, and the notes link the new recipe
-([docs/deploy/team.md](docs/deploy/team.md)), which writes the key to a
-file and sets `ARIES_KEY_FILE` to its path. And `aries whoami` shows
-which principal and key a connection used. The notes link [Your key is your
-identity](docs/cli.md#your-key-is-your-identity).
-
-**That same release is the first whose ariesd refuses to start with
-its clock behind its own history** (`clock_behind: stop`, design §14,
-decision 37). Its notes must say so under the protocol change: a server
-whose clock once ran ahead holds events dated in the future and will not
-start after the upgrade; how to find out beforehand (the query in
-[Upgrades](docs/server.md#upgrades)); the three ways on (wait, set
-`clock_behind: warn`, or start once with `--accept-clock-behind`); the
-unit lines to add (`RestartPreventExitStatus=75`, `time-sync.target`);
-and that a usage record may now be 5 minutes past the server's clock,
-not an hour. The upgrade from v0.4.0 cannot ask the question itself,
-since the binary that runs it predates the check: it puts the old
-binary back and reports the new one unhealthy.
+What this section once required of the first release after v0.4.0
+(the key `aries` signs in with, and the refusal to start with the clock
+behind) concerned upgrading a v0.4.0 server in place, which v1.0.0 does
+not allow; its notes give both as breaking changes.
 
 ## Changing the Dolt pin
 
@@ -121,17 +92,26 @@ the store depends on (stage 0, summarized in
 
 When to cut the first one is the maintainer's call.
 
-1. Make sure the commit to tag is on `main` and its CI is green. The
+1. Update the release notes, `docs/releases/vX.Y.Z.md`
+   ([v1.0.0's](docs/releases/v1.0.0.md) is the model), by pull request:
+   what is new, breaking changes, security changes, removals, the
+   supported platforms, and what was not verified. Nothing may still be
+   marked **(planned)**: an item has landed, or it leaves the notes. A
+   release that needs more than `aries upgrade` and `ariesd upgrade`
+   also gets an upgrade guide beside them, as
+   [Upgrading to 1.0](docs/upgrade-to-1.0.md) is for v1.0.0; take its
+   draft mark off too.
+2. Make sure the commit to tag is on `main` and its CI is green. The
    `gate` job runs the same checks again on the tag, so a red commit
    stops there, but finding out first saves a tag.
-2. Tag and push; only the maintainer can (the tag ruleset below):
+3. Tag and push; only the maintainer can (the tag ruleset below):
 
    ```sh
    git tag -s v0.3.0 -m v0.3.0
    git push origin v0.3.0
    ```
 
-3. When `build` passes, its run's summary gives the command that signs
+4. When `build` passes, its run's summary gives the command that signs
    and publishes; run it. It names the tag and that run:
 
    ```sh
@@ -140,8 +120,14 @@ When to cut the first one is the maintainer's call.
 
    Nobody else's run of it is accepted, and neither is a build run of
    another tag or commit, or one that failed.
-4. Check the release page lists eight archives, `checksums.txt` and
+5. Check the release page lists eight archives, `checksums.txt` and
    `checksums.txt.sig`, then on any machine: `aries upgrade --check`.
+6. Put the release notes on the release page; the workflow writes only
+   a line and GitHub's generated list:
+
+   ```sh
+   gh release edit v0.3.0 --notes-file docs/releases/v0.3.0.md
+   ```
 
 A tag with a `-` (`v0.3.0-rc.1`) is published as a prerelease, which
 `aries upgrade` ignores; `ariesd upgrade --to v0.3.0-rc.1` installs it.
