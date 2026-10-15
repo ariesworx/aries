@@ -8,7 +8,7 @@ Put shared guidance here, not there.
 
 ## What this is
 
-Aries is a public, Apache-2.0 Go module: an issue tracker, shared memory
+Aries is a public, AGPL-3.0-only Go module: an issue tracker, shared memory
 and coordination layer for AI coding agents, stored in Dolt. `aries` is the
 client (a CLI for people and an MCP server for agents); `ariesd` is the
 server daemon and the sshd forced-command bridge. Bearings, the orchestrator,

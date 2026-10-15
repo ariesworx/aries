@@ -613,8 +613,8 @@ func TestOpsPluginManifests(t *testing.T) {
 	if a, _ := plugin["author"].(map[string]any); a == nil || a["name"] == "" || a["name"] == nil {
 		t.Errorf("%s: author.name is required", manifest)
 	}
-	if l, _ := plugin["license"].(string); l != "Apache-2.0" {
-		t.Errorf("%s: license %q is not the repository's, Apache-2.0", manifest, l)
+	if l, _ := plugin["license"].(string); l != "AGPL-3.0-only" {
+		t.Errorf("%s: license %q is not the repository's, AGPL-3.0-only", manifest, l)
 	}
 	if h, ok := plugin["homepage"].(string); ok {
 		if u, err := url.Parse(h); err != nil || u.Scheme != "https" || u.Host == "" {

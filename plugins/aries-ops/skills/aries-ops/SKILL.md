@@ -1,7 +1,7 @@
 ---
 name: aries-ops
 description: Deploy and run an Aries server from the operator's workstation, following Aries's guides. Use when someone asks to provision a VM for Aries, install or upgrade an Aries server, add or remove projects, people, keys or members, offboard someone, back up or restore, wire telemetry, troubleshoot ariesd, sshd or the database, or onboard a developer or agent with .aries.yaml and aries setup. Every change is shown first and run only once the operator approves it.
-license: Apache-2.0
+license: AGPL-3.0-only
 ---
 
 # Operating an Aries server
