@@ -65,6 +65,7 @@ stage is in progress.
 | `spike/dolt` | Stage 0 measurements, kept as evidence; not maintained and excluded from lint |
 | `spike/multidb` | Stage 3a measurements of many databases in one Dolt, kept as evidence; not maintained and excluded from lint |
 | `spike/outbox` | Stage 5 (slice F0) measurements of the local store of design §18.4 under many processes: file locks, the outbox, replay, compaction and the cache. Kept as evidence; not maintained and excluded from lint |
+| `spike/postgres` | Measurements of the store on Postgres beside Dolt, a module of its own with a copy of the store at the time, kept as the evidence for decision 79 (design §14). Not maintained and excluded from lint |
 | `docs` | User guides: concepts, `sfx`, agents, CI gates and their workflows, running a server, deployment examples, install, moving from bd, the security model |
 | `docs/design` | Design documents |
 | `.claude/agents`, `.codex/agents`, `.gemini/agents` | Agent specifications (below); `internal/agentspec` keeps them in step |
