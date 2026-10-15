@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 )
 
 // Conflicts (design §18.7). An update queued while the server could not
@@ -533,16 +532,7 @@ func keepAsComment(ctx context.Context, w *wtx, before Issue, base Rev, patch Is
 	if patch.Paths != nil {
 		fmt.Fprintf(&b, "\npaths: %s", strings.Join(*patch.Paths, " "))
 	}
-	body := b.String()
-	if len(body) > maxText {
-		const cut = "\n[cut]"
-		n := maxText - len(cut)
-		for n > 0 && !utf8.RuneStart(body[n]) {
-			n--
-		}
-		body = body[:n] + cut
-	}
-	c, err := insertComment(ctx, w, before.ID, body, CommentPlain)
+	c, err := insertComment(ctx, w, before.ID, cutText(b.String()), CommentPlain)
 	if err != nil {
 		return err
 	}

@@ -69,6 +69,8 @@ func TestReplayCatches(t *testing.T) {
 		want string // a substring of the one violation; empty: none
 		// guards and overs count the checks deferred to the end of a run.
 		guards, overs int
+		// markers are markers the log must count so.
+		markers map[string]int
 	}{
 		{
 			name: "a clean story",
@@ -271,6 +273,70 @@ func TestReplayCatches(t *testing.T) {
 			},
 		},
 		{
+			name: "a late finish after the reaper, nobody having taken the issue",
+			log: func(b *logBuilder) *logBuilder {
+				b.create(alice, "sf-1").take(alice, "sf-1", 1, time.Minute, "")
+				b.add(3*time.Minute, reaper, "claim.expire", "sf-1", b.claimOf(alice, 1, 3*time.Minute), "")
+				return b.add(time.Minute, alice2, "claim.lapsed", "sf-1", `{"epoch": 1}`, `{"op": "finish"}`).
+					add(0, alice2, "issue.close", "sf-1", `{"status": "open"}`, `{"status": "closed", "close_reason": "done alice-3"}`)
+			},
+		},
+		{
+			name: "a late finish applied though the issue was taken since",
+			log: func(b *logBuilder) *logBuilder {
+				b.create(alice, "sf-1").take(alice, "sf-1", 1, time.Minute, "")
+				b.add(3*time.Minute, reaper, "claim.expire", "sf-1", b.claimOf(alice, 1, 3*time.Minute), "")
+				b.take(bob, "sf-1", 2, 15*time.Minute, "")
+				return b.add(time.Minute, alice, "claim.lapsed", "sf-1", `{"epoch": 1}`, `{"op": "finish"}`)
+			},
+			want: "late write under epoch 1 applied, but epoch 2 was taken since",
+		},
+		{
+			name: "a lapse recorded before the lease ran out",
+			log: func(b *logBuilder) *logBuilder {
+				b.create(alice, "sf-1").take(alice, "sf-1", 1, 15*time.Minute, "")
+				return b.add(time.Minute, alice, "claim.lapsed", "sf-1", b.claimOf(alice, 1, 17*time.Minute), `{"op": "handoff"}`)
+			},
+			want: "claim.lapsed at",
+		},
+		{
+			name: "a late finish kept as a comment, the issue taken since",
+			log: func(b *logBuilder) *logBuilder {
+				b.create(alice, "sf-1").take(alice, "sf-1", 1, time.Minute, "")
+				b.add(3*time.Minute, reaper, "claim.expire", "sf-1", b.claimOf(alice, 1, 3*time.Minute), "")
+				b.take(bob, "sf-1", 2, 15*time.Minute, "")
+				return b.add(time.Minute, alice, "comment.add", "sf-1", "", `{"id": "c1", "body": "Finish made at epoch 1, delivered late, kept"}`).
+					add(0, alice, "issue.kept", "sf-1", "", `{"op": "finish", "epoch": 1, "comment": "c1", "reason": "done alice-3"}`)
+			},
+		},
+		{
+			name: "a late finish kept as a comment though nobody took the issue",
+			log: func(b *logBuilder) *logBuilder {
+				b.create(alice, "sf-1").take(alice, "sf-1", 1, time.Minute, "")
+				return b.add(3*time.Minute, alice, "comment.add", "sf-1", "", `{"id": "c1", "body": "kept"}`).
+					add(0, alice, "issue.kept", "sf-1", "", `{"op": "finish", "epoch": 1, "comment": "c1", "reason": "done alice-3"}`)
+			},
+			want: "but the issue had not moved on",
+		},
+		{
+			name: "a replayed update kept as a comment, the issue closed since",
+			log: func(b *logBuilder) *logBuilder {
+				return b.create(alice, "sf-1").
+					add(time.Minute, bob, "issue.close", "sf-1", `{"status": "open"}`, `{"status": "closed", "close_reason": "done bob-1"}`).
+					add(time.Minute, alice, "comment.add", "sf-1", "",
+						`{"id": "c1", "body": "Update from rev 1, kept as a comment: the issue was closed since.\ntitle: retitled alice-2"}`)
+			},
+			markers: map[string]int{"retitled alice-2": 1},
+		},
+		{
+			name: "an away that cut a lease short",
+			log: func(b *logBuilder) *logBuilder {
+				b.create(alice, "sf-1").take(alice, "sf-1", 1, time.Hour, "")
+				return b.add(time.Minute, alice, "claim.away", "sf-1", b.claimOf(alice, 1, 2*time.Hour), `{"expires_at": `+b.ts(time.Hour)+`}`)
+			},
+			want: "claim.away cut a lease",
+		},
+		{
 			name: "an op the soak does not expect",
 			log: func(b *logBuilder) *logBuilder {
 				return b.create(alice, "sf-1").add(time.Minute, alice, "issue.vanish", "sf-1", "", "")
@@ -289,6 +355,11 @@ func TestReplayCatches(t *testing.T) {
 				t.Errorf("replay found %q, want no violation", got)
 			case tc.want != "" && (len(got) != 1 || !strings.Contains(got[0], tc.want)):
 				t.Errorf("replay found %q, want one violation containing %q", got, tc.want)
+			}
+			for m, n := range tc.markers {
+				if r.markers[m] != n {
+					t.Errorf("replay counted marker %q %d times, want %d", m, r.markers[m], n)
+				}
 			}
 			if len(r.guards) != tc.guards || len(r.overs) != tc.overs {
 				t.Errorf("replay deferred %d guard and %d takeover checks, want %d and %d", len(r.guards), len(r.overs), tc.guards, tc.overs)

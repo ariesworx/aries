@@ -7,16 +7,20 @@ import (
 	"fmt"
 	"maps"
 	"math/rand/v2"
+	"os"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ariesworx/starfix/internal/client"
 	"github.com/ariesworx/starfix/internal/mcpserver"
+	"github.com/ariesworx/starfix/internal/offline"
 	"github.com/ariesworx/starfix/internal/proto"
 )
 
@@ -49,10 +53,13 @@ type call struct {
 	// p is the project the request was sent to.
 	p    *sproj
 	op   string
-	args any          // the *Args value sent
-	res  any          // the *Result value received, when acked
-	err  *proto.Error // the refusal, when refused
-	out  outcome
+	args any // the *Args value sent; for a replay from an outbox, its JSON
+	// replayed is a replay's arguments as its op's *Args value: an
+	// outbox sends what it stored as JSON (soak_partition_test.go).
+	replayed any
+	res      any          // the *Result value received, when acked
+	err      *proto.Error // the refusal, when refused
+	out      outcome
 	// sent and recv are on the store's clock; took is real time.
 	sent, recv time.Time
 	took       time.Duration
@@ -303,6 +310,9 @@ func (s *soak) do(ss *session, c *mcpserver.RepoConn, op string, args, res any) 
 	sent, t0 := s.clock.now(), time.Now()
 	err := c.Call(ctx, op, args, res)
 	cl := call{who: ss.key, p: ss.p, op: op, args: args, sent: sent, recv: s.clock.now(), took: time.Since(t0)}
+	if raw, ok := args.(json.RawMessage); ok {
+		cl.replayed = typedArgs(op, raw)
+	}
 	pe, isProto := errors.AsType[*proto.Error](err)
 	switch {
 	case err == nil:
@@ -968,9 +978,29 @@ type tracedConn struct {
 	*mcpserver.RepoConn
 	ss *session
 	ln *line
+	// cut, in the partition mode, reports whether the session is cut off
+	// from the server; dead, that the connection was found so, which
+	// lasts (soak_partition_test.go).
+	cut  func() bool
+	dead atomic.Bool
+}
+
+// Err is the connection's error: as one that dropped, once its session
+// was found cut off.
+func (c *tracedConn) Err() error {
+	if c.dead.Load() || c.cut != nil && c.cut() {
+		c.dead.Store(true)
+		return errCutConn
+	}
+	return c.RepoConn.Err()
 }
 
 func (c *tracedConn) Call(_ context.Context, op string, args, res any) error {
+	if err := c.Err(); errors.Is(err, errCutConn) {
+		// The network is cut: nothing reaches the server.
+		c.ln.broke()
+		return err
+	}
 	a, watch := args.(proto.WatchArgs)
 	if watch {
 		c.ln.watching(a.Events)
@@ -1005,14 +1035,25 @@ type mcpSession struct {
 	// stopRenew ends the renewal loop; renewing reports it has.
 	stopRenew context.CancelFunc
 	renewing  chan struct{}
+	// off is the session's outbox and cache, in the partition mode; cut
+	// says the session is cut off from the server; cutUntil is when, in
+	// real time, it is let back, or, while it is not cut, when it is cut
+	// next. The session's own goroutine alone sets them.
+	off      *offline.Client
+	cut      atomic.Bool
+	cutUntil time.Time
 }
 
 // open starts the MCP server and client for this session and its renewal
 // loop, as a harness starting `sfx mcp` would.
 func (ms *mcpSession) open() error {
-	ms.srv = mcpserver.New(mcpserver.Options{Version: "v0.2.0", RenewEvery: -1, Dir: ms.u.repo,
+	opts := mcpserver.Options{Version: "v0.2.0", RenewEvery: -1, Dir: ms.u.repo,
 		Dial: func(ctx context.Context) (mcpserver.Conn, error) {
 			ms.mu.Lock()
+			if ms.cut.Load() {
+				ms.mu.Unlock()
+				return nil, errCut
+			}
 			ms.conns++
 			ln := ms.inbox.newLine(ms.key, ms.conns, ms.s.mon, ms.p)
 			ms.mu.Unlock()
@@ -1028,11 +1069,28 @@ func (ms *mcpSession) open() error {
 				return nil, err
 			}
 			tc := &tracedConn{RepoConn: c, ss: ms.session, ln: ln}
+			if ms.s.part != nil {
+				tc.cut = ms.isCut
+			}
 			ms.mu.Lock()
+			defer ms.mu.Unlock()
+			if ms.cut.Load() {
+				// Cut while it dialed: the network dropped it.
+				ln.broke()
+				_ = c.Close()
+				return nil, errCut
+			}
 			ms.cur = tc
-			ms.mu.Unlock()
 			return tc, nil
-		}})
+		}}
+	if ms.s.part != nil {
+		// Every `sfx mcp` has a cache, and an outbox unless --no-queue,
+		// in the user's own data directory.
+		ms.off = &offline.Client{Dir: ms.u.repo, GOOS: runtime.GOOS, Getenv: func(k string) string { return ms.u.env[k] },
+			UserHomeDir: os.UserHomeDir, Session: ms.key.session, Machine: "laptop-" + ms.key.principal}
+		opts.Offline, opts.Cache = ms.off, ms.off
+	}
+	ms.srv = mcpserver.New(opts)
 	ctx := context.Background()
 	st, ct := mcp.NewInMemoryTransports()
 	if _, err := ms.srv.MCP().Connect(ctx, st, nil); err != nil {
@@ -1058,26 +1116,34 @@ func (ms *mcpSession) open() error {
 // tool calls one tool and returns its first text block and whether it
 // was an error. A failure of the MCP transport itself is a soak failure.
 func (ms *mcpSession) tool(name string, args map[string]any) (string, bool) {
+	res := ms.toolResult(name, args)
+	text, isErr := firstText(res)
+	if ms.s.part != nil && ms.isCut() && fromCache(res) {
+		ms.s.part.mu.Lock()
+		ms.s.part.cached++
+		ms.s.part.mu.Unlock()
+	}
+	return text, isErr
+}
+
+// toolResult calls one tool and returns its result, or nil when the MCP
+// transport itself failed, which is a soak failure.
+func (ms *mcpSession) toolResult(name string, args map[string]any) *mcp.CallToolResult {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*callTimeout)
 	defer cancel()
 	res, err := ms.cs.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
 	if err != nil {
 		ms.s.mon.fail("", "%s: tool %s: %v", ms.key, name, err)
-		return "", true
+		return nil
 	}
-	text := ""
-	if len(res.Content) > 0 {
-		if tc, ok := res.Content[0].(*mcp.TextContent); ok {
-			text = tc.Text
-		}
-	}
-	return text, res.IsError
+	return res
 }
 
 // run works until ctx ends or the agent vanishes; it reports whether the
 // agent is still alive.
 func (ms *mcpSession) run(ctx context.Context) bool {
 	for ctx.Err() == nil {
+		ms.partitionStep()
 		ms.step()
 		if ms.chance(ms.s.cfg.vanish) {
 			ms.stop() // the harness was killed: no release
@@ -1115,7 +1181,7 @@ func (ms *mcpSession) step() {
 			if ms.chance(0.3) {
 				body += " @" + ms.other()
 			}
-			ms.tool("comment", map[string]any{"id": id, "body": body})
+			ms.write("comment", map[string]any{"id": id, "body": body}, body)
 		}
 	case n < 71:
 		if id, ok := ms.p.pool.pick(ms.rng); ok {
@@ -1123,7 +1189,7 @@ func (ms *mcpSession) step() {
 			if ms.chance(0.35) {
 				action = "rm"
 			}
-			ms.tool("label", map[string]any{"action": action, "id": id, "labels": []any{soakLabels[ms.rng.IntN(len(soakLabels))]}})
+			ms.write("label", map[string]any{"action": action, "id": id, "labels": []any{soakLabels[ms.rng.IntN(len(soakLabels))]}})
 		}
 	case n < 76:
 		from, ok1 := ms.p.pool.pick(ms.rng)
@@ -1133,12 +1199,12 @@ func (ms *mcpSession) step() {
 			if ms.chance(0.3) {
 				action = "rm"
 			}
-			ms.tool("dep", map[string]any{"action": action, "id": from, "depends_on": to})
+			ms.write("dep", map[string]any{"action": action, "id": from, "depends_on": to})
 		}
 	case n < 84:
 		if id, ok := ms.p.pool.pick(ms.rng); ok {
 			title, _ := ms.next("retitled")
-			ms.tool("update", map[string]any{"id": id, "title": title})
+			ms.write("update", map[string]any{"id": id, "title": title}, title)
 		}
 	case n < 90:
 		ms.readInbox()
@@ -1160,7 +1226,7 @@ func (ms *mcpSession) create() {
 	if ms.chance(0.3) {
 		args["labels"] = []any{soakLabels[ms.rng.IntN(len(soakLabels))]}
 	}
-	text, isErr := ms.tool("create", args)
+	text, isErr := ms.write("create", args, title)
 	if isErr {
 		return
 	}
@@ -1212,9 +1278,12 @@ func (ms *mcpSession) finish() {
 	if len(ticked) > 0 {
 		args["ticked"] = ticked
 	}
+	markers := []string{reason}
 	var found []any
 	for k := range ms.rng.IntN(3) {
-		found = append(found, map[string]any{"title": fmt.Sprintf("found %s-%d-%d", ms.tag, ms.n, k)})
+		title := fmt.Sprintf("found %s-%d-%d", ms.tag, ms.n, k)
+		found = append(found, map[string]any{"title": title})
+		markers = append(markers, title)
 	}
 	if len(found) > 0 {
 		args["discovered"] = found
@@ -1222,8 +1291,9 @@ func (ms *mcpSession) finish() {
 	if ms.chance(0.4) {
 		args["handoff"] = fmt.Sprintf("handoff %s-%d by %s, @%s please review", ms.tag, ms.n, ms.key.principal, ms.other())
 		args["to"] = ms.other()
+		markers = append(markers, args["handoff"].(string))
 	}
-	text, isErr := ms.tool("finish", args)
+	text, isErr := ms.write("finish", args, markers...)
 	if !isErr || !strings.HasPrefix(text, "acceptance") {
 		delete(ms.held, id)
 	}
@@ -1245,8 +1315,9 @@ func (ms *mcpSession) handoff() {
 	}
 	note, _ := ms.next("handoff")
 	release := ms.chance(0.6)
-	args := map[string]any{"id": id, "note": note + " @" + ms.other(), "release": release, "state": "partial"}
-	if _, isErr := ms.tool("handoff", args); !isErr && release {
+	note += " @" + ms.other()
+	args := map[string]any{"id": id, "note": note, "release": release, "state": "partial"}
+	if _, isErr := ms.write("handoff", args, note); !isErr && release {
 		delete(ms.held, id)
 	}
 }

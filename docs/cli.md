@@ -214,7 +214,7 @@ waiting in the outbox
 | `finish ID` | Close your issue and end the claim in one step: `--reason`, a `--handoff` note (with the handoff fields below), and `--discovered TITLE` for each new issue found on the way. `--tick 1,3` and `--waive N=REASON` settle acceptance items first; finish is refused while any item is open. `--epoch N` refuses unless N is still the claim's epoch ([Claims and leases](concepts.md#claims-and-leases)). It sends the paths the issue's work touched, read from git ([Files](concepts.md#files-what-an-issue-touches)) |
 | `accept ID N...` | Tick acceptance items. `--undo` unticks them; `--waive REASON` waives them |
 | `handoff ID NOTE` | Leave a note for whoever continues. Fields: `--state done\|partial\|blocked`, `--next TEXT`, `--branch B`, `--worktree DIR`, and `--to P` to put it in P's inbox. `--release` ends your claim and unassigns the issue, and takes `--epoch N` like `finish`. It sends the issue's paths like `finish` |
-| `away DURATION` | Extend all your claims, in every session, to at least now plus DURATION (up to 7d), for example before you go offline. Only from your own terminal (session `cli`): it is refused when `sfx` runs with another session id, as in an agent's session. It then sends the paths the work on each claim touched, read from git, one issue at a time |
+| `away DURATION` | Extend all your claims, in every session, to at least now plus DURATION, for example before you go offline or on leave: a claim with less than DURATION left is extended, whatever it has left, and none is shortened. DURATION is from 1m to the server's `away_max`, 7d unless its admin set another ([Limits](server.md#limits)). Each claim it extends is on the record, as a `claim.away` event in the issue's history, and the reaper, and a clock that jumps forward on the server, honor it as any lease. There is no `--back`: when you are back sooner, `finish` or `handoff --release` what you are done with, and the rest holds until the time you gave. Only from your own terminal (session `cli`): it is refused when `sfx` runs with another session id, as in an agent's session, and no MCP tool does it. It then sends the paths the work on each claim touched, read from git, one issue at a time |
 
 ### Find and change issues
 
@@ -340,7 +340,9 @@ shown while the server cannot be reached, saying so
 ([What is shown from the cache](#what-is-shown-from-the-cache)). A
 queued `update` that arrives after someone else changed the same field
 is not refused: the server applies what nobody else changed and parks
-the rest as a [conflict](#conflicts) for a person to resolve. Any other
+the rest as a [conflict](#conflicts) for a person to resolve. A queued
+`finish` or `handoff` that arrives after its claim lapsed is not
+refused either: see a late finish, below. Any other
 queued write that no longer fits is refused when it arrives, and waits
 for you. And a write waits 7 days at most, the server's window for a
 key (`idem_window` in [the server's limits](server.md#limits)).
@@ -350,13 +352,30 @@ was based on, which offline only you know: `sfx update ID --rev N ...`.
 Without `--rev` it first reads the issue's rev from the server, and with
 the server away it fails, saying to give `--rev`.
 
-**A server of protocol 6.** Conflicts are protocol 7's. Against a
-server that speaks only protocol 6, `sfx` speaks 6, and a queued
-`update` it replays there is refused as `conflict` when the issue
-changed since its rev, as before: it moves to the refused list, and
-`sfx outbox retry N` sends it again once the server is upgraded, when
-it parks. This `sfx` does not speak protocol 5, which no release spoke:
-a server of 5 alone refuses it with `version` (exit code 3). A record
+**A late finish.** Your claim's lease runs out on the server's clock
+while you cannot reach it, unless `sfx away` extended it first; after
+that the reaper reopens the issue and anyone may take it. A queued
+`finish` or `handoff` that arrives after its lease ran out is decided
+on what happened meanwhile:
+
+| Since the lease ran out | What happens to the queued write |
+|---|---|
+| Nobody took the issue | It applies as it would have; the issue's history has a `claim.lapsed` event first, saying the lease had lapsed |
+| Someone took it, you in another session among them, or it was closed | It is kept as a comment on the issue, saying why, with its reason, note and fields; a `finish`'s discovered issues are still filed, discovered from the issue; nothing else of it applies. You get a `conflict` item in your inbox, every session of yours, and the session that holds the issue gets one too |
+
+It is delivered either way, and `sfx` says how many were kept:
+`outbox: delivered 2 (1 kept as a comment, as the issue moved on while it waited: `sfx inbox` says why)`.
+Only a write replayed from the outbox is treated so: a `finish` or
+`handoff` you run while the server answers is refused, as always, when
+another session has taken the issue since your epoch.
+
+**A server of protocol 7.** Late finishes are protocol 8's, and conflicts
+protocol 7's. Against a server that speaks only protocol 7, `sfx`
+speaks 7, and a queued `finish` or `handoff` it replays there after
+the issue moved on is refused, as before: it moves to the refused list,
+and `sfx outbox retry N` sends it again once the server is upgraded,
+when it is kept as a comment. This `sfx` does not speak protocol 6:
+a server of 6 alone refuses it with `version` (exit code 3). A record
 of a server last seen at 5, from an older `sfx`, still keeps an
 `update` from being queued for it, saying so.
 

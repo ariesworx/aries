@@ -43,9 +43,11 @@ func Keyed(op string, v int) bool {
 // ForProtocol returns args as a request of op to a server of protocol v
 // sends them: without their idempotency key when op takes none in v, so
 // that a server of protocol 5 is not sent the key protocol 6 added, which
-// it would refuse as an unknown argument; and an update without park
-// below protocol 7, so that a replayed update reaches a server of 6 as
-// an update it refuses when stale, as it did. Otherwise, and for args
+// it would refuse as an unknown argument; an update without park below
+// protocol 7, so that a replayed update reaches a server of 6 as an
+// update it refuses when stale, as it did; and a finish or handoff
+// without park below protocol 8, which a server of 7 refuses when the
+// issue moved on, as it did. Otherwise, and for args
 // that are not a JSON object, it returns args as they are. A request so
 // sent without its key is not deduplicated: the caller must not send it
 // twice (Keyed).
@@ -54,7 +56,7 @@ func ForProtocol(v int, op string, args any) any {
 	if since, ok := keyedSince[op]; ok && v < since {
 		drop = append(drop, "idem")
 	}
-	if op == OpUpdate && v < ProtoConflicts {
+	if op == OpUpdate && v < ProtoConflicts || (op == OpFinish || op == OpHandoff) && v < ProtoLate {
 		drop = append(drop, "park")
 	}
 	if len(drop) == 0 {

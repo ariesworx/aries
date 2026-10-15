@@ -70,7 +70,7 @@ it or link it.
 | Who claims | Lease | Kept alive by |
 |---|---|---|
 | An agent, through MCP | 15 minutes | `sfx mcp` renews it every minute while the agent runs |
-| A person, from a terminal | 8 hours (`--for`, at most 24 hours) | `sfx away 4h` extends all your claims, up to 7 days |
+| A person, from a terminal | 8 hours (`--for`, at most 24 hours) | `sfx away 4h` extends all your claims, up to 7 days unless the server sets another `away_max` |
 
 When a lease runs out, the server returns the issue to `open`. So a
 session that crashes lets its work go within 15 minutes, and nothing stays
@@ -125,8 +125,14 @@ it finishes what it holds and files new work: `finish`, `handoff`,
 the machine and sent, once each, when the server answers. It starts
 nothing new: `start` takes a claim, and no claim is made without the
 server. A lease still runs out on the server's clock while you are
-away, so a queued `finish` of an issue someone else has taken since is
-refused when it arrives, and waits in the outbox for you to read. Reads
+away (`sfx away` extends yours before a planned absence). A queued
+`finish` or `handoff` that arrives after its lease ran out still
+applies if nobody took the issue since, and the issue's history says
+the lease had lapsed (`claim.lapsed`); if somebody did take it, or the
+issue was closed, it is kept as a comment on the issue, a `finish`'s
+discovered issues are still filed, and you and the session that holds
+the issue now are told in your inboxes. Nothing written is thrown
+away, and nothing applies over someone else's claim. Reads
 need the server: there is no local copy of the project
 ([When the server cannot be reached](cli.md#when-the-server-cannot-be-reached)).
 
@@ -202,7 +208,7 @@ transaction as its cause:
 | `handoff` | A handoff names you with `--to` |
 | `mention` | A comment, handoff or finish note says `@you`. Only principals the server has seen can be mentioned, and never yourself |
 | `assigned` | Someone else assigned you an issue |
-| `conflict` | An update of yours, queued while the server was away, parked fields someone else had changed, or was kept as a comment because the issue was closed meanwhile; or another principal's parked fields on an issue you hold ([Conflicts](cli.md#conflicts)). It reaches every session of yours |
+| `conflict` | An update of yours, queued while the server was away, parked fields someone else had changed, or was kept as a comment because the issue was closed meanwhile; a `finish` or `handoff` of yours, queued the same way, was kept as a comment because the issue had moved on; or another principal's parked fields, or another session's late `finish` or `handoff` kept as a comment, on an issue you hold ([Conflicts](cli.md#conflicts)). An item about your own write reaches every session of yours; one about the issue you hold, the session that holds it |
 
 `sfx inbox` lists unread items and `--ack` marks them read. `sfx watch`
 prints them as they arrive. An agent's `sfx mcp` asks the server to push

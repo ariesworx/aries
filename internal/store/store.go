@@ -50,6 +50,10 @@ type Options struct {
 	// result (idem.go). Default [DefaultIdemWindow]; one that is not
 	// positive is refused.
 	IdemWindow time.Duration
+	// AwayMax is the longest lease a renewal of every session's claims
+	// (`sfx away`) may ask for. Default [MaxLease]; one that is negative,
+	// or under [MinLease], is refused.
+	AwayMax time.Duration
 	// Logger receives background committer errors, and the warning that
 	// AllowUnsafeAccount let an unsafe account through. Default discards.
 	Logger *slog.Logger
@@ -195,6 +199,12 @@ func open(ctx context.Context, dsn string, opts Options, sc schema) (*Store, err
 	}
 	if opts.IdemWindow == 0 {
 		opts.IdemWindow = DefaultIdemWindow
+	}
+	if opts.AwayMax != 0 && opts.AwayMax < MinLease {
+		return nil, fmt.Errorf("%w: away may reach at least %s, not %s", ErrInvalid, MinLease, opts.AwayMax)
+	}
+	if opts.AwayMax == 0 {
+		opts.AwayMax = MaxLease
 	}
 	opts.Admins = slices.Clone(opts.Admins)
 	if opts.CommitInterval == 0 {

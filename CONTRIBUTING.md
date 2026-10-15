@@ -389,7 +389,8 @@ took the time it took before, 198 s against 205.
 
 ## The soak test
 
-`TestSoak` in `internal/e2e` is the gate of stages 3 and 3a. A short run
+`TestSoak` in `internal/e2e` is the gate of stages 3 and 3a, and in its
+partition mode (below) of stage 5. A short run
 of about 12 seconds of work, 23 in all, is part of `go test`. Run a long
 one before changing claims, the reaper, the event log, pushes, the write
 path, the control store, or what happens when access ends:
@@ -484,6 +485,58 @@ Some principals' keys reach the in-process SSH server from the control
 store, through the keys file the daemon writes, as they reach sshd; at
 the end that file holds a line for exactly the keys the control tables
 give an active principal.
+
+### With the network cut
+
+`STARFIX_SOAK_PARTITION=1` turns on the partition mode
+(`soak_partition_test.go`), the gate of stage 5: the soak with the
+client cut from the server for minutes at a time, and its event log
+still equal to what the sessions were told. Run it after changing the
+outbox, its replay, the cache, conflicts, or what a late `finish` or
+`handoff` does:
+
+```sh
+STARFIX_REQUIRE_DOLT=1 STARFIX_SOAK_PARTITION=1 STARFIX_SOAK=10m go test -race -timeout 45m -run 'TestSoak$' -v ./internal/e2e/
+```
+
+Each agent's `sfx mcp` then has an outbox and a cache in its user's own
+data directory, as `sfx mcp` does by default, and is cut off from the
+server for 2 to 30 minutes of the store's clock at a time, after
+connected spans as long, each as the seed chooses. A session is cut by
+its dials: they fail as an unreachable server's do, and the connection
+it had fails its next request without sending it, as a dropped one does,
+and `sfx mcp` closes it; a dial under way when the cut comes is closed
+as it completes. It
+goes on working meanwhile: its writes are queued, its reads of its own
+work answered from the cache, its starts refused, and its leases lapse
+on the server, where others take its issues. Let back, its next
+connection replays what waits, and a `finish` or `handoff` that arrives
+after its lease lapsed is applied, with `claim.lapsed`, or kept as a
+comment, with `issue.kept`. When the work ends every agent is let back
+and every outbox sent: by a new session of the principal where the
+agent that queued it vanished, as on a machine where the next `sfx mcp`
+sends what the last one left. An agent cut off late in a long run may
+leave hundreds of writes, which take minutes to send; a minute in which
+none is sent fails the run.
+
+Every check of the soak holds as before, with a replayed request held
+to its principal and not its session, since whichever session connects
+next delivers it. The replay of each log also holds that a late write
+applied only under a claim nobody took since, and was kept only where
+the issue had moved on. And `partitionFaults` holds every write a
+session was told it queued, by its idempotency key and its markers, to
+its outbox at rest, the server's answers to its replays, and the events
+stamped with its key: applied once, parked, kept as a comment exactly
+when the server said so, or refused with a code and message the person
+reads in `sfx outbox`; never still waiting, lost, silently dropped or
+applied twice. A refused entry may be in the log only if an attempt of
+it went unanswered, as when its answer was lost and the outbox then
+refused it unsent because the principal's access had ended. It goes by
+keys, markers and the log's order, never a clock, so its verdict does
+not depend on how the run was timed. `TestPartitionFaults` shows it
+catching each of those. With `-v` the report says how many cuts there
+were, what was queued, refused while cut and read from the cache, and
+what became of the replays.
 
 ### With telemetry on
 

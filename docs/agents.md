@@ -328,6 +328,24 @@ changed meanwhile is parked as a [conflict](#conflicts) rather than
 refused; against a server that speaks only protocol 6 it is refused
 when stale, as before, and waits in `sfx outbox` for the person.
 
+**A late finish.** While the server is away `sfx mcp` cannot renew the
+agent's leases, so a claim lapses 15 minutes after the last renewal and
+the issue may be taken by another session. A queued `finish` or
+`handoff` that arrives after that still applies if nobody took the
+issue meanwhile, and the issue's history says the lease had lapsed. If
+somebody did, or the issue was closed, it is kept as a comment on the
+issue, a `finish`'s `discovered` issues are still filed, and nothing
+else of it applies. The agent learns of it in its inbox, in the next
+tool result's `inbox: N new` line and in `prime`: a `conflict` item on
+the issue, `your finish made at epoch 3, delivered late, was kept as
+comment …: the claim was taken since, by bob/… at epoch 4`. Its next
+step is to leave that issue alone: the new holder got an item too,
+naming the comment, so the work done is not lost to them. Against a
+server that speaks only protocol 7, such a write is refused as before
+and waits in `sfx outbox` for the person. A person can extend every
+claim of theirs ahead of a planned absence with `sfx away`, which
+agents have no tool for.
+
 Nothing else is queued. `start` fails, and tells the agent that it was
 not queued and to go on with the work it holds: no claim is taken
 without the server. A write the outbox refuses (text that looks like a
@@ -338,7 +356,10 @@ to tell the user.
 The session's next connection sends what waits first, in order, before
 the call that opened it, for five seconds at most, and the rest in the
 background between calls. A session that makes no call still connects,
-when its renewal comes round each minute, if something waits. What a
+when its renewal comes round each minute, if something waits; and each
+renewal on a connection it has sends what an earlier round left, as
+when another session of the principal on the machine was sending the
+same outbox then. What a
 session has not sent when it ends stays in the outbox, and the next
 `sfx` command or session of the same principal on that machine sends it.
 

@@ -17,6 +17,11 @@ const (
 // and the ops above.
 const ProtoConflicts = 7
 
+// ProtoLate is the first protocol in which a finish or handoff replayed
+// from an outbox carries park, and is kept as a comment rather than
+// refused when the issue moved on since its claim (design §18.6).
+const ProtoLate = 8
+
 // MaxShowConflicts bounds the conflicts show returns with an issue.
 const MaxShowConflicts = 10
 

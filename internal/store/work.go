@@ -169,10 +169,13 @@ type Finish struct {
 }
 
 // finished is FinishIssue's result, as its idempotency stamp stores it
-// and a replay returns it.
+// and a replay returns it; Lapsed and Comment are a replayed finish's
+// ([Store.ReplayFinish]).
 type finished struct {
-	Issue Issue     `json:"issue"`
-	IDs   []IssueID `json:"ids"`
+	Issue   Issue     `json:"issue"`
+	IDs     []IssueID `json:"ids"`
+	Lapsed  bool      `json:"lapsed,omitempty"`
+	Comment string    `json:"comment,omitempty"`
 }
 
 // FinishIssue closes an issue, ends its claim, records its handoff note
@@ -189,27 +192,36 @@ type finished struct {
 //     [*IdemError];
 //   - a closed issue, or invalid input, with ErrInvalid.
 func (s *Store) FinishIssue(ctx context.Context, actor Actor, id IssueID, epoch int64, f Finish) (Issue, []IssueID, error) {
-	if err := id.Validate(); err != nil {
+	out, err := s.finish(ctx, actor, id, epoch, f, false)
+	if err != nil {
 		return Issue{}, nil, err
+	}
+	return out.Issue, out.IDs, nil
+}
+
+// finish is FinishIssue, and with late [Store.ReplayFinish].
+func (s *Store) finish(ctx context.Context, actor Actor, id IssueID, epoch int64, f Finish, late bool) (finished, error) {
+	if err := id.Validate(); err != nil {
+		return finished{}, err
 	}
 	if err := checkLine("reason", f.Reason, maxReason, false); err != nil {
-		return Issue{}, nil, err
+		return finished{}, err
 	}
 	if err := f.Handoff.validate(); err != nil {
-		return Issue{}, nil, err
+		return finished{}, err
 	}
 	if err := validIdem(f.IdempotencyKey); err != nil {
-		return Issue{}, nil, err
+		return finished{}, err
 	}
 	if err := f.Accept.validate(s.opts.Limits.AcceptanceItems); err != nil {
-		return Issue{}, nil, err
+		return finished{}, err
 	}
 	if len(f.Discovered) > MaxDiscovered {
-		return Issue{}, nil, fmt.Errorf("%w: at most %d discovered issues", ErrInvalid, MaxDiscovered)
+		return finished{}, fmt.Errorf("%w: at most %d discovered issues", ErrInvalid, MaxDiscovered)
 	}
 	paths, err := checkPaths(f.Paths, false)
 	if err != nil {
-		return Issue{}, nil, err
+		return finished{}, err
 	}
 	// Paths are what the client's git showed when it sent the request,
 	// so a retry may carry others; they are not part of the request an
@@ -223,17 +235,17 @@ func (s *Store) FinishIssue(ctx context.Context, actor Actor, id IssueID, epoch 
 	for i := range f.Discovered {
 		d := &f.Discovered[i]
 		if d.ID != "" || d.IdempotencyKey != "" {
-			return Issue{}, nil, fmt.Errorf("%w: a discovered issue takes a generated id", ErrInvalid)
+			return finished{}, fmt.Errorf("%w: a discovered issue takes a generated id", ErrInvalid)
 		}
 		if err := d.normalize(); err != nil {
-			return Issue{}, nil, err
+			return finished{}, err
 		}
 		var err error
 		if metas[i], err = nullJSON(d.Metadata); err != nil {
-			return Issue{}, nil, err
+			return finished{}, err
 		}
 		if ids[i], err = NewID(s.opts.Prefix); err != nil {
-			return Issue{}, nil, err
+			return finished{}, err
 		}
 	}
 	// The request as the client sent it, before generated IDs.
@@ -251,17 +263,34 @@ func (s *Store) FinishIssue(ctx context.Context, actor Actor, id IssueID, epoch 
 		if err != nil {
 			return err
 		}
-		if before.Status == StatusClosed {
-			return &StateError{ID: id, Reason: StateAlreadyClosed}
-		}
 		c, err := loadClaim(ctx, w.tx, id)
 		if err != nil {
 			return err
+		}
+		if why := moved(w, before, c, epoch, true); late && why != "" {
+			for i, d := range f.Discovered {
+				if err := fileDiscovered(ctx, w, id, ids[i], d, metas[i]); err != nil {
+					return err
+				}
+			}
+			cid, err := keepLate(ctx, w, before, c, epoch, "finish", why, finishText(f))
+			if err != nil {
+				return err
+			}
+			out = finished{Issue: before, IDs: ids, Comment: cid}
+			return w.settle(out)
+		}
+		if before.Status == StatusClosed {
+			return &StateError{ID: id, Reason: StateAlreadyClosed}
 		}
 		if err := w.guard(ctx, c, "finish"); err != nil {
 			return err
 		}
 		if err := checkEpoch(c, epoch); err != nil {
+			return err
+		}
+		lapsed, err := markLapsed(ctx, w, c, epoch, "finish")
+		if err != nil {
 			return err
 		}
 		if err := recordCommitPaths(ctx, w, id, paths); err != nil {
@@ -273,10 +302,7 @@ func (s *Store) FinishIssue(ctx context.Context, actor Actor, id IssueID, epoch 
 			}
 		}
 		for i, d := range f.Discovered {
-			if _, err := insertIssue(ctx, w, ids[i], d, metas[i]); err != nil {
-				return fmt.Errorf("discovered %q: %w", d.Title, err)
-			}
-			if err := insertDep(ctx, w, ids[i], id, DepDiscoveredFrom); err != nil {
+			if err := fileDiscovered(ctx, w, id, ids[i], d, metas[i]); err != nil {
 				return err
 			}
 		}
@@ -289,13 +315,22 @@ func (s *Store) FinishIssue(ctx context.Context, actor Actor, id IssueID, epoch 
 		if err != nil {
 			return err
 		}
-		out = finished{Issue: closed, IDs: ids}
+		out = finished{Issue: closed, IDs: ids, Lapsed: lapsed}
 		return w.settle(out)
 	})
 	if err != nil {
-		return Issue{}, nil, err
+		return finished{}, err
 	}
-	return out.Issue, out.IDs, nil
+	return out, nil
+}
+
+// fileDiscovered files d, work found while doing issue from, as issue
+// id, discovered from it.
+func fileDiscovered(ctx context.Context, w *wtx, from, id IssueID, d NewIssue, meta any) error {
+	if _, err := insertIssue(ctx, w, id, d, meta); err != nil {
+		return fmt.Errorf("discovered %q: %w", d.Title, err)
+	}
+	return insertDep(ctx, w, id, from, DepDiscoveredFrom)
 }
 
 // HandoffIssue records a handoff note, with its fields, on an issue
@@ -314,11 +349,31 @@ func (s *Store) FinishIssue(ctx context.Context, actor Actor, id IssueID, epoch 
 //     [*IdemError];
 //   - a release of a closed issue, or invalid input, with ErrInvalid.
 func (s *Store) HandoffIssue(ctx context.Context, actor Actor, id IssueID, epoch int64, h HandoffNote, release bool, idem string, paths []string) (Issue, error) {
-	if err := id.Validate(); err != nil {
+	out, err := s.handoff(ctx, actor, id, epoch, h, release, idem, paths, false)
+	if err != nil {
 		return Issue{}, err
 	}
+	return out.Issue, nil
+}
+
+// handedOff is HandoffIssue's result, as its idempotency stamp stores
+// it: the issue, with Lapsed and Comment for a replayed handoff
+// ([Store.ReplayHandoff]). The issue is inline, so that a stamp written
+// before those fields reads as it did.
+type handedOff struct {
+	Issue
+	Lapsed  bool   `json:"lapsed,omitempty"`
+	Comment string `json:"comment,omitempty"`
+}
+
+// handoff is HandoffIssue, and with late [Store.ReplayHandoff].
+func (s *Store) handoff(ctx context.Context, actor Actor, id IssueID, epoch int64, h HandoffNote, release bool, idem string,
+	paths []string, late bool) (handedOff, error) {
+	if err := id.Validate(); err != nil {
+		return handedOff{}, err
+	}
 	if err := validIdem(idem); err != nil {
-		return Issue{}, err
+		return handedOff{}, err
 	}
 	req := struct {
 		ID      IssueID
@@ -327,17 +382,18 @@ func (s *Store) HandoffIssue(ctx context.Context, actor Actor, id IssueID, epoch
 		Release bool
 	}{id, epoch, h, release}
 	if err := validBody(h.Note); err != nil {
-		return Issue{}, err
+		return handedOff{}, err
 	}
 	if err := h.HandoffFields.validate(); err != nil {
-		return Issue{}, err
+		return handedOff{}, err
 	}
 	paths, err := checkPaths(paths, false)
 	if err != nil {
-		return Issue{}, err
+		return handedOff{}, err
 	}
-	var out Issue
+	var out handedOff
 	err = s.write(ctx, actor, func(w *wtx) error {
+		out = handedOff{}
 		if done, err := replay(ctx, w, idem, "handoff", req, &out); done || err != nil {
 			return err
 		}
@@ -349,10 +405,15 @@ func (s *Store) HandoffIssue(ctx context.Context, actor Actor, id IssueID, epoch
 		if err != nil {
 			return err
 		}
-		if err := w.guard(ctx, c, "handoff"); err != nil {
-			return err
+		if why := moved(w, before, c, epoch, release); late && why != "" {
+			cid, err := keepLate(ctx, w, before, c, epoch, "handoff", why, handoffText(h))
+			if err != nil {
+				return err
+			}
+			out = handedOff{Issue: before, Comment: cid}
+			return w.settle(out)
 		}
-		if err := recordCommitPaths(ctx, w, id, paths); err != nil {
+		if err := w.guard(ctx, c, "handoff"); err != nil {
 			return err
 		}
 		if release {
@@ -362,6 +423,14 @@ func (s *Store) HandoffIssue(ctx context.Context, actor Actor, id IssueID, epoch
 			if err := checkEpoch(c, epoch); err != nil {
 				return err
 			}
+		}
+		if out.Lapsed, err = markLapsed(ctx, w, c, epoch, "handoff"); err != nil {
+			return err
+		}
+		if err := recordCommitPaths(ctx, w, id, paths); err != nil {
+			return err
+		}
+		if release {
 			if err := w.ended(ctx, c, "released"); err != nil {
 				return err
 			}
@@ -372,7 +441,7 @@ func (s *Store) HandoffIssue(ctx context.Context, actor Actor, id IssueID, epoch
 		if err := insertHandoff(ctx, w, id, h); err != nil {
 			return err
 		}
-		out = before
+		out.Issue = before
 		if !release || (before.Status != StatusInProgress && before.Assignee == "") {
 			return w.settle(out)
 		}
@@ -380,17 +449,16 @@ func (s *Store) HandoffIssue(ctx context.Context, actor Actor, id IssueID, epoch
 		if status == StatusInProgress {
 			status = StatusOpen
 		}
-		out, err = casUpdate(ctx, w, before, []string{"status = ?", "assignee = ?"}, []any{string(status), nil})
-		if err != nil {
+		if out.Issue, err = casUpdate(ctx, w, before, []string{"status = ?", "assignee = ?"}, []any{string(status), nil}); err != nil {
 			return err
 		}
-		if err := w.issueEvent(ctx, OpIssueUpdate, before, out, nil); err != nil {
+		if err := w.issueEvent(ctx, OpIssueUpdate, before, out.Issue, nil); err != nil {
 			return err
 		}
 		return w.settle(out)
 	})
 	if err != nil {
-		return Issue{}, err
+		return handedOff{}, err
 	}
 	return out, nil
 }

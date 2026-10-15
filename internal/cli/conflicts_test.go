@@ -100,3 +100,22 @@ func TestReplayLineParked(t *testing.T) {
 		t.Errorf("replayLine = %q, want %q", got, want)
 	}
 }
+
+// A write kept as a comment, because the issue moved on while it waited,
+// is delivered, and the line says so and where to read why.
+func TestReplayLineKept(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		rep  outbox.Report
+		want string
+	}{
+		{outbox.Report{Delivered: 2, Kept: 1},
+			"outbox: delivered 2 (1 kept as a comment, as the issue moved on while it waited: `sfx inbox` says why)"},
+		{outbox.Report{Delivered: 3, Parked: 1, Kept: 1},
+			"outbox: delivered 3 (1 parked conflicts for a person to resolve: `sfx conflicts`; 1 kept as a comment, as the issue moved on while it waited: `sfx inbox` says why)"},
+	} {
+		if got := replayLine(tc.rep); got != tc.want {
+			t.Errorf("replayLine(%+v) = %q, want %q", tc.rep, got, tc.want)
+		}
+	}
+}

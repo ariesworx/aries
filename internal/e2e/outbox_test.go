@@ -250,17 +250,15 @@ func TestLostAnswerThenReplayAppliesOnce(t *testing.T) {
 // drops it with `sfx outbox`.
 func TestRefusedEntries(t *testing.T) {
 	t.Parallel()
-	w := newWorld(t, daemonOpts{admins: []string{"dana"}})
-	alice, dana := w.newUser("alice", ""), w.newUser("dana", "")
-	id := strings.TrimSpace(alice.ok("create", "Closed under her"))
+	w := newWorld(t, daemonOpts{})
+	alice := w.newUser("alice", "")
+	id := strings.TrimSpace(alice.ok("create", "Not done yet", "--acceptance", "- the tests pass"))
 	alice.ok("start", id)
-	dana.ok("ready") // dana's key is known to her machine before the outage
 
 	w.stop()
 	alice.ok("finish", id, "--reason", "done")
 	alice.ok("comment", "sf-zzzzzzzz", "on an issue that is not there")
 	w.start()
-	dana.ok("close", id, "--force", "--reason", "an admin closed it meanwhile")
 
 	r := alice.run("v0.2.0", "ready")
 	if r.code != cli.ExitOK || r.stderr != "sfx: outbox: refused 2 (see `sfx outbox`)\n" {
@@ -270,7 +268,7 @@ func TestRefusedEntries(t *testing.T) {
 	for _, want := range []string{
 		"alice's outbox: 0 waiting, 2 refused\n",
 		"  1  finish   " + id,
-		"     invalid: ",
+		"     acceptance: ",
 		"  2  comment  sf-zzzzzzzz",
 		"     not_found: issue sf-zzzzzzzz not found\n     fix: find the id with `sfx list`\n",
 	} {
@@ -295,8 +293,8 @@ func TestRefusedEntries(t *testing.T) {
 	if out := alice.ok("outbox"); !strings.HasPrefix(out, "alice's outbox is empty\n") {
 		t.Errorf("sfx outbox after the drops:\n%s", out)
 	}
-	if ops, _ := alice.history(id); tally(ops, "issue.close") != 1 {
-		t.Errorf("history = %v, want the admin's one close", ops)
+	if ops, _ := alice.history(id); tally(ops, "issue.close") != 0 {
+		t.Errorf("history = %v, want no close", ops)
 	}
 }
 

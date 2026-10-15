@@ -84,6 +84,13 @@ func TestForProtocol(t *testing.T) {
 		{"a replayed update to 6", 6, OpUpdate, replayed, `{"id":"sf-1","idem":"cli-1","rev":3,"title":"renamed"}`},
 		{"a replayed update to 5", 5, OpUpdate, replayed, `{"id":"sf-1","rev":3,"title":"renamed"}`},
 		{"a raw replayed update to 6", 6, OpUpdate, json.RawMessage(`{"id":"sf-1","rev":3,"park":true}`), `{"id":"sf-1","rev":3}`},
+		{"a replayed finish to 8", 8, OpFinish, FinishArgs{ID: "sf-1", Epoch: 2, Idem: "cli-4", Park: true},
+			`{"id":"sf-1","epoch":2,"idem":"cli-4","park":true}`},
+		{"a replayed finish to 7", 7, OpFinish, FinishArgs{ID: "sf-1", Epoch: 2, Idem: "cli-4", Park: true},
+			`{"epoch":2,"id":"sf-1","idem":"cli-4"}`},
+		{"a raw replayed handoff to 7", 7, OpHandoff, json.RawMessage(`{"id":"sf-1","note":"n","park":true}`), `{"id":"sf-1","note":"n"}`},
+		{"a raw replayed handoff to 8", 8, OpHandoff, json.RawMessage(`{"id":"sf-1","note":"n","park":true}`), `{"id":"sf-1","note":"n","park":true}`},
+		{"a replayed update to 8", 8, OpUpdate, replayed, `{"id":"sf-1","rev":3,"title":"renamed","idem":"cli-1","park":true}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

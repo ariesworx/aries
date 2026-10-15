@@ -420,27 +420,36 @@ func history(ctx context.Context, pr *served, a store.Actor, in proto.PageArgs) 
 	return out, nil
 }
 
-// lease parses the lease a start or renew asks for. Empty means
-// store.DefaultLease; anything else must be from store.MinLease to most,
-// which is store.MaxClaimLease, or store.MaxLease for a renew with All.
-func lease(op, s string, most time.Duration) (time.Duration, *proto.Error) {
+// lease parses the lease a start or a renew of one session's claims
+// asks for. Empty means store.DefaultLease; anything else must be from
+// store.MinLease to store.MaxClaimLease.
+func lease(op, s string) (time.Duration, *proto.Error) {
 	if s == "" {
 		return store.DefaultLease, nil
 	}
-	upTo := "24h"
-	if most == store.MaxLease {
-		upTo = "7d"
+	d, err := proto.ParseDuration(s)
+	if err != nil || d < store.MinLease || d > store.MaxClaimLease {
+		return 0, proto.Errf(proto.CodeInvalid, fmt.Sprintf("give a lease from 1m to 24h; `sfx %s -h` lists the options", command(op)),
+			fmt.Sprintf("lease %q is not a duration from 1m to 24h", s))
 	}
+	return d, nil
+}
+
+// awayLease parses the duration of `sfx away`, a renew with All: from
+// store.MinLease to the store's AwayMax, the server's away_max.
+func awayLease(s string, most time.Duration) (time.Duration, *proto.Error) {
 	d, err := proto.ParseDuration(s)
 	if err != nil || d < store.MinLease || d > most {
-		return 0, proto.Errf(proto.CodeInvalid, fmt.Sprintf("give a lease from 1m to %s; `sfx %s -h` lists the options", upTo, command(op)),
-			fmt.Sprintf("lease %q is not a duration from 1m to %s", s, upTo))
+		upTo := store.LeaseText(most)
+		return 0, proto.Errf(proto.CodeInvalid,
+			fmt.Sprintf("give `sfx away` a duration from 1m to at most %s, this server's away_max; a server admin can raise away_max under limits:", upTo),
+			fmt.Sprintf("away %q is not a duration from 1m to %s", s, upTo))
 	}
 	return d, nil
 }
 
 func start(ctx context.Context, pr *served, a store.Actor, in proto.StartArgs) (any, *proto.Error) {
-	d, perr := lease(proto.OpStart, in.Lease, store.MaxClaimLease)
+	d, perr := lease(proto.OpStart, in.Lease)
 	if perr != nil {
 		return nil, perr
 	}
@@ -484,19 +493,36 @@ func finish(ctx context.Context, pr *served, a store.Actor, in proto.FinishArgs)
 		}
 		f.Discovered = append(f.Discovered, n)
 	}
-	is, ids, err := pr.store.FinishIssue(ctx, a, store.IssueID(in.ID), in.Epoch, f)
+	var done store.Finished
+	var err error
+	if in.Park {
+		// A replay from an outbox: kept as a comment where the issue
+		// moved on, rather than refused (design §18.6).
+		done, err = pr.store.ReplayFinish(ctx, a, store.IssueID(in.ID), in.Epoch, f)
+	} else {
+		done.Issue, done.IDs, err = pr.store.FinishIssue(ctx, a, store.IssueID(in.ID), in.Epoch, f)
+	}
 	if err != nil {
 		return nil, pr.mapErr(ctx, proto.OpFinish, in.ID, 0, err)
 	}
-	out := proto.FinishResult{ID: string(is.ID), Rev: int64(is.Rev)}
-	for _, id := range ids {
+	out := proto.FinishResult{ID: string(done.ID), Rev: int64(done.Rev), Lapsed: done.Lapsed, Comment: done.Comment}
+	for _, id := range done.IDs {
 		out.Created = append(out.Created, string(id))
 	}
 	return out, nil
 }
 
 func handoff(ctx context.Context, pr *served, a store.Actor, in proto.HandoffArgs) (any, *proto.Error) {
-	is, err := pr.store.HandoffIssue(ctx, a, store.IssueID(in.ID), in.Epoch, storeHandoff(in.Note, in.HandoffFields), in.Release, in.Idem, in.Paths)
+	h := storeHandoff(in.Note, in.HandoffFields)
+	if in.Park {
+		done, err := pr.store.ReplayHandoff(ctx, a, store.IssueID(in.ID), in.Epoch, h, in.Release, in.Idem, in.Paths)
+		if err != nil {
+			return nil, pr.mapErr(ctx, proto.OpHandoff, in.ID, 0, err)
+		}
+		return proto.HandoffResult{WriteResult: proto.WriteResult{ID: string(done.ID), Rev: int64(done.Rev)},
+			Lapsed: done.Lapsed, Comment: done.Comment}, nil
+	}
+	is, err := pr.store.HandoffIssue(ctx, a, store.IssueID(in.ID), in.Epoch, h, in.Release, in.Idem, in.Paths)
 	if err != nil {
 		return nil, pr.mapErr(ctx, proto.OpHandoff, in.ID, 0, err)
 	}
@@ -518,7 +544,8 @@ func accept(ctx context.Context, pr *served, a store.Actor, in proto.AcceptArgs)
 }
 
 func renew(ctx context.Context, pr *served, a store.Actor, in proto.RenewArgs) (any, *proto.Error) {
-	most := store.MaxClaimLease
+	var d time.Duration
+	var perr *proto.Error
 	if in.All {
 		// Renewing every session's claims is a person's call before going
 		// away (`sfx away`), not an agent's: only their own terminal's
@@ -528,9 +555,10 @@ func renew(ctx context.Context, pr *served, a store.Actor, in proto.RenewArgs) (
 				"run `sfx away` from your own terminal, outside an agent session; an agent renews only its own claims",
 				fmt.Sprintf("session %s may renew only its own claims", a.Session))
 		}
-		most = store.MaxLease
+		d, perr = awayLease(in.Lease, pr.store.AwayMax())
+	} else {
+		d, perr = lease(proto.OpRenew, in.Lease)
 	}
-	d, perr := lease(proto.OpRenew, in.Lease, most)
 	if perr != nil {
 		return nil, perr
 	}

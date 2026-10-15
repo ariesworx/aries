@@ -152,10 +152,10 @@ func server(lo, hi int) func(*proto.Frame) *proto.Frame {
 }
 
 // TestDialStepsDown pins the version a client of this build speaks
-// (design §18.5, §18.7): protocol 7 to a server that accepts it; to a
-// server of 6 alone, 6, saying hello again on the same SSH connection
+// (design §18.5, §18.6): protocol 8 to a server that accepts it; to a
+// server of 7 alone, 7, saying hello again on the same SSH connection
 // once the server's refusal has named its range; and nothing to a server
-// that accepts neither, a server of 5 among them, which refuses it with
+// that accepts neither, a server of 6 among them, which refuses it with
 // code version as before.
 func TestDialStepsDown(t *testing.T) {
 	t.Parallel()
@@ -165,13 +165,13 @@ func TestDialStepsDown(t *testing.T) {
 		want   int   // the protocol spoken, 0 when refused
 		hellos []int // the hellos' protocols
 	}{
-		{"a server of 6 and 7", 6, 7, 7, []int{7}},
-		{"a server of 7 and 8", 7, 8, 7, []int{7}},
-		{"a server of 6", 6, 6, 6, []int{7, 6}},
-		{"a server of 5 and 6", 5, 6, 6, []int{7, 6}},
-		{"a server of 5", 5, 5, 0, []int{7}},
-		{"a server of 8 and 9", 8, 9, 0, []int{7}},
-		{"a server of 3 and 4", 3, 4, 0, []int{7}},
+		{"a server of 7 and 8", 7, 8, 8, []int{8}},
+		{"a server of 8 and 9", 8, 9, 8, []int{8}},
+		{"a server of 7", 7, 7, 7, []int{8, 7}},
+		{"a server of 6 and 7", 6, 7, 7, []int{8, 7}},
+		{"a server of 6", 6, 6, 0, []int{8}},
+		{"a server of 9 and 10", 9, 10, 0, []int{8}},
+		{"a server of 3 and 4", 3, 4, 0, []int{8}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

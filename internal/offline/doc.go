@@ -145,7 +145,11 @@
 // since, rather than refusing it as stale (design §18.7). One that
 // parked is delivered, and counted as parked. A server of 6 is sent it
 // without park (proto.ForProtocol), and refuses it when stale, as
-// before. Its session and machine are those of the connection that
+// before. A finish or handoff is sent with park too (protocol 8): made
+// under a claim whose lease ran out before it arrived, it applies if
+// nobody took the issue since, and is kept as a comment if somebody did
+// (design §18.6); one kept is delivered, and counted as kept. A server
+// of 7 is sent them without park, and refuses them then. Its session and machine are those of the connection that
 // delivers it, not of the one that made it: no protocol has a field for
 // the latter, and the entry keeps them only on this machine.
 //

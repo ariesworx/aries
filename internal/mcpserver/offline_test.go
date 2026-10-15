@@ -402,6 +402,56 @@ func TestRenewSendsWhatWaits(t *testing.T) {
 	}
 }
 
+// A connection whose replay found another process replaying the same
+// outbox (busy) sends what waits at the next renewal, on the connection
+// it has: otherwise a session that stays connected never sends it, and,
+// if the other process stops, it waits until the connection drops. The
+// partition soak found it: an outbox waited minutes with none sent.
+func TestRenewSendsWhatABusyReplayLeft(t *testing.T) {
+	t.Parallel()
+	conn := &fakeConn{reply: okReply}
+	a := newAway(t, &fakeConn{reply: okReply}, conn)
+	callTool(t, a.cs, "ready", nil)
+	drop(a.net.conns[0])
+	a.net.set(true)
+	callTool(t, a.cs, "handoff", map[string]any{"id": "sf-1", "note": "half done"})
+	l, _, err := a.off.Local()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ob, _, err := l.Existing("alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Another process replays the outbox while the session reconnects:
+	// the session's replay is busy, and sends nothing.
+	held, release := make(chan struct{}), make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = ob.Replay(context.Background(), func(context.Context, outbox.Entry) (outbox.Outcome, error) {
+			close(held)
+			<-release
+			return outbox.Outcome{}, errLost // not reached: the entry stays
+		})
+	}()
+	<-held
+	a.net.set(false)
+	callTool(t, a.cs, "ready", nil)
+	close(release)
+	<-done
+	if n := len(a.list(t).Pending); n != 1 {
+		t.Fatalf("%d entries wait after the busy replay, want the handoff", n)
+	}
+	a.srv.Renew(t.Context())
+	if got := conn.ops(); !slices.Contains(got, proto.OpHandoff) {
+		t.Errorf("the connection carried %v, want the handoff sent at the renewal", got)
+	}
+	if n := len(a.list(t).Pending); n != 0 {
+		t.Errorf("%d entries still wait after the renewal", n)
+	}
+}
+
 // Without an outbox the server does as it always did.
 func TestNoOutboxNoQueue(t *testing.T) {
 	t.Parallel()
