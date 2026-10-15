@@ -22,7 +22,7 @@ type served struct {
 	// id is the project's UUID, and db its database's name, which a
 	// server of one project is not told.
 	id, db  string
-	store   *store.Store
+	store   Store
 	account string
 	// log is the daemon's logger, naming the project when the server
 	// holds many.
@@ -95,8 +95,8 @@ func DatabaseDSN(dsn, name string) (string, error) { return store.DatabaseDSN(ds
 // follow ctl as it changes: a server admin, or an active principal whose
 // role in the project is admin (design §15.3). Each store is measured
 // and traced by tel ([StoreObserver], [StoreTracer]), which may be nil.
-func ProjectOpener(dsn string, ctl *store.Control, opts store.Options, tel *telemetry.Telemetry) func(context.Context, store.Project) (*store.Store, error) {
-	return func(ctx context.Context, p store.Project) (*store.Store, error) {
+func ProjectOpener(dsn string, ctl Index, opts store.Options, tel *telemetry.Telemetry) func(context.Context, store.Project) (Store, error) {
+	return func(ctx context.Context, p store.Project) (Store, error) {
 		d, err := DatabaseDSN(dsn, p.DBName)
 		if err != nil {
 			return nil, err
@@ -106,7 +106,11 @@ func ProjectOpener(dsn string, ctl *store.Control, opts store.Options, tel *tele
 		o.IsAdmin = func(principal string) bool { return ctl.Access(principal, p.ID).Role == store.RoleAdmin }
 		o.Observer = StoreObserver(tel, p.ID)
 		o.Tracer = StoreTracer(tel, p.ID)
-		return store.Open(ctx, d, o)
+		st, err := store.Open(ctx, d, o)
+		if err != nil {
+			return nil, err // not a nil *store.Store in a Store that is not nil
+		}
+		return st, nil
 	}
 }
 

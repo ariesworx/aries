@@ -307,7 +307,7 @@ func TestArchiveSweepsAsTheStoreCloses(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	for _, id := range []string{held.ID, late.ID} {
-		cl, err := st.ClaimOf(t.Context(), store.IssueID(id))
+		cl, err := realStore(st).ClaimOf(t.Context(), store.IssueID(id))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -315,7 +315,7 @@ func TestArchiveSweepsAsTheStoreCloses(t *testing.T) {
 			t.Errorf("%s is still claimed by %s in the archived project, with its store closed", id, cl.Holder.Principal)
 		}
 	}
-	evs, err := st.History(t.Context(), store.IssueID(late.ID))
+	evs, err := realStore(st).History(t.Context(), store.IssueID(late.ID))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -242,7 +242,7 @@ func TestSweep(t *testing.T) {
 
 // asIs opens a project's database without migrating it, as a daemon
 // opens an archived project's at its start.
-func (m *multi) asIs() func(context.Context, store.Project) (*store.Store, error) {
+func (m *multi) asIs() func(context.Context, store.Project) (Store, error) {
 	return ProjectOpener(m.dsn, m.ctl, store.Options{CommitInterval: -1, NoMigrate: true}, m.tel)
 }
 
@@ -259,7 +259,7 @@ func (m *multi) inStore(t *testing.T, name string) *store.Store {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	return st
+	return realStore(st)
 }
 
 // historyOps returns the events of issue id as "OP by PRINCIPAL/SESSION".
@@ -288,7 +288,7 @@ func TestReleaseArchived(t *testing.T) {
 
 	// With nothing archived there is nothing to end, and no store is opened.
 	opens := 0
-	open := func(ctx context.Context, p store.Project) (*store.Store, error) {
+	open := func(ctx context.Context, p store.Project) (Store, error) {
 		opens++
 		return m.asIs()(ctx, p)
 	}

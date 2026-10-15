@@ -30,7 +30,7 @@ import (
 type Config struct {
 	// Store is the issue store of a server of one project. Required,
 	// unless Control is set.
-	Store *store.Store
+	Store Store
 	// Project is the UUID a server of one project serves; a hello naming
 	// another is refused. Required with Store.
 	Project string
@@ -41,10 +41,10 @@ type Config struct {
 	// closed when idle (Limits.OpenStores, Limits.StoreIdle). Store and
 	// Project are then left unset. The caller closes Control after Serve
 	// returns.
-	Control *store.Control
+	Control Control
 	// Open opens the store of one of Control's projects; the server
 	// closes it. Required with Control. See [ProjectOpener].
-	Open func(context.Context, store.Project) (*store.Store, error)
+	Open func(context.Context, store.Project) (Store, error)
 	// Version is the server's build version, reported in the handshake.
 	Version string
 	// ProtoMin and ProtoMax bound the client protocol versions accepted.
@@ -328,7 +328,7 @@ func (s *Server) openProject(ctx context.Context, p store.Project) (*served, err
 // openStore opens p's store with Config.Open, within RequestTimeout. It
 // is a store.open span, with the store's migrations beneath it, and one
 // observation of aries.store.open.duration when it succeeds.
-func (s *Server) openStore(ctx context.Context, p store.Project) (*store.Store, error) {
+func (s *Server) openStore(ctx context.Context, p store.Project) (Store, error) {
 	ctx, span := s.cfg.Telemetry.Start(ctx, telemetry.SpanStoreOpen)
 	defer span.End()
 	span.Set(telemetry.KeyProject, p.ID)

@@ -127,7 +127,7 @@ func newMultiTel(t *testing.T, lim Limits, ck *clock, tel *telemetry.Telemetry, 
 	m.Server, err = New(Config{Control: ctl, Version: "v0.2.0", PeerCheck: func(net.Conn) error { return nil }, Limits: lim,
 		KeysFile: m.keysFile, AuthorizedKeys: m.byHand, Telemetry: tel,
 		ReapInterval: -1, Logger: slogTo(m.log),
-		Open: func(ctx context.Context, p store.Project) (*store.Store, error) {
+		Open: func(ctx context.Context, p store.Project) (Store, error) {
 			m.mu.Lock()
 			m.opens[p.ID]++
 			m.mu.Unlock()
@@ -267,7 +267,7 @@ func TestNewModes(t *testing.T) {
 	t.Parallel()
 	m := newMulti(t, Limits{}, nil)
 	single := newServer(t)
-	open := func(context.Context, store.Project) (*store.Store, error) { return nil, errors.New("unused") }
+	open := func(context.Context, store.Project) (Store, error) { return nil, errors.New("unused") }
 	tests := []struct {
 		name string
 		cfg  Config

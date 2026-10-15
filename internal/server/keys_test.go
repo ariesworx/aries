@@ -449,7 +449,7 @@ func TestDisabledServerAdmin(t *testing.T) {
 	admins := func(want map[string]bool) {
 		t.Helper()
 		for name, w := range want {
-			if got := st.IsAdmin(name); got != w {
+			if got := realStore(st).IsAdmin(name); got != w {
 				t.Errorf("the project store's IsAdmin(%s) = %v, want %v", name, got, w)
 			}
 			if got := m.ctl.IsServerAdmin(name); got != w {

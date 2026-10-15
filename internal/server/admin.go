@@ -926,7 +926,7 @@ func (s *Server) OpenProjects(ctx context.Context) error {
 // store's connection ([store.Control.HeldClaims]) and opens no store, so
 // a server with hundreds of archived projects starts as fast as one with
 // none. A server of one project has nothing archived.
-func (s *Server) ReleaseArchived(ctx context.Context, open func(context.Context, store.Project) (*store.Store, error)) error {
+func (s *Server) ReleaseArchived(ctx context.Context, open func(context.Context, store.Project) (Store, error)) error {
 	if s.cfg.Control == nil {
 		return nil
 	}
@@ -955,7 +955,7 @@ func (s *Server) ReleaseArchived(ctx context.Context, open func(context.Context,
 
 // releaseArchived ends every claim in the archived project p, whose
 // store it opens with open and closes again.
-func (s *Server) releaseArchived(ctx context.Context, p store.Project, open func(context.Context, store.Project) (*store.Store, error)) error {
+func (s *Server) releaseArchived(ctx context.Context, p store.Project, open func(context.Context, store.Project) (Store, error)) error {
 	octx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
 	defer cancel()
 	// Nearly every archived project holds no claim, and one read says

@@ -118,7 +118,7 @@ func TestKeyedOpsReplayOnce(t *testing.T) {
 // eventCount counts the store's events.
 func eventCount(t *testing.T, s *Server) int {
 	t.Helper()
-	evs, err := s.single.store.Events(t.Context(), 0, 10000)
+	evs, err := realStore(s.single.store).Events(t.Context(), 0, 10000)
 	if err != nil {
 		t.Fatal(err)
 	}

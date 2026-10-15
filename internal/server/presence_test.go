@@ -94,7 +94,7 @@ func gatedWorld(t *testing.T, timeout time.Duration) (*multi, *writeGate) {
 	}
 	g := &writeGate{}
 	t.Cleanup(g.open)
-	m.cfg.Open = func(ctx context.Context, p store.Project) (*store.Store, error) {
+	m.cfg.Open = func(ctx context.Context, p store.Project) (Store, error) {
 		dsn, err := DatabaseDSN(m.dsn, p.DBName)
 		if err != nil {
 			return nil, err
