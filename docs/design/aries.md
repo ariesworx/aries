@@ -1284,6 +1284,8 @@ What Aries does with it:
 
 Designed 12 Oct 2026, from the investigation of §15.6. **Proposed, not decided, and nothing here is built.** The questions for the maintainer are in §17.12. It answers two concerns: that one public key for each machine, added by an admin, will not scale or fit a company's sign-on; and whether people's names should be hidden. Signing in to Aries itself, which §17.10 leaves out, is researched in [access-research.md](access-research.md) (13 Oct 2026; research only).
 
+**Sign-in for v1.0.0 is designed in [identity.md](identity.md)** (15 Oct 2026, proposed): the identity of slice I2 as tables, invitations, expiring keys, `aries login`, service principals with workload tokens, and the Claude Desktop extension, in slices N0 to N8 after the Postgres port's P1 and P2 (decision 83). It is a document of its own because this one is long and this section is a separate design, for certificates, that v1.0.0 does not include. It reuses §17.2's model and §17.14's clocks; where the two differ on sign-in, identity.md is the plan.
+
 In short: a principal stops being a set of keys and becomes a permanent **handle** with, beside it and outside every history, a display name and the identity a company's certificate authority asserts. A short-lived SSH certificate becomes a second way in, through the file ariesd already writes, with no new sshd mechanism and no connection from Aries to the authority. The control store still decides everything. Membership follows a directory through a job that runs `aries admin`, not through what a certificate claims.
 
 ### 17.1 What was measured
