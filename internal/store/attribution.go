@@ -243,7 +243,7 @@ func loadHoldsOf(ctx context.Context, q querier, issues []IssueID, now time.Time
 	// Leases of holds still open: renewals move them without an event.
 	expires := map[IssueID]claimRow{}
 	rows, err := q.QueryContext(ctx, `SELECT issue_id, principal, session, expires_at FROM claims
-  WHERE principal IS NOT NULL AND issue_id IN (`+placeholders(len(ids))+`)`, ids...)
+  WHERE principal IS NOT NULL AND issue_id IN (`+placeholders(1, len(ids))+`)`, ids...)
 	if err != nil {
 		return nil, fmt.Errorf("claims: %w", err)
 	}
@@ -259,8 +259,8 @@ func loadHoldsOf(ctx context.Context, q querier, issues []IssueID, now time.Time
 		return nil, fmt.Errorf("claims: %w", err)
 	}
 
-	evs, err := queryEvents(ctx, q, `WHERE target IN (`+placeholders(len(ids))+`) AND op IN (`+
-		placeholders(len(ops))+`) ORDER BY seq`, append(ids, ops...)...)
+	evs, err := queryEvents(ctx, q, `WHERE target IN (`+placeholders(1, len(ids))+`) AND op IN (`+
+		placeholders(len(ids)+1, len(ops))+`) ORDER BY seq`, append(ids, ops...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -352,13 +352,13 @@ func sessionHolds(ctx context.Context, q querier, rows []usageRow, now time.Time
 	from := map[IssueID]time.Time{}
 	for chunk := range slices.Chunk(keys, 300) {
 		terms := make([]string, len(chunk))
-		args := []any{string(OpClaimTake)}
+		var p params
+		op := p.add(string(OpClaimTake))
 		for i, k := range chunk {
-			terms[i] = `(principal = ? AND session = ? AND at <= ?)`
-			args = append(args, k.principal, k.session, spans[k].to)
+			terms[i] = `(principal = ` + p.add(k.principal) + ` AND session = ` + p.add(k.session) + ` AND at <= ` + p.add(spans[k].to) + `)`
 		}
-		query := `SELECT DISTINCT target, principal, session FROM events WHERE op = ? AND (` + strings.Join(terms, " OR ") + `)` //nolint:gosec // constant terms; values are arguments
-		err := scanAll(ctx, q, "issues taken", query, args, func(rs *sql.Rows) error {
+		query := `SELECT DISTINCT target, principal, session FROM events WHERE op = ` + op + ` AND (` + strings.Join(terms, " OR ") + `)` //nolint:gosec // constant terms; values are arguments
+		err := scanAll(ctx, q, "issues taken", query, p.args, func(rs *sql.Rows) error {
 			var id IssueID
 			var k sessionKey
 			if err := rs.Scan(&id, &k.principal, &k.session); err != nil {
@@ -397,12 +397,12 @@ func sessionHolds(ctx context.Context, q querier, rows []usageRow, now time.Time
 			}
 			return nil
 		}
-		query := `SELECT target, MAX(at) FROM events WHERE target IN (` + placeholders(len(ids)) + `) AND op IN (` + //nolint:gosec // placeholders only; values are arguments
-			placeholders(len(ops)) + `) GROUP BY target`
+		query := `SELECT target, MAX(at) FROM events WHERE target IN (` + placeholders(1, len(ids)) + `) AND op IN (` + //nolint:gosec // placeholders only; values are arguments
+			placeholders(len(ids)+1, len(ops)) + `) GROUP BY target`
 		if err := scanAll(ctx, q, "claim history", query, append(slices.Clone(ids), ops...), mark); err != nil {
 			return nil, err
 		}
-		query = `SELECT issue_id, NULL FROM claims WHERE principal IS NOT NULL AND issue_id IN (` + placeholders(len(ids)) + `)` //nolint:gosec // placeholders only; values are arguments
+		query = `SELECT issue_id, NULL FROM claims WHERE principal IS NOT NULL AND issue_id IN (` + placeholders(1, len(ids)) + `)` //nolint:gosec // placeholders only; values are arguments
 		if err := scanAll(ctx, q, "claims", query, ids, mark); err != nil {
 			return nil, err
 		}
@@ -452,16 +452,16 @@ func scanAll(ctx context.Context, q querier, what, query string, args []any, sca
 // that overlap it: all but a span that ends at from. Its arguments are
 // principal, session, from, to and from again. The session index serves
 // it.
-const usageIn = `principal = ? AND session = ? AND at >= ? AND at < ?
-  AND (at > ? OR span_start IS NULL OR span_start >= at)`
+const usageIn = `principal = $1 AND session = $2 AND at >= $3 AND at < $4
+  AND (at > $5 OR span_start IS NULL OR span_start >= at)`
 
 // usageSpansPast matches a session's turn and session records that end
 // at or after to and start before it. Spans are at most MaxUsageSpan
 // long, which bounds the range. Its arguments are principal, session,
 // the two granularities, to, to plus MaxUsageSpan and to again. The span
 // index serves it.
-const usageSpansPast = `principal = ? AND session = ? AND granularity IN (?, ?)
-  AND at >= ? AND at < ? AND span_start < ?`
+const usageSpansPast = `principal = $1 AND session = $2 AND granularity IN ($3, $4)
+  AND at >= $5 AND at < $6 AND span_start < $7`
 
 // usageKey names a record: its session and the harness's request id.
 type usageKey struct {
@@ -515,7 +515,7 @@ func (u *usageReader) read(ctx context.Context, q querier, where string, args ..
 func readUsage(ctx context.Context, q querier, where string, limit int, args ...any) ([]usageRow, error) {
 	rows, err := q.QueryContext(ctx, `SELECT principal, session, request_id, model, at, span_start,
   input, output, cache_write, cache_write_1h, cache_read
-  FROM token_usage WHERE `+where+` ORDER BY at, request_id LIMIT ?`, append(args, limit)...) //nolint:gosec // where is a constant from the callers
+  FROM token_usage WHERE `+where+` ORDER BY at, request_id LIMIT `+placeholder(len(args)+1), append(args, limit)...) //nolint:gosec // where is a constant from the callers
 	if err != nil {
 		return nil, fmt.Errorf("usage: %w", err)
 	}
@@ -964,9 +964,9 @@ type DigestUsage struct {
 
 // usage fills in d.Usage.
 func (q *digestQuery) usage(ctx context.Context, d *Digest) error {
-	where, args := `at >= ? AND at <= ?`, []any{q.f.Since, q.now}
+	where, args := `at >= $1 AND at <= $2`, []any{q.f.Since, q.now}
 	if q.f.By != "" {
-		where, args = where+` AND principal = ?`, append(args, q.f.By)
+		where, args = where+` AND principal = $3`, append(args, q.f.By)
 	}
 	ur := usageReader{limit: usageScanRows}
 	if err := ur.read(ctx, q.tx, where, args...); err != nil {
@@ -1058,9 +1058,9 @@ func (q *digestQuery) usage(ctx context.Context, d *Digest) error {
 // up to the last day an entry may be for, filtered by the digest's By
 // and Label.
 func (q *digestQuery) hours(ctx context.Context, u *DigestUsage) error {
-	where, args := `on_date >= ? AND on_date <= ?`, []any{startDay(q.f.Since), lastDay(q.now)}
+	where, args := `on_date >= $1 AND on_date <= $2`, []any{startDay(q.f.Since), lastDay(q.now)}
 	if q.f.By != "" {
-		where, args = where+` AND principal = ?`, append(args, q.f.By)
+		where, args = where+` AND principal = $3`, append(args, q.f.By)
 	}
 	hs, err := windowHours(ctx, q.tx, where, args...)
 	if err != nil {
@@ -1099,7 +1099,7 @@ func (q *digestQuery) heldIssues(ctx context.Context) ([]IssueID, error) {
 		query string
 		args  []any
 	}{
-		{`SELECT DISTINCT target FROM events WHERE at >= ? AND op IN (` + placeholders(len(ops)) + `)`, append([]any{q.f.Since}, ops...)},
+		{`SELECT DISTINCT target FROM events WHERE at >= $1 AND op IN (` + placeholders(2, len(ops)) + `)`, append([]any{q.f.Since}, ops...)},
 		{`SELECT issue_id FROM claims WHERE principal IS NOT NULL`, nil},
 	} {
 		rows, err := q.tx.QueryContext(ctx, sel.query, sel.args...)
@@ -1137,7 +1137,7 @@ func (q *digestQuery) labeled(ctx context.Context, ids []IssueID) (map[IssueID]b
 		for _, id := range chunk {
 			args = append(args, string(id))
 		}
-		query := `SELECT issue_id FROM labels WHERE label = ? AND issue_id IN (` + placeholders(len(chunk)) + `)` //nolint:gosec // placeholders only; values are arguments
+		query := `SELECT issue_id FROM labels WHERE label = $1 AND issue_id IN (` + placeholders(2, len(chunk)) + `)` //nolint:gosec // placeholders only; values are arguments
 		rows, err := q.tx.QueryContext(ctx, query, args...)
 		if err != nil {
 			return nil, fmt.Errorf("labels: %w", err)

@@ -120,7 +120,7 @@ func (c *Control) AddPrincipal(ctx context.Context, actor Actor, name, project s
 			// No op deletes a principal, so each creator who is no server
 			// admin has an allowance of their own within the server's.
 			if err := w.room(ctx, limitPerCreator, w.lim.PrincipalsPerCreator,
-				`SELECT COUNT(*) FROM principals WHERE created_by = ?`, w.actor.Principal); err != nil {
+				`SELECT COUNT(*) FROM principals WHERE created_by = $1`, w.actor.Principal); err != nil {
 				return err
 			}
 		}
@@ -130,8 +130,8 @@ func (c *Control) AddPrincipal(ctx context.Context, actor Actor, name, project s
 			}
 		}
 		out = Principal{Name: name, State: PrincipalActive, CreatedBy: w.actor.Principal, CreatedAt: w.now, UpdatedAt: w.now, Rev: 1}
-		if _, err := w.exec(ctx, `INSERT INTO principals (name, state, created_by, created_at, updated_at, rev, write_id)
-  VALUES (?, ?, ?, ?, ?, 1, ?)`, name, string(out.State), out.CreatedBy, w.now, w.now, randomInt63()); err != nil {
+		if _, err := w.exec(ctx, `INSERT INTO principals (name, state, created_by, created_at, updated_at, rev)
+  VALUES ($1, $2, $3, $4, $5, 1)`, name, string(out.State), out.CreatedBy, w.now, w.now); err != nil {
 			return fmt.Errorf("add principal %s: %w", name, err)
 		}
 		if err := w.event(ctx, OpPrincipalAdd, name, nil, out); err != nil {
@@ -208,8 +208,8 @@ func (c *Control) setPrincipalState(ctx context.Context, actor Actor, name strin
 				return err
 			}
 		}
-		n, err := w.exec(ctx, `UPDATE principals SET state = ?, updated_at = ?, rev = rev + 1, write_id = ? WHERE name = ? AND rev = ?`,
-			string(to), w.now, randomInt63(), name, cur.Rev)
+		n, err := w.exec(ctx, `UPDATE principals SET state = $1, updated_at = $2, rev = rev + 1 WHERE name = $3 AND rev = $4`,
+			string(to), w.now, name, cur.Rev)
 		if err != nil {
 			return fmt.Errorf("%s %s: %w", op, name, err)
 		}
@@ -238,7 +238,7 @@ func (c *Control) setPrincipalState(ctx context.Context, actor Actor, name strin
 // admin name when no other server admin would be left enabled: one the
 // config file names whose row is not disabled, or who has no row.
 func (w *cwtx) anotherAdmin(ctx context.Context, name string) error {
-	disabled, err := queryStrings(ctx, w.tx, `SELECT name FROM principals WHERE state = ?`, string(PrincipalDisabled))
+	disabled, err := queryStrings(ctx, w.tx, `SELECT name FROM principals WHERE state = $1`, string(PrincipalDisabled))
 	if err != nil {
 		return fmt.Errorf("read the disabled principals: %w", err)
 	}
@@ -284,7 +284,7 @@ func (c *Control) PrincipalsCreatedBy(ctx context.Context, creator string) ([]Pr
 	if err := validActorName(creator); err != nil {
 		return nil, err
 	}
-	return c.principals(ctx, ` WHERE created_by = ? ORDER BY name`, creator)
+	return c.principals(ctx, ` WHERE created_by = $1 ORDER BY name`, creator)
 }
 
 // principals reads the principals that where, a constant clause with
@@ -322,7 +322,7 @@ func scanPrincipal(r scanner) (Principal, error) {
 
 // readPrincipal reads one principal, or returns ErrNotFound.
 func readPrincipal(ctx context.Context, q querier, name string) (Principal, error) {
-	p, err := scanPrincipal(q.QueryRowContext(ctx, principalSelect+` WHERE name = ?`, name))
+	p, err := scanPrincipal(q.QueryRowContext(ctx, principalSelect+` WHERE name = $1`, name))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Principal{}, fmt.Errorf("principal %s: %w", name, ErrNotFound)
 	}

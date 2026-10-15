@@ -304,7 +304,7 @@ func (s *Store) CostReport(ctx context.Context, f CostFilter) (CostReport, error
 	}
 	defer end()
 	ur := usageReader{limit: usageScanRows}
-	if err := ur.read(ctx, q, `at >= ? AND at < ?`, since, until); err != nil {
+	if err := ur.read(ctx, q, `at >= $1 AND at < $2`, since, until); err != nil {
 		return CostReport{}, err
 	}
 	prices, err := loadPrices(ctx, q)
@@ -312,7 +312,7 @@ func (s *Store) CostReport(ctx context.Context, f CostFilter) (CostReport, error
 		return CostReport{}, err
 	}
 	book := newPriceBook(prices)
-	hours, err := windowHours(ctx, q, `on_date >= ? AND on_date < ?`, startDay(since), hoursEnd(until, now))
+	hours, err := windowHours(ctx, q, `on_date >= $1 AND on_date < $2`, startDay(since), hoursEnd(until, now))
 	if err != nil {
 		return CostReport{}, err
 	}
@@ -515,7 +515,7 @@ func loadChains(ctx context.Context, q querier, ids []IssueID) (chains, error) {
 			for i, id := range chunk {
 				args[i] = string(id)
 			}
-			query := `SELECT id, parent_id, type, account, title FROM issues WHERE id IN (` + placeholders(len(args)) + `)` //nolint:gosec // placeholders only; values are arguments
+			query := `SELECT id, parent_id, type, account, title FROM issues WHERE id IN (` + placeholders(1, len(args)) + `)` //nolint:gosec // placeholders only; values are arguments
 			err := scanAll(ctx, q, "issue chains", query, args, func(rs *sql.Rows) error {
 				var id IssueID
 				var parent, account sql.NullString

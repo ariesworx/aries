@@ -510,7 +510,7 @@ func (s *Store) settledNow(ctx context.Context) (time.Time, error) {
 
 // liveClaims reads the claims that are live at w's time.
 func (s *Store) liveClaims(ctx context.Context, w *wtx) ([]Claim, error) {
-	return s.claims(ctx, w.tx, `principal IS NOT NULL AND expires_at > ?`, w.now)
+	return s.claims(ctx, w.tx, `principal IS NOT NULL AND expires_at > $1`, w.now)
 }
 
 // settledForward returns storeTime.settled.

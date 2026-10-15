@@ -246,8 +246,8 @@ func (s *Store) Prune(ctx context.Context, agentKeep, inboxKeep time.Duration) (
 		w.quiet = true
 		rows, err := w.tx.QueryContext(ctx, `SELECT a.principal, a.session FROM agents a
   JOIN (SELECT principal, MAX(last_seen) AS latest FROM agents GROUP BY principal) m ON m.principal = a.principal
-  WHERE a.last_seen < ? AND a.last_seen < m.latest
-  ORDER BY a.last_seen LIMIT ?`, w.now.Add(-agentKeep), pruneBatch)
+  WHERE a.last_seen < $1 AND a.last_seen < m.latest
+  ORDER BY a.last_seen LIMIT $2`, w.now.Add(-agentKeep), pruneBatch)
 		if err != nil {
 			return fmt.Errorf("prune agents: %w", err)
 		}
@@ -264,13 +264,14 @@ func (s *Store) Prune(ctx context.Context, agentKeep, inboxKeep time.Duration) (
 			return fmt.Errorf("prune agents: %w", err)
 		}
 		for _, k := range stale {
-			n, err := w.exec(ctx, `DELETE FROM agents WHERE principal = ? AND session = ?`, k[0], k[1])
+			n, err := w.exec(ctx, `DELETE FROM agents WHERE principal = $1 AND session = $2`, k[0], k[1])
 			if err != nil {
 				return fmt.Errorf("prune agents: %w", err)
 			}
 			out.Agents += n
 		}
-		n, err := w.exec(ctx, `DELETE FROM inbox WHERE read_at IS NOT NULL AND read_at < ? ORDER BY id LIMIT ?`,
+		n, err := w.exec(ctx, `DELETE FROM inbox WHERE id IN (SELECT id FROM inbox
+  WHERE read_at IS NOT NULL AND read_at < $1 ORDER BY id LIMIT $2)`,
 			w.now.Add(-inboxKeep), pruneBatch)
 		if err != nil {
 			return fmt.Errorf("prune inbox: %w", err)

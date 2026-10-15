@@ -3,10 +3,9 @@ package store
 import (
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
-	"github.com/go-sql-driver/mysql"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/ariesworx/aries/internal/proto"
 )
@@ -52,32 +51,47 @@ var (
 	errRetry = errors.New("retry")
 )
 
+// The SQLSTATEs the store acts on.
+const (
+	codeSerialization = "40001" // serialization_failure
+	codeDeadlock      = "40P01" // deadlock_detected
+	codeUnique        = "23505" // unique_violation
+	codePrivilege     = "42501" // insufficient_privilege
+)
+
+// sqlState returns the SQLSTATE of the Postgres error err wraps, or "".
+func sqlState(err error) string {
+	if pe, ok := errors.AsType[*pgconn.PgError](err); ok {
+		return pe.Code
+	}
+	return ""
+}
+
 // retryable reports whether rerunning the write may succeed: err is
-// errRetry, or Dolt's signal that a concurrent transaction won, which is
-// a serialization failure (1213), a lock wait timeout (1205), or a
-// constraint violation produced by transaction sequencing (1105).
+// errRetry, or Postgres's sign that a concurrent transaction won.
+//
+// That is a serialization failure, a deadlock, or a unique violation:
+// two writers inserted one key, such as an issue's first claim row or
+// the event log's next seq, and the second fails once the first commits.
+// The rerun reads the row the winner wrote. Where a duplicate key means
+// something to the caller (an issue id, an idempotency key, a memory's
+// key), the write has checked for it in its transaction and refused
+// with its own error, so the duplicate only reaches here when the row
+// was written between that check and the insert; the rerun's check then
+// finds it and refuses as it should.
 func retryable(err error) bool {
 	if errors.Is(err, errRetry) {
 		return true
 	}
-	var me *mysql.MySQLError
-	if !errors.As(err, &me) {
-		return false
-	}
-	switch me.Number {
-	case 1213, 1205:
+	switch sqlState(err) {
+	case codeSerialization, codeDeadlock, codeUnique:
 		return true
-	case 1105:
-		return strings.Contains(me.Message, "transaction sequencing")
 	}
 	return false
 }
 
-// isDuplicate reports whether err is a duplicate key error (1062).
-func isDuplicate(err error) bool {
-	var me *mysql.MySQLError
-	return errors.As(err, &me) && me.Number == 1062
-}
+// isDuplicate reports whether err is a unique violation.
+func isDuplicate(err error) bool { return sqlState(err) == codeUnique }
 
 // HeldError refuses a start of an issue held under a live claim: by
 // another principal, or (Own) by another session of the actor's own

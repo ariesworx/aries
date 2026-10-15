@@ -20,9 +20,6 @@ type Observer interface {
 	// Retried reports one attempt of a write that lost to a concurrent
 	// transaction and is tried again.
 	Retried()
-	// Committed reports a Dolt commit of pending writes: how long it
-	// took, and its error if it failed and the writes stay pending.
-	Committed(took time.Duration, err error)
 	// ClaimChanged reports a change of a claim that committed. reason is
 	// why a claim was released, when its claim.release event gives a
 	// reason ([Store.EndClaims]), and empty for every other change.
@@ -65,8 +62,6 @@ const (
 	// StageWait is, within an attempt, the wait for the store's one
 	// writer connection and the start of its transaction.
 	StageWait Stage = "write.wait"
-	// StageCommit is a Dolt commit of pending writes.
-	StageCommit Stage = "commit"
 	// StageMigrate is, within an open, the check of the schema and the
 	// migrations it applies.
 	StageMigrate Stage = "migrate"

@@ -149,7 +149,7 @@ func (s *Store) start(ctx context.Context, actor Actor, id IssueID, ranked []Iss
 		if before.Status == StatusInProgress && before.Assignee == w.actor.Principal {
 			return nil
 		}
-		out, err = casUpdate(ctx, w, before, []string{"status = ?", "assignee = ?"},
+		out, err = casUpdate(ctx, w, before, []string{"status", "assignee"},
 			[]any{string(StatusInProgress), w.actor.Principal})
 		if err != nil {
 			return err
@@ -463,7 +463,7 @@ func (s *Store) handoff(ctx context.Context, actor Actor, id IssueID, epoch int6
 		if status == StatusInProgress {
 			status = StatusOpen
 		}
-		if out.Issue, err = casUpdate(ctx, w, before, []string{"status = ?", "assignee = ?"}, []any{string(status), nil}); err != nil {
+		if out.Issue, err = casUpdate(ctx, w, before, []string{"status", "assignee"}, []any{string(status), nil}); err != nil {
 			return err
 		}
 		if err := w.issueEvent(ctx, OpIssueUpdate, before, out.Issue, nil); err != nil {

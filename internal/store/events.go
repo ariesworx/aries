@@ -13,14 +13,14 @@ func (s *Store) History(ctx context.Context, id IssueID) ([]Event, error) {
 	if err := id.Validate(); err != nil {
 		return nil, err
 	}
-	return s.events(ctx, `WHERE target = ? ORDER BY seq`, string(id))
+	return s.events(ctx, `WHERE target = $1 ORDER BY seq`, string(id))
 }
 
 // Events returns up to limit events with seq greater than after, in order;
 // limit 0 means 100, and it is capped at 1,000. Sequence numbers are
 // gapless, so a reader can tell it missed nothing.
 func (s *Store) Events(ctx context.Context, after int64, limit int) ([]Event, error) {
-	return s.events(ctx, `WHERE seq > ? ORDER BY seq LIMIT ?`, after, clampLimit(limit, 100, 1000))
+	return s.events(ctx, `WHERE seq > $1 ORDER BY seq LIMIT $2`, after, clampLimit(limit, 100, 1000))
 }
 
 // eventSelect reads the columns queryEvents scans; a WHERE or ORDER BY

@@ -175,13 +175,10 @@ type digestQuery struct {
 
 // JSON fields of an event's after_state that digest sections test.
 const (
-	afterStatus = `JSON_UNQUOTE(JSON_EXTRACT(e.after_state, '$.status'))`
-	afterKind   = `JSON_UNQUOTE(JSON_EXTRACT(e.after_state, '$.kind'))`
-	afterType   = `JSON_UNQUOTE(JSON_EXTRACT(e.after_state, '$.type'))`
-	afterTo     = `JSON_UNQUOTE(JSON_EXTRACT(e.after_state, '$.to'))`
-	// hasLabel tests that the issue whose id the %s column holds has the
-	// filter's label.
-	hasLabel = `EXISTS (SELECT 1 FROM labels l WHERE l.issue_id = %s AND l.label = ?)`
+	afterStatus = `(e.after_state->>'status')`
+	afterKind   = `(e.after_state->>'kind')`
+	afterType   = `(e.after_state->>'type')`
+	afterTo     = `(e.after_state->>'to')`
 )
 
 // run fills in d: Events, every section and Capped.
@@ -232,32 +229,31 @@ func (q *digestQuery) run(ctx context.Context, d *Digest) error {
 	return nil
 }
 
-// filters returns the by and label conditions and their arguments. by
-// names the column holding the principal; labelOn the issue id columns,
-// any of which may carry the label.
-func (q *digestQuery) filters(by string, labelOn ...string) (string, []any) {
+// filters returns the by and label conditions, adding their arguments to
+// p. by names the column holding the principal; labelOn the issue id
+// columns, any of which may carry the label.
+func (q *digestQuery) filters(p *params, by string, labelOn ...string) string {
 	var b strings.Builder
-	var args []any
 	if q.f.By != "" {
-		b.WriteString(" AND " + by + " = ?")
-		args = append(args, q.f.By)
+		b.WriteString(" AND " + by + " = " + p.add(q.f.By))
 	}
 	if q.f.Label != "" && len(labelOn) > 0 {
+		label := p.add(q.f.Label)
 		alts := make([]string, len(labelOn))
 		for i, col := range labelOn {
-			alts[i] = fmt.Sprintf(hasLabel, col)
-			args = append(args, q.f.Label)
+			alts[i] = `EXISTS (SELECT 1 FROM labels l WHERE l.issue_id = ` + col + ` AND l.label = ` + label + `)`
 		}
 		b.WriteString(" AND (" + strings.Join(alts, " OR ") + ")")
 	}
-	return b.String(), args
+	return b.String()
 }
 
 // events counts the events in the window that match the filter.
 func (q *digestQuery) events(ctx context.Context, d *Digest) error {
-	cond, args := q.filters("e.principal", "e.target")
-	err := q.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM events e WHERE e.at >= ?`+cond, //nolint:gosec // constant clauses; values are placeholders
-		append([]any{q.f.Since}, args...)...).Scan(&d.Events)
+	p := params{args: []any{q.f.Since}}
+	cond := q.filters(&p, "e.principal", "e.target")
+	err := q.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM events e WHERE e.at >= $1`+cond, //nolint:gosec // constant clauses; values are placeholders
+		p.args...).Scan(&d.Events)
 	if err != nil {
 		return fmt.Errorf("events: %w", err)
 	}
@@ -271,20 +267,20 @@ func (q *digestQuery) windowed(ctx context.Context, op Op, cond string) ([]Diges
 	if op == OpDepAdd {
 		labelOn = append(labelOn, afterTo)
 	}
-	fcond, fargs := q.filters("e.principal", labelOn...)
+	p := params{args: []any{q.f.Since, string(op)}}
+	fcond := q.filters(&p, "e.principal", labelOn...)
 	// Only a handoff's note and a discovered issue's source come from the
-	// event's state. For the other sections it stays in Dolt: a create's
-	// is the whole issue, its long texts and all.
+	// event's state. For the other sections it stays in the database: a
+	// create's is the whole issue, its long texts and all.
 	state := "NULL"
 	if op == OpCommentAdd || op == OpDepAdd {
 		state = "e.after_state"
 	}
 	head := `SELECT i.id, i.title, i.priority, e.principal, e.at, ` + state + `
 FROM events e JOIN issues i ON i.id = e.target
-WHERE e.at >= ? AND e.op = ? `
-	query := head + cond + fcond + " ORDER BY e.seq DESC LIMIT ?" //nolint:gosec // constant clauses; values are placeholders
-	args := append([]any{q.f.Since, string(op)}, fargs...)
-	rows, err := q.tx.QueryContext(ctx, query, append(args, digestRows+1)...)
+WHERE e.at >= $1 AND e.op = $2 `
+	query := head + cond + fcond + " ORDER BY e.seq DESC LIMIT " + p.add(digestRows+1) //nolint:gosec // constant clauses; values are placeholders
+	rows, err := q.tx.QueryContext(ctx, query, p.args...)
 	if err != nil {
 		return nil, err
 	}
@@ -329,13 +325,14 @@ WHERE e.at >= ? AND e.op = ? `
 // inProgress lists the issues in progress now, when each was taken and
 // when it last had an event, and from that the stalled ones.
 func (q *digestQuery) inProgress(ctx context.Context, d *Digest) error {
-	fcond, fargs := q.filters("i.assignee", "i.id")
+	var p params
+	fcond := q.filters(&p, "i.assignee", "i.id")
 	const head = `SELECT i.id, i.title, i.priority, COALESCE(i.assignee, ''), i.updated_at,
   MAX(e.at), MAX(CASE WHEN ` + afterStatus + ` = 'in_progress' THEN e.at END)
 FROM issues i LEFT JOIN events e ON e.target = i.id
 WHERE i.status = 'in_progress'`
-	query := head + fcond + " GROUP BY i.id, i.title, i.priority, i.assignee, i.updated_at ORDER BY i.id LIMIT ?" //nolint:gosec // constant clauses; values are placeholders
-	rows, err := q.tx.QueryContext(ctx, query, append(fargs, digestRows+1)...)
+	query := head + fcond + " GROUP BY i.id, i.title, i.priority, i.assignee, i.updated_at ORDER BY i.id LIMIT " + p.add(digestRows+1) //nolint:gosec // constant clauses; values are placeholders
+	rows, err := q.tx.QueryContext(ctx, query, p.args...)
 	if err != nil {
 		return fmt.Errorf("in progress: %w", err)
 	}
@@ -385,12 +382,13 @@ WHERE i.status = 'in_progress'`
 // blocked lists unclosed issues held back by unclosed blockers, as
 // Blocked does.
 func (q *digestQuery) blocked(ctx context.Context, d *Digest) error {
-	fcond, fargs := q.filters("i.assignee", "i.id")
+	p := params{args: []any{q.now}}
+	fcond := q.filters(&p, "i.assignee", "i.id")
 	rows, err := q.tx.QueryContext(ctx, blockedCTE+`SELECT i.id, i.title, i.priority, COALESCE(i.assignee, ''), b.via
 FROM issues i JOIN blocked b ON b.id = i.id
 WHERE i.status <> 'closed'`+fcond+`
 ORDER BY i.priority, i.created_at, i.id, b.depth
-LIMIT ?`, append(append([]any{q.now}, fargs...), digestRows+1)...) //nolint:gosec // constant clauses; values are placeholders
+LIMIT `+p.add(digestRows+1), p.args...) //nolint:gosec // constant clauses; values are placeholders
 	if err != nil {
 		return fmt.Errorf("blocked: %w", err)
 	}
@@ -436,13 +434,14 @@ LIMIT ?`, append(append([]any{q.now}, fargs...), digestRows+1)...) //nolint:gose
 // conflicts lists the conflicts open longer than the filter's
 // ConflictAge, as Digest.Conflicts says.
 func (q *digestQuery) conflicts(ctx context.Context, d *Digest) error {
-	fcond, fargs := q.filters("c.author", "i.id")
 	age := cmp.Or(q.f.ConflictAge, DefaultConflictAge)
+	p := params{args: []any{q.now.Add(-age)}}
+	fcond := q.filters(&p, "c.author", "i.id")
 	const head = `SELECT i.id, i.title, i.priority, c.author, c.parked_at, c.id, c.field
 FROM conflicts c JOIN issues i ON i.id = c.issue_id
-WHERE c.resolved_at IS NULL AND c.parked_at <= ?`
-	query := head + fcond + " ORDER BY c.parked_at, c.id LIMIT ?" //nolint:gosec // constant clauses; values are placeholders
-	rows, err := q.tx.QueryContext(ctx, query, append(append([]any{q.now.Add(-age)}, fargs...), digestRows+1)...)
+WHERE c.resolved_at IS NULL AND c.parked_at <= $1`
+	query := head + fcond + " ORDER BY c.parked_at, c.id LIMIT " + p.add(digestRows+1) //nolint:gosec // constant clauses; values are placeholders
+	rows, err := q.tx.QueryContext(ctx, query, p.args...)
 	if err != nil {
 		return fmt.Errorf("conflicts: %w", err)
 	}

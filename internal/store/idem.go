@@ -91,7 +91,7 @@ func replay[T any](ctx context.Context, w *wtx, key, op string, args any, out *T
 	var at time.Time
 	var prev sql.NullString
 	var result []byte
-	err = w.tx.QueryRowContext(ctx, `SELECT at, idem_args, idem_result FROM events WHERE principal = ? AND idem_key = ?`,
+	err = w.tx.QueryRowContext(ctx, `SELECT at, idem_args, idem_result FROM events WHERE principal = $1 AND idem_key = $2`,
 		w.actor.Principal, key).Scan(&at, &prev, &result)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):

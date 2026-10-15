@@ -113,7 +113,7 @@ func (w *wtx) notify(ctx context.Context, it InboxItem) error {
 	if !slices.Contains(unlimitedKinds, it.Kind) && it.To != w.actor.Principal {
 		var sent int
 		if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM inbox
-  WHERE to_principal = ? AND from_principal = ? AND kind NOT IN (?, ?, ?) AND at > ?`,
+  WHERE to_principal = $1 AND from_principal = $2 AND kind NOT IN ($3, $4, $5) AND at > $6`,
 			it.To, w.actor.Principal, string(InboxClaimLost), string(InboxLockGranted), string(InboxLockLost),
 			w.now.Add(-time.Minute)).Scan(&sent); err != nil {
 			return fmt.Errorf("count notices: %w", err)
@@ -126,12 +126,11 @@ func (w *wtx) notify(ctx context.Context, it InboxItem) error {
 	if err != nil {
 		return fmt.Errorf("next inbox id: %w", err)
 	}
-	wid := randomInt63()
 	it.ID, it.From, it.At, it.Body = id+1, w.actor.Principal, w.now, brief(it.Body)
 	if _, err := w.exec(ctx, `INSERT INTO inbox
-  (id, to_principal, to_session, kind, issue_id, body, from_principal, at, write_id)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		it.ID, it.To, nullStr(it.Session), string(it.Kind), nullStr(it.Issue), it.Body, it.From, it.At, wid); err != nil {
+  (id, to_principal, to_session, kind, issue_id, body, from_principal, at)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		it.ID, it.To, nullStr(it.Session), string(it.Kind), nullStr(it.Issue), it.Body, it.From, it.At); err != nil {
 		return fmt.Errorf("insert inbox item: %w", err)
 	}
 	w.inbox = append(w.inbox, it)
@@ -143,16 +142,15 @@ func (w *wtx) notify(ctx context.Context, it InboxItem) error {
 // purges read items.
 func capUnread(ctx context.Context, w *wtx, principal string) error {
 	var n int
-	if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM inbox WHERE to_principal = ? AND read_at IS NULL`,
+	if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM inbox WHERE to_principal = $1 AND read_at IS NULL`,
 		principal).Scan(&n); err != nil {
 		return fmt.Errorf("count unread: %w", err)
 	}
 	if n <= w.lim.InboxUnread {
 		return nil
 	}
-	wid := randomInt63()
-	if _, err := w.exec(ctx, `UPDATE inbox SET read_at = ?, write_id = ? WHERE to_principal = ? AND read_at IS NULL
-  ORDER BY id LIMIT ?`, w.now, wid, principal, n-w.lim.InboxUnread); err != nil {
+	if _, err := w.exec(ctx, `UPDATE inbox SET read_at = $1 WHERE id IN (SELECT id FROM inbox
+  WHERE to_principal = $2 AND read_at IS NULL ORDER BY id LIMIT $3)`, w.now, principal, n-w.lim.InboxUnread); err != nil {
 		return fmt.Errorf("cap unread: %w", err)
 	}
 	return nil
@@ -185,7 +183,7 @@ func (w *wtx) notifyMentions(ctx context.Context, id IssueID, text string, skip 
 	if len(names) == 0 {
 		return nil
 	}
-	query := `SELECT DISTINCT principal FROM agents WHERE principal IN (` + placeholders(len(names)) + `) ORDER BY principal` //nolint:gosec // only placeholders are concatenated
+	query := `SELECT DISTINCT principal FROM agents WHERE principal IN (` + placeholders(1, len(names)) + `) ORDER BY principal` //nolint:gosec // only placeholders are concatenated
 	rows, err := w.tx.QueryContext(ctx, query, names...)
 	if err != nil {
 		return fmt.Errorf("mentions: %w", err)
@@ -233,8 +231,11 @@ type InboxPage struct {
 }
 
 // inboxFor selects the items actor may read: its principal's, and those
-// addressed to its own session.
-const inboxFor = `to_principal = ? AND (to_session IS NULL OR to_session = ?)`
+// addressed to its own session. It adds actor's principal and session to
+// p.
+func inboxFor(p *params, actor Actor) string {
+	return `to_principal = ` + p.add(actor.Principal) + ` AND (to_session IS NULL OR to_session = ` + p.add(actor.Session) + `)`
+}
 
 // Inbox returns actor's unread items (with all, read ones too), newest
 // first, at most limit (0 means DefaultInboxLimit), and the unread count,
@@ -257,16 +258,17 @@ func (s *Store) Inbox(ctx context.Context, actor Actor, all bool, limit int) (In
 	defer func() { _ = tx.Rollback() }() // read-only: nothing to keep
 
 	page := InboxPage{Items: []InboxItem{}}
-	who := []any{actor.Principal, actor.Session}
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM inbox WHERE `+inboxFor+` AND read_at IS NULL`, who...).
+	var p params
+	own := inboxFor(&p, actor)
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM inbox WHERE `+own+` AND read_at IS NULL`, p.args...).
 		Scan(&page.Unread); err != nil {
 		return InboxPage{}, fmt.Errorf("inbox: %w", err)
 	}
-	q := `SELECT id, to_principal, to_session, kind, issue_id, body, from_principal, at, read_at FROM inbox WHERE ` + inboxFor
+	q := `SELECT id, to_principal, to_session, kind, issue_id, body, from_principal, at, read_at FROM inbox WHERE ` + own
 	if !all {
 		q += ` AND read_at IS NULL`
 	}
-	rows, err := tx.QueryContext(ctx, q+` ORDER BY id DESC LIMIT ?`, append(who, limit)...)
+	rows, err := tx.QueryContext(ctx, q+` ORDER BY id DESC LIMIT `+p.add(limit), p.args...)
 	if err != nil {
 		return InboxPage{}, fmt.Errorf("inbox: %w", err)
 	}
@@ -301,22 +303,20 @@ func (s *Store) AckInbox(ctx context.Context, actor Actor, ids []int64, all bool
 	case len(ids) > MaxInboxLimit:
 		return 0, fmt.Errorf("%w: ack at most %d ids at once", ErrInvalid, MaxInboxLimit)
 	}
-	args := []any{}
 	for _, id := range ids {
 		if id < 1 {
 			return 0, fmt.Errorf("%w: inbox id %d", ErrInvalid, id)
 		}
-		args = append(args, id)
 	}
 	var n int64
 	err := s.write(ctx, actor, func(w *wtx) error {
-		wid := randomInt63()
-		q := `UPDATE inbox SET read_at = ?, write_id = ? WHERE ` + inboxFor + ` AND read_at IS NULL`
+		var p params
+		q := `UPDATE inbox SET read_at = ` + p.add(w.now) + ` WHERE ` + inboxFor(&p, actor) + ` AND read_at IS NULL`
 		if !all {
-			q += ` AND id IN (` + placeholders(len(args)) + `)`
+			q += ` AND id IN (` + list(&p, ids) + `)`
 		}
 		var err error
-		n, err = w.exec(ctx, q, append([]any{w.now, wid, actor.Principal, actor.Session}, args...)...)
+		n, err = w.exec(ctx, q, p.args...)
 		if err != nil {
 			return fmt.Errorf("ack inbox: %w", err)
 		}

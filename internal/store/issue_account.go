@@ -62,7 +62,7 @@ func resolveAccount(ctx context.Context, q querier, id IssueID) (string, IssueID
 	cur := id
 	for range maxParentDepth {
 		var account, parent sql.NullString
-		err := q.QueryRowContext(ctx, `SELECT account, parent_id FROM issues WHERE id = ?`, string(cur)).Scan(&account, &parent)
+		err := q.QueryRowContext(ctx, `SELECT account, parent_id FROM issues WHERE id = $1`, string(cur)).Scan(&account, &parent)
 		if errors.Is(err, sql.ErrNoRows) {
 			if cur == id {
 				return "", "", fmt.Errorf("issue %s: %w", id, ErrNotFound)

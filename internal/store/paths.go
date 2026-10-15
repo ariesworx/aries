@@ -144,7 +144,7 @@ type pathRow struct {
 
 // loadPathRows reads every path of id.
 func loadPathRows(ctx context.Context, q querier, id IssueID) ([]pathRow, error) {
-	rows, err := q.QueryContext(ctx, `SELECT path, source, last_at FROM issue_paths WHERE issue_id = ?`, string(id))
+	rows, err := q.QueryContext(ctx, `SELECT path, source, last_at FROM issue_paths WHERE issue_id = $1`, string(id))
 	if err != nil {
 		return nil, fmt.Errorf("paths of %s: %w", id, err)
 	}
@@ -162,12 +162,6 @@ func loadPathRows(ctx context.Context, q querier, id IssueID) ([]pathRow, error)
 	}
 	return out, nil
 }
-
-// refreshPathsSQL sets the last_at of known commit paths, each its own:
-// {when} is a "WHEN ? THEN ?" per path, and {in} their placeholders.
-const refreshPathsSQL = `UPDATE issue_paths SET last_at = CASE path {when} END,
-  principal = ?, session = ?, rev = rev + 1, write_id = ?
-  WHERE issue_id = ? AND source = ? AND path IN ({in})`
 
 // recordCommitPaths records ps, checked and most recent first, as id's
 // commit paths: new paths are inserted and one issue.paths event lists
@@ -212,19 +206,25 @@ func recordCommitPaths(ctx context.Context, w *wtx, id IssueID, ps []string) err
 			addedAt = append(addedAt, at(i))
 		}
 	}
+	// Each known commit path gets its own last_at, in one statement a
+	// chunk.
 	for chunk := range slices.Chunk(refreshed, pathBatch) {
-		var when []string
-		var args []any
+		var p params
+		var q strings.Builder
+		q.WriteString("UPDATE issue_paths SET last_at = CASE path")
 		for _, i := range chunk {
-			when = append(when, "WHEN ? THEN ?")
-			args = append(args, ps[i], at(i))
+			fmt.Fprintf(&q, " WHEN %s THEN CAST(%s AS TIMESTAMP(6))", p.add(ps[i]), p.add(at(i)))
 		}
-		args = append(args, w.actor.Principal, w.actor.Session, randomInt63(), string(id), string(PathCommit))
-		for _, i := range chunk {
-			args = append(args, ps[i])
+		fmt.Fprintf(&q, " END,\n  principal = %s, session = %s, rev = rev + 1\n  WHERE issue_id = %s AND source = %s AND path IN (",
+			p.add(w.actor.Principal), p.add(w.actor.Session), p.add(string(id)), p.add(string(PathCommit)))
+		for j, i := range chunk {
+			if j > 0 {
+				q.WriteString(", ")
+			}
+			q.WriteString(p.add(ps[i]))
 		}
-		q := strings.NewReplacer("{when}", strings.Join(when, " "), "{in}", placeholders(len(chunk))).Replace(refreshPathsSQL)
-		if err := w.touch(ctx, q, args...); err != nil {
+		q.WriteString(")")
+		if err := w.touch(ctx, q.String(), p.args...); err != nil {
 			return fmt.Errorf("refresh paths of %s: %w", id, err)
 		}
 	}
@@ -276,12 +276,9 @@ func setDeclaredPaths(ctx context.Context, w *wtx, id IssueID, ps []string) (boo
 		return false, nil
 	}
 	for chunk := range slices.Chunk(removed, pathBatch) {
-		args := []any{string(id), string(PathDeclared)}
-		for _, p := range chunk {
-			args = append(args, p)
-		}
-		if _, err := w.exec(ctx, `DELETE FROM issue_paths WHERE issue_id = ? AND source = ? AND path IN (`+
-			placeholders(len(chunk))+`)`, args...); err != nil {
+		var p params
+		if _, err := w.exec(ctx, `DELETE FROM issue_paths WHERE issue_id = `+p.add(string(id))+` AND source = `+p.add(string(PathDeclared))+
+			` AND path IN (`+list(&p, chunk)+`)`, p.args...); err != nil {
 			return false, fmt.Errorf("remove declared paths of %s: %w", id, err)
 		}
 	}
@@ -306,14 +303,14 @@ func insertPaths(ctx context.Context, w *wtx, id IssueID, source PathSource, ps 
 func insertPathsAt(ctx context.Context, w *wtx, id IssueID, source PathSource, ps []string, at []time.Time) error {
 	for start := 0; start < len(ps); start += pathBatch / 10 {
 		chunk := ps[start:min(start+pathBatch/10, len(ps))]
-		var args []any
-		for i, p := range chunk {
+		var p params
+		var vals []string
+		for i, path := range chunk {
 			t := at[start+i]
-			args = append(args, string(id), p, string(source), w.actor.Principal, w.actor.Session, t, t, randomInt63())
+			vals = append(vals, "("+p.add(string(id), path, string(source), w.actor.Principal, w.actor.Session, t, t)+", 1)")
 		}
-		vals := slices.Repeat([]string{"(?, ?, ?, ?, ?, ?, ?, 1, ?)"}, len(chunk))
 		if _, err := w.exec(ctx, `INSERT INTO issue_paths
-  (issue_id, path, source, principal, session, first_at, last_at, rev, write_id) VALUES `+strings.Join(vals, ", "), args...); err != nil {
+  (issue_id, path, source, principal, session, first_at, last_at, rev) VALUES `+strings.Join(vals, ", "), p.args...); err != nil {
 			return fmt.Errorf("insert paths of %s: %w", id, err)
 		}
 	}
@@ -342,12 +339,15 @@ func trimCommitPaths(ctx context.Context, w *wtx, id IssueID, keep int) (int, er
 	})
 	drop := commits[keep:]
 	for chunk := range slices.Chunk(drop, pathBatch) {
-		args := []any{string(id), string(PathCommit)}
-		for _, r := range chunk {
-			args = append(args, r.path)
+		var p params
+		q := `DELETE FROM issue_paths WHERE issue_id = ` + p.add(string(id)) + ` AND source = ` + p.add(string(PathCommit)) + ` AND path IN (`
+		for i, r := range chunk {
+			if i > 0 {
+				q += ", "
+			}
+			q += p.add(r.path)
 		}
-		if _, err := w.exec(ctx, `DELETE FROM issue_paths WHERE issue_id = ? AND source = ? AND path IN (`+
-			placeholders(len(chunk))+`)`, args...); err != nil {
+		if _, err := w.exec(ctx, q+`)`, p.args...); err != nil {
 			return 0, fmt.Errorf("trim paths of %s: %w", id, err)
 		}
 	}
@@ -397,7 +397,7 @@ type heldPaths struct {
 // issue_paths key.
 func loadHeld(ctx context.Context, q querier, except Actor, now time.Time) (*heldPaths, error) {
 	rows, err := q.QueryContext(ctx, `SELECT issue_id, principal, session, machine FROM claims
-  WHERE principal IS NOT NULL AND expires_at > ?`, now)
+  WHERE principal IS NOT NULL AND expires_at > $1`, now)
 	if err != nil {
 		return nil, fmt.Errorf("held paths: %w", err)
 	}
@@ -452,12 +452,9 @@ func loadHeld(ctx context.Context, q querier, except Actor, now time.Time) (*hel
 func pathsOf(ctx context.Context, q querier, ids []IssueID) (map[IssueID][]string, error) {
 	out := map[IssueID][]string{}
 	for chunk := range slices.Chunk(ids, pathBatch) {
-		args := make([]any, len(chunk))
-		for i, id := range chunk {
-			args[i] = string(id)
-		}
+		var p params
 		rows, err := q.QueryContext(ctx, `SELECT issue_id, path FROM issue_paths WHERE issue_id IN (`+
-			placeholders(len(chunk))+`) ORDER BY issue_id, source, path`, args...)
+			list(&p, chunk)+`) ORDER BY issue_id, source, path`, p.args...)
 		if err != nil {
 			return nil, fmt.Errorf("issue paths: %w", err)
 		}
@@ -578,7 +575,7 @@ func rankReady(ctx context.Context, q querier, actor Actor, now time.Time, limit
 
 // readyIDList returns the ready ids in readyFilter's order, at most limit.
 func readyIDList(ctx context.Context, q querier, now time.Time, limit int) ([]IssueID, error) {
-	rows, err := q.QueryContext(ctx, blockedCTE+`SELECT i.id FROM issues i `+readyFilter+` LIMIT ?`, now, limit)
+	rows, err := q.QueryContext(ctx, blockedCTE+`SELECT i.id FROM issues i `+readyFilter+` LIMIT $2`, now, limit)
 	if err != nil {
 		return nil, fmt.Errorf("ready: %w", err)
 	}
@@ -605,7 +602,7 @@ func readyIDList(ctx context.Context, q querier, now time.Time, limit int) ([]Is
 func readyNow(ctx context.Context, q querier, id IssueID, now time.Time) (bool, error) {
 	rows, err := q.QueryContext(ctx, `WITH RECURSIVE
 anc (id, parent_id, status, template, type, defer_until) AS (
-  SELECT id, parent_id, status, template, type, defer_until FROM issues WHERE id = ?
+  SELECT id, parent_id, status, template, type, defer_until FROM issues WHERE id = $1
   UNION
   SELECT i.id, i.parent_id, i.status, i.template, i.type, i.defer_until FROM issues i JOIN anc a ON i.id = a.parent_id
 )
@@ -665,7 +662,7 @@ func (s *Store) IssueFiles(ctx context.Context, actor Actor, id IssueID, n int) 
 func issueFiles(ctx context.Context, tx querier, actor Actor, id IssueID, n int, now time.Time) (Files, error) {
 	n = clampLimit(n, proto.MaxShowPaths, 1000)
 	rows, err := tx.QueryContext(ctx, `SELECT path, source, principal, session, first_at, last_at
-  FROM issue_paths WHERE issue_id = ?`, string(id))
+  FROM issue_paths WHERE issue_id = $1`, string(id))
 	if err != nil {
 		return Files{}, fmt.Errorf("files of %s: %w", id, err)
 	}

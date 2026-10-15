@@ -15,11 +15,11 @@ import (
 // Similar closed issues (design §12 item 6): create and show list the
 // closed issues whose titles share the most words with the issue's.
 //
-// Dolt's FULLTEXT index was the plan, but on the pinned Dolt a MATCH in a
-// WHERE clause returns rows more than once and boolean mode is missing
-// (TestDoltFulltextIsUnreliable), so titles are scored here instead: the
-// most recently closed SimilarScan issues, by the Jaccard overlap of their
-// title words after dropping stopwords and a light stemming. Vectors (§10)
+// A full-text index was the plan, but Dolt's, the first database, was
+// unreliable (a MATCH in a WHERE clause returned rows more than once), so
+// titles are scored here instead (Postgres's pg_trgm could do it in SQL):
+// the most recently closed SimilarScan issues, by the Jaccard overlap of
+// their title words after dropping stopwords and a light stemming. Vectors (§10)
 // replace this later.
 
 // SimilarScan bounds how many recently closed issues SimilarClosed reads.
@@ -68,7 +68,7 @@ func (s *Store) closedTitles(ctx context.Context) ([]closedTitle, error) {
 		return c.rows, nil
 	}
 	rows, err := s.r.QueryContext(ctx, `SELECT id, title, priority FROM issues
-  WHERE status = ? AND template = FALSE ORDER BY closed_at DESC LIMIT ?`, string(StatusClosed), SimilarScan)
+  WHERE status = $1 AND template = FALSE ORDER BY closed_at DESC LIMIT $2`, string(StatusClosed), SimilarScan)
 	if err != nil {
 		return nil, fmt.Errorf("similar issues: %w", err)
 	}

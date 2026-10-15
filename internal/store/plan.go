@@ -125,7 +125,7 @@ func (s *Store) SetPlan(ctx context.Context, actor Actor, p NewPlan) (PlanChange
 	err := s.write(ctx, actor, func(w *wtx) error {
 		out = ""
 		cur := NewPlan{Name: p.Name, From: from}
-		err := w.tx.QueryRowContext(ctx, `SELECT fee, seats FROM plans WHERE name = ? AND from_month = ?`, p.Name, from).
+		err := w.tx.QueryRowContext(ctx, `SELECT fee, seats FROM plans WHERE name = $1 AND from_month = $2`, p.Name, from).
 			Scan(&cur.Fee, &cur.Seats)
 		exists := err == nil
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -139,11 +139,11 @@ func (s *Store) SetPlan(ctx context.Context, actor Actor, p NewPlan) (PlanChange
 				out = PlanUnchanged
 				return nil
 			}
-			if _, err := w.exec(ctx, `UPDATE plans SET fee = ?, seats = ?, set_by = ?, set_at = ?, write_id = ? WHERE name = ? AND from_month = ?`,
-				p.Fee, p.Seats, w.actor.Principal, w.now, randomInt63(), p.Name, from); err != nil {
+			if _, err := w.exec(ctx, `UPDATE plans SET fee = $1, seats = $2, set_by = $3, set_at = $4 WHERE name = $5 AND from_month = $6`,
+				p.Fee, p.Seats, w.actor.Principal, w.now, p.Name, from); err != nil {
 				return fmt.Errorf("replace plan: %w", err)
 			}
-			if _, err := w.exec(ctx, `DELETE FROM plan_principals WHERE name = ? AND from_month = ?`, p.Name, from); err != nil {
+			if _, err := w.exec(ctx, `DELETE FROM plan_principals WHERE name = $1 AND from_month = $2`, p.Name, from); err != nil {
 				return fmt.Errorf("replace plan: %w", err)
 			}
 			out = PlanReplaced
@@ -155,14 +155,14 @@ func (s *Store) SetPlan(ctx context.Context, actor Actor, p NewPlan) (PlanChange
 			if n >= w.lim.Plans {
 				return &PlanLimitError{Max: w.lim.Plans}
 			}
-			if _, err := w.exec(ctx, `INSERT INTO plans (name, from_month, fee, seats, set_by, set_at, write_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-				p.Name, from, p.Fee, p.Seats, w.actor.Principal, w.now, randomInt63()); err != nil {
+			if _, err := w.exec(ctx, `INSERT INTO plans (name, from_month, fee, seats, set_by, set_at) VALUES ($1, $2, $3, $4, $5, $6)`,
+				p.Name, from, p.Fee, p.Seats, w.actor.Principal, w.now); err != nil {
 				return fmt.Errorf("add plan: %w", err)
 			}
 			out = PlanAdded
 		}
 		for _, pr := range p.Principals {
-			if _, err := w.exec(ctx, `INSERT INTO plan_principals (name, from_month, principal) VALUES (?, ?, ?)`, p.Name, from, pr); err != nil {
+			if _, err := w.exec(ctx, `INSERT INTO plan_principals (name, from_month, principal) VALUES ($1, $2, $3)`, p.Name, from, pr); err != nil {
 				return fmt.Errorf("plan principals: %w", err)
 			}
 		}
@@ -181,7 +181,7 @@ func (s *Store) SetPlan(ctx context.Context, actor Actor, p NewPlan) (PlanChange
 // planPrincipals reads the principals of one plan row, sorted.
 func planPrincipals(ctx context.Context, q querier, name string, from time.Time) ([]string, error) {
 	out := []string{}
-	err := scanAll(ctx, q, "plan principals", `SELECT principal FROM plan_principals WHERE name = ? AND from_month = ? ORDER BY principal`,
+	err := scanAll(ctx, q, "plan principals", `SELECT principal FROM plan_principals WHERE name = $1 AND from_month = $2 ORDER BY principal`,
 		[]any{name, from}, func(rs *sql.Rows) error {
 			var p string
 			if err := rs.Scan(&p); err != nil {

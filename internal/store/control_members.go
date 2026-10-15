@@ -156,8 +156,8 @@ func (c *Control) setMember(ctx context.Context, actor Actor, principal, project
 		if cur.Role == role {
 			return nil
 		}
-		n, err := w.exec(ctx, `UPDATE members SET role = ?, updated_at = ?, rev = rev + 1, write_id = ?
-  WHERE principal = ? AND project = ? AND rev = ?`, string(role), w.now, randomInt63(), principal, project, cur.Rev)
+		n, err := w.exec(ctx, `UPDATE members SET role = $1, updated_at = $2, rev = rev + 1
+  WHERE principal = $3 AND project = $4 AND rev = $5`, string(role), w.now, principal, project, cur.Rev)
 		if err != nil {
 			return fmt.Errorf("set member %s of %s: %w", principal, project, err)
 		}
@@ -176,15 +176,15 @@ func (c *Control) setMember(ctx context.Context, actor Actor, principal, project
 
 // memberRoom refuses a new member of project past ControlLimits.Members.
 func (w *cwtx) memberRoom(ctx context.Context, project string) error {
-	return w.room(ctx, limitMembers, w.lim.Members, `SELECT COUNT(*) FROM members WHERE project = ?`, project)
+	return w.room(ctx, limitMembers, w.lim.Members, `SELECT COUNT(*) FROM members WHERE project = $1`, project)
 }
 
 // addMember inserts a membership and records it. The caller has checked
 // the actor, the principal, the project and memberRoom.
 func (w *cwtx) addMember(ctx context.Context, principal, project string, role Role) (Member, error) {
 	m := Member{Principal: principal, Project: project, Role: role, AddedBy: w.actor.Principal, AddedAt: w.now, UpdatedAt: w.now, Rev: 1}
-	if _, err := w.exec(ctx, `INSERT INTO members (principal, project, role, added_by, added_at, updated_at, rev, write_id)
-  VALUES (?, ?, ?, ?, ?, ?, 1, ?)`, principal, project, string(role), m.AddedBy, w.now, w.now, randomInt63()); err != nil {
+	if _, err := w.exec(ctx, `INSERT INTO members (principal, project, role, added_by, added_at, updated_at, rev)
+  VALUES ($1, $2, $3, $4, $5, $6, 1)`, principal, project, string(role), m.AddedBy, w.now, w.now); err != nil {
 		return Member{}, fmt.Errorf("add member %s to %s: %w", principal, project, err)
 	}
 	w.indexed(func(ix *index) { ix.roles[membership{principal, project}] = role })
@@ -207,7 +207,7 @@ func (c *Control) RemoveMember(ctx context.Context, actor Actor, principal, proj
 		if err != nil {
 			return err
 		}
-		if _, err := w.exec(ctx, `DELETE FROM members WHERE principal = ? AND project = ?`, principal, project); err != nil {
+		if _, err := w.exec(ctx, `DELETE FROM members WHERE principal = $1 AND project = $2`, principal, project); err != nil {
 			return fmt.Errorf("remove member %s from %s: %w", principal, project, err)
 		}
 		out = cur
@@ -227,7 +227,7 @@ func (c *Control) Members(ctx context.Context, project string) ([]Member, error)
 	if err := validProjectID(project); err != nil {
 		return nil, err
 	}
-	return c.members(ctx, ` WHERE project = ? ORDER BY principal`, project)
+	return c.members(ctx, ` WHERE project = $1 ORDER BY principal`, project)
 }
 
 // ProjectsOf returns a principal's memberships, by project id, whatever
@@ -238,7 +238,7 @@ func (c *Control) ProjectsOf(ctx context.Context, principal string) ([]Member, e
 	if err := validPrincipal(principal); err != nil {
 		return nil, err
 	}
-	return c.members(ctx, ` WHERE principal = ? ORDER BY project`, principal)
+	return c.members(ctx, ` WHERE principal = $1 ORDER BY project`, principal)
 }
 
 // MembersAddedBy returns the memberships that adder added, in every
@@ -249,7 +249,7 @@ func (c *Control) MembersAddedBy(ctx context.Context, adder string) ([]Member, e
 	if err := validActorName(adder); err != nil {
 		return nil, err
 	}
-	return c.members(ctx, ` WHERE added_by = ? ORDER BY project, principal`, adder)
+	return c.members(ctx, ` WHERE added_by = $1 ORDER BY project, principal`, adder)
 }
 
 // Role returns the role principal has in project; ok is false when it is
@@ -305,7 +305,7 @@ func scanMember(r scanner) (Member, error) {
 
 // readMember reads one membership, or returns ErrNotFound.
 func readMember(ctx context.Context, q querier, principal, project string) (Member, error) {
-	m, err := scanMember(q.QueryRowContext(ctx, memberSelect+` WHERE principal = ? AND project = ?`, principal, project))
+	m, err := scanMember(q.QueryRowContext(ctx, memberSelect+` WHERE principal = $1 AND project = $2`, principal, project))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Member{}, fmt.Errorf("member %s of project %s: %w", principal, project, ErrNotFound)
 	}

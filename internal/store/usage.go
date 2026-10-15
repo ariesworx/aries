@@ -205,19 +205,19 @@ func (s *Store) AddUsage(ctx context.Context, actor Actor, recs []UsageRecord, i
 		if done, err := replay(ctx, w, idem, "usage", recs, &out); done || err != nil {
 			return err
 		}
-		args := make([]any, 0, len(recs)*15)
-		for _, r := range recs {
+		var p params
+		rows := make([]string, len(recs))
+		for i, r := range recs {
 			var span any
 			if r.SpanStart != nil {
 				span = r.SpanStart.UTC().Truncate(time.Microsecond)
 			}
-			args = append(args, w.actor.Principal, w.actor.Session, r.RequestID, w.actor.Machine, r.Harness, r.Model,
+			rows[i] = "(" + p.add(w.actor.Principal, w.actor.Session, r.RequestID, w.actor.Machine, r.Harness, r.Model,
 				r.At.UTC().Truncate(time.Microsecond), string(r.Granularity), span,
-				r.Input, r.Output, r.CacheWrite, r.CacheWrite1h, r.CacheRead, w.now)
+				r.Input, r.Output, r.CacheWrite, r.CacheWrite1h, r.CacheRead, w.now) + ")"
 		}
-		row := "(" + placeholders(15) + ")"
-		n, err := w.exec(ctx, `INSERT IGNORE INTO token_usage (`+usageCols+`) VALUES `+
-			strings.TrimSuffix(strings.Repeat(row+",", len(recs)), ","), args...)
+		n, err := w.exec(ctx, `INSERT INTO token_usage (`+usageCols+`) VALUES `+strings.Join(rows, ", ")+
+			` ON CONFLICT DO NOTHING`, p.args...)
 		if err != nil {
 			return fmt.Errorf("insert usage: %w", err)
 		}
@@ -246,7 +246,7 @@ func (s *Store) AddUsage(ctx context.Context, actor Actor, recs []UsageRecord, i
 // refusal rolls them back.
 func (w *wtx) checkUsageDay(ctx context.Context) error {
 	var n int
-	if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM token_usage WHERE principal = ? AND added_at > ?`,
+	if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM token_usage WHERE principal = $1 AND added_at > $2`,
 		w.actor.Principal, w.now.Add(-24*time.Hour)).Scan(&n); err != nil {
 		return fmt.Errorf("count usage: %w", err)
 	}

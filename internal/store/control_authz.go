@@ -178,7 +178,7 @@ func (c *Control) IsAdminOf(ctx context.Context, principal, project string) (boo
 // principal administers none.
 func administered(ctx context.Context, q querier, principal string) ([]string, error) {
 	projects, err := queryStrings(ctx, q, `SELECT m.project FROM members m JOIN principals p ON p.name = m.principal
-  WHERE m.principal = ? AND m.role = ? AND p.state = ?`, principal, string(RoleAdmin), string(PrincipalActive))
+  WHERE m.principal = $1 AND m.role = $2 AND p.state = $3`, principal, string(RoleAdmin), string(PrincipalActive))
 	if err != nil {
 		return nil, fmt.Errorf("read projects administered by %s: %w", principal, err)
 	}
@@ -261,7 +261,7 @@ func (w *cwtx) within(ctx context.Context, sc scope, op Op, principal string) er
 	if w.admins(principal) {
 		return w.denied(op, principal, "", AccessServerAdminPrincipal)
 	}
-	of, err := queryStrings(ctx, w.tx, `SELECT project FROM members WHERE principal = ?`, principal)
+	of, err := queryStrings(ctx, w.tx, `SELECT project FROM members WHERE principal = $1`, principal)
 	if err != nil {
 		return fmt.Errorf("read projects of %s: %w", principal, err)
 	}
@@ -278,7 +278,7 @@ func (w *cwtx) placeable(ctx context.Context, p Principal, project string) error
 		return nil
 	}
 	var n int
-	if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM members WHERE principal = ?`, p.Name).Scan(&n); err != nil {
+	if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM members WHERE principal = $1`, p.Name).Scan(&n); err != nil {
 		return fmt.Errorf("read projects of %s: %w", p.Name, err)
 	}
 	if n == 0 {

@@ -95,7 +95,7 @@ func loadClaim(ctx context.Context, q querier, id IssueID) (claimRow, error) {
 	var p, sess, m sql.NullString
 	var at, exp sql.NullTime
 	err := q.QueryRowContext(ctx, `SELECT principal, session, machine, epoch, claimed_at, expires_at, rev
-  FROM claims WHERE issue_id = ?`, string(id)).Scan(&p, &sess, &m, &c.Epoch, &at, &exp, &c.rev)
+  FROM claims WHERE issue_id = $1`, string(id)).Scan(&p, &sess, &m, &c.Epoch, &at, &exp, &c.rev)
 	if errors.Is(err, sql.ErrNoRows) {
 		return claimRow{Claim: Claim{Issue: id}}, nil
 	}
@@ -120,23 +120,22 @@ func checkEpoch(c claimRow, epoch int64) error {
 // writeClaim inserts or updates the claim row. The caller records the
 // event, or explicitly writes quietly.
 func writeClaim(ctx context.Context, w *wtx, c claimRow) error {
-	wid := randomInt63()
 	var p, sess, m, at, exp any
 	if c.Holder.Principal != "" {
 		p, sess, m, at, exp = c.Holder.Principal, c.Holder.Session, c.Holder.Machine, c.ClaimedAt, c.ExpiresAt
 	}
 	if !c.exists {
 		_, err := w.exec(ctx, `INSERT INTO claims
-  (issue_id, principal, session, machine, epoch, claimed_at, expires_at, rev, write_id)
-  VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`, string(c.Issue), p, sess, m, c.Epoch, at, exp, wid)
+  (issue_id, principal, session, machine, epoch, claimed_at, expires_at, rev)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, 1)`, string(c.Issue), p, sess, m, c.Epoch, at, exp)
 		if err != nil {
 			return fmt.Errorf("insert claim on %s: %w", c.Issue, err)
 		}
 		return nil
 	}
-	n, err := w.exec(ctx, `UPDATE claims SET principal = ?, session = ?, machine = ?, epoch = ?,
-  claimed_at = ?, expires_at = ?, rev = rev + 1, write_id = ? WHERE issue_id = ? AND rev = ?`,
-		p, sess, m, c.Epoch, at, exp, wid, string(c.Issue), c.rev)
+	n, err := w.exec(ctx, `UPDATE claims SET principal = $1, session = $2, machine = $3, epoch = $4,
+  claimed_at = $5, expires_at = $6, rev = rev + 1 WHERE issue_id = $7 AND rev = $8`,
+		p, sess, m, c.Epoch, at, exp, string(c.Issue), c.rev)
 	if err != nil {
 		return fmt.Errorf("update claim on %s: %w", c.Issue, err)
 	}
@@ -263,7 +262,7 @@ func (s *Store) ClaimOf(ctx context.Context, id IssueID) (*Claim, error) {
 // ClaimsOf returns the active claims principal holds, in every session,
 // soonest to expire first.
 func (s *Store) ClaimsOf(ctx context.Context, principal string) ([]Claim, error) {
-	return s.claims(ctx, s.r, `principal = ? AND expires_at > ?`, principal, s.now())
+	return s.claims(ctx, s.r, `principal = $1 AND expires_at > $2`, principal, s.now())
 }
 
 // ActiveClaims returns the live claims on every issue, longest held
@@ -276,13 +275,13 @@ func (s *Store) ActiveClaims(ctx context.Context, limit int) ([]Claim, int, erro
 		return nil, 0, err
 	}
 	defer done()
-	cs, err := queryClaims(ctx, q, `principal IS NOT NULL AND expires_at > ? ORDER BY claimed_at, issue_id LIMIT ?`,
+	cs, err := queryClaims(ctx, q, `principal IS NOT NULL AND expires_at > $1 ORDER BY claimed_at, issue_id LIMIT $2`,
 		now, clampLimit(limit, DefaultPage, MaxPage))
 	if err != nil {
 		return nil, 0, err
 	}
 	var n int
-	if err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM claims WHERE principal IS NOT NULL AND expires_at > ?`, now).Scan(&n); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM claims WHERE principal IS NOT NULL AND expires_at > $1`, now).Scan(&n); err != nil {
 		return nil, 0, fmt.Errorf("count claims: %w", err)
 	}
 	return cs, max(0, n-len(cs)), nil
@@ -364,9 +363,9 @@ func (s *Store) RenewClaims(ctx context.Context, actor Actor, lease time.Duratio
 	}
 	heldAt := func(ctx context.Context, q querier, now time.Time) ([]Claim, error) {
 		if allSessions {
-			return s.claims(ctx, q, `principal = ? AND expires_at > ?`, actor.Principal, now)
+			return s.claims(ctx, q, `principal = $1 AND expires_at > $2`, actor.Principal, now)
 		}
-		return s.claims(ctx, q, `principal = ? AND session = ? AND expires_at > ?`, actor.Principal, actor.Session, now)
+		return s.claims(ctx, q, `principal = $1 AND session = $2 AND expires_at > $3`, actor.Principal, actor.Session, now)
 	}
 	if len(paths) == 0 {
 		// Most renewals extend nothing. Such a one is decided from a read,
@@ -469,7 +468,7 @@ func (s *Store) ReapClaims(ctx context.Context) ([]Claim, error) {
 	var out []Claim
 	err := s.write(ctx, ReaperActor, func(w *wtx) error {
 		out = nil
-		expired, err := s.claims(ctx, w.tx, `principal IS NOT NULL AND expires_at <= ?`, w.now)
+		expired, err := s.claims(ctx, w.tx, `principal IS NOT NULL AND expires_at <= $1`, w.now)
 		if err != nil {
 			return err
 		}
@@ -572,7 +571,7 @@ func reopenReleased(ctx context.Context, w *wtx, c Claim) error {
 	if is.Status != StatusInProgress || is.Assignee != c.Holder.Principal {
 		return nil
 	}
-	after, err := casUpdate(ctx, w, is, []string{"status = ?", "assignee = ?"}, []any{string(StatusOpen), nil})
+	after, err := casUpdate(ctx, w, is, []string{"status", "assignee"}, []any{string(StatusOpen), nil})
 	if err != nil {
 		return err
 	}

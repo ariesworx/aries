@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ariesworx/aries/internal/lazyregexp"
@@ -31,8 +32,7 @@ const (
 	OpProjectArchive  Op = "project.archive"
 )
 
-// Project is one project on the server and the Dolt database that holds
-// it, as the control store reads it back: times in UTC to the
+// Project is one project on the server and the schema that holds it, as the control store reads it back: times in UTC to the
 // microsecond.
 type Project struct {
 	// ID is the project's lowercase UUID, as .aries.yaml names it.
@@ -43,7 +43,9 @@ type Project struct {
 	Prefix string `json:"prefix"`
 	// Account is what the project's issues report against by default.
 	Account string `json:"account"`
-	// DBName is the project's Dolt database, which no other project has.
+	// DBName is the project's schema, which no other project has. The
+	// name, and the JSON key, are from when each project had a database
+	// of its own.
 	DBName    string       `json:"db_name"`
 	State     ProjectState `json:"state"`
 	CreatedBy string       `json:"created_by"`
@@ -65,10 +67,11 @@ type NewProject struct {
 var (
 	// projectIDPattern is a lowercase UUID.
 	projectIDPattern = lazyregexp.New(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-	// dbNamePattern is deliberately narrower than what Dolt allows: the
-	// name is later written into CREATE DATABASE, which takes no
-	// placeholder, so it admits nothing that needs quoting.
-	dbNamePattern = lazyregexp.New(`^[a-z][a-z0-9_]{0,63}$`)
+	// dbNamePattern is deliberately narrower than what Postgres allows: the
+	// name is later written into CREATE SCHEMA and into queries, which
+	// take no placeholder for it, so it admits nothing that needs quoting.
+	// Postgres cuts a name past 63 bytes short.
+	dbNamePattern = lazyregexp.New(`^[a-z][a-z0-9_]{0,62}$`)
 )
 
 // validProjectID refuses, with ErrInvalid, an id that is not a lowercase
@@ -80,10 +83,10 @@ func validProjectID(id string) error {
 	return nil
 }
 
-// ValidDBName reports whether n may be a project's database name: a
+// ValidDBName reports whether n may be a project's schema name: a
 // lowercase letter, then lowercase letters, digits and underscores, at
-// most 64 in all.
-func ValidDBName(n string) bool { return dbNamePattern.MatchString(n) }
+// most 63 in all, and not starting pg_, which Postgres keeps for its own.
+func ValidDBName(n string) bool { return dbNamePattern.MatchString(n) && !strings.HasPrefix(n, "pg_") }
 
 // validate refuses, with ErrInvalid, a project whose id is not a
 // lowercase UUID, whose name or account is not a code name
@@ -140,8 +143,8 @@ func (c *Control) AddProject(ctx context.Context, actor Actor, in NewProject) (P
 			query string
 			value string
 		}{
-			{TakenProjectName, `SELECT COUNT(*) FROM projects WHERE name = ?`, in.Name},
-			{TakenDBName, `SELECT COUNT(*) FROM projects WHERE db_name = ?`, in.DBName},
+			{TakenProjectName, `SELECT COUNT(*) FROM projects WHERE name = $1`, in.Name},
+			{TakenDBName, `SELECT COUNT(*) FROM projects WHERE db_name = $1`, in.DBName},
 		} {
 			var n int
 			if err := w.tx.QueryRowContext(ctx, u.query, u.value).Scan(&n); err != nil {
@@ -157,9 +160,9 @@ func (c *Control) AddProject(ctx context.Context, actor Actor, in NewProject) (P
 		out = Project{ID: in.ID, Name: in.Name, Prefix: in.Prefix, Account: in.Account, DBName: in.DBName,
 			State: ProjectCreating, CreatedBy: w.actor.Principal, CreatedAt: w.now, UpdatedAt: w.now, Rev: 1}
 		if _, err := w.exec(ctx, `INSERT INTO projects
-  (id, name, prefix, account, db_name, state, created_by, created_at, updated_at, rev, write_id)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
-			out.ID, out.Name, out.Prefix, out.Account, out.DBName, string(out.State), out.CreatedBy, w.now, w.now, randomInt63()); err != nil {
+  (id, name, prefix, account, db_name, state, created_by, created_at, updated_at, rev)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1)`,
+			out.ID, out.Name, out.Prefix, out.Account, out.DBName, string(out.State), out.CreatedBy, w.now, w.now); err != nil {
 			return fmt.Errorf("add project %s: %w", in.ID, err)
 		}
 		added := out
@@ -206,8 +209,8 @@ func (c *Control) setProjectState(ctx context.Context, actor Actor, id string, o
 		if cur.State == to {
 			return nil
 		}
-		n, err := w.exec(ctx, `UPDATE projects SET state = ?, updated_at = ?, rev = rev + 1, write_id = ? WHERE id = ? AND rev = ?`,
-			string(to), w.now, randomInt63(), id, cur.Rev)
+		n, err := w.exec(ctx, `UPDATE projects SET state = $1, updated_at = $2, rev = rev + 1 WHERE id = $3 AND rev = $4`,
+			string(to), w.now, id, cur.Rev)
 		if err != nil {
 			return fmt.Errorf("%s %s: %w", op, id, err)
 		}
@@ -269,7 +272,7 @@ func scanProject(r scanner) (Project, error) {
 
 // readProject reads one project, or returns ErrNotFound.
 func readProject(ctx context.Context, q querier, id string) (Project, error) {
-	p, err := scanProject(q.QueryRowContext(ctx, projectSelect+` WHERE id = ?`, id))
+	p, err := scanProject(q.QueryRowContext(ctx, projectSelect+` WHERE id = $1`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Project{}, fmt.Errorf("project %s: %w", id, ErrNotFound)
 	}

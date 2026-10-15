@@ -24,7 +24,7 @@ func (c *Control) LastEventSeq(ctx context.Context) (int64, error) {
 // control init`, run again, asks whether the newest thing an admin did
 // to a key or a membership was to remove it.
 func (c *Control) LastEvent(ctx context.Context, target string) (e Event, ok bool, err error) {
-	evs, err := c.s.events(ctx, `WHERE target = ? ORDER BY seq DESC LIMIT 1`, target)
+	evs, err := c.s.events(ctx, `WHERE target = $1 ORDER BY seq DESC LIMIT 1`, target)
 	if err != nil || len(evs) == 0 {
 		return Event{}, false, err
 	}

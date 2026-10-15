@@ -156,7 +156,7 @@ func (s *Store) LogHours(ctx context.Context, actor Actor, in NewHours) (HoursEn
 		}
 		if done {
 			var n int
-			if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM hours WHERE id = ?`, out.ID).Scan(&n); err != nil {
+			if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM hours WHERE id = $1`, out.ID).Scan(&n); err != nil {
 				return fmt.Errorf("find hours: %w", err)
 			}
 			out.Undone = n == 0
@@ -167,7 +167,7 @@ func (s *Store) LogHours(ctx context.Context, actor Actor, in NewHours) (HoursEn
 		}
 		var n int
 		var sum int64
-		if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(`+sumInt(`seconds`)+`, 0) FROM hours WHERE principal = ? AND on_date = ?`,
+		if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(`+sumInt(`seconds`)+`, 0) FROM hours WHERE principal = $1 AND on_date = $2`,
 			w.actor.Principal, on).Scan(&n, &sum); err != nil {
 			return fmt.Errorf("count hours: %w", err)
 		}
@@ -179,7 +179,7 @@ func (s *Store) LogHours(ctx context.Context, actor Actor, in NewHours) (HoursEn
 		}
 		out = HoursEntry{ID: newCommentID(), Issue: in.Issue, Principal: w.actor.Principal, On: on, Duration: in.Duration,
 			Note: in.Note, At: w.now}
-		if _, err := w.exec(ctx, `INSERT INTO hours (id, issue_id, principal, on_date, seconds, note, logged_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		if _, err := w.exec(ctx, `INSERT INTO hours (id, issue_id, principal, on_date, seconds, note, logged_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 			out.ID, string(out.Issue), out.Principal, out.On, int64(out.Duration/time.Second), out.Note, out.At); err != nil {
 			return fmt.Errorf("log hours: %w", err)
 		}
@@ -211,7 +211,7 @@ func (s *Store) DeleteHours(ctx context.Context, actor Actor, id, idem string) (
 		if done, err := replay(ctx, w, idem, "hours.delete", id, &out); done || err != nil {
 			return err
 		}
-		rows, err := scanHours(ctx, w.tx, `WHERE id = ?`, []any{id}, 1)
+		rows, err := scanHours(ctx, w.tx, `WHERE id = $1`, []any{id}, 1)
 		switch {
 		case err != nil:
 			return err
@@ -221,7 +221,7 @@ func (s *Store) DeleteHours(ctx context.Context, actor Actor, id, idem string) (
 			return &ForbiddenError{Action: "undoing another person's hours"}
 		}
 		out = rows[0]
-		if _, err := w.exec(ctx, `DELETE FROM hours WHERE id = ?`, id); err != nil {
+		if _, err := w.exec(ctx, `DELETE FROM hours WHERE id = $1`, id); err != nil {
 			return fmt.Errorf("delete hours: %w", err)
 		}
 		if err := w.event(ctx, OpHoursDelete, string(out.Issue), hoursState(out), nil); err != nil {
@@ -257,16 +257,18 @@ func (s *Store) Hours(ctx context.Context, f HoursFilter) (HoursList, error) {
 	if f.Limit < 0 || f.Limit > MaxHoursList {
 		return HoursList{}, fmt.Errorf("%w: limit must be from 1 to %d, or 0 for %d", ErrInvalid, MaxHoursList, DefaultHoursList)
 	}
-	where, args := `WHERE TRUE`, []any{}
+	var p params
+	where := `WHERE TRUE`
 	if f.Issue != "" {
 		if err := f.Issue.Validate(); err != nil {
 			return HoursList{}, err
 		}
-		where, args = where+` AND issue_id = ?`, append(args, string(f.Issue))
+		where += ` AND issue_id = ` + p.add(string(f.Issue))
 	}
 	if f.Principal != "" {
-		where, args = where+` AND principal = ?`, append(args, f.Principal)
+		where += ` AND principal = ` + p.add(f.Principal)
 	}
+	args := p.args
 	limit := cmp.Or(f.Limit, DefaultHoursList)
 	q, end, err := s.beginRead(ctx)
 	if err != nil {
@@ -289,7 +291,7 @@ func (s *Store) Hours(ctx context.Context, f HoursFilter) (HoursList, error) {
 // clause with placeholders for args.
 func scanHours(ctx context.Context, q querier, where string, args []any, limit int) ([]HoursEntry, error) {
 	var out []HoursEntry
-	query := `SELECT id, issue_id, principal, on_date, seconds, note, logged_at FROM hours ` + where + ` LIMIT ?` //nolint:gosec // constant terms; values are arguments
+	query := `SELECT id, issue_id, principal, on_date, seconds, note, logged_at FROM hours ` + where + ` LIMIT ` + placeholder(len(args)+1) //nolint:gosec // constant terms; values are arguments
 	err := scanAll(ctx, q, "hours", query, append(args, limit), func(rs *sql.Rows) error {
 		var e HoursEntry
 		var secs int64
@@ -314,7 +316,7 @@ type PersonHours struct {
 func issueHours(ctx context.Context, q querier, id IssueID) (time.Duration, []PersonHours, error) {
 	var total time.Duration
 	var out []PersonHours
-	err := scanAll(ctx, q, "issue hours", `SELECT principal, `+sumInt(`seconds`)+` FROM hours WHERE issue_id = ? GROUP BY principal`,
+	err := scanAll(ctx, q, "issue hours", `SELECT principal, `+sumInt(`seconds`)+` FROM hours WHERE issue_id = $1 GROUP BY principal`,
 		[]any{string(id)}, func(rs *sql.Rows) error {
 			var p PersonHours
 			var secs int64

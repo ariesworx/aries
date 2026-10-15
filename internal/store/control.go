@@ -16,14 +16,13 @@ import (
 )
 
 // The control store (design §15). One server serves many projects, each
-// in a Dolt database of its own with a [Store] of its own. What belongs
-// to the server rather than to a project lives in one more database, the
-// control database: the projects, the principals, their public SSH keys,
-// and which principal may reach which project, as a member or an admin.
+// in a schema of its own with a [Store] of its own. What belongs to the
+// server rather than to a project lives in one more schema, the control
+// store's: the projects, the principals, their public SSH keys, and which
+// principal may reach which project, as a member or an admin.
 //
-// Control is a Store over that database: it has the same single writer,
-// retry loop, write_id check, event log and Dolt committer, and other
-// migrations (controlmigrations). Each of its writes is authorized inside
+// Control is a Store over that schema: it has the same single writer,
+// retry loop and event log, and other migrations (controlmigrations). Each of its writes is authorized inside
 // its transaction (control_authz.go) and appends an event, so every
 // grant, revocation and key change is history.
 
@@ -43,17 +42,12 @@ type ControlOptions struct {
 	// Clock, when set, is the server clock in place of Now, as
 	// [Options.Clock] is.
 	Clock *Clock
-	// Logger receives background committer errors, a failed reload of
-	// the key index, and the warning that AllowUnsafeAccount let an
+	// Logger receives a failed reload of the key index, and the warning that AllowUnsafeAccount let an
 	// unsafe account through. Default discards.
 	Logger *slog.Logger
 	// AllowUnsafeAccount opens the store even when the database account
 	// is unsafe, as [Options.AllowUnsafeAccount] does.
 	AllowUnsafeAccount bool
-	// CommitInterval is how often pending writes become a Dolt commit.
-	// Default 1s; negative disables the background committer (call
-	// Flush).
-	CommitInterval time.Duration
 	// MaxAttempts bounds retries of a write that loses to a concurrent
 	// transaction. Default 5.
 	MaxAttempts int
@@ -64,7 +58,8 @@ type ControlOptions struct {
 	Tracer Tracer
 	// Operator marks a store opened by a command the operator runs on
 	// the server (`ariesd control init`), not by the daemon: its writes
-	// by [OperatorPrincipal] are allowed as a server admin's are. The
+	// by [OperatorPrincipal] are allowed as a server admin's are, and
+	// [OpenControl] makes the schema the DSN names if it does not exist. The
 	// daemon never sets it, so no connection gains anything from the
 	// name, which is reserved besides.
 	Operator bool
@@ -79,7 +74,7 @@ type ControlOptions struct {
 // list what.
 type Control struct {
 	// s is a Store on the control database, used for its writer, read
-	// pool, committer and event log. None of its issue methods apply.
+	// pool and event log. None of its issue methods apply.
 	s   *Store
 	lim ControlLimits
 	log *slog.Logger
@@ -118,25 +113,26 @@ func (c *Control) KeysElsewhere(owner func(fingerprint string) (principal string
 	c.elsewhere.Store(&owner)
 }
 
-// OpenControl connects to the control database named in dsn
-// (go-sql-driver/mysql format), checks the account as [Open] does,
-// applies pending migrations, loads the index and starts the
-// committer. ctx bounds only the opening; the caller must Close the
-// store.
+// OpenControl connects to the control store's schema named in dsn (a
+// postgres:// URL, dsn.go), checks the server and the role as [Open]
+// does, applies pending migrations and loads the index. ctx bounds only
+// the opening; the caller must Close the store.
 //
 // OpenControl refuses, with [ErrInvalid], a dsn that names no database,
-// an invalid admin or limit in opts, and a database that holds a project.
-// It refuses an unsafe account with an [*UnsafeAccountError] unless
-// opts.AllowUnsafeAccount is set, and a database a newer binary migrated
-// with [ErrSchemaTooNew].
+// a schema that does not exist (unless opts.Operator is set, when it
+// makes it), an invalid admin or limit in opts, and a schema that holds a
+// project. It refuses a server older than Postgres [version.PostgresMin]
+// with a [*ServerVersionError], an unsafe role with an
+// [*UnsafeAccountError] unless opts.AllowUnsafeAccount is set, and a
+// schema a newer binary migrated with [ErrSchemaTooNew].
 func OpenControl(ctx context.Context, dsn string, opts ControlOptions) (*Control, error) {
 	if err := opts.Limits.Validate(); err != nil {
 		return nil, err
 	}
 	s, err := open(ctx, dsn, Options{
 		Admins: opts.Admins, Now: opts.Now, Clock: opts.Clock, Logger: opts.Logger, AllowUnsafeAccount: opts.AllowUnsafeAccount,
-		CommitInterval: opts.CommitInterval, MaxAttempts: opts.MaxAttempts, Readers: opts.Readers, Tracer: opts.Tracer,
-	}, controlSchema)
+		MaxAttempts: opts.MaxAttempts, Readers: opts.Readers, Tracer: opts.Tracer,
+	}, controlSchema, opts.Operator)
 	if err != nil {
 		return nil, err
 	}
@@ -147,22 +143,12 @@ func OpenControl(ctx context.Context, dsn string, opts ControlOptions) (*Control
 	return c, nil
 }
 
-// Close stops the committer, makes a final Dolt commit of pending writes
-// and closes the connections. It is safe to call more than once; every
+// Close closes the connections. It is safe to call more than once; every
 // call returns the first one's error.
 func (c *Control) Close() error { return c.s.Close() }
 
-// Ping checks that Dolt answers, as [Store.Ping] does.
+// Ping checks that the database answers, as [Store.Ping] does.
 func (c *Control) Ping(ctx context.Context) error { return c.s.Ping(ctx) }
-
-// Flush makes a Dolt commit now if any write happened since the last one.
-func (c *Control) Flush(ctx context.Context) error { return c.s.Flush(ctx) }
-
-// BackupTag commits everything written to the control database so far
-// and tags the commit name, as [Store.BackupTag] does for a project's.
-func (c *Control) BackupTag(ctx context.Context, name string) (string, error) {
-	return c.s.BackupTag(ctx, name)
-}
 
 // Now reads the server clock (ControlOptions.Now), in UTC to the
 // microsecond.
@@ -431,7 +417,7 @@ func (c *Control) load(ctx context.Context) error {
 	defer end()
 	active, disabled := map[string]bool{}, map[string]bool{}
 	for state, set := range map[PrincipalState]map[string]bool{PrincipalActive: active, PrincipalDisabled: disabled} {
-		names, err := queryStrings(ctx, q, `SELECT name FROM principals WHERE state = ?`, string(state))
+		names, err := queryStrings(ctx, q, `SELECT name FROM principals WHERE state = $1`, string(state))
 		if err != nil {
 			return fmt.Errorf("load index: %w", err)
 		}
@@ -439,7 +425,7 @@ func (c *Control) load(ctx context.Context) error {
 			set[n] = true
 		}
 	}
-	rows, err := q.QueryContext(ctx, "SELECT fingerprint, principal, `key` FROM principal_keys")
+	rows, err := q.QueryContext(ctx, `SELECT fingerprint, principal, "key" FROM principal_keys`)
 	if err != nil {
 		return fmt.Errorf("load index: %w", err)
 	}

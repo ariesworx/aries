@@ -186,11 +186,11 @@ func (w *cwtx) addKey(ctx context.Context, principal string, k parsedKey) (Princ
 			return PrincipalKey{}, &TakenError{Kind: TakenKey, Value: k.fingerprint, Elsewhere: true}
 		}
 	}
-	if err := w.room(ctx, limitKeys, w.lim.Keys, `SELECT COUNT(*) FROM principal_keys WHERE principal = ?`, principal); err != nil {
+	if err := w.room(ctx, limitKeys, w.lim.Keys, `SELECT COUNT(*) FROM principal_keys WHERE principal = $1`, principal); err != nil {
 		return PrincipalKey{}, err
 	}
 	out := PrincipalKey{Fingerprint: k.fingerprint, Principal: principal, Key: k.key, Comment: k.comment, AddedBy: w.actor.Principal, AddedAt: w.now}
-	if _, err := w.exec(ctx, "INSERT INTO principal_keys (fingerprint, principal, `key`, comment, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?)",
+	if _, err := w.exec(ctx, `INSERT INTO principal_keys (fingerprint, principal, "key", comment, added_by, added_at) VALUES ($1, $2, $3, $4, $5, $6)`,
 		out.Fingerprint, principal, out.Key, out.Comment, out.AddedBy, w.now); err != nil {
 		return PrincipalKey{}, fmt.Errorf("add key %s: %w", out.Fingerprint, err)
 	}
@@ -242,7 +242,7 @@ func (c *Control) RemoveKey(ctx context.Context, actor Actor, fingerprint string
 				return err
 			}
 		}
-		if _, err := w.exec(ctx, `DELETE FROM principal_keys WHERE fingerprint = ?`, fingerprint); err != nil {
+		if _, err := w.exec(ctx, `DELETE FROM principal_keys WHERE fingerprint = $1`, fingerprint); err != nil {
 			return fmt.Errorf("remove key %s: %w", fingerprint, err)
 		}
 		out = cur
@@ -272,12 +272,12 @@ func (c *Control) KeysAddedBy(ctx context.Context, adder string) ([]PrincipalKey
 	if err := validActorName(adder); err != nil {
 		return nil, err
 	}
-	return queryKeys(ctx, c.s.r, "keys added by "+adder, ` WHERE added_by = ? ORDER BY fingerprint`, adder)
+	return queryKeys(ctx, c.s.r, "keys added by "+adder, ` WHERE added_by = $1 ORDER BY fingerprint`, adder)
 }
 
 // keysOf reads principal's keys, oldest first.
 func keysOf(ctx context.Context, q querier, principal string) ([]PrincipalKey, error) {
-	return queryKeys(ctx, q, "keys of "+principal, ` WHERE principal = ? ORDER BY added_at, fingerprint`, principal)
+	return queryKeys(ctx, q, "keys of "+principal, ` WHERE principal = $1 ORDER BY added_at, fingerprint`, principal)
 }
 
 // queryKeys reads the keys that where, a constant clause with a
@@ -302,7 +302,7 @@ func queryKeys(ctx context.Context, q querier, what, where, arg string) ([]Princ
 	return out, nil
 }
 
-const keySelect = "SELECT fingerprint, principal, `key`, comment, added_by, added_at FROM principal_keys"
+const keySelect = `SELECT fingerprint, principal, "key", comment, added_by, added_at FROM principal_keys`
 
 func scanKey(r scanner) (PrincipalKey, error) {
 	var k PrincipalKey
@@ -315,7 +315,7 @@ func scanKey(r scanner) (PrincipalKey, error) {
 
 // readKey reads one key, or returns ErrNotFound.
 func readKey(ctx context.Context, q querier, fingerprint string) (PrincipalKey, error) {
-	k, err := scanKey(q.QueryRowContext(ctx, keySelect+` WHERE fingerprint = ?`, fingerprint))
+	k, err := scanKey(q.QueryRowContext(ctx, keySelect+` WHERE fingerprint = $1`, fingerprint))
 	if errors.Is(err, sql.ErrNoRows) {
 		return PrincipalKey{}, fmt.Errorf("key %s: %w", fingerprint, ErrNotFound)
 	}

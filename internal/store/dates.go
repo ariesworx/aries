@@ -84,27 +84,28 @@ func (s *Store) Dates(ctx context.Context, f DatesFilter) (Dates, error) {
 // due-soon window, filtered by its By (the assignee) and Label.
 func (q *digestQuery) dates(ctx context.Context, d *Dates) error {
 	soon := cmp.Or(q.f.DueSoon, DefaultDueSoon)
-	fcond, fargs := q.filters("i.assignee", "i.id")
 	const cols = `SELECT i.id, i.title, i.priority, COALESCE(i.assignee, ''), `
+	// Each query's own arguments come first, numbered in its text; the
+	// filters' and the limit follow.
 	for _, sc := range []struct {
 		name  string
 		out   *DigestSection
 		query string
 		args  []any
+		order string
 	}{
 		{"ready", &d.Ready, blockedCTE + cols + `i.defer_until FROM issues i
 WHERE i.status = 'open' AND i.template = FALSE AND i.type <> 'gate'
   AND i.id NOT IN (SELECT id FROM blocked) AND i.id NOT IN (SELECT id FROM deferred)
-  AND i.defer_until > ? AND i.defer_until <= ?` + fcond + ` ORDER BY i.defer_until, i.id LIMIT ?`,
-			append(append([]any{q.now, q.f.Since, q.now}, fargs...), digestRows+1)},
+  AND i.defer_until > $2 AND i.defer_until <= $1`, []any{q.now, q.f.Since}, ` ORDER BY i.defer_until, i.id`},
 		{"due soon", &d.DueSoon, cols + `i.due_at FROM issues i
-WHERE i.status <> 'closed' AND i.due_at > ? AND i.due_at <= ?` + fcond + ` ORDER BY i.due_at, i.id LIMIT ?`,
-			append(append([]any{q.now, q.now.Add(soon)}, fargs...), digestRows+1)},
+WHERE i.status <> 'closed' AND i.due_at > $1 AND i.due_at <= $2`, []any{q.now, q.now.Add(soon)}, ` ORDER BY i.due_at, i.id`},
 		{"overdue", &d.Overdue, cols + `i.due_at FROM issues i
-WHERE i.status <> 'closed' AND i.due_at <= ?` + fcond + ` ORDER BY i.due_at, i.id LIMIT ?`,
-			append(append([]any{q.now}, fargs...), digestRows+1)},
+WHERE i.status <> 'closed' AND i.due_at <= $1`, []any{q.now}, ` ORDER BY i.due_at, i.id`},
 	} {
-		items, err := q.dated(ctx, sc.query, sc.args)
+		p := params{args: sc.args}
+		query := sc.query + q.filters(&p, "i.assignee", "i.id") + sc.order + ` LIMIT ` + p.add(digestRows+1)
+		items, err := q.dated(ctx, query, p.args)
 		if err != nil {
 			return fmt.Errorf("%s: %w", sc.name, err)
 		}

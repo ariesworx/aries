@@ -229,7 +229,7 @@ func acceptanceItems(ctx context.Context, q querier, is Issue) ([]AcceptanceItem
 		state, reason, by string
 		at                time.Time
 	}
-	rows, err := q.QueryContext(ctx, `SELECT item_key, state, reason, by_principal, at FROM acceptance_state WHERE issue_id = ?`,
+	rows, err := q.QueryContext(ctx, `SELECT item_key, state, reason, by_principal, at FROM acceptance_state WHERE issue_id = $1`,
 		string(is.ID))
 	if err != nil {
 		return nil, fmt.Errorf("acceptance state of %s: %w", is.ID, err)
@@ -273,7 +273,7 @@ func tickInText(ctx context.Context, w *wtx, id IssueID, text string) error {
 			continue
 		}
 		var n int
-		err := w.tx.QueryRowContext(ctx, `SELECT n FROM acceptance_state WHERE issue_id = ? AND item_key = ?`,
+		err := w.tx.QueryRowContext(ctx, `SELECT n FROM acceptance_state WHERE issue_id = $1 AND item_key = $2`,
 			string(id), itemKey(p.text)).Scan(&n)
 		if err == nil {
 			continue
@@ -434,17 +434,16 @@ func applyAcceptance(ctx context.Context, w *wtx, is Issue, a Acceptance) ([]Acc
 
 // setItemState writes one item's state row, as set by w's actor now.
 func setItemState(ctx context.Context, w *wtx, id IssueID, it AcceptanceItem, state, reason string) error {
-	wid := randomInt63()
 	key := itemKey(it.Text)
 	var n int
-	err := w.tx.QueryRowContext(ctx, `SELECT n FROM acceptance_state WHERE issue_id = ? AND item_key = ?`, string(id), key).Scan(&n)
+	err := w.tx.QueryRowContext(ctx, `SELECT n FROM acceptance_state WHERE issue_id = $1 AND item_key = $2`, string(id), key).Scan(&n)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		_, err = w.exec(ctx, `INSERT INTO acceptance_state (issue_id, item_key, n, state, reason, by_principal, at, write_id)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, string(id), key, it.N, state, reason, w.actor.Principal, w.now, wid)
+		_, err = w.exec(ctx, `INSERT INTO acceptance_state (issue_id, item_key, n, state, reason, by_principal, at)
+  VALUES ($1, $2, $3, $4, $5, $6, $7)`, string(id), key, it.N, state, reason, w.actor.Principal, w.now)
 	case err == nil:
-		_, err = w.exec(ctx, `UPDATE acceptance_state SET n = ?, state = ?, reason = ?, by_principal = ?, at = ?, write_id = ?
-  WHERE issue_id = ? AND item_key = ?`, it.N, state, reason, w.actor.Principal, w.now, wid, string(id), key)
+		_, err = w.exec(ctx, `UPDATE acceptance_state SET n = $1, state = $2, reason = $3, by_principal = $4, at = $5
+  WHERE issue_id = $6 AND item_key = $7`, it.N, state, reason, w.actor.Principal, w.now, string(id), key)
 	}
 	if err != nil {
 		return fmt.Errorf("acceptance item %d of %s: %w", it.N, id, err)
