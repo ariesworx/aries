@@ -300,6 +300,15 @@ func (s *Server) Renew(ctx context.Context) {
 		s.claims.keep(r.Claims)
 		s.claims.sentAt(due, now)
 	}
+	// What waits after a replay that found another process replaying,
+	// or that sent nothing within its budget, is not sent again on this
+	// connection by itself: each renewal tries a round on it.
+	if err == nil && s.opts.Offline != nil && s.waiting.Load() && s.link.drain(ctx, func(c Conn) bool { return s.replay(ctx, c) }) {
+		select {
+		case s.drain <- struct{}{}:
+		default: // drainLoop already knows
+		}
+	}
 }
 
 // link holds the session's one connection, redialing after a loss. Each

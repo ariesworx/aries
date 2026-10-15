@@ -356,7 +356,10 @@ to tell the user.
 The session's next connection sends what waits first, in order, before
 the call that opened it, for five seconds at most, and the rest in the
 background between calls. A session that makes no call still connects,
-when its renewal comes round each minute, if something waits. What a
+when its renewal comes round each minute, if something waits; and each
+renewal on a connection it has sends what an earlier round left, as
+when another session of the principal on the machine was sending the
+same outbox then. What a
 session has not sent when it ends stays in the outbox, and the next
 `sfx` command or session of the same principal on that machine sends it.
 
