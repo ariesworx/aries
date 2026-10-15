@@ -202,7 +202,7 @@ are not public and are not frozen.
 | `ARIES_KEY` (refused, never read) | `aries` | `internal/client/config.go:377` | `docs/cli.md` §Your key is your identity | keep: a guard against a key's text in a variable |
 | `ARIES_SESSION` | `aries`, `aries mcp` | `internal/client/session.go:17` | `docs/cli.md:141`, `docs/agents.md` §Sessions | keep |
 | `CLAUDE_CODE_SESSION_ID`, `CLAUDE_SESSION_ID` | `aries` | `internal/client/session.go:17` | `CLAUDE.md`; `docs/agents.md` | remove `CLAUDE_SESSION_ID`: the comment calls it "the older spelling"; a 1.0 that reads it must read it for good |
-| `ARIES_HARNESS`; `CLAUDECODE=1`, `GEMINI_CLI=1` as fallbacks | `aries` | `internal/client/session.go:85-96`; `internal/agentsetup/agentsetup.go:15` | `docs/cli.md:141` names `ARIES_HARNESS`; the two fallbacks are undocumented | keep; document the fallbacks |
+| `ARIES_HARNESS`; `CLAUDECODE=1`, `GEMINI_CLI=1` as fallbacks | `aries` | `internal/client/session.go:85-96`; `internal/agentsetup/agentsetup.go:15` | `docs/cli.md:141`; the fallbacks at `docs/agents.md:479-480` | keep |
 | `CI` (`true` → session `ci`) | `aries` | `internal/client/session.go:37` | `docs/cli.md:142`, `docs/ci.md` | keep |
 | `GITHUB_HEAD_REF`, `GITHUB_REF_NAME`, `GITHUB_REF_TYPE`, `CI_MERGE_REQUEST_SOURCE_BRANCH_NAME`, `CI_COMMIT_BRANCH` | `aries gate --from-branch` | `internal/gitx/ci.go:21-28` | `docs/cli.md:143` | keep |
 | `TRACEPARENT`, `TRACESTATE` | `aries`, `aries mcp` | `internal/client/session.go:46-47` | `docs/agents.md:488-517` | keep (OpenTelemetry's environment carrier) |
@@ -290,3 +290,100 @@ The names follow several patterns at once:
 | `telemetry_requests` | `internal/server/limits.go:97` | | rename: move it to `telemetry.max_requests`. It applies only with `telemetry.listen` |
 | Go field names that differ from the keys (`Labels` for `labels_per_issue`, `Handshakes`, `Sessions`, `Keys`, `Members`, `Memories`, `Notices`) | `internal/store/limits.go`, `internal/server/limits.go` | | keep: not public |
 | `conflict_age`'s default | `internal/store/conflicts.go:59` (24 hours) | `docs/server.md:2224` says `1d` | keep: the same value |
+
+## 4. The wire protocol
+
+Everything is in `internal/proto`, documented in its package comment
+(`internal/proto/doc.go:1-91`) and design §2. No guide documents the ops
+or frames, which is right: they are `aries`'s and `ariesd`'s, and people
+meet them through those two binaries. Error codes are what people do
+meet, and the guides name each of them where it applies.
+
+### 4.1 What decision 78 settles
+
+| Item | Defined | Finding |
+|---|---|---|
+| `Proto = 8`, `ProtoMin = 7`, `ProtoMax = 8` | `internal/proto/version.go:197-201` | decide (question 5). Decision 78 says the release settles the protocol "to one version above any released one". v0.4.0 spoke 4, so read literally that is 5, while the maintainer's words in the same decision were "fold G0 into version 8". Either works, because no client of 5 to 8 was ever released. Recommend **8**: the code, the tests, `TestReleasedClients` and every comment already say 8, and settling it at 5 renumbers for no reader's benefit. Whichever is chosen, v1.0.0 speaks one version: `Proto = ProtoMin = ProtoMax` |
+| `Speak` (step down after a version refusal) | `version.go:203-215` | remove: it chooses between unreleased versions |
+| `ProtoKeys`, `keyedSince`, `Keyed`, `ForProtocol` | `internal/proto/idem.go:19-90` | remove; `idem` is then simply an argument of each op that takes one |
+| `ProtoConflicts`, `ProtoLate` | `internal/proto/conflicts.go:16-23` | remove |
+| `codeFor` (`stale` sent as `conflict` to a client below 6) | `internal/server/errors.go:51-59`, called at `internal/server/server.go:861` | remove |
+| `stepDown` and the second hello | `internal/client/conn.go:221-224`, `:417-428` | remove |
+| The outbox's protocol checks (`f1Proto`, `speaks`, the `Keyed` checks before queueing and replay) | `internal/offline/local.go:604-608`, `:682-698`, `:871-882` | remove. `seen.json`'s `proto` (`local.go:116-119`) can stay as a record |
+| The version history | `version.go:11-196` | remove to a short note in design §11. The "(protocol N)" notes on types throughout `internal/proto` go with it |
+| The handshake's example, `"p":5`, `"min":5,"max":5` | `internal/proto/doc.go:43-44` | document: it should show the settled version |
+| `CheckProto`, the hello check, the welcome's `min` and `max`, the status report's `proto_min` and `proto_max` | `version.go:229-242`; `internal/server/server.go:974`, `:1021-1028`; `internal/proto/admin.go:424-425` | keep: rule 10's range is how 1.x adds ops |
+
+### 4.2 Ops
+
+The 76 op names are defined in these files:
+- `internal/proto/ops.go:14-37`
+- `inbox.go:11-13`
+- `memory.go:10-13`
+- `cost.go:19-21`
+- `hours.go:18-22`
+- `conflicts.go:11-13`
+- `gates.go:10-19`
+- `locks.go:10-14`
+- `admin.go:22-37`
+
+Dispatch is `internal/server/dispatch.go:53-108`, with admin ops in
+`internal/server/admin.go`.
+
+| Item | Defined | Finding |
+|---|---|---|
+| Writes are `noun.verb` (`dep.add`, `label.rm`, `gate.pass`, `lock.acquire`, `price.set`, `hours.log`, `project.add`, `key.remove`), lists are a bare plural (`gates`, `locks`, `prices`, `plans`, `hours`, `projects`, `principals`, `members`, `keys`, `claims`, `conflicts`) | as above | keep, and hold identity.md to it (§9): its `invite.list`, `identity.list` and `trust.list` should be `invites`, `identities` and `trusts`/`trust_rules` |
+| `dep.rm`, `label.rm` against `member.remove`, `key.remove`, `hours.delete`, `project.archive` | `ops.go:23-25`; `admin.go:33-36`; `hours.go:19` | keep on the wire (renaming an op costs a compatibility path for nothing a person sees); the CLI question 4 is the visible one |
+| `resolve` beside `conflict.propose` | `conflicts.go:12-13` | rename `resolve` to `conflict.resolve`, which the event already is (`internal/proto/event.go`). Free before the settle |
+| `dates` (only `prime` and the cache use it) | `gates.go:15` | keep |
+| `IDArgs`, used by no op | `ops.go:508` | remove |
+| The comments on `update`, `handoff` (the result is `UpdateResult`/`HandoffResult`, not `WriteResult`) and `principals` (takes `PrincipalsArgs`) | `ops.go:19`, `:31`; `admin.go:27` | document (fix the comments) |
+| `dep.rm` accepts `idem` and ignores it | `internal/server/dispatch.go:426-431` | decide with question 5: give it a key's effect or refuse the field. Recommend making it keyed, as `dep.add` is, so a replayed remove applies once |
+
+### 4.3 Argument and result fields
+
+| Item | Defined | Finding |
+|---|---|---|
+| snake_case JSON throughout the `*Args` and `*Result` types | `internal/proto/*.go` | keep |
+| Frame keys are one or two letters (`t`, `id`, `op`, `a`, `ok`, `err`, `v`, `p`, `s`, `m`, `h`, `pr`, `k`, `e`, `tp`, `ts`) except `proj`, `latest`, `min`, `max` | `internal/proto/frame.go:39-78` | keep: frames are not printed, and the short keys are measured bytes on every request (design §9) |
+| `Error` is `{"c", "m", "fix", "req"}` | `internal/proto/errors.go:46-56` | keep on the wire; but `aries --json` prints it as it is (§8.1) |
+| The issue's id goes by several names: `id` in most args, `issue` in conflicts, hours, memories, inbox items and events, `blocks`/`subject` in gates, `parent` in args beside `parent_id` in `Issue`; and `Claim.id` and `Overlap.id` are issue ids | `ops.go`, `conflicts.go`, `hours.go`, `memory.go`, `inbox.go`, `gates.go`, `paths.go` | decide (question 6). `id` is the issue in an op about one issue, and `issue` where the record is something else (a memory, an hours entry, a conflict). That rule is sound and nearly holds. The exceptions to fix before the settle: `Issue.parent_id` (make it `parent`, as every argument is); `Claim.id` and `Overlap.id` (make them `issue`) |
+| `id` is an hours entry in `HoursDeleteArgs` and `HoursLogResult` but the issue in `HoursLogArgs`; a principal's name in `PrincipalResult` and `MemberSetResult`; a fingerprint in `KeyResult` | `hours.go:28-52`; `admin.go:145`, `:232`, `:337` | rename: `HoursLogArgs.issue` for the issue; `name` and `fingerprint` where those are meant, as `Principal` and `Key` already have them |
+| `released` is a count of claims ended (`ProjectResult`, `PrincipalResult`, `MemberRemoveResult`) and an epoch (`LockReleaseResult`) | `admin.go:62-73`, `:145`, `:309`; `locks.go:72` | rename `LockReleaseResult.released` to `epoch`, as `LockLeaveResult` has it |
+| `finish`'s `ticked` and `waived` against `accept`'s `tick`, `untick` and `waive` | `ops.go:349`, `:621` | keep: `finish` reports what was done, `accept` does it |
+| The note is `handoff` on `finish` and `note` on `handoff` | `ops.go:621`, `:657` | keep: `finish.handoff` is the handoff, `handoff.note` its text. Both are documented to agents |
+| `due` in `create`/`update`, `due_at` in results; `defer_until` in both | `ops.go:152`, `:410`; `Issue` `ops.go:81-82` | rename the result field to `due` (or the arguments to `due_at`): one name for one date. `defer_until` shows the form |
+| Who did something: `by` (claims, digests, gates, locks, conflicts), `principal` (agents, hours, lock holders), `author` (comments, memories), `from` (inbox), `created_by`, `added_by`, `set_by`, `updated_by` | throughout | keep: `by` for an act, `author` for text, `X_by` for a record's audit columns. Write that rule into `internal/proto/doc.go` so new types follow it |
+| Paging four ways: `cursor` → `next` (string) in `list`; `before` → `earlier` and `total` in `comments`/`history`; `after` (int) → `next` (int) in `conflicts`; `after` (a name) → `more` (a count) in the admin lists | `ops.go:366-378`, `:516-533`; `conflicts.go:40-86`; `admin.go:87` | keep: each is the right cursor for its list, and 1.x can add one compatibly. Document the four in `doc.go` |
+| `since`: a duration (`who`), a time, date or duration (`digest`, `dates`, `cost`) | `ops.go:43`, `:683`; `gates.go:122`; `cost.go:87` | keep; accepting a time in `who` later is compatible |
+| Durations: strings (`15m`, `7d`) for leases; integer `seconds` for hours; `*_seconds` integers; `last_step_seconds` a float; `p50_us`, `p99_us` in microseconds | `ops.go:544`, `:582`; `hours.go:28`; `admin.go:421-589` | keep: strings where a person types them, numbers where a program reads them, the unit in the name |
+| Money: `cost_usd` and `amortized_usd` as decimal strings; `Rates.*` and `PlanSetArgs.fee` as integer micro-dollars | `ops.go:273`; `cost.go:41-119`; `hours.go:97` | rename the integer fields to say their unit (`input_micro_usd`… or a `_micros` suffix), or document it in the type. The two forms are each right; the trap is a bare `fee` |
+| `change` takes added/replaced/unchanged (prices, plans), added/changed/unchanged/pending (members), and another set for keys | `cost.go:60`; `hours.go:107`; `admin.go:232`, `:337` | keep; document each set in `doc.go` |
+| `DigestTotals` mixes counts always present with later ones that are `omitempty` | `ops.go:706-726` | keep: a client ignores a missing count as zero; document that a missing total is zero |
+| `Issue.expires_at`, `ephemeral`, `pinned`, `template`, `metadata`: set only by `import-bd`, read by no client | `ops.go:83-87`; `internal/server/dispatch.go:701`; `internal/bdimport/record.go:242`, `export.go:102` | remove from the wire before the settle (question 8). `export-bd` reads them from the store, not the protocol; `show --json` exposes fields nothing can set, and once frozen they stay |
+| `Summary.overlaps` is a list of ids, `Files.overlaps` a list of `{id, by, session}` | `ops.go:103`; `paths.go:75-90` | keep; they summarize at two depths |
+
+### 4.4 Error codes
+
+`internal/proto/errors.go:9-42`. Each is named in the guides where it
+applies (`docs/cli.md`, `docs/server.md`, `docs/agents.md`).
+
+| Code | Finding |
+|---|---|
+| `not_found`, `conflict`, `exists`, `cycle`, `invalid`, `acceptance`, `forbidden`, `unavailable`, `busy`, `stale` | keep |
+| `version` | keep; exit code 3 |
+| `auth` | keep the code; its wording names the SSH host key, settled elsewhere (§10) |
+| A missing `.aries.yaml` is `invalid` | `internal/cli/cli.go:411-447` | keep. No guide lists every code in one place, though: add a table to `docs/cli.md` §Exit codes (document) |
+| The `Fix*` phrases the MCP server matches on are wire text | `errors.go:79-129` | keep, and say in `doc.go` that changing one is a protocol change, since an older `aries mcp` matches the text |
+| `AtConnLimit` parses the message | `internal/proto/connlimit.go:29-44` | as above |
+
+### 4.5 Frames and events
+
+| Item | Defined | Finding |
+|---|---|---|
+| Frame types `bridge`, `hello`, `welcome`, `req`, `res`, `evt`; `MaxFrame` 4 MiB | `internal/proto/frame.go:15-32` | keep; `bridge` is settled elsewhere (§10) |
+| Push events `inbox`, `resync`, `event` | `internal/proto/inbox.go:17-27` | keep |
+| `tp`, `ts` trace context on a request | `frame.go:39-78`; `internal/proto/trace.go:45` | keep |
+| Event kinds clients see: `issue.create`, `issue.update`, `issue.close`, `issue.reopen`, `issue.paths`, `issue.kept`, `label.add`, `label.remove`, `dep.add`, `dep.remove`, `acceptance.tick`/`untick`/`waive`, `hours.log`, `hours.delete`, `conflict.park`/`propose`/`resolve`, `claim.take`/`expire`/`release`/`away`/`lapsed` | `internal/proto/event.go:18-78` | keep. Events say `label.remove` where the op says `label.rm`; events are history and the ops are calls, so they may differ, but fix it now if `rm` is renamed (question 4) |
+| The event's kind is `op`; an inbox item's is `kind` | `ops.go:138`; `inbox.go:34` | keep: an event records an op |
+| Inbox kinds `claim.lost`, `assigned`, `mention`, `handoff`, `conflict`, the gate kinds, `lock.granted`, `lock.lost` | `inbox.go:29-31` | rename `assigned` to `assignment` and `mention` stays, or make all `noun.verb`: `issue.assigned`, `issue.mentioned`. A small rename, but agents filter on it (question 6) |
