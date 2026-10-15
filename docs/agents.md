@@ -197,7 +197,7 @@ The MCP server offers 25 tools: `prime`, `start`, `finish`, `handoff`,
 `dep`, `label`, `comment`, `comments`, `history`, `digest`, `who`,
 `inbox`, `remember`, `recall`, `forget`, `cost` and `gate`. There are no admin
 tools: import, export, setup, upgrade, prices, plans and server settings
-stay on the command line. Hours are logged by people, with `aries log`; no
+stay on the command line. Hours are logged by people, with `aries hours`; no
 tool logs them.
 
 - **Results are compact.** Writes return `{id, rev}`, and lists return the

@@ -46,7 +46,7 @@ func TestPrintPlans(t *testing.T) {
 		res  proto.PlansResult
 		want string
 	}{
-		{"none", proto.PlansResult{}, "no plans; an admin sets one with `aries admin plans set`\n"},
+		{"none", proto.PlansResult{}, "no plans; an admin sets one with `aries admin plan set`\n"},
 		{"some", proto.PlansResult{Plans: []proto.Plan{
 			{Name: "team", From: "2026-09", Fee: 25_000_000, Seats: 3, Principals: []string{"alice", "bob"}, SetBy: "dana", SetAt: at},
 			{Name: "team", From: "2027-01", Principals: []string{}, SetBy: "dana", SetAt: at},
@@ -119,8 +119,8 @@ func TestPrintUsageHours(t *testing.T) {
 	}
 }
 
-// log and admin plans refuse bad usage before dialing.
-func TestLogUsage(t *testing.T) {
+// hours and admin plan refuse bad usage before dialing.
+func TestHoursUsage(t *testing.T) {
 	t.Parallel()
 	empty := t.TempDir()
 	plan := []string{"--fee", "25", "--seats", "3", "--from", "2026-09"}
@@ -129,24 +129,24 @@ func TestLogUsage(t *testing.T) {
 		args   []string
 		stderr string
 	}{
-		{"one argument", []string{"-C", empty, "log", "1h"}, "log needs a time and an issue id"},
-		{"three arguments", []string{"-C", empty, "log", "1h", "sf-a1", "sf-b2"}, "log needs a time and an issue id"},
-		{"bad time", []string{"-C", empty, "log", "1", "sf-a1"}, `"1": not a time from 1m to 24h`},
-		{"too long", []string{"-C", empty, "log", "25h", "sf-a1"}, `"25h": not a time`},
-		{"bad day", []string{"-C", empty, "log", "1h", "sf-a1", "--on", "yesterday"}, `--on "yesterday" must be a date`},
-		{"undo with arguments", []string{"-C", empty, "log", "--undo", "aaaa", "1h", "sf-a1"}, "--undo takes no other arguments"},
-		{"undo with on", []string{"-C", empty, "log", "--undo", "aaaa", "--on", "2026-10-01"}, "--undo takes no other arguments"},
-		{"list with note", []string{"-C", empty, "log", "--note", "x"}, "--on and --note are for logging"},
-		{"log with issue", []string{"-C", empty, "log", "1h", "sf-a1", "--issue", "sf-a1"}, "--issue, --by and -n are for listing"},
-		{"plans unknown action", []string{"-C", empty, "admin", "plans", "rm", "team"}, `unknown plans action "rm"`},
-		{"plans list takes no terms", []string{"-C", empty, "admin", "plans", "--fee", "1"}, "only plans set takes terms"},
-		{"set needs a name", append([]string{"-C", empty, "admin", "plans", "set"}, plan...), "plans set needs one name"},
-		{"set needs terms", []string{"-C", empty, "admin", "plans", "set", "team", "--fee", "1"}, "plans set needs --from, --seats"},
-		{"bad fee", []string{"-C", empty, "admin", "plans", "set", "team", "--fee", "$25", "--seats", "3", "--from", "2026-09"}, "--fee: not an amount"},
-		{"bad seats", []string{"-C", empty, "admin", "plans", "set", "team", "--fee", "25", "--seats", "x", "--from", "2026-09"}, "seats"},
-		{"bad month", []string{"-C", empty, "admin", "plans", "set", "team", "--fee", "25", "--seats", "3", "--from", "2026-09-01"},
+		{"one argument", []string{"-C", empty, "hours", "1h"}, "hours needs a time and an issue id"},
+		{"three arguments", []string{"-C", empty, "hours", "1h", "sf-a1", "sf-b2"}, "hours needs a time and an issue id"},
+		{"bad time", []string{"-C", empty, "hours", "1", "sf-a1"}, `"1": not a time from 1m to 24h`},
+		{"too long", []string{"-C", empty, "hours", "25h", "sf-a1"}, `"25h": not a time`},
+		{"bad day", []string{"-C", empty, "hours", "1h", "sf-a1", "--on", "yesterday"}, `--on "yesterday" must be a date`},
+		{"undo with arguments", []string{"-C", empty, "hours", "--undo", "aaaa", "1h", "sf-a1"}, "--undo takes no other arguments"},
+		{"undo with on", []string{"-C", empty, "hours", "--undo", "aaaa", "--on", "2026-10-01"}, "--undo takes no other arguments"},
+		{"list with note", []string{"-C", empty, "hours", "--note", "x"}, "--on and --note are for logging"},
+		{"hours with issue", []string{"-C", empty, "hours", "1h", "sf-a1", "--issue", "sf-a1"}, "--issue, --by and -n are for listing"},
+		{"plan unknown action", []string{"-C", empty, "admin", "plan", "rm", "team"}, `unknown plan action "rm"`},
+		{"plan list takes no terms", []string{"-C", empty, "admin", "plan", "list", "--fee", "1"}, "only plan set takes terms"},
+		{"set needs a name", append([]string{"-C", empty, "admin", "plan", "set"}, plan...), "plan set needs one name"},
+		{"set needs terms", []string{"-C", empty, "admin", "plan", "set", "team", "--fee", "1"}, "plan set needs --from, --seats"},
+		{"bad fee", []string{"-C", empty, "admin", "plan", "set", "team", "--fee", "$25", "--seats", "3", "--from", "2026-09"}, "--fee: not an amount"},
+		{"bad seats", []string{"-C", empty, "admin", "plan", "set", "team", "--fee", "25", "--seats", "x", "--from", "2026-09"}, "seats"},
+		{"bad month", []string{"-C", empty, "admin", "plan", "set", "team", "--fee", "25", "--seats", "3", "--from", "2026-09-01"},
 			`--from "2026-09-01" must be a month`},
-		{"admin needs a command", []string{"-C", empty, "admin"}, "admin needs prices, plans, project, principal, member, key or status"},
+		{"admin needs a command", []string{"-C", empty, "admin"}, "admin needs price, plan, project, principal, member, key or status"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

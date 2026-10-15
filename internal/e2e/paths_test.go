@@ -117,7 +117,7 @@ func TestFilesToIssues(t *testing.T) {
 	delete(alice.env, "CLAUDE_CODE_SESSION_ID")
 	side := strings.TrimSpace(alice.ok("create", "Side work"))
 	alice.ok("start", side)
-	alice.ok("start", other, "--branch")
+	alice.ok("start", other, "--new-branch")
 	touch(t, alice.repo, "side.go")
 	gitIn(t, alice.repo, "add", "side.go")
 	gitIn(t, alice.repo, "-c", "user.name=Alice", "-c", "user.email=alice@example.com",

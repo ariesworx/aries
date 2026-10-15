@@ -381,7 +381,7 @@ func TestErrorsNameTheNextStep(t *testing.T) {
 			"conflict: sf-x changed since rev 1 (now rev 2 by bob)\nfix: call show for the current rev, then retry with that rev if your change still applies"},
 		{"closed", proto.Errf(proto.CodeInvalid, "reopen it with `aries reopen sf-x`", "issue sf-x is closed"),
 			"invalid: issue sf-x is closed\nfix: call reopen first"},
-		{"cycle", proto.Errf(proto.CodeCycle, "remove an edge with `aries dep rm`", "sf-a depends on sf-b, so this would make a cycle"),
+		{"cycle", proto.Errf(proto.CodeCycle, "remove an edge with `aries dep remove`", "sf-a depends on sf-b, so this would make a cycle"),
 			"cycle: sf-a depends on sf-b, so this would make a cycle\nfix: remove an edge with dep (action rm), or choose another parent"},
 		{"invalid", proto.Errf(proto.CodeInvalid, "correct it and retry; `aries update -h` lists the options", "title is empty"),
 			"invalid: title is empty\nfix: correct the arguments and retry"},

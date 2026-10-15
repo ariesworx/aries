@@ -530,6 +530,8 @@ Agreed 6 Oct 2026. Extends item 10.
 - **Wire.** `hours.log`, `hours.delete`, `hours`, `plan.set` and `plans` join protocol 4 with no bump, which had still not shipped, as do the result fields `logged_seconds` and `logged` in show's usage, `logged_seconds` in digest's, and `logged_seconds` and `amortized_usd` in each cost group. ProtoMin stays 2.
 - **MCP.** No tool was added; the `cost` tool's description now reads "Token cost, plan share and hours.", which brings the tool set to about 2,676 estimated tokens. The `show`, `digest` and `cost` lines carry `logged 1.5h` and `amortized $20.00`.
 
+**As built, 15 Oct 2026 (the CLI's names, decision 88).** The surface review's question 4 renamed what `aries` takes before v1.0.0 froze it; the wire's ops and fields are unchanged. Removing is `remove` (`dep add|remove`, `label add|remove`), with `rm` a hidden alias; `aries log` is `aries hours`, with `log` an alias kept through 1.x; `admin prices` and `admin plans` are `admin price list|set` and `admin plan list|set`; `start --branch` is `start --new-branch`; `cost --by` is `cost --group-by`; `gate add --subject` is `gate add --issue`; and `gate add --by` and `dep -t` are gone, `--approver` and `--type` remaining. Except for the two aliases, the old spellings are refused as unknown flags or commands. The server's fix lines name the new spellings. `pin` and `unpin` stay at the top level.
+
 ## 13. Plan
 
 | Stage | Delivers | Gate |

@@ -60,7 +60,7 @@ func gateReport(ctx context.Context, pr *served, a store.Actor, op string, in pr
 const maxBranch = 255
 
 // reportSubject is the issue a report names: in.Subject, or the issue
-// in.Branch names with the project's prefix, as `aries start --branch`
+// in.Branch names with the project's prefix, as `aries start --new-branch`
 // names a branch (gitx.Branch). A branch that names none, or another
 // issue than in.Subject, is refused.
 func (pr *served) reportSubject(in proto.GateArgs) (store.IssueID, *proto.Error) {
@@ -76,7 +76,7 @@ func (pr *served) reportSubject(in proto.GateArgs) (store.IssueID, *proto.Error)
 		// not_found, as a subject with no gate for the check is: there is
 		// nothing to report on, which `aries gate pass --optional` allows.
 		return "", proto.Errf(proto.CodeNotFound,
-			"report on a branch named for its issue, as `aries start --branch` names it ("+gitx.Branch("feature", pr.store.Prefix()+"-a1b2", "title")+
+			"report on a branch named for its issue, as `aries start --new-branch` names it ("+gitx.Branch("feature", pr.store.Prefix()+"-a1b2", "title")+
 				"), or name the issue with --issue ID",
 			fmt.Sprintf("branch %s names no issue of this project", in.Branch))
 	}
@@ -209,7 +209,7 @@ func gateErr(e *store.GateError) *proto.Error {
 			fmt.Sprintf("gate %s takes reports from a CI job or a person's terminal, and this request came from an agent's session", e.Gate))
 	case store.GateNoCheck:
 		return proto.Errf(proto.CodeNotFound,
-			fmt.Sprintf("add one with `aries gate add --kind ci --check %s --subject %s --by PRINCIPAL`; `aries gate list` lists the gates", e.Check, e.ID),
+			fmt.Sprintf("add one with `aries gate add --kind ci --check %s --issue %s --approver PRINCIPAL`; `aries gate list` lists the gates", e.Check, e.ID),
 			fmt.Sprintf("%s has no ci gate for check %s", e.ID, e.Check))
 	}
 	if e.Check != "" {

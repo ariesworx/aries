@@ -642,20 +642,26 @@ func (r *runner) done() {
 	}
 }
 
+// depUsage and labelUsage name remove; rm, its spelling before 1.0, is
+// a hidden alias.
+const (
+	depUsage   = "dep add|remove FROM TO [--type T]"
+	labelUsage = "label add|remove ID LABEL..."
+)
+
 func cmdDep(ctx context.Context, r *runner, args []string) error {
-	const usage = "dep add|rm FROM TO [--type T]"
+	const usage = depUsage
 	fs := r.newFlags("dep")
 	var in proto.DepArgs
 	fs.StringVar(&in.Type, "type", "blocks", "blocks, conditional-blocks, waits-for, related, discovered-from, duplicates or supersedes")
-	fs.StringVar(&in.Type, "t", "blocks", "type")
 	pos, err := parse(fs, args, usage)
 	if err != nil {
 		return err
 	}
 	if len(pos) != 3 {
-		return usagef(usage, "dep needs add or rm, then two issue ids")
+		return usagef(usage, "dep needs add or remove, then two issue ids")
 	}
-	op := map[string]string{"add": proto.OpDepAdd, "rm": proto.OpDepRm, "remove": proto.OpDepRm}[pos[0]]
+	op := map[string]string{"add": proto.OpDepAdd, "remove": proto.OpDepRm, "rm": proto.OpDepRm}[pos[0]]
 	if op == "" {
 		return usagef(usage, "unknown dep action %q", pos[0])
 	}
@@ -681,16 +687,16 @@ func cmdDep(ctx context.Context, r *runner, args []string) error {
 }
 
 func cmdLabel(ctx context.Context, r *runner, args []string) error {
-	const usage = "label add|rm ID LABEL..."
+	const usage = labelUsage
 	fs := r.newFlags("label")
 	pos, err := parse(fs, args, usage)
 	if err != nil {
 		return err
 	}
 	if len(pos) < 3 {
-		return usagef(usage, "label needs add or rm, an issue id and at least one label")
+		return usagef(usage, "label needs add or remove, an issue id and at least one label")
 	}
-	op := map[string]string{"add": proto.OpLabelAdd, "rm": proto.OpLabelRm, "remove": proto.OpLabelRm}[pos[0]]
+	op := map[string]string{"add": proto.OpLabelAdd, "remove": proto.OpLabelRm, "rm": proto.OpLabelRm}[pos[0]]
 	if op == "" {
 		return usagef(usage, "unknown label action %q", pos[0])
 	}

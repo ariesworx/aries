@@ -64,7 +64,7 @@ type Env struct {
 	// $ARIES_RELEASES names, or the default source, the built-in
 	// release keys and this executable.
 	Upgrader *Upgrader
-	// Now is the time in the user's time zone, whose date `log` sends as
+	// Now is the time in the user's time zone, whose date `hours` sends as
 	// the day worked. Default time.Now.
 	Now func() time.Time
 	// Terminal reports whether a person is at Stdin and Stdout, so that a
@@ -127,12 +127,12 @@ func init() {
 		{"reopen", "reopen ID [--rev N]", "reopen a closed issue", cmdReopen},
 		{"gate", gateUsage, "hold issues back until a person passes a gate, or CI reports a check: add, pass, fail, waive, rearm or list gates", cmdGate},
 		{"lock", lockUsage, "take, renew, release or list a lock, a leased mutex or semaphore for a deploy or a merge; run a command under one", cmdLock},
-		{"dep", "dep add|rm FROM TO [--type T]", "add or remove a dependency: FROM depends on TO", cmdDep},
-		{"label", "label add|rm ID LABEL...", "add or remove labels", cmdLabel},
+		{"dep", depUsage, "add or remove a dependency: FROM depends on TO", cmdDep},
+		{"label", labelUsage, "add or remove labels", cmdLabel},
 		{"comment", "comment ID TEXT...|-", "add a comment", cmdComment},
 		{"comments", "comments ID [-n N]", "list an issue's comments", cmdComments},
 		{"history", "history ID [-n N]", "list an issue's changes", cmdHistory},
-		{"start", "start [ID] [--for DURATION] [--take] [--branch | --worktree DIR]", "claim an issue (the top ready one without ID) and show it", cmdStart},
+		{"start", startUsage, "claim an issue (the top ready one without ID) and show it", cmdStart},
 		{"finish", "finish ID [--reason TEXT] [--handoff TEXT|-] [--state S] [--next TEXT] [--branch B] [--worktree DIR] [--to P] [--discovered TITLE]... [--tick N,N] [--waive N=REASON]... [--epoch N]", "close your issue with a handoff note and discovered work", cmdFinish},
 		{"accept", "accept ID N... [--undo | --waive REASON]", "tick acceptance items; --undo unticks, --waive waives them for a reason", cmdAccept},
 		{"handoff", "handoff ID NOTE...|- [--state S] [--next TEXT] [--branch B] [--worktree DIR] [--to P] [--release] [--epoch N]", "leave a note for whoever continues; --release lets it go", cmdHandoff},
@@ -143,8 +143,8 @@ func init() {
 		{"digest", "digest [--since 24h|7d|DATE|TIME] [--by PRINCIPAL] [--label L]", "summarize what closed, started, stalled, is blocked and was handed off", cmdDigest},
 		{"who", "who [--since DURATION] [-n N]", "list the agents at work and the issues each holds (seen in the last 5m)", cmdWho},
 		{"whoami", "whoami", "say which principal the server takes you for, and which key signed in", cmdWhoami},
-		{"cost", "cost --since 7d|DATE|TIME [--until DATE|TIME] [--by account|issue|epic|person|model] [-n N]", "report the list-price and amortized cost of tokens, and the hours logged, by account, issue, epic, person or model", cmdCost},
-		{"log", "log DURATION ID [--on DATE] [--note TEXT] | log --undo ENTRY | log [--issue ID] [--by PRINCIPAL] [-n N]", "log your hours on an issue (1.5h, 90m), undo an entry, or list entries", cmdLog},
+		{"cost", costUsage, "report the list-price and amortized cost of tokens, and the hours logged, by account, issue, epic, person or model", cmdCost},
+		{"hours", hoursUsage, "log your hours on an issue (1.5h, 90m), undo an entry, or list entries", cmdHours},
 		{"remember", "remember KEY TEXT...|- [--scope S] [--tag T]... [--issue ID] [--rev N] [--pin]", "keep a memory for later sessions; --rev replaces one", cmdRemember},
 		{"recall", "recall [TEXT...] [--key K] [--tag T] [--scope S] [-n N]", "search memories by text, key or tag, pinned then newest first", cmdRecall},
 		{"memories", "memories [--scope S] [-n N]", "list the memories you can see, pinned then newest first", cmdMemories},
@@ -159,15 +159,22 @@ func init() {
 		{"cache", cacheUsage, "say what this machine keeps of what was read, shown while the server cannot be reached; clear deletes it", cmdCache},
 		{"mcp", "mcp", "serve the MCP tools for an agent on stdin and stdout", cmdMCP},
 		{"setup", "setup AGENT|--all [--write|--check|--remove] [--global [--key-file PATH]] [--command PATH]", "set agents up: MCP config, instruction pointer, session hook", cmdSetup},
-		{"admin", "admin prices [set MODEL --from DATE|TIME --input USD --output USD --cache-write USD --cache-write-1h USD --cache-read USD] | admin plans [set NAME --from YYYY-MM --fee USD --seats N [--principal P]...] | " + adminUsage,
+		{"admin", priceUsage + " | " + planUsage + " | " + adminUsage,
 			"list model prices and subscription plans, or set one; manage a server's projects, principals, members and keys (admins only)", cmdAdmin},
 		{"upgrade", "upgrade [--check] [--rollback]", "replace aries with the latest verified release; --rollback undoes it", cmdUpgrade},
 		{"version", "version", "print the aries version", cmdVersion},
 	}
 }
 
-// lookup returns the command named name, or nil.
+// aliases are other names of commands, which help does not list: log,
+// hours's name before 1.0, which is kept through 1.x.
+var aliases = map[string]string{"log": "hours"}
+
+// lookup returns the command named name, or by an alias name, or nil.
 func lookup(name string) *command {
+	if a, ok := aliases[name]; ok {
+		name = a
+	}
 	for i := range commands {
 		if commands[i].name == name {
 			return &commands[i]

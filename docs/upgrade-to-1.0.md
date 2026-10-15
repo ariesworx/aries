@@ -201,7 +201,11 @@ started, and it stays the former one until the harness starts it again.
 Commands that did not exist in v0.4.0: `aries whoami`, `aries outbox`,
 `aries cache`, `aries resolve`, `aries away`, `aries gate`,
 `aries lock`, and `aries admin`
-([Using `aries`](cli.md#commands)). A write made while the server
+([Using `aries`](cli.md#commands)). Some were renamed: `aries log` is
+`aries hours`, `dep rm` and `label rm` are `remove`, `admin prices` and
+`admin plans` are `admin price` and `admin plan`, `start --branch` is
+`start --new-branch` and `cost --by` is `cost --group-by`; `log` and
+`rm` still work. A write made while the server
 cannot be reached is now queued and sent later
 ([When the server cannot be reached](cli.md#when-the-server-cannot-be-reached)).
 
@@ -297,7 +301,7 @@ Settings carry over by meaning, not by file: write them again in
 `ARIESD_CONFIG`, `ARIESD_DSN`, `ARIESD_SOCKET`, `ARIESD_PROJECT`,
 `ARIESD_ADMINS`, `ARIESD_LOG_LEVEL` and `ARIESD_LOG_FORMAT` replace the
 `[FORMER]D_` ones of the same suffix. Prices and plans are set again
-with `aries admin prices` and `aries admin plans`.
+with `aries admin price set` and `aries admin plan set`.
 
 If you ran a build from `main` between v0.4.0 and the rename, with
 telemetry on, its metrics were named under the former name: take

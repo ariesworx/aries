@@ -44,9 +44,9 @@ func TestDispatchPrices(t *testing.T) {
 	}{
 		{"not an admin", alice, `{"model":"example-large","from":"2026-01-01"}`, proto.CodeForbidden,
 			"prices set is for aries admins", "ask an aries admin"},
-		{"bad from", dana, `{"model":"example-large","from":"soon"}`, proto.CodeInvalid, `from "soon"`, "aries admin prices set -h"},
-		{"bad model", dana, `{"model":"example large","from":"2026-01-01"}`, proto.CodeInvalid, "model", "aries admin prices set -h"},
-		{"negative rate", dana, `{"model":"example-large","from":"2026-01-01","output":-1}`, proto.CodeInvalid, "output rate", "aries admin prices set -h"},
+		{"bad from", dana, `{"model":"example-large","from":"soon"}`, proto.CodeInvalid, `from "soon"`, "aries admin price set -h"},
+		{"bad model", dana, `{"model":"example large","from":"2026-01-01"}`, proto.CodeInvalid, "model", "aries admin price set -h"},
+		{"negative rate", dana, `{"model":"example-large","from":"2026-01-01","output":-1}`, proto.CodeInvalid, "output rate", "aries admin price set -h"},
 		{"unknown field", dana, `{"model":"example-large","from":"2026-01-01","currency":"EUR"}`, proto.CodeInvalid, "unknown field", proto.FixUpgrade},
 	}
 	for _, tc := range tests {

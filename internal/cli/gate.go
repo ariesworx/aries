@@ -14,7 +14,7 @@ import (
 )
 
 const gateUsage = "gate add --blocks ID [--approver P]... [--title T]" +
-	" | gate add --kind ci --check NAME --subject ID --by P... [--blocks ID] [--title T]" +
+	" | gate add --kind ci --check NAME --issue ID --approver P... [--blocks ID] [--title T]" +
 	" | gate pass|rearm ID [--reason TEXT]" +
 	" | gate pass|fail [ID] [--check NAME --issue ID|--branch NAME|--from-branch|--from-commit] [--sha SHA] [--url URL] [--reason TEXT] [--optional]" +
 	" | gate waive ID --reason TEXT | gate list [--all] [-n N]"
@@ -45,12 +45,11 @@ func gateAdd(ctx context.Context, r *runner, args []string) error {
 	var in proto.GateAddArgs
 	var approvers listFlag
 	fs.StringVar(&in.Blocks, "blocks", "", "the issue the gate holds back; a gate on an epic holds all of it")
-	fs.Var(&approvers, "approver", "a principal who may pass it (repeatable, or comma-separated; none: the project's admins)")
-	fs.Var(&approvers, "by", "a ci gate's: a CI principal that reports its check (repeatable, or comma-separated)")
-	fs.StringVar(&in.Title, "title", "", "the gate's title (default: Approve ID, or CHECK of SUBJECT)")
+	fs.Var(&approvers, "approver", "a principal who may pass it, or for a ci gate a CI principal that reports its check (repeatable, or comma-separated; none: the project's admins)")
+	fs.StringVar(&in.Title, "title", "", "the gate's title (default: Approve ID, or CHECK of ISSUE)")
 	fs.StringVar(&in.Kind, "kind", "", "human (the default), passed by a person, or ci, reported by CI")
 	fs.StringVar(&in.Check, "check", "", "a ci gate's check, such as build, test or landed")
-	fs.StringVar(&in.Subject, "subject", "", "a ci gate's subject: the issue whose branch the check runs on")
+	fs.StringVar(&in.Subject, "issue", "", "a ci gate's issue: the one whose branch the check runs on")
 	pos, err := parse(fs, args, gateUsage)
 	if err != nil {
 		return err
@@ -61,14 +60,14 @@ func gateAdd(ctx context.Context, r *runner, args []string) error {
 	switch in.Kind {
 	case "", proto.GateHuman:
 		if in.Check != "" || in.Subject != "" {
-			return usagef(gateUsage, "--check and --subject are a ci gate's: add it with --kind ci")
+			return usagef(gateUsage, "--check and --issue are a ci gate's: add it with --kind ci")
 		}
 		if in.Blocks == "" {
 			return usagef(gateUsage, "gate add takes the issue it holds back as --blocks ID")
 		}
 	case proto.GateCI:
 		if in.Check == "" || in.Subject == "" || len(approvers) == 0 {
-			return usagef(gateUsage, "a ci gate needs --check NAME, --subject ID and --by PRINCIPAL, the CI principal that reports it")
+			return usagef(gateUsage, "a ci gate needs --check NAME, --issue ID and --approver PRINCIPAL, the CI principal that reports it")
 		}
 	default:
 		return usagef(gateUsage, "--kind %q: give human or ci", in.Kind)

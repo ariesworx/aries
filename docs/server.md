@@ -1758,15 +1758,15 @@ access meanwhile, before it serves its first request.
 ## Prices
 
 `aries cost`, `show` and `digest` price tokens at each model's list rates,
-which an admin records with `aries admin prices set`. Rates are US dollars
+which an admin records with `aries admin price set`. Rates are US dollars
 per million tokens, from an effective date (midnight UTC) or time; the
-model is spelled exactly as the harness reports it, which `aries cost --by
-model` shows. For example, with invented rates for an invented model:
+model is spelled exactly as the harness reports it, which `aries cost
+--group-by model` shows. For example, with invented rates for an invented model:
 
 ```sh
-aries admin prices set example-large --from 2026-01-01 \
+aries admin price set example-large --from 2026-01-01 \
   --input 4 --output 20 --cache-write 5 --cache-write-1h 8 --cache-read 0.4
-aries admin prices
+aries admin price list
 ```
 
 `--cache-write` is a five-minute cache write and `--cache-write-1h` a
@@ -1788,9 +1788,9 @@ list-price equivalent, once an admin records the plans with `aries admin
 plans set`. For example, with an invented plan:
 
 ```sh
-aries admin plans set team --from 2026-09 --fee 25 --seats 3 \
+aries admin plan set team --from 2026-09 --fee 25 --seats 3 \
   --principal alice --principal bob
-aries admin plans
+aries admin plan list
 ```
 
 The fee is US dollars a seat a month, with at most six decimals; the

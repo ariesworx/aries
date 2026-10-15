@@ -39,7 +39,7 @@ func TestReplayAfterADayAppliesOnce(t *testing.T) {
 	w.stop()
 	for _, args := range [][]string{
 		{"update", id, "--rev", strconv.FormatInt(rev, 10), "--title", "Renamed while away"},
-		{"label", "rm", id, "old"},
+		{"label", "remove", id, "old"},
 		{"dep", "add", id, blocker},
 		{"accept", id, "1"},
 	} {

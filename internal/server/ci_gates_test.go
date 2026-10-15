@@ -41,9 +41,9 @@ func TestCIGateFromBranch(t *testing.T) {
 		msg, fix string
 	}{
 		{"a branch that names no issue", ciJob, proto.GateArgs{Check: "build", Branch: "main"}, proto.CodeNotFound,
-			"branch main names no issue", "aries start --branch"},
+			"branch main names no issue", "aries start --new-branch"},
 		{"a branch naming an issue with no such gate", ciJob, proto.GateArgs{Check: "build", Branch: "fix/" + next.ID}, proto.CodeNotFound,
-			next.ID + " has no ci gate for check build", "aries gate add --kind ci --check build --subject " + next.ID},
+			next.ID + " has no ci gate for check build", "aries gate add --kind ci --check build --issue " + next.ID},
 		{"a check of no gate", ciJob, proto.GateArgs{Check: "test", Branch: branch}, proto.CodeNotFound,
 			"check test", "aries gate list"},
 		{"a principal the gate does not name", bob, proto.GateArgs{Check: "build", Branch: branch}, proto.CodeForbidden,

@@ -22,7 +22,7 @@ import (
 // The server decides who may run what.
 
 // adminGroups are the first words `aries admin` takes.
-var adminGroups = []string{"prices", "plans", "project", "principal", "member", "key", "status"}
+var adminGroups = []string{"price", "plan", "project", "principal", "member", "key", "status"}
 
 // adminUsage is the usage of the access commands, for the command table.
 const adminUsage = "admin project add NAME [--prefix P] [--account A] | list | archive PROJECT | activate PROJECT" +

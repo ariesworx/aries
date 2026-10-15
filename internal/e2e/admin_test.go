@@ -664,7 +664,7 @@ func TestAdminOnAServerOfOneProject(t *testing.T) {
 		}
 	}
 	// The commands it had still work.
-	d.ok("admin", "prices")
+	d.ok("admin", "price", "list")
 }
 
 // Control writes have their own rate limit, per principal: past it the

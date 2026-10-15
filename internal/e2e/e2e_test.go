@@ -990,7 +990,7 @@ func TestCRUDRoundTrip(t *testing.T) {
 	}
 
 	alice.ok("label", "add", b, "docs", "small")
-	alice.ok("label", "rm", b, "small")
+	alice.ok("label", "remove", b, "small")
 	if l := decode[proto.ListResult](t, alice.ok("list", "--label", "docs", "--json")); len(l.Issues) != 1 || l.Issues[0].ID != b {
 		t.Fatalf("list --label: %+v", l)
 	}
@@ -1013,7 +1013,7 @@ func TestCRUDRoundTrip(t *testing.T) {
 		t.Fatalf("unblocked issue not ready:\n%s", out)
 	}
 	alice.ok("reopen", b)
-	alice.ok("dep", "rm", a.ID, b)
+	alice.ok("dep", "remove", a.ID, b)
 
 	h := decode[proto.HistoryResult](t, alice.ok("history", b, "--json"))
 	var ops []string

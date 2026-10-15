@@ -20,9 +20,9 @@ func TestCIGate(t *testing.T) {
 	ci, intruder := w.newUser("ci-example", ""), w.newUser("ci-other", "")
 	impl := strings.TrimSpace(alice.ok("create", "Implement the parser"))
 	next := strings.TrimSpace(alice.ok("create", "Use the parser"))
-	gate := strings.TrimSpace(alice.ok("gate", "add", "--kind", "ci", "--check", "build", "--subject", impl,
-		"--by", "ci-example", "--blocks", next))
-	landed := strings.TrimSpace(alice.ok("gate", "add", "--kind", "ci", "--check", "landed", "--subject", impl, "--by", "ci-example"))
+	gate := strings.TrimSpace(alice.ok("gate", "add", "--kind", "ci", "--check", "build", "--issue", impl,
+		"--approver", "ci-example", "--blocks", next))
+	landed := strings.TrimSpace(alice.ok("gate", "add", "--kind", "ci", "--check", "landed", "--issue", impl, "--approver", "ci-example"))
 
 	// bob's agent holds the work the check runs on.
 	agent := bob.mcp("v0.2.0")

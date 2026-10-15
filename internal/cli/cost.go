@@ -16,11 +16,13 @@ import (
 // costBys are the groupings aries cost takes.
 var costBys = []string{"account", "issue", "epic", "person", "model"}
 
+const costUsage = "cost --since 7d|DATE|TIME [--until DATE|TIME] [--group-by account|issue|epic|person|model] [-n N]"
+
 func cmdCost(ctx context.Context, r *runner, args []string) error {
-	const usage = "cost --since 7d|DATE|TIME [--until DATE|TIME] [--by account|issue|epic|person|model] [-n N]"
+	const usage = costUsage
 	fs := r.newFlags("cost")
 	var in proto.CostArgs
-	fs.StringVar(&in.By, "by", "account", "group by account, issue, epic, person or model")
+	fs.StringVar(&in.By, "group-by", "account", "group by account, issue, epic, person or model")
 	fs.StringVar(&in.Since, "since", "", "window start: a duration back from now (7d), a date or an RFC 3339 time")
 	fs.StringVar(&in.Until, "until", "", "window end, not included: a date or an RFC 3339 time (default now)")
 	fs.IntVar(&in.Limit, "n", 0, "groups to list, the rest summed (default 50)")
@@ -34,7 +36,7 @@ func cmdCost(ctx context.Context, r *runner, args []string) error {
 	case in.Since == "":
 		return usagef(usage, "cost needs --since, such as 7d or 2026-10-01")
 	case !slices.Contains(costBys, in.By):
-		return usagef(usage, "--by must be account, issue, epic, person or model")
+		return usagef(usage, "--group-by must be account, issue, epic, person or model")
 	}
 	var out proto.CostResult
 	if err := r.call(ctx, proto.OpCost, in, &out); err != nil {
@@ -129,7 +131,7 @@ func printCost(w io.Writer, c proto.CostResult) {
 		if c.UnpricedMore > 0 {
 			names += fmt.Sprintf(" and %d more", c.UnpricedMore)
 		}
-		p("unpriced: no price for %s; an admin sets one with `aries admin prices set`\n", names)
+		p("unpriced: no price for %s; an admin sets one with `aries admin price set`\n", names)
 	}
 	if c.Truncated {
 		p("partial: more records than the server reads; narrow the window\n")
@@ -169,15 +171,15 @@ func printCostLine(w io.Writer, usd string, unpriced bool) {
 // isZero reports whether the decimal usd is zero.
 func isZero(usd string) bool { return strings.Trim(usd, "0.") == "" }
 
-// rateFlags are the five rate flags of prices set, in the order the
+// rateFlags are the five rate flags of price set, in the order the
 // usage gives them.
 var rateFlags = []string{"input", "output", "cache-write", "cache-write-1h", "cache-read"}
 
-// cmdAdmin runs the first of its arguments that names a group (prices,
-// plans, project, principal, member, key or status), with the rest, so
+// cmdAdmin runs the first of its arguments that names a group (price,
+// plan, project, principal, member, key or status), with the rest, so
 // flags given before the group are its own.
 func cmdAdmin(ctx context.Context, r *runner, args []string) error {
-	const usage = "admin prices|plans|project|principal|member|key|status ..."
+	const usage = "admin price|plan|project|principal|member|key|status ..."
 	i := slices.IndexFunc(args, func(a string) bool { return slices.Contains(adminGroups, a) })
 	if i < 0 {
 		if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -187,10 +189,10 @@ func cmdAdmin(ctx context.Context, r *runner, args []string) error {
 	}
 	rest := slices.Delete(slices.Clone(args), i, i+1)
 	switch args[i] {
-	case "prices":
-		return adminPrices(ctx, r, rest)
-	case "plans":
-		return adminPlans(ctx, r, rest)
+	case "price":
+		return adminPrice(ctx, r, rest)
+	case "plan":
+		return adminPlan(ctx, r, rest)
 	case "project":
 		return adminProject(ctx, r, rest)
 	case "principal":
@@ -203,9 +205,11 @@ func cmdAdmin(ctx context.Context, r *runner, args []string) error {
 	return adminMember(ctx, r, rest)
 }
 
-func adminPrices(ctx context.Context, r *runner, args []string) error {
-	const usage = "admin prices [set MODEL --from DATE|TIME --input USD --output USD --cache-write USD --cache-write-1h USD --cache-read USD]"
-	fs := r.newFlags("admin prices")
+const priceUsage = "admin price list | set MODEL --from DATE|TIME --input USD --output USD --cache-write USD --cache-write-1h USD --cache-read USD"
+
+func adminPrice(ctx context.Context, r *runner, args []string) error {
+	const usage = priceUsage
+	fs := r.newFlags("admin price")
 	var from string
 	fs.StringVar(&from, "from", "", "when the rates take effect: a date (midnight UTC) or an RFC 3339 time")
 	rates := map[string]*string{}
@@ -218,14 +222,19 @@ func adminPrices(ctx context.Context, r *runner, args []string) error {
 	}
 	switch {
 	case len(pos) == 0:
+		return usagef(usage, "admin price needs list or set")
+	case pos[0] == "list":
+		if len(pos) > 1 {
+			return usagef(usage, "price list takes no arguments")
+		}
 		if set(fs, "from") || slices.ContainsFunc(rateFlags, func(f string) bool { return set(fs, f) }) {
-			return usagef(usage, "only prices set takes rates and --from")
+			return usagef(usage, "only price set takes rates and --from")
 		}
 		return listPrices(ctx, r)
 	case pos[0] != "set":
-		return usagef(usage, "unknown prices action %q", pos[0])
+		return usagef(usage, "unknown price action %q", pos[0])
 	case len(pos) != 2:
-		return usagef(usage, "prices set needs one model, spelled as the harness reports it")
+		return usagef(usage, "price set needs one model, spelled as the harness reports it")
 	}
 	in := proto.PriceSetArgs{Model: pos[1], From: from}
 	var missing []string
@@ -238,7 +247,7 @@ func adminPrices(ctx context.Context, r *runner, args []string) error {
 		missing = append([]string{"--from"}, missing...)
 	}
 	if len(missing) > 0 {
-		return usagef(usage, "prices set needs %s; give 0 for what the model does not charge", strings.Join(missing, ", "))
+		return usagef(usage, "price set needs %s; give 0 for what the model does not charge", strings.Join(missing, ", "))
 	}
 	for i, dst := range []*int64{&in.Input, &in.Output, &in.CacheWrite, &in.CacheWrite1h, &in.CacheRead} { // rateFlags' order
 		if *dst, err = proto.ParseRate(*rates[rateFlags[i]]); err != nil {
@@ -274,7 +283,7 @@ func listPrices(ctx context.Context, r *runner) error {
 // a price from midnight UTC shows its date alone.
 func printPrices(w io.Writer, res proto.PricesResult) {
 	if len(res.Prices) == 0 {
-		_, _ = fmt.Fprintln(w, "no prices; an admin sets one with `aries admin prices set`")
+		_, _ = fmt.Fprintln(w, "no prices; an admin sets one with `aries admin price set`")
 		return
 	}
 	_, _ = fmt.Fprintln(w, "USD per million tokens")
