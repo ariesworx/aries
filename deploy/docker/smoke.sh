@@ -4,7 +4,8 @@
 # principals, drives sfx through the main surfaces end to end, then
 # through a server of many projects (a second project, and a person
 # whose key only the control database holds, which sshd reads from the
-# keys file starfixd writes), restarts the server to check that its state
+# keys file starfixd writes), runs the commands of docs/ci.md's workflows
+# as a CI job would, restarts the server to check that its state
 # persists, then removes the server and its volume. It exits non-zero on
 # the first failure.
 #
@@ -86,13 +87,17 @@ fail() {
 # that for the checks of the rule itself: smoke_key names another key
 # file, or none when it is empty; smoke_agent is an ssh-agent socket of
 # the test's own; smoke_home is another home directory; and smoke_old is
-# a value for STARFIX_KEY, the variable sfx never reads.
+# a value for STARFIX_KEY, the variable sfx never reads. smoke_session
+# is another session, or none when it is empty, as in a CI job, where
+# sfx takes the session ci from CI=true. The session variables of an
+# agent harness the test may run under are cleared, so they name none.
 sfx_as() {
   local who=$1
   shift
   local key=${smoke_key-$work/keys/${who%-web}}
   (cd "$work/$who" && HOME="${smoke_home-$work/home}" XDG_CACHE_HOME="$work/home/.cache" SSH_AUTH_SOCK="${smoke_agent-}" \
-    STARFIX_KEY_FILE="$key" STARFIX_KEY="${smoke_old-}" STARFIX_SESSION="smoke-$who" "$sfx" "$@")
+    STARFIX_KEY_FILE="$key" STARFIX_KEY="${smoke_old-}" STARFIX_SESSION="${smoke_session-smoke-$who}" \
+    CLAUDE_CODE_SESSION_ID='' CLAUDE_SESSION_ID='' "$sfx" "$@")
 }
 
 # start_agent runs an ssh-agent of the test's own on agent_sock, and
@@ -863,6 +868,31 @@ expect "principal disable" '^carol: disabled$' alice admin principal disable car
 not_in_keys_file "a disabled principal's key" 'stdio --principal carol '
 refuse "a disabled principal's key" 'accepted no key' carol ready
 expect "status shows the keys file" "^keys file $keys_file: 2 keys, written " alice admin status
+# A CI job reports a check, as the workflows of docs/ci.md run it: its
+# own principal, CI=true and the branch in GITHUB_HEAD_REF, with no
+# session named, so sfx takes the session ci.
+echo "smoke: a CI job reports a check on the issue its branch names"
+mkdir -p "$work/ci-example"
+ssh-keygen -q -t ed25519 -N '' -C ci-example@example.com -f "$work/keys/ci-example"
+printf 'project: %s\nserver:\n  host: localhost\n  port: %s\n  host_key: %s\n' \
+  "$project" "$port" "$host_key" >"$work/ci-example/.starfix.yaml"
+expect "a principal for CI" ' added to ci-example$' alice admin principal add ci-example --key "$work/keys/ci-example.pub"
+ci_subject=$(sfx_as alice create "Parse the config" 2>/dev/null) || fail "sfx create of the CI subject exited $?"
+ci_next=$(sfx_as alice create "Use the parsed config" 2>/dev/null) || fail "sfx create of the dependent exited $?"
+expect "a ci gate" '^[a-z0-9]+-[a-z0-9]+$' alice gate add --kind ci --check build --subject "$ci_subject" --by ci-example --blocks "$ci_next"
+ci_branch="feature/$ci_subject-parse-the-config"
+CI=true GITHUB_HEAD_REF=$ci_branch smoke_session='' expect "a CI job's failure" ' failed$' \
+  ci-example gate fail --check build --from-branch --optional --sha 0123abc --url https://ci.example.com/runs/1 --reason "tests failed"
+CI=true GITHUB_HEAD_REF=$ci_branch refuse "a report from another session" "an agent's session" ci-example gate pass --check build --from-branch
+CI=true GITHUB_HEAD_REF=$ci_branch smoke_session='' refuse "a principal the gate does not name" 'only ci-example may pass' \
+  bob gate pass --check build --from-branch
+CI=true GITHUB_HEAD_REF=$ci_branch smoke_session='' expect "a CI job's pass" ' passed$' \
+  ci-example gate pass --check build --from-branch --optional --sha 4567def --url https://ci.example.com/runs/2
+expect "the dependent is ready" "^$ci_next " alice ready
+expect "the subject shows its check" '^check build: passed at 4567def' alice show "$ci_subject"
+CI=true GITHUB_HEAD_REF=dependabot/go_modules/lib-1.2.3 smoke_session='' expect "a branch that names no issue" 'nothing reported' \
+  ci-example gate pass --check build --from-branch --optional
+
 no_failed_write "before the restart"
 
 # Dolt's own metrics (docs/server.md, step 2): the endpoint answers on

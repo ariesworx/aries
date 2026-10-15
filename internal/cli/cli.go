@@ -118,7 +118,7 @@ func init() {
 		{"update", "update ID [--rev N] [--title T] [--body TEXT|-] [--status S] [-p N] [-t TYPE] [--assignee A] [--parent ID] ...", "change an issue's fields", cmdUpdate},
 		{"close", "close ID [--reason TEXT] [--rev N] [--force]", "close an issue (--force, admins only: despite open acceptance items)", cmdClose},
 		{"reopen", "reopen ID [--rev N]", "reopen a closed issue", cmdReopen},
-		{"gate", gateUsage, "hold issues back until a person passes a gate: add, pass, waive, rearm or list gates", cmdGate},
+		{"gate", gateUsage, "hold issues back until a person passes a gate, or CI reports a check: add, pass, fail, waive, rearm or list gates", cmdGate},
 		{"dep", "dep add|rm FROM TO [--type T]", "add or remove a dependency: FROM depends on TO", cmdDep},
 		{"label", "label add|rm ID LABEL...", "add or remove labels", cmdLabel},
 		{"comment", "comment ID TEXT...|-", "add a comment", cmdComment},
@@ -477,7 +477,7 @@ func (r *runner) connect(ctx context.Context) (*mcpserver.RepoConn, error) {
 
 // clientOptions describe this machine and session to the server. The
 // session id is r.session (prime --hook's), else the harness's from the
-// environment, else client.CLISession.
+// environment, else a CI job's or a person's (client.DefaultSession).
 func (r *runner) clientOptions() client.Options {
 	host, err := r.env.Hostname()
 	if err != nil || host == "" {
@@ -485,10 +485,7 @@ func (r *runner) clientOptions() client.Options {
 	}
 	session := r.session
 	if session == "" {
-		session = client.SessionFromEnv(r.env.Getenv)
-	}
-	if session == "" {
-		session = client.CLISession
+		session = client.DefaultSession(r.env.Getenv)
 	}
 	// The trace context is the environment's, read once for the process:
 	// right for a command, which is one piece of work. `sfx mcp` lives

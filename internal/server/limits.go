@@ -136,6 +136,7 @@ func (l Limits) WithDefaults() Limits {
 		{&l.PlanPrincipals, &d.PlanPrincipals},
 		{&l.ConflictsPerIssue, &d.ConflictsPerIssue}, {&l.ConflictsPerPrincipal, &d.ConflictsPerPrincipal},
 		{&l.GateApprovers, &d.GateApprovers}, {&l.OpenGates, &d.OpenGates},
+		{&l.GateChecks, &d.GateChecks}, {&l.GateEvidence, &d.GateEvidence},
 		{&l.Control.Projects, &d.Control.Projects}, {&l.Control.Principals, &d.Control.Principals},
 		{&l.Control.PrincipalsPerCreator, &d.Control.PrincipalsPerCreator},
 		{&l.Control.Keys, &d.Control.Keys}, {&l.Control.Members, &d.Control.Members}, {&l.OpenStores, &d.OpenStores},

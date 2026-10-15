@@ -139,6 +139,8 @@ sign-in fails, the refusal says once that it is not read.
 | `SSH_AUTH_SOCK` | ssh-agent's socket |
 | `HOME`, or `USERPROFILE` on Windows | Your home directory: `~/` in `STARFIX_KEY_FILE`, and `~/.ssh` for the default identities |
 | `STARFIX_SESSION`, `STARFIX_HARNESS`, `TRACEPARENT`, `TRACESTATE` | The session id, the agent harness's name and the caller's trace context ([agent guide](agents.md#sessions), [Trace context](agents.md#trace-context)) |
+| `CI` | Set to `true`, as GitHub Actions and GitLab CI set it, and no harness names a session: `sfx` runs in the session `ci`, a CI job's, rather than `cli` ([CI gates](ci.md#who-may-report)) |
+| `GITHUB_HEAD_REF`, `GITHUB_REF_NAME` with `GITHUB_REF_TYPE`, `CI_MERGE_REQUEST_SOURCE_BRANCH_NAME`, `CI_COMMIT_BRANCH` | The branch a CI job runs on, for `sfx gate pass\|fail --from-branch`, in that order; git's branch when none is set |
 | `STARFIX_NO_QUEUE` | Set to anything but empty, `0` or `false`: a write that cannot reach the server fails and is not queued, as with `--no-queue` ([When the server cannot be reached](#when-the-server-cannot-be-reached)) |
 | `STARFIX_DATA_DIR` | The absolute path of the directory `sfx` keeps its outbox and cache in, in place of your data directory ([Where it is kept](#where-it-is-kept)) |
 | `STARFIX_RELEASES` | Where `sfx upgrade` reads releases from, in place of the default: a mirror's `https://` URL, or the absolute path of a directory ([Where releases are read from](install.md#where-releases-are-read-from)) |
@@ -221,7 +223,7 @@ waiting in the outbox
 | Command | Does |
 |---|---|
 | `create TITLE` | Create an issue and print its id: `-p N` priority, `-t TYPE`, `--body TEXT` (or `-` for stdin), `--parent ID`, `--account NAME`, `--label L`, `--paths P,P` for the files the work will touch, relative to the current directory (a directory ends in `/`), and `--defer-until DATE` and `--due DATE` ([Dates](concepts.md#dates): a date, `2026-11-02`, or an RFC 3339 time). Similar closed issues, if any, are listed on stderr |
-| `show ID` | Show an issue with its dates, the gates that hold it (with who may pass each), dependencies, claim, open [conflicts](#conflicts), account, time held, cost at list price, hours people logged (by whom) and tokens by model ([Accounts, time and tokens](concepts.md#accounts-time-and-tokens)), acceptance checklist, latest handoff, likely files (declared first, then the most recent 20) with the issues others hold that overlap them, and similar closed issues. `--compact` is shorter |
+| `show ID` | Show an issue with its dates, the gates that hold it (with who may pass each), its CI checks with their last reports and, once closed, whether it landed ([CI gates](concepts.md#ci-gates)), dependencies, claim, open [conflicts](#conflicts), account, time held, cost at list price, hours people logged (by whom) and tokens by model ([Accounts, time and tokens](concepts.md#accounts-time-and-tokens)), acceptance checklist, latest handoff, likely files (declared first, then the most recent 20) with the issues others hold that overlap them, and similar closed issues. `--compact` is shorter |
 | `list` | List issues that are not closed, oldest first, 50 at a time, with each one's dates after its title. `-n N` sets the page size (up to 500); `--cursor C` continues, as the `more:` line on stderr shows. Filters: `--status S,S`, `--all` (closed too), `-t TYPE`, `-p N,N`, `--assignee A`, `--parent ID`, `--label L` |
 | `ready` | List issues nothing holds back, best first. An issue whose files overlap work another session holds comes last, with `overlaps ID` ([Files](concepts.md#files-what-an-issue-touches)) |
 | `blocked` | List issues held back by open blockers, then each [gate](concepts.md#gates) among them with who may pass it |
@@ -231,9 +233,11 @@ waiting in the outbox
 | `close ID`, `reopen ID` | Close (with `--reason`) or reopen an issue. Close is refused while an acceptance item is open; `--force`, for admins only, closes anyway |
 | `dep add\|rm FROM TO` | Add or remove a dependency: FROM depends on TO. `--type T` (default `blocks`). Removing an edge that a gate holds FROM through is refused unless you could pass the gate |
 | `gate add --blocks ID` | Hold ID back behind a new human [gate](concepts.md#gates) and print the gate's id: `--approver P` (repeatable) names who may pass it, none leaves it to the project's admins; `--title T` (default `Approve ID`). The approvers get a `gate.pending` inbox item |
-| `gate pass ID`, `gate rearm ID` | Pass a gate, which lets what it held become ready and tells its assignees, or reopen a passed one so that it holds again; `--reason TEXT`. Only an approver (or, when the gate names none, an admin other than its maker) passes it, and only from your own terminal: run from an agent's session it is refused |
+| `gate add --kind ci --check NAME --subject ID --by P` | Add a [ci gate](concepts.md#ci-gates): it waits for CI principal P (repeatable) to report check NAME passed on ID, the issue whose branch the check runs on. `--blocks ID` holds an issue back behind it; without it the gate only records the check, as for `landed`. An issue has one ci gate for each check |
+| `gate pass ID`, `gate rearm ID` | Pass a gate, which lets what it held become ready and tells its assignees, or reopen a passed one so that it holds again; `--reason TEXT`. Only an approver (or, when the gate names none, an admin other than its maker) passes a human gate, and only from your own terminal: run from an agent's session it is refused |
+| `gate pass\|fail --check NAME` | Report a ci gate's check passed or failed, as a [CI job](ci.md) does, naming the issue it ran on one way: `--issue ID`, `--branch NAME`, `--from-branch` (the CI system's variables, else git's branch) or `--from-commit` (HEAD's `Starfix:` trailer, else the branch a merge commit merged). `--sha SHA`, `--url URL` (http or https, no user or password) and `--reason TEXT` are the evidence, at most the server's `gate_evidence` in all. `--optional` exits 0, saying nothing was reported, when the branch or commit names no issue or the issue has no gate for the check. `gate pass ID` and `gate fail ID` report on a gate by its id. Only a principal the gate names reports, from a CI job (`CI=true`) or its own terminal. A failure tells the issue's holder, or its assignee |
 | `gate waive ID --reason TEXT` | Pass a gate as an admin, whoever it names, on the record |
-| `gate list` | List the open gates: approvers, what each holds and its title; `--all` adds passed and waived ones with who and when, `-n N` |
+| `gate list` | List the open gates: approvers, what each holds and its title, and a ci gate's failed check; `--all` adds passed and waived ones with who and when, `-n N` |
 | `label add\|rm ID LABEL...` | Add or remove labels |
 | `comment ID TEXT` | Add a comment (`-` reads stdin) |
 | `comments ID`, `history ID` | List all of an issue's comments, or all its changes; `-n N` shows only the newest N |
@@ -430,8 +434,9 @@ claim, and no claim is made without the server: while it is away you
 finish what you hold and file new work, and start nothing new. `close`,
 `reopen`, `forget`, `dep rm` and `log --undo` end or undo something on a
 state your machine cannot see. No `gate` command is queued: adding one
-later could hold back work someone started meanwhile, and a pass is
-your decision at the moment you make it. The hooks (`prime --hook`,
+later could hold back work someone started meanwhile, a pass is your
+decision at the moment you make it, and a CI job's report belongs to
+its run, so the job fails instead. The hooks (`prime --hook`,
 `usage --hook`) queue and send nothing; `prime --hook` does show prime
 from the cache.
 

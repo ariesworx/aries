@@ -371,6 +371,10 @@ type Issue struct {
 	// updates parked against others' changes, for a person to resolve
 	// and an agent to propose for (design §18.7).
 	Conflicts []Conflict `json:"conflicts,omitempty"`
+	// Checks are the CI checks on the issue, each "CHECK STATE (GATE)":
+	// waits for its CI principals, or the last report with its evidence.
+	// A closed issue whose landed check waits has not landed.
+	Checks []string `json:"checks,omitempty"`
 	// Truncated: long text was cut; full: true returns more.
 	Truncated bool `json:"truncated,omitempty"`
 }
@@ -860,6 +864,9 @@ func show(ctx context.Context, c Conn, in ShowIn) (Issue, error) {
 		c := &out.Conflicts[i]
 		texts = append(texts, &c.Base, &c.Mine, &c.Theirs)
 	}
+	for _, g := range r.Checks {
+		out.Checks = append(out.Checks, checkLine(g))
+	}
 	for _, d := range r.Deps {
 		if d.From == is.ID {
 			out.DependsOn = append(out.DependsOn, d.To+" "+d.Type)
@@ -879,6 +886,11 @@ func show(ctx context.Context, c Conn, in ShowIn) (Issue, error) {
 	// There are at most proto.MaxShowPaths.
 	for size(out) > MaxResultTokens && len(out.Files) > 0 {
 		out.Files, out.FilesMore = out.Files[:len(out.Files)-1], out.FilesMore+1
+	}
+	// A check's link may be long (gate_evidence); the last checks go
+	// last of all.
+	for size(out) > MaxResultTokens && len(out.Checks) > 0 {
+		out.Checks, out.Truncated = out.Checks[:len(out.Checks)-1], true
 	}
 	return out, nil
 }

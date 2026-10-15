@@ -174,6 +174,15 @@ import (
 // new ops and arguments as unknown, with code invalid and a fix that
 // says to upgrade, and `sfx mcp`'s prime goes without dates there.
 //
+// Slice G1 (design §20.4), CI gates, joined 8 too: the op gate.fail;
+// kind, check and subject on gate.add, and blocks there made optional
+// for a ci gate; and check, subject, branch, sha and url on gate.pass
+// and gate.fail, which report a check by the gate's id or by the issue
+// and the check, the issue named itself or by a branch. Results gained,
+// with no version needed, a gate's check, subject and report, and show's
+// checks. A server built before G1 refuses the new op and arguments as
+// unknown, with code invalid and a fix that says to upgrade.
+//
 // The bridge frame is not part of this protocol: it passes between two
 // starfixd processes on the server (frame.go), and carries no version.
 // It is read leniently, so a bridge from before a binary swap works

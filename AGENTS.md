@@ -65,7 +65,7 @@ stage is in progress.
 | `spike/dolt` | Stage 0 measurements, kept as evidence; not maintained and excluded from lint |
 | `spike/multidb` | Stage 3a measurements of many databases in one Dolt, kept as evidence; not maintained and excluded from lint |
 | `spike/outbox` | Stage 5 (slice F0) measurements of the local store of design §18.4 under many processes: file locks, the outbox, replay, compaction and the cache. Kept as evidence; not maintained and excluded from lint |
-| `docs` | User guides: concepts, `sfx`, agents, running a server, deployment examples, install, moving from bd, the security model |
+| `docs` | User guides: concepts, `sfx`, agents, CI gates and their workflows, running a server, deployment examples, install, moving from bd, the security model |
 | `docs/design` | Design documents |
 | `.claude/agents`, `.codex/agents`, `.gemini/agents` | Agent specifications (below); `internal/agentspec` keeps them in step |
 
@@ -286,8 +286,9 @@ and what a test that passes there does not do.
 12. **MCP is for agents and stays small.** No admin tools over MCP: import,
     export, setup, upgrade, settings, prices, plans, projects, principals,
     members, keys and the server's status are CLI only, and so are passing,
-    waiving and rearming a gate, a person's act from the session `cli`
-    (agents may add and list gates). An agent refused for want of access is told
+    waiving and rearming a gate, a person's act from the session `cli`, and
+    reporting a ci gate's check, a CI job's from the session `ci` (agents
+    may add and list gates). An agent refused for want of access is told
     to ask a person, never to run an admin command
     (`internal/mcpserver/errors.go`).
     Identity is implicit: the principal comes from the SSH key and the

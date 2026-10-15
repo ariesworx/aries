@@ -335,6 +335,19 @@ assignee of what the gate held. Running `sfx gate pass` in the agent's
 shell is refused too: a pass counts only from the person's own
 terminal, the session `cli`, which an agent's harness session is not.
 
+A [ci gate](ci.md) waits for CI to report a check, such as `build` or
+`landed`, on the issue it names as its subject. An agent sees it and
+cannot pass or fail it. `show` gives an issue's `checks`, one line each:
+`build failed at abc1234: URL REASON (GATE)`, or `landed waits for
+ci-example (GATE)`; a closed issue whose `landed` check waits has not
+landed. The `gate` tool's `list` gives a ci gate's `check`, `subject`
+and last `report`. When a check fails on an issue the agent holds, its
+`inbox` gets a `gate.failed` item with the run's link and the reason:
+fix the work and push, and CI's next pass closes the matter. `sfx gate
+pass` or `fail` from the agent's shell is refused, even with CI's key:
+CI reports from a CI job's session, which an agent's harness session is
+not.
+
 ### When the server cannot be reached
 
 When `create`, `comment`, `handoff`, `remember`, `finish`, `update` with

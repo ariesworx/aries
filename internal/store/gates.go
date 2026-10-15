@@ -1,6 +1,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -45,6 +46,9 @@ type GateKind string
 const (
 	// GateHuman is passed by a principal it names, or an admin.
 	GateHuman GateKind = "human"
+	// GateCI is passed or failed by a CI principal it names, which
+	// reports a check on its subject (ci_gates.go).
+	GateCI GateKind = "ci"
 )
 
 // GateOutcome is how a gate was closed; empty while it is open.
@@ -62,22 +66,30 @@ const (
 	OpGatePass  Op = "gate.pass"
 	OpGateWaive Op = "gate.waive"
 	OpGateRearm Op = "gate.rearm"
+	OpGateFail  Op = "gate.fail"
 
 	// InboxGatePending tells a gate's approvers it waits for them.
 	InboxGatePending InboxKind = "gate.pending"
 	// InboxGatePassed tells the assignees of what a gate held that it
 	// passed or was waived.
 	InboxGatePassed InboxKind = "gate.passed"
+	// InboxGateFailed tells the holder of a ci gate's subject, or its
+	// assignee, that a check failed, with the evidence.
+	InboxGateFailed InboxKind = "gate.failed"
 )
 
 // Gate is a gate as read back: its issue's id, title, creator and time,
 // and its own fields. Holds are the issues that depend on it directly,
-// at most maxGateHolds.
+// at most maxGateHolds. A ci gate's Approvers are the principals that
+// report its Check on its Subject, and Report is the last report made.
 type Gate struct {
 	ID        IssueID     `json:"id"`
 	Title     string      `json:"title"`
 	Kind      GateKind    `json:"kind"`
 	Approvers []string    `json:"approvers"`
+	Check     string      `json:"check,omitempty"`
+	Subject   IssueID     `json:"subject,omitempty"`
+	Report    *GateReport `json:"report,omitempty"`
 	Outcome   GateOutcome `json:"outcome,omitempty"`
 	By        string      `json:"by,omitempty"`
 	At        *time.Time  `json:"at,omitempty"`
@@ -89,12 +101,23 @@ type Gate struct {
 
 // NewGate is the input to AddGate.
 type NewGate struct {
-	// Blocks is the issue the gate holds back.
+	// Kind is GateHuman (the default) or GateCI.
+	Kind GateKind
+	// Blocks is the issue the gate holds back. A ci gate may hold none,
+	// and then only records its check's outcome on its subject.
 	Blocks IssueID
-	// Title defaults to "Approve " and the held issue's id.
+	// Title defaults to "Approve " and the held issue's id, and for a ci
+	// gate to its check, " of " and its subject.
 	Title string
-	// Approvers may pass the gate; none leaves it to the project's admins.
+	// Approvers may pass a human gate; none leaves it to the project's
+	// admins. A ci gate names at least one: the principals that report
+	// its check.
 	Approvers []string
+	// Check and Subject are a ci gate's: the check's name (such as build,
+	// test or landed) and the issue whose branch it runs on. A subject has
+	// at most one ci gate for each check.
+	Check   string
+	Subject IssueID
 	// Priority defaults to the held issue's.
 	Priority *Priority
 	// IdempotencyKey makes a retried add return the first result.
@@ -130,16 +153,24 @@ const (
 	GateNotPerson GateReason = "not person"
 	// GateNotAdmin: a waive, which is for admins.
 	GateNotAdmin GateReason = "not admin"
+	// GateNotCI: a ci gate's report came from an agent's session, not a
+	// CI job's (proto.CISession) or a person's terminal.
+	GateNotCI GateReason = "not ci"
+	// GateNoCheck: the subject has no ci gate for the check named.
+	GateNoCheck GateReason = "no check"
 )
 
 // GateError refuses a change a gate does not allow. ID is the issue the
 // change was to, Gate the gate in the way (the same as ID for a change to
 // a gate), and Approvers those the gate names, empty for the project's
-// admins. Held and IsGate wrap ErrInvalid; the rest ErrForbidden.
+// admins. Held and IsGate wrap ErrInvalid, NoCheck ErrNotFound, and the
+// rest ErrForbidden. Check is the check of a ci gate's refusal: for
+// NoCheck, the one that subject ID has no gate for.
 type GateError struct {
 	ID        IssueID
 	Gate      IssueID
 	Approvers []string
+	Check     string
 	Reason    GateReason
 	// Op names the change that was refused, such as "close".
 	Op string
@@ -169,14 +200,22 @@ func (e *GateError) Error() string {
 		return fmt.Sprintf("gate %s is passed by a person at their own terminal, not from an agent's session", e.Gate)
 	case GateNotAdmin:
 		return fmt.Sprintf("waiving gate %s is for admins", e.Gate)
+	case GateNotCI:
+		return fmt.Sprintf("gate %s is reported from a CI job or a person's terminal, not from an agent's session", e.Gate)
+	case GateNoCheck:
+		return fmt.Sprintf("%v: issue %s has no ci gate for check %s", ErrNotFound, e.ID, e.Check)
 	}
 	return fmt.Sprintf("only %s may %s gate %s", e.ApproverText(), e.Op, e.Gate)
 }
 
-// Unwrap makes errors.Is hold for ErrInvalid or ErrForbidden.
+// Unwrap makes errors.Is hold for ErrInvalid, ErrNotFound or
+// ErrForbidden.
 func (e *GateError) Unwrap() error {
-	if e.Reason == GateHeld || e.Reason == GateIsGate {
+	switch e.Reason {
+	case GateHeld, GateIsGate:
 		return ErrInvalid
+	case GateNoCheck:
+		return ErrNotFound
 	}
 	return ErrForbidden
 }
@@ -201,7 +240,8 @@ func loadGate(ctx context.Context, q querier, id IssueID) (*gateRow, error) {
 // holds.
 func loadGates(ctx context.Context, q querier, where string, limit int, args ...any) ([]gateRow, error) {
 	rows, err := q.QueryContext(ctx, `SELECT g.issue_id, i.title, g.kind, g.approvers, g.outcome, g.decided_by,
-  g.decided_at, g.reason, i.created_by, i.created_at FROM gates g JOIN issues i ON i.id = g.issue_id `+where+ //nolint:gosec // where is a constant from the callers
+  g.decided_at, g.reason, i.created_by, i.created_at, g.check_name, g.subject, g.report
+  FROM gates g JOIN issues i ON i.id = g.issue_id `+where+ //nolint:gosec // where is a constant from the callers
 		` ORDER BY i.created_at, i.id LIMIT ?`, append(args, limit)...)
 	if err != nil {
 		return nil, fmt.Errorf("gates: %w", err)
@@ -209,10 +249,11 @@ func loadGates(ctx context.Context, q querier, where string, limit int, args ...
 	var out []gateRow
 	for rows.Next() {
 		var g gateRow
-		var approvers []byte
-		var outcome, by sql.NullString
+		var approvers, report []byte
+		var outcome, by, subject sql.NullString
 		var at sql.NullTime
-		if err := rows.Scan(&g.ID, &g.Title, &g.Kind, &approvers, &outcome, &by, &at, &g.Reason, &g.CreatedBy, &g.CreatedAt); err != nil {
+		if err := rows.Scan(&g.ID, &g.Title, &g.Kind, &approvers, &outcome, &by, &at, &g.Reason, &g.CreatedBy, &g.CreatedAt,
+			&g.Check, &subject, &report); err != nil {
 			_ = rows.Close()
 			return nil, fmt.Errorf("gates: %w", err)
 		}
@@ -220,6 +261,14 @@ func loadGates(ctx context.Context, q querier, where string, limit int, args ...
 			_ = rows.Close()
 			return nil, fmt.Errorf("gate %s approvers: %w", g.ID, err)
 		}
+		if len(report) > 0 && string(report) != "null" {
+			if err := json.Unmarshal(report, &g.Report); err != nil {
+				_ = rows.Close()
+				return nil, fmt.Errorf("gate %s report: %w", g.ID, err)
+			}
+			g.Report.At = g.Report.At.UTC()
+		}
+		g.Subject = IssueID(subject.String)
 		g.Outcome, g.By, g.At, g.CreatedAt = GateOutcome(outcome.String), by.String, timePtr(at), g.CreatedAt.UTC()
 		g.open = !outcome.Valid
 		out = append(out, g)
@@ -319,6 +368,22 @@ func (w *wtx) approves(g *gateRow) bool {
 // the session cli, which no agent harness's session is.
 func (w *wtx) inPerson() bool { return w.actor.Session == proto.CLISession }
 
+// sessionRefusal is why w's actor's session may not make decision
+// outcome on g, or "" when it may. A person decides at their own
+// terminal; a ci gate's pass, failure or rearm may come from a CI job's
+// session too. A waive is a person's, whatever the gate.
+func (w *wtx) sessionRefusal(g *gateRow, outcome GateOutcome) GateReason {
+	switch {
+	case w.inPerson():
+		return ""
+	case g.Kind != GateCI || outcome == GateWaived:
+		return GateNotPerson
+	case w.actor.Session == proto.CISession:
+		return ""
+	}
+	return GateNotCI
+}
+
 // mayRelease reports whether w's actor may undo g's hold: one who could
 // pass or waive it, in person.
 func (w *wtx) mayRelease(g *gateRow) bool {
@@ -382,14 +447,32 @@ func isGateError(ctx context.Context, q querier, id IssueID, op string) error {
 // normalize checks a new gate and fills in its defaults, refusing with
 // ErrInvalid what is not valid or more approvers than limit.
 func (n *NewGate) normalize(limit int) error {
-	if n.Blocks == "" {
-		return fmt.Errorf("%w: a gate holds an issue back; name it", ErrInvalid)
+	switch n.Kind {
+	case "", GateHuman:
+		n.Kind = GateHuman
+		if n.Check != "" || n.Subject != "" {
+			return fmt.Errorf("%w: a check and a subject are a ci gate's; add it with kind ci", ErrInvalid)
+		}
+		if n.Blocks == "" {
+			return fmt.Errorf("%w: a gate holds an issue back; name it", ErrInvalid)
+		}
+	case GateCI:
+		if err := n.normalizeCI(); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("%w: gate kind %q; give human or ci", ErrInvalid, n.Kind)
 	}
-	if err := n.Blocks.Validate(); err != nil {
-		return err
+	if n.Blocks != "" {
+		if err := n.Blocks.Validate(); err != nil {
+			return err
+		}
 	}
 	if n.Title == "" {
 		n.Title = "Approve " + string(n.Blocks)
+		if n.Kind == GateCI {
+			n.Title = n.Check + " of " + string(n.Subject)
+		}
 	}
 	if err := checkTitle(n.Title); err != nil {
 		return err
@@ -412,6 +495,9 @@ func (n *NewGate) normalize(limit int) error {
 	if len(approvers) > limit {
 		return fmt.Errorf("%w: a gate names at most %d approvers, not %d", ErrInvalid, limit, len(approvers))
 	}
+	if n.Kind == GateCI && len(approvers) == 0 {
+		return fmt.Errorf("%w: a ci gate names the principals that report its check; name at least one", ErrInvalid)
+	}
 	n.Approvers = approvers
 	if n.Approvers == nil {
 		n.Approvers = []string{}
@@ -419,12 +505,14 @@ func (n *NewGate) normalize(limit int) error {
 	return nil
 }
 
-// AddGate creates a human gate holding in.Blocks back: a gate issue, its
-// row and the blocks edge, in one write, and tells each approver
-// (gate.pending). Anyone may add one. Invalid input, or more approvers
-// than the gate_approvers limit, is refused with ErrInvalid; an issue
-// that does not exist with ErrNotFound; a project at its open_gates limit
-// with ErrBusy. With an idempotency key, a repeat returns the first
+// AddGate creates a gate holding in.Blocks back: a gate issue, its row
+// and the blocks edge, in one write. A human gate tells each approver
+// (gate.pending); a ci gate, which may hold nothing back, tells nobody.
+// Anyone may add one. Invalid input, more approvers than the
+// gate_approvers limit, a second ci gate for one subject and check, or
+// more than gate_checks on a subject, is refused with ErrInvalid; an
+// issue that does not exist with ErrNotFound; a project at its open_gates
+// limit with ErrBusy. With an idempotency key, a repeat returns the first
 // result.
 func (s *Store) AddGate(ctx context.Context, actor Actor, in NewGate) (Gate, error) {
 	if err := in.normalize(s.opts.Limits.GateApprovers); err != nil {
@@ -443,9 +531,17 @@ func (s *Store) AddGate(ctx context.Context, actor Actor, in NewGate) (Gate, err
 		if done, err := replay(ctx, w, in.IdempotencyKey, "gate.add", in, &out); done || err != nil {
 			return err
 		}
-		held, err := loadIssue(ctx, w.tx, in.Blocks)
+		// The issue the gate is about: the one it holds back, or a ci
+		// gate's subject when it holds none.
+		about := cmp.Or(in.Blocks, in.Subject)
+		held, err := loadIssue(ctx, w.tx, about)
 		if err != nil {
 			return err
+		}
+		if in.Kind == GateCI {
+			if err := checkNewCI(ctx, w, in); err != nil {
+				return err
+			}
 		}
 		n, err := openGates(ctx, w.tx)
 		if err != nil {
@@ -466,18 +562,29 @@ func (s *Store) AddGate(ctx context.Context, actor Actor, in NewGate) (Gate, err
 		if _, err := insertIssue(ctx, w, id, ni, nil); err != nil {
 			return err
 		}
-		if _, err := w.exec(ctx, `INSERT INTO gates (issue_id, kind, approvers, outcome, decided_by, decided_at, reason, rev, write_id)
-  VALUES (?, ?, ?, NULL, NULL, NULL, '', 1, ?)`, string(id), string(GateHuman), string(approvers), randomInt63()); err != nil {
+		if _, err := w.exec(ctx, `INSERT INTO gates (issue_id, kind, approvers, outcome, decided_by, decided_at, reason, check_name, subject, report, rev, write_id)
+  VALUES (?, ?, ?, NULL, NULL, NULL, '', ?, ?, NULL, 1, ?)`, string(id), string(in.Kind), string(approvers),
+			in.Check, nullStr(in.Subject), randomInt63()); err != nil {
 			return fmt.Errorf("insert gate: %w", err)
 		}
-		if err := w.event(ctx, OpGateAdd, string(id), nil,
-			map[string]any{"kind": GateHuman, "approvers": in.Approvers, "blocks": in.Blocks}); err != nil {
+		added := map[string]any{"kind": in.Kind, "approvers": in.Approvers, "blocks": nullStr(in.Blocks)}
+		if in.Kind == GateCI {
+			added["check"], added["subject"] = in.Check, in.Subject
+		}
+		if err := w.event(ctx, OpGateAdd, string(id), nil, added); err != nil {
 			return err
 		}
-		if err := insertDep(ctx, w, in.Blocks, id, DepBlocks); err != nil {
-			return err
+		if in.Blocks != "" {
+			if err := insertDep(ctx, w, in.Blocks, id, DepBlocks); err != nil {
+				return err
+			}
 		}
-		for _, a := range in.Approvers {
+		// A ci gate's principals are CI jobs, which read no inbox.
+		var pending []string
+		if in.Kind == GateHuman {
+			pending = in.Approvers
+		}
+		for _, a := range pending {
 			if err := w.notify(ctx, InboxItem{To: a, Kind: InboxGatePending, Issue: id,
 				Body: fmt.Sprintf("holds %s %s: pass it with `sfx gate pass %s`", held.ID, held.Title, id)}); err != nil {
 				return err
@@ -554,15 +661,18 @@ func (s *Store) decide(ctx context.Context, actor Actor, id IssueID, reason stri
 			return fmt.Errorf("%w: issue %s is not a gate", ErrInvalid, id)
 		}
 		refuse := func(r GateReason) error {
-			return &GateError{ID: id, Gate: id, Approvers: g.Approvers, Reason: r, Op: verb}
+			return &GateError{ID: id, Gate: id, Approvers: g.Approvers, Check: g.Check, Reason: r, Op: verb}
 		}
 		switch {
 		case outcome == GateWaived && !w.admin:
 			return refuse(GateNotAdmin)
 		case outcome == GatePassed && !w.approves(g), outcome == "" && !w.approves(g) && !w.admin:
 			return refuse(GateNotApprover)
-		case !w.inPerson():
-			return refuse(GateNotPerson)
+		case w.sessionRefusal(g, outcome) != "":
+			return refuse(w.sessionRefusal(g, outcome))
+		case g.Kind == GateCI && outcome == GatePassed:
+			out, err = w.report(ctx, before, g, Report{Reason: reason}, CheckPassed)
+			return err
 		case outcome != "" && !g.open:
 			return &StateError{ID: id, Reason: StateAlreadyClosed}
 		case outcome == "" && g.open:

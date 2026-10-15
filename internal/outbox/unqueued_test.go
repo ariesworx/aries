@@ -26,6 +26,7 @@ func TestUnqueued(t *testing.T) {
 		{proto.OpGatePass, "person's decision"},
 		{proto.OpGateWaive, "person's decision"},
 		{proto.OpGateRearm, "person's decision"},
+		{proto.OpGateFail, "CI job's report"},
 		{proto.OpGates, ""},
 		{proto.OpDates, ""},
 		{proto.OpUpdate, ""},

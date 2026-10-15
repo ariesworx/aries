@@ -97,6 +97,7 @@ var handlers = map[string]handler{
 	proto.OpGatePass:    typed(gatePass),
 	proto.OpGateWaive:   typed(gateWaive),
 	proto.OpGateRearm:   typed(gateRearm),
+	proto.OpGateFail:    typed(gateFail),
 	proto.OpGates:       typed(gates),
 	proto.OpDates:       typed(dates),
 }
@@ -221,6 +222,13 @@ func show(ctx context.Context, pr *served, a store.Actor, in proto.ShowArgs) (an
 	}
 	if len(holding) > 0 {
 		out.Gates = wireGates(holding)
+	}
+	checks, err := pr.store.ChecksOf(ctx, v.Issue.ID)
+	if err != nil {
+		return nil, pr.mapErr(ctx, proto.OpShow, in.ID, 0, err)
+	}
+	if len(checks) > 0 {
+		out.Checks = wireGates(checks)
 	}
 	if len(deps) > proto.MaxShowDeps {
 		deps, out.DepsMore = deps[:proto.MaxShowDeps], len(deps)-proto.MaxShowDeps

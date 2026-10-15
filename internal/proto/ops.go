@@ -226,6 +226,10 @@ type ShowResult struct {
 	// that hold it, directly or through a parent or a blocker (protocol 8).
 	Gate  *Gate  `json:"gate,omitempty"`
 	Gates []Gate `json:"gates,omitempty"`
+	// Checks are the ci gates whose subject the issue is, open or
+	// closed, by check: a closed issue whose landed check is open is
+	// closed and not landed (protocol 8, slice G1).
+	Checks []Gate `json:"checks,omitempty"`
 }
 
 // Tokens are token counts. A count left out is unknown, which is not 0.
@@ -584,6 +588,12 @@ type RenewArgs struct {
 // CLISession is the session of a person's own `sfx` commands, run without
 // a harness session id: one per principal and machine.
 const CLISession = "cli"
+
+// CISession is the session of `sfx` run by a CI job without a harness
+// session id: where the environment says CI=true, as GitHub Actions and
+// GitLab CI set it. The server takes a ci gate's report from it, as from
+// CLISession, and a human gate's decision from CLISession alone.
+const CISession = "ci"
 
 // ClaimsResult lists claims: renew's soonest to expire first, claims'
 // longest held first. claims also sets Now, the server's clock, and More,

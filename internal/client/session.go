@@ -27,6 +27,19 @@ func SessionFromEnv(getenv func(string) string) string {
 	return ""
 }
 
+// DefaultSession returns the session a command runs in: the harness's
+// (SessionFromEnv); else, where CI=true, as GitHub Actions and GitLab CI
+// set it, CISession, a CI job's; else CLISession, a person's terminal.
+func DefaultSession(getenv func(string) string) string {
+	if s := SessionFromEnv(getenv); s != "" {
+		return s
+	}
+	if getenv("CI") == "true" {
+		return proto.CISession
+	}
+	return CLISession
+}
+
 // The environment variables that carry a W3C trace context into a
 // process, by the OpenTelemetry convention for environment carriers.
 const (
