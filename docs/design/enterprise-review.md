@@ -169,7 +169,7 @@ Evidence is a file, a test or a section. "Searched" names the patterns looked fo
 | One-line install, no sudo; a Docker test server | Built, tested | `install.sh`, `internal/release/install_test.go`; `deploy/docker/smoke.sh` |
 | Migration from one predecessor tool | Built, tested | `internal/bdimport` |
 | Migration from the trackers enterprises run | Absent | |
-| Apache-2.0 | Decided and done | `LICENSE`; decision 4 |
+| AGPL-3.0-only, with a commercial license beside it | License decided and done; the contributor license agreement the commercial license depends on is not yet in place | `LICENSE`; decision 82 (replacing decision 4) |
 | A vulnerability disclosure policy, a support statement, an SLA | Absent | No `SECURITY.md` at the repository root |
 
 ## 1. Organizing work
@@ -395,7 +395,7 @@ Each needs a minimum sample before it speaks, or it will mislead a small team. T
 | A migration path from their tracker | One predecessor tool only |
 | A way for non-engineers to see it | No |
 | Their operating system and cloud | One distribution; private access built for one cloud |
-| A license | Apache-2.0: no obstacle, and a real advantage in procurement |
+| A license | AGPL-3.0-only since 15 Oct 2026 (Apache-2.0 before): an obstacle where procurement bars the AGPL, which the commercial license of decision 82 is there to answer |
 | Proof of scale | A ten-minute soak with 25 sessions on a laptop |
 
 **Where the design choices help and where they will be the reason for "no".**
