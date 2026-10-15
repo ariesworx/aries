@@ -690,6 +690,9 @@ After P1 and P2. Each slice leaves `main` working and off until configured. Esti
 
 ## 16. Decisions for the maintainer
 
+**Decided 15 Oct 2026** (aries.md §14, decision 87): the maintainer accepted all eighteen recommendations below as written, and kept the whole plan in v1.0.0.
+
+
 Each with a recommendation.
 
 1. **Where the design lives.** *Recommended:* this document for transport and tokens, identity.md for identity, each pointing to the other. *Cost:* two documents to read for sign-in.
