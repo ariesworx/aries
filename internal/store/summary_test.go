@@ -204,8 +204,8 @@ func TestBlockedLimitIsAPrefix(t *testing.T) {
 	for _, b := range all {
 		vias[b.ID] = b.Via
 	}
-	// A leaf under two blocked ancestors is blocked through the nearer,
-	// as the recursive query reaches it first.
+	// A leaf under two blocked ancestors is blocked through the nearer:
+	// the queries order by depth, not by the order rows are emitted.
 	want := map[string]IssueID{"epic": "", "feature": "", "self and ancestors": ""}
 	for i := range 4 {
 		want[fmt.Sprintf("leaf %d", i)] = p.blocked["feature"]
