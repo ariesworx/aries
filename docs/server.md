@@ -1821,8 +1821,9 @@ project whose store was closed for idleness, when the project is next
 used. Until then its time runs on as if the clock had not moved. A lease
 that runs out meanwhile has had all of its time and ends as it would
 have without the jump; every lease still live is extended. The
-`clock.step` event's time is the database's time when it settled, and
-its `claims` the leases it extended.
+`clock.step` event's time is the database's time when it settled, its
+`claims` the claims' leases it extended, and its `locks` the holds of
+locks and places in their queues, which are leases too.
 
 **No write that begins after a jump is dated before it,** in any
 database of the server: the control database's and every project's. A
@@ -2225,6 +2226,10 @@ limits:
 | `open_gates` | 1000 | Open gates in a project. One more is refused with `busy`, and its fix says to pass or waive an open one (`sfx gate list`) or raise the limit. The gates on one issue are its dependencies, so `deps_per_issue` bounds them |
 | `gate_checks` | 20 | [CI gates](ci.md) whose subject is one issue, which is its checks, one gate each (at most 100). One more is refused with `invalid` |
 | `gate_evidence` | 1024 | Bytes of a CI report's evidence, its commit, link and reason together (at most 4096). More is refused with `invalid`, as is a link with a user or password, or evidence that looks like a secret |
+| `locks` | 200 | [Locks](concepts.md#locks) in use in a project: names someone holds or waits for (at most 10000). A lock nobody holds or waits for is gone and does not count. One more is refused with `busy`, and its fix says to see `sfx lock list` or raise the limit |
+| `lock_capacity` | 64 | The capacity a lock may be given, holders at once (at most 1000). More is refused with `invalid` |
+| `lock_waiters` | 100 | Places in one lock's queue (at most 1000). One more is refused with `busy` |
+| `lock_waits_per_principal` | 20 | Places one principal has in all of a project's queues, from every session (at most 1000). One more is refused with `busy`, and its fix says to leave a queue (`sfx lock leave NAME`) or raise the limit. A principal's holds need no cap of their own: `locks` times `lock_capacity` bounds them |
 | `due_soon` | `1d` | How far ahead of its due date `digest` and `prime` list an issue as due soon ([Dates](concepts.md#dates)). Up to a year. It bounds nothing |
 | `away_max` | `7d` | The longest `sfx away` may extend a person's claims, in every session, ahead of an absence; asking for longer is refused with `invalid`, its fix naming the cap. A claim so extended holds its issue against everyone else until then, so this bounds how long work can be held by someone who is not doing it. From `1h` to `30d` |
 | `open_stores` | 64 | With `control_db`: project stores open at once. Each holds one connection to Dolt when idle and up to nine under load. At the cap, a connection to another project closes the store that has been without connections longest; when every open store has one, it is refused with `busy` |
@@ -2590,7 +2595,8 @@ time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-
 | `issue`, `epoch`, `reason` | A claim's issue and number, and a few fixed words for why (`membership removed`, `principal disabled`, `project archived`, `key removed`, `idle`, `to make room`, `archived`, `connection limit`) |
 | `name`, `database`, `account`, `problems`, `resumed` | A project's name and database; the Dolt account and what is unsafe about it; whether a `project add` resumed one begun before |
 | `after`, `oldest`, `connections`, `own`, `lines`, `per_minute` | Connections: how long one idled or how long before a retry, whether the one closed was the oldest waiting, how many were dropped and whether the admin's own was one, and how many refusal lines the cap left out of how many allowed |
-| `agents`, `inbox`, `claims`, `extended` | How many registry rows and inbox items a prune removed; how many leases a clock step extended, and by how much |
+| `agents`, `inbox`, `claims`, `locks`, `extended` | How many registry rows and inbox items a prune removed; how many claims' leases, and locks' holds and places, a clock step extended, and by how much |
+| `lock`, `waiting` | A [lock](concepts.md#locks)'s name, and whether what ended was a place in its queue rather than a hold. A lock's name is text a person chose, so it stays in the journal and is never exported ([Logs over OTLP](#logs-over-otlp)) |
 | `path`, `keys` | The keys file, or the stand-in key's file, and how many keys were written |
 | `log`, `clock`, `history`, `behind`, `since`, `was_behind_since`, `direction`, `step`, `steps`, `from`, `to`, `forward_since_start`, `backward_since_start` | [The server's clock](#the-servers-clock): which history, the two times, how far behind and since when, and a step's direction, size and count |
 | `url`, `failures`, `after_failures`, `every` | [Dolt's figures](#dolts-figures): the URL read, how many reads have failed, and how often it is read |
@@ -2635,6 +2641,8 @@ time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-
 | `control.index_stale` | error | A control write failed and the reread after it failed too: what starfixd holds in memory of keys and members may be stale until a restart |
 | `claim.expired` | info | A claim's lease ran out and the reaper ended it |
 | `claim.released` | info | A claim ended because its holder lost access; `reason` says how |
+| `lock.expired` | info | A lock's hold, or a place in its queue (`waiting=true`), ran out of lease and the reaper ended it, granting the next waiter |
+| `lock.released` | info | A lock's hold or place ended because its holder lost access; `reason` says how |
 | `reaper.failed`, `reaper.prune_failed` | error | The reaper could not end expired claims, or prune, in a project |
 | `reaper.pruned` | info | The reaper removed old registry rows or read inbox items |
 | `access.sweep_failed` | error | The claims of holders without access could not be ended in a project |
@@ -2952,6 +2960,8 @@ seconds and `_total` to a counter, and gives a histogram `_bucket`,
 | `starfix.stores.open` | `starfix_stores_open` | gauge | none |
 | `starfix.store.open.duration` | `starfix_store_open_duration_seconds` | histogram, seconds | `migrated` |
 | `starfix.claims` | `starfix_claims_total` | counter | `event`, `reason` |
+| `starfix.locks` | `starfix_locks_total` | counter | `event` |
+| `starfix.lock.wait.duration` | `starfix_lock_wait_duration_seconds` | histogram, seconds | none |
 | `starfix.control.writes` | `starfix_control_writes_total` | counter | `op`, `result` |
 | `starfix.keys_file.writes` | `starfix_keys_file_writes_total` | counter | `result` |
 | `starfix.keys_file.last_write.time` | `starfix_keys_file_last_write_time_seconds` | gauge, Unix seconds | none |
@@ -2977,6 +2987,8 @@ What each counts:
 | `stores.open` | Project stores open, opening or closing; always 1 on a server of one project |
 | `store.open.duration` | With `control_db`: opening a project's store, migrations included: once for each active project before the daemon listens, which is where an upgrade's migrations run, then whenever a connection or an archive opens one that was closed |
 | `claims` | Changes of a claim, as the event log records them, and renewals |
+| `locks` | Changes of a [lock](concepts.md#locks)'s holds and queue, as the event log records them, and renewals of a hold or a place. A lock's name is no attribute: it is a person's text |
+| `lock.wait.duration` | Each grant to a place in a lock's queue: how long the place waited, on the server's time. The buckets end at 10 seconds, so most waits for a deploy or a merge fall past the last |
 | `control.writes` | With `control_db`: each `sfx admin` change, refused ones included |
 | `keys_file.writes` | With `control_db`: each time the keys file was written, or could not be. A file that already held the right keys is not a write |
 | `keys_file.last_write.time` | When the keys file took its current content |
@@ -2995,9 +3007,10 @@ number of series cannot grow with what clients send:
 | `result_class` | `ok`; `error` for `unavailable`, which is the server's failure; `refused` for every other refusal, which is the request's |
 | `project` | The project's UUID, only for a project a connection was admitted to. At most as many as the `projects` limit, and `other` past that |
 | `reason` of a dropped connection | `membership`, `disabled`, `archived`, `key` (the access that let it in ended), `idle` (`idle_timeout`), `limit` (a socket past twice `conns`), `access` (the access ended while the handshake ran) |
-| `limit` | `conns`, `conns_per_principal`, `handshakes_per_principal`, `handshake_sockets` (twice `conns`), `write_rate`, `control_write_rate`, `open_stores`, `telemetry_requests`, `projects`, `principals`, `keys_per_principal`, `members_per_project`, `prices`, `plans`, `hours_per_day`, `usage_per_day` |
+| `limit` | `conns`, `conns_per_principal`, `handshakes_per_principal`, `handshake_sockets` (twice `conns`), `write_rate`, `control_write_rate`, `open_stores`, `telemetry_requests`, `projects`, `principals`, `keys_per_principal`, `members_per_project`, `prices`, `plans`, `hours_per_day`, `usage_per_day`, `locks`, `lock_waiters`, `lock_waits_per_principal` |
 | `migrated` | `true` when opening the store applied a migration |
 | `event` of a claim | `take`, `renew`, `release`, `expire` |
+| `event` of a lock | `acquire`, `wait`, `grant`, `renew`, `release`, `expire`, `leave` |
 | `reason` of a claim | `membership`, `disabled` or `archived` for a release that ended with the holder's access; `none` for every other change |
 | `signal` | `metrics`, `traces`, `logs` |
 | `direction` | `forward`, `backward` |

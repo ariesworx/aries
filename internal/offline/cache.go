@@ -154,7 +154,7 @@ func convert(from, to any) bool {
 // §18.6).
 func RefusedOffline(op string) bool {
 	switch op {
-	case proto.OpReady, proto.OpBlocked, proto.OpList, proto.OpWho, proto.OpClaims, proto.OpGates, proto.OpDates:
+	case proto.OpReady, proto.OpBlocked, proto.OpList, proto.OpWho, proto.OpClaims, proto.OpGates, proto.OpDates, proto.OpLocks:
 		return true
 	}
 	return false

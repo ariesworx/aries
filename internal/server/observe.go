@@ -171,6 +171,8 @@ func (pr *served) observeLimit(op string, err error) {
 		limit = telemetry.LimitPlans
 	} else if _, ok := errors.AsType[*store.HoursLimitError](err); ok {
 		limit = telemetry.LimitHoursPerDay
+	} else if e, ok := errors.AsType[*store.LockLimitError](err); ok {
+		limit = e.Limit
 	} else if errors.Is(err, store.ErrBusy) && op == proto.OpUsage {
 		limit = telemetry.LimitUsagePerDay
 	}
@@ -209,6 +211,13 @@ func (o storeObserver) Committed(took time.Duration, _ error) {
 
 func (o storeObserver) ClaimChanged(change store.ClaimChange, reason string) {
 	o.tel.Count(telemetry.Claims, string(change), claimReason(reason))
+}
+
+func (o storeObserver) LockChanged(change store.LockChange, waited time.Duration) {
+	o.tel.Count(telemetry.Locks, string(change))
+	if change == store.LockGranted {
+		o.tel.Record(telemetry.LockWaitDuration, waited.Seconds())
+	}
 }
 
 // storeTracer is a store's [store.Tracer]: a span for each attempt of a

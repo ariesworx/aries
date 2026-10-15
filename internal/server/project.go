@@ -46,8 +46,10 @@ type served struct {
 	dueSoon time.Duration
 }
 
-// reap ends the project's expired claims now and logs each.
+// reap ends the project's expired claims, and its locks' lapsed holds
+// and places, now, and logs each.
 func (pr *served) reap(ctx context.Context) {
+	defer pr.reapLocks(ctx)
 	rctx, cancel := context.WithTimeout(ctx, pr.timeout)
 	defer cancel()
 	cs, err := pr.store.ReapClaims(rctx)

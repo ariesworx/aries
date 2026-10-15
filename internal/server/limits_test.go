@@ -113,6 +113,16 @@ func TestResolveSettingsLimits(t *testing.T) {
 		{name: "negative gate_approvers", body: "limits:\n  gate_approvers: -1\n", err: "gate_approvers"},
 		{name: "gate_approvers past the most", body: "limits:\n  gate_approvers: 101\n", err: "gate_approvers is 101; it can be at most 100"},
 		{name: "negative open_gates", body: "limits:\n  open_gates: -1\n", err: "open_gates"},
+		{name: "lock limits", body: "limits:\n  locks: 30\n  lock_capacity: 5\n  lock_waiters: 7\n  lock_waits_per_principal: 2\n",
+			want: func(l Limits) bool {
+				return l.Locks == 30 && l.LockCapacity == 5 && l.LockWaiters == 7 && l.LockWaits == 2
+			}},
+		{name: "lock limits default", body: "limits:\n  locks: 0\n",
+			want: func(l Limits) bool {
+				return l.Locks == 200 && l.LockCapacity == 64 && l.LockWaiters == 100 && l.LockWaits == 20
+			}},
+		{name: "negative lock_waiters", body: "limits:\n  lock_waiters: -1\n", err: "lock_waiters"},
+		{name: "lock_capacity past the most", body: "limits:\n  lock_capacity: 1001\n", err: "lock_capacity is 1001; it can be at most 1000"},
 		{name: "due_soon past a year", body: "limits:\n  due_soon: 367d\n", err: "due_soon"},
 		{name: "memory body past the column", body: "limits:\n  memory_body: 70000\n", err: "memory_body"},
 		{name: "negative server limit", body: "limits:\n  write_burst: -1\n", err: "limit write_burst must be zero or a positive number"},

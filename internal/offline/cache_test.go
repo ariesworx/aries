@@ -399,7 +399,7 @@ func TestRefusedOffline(t *testing.T) {
 		want bool
 	}{
 		{proto.OpReady, true}, {proto.OpBlocked, true}, {proto.OpList, true}, {proto.OpWho, true}, {proto.OpClaims, true},
-		{proto.OpGates, true}, {proto.OpDates, true},
+		{proto.OpGates, true}, {proto.OpDates, true}, {proto.OpLocks, true},
 		{proto.OpShow, false}, {proto.OpDigest, false}, {proto.OpInbox, false},
 	} {
 		if got := RefusedOffline(tc.op); got != tc.want {

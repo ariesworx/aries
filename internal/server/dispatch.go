@@ -98,6 +98,11 @@ var handlers = map[string]handler{
 	proto.OpGateWaive:   typed(gateWaive),
 	proto.OpGateRearm:   typed(gateRearm),
 	proto.OpGateFail:    typed(gateFail),
+	proto.OpLockAcquire: typed(lockAcquire),
+	proto.OpLockRenew:   typed(lockRenew),
+	proto.OpLockRelease: typed(lockRelease),
+	proto.OpLockLeave:   typed(lockLeave),
+	proto.OpLocks:       typed(locks),
 	proto.OpGates:       typed(gates),
 	proto.OpDates:       typed(dates),
 }
