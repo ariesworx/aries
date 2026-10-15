@@ -213,6 +213,9 @@ func (n *NewIssue) normalize() error {
 	if !n.Type.Valid() {
 		return fmt.Errorf("%w: type %q", ErrInvalid, n.Type)
 	}
+	if n.Type == TypeGate {
+		return &GateError{ID: n.ID, Reason: GateIsGate, Op: "create"}
+	}
 	if err := validIdem(n.IdempotencyKey); err != nil {
 		return err
 	}
@@ -470,6 +473,19 @@ func applyPatch(ctx context.Context, w *wtx, before Issue, pp prepared) (Issue, 
 	if len(pp.sets) == 0 && patch.Paths == nil {
 		return before, nil
 	}
+	switch {
+	case before.Type == TypeGate && (patch.Status != nil || patch.Type != nil && *patch.Type != TypeGate):
+		return Issue{}, isGateError(ctx, w.tx, id, "update")
+	case before.Type != TypeGate && patch.Type != nil && *patch.Type == TypeGate:
+		return Issue{}, &GateError{ID: id, Reason: GateIsGate, Op: "update"}
+	}
+	var holds []IssueID
+	if patch.ParentID != nil && *patch.ParentID != before.ParentID {
+		var err error
+		if holds, err = holdingGates(ctx, w.tx, id); err != nil {
+			return Issue{}, err
+		}
+	}
 	c, err := loadClaim(ctx, w.tx, id)
 	if err != nil {
 		return Issue{}, err
@@ -519,6 +535,9 @@ func applyPatch(ctx context.Context, w *wtx, before Issue, pp prepared) (Issue, 
 		if out, err = casUpdate(ctx, w, before, pp.sets, pp.args); err != nil {
 			return Issue{}, err
 		}
+	}
+	if err := w.checkHolds(ctx, id, holds, "move"); err != nil {
+		return Issue{}, err
 	}
 	if len(pp.sets) > 0 {
 		if err := w.issueEvent(ctx, OpIssueUpdate, before, out, nil); err != nil {
@@ -722,6 +741,13 @@ func (s *Store) setClosed(ctx context.Context, actor Actor, id IssueID, expected
 		if expected != 0 && before.Rev != expected {
 			return fmt.Errorf("issue %s at rev %d, not %d: %w", id, before.Rev, expected, ErrConflict)
 		}
+		if before.Type == TypeGate {
+			op := "reopen"
+			if closing {
+				op = "close"
+			}
+			return isGateError(ctx, w.tx, id, op)
+		}
 		if force && !w.admin {
 			return &ForbiddenError{ID: id, Action: "close --force"}
 		}
@@ -758,6 +784,16 @@ func (s *Store) setClosed(ctx context.Context, actor Actor, id IssueID, expected
 func closeTx(ctx context.Context, w *wtx, before Issue, reason string, force bool) (Issue, error) {
 	if before.Status == StatusClosed {
 		return Issue{}, &StateError{ID: before.ID, Reason: StateAlreadyClosed}
+	}
+	if before.Type == TypeGate {
+		return Issue{}, isGateError(ctx, w.tx, before.ID, "close")
+	}
+	gates, err := holdingGates(ctx, w.tx, before.ID)
+	if err != nil {
+		return Issue{}, err
+	}
+	if err := w.releasable(ctx, before.ID, gates, "close"); err != nil {
+		return Issue{}, err
 	}
 	items, err := acceptanceItems(ctx, w.tx, before)
 	if err != nil {

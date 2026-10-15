@@ -604,12 +604,12 @@ func readyIDList(ctx context.Context, q querier, now time.Time, limit int) ([]Is
 // whether it has an unclosed blocker, and decides in Go.
 func readyNow(ctx context.Context, q querier, id IssueID, now time.Time) (bool, error) {
 	rows, err := q.QueryContext(ctx, `WITH RECURSIVE
-anc (id, parent_id, status, template, defer_until) AS (
-  SELECT id, parent_id, status, template, defer_until FROM issues WHERE id = ?
+anc (id, parent_id, status, template, type, defer_until) AS (
+  SELECT id, parent_id, status, template, type, defer_until FROM issues WHERE id = ?
   UNION
-  SELECT i.id, i.parent_id, i.status, i.template, i.defer_until FROM issues i JOIN anc a ON i.id = a.parent_id
+  SELECT i.id, i.parent_id, i.status, i.template, i.type, i.defer_until FROM issues i JOIN anc a ON i.id = a.parent_id
 )
-SELECT a.id, a.status, a.template, a.defer_until, EXISTS (SELECT 1 FROM deps d JOIN issues t ON t.id = d.to_id
+SELECT a.id, a.status, a.template, a.type, a.defer_until, EXISTS (SELECT 1 FROM deps d JOIN issues t ON t.id = d.to_id
   WHERE d.from_id = a.id AND d.type IN (`+readyBlocking+`) AND t.status <> 'closed')
 FROM anc a`, string(id))
 	if err != nil {
@@ -622,14 +622,15 @@ FROM anc a`, string(id))
 			at                IssueID
 			status            Status
 			template, blocked bool
+			typ               IssueType
 			deferUntil        sql.NullTime
 		)
-		if err := rows.Scan(&at, &status, &template, &deferUntil, &blocked); err != nil {
+		if err := rows.Scan(&at, &status, &template, &typ, &deferUntil, &blocked); err != nil {
 			return false, fmt.Errorf("ready check of %s: %w", id, err)
 		}
 		if at == id {
 			found = true
-			ready = ready && status == StatusOpen && !template
+			ready = ready && status == StatusOpen && !template && typ != TypeGate
 		}
 		deferred := status == StatusDeferred || deferUntil.Valid && deferUntil.Time.After(now)
 		ready = ready && !deferred && (!blocked || status == StatusClosed)

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -87,7 +88,7 @@ func (s *Store) List(ctx context.Context, f Filter) (IssuePage, error) {
 // [Summary]: the same issues in the same pages, with the same cursors,
 // read in one query without their long texts or their labels.
 func (s *Store) ListSummaries(ctx context.Context, f Filter) (SummaryPage, error) {
-	q, args, limit, err := listQuery(f, `i.id, i.title, i.status, i.priority, i.created_at`)
+	q, args, limit, err := listQuery(f, `i.id, i.title, i.status, i.priority, i.due_at, i.defer_until, i.created_at`)
 	if err != nil {
 		return SummaryPage{}, err
 	}
@@ -101,12 +102,14 @@ func (s *Store) ListSummaries(ctx context.Context, f Filter) (SummaryPage, error
 	for rows.Next() {
 		var sm Summary
 		var at time.Time
-		if err := rows.Scan(&sm.ID, &sm.Title, &sm.Status, &sm.Priority, &at); err != nil {
+		var due, deferUntil sql.NullTime
+		if err := rows.Scan(&sm.ID, &sm.Title, &sm.Status, &sm.Priority, &due, &deferUntil, &at); err != nil {
 			return SummaryPage{}, fmt.Errorf("list: %w", err)
 		}
 		if len(page.Issues) < limit {
 			lastAt = at
 		}
+		sm.DueAt, sm.DeferUntil = timePtr(due), timePtr(deferUntil)
 		page.Issues = append(page.Issues, sm)
 	}
 	if err := rows.Err(); err != nil {

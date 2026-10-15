@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ariesworx/starfix/internal/proto"
 )
 
 // Conflicts (design §18.7). An update queued while the server could not
@@ -163,6 +165,40 @@ func textField(get func(*IssuePatch) **string, cur func(Issue) string) fieldSpec
 	}
 }
 
+// timeField is a fieldSpec for a date of the patch, as the event log
+// writes it: RFC 3339 to the microsecond in UTC, and "" for none. A zero
+// time in a patch clears the date.
+func timeField(get func(*IssuePatch) **time.Time, cur func(Issue) *time.Time) fieldSpec {
+	text := func(t *time.Time) string {
+		if t == nil || t.IsZero() {
+			return ""
+		}
+		return t.UTC().Truncate(time.Microsecond).Format(time.RFC3339Nano)
+	}
+	return fieldSpec{
+		mine: func(p IssuePatch) (string, bool) {
+			v := *get(&p)
+			if v == nil {
+				return "", false
+			}
+			return text(v), true
+		},
+		theirs: func(is Issue) string { return text(cur(is)) },
+		set: func(p *IssuePatch, v string) error {
+			t := time.Time{}
+			if v != "" {
+				var err error
+				if t, err = proto.ParseDate(v); err != nil {
+					return fmt.Errorf("%w: %v", ErrInvalid, err)
+				}
+			}
+			*get(p) = &t
+			return nil
+		},
+		clear: func(p *IssuePatch) { *get(p) = nil },
+	}
+}
+
 // conflictFields are the fields a merge compares, by their names in the
 // event log; fieldOrder is the order it goes through them in.
 var (
@@ -174,6 +210,9 @@ var (
 		"notes":      textField(func(p *IssuePatch) **string { return &p.Notes }, func(is Issue) string { return is.Notes }),
 		"owner":      textField(func(p *IssuePatch) **string { return &p.Owner }, func(is Issue) string { return is.Owner }),
 		"account":    textField(func(p *IssuePatch) **string { return &p.Account }, func(is Issue) string { return is.Account }),
+		"due_at":     timeField(func(p *IssuePatch) **time.Time { return &p.DueAt }, func(is Issue) *time.Time { return is.DueAt }),
+		"defer_until": timeField(func(p *IssuePatch) **time.Time { return &p.DeferUntil },
+			func(is Issue) *time.Time { return is.DeferUntil }),
 		"priority": {
 			mine: func(p IssuePatch) (string, bool) {
 				if p.Priority == nil {
@@ -234,7 +273,7 @@ var (
 		},
 	}
 	fieldOrder = []string{"title", "body", "design", "acceptance", "notes", "status", "priority", "type",
-		"assignee", "owner", "parent_id", "account"}
+		"assignee", "owner", "parent_id", "account", "due_at", "defer_until"}
 )
 
 // stateText is a field's value in an event's state as text: a string as
@@ -355,7 +394,7 @@ func (s *Store) MergeIssue(ctx context.Context, actor Actor, id IssueID, base Re
 	if err := validIdem(patch.IdempotencyKey); err != nil {
 		return Merged{}, err
 	}
-	if patch.DueAt != nil || patch.DeferUntil != nil || patch.ExpiresAt != nil || patch.Ephemeral != nil ||
+	if patch.ExpiresAt != nil || patch.Ephemeral != nil ||
 		patch.Pinned != nil || patch.Template != nil || patch.Metadata != nil {
 		return Merged{}, fmt.Errorf("%w: a replayed update carries only the fields a client sends", ErrInvalid)
 	}

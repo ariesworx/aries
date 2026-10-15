@@ -65,7 +65,7 @@ const (
 // Valid reports whether t is a known type.
 func (t IssueType) Valid() bool {
 	switch t {
-	case TypeBug, TypeFeature, TypeTask, TypeEpic, TypeChore:
+	case TypeBug, TypeFeature, TypeTask, TypeEpic, TypeChore, TypeGate:
 		return true
 	}
 	return false
@@ -322,6 +322,9 @@ type Summary struct {
 	Title    string
 	Status   Status
 	Priority Priority
+	// DueAt and DeferUntil are the issue's dates, if set; Blocked leaves
+	// them out.
+	DueAt, DeferUntil *time.Time
 }
 
 // SummaryPage is one page of ListSummaries results. Next is empty on the

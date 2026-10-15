@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -76,6 +77,10 @@ func (s *Store) RemoveDep(ctx context.Context, actor Actor, from, to IssueID, ty
 		return err
 	}
 	return s.write(ctx, actor, func(w *wtx) error {
+		holds, err := holdingGates(ctx, w.tx, from)
+		if err != nil {
+			return err
+		}
 		n, err := w.exec(ctx, `DELETE FROM deps WHERE from_id = ? AND to_id = ? AND type = ?`,
 			string(from), string(to), string(typ))
 		if err != nil {
@@ -83,6 +88,9 @@ func (s *Store) RemoveDep(ctx context.Context, actor Actor, from, to IssueID, ty
 		}
 		if n == 0 {
 			return nil
+		}
+		if err := w.checkHolds(ctx, from, holds, "unlink"); err != nil {
+			return err
 		}
 		return w.event(ctx, OpDepRemove, string(from), Dep{From: from, To: to, Type: typ}, nil)
 	})
@@ -209,7 +217,7 @@ deferred (id) AS (
 // readyFilter selects and orders the ready issues of blockedCTE, best
 // first. Ready and StartIssue share it, through rankReady, so start takes
 // what ready shows first.
-const readyFilter = `WHERE i.status = 'open' AND i.template = FALSE
+const readyFilter = `WHERE i.status = 'open' AND i.template = FALSE AND i.type <> 'gate'
   AND i.id NOT IN (SELECT id FROM blocked)
   AND i.id NOT IN (SELECT id FROM deferred)
 ORDER BY i.priority, i.created_at, i.id`
@@ -263,7 +271,7 @@ func loadSummaries(ctx context.Context, q querier, ids []IssueID) ([]Summary, er
 	for i, id := range ids {
 		args[i] = string(id)
 	}
-	rows, err := q.QueryContext(ctx, `SELECT i.id, i.title, i.status, i.priority FROM issues i WHERE i.id IN (`+
+	rows, err := q.QueryContext(ctx, `SELECT i.id, i.title, i.status, i.priority, i.due_at, i.defer_until FROM issues i WHERE i.id IN (`+
 		placeholders(len(ids))+`)`, args...)
 	if err != nil {
 		return nil, err
@@ -272,9 +280,11 @@ func loadSummaries(ctx context.Context, q querier, ids []IssueID) ([]Summary, er
 	byID := make(map[IssueID]Summary, len(ids))
 	for rows.Next() {
 		var sm Summary
-		if err := rows.Scan(&sm.ID, &sm.Title, &sm.Status, &sm.Priority); err != nil {
+		var due, deferUntil sql.NullTime
+		if err := rows.Scan(&sm.ID, &sm.Title, &sm.Status, &sm.Priority, &due, &deferUntil); err != nil {
 			return nil, err
 		}
+		sm.DueAt, sm.DeferUntil = timePtr(due), timePtr(deferUntil)
 		byID[sm.ID] = sm
 	}
 	if err := rows.Err(); err != nil {
