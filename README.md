@@ -1,7 +1,7 @@
 # Aries
 
 [![ci](https://github.com/ariesworx/aries/actions/workflows/ci.yml/badge.svg)](https://github.com/ariesworx/aries/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](LICENSE)
 
 Aries takes its name from the first point of Aries: the point on the
 celestial sphere where the Sun crosses the celestial equator northward at
@@ -235,4 +235,8 @@ endorsed by, the beads or Dolt projects.
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+AGPL-3.0-only. See [LICENSE](LICENSE). Copyright (C) 2026 Ariesworx LLC.
+
+Contributions are accepted under a contributor license agreement, as
+[CONTRIBUTING.md](CONTRIBUTING.md#license-and-contributor-agreement)
+says.

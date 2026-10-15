@@ -6,6 +6,16 @@ you from a fresh clone to a pull request. The rules every change follows
 and the map of the code are in [AGENTS.md](AGENTS.md); they apply to
 people and agents alike, so read them before your first change.
 
+## License and contributor agreement
+
+Aries is licensed under the GNU Affero General Public License, version 3
+only ([LICENSE](LICENSE)). A contribution is accepted under a contributor
+license agreement, which grants the maintainer the right to offer it
+under other terms too, so that Aries can also be licensed commercially
+(design decision 82). The agreement and the way to sign it are not yet
+in place: until they are, pull requests from outside contributors are
+not merged.
+
 ## From a clone to a passing gate
 
 The gate is the set of checks CI runs on every pull request.

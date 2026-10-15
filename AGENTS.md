@@ -8,7 +8,7 @@ Put shared guidance here, not there.
 
 ## What this is
 
-Aries is a public, Apache-2.0 Go module: an issue tracker, shared memory
+Aries is a public, AGPL-3.0-only Go module: an issue tracker, shared memory
 and coordination layer for AI coding agents, stored in Dolt. `aries` is the
 client (a CLI for people and an MCP server for agents); `ariesd` is the
 server daemon and the sshd forced-command bridge. Bearings, the orchestrator,
@@ -189,7 +189,9 @@ and what a test that passes there does not do.
 
 1. **Nothing organization-specific** in code, tests or docs: no real host,
    fingerprint, path, person or client name. Use `example.com`, `alice`,
-   `bob` and invented UUIDs (design principle 10).
+   `bob` and invented UUIDs (design principle 10). The one exception is
+   the copyright holder, Ariesworx LLC, named in the README's license
+   notice (design decision 82).
 2. **No secret in argv, logs, output or the repository.** `ariesd` refuses
    a DSN password on the command line, and a config file holding one must be
    mode 0600. Follow that pattern for anything new. **And no text in

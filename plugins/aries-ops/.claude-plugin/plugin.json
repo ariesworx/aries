@@ -8,6 +8,6 @@
   },
   "homepage": "https://github.com/ariesworx/aries/blob/main/docs/server.md#operate-a-server-with-claude-code",
   "repository": "https://github.com/ariesworx/aries",
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-only",
   "keywords": ["aries", "operations", "server", "ssh", "dolt"]
 }
