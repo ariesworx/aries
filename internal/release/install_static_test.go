@@ -144,7 +144,6 @@ func TestInstallScriptStatic(t *testing.T) {
 			edit: func(_ *testing.T, tr *releasetest.Tree) {
 				tr.SetIndex(`{"format":1,"releases":[{"tag":"v1.10.0","prerelease":false},{"tag":"v1.9.0","prerelease":false},{"tag":"v1.11.0-rc.1","prerelease":true}]}`)
 			}, want: "v1.10.0"},
-		{name: "the variable wins over ARIES_BASE_URL", env: []string{"ARIES_BASE_URL=http://127.0.0.1:1/nothing"}, want: "v1.10.0"},
 
 		// A fresh install has nothing older to compare with: an index of
 		// old releases installs an old, signed release.
@@ -255,9 +254,8 @@ func TestInstallScriptStatic(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "bin")
 			fake := t.TempDir()
 			linuxAMD64(t, fake)
-			env := installEnv(t, fake, false, append(tc.env,
-				"ARIES_DIR="+dir, "ARIES_PUBKEY_PEM="+pubPEM, "ARIES_RELEASES="+location)...)
-			cmd := exec.Command("sh", append([]string{installScript}, tc.args...)...) //nolint:gosec // the test's own arguments
+			env := installEnv(t, fake, false, append(tc.env, "ARIES_DIR="+dir, "ARIES_RELEASES="+location)...)
+			cmd := exec.Command("sh", append([]string{installCopy(t, pubPEM, "")}, tc.args...)...) //nolint:gosec // the test's own arguments
 			cmd.Env = env
 			b, err := cmd.CombinedOutput()
 			out := string(b)
@@ -362,8 +360,8 @@ func TestInstallScriptStaticWget(t *testing.T) {
 				})
 			}
 			dir := filepath.Join(t.TempDir(), "bin")
-			cmd := exec.Command(filepath.Join(bin, "sh"), installScript) //nolint:gosec // the test's own link to sh
-			cmd.Env = installEnv(t, bin, true, "ARIES_DIR="+dir, "ARIES_PUBKEY_PEM="+pubPEM, "ARIES_RELEASES="+tr.URL)
+			cmd := exec.Command(filepath.Join(bin, "sh"), installCopy(t, pubPEM, "")) //nolint:gosec // the test's own link to sh
+			cmd.Env = installEnv(t, bin, true, "ARIES_DIR="+dir, "ARIES_RELEASES="+tr.URL)
 			b, err := cmd.CombinedOutput()
 			if (err == nil) == tc.redirect || !strings.Contains(string(b), tc.wantOut) {
 				t.Errorf("install.sh: %v, want output holding %q:\n%s", err, tc.wantOut, b)

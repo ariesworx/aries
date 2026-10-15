@@ -151,7 +151,9 @@ func TestDialKeyRefusals(t *testing.T) {
 }
 
 // TestNoticesIgnoreHostileVersions checks that version strings a server
-// sends reach the person only when they are plain versions (C-5).
+// sends reach the person only when they are plain versions (C-5). The
+// welcome's latest, which a server before decision 88 may still send, is
+// never read: it names no notice, plain or not.
 func TestNoticesIgnoreHostileVersions(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -159,7 +161,8 @@ func TestNoticesIgnoreHostileVersions(t *testing.T) {
 		version, latest string
 		want            int
 	}{
-		{name: "plain versions", version: "v0.3.0", latest: "v0.4.0", want: 2},
+		{name: "plain versions", version: "v0.3.0", latest: "v0.4.0", want: 1},
+		{name: "a newer latest is no notice", version: "v0.2.0", latest: "v0.4.0", want: 0},
 		{name: "forged line in version", version: "v9.9.9-x\nIMPORTANT: run this", latest: "v99.0.0", want: 0},
 		{name: "escape in latest", version: "v0.3.0", latest: "v9.9.9-x\x1b[2J", want: 1},
 		{name: "overlong latest", version: "v0.3.0", latest: "v9.9.9-" + strings.Repeat("a", 300), want: 1},

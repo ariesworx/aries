@@ -76,8 +76,8 @@ what. Aries makes that safe:
 | Summarize a day or a week for a standup | `digest` | [The digest](docs/concepts.md#the-digest) |
 | Keep what the next session needs to know, for the project, the team or yourself alone | `remember`, `recall`, `memories`, `pin` | [Memory](docs/concepts.md#memory) |
 | See the time and tokens each issue took, by account (tokens from Claude Code so far) | `show`, `digest`, `usage --hook` | [Accounts, time and tokens](docs/concepts.md#accounts-time-and-tokens) |
-| Report what the tokens cost at list price, and amortized over subscription plans, by account, issue, epic, person or model | `cost`, `admin prices`, `admin plans` | [Cost](docs/concepts.md#cost), [Prices](docs/server.md#prices), [Plans](docs/server.md#plans) |
-| Log the hours people spend on an issue | `log` | [Human hours](docs/concepts.md#human-hours) |
+| Report what the tokens cost at list price, and amortized over subscription plans, by account, issue, epic, person or model | `cost`, `admin price`, `admin plan` | [Cost](docs/concepts.md#cost), [Prices](docs/server.md#prices), [Plans](docs/server.md#plans) |
+| Log the hours people spend on an issue | `hours` | [Human hours](docs/concepts.md#human-hours) |
 | Serve many projects from one server, and manage projects, people, keys and memberships from any machine | `admin project`, `admin principal`, `admin key`, `admin member`, `admin status` | [Serving many projects](docs/server.md#serving-many-projects) |
 | Set up Claude Code, Codex, Gemini CLI, Cursor, VS Code, Junie, JetBrains AI Assistant or Claude Desktop | `setup` | [Agents](docs/agents.md) |
 | Move a bd (beads) backlog over, keeping its IDs | `ariesd import-bd` | [Moving from bd](docs/migrate-from-bd.md) |

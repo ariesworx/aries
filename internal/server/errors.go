@@ -20,15 +20,15 @@ func command(op string) string {
 	case proto.OpAck:
 		return "inbox" // aries inbox --ack
 	case proto.OpPriceSet:
-		return "admin prices set"
+		return "admin price set"
 	case proto.OpPrices:
-		return "admin prices"
+		return "admin price list"
 	case proto.OpHoursLog, proto.OpHoursDelete, proto.OpHours:
-		return "log"
+		return "hours"
 	case proto.OpPlanSet:
-		return "admin plans set"
+		return "admin plan set"
 	case proto.OpPlans:
-		return "admin plans"
+		return "admin plan list"
 	case proto.OpProjects:
 		return "admin project list"
 	case proto.OpPrincipals:
@@ -130,7 +130,7 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 			strings.TrimPrefix(text, store.ErrInvalid.Error()+": "))
 
 	case errors.Is(err, store.ErrNotFound) && op == proto.OpHoursDelete:
-		return proto.Errf(proto.CodeNotFound, "find the entry id with `aries log --issue ID` or `aries log --by PRINCIPAL`",
+		return proto.Errf(proto.CodeNotFound, "find the entry id with `aries hours --issue ID` or `aries hours --by PRINCIPAL`",
 			strings.Replace(text, ": "+store.ErrNotFound.Error(), " not found", 1))
 
 	case errors.Is(err, store.ErrNotFound):
@@ -142,7 +142,7 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 
 	case errors.As(err, &dayFull):
 		left := int64((store.MaxHoursEntry - dayFull.Logged) / time.Second)
-		return proto.Errf(proto.CodeInvalid, fmt.Sprintf("you can log at most %s more on %s; undo an entry with `aries log --undo ID` to change it",
+		return proto.Errf(proto.CodeInvalid, fmt.Sprintf("you can log at most %s more on %s; undo an entry with `aries hours --undo ID` to change it",
 			proto.Hours(left), dayFull.On.Format(time.DateOnly)), text)
 
 	case errors.As(err, &stale):
@@ -174,7 +174,7 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 			strings.Replace(text, ": "+store.ErrExists.Error(), " already exists", 1))
 
 	case errors.Is(err, store.ErrCycle):
-		return proto.Errf(proto.CodeCycle, "remove an edge with `aries dep rm`, or choose another parent",
+		return proto.Errf(proto.CodeCycle, "remove an edge with `aries dep remove`, or choose another parent",
 			strings.TrimSuffix(text, ": "+store.ErrCycle.Error())+", so this would make a cycle")
 
 	case errors.Is(err, store.ErrStatusInProgress):
@@ -207,7 +207,7 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 
 	case errors.As(err, &hoursCap):
 		return proto.Errf(proto.CodeInvalid,
-			"combine entries: undo some with `aries log --undo ENTRY` (`aries log --by "+hoursCap.Principal+
+			"combine entries: undo some with `aries hours --undo ENTRY` (`aries hours --by "+hoursCap.Principal+
 				"` lists them) and log their sum, or ask the server admin to raise hours_per_day under limits: in ariesd's config",
 			strings.TrimPrefix(text, store.ErrInvalid.Error()+": "))
 

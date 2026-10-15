@@ -24,12 +24,14 @@ type started struct {
 // it, so it covers a working day. `aries away` extends it.
 const cliLease = "8h"
 
+const startUsage = "start [ID] [--for DURATION] [--take] [--new-branch | --worktree DIR]"
+
 func cmdStart(ctx context.Context, r *runner, args []string) error {
-	const usage = "start [ID] [--for DURATION] [--take] [--branch | --worktree DIR]"
+	const usage = startUsage
 	fs := r.newFlags("start")
 	lease := fs.String("for", cliLease, "how long the claim lasts (1m to 24h); `aries away` extends it")
 	take := fs.Bool("take", false, "take it over from another session of yours that holds it")
-	branch := fs.Bool("branch", false, "create or switch to the issue's branch here")
+	branch := fs.Bool("new-branch", false, "create or switch to the issue's branch here")
 	worktree := fs.String("worktree", "", "create a worktree at DIR on the issue's branch")
 	pos, err := parse(fs, args, usage)
 	if err != nil {
@@ -39,7 +41,7 @@ func cmdStart(ctx context.Context, r *runner, args []string) error {
 		return usagef(usage, "start takes at most one issue id")
 	}
 	if *branch && *worktree != "" {
-		return usagef(usage, "give --branch or --worktree, not both")
+		return usagef(usage, "give --new-branch or --worktree, not both")
 	}
 	in := proto.StartArgs{Lease: *lease, Take: *take}
 	if len(pos) == 1 {

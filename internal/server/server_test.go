@@ -267,7 +267,7 @@ func TestDispatchErrors(t *testing.T) {
 		{name: "exists", op: proto.OpCreate, args: proto.CreateArgs{ID: b.ID, Title: "dup"},
 			code: proto.CodeExists, msg: "issue " + b.ID + " already exists", fix: "omit --id"},
 		{name: "cycle", op: proto.OpDepAdd, args: proto.DepArgs{From: b.ID, To: a.ID},
-			code: proto.CodeCycle, msg: a.ID + " already depends on " + b.ID + ", so this would make a cycle", fix: "dep rm"},
+			code: proto.CodeCycle, msg: a.ID + " already depends on " + b.ID + ", so this would make a cycle", fix: "dep remove"},
 		{name: "invalid title", op: proto.OpCreate, args: proto.CreateArgs{Title: " "},
 			code: proto.CodeInvalid, msg: "title must be 1-500 bytes", fix: "`aries create -h`"},
 		{name: "control characters in a title", op: proto.OpCreate, args: proto.CreateArgs{Title: "ok\x1b]0;pwned\x07\x1b[2J"},

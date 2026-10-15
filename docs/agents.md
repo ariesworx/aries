@@ -192,13 +192,15 @@ first release runs SessionEnd async; `--check` names the hooks to fix.
 
 ## Tools
 
-The MCP server offers 25 tools: `prime`, `start`, `finish`, `handoff`,
+The MCP server offers 24 tools: `prime`, `start`, `finish`, `handoff`,
 `ready`, `blocked`, `list`, `show`, `create`, `update`, `close`, `reopen`,
 `dep`, `label`, `comment`, `comments`, `history`, `digest`, `who`,
-`inbox`, `remember`, `recall`, `forget`, `cost` and `gate`. There are no admin
+`inbox`, `remember`, `recall`, `forget` and `gate`. There are no admin
 tools: import, export, setup, upgrade, prices, plans and server settings
-stay on the command line. Hours are logged by people, with `aries log`; no
-tool logs them.
+stay on the command line. Hours are logged by people, with `aries hours`; no
+tool logs them. Nor is there a tool for cost reports: a person runs
+`aries cost`, and an agent sees an issue's cost in `show` and the
+window's in `digest`.
 
 - **Results are compact.** Writes return `{id, rev}`, and lists return the
   id, title, status and priority. A result is capped at about 2,000 tokens;
@@ -236,15 +238,6 @@ tool logs them.
   logged, the tokens no issue was held for and whether any were split by
   time.
   No tool sets an account; people do that with `aries update --account`.
-- **`cost` reports spend.** It takes `by` (`account`, the default,
-  `issue`, `epic`, `person` or `model`), `since` and `until`, and returns
-  a line per group (`ID title: $8.35, 4.3M tokens, split`), the total and
-  the models with no price ([Cost](concepts.md#cost)). Once the server
-  has a plan, each line also gives the amortized cost (`$8.35, amortized
-  $20.00, 4.3M tokens`), and a group with hours its hours (`1.5h
-  logged`). It lists 20
-  groups, fewer if they would pass the result cap, and sums the rest as
-  `(other)`, so the groups still add up to the total.
 - **Files come from git, not from the agent.** `aries mcp` reads the paths
   each held issue's work touched from the repository it was started in,
   and sends them with a renewal (at most every five minutes per issue),

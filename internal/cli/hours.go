@@ -11,9 +11,12 @@ import (
 	"github.com/ariesworx/aries/internal/proto"
 )
 
-func cmdLog(ctx context.Context, r *runner, args []string) error {
-	const usage = "log DURATION ID [--on DATE] [--note TEXT] | log --undo ENTRY | log [--issue ID] [--by PRINCIPAL] [-n N]"
-	fs := r.newFlags("log")
+// hoursUsage is aries hours's; log, its name before 1.0, is an alias.
+const hoursUsage = "hours DURATION ID [--on DATE] [--note TEXT] | hours --undo ENTRY | hours [--issue ID] [--by PRINCIPAL] [-n N]"
+
+func cmdHours(ctx context.Context, r *runner, args []string) error {
+	const usage = hoursUsage
+	fs := r.newFlags("hours")
 	on := fs.String("on", "", "the day worked, 2006-01-02 (default today, in your time zone)")
 	note := fs.String("note", "", "a one-line note")
 	undo := fs.String("undo", "", "undo the entry with this id")
@@ -43,7 +46,7 @@ func cmdLog(ctx context.Context, r *runner, args []string) error {
 		return nil
 	case len(pos) == 0:
 		if logging {
-			return usagef(usage, "--on and --note are for logging: aries log DURATION ID")
+			return usagef(usage, "--on and --note are for logging: aries hours DURATION ID")
 		}
 		var out proto.HoursResult
 		if err := r.call(ctx, proto.OpHours, list, &out); err != nil {
@@ -56,9 +59,9 @@ func cmdLog(ctx context.Context, r *runner, args []string) error {
 		printHours(r.env.Stdout, out)
 		return nil
 	case len(pos) != 2:
-		return usagef(usage, "log needs a time and an issue id, such as aries log 1.5h sf-a1b2")
+		return usagef(usage, "hours needs a time and an issue id, such as aries hours 1.5h sf-a1b2")
 	case listing:
-		return usagef(usage, "--issue, --by and -n are for listing; aries log DURATION ID logs")
+		return usagef(usage, "--issue, --by and -n are for listing; aries hours DURATION ID logs")
 	}
 	d, err := proto.ParseHours(pos[0])
 	if err != nil {
@@ -115,13 +118,15 @@ func printHours(w io.Writer, res proto.HoursResult) {
 	}
 }
 
-// planFlags are the terms plans set needs, in the order its usage names
+// planFlags are the terms plan set needs, in the order its usage names
 // them.
 var planFlags = []string{"from", "fee", "seats"}
 
-func adminPlans(ctx context.Context, r *runner, args []string) error {
-	const usage = "admin plans [set NAME --from YYYY-MM --fee USD --seats N [--principal P]...]"
-	fs := r.newFlags("admin plans")
+const planUsage = "admin plan list | set NAME --from YYYY-MM --fee USD --seats N [--principal P]..."
+
+func adminPlan(ctx context.Context, r *runner, args []string) error {
+	const usage = planUsage
+	fs := r.newFlags("admin plan")
 	from := fs.String("from", "", "the first month the terms hold, 2006-01")
 	fee := fs.String("fee", "", "US dollars a seat a month")
 	seats := fs.Int("seats", 0, "seats paid for")
@@ -137,8 +142,13 @@ func adminPlans(ctx context.Context, r *runner, args []string) error {
 	}
 	switch {
 	case len(pos) == 0:
+		return usagef(usage, "admin plan needs list or set")
+	case pos[0] == "list":
+		if len(pos) > 1 {
+			return usagef(usage, "plan list takes no arguments")
+		}
 		if given {
-			return usagef(usage, "only plans set takes terms")
+			return usagef(usage, "only plan set takes terms")
 		}
 		var out proto.PlansResult
 		if err := r.call(ctx, proto.OpPlans, proto.PlansArgs{}, &out); err != nil {
@@ -151,9 +161,9 @@ func adminPlans(ctx context.Context, r *runner, args []string) error {
 		printPlans(r.env.Stdout, out)
 		return nil
 	case pos[0] != "set":
-		return usagef(usage, "unknown plans action %q", pos[0])
+		return usagef(usage, "unknown plan action %q", pos[0])
 	case len(pos) != 2:
-		return usagef(usage, "plans set needs one name, such as team")
+		return usagef(usage, "plan set needs one name, such as team")
 	}
 	var missing []string
 	for _, f := range planFlags {
@@ -162,7 +172,7 @@ func adminPlans(ctx context.Context, r *runner, args []string) error {
 		}
 	}
 	if len(missing) > 0 {
-		return usagef(usage, "plans set needs %s; give --fee 0 --seats 0 to end a plan", strings.Join(missing, ", "))
+		return usagef(usage, "plan set needs %s; give --fee 0 --seats 0 to end a plan", strings.Join(missing, ", "))
 	}
 	if _, err := time.Parse("2006-01", *from); err != nil {
 		return usagef(usage, "--from %q must be a month such as 2026-09", *from)
@@ -187,7 +197,7 @@ func adminPlans(ctx context.Context, r *runner, args []string) error {
 // each row's monthly total.
 func printPlans(w io.Writer, res proto.PlansResult) {
 	if len(res.Plans) == 0 {
-		_, _ = fmt.Fprintln(w, "no plans; an admin sets one with `aries admin plans set`")
+		_, _ = fmt.Fprintln(w, "no plans; an admin sets one with `aries admin plan set`")
 		return
 	}
 	_, _ = fmt.Fprintln(w, "USD a seat a month")

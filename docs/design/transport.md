@@ -2,6 +2,8 @@
 
 15 Oct 2026. **Status: design, proposed. Nothing in it is built.** It records decision 86 ([aries.md](aries.md) §14), which the maintainer made on this date, and turns it into a plan; everything else it proposes waits on the questions of [§16](#16-decisions-for-the-maintainer).
 
+**Names revised by decision 88 (15 Oct 2026):** a sign-in's lifetime is `login.token_lifetime` and `login.max_token_lifetime`, the pair `workload:` uses too ([surface-review.md](surface-review.md) §9).
+
 **Why a document of its own.** [identity.md](identity.md) says who a principal is and how a person or a workload proves it: identities, invitations, the verifier, trust rules. This document says how `aries` reaches `ariesd` and what it carries when it does: the HTTPS listener, the pipe for Aries's frames, the tokens the server issues, the remote MCP endpoint, SSH as the second transport, the deployment profiles and the plan for the two together. identity.md keeps its tables, verifier, trust rules and provider findings, and its SSH-specific parts (expiring `authorized_keys` lines as the way a sign-in lands, the published enrollment key) are replaced here; it says so where they stand.
 
 **Evidence.** [`spike/https`](../../spike/https/RESULTS.md) ran on 15 Oct 2026 on a Docker network marked internal, with no route out (checked from every container): Keycloak 26.8.1 on HTTPS with an internal CA's certificate, a stand-in for ariesd's listener and authorization server carrying `internal/proto`'s frames, nginx in front of it, an sshd for today's path, and the client. What it measured is marked **Measured**; what comes from a vendor's or a standard's documentation, fetched on 15 Oct 2026 and cited, is **Read**; the rest is design.
@@ -274,7 +276,7 @@ What DPoP does not do: an attacker who has the user's files has the key too. A k
 
 ### 6.5 Lifetimes and renewal
 
-Decision 58 holds: a sign-in lasts `login.lifetime` (24 hours), at most `login.max_lifetime` (7 days), and nothing renews it.
+Decision 58 holds: a sign-in lasts `login.token_lifetime` (24 hours), at most `login.max_token_lifetime` (7 days), and nothing renews it.
 
 | Client | Access token | Refresh token | At the day's end |
 |---|---|---|---|
@@ -632,7 +634,7 @@ Decision 79 and [spike/postgres §4.2](../../spike/postgres/RESULTS.md#42-severa
 
 ## 14. Settings, refusals and the protocol
 
-**Settings** added to `ariesd.yaml`, beside identity.md §10.1's `login:` and `workload:` (which keep their keys; `login.enroll` goes, and `workload.max_key_lifetime` becomes `max_token_lifetime`):
+**Settings** added to `ariesd.yaml`, beside identity.md §10.1's `login:` and `workload:` (which keep their keys, `token_lifetime` and `max_token_lifetime` among them, one pair in both, decision 88; `login.enroll` goes):
 
 ```yaml
 transports: [https]                 # add ssh to serve the bridge

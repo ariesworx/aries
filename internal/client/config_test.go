@@ -28,7 +28,6 @@ func TestParseConfig(t *testing.T) {
 	}{
 		{name: "minimal", in: good},
 		{name: "full", in: good + "  port: 2222\n  user: tracker\nkey: ~/.ssh/id_ed25519\n"},
-		{name: "unknown key", in: good + "colour: blue\n", err: "colour"},
 		{name: "no project", in: strings.Replace(good, "project: "+testProject+"\n", "", 1), err: "project"},
 		{name: "uppercase uuid", in: strings.Replace(good, testProject, strings.ToUpper(testProject), 1), err: "project"},
 		{name: "short fingerprint", in: strings.Replace(good, testFpr, "SHA256:abc", 1), err: "host_key"},
@@ -54,6 +53,80 @@ func TestParseConfig(t *testing.T) {
 				t.Fatalf("defaults not filled: %+v", c)
 			}
 		})
+	}
+}
+
+// A key this aries does not know is ignored and listed, at whatever
+// depth, so that a key a newer aries reads does not stop an older one
+// sharing the committed file; one it knows is still held to its rules.
+func TestParseConfigUnknownKeys(t *testing.T) {
+	t.Parallel()
+	good := "project: " + testProject + "\nserver:\n  host: aries.example.com\n  host_key: " + testFpr + "\n"
+	tests := []struct {
+		name string
+		in   string
+		want []string
+		err  string
+	}{
+		{name: "none", in: good},
+		{name: "top level", in: good + "colour: blue\n", want: []string{"colour"}},
+		{name: "under server", in: good + "  url: https://aries.example.com\n", want: []string{"server.url"}},
+		// No field takes a command, so one in the file is ignored, never run.
+		{name: "under iap", in: good + "  iap:\n    project: example-project\n    zone: us-central1-a\n    instance: aries-1\n    command: sh\n",
+			want: []string{"server.iap.command"}},
+		{name: "a mapping is one key", in: good + "transport:\n  kind: https\n  url: https://aries.example.com\n",
+			want: []string{"transport"}},
+		{name: "in the file's order", in: "zeta: 1\n" + good + "alpha: 2\n", want: []string{"zeta", "alpha"}},
+		{name: "a known key is still checked", in: good + "  port: 70000\ncolour: blue\n", err: "server.port"},
+		{name: "a known key of the wrong type", in: good + "  port: [1]\ncolour: blue\n", err: "cannot unmarshal"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			c, err := ParseConfig([]byte(tc.in))
+			if tc.err != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.err) {
+					t.Fatalf("ParseConfig(%q) error = %v, want one naming %q", tc.in, err, tc.err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParseConfig(%q) = %v", tc.in, err)
+			}
+			if !slices.Equal(c.Unknown, tc.want) {
+				t.Errorf("ParseConfig(%q).Unknown = %q, want %q", tc.in, c.Unknown, tc.want)
+			}
+		})
+	}
+}
+
+// The warning names each unknown key, escaped, and says what to do; a
+// config with none has no warning.
+func TestConfigWarning(t *testing.T) {
+	t.Parallel()
+	if w := (&Config{}).Warning(); w != "" {
+		t.Errorf("Warning() with no unknown key = %q, want \"\"", w)
+	}
+	c := &Config{Unknown: []string{"server.url", "evil\u202e\x1b[31m"}}
+	w := c.Warning()
+	for _, want := range []string{ConfigFile, "server.url", "ignored", "aries upgrade"} {
+		if !strings.Contains(w, want) {
+			t.Errorf("Warning() = %q, want it to hold %q", w, want)
+		}
+	}
+	if strings.ContainsAny(w, "\u202e\x1b") {
+		t.Errorf("Warning() = %q holds a control or bidi character from the file", w)
+	}
+	// However many keys the file has, the line names five and counts the
+	// rest, each cut to a length a key has.
+	c = &Config{Unknown: []string{"a", "b", "c", "d", "e", "f", strings.Repeat("g", 1000)}}
+	w = c.Warning()
+	if !strings.Contains(w, "ignored: a, b, c, d, e and 2 more;") || len(w) > 300 {
+		t.Errorf("Warning() with 7 unknown keys = %q, want the first five and 2 more, in at most 300 bytes", w)
+	}
+	c = &Config{Unknown: []string{strings.Repeat("k", 1000)}}
+	if w = c.Warning(); len(w) > 300 {
+		t.Errorf("Warning() with a 1000-byte key is %d bytes, want at most 300", len(w))
 	}
 }
 
@@ -317,7 +390,6 @@ func TestParseConfigIAP(t *testing.T) {
 	}{
 		{name: "instance from host", in: iap("example-project", "us-central1-a", ""), instance: "aries-1"},
 		{name: "explicit instance", in: iap("example-project", "europe-west4-b", "tracker-2"), instance: "tracker-2"},
-		{name: "unknown field", in: iap("example-project", "us-central1-a", "") + "    command: sh\n", err: "command"},
 		{name: "no project", in: base + "  iap:\n    zone: us-central1-a\n", err: "server.iap.project"},
 		{name: "no zone", in: base + "  iap:\n    project: example-project\n", err: "server.iap.zone"},
 		{name: "project as a flag", in: iap(`"-example-project"`, "us-central1-a", ""), err: "server.iap.project"},

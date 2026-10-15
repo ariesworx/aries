@@ -38,7 +38,7 @@ func TestFailAtTheConnectionLimit(t *testing.T) {
 			var out bytes.Buffer
 			r = &runner{env: Env{Stdout: &out, Stderr: &errb}, json: true}
 			r.fail(tc.err)
-			var doc map[string]proto.Error
+			var doc map[string]jsonError
 			if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
 				t.Fatalf("fail(%+v) with --json printed %q: %v", tc.err, out.String(), err)
 			}

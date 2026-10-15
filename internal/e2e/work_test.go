@@ -49,7 +49,7 @@ func TestStartHandoffFinish(t *testing.T) {
 	id := strings.TrimSpace(alice.ok("create", "Fix the login redirect", "-t", "bug", "-p", "1", "--acceptance", "lands on /home"))
 	alice.ok("create", "Later", "-p", "3")
 
-	out := alice.ok("start", "--branch")
+	out := alice.ok("start", "--new-branch")
 	branch := "fix/" + id + "-fix-the-login-redirect"
 	for _, want := range []string{id + "  P1  in_progress  bug  rev 2", "assignee: alice", "acceptance:\n  1 [ ] lands on /home",
 		"claimed by alice (cli on laptop-test), epoch 1, until ", "branch: " + branch + " (checked out)"} {
@@ -64,7 +64,7 @@ func TestStartHandoffFinish(t *testing.T) {
 	again := decode[struct {
 		Issue  proto.Issue `json:"issue"`
 		Branch string      `json:"branch"`
-	}](t, alice.ok("start", id, "--branch", "--json"))
+	}](t, alice.ok("start", id, "--new-branch", "--json"))
 	if again.Issue.Rev != 2 || again.Branch != branch || gitBranch(t, alice.repo) != branch {
 		t.Fatalf("start again: %+v", again)
 	}
@@ -105,7 +105,7 @@ func TestStartHandoffFinish(t *testing.T) {
 		t.Fatalf("alice finish: exit %d\n%s", r.code, r.stderr)
 	}
 	r = alice.run("v0.2.0", "update", id, "--title", "mine", "--json")
-	if e := decode[map[string]proto.Error](t, r.stdout)["error"]; r.code != cli.ExitFailure || e.Code != proto.CodeForbidden {
+	if e := cliError(t, r.stdout); r.code != cli.ExitFailure || e.Code != proto.CodeForbidden {
 		t.Fatalf("alice update: exit %d %+v", r.code, e)
 	}
 	r = bob.run("v0.2.0", "finish", id, "--reason", "fixed")

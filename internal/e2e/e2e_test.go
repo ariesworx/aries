@@ -41,6 +41,7 @@ import (
 	"github.com/ariesworx/aries/internal/client"
 	"github.com/ariesworx/aries/internal/clienttest"
 	"github.com/ariesworx/aries/internal/iaptest"
+	"github.com/ariesworx/aries/internal/mcpserver"
 	"github.com/ariesworx/aries/internal/offline"
 	"github.com/ariesworx/aries/internal/pgtest"
 	"github.com/ariesworx/aries/internal/proto"
@@ -150,8 +151,6 @@ type daemonOpts struct {
 	protoMin, protoMax int
 	// noDaemon starts only the SSH server, so the bridge finds no daemon.
 	noDaemon bool
-	// latest is the newest release the server knows of.
-	latest string
 	// now, if set, is the store's clock. The reaper and the agents'
 	// renewals are then off, so claims expire only when the test says.
 	now func() time.Time
@@ -289,7 +288,7 @@ func (w *world) startDaemon() error {
 		return err
 	}
 	srv, err := server.New(server.Config{Store: st, Project: project, Version: "v0.2.0",
-		ProtoMin: o.protoMin, ProtoMax: o.protoMax, Latest: o.latest, ReapInterval: o.reap, Limits: o.limits,
+		ProtoMin: o.protoMin, ProtoMax: o.protoMax, ReapInterval: o.reap, Limits: o.limits,
 		Logger: o.logger, Clock: clk, AcceptHistory: w.acceptHistory, Telemetry: o.telemetry})
 	if err != nil {
 		cancel()
@@ -407,7 +406,7 @@ func (w *world) startMany() error {
 	}
 	srv, err := server.New(server.Config{Control: ctl, Version: "v0.2.0", ProjectDBs: w.block,
 		Open:     server.ProjectOpener(w.dsn, ctl, store.Options{Now: o.now, Clock: clk, Limits: o.limits.Limits, Logger: o.logger, IdemWindow: time.Duration(o.limits.IdemWindow), AwayMax: time.Duration(o.limits.AwayMax)}, o.telemetry),
-		ProtoMin: o.protoMin, ProtoMax: o.protoMax, Latest: o.latest, ReapInterval: o.reap, Limits: o.limits, Logger: o.logger,
+		ProtoMin: o.protoMin, ProtoMax: o.protoMax, ReapInterval: o.reap, Limits: o.limits, Logger: o.logger,
 		KeysFile: w.keysFile, AuthorizedKeys: w.handFile, Clock: clk, AcceptHistory: w.acceptHistory, Telemetry: o.telemetry})
 	if err != nil {
 		return fail(err)
@@ -928,6 +927,25 @@ func (u *user) ok(args ...string) string {
 	return r.stdout
 }
 
+// cliErr is a refusal as `aries --json` prints it, under "error".
+type cliErr struct {
+	Code    proto.Code `json:"code"`
+	Message string     `json:"message"`
+	Fix     string     `json:"fix"`
+	Req     string     `json:"req"`
+}
+
+// proto is the refusal as the wire carries it.
+func (e cliErr) proto() *proto.Error {
+	return &proto.Error{Code: e.Code, Message: e.Message, Fix: e.Fix, Req: e.Req}
+}
+
+// cliError is the refusal in s, a document `aries --json` printed.
+func cliError(t *testing.T, s string) cliErr {
+	t.Helper()
+	return decode[map[string]cliErr](t, s)["error"]
+}
+
 // decode unmarshals s as a T, failing the test if it cannot.
 func decode[T any](t *testing.T, s string) T {
 	t.Helper()
@@ -970,7 +988,7 @@ func TestCRUDRoundTrip(t *testing.T) {
 	}
 
 	alice.ok("label", "add", b, "docs", "small")
-	alice.ok("label", "rm", b, "small")
+	alice.ok("label", "remove", b, "small")
 	if l := decode[proto.ListResult](t, alice.ok("list", "--label", "docs", "--json")); len(l.Issues) != 1 || l.Issues[0].ID != b {
 		t.Fatalf("list --label: %+v", l)
 	}
@@ -993,7 +1011,7 @@ func TestCRUDRoundTrip(t *testing.T) {
 		t.Fatalf("unblocked issue not ready:\n%s", out)
 	}
 	alice.ok("reopen", b)
-	alice.ok("dep", "rm", a.ID, b)
+	alice.ok("dep", "remove", a.ID, b)
 
 	h := decode[proto.HistoryResult](t, alice.ok("history", b, "--json"))
 	var ops []string
@@ -1038,7 +1056,7 @@ func TestConflict(t *testing.T) {
 		t.Fatalf("exit %d\nstderr %q\nwant   %q", r.code, r.stderr, want)
 	}
 	r = alice.run("v0.2.0", "update", id, "--rev", "1", "--title", "mine", "--json")
-	e := decode[map[string]proto.Error](t, r.stdout)["error"]
+	e := cliError(t, r.stdout)
 	if r.code != cli.ExitFailure || e.Code != proto.CodeConflict || !strings.Contains(e.Message, "now rev 2 by bob") {
 		t.Fatalf("json conflict: exit %d %+v", r.code, e)
 	}
@@ -1099,7 +1117,7 @@ func TestProtocolRangeRefusal(t *testing.T) {
 		t.Fatalf("stderr %q\nwant   %q", r.stderr, want)
 	}
 	r = alice.run("v0.2.0", "--json", "ready")
-	if e := decode[map[string]proto.Error](t, r.stdout)["error"]; r.code != cli.ExitVersion || e.Code != proto.CodeVersion {
+	if e := cliError(t, r.stdout); r.code != cli.ExitVersion || e.Code != proto.CodeVersion {
 		t.Fatalf("json: exit %d %+v", r.code, e)
 	}
 }
@@ -1114,6 +1132,35 @@ func TestOlderClientWarns(t *testing.T) {
 	}
 	if r := alice.run("v0.2.0", "ready"); r.stderr != "" {
 		t.Fatalf("same version warned: %q", r.stderr)
+	}
+}
+
+// A key in .aries.yaml that this aries does not know, such as one a
+// newer aries reads, does not stop it: a command warns once, on standard
+// error, and goes on, and prime tells the agent.
+func TestUnknownConfigKeyWarns(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, daemonOpts{})
+	alice := w.newUser("alice", "")
+	cfg := filepath.Join(alice.repo, ".aries.yaml")
+	b, err := os.ReadFile(cfg) //nolint:gosec // the test's own file
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg, append(b, "transport: https\n"...), 0o600); err != nil { //nolint:gosec // the test's own temp repository
+		t.Fatal(err)
+	}
+	const want = "aries: warning: .aries.yaml has keys this aries does not know, ignored: transport; " +
+		"fix: run `aries upgrade` if a newer aries reads them, else remove them\n"
+	if r := alice.run("v0.2.0", "create", "First"); r.code != 0 || r.stderr != want {
+		t.Errorf("aries create with an unknown key: exit %d, stderr %q; want 0, %q", r.code, r.stderr, want)
+	}
+	if out := alice.ok("prime"); !strings.Contains(out, "notice: .aries.yaml has keys this aries does not know, ignored: transport;") {
+		t.Errorf("aries prime with an unknown key lacks the notice:\n%s", out)
+	}
+	p := decode[mcpserver.Prime](t, alice.mcp("v0.2.0").ok("prime", nil))
+	if !slices.ContainsFunc(p.Notices, func(n string) bool { return strings.HasPrefix(n, ".aries.yaml has keys") }) {
+		t.Errorf("the prime tool with an unknown key: notices %q, want the config's warning", p.Notices)
 	}
 }
 

@@ -23,7 +23,7 @@ func TestWriteRateLimit(t *testing.T) {
 		t.Fatalf("third write: exit %d\n%s", r.code, r.stderr)
 	}
 	r = alice.run("v0.2.0", "--json", "create", "four")
-	if e := decode[map[string]proto.Error](t, r.stdout)["error"]; e.Code != proto.CodeBusy {
+	if e := cliError(t, r.stdout); e.Code != proto.CodeBusy {
 		t.Errorf("--json refusal = %+v, want code busy", e)
 	}
 	if out := alice.ok("list"); !strings.Contains(out, "one") {
@@ -45,7 +45,7 @@ func TestConnectionCap(t *testing.T) {
 		t.Fatalf("alice's second connection: exit %d\n%s\nwant exit 1\n%s", r.code, r.stderr, want)
 	}
 	r = alice.run("v0.2.0", "--json", "list")
-	if e := decode[map[string]proto.Error](t, r.stdout)["error"]; e.Code != proto.CodeBusy || !proto.AtConnLimit(&e) {
+	if e := cliError(t, r.stdout); e.Code != proto.CodeBusy || !proto.AtConnLimit(e.proto()) {
 		t.Errorf("--json refusal = %+v, want code busy at alice's connection limit", e)
 	}
 	bob.ok("list")

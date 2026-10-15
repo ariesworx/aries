@@ -8,6 +8,8 @@
 
 **Where it lands.** After the Postgres port's slices P1 and P2 (decision 79), so its tables are written once, in the new migration sets, in Postgres's dialect, with no `write_id` (decision 79 removes rule 6's column). Nothing here changes `internal/store`'s SQL or migrations before then.
 
+**Names revised by decision 88 (15 Oct 2026),** from [surface-review.md](surface-review.md) §9: the lists are `invites`, `identities` and `trust_rules`; a time is `expires_at` (`key_expires_at` in the welcome); a lifetime is one pair, `token_lifetime` and `max_token_lifetime`, in `login:` and `workload:` alike, after transport.md's tokens; a rate names its unit (`enroll_per_minute`) and a count its scope (`invites_per_server`); `principal.add` takes `display_name`; the extension sets `ARIES_NO_UPGRADE`, which names its effect; durations are written `7d`; and the extension's server and project take what `.aries.yaml` does. `enroll:` at the top level, which the review also proposed, is moot: transport.md drops `login.enroll`.
+
 **Revised by decision 86 (15 Oct 2026): HTTPS is the primary transport, and SSH a second one, off by default.** [transport.md](transport.md) is the design for both, and this document is revised to match. What it changes here, section by section:
 
 | Here | Now |
@@ -125,7 +127,7 @@ The display name sits on the row, not in a table of its own as aries.md §17.7 p
 | `principal` | `text NOT NULL REFERENCES principals(name)` | A `service` |
 | `provider` | `text NOT NULL` | The name of a provider in `workload.providers` |
 | `claims` | `jsonb NOT NULL` | An object of claim name to exact string value, 1 to 16 entries |
-| `key_lifetime` | `interval NOT NULL` | How long the key a match gets lasts; at most `workload.max_key_lifetime` |
+| `token_lifetime` | `interval NOT NULL` | How long what a match gets lasts; at most `workload.max_token_lifetime` |
 | `state` | `text NOT NULL` | `active` or `disabled` |
 | `created_by`, `created_at`, `updated_at`, `rev` | | |
 
@@ -334,7 +336,7 @@ GitHub gives people no ID token (Read). The adapter is a GitHub App with no perm
 
 ### 6.7 A day, and no silent renewal
 
-A signed-in key lasts `login.lifetime`, 24 hours by default, at most `login.max_lifetime` (7 days), from the moment the server writes it (decision 58). Nothing renews it: there is no refresh token on any machine, and `aries` never asks the provider for one (`offline_access` is not requested).
+A signed-in key lasts `login.token_lifetime`, 24 hours by default, at most `login.max_token_lifetime` (7 days), from the moment the server writes it (decision 58). Nothing renews it: there is no refresh token on any machine, and `aries` never asks the provider for one (`offline_access` is not requested).
 
 **A finding that matters here** (Measured): with the browser's session at the provider still open, a second sign-in within `max_age` completed with **no page shown** to the person, and its `auth_time` was that of the first. So "no silent renewal" is not kept by storing no refresh token alone: a tool that opened the URL in the person's browser could renew the day with nobody looking, an agent included (access-research.md §9). With `prompt=login` the provider showed its sign-in page again and `auth_time` moved to the new sign-in. Therefore:
 
@@ -364,7 +366,7 @@ A principal of `kind: service`, with an `owner`, the person who answers for it (
 ```text
 aries admin principal add ci-example --service --owner alice [--project P]
 aries admin trust add ci-example-main --principal ci-example --provider github-actions \
-    --claim repository_owner_id=111111111 --claim repository_id=123456789 --claim ref=refs/heads/main [--key-lifetime 1h]
+    --claim repository_owner_id=111111111 --claim repository_id=123456789 --claim ref=refs/heads/main [--token-lifetime 1h]
 ```
 
 - **Rights.** A member's, as the CI gate needs today ([docs/ci.md](../ci.md#what-this-costs)): reporting a ci gate's check from the session `ci` (decision 67), creating and updating issues. A service principal is never a project admin, never a server admin, and never passes a human gate (decision 68 names people). Decision 8's narrower default rights are its own work and attach to `kind`.
@@ -398,7 +400,7 @@ Azure needs one more thing from the operator: an app registration representing t
 
 ### 7.4 The key it gets, and `aries` in CI
 
-The key lasts the rule's `key_lifetime`: 1 hour by default, at most `workload.max_key_lifetime` (6 hours, GitHub's longest hosted job). It is an ordinary expiring key with `origin: workload`.
+The key lasts the rule's `token_lifetime`: 1 hour by default, at most `workload.max_token_lifetime` (6 hours, GitHub's longest hosted job). It is an ordinary expiring key with `origin: workload`.
 
 ```yaml
 # .github/workflows/ci.yml, a job that reports to Aries
@@ -454,7 +456,7 @@ aries.mcpb (zip)
       "args": ["mcp"],
       "env": {
         "ARIES_HARNESS": "claude-desktop",
-        "ARIES_EXTENSION": "1",
+        "ARIES_NO_UPGRADE": "1",
         "ARIES_PROJECT_DIR": "${user_config.project_dir}",
         "ARIES_SERVER": "${user_config.server}",
         "ARIES_HOST_KEY": "${user_config.host_key}",
@@ -467,19 +469,19 @@ aries.mcpb (zip)
   "compatibility": { "platforms": ["darwin", "win32"] },
   "user_config": {
     "project_dir": { "type": "directory", "title": "Project folder", "description": "A clone with .aries.yaml. Leave empty to give the server and project below" },
-    "server": { "type": "string", "title": "Server", "description": "host or host:port, if no project folder" },
+    "server": { "type": "string", "title": "Server", "description": "The server's URL (or, for SSH, host or host:port), as .aries.yaml's server takes it, if no project folder" },
     "host_key": { "type": "string", "title": "Server's host key", "description": "SHA256:… as your admin gave it" },
-    "project": { "type": "string", "title": "Project", "description": "The project's name or id" },
+    "project": { "type": "string", "title": "Project", "description": "The project's id, as .aries.yaml's project is" },
     "key_file": { "type": "file", "title": "SSH key (optional)", "description": "Only if your team uses keys rather than sign-in" }
   },
   "tools_generated": false
 }
 ```
 
-- **The binary** is the release's `aries`, unchanged: `aries mcp` with what `aries setup claude-desktop` already passes (`-C`, `ARIES_HARNESS`), read from variables, since an extension's settings reach the server as variables or arguments and an empty optional setting must mean "unset". The new variables (`ARIES_PROJECT_DIR`, `ARIES_SERVER`, `ARIES_HOST_KEY`, `ARIES_PROJECT`, `ARIES_EXTENSION`) join the hardening pass's review of public names. `ARIES_SERVER` with `ARIES_HOST_KEY` and `ARIES_PROJECT` stand for a `.aries.yaml` for someone with no clone; a project folder wins when both are given.
+- **The binary** is the release's `aries`, unchanged: `aries mcp` with what `aries setup claude-desktop` already passes (`-C`, `ARIES_HARNESS`), read from variables, since an extension's settings reach the server as variables or arguments and an empty optional setting must mean "unset". The new variables (`ARIES_PROJECT_DIR`, `ARIES_SERVER`, `ARIES_HOST_KEY`, `ARIES_PROJECT`, `ARIES_NO_UPGRADE`) join the hardening pass's review of public names. `ARIES_SERVER` with `ARIES_HOST_KEY` and `ARIES_PROJECT` stand for a `.aries.yaml` for someone with no clone; a project folder wins when both are given.
 - **Universal macOS binary.** The manifest cannot choose by architecture, only by platform, so the macOS binary is a fat Mach-O of the two release builds. Go does not produce one; a small tool of the repository's (`internal/tools/universal`, the standard library's `debug/macho` and a 4 KB header) does, on CI's Linux runner, and its test checks that both slices are the release's bytes. Windows ships amd64, which Windows on Arm runs emulated. About 24 MB and 13 MB uncompressed (the release builds measured 11.9 MB for darwin/arm64 and 13.0 MB for windows/amd64), so a bundle of about 15 to 20 MB compressed.
 - **No secret in `user_config`.** Nothing is marked `sensitive`, because nothing is a secret: the host key is public, the key file is a path.
-- **Rule 12 holds.** The extension is `aries mcp`, so it exposes exactly its tools: no admin, no gate passing (decision 68 keeps passing for the session `cli`), no sign-in tool. `aries upgrade` refuses to run with `ARIES_EXTENSION` set and says to update the extension in Claude Desktop, since swapping a binary inside a signed bundle Claude Desktop manages would break both.
+- **Rule 12 holds.** The extension is `aries mcp`, so it exposes exactly its tools: no admin, no gate passing (decision 68 keeps passing for the session `cli`), no sign-in tool. `aries upgrade` refuses to run with `ARIES_NO_UPGRADE` set and says to update the extension in Claude Desktop (a package manager's `aries` sets it too), since swapping a binary inside a signed bundle Claude Desktop manages would break both.
 
 ### 9.2 One project per entry, or one entry switching projects
 
@@ -522,12 +524,12 @@ In `ariesd.yaml`, read at start, refused at start when malformed or past a ceili
 
 ```yaml
 login:                          # people; absent: no sign-in
-  lifetime: 24h                 # a signed-in key's life (decision 58); at most max_lifetime
-  max_lifetime: 168h
+  token_lifetime: 24h           # a sign-in's life (decision 58); at most max_token_lifetime
+  max_token_lifetime: 7d
   fresh_auth: 10m               # auth_time must be this recent; max_age sent
   max_token_age: 10m            # iat no older
   skew: 30s
-  invite_ttl: 168h
+  invite_ttl: 7d
   device_grant: false           # decision 55
   device_fresh: 2m
   prune_after: 1h
@@ -558,7 +560,7 @@ login:                          # people; absent: no sign-in
       org: example
 workload:                       # service principals; absent: none
   audience: aries.example.com   # what a workload asks its platform for
-  max_key_lifetime: 6h
+  max_token_lifetime: 6h
   fresh: 2m                     # for platforms that cannot bind the key
   providers:
     - name: github-actions
@@ -580,12 +582,12 @@ Each with a default, a `limits:` key, a table-driven test and a row in `docs/ser
 | Limit | Default | Bounds |
 |---|---|---|
 | `enroll_conns` | 32 | Enrollment connections at once |
-| `enroll_rate`, `enroll_burst` | 6 a minute, 10, per source address | Strangers at the way in |
-| `enroll_rate_total` | 120 a minute | All of them |
+| `enroll_per_minute`, `enroll_burst` | 6, 10, per source address | Strangers at the way in |
+| `enroll_per_minute_total` | 120 | All of them |
 | `enroll_challenges` | 1,000 | Outstanding challenges |
 | `seen_tokens` | 10,000 | Unbound tokens remembered for their window |
 | `identities_per_principal` | 8 | Identities |
-| `invites_open` | 1,000 on the server; 100 per inviter | Unbound invitations |
+| `invites_per_server`, `invites_per_inviter` | 1,000, 100 | Unbound invitations |
 | `login_keys_per_principal` | 16 | Unexpired signed-in keys |
 | `trust_rules_per_principal`, `trust_rules` | 16, 1,000 | Rules |
 | `workload_keys_per_rule` | 64 | Unexpired workload keys, for a matrix of jobs |
@@ -626,7 +628,7 @@ aries admin invite list [--pending] | remove ID
 aries admin identity list NAME | remove ID
 aries admin key add NAME FILE [--expires DURATION]
 aries admin key list NAME                       gains ORIGIN, ENDS, MACHINE
-aries admin trust add NAME --principal P --provider W --claim K=V… [--key-lifetime D]
+aries admin trust add NAME --principal P --provider W --claim K=V… [--token-lifetime D]
 aries admin trust list [P] | show NAME | set NAME … | disable NAME | enable NAME | remove NAME
 aries admin status                              gains the providers and the counts of signed-in keys
 ```
@@ -637,9 +639,9 @@ CLI only, over the protocol (rule 12). Providers have no command: they are the o
 
 Everything joins protocol 8, which no release has carried (decision 78); no bump.
 
-- **New ops:** `enroll.begin` and `enroll.finish` (on an enrollment connection only); `principal.set`, `principal.show`; `invite.add`, `invite.list`, `invite.remove`; `identity.list`, `identity.remove`; `trust.add`, `trust.list`, `trust.show`, `trust.set`, `trust.remove`.
-- **New arguments:** `principal.add`'s `display`, `kind`, `owner`, `invite`, `provider`; `key.add`'s `expires`. A server built before them refuses them as unknown fields, as rule 10 has it.
-- **New result fields** (no bump needed, clients ignore what they do not know): the welcome's `key_expires`, `signed_in` (provider and flow) and `kind`; `keys`' `origin`, `expires`, `machine`; `status`' providers.
+- **New ops:** `enroll.begin` and `enroll.finish` (on an enrollment connection only); `principal.set`, `principal.show`; `invite.add`, `invites`, `invite.remove`; `identities`, `identity.remove`; `trust.add`, `trust_rules`, `trust.show`, `trust.set`, `trust.remove`. A list is a bare plural, as `principals`, `keys` and `members` are (decision 88).
+- **New arguments:** `principal.add`'s `display_name`, `kind`, `owner`, `invite`, `provider`; `key.add`'s `expires_at`. A server built before them refuses them as unknown fields, as rule 10 has it.
+- **New result fields** (no bump needed, clients ignore what they do not know): the welcome's `key_expires_at`, `signed_in` (provider and flow) and `kind`; `keys`' `origin`, `expires_at`, `machine`; `status`' providers.
 - **The bridge frame** gains `enroll` and `addr`, read leniently, as it already is between two `ariesd` of one machine.
 - **Frames for the close at expiry** reuse the existing close with a code.
 

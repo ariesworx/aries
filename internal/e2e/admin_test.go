@@ -61,14 +61,14 @@ var waitTold = regexp.MustCompile(`\bwait [0-9][0-9hmsµn.]* and retry\b`)
 // refused runs the CLI, which must fail with code, and returns the
 // refusal as --json prints it, after checking that the text form says
 // the same on stderr and nothing on stdout.
-func (u *user) refused(code proto.Code, args ...string) proto.Error {
+func (u *user) refused(code proto.Code, args ...string) cliErr {
 	t := u.w.t
 	t.Helper()
 	r := u.run("v0.2.0", append([]string{"--json"}, args...)...)
 	if r.code != cli.ExitFailure || r.stderr != "" {
 		t.Fatalf("aries --json %s: exit %d, stderr %q; want exit %d and one JSON document\n%s", strings.Join(args, " "), r.code, r.stderr, cli.ExitFailure, r.stdout)
 	}
-	e := decode[map[string]proto.Error](t, r.stdout)["error"]
+	e := cliError(t, r.stdout)
 	if e.Code != code || e.Fix == "" {
 		t.Fatalf("aries %s refused with %+v, want code %s and a fix", strings.Join(args, " "), e, code)
 	}
@@ -597,7 +597,7 @@ func TestAdminPrompts(t *testing.T) {
 	// With --json: one document, the refusal and the keys.
 	r = alice.run("v0.2.0", "--json", "admin", "member", "add", "carol")
 	doc := decode[struct {
-		Error  proto.Error           `json:"error"`
+		Error  cliErr                `json:"error"`
 		Member proto.MemberSetResult `json:"member"`
 	}](t, r.stdout)
 	if r.code != cli.ExitFailure || r.stderr != "" || doc.Error.Code != proto.CodeConflict || !strings.Contains(doc.Error.Fix, "--accept-keys") ||
@@ -664,7 +664,7 @@ func TestAdminOnAServerOfOneProject(t *testing.T) {
 		}
 	}
 	// The commands it had still work.
-	d.ok("admin", "prices")
+	d.ok("admin", "price", "list")
 }
 
 // Control writes have their own rate limit, per principal: past it the
@@ -714,8 +714,8 @@ func TestMCPNotAMember(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tools.Tools) != 25 {
-		t.Errorf("MCP has %d tools, want its 25: access is managed with aries admin only", len(tools.Tools))
+	if len(tools.Tools) != 24 {
+		t.Errorf("MCP has %d tools, want its 24: access is managed with aries admin only", len(tools.Tools))
 	}
 	for _, tool := range tools.Tools {
 		if strings.HasPrefix(tool.Name, "admin") || slices.Contains([]string{"project", "projects", "principal", "principals", "member", "members", "key", "keys"}, tool.Name) {

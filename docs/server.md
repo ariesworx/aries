@@ -175,8 +175,11 @@ Its steps, and the sections of this guide each one follows:
 
 What was run, on 14 October 2026, with `ariesd` and `aries` built from
 the source tree for linux/arm64 and installed by `install.sh` from a
-release tree in a directory, signed with a test key
-(`ARIES_PUBKEY_PEM`), since the installer is newer than any release:
+release tree in a directory, signed with a test key, since the
+installer is newer than any release. That run set the key with
+`ARIES_PUBKEY_PEM`, which `install.sh` no longer reads (decision 88);
+to repeat it, run the installer from a checkout whose `install.sh`
+holds the test key in place of the release key:
 
 - **In Docker** (Docker Desktop on an Apple silicon Mac), Ubuntu 24.04.5
   with systemd 255 as its first process: a dry run that changed
@@ -1755,15 +1758,15 @@ access meanwhile, before it serves its first request.
 ## Prices
 
 `aries cost`, `show` and `digest` price tokens at each model's list rates,
-which an admin records with `aries admin prices set`. Rates are US dollars
+which an admin records with `aries admin price set`. Rates are US dollars
 per million tokens, from an effective date (midnight UTC) or time; the
-model is spelled exactly as the harness reports it, which `aries cost --by
-model` shows. For example, with invented rates for an invented model:
+model is spelled exactly as the harness reports it, which `aries cost
+--group-by model` shows. For example, with invented rates for an invented model:
 
 ```sh
-aries admin prices set example-large --from 2026-01-01 \
+aries admin price set example-large --from 2026-01-01 \
   --input 4 --output 20 --cache-write 5 --cache-write-1h 8 --cache-read 0.4
-aries admin prices
+aries admin price list
 ```
 
 `--cache-write` is a five-minute cache write and `--cache-write-1h` a
@@ -1785,9 +1788,9 @@ list-price equivalent, once an admin records the plans with `aries admin
 plans set`. For example, with an invented plan:
 
 ```sh
-aries admin plans set team --from 2026-09 --fee 25 --seats 3 \
+aries admin plan set team --from 2026-09 --fee 25 --seats 3 \
   --principal alice --principal bob
-aries admin plans
+aries admin plan list
 ```
 
 The fee is US dollars a seat a month, with at most six decimals; the
@@ -2150,7 +2153,6 @@ the config file (`/etc/aries/ariesd.yaml`, or `--config FILE`, or
 | `releases` | Where `ariesd upgrade` reads releases from: the `https://` URL of a mirror, or the absolute path of a directory ([Upgrades](#upgrades)) | GitHub | `ARIES_RELEASES`, the variable `aries` and `install.sh` read |
 | `log_level` | `debug`, `info`, `warn` or `error` ([Logs](#logs)) | `info` | `--log-level`, `ARIESD_LOG_LEVEL` |
 | `log_format` | `text` (key=value) or `json`, for a log shipper | `text` | `--log-format`, `ARIESD_LOG_FORMAT` |
-| `latest` | The newest Aries release, set by hand. Clients' `prime` notes when this server is older | none | |
 | `account` | The project's account: what an issue's time and tokens report against when neither it nor an ancestor sets one ([Accounts, time and tokens](concepts.md#accounts-time-and-tokens)). A code name: lowercase letters, digits and inner hyphens | `internal` | |
 | `clock_behind` | What `serve` does when it finds the clock behind the server's own history by more than `clock_behind_tolerance`: `stop` refuses to start, `warn` starts with a warning that repeats ([The server's clock](#the-servers-clock)). Any other value is refused | `stop` | `ARIESD_CLOCK_BEHIND` |
 | `clock_behind_tolerance` | How far behind its history the clock may be at start before `clock_behind` applies. 1s to 24h. Raise it only for a machine known to boot with a clock further off than this and no time service to correct it; lower it if ariesd always starts after synchronization | `2m` | |

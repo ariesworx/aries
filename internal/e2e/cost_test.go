@@ -23,20 +23,20 @@ func TestCostCLI(t *testing.T) {
 	alice.ok("start", task)
 
 	rates := []string{"--input", "4", "--output", "20", "--cache-write", "5", "--cache-write-1h", "8", "--cache-read", "0.4"}
-	set := append([]string{"admin", "prices", "set", "example-large", "--from", "2026-01-01"}, rates...)
+	set := append([]string{"admin", "price", "set", "example-large", "--from", "2026-01-01"}, rates...)
 	if got := dana.ok(set...); got != "example-large from 2026-01-01: added\n" {
-		t.Fatalf("admin prices set: %q", got)
+		t.Fatalf("admin price set: %q", got)
 	}
 	if got := decode[proto.PriceSetResult](t, dana.ok(append(set, "--json")...)); got.Change != "unchanged" {
-		t.Fatalf("admin prices set again: %+v, want unchanged", got)
+		t.Fatalf("admin price set again: %+v, want unchanged", got)
 	}
 	r := alice.run("v0.2.0", set...)
 	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "aries: prices set is for aries admins\n") ||
 		!strings.Contains(r.stderr, "fix: ask an aries admin") {
-		t.Fatalf("admin prices set by alice: exit %d\n%s", r.code, r.stderr)
+		t.Fatalf("admin price set by alice: exit %d\n%s", r.code, r.stderr)
 	}
-	if got := alice.ok("admin", "prices"); !strings.Contains(got, "example-large  2026-01-01  4      20      5            8               0.4         dana\n") {
-		t.Fatalf("admin prices:\n%s", got)
+	if got := alice.ok("admin", "price", "list"); !strings.Contains(got, "example-large  2026-01-01  4      20      5            8               0.4         dana\n") {
+		t.Fatalf("admin price list:\n%s", got)
 	}
 
 	at := time.Now().UTC()
@@ -62,13 +62,13 @@ func TestCostCLI(t *testing.T) {
 		"cost by account, ",
 		"  acme  $8.35  4.3M tokens  unpriced\n",
 		"total $8.35, 4.3M tokens\n",
-		"unpriced: no price for example-unpriced; an admin sets one with `aries admin prices set`\n",
+		"unpriced: no price for example-unpriced; an admin sets one with `aries admin price set`\n",
 	} {
 		if !strings.Contains(report, want) {
 			t.Errorf("cost lacks %q:\n%s", want, report)
 		}
 	}
-	js := decode[proto.CostResult](t, alice.ok("cost", "--since", "1h", "--by", "epic", "--json"))
+	js := decode[proto.CostResult](t, alice.ok("cost", "--since", "1h", "--group-by", "epic", "--json"))
 	if len(js.Groups) != 1 || js.Groups[0].Key != epic || js.Groups[0].Title != "Client work" || js.Groups[0].CostUSD != "8.35" ||
 		js.Total.CostUSD != "8.35" {
 		t.Errorf("cost --by epic --json = %+v", js)
@@ -76,11 +76,6 @@ func TestCostCLI(t *testing.T) {
 	ag := alice.mcp("v0.2.0")
 	if is := decode[mcpserver.Issue](t, ag.ok("show", map[string]any{"id": task})); !strings.Contains(is.Usage, "; cost $8.35, some unpriced; ") {
 		t.Errorf("mcp show usage %q, want the cost", is.Usage)
-	}
-	c := decode[mcpserver.Cost](t, ag.ok("cost", map[string]any{"since": "1h", "by": "epic"}))
-	if len(c.Groups) != 1 || c.Groups[0] != epic+" Client work: $8.35, some unpriced, 4.3M tokens" ||
-		c.Total != "$8.35, some unpriced, 4.3M tokens" || len(c.Unpriced) != 1 {
-		t.Errorf("mcp cost = %+v", c)
 	}
 
 	if r := alice.run("v0.2.0", "cost", "--since", "2026-02-01", "--until", "2026-01-01"); r.code != cli.ExitFailure ||

@@ -102,7 +102,7 @@ it, by running `aries` as a principal of its own
 and the CI principals that report it:
 
 ```sh
-aries gate add --kind ci --check build --subject sf-a1b2 --by ci-example --blocks sf-c3d4
+aries gate add --kind ci --check build --issue sf-a1b2 --approver ci-example --blocks sf-c3d4
 ```
 
 `sf-c3d4` is then held until CI reports `build` passed on `sf-a1b2`'s
@@ -252,7 +252,7 @@ A unit of work is two steps:
 2. `finish` closes the issue, records a handoff note and files any work
    found on the way as new issues, linked `discovered-from`.
 
-`aries start --branch` also checks the branch out, and `--worktree DIR`
+`aries start --new-branch` also checks the branch out, and `--worktree DIR`
 creates a worktree on it. The MCP `start` tool never runs git; the agent
 does.
 
@@ -490,7 +490,7 @@ its tokens and marked unpriced, never guessed at. A server with no
 prices at all shows no cost.
 
 `show` gives an issue's running cost, `digest` a window's, and `aries cost
---since 7d --by account` a report by account, issue, epic (the nearest
+--since 7d --group-by account` a report by account, issue, epic (the nearest
 epic up the parent chain), person (who reported the tokens) or model.
 Tokens no issue was held for are `(unattributed)`, issues under no epic
 are `(no epic)`, and a group is marked `split` when part of it came from
@@ -512,14 +512,14 @@ time: the current month has cost only the part of its fee that has
 passed (on the 8th of a 31-day month, a week's worth), split the same
 way, and a window that reaches past now charges nothing for the months
 to come. A principal on no plan adds nothing. Reports show amortized cost beside the list-price
-equivalent, never instead of it, and only `aries cost` and the `cost` tool
-show it, since `show` and `digest` would have to read whole months.
+equivalent, never instead of it, and only `aries cost` shows it, since
+`show` and `digest` would have to read whole months.
 
 ### Human hours
 
-People log their own time with `aries log 1.5h ID`: an entry is one
+People log their own time with `aries hours 1.5h ID`: an entry is one
 person's time on one issue for one day, from a minute to 24 hours, with
-an optional note. The day is the logger's calendar day: `aries log` sends
+an optional note. The day is the logger's calendar day: `aries hours` sends
 today's date in your time zone unless `--on` gives another, and the
 server takes any date from a year back to a day past its own today
 (UTC). It counts against the issue's account, resolved

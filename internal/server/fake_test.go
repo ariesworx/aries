@@ -134,7 +134,7 @@ func TestStoreErrorsOnTheWire(t *testing.T) {
 		{name: "exists", err: fmt.Errorf("issue sf-x: %w", store.ErrExists),
 			code: proto.CodeExists, msg: "issue sf-x already exists", fix: "omit --id"},
 		{name: "cycle", err: fmt.Errorf("sf-x already depends on sf-y: %w", store.ErrCycle),
-			code: proto.CodeCycle, msg: "sf-x already depends on sf-y, so this would make a cycle", fix: "aries dep rm"},
+			code: proto.CodeCycle, msg: "sf-x already depends on sf-y, so this would make a cycle", fix: "aries dep remove"},
 		{name: "invalid", err: fmt.Errorf("%w: title must be 1-500 bytes", store.ErrInvalid),
 			code: proto.CodeInvalid, msg: "title must be 1-500 bytes", fix: "`aries create -h`"},
 		{name: "busy", err: fmt.Errorf("%w: alice has created 100 issues in the last hour", store.ErrBusy),
@@ -184,7 +184,7 @@ func TestStoreErrorsOnTheWire(t *testing.T) {
 		{name: "plan cap", err: &store.PlanLimitError{Max: 100},
 			code: proto.CodeInvalid, msg: "the server keeps at most 100 plan rows", fix: "raise plans under limits:"},
 		{name: "hours cap", err: &store.HoursLimitError{Principal: "alice", On: until, Max: 20},
-			code: proto.CodeInvalid, msg: "20", fix: "aries log --by alice"},
+			code: proto.CodeInvalid, msg: "20", fix: "aries hours --by alice"},
 		{name: "a full day of hours", err: &store.HoursDayError{Principal: "alice", On: until, Logged: 23 * time.Hour},
 			code: proto.CodeInvalid, msg: "alice", fix: "at most 1h more on 2026-10-15"},
 	}

@@ -17,7 +17,7 @@ func TestPrintPrices(t *testing.T) {
 		res  proto.PricesResult
 		want string
 	}{
-		{"none", proto.PricesResult{}, "no prices; an admin sets one with `aries admin prices set`\n"},
+		{"none", proto.PricesResult{}, "no prices; an admin sets one with `aries admin price set`\n"},
 		{"some", proto.PricesResult{Prices: []proto.Price{
 			{Model: "example-large", From: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 				Rates: proto.Rates{Input: 4_000_000, Output: 20_000_000, CacheWrite: 5_000_000, CacheWrite1h: 8_000_000, CacheRead: 400_000},
@@ -62,7 +62,7 @@ func TestPrintCost(t *testing.T) {
 			"cost by model, 2026-10-01 00:00 UTC to 2026-10-01 01:00 UTC (1h), list price\n" +
 				"  mystery  unpriced  7 tokens\n" +
 				"total unpriced, 7 tokens\n" +
-				"unpriced: no price for mystery; an admin sets one with `aries admin prices set`\n"},
+				"unpriced: no price for mystery; an admin sets one with `aries admin price set`\n"},
 		{"empty", proto.CostResult{By: "account", Since: since, Until: since.Add(7 * 24 * time.Hour), Total: proto.CostGroup{CostUSD: "0"}},
 			"cost by account, 2026-10-01 00:00 UTC to 2026-10-08 00:00 UTC (7d): no tokens\n"},
 		{"groups", proto.CostResult{By: "issue", Since: since, Until: since.Add(24 * time.Hour), Groups: []proto.CostGroup{
@@ -80,7 +80,7 @@ func TestPrintCost(t *testing.T) {
 				"  sf-c3                                                      $1.00     9 tokens     unpriced\n" +
 				"total $13.35, 1.2M tokens\n" +
 				"split: shared by time with other work, so an estimate\n" +
-				"unpriced: no price for mystery and 3 more; an admin sets one with `aries admin prices set`\n" +
+				"unpriced: no price for mystery and 3 more; an admin sets one with `aries admin price set`\n" +
 				"partial: more records than the server reads; narrow the window\n"},
 	}
 	for _, tc := range tests {
@@ -137,28 +137,28 @@ func TestCostUsage(t *testing.T) {
 		args   []string
 		stderr string
 	}{
-		{"cost needs since", []string{"-C", empty, "cost", "--by", "issue"}, "cost needs --since"},
+		{"cost needs since", []string{"-C", empty, "cost", "--group-by", "issue"}, "cost needs --since"},
 		{"cost takes no arguments", []string{"-C", empty, "cost", "--since", "7d", "x"}, "cost takes no arguments"},
-		{"cost bad by", []string{"-C", empty, "cost", "--since", "7d", "--by", "team"}, "--by must be account, issue, epic, person or model"},
-		{"admin needs prices", []string{"-C", empty, "admin"}, "admin needs prices"},
+		{"cost bad group", []string{"-C", empty, "cost", "--since", "7d", "--group-by", "team"}, "--group-by must be account, issue, epic, person or model"},
+		{"admin needs price", []string{"-C", empty, "admin"}, "admin needs price"},
 		{"admin unknown", []string{"-C", empty, "admin", "keys"}, `unknown admin command "keys"`},
-		{"admin flags alone", []string{"-C", empty, "admin", "--from", "2026-01-01"}, "admin needs prices, plans, project, principal, member, key or status"},
+		{"admin flags alone", []string{"-C", empty, "admin", "--from", "2026-01-01"}, "admin needs price, plan, project, principal, member, key or status"},
 		// Flags before the subcommand are the subcommand's: --from reaches
-		// prices set, which names only the rates as missing.
-		{"flags before prices", []string{"-C", empty, "admin", "--from", "2026-01-01", "--input", "1", "prices", "set", "m"},
-			"prices set needs --output, --cache-write, --cache-write-1h, --cache-read;"},
-		{"flags before plans", []string{"-C", empty, "admin", "--from", "2026-09", "--fee", "25", "plans", "set", "team"},
-			"plans set needs --seats;"},
-		{"prices unknown action", []string{"-C", empty, "admin", "prices", "rm", "m"}, `unknown prices action "rm"`},
-		{"prices list takes no rates", []string{"-C", empty, "admin", "prices", "--input", "1"}, "only prices set takes rates"},
-		{"set needs a model", append([]string{"-C", empty, "admin", "prices", "set", "--from", "2026-01-01"}, rates...), "prices set needs one model"},
-		{"set needs from", append([]string{"-C", empty, "admin", "prices", "set", "m"}, rates...), "--from"},
-		{"set needs every rate", []string{"-C", empty, "admin", "prices", "set", "m", "--from", "2026-01-01", "--input", "1"},
+		// price set, which names only the rates as missing.
+		{"flags before price", []string{"-C", empty, "admin", "--from", "2026-01-01", "--input", "1", "price", "set", "m"},
+			"price set needs --output, --cache-write, --cache-write-1h, --cache-read;"},
+		{"flags before plan", []string{"-C", empty, "admin", "--from", "2026-09", "--fee", "25", "plan", "set", "team"},
+			"plan set needs --seats;"},
+		{"price unknown action", []string{"-C", empty, "admin", "price", "rm", "m"}, `unknown price action "rm"`},
+		{"price list takes no rates", []string{"-C", empty, "admin", "price", "list", "--input", "1"}, "only price set takes rates"},
+		{"set needs a model", append([]string{"-C", empty, "admin", "price", "set", "--from", "2026-01-01"}, rates...), "price set needs one model"},
+		{"set needs from", append([]string{"-C", empty, "admin", "price", "set", "m"}, rates...), "--from"},
+		{"set needs every rate", []string{"-C", empty, "admin", "price", "set", "m", "--from", "2026-01-01", "--input", "1"},
 			"--output, --cache-write, --cache-write-1h, --cache-read"},
-		{"bad rate", append([]string{"-C", empty, "admin", "prices", "set", "m", "--from", "2026-01-01", "--input", "$4"}, rates[2:]...),
+		{"bad rate", append([]string{"-C", empty, "admin", "price", "set", "m", "--from", "2026-01-01", "--input", "$4"}, rates[2:]...),
 			"--input: not a rate"},
 		// With two bad rates, the first in the usage's order is named.
-		{"two bad rates", []string{"-C", empty, "admin", "prices", "set", "m", "--from", "2026-01-01", "--input", "1", "--output", "x",
+		{"two bad rates", []string{"-C", empty, "admin", "price", "set", "m", "--from", "2026-01-01", "--input", "1", "--output", "x",
 			"--cache-write", "1", "--cache-write-1h", "1", "--cache-read", "-1"}, "--output: not a rate"},
 	}
 	for _, tc := range tests {
@@ -176,10 +176,10 @@ func TestCostUsage(t *testing.T) {
 func TestAdminJSONBeforeSubcommand(t *testing.T) {
 	t.Parallel()
 	empty := t.TempDir()
-	for _, sub := range []string{"prices", "plans"} {
-		code, out, errb := runCLI(t, "-C", empty, "admin", "--json", sub)
+	for _, sub := range []string{"price", "plan"} {
+		code, out, errb := runCLI(t, "-C", empty, "admin", "--json", sub, "list")
 		if code != ExitFailure || errb != "" || !strings.Contains(out, `".aries.yaml not found here or in any parent directory"`) {
-			t.Errorf("admin --json %s outside a repository: exit %d, stdout %q, stderr %q; want exit %d and a JSON error", sub, code, out, errb, ExitFailure)
+			t.Errorf("admin --json %s list outside a repository: exit %d, stdout %q, stderr %q; want exit %d and a JSON error", sub, code, out, errb, ExitFailure)
 		}
 	}
 }

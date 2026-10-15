@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 
@@ -30,9 +32,33 @@ func TestRunWithoutServer(t *testing.T) {
 	}{
 		{name: "no command prints help", args: nil, code: ExitUsage, stdout: "usage: aries"},
 		{name: "help", args: []string{"help"}, code: ExitOK, stdout: "ready"},
-		{name: "help for a command", args: []string{"help", "dep"}, code: ExitOK, stdout: "usage: aries dep add|rm FROM TO"},
+		{name: "help for a command", args: []string{"help", "dep"}, code: ExitOK, stdout: "usage: aries dep add|remove FROM TO"},
+		{name: "help for label", args: []string{"help", "label"}, code: ExitOK, stdout: "usage: aries label add|remove ID LABEL..."},
+		// rm is a hidden alias of remove: it is no usage error, and gets as
+		// far as looking for the repository's config.
+		{name: "dep rm is remove", args: []string{"-C", empty, "dep", "rm", "sf-a", "sf-b"}, code: ExitFailure, stderr: ".aries.yaml not found"},
+		{name: "label rm is remove", args: []string{"-C", empty, "label", "rm", "sf-a", "x"}, code: ExitFailure, stderr: ".aries.yaml not found"},
+		{name: "dep has no -t", args: []string{"-C", empty, "dep", "add", "sf-a", "sf-b", "-t", "related"}, code: ExitUsage,
+			stderr: "flag provided but not defined: -t"},
+		{name: "help for hours", args: []string{"help", "hours"}, code: ExitOK, stdout: "usage: aries hours DURATION ID"},
+		{name: "help for log, an alias of hours", args: []string{"help", "log"}, code: ExitOK, stdout: "usage: aries hours DURATION ID"},
+		{name: "log is hours", args: []string{"-C", empty, "log", "1h"}, code: ExitUsage, stderr: "hours needs a time and an issue id"},
+		{name: "cost groups with --group-by", args: []string{"-C", empty, "cost", "--since", "7d", "--group-by", "team"}, code: ExitUsage,
+			stderr: "--group-by must be account, issue, epic, person or model"},
+		{name: "cost has no --by", args: []string{"-C", empty, "cost", "--since", "7d", "--by", "issue"}, code: ExitUsage,
+			stderr: "flag provided but not defined: -by"},
+		{name: "admin price needs an action", args: []string{"-C", empty, "admin", "price"}, code: ExitUsage, stderr: "admin price needs list or set"},
+		{name: "admin plan needs an action", args: []string{"-C", empty, "admin", "plan"}, code: ExitUsage, stderr: "admin plan needs list or set"},
+		{name: "admin prices is no command", args: []string{"-C", empty, "admin", "prices"}, code: ExitUsage, stderr: `unknown admin command "prices"`},
+		{name: "admin plans is no command", args: []string{"-C", empty, "admin", "plans"}, code: ExitUsage, stderr: `unknown admin command "plans"`},
+		{name: "gate add has no --subject", args: []string{"-C", empty, "gate", "add", "--kind", "ci", "--check", "build", "--subject", "sf-a"},
+			code: ExitUsage, stderr: "flag provided but not defined: -subject"},
+		{name: "gate add has no --by", args: []string{"-C", empty, "gate", "add", "--kind", "ci", "--check", "build", "--issue", "sf-a", "--by", "ci-x"},
+			code: ExitUsage, stderr: "flag provided but not defined: -by"},
+		{name: "start has no --branch", args: []string{"start", "--branch"}, code: ExitUsage, stderr: "flag provided but not defined: -branch"},
 		{name: "version", args: []string{"version"}, code: ExitOK, stdout: "aries v0.3.0\n"},
-		{name: "version json", args: []string{"--json", "version"}, code: ExitOK, stdout: `{"protocol":"8","version":"v0.3.0"}`},
+		{name: "version json", args: []string{"--json", "version"}, code: ExitOK, stdout: `{"protocol":8,"version":"v0.3.0"}`},
+		{name: "version json after the command", args: []string{"version", "--json"}, code: ExitOK, stdout: `{"protocol":8,"version":"v0.3.0"}`},
 		{name: "unknown global flag", args: []string{"--colour", "ready"}, code: ExitUsage, stderr: "unknown flag --colour"},
 		{name: "unknown command flag", args: []string{"ready", "--colour"}, code: ExitUsage, stderr: "fix: usage: aries ready [-n N]"},
 		{name: "bad priority", args: []string{"-C", empty, "create", "x", "-p", "9"}, code: ExitUsage, stderr: "priority must be 0-4"},
@@ -42,10 +68,10 @@ func TestRunWithoutServer(t *testing.T) {
 		{name: "gate needs an action", args: []string{"gate"}, code: ExitUsage, stderr: "usage: aries gate add"},
 		{name: "gate add needs what it holds", args: []string{"-C", empty, "gate", "add"}, code: ExitUsage, stderr: "--blocks"},
 		{name: "a waive says why", args: []string{"-C", empty, "gate", "waive", "sf-aaaa"}, code: ExitUsage, stderr: "--reason"},
-		{name: "a ci gate names its check", args: []string{"-C", empty, "gate", "add", "--kind", "ci", "--subject", "sf-a", "--by", "ci-x"},
-			code: ExitUsage, stderr: "a ci gate needs --check NAME, --subject ID and --by PRINCIPAL"},
+		{name: "a ci gate names its check", args: []string{"-C", empty, "gate", "add", "--kind", "ci", "--issue", "sf-a", "--approver", "ci-x"},
+			code: ExitUsage, stderr: "a ci gate needs --check NAME, --issue ID and --approver PRINCIPAL"},
 		{name: "a human gate has no check", args: []string{"-C", empty, "gate", "add", "--blocks", "sf-a", "--check", "build"},
-			code: ExitUsage, stderr: "--check and --subject are a ci gate's"},
+			code: ExitUsage, stderr: "--check and --issue are a ci gate's"},
 		{name: "a gate kind that is none", args: []string{"-C", empty, "gate", "add", "--kind", "timer", "--blocks", "sf-a"},
 			code: ExitUsage, stderr: `--kind "timer"`},
 		{name: "pass names a gate or a check", args: []string{"-C", empty, "gate", "pass"}, code: ExitUsage,
@@ -67,10 +93,10 @@ func TestRunWithoutServer(t *testing.T) {
 		{name: "lock run takes no --json", args: []string{"-C", empty, "--json", "lock", "run", "deploy", "--", "true"}, code: ExitUsage,
 			stdout: "--json is for the other lock commands"},
 		{name: "dep needs an action", args: []string{"dep", "link", "a", "b"}, code: ExitUsage, stderr: `unknown dep action "link"`},
-		{name: "help for start", args: []string{"help", "start"}, code: ExitOK, stdout: "usage: aries start [ID] [--for DURATION] [--take] [--branch | --worktree DIR]"},
+		{name: "help for start", args: []string{"help", "start"}, code: ExitOK, stdout: "usage: aries start [ID] [--for DURATION] [--take] [--new-branch | --worktree DIR]"},
 		{name: "start takes one id", args: []string{"start", "sf-a", "sf-b"}, code: ExitUsage, stderr: "start takes at most one issue id"},
-		{name: "start branch or worktree", args: []string{"start", "--branch", "--worktree", "wt"}, code: ExitUsage,
-			stderr: "give --branch or --worktree, not both"},
+		{name: "start branch or worktree", args: []string{"start", "--new-branch", "--worktree", "wt"}, code: ExitUsage,
+			stderr: "give --new-branch or --worktree, not both"},
 		{name: "finish needs an id", args: []string{"finish", "--reason", "done"}, code: ExitUsage,
 			stderr: "finish needs exactly one issue id\nfix: usage: aries finish ID"},
 		{name: "handoff needs a note", args: []string{"handoff", "sf-a"}, code: ExitUsage, stderr: "handoff needs an issue id and a note"},
@@ -120,18 +146,50 @@ func TestRunWithoutServer(t *testing.T) {
 	}
 }
 
+// --json prints a refusal as one document, {"error": {"code", "message",
+// "fix", "req"}}: the shape the MCP server gives an agent, with the
+// wire's one-letter keys spelled out.
 func TestJSONErrorIsOneDocument(t *testing.T) {
 	t.Parallel()
 	code, out, errb := runCLI(t, "-C", t.TempDir(), "show", "sf-aaaa", "--json")
 	if code != ExitFailure || errb != "" {
-		t.Fatalf("exit %d stderr %q", code, errb)
+		t.Fatalf("aries show --json outside a repository: exit %d, stderr %q; want %d and nothing", code, errb, ExitFailure)
 	}
-	var doc map[string]proto.Error
+	var doc map[string]map[string]any
 	if err := json.Unmarshal([]byte(out), &doc); err != nil {
-		t.Fatalf("%q: %v", out, err)
+		t.Fatalf("aries show --json printed %q: %v", out, err)
 	}
-	if e := doc["error"]; e.Code != proto.CodeInvalid || e.Fix == "" {
-		t.Fatalf("error: %+v", e)
+	e := doc["error"]
+	if e["code"] != string(proto.CodeInvalid) || e["message"] == "" || e["fix"] == "" {
+		t.Errorf("aries show --json error = %v, want code %q, a message and a fix", e, proto.CodeInvalid)
+	}
+	keys := slices.Sorted(maps.Keys(e))
+	if want := []string{"code", "fix", "message"}; !slices.Equal(keys, want) {
+		t.Errorf("aries show --json error has keys %q, want %q", keys, want)
+	}
+}
+
+// version --json gives the protocol as a number, as the status report
+// gives its range.
+func TestVersionJSON(t *testing.T) {
+	t.Parallel()
+	code, out, _ := runCLI(t, "version", "--json")
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(out), &doc); err != nil || code != ExitOK {
+		t.Fatalf("aries version --json: exit %d, %q (%v)", code, out, err)
+	}
+	if got, ok := doc["protocol"].(float64); !ok || got != proto.Proto {
+		t.Errorf("aries version --json protocol = %#v, want the number %d", doc["protocol"], proto.Proto)
+	}
+}
+
+// aries help lists each command once, by its name: hours, and not its
+// alias log.
+func TestHelpListsNamesNotAliases(t *testing.T) {
+	t.Parallel()
+	_, out, _ := runCLI(t, "help")
+	if !strings.Contains(out, "\n  hours ") || strings.Contains(out, "\n  log ") {
+		t.Errorf("aries help lists:\n%s\nwant hours and not log", out)
 	}
 }
 

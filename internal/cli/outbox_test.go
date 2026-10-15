@@ -156,7 +156,7 @@ func TestQueuedWrite(t *testing.T) {
 		{"finish", []string{"finish", "sf-a1b2", "--reason", "done", "--discovered", "more to do"},
 			since + "entry 1, finish sf-a1b2" + sent + "\n",
 			map[string]any{"queued": true, "entry": 1.0, "op": "finish", "issue": "sf-a1b2", "since": "2026-10-13T14:02:00Z"}},
-		{"hours", []string{"log", "1.5h", "sf-a1b2"},
+		{"hours", []string{"hours", "1.5h", "sf-a1b2"},
 			since + "entry 1, hours.log sf-a1b2" + sent + "\n",
 			map[string]any{"queued": true, "entry": 1.0, "op": "hours.log", "issue": "sf-a1b2", "since": "2026-10-13T14:02:00Z"}},
 		{"remember", []string{"remember", "style", "tabs,", "not", "spaces"},
@@ -168,7 +168,7 @@ func TestQueuedWrite(t *testing.T) {
 		{"dep add", []string{"dep", "add", "sf-a1b2", "sf-c3d4"},
 			since + "entry 1, dep.add sf-a1b2" + sent + "\n",
 			map[string]any{"queued": true, "entry": 1.0, "op": "dep.add", "issue": "sf-a1b2", "since": "2026-10-13T14:02:00Z"}},
-		{"label rm", []string{"label", "rm", "sf-a1b2", "old"},
+		{"label remove", []string{"label", "remove", "sf-a1b2", "old"},
 			since + "entry 1, label.rm sf-a1b2" + sent + "\n",
 			map[string]any{"queued": true, "entry": 1.0, "op": "label.rm", "issue": "sf-a1b2", "since": "2026-10-13T14:02:00Z"}},
 		{"accept", []string{"accept", "sf-a1b2", "1,2"},
@@ -251,7 +251,7 @@ func TestNoQueue(t *testing.T) {
 				t.Errorf("alice's outbox holds %v, want nothing", got)
 			}
 			code, out, _ = a.run(t, append(tc.args, "--json")...)
-			var doc map[string]proto.Error
+			var doc map[string]jsonError
 			if err := json.Unmarshal([]byte(out), &doc); err != nil || code != ExitFailure || doc["error"].Code != proto.CodeUnavailable {
 				t.Errorf("with --json: exit %d, %q (%v); want one document with the unavailable error", code, out, err)
 			}
@@ -271,7 +271,7 @@ func TestUnqueuedWriteSaysSo(t *testing.T) {
 	}{
 		{[]string{"start", "sf-a"}, "it takes a claim, and no claim is made without the server"},
 		{[]string{"close", "sf-a"}, "it ends something on a state the client cannot see"},
-		{[]string{"dep", "rm", "sf-a", "sf-b"}, "it undoes something on a state the client cannot see"},
+		{[]string{"dep", "remove", "sf-a", "sf-b"}, "it undoes something on a state the client cannot see"},
 		{[]string{"forget", "style"}, "it undoes something on a state the client cannot see"},
 		{[]string{"list"}, ""},
 		{[]string{"show", "sf-a"}, ""},
@@ -348,7 +348,7 @@ func TestNothingQueuedBeforeTheFirstHandshake(t *testing.T) {
 	}
 	code, out, _ = a.run(t, "handoff", "sf-a", "note", "--json")
 	var doc map[string]map[string]any
-	if err := json.Unmarshal([]byte(out), &doc); err != nil || code != ExitFailure || doc["error"]["c"] != "unavailable" || doc["queued"] != nil {
+	if err := json.Unmarshal([]byte(out), &doc); err != nil || code != ExitFailure || doc["error"]["code"] != "unavailable" || doc["queued"] != nil {
 		t.Errorf("with --json: exit %d, %q (%v); want one document with the error", code, out, err)
 	}
 }

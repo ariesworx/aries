@@ -478,7 +478,7 @@ telemetry_checks() {
 
   echo "smoke: telemetry: stand-ins, not names"
   expect "a server admin resolves the stand-in" "^$stand_in is alice\$" alice admin principal whois "$stand_in"
-  refuse "nobody else does" '"c":"forbidden"' bob --json admin principal whois "$stand_in"
+  refuse "nobody else does" '"code":"forbidden"' bob --json admin principal whois "$stand_in"
   log=$(collector_log)
   all=$(spans <<<"$log")
   grep -Eq ' principal=p_[0-9a-f]{16} session=s_[0-9a-f]{16} ' <<<"$all" || fail "no span says who, by a stand-in"
@@ -974,8 +974,8 @@ expect "discovered from" "$d \(discovered-from\)" alice show "$a"
 # Prices, tokens and plans. The invented request costs 100,000 input
 # tokens at $4 and 10,000 output tokens at $20 a million: $0.60.
 price=(example-large --from 2026-01-01 --input 4 --output 20 --cache-write 5 --cache-write-1h 8 --cache-read 0.4)
-expect "prices set" ': added$' alice admin prices set "${price[@]}"
-expect "prices set again" ': unchanged$' alice admin prices set "${price[@]}"
+expect "prices set" ': added$' alice admin price set "${price[@]}"
+expect "prices set again" ': unchanged$' alice admin price set "${price[@]}"
 session=5f0c1d2e-3a4b-4c5d-8e6f-7a8b9c0d1e2f
 transcript=$work/transcripts/$session.jsonl
 printf '{"type":"assistant","sessionId":"%s","version":"2.1.300","timestamp":"%s","requestId":"req_smoke","uuid":"u1","message":{"id":"msg_smoke","type":"message","role":"assistant","model":"example-large","content":[],"stop_reason":"end_turn","usage":{"input_tokens":100000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":10000}}}\n' \
@@ -984,9 +984,9 @@ hook=$(printf '{"session_id":"%s","transcript_path":"%s","hook_event_name":"Sess
 expect "usage hook" '' alice usage --hook <<<"$hook"
 [[ -z $last ]] || fail "usage hook: it printed a note" "$last"
 expect "cost" '^total [$]0\.60, 110k tokens, 1h logged$' alice cost --since 1d
-expect "cost by model" '^ +example-large +[$]0\.60' alice cost --since 1d --by model
-expect "plans set" ': added$' alice admin plans set team --from "$(date -u +%Y-%m)" --fee 25 --seats 2 --principal alice --principal bob
-expect "plans" '^team .* alice, bob ' alice admin plans
+expect "cost by model" '^ +example-large +[$]0\.60' alice cost --since 1d --group-by model
+expect "plans set" ': added$' alice admin plan set team --from "$(date -u +%Y-%m)" --fee 25 --seats 2 --principal alice --principal bob
+expect "plans" '^team .* alice, bob ' alice admin plan list
 # The plan's share accrues with the month, so its amount depends on the date.
 expect "cost amortized" '^total [$]0\.60, [$][0-9]+\.[0-9]{2} amortized, 110k tokens' alice cost --since 1d
 expect "digest" '^closed 1$' alice digest
@@ -994,9 +994,9 @@ expect "digest discovered" "^ +$d " alice digest
 
 # A second principal reads, but is refused what only admins may do.
 expect "ready as bob" "^$b " bob ready
-refuse "prices set as bob" '"c":"forbidden"' bob --json admin prices set example-large --from 2026-02-01 \
+refuse "prices set as bob" '"code":"forbidden"' bob --json admin price set example-large --from 2026-02-01 \
   --input 1 --output 1 --cache-write 1 --cache-write-1h 1 --cache-read 1
-refuse "plans set as bob" '"c":"forbidden"' bob --json admin plans set team --from "$(date -u +%Y-%m)" \
+refuse "plans set as bob" '"code":"forbidden"' bob --json admin plan set team --from "$(date -u +%Y-%m)" \
   --fee 1 --seats 1 --principal bob
 
 # Many projects, and keys from the control database. alice is the server
@@ -1096,7 +1096,7 @@ printf 'project: %s\nserver:\n  host: localhost\n  port: %s\n  host_key: %s\n' \
 expect "a principal for CI" ' added to ci-example$' alice admin principal add ci-example --key "$work/keys/ci-example.pub"
 ci_subject=$(aries_as alice create "Parse the config" 2>/dev/null) || fail "aries create of the CI subject exited $?"
 ci_next=$(aries_as alice create "Use the parsed config" 2>/dev/null) || fail "aries create of the dependent exited $?"
-expect "a ci gate" '^[a-z0-9]+-[a-z0-9]+$' alice gate add --kind ci --check build --subject "$ci_subject" --by ci-example --blocks "$ci_next"
+expect "a ci gate" '^[a-z0-9]+-[a-z0-9]+$' alice gate add --kind ci --check build --issue "$ci_subject" --approver ci-example --blocks "$ci_next"
 ci_branch="feature/$ci_subject-parse-the-config"
 CI=true GITHUB_HEAD_REF=$ci_branch smoke_session='' expect "a CI job's failure" ' failed$' \
   ci-example gate fail --check build --from-branch --optional --sha 0123abc --url https://ci.example.com/runs/1 --reason "tests failed"
@@ -1173,7 +1173,7 @@ restart_server
 [[ $(server_setting host_key) == "$host_key" ]] || fail "restart: the host key changed" "$(server_setting host_key)"
 passed=$((passed + 2))
 expect "show after restart" "^$a .*closed" alice show "$a"
-expect "admins after restart" ': unchanged$' alice admin prices set "${price[@]}"
+expect "admins after restart" ': unchanged$' alice admin price set "${price[@]}"
 expect "the second project after restart" "^$w " bob-web ready
 check_keys_file "the keys file after the restart"
 expect "principal enable after restart" '^carol: active$' alice admin principal enable carol

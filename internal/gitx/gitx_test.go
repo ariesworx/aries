@@ -13,7 +13,7 @@ func TestBranchType(t *testing.T) {
 	t.Parallel()
 	for typ, want := range map[string]string{
 		"bug": "fix", "feature": "feature", "task": "maintenance", "chore": "maintenance",
-		"docs": "docs", "epic": "feature", "": "feature", "story": "feature",
+		"epic": "feature", "gate": "feature", "": "feature", "docs": "feature", "story": "feature",
 	} {
 		if got := BranchType(typ); got != want {
 			t.Errorf("BranchType(%q) = %q, want %q", typ, got, want)

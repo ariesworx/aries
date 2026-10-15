@@ -38,9 +38,9 @@ Read [What this costs](#what-this-costs) before you set it up.
 
    ```sh
    # sf-c3d4 waits until CI reports build passed on sf-a1b2's branch
-   aries gate add --kind ci --check build --subject sf-a1b2 --by ci-example --blocks sf-c3d4
+   aries gate add --kind ci --check build --issue sf-a1b2 --approver ci-example --blocks sf-c3d4
    # record whether sf-a1b2 landed; nothing waits on it
-   aries gate add --kind ci --check landed --subject sf-a1b2 --by ci-example
+   aries gate add --kind ci --check landed --issue sf-a1b2 --approver ci-example
    ```
 
    An issue has one ci gate for each check. To hold another issue behind
@@ -58,7 +58,7 @@ system's variables (`GITHUB_HEAD_REF`, `GITHUB_REF_NAME`,
 `CI_MERGE_REQUEST_SOURCE_BRANCH_NAME`, `CI_COMMIT_BRANCH`, in that
 order), since CI checks out a detached HEAD, and else from git. The
 server reads the issue from the branch with the project's prefix, as
-`aries start --branch` names one: `feature/sf-a1b2-parse-the-config` is
+`aries start --new-branch` names one: `feature/sf-a1b2-parse-the-config` is
 `sf-a1b2`, and so is `alice/feature/sf-a1b2`.
 
 After a merge the default branch names no issue, so the `landed` job
@@ -75,7 +75,7 @@ pass GATE` reports on a gate by its id.
 
 ## Who may report
 
-Only a principal the gate names (`--by`), and only from a CI job's
+Only a principal the gate names (`--approver`), and only from a CI job's
 session or that principal's own terminal: never from an agent's session.
 `aries` runs in the session `ci` where `CI=true`, as GitHub Actions and
 GitLab CI set it, unless an agent harness names its own session. Nobody

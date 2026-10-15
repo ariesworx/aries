@@ -4,7 +4,9 @@
 // the commands.
 //
 // It exits 0 on success, 1 on a failure, 2 on a mistake on the command
-// line and 3 when its protocol version is outside the server's range.
+// line and 3 when its protocol version is outside the server's range,
+// except that `aries lock run` exits with its command's code once the
+// command has run, and 130 when an interrupt ended it.
 // The work is all in [cli.Run]; main only hands it the process's streams,
 // environment and version, and a context that ends on an interrupt or
 // SIGTERM.

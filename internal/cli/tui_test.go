@@ -38,7 +38,7 @@ func TestTUIRefusals(t *testing.T) {
 			[]string{"aries: aries tui needs a terminal that can move the cursor, and TERM is dumb\n",
 				"fix: run it in a terminal; for a list that does not update, `aries ready`, `aries blocked` or `aries list`\n"}},
 		{"json", []string{"tui", "--json"}, func() any { return nil }, "", ExitUsage,
-			[]string{`{"error":{"c":"invalid","m":"tui draws a board and prints no JSON; ` + "`aries ready --json` and `aries list --json` do" + `","fix":"usage: aries tui"}}`}},
+			[]string{`{"error":{"code":"invalid","message":"tui draws a board and prints no JSON; ` + "`aries ready --json` and `aries list --json` do" + `","fix":"usage: aries tui"}}`}},
 		{"arguments", []string{"tui", "sf-a1"}, func() any { return nil }, "", ExitUsage, []string{"tui takes no arguments"}},
 	}
 	for _, tc := range tests {
