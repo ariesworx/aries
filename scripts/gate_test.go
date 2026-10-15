@@ -2,7 +2,8 @@
 // gate.sh runs the commands AGENTS.md lists, what it reports, and what
 // install-dolt.sh installs and refuses. It also holds the server
 // installer and the operations skill (plugins/aries-ops) to the
-// guides and the code.
+// guides and the code, and keeps the project's former names out of
+// every file git tracks.
 package scripts_test
 
 import (
