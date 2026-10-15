@@ -1,4 +1,4 @@
-# The contributor license agreement check (CLA.md, design decision 83).
+# The contributor license agreement check (CLA.md, design decision 84).
 #
 # On a pull request from someone who has not signed, CLA Assistant Lite
 # posts the agreement and the sentence to comment, and fails this check
