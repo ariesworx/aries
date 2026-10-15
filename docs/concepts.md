@@ -151,6 +151,47 @@ server's clock when you ask. A maintenance window is an issue deferred
 to the window's start and due at its end, behind a gate if a person
 must approve it first.
 
+## Locks
+
+A **lock** is a name in the project, such as `merge/main` or
+`deploy/prod`, held around a critical section: a merge train, a deploy,
+a shared staging database, an API with a rate limit. It is tied to no
+issue, and holding one changes no issue; a claim is the lock on an
+issue. A script, a CI job or a person takes one, most simply with
+`sfx lock run NAME -- CMD`, which holds the lock while CMD runs
+([Locks](cli.md#locks)). Agents do not take locks themselves: there is
+no agent tool for them.
+
+- **Capacity.** A lock holds one holder at a time, or with `--capacity
+  N` up to N at once, a semaphore. Its first acquire sets the capacity,
+  and it keeps it while anyone holds or waits for it; once nobody does,
+  the lock is gone, and the next acquire makes it again.
+- **Holders and leases.** A holder is a session: a principal, a session
+  id and a machine. A hold has a lease, 15 minutes unless asked
+  otherwise (at most a day), and lasts only while it is renewed, as a
+  claim's does. A hold whose lease ran out holds nothing, at once, even
+  before the server's reaper ends it.
+- **Epochs fence.** Every grant gets the project's next **epoch**, so a
+  lock's epochs only rise. A renewal or a release names its epoch, and
+  one that no longer holds is refused. `sfx lock run` gives the command
+  `STARFIX_LOCK_EPOCH`, so that a resource that remembers the highest
+  epoch it has seen can refuse a holder that lost the lock without
+  knowing it.
+- **Waiting.** A lock that is full is refused, or with `--wait` the
+  acquirer joins its **queue**. The queue is served first in, first out,
+  among the waiters still renewing their place: a place lapses two
+  minutes after its last renewal, so a waiter that died never holds the
+  queue up. A release grants the lock to the next waiter at once, and
+  the reaper does so within its 30-second tick when a hold's lease runs
+  out. The waiter's session is told with a `lock.granted` inbox item.
+- **Losing a lock.** A hold ends when it is released, when its lease
+  runs out, or when its principal loses access to the project; the
+  holder's session is told (`lock.lost`) unless it released the lock
+  itself. Each grant, wait, release, expiry and leave is an event of
+  the project, `lock:NAME` in its log.
+- **Never offline.** No lock command waits in the outbox: without the
+  server, `sfx lock` fails at once, before the critical section.
+
 ## Claims and leases
 
 Before an agent or a person works on an issue, they **claim** it with

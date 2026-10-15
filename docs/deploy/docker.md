@@ -289,8 +289,10 @@ is refused admin commands. Then it adds a second project with `sfx admin
 project add` and uses it, checks that someone who is no member of it is
 refused, adds a third principal whose key is in no `authorized_keys`
 file and connects as it with no restart, removes that key and checks
-that it is refused, and restarts the server to check that nothing
-changed. Along the way it checks the keys file inside the container: a
+that it is refused, holds a lock around a command with `sfx lock run`
+(the epoch in its environment, its exit code passed on, a second
+acquire refused while the lock is held), and restarts the server to
+check that nothing changed. Along the way it checks the keys file inside the container: a
 regular file of mode 0600 owned by `starfix`, with a line for each key
 added and none for a key removed or a disabled principal's; that a key
 in both files is marked, comes in by starfixd's file, which sshd reads

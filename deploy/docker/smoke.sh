@@ -5,7 +5,7 @@
 # through a server of many projects (a second project, and a person
 # whose key only the control database holds, which sshd reads from the
 # keys file starfixd writes), runs the commands of docs/ci.md's workflows
-# as a CI job would, restarts the server to check that its state
+# as a CI job would, holds a lock around a command, restarts the server to check that its state
 # persists, then removes the server and its volume. It exits non-zero on
 # the first failure.
 #
@@ -892,6 +892,24 @@ expect "the dependent is ready" "^$ci_next " alice ready
 expect "the subject shows its check" '^check build: passed at 4567def' alice show "$ci_subject"
 CI=true GITHUB_HEAD_REF=dependabot/go_modules/lib-1.2.3 smoke_session='' expect "a branch that names no issue" 'nothing reported' \
   ci-example gate pass --check build --from-branch --optional
+
+# Locks (docs/cli.md, Locks): a run holds the lock around its command,
+# with the epoch in its environment, passes the command's exit code on
+# and releases the lock; a held lock refuses a second acquire, naming its
+# holder; the list shows it; a release frees it.
+echo "smoke: a lock held around a command"
+# shellcheck disable=SC2016 # the command's own shell expands the epoch
+expect "lock run" '^ran under epoch [0-9]+$' alice lock run deploy/smoke -- sh -c 'echo "ran under epoch $STARFIX_LOCK_EPOCH"'
+lock_code=0
+sfx_as alice lock run deploy/smoke -- sh -c 'exit 7' >/dev/null 2>&1 || lock_code=$?
+((lock_code == 7)) || fail "lock run: the command exited 7, and sfx exited $lock_code"
+passed=$((passed + 1))
+lock_epoch=$(sfx_as alice lock acquire deploy/smoke 2>/dev/null) || fail "lock acquire exited $?"
+[[ $lock_epoch =~ ^[0-9]+$ ]] || fail "lock acquire printed '$lock_epoch', want the epoch"
+refuse "a held lock" 'held by alice' bob lock acquire deploy/smoke
+expect "lock list" '^deploy/smoke +1/1 +alice/smoke-alice epoch ' bob lock list
+expect "lock release" "^released deploy/smoke epoch $lock_epoch$" alice lock release deploy/smoke "$lock_epoch"
+expect "no lock held" '^no locks held$' bob lock list
 
 no_failed_write "before the restart"
 

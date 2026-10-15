@@ -348,6 +348,16 @@ pass` or `fail` from the agent's shell is refused, even with CI's key:
 CI reports from a CI job's session, which an agent's harness session is
 not.
 
+### Locks
+
+Agents do not take [locks](concepts.md#locks) themselves, and no tool
+takes, renews or lists one (decision 70). Locks guard what runs around
+an agent's work, a merge or a deploy, and the script, CI job or
+orchestrator that runs it holds the lock, renewing it, with
+`sfx lock run NAME -- CMD`. An agent whose harness runs such a command
+in a shell gets the lock that command takes, for that command's life
+only, and nothing in the agent's tool results changes.
+
 ### When the server cannot be reached
 
 When `create`, `comment`, `handoff`, `remember`, `finish`, `update` with
