@@ -41,6 +41,7 @@ import (
 	"github.com/ariesworx/aries/internal/client"
 	"github.com/ariesworx/aries/internal/clienttest"
 	"github.com/ariesworx/aries/internal/iaptest"
+	"github.com/ariesworx/aries/internal/mcpserver"
 	"github.com/ariesworx/aries/internal/offline"
 	"github.com/ariesworx/aries/internal/pgtest"
 	"github.com/ariesworx/aries/internal/proto"
@@ -1114,6 +1115,35 @@ func TestOlderClientWarns(t *testing.T) {
 	}
 	if r := alice.run("v0.2.0", "ready"); r.stderr != "" {
 		t.Fatalf("same version warned: %q", r.stderr)
+	}
+}
+
+// A key in .aries.yaml that this aries does not know, such as one a
+// newer aries reads, does not stop it: a command warns once, on standard
+// error, and goes on, and prime tells the agent.
+func TestUnknownConfigKeyWarns(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, daemonOpts{})
+	alice := w.newUser("alice", "")
+	cfg := filepath.Join(alice.repo, ".aries.yaml")
+	b, err := os.ReadFile(cfg) //nolint:gosec // the test's own file
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg, append(b, "transport: https\n"...), 0o600); err != nil { //nolint:gosec // the test's own temp repository
+		t.Fatal(err)
+	}
+	const want = "aries: warning: .aries.yaml has keys this aries does not know, ignored: transport; " +
+		"fix: run `aries upgrade` if a newer aries reads them, else remove them\n"
+	if r := alice.run("v0.2.0", "create", "First"); r.code != 0 || r.stderr != want {
+		t.Errorf("aries create with an unknown key: exit %d, stderr %q; want 0, %q", r.code, r.stderr, want)
+	}
+	if out := alice.ok("prime"); !strings.Contains(out, "notice: .aries.yaml has keys this aries does not know, ignored: transport;") {
+		t.Errorf("aries prime with an unknown key lacks the notice:\n%s", out)
+	}
+	p := decode[mcpserver.Prime](t, alice.mcp("v0.2.0").ok("prime", nil))
+	if !slices.ContainsFunc(p.Notices, func(n string) bool { return strings.HasPrefix(n, ".aries.yaml has keys") }) {
+		t.Errorf("the prime tool with an unknown key: notices %q, want the config's warning", p.Notices)
 	}
 }
 

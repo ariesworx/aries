@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -16,6 +17,7 @@ import (
 
 	"github.com/ariesworx/aries/internal/lazyregexp"
 	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/safetext"
 )
 
 // ConfigFile is the committed, per-repository configuration. It holds no
@@ -53,6 +55,41 @@ type Config struct {
 
 	// Root is the directory holding the config file (not read from YAML).
 	Root string `yaml:"-"`
+	// Unknown are the keys of the file this aries does not know, as
+	// dotted paths in the file's order, which ParseConfig ignored.
+	Unknown []string `yaml:"-"`
+}
+
+// warnKeys and warnKeyLen bound Warning's line, which a file of any
+// number of keys, of any length, must not stretch past what prime keeps
+// of a notice: it names warnKeys keys, each cut to warnKeyLen bytes.
+const (
+	warnKeys   = 5
+	warnKeyLen = 24
+)
+
+// Warning is one line naming the keys of the file this aries ignored,
+// with what to do, or "" when it knew them all. The keys are the
+// repository's text, escaped.
+func (c *Config) Warning() string {
+	if len(c.Unknown) == 0 {
+		return ""
+	}
+	n := min(len(c.Unknown), warnKeys)
+	keys := make([]string, n)
+	for i, k := range c.Unknown[:n] {
+		k = safetext.Line(k)
+		if len(k) > warnKeyLen {
+			k = strings.ToValidUTF8(k[:warnKeyLen], "") + "…"
+		}
+		keys[i] = k
+	}
+	list := strings.Join(keys, ", ")
+	if more := len(c.Unknown) - n; more > 0 {
+		list += fmt.Sprintf(" and %d more", more)
+	}
+	return fmt.Sprintf("%s has keys this aries does not know, ignored: %s; fix: run `aries upgrade` if a newer aries reads them, else remove them",
+		ConfigFile, list)
 }
 
 // IAP names the Compute Engine instance that Dial reaches through
@@ -193,18 +230,23 @@ func checkConfigFile(path string, fi fs.FileInfo) error {
 	return nil
 }
 
-// ParseConfig reads and validates a config, filling defaults. Unknown keys
-// are refused.
+// ParseConfig reads and validates a config, filling defaults. A key it
+// does not know is ignored and listed in Unknown: the file is committed
+// and read by every teammate's aries, of whatever version, so a key a
+// newer one reads must not stop an older one.
 func ParseConfig(b []byte) (*Config, error) {
+	var doc yaml.Node
+	if err := yaml.NewDecoder(bytes.NewReader(b)).Decode(&doc); err != nil && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
 	var c Config
-	dec := yaml.NewDecoder(bytes.NewReader(b))
-	dec.KnownFields(true)
-	if err := dec.Decode(&c); err != nil && !errors.Is(err, io.EOF) {
+	if err := doc.Decode(&c); err != nil {
 		if listedHostKey(b) {
 			return nil, errors.New("server.host_key holds one fingerprint: list several under host_keys instead")
 		}
 		return nil, err
 	}
+	c.Unknown = unknownKeys(&doc, reflect.TypeFor[Config](), "")
 	if c.Server.Port == 0 {
 		c.Server.Port = 22
 	}
@@ -247,6 +289,47 @@ func (c *Config) validate() error {
 		}
 	}
 	return nil
+}
+
+// unknownKeys lists the keys of the mapping n that no field of the
+// struct t names, as dotted paths after prefix, with those of the
+// mappings under the fields that are structs. An unknown key holding a
+// mapping is one key.
+func unknownKeys(n *yaml.Node, t reflect.Type, prefix string) []string {
+	if n.Kind == yaml.DocumentNode && len(n.Content) == 1 {
+		n = n.Content[0]
+	}
+	if n.Kind != yaml.MappingNode {
+		return nil
+	}
+	var out []string
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		key := n.Content[i].Value
+		ft, ok := yamlField(t, key)
+		if !ok {
+			out = append(out, prefix+key)
+			continue
+		}
+		if ft.Kind() == reflect.Pointer {
+			ft = ft.Elem()
+		}
+		if ft.Kind() == reflect.Struct {
+			out = append(out, unknownKeys(n.Content[i+1], ft, prefix+key+".")...)
+		}
+	}
+	return out
+}
+
+// yamlField is the type of the field of the struct t that the YAML key
+// name decodes into.
+func yamlField(t reflect.Type, name string) (reflect.Type, bool) {
+	for f := range t.Fields() {
+		tag, _, _ := strings.Cut(f.Tag.Get("yaml"), ",")
+		if tag == name && tag != "-" {
+			return f.Type, true
+		}
+	}
+	return nil, false
 }
 
 // listedHostKey reports whether b gives host_key a list, which YAML's

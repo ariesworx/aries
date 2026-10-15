@@ -28,6 +28,14 @@ server:
 | `server.iap` | Reach the server through Google Cloud IAP ([below](#servers-without-a-public-ip-google-cloud-iap)) | off |
 | `key` | A key file inside the repository, relative to its root: the only key `aries` then offers ([below](#your-key-is-your-identity)). The file is committed and shared, so most people leave this out; set `ARIES_KEY_FILE` to name a key of your own | your default identities, then ssh-agent |
 
+Everyone on the team reads the same committed file, with whatever
+version of `aries` they have, so a key that this `aries` does not know,
+such as one a newer release reads, is ignored rather than refused. A
+command that connects says so once on standard error, naming each such
+key (`aries: warning: .aries.yaml has keys this aries does not know,
+ignored: …`), and `prime` gives the same line to an agent as a notice.
+A key it knows is still checked, and a bad value is still refused.
+
 ### The host key is pinned
 
 `aries` checks the server's host key on every connection and never trusts a

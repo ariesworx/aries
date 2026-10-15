@@ -473,8 +473,9 @@ func (r *runner) warn(warning string) {
 }
 
 // connect dials the server on first use, and prints the server's version
-// warning, if it has one, on Stderr. A new connection first sends what
-// waits in the outbox (delivered), before the request that opened it.
+// warning and the config's, if there are any, on Stderr. A new connection
+// first sends what waits in the outbox (delivered), before the request
+// that opened it.
 func (r *runner) connect(ctx context.Context) (*mcpserver.RepoConn, error) {
 	if r.conn != nil {
 		return r.conn, nil
@@ -486,6 +487,9 @@ func (r *runner) connect(ctx context.Context) (*mcpserver.RepoConn, error) {
 	}
 	if w := c.Warning(r.env.Version); w != "" && !r.quiet {
 		_, _ = fmt.Fprintf(r.env.Stderr, "aries: %s\n", esc(w))
+	}
+	if !r.quiet {
+		r.warn(c.ConfigWarning())
 	}
 	r.conn = c
 	if err := r.delivered(ctx); err != nil {
