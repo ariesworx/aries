@@ -1,4 +1,4 @@
-# Releasing starfix
+# Releasing Aries
 
 A release is a pushed `vMAJOR.MINOR.PATCH` tag, and then the maintainer's
 word. The `release` workflow does it in three jobs over two runs. The
@@ -8,9 +8,9 @@ naming the first, and it is `sign-and-publish`:
 
 | Job | Secrets | Does |
 |---|---|---|
-| `gate` | none | Runs the full CI gate (`ci.yml`, called as a reusable workflow) on the tagged commit: lint, `go mod verify`, govulncheck, the cross-platform builds, and every test with `-race -shuffle=on` against the pinned Dolt, which must be present (`STARFIX_REQUIRE_DOLT=1`). It restores no Go cache: it downloads every module and compiles everything. A tag whose commit fails it is never built or signed |
-| `build` | none | Downloads and verifies the modules (`go mod verify`) into a clean cache and runs `govulncheck`, failing on a known vulnerability; builds `sfx` for linux, darwin and windows on amd64 and arm64, and `starfixd` for linux on amd64 and arm64 (`CGO_ENABLED=0`, `-trimpath`, `-ldflags "-s -w -X …version.Version=<tag>"`); packs each into `<bin>_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows) with the LICENSE and README; writes `checksums.txt` (sha256); attests build provenance for every archive; uploads them as a workflow artifact |
-| `sign-and-publish` | `STARFIX_RELEASE_KEY`, in the `release` environment | Runs only when started by hand (`workflow_dispatch`), and first refuses anyone but the release approver, any ref but a release tag, and any build run that is not this workflow's own for this tag and commit, and green. Then it downloads that run's archives; checks them against `checksums.txt`; signs it into `checksums.txt.sig` with `internal/tools/releasekey`; creates the GitHub release with every file |
+| `gate` | none | Runs the full CI gate (`ci.yml`, called as a reusable workflow) on the tagged commit: lint, `go mod verify`, govulncheck, the cross-platform builds, and every test with `-race -shuffle=on` against the pinned Dolt, which must be present (`ARIES_REQUIRE_DOLT=1`). It restores no Go cache: it downloads every module and compiles everything. A tag whose commit fails it is never built or signed |
+| `build` | none | Downloads and verifies the modules (`go mod verify`) into a clean cache and runs `govulncheck`, failing on a known vulnerability; builds `aries` for linux, darwin and windows on amd64 and arm64, and `ariesd` for linux on amd64 and arm64 (`CGO_ENABLED=0`, `-trimpath`, `-ldflags "-s -w -X …version.Version=<tag>"`); packs each into `<bin>_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows) with the LICENSE and README; writes `checksums.txt` (sha256); attests build provenance for every archive; uploads them as a workflow artifact |
+| `sign-and-publish` | `ARIES_RELEASE_KEY`, in the `release` environment | Runs only when started by hand (`workflow_dispatch`), and first refuses anyone but the release approver, any ref but a release tag, and any build run that is not this workflow's own for this tag and commit, and green. Then it downloads that run's archives; checks them against `checksums.txt`; signs it into `checksums.txt.sig` with `internal/tools/releasekey`; creates the GitHub release with every file |
 
 **Starting the second run is the approval.** It was once a required
 reviewer on the `release` environment. GitHub enforces required
@@ -21,8 +21,8 @@ public repository alike. A test (`internal/release/workflow_test.go`)
 pins the checks that job makes before it reads the key.
 
 `checksums.txt.sig` is one line: the standard base64 of a raw Ed25519
-signature over the exact bytes of `checksums.txt`. `sfx upgrade` and
-`starfixd upgrade` accept a release only when that signature verifies
+signature over the exact bytes of `checksums.txt`. `aries upgrade` and
+`ariesd upgrade` accept a release only when that signature verifies
 against a key in `internal/release/keys.go` and the archive's sha256 is in
 `checksums.txt`. The signing step refuses a key that `keys.go` at the tag
 does not list, so a release clients would refuse is never published.
@@ -41,33 +41,33 @@ They also say, first, when the release changes the protocol
 accepts, and which earlier releases keep working. Normally all of the
 one before do, since `ProtoMin` stays one version behind. **The first
 release after v0.4.0 is the exception:** it speaks and accepts protocol
-5 alone, so every earlier `sfx` is refused by it, and it is refused by
+5 alone, so every earlier `aries` is refused by it, and it is refused by
 every earlier server. Its notes must lead with that, give the order
-(server, then every `sfx`, then restart the agents) and link
+(server, then every `aries`, then restart the agents) and link
 [Upgrades](docs/server.md#upgrades), which has the text each side
 prints.
 
-**The same release changes which key `sfx` signs in with, and its notes
-must say so beside the protocol.** A key named for `sfx` is now the only
-key it offers the server, and `key:` in `.starfix.yaml` may name only a
-file inside the repository. A `.starfix.yaml` with a line such as `key:
+**The same release changes which key `aries` signs in with, and its notes
+must say so beside the protocol.** A key named for `aries` is now the only
+key it offers the server, and `key:` in `.aries.yaml` may name only a
+file inside the repository. A `.aries.yaml` with a line such as `key:
 ~/.ssh/id_ed25519`, which every earlier release accepted, is refused:
-`sfx` says so, names the line to remove, and gives the replacement, the
-environment variable `STARFIX_KEY_FILE=~/.ssh/id_ed25519`, which holds
+`aries` says so, names the line to remove, and gives the replacement, the
+environment variable `ARIES_KEY_FILE=~/.ssh/id_ed25519`, which holds
 the key file's path. The notes give that one step and three more
-things. With no key named, `sfx` now tries the default identity files of
+things. With no key named, `aries` now tries the default identity files of
 `~/.ssh` before ssh-agent's keys, as `ssh` does, and offers five keys at
 most, so a person whose key is `~/.ssh/id_ed25519` needs no ssh-agent,
 and one with several registered keys may sign in by a different one
 than before. A CI job that followed the team guide's earlier recipe has
-a secret named `STARFIX_KEY` holding a private key: `sfx` never reads
+a secret named `ARIES_KEY` holding a private key: `aries` never reads
 it, and the notes link the new recipe
 ([docs/deploy/team.md](docs/deploy/team.md)), which writes the key to a
-file and sets `STARFIX_KEY_FILE` to its path. And `sfx whoami` shows
+file and sets `ARIES_KEY_FILE` to its path. And `aries whoami` shows
 which principal and key a connection used. The notes link [Your key is your
 identity](docs/cli.md#your-key-is-your-identity).
 
-**That same release is the first whose starfixd refuses to start with
+**That same release is the first whose ariesd refuses to start with
 its clock behind its own history** (`clock_behind: stop`, design §14,
 decision 37). Its notes must say so under the protocol change: a server
 whose clock once ran ahead holds events dated in the future and will not
@@ -141,10 +141,10 @@ When to cut the first one is the maintainer's call.
    Nobody else's run of it is accepted, and neither is a build run of
    another tag or commit, or one that failed.
 4. Check the release page lists eight archives, `checksums.txt` and
-   `checksums.txt.sig`, then on any machine: `sfx upgrade --check`.
+   `checksums.txt.sig`, then on any machine: `aries upgrade --check`.
 
 A tag with a `-` (`v0.3.0-rc.1`) is published as a prerelease, which
-`sfx upgrade` ignores; `starfixd upgrade --to v0.3.0-rc.1` installs it.
+`aries upgrade` ignores; `ariesd upgrade --to v0.3.0-rc.1` installs it.
 
 If the signing run fails after the release was created, delete the
 release (not the tag) and start the signing run again with the same
@@ -153,14 +153,14 @@ that, re-run the build run first and sign the new one.
 
 ## Publishing to a static host
 
-`sfx upgrade`, `starfixd upgrade` and `install.sh` can read releases from
+`aries upgrade`, `ariesd upgrade` and `install.sh` can read releases from
 any host that serves files over HTTPS, such as a storage bucket: no API,
 no listing, no credentials. The release workflow does not publish there
 yet; that step is the maintainer's to add. This section is what the
 clients read, and the tool that writes it.
 
 **The layout**, under a base URL `B`
-(`https://releases.example.com/starfix`):
+(`https://releases.example.com/aries`):
 
 | Path | Holds |
 |---|---|
@@ -195,13 +195,13 @@ it checks any other. What it does with the file:
 
 - The latest release is the highest version that is not a prerelease,
   by version number: not the last line, and not the newest `published`.
-- `sfx` and `starfixd` refuse the whole file when it is larger than
+- `aries` and `ariesd` refuse the whole file when it is larger than
   1 MiB, lists more than 4,096 releases, is another `format`, names a
   tag that is not a release version, or gives a `prerelease` that its tag
   contradicts. A tag is checked before it is put in a URL, so one such
   as `../x` or a URL never is. `install.sh` refuses a file over 1 MiB or
   with a tag that is not a release version, and never prints the tag.
-- `starfixd upgrade --to` and `install.sh --version` do not read the
+- `ariesd upgrade --to` and `install.sh --version` do not read the
   index at all.
 - No redirect is followed, so the host named is the only one asked, and
   over HTTPS only. Plain HTTP is accepted only to a loopback address.
@@ -212,7 +212,7 @@ it checks any other. What it does with the file:
 anything the release key did not sign, or a release other than the one
 the client asked for: `checksums.txt` names each archive with its
 version, so one release's signed files do not pass for another's. It
-cannot move a server or an `sfx` back to an older release: neither
+cannot move a server or an `aries` back to an older release: neither
 installs a version older than the one running. It can refuse to serve,
 and it can go on serving an old `index.json`, which keeps every client
 on the release it has and silent about newer ones. Nothing a client
@@ -248,7 +248,7 @@ and upload the index last, so that it never names files that are not
 there yet:
 
 ```sh
-mkdir -p tree && curl -fsS -o tree/index.json https://releases.example.com/starfix/index.json
+mkdir -p tree && curl -fsS -o tree/index.json https://releases.example.com/aries/index.json
 go run ./internal/tools/releaseindex v0.6.0 dist/ tree/
 # copy tree/v0.6.0/ to the host, then tree/index.json, with the host's own tool
 ```
@@ -258,7 +258,7 @@ or `no-cache`): a cached copy hides a new release for as long as it
 lives. Everything under `<tag>/` may be cached forever.
 
 **A mirror.** The same layout in a directory or behind another HTTPS
-host is a mirror, and `STARFIX_RELEASES` points a client at one
+host is a mirror, and `ARIES_RELEASES` points a client at one
 ([Install](docs/install.md#where-releases-are-read-from),
 [Upgrades](docs/server.md#upgrades)). Build one with the same command,
 from a release's files carried in on any medium. A mirror is trusted
@@ -266,7 +266,7 @@ with nothing more than the bucket is.
 
 ## Before the repository is made private
 
-`sfx upgrade`, `starfixd upgrade` and `install.sh` read GitHub without
+`aries upgrade`, `ariesd upgrade` and `install.sh` read GitHub without
 credentials. The day the repository is private, each of those requests
 fails, on every machine. The order below is the only one that leaves no
 client stranded, and its last step waits for every step before it.
@@ -275,14 +275,14 @@ client stranded, and its last step waits for every step before it.
    need, the current one at least, and serve it
    ([Publishing to a static host](#publishing-to-a-static-host)). Add the
    upload to the release workflow. Check it from outside:
-   `STARFIX_RELEASES=https://releases.example.com/starfix sfx upgrade --check`.
+   `ARIES_RELEASES=https://releases.example.com/aries aries upgrade --check`.
 2. **Switch the default, in a release.** One pull request changes
    `DefaultSource` in `internal/release/static.go` to the bucket's URL
    and `DEFAULT_RELEASES` in `install.sh` to the same; `TestDefaultSource`
    fails until they agree. Publish that release to GitHub and to the
    bucket: the clients that must install it still read GitHub.
-3. **Every client and every server upgrades to that release.** `sfx
-   upgrade` on each machine, `starfixd upgrade` on each server. From
+3. **Every client and every server upgrades to that release.** `aries
+   upgrade` on each machine, `ariesd upgrade` on each server. From
    then on they read the bucket.
 4. **Only then change the repository's visibility.**
 
@@ -290,7 +290,7 @@ client stranded, and its last step waits for every step before it.
 itself once the repository is private.** It asks GitHub, is refused, and
 says it cannot read the release. It is repaired by hand, in one of two
 ways: install again with the `install.sh` of step 2 or later, or run the
-old binary once with `STARFIX_RELEASES` set to the bucket's URL, if it is
+old binary once with `ARIES_RELEASES` set to the bucket's URL, if it is
 recent enough to read that variable (every release from the one that
 introduced the static source is). A release older than that knows only
 GitHub and must be reinstalled.
@@ -302,10 +302,10 @@ which this change covers:
   `raw.githubusercontent.com`, which stops with the repository. Serve it
   from the bucket and change the command in `README.md` and
   `docs/install.md`.
-- **Words that name GitHub.** Several `fix:` lines of `sfx upgrade` and
-  `starfixd upgrade` send people to the releases page
+- **Words that name GitHub.** Several `fix:` lines of `aries upgrade` and
+  `ariesd upgrade` send people to the releases page
   (`releasesURL` in `internal/cli/upgrade.go` and
-  `cmd/starfixd/upgrade.go`), and `install.sh` names it for Windows and
+  `cmd/ariesd/upgrade.go`), and `install.sh` names it for Windows and
   for reports. `go install …@latest` and `git clone`
   ([Build from source](docs/install.md#build-from-source)) stop working
   for anyone without access.
@@ -334,10 +334,10 @@ maintainer's GitHub login.
    sign.
 
    ```sh
-   gh api -X PUT repos/ariesworx/starfix/environments/release --input - <<'JSON'
+   gh api -X PUT repos/ariesworx/aries/environments/release --input - <<'JSON'
    {"deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}
    JSON
-   gh api -X POST repos/ariesworx/starfix/environments/release/deployment-branch-policies \
+   gh api -X POST repos/ariesworx/aries/environments/release/deployment-branch-policies \
      -f name='v*' -f type=tag
    gh variable set RELEASE_APPROVER --env release --body '<maintainer>'
    ```
@@ -355,7 +355,7 @@ maintainer's GitHub login.
    local file:
 
    ```sh
-   gh secret set STARFIX_RELEASE_KEY --env release < release.key
+   gh secret set ARIES_RELEASE_KEY --env release < release.key
    # back release.key up offline, then:
    shred -u release.key   # rm -P on macOS
    ```
@@ -366,7 +366,7 @@ maintainer's GitHub login.
    only admin):
 
    ```sh
-   gh api -X POST repos/ariesworx/starfix/rulesets --input - <<'JSON'
+   gh api -X POST repos/ariesworx/aries/rulesets --input - <<'JSON'
    {"name": "release tags", "target": "tag", "enforcement": "active",
     "conditions": {"ref_name": {"include": ["refs/tags/v*"], "exclude": []}},
     "rules": [{"type": "creation"}, {"type": "update"}, {"type": "deletion"}],
@@ -409,7 +409,7 @@ must ship in a release before anything is signed with it.
    `keys.go` **beside** the old one, by pull request.
 2. Release (signed with the old key). Every client that installs it now
    trusts both keys.
-3. Replace the secret: `gh secret set STARFIX_RELEASE_KEY --env release < new.key`;
+3. Replace the secret: `gh secret set ARIES_RELEASE_KEY --env release < new.key`;
    back up `new.key` offline and delete it locally.
 4. Release again (signed with the new key). Clients older than step 2
    refuse this release; they upgrade to the step-2 release first by hand.

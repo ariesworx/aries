@@ -1,19 +1,19 @@
-# Using sfx
+# Using `aries`
 
-`sfx` is the starfix client. People use it as a command line, and agents
+`aries` is the Aries client. People use it as a command line, and agents
 run it as an MCP server ([agent guide](agents.md)). This page covers
-connecting a repository to a server and every `sfx` command. The ideas
-behind the commands are in [How starfix works](concepts.md).
+connecting a repository to a server and every `aries` command. The ideas
+behind the commands are in [How Aries works](concepts.md).
 
 ## Connect a repository
 
-A repository connects to a server through a `.starfix.yaml` file in its
+A repository connects to a server through a `.aries.yaml` file in its
 root. Commit it: it holds no secrets.
 
 ```yaml
 project: 6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f
 server:
-  host: starfix.example.com
+  host: aries.example.com
   host_key: SHA256:…
 ```
 
@@ -22,20 +22,20 @@ server:
 | `project` | The project's UUID. It must match the server's `project:` setting | required |
 | `server.host` | The server's host name or address | required |
 | `server.port` | The SSH port | `22` |
-| `server.user` | The account starfixd runs as | `starfix` |
+| `server.user` | The account ariesd runs as | `aries` |
 | `server.host_key` | The server's ED25519 host key fingerprint, `SHA256:…` | required, or `host_keys` |
 | `server.host_keys` | A list of such fingerprints, in place of `host_key`, while the server's host key is rotated ([below](#the-host-key-is-pinned)) | none |
 | `server.iap` | Reach the server through Google Cloud IAP ([below](#servers-without-a-public-ip-google-cloud-iap)) | off |
-| `key` | A key file inside the repository, relative to its root: the only key `sfx` then offers ([below](#your-key-is-your-identity)). The file is committed and shared, so most people leave this out; set `STARFIX_KEY_FILE` to name a key of your own | your default identities, then ssh-agent |
+| `key` | A key file inside the repository, relative to its root: the only key `aries` then offers ([below](#your-key-is-your-identity)). The file is committed and shared, so most people leave this out; set `ARIES_KEY_FILE` to name a key of your own | your default identities, then ssh-agent |
 
 ### The host key is pinned
 
-`sfx` checks the server's host key on every connection and never trusts a
+`aries` checks the server's host key on every connection and never trusts a
 key on first use. Get the fingerprint from the server's admin, or read it
 yourself over a channel you trust:
 
 ```sh
-ssh-keyscan -t ed25519 starfix.example.com | ssh-keygen -lf -
+ssh-keyscan -t ed25519 aries.example.com | ssh-keygen -lf -
 ```
 
 On a cloud server, prefer a value the server publishes through its
@@ -43,11 +43,11 @@ provider's API (for example in instance metadata) over a scan across the
 network.
 
 While the server's admin rotates its host key, the file pins both keys,
-and `sfx` connects when the server presents either one:
+and `aries` connects when the server presents either one:
 
 ```yaml
 server:
-  host: starfix.example.com
+  host: aries.example.com
   host_keys:
     - SHA256:…   # the key the server has now
     - SHA256:…   # the key it will have
@@ -56,15 +56,15 @@ server:
 Set `host_key` or `host_keys`, not both: a file with both is refused, as
 is a list that names a key twice. Once the rotation is done, the old
 key is removed and the file goes back to `host_key` ([Rotating the host
-key](server.md#rotating-the-host-key)). Only an `sfx` that knows
+key](server.md#rotating-the-host-key)). Only an `aries` that knows
 `host_keys` reads a file that has it; an older one refuses the whole
-file, so upgrade `sfx` before the list is committed.
+file, so upgrade `aries` before the list is committed.
 
 A server that presents none of the pinned keys is refused, with the key
 it presented and the ones pinned:
 
 ```text
-sfx: host key mismatch for starfix.example.com: the server presented SHA256:…, but .starfix.yaml pins SHA256:… and SHA256:…
+aries: host key mismatch for aries.example.com: the server presented SHA256:…, but .aries.yaml pins SHA256:… and SHA256:…
 fix: if the server's host key was changed, confirm its new key with the admin out of band, then add it to server.host_keys; otherwise do not connect
 ```
 
@@ -72,14 +72,14 @@ fix: if the server's host key was changed, confirm its new key with the admin ou
 
 The server's admin adds your public key with your principal name
 ([Principals](server.md#principals)): send them the `.pub` file, never
-the file beside it. `sfx` runs its own SSH client, so it does not use
+the file beside it. `aries` runs its own SSH client, so it does not use
 your `~/.ssh/config`. Which keys it offers the server is decided in this
 order, and nowhere else:
 
-| | Where the key comes from | What `sfx` offers |
+| | Where the key comes from | What `aries` offers |
 |---|---|---|
-| 1 | **`STARFIX_KEY_FILE`**, an environment variable that holds the *path* of a key file, any path (`~/` is your home directory). It is yours alone, since `.starfix.yaml` is committed and shared | That key and no other |
-| 2 | **`key:`** in `.starfix.yaml`, which may name only a file inside the repository: a relative path that, with symbolic links resolved, stays under the repository's root. A path outside it is refused, and the fix says to use `STARFIX_KEY_FILE` | That key and no other |
+| 1 | **`ARIES_KEY_FILE`**, an environment variable that holds the *path* of a key file, any path (`~/` is your home directory). It is yours alone, since `.aries.yaml` is committed and shared | That key and no other |
+| 2 | **`key:`** in `.aries.yaml`, which may name only a file inside the repository: a relative path that, with symbolic links resolved, stays under the repository's root. A path outside it is refused, and the fix says to use `ARIES_KEY_FILE` | That key and no other |
 | 3 | **Your default identities**, when neither is set: `~/.ssh/id_rsa`, `id_ecdsa`, `id_ecdsa_sk`, `id_ed25519` and `id_ed25519_sk`, the files `ssh` tries, in its order, and only those that exist | Each one it can use |
 | 4 | **ssh-agent** (the OpenSSH agent's named pipe on Windows), after those | The keys it holds that are not already offered, in its order, until five keys are offered in all |
 
@@ -87,16 +87,16 @@ A key named by 1 or 2 is the only key offered, whatever your `~/.ssh` and
 ssh-agent hold, as with OpenSSH's `IdentitiesOnly`. The file may be the
 private key, or its `.pub`: for a `.pub`, for a private key that is
 passphrase-protected, and for a private key that is missing while its
-`.pub` is there, ssh-agent signs with that one key, which `sfx` finds by
+`.pub` is there, ssh-agent signs with that one key, which `aries` finds by
 its public half, and offers no other. This is how an agent is given an
 identity of its own
 ([agent guide](agents.md#give-an-agent-its-own-identity)).
 
-With neither set (3 and 4) `sfx` does what `ssh` does, so that a person
+With neither set (3 and 4) `aries` does what `ssh` does, so that a person
 whose key is `~/.ssh/id_ed25519` has nothing to configure:
 
 - A default file that is passphrase-protected is used through ssh-agent
-  when the agent holds its key, and is otherwise skipped. `sfx` never
+  when the agent holds its key, and is otherwise skipped. `aries` never
   asks for a passphrase.
 - An `_sk` file is a key held on a hardware token. It is used only
   through ssh-agent, found by the `.pub` beside it, and is otherwise
@@ -104,59 +104,59 @@ whose key is `~/.ssh/id_ed25519` has nothing to configure:
 - A certificate beside a key (`id_ed25519-cert.pub`) is not read:
   certificates are not supported.
 - sshd counts every key it refuses and closes the connection at
-  `MaxAuthTries`, six by default. So `sfx` offers five keys at most. The
+  `MaxAuthTries`, six by default. So `aries` offers five keys at most. The
   default files come first, and the rest of ssh-agent's keys fill what
   is left; any beyond that are not offered, and a refusal says how many.
 - The server takes the first key it knows. With more than one of your
   keys registered, to different principals, that decides who you are;
-  name the key you mean with `STARFIX_KEY_FILE`.
+  name the key you mean with `ARIES_KEY_FILE`.
 
 The home directory is `HOME` (`USERPROFILE` on Windows), from the
-process's environment. Nothing in a repository changes where `sfx` looks
+process's environment. Nothing in a repository changes where `aries` looks
 for default identities.
 
-`sfx whoami` shows the result: the principal the server took you for, the
+`aries whoami` shows the result: the principal the server took you for, the
 project and server, the fingerprint of the key that signed, where the key
 came from (the file, and what named it, or ssh-agent), and any default
-file that was skipped, with the reason. `sfx prime`, which every agent
+file that was skipped, with the reason. `aries prime`, which every agent
 session starts with, says the same in its second line. When the server
-accepts no key, the refusal lists each key `sfx` offered, by fingerprint
+accepts no key, the refusal lists each key `aries` offered, by fingerprint
 and file, says what was skipped or left out, and names
-`STARFIX_KEY_FILE`.
+`ARIES_KEY_FILE`.
 
-**`STARFIX_KEY_FILE` holds a path, never a key.** A value that is plainly
+**`ARIES_KEY_FILE` holds a path, never a key.** A value that is plainly
 a key (more than one line, or the opening of a private key) is refused
-without being repeated. `sfx` reads no variable named `STARFIX_KEY`:
+without being repeated. `aries` reads no variable named `ARIES_KEY`:
 earlier instructions for continuous integration put a private key's
-contents in one. `sfx` never looks at its value. When it is set and
+contents in one. `aries` never looks at its value. When it is set and
 sign-in fails, the refusal says once that it is not read.
 
 ### Environment variables
 
 | Variable | Holds |
 |---|---|
-| `STARFIX_KEY_FILE` | The path of the key file to sign in with: then the only key offered (above). Never the key itself |
+| `ARIES_KEY_FILE` | The path of the key file to sign in with: then the only key offered (above). Never the key itself |
 | `SSH_AUTH_SOCK` | ssh-agent's socket |
-| `HOME`, or `USERPROFILE` on Windows | Your home directory: `~/` in `STARFIX_KEY_FILE`, and `~/.ssh` for the default identities |
-| `STARFIX_SESSION`, `STARFIX_HARNESS`, `TRACEPARENT`, `TRACESTATE` | The session id, the agent harness's name and the caller's trace context ([agent guide](agents.md#sessions), [Trace context](agents.md#trace-context)) |
-| `CI` | Set to `true`, as GitHub Actions and GitLab CI set it, and no harness names a session: `sfx` runs in the session `ci`, a CI job's, rather than `cli` ([CI gates](ci.md#who-may-report)) |
-| `GITHUB_HEAD_REF`, `GITHUB_REF_NAME` with `GITHUB_REF_TYPE`, `CI_MERGE_REQUEST_SOURCE_BRANCH_NAME`, `CI_COMMIT_BRANCH` | The branch a CI job runs on, for `sfx gate pass\|fail --from-branch`, in that order; git's branch when none is set |
-| `STARFIX_LOCK_EPOCH` | Set by `sfx lock run` for the command it runs: the epoch of the lock's hold, for a resource that checks it ([Locks](#locks)). `sfx` itself never reads it |
-| `STARFIX_NO_QUEUE` | Set to anything but empty, `0` or `false`: a write that cannot reach the server fails and is not queued, as with `--no-queue` ([When the server cannot be reached](#when-the-server-cannot-be-reached)) |
-| `STARFIX_DATA_DIR` | The absolute path of the directory `sfx` keeps its outbox and cache in, in place of your data directory ([Where it is kept](#where-it-is-kept)) |
-| `STARFIX_RELEASES` | Where `sfx upgrade` reads releases from, in place of the default: a mirror's `https://` URL, or the absolute path of a directory ([Where releases are read from](install.md#where-releases-are-read-from)) |
+| `HOME`, or `USERPROFILE` on Windows | Your home directory: `~/` in `ARIES_KEY_FILE`, and `~/.ssh` for the default identities |
+| `ARIES_SESSION`, `ARIES_HARNESS`, `TRACEPARENT`, `TRACESTATE` | The session id, the agent harness's name and the caller's trace context ([agent guide](agents.md#sessions), [Trace context](agents.md#trace-context)) |
+| `CI` | Set to `true`, as GitHub Actions and GitLab CI set it, and no harness names a session: `aries` runs in the session `ci`, a CI job's, rather than `cli` ([CI gates](ci.md#who-may-report)) |
+| `GITHUB_HEAD_REF`, `GITHUB_REF_NAME` with `GITHUB_REF_TYPE`, `CI_MERGE_REQUEST_SOURCE_BRANCH_NAME`, `CI_COMMIT_BRANCH` | The branch a CI job runs on, for `aries gate pass\|fail --from-branch`, in that order; git's branch when none is set |
+| `ARIES_LOCK_EPOCH` | Set by `aries lock run` for the command it runs: the epoch of the lock's hold, for a resource that checks it ([Locks](#locks)). `aries` itself never reads it |
+| `ARIES_NO_QUEUE` | Set to anything but empty, `0` or `false`: a write that cannot reach the server fails and is not queued, as with `--no-queue` ([When the server cannot be reached](#when-the-server-cannot-be-reached)) |
+| `ARIES_DATA_DIR` | The absolute path of the directory `aries` keeps its outbox and cache in, in place of your data directory ([Where it is kept](#where-it-is-kept)) |
+| `ARIES_RELEASES` | Where `aries upgrade` reads releases from, in place of the default: a mirror's `https://` URL, or the absolute path of a directory ([Where releases are read from](install.md#where-releases-are-read-from)) |
 
-`sfx` reads no other variable to decide who you are.
+`aries` reads no other variable to decide who you are.
 
-### Where sfx looks for the file
+### Where aries looks for the file
 
-`sfx` looks for `.starfix.yaml` in the working directory, then in each
+`aries` looks for `.aries.yaml` in the working directory, then in each
 parent. It stops at the repository's top level (the first directory that
 holds `.git`) and never looks above your home directory. `-C DIR` starts
 the search in DIR instead.
 
 On macOS and Linux the file must be yours and writable by no one else.
-`chmod go-w .starfix.yaml` fixes a checkout made under a umask of 002.
+`chmod go-w .aries.yaml` fixes a checkout made under a umask of 002.
 Windows has no owner check, so there the search boundary is the only
 guard.
 
@@ -169,7 +169,7 @@ reached through Identity-Aware Proxy TCP forwarding. Add an `iap` block;
 ```yaml
 project: 6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f
 server:
-  host: starfix-1
+  host: aries-1
   host_key: SHA256:…
   iap:
     project: example-project
@@ -182,7 +182,7 @@ server:
 | `iap.zone` | The instance's zone |
 | `iap.instance` | The instance name; defaults to `server.host` |
 
-For each connection, `sfx` runs
+For each connection, `aries` runs
 `gcloud compute start-iap-tunnel INSTANCE PORT --listen-on-stdin` and
 speaks SSH through it, so nobody keeps a tunnel open by hand. The host key
 is still pinned and checked. Each developer needs:
@@ -192,18 +192,18 @@ is still pinned and checked. Each developer needs:
   the instance up (Compute Viewer on the project is enough).
 
 The instance's firewall must admit IAP's range, `35.235.240.0/20`, on the
-SSH port. `sfx setup` warns when `gcloud` is missing.
+SSH port. `aries setup` warns when `gcloud` is missing.
 
-There is no general proxy setting, on purpose: `.starfix.yaml` is
+There is no general proxy setting, on purpose: `.aries.yaml` is
 committed, so a command in it would run whatever a cloned repository says.
 
 ## Commands
 
 ```text
-sfx [-C DIR] [--json] [--no-queue] COMMAND [ARGS]
+aries [-C DIR] [--json] [--no-queue] COMMAND [ARGS]
 ```
 
-`sfx help COMMAND` prints a command's usage. `-C DIR` runs as if started
+`aries help COMMAND` prints a command's usage. `-C DIR` runs as if started
 in DIR. `--json` prints exactly one JSON document, errors included.
 `--no-queue` makes a write that cannot reach the server fail instead of
 waiting in the outbox
@@ -217,7 +217,7 @@ waiting in the outbox
 | `finish ID` | Close your issue and end the claim in one step: `--reason`, a `--handoff` note (with the handoff fields below), and `--discovered TITLE` for each new issue found on the way. `--tick 1,3` and `--waive N=REASON` settle acceptance items first; finish is refused while any item is open. `--epoch N` refuses unless N is still the claim's epoch ([Claims and leases](concepts.md#claims-and-leases)). It sends the paths the issue's work touched, read from git ([Files](concepts.md#files-what-an-issue-touches)) |
 | `accept ID N...` | Tick acceptance items. `--undo` unticks them; `--waive REASON` waives them |
 | `handoff ID NOTE` | Leave a note for whoever continues. Fields: `--state done\|partial\|blocked`, `--next TEXT`, `--branch B`, `--worktree DIR`, and `--to P` to put it in P's inbox. `--release` ends your claim and unassigns the issue, and takes `--epoch N` like `finish`. It sends the issue's paths like `finish` |
-| `away DURATION` | Extend all your claims, in every session, to at least now plus DURATION, for example before you go offline or on leave: a claim with less than DURATION left is extended, whatever it has left, and none is shortened. DURATION is from 1m to the server's `away_max`, 7d unless its admin set another ([Limits](server.md#limits)). Each claim it extends is on the record, as a `claim.away` event in the issue's history, and the reaper, and a clock that jumps forward on the server, honor it as any lease. There is no `--back`: when you are back sooner, `finish` or `handoff --release` what you are done with, and the rest holds until the time you gave. Only from your own terminal (session `cli`): it is refused when `sfx` runs with another session id, as in an agent's session, and no MCP tool does it. It then sends the paths the work on each claim touched, read from git, one issue at a time |
+| `away DURATION` | Extend all your claims, in every session, to at least now plus DURATION, for example before you go offline or on leave: a claim with less than DURATION left is extended, whatever it has left, and none is shortened. DURATION is from 1m to the server's `away_max`, 7d unless its admin set another ([Limits](server.md#limits)). Each claim it extends is on the record, as a `claim.away` event in the issue's history, and the reaper, and a clock that jumps forward on the server, honor it as any lease. There is no `--back`: when you are back sooner, `finish` or `handoff --release` what you are done with, and the rest holds until the time you gave. Only from your own terminal (session `cli`): it is refused when `aries` runs with another session id, as in an agent's session, and no MCP tool does it. It then sends the paths the work on each claim touched, read from git, one issue at a time |
 
 ### Find and change issues
 
@@ -236,7 +236,7 @@ waiting in the outbox
 | `gate add --blocks ID` | Hold ID back behind a new human [gate](concepts.md#gates) and print the gate's id: `--approver P` (repeatable) names who may pass it, none leaves it to the project's admins; `--title T` (default `Approve ID`). The approvers get a `gate.pending` inbox item |
 | `gate add --kind ci --check NAME --subject ID --by P` | Add a [ci gate](concepts.md#ci-gates): it waits for CI principal P (repeatable) to report check NAME passed on ID, the issue whose branch the check runs on. `--blocks ID` holds an issue back behind it; without it the gate only records the check, as for `landed`. An issue has one ci gate for each check |
 | `gate pass ID`, `gate rearm ID` | Pass a gate, which lets what it held become ready and tells its assignees, or reopen a passed one so that it holds again; `--reason TEXT`. Only an approver (or, when the gate names none, an admin other than its maker) passes a human gate, and only from your own terminal: run from an agent's session it is refused |
-| `gate pass\|fail --check NAME` | Report a ci gate's check passed or failed, as a [CI job](ci.md) does, naming the issue it ran on one way: `--issue ID`, `--branch NAME`, `--from-branch` (the CI system's variables, else git's branch) or `--from-commit` (HEAD's `Starfix:` trailer, else the branch a merge commit merged). `--sha SHA`, `--url URL` (http or https, no user or password) and `--reason TEXT` are the evidence, at most the server's `gate_evidence` in all. `--optional` exits 0, saying nothing was reported, when the branch or commit names no issue or the issue has no gate for the check. `gate pass ID` and `gate fail ID` report on a gate by its id. Only a principal the gate names reports, from a CI job (`CI=true`) or its own terminal. A failure tells the issue's holder, or its assignee |
+| `gate pass\|fail --check NAME` | Report a ci gate's check passed or failed, as a [CI job](ci.md) does, naming the issue it ran on one way: `--issue ID`, `--branch NAME`, `--from-branch` (the CI system's variables, else git's branch) or `--from-commit` (HEAD's `Aries:` trailer, else the branch a merge commit merged). `--sha SHA`, `--url URL` (http or https, no user or password) and `--reason TEXT` are the evidence, at most the server's `gate_evidence` in all. `--optional` exits 0, saying nothing was reported, when the branch or commit names no issue or the issue has no gate for the check. `gate pass ID` and `gate fail ID` report on a gate by its id. Only a principal the gate names reports, from a CI job (`CI=true`) or its own terminal. A failure tells the issue's holder, or its assignee |
 | `gate waive ID --reason TEXT` | Pass a gate as an admin, whoever it names, on the record |
 | `gate list` | List the open gates: approvers, what each holds and its title, and a ci gate's failed check; `--all` adds passed and waived ones with who and when, `-n N` |
 | `label add\|rm ID LABEL...` | Add or remove labels |
@@ -254,8 +254,8 @@ does, mostly through `lock run`.
 
 | Command | Does |
 |---|---|
-| `lock run NAME -- CMD [ARG]...` | Take the lock, run CMD with `STARFIX_LOCK_EPOCH` set to the hold's epoch, renew the hold while CMD runs (at a third of its lease), release it when CMD exits, and exit with CMD's exit code. `--wait` waits in the lock's queue, keeping its place every 30 seconds, rather than fail when the lock is held; `--capacity N` and `--for DURATION` as for `acquire`. CMD's output is its own, not `sfx`'s, so `--json` is refused |
-| `lock acquire NAME` | Take the lock and print its epoch, on its own line; stderr says how to renew and release it. `--capacity N` makes it a semaphore of N holders, at its first acquire (default 1, at most the server's `lock_capacity`); a later acquire naming another capacity is refused. `--for DURATION` is the hold's lease (default 15m, from 1m to 24h). Without `--wait`, a lock that is held is refused with `busy`, naming its holders and when their leases end; with it, `sfx` waits in the queue until the lock is granted, and gives its place up if interrupted |
+| `lock run NAME -- CMD [ARG]...` | Take the lock, run CMD with `ARIES_LOCK_EPOCH` set to the hold's epoch, renew the hold while CMD runs (at a third of its lease), release it when CMD exits, and exit with CMD's exit code. `--wait` waits in the lock's queue, keeping its place every 30 seconds, rather than fail when the lock is held; `--capacity N` and `--for DURATION` as for `acquire`. CMD's output is its own, not `aries`'s, so `--json` is refused |
+| `lock acquire NAME` | Take the lock and print its epoch, on its own line; stderr says how to renew and release it. `--capacity N` makes it a semaphore of N holders, at its first acquire (default 1, at most the server's `lock_capacity`); a later acquire naming another capacity is refused. `--for DURATION` is the hold's lease (default 15m, from 1m to 24h). Without `--wait`, a lock that is held is refused with `busy`, naming its holders and when their leases end; with it, `aries` waits in the queue until the lock is granted, and gives its place up if interrupted |
 | `lock renew NAME EPOCH` | Extend your hold to its lease from now, or `--for DURATION` from now. A hold that ended, or lapsed, is refused with `conflict`: stop what it guards |
 | `lock release NAME EPOCH` | Release your hold; the next in the queue is granted it at once. Any session of your principal may release it, with its epoch |
 | `lock leave NAME` | Give up your place in the queue; says so when you hold the lock instead |
@@ -265,11 +265,11 @@ does, mostly through `lock run`.
 
 | When | What happens |
 |---|---|
-| CMD exits | The hold is released, and `sfx` exits with CMD's exit code |
-| You interrupt it (ctrl-c, or SIGTERM to `sfx`) | CMD is sent an interrupt, and killed if it has not stopped within 10 seconds; the hold is released once it has. `sfx` exits with CMD's exit code, or 130 if CMD died of the interrupt. Interrupted while waiting, it gives its place up and exits 1 |
-| The server says the hold ended | Its lease ran out while the server could not be reached, or your access ended. `sfx` says so, stops CMD as above, and exits 1: what the lock guarded is no longer guarded |
-| The server cannot be reached for a while | CMD runs on, and `sfx` keeps trying to renew, more often. If the lease runs out first, the server ends the hold and grants the lock to the next waiter; the next renewal that reaches it hears so, and stops CMD |
-| `sfx` itself is killed (SIGKILL, a crash, the machine) | Nothing is released. The hold lasts until its lease runs out, at most `--for` after the last renewal, and the reaper then grants the lock to the next waiter within its 30-second tick. CMD, if it outlives `sfx`, runs on without the lock: a resource that checks `STARFIX_LOCK_EPOCH` refuses it once the lock is granted again |
+| CMD exits | The hold is released, and `aries` exits with CMD's exit code |
+| You interrupt it (ctrl-c, or SIGTERM to `aries`) | CMD is sent an interrupt, and killed if it has not stopped within 10 seconds; the hold is released once it has. `aries` exits with CMD's exit code, or 130 if CMD died of the interrupt. Interrupted while waiting, it gives its place up and exits 1 |
+| The server says the hold ended | Its lease ran out while the server could not be reached, or your access ended. `aries` says so, stops CMD as above, and exits 1: what the lock guarded is no longer guarded |
+| The server cannot be reached for a while | CMD runs on, and `aries` keeps trying to renew, more often. If the lease runs out first, the server ends the hold and grants the lock to the next waiter; the next renewal that reaches it hears so, and stops CMD |
+| `aries` itself is killed (SIGKILL, a crash, the machine) | Nothing is released. The hold lasts until its lease runs out, at most `--for` after the last renewal, and the reaper then grants the lock to the next waiter within its 30-second tick. CMD, if it outlives `aries`, runs on without the lock: a resource that checks `ARIES_LOCK_EPOCH` refuses it once the lock is granted again |
 
 Each `lock run` takes a session of its own, `cli.lock-` and a random
 suffix (or the harness's session id and the suffix), so that two runs
@@ -282,7 +282,7 @@ second gets the first's epoch.
 | Command | Does |
 |---|---|
 | `inbox` | List your unread inbox, newest first: 20 items, or `-n N` (at most 100). `--all` includes read items; `--ack ID` (repeatable or comma-separated) or `--ack-all` marks items read |
-| `watch` | Print inbox items as they arrive, until ctrl-c (exit 0). With `--json`, one object per line: `{"op":"inbox","item":{…}}`, or `{"op":"resync"}` when it missed items (`sfx inbox` lists them) |
+| `watch` | Print inbox items as they arrive, until ctrl-c (exit 0). With `--json`, one object per line: `{"op":"inbox","item":{…}}`, or `{"op":"resync"}` when it missed items (`aries inbox` lists them) |
 | `tui` | Show the [live board](#the-live-board) until `q` |
 | `whoami` | Say who the server takes you for: your principal, the project and server, the session id, and the fingerprint of the key that signed in, with whether it came from a key file or from ssh-agent. `--json` gives the same as one document. Run it when a command acts as someone you did not expect |
 | `who` | List the sessions seen in the last 5 minutes (`--since 2h`, up to 7d) and the issues each holds; at most 100 (`-n N`, up to 500), then a count of the rest |
@@ -315,17 +315,17 @@ Memories are notes kept across sessions, in `project` (the default),
 | `usage --hook[=AGENT]` | Send the token counts in the session's transcripts that earlier runs have not sent. Run by Claude Code's Stop, SubagentStop and SessionEnd hooks, which `setup claude-code` installs, with the hook's JSON on stdin; bare `--hook` is Claude Code's, the only agent captured so far. It always exits 0 and sends only counts ([Token usage hooks](agents.md#token-usage-hooks-claude-code)) |
 | `admin prices` | List the model prices, in US dollars per million tokens. `admin prices set MODEL --from DATE --input USD --output USD --cache-write USD --cache-write-1h USD --cache-read USD` sets a model's rates from a date (midnight UTC) or an RFC 3339 time, and prints `added`, `replaced` (the same model and `--from`) or `unchanged`. Every rate must be given, 0 where the model charges nothing, with at most six decimals. Setting is for admins ([Prices](server.md#prices)) |
 | `admin plans` | List the subscription plans, in US dollars a seat a month, with each row's monthly total. `admin plans set NAME --from YYYY-MM --fee USD --seats N --principal P...` sets a plan's terms from a month until a later `--from` of the same name, the principals being those whose usage it pays for (repeatable or comma-separated), and prints `added`, `replaced` (the same name and `--from`) or `unchanged`. `--fee 0 --seats 0` ends a plan. Setting is for admins ([Plans](server.md#plans)) |
-| `admin project` | On a server of [many projects](server.md#serving-many-projects). `admin project add NAME [--prefix P] [--account A]` creates a project, in a database the server takes from the names its operator granted, and prints its UUID and the `.starfix.yaml` to commit to its repository: this repository's server with the new project, never your key path. NAME is a code name; the prefix of its issue ids defaults to NAME and its account to `internal`. Run again after a failure, it finishes the same project. `admin project list` lists every project for a server admin, and for anyone else the active projects they belong to, with their role; `admin project archive PROJECT` stops serving a project, closes every connection to it and releases every claim in it, keeping its data; `admin project activate PROJECT` serves it again. PROJECT is a UUID or a name. Adding, archiving and activating are for server admins ([Managing access](server.md#managing-access)) |
+| `admin project` | On a server of [many projects](server.md#serving-many-projects). `admin project add NAME [--prefix P] [--account A]` creates a project, in a database the server takes from the names its operator granted, and prints its UUID and the `.aries.yaml` to commit to its repository: this repository's server with the new project, never your key path. NAME is a code name; the prefix of its issue ids defaults to NAME and its account to `internal`. Run again after a failure, it finishes the same project. `admin project list` lists every project for a server admin, and for anyone else the active projects they belong to, with their role; `admin project archive PROJECT` stops serving a project, closes every connection to it and releases every claim in it, keeping its data; `admin project activate PROJECT` serves it again. PROJECT is a UUID or a name. Adding, archiving and activating are for server admins ([Managing access](server.md#managing-access)) |
 | `admin principal` | `admin principal add NAME [--key FILE]... [--project P]` adds a principal as a member of this repository's project, or of `--project` (a UUID or a name); `--no-project`, for server admins, adds it to none. Each `--key` is a public key file to add with it, as `admin key add` takes one; the principal and its keys are added together or not at all. `admin principal list` lists them all, for server admins; `--created-by NAME` lists those NAME created, which a project admin may also ask, and is shown the ones in their projects. `admin principal disable NAME` stops a principal's access everywhere, closes its connections and releases its claims, and says how many; a disabled principal is refused even if it is a server admin, and the last enabled server admin cannot be disabled. Disabling undoes nothing the principal did: when NAME added keys that are still in the store, created principals or added memberships, a warning on stderr counts them and names the lists that show them (`key list --added-by`, `principal list --created-by`, `member list --added-by`), and `--json` carries the counts as `keys_added`, `principals_created` and `members_added`. `admin principal enable NAME` restores it. A project admin may add a principal to a project they administer, and disable or enable one that belongs only to projects they administer. `admin principal whois STAND-IN`, for server admins, prints whose stand-in `p_…` is: the one a server's traces carry in place of a principal's name ([Traces](server.md#traces)), as `p_0123456789abcdef is alice`, with `(disabled)` after a disabled principal's; `--json` gives `stand_in`, `name` and `state`. It is refused for a stand-in that is nobody's, and on a server that has no key for them, with what that means |
-| `admin key` | A principal's public SSH keys, on a server whose sshd reads the keys file starfixd writes ([Keys from the store](server.md#keys-from-the-store)). `admin key add NAME FILE` adds the key in FILE, a `.pub` file such as `~/.ssh/id_ed25519.pub`, or `-` to read it from standard input, and prints its fingerprint. `sfx` reads the file here and sends the public key alone: a file that holds a private key, more than one line, or anything that is not one public key is refused before anything is sent. A key the principal already has changes nothing; one another principal has is refused, and so is one that the server's hand-maintained `authorized_keys` gives to another principal. `admin key list NAME` lists a principal's keys by fingerprint, type and comment: for server admins, an admin of any active project NAME belongs to (they may see the keys even where they may not change them), and NAME themselves. `admin key list` marks a key that is also a line of the server's hand-maintained `authorized_keys` file, and says how many of NAME's open connections came in by that file. `admin key list --added-by NAME` lists instead the keys NAME added, whoever each belongs to, by fingerprint (`-n N`, `--after FINGERPRINT`): everything for a server admin, and for a project admin the keys of their projects' members. `admin key remove FINGERPRINT` removes the key with that `SHA256:…` fingerprint and closes the connections it had signed in; it warns on stderr when the key is also a line of the server's `authorized_keys`: its connections were closed, and sshd, which reads that file after the server's own, still accepts the key by that line until the line is deleted on the server. Any of these commands that changes which keys sign in also warns when the server recorded the change and could not write its keys file, so that sshd may still be reading the old one. Adding is for server admins and for a project admin with reach over the principal, and never for your own account: another admin adds your keys. Removing is for the same admins, and for yourself: you may remove any key of your own except the one this connection signed in with, which is refused by fingerprint (`sfx whoami` shows it; `admin key list YOU` shows the rest, with who added each). On a connection that came in by the server's `authorized_keys`, which names no key, the removal goes ahead with a warning that it could not be checked |
-| `admin member` | `admin member add NAME [--project P] [--role admin] [--accept-keys]` makes a principal a member of the project, or changes its role (`member`, the default, or `admin`), and prints `added`, the new role, or that nothing changed. A key signs in to every project its principal is in, so when NAME has any key and is not yet a member, nothing is added at first: `sfx` lists every key NAME has, with who added it, when, and whether that was an admin of this project, and on a terminal asks before it adds. Without a terminal it exits 1 with a fix naming `--accept-keys`, which adds without asking; with `--json` the one document holds the refusal under `error` and the keys under `member`. Someone with no key is added at once, and a change of role asks nothing. `admin member list [--project P]` lists the project's members; with `--added-by NAME` it lists the memberships NAME added, in every project you may list the members of, or in `--project`, by project and principal (`--after PROJECT/PRINCIPAL` continues). `admin member remove NAME [--project P]` ends a membership, closes that principal's connections to the project and releases the claims it held there, saying how many; it warns on stderr when that leaves the principal within reach of project admins who could not manage it before. For the project's admins and server admins. Each `admin` list of projects, principals or members is by name, 200 rows or `-n N` (at most 1000), then a count of the rest, which `--after NAME` lists |
-| `admin status` | What the server knows of itself and its projects now ([Watching a server](server.md#watching-a-server)). A server admin sees the server (version and protocol range, uptime, open stores and connections beside their limits, the keys file it writes for sshd and whether its last write failed, the times its clock was set and whether it is behind the server's own history ([The server's clock](server.md#the-servers-clock)), starfixd's own memory and goroutines, projects and principals by state) and a row for every project; a project admin sees the rows of the active projects they administer; anyone else is refused. A row gives the project's state, whether its store is open, its connections and how many of them came in by the hand-maintained `authorized_keys`, the sessions seen in five minutes, the writes of the last minute, and the median and 99th percentile latency of its latest 256 writes. `-n N` and `--after NAME` page the projects. With `telemetry: dolt_metrics_url:` set on the server, a server admin also sees Dolt's version, uptime, connections, resident memory and memory limit, and its collector's cycles against the writes ([Dolt's figures](server.md#dolts-figures)). It changes nothing, and reports nothing of a database's size on disk |
-| `upgrade` | Replace `sfx` with the latest release after checking its signature and checksum. `--check` reports and changes nothing; `--rollback` restores the binary the last upgrade replaced. It never runs on its own |
+| `admin key` | A principal's public SSH keys, on a server whose sshd reads the keys file ariesd writes ([Keys from the store](server.md#keys-from-the-store)). `admin key add NAME FILE` adds the key in FILE, a `.pub` file such as `~/.ssh/id_ed25519.pub`, or `-` to read it from standard input, and prints its fingerprint. `aries` reads the file here and sends the public key alone: a file that holds a private key, more than one line, or anything that is not one public key is refused before anything is sent. A key the principal already has changes nothing; one another principal has is refused, and so is one that the server's hand-maintained `authorized_keys` gives to another principal. `admin key list NAME` lists a principal's keys by fingerprint, type and comment: for server admins, an admin of any active project NAME belongs to (they may see the keys even where they may not change them), and NAME themselves. `admin key list` marks a key that is also a line of the server's hand-maintained `authorized_keys` file, and says how many of NAME's open connections came in by that file. `admin key list --added-by NAME` lists instead the keys NAME added, whoever each belongs to, by fingerprint (`-n N`, `--after FINGERPRINT`): everything for a server admin, and for a project admin the keys of their projects' members. `admin key remove FINGERPRINT` removes the key with that `SHA256:…` fingerprint and closes the connections it had signed in; it warns on stderr when the key is also a line of the server's `authorized_keys`: its connections were closed, and sshd, which reads that file after the server's own, still accepts the key by that line until the line is deleted on the server. Any of these commands that changes which keys sign in also warns when the server recorded the change and could not write its keys file, so that sshd may still be reading the old one. Adding is for server admins and for a project admin with reach over the principal, and never for your own account: another admin adds your keys. Removing is for the same admins, and for yourself: you may remove any key of your own except the one this connection signed in with, which is refused by fingerprint (`aries whoami` shows it; `admin key list YOU` shows the rest, with who added each). On a connection that came in by the server's `authorized_keys`, which names no key, the removal goes ahead with a warning that it could not be checked |
+| `admin member` | `admin member add NAME [--project P] [--role admin] [--accept-keys]` makes a principal a member of the project, or changes its role (`member`, the default, or `admin`), and prints `added`, the new role, or that nothing changed. A key signs in to every project its principal is in, so when NAME has any key and is not yet a member, nothing is added at first: `aries` lists every key NAME has, with who added it, when, and whether that was an admin of this project, and on a terminal asks before it adds. Without a terminal it exits 1 with a fix naming `--accept-keys`, which adds without asking; with `--json` the one document holds the refusal under `error` and the keys under `member`. Someone with no key is added at once, and a change of role asks nothing. `admin member list [--project P]` lists the project's members; with `--added-by NAME` it lists the memberships NAME added, in every project you may list the members of, or in `--project`, by project and principal (`--after PROJECT/PRINCIPAL` continues). `admin member remove NAME [--project P]` ends a membership, closes that principal's connections to the project and releases the claims it held there, saying how many; it warns on stderr when that leaves the principal within reach of project admins who could not manage it before. For the project's admins and server admins. Each `admin` list of projects, principals or members is by name, 200 rows or `-n N` (at most 1000), then a count of the rest, which `--after NAME` lists |
+| `admin status` | What the server knows of itself and its projects now ([Watching a server](server.md#watching-a-server)). A server admin sees the server (version and protocol range, uptime, open stores and connections beside their limits, the keys file it writes for sshd and whether its last write failed, the times its clock was set and whether it is behind the server's own history ([The server's clock](server.md#the-servers-clock)), ariesd's own memory and goroutines, projects and principals by state) and a row for every project; a project admin sees the rows of the active projects they administer; anyone else is refused. A row gives the project's state, whether its store is open, its connections and how many of them came in by the hand-maintained `authorized_keys`, the sessions seen in five minutes, the writes of the last minute, and the median and 99th percentile latency of its latest 256 writes. `-n N` and `--after NAME` page the projects. With `telemetry: dolt_metrics_url:` set on the server, a server admin also sees Dolt's version, uptime, connections, resident memory and memory limit, and its collector's cycles against the writes ([Dolt's figures](server.md#dolts-figures)). It changes nothing, and reports nothing of a database's size on disk |
+| `upgrade` | Replace `aries` with the latest release after checking its signature and checksum. `--check` reports and changes nothing; `--rollback` restores the binary the last upgrade replaced. It never runs on its own |
 | `version` | Print the version (`--json` adds the protocol) |
 
 ## The live board
 
-`sfx tui` fills the terminal with a board that keeps itself current:
+`aries tui` fills the terminal with a board that keeps itself current:
 
 - **Ready**: the issues nothing holds back, best first, up to 100. An
   issue whose files overlap work another session holds is marked
@@ -361,9 +361,9 @@ and reads everything afresh. Each redial waits a random time up to a
 limit that starts at 1 s and doubles to 30 s; the limit starts over only
 once a new connection has read the lists. The board is read-only.
 
-`sfx tui` needs a terminal on standard input and output, and one that
+`aries tui` needs a terminal on standard input and output, and one that
 does not say `TERM=dumb`. Anywhere else it refuses and points at
-`sfx ready`, `sfx blocked` and `sfx list`. It
+`aries ready`, `aries blocked` and `aries list`. It
 honors [`NO_COLOR`](https://no-color.org): set, the board draws without
 color and marks the selection with `>` alone. Like all output, text from
 the server is escaped (below).
@@ -371,7 +371,7 @@ the server is escaped (below).
 ## When the server cannot be reached
 
 A server restarts, a tunnel or a VPN drops, a database is slow. When a
-write cannot reach the server, `sfx` keeps it in an **outbox** on your
+write cannot reach the server, `aries` keeps it in an **outbox** on your
 machine and sends it later: `create`, `comment`, `handoff`, `remember`,
 `log` (logging hours), `finish`, `update`, `label add` and `label rm`,
 `dep add`, `accept`, and token usage. Each carries a key that lets the
@@ -390,12 +390,12 @@ for you. And a write waits 7 days at most, the server's window for a
 key (`idem_window` in [the server's limits](server.md#limits)).
 
 **`update` needs its rev.** An `update` is queued only with the rev it
-was based on, which offline only you know: `sfx update ID --rev N ...`.
+was based on, which offline only you know: `aries update ID --rev N ...`.
 Without `--rev` it first reads the issue's rev from the server, and with
 the server away it fails, saying to give `--rev`.
 
 **A late finish.** Your claim's lease runs out on the server's clock
-while you cannot reach it, unless `sfx away` extended it first; after
+while you cannot reach it, unless `aries away` extended it first; after
 that the reaper reopens the issue and anyone may take it. A queued
 `finish` or `handoff` that arrives after its lease ran out is decided
 on what happened meanwhile:
@@ -405,43 +405,43 @@ on what happened meanwhile:
 | Nobody took the issue | It applies as it would have; the issue's history has a `claim.lapsed` event first, saying the lease had lapsed |
 | Someone took it, you in another session among them, or it was closed | It is kept as a comment on the issue, saying why, with its reason, note and fields; a `finish`'s discovered issues are still filed, discovered from the issue; nothing else of it applies. You get a `conflict` item in your inbox, every session of yours, and the session that holds the issue gets one too |
 
-It is delivered either way, and `sfx` says how many were kept:
-`outbox: delivered 2 (1 kept as a comment, as the issue moved on while it waited: `sfx inbox` says why)`.
+It is delivered either way, and `aries` says how many were kept:
+`outbox: delivered 2 (1 kept as a comment, as the issue moved on while it waited: `aries inbox` says why)`.
 Only a write replayed from the outbox is treated so: a `finish` or
 `handoff` you run while the server answers is refused, as always, when
 another session has taken the issue since your epoch.
 
 **A server of protocol 7.** Late finishes are protocol 8's, and conflicts
-protocol 7's. Against a server that speaks only protocol 7, `sfx`
+protocol 7's. Against a server that speaks only protocol 7, `aries`
 speaks 7, and a queued `finish` or `handoff` it replays there after
 the issue moved on is refused, as before: it moves to the refused list,
-and `sfx outbox retry N` sends it again once the server is upgraded,
-when it is kept as a comment. This `sfx` does not speak protocol 6:
+and `aries outbox retry N` sends it again once the server is upgraded,
+when it is kept as a comment. This `aries` does not speak protocol 6:
 a server of 6 alone refuses it with `version` (exit code 3). A record
-of a server last seen at 5, from an older `sfx`, still keeps an
+of a server last seen at 5, from an older `aries`, still keeps an
 `update` from being queued for it, saying so.
 
 **What counts as not reached.** The connection could not be made (the
-network, the tunnel, sshd, or `starfixd` not running), it was lost
+network, the tunnel, sshd, or `ariesd` not running), it was lost
 before the answer came, the answer did not come within 75 seconds, or
 the server answered `unavailable`. The server gives up on a request
-after a minute and says so, so `sfx` waits 75 seconds before it closes
+after a minute and says so, so `aries` waits 75 seconds before it closes
 a connection that has gone silent and fails the command (`the server
-did not answer show within 1m15s, so sfx closed the connection`). The
-`sfx admin` commands that change projects, principals, members and keys
+did not answer show within 1m15s, so aries closed the connection`). The
+`aries admin` commands that change projects, principals, members and keys
 are waited on for as long as they take, since the server may take
 longer over them; interrupt one with ctrl-c. A refusal
 is not an outage, and fails as it always has: an unknown key, a host key
 that does not match its pin, `forbidden`, `invalid`, `not_found`,
-`conflict`, a protocol version, a mistake in `.starfix.yaml`, and the
+`conflict`, a protocol version, a mistake in `.aries.yaml`, and the
 server's rate limit (`busy`).
 
 **What you see.** One line, and exit code 0, since the write was
 accepted for delivery:
 
 ```text
-$ sfx handoff sf-a1b2c3d4 "half done" --next "the tests"
-queued (server unreachable since 2026-10-13 14:02 UTC): entry 3, handoff sf-a1b2c3d4; sfx sends it when the server answers (`sfx outbox` lists what waits)
+$ aries handoff sf-a1b2c3d4 "half done" --next "the tests"
+queued (server unreachable since 2026-10-13 14:02 UTC): entry 3, handoff sf-a1b2c3d4; aries sends it when the server answers (`aries outbox` lists what waits)
 ```
 
 With `--json` it is one document, which never has the `id` and `rev` of
@@ -457,9 +457,9 @@ until it is sent, so nothing else you queue can refer to it. A `label`
 command of several labels queues a write for each, prints a line for
 each, and with `--json` one document, `{"queued":true,"entries":[...]}`.
 
-**Scripts.** A script that reads an id from `sfx create`, or that must
+**Scripts.** A script that reads an id from `aries create`, or that must
 know the write was made, passes `--no-queue` or sets
-`STARFIX_NO_QUEUE=1`: the write then fails with exit code 1, as it did
+`ARIES_NO_QUEUE=1`: the write then fails with exit code 1, as it did
 before there was an outbox.
 
 **What is not queued.** Everything else fails as before, and for a write
@@ -482,18 +482,18 @@ and a fix:
 | Refusal | Code | What to do |
 |---|---|---|
 | This machine has never reached the server with this key, so it cannot tell whose write it is | `unavailable` | Run it again when the server answers. Writes are queued once any command of yours has reached the server from this machine with this key |
-| The outbox is at its cap: 1,000 entries, or 4 MiB | `busy` | Run it again when the server answers, which sends what waits; or `sfx outbox drop N` what is no longer wanted |
+| The outbox is at its cap: 1,000 entries, or 4 MiB | `busy` | Run it again when the server answers, which sends what waits; or `aries outbox drop N` what is no longer wanted |
 | One write is larger than 256 KiB | `invalid` | Shorten its text, or run it again when the server answers |
 | The text looks like it holds a credential | `invalid` | Remove the secret, and name where it is kept instead. The outbox is a file on your disk and keeps no secret; this check is the one the server runs on memories, here on every queued write |
-| The data directory is not yours alone, or cannot be written | `unavailable` | `chmod 700` it if it is yours, or name another with `STARFIX_DATA_DIR` |
+| The data directory is not yours alone, or cannot be written | `unavailable` | `chmod 700` it if it is yours, or name another with `ARIES_DATA_DIR` |
 
-**Delivery.** The next `sfx` command that connects sends what waits
+**Delivery.** The next `aries` command that connects sends what waits
 first, in order, before its own request, for five seconds at most; what
 is left goes with the command after. When anything was sent, one line on
 stderr says so:
 
 ```text
-sfx: outbox: delivered 3, refused 1 (see `sfx outbox`)
+aries: outbox: delivered 3, refused 1 (see `aries outbox`)
 ```
 
 An answer from the server settles an entry. Applied, it is gone.
@@ -502,7 +502,7 @@ and fix, and is never sent again by itself. If the server still cannot be
 reached, or says `busy`, the entry stays where it is with everything
 after it. An entry that waited more than 7 days is not sent: it moves to
 the refused list as `stale`, so that a write that late is sent only when
-you say so. `sfx outbox retry N` sends it, with its key: one the server
+you say so. `aries outbox retry N` sends it, with its key: one the server
 never had applies; one it applied more than its window ago is refused
 by the server as `stale`, saying the write was applied then, and is
 never applied again. If you still want that change, make it again by
@@ -517,8 +517,8 @@ list at once, with the server's message and fix, and one line on stderr
 says so:
 
 ```text
-sfx: alice is not a member of project "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
-sfx: outbox: 2 writes queued as alice were refused with it, and kept: `sfx outbox` lists them, to retry once access is back or drop
+aries: alice is not a member of project "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+aries: outbox: 2 writes queued as alice were refused with it, and kept: `aries outbox` lists them, to retry once access is back or drop
 ```
 
 Only that refusal does this, and only when the server names you in it.
@@ -534,11 +534,11 @@ an agent's session queued, the history shows session `cli`, and the
 agent's session finds a `claim.lost` item in its inbox for the issue.
 The write itself is the one that was queued.
 
-**`sfx outbox`** lists what waits and what was refused, and works with
+**`aries outbox`** lists what waits and what was refused, and works with
 the server away:
 
 ```text
-$ sfx outbox
+$ aries outbox
 alice's outbox: 2 waiting, 1 refused
 server unreachable since 2026-10-13 14:12 UTC; last tried 2026-10-13 14:32 UTC
 waiting:
@@ -548,8 +548,8 @@ waiting:
 refused:
   1  comment  sf-9z8y7x6w  35m  cli on laptop
      not_found: issue sf-9z8y7x6w not found
-     fix: find the id with `sfx list`
-`sfx outbox retry N` sends a refused entry again; `sfx outbox drop N` removes an entry for good
+     fix: find the id with `aries list`
+`aries outbox retry N` sends a refused entry again; `aries outbox drop N` removes an entry for good
 ```
 
 | Command | Does |
@@ -564,27 +564,27 @@ principal this machine has queued as.
 
 **When the server's host key changes.** A host key rotated as [the
 server guide](server.md#rotating-the-host-key) has it changes nothing
-here: while `.starfix.yaml` pins the old and the new key, the server is
+here: while `.aries.yaml` pins the old and the new key, the server is
 one server whichever it presents, and once a command of yours has
 reached it in that time, what you queued stays yours to send after the
 old key is removed. A server rebuilt with a new host key, or one whose
 new key was pinned without a command reaching it while both were
-pinned, is, to `sfx`, another server until you confirm the key and pin
+pinned, is, to `aries`, another server until you confirm the key and pin
 it. What you queued under the old key is then left where it is, and
 nothing of it is sent by itself: a changed host key is for a person to
-look at. `sfx outbox` lists it, and `prime` has a notice:
+look at. `aries outbox` lists it, and `prime` has a notice:
 
 ```text
 alice's outbox is empty
 no failure to reach the server is recorded
 under the server's old host key SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5TqvU, at example.com:22: alice's outbox, 2 waiting, 0 refused
-  not sent by themselves, since the server's host key changed: `sfx outbox --host-key SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5TqvU` lists them
+  not sent by themselves, since the server's host key changed: `aries outbox --host-key SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5TqvU` lists them
 ```
 
 | Command | Does |
 |---|---|
 | `outbox --host-key KEY` | List what waits under the old host key `KEY`, as `outbox` lists your own |
-| `outbox retry N --host-key KEY` | Move entry N, waiting or refused, to this server's outbox, with the key it always had: the next command that connects sends it. Only when `.starfix.yaml` names the server at the address it had when the entry was queued (`server.host`, `server.port` and the IAP route); otherwise it is refused, and the entry can only be dropped |
+| `outbox retry N --host-key KEY` | Move entry N, waiting or refused, to this server's outbox, with the key it always had: the next command that connects sends it. Only when `.aries.yaml` names the server at the address it had when the entry was queued (`server.host`, `server.port` and the IAP route); otherwise it is refused, and the entry can only be dropped |
 | `outbox drop N --host-key KEY` | Remove entry N for good |
 
 ### Conflicts
@@ -592,7 +592,7 @@ under the server's old host key SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5Tq
 A queued `update` carries the rev it was based on. When it arrives
 after someone else changed the issue, the server does not refuse it:
 it compares each field the update sets with the issue as it was at that
-rev, which its history gives ([design §18.7](design/starfix.md#187-conflicts-parked-on-the-server)).
+rev, which its history gives ([design §18.7](design/aries.md#187-conflicts-parked-on-the-server)).
 
 - A field nobody else changed since is applied, and so is one the other
   change set to the same value, or set back to what it was.
@@ -608,36 +608,36 @@ rev, which its history gives ([design §18.7](design/starfix.md#187-conflicts-pa
 - Labels, dependencies, comments and checklist ticks are not compared:
   they add to what is there.
 
-The replay says so on stderr, as `sfx: outbox: delivered 1 (1 parked
-conflicts for a person to resolve: `sfx conflicts`)`; an inbox item
+The replay says so on stderr, as `aries: outbox: delivered 1 (1 parked
+conflicts for a person to resolve: `aries conflicts`)`; an inbox item
 tells your principal, in every session, and the holder of the issue
 when that is another principal; and `prime` counts the open conflicts
-on your work. `sfx outbox stats` counts parked entries among the
+on your work. `aries outbox stats` counts parked entries among the
 delivered ones.
 
 ```text
-$ sfx conflicts sf-a1
+$ aries conflicts sf-a1
 #3 sf-a1 title: alice's update from rev 4, parked 2h ago, against bob's of 3h ago
   base:   Fix login
   mine:   Fix the login redirect
   theirs: Fix login and logout
   advice: theirs is from bob, who holds the issue; take theirs
   proposed by agent-7: text: Fix the login and logout redirects (keeps both)
-$ sfx resolve 3 --accept
+$ aries resolve 3 --accept
 sf-a1 rev 9
 ```
 
 The advice is worked out when you read it, from who holds the issue
 and who made each side; it is never applied by itself. An agent may
 **propose** a resolution, kept with the conflict, a later one
-replacing it ([agent guide](agents.md#conflicts)); only `sfx resolve`
+replacing it ([agent guide](agents.md#conflicts)); only `aries resolve`
 decides, `--accept` taking the proposal. A later change to the same
 field, by anyone, closes the conflict, noted in the issue's history.
 `digest` lists conflicts open longer than the server's `conflict_age`
 (a day by default). The server caps the open conflicts on one issue
 and those one principal parked ([limits](server.md#limits)); an update
 that would pass a cap is refused, nothing of it applied, and waits in
-`sfx outbox` until the conflicts are resolved and it is retried.
+`aries outbox` until the conflicts are resolved and it is retried.
 
 A live `update` with `--rev` is not compared: if the issue changed, it
 is refused with `conflict`, and you read it again.
@@ -648,7 +648,7 @@ Every read the server answers that is part of your own context is kept
 on your machine as it was returned, with when: `prime`; `show` of each
 issue you looked at, the latest answer for each issue; the issue
 `start` took, kept as a `show` of it; `inbox`; and `digest`, for the
-arguments it was run with. Agents' reads through `sfx mcp`, and the
+arguments it was run with. Agents' reads through `aries mcp`, and the
 SessionStart hook's prime, are kept the same way, in the same place, so
 what your agent read you can read too.
 
@@ -658,8 +658,8 @@ and `digest` print what was kept, exit 0, and say on stderr, in one line,
 that it is this machine's copy and how old:
 
 ```text
-$ sfx show sf-a1b2c3d4
-sfx: cached: starfix cannot reach its server, so this is this machine's copy from 2026-10-13 14:02 UTC (3h old), and may be out of date
+$ aries show sf-a1b2c3d4
+aries: cached: aries cannot reach its server, so this is this machine's copy from 2026-10-13 14:02 UTC (3h old), and may be out of date
 sf-a1b2c3d4  P1  in_progress  task  rev 4
 ...
 ```
@@ -682,9 +682,9 @@ the way that has two sessions take the same work. With the server away
 they fail as before, and say when the server was last reached:
 
 ```text
-$ sfx ready
-sfx: starfixd is not running on the server; ready is not answered from this machine's copy, since it says what others are doing now (server last reached 2026-10-13 14:02 UTC)
-fix: ask the server admin to start it (`systemctl start starfixd`); meanwhile `sfx prime` and `sfx show ID` answer from this machine's copy of what you read
+$ aries ready
+aries: ariesd is not running on the server; ready is not answered from this machine's copy, since it says what others are doing now (server last reached 2026-10-13 14:02 UTC)
+fix: ask the server admin to start it (`systemctl start ariesd`); meanwhile `aries prime` and `aries show ID` answer from this machine's copy of what you read
 ```
 
 There is no flag to show them from the cache anyway: they are not kept.
@@ -697,7 +697,7 @@ same machine and data directory is never shown yours.
 
 **Bounds.** For each principal: 500 answers, 16 MiB, 1 MiB for one
 answer (a larger one is not kept), and 7 days. Each write removes what is
-past them, the oldest first. They are fixed in `sfx`
+past them, the oldest first. They are fixed in `aries`
 (`internal/offline/cache.go`), since what grows is on your own disk.
 
 **Deleted.** When a command's connection is refused because your access
@@ -705,7 +705,7 @@ to the project has ended (as for the outbox, above), your cache of the
 project is deleted from the machine, and one line on stderr says so:
 
 ```text
-sfx: cache: 12 answers alice read from this project were deleted from this machine
+aries: cache: 12 answers alice read from this project were deleted from this machine
 ```
 
 | Command | Does |
@@ -721,39 +721,39 @@ Under your data directory, never in the repository:
 
 | System | Directory |
 |---|---|
-| Linux | `$XDG_DATA_HOME/starfix`, or `~/.local/share/starfix` |
-| macOS | `~/Library/Application Support/starfix` |
-| Windows | `%LocalAppData%\starfix`: the local application data directory, never the roaming one |
+| Linux | `$XDG_DATA_HOME/aries`, or `~/.local/share/aries` |
+| macOS | `~/Library/Application Support/aries` |
+| Windows | `%LocalAppData%\aries`: the local application data directory, never the roaming one |
 
-`STARFIX_DATA_DIR` names another directory, by its absolute path. It
+`ARIES_DATA_DIR` names another directory, by its absolute path. It
 must be on a local disk that is not synced: the locks that keep hundreds
 of sessions from each other's writes do not cross machines.
 
 There is one outbox, and one cache, for each server, project and
 principal. The server
-says who a key is, so `sfx` notes, at each connection, the principal the
+says who a key is, so `aries` notes, at each connection, the principal the
 server took the key for, and uses that while the server is away:
 
-- With a key configured (`STARFIX_KEY_FILE`, or `key:`), the write goes
+- With a key configured (`ARIES_KEY_FILE`, or `key:`), the write goes
   to the outbox of the principal the server last took that key for.
 - With none configured, it goes to the outbox of the key the server
   accepted the last time none was configured, as long as that key is
-  still among those `sfx` would offer.
+  still among those `aries` would offer.
 - Otherwise nothing is queued.
 
 An outbox is sent only on a connection the server takes for its own
 principal. If the server has since given your key to another principal,
-the entries stay, unsent, and `sfx` says so once on stderr, with what to
-do; `sfx outbox` goes on listing them. A new key of the same principal
+the entries stay, unsent, and `aries` says so once on stderr, with what to
+do; `aries outbox` goes on listing them. A new key of the same principal
 finds the same outbox.
 
-The directory must be yours alone: on Linux and macOS `sfx` refuses one
+The directory must be yours alone: on Linux and macOS `aries` refuses one
 that another user owns, or that the group or others can read or write,
 and tells you to `chmod 700` it; it does not change the mode itself.
 [The outbox](security-model.md#the-outbox) in the security model says
 what is in it.
 
-**Windows.** `sfx` builds for Windows, and the outbox has never run
+**Windows.** `aries` builds for Windows, and the outbox has never run
 there: its file locks and renames are untested on it, and the check that
 the directory is yours alone is not made, since Windows keeps that in
 access control lists.
@@ -778,15 +778,15 @@ connection the server allows one principal, the command cannot connect
 at all, and nothing it writes is queued:
 
 ```text
-$ sfx list
-sfx: alice is at its connection limit (64)
-fix: close some of your other starfix sessions (each running sfx mcp, sfx watch or sfx tui holds a connection), or wait for them to end, and retry; or ask the server's operator to raise conns_per_principal under limits: in starfixd's config
+$ aries list
+aries: alice is at its connection limit (64)
+fix: close some of your other aries sessions (each running aries mcp, aries watch or aries tui holds a connection), or wait for them to end, and retry; or ask the server's operator to raise conns_per_principal under limits: in ariesd's config
 ```
 
 ## Text from others is shown safely
 
-Issue text comes from other people and their agents. `sfx` prints any
+Issue text comes from other people and their agents. `aries` prints any
 control or bidirectional character as a visible escape (`\x1b`,
 `\u202e`), so text cannot clear your terminal or disguise itself as
-`sfx`'s own output. [Security](security-model.md#untrusted-text) has the full
+`aries`'s own output. [Security](security-model.md#untrusted-text) has the full
 rules.

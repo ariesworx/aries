@@ -1,6 +1,6 @@
-# A profile of starfixd: memory, allocation and where the cost is
+# A profile of ariesd: memory, allocation and where the cost is
 
-**Research, 13 October 2026.** What `starfixd` holds in memory and what
+**Research, 13 October 2026.** What `ariesd` holds in memory and what
 bounds it, what a request allocates, how many statements it sends Dolt,
 how the store's work grows with a project, what a soak retains, and
 what the garbage collector costs. It ends with the changes worth
@@ -73,8 +73,8 @@ heap, and not in its allocations.**
   decoder. A connection that has once sent a frame near the 4 MiB
   limit holds 4.2 MB for the rest of its life
   ([§1.2](#12-what-the-daemon-holds)).
-- **The bridge costs more than the daemon.** Each connection has a
-  `starfixd stdio` process on the server, started by sshd. One is
+- **The bridge costs more than the daemon.** Each connection has an
+  `ariesd stdio` process on the server, started by sshd. One is
   9.9 MiB of memory of its own (21 MiB resident). Twenty agents are
   26 MiB of daemon and 198 MiB of bridges
   ([§1.2](#12-what-the-daemon-holds)).
@@ -91,7 +91,7 @@ Heap and stacks are read in the test binary after two forced
 collections (`runtime.ReadMemStats`), as the difference a number of
 units makes, less what the benchmark's own end of each socket holds
 (`BenchmarkRetained…`, [§4.3](#43-retained-memory)). Process figures
-are a real `starfixd serve --dev`, read with `ps` and `vmmap`
+are a real `ariesd serve --dev`, read with `ps` and `vmmap`
 (`BenchmarkProcess`, [§4.2](#42-the-process)).
 
 | What | Holds | Method |
@@ -104,8 +104,8 @@ are a real `starfixd serve --dev`, read with `ps` and `vmmap`
 | One connection after one frame near 4 MiB | 4.20 MB heap, until it closes | In process |
 | One socket before its hello | 66.4 KB heap, 6 to 8 KB stack, 1 goroutine, for up to 10 s | In process |
 | One socket whose hello never ends | 4.20 MB heap, for up to 10 s | In process |
-| One watcher (`sfx tui`, `sfx watch`, `sfx mcp`), beyond its connection | 0.84 KB heap, 3.2 KB stack, 1 goroutine; its queue holds at most 64 items of about 0.4 KB | In process; the queue from `store.WatchQueue` and `InboxBodyMax` |
-| The bridge, `starfixd stdio`, one process for each connection | 9.8 to 9.9 MiB of its own; 20.8 to 21.0 MiB resident, most of it the binary's text, which every bridge shares | Process, `vmmap` and `ps` |
+| One watcher (`aries tui`, `aries watch`, `aries mcp`), beyond its connection | 0.84 KB heap, 3.2 KB stack, 1 goroutine; its queue holds at most 64 items of about 0.4 KB | In process; the queue from `store.WatchQueue` and `InboxBodyMax` |
+| The bridge, `ariesd stdio`, one process for each connection | 9.8 to 9.9 MiB of its own; 20.8 to 21.0 MiB resident, most of it the binary's text, which every bridge shares | Process, `vmmap` and `ps` |
 | One open project store, just opened | 19 KB heap, 5 goroutines (a committer, two pool openers, two driver watchers) | In process, less its one connection |
 | One open project store whose eight readers have each read a page of long issues | 1.6 MB heap, 12 goroutines, 0.1 MB stacks. The driver keeps each connection's buffer, up to 256 KiB | In process |
 | One store's cache of closed titles | 375 B a title, 0.75 MB at its bound of 2,000 | In process (`BenchmarkSimilarCache`) |
@@ -131,7 +131,7 @@ daemon holds nothing for it between requests.
 | `conns`, the sockets before a hello | 1,024 more | 73 KB | 74 MB. **4.3 GB** for ten seconds at a time if each sends a hello that never ends, which takes 64 principals |
 | `conns_per_principal` | 32 | 76 KB | 2.4 MB a principal in a project; 134 MB with the buffers grown |
 | `handshakes_per_principal` | 16 | 73 KB | 1.2 MB a principal; 67 MB with endless hellos, for ten seconds |
-| `idle_timeout` | 10 m | | Frees a connection's 76 KB, or 4.2 MB. A connection that watches is never idle, and `sfx mcp` watches |
+| `idle_timeout` | 10 m | | Frees a connection's 76 KB, or 4.2 MB. A connection that watches is never idle, and `aries mcp` watches |
 | Watchers (no limit of their own; at most `conns`) | 1,024 | 4 KB, and a queue of up to 26 KB | 4 MB; 31 MB with every queue full |
 | `open_stores` | 64 | 19 KB opened; 1.6 MB once read; 0.75 MB of closed titles | 155 MB, measured; 196 MB if every driver buffer is at its 256 KiB |
 | `store_idle` | 10 m | | Frees all of a store's |
@@ -445,7 +445,7 @@ follows from a measurement of the code as it is.
   same. (b) trades a retained buffer for garbage on large frames, which
   are rare (an issue with long texts, an import). (c) gives the limit a
   second value, to be stated in the protocol's documentation; a hello
-  is under 1 KiB, and the bridge frame comes from `starfixd stdio`.
+  is under 1 KiB, and the bridge frame comes from `ariesd stdio`.
 - **Since this was written (14 Oct 2026):** (a) and (b) done together:
   `proto.Decoder` reads through a 4 KiB `bufio.Reader` and gathers a
   longer line in a buffer of its own, doubled exactly and to `MaxFrame`
@@ -468,9 +468,9 @@ follows from a measurement of the code as it is.
   the decoder, a refusal whose message does not name 4 MiB, and a line
   in the protocol's documentation, which is more than a small change.
 
-### 2. A bridge that is not the whole of starfixd
+### 2. A bridge that is not the whole of ariesd
 
-- **Where:** `stdio`, `cmd/starfixd/main.go:583`, which runs
+- **Where:** `stdio`, `cmd/ariesd/main.go:583`, which runs
   `server.Bridge` (`internal/server/bridge.go:30`).
 - **Now:** 9.9 MiB of memory of its own for each connection, and 21 MiB
   resident. The bridge writes one frame and copies two streams, but it
@@ -478,7 +478,7 @@ follows from a measurement of the code as it is.
   21,700 allocations as they initialize, before `main` runs, 1.2 MB of
   it `internal/store` and `internal/proto`.
 - **Change:** a second, small binary for the forced command, which
-  imports `internal/proto` at most; or `starfixd stdio` kept for
+  imports `internal/proto` at most; or `ariesd stdio` kept for
   compatibility and the keys file written to name the small one.
 - **Saving, measured:** a bridge of the standard library alone
   (`bridgeproto`, [§4.9](#49-the-prototypes)) is 3.6 MiB of its own
@@ -498,34 +498,34 @@ follows from a measurement of the code as it is.
   processes was not taken.
 - **Short of that:** building what `internal/store` and
   `internal/proto` build at initialization on first use instead would
-  take up to 1.2 MB of allocations off every start of every `starfixd`
+  take up to 1.2 MB of allocations off every start of every `ariesd`
   process. That figure is from `GODEBUG=inittrace=1`. What the 1.2 MB
   is was not profiled (the two packages compile some two dozen regular
   expressions as package variables), and nor was what removing it does
   to the resident size.
 - **Done, 14 October 2026: short of that, measured on Linux.** No second
   binary. Every package-level regular expression of the packages
-  starfixd links is compiled on first use (`internal/lazyregexp`):
+  ariesd links is compiled on first use (`internal/lazyregexp`):
   they were 1.5 MB of the 2.2 MB that initialization allocated, mostly
-  a handful with counted repetitions such as `{0,254}`, and starfix's
+  a handful with counted repetitions such as `{0,254}`, and Aries's
   own packages now allocate 24 KB of the 0.67 MB. `stdio` reads only the
   socket from the settings (`server.ResolveSocket`): checking the rest
   compiled 0.4 MiB of expressions more in each bridge of a server with
-  a fuller config. `TestInitAllocations` (`cmd/starfixd`) holds what
-  initialization allocates to 32 KiB for starfix's packages and 1 MiB
+  a fuller config. `TestInitAllocations` (`cmd/ariesd`) holds what
+  initialization allocates to 32 KiB for Aries's packages and 1 MiB
   in all; it counts allocations, which are the same on every run,
   rather than measuring memory, which is not. Nothing else changed:
   the forced command, the bridge frame, the peer check, the keys file,
   the releases and the AppArmor profiles are as they were.
 
   Measured in Docker on macOS (Linux 7.0, arm64, 16 processors),
-  Ubuntu 24.04 with OpenSSH 9.6p1, a real `starfixd serve --dev` and
+  Ubuntu 24.04 with OpenSSH 9.6p1, a real `ariesd serve --dev` and
   sshd with the guide's `Match` block; each bridge connected through
   sshd as alice, bob, carol or dave and idle after its welcome;
   memory from `/proc/PID/smaps_rollup`, averaged over the processes.
   The kernel in Docker runs transparent huge pages `always`; Ubuntu's
   default is `madvise`, under which Go asks for none, so each run was
-  also made with THP off for sshd, starfixd and their children
+  also made with THP off for sshd, ariesd and their children
   (`prctl(PR_SET_THP_DISABLE)`, which they inherit):
 
   | Per connection, 100 connections | THP off, before | THP off, after | THP `always`, before | THP `always`, after |
@@ -772,7 +772,7 @@ follows from a measurement of the code as it is.
   alive while it happens.
 - **Change:** ask for the control log's last sequence number first, and
   reload only when it has moved. Every write to the control store
-  appends an event, `starfixd control init`'s included.
+  appends an event, `ariesd control init`'s included.
 - **Saving, estimated:** all of it, on every tick but the one after a
   change.
 - **Risk:** low to moderate. A row changed by hand in SQL would no
@@ -866,7 +866,7 @@ on `PATH` (`export PATH="$(scripts/install-dolt.sh):$PATH"`), without
   before and after several hundred of a thing, less the same reading
   for the benchmark's own ends of the sockets.
 - **The process** is the binary, built with the release flags, run as
-  `starfixd serve --dev` on a `dolttest` database: `ps -o rss=` for
+  `ariesd serve --dev` on a `dolttest` database: `ps -o rss=` for
   resident memory, `vmmap --summary` for the physical footprint (the
   memory that is the process's alone; on Linux the benchmark reads
   `Private_*` from `smaps_rollup`), and the daemon's own `/metrics`.
@@ -887,7 +887,7 @@ on `PATH` (`export PATH="$(scripts/install-dolt.sh):$PATH"`), without
 ### 4.2 The process
 
 ```sh
-go test -run '^$' -bench 'Process' -benchtime 2x ./cmd/starfixd/
+go test -run '^$' -bench 'Process' -benchtime 2x ./cmd/ariesd/
 ```
 
 ```text
@@ -902,11 +902,11 @@ them. `go-memory-B/conn` is the change in `go_memory_used_bytes`, which
 the runtime refreshes at most every 15 seconds, so the benchmark waits
 16 before it reads.
 
-What initialization allocates, for any `starfixd` command:
+What initialization allocates, for any `ariesd` command:
 
 ```sh
-go build -trimpath -ldflags "-s -w" -o /tmp/starfixd ./cmd/starfixd
-GODEBUG=inittrace=1 /tmp/starfixd stdio --socket /nonexistent/s --principal alice 2>&1 >/dev/null | grep '^init '
+go build -trimpath -ldflags "-s -w" -o /tmp/ariesd ./cmd/ariesd
+GODEBUG=inittrace=1 /tmp/ariesd stdio --socket /nonexistent/s --principal alice 2>&1 >/dev/null | grep '^init '
 ```
 
 218 packages, 2,103,960 bytes in 21,711 allocations: `internal/store`
@@ -1031,7 +1031,7 @@ four texts of 64 KiB is 271 KB to read and 542 KB to send.
 
 ```sh
 go test -run '^$' -bench 'Scale|LongBodies|BenchmarkGo' -benchmem ./internal/store/
-STARFIX_BENCH_LARGE=1 go test -run '^$' -bench 'Scale/issues=50000' -benchmem ./internal/store/
+ARIES_BENCH_LARGE=1 go test -run '^$' -bench 'Scale/issues=50000' -benchmem ./internal/store/
 ```
 
 The issues are planted in rows, 500 to a statement, through the
@@ -1070,10 +1070,10 @@ statement.
 ### 4.6 The soak
 
 ```sh
-STARFIX_SOAK_PROFILE=/tmp/soak-2m STARFIX_SOAK=2m GODEBUG=gctrace=1 go test -run 'TestSoakProfile$' \
+ARIES_SOAK_PROFILE=/tmp/soak-2m ARIES_SOAK=2m GODEBUG=gctrace=1 go test -run 'TestSoakProfile$' \
   -memprofilerate 4096 -cpuprofile /tmp/soak-2m/cpu.prof -blockprofile /tmp/soak-2m/block.prof -blockprofilerate 10000 \
   -mutexprofile /tmp/soak-2m/mutex.prof -o e2e.test -timeout 30m -v ./internal/e2e/
-STARFIX_SOAK_PROFILE=/tmp/soak-10m STARFIX_SOAK=10m go test -run 'TestSoakProfile$' -memprofilerate 4096 -o e2e.test -timeout 60m -v ./internal/e2e/
+ARIES_SOAK_PROFILE=/tmp/soak-10m ARIES_SOAK=10m go test -run 'TestSoakProfile$' -memprofilerate 4096 -o e2e.test -timeout 60m -v ./internal/e2e/
 go tool pprof -sample_index=inuse_space -top -base /tmp/soak-10m/heap-early.pb.gz e2e.test /tmp/soak-10m/heap-late.pb.gz
 ```
 
@@ -1081,7 +1081,7 @@ go tool pprof -sample_index=inuse_space -top -base /tmp/soak-10m/heap-early.pb.g
 profile taken after two forced collections early in the work, late in
 it and at rest, and `runtime/metrics` read every five seconds. **The
 soak's binary is not the daemon:** it holds the daemon, the SSH server
-before it, 25 sessions' clients, five of them `sfx mcp`, and the
+before it, 25 sessions' clients, five of them `aries mcp`, and the
 checker's record of everything that happened, which grows for as long
 as the run does. So the heap is split by stack: the daemon's is every
 sample whose stack passes through `internal/server`, `store`,
@@ -1229,9 +1229,9 @@ which the daemon's requests are about a tenth (126 a second at 8 to
 190 KB each). Its 10% is the ceiling on what the collector costs with
 the daemon in the process, not the daemon's figure.
 
-**No `GOGC` or `GOMEMLIMIT` advice for starfixd belongs in the guide,**
+**No `GOGC` or `GOMEMLIMIT` advice for ariesd belongs in the guide,**
 beyond a sentence that it needs neither, so that an operator who has
-just set Dolt's does not look for starfixd's:
+just set Dolt's does not look for ariesd's:
 
 - Its heap is megabytes. There is nothing for a limit to give back.
 - `GOGC` above 100 would save collections on a server that mostly
@@ -1300,20 +1300,20 @@ BenchmarkHeld/line-reader-4KiB-16               4267 heap-B/decoder-after-4MiB  
 
 **`bridgeproto`:** forty lines of the standard library that dial a
 unix socket, write the bridge frame and copy stdin and stdout, built
-with the release flags, beside `starfixd stdio`, both connected to the
+with the release flags, beside `ariesd stdio`, both connected to the
 same listener that holds its connections:
 
 ```text
 bridgeproto: 3.1 MB binary, 5,680 KiB resident, physical footprint 3,553 K
-starfixd stdio: 20.9 MB binary, 21,056 KiB resident, physical footprint 9,873 K
-starfixd stdio with GOGC=25: 22,912 KiB resident, physical footprint 11.0 M
-starfixd stdio with GOMEMLIMIT=4MiB: 24,432 KiB resident, physical footprint 10.8 M
+ariesd stdio: 20.9 MB binary, 21,056 KiB resident, physical footprint 9,873 K
+ariesd stdio with GOGC=25: 22,912 KiB resident, physical footprint 11.0 M
+ariesd stdio with GOMEMLIMIT=4MiB: 24,432 KiB resident, physical footprint 10.8 M
 ```
 
 ## 5. The benchmarks added
 
 All are new files. They run only with `-bench` (the soak profile only
-with `STARFIX_SOAK_PROFILE`), skip without `dolt` as the tests beside
+with `ARIES_SOAK_PROFILE`), skip without `dolt` as the tests beside
 them do, make their databases through `dolttest` and drop them, and
 remove what they write.
 
@@ -1329,14 +1329,14 @@ remove what they write.
 | | `BenchmarkRetainedStores` | What an open project store holds, opened and read | `-bench 'RetainedStores' -benchtime 3x` |
 | | `BenchmarkStatus` | The status report and a handshake, on a server of many projects | `-bench 'Status' -benchmem` |
 | `internal/server/sqlcount_bench_test.go` | | `sqlCounter`, the proxy the statement counts come from | |
-| `internal/store/scale_bench_test.go` | `BenchmarkScale` | The store's reads and writes at 100, 1,000 and 10,000 issues; 50,000 with `STARFIX_BENCH_LARGE=1` | `go test -run '^$' -bench 'Scale' -benchmem ./internal/store/` |
+| `internal/store/scale_bench_test.go` | `BenchmarkScale` | The store's reads and writes at 100, 1,000 and 10,000 issues; 50,000 with `ARIES_BENCH_LARGE=1` | `go test -run '^$' -bench 'Scale' -benchmem ./internal/store/` |
 | | `BenchmarkLongBodies` | The reads that return issues, with 32 KiB bodies, and an update at the texts' limits | `-bench 'LongBodies' -benchmem` |
 | | `BenchmarkGo` | The store's work that never reaches Dolt, at its limits | `-bench 'BenchmarkGo' -benchmem` |
 | | `BenchmarkSimilarCache` | What the closed-title cache holds | `-bench 'SimilarCache'` |
 | | `BenchmarkCommit` | A write taken apart: nothing, an update, an insert, an event, an update with its event | `-bench 'BenchmarkCommit' -benchmem` |
 | `internal/store/control_bench_test.go` | `BenchmarkControlIndex` | The control index for each principal, key, project and membership, and one reload | `-bench 'ControlIndex' -benchtime 5x` |
 | `internal/proto/frame_bench_test.go` | `BenchmarkFrameDecode`, `BenchmarkFrameEncode`, `BenchmarkFrameTraceContext` | A frame alone | `go test -run '^$' -bench 'Frame' -benchmem ./internal/proto/` |
-| `cmd/starfixd/process_bench_test.go` | `BenchmarkProcess` | The real process: resident memory, its own account, a connection, a bridge. Needs `go` and `ps`; skipped on Windows | `go test -run '^$' -bench 'Process' -benchtime 1x ./cmd/starfixd/` |
+| `cmd/ariesd/process_bench_test.go` | `BenchmarkProcess` | The real process: resident memory, its own account, a connection, a bridge. Needs `go` and `ps`; skipped on Windows | `go test -run '^$' -bench 'Process' -benchtime 1x ./cmd/ariesd/` |
 | `internal/e2e/soak_profile_test.go` | `TestSoakProfile` | The soak with heap and goroutine profiles early, late and at rest, and the collector's figures | [§4.6](#46-the-soak) |
 
 `internal/server/bench_test.go` already had a `BenchmarkRequest`, for
@@ -1362,7 +1362,7 @@ reading.
   seeded titles are the worst case for the similar-title scorer.
 - **`cost`, `hours`, `plans`, `prices`, `accept`, `close`, `reopen`,
   the dependency and label ops, `ack`, `forget`, `pin`, and every
-  `sfx admin` op but `status`.** `cost` reads the whole of the prices
+  `aries admin` op but `status`.** `cost` reads the whole of the prices
   and plans tables and attributes usage in Go (`attribution.go`), which
   is the largest piece of the store this profile did not open.
 - **The reaper's tick on a server of many projects with many keys:**

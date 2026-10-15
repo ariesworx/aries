@@ -1,16 +1,16 @@
-# Profile of `sfx`: memory, start-up and CPU
+# Profile of `aries`: memory, start-up and CPU
 
 Research, 13 Oct 2026, against `main` at `32a6eaf`. It measures the
-client, `sfx`, as a short command and as `sfx mcp`, says where it
+client, `aries`, as a short command and as `aries mcp`, says where it
 allocates, what it keeps and how that grows, and proposes changes. It
 changes no product code and decides nothing.
 
 **Why this client is measured this way.** A developer may run from one to
-hundreds of agent sessions on one machine. Each runs an `sfx mcp` for
-hours, and each runs short `sfx` commands from hooks: `sfx prime --hook`
-at every session start and `sfx usage --hook` after turns. So three
+hundreds of agent sessions on one machine. Each runs an `aries mcp` for
+hours, and each runs short `aries` commands from hooks: `aries prime --hook`
+at every session start and `aries usage --hook` after turns. So three
 numbers matter that would not for an ordinary command line: the memory of
-one idle `sfx mcp`, times hundreds; the cost of starting a short command,
+one idle `aries mcp`, times hundreds; the cost of starting a short command,
 paid thousands of times a day; and what a long-lived process keeps.
 
 **Where the numbers are from.**
@@ -20,7 +20,7 @@ paid thousands of times a day; and what a long-lived process keeps.
 | Go | 1.27.2, `CGO_ENABLED=0 -trimpath -ldflags "-s -w"`, never `-race` |
 | macOS | 27.0 on arm64 (Apple M4 Max, 16 cores, 64 GB, 16 KiB pages). Every number is from here unless it says Linux |
 | Linux | kernel 7.0.14 on arm64, 4 KiB pages, in a container of Docker Desktop on the same machine, talking to the test server on the host |
-| Windows | Not run. `sfx` was built and vetted for it and nothing else |
+| Windows | Not run. `aries` was built and vetted for it and nothing else |
 | Server | The end-to-end tests' own: an SSH server, the bridge, the daemon and a store on Dolt 2.4.2, in one test process (`TestProfileServer`, below) |
 | Load | The machine was shared with three other agents running soaks and test suites: the load average was 3 to 12 throughout |
 
@@ -40,21 +40,21 @@ are from the same code built with a `main` that writes
 | Command | Wall ms, min / median | User + system CPU ms | Peak RSS MiB | Allocations | Bytes |
 |---|---|---|---|---|---|
 | `hello` | 2.4 / 2.9 | 0.7 + 0.9 | 4.1 | | |
-| `sfx --version` | 5.1 / 5.5 | 2.3 + 1.6 | 14.6 | 13,398 | 1.50 MB |
-| `sfx --help` | 5.1 / 5.7 | 2.4 + 1.7 | 14.7 | 13,475 | 1.50 MB |
-| `sfx prime --hook`, not a starfix repository | 5.2 / 5.8 | 2.4 + 1.7 | 15.0 | 13,493 | 1.52 MB |
-| `sfx usage --hook`, not a starfix repository | 5.4 / 5.7 | 2.4 + 1.8 | 15.0 | 13,489 | 1.52 MB |
-| `sfx usage --hook`, nothing new in the transcript | 5.9 / 6.4 | 2.8 + 2.0 | 15.3 | 13,950 | 1.63 MB |
-| `sfx whoami` | 7.1 / 7.8 | 3.6 + 2.2 | 16.6 | 14,509 | 1.78 MB |
-| `sfx admin prices` | 7.5 / 8.2 | 3.6 + 2.3 | 16.6 | 14,431 | 1.77 MB |
-| `sfx list` | 8.3 / 9.0 | 3.7 + 2.4 | 16.7 | 14,802 | 1.80 MB |
-| `sfx ready` | 10.3 / 11.3 | 4.0 + 2.7 | 16.7 | 14,734 | 1.79 MB |
-| `sfx show ID` | 10.8 / 12.0 | 4.0 + 2.7 | 16.7 | 14,894 | 1.81 MB |
-| `sfx prime --hook` | 11.6 / 12.6 | 3.9 + 2.6 | 16.8 | 15,073 | 1.83 MB |
-| `sfx create` | 14.0 / 20.7 | 4.0 + 2.6 | 16.6 | 14,579 | 1.79 MB |
-| `sfx usage --hook`, 5 new responses (one turn) | 21 to 36, single runs | 4.7 + 4.0 | 18.0 | 15,190 | 1.92 MB |
+| `aries --version` | 5.1 / 5.5 | 2.3 + 1.6 | 14.6 | 13,398 | 1.50 MB |
+| `aries --help` | 5.1 / 5.7 | 2.4 + 1.7 | 14.7 | 13,475 | 1.50 MB |
+| `aries prime --hook`, not an Aries repository | 5.2 / 5.8 | 2.4 + 1.7 | 15.0 | 13,493 | 1.52 MB |
+| `aries usage --hook`, not an Aries repository | 5.4 / 5.7 | 2.4 + 1.8 | 15.0 | 13,489 | 1.52 MB |
+| `aries usage --hook`, nothing new in the transcript | 5.9 / 6.4 | 2.8 + 2.0 | 15.3 | 13,950 | 1.63 MB |
+| `aries whoami` | 7.1 / 7.8 | 3.6 + 2.2 | 16.6 | 14,509 | 1.78 MB |
+| `aries admin prices` | 7.5 / 8.2 | 3.6 + 2.3 | 16.6 | 14,431 | 1.77 MB |
+| `aries list` | 8.3 / 9.0 | 3.7 + 2.4 | 16.7 | 14,802 | 1.80 MB |
+| `aries ready` | 10.3 / 11.3 | 4.0 + 2.7 | 16.7 | 14,734 | 1.79 MB |
+| `aries show ID` | 10.8 / 12.0 | 4.0 + 2.7 | 16.7 | 14,894 | 1.81 MB |
+| `aries prime --hook` | 11.6 / 12.6 | 3.9 + 2.6 | 16.8 | 15,073 | 1.83 MB |
+| `aries create` | 14.0 / 20.7 | 4.0 + 2.6 | 16.6 | 14,579 | 1.79 MB |
+| `aries usage --hook`, 5 new responses (one turn) | 21 to 36, single runs | 4.7 + 4.0 | 18.0 | 15,190 | 1.92 MB |
 
-**The fixed share.** `sfx --version` is what every command pays before it
+**The fixed share.** `aries --version` is what every command pays before it
 does anything: 5.1 ms, 3.9 ms of CPU, 14.6 MiB and 13,398 allocations.
 That is 72% of `whoami`'s time, 67% of its CPU, 88% of its peak memory and
 92% of its allocations. Of the 13,398 allocations, 13,194 are package
@@ -68,14 +68,14 @@ grows, and the client waits for it:
 
 | Command | 10 issues | about 1,000 | about 10,000 |
 |---|---|---|---|
-| `sfx ready`, wall ms min | 10.3 | 15.8 | 50.1 |
-| `sfx prime --hook` | 11.6 | 15.0 | 50.1 |
-| `sfx list` | 8.3 | 11.0 | 29.7 |
-| `sfx list -n 500` | 8.6 | 34.3 | 56.3 |
-| `sfx show ID` | 10.8 | 12.6 | 10.3 |
-| `sfx create` | 14.0 | 14.9 | 25.7 |
+| `aries ready`, wall ms min | 10.3 | 15.8 | 50.1 |
+| `aries prime --hook` | 11.6 | 15.0 | 50.1 |
+| `aries list` | 8.3 | 11.0 | 29.7 |
+| `aries list -n 500` | 8.6 | 34.3 | 56.3 |
+| `aries show ID` | 10.8 | 12.6 | 10.3 |
+| `aries create` | 14.0 | 14.9 | 25.7 |
 
-`sfx list -n 500`, printing a page of 500, allocates 26,096 times and
+`aries list -n 500`, printing a page of 500, allocates 26,096 times and
 2.56 MB as text and 15,578 times and 2.61 MB with `--json`, and spends
 5.2 ms in the kernel as text against 2.8 ms as JSON: the table reaches
 standard output in 4,000 writes.
@@ -93,14 +93,14 @@ does. The first run on a file reads all of it:
 Most of the first run's wall time is the server taking 500 records a
 request.
 
-### One `sfx mcp`, and N of them
+### One `aries mcp`, and N of them
 
 | | macOS arm64 | Linux arm64 |
 |---|---|---|
 | Idle, MCP handshake done, not yet connected: RSS | 20.3 MiB | 18.7 MiB |
 | Idle and connected: RSS | 22.1 MiB (21.6 to 22.7 over 200) | 20.6 to 21.4 MiB |
 | of which the process's own (macOS physical footprint; Linux `Private_Dirty`) | 11.5 to 12.0 MB | 10.9 to 11.7 MiB |
-| of which the binary's pages, shared by every `sfx` | about 7 MB | 9.7 MiB |
+| of which the binary's pages, shared by every `aries` | about 7 MB | 9.7 MiB |
 | Go heap in use after a collection | 1.40 MiB, 8,100 objects | 1.40 MiB |
 | Goroutines; their stacks | 16; 0.7 MiB | 16; 0.9 MiB |
 | Threads; file descriptors | 14; 7 | 14; 7 |
@@ -111,7 +111,7 @@ request.
 One tool call allocates 160 to 240 times and 250 to 300 KB, wherever it
 goes; about 225 KB of that is seven 32 KiB buffers inside the MCP SDK.
 `list` with `limit: 500` allocates 16 MB and 2,583 times. At rest a
-connected `sfx mcp` sends one `renew` a minute and does nothing else.
+connected `aries mcp` sends one `renew` a minute and does nothing else.
 
 **What grows.** Nothing without bound. Over 4,000 tool calls with 16
 dropped connections and results of up to 300 KB, the heap in use after a
@@ -132,7 +132,7 @@ most.
 
 ### What 200 sessions on one laptop cost today
 
-- **Memory.** 200 idle `sfx mcp` are 2.4 GB of memory that is theirs
+- **Memory.** 200 idle `aries mcp` are 2.4 GB of memory that is theirs
   alone on macOS (4.4 GB as `ps` sums RSS, which counts the binary's
   shared pages 200 times), and 2.0 GB on Linux. Sessions that have made
   thousands of calls settle near 15.8 MB each, so 3.2 GB. A session that
@@ -140,20 +140,20 @@ most.
   at the very most: 800 MB over 200 sessions in the worst case.
 - **CPU at rest.** None in the client beyond 200 `renew` requests a
   minute, which the server sees as 3.3 a second.
-- **Hooks.** A session start costs one `sfx prime --hook`: 12 to 50 ms
+- **Hooks.** A session start costs one `aries prime --hook`: 12 to 50 ms
   of wall time by the project's size, 6.5 ms of CPU. A turn costs one
-  `sfx usage --hook`: 21 to 36 ms, 8.7 ms of CPU, 18 MiB for that long.
+  `aries usage --hook`: 21 to 36 ms, 8.7 ms of CPU, 18 MiB for that long.
   200 sessions ending a turn each minute are 1.7 s of CPU a minute.
 - **The first limit met is not memory.** With the server's default
   limits the 33rd session of one principal is refused: `busy: alice is
   at its connection limit (32)`. `conns_per_principal` is 32
-  (`internal/server/limits.go:83`), every `sfx mcp` holds a connection
+  (`internal/server/limits.go:83`), every `aries mcp` holds a connection
   for as long as it runs, and a developer's sessions all sign in with
   one key. 200 sessions on one laptop do not work today without raising
   it. Measured: 40 started, the 33rd refused.
 - **On the server**, in the test's single process, each connection is 9
   goroutines, about 163 KB of heap and 41 KB of stack. A real server
-  adds an `sshd` child and a `starfixd stdio` bridge process for each,
+  adds an `sshd` child and an `ariesd stdio` bridge process for each,
   which this did not measure.
 
 ## Proposed optimizations
@@ -211,8 +211,8 @@ Package-level `regexp.MustCompile` in `internal/proto/ops.go:288` and
 `97` and `changes.go:153`; `internal/capture/claude.go:45`;
 `internal/release/release.go:45`; `internal/agentsetup/hook.go:104` and
 `107`; `internal/cli/admin_key.go:35`. Twenty-one patterns, compiled by
-every `sfx` whether it is `--version`, a hook outside a starfix
-repository, or `sfx mcp`. `UsageRequestID` (`{0,254}`) and the config's
+every `aries` whether it is `--version`, a hook outside an Aries
+repository, or `aries mcp`. `UsageRequestID` (`{0,254}`) and the config's
 `hostRE` (`{0,252}`) are the expensive ones: a counted repetition expands
 to that many states.
 
@@ -220,43 +220,43 @@ to that many states.
   `init` functions take: `internal/proto` 454 KB and 5,839 allocations,
   `internal/client` 330 KB and 3,924.
 - **Change:** compile on first use (`sync.OnceValue`), or for the four
-  checks of `.starfix.yaml` that every connecting command makes, a loop
+  checks of `.aries.yaml` that every connecting command makes, a loop
   over the bytes in place of the pattern.
-- **Saving, measured** with every pattern made lazy: `sfx --version`
+- **Saving, measured** with every pattern made lazy: `aries --version`
   and both hooks outside a repository go from 13,398 allocations to
   2,054, from 1.50 MB to 0.57 MB, from 15.5 to 13.7 MiB of peak RSS and
   from 2.9 to 2.6 ms of user CPU. `whoami` goes from 14,510 to 7,032
   allocations and 1.78 to 1.15 MB: it still compiles the four config
   patterns. Written as loops those would go too: about 3,000
-  allocations, **estimated**. An idle `sfx mcp` keeps 243 KiB less heap
+  allocations, **estimated**. An idle `aries mcp` keeps 243 KiB less heap
   (1,409 to 1,166 KiB).
 - **Risk:** low. A pattern that does not compile would panic at first
   use, not at start, so a test must touch each one. `proto.UsageRequestID`
   and `UsageModel` are exported variables the store reads: they become
   functions, a change inside the module. Nothing differs by platform.
 - **Coming:** `internal/outbox` calls `internal/secretscan`, whose 13
-  patterns cost 144 KB and 937 allocations at `init`. `sfx` does not
+  patterns cost 144 KB and 937 allocations at `init`. `aries` does not
   link the outbox at this commit; when it does, every command pays that
   too unless those are lazy.
 
 **Since this was written (14 Oct 2026).** Done, with
 `internal/lazyregexp`. `internal/proto`'s, `release`'s and
-`secretscan`'s were already lazy, for `starfixd`'s sake; the rest that
-`sfx` links (`client`, `gitx`, `capture`, `agentsetup`, `cli`) are now
+`secretscan`'s were already lazy, for `ariesd`'s sake; the rest that
+`aries` links (`client`, `gitx`, `capture`, `agentsetup`, `cli`) are now
 too. The config's patterns stay patterns, compiled by the commands that
 read a config.
 Measured as above on macOS, before and after, at that later `main`:
-`sfx --version` 7,044 allocations and 1.01 MB at exit to 1,993 and
-0.57 MB, starfix's packages' `init` 446 KB to 10 KB; peak RSS 14.2 to
+`aries --version` 7,044 allocations and 1.01 MB at exit to 1,993 and
+0.57 MB, Aries's packages' `init` 446 KB to 10 KB; peak RSS 14.2 to
 13.1 MiB (minimum of 40), CPU 4.25 to 3.97 ms (minimum; median 4.48 to
 4.17); `prime --hook` outside a repository the same. `TestInitAllocations`
-(`cmd/sfx`) holds starfix's packages' `init` to 32 KiB and all of it to
+(`cmd/aries`) holds Aries's packages' `init` to 32 KiB and all of it to
 1 MiB.
 
 ### 3. Collect sooner in the long-lived commands
 
-`internal/cli/agent.go:179` (`cmdMCP`), and `sfx tui` and `sfx watch`.
-The runtime does not collect until the heap reaches 4 MiB, and `sfx mcp`
+`internal/cli/agent.go:179` (`cmdMCP`), and `aries tui` and `aries watch`.
+The runtime does not collect until the heap reaches 4 MiB, and `aries mcp`
 allocates 4.4 MB before its first tool call (package `init` 1.2 MB,
 `mcpserver.New` 1.85 MB, the MCP handshake and `tools/list` the rest), of
 which 1.2 MiB stays in use. The pages touched on the way stay with the
@@ -281,7 +281,7 @@ process.
 
 **Since this was written (14 Oct 2026).** Measured again, larger, and
 not done: the saving holds, but the CPU it costs is not negligible.
-Fifty idle `sfx mcp` against the test server, each after one `prime`,
+Fifty idle `aries mcp` against the test server, each after one `prime`,
 two rounds each, `GOGC=50` in the environment against none: on Linux
 (the container above, `Private_Dirty`) 10.1 to 10.4 MiB a process
 against 8.0 to 8.1, about 2.2 MiB or 22% less; on macOS (physical
@@ -308,9 +308,9 @@ key the server accepts to sign, and a public key is enough to offer.
   ECDSA key 25 microseconds, an RSA 3072 key **2.5 ms** and 75 KB:
   parsing validates it. Someone with an `id_rsa` beside the Ed25519 key
   the server knows pays 2.5 ms on every command and every hook, as much
-  CPU as all of `sfx --version`, and the RSA key is offered, and
+  CPU as all of `aries --version`, and the RSA key is offered, and
   refused, before the Ed25519 one. A configured key file
-  (`STARFIX_KEY_FILE`, or `key:`) is read alone and nothing else is
+  (`ARIES_KEY_FILE`, or `key:`) is read alone and nothing else is
   touched; ssh-agent is asked only when no file can sign.
 - **Change:** take the public half from `NAME.pub`, or from the OpenSSH
   container, which holds it unencrypted, and parse the private key on
@@ -330,7 +330,7 @@ the key's numbers agree (`ParsePrivateKey` calls `rsa.PrivateKey`'s
 `Validate` and `Precompute`), and that check tells a usable RSA key from
 a file that parses but cannot sign. Today such a file is skipped
 before the offer, and `whoami` and a refusal list it as "not a private
-key sfx can read"; parsed at signing, it would be offered by its public
+key aries can read"; parsed at signing, it would be offered by its public
 half, counted among the five, and fail only if the server accepted it.
 Measured: `whoami` with default identities, an RSA 3072 key the server
 does not know and the Ed25519 key it does, 11.2 ms and 9.7 ms of CPU
@@ -339,7 +339,7 @@ The options are to accept that difference for files that are
 corrupt, to parse in the background while the connection is made
 (which saves the wall time and none of the CPU, and changes the point
 at which "no SSH key available" is reported), or to leave it: naming
-the key with `STARFIX_KEY_FILE` or `key:` already reads that file
+the key with `ARIES_KEY_FILE` or `key:` already reads that file
 alone.
 
 ### 5. Do not keep the decoder's buffer at its largest
@@ -362,7 +362,7 @@ to `MaxFrame` (4 MiB), and never shrinks.
   line in a buffer of its own that is dropped once the frame is decoded
   (as `internal/capture` already reads transcripts, `claude.go:246`).
 - **Saving, estimated:** up to 4 MiB a connection, 2 MiB in practice,
-  in each `sfx mcp`, `sfx tui` and `sfx watch` that has ever read a
+  in each `aries mcp`, `aries tui` and `aries watch` that has ever read a
   large result, and in the daemon for each connection. The doubling's
   garbage goes too.
 - **Risk:** medium-low. It is the wire decoder of both ends, so the
@@ -370,9 +370,9 @@ to `MaxFrame` (4 MiB), and never shrinks.
   the end of stream must stay exactly as tested; it wants a fuzz test
   against the present decoder. Not prototyped.
 
-**Since this was written (14 Oct 2026).** Done, as `profile-starfixd.md`'s
+**Since this was written (14 Oct 2026).** Done, as `profile-ariesd.md`'s
 proposal 1 says, with a 4 KiB buffer rather than 64 KiB. Measured with
-ten idle `sfx mcp` against the test server, heap in use after two
+ten idle `aries mcp` against the test server, heap in use after two
 collections: 1.10 to 1.04 MiB after one `prime`, and 1.71 to 1.47 MiB
 after one `show` of an issue with three texts of 60,000 bytes. Their
 private memory moved by less than its spread between processes
@@ -385,8 +385,8 @@ private memory moved by less than its spread between processes
 it is given twice and flushes to the terminal on every call.
 `text/tabwriter` writes each cell and each run of padding separately.
 
-- **Now:** 8 writes to standard output a row: 80 for `sfx ready`, 400
-  for `sfx list`, 4,000 for `sfx list -n 500`, with 10,539 allocations.
+- **Now:** 8 writes to standard output a row: 80 for `aries ready`, 400
+  for `aries list`, 4,000 for `aries list -n 500`, with 10,539 allocations.
 - **Change:** a `bufio.Writer` between the table and the escaping
   writer, flushed after the table.
 - **Saving, measured:** 1, 2 and 11 writes, and 3,043 allocations at 500
@@ -394,7 +394,7 @@ it is given twice and flushes to the terminal on every call.
   by which the text of 500 rows exceeds its JSON. For the default page
   it is a fifth of a millisecond.
 - **Risk:** low, if the buffer is the table's and not the `Writer`'s:
-  `sfx watch` relies on each line reaching the terminal as it is
+  `aries watch` relies on each line reaching the terminal as it is
   printed. The other tables (`blocked`, `who`, `admin`) print the same
   way.
 
@@ -413,12 +413,12 @@ were left as they were.
 ### Smaller, and questions rather than optimizations
 
 - **`conns_per_principal` and many sessions.** Not a cost but a wall:
-  see the summary. Either the default rises, or an idle `sfx mcp` that
+  see the summary. Either the default rises, or an idle `aries mcp` that
   holds no claim lets its connection go and dials again at its next
   call (2 ms of CPU, measured as `whoami` less `--version`). The second
   also saves the server its side of 200 idle connections, and about
   0.9 MB a process in the client (10.8 against 11.7 MB, measured). It
-  changes what `sfx who` shows, since the minute's `renew` is what
+  changes what `aries who` shows, since the minute's `renew` is what
   keeps a session "seen", and it delays "inbox: N new" to the next
   call, which is when it is delivered anyway. A design question, not
   prototyped.
@@ -441,21 +441,21 @@ were left as they were.
   `log/slog`) are 786 KB of the 5.8 MB of code and data that can be
   attributed to a package, so about 1.6 MB of the binary; building the
   24 tools at start is 1.4 ms, 1.85 MB and 22,313 allocations, paid by
-  `sfx mcp` alone; and each tool call allocates about 225 KB inside it,
+  `aries mcp` alone; and each tool call allocates about 225 KB inside it,
   because its `internal/json.Unmarshal` makes a decoder with a new 32
   KiB buffer each time and a call makes about seven. That last is worth
   reporting upstream. None of it is worth owning a JSON-RPC server for.
 - **Replacing YAML.** 197 KB of symbols and 25 KB at `init`; finding,
-  reading and validating `.starfix.yaml` is 36 microseconds and 149
+  reading and validating `.aries.yaml` is 36 microseconds and 149
   allocations.
 - **Fewer goroutines, smaller SSH buffers.** Of the 16 goroutines of a
-  connected `sfx mcp`, 9 are `golang.org/x/crypto/ssh`'s, 3 the MCP
-  SDK's, 2 `os/signal`'s, and 2 are starfix's (the connection's reader
+  connected `aries mcp`, 9 are `golang.org/x/crypto/ssh`'s, 3 the MCP
+  SDK's, 2 `os/signal`'s, and 2 are Aries's (the connection's reader
   and the renewal ticker). All their stacks together are 0.7 MiB, and
   being connected adds 180 KiB of heap, 64 KiB of it the decoder's
   buffer. The SSH library's windows and packet buffers are not
   settable.
-- **Dropping `sfx upgrade`'s HTTP stack.** `net/http`, `crypto/tls`,
+- **Dropping `aries upgrade`'s HTTP stack.** `net/http`, `crypto/tls`,
   HTTP/2 and what they need are 778 KB of attributed symbols, about
   1.6 MB of the binary. The MCP SDK imports `net/http` as well, so both
   would have to go.
@@ -464,7 +464,7 @@ were left as they were.
   It would cut most of the 732 ms a first run spends on a 761 MB
   transcript, but a later run reads one turn, and matching on the
   line's bytes ties the reader more tightly to a format that is not
-  starfix's.
+  Aries's.
 
 ## Evidence
 
@@ -475,23 +475,23 @@ were left as they were.
 | Step | Adds | How it is known |
 |---|---|---|
 | Process start and Go runtime | 2.4 ms wall, 1.6 ms CPU, 4.1 MiB | `hello` |
-| Being `sfx`: an 11 MB binary mapped, 112 packages initialized | 2.7 ms wall, 2.3 ms CPU, 10.5 MiB, 13,194 allocations, 1.20 MB | `sfx --version` less `hello`; `GODEBUG=inittrace=1` |
+| Being `aries`: an 11 MB binary mapped, 112 packages initialized | 2.7 ms wall, 2.3 ms CPU, 10.5 MiB, 13,194 allocations, 1.20 MB | `aries --version` less `hello`; `GODEBUG=inittrace=1` |
 | of which `init` functions | 1.04 ms (each package's minimum over 40 runs, summed) | `inittrace` |
 | `cli.Run` for `--version` | 1.2 microseconds, 14 allocations | `BenchmarkClientRun` |
-| Reading the hook's JSON, flags, the search that finds no `.starfix.yaml` | 0.1 ms, 95 allocations | `prime --hook` outside a repository less `--version`; `BenchmarkClientLoadConfigNone`: 15 microseconds, 40 allocations |
-| Finding, checking and parsing `.starfix.yaml` three directories up | 36 microseconds, 149 allocations, 15.8 KB | `BenchmarkClientLoadConfig` |
+| Reading the hook's JSON, flags, the search that finds no `.aries.yaml` | 0.1 ms, 95 allocations | `prime --hook` outside a repository less `--version`; `BenchmarkClientLoadConfigNone`: 15 microseconds, 40 allocations |
+| Finding, checking and parsing `.aries.yaml` three directories up | 36 microseconds, 149 allocations, 15.8 KB | `BenchmarkClientLoadConfig` |
 | Loading one Ed25519 key file | 15 microseconds, 57 allocations, 3 KB | `BenchmarkClientIdentity` |
 | Dial, key exchange, host key check, authentication, session, hello and welcome, one request, close | 2.0 ms wall, 1.9 ms CPU, 2.0 MiB, 1,111 allocations, 274 KB | `whoami` less `--version` |
 | The same with both ends in one process, on loopback | 0.87 ms, 954 allocations, 283 KB | `BenchmarkClientDial` |
 | One request and its empty result, both ends | 29 microseconds, 17 allocations | `BenchmarkClientCall` |
 | Decoding and printing | below | |
 
-**`init`, by who pays for it** (`GODEBUG=inittrace=1 sfx --version`, 40
+**`init`, by who pays for it** (`GODEBUG=inittrace=1 aries --version`, 40
 runs, each package's minimum):
 
 | Group | ms | Bytes | Allocations |
 |---|---|---|---|
-| starfix packages (9) | 0.520 | 938,160 | 11,464 |
+| Aries packages (9) | 0.520 | 938,160 | 11,464 |
 | MCP SDK, `jsonschema-go`, `encoding/gob`, `segmentio` (11) | 0.194 | 165,512 | 886 |
 | the rest of the standard library (31) | 0.118 | 29,056 | 119 |
 | `go.yaml.in/yaml/v3` | 0.022 | 25,664 | 274 |
@@ -502,7 +502,7 @@ runs, each package's minimum):
 
 The largest single packages: `internal/proto` 454 KB and 5,839
 allocations, `internal/client` 330 KB and 3,924, `jsonschema-go` 81 KB,
-`encoding/gob` 69 KB (it registers its types; `sfx` never encodes gob),
+`encoding/gob` 69 KB (it registers its types; `aries` never encodes gob),
 `internal/release` 40 KB, `internal/gitx` 40 KB, `internal/capture`
 31 KB. With the prototype of proposal 2 the total is 0.64 ms, 273 KB and
 1,847 allocations. Command and flag tables are not a cost: the command
@@ -510,14 +510,14 @@ table is about 40 struct literals, and flags are built by the command that
 runs.
 
 **What a command that never connects pays that it need not.** `--version`,
-`--help`, and `prime --hook` and `usage --hook` outside a starfix
+`--help`, and `prime --hook` and `usage --hook` outside an Aries
 repository (which print nothing and exit 0, as they must) do 100 to 300
 allocations of their own work on top of 13,194 of initialization, 11,464
 of which are the regular expressions. They also carry the 10.5 MiB by
-which `sfx` exceeds `hello`, which is the binary's size and is not
+which `aries` exceeds `hello`, which is the binary's size and is not
 something a command can decline.
 
-**Keys (decision 35).** With `STARFIX_KEY_FILE` or `key:` set, that one
+**Keys (decision 35).** With `ARIES_KEY_FILE` or `key:` set, that one
 file is read, tried as a public key and then parsed as a private one,
 and nothing in `~/.ssh` is opened; ssh-agent is dialed only if the file
 cannot sign. With neither set, ssh-agent is asked first, then each of
@@ -534,7 +534,7 @@ the client's half of the key exchange is 9% of the samples and the
 server's 13%; nearly all the rest is the two ends and their goroutines
 waking each other. The handshake is not where a short command's time
 goes: the 2 ms it adds, most of it starting threads and touching code
-for the first time, is less than the 2.7 ms `sfx` spends before `main`.
+for the first time, is less than the 2.7 ms `aries` spends before `main`.
 
 **Printing** (`BenchmarkClientPrintSummaries`, `BenchmarkClientLine`,
 `BenchmarkClientJSON`, `BenchmarkClientWriter`):
@@ -552,7 +552,7 @@ for the first time, is less than the 2.7 ms `sfx` spends before `main`.
 Escaping is cheap where nothing needs escaping, which is the usual
 case. `--json` is one `Marshal`, one scan and one write.
 
-### 2. `sfx mcp` at rest and at work
+### 2. `aries mcp` at rest and at work
 
 **What it holds.** Go heap in use after two collections: 1,224 KiB and
 7,292 objects after the MCP handshake and `tools/list`; 1,403 KiB and
@@ -563,13 +563,13 @@ case. `--json` is one `Marshal`, one scan and one write.
 the binary's data that relocation dirties, 0.5 MB of page tables, 0.5 MB
 of allocator metadata and the stacks.
 
-**Goroutines** of a connected `sfx mcp`, 16: `main` in the SDK's
+**Goroutines** of a connected `aries mcp`, 16: `main` in the SDK's
 `Server.Run`; `os/signal`'s loop and `NotifyContext`'s; the SDK's session
 wait, its reader of incoming messages and its reader of standard input;
 the renewal ticker (`mcpserver.renewLoop`); and nine of the SSH client's
 (`mux.loop`, `kexLoop`, the transport's read loop, `handleGlobalRequests`,
 `handleChannelOpens`, `Session.wait`, `mux.Wait`, and the two channel
-readers that are starfix's `Conn.read` and the copy of the session's
+readers that are Aries's `Conn.read` and the copy of the session's
 standard error). Their stacks are 0.7 MiB together.
 
 **Tools and schemas.** 24 tools. `tools/list` answers with 10,336 bytes
@@ -626,8 +626,8 @@ unless the session holds a claim or is connected; connected, it is one
 `renew` request, and every 5 minutes for each held issue the paths its
 work touched, which runs `git` (`gitx.IssuePaths`; not measured).
 
-**The outbox** is not linked into `sfx` at this commit (`go list -deps
-./cmd/sfx` names neither `internal/outbox` nor `internal/secretscan`).
+**The outbox** is not linked into `aries` at this commit (`go list -deps
+./cmd/aries` names neither `internal/outbox` nor `internal/secretscan`).
 As a library, on macOS (`BenchmarkClientAppend`, `BenchmarkClientList`):
 
 | Entries waiting | `Append` | Allocations | `List` |
@@ -652,7 +652,7 @@ is the number to trust there.
 
 ### 3. Long-lived growth
 
-**One `sfx mcp`, 4,000 tool calls**: `prime`, `ready`, `list` of 100,
+**One `aries mcp`, 4,000 tool calls**: `prime`, `ready`, `list` of 100,
 `show`, `comment`, `start` then `finish`, `comments`, `create`, `digest`
 and `remember` in turn; every 100 calls a `show`, `comments` and
 `history` of an issue with a 58 KB body and 40 comments of 7.8 KB; every
@@ -670,7 +670,7 @@ and `remember` in turn; every 100 calls a `show`, `comments` and
 
 The difference of the heap profiles at the first call and at 100 is one
 line: `bufio.(*Scanner).Scan` under `proto.(*Decoder).Decode`, 810 KB.
-Between 100 and 4,000 nothing in starfix or the SDK differs. A second
+Between 100 and 4,000 nothing in Aries or the SDK differs. A second
 run of 3,000 calls sampled the physical footprint: 12.7 MB after the
 first call, 14.4 MB at 100, 15.4 MB at 750, 15.7, 15.6 and 15.8 MB at
 1,500, 2,250 and 3,000. The climb to 750 with a flat heap is the
@@ -686,22 +686,22 @@ there.
 | Pushed inbox items | `mcpserver.pushed` (`inbox.go:18`) | A count and a flag |
 | The server's standard error | `client.capBuffer` (`conn.go:887`) | 4,096 bytes |
 | Responses waiting for a call | `Conn.res` (`conn.go:83`) | One frame |
-| `sfx watch`'s queue | `watchQueue` (`cli/inbox.go:115`) | 256 pushes, then a resync in their place |
+| `aries watch`'s queue | `watchQueue` (`cli/inbox.go:115`) | 256 pushes, then a resync in their place |
 | The board's pushes | `Live.pushes` (`board/live.go:53`) | 256, then a reread |
 | The board's lists | `Model.snap` (`board/model.go:118`) | 100 ready, 100 blocked, 500 held; a reread replaces them |
 | The board's event tail | `Model.tail` | 100 events (`TailMax`), each with its before and after |
 | The open issue's detail | `Model.detail` | One issue; replaced |
 | Transcript offsets | `usage-offsets.json` | One entry a transcript that still exists; 827 bytes for three |
 
-**`sfx tui`.** The model does not see the project's size. A refresh
+**`aries tui`.** The model does not see the project's size. A refresh
 reads at most 100 ready issues, 100 blocked, 500 claims and 500 issues
 in progress, whatever the project holds, and `Snapshot.apply` replaces
 the previous snapshot and reuses the row slice. Applying the largest
 snapshot and drawing a frame of 160 by 50: 0.39 ms, 7,281 allocations,
 399 KB (`BenchmarkClientModelRefresh`); an event and a frame the same
 (`BenchmarkClientModelEvents`), with the tail checked to stay at 100.
-Rereads are once a burst, 250 ms after its first event. `sfx tui` and
-`sfx watch` were not run as processes: the board needs a terminal.
+Rereads are once a burst, 250 ms after its first event. `aries tui` and
+`aries watch` were not run as processes: the board needs a terminal.
 
 ### 4. Big inputs
 
@@ -725,7 +725,7 @@ JSON printed from it is a fourth, briefly. Decoding runs at about 830
 MB/s for the frame and 400 MB/s for the result.
 
 **A list of 10,000** does not reach the client: a page is 500 issues at
-most (`store.MaxPage`), about 60 KB. `sfx list -n 500`: 26,096
+most (`store.MaxPage`), about 60 KB. `aries list -n 500`: 26,096
 allocations and 2.56 MB as text, 15,578 and 2.61 MB as `--json`, 17.5
 MiB peak RSS either way. One call for a page of 500 on an open
 connection: 0.49 ms, 588 KB, 1,047 allocations, both ends.
@@ -743,8 +743,8 @@ response is read again by each run until another response arrives: with
 a 3 MB line there, each run allocates 17.6 MB and peaks at 25 MiB
 instead of 15.
 
-**bd import and export** are `starfixd`'s (`import-bd`, `export-bd`);
-`sfx` links none of `internal/bdimport`.
+**bd import and export** are `ariesd`'s (`import-bd`, `export-bd`);
+`aries` links none of `internal/bdimport`.
 
 ### 5. The binary
 
@@ -762,19 +762,19 @@ data, in proportion.
 | Group | Bytes | Linked for |
 |---|---|---|
 | Go runtime | 1,313,366 | everything |
-| `crypto`, `math/big`, `encoding/asn1` | 1,055,926 | SSH, and TLS for `sfx upgrade` |
+| `crypto`, `math/big`, `encoding/asn1` | 1,055,926 | SSH, and TLS for `aries upgrade` |
 | `encoding/json`, `reflect`, `fmt`, `strings`, `slices`, `time` | 912,776 | everything |
-| MCP SDK, `jsonschema-go`, `segmentio`, `uritemplate`, `encoding/gob` | 740,221 | `sfx mcp` |
-| starfix | 678,339 | |
-| `net/http`, HTTP/2, `idna`, `mime`, `compress`, `archive` | 598,893 | `sfx upgrade` (and imported by the MCP SDK) |
+| MCP SDK, `jsonschema-go`, `segmentio`, `uritemplate`, `encoding/gob` | 740,221 | `aries mcp` |
+| Aries | 678,339 | |
+| `net/http`, HTTP/2, `idna`, `mime`, `compress`, `archive` | 598,893 | `aries upgrade` (and imported by the MCP SDK) |
 | `net`, `os`, `syscall` | 289,598 | everything |
-| `crypto/tls` | 254,760 | `sfx upgrade` |
+| `crypto/tls` | 254,760 | `aries upgrade` |
 | `golang.org/x/crypto` | 212,471 | every connection |
-| `go.yaml.in/yaml/v3` | 196,703 | `.starfix.yaml` |
+| `go.yaml.in/yaml/v3` | 196,703 | `.aries.yaml` |
 | `regexp` | 93,950 | validation |
-| `golang.org/x/term`, `x/sys/unix` | 1,576 | `sfx tui` |
+| `golang.org/x/term`, `x/sys/unix` | 1,576 | `aries tui` |
 
-Within starfix: `internal/cli` 224 KB, `internal/mcpserver` 180 KB,
+Within aries: `internal/cli` 224 KB, `internal/mcpserver` 180 KB,
 `internal/agentsetup` 77 KB, `internal/board` 57 KB, `internal/client`
 48 KB (the IAP transport is part of it and runs `gcloud`: it links
 nothing), `internal/release` 24 KB, `internal/capture` 20 KB,
@@ -783,60 +783,60 @@ nothing), `internal/release` 24 KB, `internal/capture` 20 KB,
 **Linked and never called.** The linker drops what nothing reaches, and
 `golang.org/x/oauth2`, which the SDK imports, contributes no symbol at
 all. What stays without being used: `encoding/gob`, 123 KB, kept by its
-`init`; `uritemplate`, 16 KB, for MCP resources `sfx` does not serve;
-the SDK's HTTP transports' share of `net/http`, which `sfx upgrade`
+`init`; `uritemplate`, 16 KB, for MCP resources `aries` does not serve;
+the SDK's HTTP transports' share of `net/http`, which `aries upgrade`
 would link anyway. `crypto/internal/fips140/drbg.memory` is 32 MiB of
 zero-filled data in every Go 1.27 binary's address space; it is never
 touched and costs no memory. The largest function is
 `jsonschema.(*state).validate` at 30 KB. No package of the OpenTelemetry
-SDK, the store or the server is among the 266 that `sfx` links.
+SDK, the store or the server is among the 266 that `aries` links.
 
 **What the size costs at start.** The 2.7 ms and 10.5 MiB between
-`hello` and `sfx --version` are 1.0 ms of `init` and, for the rest, the
+`hello` and `aries --version` are 1.0 ms of `init` and, for the rest, the
 loading of the binary: its pages faulted in (0.7 ms more system time),
 and the runtime's tables sized to it. About 7 MB of that RSS is the
-binary's own pages, shared by every `sfx` running; the footprint of a
+binary's own pages, shared by every `aries` running; the footprint of a
 process counts none of them.
 
 ## How it was measured
 
 **The server.** `TestProfileServer` (`internal/e2e/profile_test.go`)
-serves a world to `sfx` binaries started outside the test. It skips
-unless `STARFIX_PROFILE_DIR` names a directory; then it writes the
+serves a world to `aries` binaries started outside the test. It skips
+unless `ARIES_PROFILE_DIR` names a directory; then it writes the
 repository, port and host key to `server.env` there and serves until a
 file named `stop` appears. A file named `drop` closes every SSH
 connection, and `stat` writes the server side's goroutines and heap. It
-raises the limits a profile meets first; `STARFIX_PROFILE_LIMITS=default`
+raises the limits a profile meets first; `ARIES_PROFILE_LIMITS=default`
 leaves them.
 
 ```sh
-STARFIX_REQUIRE_DOLT=1 STARFIX_PROFILE_DIR=DIR \
+ARIES_REQUIRE_DOLT=1 ARIES_PROFILE_DIR=DIR \
   go test -run 'TestProfileServer$' -timeout 0 ./internal/e2e/
 ```
 
-**The client's environment.** Every `sfx` ran with `HOME` set to an
+**The client's environment.** Every `aries` ran with `HOME` set to an
 empty directory made for it, `SSH_AUTH_SOCK` unset, and the key the test
 made for its repository. The real `~/.ssh` and ssh-agent were not read.
 
 **Whole processes.** A small program ran each command 30 or 40 times and
 took wall time and, from `wait4`, user and system CPU and the peak RSS.
 For allocations the same tree was built with `go build -overlay`
-replacing `cmd/sfx/main.go` by a copy that also writes
+replacing `cmd/aries/main.go` by a copy that also writes
 `runtime.MemStats` to a file as it exits and, on `SIGUSR1`, collects
 twice and writes `MemStats`, the heap profile and the goroutine profile.
 Nothing else differs: its `--version` allocates 13,398 times, of which
-13,194 are `init`. `sfx mcp` was driven over its standard input by a
+13,194 are `init`. `aries mcp` was driven over its standard input by a
 program speaking MCP's JSON lines, which took those reports before and
 after 100 calls of each tool, and at marks through a long session.
 
 ```sh
-CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o sfx ./cmd/sfx
-GODEBUG=inittrace=1 ./sfx --version
-/usr/bin/time -l ./sfx -C REPO whoami          # macOS: peak RSS in bytes
+CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o aries ./cmd/aries
+GODEBUG=inittrace=1 ./aries --version
+/usr/bin/time -l ./aries -C REPO whoami          # macOS: peak RSS in bytes
 vmmap --summary PID; footprint PID             # macOS: a process's own memory
 cat /proc/PID/smaps_rollup                     # Linux
-go tool nm -size -sort size sfx-with-symbols
-go list -deps ./cmd/sfx
+go tool nm -size -sort size aries-with-symbols
+go list -deps ./cmd/aries
 ```
 
 **Prototypes** were overlays too: copies of the files concerned, edited
@@ -873,12 +873,12 @@ the same process, so their allocations are both ends'.
 - **Windows.** Nothing ran there. The binary builds and vets.
 - **linux/amd64 at run time.** The container was arm64; the amd64 binary
   was only built and its symbols read.
-- **A real server's side of N sessions:** `sshd` and one `starfixd
+- **A real server's side of N sessions:** `sshd` and one `ariesd
   stdio` bridge process a connection. The server here was one test
   process.
 - **ssh-agent**, by rule, so not what asking it costs; and the IAP
   transport, which starts `gcloud`.
-- **`sfx tui` and `sfx watch` as processes.** Their state is read from
+- **`aries tui` and `aries watch` as processes.** Their state is read from
   the code and the model is benchmarked.
 - **`gitx.IssuePaths`**, the `git` processes a renewal starts for held
   issues.
@@ -890,4 +890,4 @@ the same process, so their allocations are both ends'.
   5 ms is too short to sample; the split above is by difference between
   commands.
 - **Proposals 4 and 5** are estimates, not prototypes.
-- **`sfx setup` and `sfx upgrade`.**
+- **`aries setup` and `aries upgrade`.**

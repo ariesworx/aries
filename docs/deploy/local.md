@@ -8,8 +8,8 @@ own issue, with nothing leaving the machine.
 
 ```text
 your machine
-  agents ──MCP──▶ sfx ──SSH──▶ sshd on localhost ──▶ starfixd ──▶ Dolt
-  you ────CLI───▶ sfx
+  agents ──MCP──▶ aries ──SSH──▶ sshd on localhost ──▶ ariesd ──▶ Dolt
+  you ────CLI───▶ aries
 ```
 
 ## What you need
@@ -21,7 +21,7 @@ your machine
   desktop or laptop works. So does WSL2 on
   Windows, once systemd is turned on in `/etc/wsl.conf`. On a Mac, use a
   Linux VM and run your agents inside it, or point `host` at the VM's
-  address. To try starfix or test a change on a Mac, the
+  address. To try Aries or test a change on a Mac, the
   [Docker test server](docker.md) runs a server in a container instead.
 - **An SSH server**: `apt install openssh-server` on Ubuntu.
 - **About 200 MB of free memory** to start with. Dolt's share grows as
@@ -45,7 +45,7 @@ your machine
    ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
    ```
 
-4. In each repository, commit a `.starfix.yaml` that points at
+4. In each repository, commit a `.aries.yaml` that points at
    `localhost`:
 
    ```yaml
@@ -55,14 +55,14 @@ your machine
      host_key: SHA256:…
    ```
 
-5. [Install sfx](../install.md#install-sfx). It signs in with the key
+5. [Install aries](../install.md#install-aries). It signs in with the key
    `ssh` would use, a default file in `~/.ssh` or a key in ssh-agent
    ([Your key is your identity](../cli.md#your-key-is-your-identity));
-   `sfx whoami` says which. Then set your agents up:
+   `aries whoami` says which. Then set your agents up:
 
    ```sh
-   sfx ready
-   sfx setup --all --write
+   aries ready
+   aries setup --all --write
    ```
 
 ## Day to day
@@ -71,37 +71,37 @@ Your agents call `prime` when a session starts, then `start` and `finish`
 for each issue. You can drive the same loop from a terminal:
 
 ```console
-$ sfx create "Add a sign-out button" -p 2 -t feature
+$ aries create "Add a sign-out button" -p 2 -t feature
 sf-3v33w75r
-$ sfx dep add sf-3v33w75r sf-aukz3rip
-$ sfx blocked
+$ aries dep add sf-3v33w75r sf-aukz3rip
+$ aries blocked
 sf-3v33w75r  P2  open  Add a sign-out button  blocked by sf-aukz3rip
-$ sfx start
+$ aries start
 sf-aukz3rip  P1  in_progress  bug  rev 2
 Fix the login redirect
 …
 branch: fix/sf-aukz3rip-fix-the-login-redirect
-$ sfx finish sf-aukz3rip --reason "fixed the redirect" --handoff "redirect now honors ?next=" --discovered "Add a test for ?next= redirects"
+$ aries finish sf-aukz3rip --reason "fixed the redirect" --handoff "redirect now honors ?next=" --discovered "Add a test for ?next= redirects"
 sf-aukz3rip rev 3
 created sf-okyyzsck
-$ sfx ready
+$ aries ready
 sf-3v33w75r  P2  open  Add a sign-out button
 sf-okyyzsck  P2  open  Add a test for ?next= redirects
 ```
 
 - **Run agents side by side.** Each `start` claims a different issue, and
-  `sfx who` lists the sessions at work and what each holds.
+  `aries who` lists the sessions at work and what each holds.
 - **Nothing stays stuck.** If an agent crashes, its claim lapses within
   15 minutes and the issue is ready again
   ([Claims and leases](../concepts.md#claims-and-leases)).
-- **See the day.** `sfx digest` summarizes what closed, started, stalled
+- **See the day.** `aries digest` summarizes what closed, started, stalled
   and was found on the way.
 
 ## Back it up
 
 Use the daily dump from
 [Backups and restore](../server.md#backups-and-restore), and copy
-`/var/backups/starfix` to another disk or a cloud drive.
+`/var/backups/aries` to another disk or a cloud drive.
 
 ## What this setup cannot do
 

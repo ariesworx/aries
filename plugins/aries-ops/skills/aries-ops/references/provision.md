@@ -18,7 +18,7 @@ its size and region, and the guide's cost figure where it has one
 | Choice | Options | Guide |
 |---|---|---|
 | Who connects, from where | Laptops only; also cloud sandboxes and CI | docs/deploy/README.md |
-| The path to sshd | A public address with port 22 rate-limited; Google Cloud IAP (the one private path `sfx` supports natively); a VPN such as WireGuard, with `host` the private address | docs/deploy/enterprise.md#on-other-clouds, docs/cli.md#servers-without-a-public-ip-google-cloud-iap |
+| The path to sshd | A public address with port 22 rate-limited; Google Cloud IAP (the one private path `aries` supports natively); a VPN such as WireGuard, with `host` the private address | docs/deploy/enterprise.md#on-other-clouds, docs/cli.md#servers-without-a-public-ip-google-cloud-iap |
 | One project or many | The installer sets up a server of many projects | docs/server.md#serving-many-projects |
 | Size | 2 GB for one project of a few thousand issues; 4 GB for more, or ten projects in use | docs/server.md#dolts-memory |
 | Data disk | A separate disk for the database's data, so the boot disk can be rebuilt | docs/deploy/enterprise.md#choices-this-example-makes |
@@ -30,19 +30,19 @@ its size and region, and the guide's cost figure where it has one
   OpenSSH (docs/server.md#what-a-server-needs). Not a system that runs
   SELinux. The guide was run on arm64 virtual machines, not on a cloud
   provider's image; say so to the operator.
-- **No other service on it.** starfixd, sshd and the database only.
+- **No other service on it.** ariesd, sshd and the database only.
 - **A time service** the machine reaches without the internet where the
   provider has one (docs/server.md#keep-the-clock-synchronized).
 - **The provider's login service** (OS Login, EC2 Instance Connect,
   Entra ID login) may stay: the installer's sshd drop-in keeps it away
-  from the `starfix` account (docs/server.md#6-let-the-first-principal-in).
+  from the `aries` account (docs/server.md#6-let-the-first-principal-in).
   The operator's own administrative login is theirs to set up, with
   `sudo`.
 
 ## The firewall
 
 - **Inbound: SSH only**, on the one port clients use. Nothing else: the
-  database and starfixd's listener (9464) answer on loopback alone and
+  database and ariesd's listener (9464) answer on loopback alone and
   must stay so. A managed database, once the port to Postgres lands, is
   reached on the provider's private network, never the internet
   (references/database.md).
@@ -57,7 +57,7 @@ its size and region, and the guide's cost figure where it has one
 
 ## The host key
 
-Every `.starfix.yaml` pins sshd's ED25519 host key, and `sfx` trusts
+Every `.aries.yaml` pins sshd's ED25519 host key, and `aries` trusts
 none on first use (docs/cli.md#the-host-key-is-pinned). Get the
 fingerprint from the provider, not across the network: the serial
 console's output, or a guest attribute written at boot

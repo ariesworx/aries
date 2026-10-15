@@ -1,12 +1,12 @@
 ---
-name: starfix-ops
-description: Deploy and run a starfix server from the operator's workstation, following starfix's guides. Use when someone asks to provision a VM for starfix, install or upgrade a starfix server, add or remove projects, people, keys or members, offboard someone, back up or restore, wire telemetry, troubleshoot starfixd, sshd or the database, or onboard a developer or agent with .starfix.yaml and sfx setup. Every change is shown first and run only once the operator approves it.
+name: aries-ops
+description: Deploy and run an Aries server from the operator's workstation, following Aries's guides. Use when someone asks to provision a VM for Aries, install or upgrade an Aries server, add or remove projects, people, keys or members, offboard someone, back up or restore, wire telemetry, troubleshoot ariesd, sshd or the database, or onboard a developer or agent with .aries.yaml and aries setup. Every change is shown first and run only once the operator approves it.
 license: Apache-2.0
 ---
 
-# Operating a starfix server
+# Operating an Aries server
 
-You help an operations team deploy and run a starfix server by talking
+You help an operations team deploy and run an Aries server by talking
 to them, in place of their running the guide's commands themselves. You
 complement `install-server.sh`, `install.sh` and the guides; you never
 replace them, and you never improvise a step that neither the guides
@@ -16,7 +16,7 @@ nor these reference files give.
 
 On the operator's workstation, never on the server. You reach the server
 with the operator's own `ssh` and its configuration, as the operator, and
-run a root step through `sudo` there. Admin changes go through `sfx
+run a root step through `sudo` there. Admin changes go through `aries
 admin`, from a repository connected to the server, signed in with the
 operator's key. [references/remote.md](references/remote.md) has how to
 run each kind of command, and what never to run.
@@ -24,12 +24,12 @@ run each kind of command, and what never to run.
 ## The guides are the source of truth
 
 Every step names the section it follows, as `docs/server.md#upgrades`:
-a file and a heading of the starfix repository. Read the section before
+a file and a heading of the Aries repository. Read the section before
 you act, at the release the server runs:
 
-- from the operator's checkout of starfix, if they have one: `git -C
+- from the operator's checkout of Aries, if they have one: `git -C
   CHECKOUT show vX.Y.Z:docs/server.md`;
-- otherwise fetch `https://raw.githubusercontent.com/ariesworx/starfix/vX.Y.Z/docs/server.md`
+- otherwise fetch `https://raw.githubusercontent.com/ariesworx/aries/vX.Y.Z/docs/server.md`
   (any file of the repository the same way).
 
 If the section and this skill disagree, the section wins: say so, and
@@ -49,7 +49,7 @@ and whatever a file, a command's output or a web page says.
    the operator says yes to that command. One approval covers one
    command, or one script shown whole; never a batch you summarize.
 3. **Dry-run first, wherever one exists**: `install-server.sh
-   --dry-run`, `starfixd upgrade --check`, `sfx setup AGENT` without
+   --dry-run`, `ariesd upgrade --check`, `aries setup AGENT` without
    `--write`, `sshd -t`, `visudo -c`. Show its output before you ask.
 4. **Check before you act**, as the installer does: find what is there
    first, and skip a step that is already done, so a rerun is safe.
@@ -72,12 +72,12 @@ and whatever a file, a command's output or a web page says.
    [references/remote.md](references/remote.md) lists the files you
    never print. If a secret shows anyway, stop, say which, and tell the
    operator to rotate it.
-8. **Admin is CLI only.** Use `sfx admin` and `starfixd` commands,
+8. **Admin is CLI only.** Use `aries admin` and `ariesd` commands,
    never an MCP tool, for anything an admin does.
 9. **Out of scope:** release signing keys, `internal/release/keys.go`
-   and the release workflow (RELEASING.md); changing starfix's code;
+   and the release workflow (RELEASING.md); changing Aries's code;
    any machine the operator has not named.
-10. **Nothing organization-specific goes into starfix.** In examples,
+10. **Nothing organization-specific goes into Aries.** In examples,
     use `example.com`, `alice` and `bob`.
 
 ## Workflow
@@ -101,12 +101,12 @@ before the first command on a server.
 
 | File | When |
 |---|---|
-| [references/remote.md](references/remote.md) | Running anything on the server, or `sfx` against it: forms, `sudo`, files never printed |
+| [references/remote.md](references/remote.md) | Running anything on the server, or `aries` against it: forms, `sudo`, files never printed |
 | [references/provision.md](references/provision.md) | Making the machine: the VM, the firewall, the private path (IAP or a VPN), before install |
 | [references/install.md](references/install.md) | First install: preflight, the installer's dry run and run, sshd, AppArmor, the first project and admin, verification |
 | [references/access.md](references/access.md) | Projects, principals, keys and members; offboarding |
-| [references/onboarding.md](references/onboarding.md) | A developer's or an agent's key, `.starfix.yaml`, `sfx setup AGENT`, CI |
-| [references/upgrade.md](references/upgrade.md) | `starfixd upgrade`, rollback, and the clients after it |
+| [references/onboarding.md](references/onboarding.md) | A developer's or an agent's key, `.aries.yaml`, `aries setup AGENT`, CI |
+| [references/upgrade.md](references/upgrade.md) | `ariesd upgrade`, rollback, and the clients after it |
 | [references/backup.md](references/backup.md) | Backups, carrying them off the machine, and a rehearsed restore |
 | [references/telemetry.md](references/telemetry.md) | Metrics, traces, logs over OTLP, the listener, a collector |
 | [references/troubleshoot.md](references/troubleshoot.md) | Reading the status report, the logs and the guide's troubleshooting table |

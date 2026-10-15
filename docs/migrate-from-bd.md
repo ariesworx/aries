@@ -1,6 +1,6 @@
 # Moving from bd
 
-starfix imports a [bd (beads)](https://github.com/gastownhall/beads)
+Aries imports a [bd (beads)](https://github.com/gastownhall/beads)
 backlog and keeps every bd ID, so commits, branches and pull requests that
 cite them still resolve. It can also export back to bd's format at any
 time.
@@ -16,11 +16,11 @@ time.
    Export fresh rather than importing a committed `.beads/issues.jsonl`,
    which can lag behind bd's database.
 
-2. Copy `bd.jsonl` to the server. As the `starfix` user, see what the
+2. Copy `bd.jsonl` to the server. As the `aries` user, see what the
    import would do. A dry run writes nothing:
 
    ```console
-   $ starfixd import-bd --dry-run bd.jsonl
+   $ ariesd import-bd --dry-run bd.jsonl
    warning: type "spike" stored as task, labeled bd-type:spike (acme-7k2.2)
    fix: none needed; this is informational
    would import 10 issues (10 created), 8 deps (8 created), 3 comments (3 created), 1 memory (1 created); 0 errors, 16 warnings
@@ -29,10 +29,10 @@ time.
 3. Import it:
 
    ```sh
-   starfixd import-bd bd.jsonl
+   ariesd import-bd bd.jsonl
    ```
 
-4. Connect each repository ([`.starfix.yaml`](cli.md#connect-a-repository))
+4. Connect each repository ([`.aries.yaml`](cli.md#connect-a-repository))
    and set its agents up ([agent guide](agents.md#set-up-an-agent)). Then
    take out bd's own agent instructions and hooks, so agents use one
    tracker.
@@ -53,9 +53,9 @@ warnings.
 
 ## What carries over
 
-| bd | starfix |
+| bd | Aries |
 |---|---|
-| IDs, including dotted child IDs such as `bd-a3f.2` | The same IDs. An ID starfix cannot store is reported and its issue skipped, never renamed |
+| IDs, including dotted child IDs such as `bd-a3f.2` | The same IDs. An ID Aries cannot store is reported and its issue skipped, never renamed |
 | Title, description, acceptance criteria, design, notes, assignee, owner, priority, dates, close reason, metadata | The same fields (description becomes the body) |
 | Types `bug`, `feature`, `task`, `epic`, `chore` | The same types |
 | Other types (`spike`, `story`, `decision`, custom) | `task`, labeled `bd-type:<name>` |
@@ -66,7 +66,7 @@ warnings.
 | `blocks`, `conditional-blocks`, `waits-for`, `related`, `discovered-from`, `duplicates`, `supersedes` | The same dependency types |
 | `relates-to` | `related` |
 | Labels and comments | The same, with authors and times |
-| Memory records (bd's `kv.memory.*`) | [Memories](concepts.md#memory) in `project` scope, with the same keys, authored by the importing principal. A key starfix already holds is kept as it is, with a `stale` warning, because bd records no time to say which is newer |
+| Memory records (bd's `kv.memory.*`) | [Memories](concepts.md#memory) in `project` scope, with the same keys, authored by the importing principal. A key Aries already holds is kept as it is, with a `stale` warning, because bd records no time to say which is newer |
 
 `export-bd` turns the `bd-type:` and `bd-status:` labels back into bd's
 types and statuses.
@@ -78,24 +78,24 @@ the affected IDs:
 
 - other dependency types (`replies-to`, `tracks` and the rest), and
   `external:` dependencies;
-- fields starfix has no column for, such as `external_ref`,
+- fields Aries has no column for, such as `external_ref`,
   `estimated_minutes` and `started_at`, on an issue or a memory;
 - issues deleted in bd (tombstones), which are skipped;
-- labels starfix cannot store, such as one with a space;
-- control and bidirectional characters, which starfix refuses
+- labels Aries cannot store, such as one with a space;
+- control and bidirectional characters, which Aries refuses
   ([Security](security-model.md#untrusted-text)). They are removed, with a
   `text` warning naming the field, rather than failing the issue.
 
 A dangling reference, a parent cycle or an invalid record is reported with
 its IDs, and the rest of the file still imports. A memory whose key
-starfix cannot hold, or which looks like it holds a secret, is reported
+Aries cannot hold, or which looks like it holds a secret, is reported
 and not imported; the report names the kind of secret, never the text,
 and when the key itself looks like a secret it names only the line.
 
 ## Rerunning safely
 
 - An issue already stored is overwritten only when the file's `updated_at`
-  is later. An issue edited in starfix after the export keeps the edit.
+  is later. An issue edited in Aries after the export keeps the edit.
 - An overwrite applies whoever holds the issue. One that leaves an issue
   someone has started anything but in progress with them (closed, open,
   blocked or assigned to someone else) ends their claim and tells their
@@ -105,7 +105,7 @@ and when the key itself looks like a secret it names only the line.
 
 ## Going back
 
-`starfixd export-bd -o back.jsonl` writes the store in bd's JSONL format,
+`ariesd export-bd -o back.jsonl` writes the store in bd's JSONL format,
 for bd or for a later import. A handoff note exports as a plain comment,
 because bd has no comment kinds. An issue's account is not exported,
 because bd has no field for it. Importing the file again keeps each

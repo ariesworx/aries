@@ -1,17 +1,17 @@
-# starfix: is Dolt the right database?
+# aries: is Dolt the right database?
 
 6 October 2026. This is based on a survey of bd 1.2.2's source, DoltHub's own benchmarks and posts, and running Dolt 2.4.2. Sources are at the end.
 
-**Decided 15 Oct 2026: the backend moves to Postgres** (design §14, decision 79), on the evidence of the Postgres spike ([spike/postgres/RESULTS.md](../../spike/postgres/RESULTS.md)). What follows is the reasoning of 6 October, kept as it was. Its premise, that Dolt's history, `AS OF` and merge come for free, did not hold in use: the store reads none of them, since conflicts, audit and replay all come from the event log (rule 7). Its fallback, "Postgres behind the same starfixd interface", is the plan now.
+**Decided 15 Oct 2026: the backend moves to Postgres** (design §14, decision 79), on the evidence of the Postgres spike ([spike/postgres/RESULTS.md](../../spike/postgres/RESULTS.md)). What follows is the reasoning of 6 October, kept as it was. Its premise, that Dolt's history, `AS OF` and merge come for free, did not hold in use: the store reads none of them, since conflicts, audit and replay all come from the event log (rule 7). Its fallback, "Postgres behind the same ariesd interface", is the plan now.
 
 ## Answer
 
 Yes, keep Dolt, with two conditions:
 
-1. **Put a starfix server in front of it.** Clients should not run SQL against Dolt through the tunnel.
+1. **Put an Aries server in front of it.** Clients should not run SQL against Dolt through the tunnel.
 2. **Run a one-day spike first**, measuring claim contention and commit throughput.
 
-No alternative gives us versioned history, an audit trail and three-way merge for free. The things Dolt lacks (row locks, push notifications, a server clock you can trust from the client) belong in a starfix server anyway.
+No alternative gives us versioned history, an audit trail and three-way merge for free. The things Dolt lacks (row locks, push notifications, a server clock you can trust from the client) belong in an Aries server anyway.
 
 ## What we need, and how each database does
 
@@ -31,19 +31,19 @@ No alternative gives us versioned history, an audit trail and three-way merge fo
 
 ## The gaps, and where they go
 
-- **Lost updates.** Dolt runs at repeatable read and detects conflicts per cell, not per row. Two writers setting a cell to different values: the second commit fails (error 1213). Different cells, or the *same* value, both win silently, so `rev = rev + 1` alone is not a compare-and-swap: two writers that read the same `rev` both write the same new value and both succeed (measured in stage 0: 937 reported wins, 532 applied). Fix: every write also sets a `write_id` column to a value unique to that write, which turns the race into a same-cell conflict; retry on 1213. `SELECT … FOR UPDATE` is accepted but does not lock. Claims go through one goroutine in starfixd, and writes through a pool of 1–4 connections, which measured fastest.
+- **Lost updates.** Dolt runs at repeatable read and detects conflicts per cell, not per row. Two writers setting a cell to different values: the second commit fails (error 1213). Different cells, or the *same* value, both win silently, so `rev = rev + 1` alone is not a compare-and-swap: two writers that read the same `rev` both write the same new value and both succeed (measured in stage 0: 937 reported wins, 532 applied). Fix: every write also sets a `write_id` column to a value unique to that write, which turns the race into a same-cell conflict; retry on 1213. `SELECT … FOR UPDATE` is accepted but does not lock. Claims go through one goroutine in ariesd, and writes through a pool of 1–4 connections, which measured fastest.
 - **No row locks or `SKIP LOCKED`.** A claim is a conditional update on version and lease, and the row count says who won. That is enough for a claim queue. The spike measures conflict rates with 20 or more concurrent claimers.
-- **No push notifications.** The starfix server sends events to connected clients after its own writes. It is the only writer, so it knows every change.
+- **No push notifications.** The Aries server sends events to connected clients after its own writes. It is the only writer, so it knows every change.
 - **One global commit lock.** DoltHub reports "hundreds of commit graph operations per second". A team of agents writes tens per second at most. Batching Dolt commits (one per request, or a short window) keeps headroom.
 - **Clock.** Leases and reaping use the server's clock only. That is a server job, not a client one.
 
 ## Architecture this implies
 
 ```
-agent ─MCP(stdio)─> starfix (client: MCP server, CLI, SQLite cache + op log)
+agent ─MCP(stdio)─> aries (client: MCP server, CLI, SQLite cache + op log)
                         │  compact RPC over SSH (in-process, pinned host key)
                         ▼
-                  starfixd (server: auth per developer, leases, reaper,
+                  ariesd (server: auth per developer, leases, reaper,
                         │    events, gates, fencing, notifications)
                         ▼
                   dolt sql-server (loopback only)
@@ -52,7 +52,7 @@ agent ─MCP(stdio)─> starfix (client: MCP server, CLI, SQLite cache + op log)
 - **Bandwidth:** the client sends small typed requests and gets deltas back. It never runs SQL or downloads whole tables.
 - **Offline:** the client keeps a SQLite read cache and an operation log, and replays the log on reconnect. The server merges each change against its base version, which Dolt history provides (`AS OF`).
 - **Identity:** the SSH key maps to a developer, so the actor comes from the authenticated key, not from what the client claims. Each session gets its own id under that developer.
-- **Admin:** `sfx admin …` over the same channel, with server-side rights checked per developer.
+- **Admin:** `aries admin …` over the same channel, with server-side rights checked per developer.
 
 ## Vectors (later)
 
@@ -68,11 +68,11 @@ agent ─MCP(stdio)─> starfix (client: MCP server, CLI, SQLite cache + op log)
 | SQLite + sqlite-vec on the client | Offline similarity and duplicate checks | C extension: needs CGO or a WASM SQLite driver; a full copy of vectors on every machine | Not now; offline search falls back to full-text |
 | Dedicated vector DB (Qdrant, Weaviate) | Built for millions of vectors, filtering, hybrid search | Another service to run, back up and secure, kept in sync with Dolt | No; our scale is thousands, not millions |
 
-Vectors don't decide the database: every row above works behind starfixd, and the brute-force start needs nothing new.
+Vectors don't decide the database: every row above works behind ariesd, and the brute-force start needs nothing new.
 
 ### Embedding model: local or hosted
 
-| | Local, on the starfix server (EmbeddingGemma, nomic-embed-text) | Hosted (OpenAI text-embedding-3, Google Gemini embeddings) |
+| | Local, on the Aries server (EmbeddingGemma, nomic-embed-text) | Hosted (OpenAI text-embedding-3, Google Gemini embeddings) |
 |---|---|---|
 | Data | Text never leaves our server | Every issue, comment and memory is sent to the provider, which may be unacceptable for confidential or client material |
 | Quality | Good; the gap to hosted is small for short issue text | Best on benchmarks; larger dimensions |
@@ -91,13 +91,13 @@ Done 6 Oct 2026: Dolt is OK with the conditions above. Results: `spike/dolt/RESU
 2. A sustained write mix with a Dolt commit per request versus batched commits: throughput and p99.
 3. Optional: the vector index at 50k rows, recall@10 and latency against brute force.
 
-If 1 or 2 fails badly, the fallback is Postgres behind the same starfixd interface. The server boundary keeps that a contained change.
+If 1 or 2 fails badly, the fallback is Postgres behind the same ariesd interface. The server boundary keeps that a contained change.
 
 ## Dolt behaviors to investigate
 
 Seen while building, 14 Oct 2026, and not explained. Neither is fixed; each is worked around in tests only. Both are on Dolt 2.4.2.
 
-- **`no root value found in session` from a query of `information_schema` while another database is created or dropped.** `store.Open`'s migration check (`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?`, `internal/store/migrate.go`) failed with `Error 1105 (HY000): no root value found in session` in 3 of 12 parallel subtests that opened, closed and reopened stores while sibling tests created and dropped their databases on the same server; never when the subtests ran alone or one after another. #102 met the same error reading `information_schema` beside a `DROP DATABASE` (37 of 960 reads in a 16-way reproduction), which is why each test now holds a Dolt server of its own. In production this could be `sfx admin project add` creating a project's database while the daemon opens another project's store; that case is not tested. To find out: reproduce against one server with a store opening in a loop while another connection creates and drops databases; establish whether it is the create, the drop or both; and decide whether `Open` should retry this one error, or the daemon serialize opening a store with creating a database.
+- **`no root value found in session` from a query of `information_schema` while another database is created or dropped.** `store.Open`'s migration check (`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?`, `internal/store/migrate.go`) failed with `Error 1105 (HY000): no root value found in session` in 3 of 12 parallel subtests that opened, closed and reopened stores while sibling tests created and dropped their databases on the same server; never when the subtests ran alone or one after another. #102 met the same error reading `information_schema` beside a `DROP DATABASE` (37 of 960 reads in a 16-way reproduction), which is why each test now holds a Dolt server of its own. In production this could be `aries admin project add` creating a project's database while the daemon opens another project's store; that case is not tested. To find out: reproduce against one server with a store opening in a loop while another connection creates and drops databases; establish whether it is the create, the drop or both; and decide whether `Open` should retry this one error, or the daemon serialize opening a store with creating a database.
 - **A prepared query on `blockedCTE` ran for minutes.** Twice, a prepared statement built on the store's `blockedCTE` (`ready`, then the digest's blocked section) ran over nine minutes at full CPU on a project of 10,000 issues, while the same SQL run directly returned at once and its plan looked sound. This was on the code before #111, which changed those queries, so it may or may not remain. A request that did this in production would hold a connection to Dolt, and the request's own timeout would end only the caller's wait. To find out: reproduce with the prepared statement and the same parameters at 10,000 issues, on the queries as they are now; compare with the statement inlined; and see whether Dolt's prepared-statement planning differs.
 
 ## Sources

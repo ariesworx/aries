@@ -2,7 +2,7 @@
 
 The installer, `install-server.sh`, does the guide's setup on a fresh
 Ubuntu 24.04 LTS or 26.04 LTS machine, for a server of many projects:
-the database and its least-privileged account, starfixd under systemd, sshd and
+the database and its least-privileged account, ariesd under systemd, sshd and
 the forced command, optionally AppArmor, and the first project and admin
 (docs/server.md#with-the-installer; its table maps each of its eleven
 steps to the section it follows). You drive it; you do not redo its
@@ -17,12 +17,12 @@ steps by hand. Read references/remote.md first.
 | The system | `cat /etc/os-release`, `uname -m`, `test -d /run/systemd/system` | Ubuntu 24.04 or 26.04, `x86_64` or `aarch64`, systemd | docs/server.md#what-a-server-needs |
 | Resources | `nproc`, `free -m`, `df -h / /var/lib` | 2 GB of memory or more, room for the data | docs/server.md#dolts-memory |
 | The clock | `timedatectl` | `System clock synchronized: yes` | docs/server.md#keep-the-clock-synchronized |
-| DNS | `getent hosts starfix.example.com` on the workstation; `hostname -f` on the server | The name clients will use resolves to this machine | docs/server.md#7-connect-a-repository |
-| Ports | `ss -ltn` | sshd on the client port, and nothing else of starfix's yet | docs/server.md#what-a-server-needs |
-| Not set up some other way | `test -e /etc/starfix/starfixd.yaml; echo $?`, `command -v starfixd` | Nothing, on a fresh machine | docs/server.md#with-the-installer ("It refuses") |
-| AppArmor, if wanted | `test -d /sys/kernel/security/apparmor && command -v apparmor_parser aa-exec` | Both | docs/server.md#confine-starfixd-with-apparmor |
+| DNS | `getent hosts aries.example.com` on the workstation; `hostname -f` on the server | The name clients will use resolves to this machine | docs/server.md#7-connect-a-repository |
+| Ports | `ss -ltn` | sshd on the client port, and nothing else of Aries's yet | docs/server.md#what-a-server-needs |
+| Not set up some other way | `test -e /etc/aries/ariesd.yaml; echo $?`, `command -v ariesd` | Nothing, on a fresh machine | docs/server.md#with-the-installer ("It refuses") |
+| AppArmor, if wanted | `test -d /sys/kernel/security/apparmor && command -v apparmor_parser aa-exec` | Both | docs/server.md#confine-ariesd-with-apparmor |
 
-If the machine already has starfix: an installer-made server reruns
+If the machine already has aries: an installer-made server reruns
 safely and ends `Nothing to change`; anything else, stop and ask.
 
 ## 2. The inputs
@@ -37,7 +37,7 @@ Agree each with the operator, and write them into the record:
 | `--project NAME` | The first project's code name; default `first` |
 | `--version vX.Y.Z` | The release; pin it rather than take the latest |
 | `--releases SOURCE` | A mirror, only if the server reads releases from one (docs/install.md#where-releases-are-read-from) |
-| `--apparmor` | Confine starfixd (docs/server.md#confine-starfixd-with-apparmor) |
+| `--apparmor` | Confine ariesd (docs/server.md#confine-ariesd-with-apparmor) |
 
 Check the key is public before it leaves the workstation:
 `ssh-keygen -lf alice.pub` and `grep -c 'PRIVATE KEY' alice.pub`, which
@@ -47,14 +47,14 @@ must print 0. Never open the file beside it.
 
 1. Copy the key: `scp -o BatchMode=yes alice.pub HOST:`.
 2. Fetch the installer on the server, as the guide does:
-   `curl -fsSLO https://raw.githubusercontent.com/ariesworx/starfix/main/install-server.sh`,
+   `curl -fsSLO https://raw.githubusercontent.com/ariesworx/aries/main/install-server.sh`,
    then `sha256sum install-server.sh`. Offer the operator the script to
    read; the guide asks that it be read before it runs as root.
 
 ## 4. Dry run
 
 ```sh
-ssh -o BatchMode=yes HOST -- sudo -n sh install-server.sh --admin alice --admin-key alice.pub --host starfix.example.com --version vX.Y.Z --dry-run
+ssh -o BatchMode=yes HOST -- sudo -n sh install-server.sh --admin alice --admin-key alice.pub --host aries.example.com --version vX.Y.Z --dry-run
 ```
 
 Show the output. Check: steps 1 to 11 as the guide's table lists them;
@@ -66,7 +66,7 @@ what to do.
 ## 5. Run
 
 The same command without `--dry-run`, once the operator approves it.
-It prints each step and each command; it ends with the `.starfix.yaml`
+It prints each step and each command; it ends with the `.aries.yaml`
 for the first project. Then run the dry run again: it must say
 `Nothing to change`.
 
@@ -81,7 +81,7 @@ Each is a change: show it, and wait for a yes (docs/server.md#with-the-installer
 - **`PasswordAuthentication no`.** Check first: `sudo -n sshd -T | grep
   -i passwordauthentication`; Ubuntu's cloud images already say `no`.
   The guide puts the line above the `Match` line of
-  `/etc/ssh/sshd_config.d/00-starfix.conf`, but that file is the
+  `/etc/ssh/sshd_config.d/00-aries.conf`, but that file is the
   installer's and a later rerun stops on it. Stop and ask the operator
   which they want.
 - **On 26.04 behind shared addresses** (IAP, a VPN, a NAT):
@@ -99,17 +99,17 @@ Each is a change: show it, and wait for a yes (docs/server.md#with-the-installer
 
 | Check | Command | Expect |
 |---|---|---|
-| The daemon active | `systemctl is-active starfixd` | `active` |
-| The daemon's report | `sudo -n -u starfix -H starfixd status` | The version, `keys file …: 1 key`, the first project `active` |
-| The keys file | `sudo -n stat -c '%a %U' /var/lib/starfix/.ssh/starfix_keys` | `600 starfix` |
-| sshd reads it | `sudo -n sshd -T -C user=starfix \| grep -i authorizedkeysfile` | `.ssh/starfix_keys .ssh/authorized_keys` |
-| Confined, with `--apparmor` | `sudo -n cat /proc/"$(systemctl show starfixd -p MainPID --value)"/attr/current` | `starfixd-serve (enforce)`, or `starfixd-serve//&unconfined (enforce)` on 26.04 |
-| The host key | `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` | The fingerprint the operator verified, and the one in `.starfix.yaml` |
+| The daemon active | `systemctl is-active ariesd` | `active` |
+| The daemon's report | `sudo -n -u aries -H ariesd status` | The version, `keys file …: 1 key`, the first project `active` |
+| The keys file | `sudo -n stat -c '%a %U' /var/lib/aries/.ssh/aries_keys` | `600 aries` |
+| sshd reads it | `sudo -n sshd -T -C user=aries \| grep -i authorizedkeysfile` | `.ssh/aries_keys .ssh/authorized_keys` |
+| Confined, with `--apparmor` | `sudo -n cat /proc/"$(systemctl show ariesd -p MainPID --value)"/attr/current` | `ariesd-serve (enforce)`, or `ariesd-serve//&unconfined (enforce)` on 26.04 |
+| The host key | `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` | The fingerprint the operator verified, and the one in `.aries.yaml` |
 
 Then, on the workstation, with the operator's approval to write the file
-into their repository: save the printed `.starfix.yaml` at the
-repository's root, and run `sfx -C REPO whoami` (expect the admin's
-name), `sfx -C REPO admin status` and `sfx -C REPO admin project list`
+into their repository: save the printed `.aries.yaml` at the
+repository's root, and run `aries -C REPO whoami` (expect the admin's
+name), `aries -C REPO admin status` and `aries -C REPO admin project list`
 (docs/server.md#7-connect-a-repository). The file holds no secret and is
 meant to be committed.
 
