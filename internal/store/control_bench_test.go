@@ -28,14 +28,19 @@ func benchKey(tb testing.TB, n int) (key, fingerprint string) {
 // as `ariesd control init` run beside the daemon leaves them, so that
 // a benchmark has thousands without thousands of writes: values is one
 // "(?, …)" for each row, and args its arguments.
-func plantControl(b *testing.B, c *Control, insert string, values []string, args []any, perRow int) {
+func plantControl(b *testing.B, c *Control, insert string, n int, row func(p *params, i int) string) {
 	b.Helper()
 	const chunk = 500
-	for lo := 0; lo < len(values); lo += chunk {
-		hi := min(lo+chunk, len(values))
+	for lo := 0; lo < n; lo += chunk {
+		hi := min(lo+chunk, n)
+		var p params
+		var values []string
+		for i := lo; i < hi; i++ {
+			values = append(values, row(&p, i))
+		}
 		err := c.s.write(b.Context(), Actor{Principal: "dana", Session: "sess-d", Machine: "laptop-d"}, func(w *wtx) error {
 			w.quiet = true
-			_, err := w.exec(b.Context(), insert+strings.Join(values[lo:hi], ","), args[lo*perRow:hi*perRow]...)
+			_, err := w.exec(b.Context(), insert+strings.Join(values, ","), p.args...)
 			return err
 		})
 		if err != nil {
@@ -55,7 +60,7 @@ func BenchmarkControlIndex(b *testing.B) {
 	for _, n := range []int{1000, 5000} {
 		b.Run(fmt.Sprintf("principals=%d", n), func(b *testing.B) {
 			ctx := b.Context()
-			c, err := OpenControl(ctx, newDSN(b), ControlOptions{Admins: []string{"dana"}, CommitInterval: -1})
+			c, err := OpenControl(ctx, newDSN(b), ControlOptions{Admins: []string{"dana"}})
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -79,43 +84,28 @@ func BenchmarkControlIndex(b *testing.B) {
 			}
 			const projects = 100
 			grew("principal", n, func() {
-				var values []string
-				var args []any
-				for i := range n {
-					values = append(values, "(?, 'active', 'dana', ?, ?, 1, ?)")
-					args = append(args, fmt.Sprintf("principal-%05d", i), now, now, i)
-				}
-				plantControl(b, c, `INSERT INTO principals (name, state, created_by, created_at, updated_at, rev, write_id) VALUES `, values, args, 4)
+				plantControl(b, c, `INSERT INTO principals (name, state, created_by, created_at, updated_at, rev) VALUES `, n, func(p *params, i int) string {
+					return "(" + p.add(fmt.Sprintf("principal-%05d", i)) + ", 'active', 'dana', " + p.add(now, now) + ", 1)"
+				})
 			})
 			grew("key", 2*n, func() {
-				var values []string
-				var args []any
-				for i := range 2 * n {
+				plantControl(b, c, `INSERT INTO principal_keys (fingerprint, principal, "key", comment, added_by, added_at) VALUES `, 2*n, func(p *params, i int) string {
 					key, fp := benchKey(b, i)
-					values = append(values, "(?, ?, ?, '', 'dana', ?)")
-					args = append(args, fp, fmt.Sprintf("principal-%05d", i/2), key, now)
-				}
-				plantControl(b, c, "INSERT INTO principal_keys (fingerprint, principal, `key`, comment, added_by, added_at) VALUES ", values, args, 4)
+					return "(" + p.add(fp, fmt.Sprintf("principal-%05d", i/2), key) + ", '', 'dana', " + p.add(now) + ")"
+				})
 			})
 			grew("project", projects, func() {
-				var values []string
-				var args []any
-				for i := range projects {
-					values = append(values, "(?, ?, ?, 'acct', ?, 'archived', 'dana', ?, ?, 1, ?)")
-					args = append(args, fmt.Sprintf("00000000-0000-4000-8000-%012d", i), fmt.Sprintf("project-%03d", i), fmt.Sprintf("p%d", i),
-						fmt.Sprintf("aries_p%03d", i), now, now, i)
-				}
-				plantControl(b, c, `INSERT INTO projects (id, name, prefix, account, db_name, state, created_by, created_at, updated_at, rev, write_id) VALUES `,
-					values, args, 7)
+				plantControl(b, c, `INSERT INTO projects (id, name, prefix, account, db_name, state, created_by, created_at, updated_at, rev) VALUES `,
+					projects, func(p *params, i int) string {
+						return "(" + p.add(fmt.Sprintf("00000000-0000-4000-8000-%012d", i), fmt.Sprintf("project-%03d", i), fmt.Sprintf("p%d", i)) +
+							", 'acct', " + p.add(fmt.Sprintf("aries_p%03d", i)) + ", 'archived', 'dana', " + p.add(now, now) + ", 1)"
+					})
 			})
 			grew("member", 4*n, func() {
-				var values []string
-				var args []any
-				for i := range 4 * n {
-					values = append(values, "(?, ?, 'member', 'dana', ?, ?, 1, ?)")
-					args = append(args, fmt.Sprintf("principal-%05d", i/4), fmt.Sprintf("00000000-0000-4000-8000-%012d", (i/4+i%4*7)%projects), now, now, i)
-				}
-				plantControl(b, c, `INSERT INTO members (principal, project, role, added_by, added_at, updated_at, rev, write_id) VALUES `, values, args, 5)
+				plantControl(b, c, `INSERT INTO members (principal, project, role, added_by, added_at, updated_at, rev) VALUES `, 4*n, func(p *params, i int) string {
+					return "(" + p.add(fmt.Sprintf("principal-%05d", i/4), fmt.Sprintf("00000000-0000-4000-8000-%012d", (i/4+i%4*7)%projects)) +
+						", 'member', 'dana', " + p.add(now, now) + ", 1)"
+				})
 			})
 			b.ReportAllocs()
 			for b.Loop() {

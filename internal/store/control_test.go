@@ -8,6 +8,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -36,9 +38,6 @@ const (
 
 func openControl(t *testing.T, dsn string, opts ControlOptions) *Control {
 	t.Helper()
-	if opts.CommitInterval == 0 {
-		opts.CommitInterval = -1
-	}
 	if opts.Admins == nil {
 		opts.Admins = []string{"dana", "sam"}
 	}
@@ -327,7 +326,8 @@ func TestControlProjectValidation(t *testing.T) {
 		{"database with a hyphen", with(func(p *NewProject) { p.DBName = "aries-p1" })},
 		{"database with a backtick", with(func(p *NewProject) { p.DBName = "a`; DROP DATABASE x; --" })},
 		{"uppercase database", with(func(p *NewProject) { p.DBName = "Aries" })},
-		{"database too long", with(func(p *NewProject) { p.DBName = strings.Repeat("d", 65) })},
+		{"database too long", with(func(p *NewProject) { p.DBName = strings.Repeat("d", 64) })},
+		{"database Postgres keeps for its own", with(func(p *NewProject) { p.DBName = "pg_aries" })},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -338,7 +338,7 @@ func TestControlProjectValidation(t *testing.T) {
 	}
 	wantEvents(t, c, 0)
 	longest := NewProject{ID: projA, Name: strings.Repeat("n", 64), Prefix: strings.Repeat("p", 32),
-		Account: strings.Repeat("a", 64), DBName: "d" + strings.Repeat("_", 63)}
+		Account: strings.Repeat("a", 64), DBName: "d" + strings.Repeat("_", 62)}
 	if _, err := c.AddProject(t.Context(), dana, longest); err != nil {
 		t.Errorf("AddProject with every field at its longest: %v", err)
 	}
@@ -690,7 +690,7 @@ func TestAuthorizedKeyAfterFailedWrite(t *testing.T) {
 	_, fp := testKey(t, "alice-1")
 	mustKey(t, c, "alice", "alice-1")
 	// Another process removes the key behind this one's back.
-	if _, err := c.s.w.ExecContext(t.Context(), `DELETE FROM principal_keys WHERE fingerprint = ?`, fp); err != nil {
+	if _, err := c.s.w.ExecContext(t.Context(), `DELETE FROM principal_keys WHERE fingerprint = $1`, fp); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, ok := c.AuthorizedKey(fp); !ok {
@@ -860,27 +860,26 @@ func TestOpenControl(t *testing.T) {
 			"negative limit":  {Limits: ControlLimits{Projects: -1}},
 			"negative limit2": {Limits: ControlLimits{Keys: -1}},
 		} {
-			opts.CommitInterval = -1
 			if _, err := OpenControl(t.Context(), dsn, opts); !errors.Is(err, ErrInvalid) {
 				t.Errorf("OpenControl with %s = %v, want ErrInvalid", name, err)
 			}
 		}
-		if _, err := OpenControl(t.Context(), strings.TrimRight(dsn, "t0123456789"), ControlOptions{CommitInterval: -1}); !errors.Is(err, ErrInvalid) {
+		if _, err := OpenControl(t.Context(), withoutDatabase(t, dsn), ControlOptions{}); !errors.Is(err, ErrInvalid) {
 			t.Errorf("OpenControl with no database = %v, want ErrInvalid", err)
 		}
 	})
 
-	// The account check is the project store's: root is refused.
+	// The account check is the project store's: the superuser is refused.
 	t.Run("refuses an unsafe account", func(t *testing.T) {
 		dsn := newDSN(t)
-		_, err := OpenControl(t.Context(), rootDSN(t, dsn), ControlOptions{CommitInterval: -1})
+		_, err := OpenControl(t.Context(), superuserDSN(t, dsn), ControlOptions{})
 		var ua *UnsafeAccountError
 		if !errors.As(err, &ua) {
-			t.Fatalf("OpenControl as root = %v, want an *UnsafeAccountError", err)
+			t.Fatalf("OpenControl as the superuser = %v, want an *UnsafeAccountError", err)
 		}
-		c, err := OpenControl(t.Context(), rootDSN(t, dsn), ControlOptions{CommitInterval: -1, AllowUnsafeAccount: true})
+		c, err := OpenControl(t.Context(), superuserDSN(t, dsn), ControlOptions{AllowUnsafeAccount: true})
 		if err != nil {
-			t.Fatalf("OpenControl as root with AllowUnsafeAccount: %v", err)
+			t.Fatalf("OpenControl as the superuser with AllowUnsafeAccount: %v", err)
 		}
 		if err := c.Close(); err != nil {
 			t.Error(err)
@@ -906,21 +905,8 @@ func TestOpenControl(t *testing.T) {
 		if _, err := c.s.w.ExecContext(t.Context(), `INSERT INTO control_migrations VALUES (99, 'future', NOW())`); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := OpenControl(t.Context(), dsn, ControlOptions{CommitInterval: -1}); !errors.Is(err, ErrSchemaTooNew) {
+		if _, err := OpenControl(t.Context(), dsn, ControlOptions{}); !errors.Is(err, ErrSchemaTooNew) {
 			t.Errorf("OpenControl of a newer schema = %v, want ErrSchemaTooNew", err)
-		}
-	})
-
-	// Dolt commits the control database as it does a project's.
-	t.Run("commits", func(t *testing.T) {
-		c := newControl(t)
-		mustPrincipal(t, c, "alice")
-		if err := c.Flush(t.Context()); err != nil {
-			t.Fatalf("Flush: %v", err)
-		}
-		var n int
-		if err := c.s.r.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM dolt_log WHERE message = 'aries: events through 1'`).Scan(&n); err != nil || n != 1 {
-			t.Errorf("Dolt commits naming event 1 = %d, %v; want 1", n, err)
 		}
 	})
 }
@@ -932,12 +918,12 @@ func TestControlAndProjectDatabases(t *testing.T) {
 	t.Parallel()
 	tables := func(t *testing.T, dsn string) []string {
 		t.Helper()
-		db, err := sql.Open("mysql", dsn)
+		db, err := sql.Open("pgx", dsn)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer func() { _ = db.Close() }()
-		rows, err := db.QueryContext(t.Context(), `SHOW TABLES`)
+		rows, err := db.QueryContext(t.Context(), `SELECT tablename FROM pg_tables WHERE schemaname = current_schema()`)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -962,7 +948,7 @@ func TestControlAndProjectDatabases(t *testing.T) {
 		c := openControl(t, dsn, ControlOptions{})
 		mustPrincipal(t, c, "alice")
 		before := tables(t, dsn)
-		_, err := Open(t.Context(), dsn, Options{CommitInterval: -1})
+		_, err := Open(t.Context(), dsn, Options{})
 		if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "control_migrations") {
 			t.Errorf("Open on the control database = %v, want ErrInvalid naming control_migrations", err)
 		}
@@ -979,7 +965,7 @@ func TestControlAndProjectDatabases(t *testing.T) {
 		s := openStore(t, dsn, Options{})
 		mustCreate(t, s, NewIssue{})
 		before := tables(t, dsn)
-		_, err := OpenControl(t.Context(), dsn, ControlOptions{CommitInterval: -1})
+		_, err := OpenControl(t.Context(), dsn, ControlOptions{})
 		if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "schema_migrations") {
 			t.Errorf("OpenControl on a project database = %v, want ErrInvalid naming schema_migrations", err)
 		}
@@ -990,7 +976,7 @@ func TestControlAndProjectDatabases(t *testing.T) {
 	})
 
 	// A project's store and the control store work side by side on one
-	// Dolt server, each on its own database.
+	// Postgres server, each in its own database.
 	t.Run("side by side", func(t *testing.T) {
 		s := newStore(t)
 		c := newControl(t)
@@ -1072,50 +1058,66 @@ func FuzzParseKey(f *testing.F) {
 	})
 }
 
-// TestControlConcurrentWriters: two stores on one control database, as
-// two processes would be, write at once. The loser's write is rerun from
-// the start (rule 8), so both land, each once, on a gapless event log.
+// TestControlConcurrentWriters: several stores on one control database,
+// as several processes would be, write at once. A write that loses is
+// rerun from the start (rule 8), so every one lands, once, on a gapless
+// event log, and each store's index has what it wrote.
 func TestControlConcurrentWriters(t *testing.T) {
 	t.Parallel()
 	dsn := newDSN(t)
-	c1, c2 := openControl(t, dsn, ControlOptions{}), openControl(t, dsn, ControlOptions{})
-	b := newBarrier(2)
-	c1.s.beforeCommit, c2.s.beforeCommit = b.hook, b.hook
-	line1, fp1 := testKey(t, "one")
-	line2, fp2 := testKey(t, "two")
-	mustPrincipal := func(c *Control, name, line string) error {
-		if _, err := c.AddPrincipal(t.Context(), dana, name, ""); err != nil {
-			return err
-		}
-		_, err := c.AddKey(t.Context(), dana, name, line)
-		return err
+	cs := make([]*Control, raceStores)
+	for i := range cs {
+		cs[i] = openControl(t, dsn, ControlOptions{MaxAttempts: 50})
 	}
+	type writer struct{ name, line, fp string }
+	ws := make([]writer, raceWriters)
+	for w := range ws {
+		ws[w].name = fmt.Sprintf("agent%d", w)
+		ws[w].line, ws[w].fp = testKey(t, ws[w].name)
+	}
+	errs := make([]error, raceWriters)
 	var wg sync.WaitGroup
-	var err1, err2 error
-	wg.Go(func() { err1 = mustPrincipal(c1, "alice", line1) })
-	wg.Go(func() { err2 = mustPrincipal(c2, "bob", line2) })
-	wg.Wait()
-	if err1 != nil || err2 != nil {
-		t.Fatalf("concurrent writes = %v and %v, want both to land", err1, err2)
+	for w := range raceWriters {
+		wg.Go(func() {
+			c := cs[w%raceStores]
+			if _, errs[w] = c.AddPrincipal(t.Context(), dana, ws[w].name, ""); errs[w] == nil {
+				_, errs[w] = c.AddKey(t.Context(), dana, ws[w].name, ws[w].line)
+			}
+		})
 	}
-	evs, err := c1.Events(t.Context(), 0, 0)
-	if err != nil || len(evs) != 4 {
-		t.Fatalf("Events = %+v, %v; want 4", evs, err)
+	wg.Wait()
+	for w, err := range errs {
+		if err != nil {
+			t.Errorf("writer %d: %v, want its principal and key to land", w, err)
+		}
+	}
+	evs, err := cs[0].Events(t.Context(), 0, 0)
+	if err != nil || len(evs) != 2*raceWriters {
+		t.Fatalf("Events = %d, %v; want %d", len(evs), err, 2*raceWriters)
 	}
 	for i, e := range evs {
 		if e.Seq != int64(i+1) {
 			t.Errorf("event %d has seq %d, want a gapless log", i, e.Seq)
 		}
 	}
-	ps, err := c1.Principals(t.Context())
-	if err != nil || len(ps) != 2 {
-		t.Errorf("Principals() = %+v, %v; want alice and bob, once each", ps, err)
+	ps, err := cs[0].Principals(t.Context())
+	if err != nil || len(ps) != raceWriters {
+		t.Errorf("Principals() = %+v, %v; want the %d writers, once each", ps, err, raceWriters)
 	}
-	// Each store's index has the key it wrote.
-	if p, _, ok := c1.AuthorizedKey(fp1); !ok || p != "alice" {
-		t.Errorf("AuthorizedKey(alice's key) on the store that added it = %q, %v", p, ok)
+	for w := range raceWriters {
+		if p, _, ok := cs[w%raceStores].AuthorizedKey(ws[w].fp); !ok || p != ws[w].name {
+			t.Errorf("AuthorizedKey(%s's key) on the store that added it = %q, %v", ws[w].name, p, ok)
+		}
 	}
-	if p, _, ok := c2.AuthorizedKey(fp2); !ok || p != "bob" {
-		t.Errorf("AuthorizedKey(bob's key) on the store that added it = %q, %v", p, ok)
+}
+
+// withoutDatabase is dsn naming no database.
+func withoutDatabase(t *testing.T, dsn string) string {
+	t.Helper()
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatal(err)
 	}
+	u.Path = ""
+	return u.String()
 }

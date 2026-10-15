@@ -96,7 +96,7 @@ func TestCIGateFromBranch(t *testing.T) {
 func TestCIGateBranchWithHyphenatedPrefix(t *testing.T) {
 	t.Parallel()
 	dsn := newDatabase(t)
-	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "web-app", CommitInterval: -1, Admins: []string{dana.Principal}})
+	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "web-app", Admins: []string{dana.Principal}})
 	if err != nil {
 		t.Fatal(err)
 	}

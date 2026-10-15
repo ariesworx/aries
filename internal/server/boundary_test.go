@@ -3,6 +3,7 @@ package server
 import (
 	"go/build"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -10,7 +11,13 @@ import (
 // daemon reaches its databases through internal/store alone, so that
 // changing the backend changes no package above it.
 
-const driver = "github.com/go-sql-driver/mysql"
+// driver is the module of the database driver: any of its packages.
+const driver = "github.com/jackc/pgx/v5"
+
+// importsDriver reports whether imports holds a package of driver.
+func importsDriver(imports []string) bool {
+	return slices.ContainsFunc(imports, func(p string) bool { return p == driver || strings.HasPrefix(p, driver+"/") })
+}
 
 // TestOnlyTheStoreImportsTheDriver fails if the daemon's packages import
 // the database driver themselves, on any system they are built for.
@@ -37,11 +44,11 @@ func TestOnlyTheStoreImportsTheDriver(t *testing.T) {
 				return p.Imports
 			}
 			for _, dir := range guarded {
-				if slices.Contains(imports(dir), driver) {
+				if importsDriver(imports(dir)) {
 					t.Errorf("the package in %s imports %s (GOOS=%s): only internal/store may; add what it needs to the store", dir, driver, goos)
 				}
 			}
-			if !slices.Contains(imports(witness), driver) {
+			if !importsDriver(imports(witness)) {
 				t.Errorf("internal/store does not import %s (GOOS=%s): change driver to the store's", driver, goos)
 			}
 		})

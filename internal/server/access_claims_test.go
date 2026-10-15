@@ -243,7 +243,7 @@ func TestSweep(t *testing.T) {
 // asIs opens a project's database without migrating it, as a daemon
 // opens an archived project's at its start.
 func (m *multi) asIs() func(context.Context, store.Project) (Store, error) {
-	return ProjectOpener(m.dsn, m.ctl, store.Options{CommitInterval: -1, NoMigrate: true}, m.tel)
+	return ProjectOpener(m.dsn, m.ctl, store.Options{NoMigrate: true}, m.tel)
 }
 
 // inStore opens the database of the project named name directly, as the
@@ -399,11 +399,11 @@ func TestReleaseArchivedDoesNotMigrate(t *testing.T) {
 	// One migration behind, as an older binary left it. Deleting the
 	// record leaves the tables, so the claim can still be read.
 	p, _ := m.ctl.ProjectNamed("proj-b")
-	dsn, err := DatabaseDSN(m.dsn, p.DBName)
+	dsn, err := SchemaDSN(m.dsn, p.DBName)
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := sql.Open("mysql", dsn)
+	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -416,7 +416,7 @@ func TestReleaseArchivedDoesNotMigrate(t *testing.T) {
 		return n
 	}
 	last := version()
-	if _, err := db.ExecContext(t.Context(), `DELETE FROM schema_migrations WHERE version = ?`, last); err != nil {
+	if _, err := db.ExecContext(t.Context(), `DELETE FROM schema_migrations WHERE version = $1`, last); err != nil {
 		t.Fatal(err)
 	}
 

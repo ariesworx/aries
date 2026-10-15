@@ -17,7 +17,7 @@ import (
 // before this release's validation, or by a hostile server, would be.
 func (w *world) plant(query string, args ...any) {
 	w.t.Helper()
-	db, err := sql.Open("mysql", w.dsn)
+	db, err := sql.Open("pgx", w.dsn)
 	if err != nil {
 		w.t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestHostileTitleCannotForgePrime(t *testing.T) {
 	}
 	// Text stored before that, or planted, is still readable and harmless.
 	id := strings.TrimSpace(bob.ok("create", "Fix login"))
-	w.plant("UPDATE issues SET title = ?, body = ?, write_id = write_id + 1 WHERE id = ?", evil, evil, id)
+	w.plant("UPDATE issues SET title = $1, body = $2 WHERE id = $3", evil, evil, id)
 	// A comment may span lines; mentioning alice, who the server has
 	// seen, puts it in her inbox.
 	alice.ok("ready")

@@ -62,7 +62,7 @@ func TestRowEventsCarryTheirRev(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows, err := s.r.QueryContext(t.Context(), `SELECT rev FROM events WHERE target = ? AND rev IS NOT NULL ORDER BY seq`, string(is.ID))
+	rows, err := s.r.QueryContext(t.Context(), `SELECT rev FROM events WHERE target = $1 AND rev IS NOT NULL ORDER BY seq`, string(is.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -593,12 +593,17 @@ func TestMergeRerun(t *testing.T) {
 	is := mustCreate(t, s1, NewIssue{Title: "base", Body: "body"})
 	mustUpdate(t, s1, bob, is.ID, IssuePatch{Title: ptr("theirs")})
 
+	// The first attempt loses, and the winner's write lands before the
+	// rerun.
 	var once bool
-	s1.beforeCommit = func(ctx context.Context) error {
+	s1.beforeCommit = func(context.Context) error {
 		if once {
 			return nil
 		}
 		once = true
+		return errRetry
+	}
+	s1.beforeRetry = func(ctx context.Context) error {
 		_, err := s2.UpdateIssue(ctx, bob, is.ID, is.Rev+1, IssuePatch{Body: ptr("bob's body")})
 		return err
 	}
@@ -629,7 +634,7 @@ func TestMergeBeforeHistory(t *testing.T) {
 	s := newStore(t)
 	is := mustCreate(t, s, NewIssue{Title: "old"})
 	mustUpdate(t, s, bob, is.ID, IssuePatch{Title: ptr("theirs")})
-	if _, err := s.w.ExecContext(t.Context(), `UPDATE events SET rev = NULL WHERE target = ?`, string(is.ID)); err != nil {
+	if _, err := s.w.ExecContext(t.Context(), `UPDATE events SET rev = NULL WHERE target = $1`, string(is.ID)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.MergeIssue(t.Context(), alice, is.ID, is.Rev, IssuePatch{Body: ptr("x")}); !errors.Is(err, ErrConflict) {

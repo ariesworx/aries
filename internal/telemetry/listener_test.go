@@ -220,9 +220,9 @@ func TestServe(t *testing.T) {
 		}
 	}
 	mu.Lock()
-	why = "the last check of Dolt failed"
+	why = "the last check of the database failed"
 	mu.Unlock()
-	if status, body := do(t, "GET", base+"/readyz"); status != 503 || body != "not ready: the last check of Dolt failed\n" {
+	if status, body := do(t, "GET", base+"/readyz"); status != 503 || body != "not ready: the last check of the database failed\n" {
 		t.Errorf("GET /readyz when not ready = %d %q, want 503 and one line saying why", status, body)
 	}
 	if status, _ := do(t, "GET", base+"/healthz"); status != 200 {

@@ -17,7 +17,6 @@ import (
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/store"
 	"github.com/ariesworx/aries/internal/telemetry"
-	"github.com/go-sql-driver/mysql"
 )
 
 // Invented projects for the servers of many.
@@ -109,7 +108,7 @@ func newMultiTel(t *testing.T, lim Limits, ck *clock, tel *telemetry.Telemetry, 
 	if ck != nil {
 		now = ck.now
 	}
-	ctl, err := store.OpenControl(t.Context(), dsn, store.ControlOptions{Admins: admins, CommitInterval: -1, Now: now,
+	ctl, err := store.OpenControl(t.Context(), dsn, store.ControlOptions{Admins: admins, Now: now,
 		Limits: lim.Control, Tracer: StoreTracer(tel, "")})
 	if err != nil {
 		t.Fatal(err)
@@ -123,7 +122,7 @@ func newMultiTel(t *testing.T, lim Limits, ck *clock, tel *telemetry.Telemetry, 
 	}
 	m := &multi{ctl: ctl, dsn: dsn, log: &syncBuffer{}, opens: map[string]int{}, tel: tel,
 		keysFile: filepath.Join(sshDir, "aries_keys"), byHand: filepath.Join(sshDir, "authorized_keys")}
-	open := ProjectOpener(dsn, ctl, store.Options{CommitInterval: -1, Limits: lim.Limits, Now: now}, tel)
+	open := ProjectOpener(dsn, ctl, store.Options{Limits: lim.Limits, Now: now}, tel)
 	m.Server, err = New(Config{Control: ctl, Version: "v0.2.0", PeerCheck: func(net.Conn) error { return nil }, Limits: lim,
 		KeysFile: m.keysFile, AuthorizedKeys: m.byHand, Telemetry: tel,
 		ReapInterval: -1, Logger: slogTo(m.log),
@@ -155,19 +154,17 @@ func (m *multi) opened(id string) int {
 	return m.opens[id]
 }
 
-// project adds an active project in a database of its own, named and
+// project adds an active project in a schema of its own, named and
 // prefixed for its id's last character, with members given as
 // "NAME" or "NAME=admin".
 func (m *multi) project(t *testing.T, id string, members ...string) store.Project {
 	t.Helper()
-	dsn := newDatabase(t)
-	cfg, err := mysql.ParseDSN(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
 	n := id[len(id)-1:]
 	if _, err := m.ctl.AddProject(t.Context(), dana, store.NewProject{ID: id, Name: "proj-" + n, Prefix: "p" + n,
-		Account: "acct-" + n, DBName: cfg.DBName}); err != nil {
+		Account: "acct-" + n, DBName: "aries_" + n}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.ctl.CreateDatabase(t.Context(), dana, id); err != nil {
 		t.Fatal(err)
 	}
 	p, err := m.ctl.ActivateProject(t.Context(), dana, id)
@@ -797,7 +794,7 @@ func TestControlReloadedOnTick(t *testing.T) {
 	t.Parallel()
 	m := newMulti(t, Limits{}, nil)
 	m.project(t, projA, "alice")
-	other, err := store.OpenControl(t.Context(), m.dsn, store.ControlOptions{Admins: []string{dana.Principal}, CommitInterval: -1})
+	other, err := store.OpenControl(t.Context(), m.dsn, store.ControlOptions{Admins: []string{dana.Principal}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -812,31 +809,32 @@ func TestControlReloadedOnTick(t *testing.T) {
 	mustDialTo(t, m.Server, bob, projA)
 }
 
-func TestDatabaseDSN(t *testing.T) {
+func TestSchemaDSN(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name, dsn, db, want string
-		err                 string
+		name, dsn, schema, want string
+		err                     string
 	}{
-		{"tcp with a password", "aries:pw@tcp(127.0.0.1:3306)/aries", "aries_control", "aries:pw@tcp(127.0.0.1:3306)/aries_control", ""},
-		{"socket", "aries@unix(/run/dolt.sock)/aries", "p2", "aries@unix(/run/dolt.sock)/p2", ""},
-		{"parameters kept", "aries@tcp(db:3306)/aries?tls=true", "p2", "aries@tcp(db:3306)/p2?tls=true", ""},
-		{"quoting refused", "aries@tcp(db:3306)/aries", "p2`; DROP", "", "must be a lowercase letter"},
-		{"upper case refused", "aries@tcp(db:3306)/aries", "Aries", "", "must be a lowercase letter"},
-		{"empty refused", "aries@tcp(db:3306)/aries", "", "", "must be a lowercase letter"},
-		{"bad dsn", "::::", "p2", "", "parse dsn"},
+		{"tcp with a password", "postgres://aries:pw@127.0.0.1:5432/aries", "aries_control", "postgres://aries:pw@127.0.0.1:5432/aries?search_path=aries_control", ""},
+		{"socket", "postgres://aries@/aries?host=%2Fvar%2Frun%2Fpostgresql", "p2", "postgres://aries@/aries?host=%2Fvar%2Frun%2Fpostgresql&search_path=p2", ""},
+		{"parameters kept", "postgres://aries@db/aries?sslmode=require", "p2", "postgres://aries@db/aries?search_path=p2&sslmode=require", ""},
+		{"a schema replaced", "postgres://aries@db/aries?search_path=p1", "p2", "postgres://aries@db/aries?search_path=p2", ""},
+		{"quoting refused", "postgres://aries@db/aries", "p2\"; DROP", "", "must be a lowercase letter"},
+		{"upper case refused", "postgres://aries@db/aries", "Aries", "", "must be a lowercase letter"},
+		{"empty refused", "postgres://aries@db/aries", "", "", "must be a lowercase letter"},
+		{"another form refused", "aries@tcp(db:3306)/aries", "p2", "", "not a postgres:// URL"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := DatabaseDSN(tc.dsn, tc.db)
+			got, err := SchemaDSN(tc.dsn, tc.schema)
 			if tc.err != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.err) {
-					t.Fatalf("DatabaseDSN(%q, %q) = %q, %v; want error containing %q", tc.dsn, tc.db, got, err, tc.err)
+					t.Fatalf("SchemaDSN(%q, %q) = %q, %v; want error containing %q", tc.dsn, tc.schema, got, err, tc.err)
 				}
 				return
 			}
 			if err != nil || got != tc.want {
-				t.Errorf("DatabaseDSN(%q, %q) = %q, %v; want %q", tc.dsn, tc.db, got, err, tc.want)
+				t.Errorf("SchemaDSN(%q, %q) = %q, %v; want %q", tc.dsn, tc.schema, got, err, tc.want)
 			}
 		})
 	}
@@ -852,7 +850,7 @@ func TestResolveSettingsControl(t *testing.T) {
 		}
 		return p
 	}
-	const dsn = "dsn: aries@tcp(127.0.0.1:3306)/aries\n"
+	const dsn = "dsn: postgres://aries@127.0.0.1:5432/aries\n"
 	tests := []struct {
 		name  string
 		body  string
@@ -860,15 +858,19 @@ func TestResolveSettingsControl(t *testing.T) {
 		check func(Settings) bool
 		err   string
 	}{
-		{name: "no control database by default", body: dsn, check: func(s Settings) bool { return s.ControlDB == "" }},
+		{name: "no control store by default", body: dsn, check: func(s Settings) bool { return s.ControlDB == "" }},
 		{name: "from the file", body: dsn + "control_db: aries_control\n", check: func(s Settings) bool {
 			got, err := s.ControlDSN()
-			return s.ControlDB == "aries_control" && err == nil && got == "aries@tcp(127.0.0.1:3306)/aries_control"
+			return s.ControlDB == "aries_control" && err == nil && got == "postgres://aries@127.0.0.1:5432/aries?search_path=aries_control"
 		}},
 		{name: "environment beats the file", body: dsn + "control_db: aries_control\n", env: map[string]string{EnvControlDB: "other_control"},
 			check: func(s Settings) bool { return s.ControlDB == "other_control" }},
-		{name: "not a database name", body: dsn + "control_db: Aries-Control\n", err: `control_db "Aries-Control" is not a database name; fix:`},
-		{name: "the project's own database", body: dsn + "control_db: aries\n", err: `control_db "aries" is the database in the DSN`},
+		{name: "not a schema name", body: dsn + "control_db: Aries-Control\n", err: `control_db "Aries-Control" is not a schema name; fix:`},
+		{name: "a name Postgres keeps", body: dsn + "control_db: pg_control\n", err: `control_db "pg_control" is not a schema name; fix:`},
+		{name: "the project's own schema", body: "dsn: postgres://aries@127.0.0.1:5432/aries?search_path=aries\ncontrol_db: aries\n",
+			err: `control_db "aries" is the schema the DSN names`},
+		{name: "the project's own schema, by default", body: dsn + "control_db: public\n", err: `control_db "public" is the schema the DSN names`},
+		{name: "another schema of the DSN's database", body: dsn + "control_db: aries\n", check: func(s Settings) bool { return s.ControlDB == "aries" }},
 		{name: "limits default", body: dsn, check: func(l Settings) bool {
 			return l.Limits.Control == store.DefaultControlLimits && l.Limits.OpenStores == 64 && l.Limits.StoreIdle == Duration(10*time.Minute)
 		}},
@@ -920,20 +922,20 @@ func TestResolveSettingsControl(t *testing.T) {
 			err: `keys_file ".ssh/authorized_keys" is the authorized_keys file, which ariesd reads and never writes; fix:`},
 		{name: "the same file under another spelling", body: "keys_file: /srv/keys\nauthorized_keys: /srv/x/../keys\n",
 			err: `is the authorized_keys file, which ariesd reads and never writes; fix:`},
-		{name: "no block of project databases by default", body: dsn + "control_db: aries_control\n",
+		{name: "no block of project schemas by default", body: dsn + "control_db: aries_control\n",
 			check: func(s Settings) bool { return s.ProjectDBs == ProjectDBs{} }},
-		{name: "a block of project databases", body: dsn + "control_db: aries_control\nproject_dbs:\n  prefix: aries_p\n  count: 100\n",
+		{name: "a block of project schemas", body: dsn + "control_db: aries_control\nproject_dbs:\n  prefix: aries_p\n  count: 100\n",
 			check: func(s Settings) bool {
 				return s.ProjectDBs == ProjectDBs{Prefix: "aries_p", Count: 100} && s.ProjectDBs.Name(100) == "aries_p100"
 			}},
-		{name: "a block that holds the DSN's database", body: "dsn: aries@tcp(127.0.0.1:3306)/aries_p001\ncontrol_db: aries_control\nproject_dbs:\n  prefix: aries_p\n  count: 9\n",
+		{name: "a block that holds the DSN's schema", body: "dsn: postgres://aries@127.0.0.1:5432/aries?search_path=aries_p001\ncontrol_db: aries_control\nproject_dbs:\n  prefix: aries_p\n  count: 9\n",
 			check: func(s Settings) bool { return s.ProjectDBs.Count == 9 }},
-		{name: "a block without a control database", body: dsn + "project_dbs:\n  prefix: aries_p\n  count: 100\n",
+		{name: "a block without a control store", body: dsn + "project_dbs:\n  prefix: aries_p\n  count: 100\n",
 			err: "project_dbs is set without control_db; fix:"},
-		{name: "a block that holds the control database", body: dsn + "control_db: aries_p007\nproject_dbs:\n  prefix: aries_p\n  count: 100\n",
-			err: "project_dbs holds aries_p007, the control database; fix:"},
+		{name: "a block that holds the control store", body: dsn + "control_db: aries_p007\nproject_dbs:\n  prefix: aries_p\n  count: 100\n",
+			err: "project_dbs holds aries_p007, the control store's schema; fix:"},
 		{name: "a block with a bad prefix", body: dsn + "control_db: aries_control\nproject_dbs:\n  prefix: Aries-P\n  count: 100\n",
-			err: `project_dbs prefix "Aries-P" does not start a database name; fix:`},
+			err: `project_dbs prefix "Aries-P" does not start a schema name; fix:`},
 		{name: "a block with no count", body: dsn + "control_db: aries_control\nproject_dbs:\n  prefix: aries_p\n",
 			err: "project_dbs count 0 must be 1 to 999; fix:"},
 		{name: "a block past the most", body: dsn + "control_db: aries_control\nproject_dbs:\n  prefix: aries_p\n  count: 1000\n",

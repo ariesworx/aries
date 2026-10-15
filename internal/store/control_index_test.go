@@ -186,22 +186,6 @@ func TestControlOperator(t *testing.T) {
 	})
 }
 
-func TestControlBackupTag(t *testing.T) {
-	t.Parallel()
-	c := newControl(t)
-	mustProject(t, c, projA)
-	got, err := c.BackupTag(t.Context(), "aries-v0.1.0")
-	if err != nil || got != "aries-v0.1.0" {
-		t.Fatalf("BackupTag = %q, %v; want the tag", got, err)
-	}
-	if again, err := c.BackupTag(t.Context(), "aries-v0.1.0"); err != nil || again != got {
-		t.Errorf("BackupTag again = %q, %v; want %q unchanged", again, err, got)
-	}
-	if _, err := c.BackupTag(t.Context(), "Bad Tag"); !errors.Is(err, ErrInvalid) {
-		t.Errorf("BackupTag(bad name) = %v, want ErrInvalid", err)
-	}
-}
-
 // TestIsAdminHook checks Options.IsAdmin: the store asks it on every
 // write, beside Options.Admins, so a role given or taken away counts at
 // once.

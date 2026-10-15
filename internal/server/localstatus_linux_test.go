@@ -38,8 +38,10 @@ func TestCheckPeerKeepsStatusFromOtherUsers(t *testing.T) {
 		t.Skip("needs root to run a peer as another uid")
 	}
 	const nobody = 65534
-	s := newServer(t)
-	s.cfg.PeerCheck = CheckPeer // the real check, which newServer replaces
+	// A fake store: the test is of the socket's peer check, and Postgres,
+	// which refuses to run as root, cannot start where it runs.
+	s := newFakeServer(t, &fakeStore{})
+	s.cfg.PeerCheck = CheckPeer // the real check, which newFakeServer replaces
 	log := &syncBuffer{}
 	s.cfg.Logger = slogTo(log)
 	// The child runs as nobody, so it needs a binary and a socket it can

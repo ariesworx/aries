@@ -48,7 +48,7 @@ func spanned(t *testing.T, cfg telemetry.Config) (*telemetry.Telemetry, *telemet
 func newServerLogged(t *testing.T, tel *telemetry.Telemetry) (*Server, *syncBuffer) {
 	t.Helper()
 	dsn := newDatabase(t)
-	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "sf", CommitInterval: -1, Admins: []string{dana.Principal},
+	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "sf", Admins: []string{dana.Principal},
 		Observer: StoreObserver(tel, project), Tracer: StoreTracer(tel, project)})
 	if err != nil {
 		t.Fatal(err)
@@ -313,7 +313,7 @@ func TestRequestSpans(t *testing.T) {
 
 // The store's tracer gives each attempt of a write a span of its own,
 // numbered, so a write that is retried shows as several; a retry is not
-// a failure of the span, and a Dolt commit or a migration that fails is.
+// a failure of the span, and a migration that fails is.
 func TestStoreTracer(t *testing.T) {
 	t.Parallel()
 	if tr := StoreTracer(nil, projA); tr != nil {
@@ -338,15 +338,15 @@ func TestStoreTracer(t *testing.T) {
 	}
 	_, end := tr.Begin(ctx, store.StageAttempt, 4)
 	end(store.OutcomeError)
-	for _, stage := range []store.Stage{store.StageCommit, store.StageMigrate, store.StageWait} {
+	for _, stage := range []store.Stage{store.StageMigrate, store.StageWait} {
 		_, end := tr.Begin(ctx, stage, 0)
 		end(store.OutcomeError)
 	}
-	_, end = StoreTracer(tel, "").Begin(ctx, store.StageCommit, 0)
+	_, end = StoreTracer(tel, "").Begin(ctx, store.StageMigrate, 0)
 	end(store.OutcomeOK)
 	req.End()
 	spans := m.Spans()
-	want := "create(" + strings.Repeat("store.write.attempt(store.write.wait) ", 3) + "store.write.attempt store.commit store.migrate store.write.wait store.commit)"
+	want := "create(" + strings.Repeat("store.write.attempt(store.write.wait) ", 3) + "store.write.attempt store.migrate store.write.wait store.migrate)"
 	if got := tree(spans, spans[len(spans)-1]); got != want {
 		t.Errorf("trace = %s\nwant    %s", got, want)
 	}
@@ -362,12 +362,12 @@ func TestStoreTracer(t *testing.T) {
 	if want := []string{"1:retry:", "2:retry:", "3:ok:", "4:error:"}; !slices.Equal(attempts, want) {
 		t.Errorf("attempts, as number:outcome:status = %v, want %v", attempts, want)
 	}
-	if want := []string{"store.commit:error", "store.migrate:error", "store.write.wait:error"}; !slices.Equal(failed, want) {
+	if want := []string{"store.migrate:error", "store.write.wait:error"}; !slices.Equal(failed, want) {
 		t.Errorf("spans marked failed = %v, want %v", failed, want)
 	}
 	last := spans[len(spans)-2]
-	if _, ok := last.Attrs["project"]; ok || last.Name != "store.commit" {
-		t.Errorf("the control store's span %s has attributes %v, want a commit that names no project", last.Name, last.Attrs)
+	if _, ok := last.Attrs["project"]; ok || last.Name != "store.migrate" {
+		t.Errorf("the control store's span %s has attributes %v, want a migration that names no project", last.Name, last.Attrs)
 	}
 
 	// In a trace that is not sampled nothing is recorded, and the

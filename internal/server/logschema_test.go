@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -130,7 +131,7 @@ func TestLogLinesCarryNoText(t *testing.T) {
 			if holds(k) || holds(s) {
 				t.Errorf("the log holds the client's text in %s: %v", k, l)
 			}
-			for _, bad := range append([]string{"ssh-ed25519 AAAA", "PRIVATE KEY", "@unix(", "@tcp("}, dsnSecrets...) {
+			for _, bad := range append([]string{"ssh-ed25519 AAAA", "PRIVATE KEY", "postgres://"}, dsnSecrets...) {
 				if strings.Contains(s, bad) {
 					t.Errorf("the log holds %q, of a key or a DSN, in %s: %v", bad, k, l)
 				}
@@ -144,10 +145,12 @@ func TestLogLinesCarryNoText(t *testing.T) {
 func secretsOfDSN(t *testing.T, dsn string) []string {
 	t.Helper()
 	out := []string{dsn}
-	if _, rest, ok := strings.Cut(dsn, ":"); ok {
-		if pass, _, ok := strings.Cut(rest, "@"); ok && pass != "" {
-			out = append(out, pass)
-		}
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pass, ok := u.User.Password(); ok && pass != "" {
+		out = append(out, pass)
 	}
 	return out
 }
@@ -191,7 +194,7 @@ func TestExportedLogsCarryNoText(t *testing.T) {
 				if holds(all) {
 					t.Errorf("an exported record holds the client's text: %+v", r)
 				}
-				for _, bad := range append([]string{"ssh-ed25519", "PRIVATE KEY", "@unix(", "@tcp("}, secretsOfDSN(t, m.dsn)...) {
+				for _, bad := range append([]string{"ssh-ed25519", "PRIVATE KEY", "postgres://"}, secretsOfDSN(t, m.dsn)...) {
 					if strings.Contains(all, bad) {
 						t.Errorf("an exported record holds %q, of a key or a DSN: %+v", bad, r)
 					}

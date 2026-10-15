@@ -161,11 +161,8 @@ func queuedTarget(t *testing.T, s *Store) IssueID {
 func TestIdempotentReplayOfQueuedOps(t *testing.T) {
 	t.Parallel()
 	for _, op := range queuedOps {
-		// Not in parallel: each opens a store, and Open's read of
-		// information_schema failed in CI, as "no root value found in
-		// session", while sibling subtests made and dropped their
-		// databases (docs/design/database.md, "Dolt behaviors to
-		// investigate").
+		// Not in parallel: each opens a store on the one Postgres
+		// server the test holds from the pool.
 		t.Run(op.name, func(t *testing.T) {
 			s := newStore(t)
 			ctx := t.Context()
@@ -310,7 +307,7 @@ func TestIdempotencyOfANoOp(t *testing.T) {
 func TestIdemWindowOption(t *testing.T) {
 	t.Parallel()
 	dsn := newDSN(t)
-	if _, err := Open(t.Context(), dsn, Options{CommitInterval: -1, IdemWindow: -time.Hour}); !errors.Is(err, ErrInvalid) {
+	if _, err := Open(t.Context(), dsn, Options{IdemWindow: -time.Hour}); !errors.Is(err, ErrInvalid) {
 		t.Errorf("Open with a negative window = %v, want ErrInvalid", err)
 	}
 	if got := openStore(t, dsn, Options{}).IdemWindow(); got != 7*24*time.Hour {
@@ -348,22 +345,23 @@ func TestIdempotentReplayAfterRetry(t *testing.T) {
 			is := mustCreate(t, s1, NewIssue{Title: "work", Labels: []string{"area:db"}})
 			var want any
 			retried := false
-			s1.beforeCommit = func(ctx context.Context) error {
+			// The first attempt's result has the label, and it loses.
+			// The request that commits first, from s2, finds the label
+			// gone, so its stored result has no labels field at all.
+			s1.beforeCommit = func(context.Context) error {
 				if retried {
 					return nil
 				}
 				retried = true
-				// The first attempt's result has the label; the request
-				// that commits first, from s2, finds it gone, so its
-				// stored result has no labels field at all.
+				return errRetry
+			}
+			s1.beforeRetry = func(ctx context.Context) error {
 				if err := s2.RemoveLabel(ctx, alice, is.ID, "area:db", ""); err != nil {
 					return err
 				}
 				var err error
-				if want, err = tc.do(ctx, s2, is.ID); err != nil {
-					return err
-				}
-				return errRetry
+				want, err = tc.do(ctx, s2, is.ID)
+				return err
 			}
 			got, err := tc.do(t.Context(), s1, is.ID)
 			if err != nil {

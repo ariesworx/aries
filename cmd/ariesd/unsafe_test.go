@@ -5,28 +5,28 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-sql-driver/mysql"
+	"github.com/ariesworx/aries/internal/store"
 )
 
-// S-2, decision D3: the admin commands refuse an unsafe Dolt account, as
-// serve does; --allow-unsafe-dolt lets one through only with --dev.
-func TestUnsafeDoltAccount(t *testing.T) {
+// S-2, decision D3: the admin commands refuse an unsafe database role,
+// as serve does; --allow-unsafe-account lets one through only with --dev.
+func TestUnsafeAccount(t *testing.T) {
 	t.Parallel()
-	cfg, err := mysql.ParseDSN(newDSN(t))
+	d, err := store.ParseDSN(newDSN(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := doltOf(t).RootDSN(cfg.DBName)
+	root := pgOf(t).RootDSN(d.Database)
 	tests := []struct {
 		name  string
 		args  []string
 		usage bool
 		err   string
 	}{
-		{name: "root refused", err: "dolt account root@localhost is unsafe"},
-		{name: "escape needs --dev", args: []string{"--allow-unsafe-dolt"}, usage: true, err: "needs --dev"},
+		{name: "superuser refused", err: "postgres role postgres is unsafe"},
+		{name: "escape needs --dev", args: []string{"--allow-unsafe-account"}, usage: true, err: "needs --dev"},
 		{name: "--dev alone refuses still", args: []string{"--dev"}, err: "is unsafe"},
-		{name: "escape with --dev", args: []string{"--dev", "--allow-unsafe-dolt"}},
+		{name: "escape with --dev", args: []string{"--dev", "--allow-unsafe-account"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -49,9 +49,9 @@ func TestUnsafeDoltAccount(t *testing.T) {
 
 func TestServeUnsafeNeedsDev(t *testing.T) {
 	t.Parallel()
-	err := serve(t.Context(), []string{"--allow-unsafe-dolt"})
+	err := serve(t.Context(), []string{"--allow-unsafe-account"})
 	var ue usageError
 	if !errors.As(err, &ue) || !strings.Contains(err.Error(), "needs --dev") {
-		t.Errorf("serve --allow-unsafe-dolt = %v, want a usage error naming --dev", err)
+		t.Errorf("serve --allow-unsafe-account = %v, want a usage error naming --dev", err)
 	}
 }

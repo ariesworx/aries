@@ -18,7 +18,7 @@ import (
 // The benchmarks of this file say how the store's reads and writes grow
 // with a project (docs/design/profile-ariesd.md): each runs on a
 // database of 100, 1,000 and 10,000 issues, half of them closed, and of
-// 50,000 when ARIES_BENCH_LARGE is set. The time is mostly Dolt's;
+// 50,000 when ARIES_BENCH_LARGE is set. The time is mostly Postgres's;
 // the bytes and allocations are the store's and its driver's.
 //
 //	go test -run '^$' -bench 'Scale' -benchmem ./internal/store/
@@ -67,7 +67,7 @@ func seedScale(b *testing.B, s *Store, n, bodyLen int) benchProject {
 	for lo := 0; lo < n; lo += chunk {
 		hi := min(lo+chunk, n)
 		var issues, labels, events []string
-		var iargs, largs, eargs []any
+		var ip, lp, ep params
 		for i := lo; i < hi; i++ {
 			id := fmt.Sprintf("tst-b%07d", i)
 			title := fmt.Sprintf("The %s drops the %s after the %s restarts, case %d",
@@ -86,24 +86,21 @@ func seedScale(b *testing.B, s *Store, n, bodyLen int) benchProject {
 					blocked = append(blocked, [2]string{id, string(p.open[len(p.open)-2])})
 				}
 			}
-			issues = append(issues, "(?, ?, ?, '', '', '', ?, ?, 'task', 'bob', ?, ?, ?, 1, ?)")
-			iargs = append(iargs, id, title, body, status, i%4, at, at, closedAt, i)
-			labels = append(labels, "(?, ?, ?)")
-			largs = append(largs, id, "area-"+benchTopics[i%20], at)
-			events = append(events, "(?, ?, 'bob', 'sess-b', 'laptop-b', 'issue.create', ?, ?)")
-			eargs = append(eargs, i+1, at, id, `{"status":"open"}`)
+			issues = append(issues, "("+ip.add(id, title, body)+", '', '', '', "+ip.add(status, i%4)+", 'task', 'bob', "+ip.add(at, at, closedAt)+", 1)")
+			labels = append(labels, "("+lp.add(id, "area-"+benchTopics[i%20], at)+")")
+			events = append(events, "("+ep.add(i+1, at)+", 'bob', 'sess-b', 'laptop-b', 'issue.create', "+ep.add(id, `{"status":"open"}`)+")")
 		}
 		err := s.write(ctx, bob, func(w *wtx) error {
 			w.quiet = true
 			if _, err := w.exec(ctx, `INSERT INTO issues (id, title, body, design, acceptance, notes, status, priority, type,
-  created_by, created_at, updated_at, closed_at, rev, write_id) VALUES `+strings.Join(issues, ","), iargs...); err != nil {
+  created_by, created_at, updated_at, closed_at, rev) VALUES `+strings.Join(issues, ","), ip.args...); err != nil {
 				return err
 			}
-			if _, err := w.exec(ctx, `INSERT INTO labels (issue_id, label, created_at) VALUES `+strings.Join(labels, ","), largs...); err != nil {
+			if _, err := w.exec(ctx, `INSERT INTO labels (issue_id, label, created_at) VALUES `+strings.Join(labels, ","), lp.args...); err != nil {
 				return err
 			}
 			_, err := w.exec(ctx, `INSERT INTO events (seq, at, principal, session, machine, op, target, after_state) VALUES `+
-				strings.Join(events, ","), eargs...)
+				strings.Join(events, ","), ep.args...)
 			return err
 		})
 		if err != nil {
@@ -112,32 +109,30 @@ func seedScale(b *testing.B, s *Store, n, bodyLen int) benchProject {
 	}
 	for lo := 0; lo < len(blocked); lo += chunk {
 		var rows []string
-		var args []any
-		for i, e := range blocked[lo:min(lo+chunk, len(blocked))] {
-			rows = append(rows, "(?, ?, 'blocks', 'bob', ?, 1, ?)")
-			args = append(args, e[0], e[1], now, lo+i)
+		var p params
+		for _, e := range blocked[lo:min(lo+chunk, len(blocked))] {
+			rows = append(rows, "("+p.add(e[0], e[1])+", 'blocks', 'bob', "+p.add(now)+", 1)")
 		}
 		if err := s.write(ctx, bob, func(w *wtx) error {
 			w.quiet = true
-			_, err := w.exec(ctx, `INSERT INTO deps (from_id, to_id, type, created_by, created_at, rev, write_id) VALUES `+
-				strings.Join(rows, ","), args...)
+			_, err := w.exec(ctx, `INSERT INTO deps (from_id, to_id, type, created_by, created_at, rev) VALUES `+
+				strings.Join(rows, ","), p.args...)
 			return err
 		}); err != nil {
 			b.Fatalf("seed deps: %v", err)
 		}
 	}
 	var rows []string
-	var args []any
+	var mp params
 	for i := range 200 {
-		rows = append(rows, "(?, 'project', '', ?, ?, ?, 'bob', 'bob', ?, ?, 1, ?)")
-		args = append(args, fmt.Sprintf("m%07d", i), fmt.Sprintf("note-%03d", i),
+		rows = append(rows, "("+mp.add(fmt.Sprintf("m%07d", i))+", 'project', '', "+mp.add(fmt.Sprintf("note-%03d", i),
 			fmt.Sprintf("The %s needs the %s restarted first. %s", benchTopics[i%20], benchTopics[(i+1)%20], strings.Repeat("More of why. ", 20)),
-			i%20 == 0, now, now, i)
+			i%20 == 0)+", 'bob', 'bob', "+mp.add(now, now)+", 1)")
 	}
 	if err := s.write(ctx, bob, func(w *wtx) error {
 		w.quiet = true
-		_, err := w.exec(ctx, `INSERT INTO memories (id, scope, owner, mem_key, body, pinned, author, updated_by, created_at, updated_at, rev, write_id)
-  VALUES `+strings.Join(rows, ","), args...)
+		_, err := w.exec(ctx, `INSERT INTO memories (id, scope, owner, mem_key, body, pinned, author, updated_by, created_at, updated_at, rev)
+  VALUES `+strings.Join(rows, ","), mp.args...)
 		return err
 	}); err != nil {
 		b.Fatalf("seed memories: %v", err)
@@ -385,7 +380,7 @@ func benchStore(b *testing.B, s *Store, p benchProject, hold *writerHold) {
 	})
 }
 
-// BenchmarkGo is the store's work that never reaches Dolt, on inputs at
+// BenchmarkGo is the store's work that never reaches Postgres, on inputs at
 // their limits: the validation of a 64 KiB text, the secrets lint of a
 // 4 KiB memory, the tokens of a title, the scoring of 2,000 closed
 // titles, the parsing of an acceptance checklist of 200 items, the JSON
@@ -476,8 +471,8 @@ func BenchmarkSimilarCache(b *testing.B) {
 // nothing, one that updates a row and records no event, one that
 // inserts a row and records no event, one that only appends an event,
 // and an update with its event, which is what a small write is. The
-// time is Dolt's; the benchmark says which statement of a write Dolt's
-// commit is paying for.
+// time is Postgres's; the benchmark says which statement of a write
+// the commit is paying for.
 func BenchmarkCommit(b *testing.B) {
 	s := openStore(b, newDSN(b), Options{})
 	ctx := b.Context()
@@ -487,12 +482,12 @@ func BenchmarkCommit(b *testing.B) {
 	}
 	n := 0
 	update := func(w *wtx) error {
-		_, err := w.exec(ctx, `UPDATE issues SET rev = rev + 1, write_id = ? WHERE id = ?`, randomInt63(), string(is.ID))
+		_, err := w.exec(ctx, `UPDATE issues SET rev = rev + 1 WHERE id = $1`, string(is.ID))
 		return err
 	}
 	insert := func(w *wtx) error {
 		n++
-		_, err := w.exec(ctx, `INSERT INTO labels (issue_id, label, created_at) VALUES (?, ?, ?)`, string(is.ID), fmt.Sprintf("label-%d", n), w.now)
+		_, err := w.exec(ctx, `INSERT INTO labels (issue_id, label, created_at) VALUES ($1, $2, $3)`, string(is.ID), fmt.Sprintf("label-%d", n), w.now)
 		return err
 	}
 	event := func(w *wtx) error { return w.event(ctx, OpIssueUpdate, string(is.ID), nil, map[string]int{"n": n}) }

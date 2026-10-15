@@ -21,7 +21,7 @@ func req(id string, at time.Time, in, out int64) UsageRecord {
 func usageRows(t *testing.T, s *Store, principal string) int {
 	t.Helper()
 	var n int
-	if err := s.r.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM token_usage WHERE principal = ?`, principal).Scan(&n); err != nil {
+	if err := s.r.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM token_usage WHERE principal = $1`, principal).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	return n
@@ -215,7 +215,7 @@ func TestAddUsageAcceptsUnknownCountsAndSpans(t *testing.T) {
 		t.Fatalf("AddUsage = %+v, %v; want 3 added", got, err)
 	}
 	var nulls, zeros int
-	if err := s.r.QueryRowContext(t.Context(), `SELECT SUM(input IS NULL), SUM(input = 0) FROM token_usage`).Scan(&nulls, &zeros); err != nil {
+	if err := s.r.QueryRowContext(t.Context(), `SELECT COUNT(*) FILTER (WHERE input IS NULL), COUNT(*) FILTER (WHERE input = 0) FROM token_usage`).Scan(&nulls, &zeros); err != nil {
 		t.Fatal(err)
 	}
 	if nulls != 2 || zeros != 1 {

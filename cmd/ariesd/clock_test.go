@@ -17,7 +17,7 @@ import (
 func writtenAhead(t *testing.T, dsn string, ahead time.Duration) time.Time {
 	t.Helper()
 	at := time.Now().Add(ahead).UTC().Truncate(time.Microsecond)
-	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "sf", CommitInterval: -1, Now: func() time.Time { return at }})
+	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "sf", Now: func() time.Time { return at }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,8 +101,8 @@ func TestUpgradeChecksTheClockFirst(t *testing.T) {
 				t.Errorf("the refusal lacks %q:\n%v", w, err)
 			}
 		}
-		if r.exeHolds(t) != "v0.2.0" || len(r.backups)+len(r.restarts) != 0 {
-			t.Errorf("the refused upgrade changed something: binary %s, backups %v, restarts %v", r.exeHolds(t), r.backups, r.restarts)
+		if r.exeHolds(t) != "v0.2.0" || len(r.restarts) != 0 {
+			t.Errorf("the refused upgrade changed something: binary %s, restarts %v", r.exeHolds(t), r.restarts)
 		}
 		r.d.euid = func() int { return 0 }
 		out, err := r.run(t, "--check")

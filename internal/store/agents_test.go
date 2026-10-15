@@ -12,7 +12,7 @@ import (
 // agentRow reads an agent's rev and last_seen straight from the table.
 func agentRow(t *testing.T, s *Store, a Actor) (rev int64, seen time.Time) {
 	t.Helper()
-	err := s.r.QueryRowContext(t.Context(), `SELECT rev, last_seen FROM agents WHERE principal = ? AND session = ?`,
+	err := s.r.QueryRowContext(t.Context(), `SELECT rev, last_seen FROM agents WHERE principal = $1 AND session = $2`,
 		a.Principal, a.Session).Scan(&rev, &seen)
 	if err != nil {
 		t.Fatalf("agent row %s/%s: %v", a.Principal, a.Session, err)
@@ -95,17 +95,16 @@ func TestTouchAgentRetryKeepsNewHarness(t *testing.T) {
 	// The row is due, so the touch is a write: one that finds the row
 	// fresh decides so from a read and never begins a write to retry.
 	clk.add(AgentTouchEvery)
+	// The first attempt loses; another process's touch lands before the
+	// rerun, which must start from the row that one left.
 	attempts := 0
-	s.beforeCommit = func(ctx context.Context) error {
-		attempts++
-		if attempts > 1 {
+	s.beforeCommit = func(context.Context) error {
+		if attempts++; attempts > 1 {
 			return nil
-		}
-		if err := other.TouchAgent(ctx, alice, "codex"); err != nil {
-			return err
 		}
 		return errRetry
 	}
+	s.beforeRetry = func(ctx context.Context) error { return other.TouchAgent(ctx, alice, "codex") }
 	if err := s.TouchAgent(ctx, alice, ""); err != nil {
 		t.Fatalf("TouchAgent: %v", err)
 	}

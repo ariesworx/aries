@@ -2,13 +2,14 @@
 // a real SSH handshake: an in-process SSH server that authenticates keys,
 // maps each to a principal and enforces forced-command semantics by running
 // the stdio bridge whatever the client asks for, in front of a daemon on a
-// temporary unix socket and a real Dolt store.
+// temporary unix socket and a real Postgres store.
 //
 // A world is one daemon and its SSH server, and a user is a developer with
 // a key and a repository whose .aries.yaml points at them. Each test
 // makes its own world, whose cleanup stops both and waits for their
-// goroutines. TestMain starts one Dolt server for every test; without dolt
-// on PATH the tests skip, unless ARIES_REQUIRE_DOLT is set.
+// goroutines. A test takes a Postgres server of its own from the
+// package's pool; without postgres on PATH the tests skip, unless
+// ARIES_REQUIRE_POSTGRES is set.
 package e2e
 
 import (
@@ -17,6 +18,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"database/sql"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -33,24 +35,23 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-sql-driver/mysql"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/ariesworx/aries/internal/cli"
 	"github.com/ariesworx/aries/internal/client"
 	"github.com/ariesworx/aries/internal/clienttest"
-	"github.com/ariesworx/aries/internal/dolttest"
 	"github.com/ariesworx/aries/internal/iaptest"
 	"github.com/ariesworx/aries/internal/offline"
+	"github.com/ariesworx/aries/internal/pgtest"
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/server"
 	"github.com/ariesworx/aries/internal/store"
 	"github.com/ariesworx/aries/internal/telemetry"
 )
 
-// dolts are the package's Dolt servers: a test has one to itself while it
-// runs, so the tests can run in parallel (dolttest.Pool).
-var dolts = dolttest.NewPool("aries-e2e-", dolttest.Options{})
+// pgs are the package's Postgres servers: a test has one to itself while
+// it runs, so the tests can run in parallel (pgtest.Pool).
+var pgs = pgtest.NewPool("aries-e2e-")
 
 func TestMain(m *testing.M) {
 	iaptest.Main()
@@ -66,8 +67,8 @@ func TestMain(m *testing.M) {
 }
 
 func run(m *testing.M) int {
-	defer func() { _ = dolts.Close() }()
-	dolts.Warm()
+	defer func() { _ = pgs.Close() }()
+	pgs.Warm()
 	return m.Run()
 }
 
@@ -76,16 +77,16 @@ const project = "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
 // patience is how long a test waits for something that must happen. It
 // turns a hang into a failure that says what did not happen, and nothing
 // is asserted of it, so it is long: `aries watch` took more than twenty
-// seconds to start where the tests shared a processor and Dolt was short
-// of memory.
+// seconds to start where the tests shared a processor and the database
+// was short of memory.
 const patience = time.Minute
 
 // world is one daemon behind one SSH server.
 type world struct {
 	t *testing.T
-	// dolt is the Dolt server the world's test holds, and no other test
+	// pg is the Postgres server the world's test holds, and no other test
 	// while it runs.
-	dolt    *dolttest.Server
+	pg      *pgtest.Server
 	socket  string
 	addr    *net.TCPAddr
 	hostFpr string
@@ -166,9 +167,6 @@ type daemonOpts struct {
 	// reap, if set, is how often the reaper runs, on the store's clock
 	// even when now sets it. Unset, it runs every 30s, or never with now.
 	reap time.Duration
-	// commit, if set, is how often the store makes a Dolt commit; unset,
-	// it never does.
-	commit time.Duration
 	// logger, if set, receives the daemon's and the store's log.
 	logger *slog.Logger
 	// telemetry, if set, measures and traces the daemon and its stores,
@@ -179,11 +177,11 @@ type daemonOpts struct {
 	// whose server admins are admins. No one else may connect until a
 	// test makes them a member.
 	many bool
-	// dbs is how many database names the daemon may take for new
-	// projects (world.block), of which the first granted are granted to
-	// its Dolt account, as an operator grants a block at setup. Zero is
-	// no block.
-	dbs, granted int
+	// dbs is how many schema names the daemon may take for new projects
+	// (world.block), of which the first usable are free: the superuser
+	// makes each one past them a schema first, which the daemon's role
+	// may then not use. Zero is no block.
+	dbs, usable int
 	// keys makes the daemon write its keys file and the SSH server read
 	// it, as an sshd does whose AuthorizedKeysFile names that file and
 	// then the hand-kept authorized_keys (world.keys), the order of
@@ -199,12 +197,12 @@ func newWorld(t *testing.T, o daemonOpts) *world {
 	t.Helper()
 	// Taken before any cleanup is registered, so that the test gives the
 	// server up last, once its databases are dropped.
-	srv, err := dolts.Server(t)
-	if errors.Is(err, dolttest.ErrNoDolt) {
-		t.Skip("dolt is not on PATH: install dolt to run the end-to-end tests")
+	srv, err := pgs.Server(t)
+	if errors.Is(err, pgtest.ErrNoPostgres) {
+		t.Skip("postgres is not on PATH: run scripts/install-postgres.sh to run the end-to-end tests")
 	}
 	if err != nil {
-		t.Fatalf("dolt sql-server: %v", err)
+		t.Fatalf("postgres: %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -214,7 +212,7 @@ func newWorld(t *testing.T, o daemonOpts) *world {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(base) })
-	w := &world{t: t, dolt: srv, socket: filepath.Join(base, "run", "ariesd.sock"), keys: map[string]string{},
+	w := &world{t: t, pg: srv, socket: filepath.Join(base, "run", "ariesd.sock"), keys: map[string]string{},
 		conns: map[net.Conn]struct{}{}, opts: o, hand: map[string]string{}}
 	// Registered before anything is opened on a database, so that it runs
 	// after the daemon has stopped and the test's own connections closed.
@@ -229,9 +227,6 @@ func newWorld(t *testing.T, o daemonOpts) *world {
 
 	if o.now != nil && o.reap == 0 {
 		w.fixedClock, w.opts.reap = true, -1
-	}
-	if o.commit == 0 {
-		w.opts.commit = -1
 	}
 	if !o.noDaemon {
 		dsn, err := w.newDatabase(ctx)
@@ -252,11 +247,10 @@ func newWorld(t *testing.T, o daemonOpts) *world {
 	return w
 }
 
-// newDatabase makes a database in the world's Dolt, which the world
-// drops when its test ends: Dolt holds every database in memory and slows
-// with each (dolttest.Server.DropDatabase).
+// newDatabase makes a database on the world's Postgres, which the world
+// drops when its test ends.
 func (w *world) newDatabase(ctx context.Context) (string, error) {
-	dsn, err := w.dolt.NewDatabase(ctx)
+	dsn, err := w.pg.NewDatabase(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -271,7 +265,7 @@ func (w *world) dropDatabases() {
 	w.madeMu.Lock()
 	defer w.madeMu.Unlock()
 	for _, dsn := range w.made {
-		if err := w.dolt.DropDatabase(dsn); err != nil {
+		if err := w.pg.DropDatabase(dsn); err != nil {
 			w.t.Errorf("drop the world's database: %v", err)
 		}
 	}
@@ -287,7 +281,7 @@ func (w *world) startDaemon() error {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	clk := w.processClock()
-	st, err := store.Open(ctx, w.dsn, store.Options{Prefix: "sf", CommitInterval: o.commit, Now: o.now, Clock: clk, Admins: o.admins,
+	st, err := store.Open(ctx, w.dsn, store.Options{Prefix: "sf", Now: o.now, Clock: clk, Admins: o.admins,
 		Limits: o.limits.Limits, Logger: o.logger, IdemWindow: time.Duration(o.limits.IdemWindow), AwayMax: time.Duration(o.limits.AwayMax),
 		Observer: server.StoreObserver(o.telemetry, project), Tracer: server.StoreTracer(o.telemetry, project)})
 	if err != nil {
@@ -330,25 +324,26 @@ func (w *world) processClock() *store.Clock {
 	return store.NewClock(store.ClockOptions{Read: w.opts.clock})
 }
 
-// adopt makes the control database and records the world's database in
-// it as project, as the operator's `ariesd control init` does before
-// the daemon first serves many projects.
+// adopt makes the control store, in a schema beside the world's, and
+// records the world's schema in it as project, as the operator's
+// `ariesd control init` does before the daemon first serves many
+// projects.
 func (w *world) adopt(ctx context.Context) error {
-	dsn, err := w.newDatabase(ctx)
+	dsn, err := store.SchemaDSN(w.dsn, "aries_control")
 	if err != nil {
 		return err
 	}
-	cfg, err := mysql.ParseDSN(w.dsn)
+	d, err := store.ParseDSN(w.dsn)
 	if err != nil {
 		return err
 	}
-	ctl, err := store.OpenControl(ctx, dsn, store.ControlOptions{CommitInterval: -1, Operator: true})
+	ctl, err := store.OpenControl(ctx, dsn, store.ControlOptions{Operator: true})
 	if err != nil {
 		return err
 	}
 	operator := store.Actor{Principal: store.OperatorPrincipal, Session: "e2e", Machine: "server"}
 	_, err = ctl.AddProject(ctx, operator, store.NewProject{ID: project, Name: "first", Prefix: "sf", Account: "internal",
-		DBName: cfg.DBName})
+		DBName: d.Schema})
 	if err == nil {
 		_, err = ctl.ActivateProject(ctx, operator, project)
 	}
@@ -357,16 +352,31 @@ func (w *world) adopt(ctx context.Context) error {
 	}
 	w.controlDSN = dsn
 	if w.opts.dbs > 0 {
-		ccfg, err := mysql.ParseDSN(dsn)
-		if err != nil {
-			return err
-		}
-		// Named for the control database, which no other world has.
-		w.block = server.ProjectDBs{Prefix: ccfg.DBName + "_p", Count: w.opts.dbs}
-		for i := 1; i <= w.opts.granted; i++ {
-			if err := w.dolt.Grant(ctx, w.block.Name(i)); err != nil {
+		w.block = server.ProjectDBs{Prefix: "aries_p", Count: w.opts.dbs}
+		for i := w.opts.usable + 1; i <= w.opts.dbs; i++ {
+			if err := w.asSuperuser(ctx, "CREATE SCHEMA "+w.block.Name(i)); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+// asSuperuser runs each statement on the world's database as its
+// server's superuser.
+func (w *world) asSuperuser(ctx context.Context, stmts ...string) error {
+	d, err := store.ParseDSN(w.dsn)
+	if err != nil {
+		return err
+	}
+	db, err := sql.Open("pgx", w.pg.RootDSN(d.Database))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	for _, q := range stmts {
+		if _, err := db.ExecContext(ctx, q); err != nil {
+			return fmt.Errorf("%s: %w", q, err)
 		}
 	}
 	return nil
@@ -385,7 +395,7 @@ func (w *world) startMany() error {
 		}
 	}
 	clk := w.processClock()
-	ctl, err := store.OpenControl(ctx, w.controlDSN, store.ControlOptions{Admins: o.admins, CommitInterval: o.commit, Now: o.now, Clock: clk,
+	ctl, err := store.OpenControl(ctx, w.controlDSN, store.ControlOptions{Admins: o.admins, Now: o.now, Clock: clk,
 		Limits: o.limits.Control, Logger: o.logger, Tracer: server.StoreTracer(o.telemetry, "")})
 	if err != nil {
 		cancel()
@@ -396,7 +406,7 @@ func (w *world) startMany() error {
 		return errors.Join(err, ctl.Close())
 	}
 	srv, err := server.New(server.Config{Control: ctl, Version: "v0.2.0", ProjectDBs: w.block,
-		Open:     server.ProjectOpener(w.dsn, ctl, store.Options{CommitInterval: o.commit, Now: o.now, Clock: clk, Limits: o.limits.Limits, Logger: o.logger, IdemWindow: time.Duration(o.limits.IdemWindow), AwayMax: time.Duration(o.limits.AwayMax)}, o.telemetry),
+		Open:     server.ProjectOpener(w.dsn, ctl, store.Options{Now: o.now, Clock: clk, Limits: o.limits.Limits, Logger: o.logger, IdemWindow: time.Duration(o.limits.IdemWindow), AwayMax: time.Duration(o.limits.AwayMax)}, o.telemetry),
 		ProtoMin: o.protoMin, ProtoMax: o.protoMax, Latest: o.latest, ReapInterval: o.reap, Limits: o.limits, Logger: o.logger,
 		KeysFile: w.keysFile, AuthorizedKeys: w.handFile, Clock: clk, AcceptHistory: w.acceptHistory, Telemetry: o.telemetry})
 	if err != nil {
@@ -406,14 +416,14 @@ func (w *world) startMany() error {
 	if err := srv.WriteKeys(); err != nil {
 		return fail(err)
 	}
-	// Every active project's database is opened once before the daemon
+	// Every active project's schema is opened once before the daemon
 	// listens, which is also where it checks its clock against each
 	// one's history and may refuse to start (*server.ClockBehindError).
 	if err := srv.OpenProjects(ctx); err != nil {
 		return fail(err)
 	}
 	if err := srv.ReleaseArchived(ctx, server.ProjectOpener(w.dsn, ctl,
-		store.Options{CommitInterval: o.commit, Now: o.now, Clock: clk, Limits: o.limits.Limits, Logger: o.logger, NoMigrate: true}, o.telemetry)); err != nil {
+		store.Options{Now: o.now, Clock: clk, Limits: o.limits.Limits, Logger: o.logger, NoMigrate: true}, o.telemetry)); err != nil {
 		return fail(err)
 	}
 	l, err := server.Listen(w.socket)

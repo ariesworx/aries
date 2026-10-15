@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/go-sql-driver/mysql"
 )
 
 func mustAcquire(t *testing.T, s *Store, a Actor, in LockAcquire) LockState {
@@ -23,7 +21,7 @@ func mustAcquire(t *testing.T, s *Store, a Actor, in LockAcquire) LockState {
 // lockOps returns the ops of the events on lock name, oldest first.
 func lockOps(t *testing.T, s *Store, name string) []Op {
 	t.Helper()
-	evs, err := s.events(t.Context(), `WHERE target = ? ORDER BY seq`, LockTarget(name))
+	evs, err := s.events(t.Context(), `WHERE target = $1 ORDER BY seq`, LockTarget(name))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -498,7 +496,7 @@ func TestEndLocks(t *testing.T) {
 	if len(items) != 1 || items[0].Kind != InboxLockLost || !strings.Contains(items[0].Body, "membership removed") {
 		t.Errorf("alice's items = %+v, want one lock.lost saying why", items)
 	}
-	evs, err := s.events(ctx, `WHERE target = ? ORDER BY seq`, LockTarget("deploy"))
+	evs, err := s.events(ctx, `WHERE target = $1 ORDER BY seq`, LockTarget("deploy"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -607,16 +605,21 @@ func TestLockLimits(t *testing.T) {
 // in a lock's queue beside claims: losing access ends them too.
 func TestHeldClaimsCountsLocks(t *testing.T) {
 	t.Parallel()
+	// The project's schema is beside the control store's, in its
+	// database, as on a server of many projects.
 	dsn := newDSN(t)
-	s := openStore(t, dsn, Options{})
-	c := newControl(t)
-	cfg, err := mysql.ParseDSN(dsn)
-	if err != nil {
+	c := openControl(t, dsn, ControlOptions{})
+	p := newProject(projA)
+	if _, err := c.AddProject(t.Context(), dana, p); err != nil {
 		t.Fatal(err)
 	}
+	if err := c.CreateDatabase(t.Context(), dana, projA); err != nil {
+		t.Fatal(err)
+	}
+	s := openStore(t, schemaDSN(t, dsn, p.DBName), Options{})
 	held := func() int {
 		t.Helper()
-		n, err := c.HeldClaims(t.Context(), cfg.DBName)
+		n, err := c.HeldClaims(t.Context(), p.DBName)
 		if err != nil {
 			t.Fatal(err)
 		}

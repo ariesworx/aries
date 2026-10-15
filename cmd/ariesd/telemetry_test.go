@@ -479,7 +479,7 @@ func TestRunDaemonListenerFailsTheStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = held.Close() }()
-	set := server.Settings{DSN: "nobody@tcp(127.0.0.1:1)/nowhere", Project: adopted, Socket: filepath.Join(t.TempDir(), "d.sock")}
+	set := server.Settings{DSN: "postgres://nobody@127.0.0.1:1/nowhere?connect_timeout=5", Project: adopted, Socket: filepath.Join(t.TempDir(), "d.sock")}
 	set.Telemetry.Listen = held.Addr().String()
 	set.Limits = server.DefaultLimits
 	err = runDaemon(t.Context(), set, slog.New(slog.DiscardHandler), func(string) string { return "" })
@@ -551,7 +551,7 @@ func TestRefusalLines(t *testing.T) {
 		}
 	}
 	// The start refusals of the OTEL_* variables, as they are printed.
-	set := server.Settings{DSN: "nobody@tcp(127.0.0.1:1)/nowhere", Project: adopted, Socket: filepath.Join(t.TempDir(), "d.sock")}
+	set := server.Settings{DSN: "postgres://nobody@127.0.0.1:1/nowhere?connect_timeout=5", Project: adopted, Socket: filepath.Join(t.TempDir(), "d.sock")}
 	set.Limits = server.DefaultLimits
 	for _, env := range []map[string]string{
 		{"OTEL_TRACES_SAMPLER": "jaeger_remote"},

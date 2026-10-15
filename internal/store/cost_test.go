@@ -484,7 +484,7 @@ func TestCostReportChains(t *testing.T) {
 	g := mustCreate(t, s, NewIssue{Title: "grandchild", ParentID: f.ID})
 	h := mustCreate(t, s, NewIssue{Title: "orphan", ParentID: f.ID})
 	// No foreign key holds parent_id, so a parent can go missing.
-	if _, err := s.w.ExecContext(ctx, `UPDATE issues SET parent_id = 'tst-gone', write_id = ? WHERE id = ?`, randomInt63(), h.ID); err != nil {
+	if _, err := s.w.ExecContext(ctx, `UPDATE issues SET parent_id = 'tst-gone' WHERE id = $1`, h.ID); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range []struct {
@@ -747,7 +747,7 @@ func TestCostReportAmortizedIdle(t *testing.T) {
 }
 
 // A plan month is split by its principals' token totals, exactly, at any
-// size: past a million tokens, where Dolt's SUM, a float, prints in
+// size: past a million tokens, where a SUM read as a float prints in
 // exponent form, and past 2⁵³, where a float can no longer hold every
 // integer.
 func TestCostReportAmortizedLargeMonth(t *testing.T) {

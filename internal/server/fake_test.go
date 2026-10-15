@@ -18,9 +18,9 @@ import (
 // The tests here hold the server's own logic to account against fakes
 // of its stores, which need no database: what each store error becomes
 // on the wire (rule 11), and a project store that fails to open. The
-// store's own behavior is tested on Dolt, in internal/store.
+// store's own behavior is tested on Postgres, in internal/store.
 
-// realStore returns the store on Dolt behind st, for a test that reads
+// realStore returns the store on Postgres behind st, for a test that reads
 // what the server never asks of a store, such as the event log. It
 // panics on a fake, which no such test has.
 func realStore(st Store) *store.Store { return st.(*store.Store) }
@@ -55,6 +55,10 @@ func (f *fakeStore) EndClaims(context.Context, store.Actor, func(string) string)
 func (f *fakeStore) EndLocks(context.Context, store.Actor, func(string) string) ([]store.LockEnd, error) {
 	return nil, nil
 }
+
+func (f *fakeStore) WriteStats() store.WriteStats { return store.WriteStats{} }
+
+func (f *fakeStore) SessionsSeen(context.Context, time.Duration) (int, error) { return 0, nil }
 
 func (f *fakeStore) Prune(context.Context, time.Duration, time.Duration) (store.Pruned, error) {
 	return store.Pruned{}, nil
@@ -143,7 +147,7 @@ func TestStoreErrorsOnTheWire(t *testing.T) {
 			code: proto.CodeUnavailable, msg: "migrated by a newer ariesd", fix: "run the ariesd release that migrated it"},
 		{name: "timed out", err: fmt.Errorf("create: %w", context.DeadlineExceeded),
 			code: proto.CodeUnavailable, msg: "the server timed out on create", fix: "check the ariesd log"},
-		{name: "anything else", err: errors.New("dial unix /run/dolt.sock: connection refused"),
+		{name: "anything else", err: errors.New("dial unix /run/postgresql/.s.PGSQL.5432: connection refused"),
 			code: proto.CodeUnavailable, msg: "the server could not complete create", fix: "check the ariesd log"},
 		{name: "stale epoch", err: &store.StaleEpochError{ID: "sf-x", Epoch: 1, Current: 2, By: bob},
 			code: proto.CodeConflict, msg: "your claim on sf-x (epoch 1) was lost; it is now epoch 2, held by bob/s-b", fix: "stop work on it"},

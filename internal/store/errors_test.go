@@ -3,7 +3,10 @@ package store
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // A change that does not fit the issue's state is refused with a
@@ -86,5 +89,67 @@ func TestStateErrors(t *testing.T) {
 				t.Errorf("err.Error() = %q, want %q", err.Error(), want)
 			}
 		})
+	}
+}
+
+// A write is rerun on Postgres's signs that a concurrent transaction won,
+// a unique violation among them (two writers inserting one key), and on
+// nothing else.
+func TestRetryable(t *testing.T) {
+	t.Parallel()
+	pg := func(code string) error { return fmt.Errorf("insert: %w", &pgconn.PgError{Code: code}) }
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"serialization failure", pg("40001"), true},
+		{"deadlock", pg("40P01"), true},
+		{"unique violation", pg("23505"), true},
+		{"store's own retry", fmt.Errorf("%w: moved", errRetry), true},
+		{"insufficient privilege", pg("42501"), false},
+		{"undefined column", pg("42703"), false},
+		{"not found", ErrNotFound, false},
+		{"conflict", ErrConflict, false},
+		{"nil", nil, false},
+	}
+	for _, tc := range tests {
+		if got := retryable(tc.err); got != tc.want {
+			t.Errorf("retryable(%s: %v) = %v, want %v", tc.name, tc.err, got, tc.want)
+		}
+	}
+	if !isDuplicate(pg("23505")) || isDuplicate(pg("40001")) {
+		t.Error("isDuplicate does not tell a unique violation from another error")
+	}
+}
+
+// Open reads the server's version and refuses one older than Postgres
+// 16, naming the version and the fix.
+func TestServerVersion(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		num  int
+		name string
+		ok   bool
+	}{
+		{90624, "9.6.24", false},
+		{150014, "15.14", false},
+		{160000, "16.0", true},
+		{170007, "17.7", true},
+		{180006, "18.6", true},
+	}
+	for _, tc := range tests {
+		err := serverVersion(tc.num, tc.name)
+		if (err == nil) != tc.ok {
+			t.Errorf("serverVersion(%d, %q) = %v, want ok %v", tc.num, tc.name, err, tc.ok)
+			continue
+		}
+		if err == nil {
+			continue
+		}
+		ve, ok := errors.AsType[*ServerVersionError](err)
+		if !ok || ve.Version != tc.name || !strings.Contains(err.Error(), "fix: upgrade it to Postgres 16") {
+			t.Errorf("serverVersion(%d, %q) = %v, want a *ServerVersionError naming %s and the fix", tc.num, tc.name, err, tc.name)
+		}
 	}
 }

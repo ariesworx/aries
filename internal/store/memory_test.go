@@ -190,8 +190,8 @@ func TestRememberReplaceKeepsOmitted(t *testing.T) {
 	}
 }
 
-// Concurrent edits of one key from the same rev, in one store or two
-// overlapping transactions, have exactly one winner.
+// Concurrent edits of one key from the same rev, in one store or several,
+// have exactly one winner.
 func TestRememberConcurrentEditsConflict(t *testing.T) {
 	t.Parallel()
 	t.Run("one store", func(t *testing.T) {
@@ -208,62 +208,75 @@ func TestRememberConcurrentEditsConflict(t *testing.T) {
 		wg.Wait()
 		assertOneWinner(t, errs)
 	})
-	t.Run("overlapping transactions", func(t *testing.T) {
-		dsn := newDSN(t)
-		s1, s2 := openStore(t, dsn, Options{}), openStore(t, dsn, Options{})
-		m := mustRemember(t, s1, alice, NewMemory{Key: "k", Body: "start"})
-		b := newBarrier(2)
-		s1.beforeCommit, s2.beforeCommit = b.hook, b.hook
-		errs := make([]error, 2)
-		var wg sync.WaitGroup
-		wg.Go(func() { _, errs[0] = s1.Remember(t.Context(), alice, NewMemory{Key: "k", Body: "s1", Rev: m.Rev}) })
-		wg.Go(func() { _, errs[1] = s2.Remember(t.Context(), bob, NewMemory{Key: "k", Body: "s2", Rev: m.Rev}) })
-		wg.Wait()
-		assertOneWinner(t, errs)
-		assertGapless(t, s1)
+	// Writers in several stores, as several processes, edit one key from
+	// the same rev: one edit applies, and the rest conflict.
+	t.Run("many stores", func(t *testing.T) {
+		ss := raceOpen(t)
+		for round := range raceRounds {
+			key := fmt.Sprintf("k%d", round)
+			m := mustRemember(t, ss[0], alice, NewMemory{Key: key, Body: "start"})
+			errs := make([]error, raceWriters)
+			var wg sync.WaitGroup
+			for w := range raceWriters {
+				wg.Go(func() {
+					_, errs[w] = ss[w%raceStores].Remember(t.Context(), raceActor(w), NewMemory{Key: key, Body: fmt.Sprintf("writer %d", w), Rev: m.Rev})
+				})
+			}
+			wg.Wait()
+			assertOneWinner(t, errs)
+		}
+		assertGapless(t, ss[0])
 	})
-	t.Run("two creates of one new key", func(t *testing.T) {
-		dsn := newDSN(t)
-		s1, s2 := openStore(t, dsn, Options{}), openStore(t, dsn, Options{})
-		b := newBarrier(2)
-		s1.beforeCommit, s2.beforeCommit = b.hook, b.hook
-		errs := make([]error, 2)
-		var wg sync.WaitGroup
-		wg.Go(func() { _, errs[0] = s1.Remember(t.Context(), alice, NewMemory{Key: "new", Body: "s1"}) })
-		wg.Go(func() { _, errs[1] = s2.Remember(t.Context(), bob, NewMemory{Key: "new", Body: "s2"}) })
-		wg.Wait()
-		assertOneWinner(t, errs)
+	// Writers in several stores create one new key at once: one creates
+	// it, and the rest are told it is there.
+	t.Run("creates of one new key", func(t *testing.T) {
+		ss := raceOpen(t)
+		for round := range raceRounds {
+			key := fmt.Sprintf("new%d", round)
+			errs := make([]error, raceWriters)
+			var wg sync.WaitGroup
+			for w := range raceWriters {
+				wg.Go(func() {
+					_, errs[w] = ss[w%raceStores].Remember(t.Context(), raceActor(w), NewMemory{Key: key, Body: fmt.Sprintf("writer %d", w)})
+				})
+			}
+			wg.Wait()
+			assertOneWinner(t, errs)
+		}
+		assertGapless(t, ss[0])
 	})
 }
 
-// New keys never conflict, however they overlap: each round, two stores'
-// transactions (one writer each) insert different keys, one with tags,
-// and both commit.
+// New keys never conflict, however they overlap: each round, writers in
+// several stores remember keys of their own at once, half of them with
+// tags, and every one lands.
 func TestRememberNewKeysMerge(t *testing.T) {
 	t.Parallel()
-	dsn := newDSN(t)
-	s1, s2 := openStore(t, dsn, Options{}), openStore(t, dsn, Options{})
+	ss := raceOpen(t)
 	const rounds = 4
 	for i := range rounds {
-		b := newBarrier(2)
-		s1.beforeCommit, s2.beforeCommit = b.hook, b.hook
-		errs := make([]error, 2)
+		errs := make([]error, raceWriters)
 		var wg sync.WaitGroup
-		wg.Go(func() { _, errs[0] = s1.Remember(t.Context(), alice, NewMemory{Key: fmt.Sprintf("a%d", i), Body: "x"}) })
-		wg.Go(func() {
-			_, errs[1] = s2.Remember(t.Context(), bob, NewMemory{Key: fmt.Sprintf("b%d", i), Body: "y", Tags: ptr([]string{"t"})})
-		})
+		for w := range raceWriters {
+			wg.Go(func() {
+				in := NewMemory{Key: fmt.Sprintf("r%dw%d", i, w), Body: "x"}
+				if w%2 == 1 {
+					in.Tags = ptr([]string{"t"})
+				}
+				_, errs[w] = ss[w%raceStores].Remember(t.Context(), alice, in)
+			})
+		}
 		wg.Wait()
-		for j, err := range errs {
+		for w, err := range errs {
 			if err != nil {
-				t.Errorf("round %d, store %d, a new key: %v, want success", i, j+1, err)
+				t.Errorf("round %d, writer %d, a new key: %v, want success", i, w, err)
 			}
 		}
 	}
-	if got := recall(t, s1, alice, MemoryQuery{Limit: 100}); len(got) != 2*rounds {
-		t.Errorf("recall after concurrent new keys = %q, want %d", got, 2*rounds)
+	if got := recall(t, ss[0], alice, MemoryQuery{Limit: 100}); len(got) != rounds*raceWriters {
+		t.Errorf("recall after concurrent new keys = %q, want %d", got, rounds*raceWriters)
 	}
-	assertGapless(t, s1)
+	assertGapless(t, ss[0])
 }
 
 // Recall searches by key, tag or text, in the scopes the caller can see,
@@ -280,7 +293,7 @@ func TestRecallSearchAndOrder(t *testing.T) {
 	rem(bob, ScopeTeam, "b-pinned-later", "Reviews within a day", "process")
 	rem(alice, ScopeUser, "c-mine", "I prefer table tests", "style", "go")
 	rem(bob, ScopeUser, "d-bobs", "bob prefers tabs", "style")
-	rem(alice, ScopeProject, "e-newest", "The DOLT pin lives in internal/version", "build", "dolt")
+	rem(alice, ScopeProject, "e-newest", "The POSTGRES pin lives in internal/version", "build", "postgres")
 	clk.add(time.Minute)
 	if _, err := s.PinMemory(ctx, alice, ScopeTeam, "b-pinned-later", true); err != nil {
 		t.Fatal(err)
@@ -293,7 +306,7 @@ func TestRecallSearchAndOrder(t *testing.T) {
 		{"all, pinned then newest", MemoryQuery{}, []string{"team/b-pinned-later", "project/e-newest", "user/c-mine", "project/a-oldest"}},
 		{"by key", MemoryQuery{Key: "c-mine"}, []string{"user/c-mine"}},
 		{"by tag", MemoryQuery{Tag: "build"}, []string{"project/e-newest", "project/a-oldest"}},
-		{"by text in a body, any case", MemoryQuery{Text: "dolt"}, []string{"project/e-newest"}},
+		{"by text in a body, any case", MemoryQuery{Text: "postgres"}, []string{"project/e-newest"}},
 		{"by text in a key", MemoryQuery{Text: "OLDEST"}, []string{"project/a-oldest"}},
 		{"text is literal, not a pattern", MemoryQuery{Text: "%"}, nil},
 		{"by scope", MemoryQuery{Scope: ScopeProject}, []string{"project/e-newest", "project/a-oldest"}},
@@ -436,7 +449,7 @@ func TestMemoryCapPrunesTombstones(t *testing.T) {
 	rows := func(key string) int {
 		t.Helper()
 		var n int
-		if err := s.r.QueryRowContext(ctx, `SELECT COUNT(*) FROM memories WHERE mem_key = ?`, key).Scan(&n); err != nil {
+		if err := s.r.QueryRowContext(ctx, `SELECT COUNT(*) FROM memories WHERE mem_key = $1`, key).Scan(&n); err != nil {
 			t.Fatal(err)
 		}
 		return n
@@ -617,7 +630,7 @@ func TestUserMemoryIdemResult(t *testing.T) {
 			t.Errorf("repeated %s = %+v, %v; want id %s, rev %d, scope and key", tc.name, got, err, tc.want.ID, tc.want.Rev)
 		}
 	}
-	rows, err := s.r.QueryContext(ctx, `SELECT * FROM events WHERE seq > ?`, seq)
+	rows, err := s.r.QueryContext(ctx, `SELECT * FROM events WHERE seq > $1`, seq)
 	if err != nil {
 		t.Fatal(err)
 	}

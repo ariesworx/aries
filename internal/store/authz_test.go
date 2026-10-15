@@ -352,7 +352,7 @@ func TestReservedPrincipals(t *testing.T) {
 	}
 	dsn := newDSN(t)
 	for _, admins := range [][]string{{"ariesd"}, {"import"}, {"Not A Name"}} {
-		if s, err := Open(t.Context(), dsn, Options{CommitInterval: -1, Admins: admins}); !errors.Is(err, ErrInvalid) {
+		if s, err := Open(t.Context(), dsn, Options{Admins: admins}); !errors.Is(err, ErrInvalid) {
 			if s != nil {
 				_ = s.Close()
 			}

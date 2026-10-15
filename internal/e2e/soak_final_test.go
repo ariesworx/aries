@@ -921,8 +921,8 @@ func (s *soak) story(id string) string {
 		return "  (an id of no project of the run)\n"
 	}
 	var b strings.Builder
-	err := scan(ctx, p.db, `SELECT seq, at, principal, session, op, COALESCE(before_state, ''), COALESCE(after_state, '')
-  FROM events WHERE target = ? ORDER BY seq`, []any{id}, func(rows *sql.Rows) error {
+	err := scan(ctx, p.db, `SELECT seq, at, principal, session, op, COALESCE(before_state::text, ''), COALESCE(after_state::text, '')
+  FROM events WHERE target = $1 ORDER BY seq`, []any{id}, func(rows *sql.Rows) error {
 		var seq int64
 		var at time.Time
 		var p, sess, op, before, after string

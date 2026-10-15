@@ -541,11 +541,11 @@ func (s *soak) checkLocks(ctx context.Context, p *sproj) {
 	var restarts []restart
 	for _, m := range p.marks {
 		var t0, t1 time.Time
-		if err := p.db.QueryRowContext(ctx, `SELECT at FROM events WHERE seq = ?`, m).Scan(&t0); err != nil {
+		if err := p.db.QueryRowContext(ctx, `SELECT at FROM events WHERE seq = $1`, m).Scan(&t0); err != nil {
 			s.t.Errorf("read event %d: %v", m, err)
 			continue
 		}
-		if err := p.db.QueryRowContext(ctx, `SELECT at FROM events WHERE seq = ?`, m+1).Scan(&t1); err != nil {
+		if err := p.db.QueryRowContext(ctx, `SELECT at FROM events WHERE seq = $1`, m+1).Scan(&t1); err != nil {
 			continue // nothing was written after the restart
 		}
 		restarts = append(restarts, restart{m, t0.UTC(), t1.UTC()})

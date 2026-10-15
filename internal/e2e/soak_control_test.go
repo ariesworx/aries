@@ -265,7 +265,7 @@ func readCtlTables(ctx context.Context, q querier) (ctlTables, error) {
 			tb.members[mkey{m.Principal, m.Project}] = m
 			return err
 		}},
-		{"SELECT fingerprint, principal, `key` FROM principal_keys", func(rows *sql.Rows) error {
+		{`SELECT fingerprint, principal, "key" FROM principal_keys`, func(rows *sql.Rows) error {
 			var k store.PrincipalKey
 			err := rows.Scan(&k.Fingerprint, &k.Principal, &k.Key)
 			tb.keys[k.Fingerprint] = k

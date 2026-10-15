@@ -1,53 +1,49 @@
 package store
 
 import (
-	"context"
 	"errors"
 	"os"
-	"sync"
-	"sync/atomic"
 	"testing"
-	"time"
 
-	"github.com/ariesworx/aries/internal/dolttest"
+	"github.com/ariesworx/aries/internal/pgtest"
 )
 
-// dolts are the package's Dolt servers: a test has one to itself while it
-// runs, so the tests can run in parallel (dolttest.Pool).
-var dolts = dolttest.NewPool("aries-dolt-", dolttest.Options{})
+// pgs are the package's Postgres servers: a test has one to itself while
+// it runs, so the tests can run in parallel (pgtest.Pool).
+var pgs = pgtest.NewPool("aries-store-")
 
 func TestMain(m *testing.M) {
 	os.Exit(run(m))
 }
 
 func run(m *testing.M) int {
-	defer func() { _ = dolts.Close() }()
-	dolts.Warm()
+	defer func() { _ = pgs.Close() }()
+	pgs.Warm()
 	return m.Run()
 }
 
-// doltOf returns the Dolt server t's test holds, or skips when dolt is
-// missing.
-func doltOf(t testing.TB) *dolttest.Server {
+// pgOf returns the Postgres server t's test holds, or skips when
+// Postgres is missing.
+func pgOf(t testing.TB) *pgtest.Server {
 	t.Helper()
-	srv, err := dolts.Server(t)
-	if errors.Is(err, dolttest.ErrNoDolt) {
-		t.Skip("dolt is not on PATH: install dolt to run the store integration tests")
+	srv, err := pgs.Server(t)
+	if errors.Is(err, pgtest.ErrNoPostgres) {
+		t.Skip("postgres is not on PATH: run scripts/install-postgres.sh to run the store integration tests")
 	}
 	if err != nil {
-		t.Fatalf("dolt sql-server: %v", err)
+		t.Fatalf("postgres: %v", err)
 	}
 	return srv
 }
 
-// newDSN returns a fresh database on the test's Dolt server, or skips
-// when dolt is missing. The database is dropped when the test ends, after
-// the cleanups of what the test opened on it: Dolt holds every database
-// in memory and slows with each (dolttest.Server.DropDatabase).
+// newDSN returns a fresh database on the test's Postgres server, owned by
+// the locked-down role its DSN names, or skips when Postgres is missing.
+// The database is dropped when the test ends, after the cleanups of what
+// the test opened on it.
 func newDSN(t testing.TB) string {
 	t.Helper()
-	doltOf(t)
-	dsn, err := dolts.Database(t)
+	pgOf(t)
+	dsn, err := pgs.Database(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,9 +52,6 @@ func newDSN(t testing.TB) string {
 
 func openStore(t testing.TB, dsn string, opts Options) *Store {
 	t.Helper()
-	if opts.CommitInterval == 0 {
-		opts.CommitInterval = -1
-	}
 	if opts.Prefix == "" {
 		opts.Prefix = "tst"
 	}
@@ -109,33 +102,4 @@ func lastSeq(t *testing.T, s *Store) int64 {
 		t.Fatal(err)
 	}
 	return n
-}
-
-// barrier holds the first k write transactions that reach it until all k
-// have, so they overlap. Later transactions (retries) pass straight through.
-type barrier struct {
-	k       int32
-	arrived atomic.Int32
-	wg      sync.WaitGroup
-}
-
-func newBarrier(k int) *barrier {
-	b := &barrier{k: int32(k)} //nolint:gosec // small test constant
-	b.wg.Add(k)
-	return b
-}
-
-func (b *barrier) hook(context.Context) error {
-	if b.arrived.Add(1) > b.k {
-		return nil
-	}
-	b.wg.Done()
-	done := make(chan struct{})
-	go func() { b.wg.Wait(); close(done) }()
-	select {
-	case <-done:
-		return nil
-	case <-time.After(10 * time.Second):
-		return errors.New("barrier: the other transaction never arrived")
-	}
 }

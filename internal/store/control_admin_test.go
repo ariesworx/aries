@@ -1,41 +1,39 @@
 package store
 
 import (
+	"database/sql"
 	"errors"
 	"slices"
 	"strings"
 	"testing"
 
-	"github.com/go-sql-driver/mysql"
+	"github.com/ariesworx/aries/internal/pgtest"
 )
 
-// grantedName returns a database name no test has used, derived from the
-// control database's own, and grants it to the tests' account when
-// granted is set, as an operator grants a block of names at setup.
-func grantedName(t *testing.T, controlDSN string, granted bool) string {
+// schemaDSN is dsn with its schema replaced by name.
+func schemaDSN(t *testing.T, dsn, name string) string {
 	t.Helper()
-	cfg, err := mysql.ParseDSN(controlDSN)
+	out, err := SchemaDSN(dsn, name)
 	if err != nil {
 		t.Fatal(err)
 	}
-	name := cfg.DBName + "_p001"
-	if granted {
-		if err := doltOf(t).Grant(t.Context(), name); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return name
+	return out
 }
 
-// databaseDSN is dsn with its database replaced by name.
-func databaseDSN(t *testing.T, dsn, name string) string {
+// asSuperuser runs each statement on dsn's database as the server's
+// superuser.
+func asSuperuser(t *testing.T, dsn string, stmts ...string) {
 	t.Helper()
-	cfg, err := mysql.ParseDSN(dsn)
+	db, err := sql.Open("pgx", superuserDSN(t, dsn))
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.DBName = name
-	return cfg.FormatDSN()
+	defer func() { _ = db.Close() }()
+	for _, q := range stmts {
+		if _, err := db.ExecContext(t.Context(), q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
 }
 
 func TestControlCreateDatabase(t *testing.T) {
@@ -44,7 +42,6 @@ func TestControlCreateDatabase(t *testing.T) {
 	c := openControl(t, dsn, ControlOptions{})
 	ctx := t.Context()
 	p := newProject(projA)
-	p.DBName = grantedName(t, dsn, true)
 	if _, err := c.AddProject(ctx, dana, p); err != nil {
 		t.Fatal(err)
 	}
@@ -61,20 +58,24 @@ func TestControlCreateDatabase(t *testing.T) {
 	if err := c.CreateDatabase(ctx, dana, "nonsense"); !errors.Is(err, ErrInvalid) {
 		t.Errorf("CreateDatabase(nonsense) = %v, want ErrInvalid", err)
 	}
-	// Safe to repeat: the second run finds the database there.
+	// Before it is created, the project's schema does not open.
+	if _, err := Open(ctx, schemaDSN(t, dsn, p.DBName), Options{Prefix: p.Prefix}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("Open of a schema not yet created = %v, want ErrInvalid", err)
+	}
+	// Safe to repeat: the second run finds the schema there.
 	for i := range 2 {
 		if err := c.CreateDatabase(ctx, dana, projA); err != nil {
 			t.Fatalf("CreateDatabase, run %d: %v", i+1, err)
 		}
 	}
-	st, err := Open(ctx, databaseDSN(t, dsn, p.DBName), Options{Prefix: p.Prefix, CommitInterval: -1})
+	st, err := Open(ctx, schemaDSN(t, dsn, p.DBName), Options{Prefix: p.Prefix})
 	if err != nil {
-		t.Fatalf("open the created database %s: %v", p.DBName, err)
+		t.Fatalf("open the created schema %s: %v", p.DBName, err)
 	}
 	if err := st.Close(); err != nil {
 		t.Error(err)
 	}
-	// Only a project still being created has a database to create.
+	// Only a project still being created has a schema to create.
 	if _, err := c.ActivateProject(ctx, dana, projA); err != nil {
 		t.Fatal(err)
 	}
@@ -83,38 +84,67 @@ func TestControlCreateDatabase(t *testing.T) {
 	}
 }
 
-// A name root never granted can be created and not used: Open's error is
-// then one DatabaseDenied knows, so the daemon can name the grant.
+// A schema the role may not make, or that another role made and did not
+// give it, is refused with an error DatabaseDenied knows, so the daemon
+// can name the grant; given the grant GrantSQL or CreateSchemaGrantSQL
+// names, the same schema opens.
 func TestDatabaseDenied(t *testing.T) {
 	t.Parallel()
-	dsn := newDSN(t)
-	c := openControl(t, dsn, ControlOptions{})
 	ctx := t.Context()
-	p := newProject(projA)
-	p.DBName = grantedName(t, dsn, false)
-	if _, err := c.AddProject(ctx, dana, p); err != nil {
-		t.Fatal(err)
-	}
-	if err := c.CreateDatabase(ctx, dana, projA); err != nil {
-		t.Fatalf("CreateDatabase of a name not granted: %v", err)
-	}
-	_, err := Open(ctx, databaseDSN(t, dsn, p.DBName), Options{Prefix: p.Prefix, CommitInterval: -1})
-	if err == nil || !DatabaseDenied(err) {
-		t.Fatalf("Open of a database not granted = %v, want an error DatabaseDenied reports", err)
-	}
+
+	t.Run("made by another role", func(t *testing.T) {
+		dsn := newDSN(t)
+		c := openControl(t, dsn, ControlOptions{})
+		p := newProject(projA)
+		if _, err := c.AddProject(ctx, dana, p); err != nil {
+			t.Fatal(err)
+		}
+		asSuperuser(t, dsn, "CREATE SCHEMA "+p.DBName)
+		if err := c.CreateDatabase(ctx, dana, projA); err != nil {
+			t.Fatalf("CreateDatabase of a schema another role made: %v", err)
+		}
+		_, err := Open(ctx, schemaDSN(t, dsn, p.DBName), Options{Prefix: p.Prefix})
+		if err == nil || !DatabaseDenied(err) {
+			t.Fatalf("Open of a schema another role made = %v, want an error DatabaseDenied reports", err)
+		}
+		role, err := c.Account(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		asSuperuser(t, dsn, GrantSQL(p.DBName, role))
+		st, err := Open(ctx, schemaDSN(t, dsn, p.DBName), Options{Prefix: p.Prefix})
+		if err != nil {
+			t.Fatalf("open after %s: %v", GrantSQL(p.DBName, role), err)
+		}
+		if err := st.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+
+	t.Run("no right to make schemas", func(t *testing.T) {
+		dsn := newDSN(t)
+		c := openControl(t, dsn, ControlOptions{})
+		p := newProject(projA)
+		if _, err := c.AddProject(ctx, dana, p); err != nil {
+			t.Fatal(err)
+		}
+		d, err := ParseDSN(dsn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		asSuperuser(t, dsn, "REVOKE CREATE ON DATABASE "+d.Database+" FROM "+d.User)
+		err = c.CreateDatabase(ctx, dana, projA)
+		if err == nil || !DatabaseDenied(err) {
+			t.Fatalf("CreateDatabase without the right to make schemas = %v, want an error DatabaseDenied reports", err)
+		}
+		asSuperuser(t, dsn, CreateSchemaGrantSQL(d.Database, d.User))
+		if err := c.CreateDatabase(ctx, dana, projA); err != nil {
+			t.Fatalf("CreateDatabase after %s: %v", CreateSchemaGrantSQL(d.Database, d.User), err)
+		}
+	})
+
 	if DatabaseDenied(ErrNotFound) || DatabaseDenied(nil) {
-		t.Error("DatabaseDenied reports an error that is no refusal of a database")
-	}
-	// Granted afterward, the same database opens.
-	if err := doltOf(t).Grant(ctx, p.DBName); err != nil {
-		t.Fatal(err)
-	}
-	st, err := Open(ctx, databaseDSN(t, dsn, p.DBName), Options{Prefix: p.Prefix, CommitInterval: -1})
-	if err != nil {
-		t.Fatalf("open after the grant: %v", err)
-	}
-	if err := st.Close(); err != nil {
-		t.Error(err)
+		t.Error("DatabaseDenied reports an error that is no refusal of a schema")
 	}
 }
 
@@ -122,7 +152,7 @@ func TestControlAccount(t *testing.T) {
 	t.Parallel()
 	c := newControl(t)
 	got, err := c.Account(t.Context())
-	if want := "'aries'@'localhost'"; err != nil || got != want {
+	if want := pgtest.User; err != nil || got != want {
 		t.Errorf("Account() = %q, %v; want %q", got, err, want)
 	}
 }

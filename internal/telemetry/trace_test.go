@@ -176,7 +176,7 @@ func TestSpanWithoutAParent(t *testing.T) {
 var spanKeys = []string{"op", "result", "project", "protocol", "principal", "session", "attempt", "outcome", "migrated", "changed"}
 
 // spanNames is every name a span may have that is not an op.
-var spanNames = []string{"unknown", "handshake", "store.open", "store.migrate", "store.write.attempt", "store.write.wait", "store.commit",
+var spanNames = []string{"unknown", "handshake", "store.open", "store.migrate", "store.write.attempt", "store.write.wait",
 	"reaper", "access.sweep", "keys_file.write", "control.reload", "clock.check"}
 
 // Whatever a span is given, its name is an op the server knows or one of
