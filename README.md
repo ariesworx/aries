@@ -235,8 +235,7 @@ endorsed by, the beads or Dolt projects.
 
 ## License
 
-AGPL-3.0-only. See [LICENSE](LICENSE). Copyright (C) 2026 the Aries
-authors.
+AGPL-3.0-only. See [LICENSE](LICENSE). Copyright (C) 2026 Ariesworx LLC.
 
 Contributions are accepted under a contributor license agreement, as
 [CONTRIBUTING.md](CONTRIBUTING.md#license-and-contributor-agreement)
