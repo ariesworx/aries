@@ -18,7 +18,7 @@ guide keeps).
 - Operator: alice. Workstation: the operator's. Server: `HOST` as the operator's SSH config names it.
 - Host key: SHA256:… (verified out of band against the provider's console).
 - System: Ubuntu 24.04.x, arm64, 2 vCPUs, 4 GiB.
-- Versions: starfixd vX.Y.Z, sfx vX.Y.Z (server and workstation), Dolt 2.4.2.
+- Versions: starfixd vX.Y.Z, sfx vX.Y.Z (server and workstation), the database's release.
 - Done, each with its guide section:
   - install-server.sh --dry-run, then the run: N changes (docs/server.md#with-the-installer).
   - …

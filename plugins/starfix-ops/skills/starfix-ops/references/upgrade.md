@@ -12,7 +12,7 @@ operator names the version in their reply.
 
 - The running version and the target: `sudo -n -u starfix -H starfixd
   status`, and the target release's notes, which say whether it changes
-  the protocol and which Dolt it was tested with.
+  the protocol or the database.
 - Confined or not: `test -f /etc/systemd/system/starfixd.service.d/apparmor.conf`.
   If it is, every `starfixd` command below runs through `aa-exec -p
   starfixd-admin --` (docs/server.md#confine-starfixd-with-apparmor).
@@ -35,8 +35,10 @@ operator names the version in their reply.
   side sees).
 - **Take a dump** (references/backup.md), so there is a copy outside
   the database. The upgrade's own tags are inside it.
-- **The Dolt release** stays the one starfix names; change it only with
-  a starfix release that does (references/database-dolt.md).
+- **The database** changes only with a starfix release that says how,
+  in its notes (references/database.md). The move to Postgres is such a
+  release: follow its notes, and stop and ask where this skill has no
+  steps for it.
 
 ## 3. Upgrade
 

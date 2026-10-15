@@ -880,9 +880,10 @@ Its files are under
 `scripts/opsskill_test.go` fails when a command or flag it names is not
 one `sfx` or `starfixd` has, when a section it cites is no heading of
 these guides, or when its manifests or frontmatter are not what Claude
-Code reads. Everything specific to Dolt is in one of its files,
-`references/database-dolt.md`, which will be replaced when starfix moves
-to Postgres. What was run: its read-only and admin commands against the
+Code reads. It has no database steps of its own: starfix's backend is
+moving to Postgres, and until that lands its `references/database.md`
+sends Claude to this guide's current sections and has it stop and ask
+before any database command. What was run: its read-only and admin commands against the
 [Docker test server](deploy/docker.md), on 15 October 2026; not on a
 virtual machine or a cloud provider's, and not a restore.
 

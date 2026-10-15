@@ -14,12 +14,12 @@ and fix: read it at the server's release and quote the row you act on.
 2. **The status report.** From the workstation, `sfx -C REPO admin
    status`; on the server, `sudo -n -u starfix -H starfixd status`,
    which needs no admin key and answers in about 2 seconds even when
-   Dolt does not (docs/server.md#watching-a-server,
+   the database does not (docs/server.md#watching-a-server,
    docs/server.md#starfixd-status). Look at: the version; stores and
    connections against their limits; the keys file line and `THE LAST
-   WRITE FAILED`; `clock:` and `CLOCK BEHIND HISTORY`; the `Dolt` lines;
+   WRITE FAILED`; `clock:` and `CLOCK BEHIND HISTORY`; the database's lines;
    each project's state, `SESSIONS` and latency.
-3. **The units**: `systemctl status dolt starfixd --no-pager`, and
+3. **The units**: `systemctl status starfixd --no-pager`, and
    `systemctl show starfixd -p Result -p ExecMainStatus` (75 is the
    clock refusal, docs/server.md#the-servers-clock).
 4. **The logs**: `journalctl -u starfixd -n 100 --no-pager`; for one
@@ -43,7 +43,7 @@ and fix: read it at the server's release and quote the row you act on.
 | `handshake failed: EOF` for everyone behind one address | `journalctl -u ssh -g penalty` | docs/server.md#6-let-the-first-principal-in |
 | starfixd does not start, status 75 | `timedatectl` | docs/server.md#when-the-clock-is-behind-the-servers-history |
 | `permission denied` under AppArmor | The kernel's denial names the profile and path | docs/server.md#confine-starfixd-with-apparmor |
-| Anything about Dolt | references/database-dolt.md | docs/server.md#when-dolt-does-not-answer |
+| Anything about the database | The status report's lines about it; then references/database.md | docs/server.md#when-dolt-does-not-answer |
 
 ## Fixing
 

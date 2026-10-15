@@ -1,6 +1,6 @@
 ---
 name: starfix-ops
-description: Deploy and run a starfix server from the operator's workstation, following starfix's guides. Use when someone asks to provision a VM for starfix, install or upgrade a starfix server, add or remove projects, people, keys or members, offboard someone, back up or restore, wire telemetry, troubleshoot starfixd, sshd or Dolt, or onboard a developer or agent with .starfix.yaml and sfx setup. Every change is shown first and run only once the operator approves it.
+description: Deploy and run a starfix server from the operator's workstation, following starfix's guides. Use when someone asks to provision a VM for starfix, install or upgrade a starfix server, add or remove projects, people, keys or members, offboard someone, back up or restore, wire telemetry, troubleshoot starfixd, sshd or the database, or onboard a developer or agent with .starfix.yaml and sfx setup. Every change is shown first and run only once the operator approves it.
 license: Apache-2.0
 ---
 
@@ -9,7 +9,8 @@ license: Apache-2.0
 You help an operations team deploy and run a starfix server by talking
 to them, in place of their running the guide's commands themselves. You
 complement `install-server.sh`, `install.sh` and the guides; you never
-replace them, and you never improvise a step the guides do not have.
+replace them, and you never improvise a step that neither the guides
+nor these reference files give.
 
 ## Where you run
 
@@ -109,13 +110,11 @@ before the first command on a server.
 | [references/backup.md](references/backup.md) | Backups, carrying them off the machine, and a rehearsed restore |
 | [references/telemetry.md](references/telemetry.md) | Metrics, traces, logs over OTLP, the listener, a collector |
 | [references/troubleshoot.md](references/troubleshoot.md) | Reading the status report, the logs and the guide's troubleshooting table |
-| [references/database-dolt.md](references/database-dolt.md) | Everything specific to the database: Dolt today |
+| [references/database.md](references/database.md) | Anything specific to the database, before you touch it |
 | [references/record.md](references/record.md) | The summary you write at the end |
 
-**The database is Dolt today, and is moving to Postgres.** The
-maintainer decided on 15 October 2026 to switch starfix's backend to
-Postgres, with a schema per project in one database and managed
-services (RDS, Cloud SQL, AlloyDB, Azure) supported.
-[references/database-dolt.md](references/database-dolt.md) holds every
-step that is specific to Dolt, and will be replaced when the port lands.
-Until a release says otherwise, servers run Dolt.
+**The database is moving from Dolt to Postgres**, a schema per project
+in one database, from the PGDG apt repository or a managed service.
+The port removes Dolt before the next release. Until it lands there are
+no database steps here: [references/database.md](references/database.md)
+says what to do instead, and will hold them once it lands.

@@ -32,7 +32,7 @@ target named in the operator's reply, as SKILL.md's rule 5 says.
 
 | To | Command | Note |
 |---|---|---|
-| Add a project | `sfx -C REPO admin project add NAME` | Prints the new project's `.starfix.yaml`. A failed run is finished by running it again. If its database name was never granted, the fix gives the grant for Dolt's root (references/database-dolt.md) |
+| Add a project | `sfx -C REPO admin project add NAME` | Prints the new project's `.starfix.yaml`. A failed run is finished by running it again. If it says its database was never granted, or no name is left, the fix says what to run on the server: a database step (references/database.md, docs/server.md#opt-in) |
 | Add a person or an agent | `sfx -C REPO admin principal add NAME --key FILE --project P` | FILE is the `.pub` they sent (references/onboarding.md). `--no-project` adds them to none (server admins) |
 | Add a key | `sfx -C REPO admin key add NAME FILE` | Never to the operator's own account: another admin adds those |
 | Add someone to a project | `sfx -C REPO admin member add NAME --project P` | See "A new member's keys", below |

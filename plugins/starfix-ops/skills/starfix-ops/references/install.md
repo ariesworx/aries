@@ -2,7 +2,7 @@
 
 The installer, `install-server.sh`, does the guide's setup on a fresh
 Ubuntu 24.04 LTS or 26.04 LTS machine, for a server of many projects:
-Dolt and its least-privileged account, starfixd under systemd, sshd and
+the database and its least-privileged account, starfixd under systemd, sshd and
 the forced command, optionally AppArmor, and the first project and admin
 (docs/server.md#with-the-installer; its table maps each of its eleven
 steps to the section it follows). You drive it; you do not redo its
@@ -18,8 +18,8 @@ steps by hand. Read references/remote.md first.
 | Resources | `nproc`, `free -m`, `df -h / /var/lib` | 2 GB of memory or more, room for the data | docs/server.md#dolts-memory |
 | The clock | `timedatectl` | `System clock synchronized: yes` | docs/server.md#keep-the-clock-synchronized |
 | DNS | `getent hosts starfix.example.com` on the workstation; `hostname -f` on the server | The name clients will use resolves to this machine | docs/server.md#7-connect-a-repository |
-| Ports | `ss -ltn` | sshd on the client port; nothing on 3306, 11228 or 9464 | docs/server.md#2-run-dolt-under-its-own-account |
-| Not set up some other way | `test -e /etc/starfix/starfixd.yaml; echo $?`, `command -v dolt starfixd` | Nothing, on a fresh machine | docs/server.md#with-the-installer ("It refuses") |
+| Ports | `ss -ltn` | sshd on the client port, and nothing else of starfix's yet | docs/server.md#what-a-server-needs |
+| Not set up some other way | `test -e /etc/starfix/starfixd.yaml; echo $?`, `command -v starfixd` | Nothing, on a fresh machine | docs/server.md#with-the-installer ("It refuses") |
 | AppArmor, if wanted | `test -d /sys/kernel/security/apparmor && command -v apparmor_parser aa-exec` | Both | docs/server.md#confine-starfixd-with-apparmor |
 
 If the machine already has starfix: an installer-made server reruns
@@ -99,7 +99,7 @@ Each is a change: show it, and wait for a yes (docs/server.md#with-the-installer
 
 | Check | Command | Expect |
 |---|---|---|
-| Both units active | `systemctl is-active dolt starfixd` | `active` twice |
+| The daemon active | `systemctl is-active starfixd` | `active` |
 | The daemon's report | `sudo -n -u starfix -H starfixd status` | The version, `keys file …: 1 key`, the first project `active` |
 | The keys file | `sudo -n stat -c '%a %U' /var/lib/starfix/.ssh/starfix_keys` | `600 starfix` |
 | sshd reads it | `sudo -n sshd -T -C user=starfix \| grep -i authorizedkeysfile` | `.ssh/starfix_keys .ssh/authorized_keys` |
@@ -123,4 +123,4 @@ On another distribution, or a machine set up otherwise, the installer
 refuses. The guide's steps by hand (docs/server.md#set-up-a-server) are
 the reference, untested beyond Ubuntu: say so, and do them only if the
 operator asks, one section at a time, each as a script on stdin, shown
-whole. Database steps are in references/database-dolt.md.
+whole. For the database's steps, read references/database.md first.

@@ -1,9 +1,10 @@
 # Backups and a rehearsed restore
 
-What to back up, and how, is docs/server.md#backups-and-restore. The
-database's own commands (the dump, the restore, the list of databases)
-are in references/database-dolt.md; this file is the workflow around
-them.
+What to back up, and how, is docs/server.md#backups-and-restore. This
+file is the workflow around it. The database's own commands (the dump,
+the restore) change with the move to Postgres, so this skill does not
+restate them: read the guide's section at the server's release, and
+references/database.md, before you run one.
 
 ## What to back up
 
@@ -16,11 +17,11 @@ them.
 
 ## Set up the daily dump
 
-1. **Look**: list the databases (references/database-dolt.md), `ls -l
-   /etc/cron.d/`, and `sudo -n test -d /var/backups/starfix; echo $?`.
-2. **Show** the cron file you would write, one line per database, each
-   the guide's line for that database's directory, and the directory
-   it writes to. A project added later needs its own line: say so, and
+1. **Look**: the projects (`sfx -C REPO admin project list`, whose
+   DATABASE column names each one's database), `ls -l /etc/cron.d/`, and
+   `sudo -n test -d /var/backups/starfix; echo $?`.
+2. **Show** the schedule you would write, built from the guide's
+   section, covering every database, and where it writes. A project added later needs its own line: say so, and
    add it to the record's "left to do".
 3. **With a yes**, make the directory and write the file
    (references/remote.md, "Write a file on the server").
@@ -42,7 +43,7 @@ file in their reply.
 1. **Take a fresh dump first** of what is there now, and keep it apart
    from the daily rotation, so the restore itself can be undone.
 2. **Stop starfixd**: `sudo -n systemctl stop starfixd`.
-3. **Restore** with the database's commands (references/database-dolt.md).
+3. **Restore** as the guide's section says, each command shown first (references/database.md).
 4. **Start it**: `sudo -n systemctl start starfixd`. starfixd compares
    the clock with the restored history; a dump from a clock that ran
    ahead is refused, with the flag that starts it once
