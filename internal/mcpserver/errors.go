@@ -38,6 +38,15 @@ func explain(err error) toolErr {
 		e.Message += "; " + off.tool + " is not answered from this machine's copy, since it says what others are doing now (" + offline.LastReachedLine(off.last) + ")"
 		e.Fix = "carry on with the work you hold (prime and show answer from this machine's copy) and call " + off.tool +
 			" again later; if it still fails, tell the user"
+	case client.ClosedBeforeHandshake(err):
+		// sshd turns an address away for a while after failed or
+		// dropped connections, and every attempt meanwhile can lengthen
+		// that: the person must know, and the agent must not loop.
+		e.Fix = hangUpFix()
+		if errors.As(err, &unq) {
+			e.Fix = "this was not queued (" + unq.why + "); " + e.Fix
+		}
+		e.Fix += personFix(pe)
 	case errors.As(err, &unq):
 		// No claim is taken, and nothing undone, without the server
 		// (design §14, decision 39): the agent goes on with what it holds.
@@ -79,6 +88,14 @@ func explain(err error) toolErr {
 		e.Fix = nextStep(pe)
 	}
 	return e
+}
+
+// hangUpFix is the agent's next step when the server closed the
+// connection before the SSH handshake.
+func hangUpFix() string {
+	return "the server hung up before signing in, as sshd does for a while after failed connections: " +
+		"do not call aries tools again in a loop, since each attempt can lengthen the wait (aries itself waits " + hangUpWait.String() + " before it dials again); " +
+		"carry on with the work you hold and tell the user"
 }
 
 // nextStep is the agent's next step after a server refusal. It tells

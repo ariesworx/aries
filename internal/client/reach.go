@@ -2,6 +2,9 @@ package client
 
 import (
 	"errors"
+	"fmt"
+	"io"
+	"slices"
 
 	"github.com/ariesworx/aries/internal/proto"
 )
@@ -15,8 +18,10 @@ import (
 // every one of these is:
 //
 //   - Dial could not get through: the TCP connection or the IAP tunnel
-//     failed or timed out, the SSH handshake did, sshd would not open a
-//     session or run the bridge, or the bridge closed before its welcome;
+//     failed or timed out, the SSH handshake did (the server's closing
+//     the connection before it among them, [ClosedBeforeHandshake]),
+//     sshd would not open a session or run the bridge, or the bridge
+//     closed before its welcome;
 //   - the bridge or the daemon answered the handshake unavailable: the
 //     daemon is not running, or its database does not answer;
 //   - the connection was lost while a call waited for its answer, or the
@@ -49,6 +54,52 @@ type setupError struct{ pe *proto.Error }
 func (e *setupError) Error() string { return e.pe.Error() }
 
 func (e *setupError) Unwrap() error { return e.pe }
+
+// ClosedBeforeHandshake reports whether err, from [Dial], says the server
+// accepted the TCP connection and then closed or reset it before the SSH
+// handshake was done, without a word: before its greeting, or in the key
+// exchange, before it had shown its host key. sshd does that to an
+// address it holds back for a while after failed or dropped connections
+// from it (PerSourcePenalties, OpenSSH 9.8 and later), and past
+// MaxStartups; a firewall or a proxy on the way can do it too.
+//
+// Such an error is also [Unreachable]: nothing was sent, and what holds
+// the client back passes, so a write is queued. Every attempt meanwhile
+// is refused, and may lengthen sshd's penalty, so a caller that dials by
+// itself waits before it dials again.
+func ClosedBeforeHandshake(err error) bool {
+	_, ok := errors.AsType[*hungUpError](err)
+	return ok
+}
+
+// hungUpError is the refusal ClosedBeforeHandshake reports. It is a
+// *proto.Error through Unwrap, coded unavailable.
+type hungUpError struct{ pe *proto.Error }
+
+func (e *hungUpError) Error() string { return e.pe.Error() }
+
+func (e *hungUpError) Unwrap() error { return e.pe }
+
+// hungUp is the refusal of a connection to addr that the server ended
+// with err before the SSH handshake was done.
+func hungUp(addr string, err error) *hungUpError {
+	return &hungUpError{pe: proto.Errf(proto.CodeUnavailable,
+		"wait a minute, then run it once more, not in a loop: each attempt can lengthen sshd's penalty; "+
+			"check that `aries whoami` signs in with the key the server knows ("+EnvKeyFile+" names it); "+
+			"if it persists, ask the server's operator to look for \"penalty\" in sshd's log",
+		fmt.Sprintf("%s closed the connection before the ssh handshake (%v): sshd does this for a while to an address with failed or dropped connections "+
+			"(PerSourcePenalties, OpenSSH 9.8 and later), or past MaxStartups; so can a firewall or proxy",
+			addr, err))}
+}
+
+// isHangUp reports whether err is the far end closing or resetting the
+// connection.
+func isHangUp(err error) bool {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	return slices.ContainsFunc(resets, func(r error) bool { return errors.Is(err, r) })
+}
 
 // AccessEnded reports whether err, from [Dial], is the server's word
 // that principal's access to the project has ended: a refusal of the

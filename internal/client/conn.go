@@ -162,11 +162,15 @@ func Dial(ctx context.Context, cfg *Config, opts Options) (*Conn, error) {
 
 	addr := net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port))
 	var hostKeyErr *proto.Error
+	// shown: the server showed its host key, so a connection it ends
+	// after that was not turned away before the handshake.
+	var shown bool
 	sc := &ssh.ClientConfig{
 		User:              cfg.Server.User,
 		Auth:              []ssh.AuthMethod{ssh.PublicKeys(id.signers...)},
 		HostKeyAlgorithms: []string{ssh.KeyAlgoED25519},
 		HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
+			shown = true
 			// Which pinned key matched is not kept: any of them is the
 			// server, and nothing else depends on which.
 			got := ssh.FingerprintSHA256(key)
@@ -214,6 +218,9 @@ func Dial(ctx context.Context, cfg *Config, opts Options) (*Conn, error) {
 			return nil, proto.Errf(proto.CodeUnavailable, "check server.host and server.port in "+ConfigFile+", and your network",
 				fmt.Sprintf("timed out after %s in the ssh handshake with %s", timeout, addr))
 		}
+		if !shown && isHangUp(err) {
+			return nil, hungUp(addr, err)
+		}
 		return nil, proto.Errf(proto.CodeUnavailable, "check server.host and server.port in "+ConfigFile,
 			fmt.Sprintf("ssh handshake with %s failed: %v", addr, err))
 	}
@@ -248,6 +255,11 @@ func dialTransport(ctx context.Context, cfg *Config, addr string) (net.Conn, err
 	var d net.Dialer
 	nc, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
+		// A reset, unlike a refusal, says something answered at addr:
+		// it accepted the connection and dropped it at once.
+		if isHangUp(err) {
+			return nil, hungUp(addr, err)
+		}
 		return nil, proto.Errf(proto.CodeUnavailable, "check server.host and server.port in "+ConfigFile+", and your network",
 			fmt.Sprintf("cannot reach %s: %v", addr, err))
 	}

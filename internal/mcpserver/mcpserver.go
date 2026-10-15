@@ -332,8 +332,9 @@ type link struct {
 	// now is the clock limitWait is measured on.
 	now func() time.Time
 	// limited is the last dial's refusal at the principal's connection
-	// limit, which connect returns without dialing until waited; nil when the
-	// last dial was not so refused. Both are guarded by turn.
+	// limit, or by a server that closed the connection before the SSH
+	// handshake, which connect returns without dialing until waited; nil
+	// when the last dial was refused otherwise. Both are guarded by turn.
 	limited *dialError
 	waited  time.Time
 }
@@ -358,6 +359,14 @@ func (e *lostError) Unwrap() error { return e.err }
 // most this late.
 const limitWait = 5 * time.Second
 
+// hangUpWait is how long a session whose server closed the connection
+// before the SSH handshake waits before it dials again. sshd does that
+// for a while to an address with failed or dropped connections
+// (PerSourcePenalties, at least 15 seconds by default), so a dial sooner
+// is refused too and may lengthen the wait. A renewal, every minute, is
+// never held back by its own last refusal.
+const hangUpWait = 30 * time.Second
+
 // dialError is a failure to connect at all; its fix is for the person.
 type dialError struct{ err error }
 
@@ -369,8 +378,9 @@ func newLink(dial func(ctx context.Context) (Conn, error), now func() time.Time)
 }
 
 // connect dials, unless the last dial was refused at the principal's
-// connection limit less than limitWait ago, when it returns that refusal
-// again. The caller holds the turn.
+// connection limit less than limitWait ago, or by a server that closed
+// the connection before the SSH handshake less than hangUpWait ago, when
+// it returns that refusal again. The caller holds the turn.
 func (l *link) connect(ctx context.Context) (Conn, error) {
 	if l.limited != nil && l.now().Before(l.waited) {
 		return nil, l.limited
@@ -381,8 +391,11 @@ func (l *link) connect(ctx context.Context) (Conn, error) {
 		return c, nil
 	}
 	refused := &dialError{err: err}
-	if proto.AtConnLimit(err) {
+	switch {
+	case proto.AtConnLimit(err):
 		l.limited, l.waited = refused, l.now().Add(limitWait)
+	case client.ClosedBeforeHandshake(err):
+		l.limited, l.waited = refused, l.now().Add(hangUpWait)
 	}
 	return nil, refused
 }

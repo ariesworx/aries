@@ -29,9 +29,9 @@ const (
 )
 
 // away is a checkout whose server cannot be reached: its address hangs
-// up on every caller before SSH begins, as a tunnel or an sshd that is
-// restarting does. It has a key file, a data directory of its own and a
-// clock the test moves.
+// up on every caller before SSH begins, as a tunnel does, or an sshd
+// that turns the address away. It has a key file, a data directory of
+// its own and a clock the test moves.
 type away struct {
 	repo, data string
 	key        string // the key's fingerprint
@@ -242,8 +242,9 @@ func TestNoQueue(t *testing.T) {
 			a.reachedAs(t, "alice")
 			a.env[offline.EnvNoQueue] = tc.env
 			code, out, errb := a.run(t, tc.args...)
-			if code != ExitFailure || out != "" || !strings.HasPrefix(errb, "aries: ssh handshake with 127.0.0.1:") ||
-				!strings.Contains(errb, "\nfix: check server.host and server.port in .aries.yaml") || strings.Contains(errb, "queue") {
+			if code != ExitFailure || out != "" || !strings.HasPrefix(errb, "aries: 127.0.0.1:") ||
+				!strings.Contains(errb, "closed the connection before the ssh handshake") ||
+				!strings.Contains(errb, "\nfix: wait a minute") || strings.Contains(errb, "queue") {
 				t.Errorf("exit %d, stdout %q, stderr %q; want exit %d and the failure to connect, as without an outbox", code, out, errb, ExitFailure)
 			}
 			if got := a.pending(t, "alice"); len(got) != 0 {
@@ -276,7 +277,8 @@ func TestUnqueuedWriteSaysSo(t *testing.T) {
 		{[]string{"show", "sf-a"}, ""},
 	} {
 		code, out, errb := a.run(t, tc.args...)
-		if code != ExitFailure || out != "" || !strings.HasPrefix(errb, "aries: ssh handshake with 127.0.0.1:") {
+		if code != ExitFailure || out != "" || !strings.HasPrefix(errb, "aries: 127.0.0.1:") ||
+			!strings.Contains(errb, "closed the connection before the ssh handshake") {
 			t.Errorf("aries %s = exit %d, stdout %q, stderr %q; want the failure to connect", strings.Join(tc.args, " "), code, out, errb)
 		}
 		want := "; this was not queued for later, since " + tc.why + ": run it again when the server answers\n"
