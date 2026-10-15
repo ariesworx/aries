@@ -75,6 +75,13 @@ var never = map[string]string{
 	proto.OpGateWaive: "it is a person's decision on a state the client cannot see",
 	proto.OpGateRearm: "it is a person's decision on a state the client cannot see",
 	proto.OpGateFail:  "it is a CI job's report, which a later run would not make",
+	// Locks (design §20.5, §20.9): never queued, so that a script fails
+	// before its critical section rather than inside it. A grant is the
+	// server's to make at the moment it is asked.
+	proto.OpLockAcquire: "it takes a lock, and no lock is held without the server",
+	proto.OpLockRenew:   "renewing a lease is the client's own chore",
+	proto.OpLockRelease: "it ends a lock's hold on a state the client cannot see",
+	proto.OpLockLeave:   "it ends a lock's place on a state the client cannot see",
 }
 
 // Queueable reports whether op is one the outbox queues.

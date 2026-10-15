@@ -71,6 +71,13 @@ type Env struct {
 	// command may ask them something. Default: whether both are
 	// terminals.
 	Terminal func() bool
+	// Environ is the environment `lock run` gives the command it runs,
+	// with STARFIX_LOCK_EPOCH added. Default os.Environ.
+	Environ func() []string
+	// After is the clock `lock` waits on: how often it renews a place in
+	// a queue or a hold, and how long it gives a command to stop. Default
+	// time.After.
+	After func(time.Duration) <-chan time.Time
 }
 
 // usageError is a mistake on the command line. usage is the usage line
@@ -119,6 +126,7 @@ func init() {
 		{"close", "close ID [--reason TEXT] [--rev N] [--force]", "close an issue (--force, admins only: despite open acceptance items)", cmdClose},
 		{"reopen", "reopen ID [--rev N]", "reopen a closed issue", cmdReopen},
 		{"gate", gateUsage, "hold issues back until a person passes a gate, or CI reports a check: add, pass, fail, waive, rearm or list gates", cmdGate},
+		{"lock", lockUsage, "take, renew, release or list a lock, a leased mutex or semaphore for a deploy or a merge; run a command under one", cmdLock},
 		{"dep", "dep add|rm FROM TO [--type T]", "add or remove a dependency: FROM depends on TO", cmdDep},
 		{"label", "label add|rm ID LABEL...", "add or remove labels", cmdLabel},
 		{"comment", "comment ID TEXT...|-", "add a comment", cmdComment},
@@ -210,10 +218,12 @@ type runner struct {
 	// onPush, if set before connecting, takes the events the server
 	// pushes (sfx watch).
 	onPush func(proto.Push)
-	// rawOut is standard output before wrapOutput, for JSON; outs are the
-	// escaping writers wrapOutput put in place.
-	rawOut io.Writer
-	outs   []*safetext.Writer
+	// rawOut and rawErr are standard output and error before wrapOutput:
+	// rawOut for JSON, and both for the command `lock run` runs, whose
+	// output is its own. outs are the escaping writers wrapOutput put in
+	// place.
+	rawOut, rawErr io.Writer
+	outs           []*safetext.Writer
 }
 
 // wrapOutput routes everything printed through safetext writers. Issue
@@ -224,7 +234,7 @@ type runner struct {
 // fields with safetext.Line, so a newline in one cannot start a line of
 // its own. JSON goes to the raw output, escaped by emit.
 func (r *runner) wrapOutput() {
-	r.rawOut = r.env.Stdout
+	r.rawOut, r.rawErr = r.env.Stdout, r.env.Stderr
 	out, errw := safetext.NewWriter(r.env.Stdout), safetext.NewWriter(r.env.Stderr)
 	r.env.Stdout, r.env.Stderr, r.outs = out, errw, []*safetext.Writer{out, errw}
 }
@@ -294,6 +304,12 @@ func Run(ctx context.Context, args []string, env Env) int {
 		in, out := env.Stdin, env.Stdout
 		env.Terminal = func() bool { return board.IsTerminal(in, out) }
 	}
+	if env.Environ == nil {
+		env.Environ = os.Environ
+	}
+	if env.After == nil {
+		env.After = time.After
+	}
 	r := &runner{env: env, dir: "."}
 	r.wrapOutput()
 	defer r.flush()
@@ -323,6 +339,9 @@ func Run(ctx context.Context, args []string, env Env) int {
 		_ = r.conn.Close()
 	}
 	if err != nil {
+		if ee, ok := errors.AsType[exitError](err); ok {
+			return ee.code // the command lock run ran said all it had to
+		}
 		var ue *usageError
 		if errors.As(err, &ue) && ue.usage == "" {
 			ue.usage = c.usage

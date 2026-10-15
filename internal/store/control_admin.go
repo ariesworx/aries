@@ -66,7 +66,9 @@ func (c *Control) CreateDatabase(ctx context.Context, actor Actor, project strin
 }
 
 // HeldClaims returns how many claims are held in the project database
-// named db, by one read through the control store's own connection: the
+// named db, with the holds and places in its locks' queues, which end
+// with access as claims do, by two reads through the control store's own
+// connection: the
 // account reaches every project's database, and no store is opened for
 // it. starfixd asks it of each archived project at start, so that one
 // with nothing to end costs a query and not a store.
@@ -84,7 +86,17 @@ func (c *Control) HeldClaims(ctx context.Context, db string) (int, error) {
 	if err := c.s.r.QueryRowContext(ctx, "SELECT COUNT(*) FROM `"+db+"`.claims WHERE principal IS NOT NULL").Scan(&n); err != nil {
 		return 0, fmt.Errorf("count the claims held in %s: %w", db, err)
 	}
-	return n, nil
+	// Holds and places in a lock's queue end with access too. A database
+	// an older starfixd migrated has no lock tables, and so holds none.
+	var locks int
+	err := c.s.r.QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM `"+db+"`.lock_holders) + (SELECT COUNT(*) FROM `"+db+"`.lock_waiters)").Scan(&locks)
+	if me, ok := errors.AsType[*mysql.MySQLError](err); ok && me.Number == 1146 {
+		return n, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("count the locks held in %s: %w", db, err)
+	}
+	return n + locks, nil
 }
 
 // DatabaseDenied reports whether err is Dolt refusing the account a

@@ -440,6 +440,9 @@ type wtx struct {
 	// claims are the changes of a claim the attempt made, told to the
 	// store's observer once it commits (observe.go).
 	claims []claimChange
+	// locks are the changes of a lock the attempt made, told to the
+	// store's observer once it commits.
+	locks []lockChange
 }
 
 // exec runs a mutating statement. It refuses an UPDATE that does not set
@@ -843,6 +846,9 @@ func (s *Store) writeOnce(ctx context.Context, actor Actor, settle bool, fn func
 	if o := s.opts.Observer; o != nil {
 		for _, c := range w.claims {
 			o.ClaimChanged(c.change, c.reason)
+		}
+		for _, c := range w.locks {
+			o.LockChanged(c.change, c.waited)
 		}
 	}
 	// Counted after the commit: every watch subscribed before it is

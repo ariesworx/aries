@@ -372,6 +372,8 @@ type replay struct {
 	tookAt map[issueEpoch]time.Time
 	// stepped counts the leases that clock.step events extended.
 	stepped int
+	// locks are the project's locks (soak_locks_test.go).
+	locks *lockReplay
 
 	mu        sync.Mutex // guards the replay between snapshots
 	openCount int        // issues not closed, as of the last snapshot
@@ -382,7 +384,7 @@ func newReplay(fail func(string, string, ...any), admins []string) *replay {
 		claims: map[string]*rClaim{}, holds: map[string][]*hold{}, takers: map[issueEpoch]sessKey{},
 		ends: map[issueEpoch]ended{}, markers: map[string]int{}, stamped: map[string][]stampRec{}, closedAt: map[string]atEpoch{},
 		handedAt: map[string]atEpoch{}, usage: map[sessKey]int{}, causes: map[string]bool{}, ops: map[string]int{},
-		created: map[string]time.Time{}, tookAt: map[issueEpoch]time.Time{}}
+		created: map[string]time.Time{}, tookAt: map[issueEpoch]time.Time{}, locks: newLockReplay()}
 	for _, a := range admins {
 		r.admins[a] = true
 	}
@@ -456,9 +458,14 @@ func (r *replay) apply(tx []sevent) {
 	f := factsOf(tx)
 	r.released, r.access = map[string]rClaim{}, map[string]rIssue{}
 	defer r.reopened(tx)
+	defer r.endLocks(tx)
 	for _, e := range tx {
 		if e.op == "clock.step" {
 			r.clockStep(e)
+			continue
+		}
+		if strings.HasPrefix(e.op, "lock.") {
+			r.applyLock(e)
 			continue
 		}
 		if e.op != "usage.add" {

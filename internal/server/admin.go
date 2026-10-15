@@ -906,7 +906,9 @@ func (s *Server) OpenProjects(ctx context.Context) error {
 // left them in a project nobody may connect to, whose store therefore
 // never opens and is never swept. Each claim ends as the sweep ends one:
 // a claim.release of the server's own for "project archived", the
-// holder's claim.lost, and the issue open again.
+// holder's claim.lost, and the issue open again. The holds and places in
+// the project's locks end the same way, each with its lock.release or
+// lock.leave.
 //
 // open opens an archived project's database as it is, without migrating
 // it ([store.Options.NoMigrate]): a database an older starfixd last
@@ -970,7 +972,13 @@ func (s *Server) releaseArchived(ctx context.Context, p store.Project, open func
 		s.cfg.Logger.InfoContext(ctx, "claim released: access ended", "event", logs.ClaimReleased, "project", p.ID, "issue", c.Issue, "principal", c.Holder.Principal,
 			"session", c.Holder.Session, "epoch", c.Epoch, "by", accessActor.Principal, "reason", lostArchived)
 	}
-	return errors.Join(err, st.Close())
+	ends, lerr := st.EndLocks(octx, accessActor, func(string) string { return lostArchived })
+	for _, e := range ends {
+		s.cfg.Logger.InfoContext(ctx, "lock released: access ended", "event", logs.LockReleased, "project", p.ID, "lock", e.Name,
+			"principal", e.Holder.Principal, "session", e.Holder.Session, "epoch", e.Epoch, "waiting", e.Waiting,
+			"by", accessActor.Principal, "reason", lostArchived)
+	}
+	return errors.Join(err, lerr, st.Close())
 }
 
 // unopenedErr refuses the upgrade's health probe while a project that

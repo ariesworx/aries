@@ -128,6 +128,9 @@ var keys = map[string]Kind{
 	// The clock.
 	"log": KindLocal, "clock": KindWord, "history": KindWord, "behind": KindWord, "since": KindWord, "was_behind_since": KindWord, "direction": KindWord,
 	"step": KindWord, "from": KindWord, "to": KindWord, "steps": KindWord, "extended": KindWord, "claims": KindWord, "forward_since_start": KindWord, "backward_since_start": KindWord,
+	// Locks: a lock's name is text a person chose, so it stays in the
+	// journal (design §20.9); how many is a number.
+	"lock": KindLocal, "locks": KindWord, "waiting": KindWord,
 	// Dolt's metrics, and the check of Dolt.
 	"url": KindLocal, "failures": KindWord, "after_failures": KindWord, "every": KindWord,
 	// The daemon's start, and the admins its config file names.

@@ -254,6 +254,7 @@ func (s *soak) restartDaemon(rng *rand.Rand) error {
 	w.daemonMu.Lock()
 	defer w.daemonMu.Unlock()
 	began := time.Now()
+	s.restartMark()
 	w.stopDaemon()
 	w.stopDaemon = func() {} // until a new daemon starts, nothing runs to stop
 	// Far more than the two minutes of tolerance, and most often than the
@@ -304,10 +305,16 @@ func (s *soak) restartDaemon(rng *rand.Rand) error {
 // settling a forward step. It is the server's own, on no issue.
 func (r *replay) clockStep(e sevent) {
 	var a struct {
-		Extended int64 `json:"extended_us"`
-		Claims   int   `json:"claims"`
+		Extended int64     `json:"extended_us"`
+		Claims   int       `json:"claims"`
+		At       time.Time `json:"at"`
+	}
+	var b struct {
+		At time.Time `json:"at"`
 	}
 	_ = json.Unmarshal(e.after, &a)
+	_ = json.Unmarshal(e.before, &b)
+	r.locks.jumps = append(r.locks.jumps, clockJump{seq: e.seq, from: b.At, to: a.At})
 	if e.actor != (sessKey{"starfixd", "clock"}) || e.target != "clock" {
 		r.fail(e.target, "event %d: clock.step by %s on %q, not by the server on its clock", e.seq, e.actor, e.target)
 	}

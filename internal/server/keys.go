@@ -533,8 +533,10 @@ func (s *Server) release(ctx context.Context, by store.Actor, project, principal
 }
 
 // endClaims ends the claims in pr that why gives a reason for, as by,
-// logs each, and returns how many.
+// logs each, and returns how many. The holds and places in pr's locks
+// end with them (design §20.5), and are not counted.
 func (s *Server) endClaims(ctx context.Context, pr *served, by store.Actor, why func(holder string) string) int {
+	defer pr.endLocks(ctx, by, why)
 	ectx, cancel := context.WithTimeout(ctx, pr.timeout)
 	defer cancel()
 	cs, err := pr.store.EndClaims(ectx, by, why)

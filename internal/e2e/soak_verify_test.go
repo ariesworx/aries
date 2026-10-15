@@ -67,11 +67,20 @@ type tables struct {
 	agents map[string]int // registry rows by principal
 	unread map[string]int // unread inbox items by principal
 	paths  map[string]int // path rows by issue
+	// locks is each lock's holds, by epoch, then its places, in order, as
+	// compareLocks spells them.
+	locks map[string]string
 }
 
 func readTables(ctx context.Context, q querier) (tables, error) {
 	tb := tables{issues: map[string]tIssue{}, labels: map[string]map[string]bool{}, deps: map[depKey]bool{},
-		claims: map[string]rClaim{}, agents: map[string]int{}, unread: map[string]int{}, paths: map[string]int{}}
+		claims: map[string]rClaim{}, agents: map[string]int{}, unread: map[string]int{}, paths: map[string]int{}, locks: map[string]string{}}
+	lockPart := func(name, part string) {
+		if tb.locks[name] != "" {
+			part = " " + part
+		}
+		tb.locks[name] += part
+	}
 	reads := []struct {
 		query string
 		row   func(*sql.Rows) error
@@ -127,6 +136,22 @@ func readTables(ctx context.Context, q querier) (tables, error) {
 			tb.paths[id] = n
 			return err
 		}},
+		// Holds before places, each lock's in order.
+		{`SELECT name, epoch, principal, session FROM lock_holders ORDER BY name, epoch`, func(rows *sql.Rows) error {
+			var name string
+			var epoch int64
+			var k sessKey
+			err := rows.Scan(&name, &epoch, &k.principal, &k.session)
+			lockPart(name, fmt.Sprintf("%d:%s", epoch, k))
+			return err
+		}},
+		{`SELECT name, principal, session FROM lock_waiters ORDER BY name, seq`, func(rows *sql.Rows) error {
+			var name string
+			var k sessKey
+			err := rows.Scan(&name, &k.principal, &k.session)
+			lockPart(name, "w:"+k.String())
+			return err
+		}},
 	}
 	for _, rd := range reads {
 		if err := scan(ctx, q, rd.query, nil, rd.row); err != nil {
@@ -176,6 +201,7 @@ func (s *soak) snapshotOf(p *sproj) error {
 		return err
 	}
 	r.compare(tb)
+	r.compareLocks(tb)
 	s.checkCaps(tb)
 	r.openCount = 0
 	for _, is := range r.issues {

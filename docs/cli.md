@@ -141,6 +141,7 @@ sign-in fails, the refusal says once that it is not read.
 | `STARFIX_SESSION`, `STARFIX_HARNESS`, `TRACEPARENT`, `TRACESTATE` | The session id, the agent harness's name and the caller's trace context ([agent guide](agents.md#sessions), [Trace context](agents.md#trace-context)) |
 | `CI` | Set to `true`, as GitHub Actions and GitLab CI set it, and no harness names a session: `sfx` runs in the session `ci`, a CI job's, rather than `cli` ([CI gates](ci.md#who-may-report)) |
 | `GITHUB_HEAD_REF`, `GITHUB_REF_NAME` with `GITHUB_REF_TYPE`, `CI_MERGE_REQUEST_SOURCE_BRANCH_NAME`, `CI_COMMIT_BRANCH` | The branch a CI job runs on, for `sfx gate pass\|fail --from-branch`, in that order; git's branch when none is set |
+| `STARFIX_LOCK_EPOCH` | Set by `sfx lock run` for the command it runs: the epoch of the lock's hold, for a resource that checks it ([Locks](#locks)). `sfx` itself never reads it |
 | `STARFIX_NO_QUEUE` | Set to anything but empty, `0` or `false`: a write that cannot reach the server fails and is not queued, as with `--no-queue` ([When the server cannot be reached](#when-the-server-cannot-be-reached)) |
 | `STARFIX_DATA_DIR` | The absolute path of the directory `sfx` keeps its outbox and cache in, in place of your data directory ([Where it is kept](#where-it-is-kept)) |
 | `STARFIX_RELEASES` | Where `sfx upgrade` reads releases from, in place of the default: a mirror's `https://` URL, or the absolute path of a directory ([Where releases are read from](install.md#where-releases-are-read-from)) |
@@ -242,6 +243,39 @@ waiting in the outbox
 | `comment ID TEXT` | Add a comment (`-` reads stdin) |
 | `comments ID`, `history ID` | List all of an issue's comments, or all its changes; `-n N` shows only the newest N |
 | `log DURATION ID` | Log your hours on an issue ([Human hours](concepts.md#human-hours)): `1.5h`, `90m` or `1h30m`, from a minute to 24 hours, for today in your time zone or `--on DATE`, at most a year back and a day past today in UTC; `--note TEXT` adds one line. It prints the entry's id. `log --undo ENTRY` undoes one of your entries (an admin may undo anyone's). Bare `log` lists entries, newest day first: `--issue ID`, `--by PRINCIPAL`, 50 or `-n N` (at most 500) |
+
+### Locks
+
+A [lock](concepts.md#locks) is a name in the project, `deploy/prod` or
+`merge/main`, that up to its capacity of holders may hold at once, each
+under a lease and an epoch. Use one around a deploy, a merge or a
+shared resource. Agents do not take locks: a script, CI or a person
+does, mostly through `lock run`.
+
+| Command | Does |
+|---|---|
+| `lock run NAME -- CMD [ARG]...` | Take the lock, run CMD with `STARFIX_LOCK_EPOCH` set to the hold's epoch, renew the hold while CMD runs (at a third of its lease), release it when CMD exits, and exit with CMD's exit code. `--wait` waits in the lock's queue, keeping its place every 30 seconds, rather than fail when the lock is held; `--capacity N` and `--for DURATION` as for `acquire`. CMD's output is its own, not `sfx`'s, so `--json` is refused |
+| `lock acquire NAME` | Take the lock and print its epoch, on its own line; stderr says how to renew and release it. `--capacity N` makes it a semaphore of N holders, at its first acquire (default 1, at most the server's `lock_capacity`); a later acquire naming another capacity is refused. `--for DURATION` is the hold's lease (default 15m, from 1m to 24h). Without `--wait`, a lock that is held is refused with `busy`, naming its holders and when their leases end; with it, `sfx` waits in the queue until the lock is granted, and gives its place up if interrupted |
+| `lock renew NAME EPOCH` | Extend your hold to its lease from now, or `--for DURATION` from now. A hold that ended, or lapsed, is refused with `conflict`: stop what it guards |
+| `lock release NAME EPOCH` | Release your hold; the next in the queue is granted it at once. Any session of your principal may release it, with its epoch |
+| `lock leave NAME` | Give up your place in the queue; says so when you hold the lock instead |
+| `lock list [NAME]` | List the locks held or waited for: how full each is, who holds it at which epoch and until when, and who waits, in order |
+
+**How `lock run` ends.**
+
+| When | What happens |
+|---|---|
+| CMD exits | The hold is released, and `sfx` exits with CMD's exit code |
+| You interrupt it (ctrl-c, or SIGTERM to `sfx`) | CMD is sent an interrupt, and killed if it has not stopped within 10 seconds; the hold is released once it has. `sfx` exits with CMD's exit code, or 130 if CMD died of the interrupt. Interrupted while waiting, it gives its place up and exits 1 |
+| The server says the hold ended | Its lease ran out while the server could not be reached, or your access ended. `sfx` says so, stops CMD as above, and exits 1: what the lock guarded is no longer guarded |
+| The server cannot be reached for a while | CMD runs on, and `sfx` keeps trying to renew, more often. If the lease runs out first, the server ends the hold and grants the lock to the next waiter; the next renewal that reaches it hears so, and stops CMD |
+| `sfx` itself is killed (SIGKILL, a crash, the machine) | Nothing is released. The hold lasts until its lease runs out, at most `--for` after the last renewal, and the reaper then grants the lock to the next waiter within its 30-second tick. CMD, if it outlives `sfx`, runs on without the lock: a resource that checks `STARFIX_LOCK_EPOCH` refuses it once the lock is granted again |
+
+Each `lock run` takes a session of its own, `cli.lock-` and a random
+suffix (or the harness's session id and the suffix), so that two runs
+in one terminal are two holders; `lock acquire` holds in your session,
+so two acquires of yours in the same session are one hold, and the
+second gets the first's epoch.
 
 ### See what is happening
 
@@ -436,7 +470,9 @@ finish what you hold and file new work, and start nothing new. `close`,
 state your machine cannot see. No `gate` command is queued: adding one
 later could hold back work someone started meanwhile, a pass is your
 decision at the moment you make it, and a CI job's report belongs to
-its run, so the job fails instead. The hooks (`prime --hook`,
+its run, so the job fails instead. No `lock` command is queued, and
+`lock run` runs nothing, so that a script fails before its critical
+section, not inside it ([Locks](#locks)). The hooks (`prime --hook`,
 `usage --hook`) queue and send nothing; `prime --hook` does show prime
 from the cache.
 
@@ -640,7 +676,7 @@ started without the server, and what is ready now is not known. So does
 `prime --hook`, which still exits 0 and prints one JSON document, now with
 the cached context in it.
 
-**Refused, not shown.** `ready`, `blocked`, `list` and `who` are answers
+**Refused, not shown.** `ready`, `blocked`, `list`, `who`, `gate list` and `lock list` are answers
 about what everyone is doing now, and from a copy they would be wrong in
 the way that has two sessions take the same work. With the server away
 they fail as before, and say when the server was last reached:

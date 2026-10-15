@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -16,6 +17,7 @@ type seen struct {
 	retried int
 	commits []error
 	claims  []string // "change" or "change:reason"
+	locks   []string // "change", or "grant:waited"
 }
 
 func (o *seen) Wrote(took time.Duration) {
@@ -171,5 +173,73 @@ func TestMigratedOnReopen(t *testing.T) {
 	}
 	if n := openStore(t, dsn, Options{}).Migrated(); n != 0 {
 		t.Errorf("Migrated() = %d on the second open, want 0", n)
+	}
+}
+
+func (o *seen) LockChanged(change LockChange, waited time.Duration) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	s := string(change)
+	if change == LockGranted {
+		s += ":" + waited.String()
+	}
+	o.locks = append(o.locks, s)
+}
+
+// takeLocks returns the changes of a lock seen since the last take.
+func (o *seen) takeLocks() []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	out := o.locks
+	o.locks = nil
+	return out
+}
+
+// The observer is told of each change of a lock once it has committed,
+// with how long a granted place waited, and of nothing a refusal made.
+func TestObserverLocks(t *testing.T) {
+	t.Parallel()
+	obs := &seen{}
+	clk := &clock{t: time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)}
+	s := openStore(t, newDSN(t), Options{Now: clk.now, Observer: obs})
+	ctx := t.Context()
+	steps := []struct {
+		name string
+		do   func() error
+		want []string
+	}{
+		{"an acquire", func() error { _, err := s.AcquireLock(ctx, alice, LockAcquire{Name: "deploy"}); return err }, []string{"acquire"}},
+		{"a refused acquire", func() error {
+			if _, err := s.AcquireLock(ctx, bob, LockAcquire{Name: "deploy"}); !errors.Is(err, ErrBusy) {
+				return fmt.Errorf("AcquireLock while held = %v, want busy", err)
+			}
+			return nil
+		}, nil},
+		{"a place in the queue", func() error {
+			_, err := s.AcquireLock(ctx, bob, LockAcquire{Name: "deploy", Wait: true})
+			return err
+		}, []string{"wait"}},
+		{"a renewal", func() error {
+			clk.add(time.Minute)
+			_, err := s.RenewLock(ctx, bob, "deploy", 0, 0)
+			return err
+		}, []string{"renew"}},
+		{"a release grants the queue", func() error {
+			clk.add(30 * time.Second)
+			return s.ReleaseLock(ctx, alice, "deploy", 1)
+		}, []string{"release", "grant:1m30s"}},
+		{"the reaper", func() error {
+			clk.add(DefaultLease)
+			_, err := s.ReapLocks(ctx)
+			return err
+		}, []string{"expire"}},
+	}
+	for _, st := range steps {
+		if err := st.do(); err != nil {
+			t.Fatalf("%s: %v", st.name, err)
+		}
+		if got := obs.takeLocks(); !slices.Equal(got, st.want) {
+			t.Errorf("%s: observed %v, want %v", st.name, got, st.want)
+		}
 	}
 }

@@ -80,6 +80,9 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 	var lastAdmin *store.LastAdminError
 	var conflictCap *store.ConflictLimitError
 	var gate *store.GateError
+	if perr := lockErr(err); perr != nil {
+		return perr
+	}
 	switch {
 	case errors.As(err, &gate):
 		return gateErr(gate)

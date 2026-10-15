@@ -91,6 +91,19 @@ type Limits struct {
 	// GateEvidence caps a CI report's evidence, its commit, link and
 	// reason together, in bytes; at most 4,096.
 	GateEvidence int `yaml:"gate_evidence"`
+	// Locks caps the locks in use in a project, each a name someone
+	// holds or waits for (design §20.9); an acquire of another is refused
+	// as busy. At most 10,000.
+	Locks int `yaml:"locks"`
+	// LockCapacity caps the capacity a lock may be given; at most 1,000.
+	LockCapacity int `yaml:"lock_capacity"`
+	// LockWaiters caps the places in one lock's queue, and LockWaits the
+	// places one principal has in all of a project's queues; a place past
+	// either is refused as busy. Each at most 1,000. A principal's holds
+	// need no cap of their own: they are bounded by locks times
+	// lock_capacity.
+	LockWaiters int `yaml:"lock_waiters"`
+	LockWaits   int `yaml:"lock_waits_per_principal"`
 }
 
 // DefaultLimits are the limits a zero field takes.
@@ -99,7 +112,14 @@ var DefaultLimits = Limits{Labels: 50, AcceptanceItems: 200, Deps: 200, Sessions
 	MemoryBody: 4096, MemoryTags: 20, MemoryTagLength: 64, Memories: 1000, MemoryKeyLength: 128,
 	Prices: 1000, HoursPerDay: 50, HoursNote: 500, Plans: 1000, PlanPrincipals: 100,
 	ConflictsPerIssue: 20, ConflictsPerPrincipal: 100, GateApprovers: 10, OpenGates: 1000,
-	GateChecks: 20, GateEvidence: 1024}
+	GateChecks: 20, GateEvidence: 1024, Locks: 200, LockCapacity: 64, LockWaiters: 100, LockWaits: 20}
+
+// maxLocks and maxLockQueue bound the lock limits: a list of locks reads
+// every lock in use, with its holds and its queue.
+const (
+	maxLocks     = 10000
+	maxLockQueue = 1000
+)
 
 // Column sizes that bound the memory limits: a body is TEXT, and a key
 // and a tag VARCHAR(255).
@@ -141,6 +161,8 @@ func (l Limits) withDefaults() Limits {
 		{&l.ConflictsPerIssue, &DefaultLimits.ConflictsPerIssue}, {&l.ConflictsPerPrincipal, &DefaultLimits.ConflictsPerPrincipal},
 		{&l.GateApprovers, &DefaultLimits.GateApprovers}, {&l.OpenGates, &DefaultLimits.OpenGates},
 		{&l.GateChecks, &DefaultLimits.GateChecks}, {&l.GateEvidence, &DefaultLimits.GateEvidence},
+		{&l.Locks, &DefaultLimits.Locks}, {&l.LockCapacity, &DefaultLimits.LockCapacity},
+		{&l.LockWaiters, &DefaultLimits.LockWaiters}, {&l.LockWaits, &DefaultLimits.LockWaits},
 	} {
 		if *f.v == 0 {
 			*f.v = *f.d
@@ -164,7 +186,8 @@ func (l Limits) Validate() error {
 		{"hours_per_day", l.HoursPerDay}, {"hours_note", l.HoursNote}, {"plans", l.Plans},
 		{"plan_principals", l.PlanPrincipals}, {"conflicts_per_issue", l.ConflictsPerIssue},
 		{"conflicts_per_principal", l.ConflictsPerPrincipal}, {"gate_approvers", l.GateApprovers}, {"open_gates", l.OpenGates},
-		{"gate_checks", l.GateChecks}, {"gate_evidence", l.GateEvidence},
+		{"gate_checks", l.GateChecks}, {"gate_evidence", l.GateEvidence}, {"locks", l.Locks}, {"lock_capacity", l.LockCapacity},
+		{"lock_waiters", l.LockWaiters}, {"lock_waits_per_principal", l.LockWaits},
 	} {
 		if f.v < 0 {
 			return fmt.Errorf("%w: limit %s is %d; give a positive number, or leave it out for the default", ErrInvalid, f.name, f.v)
@@ -179,6 +202,8 @@ func (l Limits) Validate() error {
 		{"hours_note", l.HoursNote, maxText}, {"plans", l.Plans, maxPlans},
 		{"plan_principals", l.PlanPrincipals, maxPlanPrincipals}, {"gate_approvers", l.GateApprovers, maxGateApprovers},
 		{"gate_checks", l.GateChecks, maxGateChecks}, {"gate_evidence", l.GateEvidence, maxGateEvidence},
+		{"locks", l.Locks, maxLocks}, {"lock_capacity", l.LockCapacity, maxLockCapacity},
+		{"lock_waiters", l.LockWaiters, maxLockQueue}, {"lock_waits_per_principal", l.LockWaits, maxLockQueue},
 	} {
 		if f.v > f.most {
 			return fmt.Errorf("%w: limit %s is %d; it can be at most %d", ErrInvalid, f.name, f.v, f.most)

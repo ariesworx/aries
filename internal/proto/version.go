@@ -183,6 +183,13 @@ import (
 // checks. A server built before G1 refuses the new op and arguments as
 // unknown, with code invalid and a fix that says to upgrade.
 //
+// Slice G2 (design §20.5), locks, joined 8 as well: the ops
+// lock.acquire, lock.renew, lock.release, lock.leave and locks, and the
+// inbox kinds lock.granted and lock.lost, which a client shows as it
+// shows any kind. A server built before G2 refuses the new ops as
+// unknown, with code invalid and a fix that says to upgrade, and `sfx
+// lock` fails before it runs anything.
+//
 // The bridge frame is not part of this protocol: it passes between two
 // starfixd processes on the server (frame.go), and carries no version.
 // It is read leniently, so a bridge from before a binary swap works

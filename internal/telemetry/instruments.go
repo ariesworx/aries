@@ -44,6 +44,12 @@ const (
 	StoreOpenDuration
 	// Claims counts changes of a claim: event, reason.
 	Claims
+	// Locks counts changes of a lock's holds and queue: event (design
+	// §20.9). A lock's name is a person's text, and no attribute.
+	Locks
+	// LockWaitDuration is how long a place in a lock's queue waited
+	// before its grant, on the store's clock.
+	LockWaitDuration
 	// ControlWrites counts writes to the control store: op, result.
 	ControlWrites
 	// KeysFileWrites counts writes of the keys file: result.
@@ -133,6 +139,16 @@ const (
 	ClaimRelease = "release"
 	ClaimExpire  = "expire"
 
+	// What happened to a lock's holds and queue: the lock events, and a
+	// renewal.
+	LockAcquire = "acquire"
+	LockWait    = "wait"
+	LockGrant   = "grant"
+	LockRenew   = "renew"
+	LockRelease = "release"
+	LockExpire  = "expire"
+	LockLeave   = "leave"
+
 	// Why a claim was released, when the store's event gives a reason.
 	// ReasonNone is every other change of a claim.
 	ReasonNone       = "none"
@@ -173,6 +189,9 @@ const (
 	LimitPlans             = "plans"
 	LimitHoursPerDay       = "hours_per_day"
 	LimitUsagePerDay       = "usage_per_day"
+	LimitLocks             = "locks"
+	LimitLockWaiters       = "lock_waiters"
+	LimitLockWaits         = "lock_waits_per_principal"
 )
 
 // Buckets are the upper bounds, in seconds, of every histogram's
@@ -189,7 +208,7 @@ var results = []string{ResultOK, ResultFailed,
 // limits are the values of KeyLimit.
 var limits = []string{LimitConns, LimitConnsPerPrincipal, LimitHandshakes, LimitSockets, LimitWriteRate, LimitControlWriteRate,
 	LimitOpenStores, LimitTelemetryRequests, LimitProjects, LimitPrincipals, LimitKeys, LimitMembers, LimitPrices,
-	LimitPlans, LimitHoursPerDay, LimitUsagePerDay}
+	LimitPlans, LimitHoursPerDay, LimitUsagePerDay, LimitLocks, LimitLockWaiters, LimitLockWaits}
 
 // attr is one attribute of an instrument: its key and the values it may
 // take. A value not among them is recorded as fallback. The values of
@@ -210,6 +229,7 @@ var (
 	attrLimit    = attr{key: KeyLimit, values: limits, fallback: Other}
 	attrMigrated = attr{key: KeyMigrated, values: []string{"true", "false"}, fallback: Other}
 	attrEvent    = attr{key: KeyEvent, values: []string{ClaimTake, ClaimRenew, ClaimRelease, ClaimExpire}, fallback: Other}
+	attrLockEvt  = attr{key: KeyEvent, values: []string{LockAcquire, LockWait, LockGrant, LockRenew, LockRelease, LockExpire, LockLeave}, fallback: Other}
 	attrWhy      = attr{key: KeyReason, values: []string{ReasonNone, ReasonMembership, ReasonDisabled, ReasonArchived}, fallback: Other}
 	attrWrote    = attr{key: KeyResult, values: []string{ResultOK, ResultFailed}, fallback: Other}
 	attrSignal   = attr{key: KeySignal, values: []string{SignalMetrics, SignalTraces, SignalLogs}, fallback: Other}
@@ -241,6 +261,8 @@ var specs = [numInstruments]spec{
 	StoresOpen:          {name: "starfix.stores.open", kind: Gauge, watched: true, desc: "Project stores open."},
 	StoreOpenDuration:   {name: "starfix.store.open.duration", unit: "s", kind: Histogram, attrs: []attr{attrMigrated}, desc: "Time to open a project's store."},
 	Claims:              {name: "starfix.claims", kind: Counter, attrs: []attr{attrEvent, attrWhy}, desc: "Changes of a claim."},
+	Locks:               {name: "starfix.locks", kind: Counter, attrs: []attr{attrLockEvt}, desc: "Changes of a lock's holds and queue."},
+	LockWaitDuration:    {name: "starfix.lock.wait.duration", unit: "s", kind: Histogram, desc: "Time a place in a lock's queue waited for its grant."},
 	ControlWrites:       {name: "starfix.control.writes", kind: Counter, attrs: []attr{attrOp, attrResult}, desc: "Writes to the control store."},
 	KeysFileWrites:      {name: "starfix.keys_file.writes", kind: Counter, attrs: []attr{attrWrote}, desc: "Writes of the keys file."},
 	KeysFileLastWrite:   {name: "starfix.keys_file.last_write.time", unit: "s", kind: Gauge, desc: "When the keys file last took its content, in Unix seconds."},

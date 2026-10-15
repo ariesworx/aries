@@ -137,6 +137,7 @@ func (l Limits) WithDefaults() Limits {
 		{&l.ConflictsPerIssue, &d.ConflictsPerIssue}, {&l.ConflictsPerPrincipal, &d.ConflictsPerPrincipal},
 		{&l.GateApprovers, &d.GateApprovers}, {&l.OpenGates, &d.OpenGates},
 		{&l.GateChecks, &d.GateChecks}, {&l.GateEvidence, &d.GateEvidence},
+		{&l.Locks, &d.Locks}, {&l.LockCapacity, &d.LockCapacity}, {&l.LockWaiters, &d.LockWaiters}, {&l.LockWaits, &d.LockWaits},
 		{&l.Control.Projects, &d.Control.Projects}, {&l.Control.Principals, &d.Control.Principals},
 		{&l.Control.PrincipalsPerCreator, &d.Control.PrincipalsPerCreator},
 		{&l.Control.Keys, &d.Control.Keys}, {&l.Control.Members, &d.Control.Members}, {&l.OpenStores, &d.OpenStores},
@@ -225,7 +226,7 @@ var readOps = map[string]bool{
 	proto.OpShow: true, proto.OpList: true, proto.OpReady: true, proto.OpBlocked: true, proto.OpComments: true,
 	proto.OpHistory: true, proto.OpDigest: true, proto.OpWho: true, proto.OpInbox: true, proto.OpWatch: true,
 	proto.OpClaims: true, proto.OpRecall: true, proto.OpPrices: true, proto.OpCost: true,
-	proto.OpHours: true, proto.OpPlans: true, proto.OpConflicts: true, proto.OpGates: true, proto.OpDates: true,
+	proto.OpHours: true, proto.OpPlans: true, proto.OpConflicts: true, proto.OpGates: true, proto.OpDates: true, proto.OpLocks: true,
 	proto.OpProjects: true, proto.OpPrincipals: true, proto.OpMembers: true, proto.OpKeys: true,
 	proto.OpStatus: true, proto.OpPrincipalWhois: true,
 }

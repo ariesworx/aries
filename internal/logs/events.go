@@ -53,8 +53,12 @@ const (
 	ControlIndexStale  Event = "control.index_stale"
 
 	// Claims, the reaper and the access sweep.
-	ClaimExpired      Event = "claim.expired"
-	ClaimReleased     Event = "claim.released"
+	ClaimExpired  Event = "claim.expired"
+	ClaimReleased Event = "claim.released"
+	// LockExpired is a hold or a place in a lock's queue the reaper ended
+	// for its lease, and LockReleased one that ended for lost access.
+	LockExpired       Event = "lock.expired"
+	LockReleased      Event = "lock.released"
 	ReaperFailed      Event = "reaper.failed"
 	ReaperPruneFailed Event = "reaper.prune_failed"
 	ReaperPruned      Event = "reaper.pruned"
@@ -121,7 +125,7 @@ var events = []Event{
 	RequestDone, RequestRefused, RequestFailed, RequestPart,
 	ProjectAdded, ProjectOpened, ProjectOpenFailed, ProjectNotOpened, ProjectClosed, ProjectCloseFailed,
 	StoreSchemaTooNew, StoreCommitFailed, StoreUnsafeAccount, ControlReload, ControlIndexStale,
-	ClaimExpired, ClaimReleased, ReaperFailed, ReaperPruneFailed, ReaperPruned, SweepFailed,
+	ClaimExpired, ClaimReleased, LockExpired, LockReleased, ReaperFailed, ReaperPruneFailed, ReaperPruned, SweepFailed,
 	KeysFileWritten, KeysFileWriteFailed, KeysFileHeldBack, KeysFileLeftOut,
 	ClockBehind, ClockCaughtUp, ClockStepped, ClockStepSettled, ClockSettleFailed,
 	DoltCheckFailed, DoltDriver, DoltMetricsReading, DoltMetricsFailed, DoltMetricsRecovered,

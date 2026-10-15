@@ -803,6 +803,9 @@ type user struct {
 	// key is the user's public key, for a test that has the server take
 	// it for another principal (world.byHand).
 	key ssh.PublicKey
+	// after, if set, is the clock `sfx lock` waits on, for a test whose
+	// store's clock runs fast; unset, the CLI's default.
+	after func(time.Duration) <-chan time.Time
 }
 
 // newUser makes a user with a new key, which the server maps to principal
@@ -897,6 +900,10 @@ func (u *user) runTo(ctx context.Context, stdout, stderr io.Writer, version stri
 		Version:  version,
 		Now:      u.now,
 		Terminal: func() bool { return u.terminal },
+		// What `sfx lock run` gives the command it runs: a PATH to find it
+		// by, and nothing else of the test's environment.
+		Environ: func() []string { return []string{"PATH=" + os.Getenv("PATH")} },
+		After:   u.after,
 	})
 }
 
