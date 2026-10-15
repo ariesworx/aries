@@ -239,8 +239,9 @@ const (
 	cutMax = 30 * time.Minute
 )
 
-// cutSpan is a span from cutMin to cutMax, as rng chooses, in real time.
-func (ms *mcpSession) cutSpan() (store, real time.Duration) {
+// cutSpan is a span from cutMin to cutMax, as rng chooses: on the
+// store's clock, and in real time.
+func (ms *mcpSession) cutSpan() (onStore, inReal time.Duration) {
 	d := cutMin + time.Duration(ms.rng.Int64N(int64(cutMax-cutMin)))
 	return d, ms.s.clock.real(d)
 }
