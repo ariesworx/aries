@@ -125,8 +125,8 @@ calls a workflow cannot, so `release.yml`'s `gate` relies on those of
 `ci.yml`). `lint` and `test` each restore a Go build cache of their
 own, and one module cache between them, keyed by the Go version and the
 hash of `go.sum` with no fallback; only a push to `main` saves one, a
-pull request only reads them, and any other run, the release's gate
-among them, uses none. The tests' temporary files, Dolt's databases
+pull request and the merge queue's run of one only read them, and any
+other run, the release's gate among them, uses none. The tests' temporary files, Dolt's databases
 among them, are in memory when the runner's `/dev/shm` is fit for them
 (`TESTS_TMPFS`), and otherwise in `/tmp` with a warning;
 `scripts/leftovers.sh` makes its directory under the one that step
@@ -352,7 +352,10 @@ adds working method only; repository facts and rules belong here.
 
 ## Git
 
-- `main` is protected: squash merges through a pull request with green CI.
+- `main` is protected: squash merges through a pull request and the merge
+  queue, which runs `lint` and `test` on each pull request as it would
+  merge (the `merge_group` event in `ci.yml`), so a branch need not be
+  brought up to date by hand.
 - Branch with a type prefix: `feature/`, `fix/`, `maintenance/`, `docs/` or
   `refactor/`, then lowercase kebab-case.
 - Title the pull request the same way: `fix: …`, `feature: …`.
