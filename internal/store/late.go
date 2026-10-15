@@ -139,7 +139,7 @@ func markLapsed(ctx context.Context, w *wtx, c claimRow, epoch int64, op string)
 func reapedHolder(ctx context.Context, w *wtx, c claimRow) (Actor, error) {
 	var op string
 	var before []byte
-	err := w.tx.QueryRowContext(ctx, `SELECT op, before_state FROM events WHERE target = ? AND op IN (?, ?)
+	err := w.tx.QueryRowContext(ctx, `SELECT op, before_state FROM events WHERE target = $1 AND op IN ($2, $3)
   ORDER BY seq DESC LIMIT 1`, string(c.Issue), string(OpClaimExpire), string(OpClaimRelease)).Scan(&op, &before)
 	if errors.Is(err, sql.ErrNoRows) || err == nil && Op(op) != OpClaimExpire {
 		return Actor{}, nil

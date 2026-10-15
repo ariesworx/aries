@@ -83,40 +83,37 @@ func TestStart(t *testing.T) {
 	assertGapless(t, s)
 }
 
-// Two principals in two store processes start the same issue in
-// overlapping transactions: exactly one takes it, and the other is told
-// who did.
+// Principals in several store processes start the same issue at once:
+// exactly one takes it, at epoch 1, and every other is told who did.
 func TestStartRace(t *testing.T) {
 	t.Parallel()
-	dsn := newDSN(t)
-	s1 := openStore(t, dsn, Options{})
-	s2 := openStore(t, dsn, Options{})
-	is := mustCreate(t, s1, NewIssue{Title: "contested"})
-
-	b := newBarrier(2)
-	s1.beforeCommit = b.hook
-	s2.beforeCommit = b.hook
-	errs := make([]error, 2)
-	var wg sync.WaitGroup
-	wg.Go(func() { _, _, errs[0] = s1.StartIssue(t.Context(), alice, is.ID, 0, false) })
-	wg.Go(func() { _, _, errs[1] = s2.StartIssue(t.Context(), bob, is.ID, 0, false) })
-	wg.Wait()
-	assertOneWinner(t, errs)
-	got, err := s1.GetIssue(t.Context(), is.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i, err := range errs {
-		var held *HeldError
-		if err != nil && (!errors.As(err, &held) || held.By != got.Assignee) {
-			t.Errorf("loser %d: %v, want held by %s", i, err, got.Assignee)
+	ss := raceOpen(t)
+	for round := range raceRounds {
+		is := mustCreate(t, ss[0], NewIssue{Title: fmt.Sprintf("contested %d", round)})
+		errs := make([]error, raceWriters)
+		var wg sync.WaitGroup
+		for w := range raceWriters {
+			wg.Go(func() { _, _, errs[w] = ss[w%raceStores].StartIssue(t.Context(), raceActor(w), is.ID, 0, false) })
 		}
+		wg.Wait()
+		assertOneWinner(t, errs)
+		got, err := ss[0].GetIssue(t.Context(), is.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for w, err := range errs {
+			var held *HeldError
+			if err != nil && (!errors.As(err, &held) || held.By != got.Assignee) {
+				t.Errorf("round %d, loser %d: %v, want held by %s", round, w, err, got.Assignee)
+			}
+		}
+		c, err := ss[0].ClaimOf(t.Context(), is.ID)
+		if got.Rev != 2 || got.Status != StatusInProgress || err != nil || c == nil || c.Epoch != 1 || c.Holder.Principal != got.Assignee {
+			t.Errorf("round %d: after the race %+v, claim %+v (%v); want rev 2 in progress, held at epoch 1 by its assignee", round, got, c, err)
+		}
+		assertUpdateEvents(t, ss[0], is.ID, 1)
 	}
-	if got.Rev != 2 || got.Status != StatusInProgress {
-		t.Errorf("after the race: %+v", got)
-	}
-	assertUpdateEvents(t, s1, is.ID, 1)
-	assertGapless(t, s1)
+	assertGapless(t, ss[0])
 }
 
 // Many sessions start without an id at once: each gets a different issue.

@@ -17,7 +17,7 @@ usage: leftovers.sh COMMAND [ARGUMENT...]
 
 Runs COMMAND with TMPDIR set to a new directory, and then reports what
 it left: the entries still in that directory, and the processes still
-running that were started with it (a dolt sql-server, a test binary, an
+running that were started with it (a Postgres server, a test binary, an
 ssh-agent). The directory is made under the TMPDIR it is given, and
 removed in every case. When GOTMPDIR is set, under which go builds and
 go test makes each t.TempDir, COMMAND is given a new one under it too,
@@ -35,7 +35,7 @@ os.MkdirTemp with its prefix.
 
   ARIES_LEFTOVERS_WAIT  seconds to wait for processes to end before
                           they count as left (default 15: the watcher of
-                          a killed test's Dolt takes up to 10 to end it)
+                          a killed test's Postgres takes up to 10 to end it)
   GITHUB_ACTIONS=true     also print the report as an error annotation
   -h, --help              show this help
 EOF
@@ -81,8 +81,8 @@ goname=${godir##*/}
 # started lists the processes the command started and did not end, one
 # "PID COMMAND" to a line: those with the directory in their environment,
 # where /proc shows it (Linux), or either directory in their command line,
-# which is all a macOS shows. The tests' own are found either way: a dolt
-# sql-server is given its config file, its watcher its directory, and a
+# which is all a macOS shows. The tests' own are found either way: a
+# Postgres server is given its directory, its watcher too, and a
 # test binary is built in GOTMPDIR. This script is not one of them.
 started() {
 	set -- -e "/$name"

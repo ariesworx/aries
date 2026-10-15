@@ -44,14 +44,14 @@ func (s *Store) AddDep(ctx context.Context, actor Actor, from, to IssueID, typ D
 // already there. Both issues must exist.
 func insertDep(ctx context.Context, w *wtx, from, to IssueID, typ DepType) error {
 	var n int
-	if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM deps WHERE from_id = ? AND to_id = ? AND type = ?`,
+	if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM deps WHERE from_id = $1 AND to_id = $2 AND type = $3`,
 		string(from), string(to), string(typ)).Scan(&n); err != nil {
 		return fmt.Errorf("lookup dep: %w", err)
 	}
 	if n > 0 {
 		return nil
 	}
-	if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM deps WHERE from_id = ?`, string(from)).Scan(&n); err != nil {
+	if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM deps WHERE from_id = $1`, string(from)).Scan(&n); err != nil {
 		return fmt.Errorf("count deps: %w", err)
 	}
 	if n >= w.lim.Deps {
@@ -62,9 +62,8 @@ func insertDep(ctx context.Context, w *wtx, from, to IssueID, typ DepType) error
 			return err
 		}
 	}
-	wid := randomInt63()
-	if _, err := w.exec(ctx, `INSERT INTO deps (from_id, to_id, type, created_by, created_at, rev, write_id)
-  VALUES (?, ?, ?, ?, ?, 1, ?)`, string(from), string(to), string(typ), w.actor.Principal, w.now, wid); err != nil {
+	if _, err := w.exec(ctx, `INSERT INTO deps (from_id, to_id, type, created_by, created_at, rev)
+  VALUES ($1, $2, $3, $4, $5, 1)`, string(from), string(to), string(typ), w.actor.Principal, w.now); err != nil {
 		return fmt.Errorf("insert dep: %w", err)
 	}
 	d := Dep{From: from, To: to, Type: typ, CreatedBy: w.actor.Principal, CreatedAt: w.now}
@@ -81,7 +80,7 @@ func (s *Store) RemoveDep(ctx context.Context, actor Actor, from, to IssueID, ty
 		if err != nil {
 			return err
 		}
-		n, err := w.exec(ctx, `DELETE FROM deps WHERE from_id = ? AND to_id = ? AND type = ?`,
+		n, err := w.exec(ctx, `DELETE FROM deps WHERE from_id = $1 AND to_id = $2 AND type = $3`,
 			string(from), string(to), string(typ))
 		if err != nil {
 			return fmt.Errorf("delete dep: %w", err)
@@ -129,11 +128,11 @@ edges (src, dst) AS (
   SELECT id, parent_id FROM issues WHERE parent_id IS NOT NULL
 ),
 reach (id) AS (
-  SELECT CAST(? AS CHAR(64))
+  SELECT CAST($1 AS VARCHAR(64))
   UNION
   SELECT e.dst FROM edges e JOIN reach r ON e.src = r.id
 )
-SELECT COUNT(*) FROM reach WHERE id = ?`, string(to), string(from)).Scan(&n)
+SELECT COUNT(*) FROM reach WHERE id = $2`, string(to), string(from)).Scan(&n)
 	if err != nil {
 		return fmt.Errorf("cycle check: %w", err)
 	}
@@ -154,7 +153,7 @@ func (s *Store) Deps(ctx context.Context, id IssueID) ([]Dep, error) {
 
 // issueDeps is Deps on q.
 func issueDeps(ctx context.Context, q querier, id IssueID) ([]Dep, error) {
-	return deps(ctx, q, `WHERE from_id = ? OR to_id = ?`, string(id), string(id))
+	return deps(ctx, q, `WHERE from_id = $1 OR to_id = $2`, string(id), string(id))
 }
 
 // AllDeps returns every edge, ordered by from, to and type.
@@ -196,8 +195,8 @@ func deps(ctx context.Context, q querier, where string, args ...any) ([]Dep, err
 // the ancestor whose blockers apply and depth how far up the tree it is
 // (0: the issue itself). Callers that report one via order by depth, so
 // the nearest ancestor is named whatever order the engine emits rows in.
-// deferred(id) is the same for issues
-// deferred by status or by a future defer_until (parameter 1: now).
+// deferred(id) is the same for issues deferred by status or by a future
+// defer_until. Its one parameter, now, is the statement's first ($1).
 const blockedCTE = `WITH RECURSIVE
 direct (id) AS (
   SELECT DISTINCT d.from_id FROM deps d
@@ -211,7 +210,7 @@ blocked (id, via, depth) AS (
   SELECT c.id, b.via, b.depth + 1 FROM issues c JOIN blocked b ON c.parent_id = b.id
 ),
 deferred (id) AS (
-  SELECT id FROM issues WHERE status = 'deferred' OR defer_until > ?
+  SELECT id FROM issues WHERE status = 'deferred' OR defer_until > $1
   UNION
   SELECT c.id FROM issues c JOIN deferred d ON c.parent_id = d.id
 )
@@ -275,7 +274,7 @@ func loadSummaries(ctx context.Context, q querier, ids []IssueID) ([]Summary, er
 		args[i] = string(id)
 	}
 	rows, err := q.QueryContext(ctx, `SELECT i.id, i.title, i.status, i.priority, i.due_at, i.defer_until FROM issues i WHERE i.id IN (`+
-		placeholders(len(ids))+`)`, args...)
+		placeholders(1, len(ids))+`)`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -310,7 +309,7 @@ func loadSummaries(ctx context.Context, q querier, ids []IssueID) ([]Summary, er
 // first in the order, its own blockers before an ancestor's, says which
 // apply. So the page is counted in issues, not rows: the query numbers
 // the issues in the order (DENSE_RANK) and returns the rows of the first
-// limit, and no row past the page leaves Dolt. A query that picked the
+// limit, and no row past the page leaves the database. A query that picked the
 // page with IN (SELECT ... FROM blocked) and joined blocked again ran
 // for over 20 minutes at 50,000 issues.
 func (s *Store) Blocked(ctx context.Context, limit int) ([]BlockedIssue, error) {
@@ -325,7 +324,7 @@ func (s *Store) Blocked(ctx context.Context, limit int) ([]BlockedIssue, error) 
     DENSE_RANK() OVER (ORDER BY i.priority, i.created_at, i.id) AS n
   FROM issues i JOIN blocked b ON b.id = i.id
   WHERE i.status <> 'closed'
-) x WHERE n <= ?
+) x WHERE n <= $2
 ORDER BY priority, created_at, id, depth`, s.now(), limit)
 	if err != nil {
 		return nil, fmt.Errorf("blocked: %w", err)
@@ -386,7 +385,7 @@ func blockerMap(ctx context.Context, q querier, from []IssueID) (map[IssueID][]I
 	}
 	rows, err := q.QueryContext(ctx, `SELECT d.from_id, d.to_id FROM deps d
 JOIN issues t ON t.id = d.to_id
-WHERE d.from_id IN (`+placeholders(len(from))+`) AND d.type IN (`+readyBlocking+`) AND t.status <> 'closed'
+WHERE d.from_id IN (`+placeholders(1, len(from))+`) AND d.type IN (`+readyBlocking+`) AND t.status <> 'closed'
 ORDER BY d.from_id, d.to_id`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("blockers: %w", err)

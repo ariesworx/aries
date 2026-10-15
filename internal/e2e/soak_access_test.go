@@ -90,7 +90,7 @@ func (s *soak) setup() {
 	add := func(name, prefix string) *sproj {
 		var res proto.ProjectAddResult
 		call(proto.OpProjectAdd, proto.ProjectAddArgs{Name: name, Prefix: prefix}, &res)
-		dsn, err := server.DatabaseDSN(s.w.dsn, res.Database)
+		dsn, err := server.SchemaDSN(s.w.dsn, res.Database)
 		if err != nil {
 			t.Fatalf("soak setup: %v", err)
 		}
@@ -537,7 +537,7 @@ func (cd *conductor) dial(principal string, p *sproj, want proto.Code, why strin
 func (cd *conductor) held(p *sproj, principal string) []string {
 	query, args := `SELECT issue_id FROM claims WHERE principal IS NOT NULL`, []any(nil)
 	if principal != "" {
-		query, args = `SELECT issue_id FROM claims WHERE principal = ?`, []any{principal}
+		query, args = `SELECT issue_id FROM claims WHERE principal = $1`, []any{principal}
 	}
 	var ids []string
 	err := scan(context.Background(), p.db, query, args, func(rows *sql.Rows) error {
@@ -958,7 +958,7 @@ func (cd *conductor) archive() {
 		_ = c.Close()
 	}
 	var stale []string
-	err := scan(context.Background(), p.db, `SELECT issue_id FROM claims WHERE principal IS NOT NULL AND claimed_at <= ?`, []any{closed},
+	err := scan(context.Background(), p.db, `SELECT issue_id FROM claims WHERE principal IS NOT NULL AND claimed_at <= $1`, []any{closed},
 		func(rows *sql.Rows) error {
 			var id string
 			err := rows.Scan(&id)
@@ -1061,8 +1061,8 @@ func (cd *conductor) closedStore() {
 		s.mon.fail(id, "%s: the first request after the store opened still lists frank's claim on %s", why, id)
 	}
 	var by, session, after string
-	err := scan(context.Background(), p.db, `SELECT principal, session, COALESCE(after_state, '') FROM events
-  WHERE target = ? AND op = 'claim.release' ORDER BY seq DESC LIMIT 1`, []any{id}, func(rows *sql.Rows) error {
+	err := scan(context.Background(), p.db, `SELECT principal, session, COALESCE(after_state::text, '') FROM events
+  WHERE target = $1 AND op = 'claim.release' ORDER BY seq DESC LIMIT 1`, []any{id}, func(rows *sql.Rows) error {
 		return rows.Scan(&by, &session, &after)
 	})
 	if err != nil {

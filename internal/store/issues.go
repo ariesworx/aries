@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -100,7 +101,7 @@ func nullJSON(m json.RawMessage) (any, error) {
 
 // loadIssue reads one issue with its labels, or returns ErrNotFound.
 func loadIssue(ctx context.Context, q querier, id IssueID) (Issue, error) {
-	is, err := scanIssue(q.QueryRowContext(ctx, `SELECT `+issueCols+` FROM issues i WHERE i.id = ?`, string(id)))
+	is, err := scanIssue(q.QueryRowContext(ctx, `SELECT `+issueCols+` FROM issues i WHERE i.id = $1`, string(id)))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Issue{}, fmt.Errorf("issue %s: %w", id, ErrNotFound)
 	}
@@ -125,7 +126,7 @@ func attachLabels(ctx context.Context, q querier, issues []*Issue) error {
 		args[i] = string(is.ID)
 	}
 	rows, err := q.QueryContext(ctx, `SELECT issue_id, label FROM labels WHERE issue_id IN (`+
-		placeholders(len(args))+`) ORDER BY issue_id, label`, args...)
+		placeholders(1, len(args))+`) ORDER BY issue_id, label`, args...)
 	if err != nil {
 		return fmt.Errorf("labels: %w", err)
 	}
@@ -146,15 +147,60 @@ func attachLabels(ctx context.Context, q querier, issues []*Issue) error {
 	return nil
 }
 
-// placeholders returns n comma-separated question marks.
-func placeholders(n int) string {
-	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
+// params holds the arguments of a statement built in pieces, and numbers
+// each one's placeholder as it is added, so that a piece written after
+// another continues its numbering. The zero value starts at $1.
+type params struct {
+	args []any
+}
+
+// add appends vs and returns their placeholders, comma-separated: "$4",
+// or "$4, $5, $6". It returns "" for none.
+func (p *params) add(vs ...any) string {
+	var b strings.Builder
+	for i, v := range vs {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		p.args = append(p.args, v)
+		b.WriteString("$" + strconv.Itoa(len(p.args)))
+	}
+	return b.String()
+}
+
+// placeholder returns the placeholder of a statement's n-th argument,
+// $n: what a piece that follows n-1 arguments names its own by.
+func placeholder(n int) string { return "$" + strconv.Itoa(n) }
+
+// placeholders returns the placeholders of n arguments from the first-th
+// on, comma-separated: placeholders(3, 2) is "$3, $4".
+func placeholders(first, n int) string {
+	var b strings.Builder
+	for i := range n {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(placeholder(first + i))
+	}
+	return b.String()
+}
+
+// list is add for a slice of any type.
+func list[T any](p *params, vs []T) string {
+	var b strings.Builder
+	for i, v := range vs {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(p.add(v))
+	}
+	return b.String()
 }
 
 // exists reports whether the issue id exists.
 func exists(ctx context.Context, q querier, id IssueID) (bool, error) {
 	var n int
-	if err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM issues WHERE id = ?`, string(id)).Scan(&n); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM issues WHERE id = $1`, string(id)).Scan(&n); err != nil {
 		return false, fmt.Errorf("lookup %s: %w", id, err)
 	}
 	return n > 0, nil
@@ -341,22 +387,21 @@ func insertIssue(ctx context.Context, w *wtx, id IssueID, in NewIssue, meta any)
 			return Issue{}, fmt.Errorf("parent: %w", err)
 		}
 	}
-	wid := randomInt63()
 	if _, err := w.exec(ctx, `INSERT INTO issues (id, parent_id, title, body, design, acceptance, notes,
   status, priority, type, assignee, owner, due_at, defer_until, ephemeral, expires_at, pinned, template,
-  metadata, account, created_by, created_at, updated_at, rev, write_id)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+  metadata, account, created_by, created_at, updated_at, rev)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, 1)`,
 		string(id), nullStr(in.ParentID), in.Title, in.Body, in.Design, in.Acceptance, in.Notes,
 		string(in.Status), int(*in.Priority), string(in.Type), nullStr(in.Assignee), nullStr(in.Owner),
 		nullTime(in.DueAt), nullTime(in.DeferUntil), in.Ephemeral, nullTime(in.ExpiresAt), in.Pinned, in.Template,
-		meta, nullStr(in.Account), w.actor.Principal, w.now, w.now, wid); err != nil {
+		meta, nullStr(in.Account), w.actor.Principal, w.now, w.now); err != nil {
 		if isDuplicate(err) {
 			return Issue{}, fmt.Errorf("issue %s: %w", id, ErrExists)
 		}
 		return Issue{}, fmt.Errorf("insert issue: %w", err)
 	}
 	for _, l := range in.Labels {
-		if _, err := w.exec(ctx, `INSERT IGNORE INTO labels (issue_id, label, created_at) VALUES (?, ?, ?)`,
+		if _, err := w.exec(ctx, `INSERT INTO labels (issue_id, label, created_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
 			string(id), l, w.now); err != nil {
 			return Issue{}, fmt.Errorf("insert label: %w", err)
 		}
@@ -568,26 +613,23 @@ const errClaimedFields = "status and assignee change only through finish, close 
 // sets it, with a claim. It wraps ErrInvalid.
 var ErrStatusInProgress = fmt.Errorf("%w: status in_progress is set only by start, which claims the issue", ErrInvalid)
 
-// casUpdateSQL is the one UPDATE of issues. {sets} comes from a fixed
-// column list, never from input; each set ends in ", ", and there may be
-// none.
-const casUpdateSQL = `UPDATE issues SET {sets}updated_at = ?, rev = rev + 1, write_id = ? WHERE id = ? AND rev = ?`
-
-// casUpdate writes sets to the issue at before.Rev, stamping rev and
-// write_id, and returns the new state.
-func casUpdate(ctx context.Context, w *wtx, before Issue, sets []string, args []any) (Issue, error) {
-	wid := randomInt63()
-	var cols string
-	for _, set := range sets {
-		cols += set + ", "
+// casUpdate sets cols, columns of issues from a fixed list and never
+// from input, to args, one each, on the issue at before.Rev, raises its
+// rev, and returns the new state. It is the one UPDATE of issues.
+func casUpdate(ctx context.Context, w *wtx, before Issue, cols []string, args []any) (Issue, error) {
+	var q strings.Builder
+	q.WriteString("UPDATE issues SET ")
+	for i, col := range cols {
+		fmt.Fprintf(&q, "%s = $%d, ", col, i+1)
 	}
-	q := strings.Replace(casUpdateSQL, "{sets}", cols, 1)
-	all := append(append([]any{}, args...), w.now, wid, string(before.ID), int64(before.Rev))
-	n, err := w.exec(ctx, q, all...)
+	n := len(cols)
+	fmt.Fprintf(&q, "updated_at = $%d, rev = rev + 1 WHERE id = $%d AND rev = $%d", n+1, n+2, n+3)
+	all := append(append([]any{}, args...), w.now, string(before.ID), int64(before.Rev))
+	changed, err := w.exec(ctx, q.String(), all...)
 	if err != nil {
 		return Issue{}, fmt.Errorf("update issue %s: %w", before.ID, err)
 	}
-	if n != 1 {
+	if changed != 1 {
 		return Issue{}, fmt.Errorf("issue %s changed during update: %w", before.ID, ErrConflict)
 	}
 	out, err := loadIssue(ctx, w.tx, before.ID)
@@ -600,13 +642,13 @@ func casUpdate(ctx context.Context, w *wtx, before Issue, sets []string, args []
 	return out, nil
 }
 
-// columns validates the patch and turns it into SET clauses over a fixed
-// column list, with their arguments.
+// columns validates the patch and turns it into the columns it sets, from
+// a fixed list, with their values.
 func (p IssuePatch) columns() ([]string, []any, error) {
 	var sets []string
 	var args []any
 	add := func(col string, v any) {
-		sets = append(sets, col+" = ?")
+		sets = append(sets, col)
 		args = append(args, v)
 	}
 	if p.Title != nil {
@@ -830,7 +872,7 @@ func closeTx(ctx context.Context, w *wtx, before Issue, reason string, force boo
 // setStatus writes status, closed_at and close_reason and records op,
 // with extra added to the event's after state.
 func setStatus(ctx context.Context, w *wtx, before Issue, op Op, args []any, extra map[string]any) (Issue, error) {
-	out, err := casUpdate(ctx, w, before, []string{"status = ?", "closed_at = ?", "close_reason = ?"}, args)
+	out, err := casUpdate(ctx, w, before, []string{"status", "closed_at", "close_reason"}, args)
 	if err != nil {
 		return Issue{}, err
 	}

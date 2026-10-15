@@ -79,8 +79,8 @@ type Limits struct {
 	// no connection, and is refused when every store has one.
 	OpenStores int `yaml:"open_stores"`
 	// StoreIdle closes a project's store once it has had no connection
-	// for this long. That gives back its connections to Dolt, not Dolt's
-	// memory.
+	// for this long. That gives back its connections to the database, and
+	// the memory of the server processes that held them.
 	StoreIdle Duration `yaml:"store_idle"`
 	// ControlWriteRate is how many writes to the control store a second
 	// a principal's token bucket refills, and ControlWriteBurst how many

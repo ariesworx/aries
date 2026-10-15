@@ -467,8 +467,8 @@ func bulkContested(t *testing.T, s *Store, n int, path string) {
 		for i := range n {
 			id := fmt.Sprintf("tst-bulk%04d", i)
 			if _, err := w.exec(t.Context(), `INSERT INTO issues (id, title, body, design, acceptance, notes, status,
-  priority, type, created_by, created_at, updated_at, rev, write_id)
-  VALUES (?, 'bulk', '', '', '', '', 'open', 0, 'task', 'alice', ?, ?, 1, 1)`, id, w.now, w.now); err != nil {
+  priority, type, created_by, created_at, updated_at, rev)
+  VALUES ($1, 'bulk', '', '', '', '', 'open', 0, 'task', 'alice', $2, $3, 1)`, id, w.now, w.now); err != nil {
 				return err
 			}
 			if err := insertPaths(t.Context(), w, IssueID(id), PathDeclared, []string{path}); err != nil {
@@ -571,7 +571,7 @@ func TestPathsRefreshKeepsSafetyNet(t *testing.T) {
 		if err := recordCommitPaths(t.Context(), w, is.ID, []string{"a.go"}); err != nil {
 			return err
 		}
-		_, err := w.exec(t.Context(), `UPDATE issues SET notes = 'unrecorded', write_id = ? WHERE id = ?`, randomInt63(), string(is.ID))
+		_, err := w.exec(t.Context(), `UPDATE issues SET notes = 'unrecorded' WHERE id = $1`, string(is.ID))
 		return err
 	})
 	if err == nil || !strings.Contains(err.Error(), "mutation without an event") {

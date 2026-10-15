@@ -84,7 +84,7 @@ func TestPrintAdminLists(t *testing.T) {
 			printProjects(w, proto.ProjectsResult{Projects: []proto.Project{
 				{ID: a, Name: "acme", Prefix: "sf", Account: "internal", State: "active", Database: "aries", CreatedBy: "import"},
 				{ID: b, Name: "web", Prefix: "web", Account: "acme-2026", State: "archived", Database: "aries_p001", CreatedBy: "dana"}}, More: 3})
-		}, "NAME  ID                                    PREFIX  ACCOUNT    STATE     DATABASE\n" +
+		}, "NAME  ID                                    PREFIX  ACCOUNT    STATE     SCHEMA\n" +
 			"acme  " + a + "  sf      internal   active    aries\n" +
 			"web   " + b + "  web     acme-2026  archived  aries_p001\n" +
 			"and 3 more; list them with --after web\n"},

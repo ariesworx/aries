@@ -16,7 +16,7 @@ section that does not apply says so in a word. -->
 
 ## Gate
 
-<!-- `scripts/gate.sh`: where it ran (OS and architecture, Go, Dolt) and its result. Under "Not run", copy its "Not covered by this run" and add anything else; a check that was not run is never reported as passing. -->
+<!-- `scripts/gate.sh`: where it ran (OS and architecture, Go, Postgres) and its result. Under "Not run", copy its "Not covered by this run" and add anything else; a check that was not run is never reported as passing. -->
 
 - Ran:
 - Not run:

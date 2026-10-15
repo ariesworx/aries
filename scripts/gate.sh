@@ -7,7 +7,7 @@
 #   scripts/gate.sh
 #
 # Run with -h for the options. Needs go, golangci-lint, shellcheck and
-# git (CONTRIBUTING.md, "What you need"); it gets the pinned Dolt itself.
+# git (CONTRIBUTING.md, "What you need"); it gets Postgres itself.
 set -eu
 
 usage() {
@@ -15,9 +15,10 @@ usage() {
 usage: gate.sh [--quick] [--keep-going] [--smoke]
 
 Runs the gate: every command in AGENTS.md's Commands block, in order,
-with one line for each and a summary. The tests run against the pinned
-Dolt: when the dolt on PATH is another version, or there is none,
-scripts/install-dolt.sh supplies it from the per-user cache.
+with one line for each and a summary. The tests run against Postgres
+at the pinned major version: when the postgres on PATH is another, or
+there is none, scripts/install-postgres.sh supplies it, packaged or
+built into the per-user cache.
 
   --keep-going  run every command, rather than stop at the first failure
   --smoke       then run deploy/docker/smoke.sh, which needs Docker and
@@ -90,25 +91,29 @@ if [ "$lint_here" != "$lint_pin" ]; then
 	note "golangci-lint here is $lint_here and CI pins $lint_pin, so CI's lint may find what this one did not, or the reverse. Install $lint_pin (with mise: mise install)."
 fi
 
-# The pinned Dolt, from PATH or from the cache scripts/install-dolt.sh fills.
-dolt_pin=$(awk '$2 ~ /^v[0-9][0-9.]*\/dolt-/ {sub(/\/.*/, "", $2); print substr($2, 2); exit}' internal/version/dolt.sha256)
-dolt_here=$(dolt version 2>/dev/null | head -n 1) || dolt_here=
-dolt_from="on PATH"
-if [ "$dolt_here" != "dolt version $dolt_pin" ]; then
-	dolt_bin=$(scripts/install-dolt.sh 2>"$tmp/dolt.log") || {
-		cat "$tmp/dolt.log" >&2
-		die "the tests need Dolt $dolt_pin, and the dolt on PATH is ${dolt_here:-missing}" \
-			"see scripts/install-dolt.sh's message above, or put Dolt $dolt_pin on PATH"
+# Postgres at the pinned major version: the one on PATH, or else the one
+# scripts/install-postgres.sh gives, the packaged one on Linux or the
+# pinned release it builds into the per-user cache.
+pg_pin=$(awk '$2 ~ /^v[0-9][0-9.]*\/postgresql-/ {sub(/\/.*/, "", $2); print substr($2, 2); exit}' internal/version/postgres.sha256)
+pg_release() { postgres --version 2>/dev/null | awk 'NR == 1 {print $3}'; }
+pg_here=$(pg_release) || pg_here=
+pg_from="on PATH"
+if [ "${pg_here%%.*}" != "${pg_pin%%.*}" ]; then
+	pg_bin=$(scripts/install-postgres.sh 2>"$tmp/postgres.log") || {
+		cat "$tmp/postgres.log" >&2
+		die "the tests need Postgres ${pg_pin%%.*}, and the postgres on PATH is ${pg_here:-missing}" \
+			"see scripts/install-postgres.sh's message above, or put Postgres ${pg_pin%%.*} on PATH"
 	}
-	PATH=$dolt_bin:$PATH
+	PATH=$pg_bin:$PATH
 	export PATH
-	dolt_from="from $dolt_bin; on PATH: ${dolt_here:-none}"
+	pg_from="from $pg_bin; on PATH: ${pg_here:-none}"
+	pg_here=$(pg_release) || pg_here=
 fi
 
 mode="gate"
 [ "$quick" = 0 ] || mode="quick (not the gate)"
-printf '%s: %s %s/%s, golangci-lint %s, Dolt %s (%s)\n' \
-	"$mode" "$goversion" "$goos" "$goarch" "$lint_here" "$dolt_pin" "$dolt_from"
+printf '%s: %s %s/%s, golangci-lint %s, Postgres %s (%s)\n' \
+	"$mode" "$goversion" "$goos" "$goarch" "$lint_here" "$pg_here" "$pg_from"
 
 # stale_go reports whether a failed govulncheck's findings are all in the
 # standard library and all fixed in a patch release of go.mod's Go: a
@@ -203,9 +208,9 @@ if [ "$goos" != linux ] && [ "$quick" = 0 ]; then
 fi
 # Under scripts/leftovers.sh, which fails a run that leaves a file in its
 # temporary directory or a process running.
-gate 'ARIES_REQUIRE_DOLT=1 scripts/leftovers.sh go test -race -shuffle=on ./...'
+gate 'ARIES_REQUIRE_POSTGRES=1 scripts/leftovers.sh go test -race -shuffle=on ./...'
 if [ "$quick" = 1 ]; then
-	also 'ARIES_REQUIRE_DOLT=1 scripts/leftovers.sh go test ./...'
+	also 'ARIES_REQUIRE_POSTGRES=1 scripts/leftovers.sh go test ./...'
 fi
 if [ "$smoke" = 1 ]; then
 	also 'deploy/docker/smoke.sh'
@@ -218,7 +223,7 @@ fi
 if [ "$goos" != linux ]; then
 	note "Tests ran on $goos/$goarch; CI runs them on linux/amd64. The code only Linux builds (internal/server/peer_linux.go) was vetted, built and linted for Linux here, but its tests, TestCheckPeer*, run only on Linux: CI runs them."
 elif [ "$(id -u)" != 0 ]; then
-	note "TestCheckPeerOtherUID and TestCheckPeerKeepsStatusFromOtherUsers (internal/server) were skipped: each starts a socket peer as another user, which needs root. CI builds the package's test binary as its own user and runs only that binary under sudo, so that go never runs as root, and under scripts/leftovers.sh, since only root could remove what it left: go test -race -c -o server.test ./internal/server && (cd internal/server && sudo env \"PATH=\$PATH\" ARIES_REQUIRE_DOLT=1 ../../scripts/leftovers.sh ../../server.test -test.run '^TestCheckPeer' -test.v); rm server.test"
+	note "TestCheckPeerOtherUID and TestCheckPeerKeepsStatusFromOtherUsers (internal/server) were skipped: each starts a socket peer as another user, which needs root. CI builds the package's test binary as its own user and runs only that binary under sudo, so that go never runs as root, and under scripts/leftovers.sh, since only root could remove what it left: go test -race -c -o server.test ./internal/server && (cd internal/server && sudo env \"PATH=\$PATH\" ARIES_REQUIRE_POSTGRES=1 ../../scripts/leftovers.sh ../../server.test -test.run '^TestCheckPeer' -test.v); rm server.test"
 fi
 if [ "$smoke" = 0 ]; then
 	note "The Docker smoke test (deploy/docker/smoke.sh, or --smoke) was not run; CI does not run it either. Run it after changing the server, the protocol, deploy/docker or the setup steps in docs/server.md."

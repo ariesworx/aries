@@ -12,7 +12,6 @@ import (
 
 	"github.com/ariesworx/aries/internal/release"
 	"github.com/ariesworx/aries/internal/release/releasetest"
-	"github.com/ariesworx/aries/internal/server"
 )
 
 const upgradeProject = "00000000-0000-4000-8000-0000000000aa"
@@ -26,7 +25,6 @@ type upgradeRig struct {
 	cfg      string
 	running  string
 	restarts []string
-	backups  []string
 	d        upgradeDeps
 	dsn      string
 	// vars is the rest of the environment upgrade sees.
@@ -57,10 +55,6 @@ func newRig(t *testing.T, current, latest, configExtra string) *upgradeRig {
 				return errors.New("staged binary does not report " + tag)
 			}
 			return nil
-		},
-		backup: func(_ context.Context, _ adminEnv, _ server.Settings, _, tag string) (string, error) {
-			r.backups = append(r.backups, tag)
-			return tag, nil
 		},
 		restart: func(_ context.Context, unit string) error {
 			r.restarts = append(r.restarts, unit)
@@ -110,22 +104,22 @@ func TestUpgradeServerRestarts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "ariesd upgraded v0.2.0 -> v0.3.0 (backup tag aries-v0.2.0; ariesd.service restarted and healthy)\n"
+	want := "ariesd upgraded v0.2.0 -> v0.3.0 (ariesd.service restarted and healthy)\n"
 	if out != want {
 		t.Errorf("stdout %q, want %q", out, want)
 	}
 	if r.exeHolds(t) != "v0.3.0" || r.running != "v0.3.0" {
 		t.Errorf("exe %q, running %q", r.exeHolds(t), r.running)
 	}
-	if strings.Join(r.restarts, ",") != "ariesd.service" || strings.Join(r.backups, ",") != "aries-v0.2.0" {
-		t.Errorf("restarts %v, backups %v", r.restarts, r.backups)
+	if strings.Join(r.restarts, ",") != "ariesd.service" {
+		t.Errorf("restarts %v", r.restarts)
 	}
 
 	// The new binary reports the new version: a second run changes nothing.
 	r.d.current = "v0.3.0"
 	out, err = r.run(t)
-	if err != nil || out != "ariesd v0.3.0 is up to date\n" || len(r.restarts) != 1 || len(r.backups) != 1 {
-		t.Fatalf("second run: %q, %v, restarts %v, backups %v", out, err, r.restarts, r.backups)
+	if err != nil || out != "ariesd v0.3.0 is up to date\n" || len(r.restarts) != 1 {
+		t.Fatalf("second run: %q, %v, restarts %v", out, err, r.restarts)
 	}
 
 	if _, err := r.run(t, "--rollback"); err != nil {
@@ -198,7 +192,7 @@ func TestUpgradeServerCheck(t *testing.T) {
 			if err != nil || out != tt.want {
 				t.Fatalf("%q, %v; want %q", out, err, tt.want)
 			}
-			if r.exeHolds(t) != tt.current || len(r.backups)+len(r.restarts) != 0 {
+			if r.exeHolds(t) != tt.current || len(r.restarts) != 0 {
 				t.Error("--check changed something")
 			}
 		})
@@ -231,11 +225,6 @@ func TestUpgradeServerRefusals(t *testing.T) {
 			r.gh.Sums = &s
 			r.gh.AddBinary(t, "ariesd", "linux", "amd64", []byte("evil"))
 		}, want: "checksum mismatch"},
-		{name: "backup fails", current: "v0.2.0", edit: func(_ *testing.T, r *upgradeRig) {
-			r.d.backup = func(context.Context, adminEnv, server.Settings, string, string) (string, error) {
-				return "", errors.New("dolt is down")
-			}
-		}, want: "fix: nothing was changed"},
 		{name: "staged binary fails", current: "v0.2.0", edit: func(t *testing.T, r *upgradeRig) {
 			r.gh.AddBinary(t, "ariesd", "linux", "amd64", []byte("v9.9.9"))
 		}, want: "does not report v0.3.0"},
@@ -261,23 +250,5 @@ func TestUpgradeServerRefusals(t *testing.T) {
 				t.Errorf("refused upgrade left a .prev: %v", err)
 			}
 		})
-	}
-}
-
-// TestUpgradeServerBackupDolt runs the real backup against Dolt.
-func TestUpgradeServerBackupDolt(t *testing.T) {
-	t.Parallel()
-	r := newRig(t, "v0.2.0", "v0.3.0", "")
-	r.dsn = newDSN(t)
-	r.d.backup = backupStore
-	for range 2 {
-		r.d.current = "v0.2.0"
-		if err := os.WriteFile(r.exe, []byte("v0.2.0"), 0o755); err != nil { //nolint:gosec // an executable fixture
-			t.Fatal(err)
-		}
-		out, err := r.run(t)
-		if err != nil || !strings.Contains(out, "backup tag aries-v0.2.0)") {
-			t.Fatalf("%q, %v", out, err)
-		}
 	}
 }

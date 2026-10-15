@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/aries/internal/dolttest"
 	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/pgtest"
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/store"
 	"github.com/ariesworx/aries/internal/telemetry"
@@ -50,7 +50,7 @@ func snapshot(t *testing.T, m *telemetry.Manual) telemetry.Snapshot {
 func newServerTel(t *testing.T, lim Limits, tel *telemetry.Telemetry) *Server {
 	t.Helper()
 	dsn := newDatabase(t)
-	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "sf", CommitInterval: -1, Admins: []string{dana.Principal},
+	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "sf", Admins: []string{dana.Principal},
 		Limits: lim.Limits, Observer: StoreObserver(tel, project), Tracer: StoreTracer(tel, project)})
 	if err != nil {
 		t.Fatal(err)
@@ -126,9 +126,6 @@ func TestMetricsOfRequests(t *testing.T) {
 	}
 	mustAsk[proto.StartResult](c, proto.OpStart, proto.StartArgs{ID: a.ID})
 	mustAsk[proto.FinishResult](c, proto.OpFinish, proto.FinishArgs{ID: a.ID, Reason: "done"})
-	if err := realStore(s.cfg.Store).Flush(t.Context()); err != nil {
-		t.Fatal(err)
-	}
 
 	open := snapshot(t, m)
 	check(t, open, []want{
@@ -149,7 +146,6 @@ func TestMetricsOfRequests(t *testing.T) {
 		{"aries.claims", []string{"event", "take", "reason", "none"}, 1},
 		{"aries.claims", []string{"event", "release", "reason", "none"}, 1},
 		{"aries.claims", []string{"event", "expire", "reason", "none"}, 0},
-		{"aries.store.commit.duration", nil, 1},
 		{"aries.stores.open", nil, 1},
 	})
 	// The handshake's presence touch, two creates, a start and a finish
@@ -476,12 +472,12 @@ func TestReadyFollowsTheKeysFile(t *testing.T) {
 	})
 }
 
-// /readyz is ready only while the daemon listens and Dolt answers; the
-// check of Dolt is made once and stands for doltCheckEvery, however
-// often it is asked.
-func TestReadyFollowsDolt(t *testing.T) {
+// /readyz is ready only while the daemon listens and the database
+// answers; the check of the database is made once and stands for
+// dbCheckEvery, however often it is asked.
+func TestReadyFollowsTheDatabase(t *testing.T) {
 	// Serial: bounds elapsed time, which a test running beside it would stretch.
-	// A Dolt of the test's own, and not the pool's, since it is stopped.
+	// A server of the test's own, and not the pool's, since it is stopped.
 	dir, err := os.MkdirTemp("", "sfready")
 	if err != nil {
 		t.Fatal(err)
@@ -489,24 +485,19 @@ func TestReadyFollowsDolt(t *testing.T) {
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()
-	own, err := dolttest.Start(ctx, dir)
-	if errors.Is(err, dolttest.ErrNoDolt) {
-		t.Skip("dolt is not on PATH: install dolt to run the server tests")
+	own, err := pgtest.Start(ctx, dir)
+	if errors.Is(err, pgtest.ErrNoPostgres) {
+		t.Skip("postgres is not on PATH: run scripts/install-postgres.sh to run the server tests")
 	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	stopped := false
-	t.Cleanup(func() {
-		if !stopped {
-			_ = own.Stop()
-		}
-	})
+	t.Cleanup(func() { _ = own.Stop() })
 	dsn, err := own.NewDatabase(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	st, err := store.Open(ctx, dsn, store.Options{CommitInterval: -1})
+	st, err := store.Open(ctx, dsn, store.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -519,8 +510,8 @@ func TestReadyFollowsDolt(t *testing.T) {
 	}
 	var now atomic.Int64
 	now.Store(time.Now().UnixNano())
-	s.dolt.now = func() time.Time { return time.Unix(0, now.Load()) }
-	later := func() { now.Add(int64(doltCheckEvery)) }
+	s.db.now = func() time.Time { return time.Unix(0, now.Load()) }
+	later := func() { now.Add(int64(dbCheckEvery)) }
 
 	if why := s.Ready(ctx); why != "ariesd is not listening on its socket" {
 		t.Errorf("Ready() before Serve = %q, want it to say the daemon is not listening", why)
@@ -541,35 +532,31 @@ func TestReadyFollowsDolt(t *testing.T) {
 	if err := own.Stop(); err != nil {
 		t.Fatal(err)
 	}
-	stopped = true
-	// The last answer stands until it is doltCheckEvery old: asking does
-	// not reach Dolt.
+	// The last answer stands until it is dbCheckEvery old: asking does
+	// not reach the database.
 	for range 50 {
 		if why := s.Ready(ctx); why != "" {
-			t.Fatalf("Ready() just after Dolt stopped = %q, want the cached answer", why)
+			t.Fatalf("Ready() just after the database stopped = %q, want the cached answer", why)
 		}
 	}
 	later()
 	start := time.Now()
-	if why := s.Ready(ctx); why != "the last check of Dolt failed" {
-		t.Errorf("Ready() with Dolt stopped = %q, want it to name Dolt", why)
+	if why := s.Ready(ctx); why != "the last check of the database failed" {
+		t.Errorf("Ready() with the database stopped = %q, want it to name the database", why)
 	}
-	if d := time.Since(start); d > doltCheckTimeout+3*time.Second {
-		t.Errorf("the check of a stopped Dolt took %s, want it bounded by %s", d, doltCheckTimeout)
+	if d := time.Since(start); d > dbCheckTimeout+3*time.Second {
+		t.Errorf("the check of a stopped database took %s, want it bounded by %s", d, dbCheckTimeout)
 	}
-	if !strings.Contains(log.String(), "the check of Dolt failed") {
+	if !strings.Contains(log.String(), "the check of the database failed") {
 		t.Errorf("the failed check was not logged:\n%s", log)
 	}
 
-	// Dolt back on the same socket: ready again at the next check.
-	_ = os.Remove(filepath.Join(dir, "dolt0.sock"))
-	again, err := dolttest.Start(ctx, dir)
-	if err != nil {
-		t.Fatalf("restart dolt: %v", err)
+	// The database back on the same socket: ready again at the next check.
+	if err := own.Restart(ctx); err != nil {
+		t.Fatalf("restart postgres: %v", err)
 	}
-	t.Cleanup(func() { _ = again.Stop() })
-	if why := s.Ready(ctx); why != "the last check of Dolt failed" {
-		t.Errorf("Ready() just after Dolt came back = %q, want the cached answer", why)
+	if why := s.Ready(ctx); why != "the last check of the database failed" {
+		t.Errorf("Ready() just after the database came back = %q, want the cached answer", why)
 	}
 	waitFor(t, "the daemon to be ready again", func() bool {
 		later()

@@ -5,8 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-sql-driver/mysql"
-
 	"github.com/ariesworx/aries/internal/cli"
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/store"
@@ -19,22 +17,17 @@ const second = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
 // many.
 var dana = store.Actor{Principal: "dana", Session: "e2e", Machine: "server"}
 
-// addProject adds an active project in a database of its own, through
-// the daemon's control store, for the tests that are not about `aries
-// admin project add` (admin_test.go).
+// addProject adds an active project in a schema of its own, through the
+// daemon's control store, for the tests that are not about `aries admin
+// project add` (admin_test.go).
 func (w *world) addProject(id, name, prefix string) {
 	t := w.t
 	t.Helper()
-	dsn, err := w.newDatabase(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := mysql.ParseDSN(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if _, err := w.ctl.AddProject(t.Context(), dana, store.NewProject{ID: id, Name: name, Prefix: prefix, Account: "internal",
-		DBName: cfg.DBName}); err != nil {
+		DBName: "aries_" + strings.ReplaceAll(name, "-", "_")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.ctl.CreateDatabase(t.Context(), dana, id); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := w.ctl.ActivateProject(t.Context(), dana, id); err != nil {

@@ -121,7 +121,7 @@ func (s *Store) SetPrice(ctx context.Context, actor Actor, model string, from ti
 		out = ""
 		var cur Rates
 		err := w.tx.QueryRowContext(ctx, `SELECT input, output, cache_write, cache_write_1h, cache_read FROM prices
-  WHERE model = ? AND effective_at = ?`, model, from).Scan(&cur.Input, &cur.Output, &cur.CacheWrite, &cur.CacheWrite1h, &cur.CacheRead)
+  WHERE model = $1 AND effective_at = $2`, model, from).Scan(&cur.Input, &cur.Output, &cur.CacheWrite, &cur.CacheWrite1h, &cur.CacheRead)
 		exists := err == nil
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("read price: %w", err)
@@ -132,9 +132,9 @@ func (s *Store) SetPrice(ctx context.Context, actor Actor, model string, from ti
 			out = PriceUnchanged
 			return nil
 		case exists:
-			if _, err := w.exec(ctx, `UPDATE prices SET input = ?, output = ?, cache_write = ?, cache_write_1h = ?, cache_read = ?,
-  set_by = ?, set_at = ?, write_id = ? WHERE model = ? AND effective_at = ?`,
-				r.Input, r.Output, r.CacheWrite, r.CacheWrite1h, r.CacheRead, w.actor.Principal, w.now, randomInt63(), model, from); err != nil {
+			if _, err := w.exec(ctx, `UPDATE prices SET input = $1, output = $2, cache_write = $3, cache_write_1h = $4, cache_read = $5,
+  set_by = $6, set_at = $7 WHERE model = $8 AND effective_at = $9`,
+				r.Input, r.Output, r.CacheWrite, r.CacheWrite1h, r.CacheRead, w.actor.Principal, w.now, model, from); err != nil {
 				return fmt.Errorf("replace price: %w", err)
 			}
 			out = PriceReplaced
@@ -148,9 +148,9 @@ func (s *Store) SetPrice(ctx context.Context, actor Actor, model string, from ti
 			return &PriceLimitError{Max: w.lim.Prices}
 		}
 		if _, err := w.exec(ctx, `INSERT INTO prices
-  (model, effective_at, input, output, cache_write, cache_write_1h, cache_read, set_by, set_at, write_id)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			model, from, r.Input, r.Output, r.CacheWrite, r.CacheWrite1h, r.CacheRead, w.actor.Principal, w.now, randomInt63()); err != nil {
+  (model, effective_at, input, output, cache_write, cache_write_1h, cache_read, set_by, set_at)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+			model, from, r.Input, r.Output, r.CacheWrite, r.CacheWrite1h, r.CacheRead, w.actor.Principal, w.now); err != nil {
 			return fmt.Errorf("add price: %w", err)
 		}
 		out = PriceAdded

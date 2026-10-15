@@ -59,7 +59,7 @@ type callerKey struct{}
 
 // The tracer is told where a write's time goes, under the caller's
 // context: each attempt, with the wait for the writer inside it, a new
-// attempt for each retry, each Dolt commit, and the migrations of an
+// attempt for each retry, and the migrations of an
 // open. A read tells it nothing.
 func TestTracer(t *testing.T) {
 	t.Parallel()
@@ -104,8 +104,6 @@ func TestTracer(t *testing.T) {
 			}
 			return nil
 		}, want: []string{"begin write.attempt 1", "begin write.wait", "end write.wait ok", "end write.attempt 1 error"}},
-		{name: "a Dolt commit", do: func() error { return s.Flush(ctx) }, want: []string{"begin commit", "end commit ok"}},
-		{name: "a flush with nothing pending", do: func() error { return s.Flush(ctx) }},
 	}
 	for _, st := range steps {
 		if err := st.do(); err != nil {

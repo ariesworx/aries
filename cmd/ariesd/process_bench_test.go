@@ -29,13 +29,13 @@ import (
 //
 //	go test -run '^$' -bench 'Process' -benchtime 1x ./cmd/ariesd/
 //
-// One iteration is one daemon. It needs dolt, the go command and ps,
+// One iteration is one daemon. It needs Postgres, the go command and ps,
 // and is skipped on Windows.
 func BenchmarkProcess(b *testing.B) {
 	if runtime.GOOS == "windows" {
 		b.Skip("reads resident memory from ps")
 	}
-	doltOf(b) // skips without dolt
+	pgOf(b) // skips without Postgres
 	exe := filepath.Join(b.TempDir(), "ariesd")
 	build := exec.CommandContext(b.Context(), "go", "build", "-trimpath", "-ldflags", "-s -w", "-o", exe, ".") //nolint:gosec // the benchmark's own directory
 	build.Env = append(os.Environ(), "CGO_ENABLED=0")
@@ -91,15 +91,15 @@ const benchProject = "00000000-0000-4000-8000-0000000000b1"
 func measureProcess(b *testing.B, exe string, metrics bool) processCost {
 	b.Helper()
 	ctx := b.Context()
-	// Of the benchmark's own Dolt server (dolttest.Pool), and dropped
+	// Of the benchmark's own Postgres server (pgtest.Pool), and dropped
 	// here, not when the benchmark ends: one for each daemon measured.
-	dolt := doltOf(b)
-	dsn, err := dolt.NewDatabase(ctx)
+	srv := pgOf(b)
+	dsn, err := srv.NewDatabase(ctx)
 	if err != nil {
 		b.Fatal(err)
 	}
 	defer func() {
-		if err := dolt.DropDatabase(dsn); err != nil {
+		if err := srv.DropDatabase(dsn); err != nil {
 			b.Errorf("drop the benchmark's database: %v", err)
 		}
 	}()

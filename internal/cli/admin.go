@@ -156,7 +156,7 @@ func projectAdd(ctx context.Context, r *runner, in proto.ProjectAddArgs) error {
 		how = "created, finishing an earlier attempt,"
 	}
 	p := func(format string, a ...any) { _, _ = fmt.Fprintf(r.env.Stdout, format, a...) }
-	p("project %s (%s) %s in database %s: %s\n", esc(out.Name), esc(out.ID), how, esc(out.Database), esc(out.State))
+	p("project %s (%s) %s in schema %s: %s\n", esc(out.Name), esc(out.ID), how, esc(out.Database), esc(out.State))
 	p("commit this as %s in the project's repository:\n\n%s", client.ConfigFile, yaml)
 	return nil
 }
@@ -177,7 +177,7 @@ func printProjects(w io.Writer, res proto.ProjectsResult) {
 		head += "\tROLE"
 	}
 	if dbs {
-		head += "\tDATABASE"
+		head += "\tSCHEMA"
 	}
 	_, _ = fmt.Fprintln(tw, head)
 	for _, p := range res.Projects {

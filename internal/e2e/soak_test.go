@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"maps"
 	"math/rand/v2"
+	"net/url"
 	"os"
 	"regexp"
 	"runtime"
@@ -19,8 +20,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/go-sql-driver/mysql"
 
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/server"
@@ -314,9 +313,9 @@ func newSoak(t *testing.T, cfg soakConfig) *soak {
 	s.tel.people = func(v string) bool {
 		return slices.Contains(names, v) || strings.HasPrefix(v, "lib-") || strings.HasPrefix(v, "mcp-") || strings.HasPrefix(v, "lock-")
 	}
-	s.w = newWorld(t, daemonOpts{now: clock.now, clock: clock.read, reap: 100 * time.Millisecond, commit: 500 * time.Millisecond,
+	s.w = newWorld(t, daemonOpts{now: clock.now, clock: clock.read, reap: 100 * time.Millisecond,
 		admins: []string{cfg.admin, cfg.root}, limits: cfg.limits, logger: slog.New(s.logs), telemetry: s.tel.tel,
-		many: true, keys: true, dbs: 4, granted: 4})
+		many: true, keys: true, dbs: 4, usable: 4})
 	// Before anything connects: the stores the setup opens close again.
 	s.baseline, s.connBase = runtime.NumGoroutine(), connGoroutines()
 	s.setup()
@@ -324,19 +323,23 @@ func newSoak(t *testing.T, cfg soakConfig) *soak {
 }
 
 // openCheckerDB opens the checker's own connection to the store's
-// database, which it only reads.
+// schema, which it only reads. Its transactions run at repeatable read,
+// as the store's do, so that a snapshot reads the event log and the
+// tables at one moment: at read committed, each statement would see the
+// writes committed before it began.
 func openCheckerDB(t *testing.T, dsn string) *sql.DB {
 	t.Helper()
-	dc, err := mysql.ParseDSN(dsn)
+	u, err := url.Parse(dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	dc.ParseTime, dc.Loc = true, time.UTC
-	conn, err := mysql.NewConnector(dc)
+	q := u.Query()
+	q.Set("default_transaction_isolation", "repeatable read")
+	u.RawQuery = strings.ReplaceAll(q.Encode(), "+", "%20") // pgx reads a + as itself
+	db, err := sql.Open("pgx", u.String())
 	if err != nil {
 		t.Fatal(err)
 	}
-	db := sql.OpenDB(conn)
 	db.SetMaxOpenConns(2)
 	t.Cleanup(func() { _ = db.Close() })
 	return db

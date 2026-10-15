@@ -37,7 +37,7 @@ func scan(ctx context.Context, q querier, query string, args []any, row func(*sq
 func readEvents(ctx context.Context, q querier, after int64) ([]sevent, error) {
 	var out []sevent
 	err := scan(ctx, q, `SELECT seq, at, principal, session, op, target, before_state, after_state, COALESCE(idem_key, '')
-  FROM events WHERE seq > ? ORDER BY seq`, []any{after}, func(rows *sql.Rows) error {
+  FROM events WHERE seq > $1 ORDER BY seq`, []any{after}, func(rows *sql.Rows) error {
 		var e sevent
 		var before, after []byte
 		if err := rows.Scan(&e.seq, &e.at, &e.actor.principal, &e.actor.session, &e.op, &e.target, &before, &after, &e.idem); err != nil {
@@ -340,9 +340,8 @@ func (s *soak) checkWindow(ss *session, ln *line, c *mcpserver.RepoConn) {
 	s.awaitWindow(ss, ln, c, top)
 }
 
-// topIDs returns the highest inbox id and event seq, 0 for none. Dolt
-// answers COALESCE(MAX(id), 0) in a scalar subquery over an empty table
-// with NULL, so the maxima are read as they are and NULL taken as 0.
+// topIDs returns the highest inbox id and event seq, 0 for none: the
+// maxima are read as they are, and the NULL of an empty table taken as 0.
 func topIDs(ctx context.Context, q querier) (bound, error) {
 	var item, seq sql.NullInt64
 	err := scan(ctx, q, `SELECT (SELECT MAX(id) FROM inbox), (SELECT MAX(seq) FROM events)`, nil,
@@ -365,10 +364,10 @@ func (s *soak) awaitWindow(ss *session, ln *line, c *mcpserver.RepoConn, upTo bo
 		return
 	}
 	ctx := context.Background()
-	query := `SELECT id FROM inbox WHERE to_principal = ? AND (to_session IS NULL OR to_session = ?) AND at > ?`
+	query := `SELECT id FROM inbox WHERE to_principal = $1 AND (to_session IS NULL OR to_session = $2) AND at > $3`
 	args := []any{ss.key.principal, ss.key.session, w.start}
 	if upTo.item > 0 {
-		query += ` AND id <= ?`
+		query += ` AND id <= $4`
 		args = append(args, upTo.item)
 	}
 	var owed []int64
@@ -383,9 +382,9 @@ func (s *soak) awaitWindow(ss *session, ln *line, c *mcpserver.RepoConn, upTo bo
 	}
 	var owedEvents []int64
 	if w.events {
-		query, args := `SELECT seq, target FROM events WHERE at > ?`, []any{w.start}
+		query, args := `SELECT seq, target FROM events WHERE at > $1`, []any{w.start}
 		if upTo.seq > 0 {
-			query += ` AND seq <= ?`
+			query += ` AND seq <= $2`
 			args = append(args, upTo.seq)
 		}
 		err := scan(ctx, ss.p.db, query, args, func(rows *sql.Rows) error {

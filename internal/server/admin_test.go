@@ -3,6 +3,7 @@ package server
 import (
 	"crypto/ed25519"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -13,30 +14,43 @@ import (
 	"github.com/ariesworx/aries/internal/client"
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/store"
-	"github.com/go-sql-driver/mysql"
 	"golang.org/x/crypto/ssh"
 )
 
 // carol is one more person for the admin tests.
 var carol = store.Actor{Principal: "carol", Session: "s-c", Machine: "laptop-c"}
 
-// block gives m a block of n database names for new projects, of which
-// the first granted are granted to the tests' account, as an operator
-// grants names at setup.
-func (m *multi) block(t *testing.T, n, granted int) ProjectDBs {
+// block gives m a block of n schema names for new projects. The first
+// usable are free; the superuser makes each name after them a schema
+// first, which ariesd's role may then not use.
+func (m *multi) block(t *testing.T, n, usable int) ProjectDBs {
 	t.Helper()
-	cfg, err := mysql.ParseDSN(m.dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b := ProjectDBs{Prefix: cfg.DBName + "_p", Count: n}
-	for i := 1; i <= granted; i++ {
-		if err := doltOf(t).Grant(t.Context(), b.Name(i)); err != nil {
-			t.Fatal(err)
-		}
+	b := ProjectDBs{Prefix: "aries_p", Count: n}
+	for i := usable + 1; i <= n; i++ {
+		m.asSuperuser(t, "CREATE SCHEMA "+b.Name(i))
 	}
 	m.cfg.ProjectDBs = b
 	return b
+}
+
+// asSuperuser runs each statement on m's database as the server's
+// superuser.
+func (m *multi) asSuperuser(t *testing.T, stmts ...string) {
+	t.Helper()
+	d, err := store.ParseDSN(m.dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("pgx", pgOf(t).RootDSN(d.Database))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	for _, q := range stmts {
+		if _, err := db.ExecContext(t.Context(), q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
 }
 
 // connections returns how many connections past the handshake principal
@@ -449,7 +463,7 @@ func TestAdminProjectAdd(t *testing.T) {
 
 	// No block of names: nothing can be created, and nothing is written.
 	_, perr := ask[proto.ProjectAddResult](d, proto.OpProjectAdd, proto.ProjectAddArgs{Name: "one"})
-	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Message, "no database names for new projects") ||
+	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Message, "no schema names for new projects") ||
 		!strings.Contains(perr.Fix, "project_dbs:") || state("one") != "" {
 		t.Fatalf("project.add with no block = %+v (state %q); want invalid with a fix naming project_dbs, and no row", perr, state("one"))
 	}
@@ -497,13 +511,13 @@ func TestAdminProjectAdd(t *testing.T) {
 		t.Errorf("project two = %+v, want prefix tw and account acme", p)
 	}
 
-	// The third name was never granted: the database is created and
-	// cannot be used. The refusal gives the SQL, and the row stays.
+	// Another role made the third name's schema: ariesd's cannot use
+	// it. The refusal gives the SQL, and the row stays.
 	_, perr = ask[proto.ProjectAddResult](d, proto.OpProjectAdd, proto.ProjectAddArgs{Name: "three"})
-	wantSQL := fmt.Sprintf("GRANT ALL ON %s.* TO 'aries'@'localhost';", b.Name(3))
-	if perr == nil || perr.Code != proto.CodeUnavailable || !strings.Contains(perr.Message, "was never granted database "+b.Name(3)) ||
-		!strings.Contains(perr.Fix, wantSQL) || !strings.Contains(perr.Fix, "as Dolt's root") || !strings.Contains(perr.Fix, "`aries admin project add three` again") {
-		t.Fatalf("project.add of a name not granted = %+v\nwant unavailable, with a fix giving %q and the command to run again", perr, wantSQL)
+	wantSQL := store.GrantSQL(b.Name(3), "aries")
+	if perr == nil || perr.Code != proto.CodeUnavailable || !strings.Contains(perr.Message, "another role made schema "+b.Name(3)) ||
+		!strings.Contains(perr.Fix, wantSQL) || !strings.Contains(perr.Fix, "as the schema's owner or a superuser") || !strings.Contains(perr.Fix, "`aries admin project add three` again") {
+		t.Fatalf("project.add of a schema another role made = %+v\nwant unavailable, with a fix giving %q and the command to run again", perr, wantSQL)
 	}
 	if got := state("three"); got != store.ProjectCreating {
 		t.Fatalf("project three is %q after the refusal, want it left creating", got)
@@ -528,16 +542,14 @@ func TestAdminProjectAdd(t *testing.T) {
 	}
 	// The block is full while three holds its name.
 	_, perr = ask[proto.ProjectAddResult](d, proto.OpProjectAdd, proto.ProjectAddArgs{Name: "four"})
-	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Message, "every database name for new projects is in use") ||
+	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Message, "every schema name for new projects is in use") ||
 		!strings.Contains(perr.Fix, "raise count under project_dbs:") || !strings.Contains(perr.Fix, b.Name(4)) || state("four") != "" {
-		t.Errorf("project.add past the block = %+v (state %q)\nwant invalid, with a fix saying to grant more from %s and raise count, and no row",
+		t.Errorf("project.add past the block = %+v (state %q)\nwant invalid, with a fix saying to raise count, which gives names from %s, and no row",
 			perr, state("four"), b.Name(4))
 	}
 
 	// After the grant, the same command resumes and finishes.
-	if err := doltOf(t).Grant(t.Context(), b.Name(3)); err != nil {
-		t.Fatal(err)
-	}
+	m.asSuperuser(t, wantSQL)
 	done := mustAsk[proto.ProjectAddResult](d, proto.OpProjectAdd, proto.ProjectAddArgs{Name: "three"})
 	if done.ID != three.ID || done.State != "active" || !done.Resumed || done.Database != b.Name(3) {
 		t.Errorf("project.add after the grant = %+v; want project %s resumed and active in %s", done, three.ID, b.Name(3))
@@ -1055,10 +1067,12 @@ func TestProjectDBs(t *testing.T) {
 		{"none", ProjectDBs{}, ""},
 		{"a block", ProjectDBs{Prefix: "aries_p", Count: 100}, ""},
 		{"the most", ProjectDBs{Prefix: "p", Count: MaxProjectDBs}, ""},
-		{"no prefix", ProjectDBs{Count: 10}, "does not start a database name"},
-		{"prefix with a capital", ProjectDBs{Prefix: "Aries", Count: 10}, "does not start a database name"},
-		{"prefix with a quote", ProjectDBs{Prefix: "p`; DROP", Count: 10}, "does not start a database name"},
-		{"prefix too long", ProjectDBs{Prefix: strings.Repeat("p", 62), Count: 10}, "does not start a database name"},
+		{"the longest prefix", ProjectDBs{Prefix: strings.Repeat("p", 60), Count: 10}, ""},
+		{"no prefix", ProjectDBs{Count: 10}, "does not start a schema name"},
+		{"prefix with a capital", ProjectDBs{Prefix: "Aries", Count: 10}, "does not start a schema name"},
+		{"prefix with a quote", ProjectDBs{Prefix: "p\"; DROP", Count: 10}, "does not start a schema name"},
+		{"prefix Postgres keeps", ProjectDBs{Prefix: "pg_p", Count: 10}, "does not start a schema name"},
+		{"prefix too long", ProjectDBs{Prefix: strings.Repeat("p", 61), Count: 10}, "does not start a schema name"},
 		{"no count", ProjectDBs{Prefix: "aries_p"}, "count 0 must be 1 to 999"},
 		{"negative count", ProjectDBs{Prefix: "aries_p", Count: -1}, "count -1 must be 1 to 999"},
 		{"too many", ProjectDBs{Prefix: "aries_p", Count: 1000}, "count 1000 must be 1 to 999"},

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"runtime"
 	"slices"
@@ -95,11 +96,11 @@ func gatedWorld(t *testing.T, timeout time.Duration) (*multi, *writeGate) {
 	g := &writeGate{}
 	t.Cleanup(g.open)
 	m.cfg.Open = func(ctx context.Context, p store.Project) (Store, error) {
-		dsn, err := DatabaseDSN(m.dsn, p.DBName)
+		dsn, err := SchemaDSN(m.dsn, p.DBName)
 		if err != nil {
 			return nil, err
 		}
-		return store.Open(ctx, dsn, store.Options{CommitInterval: -1, Prefix: p.Prefix, Tracer: g})
+		return store.Open(ctx, dsn, store.Options{Prefix: p.Prefix, Tracer: g})
 	}
 	// Its own note has been made, so the gate sees none of it later.
 	c := mustDialTo(t, m.Server, dana, projA)
@@ -133,7 +134,7 @@ func seen(c *conn, a store.Actor) bool {
 
 // A connection whose session is still being noted in the registry is
 // answered its status once the report has waited as long as it waits on
-// Dolt at all, with the sessions unknown, and nothing else until the
+// the database at all, with the sessions unknown, and nothing else until the
 // note has been made: the op it sent meanwhile starts only after the
 // note's write has ended, and who then lists the session.
 func TestSessionNotedBeforeFirstStoreOp(t *testing.T) {
@@ -149,7 +150,7 @@ func TestSessionNotedBeforeFirstStoreOp(t *testing.T) {
 	}
 	// Half a request's time is a bound a busy machine does not reach.
 	if took, most := time.Since(start), m.cfg.RequestTimeout/2; took < statusReadTimeout || took > most {
-		t.Errorf("status while the session is being noted took %s; want %s, what it waits on Dolt, and at most %s", took.Round(time.Millisecond), statusReadTimeout, most)
+		t.Errorf("status while the session is being noted took %s; want %s, what it waits on the database, and at most %s", took.Round(time.Millisecond), statusReadTimeout, most)
 	}
 	if p := byName(res)["proj-a"]; !p.Open || p.Sessions != nil || p.SessionsUnknown != sessionsUnanswered {
 		t.Errorf("status while the session is being noted has proj-a as %s; want it open, with its sessions unknown: %q", js(p), sessionsUnanswered)
@@ -175,7 +176,7 @@ func TestSessionNotedBeforeFirstStoreOp(t *testing.T) {
 // then on is not noted again by each request.
 func TestSessionNotedAgainAfterFailure(t *testing.T) {
 	t.Parallel()
-	// Long enough for a request to Dolt on a busy machine, and short
+	// Long enough for a request to the database on a busy machine, and short
 	// enough to wait out here.
 	m, g := gatedWorld(t, 3*time.Second)
 	g.close()
@@ -259,4 +260,14 @@ func TestStatusOnlySessionIsNoted(t *testing.T) {
 			t.Fatalf("who does not list %s/%s, which asked for status and left", a.Principal, a.Session)
 		}
 	}
+}
+
+// js prints a part of a status report as its JSON, so that a failure
+// shows the figures and not the addresses of those that may be absent.
+func js(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err.Error()
+	}
+	return string(b)
 }

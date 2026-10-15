@@ -2,29 +2,26 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
-	"strings"
-
-	"github.com/go-sql-driver/mysql"
 )
 
 // What `aries admin` needs of the control store beyond its rows: a
-// project's database created, and the questions the daemon asks before
-// it answers an admin (which project a name means, who is within whose
+// project's schema created, and the questions the daemon asks before it
+// answers an admin (which project a name means, who is within whose
 // reach).
 
-// CreateDatabase creates the Dolt database of a project still being
-// created, the step between [Control.AddProject] and
-// [Control.ActivateProject] (design §15.5, 1). Only a server admin may.
-// It is safe to repeat: a database that exists is left as it is.
+// CreateDatabase creates the schema of a project still being created,
+// the step between [Control.AddProject] and [Control.ActivateProject]
+// (design §15.5, 1), in the control store's database, owned by its role.
+// Only a server admin may. It is safe to repeat: a schema that exists is
+// left as it is. (The name is from when each project had a database of
+// its own.)
 //
-// The statement runs on the control store's writer connection, because
-// Dolt checks CREATE DATABASE against the connection's current database,
-// on which this account has every right. That the account can then use
-// the new database is another matter: it can only if Dolt's root granted
-// it that exact name, which [Open] finds out ([DatabaseDenied]).
+// The role needs the right to make schemas in its database, which owning
+// the database gives it; refused, the error is one [DatabaseDenied]
+// recognizes. That it can then use a schema that already existed is
+// another matter, which [Open] finds out.
 //
 // It refuses a project that does not exist with ErrNotFound, and one
 // that is not being created with ErrInvalid.
@@ -43,80 +40,66 @@ func (c *Control) CreateDatabase(ctx context.Context, actor Actor, project strin
 		return err
 	}
 	if p.State != ProjectCreating {
-		return fmt.Errorf("%w: project %s is %s; only a project being created has a database to create", ErrInvalid, project, p.State)
+		return fmt.Errorf("%w: project %s is %s; only a project being created has a schema to create", ErrInvalid, project, p.State)
 	}
 	// The row's name passed this check when it was written; it is
 	// checked again here because the statement takes no placeholder.
 	if !ValidDBName(p.DBName) {
-		return fmt.Errorf("%w: database name %q of project %s", ErrInvalid, p.DBName, project)
+		return fmt.Errorf("%w: schema name %q of project %s", ErrInvalid, p.DBName, project)
 	}
-	// Like BackupTag, this holds the writer connection outside
-	// Store.write: it changes no table of the control database, so there
-	// is no transaction to make and no event to record. The project's
-	// own events say that it was added and activated.
-	conn, err := c.s.w.Conn(ctx)
-	if err != nil {
-		return fmt.Errorf("create database %s: %w", p.DBName, err)
-	}
-	defer func() { _ = conn.Close() }()
-	if _, err := conn.ExecContext(ctx, "CREATE DATABASE IF NOT EXISTS "+p.DBName); err != nil {
-		return fmt.Errorf("create database %s: %w", p.DBName, err)
+	// Outside Store.write: it changes no table of the control store, so
+	// there is no event to record. The project's own events say that it
+	// was added and activated.
+	if _, err := c.s.w.ExecContext(ctx, "CREATE SCHEMA IF NOT EXISTS "+quoteIdent(p.DBName)); err != nil {
+		return fmt.Errorf("create schema %s: %w", p.DBName, err)
 	}
 	return nil
 }
 
-// HeldClaims returns how many claims are held in the project database
+// HeldClaims returns how many claims are held in the project schema
 // named db, with the holds and places in its locks' queues, which end
-// with access as claims do, by two reads through the control store's own
-// connection: the
-// account reaches every project's database, and no store is opened for
-// it. ariesd asks it of each archived project at start, so that one
+// with access as claims do, by one read through the control store's own
+// connection: the schemas are in one database, and no store is opened
+// for it. ariesd asks it of each archived project at start, so that one
 // with nothing to end costs a query and not a store.
 //
-// It reads the claims table as this binary's schema has it, without
-// checking the database's version. An error therefore says only that
-// the caller must open the database to learn more: it may not exist, may
-// not be granted, or may hold another version's schema.
+// It reads the tables as this binary's schema has them, without checking
+// the schema's version. An error therefore says only that the caller
+// must open the schema to learn more: it may not exist, may not be the
+// role's, or may hold another version's tables.
 func (c *Control) HeldClaims(ctx context.Context, db string) (int, error) {
-	// The statement takes no placeholder for a database name.
+	// The statement takes no placeholder for a schema name.
 	if !ValidDBName(db) {
-		return 0, fmt.Errorf("%w: database name %q", ErrInvalid, db)
+		return 0, fmt.Errorf("%w: schema name %q", ErrInvalid, db)
 	}
+	s := quoteIdent(db)
 	var n int
-	if err := c.s.r.QueryRowContext(ctx, "SELECT COUNT(*) FROM `"+db+"`.claims WHERE principal IS NOT NULL").Scan(&n); err != nil {
-		return 0, fmt.Errorf("count the claims held in %s: %w", db, err)
+	if err := c.s.r.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM `+s+`.claims WHERE principal IS NOT NULL)
+  + (SELECT COUNT(*) FROM `+s+`.lock_holders) + (SELECT COUNT(*) FROM `+s+`.lock_waiters)`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count the claims and locks held in %s: %w", db, err)
 	}
-	// Holds and places in a lock's queue end with access too. A database
-	// an older ariesd migrated has no lock tables, and so holds none.
-	var locks int
-	err := c.s.r.QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM `"+db+"`.lock_holders) + (SELECT COUNT(*) FROM `"+db+"`.lock_waiters)").Scan(&locks)
-	if me, ok := errors.AsType[*mysql.MySQLError](err); ok && me.Number == 1146 {
-		return n, nil
-	}
-	if err != nil {
-		return 0, fmt.Errorf("count the locks held in %s: %w", db, err)
-	}
-	return n + locks, nil
+	return n, nil
 }
 
-// DatabaseDenied reports whether err is Dolt refusing the account a
-// database: one that root never granted it by name, whether or not the
-// database exists.
-func DatabaseDenied(err error) bool {
-	me, ok := errors.AsType[*mysql.MySQLError](err)
-	// Dolt reports it as 1105, its general error, where MySQL has 1044.
-	return ok && (me.Number == 1105 || me.Number == 1044) && strings.HasPrefix(me.Message, "Access denied for user")
+// Database returns the database the store is connected to, in which
+// every project's schema is made: what a fix that grants the right to
+// make them names.
+func (c *Control) Database(ctx context.Context) (string, error) {
+	var db string
+	if err := c.s.r.QueryRowContext(ctx, `SELECT current_database()`).Scan(&db); err != nil {
+		return "", fmt.Errorf("read the database: %w", err)
+	}
+	return db, nil
 }
 
-// Account returns the Dolt account the store is connected as, in the
-// form a GRANT statement names it: 'user'@'host'.
+// Account returns the role the store is connected as, as a statement
+// names it.
 func (c *Control) Account(ctx context.Context) (string, error) {
-	var current string
-	if err := c.s.r.QueryRowContext(ctx, `SELECT CURRENT_USER()`).Scan(&current); err != nil {
-		return "", fmt.Errorf("read the account: %w", err)
+	var role string
+	if err := c.s.r.QueryRowContext(ctx, `SELECT current_user`).Scan(&role); err != nil {
+		return "", fmt.Errorf("read the role: %w", err)
 	}
-	user, host, _ := strings.Cut(current, "@")
-	return "'" + user + "'@'" + host + "'", nil
+	return role, nil
 }
 
 // ProjectNamed returns the project with the given name, in whatever

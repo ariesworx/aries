@@ -3,86 +3,133 @@ package store
 import (
 	"database/sql"
 	"errors"
-	"slices"
+	"fmt"
+	"net/url"
 	"strings"
 	"testing"
 
-	"github.com/go-sql-driver/mysql"
+	"github.com/ariesworx/aries/internal/pgtest"
 )
 
 func TestAccountProblems(t *testing.T) {
 	t.Parallel()
-	dir := sql.NullString{String: "/var/lib/dolt/no-files", Valid: true}
 	tests := []struct {
-		name      string
-		user      string
-		global    []string
-		grantable bool
-		filePriv  sql.NullString
-		want      []string // substrings, one per problem
+		name string
+		r    roleRights
+		want []string // substrings, one per problem
 	}{
-		{name: "least privilege", user: "aries", filePriv: dir},
-		{name: "usage only", user: "aries", global: []string{"USAGE"}, filePriv: dir},
-		{name: "secure_file_priv NULL disables file access", user: "aries"},
-		{name: "root", user: "root", filePriv: dir, want: []string{"root"}},
-		{name: "file", user: "aries", global: []string{"FILE"}, filePriv: dir, want: []string{"FILE"}},
-		{name: "super and select", user: "aries", global: []string{"SELECT", "SUPER"}, filePriv: dir, want: []string{"SELECT, SUPER"}},
-		{name: "grant option", user: "aries", grantable: true, filePriv: dir, want: []string{"GRANT OPTION"}},
-		{name: "empty secure_file_priv", user: "aries", filePriv: sql.NullString{Valid: true}, want: []string{"secure_file_priv"}},
-		{name: "dolt default root", user: "root", global: []string{"FILE", "SUPER"}, grantable: true,
-			filePriv: sql.NullString{Valid: true}, want: []string{"root", "FILE, SUPER", "GRANT OPTION", "secure_file_priv"}},
+		{name: "least privilege", r: roleRights{name: "aries"}},
+		{name: "superuser", r: roleRights{name: "postgres", superuser: true, createRole: true, createDB: true, members: []string{"pg_read_server_files"}},
+			want: []string{"superuser"}},
+		{name: "createrole", r: roleRights{name: "aries", createRole: true}, want: []string{"CREATEROLE"}},
+		{name: "createdb", r: roleRights{name: "aries", createDB: true}, want: []string{"CREATEDB"}},
+		{name: "replication", r: roleRights{name: "aries", replication: true}, want: []string{"REPLICATION"}},
+		{name: "bypassrls", r: roleRights{name: "aries", bypassRLS: true}, want: []string{"BYPASSRLS"}},
+		{name: "file access", r: roleRights{name: "aries", members: []string{"pg_read_server_files", "pg_write_server_files"}},
+			want: []string{"pg_read_server_files, pg_write_server_files"}},
+		{name: "several", r: roleRights{name: "aries", createDB: true, members: []string{"pg_read_all_data"}},
+			want: []string{"CREATEDB", "pg_read_all_data"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := accountProblems(tc.user, tc.global, tc.grantable, tc.filePriv)
+			got := accountProblems(tc.r)
 			if len(got) != len(tc.want) {
-				t.Fatalf("accountProblems(%q, %v, %v, %v) = %q, want %d problems", tc.user, tc.global, tc.grantable, tc.filePriv, got, len(tc.want))
+				t.Fatalf("accountProblems(%+v) = %q, want %d problems", tc.r, got, len(tc.want))
 			}
 			for i, w := range tc.want {
 				if !strings.Contains(got[i], w) {
-					t.Errorf("problem %d = %q, want it to mention %q", i, got[i], w)
+					t.Errorf("accountProblems(%+v) problem %d = %q, want it to mention %q", tc.r, i, got[i], w)
 				}
 			}
 		})
 	}
 }
 
-// rootDSN is dsn's database reached as Dolt's root.
-func rootDSN(t *testing.T, dsn string) string {
+// asRole returns dsn with its role replaced by role.
+func asRole(t *testing.T, dsn, role string) string {
 	t.Helper()
-	cfg, err := mysql.ParseDSN(dsn)
+	u, err := url.Parse(dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return doltOf(t).RootDSN(cfg.DBName)
+	u.User = url.User(role)
+	return u.String()
 }
 
-// S-2: a store opened as Dolt's root, which can read and write files and
-// rewrite the event log behind ariesd's back, is refused unless the
-// caller explicitly allows it (ariesd allows it only with --dev).
+// superuserDSN is dsn's database reached as the server's superuser.
+func superuserDSN(t *testing.T, dsn string) string {
+	t.Helper()
+	d, err := ParseDSN(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pgOf(t).RootDSN(d.Database)
+}
+
+// S-2: a store opened as a superuser, or as a role with a right that
+// reaches beyond its database, which could rewrite the event log behind
+// ariesd's back or read and write the server's files, is refused unless
+// the caller explicitly allows it (ariesd allows it only with --dev).
 func TestOpenRefusesUnsafeAccount(t *testing.T) {
 	t.Parallel()
 	dsn := newDSN(t)
-	_, err := Open(t.Context(), rootDSN(t, dsn), Options{CommitInterval: -1})
-	var ua *UnsafeAccountError
-	if !errors.As(err, &ua) {
-		t.Fatalf("Open as root = %v, want an *UnsafeAccountError", err)
-	}
-	if ua.User != "root@localhost" || !slices.ContainsFunc(ua.Problems, func(p string) bool { return strings.Contains(p, "FILE") }) {
-		t.Errorf("UnsafeAccountError = %+v, want root@localhost with FILE among the problems", ua)
-	}
-	for _, w := range []string{"GRANT ALL ON", "secure_file_priv", "--allow-unsafe-dolt"} {
-		if !strings.Contains(err.Error(), w) {
-			t.Errorf("error %q does not name %q", err, w)
-		}
-	}
-	s, err := Open(t.Context(), rootDSN(t, dsn), Options{CommitInterval: -1, AllowUnsafeAccount: true})
+	root, err := sql.Open("pgx", superuserDSN(t, dsn))
 	if err != nil {
-		t.Fatalf("Open as root with AllowUnsafeAccount: %v", err)
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	d, err := ParseDSN(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name string
+		role string
+		make []string // run as the superuser first; the pool drops the roles
+		want string   // in the problems
+	}{
+		{name: "superuser", role: "postgres", want: "superuser"},
+		{name: "createdb", role: "can_createdb", make: []string{"CREATE ROLE can_createdb LOGIN CREATEDB"}, want: "CREATEDB"},
+		{name: "createrole", role: "can_createrole", make: []string{"CREATE ROLE can_createrole LOGIN CREATEROLE"}, want: "CREATEROLE"},
+		{name: "file access through another role", role: "reads_files", make: []string{
+			"CREATE ROLE file_readers", "GRANT pg_read_server_files TO file_readers",
+			"CREATE ROLE reads_files LOGIN IN ROLE file_readers"}, want: "pg_read_server_files"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, q := range append(tc.make, fmt.Sprintf("GRANT ALL ON SCHEMA public TO %s", tc.role)) {
+				if _, err := root.ExecContext(t.Context(), q); err != nil {
+					t.Fatalf("%s: %v", q, err)
+				}
+			}
+			role := asRole(t, dsn, tc.role)
+			_, err := Open(t.Context(), role, Options{})
+			ua, ok := errors.AsType[*UnsafeAccountError](err)
+			if !ok {
+				t.Fatalf("Open as %s = %v, want an *UnsafeAccountError", tc.role, err)
+			}
+			if ua.User != tc.role || !strings.Contains(strings.Join(ua.Problems, "; "), tc.want) {
+				t.Errorf("Open as %s: UnsafeAccountError = %+v, want role %s with %q among the problems", tc.role, ua, tc.role, tc.want)
+			}
+			for _, w := range []string{"CREATE ROLE aries LOGIN", "ALTER ROLE", "--allow-unsafe-account"} {
+				if !strings.Contains(err.Error(), w) {
+					t.Errorf("Open as %s: error %q does not name %q", tc.role, err, w)
+				}
+			}
+		})
+	}
+	// Allowed, the superuser's store opens, on a database of its own.
+	s, err := Open(t.Context(), superuserDSN(t, newDSN(t)), Options{AllowUnsafeAccount: true})
+	if err != nil {
+		t.Fatalf("Open as the superuser with AllowUnsafeAccount: %v", err)
 	}
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
-	// The least-privileged account dolttest hands out opens.
+	// The locked-down role pgtest hands out opens: the refusals above
+	// changed nothing in its database.
+	if d.User != pgtest.User {
+		t.Fatalf("newDSN names role %q, want %s", d.User, pgtest.User)
+	}
 	openStore(t, dsn, Options{})
 }

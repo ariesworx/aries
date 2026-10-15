@@ -39,8 +39,7 @@ type WriteStats struct {
 func (s *Store) WriteStats() WriteStats { return s.stats.snapshot(time.Now()) }
 
 // Writes returns how many writes the store has committed since it was
-// opened, counted as [WriteStats] counts them. The daemon sets the
-// cycles of Dolt's garbage collector against it (design §16.5).
+// opened, counted as [WriteStats] counts them.
 func (s *Store) Writes() int { return s.stats.total() }
 
 // writeStats holds a store's write counters: a ring of the latest

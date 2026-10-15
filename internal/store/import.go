@@ -121,7 +121,7 @@ func normalizeImport(in Issue) (Issue, error) {
 }
 
 // sameJSON reports whether two JSON documents are equal as values, so key
-// order and spacing (which Dolt normalizes) do not count. Empty and null
+// order and spacing (which a database may normalize) do not count. Empty and null
 // are equal.
 func sameJSON(a, b []byte) bool {
 	decode := func(m []byte) (any, bool) {
@@ -268,7 +268,6 @@ func (s *Store) ImportIssue(ctx context.Context, actor Actor, in Issue) (ImportR
 			}
 			return checkEdge(ctx, w.tx, in.ID, in.ParentID)
 		}
-		wid := randomInt63()
 		before, err := loadIssue(ctx, w.tx, in.ID)
 		var add []string
 		switch {
@@ -279,9 +278,9 @@ func (s *Store) ImportIssue(ctx context.Context, actor Actor, in Issue) (ImportR
 			args := append([]any{string(in.ID)}, cols...)
 			if _, err := w.exec(ctx, `INSERT INTO issues (id, parent_id, title, body, design, acceptance, notes,
   status, priority, type, assignee, owner, due_at, defer_until, ephemeral, expires_at, pinned, template,
-  metadata, close_reason, created_by, created_at, updated_at, closed_at, rev, write_id)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
-				append(args, wid)...); err != nil {
+  metadata, close_reason, created_by, created_at, updated_at, closed_at, rev)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, 1)`,
+				args...); err != nil {
 				return fmt.Errorf("insert issue: %w", err)
 			}
 			if err := tickInText(ctx, w, in.ID, in.Acceptance); err != nil {
@@ -298,12 +297,12 @@ func (s *Store) ImportIssue(ctx context.Context, actor Actor, in Issue) (ImportR
 						return err
 					}
 				}
-				args := append(cols, wid, string(in.ID), int64(before.Rev))
-				n, err := w.exec(ctx, `UPDATE issues SET parent_id = ?, title = ?, body = ?, design = ?,
-  acceptance = ?, notes = ?, status = ?, priority = ?, type = ?, assignee = ?, owner = ?, due_at = ?,
-  defer_until = ?, ephemeral = ?, expires_at = ?, pinned = ?, template = ?, metadata = ?, close_reason = ?,
-  created_by = ?, created_at = ?, updated_at = ?, closed_at = ?, rev = rev + 1, write_id = ?
-  WHERE id = ? AND rev = ?`, args...)
+				args := append(cols, string(in.ID), int64(before.Rev))
+				n, err := w.exec(ctx, `UPDATE issues SET parent_id = $1, title = $2, body = $3, design = $4,
+  acceptance = $5, notes = $6, status = $7, priority = $8, type = $9, assignee = $10, owner = $11, due_at = $12,
+  defer_until = $13, ephemeral = $14, expires_at = $15, pinned = $16, template = $17, metadata = $18, close_reason = $19,
+  created_by = $20, created_at = $21, updated_at = $22, closed_at = $23, rev = rev + 1
+  WHERE id = $24 AND rev = $25`, args...)
 				if err != nil {
 					return fmt.Errorf("update issue %s: %w", in.ID, err)
 				}
@@ -332,7 +331,7 @@ func (s *Store) ImportIssue(ctx context.Context, actor Actor, in Issue) (ImportR
 			}
 		}
 		for _, l := range add {
-			if _, err := w.exec(ctx, `INSERT IGNORE INTO labels (issue_id, label, created_at) VALUES (?, ?, ?)`,
+			if _, err := w.exec(ctx, `INSERT INTO labels (issue_id, label, created_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
 				string(in.ID), l, w.now); err != nil {
 				return fmt.Errorf("insert label: %w", err)
 			}
@@ -384,7 +383,7 @@ func normalizeDep(d Dep) (Dep, error) {
 // planDep compares d with the stored edge of the same key, if any.
 func planDep(ctx context.Context, q querier, d Dep) (ImportOutcome, error) {
 	var meta []byte
-	err := q.QueryRowContext(ctx, `SELECT metadata FROM deps WHERE from_id = ? AND to_id = ? AND type = ?`,
+	err := q.QueryRowContext(ctx, `SELECT metadata FROM deps WHERE from_id = $1 AND to_id = $2 AND type = $3`,
 		string(d.From), string(d.To), string(d.Type)).Scan(&meta)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
@@ -436,9 +435,8 @@ func (s *Store) ImportDep(ctx context.Context, actor Actor, d Dep) (ImportOutcom
 				return err
 			}
 		}
-		wid := randomInt63()
-		if _, err := w.exec(ctx, `INSERT INTO deps (from_id, to_id, type, metadata, created_by, created_at, rev, write_id)
-  VALUES (?, ?, ?, ?, ?, ?, 1, ?)`, string(d.From), string(d.To), string(d.Type), meta, d.CreatedBy, d.CreatedAt, wid); err != nil {
+		if _, err := w.exec(ctx, `INSERT INTO deps (from_id, to_id, type, metadata, created_by, created_at, rev)
+  VALUES ($1, $2, $3, $4, $5, $6, 1)`, string(d.From), string(d.To), string(d.Type), meta, d.CreatedBy, d.CreatedAt); err != nil {
 			return fmt.Errorf("insert dep: %w", err)
 		}
 		return w.event(ctx, OpDepAdd, string(d.From), nil, d)
@@ -477,7 +475,7 @@ func normalizeComment(c Comment) (Comment, error) {
 // planComment compares c with the stored comment of the same ID, if any.
 func planComment(ctx context.Context, q querier, c Comment) (ImportOutcome, error) {
 	var got Comment
-	err := q.QueryRowContext(ctx, `SELECT id, issue_id, author, session, body, created_at FROM comments WHERE id = ?`,
+	err := q.QueryRowContext(ctx, `SELECT id, issue_id, author, session, body, created_at FROM comments WHERE id = $1`,
 		c.ID).Scan(&got.ID, &got.Issue, &got.Author, &got.Session, &got.Body, &got.CreatedAt)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
@@ -519,7 +517,7 @@ func (s *Store) ImportComment(ctx context.Context, actor Actor, c Comment) (Impo
 			return err
 		}
 		if _, err := w.exec(ctx, `INSERT INTO comments (id, issue_id, author, session, body, created_at)
-  VALUES (?, ?, ?, ?, ?, ?)`, c.ID, string(c.Issue), c.Author, c.Session, c.Body, c.CreatedAt); err != nil {
+  VALUES ($1, $2, $3, $4, $5, $6)`, c.ID, string(c.Issue), c.Author, c.Session, c.Body, c.CreatedAt); err != nil {
 			return fmt.Errorf("insert comment: %w", err)
 		}
 		return w.event(ctx, OpCommentAdd, string(c.Issue), nil, c)

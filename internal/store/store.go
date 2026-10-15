@@ -15,21 +15,19 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
+
 	"github.com/ariesworx/aries/internal/logs"
-	"github.com/go-sql-driver/mysql"
 )
 
 // Options configure a Store. The zero value is usable.
 type Options struct {
 	// Prefix is used for IDs the store generates. Default "sf".
 	Prefix string
-	// CommitInterval is how often pending writes become a Dolt commit.
-	// Default 1s; negative disables the background committer (call Flush).
-	CommitInterval time.Duration
 	// MaxAttempts bounds retries of a write that loses to a concurrent
 	// transaction. Default 5.
 	MaxAttempts int
@@ -54,8 +52,8 @@ type Options struct {
 	// (`aries away`) may ask for. Default [MaxLease]; one that is negative,
 	// or under [MinLease], is refused.
 	AwayMax time.Duration
-	// Logger receives background committer errors, and the warning that
-	// AllowUnsafeAccount let an unsafe account through. Default discards.
+	// Logger receives the warning that AllowUnsafeAccount let an unsafe
+	// account through. Default discards.
 	Logger *slog.Logger
 	// Admins are the principals who may change issues others hold and
 	// force a close. None may be a [Reserved] name.
@@ -66,17 +64,16 @@ type Options struct {
 	// project admins ([Control.Access]). It must be fast, read no
 	// database, and be safe for concurrent use.
 	IsAdmin func(principal string) bool
-	// AllowUnsafeAccount opens the store even when the database account
-	// is root, holds rights beyond its database, or the server leaves
-	// secure_file_priv empty. Off, Open refuses such an account with an
-	// [*UnsafeAccountError]; ariesd turns it on only for --dev
-	// --allow-unsafe-dolt.
+	// AllowUnsafeAccount opens the store even when the database role is a
+	// superuser or holds rights beyond its database (account.go). Off,
+	// Open refuses such a role with an [*UnsafeAccountError]; ariesd turns
+	// it on only for --dev --allow-unsafe-account.
 	AllowUnsafeAccount bool
 	// Limits bound requests and per-principal rows. Zero fields take
 	// [DefaultLimits].
 	Limits Limits
-	// Observer, when set, is told of each write, retry, Dolt commit and
-	// change of a claim, for the daemon's metrics. See [Observer].
+	// Observer, when set, is told of each write, retry and change of a
+	// claim or a lock, for the daemon's metrics. See [Observer].
 	Observer Observer
 	// Tracer, when set, is told where a write's time goes, under the
 	// caller's context, for the daemon's traces. See [Tracer].
@@ -87,10 +84,6 @@ type Options struct {
 	// the database of an archived project, which is migrated when the
 	// project is activated and not before.
 	NoMigrate bool
-
-	// tick, when set by tests, replaces the committer's CommitInterval
-	// ticker, so a test decides when each commit happens.
-	tick <-chan time.Time
 }
 
 // Store is the server-side issue store. It is safe for concurrent use.
@@ -99,13 +92,7 @@ type Store struct {
 	// w is the single writer connection; r is the read pool.
 	w, r *sql.DB
 	opts Options
-	// dirty is set by a write that changed rows since the last Dolt
-	// commit, and cleared by Flush.
-	dirty atomic.Bool
 
-	// stop asks the committer to return; it closes done when it has.
-	stop      chan struct{}
-	done      chan struct{}
 	closeOnce sync.Once
 	closeErr  error
 
@@ -119,8 +106,9 @@ type Store struct {
 	// clock is the server clock, and tm the store's own time, which the
 	// clock cannot move backward (clock.go). hasClaims is false for the
 	// control database, which has no leases to settle; settling
-	// serializes SettleClock. db names the database to the clock, which
-	// remembers what each has settled: its server's address and its name.
+	// serializes SettleClock. db names the schema to the clock, which
+	// remembers what each has settled: its server's address, its
+	// database and its name.
 	clock     *Clock
 	tm        storeTime
 	hasClaims bool
@@ -132,48 +120,58 @@ type Store struct {
 	// beforeCommit, when set by tests, runs inside every write transaction
 	// just before COMMIT.
 	beforeCommit func(context.Context) error
+	// beforeRetry, when set by tests, runs between a write's attempts,
+	// once the attempt that lost has rolled back and holds no lock: where
+	// a test makes the concurrent write the rerun must see.
+	beforeRetry func(context.Context) error
 	// wrapRead, when set by tests, wraps the querier beginRead returns, so
 	// a test can act between a read's queries.
 	wrapRead func(querier) querier
 }
 
-// Open connects to the Dolt database named in dsn (go-sql-driver/mysql
-// format), checks the account, applies pending migrations and starts the
-// committer. ctx bounds only the opening; the caller must Close the
+// Open connects to the Postgres schema named in dsn (a postgres:// URL,
+// dsn.go), checks the server's version and the role, and applies pending
+// migrations. ctx bounds only the opening; the caller must Close the
 // store.
 //
-// Open refuses, with [ErrInvalid], a dsn that names no database and an
-// invalid prefix, admin or limit in opts. It refuses an unsafe account
-// with an [*UnsafeAccountError] unless opts.AllowUnsafeAccount is set,
-// a database a newer binary migrated with [ErrSchemaTooNew], and, with
-// opts.NoMigrate, one with migrations pending with [ErrSchemaOld].
+// Open refuses, with [ErrInvalid], a dsn that is not a postgres:// URL or
+// names no database, a schema that does not exist, and an invalid
+// prefix, admin or limit in opts. It refuses a server older than
+// Postgres [version.PostgresMin] with a [*ServerVersionError], an unsafe
+// role with an [*UnsafeAccountError] unless opts.AllowUnsafeAccount is
+// set, a schema the role may not use with an error [DatabaseDenied]
+// recognizes, a schema a newer binary migrated with [ErrSchemaTooNew],
+// and, with opts.NoMigrate, one with migrations pending with
+// [ErrSchemaOld].
 func Open(ctx context.Context, dsn string, opts Options) (*Store, error) {
-	return open(ctx, dsn, opts, projectSchema)
+	return open(ctx, dsn, opts, projectSchema, false)
 }
 
-// open is Open for the database sc describes: a project's, or the
-// control database, whose store ([Control]) wraps the Store it returns
-// for its writer, committer and event log.
-func open(ctx context.Context, dsn string, opts Options, sc schema) (*Store, error) {
-	cfg, err := mysql.ParseDSN(dsn)
+// open is Open for the schema sc describes: a project's, or the control
+// store's, whose store ([Control]) wraps the Store it returns for its
+// writer and event log. create makes the schema the dsn names when it
+// does not exist, which only the operator's `ariesd control init` asks.
+func open(ctx context.Context, dsn string, opts Options, sc schema, create bool) (*Store, error) {
+	d, err := ParseDSN(dsn)
 	if err != nil {
-		return nil, fmt.Errorf("parse dsn: %w", err)
+		return nil, err
 	}
-	if cfg.DBName == "" {
+	if d.Database == "" {
 		return nil, fmt.Errorf("%w: dsn names no database", ErrInvalid)
 	}
-	cfg.ParseTime = true
-	cfg.Loc = time.UTC
-	cfg.InterpolateParams = false
+	cfg, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		// pgx quotes the DSN, which may hold a password.
+		return nil, fmt.Errorf("%w: the dsn does not parse as a postgres:// URL", ErrInvalid)
+	}
+	// Every session works in UTC and in the one schema, and every
+	// transaction sees one snapshot (doc.go, Concurrency).
+	cfg.RuntimeParams["timezone"] = "UTC"
+	cfg.RuntimeParams["search_path"] = quoteIdent(d.Schema)
+	cfg.RuntimeParams["default_transaction_isolation"] = "repeatable read"
+	conn := stdlib.GetConnector(*cfg)
 	if opts.Logger == nil {
 		opts.Logger = slog.New(slog.DiscardHandler)
-	}
-	// What the driver says of a connection that died goes to the
-	// store's logger; its own prints to the process's stderr.
-	cfg.Logger = driverLog{opts.Logger}
-	conn, err := mysql.NewConnector(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("connector: %w", err)
 	}
 	if opts.Prefix == "" {
 		opts.Prefix = "sf"
@@ -207,9 +205,6 @@ func open(ctx context.Context, dsn string, opts Options, sc schema) (*Store, err
 		opts.AwayMax = MaxLease
 	}
 	opts.Admins = slices.Clone(opts.Admins)
-	if opts.CommitInterval == 0 {
-		opts.CommitInterval = time.Second
-	}
 	if opts.MaxAttempts <= 0 {
 		opts.MaxAttempts = 5
 	}
@@ -224,11 +219,9 @@ func open(ctx context.Context, dsn string, opts Options, sc schema) (*Store, err
 		w:    sql.OpenDB(conn),
 		r:    sql.OpenDB(conn),
 		opts: opts,
-		stop: make(chan struct{}),
-		done: make(chan struct{}),
 
 		clock: opts.Clock, hasClaims: sc.table == projectSchema.table,
-		db: cfg.Addr + "/" + cfg.DBName,
+		db: fmt.Sprintf("%s:%d/%s/%s", cfg.Host, cfg.Port, d.Database, d.Schema),
 	}
 	if s.clock == nil {
 		s.clock = NewClock(ClockOptions{Now: opts.Now})
@@ -241,126 +234,59 @@ func open(ctx context.Context, dsn string, opts Options, sc schema) (*Store, err
 	s.r.SetMaxOpenConns(opts.Readers)
 	s.r.SetMaxIdleConns(opts.Readers)
 
-	if err := checkAccount(ctx, s.w); err != nil {
-		var ua *UnsafeAccountError
-		if !opts.AllowUnsafeAccount || !errors.As(err, &ua) {
-			return nil, errors.Join(err, s.w.Close(), s.r.Close())
-		}
-		opts.Logger.Warn("dolt account is unsafe; allowed for development", "event", logs.StoreUnsafeAccount,
-			"account", ua.User, "problems", strings.Join(ua.Problems, "; "))
-	}
-	mctx, migrated := s.begin(ctx, StageMigrate, 0)
-	n, err := migrate(mctx, s.w, s.now(), sc, !opts.NoMigrate)
-	migrated(outcomeOf(err))
-	if err != nil {
+	if err := s.prepare(ctx, d, sc, create); err != nil {
 		return nil, errors.Join(err, s.w.Close(), s.r.Close())
-	}
-	s.migrated = n
-	if n > 0 {
-		s.dirty.Store(true)
-	}
-	if err := s.initTime(ctx); err != nil {
-		return nil, errors.Join(err, s.w.Close(), s.r.Close())
-	}
-	if opts.CommitInterval > 0 {
-		go s.commitLoop(opts.CommitInterval) //nolint:gosec // outlives Open's ctx; stopped by Close
-	} else {
-		close(s.done)
 	}
 	return s, nil
+}
+
+// prepare checks the server and the role, finds the schema d names,
+// migrates it and reads the store's time, for open.
+func (s *Store) prepare(ctx context.Context, d DSN, sc schema, create bool) error {
+	if err := checkServer(ctx, s.w); err != nil {
+		return err
+	}
+	if err := checkAccount(ctx, s.w); err != nil {
+		ua, ok := errors.AsType[*UnsafeAccountError](err)
+		if !s.opts.AllowUnsafeAccount || !ok {
+			return err
+		}
+		s.opts.Logger.Warn("database role is unsafe; allowed for development", "event", logs.StoreUnsafeAccount,
+			"account", ua.User, "problems", strings.Join(ua.Problems, "; "))
+	}
+	if err := checkSchema(ctx, s.w, d, create); err != nil {
+		return err
+	}
+	mctx, migrated := s.begin(ctx, StageMigrate, 0)
+	n, err := migrate(mctx, s.w, s.now(), sc, !s.opts.NoMigrate)
+	migrated(outcomeOf(err))
+	if err != nil {
+		return err
+	}
+	s.migrated = n
+	return s.initTime(ctx)
 }
 
 // Migrated returns how many migrations opening the store applied: zero
 // for a database that was already at this binary's schema.
 func (s *Store) Migrated() int { return s.migrated }
 
-// Ping checks that Dolt answers, on a connection of the read pool. It is
-// what a health check asks: cheap, and it reads no table.
+// Ping checks that the database answers, on a connection of the read
+// pool. It is what a health check asks: cheap, and it reads no table.
 func (s *Store) Ping(ctx context.Context) error {
 	if err := s.r.PingContext(ctx); err != nil {
-		return fmt.Errorf("ping dolt: %w", err)
+		return fmt.Errorf("ping the database: %w", err)
 	}
 	return nil
 }
 
-// Close stops the committer, makes a final Dolt commit of pending writes
-// and closes the connections. It is safe to call more than once; every
+// Close closes the connections. It is safe to call more than once; every
 // call returns the first one's error.
 func (s *Store) Close() error {
 	s.closeOnce.Do(func() {
-		close(s.stop)
-		<-s.done
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		s.closeErr = errors.Join(s.Flush(ctx), s.w.Close(), s.r.Close())
+		s.closeErr = errors.Join(s.w.Close(), s.r.Close())
 	})
 	return s.closeErr
-}
-
-// commitLoop flushes every interval, or on each test tick, until Close
-// stops it. A failed commit is logged and tried again on the next tick,
-// since Flush leaves the writes pending.
-func (s *Store) commitLoop(every time.Duration) {
-	defer close(s.done)
-	tick := s.opts.tick
-	if tick == nil {
-		t := time.NewTicker(every)
-		defer t.Stop()
-		tick = t.C
-	}
-	for {
-		select {
-		case <-s.stop:
-			return
-		case <-tick:
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			if err := s.Flush(ctx); err != nil {
-				s.opts.Logger.Error("dolt commit failed", "event", logs.StoreCommitFailed, "err", err)
-			}
-			cancel()
-		}
-	}
-}
-
-// Flush makes a Dolt commit now if any write happened since the last one.
-// The message names the last event sequence it covers. When the commit
-// fails, the writes stay pending for the next Flush.
-func (s *Store) Flush(ctx context.Context) error {
-	if !s.dirty.Swap(false) {
-		return nil
-	}
-	start := time.Now()
-	cctx, committed := s.begin(ctx, StageCommit, 0)
-	err := s.commit(cctx)
-	committed(outcomeOf(err))
-	if err != nil {
-		s.dirty.Store(true)
-	}
-	if o := s.opts.Observer; o != nil {
-		o.Committed(time.Since(start), err)
-	}
-	return err
-}
-
-// commit makes a Dolt commit of the working set, named for the last
-// event sequence.
-func (s *Store) commit(ctx context.Context) error {
-	// Hold the single writer connection so no write lands between reading
-	// the sequence and committing.
-	c, err := s.w.Conn(ctx)
-	if err != nil {
-		return fmt.Errorf("dolt commit: %w", err)
-	}
-	defer func() { _ = c.Close() }()
-	seq, err := lastEventSeq(ctx, c)
-	if err != nil {
-		return fmt.Errorf("dolt commit: %w", err)
-	}
-	msg := fmt.Sprintf("aries: events through %d", seq)
-	if _, err := c.ExecContext(ctx, `CALL DOLT_COMMIT('-Am', ?, '--skip-empty')`, msg); err != nil {
-		return fmt.Errorf("dolt commit: %w", err)
-	}
-	return nil
 }
 
 // Now reads the store's time, in UTC to the microsecond: the server
@@ -418,8 +344,8 @@ type wtx struct {
 	// history: a lease renewal, a registry touch, an inbox ack, a prune.
 	quiet bool
 	// touched is set once a statement run by touch changed a row: a
-	// change the store must commit to Dolt, but that leaves mutated, and
-	// so the event check, alone.
+	// change the store counts as a write, but that leaves mutated, and so
+	// the event check, alone.
 	touched bool
 	// inbox are the items this attempt wrote, pushed once it commits.
 	inbox []InboxItem
@@ -445,8 +371,7 @@ type wtx struct {
 	locks []lockChange
 }
 
-// exec runs a mutating statement. It refuses an UPDATE that does not set
-// write_id: without it Dolt merges concurrent writes silently (stage 0).
+// exec runs a mutating statement.
 func (w *wtx) exec(ctx context.Context, q string, args ...any) (int64, error) {
 	n, err := w.run(ctx, q, args...)
 	if n > 0 {
@@ -468,11 +393,9 @@ func (w *wtx) touch(ctx context.Context, q string, args ...any) error {
 	return err
 }
 
-// run executes q for exec and touch, refusing an UPDATE without write_id.
+// run executes q for exec and touch, and returns how many rows it
+// changed.
 func (w *wtx) run(ctx context.Context, q string, args ...any) (int64, error) {
-	if strings.HasPrefix(strings.TrimSpace(q), "UPDATE") && !strings.Contains(q, "write_id = ?") {
-		return 0, errors.New("store: UPDATE without write_id")
-	}
 	res, err := w.tx.ExecContext(ctx, q, args...)
 	if err != nil {
 		return 0, err
@@ -580,10 +503,10 @@ func (w *wtx) flush(ctx context.Context) error {
 const (
 	insertEvent = `INSERT INTO events
   (seq, at, principal, session, machine, op, target, before_state, after_state, idem_key, idem_args, idem_result)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`
 	insertRevEvent = `INSERT INTO events
   (seq, at, principal, session, machine, op, target, before_state, after_state, idem_key, idem_args, idem_result, rev)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`
 )
 
 // issueEvents returns the events flush wrote on issues, without their
@@ -598,8 +521,7 @@ func (w *wtx) issueEvents() []Event {
 	return evs
 }
 
-// lastEventSeq returns the highest event seq, or 0. It avoids MAX(): Dolt
-// 2.4.2 returns no row at all for MAX over an empty table's primary key.
+// lastEventSeq returns the highest event seq, or 0.
 func lastEventSeq(ctx context.Context, q querier) (int64, error) {
 	return lastKey(ctx, q, `SELECT seq FROM events ORDER BY seq DESC LIMIT 1`)
 }
@@ -615,15 +537,11 @@ func lastKey(ctx context.Context, q querier, query string) (int64, error) {
 	return n, err
 }
 
-// sumInt returns SQL for the exact sum of the integer expression expr,
-// as a DECIMAL, which scans into an int64. Dolt 2.4.2 sums integers as a
-// DOUBLE, rounded past 2⁵³ and sent in exponent form from 10⁶ ("1e+06"),
-// which no integer scan accepts. Summing DECIMALs is exact, and casting
-// the result keeps Dolt from sending it as a DOUBLE too. A sum past the
-// int64 range fails the scan rather than being clamped to it, as a CAST
-// to SIGNED would.
+// sumInt returns SQL for the exact sum of the integer expression expr, as
+// a BIGINT. Postgres sums a BIGINT as a NUMERIC, which is exact; a sum
+// past the BIGINT range fails the cast rather than being clamped to it.
 func sumInt(expr string) string {
-	return "CAST(SUM(CAST(" + expr + " AS DECIMAL(65, 0))) AS DECIMAL(65, 0))"
+	return "CAST(SUM(" + expr + ") AS BIGINT)"
 }
 
 // jsonOrNull encodes an event state as compacted JSON text, or returns
@@ -643,7 +561,7 @@ func jsonOrNull(v any) (any, error) {
 }
 
 // Event text bounds (S-10). An event keeps the before and after of what
-// changed, and Dolt keeps every version, so without a bound an edit loop
+// changed, and the log keeps every one, so without a bound an edit loop
 // over four 64 KiB fields would grow the log by 256 KiB a write. A string
 // longer than EventTextMax is kept as its first EventTextKeep bytes, its
 // length and its SHA-256: enough to tell what changed and to check a
@@ -757,6 +675,11 @@ func (s *Store) writeRetry(ctx context.Context, actor Actor, settle bool, fn fun
 		if o := s.opts.Observer; o != nil {
 			o.Retried()
 		}
+		if s.beforeRetry != nil {
+			if err := s.beforeRetry(ctx); err != nil {
+				return err
+			}
+		}
 		d := time.Duration(rand.Int64N(int64(5*time.Millisecond) << min(attempt, 5))) //nolint:gosec // jitter, not security
 		select {
 		case <-ctx.Done():
@@ -783,8 +706,8 @@ func (s *Store) beginWrite(ctx context.Context) (*sql.Tx, view, error) {
 
 // writeOnce makes one attempt: it runs fn in a new transaction, refuses a
 // mutation that recorded no event unless the attempt is quiet, writes the
-// buffered events and commits. Only once the commit succeeds does it mark
-// the store dirty, invalidate the similar-title cache and push inbox
+// buffered events and commits. Only once the commit succeeds does it
+// invalidate the similar-title cache and push inbox
 // items and issue events, so a rolled-back attempt leaves no trace.
 //
 // No attempt goes on with a forward step of the clock pending, but the
@@ -837,9 +760,6 @@ func (s *Store) writeOnce(ctx context.Context, actor Actor, settle bool, fn func
 		return false, fmt.Errorf("commit: %w", err)
 	}
 	changed = w.mutated || w.touched
-	if changed {
-		s.dirty.Store(true)
-	}
 	if w.closedChanged {
 		s.similar.invalidate()
 	}

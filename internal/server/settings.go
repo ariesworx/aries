@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ariesworx/aries/internal/doltmetrics"
 	"github.com/ariesworx/aries/internal/lazyregexp"
 	"github.com/ariesworx/aries/internal/logs"
 	"github.com/ariesworx/aries/internal/proto"
@@ -29,21 +28,25 @@ const DefaultConfigFile = "/etc/aries/ariesd.yaml"
 // Settings configure the ariesd commands: serve, stdio, upgrade, and the
 // admin commands control init, import-bd and export-bd.
 type Settings struct {
-	// DSN is the Dolt database (go-sql-driver/mysql form). It may hold a
-	// password, so it never comes from a command-line flag with one.
+	// DSN is the Postgres database, as a postgres:// URL whose
+	// search_path names the schema of the one project (public when it
+	// names none; store.ParseDSN). It may hold a password, so it never
+	// comes from a command-line flag with one; the PG* environment
+	// variables and the role's .pgpass are read too.
 	DSN string `yaml:"dsn"`
 	// Socket is the daemon's unix socket. Default DefaultSocket.
 	Socket string `yaml:"socket"`
-	// ControlDB names the control database, on the same Dolt server and
-	// account as DSN, and makes this a server of many projects (design
-	// §15): each project's database is then named by its row there, and
+	// ControlDB names the control store's schema, in DSN's database and
+	// as its role, and makes this a server of many projects (design
+	// §15): each project's schema is then named by its row there, and
 	// DSN's, Project, Prefix and Account describe the project `ariesd
 	// control init` adopts, which the admin commands act on by default.
-	// Empty, the default, is a server of the one project in DSN.
+	// Empty, the default, is a server of the one project in DSN. (The
+	// name is from when each was a database of its own.)
 	ControlDB string `yaml:"control_db"`
-	// ProjectDBs is the block of database names granted to DSN's account
-	// for the projects `aries admin project add` creates. It needs
-	// ControlDB.
+	// ProjectDBs is the block of schema names for the projects `aries
+	// admin project add` creates, which DSN's role makes in its
+	// database. It needs ControlDB.
 	ProjectDBs ProjectDBs `yaml:"project_dbs"`
 	// KeysFile is the file a server of many projects writes the control
 	// database's keys to, in authorized_keys form, for sshd to read
@@ -84,11 +87,11 @@ type Settings struct {
 	// nothing over the protocol reads or changes them. None may be
 	// reserved (store.ReservedPrincipals).
 	Admins []string `yaml:"admins"`
-	// AllowUnsafeDolt opens the store even when its Dolt account is
+	// AllowUnsafeAccount opens the store even when its database role is
 	// unsafe (store.Options.AllowUnsafeAccount, S-2). Only a command-line
 	// flag sets it, and only with --dev (decision D3); no config file or
 	// environment variable can.
-	AllowUnsafeDolt bool `yaml:"-"`
+	AllowUnsafeAccount bool `yaml:"-"`
 	// Limits bound what one principal can make the server do; see
 	// [Limits]. Zero fields take the defaults.
 	Limits Limits `yaml:"limits"`
@@ -169,12 +172,6 @@ type TelemetrySettings struct {
 	// audit=true (design §16.4, decision 30). Nil, the default, is on.
 	// The event log is the record whatever this says.
 	AuditLog *bool `yaml:"audit_log"`
-	// DoltMetricsURL is where the daemon reads Dolt's own figures for
-	// the status report (design §16.5): the http:// URL of Dolt's
-	// Prometheus endpoint, on a loopback address. Empty, the default,
-	// reads nothing, and the report says nothing of Dolt. Any other URL
-	// is refused: the endpoint has no authentication.
-	DoltMetricsURL string `yaml:"dolt_metrics_url"`
 }
 
 // DefaultPrincipalsKey is where the stand-in key is kept, under the home
@@ -221,8 +218,6 @@ const (
 	EnvClockBehind = "ARIESD_CLOCK_BEHIND"
 	// EnvTelemetryListen sets Telemetry.Listen.
 	EnvTelemetryListen = "ARIESD_TELEMETRY_LISTEN"
-	// EnvDoltMetricsURL sets Telemetry.DoltMetricsURL.
-	EnvDoltMetricsURL = "ARIESD_TELEMETRY_DOLT_METRICS_URL"
 )
 
 // ResolveSettings merges, highest precedence first: flags, the environment,
@@ -230,23 +225,20 @@ const (
 // DefaultConfigFile if it exists; a named file must exist. Limits and
 // ProjectDBs come from the file only, Admins from the file unless ARIESD_ADMINS replaces
 // them, Telemetry from the file with its listen address from
-// ARIESD_TELEMETRY_LISTEN and the URL of Dolt's metrics from
-// ARIESD_TELEMETRY_DOLT_METRICS_URL when those are set, and AllowUnsafeDolt from
+// ARIESD_TELEMETRY_LISTEN when that is set, and AllowUnsafeAccount from
 // flags only. It refuses a password in
 // flags.DSN, which the process list would show; a config file with an
 // unknown key, or with a password and any access for group or others; an
 // admin name that is invalid or reserved; an invalid limit; an account
-// that is not a code name; a control database that is not a database
-// name, or is the DSN's own; a block of project database names that is
-// invalid, set without a control database, or holds its name; a systemd
+// that is not a code name; a control schema that is not a schema name,
+// or is the DSN's own; a block of project schema names that is invalid,
+// set without a control schema, or holds its name; a systemd
 // unit that is not a unit name; a bridge path that would need quoting in
 // a forced command; a keys file that is the authorized_keys file; a
 // telemetry listen address that is not HOST:PORT or is an IP address
 // that is not loopback (a host name is resolved, and checked, when the
 // daemon starts); a telemetry principals that is not pseudonym, name or
-// omit; a URL of Dolt's metrics that doltmetrics.CheckURL refuses, which
-// is any but http:// to a loopback address with a path; a
-// clock_behind that is not stop or warn; a clock tolerance out of its
+// omit; a clock_behind that is not stop or warn; a clock tolerance out of its
 // range; and an unknown log level or format. The clock tolerances come
 // from the file only.
 func ResolveSettings(flags Settings, configPath string, getenv func(string) string) (Settings, error) {
@@ -286,7 +278,7 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 			}
 		}
 	}
-	out.AllowUnsafeDolt = flags.AllowUnsafeDolt
+	out.AllowUnsafeAccount = flags.AllowUnsafeAccount
 	out.AcceptClockBehind = flags.AcceptClockBehind
 	if err := out.resolveClock(file); err != nil {
 		return Settings{}, err
@@ -311,14 +303,6 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 	}
 	if out.Telemetry.PrincipalsKey == "" {
 		out.Telemetry.PrincipalsKey = DefaultPrincipalsKey
-	}
-	if v := getenv(EnvDoltMetricsURL); v != "" {
-		out.Telemetry.DoltMetricsURL = v
-	}
-	if out.Telemetry.DoltMetricsURL != "" {
-		if err := doltmetrics.CheckURL(out.Telemetry.DoltMetricsURL); err != nil {
-			return Settings{}, err
-		}
 	}
 	out.Admins = file.Admins
 	if v := getenv(EnvAdmins); v != "" {
@@ -393,27 +377,27 @@ func (s *Settings) resolveClock(file Settings) error {
 	return nil
 }
 
-// checkControlDB refuses a control database that is not a database name,
-// or that is the database the DSN names: that one holds a project.
+// checkControlDB refuses a control schema that is not a schema name, or
+// that is the schema the DSN names: that one holds a project.
 func (s Settings) checkControlDB() error {
 	if s.ControlDB == "" {
 		return nil
 	}
 	if !store.ValidDBName(s.ControlDB) {
-		return fmt.Errorf("control_db %q is not a database name; fix: set control_db: or %s to a lowercase letter, then lowercase letters, digits and underscores, such as aries_control",
+		return fmt.Errorf("control_db %q is not a schema name; fix: set control_db: or %s to a lowercase letter, then lowercase letters, digits and underscores, not starting pg_, such as aries_control",
 			s.ControlDB, EnvControlDB)
 	}
-	if d, err := store.ParseDSN(s.DSN); err == nil && d.Database == s.ControlDB {
-		return fmt.Errorf("control_db %q is the database in the DSN, which holds a project; fix: set control_db: to a database of its own, such as aries_control",
+	if d, err := store.ParseDSN(s.DSN); err == nil && d.Schema == s.ControlDB {
+		return fmt.Errorf("control_db %q is the schema the DSN names, which holds a project; fix: set control_db: to a schema of its own, such as aries_control",
 			s.ControlDB)
 	}
 	return nil
 }
 
-// checkProjectDBs refuses a block of project database names that is not
+// checkProjectDBs refuses a block of project schema names that is not
 // valid, that is set on a server of one project, or that holds the
-// control database's name. It may hold the DSN's database: that one is
-// the adopted project's, and a name a project has is never given again.
+// control store's name. It may hold the DSN's schema: that one is the
+// adopted project's, and a name a project has is never given again.
 func (s Settings) checkProjectDBs() error {
 	b := s.ProjectDBs
 	if err := b.Validate(); err != nil {
@@ -425,7 +409,7 @@ func (s Settings) checkProjectDBs() error {
 	case s.ControlDB == "":
 		return errors.New("project_dbs is set without control_db; fix: set control_db: to serve many projects, or remove project_dbs: (docs/server.md, Serving many projects)")
 	case b.holds(s.ControlDB):
-		return fmt.Errorf("project_dbs holds %s, the control database; fix: choose a prefix of its own, such as aries_p", s.ControlDB)
+		return fmt.Errorf("project_dbs holds %s, the control store's schema; fix: choose a prefix of its own, such as aries_p", s.ControlDB)
 	}
 	return nil
 }
@@ -454,9 +438,9 @@ func (s Settings) PrincipalsKey(home string) string {
 	return filepath.Join(home, s.Telemetry.PrincipalsKey)
 }
 
-// ControlDSN returns the DSN of the control database (ControlDB), which
-// must be set.
-func (s Settings) ControlDSN() (string, error) { return DatabaseDSN(s.DSN, s.ControlDB) }
+// ControlDSN returns the DSN of the control store's schema (ControlDB),
+// which must be set.
+func (s Settings) ControlDSN() (string, error) { return SchemaDSN(s.DSN, s.ControlDB) }
 
 // NewLogger returns ariesd's logger, writing to w at level (debug,
 // info, warn or error) in format (text or json). Its handler is a

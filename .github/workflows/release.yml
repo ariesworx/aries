@@ -218,10 +218,10 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          dolt="$(sed -n 's/^const Dolt = "\(.*\)"$/\1/p' internal/version/version.go)"
-          test -n "$dolt"
+          postgres="$(sed -n 's/^const Postgres = "\(.*\)"$/\1/p' internal/version/version.go)"
+          test -n "$postgres"
           pre=()
           [[ $TAG == *-* ]] && pre=(--prerelease)
-          notes="Tested with Dolt ${dolt}. \`aries upgrade\` and \`ariesd upgrade\` verify these files; to check a manual download, see README, Install."
+          notes="Tested with Postgres ${postgres}. \`aries upgrade\` and \`ariesd upgrade\` verify these files; to check a manual download, see README, Install."
           gh release create "$TAG" "$RUNNER_TEMP"/dist/* --verify-tag --title "$TAG" \
             --notes "$notes" --generate-notes "${pre[@]}"

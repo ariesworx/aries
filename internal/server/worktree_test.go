@@ -98,7 +98,7 @@ func TestWorktreeWithheldWhenUnreadable(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			c := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "planted"})
 			mustCall[proto.CommentResult](t, s, alice, proto.OpComment, proto.CommentArgs{ID: c.ID, Body: "plain"})
-			plant(t, dsn, "UPDATE events SET after_state = ? WHERE target = ? AND op = 'comment.add'", tc.after, c.ID)
+			plant(t, dsn, "UPDATE events SET after_state = $1 WHERE target = $2 AND op = 'comment.add'", tc.after, c.ID)
 			for _, r := range []struct {
 				viewer store.Actor
 				shown  bool
@@ -125,7 +125,7 @@ func TestWorktreeWithheldWhenUnreadable(t *testing.T) {
 // row, or a writer with access to the database, would change it.
 func plant(t *testing.T, dsn, query string, args ...any) {
 	t.Helper()
-	db, err := sql.Open("mysql", dsn)
+	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		t.Fatal(err)
 	}

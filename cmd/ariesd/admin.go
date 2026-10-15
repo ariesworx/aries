@@ -54,21 +54,20 @@ func openAdminStore(ctx context.Context, env adminEnv, fl server.Settings, cfgPa
 		if err != nil {
 			return nil, err
 		}
-		if dsn, err = server.DatabaseDSN(s.DSN, p.DBName); err != nil {
+		if dsn, err = server.SchemaDSN(s.DSN, p.DBName); err != nil {
 			return nil, err
 		}
 		prefix = p.Prefix
 	case project != "":
 		return nil, usageError("--project picks one project of a server of many; this server has no control_db and holds the one in its DSN")
 	}
-	// No background committer: Close makes the one Dolt commit.
-	st, err := store.Open(ctx, dsn, store.Options{Prefix: prefix, CommitInterval: -1, AllowUnsafeAccount: s.AllowUnsafeDolt,
+	st, err := store.Open(ctx, dsn, store.Options{Prefix: prefix, AllowUnsafeAccount: s.AllowUnsafeAccount,
 		Limits: s.Limits.Limits})
 	if _, ok := errors.AsType[*store.UnsafeAccountError](err); ok {
 		return nil, fmt.Errorf("open store: %w", err) // it names its own fix
 	}
 	if err != nil {
-		return nil, fmt.Errorf("open store: %w; fix: check the DSN and that dolt sql-server is running", err)
+		return nil, fmt.Errorf("open store: %w; fix: check the DSN and that Postgres is running", err)
 	}
 	return st, nil
 }
@@ -84,7 +83,7 @@ func adminProject(ctx context.Context, s server.Settings, id string) (store.Proj
 	if id == "" {
 		return store.Project{}, errors.New("no project; fix: name one with --project UUID, or set project: in the config file")
 	}
-	ctl, err := openControl(ctx, s, store.ControlOptions{CommitInterval: -1})
+	ctl, err := openControl(ctx, s, store.ControlOptions{})
 	if err != nil {
 		return store.Project{}, err
 	}
@@ -93,40 +92,40 @@ func adminProject(ctx context.Context, s server.Settings, id string) (store.Proj
 		if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrInvalid) {
 			return store.Project{}, fmt.Errorf("project %q is not one of this server's; fix: give a project's UUID with --project, or run `ariesd control init` if none was adopted yet", id)
 		}
-		return store.Project{}, fmt.Errorf("read project %s: %w; fix: check that dolt sql-server is running", id, err)
+		return store.Project{}, fmt.Errorf("read project %s: %w; fix: check that Postgres is running", id, err)
 	}
 	return p, nil
 }
 
 // adminFlags parses an admin command's flags: --config, --dsn, --dev,
-// --allow-unsafe-dolt, and those extra registers. It returns the FlagSet,
-// for the positional arguments, and refuses --allow-unsafe-dolt without
+// --allow-unsafe-account, and those extra registers. It returns the FlagSet,
+// for the positional arguments, and refuses --allow-unsafe-account without
 // --dev.
 func adminFlags(name string, args []string, fl *server.Settings, cfgPath *string, extra func(*flag.FlagSet)) (*flag.FlagSet, error) {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.StringVar(cfgPath, "config", "", "config file")
-	fs.StringVar(&fl.DSN, "dsn", "", "Dolt DSN (no password)")
+	fs.StringVar(&fl.DSN, "dsn", "", "Postgres DSN, a postgres:// URL (no password)")
 	var dev bool
-	devFlags(fs, &dev, &fl.AllowUnsafeDolt)
+	devFlags(fs, &dev, &fl.AllowUnsafeAccount)
 	extra(fs)
 	if err := fs.Parse(args); err != nil {
 		return nil, usageError(err.Error())
 	}
-	return fs, checkDev(dev, fl.AllowUnsafeDolt)
+	return fs, checkDev(dev, fl.AllowUnsafeAccount)
 }
 
-// devFlags registers --dev and --allow-unsafe-dolt.
+// devFlags registers --dev and --allow-unsafe-account.
 func devFlags(fs *flag.FlagSet, dev, unsafe *bool) {
 	fs.BoolVar(dev, "dev", false, "development mode")
-	fs.BoolVar(unsafe, "allow-unsafe-dolt", false, "open the store even as root or with secure_file_priv empty (needs --dev)")
+	fs.BoolVar(unsafe, "allow-unsafe-account", false, "open the store even as a superuser or a role with rights beyond its database (needs --dev)")
 }
 
-// checkDev refuses --allow-unsafe-dolt without --dev (decision D3): an
-// unsafe Dolt account is for a developer's own machine only.
+// checkDev refuses --allow-unsafe-account without --dev (decision D3): an
+// unsafe database role is for a developer's own machine only.
 func checkDev(dev, unsafe bool) error {
 	if unsafe && !dev {
-		return usageError("--allow-unsafe-dolt is for development only and needs --dev; on a server, give ariesd a least-privileged Dolt account (docs/server.md, steps 2 and 4)")
+		return usageError("--allow-unsafe-account is for development only and needs --dev; on a server, give ariesd a role of its own that owns its database and nothing more (docs/server.md)")
 	}
 	return nil
 }

@@ -1,4 +1,4 @@
-package dolttest
+package pgtest
 
 import (
 	"context"
@@ -14,13 +14,10 @@ import (
 
 // PoolLimit is the most servers a [Pool] runs at once, on a machine with
 // eight processors or more. A pool runs one for every two processors Go
-// may use (GOMAXPROCS), since a test and its Dolt are each about a
+// may use (GOMAXPROCS), since a test and its server are each about a
 // processor's work, and a test that asks for one while that many are
-// held waits. On CI's four processors that is two. Four was measured
-// there too: the suite took about 66 s in place of 72, 8% less, with half
-// again as many Dolt processes (26 to 35 in a run, against 17 to 19),
-// which is not worth it where the tests of four packages run at once. A
-// server is a few hundred megabytes by the end of a package's tests.
+// held waits. On CI's four processors that is two, where the tests of
+// four packages run at once.
 const PoolLimit = 4
 
 // poolLimit is the servers a pool on this machine runs at once.
@@ -28,14 +25,10 @@ func poolLimit() int {
 	return min(PoolLimit, max(1, runtime.GOMAXPROCS(0)/2))
 }
 
-// Pool is the Dolt servers of one test binary. A test has a server to
+// Pool is the Postgres servers of one test binary. A test has a server to
 // itself while it runs ([Pool.Server]), so that tests can run in parallel
-// (t.Parallel) and still each see a Dolt no other test is using: one it
-// may stop, count the connections of, or drop a database in. Dolt takes
-// one data definition statement at a time, and a session that reads
-// information_schema while another drops a database fails with "no root
-// value found in session", so tests that shared a server would wait for
-// each other and fail now and then.
+// (t.Parallel) and still each see a server no other test is using: one it
+// may stop, freeze, count the sessions of, or make a role on.
 //
 // The pool starts a server when a test asks and none is free, up to one
 // for every two processors and [PoolLimit] at most, each in a temporary
@@ -45,7 +38,6 @@ func poolLimit() int {
 // [NewPool].
 type Pool struct {
 	prefix string
-	opts   Options
 	limit  int
 	orphan sync.Once // starts the watch for the parent's end (Warm)
 
@@ -65,11 +57,11 @@ type hold struct {
 	refs int
 }
 
-// NewPool returns a pool whose servers are started with opts, each in a
-// new directory under the default temporary directory whose name begins
+// NewPool returns a pool whose servers are started each in a new
+// directory under the default temporary directory whose name begins
 // with prefix. It starts none: the caller should Close it.
-func NewPool(prefix string, opts Options) *Pool {
-	p := &Pool{prefix: prefix, opts: opts, limit: poolLimit(), held: map[string]*hold{}}
+func NewPool(prefix string) *Pool {
+	p := &Pool{prefix: prefix, limit: poolLimit(), held: map[string]*hold{}}
 	p.free = sync.NewCond(&p.mu)
 	return p
 }
@@ -78,7 +70,7 @@ func NewPool(prefix string, opts Options) *Pool {
 // it if it held none: a test and its subtests have the same one, for as
 // long as any of them that asked is running. The test gives it up when
 // it ends, after the cleanups it registers from here on, so a database
-// made on it can be dropped in one. The error is [Start]'s, [ErrNoDolt]
+// made on it can be dropped in one. The error is [Start]'s, [ErrNoPostgres]
 // included, on which callers skip.
 func (p *Pool) Server(t testing.TB) (*Server, error) {
 	t.Helper()
@@ -91,7 +83,7 @@ func (p *Pool) Server(t testing.TB) (*Server, error) {
 	}
 	t.Cleanup(func() {
 		if err := p.release(holder); err != nil {
-			t.Errorf("drop what the test left on its Dolt server: %v", err)
+			t.Errorf("drop what the test left on its Postgres server: %v", err)
 		}
 	})
 	return s, nil
@@ -142,7 +134,7 @@ func (p *Pool) take(holder string) (*Server, error) {
 	defer p.mu.Unlock()
 	for {
 		if p.closed {
-			return nil, errors.New("dolttest: the pool is closed")
+			return nil, errors.New("pgtest: the pool is closed")
 		}
 		if h := p.held[holder]; h != nil {
 			h.refs++
@@ -169,7 +161,7 @@ func (p *Pool) take(holder string) (*Server, error) {
 				p.mu.Unlock()
 				err := errors.Join(s.Stop(), os.RemoveAll(s.dir))
 				p.mu.Lock()
-				return nil, errors.Join(errors.New("dolttest: the pool is closed"), err)
+				return nil, errors.Join(errors.New("pgtest: the pool is closed"), err)
 			}
 			p.all = append(p.all, s)
 			// Another goroutine of the same test may have taken one
@@ -218,17 +210,17 @@ func (p *Pool) release(holder string) error {
 
 // start starts one server in a directory of its own.
 func (p *Pool) start() (*Server, error) {
-	// Start looks for dolt too, but only after the directory is made.
-	if _, err := lookDolt(); err != nil {
+	// Start looks for Postgres too, but only after the directory is made.
+	if _, err := lookPostgres(); err != nil {
 		return nil, err
 	}
 	dir, err := os.MkdirTemp("", p.prefix)
 	if err != nil {
-		return nil, fmt.Errorf("dolttest: %w", err)
+		return nil, fmt.Errorf("pgtest: %w", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	s, err := StartWith(ctx, dir, p.opts)
+	s, err := Start(ctx, dir)
 	if err != nil {
 		return nil, errors.Join(err, os.RemoveAll(dir))
 	}

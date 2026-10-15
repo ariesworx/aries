@@ -9,7 +9,7 @@ Put shared guidance here, not there.
 ## What this is
 
 Aries is a public, AGPL-3.0-only Go module: an issue tracker, shared memory
-and coordination layer for AI coding agents, stored in Dolt. `aries` is the
+and coordination layer for AI coding agents, stored in Postgres. `aries` is the
 client (a CLI for people and an MCP server for agents); `ariesd` is the
 server daemon and the sshd forced-command bridge. Bearings, the orchestrator,
 is a design only ([docs/design/bearings.md](docs/design/bearings.md)); no
@@ -26,8 +26,8 @@ stage is in progress.
 |---|---|
 | `cmd/aries` | `aries` entry point: builds a `cli.Env` from the process and calls `cli.Run` |
 | `cmd/ariesd` | `ariesd` entry point: `serve` (which, on a server of many projects, also writes the keys file sshd reads), `stdio`, `upgrade`, `status` (the running daemon's report, over its socket), and the admin `control init`, `import-bd` and `export-bd`. `serve` also wires the telemetry, the loopback listener and systemd's notifications (`runDaemon`) |
-| `internal/store` | Typed store over Dolt: single writer, CAS updates, event log, ready and blocked queries; and conflicts (`conflicts.go`, design §18.7): a replayed update compared field by field with the state at its rev, what others changed parked for a person to resolve, and agents' proposals. Also `Control` (`control*.go`), the same machinery over a second database for what is the server's: projects, principals, their public keys and memberships with roles, and the in-memory index the daemon reads at each handshake and each project store asks for its admins. `stats.go` holds what `aries admin status` reads from memory: a store's write counters, and the control index's counts. `observe.go` holds the two hooks the daemon measures and traces a store through, `Observer` and `Tracer`; the store imports nothing of telemetry. `dsn.go` holds what the daemon knows of a DSN and of granting a database, so that the store alone imports the database driver (`internal/server`'s `boundary_test.go` holds it and `cmd/ariesd` to that) |
-| `internal/store/migrations`, `internal/store/controlmigrations` | Embedded schema migrations for a project's database and for the control database, two separate sets: `NNNN_name.sql`, each numbered 1..n without gaps |
+| `internal/store` | Typed store over Postgres, a schema for each project: single writer, CAS updates, event log, ready and blocked queries; and conflicts (`conflicts.go`, design §18.7): a replayed update compared field by field with the state at its rev, what others changed parked for a person to resolve, and agents' proposals. Also `Control` (`control*.go`), the same machinery over a schema of its own for what is the server's: projects, principals, their public keys and memberships with roles, and the in-memory index the daemon reads at each handshake and each project store asks for its admins. `stats.go` holds what `aries admin status` reads from memory: a store's write counters, and the control index's counts. `observe.go` holds the two hooks the daemon measures and traces a store through, `Observer` and `Tracer`; the store imports nothing of telemetry. `postgres.go` checks the server's version (16 or later) and the schema at open, `account.go` refuses a role that may do more than its own database (`--allow-unsafe-account` in development), and `errors.go` says which SQLSTATEs are retried. `dsn.go` holds what the daemon knows of a DSN and the SQL that makes and hands over a schema, so that the store alone imports the database driver, pgx (`internal/server`'s `boundary_test.go` holds it and `cmd/ariesd` to that) |
+| `internal/store/migrations`, `internal/store/controlmigrations` | Embedded schema migrations for a project's schema and for the control store's, two separate sets in Postgres's dialect: `NNNN_name.sql`, each numbered 1..n without gaps. Both began again at `0001_init.sql` when the store moved from Dolt (decision 79) |
 | `internal/proto` | Wire protocol: NDJSON frames, handshake, `Op` constants, `*Args` and `*Result` types, typed errors; and the bridge frame, which passes between two `ariesd` processes on the server, carries no version and only ever gains fields |
 | `internal/server` | Daemon: socket, peer check, sshd bridge, dispatch of ops to the connection's project's store, error mapping, settings; with `control_db`, the membership check at the handshake, the registry of open project stores (`registry.go`), the `aries admin` ops over the control store (`admin.go`), the closing of connections whose access ended (`conns.go`), keys for sshd (`keys.go`): the `authorized_keys`-format file it writes from the control store (`Server.WriteKeys`), the hand-maintained `authorized_keys` it only reads, and the ending of claims whose holder lost access; and the report `aries admin status` reads (`status.go`). It holds its stores through interfaces by area (`stores.go`): `Store` for a project's and `Control` for the control store, which `*store.Store` and `*store.Control` satisfy; a test of the server's own logic, not of the database, uses the fakes in `fake_test.go` |
 | `internal/client` | In-process SSH client with a pinned host key, over TCP or a Google Cloud IAP tunnel; which key it offers (`ARIES_KEY_FILE`, or `key:`, and then no other; with neither, the default identities of `~/.ssh` and then ssh-agent's keys); `.aries.yaml` discovery, and the one printed for a new project; session ids |
@@ -35,7 +35,6 @@ stage is in progress.
 | `internal/lazyregexp` | Regular expressions in package variables, compiled on first use, so that a process does not pay at start for those it never uses: sshd starts an `ariesd stdio` for every connection. Use it, not `regexp.MustCompile`, for a package variable of a package `ariesd` links; `TestInitAllocations` (`cmd/ariesd`) bounds what initialization allocates |
 | `internal/logs` | The schema of ariesd's log (design §16.4), on the standard library alone: every field a line may have, with whether it may leave the machine (`schema.go`), the stable name of every event (`events.go`), a request's id, and the `slog.Handler` that puts a request's id and its span's ids on each line from the line's context and hands every line to a tap, which is how lines are exported. Its tests hold every log call of the daemon's packages, and the tables of docs/server.md, to the lists |
 | `internal/telemetry` | ariesd's metrics, traces and exported log records, and the only importer of the OpenTelemetry SDK, its exporters and the Prometheus client (design §16): the instruments and their fixed attribute values (`instruments.go`), spans with their fixed names, keys and values (`trace.go`, whose rule is that a span carries ids, codes and small numbers and never text), how a person appears on a span and the key of the stand-ins (`people.go`), log records over OTLP with only the fields a span could carry (`logs.go`), OTLP/HTTP push of all three from the `OTEL_*` variables, the Prometheus handler, the loopback listener with `/metrics`, `/healthz` and `/readyz`, and `Manual`, which reads the instruments, the spans and the exported log records in process for tests. A nil `*Telemetry` does nothing. Its tests fail if `cmd/aries` links any of the SDK or another package imports it |
-| `internal/doltmetrics` | Dolt's own figures for the status report (design §16.5), with the standard library alone: a reader of Dolt's Prometheus endpoint that connects to loopback only, follows no redirect and gives up after 5 seconds, and a parser of its own for the six series ariesd shows, which trusts nothing in the body and has a fuzz target. `internal/server` reads it on a timer (`doltwatch.go`) and sets the collector's cycles against its stores' writes |
 | `internal/sdnotify` | systemd's notify socket with the standard library: ready, stopping and the watchdog; a no-op off Linux and without `NOTIFY_SOCKET` |
 | `internal/statustext` | The status report as text, shared by `aries admin status` and `ariesd status` |
 | `internal/secretscan` | Text that looks like a credential (private keys, service and bearer tokens, JWTs, passwords in URLs and commands, secret assignments, long random tokens): the store's secrets lint for memories |
@@ -51,20 +50,20 @@ stage is in progress.
 | `internal/bdimport` | bd JSONL import and export, over the `Source` and `Target` it needs of a project's store |
 | `internal/release` | Release download, signature and checksum checks, binary swap. A release is read from one of two sources behind one interface: GitHub's API (`release.go`), or a static tree on any HTTPS file host or in a directory (`static.go`, with `index.json` in `index.go`), chosen by `DefaultSource`, `ARIES_RELEASES` and `release.Open`. The source is transport and is never trusted: `Fetch` accepts a release on its signature and checksum alone, a static tree's tags are checked before they reach a URL, and no redirect from one is followed. `releasetest` serves a fake of each source |
 | `internal/tools/releasekey`, `internal/tools/releaseindex` | The signing tool; and the tool that lays a release's files out as a static tree and writes its `index.json`, which signs nothing and needs no secret ([RELEASING.md](RELEASING.md#publishing-to-a-static-host)) |
-| `internal/version` | Build version, and `Dolt`, the pinned Dolt release, with the SHA-256 of its archives (`dolt.sha256`); its tests keep every copy of a tool pin in step |
-| `internal/dolttest` | Starts a throwaway `dolt sql-server` for tests, grants its locked-down account databases by name, and drops a test's database when the test is done with it. `Pool` is a test binary's servers: each test holds one alone while it runs, so tests run in parallel |
+| `internal/version` | Build version, and `Postgres`, the pinned Postgres release, its major version and the oldest the store opens, with the SHA-256 of its source archive (`postgres.sha256`); its tests keep every copy of a tool pin in step |
+| `internal/pgtest` | Starts a throwaway Postgres for tests, in a temporary directory with a unix socket and no TCP port, with a superuser only it uses and the locked-down role `aries` the tests connect as, and drops a test's database when the test is done with it. `Pool` is a test binary's servers: each test holds one alone while it runs, so tests run in parallel |
 | `internal/iaptest` | A fake `gcloud` for tests of the IAP transport: the test binary, re-executed from `PATH` |
 | `internal/e2e` | End-to-end tests: CLI and MCP through an in-process SSH server to a real daemon and store. The SSH server can read the keys file the daemon writes, before its own keys, as sshd reads its `AuthorizedKeysFile`. `TestSoak` (`soak*_test.go`) is the gate of stages 3 and 3a ([CONTRIBUTING.md](CONTRIBUTING.md#the-soak-test)); with `ARIES_SOAK_TELEMETRY` it runs with the daemon's telemetry on, and holds the instruments, the spans and the audit stream to the event logs or gives the daemon a collector that is not there (`soak_telemetry_test.go`); with `ARIES_SOAK_PARTITION` it is the gate of stage 5, cutting agents off from the server for minutes at a time and holding every write they queued to their outboxes and the event logs (`soak_partition_test.go`) |
-| `deploy/docker` | The Docker test server ([docs/deploy/docker.md](docs/deploy/docker.md)): image, entrypoint, compose file and `smoke.sh`, which drives it end to end and is not part of CI. It mirrors docs/server.md's setup steps; `internal/version` keeps its Dolt at the pin. Telemetry is off unless asked for: `ARIES_TELEMETRY=1` turns ariesd's on, its log export included, and the compose profiles `telemetry` and `prometheus` run a Collector and a Prometheus, pinned by digest, in the server's network namespace, since what they read answers on loopback alone; `ARIES_SMOKE_TELEMETRY=1` has `smoke.sh` check them. The profile `identity` runs Keycloak, pinned by digest, as a local identity provider for developing and testing sign-in, also on a network with no route out: `identity/identity.sh` makes its realm, users and clients idempotently, with generated passwords and secrets kept 0600 on its volume, and `ARIES_SMOKE_IDENTITY=1` has `smoke.sh` check it. A test fixture, never production |
+| `deploy/docker` | The Docker test server ([docs/deploy/docker.md](docs/deploy/docker.md)): image, entrypoint, compose file and `smoke.sh`, which drives it end to end and is not part of CI. It mirrors docs/server.md's setup steps, and still runs Dolt until the port's operations slice (decision 79). Telemetry is off unless asked for: `ARIES_TELEMETRY=1` turns ariesd's on, its log export included, and the compose profiles `telemetry` and `prometheus` run a Collector and a Prometheus, pinned by digest, in the server's network namespace, since what they read answers on loopback alone; `ARIES_SMOKE_TELEMETRY=1` has `smoke.sh` check them. The profile `identity` runs Keycloak, pinned by digest, as a local identity provider for developing and testing sign-in, also on a network with no route out: `identity/identity.sh` makes its realm, users and clients idempotently, with generated passwords and secrets kept 0600 on its volume, and `ARIES_SMOKE_IDENTITY=1` has `smoke.sh` check it. A test fixture, never production |
 | `deploy/observability` | Examples that are tested, for operators (design §16.7): an OpenTelemetry Collector's configuration for metrics, traces and logs, alert rules in Prometheus's format, a Prometheus configuration that loads them, and one dashboard. Vendor-neutral (rule 1). Tests in `internal/telemetry` (`harness_test.go`) fail if a rule or a query names a metric, a label or a value ariesd does not have, so change them with the instruments |
 | `deploy/apparmor` | AppArmor profiles for `ariesd` on Ubuntu, and their tunables. A change to what `ariesd` reads, writes, connects to or runs changes them too |
-| `scripts` | For contributors, in POSIX shell: `gate.sh` runs the gate (Commands, below), and `install-dolt.sh` installs the pinned Dolt, verified, under the user's cache directory. `leftovers.sh` runs a command, the tests usually, with a temporary directory of its own and fails if it leaves a file there or a process running; the gate's tests run under it. The tests beside them run all three against stand-ins; and `TestNoOldName` fails if the path or the text of any file in the repository names the project by a former name, with no exception |
+| `scripts` | For contributors, in POSIX shell: `gate.sh` runs the gate (Commands, below), and `install-postgres.sh` gives the packaged Postgres of the pinned major version on Linux, or else builds the pinned release, verified, under the user's cache directory. `leftovers.sh` runs a command, the tests usually, with a temporary directory of its own and fails if it leaves a file there or a process running; the gate's tests run under it. The tests beside them run all three against stand-ins; and `TestNoOldName` fails if the path or the text of any file in the repository names the project by a former name, with no exception |
 | `plugins/aries-ops`, `.claude-plugin/marketplace.json` | The operations skill, a Claude Code plugin, and the marketplace file that lists it ([Operate a server with Claude Code](docs/server.md#operate-a-server-with-claude-code)): `SKILL.md` holds the workflow, the safety rules and a map of `references/*.md`, one per area, each step citing the guide's section it follows. It runs on an operator's workstation and drives the installer, `aries admin` and `ariesd` over the operator's SSH; it never handles a secret. Anything specific to the database belongs in `references/database.md`, which until the move to Postgres lands holds no steps and links the guide's current ones. `scripts/opsskill_test.go` holds its commands, flags and citations to the code and the guides, and its manifests and frontmatter to what Claude Code reads. It has no version: an operator adds the marketplace at a release's tag |
 | `mise.toml` | Go, golangci-lint and shellcheck versions for contributors who use mise; optional |
-| `install-server.sh` | The server installer: does docs/server.md's setup, for a server of many projects, on a fresh Ubuntu 24.04 LTS or 26.04 LTS machine, as root, each step checking before it acts; `--dry-run` changes nothing. It installs the binaries through `install.sh`, holds no release key, and holds the Dolt pin, which `internal/version` keeps in step. `scripts/installserver_test.go` fails when its steps, or the text of a file it writes, differ from the guide's ([With the installer](docs/server.md#with-the-installer)) |
+| `install-server.sh` | The server installer: does docs/server.md's setup, for a server of many projects, on a fresh Ubuntu 24.04 LTS or 26.04 LTS machine, as root, each step checking before it acts; `--dry-run` changes nothing. It installs the binaries through `install.sh`, holds no release key, and still installs Dolt until the port's operations slice (decision 79). `scripts/installserver_test.go` fails when its steps, or the text of a file it writes, differ from the guide's ([With the installer](docs/server.md#with-the-installer)) |
 | `install.sh` | The one-line installer for `aries` and `ariesd`, from GitHub or from a static tree (`ARIES_RELEASES`); `internal/release/install_test.go` and `install_static_test.go` run it against each, and tests check that its key is in `keys.go` and its `DEFAULT_RELEASES` is `release.DefaultSource` |
 | `spike/outbox` | Stage 5 (slice F0) measurements of the local store of design §18.4 under many processes: file locks, the outbox, replay, compaction and the cache. Kept as evidence; not maintained and excluded from lint |
-| `spike/postgres` | Measurements of the store on Postgres beside Dolt, a module of its own with a copy of the store at the time, kept as the evidence for decision 79 (design §14). Not maintained and excluded from lint |
+| `spike/postgres` | Measurements of the store on Postgres beside Dolt, a module of its own with a copy of the store at the time, kept as the evidence for decision 79 (design §14). Not maintained, excluded from lint, and no longer builds: it imports `internal/dolttest`, which is gone |
 | `spike/identity` | Sign-in and service principals against a local Keycloak and a real sshd (decision 83, `docs/design/identity.md`): the loopback, URL and device flows, a verifier of ID tokens on the standard library, trust rules for workload tokens, and how sshd reads `expiry-time`. A module of its own, kept as evidence; not maintained and excluded from lint |
 | `spike/https` | HTTPS as the transport (decision 86, `docs/design/transport.md`), run on a Docker network with no route out: a WebSocket on the standard library carrying `internal/proto`'s frames, DPoP-bound tokens from an authorization server that signs people in through Keycloak, workload token exchange, a remote MCP endpoint, an Entra provider with a configured authority, and the pipes measured through nginx and against SSH. A module of its own that imports `internal/proto` and `spike/identity`, kept as evidence; not maintained and excluded from lint |
 | `docs` | User guides: concepts, `aries`, agents, CI gates and their workflows, running a server, deployment examples, install, moving from bd, the security model |
@@ -91,7 +90,7 @@ GOOS=darwin GOARCH=amd64 go vet ./...          # aries must build and vet
 GOOS=darwin GOARCH=amd64 go build ./cmd/...    # on every developer OS
 GOOS=windows GOARCH=amd64 go vet ./...
 GOOS=windows GOARCH=amd64 go build ./cmd/...
-ARIES_REQUIRE_DOLT=1 scripts/leftovers.sh go test -race -shuffle=on ./...
+ARIES_REQUIRE_POSTGRES=1 scripts/leftovers.sh go test -race -shuffle=on ./...
 ```
 
 The script stops at the first failure (`--keep-going` does not), and
@@ -128,7 +127,7 @@ calls a workflow cannot, so `release.yml`'s `gate` relies on those of
 own, and one module cache between them, keyed by the Go version and the
 hash of `go.sum` with no fallback; only a push to `main` saves one, a
 pull request and the merge queue's run of one only read them, and any
-other run, the release's gate among them, uses none. The tests' temporary files, Dolt's databases
+other run, the release's gate among them, uses none. The tests' temporary files, Postgres's data
 among them, are in memory when the runner's `/dev/shm` is fit for them
 (`TESTS_TMPFS`), and otherwise in `/tmp` with a warning;
 `scripts/leftovers.sh` makes its directory under the one that step
@@ -147,35 +146,42 @@ The `release` workflow runs this whole gate (`ci.yml`, as a reusable
 workflow) on the tagged commit before it builds anything
 ([RELEASING.md](RELEASING.md)).
 
-**Dolt.** The store, server, bdimport, `cmd/ariesd` and e2e tests start a
-real `dolt sql-server` through `internal/dolttest`. They need `dolt` on
-`PATH`, at the version in `version.Dolt` (`internal/version`; tests keep
-CI's `DOLT_VERSION`, the Docker test server's and the checksums in
-`internal/version/dolt.sha256` equal to it, so change them together as
-[RELEASING.md](RELEASING.md#changing-the-dolt-pin) says, and
-`TestDoltVersion` checks the `dolt` on `PATH`). `scripts/install-dolt.sh`
-downloads that release for Linux or macOS, verifies its SHA-256 against
-the pinned one, installs it under the user's cache directory and prints
-the directory to put on `PATH`; `scripts/gate.sh` uses it by itself when
-the `dolt` on `PATH` is another version. Without
-`dolt` those tests skip with a message, and the rest still run; a skipped
-store test proves nothing, so install Dolt before changing the store,
-server or protocol. With `ARIES_REQUIRE_DOLT=1`, as CI sets it, a missing
-`dolt` fails those tests instead of skipping them. Tests that need `git`
-skip without it too. A server `dolttest` starts does not outlive the
-process that started it, on Linux and macOS: a test binary that is killed
-(a `go test` timeout, a canceled run, a stopped agent) runs no deferred
-`Stop`, so each launch has a watcher, a `/bin/sh` that kills dolt and
-removes its files from the directory once that process is gone. Start
-Dolt for a test through `dolttest`, never directly. A package's tests
-take their servers from a `dolttest.Pool`: a test holds one, alone,
-while it runs, and the pool runs one for every two processors, four at
-most. Dolt holds every database
-in memory, about 14 MB with Aries's schema, and opens each new one
-more slowly the more it holds. So a test's database is dropped when the
-test ends (the store's and `cmd/ariesd`'s `newDSN`, the server's
-`newDatabase`, bdimport's `newStore` and the e2e world's, over
-`dolttest.Pool`): get a test's database from those, not from
+**Postgres.** The store, server, bdimport, `cmd/ariesd` and e2e tests
+start a real Postgres through `internal/pgtest`. They need `postgres`
+and `initdb` on `PATH`, at the major version in `version.PostgresMajor`
+(`internal/version`, which also holds `version.Postgres`, the pinned
+release, and `postgres.sha256`, the SHA-256 of its source archive; tests
+keep CI's `POSTGRES_MAJOR`, CONTRIBUTING.md and the release notes in
+step, so change them together as
+[RELEASING.md](RELEASING.md#changing-the-postgres-pin) says, and
+`TestPostgresVersion` checks the `postgres` on `PATH`).
+`scripts/install-postgres.sh` prints the directory of the packaged
+Postgres of that major version on Linux when it is installed
+(`/usr/lib/postgresql/MAJOR/bin`, from the PostgreSQL project's apt
+repository, as CI installs it); otherwise, and always on macOS, it
+downloads the pinned source archive, verifies its SHA-256, builds it
+under the user's cache directory and prints that directory to put on
+`PATH`. `scripts/gate.sh` uses it by itself when the `postgres` on
+`PATH` is another major version. Without `postgres` those tests skip
+with a message, and the rest still run; a skipped store test proves
+nothing, so install Postgres before changing the store, server or
+protocol. With `ARIES_REQUIRE_POSTGRES=1`, as CI sets it, a missing
+`postgres` fails those tests instead of skipping them. Tests that need
+`git` skip without it too. A server `pgtest` starts has its own data
+directory and listens on a unix socket in it, with no TCP port; it runs
+with `fsync` off, which loses nothing a test needs, since its data is
+thrown away. It does not outlive the process that started it, on Linux
+and macOS: a test binary that is killed (a `go test` timeout, a canceled
+run, a stopped agent) runs no deferred `Stop`, so each launch has a
+watcher, a `/bin/sh` that kills the server, removes its files and frees
+its shared memory once that process is gone. Postgres refuses to run as
+root, and so does `pgtest`. Start Postgres for a test through
+`pgtest`, never directly. A package's tests take their servers from a
+`pgtest.Pool`: a test holds one, alone, while it runs, and the pool runs
+one for every two processors, four at most. A test's database is
+dropped when the test ends (the store's and `cmd/ariesd`'s `newDSN`,
+the server's `newDatabase`, bdimport's `newStore` and the e2e world's,
+over `pgtest.Pool`): get a test's database from those, not from
 `NewDatabase` directly.
 
 **Tests.** A test begins with `t.Parallel()`, or with a comment
@@ -224,7 +230,7 @@ and what a test that passes there does not do.
    connection, one SQL transaction per operation. There is one store, and
    so one writer, for each database: each project's, and the control
    database's (`Control.write`). Do not open another writer on a
-   database or write to Dolt from anywhere else; the daemon's registry
+   database or write to Postgres from anywhere else; the daemon's registry
    never opens a project's store beside one still closing. A write that changes an
    issue (its fields, status, handoffs or acceptance) first calls
    `wtx.guard` with the issue's claim (`store/authz.go`), so only the
@@ -241,11 +247,16 @@ and what a test that passes there does not do.
    server admin. Who is an admin of a project's issues is `Store.IsAdmin`:
    `Options.Admins`, and in a server of many projects `Options.IsAdmin`,
    which the daemon answers from the control store.
-6. **Every `UPDATE` sets `write_id = ?`** to a value unique to that write.
-   Dolt detects conflicts per cell, not per row, so `rev = rev + 1` alone
-   lets two concurrent writers both succeed silently (stage 0,
-   summarized in `spike/postgres/RESULTS.md`). `wtx.exec` refuses an `UPDATE` without it.
-   `SELECT ... FOR UPDATE` does not lock in Dolt; do not use it.
+6. **An update names the rev it read.** A compare-and-swap is
+   `UPDATE … SET …, rev = rev + 1 WHERE id = $n AND rev = $m`: Postgres
+   locks the row, so of two writers the second, at the store's
+   repeatable read, fails with a serialization error and is retried
+   from the start (rule 8), and at read committed would match no row
+   (`TestCASNeedsNoWriteID`). Queries are written with Postgres's `$n`
+   placeholders, numbered in each query; there is no layer that
+   rewrites them. A write retries SQLSTATE 40001 and 40P01, and 23505
+   where a unique key was taken by a concurrent writer; a duplicate the
+   caller asked for is its own error (`store/errors.go`).
 7. **Every mutation appends an event** with `wtx.event`, in the same
    transaction. `writeOnce` refuses a transaction that changed rows but
    recorded no event. Only bookkeeping that is not history skips the
@@ -266,7 +277,8 @@ and what a test that passes there does not do.
 8. **Write closures must be safe to rerun.** A write that loses to a
    concurrent transaction is retried from the start.
 9. **Migrations are append-only**, in both sets. Add the next
-   `NNNN_name.sql`; never edit, renumber or delete one that has merged. They only go forward: an older
+   `NNNN_name.sql`; never edit, renumber or delete one that has merged.
+   Each runs in one transaction with the row that records it. They only go forward: an older
    `ariesd` refuses a database a newer one migrated (`ErrSchemaTooNew`).
 10. **The protocol is versioned.** Frames are NDJSON (`internal/proto`). The
     server decodes `*Args` with `DisallowUnknownFields`, so a new argument
@@ -327,7 +339,7 @@ and what a test that passes there does not do.
     default, a `limits:` setting, a table-driven test and a row in the
     Limits table in `docs/server.md`.
     A refusal past a cap is `invalid` or `busy` with a `Fix`. Tests run
-    against a locked-down Dolt account (`dolttest`), as `ariesd` does.
+    as a locked-down Postgres role (`pgtest`), as `ariesd` does.
 19. **Time comes from the store.** The server's clock is relied on and
     not trusted to be right (design §14, decision 37). Anything the
     store writes or compares takes its time from `wtx.now` or

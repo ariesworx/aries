@@ -12,38 +12,36 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/aries/internal/dolttest"
+	"github.com/ariesworx/aries/internal/pgtest"
 	"github.com/ariesworx/aries/internal/store"
 )
 
-// dolts are the package's Dolt servers: a test has one to itself while it
-// runs, so the tests can run in parallel (dolttest.Pool).
-var dolts = dolttest.NewPool("aries-bdimport-", dolttest.Options{})
+// pgs are the package's Postgres servers: a test has one to itself while
+// it runs, so the tests can run in parallel (pgtest.Pool).
+var pgs = pgtest.NewPool("aries-bdimport-")
 
 func TestMain(m *testing.M) {
 	os.Exit(run(m))
 }
 
 func run(m *testing.M) int {
-	defer func() { _ = dolts.Close() }()
-	dolts.Warm()
+	defer func() { _ = pgs.Close() }()
+	pgs.Warm()
 	return m.Run()
 }
 
-// newStore opens a store on a new database of the test's Dolt server,
-// which is dropped when the test ends, once the store is closed: Dolt
-// holds every database in memory and slows with each
-// (dolttest.Server.DropDatabase).
+// newStore opens a store on a new database of the test's Postgres
+// server, which is dropped when the test ends, once the store is closed.
 func newStore(t *testing.T) *store.Store {
 	t.Helper()
-	dsn, err := dolts.Database(t)
-	if errors.Is(err, dolttest.ErrNoDolt) {
-		t.Skip("dolt is not on PATH: install dolt to run the import tests")
+	dsn, err := pgs.Database(t)
+	if errors.Is(err, pgtest.ErrNoPostgres) {
+		t.Skip("postgres is not on PATH: run scripts/install-postgres.sh to run the import tests")
 	}
 	if err != nil {
-		t.Fatalf("dolt sql-server: %v", err)
+		t.Fatalf("postgres: %v", err)
 	}
-	s, err := store.Open(t.Context(), dsn, store.Options{Prefix: "sf", CommitInterval: -1})
+	s, err := store.Open(t.Context(), dsn, store.Options{Prefix: "sf"})
 	if err != nil {
 		t.Fatal(err)
 	}

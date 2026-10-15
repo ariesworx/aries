@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -23,59 +24,73 @@ func setting(t *testing.T, path, pattern string) string {
 }
 
 const (
-	ciFile     = "../../.github/workflows/ci.yml"
-	dockerFile = "../../deploy/docker/Dockerfile"
-	goModFile  = "../../go.mod"
-	guideFile  = "../../docs/server.md"
-	installer  = "../../install-server.sh"
-	miseFile   = "../../mise.toml"
-	sumsFile   = "dolt.sha256"
+	ciFile           = "../../.github/workflows/ci.yml"
+	contributingFile = "../../CONTRIBUTING.md"
+	goModFile        = "../../go.mod"
+	miseFile         = "../../mise.toml"
+	sumsFile         = "postgres.sha256"
+	releaseFile      = "../../.github/workflows/release.yml"
 )
 
-// TestDoltMatchesCI keeps the pin and the version CI tests against equal.
-func TestDoltMatchesCI(t *testing.T) {
+// TestPostgresMajor keeps PostgresMajor the major version of the pinned
+// release, and at least the oldest the store opens.
+func TestPostgresMajor(t *testing.T) {
 	t.Parallel()
-	if got := setting(t, ciFile, `(?m)^\s*DOLT_VERSION:\s*(\S+)\s*$`); got != Dolt {
-		t.Errorf("ci.yml DOLT_VERSION is %s, version.Dolt is %s; change both together", got, Dolt)
+	if major, _, _ := strings.Cut(Postgres, "."); major != PostgresMajor {
+		t.Errorf("version.Postgres is %s, version.PostgresMajor is %s; change both together", Postgres, PostgresMajor)
+	}
+	if n, err := strconv.Atoi(PostgresMajor); err != nil || n < PostgresMin {
+		t.Errorf("version.PostgresMajor is %s, which is not a version at least version.PostgresMin %d", PostgresMajor, PostgresMin)
 	}
 }
 
-// TestDoltMatchesDocker keeps the Docker test server's Dolt at the pin.
-func TestDoltMatchesDocker(t *testing.T) {
+// TestPostgresMatchesCI keeps the major version CI installs from the
+// PostgreSQL project's apt repository at the pin's.
+func TestPostgresMatchesCI(t *testing.T) {
 	t.Parallel()
-	if got := setting(t, dockerFile, `(?m)^ARG DOLT_VERSION=(\S+)$`); got != Dolt {
-		t.Errorf("Dockerfile DOLT_VERSION is %s, version.Dolt is %s; change both together", got, Dolt)
+	if got := setting(t, ciFile, `(?m)^\s*POSTGRES_MAJOR:\s*"?(\d+)"?\s*$`); got != PostgresMajor {
+		t.Errorf("ci.yml POSTGRES_MAJOR is %s, version.PostgresMajor is %s; change both together", got, PostgresMajor)
 	}
 }
 
-// TestDoltMatchesServerGuide keeps the release the server guide tells an
-// operator to download at the pin.
-func TestDoltMatchesServerGuide(t *testing.T) {
+// TestPostgresMatchesContributing keeps the release CONTRIBUTING.md says
+// scripts/install-postgres.sh builds at the pin.
+func TestPostgresMatchesContributing(t *testing.T) {
 	t.Parallel()
-	if got := setting(t, guideFile, `dolthub/dolt/releases/download/v([0-9.]+)/dolt-linux-amd64\.tar\.gz`); got != Dolt {
-		t.Errorf("docs/server.md downloads Dolt %s, version.Dolt is %s; change both together", got, Dolt)
+	if got := setting(t, contributingFile, `install-postgres\.sh`+"`"+` (?:builds|installs) Postgres ([0-9.]+)`); got != Postgres {
+		t.Errorf("CONTRIBUTING.md says scripts/install-postgres.sh builds Postgres %s, version.Postgres is %s; change both together", got, Postgres)
 	}
 }
 
-// TestDoltMatchesServerInstaller keeps the release the server installer
-// downloads at the pin.
-func TestDoltMatchesServerInstaller(t *testing.T) {
+// TestReleaseNotesNameThePin keeps the release's notes saying which
+// Postgres it was tested with: the release workflow reads the pin from
+// version.go with sed, and fails the release if it finds none.
+func TestReleaseNotesNameThePin(t *testing.T) {
 	t.Parallel()
-	if got := setting(t, installer, `(?m)^dolt_version=(\S+)$`); got != Dolt {
-		t.Errorf("install-server.sh installs Dolt %s, version.Dolt is %s; change both together", got, Dolt)
+	got := setting(t, releaseFile, `(?m)^\s*postgres="\$\(sed -n '(s/\^const Postgres = .*/p)' internal/version/version\.go\)"$`)
+	sed := regexp.MustCompile(`^s/\^const Postgres = "\\\(\.\*\\\)"\$/\\1/p$`)
+	if !sed.MatchString(got) {
+		t.Fatalf("release.yml reads the pin with sed %q, want s/^const Postgres = \"\\(.*\\)\"$/\\1/p", got)
+	}
+	if setting(t, "version.go", `(?m)^const Postgres = "(.*)"$`) != Postgres {
+		t.Errorf("version.go has no line const Postgres = %q for release.yml to read", Postgres)
 	}
 }
 
-// doltSums reads dolt.sha256: a checksum for each "vVERSION/ARCHIVE".
-func doltSums(t *testing.T) map[string]string {
-	t.Helper()
+// TestPostgresChecksum keeps postgres.sha256, which
+// scripts/install-postgres.sh takes the release from and verifies a
+// download against, at the pinned release: one source archive, of
+// version.Postgres.
+func TestPostgresChecksum(t *testing.T) {
+	t.Parallel()
 	f, err := os.Open(sumsFile)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = f.Close() }()
-	sums := map[string]string{}
+	want := "v" + Postgres + "/postgresql-" + Postgres + ".tar.gz"
 	line := regexp.MustCompile(`^([0-9a-f]{64})  (\S+)$`)
+	var names []string
 	for sc := bufio.NewScanner(f); sc.Scan(); {
 		if sc.Text() == "" || strings.HasPrefix(sc.Text(), "#") {
 			continue
@@ -84,53 +99,10 @@ func doltSums(t *testing.T) map[string]string {
 		if m == nil {
 			t.Fatalf("%s: line %q is not a lowercase SHA-256, two spaces and a name", sumsFile, sc.Text())
 		}
-		if _, dup := sums[m[2]]; dup {
-			t.Errorf("%s lists %s twice", sumsFile, m[2])
-		}
-		sums[m[2]] = m[1]
+		names = append(names, m[2])
 	}
-	return sums
-}
-
-// TestDoltChecksums keeps dolt.sha256, which scripts/install-dolt.sh
-// verifies a download against, at the pinned release and equal to the
-// checksums CI, the Docker test server and the server installer verify.
-func TestDoltChecksums(t *testing.T) {
-	t.Parallel()
-	sums := doltSums(t)
-	tests := []struct {
-		platform string
-		// file and pattern name another pin of the same archive, if any.
-		file, pattern string
-	}{
-		{"linux-amd64", ciFile, `(?m)^\s*DOLT_SHA256:\s*(\S+)\s*$`},
-		{"linux-amd64", dockerFile, `(?m)^ARG DOLT_SHA256_AMD64=(\S+)$`},
-		{"linux-arm64", dockerFile, `(?m)^ARG DOLT_SHA256_ARM64=(\S+)$`},
-		{"linux-amd64", installer, `(?m)^dolt_sha256_amd64=(\S+)$`},
-		{"linux-arm64", installer, `(?m)^dolt_sha256_arm64=(\S+)$`},
-		{"darwin-amd64", "", ""},
-		{"darwin-arm64", "", ""},
-	}
-	want := map[string]bool{}
-	for _, tc := range tests {
-		name := "v" + Dolt + "/dolt-" + tc.platform + ".tar.gz"
-		want[name] = true
-		sum, ok := sums[name]
-		if !ok {
-			t.Errorf("%s has no checksum for %s; pin one for every platform when version.Dolt changes (RELEASING.md)", sumsFile, name)
-			continue
-		}
-		if tc.file == "" {
-			continue
-		}
-		if got := setting(t, tc.file, tc.pattern); got != sum {
-			t.Errorf("%s pins %s for %s, %s pins %s; change both together", tc.file, got, name, sumsFile, sum)
-		}
-	}
-	for name := range sums {
-		if !want[name] {
-			t.Errorf("%s lists %s, which is not an archive of version.Dolt %s; remove it", sumsFile, name, Dolt)
-		}
+	if len(names) != 1 || names[0] != want {
+		t.Errorf("%s pins %q, want only %s, the source archive of version.Postgres; RELEASING.md says how to change the pin", sumsFile, names, want)
 	}
 }
 

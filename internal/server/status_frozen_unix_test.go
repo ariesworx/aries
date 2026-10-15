@@ -14,18 +14,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ariesworx/aries/internal/dolttest"
+	"github.com/ariesworx/aries/internal/pgtest"
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/statustext"
 	"github.com/ariesworx/aries/internal/store"
 )
 
-// The status report while Dolt does not answer. Dolt is stopped with
+// The status report while Postgres does not answer. Postgres is stopped with
 // SIGSTOP, which a test can only do where there are signals: it still
 // holds its sockets, so a connection to it waits and is not refused, as
-// with a Dolt that is swapping or stuck in its collector.
+// with a Postgres that is swapping or stuck in its collector.
 
-// statusBound is how long a status report may take whatever Dolt is
+// statusBound is how long a status report may take whatever Postgres is
 // doing: the bound on its reads, and a second for everything else.
 const statusBound = statusReadTimeout + time.Second
 
@@ -33,20 +33,19 @@ const statusBound = statusReadTimeout + time.Second
 // time.
 const unanswered = "database did not answer in 2s"
 
-// freeze stops d, the whole process group, until thaw is called or the
-// test ends, whichever is first: a stopped Dolt must not outlive the
+// freeze stops d, every process of it, until thaw is called or the test
+// ends, whichever is first: a stopped Postgres must not outlive the
 // test. ping is a read of d, which freeze checks goes unanswered.
-func freeze(t *testing.T, d *dolttest.Server, ping func(context.Context) error) (thaw func()) {
+func freeze(t *testing.T, d *pgtest.Server, ping func(context.Context) error) (thaw func()) {
 	t.Helper()
-	pid := d.PID()
 	thaw = sync.OnceFunc(func() {
-		if err := syscall.Kill(-pid, syscall.SIGCONT); err != nil {
-			t.Errorf("continue dolt (process group %d): %v", pid, err)
+		if err := d.Signal(syscall.SIGCONT); err != nil {
+			t.Errorf("continue postgres: %v", err)
 		}
 	})
 	t.Cleanup(thaw)
-	if err := syscall.Kill(-pid, syscall.SIGSTOP); err != nil {
-		t.Fatalf("stop dolt (process group %d): %v", pid, err)
+	if err := d.Signal(syscall.SIGSTOP); err != nil {
+		t.Fatalf("stop postgres: %v", err)
 	}
 	// kill returns before every thread of the group has stopped, on
 	// Linux by long enough for a ping to be answered: wait for one that
@@ -59,7 +58,7 @@ func freeze(t *testing.T, d *dolttest.Server, ping func(context.Context) error) 
 			return thaw
 		}
 		if time.Now().After(end) {
-			t.Fatal("dolt still answered a ping 5s after SIGSTOP")
+			t.Fatal("postgres still answered a ping 5s after SIGSTOP")
 		}
 	}
 }
@@ -72,7 +71,7 @@ func freeze(t *testing.T, d *dolttest.Server, ping func(context.Context) error) 
 // machine that stops the test's process for seconds, or leaves it no
 // processor, fires the server's timer as late as it fires this one: a
 // report that took eight seconds for that, as one did under load, says
-// nothing of the server. A server that waits for Dolt is late when this
+// nothing of the server. A server that waits for Postgres is late when this
 // wait was not, and fails as before.
 func pace(d time.Duration) (late func() time.Duration) {
 	start := time.Now()
@@ -83,8 +82,8 @@ func pace(d time.Duration) (late func() time.Duration) {
 
 // timed runs report and returns how long it took, and how late this
 // machine was for a wait of statusReadTimeout begun with it (pace).
-// Should the report take twice statusBound, Dolt is continued, so that a
-// report that waits for Dolt fails the test instead of hanging it.
+// Should the report take twice statusBound, Postgres is continued, so that a
+// report that waits for Postgres fails the test instead of hanging it.
 func timed(report func() (proto.StatusResult, *proto.Error), thaw func()) (res proto.StatusResult, perr *proto.Error, took, late time.Duration) {
 	net := time.AfterFunc(2*statusBound, thaw)
 	defer net.Stop()
@@ -107,11 +106,11 @@ func printed(t *testing.T, res proto.StatusResult) (text, doc string) {
 	return w.String(), string(b)
 }
 
-// With Dolt frozen, both ways to the report answer within the bound,
+// With Postgres frozen, both ways to the report answer within the bound,
 // however many stores are open: the sessions, the one figure read from
 // the database, are unknown and say why, and everything the daemon
 // holds in memory is still there.
-func TestStatusWithDoltFrozen(t *testing.T) {
+func TestStatusWithPostgresFrozen(t *testing.T) {
 	// Serial: bounds elapsed time (pace), which a test running beside it would stretch.
 	m := adminWorld(t, Limits{})
 	d := mustDialTo(t, m.Server, dana, projA)
@@ -133,21 +132,21 @@ func TestStatusWithDoltFrozen(t *testing.T) {
 		}},
 	}
 
-	// The control database is in the same Dolt, and frozen with it.
-	thaw := freeze(t, doltOf(t), m.ctl.Ping)
+	// The control database is in the same Postgres, and frozen with it.
+	thaw := freeze(t, pgOf(t), m.ctl.Ping)
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			res, perr, took, late := timed(tc.report, thaw)
 			if perr != nil {
-				t.Fatalf("status with Dolt frozen = %v, want a report", perr)
+				t.Fatalf("status with Postgres frozen = %v, want a report", perr)
 			}
 			// Two stores are open: one after the other, their reads
 			// would take twice statusReadTimeout.
 			if took > statusBound+late {
-				t.Errorf("status with Dolt frozen took %s, want at most %s, and the %s this machine was late by", took.Round(time.Millisecond), statusBound, late.Round(time.Millisecond))
+				t.Errorf("status with Postgres frozen took %s, want at most %s, and the %s this machine was late by", took.Round(time.Millisecond), statusBound, late.Round(time.Millisecond))
 			}
 			if sv := res.Server; sv == nil || sv.Version != "v0.2.0" || sv.OpenStores != 2 || sv.Conns != 3 || sv.Projects["active"] != 2 || sv.KeysFile == nil {
-				t.Errorf("status with Dolt frozen has the server as %s; want its version, 2 open stores, 3 connections, 2 active projects and the keys file", js(sv))
+				t.Errorf("status with Postgres frozen has the server as %s; want its version, 2 open stores, 3 connections, 2 active projects and the keys file", js(sv))
 			}
 			ps := byName(res)
 			for name, conns := range map[string]int{"proj-a": 2, "proj-b": 1} {
@@ -163,43 +162,43 @@ func TestStatusWithDoltFrozen(t *testing.T) {
 			for _, want := range []string{"ariesd v0.2.0, ", "stores 2 of 64, connections 3 of ", "\nproj-a ", "  unknown  ",
 				"\nsessions: unknown for 2 projects (" + unanswered + ")"} {
 				if !strings.Contains(text, want) {
-					t.Errorf("the status with Dolt frozen lacks %q:\n%s", want, text)
+					t.Errorf("the status with Postgres frozen lacks %q:\n%s", want, text)
 				}
 			}
 			if !json.Valid([]byte(doc)) || strings.Count(doc, `"sessions_unknown":"`+unanswered+`"`) != 2 || strings.Contains(doc, `"sessions":`) {
-				t.Errorf("the JSON with Dolt frozen = %s\nwant one document, with sessions_unknown for both projects and no sessions", doc)
+				t.Errorf("the JSON with Postgres frozen = %s\nwant one document, with sessions_unknown for both projects and no sessions", doc)
 			}
 		})
 	}
 
 	thaw()
-	waitUntil(t, "dolt answers again", func() bool {
+	waitUntil(t, "postgres answers again", func() bool {
 		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 		defer cancel()
 		return m.ctl.Ping(ctx) == nil
 	})
 	res, perr := local()
 	if perr != nil {
-		t.Fatalf("status once Dolt answers again = %v", perr)
+		t.Fatalf("status once Postgres answers again = %v", perr)
 	}
 	for name, want := range map[string]int{"proj-a": 2, "proj-b": 1} {
 		if p := byName(res)[name]; p.Sessions == nil || *p.Sessions != want || p.SessionsUnknown != "" {
-			t.Errorf("%s sessions once Dolt answers again = %s, unknown %q; want %d", name, js(p.Sessions), p.SessionsUnknown, want)
+			t.Errorf("%s sessions once Postgres answers again = %s, unknown %q; want %d", name, js(p.Sessions), p.SessionsUnknown, want)
 		}
 	}
 }
 
 // `aries` connects anew for each command, so what an admin's `aries admin
-// status` meets while Dolt does not answer is a new connection. To a
+// status` meets while Postgres does not answer is a new connection. To a
 // project whose store is open it is welcomed and answered within the
 // status bound. To one whose store is closed it is refused as quickly,
 // told that the database does not answer and to run `ariesd status`
 // on the server, and no store is opened. Any other request is refused
-// when it runs out of time, as on an older connection, and once Dolt
+// when it runs out of time, as on an older connection, and once Postgres
 // answers again the session is in who.
-func TestNewConnectionWithDoltFrozen(t *testing.T) {
+func TestNewConnectionWithPostgresFrozen(t *testing.T) {
 	// Serial: bounds elapsed time (pace), which a test running beside it would stretch.
-	// Long enough for a request once Dolt answers again on a busy
+	// Long enough for a request once Postgres answers again on a busy
 	// machine, and short enough to wait out here.
 	const timeout = 4 * time.Second
 	m := adminWorld(t, Limits{})
@@ -214,7 +213,7 @@ func TestNewConnectionWithDoltFrozen(t *testing.T) {
 		return a
 	}
 
-	thaw := freeze(t, doltOf(t), m.ctl.Ping)
+	thaw := freeze(t, pgOf(t), m.ctl.Ping)
 
 	t.Run("status, store open", func(t *testing.T) {
 		late, start := pace(statusReadTimeout), time.Now()
@@ -223,14 +222,14 @@ func TestNewConnectionWithDoltFrozen(t *testing.T) {
 		took := time.Since(start)
 		t.Logf("new connection, store open: status after %s", took.Round(time.Millisecond))
 		if perr != nil {
-			t.Fatalf("status on a new connection with Dolt frozen = %v, want a report", perr)
+			t.Fatalf("status on a new connection with Postgres frozen = %v, want a report", perr)
 		}
 		if took > statusBound+late() {
-			t.Errorf("status on a new connection with Dolt frozen took %s, want at most %s, and the %s this machine was late by", took.Round(time.Millisecond), statusBound, late().Round(time.Millisecond))
+			t.Errorf("status on a new connection with Postgres frozen took %s, want at most %s, and the %s this machine was late by", took.Round(time.Millisecond), statusBound, late().Round(time.Millisecond))
 		}
 		ps := byName(res)
 		if a, b := ps["proj-a"], ps["proj-b"]; res.Server == nil || !a.Open || a.SessionsUnknown != unanswered || b.Open {
-			t.Errorf("status on a new connection with Dolt frozen = %s; want the server, proj-a open with its sessions unknown (%q), and proj-b closed", js(res), unanswered)
+			t.Errorf("status on a new connection with Postgres frozen = %s; want the server, proj-a open with its sessions unknown (%q), and proj-b closed", js(res), unanswered)
 		}
 	})
 
@@ -240,20 +239,20 @@ func TestNewConnectionWithDoltFrozen(t *testing.T) {
 		took := time.Since(start)
 		t.Logf("new connection, store closed: refused after %s", took.Round(time.Millisecond))
 		if took > statusBound+late() {
-			t.Errorf("the answer to a hello for a closed store with Dolt frozen took %s, want at most %s, and the %s this machine was late by", took.Round(time.Millisecond), statusBound, late().Round(time.Millisecond))
+			t.Errorf("the answer to a hello for a closed store with Postgres frozen took %s, want at most %s, and the %s this machine was late by", took.Round(time.Millisecond), statusBound, late().Round(time.Millisecond))
 		}
 		if e := w.Err; e == nil || e.Code != proto.CodeUnavailable || !strings.Contains(e.Message, "database does not answer") ||
 			!strings.Contains(e.Message, projB) || !strings.Contains(e.Fix, "`ariesd status` on the server") {
-			t.Errorf("welcome for a closed store with Dolt frozen has error %+v; want unavailable, saying the database does not answer and naming the project, with a fix naming `ariesd status` on the server", e)
+			t.Errorf("welcome for a closed store with Postgres frozen has error %+v; want unavailable, saying the database does not answer and naming the project, with a fix naming `ariesd status` on the server", e)
 		}
 		if n := m.opened(projB); n != 0 {
-			t.Errorf("project b's store was opened %d times with Dolt frozen, want 0", n)
+			t.Errorf("project b's store was opened %d times with Postgres frozen, want 0", n)
 		}
 		if got := m.OpenStores(); got != 1 {
 			t.Errorf("open stores = %d, want 1: nothing is left of the refused opening", got)
 		}
-		if log := m.log.String(); !strings.Contains(log, "event=dolt.check_failed") {
-			t.Errorf("the log does not say the check of Dolt failed:\n%s", log)
+		if log := m.log.String(); !strings.Contains(log, "event=database.check_failed") {
+			t.Errorf("the log does not say the check of the database failed:\n%s", log)
 		}
 	})
 
@@ -263,20 +262,20 @@ func TestNewConnectionWithDoltFrozen(t *testing.T) {
 		// "At once" is given the whole of statusBound: the welcome waits
 		// for nothing, and a second of it is the machine's.
 		if took := time.Since(start); took > statusBound {
-			t.Errorf("the welcome with Dolt frozen took %s, want it at once", took.Round(time.Millisecond))
+			t.Errorf("the welcome with Postgres frozen took %s, want it at once", took.Round(time.Millisecond))
 		}
 		_, perr := ask[proto.ListResult](c, proto.OpList, proto.ListArgs{})
 		took := time.Since(start)
 		t.Logf("new connection, store open: list refused after %s, of a request timeout of %s", took.Round(time.Millisecond), timeout)
 		if perr == nil || perr.Code != proto.CodeUnavailable || perr.Message != "the server timed out on list" || !strings.HasPrefix(perr.Fix, "retry") {
-			t.Errorf("list on a new connection with Dolt frozen = %+v; want unavailable, timed out, with a fix to retry", perr)
+			t.Errorf("list on a new connection with Postgres frozen = %+v; want unavailable, timed out, with a fix to retry", perr)
 		}
 		if took < timeout || took > timeout+statusBound+late() {
-			t.Errorf("list on a new connection with Dolt frozen was refused after %s; want the request timeout, %s, and at most %s more, and the %s this machine was late by", took.Round(time.Millisecond), timeout, statusBound, late().Round(time.Millisecond))
+			t.Errorf("list on a new connection with Postgres frozen was refused after %s; want the request timeout, %s, and at most %s more, and the %s this machine was late by", took.Round(time.Millisecond), timeout, statusBound, late().Round(time.Millisecond))
 		}
 
 		thaw()
-		waitUntil(t, "dolt answers again", func() bool {
+		waitUntil(t, "postgres answers again", func() bool {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 			defer cancel()
 			return m.ctl.Ping(ctx) == nil
@@ -287,7 +286,7 @@ func TestNewConnectionWithDoltFrozen(t *testing.T) {
 			sessions = append(sessions, g.Principal+"/"+g.Session)
 		}
 		if want := alice.Principal + "/" + alice.Session; !slices.Contains(sessions, want) {
-			t.Errorf("who once Dolt answers again lists %v, want %s among them", sessions, want)
+			t.Errorf("who once Postgres answers again lists %v, want %s among them", sessions, want)
 		}
 	})
 }
@@ -296,17 +295,17 @@ func TestNewConnectionWithDoltFrozen(t *testing.T) {
 // figure and no other's.
 func TestStatusOneStoreSlow(t *testing.T) {
 	// Serial: bounds elapsed time (pace), which a test running beside it would stretch.
-	// A Dolt of its own for proj-b, started before the server so that it
+	// A Postgres of its own for proj-b, started before the server so that it
 	// is stopped after the server's stores have closed. Not t.TempDir,
-	// whose path can be too long for dolt's socket.
+	// whose path can be too long for the server's socket.
 	dir, err := os.MkdirTemp("", "sfz")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	slow, err := dolttest.Start(t.Context(), dir)
-	if errors.Is(err, dolttest.ErrNoDolt) {
-		t.Skip("dolt is not on PATH: install dolt to run the server tests")
+	slow, err := pgtest.Start(t.Context(), dir)
+	if errors.Is(err, pgtest.ErrNoPostgres) {
+		t.Skip("postgres is not on PATH: run scripts/install-postgres.sh to run the server tests")
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -328,7 +327,7 @@ func TestStatusOneStoreSlow(t *testing.T) {
 		if p.ID != projB {
 			return open(ctx, p)
 		}
-		st, err := store.Open(ctx, dsn, store.Options{CommitInterval: -1, Prefix: p.Prefix})
+		st, err := store.Open(ctx, dsn, store.Options{Prefix: p.Prefix})
 		theirs = st
 		return st, err
 	}
@@ -342,10 +341,10 @@ func TestStatusOneStoreSlow(t *testing.T) {
 		return res, perr
 	}, thaw)
 	if perr != nil {
-		t.Fatalf("status with one store's Dolt frozen = %v, want a report", perr)
+		t.Fatalf("status with one store's Postgres frozen = %v, want a report", perr)
 	}
 	if took > statusBound+late {
-		t.Errorf("status with one store's Dolt frozen took %s, want at most %s, and the %s this machine was late by", took.Round(time.Millisecond), statusBound, late.Round(time.Millisecond))
+		t.Errorf("status with one store's Postgres frozen took %s, want at most %s, and the %s this machine was late by", took.Round(time.Millisecond), statusBound, late.Round(time.Millisecond))
 	}
 	ps := byName(res)
 	if p := ps["proj-a"]; p.Sessions == nil || *p.Sessions != 1 || p.SessionsUnknown != "" {
@@ -356,7 +355,7 @@ func TestStatusOneStoreSlow(t *testing.T) {
 	}
 	text, _ := printed(t, res)
 	if want := "\nsessions: unknown for 1 project (" + unanswered + ")"; !strings.Contains(text, want) {
-		t.Errorf("the status with one store's Dolt frozen lacks %q:\n%s", want, text)
+		t.Errorf("the status with one store's Postgres frozen lacks %q:\n%s", want, text)
 	}
 	thaw() // before the stores close: a store's last act is a commit
 }

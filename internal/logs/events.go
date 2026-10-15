@@ -47,7 +47,6 @@ const (
 	ProjectClosed      Event = "project.closed"
 	ProjectCloseFailed Event = "project.close_failed"
 	StoreSchemaTooNew  Event = "store.schema_too_new"
-	StoreCommitFailed  Event = "store.commit_failed"
 	StoreUnsafeAccount Event = "store.unsafe_account"
 	ControlReload      Event = "control.reload_failed"
 	ControlIndexStale  Event = "control.index_stale"
@@ -77,12 +76,8 @@ const (
 	ClockStepSettled  Event = "clock.step_settled"
 	ClockSettleFailed Event = "clock.settle_failed"
 
-	// Dolt.
-	DoltCheckFailed      Event = "dolt.check_failed"
-	DoltDriver           Event = "dolt.driver"
-	DoltMetricsReading   Event = "dolt_metrics.reading"
-	DoltMetricsFailed    Event = "dolt_metrics.read_failed"
-	DoltMetricsRecovered Event = "dolt_metrics.read_recovered"
+	// The database.
+	DatabaseCheckFailed Event = "database.check_failed"
 
 	// Telemetry.
 	TelemetryOn              Event = "telemetry.on"
@@ -124,11 +119,11 @@ var events = []Event{
 	ConnDropped, ConnKeyLookup, HandshakeFailed, AgentHarness, AgentRegister,
 	RequestDone, RequestRefused, RequestFailed, RequestPart,
 	ProjectAdded, ProjectOpened, ProjectOpenFailed, ProjectNotOpened, ProjectClosed, ProjectCloseFailed,
-	StoreSchemaTooNew, StoreCommitFailed, StoreUnsafeAccount, ControlReload, ControlIndexStale,
+	StoreSchemaTooNew, StoreUnsafeAccount, ControlReload, ControlIndexStale,
 	ClaimExpired, ClaimReleased, LockExpired, LockReleased, ReaperFailed, ReaperPruneFailed, ReaperPruned, SweepFailed,
 	KeysFileWritten, KeysFileWriteFailed, KeysFileHeldBack, KeysFileLeftOut,
 	ClockBehind, ClockCaughtUp, ClockStepped, ClockStepSettled, ClockSettleFailed,
-	DoltCheckFailed, DoltDriver, DoltMetricsReading, DoltMetricsFailed, DoltMetricsRecovered,
+	DatabaseCheckFailed,
 	TelemetryOn, TelemetryOff, TelemetryStopFailed, TelemetryExportFailed, TelemetryExportRecovered, TelemetrySDKError,
 	TelemetryScrapeFailed, TelemetryListening, TelemetryListenerError, TelemetryListenerStopped,
 	TelemetryKeyMade, TelemetryKeyFound, TelemetryKeyUnavailable,

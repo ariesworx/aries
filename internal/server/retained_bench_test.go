@@ -19,7 +19,6 @@ import (
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/store"
 	"github.com/ariesworx/aries/internal/telemetry"
-	"github.com/go-sql-driver/mysql"
 )
 
 // BenchmarkRetained says what the daemon holds for each thing a client
@@ -358,7 +357,7 @@ func benchStuck(b *testing.B, sd seeded, mode string) (stop func()) {
 			log.Handler().(*logs.Handler).Tap(h)
 		}
 	}
-	st, err := store.Open(b.Context(), sd.dsn, store.Options{Prefix: "sf", CommitInterval: -1, Admins: []string{dana.Principal}, Logger: log,
+	st, err := store.Open(b.Context(), sd.dsn, store.Options{Prefix: "sf", Admins: []string{dana.Principal}, Logger: log,
 		Observer: StoreObserver(tel, project), Tracer: StoreTracer(tel, project)})
 	if err != nil {
 		b.Fatal(err)
@@ -400,14 +399,13 @@ type benchMulti struct {
 	ids []string
 }
 
-// newBenchMulti starts a server of n projects, each in a database of
-// its own that holds three issues with texts of 64 KiB. Its project
-// stores commit every second, as a daemon's do.
+// newBenchMulti starts a server of n projects, each in a schema of its
+// own that holds three issues with texts of 64 KiB.
 func newBenchMulti(b *testing.B, n int) *benchMulti {
 	b.Helper()
 	ctx := b.Context()
 	dsn := newDatabase(b)
-	ctl, err := store.OpenControl(ctx, dsn, store.ControlOptions{Admins: []string{dana.Principal}, CommitInterval: -1})
+	ctl, err := store.OpenControl(ctx, dsn, store.ControlOptions{Admins: []string{dana.Principal}})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -419,12 +417,11 @@ func newBenchMulti(b *testing.B, n int) *benchMulti {
 	long := strings.Repeat("A line of the report, as a person writes one.\n", 1400)
 	for i := range n {
 		id := fmt.Sprintf("00000000-0000-4000-8000-%012d", i+1)
-		cfg, err := mysql.ParseDSN(newDatabase(b))
-		if err != nil {
+		if _, err := ctl.AddProject(ctx, dana, store.NewProject{ID: id, Name: "proj-" + strconv.Itoa(i), Prefix: "p" + strconv.Itoa(i),
+			Account: "acct", DBName: "aries_p" + strconv.Itoa(i)}); err != nil {
 			b.Fatal(err)
 		}
-		if _, err := ctl.AddProject(ctx, dana, store.NewProject{ID: id, Name: "proj-" + strconv.Itoa(i), Prefix: "p" + strconv.Itoa(i),
-			Account: "acct", DBName: cfg.DBName}); err != nil {
+		if err := ctl.CreateDatabase(ctx, dana, id); err != nil {
 			b.Fatal(err)
 		}
 		if _, err := ctl.ActivateProject(ctx, dana, id); err != nil {

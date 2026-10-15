@@ -228,7 +228,7 @@ type gateRow struct {
 
 // loadGate reads the gate whose issue is id, or nil when id is no gate.
 func loadGate(ctx context.Context, q querier, id IssueID) (*gateRow, error) {
-	gs, err := loadGates(ctx, q, `WHERE g.issue_id = ?`, 1, string(id))
+	gs, err := loadGates(ctx, q, `WHERE g.issue_id = $1`, 1, string(id))
 	if err != nil || len(gs) == 0 {
 		return nil, err
 	}
@@ -242,7 +242,7 @@ func loadGates(ctx context.Context, q querier, where string, limit int, args ...
 	rows, err := q.QueryContext(ctx, `SELECT g.issue_id, i.title, g.kind, g.approvers, g.outcome, g.decided_by,
   g.decided_at, g.reason, i.created_by, i.created_at, g.check_name, g.subject, g.report
   FROM gates g JOIN issues i ON i.id = g.issue_id `+where+ //nolint:gosec // where is a constant from the callers
-		` ORDER BY i.created_at, i.id LIMIT ?`, append(args, limit)...)
+		` ORDER BY i.created_at, i.id LIMIT `+placeholder(len(args)+1), append(args, limit)...)
 	if err != nil {
 		return nil, fmt.Errorf("gates: %w", err)
 	}
@@ -284,7 +284,7 @@ func loadGates(ctx context.Context, q querier, where string, limit int, args ...
 	for i, g := range out {
 		ids[i], at[g.ID] = string(g.ID), i
 	}
-	hr, err := q.QueryContext(ctx, `SELECT to_id, from_id FROM deps WHERE to_id IN (`+placeholders(len(ids))+
+	hr, err := q.QueryContext(ctx, `SELECT to_id, from_id FROM deps WHERE to_id IN (`+placeholders(1, len(ids))+
 		`) AND type IN (`+readyBlocking+`) ORDER BY to_id, from_id`, ids...)
 	if err != nil {
 		return nil, fmt.Errorf("gate holds: %w", err)
@@ -331,12 +331,12 @@ edges (src, dst) AS (
   SELECT id, parent_id FROM issues WHERE parent_id IS NOT NULL
 ),
 reach (id) AS (
-  SELECT CAST(? AS CHAR(64))
+  SELECT CAST($1 AS VARCHAR(64))
   UNION
   SELECT e.dst FROM edges e JOIN reach r ON e.src = r.id
 )
 SELECT g.issue_id FROM reach r JOIN gates g ON g.issue_id = r.id
-WHERE g.outcome IS NULL AND g.issue_id <> ? ORDER BY g.issue_id`, string(id), string(id))
+WHERE g.outcome IS NULL AND g.issue_id <> $1 ORDER BY g.issue_id`, string(id))
 	if err != nil {
 		return nil, fmt.Errorf("gates holding %s: %w", id, err)
 	}
@@ -562,9 +562,9 @@ func (s *Store) AddGate(ctx context.Context, actor Actor, in NewGate) (Gate, err
 		if _, err := insertIssue(ctx, w, id, ni, nil); err != nil {
 			return err
 		}
-		if _, err := w.exec(ctx, `INSERT INTO gates (issue_id, kind, approvers, outcome, decided_by, decided_at, reason, check_name, subject, report, rev, write_id)
-  VALUES (?, ?, ?, NULL, NULL, NULL, '', ?, ?, NULL, 1, ?)`, string(id), string(in.Kind), string(approvers),
-			in.Check, nullStr(in.Subject), randomInt63()); err != nil {
+		if _, err := w.exec(ctx, `INSERT INTO gates (issue_id, kind, approvers, outcome, decided_by, decided_at, reason, check_name, subject, report, rev)
+  VALUES ($1, $2, $3, NULL, NULL, NULL, '', $4, $5, NULL, 1)`, string(id), string(in.Kind), string(approvers),
+			in.Check, nullStr(in.Subject)); err != nil {
 			return fmt.Errorf("insert gate: %w", err)
 		}
 		added := map[string]any{"kind": in.Kind, "approvers": in.Approvers, "blocks": nullStr(in.Blocks)}
@@ -690,8 +690,8 @@ func (s *Store) decide(ctx context.Context, actor Actor, id IssueID, reason stri
 		if outcome != "" {
 			decidedBy, decidedAt, set = w.actor.Principal, w.now, string(outcome)
 		}
-		if _, err := w.exec(ctx, `UPDATE gates SET outcome = ?, decided_by = ?, decided_at = ?, reason = ?, rev = rev + 1, write_id = ?
-  WHERE issue_id = ?`, set, decidedBy, decidedAt, reason, randomInt63(), string(id)); err != nil {
+		if _, err := w.exec(ctx, `UPDATE gates SET outcome = $1, decided_by = $2, decided_at = $3, reason = $4, rev = rev + 1
+  WHERE issue_id = $5`, set, decidedBy, decidedAt, reason, string(id)); err != nil {
 			return fmt.Errorf("%s gate %s: %w", verb, id, err)
 		}
 		if err := w.event(ctx, op, string(id), map[string]any{"outcome": nullStr(g.Outcome)},
@@ -742,13 +742,13 @@ edges (src, dst) AS (
   SELECT parent_id, id FROM issues WHERE parent_id IS NOT NULL
 ),
 held (id) AS (
-  SELECT CAST(? AS CHAR(64))
+  SELECT CAST($1 AS VARCHAR(64))
   UNION
   SELECT e.dst FROM edges e JOIN held h ON e.src = h.id
 )
 SELECT i.assignee, i.id, i.title FROM held h JOIN issues i ON i.id = h.id
-WHERE i.id <> ? AND i.status <> 'closed' AND i.assignee IS NOT NULL ORDER BY i.assignee, i.id LIMIT ?`,
-		string(g.ID), string(g.ID), maxGateNotices*10)
+WHERE i.id <> $1 AND i.status <> 'closed' AND i.assignee IS NOT NULL ORDER BY i.assignee, i.id LIMIT $2`,
+		string(g.ID), maxGateNotices*10)
 	if err != nil {
 		return nil, fmt.Errorf("held by gate %s: %w", g.ID, err)
 	}
@@ -840,7 +840,7 @@ func gatesOf(ctx context.Context, q querier, ids []IssueID) ([]Gate, error) {
 	for i, g := range ids {
 		args[i] = string(g)
 	}
-	rows, err := loadGates(ctx, q, `WHERE g.outcome IS NULL AND g.issue_id IN (`+placeholders(len(args))+`)`, len(args), args...)
+	rows, err := loadGates(ctx, q, `WHERE g.outcome IS NULL AND g.issue_id IN (`+placeholders(1, len(args))+`)`, len(args), args...)
 	if err != nil {
 		return nil, err
 	}

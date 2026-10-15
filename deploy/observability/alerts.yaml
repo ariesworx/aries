@@ -6,18 +6,17 @@
 # `prometheus` profile loads this file into a real Prometheus.
 #
 # What they assume:
-#   - ariesd's /metrics is scraped as job "ariesd" and Dolt's as job
-#     "dolt" (prometheus.yaml and collector.yaml beside this file do).
+#   - ariesd's /metrics is scraped as job "ariesd" (prometheus.yaml
+#     and collector.yaml beside this file do).
 #   - The names are the ones on /metrics. Metrics that ariesd pushes
 #     over OTLP arrive under their OpenTelemetry names
 #     (aries.request.duration); most backends store them under these
 #     same Prometheus names, and docs/server.md lists both.
 #   - One ariesd. For several, add `by (instance)` to each sum.
 #
-# The thresholds are starting points. Those of Dolt's collector come
-# from measurements on one machine and one shape of load (docs/server.md,
-# Dolt's memory); the rest are round numbers to be set against a
-# server's own history.
+# The thresholds are starting points: round numbers to be set against a
+# server's own history. Rules over Postgres's own figures are not here
+# yet; the port's status slice adds them.
 #
 # A counter of ariesd's has no series until it first counts, and
 # Prometheus sees no increase in a series' first sample. So a rule on a
@@ -26,9 +25,8 @@
 #
 # Not here, because no metric says it: whether /readyz answers ready.
 # Probe http://127.0.0.1:9464/readyz from the machine with whatever
-# probes HTTP for you; AriesdDown, AriesReaperStalled,
-# AriesKeysFileWriteFailing and DoltDown cover the same ground from
-# the metrics.
+# probes HTTP for you; AriesdDown, AriesReaperStalled and
+# AriesKeysFileWriteFailing cover the same ground from the metrics.
 
 groups:
   - name: ariesd
@@ -43,7 +41,6 @@ groups:
           description: >-
             Nobody can reach the tracker if ariesd is down. Run
             `systemctl status ariesd` and read `journalctl -u ariesd`.
-            A Dolt whose unit stops takes ariesd down with it.
 
       - alert: AriesReaperStalled
         expr: time() - aries_reaper_last_run_time_seconds > 120
@@ -57,7 +54,7 @@ groups:
             rereads the control database and feeds systemd's watchdog.
             Stuck, expired claims are not returned to open, and the
             watchdog restarts ariesd after `WatchdogSec`. Look for a
-            Dolt that hangs (DoltDown, `/readyz`).
+            database that hangs (`/readyz`).
 
       - alert: AriesKeysFileWriteFailing
         expr: >-
@@ -112,8 +109,8 @@ groups:
           summary: Connections are refused because a project's database cannot be opened.
           description: >-
             ariesd's log names the project and the cause at error
-            level. Most often Dolt is unreachable, or the project's
-            database was not granted to ariesd's account.
+            level. Most often Postgres is unreachable, or the project's
+            schema is not one ariesd's role may use.
 
       - alert: AriesRequestsFailing
         expr: sum(rate(aries_project_requests_total{result_class="error"}[5m])) > 0
@@ -125,7 +122,7 @@ groups:
           description: >-
             `result_class="error"` is a request answered `unavailable`:
             the server's failure, not a refusal of what was asked. Read
-            ariesd's log at error level, and check Dolt.
+            ariesd's log at error level, and check Postgres.
 
       - alert: AriesWriteLatencyHigh
         expr: >-
@@ -138,7 +135,7 @@ groups:
           description: >-
             A write's time includes its wait for the project's one
             writer and any retry, so this is what a client waits. See
-            AriesWritesQueueing and DoltCollectorPastTheCliff, and
+            AriesWritesQueueing, and
             `aries admin status` for each project's P50 and P99.
 
       - alert: AriesWritesQueueing
@@ -195,8 +192,8 @@ groups:
           summary: Connections are refused because too many project stores are open.
           description: >-
             Every project with a connection holds a store open, and
-            `open_stores` caps them. Raise it under `limits:` with Dolt's
-            memory in mind (docs/server.md, Limits and Dolt's memory).
+            `open_stores` caps them. Raise it under `limits:` with the
+            database's connections in mind (docs/server.md, Limits).
 
       - alert: AriesTelemetryMetricsExportFailing
         expr: >-
@@ -255,87 +252,3 @@ groups:
       # (AriesKeysFileWriteFailing), `project.open_failed` at a
       # handshake (AriesProjectUnavailable) and
       # `telemetry.export_failed` (the three AriesTelemetry rules).
-
-  - name: dolt
-    rules:
-      - alert: DoltDown
-        expr: up{job="dolt"} == 0
-        for: 2m
-        labels:
-          severity: critical
-        annotations:
-          summary: Dolt's metrics endpoint does not answer.
-          description: >-
-            Run `systemctl status dolt`. ariesd's `/readyz` says
-            whether Dolt still answers queries.
-
-      - alert: DoltCollectorPastTheCliff
-        expr: >-
-          (
-            100 * sum(increase(go_gc_duration_seconds_count{job="dolt"}[10m]))
-              / sum(increase(aries_store_write_duration_seconds_count[10m])) > 14
-            and sum(increase(aries_store_write_duration_seconds_count[10m])) >= 500
-            or sum(increase(go_gc_duration_seconds_count{job="dolt"}[10m])) > 70
-          )
-          and on() go_gc_gomemlimit_bytes{job="dolt"} < 2^62
-        for: 10m
-        labels:
-          severity: critical
-        annotations:
-          summary: Dolt's memory limit is too low; its garbage collector runs more than 14 times for each 100 writes.
-          description: >-
-            Past this, Dolt spent nine times the CPU or more for each
-            write where it was measured. Raise `GOMEMLIMIT` in Dolt's
-            unit, or lower `open_stores` (docs/server.md, Dolt's
-            memory). `aries admin status` shows the same figure.
-
-      - alert: DoltCollectorBusy
-        expr: >-
-          100 * sum(increase(go_gc_duration_seconds_count{job="dolt"}[10m]))
-            / sum(increase(aries_store_write_duration_seconds_count[10m])) >= 3
-          and sum(increase(aries_store_write_duration_seconds_count[10m])) >= 500
-          and on() go_gc_gomemlimit_bytes{job="dolt"} < 2^62
-        for: 30m
-        labels:
-          severity: warning
-        annotations:
-          summary: Dolt's garbage collector runs 3 times or more for each 100 writes.
-          description: >-
-            Under 3 the memory limit has room to spare; over 14 it is
-            too low. Between the two, watch it (docs/server.md, Dolt's
-            memory).
-
-      - alert: DoltMemoryOverItsLimit
-        expr: process_resident_memory_bytes{job="dolt"} > go_gc_gomemlimit_bytes{job="dolt"}
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: Dolt's resident memory is over its GOMEMLIMIT.
-          description: >-
-            The limit is a target for the collector, not a ceiling, and
-            this separates a limit that is too low only roughly: read it
-            beside DoltCollectorBusy. With no limit set this never fires.
-
-      - alert: DoltMachineMemoryHigh
-        expr: sys_mem_usage{job="dolt"} > 90
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: The machine Dolt runs on has more than 90% of its memory in use.
-          description: >-
-            `sys_mem_usage` is Dolt's own reading of the machine, in
-            percent. Set `GOMEMLIMIT` and `MemoryMax` for Dolt
-            (docs/server.md, Dolt's memory).
-
-      - alert: DoltDiskFilling
-        expr: sys_disk_usage{job="dolt"} > 85
-        for: 10m
-        labels:
-          severity: critical
-        annotations:
-          summary: The disk Dolt writes to is more than 85% full.
-          description: >-
-            `sys_disk_usage` is Dolt's own reading, in percent. A full
-            disk stops every write (docs/server.md, Storage growth).

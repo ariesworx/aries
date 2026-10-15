@@ -188,7 +188,7 @@ type Index interface {
 }
 
 // ProjectAdmin is the projects of `aries admin project`, and their
-// databases.
+// schemas.
 type ProjectAdmin interface {
 	AddProject(ctx context.Context, actor store.Actor, in store.NewProject) (store.Project, error)
 	CreateDatabase(ctx context.Context, actor store.Actor, project string) error
@@ -198,6 +198,7 @@ type ProjectAdmin interface {
 	Projects(ctx context.Context) ([]store.Project, error)
 	HeldClaims(ctx context.Context, db string) (int, error)
 	Account(ctx context.Context) (string, error)
+	Database(ctx context.Context) (string, error)
 }
 
 // PrincipalAdmin is the principals, keys and members of `aries admin`.

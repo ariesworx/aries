@@ -74,10 +74,9 @@ func (s *Store) TouchAgent(ctx context.Context, actor Actor, harness string) err
 	return s.write(ctx, actor, func(w *wtx) error {
 		a, err := readAgent(ctx, w.tx, actor)
 		if errors.Is(err, sql.ErrNoRows) {
-			wid := randomInt63()
 			if _, err := w.exec(ctx, `INSERT INTO agents
-  (principal, session, machine, harness, started, last_seen, rev, write_id) VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
-				actor.Principal, actor.Session, actor.Machine, harness, w.now, w.now, wid); err != nil {
+  (principal, session, machine, harness, started, last_seen, rev) VALUES ($1, $2, $3, $4, $5, $6, 1)`,
+				actor.Principal, actor.Session, actor.Machine, harness, w.now, w.now); err != nil {
 				return fmt.Errorf("insert agent %s/%s: %w", actor.Principal, actor.Session, err)
 			}
 			w.quiet = true
@@ -89,10 +88,9 @@ func (s *Store) TouchAgent(ctx context.Context, actor Actor, harness string) err
 		if a.fresh(actor, harness, w.now) {
 			return nil
 		}
-		wid := randomInt63()
-		n, err := w.exec(ctx, `UPDATE agents SET machine = ?, harness = ?, last_seen = ?, rev = rev + 1, write_id = ?
-  WHERE principal = ? AND session = ? AND rev = ?`,
-			actor.Machine, a.harness(harness), w.now, wid, actor.Principal, actor.Session, a.rev)
+		n, err := w.exec(ctx, `UPDATE agents SET machine = $1, harness = $2, last_seen = $3, rev = rev + 1
+  WHERE principal = $4 AND session = $5 AND rev = $6`,
+			actor.Machine, a.harness(harness), w.now, actor.Principal, actor.Session, a.rev)
 		if err != nil {
 			return fmt.Errorf("update agent %s/%s: %w", actor.Principal, actor.Session, err)
 		}
@@ -115,7 +113,7 @@ type sessionRow struct {
 func readAgent(ctx context.Context, q querier, actor Actor) (sessionRow, error) {
 	var a sessionRow
 	err := q.QueryRowContext(ctx, `SELECT machine, harness, last_seen, rev FROM agents
-  WHERE principal = ? AND session = ?`, actor.Principal, actor.Session).Scan(&a.machine, &a.known, &a.seen, &a.rev)
+  WHERE principal = $1 AND session = $2`, actor.Principal, actor.Session).Scan(&a.machine, &a.known, &a.seen, &a.rev)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return sessionRow{}, fmt.Errorf("read agent %s/%s: %w", actor.Principal, actor.Session, err)
 	}
@@ -158,7 +156,7 @@ func (s *Store) Who(ctx context.Context, since time.Duration) ([]Agent, error) {
 	defer func() { _ = tx.Rollback() }() // read-only: nothing to keep
 
 	rows, err := tx.QueryContext(ctx, `SELECT principal, session, machine, harness, started, last_seen FROM agents
-  WHERE last_seen >= ? ORDER BY last_seen DESC, principal, session`, now.Add(-since))
+  WHERE last_seen >= $1 ORDER BY last_seen DESC, principal, session`, now.Add(-since))
 	if err != nil {
 		return nil, fmt.Errorf("who: %w", err)
 	}
@@ -180,7 +178,7 @@ func (s *Store) Who(ctx context.Context, since time.Duration) ([]Agent, error) {
 	if len(out) == 0 {
 		return out, nil
 	}
-	held, err := s.claims(ctx, tx, `principal IS NOT NULL AND expires_at > ?`, now)
+	held, err := s.claims(ctx, tx, `principal IS NOT NULL AND expires_at > $1`, now)
 	if err != nil {
 		return nil, err
 	}
@@ -207,7 +205,7 @@ func (s *Store) SessionsSeen(ctx context.Context, since time.Duration) (int, err
 		return 0, fmt.Errorf("%w: who's window must be up to 7d", ErrInvalid)
 	}
 	var n int
-	if err := s.r.QueryRowContext(ctx, `SELECT COUNT(*) FROM agents WHERE last_seen >= ?`, s.now().Add(-since)).Scan(&n); err != nil {
+	if err := s.r.QueryRowContext(ctx, `SELECT COUNT(*) FROM agents WHERE last_seen >= $1`, s.now().Add(-since)).Scan(&n); err != nil {
 		return 0, fmt.Errorf("sessions seen: %w", err)
 	}
 	return n, nil
@@ -218,14 +216,14 @@ func (s *Store) SessionsSeen(ctx context.Context, since time.Duration) (int, err
 // row, and nothing else would bound them.
 func capSessions(ctx context.Context, w *wtx, principal string) error {
 	var n int
-	if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM agents WHERE principal = ?`, principal).Scan(&n); err != nil {
+	if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM agents WHERE principal = $1`, principal).Scan(&n); err != nil {
 		return fmt.Errorf("count sessions of %s: %w", principal, err)
 	}
 	if n <= w.lim.Sessions {
 		return nil
 	}
-	rows, err := w.tx.QueryContext(ctx, `SELECT session FROM agents WHERE principal = ?
-  ORDER BY last_seen, session LIMIT ?`, principal, n-w.lim.Sessions)
+	rows, err := w.tx.QueryContext(ctx, `SELECT session FROM agents WHERE principal = $1
+  ORDER BY last_seen, session LIMIT $2`, principal, n-w.lim.Sessions)
 	if err != nil {
 		return fmt.Errorf("oldest sessions of %s: %w", principal, err)
 	}
@@ -242,7 +240,7 @@ func capSessions(ctx context.Context, w *wtx, principal string) error {
 		return fmt.Errorf("oldest sessions of %s: %w", principal, err)
 	}
 	for _, sess := range old {
-		if _, err := w.exec(ctx, `DELETE FROM agents WHERE principal = ? AND session = ?`, principal, sess); err != nil {
+		if _, err := w.exec(ctx, `DELETE FROM agents WHERE principal = $1 AND session = $2`, principal, sess); err != nil {
 			return fmt.Errorf("drop session %s/%s: %w", principal, sess, err)
 		}
 	}

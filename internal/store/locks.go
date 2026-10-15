@@ -289,7 +289,7 @@ func (v *lockView) heldNow() []LockHold {
 // that then has none is gone, and the view says it does not exist.
 func (w *wtx) openLock(ctx context.Context, name string) (*lockView, []LockEnd, error) {
 	v := &lockView{name: name}
-	err := w.tx.QueryRowContext(ctx, `SELECT capacity FROM locks WHERE name = ?`, name).Scan(&v.capacity)
+	err := w.tx.QueryRowContext(ctx, `SELECT capacity FROM locks WHERE name = $1`, name).Scan(&v.capacity)
 	if errors.Is(err, sql.ErrNoRows) {
 		return v, nil, nil
 	}
@@ -297,14 +297,14 @@ func (w *wtx) openLock(ctx context.Context, name string) (*lockView, []LockEnd, 
 		return nil, nil, fmt.Errorf("read lock %s: %w", name, err)
 	}
 	v.exists = true
-	holds, err := loadNamedHolds(ctx, w.tx, `name = ?`, name)
+	holds, err := loadNamedHolds(ctx, w.tx, `name = $1`, name)
 	if err != nil {
 		return nil, nil, err
 	}
 	for _, h := range holds {
 		v.holds = append(v.holds, h.holdRow)
 	}
-	places, err := loadNamedPlaces(ctx, w.tx, `name = ?`, name)
+	places, err := loadNamedPlaces(ctx, w.tx, `name = $1`, name)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -348,7 +348,7 @@ func (w *wtx) dropIfIdle(ctx context.Context, v *lockView) error {
 	if !v.exists || len(v.holds) > 0 || len(v.places) > 0 {
 		return nil
 	}
-	if _, err := w.exec(ctx, `DELETE FROM locks WHERE name = ?`, v.name); err != nil {
+	if _, err := w.exec(ctx, `DELETE FROM locks WHERE name = $1`, v.name); err != nil {
 		return fmt.Errorf("drop lock %s: %w", v.name, err)
 	}
 	v.exists = false
@@ -360,7 +360,7 @@ func (w *wtx) dropIfIdle(ctx context.Context, v *lockView) error {
 // when the holder did not ask. The holder is told of an end it did not
 // ask for (lock.lost).
 func (w *wtx) endHold(ctx context.Context, name string, h holdRow, op Op, reason string) error {
-	if _, err := w.exec(ctx, `DELETE FROM lock_holders WHERE name = ? AND epoch = ?`, name, h.Epoch); err != nil {
+	if _, err := w.exec(ctx, `DELETE FROM lock_holders WHERE name = $1 AND epoch = $2`, name, h.Epoch); err != nil {
 		return fmt.Errorf("end hold of %s: %w", name, err)
 	}
 	var after any // nil, not a nil map, so the state is NULL
@@ -389,7 +389,7 @@ func (w *wtx) endHold(ctx context.Context, name string, h holdRow, op Op, reason
 // endPlace deletes place p in lock name's queue and records lock.leave,
 // with reason in its after state when the waiter did not ask.
 func (w *wtx) endPlace(ctx context.Context, name string, p placeRow, reason string) error {
-	if _, err := w.exec(ctx, `DELETE FROM lock_waiters WHERE name = ? AND seq = ?`, name, p.seq); err != nil {
+	if _, err := w.exec(ctx, `DELETE FROM lock_waiters WHERE name = $1 AND seq = $2`, name, p.seq); err != nil {
 		return fmt.Errorf("end place in %s: %w", name, err)
 	}
 	var after any // nil, not a nil map, so the state is NULL
@@ -406,7 +406,7 @@ func (w *wtx) grantNext(ctx context.Context, v *lockView) error {
 	for len(v.holds) < v.capacity && len(v.places) > 0 {
 		p := v.places[0]
 		v.places = v.places[1:]
-		if _, err := w.exec(ctx, `DELETE FROM lock_waiters WHERE name = ? AND seq = ?`, v.name, p.seq); err != nil {
+		if _, err := w.exec(ctx, `DELETE FROM lock_waiters WHERE name = $1 AND seq = $2`, v.name, p.seq); err != nil {
 			return fmt.Errorf("grant %s: %w", v.name, err)
 		}
 		h, err := w.grant(ctx, v, p.holder, p.lease, &p)
@@ -431,9 +431,9 @@ func (w *wtx) grant(ctx context.Context, v *lockView, holder Actor, lease time.D
 	}
 	h := holdRow{LockHold: LockHold{Holder: holder, Epoch: epoch, GrantedAt: w.now, ExpiresAt: w.now.Add(lease)}, lease: lease}
 	if _, err := w.exec(ctx, `INSERT INTO lock_holders
-  (name, epoch, principal, session, machine, granted_at, expires_at, lease_us, write_id)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, v.name, epoch, holder.Principal, holder.Session, holder.Machine, h.GrantedAt, h.ExpiresAt,
-		lease.Microseconds(), randomInt63()); err != nil {
+  (name, epoch, principal, session, machine, granted_at, expires_at, lease_us)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, v.name, epoch, holder.Principal, holder.Session, holder.Machine, h.GrantedAt, h.ExpiresAt,
+		lease.Microseconds()); err != nil {
 		return LockHold{}, fmt.Errorf("grant %s: %w", v.name, err)
 	}
 	v.holds = append(v.holds, h)
@@ -453,7 +453,7 @@ func nextLockEpoch(ctx context.Context, w *wtx) (int64, error) {
 	var e int64
 	err := w.tx.QueryRowContext(ctx, `SELECT epoch FROM lock_epochs WHERE id = 1`).Scan(&e)
 	if errors.Is(err, sql.ErrNoRows) {
-		if _, err := w.exec(ctx, `INSERT INTO lock_epochs (id, epoch, write_id) VALUES (1, 1, ?)`, randomInt63()); err != nil {
+		if _, err := w.exec(ctx, `INSERT INTO lock_epochs (id, epoch) VALUES (1, 1)`); err != nil {
 			return 0, fmt.Errorf("first lock epoch: %w", err)
 		}
 		return 1, nil
@@ -461,7 +461,7 @@ func nextLockEpoch(ctx context.Context, w *wtx) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("read the lock epoch: %w", err)
 	}
-	if _, err := w.exec(ctx, `UPDATE lock_epochs SET epoch = ?, write_id = ? WHERE id = 1`, e+1, randomInt63()); err != nil {
+	if _, err := w.exec(ctx, `UPDATE lock_epochs SET epoch = $1 WHERE id = 1`, e+1); err != nil {
 		return 0, fmt.Errorf("next lock epoch: %w", err)
 	}
 	return e + 1, nil
@@ -469,8 +469,8 @@ func nextLockEpoch(ctx context.Context, w *wtx) (int64, error) {
 
 // extendHold sets hold i of v to expire at exp, a renewal.
 func (w *wtx) extendHold(ctx context.Context, v *lockView, i int, exp time.Time) error {
-	if _, err := w.exec(ctx, `UPDATE lock_holders SET expires_at = ?, write_id = ? WHERE name = ? AND epoch = ?`,
-		exp, randomInt63(), v.name, v.holds[i].Epoch); err != nil {
+	if _, err := w.exec(ctx, `UPDATE lock_holders SET expires_at = $1 WHERE name = $2 AND epoch = $3`,
+		exp, v.name, v.holds[i].Epoch); err != nil {
 		return fmt.Errorf("renew hold of %s: %w", v.name, err)
 	}
 	v.holds[i].ExpiresAt = exp
@@ -480,8 +480,8 @@ func (w *wtx) extendHold(ctx context.Context, v *lockView, i int, exp time.Time)
 
 // extendPlace sets place i of v to expire at exp, a renewal.
 func (w *wtx) extendPlace(ctx context.Context, v *lockView, i int, exp time.Time) error {
-	if _, err := w.exec(ctx, `UPDATE lock_waiters SET expires_at = ?, write_id = ? WHERE name = ? AND seq = ?`,
-		exp, randomInt63(), v.name, v.places[i].seq); err != nil {
+	if _, err := w.exec(ctx, `UPDATE lock_waiters SET expires_at = $1 WHERE name = $2 AND seq = $3`,
+		exp, v.name, v.places[i].seq); err != nil {
 		return fmt.Errorf("renew place in %s: %w", v.name, err)
 	}
 	v.places[i].expires = exp
@@ -543,8 +543,8 @@ func (s *Store) AcquireLock(ctx context.Context, actor Actor, in LockAcquire) (L
 				return nil
 			}
 			v.capacity, v.exists = cmp.Or(in.Capacity, 1), true
-			if _, err := w.exec(ctx, `INSERT INTO locks (name, capacity, created_at, created_by, rev, write_id) VALUES (?, ?, ?, ?, 1, ?)`,
-				in.Name, v.capacity, w.now, w.actor.Principal, randomInt63()); err != nil {
+			if _, err := w.exec(ctx, `INSERT INTO locks (name, capacity, created_at, created_by, rev) VALUES ($1, $2, $3, $4, 1)`,
+				in.Name, v.capacity, w.now, w.actor.Principal); err != nil {
 				return fmt.Errorf("make lock %s: %w", in.Name, err)
 			}
 		case in.Capacity != 0 && in.Capacity != v.capacity:
@@ -585,7 +585,7 @@ func (s *Store) AcquireLock(ctx context.Context, actor Actor, in LockAcquire) (L
 			return nil
 		}
 		var mine int
-		if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM lock_waiters WHERE principal = ? AND expires_at > ?`,
+		if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM lock_waiters WHERE principal = $1 AND expires_at > $2`,
 			w.actor.Principal, w.now).Scan(&mine); err != nil {
 			return fmt.Errorf("count places: %w", err)
 		}
@@ -601,9 +601,9 @@ func (s *Store) AcquireLock(ctx context.Context, actor Actor, in LockAcquire) (L
 		}
 		p := placeRow{holder: w.actor, seq: seq + 1, joined: w.now, expires: w.now.Add(WaiterLease), lease: lease}
 		if _, err := w.exec(ctx, `INSERT INTO lock_waiters
-  (name, principal, session, machine, seq, joined_at, expires_at, lease_us, write_id)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, in.Name, p.holder.Principal, p.holder.Session, p.holder.Machine, p.seq, p.joined, p.expires,
-			lease.Microseconds(), randomInt63()); err != nil {
+  (name, principal, session, machine, seq, joined_at, expires_at, lease_us)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, in.Name, p.holder.Principal, p.holder.Session, p.holder.Machine, p.seq, p.joined, p.expires,
+			lease.Microseconds()); err != nil {
 			return fmt.Errorf("join the queue of %s: %w", in.Name, err)
 		}
 		v.places = append(v.places, p)
@@ -748,12 +748,13 @@ func (s *Store) LeaveLock(ctx context.Context, actor Actor, name string) (LockLe
 // Locks returns lock name, or with "" every lock, by name: the live holds
 // and places of each, and no lock that has neither.
 func (s *Store) Locks(ctx context.Context, name string) ([]Lock, error) {
-	where, args := `TRUE`, []any{}
+	// named selects the lock, or every lock, with its argument the n-th.
+	named, args := func(int) string { return `TRUE` }, []any{}
 	if name != "" {
 		if err := checkLockName(name); err != nil {
 			return nil, err
 		}
-		where, args = `name = ?`, []any{name}
+		named, args = func(n int) string { return `name = ` + placeholder(n) }, []any{name}
 	}
 	now := s.now()
 	q, done, err := s.beginRead(ctx)
@@ -761,7 +762,7 @@ func (s *Store) Locks(ctx context.Context, name string) ([]Lock, error) {
 		return nil, err
 	}
 	defer done()
-	rows, err := q.QueryContext(ctx, `SELECT name, capacity FROM locks WHERE `+where+` ORDER BY name`, args...) //nolint:gosec // where is a constant
+	rows, err := q.QueryContext(ctx, `SELECT name, capacity FROM locks WHERE `+named(1)+` ORDER BY name`, args...) //nolint:gosec // a constant condition
 	if err != nil {
 		return nil, fmt.Errorf("locks: %w", err)
 	}
@@ -780,7 +781,7 @@ func (s *Store) Locks(ctx context.Context, name string) ([]Lock, error) {
 		return nil, fmt.Errorf("locks: %w", err)
 	}
 	live := append([]any{now}, args...)
-	holds, err := loadNamedHolds(ctx, q, `expires_at > ? AND `+where, live...)
+	holds, err := loadNamedHolds(ctx, q, `expires_at > $1 AND `+named(2), live...)
 	if err != nil {
 		return nil, err
 	}
@@ -789,7 +790,7 @@ func (s *Store) Locks(ctx context.Context, name string) ([]Lock, error) {
 			out[i].Holders = append(out[i].Holders, h.LockHold)
 		}
 	}
-	places, err := loadNamedPlaces(ctx, q, `expires_at > ? AND `+where, live...)
+	places, err := loadNamedPlaces(ctx, q, `expires_at > $1 AND `+named(2), live...)
 	if err != nil {
 		return nil, err
 	}
@@ -890,8 +891,8 @@ func distinct(ctx context.Context, q querier, query string, args ...any) ([]stri
 // next live waiters (lock.grant, and lock.granted to each). It returns
 // what it ended. The reaper runs it on its tick.
 func (s *Store) ReapLocks(ctx context.Context) ([]LockEnd, error) {
-	const lapsed = `SELECT name FROM lock_holders WHERE expires_at <= ?
-  UNION SELECT name FROM lock_waiters WHERE expires_at <= ?`
+	const lapsed = `SELECT name FROM lock_holders WHERE expires_at <= $1
+  UNION SELECT name FROM lock_waiters WHERE expires_at <= $2`
 	// Most ticks find nothing lapsed, and that is a read: it does not
 	// wait for the writer. What lapses after it is the next tick's.
 	now := s.now()
@@ -1015,23 +1016,23 @@ func (s *Store) EndLocks(ctx context.Context, actor Actor, why func(principal st
 // extendLocks adds d to every hold and place live at w's time, for a
 // settled forward step of the clock, and returns how many it extended.
 func extendLocks(ctx context.Context, w *wtx, d time.Duration) (int, error) {
-	holds, err := loadNamedHolds(ctx, w.tx, `expires_at > ?`, w.now)
+	holds, err := loadNamedHolds(ctx, w.tx, `expires_at > $1`, w.now)
 	if err != nil {
 		return 0, err
 	}
 	for _, h := range holds {
-		if _, err := w.exec(ctx, `UPDATE lock_holders SET expires_at = ?, write_id = ? WHERE name = ? AND epoch = ?`,
-			h.ExpiresAt.Add(d), randomInt63(), h.name, h.Epoch); err != nil {
+		if _, err := w.exec(ctx, `UPDATE lock_holders SET expires_at = $1 WHERE name = $2 AND epoch = $3`,
+			h.ExpiresAt.Add(d), h.name, h.Epoch); err != nil {
 			return 0, fmt.Errorf("extend hold of %s: %w", h.name, err)
 		}
 	}
-	places, err := loadNamedPlaces(ctx, w.tx, `expires_at > ?`, w.now)
+	places, err := loadNamedPlaces(ctx, w.tx, `expires_at > $1`, w.now)
 	if err != nil {
 		return 0, err
 	}
 	for _, p := range places {
-		if _, err := w.exec(ctx, `UPDATE lock_waiters SET expires_at = ?, write_id = ? WHERE name = ? AND seq = ?`,
-			p.expires.Add(d), randomInt63(), p.name, p.seq); err != nil {
+		if _, err := w.exec(ctx, `UPDATE lock_waiters SET expires_at = $1 WHERE name = $2 AND seq = $3`,
+			p.expires.Add(d), p.name, p.seq); err != nil {
 			return 0, fmt.Errorf("extend place in %s: %w", p.name, err)
 		}
 	}

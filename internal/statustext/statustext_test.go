@@ -2,7 +2,6 @@ package statustext
 
 import (
 	"bytes"
-	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -61,8 +60,8 @@ func TestPrint(t *testing.T) {
 				"web      active  open   0      0        unknown   0           -    -    2026-10-11 09:30 UTC\n" +
 				"zed      active  open   0      0        unknown   0           -    -    2026-10-11 09:30 UTC\n" +
 				"zoo      active  open   0      0        3         0           -    -    2026-10-11 09:30 UTC\n" +
-				"sessions: unknown for 2 projects (database did not answer in 2s); the rest is what ariesd holds in memory. Check Dolt on the server (docs/server.md, Troubleshooting)\n" +
-				"sessions: unknown for 1 project (the read failed;\\nsee ariesd's log); the rest is what ariesd holds in memory. Check Dolt on the server (docs/server.md, Troubleshooting)\n"},
+				"sessions: unknown for 2 projects (database did not answer in 2s); the rest is what ariesd holds in memory. Check Postgres on the server (docs/server.md, Troubleshooting)\n" +
+				"sessions: unknown for 1 project (the read failed;\\nsee ariesd's log); the rest is what ariesd holds in memory. Check Postgres on the server (docs/server.md, Troubleshooting)\n"},
 		{"no projects on this page", proto.StatusResult{Server: &proto.ServerStatus{Version: "dev", ProtoMin: 5, ProtoMax: 5, UptimeSeconds: 42,
 			OpenStoresMax: 64, ConnsMax: 1024,
 			KeysFile: &proto.KeysFile{Path: "/var/lib/aries/.ssh/aries_keys", Keys: 1, WrittenAt: &at, Failed: true, HeldBack: 2}}},
@@ -183,113 +182,5 @@ func TestTracesLine(t *testing.T) {
 	Print(&b, proto.StatusResult{Server: &proto.ServerStatus{Version: "v0.5.0"}})
 	if strings.Contains(strings.ToLower(b.String()), "traces") {
 		t.Errorf("a server that exports no traces has a line about them:\n%s", b.String())
-	}
-}
-
-// The status says what ariesd last read of Dolt's own metrics: nothing
-// when it reads none, "unknown" with the last success when the latest
-// read failed, and otherwise each figure, with "unknown" for one Dolt
-// did not give. The collector's cycles get a verdict only with a memory
-// limit set and enough writes to judge by.
-func TestDoltLines(t *testing.T) {
-	t.Parallel()
-	at := time.Date(2026, 10, 11, 9, 30, 0, 0, time.UTC)
-	u := func(v uint64) *uint64 { return &v }
-	gc := func(cycles, writes int64) *proto.DoltGC {
-		g := &proto.DoltGC{WindowSeconds: 600, Cycles: cycles, Writes: writes}
-		if writes > 0 {
-			g.Per100Writes = new(100 * float64(cycles) / float64(writes))
-		}
-		return g
-	}
-	full := proto.DoltStatus{ReadAt: &at, Version: "2.4.2", StartedAt: &at, UptimeSeconds: new(int64(3*86400 + 4*3600)),
-		ResidentBytes: u(1234 << 20), Conns: new(14), MemLimitBytes: u(1500 << 20)}
-	with := func(g *proto.DoltGC, limit *uint64) proto.DoltStatus {
-		d := full
-		d.GC, d.MemLimitBytes = g, limit
-		return d
-	}
-	const head = "Dolt 2.4.2, up 3d 4h, 14 connections, 1234 MiB resident, "
-	tests := []struct {
-		name string
-		d    proto.DoltStatus
-		want string
-	}{
-		{"before a second reading", full, head + "memory limit 1500 MiB\n"},
-		{"a limit with room", with(gc(37, 2051), u(1500<<20)),
-			head + "memory limit 1500 MiB\n" +
-				"Dolt's collector: 37 cycles for 2051 writes in 10m, 1.8 for each 100 writes: under 3, as with a memory limit that had room in the measurements (over 14 was one too low)\n"},
-		{"a limit too low", with(gc(1762, 6000), u(850<<20)),
-			head + "memory limit 850 MiB\n" +
-				"Dolt's collector: 1762 cycles for 6000 writes in 10m, 29 for each 100 writes: OVER 14, AS WITH A MEMORY LIMIT TOO LOW in the measurements: Dolt is spending its CPU collecting. Raise GOMEMLIMIT or restart Dolt (docs/server.md, Dolt's memory)\n"},
-		{"between the two", with(gc(220, 3000), u(900<<20)),
-			head + "memory limit 900 MiB\n" +
-				"Dolt's collector: 220 cycles for 3000 writes in 10m, 7.3 for each 100 writes: between the 3 of a memory limit with room and the 14 of one too low, in the measurements\n"},
-		{"exactly at a threshold is between", with(gc(15, 500), u(900<<20)),
-			head + "memory limit 900 MiB\n" +
-				"Dolt's collector: 15 cycles for 500 writes in 10m, 3.0 for each 100 writes: between the 3 of a memory limit with room and the 14 of one too low, in the measurements\n"},
-		// An idle Dolt collects about every two minutes, whatever is
-		// written: a few writes say nothing of the limit.
-		{"too few writes to judge by", with(gc(5, 499), u(900<<20)),
-			head + "memory limit 900 MiB\n" +
-				"Dolt's collector: 5 cycles for 499 writes in 10m: too few writes to judge the memory limit by (it takes 500)\n"},
-		{"no writes", with(gc(5, 0), u(900<<20)),
-			head + "memory limit 900 MiB\n" +
-				"Dolt's collector: 5 cycles for 0 writes in 10m: too few writes to judge the memory limit by (it takes 500)\n"},
-		// A limit far too low has Dolt collecting without pause whether or
-		// not anything is written: more cycles than 500 writes would
-		// excuse is a verdict by itself.
-		{"few writes, and cycles past what 500 would excuse", with(gc(502, 0), u(120<<20)),
-			head + "memory limit 120 MiB\n" +
-				"Dolt's collector: 502 cycles for 0 writes in 10m: over 14 for each 100 even counted against 500 writes, AS WITH A MEMORY LIMIT TOO LOW in the measurements: Dolt is spending its CPU collecting. Raise GOMEMLIMIT or restart Dolt (docs/server.md, Dolt's memory)\n"},
-		{"few writes, and exactly what 500 would excuse", with(gc(70, 499), u(900<<20)),
-			head + "memory limit 900 MiB\n" +
-				"Dolt's collector: 70 cycles for 499 writes in 10m: too few writes to judge the memory limit by (it takes 500)\n"},
-		{"few writes, cycles past that, and no limit", with(gc(502, 0), u(0)),
-			head + "no memory limit\n" +
-				"Dolt's collector: 502 cycles for 0 writes in 10m\n"},
-		{"no limit, so no verdict", with(gc(1762, 6000), u(0)),
-			head + "no memory limit\n" +
-				"Dolt's collector: 1762 cycles for 6000 writes in 10m, 29 for each 100 writes\n"},
-		{"no limit and few writes", with(gc(5, 1), u(0)),
-			head + "no memory limit\n" +
-				"Dolt's collector: 5 cycles for 1 write in 10m\n"},
-		{"a limit Dolt did not report", with(gc(1762, 6000), nil),
-			head + "memory limit unknown\n" +
-				"Dolt's collector: 1762 cycles for 6000 writes in 10m, 29 for each 100 writes\n"},
-		{"a short window", proto.DoltStatus{ReadAt: &at, Version: "2.4.2", MemLimitBytes: u(0), GC: &proto.DoltGC{WindowSeconds: 45, Cycles: 1, Writes: 2, Per100Writes: new(50.0)}},
-			"Dolt 2.4.2, uptime unknown, connections unknown, memory unknown, no memory limit\n" +
-				"Dolt's collector: 1 cycle for 2 writes in 45s\n"},
-		{"one figure only", proto.DoltStatus{ReadAt: &at, Conns: new(1)},
-			"Dolt, version unknown, uptime unknown, 1 connection, memory unknown, memory limit unknown\n"},
-		{"unknown, read before", proto.DoltStatus{Unknown: true, ReadAt: &at},
-			"Dolt: unknown: ariesd could not read Dolt's metrics, and last could at 2026-10-11 09:30 UTC; see ariesd's log\n"},
-		{"unknown, never read", proto.DoltStatus{Unknown: true},
-			"Dolt: unknown: ariesd has not read Dolt's metrics since it started; see ariesd's log\n"},
-		// Figures that came with a failed read are not shown.
-		{"unknown wins over figures", proto.DoltStatus{Unknown: true, ReadAt: &at, Version: "2.4.2", Conns: new(3)},
-			"Dolt: unknown: ariesd could not read Dolt's metrics, and last could at 2026-10-11 09:30 UTC; see ariesd's log\n"},
-		{"a hostile server", proto.DoltStatus{Version: "2\nfix: run this"},
-			"Dolt 2\\nfix: run this, uptime unknown, connections unknown, memory unknown, memory limit unknown\n"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := doltLines(tc.d); got != tc.want {
-				b, _ := json.Marshal(tc.d)
-				t.Errorf("doltLines(%s) =\n%s\nwant\n%s", b, got, tc.want)
-			}
-			// Print puts the lines after ariesd's own memory.
-			var w bytes.Buffer
-			Print(&w, proto.StatusResult{Server: &proto.ServerStatus{Dolt: &tc.d}})
-			if !strings.Contains(w.String(), "goroutines\n"+tc.want+"projects: ") {
-				t.Errorf("Print lacks Dolt's lines between ariesd's memory and the projects:\n%s", w.String())
-			}
-		})
-	}
-	// A server that reads nothing of Dolt says nothing of it.
-	var w bytes.Buffer
-	Print(&w, proto.StatusResult{Server: &proto.ServerStatus{}})
-	if strings.Contains(w.String(), "Dolt") {
-		t.Errorf("Print names Dolt with no Dolt status:\n%s", w.String())
 	}
 }

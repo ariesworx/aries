@@ -383,7 +383,7 @@ func TestDigestUsageHours(t *testing.T) {
 }
 
 // One principal's hours on an issue add up exactly past a million
-// seconds, where Dolt's SUM, a float, prints in exponent form: twelve
+// seconds, where a SUM read as a float prints in exponent form: twelve
 // full days are 1,036,800 seconds.
 func TestHoursPastAMillionSeconds(t *testing.T) {
 	t.Parallel()

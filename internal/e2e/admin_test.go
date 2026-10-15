@@ -21,10 +21,10 @@ import (
 )
 
 // adminWorld is a server of many projects with a block of dbs database
-// names, granted of them granted, and room for a test's control writes.
-func adminWorld(t *testing.T, dbs, granted int) *world {
+// names, usable of them free, and room for a test's control writes.
+func adminWorld(t *testing.T, dbs, usable int) *world {
 	t.Helper()
-	return newWorld(t, daemonOpts{many: true, admins: []string{"dana"}, dbs: dbs, granted: granted,
+	return newWorld(t, daemonOpts{many: true, admins: []string{"dana"}, dbs: dbs, usable: usable,
 		limits: server.Limits{ControlWriteBurst: 500}})
 }
 
@@ -186,14 +186,14 @@ func TestAdminCommands(t *testing.T) {
 	// Projects: a server admin sees every one with its database, anyone
 	// else the active ones they belong to.
 	plist := dana.ok("admin", "project", "list")
-	if !strings.Contains(plist, "NAME   ID") || !strings.Contains(plist, "DATABASE") || !strings.Contains(plist, "first  "+project+"  sf      internal  active") {
+	if !strings.Contains(plist, "NAME   ID") || !strings.Contains(plist, "SCHEMA") || !strings.Contains(plist, "first  "+project+"  sf      internal  active") {
 		t.Errorf("project list for a server admin:\n%s", plist)
 	}
 	mine := decode[proto.ProjectsResult](t, alice.ok("admin", "project", "list", "--json"))
 	if len(mine.Projects) != 1 || mine.Projects[0] != (proto.Project{ID: project, Name: "first", Prefix: "sf", Account: "internal", State: "active", Role: "admin"}) {
 		t.Errorf("project list --json for a project admin: %+v", mine)
 	}
-	if got := alice.ok("admin", "project", "list"); !strings.Contains(got, "ROLE") || strings.Contains(got, "DATABASE") {
+	if got := alice.ok("admin", "project", "list"); !strings.Contains(got, "ROLE") || strings.Contains(got, "SCHEMA") {
 		t.Errorf("project list for a project admin shows no role, or a database:\n%s", got)
 	}
 
@@ -322,8 +322,7 @@ func TestAdminForbidden(t *testing.T) {
 var uuidLine = regexp.MustCompile(`(?m)^project: ([0-9a-f-]{36})$`)
 
 // TestAdminProjectAdd creates projects from anywhere, with no shell on
-// the server: from a block of three database names of which two were
-// granted.
+// the server: from a block of three schema names of which two are free.
 func TestAdminProjectAdd(t *testing.T) {
 	t.Parallel()
 	w := adminWorld(t, 3, 2)
@@ -337,7 +336,7 @@ func TestAdminProjectAdd(t *testing.T) {
 	}
 	id := m[1]
 	head, config, _ := strings.Cut(out, "\n\n")
-	wantHead := fmt.Sprintf("project web (%s) created in database %s: active\ncommit this as .aries.yaml in the project's repository:", id, w.block.Name(1))
+	wantHead := fmt.Sprintf("project web (%s) created in schema %s: active\ncommit this as .aries.yaml in the project's repository:", id, w.block.Name(1))
 	wantConfig := fmt.Sprintf("project: %s\nserver:\n  host: 127.0.0.1\n  port: %d\n  host_key: %s\n", id, w.addr.Port, w.hostFpr)
 	if head != wantHead || config != wantConfig {
 		t.Fatalf("project add printed\n%s\nwant\n%s\n\n%s", out, wantHead, wantConfig)
@@ -386,30 +385,30 @@ func TestAdminProjectAdd(t *testing.T) {
 		t.Errorf("project add of an active project: %+v", e)
 	}
 
-	// The third name was never granted. The refusal gives the operator
-	// the SQL, and leaves the project to be resumed.
-	grant := fmt.Sprintf("GRANT ALL ON %s.* TO 'aries'@'localhost';", w.block.Name(3))
+	// Another role made the third name's schema. The refusal gives the
+	// operator the SQL, and leaves the project to be resumed.
+	grant := store.GrantSQL(w.block.Name(3), "aries")
 	e := d.refused(proto.CodeUnavailable, "admin", "project", "add", "docs")
-	if e.Message != "ariesd's Dolt account was never granted database "+w.block.Name(3)+", so project docs cannot use it" ||
-		e.Fix != "ask the server's operator to run this as Dolt's root, then run `aries admin project add docs` again: "+grant+" (docs/server.md, Serving many projects)" {
-		t.Fatalf("project add of a name not granted:\n%q\nfix %q", e.Message, e.Fix)
+	if e.Message != "another role made schema "+w.block.Name(3)+", and ariesd's role may not use it, so project docs cannot" ||
+		e.Fix != "ask the server's operator to run this as the schema's owner or a superuser, then run `aries admin project add docs` again: "+grant+" (docs/server.md, Serving many projects)" {
+		t.Fatalf("project add of a schema another role made:\n%q\nfix %q", e.Message, e.Fix)
 	}
 	if p, ok := w.ctl.ProjectNamed("docs"); !ok || p.State != store.ProjectCreating {
 		t.Fatalf("project docs after the refusal = %+v, %t; want it left creating", p, ok)
 	}
 	// While it holds the last name, the block is exhausted.
 	e = d.refused(proto.CodeInvalid, "admin", "project", "add", "more")
-	if e.Message != fmt.Sprintf("every database name for new projects is in use (%s to %s)", w.block.Name(1), w.block.Name(3)) ||
-		!strings.Contains(e.Fix, "grant ariesd's Dolt account more names, from "+w.block.Name(4)+" on, and raise count under project_dbs:") {
+	if e.Message != fmt.Sprintf("every schema name for new projects is in use (%s to %s)", w.block.Name(1), w.block.Name(3)) ||
+		!strings.Contains(e.Fix, "raise count under project_dbs: in ariesd's config, which gives names from "+w.block.Name(4)+" on") {
 		t.Errorf("project add past the block:\n%q\nfix %q", e.Message, e.Fix)
 	}
 	// The operator runs the SQL; the same command then finishes.
-	if err := w.dolt.Grant(t.Context(), w.block.Name(3)); err != nil {
+	if err := w.asSuperuser(t.Context(), grant); err != nil {
 		t.Fatal(err)
 	}
 	out = d.ok("admin", "project", "add", "docs")
 	docs, _ := w.ctl.ProjectNamed("docs")
-	if !strings.HasPrefix(out, fmt.Sprintf("project docs (%s) created, finishing an earlier attempt, in database %s: active\n", docs.ID, w.block.Name(3))) {
+	if !strings.HasPrefix(out, fmt.Sprintf("project docs (%s) created, finishing an earlier attempt, in schema %s: active\n", docs.ID, w.block.Name(3))) {
 		t.Errorf("project add resumed printed:\n%s", out)
 	}
 	_, config, _ = strings.Cut(out, "\n\n")
@@ -431,7 +430,7 @@ func TestAdminProjectAddNeedsBlock(t *testing.T) {
 	t.Parallel()
 	w := adminWorld(t, 0, 0)
 	e := w.newUser("dana", "").refused(proto.CodeInvalid, "admin", "project", "add", "web")
-	if e.Message != "the server has no database names for new projects" || !strings.Contains(e.Fix, "set project_dbs: in its config (docs/server.md, Serving many projects)") {
+	if e.Message != "the server has no schema names for new projects" || !strings.Contains(e.Fix, "set project_dbs: in ariesd's config, a block of schema names for new projects (docs/server.md, Serving many projects)") {
 		t.Errorf("project add with no block: %+v", e)
 	}
 }

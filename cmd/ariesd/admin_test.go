@@ -10,44 +10,45 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ariesworx/aries/internal/dolttest"
+	"github.com/ariesworx/aries/internal/pgtest"
 )
 
-// dolts are the package's Dolt servers: a test has one to itself while it
-// runs, so the tests can run in parallel (dolttest.Pool).
-var dolts = dolttest.NewPool("ariesd-admin-", dolttest.Options{})
+// pgs are the package's Postgres servers: a test has one to itself while
+// it runs, so the tests can run in parallel (pgtest.Pool).
+var pgs = pgtest.NewPool("ariesd-admin-")
 
 func TestMain(m *testing.M) {
 	os.Exit(runTests(m))
 }
 
 func runTests(m *testing.M) int {
-	defer func() { _ = dolts.Close() }()
-	dolts.Warm()
+	defer func() { _ = pgs.Close() }()
+	pgs.Warm()
 	return m.Run()
 }
 
-// doltOf returns the Dolt server t's test holds, or skips without dolt.
-func doltOf(t testing.TB) *dolttest.Server {
+// pgOf returns the Postgres server t's test holds, or skips without
+// Postgres.
+func pgOf(t testing.TB) *pgtest.Server {
 	t.Helper()
-	srv, err := dolts.Server(t)
-	if errors.Is(err, dolttest.ErrNoDolt) {
-		t.Skip("dolt is not on PATH: install dolt to run the admin command tests")
+	srv, err := pgs.Server(t)
+	if errors.Is(err, pgtest.ErrNoPostgres) {
+		t.Skip("postgres is not on PATH: run scripts/install-postgres.sh to run the admin command tests")
 	}
 	if err != nil {
-		t.Fatalf("dolt sql-server: %v", err)
+		t.Fatalf("postgres: %v", err)
 	}
 	return srv
 }
 
 // newDSN returns an empty database's DSN in $ARIESD_DSN form, on the
-// test's Dolt server. The database is dropped when the test ends, after
-// the cleanups of what the test opened on it: Dolt holds every database
-// in memory and slows with each (dolttest.Server.DropDatabase).
+// test's Postgres server, owned by the locked-down role it names. The
+// database is dropped when the test ends, after the cleanups of what the
+// test opened on it.
 func newDSN(t testing.TB) string {
 	t.Helper()
-	doltOf(t)
-	dsn, err := dolts.Database(t)
+	pgOf(t)
+	dsn, err := pgs.Database(t)
 	if err != nil {
 		t.Fatal(err)
 	}

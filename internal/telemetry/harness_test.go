@@ -24,24 +24,9 @@ const (
 	collectorFile  = "../../deploy/observability/collector.yaml"
 	dashboardFile  = "../../deploy/observability/dashboard.json"
 	composeFile    = "../../deploy/docker/compose.yaml"
-	smokeFile      = "../../deploy/docker/smoke.sh"
 
 	jobAriesd = "ariesd"
-	jobDolt   = "dolt"
 )
-
-// doltSeries are the series of Dolt's own metrics endpoint that the
-// harness may name, as Dolt 2.4.2 serves them (design §16.5). Dolt is
-// not Aries's to rename, so nothing but the Docker smoke test, which
-// asks a real Dolt for each, holds this list to it.
-var doltSeries = []string{
-	"dss_concurrent_connections", "dss_concurrent_queries", "dss_connects", "dss_disconnects",
-	"dss_query_duration_bucket", "dss_query_duration_sum", "dss_query_duration_count",
-	"process_resident_memory_bytes", "process_cpu_seconds_total", "process_open_fds", "process_max_fds",
-	"process_start_time_seconds",
-	"go_gc_duration_seconds_count", "go_gc_gomemlimit_bytes", "go_goroutines",
-	"sys_cpu_usage", "sys_mem_usage", "sys_disk_usage",
-}
 
 // runtimeSeries are the Go runtime's metrics on ariesd's /metrics, as
 // the contrib module names them (docs/server.md, What is measured).
@@ -180,9 +165,9 @@ func ariesdSeries() map[string]series {
 }
 
 // checkExpr returns what is wrong with a PromQL expression of the
-// harness: a series that neither ariesd nor Dolt serves, a label a
-// series does not have, a value a label never takes, or a series of
-// Dolt's or of Prometheus's own that is not held to its job.
+// harness: a series that ariesd does not serve, a label a series does
+// not have, a value a label never takes, or a series of the Go
+// runtime's or of Prometheus's own that is not held to its job.
 func checkExpr(expr string) []string {
 	sels, err := selectors(expr)
 	if err != nil {
@@ -204,13 +189,8 @@ func checkExpr(expr string) []string {
 		switch {
 		case isOurs:
 		case sel.name == "up":
-			if job != jobAriesd && job != jobDolt {
-				problems = append(problems, fmt.Sprintf(`up must be held to job=%q or job=%q`, jobAriesd, jobDolt))
-			}
-			continue
-		case slices.Contains(doltSeries, sel.name):
-			if job != jobDolt {
-				problems = append(problems, fmt.Sprintf(`%s is Dolt's, and must be held to job=%q: ariesd's /metrics has Go runtime series too`, sel.name, jobDolt))
+			if job != jobAriesd {
+				problems = append(problems, fmt.Sprintf(`up must be held to job=%q`, jobAriesd))
 			}
 			continue
 		case slices.Contains(runtimeSeries, sel.name):
@@ -219,7 +199,7 @@ func checkExpr(expr string) []string {
 			}
 			continue
 		default:
-			problems = append(problems, fmt.Sprintf("%s is not a series of ariesd's /metrics (telemetry.Instruments) nor one of Dolt's this test knows", sel.name))
+			problems = append(problems, fmt.Sprintf("%s is not a series of ariesd's /metrics (telemetry.Instruments)", sel.name))
 			continue
 		}
 		for _, m := range sel.matchers {
@@ -257,7 +237,7 @@ func TestSelectors(t *testing.T) {
 		want       []selector
 	}{
 		{"bare", `aries_clock_behind_seconds > 0`, []selector{{name: "aries_clock_behind_seconds"}}},
-		{"matcher", `up{job="dolt"} == 0`, []selector{{name: "up", matchers: []matcher{{"job", "=", "dolt"}}}}},
+		{"matcher", `up{job="ariesd"} == 0`, []selector{{name: "up", matchers: []matcher{{"job", "=", "ariesd"}}}}},
 		{"function and range", `increase(aries_clock_steps_total[15m]) > 0`, []selector{{name: "aries_clock_steps_total"}}},
 		{"aggregation with a label list",
 			`histogram_quantile(0.99, sum by (le) (rate(aries_store_write_duration_seconds_bucket[5m]))) > 1`,
@@ -265,8 +245,8 @@ func TestSelectors(t *testing.T) {
 		{"regexp and two matchers", `m{a=~"x|y", b!="z"}`,
 			[]selector{{name: "m", matchers: []matcher{{"a", "=~", "x|y"}, {"b", "!=", "z"}}}}},
 		{"set operators, offset and a power",
-			`a > 0 unless a offset 15m and on() b{job="dolt"} < 2^62 or time() - c > 1e3`,
-			[]selector{{name: "a"}, {name: "a"}, {name: "b", matchers: []matcher{{"job", "=", "dolt"}}}, {name: "c"}}},
+			`a > 0 unless a offset 15m and on() b{job="ariesd"} < 2^62 or time() - c > 1e3`,
+			[]selector{{name: "a"}, {name: "a"}, {name: "b", matchers: []matcher{{"job", "=", "ariesd"}}}, {name: "c"}}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -281,7 +261,7 @@ func TestSelectors(t *testing.T) {
 			}
 		})
 	}
-	for _, bad := range []string{`{job="dolt"} > 0`, `m{a="x"`, `m{a=x}`, `rate(m[5m`} {
+	for _, bad := range []string{`{job="ariesd"} > 0`, `m{a="x"`, `m{a=x}`, `rate(m[5m`} {
 		if got, err := selectors(bad); err == nil {
 			t.Errorf("selectors(%q) = %v, want an error", bad, got)
 		}
@@ -300,7 +280,6 @@ func TestCheckExpr(t *testing.T) {
 		{"a counter", `increase(aries_telemetry_dropped_total{signal="traces"}[15m]) > 0`, ""},
 		{"a histogram's buckets", `sum by (le) (rate(aries_request_duration_seconds_bucket{op="create",le="1"}[5m]))`, ""},
 		{"a histogram's count", `rate(aries_store_write_duration_seconds_count[5m])`, ""},
-		{"Dolt's, with its job", `go_gc_duration_seconds_count{job="dolt"}`, ""},
 		{"the runtime's, with its job", `go_goroutine_count{job="ariesd"}`, ""},
 		{"a regexp of values", `aries_limit_refusals_total{limit=~"conns|open_stores"}`, ""},
 		{"a renamed metric", `aries_reaper_last_run_seconds > 0`, "is not a series"},
@@ -311,7 +290,7 @@ func TestCheckExpr(t *testing.T) {
 		{"le on a count", `aries_request_duration_seconds_count{le="1"}`, `no label "le"`},
 		{"a value never taken", `aries_telemetry_dropped_total{signal="events"}`, `is never "events"`},
 		{"one bad value of a regexp", `aries_limit_refusals_total{limit=~"conns|stores"}`, `is never "stores"`},
-		{"Dolt's, with no job", `go_gc_duration_seconds_count > 70`, "must be held to job"},
+		{"the runtime's, with no job", `go_goroutine_count > 70`, "must be held to job"},
 		{"up, with no job", `up == 0`, "up must be held to job"},
 		{"no series", `1 > 0`, "selects no series"},
 	}
@@ -414,13 +393,12 @@ func selects(rules []alertRule, name, key, value string) bool {
 // The rules cover what the design says an operator is told of (§16.7,
 // and the notes of slices O2 and O4): each signal's drops, the reaper,
 // the keys file, the clock, write latency and retries, the connection
-// and store caps, and Dolt's collector against ariesd's writes.
+// and store caps.
 func TestAlertRulesCover(t *testing.T) {
 	t.Parallel()
 	rules := readAlerts(t)
 	tests := []struct{ name, series, key, value string }{
 		{"the listener answering", "up", "job", jobAriesd},
-		{"Dolt's endpoint answering", "up", "job", jobDolt},
 		{"the reaper, which feeds the watchdog", "aries_reaper_last_run_time_seconds", "", ""},
 		{"a keys file write failing", "aries_keys_file_writes_total", KeyResult, ResultFailed},
 		{"the clock behind history", "aries_clock_behind_seconds", "", ""},
@@ -432,11 +410,6 @@ func TestAlertRulesCover(t *testing.T) {
 		{"the connection cap", "aries_limit_refusals_total", KeyLimit, LimitConns},
 		{"the cap on one principal's connections", "aries_limit_refusals_total", KeyLimit, LimitConnsPerPrincipal},
 		{"the store cap", "aries_limit_refusals_total", KeyLimit, LimitOpenStores},
-		{"Dolt's collector", "go_gc_duration_seconds_count", "job", jobDolt},
-		{"Dolt's memory", "process_resident_memory_bytes", "job", jobDolt},
-		{"Dolt's memory limit", "go_gc_gomemlimit_bytes", "job", jobDolt},
-		{"the machine's memory", "sys_mem_usage", "job", jobDolt},
-		{"the disk", "sys_disk_usage", "job", jobDolt},
 	}
 	// Every signal ariesd can drop has its rule: one added to
 	// attrSignal's values needs one here.
@@ -447,22 +420,6 @@ func TestAlertRulesCover(t *testing.T) {
 	for _, tc := range tests {
 		if !selects(rules, tc.series, tc.key, tc.value) {
 			t.Errorf("%s has no rule for %s: want one that selects %s{%s=%q}", alertsFile, tc.name, tc.series, tc.key, tc.value)
-		}
-	}
-	// The thresholds of Dolt's collector are the status report's
-	// (internal/statustext: gcRoom and gcTooLow, for each 100 writes of
-	// at least 500, and 70 cycles with fewer).
-	for _, tc := range []struct{ alert, want string }{
-		{"DoltCollectorPastTheCliff", "> 14"}, {"DoltCollectorPastTheCliff", ">= 500"}, {"DoltCollectorPastTheCliff", "> 70"},
-		{"DoltCollectorBusy", ">= 3"}, {"DoltCollectorBusy", ">= 500"},
-	} {
-		i := slices.IndexFunc(rules, func(r alertRule) bool { return r.Alert == tc.alert })
-		if i < 0 {
-			t.Errorf("%s has no rule named %s", alertsFile, tc.alert)
-			continue
-		}
-		if !strings.Contains(rules[i].Expr, tc.want) {
-			t.Errorf("%s: %s does not compare with %q:\n%s", alertsFile, tc.alert, tc.want, rules[i].Expr)
 		}
 	}
 }
@@ -521,51 +478,6 @@ func TestDashboardQueriesNameWhatExists(t *testing.T) {
 	}
 }
 
-// Dolt's series are Dolt's to name, so the one thing that holds the
-// harness to them is the Docker smoke test, which waits for each to
-// arrive from a real Dolt: every series of Dolt's that a rule or the
-// dashboard reads is on its list.
-func TestSmokeChecksEveryDoltSeriesUsed(t *testing.T) {
-	t.Parallel()
-	b, err := os.ReadFile(smokeFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	m := regexp.MustCompile(`(?m)^dolt_series=\(([a-z0-9_ ]+)\)$`).FindSubmatch(b)
-	if m == nil {
-		t.Fatalf("%s has no line dolt_series=(…)", smokeFile)
-	}
-	checked := strings.Fields(string(m[1]))
-	var exprs []string
-	for _, r := range readAlerts(t) {
-		exprs = append(exprs, r.Expr)
-	}
-	for _, p := range readDashboard(t) {
-		for _, q := range p.Targets {
-			exprs = append(exprs, q.Expr)
-		}
-	}
-	for _, expr := range exprs {
-		sels, err := selectors(expr)
-		if err != nil {
-			t.Fatalf("selectors(%q): %v", expr, err)
-		}
-		for _, sel := range sels {
-			if !slices.Contains(doltSeries, sel.name) {
-				continue
-			}
-			// A histogram's or a summary's series arrive under one name.
-			base := sel.name
-			for _, suffix := range []string{"_bucket", "_sum", "_count"} {
-				base = strings.TrimSuffix(base, suffix)
-			}
-			if !slices.Contains(checked, base) {
-				t.Errorf("%s does not wait for Dolt's %s, which the harness reads (%s): add it to dolt_series", smokeFile, base, sel.name)
-			}
-		}
-	}
-}
-
 type scrapeConfig struct {
 	JobName       string `yaml:"job_name"`
 	StaticConfigs []struct {
@@ -573,13 +485,13 @@ type scrapeConfig struct {
 	} `yaml:"static_configs"`
 }
 
-// The scrape jobs of both examples are the two the rules select by,
-// at the loopback addresses the server guide gives ariesd's listener
-// and Dolt's metrics; and the collector receives OTLP on loopback, at
+// The scrape job of both examples is the one the rules select by, at
+// the loopback address the server guide gives ariesd's listener; and
+// the collector receives OTLP on loopback, at
 // the port the guide gives ariesd.
 func TestHarnessScrapesWhatTheRulesSelect(t *testing.T) {
 	t.Parallel()
-	want := map[string]string{jobAriesd: "127.0.0.1:9464", jobDolt: "127.0.0.1:11228"}
+	want := map[string]string{jobAriesd: "127.0.0.1:9464"}
 	check := func(file string, jobs []scrapeConfig) {
 		t.Helper()
 		got := map[string]string{}

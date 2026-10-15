@@ -1,0 +1,7 @@
+# SHA-256 of the source archive of the Postgres release in
+# version.Postgres, named by its path under
+# https://ftp.postgresql.org/pub/source/. scripts/install-postgres.sh takes
+# the release from this file and verifies what it downloads against it; a
+# test keeps the release equal to version.Postgres. RELEASING.md says how
+# to change the pin.
+983ee554ec53dbeb9b70797bef9fcf4e67e117e7e48ca1463cc80b3ff8e8ff3f  v18.6/postgresql-18.6.tar.gz

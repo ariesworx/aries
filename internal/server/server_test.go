@@ -20,15 +20,14 @@ import (
 	"time"
 
 	"github.com/ariesworx/aries/internal/clienttest"
-	"github.com/ariesworx/aries/internal/dolttest"
+	"github.com/ariesworx/aries/internal/pgtest"
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/store"
 )
 
-// dolts are the package's Dolt servers: a test has one to itself while it
-// runs, so the tests can run in parallel (dolttest.Pool). Each has its
-// metrics endpoint, which TestDoltStatusRealDolt reads.
-var dolts = dolttest.NewPool("aries-server-", dolttest.Options{Metrics: true})
+// pgs are the package's Postgres servers: a test has one to itself while
+// it runs, so the tests can run in parallel (pgtest.Pool).
+var pgs = pgtest.NewPool("aries-server-")
 
 func TestMain(m *testing.M) {
 	os.Exit(run(m))
@@ -36,50 +35,50 @@ func TestMain(m *testing.M) {
 
 // peerHelperEnv, when set to a socket address, makes this test binary a
 // child that dials it as another user (TestCheckPeerOtherUID); it then
-// needs no Dolt.
+// needs no database.
 const peerHelperEnv = "ARIES_PEER_HELPER"
 
 // statusHelperEnv, when set to a socket address, makes this test binary
 // a child that asks that socket for the daemon's status as whatever user
-// it runs as (TestCheckPeerKeepsStatusFromOtherUsers); it needs no Dolt
-// either.
+// it runs as (TestCheckPeerKeepsStatusFromOtherUsers); it needs no
+// database either.
 const statusHelperEnv = "ARIES_STATUS_HELPER"
 
 func run(m *testing.M) int {
-	// A helper process is a child of one test and needs no Dolt.
+	// A helper process is a child of one test and needs no database.
 	if os.Getenv(peerHelperEnv) != "" || os.Getenv(statusHelperEnv) != "" {
 		return m.Run()
 	}
 	// The tests import the client only for its request timeout
 	// (TestClientWaitsLongerThanTheServer), and dial with none of it.
 	defer clienttest.Isolate()()
-	defer func() { _ = dolts.Close() }()
-	dolts.Warm()
+	defer func() { _ = pgs.Close() }()
+	pgs.Warm()
 	return m.Run()
 }
 
-// doltOf returns the Dolt server t's test holds, or skips without dolt.
-func doltOf(t testing.TB) *dolttest.Server {
+// pgOf returns the Postgres server t's test holds, or skips without
+// Postgres.
+func pgOf(t testing.TB) *pgtest.Server {
 	t.Helper()
-	srv, err := dolts.Server(t)
-	if errors.Is(err, dolttest.ErrNoDolt) {
-		t.Skip("dolt is not on PATH: install dolt to run the server tests")
+	srv, err := pgs.Server(t)
+	if errors.Is(err, pgtest.ErrNoPostgres) {
+		t.Skip("postgres is not on PATH: run scripts/install-postgres.sh to run the server tests")
 	}
 	if err != nil {
-		t.Fatalf("dolt sql-server: %v", err)
+		t.Fatalf("postgres: %v", err)
 	}
 	return srv
 }
 
-// newDatabase returns the DSN of a fresh database on the test's Dolt
-// server, or skips without dolt. The database is dropped when the test
-// ends, after the cleanups of what the test opened on it: Dolt holds
-// every database in memory and slows with each
-// (dolttest.Server.DropDatabase), and this package makes several hundred.
+// newDatabase returns the DSN of a fresh database on the test's Postgres
+// server, owned by the locked-down role it names, or skips without
+// Postgres. The database is dropped when the test ends, after the
+// cleanups of what the test opened on it.
 func newDatabase(t testing.TB) string {
 	t.Helper()
-	doltOf(t)
-	dsn, err := dolts.Database(t)
+	pgOf(t)
+	dsn, err := pgs.Database(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +90,7 @@ func newDatabase(t testing.TB) string {
 // polls. Nothing is asserted of it. It only turns a hang into a failure
 // that says what did not happen, so it is long: a request that takes a
 // moment on an idle machine has taken more than ten seconds where the
-// tests shared a processor and Dolt was short of memory, and a test that
+// tests shared a processor and the database was short of memory, and a test that
 // gave up then failed for the machine and not for the server.
 const patience = time.Minute
 
@@ -121,7 +120,7 @@ func newServerDSN(t *testing.T, lim Limits) (*Server, string) {
 func newServerClock(t *testing.T, lim Limits, now func() time.Time) (*Server, string) {
 	t.Helper()
 	dsn := newDatabase(t)
-	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "sf", CommitInterval: -1, Admins: []string{dana.Principal},
+	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "sf", Admins: []string{dana.Principal},
 		Limits: lim.Limits, Now: now, IdemWindow: time.Duration(lim.IdemWindow), AwayMax: time.Duration(lim.AwayMax)})
 	if err != nil {
 		t.Fatal(err)
@@ -795,9 +794,9 @@ func TestResolveSettings(t *testing.T) {
 		}
 		return p
 	}
-	good := write("good.yaml", "dsn: aries:pw@tcp(127.0.0.1:3306)/sf\nsocket: /run/x/s.sock\nproject: "+project+"\n", 0o600)
-	loose := write("loose.yaml", "dsn: aries:pw@tcp(127.0.0.1:3306)/sf\n", 0o644)
-	nopw := write("nopw.yaml", "dsn: aries@tcp(127.0.0.1:3306)/sf\n", 0o644)
+	good := write("good.yaml", "dsn: postgres://aries:pw@127.0.0.1:5432/sf\nsocket: /run/x/s.sock\nproject: "+project+"\n", 0o600)
+	loose := write("loose.yaml", "dsn: postgres://aries:pw@127.0.0.1:5432/sf\n", 0o644)
+	nopw := write("nopw.yaml", "dsn: postgres://aries@127.0.0.1:5432/sf\n", 0o644)
 	unknown := write("unknown.yaml", "dns: typo\n", 0o600)
 	unit := write("unit.yaml", "systemd_unit: ariesd.service\n", 0o600)
 	badUnit := write("badunit.yaml", "systemd_unit: --no-block\n", 0o600)
@@ -830,7 +829,9 @@ func TestResolveSettings(t *testing.T) {
 			check: func(s Settings) bool { return s.Socket == "/run/flag.sock" }},
 		{name: "config from env", env: map[string]string{EnvConfig: good}, check: func(s Settings) bool { return s.Project == project }},
 		{name: "defaults from an empty file", path: empty, check: func(s Settings) bool { return s.Socket == DefaultSocket && s.Prefix == "sf" }},
-		{name: "password in flag refused", flags: Settings{DSN: "u:secret@tcp(h:1)/d"}, err: "process list"},
+		{name: "password in flag refused", flags: Settings{DSN: "postgres://u:secret@h:1/d"}, err: "process list"}, //nolint:gosec // an invented password, which must be refused
+		{name: "password parameter in flag refused", flags: Settings{DSN: "postgres://u@h:1/d?password=secret"}, err: "process list"},
+		{name: "a DSN of another form refused", flags: Settings{DSN: "u@tcp(h:1)/d"}, err: "not a postgres:// URL"},
 		{name: "password in a loose file refused", path: loose, err: "chmod 600"},
 		{name: "loose file without password", path: nopw, check: func(s Settings) bool { return s.DSN != "" }},
 		{name: "unknown key refused", path: unknown, err: "dns"},
@@ -909,9 +910,9 @@ func TestResolveSocket(t *testing.T) {
 		}
 		return p
 	}
-	good := write("good.yaml", "dsn: aries:pw@tcp(127.0.0.1:3306)/sf\nsocket: /run/x/s.sock\n", 0o600)
+	good := write("good.yaml", "dsn: postgres://aries:pw@127.0.0.1:5432/sf\nsocket: /run/x/s.sock\n", 0o600)
 	empty := write("empty.yaml", "", 0o600)
-	loose := write("loose.yaml", "dsn: aries:pw@tcp(127.0.0.1:3306)/sf\nsocket: /run/x/s.sock\n", 0o644)
+	loose := write("loose.yaml", "dsn: postgres://aries:pw@127.0.0.1:5432/sf\nsocket: /run/x/s.sock\n", 0o644)
 	unknown := write("unknown.yaml", "sokcet: /run/x/s.sock\n", 0o600)
 	others := write("others.yaml", "socket: /run/x/s.sock\nsystemd_unit: --no-block\nadmins: [ariesd]\naccount: Acme Corp\nlog_level: loud\n", 0o600)
 

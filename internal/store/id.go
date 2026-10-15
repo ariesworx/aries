@@ -106,7 +106,7 @@ func commonPrefix(a, b string) int {
 	return n
 }
 
-// randomInt63 returns a random non-negative int64, used for write_id.
+// randomInt63 returns a random non-negative int64.
 func randomInt63() int64 {
 	var b [8]byte
 	_, _ = rand.Read(b[:])                           // crypto/rand.Read never fails

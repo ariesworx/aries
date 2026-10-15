@@ -6,8 +6,8 @@
 # install takes its newest patch release, as CI does (`mise upgrade go`
 # moves an older one up), and golangci-lint at the version CI pins.
 # shellcheck was the newest release when this was written; CI uses the
-# one on its runner. Dolt is not here: mise's registry has none, and
-# scripts/install-dolt.sh installs the pinned release, verified.
+# one on its runner. Postgres is not here:
+# scripts/install-postgres.sh installs the pinned release, verified.
 
 [tools]
 go = "1.27"

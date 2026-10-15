@@ -129,15 +129,16 @@ func (s *Store) ListSummaries(ctx context.Context, f Filter) (SummaryPage, error
 func listQuery(f Filter, cols string) (string, []any, int, error) {
 	limit := clampLimit(f.Limit, 50, 500)
 	var where []string
-	var args []any
+	var p params
 	in := func(col string, n int, val func(int) any) {
 		if n == 0 {
 			return
 		}
-		where = append(where, col+" IN ("+placeholders(n)+")")
+		vals := make([]any, n)
 		for i := range n {
-			args = append(args, val(i))
+			vals[i] = val(i)
 		}
+		where = append(where, col+" IN ("+p.add(vals...)+")")
 	}
 	for _, st := range f.Statuses {
 		if !st.Valid() {
@@ -153,33 +154,29 @@ func listQuery(f Filter, cols string) (string, []any, int, error) {
 	in("i.type", len(f.Types), func(i int) any { return string(f.Types[i]) })
 	in("i.priority", len(f.Priorities), func(i int) any { return int(f.Priorities[i]) })
 	if f.Assignee != "" {
-		where = append(where, "i.assignee = ?")
-		args = append(args, f.Assignee)
+		where = append(where, "i.assignee = "+p.add(f.Assignee))
 	}
 	if f.ParentID != "" {
-		where = append(where, "i.parent_id = ?")
-		args = append(args, string(f.ParentID))
+		where = append(where, "i.parent_id = "+p.add(string(f.ParentID)))
 	}
 	for _, l := range f.Labels {
 		if err := validLabel(l); err != nil {
 			return "", nil, 0, err
 		}
-		where = append(where, "EXISTS (SELECT 1 FROM labels l WHERE l.issue_id = i.id AND l.label = ?)")
-		args = append(args, l)
+		where = append(where, "EXISTS (SELECT 1 FROM labels l WHERE l.issue_id = i.id AND l.label = "+p.add(l)+")")
 	}
 	if f.Cursor != "" {
-		p, err := decodeCursor(f.Cursor)
+		c, err := decodeCursor(f.Cursor)
 		if err != nil {
 			return "", nil, 0, err
 		}
-		at := time.UnixMicro(p.At).UTC()
-		where = append(where, "(i.created_at > ? OR (i.created_at = ? AND i.id > ?))")
-		args = append(args, at, at, string(p.ID))
+		at := p.add(time.UnixMicro(c.At).UTC())
+		where = append(where, "(i.created_at > "+at+" OR (i.created_at = "+at+" AND i.id > "+p.add(string(c.ID))+"))")
 	}
 	q := `SELECT ` + cols + ` FROM issues i`
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ") //nolint:gosec // fixed clauses; values are placeholders
 	}
-	q += " ORDER BY i.created_at, i.id LIMIT ?"
-	return q, append(args, limit+1), limit, nil
+	q += " ORDER BY i.created_at, i.id LIMIT " + p.add(limit+1)
+	return q, p.args, limit, nil
 }

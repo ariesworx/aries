@@ -305,7 +305,7 @@ type change struct {
 // compared, and is ErrConflict, as a stale update is.
 func changedSince(ctx context.Context, q querier, id IssueID, base Rev) (map[string]change, bool, error) {
 	var from int64
-	err := q.QueryRowContext(ctx, `SELECT seq FROM events WHERE target = ? AND rev IS NOT NULL AND rev <= ?
+	err := q.QueryRowContext(ctx, `SELECT seq FROM events WHERE target = $1 AND rev IS NOT NULL AND rev <= $2
   ORDER BY seq DESC LIMIT 1`, string(id), int64(base)).Scan(&from)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, false, fmt.Errorf("issue %s: rev %d is older than the history a replayed update is compared with: %w", id, base, ErrConflict)
@@ -314,7 +314,7 @@ func changedSince(ctx context.Context, q querier, id IssueID, base Rev) (map[str
 		return nil, false, fmt.Errorf("history of %s: %w", id, err)
 	}
 	rows, err := q.QueryContext(ctx, `SELECT principal, at, op, before_state, after_state, rev FROM events
-  WHERE target = ? AND seq > ? ORDER BY seq`, string(id), from)
+  WHERE target = $1 AND seq > $2 ORDER BY seq`, string(id), from)
 	if err != nil {
 		return nil, false, fmt.Errorf("history of %s: %w", id, err)
 	}
@@ -500,14 +500,14 @@ func (s *Store) MergeIssue(ctx context.Context, actor Actor, id IssueID, base Re
 // actor, past the caps on open conflicts.
 func checkConflictCaps(ctx context.Context, w *wtx, id IssueID, n int) error {
 	var onIssue, byAuthor int
-	if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM conflicts WHERE issue_id = ? AND resolved_at IS NULL`,
+	if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM conflicts WHERE issue_id = $1 AND resolved_at IS NULL`,
 		string(id)).Scan(&onIssue); err != nil {
 		return fmt.Errorf("count conflicts: %w", err)
 	}
 	if onIssue+n > w.lim.ConflictsPerIssue {
 		return &ConflictLimitError{Limit: "conflicts_per_issue", Max: w.lim.ConflictsPerIssue, Issue: id}
 	}
-	if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM conflicts WHERE author = ? AND resolved_at IS NULL`,
+	if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM conflicts WHERE author = $1 AND resolved_at IS NULL`,
 		w.actor.Principal).Scan(&byAuthor); err != nil {
 		return fmt.Errorf("count conflicts: %w", err)
 	}
@@ -526,9 +526,9 @@ func park(ctx context.Context, w *wtx, c Conflict, idem string) (int64, error) {
 	}
 	cid := last + 1
 	if _, err := w.exec(ctx, `INSERT INTO conflicts (id, issue_id, field, base_rev, base, mine, theirs, author, session,
-  idem_key, theirs_by, theirs_at, parked_at, write_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  idem_key, theirs_by, theirs_at, parked_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 		cid, string(c.Issue), c.Field, int64(c.BaseRev), c.Base, c.Mine, c.Theirs, w.actor.Principal, w.actor.Session,
-		nullStr(idem), c.TheirsBy, c.TheirsAt, w.now, randomInt63()); err != nil {
+		nullStr(idem), c.TheirsBy, c.TheirsAt, w.now); err != nil {
 		return 0, fmt.Errorf("park conflict: %w", err)
 	}
 	return cid, w.event(ctx, OpConflictPark, string(c.Issue), nil, map[string]any{
@@ -596,8 +596,8 @@ func supersede(ctx context.Context, w *wtx, id IssueID, changed map[string]any) 
 	if len(fields) == 0 {
 		return nil
 	}
-	in := placeholders(len(fields))
-	query := `SELECT id, field FROM conflicts WHERE issue_id = ? AND resolved_at IS NULL AND field IN (` + in + `) ORDER BY id` //nolint:gosec // placeholders only; the values are arguments
+	in := placeholders(2, len(fields))
+	query := `SELECT id, field FROM conflicts WHERE issue_id = $1 AND resolved_at IS NULL AND field IN (` + in + `) ORDER BY id` //nolint:gosec // placeholders only; the values are arguments
 	rows, err := w.tx.QueryContext(ctx, query, append([]any{string(id)}, fields...)...)
 	if err != nil {
 		return fmt.Errorf("open conflicts of %s: %w", id, err)
@@ -633,8 +633,8 @@ func supersede(ctx context.Context, w *wtx, id IssueID, changed map[string]any) 
 // markResolved resolves the open conflict id as resolution, by w's
 // actor.
 func markResolved(ctx context.Context, w *wtx, id int64, resolution string) error {
-	n, err := w.exec(ctx, `UPDATE conflicts SET resolution = ?, resolved_by = ?, resolved_at = ?, write_id = ?
-  WHERE id = ? AND resolved_at IS NULL`, resolution, w.actor.Principal, w.now, randomInt63(), id)
+	n, err := w.exec(ctx, `UPDATE conflicts SET resolution = $1, resolved_by = $2, resolved_at = $3
+  WHERE id = $4 AND resolved_at IS NULL`, resolution, w.actor.Principal, w.now, id)
 	if err != nil {
 		return fmt.Errorf("resolve conflict %d: %w", id, err)
 	}
@@ -768,8 +768,8 @@ func (s *Store) ProposeResolution(ctx context.Context, actor Actor, id int64, ch
 		if err := w.guard(ctx, cl, "propose"); err != nil {
 			return err
 		}
-		if _, err := w.exec(ctx, `UPDATE conflicts SET proposal = ?, proposal_text = ?, proposal_why = ?, proposed_by = ?,
-  proposed_at = ?, write_id = ? WHERE id = ?`, string(choice), text, why, w.actor.Principal, w.now, randomInt63(), id); err != nil {
+		if _, err := w.exec(ctx, `UPDATE conflicts SET proposal = $1, proposal_text = $2, proposal_why = $3, proposed_by = $4,
+  proposed_at = $5 WHERE id = $6`, string(choice), text, why, w.actor.Principal, w.now, id); err != nil {
 			return fmt.Errorf("propose for conflict %d: %w", id, err)
 		}
 		if err := w.event(ctx, OpConflictPropose, string(c.Issue), nil, map[string]any{
@@ -813,7 +813,7 @@ func scanConflict(sc scanner) (Conflict, error) {
 
 // loadConflict reads conflict id, or returns ErrNotFound.
 func loadConflict(ctx context.Context, q querier, id int64) (Conflict, error) {
-	c, err := scanConflict(q.QueryRowContext(ctx, `SELECT `+conflictCols+` FROM conflicts WHERE id = ?`, id))
+	c, err := scanConflict(q.QueryRowContext(ctx, `SELECT `+conflictCols+` FROM conflicts WHERE id = $1`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Conflict{}, fmt.Errorf("conflict %d: %w", id, ErrNotFound)
 	}
@@ -854,13 +854,13 @@ type ConflictFilter struct {
 // with its advice, and whether more follow them. An Issue that is not a
 // valid id is ErrInvalid.
 func (s *Store) Conflicts(ctx context.Context, f ConflictFilter) ([]Conflict, bool, error) {
-	where, args := `resolved_at IS NULL AND id > ?`, []any{f.After}
+	var p params
+	where := `resolved_at IS NULL AND id > ` + p.add(f.After)
 	if f.Issue != "" {
 		if err := f.Issue.Validate(); err != nil {
 			return nil, false, err
 		}
-		where += ` AND issue_id = ?`
-		args = append(args, string(f.Issue))
+		where += ` AND issue_id = ` + p.add(string(f.Issue))
 	}
 	limit := clampLimit(f.Limit, DefaultConflictLimit, MaxConflictLimit)
 	tx, end, err := s.beginRead(ctx)
@@ -869,8 +869,8 @@ func (s *Store) Conflicts(ctx context.Context, f ConflictFilter) ([]Conflict, bo
 	}
 	defer end()
 	// One more than the page says whether there is a next.
-	rows, err := tx.QueryContext(ctx, `SELECT `+conflictCols+` FROM conflicts WHERE `+where+` ORDER BY id LIMIT ?`,
-		append(args, limit+1)...)
+	rows, err := tx.QueryContext(ctx, `SELECT `+conflictCols+` FROM conflicts WHERE `+where+` ORDER BY id LIMIT `+p.add(limit+1),
+		p.args...)
 	if err != nil {
 		return nil, false, fmt.Errorf("conflicts: %w", err)
 	}
@@ -940,7 +940,7 @@ func advice(c Conflict, holder string) string {
 func (s *Store) OpenConflicts(ctx context.Context, principal string) (int, error) {
 	var n int
 	if err := s.r.QueryRowContext(ctx, `SELECT COUNT(*) FROM conflicts c LEFT JOIN issues i ON i.id = c.issue_id
-  WHERE c.resolved_at IS NULL AND (c.author = ? OR i.assignee = ?)`, principal, principal).Scan(&n); err != nil {
+  WHERE c.resolved_at IS NULL AND (c.author = $1 OR i.assignee = $2)`, principal, principal).Scan(&n); err != nil {
 		return 0, fmt.Errorf("count conflicts: %w", err)
 	}
 	return n, nil

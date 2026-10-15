@@ -26,14 +26,14 @@ func (s *Store) AddLabel(ctx context.Context, actor Actor, id IssueID, label, id
 			return err
 		}
 		var has, total int
-		if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(label = ?), 0) FROM labels WHERE issue_id = ?`,
+		if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*), COUNT(*) FILTER (WHERE label = $1) FROM labels WHERE issue_id = $2`,
 			label, string(id)).Scan(&total, &has); err != nil {
 			return fmt.Errorf("count labels: %w", err)
 		}
 		if has == 0 && total >= w.lim.Labels {
 			return fmt.Errorf("%w: issue %s has %d labels; an issue has at most %d labels", ErrInvalid, id, total, w.lim.Labels)
 		}
-		n, err := w.exec(ctx, `INSERT IGNORE INTO labels (issue_id, label, created_at) VALUES (?, ?, ?)`,
+		n, err := w.exec(ctx, `INSERT INTO labels (issue_id, label, created_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
 			string(id), label, w.now)
 		if err != nil {
 			return fmt.Errorf("insert label: %w", err)
@@ -59,7 +59,7 @@ func (s *Store) RemoveLabel(ctx context.Context, actor Actor, id IssueID, label,
 		if again, err := replay(ctx, w, idem, "label.rm", labelReq{id, label}, &done); again || err != nil {
 			return err
 		}
-		n, err := w.exec(ctx, `DELETE FROM labels WHERE issue_id = ? AND label = ?`, string(id), label)
+		n, err := w.exec(ctx, `DELETE FROM labels WHERE issue_id = $1 AND label = $2`, string(id), label)
 		if err != nil {
 			return fmt.Errorf("delete label: %w", err)
 		}
@@ -155,7 +155,7 @@ func insertNote(ctx context.Context, w *wtx, id IssueID, body string, kind Comme
 	// otherwise tie, and the random id would decide which is the latest.
 	at := w.now
 	var last sql.NullTime
-	if err := w.tx.QueryRowContext(ctx, `SELECT MAX(created_at) FROM comments WHERE issue_id = ?`, string(id)).Scan(&last); err != nil {
+	if err := w.tx.QueryRowContext(ctx, `SELECT MAX(created_at) FROM comments WHERE issue_id = $1`, string(id)).Scan(&last); err != nil {
 		return Comment{}, fmt.Errorf("latest comment: %w", err)
 	}
 	if last.Valid && !at.After(last.Time) {
@@ -163,13 +163,13 @@ func insertNote(ctx context.Context, w *wtx, id IssueID, body string, kind Comme
 	}
 	c := Comment{ID: cid, Issue: id, Author: w.actor.Principal, Session: w.actor.Session, Kind: kind, Body: body, CreatedAt: at}
 	if _, err := w.exec(ctx, `INSERT INTO comments (id, issue_id, author, session, kind, body, created_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?)`, c.ID, string(id), c.Author, c.Session, string(c.Kind), c.Body, c.CreatedAt); err != nil {
+  VALUES ($1, $2, $3, $4, $5, $6, $7)`, c.ID, string(id), c.Author, c.Session, string(c.Kind), c.Body, c.CreatedAt); err != nil {
 		return Comment{}, fmt.Errorf("insert comment: %w", err)
 	}
 	var after any = c
 	if !f.empty() {
 		if _, err := w.exec(ctx, `INSERT INTO handoffs (comment_id, issue_id, state, next_step, branch, worktree, to_principal)
-  VALUES (?, ?, ?, ?, ?, ?, ?)`, c.ID, string(id), string(f.State), f.Next, f.Branch, f.Worktree, f.To); err != nil {
+  VALUES ($1, $2, $3, $4, $5, $6, $7)`, c.ID, string(id), string(f.State), f.Next, f.Branch, f.Worktree, f.To); err != nil {
 			return Comment{}, fmt.Errorf("insert handoff: %w", err)
 		}
 		after = struct {
@@ -185,7 +185,7 @@ func (s *Store) Comments(ctx context.Context, id IssueID) ([]Comment, error) {
 	if err := id.Validate(); err != nil {
 		return nil, err
 	}
-	return s.comments(ctx, `WHERE issue_id = ? ORDER BY created_at, id`, string(id))
+	return s.comments(ctx, `WHERE issue_id = $1 ORDER BY created_at, id`, string(id))
 }
 
 // AllComments returns every comment, by issue, then oldest first.

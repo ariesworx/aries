@@ -107,7 +107,7 @@ func checkNewCI(ctx context.Context, w *wtx, in NewGate) error {
 	if _, err := loadIssue(ctx, w.tx, in.Subject); err != nil {
 		return err
 	}
-	same, err := loadGates(ctx, w.tx, `WHERE g.kind = 'ci' AND g.subject = ? AND g.check_name = ?`, 1, string(in.Subject), in.Check)
+	same, err := loadGates(ctx, w.tx, `WHERE g.kind = 'ci' AND g.subject = $1 AND g.check_name = $2`, 1, string(in.Subject), in.Check)
 	if err != nil {
 		return err
 	}
@@ -116,7 +116,7 @@ func checkNewCI(ctx context.Context, w *wtx, in NewGate) error {
 			ErrInvalid, in.Subject, same[0].ID, in.Check, same[0].ID)
 	}
 	var n int
-	if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM gates WHERE kind = 'ci' AND subject = ?`, string(in.Subject)).Scan(&n); err != nil {
+	if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM gates WHERE kind = 'ci' AND subject = $1`, string(in.Subject)).Scan(&n); err != nil {
 		return fmt.Errorf("count checks on %s: %w", in.Subject, err)
 	}
 	if n >= w.lim.GateChecks {
@@ -259,7 +259,7 @@ func findCheck(ctx context.Context, q querier, r Report) (*gateRow, error) {
 		}
 		return g, nil
 	}
-	gs, err := loadGates(ctx, q, `WHERE g.kind = 'ci' AND g.subject = ? AND g.check_name = ?`, 1, string(r.Subject), r.Check)
+	gs, err := loadGates(ctx, q, `WHERE g.kind = 'ci' AND g.subject = $1 AND g.check_name = $2`, 1, string(r.Subject), r.Check)
 	if err != nil {
 		return nil, err
 	}
@@ -299,8 +299,8 @@ func (w *wtx) report(ctx context.Context, before Issue, g *gateRow, r Report, re
 		if told, err = heldAssignees(ctx, w.tx, g); err != nil {
 			return Gate{}, err
 		}
-		if _, err := w.exec(ctx, `UPDATE gates SET outcome = ?, decided_by = ?, decided_at = ?, reason = ?, report = ?, rev = rev + 1, write_id = ?
-  WHERE issue_id = ?`, string(GatePassed), w.actor.Principal, w.now, r.Reason, string(b), randomInt63(), string(g.ID)); err != nil {
+		if _, err := w.exec(ctx, `UPDATE gates SET outcome = $1, decided_by = $2, decided_at = $3, reason = $4, report = $5, rev = rev + 1
+  WHERE issue_id = $6`, string(GatePassed), w.actor.Principal, w.now, r.Reason, string(b), string(g.ID)); err != nil {
 			return Gate{}, fmt.Errorf("pass gate %s: %w", g.ID, err)
 		}
 		evidence["outcome"] = GatePassed
@@ -321,8 +321,8 @@ func (w *wtx) report(ctx context.Context, before Issue, g *gateRow, r Report, re
 				Body: fmt.Sprintf("%s passed on %s%s, after a failure (gate %s)", g.Check, g.Subject, evidenceText(rep), g.ID)})
 		}
 	} else {
-		if _, err := w.exec(ctx, `UPDATE gates SET outcome = NULL, decided_by = NULL, decided_at = NULL, reason = '', report = ?, rev = rev + 1, write_id = ?
-  WHERE issue_id = ?`, string(b), randomInt63(), string(g.ID)); err != nil {
+		if _, err := w.exec(ctx, `UPDATE gates SET outcome = NULL, decided_by = NULL, decided_at = NULL, reason = '', report = $1, rev = rev + 1
+  WHERE issue_id = $2`, string(b), string(g.ID)); err != nil {
 			return Gate{}, fmt.Errorf("fail gate %s: %w", g.ID, err)
 		}
 		evidence["outcome"] = nil
@@ -400,7 +400,7 @@ func (s *Store) ChecksOf(ctx context.Context, id IssueID) ([]Gate, error) {
 	if err := id.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := loadGates(ctx, s.r, `WHERE g.kind = 'ci' AND g.subject = ?`, maxGateChecks, string(id))
+	rows, err := loadGates(ctx, s.r, `WHERE g.kind = 'ci' AND g.subject = $1`, maxGateChecks, string(id))
 	if err != nil {
 		return nil, err
 	}

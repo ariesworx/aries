@@ -244,7 +244,7 @@ func TestWriteRetriedAfterAJumpIsDatedAfterIt(t *testing.T) {
 		t.Fatalf("CreateIssue, its first attempt lost and the clock jumped %s = %v", jump, err)
 	}
 
-	if _, n, _, _ := o.take(); n != 1 {
+	if _, n, _ := o.take(); n != 1 {
 		t.Errorf("the write was retried %d times, want 1", n)
 	}
 	at, before, after := around(eventTimes(t, s), string(retried.ID))
@@ -289,7 +289,7 @@ func TestSecondJumpDuringTheSettle(t *testing.T) {
 		t.Fatalf("CreateIssue across jumps of %s and %s = %v", first, second, err)
 	}
 
-	if _, n, _, _ := o.take(); n != 1 {
+	if _, n, _ := o.take(); n != 1 {
 		t.Errorf("the write was retried %d times, want 1: once, for the jump made during the settle", n)
 	}
 	evs := eventTimes(t, s)

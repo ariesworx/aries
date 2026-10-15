@@ -153,7 +153,7 @@ func TestKeysFile(t *testing.T) {
 func TestKeysFileFollowsTheOperator(t *testing.T) {
 	t.Parallel()
 	m := adminWorld(t, Limits{})
-	op, err := store.OpenControl(t.Context(), m.dsn, store.ControlOptions{CommitInterval: -1, Operator: true})
+	op, err := store.OpenControl(t.Context(), m.dsn, store.ControlOptions{Operator: true})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -27,7 +27,7 @@ import (
 
 // The benchmarks of this file measure a request end to end in the
 // daemon: a frame read from a unix socket, decoded, dispatched to a
-// real store on a real Dolt, and its answer encoded and written
+// real store on a real Postgres, and its answer encoded and written
 // (docs/design/profile-ariesd.md). The client side is a socket and
 // two byte slices: it builds each request before the clock starts and
 // reads the answer into a buffer it keeps, so what -benchmem counts is
@@ -78,7 +78,7 @@ var benchLimits = Limits{Conns: 4096, ConnsPerPrincipal: 4096, Handshakes: 4096,
 func seedProject(b *testing.B) seeded {
 	b.Helper()
 	dsn := newDatabase(b)
-	st, err := store.Open(b.Context(), dsn, store.Options{Prefix: "sf", CommitInterval: -1, Admins: []string{dana.Principal}})
+	st, err := store.Open(b.Context(), dsn, store.Options{Prefix: "sf", Admins: []string{dana.Principal}})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -229,7 +229,7 @@ func newBenchWorld(b *testing.B, sd seeded, mode string, counted bool) *benchWor
 	}
 	tel, log := benchTel(b, mode)
 	var err error
-	w.st, err = store.Open(b.Context(), dsn, store.Options{Prefix: "sf", CommitInterval: -1, Admins: []string{dana.Principal}, Logger: log,
+	w.st, err = store.Open(b.Context(), dsn, store.Options{Prefix: "sf", Admins: []string{dana.Principal}, Logger: log,
 		Observer: StoreObserver(tel, project), Tracer: StoreTracer(tel, project)})
 	if err != nil {
 		b.Fatal(err)
@@ -412,7 +412,7 @@ type benchRun struct {
 	b   *testing.B
 	w   *benchWorld
 	c   *benchConn
-	sql sqlCount // what the measured requests sent Dolt
+	sql sqlCount // what the measured requests sent the database
 }
 
 // do sends req, measured: it is what the benchmark times and counts.
@@ -598,7 +598,7 @@ var benchOps = []struct {
 	}},
 }
 
-// report adds what a counted run sent Dolt to the benchmark's result.
+// report adds what a counted run sent the database to the benchmark's result.
 func (r *benchRun) report() {
 	if r.w.sql == nil {
 		return
@@ -608,14 +608,14 @@ func (r *benchRun) report() {
 	r.b.ReportMetric(float64(r.sql.RoundTrips)/n, "roundtrips/op")
 	r.b.ReportMetric(float64(r.sql.Prepared)/n, "prepares/op")
 	r.b.ReportMetric(float64(r.sql.Commits)/n, "commits/op")
-	r.b.ReportMetric(float64(r.sql.Waited.Microseconds())/n/1000, "dolt-ms/op")
+	r.b.ReportMetric(float64(r.sql.Waited.Microseconds())/n/1000, "db-ms/op")
 	r.b.ReportMetric(float64(r.sql.CommitWaited.Microseconds())/n/1000, "commit-ms/op")
 }
 
 // BenchmarkOp is each op's cost in the daemon, by what its
 // telemetry does: time, bytes and allocations for one request, from the
 // frame read off the socket to the answer written to it. The time is
-// Dolt's for the most part; the bytes and allocations are the daemon's.
+// the database's for the most part; the bytes and allocations are the daemon's.
 func BenchmarkOp(b *testing.B) {
 	for _, mode := range benchTelemetry {
 		b.Run(mode, func(b *testing.B) {
@@ -636,10 +636,10 @@ func BenchmarkOp(b *testing.B) {
 }
 
 // BenchmarkOpStatements is each op's SQL: the statements it runs, the
-// round trips to Dolt they cost, and how long the store waited on Dolt
+// round trips to the database they cost, and how long the store waited on the database
 // for them, of which how long for its COMMIT; all read off the wire by
-// a proxy (sqlCounter). Set dolt-ms/op beside ns/op for the share of a
-// request that is the wait for Dolt. Its times include the proxy's two
+// a proxy (sqlCounter). Set db-ms/op beside ns/op for the share of a
+// request that is the wait for the database. Its times include the proxy's two
 // extra hops, so read BenchmarkOp for an op's time alone.
 func BenchmarkOpStatements(b *testing.B) {
 	sd := seedProject(b)

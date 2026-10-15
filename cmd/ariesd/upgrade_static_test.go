@@ -54,7 +54,7 @@ func TestUpgradeServerFromStaticTree(t *testing.T) {
 				t.Fatalf("upgrade --check = %q, %v, want %q", out, err, want)
 			}
 			out, err = r.run(t)
-			want := "ariesd upgraded v0.2.0 -> v0.3.0 (backup tag aries-v0.2.0; ariesd.service restarted and healthy)\n"
+			want := "ariesd upgraded v0.2.0 -> v0.3.0 (ariesd.service restarted and healthy)\n"
 			if err != nil || out != want {
 				t.Fatalf("upgrade = %q, %v, want %q", out, err, want)
 			}
@@ -228,8 +228,8 @@ func TestUpgradeServerHostileStaticHost(t *testing.T) {
 					t.Errorf("the error is %d bytes long; it repeats what the host sent", len(err.Error()))
 				}
 			}
-			if r.exeHolds(t) != "v0.3.0" || len(r.restarts) != 0 || len(r.backups) != 0 {
-				t.Errorf("exe %q, restarts %v, backups %v: want nothing touched", r.exeHolds(t), r.restarts, r.backups)
+			if r.exeHolds(t) != "v0.3.0" || len(r.restarts) != 0 {
+				t.Errorf("exe %q, restarts %v: want nothing touched", r.exeHolds(t), r.restarts)
 			}
 			if _, err := os.Stat(r.exe + ".prev"); !errors.Is(err, os.ErrNotExist) {
 				t.Errorf("a refused upgrade left a .prev: %v", err)

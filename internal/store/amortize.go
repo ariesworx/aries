@@ -123,7 +123,7 @@ func monthTokens(ctx context.Context, q querier, m time.Time, principals []strin
 			args = append(args, p)
 		}
 		query := `SELECT principal, ` + sumInt(`COALESCE(input, 0) + COALESCE(output, 0) + COALESCE(cache_write, 0) + COALESCE(cache_read, 0)`) + `
-  FROM token_usage WHERE at >= ? AND at < ? AND principal IN (` + placeholders(len(chunk)) + `) GROUP BY principal` //nolint:gosec // constant sum and placeholders only; values are arguments
+  FROM token_usage WHERE at >= $1 AND at < $2 AND principal IN (` + placeholders(3, len(chunk)) + `) GROUP BY principal` //nolint:gosec // constant sum and placeholders only; values are arguments
 		err := scanAll(ctx, q, "month tokens", query, args, func(rs *sql.Rows) error {
 			var p string
 			var n int64

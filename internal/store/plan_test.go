@@ -67,7 +67,7 @@ func TestSetPlanAddsReplacesAndLists(t *testing.T) {
 		t.Errorf("Plans =\n%s\nwant\n%s", got, want)
 	}
 
-	evs, err := s.events(ctx, `WHERE seq > ? AND op = ? ORDER BY seq`, before, string(OpPlanSet))
+	evs, err := s.events(ctx, `WHERE seq > $1 AND op = $2 ORDER BY seq`, before, string(OpPlanSet))
 	if err != nil {
 		t.Fatal(err)
 	}

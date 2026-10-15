@@ -81,23 +81,23 @@ func (pr *served) prune(ctx context.Context, lim Limits) {
 	}
 }
 
-// DatabaseDSN returns dsn with its database replaced by name: another
-// database on the same server, as the same account
-// ([store.DatabaseDSN]). A server of many projects reaches its control
-// database and each project's this way, from the one dsn it is
-// configured with. name must be a [store.ValidDBName], since it comes
-// from settings or from the control store and never from a client.
-func DatabaseDSN(dsn, name string) (string, error) { return store.DatabaseDSN(dsn, name) }
+// SchemaDSN returns dsn with its schema replaced by name: another schema
+// in the same database, as the same role ([store.SchemaDSN]). A server
+// of many projects reaches its control store and each project's this
+// way, from the one dsn it is configured with. name must be a
+// [store.ValidDBName], since it comes from settings or from the control
+// store and never from a client.
+func SchemaDSN(dsn, name string) (string, error) { return store.SchemaDSN(dsn, name) }
 
 // ProjectOpener returns a Config.Open for a daemon configured with dsn:
-// it opens a project's store on the project's own database
-// ([DatabaseDSN]), with opts, the project's prefix, and admins that
+// it opens a project's store on the project's own schema ([SchemaDSN]),
+// with opts, the project's prefix, and admins that
 // follow ctl as it changes: a server admin, or an active principal whose
 // role in the project is admin (design §15.3). Each store is measured
 // and traced by tel ([StoreObserver], [StoreTracer]), which may be nil.
 func ProjectOpener(dsn string, ctl Index, opts store.Options, tel *telemetry.Telemetry) func(context.Context, store.Project) (Store, error) {
 	return func(ctx context.Context, p store.Project) (Store, error) {
-		d, err := DatabaseDSN(dsn, p.DBName)
+		d, err := SchemaDSN(dsn, p.DBName)
 		if err != nil {
 			return nil, err
 		}
@@ -114,12 +114,14 @@ func ProjectOpener(dsn string, ctl Index, opts store.Options, tel *telemetry.Tel
 	}
 }
 
-// ProjectDBs is the block of database names the operator granted
-// ariesd's account for new projects (design §15.5, 1, decision 16):
-// Prefix followed by a number of three digits, from 001 to Count, so
-// {aries_p, 100} is aries_p001 to aries_p100. Dolt honors a grant
-// only on an exact name, so the names are fixed and listed, not matched.
-// The zero value is no block: `aries admin project add` is then refused.
+// ProjectDBs is the block of schema names the operator set aside for
+// new projects (design §15.5, 1, decision 16): Prefix followed by a
+// number of three digits, from 001 to Count, so {aries_p, 100} is
+// aries_p001 to aries_p100. The zero value is no block: `aries admin
+// project add` is then refused. (Each name was once a database the
+// operator granted by name; with a schema each, which ariesd's role
+// makes itself, the block is kept until the daemon names schemas on
+// its own.)
 type ProjectDBs struct {
 	// Prefix starts each name: a lowercase letter, then lowercase
 	// letters, digits and underscores.
@@ -135,7 +137,7 @@ const MaxProjectDBs = 999
 // Name returns the block's i-th name, counting from 1.
 func (b ProjectDBs) Name(i int) string { return fmt.Sprintf("%s%03d", b.Prefix, i) }
 
-// Validate refuses a block whose names would not be database names, or
+// Validate refuses a block whose names would not be schema names, or
 // that holds no name or more than MaxProjectDBs. The zero value is
 // valid.
 func (b ProjectDBs) Validate() error {
@@ -143,9 +145,9 @@ func (b ProjectDBs) Validate() error {
 	case b == ProjectDBs{}:
 		return nil
 	case !store.ValidDBName(b.Name(MaxProjectDBs)):
-		return fmt.Errorf("project_dbs prefix %q does not start a database name; fix: set it to a lowercase letter, then lowercase letters, digits and underscores, at most 61, such as aries_p", b.Prefix)
+		return fmt.Errorf("project_dbs prefix %q does not start a schema name; fix: set it to a lowercase letter, then lowercase letters, digits and underscores, at most 60, not starting pg_, such as aries_p", b.Prefix)
 	case b.Count < 1 || b.Count > MaxProjectDBs:
-		return fmt.Errorf("project_dbs count %d must be 1 to %d; fix: set it to how many names you granted ariesd's account", b.Count, MaxProjectDBs)
+		return fmt.Errorf("project_dbs count %d must be 1 to %d; fix: set it to how many projects the server may create", b.Count, MaxProjectDBs)
 	}
 	return nil
 }

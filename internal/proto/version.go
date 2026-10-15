@@ -68,7 +68,7 @@ import (
 // key.add, keys and key.remove ops and principal.add's keys; and the
 // status op (design §15.4, `aries admin status`). Results carry released
 // (on the ops that end access), warning, in_authorized_keys, file_conns
-// and status's keys_file, clock, dolt and traces. It also adds the trace
+// and status's keys_file, clock and traces. It also adds the trace
 // context on a request
 // frame, tp and ts (decision 27): frames are read leniently, so the
 // fields needed no version of their own, and were added while 5 was

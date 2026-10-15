@@ -47,8 +47,6 @@ const (
 	// retried has a span for each attempt.
 	SpanWriteAttempt SpanName = "store.write.attempt"
 	SpanWriteWait    SpanName = "store.write.wait"
-	// SpanStoreCommit is a Dolt commit of pending writes.
-	SpanStoreCommit SpanName = "store.commit"
 	// SpanReaper is one tick of the reaper, and the next four are parts
 	// of it that also run on their own: ending the claims of holders who
 	// lost access, writing the keys file, rereading the control store's
@@ -61,7 +59,7 @@ const (
 )
 
 // fixedSpans are the SpanNames, in the order the guide lists them.
-var fixedSpans = []SpanName{SpanHandshake, SpanStoreOpen, SpanStoreMigrate, SpanWriteAttempt, SpanWriteWait, SpanStoreCommit,
+var fixedSpans = []SpanName{SpanHandshake, SpanStoreOpen, SpanStoreMigrate, SpanWriteAttempt, SpanWriteWait,
 	SpanReaper, SpanSweep, SpanKeysFile, SpanControlReload, SpanClockCheck}
 
 // Spans returns the names of the spans that are not a request's.

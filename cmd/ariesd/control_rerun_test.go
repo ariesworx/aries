@@ -123,7 +123,7 @@ func TestControlInitRerunKeepsWhatAdminsRemoved(t *testing.T) {
 	if got.err != nil {
 		t.Fatalf("control init again: %v\n%s", got.err, got.stderr)
 	}
-	wantOut := fmt.Sprintf("project acme (%s) adopted from database %s: active\n", adopted, s.db) +
+	wantOut := fmt.Sprintf("project acme (%s) adopted from schema %s: active\n", adopted, s.db) +
 		"principals: 0 added, 6 already there; keys: 0 added, 4 already there; members: 0 added, 3 already there; 0 lines skipped\n" +
 		"left as admins set them: 1 key removed, 1 membership removed, 1 principal disabled; to put them back from this file, run it again with --restore-removed-access\n" +
 		"4 keys in the store are also lines of " + keys + ": sshd reads that file too, so `aries admin key remove` does not keep such a key out until its line is deleted too\n"
@@ -160,7 +160,7 @@ func TestControlInitRestoreRemovedAccess(t *testing.T) {
 	if got.err != nil {
 		t.Fatalf("control init --restore-removed-access: %v\n%s", got.err, got.stderr)
 	}
-	wantOut := fmt.Sprintf("project acme (%s) adopted from database %s: active\n", adopted, s.db) +
+	wantOut := fmt.Sprintf("project acme (%s) adopted from schema %s: active\n", adopted, s.db) +
 		"principals: 0 added, 6 already there; keys: 1 added, 5 already there; members: 1 added, 4 already there; 0 lines skipped\n" +
 		"restored from this file, over what admins had set: 1 key, 1 membership, 1 principal enabled\n" +
 		"6 keys in the store are also lines of " + keys + ": sshd reads that file too, so `aries admin key remove` does not keep such a key out until its line is deleted too\n"

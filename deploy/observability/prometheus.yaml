@@ -2,10 +2,10 @@
 # rules: an example that is tested, not a product (docs/server.md,
 # Observability). The Docker test server's `prometheus` profile runs it
 # as it is here, which is how the rules are known to load and to
-# evaluate against a real ariesd and a real Dolt.
+# evaluate against a real ariesd.
 #
-# It runs on the server itself, since both endpoints answer on loopback
-# only. The job names are the ones alerts.yaml selects by; a test in
+# It runs on the server itself, since ariesd's endpoint answers on
+# loopback only. The job name is the one alerts.yaml selects by; a test in
 # internal/telemetry fails if they differ.
 
 global:
@@ -20,7 +20,3 @@ scrape_configs:
   - job_name: ariesd
     static_configs:
       - targets: ["127.0.0.1:9464"]
-  # `metrics:` in Dolt's config.
-  - job_name: dolt
-    static_configs:
-      - targets: ["127.0.0.1:11228"]

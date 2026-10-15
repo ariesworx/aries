@@ -1,6 +1,6 @@
 // Command ariesd is the Aries server.
 //
-//	ariesd serve [--dev [--allow-unsafe-dolt]] [--config FILE] [--dsn DSN] [--socket PATH] [--project UUID] [--prefix P] [--log-level L] [--log-format F]
+//	ariesd serve [--dev [--allow-unsafe-account]] [--config FILE] [--dsn DSN] [--socket PATH] [--project UUID] [--prefix P] [--log-level L] [--log-format F]
 //	ariesd stdio --principal NAME [--key FINGERPRINT] [--config FILE] [--socket PATH]
 //	ariesd control init --name NAME [--authorized-keys FILE] [--restore-removed-access] [--config FILE] [--dsn DSN]
 //	ariesd import-bd [--config FILE] [--dsn DSN] [--project UUID] [--principal NAME] [--dry-run] [--json] FILE|-
@@ -9,20 +9,21 @@
 //	ariesd status [--json] [--config FILE] [--socket PATH]
 //	ariesd version
 //
-// serve is the long-running daemon: it owns the Dolt store and serves the
-// protocol on a unix socket. stdio is the forced command in each developer
+// serve is the long-running daemon: it owns the Postgres store and serves
+// the protocol on a unix socket. stdio is the forced command in each developer
 // key's authorized_keys line; it bridges the SSH session to that socket.
 // import-bd and export-bd are admin commands run on the server: they open
 // the store directly with the daemon's DSN settings and move a backlog in
 // and out as bd's JSONL. With control_db set the server holds many
-// projects, each in a database of its own: control init adopts the
-// existing database as the first and imports authorized_keys,
-// import-bd and export-bd take --project, and serve writes the keys the
-// control database holds to a file sshd reads (keys_file) and opens
-// every active project's database once before it listens, which
-// migrates it. upgrade replaces this binary with a verified
-// release, after tagging the database, and restarts and health-checks the
-// daemon when a systemd unit is configured or --restart is given. status
+// projects, each in a schema of its own: control init adopts the
+// existing schema as the first and imports authorized_keys, import-bd
+// and export-bd take --project, and serve writes the keys the control
+// store holds to a file sshd reads (keys_file) and opens every active
+// project's schema once before it listens, which migrates it. upgrade
+// replaces this binary with a verified release, and restarts and
+// health-checks the daemon when a systemd unit is configured or
+// --restart is given; a migration that fails leaves the schema as it
+// was, and the operator's backups are the restore point. status
 // asks the running daemon, over its socket and as its own user, for the
 // report `aries admin status` gives a server admin.
 //
@@ -53,7 +54,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ariesworx/aries/internal/doltmetrics"
 	"github.com/ariesworx/aries/internal/logs"
 	"github.com/ariesworx/aries/internal/sdnotify"
 	"github.com/ariesworx/aries/internal/server"
@@ -63,7 +63,7 @@ import (
 )
 
 const usage = `usage:
-  ariesd serve [--dev [--allow-unsafe-dolt]] [--config FILE] [--dsn DSN] [--socket PATH] [--project UUID] [--prefix P] [--log-level L] [--log-format F] [--accept-clock-behind TIME]
+  ariesd serve [--dev [--allow-unsafe-account]] [--config FILE] [--dsn DSN] [--socket PATH] [--project UUID] [--prefix P] [--log-level L] [--log-format F] [--accept-clock-behind TIME]
   ariesd stdio --principal NAME [--key FINGERPRINT] [--config FILE] [--socket PATH]
   ariesd control init --name NAME [--authorized-keys FILE] [--restore-removed-access] [--config FILE] [--dsn DSN]
   ariesd import-bd [--config FILE] [--dsn DSN] [--project UUID] [--principal NAME] [--dry-run] [--json] FILE|-
@@ -72,18 +72,21 @@ const usage = `usage:
   ariesd status [--json] [--config FILE] [--socket PATH]
   ariesd version
 
-The database DSN comes from --dsn (no password allowed there), $ARIESD_DSN,
-or dsn: in the config file (default /etc/aries/ariesd.yaml, mode 0600).
+The database DSN, a postgres:// URL, comes from --dsn (no password
+allowed there), $ARIESD_DSN, or dsn: in the config file (default
+/etc/aries/ariesd.yaml, mode 0600); a password is better in the role's
+.pgpass or $PGPASSWORD.
 Admins, who may change issues others hold and force a close, are listed
 under admins: in the config file or in $ARIESD_ADMINS (comma-separated);
 serve reads them at start.
 
 With control_db: (or $ARIESD_CONTROL_DB) set, the server holds many
-projects, and who may reach each is in that database. Run control init
-once to adopt the existing database as the first project; admins then
+projects, each a schema of the DSN's database, and who may reach each is
+in the control_db: schema, which control init makes. Run control init
+once to adopt the DSN's schema as the first project; admins then
 manage projects, principals, members and keys from anywhere with aries admin.
-project_dbs: names the databases granted for new projects. serve writes
-the keys the control database holds to keys_file: (default
+project_dbs: names the schemas for new projects. serve writes
+the keys the control store holds to keys_file: (default
 ~/.ssh/aries_keys of the user it runs as), which sshd reads with
 AuthorizedKeysFile before the authorized_keys you maintain by hand.
 
@@ -96,7 +99,7 @@ leaves alone what admins did since, and reports each:
 for every principal the file names, and records each as an event.
 
 serve refuses to start, with exit status 75, when the server's clock is
-behind the latest event of a database it serves by more than
+behind the latest event of a project it serves by more than
 clock_behind_tolerance: (default 2m): check the clock, correct it and
 start again. --accept-clock-behind TIME starts once all the same, for a
 history no later than TIME, which the refusal prints; clock_behind: warn
@@ -112,15 +115,13 @@ principals_key: (default telemetry/principals.key in its home directory).
 Until serve can make that file its traces say nothing about who, and its
 log and its status say why; $OTEL_TRACES_EXPORTER=none sends metrics
 alone. status prints what the running daemon knows of itself and its
-projects; run it as the user ariesd runs as. With telemetry:
-dolt_metrics_url: (an http:// URL on a loopback address, or
-$ARIESD_TELEMETRY_DOLT_METRICS_URL) set to Dolt's own metrics endpoint,
-serve reads it every 15 seconds and status shows Dolt's memory,
-connections, uptime and collector.
+projects; run it as the user ariesd runs as.
 
-Every command that opens the store refuses a Dolt account that is root,
-holds rights beyond its database, or a server whose secure_file_priv is
-empty; --dev --allow-unsafe-dolt allows it on a developer's own machine.`
+Every command that opens the store refuses a server older than Postgres
+16, and a database role that is a superuser or holds rights beyond its
+database (CREATEROLE, CREATEDB, REPLICATION, BYPASSRLS, or the roles that
+reach the server's files); --dev --allow-unsafe-account allows such a
+role on a developer's own machine.`
 
 // usageError is a mistake on the command line: main prints it with the
 // usage and exits 2.
@@ -219,9 +220,9 @@ func serve(ctx context.Context, args []string) error {
 	var cfgPath, accept string
 	var dev bool
 	if err := flags("serve", args, &fl, &cfgPath, func(fs *flag.FlagSet) {
-		devFlags(fs, &dev, &fl.AllowUnsafeDolt)
+		devFlags(fs, &dev, &fl.AllowUnsafeAccount)
 		fs.StringVar(&accept, "accept-clock-behind", "", "start once although the clock is behind a history no later than this time (RFC 3339)")
-		fs.StringVar(&fl.DSN, "dsn", "", "Dolt DSN (no password)")
+		fs.StringVar(&fl.DSN, "dsn", "", "Postgres DSN, a postgres:// URL (no password)")
 		fs.StringVar(&fl.Project, "project", "", "project UUID")
 		fs.StringVar(&fl.Prefix, "prefix", "", "issue-ID prefix")
 		fs.StringVar(&fl.LogLevel, "log-level", "", "debug, info, warn or error (default info)")
@@ -229,7 +230,7 @@ func serve(ctx context.Context, args []string) error {
 	}); err != nil {
 		return err
 	}
-	if err := checkDev(dev, fl.AllowUnsafeDolt); err != nil {
+	if err := checkDev(dev, fl.AllowUnsafeAccount); err != nil {
 		return err
 	}
 	if accept != "" {
@@ -295,17 +296,6 @@ func runDaemon(ctx context.Context, s server.Settings, log *slog.Logger, getenv 
 			log.Warn("telemetry did not stop cleanly", "event", logs.TelemetryStopFailed, "err", err)
 		}
 	}()
-	// Dolt's own metrics, for the status report (design §16.5). A URL
-	// that is not on loopback fails the start here, with its fix: a host
-	// that is a name is resolved now.
-	var dolt *doltmetrics.Reader
-	if u := s.Telemetry.DoltMetricsURL; u != "" {
-		if dolt, err = doltmetrics.New(ctx, u); err != nil {
-			return err
-		}
-		defer dolt.Close()
-		log.Info("reading Dolt's metrics for the status report", "event", logs.DoltMetricsReading, "url", dolt.URL(), "every", server.DefaultDoltMetricsEvery)
-	}
 	// srv is the server once it is built; /readyz asks it.
 	var srv atomic.Pointer[server.Server]
 	if s.Telemetry.Listen != "" {
@@ -339,7 +329,7 @@ func runDaemon(ctx context.Context, s server.Settings, log *slog.Logger, getenv 
 		}
 	}
 	note := sdnotify.New(getenv, os.Getpid())
-	d, err := openDaemonWith(ctx, s, log, hooks{tel: tel, dolt: dolt, heartbeatEvery: note.WatchdogEvery(), heartbeat: func() {
+	d, err := openDaemonWith(ctx, s, log, hooks{tel: tel, heartbeatEvery: note.WatchdogEvery(), heartbeat: func() {
 		if err := note.Watchdog(); err != nil {
 			log.Warn("could not feed systemd's watchdog", "event", logs.SystemdNotify, "err", err)
 		}
@@ -384,9 +374,6 @@ func refusalLines(err error) []string {
 type hooks struct {
 	// tel measures the server and its stores.
 	tel *telemetry.Telemetry
-	// dolt reads Dolt's own metrics for the status report; nil reads
-	// none.
-	dolt *doltmetrics.Reader
 	// heartbeat is called every heartbeatEvery from the server's reaper,
 	// for systemd's watchdog; zero calls nothing.
 	heartbeat      func()
@@ -427,9 +414,9 @@ func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h 
 	// of a step whichever noticed it, and the server reports them.
 	clk := store.NewClock(store.ClockOptions{StepTolerance: time.Duration(s.ClockStepTolerance)})
 	cfg := server.Config{Version: version.Version, Latest: s.Latest, Logger: log, Limits: s.Limits, Account: s.Account,
-		Telemetry: h.tel, Heartbeat: h.heartbeat, HeartbeatEvery: h.heartbeatEvery, DoltMetrics: h.dolt, NoAudit: !s.Telemetry.Audit(),
+		Telemetry: h.tel, Heartbeat: h.heartbeat, HeartbeatEvery: h.heartbeatEvery, NoAudit: !s.Telemetry.Audit(),
 		Clock: clk, ClockBehind: s.ClockBehind, BehindTolerance: time.Duration(s.ClockBehindTolerance), AcceptHistory: s.AcceptClockBehind}
-	opts := store.Options{Logger: log, AllowUnsafeAccount: s.AllowUnsafeDolt, Limits: s.Limits.Limits,
+	opts := store.Options{Logger: log, AllowUnsafeAccount: s.AllowUnsafeAccount, Limits: s.Limits.Limits,
 		Clock: clk, ClientAhead: time.Duration(s.ClockClientTolerance), IdemWindow: time.Duration(s.Limits.IdemWindow), AwayMax: time.Duration(s.Limits.AwayMax)}
 	if s.DSN == "" {
 		return nil, errors.New("no database DSN; fix: set $ARIESD_DSN or dsn: in the config file")
@@ -457,7 +444,7 @@ func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h 
 		return nil, err
 	}
 	if ctl.ActiveProjects() == 0 {
-		return nil, errors.Join(fmt.Errorf("the control database %s holds no active project; fix: adopt this server's database as the first with `ariesd control init --name NAME`",
+		return nil, errors.Join(fmt.Errorf("the control store %s holds no active project; fix: adopt this server's project as the first with `ariesd control init --name NAME`",
 			s.ControlDB), ctl.Close())
 	}
 	warnOfAdmins(ctx, ctl, s.Admins, log)
@@ -475,7 +462,7 @@ func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h 
 	if err := srv.WriteKeys(); err != nil {
 		return nil, errors.Join(err, ctl.Close())
 	}
-	// Every active project's database is opened, and so migrated,
+	// Every active project's schema is opened, and so migrated,
 	// before the daemon listens: after an upgrade, the health check
 	// then answers for all of them. One that fails is logged and held
 	// against that check; the others are served.
@@ -483,17 +470,17 @@ func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h 
 		if _, ok := errors.AsType[*server.ClockBehindError](err); ok {
 			return nil, errors.Join(err, ctl.Close()) // it names its own fix
 		}
-		return nil, errors.Join(fmt.Errorf("%w; fix: check that dolt sql-server is running", err), ctl.Close())
+		return nil, errors.Join(fmt.Errorf("%w; fix: check that Postgres is running", err), ctl.Close())
 	}
 	// Every claim in an archived project ends before the daemon listens
 	// (decision 24): one left by a daemon that stopped between an
 	// archive and its release would otherwise wait for the project to
-	// be activated. An archived project's database is opened as it is
+	// be activated. An archived project's schema is opened as it is
 	// and never migrated here; activating the project does that.
 	asIs := opts
 	asIs.NoMigrate = true
 	if err := srv.ReleaseArchived(ctx, server.ProjectOpener(s.DSN, ctl, asIs, h.tel)); err != nil {
-		return nil, errors.Join(fmt.Errorf("%w; fix: check that dolt sql-server is running", err), ctl.Close())
+		return nil, errors.Join(fmt.Errorf("%w; fix: check that Postgres is running", err), ctl.Close())
 	}
 	return &daemon{srv: srv, ctl: ctl}, nil
 }

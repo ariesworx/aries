@@ -114,7 +114,7 @@ func (s *soak) stepForward(ctx context.Context, rng *rand.Rand) {
 		// then has left does not matter: a store may take seconds of
 		// its own time to settle the jump, more on a loaded machine,
 		// and what the log shows of it is checked, not how soon.
-		rows, err := p.db.QueryContext(ctx, `SELECT issue_id, epoch, expires_at FROM claims WHERE principal IS NOT NULL AND expires_at > ?`,
+		rows, err := p.db.QueryContext(ctx, `SELECT issue_id, epoch, expires_at FROM claims WHERE principal IS NOT NULL AND expires_at > $1`,
 			s.clock.now())
 		if err != nil {
 			continue

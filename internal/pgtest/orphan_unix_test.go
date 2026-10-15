@@ -1,6 +1,6 @@
 //go:build unix
 
-package dolttest
+package pgtest
 
 import (
 	"bufio"
@@ -18,17 +18,17 @@ import (
 )
 
 // orphanEnv makes the test binary a helper process: it starts a server in
-// the directory the variable names, prints dolt's process id and then does
+// the directory the variable names, prints the postmaster's process id and then does
 // nothing until it is killed, as a test binary that hangs does. Its value
 // is the directory, then a colon and "stopped" for a helper that stops the
 // server first.
-const orphanEnv = "ARIES_DOLTTEST_ORPHAN"
+const orphanEnv = "ARIES_PGTEST_ORPHAN"
 
 // poolEnv makes the test binary a helper process that stands for a test
-// binary with a pool: it warms a pool, prints its own process id, dolt's
+// binary with a pool: it warms a pool, prints its own process id, the postmaster's
 // and the server's directory, and does nothing more, as a test binary in
 // the middle of its tests.
-const poolEnv = "ARIES_DOLTTEST_POOL"
+const poolEnv = "ARIES_PGTEST_POOL"
 
 func TestMain(m *testing.M) {
 	if v := os.Getenv(orphanEnv); v != "" {
@@ -41,12 +41,12 @@ func TestMain(m *testing.M) {
 }
 
 func poolHelper() int {
-	p := NewPool("sfq", Options{})
+	p := NewPool("sfq")
 	p.Warm()
 	s, err := p.take("helper")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		if errors.Is(err, ErrNoDolt) {
+		if errors.Is(err, ErrNoPostgres) {
 			return 3
 		}
 		return 1
@@ -56,13 +56,13 @@ func poolHelper() int {
 }
 
 // A test binary whose go test is killed is no one's child: it ran on to
-// the end of its tests, for minutes, with its Dolt servers. With a pool
+// the end of its tests, for minutes, with its servers. With a pool
 // it ends when the process that started it is gone, and its servers and
 // their directories go with it.
 func TestPoolEndsWithItsParent(t *testing.T) {
 	t.Parallel()
-	if _, err := lookDolt(); errors.Is(err, ErrNoDolt) {
-		t.Skip("dolt is not on PATH: install dolt to run the dolttest tests")
+	if _, err := lookPostgres(); errors.Is(err, ErrNoPostgres) {
+		t.Skip("postgres is not on PATH: run scripts/install-postgres.sh to run the pgtest tests")
 	}
 	// The shell stands for go test: it starts the helper and waits.
 	parent := exec.Command("/bin/sh", "-c", `"$1" & wait`, "sh", os.Args[0]) //nolint:gosec // the test binary itself
@@ -77,14 +77,14 @@ func TestPoolEndsWithItsParent(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Whatever the test finds, nothing of it is left: the group is the
-	// shell and the helper, and dolt is in a group of its own.
+	// shell and the helper, and the server is in a group of its own.
 	t.Cleanup(func() { _ = syscall.Kill(-parent.Process.Pid, syscall.SIGKILL); _ = parent.Wait() })
-	var helperPID, doltPID int
+	var helperPID, pgPID int
 	var dir string
-	if _, err := fmt.Fscan(bufio.NewReader(out), &helperPID, &doltPID, &dir); err != nil {
+	if _, err := fmt.Fscan(bufio.NewReader(out), &helperPID, &pgPID, &dir); err != nil {
 		t.Fatalf("the helper printed no process ids: %v", err)
 	}
-	t.Cleanup(func() { _ = syscall.Kill(-doltPID, syscall.SIGKILL); _ = os.RemoveAll(dir) })
+	t.Cleanup(func() { _ = syscall.Kill(-pgPID, syscall.SIGKILL); _ = os.RemoveAll(dir) })
 	if got := mentioning(t, dir); len(got) == 0 {
 		t.Fatalf("no process names %s while its server runs, so this test would see nothing", dir)
 	}
@@ -115,7 +115,7 @@ func orphanHelper(v string) int {
 	s, err := Start(ctx, dir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		if errors.Is(err, ErrNoDolt) {
+		if errors.Is(err, ErrNoPostgres) {
 			return 3
 		}
 		return 1
@@ -132,13 +132,13 @@ func orphanHelper(v string) int {
 }
 
 // startOrphanHelper runs the test binary as a helper in a process group of
-// its own, and returns it with its server's directory and dolt's process
+// its own, and returns it with its server's directory and the postmaster's process
 // id. The directory is one the helper's server alone uses, as every
 // caller's is.
-func startOrphanHelper(t *testing.T, mode string) (helper *exec.Cmd, dir string, doltPID int) {
+func startOrphanHelper(t *testing.T, mode string) (helper *exec.Cmd, dir string, pgPID int) {
 	t.Helper()
-	if _, err := lookDolt(); errors.Is(err, ErrNoDolt) {
-		t.Skip("dolt is not on PATH: install dolt to run the dolttest tests")
+	if _, err := lookPostgres(); errors.Is(err, ErrNoPostgres) {
+		t.Skip("postgres is not on PATH: run scripts/install-postgres.sh to run the pgtest tests")
 	}
 	// Not t.TempDir: what removes the directory is under test. A short
 	// path, since a socket's is limited.
@@ -163,13 +163,13 @@ func startOrphanHelper(t *testing.T, mode string) (helper *exec.Cmd, dir string,
 	if err != nil {
 		t.Fatalf("the helper printed no process id: %v", err)
 	}
-	doltPID, err = strconv.Atoi(strings.TrimSpace(line))
+	pgPID, err = strconv.Atoi(strings.TrimSpace(line))
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Whatever the test finds, it leaves no server of its own behind.
-	t.Cleanup(func() { _ = syscall.Kill(doltPID, syscall.SIGKILL) })
-	return helper, dir, doltPID
+	t.Cleanup(func() { _ = syscall.Kill(pgPID, syscall.SIGKILL) })
+	return helper, dir, pgPID
 }
 
 // mentioning returns the process id and command line of each process
@@ -227,16 +227,20 @@ func TestServerDiesWithItsProcess(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			helper, dir, doltPID := startOrphanHelper(t, "")
+			helper, dir, pgPID := startOrphanHelper(t, "")
 			if got := mentioning(t, dir); len(got) == 0 {
 				t.Fatalf("no process names %s while its server runs, so this test would see nothing", dir)
+			}
+			shm, ok := segment(filepath.Join(dir, "data"))
+			if !ok || !segmentExists(t, shm) {
+				t.Fatalf("the running server names no shared memory segment that exists (%q), so this test would see nothing", shm)
 			}
 			if err := tc.end(helper); err != nil {
 				t.Fatal(err)
 			}
 			_ = helper.Wait()
 			if left := waitGone(t, dir); len(left) > 0 {
-				t.Fatalf("10s after the process that started dolt (pid %d) ended, still running: %q", doltPID, left)
+				t.Fatalf("10s after the process that started postgres (pid %d) ended, still running: %q", pgPID, left)
 			}
 			// The directory goes once the server has, so shortly after.
 			deadline := time.Now().Add(10 * time.Second)
@@ -251,8 +255,28 @@ func TestServerDiesWithItsProcess(t *testing.T) {
 				}
 				time.Sleep(100 * time.Millisecond)
 			}
+			if segmentExists(t, shm) {
+				t.Errorf("the server's shared memory segment %s is still there after it was killed", shm)
+			}
 		})
 	}
+}
+
+// segmentExists reports whether ipcs lists the shared memory segment id.
+func segmentExists(t *testing.T, id string) bool {
+	t.Helper()
+	out, err := exec.CommandContext(t.Context(), "ipcs", "-m").Output()
+	if err != nil {
+		t.Fatalf("ipcs: %v", err)
+	}
+	// A segment's line is "m ID KEY …" on macOS and "KEY ID …" on Linux,
+	// where KEY is hexadecimal.
+	for line := range strings.SplitSeq(string(out), "\n") {
+		if f := strings.Fields(line); len(f) > 1 && (f[0] == "m" || strings.HasPrefix(f[0], "0x")) && f[1] == id {
+			return true
+		}
+	}
+	return false
 }
 
 // TestStopLeavesNoWatcher checks that a process which stopped its server
@@ -275,23 +299,19 @@ func TestStopLeavesNoWatcher(t *testing.T) {
 	}
 }
 
-// TestStartCanceled checks that a Start whose context ends while dolt is
-// starting leaves no process behind.
+// TestStartCanceled checks that a Start whose context ends while
+// Postgres is starting leaves no process behind.
 func TestStartCanceled(t *testing.T) {
-	// Serial: replaces the package's pickPort.
-	if _, err := lookDolt(); errors.Is(err, ErrNoDolt) {
-		t.Skip("dolt is not on PATH: install dolt to run the dolttest tests")
+	// Serial: replaces the package's launching.
+	if _, err := lookPostgres(); errors.Is(err, ErrNoPostgres) {
+		t.Skip("postgres is not on PATH: run scripts/install-postgres.sh to run the pgtest tests")
 	}
 	dir := shortDir(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	// The port is picked just before dolt starts, so dolt is started
-	// under a context that has ended.
-	pickPort = func() (int, error) {
-		cancel()
-		return freePort()
-	}
-	t.Cleanup(func() { pickPort = freePort })
+	// Postgres is started under a context that has ended.
+	launching = cancel
+	t.Cleanup(func() { launching = func() {} })
 	s, err := Start(ctx, dir)
 	if err == nil {
 		_ = s.Stop()
@@ -305,7 +325,7 @@ func TestStartCanceled(t *testing.T) {
 }
 
 // TestWatcherKeepsTheCallersFiles checks that what goes with a killed
-// process is only what this package and dolt put in the directory: a file
+// process is only what this package and Postgres put in the directory: a file
 // of the caller's stays, and the directory with it.
 func TestWatcherKeepsTheCallersFiles(t *testing.T) {
 	t.Parallel()
@@ -334,5 +354,35 @@ func TestWatcherKeepsTheCallersFiles(t *testing.T) {
 			t.Fatalf("the directory holds %v, want only the caller's file", entries)
 		}
 		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// TestStopLeavesNothingRunning checks that nothing the server started,
+// no backend and no watcher, still runs once Stop returns, so the caller
+// can remove the directory.
+func TestStopLeavesNothingRunning(t *testing.T) {
+	t.Parallel()
+	dir := shortDir(t)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	s, err := Start(ctx, dir)
+	if errors.Is(err, ErrNoPostgres) {
+		t.Skip("postgres is not on PATH: run scripts/install-postgres.sh to run the pgtest tests")
+	}
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	// A session, so that there is a backend as well as the postmaster.
+	if err := open(t, s.RootDSN(superuser)).PingContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(mentioning(t, dir)) == 0 {
+		t.Fatalf("no process names %s while its server runs, so this test would see nothing", dir)
+	}
+	if err := s.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if left := mentioning(t, dir); len(left) > 0 {
+		t.Errorf("after Stop, still running: %q", left)
 	}
 }

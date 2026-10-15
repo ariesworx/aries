@@ -15,7 +15,6 @@ type seen struct {
 	mu      sync.Mutex
 	wrote   []time.Duration
 	retried int
-	commits []error
 	claims  []string // "change" or "change:reason"
 	locks   []string // "change", or "grant:waited"
 }
@@ -32,12 +31,6 @@ func (o *seen) Retried() {
 	o.retried++
 }
 
-func (o *seen) Committed(_ time.Duration, err error) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	o.commits = append(o.commits, err)
-}
-
 func (o *seen) ClaimChanged(change ClaimChange, reason string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -49,16 +42,16 @@ func (o *seen) ClaimChanged(change ClaimChange, reason string) {
 }
 
 // take returns what was seen since the last take.
-func (o *seen) take() (wrote, retried, commits int, claims []string) {
+func (o *seen) take() (wrote, retried int, claims []string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	wrote, retried, commits, claims = len(o.wrote), o.retried, len(o.commits), o.claims
-	o.wrote, o.retried, o.commits, o.claims = nil, 0, nil, nil
-	return wrote, retried, commits, claims
+	wrote, retried, claims = len(o.wrote), o.retried, o.claims
+	o.wrote, o.retried, o.claims = nil, 0, nil
+	return wrote, retried, claims
 }
 
 // The observer is told of each write that changed a row, each retry,
-// each Dolt commit and each change of a claim, once it has committed.
+// and each change of a claim, once it has committed.
 func TestObserver(t *testing.T) {
 	t.Parallel()
 	obs := &seen{}
@@ -78,7 +71,6 @@ func TestObserver(t *testing.T) {
 		do      func() error
 		wrote   int
 		retried int
-		commits int
 		claims  []string
 	}{
 		{name: "creates", do: func() error { return nil }, wrote: 3},
@@ -138,17 +130,15 @@ func TestObserver(t *testing.T) {
 			_, _, err := s.StartIssue(ctx, bob, b.ID, 0, false)
 			return err
 		}, wrote: 1, retried: 1, claims: []string{"take"}},
-		{name: "a Dolt commit", do: func() error { return s.Flush(ctx) }, commits: 1},
-		{name: "a flush with nothing pending commits nothing", do: func() error { return s.Flush(ctx) }},
 	}
 	for _, st := range steps {
 		if err := st.do(); err != nil {
 			t.Fatalf("%s: %v", st.name, err)
 		}
-		wrote, retried, commits, claims := obs.take()
-		if wrote != st.wrote || retried != st.retried || commits != st.commits || !slices.Equal(claims, st.claims) {
-			t.Errorf("%s: observed %d writes, %d retries, %d commits, claims %v; want %d, %d, %d, %v",
-				st.name, wrote, retried, commits, claims, st.wrote, st.retried, st.commits, st.claims)
+		wrote, retried, claims := obs.take()
+		if wrote != st.wrote || retried != st.retried || !slices.Equal(claims, st.claims) {
+			t.Errorf("%s: observed %d writes, %d retries, claims %v; want %d, %d, %v",
+				st.name, wrote, retried, claims, st.wrote, st.retried, st.claims)
 		}
 	}
 	// The observer saw the writes status counts: nothing is measured twice.
@@ -161,7 +151,7 @@ func TestObserver(t *testing.T) {
 func TestMigratedOnReopen(t *testing.T) {
 	t.Parallel()
 	dsn := newDSN(t)
-	first, err := Open(t.Context(), dsn, Options{CommitInterval: -1})
+	first, err := Open(t.Context(), dsn, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

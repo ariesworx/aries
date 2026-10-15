@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path"
@@ -19,8 +20,8 @@ var migrationFiles embed.FS
 //go:embed controlmigrations/*.sql
 var controlMigrationFiles embed.FS
 
-// schema is one embedded migration set and where a database records how
-// far it has run: a project's database ([Open]) or the control database
+// schema is one embedded migration set and where a schema records how
+// far it has run: a project's ([Open]) or the control store's
 // ([OpenControl]).
 type schema struct {
 	// kind names what the database holds, for refusals.
@@ -30,8 +31,8 @@ type schema struct {
 	dir string
 	// table records the versions applied.
 	table string
-	// foreign is the other schema's table. A database that has it holds
-	// the other kind, and migrating it as this one would mix the two.
+	// foreign is the other set's table. A schema that has it holds the
+	// other kind, and migrating it as this one would mix the two.
 	foreign string
 }
 
@@ -102,11 +103,12 @@ func splitSQL(src string) []string {
 }
 
 // migrate applies sc's pending migrations and returns how many ran. It
-// refuses, with ErrInvalid and before changing anything, a database that
-// holds the other schema. DDL is not transactional, so a migration that
-// fails halfway needs repair by hand; each is small and runs once.
+// refuses, with ErrInvalid and before changing anything, a schema that
+// holds the other set. Each migration runs in one transaction with the
+// row that records it, since Postgres's DDL is transactional: one that
+// fails leaves the schema as the one before left it.
 //
-// With apply false it changes nothing: a database with migrations
+// With apply false it changes nothing: a schema with migrations
 // pending, or with none ever applied, is refused with ErrSchemaOld.
 func migrate(ctx context.Context, db *sql.DB, now time.Time, sc schema, apply bool) (int, error) {
 	ms, err := loadMigrations(sc.fsys, sc.dir)
@@ -118,7 +120,7 @@ func migrate(ctx context.Context, db *sql.DB, now time.Time, sc schema, apply bo
 		return 0, fmt.Errorf("read tables: %w", err)
 	}
 	if foreign > 0 {
-		return 0, fmt.Errorf("%w: the database does not hold %s: it has the table %s; check the dsn", ErrInvalid, sc.kind, sc.foreign)
+		return 0, fmt.Errorf("%w: the schema does not hold %s: it has the table %s; check the dsn", ErrInvalid, sc.kind, sc.foreign)
 	}
 	if !apply {
 		versioned, err := countTables(ctx, db, sc.table)
@@ -126,12 +128,12 @@ func migrate(ctx context.Context, db *sql.DB, now time.Time, sc schema, apply bo
 			return 0, fmt.Errorf("read tables: %w", err)
 		}
 		if versioned == 0 {
-			return 0, fmt.Errorf("%w: database was never migrated, binary knows %d", ErrSchemaOld, len(ms))
+			return 0, fmt.Errorf("%w: schema was never migrated, binary knows %d", ErrSchemaOld, len(ms))
 		}
 	} else if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS `+sc.table+` (
   version    INT          NOT NULL PRIMARY KEY,
   name       VARCHAR(255) NOT NULL,
-  applied_at DATETIME(6)  NOT NULL)`); err != nil {
+  applied_at TIMESTAMP(6) NOT NULL)`); err != nil {
 		return 0, fmt.Errorf("create %s: %w", sc.table, err)
 	}
 	cur, err := lastKey(ctx, db, `SELECT version FROM `+sc.table+` ORDER BY version DESC LIMIT 1`)
@@ -139,52 +141,47 @@ func migrate(ctx context.Context, db *sql.DB, now time.Time, sc schema, apply bo
 		return 0, fmt.Errorf("read schema version: %w", err)
 	}
 	if cur > int64(len(ms)) {
-		return 0, fmt.Errorf("%w: database at version %d, binary knows %d", ErrSchemaTooNew, cur, len(ms))
+		return 0, fmt.Errorf("%w: schema at version %d, binary knows %d", ErrSchemaTooNew, cur, len(ms))
 	}
 	if !apply && cur < int64(len(ms)) {
-		return 0, fmt.Errorf("%w: database at version %d, binary knows %d", ErrSchemaOld, cur, len(ms))
+		return 0, fmt.Errorf("%w: schema at version %d, binary knows %d", ErrSchemaOld, cur, len(ms))
 	}
 	n := 0
 	for _, m := range ms[cur:] { //nolint:gosec // 0 <= cur <= len(ms)
-		for _, s := range m.stmts {
-			if _, err := db.ExecContext(ctx, s); err != nil {
-				return n, fmt.Errorf("migration %s: %w", m.name, err)
-			}
-		}
-		record := `INSERT INTO ` + sc.table + ` (version, name, applied_at) VALUES (?, ?, ?)` //nolint:gosec // sc.table is a constant
-		if _, err := db.ExecContext(ctx, record, m.version, m.name, now); err != nil {
-			return n, fmt.Errorf("record migration %s: %w", m.name, err)
+		if err := applyMigration(ctx, db, now, sc, m); err != nil {
+			return n, err
 		}
 		n++
 	}
 	return n, nil
 }
 
-// countTables counts the tables named name in db's current database.
-//
-// It lists them with SHOW TABLES, which reads that database alone. A
-// query of information_schema reads every database on the server, and
-// Dolt (2.4) fails it with "no root value found in session" or "no state
-// for database" when it meets one that another connection is creating
-// or dropping: in tests, where databases come and go beside each other,
-// and on a server, where an admin adds a project while the daemon opens
-// another's store (docs/design/database.md). A database holds a few
-// dozen tables, so they are listed and compared here.
-func countTables(ctx context.Context, db *sql.DB, name string) (int, error) {
-	rows, err := db.QueryContext(ctx, `SHOW TABLES`)
+// applyMigration runs m's statements and records it in sc's table, in one
+// transaction.
+func applyMigration(ctx context.Context, db *sql.DB, now time.Time, sc schema, m migration) error {
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, err
+		return fmt.Errorf("migration %s: %w", m.name, err)
 	}
-	defer func() { _ = rows.Close() }()
-	n := 0
-	for rows.Next() {
-		var t string
-		if err := rows.Scan(&t); err != nil {
-			return 0, err
-		}
-		if t == name {
-			n++
+	for _, s := range m.stmts {
+		if _, err := tx.ExecContext(ctx, s); err != nil {
+			return errors.Join(fmt.Errorf("migration %s: %w", m.name, err), rollback(tx))
 		}
 	}
-	return n, rows.Err()
+	record := `INSERT INTO ` + sc.table + ` (version, name, applied_at) VALUES ($1, $2, $3)` //nolint:gosec // sc.table is a constant
+	if _, err := tx.ExecContext(ctx, record, m.version, m.name, now); err != nil {
+		return errors.Join(fmt.Errorf("record migration %s: %w", m.name, err), rollback(tx))
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("migration %s: %w", m.name, err)
+	}
+	return nil
+}
+
+// countTables counts the tables named name in the connection's schema,
+// the first of its search_path.
+func countTables(ctx context.Context, db *sql.DB, name string) (int, error) {
+	var n int
+	err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM pg_tables WHERE schemaname = current_schema() AND tablename = $1`, name).Scan(&n)
+	return n, err
 }

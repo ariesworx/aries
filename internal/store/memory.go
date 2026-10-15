@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -304,8 +305,9 @@ const memoryCols = `m.id, m.scope, m.mem_key, m.body, m.issue_id, m.pinned, m.au
 
 // memoryVisible is the condition on memories aliased m that keeps what
 // its one argument, the reader's principal, may see: no tombstone, and
-// no other principal's user memory.
-const memoryVisible = `(NOT m.deleted AND (m.scope <> 'user' OR m.owner = ?))`
+// no other principal's user memory. That argument is the statement's
+// first.
+const memoryVisible = `(NOT m.deleted AND (m.scope <> 'user' OR m.owner = $1))`
 
 // scanMemory scans memoryCols into a Memory; Tags are left for
 // attachTags.
@@ -355,7 +357,7 @@ func attachTags(ctx context.Context, q querier, ms []Memory) error {
 		args[i] = m.ID
 	}
 	rows, err := q.QueryContext(ctx, `SELECT memory_id, tag FROM memory_tags WHERE memory_id IN (`+
-		placeholders(len(args))+`) ORDER BY memory_id, tag`, args...)
+		placeholders(1, len(args))+`) ORDER BY memory_id, tag`, args...)
 	if err != nil {
 		return fmt.Errorf("memory tags: %w", err)
 	}
@@ -379,7 +381,7 @@ func attachTags(ctx context.Context, q querier, ms []Memory) error {
 // reports whether there is one. It may be a tombstone (forgotten): its
 // rev is where the key's next memory continues.
 func loadMemory(ctx context.Context, q querier, scope Scope, principal, key string) (Memory, bool, error) {
-	ms, err := queryMemories(ctx, q, `SELECT `+memoryCols+` FROM memories m WHERE m.scope = ? AND m.owner = ? AND m.mem_key = ?`,
+	ms, err := queryMemories(ctx, q, `SELECT `+memoryCols+` FROM memories m WHERE m.scope = $1 AND m.owner = $2 AND m.mem_key = $3`,
 		string(scope), owner(scope, principal), key)
 	if err != nil || len(ms) == 0 {
 		return Memory{}, false, err
@@ -509,8 +511,8 @@ func (s *Store) Remember(ctx context.Context, actor Actor, in NewMemory) (Memory
 // again restarts at rev 1, and a rev read before that forget can match
 // again: the monotonic revs hold only while the tombstone does.
 //
-// It counts, then the caller inserts, and Dolt sees no conflict between
-// overlapping transactions that insert different keys. One Store's
+// It counts, then the caller inserts, and the database sees no conflict
+// between overlapping transactions that insert different keys. One Store's
 // writes run one at a time on its writer connection, so only two stores
 // writing one database at once (two ariesd processes) can each pass
 // the count and together exceed the cap: by at most one memory per
@@ -519,7 +521,7 @@ func (w *wtx) checkCap(ctx context.Context, scope Scope, except string) error {
 	p := w.actor.Principal
 	var live, dead int
 	if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(CASE WHEN NOT deleted THEN 1 END), COUNT(CASE WHEN deleted THEN 1 END)
-  FROM memories WHERE author = ? AND scope = ? AND id <> ?`, p, string(scope), except).Scan(&live, &dead); err != nil {
+  FROM memories WHERE author = $1 AND scope = $2 AND id <> $3`, p, string(scope), except).Scan(&live, &dead); err != nil {
 		return fmt.Errorf("count memories: %w", err)
 	}
 	if live >= w.lim.Memories {
@@ -529,8 +531,8 @@ func (w *wtx) checkCap(ctx context.Context, scope Scope, except string) error {
 	if excess <= 0 {
 		return nil
 	}
-	rows, err := w.tx.QueryContext(ctx, `SELECT id FROM memories WHERE author = ? AND scope = ? AND deleted AND id <> ?
-  ORDER BY updated_at, id LIMIT ?`, p, string(scope), except, excess)
+	rows, err := w.tx.QueryContext(ctx, `SELECT id FROM memories WHERE author = $1 AND scope = $2 AND deleted AND id <> $3
+  ORDER BY updated_at, id LIMIT $4`, p, string(scope), except, excess)
 	if err != nil {
 		return fmt.Errorf("find forgotten memories: %w", err)
 	}
@@ -546,7 +548,7 @@ func (w *wtx) checkCap(ctx context.Context, scope Scope, except string) error {
 	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 		return fmt.Errorf("find forgotten memories: %w", err)
 	}
-	if err := w.touch(ctx, `DELETE FROM memories WHERE deleted AND id IN (`+placeholders(len(ids))+`)`, ids...); err != nil { //nolint:gosec // placeholders only; values are arguments
+	if err := w.touch(ctx, `DELETE FROM memories WHERE deleted AND id IN (`+placeholders(1, len(ids))+`)`, ids...); err != nil { //nolint:gosec // placeholders only; values are arguments
 		return fmt.Errorf("prune forgotten memories: %w", err)
 	}
 	return nil
@@ -564,10 +566,9 @@ func (w *wtx) insertMemory(ctx context.Context, in NewMemory, op Op, capped bool
 	m := Memory{ID: newMemoryID(), Scope: in.Scope, Key: in.Key, Body: in.Body, Tags: in.tags(), Issue: in.issue(),
 		Pinned: in.Pinned != nil && *in.Pinned, Author: p, UpdatedBy: p, CreatedAt: w.now, UpdatedAt: w.now, Rev: 1}
 	if _, err := w.exec(ctx, `INSERT INTO memories
-  (id, scope, owner, mem_key, body, issue_id, pinned, author, updated_by, created_at, updated_at, rev, write_id)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, string(m.Scope), owner(m.Scope, p), m.Key, m.Body, nullStr(m.Issue), m.Pinned, p, p, w.now, w.now, m.Rev,
-		randomInt63()); err != nil {
+  (id, scope, owner, mem_key, body, issue_id, pinned, author, updated_by, created_at, updated_at, rev)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+		m.ID, string(m.Scope), owner(m.Scope, p), m.Key, m.Body, nullStr(m.Issue), m.Pinned, p, p, w.now, w.now, m.Rev); err != nil {
 		if isDuplicate(err) {
 			// A concurrent remember of the same key committed first; the
 			// rerun finds it and reports the conflict.
@@ -593,8 +594,8 @@ func (w *wtx) reviveMemory(ctx context.Context, cur Memory, in NewMemory, op Op,
 	}
 	m := Memory{ID: cur.ID, Scope: in.Scope, Key: in.Key, Body: in.Body, Tags: in.tags(), Issue: in.issue(),
 		Pinned: in.Pinned != nil && *in.Pinned, Author: p, UpdatedBy: p, CreatedAt: w.now, UpdatedAt: w.now, Rev: cur.Rev + 1}
-	if err := w.updateMemory(ctx, cur, `UPDATE memories SET deleted = FALSE, body = ?, issue_id = ?, pinned = ?, author = ?,
-  updated_by = ?, created_at = ?, updated_at = ?, rev = rev + 1, write_id = ? WHERE id = ? AND rev = ?`,
+	if err := w.updateMemory(ctx, cur, `deleted = FALSE, body = $1, issue_id = $2, pinned = $3, author = $4,
+  updated_by = $5, created_at = $6, updated_at = $7`,
 		m.Body, nullStr(m.Issue), m.Pinned, p, p, w.now, w.now); err != nil {
 		return Memory{}, err
 	}
@@ -609,12 +610,12 @@ func (w *wtx) insertTags(ctx context.Context, id string, tags []string) error {
 	if len(tags) == 0 {
 		return nil
 	}
-	args := make([]any, 0, 2*len(tags))
-	for _, tag := range tags {
-		args = append(args, id, tag)
+	var p params
+	rows := make([]string, len(tags))
+	for i, tag := range tags {
+		rows[i] = "(" + p.add(id, tag) + ")"
 	}
-	if _, err := w.exec(ctx, `INSERT INTO memory_tags (memory_id, tag) VALUES `+
-		strings.TrimSuffix(strings.Repeat("(?, ?),", len(tags)), ","), args...); err != nil {
+	if _, err := w.exec(ctx, `INSERT INTO memory_tags (memory_id, tag) VALUES `+strings.Join(rows, ", "), p.args...); err != nil {
 		return fmt.Errorf("insert memory tags: %w", err)
 	}
 	return nil
@@ -645,12 +646,11 @@ func (w *wtx) replaceMemory(ctx context.Context, cur Memory, in NewMemory) (Memo
 		// A pin alone leaves updated_at, as PinMemory does.
 		m.UpdatedAt = w.now
 	}
-	if err := w.updateMemory(ctx, cur, `UPDATE memories SET body = ?, issue_id = ?, pinned = ?, updated_by = ?, updated_at = ?,
-  rev = rev + 1, write_id = ? WHERE id = ? AND rev = ?`, m.Body, nullStr(m.Issue), m.Pinned, m.UpdatedBy, m.UpdatedAt); err != nil {
+	if err := w.updateMemory(ctx, cur, `body = $1, issue_id = $2, pinned = $3, updated_by = $4, updated_at = $5`, m.Body, nullStr(m.Issue), m.Pinned, m.UpdatedBy, m.UpdatedAt); err != nil {
 		return Memory{}, err
 	}
 	if tagsChanged {
-		if _, err := w.exec(ctx, `DELETE FROM memory_tags WHERE memory_id = ?`, m.ID); err != nil {
+		if _, err := w.exec(ctx, `DELETE FROM memory_tags WHERE memory_id = $1`, m.ID); err != nil {
 			return Memory{}, fmt.Errorf("replace memory tags: %w", err)
 		}
 		if err := w.insertTags(ctx, m.ID, m.Tags); err != nil {
@@ -660,15 +660,17 @@ func (w *wtx) replaceMemory(ctx context.Context, cur Memory, in NewMemory) (Memo
 	return m, w.event(ctx, OpMemoryUpdate, MemoryTarget(m.ID), memoryState(cur), memoryState(m))
 }
 
-// updateMemory runs query, an UPDATE of memories ending in "rev = rev +
-// 1, write_id = ? WHERE id = ? AND rev = ?", on cur with args and then a
-// fresh write_id: a compare-and-swap on cur.Rev that Dolt enforces.
-func (w *wtx) updateMemory(ctx context.Context, cur Memory, query string, args ...any) error {
-	n, err := w.exec(ctx, query, append(args, randomInt63(), cur.ID, cur.Rev)...)
+// updateMemory sets cur's columns as sets says, a list of "column = $n"
+// numbered from 1 for args, and raises its rev: a compare-and-swap on
+// cur.Rev.
+func (w *wtx) updateMemory(ctx context.Context, cur Memory, sets string, args ...any) error {
+	n := len(args)
+	query := fmt.Sprintf("UPDATE memories SET %s, rev = rev + 1 WHERE id = $%d AND rev = $%d", sets, n+1, n+2)
+	changed, err := w.exec(ctx, query, append(args, cur.ID, cur.Rev)...)
 	if err != nil {
 		return fmt.Errorf("update memory: %w", err)
 	}
-	if n == 0 {
+	if changed == 0 {
 		return fmt.Errorf("%w: memory %s moved", errRetry, cur.Key)
 	}
 	return nil
@@ -717,13 +719,13 @@ func (s *Store) Forget(ctx context.Context, actor Actor, scope Scope, key string
 		case rev != 0 && cur.Rev != rev:
 			return &MemoryConflictError{Scope: scope, Key: key, Rev: rev, Current: cur.Rev, By: cur.UpdatedBy}
 		}
-		if _, err := w.exec(ctx, `DELETE FROM memory_tags WHERE memory_id = ?`, cur.ID); err != nil {
+		if _, err := w.exec(ctx, `DELETE FROM memory_tags WHERE memory_id = $1`, cur.ID); err != nil {
 			return fmt.Errorf("forget memory: %w", err)
 		}
 		out = cur
 		out.UpdatedBy, out.UpdatedAt, out.Rev = w.actor.Principal, w.now, cur.Rev+1
-		if err := w.updateMemory(ctx, cur, `UPDATE memories SET deleted = TRUE, body = '', issue_id = NULL, pinned = FALSE,
-  updated_by = ?, updated_at = ?, rev = rev + 1, write_id = ? WHERE id = ? AND rev = ?`, out.UpdatedBy, out.UpdatedAt); err != nil {
+		if err := w.updateMemory(ctx, cur, `deleted = TRUE, body = '', issue_id = NULL, pinned = FALSE,
+  updated_by = $1, updated_at = $2`, out.UpdatedBy, out.UpdatedAt); err != nil {
 			return err
 		}
 		if err := w.event(ctx, OpMemoryForget, MemoryTarget(cur.ID), memoryState(cur), nil); err != nil {
@@ -785,7 +787,7 @@ func (s *Store) PinMemory(ctx context.Context, actor Actor, scope Scope, key str
 		}
 		out = cur
 		out.Pinned, out.UpdatedBy, out.Rev = pinned, w.actor.Principal, cur.Rev+1
-		if err := w.updateMemory(ctx, cur, `UPDATE memories SET pinned = ?, updated_by = ?, rev = rev + 1, write_id = ? WHERE id = ? AND rev = ?`,
+		if err := w.updateMemory(ctx, cur, `pinned = $1, updated_by = $2`,
 			pinned, out.UpdatedBy); err != nil {
 			return err
 		}
@@ -813,24 +815,22 @@ func (s *Store) Recall(ctx context.Context, actor Actor, q MemoryQuery) ([]Memor
 			return nil, 0, err
 		}
 	}
-	where, args := `WHERE `+memoryVisible, []any{actor.Principal}
+	p := params{args: []any{actor.Principal}}
+	where := `WHERE ` + memoryVisible
 	if q.Scope != "" {
-		where += ` AND m.scope = ?`
-		args = append(args, string(q.Scope))
+		where += ` AND m.scope = ` + p.add(string(q.Scope))
 	}
 	if q.Key != "" {
-		where += ` AND m.mem_key = ?`
-		args = append(args, q.Key)
+		where += ` AND m.mem_key = ` + p.add(q.Key)
 	}
 	if q.Tag != "" {
-		where += ` AND m.id IN (SELECT memory_id FROM memory_tags WHERE tag = ?)`
-		args = append(args, q.Tag)
+		where += ` AND m.id IN (SELECT memory_id FROM memory_tags WHERE tag = ` + p.add(q.Tag) + `)`
 	}
 	if q.Text != "" {
-		like := "%" + likeEscaper.Replace(strings.ToLower(q.Text)) + "%"
-		where += ` AND (LOWER(m.mem_key) LIKE ? OR LOWER(m.body) LIKE ?)`
-		args = append(args, like, like)
+		like := p.add("%" + likeEscaper.Replace(strings.ToLower(q.Text)) + "%")
+		where += ` AND (LOWER(m.mem_key) LIKE ` + like + ` OR LOWER(m.body) LIKE ` + like + `)`
 	}
+	args := p.args
 	limit := clampLimit(q.Limit, DefaultRecall, MaxPage)
 	tx, end, err := s.beginRead(ctx)
 	if err != nil {
@@ -842,7 +842,7 @@ func (s *Store) Recall(ctx context.Context, actor Actor, q MemoryQuery) ([]Memor
 		return nil, 0, fmt.Errorf("recall: %w", err)
 	}
 	ms, err := queryMemories(ctx, tx, `SELECT `+memoryCols+` FROM memories m `+where+ //nolint:gosec // constant clauses; values are placeholders
-		` ORDER BY m.pinned DESC, m.updated_at DESC, m.id LIMIT ?`, append(args, limit)...)
+		` ORDER BY m.pinned DESC, m.updated_at DESC, m.id LIMIT `+placeholder(len(args)+1), append(args, limit)...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -867,7 +867,7 @@ func (s *Store) PrimeMemories(ctx context.Context, actor Actor, limit int) ([]Me
 		return nil, fmt.Errorf("prime memories: %w", err)
 	}
 	defer end()
-	rows, err := tx.QueryContext(ctx, `SELECT id FROM issues WHERE status = ? AND assignee = ? ORDER BY updated_at DESC, id LIMIT ?`,
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM issues WHERE status = $1 AND assignee = $2 ORDER BY updated_at DESC, id LIMIT $3`,
 		string(StatusInProgress), actor.Principal, primeIssues)
 	if err != nil {
 		return nil, fmt.Errorf("prime memories: %w", err)
@@ -940,21 +940,19 @@ func rankMemories(ctx context.Context, q querier, principal string, issues []Iss
 		}
 	}
 	if len(ids) > 0 {
-		cond, args := `m.issue_id IN (`+placeholders(len(ids))+`)`, append([]any{principal}, ids...)
+		p := params{args: []any{principal}}
+		cond := `m.issue_id IN (` + p.add(ids...) + `)`
 		if len(labels) > 0 {
-			cond += ` OR m.id IN (SELECT memory_id FROM memory_tags WHERE tag IN (` + placeholders(len(labels)) + `))`
-			for l := range labels {
-				args = append(args, l)
-			}
+			cond += ` OR m.id IN (SELECT memory_id FROM memory_tags WHERE tag IN (` + list(&p, slices.Collect(maps.Keys(labels))) + `))`
 		}
-		ms, err := queryMemories(ctx, q, sel+` AND (`+cond+`) ORDER BY m.pinned DESC, m.updated_at DESC, m.id LIMIT ?`, append(args, limit)...) //nolint:gosec // placeholders only; values are arguments
+		ms, err := queryMemories(ctx, q, sel+` AND (`+cond+`) ORDER BY m.pinned DESC, m.updated_at DESC, m.id LIMIT `+p.add(limit), p.args...) //nolint:gosec // placeholders only; values are arguments
 		if err != nil {
 			return nil, err
 		}
 		add(ms)
 	}
 	if all {
-		ms, err := queryMemories(ctx, q, sel+` AND m.pinned ORDER BY m.updated_at DESC, m.id LIMIT ?`, principal, limit)
+		ms, err := queryMemories(ctx, q, sel+` AND m.pinned ORDER BY m.updated_at DESC, m.id LIMIT $2`, principal, limit)
 		if err != nil {
 			return nil, err
 		}
@@ -974,7 +972,7 @@ func rankMemories(ctx context.Context, q querier, principal string, issues []Iss
 	if all && len(chosen) < limit {
 		// The rest, newest first: past the ones already chosen, which
 		// may come among them, there are enough to fill the list.
-		ms, err := queryMemories(ctx, q, sel+` ORDER BY m.updated_at DESC, m.id LIMIT ?`, principal, limit+len(chosen))
+		ms, err := queryMemories(ctx, q, sel+` ORDER BY m.updated_at DESC, m.id LIMIT $2`, principal, limit+len(chosen))
 		if err != nil {
 			return nil, err
 		}
@@ -993,7 +991,7 @@ func boolOrder(first bool) int {
 
 // issueLabels returns the distinct labels of the issues ids.
 func issueLabels(ctx context.Context, q querier, ids []any) ([]string, error) {
-	rows, err := q.QueryContext(ctx, `SELECT DISTINCT label FROM labels WHERE issue_id IN (`+placeholders(len(ids))+`)`, ids...) //nolint:gosec // placeholders only; values are arguments
+	rows, err := q.QueryContext(ctx, `SELECT DISTINCT label FROM labels WHERE issue_id IN (`+placeholders(1, len(ids))+`)`, ids...) //nolint:gosec // placeholders only; values are arguments
 	if err != nil {
 		return nil, fmt.Errorf("labels: %w", err)
 	}

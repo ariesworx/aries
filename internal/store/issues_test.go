@@ -282,12 +282,8 @@ func TestWriteGuards(t *testing.T) {
 		name string
 		fn   func(*wtx) error
 	}{
-		{"update without write_id", func(w *wtx) error {
-			_, err := w.exec(ctx, `UPDATE issues SET title = 'x', rev = rev + 1 WHERE id = ?`, string(is.ID))
-			return err
-		}},
 		{"mutation without event", func(w *wtx) error {
-			_, err := w.exec(ctx, `INSERT INTO labels (issue_id, label, created_at) VALUES (?, 'x', ?)`, string(is.ID), w.now)
+			_, err := w.exec(ctx, `INSERT INTO labels (issue_id, label, created_at) VALUES ($1, 'x', $2)`, string(is.ID), w.now)
 			return err
 		}},
 	}

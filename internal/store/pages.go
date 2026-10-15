@@ -76,15 +76,15 @@ func (s *Store) CommentsPage(ctx context.Context, id IssueID, before Cursor, lim
 		return CommentPage{}, err
 	}
 	limit = clampLimit(limit, DefaultPage, MaxPage)
-	where, args := `WHERE issue_id = ?`, []any{string(id)}
+	var p params
+	where := `WHERE issue_id = ` + p.add(string(id))
 	if before != "" {
-		p, err := decodePage(before)
+		pos, err := decodePage(before)
 		if err != nil {
 			return CommentPage{}, err
 		}
-		at := time.UnixMicro(p.At).UTC()
-		where += ` AND (created_at < ? OR (created_at = ? AND id < ?))`
-		args = append(args, at, at, p.ID)
+		at := p.add(time.UnixMicro(pos.At).UTC())
+		where += ` AND (created_at < ` + at + ` OR (created_at = ` + at + ` AND id < ` + p.add(pos.ID) + `))`
 	}
 	tx, err := s.r.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
@@ -92,10 +92,10 @@ func (s *Store) CommentsPage(ctx context.Context, id IssueID, before Cursor, lim
 	}
 	defer func() { _ = tx.Rollback() }() // read-only: nothing to keep
 	var page CommentPage
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM comments WHERE issue_id = ?`, string(id)).Scan(&page.Total); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM comments WHERE issue_id = $1`, string(id)).Scan(&page.Total); err != nil {
 		return CommentPage{}, fmt.Errorf("comments: %w", err)
 	}
-	cs, err := queryComments(ctx, tx, where+` ORDER BY created_at DESC, id DESC LIMIT ?`, append(args, limit+1)...)
+	cs, err := queryComments(ctx, tx, where+` ORDER BY created_at DESC, id DESC LIMIT `+p.add(limit+1), p.args...)
 	if err != nil {
 		return CommentPage{}, err
 	}
@@ -117,14 +117,14 @@ func (s *Store) HistoryPage(ctx context.Context, id IssueID, before Cursor, limi
 		return EventPage{}, err
 	}
 	limit = clampLimit(limit, DefaultPage, MaxPage)
-	where, args := `WHERE target = ?`, []any{string(id)}
+	var p params
+	where := `WHERE target = ` + p.add(string(id))
 	if before != "" {
-		p, err := decodePage(before)
+		pos, err := decodePage(before)
 		if err != nil {
 			return EventPage{}, err
 		}
-		where += ` AND seq < ?`
-		args = append(args, p.Seq)
+		where += ` AND seq < ` + p.add(pos.Seq)
 	}
 	tx, err := s.r.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
@@ -132,10 +132,10 @@ func (s *Store) HistoryPage(ctx context.Context, id IssueID, before Cursor, limi
 	}
 	defer func() { _ = tx.Rollback() }() // read-only: nothing to keep
 	var page EventPage
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE target = ?`, string(id)).Scan(&page.Total); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE target = $1`, string(id)).Scan(&page.Total); err != nil {
 		return EventPage{}, fmt.Errorf("events: %w", err)
 	}
-	evs, err := queryEvents(ctx, tx, where+` ORDER BY seq DESC LIMIT ?`, append(args, limit+1)...)
+	evs, err := queryEvents(ctx, tx, where+` ORDER BY seq DESC LIMIT `+p.add(limit+1), p.args...)
 	if err != nil {
 		return EventPage{}, err
 	}

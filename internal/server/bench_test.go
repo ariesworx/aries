@@ -14,7 +14,7 @@ import (
 // BenchmarkRequest measures a request through the server and a real
 // store, a read and a write, with traces off, with traces on and the
 // trace not sampled, and with every span recorded: what tracing costs a
-// request (design §16.6). It needs dolt.
+// request (design §16.6). It needs Postgres.
 //
 //	go test -run '^$' -bench Request -benchmem ./internal/server/
 func BenchmarkRequest(b *testing.B) {
@@ -36,7 +36,7 @@ func BenchmarkRequest(b *testing.B) {
 		dsn := newDatabase(b)
 		// The metrics stay off in every mode, so that the difference is
 		// the spans'.
-		st, err := store.Open(b.Context(), dsn, store.Options{Prefix: "sf", CommitInterval: -1, Tracer: StoreTracer(tel, project)})
+		st, err := store.Open(b.Context(), dsn, store.Options{Prefix: "sf", Tracer: StoreTracer(tel, project)})
 		if err != nil {
 			b.Fatal(err)
 		}

@@ -21,8 +21,7 @@ it off and see who else is working, across sessions and machines. They
 reach Aries through MCP (Model Context Protocol), the standard way
 coding agents call tools, and people use the same tracker from the
 command line. One small Go server keeps the data in
-[Dolt](https://github.com/dolthub/dolt), a SQL database with Git-style
-history.
+[Postgres](https://www.postgresql.org).
 
 > **Status: stage 5 of 7 done** (stage 3 waits only on token capture
 > for Codex and Gemini CLI, a follow-up; stage 3a, many projects on one
@@ -37,7 +36,10 @@ history.
 > is away, saying so; a write that arrives after others changed the
 > issue is parked as a conflict for a person, or kept as a comment; and
 > `aries away` holds a person's claims through a planned absence. None of
-> it has run on Windows. Not ready for production use
+> it has run on Windows. The store now runs on Postgres (slice P1 of
+> the move from Dolt); the server guide, the installer and the Docker
+> test server still set up Dolt until slice P4, so no server can be set
+> up from them meanwhile. Not ready for production use
 > yet; see the [roadmap](#roadmap).
 
 ## Why Aries
@@ -93,7 +95,7 @@ and supervises many agents on top of Aries
               ├─▶ aries ══ SSH ══▶ sshd ─▶ ariesd stdio --principal NAME
  person ─CLI──┘   (pinned host key)            │ unix socket, 0700
                                                ▼
-                                         ariesd serve ─▶ Dolt (loopback)
+                                         ariesd serve ─▶ Postgres
 ```
 
 - **`aries`** is the client: a command line for people, and an MCP server
@@ -103,7 +105,7 @@ and supervises many agents on top of Aries
   fixed command, `ariesd stdio --principal NAME`, so the key, not the
   client, decides your principal: the name the server knows you by.
 - **`ariesd serve`** owns the data. It applies every change in order,
-  records each as an event in the same transaction, and stores it in Dolt.
+  records each as an event in the same transaction, and stores it in Postgres.
   It runs on Linux.
 - Messages are newline-delimited JSON. Each connection opens with a
   version handshake.
@@ -214,7 +216,11 @@ platform's workload identity; a Claude Desktop extension (decision 83);
 and a hardening pass: a review of every public name, flag, variable and
 setting, the protocol settled at one version (decision
 78), and the open follow-ups. Stage 6's G3 to G5 come in 1.x releases
-as compatible additions.
+as compatible additions. Of the move, P0 and P1 are built: the store,
+the daemon and every test run on Postgres alone, a schema for each
+project. Until P2 and P4 land, the status report has no figures of the
+database's own, and the server guide, the installer, the AppArmor
+profile and the Docker test server still describe Dolt.
 
 The Bearings stages (B0 to B5) start once Aries stage 3 lands; see the
 [Bearings plan](docs/design/bearings.md#6-plan).

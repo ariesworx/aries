@@ -366,7 +366,7 @@ func TestSimilarCache(t *testing.T) {
 		t.Fatalf("similar = %q, want %s", got, a.ID)
 	}
 	// A row written behind the store's back is not seen: the cache holds.
-	if _, err := s.w.ExecContext(ctx, `UPDATE issues SET title = 'unrelated words entirely', write_id = 1 WHERE id = ?`, string(a.ID)); err != nil {
+	if _, err := s.w.ExecContext(ctx, `UPDATE issues SET title = 'unrelated words entirely' WHERE id = $1`, string(a.ID)); err != nil {
 		t.Fatal(err)
 	}
 	if got := ids("expired leases reaper"); got != string(a.ID) {

@@ -34,8 +34,6 @@ const (
 	// StoreWriteRetries counts attempts of a write lost to a concurrent
 	// transaction and tried again: project.
 	StoreWriteRetries
-	// StoreCommitDuration is how long a Dolt commit took.
-	StoreCommitDuration
 	// StoresOpen is how many project stores are open; it is watched
 	// ([Telemetry.Watch]), not recorded.
 	StoresOpen
@@ -249,28 +247,27 @@ type spec struct {
 // specs declares every instrument. The names, kinds and attributes are
 // design §16.4's, as built: docs/server.md lists where they differ.
 var specs = [numInstruments]spec{
-	RequestDuration:     {name: "aries.request.duration", unit: "s", kind: Histogram, attrs: []attr{attrOp, attrResult}, desc: "Time to answer a request."},
-	ProjectRequests:     {name: "aries.project.requests", kind: Counter, attrs: []attr{attrProject, attrClass}, desc: "Requests answered, by project."},
-	Connections:         {name: "aries.connections", kind: UpDownCounter, attrs: []attr{attrProject}, desc: "Connections past the handshake."},
-	Handshakes:          {name: "aries.handshakes", kind: Counter, attrs: []attr{attrResult}, desc: "Handshakes, by how they ended."},
-	ConnectionsDropped:  {name: "aries.connections.dropped", kind: Counter, attrs: []attr{attrDrop}, desc: "Connections the server closed."},
-	LimitRefusals:       {name: "aries.limit.refusals", kind: Counter, attrs: []attr{attrLimit}, desc: "Refusals at a limit."},
-	StoreWriteDuration:  {name: "aries.store.write.duration", unit: "s", kind: Histogram, attrs: []attr{attrProject}, desc: "Time for a write to commit, with the wait for the writer and any retry."},
-	StoreWriteRetries:   {name: "aries.store.write.retries", kind: Counter, attrs: []attr{attrProject}, desc: "Write attempts lost to a concurrent transaction and retried."},
-	StoreCommitDuration: {name: "aries.store.commit.duration", unit: "s", kind: Histogram, desc: "Time for a Dolt commit."},
-	StoresOpen:          {name: "aries.stores.open", kind: Gauge, watched: true, desc: "Project stores open."},
-	StoreOpenDuration:   {name: "aries.store.open.duration", unit: "s", kind: Histogram, attrs: []attr{attrMigrated}, desc: "Time to open a project's store."},
-	Claims:              {name: "aries.claims", kind: Counter, attrs: []attr{attrEvent, attrWhy}, desc: "Changes of a claim."},
-	Locks:               {name: "aries.locks", kind: Counter, attrs: []attr{attrLockEvt}, desc: "Changes of a lock's holds and queue."},
-	LockWaitDuration:    {name: "aries.lock.wait.duration", unit: "s", kind: Histogram, desc: "Time a place in a lock's queue waited for its grant."},
-	ControlWrites:       {name: "aries.control.writes", kind: Counter, attrs: []attr{attrOp, attrResult}, desc: "Writes to the control store."},
-	KeysFileWrites:      {name: "aries.keys_file.writes", kind: Counter, attrs: []attr{attrWrote}, desc: "Writes of the keys file."},
-	KeysFileLastWrite:   {name: "aries.keys_file.last_write.time", unit: "s", kind: Gauge, desc: "When the keys file last took its content, in Unix seconds."},
-	ReaperDuration:      {name: "aries.reaper.duration", unit: "s", kind: Histogram, desc: "Time for one tick of the reaper."},
-	ReaperLastRun:       {name: "aries.reaper.last_run.time", unit: "s", kind: Gauge, desc: "When the reaper's last tick ended, in Unix seconds."},
-	ClockBehind:         {name: "aries.clock.behind", unit: "s", kind: Gauge, desc: "How far the server's clock is behind its own history; zero when it is not."},
-	ClockSteps:          {name: "aries.clock.steps", kind: Counter, attrs: []attr{attrStep}, desc: "Steps of the server's clock detected."},
-	Dropped:             {name: "aries.telemetry.dropped", kind: Counter, attrs: []attr{attrSignal}, desc: "Telemetry that could not be exported: failed exports of metrics, and spans and log records lost."},
+	RequestDuration:    {name: "aries.request.duration", unit: "s", kind: Histogram, attrs: []attr{attrOp, attrResult}, desc: "Time to answer a request."},
+	ProjectRequests:    {name: "aries.project.requests", kind: Counter, attrs: []attr{attrProject, attrClass}, desc: "Requests answered, by project."},
+	Connections:        {name: "aries.connections", kind: UpDownCounter, attrs: []attr{attrProject}, desc: "Connections past the handshake."},
+	Handshakes:         {name: "aries.handshakes", kind: Counter, attrs: []attr{attrResult}, desc: "Handshakes, by how they ended."},
+	ConnectionsDropped: {name: "aries.connections.dropped", kind: Counter, attrs: []attr{attrDrop}, desc: "Connections the server closed."},
+	LimitRefusals:      {name: "aries.limit.refusals", kind: Counter, attrs: []attr{attrLimit}, desc: "Refusals at a limit."},
+	StoreWriteDuration: {name: "aries.store.write.duration", unit: "s", kind: Histogram, attrs: []attr{attrProject}, desc: "Time for a write to commit, with the wait for the writer and any retry."},
+	StoreWriteRetries:  {name: "aries.store.write.retries", kind: Counter, attrs: []attr{attrProject}, desc: "Write attempts lost to a concurrent transaction and retried."},
+	StoresOpen:         {name: "aries.stores.open", kind: Gauge, watched: true, desc: "Project stores open."},
+	StoreOpenDuration:  {name: "aries.store.open.duration", unit: "s", kind: Histogram, attrs: []attr{attrMigrated}, desc: "Time to open a project's store."},
+	Claims:             {name: "aries.claims", kind: Counter, attrs: []attr{attrEvent, attrWhy}, desc: "Changes of a claim."},
+	Locks:              {name: "aries.locks", kind: Counter, attrs: []attr{attrLockEvt}, desc: "Changes of a lock's holds and queue."},
+	LockWaitDuration:   {name: "aries.lock.wait.duration", unit: "s", kind: Histogram, desc: "Time a place in a lock's queue waited for its grant."},
+	ControlWrites:      {name: "aries.control.writes", kind: Counter, attrs: []attr{attrOp, attrResult}, desc: "Writes to the control store."},
+	KeysFileWrites:     {name: "aries.keys_file.writes", kind: Counter, attrs: []attr{attrWrote}, desc: "Writes of the keys file."},
+	KeysFileLastWrite:  {name: "aries.keys_file.last_write.time", unit: "s", kind: Gauge, desc: "When the keys file last took its content, in Unix seconds."},
+	ReaperDuration:     {name: "aries.reaper.duration", unit: "s", kind: Histogram, desc: "Time for one tick of the reaper."},
+	ReaperLastRun:      {name: "aries.reaper.last_run.time", unit: "s", kind: Gauge, desc: "When the reaper's last tick ended, in Unix seconds."},
+	ClockBehind:        {name: "aries.clock.behind", unit: "s", kind: Gauge, desc: "How far the server's clock is behind its own history; zero when it is not."},
+	ClockSteps:         {name: "aries.clock.steps", kind: Counter, attrs: []attr{attrStep}, desc: "Steps of the server's clock detected."},
+	Dropped:            {name: "aries.telemetry.dropped", kind: Counter, attrs: []attr{attrSignal}, desc: "Telemetry that could not be exported: failed exports of metrics, and spans and log records lost."},
 }
 
 // Description is one instrument as the documentation and the tests list

@@ -561,9 +561,8 @@ func TestReplaySilentRelease(t *testing.T) {
 	}
 }
 
-// topIDs reads 0 from an empty inbox, where Dolt's COALESCE in a scalar
-// subquery gives NULL: a session can drop its connection before anyone
-// was sent an inbox item.
+// topIDs reads 0 from an empty inbox, whose MAX is NULL: a session can
+// drop its connection before anyone was sent an inbox item.
 func TestTopIDsEmpty(t *testing.T) {
 	t.Parallel()
 	db := openCheckerDB(t, newWorld(t, daemonOpts{}).dsn)

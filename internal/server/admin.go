@@ -148,7 +148,7 @@ func (s *Server) project(ctx context.Context, sess *session, op, ref, principal 
 	return p, nil
 }
 
-// open opens p's store, which migrates its database, and gives it back:
+// open opens p's store, which migrates its schema, and gives it back:
 // what makes a project ready to be served before it is marked active.
 // The store stays open, idle, for the connection likely to follow.
 func (s *Server) open(ctx context.Context, op string, p store.Project) *proto.Error {
@@ -164,14 +164,10 @@ func (s *Server) open(ctx context.Context, op string, p store.Project) *proto.Er
 			"retry in a minute; the server admin can raise open_stores under limits: in ariesd's config",
 			fmt.Sprintf("the server has its limit of %d projects open, each with a connection", s.cfg.Limits.OpenStores))
 	case store.DatabaseDenied(err):
-		account, aerr := s.cfg.Control.Account(ctx)
-		if aerr != nil {
-			account = "" // the account the guides create
-		}
 		return proto.Errf(proto.CodeUnavailable,
-			fmt.Sprintf("ask the server's operator to run this as Dolt's root, then run `aries %s %s` again: %s (docs/server.md, Serving many projects)",
-				command(op), p.Name, store.GrantSQL(p.DBName, account)),
-			fmt.Sprintf("ariesd's Dolt account was never granted database %s, so project %s cannot use it", p.DBName, p.Name))
+			fmt.Sprintf("ask the server's operator to run this as the schema's owner or a superuser, then run `aries %s %s` again: %s (docs/server.md, Serving many projects)",
+				command(op), p.Name, store.GrantSQL(p.DBName, s.role(ctx))),
+			fmt.Sprintf("another role made schema %s, and ariesd's role may not use it, so project %s cannot", p.DBName, p.Name))
 	}
 	if ctx.Err() == nil {
 		s.cfg.Logger.ErrorContext(ctx, "open project store", "event", logs.ProjectOpenFailed, "project", p.ID, "database", p.DBName, "err", err)
@@ -179,6 +175,27 @@ func (s *Server) open(ctx context.Context, op string, p store.Project) *proto.Er
 	return proto.Errf(proto.CodeUnavailable,
 		fmt.Sprintf("run `aries %s %s` again; if it persists, the server admin should check the ariesd log", command(op), p.Name),
 		fmt.Sprintf("the server could not open the database of project %s", p.Name))
+}
+
+// role is the database role ariesd connects as, for a fix that grants it
+// something; "" (the role the guides create) when it cannot be read.
+func (s *Server) role(ctx context.Context) string {
+	role, err := s.cfg.Control.Account(ctx)
+	if err != nil {
+		return ""
+	}
+	return role
+}
+
+// database is the database ariesd's schemas are in, for a fix that grants
+// the right to make them; "aries" (the guides' name) when it cannot be
+// read.
+func (s *Server) database(ctx context.Context) string {
+	db, err := s.cfg.Control.Database(ctx)
+	if err != nil {
+		return "aries"
+	}
+	return db
 }
 
 // newProjectID returns a random version 4 UUID, in lowercase.
@@ -228,15 +245,15 @@ func projectAdd(ctx context.Context, s *Server, sess *session, in proto.ProjectA
 		b := s.cfg.ProjectDBs
 		if b.Count == 0 {
 			return nil, proto.Errf(proto.CodeInvalid,
-				"ask the server's operator to grant ariesd's Dolt account a block of database names and set project_dbs: in its config (docs/server.md, Serving many projects)",
-				"the server has no database names for new projects")
+				"ask the server's operator to set project_dbs: in ariesd's config, a block of schema names for new projects (docs/server.md, Serving many projects)",
+				"the server has no schema names for new projects")
 		}
 		name, ok := b.free(used)
 		if !ok {
 			return nil, proto.Errf(proto.CodeInvalid,
-				fmt.Sprintf("ask the server's operator to grant ariesd's Dolt account more names, from %s on, and raise count under project_dbs: in its config (docs/server.md, Serving many projects)",
+				fmt.Sprintf("ask the server's operator to raise count under project_dbs: in ariesd's config, which gives names from %s on (docs/server.md, Serving many projects)",
 					b.Name(b.Count+1)),
-				fmt.Sprintf("every database name for new projects is in use (%s to %s)", b.Name(1), b.Name(b.Count)))
+				fmt.Sprintf("every schema name for new projects is in use (%s to %s)", b.Name(1), b.Name(b.Count)))
 		}
 		np = store.NewProject{ID: newProjectID(), Name: in.Name, Prefix: cmp.Or(in.Prefix, in.Name), Account: cmp.Or(in.Account, DefaultAccount), DBName: name}
 	}
@@ -244,7 +261,12 @@ func projectAdd(ctx context.Context, s *Server, sess *session, in proto.ProjectA
 	if err != nil {
 		return nil, s.ctlErr(ctx, sess, op, err)
 	}
-	if err := ctl.CreateDatabase(ctx, a, p.ID); err != nil {
+	if err := ctl.CreateDatabase(ctx, a, p.ID); store.DatabaseDenied(err) {
+		return nil, proto.Errf(proto.CodeUnavailable,
+			fmt.Sprintf("ask the server's operator to run this as the database's owner or a superuser, then run `aries admin project add %s` again: %s (docs/server.md, Serving many projects)",
+				p.Name, store.CreateSchemaGrantSQL(s.database(ctx), s.role(ctx))),
+			fmt.Sprintf("ariesd's role may not make schemas in its database, so project %s has none", p.Name))
+	} else if err != nil {
 		return nil, s.ctlErr(ctx, sess, op, err)
 	}
 	if perr := s.open(ctx, op, p); perr != nil {
