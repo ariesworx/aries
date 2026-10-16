@@ -441,8 +441,8 @@ func TestConnectRefusals(t *testing.T) {
 		{"a proof for another server's URL", tok, elsewhere, "another URL", proto.CodeAuth},
 		{"a token never issued", rand.Text() + rand.Text(), "", "unknown", proto.CodeAuth},
 	} {
+		// In turn: the test holds a Postgres server (CONTRIBUTING.md).
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
 			c, perr := w.connectWith(t, a, tc.token, tc.proof)
 			if c != nil || perr == nil || perr.Code != tc.code || !strings.Contains(perr.Message, tc.names) || !strings.Contains(perr.Fix, "aries login") {
 				t.Errorf("connect with %s = %v, want %s naming %q with a fix to sign in", tc.name, perr, tc.code, tc.names)

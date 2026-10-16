@@ -279,8 +279,8 @@ func TestHTTPSKeyProofRefusals(t *testing.T) {
 		{name: "a proof signed by another key", offered: u, signer: "alice", sign: "mallory", code: proto.CodeAuth, message: "does not verify"},
 	}
 	for _, tc := range tests {
+		// In turn: the test holds a Postgres server (CONTRIBUTING.md).
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
 			c, _, err := wsDial(t, u, pool, nil)
 			if err != nil {
 				t.Fatal(err)
