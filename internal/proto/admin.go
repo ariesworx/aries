@@ -34,6 +34,17 @@ const (
 	OpKeys             = "keys"              // KeysArgs → KeysResult
 	OpKeyRemove        = "key.remove"        // KeyRemoveArgs → KeyResult
 	OpStatus           = "status"            // StatusArgs → StatusResult; server admins, and project admins for their projects
+
+	// A principal's kind, owner and display name, and the identities a
+	// person signs in with and the invitations to them
+	// (docs/design/identity.md §6.5).
+	OpPrincipalSet   = "principal.set"   // PrincipalSetArgs → PrincipalResult; server admins
+	OpPrincipalShow  = "principal.show"  // PrincipalArgs → PrincipalShowResult; server admins, and the principal
+	OpInviteAdd      = "invite.add"      // InviteAddArgs → IdentityResult; server admins
+	OpInvites        = "invites"         // InvitesArgs → InvitesResult; server admins
+	OpInviteRemove   = "invite.remove"   // IdentityArgs → IdentityResult; server admins
+	OpIdentities     = "identities"      // IdentitiesArgs → IdentitiesResult; server admins, and the principal
+	OpIdentityRemove = "identity.remove" // IdentityArgs → IdentityResult; server admins
 )
 
 // Bounds on what the admin lists return.
@@ -113,13 +124,39 @@ type ProjectsResult struct {
 // PrincipalAddArgs adds a principal named Name as a member of Project
 // (empty: the connection's). Unassigned, for server admins only, adds
 // it to no project instead. Keys are its first public keys,
-// each one line as KeyAddArgs.Key is, at most MaxKeysPerAdd; the
-// principal and its keys are added together or not at all.
+// each one line as KeyAddArgs.Key is, at most MaxKeysPerAdd.
+//
+// Kind is person (the default) or service; a service needs Owner, a
+// person it answers to. DisplayName is what people see beside the name.
+// Invite, with Provider, invites that address for the principal as
+// invite.add does, which only a server admin may. The principal and all
+// of it are added together or not at all.
 type PrincipalAddArgs struct {
-	Name       string   `json:"name"`
-	Project    string   `json:"project,omitempty"`
-	Unassigned bool     `json:"unassigned,omitempty"`
-	Keys       []string `json:"keys,omitempty"`
+	Name        string   `json:"name"`
+	Project     string   `json:"project,omitempty"`
+	Unassigned  bool     `json:"unassigned,omitempty"`
+	Keys        []string `json:"keys,omitempty"`
+	Kind        string   `json:"kind,omitempty"`
+	Owner       string   `json:"owner,omitempty"`
+	DisplayName string   `json:"display_name,omitempty"`
+	Invite      string   `json:"invite,omitempty"`
+	Provider    string   `json:"provider,omitempty"`
+}
+
+// The kinds of principal (PrincipalAddArgs.Kind, PrincipalSetArgs.Kind).
+const (
+	KindPerson  = "person"
+	KindService = "service"
+)
+
+// PrincipalSetArgs changes the principal Name: its DisplayName when
+// given (empty clears it), its Kind when given, and a service's Owner
+// when given. Making a service a person clears its owner.
+type PrincipalSetArgs struct {
+	Name        string  `json:"name"`
+	DisplayName *string `json:"display_name,omitempty"`
+	Kind        string  `json:"kind,omitempty"`
+	Owner       string  `json:"owner,omitempty"`
 }
 
 // MaxKeysPerAdd is the most keys one principal.add may carry. The
@@ -142,10 +179,17 @@ type PrincipalArgs struct {
 // caller may list: KeysAdded, the keys it added that are still in the
 // store, PrincipalsCreated and MembersAdded. Disabling ends none of
 // them, and Warning then names the commands that list them.
+//
+// Kind, Owner and DisplayName are the principal's; Change, for a set, is
+// "changed" or "unchanged".
 type PrincipalResult struct {
 	Name              string `json:"name"`
 	Rev               int64  `json:"rev"`
 	State             string `json:"state"`
+	Kind              string `json:"kind,omitempty"`
+	Owner             string `json:"owner,omitempty"`
+	DisplayName       string `json:"display_name,omitempty"`
+	Change            string `json:"change,omitempty"`
 	Project           string `json:"project,omitempty"`
 	ProjectName       string `json:"project_name,omitempty"`
 	Released          int    `json:"released,omitempty"`
@@ -179,19 +223,105 @@ type PrincipalsArgs struct {
 	AdminListArgs
 }
 
-// PrincipalAddResult is the principal added, and the fingerprints of
-// the keys added with it.
+// PrincipalAddResult is the principal added, the fingerprints of the
+// keys added with it, and the invitation made with it.
 type PrincipalAddResult struct {
 	PrincipalResult
-	Keys []string `json:"keys,omitempty"`
+	Keys       []string  `json:"keys,omitempty"`
+	Invitation *Identity `json:"invitation,omitempty"`
 }
 
 // Principal is one principal in a list.
 type Principal struct {
-	Name      string    `json:"name"`
-	State     string    `json:"state"`
-	CreatedBy string    `json:"created_by"`
-	CreatedAt time.Time `json:"created_at"`
+	Name        string    `json:"name"`
+	State       string    `json:"state"`
+	Kind        string    `json:"kind,omitempty"`
+	Owner       string    `json:"owner,omitempty"`
+	DisplayName string    `json:"display_name,omitempty"`
+	CreatedBy   string    `json:"created_by"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// PrincipalShowResult is one principal, with its identities and its
+// keys, oldest first.
+type PrincipalShowResult struct {
+	Principal
+	Identities []Identity `json:"identities"`
+	Keys       []Key      `json:"keys"`
+}
+
+// The states of an identity (Identity.State).
+const (
+	IdentityBound   = "bound"   // a sign-in bound it
+	IdentityPending = "pending" // an invitation, open until ExpiresAt
+	IdentityLapsed  = "lapsed"  // an invitation that ExpiresAt passed unused
+)
+
+// Identity is an external identity of a person: an address invited at
+// a provider (Address, the invitation), and, once a sign-in binds it,
+// the issuer the provider's token named. The subject is never sent.
+// ExpiresAt is when an invitation lapses, and is not set once bound.
+type Identity struct {
+	ID         int64      `json:"id"`
+	Principal  string     `json:"principal"`
+	Provider   string     `json:"provider"`
+	Address    string     `json:"address"`
+	State      string     `json:"state"`
+	Issuer     string     `json:"issuer,omitempty"`
+	InvitedBy  string     `json:"invited_by"`
+	InvitedAt  time.Time  `json:"invited_at"`
+	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
+	BoundAt    *time.Time `json:"bound_at,omitempty"`
+	LastSignIn *time.Time `json:"last_sign_in,omitempty"`
+}
+
+// InviteAddArgs invites Address at Provider for the principal Name, a
+// person. An invitation of the address there for Name that no sign-in
+// has bound is renewed.
+type InviteAddArgs struct {
+	Name     string `json:"name"`
+	Provider string `json:"provider"`
+	Address  string `json:"address"`
+}
+
+// IdentityArgs names an identity or an invitation by its id, as the
+// lists print it.
+type IdentityArgs struct {
+	ID int64 `json:"id"`
+}
+
+// IdentityResult is an identity after a write. Change, for invite.add, is
+// "added" or "renewed".
+type IdentityResult struct {
+	Identity
+	Change string `json:"change,omitempty"`
+}
+
+// InvitesArgs lists the invitations no sign-in has bound, by id, as
+// AdminListArgs pages a list, After being an id; Pending lists only
+// those that have not lapsed.
+type InvitesArgs struct {
+	Pending bool `json:"pending,omitempty"`
+	AdminListArgs
+}
+
+// InvitesResult lists invitations by id. More counts those after the
+// last one listed.
+type InvitesResult struct {
+	Invites []Identity `json:"invites"`
+	More    int        `json:"more,omitempty"`
+}
+
+// IdentitiesArgs lists the identities of the principal Name.
+type IdentitiesArgs struct {
+	Name string `json:"name"`
+}
+
+// IdentitiesResult lists a principal's identities, bound and not, oldest
+// first.
+type IdentitiesResult struct {
+	Principal  string     `json:"principal"`
+	Identities []Identity `json:"identities"`
 }
 
 // PrincipalsResult lists principals by name, disabled ones included.
@@ -417,8 +547,9 @@ type StatusResult struct {
 // limit that caps it. HeapBytes is the memory ariesd's own heap holds
 // in live and not yet collected objects, and SysBytes all the memory it
 // has from the operating system (Go's runtime.MemStats HeapAlloc and
-// Sys). Projects and Principals count the control store's rows by state.
-// KeysFile is the file of keys the daemon writes for sshd.
+// Sys). Projects and Principals count the control store's rows by state,
+// and Identities its identities: bound, and invitations pending or
+// lapsed. KeysFile is the file of keys the daemon writes for sshd.
 type ServerStatus struct {
 	Version       string         `json:"version"`
 	ProtoMin      int            `json:"proto_min"`
@@ -433,6 +564,7 @@ type ServerStatus struct {
 	Goroutines    int            `json:"goroutines"`
 	Projects      map[string]int `json:"projects"`
 	Principals    map[string]int `json:"principals"`
+	Identities    map[string]int `json:"identities,omitempty"`
 	KeysFile      *KeysFile      `json:"keys_file,omitempty"`
 	Clock         *ClockStatus   `json:"clock,omitempty"`
 	// Traces is how people appear in the traces the server exports;

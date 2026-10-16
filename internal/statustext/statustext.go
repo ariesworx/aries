@@ -54,7 +54,11 @@ func Print(w io.Writer, res proto.StatusResult) {
 		if pg := s.Postgres; pg != nil {
 			p("%s", postgresLines(*pg))
 		}
-		p("projects: %s; principals: %s\n\n", byState(s.Projects), byState(s.Principals))
+		ids := ""
+		if len(s.Identities) > 0 {
+			ids = "; identities: " + byState(s.Identities)
+		}
+		p("projects: %s; principals: %s%s\n\n", byState(s.Projects), byState(s.Principals), ids)
 	}
 	if len(res.Projects) == 0 {
 		p("no projects\n")

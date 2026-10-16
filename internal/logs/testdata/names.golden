@@ -3,6 +3,8 @@ event admin.check_failed
 event admin.unvouched
 event agent.harness_ignored
 event agent.register_failed
+event audit.identity.invite
+event audit.identity.remove
 event audit.key.add
 event audit.key.remove
 event audit.member.remove
@@ -10,6 +12,7 @@ event audit.member.set
 event audit.principal.add
 event audit.principal.disable
 event audit.principal.enable
+event audit.principal.set
 event audit.project.activate
 event audit.project.add
 event audit.project.archive

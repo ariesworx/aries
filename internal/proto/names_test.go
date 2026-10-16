@@ -41,6 +41,18 @@ func TestWireNames(t *testing.T) {
 			`{"name":"bob","project":"p","project_name":"web"}`},
 		{"KeyResult", KeyResult{Fingerprint: "SHA256:x", Principal: "bob", Type: "ssh-ed25519"},
 			`{"fingerprint":"SHA256:x","principal":"bob","type":"ssh-ed25519"}`},
+		// The identity names of the surface review's §9: display_name, and
+		// a time is expires_at.
+		{"PrincipalAddArgs", PrincipalAddArgs{Name: "bob", Kind: KindService, Owner: "alice", DisplayName: "Bob", Invite: "b@example.com", Provider: "google"},
+			`{"name":"bob","kind":"service","owner":"alice","display_name":"Bob","invite":"b@example.com","provider":"google"}`},
+		{"PrincipalSetArgs", PrincipalSetArgs{Name: "bob", DisplayName: new(""), Kind: KindPerson},
+			`{"name":"bob","display_name":"","kind":"person"}`},
+		{"Identity", Identity{ID: 7, Principal: "bob", Provider: "google", Address: "b@example.com", State: IdentityPending, InvitedBy: "dana",
+			InvitedAt: at, ExpiresAt: &at},
+			`{"id":7,"principal":"bob","provider":"google","address":"b@example.com","state":"pending","invited_by":"dana","invited_at":"2026-10-15T12:00:00Z","expires_at":"2026-10-15T12:00:00Z"}`},
+		{"InviteAddArgs", InviteAddArgs{Name: "bob", Provider: "google", Address: "b@example.com"},
+			`{"name":"bob","provider":"google","address":"b@example.com"}`},
+		{"IdentityArgs", IdentityArgs{ID: 7}, `{"id":7}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -52,5 +64,9 @@ func TestWireNames(t *testing.T) {
 	}
 	if OpResolve != "conflict.resolve" {
 		t.Errorf("OpResolve = %q, want conflict.resolve, as its event is", OpResolve)
+	}
+	// A list is a bare plural, as principals, keys and members are.
+	if OpInvites != "invites" || OpIdentities != "identities" {
+		t.Errorf("the identity lists are %q and %q, want invites and identities", OpInvites, OpIdentities)
 	}
 }

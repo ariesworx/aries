@@ -142,6 +142,13 @@ func adminRequests() []struct {
 		{proto.OpKeys, proto.KeysArgs{Name: "bob"}},
 		{proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: "SHA256:pOFYONeRL07H3T9tf0FhwK1slkJs5kvkcnOnf+vGgXA"}},
 		{proto.OpStatus, proto.StatusArgs{}},
+		{proto.OpPrincipalSet, proto.PrincipalSetArgs{Name: "bob", DisplayName: new("Bob Example")}},
+		{proto.OpPrincipalShow, proto.PrincipalArgs{Name: "bob"}},
+		{proto.OpInviteAdd, proto.InviteAddArgs{Name: "bob", Provider: "google", Address: "bob@example.com"}},
+		{proto.OpInvites, proto.InvitesArgs{}},
+		{proto.OpInviteRemove, proto.IdentityArgs{ID: 1}},
+		{proto.OpIdentities, proto.IdentitiesArgs{Name: "bob"}},
+		{proto.OpIdentityRemove, proto.IdentityArgs{ID: 1}},
 	}
 }
 
@@ -270,7 +277,7 @@ func TestAdminRoles(t *testing.T) {
 	t.Run("project admin in their project", func(t *testing.T) {
 		a := conns["alice"]
 		hal := mustAsk[proto.PrincipalResult](a, proto.OpPrincipalAdd, proto.PrincipalAddArgs{Name: "hal"})
-		if hal != (proto.PrincipalResult{Name: "hal", Rev: 1, State: "active", Project: projA, ProjectName: "proj-a"}) {
+		if hal != (proto.PrincipalResult{Name: "hal", Rev: 1, State: "active", Kind: proto.KindPerson, Project: projA, ProjectName: "proj-a"}) {
 			t.Errorf("principal.add hal = %+v", hal)
 		}
 		// carol already belongs to a project, so an admin of b could add
@@ -895,9 +902,9 @@ func TestAdminOpsClassified(t *testing.T) {
 			t.Errorf("adminOp(%s) = false for an op with a handler", op)
 		}
 		read := op == proto.OpProjects || op == proto.OpPrincipals || op == proto.OpMembers || op == proto.OpKeys || op == proto.OpStatus ||
-			op == proto.OpPrincipalWhois
+			op == proto.OpPrincipalWhois || op == proto.OpPrincipalShow || op == proto.OpInvites || op == proto.OpIdentities
 		if readOps[op] != read || controlWrites[op] == read {
-			t.Errorf("%s: read op %t, control write %t; a list, the status and a stand-in's lookup are reads and everything else a control write", op, readOps[op], controlWrites[op])
+			t.Errorf("%s: read op %t, control write %t; a list, a principal shown, the status and a stand-in's lookup are reads and everything else a control write", op, readOps[op], controlWrites[op])
 		}
 	}
 	for op := range handlers {

@@ -98,6 +98,7 @@ type ctlReplay struct {
 	principals map[string]store.Principal
 	members    map[mkey]store.Member
 	keys       map[string]store.PrincipalKey // by fingerprint
+	identities map[int64]ctlIdentity
 
 	// What each was, over time: a project's and a principal's state, a
 	// membership's role ("" for none), and the principal a key belongs
@@ -110,7 +111,7 @@ type ctlReplay struct {
 func newCtlReplay(fail func(string, string, ...any), admins []string) *ctlReplay {
 	c := &ctlReplay{fail: fail, admins: map[string]bool{}, ops: map[string]int{},
 		projects: map[string]store.Project{}, principals: map[string]store.Principal{}, members: map[mkey]store.Member{},
-		keys: map[string]store.PrincipalKey{}, projState: map[string]history{}, prinState: map[string]history{},
+		keys: map[string]store.PrincipalKey{}, identities: map[int64]ctlIdentity{}, projState: map[string]history{}, prinState: map[string]history{},
 		roles: map[mkey]history{}, keyOf: map[string]history{}}
 	for _, a := range admins {
 		c.admins[a] = true
@@ -159,7 +160,7 @@ func (c *ctlReplay) apply(e sevent) {
 		}
 		c.projects[e.target] = after
 		c.projState[e.target] = append(c.projState[e.target], cstamp{e.at, e.seq, string(after.State)})
-	case store.OpPrincipalAdd, store.OpPrincipalDisable, store.OpPrincipalEnable:
+	case store.OpPrincipalAdd, store.OpPrincipalDisable, store.OpPrincipalEnable, store.OpPrincipalSet:
 		var before, after store.Principal
 		_ = json.Unmarshal(e.after, &after)
 		cur, had := c.principals[e.target]
@@ -225,11 +226,49 @@ func (c *ctlReplay) apply(e sevent) {
 			delete(c.members, k)
 			c.roles[k] = append(c.roles[k], cstamp{e.at, e.seq, ""})
 		}
+	case store.OpIdentityInvite, store.OpIdentityRemove:
+		// An identity's events name its principal, and hold its id,
+		// provider and rev: never its address or subject.
+		var before, after ctlIdentity
+		hasBefore := len(e.before) > 0 && string(e.before) != "null"
+		if hasBefore {
+			_ = json.Unmarshal(e.before, &before)
+		}
+		row := before
+		if e.op == string(store.OpIdentityInvite) {
+			_ = json.Unmarshal(e.after, &after)
+			row = after
+		}
+		if row.Principal != e.target {
+			bad("its state is an identity of %q", row.Principal)
+		}
+		cur, had := c.identities[row.ID]
+		switch {
+		case hasBefore != had:
+			bad("says identity %d existed: %t, and the log says %t", row.ID, hasBefore, had)
+		case had && before != cur:
+			bad("changes identity %d from %+v, but the log left it %+v", row.ID, before, cur)
+		}
+		if e.op == string(store.OpIdentityInvite) {
+			c.identities[row.ID] = after
+		} else {
+			delete(c.identities, row.ID)
+		}
 	case store.OpClockStep:
 		// The daemon settled a forward step of its clock: no row changes.
 	default:
 		bad("an op the soak does not expect")
 	}
+}
+
+// ctlIdentity is an identity as its events record it, and as the soak
+// compares it with its row.
+type ctlIdentity struct {
+	ID        int64     `json:"id"`
+	Principal string    `json:"principal"`
+	Provider  string    `json:"provider"`
+	Bound     bool      `json:"bound"`
+	Rev       store.Rev `json:"rev"`
 }
 
 // ctlTables are the control store's rows, from one snapshot.
@@ -238,11 +277,12 @@ type ctlTables struct {
 	principals map[string]store.Principal
 	members    map[mkey]store.Member
 	keys       map[string]store.PrincipalKey
+	identities map[int64]ctlIdentity
 }
 
 func readCtlTables(ctx context.Context, q querier) (ctlTables, error) {
 	tb := ctlTables{projects: map[string]store.Project{}, principals: map[string]store.Principal{}, members: map[mkey]store.Member{},
-		keys: map[string]store.PrincipalKey{}}
+		keys: map[string]store.PrincipalKey{}, identities: map[int64]ctlIdentity{}}
 	reads := []struct {
 		query string
 		row   func(*sql.Rows) error
@@ -269,6 +309,12 @@ func readCtlTables(ctx context.Context, q querier) (ctlTables, error) {
 			var k store.PrincipalKey
 			err := rows.Scan(&k.Fingerprint, &k.Principal, &k.Key)
 			tb.keys[k.Fingerprint] = k
+			return err
+		}},
+		{`SELECT id, principal, provider, subject IS NOT NULL, rev FROM identities`, func(rows *sql.Rows) error {
+			var i ctlIdentity
+			err := rows.Scan(&i.ID, &i.Principal, &i.Provider, &i.Bound, &i.Rev)
+			tb.identities[i.ID] = i
 			return err
 		}},
 	}
@@ -328,6 +374,16 @@ func (c *ctlReplay) compare(tb ctlTables) {
 	for fp := range tb.keys {
 		if _, ok := c.keys[fp]; !ok {
 			c.fail("", "key %s is in the control table, but the event log holds none", fp)
+		}
+	}
+	for id, want := range c.identities {
+		if got, ok := tb.identities[id]; !ok || got != want {
+			c.fail("", "identity %d: the control table has %+v (there: %t), its event log %+v", id, got, ok, want)
+		}
+	}
+	for id := range tb.identities {
+		if _, ok := c.identities[id]; !ok {
+			c.fail("", "identity %d is in the control table, but the event log holds none", id)
 		}
 	}
 }

@@ -950,14 +950,16 @@ func TestResolveSettingsControl(t *testing.T) {
 		{name: "limits default", body: dsn, check: func(l Settings) bool {
 			return l.Limits.Control == store.DefaultControlLimits && l.Limits.OpenStores == 64 && l.Limits.StoreIdle == Duration(10*time.Minute)
 		}},
-		{name: "limits set", body: "limits:\n  projects_per_server: 9\n  principals_per_server: 99\n  principals_per_creator: 7\n  keys_per_principal: 3\n  members_per_project: 12\n  open_stores_per_server: 5\n  store_idle: 90s\n",
+		{name: "limits set", body: "limits:\n  projects_per_server: 9\n  principals_per_server: 99\n  principals_per_creator: 7\n  keys_per_principal: 3\n  members_per_project: 12\n  identities_per_principal: 4\n  invites_per_server: 40\n  open_stores_per_server: 5\n  store_idle: 90s\n",
 			check: func(l Settings) bool {
-				return l.Limits.Control == store.ControlLimits{Projects: 9, Principals: 99, PrincipalsPerCreator: 7, Keys: 3, Members: 12} &&
+				return l.Limits.Control == store.ControlLimits{Projects: 9, Principals: 99, PrincipalsPerCreator: 7, Keys: 3, Members: 12, Identities: 4, Invites: 40} &&
 					l.Limits.OpenStores == 5 && l.Limits.StoreIdle == Duration(90*time.Second) && l.Limits.Conns == DefaultLimits.Conns
 			}},
 		{name: "zero takes the default", body: "limits:\n  projects_per_server: 0\n  open_stores_per_server: 0\n",
 			check: func(l Settings) bool { return l.Limits == DefaultLimits }},
 		{name: "negative projects", body: "limits:\n  projects_per_server: -1\n", err: "limit projects_per_server is -1"},
+		{name: "negative invites", body: "limits:\n  invites_per_server: -1\n", err: "limit invites_per_server is -1"},
+		{name: "negative identities", body: "limits:\n  identities_per_principal: -2\n", err: "limit identities_per_principal is -2"},
 		{name: "negative principals", body: "limits:\n  principals_per_server: -1\n", err: "limit principals_per_server is -1"},
 		{name: "principals_per_creator default", body: dsn, check: func(l Settings) bool { return l.Limits.Control.PrincipalsPerCreator == 500 }},
 		{name: "negative principals_per_creator", body: "limits:\n  principals_per_creator: -1\n", err: "limit principals_per_creator is -1"},
@@ -1000,6 +1002,12 @@ func TestResolveSettingsControl(t *testing.T) {
 			err: `is the authorized_keys file, which ariesd reads and never writes; fix:`},
 		{name: "a control schema named as a project's", body: dsn + "control_schema: project_control\n",
 			err: `control_schema "project_control" starts with project_, as the schemas ariesd makes for projects do; fix:`},
+		{name: "an invitation lasts 7 days by default", body: dsn,
+			check: func(s Settings) bool { return s.Login.InviteTTL == Duration(store.DefaultInviteTTL) }},
+		{name: "an invitation's lifetime set", body: dsn + "login:\n  invite_ttl: 3d\n",
+			check: func(s Settings) bool { return s.Login.InviteTTL == Duration(72*time.Hour) }},
+		{name: "an invitation's lifetime too short", body: dsn + "login:\n  invite_ttl: 30m\n", err: "login: invite_ttl is 30m; it must be from 1h to 90d"},
+		{name: "an invitation's lifetime too long", body: dsn + "login:\n  invite_ttl: 91d\n", err: "login: invite_ttl is 91d; it must be from 1h to 90d"},
 		{name: "the database's connections", body: dsn + "limits:\n  db_conns_per_server: 10\n",
 			check: func(s Settings) bool {
 				return s.Limits.DBConns == 10 && s.Limits.DBConnsPerProject == DefaultLimits.DBConnsPerProject

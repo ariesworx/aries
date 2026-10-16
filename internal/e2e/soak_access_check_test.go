@@ -39,6 +39,10 @@ func memberState(principal, project, role string, rev int) string {
 	return fmt.Sprintf(`{"principal": %q, "project": %q, "role": %q, "rev": %d}`, principal, project, role, rev)
 }
 
+func identityState(id int, principal, provider string, rev int) string {
+	return fmt.Sprintf(`{"id": %d, "principal": %q, "provider": %q, "invite_until": "2026-10-23T09:00:00Z", "rev": %d}`, id, principal, provider, rev)
+}
+
 func keyState(fingerprint, principal string) string {
 	return fmt.Sprintf(`{"fingerprint": %q, "principal": %q, "key": "ssh-ed25519 AAAA"}`, fingerprint, principal)
 }
@@ -84,8 +88,25 @@ func TestCtlReplayCatches(t *testing.T) {
 				add(time.Minute, root, "principal.disable", "alice", principalState("alice", "active", 1), principalState("alice", "disabled", 2)).
 				add(time.Minute, root, "principal.enable", "alice", principalState("alice", "disabled", 2), principalState("alice", "active", 3)).
 				add(time.Minute, root, "project.archive", projB, projectState(projB, "active", 2), projectState(projB, "archived", 3)).
-				add(time.Minute, root, "project.activate", projB, projectState(projB, "archived", 3), projectState(projB, "active", 4))
+				add(time.Minute, root, "project.activate", projB, projectState(projB, "archived", 3), projectState(projB, "active", 4)).
+				add(time.Minute, root, "principal.set", "alice", principalState("alice", "active", 3), principalState("alice", "active", 4)).
+				add(time.Minute, root, "identity.invite", "alice", "", identityState(1, "alice", "google", 1)).
+				add(time.Minute, root, "identity.invite", "alice", identityState(1, "alice", "google", 1), identityState(1, "alice", "google", 2)).
+				add(time.Minute, root, "identity.remove", "alice", identityState(1, "alice", "google", 2), "")
 		}},
+		{name: "a principal set from a rev the log did not leave", log: func(b *logBuilder) *logBuilder {
+			return b.add(time.Minute, root, "principal.set", "alice", principalState("alice", "active", 2), principalState("alice", "active", 3))
+		}, want: "changes it from active at rev 2, but the log left it active at rev 1"},
+		{name: "an identity removed that the log does not hold", log: func(b *logBuilder) *logBuilder {
+			return b.add(time.Minute, root, "identity.remove", "alice", identityState(4, "alice", "google", 1), "")
+		}, want: "says identity 4 existed: true, and the log says false"},
+		{name: "an invitation renewed from a rev the log did not leave", log: func(b *logBuilder) *logBuilder {
+			return b.add(time.Minute, root, "identity.invite", "alice", "", identityState(1, "alice", "google", 1)).
+				add(time.Minute, root, "identity.invite", "alice", identityState(1, "alice", "google", 2), identityState(1, "alice", "google", 3))
+		}, want: "changes identity 1 from"},
+		{name: "an identity's event on another principal", log: func(b *logBuilder) *logBuilder {
+			return b.add(time.Minute, root, "identity.invite", "carol", "", identityState(1, "alice", "google", 1))
+		}, want: `its state is an identity of "alice"`},
 		{name: "a gap in seq", log: func(b *logBuilder) *logBuilder {
 			b.seq++
 			return b.principal("bob")
@@ -172,15 +193,24 @@ func TestCtlReplayCompare(t *testing.T) {
 			k.Principal = "carol"
 			tb.keys[fp] = k
 		}, want: `the control table has it for "carol" (there: true), its event log for "alice"`},
+		{name: "an identity no event made", change: func(tb *ctlTables) {
+			tb.identities[9] = ctlIdentity{ID: 9, Principal: "carol", Provider: "google", Rev: 1}
+		}, want: "identity 9 is in the control table, but the event log holds none"},
+		{name: "an identity bound with no event", change: func(tb *ctlTables) {
+			i := tb.identities[1]
+			i.Bound, i.Rev = true, 2
+			tb.identities[1] = i
+		}, want: "identity 1: the control table has"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var got []string
 			c := newCtlReplay(func(_, format string, args ...any) { got = append(got, fmt.Sprintf(format, args...)) }, []string{"root"})
-			c.feed(ctlWorld().add(time.Minute, root, "key.add", fp, "", keyState(fp, "alice")).evs)
+			c.feed(ctlWorld().add(time.Minute, root, "key.add", fp, "", keyState(fp, "alice")).
+				add(time.Minute, root, "identity.invite", "alice", "", identityState(1, "alice", "google", 1)).evs)
 			// The tables as the log leaves them, then changed.
 			tb := ctlTables{projects: map[string]store.Project{}, principals: map[string]store.Principal{}, members: map[mkey]store.Member{},
-				keys: map[string]store.PrincipalKey{}}
+				keys: map[string]store.PrincipalKey{}, identities: map[int64]ctlIdentity{}}
 			for k, v := range c.projects {
 				tb.projects[k] = store.Project{ID: v.ID, Name: v.Name, Prefix: v.Prefix, Account: v.Account, Schema: v.Schema, State: v.State, Rev: v.Rev}
 			}
@@ -192,6 +222,9 @@ func TestCtlReplayCompare(t *testing.T) {
 			}
 			for k, v := range c.keys {
 				tb.keys[k] = v
+			}
+			for k, v := range c.identities {
+				tb.identities[k] = v
 			}
 			tc.change(&tb)
 			c.compare(tb)

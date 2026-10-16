@@ -24,7 +24,7 @@ var limitNames = []string{
 	"lock_waits_per_principal",
 	// store.ControlLimits
 	"projects_per_server", "principals_per_server", "principals_per_creator", "keys_per_principal",
-	"members_per_project",
+	"members_per_project", "identities_per_principal", "invites_per_server",
 	// server.Limits
 	"conns_per_server", "conns_per_principal", "handshakes_per_principal", "idle_timeout",
 	"db_conns_per_server", "db_conns_per_project", "writes_per_second", "write_burst",

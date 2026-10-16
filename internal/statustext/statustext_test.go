@@ -62,6 +62,16 @@ func TestPrint(t *testing.T) {
 				"zoo      active  open   0      0        3         0           -    -    2026-10-11 09:30 UTC\n" +
 				"sessions: unknown for 2 projects (database did not answer in 2s); the rest is what ariesd holds in memory. Check Postgres on the server (docs/server.md, Troubleshooting)\n" +
 				"sessions: unknown for 1 project (the read failed;\\nsee ariesd's log); the rest is what ariesd holds in memory. Check Postgres on the server (docs/server.md, Troubleshooting)\n"},
+		// Identities show once there are any: bound, and invitations
+		// pending or lapsed.
+		{"identities", proto.StatusResult{Server: &proto.ServerStatus{Version: "dev", UptimeSeconds: 42, OpenStoresMax: 64, ConnsMax: 1024,
+			Principals: map[string]int{"active": 3}, Identities: map[string]int{"bound": 2, "pending": 1, "lapsed": 1}}},
+			"ariesd dev, up 42s\n" +
+				"stores 0 of 64, connections 0 of 1024\n" +
+				"ariesd's memory 0 MiB in use, 0 MiB from the system; 0 goroutines\n" +
+				"projects: none; principals: 3 active; identities: 2 bound, 1 lapsed, 1 pending\n" +
+				"\n" +
+				"no projects\n"},
 		{"no projects on this page", proto.StatusResult{Server: &proto.ServerStatus{Version: "dev", ProtoMin: 5, ProtoMax: 5, UptimeSeconds: 42,
 			OpenStoresMax: 64, ConnsMax: 1024,
 			KeysFile: &proto.KeysFile{Path: "/var/lib/aries/.ssh/aries_keys", Keys: 1, WrittenAt: &at, Failed: true, HeldBack: 2}}},

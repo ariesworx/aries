@@ -185,6 +185,12 @@ func (s *Server) serverStatus() *proto.ServerStatus {
 	for state, n := range counts.Principals {
 		out.Principals[string(state)] = n
 	}
+	if len(counts.Identities) > 0 {
+		out.Identities = map[string]int{}
+		for state, n := range counts.Identities {
+			out.Identities[string(state)] = n
+		}
+	}
 	return out
 }
 

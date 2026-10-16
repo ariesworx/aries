@@ -52,6 +52,13 @@ var adminHandlers = map[string]adminHandler{
 	proto.OpKeys:             adminTyped(keys),
 	proto.OpKeyRemove:        adminTyped(keyRemove),
 	proto.OpStatus:           adminTyped(status),
+	proto.OpPrincipalSet:     adminTyped(principalSet),
+	proto.OpPrincipalShow:    adminTyped(principalShow),
+	proto.OpInviteAdd:        adminTyped(inviteAdd),
+	proto.OpInvites:          adminTyped(invites),
+	proto.OpInviteRemove:     adminTyped(inviteRemove),
+	proto.OpIdentities:       adminTyped(identities),
+	proto.OpIdentityRemove:   adminTyped(identityRemove),
 }
 
 // adminTyped decodes args strictly into A and calls fn.
@@ -486,12 +493,39 @@ func principalAdd(ctx context.Context, s *Server, sess *session, in proto.Princi
 			fmt.Sprintf("add the principal with up to %d keys, then the rest with `aries admin key add %s FILE`", proto.MaxKeysPerAdd, in.Name),
 			fmt.Sprintf("%d keys is more than one principal add carries (%d)", len(in.Keys), proto.MaxKeysPerAdd))
 	}
-	p, err := s.cfg.Control.AddPrincipal(ctx, sess.actor, in.Name, proj.ID, in.Keys...)
+	np := store.NewPrincipal{Name: in.Name, Project: proj.ID, Keys: in.Keys, Kind: store.PrincipalKind(in.Kind), Owner: in.Owner,
+		DisplayName: in.DisplayName}
+	switch {
+	case in.Invite != "" && in.Provider == "":
+		return nil, proto.Errf(proto.CodeInvalid, "give --provider NAME with --invite: the provider the address signs in at",
+			"an invitation needs a provider")
+	case in.Invite == "" && in.Provider != "":
+		return nil, proto.Errf(proto.CodeInvalid, "give --invite ADDRESS with --provider, or leave --provider out",
+			"a provider is for an invitation, and none was given")
+	case in.Invite != "":
+		np.Invite = &store.Invitation{Provider: in.Provider, Address: in.Invite}
+	}
+	ctl := s.cfg.Control
+	p, err := ctl.AddNewPrincipal(ctx, sess.actor, np)
 	if err != nil {
+		if _, ok := errors.AsType[*store.IdentityError](err); ok {
+			return nil, s.identityErr(ctx, sess, op, in.Name, err)
+		}
 		return nil, s.keyErr(ctx, sess, op, err)
 	}
-	out := proto.PrincipalAddResult{PrincipalResult: proto.PrincipalResult{Name: p.Name, Rev: int64(p.Rev), State: string(p.State),
-		Project: proj.ID, ProjectName: proj.Name}}
+	out := proto.PrincipalAddResult{PrincipalResult: wirePrincipalResult(p)}
+	out.Project, out.ProjectName = proj.ID, proj.Name
+	if np.Invite != nil {
+		// A failure here shows no invitation: it was made.
+		ids, err := ctl.Identities(ctx, p.Name)
+		if err != nil {
+			s.cfg.Logger.ErrorContext(ctx, "read the invitation of a new principal", "event", logs.RequestPart, "subject", p.Name, "err", err)
+		}
+		if len(ids) == 1 {
+			inv := wireIdentity(ids[0], ctl.Now())
+			out.Invitation = &inv
+		}
+	}
 	if len(in.Keys) > 0 {
 		out.Warning = s.syncKeys(ctx)
 		// A failure here shows no fingerprints: the keys were added.

@@ -122,9 +122,10 @@ type Limits struct {
 	// ControlWriteRate is how many writes to the control store a second
 	// a principal's token bucket refills, and ControlWriteBurst how many
 	// it holds: adding, archiving and activating projects, adding,
-	// disabling and enabling principals, setting and removing members,
-	// and adding and removing keys. The bucket is the principal's on the whole server, apart
-	// from its write bucket in each project.
+	// disabling, enabling and setting principals, setting and removing
+	// members, adding and removing keys, and inviting and removing
+	// identities. The bucket is the principal's on the whole server,
+	// apart from its write bucket in each project.
 	ControlWriteRate  float64 `yaml:"control_writes_per_second"`
 	ControlWriteBurst int     `yaml:"control_write_burst"`
 }
@@ -176,6 +177,7 @@ func (l Limits) WithDefaults() Limits {
 		{&l.Control.Projects, &d.Control.Projects}, {&l.Control.Principals, &d.Control.Principals},
 		{&l.Control.PrincipalsPerCreator, &d.Control.PrincipalsPerCreator},
 		{&l.Control.Keys, &d.Control.Keys}, {&l.Control.Members, &d.Control.Members}, {&l.OpenStores, &d.OpenStores},
+		{&l.Control.Identities, &d.Control.Identities}, {&l.Control.Invites, &d.Control.Invites},
 		{&l.ControlWriteBurst, &d.ControlWriteBurst},
 		{&l.HTTPSConns, &d.HTTPSConns}, {&l.HTTPSConnsPerAddr, &d.HTTPSConnsPerAddr}, {&l.HTTPSHeaderBytes, &d.HTTPSHeaderBytes},
 		{&l.HTTPSBodyBytes, &d.HTTPSBodyBytes}, {&l.WSMessageBytes, &d.WSMessageBytes}, {&l.AuthFailureBurst, &d.AuthFailureBurst},
@@ -275,6 +277,7 @@ var readOps = map[string]bool{
 	proto.OpHours: true, proto.OpPlans: true, proto.OpConflicts: true, proto.OpGates: true, proto.OpDates: true, proto.OpLocks: true,
 	proto.OpProjects: true, proto.OpPrincipals: true, proto.OpMembers: true, proto.OpKeys: true,
 	proto.OpStatus: true, proto.OpPrincipalWhois: true,
+	proto.OpPrincipalShow: true, proto.OpInvites: true, proto.OpIdentities: true,
 }
 
 // controlWrites are the operations that write to the control store.
@@ -285,14 +288,17 @@ var controlWrites = map[string]bool{
 	proto.OpPrincipalAdd: true, proto.OpPrincipalDisable: true, proto.OpPrincipalEnable: true,
 	proto.OpMemberSet: true, proto.OpMemberRemove: true,
 	proto.OpKeyAdd: true, proto.OpKeyRemove: true,
+	proto.OpPrincipalSet: true, proto.OpInviteAdd: true, proto.OpInviteRemove: true, proto.OpIdentityRemove: true,
 }
 
 // adminOp reports whether op manages access (proto's admin.go): one of
-// controlWrites, a list of projects, principals, members or keys, the
-// status report, or the lookup of a stand-in.
+// controlWrites, a list of projects, principals, members, keys,
+// invitations or identities, a principal shown, the status report, or
+// the lookup of a stand-in.
 func adminOp(op string) bool {
 	switch op {
-	case proto.OpProjects, proto.OpPrincipals, proto.OpMembers, proto.OpKeys, proto.OpStatus, proto.OpPrincipalWhois:
+	case proto.OpProjects, proto.OpPrincipals, proto.OpMembers, proto.OpKeys, proto.OpStatus, proto.OpPrincipalWhois,
+		proto.OpPrincipalShow, proto.OpInvites, proto.OpIdentities:
 		return true
 	}
 	return controlWrites[op]
