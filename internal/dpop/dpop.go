@@ -2,9 +2,11 @@
 // 9449), with ES256 alone and the standard library: aries signs a short
 // proof for each request that presents its token, with a P-256 key it
 // keeps, and ariesd checks the proof and that the token is bound to that
-// key's thumbprint (docs/design/transport.md §6.4). A token copied off
-// the machine, out of a log, a proxy or a backup, is useless without
-// the key.
+// key's thumbprint (docs/design/transport.md §6.4). A token leaked
+// alone, into a log or through a proxy, is useless without the key. It
+// does not protect against theft of the user's data directory: the key
+// is kept beside the token, so a copy or a backup of the directory
+// holds both.
 //
 // The server remembers each proof's jti for the window in which its iat
 // is accepted, so that a proof is used once; the memory is bounded

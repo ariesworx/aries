@@ -264,7 +264,7 @@ An Aries access token is 256 random bits, base32 (52 characters), stored only as
 
 | | DPoP (RFC 9449), recommended for `aries` | mTLS-bound (RFC 8705) | Bearer |
 |---|---|---|---|
-| A token copied off the machine (a log, a proxy, a backup, a shoulder) | Useless without the key | Useless without the certificate's key | Works anywhere until it ends |
+| A token copied off the machine alone (a log, a proxy, a shoulder) | Useless without the key | Useless without the certificate's key | Works anywhere until it ends |
 | Through a proxy that terminates TLS | Works: the proof is a header | Breaks: the certificate ends at the proxy | Works |
 | What the client holds | A P-256 key in a 0600 file | A key and a certificate the server issued | Nothing more |
 | Cost per request | One ES256 signature; one verification and a remembered `jti` at the server | None after the handshake | None |
@@ -591,8 +591,8 @@ The trade: more of the security is Aries's own code, and that code is on the int
 
 | Threat | What the attacker gets | What bounds it |
 |---|---|---|
-| A stolen `aries` token (a log, a proxy, a backup) | Nothing without the DPoP key | DPoP (**Measured**); tokens never logged; the 401 body never echoes one |
-| A stolen token and key (the user's files) | The principal for the rest of the day | The day; `aries admin signin end`, `principal disable`; the keystore in 1.x |
+| A stolen `aries` token (a log, a proxy) | Nothing without the DPoP key | DPoP (**Measured**); tokens never logged; the 401 body never echoes one |
+| A stolen token and key (the user's files, or a backup of them) | The principal for the rest of the day | The day; `aries admin signin end`, `principal disable`; the keystore in 1.x |
 | A token replayed from another machine | Nothing | The proof's key must match the grant's (**Measured**) |
 | A proof replayed | Nothing | `jti` remembered for its window; `htu`, `htm`, `ath` checked (**Measured**) |
 | A stolen connector token (bearer) | The person's `mcp` scope on one project for up to an hour | Short life; audience per project; no admin, no gate; refresh reuse ends the grant |
