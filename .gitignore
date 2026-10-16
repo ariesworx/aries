@@ -1,6 +1,11 @@
 # Worktrees that Claude Code subagents create for isolated work.
 .claude/worktrees/
 
+# This repository commits no .aries.yaml: a contributor's names their own
+# server (and may hold a test CA), so it stays untracked in their main
+# checkout, where aries in a worktree finds it.
+/.aries.yaml
+
 # Editor and IDE settings are personal; keep them out of the repository.
 .idea/
 *.iml

@@ -542,8 +542,10 @@ func (r *runner) printSnippets(plan setupPlan, entry agentsetup.Entry, all, glob
 	}
 }
 
-// setupRoot is the directory the targets are relative to: the root of the
-// repository that holds .aries.yaml or, with global, the home directory.
+// setupRoot is the directory the targets are relative to: the directory
+// holding .aries.yaml, or a linked worktree's own top level when the file
+// found is the main worktree's (Config.Checkout), or, with global, the
+// home directory.
 // For a repository, it warns when this machine lacks a program needed to
 // reach the server (gcloud, for IAP).
 func (r *runner) setupRoot(global bool) (string, error) {
@@ -565,5 +567,5 @@ func (r *runner) setupRoot(global bool) (string, error) {
 	if pe, ok := errors.AsType[*proto.Error](cfg.CheckTransport()); ok {
 		_, _ = fmt.Fprintf(r.env.Stderr, "aries: %s\nfix: %s\n", esc(pe.Message), esc(pe.Fix))
 	}
-	return cfg.Root, nil
+	return cfg.Checkout, nil
 }
