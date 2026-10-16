@@ -57,7 +57,10 @@ func newSignInWorld(t *testing.T, edit func(*oidctest.Issuer, *oidc.Settings, *L
 func newMeasuredSignInWorld(t *testing.T, edit func(*oidctest.Issuer, *oidc.Settings, *Login), tel *telemetry.Telemetry) *signInWorld {
 	t.Helper()
 	iss := oidctest.New(t)
+	// The world's time is not the wall clock's (rule 19): what it dates
+	// by the wall clock is refused on every run, not only on a slow one.
 	clk := newClock()
+	clk.advance(time.Hour)
 	iss.Clock(clk.now)
 	secret := t.TempDir() + "/client-secret"
 	if err := os.WriteFile(secret, []byte(oidctest.Secret), 0o600); err != nil {
@@ -165,10 +168,7 @@ type tokenAnswer struct {
 func (w *signInWorld) exchange(t *testing.T, a *attempt, code, proof string) tokenAnswer {
 	t.Helper()
 	if proof == "" {
-		var err error
-		if proof, err = dpop.Proof(a.key, http.MethodPost, w.url+pathToken, "", time.Now()); err != nil {
-			t.Fatal(err)
-		}
+		proof = w.proof(t, a.key, http.MethodPost, w.url+pathToken, "")
 	}
 	form := url.Values{"grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {loopbackRedirect}, "client_id": {ClientCLI},
 		"code_verifier": {a.verifier}, "machine": {"laptop-a"}}
@@ -216,10 +216,7 @@ func (w *signInWorld) mustSignIn(t *testing.T, a *attempt) tokenAnswer {
 func (w *signInWorld) connectWith(t *testing.T, a *attempt, token, proof string) (*wsconn.Conn, *proto.Error) {
 	t.Helper()
 	if proof == "" {
-		var err error
-		if proof, err = dpop.Proof(a.key, http.MethodGet, w.url+keyproof.ConnectPath, token, time.Now()); err != nil {
-			t.Fatal(err)
-		}
+		proof = w.proof(t, a.key, http.MethodGet, w.url+keyproof.ConnectPath, token)
 	}
 	h := http.Header{"Authorization": {"DPoP " + token}}
 	if proof != "-" {
@@ -407,7 +404,7 @@ func TestTokenEndpointRefusals(t *testing.T) {
 	}
 	a2 := newAttempt(t)
 	code = w.browse(t, w.authorizeURL(a2)).Get("code")
-	proof, _ := dpop.Proof(a2.key, http.MethodPost, w.url+pathToken, "", time.Now())
+	proof := w.proof(t, a2.key, http.MethodPost, w.url+pathToken, "")
 	if ans := w.exchange(t, a2, code, proof); ans.AccessToken == "" {
 		t.Fatalf("a good exchange = %+v", ans)
 	}
@@ -429,17 +426,17 @@ func TestConnectRefusals(t *testing.T) {
 	a := newAttempt(t)
 	tok := w.mustSignIn(t, a).AccessToken
 	foreign := newAttempt(t)
-	replayed, _ := dpop.Proof(a.key, http.MethodGet, w.url+keyproof.ConnectPath, tok, time.Now())
+	replayed := w.proof(t, a.key, http.MethodGet, w.url+keyproof.ConnectPath, tok)
 	if _, perr := w.connectWith(t, a, tok, replayed); perr != nil {
 		t.Fatalf("a first proof = %v", perr)
 	}
-	elsewhere, _ := dpop.Proof(a.key, http.MethodGet, "https://aries.example.com"+keyproof.ConnectPath, tok, time.Now())
+	elsewhere := w.proof(t, a.key, http.MethodGet, "https://aries.example.com"+keyproof.ConnectPath, tok)
 	for _, tc := range []struct {
 		name, token, proof, names string
 		code                      proto.Code
 	}{
 		{"no proof", tok, "-", "none was sent", proto.CodeAuth},
-		{"a proof by another key", tok, mustProof(t, foreign.key, w.url+keyproof.ConnectPath, tok), "another key", proto.CodeAuth},
+		{"a proof by another key", tok, w.proof(t, foreign.key, http.MethodGet, w.url+keyproof.ConnectPath, tok), "another key", proto.CodeAuth},
 		{"a proof replayed", tok, replayed, "used already", proto.CodeAuth},
 		{"a proof for another server's URL", tok, elsewhere, "another URL", proto.CodeAuth},
 		{"a token never issued", rand.Text() + rand.Text(), "", "unknown", proto.CodeAuth},
@@ -469,7 +466,7 @@ func TestMetricsOfTokens(t *testing.T) {
 	w := newMeasuredSignInWorld(t, nil, tel)
 	a := newAttempt(t)
 	tok := w.mustSignIn(t, a).AccessToken
-	replayed := mustProof(t, a.key, w.url+keyproof.ConnectPath, tok)
+	replayed := w.proof(t, a.key, http.MethodGet, w.url+keyproof.ConnectPath, tok)
 	c, perr := w.connectWith(t, a, tok, replayed)
 	if perr != nil {
 		t.Fatalf("connect with a sign-in = %v", perr)
@@ -478,7 +475,7 @@ func TestMetricsOfTokens(t *testing.T) {
 	for _, tc := range []struct{ name, token, proof string }{
 		{"no proof", tok, "-"},
 		{"a proof replayed", tok, replayed},
-		{"a proof by another key", tok, mustProof(t, newAttempt(t).key, w.url+keyproof.ConnectPath, tok)},
+		{"a proof by another key", tok, w.proof(t, newAttempt(t).key, http.MethodGet, w.url+keyproof.ConnectPath, tok)},
 		{"a token never issued", rand.Text() + rand.Text(), ""},
 	} {
 		if _, perr := w.connectWith(t, a, tc.token, tc.proof); perr == nil {
@@ -501,9 +498,11 @@ func TestMetricsOfTokens(t *testing.T) {
 	})
 }
 
-func mustProof(t *testing.T, k *ecdsa.PrivateKey, htu, token string) string {
+// proof is a DPoP proof by k of a request to htu, made at the world's
+// time, which the server checks it against.
+func (w *signInWorld) proof(t *testing.T, k *ecdsa.PrivateKey, method, htu, token string) string {
 	t.Helper()
-	p, err := dpop.Proof(k, http.MethodGet, htu, token, time.Now())
+	p, err := dpop.Proof(k, method, htu, token, w.clk.now())
 	if err != nil {
 		t.Fatal(err)
 	}
