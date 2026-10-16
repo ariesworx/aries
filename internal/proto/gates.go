@@ -52,8 +52,13 @@ type GateAddArgs struct {
 // ID, or by Check and the issue it ran on: Subject, or Branch, a branch
 // name the server reads the issue from with the project's prefix, as
 // `aries start --branch` names it. SHA (the commit), URL (a link to the
-// run) and Reason are its evidence. The server takes it from a principal
-// the gate names, in CISession or CLISession.
+// run) and Reason are its evidence. Run is the CI run's number, which
+// rises with each run of the workflow and is kept when a run is retried
+// (GitHub Actions' run_number, GitLab CI's pipeline IID): the server takes
+// no report of a lower run than the gate's last, but a failure of the
+// commit that last passed (protocol 8, before v1.0.0; decision 78). The
+// server takes a report from a principal the gate names, in CISession or
+// CLISession.
 type GateArgs struct {
 	ID      string `json:"id,omitempty"`
 	Reason  string `json:"reason,omitempty"`
@@ -62,16 +67,18 @@ type GateArgs struct {
 	Branch  string `json:"branch,omitempty"`
 	SHA     string `json:"sha,omitempty"`
 	URL     string `json:"url,omitempty"`
+	Run     int64  `json:"run,omitempty"`
 }
 
 // Reported reports whether a's pass is a CI job's report: it names a
 // check, or carries evidence, rather than a gate alone.
 func (a GateArgs) Reported() bool {
-	return a.Check != "" || a.Subject != "" || a.Branch != "" || a.SHA != "" || a.URL != ""
+	return a.Check != "" || a.Subject != "" || a.Branch != "" || a.SHA != "" || a.URL != "" || a.Run != 0
 }
 
 // GateReport is a ci gate's last report: passed or failed, by whom and
-// when, with its evidence.
+// when, with its evidence, and the number of the run that made it when
+// it gave one.
 type GateReport struct {
 	Result string    `json:"result"`
 	By     string    `json:"by"`
@@ -79,6 +86,7 @@ type GateReport struct {
 	SHA    string    `json:"sha,omitempty"`
 	URL    string    `json:"url,omitempty"`
 	Reason string    `json:"reason,omitempty"`
+	Run    int64     `json:"run,omitempty"`
 }
 
 // GatesArgs lists open gates, or with All every gate, oldest first, at

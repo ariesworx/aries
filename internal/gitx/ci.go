@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/ariesworx/aries/internal/lazyregexp"
@@ -33,6 +34,23 @@ func BranchFromEnv(getenv func(string) string) string {
 		}
 	}
 	return ""
+}
+
+// ciRunEnv are the variables that number a CI job's run, rising with each
+// run and kept when a run is retried: GitHub Actions' GITHUB_RUN_NUMBER,
+// a workflow's own count, and GitLab CI's CI_PIPELINE_IID, the project's.
+// Not GITHUB_RUN_ID or CI_PIPELINE_ID, which are the whole host's.
+var ciRunEnv = []string{"GITHUB_RUN_NUMBER", "CI_PIPELINE_IID"}
+
+// RunFromEnv returns the number of the CI run a job is in, from the
+// variables GitHub Actions and GitLab CI set, or 0 when they give none.
+func RunFromEnv(getenv func(string) string) int64 {
+	for _, k := range ciRunEnv {
+		if n, err := strconv.ParseInt(getenv(k), 10, 64); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 0
 }
 
 // mergeSubject is the subject git, GitHub and GitLab give a merge commit,

@@ -125,6 +125,12 @@ hold nothing back, and then only records the check on its subject.
   and tells them too. A failure of a passed gate, from a later commit,
   reopens it, so what it held is held again; work already started goes
   on. A waived gate takes no report until it is rearmed.
+- **Runs out of order.** A report carries its CI run's number, and a
+  report of an older run than the gate's last changes nothing: a slow
+  run of an old commit neither reopens a gate a newer run passed nor
+  passes one a newer run failed. A failure of the commit that last
+  passed still reopens the gate, whatever its run
+  ([Runs that finish out of order](ci.md#runs-that-finish-out-of-order)).
 - **Closed is not landed.** Closing an issue is its worker's say-so.
   The check `landed` is reported by the job on the default branch after
   the merge; until then `aries show` says `closed, not landed`, and after

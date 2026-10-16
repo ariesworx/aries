@@ -342,3 +342,79 @@ func TestChecksOf(t *testing.T) {
 		t.Errorf("ChecksOf(landed) = %+v, %v, want landed passed at fedcba9", cs, err)
 	}
 }
+
+// The order of CI runs decides between reports that arrive out of it: a
+// report of an older run than the gate's last report changes nothing,
+// unless it is a failure of the very commit that last passed, which
+// reopens the gate whatever its run. Reports that carry no run are taken
+// in the order they arrive, as are reruns of one run, and a rearm starts
+// the order again.
+func TestCIGateRunOrder(t *testing.T) {
+	t.Parallel()
+	s := newStore(t)
+	ctx := t.Context()
+	const (
+		shaA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		shaB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		shaC = "cccccccccccccccccccccccccccccccccccccccc"
+	)
+	type step struct {
+		result CheckResult // "" rearms
+		run    int64
+		sha    string
+	}
+	tests := []struct {
+		name    string
+		steps   []step
+		passed  bool
+		lastRun int64
+	}{
+		{"a late failure of an older run after a newer pass", []step{{CheckPassed, 12, shaB}, {CheckFailed, 11, shaA}}, true, 12},
+		{"a failure of a newer run after a pass", []step{{CheckPassed, 12, shaB}, {CheckFailed, 13, shaC}}, false, 13},
+		{"an older run's failure of the commit that passed", []step{{CheckPassed, 12, shaB}, {CheckFailed, 11, shaB}}, false, 11},
+		{"an older run's failure of the commit that passed, abbreviated", []step{{CheckPassed, 12, shaB}, {CheckFailed, 11, shaB[:7]}}, false, 11},
+		{"a rerun of the run that passed failing", []step{{CheckPassed, 12, shaB}, {CheckFailed, 12, shaB}}, false, 12},
+		{"a late pass of an older run after a newer failure", []step{{CheckFailed, 13, shaC}, {CheckPassed, 12, shaB}}, false, 13},
+		{"a pass of a newer run after a failure", []step{{CheckFailed, 13, shaC}, {CheckPassed, 14, shaC}}, true, 14},
+		{"a failure with no run after a pass with one", []step{{CheckPassed, 12, shaB}, {CheckFailed, 0, shaA}}, false, 0},
+		{"a failure with a run after a pass with none", []step{{CheckPassed, 0, shaB}, {CheckFailed, 3, shaA}}, false, 3},
+		{"an older run after a rearm", []step{{CheckPassed, 12, shaB}, {"", 0, ""}, {CheckPassed, 3, shaA}}, true, 3},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			is := mustCreate(t, s, NewIssue{Title: tc.name})
+			g := ciGate(t, s, is.ID, "", "build")
+			var last Gate
+			for _, st := range tc.steps {
+				var err error
+				switch st.result {
+				case "":
+					last, err = s.RearmGate(ctx, ciJob, g.ID, "")
+				case CheckPassed:
+					last, err = s.PassCheck(ctx, ciJob, Report{Gate: g.ID, Run: st.run, SHA: st.sha})
+				default:
+					last, err = s.FailCheck(ctx, ciJob, Report{Gate: g.ID, Run: st.run, SHA: st.sha})
+				}
+				if err != nil {
+					t.Fatalf("report %+v: %v", st, err)
+				}
+			}
+			if passed := last.Outcome == GatePassed; passed != tc.passed {
+				t.Errorf("after %+v the gate's outcome = %q, want passed %v", tc.steps, last.Outcome, tc.passed)
+			}
+			if last.Report == nil || last.Report.Run != tc.lastRun {
+				t.Errorf("after %+v the last report = %+v, want run %d's", tc.steps, last.Report, tc.lastRun)
+			}
+			if got, err := s.GetIssue(ctx, g.ID); err != nil || (got.Status == StatusClosed) != tc.passed {
+				t.Errorf("after %+v the gate's issue = %s, %v, want closed %v", tc.steps, got.Status, err, tc.passed)
+			}
+		})
+	}
+	t.Run("a run below zero", func(t *testing.T) {
+		is := mustCreate(t, s, NewIssue{Title: "a run below zero"})
+		g := ciGate(t, s, is.ID, "", "build")
+		if _, err := s.PassCheck(ctx, ciJob, Report{Gate: g.ID, Run: -1}); !errors.Is(err, ErrInvalid) {
+			t.Errorf("PassCheck with run -1 = %v, want ErrInvalid", err)
+		}
+	})
+}

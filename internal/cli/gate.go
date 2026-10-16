@@ -16,7 +16,7 @@ import (
 const gateUsage = "gate add --blocks ID [--approver P]... [--title T]" +
 	" | gate add --kind ci --check NAME --issue ID --approver P... [--blocks ID] [--title T]" +
 	" | gate pass|rearm ID [--reason TEXT]" +
-	" | gate pass|fail [ID] [--check NAME --issue ID|--branch NAME|--from-branch|--from-commit] [--sha SHA] [--url URL] [--reason TEXT] [--optional]" +
+	" | gate pass|fail [ID] [--check NAME --issue ID|--branch NAME|--from-branch|--from-commit] [--sha SHA] [--url URL] [--run N] [--reason TEXT] [--optional]" +
 	" | gate waive ID --reason TEXT | gate list [--all] [-n N]"
 
 // cmdGate adds, passes, fails, waives, rearms and lists gates (design
@@ -106,6 +106,7 @@ type reportFlags struct {
 func (f *reportFlags) register(fs interface {
 	StringVar(*string, string, string, string)
 	BoolVar(*bool, string, bool, string)
+	Int64Var(*int64, string, int64, string)
 }, in *proto.GateArgs) {
 	fs.StringVar(&in.Check, "check", "", "the check CI ran, such as build, test or landed")
 	fs.StringVar(&f.issue, "issue", "", "the issue the check ran on")
@@ -114,6 +115,7 @@ func (f *reportFlags) register(fs interface {
 	fs.BoolVar(&f.fromCommit, "from-commit", false, "take the issue from HEAD's commit: its Aries: trailer, or the branch a merge commit merged")
 	fs.StringVar(&in.SHA, "sha", "", "the commit checked")
 	fs.StringVar(&in.URL, "url", "", "a link to the run")
+	fs.Int64Var(&in.Run, "run", 0, "the run's number, which rises with each run (default GITHUB_RUN_NUMBER or CI_PIPELINE_IID)")
 	fs.BoolVar(&f.optional, "optional", false, "exit 0 when the branch or commit names no issue, or the issue has no gate for the check")
 }
 
@@ -178,6 +180,9 @@ func gateReport(ctx context.Context, r *runner, action string, in proto.GateArgs
 		return usagef(gateUsage, "--check needs the issue it ran on: --issue ID, --branch NAME, --from-branch or --from-commit")
 	}
 	in.Subject, in.Branch = rep.issue, rep.branch
+	if in.Run == 0 && in.Reported() {
+		in.Run = gitx.RunFromEnv(r.env.Getenv)
+	}
 	var err error
 	switch {
 	case rep.fromBranch:
@@ -193,6 +198,10 @@ func gateReport(ctx context.Context, r *runner, action string, in proto.GateArgs
 		var out proto.Gate
 		if err = r.call(ctx, op, in, &out); err == nil {
 			printDecided(r, out)
+			if last := out.Report; !r.json && last != nil && in.Run != 0 && last.Run > in.Run {
+				_, _ = fmt.Fprintf(r.env.Stderr, "aries: nothing changed: run %d is older than run %d, whose report gate %s took last (%s)\n",
+					in.Run, last.Run, esc(out.ID), esc(last.Result))
+			}
 			return nil
 		}
 	}

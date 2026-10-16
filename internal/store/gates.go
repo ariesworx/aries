@@ -690,8 +690,12 @@ func (s *Store) decide(ctx context.Context, actor Actor, id IssueID, reason stri
 		if outcome != "" {
 			decidedBy, decidedAt, set = w.actor.Principal, w.now, string(outcome)
 		}
-		if _, err := w.exec(ctx, `UPDATE gates SET outcome = $1, decided_by = $2, decided_at = $3, reason = $4, rev = rev + 1
-  WHERE issue_id = $5`, set, decidedBy, decidedAt, reason, string(id)); err != nil {
+		report, err := rearmedReport(g, outcome)
+		if err != nil {
+			return err
+		}
+		if _, err := w.exec(ctx, `UPDATE gates SET outcome = $1, decided_by = $2, decided_at = $3, reason = $4, report = $5, rev = rev + 1
+  WHERE issue_id = $6`, set, decidedBy, decidedAt, reason, report, string(id)); err != nil {
 			return fmt.Errorf("%s gate %s: %w", verb, id, err)
 		}
 		if err := w.event(ctx, op, string(id), map[string]any{"outcome": nullStr(g.Outcome)},
@@ -723,6 +727,24 @@ func (s *Store) decide(ctx context.Context, actor Actor, id IssueID, reason stri
 		return Gate{}, err
 	}
 	return out, nil
+}
+
+// rearmedReport is g's report as a decision of outcome leaves it: as it
+// is, but that a rearm (outcome "") forgets its run, so that CI's next
+// report is taken whatever run it names (Report.stale). nil for none.
+func rearmedReport(g *gateRow, outcome GateOutcome) (any, error) {
+	if g.Report == nil {
+		return nil, nil
+	}
+	r := *g.Report
+	if outcome == "" {
+		r.Run = 0
+	}
+	b, err := json.Marshal(r)
+	if err != nil {
+		return nil, fmt.Errorf("gate %s report: %w", g.ID, err)
+	}
+	return string(b), nil
 }
 
 // maxGateNotices bounds the assignees a gate's pass tells.

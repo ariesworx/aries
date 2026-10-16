@@ -74,3 +74,27 @@ func TestCurrentBranchAndHeadMessage(t *testing.T) {
 		t.Errorf("CurrentBranch on a detached HEAD = %q, %v; want none", got, err)
 	}
 }
+
+// A CI job's run number comes from the variable GitHub Actions or GitLab
+// CI sets, which rises with each run of the workflow or pipeline.
+func TestRunFromEnv(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		env  map[string]string
+		want int64
+	}{
+		{"none", nil, 0},
+		{"GitHub Actions", map[string]string{"GITHUB_RUN_NUMBER": "42", "GITHUB_RUN_ID": "9876543210"}, 42},
+		{"GitLab CI", map[string]string{"CI_PIPELINE_IID": "7", "CI_PIPELINE_ID": "123456"}, 7},
+		{"not a number", map[string]string{"GITHUB_RUN_NUMBER": "x"}, 0},
+		{"below one", map[string]string{"CI_PIPELINE_IID": "-3"}, 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := RunFromEnv(func(k string) string { return tc.env[k] }); got != tc.want {
+				t.Errorf("RunFromEnv(%v) = %d, want %d", tc.env, got, tc.want)
+			}
+		})
+	}
+}
