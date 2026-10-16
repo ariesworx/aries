@@ -29,8 +29,11 @@
 // runs no deferred Stop. So on Linux and macOS each launch has a watcher
 // (watch_unix.go): a /bin/sh in a session of its own, reading a pipe that
 // only the starting process holds the other end of. When that process is
-// gone, however it went, the pipe closes; the watcher then kills the
-// server's process group (the postmaster and every backend it forked),
+// gone, however it went, the pipe closes; the watcher then asks the
+// server for an immediate shutdown, which ends every backend it forked
+// and frees its System V semaphores and shared memory, kills the
+// server's process group if it has not gone within 10 seconds, frees
+// the semaphore sets a killed server left (macOS; sema_darwin.go),
 // removes from the directory what this package and Postgres put there,
 // removes the directory if that emptied it, and exits. Stop, or the
 // server exiting by itself, ends the watcher first, and then the
@@ -244,8 +247,19 @@ func (s *Server) launch(ctx context.Context) error {
 	s.cmd, s.exit, s.stopped = cmd, exit, false
 	watched := w.watch(cmd.Process.Pid)
 	// The watcher goes before exit is sent, so nothing of this launch
-	// runs once Stop has returned.
-	go func() { err := cmd.Wait(); w.dismiss(); _ = logf.Close(); exit <- err }()
+	// runs once Stop has returned. A server that exits frees its
+	// semaphores and shared memory, and one that was killed leaves
+	// them: they are freed before the watcher goes, so that one or the
+	// other frees them.
+	pid, data := cmd.Process.Pid, s.data()
+	go func() {
+		err := cmd.Wait()
+		freeSemaphores(data, pid)
+		_ = removeSegment(data)
+		w.dismiss()
+		_ = logf.Close()
+		exit <- err
+	}()
 	if watched != nil {
 		return errors.Join(watched, s.Stop())
 	}
@@ -258,6 +272,11 @@ func (s *Server) launch(ctx context.Context) error {
 	deadline := time.Now().Add(30 * time.Second)
 	for {
 		if err := db.PingContext(ctx); err == nil {
+			// The server made all its semaphores before it took a
+			// connection.
+			if err := s.recordSemaphores(pid); err != nil {
+				return errors.Join(err, s.Stop())
+			}
 			// Restart finds the role made at the first launch.
 			if _, err := db.ExecContext(ctx, `DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '`+User+`') THEN CREATE ROLE `+User+` LOGIN; END IF;
@@ -403,10 +422,11 @@ func (s *Server) dropAll() error {
 }
 
 // Stop asks the server to shut down fast and waits for it to exit,
-// killing its process group after 10 seconds. Once it returns, nothing
-// the server or its launch started still runs, the watcher included, so
-// the caller can remove its directory. Stopping a server that is stopped
-// does nothing.
+// asking for an immediate shutdown after 10 seconds and killing its
+// process group after 10 more. Once it returns, nothing the server or
+// its launch started still runs, the watcher included, so the caller
+// can remove its directory. Stopping a server that is stopped does
+// nothing.
 func (s *Server) Stop() error {
 	if s.cmd == nil || s.cmd.Process == nil || s.stopped {
 		return nil
@@ -418,11 +438,21 @@ func (s *Server) Stop() error {
 		s.stopped = true
 		return nil
 	case <-time.After(10 * time.Second):
-		if err := killGroup(s.cmd); err != nil {
-			return fmt.Errorf("pgtest: kill: %w", err)
-		}
-		<-s.exit
-		s.stopped = true
-		return removeSegment(s.data())
 	}
+	// The server frees its semaphores and shared memory in an immediate
+	// shutdown too, and in none if it is killed.
+	quitGroup(s.cmd)
+	select {
+	case <-s.exit:
+		s.stopped = true
+		return nil
+	case <-time.After(10 * time.Second):
+	}
+	if err := killGroup(s.cmd); err != nil {
+		return fmt.Errorf("pgtest: kill: %w", err)
+	}
+	// What the killed server left was freed before exit was sent.
+	<-s.exit
+	s.stopped = true
+	return nil
 }
