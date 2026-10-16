@@ -29,7 +29,7 @@ func TestRemember(t *testing.T) {
 	f := &fakeConn{reply: func(string, any) (any, error) { return proto.WriteResult{ID: "m1", Rev: 2}, nil }}
 	cs, d := connect(t, f)
 	res := callTool(t, cs, "remember", map[string]any{"key": "deploy", "body": "weekday mornings", "scope": "user",
-		"tags": []any{"ops"}, "issue": "sf-a1b2", "rev": 1})
+		"tags": []any{"ops"}, "issue": "ar-a1b2", "rev": 1})
 	if res.IsError {
 		t.Fatal(text(t, res))
 	}
@@ -38,7 +38,7 @@ func TestRemember(t *testing.T) {
 	}
 	a, ok := f.calls[0].args.(proto.RememberArgs)
 	if !ok || f.calls[0].op != proto.OpRemember || a.Key != "deploy" || a.Body != "weekday mornings" || a.Scope != "user" ||
-		a.Tags == nil || !slices.Equal(*a.Tags, []string{"ops"}) || a.Issue == nil || *a.Issue != "sf-a1b2" || a.Rev != 1 ||
+		a.Tags == nil || !slices.Equal(*a.Tags, []string{"ops"}) || a.Issue == nil || *a.Issue != "ar-a1b2" || a.Rev != 1 ||
 		a.Pinned != nil || !strings.HasPrefix(a.Idem, "mcp-") {
 		t.Errorf("remember sent %s %+v", f.calls[0].op, f.calls[0].args)
 	}
@@ -89,7 +89,7 @@ func TestRecall(t *testing.T) {
 	f := &fakeConn{reply: func(_ string, args any) (any, error) {
 		sent = args.(proto.RecallArgs)
 		ms := memories(40, 3000)
-		ms[0].Pinned, ms[0].Tags, ms[0].Issue = true, []string{"ops"}, "sf-a1b2"
+		ms[0].Pinned, ms[0].Tags, ms[0].Issue = true, []string{"ops"}, "ar-a1b2"
 		return proto.RecallResult{Memories: ms, More: 5}, nil
 	}}
 	cs, _ := connect(t, f)
@@ -108,7 +108,7 @@ func TestRecall(t *testing.T) {
 		t.Fatalf("recall: %d memories, more %d, truncated %v, untrusted %q", len(got.Memories), got.More, got.Truncated, got.Untrusted)
 	}
 	m := got.Memories[0]
-	if m.Key != "key-0" || m.Scope != "project" || !m.Pinned || !slices.Equal(m.Tags, []string{"ops"}) || m.Issue != "sf-a1b2" ||
+	if m.Key != "key-0" || m.Scope != "project" || !m.Pinned || !slices.Equal(m.Tags, []string{"ops"}) || m.Issue != "ar-a1b2" ||
 		m.Rev != 1 || m.By != "bob" || m.At != "2026-10-09T08:00Z" || len(m.Body) > maxMemoryText+len("…") {
 		t.Errorf("first memory %+v", m)
 	}
@@ -229,11 +229,11 @@ func TestStartMemories(t *testing.T) {
 	f := &fakeConn{reply: func(string, any) (any, error) {
 		ms := memories(30, 400)
 		ms[0].Relevant = true
-		return proto.StartResult{Issue: proto.Issue{ID: "sf-a1b2", Rev: 3, Title: "t", Type: "bug", Body: strings.Repeat("x", 3000)},
+		return proto.StartResult{Issue: proto.Issue{ID: "ar-a1b2", Rev: 3, Title: "t", Type: "bug", Body: strings.Repeat("x", 3000)},
 			Memories: ms}, nil
 	}}
 	cs, _ := connect(t, f)
-	res := callTool(t, cs, "start", map[string]any{"id": "sf-a1b2"})
+	res := callTool(t, cs, "start", map[string]any{"id": "ar-a1b2"})
 	if res.IsError {
 		t.Fatal(text(t, res))
 	}

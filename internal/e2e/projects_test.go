@@ -70,8 +70,8 @@ func TestTwoProjects(t *testing.T) {
 	// The same principal works in both, with separate data.
 	in1 := decode[proto.WriteResult](t, alice1.ok("create", "In the first", "--json"))
 	in2 := decode[proto.WriteResult](t, alice2.ok("create", "In the second", "--json"))
-	if !strings.HasPrefix(in1.ID, "sf-") || !strings.HasPrefix(in2.ID, "two-") {
-		t.Errorf("ids %q and %q, want each project's prefix (sf-, two-)", in1.ID, in2.ID)
+	if !strings.HasPrefix(in1.ID, "ar-") || !strings.HasPrefix(in2.ID, "two-") {
+		t.Errorf("ids %q and %q, want each project's prefix (ar-, two-)", in1.ID, in2.ID)
 	}
 	for _, tc := range []struct {
 		u     *user

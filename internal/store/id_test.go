@@ -39,7 +39,7 @@ func TestValidateID(t *testing.T) {
 		id string
 		ok bool
 	}{
-		{"sf-abcd2345", true},
+		{"ar-abcd2345", true},
 		{"bd-a1b", true},      // imported bd hash id
 		{"my-site-kch", true}, // hyphenated prefix
 		{"bd-a1b.2", true},    // bd child id
@@ -47,10 +47,10 @@ func TestValidateID(t *testing.T) {
 		{"", false},
 		{"noprefix", false},
 		{"Upper-abc", false},
-		{"sf-", false},
-		{"sf-abc.", false},
-		{"sf abc", false},
-		{"sf-abc;drop", false},
+		{"ar-", false},
+		{"ar-abc.", false},
+		{"ar abc", false},
+		{"ar-abc;drop", false},
 	}
 	for _, tc := range cases {
 		if err := IssueID(tc.id).Validate(); (err == nil) != tc.ok {
@@ -66,13 +66,13 @@ func TestShortestUnique(t *testing.T) {
 		ids  []IssueID
 		want map[IssueID]string
 	}{
-		{"single", []IssueID{"sf-abcdefgh"}, map[IssueID]string{"sf-abcdefgh": "sf-abcd"}},
+		{"single", []IssueID{"ar-abcdefgh"}, map[IssueID]string{"ar-abcdefgh": "ar-abcd"}},
 		{"shared prefix",
-			[]IssueID{"sf-abcdefgh", "sf-abcdxyzq", "sf-zzzzzzzz"},
-			map[IssueID]string{"sf-abcdefgh": "sf-abcde", "sf-abcdxyzq": "sf-abcdx", "sf-zzzzzzzz": "sf-zzzz"}},
+			[]IssueID{"ar-abcdefgh", "ar-abcdxyzq", "ar-zzzzzzzz"},
+			map[IssueID]string{"ar-abcdefgh": "ar-abcde", "ar-abcdxyzq": "ar-abcdx", "ar-zzzzzzzz": "ar-zzzz"}},
 		{"long overlap",
-			[]IssueID{"sf-aaaaaaab", "sf-aaaaaaac"},
-			map[IssueID]string{"sf-aaaaaaab": "sf-aaaaaaab", "sf-aaaaaaac": "sf-aaaaaaac"}},
+			[]IssueID{"ar-aaaaaaab", "ar-aaaaaaac"},
+			map[IssueID]string{"ar-aaaaaaab": "ar-aaaaaaab", "ar-aaaaaaac": "ar-aaaaaaac"}},
 		{"different prefixes do not collide",
 			[]IssueID{"a-abcdefgh", "b-abcdefgh"},
 			map[IssueID]string{"a-abcdefgh": "a-abcd", "b-abcdefgh": "b-abcd"}},

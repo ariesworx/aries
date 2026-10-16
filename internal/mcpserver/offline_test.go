@@ -161,15 +161,15 @@ func TestQueuedToolCalls(t *testing.T) {
 		op   string
 		want string
 	}{
-		{"finish", map[string]any{"id": "sf-1", "reason": "done", "handoff": "all tests pass"}, proto.OpFinish, fmt.Sprintf(queuedLine, "finish")},
-		{"handoff", map[string]any{"id": "sf-1", "note": "half done"}, proto.OpHandoff, fmt.Sprintf(queuedLine, "handoff")},
-		{"comment", map[string]any{"id": "sf-1", "body": "decided on tabs"}, proto.OpComment, fmt.Sprintf(queuedLine, "comment")},
+		{"finish", map[string]any{"id": "ar-1", "reason": "done", "handoff": "all tests pass"}, proto.OpFinish, fmt.Sprintf(queuedLine, "finish")},
+		{"handoff", map[string]any{"id": "ar-1", "note": "half done"}, proto.OpHandoff, fmt.Sprintf(queuedLine, "handoff")},
+		{"comment", map[string]any{"id": "ar-1", "body": "decided on tabs"}, proto.OpComment, fmt.Sprintf(queuedLine, "comment")},
 		{"remember", map[string]any{"key": "style", "body": "tabs"}, proto.OpRemember, fmt.Sprintf(queuedLine, "remember")},
 		{"create", map[string]any{"title": "Something new"}, proto.OpCreate,
 			fmt.Sprintf(queuedLine, "create") + " The issue has no id until then, so nothing can refer to it."},
-		{"update", map[string]any{"id": "sf-1", "rev": 2, "title": "renamed"}, proto.OpUpdate, fmt.Sprintf(queuedLine, "update")},
-		{"dep", map[string]any{"action": "add", "id": "sf-1", "depends_on": "sf-2"}, proto.OpDepAdd, fmt.Sprintf(queuedLine, "dep.add")},
-		{"label", map[string]any{"action": "rm", "id": "sf-1", "labels": []string{"old"}}, proto.OpLabelRm, fmt.Sprintf(queuedLine, "label.rm")},
+		{"update", map[string]any{"id": "ar-1", "rev": 2, "title": "renamed"}, proto.OpUpdate, fmt.Sprintf(queuedLine, "update")},
+		{"dep", map[string]any{"action": "add", "id": "ar-1", "depends_on": "ar-2"}, proto.OpDepAdd, fmt.Sprintf(queuedLine, "dep.add")},
+		{"label", map[string]any{"action": "rm", "id": "ar-1", "labels": []string{"old"}}, proto.OpLabelRm, fmt.Sprintf(queuedLine, "label.rm")},
 	} {
 		t.Run(tc.tool, func(t *testing.T) {
 			a := newAway(t, &fakeConn{reply: okReply})
@@ -221,7 +221,7 @@ func TestQueuedSeveralAndUnqueuedUpdate(t *testing.T) {
 	}
 	drop(a.net.conns[0])
 	a.net.set(true)
-	res := callTool(t, a.cs, "label", map[string]any{"action": "add", "id": "sf-1", "labels": []string{"a", "b", "c"}})
+	res := callTool(t, a.cs, "label", map[string]any{"action": "add", "id": "ar-1", "labels": []string{"a", "b", "c"}})
 	want := "queued: aries cannot reach its server, so these 3 writes (label.add) wait on this machine and are sent when the server answers. Carry on, and do not repeat them."
 	if got := text(t, res); res.IsError || got != want {
 		t.Errorf("label of three while the server is away = %q (error %v)\nwant %q", got, res.IsError, want)
@@ -239,7 +239,7 @@ func TestQueuedSeveralAndUnqueuedUpdate(t *testing.T) {
 		t.Errorf("the outbox holds labels %v with keys %v; want a, b and c, each with a key of its own", labels, keys)
 	}
 
-	res = callTool(t, a.cs, "update", map[string]any{"id": "sf-1", "title": "renamed"})
+	res = callTool(t, a.cs, "update", map[string]any{"id": "ar-1", "title": "renamed"})
 	if got := text(t, res); !res.IsError || !strings.Contains(got,
 		"this was not queued (an update is kept for later only with the rev it was based on, which only the server knows: give rev)") {
 		t.Errorf("update without a rev while the server is away = %q (error %v); want it not queued, saying to give the rev", got, res.IsError)
@@ -267,7 +267,7 @@ func TestQueuedAfterADropKeepsItsKey(t *testing.T) {
 		t.Fatal(text(t, res))
 	}
 	a.net.set(true) // the retry's dial finds the server gone
-	res := callTool(t, a.cs, "comment", map[string]any{"id": "sf-1", "body": "hi"})
+	res := callTool(t, a.cs, "comment", map[string]any{"id": "ar-1", "body": "hi"})
 	if res.IsError || !strings.HasPrefix(text(t, res), "queued: ") {
 		t.Fatalf("comment on a connection that drops = %q (error %v), want it queued", text(t, res), res.IsError)
 	}
@@ -290,7 +290,7 @@ func TestUnqueuedToolCalls(t *testing.T) {
 		want string
 	}{
 		{"start", nil, "it takes a claim, and no claim is made without the server"},
-		{"close", map[string]any{"id": "sf-1"}, "it ends something on a state the client cannot see"},
+		{"close", map[string]any{"id": "ar-1"}, "it ends something on a state the client cannot see"},
 	} {
 		res := callTool(t, a.cs, tc.tool, tc.args)
 		want := "unavailable: cannot reach 127.0.0.1:2222: connection refused\n" +
@@ -314,7 +314,7 @@ func TestOutboxRefusalsForAnAgent(t *testing.T) {
 	t.Run("this machine never reached the server", func(t *testing.T) {
 		a := newAway(t)
 		a.net.set(true)
-		res := callTool(t, a.cs, "comment", map[string]any{"id": "sf-1", "body": "hi"})
+		res := callTool(t, a.cs, "comment", map[string]any{"id": "ar-1", "body": "hi"})
 		want := "unavailable: cannot reach 127.0.0.1:2222: connection refused, and this comment was not queued: " +
 			"this machine has never reached the server with this key, so aries cannot tell whose write it is\n" +
 			"fix: aries cannot reach its server and could not keep this for later: keep the text, call it again when a call succeeds, and tell the user"
@@ -328,7 +328,7 @@ func TestOutboxRefusalsForAnAgent(t *testing.T) {
 		drop(a.net.conns[0])
 		a.net.set(true)
 		//nolint:gosec // G101: an invented token, which the outbox must refuse
-		res := callTool(t, a.cs, "comment", map[string]any{"id": "sf-1", "body": "the token is ghp_0123456789abcdefghijABCDEFGHIJ012345"})
+		res := callTool(t, a.cs, "comment", map[string]any{"id": "ar-1", "body": "the token is ghp_0123456789abcdefghijABCDEFGHIJ012345"})
 		got := text(t, res)
 		if !res.IsError || !strings.HasPrefix(got, "invalid: ") || strings.Contains(got, "ghp_") || strings.Contains(got, "aries outbox") ||
 			!strings.HasSuffix(got, "\nfix: never store a secret: remember the rest, naming where the secret is kept (a vault path or an environment variable) instead") {
@@ -343,8 +343,8 @@ func TestOutboxRefusalsForAnAgent(t *testing.T) {
 func TestQueuedWritesGoFirstOnTheNextConnection(t *testing.T) {
 	t.Parallel()
 	second := &fakeConn{reply: func(op string, args any) (any, error) {
-		if b, _ := json.Marshal(args); op == proto.OpComment && strings.Contains(string(b), "sf-gone") {
-			return nil, proto.Errf(proto.CodeNotFound, "find the id with `aries list`", "issue sf-gone not found")
+		if b, _ := json.Marshal(args); op == proto.OpComment && strings.Contains(string(b), "ar-gone") {
+			return nil, proto.Errf(proto.CodeNotFound, "find the id with `aries list`", "issue ar-gone not found")
 		}
 		return proto.Empty{}, nil
 	}}
@@ -352,7 +352,7 @@ func TestQueuedWritesGoFirstOnTheNextConnection(t *testing.T) {
 	callTool(t, a.cs, "ready", nil)
 	drop(a.net.conns[0])
 	a.net.set(true)
-	for _, id := range []string{"sf-1", "sf-gone", "sf-2"} {
+	for _, id := range []string{"ar-1", "ar-gone", "ar-2"} {
 		if res := callTool(t, a.cs, "comment", map[string]any{"id": id, "body": "hi"}); res.IsError {
 			t.Fatalf("comment while away: %s", text(t, res))
 		}
@@ -387,7 +387,7 @@ func TestRenewSendsWhatWaits(t *testing.T) {
 	callTool(t, a.cs, "ready", nil)
 	drop(a.net.conns[0])
 	a.net.set(true)
-	callTool(t, a.cs, "handoff", map[string]any{"id": "sf-1", "note": "half done"})
+	callTool(t, a.cs, "handoff", map[string]any{"id": "ar-1", "note": "half done"})
 	a.srv.Renew(t.Context()) // still away: nothing to do, and no harm
 	if len(a.list(t).Pending) != 1 {
 		t.Fatal("the handoff left the outbox while the server was away")
@@ -414,7 +414,7 @@ func TestRenewSendsWhatABusyReplayLeft(t *testing.T) {
 	callTool(t, a.cs, "ready", nil)
 	drop(a.net.conns[0])
 	a.net.set(true)
-	callTool(t, a.cs, "handoff", map[string]any{"id": "sf-1", "note": "half done"})
+	callTool(t, a.cs, "handoff", map[string]any{"id": "ar-1", "note": "half done"})
 	l, _, err := a.off.Local()
 	if err != nil {
 		t.Fatal(err)
@@ -467,7 +467,7 @@ func TestNoOutboxNoQueue(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = cs.Close() })
-	res := callTool(t, cs, "comment", map[string]any{"id": "sf-1", "body": "hi"})
+	res := callTool(t, cs, "comment", map[string]any{"id": "ar-1", "body": "hi"})
 	if got := text(t, res); !res.IsError || !strings.Contains(got, "fix: tell the user aries cannot connect") {
 		t.Errorf("comment with no outbox = %q (error %v), want the dial error", got, res.IsError)
 	}

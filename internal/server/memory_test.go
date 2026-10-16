@@ -107,8 +107,8 @@ func TestDispatchMemoryRefusals(t *testing.T) {
 			"alice may hold at most 1 memories in project scope", proto.FixForgetSome, "memories_per_scope"},
 		{"bad scope", proto.OpRecall, proto.RecallArgs{Scope: "world"}, proto.CodeInvalid, "scope", "", "aries recall -h"},
 		{"prime with a filter", proto.OpRecall, proto.RecallArgs{Prime: true, Tag: "x"}, proto.CodeInvalid, "prime", "", ""},
-		{"linked issue missing", proto.OpRemember, proto.RememberArgs{Key: "k3", Body: "x", Issue: ptr("sf-zzzzzzzz")}, proto.CodeNotFound,
-			"issue sf-zzzzzzzz not found", "", "aries list"},
+		{"linked issue missing", proto.OpRemember, proto.RememberArgs{Key: "k3", Body: "x", Issue: ptr("ar-zzzzzzzz")}, proto.CodeNotFound,
+			"issue ar-zzzzzzzz not found", "", "aries list"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

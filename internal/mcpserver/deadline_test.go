@@ -30,13 +30,13 @@ func TestStalledCallLetsRenewalsThrough(t *testing.T) {
 			if op == proto.OpRenew {
 				return proto.ClaimsResult{}, nil
 			}
-			return proto.ShowResult{Issue: proto.Issue{ID: "sf-1", Title: "t"}}, nil
+			return proto.ShowResult{Issue: proto.Issue{ID: "ar-1", Title: "t"}}, nil
 		}}
 		cs, d, s := connectServer(t, stalled, healthy)
 		start := time.Now()
 		shown := make(chan *mcp.CallToolResult, 1)
 		go func() {
-			res, err := cs.CallTool(t.Context(), &mcp.CallToolParams{Name: "show", Arguments: map[string]any{"id": "sf-1"}})
+			res, err := cs.CallTool(t.Context(), &mcp.CallToolParams{Name: "show", Arguments: map[string]any{"id": "ar-1"}})
 			if err != nil {
 				res = toolError(err)
 			}

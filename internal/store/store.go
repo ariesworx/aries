@@ -21,9 +21,13 @@ import (
 	"github.com/ariesworx/aries/internal/logs"
 )
 
+// DefaultPrefix starts the ids of a store given no prefix. An issue keeps
+// its id for good, so this is never changed once a release has made one.
+const DefaultPrefix = "ar"
+
 // Options configure a Store. The zero value is usable.
 type Options struct {
-	// Prefix is used for IDs the store generates. Default "sf".
+	// Prefix is used for IDs the store generates. Default [DefaultPrefix].
 	Prefix string
 	// MaxAttempts bounds retries of a write that loses to a concurrent
 	// transaction. Default 5.
@@ -211,7 +215,7 @@ func (db *DB) open(ctx context.Context, schema string, opts Options, sc schema, 
 		opts.Logger = slog.New(slog.DiscardHandler)
 	}
 	if opts.Prefix == "" {
-		opts.Prefix = "sf"
+		opts.Prefix = DefaultPrefix
 	}
 	if !prefixPattern.MatchString(opts.Prefix) {
 		return nil, fmt.Errorf("%w: prefix %q", ErrInvalid, opts.Prefix)

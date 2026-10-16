@@ -198,7 +198,7 @@ func newBenchSSHD(b *testing.B, accept ssh.PublicKey) *benchSSHD {
 	}
 	s := &benchSSHD{port: l.Addr().(*net.TCPAddr).Port, hostFpr: ssh.FingerprintSHA256(host.PublicKey())}
 	for i := range 500 {
-		s.issues.Issues = append(s.issues.Issues, proto.Summary{ID: fmt.Sprintf("sf-%08d", i), Status: "open", Priority: i % 5,
+		s.issues.Issues = append(s.issues.Issues, proto.Summary{ID: fmt.Sprintf("ar-%08d", i), Status: "open", Priority: i % 5,
 			Title: fmt.Sprintf("Reconciler loses the first of two overlapping writes (case %d)", i)})
 	}
 	var wg sync.WaitGroup

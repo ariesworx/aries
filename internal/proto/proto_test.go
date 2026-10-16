@@ -13,11 +13,11 @@ import (
 
 func TestFrameRoundTrip(t *testing.T) {
 	t.Parallel()
-	req, err := Request(7, OpShow, ShowArgs{ID: "sf-abcd1234", Full: true})
+	req, err := Request(7, OpShow, ShowArgs{ID: "ar-abcd1234", Full: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ok, err := Response(7, WriteResult{ID: "sf-abcd1234", Rev: 3}, nil)
+	ok, err := Response(7, WriteResult{ID: "ar-abcd1234", Rev: 3}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -441,7 +441,7 @@ func TestEventChanged(t *testing.T) {
 	}{
 		{Event{Op: "issue.update", Before: json.RawMessage(`{"title":"a"}`), After: json.RawMessage(`{"title":"b","assignee":"x"}`)}, "assignee, title"},
 		{Event{Op: "label.add", After: json.RawMessage(`{"label":"docs"}`)}, "docs"},
-		{Event{Op: "dep.remove", Before: json.RawMessage(`{"type":"blocks","to":"sf-b"}`)}, "blocks sf-b"},
+		{Event{Op: "dep.remove", Before: json.RawMessage(`{"type":"blocks","to":"ar-b"}`)}, "blocks ar-b"},
 		{Event{Op: "issue.create", After: json.RawMessage(`{"title":"Ship"}`)}, `"Ship"`},
 		{Event{Op: "comment.add"}, ""},
 		{Event{Op: "issue.paths", After: json.RawMessage(`{"source":"commit","added":["a","b"]}`)}, "commit +2"},

@@ -85,7 +85,7 @@ func (s *soak) setup() {
 			t.Fatalf("soak setup: %s %+v: %v", op, args, err)
 		}
 	}
-	s.a = &sproj{id: project, name: "first", prefix: "sf", db: openCheckerDB(t, s.w.dsn)}
+	s.a = &sproj{id: project, name: "first", prefix: "ar", db: openCheckerDB(t, s.w.dsn)}
 	add := func(name, prefix string) *sproj {
 		var res proto.ProjectAddResult
 		call(proto.OpProjectAdd, proto.ProjectAddArgs{Name: name, Prefix: prefix}, &res)

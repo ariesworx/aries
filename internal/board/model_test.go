@@ -15,12 +15,12 @@ var t0 = time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
 // snapshot is a board with two ready issues, one held and one blocked.
 func snapshot() *Snapshot {
 	return &Snapshot{
-		Ready: []proto.Summary{{ID: "sf-r1", Title: "Write the parser", Status: "open", Priority: 1},
-			{ID: "sf-r2", Title: "Tidy the logs", Status: "open", Priority: 2, Overlaps: []string{"sf-h1"}}},
-		Held: []Held{{Claim: proto.Claim{ID: "sf-h1", By: "alice", Session: "cc-1234", Machine: "laptop", Epoch: 1,
+		Ready: []proto.Summary{{ID: "ar-r1", Title: "Write the parser", Status: "open", Priority: 1},
+			{ID: "ar-r2", Title: "Tidy the logs", Status: "open", Priority: 2, Overlaps: []string{"ar-h1"}}},
+		Held: []Held{{Claim: proto.Claim{ID: "ar-h1", By: "alice", Session: "cc-1234", Machine: "laptop", Epoch: 1,
 			ClaimedAt: t0.Add(-42 * time.Minute), ExpiresAt: t0.Add(5 * time.Minute)}, Title: "Fix the lexer", Priority: 0}},
-		Blocked: []proto.BlockedIssue{{Summary: proto.Summary{ID: "sf-b1", Title: "Ship it", Status: "open", Priority: 2},
-			BlockedBy: []string{"sf-r1", "sf-h1"}}},
+		Blocked: []proto.BlockedIssue{{Summary: proto.Summary{ID: "ar-b1", Title: "Ship it", Status: "open", Priority: 2},
+			BlockedBy: []string{"ar-r1", "ar-h1"}}},
 		ServerNow: t0, LocalNow: t0,
 	}
 }
@@ -75,7 +75,7 @@ func TestModelEventOrder(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m := New("demo")
 			for _, seq := range slices.Concat(tc.before, tc.push) {
-				m.Apply(event(seq, "issue.update", "sf-1"))
+				m.Apply(event(seq, "issue.update", "ar-1"))
 			}
 			var got []int64
 			for _, e := range m.Tail() {
@@ -94,7 +94,7 @@ func TestModelEvents(t *testing.T) {
 	t.Parallel()
 	m := New("demo")
 	for i := range TailMax + 3 {
-		m.Apply(event(int64(i+1), "issue.update", fmt.Sprintf("sf-%d", i)))
+		m.Apply(event(int64(i+1), "issue.update", fmt.Sprintf("ar-%d", i)))
 	}
 	tail := m.Tail()
 	if len(tail) != TailMax || tail[0].Seq != 4 || tail[len(tail)-1].Seq != TailMax+3 {
@@ -104,7 +104,7 @@ func TestModelEvents(t *testing.T) {
 	if got := m.Tail(); len(got) != TailMax {
 		t.Errorf("after a snapshot the tail has %d events, want %d", len(got), TailMax)
 	}
-	if got := m.Selected(); got != "sf-r1" {
+	if got := m.Selected(); got != "ar-r1" {
 		t.Errorf("Selected() after the first snapshot = %q, want the first ready issue", got)
 	}
 }
@@ -126,30 +126,30 @@ func TestModelKeys(t *testing.T) {
 		steps []step
 	}{
 		{"move", []step{
-			{KeyDown, "sf-r2", none, ViewBoard}, {KeyDown, "sf-h1", none, ViewBoard}, {KeyDown, "sf-b1", none, ViewBoard},
-			{KeyDown, "sf-b1", none, ViewBoard}, {KeyUp, "sf-h1", none, ViewBoard}, {KeyHome, "sf-r1", none, ViewBoard},
-			{KeyUp, "sf-r1", none, ViewBoard}, {KeyEnd, "sf-b1", none, ViewBoard}, {KeyPageUp, "sf-r1", none, ViewBoard},
-			{KeyPageDown, "sf-b1", none, ViewBoard},
+			{KeyDown, "ar-r2", none, ViewBoard}, {KeyDown, "ar-h1", none, ViewBoard}, {KeyDown, "ar-b1", none, ViewBoard},
+			{KeyDown, "ar-b1", none, ViewBoard}, {KeyUp, "ar-h1", none, ViewBoard}, {KeyHome, "ar-r1", none, ViewBoard},
+			{KeyUp, "ar-r1", none, ViewBoard}, {KeyEnd, "ar-b1", none, ViewBoard}, {KeyPageUp, "ar-r1", none, ViewBoard},
+			{KeyPageDown, "ar-b1", none, ViewBoard},
 		}},
 		{"detail and back", []step{
-			{KeyDown, "sf-r2", none, ViewBoard},
-			{KeyEnter, "sf-r2", Action{Do: DoShow, ID: "sf-r2"}, ViewDetail},
-			{KeyDown, "sf-r2", none, ViewDetail}, // scrolls the detail
-			{KeyEnter, "sf-r2", none, ViewDetail},
-			{KeyBack, "sf-r2", Action{Do: DoHide}, ViewBoard},
-			{KeyBack, "sf-r2", none, ViewBoard},
+			{KeyDown, "ar-r2", none, ViewBoard},
+			{KeyEnter, "ar-r2", Action{Do: DoShow, ID: "ar-r2"}, ViewDetail},
+			{KeyDown, "ar-r2", none, ViewDetail}, // scrolls the detail
+			{KeyEnter, "ar-r2", none, ViewDetail},
+			{KeyBack, "ar-r2", Action{Do: DoHide}, ViewBoard},
+			{KeyBack, "ar-r2", none, ViewBoard},
 		}},
 		{"help", []step{
-			{KeyHelp, "sf-r1", none, ViewHelp}, {KeyDown, "sf-r1", none, ViewHelp}, {KeyHelp, "sf-r1", none, ViewBoard},
-			{KeyHelp, "sf-r1", none, ViewHelp}, {KeyBack, "sf-r1", none, ViewBoard},
+			{KeyHelp, "ar-r1", none, ViewHelp}, {KeyDown, "ar-r1", none, ViewHelp}, {KeyHelp, "ar-r1", none, ViewBoard},
+			{KeyHelp, "ar-r1", none, ViewHelp}, {KeyBack, "ar-r1", none, ViewBoard},
 		}},
 		{"refresh anywhere", []step{
-			{KeyRefresh, "sf-r1", Action{Do: DoRefresh}, ViewBoard},
-			{KeyEnter, "sf-r1", Action{Do: DoShow, ID: "sf-r1"}, ViewDetail},
-			{KeyRefresh, "sf-r1", Action{Do: DoRefresh}, ViewDetail},
+			{KeyRefresh, "ar-r1", Action{Do: DoRefresh}, ViewBoard},
+			{KeyEnter, "ar-r1", Action{Do: DoShow, ID: "ar-r1"}, ViewDetail},
+			{KeyRefresh, "ar-r1", Action{Do: DoRefresh}, ViewDetail},
 		}},
-		{"quit from the board", []step{{KeyQuit, "sf-r1", Action{Do: DoQuit}, ViewBoard}}},
-		{"quit from help", []step{{KeyHelp, "sf-r1", none, ViewHelp}, {KeyQuit, "sf-r1", Action{Do: DoQuit}, ViewHelp}}},
+		{"quit from the board", []step{{KeyQuit, "ar-r1", Action{Do: DoQuit}, ViewBoard}}},
+		{"quit from help", []step{{KeyHelp, "ar-r1", none, ViewHelp}, {KeyQuit, "ar-r1", Action{Do: DoQuit}, ViewHelp}}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -171,18 +171,18 @@ func TestModelSelectionFollowsItsIssue(t *testing.T) {
 	m := New("demo")
 	m.Apply(snapshot())
 	m.Key(KeyDown)
-	m.Key(KeyDown) // sf-h1
+	m.Key(KeyDown) // ar-h1
 	s := snapshot()
 	s.Ready = s.Ready[1:]
 	m.Apply(s)
-	if got := m.Selected(); got != "sf-h1" {
-		t.Errorf("after sf-r1 left, Selected() = %q, want sf-h1 still", got)
+	if got := m.Selected(); got != "ar-h1" {
+		t.Errorf("after ar-r1 left, Selected() = %q, want ar-h1 still", got)
 	}
 	s = snapshot()
 	s.Ready, s.Held = s.Ready[:1], nil
 	m.Apply(s)
-	if got := m.Selected(); got != "sf-b1" {
-		t.Errorf("after sf-h1 was released, Selected() = %q, want the row now in its place, sf-b1", got)
+	if got := m.Selected(); got != "ar-b1" {
+		t.Errorf("after ar-h1 was released, Selected() = %q, want the row now in its place, ar-b1", got)
 	}
 	m.Apply(&Snapshot{})
 	if got, act := m.Selected(), m.Key(KeyEnter); got != "" || act != (Action{}) {
@@ -197,13 +197,13 @@ func TestModelDetail(t *testing.T) {
 	m := New("demo")
 	m.Apply(snapshot())
 	m.Key(KeyEnter)
-	m.Apply(&Detail{ID: "sf-r2", Show: &proto.ShowResult{Issue: proto.Issue{ID: "sf-r2"}}})
+	m.Apply(&Detail{ID: "ar-r2", Show: &proto.ShowResult{Issue: proto.Issue{ID: "ar-r2"}}})
 	if d := m.Detail(); d != nil {
 		t.Errorf("Detail() = %+v after a stale reply, want none yet", d)
 	}
-	m.Apply(&Detail{ID: "sf-r1", Show: &proto.ShowResult{Issue: proto.Issue{ID: "sf-r1"}}})
-	if d := m.Detail(); d == nil || d.ID != "sf-r1" {
-		t.Errorf("Detail() = %+v, want sf-r1's", d)
+	m.Apply(&Detail{ID: "ar-r1", Show: &proto.ShowResult{Issue: proto.Issue{ID: "ar-r1"}}})
+	if d := m.Detail(); d == nil || d.ID != "ar-r1" {
+		t.Errorf("Detail() = %+v, want ar-r1's", d)
 	}
 	if got := m.View(); got != ViewDetail {
 		t.Errorf("View() = %v, want detail", got)
@@ -221,7 +221,7 @@ func TestModelDetailScrollStops(t *testing.T) {
 	for i := range 10 {
 		body += fmt.Sprintf("line %d\n", i)
 	}
-	m.Apply(&Detail{ID: "sf-r1", Show: &proto.ShowResult{Issue: proto.Issue{ID: "sf-r1", Title: "t", Body: body}}})
+	m.Apply(&Detail{ID: "ar-r1", Show: &proto.ShowResult{Issue: proto.Issue{ID: "ar-r1", Title: "t", Body: body}}})
 	for range 50 {
 		m.Key(KeyDown)
 	}
@@ -243,10 +243,10 @@ func TestModelDetailDuringHelp(t *testing.T) {
 	m.Apply(snapshot())
 	m.Key(KeyEnter)
 	m.Key(KeyHelp)
-	m.Apply(&Detail{ID: "sf-r1", Show: &proto.ShowResult{Issue: proto.Issue{ID: "sf-r1"}}})
+	m.Apply(&Detail{ID: "ar-r1", Show: &proto.ShowResult{Issue: proto.Issue{ID: "ar-r1"}}})
 	m.Key(KeyHelp)
-	if d := m.Detail(); m.View() != ViewDetail || d == nil || d.ID != "sf-r1" {
-		t.Errorf("after help closed, view %v and Detail() = %+v; want the detail of sf-r1", m.View(), d)
+	if d := m.Detail(); m.View() != ViewDetail || d == nil || d.ID != "ar-r1" {
+		t.Errorf("after help closed, view %v and Detail() = %+v; want the detail of ar-r1", m.View(), d)
 	}
 }
 
@@ -261,7 +261,7 @@ func TestModelDetailEnd(t *testing.T) {
 	for i := range 10 {
 		body += fmt.Sprintf("line %d\n", i)
 	}
-	m.Apply(&Detail{ID: "sf-r1", Show: &proto.ShowResult{Issue: proto.Issue{ID: "sf-r1", Title: "t", Body: body}}})
+	m.Apply(&Detail{ID: "ar-r1", Show: &proto.ShowResult{Issue: proto.Issue{ID: "ar-r1", Title: "t", Body: body}}})
 	m.Key(KeyEnd)
 	if got := m.Frame(40, 6, t0, false)[4]; got != "line 9" {
 		t.Errorf("after End the last body row is %q, want %q", got, "line 9")

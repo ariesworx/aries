@@ -36,9 +36,9 @@ func TestWritesRetryWithTheirKey(t *testing.T) {
 		args map[string]any
 	}{
 		{"create", map[string]any{"title": "x"}},
-		{"comment", map[string]any{"id": "sf-1", "body": "hi"}},
-		{"handoff", map[string]any{"id": "sf-1", "note": "later"}},
-		{"finish", map[string]any{"id": "sf-1"}},
+		{"comment", map[string]any{"id": "ar-1", "body": "hi"}},
+		{"handoff", map[string]any{"id": "ar-1", "note": "later"}},
+		{"finish", map[string]any{"id": "ar-1"}},
 		{"remember", map[string]any{"key": "k", "body": "b"}},
 		{"forget", map[string]any{"key": "k"}},
 	} {
@@ -50,7 +50,7 @@ func TestWritesRetryWithTheirKey(t *testing.T) {
 					if fail {
 						return nil, errLost
 					}
-					return proto.WriteResult{ID: "sf-1", Rev: 2}, nil
+					return proto.WriteResult{ID: "ar-1", Rev: 2}, nil
 				}}
 			}
 			cs, d := connect(t, record(true), record(false))
@@ -71,9 +71,9 @@ func TestWritesRetryWithTheirKey(t *testing.T) {
 // number is refused before anything is sent.
 func TestFinishAcceptance(t *testing.T) {
 	t.Parallel()
-	f := &fakeConn{reply: func(string, any) (any, error) { return proto.FinishResult{ID: "sf-1", Rev: 3}, nil }}
+	f := &fakeConn{reply: func(string, any) (any, error) { return proto.FinishResult{ID: "ar-1", Rev: 3}, nil }}
 	cs, d := connect(t, f)
-	res := callTool(t, cs, "finish", map[string]any{"id": "sf-1", "ticked": []any{1, 3}, "waived": map[string]any{"2": "covered elsewhere"}})
+	res := callTool(t, cs, "finish", map[string]any{"id": "ar-1", "ticked": []any{1, 3}, "waived": map[string]any{"2": "covered elsewhere"}})
 	if res.IsError {
 		t.Fatal(text(t, res))
 	}
@@ -82,7 +82,7 @@ func TestFinishAcceptance(t *testing.T) {
 		t.Errorf("finish args %+v", got)
 	}
 	for _, bad := range []map[string]any{{"two": "x"}, {"0": "x"}, {"-1": "x"}} {
-		if res := callTool(t, cs, "finish", map[string]any{"id": "sf-1", "waived": bad}); !res.IsError {
+		if res := callTool(t, cs, "finish", map[string]any{"id": "ar-1", "waived": bad}); !res.IsError {
 			t.Errorf("waived %v accepted", bad)
 		}
 	}
@@ -97,44 +97,44 @@ func TestItemsAndSimilar(t *testing.T) {
 	t.Parallel()
 	items := []proto.AcceptanceItem{{N: 1, Text: "survives restart", State: "ticked", By: "alice"},
 		{N: 2, Text: "docs", State: "waived", Reason: "none needed"}, {N: 3, Text: "has tests"}}
-	similar := []proto.Summary{{ID: "sf-old1", Title: "Login fails", Status: "closed"}, {ID: "sf-old2", Title: "Token expiry", Status: "closed"}}
+	similar := []proto.Summary{{ID: "ar-old1", Title: "Login fails", Status: "closed"}, {ID: "ar-old2", Title: "Token expiry", Status: "closed"}}
 	f := &fakeConn{reply: func(op string, _ any) (any, error) {
-		is := proto.Issue{ID: "sf-1", Title: "Login", Type: "bug", Status: "in_progress", Acceptance: "- [x] survives restart\n- docs\n- has tests"}
+		is := proto.Issue{ID: "ar-1", Title: "Login", Type: "bug", Status: "in_progress", Acceptance: "- [x] survives restart\n- docs\n- has tests"}
 		switch op {
 		case proto.OpStart:
 			return proto.StartResult{Issue: is, Items: items}, nil
 		case proto.OpShow:
 			return proto.ShowResult{Issue: is, Items: items, Similar: similar}, nil
 		}
-		return proto.CreateResult{ID: "sf-2", Rev: 1, Similar: similar}, nil
+		return proto.CreateResult{ID: "ar-2", Rev: 1, Similar: similar}, nil
 	}}
 	cs, _ := connect(t, f)
 	want := []string{"1 [x] survives restart", "2 [waived: none needed] docs", "3 [ ] has tests"}
 
 	var st Started
-	if err := json.Unmarshal([]byte(text(t, callTool(t, cs, "start", map[string]any{"id": "sf-1"}))), &st); err != nil {
+	if err := json.Unmarshal([]byte(text(t, callTool(t, cs, "start", map[string]any{"id": "ar-1"}))), &st); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(st.Items, want) || st.Acceptance != "" {
 		t.Errorf("start items %q, acceptance %q", st.Items, st.Acceptance)
 	}
 	var sh Issue
-	if err := json.Unmarshal([]byte(text(t, callTool(t, cs, "show", map[string]any{"id": "sf-1"}))), &sh); err != nil {
+	if err := json.Unmarshal([]byte(text(t, callTool(t, cs, "show", map[string]any{"id": "ar-1"}))), &sh); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(sh.Items, want) || sh.Acceptance != "" || sh.Similar != "sf-old1 Login fails; sf-old2 Token expiry" {
+	if !slices.Equal(sh.Items, want) || sh.Acceptance != "" || sh.Similar != "ar-old1 Login fails; ar-old2 Token expiry" {
 		t.Errorf("show: items %q, acceptance %q, similar %q", sh.Items, sh.Acceptance, sh.Similar)
 	}
-	if got := text(t, callTool(t, cs, "create", map[string]any{"title": "Login again"})); got != `{"untrusted":"`+untrustedNote+`","id":"sf-2","rev":1,"similar":"sf-old1 Login fails; sf-old2 Token expiry"}` {
+	if got := text(t, callTool(t, cs, "create", map[string]any{"title": "Login again"})); got != `{"untrusted":"`+untrustedNote+`","id":"ar-2","rev":1,"similar":"ar-old1 Login fails; ar-old2 Token expiry"}` {
 		t.Errorf("create = %s", got)
 	}
 }
 
 func TestAcceptanceErrorNamesTheArguments(t *testing.T) {
 	t.Parallel()
-	res := toolError(proto.Errf(proto.CodeAcceptance, "tick what is met with `aries accept sf-1 2`, or waive an item with `aries accept sf-1 N --waive REASON`",
-		"issue sf-1 has acceptance items neither ticked nor waived: 2"))
-	want := "acceptance: issue sf-1 has acceptance items neither ticked nor waived: 2\n" +
+	res := toolError(proto.Errf(proto.CodeAcceptance, "tick what is met with `aries accept ar-1 2`, or waive an item with `aries accept ar-1 N --waive REASON`",
+		"issue ar-1 has acceptance items neither ticked nor waived: 2"))
+	want := "acceptance: issue ar-1 has acceptance items neither ticked nor waived: 2\n" +
 		"fix: call finish with ticked: [numbers met] and waived: {number: reason} for the rest; show lists the items"
 	if got := text(t, res); got != want {
 		t.Errorf("got  %q\nwant %q", got, want)

@@ -147,33 +147,33 @@ func TestQueuedWrite(t *testing.T) {
 		text string
 		doc  map[string]any
 	}{
-		{"handoff", []string{"handoff", "sf-a1b2", "half", "done", "--next", "the tests"},
-			since + "entry 1, handoff sf-a1b2" + sent + "\n",
-			map[string]any{"queued": true, "entry": 1.0, "op": "handoff", "issue": "sf-a1b2", "since": "2026-10-13T14:02:00Z"}},
-		{"comment", []string{"comment", "sf-a1b2", "a", "note"},
-			since + "entry 1, comment sf-a1b2" + sent + "\n",
-			map[string]any{"queued": true, "entry": 1.0, "op": "comment", "issue": "sf-a1b2", "since": "2026-10-13T14:02:00Z"}},
-		{"finish", []string{"finish", "sf-a1b2", "--reason", "done", "--discovered", "more to do"},
-			since + "entry 1, finish sf-a1b2" + sent + "\n",
-			map[string]any{"queued": true, "entry": 1.0, "op": "finish", "issue": "sf-a1b2", "since": "2026-10-13T14:02:00Z"}},
-		{"hours", []string{"hours", "1.5h", "sf-a1b2"},
-			since + "entry 1, hours.log sf-a1b2" + sent + "\n",
-			map[string]any{"queued": true, "entry": 1.0, "op": "hours.log", "issue": "sf-a1b2", "since": "2026-10-13T14:02:00Z"}},
+		{"handoff", []string{"handoff", "ar-a1b2", "half", "done", "--next", "the tests"},
+			since + "entry 1, handoff ar-a1b2" + sent + "\n",
+			map[string]any{"queued": true, "entry": 1.0, "op": "handoff", "issue": "ar-a1b2", "since": "2026-10-13T14:02:00Z"}},
+		{"comment", []string{"comment", "ar-a1b2", "a", "note"},
+			since + "entry 1, comment ar-a1b2" + sent + "\n",
+			map[string]any{"queued": true, "entry": 1.0, "op": "comment", "issue": "ar-a1b2", "since": "2026-10-13T14:02:00Z"}},
+		{"finish", []string{"finish", "ar-a1b2", "--reason", "done", "--discovered", "more to do"},
+			since + "entry 1, finish ar-a1b2" + sent + "\n",
+			map[string]any{"queued": true, "entry": 1.0, "op": "finish", "issue": "ar-a1b2", "since": "2026-10-13T14:02:00Z"}},
+		{"hours", []string{"hours", "1.5h", "ar-a1b2"},
+			since + "entry 1, hours.log ar-a1b2" + sent + "\n",
+			map[string]any{"queued": true, "entry": 1.0, "op": "hours.log", "issue": "ar-a1b2", "since": "2026-10-13T14:02:00Z"}},
 		{"remember", []string{"remember", "style", "tabs,", "not", "spaces"},
 			since + "entry 1, remember style" + sent + "\n",
 			map[string]any{"queued": true, "entry": 1.0, "op": "remember", "key": "style", "since": "2026-10-13T14:02:00Z"}},
-		{"update, with its rev", []string{"update", "sf-a1b2", "--rev", "3", "--title", "renamed"},
-			since + "entry 1, update sf-a1b2" + sent + "\n",
-			map[string]any{"queued": true, "entry": 1.0, "op": "update", "issue": "sf-a1b2", "since": "2026-10-13T14:02:00Z"}},
-		{"dep add", []string{"dep", "add", "sf-a1b2", "sf-c3d4"},
-			since + "entry 1, dep.add sf-a1b2" + sent + "\n",
-			map[string]any{"queued": true, "entry": 1.0, "op": "dep.add", "issue": "sf-a1b2", "since": "2026-10-13T14:02:00Z"}},
-		{"label remove", []string{"label", "remove", "sf-a1b2", "old"},
-			since + "entry 1, label.rm sf-a1b2" + sent + "\n",
-			map[string]any{"queued": true, "entry": 1.0, "op": "label.rm", "issue": "sf-a1b2", "since": "2026-10-13T14:02:00Z"}},
-		{"accept", []string{"accept", "sf-a1b2", "1,2"},
-			since + "entry 1, accept sf-a1b2" + sent + "\n",
-			map[string]any{"queued": true, "entry": 1.0, "op": "accept", "issue": "sf-a1b2", "since": "2026-10-13T14:02:00Z"}},
+		{"update, with its rev", []string{"update", "ar-a1b2", "--rev", "3", "--title", "renamed"},
+			since + "entry 1, update ar-a1b2" + sent + "\n",
+			map[string]any{"queued": true, "entry": 1.0, "op": "update", "issue": "ar-a1b2", "since": "2026-10-13T14:02:00Z"}},
+		{"dep add", []string{"dep", "add", "ar-a1b2", "ar-c3d4"},
+			since + "entry 1, dep.add ar-a1b2" + sent + "\n",
+			map[string]any{"queued": true, "entry": 1.0, "op": "dep.add", "issue": "ar-a1b2", "since": "2026-10-13T14:02:00Z"}},
+		{"label remove", []string{"label", "remove", "ar-a1b2", "old"},
+			since + "entry 1, label.rm ar-a1b2" + sent + "\n",
+			map[string]any{"queued": true, "entry": 1.0, "op": "label.rm", "issue": "ar-a1b2", "since": "2026-10-13T14:02:00Z"}},
+		{"accept", []string{"accept", "ar-a1b2", "1,2"},
+			since + "entry 1, accept ar-a1b2" + sent + "\n",
+			map[string]any{"queued": true, "entry": 1.0, "op": "accept", "issue": "ar-a1b2", "since": "2026-10-13T14:02:00Z"}},
 		{"create has no id yet", []string{"create", "A", "new", "issue"},
 			since + "entry 1, create" + sent + "; the issue has no id until then, so nothing queued can refer to it\n",
 			map[string]any{"queued": true, "entry": 1.0, "op": "create", "since": "2026-10-13T14:02:00Z",
@@ -215,10 +215,10 @@ func TestQueuedWritesNumberAndDate(t *testing.T) {
 	t.Parallel()
 	a := newAway(t)
 	a.reachedAs(t, "alice")
-	a.run(t, "comment", "sf-a", "one")
+	a.run(t, "comment", "ar-a", "one")
 	a.now = a.now.Add(7 * time.Minute)
-	_, out, _ := a.run(t, "comment", "sf-b", "two")
-	if want := "queued (server unreachable since 2026-10-13 14:02 UTC): entry 2, comment sf-b;"; !strings.HasPrefix(out, want) {
+	_, out, _ := a.run(t, "comment", "ar-b", "two")
+	if want := "queued (server unreachable since 2026-10-13 14:02 UTC): entry 2, comment ar-b;"; !strings.HasPrefix(out, want) {
 		t.Errorf("the second queued write printed %q, want it to begin %q", out, want)
 	}
 }
@@ -233,9 +233,9 @@ func TestNoQueue(t *testing.T) {
 		args []string
 		env  string
 	}{
-		{"the flag, before the command", []string{"--no-queue", "handoff", "sf-a", "note"}, ""},
-		{"the flag, after the command", []string{"handoff", "sf-a", "note", "--no-queue"}, ""},
-		{"the variable", []string{"handoff", "sf-a", "note"}, "1"},
+		{"the flag, before the command", []string{"--no-queue", "handoff", "ar-a", "note"}, ""},
+		{"the flag, after the command", []string{"handoff", "ar-a", "note", "--no-queue"}, ""},
+		{"the variable", []string{"handoff", "ar-a", "note"}, "1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a := newAway(t)
@@ -269,12 +269,12 @@ func TestUnqueuedWriteSaysSo(t *testing.T) {
 		args []string
 		why  string
 	}{
-		{[]string{"start", "sf-a"}, "it takes a claim, and no claim is made without the server"},
-		{[]string{"close", "sf-a"}, "it ends something on a state the client cannot see"},
-		{[]string{"dep", "remove", "sf-a", "sf-b"}, "it undoes something on a state the client cannot see"},
+		{[]string{"start", "ar-a"}, "it takes a claim, and no claim is made without the server"},
+		{[]string{"close", "ar-a"}, "it ends something on a state the client cannot see"},
+		{[]string{"dep", "remove", "ar-a", "ar-b"}, "it undoes something on a state the client cannot see"},
 		{[]string{"forget", "style"}, "it undoes something on a state the client cannot see"},
 		{[]string{"list"}, ""},
-		{[]string{"show", "sf-a"}, ""},
+		{[]string{"show", "ar-a"}, ""},
 	} {
 		code, out, errb := a.run(t, tc.args...)
 		if code != ExitFailure || out != "" || !strings.HasPrefix(errb, "aries: 127.0.0.1:") ||
@@ -301,12 +301,12 @@ func TestQueuedLabels(t *testing.T) {
 	t.Parallel()
 	a := newAway(t)
 	a.reachedAs(t, "alice")
-	code, out, errb := a.run(t, "label", "add", "sf-a", "x", "y")
-	if code != ExitOK || strings.Count(out, "\n") != 2 || !strings.Contains(out, "entry 1, label.add sf-a;") ||
-		!strings.Contains(out, "entry 2, label.add sf-a;") || errb != "" {
+	code, out, errb := a.run(t, "label", "add", "ar-a", "x", "y")
+	if code != ExitOK || strings.Count(out, "\n") != 2 || !strings.Contains(out, "entry 1, label.add ar-a;") ||
+		!strings.Contains(out, "entry 2, label.add ar-a;") || errb != "" {
 		t.Errorf("aries label add with two labels = exit %d, stdout %q, stderr %q; want a queued line for each", code, out, errb)
 	}
-	code, out, _ = a.run(t, "label", "add", "sf-a", "z", "w", "--json")
+	code, out, _ = a.run(t, "label", "add", "ar-a", "z", "w", "--json")
 	var doc struct {
 		Queued  bool
 		Entries []struct{ Entry int }
@@ -326,7 +326,7 @@ func TestUpdateWithoutRevIsNotQueued(t *testing.T) {
 	t.Parallel()
 	a := newAway(t)
 	a.reachedAs(t, "alice")
-	code, out, errb := a.run(t, "update", "sf-a", "--title", "t")
+	code, out, errb := a.run(t, "update", "ar-a", "--title", "t")
 	if code != ExitFailure || out != "" ||
 		!strings.HasSuffix(errb, "; this update was not queued, since it needs the issue's rev, which only the server knows: give --rev N, the rev you based it on, to queue it\n") {
 		t.Errorf("aries update without --rev = exit %d, stdout %q, stderr %q; want it to fail, saying to give --rev", code, out, errb)
@@ -341,12 +341,12 @@ func TestUpdateWithoutRevIsNotQueued(t *testing.T) {
 func TestNothingQueuedBeforeTheFirstHandshake(t *testing.T) {
 	t.Parallel()
 	a := newAway(t)
-	code, out, errb := a.run(t, "handoff", "sf-a", "note")
+	code, out, errb := a.run(t, "handoff", "ar-a", "note")
 	if code != ExitFailure || out != "" || !strings.Contains(errb, "and this handoff was not queued: this machine has never reached the server with this key") ||
 		!strings.Contains(errb, "\nfix: run it again when the server answers; ") {
 		t.Errorf("exit %d, stdout %q, stderr %q; want exit %d and the refusal with its fix", code, out, errb, ExitFailure)
 	}
-	code, out, _ = a.run(t, "handoff", "sf-a", "note", "--json")
+	code, out, _ = a.run(t, "handoff", "ar-a", "note", "--json")
 	var doc map[string]map[string]any
 	if err := json.Unmarshal([]byte(out), &doc); err != nil || code != ExitFailure || doc["error"]["code"] != "unavailable" || doc["queued"] != nil {
 		t.Errorf("with --json: exit %d, %q (%v); want one document with the error", code, out, err)
@@ -359,7 +359,7 @@ func TestOutboxRefusalsReachThePerson(t *testing.T) {
 	t.Parallel()
 	a := newAway(t)
 	a.reachedAs(t, "alice")
-	code, out, errb := a.run(t, "comment", "sf-a", "the", "token", "is", "ghp_0123456789abcdefghijABCDEFGHIJ012345")
+	code, out, errb := a.run(t, "comment", "ar-a", "the", "token", "is", "ghp_0123456789abcdefghijABCDEFGHIJ012345")
 	if code != ExitFailure || out != "" || !strings.Contains(errb, "this comment was not queued") ||
 		!strings.Contains(errb, "\nfix: "+proto.FixSecret) || strings.Contains(errb, "ghp_") {
 		t.Errorf("a comment with a token: exit %d, stdout %q, stderr %q; want the refusal, its fix, and not the token", code, out, errb)
@@ -373,7 +373,7 @@ type refusing struct{ who string }
 func (c refusing) Principal() string { return c.who }
 func (refusing) Err() error          { return nil }
 func (refusing) Call(context.Context, string, any, any) error {
-	return proto.Errf(proto.CodeNotFound, "find the id with `aries list`", "issue sf-gone not found")
+	return proto.Errf(proto.CodeNotFound, "find the id with `aries list`", "issue ar-gone not found")
 }
 
 // outboxWith queues three writes as alice, the first of which the server
@@ -382,12 +382,12 @@ func outboxWith(t *testing.T) *away {
 	t.Helper()
 	a := newAway(t)
 	a.reachedAs(t, "alice")
-	a.run(t, "comment", "sf-gone", "too late")
+	a.run(t, "comment", "ar-gone", "too late")
 	if _, err := a.local().Replay(t.Context(), refusing{"alice"}); err != nil {
 		t.Fatal(err)
 	}
 	a.now = a.now.Add(10 * time.Minute)
-	a.run(t, "handoff", "sf-a1b2", "half done")
+	a.run(t, "handoff", "ar-a1b2", "half done")
 	a.now = a.now.Add(20 * time.Minute)
 	a.run(t, "create", "Something new")
 	a.now = a.now.Add(5 * time.Minute)
@@ -402,11 +402,11 @@ func TestOutboxList(t *testing.T) {
 		"server unreachable since 2026-10-13 14:12 UTC; last tried 2026-10-13 14:32 UTC\n" +
 		"waiting:\n" +
 		"  N  OP       ON       AGE  FROM\n" +
-		"  2  handoff  sf-a1b2  25m  cli on laptop\n" +
+		"  2  handoff  ar-a1b2  25m  cli on laptop\n" +
 		"  3  create   -        5m   cli on laptop\n" +
 		"refused:\n" +
-		"  1  comment  sf-gone  35m  cli on laptop\n" +
-		"     not_found: issue sf-gone not found\n" +
+		"  1  comment  ar-gone  35m  cli on laptop\n" +
+		"     not_found: issue ar-gone not found\n" +
 		"     fix: find the id with `aries list`\n" +
 		"`aries outbox retry N` sends a refused entry again; `aries outbox drop N` removes an entry for good\n"
 	if code != ExitOK || out != want || errb != "" {
@@ -435,7 +435,7 @@ func TestOutboxList(t *testing.T) {
 		t.Fatalf("aries outbox --json = exit %d, %q, want one JSON document: %v", code, out, err)
 	}
 	if doc.Principal != "alice" || len(doc.Pending) != 2 || len(doc.Refused) != 1 || doc.Pending[0].Entry != 2 || doc.Pending[0].Op != "handoff" ||
-		doc.Pending[0].Issue != "sf-a1b2" || doc.Pending[1].Issue != "" || doc.Refused[0].Code != "not_found" || doc.Refused[0].Fix == "" ||
+		doc.Pending[0].Issue != "ar-a1b2" || doc.Pending[1].Issue != "" || doc.Refused[0].Code != "not_found" || doc.Refused[0].Fix == "" ||
 		doc.Refused[0].RefusedAt.IsZero() || !doc.UnreachableSince.Equal(time.Date(2026, 10, 13, 14, 12, 0, 0, time.UTC)) || doc.LastNotReached.IsZero() {
 		t.Errorf("aries outbox --json = %+v", doc)
 	}
@@ -465,9 +465,9 @@ func TestOutboxListEscapes(t *testing.T) {
 	t.Parallel()
 	a := newAway(t)
 	a.reachedAs(t, "alice")
-	a.run(t, "comment", "sf-\x1b[2Jx", "a note")
+	a.run(t, "comment", "ar-\x1b[2Jx", "a note")
 	_, out, _ := a.run(t, "outbox")
-	if strings.ContainsRune(out, 0x1b) || !strings.Contains(out, `sf-\x1b[2Jx`) {
+	if strings.ContainsRune(out, 0x1b) || !strings.Contains(out, `ar-\x1b[2Jx`) {
 		t.Errorf("aries outbox printed an escape character from an entry: %q", out)
 	}
 }
@@ -487,7 +487,7 @@ func TestOutboxRetryAndDrop(t *testing.T) {
 		{[]string{"outbox", "retry"}, ExitUsage, "", "aries: retry needs an entry's number\nfix: usage: aries outbox [retry N | drop N | stats] [--principal P] [--host-key FINGERPRINT]\n"},
 		{[]string{"outbox", "drop", "x"}, ExitUsage, "", "aries: \"x\" is not an entry's number\nfix: usage: aries outbox [retry N | drop N | stats] [--principal P] [--host-key FINGERPRINT]\n"},
 		{[]string{"outbox", "send"}, ExitUsage, "", "aries: unknown outbox action \"send\"\nfix: usage: aries outbox [retry N | drop N | stats] [--principal P] [--host-key FINGERPRINT]\n"},
-		{[]string{"outbox", "retry", "1"}, ExitOK, "entry 1 (comment sf-gone) waits again: the next aries command that reaches the server sends it\n", ""},
+		{[]string{"outbox", "retry", "1"}, ExitOK, "entry 1 (comment ar-gone) waits again: the next aries command that reaches the server sends it\n", ""},
 		{[]string{"outbox", "drop", "3"}, ExitOK, "dropped entry 3 (create): it will not be sent\n", ""},
 		{[]string{"outbox", "drop", "2", "--json"}, ExitOK, `{"entry":2,"state":"dropped"}` + "\n", ""},
 	} {
@@ -496,7 +496,7 @@ func TestOutboxRetryAndDrop(t *testing.T) {
 			t.Errorf("aries %s = exit %d\nstdout %q\nwant   %q\nstderr %q\nwant   %q", strings.Join(tc.args, " "), code, out, tc.stdout, errb, tc.stderr)
 		}
 	}
-	if got := a.pending(t, "alice"); len(got) != 1 || got[0] != "comment sf-gone" {
+	if got := a.pending(t, "alice"); len(got) != 1 || got[0] != "comment ar-gone" {
 		t.Errorf("alice's outbox holds %v pending, want only the retried comment", got)
 	}
 	st, err := mustOutbox(t, a, "alice").Stats()
@@ -547,7 +547,7 @@ func TestOutboxOfAnotherPrincipal(t *testing.T) {
 	t.Parallel()
 	a := newAway(t)
 	a.reachedAs(t, "alice-agent")
-	a.run(t, "comment", "sf-a", "from the agent")
+	a.run(t, "comment", "ar-a", "from the agent")
 	a.reachedAs(t, "alice") // the server now takes the key for alice
 	_, out, _ := a.run(t, "outbox")
 	want := "alice's outbox is empty\n" +
@@ -559,7 +559,7 @@ func TestOutboxOfAnotherPrincipal(t *testing.T) {
 	if _, out, _ := a.run(t, "outbox", "--principal", "alice-agent"); !strings.HasPrefix(out, "alice-agent's outbox: 1 waiting, 0 refused\n") {
 		t.Errorf("aries outbox --principal alice-agent = %q", out)
 	}
-	if code, out, _ := a.run(t, "outbox", "drop", "1", "--principal", "alice-agent"); code != ExitOK || !strings.HasPrefix(out, "dropped entry 1 (comment sf-a)") {
+	if code, out, _ := a.run(t, "outbox", "drop", "1", "--principal", "alice-agent"); code != ExitOK || !strings.HasPrefix(out, "dropped entry 1 (comment ar-a)") {
 		t.Errorf("aries outbox drop 1 --principal alice-agent = exit %d, %q", code, out)
 	}
 }

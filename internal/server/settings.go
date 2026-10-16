@@ -60,7 +60,7 @@ type Settings struct {
 	Bridge string `yaml:"bridge"`
 	// Project is the UUID of the project served.
 	Project string `yaml:"project"`
-	// Prefix is the issue-ID prefix for generated IDs. Default "sf".
+	// Prefix is the issue-ID prefix for generated IDs. Default store.DefaultPrefix.
 	Prefix string `yaml:"prefix"`
 	// SystemdUnit is the unit `ariesd upgrade` restarts. Empty means
 	// upgrade installs the binary and leaves the restart to the admin,
@@ -253,7 +253,7 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 		LogLevel: getenv(EnvLogLevel), LogFormat: getenv(EnvLogFormat), ControlSchema: getenv(EnvControlSchema),
 		KeysFile: getenv(EnvKeysFile), AuthorizedKeys: getenv(EnvAuthorizedKeys), Bridge: getenv(EnvBridge),
 		ClockBehind: getenv(EnvClockBehind)}
-	out := Settings{Socket: DefaultSocket, Prefix: "sf", LogLevel: "info", LogFormat: "text", Account: DefaultAccount,
+	out := Settings{Socket: DefaultSocket, Prefix: store.DefaultPrefix, LogLevel: "info", LogFormat: "text", Account: DefaultAccount,
 		KeysFile: DefaultKeysFile, AuthorizedKeys: DefaultAuthorizedKeys, Bridge: DefaultBridge, ClockBehind: ClockStop}
 	for _, s := range []Settings{file, env, flags} {
 		for _, f := range []struct {

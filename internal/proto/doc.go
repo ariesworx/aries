@@ -42,7 +42,7 @@
 //	bridge → daemon:  {"t":"bridge","pr":"alice"}
 //	client → daemon:  {"t":"hello","v":"v0.5.0","p":5,"proj":"…","s":"…","m":"laptop"}
 //	daemon → client:  {"t":"welcome","v":"v0.5.0","min":5,"max":5,"s":"…","pr":"alice"}
-//	client → daemon:  {"t":"req","id":1,"op":"show","a":{"id":"sf-a1b2c3d4"}}
+//	client → daemon:  {"t":"req","id":1,"op":"show","a":{"id":"ar-a1b2c3d4"}}
 //	daemon → client:  {"t":"res","id":1,"ok":{…}}
 //
 // A request may carry the caller's trace context in tp and ts, so that
@@ -83,7 +83,7 @@
 //	daemon → client:  {"t":"evt","op":"inbox","e":{"id":9,"kind":"claim.lost",…}}
 //	client → daemon:  {"t":"req","id":3,"op":"watch","a":{"events":true}}
 //	daemon → client:  {"t":"res","id":3,"ok":{"unread":0}}
-//	daemon → client:  {"t":"evt","op":"event","e":{"seq":41,"op":"claim.take","issue":"sf-a1b2c3d4",…}}
+//	daemon → client:  {"t":"evt","op":"event","e":{"seq":41,"op":"claim.take","issue":"ar-a1b2c3d4",…}}
 //
 // A client ignores frame types, and event ops, it does not know, so the
 // server can add them without a protocol bump; the server refuses unknown

@@ -46,22 +46,22 @@ func TestPrintEscapesControl(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	closed := now
-	sum := proto.Summary{ID: "sf-a" + evil, Title: evil, Status: "open" + evil, Priority: 1}
-	issue := proto.Issue{ID: "sf-a", ParentID: "sf-p" + evil, Title: evil, Body: evilMD, Design: evilMD, Acceptance: evilMD,
+	sum := proto.Summary{ID: "ar-a" + evil, Title: evil, Status: "open" + evil, Priority: 1}
+	issue := proto.Issue{ID: "ar-a", ParentID: "ar-p" + evil, Title: evil, Body: evilMD, Design: evilMD, Acceptance: evilMD,
 		Notes: evilMD, Status: "closed", Type: "task" + evil, Assignee: evil, Owner: evil, CloseReason: evil, CreatedBy: evil,
 		CreatedAt: now, UpdatedAt: now, ClosedAt: &closed, Labels: []string{evil, "ok"}, Account: evil}
 	evilModels := []proto.ModelTokens{{Model: evil}}
 	show := proto.ShowResult{Issue: issue,
-		Deps:    []proto.Dep{{From: "sf-a", To: "sf-b" + evil, Type: "blocks" + evil}, {From: "sf-c" + evil, To: "sf-a", Type: "blocks"}},
-		Claim:   &proto.Claim{ID: "sf-a", By: evil, Session: evil, Machine: evil, Epoch: 1, ExpiresAt: now},
+		Deps:    []proto.Dep{{From: "ar-a", To: "ar-b" + evil, Type: "blocks" + evil}, {From: "ar-c" + evil, To: "ar-a", Type: "blocks"}},
+		Claim:   &proto.Claim{ID: "ar-a", By: evil, Session: evil, Machine: evil, Epoch: 1, ExpiresAt: now},
 		Items:   []proto.AcceptanceItem{{N: 1, Text: evil, State: "waived", Reason: evil, By: evil}, {N: 2, Text: evil, State: "ticked", By: evil}},
 		Similar: []proto.Summary{sum},
 		Handoff: &proto.Handoff{Author: evil, Body: evilMD, CreatedAt: now,
 			State: "partial" + evil, Next: evil, Branch: evil, Worktree: evil, To: evil},
 		Usage: &proto.IssueUsage{Account: evil, AccountFrom: evil, HeldSeconds: 60, Models: evilModels},
 		Files: &proto.Files{Paths: []proto.FilePath{{Path: evil, Source: proto.PathDeclared}, {Path: evil, Source: proto.PathCommit}},
-			Overlaps: []proto.Overlap{{ID: "sf-b" + evil, By: evil, Session: evil}}}}
-	digestItem := proto.DigestItem{ID: "sf-d" + evil, Title: evil, By: evil, At: now, Note: evil, From: evil, BlockedBy: []string{evil}}
+			Overlaps: []proto.Overlap{{ID: "ar-b" + evil, By: evil, Session: evil}}}}
+	digestItem := proto.DigestItem{ID: "ar-d" + evil, Title: evil, By: evil, At: now, Note: evil, From: evil, BlockedBy: []string{evil}}
 	tests := []struct {
 		name  string
 		print func(w *bytes.Buffer)
@@ -77,7 +77,7 @@ func TestPrintEscapesControl(t *testing.T) {
 		{"list", func(w *bytes.Buffer) { printSummaries(w, []proto.Summary{sum}, nil) }},
 		{"ready", func(w *bytes.Buffer) {
 			s := sum
-			s.Overlaps = []string{"sf-b" + evil}
+			s.Overlaps = []string{"ar-b" + evil}
 			printReady(w, []proto.Summary{s})
 		}},
 		{"blocked", func(w *bytes.Buffer) {
@@ -94,7 +94,7 @@ func TestPrintEscapesControl(t *testing.T) {
 			}
 		}},
 		{"inbox", func(w *bytes.Buffer) {
-			printItem(w, proto.InboxItem{ID: 1, Kind: "mention" + evil, Issue: "sf-a" + evil, Body: evil, From: evil, At: now})
+			printItem(w, proto.InboxItem{ID: 1, Kind: "mention" + evil, Issue: "ar-a" + evil, Body: evil, From: evil, At: now})
 		}},
 		{"digest", func(w *bytes.Buffer) {
 			items := []proto.DigestItem{digestItem}

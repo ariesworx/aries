@@ -86,7 +86,7 @@ func cmdInbox(ctx context.Context, r *runner, args []string) error {
 }
 
 // printItem prints one inbox item on one line:
-// #12 claim.lost sf-a1b2 from bob, 2026-10-07 12:00 UTC: taken by bob/s-b.
+// #12 claim.lost ar-a1b2 from bob, 2026-10-07 12:00 UTC: taken by bob/s-b.
 func printItem(w io.Writer, it proto.InboxItem) {
 	line := fmt.Sprintf("#%d %s", it.ID, esc(it.Kind))
 	if it.Issue != "" {

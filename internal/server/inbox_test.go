@@ -63,7 +63,7 @@ func TestDispatchStructuredHandoff(t *testing.T) {
 	s := newServer(t)
 	a := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work"})
 	mustCall[proto.StartResult](t, s, alice, proto.OpStart, proto.StartArgs{ID: a.ID})
-	f := proto.HandoffFields{State: "partial", Next: "wire the CLI", Branch: "feature/sf-1-work", Worktree: "/src/work", To: "bob"}
+	f := proto.HandoffFields{State: "partial", Next: "wire the CLI", Branch: "feature/ar-1-work", Worktree: "/src/work", To: "bob"}
 	mustCall[proto.WriteResult](t, s, alice, proto.OpHandoff, proto.HandoffArgs{ID: a.ID, Note: "half done", Release: true, HandoffFields: f})
 
 	own := mustCall[proto.ShowResult](t, s, alice, proto.OpShow, proto.ShowArgs{ID: a.ID})

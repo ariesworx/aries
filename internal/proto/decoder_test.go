@@ -150,7 +150,7 @@ func TestDecoderMatchesScanner(t *testing.T) {
 		head, tail := `{"t":"req","a":"`, `"}`
 		return head + strings.Repeat("x", n-len(head)-len(tail)) + tail
 	}
-	small := `{"t":"req","id":1,"op":"show","a":{"id":"sf-abcd1234"}}`
+	small := `{"t":"req","id":1,"op":"show","a":{"id":"ar-abcd1234"}}`
 	tests := []struct {
 		name string
 		in   string
@@ -217,7 +217,7 @@ func TestDecoderTooLargeIsFinal(t *testing.T) {
 // FuzzDecoder holds Decoder to the Scanner it replaced on any stream,
 // read whole or in pieces of any size.
 func FuzzDecoder(f *testing.F) {
-	f.Add([]byte(`{"t":"req","id":1,"op":"show","a":{"id":"sf-abcd1234"}}`+"\n"), uint8(0))
+	f.Add([]byte(`{"t":"req","id":1,"op":"show","a":{"id":"ar-abcd1234"}}`+"\n"), uint8(0))
 	f.Add([]byte("{\"t\":\"hello\"}\r\n\n{\"t\":\"res\",\"ok\":{}}"), uint8(3))
 	f.Add([]byte("nope\n{\"id\":1}\n\r\n{\"t\":\"evt\"}\n"), uint8(1))
 	f.Add([]byte(`{"t":"res","err":{"code":"conflict"}}`+"\n"+`{"t":`), uint8(5))
@@ -239,7 +239,7 @@ func TestDecoderRetains(t *testing.T) {
 	// Serial: it measures the heap, which a test running beside it would move.
 	const decoders = 16
 	const most = 8 << 10 // a decoder's own bytes, at most
-	small := []byte(`{"t":"req","id":1,"op":"show","a":{"id":"sf-abcd1234"}}` + "\n")
+	small := []byte(`{"t":"req","id":1,"op":"show","a":{"id":"ar-abcd1234"}}` + "\n")
 	large := []byte(`{"t":"res","id":2,"ok":"` + strings.Repeat("x", 256<<10) + `"}` + "\n")
 
 	retained := func(read [][]byte) uint64 {

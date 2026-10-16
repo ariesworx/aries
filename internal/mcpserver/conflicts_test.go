@@ -30,7 +30,7 @@ func TestCommentProposes(t *testing.T) {
 		{"theirs", proto.ProposeArgs{ID: 3, Choice: "theirs", Why: "keeps both"}},
 		{"accept", proto.ProposeArgs{ID: 3, Choice: "text", Text: "accept", Why: "keeps both"}}, // text; accepting is a person's
 	} {
-		res := callTool(t, cs, "comment", map[string]any{"id": "sf-1", "conflict": 3, "propose": tc.propose, "body": "keeps both"})
+		res := callTool(t, cs, "comment", map[string]any{"id": "ar-1", "conflict": 3, "propose": tc.propose, "body": "keeps both"})
 		if res.IsError {
 			t.Fatalf("comment proposing %q = %s", tc.propose, text(t, res))
 		}
@@ -43,10 +43,10 @@ func TestCommentProposes(t *testing.T) {
 		}
 	}
 	n := len(conn.ops())
-	if res := callTool(t, cs, "comment", map[string]any{"id": "sf-1", "body": "b", "conflict": 3}); !res.IsError || len(conn.ops()) != n {
+	if res := callTool(t, cs, "comment", map[string]any{"id": "ar-1", "body": "b", "conflict": 3}); !res.IsError || len(conn.ops()) != n {
 		t.Error("comment with a conflict and nothing to propose was sent")
 	}
-	res := callTool(t, cs, "comment", map[string]any{"id": "sf-1", "body": "plain"})
+	res := callTool(t, cs, "comment", map[string]any{"id": "ar-1", "body": "plain"})
 	if ops := conn.ops(); res.IsError || ops[len(ops)-1] != proto.OpComment || !strings.Contains(text(t, res), "c-1") {
 		t.Errorf("a plain comment = %s, calls %v; want a comment", text(t, res), ops)
 	}
@@ -68,13 +68,13 @@ func TestShowConflicts(t *testing.T) {
 	t.Parallel()
 	long := strings.Repeat("word ", 2000)
 	conn := &fakeConn{reply: func(string, any) (any, error) {
-		return proto.ShowResult{Issue: proto.Issue{ID: "sf-1", Title: "t", Status: "open", Rev: 4},
-			Conflicts: []proto.Conflict{{ID: 3, Issue: "sf-1", Field: "body", BaseRev: 2, Base: long, Mine: long + "mine",
+		return proto.ShowResult{Issue: proto.Issue{ID: "ar-1", Title: "t", Status: "open", Rev: 4},
+			Conflicts: []proto.Conflict{{ID: 3, Issue: "ar-1", Field: "body", BaseRev: 2, Base: long, Mine: long + "mine",
 				Theirs: long + "theirs", By: "alice", TheirsBy: "bob", Advice: "take theirs",
 				Proposal: &proto.Proposal{Choice: "theirs", By: "agent-1", At: time.Now()}}}}, nil
 	}}
 	cs, _ := connect(t, conn)
-	res := callTool(t, cs, "show", map[string]any{"id": "sf-1"})
+	res := callTool(t, cs, "show", map[string]any{"id": "ar-1"})
 	var is Issue
 	if err := json.Unmarshal([]byte(text(t, res)), &is); err != nil {
 		t.Fatal(err)
@@ -99,7 +99,7 @@ func TestDigestListsOldConflicts(t *testing.T) {
 	until := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
 	conn := &fakeConn{reply: func(string, any) (any, error) {
 		return proto.DigestResult{Since: until.Add(-24 * time.Hour), Until: until, Totals: proto.DigestTotals{Conflicts: 1},
-			Conflicts: []proto.DigestItem{{ID: "sf-1", Title: "t", By: "alice", At: until.Add(-30 * time.Hour), Note: "title (conflict 3)"}}}, nil
+			Conflicts: []proto.DigestItem{{ID: "ar-1", Title: "t", By: "alice", At: until.Add(-30 * time.Hour), Note: "title (conflict 3)"}}}, nil
 	}}
 	cs, _ := connect(t, conn)
 	var d Digest

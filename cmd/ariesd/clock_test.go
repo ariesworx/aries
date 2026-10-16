@@ -17,7 +17,7 @@ import (
 func writtenAhead(t *testing.T, dsn string, ahead time.Duration) time.Time {
 	t.Helper()
 	at := time.Now().Add(ahead).UTC().Truncate(time.Microsecond)
-	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "sf", Now: func() time.Time { return at }})
+	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "ar", Now: func() time.Time { return at }})
 	if err != nil {
 		t.Fatal(err)
 	}

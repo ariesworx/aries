@@ -91,7 +91,7 @@ var (
 	// the judge.
 	idShape = lazyregexp.New(`^[a-z][a-z0-9]*(-[a-z0-9]+)*-[a-z0-9]+(\.[0-9]+)*$`)
 	// branchID is the ID at the start of a branch's last segment, with a
-	// one-word prefix: sf-a1b2 or sf-a1b2.1.
+	// one-word prefix: ar-a1b2 or ar-a1b2.1.
 	branchID = lazyregexp.New(`^[a-z][a-z0-9]*-[a-z0-9]+(\.[0-9]+)*`)
 	// trailer is an "Aries: <id>" line, capturing the id.
 	trailer = lazyregexp.New(`^Aries:[ \t]*(\S+)[ \t]*$`)

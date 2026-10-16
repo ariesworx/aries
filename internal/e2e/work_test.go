@@ -71,7 +71,7 @@ func TestStartHandoffFinish(t *testing.T) {
 
 	r := bob.run("v0.2.0", "start", id)
 	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "aries: "+id+" is in progress by alice; next ready: ") ||
-		!strings.Contains(r.stderr, "fix: take that one with `aries start sf-") {
+		!strings.Contains(r.stderr, "fix: take that one with `aries start ar-") {
 		t.Fatalf("bob start: exit %d\n%s", r.code, r.stderr)
 	}
 

@@ -119,7 +119,7 @@ func (c *machine) set(d time.Duration) {
 // clock, as a daemon that ran there before did.
 func earlierWork(t *testing.T, dsn string, clk *store.Clock) {
 	t.Helper()
-	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "sf", Clock: clk})
+	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "ar", Clock: clk})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestStartClockBehind(t *testing.T) {
 			c.set(-tc.back)
 
 			clk := store.NewClock(store.ClockOptions{Read: c.read}) // a new process
-			st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "sf", Clock: clk})
+			st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "ar", Clock: clk})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -245,7 +245,7 @@ func TestStartFreshDatabaseWithAnyClock(t *testing.T) {
 	c := newMachine()
 	c.set(-30 * 365 * 24 * time.Hour) // a dead battery: the clock reads 1996
 	clk := store.NewClock(store.ClockOptions{Read: c.read})
-	st, err := store.Open(t.Context(), newDatabase(t), store.Options{Prefix: "sf", Clock: clk})
+	st, err := store.Open(t.Context(), newDatabase(t), store.Options{Prefix: "ar", Clock: clk})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +266,7 @@ func TestClockBehindWhileRunning(t *testing.T) {
 			dsn := newDatabase(t)
 			c := newMachine()
 			clk := store.NewClock(store.ClockOptions{Read: c.read})
-			st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "sf", Clock: clk})
+			st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "ar", Clock: clk})
 			if err != nil {
 				t.Fatal(err)
 			}

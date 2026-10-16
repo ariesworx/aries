@@ -282,7 +282,7 @@ func (w *world) startDaemon() error {
 		cancel()
 		return errors.Join(err, db.Close())
 	}
-	st, err := db.Open(ctx, d.Schema, store.Options{Prefix: "sf", Now: o.now, Clock: clk, Admins: o.admins,
+	st, err := db.Open(ctx, d.Schema, store.Options{Prefix: "ar", Now: o.now, Clock: clk, Admins: o.admins,
 		Limits: o.limits.Limits, Logger: o.logger, IdemWindow: time.Duration(o.limits.IdemWindow), AwayMax: time.Duration(o.limits.AwayMax),
 		Observer: server.StoreObserver(o.telemetry, project), Tracer: server.StoreTracer(o.telemetry, project)})
 	if err != nil {
@@ -353,7 +353,7 @@ func (w *world) adopt(ctx context.Context) error {
 		return err
 	}
 	operator := store.Actor{Principal: store.OperatorPrincipal, Session: "e2e", Machine: "server"}
-	_, err = ctl.AddProject(ctx, operator, store.NewProject{ID: project, Name: "first", Prefix: "sf", Account: "internal",
+	_, err = ctl.AddProject(ctx, operator, store.NewProject{ID: project, Name: "first", Prefix: "ar", Account: "internal",
 		Schema: d.Schema})
 	if err == nil {
 		_, err = ctl.ActivateProject(ctx, operator, project)
@@ -971,7 +971,7 @@ func TestCRUDRoundTrip(t *testing.T) {
 	alice := w.newUser("alice", "")
 
 	a := decode[proto.WriteResult](t, alice.ok("create", "Ship", "the", "thing", "-p", "1", "--label", "area:api", "--json"))
-	if a.Rev != 1 || !strings.HasPrefix(a.ID, "sf-") {
+	if a.Rev != 1 || !strings.HasPrefix(a.ID, "ar-") {
 		t.Fatalf("create: %+v", a)
 	}
 	b := strings.TrimSpace(alice.ok("create", "Write the docs", "--body", "-", "-t", "chore"))
@@ -1090,8 +1090,8 @@ func TestRefusals(t *testing.T) {
 			want: []string{"host key mismatch for 127.0.0.1", w.hostFpr, "fix: if the server's host key was changed"}},
 		{name: "unknown key", u: other, args: []string{"ready"}, code: cli.ExitFailure,
 			want: []string{"accepted no key: aries offered SHA256:", "fix: send your public key"}},
-		{name: "not found", u: w.newUser("dave", ""), args: []string{"show", "sf-zzzzzzzz"}, code: cli.ExitFailure,
-			want: []string{"aries: issue sf-zzzzzzzz not found\nfix: find the id with `aries list`"}},
+		{name: "not found", u: w.newUser("dave", ""), args: []string{"show", "ar-zzzzzzzz"}, code: cli.ExitFailure,
+			want: []string{"aries: issue ar-zzzzzzzz not found\nfix: find the id with `aries list`"}},
 		{name: "usage", u: other, args: []string{"show"}, code: cli.ExitUsage,
 			want: []string{"show needs exactly one issue id", "fix: usage: aries show ID"}},
 		{name: "unknown command", u: other, args: []string{"explode"}, code: cli.ExitUsage,

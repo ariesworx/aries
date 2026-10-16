@@ -50,7 +50,7 @@ func BenchmarkClientPrintSummaries(b *testing.B) {
 		b.Run(fmt.Sprintf("issues=%d", n), func(b *testing.B) {
 			issues := make([]proto.Summary, n)
 			for i := range issues {
-				issues[i] = proto.Summary{ID: fmt.Sprintf("sf-%08d", i), Status: "open", Priority: i % 5,
+				issues[i] = proto.Summary{ID: fmt.Sprintf("ar-%08d", i), Status: "open", Priority: i % 5,
 					Title: fmt.Sprintf("Reconciler loses the first of two overlapping writes (case %d)", i)}
 			}
 			var out benchCountingWriter

@@ -276,7 +276,7 @@ var wantKeys = map[string][]string{
 
 // hostile are strings a client might choose, none of them a value any
 // attribute lists.
-var hostile = []string{"", " ", "ok\n", "../../etc/passwd", "alice", "s-1234567890", "sf-1a2b", `"},{"`, "\x00\x01", "\u202e",
+var hostile = []string{"", " ", "ok\n", "../../etc/passwd", "alice", "s-1234567890", "ar-1a2b", `"},{"`, "\x00\x01", "\u202e",
 	strings.Repeat("x", 300), "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa", "unknown-op", "create ", "Create"}
 
 // recordAll records on every instrument with each of the values given

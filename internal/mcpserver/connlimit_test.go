@@ -58,9 +58,9 @@ func TestAtConnLimitWaitsBeforeDialingAgain(t *testing.T) {
 		return &fakeConn{who: "alice", reply: func(op string, _ any) (any, error) {
 			switch op {
 			case proto.OpStart:
-				return proto.StartResult{Issue: proto.Issue{ID: "sf-1", Type: "task"}, Claim: &proto.Claim{ID: "sf-1", Epoch: 1}}, nil
+				return proto.StartResult{Issue: proto.Issue{ID: "ar-1", Type: "task"}, Claim: &proto.Claim{ID: "ar-1", Epoch: 1}}, nil
 			case proto.OpRenew:
-				return proto.ClaimsResult{Claims: []proto.Claim{{ID: "sf-1", Epoch: 1}}}, nil
+				return proto.ClaimsResult{Claims: []proto.Claim{{ID: "ar-1", Epoch: 1}}}, nil
 			}
 			return proto.ListResult{Issues: []proto.Summary{}}, nil
 		}}
@@ -73,7 +73,7 @@ func TestAtConnLimitWaitsBeforeDialingAgain(t *testing.T) {
 	t.Cleanup(func() { _ = s.Close() })
 	cs := mcpSession(t, s)
 
-	if res := callTool(t, cs, "start", map[string]any{"id": "sf-1"}); res.IsError {
+	if res := callTool(t, cs, "start", map[string]any{"id": "ar-1"}); res.IsError {
 		t.Fatalf("start: %s", text(t, res))
 	}
 	drop(first) // the redial finds the principal at its limit

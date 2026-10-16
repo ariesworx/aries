@@ -118,14 +118,14 @@ func (c *fakeConn) Call(_ context.Context, op string, args, result any) error {
 	switch r := result.(type) {
 	case *proto.ListResult:
 		if op == proto.OpReady {
-			*r = proto.ListResult{Issues: []proto.Summary{{ID: "sf-r1", Title: "ready"}}}
+			*r = proto.ListResult{Issues: []proto.Summary{{ID: "ar-r1", Title: "ready"}}}
 		} else {
-			*r = proto.ListResult{Issues: []proto.Summary{{ID: "sf-h1", Title: "held", Priority: 1}}}
+			*r = proto.ListResult{Issues: []proto.Summary{{ID: "ar-h1", Title: "held", Priority: 1}}}
 		}
 	case *proto.BlockedResult:
 		*r = proto.BlockedResult{}
 	case *proto.ClaimsResult:
-		*r = proto.ClaimsResult{Claims: []proto.Claim{{ID: "sf-h1", By: "alice", Session: "s1"}}, Now: time.Now()}
+		*r = proto.ClaimsResult{Claims: []proto.Claim{{ID: "ar-h1", By: "alice", Session: "s1"}}, Now: time.Now()}
 	case *proto.ShowResult:
 		*r = proto.ShowResult{Issue: proto.Issue{ID: args.(proto.ShowArgs).ID}}
 	}
@@ -205,7 +205,7 @@ func TestLiveDebounces(t *testing.T) {
 		}
 
 		for range 5 {
-			r.srv.send(evt("issue.update", "sf-r1"))
+			r.srv.send(evt("issue.update", "ar-r1"))
 			time.Sleep(10 * time.Millisecond)
 		}
 		synctest.Wait()
@@ -222,7 +222,7 @@ func TestLiveDebounces(t *testing.T) {
 			t.Errorf("updates = %v, want %v", got, want)
 		}
 
-		r.srv.send(evt("comment.add", "sf-r1"))
+		r.srv.send(evt("comment.add", "ar-r1"))
 		time.Sleep(10 * time.Minute)
 		synctest.Wait()
 		if got := r.srv.took(); len(got) != 0 {
@@ -256,7 +256,7 @@ func TestLiveResyncs(t *testing.T) {
 		r.actions <- Action{Do: DoRefresh}
 		synctest.Wait()
 		for range pushQueue + 10 {
-			r.srv.send(evt("comment.add", "sf-r1"))
+			r.srv.send(evt("comment.add", "ar-r1"))
 		}
 		r.srv.mu.Lock()
 		r.srv.gate = nil
@@ -329,15 +329,15 @@ func TestLiveDetail(t *testing.T) {
 		r := startLive(t, &fakeServer{})
 		r.srv.took()
 		r.got()
-		r.actions <- Action{Do: DoShow, ID: "sf-r1"}
+		r.actions <- Action{Do: DoShow, ID: "ar-r1"}
 		synctest.Wait()
-		if got := r.srv.took(); !slices.Equal(got, []string{"show sf-r1"}) {
+		if got := r.srv.took(); !slices.Equal(got, []string{"show ar-r1"}) {
 			t.Errorf("show calls = %v", got)
 		}
-		r.srv.send(evt("comment.add", "sf-r1"))
+		r.srv.send(evt("comment.add", "ar-r1"))
 		time.Sleep(time.Second)
 		synctest.Wait()
-		if got := r.srv.took(); !slices.Equal(got, []string{"show sf-r1"}) {
+		if got := r.srv.took(); !slices.Equal(got, []string{"show ar-r1"}) {
 			t.Errorf("a comment on the open issue made calls %v, want its detail read again", got)
 		}
 		r.actions <- Action{Do: DoHide}
@@ -346,7 +346,7 @@ func TestLiveDetail(t *testing.T) {
 		if got := r.srv.took(); !slices.Equal(got, refresh) {
 			t.Errorf("refresh with no detail open made calls %v, want %v", got, refresh)
 		}
-		want := []string{"detail sf-r1", "event comment.add", "detail sf-r1", "snapshot"}
+		want := []string{"detail ar-r1", "event comment.add", "detail ar-r1", "snapshot"}
 		if got := r.got(); !slices.Equal(got, want) {
 			t.Errorf("updates = %v, want %v", got, want)
 		}

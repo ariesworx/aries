@@ -201,7 +201,7 @@ func TestDirectoryMustBeTheUsersOwn(t *testing.T) {
 			if _, err := l.Reached("alice", keyA, true, proto.Proto); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := l.Keep("alice", entry(proto.OpComment, "sf-a"), errReach); err != nil {
+			if _, err := l.Keep("alice", entry(proto.OpComment, "ar-a"), errReach); err != nil {
 				t.Fatal(err)
 			}
 			dir := tc.dir(l)
@@ -216,7 +216,7 @@ func TestDirectoryMustBeTheUsersOwn(t *testing.T) {
 					t.Errorf("%s = %v, want a refusal that names %s and a fix to chmod it or set %s", what, err, dir, EnvDataDir)
 				}
 			}
-			_, err := l.Keep("alice", entry(proto.OpComment, "sf-b"), errReach)
+			_, err := l.Keep("alice", entry(proto.OpComment, "ar-b"), errReach)
 			check("Keep", err)
 			if !errors.Is(err, ErrNotQueued) {
 				t.Errorf("Keep = %v, want ErrNotQueued", err)
@@ -247,7 +247,7 @@ func TestLocalFilesAreTheOwnersAlone(t *testing.T) {
 	if _, err := l.Reached("alice", keyA, true, proto.Proto); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := l.Keep("alice", entry(proto.OpComment, "sf-a"), errReach); err != nil {
+	if _, err := l.Keep("alice", entry(proto.OpComment, "ar-a"), errReach); err != nil {
 		t.Fatal(err)
 	}
 	err := filepath.WalkDir(l.root, func(path string, d os.DirEntry, err error) error {
@@ -315,12 +315,12 @@ func entry(op, id string) outbox.Entry {
 func TestKeep(t *testing.T) {
 	t.Parallel()
 	l, clk := newLocal(t, outbox.Options{})
-	first, err := l.Keep("alice", entry(proto.OpHandoff, "sf-a"), errReach)
+	first, err := l.Keep("alice", entry(proto.OpHandoff, "ar-a"), errReach)
 	if err != nil {
 		t.Fatalf("Keep = %v", err)
 	}
 	clk.t = t0.Add(5 * time.Minute)
-	second, err := l.Keep("alice", entry(proto.OpComment, "sf-b"), errReach)
+	second, err := l.Keep("alice", entry(proto.OpComment, "ar-b"), errReach)
 	if err != nil {
 		t.Fatalf("Keep = %v", err)
 	}
@@ -350,10 +350,10 @@ func TestKeep(t *testing.T) {
 // (rule 11). The message keeps why the server was not reached.
 func TestKeepRefusals(t *testing.T) {
 	t.Parallel()
-	secret := entry(proto.OpHandoff, "sf-a")
-	secret.Args = json.RawMessage(`{"id":"sf-a","note":"the token is ghp_0123456789abcdefghijABCDEFGHIJ012345","idem":"cli-1"}`)
-	big := entry(proto.OpHandoff, "sf-a")
-	big.Args = json.RawMessage(fmt.Sprintf(`{"id":"sf-a","note":%q,"idem":"cli-1"}`, strings.Repeat("word ", 400)))
+	secret := entry(proto.OpHandoff, "ar-a")
+	secret.Args = json.RawMessage(`{"id":"ar-a","note":"the token is ghp_0123456789abcdefghijABCDEFGHIJ012345","idem":"cli-1"}`)
+	big := entry(proto.OpHandoff, "ar-a")
+	big.Args = json.RawMessage(fmt.Sprintf(`{"id":"ar-a","note":%q,"idem":"cli-1"}`, strings.Repeat("word ", 400)))
 	blocked := filepath.Join(t.TempDir(), "a-file")
 	if err := os.WriteFile(blocked, nil, 0o600); err != nil {
 		t.Fatal(err)
@@ -368,13 +368,13 @@ func TestKeepRefusals(t *testing.T) {
 		msg   string
 		fix   string
 	}{
-		{name: "nobody: this machine never reached the server with this key", who: "", e: entry(proto.OpHandoff, "sf-a"),
+		{name: "nobody: this machine never reached the server with this key", who: "", e: entry(proto.OpHandoff, "ar-a"),
 			code: proto.CodeUnavailable, msg: "this machine has never reached the server with this key",
 			fix: "run it again when the server answers"},
-		{name: "full", e: entry(proto.OpComment, "sf-a"), who: "alice",
+		{name: "full", e: entry(proto.OpComment, "ar-a"), who: "alice",
 			local: func(t *testing.T) *Local {
 				l, _ := newLocal(t, outbox.Options{MaxEntries: 1})
-				if _, err := l.Keep("alice", entry(proto.OpComment, "sf-a"), errReach); err != nil {
+				if _, err := l.Keep("alice", entry(proto.OpComment, "ar-a"), errReach); err != nil {
 					t.Fatal(err)
 				}
 				return l
@@ -385,10 +385,10 @@ func TestKeepRefusals(t *testing.T) {
 			code:  proto.CodeInvalid, is: outbox.ErrTooLarge, msg: "the cap is 1024", fix: "shorten its text"},
 		{name: "a secret", e: secret, who: "alice", code: proto.CodeInvalid, is: outbox.ErrSecret, msg: "the outbox keeps no secret",
 			fix: proto.FixSecret},
-		{name: "the directory cannot be made", e: entry(proto.OpComment, "sf-a"), who: "alice",
+		{name: "the directory cannot be made", e: entry(proto.OpComment, "ar-a"), who: "alice",
 			local: func(*testing.T) *Local { return Open(blocked, hostKey, project, Options{}) },
 			code:  proto.CodeUnavailable, msg: "a-file", fix: EnvDataDir},
-		{name: "an op that is never queued", e: entry(proto.OpStart, "sf-a"), who: "alice", code: proto.CodeUnavailable,
+		{name: "an op that is never queued", e: entry(proto.OpStart, "ar-a"), who: "alice", code: proto.CodeUnavailable,
 			is: outbox.ErrNotQueueable, msg: "takes a claim", fix: "run it again when the server answers"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -496,23 +496,23 @@ func TestReplay(t *testing.T) {
 		calls     []string
 		stopped   bool
 	}{
-		{name: "all applied", delivered: 3, calls: []string{"comment sf-a", "comment sf-b", "remember style"}},
+		{name: "all applied", delivered: 3, calls: []string{"comment ar-a", "comment ar-b", "remember style"}},
 		{name: "one refused, the rest go on",
-			answers:   map[string]error{"sf-a": proto.Errf(proto.CodeNotFound, "find the id with `aries list`", "issue sf-a not found")},
-			delivered: 2, refused: []string{"sf-a not_found"}, calls: []string{"comment sf-a", "comment sf-b", "remember style"}},
-		{name: "forbidden is a refusal, kept", answers: map[string]error{"sf-b": proto.Errf(proto.CodeForbidden, "ask bob", "bob holds sf-b")},
-			delivered: 2, refused: []string{"sf-b forbidden"}, calls: []string{"comment sf-a", "comment sf-b", "remember style"}},
+			answers:   map[string]error{"ar-a": proto.Errf(proto.CodeNotFound, "find the id with `aries list`", "issue ar-a not found")},
+			delivered: 2, refused: []string{"ar-a not_found"}, calls: []string{"comment ar-a", "comment ar-b", "remember style"}},
+		{name: "forbidden is a refusal, kept", answers: map[string]error{"ar-b": proto.Errf(proto.CodeForbidden, "ask bob", "bob holds ar-b")},
+			delivered: 2, refused: []string{"ar-b forbidden"}, calls: []string{"comment ar-a", "comment ar-b", "remember style"}},
 		{name: "unavailable stops the replay",
-			answers:   map[string]error{"sf-b": proto.Errf(proto.CodeUnavailable, "retry", "the server could not complete comment")},
-			delivered: 1, pending: 2, calls: []string{"comment sf-a", "comment sf-b"}, stopped: true},
-		{name: "busy stops the replay", answers: map[string]error{"sf-a": proto.Errf(proto.CodeBusy, "wait 2s and retry", "too many writes")},
-			pending: 3, calls: []string{"comment sf-a"}, stopped: true},
-		{name: "a dropped connection stops the replay", answers: map[string]error{"sf-a": errDropped},
-			pending: 3, calls: []string{"comment sf-a"}, stopped: true},
+			answers:   map[string]error{"ar-b": proto.Errf(proto.CodeUnavailable, "retry", "the server could not complete comment")},
+			delivered: 1, pending: 2, calls: []string{"comment ar-a", "comment ar-b"}, stopped: true},
+		{name: "busy stops the replay", answers: map[string]error{"ar-a": proto.Errf(proto.CodeBusy, "wait 2s and retry", "too many writes")},
+			pending: 3, calls: []string{"comment ar-a"}, stopped: true},
+		{name: "a dropped connection stops the replay", answers: map[string]error{"ar-a": errDropped},
+			pending: 3, calls: []string{"comment ar-a"}, stopped: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			l, _ := newLocal(t, outbox.Options{})
-			for _, e := range []outbox.Entry{entry(proto.OpComment, "sf-a"), entry(proto.OpComment, "sf-b"), entry(proto.OpRemember, "style")} {
+			for _, e := range []outbox.Entry{entry(proto.OpComment, "ar-a"), entry(proto.OpComment, "ar-b"), entry(proto.OpRemember, "style")} {
 				if _, err := l.Keep("alice", e, errReach); err != nil {
 					t.Fatal(err)
 				}
@@ -556,16 +556,16 @@ func TestReplay(t *testing.T) {
 func TestReplayRetriesWithoutPaths(t *testing.T) {
 	t.Parallel()
 	l, _ := newLocal(t, outbox.Options{})
-	e := outbox.Entry{Op: proto.OpHandoff, Args: json.RawMessage(`{"id":"sf-a","note":"n","idem":"cli-1","paths":["../x"]}`)}
+	e := outbox.Entry{Op: proto.OpHandoff, Args: json.RawMessage(`{"id":"ar-a","note":"n","idem":"cli-1","paths":["../x"]}`)}
 	if _, err := l.Keep("alice", e, errReach); err != nil {
 		t.Fatal(err)
 	}
-	c := &fakeConn{who: "alice", answers: map[string]error{"sf-a": errBadPaths}}
+	c := &fakeConn{who: "alice", answers: map[string]error{"ar-a": errBadPaths}}
 	rep, err := l.Replay(t.Context(), c)
 	if err != nil || rep.Delivered != 1 || rep.Refused != 0 {
 		t.Errorf("Replay = %+v, %v; want the handoff delivered", rep, err)
 	}
-	if want := []string{"handoff sf-a park", "handoff sf-a -paths park"}; !slices.Equal(c.calls, want) {
+	if want := []string{"handoff ar-a park", "handoff ar-a -paths park"}; !slices.Equal(c.calls, want) {
 		t.Errorf("Replay sent %v, want %v", c.calls, want)
 	}
 }
@@ -575,7 +575,7 @@ func TestReplayRetriesWithoutPaths(t *testing.T) {
 func TestReplayLeavesAnotherPrincipalsOutbox(t *testing.T) {
 	t.Parallel()
 	l, _ := newLocal(t, outbox.Options{})
-	if _, err := l.Keep("alice", entry(proto.OpComment, "sf-a"), errReach); err != nil {
+	if _, err := l.Keep("alice", entry(proto.OpComment, "ar-a"), errReach); err != nil {
 		t.Fatal(err)
 	}
 	for _, who := range []string{"bob", ""} {
@@ -605,7 +605,7 @@ func TestEnded(t *testing.T) {
 	t.Parallel()
 	l, _ := newLocal(t, outbox.Options{})
 	for _, who := range []string{"alice", "alice", "bob"} {
-		if _, err := l.Keep(who, entry(proto.OpComment, "sf-a"), errReach); err != nil {
+		if _, err := l.Keep(who, entry(proto.OpComment, "ar-a"), errReach); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -673,10 +673,10 @@ func TestKeepByProtocol(t *testing.T) {
 			if _, err := l.Reached("alice", keyA, true, tc.protocol); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := l.Keep("alice", entry(proto.OpComment, "sf-a"), errReach); err != nil {
+			if _, err := l.Keep("alice", entry(proto.OpComment, "ar-a"), errReach); err != nil {
 				t.Errorf("Keep(comment) = %v, want it queued whatever the protocol", err)
 			}
-			_, err := l.Keep("alice", update("sf-a"), errReach)
+			_, err := l.Keep("alice", update("ar-a"), errReach)
 			if tc.queued != (err == nil) {
 				t.Fatalf("Keep(update) = %v, want queued %v", err, tc.queued)
 			}
@@ -704,8 +704,8 @@ func TestReplayParks(t *testing.T) {
 		calls  []string
 		parked int
 	}{
-		{"a server of 7", 7, []string{"update sf-a park", "update sf-b park", "comment sf-c"}, 1},
-		{"a server of 6", 6, []string{"update sf-a", "update sf-b", "comment sf-c"}, 0},
+		{"a server of 7", 7, []string{"update ar-a park", "update ar-b park", "comment ar-c"}, 1},
+		{"a server of 6", 6, []string{"update ar-a", "update ar-b", "comment ar-c"}, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -713,12 +713,12 @@ func TestReplayParks(t *testing.T) {
 			if _, err := l.Reached("alice", keyA, true, tc.speaks); err != nil {
 				t.Fatal(err)
 			}
-			for _, e := range []outbox.Entry{update("sf-a"), update("sf-b"), entry(proto.OpComment, "sf-c")} {
+			for _, e := range []outbox.Entry{update("ar-a"), update("ar-b"), entry(proto.OpComment, "ar-c")} {
 				if _, err := l.Keep("alice", e, errReach); err != nil {
 					t.Fatal(err)
 				}
 			}
-			c := &fakeConn{who: "alice", speaks: tc.speaks, parks: map[string]bool{"sf-a": true}}
+			c := &fakeConn{who: "alice", speaks: tc.speaks, parks: map[string]bool{"ar-a": true}}
 			rep, err := l.Replay(t.Context(), c)
 			if err != nil || rep.Delivered != 3 || rep.Parked != tc.parked || !slices.Equal(c.calls, tc.calls) {
 				t.Errorf("Replay = %+v, %v, sending %v; want 3 delivered, %d parked, sending %v", rep, err, c.calls, tc.parked, tc.calls)
@@ -740,8 +740,8 @@ func TestReplayKeepsLate(t *testing.T) {
 		calls  []string
 		kept   int
 	}{
-		{"a server of 8", 8, []string{"finish sf-a park", "handoff sf-b -paths park", "finish sf-c park"}, 2},
-		{"a server of 7", 7, []string{"finish sf-a", "handoff sf-b -paths", "finish sf-c"}, 0},
+		{"a server of 8", 8, []string{"finish ar-a park", "handoff ar-b -paths park", "finish ar-c park"}, 2},
+		{"a server of 7", 7, []string{"finish ar-a", "handoff ar-b -paths", "finish ar-c"}, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -749,12 +749,12 @@ func TestReplayKeepsLate(t *testing.T) {
 			if _, err := l.Reached("alice", keyA, true, tc.speaks); err != nil {
 				t.Fatal(err)
 			}
-			for _, e := range []outbox.Entry{entry(proto.OpFinish, "sf-a"), entry(proto.OpHandoff, "sf-b"), entry(proto.OpFinish, "sf-c")} {
+			for _, e := range []outbox.Entry{entry(proto.OpFinish, "ar-a"), entry(proto.OpHandoff, "ar-b"), entry(proto.OpFinish, "ar-c")} {
 				if _, err := l.Keep("alice", e, errReach); err != nil {
 					t.Fatal(err)
 				}
 			}
-			c := &fakeConn{who: "alice", speaks: tc.speaks, keeps: map[string]bool{"sf-a": true, "sf-b": true}}
+			c := &fakeConn{who: "alice", speaks: tc.speaks, keeps: map[string]bool{"ar-a": true, "ar-b": true}}
 			rep, err := l.Replay(t.Context(), c)
 			if err != nil || rep.Delivered != 3 || rep.Kept != tc.kept || rep.Parked != 0 || !slices.Equal(c.calls, tc.calls) {
 				t.Errorf("Replay = %+v, %v, sending %v; want 3 delivered, %d kept, sending %v", rep, err, c.calls, tc.kept, tc.calls)
@@ -773,14 +773,14 @@ func TestReplayByProtocol(t *testing.T) {
 	if _, err := l.Reached("alice", keyA, true, proto.Proto); err != nil {
 		t.Fatal(err)
 	}
-	for _, e := range []outbox.Entry{update("sf-a"), entry(proto.OpComment, "sf-b")} {
+	for _, e := range []outbox.Entry{update("ar-a"), entry(proto.OpComment, "ar-b")} {
 		if _, err := l.Keep("alice", e, errReach); err != nil {
 			t.Fatal(err)
 		}
 	}
 	c := &fakeConn{who: "alice", speaks: 5}
 	rep, err := l.Replay(t.Context(), c)
-	if err != nil || rep.Delivered != 1 || rep.Refused != 1 || !slices.Equal(c.calls, []string{"comment sf-b"}) {
+	if err != nil || rep.Delivered != 1 || rep.Refused != 1 || !slices.Equal(c.calls, []string{"comment ar-b"}) {
 		t.Fatalf("Replay on a connection of protocol 5 = %+v, %v, sending %v; want the comment delivered and the update refused unsent", rep, err, c.calls)
 	}
 	ob, _, err := l.Existing("alice")
@@ -803,7 +803,7 @@ func TestReplayByProtocol(t *testing.T) {
 		t.Fatal(err)
 	}
 	c = &fakeConn{who: "alice"}
-	if rep, err := l.Replay(t.Context(), c); err != nil || rep.Delivered != 1 || !slices.Equal(c.calls, []string{"update sf-a park"}) {
+	if rep, err := l.Replay(t.Context(), c); err != nil || rep.Delivered != 1 || !slices.Equal(c.calls, []string{"update ar-a park"}) {
 		t.Errorf("Replay on a connection of this build, after a retry = %+v, %v, sending %v; want the update delivered", rep, err, c.calls)
 	}
 }
@@ -823,7 +823,7 @@ func queuedAt(t *testing.T, root, key, proj, addr string, n int) *Local {
 		t.Fatal(err)
 	}
 	for range n {
-		if _, err := l.Keep("alice", entry(proto.OpComment, "sf-a"), errReach); err != nil {
+		if _, err := l.Keep("alice", entry(proto.OpComment, "ar-a"), errReach); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -922,11 +922,11 @@ func TestAdopt(t *testing.T) {
 func TestTarget(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ op, args, want string }{
-		{proto.OpComment, `{"id":"sf-a","body":"x"}`, "sf-a"},
-		{proto.OpFinish, `{"id":"sf-b"}`, "sf-b"},
+		{proto.OpComment, `{"id":"ar-a","body":"x"}`, "ar-a"},
+		{proto.OpFinish, `{"id":"ar-b"}`, "ar-b"},
 		{proto.OpRemember, `{"key":"style","scope":"me","body":"x"}`, "style"},
 		{proto.OpCreate, `{"title":"x"}`, ""},
-		{proto.OpCreate, `{"id":"sf-mine","title":"x"}`, "sf-mine"},
+		{proto.OpCreate, `{"id":"ar-mine","title":"x"}`, "ar-mine"},
 		{proto.OpComment, `not json`, ""},
 	} {
 		if got := Target(outbox.Entry{Op: tc.op, Args: json.RawMessage(tc.args)}); got != tc.want {

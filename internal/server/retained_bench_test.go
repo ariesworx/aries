@@ -357,7 +357,7 @@ func benchStuck(b *testing.B, sd seeded, mode string) (stop func()) {
 			log.Handler().(*logs.Handler).Tap(h)
 		}
 	}
-	st, err := store.Open(b.Context(), sd.dsn, store.Options{Prefix: "sf", Admins: []string{dana.Principal}, Logger: log,
+	st, err := store.Open(b.Context(), sd.dsn, store.Options{Prefix: "ar", Admins: []string{dana.Principal}, Logger: log,
 		Observer: StoreObserver(tel, project), Tracer: StoreTracer(tel, project)})
 	if err != nil {
 		b.Fatal(err)

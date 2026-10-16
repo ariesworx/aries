@@ -37,14 +37,14 @@ Read [What this costs](#what-this-costs) before you set it up.
 3. **The gates.** Whoever plans the work adds them; agents cannot:
 
    ```sh
-   # sf-c3d4 waits until CI reports build passed on sf-a1b2's branch
-   aries gate add --kind ci --check build --issue sf-a1b2 --approver ci-example --blocks sf-c3d4
-   # record whether sf-a1b2 landed; nothing waits on it
-   aries gate add --kind ci --check landed --issue sf-a1b2 --approver ci-example
+   # ar-c3d4 waits until CI reports build passed on ar-a1b2's branch
+   aries gate add --kind ci --check build --issue ar-a1b2 --approver ci-example --blocks ar-c3d4
+   # record whether ar-a1b2 landed; nothing waits on it
+   aries gate add --kind ci --check landed --issue ar-a1b2 --approver ci-example
    ```
 
    An issue has one ci gate for each check. To hold another issue behind
-   the same check, `aries dep add sf-e5f6 GATE`.
+   the same check, `aries dep add ar-e5f6 GATE`.
 
 4. **The workflow.** Add one of the examples below. Each runs on every
    pull request or merge request and on the default branch, and passes
@@ -58,16 +58,16 @@ system's variables (`GITHUB_HEAD_REF`, `GITHUB_REF_NAME`,
 `CI_MERGE_REQUEST_SOURCE_BRANCH_NAME`, `CI_COMMIT_BRANCH`, in that
 order), since CI checks out a detached HEAD, and else from git. The
 server reads the issue from the branch with the project's prefix, as
-`aries start --new-branch` names one: `feature/sf-a1b2-parse-the-config` is
-`sf-a1b2`, and so is `alice/feature/sf-a1b2`.
+`aries start --new-branch` names one: `feature/ar-a1b2-parse-the-config` is
+`ar-a1b2`, and so is `alice/feature/ar-a1b2`.
 
 After a merge the default branch names no issue, so the `landed` job
-passes `--from-commit`: the issue named by HEAD's `Aries: sf-a1b2`
+passes `--from-commit`: the issue named by HEAD's `Aries: ar-a1b2`
 trailer, or else the branch a merge commit merged (`Merge pull request
-#12 from example/feature/sf-a1b2-…`, `Merge branch 'feature/sf-a1b2-…'
+#12 from example/feature/ar-a1b2-…`, `Merge branch 'feature/ar-a1b2-…'
 into 'main'`). A squash merge keeps neither unless the squashed message
 holds the trailer: on GitHub, make the default squash message the pull
-request's title and description, and put `Aries: sf-a1b2` in the
+request's title and description, and put `Aries: ar-a1b2` in the
 description.
 
 `--issue ID` and `--branch NAME` name the issue directly, and `aries gate

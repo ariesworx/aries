@@ -594,9 +594,9 @@ Then, on alice's machine, inside the repository:
 
 ```console
 $ aries create "Fix the login redirect" -p 1 -t bug
-sf-aukz3rip
+ar-aukz3rip
 $ aries ready
-sf-aukz3rip  P1  open  Fix the login redirect
+ar-aukz3rip  P1  open  Fix the login redirect
 ```
 
 [Using `aries`](cli.md#connect-a-repository) explains every field of the file,
@@ -1985,7 +1985,7 @@ the config file (`/etc/aries/ariesd.yaml`, or `--config FILE`, or
 | `authorized_keys` | With `control_schema`: the hand-maintained file sshd reads beside it. ariesd only reads it, to say which keys are in both. Never the same file as `keys_file` | `.ssh/authorized_keys` | `ARIESD_AUTHORIZED_KEYS` |
 | `bridge` | With `control_schema`: the path of ariesd in the forced command of each line of `keys_file`. Absolute, of letters, digits and `._+-` | `/usr/local/bin/ariesd` | `ARIESD_BRIDGE` |
 | `socket` | The daemon's unix socket | `/run/aries/ariesd.sock` | `--socket`, `ARIESD_SOCKET` |
-| `prefix` | The prefix of new issue ids | `sf` | `--prefix` |
+| `prefix` | The prefix of new issue ids | `ar` | `--prefix` |
 | `admins` | [Admins](#admins) | none | `ARIESD_ADMINS` |
 | `systemd_unit` | The unit `ariesd upgrade` restarts and health-checks | none | |
 | `releases` | Where `ariesd upgrade` reads releases from: the `https://` URL of a mirror, or the absolute path of a directory ([Upgrades](#upgrades)) | GitHub | `ARIES_RELEASES`, the variable `aries` and `install.sh` read |

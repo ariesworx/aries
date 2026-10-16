@@ -121,7 +121,7 @@ func TestMCPAgentSession(t *testing.T) {
 
 	a := decode[proto.WriteResult](t, ag.ok("create", map[string]any{"title": "Ship it", "priority": 1, "labels": []any{"area:api"}}))
 	b := decode[proto.WriteResult](t, ag.ok("create", map[string]any{"title": "Write the docs", "type": "chore", "body": "how"}))
-	if a.Rev != 1 || !strings.HasPrefix(a.ID, "sf-") || b.ID == a.ID {
+	if a.Rev != 1 || !strings.HasPrefix(a.ID, "ar-") || b.ID == a.ID {
 		t.Fatalf("create: %+v %+v", a, b)
 	}
 	if out := ag.ok("dep", map[string]any{"action": "add", "id": a.ID, "depends_on": b.ID}); out != `{"id":"`+a.ID+`"}` {
@@ -191,8 +191,8 @@ func TestMCPAgentSession(t *testing.T) {
 	if !isErr || out != "conflict: "+a.ID+" changed since rev 1 (now rev 2 by bob)\nfix: call show for the current rev, then retry with that rev if your change still applies" {
 		t.Fatalf("conflict: %v %q", isErr, out)
 	}
-	out, isErr = ag.call("show", map[string]any{"id": "sf-zzzzzzzz"})
-	if !isErr || out != "not_found: issue sf-zzzzzzzz not found\nfix: find the id with list or ready" {
+	out, isErr = ag.call("show", map[string]any{"id": "ar-zzzzzzzz"})
+	if !isErr || out != "not_found: issue ar-zzzzzzzz not found\nfix: find the id with list or ready" {
 		t.Fatalf("not found: %v %q", isErr, out)
 	}
 

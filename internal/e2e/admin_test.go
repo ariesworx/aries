@@ -186,11 +186,11 @@ func TestAdminCommands(t *testing.T) {
 	// Projects: a server admin sees every one with its database, anyone
 	// else the active ones they belong to.
 	plist := dana.ok("admin", "project", "list")
-	if !strings.Contains(plist, "NAME   ID") || !strings.Contains(plist, "SCHEMA") || !strings.Contains(plist, "first  "+project+"  sf      internal  active") {
+	if !strings.Contains(plist, "NAME   ID") || !strings.Contains(plist, "SCHEMA") || !strings.Contains(plist, "first  "+project+"  ar      internal  active") {
 		t.Errorf("project list for a server admin:\n%s", plist)
 	}
 	mine := decode[proto.ProjectsResult](t, alice.ok("admin", "project", "list", "--json"))
-	if len(mine.Projects) != 1 || mine.Projects[0] != (proto.Project{ID: project, Name: "first", Prefix: "sf", Account: "internal", State: "active", Role: "admin"}) {
+	if len(mine.Projects) != 1 || mine.Projects[0] != (proto.Project{ID: project, Name: "first", Prefix: "ar", Account: "internal", State: "active", Role: "admin"}) {
 		t.Errorf("project list --json for a project admin: %+v", mine)
 	}
 	if got := alice.ok("admin", "project", "list"); !strings.Contains(got, "ROLE") || strings.Contains(got, "SCHEMA") {

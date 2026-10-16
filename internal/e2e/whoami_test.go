@@ -72,7 +72,7 @@ func TestWhoami(t *testing.T) {
 	for _, u := range []*user{alice, stranger} {
 		for _, env := range []map[string]string{{client.EnvNotRead: material}, {client.EnvKeyFile: material}} {
 			u.env = env
-			for _, args := range [][]string{{"whoami"}, {"whoami", "--json"}, {"ready"}, {"prime"}, {"show", "sf-nosuchid", "--json"}, {"admin", "key", "list", "alice"}} {
+			for _, args := range [][]string{{"whoami"}, {"whoami", "--json"}, {"ready"}, {"prime"}, {"show", "ar-nosuchid", "--json"}, {"admin", "key", "list", "alice"}} {
 				r := u.run("v0.2.0", args...)
 				for _, part := range []string{"b3BlbnNzaC1rZXktdjE", "QyNTUxOQAAACBz", "PRIVATE KEY"} {
 					if strings.Contains(r.stdout+r.stderr, part) {

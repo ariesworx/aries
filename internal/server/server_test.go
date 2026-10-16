@@ -137,7 +137,7 @@ func newServerDSN(t *testing.T, lim Limits) (*Server, string) {
 func newServerClock(t *testing.T, lim Limits, now func() time.Time) (*Server, string) {
 	t.Helper()
 	dsn := newDatabase(t)
-	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "sf", Admins: []string{dana.Principal},
+	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "ar", Admins: []string{dana.Principal},
 		Limits: lim.Limits, Now: now, IdemWindow: time.Duration(lim.IdemWindow), AwayMax: time.Duration(lim.AwayMax)})
 	if err != nil {
 		t.Fatal(err)
@@ -194,7 +194,7 @@ func TestDispatchRoundTrip(t *testing.T) {
 	p1 := 1
 	a := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "parent", Priority: &p1, Labels: []string{"x"}})
 	b := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "blocker", Body: strings.Repeat("é", 400)})
-	if a.Rev != 1 || !strings.HasPrefix(a.ID, "sf-") {
+	if a.Rev != 1 || !strings.HasPrefix(a.ID, "ar-") {
 		t.Fatalf("create: %+v", a)
 	}
 	mustCall[proto.Empty](t, s, alice, proto.OpDepAdd, proto.DepArgs{From: a.ID, To: b.ID})
@@ -262,7 +262,7 @@ func TestDispatchErrors(t *testing.T) {
 	mustCall[proto.WriteResult](t, s, alice, proto.OpClose, proto.CloseArgs{ID: b.ID})
 	stale := "stale"
 	open := "blocked"
-	missing := "sf-zzzzzzzz"
+	missing := "ar-zzzzzzzz"
 
 	tests := []struct {
 		name    string
@@ -277,10 +277,10 @@ func TestDispatchErrors(t *testing.T) {
 			code: proto.CodeConflict, msg: a.ID + " changed since rev 1 (now rev 2 by bob)", fix: "re-read with `aries show " + a.ID + "`"},
 		{name: "close with stale rev", op: proto.OpClose, args: proto.CloseArgs{ID: a.ID, Rev: 1},
 			code: proto.CodeConflict, msg: "changed since rev 1 (now rev 2 by bob)"},
-		{name: "not found", op: proto.OpShow, args: proto.ShowArgs{ID: "sf-zzzzzzzz"},
-			code: proto.CodeNotFound, msg: "issue sf-zzzzzzzz not found", fix: "aries list"},
-		{name: "comments of a missing issue", op: proto.OpComments, args: proto.IDArgs{ID: "sf-zzzzzzzz"}, code: proto.CodeNotFound},
-		{name: "history of a missing issue", op: proto.OpHistory, args: proto.IDArgs{ID: "sf-zzzzzzzz"}, code: proto.CodeNotFound},
+		{name: "not found", op: proto.OpShow, args: proto.ShowArgs{ID: "ar-zzzzzzzz"},
+			code: proto.CodeNotFound, msg: "issue ar-zzzzzzzz not found", fix: "aries list"},
+		{name: "comments of a missing issue", op: proto.OpComments, args: proto.IDArgs{ID: "ar-zzzzzzzz"}, code: proto.CodeNotFound},
+		{name: "history of a missing issue", op: proto.OpHistory, args: proto.IDArgs{ID: "ar-zzzzzzzz"}, code: proto.CodeNotFound},
 		{name: "exists", op: proto.OpCreate, args: proto.CreateArgs{ID: b.ID, Title: "dup"},
 			code: proto.CodeExists, msg: "issue " + b.ID + " already exists", fix: "omit --id"},
 		{name: "cycle", op: proto.OpDepAdd, args: proto.DepArgs{From: b.ID, To: a.ID},
@@ -295,13 +295,13 @@ func TestDispatchErrors(t *testing.T) {
 			code: proto.CodeInvalid, msg: "is closed", fix: "aries reopen " + b.ID},
 		{name: "close twice", op: proto.OpClose, args: proto.CloseArgs{ID: b.ID}, code: proto.CodeInvalid, fix: "nothing to do"},
 		{name: "unknown op", op: "explode", args: struct{}{}, code: proto.CodeInvalid, msg: `unknown operation "explode"`},
-		{name: "unknown field", op: proto.OpShow, rawArgs: `{"id":"sf-aaaa","colour":1}`, code: proto.CodeInvalid, msg: "colour"},
+		{name: "unknown field", op: proto.OpShow, rawArgs: `{"id":"ar-aaaa","colour":1}`, code: proto.CodeInvalid, msg: "colour"},
 		// Last, so an update that wrongly succeeds moves no rev the rows
 		// above expect.
 		{name: "create under a missing parent", op: proto.OpCreate, args: proto.CreateArgs{Title: "orphan", Parent: missing},
-			code: proto.CodeNotFound, msg: "parent: issue sf-zzzzzzzz not found", fix: "find the id with `aries list`"},
+			code: proto.CodeNotFound, msg: "parent: issue ar-zzzzzzzz not found", fix: "find the id with `aries list`"},
 		{name: "update to a missing parent", op: proto.OpUpdate, args: proto.UpdateArgs{ID: a.ID, Rev: 2, Parent: &missing},
-			code: proto.CodeNotFound, msg: "parent: issue sf-zzzzzzzz not found", fix: "find the id with `aries list`"},
+			code: proto.CodeNotFound, msg: "parent: issue ar-zzzzzzzz not found", fix: "find the id with `aries list`"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -811,9 +811,9 @@ func TestResolveSettings(t *testing.T) {
 		}
 		return p
 	}
-	good := write("good.yaml", "dsn: postgres://aries:pw@127.0.0.1:5432/sf\nsocket: /run/x/s.sock\nproject: "+project+"\n", 0o600)
-	loose := write("loose.yaml", "dsn: postgres://aries:pw@127.0.0.1:5432/sf\n", 0o644)
-	nopw := write("nopw.yaml", "dsn: postgres://aries@127.0.0.1:5432/sf\n", 0o644)
+	good := write("good.yaml", "dsn: postgres://aries:pw@127.0.0.1:5432/aries\nsocket: /run/x/s.sock\nproject: "+project+"\n", 0o600)
+	loose := write("loose.yaml", "dsn: postgres://aries:pw@127.0.0.1:5432/aries\n", 0o644)
+	nopw := write("nopw.yaml", "dsn: postgres://aries@127.0.0.1:5432/aries\n", 0o644)
 	unknown := write("unknown.yaml", "dns: typo\n", 0o600)
 	unit := write("unit.yaml", "systemd_unit: ariesd.service\n", 0o600)
 	badUnit := write("badunit.yaml", "systemd_unit: --no-block\n", 0o600)
@@ -838,14 +838,14 @@ func TestResolveSettings(t *testing.T) {
 		err   string
 	}{
 		{name: "file", path: good, check: func(s Settings) bool {
-			return s.Socket == "/run/x/s.sock" && s.Project == project && s.Prefix == "sf" && strings.Contains(s.DSN, "pw@")
+			return s.Socket == "/run/x/s.sock" && s.Project == project && s.Prefix == "ar" && strings.Contains(s.DSN, "pw@")
 		}},
 		{name: "env beats file", path: good, env: map[string]string{EnvSocket: "/run/env.sock"},
 			check: func(s Settings) bool { return s.Socket == "/run/env.sock" }},
 		{name: "flag beats env", path: good, flags: Settings{Socket: "/run/flag.sock"}, env: map[string]string{EnvSocket: "/run/env.sock"},
 			check: func(s Settings) bool { return s.Socket == "/run/flag.sock" }},
 		{name: "config from env", env: map[string]string{EnvConfig: good}, check: func(s Settings) bool { return s.Project == project }},
-		{name: "defaults from an empty file", path: empty, check: func(s Settings) bool { return s.Socket == DefaultSocket && s.Prefix == "sf" }},
+		{name: "defaults from an empty file", path: empty, check: func(s Settings) bool { return s.Socket == DefaultSocket && s.Prefix == "ar" }},
 		{name: "password in flag refused", flags: Settings{DSN: "postgres://u:secret@h:1/d"}, err: "process list"}, //nolint:gosec // an invented password, which must be refused
 		{name: "password parameter in flag refused", flags: Settings{DSN: "postgres://u@h:1/d?password=secret"}, err: "process list"},
 		{name: "a DSN of another form refused", flags: Settings{DSN: "u@tcp(h:1)/d"}, err: "not a postgres:// URL"},
@@ -903,8 +903,8 @@ func TestResolveSettings(t *testing.T) {
 			t.Skipf("needs a host without %s", DefaultConfigFile)
 		}
 		s, err := ResolveSettings(Settings{}, "", func(string) string { return "" })
-		if err != nil || s.Socket != DefaultSocket || s.Prefix != "sf" {
-			t.Errorf(`ResolveSettings(Settings{}, "", no environment) = socket %q, prefix %q, %v; want %q, "sf", nil`,
+		if err != nil || s.Socket != DefaultSocket || s.Prefix != "ar" {
+			t.Errorf(`ResolveSettings(Settings{}, "", no environment) = socket %q, prefix %q, %v; want %q, "ar", nil`,
 				s.Socket, s.Prefix, err, DefaultSocket)
 		}
 	})
@@ -927,9 +927,9 @@ func TestResolveSocket(t *testing.T) {
 		}
 		return p
 	}
-	good := write("good.yaml", "dsn: postgres://aries:pw@127.0.0.1:5432/sf\nsocket: /run/x/s.sock\n", 0o600)
+	good := write("good.yaml", "dsn: postgres://aries:pw@127.0.0.1:5432/aries\nsocket: /run/x/s.sock\n", 0o600)
 	empty := write("empty.yaml", "", 0o600)
-	loose := write("loose.yaml", "dsn: postgres://aries:pw@127.0.0.1:5432/sf\nsocket: /run/x/s.sock\n", 0o644)
+	loose := write("loose.yaml", "dsn: postgres://aries:pw@127.0.0.1:5432/aries\nsocket: /run/x/s.sock\n", 0o644)
 	unknown := write("unknown.yaml", "sokcet: /run/x/s.sock\n", 0o600)
 	others := write("others.yaml", "socket: /run/x/s.sock\nsystemd_unit: --no-block\nadmins: [ariesd]\naccount: Acme Corp\nlog_level: loud\n", 0o600)
 
@@ -1022,8 +1022,8 @@ func TestDispatchWork(t *testing.T) {
 		{name: "start closed", a: bob, op: proto.OpStart, args: proto.StartArgs{ID: a.ID},
 			code: proto.CodeInvalid, msg: "is closed", fix: "aries reopen " + a.ID},
 		{name: "finish closed", a: bob, op: proto.OpFinish, args: proto.FinishArgs{ID: a.ID}, code: proto.CodeInvalid, fix: "nothing to do"},
-		{name: "start missing", a: bob, op: proto.OpStart, args: proto.StartArgs{ID: "sf-zzzzzzzz"},
-			code: proto.CodeNotFound, msg: "issue sf-zzzzzzzz not found"},
+		{name: "start missing", a: bob, op: proto.OpStart, args: proto.StartArgs{ID: "ar-zzzzzzzz"},
+			code: proto.CodeNotFound, msg: "issue ar-zzzzzzzz not found"},
 		{name: "bad discovered", a: alice, op: proto.OpFinish, args: proto.FinishArgs{ID: b.ID, Discovered: []proto.Discovered{{Title: "x", Type: "story"}}},
 			code: proto.CodeInvalid, msg: "story", fix: "`aries finish -h`"},
 		{name: "empty note", a: alice, op: proto.OpHandoff, args: proto.HandoffArgs{ID: b.ID}, code: proto.CodeInvalid, msg: "comment must be"},

@@ -48,7 +48,7 @@ func TestFindAcrossARotation(t *testing.T) {
 	if _, err := before.Reached("alice", keyA, true, proto.Proto); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := before.Keep("alice", entry(proto.OpComment, "sf-a"), errReach); err != nil {
+	if _, err := before.Keep("alice", entry(proto.OpComment, "ar-a"), errReach); err != nil {
 		t.Fatal(err)
 	}
 
@@ -111,7 +111,7 @@ func TestClientAcrossARotation(t *testing.T) {
 		}
 	}
 	alice := func() *keyedConn { return &keyedConn{fakeConn: fakeConn{who: "alice"}, key: r.mine} }
-	args := proto.CommentArgs{ID: "sf-a", Body: "a note", Idem: proto.NewIdem("cli")}
+	args := proto.CommentArgs{ID: "ar-a", Body: "a note", Idem: proto.NewIdem("cli")}
 
 	c.Connected(alice()) // newRepo pins hostKey
 	if _, err := c.Keep("", proto.OpComment, args, errReach); err != nil {

@@ -34,7 +34,7 @@ func BenchmarkClientLine(b *testing.B) {
 // BenchmarkClientJSON is a --json document checked, and escaped when it
 // must be: a page of 500 issues, about 60 KiB.
 func BenchmarkClientJSON(b *testing.B) {
-	clean := []byte(`{"issues":[` + strings.TrimSuffix(strings.Repeat(`{"id":"sf-00000042","title":"`+benchClean+`","status":"open","priority":2},`, 500), ",") + `]}`)
+	clean := []byte(`{"issues":[` + strings.TrimSuffix(strings.Repeat(`{"id":"ar-00000042","title":"`+benchClean+`","status":"open","priority":2},`, 500), ",") + `]}`)
 	unsafe := []byte(strings.Replace(string(clean), "loses", "loses\u202e", 1))
 	for _, tc := range []struct {
 		name string
@@ -54,7 +54,7 @@ func BenchmarkClientJSON(b *testing.B) {
 // printer makes: a line at a time, and a few bytes at a time as
 // text/tabwriter writes a table's cells and padding.
 func BenchmarkClientWriter(b *testing.B) {
-	line := []byte("sf-00000042  P2  open  " + benchClean + "\n")
+	line := []byte("ar-00000042  P2  open  " + benchClean + "\n")
 	for _, tc := range []struct {
 		name  string
 		piece int

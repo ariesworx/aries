@@ -211,9 +211,9 @@ func TestCallSpeaksTheConnectionsProtocol(t *testing.T) {
 				return
 			}
 			sent <- string(f.Args)
-			srv.send(&proto.Frame{T: proto.FrameRes, ID: f.ID, OK: []byte(`{"id":"sf-1","rev":2}`)})
+			srv.send(&proto.Frame{T: proto.FrameRes, ID: f.ID, OK: []byte(`{"id":"ar-1","rev":2}`)})
 		}()
-		if err := c.Call(t.Context(), proto.OpUpdate, proto.UpdateArgs{ID: "sf-1", Rev: 1, Idem: "cli-1"}, nil); err != nil {
+		if err := c.Call(t.Context(), proto.OpUpdate, proto.UpdateArgs{ID: "ar-1", Rev: 1, Idem: "cli-1"}, nil); err != nil {
 			t.Fatalf("Call at protocol %d = %v", v, err)
 		}
 		if got := <-sent; strings.Contains(got, `"idem"`) != (v >= 6) || !strings.Contains(got, `"rev":1`) {
@@ -278,7 +278,7 @@ func TestAccessEnded(t *testing.T) {
 	}
 	t.Run("a request refused as forbidden", func(t *testing.T) {
 		t.Parallel()
-		err := proto.Errf(proto.CodeForbidden, "ask the holder", "sf-1 is held by bob")
+		err := proto.Errf(proto.CodeForbidden, "ask the holder", "ar-1 is held by bob")
 		if who, ended := AccessEnded(err); ended {
 			t.Errorf("AccessEnded(%v) = %q, true; want false: it refuses one request", err, who)
 		}

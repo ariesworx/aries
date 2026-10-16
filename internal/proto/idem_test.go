@@ -61,11 +61,11 @@ func TestKeyed(t *testing.T) {
 func TestForProtocol(t *testing.T) {
 	t.Parallel()
 	title := "renamed"
-	update := UpdateArgs{ID: "sf-1", Rev: 3, Title: &title, Idem: "cli-1"}
+	update := UpdateArgs{ID: "ar-1", Rev: 3, Title: &title, Idem: "cli-1"}
 	replayed := update
 	replayed.Park = true
-	comment := CommentArgs{ID: "sf-1", Body: "b", Idem: "cli-2"}
-	raw := json.RawMessage(`{"id":"sf-1","label":"x","idem":"cli-3"}`)
+	comment := CommentArgs{ID: "ar-1", Body: "b", Idem: "cli-2"}
+	raw := json.RawMessage(`{"id":"ar-1","label":"x","idem":"cli-3"}`)
 	for _, tc := range []struct {
 		name string
 		v    int
@@ -73,24 +73,24 @@ func TestForProtocol(t *testing.T) {
 		args any
 		want string // the arguments as sent
 	}{
-		{"update to 6", 6, OpUpdate, update, `{"id":"sf-1","rev":3,"title":"renamed","idem":"cli-1"}`},
-		{"update to 5", 5, OpUpdate, update, `{"id":"sf-1","rev":3,"title":"renamed"}`},
-		{"a pointer to update, to 5", 5, OpUpdate, &update, `{"id":"sf-1","rev":3,"title":"renamed"}`},
-		{"raw label.add to 5", 5, OpLabelAdd, raw, `{"id":"sf-1","label":"x"}`},
-		{"raw label.add to 6", 6, OpLabelAdd, raw, `{"id":"sf-1","label":"x","idem":"cli-3"}`},
-		{"comment to 5", 5, OpComment, comment, `{"id":"sf-1","body":"b","idem":"cli-2"}`},
-		{"update with no key, to 5", 5, OpUpdate, UpdateArgs{ID: "sf-1", Rev: 3}, `{"id":"sf-1","rev":3}`},
-		{"a replayed update to 7", 7, OpUpdate, replayed, `{"id":"sf-1","rev":3,"title":"renamed","idem":"cli-1","park":true}`},
-		{"a replayed update to 6", 6, OpUpdate, replayed, `{"id":"sf-1","idem":"cli-1","rev":3,"title":"renamed"}`},
-		{"a replayed update to 5", 5, OpUpdate, replayed, `{"id":"sf-1","rev":3,"title":"renamed"}`},
-		{"a raw replayed update to 6", 6, OpUpdate, json.RawMessage(`{"id":"sf-1","rev":3,"park":true}`), `{"id":"sf-1","rev":3}`},
-		{"a replayed finish to 8", 8, OpFinish, FinishArgs{ID: "sf-1", Epoch: 2, Idem: "cli-4", Park: true},
-			`{"id":"sf-1","epoch":2,"idem":"cli-4","park":true}`},
-		{"a replayed finish to 7", 7, OpFinish, FinishArgs{ID: "sf-1", Epoch: 2, Idem: "cli-4", Park: true},
-			`{"epoch":2,"id":"sf-1","idem":"cli-4"}`},
-		{"a raw replayed handoff to 7", 7, OpHandoff, json.RawMessage(`{"id":"sf-1","note":"n","park":true}`), `{"id":"sf-1","note":"n"}`},
-		{"a raw replayed handoff to 8", 8, OpHandoff, json.RawMessage(`{"id":"sf-1","note":"n","park":true}`), `{"id":"sf-1","note":"n","park":true}`},
-		{"a replayed update to 8", 8, OpUpdate, replayed, `{"id":"sf-1","rev":3,"title":"renamed","idem":"cli-1","park":true}`},
+		{"update to 6", 6, OpUpdate, update, `{"id":"ar-1","rev":3,"title":"renamed","idem":"cli-1"}`},
+		{"update to 5", 5, OpUpdate, update, `{"id":"ar-1","rev":3,"title":"renamed"}`},
+		{"a pointer to update, to 5", 5, OpUpdate, &update, `{"id":"ar-1","rev":3,"title":"renamed"}`},
+		{"raw label.add to 5", 5, OpLabelAdd, raw, `{"id":"ar-1","label":"x"}`},
+		{"raw label.add to 6", 6, OpLabelAdd, raw, `{"id":"ar-1","label":"x","idem":"cli-3"}`},
+		{"comment to 5", 5, OpComment, comment, `{"id":"ar-1","body":"b","idem":"cli-2"}`},
+		{"update with no key, to 5", 5, OpUpdate, UpdateArgs{ID: "ar-1", Rev: 3}, `{"id":"ar-1","rev":3}`},
+		{"a replayed update to 7", 7, OpUpdate, replayed, `{"id":"ar-1","rev":3,"title":"renamed","idem":"cli-1","park":true}`},
+		{"a replayed update to 6", 6, OpUpdate, replayed, `{"id":"ar-1","idem":"cli-1","rev":3,"title":"renamed"}`},
+		{"a replayed update to 5", 5, OpUpdate, replayed, `{"id":"ar-1","rev":3,"title":"renamed"}`},
+		{"a raw replayed update to 6", 6, OpUpdate, json.RawMessage(`{"id":"ar-1","rev":3,"park":true}`), `{"id":"ar-1","rev":3}`},
+		{"a replayed finish to 8", 8, OpFinish, FinishArgs{ID: "ar-1", Epoch: 2, Idem: "cli-4", Park: true},
+			`{"id":"ar-1","epoch":2,"idem":"cli-4","park":true}`},
+		{"a replayed finish to 7", 7, OpFinish, FinishArgs{ID: "ar-1", Epoch: 2, Idem: "cli-4", Park: true},
+			`{"epoch":2,"id":"ar-1","idem":"cli-4"}`},
+		{"a raw replayed handoff to 7", 7, OpHandoff, json.RawMessage(`{"id":"ar-1","note":"n","park":true}`), `{"id":"ar-1","note":"n"}`},
+		{"a raw replayed handoff to 8", 8, OpHandoff, json.RawMessage(`{"id":"ar-1","note":"n","park":true}`), `{"id":"ar-1","note":"n","park":true}`},
+		{"a replayed update to 8", 8, OpUpdate, replayed, `{"id":"ar-1","rev":3,"title":"renamed","idem":"cli-1","park":true}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

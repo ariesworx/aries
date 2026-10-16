@@ -50,7 +50,7 @@ func TestPartitionFaults(t *testing.T) {
 		{name: "applied, kept and refused, each as told",
 			queued: []queuedWrite{finish, comment, label},
 			end: partitionEnd{
-				refused: map[string]refusal{"k-3": {code: "not_found", message: "issue sf-x not found"}},
+				refused: map[string]refusal{"k-3": {code: "not_found", message: "issue ar-x not found"}},
 				answers: map[string][]answer{"k-1": {{out: acked, kept: true}}, "k-2": {{out: lost}, {out: acked}}, "k-3": {{out: refused}}},
 				stamps:  map[string][]stampRec{"k-1": applied("issue.kept"), "k-2": applied("comment.add")},
 				markers: map[string]int{"done alice-0g0-3": 1, "found alice-0g0-3-0": 1, "note alice-0g0-4": 1},

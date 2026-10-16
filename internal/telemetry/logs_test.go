@@ -145,8 +145,8 @@ func TestExportedLogFieldsAreVetted(t *testing.T) {
 		{"a code that is none", "code", "PLANTED", "other"},
 		{"a request's id", "req", logReq, logReq},
 		{"a request's id of another shape", "req", "PLANTED", ""},
-		{"an issue's id", "issue", "sf-a1b2", "sf-a1b2"},
-		{"an issue's id with a child number", "issue", "sf-a1b2.3", "sf-a1b2.3"},
+		{"an issue's id", "issue", "ar-a1b2", "ar-a1b2"},
+		{"an issue's id with a child number", "issue", "ar-a1b2.3", "ar-a1b2.3"},
 		{"an issue's id that is none", "issue", "PLANTED text", ""},
 		{"a fingerprint", "fingerprint", logFingerprint, logFingerprint},
 		{"a fingerprint that is a key", "fingerprint", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA", ""},
@@ -230,7 +230,7 @@ func TestLogPush(t *testing.T) {
 	}
 	h := logs.NewHandler(slog.DiscardHandler, IDs)
 	h.Tap(tel.LogHandler())
-	slog.New(journal{h}).Info("claim expired", "event", logs.ClaimExpired, "principal", "alice", "session", "s-abcdefgh", "issue", "sf-a1b2")
+	slog.New(journal{h}).Info("claim expired", "event", logs.ClaimExpired, "principal", "alice", "session", "s-abcdefgh", "issue", "ar-a1b2")
 	sctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	if err := tel.Shutdown(sctx); err != nil {
@@ -248,7 +248,7 @@ func TestLogPush(t *testing.T) {
 	if got := hdr.Get("x-test"); got != "one two" {
 		t.Errorf("export header x-test = %q, want %q", got, "one two")
 	}
-	for _, s := range []string{"claim expired", "claim.expired", "sf-a1b2", "service.name", "ariesd", "service.instance.id", "p_", "s_"} {
+	for _, s := range []string{"claim expired", "claim.expired", "ar-a1b2", "service.name", "ariesd", "service.instance.id", "p_", "s_"} {
 		if !bytes.Contains(body, []byte(s)) {
 			t.Errorf("the export does not carry %q", s)
 		}
@@ -495,7 +495,7 @@ func TestDeadCollectorLogs(t *testing.T) {
 			runtime.ReadMemStats(&before)
 			start := time.Now()
 			for range lines {
-				quiet.Info("claim expired", "event", logs.ClaimExpired, "principal", "alice", "issue", "sf-a1b2")
+				quiet.Info("claim expired", "event", logs.ClaimExpired, "principal", "alice", "issue", "ar-a1b2")
 			}
 			// Lines that waited for the export of their batch would wait
 			// its timeout, 150 ms, once for each batch of 64: about 47

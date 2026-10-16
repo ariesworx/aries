@@ -19,7 +19,7 @@ func clientBenchFrame(b *testing.B, size int) []byte {
 	b.Helper()
 	var res ListResult
 	for i, n := 0, 0; n < size; i++ {
-		s := Summary{ID: fmt.Sprintf("sf-%08d", i), Status: "open", Priority: i % 5,
+		s := Summary{ID: fmt.Sprintf("ar-%08d", i), Status: "open", Priority: i % 5,
 			Title: fmt.Sprintf("Reconciler loses the first of two overlapping writes (case %d)", i)}
 		res.Issues = append(res.Issues, s)
 		n += len(s.ID) + len(s.Title) + 50

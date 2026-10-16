@@ -27,7 +27,7 @@ func TestPrintSummariesOneWrite(t *testing.T) {
 	for _, n := range []int{1, 10, 500} {
 		issues := make([]proto.Summary, n)
 		for i := range issues {
-			issues[i] = proto.Summary{ID: fmt.Sprintf("sf-%08d", i), Status: "open", Priority: i % 5, Title: fmt.Sprintf("Case %d", i)}
+			issues[i] = proto.Summary{ID: fmt.Sprintf("ar-%08d", i), Status: "open", Priority: i % 5, Title: fmt.Sprintf("Case %d", i)}
 		}
 		var w countingWriter
 		printSummaries(&w, issues, nil)
@@ -44,15 +44,15 @@ func TestPrintSummariesOneWrite(t *testing.T) {
 func TestPrintSummariesText(t *testing.T) {
 	t.Parallel()
 	issues := []proto.Summary{
-		{ID: "sf-abcd1234", Status: "open", Priority: 1, Title: "The parser drops the lease"},
-		{ID: "sf-ef56", Status: "in_progress", Priority: 0, Title: "Résumé \x1b[31mred\x1b[0m"},
-		{ID: "sf-abcd1234.1", Status: "blocked", Priority: 3, Title: "Wide 漢字 title"},
+		{ID: "ar-abcd1234", Status: "open", Priority: 1, Title: "The parser drops the lease"},
+		{ID: "ar-ef56", Status: "in_progress", Priority: 0, Title: "Résumé \x1b[31mred\x1b[0m"},
+		{ID: "ar-abcd1234.1", Status: "blocked", Priority: 3, Title: "Wide 漢字 title"},
 	}
 	var w bytes.Buffer
 	printSummaries(&w, issues, func(i int) string { return fmt.Sprintf("\t(%d)", i) })
-	want := "sf-abcd1234    P1  open         The parser drops the lease  (0)\n" +
-		"sf-ef56        P0  in_progress  Résumé \\x1b[31mred\\x1b[0m   (1)\n" +
-		"sf-abcd1234.1  P3  blocked      Wide 漢字 title               (2)\n"
+	want := "ar-abcd1234    P1  open         The parser drops the lease  (0)\n" +
+		"ar-ef56        P0  in_progress  Résumé \\x1b[31mred\\x1b[0m   (1)\n" +
+		"ar-abcd1234.1  P3  blocked      Wide 漢字 title               (2)\n"
 	if got := w.String(); got != want {
 		t.Errorf("printSummaries =\n%s\nwant\n%s", got, want)
 	}

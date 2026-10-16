@@ -19,11 +19,11 @@ func TestPrintFiles(t *testing.T) {
 			Paths: []proto.FilePath{{Path: "internal/store/", Source: proto.PathDeclared},
 				{Path: "a b.go", Source: proto.PathCommit}},
 			More:     3,
-			Overlaps: []proto.Overlap{{ID: "sf-a1b2", By: "alice", Session: "s1"}, {ID: "sf-c3d4", By: "bob", Session: "s2"}}},
+			Overlaps: []proto.Overlap{{ID: "ar-a1b2", By: "alice", Session: "s1"}, {ID: "ar-c3d4", By: "bob", Session: "s2"}}},
 			"\nlikely files:\n  internal/store/ (declared)\n  a b.go\n  and 3 more\n" +
-				"overlaps sf-a1b2, held by alice (s1)\noverlaps sf-c3d4, held by bob (s2)\n"},
-		{"overlaps alone", &proto.Files{Overlaps: []proto.Overlap{{ID: "sf-a1b2", By: "alice", Session: "s1"}}},
-			"\noverlaps sf-a1b2, held by alice (s1)\n"},
+				"overlaps ar-a1b2, held by alice (s1)\noverlaps ar-c3d4, held by bob (s2)\n"},
+		{"overlaps alone", &proto.Files{Overlaps: []proto.Overlap{{ID: "ar-a1b2", By: "alice", Session: "s1"}}},
+			"\noverlaps ar-a1b2, held by alice (s1)\n"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -39,9 +39,9 @@ func TestPrintFiles(t *testing.T) {
 func TestPrintReady(t *testing.T) {
 	t.Parallel()
 	var b bytes.Buffer
-	printReady(&b, []proto.Summary{{ID: "sf-a1b2", Priority: 1, Status: "open", Title: "free"},
-		{ID: "sf-c3d4", Priority: 0, Status: "open", Title: "contested", Overlaps: []string{"sf-e5f6", "sf-g7h8"}}})
-	want := "sf-a1b2  P1  open  free\nsf-c3d4  P0  open  contested  overlaps sf-e5f6, sf-g7h8\n"
+	printReady(&b, []proto.Summary{{ID: "ar-a1b2", Priority: 1, Status: "open", Title: "free"},
+		{ID: "ar-c3d4", Priority: 0, Status: "open", Title: "contested", Overlaps: []string{"ar-e5f6", "ar-g7h8"}}})
+	want := "ar-a1b2  P1  open  free\nar-c3d4  P0  open  contested  overlaps ar-e5f6, ar-g7h8\n"
 	if got := b.String(); got != want {
 		t.Errorf("printReady =\n%q\nwant\n%q", got, want)
 	}

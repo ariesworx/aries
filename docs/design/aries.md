@@ -451,7 +451,7 @@ Agreed 6 Oct 2026; each item lands in the stage shown in §13.
 | 2 | **Git awareness** | `claim`/`start` can create the branch or worktree (`<type>/<id>-<slug>`). Commits and PRs link to the issue by branch name or an `Aries:` trailer. A merged PR closes the issue through the GitHub webhook. No git hooks are installed. |
 | 3 | **Files to issues** | The server records which paths each issue's commits touched. `ready` ranks down work that overlaps paths held by another claim or reservation; `show` lists likely files. |
 | 4 | **Acceptance checklist** | Acceptance criteria are items, not prose. The agent ticks them; `close` refuses until all are ticked or waived with a reason. |
-| 5 | **Errors that say what to do next** | Every refusal names the cause and the next action, for example `sf-a1b2 claimed by alice/codex 3m ago; next ready: sf-c3d4`. Typed error codes for programs. |
+| 5 | **Errors that say what to do next** | Every refusal names the cause and the next action, for example `ar-a1b2 claimed by alice/codex 3m ago; next ready: ar-c3d4`. Typed error codes for programs. |
 | 6 | **Similar closed issues** | `show` and `create` list up to three similar closed issues: full-text first, vectors when §10 lands. |
 | 7 | **Live board** | `aries tui` (terminal), driven by the event stream. A web view served by `ariesd` is dropped for now (7 Oct 2026): ariesd opens no port, and a TUI over the existing SSH connection keeps it that way. |
 | 8 | **`ariesd --dev`** | A throwaway local server with a temporary Dolt database and seeded sample data, for trying Aries, demos and agent tests. |

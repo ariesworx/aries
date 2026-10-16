@@ -82,16 +82,16 @@ func TestPrintAdminLists(t *testing.T) {
 	}{
 		{"projects, for a server admin", func(w *bytes.Buffer) {
 			printProjects(w, proto.ProjectsResult{Projects: []proto.Project{
-				{ID: a, Name: "acme", Prefix: "sf", Account: "internal", State: "active", Schema: "aries", CreatedBy: "import"},
+				{ID: a, Name: "acme", Prefix: "ar", Account: "internal", State: "active", Schema: "aries", CreatedBy: "import"},
 				{ID: b, Name: "web", Prefix: "web", Account: "acme-2026", State: "archived", Schema: "project_web", CreatedBy: "dana"}}, More: 3})
 		}, "NAME  ID                                    PREFIX  ACCOUNT    STATE     SCHEMA\n" +
-			"acme  " + a + "  sf      internal   active    aries\n" +
+			"acme  " + a + "  ar      internal   active    aries\n" +
 			"web   " + b + "  web     acme-2026  archived  project_web\n" +
 			"and 3 more; list them with --after web\n"},
 		{"projects, for a member", func(w *bytes.Buffer) {
-			printProjects(w, proto.ProjectsResult{Projects: []proto.Project{{ID: a, Name: "acme", Prefix: "sf", Account: "internal", State: "active", Role: "member"}}})
+			printProjects(w, proto.ProjectsResult{Projects: []proto.Project{{ID: a, Name: "acme", Prefix: "ar", Account: "internal", State: "active", Role: "member"}}})
 		}, "NAME  ID                                    PREFIX  ACCOUNT   STATE   ROLE\n" +
-			"acme  " + a + "  sf      internal  active  member\n"},
+			"acme  " + a + "  ar      internal  active  member\n"},
 		{"no projects", func(w *bytes.Buffer) { printProjects(w, proto.ProjectsResult{}) }, "no projects\n"},
 		{"principals", func(w *bytes.Buffer) {
 			printPrincipals(w, proto.PrincipalsResult{Principals: []proto.Principal{

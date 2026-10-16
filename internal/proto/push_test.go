@@ -14,18 +14,18 @@ import (
 func TestPushFrames(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
-	item := InboxItem{ID: 7, Kind: "mention", Issue: "sf-abcd1234", Body: "@bob look", From: "alice", At: at}
+	item := InboxItem{ID: 7, Kind: "mention", Issue: "ar-abcd1234", Body: "@bob look", From: "alice", At: at}
 	tests := []struct {
 		name string
 		push Push
 		wire string
 	}{
 		{"item", Push{Op: EvInbox, Item: &item},
-			`{"t":"evt","op":"inbox","e":{"id":7,"kind":"mention","issue":"sf-abcd1234","body":"@bob look","from":"alice","at":"2026-10-07T12:00:00Z"}}`},
+			`{"t":"evt","op":"inbox","e":{"id":7,"kind":"mention","issue":"ar-abcd1234","body":"@bob look","from":"alice","at":"2026-10-07T12:00:00Z"}}`},
 		{"resync", Push{Op: EvResync}, `{"t":"evt","op":"resync"}`},
 		{"event", Push{Op: EvEvent, Event: &Event{Seq: 12, At: at, Principal: "alice", Session: "s1", Machine: "laptop",
-			Op: "claim.take", Issue: "sf-abcd1234"}},
-			`{"t":"evt","op":"event","e":{"seq":12,"at":"2026-10-07T12:00:00Z","principal":"alice","session":"s1","machine":"laptop","op":"claim.take","issue":"sf-abcd1234"}}`},
+			Op: "claim.take", Issue: "ar-abcd1234"}},
+			`{"t":"evt","op":"event","e":{"seq":12,"at":"2026-10-07T12:00:00Z","principal":"alice","session":"s1","machine":"laptop","op":"claim.take","issue":"ar-abcd1234"}}`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

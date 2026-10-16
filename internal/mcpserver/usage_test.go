@@ -34,7 +34,7 @@ func TestShowAndDigestCarryUsage(t *testing.T) {
 		digestLine         string
 		showHas, digestHas string
 	}{
-		{name: "split tokens", show: &proto.IssueUsage{Account: "acme", AccountFrom: "sf-0", HeldSeconds: 4500, Split: true,
+		{name: "split tokens", show: &proto.IssueUsage{Account: "acme", AccountFrom: "ar-0", HeldSeconds: 4500, Split: true,
 			Models: []proto.ModelTokens{gemini, opus}},
 			digest: &proto.DigestUsage{HeldSeconds: 6000, Split: true, Models: []proto.ModelTokens{opus},
 				Unattributed: []proto.ModelTokens{{Model: "opus", Tokens: proto.Tokens{Input: n64(7)}}}},
@@ -66,14 +66,14 @@ func TestShowAndDigestCarryUsage(t *testing.T) {
 			f := &fakeConn{reply: func(op string, _ any) (any, error) {
 				switch op {
 				case proto.OpShow:
-					return proto.ShowResult{Issue: proto.Issue{ID: "sf-1", Title: "t"}, Usage: tc.show}, nil
+					return proto.ShowResult{Issue: proto.Issue{ID: "ar-1", Title: "t"}, Usage: tc.show}, nil
 				case proto.OpDigest:
 					return proto.DigestResult{Since: until.Add(-time.Hour), Until: until, Usage: tc.digest}, nil
 				}
 				return nil, errors.New("unexpected " + op)
 			}}
 			cs, _ := connect(t, f)
-			raw := text(t, callTool(t, cs, "show", map[string]any{"id": "sf-1"}))
+			raw := text(t, callTool(t, cs, "show", map[string]any{"id": "ar-1"}))
 			var is Issue
 			if err := json.Unmarshal([]byte(raw), &is); err != nil {
 				t.Fatal(err)

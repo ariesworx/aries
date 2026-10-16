@@ -106,3 +106,23 @@ func TestSplitSQL(t *testing.T) {
 		t.Errorf("splitSQL = %q", got)
 	}
 }
+
+// TestDefaultPrefix pins the prefix of the ids a store makes when it is
+// given none: "ar", which every issue of a new project carries for good.
+func TestDefaultPrefix(t *testing.T) {
+	t.Parallel()
+	dsn := newDSN(t)
+	s, err := testDB(t, dsn).Open(t.Context(), DefaultSchema, Options{})
+	if err != nil {
+		t.Fatalf("Open(no prefix): %v", err)
+	}
+	t.Cleanup(func() {
+		if err := s.Close(); err != nil {
+			t.Errorf("close: %v", err)
+		}
+	})
+	is := mustCreate(t, s, NewIssue{})
+	if !strings.HasPrefix(string(is.ID), "ar-") {
+		t.Errorf("CreateIssue with no prefix set made id %q, want one starting ar-", is.ID)
+	}
+}

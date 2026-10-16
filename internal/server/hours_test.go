@@ -64,7 +64,7 @@ func TestDispatchHours(t *testing.T) {
 		{"under a minute", alice, proto.OpHoursLog, `{"id":"` + is.ID + `","seconds":30}`, proto.CodeInvalid, "duration", "aries hours -h"},
 		{"over a day", alice, proto.OpHoursLog, `{"id":"` + is.ID + `","seconds":9223372036854775807}`, proto.CodeInvalid, "seconds", "aries hours -h"},
 		{"bad day", alice, proto.OpHoursLog, `{"id":"` + is.ID + `","seconds":60,"on":"tomorrow"}`, proto.CodeInvalid, `on "tomorrow"`, "aries hours -h"},
-		{"no issue", alice, proto.OpHoursLog, `{"id":"sf-none","seconds":60}`, proto.CodeNotFound, "sf-none", "aries list"},
+		{"no issue", alice, proto.OpHoursLog, `{"id":"ar-none","seconds":60}`, proto.CodeNotFound, "ar-none", "aries list"},
 		{"unknown field", alice, proto.OpHoursLog, `{"id":"` + is.ID + `","seconds":60,"rate":300}`, proto.CodeInvalid, "unknown field", proto.FixUpgrade},
 		{"another's entry", bob, proto.OpHoursDelete, `{"id":"` + mine.ID + `"}`, proto.CodeForbidden,
 			"undoing another person's hours is for aries admins", "ask an aries admin"},

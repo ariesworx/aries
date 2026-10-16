@@ -229,7 +229,7 @@ waiting in the outbox
 
 The branch `start` names is `TYPE/ID-SLUG`: the issue's id, then its
 title in lowercase letters and digits joined by hyphens, at most 40
-characters, as in `fix/sf-a1b2c3d4-fix-the-login-redirect`. TYPE comes
+characters, as in `fix/ar-a1b2c3d4-fix-the-login-redirect`. TYPE comes
 from the issue's type:
 
 | Issue type | Branch prefix |
@@ -474,15 +474,15 @@ server's rate limit (`busy`).
 accepted for delivery:
 
 ```text
-$ aries handoff sf-a1b2c3d4 "half done" --next "the tests"
-queued (server unreachable since 2026-10-13 14:02 UTC): entry 3, handoff sf-a1b2c3d4; aries sends it when the server answers (`aries outbox` lists what waits)
+$ aries handoff ar-a1b2c3d4 "half done" --next "the tests"
+queued (server unreachable since 2026-10-13 14:02 UTC): entry 3, handoff ar-a1b2c3d4; aries sends it when the server answers (`aries outbox` lists what waits)
 ```
 
 With `--json` it is one document, which never has the `id` and `rev` of
 a write that was made:
 
 ```json
-{"queued":true,"entry":3,"op":"handoff","issue":"sf-a1b2c3d4","since":"2026-10-13T14:02:00Z"}
+{"queued":true,"entry":3,"op":"handoff","issue":"ar-a1b2c3d4","since":"2026-10-13T14:02:00Z"}
 ```
 
 `issue` is the issue the write is about, and a `remember` has `key`
@@ -586,11 +586,11 @@ alice's outbox: 2 waiting, 1 refused
 server unreachable since 2026-10-13 14:12 UTC; last tried 2026-10-13 14:32 UTC
 waiting:
   N  OP       ON           AGE  FROM
-  2  handoff  sf-a1b2c3d4  25m  cli on laptop
+  2  handoff  ar-a1b2c3d4  25m  cli on laptop
   3  create   -            5m   cli on laptop
 refused:
-  1  comment  sf-9z8y7x6w  35m  cli on laptop
-     not_found: issue sf-9z8y7x6w not found
+  1  comment  ar-9z8y7x6w  35m  cli on laptop
+     not_found: issue ar-9z8y7x6w not found
      fix: find the id with `aries list`
 `aries outbox retry N` sends a refused entry again; `aries outbox drop N` removes an entry for good
 ```
@@ -659,15 +659,15 @@ on your work. `aries outbox stats` counts parked entries among the
 delivered ones.
 
 ```text
-$ aries conflicts sf-a1
-#3 sf-a1 title: alice's update from rev 4, parked 2h ago, against bob's of 3h ago
+$ aries conflicts ar-a1
+#3 ar-a1 title: alice's update from rev 4, parked 2h ago, against bob's of 3h ago
   base:   Fix login
   mine:   Fix the login redirect
   theirs: Fix login and logout
   advice: theirs is from bob, who holds the issue; take theirs
   proposed by agent-7: text: Fix the login and logout redirects (keeps both)
 $ aries resolve 3 --accept
-sf-a1 rev 9
+ar-a1 rev 9
 ```
 
 The advice is worked out when you read it, from who holds the issue
@@ -701,9 +701,9 @@ and `digest` print what was kept, exit 0, and say on stderr, in one line,
 that it is this machine's copy and how old:
 
 ```text
-$ aries show sf-a1b2c3d4
+$ aries show ar-a1b2c3d4
 aries: cached: aries cannot reach its server, so this is this machine's copy from 2026-10-13 14:02 UTC (3h old), and may be out of date
-sf-a1b2c3d4  P1  in_progress  task  rev 4
+ar-a1b2c3d4  P1  in_progress  task  rev 4
 ...
 ```
 
@@ -822,7 +822,7 @@ With `--json`, a failure prints one document on standard output and
 nothing on standard error, in the shape the MCP server gives an agent:
 
 ```text
-$ aries --json -C /tmp show sf-a1b2c3d4
+$ aries --json -C /tmp show ar-a1b2c3d4
 {"error":{"code":"invalid","message":".aries.yaml not found here or in any parent directory","fix":"run aries inside a repository that has one, or pass -C DIR; the search stops at the repository's top level and at your home directory"}}
 ```
 

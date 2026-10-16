@@ -72,21 +72,21 @@ for each issue. You can drive the same loop from a terminal:
 
 ```console
 $ aries create "Add a sign-out button" -p 2 -t feature
-sf-3v33w75r
-$ aries dep add sf-3v33w75r sf-aukz3rip
+ar-3v33w75r
+$ aries dep add ar-3v33w75r ar-aukz3rip
 $ aries blocked
-sf-3v33w75r  P2  open  Add a sign-out button  blocked by sf-aukz3rip
+ar-3v33w75r  P2  open  Add a sign-out button  blocked by ar-aukz3rip
 $ aries start
-sf-aukz3rip  P1  in_progress  bug  rev 2
+ar-aukz3rip  P1  in_progress  bug  rev 2
 Fix the login redirect
 …
-branch: fix/sf-aukz3rip-fix-the-login-redirect
-$ aries finish sf-aukz3rip --reason "fixed the redirect" --handoff "redirect now honors ?next=" --discovered "Add a test for ?next= redirects"
-sf-aukz3rip rev 3
-created sf-okyyzsck
+branch: fix/ar-aukz3rip-fix-the-login-redirect
+$ aries finish ar-aukz3rip --reason "fixed the redirect" --handoff "redirect now honors ?next=" --discovered "Add a test for ?next= redirects"
+ar-aukz3rip rev 3
+created ar-okyyzsck
 $ aries ready
-sf-3v33w75r  P2  open  Add a sign-out button
-sf-okyyzsck  P2  open  Add a test for ?next= redirects
+ar-3v33w75r  P2  open  Add a sign-out button
+ar-okyyzsck  P2  open  Add a test for ?next= redirects
 ```
 
 - **Run agents side by side.** Each `start` claims a different issue, and

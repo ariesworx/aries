@@ -34,7 +34,7 @@ func TestInboxLine(t *testing.T) {
 	t.Parallel()
 	f := &fakeConn{reply: func(op string, _ any) (any, error) {
 		if op == proto.OpClose {
-			return nil, proto.Errf(proto.CodeNotFound, "find the id with `aries list`", "issue sf-x not found")
+			return nil, proto.Errf(proto.CodeNotFound, "find the id with `aries list`", "issue ar-x not found")
 		}
 		return proto.ListResult{Issues: []proto.Summary{}}, nil
 	}}
@@ -56,7 +56,7 @@ func TestInboxLine(t *testing.T) {
 		t.Errorf("the line repeated: %q", got)
 	}
 	s.Push(mention(3))
-	res = callTool(t, cs, "close", map[string]any{"id": "sf-x"})
+	res = callTool(t, cs, "close", map[string]any{"id": "ar-x"})
 	if !res.IsError || !slices.Equal(lines(res), []string{"inbox: 1 new (call inbox)"}) {
 		t.Errorf("error result lines = %q (error %v)", lines(res), res.IsError)
 	}
@@ -103,7 +103,7 @@ func TestInboxTool(t *testing.T) {
 	at := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	var items []proto.InboxItem
 	for i := range 60 {
-		items = append(items, proto.InboxItem{ID: int64(100 - i), Session: "s-test", Kind: "mention", Issue: "sf-a1b2",
+		items = append(items, proto.InboxItem{ID: int64(100 - i), Session: "s-test", Kind: "mention", Issue: "ar-a1b2",
 			Body: strings.Repeat("b", 200), From: "bob", At: at})
 	}
 	f := &fakeConn{reply: func(op string, args any) (any, error) {
@@ -129,7 +129,7 @@ func TestInboxTool(t *testing.T) {
 	if Tokens([]byte(body)) > MaxResultTokens || got.Unread != 61 || got.Acked != 2 || !got.More || len(got.Items) == 0 {
 		t.Fatalf("inbox = %d tokens, %+v", Tokens([]byte(body)), got)
 	}
-	if it := got.Items[0]; it != (InboxItem{ID: 100, Kind: "mention", Issue: "sf-a1b2", From: "bob", At: "2026-10-07T12:00Z",
+	if it := got.Items[0]; it != (InboxItem{ID: 100, Kind: "mention", Issue: "ar-a1b2", From: "bob", At: "2026-10-07T12:00Z",
 		Body: strings.Repeat("b", 200)}) {
 		t.Errorf("first item = %+v", it)
 	}
@@ -158,15 +158,15 @@ func TestPrimeInbox(t *testing.T) {
 			name: "lost claims and mentions",
 			inbox: func() (any, error) {
 				return proto.InboxResult{Unread: 5, Items: []proto.InboxItem{
-					{ID: 9, Kind: "claim.lost", Issue: "sf-2", Body: "lease expired", From: "ariesd", At: at},
-					{ID: 8, Kind: "mention", Issue: "sf-3", Body: "@alice look", From: "bob", At: at},
-					{ID: 7, Kind: "claim.lost", Issue: "sf-4", Body: "taken by bob/s-b", From: "bob", At: at},
-					{ID: 6, Kind: "assigned", Issue: "sf-5", Body: "Fix it", From: "bob", At: at},
+					{ID: 9, Kind: "claim.lost", Issue: "ar-2", Body: "lease expired", From: "ariesd", At: at},
+					{ID: 8, Kind: "mention", Issue: "ar-3", Body: "@alice look", From: "bob", At: at},
+					{ID: 7, Kind: "claim.lost", Issue: "ar-4", Body: "taken by bob/s-b", From: "bob", At: at},
+					{ID: 6, Kind: "assigned", Issue: "ar-5", Body: "Fix it", From: "bob", At: at},
 				}}, nil
 			},
-			unread: 5, lost: []string{"sf-2", "sf-4"},
-			text: []string{"lost claim (stop work on it): sf-2 sf-4", "inbox: 5 unread (call inbox)",
-				"  #9 claim.lost sf-2 from ariesd: \"lease expired\"", "  #8 mention sf-3 from bob: \"@alice look\""},
+			unread: 5, lost: []string{"ar-2", "ar-4"},
+			text: []string{"lost claim (stop work on it): ar-2 ar-4", "inbox: 5 unread (call inbox)",
+				"  #9 claim.lost ar-2 from ariesd: \"lease expired\"", "  #8 mention ar-3 from bob: \"@alice look\""},
 		},
 		{
 			name:    "empty",

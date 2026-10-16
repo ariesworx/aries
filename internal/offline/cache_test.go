@@ -37,28 +37,28 @@ func TestCacheKeepsWhatASessionRead(t *testing.T) {
 	t.Parallel()
 	l, clk := newCache(t, CacheOptions{})
 	c := l.Cache("alice")
-	keep(t, c, proto.OpShow, proto.ShowArgs{ID: "sf-a", Full: true}, shown("sf-a", "Shown"))
+	keep(t, c, proto.OpShow, proto.ShowArgs{ID: "ar-a", Full: true}, shown("ar-a", "Shown"))
 	clk.t = t0.Add(time.Minute)
 	keep(t, c, proto.OpStart, proto.StartArgs{Lease: "15m"}, proto.StartResult{
-		Issue:   proto.Issue{ID: "sf-b", Title: "Started", Status: "in_progress"},
+		Issue:   proto.Issue{ID: "ar-b", Title: "Started", Status: "in_progress"},
 		Handoff: &proto.Handoff{Comment: proto.Comment{Body: "half done"}},
 		Items:   []proto.AcceptanceItem{{N: 1, Text: "tests pass"}},
-		Claim:   &proto.Claim{ID: "sf-b", By: "alice", Epoch: 2},
+		Claim:   &proto.Claim{ID: "ar-b", By: "alice", Epoch: 2},
 	})
 	keep(t, c, proto.OpInbox, proto.InboxArgs{Limit: 20}, proto.InboxResult{Unread: 4})
 	keep(t, c, proto.OpDigest, proto.DigestArgs{Since: "24h"}, proto.DigestResult{Totals: proto.DigestTotals{Closed: 2}})
 	for _, op := range []string{proto.OpReady, proto.OpList, proto.OpBlocked, proto.OpWho, proto.OpClaims, proto.OpComments} {
-		keep(t, c, op, proto.LimitArgs{Limit: 5}, proto.ListResult{Issues: []proto.Summary{{ID: "sf-x"}}})
+		keep(t, c, op, proto.LimitArgs{Limit: 5}, proto.ListResult{Issues: []proto.Summary{{ID: "ar-x"}}})
 	}
 
 	var s proto.ShowResult
-	if at, ok := c.Answer(proto.OpShow, proto.ShowArgs{ID: "sf-a"}, &s); !ok || !at.Equal(t0) || s.Issue.Title != "Shown" {
-		t.Errorf("Answer(show sf-a) = %+v, %v, %v; want what show returned, kept at %v", s, at, ok, t0)
+	if at, ok := c.Answer(proto.OpShow, proto.ShowArgs{ID: "ar-a"}, &s); !ok || !at.Equal(t0) || s.Issue.Title != "Shown" {
+		t.Errorf("Answer(show ar-a) = %+v, %v, %v; want what show returned, kept at %v", s, at, ok, t0)
 	}
 	s = proto.ShowResult{}
-	if at, ok := c.Answer(proto.OpShow, proto.ShowArgs{ID: "sf-b", Full: true}, &s); !ok || !at.Equal(t0.Add(time.Minute)) ||
+	if at, ok := c.Answer(proto.OpShow, proto.ShowArgs{ID: "ar-b", Full: true}, &s); !ok || !at.Equal(t0.Add(time.Minute)) ||
 		s.Issue.Title != "Started" || s.Handoff == nil || s.Handoff.Body != "half done" || len(s.Items) != 1 || s.Claim == nil || s.Claim.Epoch != 2 {
-		t.Errorf("Answer(show sf-b) = %+v, %v, %v; want what start returned, as show has it", s, at, ok)
+		t.Errorf("Answer(show ar-b) = %+v, %v, %v; want what start returned, as show has it", s, at, ok)
 	}
 	var in proto.InboxResult
 	if _, ok := c.Answer(proto.OpInbox, proto.InboxArgs{Limit: 20}, &in); !ok || in.Unread != 4 {
@@ -103,13 +103,13 @@ func cacheStats(t *testing.T, l *Local) map[string]CacheStat {
 func TestCacheIsThePrincipalsOwn(t *testing.T) {
 	t.Parallel()
 	l, _ := newCache(t, CacheOptions{})
-	keep(t, l.Cache("alice"), proto.OpShow, proto.ShowArgs{ID: "sf-a"}, shown("sf-a", "Alice's"))
+	keep(t, l.Cache("alice"), proto.OpShow, proto.ShowArgs{ID: "ar-a"}, shown("ar-a", "Alice's"))
 	var s proto.ShowResult
-	if _, ok := l.Cache("bob").Answer(proto.OpShow, proto.ShowArgs{ID: "sf-a"}, &s); ok {
+	if _, ok := l.Cache("bob").Answer(proto.OpShow, proto.ShowArgs{ID: "ar-a"}, &s); ok {
 		t.Errorf("bob's cache answered with alice's %+v", s)
 	}
-	keep(t, l.Cache(""), proto.OpShow, proto.ShowArgs{ID: "sf-b"}, shown("sf-b", "Nobody's"))
-	if _, ok := l.Cache("").Answer(proto.OpShow, proto.ShowArgs{ID: "sf-b"}, &s); ok {
+	keep(t, l.Cache(""), proto.OpShow, proto.ShowArgs{ID: "ar-b"}, shown("ar-b", "Nobody's"))
+	if _, ok := l.Cache("").Answer(proto.OpShow, proto.ShowArgs{ID: "ar-b"}, &s); ok {
 		t.Errorf("the cache of nobody answered %+v", s)
 	}
 	if _, err := os.Stat(l.cacheDir("")); !errors.Is(err, os.ErrNotExist) {
@@ -132,7 +132,7 @@ func TestCacheReadsAnUnreadableFileAsAbsent(t *testing.T) {
 			write(t, file, []byte(strings.Replace(string(b), `"v":1`, `"v":99`, 1)))
 		}},
 		{"another key's", func(t *testing.T, file string, b []byte) {
-			write(t, file, []byte(strings.Replace(string(b), `"key":"show sf-a"`, `"key":"show sf-z"`, 1)))
+			write(t, file, []byte(strings.Replace(string(b), `"key":"show ar-a"`, `"key":"show ar-z"`, 1)))
 		}},
 		{"a value that does not decode", func(t *testing.T, file string, b []byte) {
 			i := strings.Index(string(b), `"value":`)
@@ -143,15 +143,15 @@ func TestCacheReadsAnUnreadableFileAsAbsent(t *testing.T) {
 			t.Parallel()
 			l, _ := newCache(t, CacheOptions{})
 			c := l.Cache("alice")
-			keep(t, c, proto.OpShow, proto.ShowArgs{ID: "sf-a"}, shown("sf-a", "Whole"))
-			file := c.file("show sf-a")
+			keep(t, c, proto.OpShow, proto.ShowArgs{ID: "ar-a"}, shown("ar-a", "Whole"))
+			file := c.file("show ar-a")
 			b, err := os.ReadFile(file) //nolint:gosec // the test's own file
 			if err != nil {
 				t.Fatal(err)
 			}
 			tc.spoil(t, file, b)
 			var s proto.ShowResult
-			if _, ok := c.Answer(proto.OpShow, proto.ShowArgs{ID: "sf-a"}, &s); ok {
+			if _, ok := c.Answer(proto.OpShow, proto.ShowArgs{ID: "ar-a"}, &s); ok {
 				t.Errorf("a file %s answered %+v; want it read as absent", tc.name, s)
 			}
 		})
@@ -173,13 +173,13 @@ func TestCacheWritesWhole(t *testing.T) {
 	l, clk := newCache(t, CacheOptions{})
 	c := l.Cache("alice")
 	dead := filepath.Join(l.cacheDir("alice"), ".tmp-dead")
-	keep(t, c, proto.OpShow, proto.ShowArgs{ID: "sf-a"}, shown("sf-a", "One"))
+	keep(t, c, proto.OpShow, proto.ShowArgs{ID: "ar-a"}, shown("ar-a", "One"))
 	write(t, dead, []byte(`{"v":1`))
 	if err := os.Chtimes(dead, t0, t0); err != nil {
 		t.Fatal(err)
 	}
 	clk.t = t0.Add(10 * time.Minute)
-	keep(t, c, proto.OpShow, proto.ShowArgs{ID: "sf-b"}, shown("sf-b", "Two"))
+	keep(t, c, proto.OpShow, proto.ShowArgs{ID: "ar-b"}, shown("ar-b", "Two"))
 	names, err := filepath.Glob(filepath.Join(l.cacheDir("alice"), "*"))
 	if err != nil {
 		t.Fatal(err)
@@ -208,17 +208,17 @@ func TestCacheCaps(t *testing.T) {
 		want  []string // the ids answered
 	}{
 		{"entries", CacheOptions{MaxEntries: 2},
-			[]proto.ShowResult{shown("sf-a", ""), shown("sf-b", ""), shown("sf-c", "")}, 3 * time.Minute, []string{"sf-b", "sf-c"}},
+			[]proto.ShowResult{shown("ar-a", ""), shown("ar-b", ""), shown("ar-c", "")}, 3 * time.Minute, []string{"ar-b", "ar-c"}},
 		{"bytes", CacheOptions{MaxBytes: 5000},
-			[]proto.ShowResult{shown("sf-a", big), shown("sf-b", big), shown("sf-c", big)}, 3 * time.Minute, []string{"sf-b", "sf-c"}},
+			[]proto.ShowResult{shown("ar-a", big), shown("ar-b", big), shown("ar-c", big)}, 3 * time.Minute, []string{"ar-b", "ar-c"}},
 		{"an entry's bytes", CacheOptions{MaxEntryBytes: 1000},
-			[]proto.ShowResult{shown("sf-a", ""), shown("sf-a", big), shown("sf-b", "")}, 3 * time.Minute, []string{"sf-b"}},
+			[]proto.ShowResult{shown("ar-a", ""), shown("ar-a", big), shown("ar-b", "")}, 3 * time.Minute, []string{"ar-b"}},
 		{"age", CacheOptions{MaxAge: time.Hour},
-			[]proto.ShowResult{shown("sf-a", ""), shown("sf-b", ""), shown("sf-c", "")}, time.Hour + 90*time.Second, []string{"sf-c"}},
+			[]proto.ShowResult{shown("ar-a", ""), shown("ar-b", ""), shown("ar-c", "")}, time.Hour + 90*time.Second, []string{"ar-c"}},
 		{"defaults", CacheOptions{},
-			[]proto.ShowResult{shown("sf-a", big), shown("sf-b", ""), shown("sf-c", "")}, 6 * 24 * time.Hour, []string{"sf-a", "sf-b", "sf-c"}},
+			[]proto.ShowResult{shown("ar-a", big), shown("ar-b", ""), shown("ar-c", "")}, 6 * 24 * time.Hour, []string{"ar-a", "ar-b", "ar-c"}},
 		{"the default age", CacheOptions{},
-			[]proto.ShowResult{shown("sf-a", ""), shown("sf-b", "")}, DefaultCacheAge + 30*time.Second, []string{"sf-b"}},
+			[]proto.ShowResult{shown("ar-a", ""), shown("ar-b", "")}, DefaultCacheAge + 30*time.Second, []string{"ar-b"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -230,7 +230,7 @@ func TestCacheCaps(t *testing.T) {
 			}
 			clk.t = t0.Add(tc.after)
 			var got []string
-			for _, id := range []string{"sf-a", "sf-b", "sf-c"} {
+			for _, id := range []string{"ar-a", "ar-b", "ar-c"} {
 				var s proto.ShowResult
 				if _, ok := c.Answer(proto.OpShow, proto.ShowArgs{ID: id}, &s); ok {
 					got = append(got, s.Issue.ID)
@@ -272,16 +272,16 @@ func TestCacheDirectoryMustBeTheUsersOwn(t *testing.T) {
 			t.Parallel()
 			l, _ := newCache(t, CacheOptions{})
 			c := l.Cache("alice")
-			keep(t, c, proto.OpShow, proto.ShowArgs{ID: "sf-a"}, shown("sf-a", "Mine"))
+			keep(t, c, proto.OpShow, proto.ShowArgs{ID: "ar-a"}, shown("ar-a", "Mine"))
 			dir := tc.dir(l)
 			if err := os.Chmod(dir, 0o755); err != nil { //nolint:gosec // the mode aries must refuse
 				t.Fatal(err)
 			}
 			var s proto.ShowResult
-			if _, ok := c.Answer(proto.OpShow, proto.ShowArgs{ID: "sf-a"}, &s); ok {
+			if _, ok := c.Answer(proto.OpShow, proto.ShowArgs{ID: "ar-a"}, &s); ok {
 				t.Errorf("Answer read %+v from %s, which others can read and write", s, dir)
 			}
-			err := c.Keep(proto.OpShow, proto.ShowArgs{ID: "sf-b"}, shown("sf-b", "Mine too"))
+			err := c.Keep(proto.OpShow, proto.ShowArgs{ID: "ar-b"}, shown("ar-b", "Mine too"))
 			if pe, ok := errors.AsType[*proto.Error](err); !ok || !strings.Contains(pe.Message, dir) || !strings.Contains(pe.Fix, "chmod 700 "+dir) {
 				t.Errorf("Keep = %v, want a refusal that names %s with a fix", err, dir)
 			}
@@ -297,13 +297,13 @@ func TestCacheDirectoryMustBeTheUsersOwn(t *testing.T) {
 func TestCacheClear(t *testing.T) {
 	t.Parallel()
 	l, _ := newCache(t, CacheOptions{})
-	keep(t, l.Cache("alice"), proto.OpShow, proto.ShowArgs{ID: "sf-a"}, shown("sf-a", ""))
-	keep(t, l.Cache("alice"), proto.OpShow, proto.ShowArgs{ID: "sf-b"}, shown("sf-b", ""))
-	keep(t, l.Cache("bob"), proto.OpShow, proto.ShowArgs{ID: "sf-a"}, shown("sf-a", ""))
+	keep(t, l.Cache("alice"), proto.OpShow, proto.ShowArgs{ID: "ar-a"}, shown("ar-a", ""))
+	keep(t, l.Cache("alice"), proto.OpShow, proto.ShowArgs{ID: "ar-b"}, shown("ar-b", ""))
+	keep(t, l.Cache("bob"), proto.OpShow, proto.ShowArgs{ID: "ar-a"}, shown("ar-a", ""))
 	if _, err := l.Reached("alice", keyA, true, proto.Proto); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := l.Keep("alice", entry(proto.OpComment, "sf-a"), errReach); err != nil {
+	if _, err := l.Keep("alice", entry(proto.OpComment, "ar-a"), errReach); err != nil {
 		t.Fatal(err)
 	}
 	if n, err := l.Cache("alice").Forget(); err != nil || n != 2 {
@@ -334,7 +334,7 @@ func TestCacheFilesAreTheOwnersAlone(t *testing.T) {
 		t.Skip("Windows has no mode bits")
 	}
 	l, _ := newCache(t, CacheOptions{})
-	keep(t, l.Cache("alice"), proto.OpShow, proto.ShowArgs{ID: "sf-a"}, shown("sf-a", ""))
+	keep(t, l.Cache("alice"), proto.OpShow, proto.ShowArgs{ID: "ar-a"}, shown("ar-a", ""))
 	if err := l.Cache("alice").Put(PrimeKey, map[string]string{"you": "alice"}); err != nil {
 		t.Fatal(err)
 	}

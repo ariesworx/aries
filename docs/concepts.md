@@ -26,7 +26,7 @@ reserved.
 
 ## Issues
 
-An issue has an id such as `sf-a1b2c3d4`, a title, a type (`bug`,
+An issue has an id such as `ar-a1b2c3d4`, a title, a type (`bug`,
 `feature`, `task`, `epic`, `chore`, or `gate`, which only
 [`aries gate add`](#gates) makes), a priority from 0 (critical) to 4
 (backlog) and a status: `open`, `in_progress`, `blocked`, `deferred` or
@@ -102,10 +102,10 @@ it, by running `aries` as a principal of its own
 and the CI principals that report it:
 
 ```sh
-aries gate add --kind ci --check build --issue sf-a1b2 --approver ci-example --blocks sf-c3d4
+aries gate add --kind ci --check build --issue ar-a1b2 --approver ci-example --blocks ar-c3d4
 ```
 
-`sf-c3d4` is then held until CI reports `build` passed on `sf-a1b2`'s
+`ar-c3d4` is then held until CI reports `build` passed on `ar-a1b2`'s
 branch. An issue has at most one ci gate for each check, so a job that
 knows only its branch and its check finds the gate; to hold another
 issue behind the same check, `aries dep add ISSUE GATE`. A ci gate may
@@ -248,7 +248,7 @@ A unit of work is two steps:
 1. `start` claims the top ready issue (or the one you name). It returns the
    issue, its acceptance checklist, the last handoff note, the
    [memories](#memory) relevant to it and a branch name such as
-   `fix/sf-a1b2c3d4-fix-the-login-redirect`.
+   `fix/ar-a1b2c3d4-fix-the-login-redirect`.
 2. `finish` closes the issue, records a handoff note and files any work
    found on the way as new issues, linked `discovered-from`.
 
