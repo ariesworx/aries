@@ -1,0 +1,198 @@
+{
+  "title": "Aries traces and logs",
+  "uid": "aries-traces-logs",
+  "tags": [
+    "aries"
+  ],
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "links": [
+    {
+      "title": "Aries dashboards",
+      "type": "dashboards",
+      "tags": [
+        "aries"
+      ],
+      "asDropdown": false
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "traces",
+        "label": "Tempo",
+        "type": "datasource",
+        "query": "tempo"
+      },
+      {
+        "name": "logs",
+        "label": "Loki",
+        "type": "datasource",
+        "query": "loki"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "table",
+      "title": "Recent traces",
+      "datasource": {
+        "type": "tempo",
+        "uid": "${traces}"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "${traces}"
+          },
+          "queryType": "traceql",
+          "query": "{resource.service.name=\"ariesd\"}",
+          "limit": 50
+        }
+      ],
+      "description": "Each request's trace; open one to see the wait for the writer, each attempt and the store beneath it"
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Slow traces, over 250 ms",
+      "datasource": {
+        "type": "tempo",
+        "uid": "${traces}"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "${traces}"
+          },
+          "queryType": "traceql",
+          "query": "{resource.service.name=\"ariesd\" && duration > 250ms}",
+          "limit": 50
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Log events, by event",
+      "datasource": {
+        "type": "loki",
+        "uid": "${logs}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${logs}"
+          },
+          "expr": "sum by (event) (count_over_time({service_name=\"ariesd\"} | event != \"\" [5m]))",
+          "legendFormat": "{{event}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "logs",
+      "title": "Warnings and errors",
+      "datasource": {
+        "type": "loki",
+        "uid": "${logs}"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 18
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${logs}"
+          },
+          "expr": "{service_name=\"ariesd\"} | detected_level=~\"warn|error\""
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "logs",
+      "title": "The audit stream",
+      "datasource": {
+        "type": "loki",
+        "uid": "${logs}"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 18
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${logs}"
+          },
+          "expr": "{service_name=\"ariesd\"} | audit=\"true\""
+        }
+      ],
+      "description": "Access changes: projects, principals, keys, memberships, identities, sign-ins. People appear as stand-ins"
+    },
+    {
+      "id": 6,
+      "type": "logs",
+      "title": "Every log record",
+      "datasource": {
+        "type": "loki",
+        "uid": "${logs}"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 28
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${logs}"
+          },
+          "expr": "{service_name=\"ariesd\"}"
+        }
+      ]
+    }
+  ]
+}
