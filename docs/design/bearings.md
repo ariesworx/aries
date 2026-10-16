@@ -487,7 +487,7 @@ scopes below it. Admin tiers stay two (decision 14).
 **Adding a project to a portfolio is two-step** (finding 11): a
 `portfolio_admin` offers, and an admin of the project accepts
 (`aries admin portfolio project accept`), or a server admin does both,
-as decision 36's two-step has it. Until acceptance the portfolio admin's
+as aries.md decision 36's two-step has it. Until acceptance the portfolio admin's
 reach does not cover the project, so no one gains a project by owning a
 portfolio.
 
@@ -1471,11 +1471,11 @@ words are quoted.
 | 33 | On shell-capable lead clients: "Ok with the recommendation." They get reads and tier 1 only until ariesd checks the re-authenticated confirmation (M1) (§3.18, §8 Q3). |
 | 34 | "Split custody and execute least privilege with security in mind." A compromised `bearingsd` is not game over: the gateway and keys, the merger and its push credential, and the reviewer's App each sit apart from it under a user of their own, no leads' host tokens are held, and ariesd re-checks the acts §3.23 lists. Each principal and process holds the least it needs (§3.16, §8 Q5). |
 | 35 | "Merging to main does not deploy. It depends on the user's own CI/CD pipeline configuration." Bearings never deploys and treats a merge to `main` as not a deploy. Since an organization's own pipeline may deploy on merge, level D requires the organization's policy to state whether it does; where it does, a deploy gate the organization owns is required (§3.16, §8 Q6). Which of the seven hard limits stand stays open in Q6. |
+| 36 | On narrowing Aries decisions 12, 42, 68 and 85 and amending AGENTS.md rule 12: "Yes", "in one separate pull request once the design is accepted." Until then aries.md and AGENTS.md stand as written, and the table below is the list that pull request works from (§8 Q7). |
 
 **Aries decisions and AGENTS.md rules this design narrows** (review
-finding 8). Neither aries.md nor AGENTS.md is edited here; each row is a
-question in §8, and the rule 12 amendment is planned as its own pull
-request once the maintainer answers.
+finding 8). Neither aries.md nor AGENTS.md is edited here: decision 36
+narrows them in one separate pull request once the design is accepted.
 
 | Narrowed | How | §8 |
 |---|---|---|
@@ -1513,11 +1513,8 @@ marked "(review, round 1)" came from the architecture review.
    maintainer confirm? Bearings itself never deploys, which makes the
    fourth (production deploys) a limit on what policy may let Bearings
    trigger, not on what it holds.
-7. **first** **Should Aries decisions 12, 42, 68 and 85 be narrowed, and
-   AGENTS.md rule 12 edited** as §7's table has it? (review, round 1)
-   Recommended: yes, in one pull request to aries.md and AGENTS.md after
-   this design is accepted. Cost: rule 12's text names surfaces and
-   scopes, not "MCP".
+7. *Answered (decision 36).* Yes, in one separate pull request once
+   the design is accepted.
 8. **Do the Bearings prerequisites go into v1.0.0 (protocol 8, delaying
    it) or into 1.x with protocol bumps?** (review, round 1) Recommended:
    1.x, as §6 has it. Cost: none to 1.0.
