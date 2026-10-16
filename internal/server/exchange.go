@@ -62,10 +62,6 @@ const (
 	tokenTypeAccess    = "urn:ietf:params:oauth:token-type:access_token"
 )
 
-// spentSkew is how long past workload: fresh a token is remembered: the
-// most skew login: allows a platform's clock.
-const spentSkew = maxSkew
-
 // exchange is the token endpoint's token exchange: a workload's token,
 // verified and matched against the trust rules, for a token of scope ci
 // bound to the proof's key. The caller has checked the address and read
@@ -141,14 +137,29 @@ func (a *authServer) exchange(rw http.ResponseWriter, r *http.Request) {
 		oauthError(rw, http.StatusBadRequest, "invalid_dpop_proof", proto.Errf(proto.CodeAuth, "run `aries login --workload` again", err.Error()))
 		return
 	}
-	a.grantWorkload(rw, r, p, claims, proof.JKT, resource)
+	key, perr := a.spendWorkload(p, subject, claims, now)
+	if perr != nil {
+		a.refused(r, p.Name(), "workload_"+string(perr.Code))
+		status, code := http.StatusServiceUnavailable, "temporarily_unavailable"
+		if perr.Code != proto.CodeBusy {
+			status, code = http.StatusBadRequest, "invalid_grant"
+			a.failed(r)
+		}
+		oauthError(rw, status, code, perr)
+		return
+	}
+	if !a.grantWorkload(rw, r, p, claims, proof.JKT, resource) {
+		// Refused for the server's sake, not the token's: the job may
+		// send the same token again.
+		a.spent.release(key)
+	}
 }
 
 // verifyWorkload checks subject, a workload's token presented with a
-// proof by the key whose thumbprint is jkt, and spends it: the
-// provider its issuer names, the provider's verifier, the server's start
-// for a token bound to no key, and the tokens already spent. It returns
-// the provider, once known, and the token's claims, or a refusal.
+// proof by the key whose thumbprint is jkt: the provider its issuer
+// names, and the provider's verifier. It returns the provider, once
+// known, and the token's claims, or a refusal. Nothing is remembered of
+// it here.
 func (a *authServer) verifyWorkload(ctx context.Context, subject, jkt string, now time.Time) (*oidc.Workload, *oidc.Claims, *proto.Error) {
 	again := "run `aries login --workload` again; if it recurs, ask the server's admin to check the provider under workload: providers"
 	iss, err := oidc.PeekIssuer(subject)
@@ -172,26 +183,47 @@ func (a *authServer) verifyWorkload(ctx context.Context, subject, jkt string, no
 	case err != nil:
 		return p, nil, proto.Errf(proto.CodeAuth, again, fmt.Sprintf("the token of %s did not verify: %s", p.Name(), strings.TrimPrefix(err.Error(), oidc.ErrInvalidToken.Error()+": ")))
 	}
-	if !p.Bound() && time.Unix(c.Iat, 0).Before(a.started) {
-		return p, nil, proto.Errf(proto.CodeAuth, "ask the platform for a new token and run `aries login --workload` again",
+	return p, c, nil
+}
+
+// spendWorkload spends subject, a token of p's that verified with claims
+// c, at now, and returns the key it is remembered by: the hash of its
+// header and payload, so that another signature of the same claims is
+// the same token. It is remembered for as long as the verifier would
+// take it, from an iat as far ahead as the skew allows; and one bound
+// to no key is refused unless issued, past any skew, after the server
+// started, whose memory a restart lost.
+func (a *authServer) spendWorkload(p *oidc.Workload, subject string, c *oidc.Claims, now time.Time) (string, *proto.Error) {
+	wl, iat := a.workload, time.Unix(c.Iat, 0)
+	if !p.Bound() && !iat.After(a.started.Add(wl.Skew)) {
+		return "", proto.Errf(proto.CodeAuth, "ask the platform for a new token and run `aries login --workload` again",
 			fmt.Sprintf("the token of %s was issued before the server started, and is bound to no key, so it may have been exchanged already", p.Name()))
 	}
-	switch a.spent.spend(hashOf(subject), now, now.Add(a.workload.Fresh+spentSkew)) {
+	key := hashOf(subject[:strings.LastIndex(subject, ".")])
+	from := now
+	if iat.After(now) {
+		from = iat
+	}
+	until := from.Add(wl.Fresh + wl.Skew)
+	switch a.spent.spend(key, now, until) {
 	case errTokenSpent:
-		return p, nil, proto.Errf(proto.CodeAuth, "ask the platform for a new token and run `aries login --workload` again",
+		return "", proto.Errf(proto.CodeAuth, "ask the platform for a new token and run `aries login --workload` again",
 			fmt.Sprintf("the token of %s was exchanged already", p.Name()))
 	case errSpentFull:
 		a.s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitWorkloadTokens)
-		return p, nil, proto.Errf(proto.CodeBusy, "run `aries login --workload` again in a minute",
+		return "", proto.Errf(proto.CodeBusy, "run `aries login --workload` again in a minute",
 			fmt.Sprintf("the server holds the %d workload tokens it remembers as exchanged; the oldest age out within %s",
-				a.spent.most, proto.Span(a.workload.Fresh+spentSkew)))
+				a.spent.most, proto.Span(wl.Fresh+2*wl.Skew)))
 	}
-	return p, c, nil
+	return key, nil
 }
 
 // grantWorkload has the store match the token's claims to a trust rule
 // and record the sign-in, and answers with its token.
-func (a *authServer) grantWorkload(rw http.ResponseWriter, r *http.Request, p *oidc.Workload, c *oidc.Claims, jkt, resource string) {
+//
+// It reports false when the refusal was the server's (busy, unavailable),
+// not the token's, so that the token may be sent again.
+func (a *authServer) grantWorkload(rw http.ResponseWriter, r *http.Request, p *oidc.Workload, c *oidc.Claims, jkt, resource string) bool {
 	machine := cmp.Or(r.PostForm.Get("machine"), "unknown")
 	if !validActorPart(machine) || len(machine) > 255 {
 		machine = "unknown"
@@ -211,11 +243,12 @@ func (a *authServer) grantWorkload(rw http.ResponseWriter, r *http.Request, p *o
 		e := a.workloadErr(r.Context(), p, claims, err)
 		a.refusedSignIn(r.Context(), p.Name(), e)
 		status := http.StatusForbidden
-		if e.Code == proto.CodeUnavailable || e.Code == proto.CodeBusy {
+		ours := e.Code == proto.CodeUnavailable || e.Code == proto.CodeBusy
+		if ours {
 			status = http.StatusServiceUnavailable
 		}
 		oauthError(rw, status, "access_denied", e)
-		return
+		return !ours
 	}
 	a.s.Audit(r.Context())
 	a.s.cfg.Logger.InfoContext(r.Context(), "signed in", "event", logs.SignInGranted, "principal", g.Principal, "provider", g.Provider,
@@ -225,6 +258,7 @@ func (a *authServer) grantWorkload(rw http.ResponseWriter, r *http.Request, p *o
 		"expires_at": g.EndsAt.Format(time.RFC3339), "scope": strings.Join(g.Scopes, " "),
 		"principal": g.Principal, "provider": g.Provider, "grant": g.ID, "trust_rule": rule.Name,
 	})
+	return true
 }
 
 // workloadErr words the store's refusal of a workload's sign-in at p, for
@@ -275,7 +309,9 @@ var (
 // spentTokens are the workload tokens exchanged, by hash, each until the
 // time it could no longer be taken: bounded by most, and forgotten in the
 // order they were spent, which is the order their times come, since
-// each is the store's time (rule 19) and a fixed window.
+// each is the store's time (rule 19) and nearly a fixed window: one
+// whose iat runs ahead is kept a little longer, and is forgotten only
+// once those before it are, which holds it longer still and never less.
 type spentTokens struct {
 	most int
 
@@ -307,6 +343,14 @@ func (s *spentTokens) spend(hash string, now, until time.Time) error {
 	return nil
 }
 
+// release forgets hash, a token whose exchange the server refused for
+// its own sake, so that it may be sent again.
+func (s *spentTokens) release(hash string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.until, hash) // its place in order is passed over when reached
+}
+
 // prune forgets the tokens past their time at now.
 func (s *spentTokens) prune(now time.Time) {
 	s.mu.Lock()
@@ -319,7 +363,7 @@ func (s *spentTokens) prune(now time.Time) {
 func (s *spentTokens) expire(now time.Time) {
 	for s.head < len(s.order) {
 		h := s.order[s.head]
-		if now.Before(s.until[h]) {
+		if until, ok := s.until[h]; ok && now.Before(until) {
 			break
 		}
 		delete(s.until, h)

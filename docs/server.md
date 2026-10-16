@@ -1065,10 +1065,11 @@ since a token goes to the provider its issuer names.
   for `AUDIENCE/n/THUMBPRINT`, the thumbprint of its DPoP key's, and the
   server takes no other, so a token copied from a job is good for
   nothing without the job's key. Every exchanged token is remembered,
-  by its hash, for `fresh` and five minutes more, and taken once
-  (`workload_tokens_per_server`); Azure's, which no key binds, is also
-  refused when it was issued before the server started, since a restart
-  forgot what was spent.
+  by a hash of its claims, for as long as it could be taken (`fresh` and
+  the skew), and taken once (`workload_tokens_per_server`); one refused
+  for the server's sake (`busy`, `unavailable`) may be sent again.
+  Azure's, which no key binds, is also refused unless issued, past the
+  skew, after the server started, since a restart forgot what was spent.
 - **The sign-in** is of scope `ci` ([Scopes](#scopes)): a member's ops
   and a ci gate's report from the session `ci`, never an admin op, a
   waive or a person's gate. It lasts the rule's lifetime, at most
@@ -1095,7 +1096,14 @@ since a token goes to the provider its issuer names.
   workload's managed identity asks its token. The issuer is the
   tenant's v2.0 one, or for an app that issues version 1 tokens
   `https://sts.windows.net/TENANT/`, with `discovery: static` and
-  `jwks_url` set to the tenant's keys.
+  `jwks_url` set to the tenant's keys. Azure hands out a cached token
+  until it nears its end, so two jobs on one host within `fresh` may not
+  both sign in; this has not been run against Azure.
+- **A rule follows its provider's name.** Pointing a provider at another
+  issuer, such as another GitHub Enterprise Server, points its rules
+  there too, and a repository's ids are unique only within one
+  instance: give a new issuer a provider of a new name. A `login:`
+  provider and a `workload:` provider may not share a name.
 - **Not tested against the real platforms.** GitHub Actions, Google
   Cloud and Azure are from their documentation; the tests run against a
   stand-in issuer. Kubernetes service account tokens are not a kind of

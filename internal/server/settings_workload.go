@@ -84,8 +84,9 @@ type Workload struct {
 	// MaxTokenLifetime the most a sign-in by any rule lasts.
 	TokenLifetime, MaxTokenLifetime time.Duration
 	// Fresh bounds a workload token's age at the exchange, and how long
-	// one is remembered as spent.
-	Fresh time.Duration
+	// one is remembered as spent; Skew is what is allowed between a
+	// platform's clock and the server's, login:'s.
+	Fresh, Skew time.Duration
 }
 
 // OpenWorkload opens the workload providers of w, which ResolveSettings
@@ -98,7 +99,7 @@ func OpenWorkload(w WorkloadSettings, login LoginSettings, audience string, now 
 	if len(w.Providers) == 0 {
 		return nil, nil
 	}
-	out := &Workload{TokenLifetime: time.Duration(w.TokenLifetime), MaxTokenLifetime: time.Duration(w.MaxTokenLifetime), Fresh: time.Duration(w.Fresh)}
+	out := &Workload{TokenLifetime: time.Duration(w.TokenLifetime), MaxTokenLifetime: time.Duration(w.MaxTokenLifetime), Fresh: time.Duration(w.Fresh), Skew: time.Duration(login.Skew)}
 	audience = cmp.Or(w.Audience, audience)
 	for _, ps := range w.Providers {
 		p, err := oidc.OpenWorkload(ps, audience, oidc.Options{Now: now, Skew: time.Duration(login.Skew), MaxAge: out.Fresh,

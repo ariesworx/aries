@@ -196,6 +196,10 @@ func newAuthServer(s *Server, lp *Login, workload *Workload) (*authServer, error
 			if _, dup := a.workloads[p.Issuer()]; dup || names[p.Name()] {
 				return nil, fmt.Errorf("workload: two providers are named %s or have its issuer", p.Name())
 			}
+			// A sign-in names its provider, which must say which it is.
+			if _, both := a.providers[p.Name()]; both {
+				return nil, fmt.Errorf("workload: provider %s has the name of a provider under login:; fix: give it a name of its own", p.Name())
+			}
 			a.workloads[p.Issuer()], names[p.Name()] = p, true
 		}
 	}

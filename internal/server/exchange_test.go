@@ -47,7 +47,7 @@ func newWorkloadWorld(t *testing.T, lim Limits, edit func(*oidc.WorkloadSettings
 	clk.advance(time.Hour)
 	iss.Clock(clk.now)
 	ws := oidc.WorkloadSettings{Name: "github-actions", Kind: oidc.KindGitHubActions, Issuer: iss.URL, CAFile: iss.CAFile}
-	wl := Workload{TokenLifetime: time.Hour, MaxTokenLifetime: 6 * time.Hour, Fresh: 2 * time.Minute}
+	wl := Workload{TokenLifetime: time.Hour, MaxTokenLifetime: 6 * time.Hour, Fresh: 2 * time.Minute, Skew: 30 * time.Second}
 	if edit != nil {
 		edit(&ws, &wl)
 	}
@@ -351,7 +351,14 @@ func TestWorkloadUnbound(t *testing.T) {
 		!strings.Contains(ans.Description, "before the server started") {
 		t.Errorf("a token from before the start = %+v, want refused", ans)
 	}
-	w.clk.advance(time.Second)
+	// Nor one whose iat is within the skew of the start: a platform's
+	// clock ahead of the server's could have dated a token spent before a
+	// restart after it.
+	if ans := w.post(t, j, exchangeForm(token(w.clk.now().Add(20*time.Second))), ""); ans.Status != http.StatusBadRequest ||
+		!strings.Contains(ans.Description, "before the server started") {
+		t.Errorf("a token dated within the skew of the start = %+v, want refused", ans)
+	}
+	w.clk.advance(31 * time.Second)
 	ans := w.post(t, j, exchangeForm(token(w.clk.now())), "")
 	if ans.Status != http.StatusOK || ans.Principal != "ci-example" {
 		t.Fatalf("a token since the start = %+v, want ci-example signed in", ans)
@@ -374,16 +381,32 @@ func TestWorkloadLimits(t *testing.T) {
 		}
 	}
 	j := newJob(t)
-	if ans := w.post(t, j, exchangeForm(w.token(j, nil)), ""); ans.Status != http.StatusServiceUnavailable || proto.Code(ans.Code) != proto.CodeBusy ||
+	third := w.token(j, nil)
+	if ans := w.post(t, j, exchangeForm(third), ""); ans.Status != http.StatusServiceUnavailable || proto.Code(ans.Code) != proto.CodeBusy ||
 		!strings.Contains(ans.Fix, "aries logout") || !strings.Contains(ans.Fix, "grants_per_trust_rule") {
 		t.Errorf("a third job of a rule of two = %+v, want busy naming aries logout and the limit", ans)
 	}
+	// Refused for the server's sake, the token is not spent: once a
+	// sign-in ends, the same token signs in.
+	gs, err := w.ctl.Grants(t.Context(), "ci-example")
+	if err != nil || len(gs) != 2 {
+		t.Fatalf("Grants = %+v, %v", gs, err)
+	}
+	if _, _, err := w.ctl.EndSignIn(t.Context(), dana, gs[0].ID, store.EndRevoked); err != nil {
+		t.Fatal(err)
+	}
+	if ans := w.post(t, j, exchangeForm(third), ""); ans.Status != http.StatusOK {
+		t.Fatalf("the same token once a sign-in ended = %+v, want signed in", ans)
+	}
 	// Three tokens are remembered now, each until its window ends.
+	if _, _, err := w.ctl.EndSignIn(t.Context(), dana, gs[1].ID, store.EndRevoked); err != nil {
+		t.Fatal(err)
+	}
 	j = newJob(t)
 	if ans := w.post(t, j, exchangeForm(w.token(j, nil)), ""); ans.Status != http.StatusServiceUnavailable || !strings.Contains(ans.Description, "workload tokens") {
 		t.Errorf("a fourth token with three remembered = %+v, want busy", ans)
 	}
-	w.clk.advance(2*time.Minute + maxSkew + time.Second)
+	w.clk.advance(2*time.Minute + 30*time.Second + time.Second)
 	j = newJob(t)
 	if ans := w.post(t, j, exchangeForm(w.token(j, nil)), ""); ans.Code == string(proto.CodeBusy) && strings.Contains(ans.Description, "workload tokens") {
 		t.Errorf("a token once the others aged out = %+v, want it remembered", ans)
