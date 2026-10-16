@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -29,7 +30,7 @@ const loginWait = 10 * time.Minute
 // callbackPath is the loopback redirect's path.
 const callbackPath = "/callback"
 
-const loginUsage = "login [--provider NAME] [--url]"
+const loginUsage = "login [--provider NAME] [--url] | login --workload KIND [--provider NAME]"
 
 // signedIn is what `aries login` reports.
 type signedIn struct {
@@ -39,6 +40,7 @@ type signedIn struct {
 	ExpiresAt time.Time `json:"expires_at"`
 	SignIn    string    `json:"signin"`
 	Scopes    []string  `json:"scopes"`
+	TrustRule string    `json:"trust_rule,omitempty"`
 }
 
 // cmdLogin signs the person in at a provider of the server, and keeps
@@ -47,12 +49,26 @@ func cmdLogin(ctx context.Context, r *runner, args []string) error {
 	fs := r.newFlags("login")
 	provider := fs.String("provider", "", "the provider to sign in at, when the server has several")
 	byURL := fs.Bool("url", false, "print the URL to open in any browser, and take back the address it lands on")
+	workload := fs.String("workload", r.env.Getenv("ARIES_WORKLOAD"), "sign in as a service principal with this platform's token: "+
+		strings.Join(client.WorkloadKinds, ", ")+" (env ARIES_WORKLOAD)")
 	pos, err := parse(fs, args, loginUsage)
 	if err != nil {
 		return err
 	}
 	if len(pos) > 0 {
 		return usagef(loginUsage, "login takes no arguments")
+	}
+	if *workload != "" && *byURL {
+		return usagef(loginUsage, "--url is a person's sign-in in a browser; --workload signs in with the platform's token, and opens none")
+	}
+	if *workload != "" && !slices.Contains(client.WorkloadKinds, *workload) {
+		return usagef(loginUsage, "--workload is one of %s, not %q", strings.Join(client.WorkloadKinds, ", "), *workload)
+	}
+	if *workload == client.WorkloadGitHubActions && r.env.Getenv("ARIES_DATA_DIR") == "" && r.env.Getenv("RUNNER_TEMP") != "" {
+		// A self-hosted runner keeps its home from job to job; the
+		// runner's temporary directory is emptied after each.
+		return proto.Errf(proto.CodeInvalid, "set ARIES_DATA_DIR: ${{ runner.temp }}/aries in the job's env, so that every step finds the sign-in and none outlives the job (docs/ci.md)",
+			"ARIES_DATA_DIR is not set, and a runner's home may outlive the job")
 	}
 	cfg, err := client.LoadConfig(r.dir)
 	if err != nil {
@@ -65,6 +81,13 @@ func cmdLogin(ctx context.Context, r *runner, args []string) error {
 	info, err := client.FetchServerInfo(ctx, cfg)
 	if err != nil {
 		return err
+	}
+	if *workload != "" {
+		s, err := client.WorkloadLogin(ctx, cfg, info, *workload, *provider, machineName(r), client.WorkloadEnv{Getenv: r.env.Getenv})
+		if err != nil {
+			return err
+		}
+		return r.keepSignIn(ctx, cfg, data, s)
 	}
 	name, err := chooseProvider(info, *provider)
 	if err != nil {
@@ -128,6 +151,12 @@ func cmdLogin(ctx context.Context, r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
+	return r.keepSignIn(ctx, cfg, data, s)
+}
+
+// keepSignIn keeps s in data, in place of this machine's last sign-in to
+// cfg's server, which it ends at the server, and reports it.
+func (r *runner) keepSignIn(ctx context.Context, cfg *client.Config, data string, s *client.SignIn) error {
 	if old, _ := client.LoadSignIn(data, cfg.Server.URL); old != nil {
 		// A new sign-in replaces this machine's last: end it at the
 		// server, so that its token is good for nothing.
@@ -136,12 +165,17 @@ func cmdLogin(ctx context.Context, r *runner, args []string) error {
 	if err := client.SaveSignIn(data, s); err != nil {
 		return err
 	}
-	out := signedIn{Principal: s.Principal, Provider: s.Provider, Server: cfg.Server.URL, ExpiresAt: s.ExpiresAt, SignIn: s.Grant, Scopes: s.Scopes}
+	out := signedIn{Principal: s.Principal, Provider: s.Provider, Server: cfg.Server.URL, ExpiresAt: s.ExpiresAt, SignIn: s.Grant, Scopes: s.Scopes,
+		TrustRule: s.TrustRule}
 	if r.json {
 		r.emit(out)
 		return nil
 	}
-	_, _ = fmt.Fprintf(r.env.Stdout, "signed in as %s at %s, until %s (sign-in %s)\n", esc(out.Principal), esc(out.Provider), when(out.ExpiresAt), esc(out.SignIn))
+	by := ""
+	if out.TrustRule != "" {
+		by = " by trust rule " + esc(out.TrustRule)
+	}
+	_, _ = fmt.Fprintf(r.env.Stdout, "signed in as %s%s at %s, until %s (sign-in %s)\n", esc(out.Principal), by, esc(out.Provider), when(out.ExpiresAt), esc(out.SignIn))
 	return nil
 }
 

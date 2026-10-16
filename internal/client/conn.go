@@ -610,6 +610,7 @@ var waitedOn = map[string]bool{
 	proto.OpKeyAdd: true, proto.OpKeyRemove: true,
 	proto.OpPrincipalSet: true, proto.OpInviteAdd: true, proto.OpInviteRemove: true, proto.OpIdentityRemove: true,
 	proto.OpSignInEnd: true,
+	proto.OpTrustAdd:  true, proto.OpTrustSet: true, proto.OpTrustRemove: true,
 }
 
 // RequestTimeout is how long [Conn.Call] waits for the server to answer

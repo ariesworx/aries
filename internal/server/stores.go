@@ -169,6 +169,19 @@ type Control interface {
 	PrincipalAdmin
 	ControlUpkeep
 	SignIns
+	TrustRules
+}
+
+// TrustRules is the trust rules of service principals, and their
+// sign-ins by token exchange (docs/design/identity.md §7, exchange.go
+// and trust.go).
+type TrustRules interface {
+	AddTrustRule(ctx context.Context, actor store.Actor, r store.TrustRule) (store.TrustRule, error)
+	SetTrustRule(ctx context.Context, actor store.Actor, name string, ch store.TrustChange) (store.TrustRule, []store.Grant, bool, error)
+	RemoveTrustRule(ctx context.Context, actor store.Actor, name string) (store.TrustRule, []store.Grant, error)
+	TrustRules(ctx context.Context, principal string) ([]store.TrustRule, error)
+	TrustRule(ctx context.Context, name string) (store.TrustRule, error)
+	WorkloadSignIn(ctx context.Context, in store.WorkloadSignIn) (store.Grant, store.TrustRule, error)
 }
 
 // SignIns is the sign-ins of the authorization server (transport.md §6,

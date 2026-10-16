@@ -174,6 +174,7 @@ value aries.limit.refusals limit conns_per_server
 value aries.limit.refusals limit control_writes_per_second
 value aries.limit.refusals limit dpop_proofs_per_server
 value aries.limit.refusals limit grants_per_principal
+value aries.limit.refusals limit grants_per_trust_rule
 value aries.limit.refusals limit handshake_sockets
 value aries.limit.refusals limit handshakes_per_principal
 value aries.limit.refusals limit hours_per_day
@@ -193,8 +194,11 @@ value aries.limit.refusals limit projects_per_server
 value aries.limit.refusals limit signins_pending_per_addr
 value aries.limit.refusals limit signins_pending_per_server
 value aries.limit.refusals limit telemetry.max_requests
+value aries.limit.refusals limit trust_rules_per_principal
+value aries.limit.refusals limit trust_rules_per_server
 value aries.limit.refusals limit usage_per_day
 value aries.limit.refusals limit waiters_per_lock
+value aries.limit.refusals limit workload_tokens_per_server
 value aries.limit.refusals limit writes_per_second
 value aries.locks event acquire
 value aries.locks event expire

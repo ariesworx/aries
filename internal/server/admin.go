@@ -62,6 +62,11 @@ var adminHandlers = map[string]adminHandler{
 	proto.OpIdentityRemove:   adminTyped(identityRemove),
 	proto.OpSignIns:          adminTyped(signIns),
 	proto.OpSignInEnd:        adminTyped(signInEnd),
+	proto.OpTrustAdd:         adminTyped(trustAdd),
+	proto.OpTrustRules:       adminTyped(trustRules),
+	proto.OpTrustShow:        adminTyped(trustShow),
+	proto.OpTrustSet:         adminTyped(trustSet),
+	proto.OpTrustRemove:      adminTyped(trustRemove),
 }
 
 // adminTyped decodes args strictly into A and calls fn.

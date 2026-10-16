@@ -46,12 +46,14 @@ const (
 
 // SignIn is one sign-in: never its token or key. ExpiresAt is its end;
 // EndedAt and EndReason say when and why it ended before it (logout,
-// revoked, identity_removed, principal_disabled). State is live or ended, by the server's
-// clock.
+// revoked, identity_removed, principal_disabled, trust_rule_changed,
+// trust_rule_removed). State is live or ended, by the server's clock.
+// TrustRule is the rule a workload's sign-in matched.
 type SignIn struct {
 	ID        string     `json:"id"`
 	Principal string     `json:"principal"`
 	Provider  string     `json:"provider,omitempty"`
+	TrustRule string     `json:"trust_rule,omitempty"`
 	Client    string     `json:"client"`
 	Scopes    []string   `json:"scopes"`
 	Flow      string     `json:"flow"`

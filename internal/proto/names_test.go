@@ -53,6 +53,12 @@ func TestWireNames(t *testing.T) {
 		{"InviteAddArgs", InviteAddArgs{Name: "bob", Provider: "google", Address: "b@example.com"},
 			`{"name":"bob","provider":"google","address":"b@example.com"}`},
 		{"IdentityArgs", IdentityArgs{ID: 7}, `{"id":7}`},
+		// Trust rules (N5): a list is a bare plural, and a lifetime is
+		// token_lifetime, as in workload: settings.
+		{"TrustAddArgs", TrustAddArgs{Name: "ci-main", Principal: "ci", Provider: "github-actions", Claims: map[string]string{"repository_id": "1"}, TokenLifetime: "1h"},
+			`{"name":"ci-main","principal":"ci","provider":"github-actions","claims":{"repository_id":"1"},"token_lifetime":"1h"}`},
+		{"TrustSetArgs", TrustSetArgs{Name: "ci-main", State: TrustDisabled}, `{"name":"ci-main","state":"disabled"}`},
+		{"TrustRulesArgs", TrustRulesArgs{Principal: "ci"}, `{"principal":"ci"}`},
 		// A key's end (S1, identity.md §12): expires_at, or expires_in for
 		// a duration the server counts from its own time.
 		{"KeyAddArgs", KeyAddArgs{Name: "bob", Key: "ssh-ed25519 AAAA", ExpiresAt: &at},

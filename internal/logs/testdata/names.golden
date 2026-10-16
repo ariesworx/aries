@@ -20,6 +20,9 @@ event audit.project.archive
 event audit.read_failed
 event audit.signin.end
 event audit.signin.grant
+event audit.trust.add
+event audit.trust.remove
+event audit.trust.set
 event claim.expired
 event claim.released
 event clock.behind
@@ -187,6 +190,7 @@ field trace_headers
 field trace_id
 field traces
 field transports
+field trust_rule
 field urls
 field version
 field waiting

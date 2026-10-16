@@ -146,7 +146,7 @@ func TestHoursUsage(t *testing.T) {
 		{"bad seats", []string{"-C", empty, "admin", "plan", "set", "team", "--fee", "25", "--seats", "x", "--from", "2026-09"}, "seats"},
 		{"bad month", []string{"-C", empty, "admin", "plan", "set", "team", "--fee", "25", "--seats", "3", "--from", "2026-09-01"},
 			`--from "2026-09-01" must be a month`},
-		{"admin needs a command", []string{"-C", empty, "admin"}, "admin needs price, plan, project, principal, member, key, invite, identity, signin or status"},
+		{"admin needs a command", []string{"-C", empty, "admin"}, "admin needs price, plan, project, principal, member, key, invite, identity, signin, trust or status"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

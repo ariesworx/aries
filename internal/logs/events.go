@@ -150,6 +150,9 @@ const (
 	AuditIdentityBind     Event = "audit.identity.bind"
 	AuditSignInGrant      Event = "audit.signin.grant"
 	AuditSignInEnd        Event = "audit.signin.end"
+	AuditTrustAdd         Event = "audit.trust.add"
+	AuditTrustSet         Event = "audit.trust.set"
+	AuditTrustRemove      Event = "audit.trust.remove"
 	AuditReadFailed       Event = "audit.read_failed"
 )
 
@@ -173,7 +176,7 @@ var events = []Event{
 	TelemetryKeyMade, TelemetryKeyFound, TelemetryKeyUnavailable,
 	AuditProjectAdd, AuditProjectArchive, AuditProjectActivate, AuditPrincipalAdd, AuditPrincipalDisable, AuditPrincipalEnable,
 	AuditPrincipalSet, AuditKeyAdd, AuditKeyRemove, AuditMemberSet, AuditMemberRemove, AuditIdentityInvite, AuditIdentityRemove,
-	AuditIdentityBind, AuditSignInGrant, AuditSignInEnd,
+	AuditIdentityBind, AuditSignInGrant, AuditSignInEnd, AuditTrustAdd, AuditTrustSet, AuditTrustRemove,
 	AuditReadFailed,
 }
 

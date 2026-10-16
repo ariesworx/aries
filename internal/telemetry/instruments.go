@@ -296,6 +296,11 @@ const (
 	LimitSignInsPending        = "signins_pending_per_server"
 	LimitSignInsPendingPerAddr = "signins_pending_per_addr"
 	LimitDPoPProofs            = "dpop_proofs_per_server"
+	// The service principals' (slice N5).
+	LimitTrustRules             = "trust_rules_per_server"
+	LimitTrustRulesPerPrincipal = "trust_rules_per_principal"
+	LimitGrantsPerTrustRule     = "grants_per_trust_rule"
+	LimitWorkloadTokens         = "workload_tokens_per_server"
 )
 
 // Buckets are the upper bounds, in seconds, of every histogram's
@@ -314,7 +319,8 @@ var limits = []string{LimitConns, LimitConnsPerPrincipal, LimitHandshakes, Limit
 	LimitOpenStores, LimitTelemetryRequests, LimitProjects, LimitPrincipals, LimitKeys, LimitMembers, LimitIdentities, LimitInvites,
 	LimitPrices, LimitPlans, LimitHoursPerDay, LimitUsagePerDay, LimitLocks, LimitLockWaiters, LimitLockWaits,
 	LimitHTTPSConns, LimitHTTPSConnsPerAddr, LimitAuthFailures,
-	LimitGrants, LimitSignInsPending, LimitSignInsPendingPerAddr, LimitDPoPProofs}
+	LimitGrants, LimitSignInsPending, LimitSignInsPendingPerAddr, LimitDPoPProofs,
+	LimitTrustRules, LimitTrustRulesPerPrincipal, LimitGrantsPerTrustRule, LimitWorkloadTokens}
 
 // attr is one attribute of an instrument: its key and the values it may
 // take. A value not among them is recorded as fallback. The values of

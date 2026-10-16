@@ -247,11 +247,32 @@ var (
 // start with its command's name continues the form before it, such as
 // "admin key add NAME FILE | list NAME". prefix is the program's own
 // name, which a line may begin with.
+// splitAlternatives splits a usage line at each " | " outside brackets:
+// "add [--project P | --no-project] [--kind K]" is one form, whose
+// flags are all of it.
+func splitAlternatives(line string) []string {
+	var out []string
+	depth, start := 0, 0
+	for i := 0; i < len(line); i++ {
+		switch {
+		case line[i] == '[':
+			depth++
+		case line[i] == ']' && depth > 0:
+			depth--
+		case depth == 0 && strings.HasPrefix(line[i:], " | "):
+			out = append(out, line[start:i])
+			start = i + len(" | ")
+			i += len(" | ") - 1
+		}
+	}
+	return append(out, line[start:])
+}
+
 func parseUsage(text, prefix string, names []string) []usagePath {
 	var paths []usagePath
 	var group []string
 	for line := range strings.SplitSeq(text, "\n") {
-		for seg := range strings.SplitSeq(line, " | ") {
+		for _, seg := range splitAlternatives(line) {
 			fields := strings.Fields(seg)
 			if len(fields) > 0 && fields[0] == prefix {
 				fields = fields[1:]

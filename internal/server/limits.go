@@ -120,6 +120,11 @@ type Limits struct {
 	// two-minute window, so that none is used twice. Past it a proof is
 	// refused busy until the oldest age out.
 	DPoPProofs int `yaml:"dpop_proofs_per_server"`
+	// WorkloadTokens caps the workload tokens the daemon remembers as
+	// exchanged, each for the time it could still be taken (workload:
+	// fresh, and the skew), so that none signs in twice. Past it an
+	// exchange is refused busy until the oldest age out.
+	WorkloadTokens int `yaml:"workload_tokens_per_server"`
 
 	// The rest apply to a server of many projects (control_schema) only.
 
@@ -158,6 +163,7 @@ var DefaultLimits = Limits{
 	HTTPSConns: 4096, HTTPSConnsPerAddr: 64, HTTPSHeaderBytes: 16 << 10, HTTPSHeaderTimeout: Duration(10 * time.Second),
 	HTTPSBodyBytes: 64 << 10, UpgradeTimeout: Duration(10 * time.Second), WSMessageBytes: proto.MaxFrame,
 	AuthFailureRate: 30, AuthFailureBurst: 60, SignInsPending: 10000, SignInsPendingPerAddr: 16, DPoPProofs: 100000,
+	WorkloadTokens: 10000,
 }
 
 // Duration is a YAML duration such as 90s, 10m, 8h or 7d.
@@ -199,6 +205,8 @@ func (l Limits) WithDefaults() Limits {
 		{&l.HTTPSBodyBytes, &d.HTTPSBodyBytes}, {&l.WSMessageBytes, &d.WSMessageBytes}, {&l.AuthFailureBurst, &d.AuthFailureBurst},
 		{&l.Control.Grants, &d.Control.Grants}, {&l.SignInsPending, &d.SignInsPending},
 		{&l.SignInsPendingPerAddr, &d.SignInsPendingPerAddr}, {&l.DPoPProofs, &d.DPoPProofs},
+		{&l.Control.TrustRules, &d.Control.TrustRules}, {&l.Control.TrustRulesPerPrincipal, &d.Control.TrustRulesPerPrincipal},
+		{&l.Control.GrantsPerTrustRule, &d.Control.GrantsPerTrustRule}, {&l.WorkloadTokens, &d.WorkloadTokens},
 	} {
 		if *f.v == 0 {
 			*f.v = *f.d
@@ -249,7 +257,7 @@ func (l Limits) Validate() error {
 		{"auth_failures_per_minute", l.AuthFailureRate < 0 || math.IsNaN(l.AuthFailureRate) || math.IsInf(l.AuthFailureRate, 0)},
 		{"auth_failure_burst", l.AuthFailureBurst < 0},
 		{"signins_pending_per_server", l.SignInsPending < 0}, {"signins_pending_per_addr", l.SignInsPendingPerAddr < 0},
-		{"dpop_proofs_per_server", l.DPoPProofs < 0},
+		{"dpop_proofs_per_server", l.DPoPProofs < 0}, {"workload_tokens_per_server", l.WorkloadTokens < 0},
 	} {
 		if f.bad {
 			return fmt.Errorf("limit %s must be zero or a positive number; fix: correct limits: in the config file, or leave it out for the default", f.name)
@@ -298,6 +306,7 @@ var readOps = map[string]bool{
 	proto.OpProjects: true, proto.OpPrincipals: true, proto.OpMembers: true, proto.OpKeys: true,
 	proto.OpStatus: true, proto.OpPrincipalWhois: true,
 	proto.OpPrincipalShow: true, proto.OpInvites: true, proto.OpIdentities: true, proto.OpSignIns: true,
+	proto.OpTrustRules: true, proto.OpTrustShow: true,
 }
 
 // controlWrites are the operations that write to the control store.
@@ -310,6 +319,7 @@ var controlWrites = map[string]bool{
 	proto.OpKeyAdd: true, proto.OpKeyRemove: true,
 	proto.OpPrincipalSet: true, proto.OpInviteAdd: true, proto.OpInviteRemove: true, proto.OpIdentityRemove: true,
 	proto.OpSignInEnd: true,
+	proto.OpTrustAdd:  true, proto.OpTrustSet: true, proto.OpTrustRemove: true,
 }
 
 // adminOp reports whether op manages access (proto's admin.go): one of
@@ -319,7 +329,7 @@ var controlWrites = map[string]bool{
 func adminOp(op string) bool {
 	switch op {
 	case proto.OpProjects, proto.OpPrincipals, proto.OpMembers, proto.OpKeys, proto.OpStatus, proto.OpPrincipalWhois,
-		proto.OpPrincipalShow, proto.OpInvites, proto.OpIdentities, proto.OpSignIns:
+		proto.OpPrincipalShow, proto.OpInvites, proto.OpIdentities, proto.OpSignIns, proto.OpTrustRules, proto.OpTrustShow:
 		return true
 	}
 	return controlWrites[op]

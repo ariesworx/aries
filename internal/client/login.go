@@ -48,6 +48,7 @@ type ServerInfo struct {
 	Transports []string       `json:"transports"`
 	Auth       []string       `json:"auth"`
 	Providers  []ProviderInfo `json:"providers"`
+	Workloads  []WorkloadInfo `json:"workloads"`
 }
 
 // ProviderInfo names a provider a person may sign in at.

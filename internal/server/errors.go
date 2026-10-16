@@ -43,6 +43,8 @@ func command(op string) string {
 		return "admin invite list"
 	case proto.OpIdentities:
 		return "admin identity list"
+	case proto.OpTrustRules:
+		return "admin trust list"
 	case proto.OpPropose:
 		return "conflicts" // proposing is an agent's, over MCP; aries conflicts shows them
 	case proto.OpResolve:
@@ -113,6 +115,8 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 			fix = "ask a server admin to add the principal, or the server's operator to raise principals_per_creator under limits: in ariesd's config"
 		case "invites_per_server":
 			fix = "remove an invitation no longer wanted (`aries admin invite list`, then `aries admin invite remove ID`), or " + fix
+		case "trust_rules_per_server", "trust_rules_per_principal":
+			fix = "remove a trust rule no longer used (`aries admin trust list`, then `aries admin trust remove NAME`), or " + fix
 		}
 		return proto.Errf(proto.CodeInvalid, fix, strings.TrimPrefix(text, store.ErrInvalid.Error()+": "))
 
@@ -308,6 +312,21 @@ func accessPhrase(e *store.AccessError) string {
 		return "list the invitations"
 	case string(store.OpSignInEnd):
 		return "end a sign-in of " + e.Principal
+	case proto.OpTrustAdd:
+		if e.Principal == "" {
+			return "add a trust rule"
+		}
+		return "add a trust rule for " + e.Principal
+	case proto.OpTrustSet:
+		if e.Principal == "" {
+			return "change a trust rule"
+		}
+		return "change a trust rule of " + e.Principal
+	case proto.OpTrustRemove:
+		if e.Principal == "" {
+			return "remove a trust rule"
+		}
+		return "remove a trust rule of " + e.Principal
 	}
 	return strings.TrimSpace(string(e.Op) + " " + e.Principal + in)
 }
@@ -330,6 +349,10 @@ func accessErr(e *store.AccessError) *proto.Error {
 		return proto.Errf(proto.CodeForbidden,
 			"ask another admin to run it: a server admin, or a project admin who administers every project you belong to; the server's operator can also change authorized_keys on the server",
 			msg+"nobody adds a key to their own account")
+	case store.AccessOwnTrust:
+		return proto.Errf(proto.CodeForbidden,
+			"ask another server admin to run it: a trust rule lets whoever runs the jobs it admits sign in as the principal",
+			msg+"nobody manages a trust rule of their own principal")
 	case store.AccessOwnIdentity:
 		return proto.Errf(proto.CodeForbidden,
 			"ask another server admin to run it: an invitation lets whoever holds the address sign in as the principal",
@@ -400,8 +423,12 @@ func adminNotFoundFix(op string) string {
 		return "list a principal's identities, with their ids, with `aries admin identity list NAME`"
 	case proto.OpSignInEnd:
 		return "list a principal's sign-ins, with their ids, with `aries admin signin list NAME`"
-	case proto.OpSignIns:
+	case proto.OpSignIns, proto.OpTrustRules:
 		return "check the name; a server admin lists them with `aries admin principal list`"
+	case proto.OpTrustAdd:
+		return "check --principal; a server admin lists the principals with `aries admin principal list`"
+	case proto.OpTrustShow, proto.OpTrustSet, proto.OpTrustRemove:
+		return "list the trust rules with `aries admin trust list`"
 	}
 	return "list the projects with `aries admin project list`"
 }

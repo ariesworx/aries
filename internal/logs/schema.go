@@ -130,6 +130,9 @@ var keys = map[string]Kind{
 	// Sign-in: a provider's name, which is the operator's; a sign-in's
 	// id, random and no secret; how it came; and how many were pruned.
 	"provider": KindWord, "grant": KindWord, "flow": KindWord, "signins": KindWord,
+	// A service principal's sign-in: the trust rule it matched, a name
+	// an admin chose, so it stays in the journal (slice N5).
+	"trust_rule": KindLocal,
 	// The clock.
 	"log": KindLocal, "clock": KindWord, "history": KindWord, "behind": KindWord, "since": KindWord, "was_behind_since": KindWord, "direction": KindWord,
 	"step": KindWord, "from": KindWord, "to": KindWord, "steps": KindWord, "extended": KindWord, "claims": KindWord, "forward_since_start": KindWord, "backward_since_start": KindWord,

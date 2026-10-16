@@ -8,19 +8,48 @@ the job on the default branch after the merge.
 
 CI reports the way any client does: the job runs `aries` as a principal of
 its own. ariesd polls nothing, receives no webhook, and calls no CI
-host ([design §20.4](design/aries.md#204-how-ci-results-reach-the-server)).
+host but to read the platform's published signing keys, which check a
+job's token ([design §20.4](design/aries.md#204-how-ci-results-reach-the-server)).
 Read [What this costs](#what-this-costs) before you set it up.
 
 ## Set it up
 
-1. **A principal for CI, with its own key.** Make the key on your own
-   machine, add its public half under a principal of its own, such as
-   `ci-example`, and keep the private half only in the CI system's secret
-   store, as the [team deployment](deploy/team.md) shows (steps 4 and 6):
+1. **A service principal for CI, signed in by a trust rule.** On a
+   server with HTTPS whose operator set up the platform under
+   `workload: providers` ([Service principals](server.md#service-principals)),
+   a GitHub Actions job signs in with the OIDC token GitHub gives it,
+   and nothing is stored anywhere. A server admin adds a principal of
+   kind `service`, owned by the person who answers for it, and a trust
+   rule that names the repository by its immutable ids:
+
+   ```sh
+   aries admin principal add ci-example --kind service --owner alice
+   aries admin trust add ci-example-ci --principal ci-example --provider github-actions \
+       --claim repository_owner_id=111111111 --claim repository_id=123456789
+   ```
+
+   `gh api repos/example/app --jq '.owner.id, .id'` prints the two ids.
+   A rule matches a token whose claims each equal the rule's, exactly; it
+   must pin both ids, which GitHub never reuses, where a repository's
+   name can be renamed or taken again. Pinning more narrows it, as
+   [What this costs](#what-this-costs) says: `--claim
+   event_name=pull_request` for a rule that admits pull requests' jobs
+   alone, `--claim ref=refs/heads/main --claim event_name=push` for the
+   `landed` job, or `--claim environment=release` for a job of a
+   protected environment. A job of a pull request carries
+   `ref=refs/pull/N/merge`, so a rule pinned to `refs/heads/main` does
+   not admit it. `aries admin trust show NAME` prints what a rule pins,
+   and a job no rule admits is refused with the claims of its own token
+   a rule would pin.
+
+   A CI system with no workload identity, such as GitLab CI, or a
+   server that serves SSH alone, uses a key of the principal's own
+   instead, with an end:
 
    ```sh
    ssh-keygen -t ed25519 -N '' -C ci-example -f ci-example
-   aries admin principal add ci-example --key ci-example.pub   # a server of many projects
+   aries admin principal add ci-example --kind service --owner alice   # a server of many projects
+   aries admin key add ci-example ci-example.pub --expires 90d
    ```
 
    On a server of one project, add a line to `authorized_keys` instead
@@ -29,9 +58,11 @@ Read [What this costs](#what-this-costs) before you set it up.
    files. Never name the secret `ARIES_KEY_FILE`, which `aries` reads as
    a path.
 
-2. **A path from CI to sshd.** The job connects as `aries` does from a
-   laptop, with the repository's committed `.aries.yaml`: to a public
-   address, or through [Google Cloud IAP](cli.md#servers-without-a-public-ip-google-cloud-iap)
+2. **A path from CI to the server.** The job connects as `aries` does
+   from a laptop, with the repository's committed `.aries.yaml`: over
+   HTTPS by `server.url`, or to sshd on a server that serves SSH, at a
+   public address or through
+   [Google Cloud IAP](cli.md#servers-without-a-public-ip-google-cloud-iap)
    with `gcloud` signed in within the job.
 
 3. **The gates.** Whoever plans the work adds them; agents cannot:
@@ -117,7 +148,8 @@ own, so report a check from one workflow only.
 ## GitHub Actions
 
 `.github/workflows/aries.yml`, beside your build. The `report` job runs
-after `build` whether it passed or failed, and tells Aries which:
+after `build` whether it passed or failed, signs in with the job's OIDC
+token, and tells Aries which:
 
 ```yaml
 name: aries
@@ -138,18 +170,18 @@ jobs:
     needs: build
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # the job's OIDC token, which aries exchanges
+    env:
+      ARIES_DATA_DIR: ${{ runner.temp }}/aries # the sign-in, gone with the job
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Connect to aries
-        env:
-          ARIES_CI_PRIVATE_KEY: ${{ secrets.ARIES_CI_PRIVATE_KEY }}
+      - name: Sign in to aries
         run: |
           curl -fsSL https://raw.githubusercontent.com/ariesworx/aries/main/install.sh | sh -s -- --require-signature
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          umask 077
-          key="$RUNNER_TEMP/aries-ci-key"
-          printf '%s\n' "$ARIES_CI_PRIVATE_KEY" > "$key"
-          echo "ARIES_KEY_FILE=$key" >> "$GITHUB_ENV"
+          "$HOME/.local/bin/aries" login --workload github-actions
       - name: Report the build
         if: github.event_name == 'pull_request'
         env:
@@ -165,26 +197,55 @@ jobs:
         env:
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: aries gate pass --check landed --from-commit --optional --sha "$GITHUB_SHA" --url "$RUN"
-      - name: Remove the aries key
+      - name: Sign out of aries
         if: always()
-        run: rm -f "$ARIES_KEY_FILE"
+        run: aries logout
 ```
 
-The key reaches a file the way the [team deployment](deploy/team.md)
-describes: written under `umask 077` by the shell's own `printf`, so it
+`aries login --workload github-actions` makes a key for the job, asks
+GitHub for the job's OIDC token for the server's audience bound to that
+key, and exchanges it at the server for a sign-in as the service the
+trust rule names, of scope `ci`, which every later `aries` of the job
+presents. It lasts the rule's lifetime, an hour by default, and
+`aries logout` ends it at the job's end, so that a matrix of jobs does
+not fill the rule's `grants_per_trust_rule`. The sign-in and its key
+are kept in `ARIES_DATA_DIR`, in the runner's temporary directory,
+emptied after each job; `aries login --workload github-actions` refuses
+to run on a runner without it, since a self-hosted runner's home
+outlives the job. `id-token: write` is the report job's alone, and
+nothing is stored in the repository's secrets. GitHub gives a pull
+request from a fork no OIDC token, so the report fails there; never
+switch to `pull_request_target`, which would run the fork's code with
+the base repository's permissions. `actions/checkout` is pinned by
+commit, as every action should be; update the pin with the version you
+use.
+
+**With a stored key** (a server with SSH alone, or no workload provider
+for GitHub): give the job the key as the [GitLab example](#gitlab-ci)
+does, written under `umask 077` by the shell's own `printf` so that it
 is in no command line and no log, with only its path in `GITHUB_ENV`,
-and removed at the end. `actions/checkout` is pinned by commit, as every
-action should be; update the pin with the version you use. GitHub gives
-no secrets to a pull request from a fork, so the report fails there;
-never switch to `pull_request_target` to get them, which would hand the
-key to code from the fork.
+and removed in a step that always runs:
+
+```yaml
+      - name: Connect to aries
+        env:
+          ARIES_CI_PRIVATE_KEY: ${{ secrets.ARIES_CI_PRIVATE_KEY }}
+        run: |
+          umask 077
+          key="$RUNNER_TEMP/aries-ci-key"
+          printf '%s\n' "$ARIES_CI_PRIVATE_KEY" > "$key"
+          echo "ARIES_KEY_FILE=$key" >> "$GITHUB_ENV"
+```
 
 ## GitLab CI
 
-In `.gitlab-ci.yml`, beside your build's jobs. Store the key as a CI/CD
-variable named `ARIES_CI_PRIVATE_KEY` of type *File*: GitLab writes it
-to a file and puts the file's path in the variable, so the key is in no
-command line and no log.
+In `.gitlab-ci.yml`, beside your build's jobs. GitLab's own ID tokens
+are not a workload kind Aries 1.0 takes, so the job signs in with a key
+of the principal's, best one that ends (`aries admin key add NAME FILE
+--expires 90d`). Store it as a CI/CD variable named
+`ARIES_CI_PRIVATE_KEY` of type *File*: GitLab writes it to a file and
+puts the file's path in the variable, so the key is in no command line
+and no log.
 
 ```yaml
 stages: [test, report]
@@ -238,28 +299,46 @@ names.
 Plainly, as [design §20.4 and §20.13](design/aries.md#2013-what-this-does-not-solve)
 put it:
 
-- **A pass is worth what the CI principal's key is worth.** Whoever can
-  edit the workflow can pass the gate: a pull request runs the workflow
-  file from its own branch, so anyone who can push a branch, and so
-  change the workflow in it, can make the job report `build` passed, or
-  read the key. Branch protection and required checks stay the host's
-  job; a ci gate adds a record and a hold, not a guarantee that the
-  build was honest.
-- **The key is stored, and lasts until revoked.** Until workload sign-in
-  is built (decisions 52 and 56, [access research §7](design/access-research.md)),
-  CI holds a long-lived private key in its secret store, not a
-  credential that lasts the job. Revoke it with `aries admin key remove
-  FINGERPRINT` when it may have leaked; that closes its connections too.
+- **A pass is worth what the trust rule admits.** Whoever can edit the
+  workflow in a job the rule admits can pass the gate: a pull request
+  runs the workflow file from its own branch, so anyone who can push a
+  branch, and so change the workflow in it, gets a job that a rule
+  pinning only the repository admits, which can report `build` passed.
+  Narrow the rule to what the job needs: `event_name=pull_request` for
+  the build report, `ref=refs/heads/main` and `event_name=push` for
+  `landed`, `environment=NAME` for a protected environment whose
+  reviewers GitHub enforces, or `job_workflow_ref` to a reviewed
+  reusable workflow at a branch nobody pushes to unreviewed. Branch
+  protection and required checks stay the host's job; a ci gate adds a
+  record and a hold, not a guarantee that the build was honest.
+- **Nothing is stored, and a sign-in lasts an hour.** With a trust rule,
+  no key or secret lives in the CI system; a job's sign-in lasts the
+  rule's lifetime, an hour by default and at most `workload:
+  max_token_lifetime` (6 hours), and is bound to a key the job made and
+  never leaves the runner. A token copied from a job's log is useless
+  without that key, and GitHub's own token is exchanged once, within 2
+  minutes of being issued, and only with the key its audience names.
+  `aries admin trust disable NAME` stops a rule at once, and ends the
+  sign-ins it gave, with their connections; every sign-in names its
+  rule and the run it was for (`run_id`, `workflow_ref`, `actor_id`,
+  `event_name`, `ref`) in the audit stream.
+- **A stored key lasts until it ends or is revoked.** Where a CI system
+  has no workload identity, it holds a private key in its secret store.
+  Give it an end with `--expires`, and revoke it with `aries admin key
+  remove FINGERPRINT` when it may have leaked; that closes its
+  connections too.
 - **The CI principal has a member's rights.** It can create, update,
   close and comment on issues like any member, until decision 8 gives
-  narrower roles. Give it a principal of its own, never a person's key,
-  so that what it does shows under its name and it can be revoked alone.
-- **CI needs a network path to sshd:** a public port, or IAP with
-  `gcloud` signed in inside the job, which is another credential in the
-  job.
-- **The session `ci` is not a credential.** Anyone holding the key can
-  set `CI=true`. Refusing an agent's session is a speed bump against an
-  agent that signs in with the CI key, not a wall.
+  narrower roles; a sign-in of scope `ci` runs no admin op and decides
+  no person's gate. Give it a principal of its own, a `service` with an
+  owner, never a person's, so that what it does shows under its name and
+  it can be disabled alone.
+- **CI needs a network path to the server:** its HTTPS URL, or on a
+  server that serves SSH a public port, or IAP with `gcloud` signed in
+  inside the job, which is another credential in the job.
+- **The session `ci` is not a credential.** Anyone holding the key or
+  the sign-in can set `CI=true`. Refusing an agent's session is a speed
+  bump against an agent that signs in as CI, not a wall.
 - **Evidence is text others read.** It is shown to every member and to
   agents, as data. Do not put secrets in a reason or a URL; the server
   refuses what looks like one, which is no promise that it finds every
@@ -267,6 +346,7 @@ put it:
 - **A revert does not un-land an issue.** Run `aries gate rearm GATE`
   after a revert; work already started on what the gate held goes on.
 
-Not yet run on GitHub's or GitLab's hosted runners: the end-to-end test
-(`TestCIGate` in `internal/e2e`) runs the same `aries` commands, with the
-same variables, against a real daemon.
+Not yet run on GitHub's or GitLab's hosted runners: the end-to-end tests
+(`TestCIGate` and `TestWorkloadEndToEnd` in `internal/e2e`) run the same
+`aries` commands, with the same variables, against a real daemon, the
+second against a stand-in for GitHub's token endpoint and issuer.

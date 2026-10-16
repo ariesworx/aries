@@ -139,6 +139,12 @@ func (s *Server) auditLine(e store.Event) {
 		// An identity's and a sign-in's event is the principal's: no
 		// address, subject or token is in the event, nor so in the line.
 		attrs = append(attrs, logs.KeySubject, e.Target)
+	case store.OpTrustAdd, store.OpTrustSet, store.OpTrustRemove:
+		// A trust rule's event names the rule; the line names the
+		// principal it signs in as too.
+		if state.Principal != "" {
+			attrs = append(attrs, logs.KeySubject, state.Principal)
+		}
 	case store.OpKeyAdd, store.OpKeyRemove:
 		attrs = append(attrs, logs.KeyFingerprint, e.Target)
 		if state.Principal != "" {

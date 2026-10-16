@@ -42,9 +42,11 @@ command line. One small Go server keeps the data in
 > amd64 and arm64 runners (slice P5).
 > HTTPS is the transport a fresh server serves, with SSH off until an
 > operator turns it on (slice T1 of decision 86); a principal's kind,
-> identities and invitations are recorded (slice N1); and people sign
+> identities and invitations are recorded (slice N1); people sign
 > in at their company's identity provider with `aries login`, the server
-> issuing its own tokens, bound to the machine's key (slice T2).
+> issuing its own tokens, bound to the machine's key (slice T2); and a
+> CI job or a cloud workload signs in as a service principal with its
+> platform's token, by a trust rule, holding no stored key (slice N5).
 > Not ready for production use yet; see the [roadmap](#roadmap).
 
 ## Why Aries
@@ -227,10 +229,11 @@ by a URL, beside keys; service principals that sign in with their
 platform's workload identity; and a hardening pass: a review of every
 public name, flag, variable and setting, the protocol settled at one
 version (decision 78), and a security review of sign-in. Built: all of
-it but service principals (slice N5), the rest of P5 (the installer on
-amd64, a machine with the AppArmor profiles enforced, ACME against a
-real CA), that security review and a check against a real provider. Of
-P5, the soaks pass on Linux, on GitHub's amd64 and arm64 runners. A remote MCP endpoint, GitHub's sign-in and the device grant,
+it, service principals (slice N5) on its branch, but the rest of P5
+(the installer on amd64, a machine with the AppArmor profiles enforced,
+ACME against a real CA), that security review and a check against a
+real provider. Of P5, the soaks pass on Linux, on GitHub's amd64 and
+arm64 runners. A remote MCP endpoint, GitHub's sign-in and the device grant,
 a Claude Desktop extension, and stage 6's G3 to G5 come in 1.x releases
 as compatible additions.
 

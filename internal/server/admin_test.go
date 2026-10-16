@@ -157,6 +157,11 @@ func adminRequests() []struct {
 		{proto.OpIdentityRemove, proto.IdentityArgs{ID: 1}},
 		{proto.OpSignIns, proto.SignInsArgs{Name: "bob"}},
 		{proto.OpSignInEnd, proto.SignInEndArgs{ID: "g-0000000000000000"}},
+		{proto.OpTrustAdd, proto.TrustAddArgs{Name: "ci-main", Principal: "ci", Provider: "github-actions", Claims: map[string]string{"repository_id": "1"}}},
+		{proto.OpTrustRules, proto.TrustRulesArgs{}},
+		{proto.OpTrustShow, proto.TrustArgs{Name: "ci-main"}},
+		{proto.OpTrustSet, proto.TrustSetArgs{Name: "ci-main", State: proto.TrustDisabled}},
+		{proto.OpTrustRemove, proto.TrustArgs{Name: "ci-main"}},
 	}
 }
 
@@ -910,7 +915,8 @@ func TestAdminOpsClassified(t *testing.T) {
 			t.Errorf("adminOp(%s) = false for an op with a handler", op)
 		}
 		read := op == proto.OpProjects || op == proto.OpPrincipals || op == proto.OpMembers || op == proto.OpKeys || op == proto.OpStatus ||
-			op == proto.OpPrincipalWhois || op == proto.OpPrincipalShow || op == proto.OpInvites || op == proto.OpIdentities || op == proto.OpSignIns
+			op == proto.OpPrincipalWhois || op == proto.OpPrincipalShow || op == proto.OpInvites || op == proto.OpIdentities || op == proto.OpSignIns ||
+			op == proto.OpTrustRules || op == proto.OpTrustShow
 		if readOps[op] != read || controlWrites[op] == read {
 			t.Errorf("%s: read op %t, control write %t; a list, a principal shown, the status and a stand-in's lookup are reads and everything else a control write", op, readOps[op], controlWrites[op])
 		}

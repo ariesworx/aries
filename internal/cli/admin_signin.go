@@ -82,7 +82,11 @@ func printSignIns(w io.Writer, res proto.SignInsResult) {
 		if s.EndedAt != nil {
 			ends = when(*s.EndedAt)
 		}
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", esc(s.ID), esc(s.Provider), esc(s.Machine), esc(strings.Join(s.Scopes, " ")),
+		provider := s.Provider
+		if s.TrustRule != "" {
+			provider += " (rule " + s.TrustRule + ")"
+		}
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", esc(s.ID), esc(provider), esc(s.Machine), esc(strings.Join(s.Scopes, " ")),
 			esc(state), when(s.CreatedAt), ends)
 	}
 	_ = tw.Flush()

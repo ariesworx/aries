@@ -34,11 +34,18 @@ type ControlLimits struct {
 	// ended nor past their end, one for each machine and client it signed
 	// in on.
 	Grants int `yaml:"grants_per_principal"`
+	// TrustRules caps the trust rules on the server, and
+	// TrustRulesPerPrincipal those of one service principal.
+	TrustRules             int `yaml:"trust_rules_per_server"`
+	TrustRulesPerPrincipal int `yaml:"trust_rules_per_principal"`
+	// GrantsPerTrustRule caps the live sign-ins one trust rule gives at
+	// once: the jobs of a matrix, each with a token of its own.
+	GrantsPerTrustRule int `yaml:"grants_per_trust_rule"`
 }
 
 // DefaultControlLimits are the limits a zero field takes.
 var DefaultControlLimits = ControlLimits{Projects: 500, Principals: 5000, PrincipalsPerCreator: 500, Keys: 20, Members: 1000,
-	Identities: 8, Invites: 1000, Grants: 64}
+	Identities: 8, Invites: 1000, Grants: 64, TrustRules: 1000, TrustRulesPerPrincipal: 16, GrantsPerTrustRule: 64}
 
 // The limits' names, as a [*ControlLimitError] gives them.
 const (
@@ -50,6 +57,10 @@ const (
 	limitIdentities = "identities_per_principal"
 	limitInvites    = "invites_per_server"
 	limitGrants     = "grants_per_principal"
+	// The trust rules' (slice N5).
+	limitTrustRules        = "trust_rules_per_server"
+	limitTrustPerPrincipal = "trust_rules_per_principal"
+	limitGrantsPerRule     = "grants_per_trust_rule"
 )
 
 // withDefaults returns l with each zero field set from
@@ -59,7 +70,8 @@ func (l ControlLimits) withDefaults() ControlLimits {
 	for _, f := range []struct{ v, d *int }{
 		{&l.Projects, &d.Projects}, {&l.Principals, &d.Principals}, {&l.PrincipalsPerCreator, &d.PrincipalsPerCreator},
 		{&l.Keys, &d.Keys}, {&l.Members, &d.Members}, {&l.Identities, &d.Identities}, {&l.Invites, &d.Invites},
-		{&l.Grants, &d.Grants},
+		{&l.Grants, &d.Grants}, {&l.TrustRules, &d.TrustRules}, {&l.TrustRulesPerPrincipal, &d.TrustRulesPerPrincipal},
+		{&l.GrantsPerTrustRule, &d.GrantsPerTrustRule},
 	} {
 		if *f.v == 0 {
 			*f.v = *f.d
@@ -77,7 +89,8 @@ func (l ControlLimits) Validate() error {
 	}{
 		{limitProjects, l.Projects}, {limitPrincipals, l.Principals}, {limitPerCreator, l.PrincipalsPerCreator},
 		{limitKeys, l.Keys}, {limitMembers, l.Members}, {limitIdentities, l.Identities}, {limitInvites, l.Invites},
-		{limitGrants, l.Grants},
+		{limitGrants, l.Grants}, {limitTrustRules, l.TrustRules}, {limitTrustPerPrincipal, l.TrustRulesPerPrincipal},
+		{limitGrantsPerRule, l.GrantsPerTrustRule},
 	} {
 		if f.v < 0 {
 			return fmt.Errorf("%w: limit %s is %d; give a positive number, or leave it out for the default", ErrInvalid, f.name, f.v)
@@ -90,7 +103,8 @@ func (l ControlLimits) Validate() error {
 // of them already. Limit names the limit as ariesd's settings do
 // (projects_per_server, principals_per_server, principals_per_creator,
 // keys_per_principal, members_per_project, identities_per_principal,
-// invites_per_server, grants_per_principal). It wraps ErrInvalid.
+// invites_per_server, grants_per_principal, trust_rules_per_server,
+// trust_rules_per_principal, grants_per_trust_rule). It wraps ErrInvalid.
 type ControlLimitError struct {
 	Limit string
 	Max   int
@@ -114,6 +128,12 @@ func (e *ControlLimitError) Error() string {
 		return fmt.Sprintf("%v: the server keeps at most %d open invitations", ErrInvalid, e.Max)
 	case limitGrants:
 		return fmt.Sprintf("%v: a principal keeps at most %d live sign-ins", ErrInvalid, e.Max)
+	case limitTrustRules:
+		return fmt.Sprintf("%v: the server keeps at most %d trust rules", ErrInvalid, e.Max)
+	case limitTrustPerPrincipal:
+		return fmt.Sprintf("%v: a principal keeps at most %d trust rules", ErrInvalid, e.Max)
+	case limitGrantsPerRule:
+		return fmt.Sprintf("%v: a trust rule gives at most %d live sign-ins at once", ErrInvalid, e.Max)
 	}
 	return fmt.Sprintf("%v: past the limit %s, %d", ErrInvalid, e.Limit, e.Max)
 }

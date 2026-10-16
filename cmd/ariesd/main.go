@@ -550,6 +550,13 @@ func daemonOfMany(ctx context.Context, s server.Settings, db *store.DB, ctl *sto
 	if cfg.Login, err = server.OpenLogin(s.Login, ctl.Now); err != nil {
 		return nil, err
 	}
+	audience := ""
+	if cfg.HTTPS != nil && len(cfg.HTTPS.URLs) > 0 {
+		audience = cfg.HTTPS.URLs[0]
+	}
+	if cfg.Workload, err = server.OpenWorkload(s.Workload, s.Login, audience, ctl.Now); err != nil {
+		return nil, err
+	}
 	srv, err := server.New(cfg)
 	if err != nil {
 		return nil, err

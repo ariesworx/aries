@@ -25,6 +25,7 @@ such a server, and prefer opting in to many projects
 | What someone added | `aries -C REPO admin key list --added-by NAME`, `aries -C REPO admin principal list --created-by NAME`, `aries -C REPO admin member list --added-by NAME` |
 | A person's identities, and the open invitations | `aries -C REPO admin identity list NAME`, `aries -C REPO admin invite list --pending` |
 | A person's sign-ins | `aries -C REPO admin signin list NAME` |
+| Trust rules, and a service's | `aries -C REPO admin trust list`, `aries -C REPO admin trust list SERVICE`, `aries -C REPO admin trust show NAME` |
 | The server | `aries -C REPO admin status` (with sign-in, each provider and the live sign-ins) |
 
 ## Changes
@@ -47,6 +48,9 @@ target named in the operator's reply, as SKILL.md's rule 5 says.
 | Invite a person to sign in | `aries -C REPO admin invite add NAME ADDRESS --provider P` | P is one of the server's `login: providers`; the address is the one the provider names. Never onto the operator's own principal: another server admin does that (docs/server.md#identities-and-invitations) |
 | End a sign-in (destructive) | `aries -C REPO admin signin end ID` | Closes its connections at once. List them first with `admin signin list NAME`, and confirm the id |
 | Remove an identity (destructive) | `aries -C REPO admin identity remove ID` | No sign-in is that person by it again, and its sign-ins end |
+| Let a CI job sign in as a service | `aries -C REPO admin principal add NAME --kind service --owner PERSON`, then `aries -C REPO admin trust add RULE --principal NAME --provider P --claim repository_owner_id=ID --claim repository_id=ID` | P is one of the server's `workload: providers`; the ids are the repository's and its owner's, from the operator (`gh api repos/OWNER/REPO --jq '.owner.id, .id'`). Never a rule of the operator's own principal (docs/server.md#service-principals) |
+| Stop a trust rule (destructive) | `aries -C REPO admin trust disable RULE` | Ends the sign-ins it gave and closes their connections; `aries -C REPO admin trust enable RULE` lets new ones in again |
+| Remove a trust rule (destructive) | `aries -C REPO admin trust remove RULE` | As disable, and the rule is gone. Show it first with `admin trust show RULE`, and confirm the name |
 
 Run each with `--json` when you need to read the result, and report what
 it printed: the counts of claims released, and every warning on stderr.
@@ -84,6 +88,14 @@ the provider, the first of `public_urls` and `/auth/callback`. After
 their restart, with approval, check that `aries -C REPO admin status`
 shows the provider, and for a site with no route out that its keys come
 from a file.
+
+**Service principals' sign-in** is set up by the operator too, under
+`workload: providers` in `/etc/aries/ariesd.yaml`: each platform's kind
+and issuer, and for Azure the Application ID URI of the app registration
+that stands for the server (docs/server.md#service-principals). It
+holds no secret. After their restart, with approval, check that `aries
+-C REPO admin status` shows each workload provider; the trust rules are
+then admin commands, above.
 
 ## Offboarding
 

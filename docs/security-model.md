@@ -399,9 +399,10 @@ which keys `aries` offers decides who you are.
   job's, or `cli` ([CI gates](ci.md#who-may-report)). A session is the
   client's word, not a credential: refusing an agent's session is a speed
   bump against an agent that signs in with a person's or CI's key, not a
-  wall. A CI pass is worth what the CI principal's key and the workflow
-  that holds it are worth: whoever can edit the workflow can pass the
-  gate ([What this costs](ci.md#what-this-costs)). A report's evidence
+  wall. A CI pass is worth what the CI principal's trust rule, or its
+  key, and the workflow it admits are worth: whoever can edit a
+  workflow the rule admits can pass the gate ([What this
+  costs](ci.md#what-this-costs), [Service principals](#service-principals)). A report's evidence
   is refused when it looks like a secret, and a link with a user or
   password is refused outright.
 - **Every change is an event**, written in the same transaction as the
@@ -629,6 +630,58 @@ What holds, and what bounds it:
 - **Agents.** `aries mcp` presents the person's sign-in too; when it
   ends, the agent is told to ask the person to sign in, never to run
   `aries login` itself.
+
+## Service principals
+
+With providers under `workload:` ([Service principals](server.md#service-principals)),
+a CI job or a cloud workload signs in as a principal of kind `service`
+by exchanging its platform's token (RFC 8693), and holds no stored key
+or secret (design: [identity.md §7](design/identity.md#7-service-principals),
+[transport.md §7](design/transport.md#7-service-principals-over-https)).
+What holds, and what bounds it:
+
+- **A trust rule says who.** A token signs in as the one service whose
+  active rules at its provider it satisfies. A rule's claims are matched
+  exactly, never as patterns, and must include the platform's immutable
+  ids (a repository's and its owner's for GitHub Actions, the account's
+  numeric id and address for Google, the tenant and object ids for
+  Azure), never a name that can be renamed or recreated, never `sub`
+  alone. Rules of two principals matching one token are refused, so the
+  server never chooses between them.
+- **Who may make one.** A server admin, never for their own principal
+  (decision 19's reasoning: a rule lets whoever runs the jobs it admits
+  sign in as the principal). Every `trust.*` is an event naming its
+  author, and a line of the audit stream. Changing a rule's claims,
+  disabling or removing it ends the sign-ins it gave, with their
+  connections.
+- **The platform's token is checked by ariesd**, by the same verifier
+  as a person's ID token: the provider's issuer exactly, its keys, the
+  server's audience, and an `iat` within `workload: fresh` (2 minutes).
+  Where the platform lets the job choose the audience (GitHub Actions,
+  Google), aries asks for one bound to the thumbprint of the DPoP key
+  it made for the job, and the server takes no other: a token copied
+  from a job's log is useless without that key. Every token exchanged is
+  remembered, by hash, until it could no longer be taken, and taken once;
+  one bound to no key (Azure's) that was issued before the daemon
+  started is refused, since a restart forgot what it spent. Only a
+  token that verified is remembered, so anonymous requests fill nothing.
+- **What a sign-in gets.** Scope `ci`: a member's ops and a ci gate's
+  report from the session `ci`, never an admin op, a waive or a
+  person's gate. It is DPoP-bound, lasts the rule's lifetime (an hour
+  by default, 6 hours at most), has no refresh token, and ends at
+  `aries logout`; `grants_per_trust_rule` bounds a rule's live
+  sign-ins.
+- **What bounds a compromised workflow.** A job the rule admits gets the
+  service for the rule's lifetime: a branch that edits the workflow, if
+  the rule admits pull requests' jobs. Pin `ref`, `event_name`,
+  `environment` or `job_workflow_ref` so that it admits only the jobs
+  it should ([What this costs](ci.md#what-this-costs)). GitHub gives a
+  fork's pull request no OIDC token. Each sign-in's event records the
+  run it was for, so what a service did is one join from the run that
+  did it.
+- **Not tested against the real platforms**: GitHub Actions, Google
+  Cloud and Azure are from their documentation, and the tests run
+  against a stand-in issuer.
 
 ## The telemetry listener
 

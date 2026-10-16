@@ -617,6 +617,11 @@ func (c *Control) SetPrincipal(ctx context.Context, actor Actor, name string, ch
 				return err
 			}
 		}
+		if next.Kind == KindPerson && cur.Kind == KindService {
+			if err := w.hasTrustRules(ctx, name); err != nil {
+				return err
+			}
+		}
 		var fields []string
 		if next.DisplayName != cur.DisplayName {
 			fields = append(fields, "display_name")

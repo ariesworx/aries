@@ -55,6 +55,7 @@ var opScopes = sync.OnceValue(func() map[string][]string {
 		proto.OpPrincipalSet: none, proto.OpPrincipalShow: none, proto.OpInviteAdd: none, proto.OpInvites: none,
 		proto.OpInviteRemove: none, proto.OpIdentities: none, proto.OpIdentityRemove: none,
 		proto.OpSignIns: none, proto.OpSignInEnd: none,
+		proto.OpTrustAdd: none, proto.OpTrustRules: none, proto.OpTrustShow: none, proto.OpTrustSet: none, proto.OpTrustRemove: none,
 	}
 })
 

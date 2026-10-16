@@ -398,7 +398,8 @@ func TestAccessErrorMessages(t *testing.T) {
 // changing a row already there is still allowed.
 func TestControlLimits(t *testing.T) {
 	t.Parallel()
-	lim := ControlLimits{Projects: 2, Principals: 4, PrincipalsPerCreator: 9, Keys: 2, Members: 2, Identities: 8, Invites: 9, Grants: 9}
+	lim := ControlLimits{Projects: 2, Principals: 4, PrincipalsPerCreator: 9, Keys: 2, Members: 2, Identities: 8, Invites: 9, Grants: 9,
+		TrustRules: 9, TrustRulesPerPrincipal: 9, GrantsPerTrustRule: 9}
 	c := openControl(t, newDSN(t), ControlOptions{Limits: lim})
 	ctx := t.Context()
 	if got := c.Limits(); got != lim {
@@ -514,7 +515,8 @@ func TestControlPrincipalsPerCreator(t *testing.T) {
 
 func TestControlLimitsDefaults(t *testing.T) {
 	t.Parallel()
-	want := ControlLimits{Projects: 500, Principals: 5000, PrincipalsPerCreator: 500, Keys: 20, Members: 1000, Identities: 8, Invites: 1000, Grants: 64}
+	want := ControlLimits{Projects: 500, Principals: 5000, PrincipalsPerCreator: 500, Keys: 20, Members: 1000, Identities: 8, Invites: 1000, Grants: 64,
+		TrustRules: 1000, TrustRulesPerPrincipal: 16, GrantsPerTrustRule: 64}
 	if DefaultControlLimits != want {
 		t.Errorf("DefaultControlLimits = %+v, want %+v", DefaultControlLimits, want)
 	}
