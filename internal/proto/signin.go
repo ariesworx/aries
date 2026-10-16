@@ -46,7 +46,7 @@ const (
 
 // SignIn is one sign-in: never its token or key. ExpiresAt is its end;
 // EndedAt and EndReason say when and why it ended before it (logout,
-// revoked, identity_removed). State is live or ended, by the server's
+// revoked, identity_removed, principal_disabled). State is live or ended, by the server's
 // clock.
 type SignIn struct {
 	ID        string     `json:"id"`

@@ -576,8 +576,9 @@ const pruneEvery = 10 * time.Minute
 // reapLoop ends expired claims every ReapInterval until ctx is done. It
 // prunes on the first tick, then every pruneEvery. A server of many
 // projects also closes its idle stores, rereads the control store,
-// writes the keys file if it is out of date, and ends the claims of
-// holders who lost their access (Sweep), on each tick.
+// writes the keys file if it is out of date, ends the claims of holders
+// who lost their access (Sweep), and closes the connections of sign-ins
+// no longer live, on each tick.
 func (s *Server) reapLoop(ctx context.Context) {
 	t := time.NewTicker(s.cfg.ReapInterval)
 	defer t.Stop()
@@ -608,7 +609,8 @@ func (s *Server) reapLoop(ctx context.Context) {
 // tick is one tick of the reaper: it looks at the clock, rereads the
 // control store and writes the keys file if it is out of date, closes
 // idle stores, ends expired claims and those of holders who lost their
-// access, and with prune set also prunes. The tick is one trace: the
+// access, closes the connections of sign-ins no longer live
+// (sweepSignIns), and with prune set also prunes. The tick is one trace: the
 // reaper's span, with the parts that have a span of their own beneath
 // it, so a slow tick shows which part was slow.
 func (s *Server) tick(ctx context.Context, prune bool) {
@@ -625,6 +627,7 @@ func (s *Server) tick(ctx context.Context, prune bool) {
 	s.CloseIdleStores()
 	s.Reap(ctx)
 	s.Sweep(ctx)
+	s.sweepSignIns(ctx)
 	if prune {
 		s.Prune(ctx)
 	}
@@ -730,10 +733,8 @@ type session struct {
 	// TransportHTTPS.
 	transport string
 	// signedIn is the sign-in the connection presented, or nil for one a
-	// key let in; scopes are its scopes, which the ops it sends are held
-	// to (mayCall), and nil for a key's.
+	// key let in; the ops it sends are held to its scopes (mayCall).
 	signedIn *signedIn
-	scopes   []string
 }
 
 // The transports a connection comes by, as transports: names them.
@@ -905,7 +906,7 @@ func (s *Server) serveConn(ctx context.Context, c net.Conn, given *proto.Frame, 
 		ok, wait := true, time.Duration(0)
 		// A sign-in's scopes say which ops it may send (transport.md
 		// §6.8); a key's connection is held to its principal's role alone.
-		if e := mayCall(sess.scopes, f.Op); e != nil {
+		if e := mayCall(sess.signedIn, f.Op); e != nil {
 			ok, perr = false, e
 		}
 		switch {
@@ -1045,9 +1046,6 @@ func (s *Server) busyControlWrites(principal string, wait time.Duration) *proto.
 // decided at the hello (admit, keyHolds).
 func (s *Server) handshake(ctx context.Context, c net.Conn, given *proto.Frame, in *signedIn) (*session, error) {
 	sess := &session{conn: c, enc: proto.NewEncoder(c), dec: proto.NewDecoder(c), transport: TransportSSH, signedIn: in}
-	if in != nil {
-		sess.scopes = in.scopes
-	}
 	f := given
 	if given == nil {
 		_ = c.SetReadDeadline(time.Now().Add(bridgeTimeout))
@@ -1189,7 +1187,7 @@ func (s *Server) handshake(ctx context.Context, c net.Conn, given *proto.Frame, 
 		return refuse(proto.Errf(proto.CodeInvalid, "set ARIES_SESSION to 1-255 printable characters",
 			"session and machine must be 1-255 printable characters, without control or bidirectional characters"))
 	}
-	if e := mayTakeSession(sess.scopes, sess.actor.Session); e != nil {
+	if e := mayTakeSession(sess.signedIn, sess.actor.Session); e != nil {
 		return refuse(e)
 	}
 	sess.harness = f.Harness

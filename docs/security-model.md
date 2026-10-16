@@ -571,8 +571,11 @@ What holds, and what bounds it:
 - **A day, then nothing** (decision 58): no refresh token, and nothing
   renews a sign-in. Its end, `aries logout`, `aries admin signin end`
   and removing its identity close its connections at once, each told
-  why (decision 59). Disabling the principal or ending a membership
-  closes them as it closes any.
+  why (decision 59). Disabling the principal ends its sign-ins too, so
+  enabling it again brings back its keys and none of its old tokens.
+  Ending a membership closes them as it closes any. A revocation whose
+  write failed after it took effect is caught by the reaper, which
+  closes, on each tick, the connections of any sign-in no longer live.
 - **Scopes** ([Scopes](server.md#scopes)) are checked at every op, by a
   table a test holds to every op of the protocol, so a new op is a
   person's terminal's alone until decided: `mcp` and `ci` never reach an

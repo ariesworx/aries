@@ -935,10 +935,16 @@ login:
   sign-in's scopes are `cli` and `mcp`, or `mcp` alone; an op is checked
   against them at dispatch, and the session `cli` needs `cli` ([Scopes](#scopes)).
 - **When a sign-in ends**: at its end, at `aries logout`, when an admin
-  ends it (`aries admin signin end ID`), or when the identity it was
-  made by is removed. Its connections close at once, each told why, and
-  `aries` says to sign in again. Disabling the principal or ending a
-  membership closes them as it closes any.
+  ends it (`aries admin signin end ID`), when the identity it was made
+  by is removed, or when its principal is disabled. Its connections
+  close at once, each told why, and `aries` says to sign in again; the
+  connection that asked, when it is one of them, closes once it is
+  answered. A disabled principal's sign-ins stay ended when it is
+  enabled again: its keys work again, its old tokens do not. Ending a
+  membership closes a sign-in's connections to that project as it
+  closes any. Should a revocation's write fail after it took effect,
+  ariesd closes the connections of any sign-in no longer live on its
+  next reaper tick (every 30 seconds).
 - **Replay of a proof.** A DPoP proof is accepted once, within a minute
   of the server's time either way; ariesd remembers each for two minutes
   (`dpop_proofs_per_server`). Anyone can sign a proof with a key of
@@ -1865,7 +1871,9 @@ $ aries admin invite remove 7
   ([Limits](#limits)).
 - **Removing an identity** removes the match: no sign-in is that
   principal by it from then on, and the sign-ins made with it end, their
-  connections closed. `invite remove` removes an invitation no sign-in
+  connections closed: a server admin who removes the identity behind
+  their own sign-in is answered, and then that connection closes too.
+  `invite remove` removes an invitation no sign-in
   has bound, and refuses a bound identity, naming `identity remove`.
 - **A person's sign-ins** are listed by `aries admin signin list NAME`
   (a server admin, or the person), and one is ended by `aries admin
@@ -2970,7 +2978,7 @@ time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-
 | `https.refused` | info | A connection to `/v1/connect` was refused before its hello (`reason`: a key the server does not know, a proof that does not verify, a disabled principal's key, a browser's origin, the limit on failures), sampled per address |
 | `signin.granted` | info | A person signed in (`principal`, `provider`, `grant`, `flow`) |
 | `signin.refused` | info | A step of a sign-in was refused (`reason`, `provider`): before the provider, sampled per address; after it, by the refusal's code |
-| `signin.ended` | info | A sign-in ended before its end (`grant`, `reason`: `logout`, `revoked`, `identity_removed`), with the `connections` it closed |
+| `signin.ended` | info | A sign-in ended before its end (`grant`, `reason`: `logout`, `revoked`, `identity_removed`), with the `connections` it closed; or the reaper closed the `connections` of sign-ins no longer live, which no request had closed (`reason`: `swept`, no `grant`). A disabled principal's sign-ins end with its connections, which `conn.dropped` counts |
 | `signin.announce_failed` | error | A sign-in could not be announced in the inbox of one of its principal's projects (`principal`, `grant`, and `project` when it was one project's store), which could not be opened or written. The sign-in stands, and the audit stream has it |
 | `signin.provider_failed` | warn | A provider's discovery document, keys or token endpoint could not be reached or read (`provider`, `err`), sampled per provider. Sign-ins at it fail until it answers; `aries admin status` shows the failure |
 | `tls.cert_reloaded` | info | The certificate files changed and were read again |

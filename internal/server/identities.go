@@ -134,7 +134,14 @@ func identityRemove(ctx context.Context, s *Server, sess *session, in proto.Iden
 	}
 	e := proto.Errf(proto.CodeAuth, "ask an admin why, before you run `aries login` again",
 		"your sign-in ended (identity removed)")
-	if n := s.closeSessions(func(o owner) bool { return o.identity == in.ID && o.sess != sess }, e); n > 0 {
+	n := s.closeSessions(func(o owner) bool { return o.identity == in.ID && o.sess != sess }, e)
+	if own := sess.signedIn; own != nil && own.identity == in.ID {
+		// The asker's own sign-in ended too: its connection closes once
+		// it is answered, as signin.end's does.
+		sess.ended = true
+		n++
+	}
+	if n > 0 {
 		s.cfg.Logger.InfoContext(ctx, "sign-in ended", "event", logs.SignInEnded, "reason", store.EndIdentityRemoved, "connections", n)
 	}
 	return proto.IdentityResult{Identity: wireIdentity(id, s.cfg.Control.Now())}, nil
