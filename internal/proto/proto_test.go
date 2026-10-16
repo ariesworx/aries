@@ -161,13 +161,13 @@ func TestCheckProto(t *testing.T) {
 }
 
 // TestReleasedClients pins what this server tells each client of
-// another protocol. The protocol settled at 8 for v1.0.0 (design §14,
+// another protocol. The protocol settled at 8 for v0.5.0 (design §14,
 // decisions 78 and 88), spoken alone: every release before it (v0.2.x
 // spoke 2, v0.3.x 3 and v0.4.x 4) is refused, and so is a build of 5
 // to 7, which no release spoke. A refused client prints the message and
 // the fix the server sends as they are, so these are the words its user
 // reads, with exit code 3: which side is too old, the version the server
-// needs, and that the client is the one to upgrade. From v1.0.0 on, rule
+// needs, and that the client is the one to upgrade. From v0.5.0 on, rule
 // 10's bump keeps ProtoMin at the version before, and a client that is
 // then refused must be added here deliberately.
 func TestReleasedClients(t *testing.T) {
@@ -178,18 +178,18 @@ func TestReleasedClients(t *testing.T) {
 		proto   int
 		want    string // the refusal's message, or "" when the client is served
 	}{
-		{"a v0.1.x client", 1, "aries speaks protocol 1; the server (v1.0.0) needs protocol 8"},
-		{"a v0.2.x client", 2, "aries speaks protocol 2; the server (v1.0.0) needs protocol 8"},
-		{"a v0.3.x client", 3, "aries speaks protocol 3; the server (v1.0.0) needs protocol 8"},
-		{"a v0.4.x client", 4, "aries speaks protocol 4; the server (v1.0.0) needs protocol 8"},
-		{"a build of protocol 5", 5, "aries speaks protocol 5; the server (v1.0.0) needs protocol 8"},
-		{"a build of protocol 6", 6, "aries speaks protocol 6; the server (v1.0.0) needs protocol 8"},
-		{"a build of protocol 7", 7, "aries speaks protocol 7; the server (v1.0.0) needs protocol 8"},
+		{"a v0.1.x client", 1, "aries speaks protocol 1; the server (v0.5.0) needs protocol 8"},
+		{"a v0.2.x client", 2, "aries speaks protocol 2; the server (v0.5.0) needs protocol 8"},
+		{"a v0.3.x client", 3, "aries speaks protocol 3; the server (v0.5.0) needs protocol 8"},
+		{"a v0.4.x client", 4, "aries speaks protocol 4; the server (v0.5.0) needs protocol 8"},
+		{"a build of protocol 5", 5, "aries speaks protocol 5; the server (v0.5.0) needs protocol 8"},
+		{"a build of protocol 6", 6, "aries speaks protocol 6; the server (v0.5.0) needs protocol 8"},
+		{"a build of protocol 7", 7, "aries speaks protocol 7; the server (v0.5.0) needs protocol 8"},
 		{"this build", Proto, ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.release, func(t *testing.T) {
-			e := CheckProto(tc.proto, ProtoMin, ProtoMax, "v1.0.0")
+			e := CheckProto(tc.proto, ProtoMin, ProtoMax, "v0.5.0")
 			switch {
 			case tc.want == "" && e != nil:
 				t.Errorf("CheckProto(%d, %d, %d) for %s = %v, want it served", tc.proto, ProtoMin, ProtoMax, tc.release, e)
@@ -199,7 +199,7 @@ func TestReleasedClients(t *testing.T) {
 		})
 	}
 	if Proto != 8 || ProtoMin != 8 || ProtoMax != 8 {
-		t.Errorf("Proto, ProtoMin, ProtoMax = %d, %d, %d; want 8, 8, 8, settled for v1.0.0. A bump after it raises Proto and ProtoMax and keeps ProtoMin at the version before: update this test with it", Proto, ProtoMin, ProtoMax)
+		t.Errorf("Proto, ProtoMin, ProtoMax = %d, %d, %d; want 8, 8, 8, settled for v0.5.0. A bump after it raises Proto and ProtoMax and keeps ProtoMin at the version before: update this test with it", Proto, ProtoMin, ProtoMax)
 	}
 }
 

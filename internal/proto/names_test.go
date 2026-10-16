@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// TestWireNames pins the names the protocol settled on for v1.0.0
+// TestWireNames pins the names the protocol settled on for v0.5.0
 // (decision 88, the surface review's §4): id for the issue an op is
 // about and issue where the record is something else, due for an
 // issue's due date as create and update take it, name and fingerprint

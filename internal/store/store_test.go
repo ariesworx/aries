@@ -78,7 +78,7 @@ func TestOpenNoMigrate(t *testing.T) {
 }
 
 // TestMigrateInboxKinds: migration 2 gives the inbox items written with
-// the four bare kinds the noun.verb names v1.0.0 settled on (decision
+// the four bare kinds the noun.verb names v0.5.0 settled on (decision
 // 88), and leaves every other kind as it was.
 func TestMigrateInboxKinds(t *testing.T) {
 	t.Parallel()

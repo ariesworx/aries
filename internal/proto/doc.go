@@ -39,8 +39,8 @@
 // # Sequence
 //
 //	bridge → daemon:  {"t":"bridge","pr":"alice"}
-//	client → daemon:  {"t":"hello","v":"v1.0.0","p":8,"proj":"…","s":"…","m":"laptop"}
-//	daemon → client:  {"t":"welcome","v":"v1.0.0","min":8,"max":8,"s":"…","pr":"alice"}
+//	client → daemon:  {"t":"hello","v":"v0.5.0","p":8,"proj":"…","s":"…","m":"laptop"}
+//	daemon → client:  {"t":"welcome","v":"v0.5.0","min":8,"max":8,"s":"…","pr":"alice"}
 //	client → daemon:  {"t":"req","id":1,"op":"show","a":{"id":"ar-a1b2c3d4"}}
 //	daemon → client:  {"t":"res","id":1,"ok":{…}}
 //
@@ -55,7 +55,7 @@
 // §16.4), and takes the ids and the flags of the context and nothing
 // else: the tracestate is never put on a span or a log line.
 //
-// v1.0.0 speaks protocol 8 alone (Proto). A client whose protocol
+// v0.5.0 speaks protocol 8 alone (Proto). A client whose protocol
 // version is outside [min,max] gets a welcome carrying err with code
 // "version", whose fix says which side to upgrade (CheckProto), and the
 // connection closes; a client refused so says hello in no other version. The health check of `ariesd
@@ -91,7 +91,7 @@
 //
 // # Names
 //
-// v1.0.0 settled the names of ops, fields and inbox kinds (decision 88);
+// v0.5.0 settled the names of ops, fields and inbox kinds (decision 88);
 // a later one follows the same rules. Writes are noun.verb (dep.add,
 // conflict.resolve) and lists a bare plural (gates, keys). An issue is
 // id in the arguments and results of an op about that one issue, and

@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// limitNames are the keys of limits: as v1.0.0 settled them (decision
+// limitNames are the keys of limits: as v0.5.0 settled them (decision
 // 88): a count is THING_per_SCOPE, a size ends in _bytes, a rate names
 // its unit, and a duration says what the time is for.
 var limitNames = []string{

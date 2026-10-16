@@ -60,7 +60,7 @@ func (o CacheOptions) withDefaults() CacheOptions {
 const PrimeKey = "prime"
 
 // cacheVersion is the version of an entry's format; an entry of another
-// is read as absent. 2 is the protocol's names as v1.0.0 settled them
+// is read as absent. 2 is the protocol's names as v0.5.0 settled them
 // (decision 88): an answer kept under 1 has the names before.
 const cacheVersion = 2
 
