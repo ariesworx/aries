@@ -502,40 +502,43 @@ func (c *Conn) writeLocked(op byte, payload []byte) error {
 		return net.ErrClosed
 	}
 	n := len(payload)
-	// A message is never larger than the connection's bound, which also
-	// keeps the header's 14 bytes from overflowing the allocation.
 	if n > c.max {
 		return ErrTooLarge
 	}
-	buf := make([]byte, 0, 14+n)
-	buf = append(buf, 0x80|op)
+	// The header, at most 14 bytes, is built in an array of its own, so
+	// the frame's size is never computed as a sum.
+	var head [14]byte
+	h := append(head[:0], 0x80|op)
 	m := byte(0)
 	if !c.server {
 		m = 0x80
 	}
 	switch {
 	case n < 126:
-		buf = append(buf, m|byte(n))
+		h = append(h, m|byte(n))
 	case n < 1<<16:
-		buf = append(buf, m|126)
-		buf = binary.BigEndian.AppendUint16(buf, uint16(n))
+		h = append(h, m|126)
+		h = binary.BigEndian.AppendUint16(h, uint16(n))
 	default:
-		buf = append(buf, m|127)
-		buf = binary.BigEndian.AppendUint64(buf, uint64(n))
+		h = append(h, m|127)
+		h = binary.BigEndian.AppendUint64(h, uint64(n))
 	}
-	if c.server {
-		buf = append(buf, payload...)
-	} else {
+	body := payload
+	if !c.server {
 		key := c.maskKey()
-		buf = append(buf, key[:]...)
+		h = append(h, key[:]...)
+		body = make([]byte, n)
 		for i, b := range payload {
-			buf = append(buf, b^key[i%4])
+			body[i] = b ^ key[i%4]
 		}
 	}
 	if op == opClose {
 		c.closed.Store(true)
 	}
-	if _, err := c.w.Write(buf); err != nil {
+	// One write for header and body, with no copy of the body on the
+	// server: net.Buffers takes writev where the writer has it.
+	bufs := net.Buffers{h, body}
+	if _, err := bufs.WriteTo(c.w); err != nil {
 		return fmt.Errorf("websocket write: %w", err)
 	}
 	return nil
