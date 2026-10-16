@@ -16,10 +16,6 @@ on:
         description: The seed to replay (ARIES_SOAK_SEED); empty picks one for each run
         default: ""
         required: false
-  # TEMPORARY: so that the workflow runs before it is on main, where
-  # workflow_dispatch needs it. Removed before the pull request is ready.
-  push:
-    branches: [maintenance/linux-soaks]
 permissions:
   contents: read
 

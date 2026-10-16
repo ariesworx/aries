@@ -38,7 +38,8 @@ command line. One small Go server keeps the data in
 > `aries away` holds a person's claims through a planned absence. None of
 > it has run on Windows. The store, the server guide, the installer
 > and the Docker test server run on Postgres (slices P1, P2 and P4 of
-> decision 79); the soaks have yet to run on it on Linux (slice P5).
+> decision 79), and the long soaks pass on it on Linux, on GitHub's
+> amd64 and arm64 runners (slice P5).
 > HTTPS is the transport a fresh server serves, with SSH off until an
 > operator turns it on (slice T1 of decision 86); a principal's kind,
 > identities and invitations are recorded (slice N1); and people sign
@@ -228,8 +229,13 @@ setting, the protocol settled at one version (decision
 as compatible additions. Of the move, P0, P1, P2 and P4 are built:
 the store, the daemon and every test run on Postgres alone, a schema for
 each project, and the server guide, the installer, the AppArmor profile,
-backups and the Docker test server are Postgres's. P5, the soaks rerun
-on Linux, remains.
+backups and the Docker test server are Postgres's. Of P5, the soaks
+rerun on Linux pass, over SSH and HTTPS, cut off and with telemetry
+checked, on GitHub's amd64 and arm64 runners as well as in containers
+on a Mac. Still open before the tag: the installer and the units under
+an enforcing AppArmor in a virtual machine with a cold boot, the
+installer on a real amd64 machine, and ACME against a real certificate
+authority.
 
 The Bearings stages (B0 to B5) start once Aries stage 3 lands; see the
 [Bearings plan](docs/design/bearings.md#6-plan).

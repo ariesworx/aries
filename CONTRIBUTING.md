@@ -208,7 +208,7 @@ Each tier includes the ones above it.
 | Code | The touched packages' tests with `-race`, then `scripts/gate.sh --quick` | the whole suite, lint, govulncheck, the builds for other systems |
 | Concurrency: claims, locks, leases, the outbox and its replay, the clock, the database pool and retries | Also `-count=3` on the touched tests, and one short soak (`go test -race -run 'TestSoak$' ./internal/e2e`); with the outbox or replay, one run in partition mode too | |
 | `deploy/docker`, `install-server.sh`, AppArmor, `ariesd`'s start, or the transport | Also one run of `deploy/docker/smoke.sh`, in the modes the change touches (`ARIES_SMOKE_TELEMETRY=1`, `ARIES_SMOKE_IDENTITY=1`) | |
-| A release candidate | The whole gate, the long soak and its partition and telemetry modes, `smoke.sh` in every mode, and `install-server.sh` on a real machine of each supported release ([RELEASING.md](RELEASING.md)) | |
+| A release candidate | The whole gate, the long soak and its partition and telemetry modes (the [`soak` workflow](#run-the-soaks-on-github)), `smoke.sh` in every mode, and `install-server.sh` on a real machine of each supported release ([RELEASING.md](RELEASING.md)) | |
 
 A test that is new or changed is still seen failing before its fix, in
 every tier. After a rebase whose conflicts were in docs alone, don't
@@ -495,6 +495,26 @@ With `ARIES_E2E_TRANSPORT=https` the run, like the rest of
 `internal/e2e`, connects over the daemon's HTTPS listener in place of
 the in-process SSH server. Run it so once before changing the listener,
 `internal/wsconn` or the key proof.
+
+### Run the soaks on GitHub
+
+The `soak` workflow (`.github/workflows/soak.yml`) runs the long soaks
+on GitHub's Linux runners, on amd64 (`ubuntu-24.04`) and arm64
+(`ubuntu-24.04-arm`): over SSH, over HTTPS, in partition mode and with
+telemetry checked (below), eight jobs in all, each under `-race`,
+`ARIES_REQUIRE_POSTGRES=1` and `scripts/leftovers.sh`, with Postgres and
+Go installed as CI installs them (`.github/actions`). It runs only when
+a person starts it, never on a pull request or a push. Start it from
+the Actions tab, or:
+
+```sh
+gh workflow run soak.yml --ref BRANCH -f duration=10m
+```
+
+`-f seed=N` replays a seed in every job. Each job's summary has its
+seed, its request count and its result. A release candidate runs it on
+the commit to be tagged ([RELEASING.md](RELEASING.md)). A runner has 4
+processors and 16 GiB, enough for one long soak at a time, and runs one.
 
 ### What it does
 
