@@ -279,6 +279,9 @@ func readSecret(path string) (string, error) {
 // Name is the provider's name in the settings.
 func (p *Provider) Name() string { return p.s.Name }
 
+// Kind is the provider's kind: KindOIDC or KindEntra.
+func (p *Provider) Kind() string { return p.s.Kind }
+
 // Issuer is the exact iss of the provider's tokens.
 func (p *Provider) Issuer() string { return p.issuer }
 

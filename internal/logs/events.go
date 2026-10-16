@@ -90,6 +90,16 @@ const (
 	TLSCertReloaded     Event = "tls.cert_reloaded"
 	TLSCertReloadFailed Event = "tls.cert_reload_failed"
 
+	// Sign-in (transport.md §6): a sign-in granted, a step of one refused
+	// (sampled per address before the provider, by code after it), a
+	// sign-in ended with the connections it closed, and a provider that
+	// could not be reached or read. None holds a token, a code or an
+	// address.
+	SignInGranted        Event = "signin.granted"
+	SignInRefused        Event = "signin.refused"
+	SignInEnded          Event = "signin.ended"
+	SignInProviderFailed Event = "signin.provider_failed"
+
 	// The clock.
 	ClockBehind       Event = "clock.behind"
 	ClockCaughtUp     Event = "clock.caught_up"
@@ -132,6 +142,9 @@ const (
 	AuditMemberRemove     Event = "audit.member.remove"
 	AuditIdentityInvite   Event = "audit.identity.invite"
 	AuditIdentityRemove   Event = "audit.identity.remove"
+	AuditIdentityBind     Event = "audit.identity.bind"
+	AuditSignInGrant      Event = "audit.signin.grant"
+	AuditSignInEnd        Event = "audit.signin.end"
 	AuditReadFailed       Event = "audit.read_failed"
 )
 
@@ -147,6 +160,7 @@ var events = []Event{
 	ClaimExpired, ClaimReleased, LockExpired, LockReleased, GateAdded, GatePassed, GateFailed, GateWaived, GateRearmed, ReaperFailed, ReaperPruneFailed, ReaperPruned, SweepFailed,
 	KeysFileWritten, KeysFileWriteFailed, KeysFileHeldBack, KeysFileLeftOut, KeysFileRemoved,
 	HTTPSListening, HTTPSStopped, HTTPSRefused, TLSCertReloaded, TLSCertReloadFailed,
+	SignInGranted, SignInRefused, SignInEnded, SignInProviderFailed,
 	ClockBehind, ClockCaughtUp, ClockStepped, ClockStepSettled, ClockSettleFailed,
 	DatabaseCheckFailed,
 	TelemetryOn, TelemetryOff, TelemetryStopFailed, TelemetryExportFailed, TelemetryExportRecovered, TelemetrySDKError,
@@ -154,6 +168,7 @@ var events = []Event{
 	TelemetryKeyMade, TelemetryKeyFound, TelemetryKeyUnavailable,
 	AuditProjectAdd, AuditProjectArchive, AuditProjectActivate, AuditPrincipalAdd, AuditPrincipalDisable, AuditPrincipalEnable,
 	AuditPrincipalSet, AuditKeyAdd, AuditKeyRemove, AuditMemberSet, AuditMemberRemove, AuditIdentityInvite, AuditIdentityRemove,
+	AuditIdentityBind, AuditSignInGrant, AuditSignInEnd,
 	AuditReadFailed,
 }
 

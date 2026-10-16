@@ -277,3 +277,26 @@ func TestPrintTransports(t *testing.T) {
 		})
 	}
 }
+
+func TestSignInLines(t *testing.T) {
+	t.Parallel()
+	read := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	var b strings.Builder
+	Print(&b, proto.StatusResult{Server: &proto.ServerStatus{Version: "v1", Projects: map[string]int{"active": 1}, Principals: map[string]int{},
+		SignIn: &proto.SignInStatus{Live: 3, Providers: []proto.ProviderStatus{
+			{Name: "corp", Kind: "oidc", Issuer: "https://sso.example.com/realms/example", Discovery: "static", Discovered: true, Keys: "file",
+				KeyIDs: []string{"k1"}, KeysReadAt: &read},
+			{Name: "cloud", Kind: "entra", Issuer: "https://login.example.com/t/v2.0", Discovery: "fetch", Keys: "fetch",
+				Error: "the discovery document could not be read"},
+		}}}})
+	for _, want := range []string{
+		"sign-in: 3 live\n",
+		"  provider corp (oidc) https://sso.example.com/realms/example: endpoints written out; keys from a file, nothing fetched, 1 key, read 2026-10-16 12:00 UTC\n",
+		"  provider cloud (entra) https://login.example.com/t/v2.0: endpoints not discovered yet; keys fetched from the provider, not read yet\n",
+		"    failed: the discovery document could not be read\n",
+	} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("Print = \n%s\nwant a line %q", b.String(), want)
+		}
+	}
+}

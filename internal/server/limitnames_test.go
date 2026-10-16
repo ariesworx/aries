@@ -24,7 +24,7 @@ var limitNames = []string{
 	"lock_waits_per_principal",
 	// store.ControlLimits
 	"projects_per_server", "principals_per_server", "principals_per_creator", "keys_per_principal",
-	"members_per_project", "identities_per_principal", "invites_per_server",
+	"members_per_project", "identities_per_principal", "invites_per_server", "grants_per_principal",
 	// server.Limits
 	"conns_per_server", "conns_per_principal", "handshakes_per_principal", "idle_timeout",
 	"db_conns_per_server", "db_conns_per_project", "writes_per_second", "write_burst",
@@ -33,6 +33,8 @@ var limitNames = []string{
 	// server.Limits, the HTTPS listener's
 	"https_conns_per_server", "https_conns_per_addr", "https_header_bytes", "https_header_timeout", "https_body_bytes",
 	"upgrade_timeout", "ws_message_bytes", "auth_failures_per_minute", "auth_failure_burst",
+	// server.Limits, the sign-in's, in the daemon's memory
+	"signins_pending_per_server", "dpop_proofs_per_server",
 }
 
 // yamlKeys returns the YAML keys of t's fields, inlined structs' among

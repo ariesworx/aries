@@ -59,6 +59,8 @@ var adminHandlers = map[string]adminHandler{
 	proto.OpInviteRemove:     adminTyped(inviteRemove),
 	proto.OpIdentities:       adminTyped(identities),
 	proto.OpIdentityRemove:   adminTyped(identityRemove),
+	proto.OpSignIns:          adminTyped(signIns),
+	proto.OpSignInEnd:        adminTyped(signInEnd),
 }
 
 // adminTyped decodes args strictly into A and calls fn.
@@ -503,6 +505,9 @@ func principalAdd(ctx context.Context, s *Server, sess *session, in proto.Princi
 		return nil, proto.Errf(proto.CodeInvalid, "give --invite ADDRESS with --provider, or leave --provider out",
 			"a provider is for an invitation, and none was given")
 	case in.Invite != "":
+		if perr := s.knownProvider(in.Provider); perr != nil {
+			return nil, perr
+		}
 		np.Invite = &store.Invitation{Provider: in.Provider, Address: in.Invite}
 	}
 	ctl := s.cfg.Control

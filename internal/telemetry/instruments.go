@@ -159,6 +159,9 @@ const (
 	// DropAccess is a connection whose access ended while its handshake
 	// ran.
 	DropAccess = "access"
+	// DropSignIn is a connection whose sign-in ended: at its end, by a
+	// logout, or by an admin (transport.md §6.7).
+	DropSignIn = "signin"
 
 	// What happened to a claim.
 	ClaimTake    = "take"
@@ -256,6 +259,9 @@ const (
 	LimitHTTPSConns        = "https_conns_per_server"
 	LimitHTTPSConnsPerAddr = "https_conns_per_addr"
 	LimitAuthFailures      = "auth_failures_per_minute"
+	LimitGrants            = "grants_per_principal"
+	LimitSignInsPending    = "signins_pending_per_server"
+	LimitDPoPProofs        = "dpop_proofs_per_server"
 )
 
 // Buckets are the upper bounds, in seconds, of every histogram's
@@ -273,7 +279,8 @@ var results = []string{ResultOK, ResultFailed,
 var limits = []string{LimitConns, LimitConnsPerPrincipal, LimitHandshakes, LimitSockets, LimitWriteRate, LimitControlWriteRate,
 	LimitOpenStores, LimitTelemetryRequests, LimitProjects, LimitPrincipals, LimitKeys, LimitMembers, LimitIdentities, LimitInvites,
 	LimitPrices, LimitPlans, LimitHoursPerDay, LimitUsagePerDay, LimitLocks, LimitLockWaiters, LimitLockWaits,
-	LimitHTTPSConns, LimitHTTPSConnsPerAddr, LimitAuthFailures}
+	LimitHTTPSConns, LimitHTTPSConnsPerAddr, LimitAuthFailures,
+	LimitGrants, LimitSignInsPending, LimitDPoPProofs}
 
 // attr is one attribute of an instrument: its key and the values it may
 // take. A value not among them is recorded as fallback. The values of
@@ -290,7 +297,7 @@ var (
 	attrProject  = attr{key: KeyProject, fallback: Other}
 	attrResult   = attr{key: KeyResult, values: results, fallback: Other}
 	attrClass    = attr{key: KeyResultClass, values: []string{ClassOK, ClassRefused, ClassError}, fallback: Other}
-	attrDrop     = attr{key: KeyReason, values: []string{DropMembership, DropDisabled, DropArchived, DropKey, DropIdle, DropLimit, DropAccess}, fallback: Other}
+	attrDrop     = attr{key: KeyReason, values: []string{DropMembership, DropDisabled, DropArchived, DropKey, DropIdle, DropLimit, DropAccess, DropSignIn}, fallback: Other}
 	attrLimit    = attr{key: KeyLimit, values: limits, fallback: Other}
 	attrMigrated = attr{key: KeyMigrated, values: []string{"true", "false"}, fallback: Other}
 	attrEvent    = attr{key: KeyEvent, values: []string{ClaimTake, ClaimRenew, ClaimRelease, ClaimExpire}, fallback: Other}

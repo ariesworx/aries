@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ariesworx/aries/internal/logs"
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/store"
 )
@@ -49,6 +50,9 @@ func wireIdentities(ids []store.Identity, now time.Time) []proto.Identity {
 // inviteAdd invites an address at a provider for a person, or renews
 // its invitation there.
 func inviteAdd(ctx context.Context, s *Server, sess *session, in proto.InviteAddArgs) (any, *proto.Error) {
+	if perr := s.knownProvider(in.Provider); perr != nil {
+		return nil, perr
+	}
 	ctl := s.cfg.Control
 	id, _, err := ctl.Invite(ctx, sess.actor, in.Name, store.Invitation{Provider: in.Provider, Address: in.Address})
 	if err != nil {
@@ -121,13 +125,32 @@ func inviteRemove(ctx context.Context, s *Server, sess *session, in proto.Identi
 }
 
 // identityRemove removes an identity, bound or not: no sign-in matches
-// it from then on. Nothing a sign-in made with it exists before T2.
+// it from then on, and the sign-ins made with it end with it, closing
+// their connections (transport.md §6.7).
 func identityRemove(ctx context.Context, s *Server, sess *session, in proto.IdentityArgs) (any, *proto.Error) {
 	id, err := s.cfg.Control.RemoveIdentity(ctx, sess.actor, in.ID)
 	if err != nil {
 		return nil, s.identityErr(ctx, sess, proto.OpIdentityRemove, "", err)
 	}
+	e := proto.Errf(proto.CodeAuth, "ask an admin why, before you run `aries login` again",
+		"your sign-in ended (identity removed)")
+	if n := s.closeSessions(func(o owner) bool { return o.identity == in.ID && o.sess != sess }, e); n > 0 {
+		s.cfg.Logger.InfoContext(ctx, "sign-in ended", "event", logs.SignInEnded, "reason", store.EndIdentityRemoved, "connections", n)
+	}
 	return proto.IdentityResult{Identity: wireIdentity(id, s.cfg.Control.Now())}, nil
+}
+
+// knownProvider refuses an invitation at a provider the server's
+// login: settings do not name, when they name any: nobody could sign in
+// at it. A server with no providers takes any name, as nothing signs in
+// there yet.
+func (s *Server) knownProvider(name string) *proto.Error {
+	if s.hasProvider(name) {
+		return nil
+	}
+	return proto.Errf(proto.CodeInvalid,
+		fmt.Sprintf("give --provider one of %s, or ask the server's operator to add %s under login: providers in ariesd's config", strings.Join(s.auth.names, ", "), name),
+		fmt.Sprintf("this server signs no one in at %s", name))
 }
 
 // principalSet changes a principal's display name, kind or owner.

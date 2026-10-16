@@ -104,6 +104,15 @@ type Limits struct {
 	// HTTPSConnsPerAddr does not.
 	AuthFailureRate  float64 `yaml:"auth_failures_per_minute"`
 	AuthFailureBurst int     `yaml:"auth_failure_burst"`
+	// SignInsPending caps the sign-ins in the daemon's memory that were
+	// started and not finished (transport.md §6.2): those sent to the
+	// provider, 10 minutes each at most, and the codes not yet spent, a
+	// minute each. Past it a sign-in is refused busy until some lapse.
+	SignInsPending int `yaml:"signins_pending_per_server"`
+	// DPoPProofs caps the DPoP proofs the daemon remembers, each for its
+	// two-minute window, so that none is used twice. Past it a proof is
+	// refused busy until the oldest age out.
+	DPoPProofs int `yaml:"dpop_proofs_per_server"`
 
 	// The rest apply to a server of many projects (control_schema) only.
 
@@ -141,7 +150,7 @@ var DefaultLimits = Limits{
 	ControlWriteRate: 1, ControlWriteBurst: 30,
 	HTTPSConns: 4096, HTTPSConnsPerAddr: 64, HTTPSHeaderBytes: 16 << 10, HTTPSHeaderTimeout: Duration(10 * time.Second),
 	HTTPSBodyBytes: 64 << 10, UpgradeTimeout: Duration(10 * time.Second), WSMessageBytes: proto.MaxFrame,
-	AuthFailureRate: 30, AuthFailureBurst: 60,
+	AuthFailureRate: 30, AuthFailureBurst: 60, SignInsPending: 10000, DPoPProofs: 100000,
 }
 
 // Duration is a YAML duration such as 90s, 10m, 8h or 7d.
@@ -181,6 +190,7 @@ func (l Limits) WithDefaults() Limits {
 		{&l.ControlWriteBurst, &d.ControlWriteBurst},
 		{&l.HTTPSConns, &d.HTTPSConns}, {&l.HTTPSConnsPerAddr, &d.HTTPSConnsPerAddr}, {&l.HTTPSHeaderBytes, &d.HTTPSHeaderBytes},
 		{&l.HTTPSBodyBytes, &d.HTTPSBodyBytes}, {&l.WSMessageBytes, &d.WSMessageBytes}, {&l.AuthFailureBurst, &d.AuthFailureBurst},
+		{&l.Control.Grants, &d.Control.Grants}, {&l.SignInsPending, &d.SignInsPending}, {&l.DPoPProofs, &d.DPoPProofs},
 	} {
 		if *f.v == 0 {
 			*f.v = *f.d
@@ -230,6 +240,7 @@ func (l Limits) Validate() error {
 		{"ws_message_bytes", l.WSMessageBytes < 0 || l.WSMessageBytes > proto.MaxFrame},
 		{"auth_failures_per_minute", l.AuthFailureRate < 0 || math.IsNaN(l.AuthFailureRate) || math.IsInf(l.AuthFailureRate, 0)},
 		{"auth_failure_burst", l.AuthFailureBurst < 0},
+		{"signins_pending_per_server", l.SignInsPending < 0}, {"dpop_proofs_per_server", l.DPoPProofs < 0},
 	} {
 		if f.bad {
 			return fmt.Errorf("limit %s must be zero or a positive number; fix: correct limits: in the config file, or leave it out for the default", f.name)
@@ -277,7 +288,7 @@ var readOps = map[string]bool{
 	proto.OpHours: true, proto.OpPlans: true, proto.OpConflicts: true, proto.OpGates: true, proto.OpDates: true, proto.OpLocks: true,
 	proto.OpProjects: true, proto.OpPrincipals: true, proto.OpMembers: true, proto.OpKeys: true,
 	proto.OpStatus: true, proto.OpPrincipalWhois: true,
-	proto.OpPrincipalShow: true, proto.OpInvites: true, proto.OpIdentities: true,
+	proto.OpPrincipalShow: true, proto.OpInvites: true, proto.OpIdentities: true, proto.OpSignIns: true,
 }
 
 // controlWrites are the operations that write to the control store.
@@ -289,6 +300,7 @@ var controlWrites = map[string]bool{
 	proto.OpMemberSet: true, proto.OpMemberRemove: true,
 	proto.OpKeyAdd: true, proto.OpKeyRemove: true,
 	proto.OpPrincipalSet: true, proto.OpInviteAdd: true, proto.OpInviteRemove: true, proto.OpIdentityRemove: true,
+	proto.OpSignInEnd: true,
 }
 
 // adminOp reports whether op manages access (proto's admin.go): one of
@@ -298,7 +310,7 @@ var controlWrites = map[string]bool{
 func adminOp(op string) bool {
 	switch op {
 	case proto.OpProjects, proto.OpPrincipals, proto.OpMembers, proto.OpKeys, proto.OpStatus, proto.OpPrincipalWhois,
-		proto.OpPrincipalShow, proto.OpInvites, proto.OpIdentities:
+		proto.OpPrincipalShow, proto.OpInvites, proto.OpIdentities, proto.OpSignIns:
 		return true
 	}
 	return controlWrites[op]

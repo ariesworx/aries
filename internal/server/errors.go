@@ -300,6 +300,8 @@ func accessPhrase(e *store.AccessError) string {
 		return "remove an identity"
 	case proto.OpInvites:
 		return "list the invitations"
+	case string(store.OpSignInEnd):
+		return "end a sign-in of " + e.Principal
 	}
 	return strings.TrimSpace(string(e.Op) + " " + e.Principal + in)
 }
@@ -390,6 +392,10 @@ func adminNotFoundFix(op string) string {
 		return "list the invitations, with their ids, with `aries admin invite list`"
 	case proto.OpIdentityRemove:
 		return "list a principal's identities, with their ids, with `aries admin identity list NAME`"
+	case proto.OpSignInEnd:
+		return "list a principal's sign-ins, with their ids, with `aries admin signin list NAME`"
+	case proto.OpSignIns:
+		return "check the name; a server admin lists them with `aries admin principal list`"
 	}
 	return "list the projects with `aries admin project list`"
 }

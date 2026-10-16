@@ -92,6 +92,7 @@ value aries.connections.dropped reason idle
 value aries.connections.dropped reason key
 value aries.connections.dropped reason limit
 value aries.connections.dropped reason membership
+value aries.connections.dropped reason signin
 value aries.control.writes result acceptance
 value aries.control.writes result auth
 value aries.control.writes result busy
@@ -149,6 +150,8 @@ value aries.limit.refusals limit auth_failures_per_minute
 value aries.limit.refusals limit conns_per_principal
 value aries.limit.refusals limit conns_per_server
 value aries.limit.refusals limit control_writes_per_second
+value aries.limit.refusals limit dpop_proofs_per_server
+value aries.limit.refusals limit grants_per_principal
 value aries.limit.refusals limit handshake_sockets
 value aries.limit.refusals limit handshakes_per_principal
 value aries.limit.refusals limit hours_per_day
@@ -165,6 +168,7 @@ value aries.limit.refusals limit plans_per_project
 value aries.limit.refusals limit prices_per_project
 value aries.limit.refusals limit principals_per_server
 value aries.limit.refusals limit projects_per_server
+value aries.limit.refusals limit signins_pending_per_server
 value aries.limit.refusals limit telemetry.max_requests
 value aries.limit.refusals limit usage_per_day
 value aries.limit.refusals limit waiters_per_lock

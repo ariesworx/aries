@@ -208,6 +208,9 @@ func (w *web) handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /.well-known/aries", w.wellKnown)
 	mux.HandleFunc("GET "+keyproof.ConnectPath, w.connect)
+	if w.s.auth != nil {
+		w.s.auth.routes(mux)
+	}
 	mux.HandleFunc("/", func(rw http.ResponseWriter, _ *http.Request) {
 		writeRefusal(rw, http.StatusNotFound, proto.Errf(proto.CodeNotFound, "aries connects to "+keyproof.ConnectPath+"; check server.url in .aries.yaml",
 			"nothing is served at this path"))
@@ -223,17 +226,31 @@ func (w *web) handler() http.Handler {
 }
 
 // WellKnown is what GET /.well-known/aries answers: the server's
-// version, the transports on, and the ways to sign in ("key", the proof
-// by an SSH key; T2 adds the providers').
+// version, the transports on, the ways to sign in ("key", the proof by
+// an SSH key, and "signin", a sign-in at a provider), and the providers.
 type WellKnown struct {
-	Version    string   `json:"version"`
-	Transports []string `json:"transports"`
-	Auth       []string `json:"auth"`
+	Version    string         `json:"version"`
+	Transports []string       `json:"transports"`
+	Auth       []string       `json:"auth"`
+	Providers  []WellProvider `json:"providers,omitempty"`
+}
+
+// WellProvider is a provider a person may sign in at: its name in the
+// server's settings, and its kind.
+type WellProvider struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"`
 }
 
 // wellKnown answers GET /.well-known/aries.
 func (w *web) wellKnown(rw http.ResponseWriter, _ *http.Request) {
 	out := WellKnown{Version: w.s.cfg.Version, Transports: w.s.transports(), Auth: []string{"key"}}
+	if a := w.s.auth; a != nil {
+		out.Auth = append(out.Auth, "signin")
+		for _, name := range a.names {
+			out.Providers = append(out.Providers, WellProvider{Name: name, Kind: a.providers[name].Kind()})
+		}
+	}
 	rw.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(rw).Encode(out)
 }
@@ -291,6 +308,35 @@ func (w *web) connect(rw http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// A sign-in's token, with its DPoP proof, is checked before the
+	// upgrade (transport.md §5.4), and refused with a 401 aries reads as
+	// it reads a refused welcome; a connection that brings none proves a
+	// key after the upgrade.
+	var in *signedIn
+	var given *proto.Frame
+	if r.Header.Get("Authorization") != "" {
+		var perr *proto.Error
+		var reason string
+		if w.s.auth == nil {
+			perr, reason = proto.Errf(proto.CodeAuth, "sign in with a key: unset the sign-in with `aries logout`, or ask the server's operator to set up login:",
+				"this server signs no one in at a provider"), "token_no_login"
+		} else {
+			given, in, perr, reason = w.s.auth.admit(r)
+		}
+		if perr != nil {
+			w.refused(r.Context(), addr, reason)
+			if !behind && perr.Code == proto.CodeAuth {
+				w.s.authFails.take(addr.String(), w.s.now())
+			}
+			rw.Header().Set("WWW-Authenticate", `DPoP algs="ES256", error="invalid_token"`)
+			status := http.StatusUnauthorized
+			if perr.Code == proto.CodeBusy {
+				status = http.StatusServiceUnavailable
+			}
+			writeRefusal(rw, status, perr)
+			return
+		}
+	}
 	lim := w.s.cfg.Limits
 	c, err := wsconn.Accept(rw, r, lim.WSMessageBytes)
 	if err != nil {
@@ -303,16 +349,20 @@ func (w *web) connect(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer w.untrack(c)
-	given, perr, reason := w.prove(c)
-	// Counted before the refusal or the welcome is written, so that a
-	// client that has read either finds it counted.
-	switch {
-	case perr != nil:
-		tel.Count(telemetry.HTTPSKeyProofs, reason)
-	case given == nil:
-		tel.Count(telemetry.HTTPSKeyProofs, telemetry.ResultFailed)
-	default:
-		tel.Count(telemetry.HTTPSKeyProofs, telemetry.ResultOK)
+	var perr *proto.Error
+	var reason string
+	if in == nil {
+		given, perr, reason = w.prove(c)
+		// Counted before the refusal or the welcome is written, so that a
+		// client that has read either finds it counted.
+		switch {
+		case perr != nil:
+			tel.Count(telemetry.HTTPSKeyProofs, reason)
+		case given == nil:
+			tel.Count(telemetry.HTTPSKeyProofs, telemetry.ResultFailed)
+		default:
+			tel.Count(telemetry.HTTPSKeyProofs, telemetry.ResultOK)
+		}
 	}
 	if perr != nil {
 		w.refused(r.Context(), addr, reason)
@@ -347,7 +397,7 @@ func (w *web) connect(rw http.ResponseWriter, r *http.Request) {
 			}
 		}
 	})
-	w.s.serveConn(w.ctx, wsconn.Stream(c), given)
+	w.s.serveConn(w.ctx, wsconn.Stream(c), given, in)
 	drain(c)
 	// Closing first ends a ping stuck behind a peer that reads nothing.
 	_ = c.Close()

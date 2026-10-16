@@ -545,6 +545,11 @@ func daemonOfMany(ctx context.Context, s server.Settings, db *store.DB, ctl *sto
 	if cfg.KeysFile, cfg.AuthorizedKeys, err = keyFiles(s); err != nil {
 		return nil, err
 	}
+	// The providers' files are read now, and nothing is fetched: a
+	// provider's discovery waits for the first sign-in.
+	if cfg.Login, err = server.OpenLogin(s.Login, ctl.Now); err != nil {
+		return nil, err
+	}
 	srv, err := server.New(cfg)
 	if err != nil {
 		return nil, err

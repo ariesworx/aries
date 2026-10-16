@@ -167,6 +167,18 @@ type Control interface {
 	ProjectAdmin
 	PrincipalAdmin
 	ControlUpkeep
+	SignIns
+}
+
+// SignIns is the sign-ins of the authorization server (transport.md §6,
+// signin.go).
+type SignIns interface {
+	SignIn(ctx context.Context, in store.SignIn) (store.Grant, error)
+	EndSignIn(ctx context.Context, actor store.Actor, id, reason string) (store.Grant, bool, error)
+	TokenGrant(hash string) (store.Grant, bool)
+	Grant(ctx context.Context, id string) (store.Grant, error)
+	Grants(ctx context.Context, principal string) ([]store.Grant, error)
+	PruneSignIns(ctx context.Context, before time.Time) (int, error)
 }
 
 // Index is what the control store answers from memory: who may reach

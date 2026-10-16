@@ -764,13 +764,13 @@ restored from a snapshot; a provider's time service.
 HTTPS is the transport a fresh server serves; SSH is a second one, off
 until an operator turns it on ([SSH on and off](#ssh-on-and-off);
 design: [transport.md](design/transport.md)). The listener is part of
-`ariesd serve`, beside its unix socket. It serves two paths and answers
-404 for every other:
+`ariesd serve`, beside its unix socket. It serves these paths, and with `login:` providers those of
+[Sign-in](#sign-in), and answers 404 for every other:
 
 | Path | Serves |
 |---|---|
-| `GET /.well-known/aries` | What a client may know before it signs in: the server's version, the transports on, and how one signs in (`key`, below). No principal and no secret |
-| `GET /v1/connect` | A WebSocket that carries the same frames `aries` sends over SSH. Nothing on it reaches the protocol until a key the server knows has proved itself |
+| `GET /.well-known/aries` | What a client may know before it signs in: the server's version, the transports on, how one signs in (`key`, and `signin` with providers) and the providers' names. No principal and no secret |
+| `GET /v1/connect` | A WebSocket that carries the same frames `aries` sends over SSH. Nothing on it reaches the protocol until a sign-in's token with its key's proof, or a key the server knows, has proved itself |
 
 The loopback listener's paths (`/metrics`, `/healthz`, `/readyz`), the
 status socket and the unix socket the SSH bridge connects to stay where
@@ -811,9 +811,14 @@ https:
 
 ### How aries signs in over HTTPS
 
-Until sign-in through the company's identity provider comes (slice T2
-of [transport.md](design/transport.md#15-plan)), a connection over HTTPS
-proves it holds one of the SSH keys the server already knows: the keys
+A connection over HTTPS is let in one of two ways. With a sign-in kept
+on the machine (`aries login`, [Sign-in](#sign-in)), `aries` presents
+its token on the upgrade, `Authorization: DPoP TOKEN`, with a proof by
+the token's key (`DPoP: PROOF`) that names `/v1/connect` at the server's
+URL as `.aries.yaml` has it; the server checks both before it upgrades,
+against `public_urls`, never `Host`, and refuses with a 401 that `aries`
+prints as it prints any refusal. Without one, it proves it holds one of
+the SSH keys the server already knows (decision 89): the keys
 `aries admin key add` records, and on a server of one project the lines
 of `authorized_keys` that force `ariesd stdio --principal NAME`. After
 the upgrade `aries` offers the keys it would offer sshd (the one key
@@ -831,6 +836,139 @@ does an SSH connection. `aries whoami` says which key signed in.
 A key the server does not know is refused as sshd refuses one, with
 the keys offered; past `auth_failures_per_minute`, an address is
 refused `busy` until its bucket refills ([Limits](#limits)).
+
+### Sign-in
+
+With providers under `login:`, a person signs in at the company's
+identity provider with `aries login` ([cli.md](cli.md#sign-in)), and
+the server issues a token of its own for the day (design:
+[transport.md §6](design/transport.md#6-tokens)). Sign-in needs a
+server of many projects, whose [identities](#identities-and-invitations)
+say who signs in, and HTTPS; `ariesd serve` refuses providers without
+either.
+
+```yaml
+login:
+  token_lifetime: 24h             # a sign-in's life; at most max_token_lifetime
+  max_token_lifetime: 7d          # at most 7d
+  fresh_auth: 10m                 # the provider's auth_time must be this recent; sent as max_age
+  max_token_age: 10m              # the provider's ID token's iat no older
+  skew: 30s                       # between the provider's clock and the server's; at most 5m
+  jwks_refetch: 1m                # the least time between two reads of a provider's keys
+  prune_after: 1h                 # how long an ended sign-in stays listed
+  invite_ttl: 7d
+  providers:
+    - name: corp                  # what invitations and aries login --provider name
+      kind: oidc                  # Keycloak, AD FS, Okta, Google Workspace, any OpenID Connect provider
+      issuer: https://sso.example.com/realms/example
+      client_id: aries
+      client_secret_file: /etc/aries/corp-secret   # 0600; the secret is never in this file
+      ca_file: /etc/aries/corp-ca.pem              # the internal CA of the provider's certificate, in place of the system's
+      domains: [example.com]      # the token's address must be at one of these
+      require: {hd: example.com}  # claims that must have these values
+    - name: corp-offline
+      kind: oidc
+      issuer: https://sso.example.com/realms/example
+      client_id: aries
+      client_secret_file: /etc/aries/corp-secret
+      discovery: static           # nothing discovered: every endpoint written here
+      authorization_endpoint: https://sso.example.com/realms/example/protocol/openid-connect/auth
+      token_endpoint: https://sso.example.com/realms/example/protocol/openid-connect/token
+      jwks_file: /etc/aries/corp-jwks.json         # the provider's key set; no key is fetched (or jwks_url:)
+    - name: entra
+      kind: entra
+      authority: https://login.microsoftonline.com   # the tenant's cloud's sign-in host: required, no default
+      tenant: 00000000-0000-4000-8000-000000000000   # the tenant's id; common and organizations are refused
+      token_version: 2            # what the app registration issues
+      client_id: 00000000-0000-4000-8000-000000000000
+      client_secret_file: /etc/aries/entra-secret
+```
+
+- **Register the server at the provider** as a confidential web
+  application, with one redirect: the first of `public_urls` and
+  `/auth/callback`, such as `https://aries.example.com/auth/callback`.
+  The server exchanges the provider's code itself (decision 85), with
+  the client secret; `aries` never talks to the provider.
+- **The provider's keys**: with `discovery: fetch`, the default, from
+  the issuer's own discovery document, read at the first sign-in (so
+  that a provider that cannot be reached at start delays nothing), and
+  fetched again for a key id not known, at most once a `jwks_refetch`.
+  With `discovery: static` and `jwks_file`, from the file, and **nothing
+  is fetched to check a token**: the offline mode for a site with no
+  route out. The code's exchange still calls `token_endpoint`, inside
+  the network. Replace the file before the provider signs with a new key
+  (Keycloak and AD FS publish the next key ahead); ariesd reads it again
+  at the first token of a key it does not hold, at most once a
+  `jwks_refetch`, and until then refuses such a token `unavailable`,
+  naming the file. Keycloak's key set is at
+  `ISSUER/protocol/openid-connect/certs`.
+- **Every endpoint is https**, or http to `localhost`, a name under
+  `.localhost` or a loopback address, for a provider on the machine in
+  testing. A provider's redirect is never followed, and each request is
+  bounded to 10 seconds and 64 KiB.
+- **What a token is held to**: RS256 or ES256 alone, never `none`, an
+  HMAC or a `crit` header; the issuer exactly, the client id among its
+  audiences (and `azp` when there are several), its times within `skew`
+  on the server's clock, the nonce of this sign-in, and `auth_time`
+  within `fresh_auth`: the server sends `prompt=login` (`prompt_login:
+  false` for Google, which has none) so that the person signs in again at
+  the provider each time, and a token of an older sign-in is refused.
+  Entra's is held to `tid` (the tenant), `ver` (the version), and its
+  subject is `oid`; its address counts as verified only with `xms_edov`.
+- **Who signs in.** The token's issuer and subject name an identity
+  bound before, whatever address the token says; or else its address,
+  which the provider says is verified, binds the open invitation of that
+  address at that provider ([Identities and
+  invitations](#identities-and-invitations)), once. Nobody else signs
+  in.
+- **The token** is 256 random bits and more, of which only the SHA-256
+  is kept, bound to a P-256 key `aries` makes at each sign-in (DPoP, RFC
+  9449): presented without a proof by that key it is refused, so a token
+  copied off the machine is useless. It lasts `token_lifetime` and
+  nothing renews it (decision 58): the next day, `aries login` again. A
+  sign-in's scopes are `cli` and `mcp`, or `mcp` alone; an op is checked
+  against them at dispatch, and the session `cli` needs `cli` ([Scopes](#scopes)).
+- **When a sign-in ends**: at its end, at `aries logout`, when an admin
+  ends it (`aries admin signin end ID`), or when the identity it was
+  made by is removed. Its connections close at once, each told why, and
+  `aries` says to sign in again. Disabling the principal or ending a
+  membership closes them as it closes any.
+- **Replay of a proof.** A DPoP proof is accepted once, within a minute
+  of the server's time either way; ariesd remembers each for two minutes
+  (`dpop_proofs_per_server`). The memory is the daemon's: several
+  daemons in front of one database would need the proofs seen shared, or
+  DPoP nonces (transport.md §13), and 1.0 runs one.
+- **Refusals**, each with a fix: no invitation for the address
+  (`forbidden`, naming `aries admin invite add`); a lapsed invitation;
+  an address the provider does not say is verified; an address bound to
+  another account at the provider (`auth`); a sign-in at the provider
+  that is not fresh (`auth`); a token unknown, ended or presented without
+  its key's proof (`auth`, 401, naming `aries login`); the providers'
+  keys not to be had (`unavailable`).
+- **`aries admin status`** shows each provider: where its endpoints and
+  keys come from, the key ids and when they were read, and the last
+  failure; and how many sign-ins are live.
+
+The server's paths for sign-in, with `login:` providers:
+
+| Path | Serves |
+|---|---|
+| `GET /.well-known/oauth-authorization-server` | The authorization server's metadata (RFC 8414): its endpoints, PKCE S256, DPoP ES256, `iss` in the response |
+| `GET /oauth/authorize` | Where `aries login` opens the browser: checks `aries`'s request (its client, its loopback redirect, PKCE, state), and sends the browser on to the provider with the server's own PKCE, state, nonce and `prompt=login` |
+| `GET /auth/callback` | Where the provider sends the browser back; the server exchanges the code and sends the browser to `aries`'s loopback address with a code of its own, good for a minute and once |
+| `POST /oauth/token` | Where `aries` spends that code, with its PKCE verifier and a DPoP proof, for the token |
+| `POST /oauth/revoke` | Ends the sign-in a token is of, and closes its connections (RFC 7009); `aries logout` calls it |
+
+### Scopes
+
+| Scope | Allows |
+|---|---|
+| `cli` | Every op the principal's role allows, the session `cli` among them: admin ops, deciding a gate, locks |
+| `mcp` | The ops behind the MCP tools: never an admin op, never deciding a gate, never a lock, never the session `cli` |
+| `ci` | A member's ops from a CI job, and reporting a ci gate's check from the session `ci`; never a waive or an admin op. Issued by the token exchange of a later slice |
+
+`aries login` asks for `cli mcp`. A connection that proved a key is held
+to its principal's role alone, as over SSH.
 
 ### Certificates
 
@@ -1663,16 +1801,15 @@ and the next start or the activation ends it.
 
 ### Identities and invitations
 
-A person will sign in at the company's identity provider
-([docs/design/identity.md](design/identity.md)). Which principal a
+A person signs in at the company's identity provider ([Sign-in](#sign-in);
+[docs/design/identity.md](design/identity.md)). Which principal a
 sign-in is, is one of that principal's identities: the provider, and
 the issuer and subject the provider's token names. Nobody becomes a
 principal by signing in (decision 57): an admin adds the principal, and
 invites an address for it at a provider; the person's first sign-in
-whose verified address matches binds the invitation. This release
-records principals' kinds, identities and invitations; the sign-in that
-binds them comes with the providers, in a later slice, and until then an
-identity matches nothing and grants nothing.
+whose verified address matches binds the invitation (an
+`identity.bind` event), and from then on only the issuer and subject
+are matched.
 
 ```console
 $ aries admin principal add bob --display-name "Bob Example" --invite bob@example.com --provider google
@@ -1707,8 +1844,9 @@ $ aries admin invite remove 7
   invitation at a provider: inviting it again for the same principal
   renews it, from now, and inviting it for another is refused, naming
   the invitation to remove first. Two providers are never joined by
-  address. The provider is the name the server's `login:` settings will
-  give it; ariesd does not check the name against them yet.
+  address. The provider is a name of the server's `login: providers`;
+  with any configured, another name is refused, naming them. A server
+  with none takes any name, since nothing signs in there yet.
 - **An invitation lapses** unused after `login.invite_ttl`, 7 days by
   default ([Settings](#settings)), since until it is used it is a match
   by address. A lapsed one shows as `lapsed`, matches nothing, and stays
@@ -1716,12 +1854,17 @@ $ aries admin invite remove 7
   `identities_per_principal` and not against `invites_per_server`
   ([Limits](#limits)).
 - **Removing an identity** removes the match: no sign-in is that
-  principal by it from then on. `invite remove` removes an invitation
-  no sign-in has bound, and refuses a bound identity, naming `identity
-  remove`.
+  principal by it from then on, and the sign-ins made with it end, their
+  connections closed. `invite remove` removes an invitation no sign-in
+  has bound, and refuses a bound identity, naming `identity remove`.
+- **A person's sign-ins** are listed by `aries admin signin list NAME`
+  (a server admin, or the person), and one is ended by `aries admin
+  signin end ID` (a server admin, or its holder): live and ended ones,
+  with the provider, the machine and the end, never a token.
 - **On the record, and personal data kept out.** Each change is an
   event in the control store's log (`principal.set`, `identity.invite`,
-  `identity.remove`) and a line of [the audit stream](#the-audit-stream).
+  `identity.remove`, `identity.bind`, `signin.grant`, `signin.end`) and
+  a line of [the audit stream](#the-audit-stream).
   Neither holds an invited address, a provider's subject or a display
   name's value: the log is kept for good.
 - **`aries admin status`** counts the identities, bound, pending and
@@ -2382,6 +2525,7 @@ limits:
 | `members_per_project` | 1000 | With `control_schema`: principals with a role in one project |
 | `identities_per_principal` | 8 | With `control_schema`: [identities](#identities-and-invitations) of one principal, bound, open or lapsed: the accounts at providers a person signs in with. One more is refused with `invalid`, and its fix names `aries admin identity list NAME` and `identity remove` |
 | `invites_per_server` | 1000 | With `control_schema`: open [invitations](#identities-and-invitations) on the server, those no sign-in has bound and that have not lapsed; a lapsed one does not count. One more is refused with `invalid`, and its fix names `aries admin invite list` and `invite remove` |
+| `grants_per_principal` | 64 | With `login:` providers: one principal's live [sign-ins](#sign-in), one for each machine signed in; an ended one does not count. One more is refused `busy`, and its fix names `aries logout` on a machine no longer used and `aries admin signin end` |
 | `control_writes_per_second`, `control_write_burst` | 1, 30 | With `control_schema`: each principal's token bucket for `aries admin` changes to projects, principals, members, keys, invitations and identities: changes a second, and how many at once. It is the principal's on the whole server, apart from its write bucket in each project; the lists are not counted |
 | `https_conns_per_server` | 4096 | With HTTPS on: open TCP connections to the [HTTPS listener](#the-https-listener). One more is closed unanswered |
 | `https_conns_per_addr` | 64 | With HTTPS on: open connections from one client address; one more is closed unanswered. Behind a proxy that terminates TLS every connection is the proxy's, so this is the proxy's to keep, and does not apply |
@@ -2391,6 +2535,8 @@ limits:
 | `upgrade_timeout` | `10s` | With HTTPS on: how long a WebSocket has from its upgrade to the end of its key proof; the hello then has 10 seconds, as over SSH |
 | `ws_message_bytes` | 4194304 | With HTTPS on: bytes of one WebSocket message, which carries one frame (at most 4 MiB, a frame's own bound). A larger one closes the connection |
 | `auth_failures_per_minute`, `auth_failure_burst` | 30, 60 | With HTTPS on: each client address's token bucket of refused key proofs (a key the server does not know, a proof that does not verify): refusals a minute, and how many at once. With none left an upgrade from the address is refused `busy`, 429, saying how long to wait. Behind a proxy it does not apply, as `https_conns_per_addr` does not |
+| `signins_pending_per_server` | 10000 | With `login:` providers: [sign-ins](#sign-in) in the daemon's memory started and not finished, sent to the provider (10 minutes each at most) or with a code `aries` has not spent (a minute). Past it a sign-in is refused, back at `aries`, `temporarily_unavailable` |
+| `dpop_proofs_per_server` | 100000 | With `login:` providers: the DPoP proofs the daemon remembers, each for two minutes, so that none is used twice. Past it a proof is refused `busy` until the oldest age out |
 
 On a server of [many projects](#serving-many-projects), every limit above
 that is per principal is per principal in each project: `conns_per_principal`,
@@ -2752,6 +2898,7 @@ time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-
 | `path`, `keys` | The keys file, or the stand-in key's file, and how many keys were written |
 | `mode`, `urls` | The HTTPS listener's TLS mode (`acme`, `files` or `proxy`) and the server's URLs |
 | `transports` | At start: the transports served, `https`, `ssh` or both |
+| `provider`, `grant`, `flow`, `signins` | [Sign-in](#sign-in): a provider's name in the settings, a sign-in's id (random, no secret), how it came (`loopback`, `url`), and how many ended sign-ins a prune deleted. No token, code, address or subject is ever on a line |
 | `log`, `clock`, `history`, `behind`, `since`, `was_behind_since`, `direction`, `step`, `steps`, `from`, `to`, `forward_since_start`, `backward_since_start` | [The server's clock](#the-servers-clock): which history, the two times, how far behind and since when, and a step's direction, size and count |
 | `version`, `socket`, `control_schema`, `projects`, `admins`, `addr` | The start: the build, the socket, the control store, how many active projects, the configured admins, and the listener's address |
 | `push`, `push_interval`, `push_headers`, `pull`, `per_project`, `traces`, `trace_headers`, `sampler`, `logs`, `log_headers`, `principals`, `service` | What telemetry is on ([Observability](#observability)). Header counts, never their names or values |
@@ -2811,6 +2958,10 @@ time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-
 | `https.listening` | info | The HTTPS listener serves: its address, TLS mode and URLs |
 | `https.listener_stopped` | error | The HTTPS listener stopped on an error; nothing is served over HTTPS until a restart |
 | `https.refused` | info | A connection to `/v1/connect` was refused before its hello (`reason`: a key the server does not know, a proof that does not verify, a browser's origin, the limit on failures), sampled per address |
+| `signin.granted` | info | A person signed in (`principal`, `provider`, `grant`, `flow`) |
+| `signin.refused` | info | A step of a sign-in was refused (`reason`, `provider`): before the provider, sampled per address; after it, by the refusal's code |
+| `signin.ended` | info | A sign-in ended before its end (`grant`, `reason`: `logout`, `revoked`, `identity_removed`), with the `connections` it closed |
+| `signin.provider_failed` | warn | A provider's discovery document, keys or token endpoint could not be reached or read (`provider`, `err`), sampled per provider. Sign-ins at it fail until it answers; `aries admin status` shows the failure |
 | `tls.cert_reloaded` | info | The certificate files changed and were read again |
 | `tls.cert_reload_failed` | error | The certificate files changed and could not be read; the listener keeps the certificate it had. Alert on it |
 | `clock.behind` | error | The clock is behind the latest event of the database named, at start and every ten minutes while it lasts, with the fix ([The server's clock](#the-servers-clock)) |
@@ -2829,7 +2980,7 @@ time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-
 | `telemetry.stop_failed` | warn | The last export at the stop did not finish in its 5 seconds |
 | `telemetry.key_made`, `telemetry.key_found` | info | The key of the stand-ins was made, or was found on a later look |
 | `telemetry.key_unavailable` | error | That key cannot be read or made, so spans and exported log records say nothing about who. A line each for the file, the `cause` and every `fix` |
-| `audit.project.add`, `audit.project.archive`, `audit.project.activate`, `audit.principal.add`, `audit.principal.disable`, `audit.principal.enable`, `audit.principal.set`, `audit.key.add`, `audit.key.remove`, `audit.member.set`, `audit.member.remove`, `audit.identity.invite`, `audit.identity.remove` | info | [The audit stream](#the-audit-stream): one line for each access change |
+| `audit.project.add`, `audit.project.archive`, `audit.project.activate`, `audit.principal.add`, `audit.principal.disable`, `audit.principal.enable`, `audit.principal.set`, `audit.key.add`, `audit.key.remove`, `audit.member.set`, `audit.member.remove`, `audit.identity.invite`, `audit.identity.remove`, `audit.identity.bind`, `audit.signin.grant`, `audit.signin.end` | info | [The audit stream](#the-audit-stream): one line for each access change |
 | `audit.read_failed` | error | The audit stream could not read the control store's log. Its lines follow when a read succeeds; the event log has lost nothing |
 
 Any failure to accept connections that will not pass stops ariesd: it
@@ -3216,8 +3367,8 @@ number of series cannot grow with what clients send:
 | `reason` of a connection the HTTPS listener refused | `untrusted`, `limit` |
 | `result_class` | `ok`; `error` for `unavailable`, which is the server's failure; `refused` for every other refusal, which is the request's |
 | `project` | The project's UUID, only for a project a connection was admitted to. At most as many as the `projects_per_server` limit, and `other` past that |
-| `reason` of a dropped connection | `membership`, `disabled`, `archived`, `key` (the access that let it in ended), `idle` (`idle_timeout`), `limit` (a socket past twice `conns_per_server`), `access` (the access ended while the handshake ran) |
-| `limit` | `conns_per_server`, `conns_per_principal`, `handshakes_per_principal`, `handshake_sockets` (twice `conns_per_server`), `writes_per_second`, `control_writes_per_second`, `open_stores_per_server`, `telemetry.max_requests`, `projects_per_server`, `principals_per_server`, `keys_per_principal`, `members_per_project`, `identities_per_principal`, `invites_per_server`, `prices_per_project`, `plans_per_project`, `hours_per_day`, `usage_per_day`, `locks_per_project`, `waiters_per_lock`, `lock_waits_per_principal`; with HTTPS on, `https_conns_per_server`, `https_conns_per_addr`, `auth_failures_per_minute` |
+| `reason` of a dropped connection | `membership`, `disabled`, `archived`, `key` (the access that let it in ended), `idle` (`idle_timeout`), `limit` (a socket past twice `conns_per_server`), `access` (the access ended while the handshake ran), `signin` (its sign-in ended: at its end, a logout, or an admin's word) |
+| `limit` | `conns_per_server`, `conns_per_principal`, `handshakes_per_principal`, `handshake_sockets` (twice `conns_per_server`), `writes_per_second`, `control_writes_per_second`, `open_stores_per_server`, `telemetry.max_requests`, `projects_per_server`, `principals_per_server`, `keys_per_principal`, `members_per_project`, `identities_per_principal`, `invites_per_server`, `prices_per_project`, `plans_per_project`, `hours_per_day`, `usage_per_day`, `locks_per_project`, `waiters_per_lock`, `lock_waits_per_principal`; with HTTPS on, `https_conns_per_server`, `https_conns_per_addr`, `auth_failures_per_minute`; with `login:` providers, `grants_per_principal`, `signins_pending_per_server`, `dpop_proofs_per_server` |
 | `migrated` | `true` when opening the store applied a migration |
 | `event` of a claim | `take`, `renew`, `release`, `expire` |
 | `event` of a lock | `acquire`, `wait`, `grant`, `renew`, `release`, `expire`, `leave` |
