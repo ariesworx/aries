@@ -574,7 +574,7 @@ func TestIdleTimeout(t *testing.T) {
 	t.Parallel()
 	s := newServer(t)
 	var past atomic.Bool
-	s.now = func() time.Time {
+	s.deadline = func() time.Time {
 		if past.Load() {
 			return time.Now().Add(-time.Hour) // every deadline is already gone
 		}
@@ -599,6 +599,21 @@ func TestIdleTimeout(t *testing.T) {
 	past.Store(true)
 	c.until(c.send(proto.OpReady, proto.LimitArgs{}))
 	c.until(c.send(proto.OpReady, proto.LimitArgs{})) // read with the old clock's deadline, had it one
+}
+
+// The idle deadline is a server timer, on real time (rule 19), not on
+// s.now: a server whose clock is an hour behind, as a test's fixed clock
+// soon is, still answers a request well within IdleTimeout.
+func TestIdleTimeoutIgnoresServerClock(t *testing.T) {
+	t.Parallel()
+	s := newServer(t)
+	behind := time.Now().Add(-time.Hour)
+	s.now = func() time.Time { return behind }
+	w, c := handshakeAs(t, s, alice)
+	if w.Err != nil {
+		t.Fatal(w.Err)
+	}
+	c.until(c.send(proto.OpReady, proto.LimitArgs{}))
 }
 
 // The write rate limit: a principal's writes past its bucket are refused

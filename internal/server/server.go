@@ -186,6 +186,10 @@ type Server struct {
 	// now is the clock for the limits above, and for how long a project
 	// store has been idle; tests replace it.
 	now func() time.Time
+	// deadline is the clock of a connection's idle read deadline, which
+	// the network reads in real time, whatever now says (rule 19); tests
+	// replace it.
+	deadline func() time.Time
 	// started is when the server was made, for its uptime.
 	started time.Time
 	// clock is what the server has seen of Config.Clock (clock.go).
@@ -295,7 +299,7 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Login != nil && (cfg.Control == nil || cfg.HTTPS == nil) {
 		return nil, errors.New("server: sign-in (login:) needs a server of many projects (control_schema), and HTTPS")
 	}
-	s := &Server{cfg: cfg, conns: map[net.Conn]owner{}, now: time.Now, started: time.Now(), unopened: map[string]store.Project{},
+	s := &Server{cfg: cfg, conns: map[net.Conn]owner{}, now: time.Now, deadline: time.Now, started: time.Now(), unopened: map[string]store.Project{},
 		ends: keyEnds{wake: make(chan struct{}, 1), told: map[string]bool{}}}
 	if cfg.Login != nil {
 		a, err := newAuthServer(s, *cfg.Login)
@@ -865,7 +869,7 @@ func (s *Server) serveConn(ctx context.Context, c net.Conn, given *proto.Frame, 
 		if sess.watching() {
 			_ = c.SetReadDeadline(time.Time{})
 		} else {
-			_ = c.SetReadDeadline(s.now().Add(idle))
+			_ = c.SetReadDeadline(s.deadline().Add(idle))
 		}
 		f, err := sess.dec.Decode()
 		if err != nil {
