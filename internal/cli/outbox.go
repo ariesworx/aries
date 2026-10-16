@@ -269,7 +269,7 @@ func cmdOutbox(_ context.Context, r *runner, args []string) error {
 	}
 	who := cmp.Or(*as, off.Whose(l, cfg))
 	if *hostKey != "" {
-		if slices.Contains(cfg.Pinned(), *hostKey) {
+		if slices.Contains(cfg.ServerIDs(r.env.Getenv), *hostKey) {
 			return usagef(outboxUsage, "%s is pinned in %s now: leave out --host-key", *hostKey, client.ConfigFile)
 		}
 		f, err := former(l, *hostKey)
@@ -324,8 +324,9 @@ type rekeyedOutbox struct {
 }
 
 // rekeyed lists the outboxes kept for the project under host keys the
-// server no longer has, with what waits in them.
-func rekeyed(l *offline.Local, cfg *client.Config) []rekeyedOutbox {
+// server no longer has, with what waits in them; here is where the
+// config names the server now (offline.Address).
+func rekeyed(l *offline.Local, here string) []rekeyedOutbox {
 	formers, err := l.Rekeyed()
 	if err != nil {
 		return nil
@@ -334,7 +335,7 @@ func rekeyed(l *offline.Local, cfg *client.Config) []rekeyedOutbox {
 	for _, f := range formers {
 		for _, p := range f.Local.Principals() {
 			if n, err := f.Local.Waiting(p); err == nil && n.Pending+n.Refused > 0 {
-				out = append(out, rekeyedOutbox{HostKey: f.HostKey, Address: f.Address, SameAddress: f.Address != "" && f.Address == offline.Address(cfg),
+				out = append(out, rekeyedOutbox{HostKey: f.HostKey, Address: f.Address, SameAddress: f.Address != "" && f.Address == here,
 					otherOutbox: otherOutbox{Principal: p, Pending: n.Pending, Refused: n.Refused}})
 			}
 		}
@@ -363,7 +364,7 @@ func (r *runner) adopt(l *offline.Local, cfg *client.Config, f offline.Former, w
 		return proto.Errf(proto.CodeInvalid,
 			fmt.Sprintf("if it is the same server, set server.host and server.port back to what they were and retry; otherwise `aries outbox drop %d --host-key %s` removes it", seq, f.HostKey),
 			fmt.Sprintf("entry %d was queued for the server at %s, and this checkout names %s, so it is not known to be the same server",
-				seq, cmp.Or(f.Address, "an address aries did not note"), offline.Address(cfg)))
+				seq, cmp.Or(f.Address, "an address aries did not note"), offline.Address(cfg, r.env.Getenv)))
 	case errors.Is(err, offline.ErrNoEntry):
 		return proto.Errf(proto.CodeNotFound, "`aries outbox --host-key "+f.HostKey+"` lists the entries and their numbers",
 			fmt.Sprintf("no entry %d in %s's outbox under the host key %s", seq, cmp.Or(who, "this machine"), f.HostKey))
@@ -488,7 +489,7 @@ func (r *runner) outboxList(l *offline.Local, cfg *client.Config, who string) er
 			doc.Others = append(doc.Others, otherOutbox{Principal: p, Pending: n.Pending, Refused: n.Refused})
 		}
 	}
-	doc.Rekeyed = rekeyed(l, cfg)
+	doc.Rekeyed = rekeyed(l, offline.Address(cfg, r.env.Getenv))
 	if r.json {
 		r.emit(doc)
 		return nil
@@ -549,7 +550,7 @@ func (r *runner) formerList(cfg *client.Config, f offline.Former, who string) er
 		r.emit(doc)
 		return nil
 	}
-	o := rekeyedOutbox{HostKey: f.HostKey, Address: f.Address, SameAddress: f.Address != "" && f.Address == offline.Address(cfg)}
+	o := rekeyedOutbox{HostKey: f.HostKey, Address: f.Address, SameAddress: f.Address != "" && f.Address == offline.Address(cfg, r.env.Getenv)}
 	p := func(format string, a ...any) { _, _ = fmt.Fprintf(r.env.Stdout, format, a...) }
 	p("%s's outbox under the server's old host key %s, %s: %d waiting, %d refused\n",
 		esc(cmp.Or(who, "nobody")), esc(f.HostKey), esc(o.at()), len(doc.Pending), len(doc.Refused))
@@ -563,7 +564,7 @@ func (r *runner) formerList(cfg *client.Config, f offline.Former, who string) er
 		p("`aries outbox retry N --host-key %s` moves entry N to this server's outbox, which sends it; `aries outbox drop N --host-key %s` removes it for good\n", key, key)
 	} else {
 		p("this checkout names the server at %s, so its entries are not moved to it; `aries outbox drop N --host-key %s` removes one for good\n",
-			esc(offline.Address(cfg)), key)
+			esc(offline.Address(cfg, r.env.Getenv)), key)
 	}
 	return nil
 }

@@ -70,7 +70,7 @@ func TestParseConfigUnknownKeys(t *testing.T) {
 	}{
 		{name: "none", in: good},
 		{name: "top level", in: good + "colour: blue\n", want: []string{"colour"}},
-		{name: "under server", in: good + "  url: https://aries.example.com\n", want: []string{"server.url"}},
+		{name: "under server", in: good + "  token_endpoint: https://aries.example.com/token\n", want: []string{"server.token_endpoint"}},
 		// No field takes a command, so one in the file is ignored, never run.
 		{name: "under iap", in: good + "  iap:\n    project: example-project\n    zone: us-central1-a\n    instance: aries-1\n    command: sh\n",
 			want: []string{"server.iap.command"}},
@@ -107,9 +107,9 @@ func TestConfigWarning(t *testing.T) {
 	if w := (&Config{}).Warning(); w != "" {
 		t.Errorf("Warning() with no unknown key = %q, want \"\"", w)
 	}
-	c := &Config{Unknown: []string{"server.url", "evil\u202e\x1b[31m"}}
+	c := &Config{Unknown: []string{"server.token_endpoint", "evil\u202e\x1b[31m"}}
 	w := c.Warning()
-	for _, want := range []string{ConfigFile, "server.url", "ignored", "aries upgrade"} {
+	for _, want := range []string{ConfigFile, "server.token_endpoint", "ignored", "aries upgrade"} {
 		if !strings.Contains(w, want) {
 			t.Errorf("Warning() = %q, want it to hold %q", w, want)
 		}

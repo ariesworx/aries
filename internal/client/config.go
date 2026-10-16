@@ -15,6 +15,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/ariesworx/aries/internal/keyproof"
 	"github.com/ariesworx/aries/internal/lazyregexp"
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/safetext"
@@ -29,6 +30,17 @@ type Config struct {
 	// Project is the project's UUID.
 	Project string `yaml:"project"`
 	Server  struct {
+		// URL is the server's https:// URL: HTTPS, the transport aries
+		// uses when it is set (Transport). The fields after CA are SSH's,
+		// needed only when the server is reached by SSH.
+		URL string `yaml:"url"`
+		// CA is a certificate authority, for a server whose certificate
+		// the system's roots do not trust (a site's own CA): its
+		// certificate in PEM, or a PEM file inside the repository, by a
+		// path relative to its root. It is added to the system's roots
+		// for this server, never in their place. A CA's certificate is
+		// public, so it may be committed.
+		CA string `yaml:"ca"`
 		// Host is the server's host name or address. Through IAP it is
 		// not dialed, and names the instance unless IAP.Instance does.
 		Host string `yaml:"host"`
@@ -266,14 +278,42 @@ func (c *Config) validate() error {
 	switch {
 	case !uuidRE.MatchString(c.Project):
 		return errors.New("project must be the project's lowercase UUID")
+	case notAPath(c.Key) != "":
+		return errors.New("key is not a file path")
+	case c.Server.URL == "" && !c.sshNamed():
+		return errors.New("server.url, the server's https:// URL, is not set, nor server.host and server.host_key for SSH; set one of them")
+	}
+	if c.Server.URL != "" {
+		u, err := keyproof.NormalizeURL(c.Server.URL)
+		if err != nil {
+			return fmt.Errorf("server.url: %w", err)
+		}
+		c.Server.URL = u
+	}
+	if err := c.validateCA(); err != nil {
+		return err
+	}
+	if c.Server.URL != "" && !c.sshNamed() {
+		return nil
+	}
+	return c.validateSSH()
+}
+
+// sshNamed reports whether the config names the server for SSH.
+func (c *Config) sshNamed() bool {
+	s := c.Server
+	return s.Host != "" || s.HostKey != "" || len(s.HostKeys) > 0 || s.IAP != nil
+}
+
+// validateSSH checks the server's SSH fields.
+func (c *Config) validateSSH() error {
+	switch {
 	case !hostRE.MatchString(c.Server.Host):
 		return fmt.Errorf("server.host %q is not a host name", c.Server.Host)
 	case c.Server.Port < 1 || c.Server.Port > 65535:
 		return fmt.Errorf("server.port %d is out of range", c.Server.Port)
 	case !userRE.MatchString(c.Server.User):
 		return fmt.Errorf("server.user %q is not a Unix account name", c.Server.User)
-	case notAPath(c.Key) != "":
-		return errors.New("key is not a file path")
 	}
 	if err := c.validateHostKeys(); err != nil {
 		return err
@@ -407,7 +447,9 @@ func (c *Config) ForProject(project string) ([]byte, error) {
 	var out struct {
 		Project string `yaml:"project"`
 		Server  struct {
-			Host     string   `yaml:"host"`
+			URL      string   `yaml:"url,omitempty"`
+			CA       string   `yaml:"ca,omitempty"`
+			Host     string   `yaml:"host,omitempty"`
 			Port     int      `yaml:"port,omitempty"`
 			User     string   `yaml:"user,omitempty"`
 			HostKey  string   `yaml:"host_key,omitempty"`
@@ -415,19 +457,22 @@ func (c *Config) ForProject(project string) ([]byte, error) {
 			IAP      *iap     `yaml:"iap,omitempty"`
 		} `yaml:"server"`
 	}
-	out.Project, out.Server.Host = project, c.Server.Host
-	// One key is written as every config before the list had it, which
-	// an aries that knows no list reads too.
-	if pinned := c.Pinned(); len(pinned) == 1 {
-		out.Server.HostKey = pinned[0]
-	} else {
-		out.Server.HostKeys = pinned
-	}
-	if c.Server.Port != 22 {
-		out.Server.Port = c.Server.Port
-	}
-	if c.Server.User != "aries" {
-		out.Server.User = c.Server.User
+	out.Project, out.Server.URL, out.Server.CA = project, c.Server.URL, c.Server.CA
+	if c.sshNamed() {
+		out.Server.Host = c.Server.Host
+		// One key is written as every config before the list had it,
+		// which an aries that knows no list reads too.
+		if pinned := c.Pinned(); len(pinned) == 1 {
+			out.Server.HostKey = pinned[0]
+		} else {
+			out.Server.HostKeys = pinned
+		}
+		if c.Server.Port != 22 {
+			out.Server.Port = c.Server.Port
+		}
+		if c.Server.User != "aries" {
+			out.Server.User = c.Server.User
+		}
 	}
 	if p := c.Server.IAP; p != nil {
 		out.Server.IAP = &iap{Project: p.Project, Zone: p.Zone}

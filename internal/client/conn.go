@@ -68,12 +68,15 @@ type Conn struct {
 	key     KeyInfo
 	skipped []string
 
-	ssh    *ssh.Client
-	sess   *ssh.Session
-	stdin  io.WriteCloser
-	enc    *proto.Encoder
-	dec    *proto.Decoder
-	stderr *capBuffer
+	ssh   *ssh.Client
+	sess  *ssh.Session
+	stdin io.WriteCloser
+	// overHTTPS says the connection is a WebSocket (https.go), for the
+	// words of a failure: there is no sshd and no bridge on its way.
+	overHTTPS bool
+	enc       *proto.Encoder
+	dec       *proto.Decoder
+	stderr    *capBuffer
 	// kill closes the transport, ending the reader and any call.
 	kill   func() error
 	onPush func(proto.Push)
@@ -152,11 +155,23 @@ func Dial(ctx context.Context, cfg *Config, opts Options) (*Conn, error) {
 	ctx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
 
+	via, err := cfg.Transport(opts.Getenv)
+	if err != nil {
+		return nil, err
+	}
 	id, err := loadIdentity(cfg, opts.Getenv, opts.UserHomeDir)
 	if err != nil {
 		return nil, err
 	}
 	defer id.close()
+	if via == TransportHTTPS {
+		c, err := dialHTTPS(ctx, cfg, opts, id)
+		if err != nil {
+			return nil, err
+		}
+		c.key, c.skipped = id.used(), id.skipped
+		return c, nil
+	}
 
 	addr := net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port))
 	var hostKeyErr *proto.Error
@@ -203,6 +218,10 @@ func Dial(ctx context.Context, cfg *Config, opts Options) (*Conn, error) {
 			return nil, hostKeyErr
 		}
 		if e := id.refusedKeys(addr, err); e != nil {
+			if cfg.Server.URL != "" {
+				// sshd lets no key in when the server has SSH off.
+				e = proto.Errf(e.Code, fmt.Sprintf("the server may have SSH off: unset %s to connect to %s; otherwise, %s", EnvTransport, cfg.Server.URL, e.Fix), e.Message)
+			}
 			return nil, e
 		}
 		var timeout time.Duration
@@ -495,8 +514,11 @@ func (c *Conn) lost(err error) *proto.Error {
 		msg = fmt.Sprintf("connection to the server failed: %v", err)
 	}
 	msg += quoteStderr(c.stderr.String(), "server")
-	return proto.Errf(proto.CodeUnavailable,
-		"retry; if it persists, check that this key's authorized_keys line forces `ariesd stdio --principal NAME` and that ariesd is running", msg)
+	fix := "retry; if it persists, check that this key's authorized_keys line forces `ariesd stdio --principal NAME` and that ariesd is running"
+	if c.overHTTPS {
+		fix = "retry; if it persists, ask the server's operator to check ariesd, and any proxy in front of it"
+	}
+	return proto.Errf(proto.CodeUnavailable, fix, msg)
 }
 
 // Session is the session id the server recorded for this connection.
@@ -613,8 +635,12 @@ func (c *Conn) Call(ctx context.Context, op string, args, result any) error {
 		case ctx.Err() != nil:
 			c.broken = fmt.Errorf("%s: %w", op, ctx.Err())
 		case late.Load():
+			check := "sshd and ariesd"
+			if c.overHTTPS {
+				check = "ariesd, and any proxy in front of it,"
+			}
 			c.broken = proto.Errf(proto.CodeUnavailable,
-				"retry, which connects again; if it persists, ask the server admin to check sshd and ariesd on the server, where `ariesd status` reports on the daemon",
+				"retry, which connects again; if it persists, ask the server admin to check "+check+" on the server, where `ariesd status` reports on the daemon",
 				fmt.Sprintf("the server did not answer %s within %s, so aries closed the connection", op, wait)+quoteStderr(c.stderr.String(), "server"))
 		default:
 			c.broken = c.lost(err)
@@ -1083,6 +1109,13 @@ func (id *identity) refusedKeys(addr string, err error) *proto.Error {
 	if !hungUp && !strings.Contains(text, "unable to authenticate") {
 		return nil
 	}
+	return id.noneAccepted(addr, hungUp)
+}
+
+// noneAccepted is the refusal of every key offered to addr, or of so
+// many that it hung up: the keys, by fingerprint and where each came
+// from, which were left out or skipped, and EnvKeyFile.
+func (id *identity) noneAccepted(addr string, hungUp bool) *proto.Error {
 	if id.from != "" {
 		return id.noted(proto.Errf(proto.CodeAuth,
 			fmt.Sprintf("send your public key, the .pub of that file, to the aries admin, who adds it with `aries admin key add NAME FILE.pub`; while %s names a key, aries offers no other, so unset it to offer your default identities and ssh-agent's keys instead", id.from),
