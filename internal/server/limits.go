@@ -97,9 +97,10 @@ type Limits struct {
 	// WSMessageBytes caps one message on a WebSocket, which carries one
 	// frame: at most proto.MaxFrame.
 	WSMessageBytes int `yaml:"ws_message_bytes"`
-	// AuthFailureRate is how many refused key proofs a minute one
-	// address's token bucket refills, and AuthFailureBurst how many it
-	// holds. With none left, an upgrade from the address is refused busy
+	// AuthFailureRate is how many refused key proofs, and sign-ins
+	// refused past SignInsPendingPerAddr, a minute one address's token
+	// bucket refills, and AuthFailureBurst how many it holds. With none
+	// left, an upgrade or a sign-in from the address is refused busy
 	// until one is. Behind a proxy it does not apply, as
 	// HTTPSConnsPerAddr does not.
 	AuthFailureRate  float64 `yaml:"auth_failures_per_minute"`
@@ -107,8 +108,14 @@ type Limits struct {
 	// SignInsPending caps the sign-ins in the daemon's memory that were
 	// started and not finished (transport.md §6.2): those sent to the
 	// provider, 10 minutes each at most, and the codes not yet spent, a
-	// minute each. Past it a sign-in is refused busy until some lapse.
+	// minute each. Past it the oldest is let go of, so that a flood of
+	// sign-ins never started in earnest cannot refuse a person's.
 	SignInsPending int `yaml:"signins_pending_per_server"`
+	// SignInsPendingPerAddr caps those started from one client address.
+	// Past it a sign-in from the address is refused, and charged to its
+	// AuthFailureRate bucket. Behind a proxy it does not apply, as
+	// HTTPSConnsPerAddr does not.
+	SignInsPendingPerAddr int `yaml:"signins_pending_per_addr"`
 	// DPoPProofs caps the DPoP proofs the daemon remembers, each for its
 	// two-minute window, so that none is used twice. Past it a proof is
 	// refused busy until the oldest age out.
@@ -150,7 +157,7 @@ var DefaultLimits = Limits{
 	ControlWriteRate: 1, ControlWriteBurst: 30,
 	HTTPSConns: 4096, HTTPSConnsPerAddr: 64, HTTPSHeaderBytes: 16 << 10, HTTPSHeaderTimeout: Duration(10 * time.Second),
 	HTTPSBodyBytes: 64 << 10, UpgradeTimeout: Duration(10 * time.Second), WSMessageBytes: proto.MaxFrame,
-	AuthFailureRate: 30, AuthFailureBurst: 60, SignInsPending: 10000, DPoPProofs: 100000,
+	AuthFailureRate: 30, AuthFailureBurst: 60, SignInsPending: 10000, SignInsPendingPerAddr: 16, DPoPProofs: 100000,
 }
 
 // Duration is a YAML duration such as 90s, 10m, 8h or 7d.
@@ -190,7 +197,8 @@ func (l Limits) WithDefaults() Limits {
 		{&l.ControlWriteBurst, &d.ControlWriteBurst},
 		{&l.HTTPSConns, &d.HTTPSConns}, {&l.HTTPSConnsPerAddr, &d.HTTPSConnsPerAddr}, {&l.HTTPSHeaderBytes, &d.HTTPSHeaderBytes},
 		{&l.HTTPSBodyBytes, &d.HTTPSBodyBytes}, {&l.WSMessageBytes, &d.WSMessageBytes}, {&l.AuthFailureBurst, &d.AuthFailureBurst},
-		{&l.Control.Grants, &d.Control.Grants}, {&l.SignInsPending, &d.SignInsPending}, {&l.DPoPProofs, &d.DPoPProofs},
+		{&l.Control.Grants, &d.Control.Grants}, {&l.SignInsPending, &d.SignInsPending},
+		{&l.SignInsPendingPerAddr, &d.SignInsPendingPerAddr}, {&l.DPoPProofs, &d.DPoPProofs},
 	} {
 		if *f.v == 0 {
 			*f.v = *f.d
@@ -240,7 +248,8 @@ func (l Limits) Validate() error {
 		{"ws_message_bytes", l.WSMessageBytes < 0 || l.WSMessageBytes > proto.MaxFrame},
 		{"auth_failures_per_minute", l.AuthFailureRate < 0 || math.IsNaN(l.AuthFailureRate) || math.IsInf(l.AuthFailureRate, 0)},
 		{"auth_failure_burst", l.AuthFailureBurst < 0},
-		{"signins_pending_per_server", l.SignInsPending < 0}, {"dpop_proofs_per_server", l.DPoPProofs < 0},
+		{"signins_pending_per_server", l.SignInsPending < 0}, {"signins_pending_per_addr", l.SignInsPendingPerAddr < 0},
+		{"dpop_proofs_per_server", l.DPoPProofs < 0},
 	} {
 		if f.bad {
 			return fmt.Errorf("limit %s must be zero or a positive number; fix: correct limits: in the config file, or leave it out for the default", f.name)
