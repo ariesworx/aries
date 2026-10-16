@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -306,6 +307,12 @@ func TestSignIn(t *testing.T) {
 	}
 	if !strings.Contains(w.log.String(), "event=signin.granted") {
 		t.Errorf("the log has no signin.granted line:\n%s", w.log.String())
+	}
+	// The audit stream has the binding and the grant, each the person's.
+	for _, ev := range []string{"audit.identity.bind", "audit.signin.grant"} {
+		if !regexp.MustCompile(`event=` + regexp.QuoteMeta(ev) + ` audit=true .* principal=alice session=signin .* subject=alice`).MatchString(w.log.String()) {
+			t.Errorf("the audit stream has no %s line for alice, as subject:\n%s", ev, w.log.String())
+		}
 	}
 }
 
