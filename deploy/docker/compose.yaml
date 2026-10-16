@@ -105,9 +105,11 @@ services:
     # Mainline 1.31.6, released 15 September 2026
     image: nginx:1.31.6@sha256:60f0d4e986561e08804f75c211dcaf7fc5455699eada29f42cbe8a0a7253dd86
     network_mode: service:aries
+    # Healthy, not just started: the certificate is made by the entrypoint,
+    # which with the identity profile first waits for Keycloak.
     depends_on:
       aries:
-        condition: service_started
+        condition: service_healthy
     read_only: true
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_OVERRIDE, SETGID, SETUID]
@@ -151,9 +153,11 @@ services:
     image: otel/opentelemetry-collector:0.162.0@sha256:310a800ad69ee430e7c541796852a242c9c7db97aaad4daa5ccf843c525fbdb2
     command: ["--config", "/etc/otelcol/config.yaml"]
     network_mode: service:aries
+    # Healthy, not just started: the certificate is made by the entrypoint,
+    # which with the identity profile first waits for Keycloak.
     depends_on:
       aries:
-        condition: service_started
+        condition: service_healthy
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
@@ -179,9 +183,11 @@ services:
       - --storage.tsdb.retention.time=2h
       - --web.listen-address=127.0.0.1:9090
     network_mode: service:aries
+    # Healthy, not just started: the certificate is made by the entrypoint,
+    # which with the identity profile first waits for Keycloak.
     depends_on:
       aries:
-        condition: service_started
+        condition: service_healthy
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]

@@ -36,6 +36,13 @@
 # or hangs changes nothing.
 # It pulls two more images.
 #
+# ARIES_SMOKE_PROXY=1 runs all of it through the compose file's `proxy`
+# profile: ariesd serves plain HTTP on loopback (ARIES_PROXY=1) and nginx
+# serves TLS on the HTTPS port, so aries, the sign-in and the CI commands
+# reach the server as they would behind a load balancer. The container
+# of nginx shares the server's network namespace, so it is restarted
+# after the server. It pulls one more image.
+#
 # ARIES_SMOKE_IDENTITY=1 also runs the compose file's `identity`
 # profile, Keycloak, and then checks it (identity_checks, below): its
 # discovery document and keys, from this machine and from the server's
@@ -80,6 +87,19 @@ case ${ARIES_SMOKE_TELEMETRY:-} in
   ;;
 *)
   printf 'smoke: ARIES_SMOKE_TELEMETRY is %s\nfix: set it to 1, or leave it unset\n' "$ARIES_SMOKE_TELEMETRY" >&2
+  exit 2
+  ;;
+esac
+proxy=
+case ${ARIES_SMOKE_PROXY:-} in
+'') ;;
+1)
+  proxy=1
+  sidecars+=(nginx)
+  compose+=(--profile proxy)
+  ;;
+*)
+  printf 'smoke: ARIES_SMOKE_PROXY is %s\nfix: set it to 1, or leave it unset\n' "$ARIES_SMOKE_PROXY" >&2
   exit 2
   ;;
 esac
@@ -292,7 +312,7 @@ no_ssh_path() {
 
 up() {
   ARIES_IMAGE=$image ARIES_KEYS=$keys ARIES_ADMINS=alice ARIES_PORT=$port ARIES_HTTPS_PORT=$https_port ARIES_SSH=$ssh ARIES_TELEMETRY=$telemetry ARIES_TZ=$tz \
-    ARIES_IDENTITY=$identity "${compose[@]}" up -d --no-build --wait --wait-timeout 300 >/dev/null 2>&1 ||
+    ARIES_IDENTITY=$identity ARIES_PROXY=$proxy "${compose[@]}" up -d --no-build --wait --wait-timeout 300 >/dev/null 2>&1 ||
     fail "the server did not become healthy" "$("${compose[@]}" logs --no-log-prefix 2>&1 | tail -n 40)"
 }
 
@@ -1039,7 +1059,7 @@ done
 if [[ -n $ssh ]]; then
   echo "smoke: starting the server, HTTPS on 127.0.0.1:$https_port and SSH on 127.0.0.1:$port; aries over SSH"
 else
-  echo "smoke: starting the server, HTTPS alone on 127.0.0.1:$https_port; aries over HTTPS"
+  echo "smoke: starting the server, HTTPS alone on 127.0.0.1:$https_port${proxy:+, behind nginx}; aries over HTTPS"
 fi
 "${compose[@]}" down -v >/dev/null 2>&1 || true
 up
@@ -1257,12 +1277,22 @@ expect "key add" "^key $carol_re .* added to carol\$" alice admin key add carol 
 expect "the key added again" "^$b " carol ready
 expect "principal disable" '^carol: disabled$' alice admin principal disable carol
 not_in_keys_file "a disabled principal's key" 'stdio --principal carol '
-refuse "a disabled principal's key" 'accepted no key' carol ready
+# sshd refuses a key the keys file lacks; over HTTPS the server knows the
+# key and says that its principal is disabled.
+refuse "a disabled principal's key" "$([[ -n $ssh ]] && echo 'accepted no key' || echo 'carol is disabled on this server')" carol ready
+# What status says of the HTTPS listener: behind nginx it is plain HTTP on
+# loopback in proxy mode, otherwise ariesd's own TLS from files.
+https_listen='[^ ]*:8443'
+https_tls='files, certificate ends [0-9-]+'
+if [[ -n $proxy ]]; then
+  https_listen='127[.]0[.]0[.]1:8080'
+  https_tls=proxy
+fi
 if [[ -n $ssh ]]; then
-  expect "status shows the transports" "^transports: https on [^ ]*:8443 for https://localhost:$https_port \(files, certificate ends [0-9-]+\), [0-9]+ connections?; ssh on, [0-9]+ connections?$" alice admin status
+  expect "status shows the transports" "^transports: https on $https_listen for https://localhost:$https_port \\($https_tls\\), [0-9]+ connections?; ssh on, [0-9]+ connections?$" alice admin status
   expect "status shows the keys file" "^keys file $keys_file: 2 keys, written " alice admin status
 else
-  expect "status shows the transports" "^transports: https on [^ ]*:8443 for https://localhost:$https_port \(files, certificate ends [0-9-]+\), [0-9]+ connections?; ssh off$" alice admin status
+  expect "status shows the transports" "^transports: https on $https_listen for https://localhost:$https_port \\($https_tls\\), [0-9]+ connections?; ssh off$" alice admin status
   absent "status shows no keys file with SSH off" '^keys file '
 fi
 # A CI job reports a check, as the workflows of docs/ci.md run it: its
