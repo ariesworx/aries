@@ -133,6 +133,12 @@ signed out of https://aries.example.com (sign-in g-7f3a2c9d1e4b5a60)
   default, and nothing renews it: when it ends, its connections close
   and the next command says to run `aries login`. A new `aries login`
   replaces this machine's last sign-in, and ends it at the server.
+- **Each sign-in is announced** in your inbox in every project you are
+  a member of, as a `signin.granted` item from `ariesd` with the
+  provider, the machine and when it ends
+  ([The inbox](concepts.md#the-inbox)). One you did not make is someone
+  else working as you: end it with the `aries admin signin end ID` the
+  item names.
 - **`aries logout`** ends the sign-in at the server, which closes its
   connections at once, and removes it from this machine. With the
   server out of reach, it removes it here and says that an admin can

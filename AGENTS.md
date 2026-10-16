@@ -299,7 +299,8 @@ and what a test that passes there does not do.
    transaction. `writeOnce` refuses a transaction that changed rows but
    recorded no event. Only bookkeeping that is not history skips the
    event, by setting `wtx.quiet`: lease renewals, registry touches, inbox
-   acks and pruning. Within a write that also makes history, a
+   acks, pruning, and a sign-in's announcement in a project's inbox,
+   whose history is the control store's `signin.grant`. Within a write that also makes history, a
    statement that is bookkeeping runs through `wtx.touch` instead, which
    exempts only that statement: refreshing the time of an issue's paths
    already recorded (a client resends what git shows every few minutes;

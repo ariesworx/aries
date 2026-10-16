@@ -522,6 +522,7 @@ func (a *authServer) grant(rw http.ResponseWriter, r *http.Request, ic *issuedCo
 	a.s.Audit(r.Context())
 	a.s.cfg.Logger.InfoContext(r.Context(), "signed in", "event", logs.SignInGranted, "principal", g.Principal, "provider", g.Provider,
 		"grant", g.ID, "flow", g.Flow)
+	a.s.announceSignIn(r.Context(), g) // before the token is answered, so before it can be used
 	writeJSON(rw, http.StatusOK, map[string]any{
 		"access_token": tok, "token_type": "DPoP", "expires_in": int(g.EndsAt.Sub(a.now()).Seconds()),
 		"expires_at": g.EndsAt.Format(time.RFC3339), "scope": strings.Join(g.Scopes, " "),

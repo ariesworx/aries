@@ -81,6 +81,7 @@ type Work interface {
 	SessionsSeen(ctx context.Context, since time.Duration) (int, error)
 	Inbox(ctx context.Context, actor store.Actor, all bool, limit int) (store.InboxPage, error)
 	AckInbox(ctx context.Context, actor store.Actor, ids []int64, all bool) (int, error)
+	AnnounceSignIn(ctx context.Context, n store.SignInNotice) error
 	Watch(principal, session string) *store.Watch
 	WatchEvents(principal, session string) *store.Watch
 }
