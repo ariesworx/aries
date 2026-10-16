@@ -89,10 +89,11 @@ profile ariesd @{ariesd_bin}/ariesd flags=(attach_disconnected) {
   include if exists <local/ariesd>
 }
 
-# The daemon. It reads the config file, listens on its socket, talks to
-# Postgres, by its unix socket on this machine or over TCP to another,
-# and on a server of many projects writes the keys file
-# sshd reads and reads the hand-maintained authorized_keys beside it.
+# The daemon. It reads the config file, listens on its socket and, with
+# HTTPS on, on its HTTPS listener, talks to Postgres, by its unix socket
+# on this machine or over TCP to another, and on a server of many
+# projects with SSH on writes the keys file sshd reads, and reads the
+# hand-maintained authorized_keys beside it.
 # When it is configured to (docs/server.md, Observability) it also
 # listens on a loopback TCP port for /metrics and health, posts metrics
 # and traces to a collector over HTTP, keeps the key of the stand-ins
@@ -152,8 +153,22 @@ profile ariesd-serve flags=(attach_disconnected) {
   @{run}/systemd/resolve/resolv.conf r,
   @{run}/systemd/resolve/stub-resolv.conf r,
 
+  # The HTTPS listener (docs/server.md, The HTTPS listener) listens by
+  # network inet stream, above, and binds a port below 1024 by the
+  # capability the unit's drop-in gives it (AmbientCapabilities). With
+  # its certificate in files it reads them, and again when they change;
+  # with ACME it keeps the account's key and the certificates in a
+  # directory of its own, which it makes if it is missing, through a
+  # temporary file and a rename.
+  capability net_bind_service,
+  @{ariesd_tls}/ r,
+  @{ariesd_tls}/** r,
+  owner @{ariesd_acme}/ rw,
+  owner @{ariesd_acme}/** rw,
+
   # The keys file: a temporary file beside it, written, synced and
-  # renamed over it. authorized_keys is only ever read.
+  # renamed over it, and removed when SSH is off. authorized_keys is
+  # only ever read.
   owner @{ariesd_keys_dir}/ r,
   owner @{ariesd_keys_dir}/@{ariesd_keys_name} rw,
   owner @{ariesd_keys_dir}/.@{ariesd_keys_name}.tmp-* rw,
@@ -194,7 +209,11 @@ profile ariesd-serve flags=(attach_disconnected) {
   audit deny @{HOMEDIRS}/** mrwklx,
   audit deny /root/** mrwklx,
   audit deny /** x,
-  audit deny capability,
+  # Every capability but net_bind_service, above: a deny would win over
+  # that allow, so the others are named. A capability no rule allows is
+  # refused all the same; these are the ones worth an audit line.
+  audit deny capability chown dac_override dac_read_search fowner fsetid kill setgid setuid setpcap,
+  audit deny capability net_admin net_raw sys_admin sys_module sys_ptrace sys_rawio sys_chroot,
   audit deny ptrace (trace),
   audit deny mount,
   audit deny umount,
@@ -240,10 +259,12 @@ profile ariesd-admin flags=(attach_disconnected) {
   @{run}/systemd/resolve/resolv.conf r,
   @{run}/systemd/resolve/stub-resolv.conf r,
 
-  # control init reads authorized_keys. Nothing here writes it, or the
-  # keys file: the daemon does that.
+  # control init reads authorized_keys, or with SSH off the file the
+  # installer writes the first admin's key to. Nothing here writes
+  # either, or the keys file: the daemon does that.
   owner @{ariesd_keys_dir}/ r,
   owner @{ariesd_authorized_keys} r,
+  @{ariesd_admin_keys} r,
 
   # import-bd reads the file it is given and export-bd -o writes one,
   # through a temporary file beside it. Both stay in the top of the

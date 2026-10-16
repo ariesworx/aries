@@ -41,8 +41,12 @@ event gate.passed
 event gate.rearmed
 event gate.waived
 event handshake.failed
+event https.listener_stopped
+event https.listening
+event https.refused
 event keys_file.key_held_back
 event keys_file.key_left_out
+event keys_file.removed
 event keys_file.write_failed
 event keys_file.written
 event lock.expired
@@ -77,6 +81,8 @@ event telemetry.on
 event telemetry.scrape_failed
 event telemetry.sdk_error
 event telemetry.stop_failed
+event tls.cert_reload_failed
+event tls.cert_reloaded
 field account
 field added_by
 field addr
@@ -125,6 +131,7 @@ field log
 field log_headers
 field logs
 field machine
+field mode
 field name
 field oldest
 field op
@@ -163,6 +170,8 @@ field to
 field trace_headers
 field trace_id
 field traces
+field transports
+field urls
 field version
 field waiting
 field was_behind_since

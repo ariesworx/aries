@@ -139,6 +139,9 @@ type world struct {
 	// history it may start behind (server.Config.AcceptHistory). The
 	// caller holds daemonMu.
 	acceptHistory time.Time
+	// web is the world's HTTPS front, when its users connect over HTTPS
+	// (https_test.go); nil otherwise.
+	web *front
 }
 
 // daemonOpts configures a world's daemon; the zero value takes the
@@ -180,6 +183,11 @@ type daemonOpts struct {
 	// forced command says, with its fingerprint, and one with none is
 	// looked up in the second.
 	keys bool
+	// ssh keeps the world's users on SSH when the suite runs over HTTPS
+	// (EnvTransport): for a test of SSH itself, such as host keys or
+	// IAP. https puts them on HTTPS in either run, for a test of HTTPS
+	// itself.
+	ssh, https bool
 }
 
 // newWorld starts a daemon on a new database, unless o.noDaemon, and the
@@ -218,6 +226,9 @@ func newWorld(t *testing.T, o daemonOpts) *world {
 
 	if o.now != nil && o.reap == 0 {
 		w.fixedClock, w.opts.reap = true, -1
+	}
+	if w.overHTTPS() {
+		w.startFront()
 	}
 	if !o.noDaemon {
 		dsn, err := w.newDatabase(ctx)
@@ -289,17 +300,22 @@ func (w *world) startDaemon() error {
 		cancel()
 		return errors.Join(err, db.Close())
 	}
-	srv, err := server.New(server.Config{Store: st, Project: project, Version: "v0.2.0", Postgres: db,
-		ProtoMin: o.protoMin, ProtoMax: o.protoMax, ReapInterval: o.reap, Limits: o.limits,
-		Logger: o.logger, Clock: clk, AcceptHistory: w.acceptHistory, Telemetry: o.telemetry})
+	web, err := w.daemonHTTPS()
 	if err != nil {
 		cancel()
 		return errors.Join(err, st.Close(), db.Close())
 	}
+	srv, err := server.New(server.Config{Store: st, Project: project, Version: "v0.2.0", Postgres: db,
+		ProtoMin: o.protoMin, ProtoMax: o.protoMax, ReapInterval: o.reap, Limits: o.limits,
+		Logger: o.logger, Clock: clk, AcceptHistory: w.acceptHistory, Telemetry: o.telemetry, HTTPS: web})
+	if err != nil {
+		cancel()
+		return errors.Join(err, closeWeb(web), st.Close(), db.Close())
+	}
 	l, err := server.Listen(w.socket)
 	if err != nil {
 		cancel()
-		return errors.Join(err, st.Close(), db.Close())
+		return errors.Join(err, closeWeb(web), st.Close(), db.Close())
 	}
 	done := make(chan error, 1)
 	go func() { done <- srv.Serve(ctx, l) }()
@@ -409,11 +425,16 @@ func (w *world) startMany() error {
 		cancel()
 		return errors.Join(err, db.Close())
 	}
-	fail := func(err error) error {
+	web, err := w.daemonHTTPS()
+	if err != nil {
 		cancel()
 		return errors.Join(err, ctl.Close(), db.Close())
 	}
-	srv, err := server.New(server.Config{Control: ctl, Version: "v0.2.0", Postgres: db,
+	fail := func(err error) error {
+		cancel()
+		return errors.Join(err, closeWeb(web), ctl.Close(), db.Close())
+	}
+	srv, err := server.New(server.Config{Control: ctl, Version: "v0.2.0", Postgres: db, HTTPS: web,
 		Open:     server.ProjectOpener(db, ctl, store.Options{Now: o.now, Clock: clk, Limits: o.limits.Limits, Logger: o.logger, IdemWindow: time.Duration(o.limits.IdemWindow), AwayMax: time.Duration(o.limits.AwayMax)}, o.telemetry),
 		ProtoMin: o.protoMin, ProtoMax: o.protoMax, ReapInterval: o.reap, Limits: o.limits, Logger: o.logger,
 		KeysFile: w.keysFile, AuthorizedKeys: w.handFile, Clock: clk, AcceptHistory: w.acceptHistory, Telemetry: o.telemetry})
@@ -738,13 +759,25 @@ func (t *tap) Write(p []byte) (int, error) {
 	}
 }
 
-// dropAll closes every open SSH connection, as a network drop would.
+// dropAll closes every open connection, SSH or HTTPS, as a network
+// drop would.
 func (w *world) dropAll() {
+	if w.web != nil {
+		w.web.dropAll()
+	}
 	w.connsMu.Lock()
 	defer w.connsMu.Unlock()
 	for c := range w.conns {
 		_ = c.Close()
 	}
+}
+
+// closeWeb closes the listener of a daemon's HTTPS that did not start.
+func closeWeb(h *server.HTTPS) error {
+	if h == nil {
+		return nil
+	}
+	return h.Listener.Close()
 }
 
 // serveSSH serves one SSH connection until it closes, then waits for its
@@ -868,8 +901,10 @@ func (w *world) newUserIn(principal, hostFpr, proj string) *user {
 	if hostFpr == "" {
 		hostFpr = w.hostFpr
 	}
-	cfg := fmt.Sprintf("project: %s\nserver:\n  host: 127.0.0.1\n  port: %d\n  user: aries\n  host_key: %s\nkey: id_ed25519\n",
-		proj, w.addr.Port, hostFpr)
+	// Over HTTPS the config names the front's URL and CA beside the SSH
+	// fields, as a server with both on has it, and aries takes the URL.
+	cfg := fmt.Sprintf("project: %s\nserver:\n%s  host: 127.0.0.1\n  port: %d\n  user: aries\n  host_key: %s\nkey: id_ed25519\n",
+		proj, w.httpsConfig(), w.addr.Port, hostFpr)
 	if err := os.WriteFile(filepath.Join(repo, ".aries.yaml"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -1075,8 +1110,8 @@ func TestConflict(t *testing.T) {
 
 func TestRefusals(t *testing.T) {
 	t.Parallel()
-	w := newWorld(t, daemonOpts{})
-	other := w.newUser("", "") // a key the server does not know
+	w := newWorld(t, daemonOpts{ssh: true}) // host keys and sshd's refusal: SSH's own
+	other := w.newUser("", "")              // a key the server does not know
 	pinnedWrong := w.newUser("carol", "SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5TqvU")
 
 	tests := []struct {
@@ -1203,8 +1238,8 @@ func TestDaemonDown(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, daemonOpts{noDaemon: true})
 	r := w.newUser("alice", "").run("v0.2.0", "ready")
-	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "ariesd is not running on the server") ||
-		!strings.Contains(r.stderr, "fix: ask the server admin to start it") {
-		t.Fatalf("exit %d\n%s", r.code, r.stderr)
+	msg, fix := w.down()
+	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, msg) || !strings.Contains(r.stderr, "fix: "+fix) {
+		t.Fatalf("aries ready with no daemon = exit %d\n%s\nwant %q and the fix %q", r.code, r.stderr, msg, fix)
 	}
 }

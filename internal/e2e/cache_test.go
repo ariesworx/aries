@@ -76,7 +76,8 @@ func TestCacheGateCLI(t *testing.T) {
 		t.Errorf("aries prime --hook with the server down gave the context:\n%s\nwant the cached prime, saying it is cached", ctx)
 	}
 	r = alice.run("v0.2.0", "ready")
-	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "aries: ariesd is not running on the server; ready is not answered from this machine's copy, since it says what others are doing now (server last reached ") ||
+	down, _ := w.down()
+	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "aries: "+down+"; ready is not answered from this machine's copy, since it says what others are doing now (server last reached ") ||
 		!strings.Contains(r.stderr, "; meanwhile `aries prime` and `aries show ID` answer from this machine's copy of what you read\n") {
 		t.Errorf("aries ready with the server down = exit %d, stderr:\n%s\nwant it refused, saying when the server was last reached, with a fix", r.code, r.stderr)
 	}

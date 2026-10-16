@@ -237,21 +237,25 @@ curl -fsSLO https://raw.githubusercontent.com/ariesworx/aries/main/install-serve
 sudo sh install-server.sh --admin alice --admin-key alice.pub --host aries.example.com --dry-run
 ```
 
-Drop `--dry-run` to set it up. **(planned, decision 87)** Choose a
-profile with `--profile`:
+Drop `--dry-run` to set it up. Choose a profile with `--profile`
+([Profiles](server.md#profiles)); `--plan` prints what one serves and
+writes:
 
 | Profile | For |
 |---|---|
-| `internet` (the default) | A team on any network, with Claude's connectors: HTTPS, with ACME or your certificate, and any identity provider |
-| `private` | A company network or VPN: HTTPS with your company CA's certificate, and an internal or a cloud provider |
-| `airgapped` | A site with no route out: HTTPS with the site CA's certificate, an identity provider inside the network, releases from a directory |
-| `ssh-only` | Today's server: SSH alone, HTTPS off, keys and no sign-in |
+| `internet` (the default) | A team on any network: HTTPS, with a certificate from ACME. **(planned, decision 87)** Claude's connectors, and any identity provider |
+| `private` | A company network or VPN: HTTPS with your company CA's certificate, or behind your proxy. **(planned)** An internal or a cloud identity provider |
+| `airgapped` | A site with no route out: HTTPS with the site CA's certificate, releases from a directory. **(planned)** An identity provider inside the network |
+| `ssh-only` | The server of before 1.0: SSH alone, HTTPS off, keys and no sign-in |
 
-**SSH is off unless you turn it on (planned, decision 86).** Add
-`--enable-ssh` to any of the first three profiles for teams that sign in
-with keys or reach the server through IAP; then set
-`transports: [https, ssh]` and reload `ariesd`. Keys added while SSH is
-off take effect when it is turned on.
+**SSH is off unless you turn it on (decision 86).** Add `--enable-ssh`
+to any of the first three profiles for teams that reach the server
+through IAP, or that keep SSH. On a server already set up, run the
+installer again with `--enable-ssh`, then set `transports: [https, ssh]`
+and restart `ariesd` ([SSH on and off](server.md#ssh-on-and-off)).
+Until sign-in lands, the keys an admin adds sign in over HTTPS too
+([How aries signs in over HTTPS](server.md#how-aries-signs-in-over-https)),
+so every client can move to `server.url`.
 
 Or follow
 [Running a server](server.md#set-up-a-server) step by step, or have

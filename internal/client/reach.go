@@ -45,10 +45,13 @@ func Unreachable(err error) bool {
 	return ok && pe.Code == proto.CodeUnavailable
 }
 
-// setupError is a refusal that says this machine lacks something it
-// needs to reach the server by the transport its config names: gcloud,
-// for a server behind IAP. It is a *proto.Error through Unwrap, and
-// never [Unreachable].
+// setupError is a refusal that says the way to the server is not set up
+// for the transport the config names, which no later attempt from here
+// gets past: this machine lacks gcloud, for a server behind IAP; or,
+// over HTTPS, a proxy on the way answered the upgrade with a 4xx, as
+// one that does not pass WebSocket upgrades does, or the server's URL
+// has no /v1/connect. It is a *proto.Error through Unwrap, and never
+// [Unreachable].
 type setupError struct{ pe *proto.Error }
 
 func (e *setupError) Error() string { return e.pe.Error() }

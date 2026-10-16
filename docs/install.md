@@ -40,7 +40,12 @@ On Windows, download the zip from the
 `aries.exe` on your `PATH`, or run the script inside WSL.
 
 **First run.** `aries` needs no configuration of its own beyond the
-repository's `.aries.yaml`. It signs in with the SSH key `ssh` would
+repository's `.aries.yaml`, which names the server by its URL
+(`server.url`, HTTPS), and where the server's certificate is from a
+company's or a site's own CA, that CA (`server.ca`); or, for a server
+that serves SSH, by its host and host key
+([Connect a repository](cli.md#connect-a-repository)). Either way it
+signs in with the SSH key `ssh` would
 use: a default file in `~/.ssh` (`%USERPROFILE%\.ssh` on Windows), such
 as `id_ed25519`, and then the keys in ssh-agent. Send the admin that
 key's `.pub`, then run `aries whoami` in the repository: it prints your
@@ -60,6 +65,11 @@ sudo sh install-server.sh --admin alice --admin-key alice.pub --host aries.examp
 
 It installs `ariesd` and `aries` with `install.sh`, so they are checked
 the same way, and reads `ARIES_RELEASES` or `--releases` for a mirror.
+By default the server serves HTTPS alone, with a certificate from
+Let's Encrypt for `--host`, and no SSH; `--profile` chooses another
+setup (a company's or a site's CA, a proxy, a site with no route out,
+or SSH alone), `--enable-ssh` adds SSH, and `--plan` prints what a
+choice serves and writes ([Profiles](server.md#profiles)).
 Drop `--dry-run` to set the server up.
 [With the installer](server.md#with-the-installer) has its options, its
 steps and what it leaves to you.

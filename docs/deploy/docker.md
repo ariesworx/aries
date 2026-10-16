@@ -8,13 +8,18 @@ from a Mac or any machine with Docker, without touching a real server.
 
 ```text
 your machine
-  aries ──SSH──▶ 127.0.0.1:2222 ──▶ container aries: sshd ──▶ ariesd ──▶ container postgres
-                                     └── volume: the host key, the config    └── volume: the database
+  aries ──HTTPS──▶ 127.0.0.1:8443 ──▶ container aries: ariesd ──▶ container postgres
+  aries ──SSH────▶ 127.0.0.1:2222 ──▶   sshd ─┘ (ARIES_SSH=1)    └── volume: the database
+                                       └── volume: the config, the test CA, the host key
 ```
 
-Two containers. One runs sshd and ariesd, set up as in
+Two containers. One runs ariesd, set up as in
 [Running a server](../server.md#set-up-a-server): ariesd as `aries`,
-and sshd with a forced command per key. The other runs Postgres, from
+serving HTTPS as a fresh server does ([The HTTPS
+listener](../server.md#the-https-listener)), with a certificate for
+`localhost` and `127.0.0.1` from a test CA the container makes on its
+first start; and, with `ARIES_SSH=1`, sshd with a forced command per
+key ([SSH on and off](../server.md#ssh-on-and-off)). The other runs Postgres, from
 Docker's official `postgres:18` image, which ariesd reaches over the
 compose network as a Postgres on another machine: its role and database
 are made with step 2's statements, the role with a generated password
@@ -26,9 +31,11 @@ its database role's included. The files are in
 
 It is a server of [many projects](../server.md#serving-many-projects):
 it has a control store, ariesd makes each new project's schema, the
-project it starts with is adopted under the name `first`, and sshd
-reads the keys file ariesd writes
-([Keys from the store](../server.md#keys-from-the-store)). So you can
+project it starts with is adopted under the name `first`, and, with
+SSH on, sshd reads the keys file ariesd writes
+([Keys from the store](../server.md#keys-from-the-store)). The keys of
+the control store sign in over HTTPS too
+([How aries signs in over HTTPS](../server.md#how-aries-signs-in-over-https)). So you can
 try `aries admin project add`, and add a person with `aries admin principal
 add NAME --key FILE` and no restart.
 
@@ -56,7 +63,7 @@ Run everything from the repository root, on the branch you want to test.
 export COMPOSE_FILE=deploy/docker/compose.yaml
 export ARIES_KEYS="alice $(cat ~/.ssh/id_ed25519.pub)"
 docker compose up -d --build --wait
-docker compose logs --no-log-prefix aries | grep -A 13 'test server ready' | tail -n 14
+docker compose logs --no-log-prefix aries | awk '/test server ready/ { out = "" } { out = out $0 "\n" } END { printf "%s", out }'
 ```
 
 The build compiles `ariesd` and `aries` from your checkout, and the
@@ -72,6 +79,8 @@ client needs (these values are invented):
 
 ```text
 Aries test server ready (not for production)
+  transports  https
+  url         https://localhost:8443
   host key    SHA256:…
   project     6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f
   principals  alice
@@ -82,26 +91,34 @@ Save this as .aries.yaml in a scratch repository:
 
 project: 6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f
 server:
-  host: localhost
-  port: 2222
-  host_key: SHA256:…
+  url: https://localhost:8443
+  ca: |
+    -----BEGIN CERTIFICATE-----
+    …
+    -----END CERTIFICATE-----
 ```
 
-Later starts reuse the volume, so the project, the host key and the data
-stay the same, and print the block again; the command above shows the
-newest. The container generated the host key on your own machine,
-so there is nothing to verify out of band.
+With `ARIES_SSH=1` the block also has `host: localhost`, `port: 2222`
+and `host_key: SHA256:…`, and `aries` uses SSH when `ARIES_TRANSPORT=ssh`.
+Later starts reuse the volume, so the project, the test CA, the host
+key and the data stay the same, and print the block again; the command
+above shows the newest. The container made the CA and the host key on
+your own machine, so there is nothing to verify out of band. The CA is
+a test CA, trusted by this checkout's `server.ca` alone; its key stays
+on the volume.
 
 | Variable | Default | Sets |
 |---|---|---|
 | `ARIES_KEYS` | none | The principals: one `NAME TYPE KEY` line per key, such as `alice ssh-ed25519 AAAA…`. A file mounted at `/etc/aries-keys` adds lines. A start that gives keys rewrites `authorized_keys` with them, and one that gives none keeps the file. Each start also copies them into the control database (`ariesd control init`), where they stay: dropping a name here does not remove it, so remove it with `aries admin principal disable NAME` or `aries admin key remove FINGERPRINT`. Everyone new, but the admins, becomes a member of the first project. A start does not undo what an admin did with `aries admin`: someone removed from the first project stays removed, a disabled principal stays disabled, and a key removed from the control database stays out of it, each reported in the container's log. One thing it cannot do for you: a key still listed here is still a line of `authorized_keys`, where sshd accepts it whatever the control database holds, so to revoke a key, take it out of `ARIES_KEYS` as well, or disable its principal ([What a restart keeps](#what-a-restart-keeps)) |
 | `ARIES_ADMINS` | the first name | The server [admins](../server.md#admins), comma-separated. They reach every project and need no membership |
 | `ARIES_PROJECT` | random | The project UUID, used on the first start only |
-| `ARIES_PORT` | `2222` | The port on 127.0.0.1, also printed in `.aries.yaml` |
+| `ARIES_HTTPS_PORT` | `8443` | The HTTPS listener's port on 127.0.0.1, which the server's URL names |
+| `ARIES_SSH` | unset | `1` serves SSH beside HTTPS: sshd runs, and ariesd writes the keys file it reads. Unset, sshd does not run, ariesd refuses the bridge and writes no keys file, as on a fresh server |
+| `ARIES_PORT` | `2222` | sshd's port on 127.0.0.1, with SSH on, also printed in `.aries.yaml` |
 | `ARIES_TELEMETRY` | unset | `1` turns ariesd's telemetry on ([Telemetry](#telemetry)). Unset, ariesd exports nothing and opens no port, as on a server where nothing is configured |
 
-sshd listens on 127.0.0.1 alone, so nothing beyond your machine can reach
-it.
+Both ports are published on 127.0.0.1 alone, so nothing beyond your
+machine can reach them.
 
 ## Connect a scratch repository
 
@@ -112,15 +129,15 @@ log:
 ```sh
 mkdir -p ~/aries-scratch
 go build -o ~/aries-scratch/aries ./cmd/aries
-docker compose logs --no-log-prefix aries | grep -A 4 '^project:' | tail -n 5 > ~/aries-scratch/.aries.yaml
+docker compose logs --no-log-prefix aries | awk '/^project:/ { yaml = "" } /^project:/, /^$/ { yaml = yaml $0 "\n" } END { printf "%s", yaml }' > ~/aries-scratch/.aries.yaml
 cd ~/aries-scratch && git init -q
 ./aries ready
 ./aries create "Try the test server" -p 2 -t task
 ./aries ready
 ```
 
-`aries` signs in with the key `ssh` would use: a default file in `~/.ssh`,
-then the keys in ssh-agent. If yours is neither, name its file by its
+`aries` signs in, over HTTPS as over SSH, with the key `ssh` would use:
+a default file in `~/.ssh`, then the keys in ssh-agent. If yours is neither, name its file by its
 path: `export ARIES_KEY_FILE=~/keys/mine`. The rest of
 [Using `aries`](../cli.md) and the [agent guide](../agents.md) work as on any
 server.
@@ -404,8 +421,13 @@ deploy/docker/smoke.sh
 ```
 
 It builds the image and `aries` from the checkout and starts its own
-server, on port 2223 with two invented principals, so a server on 2222
-is left alone. It drives `aries` through create, ready, start, comment,
+server, serving HTTPS alone on port 8444 with two invented principals,
+so a server on 8443 is left alone, and drives `aries` over HTTPS. It
+first checks that the server exposes no SSH path: sshd does not run,
+ariesd wrote no keys file, and the bridge sshd would run is refused,
+`SSH is off`. With `ARIES_SMOKE_SSH=1` it serves SSH too, on port 2223,
+and drives `aries` over SSH (`ARIES_TRANSPORT=ssh`); the checks of the
+keys file below run only then. It drives `aries` through create, ready, start, comment,
 hours, memory, finish with discovered work, dependencies, show, prices,
 token usage and cost, plans and the digest, and checks that a non-admin
 is refused admin commands. Then it adds a second project with `aries admin
@@ -429,9 +451,11 @@ for a key an admin added, and holds no key's text. It checks that
 schema's size, as text and as JSON, to a server admin and not to anyone
 else; that the server's container reaches Postgres and this machine
 does not; and that the config file holds no password, and the password
-file its DSN names is mode 0600 and the `aries` user's. It removes its
-server and volumes, prints one line (155 checks on 15 October 2026, in
-77 seconds), and exits non-zero on the first failure. CI
+file its DSN names is mode 0600 and the `aries` user's; and that the
+status report names the transports, and with SSH off shows no keys
+file. It removes its server and volumes, prints one line (on 16
+October 2026: 146 checks over HTTPS, 156 with SSH on), and exits
+non-zero on the first failure. CI
 does not run it; `scripts/gate.sh --smoke` runs it after the gate. It
 hides ssh-agent from `aries`, so the keys you hold play no part. Arguments
 go to `docker build`; behind a proxy that
@@ -442,7 +466,7 @@ reaches the image.
 `aries-dev:local`, and `ARIES_SMOKE_LOG=FILE` saves the server's log
 before the server is removed. `ARIES_SMOKE_PROJECT=NAME` names the
 Compose project, `aries-smoke` by default: give each of two runs on
-one machine its own, and its own `ARIES_PORT`.
+one machine its own, and its own `ARIES_HTTPS_PORT` and `ARIES_PORT`.
 
 ### With the telemetry harness
 
@@ -639,6 +663,7 @@ update `.aries.yaml`.
 | ariesd installed from a signed release into `/opt/aries/bin` | Built from the checkout into `/usr/local/bin`; no `systemd_unit` and no sudo rule | It tests what is checked out. Rebuild the image instead of running `ariesd upgrade` |
 | ariesd may write to `~aries/.ssh` by a `ReadWritePaths` line in its unit | Nothing confines it | A container has no systemd. sshd's `AuthorizedKeysFile` line is the guide's |
 | You opt in to many projects and run `control init` once | Opted in from the first start; `control init` runs at every start | So there is nothing to set up |
+| HTTPS on port 443, with a certificate from ACME or the company's CA ([Certificates](../server.md#certificates)) | Port 8443 inside the container, published on 127.0.0.1; a certificate from a test CA the container made, which clients trust by `server.ca` | No DNS name and no port below 1024 to bind; the files mode, which reads the certificate again when it changes, is the guide's |
 | Postgres on the machine, reached by its unix socket with no password | Postgres in the other container, reached over the compose network with a password in a 0600 file, without TLS on that private network | It tests the path a Postgres on another machine, or a managed service, takes |
 | The host key in `/etc/ssh`; `/var/lib/postgresql`, `/etc/aries` and `~aries/.ssh` on the disk | The server's paths linked into the `/state` volume, with the host key in `/state/hostkeys`; the database on Postgres's own volume | Everything survives a rebuild, and `down -v` wipes it |
 | sshd serves every account | `AllowUsers aries`, with passwords off | Nobody else signs in |

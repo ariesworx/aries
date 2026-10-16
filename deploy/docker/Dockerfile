@@ -1,4 +1,4 @@
-# A local Aries test server: sshd and ariesd in one container, set up as
+# A local Aries test server: ariesd, and sshd with SSH on, in one container, set up as
 # docs/server.md sets up a machine, beside a Postgres container that
 # compose.yaml runs. For testing only, never for production. Build from
 # the repository root, so the image holds whatever branch is checked
@@ -29,7 +29,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # ubuntu:24.04.5, the release docs/server.md's steps were tested on
 FROM ubuntu:24.04@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55
 RUN apt-get update \
- && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server openssl \
  && rm -rf /var/lib/apt/lists/* \
  && rm -f /etc/ssh/ssh_host_*
 COPY --from=build /out/ariesd /out/aries /usr/local/bin/
@@ -46,6 +46,6 @@ RUN groupadd --system --gid 901 aries \
 COPY deploy/docker/sshd.conf /etc/ssh/sshd_config.d/00-aries.conf
 COPY deploy/docker/entrypoint.sh /usr/local/bin/aries-entrypoint
 VOLUME /state
-EXPOSE 22
+EXPOSE 22 8443
 HEALTHCHECK --start-period=60s --start-interval=1s CMD ["test", "-e", "/run/aries-ready"]
 ENTRYPOINT ["/usr/local/bin/aries-entrypoint"]

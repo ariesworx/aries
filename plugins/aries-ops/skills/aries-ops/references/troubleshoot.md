@@ -36,7 +36,10 @@ and fix: read it at the server's release and quote the row you act on.
 | Seen | First read | Guide |
 |---|---|---|
 | "ariesd is not running on the server" | `systemctl status ariesd`, `journalctl -u ariesd` | docs/server.md#troubleshooting |
-| `accepted no key`, for a key added with `aries admin` | `sudo -n sshd -T -C user=aries \| grep -i authorizedkeysfile`; `sudo -n ssh-keygen -lf /var/lib/aries/.ssh/aries_keys` | docs/server.md#keys-from-the-store |
+| `accepted no key`, for a key added with `aries admin` | Over HTTPS: `aries -C REPO admin key list NAME`, and the `https.refused` lines of `journalctl -u ariesd`. Over SSH: `sudo -n sshd -T -C user=aries \| grep -i authorizedkeysfile`; `sudo -n ssh-keygen -lf /var/lib/aries/.ssh/aries_keys` | docs/server.md#how-aries-signs-in-over-https, docs/server.md#keys-from-the-store |
+| `the TLS certificate of … does not verify` | The certificate's issuer, and the repository's `server.ca`. Never tell anyone to skip the check | docs/server.md#certificates |
+| `answered the WebSocket upgrade with 400`, or `answered 502` | The proxy's configuration and log; `systemctl status ariesd` | docs/server.md#behind-a-proxy |
+| `SSH is off on this server` | Whether the team should use `server.url`, or the operator turn SSH on | docs/server.md#ssh-on-and-off |
 | `host key mismatch` | Stop. A changed host key is checked with the admin out of band, never accepted to make the error go | docs/cli.md#the-host-key-is-pinned |
 | `… is not a member of project` or `is disabled` | `aries -C REPO admin member list --project P`, `aries -C REPO admin principal list` | docs/server.md#managing-access |
 | `busy` | The limit named; `aries -C REPO admin status` | docs/server.md#limits |

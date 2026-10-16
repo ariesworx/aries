@@ -26,11 +26,13 @@ func idleNews(nc net.Conn) bool {
 		rerr error
 		buf  [1]byte
 	)
-	// Returning true from the function never waits for the socket to
-	// become readable.
-	err = raw.Read(func(fd uintptr) bool {
+	// Control, not Read: Read takes the descriptor's read lock first, and
+	// pgx can leave a background reader holding it, blocked, on an idle
+	// connection (draining after a canceled query), so a Read here would
+	// wait as long as that reader, and the pool's acquire with it. A
+	// peek that does not wait needs no lock.
+	err = raw.Control(func(fd uintptr) {
 		n, _, rerr = syscall.Recvfrom(int(fd), buf[:], syscall.MSG_PEEK|syscall.MSG_DONTWAIT) //nolint:gosec // a socket's descriptor
-		return true
 	})
 	switch {
 	case err != nil:

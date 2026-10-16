@@ -73,6 +73,38 @@ type Limits struct {
 	// From an hour to 30 days.
 	AwayMax Duration `yaml:"away_max"`
 
+	// The HTTPS listener's (transport.md §4.6), which apply before a
+	// connection's handshake; the limits above apply after it, whatever
+	// the transport.
+	//
+	// HTTPSConns caps the listener's open TCP connections, and
+	// HTTPSConnsPerAddr those from one client address. A connection past
+	// either is closed unanswered. Behind a proxy that terminates TLS
+	// (https: tls: mode: proxy) every connection is the proxy's, so the
+	// cap per address is the proxy's to keep, and does not apply.
+	HTTPSConns        int `yaml:"https_conns_per_server"`
+	HTTPSConnsPerAddr int `yaml:"https_conns_per_addr"`
+	// HTTPSHeaderBytes caps a request's headers, and HTTPSHeaderTimeout
+	// how long they may take to arrive: the slow client's bound.
+	HTTPSHeaderBytes   int      `yaml:"https_header_bytes"`
+	HTTPSHeaderTimeout Duration `yaml:"https_header_timeout"`
+	// HTTPSBodyBytes caps a request's body.
+	HTTPSBodyBytes int `yaml:"https_body_bytes"`
+	// UpgradeTimeout is how long a WebSocket has from its upgrade to the
+	// end of its key proof (keyproof); the hello then has helloTimeout,
+	// as over SSH.
+	UpgradeTimeout Duration `yaml:"upgrade_timeout"`
+	// WSMessageBytes caps one message on a WebSocket, which carries one
+	// frame: at most proto.MaxFrame.
+	WSMessageBytes int `yaml:"ws_message_bytes"`
+	// AuthFailureRate is how many refused key proofs a minute one
+	// address's token bucket refills, and AuthFailureBurst how many it
+	// holds. With none left, an upgrade from the address is refused busy
+	// until one is. Behind a proxy it does not apply, as
+	// HTTPSConnsPerAddr does not.
+	AuthFailureRate  float64 `yaml:"auth_failures_per_minute"`
+	AuthFailureBurst int     `yaml:"auth_failure_burst"`
+
 	// The rest apply to a server of many projects (control_schema) only.
 
 	// Control bounds the rows of the control store: projects,
@@ -106,6 +138,9 @@ var DefaultLimits = Limits{
 	IdemWindow: Duration(store.DefaultIdemWindow), AwayMax: Duration(store.MaxLease),
 	Control: store.DefaultControlLimits, OpenStores: 64, StoreIdle: Duration(10 * time.Minute),
 	ControlWriteRate: 1, ControlWriteBurst: 30,
+	HTTPSConns: 4096, HTTPSConnsPerAddr: 64, HTTPSHeaderBytes: 16 << 10, HTTPSHeaderTimeout: Duration(10 * time.Second),
+	HTTPSBodyBytes: 64 << 10, UpgradeTimeout: Duration(10 * time.Second), WSMessageBytes: proto.MaxFrame,
+	AuthFailureRate: 30, AuthFailureBurst: 60,
 }
 
 // Duration is a YAML duration such as 90s, 10m, 8h or 7d.
@@ -142,22 +177,25 @@ func (l Limits) WithDefaults() Limits {
 		{&l.Control.PrincipalsPerCreator, &d.Control.PrincipalsPerCreator},
 		{&l.Control.Keys, &d.Control.Keys}, {&l.Control.Members, &d.Control.Members}, {&l.OpenStores, &d.OpenStores},
 		{&l.ControlWriteBurst, &d.ControlWriteBurst},
+		{&l.HTTPSConns, &d.HTTPSConns}, {&l.HTTPSConnsPerAddr, &d.HTTPSConnsPerAddr}, {&l.HTTPSHeaderBytes, &d.HTTPSHeaderBytes},
+		{&l.HTTPSBodyBytes, &d.HTTPSBodyBytes}, {&l.WSMessageBytes, &d.WSMessageBytes}, {&l.AuthFailureBurst, &d.AuthFailureBurst},
 	} {
 		if *f.v == 0 {
 			*f.v = *f.d
 		}
 	}
 	for _, f := range []struct{ v, d *Duration }{{&l.IdleTimeout, &d.IdleTimeout}, {&l.AgentKeep, &d.AgentKeep}, {&l.InboxKeep, &d.InboxKeep},
-		{&l.StoreIdle, &d.StoreIdle}, {&l.IdemWindow, &d.IdemWindow}, {&l.AwayMax, &d.AwayMax}} {
+		{&l.StoreIdle, &d.StoreIdle}, {&l.IdemWindow, &d.IdemWindow}, {&l.AwayMax, &d.AwayMax},
+		{&l.HTTPSHeaderTimeout, &d.HTTPSHeaderTimeout}, {&l.UpgradeTimeout, &d.UpgradeTimeout}} {
 		if *f.v == 0 {
 			*f.v = *f.d
 		}
 	}
-	if l.WriteRate == 0 {
-		l.WriteRate = d.WriteRate
-	}
-	if l.ControlWriteRate == 0 {
-		l.ControlWriteRate = d.ControlWriteRate
+	for _, f := range []struct{ v, d *float64 }{{&l.WriteRate, &d.WriteRate}, {&l.ControlWriteRate, &d.ControlWriteRate},
+		{&l.AuthFailureRate, &d.AuthFailureRate}} {
+		if *f.v == 0 {
+			*f.v = *f.d
+		}
 	}
 	return l
 }
@@ -184,6 +222,12 @@ func (l Limits) Validate() error {
 		{"open_stores_per_server", l.OpenStores < 0}, {"store_idle", l.StoreIdle < 0},
 		{"control_writes_per_second", l.ControlWriteRate < 0 || math.IsNaN(l.ControlWriteRate) || math.IsInf(l.ControlWriteRate, 0)},
 		{"control_write_burst", l.ControlWriteBurst < 0},
+		{"https_conns_per_server", l.HTTPSConns < 0}, {"https_conns_per_addr", l.HTTPSConnsPerAddr < 0},
+		{"https_header_bytes", l.HTTPSHeaderBytes < 0}, {"https_header_timeout", l.HTTPSHeaderTimeout < 0},
+		{"https_body_bytes", l.HTTPSBodyBytes < 0}, {"upgrade_timeout", l.UpgradeTimeout < 0},
+		{"ws_message_bytes", l.WSMessageBytes < 0 || l.WSMessageBytes > proto.MaxFrame},
+		{"auth_failures_per_minute", l.AuthFailureRate < 0 || math.IsNaN(l.AuthFailureRate) || math.IsInf(l.AuthFailureRate, 0)},
+		{"auth_failure_burst", l.AuthFailureBurst < 0},
 	} {
 		if f.bad {
 			return fmt.Errorf("limit %s must be zero or a positive number; fix: correct limits: in the config file, or leave it out for the default", f.name)
@@ -291,6 +335,25 @@ func (b *buckets) take(key string, now time.Time) (bool, time.Duration) {
 		return true, 0
 	}
 	return false, time.Duration(math.Ceil((1-k.tokens)/b.rate)) * time.Second
+}
+
+// has reports whether key's bucket holds a token at now, without taking
+// it, or how long until it will.
+func (b *buckets) has(key string, now time.Time) (bool, time.Duration) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	k := b.m[key]
+	if k == nil {
+		return true, 0
+	}
+	tokens := k.tokens
+	if el := now.Sub(k.at).Seconds(); el > 0 {
+		tokens = math.Min(b.burst, tokens+el*b.rate)
+	}
+	if tokens >= 1 {
+		return true, 0
+	}
+	return false, time.Duration(math.Ceil((1-tokens)/b.rate)) * time.Second
 }
 
 // prune lets go of every bucket that has filled again by now. A full

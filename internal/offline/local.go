@@ -710,11 +710,16 @@ func (l *Local) Replay(ctx context.Context, c Conn) (outbox.Report, error) {
 	})
 }
 
-// Address is where cfg says the server is, as noted with what is kept
-// for it: host and port, and the IAP project and zone when the server is
-// reached through IAP. Two configs that give the same address name the
-// same server, as far as the config can tell.
-func Address(cfg *client.Config) string {
+// Address is where cfg says the server is, by the transport getenv and
+// cfg choose ([client.Config.Transport]), as noted with what is kept for
+// it: over HTTPS the server's URL; over SSH host and port, and the IAP
+// project and zone when the server is reached through IAP. Two configs
+// that give the same address name the same server, as far as the config
+// can tell.
+func Address(cfg *client.Config, getenv func(string) string) string {
+	if ids := cfg.ServerIDs(getenv); len(ids) == 1 && ids[0] == cfg.Server.URL && cfg.Server.URL != "" {
+		return cfg.Server.URL
+	}
 	addr := net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port))
 	if iap := cfg.Server.IAP; iap != nil {
 		addr += fmt.Sprintf(" through IAP (project %s, zone %s, instance %s)", iap.Project, iap.Zone, cmp.Or(iap.Instance, cfg.Server.Host))

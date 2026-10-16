@@ -76,6 +76,19 @@ const (
 	KeysFileWriteFailed Event = "keys_file.write_failed"
 	KeysFileHeldBack    Event = "keys_file.key_held_back"
 	KeysFileLeftOut     Event = "keys_file.key_left_out"
+	// KeysFileRemoved is the keys file ariesd wrote, removed because SSH
+	// is off.
+	KeysFileRemoved Event = "keys_file.removed"
+
+	// The HTTPS listener (transport.md §4): listening, stopped by an
+	// error, and a connection refused before its hello (the key proof,
+	// a browser's origin, the limits), sampled per address. A TLS
+	// certificate from files is read again when its files change.
+	HTTPSListening      Event = "https.listening"
+	HTTPSStopped        Event = "https.listener_stopped"
+	HTTPSRefused        Event = "https.refused"
+	TLSCertReloaded     Event = "tls.cert_reloaded"
+	TLSCertReloadFailed Event = "tls.cert_reload_failed"
 
 	// The clock.
 	ClockBehind       Event = "clock.behind"
@@ -129,7 +142,8 @@ var events = []Event{
 	ProjectAdded, ProjectOpened, ProjectOpenFailed, ProjectNotOpened, ProjectClosed, ProjectCloseFailed,
 	StoreSchemaTooNew, StoreUnsafeAccount, ControlReload, ControlIndexStale,
 	ClaimExpired, ClaimReleased, LockExpired, LockReleased, GateAdded, GatePassed, GateFailed, GateWaived, GateRearmed, ReaperFailed, ReaperPruneFailed, ReaperPruned, SweepFailed,
-	KeysFileWritten, KeysFileWriteFailed, KeysFileHeldBack, KeysFileLeftOut,
+	KeysFileWritten, KeysFileWriteFailed, KeysFileHeldBack, KeysFileLeftOut, KeysFileRemoved,
+	HTTPSListening, HTTPSStopped, HTTPSRefused, TLSCertReloaded, TLSCertReloadFailed,
 	ClockBehind, ClockCaughtUp, ClockStepped, ClockStepSettled, ClockSettleFailed,
 	DatabaseCheckFailed,
 	TelemetryOn, TelemetryOff, TelemetryStopFailed, TelemetryExportFailed, TelemetryExportRecovered, TelemetrySDKError,

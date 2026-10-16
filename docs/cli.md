@@ -13,17 +13,31 @@ root. Commit it: it holds no secrets.
 ```yaml
 project: 6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f
 server:
-  host: aries.example.com
+  url: https://aries.example.com
+```
+
+A server reached over HTTPS, the transport a fresh server serves, is
+named by its URL. One that serves SSH, as servers did before HTTPS, is
+named by its host and the fingerprint of its host key; a server that
+serves both may be named both ways:
+
+```yaml
+project: 6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f
+server:
+  url: https://aries.example.com   # HTTPS: what aries uses
+  host: aries.example.com          # SSH: with ARIES_TRANSPORT=ssh
   host_key: SHA256:…
 ```
 
 | Field | Holds | Default |
 |---|---|---|
 | `project` | The project's UUID. It must match the server's `project:` setting | required |
-| `server.host` | The server's host name or address | required |
+| `server.url` | The server's `https://` URL, the one its operator gives ([The HTTPS listener](server.md#the-https-listener)). `aries` uses HTTPS when it is set, unless `ARIES_TRANSPORT=ssh` | required, or `host` |
+| `server.ca` | A certificate authority for a server whose certificate the system's store does not trust, a company's or a site's own: its certificate in PEM (a `\|` block), or a PEM file inside the repository, by a path relative to its root. It is added to the system's roots for this server, never in their place; a CA's certificate is public, so it may be committed | the system's roots |
+| `server.host` | The server's host name or address, for SSH | required without `url` |
 | `server.port` | The SSH port | `22` |
 | `server.user` | The account ariesd runs as | `aries` |
-| `server.host_key` | The server's ED25519 host key fingerprint, `SHA256:…` | required, or `host_keys` |
+| `server.host_key` | The server's ED25519 host key fingerprint, `SHA256:…` | required with `host`, or `host_keys` |
 | `server.host_keys` | A list of such fingerprints, in place of `host_key`, while the server's host key is rotated ([below](#the-host-key-is-pinned)) | none |
 | `server.iap` | Reach the server through Google Cloud IAP ([below](#servers-without-a-public-ip-google-cloud-iap)) | off |
 | `key` | A key file inside the repository, relative to its root: the only key `aries` then offers ([below](#your-key-is-your-identity)). The file is committed and shared, so most people leave this out; set `ARIES_KEY_FILE` to name a key of your own | your default identities, then ssh-agent |
@@ -35,6 +49,35 @@ command that connects says so once on standard error, naming each such
 key (`aries: warning: .aries.yaml has keys this aries does not know,
 ignored: …`), and `prime` gives the same line to an agent as a notice.
 A key it knows is still checked, and a bad value is still refused.
+
+### HTTPS or SSH
+
+`aries` and `aries mcp` reach the server over HTTPS when `server.url`
+is set, and over SSH when it is not. `ARIES_TRANSPORT=ssh` chooses SSH
+where both are named, for a server reached through IAP, say;
+`ARIES_TRANSPORT=https` insists on the URL. A transport the file does
+not name the server for is refused, with what to set. Over HTTPS
+`aries` opens one WebSocket to the server and speaks the same frames as
+over SSH. Until sign-in through an identity provider lands, it proves
+it holds one of the keys below by signing a challenge of the server's
+and the server's URL ([How aries signs in over
+HTTPS](server.md#how-aries-signs-in-over-https)): the same keys, chosen
+the same way, as over SSH. `aries whoami` says which transport and key.
+
+What fails over HTTPS, and what is kept to send later
+([When the server cannot be reached](#when-the-server-cannot-be-reached)):
+
+| What fails | `aries` says | A write is queued |
+|---|---|---|
+| The name does not resolve, nothing answers, the connection is reset, TLS does not finish in time, or a proxy answers 502, 503 or 504 | `cannot reach HOST:PORT`, or `HOST:PORT answered 503 …` | Yes |
+| The server's certificate does not verify | `the TLS certificate of HOST:PORT does not verify`, with a fix naming `server.ca` | No: it is a setting to correct, or something between you and the server |
+| The server knows none of your keys | `HOST:PORT accepted no key: aries offered …`, as over SSH | No |
+| A proxy refuses the WebSocket upgrade | `HOST:PORT answered the WebSocket upgrade with 400 …`, with a fix naming the proxy | No |
+| The server refuses you (disabled, not a member) | Its refusal, as over SSH | No |
+
+A server with SSH off refuses every key over SSH, since sshd has none
+for the account; when the file also has `server.url`, the refusal says
+to unset `ARIES_TRANSPORT`.
 
 ### The host key is pinned
 
@@ -144,6 +187,7 @@ sign-in fails, the refusal says once that it is not read.
 | Variable | Holds |
 |---|---|
 | `ARIES_KEY_FILE` | The path of the key file to sign in with: then the only key offered (above). Never the key itself |
+| `ARIES_TRANSPORT` | `ssh` or `https`: the transport, where `.aries.yaml` names the server both ways ([HTTPS or SSH](#https-or-ssh)). Unset, `server.url` wins |
 | `SSH_AUTH_SOCK` | ssh-agent's socket |
 | `HOME`, or `USERPROFILE` on Windows | Your home directory: `~/` in `ARIES_KEY_FILE`, and `~/.ssh` for the default identities |
 | `ARIES_SESSION`, `ARIES_HARNESS`, `TRACEPARENT`, `TRACESTATE` | The session id, the agent harness's name and the caller's trace context ([agent guide](agents.md#sessions), [Trace context](agents.md#trace-context)) |

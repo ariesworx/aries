@@ -53,7 +53,7 @@ func newSite(t *testing.T, extra string) *site {
 	s.db = schemaName(t, s.dsn)
 	s.cfg = filepath.Join(t.TempDir(), "ariesd.yaml")
 	body := fmt.Sprintf("project: %s\nprefix: acme\naccount: acme-2026\ncontrol_schema: %s\nadmins: [dana]\n%s", adopted, s.controlSchema, extra)
-	if err := os.WriteFile(s.cfg, []byte(body), 0o600); err != nil {
+	if err := os.WriteFile(s.cfg, []byte(sshUnlessNamed(body)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	// The keys file and the hand-maintained one are the site's own, never
@@ -66,6 +66,17 @@ func newSite(t *testing.T, extra string) *site {
 	s.env = map[string]string{server.EnvDSN: s.dsn, server.EnvKeysFile: s.keysFile,
 		server.EnvAuthorizedKeys: filepath.Join(sshDir, "authorized_keys")}
 	return s
+}
+
+// sshUnlessNamed is a config file's body serving SSH alone unless it
+// names its transports: the sites of these tests reach the daemon
+// through the bridge and its socket, as a server did before HTTPS, and
+// a test of HTTPS names its own (https_test.go).
+func sshUnlessNamed(body string) string {
+	if strings.Contains(body, "transports:") {
+		return body
+	}
+	return "transports: [ssh]\n" + body
 }
 
 // schemaName is the schema dsn names.
@@ -493,7 +504,7 @@ func TestControlInitRefusals(t *testing.T) {
 // rewrite replaces the site's config file.
 func rewrite(t *testing.T, s *site, body string) {
 	t.Helper()
-	if err := os.WriteFile(s.cfg, []byte(body), 0o600); err != nil {
+	if err := os.WriteFile(s.cfg, []byte(sshUnlessNamed(body)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

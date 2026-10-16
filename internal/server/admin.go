@@ -767,8 +767,16 @@ func keyAdd(ctx context.Context, s *Server, sess *session, in proto.KeyAddArgs) 
 	if slices.ContainsFunc(before, func(b store.PrincipalKey) bool { return b.Fingerprint == k.Fingerprint }) {
 		out.Change = "unchanged"
 	}
+	if s.cfg.NoSSH && out.Warning == "" {
+		out.Warning = sshOffNotice
+	}
 	return out, nil
 }
+
+// sshOffNotice is what an admin who adds a key while SSH is off is told
+// (transport.md §11.1, decision 87): the key is recorded and signs in
+// over HTTPS, and sshd reads it once an operator turns SSH on.
+const sshOffNotice = "SSH is off on this server: the key signs in over HTTPS (server.url in .aries.yaml), and sshd takes it once an operator turns SSH on"
 
 // keyErr is ctlErr for an op that adds keys. A key that the server's
 // hand-maintained authorized_keys file gives to another principal is

@@ -337,7 +337,7 @@ func TestAdminProjectAdd(t *testing.T) {
 	id := m[1]
 	head, config, _ := strings.Cut(out, "\n\n")
 	wantHead := fmt.Sprintf("project web (%s) created in schema project_web: active\ncommit this as .aries.yaml in the project's repository:", id)
-	wantConfig := fmt.Sprintf("project: %s\nserver:\n  host: 127.0.0.1\n  port: %d\n  host_key: %s\n", id, w.addr.Port, w.hostFpr)
+	wantConfig := w.configFor(id)
 	if head != wantHead || config != wantConfig {
 		t.Fatalf("project add printed\n%s\nwant\n%s\n\n%s", out, wantHead, wantConfig)
 	}
@@ -375,7 +375,7 @@ func TestAdminProjectAdd(t *testing.T) {
 		Config string `json:"aries_yaml"`
 	}](t, d.ok("--json", "admin", "project", "add", "api-v2"))
 	if api.Name != "api-v2" || api.State != "active" || api.Schema != "project_api_v2" || api.Resumed ||
-		api.Config != fmt.Sprintf("project: %s\nserver:\n  host: 127.0.0.1\n  port: %d\n  host_key: %s\n", api.ID, w.addr.Port, w.hostFpr) {
+		api.Config != w.configFor(api.ID) {
 		t.Errorf("project add --json: %+v", api)
 	}
 	d.in(api.Config).ok("create", "First in api")

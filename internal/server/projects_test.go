@@ -106,6 +106,13 @@ func newMultiAdmins(t *testing.T, lim Limits, ck *clock, admins ...string) *mult
 // by tel, which may be nil.
 func newMultiTel(t *testing.T, lim Limits, ck *clock, tel *telemetry.Telemetry, admins ...string) *multi {
 	t.Helper()
+	return newMultiWith(t, lim, ck, tel, nil, admins...)
+}
+
+// newMultiWith is newMultiTel with edit, when it is not nil, applied to
+// the server's config before the server is made.
+func newMultiWith(t *testing.T, lim Limits, ck *clock, tel *telemetry.Telemetry, edit func(*Config), admins ...string) *multi {
+	t.Helper()
 	dsn := newDatabase(t)
 	var now func() time.Time
 	if ck != nil {
@@ -127,7 +134,7 @@ func newMultiTel(t *testing.T, lim Limits, ck *clock, tel *telemetry.Telemetry, 
 	m := &multi{ctl: ctl, dsn: dsn, db: db, log: &syncBuffer{}, opens: map[string]int{}, tel: tel,
 		keysFile: filepath.Join(sshDir, "aries_keys"), byHand: filepath.Join(sshDir, "authorized_keys")}
 	open := ProjectOpener(db, ctl, store.Options{Limits: lim.Limits, Now: now}, tel)
-	m.Server, err = New(Config{Control: ctl, Postgres: db, Version: "v0.2.0", PeerCheck: func(net.Conn) error { return nil }, Limits: lim,
+	cfg := Config{Control: ctl, Postgres: db, Version: "v0.2.0", PeerCheck: func(net.Conn) error { return nil }, Limits: lim,
 		KeysFile: m.keysFile, AuthorizedKeys: m.byHand, Telemetry: tel,
 		ReapInterval: -1, Logger: slogTo(m.log),
 		Open: func(ctx context.Context, p store.Project) (Store, error) {
@@ -135,7 +142,11 @@ func newMultiTel(t *testing.T, lim Limits, ck *clock, tel *telemetry.Telemetry, 
 			m.opens[p.ID]++
 			m.mu.Unlock()
 			return open(ctx, p)
-		}})
+		}}
+	if edit != nil {
+		edit(&cfg)
+	}
+	m.Server, err = New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

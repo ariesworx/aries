@@ -8,12 +8,16 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"net"
+	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/ariesworx/aries/internal/keyproof"
 	"github.com/ariesworx/aries/internal/lazyregexp"
 	"github.com/ariesworx/aries/internal/logs"
 	"github.com/ariesworx/aries/internal/proto"
@@ -127,6 +131,207 @@ type Settings struct {
 	// (design §16.3); where metrics are pushed is in the standard OTEL_*
 	// environment variables, not here.
 	Telemetry TelemetrySettings `yaml:"telemetry"`
+	// Transports are the transports serve serves (transport.md §11.1):
+	// TransportHTTPS, TransportSSH or both. Default [https]: SSH is off
+	// until an operator turns it on.
+	Transports []string `yaml:"transports"`
+	// HTTPS is the HTTPS listener's, which serve needs when Transports
+	// names https (CheckServe).
+	HTTPS HTTPSSettings `yaml:"https"`
+}
+
+// HTTPSSettings are the https: settings (transport.md §4.2).
+type HTTPSSettings struct {
+	// Listen is the listener's address, HOST:PORT; ":443" listens on
+	// every address.
+	Listen string `yaml:"listen"`
+	// PublicURLs are the server's URLs as clients have them, in
+	// server.url: what a key proof names, checked by the daemon in place
+	// of a request's Host.
+	PublicURLs []string `yaml:"public_urls"`
+	// TLS is where the listener's certificate comes from.
+	TLS TLSSettings `yaml:"tls"`
+}
+
+// TLSSettings are https: tls:. Mode is acme, files or proxy: a
+// certificate from an ACME server, one from the operator's files, or
+// plain HTTP behind the operator's proxy, which terminates TLS. Only the
+// mode's own block is read. MinVersion is "1.2", the default, or "1.3".
+type TLSSettings struct {
+	Mode       string        `yaml:"mode"`
+	MinVersion string        `yaml:"min_version"`
+	ACME       ACMESettings  `yaml:"acme"`
+	Files      TLSFiles      `yaml:"files"`
+	Proxy      ProxySettings `yaml:"proxy"`
+}
+
+// ACMESettings are https: tls: acme:, for golang.org/x/crypto's
+// autocert: the names to get a certificate for, an address the ACME
+// server may write to, the directory the account key and certificates
+// are kept in (0700, made if missing), and the ACME server's directory
+// URL: empty for Let's Encrypt, or an internal one's (step-ca, say),
+// with which ACME needs no internet. The challenge is TLS-ALPN-01, on
+// the listener's own port, which must be 443 to the ACME server.
+type ACMESettings struct {
+	Domains   []string `yaml:"domains"`
+	Email     string   `yaml:"email"`
+	Cache     string   `yaml:"cache"`
+	Directory string   `yaml:"directory"`
+}
+
+// TLSFiles are https: tls: files:: the certificate chain and its key, in
+// PEM. The key must be readable by no one but its owner. Both are read
+// again when either changes.
+type TLSFiles struct {
+	Cert string `yaml:"cert"`
+	Key  string `yaml:"key"`
+}
+
+// ProxySettings are https: tls: proxy:: the addresses, or networks in
+// CIDR form, of the proxy that terminates TLS. A connection from any
+// other is closed unanswered.
+type ProxySettings struct {
+	Trusted []string `yaml:"trusted"`
+}
+
+// The TLS modes of https: tls: mode:.
+const (
+	TLSModeACME  = "acme"
+	TLSModeFiles = "files"
+	TLSModeProxy = "proxy"
+)
+
+// DefaultACMECache is where ACME's account key and certificates are kept
+// when https: tls: acme: cache: is not set.
+const DefaultACMECache = "/var/lib/aries/acme"
+
+// HTTPSOn reports whether serve serves HTTPS.
+func (s Settings) HTTPSOn() bool { return slices.Contains(s.Transports, TransportHTTPS) }
+
+// SSH reports whether serve serves SSH's bridge.
+func (s Settings) SSH() bool { return slices.Contains(s.Transports, TransportSSH) }
+
+// Trusted returns the proxy's addresses as prefixes: an address alone
+// is a prefix of its own length.
+func (h HTTPSSettings) Trusted() ([]netip.Prefix, error) {
+	out := make([]netip.Prefix, 0, len(h.TLS.Proxy.Trusted))
+	for _, t := range h.TLS.Proxy.Trusted {
+		p, err := netip.ParsePrefix(t)
+		if err != nil {
+			a, aerr := netip.ParseAddr(t)
+			if aerr != nil {
+				return nil, fmt.Errorf("https: tls: proxy: trusted: %q is not an address or a network in CIDR form; fix: list the proxy's addresses, such as 10.0.0.5 or 10.0.0.0/24", t)
+			}
+			p = netip.PrefixFrom(a.Unmap(), a.Unmap().BitLen())
+		}
+		out = append(out, p.Masked())
+	}
+	return out, nil
+}
+
+// resolveTransports checks transports: and https:, filling the
+// defaults: transports [https], TLS 1.2 at least, and the ACME cache.
+// What must be there for serve to start, it leaves to CheckServe, so
+// that the admin commands, which serve nothing, need none of it.
+func (s *Settings) resolveTransports() error {
+	if s.Transports == nil {
+		s.Transports = []string{TransportHTTPS}
+	}
+	if len(s.Transports) == 0 {
+		return errors.New("transports: names none; at least one must be on; fix: set transports: [https], [https, ssh] or [ssh]")
+	}
+	for i, t := range s.Transports {
+		switch {
+		case t != TransportHTTPS && t != TransportSSH:
+			return fmt.Errorf("transports: %q is not https or ssh; fix: set transports: [https], [https, ssh] or [ssh]", t)
+		case slices.Contains(s.Transports[:i], t):
+			return fmt.Errorf("transports: names %s twice; fix: name each once", t)
+		}
+	}
+	h := &s.HTTPS
+	if h.Listen != "" {
+		if _, _, err := net.SplitHostPort(h.Listen); err != nil {
+			return fmt.Errorf("https: listen: %q is not HOST:PORT; fix: set it to such as \":443\" or 127.0.0.1:8443", h.Listen)
+		}
+	}
+	for i, u := range h.PublicURLs {
+		n, err := keyproof.NormalizeURL(u)
+		if err != nil {
+			return fmt.Errorf("https: public_urls: %w; fix: list the https:// URLs clients use, such as https://aries.example.com", err)
+		}
+		h.PublicURLs[i] = n
+	}
+	tl := &h.TLS
+	switch tl.MinVersion {
+	case "":
+		tl.MinVersion = "1.2"
+	case "1.2", "1.3":
+	default:
+		return fmt.Errorf("https: tls: min_version: %q is not 1.2 or 1.3; fix: leave it out for 1.2, or set \"1.3\"", tl.MinVersion)
+	}
+	switch tl.Mode {
+	case "":
+	case TLSModeFiles:
+		for _, f := range []struct{ name, path string }{{"cert", tl.Files.Cert}, {"key", tl.Files.Key}} {
+			if !filepath.IsAbs(f.path) {
+				return fmt.Errorf("https: tls: files: %s: %q is not an absolute path; fix: set it to the PEM file's absolute path, such as /etc/aries/tls/%s.pem", f.name, f.path, f.name)
+			}
+		}
+	case TLSModeACME:
+		a := &tl.ACME
+		if len(a.Domains) == 0 {
+			return errors.New("https: tls: acme: domains: names none; fix: list the server's DNS names, those of public_urls")
+		}
+		for _, d := range a.Domains {
+			if !hostPattern.MatchString(d) {
+				return fmt.Errorf("https: tls: acme: domains: %q is not a DNS name; fix: list the server's DNS names", d)
+			}
+		}
+		a.Cache = cmp.Or(a.Cache, DefaultACMECache)
+		if !filepath.IsAbs(a.Cache) {
+			return fmt.Errorf("https: tls: acme: cache: %q is not an absolute path; fix: leave it out for %s", a.Cache, DefaultACMECache)
+		}
+		if a.Directory != "" {
+			if u, err := url.Parse(a.Directory); err != nil || u.Scheme != "https" || u.Host == "" {
+				return fmt.Errorf("https: tls: acme: directory: %q is not an https:// URL; fix: leave it out for Let's Encrypt, or give the ACME server's directory URL", a.Directory)
+			}
+		}
+	case TLSModeProxy:
+		if len(tl.Proxy.Trusted) == 0 {
+			return errors.New("https: tls: proxy: trusted: names no one; fix: list the addresses of the proxy that terminates TLS, which alone may connect")
+		}
+		if _, err := h.Trusted(); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("https: tls: mode: %q is not acme, files or proxy; fix: set it to one of them", tl.Mode)
+	}
+	return nil
+}
+
+// hostPattern is a DNS name ACME may get a certificate for.
+var hostPattern = lazyregexp.New(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$`)
+
+// CheckServe refuses settings serve cannot start with: HTTPS on without
+// a listen address, a URL or a TLS mode. ResolveSettings has checked the
+// shape of what is set.
+func (s Settings) CheckServe() error {
+	if !s.HTTPSOn() {
+		return nil
+	}
+	const fix = "fix: set https: listen:, public_urls: and tls: mode: in ariesd's config (docs/server.md, The HTTPS listener), or set transports: [ssh] to serve SSH alone"
+	h := s.HTTPS
+	switch {
+	case h.Listen == "" && len(h.PublicURLs) == 0 && h.TLS.Mode == "":
+		return errors.New("transports: names https, and https: is not set; " + fix)
+	case h.Listen == "":
+		return errors.New("https: listen: is not set; " + fix)
+	case len(h.PublicURLs) == 0:
+		return errors.New("https: public_urls: names no URL; " + fix)
+	case h.TLS.Mode == "":
+		return errors.New("https: tls: mode: is not set; " + fix)
+	}
+	return nil
 }
 
 // Tolerance is a YAML duration that must be more than zero: a tolerance
@@ -287,6 +492,10 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 	out.AllowUnsafeAccount = flags.AllowUnsafeAccount
 	out.AcceptClockBehind = flags.AcceptClockBehind
 	if err := out.resolveClock(file); err != nil {
+		return Settings{}, err
+	}
+	out.Transports, out.HTTPS = file.Transports, file.HTTPS
+	if err := out.resolveTransports(); err != nil {
 		return Settings{}, err
 	}
 	out.Limits = file.Limits

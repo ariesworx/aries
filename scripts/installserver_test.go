@@ -187,6 +187,8 @@ func guideFiles(t *testing.T) map[string]string {
 		"/etc/systemd/system/ariesd.service":                 saved("/etc/systemd/system/ariesd.service", "ini"),
 		"/etc/systemd/system/ariesd.service.d/keys.conf":     printed("/etc/systemd/system/ariesd.service.d/keys.conf"),
 		"/etc/systemd/system/ariesd.service.d/apparmor.conf": printed("/etc/systemd/system/ariesd.service.d/apparmor.conf"),
+		"/etc/systemd/system/ariesd.service.d/https.conf":    printed("/etc/systemd/system/ariesd.service.d/https.conf"),
+		"/etc/systemd/system/ariesd.service.d/acme.conf":     printed("/etc/systemd/system/ariesd.service.d/acme.conf"),
 		"/etc/sudoers.d/aries":                               match(t, g, "the sudo rule", `echo '([^']*)' > /etc/sudoers\.d/aries`) + "\n",
 		"/etc/ssh/sshd_config.d/00-aries.conf":               global + block,
 	}
@@ -223,6 +225,10 @@ func runInstallServer(t *testing.T, args ...string) (int, string) {
 		"alice":     "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----\n",
 		"junk.pub":  "not a key\n",
 		"db.pass":   "an invented password\n",
+		// Not a working pair: the options' checks read only their PEM
+		// armor.
+		"cert.pem": "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n",
+		"key.pem":  "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n",
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
@@ -284,6 +290,23 @@ func TestInstallServerOptions(t *testing.T) {
 		{"password file without dsn", append(slices.Clone(ok), "--db-password-file", "db.pass"), "--db-password-file is for the Postgres --dsn names"},
 		{"missing password file", append(slices.Clone(remote), "--db-password-file", "nobody.pass"), "cannot read --db-password-file"},
 		{"password file of two lines", append(slices.Clone(remote), "--db-password-file", "two.pub"), "holds more than one line"},
+		{"unknown profile", append(slices.Clone(ok), "--profile", "cloud"), "--profile cloud is not internet, private, airgapped or ssh-only"},
+		{"HTTPS's option with ssh-only", append(slices.Clone(ok), "--profile", "ssh-only", "--url", "https://aries.example.com"), "--profile ssh-only serves none"},
+		{"unknown TLS mode", append(slices.Clone(ok), "--tls", "selfsigned"), "--tls selfsigned is not acme, files or proxy"},
+		{"files without a key", append(slices.Clone(ok), "--profile", "private", "--cert", "cert.pem"), "--tls files needs --cert and --key"},
+		{"a cert that is a key", append(slices.Clone(ok), "--profile", "private", "--cert", "key.pem", "--key", "key.pem"), "is not a certificate in PEM"},
+		{"a key that is a cert", append(slices.Clone(ok), "--profile", "private", "--cert", "cert.pem", "--key", "cert.pem"), "is not a private key in PEM"},
+		{"a cert with ACME", append(slices.Clone(ok), "--cert", "cert.pem", "--key", "key.pem"), "--cert and --key are for --tls files"},
+		{"ACME's email with files", append(slices.Clone(ok), "--profile", "private", "--cert", "cert.pem", "--key", "key.pem", "--acme-email", "ops@example.com"), "are for --tls acme"},
+		{"trusted without a proxy", append(slices.Clone(ok), "--trusted", "10.0.0.5"), "--trusted is for --tls proxy"},
+		{"airgapped with Let's Encrypt", append(slices.Clone(ok), "--profile", "airgapped", "--tls", "acme"), "reaches nothing outside"},
+		{"bad ACME email", append(slices.Clone(ok), "--acme-email", "ops at example"), "--acme-email ops at example is not an address"},
+		{"ACME directory not https", append(slices.Clone(ok), "--acme-directory", "http://ca.example.com/directory"), "is not an https:// URL"},
+		{"bad trusted", append(slices.Clone(ok), "--tls", "proxy", "--trusted", "proxy.example.com"), "--trusted proxy.example.com is not an address"},
+		{"bad listen", append(slices.Clone(ok), "--listen", "443"), "--listen 443 is not HOST:PORT"},
+		{"bad url", append(slices.Clone(ok), "--url", "http://aries.example.com"), "is not an https:// URL of the server"},
+		{"sshd's port with SSH off", append(slices.Clone(ok), "--port", "2222"), "--port is sshd's, and SSH is off"},
+		{"an IPv6 host without a URL", append(slices.Clone(ok), "--host", "2001:db8::5"), "needs in brackets"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -300,6 +323,94 @@ func TestInstallServerOptions(t *testing.T) {
 	}
 	if code, stderr := runInstallServer(t, "-h"); code != 0 || stderr != "" {
 		t.Errorf("install-server.sh -h = exit %d, stderr %q; want exit 0 and nothing on stderr", code, stderr)
+	}
+}
+
+// plan runs the installer with --plan and args, and returns what it
+// printed, failing the test unless it exits 0.
+func plan(t *testing.T, args ...string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for name, body := range map[string]string{"alice.pub": testKey,
+		"cert.pem": "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n",
+		"key.pem":  "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	script, err := filepath.Abs(filepath.Join("..", installServer))
+	if err != nil {
+		t.Fatal(err)
+	}
+	args = append([]string{script, "--admin", "alice", "--admin-key", "alice.pub", "--host", "aries.example.com", "--plan"}, args...)
+	cmd := exec.Command("sh", args...) //nolint:gosec // the repository's script
+	cmd.Dir = dir
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("install-server.sh %s: %v\n%s", strings.Join(args[1:], " "), err, stderr.String())
+	}
+	return stdout.String()
+}
+
+// TestInstallServerProfiles holds each profile to what transport.md §3
+// and §11.1 give it, by its plan, which comes from the options alone. A
+// default install serves HTTPS and no SSH: no sshd drop-in, no
+// authorized_keys, no keys file and no keys drop-in, and the first
+// admin's key in a file no sshd reads (§12.4, item 10). SSH's files
+// come with --enable-ssh, or alone with ssh-only.
+func TestInstallServerProfiles(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("install-server.sh is for Linux")
+	}
+	sshFiles := []string{"sshd_config.d/00-aries.conf", ".ssh/authorized_keys", ".ssh/aries_keys", "keys.conf"}
+	tests := []struct {
+		name    string
+		args    []string
+		want    []string // lines of the plan
+		without []string // what the plan must not name
+	}{
+		{name: "the default", args: nil,
+			want: []string{"profile: internet", "transports: [https]", "https: https://aries.example.com, listening on :443, TLS by acme",
+				"  /var/lib/aries/acme/", "  /etc/systemd/system/ariesd.service.d/https.conf", "  /etc/systemd/system/ariesd.service.d/acme.conf",
+				"  /etc/aries/admin.keys", "opens, if ufw is active: 443/tcp"},
+			without: sshFiles},
+		{name: "internet with SSH", args: []string{"--enable-ssh"},
+			want: []string{"transports: [https, ssh]", "  /var/lib/aries/.ssh/authorized_keys", "  /etc/ssh/sshd_config.d/00-aries.conf",
+				"  /etc/systemd/system/ariesd.service.d/keys.conf", "  (/var/lib/aries/.ssh/aries_keys)"},
+			without: []string{"admin.keys"}},
+		{name: "private, the company CA's files", args: []string{"--profile", "private", "--cert", "cert.pem", "--key", "key.pem"},
+			want:    []string{"profile: private", "transports: [https]", "https: https://aries.example.com, listening on :443, TLS by files", "  /etc/aries/tls/cert.pem", "  /etc/aries/tls/key.pem"},
+			without: append([]string{"acme"}, sshFiles...)},
+		{name: "private, behind a proxy", args: []string{"--profile", "private", "--tls", "proxy", "--trusted", "10.0.0.5,10.0.1.0/24"},
+			want:    []string{"https: https://aries.example.com, listening on 127.0.0.1:8443, TLS by proxy"},
+			without: append([]string{"https.conf", "acme", "ufw", "/etc/aries/tls"}, sshFiles...)},
+		{name: "airgapped", args: []string{"--profile", "airgapped", "--cert", "cert.pem", "--key", "key.pem", "--listen", ":8443"},
+			want:    []string{"profile: airgapped", "https: https://aries.example.com:8443, listening on :8443, TLS by files", "opens, if ufw is active: 8443/tcp"},
+			without: append([]string{"https.conf", "acme"}, sshFiles...)},
+		{name: "airgapped with an internal ACME server", args: []string{"--profile", "airgapped", "--tls", "acme", "--acme-directory", "https://ca.example.com/acme/directory"},
+			want: []string{"https: https://aries.example.com, listening on :443, TLS by acme", "  /etc/systemd/system/ariesd.service.d/acme.conf"}, without: sshFiles},
+		{name: "SSH alone", args: []string{"--profile", "ssh-only"},
+			want:    []string{"profile: ssh-only", "transports: [ssh]", "  /etc/ssh/sshd_config.d/00-aries.conf", "  /var/lib/aries/.ssh/authorized_keys"},
+			without: []string{"https", "ufw", "admin.keys", "acme", "/etc/aries/tls"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			out := plan(t, tc.args...)
+			lines := strings.Split(out, "\n")
+			for _, w := range tc.want {
+				if !slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, w) }) {
+					t.Errorf("the plan of %s lacks %q:\n%s", tc.name, w, out)
+				}
+			}
+			for _, w := range tc.without {
+				if strings.Contains(out, w) {
+					t.Errorf("the plan of %s names %q, which it must not:\n%s", tc.name, w, out)
+				}
+			}
+		})
 	}
 }
 

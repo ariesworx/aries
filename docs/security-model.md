@@ -6,6 +6,13 @@ setup steps that apply these rules are in [Running a server](server.md).
 
 ## Identity comes from SSH keys
 
+Two transports reach the server: HTTPS, which a fresh server serves,
+and SSH, which an operator turns on ([SSH on and off](server.md#ssh-on-and-off)).
+On either, a key the server knows decides who connects, and the
+principal is the key's, never a field the client sends. Over HTTPS
+ariesd checks it itself ([The HTTPS listener](#the-https-listener));
+over SSH, sshd does, as follows.
+
 The server's sshd decides who connects. Each key's `authorized_keys`
 line forces one command, `ariesd stdio --principal NAME`, so the
 principal comes from the key that matched. A client cannot claim to be
@@ -456,6 +463,66 @@ reserved principals that no key can sign in as: the health check of
 admin status` gives a server admin. The directory's mode and the peer
 check are what keep both from every other local user; a test connects as
 another user and is answered nothing.
+
+With SSH off, the default, the daemon refuses a bridge frame from
+`ariesd stdio` (`unavailable`, `SSH is off on this server`), writes no
+keys file for sshd and removes one it wrote: a default install exposes
+no SSH path. Only the upgrade's health check and `ariesd status` use
+the socket then.
+
+## The HTTPS listener
+
+[The HTTPS listener](server.md#the-https-listener) is ariesd's own
+front door, and so, unlike sshd, its authentication is Aries's own
+code, on a port other machines reach. What it serves, and what bounds
+it:
+
+- **Two paths.** `GET /.well-known/aries` answers the server's version,
+  its transports and how one signs in: no principal, no secret, the only
+  thing served to anyone. `GET /v1/connect` is a WebSocket whose
+  protocol starts only after a key proof; every other path is 404, and
+  the loopback listener's, the status socket's and the bridge's paths
+  are not served over HTTPS. A test of a default install
+  (`cmd/ariesd`, `TestDefaultInstallExposes`) holds both: no path
+  reaches the protocol without a proof, and no SSH path is open.
+- **The key proof** (until sign-in, slice T2). The client offers its
+  keys; the server challenges the first it knows with 32 random bytes,
+  fresh for the connection; the key signs the challenge, the server's
+  URL and the key itself. The signature cannot be replayed on another
+  connection, and cannot be relayed to another server, whose URL it
+  does not name. The server checks the URL against `public_urls`, its
+  own configuration, never `Host` or `X-Forwarded-*`, which a proxy may
+  rewrite. RSA must sign with SHA-256 or SHA-512. A key is taken as
+  sshd would take it: the control store's, unless the hand-maintained
+  `authorized_keys` gives it to another principal, and then a line of
+  that file that forces the bridge; a line that runs another command,
+  or names a reserved principal, is no one's. The connection carries the
+  store's key's fingerprint, as one by the keys file does, so removing
+  the key closes it.
+- **Offering keys tells the server which you hold**, and a server tells
+  anyone who offers a key whether it knows it, as sshd does. Proving a
+  key needs its private half.
+- **A browser cannot connect.** A request with an `Origin`, which
+  every browser sends for a page's WebSocket, is refused; no cookie or
+  header a browser holds would sign it in anyway.
+- **Limits** ([Limits](server.md#limits)): connections in all and per
+  address, header size and time, body and message size, the time from
+  the upgrade to the proof, and refused proofs per address, past which
+  an address is refused `busy`. Behind a proxy, the per-address limits
+  are the proxy's.
+- **TLS** 1.2 or 1.3, with Go's suites, HSTS on every response, and a
+  key file ariesd refuses to read if others may. Behind a proxy that
+  terminates TLS, ariesd speaks plain HTTP to the addresses it trusts
+  alone; the proxy then sees every frame, as the operator's own
+  component.
+- **Nothing on the line is secret to ariesd's log.** A refused proof is
+  logged with its reason and the address, sampled per address, never
+  with the key's text.
+
+What it does not yet have: sign-in through an identity provider,
+tokens bound to the machine's key, and scopes (slice T2 of
+[transport.md](design/transport.md#15-plan)); a security review of the
+listener before 1.0 ([§12.4](design/transport.md#124-what-a-security-review-must-look-at-before-10)).
 
 ## The telemetry listener
 

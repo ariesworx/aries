@@ -92,6 +92,10 @@ type keysFile struct {
 	handOwner map[string]string
 	handSize  int64
 	handTime  time.Time
+	// handBridge holds, for each line whose forced command is the
+	// bridge itself (bridgePrincipal), the principal it names: whom the
+	// HTTPS listener takes the key for.
+	handBridge map[string]string
 }
 
 // WriteKeys writes the keys file from the control store's memory, unless
@@ -125,6 +129,9 @@ func (s *Server) writeKeys(ctx context.Context) error {
 	k := &s.keys
 	k.mu.Lock()
 	defer k.mu.Unlock()
+	if s.cfg.NoSSH {
+		return s.removeKeysLocked(ctx, path)
+	}
 	want, n, held := s.keyLines()
 	at, written, err := syncFile(path, want)
 	if err != nil {
@@ -149,6 +156,31 @@ func (s *Server) writeKeys(ctx context.Context) error {
 		}
 	}
 	k.keys, k.at, k.failed, k.held = n, at, false, len(held)
+	return nil
+}
+
+// removeKeysLocked is writeKeys with SSH off (Config.NoSSH): sshd is to
+// let no key in by the daemon's file, so a file there that ariesd wrote
+// is removed, and one it did not write is left as it is, since it is
+// not the daemon's. s.keys.mu is held.
+func (s *Server) removeKeysLocked(ctx context.Context, path string) error {
+	k := &s.keys
+	k.keys, k.at, k.failed, k.held = 0, time.Time{}, false, 0
+	have, err := readUpTo(path, int64(len(keysFileHeader)))
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return nil
+	case err != nil:
+		k.failed = true
+		return fmt.Errorf("read the keys file %s, to remove it while SSH is off: %w; fix: let the user ariesd runs as read it, or remove it", path, err)
+	case string(have) != keysFileHeader:
+		return nil
+	}
+	if err := os.Remove(path); err != nil {
+		k.failed = true
+		return fmt.Errorf("remove the keys file %s while SSH is off: %w; fix: remove it by hand, as the user ariesd runs as", path, err)
+	}
+	s.cfg.Logger.InfoContext(ctx, "keys file removed: SSH is off", "event", logs.KeysFileRemoved, "path", path)
 	return nil
 }
 
@@ -325,9 +357,9 @@ func readUpTo(path string, n int64) ([]byte, error) {
 }
 
 // keysStatus is the keys file as `aries admin status` shows it, or nil for
-// a server that writes none.
+// a server that writes none, SSH being off among them.
 func (s *Server) keysStatus() *proto.KeysFile {
-	if s.cfg.KeysFile == "" {
+	if s.cfg.KeysFile == "" || s.cfg.NoSSH {
 		return nil
 	}
 	k := &s.keys
@@ -372,7 +404,7 @@ func (s *Server) handLocked() (hand map[string]bool, owner map[string]string) {
 	}
 	fi, err := os.Stat(path)
 	if err != nil || !fi.Mode().IsRegular() {
-		k.hand, k.handOwner = nil, nil
+		k.hand, k.handOwner, k.handBridge = nil, nil, nil
 		return nil, nil
 	}
 	if k.hand != nil && k.handSize == fi.Size() && k.handTime.Equal(fi.ModTime()) {
@@ -380,10 +412,11 @@ func (s *Server) handLocked() (hand map[string]bool, owner map[string]string) {
 	}
 	b, err := readUpTo(path, maxAuthorizedKeys)
 	if err != nil {
-		k.hand, k.handOwner = nil, nil
+		k.hand, k.handOwner, k.handBridge = nil, nil, nil
 		return nil, nil
 	}
 	hand, owner = map[string]bool{}, map[string]string{}
+	bridge := map[string]string{}
 	sc := bufio.NewScanner(bytes.NewReader(b))
 	sc.Buffer(nil, maxAuthorizedKeys)
 	for sc.Scan() {
@@ -397,11 +430,46 @@ func (s *Server) handLocked() (hand map[string]bool, owner map[string]string) {
 			if p := forcedPrincipal(options); p != "" {
 				owner[fp] = p
 			}
+			if p := bridgePrincipal(options); p != "" {
+				bridge[fp] = p
+			}
 		}
 		hand[fp] = true
 	}
-	k.hand, k.handOwner, k.handSize, k.handTime = hand, owner, fi.Size(), fi.ModTime()
+	k.hand, k.handOwner, k.handBridge, k.handSize, k.handTime = hand, owner, bridge, fi.Size(), fi.ModTime()
 	return hand, owner
+}
+
+// bridgePrincipal returns the principal of a line whose forced command
+// is the bridge as the server guide writes it, `…/ariesd stdio
+// --principal NAME` with nothing more, or "" for any other line: one
+// that forces another command, names a key (only the daemon's file
+// does), or names no principal.
+func bridgePrincipal(options []string) string {
+	for _, o := range options {
+		cmd, ok := strings.CutPrefix(o, `command="`)
+		if !ok {
+			continue
+		}
+		f := strings.Fields(strings.TrimSuffix(cmd, `"`))
+		if len(f) == 4 && filepath.Base(f[0]) == "ariesd" && f[1] == "stdio" && f[2] == "--principal" && PrincipalPattern.MatchString(f[3]) {
+			return f[3]
+		}
+		return ""
+	}
+	return ""
+}
+
+// handBridgeOwner returns the principal that the hand-maintained file's
+// line for the key with a fingerprint forces the bridge for, and false
+// when it has no such line.
+func (s *Server) handBridgeOwner(fingerprint string) (string, bool) {
+	k := &s.keys
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	s.handLocked()
+	p, ok := k.handBridge[fingerprint]
+	return p, ok
 }
 
 // forcedPrincipal returns the principal that the forced command among
