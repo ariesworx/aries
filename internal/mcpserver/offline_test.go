@@ -169,7 +169,7 @@ func TestQueuedToolCalls(t *testing.T) {
 			fmt.Sprintf(queuedLine, "create") + " The issue has no id until then, so nothing can refer to it."},
 		{"update", map[string]any{"id": "ar-1", "rev": 2, "title": "renamed"}, proto.OpUpdate, fmt.Sprintf(queuedLine, "update")},
 		{"dep", map[string]any{"action": "add", "id": "ar-1", "depends_on": "ar-2"}, proto.OpDepAdd, fmt.Sprintf(queuedLine, "dep.add")},
-		{"label", map[string]any{"action": "rm", "id": "ar-1", "labels": []string{"old"}}, proto.OpLabelRm, fmt.Sprintf(queuedLine, "label.rm")},
+		{"label", map[string]any{"action": "remove", "id": "ar-1", "labels": []string{"old"}}, proto.OpLabelRm, fmt.Sprintf(queuedLine, "label.rm")},
 	} {
 		t.Run(tc.tool, func(t *testing.T) {
 			a := newAway(t, &fakeConn{reply: okReply})

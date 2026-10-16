@@ -2589,6 +2589,30 @@ A collector's configuration, alert rules and a dashboard to start from
 are in [deploy/observability](../deploy/observability):
 [A collector, alert rules and a dashboard](#a-collector-alert-rules-and-a-dashboard).
 
+### Names that are kept
+
+From v1.0.0, and through every 1.x release, what ariesd reports keeps
+its names, so that an alert, a dashboard or a log query written against
+one release works against the next (decision 88):
+
+- **Metrics:** each instrument's name, and its Prometheus name;
+  each attribute's key, and every value the guide lists for it, such as
+  the `limit` values, which name settings.
+- **Traces:** each span's name, and each key a span carries and its
+  values.
+- **Logs:** each event's name, and each field's name, on stderr and
+  over OTLP alike.
+
+A name is never renamed or removed within 1.x, and a value never comes
+to mean something else. What may change is only additive: a new
+instrument, span, event or field, a new attribute on an instrument, or
+a new value of an attribute, which a query that matches values it knows
+is unaffected by. The examples in
+[deploy/observability](../deploy/observability) follow the instruments
+rather than bind them, and the text of `ariesd status` and of a log
+line's message is for people and may change: scripts read `--json`, and
+the fields.
+
 ### Send metrics to a collector on the machine
 
 This is the setup to start with. An

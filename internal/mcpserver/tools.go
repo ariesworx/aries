@@ -23,7 +23,7 @@ var (
 	setStatuses = []any{"open", "blocked", "deferred"}
 	allStatuses = append(append([]any{}, openStatuses...), "closed")
 	depTypes    = []any{"blocks", "conditional-blocks", "waits-for", "related", "discovered-from", "duplicates", "supersedes"}
-	actions     = []any{"add", "rm"}
+	actions     = []any{"add", "remove"}
 	states      = []any{"done", "partial", "blocked"}
 )
 
@@ -679,7 +679,7 @@ func (s *Server) register() {
 		func(ctx context.Context, c Conn, in DepIn) (Ref, error) {
 			args := proto.DepArgs{From: in.ID, To: in.DependsOn, Type: in.Type, Idem: in.idem}
 			op := proto.OpDepAdd
-			if in.Action == "rm" {
+			if in.Action == "remove" {
 				op = proto.OpDepRm
 			}
 			return Ref{ID: in.ID}, c.Call(ctx, op, args, nil)
@@ -690,7 +690,7 @@ func (s *Server) register() {
 				return Ref{}, proto.Errf(proto.CodeInvalid, "", "labels is empty")
 			}
 			op := proto.OpLabelAdd
-			if in.Action == "rm" {
+			if in.Action == "remove" {
 				op = proto.OpLabelRm
 			}
 			// Once one label does not reach the server, the rest are still

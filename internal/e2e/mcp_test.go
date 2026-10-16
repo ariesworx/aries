@@ -179,7 +179,7 @@ func TestMCPAgentSession(t *testing.T) {
 		t.Fatalf("show: %+v", show)
 	}
 	ag.ok("label", map[string]any{"action": "add", "id": a.ID, "labels": []any{"docs", "small"}})
-	ag.ok("label", map[string]any{"action": "rm", "id": a.ID, "labels": []any{"small"}})
+	ag.ok("label", map[string]any{"action": "remove", "id": a.ID, "labels": []any{"small"}})
 	listed := decode[mcpserver.Issues](t, ag.ok("list", map[string]any{"labels": []any{"docs"}}))
 	if len(listed.Issues) != 1 || listed.Issues[0].ID != a.ID {
 		t.Fatalf("list: %+v", listed)

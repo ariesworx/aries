@@ -211,7 +211,11 @@ and what a test that passes there does not do.
    held to the same: a log call's message is a string literal, its
    first field is `"event"` with a name from `internal/logs`, and a new
    field is added to `internal/logs/schema.go` with its kind, which
-   says whether it may be exported; tests fail otherwise. Log with the
+   says whether it may be exported; tests fail otherwise. From v1.0.0
+   no event, field, instrument, attribute value or span is renamed or
+   removed within 1.x (docs/server.md, Names that are kept): a new one
+   is recorded in its package's `testdata/names.golden` with `-update`,
+   and `TestNamesKept` fails if a recorded one goes. Log with the
    request's context (`log.ErrorContext(ctx, …)`), which is what puts
    `req` and the trace ids on the line.
 3. **Agents never handle release signing keys.** Releases are signed by the

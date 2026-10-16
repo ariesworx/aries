@@ -72,7 +72,7 @@ func TestWritesRetryWithTheirKey(t *testing.T) {
 // twice applies once.
 func TestDepSendsItsKey(t *testing.T) {
 	t.Parallel()
-	for _, action := range []string{"add", "rm"} {
+	for _, action := range []string{"add", "remove"} {
 		t.Run(action, func(t *testing.T) {
 			f := &fakeConn{reply: func(string, any) (any, error) { return proto.Empty{}, nil }}
 			cs, _ := connect(t, f)
