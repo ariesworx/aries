@@ -886,7 +886,7 @@ func show(ctx context.Context, c Conn, in ShowIn) (Issue, error) {
 	for size(out) > MaxResultTokens && len(out.Files) > 0 {
 		out.Files, out.FilesMore = out.Files[:len(out.Files)-1], out.FilesMore+1
 	}
-	// A check's link may be long (gate_evidence); the last checks go
+	// A check's link may be long (gate_evidence_bytes); the last checks go
 	// last of all.
 	for size(out) > MaxResultTokens && len(out.Checks) > 0 {
 		out.Checks, out.Truncated = out.Checks[:len(out.Checks)-1], true

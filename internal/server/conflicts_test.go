@@ -106,7 +106,7 @@ func TestConflictCapRefused(t *testing.T) {
 func TestDigestConflicts(t *testing.T) {
 	t.Parallel()
 	clk := newClock()
-	s, _ := newServerClock(t, Limits{ConflictAge: Duration(time.Hour)}, clk.now)
+	s, _ := newServerConfig(t, Config{ConflictAge: time.Hour}, clk.now)
 	is := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "base"})
 	theirs, mine := "theirs", "mine"
 	mustCall[proto.WriteResult](t, s, bob, proto.OpUpdate, proto.UpdateArgs{ID: is.ID, Rev: is.Rev, Title: &theirs})

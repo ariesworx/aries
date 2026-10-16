@@ -146,7 +146,7 @@ func TestMetricsOfStoreLimits(t *testing.T) {
 	}
 	check(t, snapshot(t, mr), []want{
 		{"aries.limit.refusals", []string{"limit", "keys_per_principal"}, 1},
-		{"aries.limit.refusals", []string{"limit", "prices"}, 1},
+		{"aries.limit.refusals", []string{"limit", "prices_per_project"}, 1},
 		{"aries.limit.refusals", []string{"limit", "other"}, 0},
 		{"aries.control.writes", []string{"op", "key.add", "result", "invalid"}, 1},
 	})

@@ -663,7 +663,7 @@ func TestAdminControlWriteRate(t *testing.T) {
 	d.ok("admin", "principal", "add", "bob")
 	e := d.refused(proto.CodeBusy, "admin", "principal", "add", "carol")
 	if e.Message != "dana is over the limit on access changes (0.001 a second, bursts of 2)" || !strings.HasPrefix(e.Fix, "wait ") ||
-		!strings.Contains(e.Fix, "raise control_write_rate and control_write_burst under limits: in ariesd's config") {
+		!strings.Contains(e.Fix, "raise control_writes_per_second and control_write_burst under limits: in ariesd's config") {
 		t.Errorf("a third control write: %+v", e)
 	}
 	// Reads, and the project's own writes, go on.

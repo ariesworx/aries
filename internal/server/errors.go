@@ -184,7 +184,7 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 		fix := "retry later"
 		switch op {
 		case proto.OpGateAdd:
-			fix = "pass or waive an open gate first (`aries gate list`), or ask the server admin to raise open_gates under limits: in ariesd's config"
+			fix = "pass or waive an open gate first (`aries gate list`), or ask the server admin to raise open_gates_per_project under limits: in ariesd's config"
 		case proto.OpUsage:
 			fix = "retry later: the cap counts the last 24 hours; the server admin can raise usage_per_day under limits: in ariesd's config"
 		}
@@ -196,12 +196,12 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 
 	case errors.As(err, &priceCap):
 		return proto.Errf(proto.CodeInvalid,
-			"replace an existing price (the same model and --from) instead, or ask the server admin to raise prices under limits: in ariesd's config",
+			"replace an existing price (the same model and --from) instead, or ask the server admin to raise prices_per_project under limits: in ariesd's config",
 			strings.TrimPrefix(text, store.ErrInvalid.Error()+": "))
 
 	case errors.As(err, &planCap):
 		return proto.Errf(proto.CodeInvalid,
-			"replace an existing plan row (the same name and --from) instead, or ask the server admin to raise plans under limits: in ariesd's config",
+			"replace an existing plan row (the same name and --from) instead, or ask the server admin to raise plans_per_project under limits: in ariesd's config",
 			strings.TrimPrefix(text, store.ErrInvalid.Error()+": "))
 
 	case errors.As(err, &hoursCap):

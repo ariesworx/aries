@@ -168,14 +168,14 @@ func TestDispatchPlans(t *testing.T) {
 	}
 }
 
-// Rule 18: past limits: plans a new plan row is refused, naming the limit.
+// Rule 18: past limits: plans_per_project a new plan row is refused, naming the limit.
 func TestDispatchPlansLimit(t *testing.T) {
 	t.Parallel()
 	s, _ := newServerClock(t, Limits{Limits: store.Limits{Plans: 1}}, fixedNow)
 	mustCall[proto.PlanSetResult](t, s, dana, proto.OpPlanSet, proto.PlanSetArgs{Name: "a", From: "2026-09", Fee: 1, Seats: 1})
 	_, perr := call[proto.PlanSetResult](t, s, dana, proto.OpPlanSet, proto.PlanSetArgs{Name: "b", From: "2026-09", Fee: 1, Seats: 1})
 	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Message, "at most 1 plan rows") ||
-		!strings.Contains(perr.Fix, "plans under limits:") {
+		!strings.Contains(perr.Fix, "plans_per_project under limits:") {
 		t.Fatalf("a second plan with plans 1: %+v, want invalid naming the limit", perr)
 	}
 }

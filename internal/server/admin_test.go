@@ -868,7 +868,7 @@ func TestControlWriteRateLimit(t *testing.T) {
 	for name, c := range map[string]*conn{"a": inA, "b": inB} {
 		_, perr := ask[proto.MemberRemoveResult](c, proto.OpMemberRemove, proto.MemberArgs{Name: "frank"})
 		if perr == nil || perr.Code != proto.CodeBusy || !strings.HasPrefix(perr.Fix, "wait ") ||
-			!strings.Contains(perr.Fix, "control_write_rate and control_write_burst under limits:") ||
+			!strings.Contains(perr.Fix, "control_writes_per_second and control_write_burst under limits:") ||
 			!strings.Contains(perr.Message, "dana is over the limit on access changes (0.001 a second, bursts of 2)") {
 			t.Errorf("a third control write, on the connection to %s = %+v; want busy, a wait and the limits named", name, perr)
 		}

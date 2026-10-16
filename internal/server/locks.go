@@ -181,7 +181,7 @@ func lockCapacityErr(e *store.LockCapacityError) *proto.Error {
 	msg := strings.TrimPrefix(e.Error(), store.ErrInvalid.Error()+": ")
 	if e.Capacity == 0 {
 		return proto.Errf(proto.CodeInvalid,
-			fmt.Sprintf("give --capacity from 1 to %d, or ask the server admin to raise lock_capacity under limits: in ariesd's config", e.Max), msg)
+			fmt.Sprintf("give --capacity from 1 to %d, or ask the server admin to raise holders_per_lock under limits: in ariesd's config", e.Max), msg)
 	}
 	return proto.Errf(proto.CodeInvalid,
 		fmt.Sprintf("leave --capacity out, or give --capacity %d: a lock keeps the capacity its first acquire gave it until nobody holds or waits for it", e.Capacity),
@@ -203,9 +203,9 @@ func lockName(op, name string) *proto.Error {
 func lockLimitErr(e *store.LockLimitError) *proto.Error {
 	fix := fmt.Sprintf("ask the server admin to raise %s under limits: in ariesd's config", e.Limit)
 	switch e.Limit {
-	case "locks":
+	case "locks_per_project":
 		fix = "release the locks nobody needs (`aries lock list` shows them, and a lock nobody holds or waits for is gone), or " + fix
-	case "lock_waiters":
+	case "waiters_per_lock":
 		fix = "retry later without --wait, or " + fix
 	case "lock_waits_per_principal":
 		fix = "leave a queue you no longer need (`aries lock leave NAME`), or " + fix

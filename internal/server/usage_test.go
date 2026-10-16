@@ -73,7 +73,7 @@ func TestDispatchUsageLimits(t *testing.T) {
 	_, perr := call[proto.UsageResult](t, s, alice, proto.OpUsage, recs("a", "b", "c"))
 	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Message, "at most 2 usage records") ||
 		!strings.Contains(perr.Fix, "send at most 2") {
-		t.Fatalf("3 records with usage_records 2: %+v, want invalid with a fix to send fewer", perr)
+		t.Fatalf("3 records with records_per_usage_call 2: %+v, want invalid with a fix to send fewer", perr)
 	}
 	mustCall[proto.UsageResult](t, s, alice, proto.OpUsage, recs("a", "b"))
 	_, perr = call[proto.UsageResult](t, s, alice, proto.OpUsage, recs("c", "d"))

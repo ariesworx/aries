@@ -91,7 +91,7 @@ a `gate.failed` item, with the evidence, in the inbox of the issue's
 holder, in the session that holds it, or of its assignee when nobody
 holds it. A later pass tells them too. A failure on a gate that had
 passed, from a later commit, reopens it. Evidence is at most the
-server's `gate_evidence` (1,024 bytes) in all, a URL is `http` or
+server's `gate_evidence_bytes` (1,024 bytes) in all, a URL is `http` or
 `https` with no user or password, and evidence that looks like a secret
 is refused. `gate.fail` and every other gate command fail at once when
 the server cannot be reached; nothing is queued.

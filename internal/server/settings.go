@@ -90,6 +90,14 @@ type Settings struct {
 	// Limits bound what one principal can make the server do; see
 	// [Limits]. Zero fields take the defaults.
 	Limits Limits `yaml:"limits"`
+	// ConflictAge is how long a conflict stays open before digest lists
+	// it (design §18.7). Default store.DefaultConflictAge.
+	ConflictAge Duration `yaml:"conflict_age"`
+	// DueSoon is how far ahead of its due date digest, dates and prime
+	// list an issue as due soon (design §20.3), at most
+	// store.MaxDueSoon. Default store.DefaultDueSoon. Neither it nor
+	// ConflictAge bounds anything, so neither is under limits:.
+	DueSoon Duration `yaml:"due_soon"`
 	// Account is the project's default account (design §12.1): what an
 	// issue reports time and tokens against when neither it nor an
 	// ancestor sets one. A code name: lowercase letters, digits and inner
@@ -144,6 +152,10 @@ type TelemetrySettings struct {
 	// listener. An address that is not loopback is refused: the listener
 	// has no authentication.
 	Listen string `yaml:"listen"`
+	// MaxRequests caps the requests the listener serves at once; one
+	// more is answered 503. Twice it caps the connections the listener
+	// holds open. Default telemetry.DefaultRequests.
+	MaxRequests int `yaml:"max_requests"`
 	// PerProject says whether metrics name the project on the
 	// instruments that have that attribute. Nil, the default, is on;
 	// false leaves the project off every instrument, for a server with
@@ -278,7 +290,18 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 		return Settings{}, err
 	}
 	out.Limits = file.Limits
+	out.ConflictAge = cmp.Or(file.ConflictAge, Duration(store.DefaultConflictAge))
+	out.DueSoon = cmp.Or(file.DueSoon, Duration(store.DefaultDueSoon))
+	if d := time.Duration(out.DueSoon); d > store.MaxDueSoon {
+		return Settings{}, fmt.Errorf("due_soon is %s; it can be at most %s; fix: set it within that in the config file, or leave it out for the default, %s",
+			proto.Span(d), proto.Span(store.MaxDueSoon), proto.Span(store.DefaultDueSoon))
+	}
 	out.Telemetry = file.Telemetry
+	if out.Telemetry.MaxRequests < 0 {
+		return Settings{}, fmt.Errorf("telemetry: max_requests is %d; fix: give a positive number, or leave it out for the default, %d",
+			out.Telemetry.MaxRequests, telemetry.DefaultRequests)
+	}
+	out.Telemetry.MaxRequests = cmp.Or(out.Telemetry.MaxRequests, telemetry.DefaultRequests)
 	if v := getenv(EnvTelemetryListen); v != "" {
 		out.Telemetry.Listen = v
 	}

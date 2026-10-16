@@ -155,9 +155,9 @@ groups:
 
       - alert: AriesWritesRateLimited
         expr: >-
-          sum by (limit) (increase(aries_limit_refusals_total{limit=~"write_rate|control_write_rate"}[5m])) > 0
-          or sum by (limit) (aries_limit_refusals_total{limit=~"write_rate|control_write_rate"} > 0
-          unless aries_limit_refusals_total{limit=~"write_rate|control_write_rate"} offset 5m)
+          sum by (limit) (increase(aries_limit_refusals_total{limit=~"writes_per_second|control_writes_per_second"}[5m])) > 0
+          or sum by (limit) (aries_limit_refusals_total{limit=~"writes_per_second|control_writes_per_second"} > 0
+          unless aries_limit_refusals_total{limit=~"writes_per_second|control_writes_per_second"} offset 5m)
         for: 10m
         labels:
           severity: warning
@@ -170,9 +170,9 @@ groups:
 
       - alert: AriesConnectionCapReached
         expr: >-
-          sum by (limit) (increase(aries_limit_refusals_total{limit=~"conns|conns_per_principal|handshakes_per_principal|handshake_sockets"}[5m])) > 0
-          or sum by (limit) (aries_limit_refusals_total{limit=~"conns|conns_per_principal|handshakes_per_principal|handshake_sockets"} > 0
-          unless aries_limit_refusals_total{limit=~"conns|conns_per_principal|handshakes_per_principal|handshake_sockets"} offset 5m)
+          sum by (limit) (increase(aries_limit_refusals_total{limit=~"conns_per_server|conns_per_principal|handshakes_per_principal|handshake_sockets"}[5m])) > 0
+          or sum by (limit) (aries_limit_refusals_total{limit=~"conns_per_server|conns_per_principal|handshakes_per_principal|handshake_sockets"} > 0
+          unless aries_limit_refusals_total{limit=~"conns_per_server|conns_per_principal|handshakes_per_principal|handshake_sockets"} offset 5m)
         labels:
           severity: warning
         annotations:
@@ -184,16 +184,16 @@ groups:
 
       - alert: AriesStoreCapReached
         expr: >-
-          increase(aries_limit_refusals_total{limit="open_stores"}[5m]) > 0
-          or (aries_limit_refusals_total{limit="open_stores"} > 0
-          unless aries_limit_refusals_total{limit="open_stores"} offset 5m)
+          increase(aries_limit_refusals_total{limit="open_stores_per_server"}[5m]) > 0
+          or (aries_limit_refusals_total{limit="open_stores_per_server"} > 0
+          unless aries_limit_refusals_total{limit="open_stores_per_server"} offset 5m)
         labels:
           severity: warning
         annotations:
           summary: Connections are refused because too many project stores are open.
           description: >-
             Every project with a connection holds a store open, and
-            `open_stores` caps them. Raise it under `limits:` with the
+            `open_stores_per_server` caps them. Raise it under `limits:` with the
             database's connections in mind (docs/server.md, Limits).
 
       - alert: AriesDatabasePoolExhausted

@@ -1507,7 +1507,7 @@ old      archived  closed  600 KiB   0      -        -         -           -    
 
 | Figure | What it is |
 |---|---|
-| stores, connections | How many are open, beside the limit that caps each (`open_stores`, `conns`) |
+| stores, connections | How many are open, beside the limit that caps each (`open_stores_per_server`, `conns_per_server`) |
 | keys file | The file ariesd writes for sshd ([Keys from the store](#keys-from-the-store)): its path, how many keys ariesd last put in it, and when it was last written. `THE LAST WRITE FAILED` means sshd may be reading an older list than the control store holds; ariesd's log says why |
 | `clock:` | Shown once the clock has been set while ariesd ran: how many times, in which direction, and the last step's size and time. Each is a `clock stepped` line in the log ([The server's clock](#the-servers-clock)) |
 | `CLOCK BEHIND HISTORY` | The clock is behind the latest event of the database named, by how much and since when. ariesd's time runs on from the history at half speed until the clock has caught up. With `clock_behind: stop` it adds that ariesd will not start again until the clock is corrected: check `timedatectl` on the server before any restart |
@@ -1997,7 +1997,10 @@ the config file (`/etc/aries/ariesd.yaml`, or `--config FILE`, or
 | `clock_step_tolerance` | How far elapsed wall-clock time and elapsed monotonic time may differ between two readings before ariesd calls it a step of the clock. 1s to 10m. Lower it, to 1s at the least, to be told of smaller corrections; raise it only if a time service on the machine is known to step by more in normal running | `5s` | |
 | `clock_client_tolerance` | How far past the server's clock a time a client supplies may be: a usage record's. 1s to 24h. Raise it if people's machines are known to run ahead and their usage records are being dropped | `5m` | |
 | `limits` | [Limits](#limits) | defaults | |
+| `conflict_age` | How long a conflict is open before `digest` lists it, under old conflicts. It bounds nothing, so it is not under `limits:` | `1d` | |
+| `due_soon` | How far ahead of its due date `digest` and `prime` list an issue as due soon ([Dates](concepts.md#dates)). Up to a year. It bounds nothing, so it is not under `limits:` | `1d` | |
 | `telemetry.listen` | The loopback address, `HOST:PORT`, of the listener for `/metrics`, `/healthz` and `/readyz` ([Observability](#observability)). An address that is not loopback is refused | none: no listener | `ARIESD_TELEMETRY_LISTEN` |
+| `telemetry.max_requests` | With `telemetry.listen`: requests the listener serves at once. One more is answered `503`; twice as many connections may be open, and one more is closed | 8 | |
 | `telemetry.per_project` | Whether metrics name the project. `false` leaves it off every instrument | `true` | |
 | `telemetry.principals` | How a person appears on a span and on a log record exported over OTLP ([Traces](#traces), People): `pseudonym`, a stable stand-in; `name`; or `omit`, nothing. It does not change the log on stderr, nor the audit stream there. Any other value is refused | `pseudonym` | |
 | `telemetry.audit_log` | Whether each access change in the control store's log is also written as a log line with `audit=true` ([The audit stream](#the-audit-stream)). `false` writes none; the event log is the record either way | `true` | |
@@ -2032,74 +2035,71 @@ make the daemon do. Leave a field out for its default:
 
 ```yaml
 limits:
-  write_rate: 20
+  writes_per_second: 20
   write_burst: 200
 ```
 
 | Setting | Default | Bounds |
 |---|---|---|
 | `labels_per_issue` | 50 | Labels on one issue, and so in one `create` |
-| `acceptance_items` | 200 | Items in acceptance text, and item numbers in one `accept` or `finish` |
+| `acceptance_items_per_issue` | 200 | Items in acceptance text, and item numbers in one `accept` or `finish` |
 | `deps_per_issue` | 200 | Edges out of one issue |
 | `sessions_per_principal` | 256 | A principal's rows in the `who` registry; a new session past it drops the least recently seen |
 | `agent_keep` | `7d` | How long an unseen registry row is kept. A principal's latest row is always kept, so it stays mentionable |
-| `inbox_unread` | 1000 | A principal's unread inbox items; past it, the oldest are marked read (still under `inbox --all`) |
+| `unread_per_principal` | 1000 | A principal's unread inbox items; past it, the oldest are marked read (still under `inbox --all`) |
 | `notices_per_minute` | 10 | Mentions, assignments and handoffs one principal can send another a minute; the rest are not delivered. Lost claims, and locks granted or lost, always are |
 | `inbox_keep` | `30d` | How long a read inbox item is kept |
 | `idem_window` | `7d` | How long an idempotency key gives back its request's result: a write a client sends again with the same key within it, as an outbox does after an outage, applies once and gets the first answer. A key used longer ago is refused with `stale`, saying its request was applied then, and nothing is written; the same key with other arguments is `conflict`. It is how long a write can wait on a person's machine and still be delivered without them. From `1h` to `365d`. Keys are kept on the events they stamped whatever this is, so it bounds no table: a key is never applied twice, however late it comes back |
-| `conns` | 1024 | Connections past the handshake, refused with `busy` beyond it. Twice this caps the sockets the daemon holds in all; at that cap a new connection is let in and the one that has waited longest without a hello is closed |
-| `conns_per_principal` | 64 | One principal's connections: one person's sessions on several machines, and a few unattended runs on their key. Agents that run unattended in numbers should have principals of their own, and meet `conns` instead. Each connection costs the server about 5 MiB, most of it the bridge and sshd outside ariesd ([What a server needs](#what-a-server-needs)): 64 connections about 320 MiB, and `conns`' 1,024 about 5 GiB (550 MiB and 8.6 GiB with transparent huge pages `always`). Past it, every new connection of the principal is refused with `busy`, `alice is at its connection limit (64)`, until one of its sessions closes: an `aries` command fails, saying to close some sessions or have this limit raised; an `aries mcp` session that is refused cannot reach the server at all, tells its agent so, and tries again at most every 5 seconds. Its claims lapse if it stays refused for their 15-minute lease, and its writes are not queued |
+| `conns_per_server` | 1024 | Connections past the handshake, refused with `busy` beyond it. Twice this caps the sockets the daemon holds in all; at that cap a new connection is let in and the one that has waited longest without a hello is closed |
+| `conns_per_principal` | 64 | One principal's connections: one person's sessions on several machines, and a few unattended runs on their key. Agents that run unattended in numbers should have principals of their own, and meet `conns_per_server` instead. Each connection costs the server about 5 MiB, most of it the bridge and sshd outside ariesd ([What a server needs](#what-a-server-needs)): 64 connections about 320 MiB, and `conns_per_server`' 1,024 about 5 GiB (550 MiB and 8.6 GiB with transparent huge pages `always`). Past it, every new connection of the principal is refused with `busy`, `alice is at its connection limit (64)`, until one of its sessions closes: an `aries` command fails, saying to close some sessions or have this limit raised; an `aries mcp` session that is refused cannot reach the server at all, tells its agent so, and tries again at most every 5 seconds. Its claims lapse if it stays refused for their 15-minute lease, and its writes are not queued |
 | `handshakes_per_principal` | 16 | One principal's connections that sshd has let in and that have not yet sent their hello, on the whole server. A connection has 10 seconds to send it. Past the cap the next is refused with `busy` at once, so one key holder cannot use up the sockets everyone else connects through. The upgrade's health probe is not counted |
 | `idle_timeout` | `10m` | A connection that sends nothing this long is closed with a note, unless it watches its inbox (`aries mcp`, `aries watch` and `aries tui` do) |
 | `db_conns_per_server` | 32 | Connections to Postgres in ariesd's one pool, which every project's store and the control store share ([One writer for each project](#one-writer-for-each-project)); ariesd holds one more for the writers' locks. A request that finds every one in use waits for one, which the status report and `aries.db.pool.waits` count. Postgres's `max_connections` must leave room for them |
 | `db_conns_per_project` | 8 | Connections one project's reads hold at once, so that a busy project leaves the pool to the others; its writes hold one more. At most `db_conns_per_server` |
-| `write_rate`, `write_burst` | 10, 100 | Each principal's write token bucket: writes a second, and how many at once. Reads are not counted |
-| `refusal_logs` | 20 | Refusal log lines per principal a minute |
-| `usage_records` | 500 | Token usage records in one `usage` call |
+| `writes_per_second`, `write_burst` | 10, 100 | Each principal's write token bucket: writes a second, and how many at once. Reads are not counted |
+| `refusal_logs_per_minute` | 20 | Refusal log lines per principal a minute |
+| `records_per_usage_call` | 500 | Token usage records in one `usage` call |
 | `usage_per_day` | 50000 | Token usage records one principal may add in 24 hours, counted by when the server stored them. Per principal, because a client can name any number of sessions |
 | `paths_per_issue` | 200 | Paths one issue keeps, declared and from commits, and the commit paths one `renew`, `finish` or `handoff` records. Too many declared paths are refused with `invalid`; past the cap, commit paths keep the request's first (most recent) and the issue's most recently recorded, and the request still succeeds |
-| `memory_body` | 4096 | Bytes in one memory's body (at most 65535) |
-| `memory_key_length` | 128 | Bytes in a memory's key (at most 255) |
-| `memory_tags` | 20 | Tags on one memory |
-| `memory_tag_length` | 64 | Bytes in one memory tag (at most 255) |
+| `memory_body_bytes` | 4096 | Bytes in one memory's body (at most 65535) |
+| `memory_key_bytes` | 128 | Bytes in a memory's key (at most 255) |
+| `tags_per_memory` | 20 | Tags on one memory |
+| `memory_tag_bytes` | 64 | Bytes in one memory tag (at most 255) |
 | `memories_per_scope` | 1000 | Memories one principal may author in one scope, forgotten ones included. A new key at the cap first deletes that principal's oldest forgotten memories in the scope; only when live memories fill it is the key refused with `invalid`, and its fix says to forget some or raise the limit; replacing an existing memory is not refused. `import-bd` is exempt |
-| `prices` | 1000 | Rows of the prices table (at most 10000, since every cost report, show and digest reads them all): a model's rates from one date are one row. A new price past it is refused with `invalid`, and its fix says to replace an existing one or raise the limit; replacing a price is not refused |
-| `plans` | 1000 | Rows of the plans table (at most 10000, since every cost report reads them all): a plan's terms from one month are one row. A new row past it is refused with `invalid`, and its fix says to replace an existing one or raise the limit; replacing a row is not refused |
-| `plan_principals` | 100 | Principals one plan row names (at most 1000). `plans` times `plan_principals` is at most 100000, the principals a cost report may read, so raising one past its default means lowering the other; the server refuses to start otherwise |
+| `prices_per_project` | 1000 | Rows of the prices table (at most 10000, since every cost report, show and digest reads them all): a model's rates from one date are one row. A new price past it is refused with `invalid`, and its fix says to replace an existing one or raise the limit; replacing a price is not refused |
+| `plans_per_project` | 1000 | Rows of the plans table (at most 10000, since every cost report reads them all): a plan's terms from one month are one row. A new row past it is refused with `invalid`, and its fix says to replace an existing one or raise the limit; replacing a row is not refused |
+| `principals_per_plan` | 100 | Principals one plan row names (at most 1000). `plans_per_project` times `principals_per_plan` is at most 100000, the principals a cost report may read, so raising one past its default means lowering the other; the server refuses to start otherwise |
 | `hours_per_day` | 50 | Hours entries one principal may have on one day. Past it a new entry is refused with `invalid`, and its fix says to undo some and log their sum, or raise the limit |
-| `hours_note` | 500 | Bytes in an hours entry's note (at most 65535) |
+| `hours_note_bytes` | 500 | Bytes in an hours entry's note (at most 65535) |
 | `conflicts_per_issue` | 20 | Open conflicts on one issue: fields of replayed updates parked against others' changes ([Conflicts](cli.md#conflicts)). An update that would park past it is refused with `invalid`, and nothing of it applies; its fix says to resolve the open ones (`aries conflicts`, `aries resolve`) and `aries outbox retry` it, or to raise the limit. A resolved conflict no longer counts |
 | `conflicts_per_principal` | 100 | Open conflicts one principal's replayed updates have parked, on every issue; past it, refused as `conflicts_per_issue` is |
-| `conflict_age` | `1d` | How long a conflict is open before `digest` lists it, under old conflicts. It bounds nothing |
-| `gate_approvers` | 10 | Principals one [gate](concepts.md#gates) names (at most 100). More are refused with `invalid` |
-| `open_gates` | 1000 | Open gates in a project. One more is refused with `busy`, and its fix says to pass or waive an open one (`aries gate list`) or raise the limit. The gates on one issue are its dependencies, so `deps_per_issue` bounds them |
-| `gate_checks` | 20 | [CI gates](ci.md) whose subject is one issue, which is its checks, one gate each (at most 100). One more is refused with `invalid` |
-| `gate_evidence` | 1024 | Bytes of a CI report's evidence, its commit, link and reason together (at most 4096). More is refused with `invalid`, as is a link with a user or password, or evidence that looks like a secret |
-| `locks` | 200 | [Locks](concepts.md#locks) in use in a project: names someone holds or waits for (at most 10000). A lock nobody holds or waits for is gone and does not count. One more is refused with `busy`, and its fix says to see `aries lock list` or raise the limit |
-| `lock_capacity` | 64 | The capacity a lock may be given, holders at once (at most 1000). More is refused with `invalid` |
-| `lock_waiters` | 100 | Places in one lock's queue (at most 1000). One more is refused with `busy` |
-| `lock_waits_per_principal` | 20 | Places one principal has in all of a project's queues, from every session (at most 1000). One more is refused with `busy`, and its fix says to leave a queue (`aries lock leave NAME`) or raise the limit. A principal's holds need no cap of their own: `locks` times `lock_capacity` bounds them |
-| `due_soon` | `1d` | How far ahead of its due date `digest` and `prime` list an issue as due soon ([Dates](concepts.md#dates)). Up to a year. It bounds nothing |
+| `approvers_per_gate` | 10 | Principals one [gate](concepts.md#gates) names (at most 100). More are refused with `invalid` |
+| `open_gates_per_project` | 1000 | Open gates in a project. One more is refused with `busy`, and its fix says to pass or waive an open one (`aries gate list`) or raise the limit. The gates on one issue are its dependencies, so `deps_per_issue` bounds them |
+| `checks_per_issue` | 20 | [CI gates](ci.md) whose subject is one issue, which is its checks, one gate each (at most 100). One more is refused with `invalid` |
+| `gate_evidence_bytes` | 1024 | Bytes of a CI report's evidence, its commit, link and reason together (at most 4096). More is refused with `invalid`, as is a link with a user or password, or evidence that looks like a secret |
+| `locks_per_project` | 200 | [Locks](concepts.md#locks) in use in a project: names someone holds or waits for (at most 10000). A lock nobody holds or waits for is gone and does not count. One more is refused with `busy`, and its fix says to see `aries lock list` or raise the limit |
+| `holders_per_lock` | 64 | The capacity a lock may be given, holders at once (at most 1000). More is refused with `invalid` |
+| `waiters_per_lock` | 100 | Places in one lock's queue (at most 1000). One more is refused with `busy` |
+| `lock_waits_per_principal` | 20 | Places one principal has in all of a project's queues, from every session (at most 1000). One more is refused with `busy`, and its fix says to leave a queue (`aries lock leave NAME`) or raise the limit. A principal's holds need no cap of their own: `locks_per_project` times `holders_per_lock` bounds them |
 | `away_max` | `7d` | The longest `aries away` may extend a person's claims, in every session, ahead of an absence; asking for longer is refused with `invalid`, its fix naming the cap. A claim so extended holds its issue against everyone else until then, so this bounds how long work can be held by someone who is not doing it. From `1h` to `30d` |
-| `open_stores` | 64 | With `control_schema`: project stores open at once. An open store holds no connection to Postgres of its own, only its writer's lock, and takes connections from the pool while it answers ([One writer for each project](#one-writer-for-each-project)). At the cap, a connection to another project closes the store that has been without connections longest; when every open store has one, it is refused with `busy` |
+| `open_stores_per_server` | 64 | With `control_schema`: project stores open at once. An open store holds no connection to Postgres of its own, only its writer's lock, and takes connections from the pool while it answers ([One writer for each project](#one-writer-for-each-project)). At the cap, a connection to another project closes the store that has been without connections longest; when every open store has one, it is refused with `busy` |
 | `store_idle` | `10m` | With `control_schema`: how long a project's store stays open with no connection. Closing it gives up its writer's lock and what ariesd holds of it in memory |
-| `projects` | 500 | With `control_schema`: projects on the server, archived ones included |
-| `principals` | 5000 | With `control_schema`: principals in the control store, disabled ones included |
+| `projects_per_server` | 500 | With `control_schema`: projects on the server, archived ones included |
+| `principals_per_server` | 5000 | With `control_schema`: principals in the control store, disabled ones included |
 | `principals_per_creator` | 500 | With `control_schema`: principals one principal who is no server admin may create, disabled ones included. No command deletes a principal and names are the whole server's, so this keeps one project admin from using up `principals`. Past it `principal add` is refused with `invalid`, and its fix says to ask a server admin, who has no such cap, or to raise the limit |
 | `keys_per_principal` | 20 | With `control_schema`: public keys of one principal |
 | `members_per_project` | 1000 | With `control_schema`: principals with a role in one project |
-| `telemetry_requests` | 8 | With `telemetry: listen:`: requests the listener serves at once. One more is answered `503`; twice as many connections may be open, and one more is closed |
-| `control_write_rate`, `control_write_burst` | 1, 30 | With `control_schema`: each principal's token bucket for `aries admin` changes to projects, principals, members and keys: changes a second, and how many at once. It is the principal's on the whole server, apart from its write bucket in each project; the lists are not counted |
+| `control_writes_per_second`, `control_write_burst` | 1, 30 | With `control_schema`: each principal's token bucket for `aries admin` changes to projects, principals, members and keys: changes a second, and how many at once. It is the principal's on the whole server, apart from its write bucket in each project; the lists are not counted |
 
 On a server of [many projects](#serving-many-projects), every limit above
 that is per principal is per principal in each project: `conns_per_principal`,
-the write bucket, `refusal_logs` and the limits on rows a principal owns.
-`conns` stays the whole server's, and the `aries admin` bucket is each
+the write bucket, `refusal_logs_per_minute` and the limits on rows a principal owns.
+`conns_per_server` stays the whole server's, and the `aries admin` bucket is each
 principal's on the whole server. So is `handshakes_per_principal`, since
-a connection has named no project before its hello. Past `principals`,
+a connection has named no project before its hello. Past `principals_per_server`,
 `keys_per_principal` or `members_per_project`, `control init` skips the
 line and says which limit it met, and `aries admin` refuses the row with
-`invalid` and names the limit; past `projects` it refuses a new project
+`invalid` and names the limit; past `projects_per_server` it refuses a new project
 the same way. `principals_per_creator` applies to a principal who is no
 server admin, and never to `control init`.
 
@@ -2462,9 +2462,9 @@ time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-
 | `admin.unvouched` | warn | At start: a principal named under `admins:` has a row or a key that someone who is no server admin made. Check the key is theirs |
 | `admin.check_failed` | error | At start: that check could not read the control store |
 | `systemd.notify_failed` | warn | A notification could not be sent to systemd: ready, or the watchdog's |
-| `log.suppressed` | warn | A principal's refusal lines went past `refusal_logs` a minute; `lines` is how many were left out |
+| `log.suppressed` | warn | A principal's refusal lines went past `refusal_logs_per_minute`; `lines` is how many were left out |
 | `conn.accept_failed` | warn | Accepting a connection failed in a way that may pass, such as running out of file descriptors; ariesd retries after a pause of up to a second |
-| `conn.cap_refused` | warn | A connection that had not said hello was closed at twice `conns` |
+| `conn.cap_refused` | warn | A connection that had not said hello was closed at twice `conns_per_server` |
 | `conn.peer_refused` | warn | A socket peer that is not the user ariesd runs as was refused |
 | `conn.opened` | debug | A connection passed its handshake |
 | `conn.idle_closed` | debug | A connection idled past `idle_timeout` |
@@ -2476,7 +2476,7 @@ time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-
 | `agent.harness_ignored` | info | A client named a harness ariesd does not know |
 | `agent.register_failed` | error | A session could not be noted for `aries who` |
 | `request.done` | debug | A request was answered |
-| `request.refused` | info | A request was refused, with its `code`. Capped at `refusal_logs` a minute per principal |
+| `request.refused` | info | A request was refused, with its `code`. Capped at `refusal_logs_per_minute` per principal |
 | `request.failed` | error | A request failed on the server, and its client was answered `unavailable`. The line with the client's `req` has the cause |
 | `request.part_failed` | error | A request was answered, without a part that could not be read: an issue's similar issues, its memories, a new member's keys |
 | `project.added` | info | `aries admin project add` made a project |
@@ -2756,8 +2756,8 @@ Any other path is 404, and any method but GET and HEAD is 405.
   slow start, such as an upgrade that migrates many projects: `/healthz`
   answers at once, and `/readyz` says `ariesd is starting`.
 - **A port that cannot be bound stops ariesd at start**, with a `fix:`.
-- **It is bounded.** At most `telemetry_requests` requests are served at
-  once ([Limits](#limits)); one more is answered `503` with
+- **It is bounded.** At most `telemetry.max_requests` requests are served at
+  once ([Settings](#settings)); one more is answered `503` with
   `Retry-After: 1`. Twice that many connections may be open, and one more
   is closed. A request's headers must arrive within 5 seconds and its
   answer be read within 30.
@@ -2825,7 +2825,7 @@ What each counts:
 | `request.duration` | Each request on a connection, from its frame being read to its answer being ready, refusals and rate-limited requests included |
 | `project.requests` | The same requests, by project and by class |
 | `connections` | Connections past the handshake |
-| `handshakes` | Each handshake, by how it ended; those of `ariesd upgrade`'s health check and `ariesd status` among them. A connection refused before its handshake is not one: a socket past twice `conns`, or a peer that is not the daemon's user |
+| `handshakes` | Each handshake, by how it ended; those of `ariesd upgrade`'s health check and `ariesd status` among them. A connection refused before its handshake is not one: a socket past twice `conns_per_server`, or a peer that is not the daemon's user |
 | `connections.dropped` | Connections ariesd closed for a reason of its own, not those a client closed |
 | `limit.refusals` | Refusals at a limit that ariesd can name |
 | `store.write.duration` | A write that changed a row and committed: the same measurement as P50 and P99 in the status report, the wait for the project's one writer and any retry included |
@@ -2853,9 +2853,9 @@ number of series cannot grow with what clients send:
 | `op` | An operation of the protocol, such as `create`, `start` or `member.set`; `unknown` for any other |
 | `result` | `ok`, or the refusal's code: `not_found`, `conflict`, `exists`, `cycle`, `invalid`, `acceptance`, `forbidden`, `unavailable`, `version`, `auth`, `busy`, `stale`. For a handshake also `failed`: it ended without a refusal to name, as when a frame could not be read. For the keys file: `ok` or `failed` |
 | `result_class` | `ok`; `error` for `unavailable`, which is the server's failure; `refused` for every other refusal, which is the request's |
-| `project` | The project's UUID, only for a project a connection was admitted to. At most as many as the `projects` limit, and `other` past that |
-| `reason` of a dropped connection | `membership`, `disabled`, `archived`, `key` (the access that let it in ended), `idle` (`idle_timeout`), `limit` (a socket past twice `conns`), `access` (the access ended while the handshake ran) |
-| `limit` | `conns`, `conns_per_principal`, `handshakes_per_principal`, `handshake_sockets` (twice `conns`), `write_rate`, `control_write_rate`, `open_stores`, `telemetry_requests`, `projects`, `principals`, `keys_per_principal`, `members_per_project`, `prices`, `plans`, `hours_per_day`, `usage_per_day`, `locks`, `lock_waiters`, `lock_waits_per_principal` |
+| `project` | The project's UUID, only for a project a connection was admitted to. At most as many as the `projects_per_server` limit, and `other` past that |
+| `reason` of a dropped connection | `membership`, `disabled`, `archived`, `key` (the access that let it in ended), `idle` (`idle_timeout`), `limit` (a socket past twice `conns_per_server`), `access` (the access ended while the handshake ran) |
+| `limit` | `conns_per_server`, `conns_per_principal`, `handshakes_per_principal`, `handshake_sockets` (twice `conns_per_server`), `writes_per_second`, `control_writes_per_second`, `open_stores_per_server`, `telemetry.max_requests`, `projects_per_server`, `principals_per_server`, `keys_per_principal`, `members_per_project`, `prices_per_project`, `plans_per_project`, `hours_per_day`, `usage_per_day`, `locks_per_project`, `waiters_per_lock`, `lock_waits_per_principal` |
 | `migrated` | `true` when opening the store applied a migration |
 | `event` of a claim | `take`, `renew`, `release`, `expire` |
 | `event` of a lock | `acquire`, `wait`, `grant`, `renew`, `release`, `expire`, `leave` |
@@ -3231,7 +3231,7 @@ against your server's own history.
 | `AriesClockBehind`, `AriesClockStepped` | The clock is behind Aries's own history, or was set ([The server's clock](#the-servers-clock)) |
 | `AriesProjectUnavailable`, `AriesRequestsFailing` | Handshakes or requests are answered `unavailable`: the server's failure, most often a database that cannot be reached |
 | `AriesWriteLatencyHigh`, `AriesWritesQueueing` | One write in a hundred takes over a second; more than one in five is retried |
-| `AriesWritesRateLimited`, `AriesConnectionCapReached`, `AriesStoreCapReached` | Requests are refused at `write_rate`, at a connection limit, or at `open_stores` ([Limits](#limits)) |
+| `AriesWritesRateLimited`, `AriesConnectionCapReached`, `AriesStoreCapReached` | Requests are refused at `writes_per_second`, at a connection limit, or at `open_stores_per_server` ([Limits](#limits)) |
 | `AriesTelemetryMetricsExportFailing`, `AriesTelemetrySpansDropped`, `AriesTelemetryLogRecordsDropped` | ariesd counts failed pushes of metrics, spans it lost, or log records it lost from the export, whose lines the journal still has ([When the collector is down](#when-the-collector-is-down)) |
 | `AriesDatabasePoolExhausted` | Requests waited for a connection of ariesd's pool, every one in use, for 10 minutes: raise `db_conns_per_server`, with Postgres's `max_connections` above it ([Sizing Postgres](#sizing-postgres)) |
 
@@ -3740,7 +3740,7 @@ grow it.
 Token usage is one row per harness request in `token_usage`, about 200
 bytes each, also never pruned; a `usage` call adds one summary event, not
 one per row. `usage_per_day` bounds how fast one principal can grow it.
-Prices are at most `prices` rows and plans at most `plans` rows, and
+Prices are at most `prices_per_project` rows and plans at most `plans_per_project` rows, and
 only admins add them. Hours entries are one row each in `hours`, about
 100 bytes plus the note, never pruned; `hours_per_day` bounds how many
 one principal may log for a day, and an undo deletes the row, its event

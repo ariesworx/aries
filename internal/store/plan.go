@@ -115,7 +115,7 @@ func (s *Store) SetPlan(ctx context.Context, actor Actor, p NewPlan) (PlanChange
 		}
 	}
 	if limit := s.opts.Limits.PlanPrincipals; len(principals) > limit {
-		return "", fmt.Errorf("%w: a plan names at most %d principals (limits: plan_principals), not %d", ErrInvalid, limit, len(principals))
+		return "", fmt.Errorf("%w: a plan names at most %d principals (limits: principals_per_plan), not %d", ErrInvalid, limit, len(principals))
 	}
 	p = NewPlan{Name: p.Name, From: from, Fee: p.Fee, Seats: p.Seats, Principals: principals}
 	if p.Principals == nil {

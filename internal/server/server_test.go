@@ -136,6 +136,14 @@ func newServerDSN(t *testing.T, lim Limits) (*Server, string) {
 // now, or the real clock if now is nil.
 func newServerClock(t *testing.T, lim Limits, now func() time.Time) (*Server, string) {
 	t.Helper()
+	return newServerConfig(t, Config{Limits: lim}, now)
+}
+
+// newServerConfig is newServerClock with the rest of cfg too: its store,
+// project, version and peer check are the test's.
+func newServerConfig(t *testing.T, cfg Config, now func() time.Time) (*Server, string) {
+	t.Helper()
+	lim := cfg.Limits
 	dsn := newDatabase(t)
 	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "ar", Admins: []string{dana.Principal},
 		Limits: lim.Limits, Now: now, IdemWindow: time.Duration(lim.IdemWindow), AwayMax: time.Duration(lim.AwayMax)})
@@ -143,8 +151,8 @@ func newServerClock(t *testing.T, lim Limits, now func() time.Time) (*Server, st
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	s, err := New(Config{Store: st, Project: project, Version: "v0.2.0", PeerCheck: func(net.Conn) error { return nil },
-		Limits: lim})
+	cfg.Store, cfg.Project, cfg.Version, cfg.PeerCheck = st, project, "v0.2.0", func(net.Conn) error { return nil }
+	s, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

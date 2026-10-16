@@ -509,10 +509,10 @@ func (n *NewGate) normalize(limit int) error {
 // and the blocks edge, in one write. A human gate tells each approver
 // (gate.pending); a ci gate, which may hold nothing back, tells nobody.
 // Anyone may add one. Invalid input, more approvers than the
-// gate_approvers limit, a second ci gate for one subject and check, or
-// more than gate_checks on a subject, is refused with ErrInvalid; an
-// issue that does not exist with ErrNotFound; a project at its open_gates
-// limit with ErrBusy. With an idempotency key, a repeat returns the first
+// approvers_per_gate limit, a second ci gate for one subject and check, or
+// more than checks_per_issue on a subject, is refused with ErrInvalid; an
+// issue that does not exist with ErrNotFound; a project at its
+// open_gates_per_project limit with ErrBusy. With an idempotency key, a repeat returns the first
 // result.
 func (s *Store) AddGate(ctx context.Context, actor Actor, in NewGate) (Gate, error) {
 	if err := in.normalize(s.opts.Limits.GateApprovers); err != nil {
@@ -548,7 +548,7 @@ func (s *Store) AddGate(ctx context.Context, actor Actor, in NewGate) (Gate, err
 			return err
 		}
 		if n >= w.lim.OpenGates {
-			return fmt.Errorf("%w: the project has %d open gates, its limit (open_gates)", ErrBusy, n)
+			return fmt.Errorf("%w: the project has %d open gates, its limit (open_gates_per_project)", ErrBusy, n)
 		}
 		prio := held.Priority
 		if in.Priority != nil {

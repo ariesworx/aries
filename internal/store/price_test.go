@@ -143,7 +143,7 @@ func TestSetPriceRefuses(t *testing.T) {
 	}
 }
 
-// Rule 18: prices are bounded by limits: prices; replacing a price at the
+// Rule 18: prices are bounded by limits: prices_per_project; replacing a price at the
 // cap is no new row.
 func TestSetPriceLimit(t *testing.T) {
 	t.Parallel()

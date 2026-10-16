@@ -76,11 +76,11 @@ var (
 	shaPattern = lazyregexp.New(`^[0-9a-f]{7,64}$`)
 )
 
-// maxGateChecks bounds the gate_checks limit: show reads every check on
+// maxGateChecks bounds the checks_per_issue limit: show reads every check on
 // an issue.
 const maxGateChecks = 100
 
-// maxGateEvidence bounds the gate_evidence limit: a report is kept in
+// maxGateEvidence bounds the gate_evidence_bytes limit: a report is kept in
 // the gate's row, and its URL and reason go on an inbox line.
 const maxGateEvidence = 4096
 
@@ -102,7 +102,7 @@ func (n *NewGate) normalizeCI() error {
 }
 
 // checkNewCI refuses a ci gate whose subject does not exist, already has
-// a gate for the check, or has as many ci gates as gate_checks allows.
+// a gate for the check, or has as many ci gates as checks_per_issue allows.
 func checkNewCI(ctx context.Context, w *wtx, in NewGate) error {
 	if _, err := loadIssue(ctx, w.tx, in.Subject); err != nil {
 		return err
@@ -120,7 +120,7 @@ func checkNewCI(ctx context.Context, w *wtx, in NewGate) error {
 		return fmt.Errorf("count checks on %s: %w", in.Subject, err)
 	}
 	if n >= w.lim.GateChecks {
-		return fmt.Errorf("%w: issue %s has %d ci gates, its limit (gate_checks)", ErrInvalid, in.Subject, n)
+		return fmt.Errorf("%w: issue %s has %d ci gates, its limit (checks_per_issue)", ErrInvalid, in.Subject, n)
 	}
 	return nil
 }
@@ -166,7 +166,7 @@ func (r Report) checkEvidence(limit int) error {
 		return err
 	}
 	if n := len(r.SHA) + len(r.URL) + len(r.Reason); n > limit {
-		return fmt.Errorf("%w: the evidence is %d bytes; a report holds at most %d (gate_evidence)", ErrInvalid, n, limit)
+		return fmt.Errorf("%w: the evidence is %d bytes; a report holds at most %d (gate_evidence_bytes)", ErrInvalid, n, limit)
 	}
 	for _, f := range []struct{ name, v string }{{"url", r.URL}, {"reason", r.Reason}} {
 		if found, ok := secretscan.Find(f.v); ok {

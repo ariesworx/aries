@@ -213,7 +213,7 @@ func TestMetricsOfHandshakes(t *testing.T) {
 		{"aries.handshakes", []string{"result", "invalid"}, 1},
 		{"aries.handshakes", []string{"result", "failed"}, 2},
 		{"aries.limit.refusals", []string{"limit", "conns_per_principal"}, 1},
-		{"aries.limit.refusals", []string{"limit", "conns"}, 0},
+		{"aries.limit.refusals", []string{"limit", "conns_per_server"}, 0},
 	})
 	if got := snap.Sum("aries.handshakes"); got != 8 {
 		t.Errorf("aries.handshakes counts %v in all, want the 8 handshakes", got)
@@ -302,8 +302,8 @@ func TestMetricsOfLimits(t *testing.T) {
 	// which the client may read first: wait for the handler.
 	refused.hangUp()
 	check(t, snapshot(t, m), []want{
-		{"aries.limit.refusals", []string{"limit", "write_rate"}, 3},
-		{"aries.limit.refusals", []string{"limit", "conns"}, 1},
+		{"aries.limit.refusals", []string{"limit", "writes_per_second"}, 3},
+		{"aries.limit.refusals", []string{"limit", "conns_per_server"}, 1},
 		{"aries.request.duration", []string{"op", "create", "result", "busy"}, 3},
 		{"aries.request.duration", []string{"op", "create", "result", "ok"}, 2},
 		{"aries.handshakes", []string{"result", "busy"}, 1},

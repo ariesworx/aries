@@ -116,7 +116,7 @@ func TestSetPlanRefuses(t *testing.T) {
 		{"negative seats", func(p *NewPlan) { p.Seats = -1 }, "seats"},
 		{"too many seats", func(p *NewPlan) { p.Seats = MaxPlanSeats + 1 }, "seats"},
 		{"bad principal", func(p *NewPlan) { p.Principals = []string{"Alice"} }, "principal"},
-		{"too many principals", func(p *NewPlan) { p.Principals = []string{"a", "b", "c", "d"} }, "plan_principals"},
+		{"too many principals", func(p *NewPlan) { p.Principals = []string{"a", "b", "c", "d"} }, "principals_per_plan"},
 	}
 	s = openStore(t, newDSN(t), Options{Limits: Limits{PlanPrincipals: 3}, Now: func() time.Time { return day("2026-10-07") }})
 	for _, tc := range tests {
@@ -132,7 +132,7 @@ func TestSetPlanRefuses(t *testing.T) {
 	mustSetPlan(t, s, NewPlan{Name: "most", From: month("2027-10"), Fee: MaxPlanFee, Seats: MaxPlanSeats, Principals: []string{"a", "b", "c"}})
 }
 
-// The plans table holds at most limits: plans rows; replacing one is no
+// The plans table holds at most limits: plans_per_project rows; replacing one is no
 // new row.
 func TestSetPlanLimit(t *testing.T) {
 	t.Parallel()

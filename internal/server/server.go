@@ -67,6 +67,10 @@ type Config struct {
 	// principal; zero fields take DefaultLimits. Its store limits are the
 	// store's to apply (store.Options.Limits), and only shown here.
 	Limits Limits
+	// ConflictAge is how long a conflict stays open before digest lists
+	// it, and DueSoon how far ahead of its due date an issue is due soon;
+	// zero takes store.DefaultConflictAge and store.DefaultDueSoon.
+	ConflictAge, DueSoon time.Duration
 	// Account is the project's default account, shown for an issue that
 	// neither sets one nor inherits one. Empty takes DefaultAccount. With
 	// Control each project's own account is used instead.
@@ -267,7 +271,7 @@ func New(cfg Config) (*Server, error) {
 	}
 	if !multi {
 		s.single = &served{id: cfg.Project, store: cfg.Store, account: cfg.Account, log: cfg.Logger, timeout: cfg.RequestTimeout, tel: cfg.Telemetry,
-			conflictAge: time.Duration(cfg.Limits.ConflictAge), dueSoon: time.Duration(cfg.Limits.DueSoon)}
+			conflictAge: cfg.ConflictAge, dueSoon: cfg.DueSoon}
 		s.single.used.Store(s.now().UnixNano()) // opened now, as openProject notes for a project of many
 		cfg.Telemetry.Watch(telemetry.StoresOpen, func() float64 { return float64(s.OpenStores()) })
 		if err := s.startClock([]*behindLog{s.startBehind(s.single.logName(), cfg.Store.ClockState())}); err != nil {
@@ -299,7 +303,7 @@ func (s *Server) openProject(ctx context.Context, p store.Project) (*served, err
 		return nil, err
 	}
 	pr := &served{id: p.ID, schema: p.Schema, store: st, account: p.Account, log: s.cfg.Logger.With("project", p.ID), timeout: s.cfg.RequestTimeout,
-		tel: s.cfg.Telemetry, conflictAge: time.Duration(s.cfg.Limits.ConflictAge), dueSoon: time.Duration(s.cfg.Limits.DueSoon)}
+		tel: s.cfg.Telemetry, conflictAge: s.cfg.ConflictAge, dueSoon: s.cfg.DueSoon}
 	pr.used.Store(s.now().UnixNano())
 	pr.log.InfoContext(ctx, "project store opened", "event", logs.ProjectOpened, "name", p.Name, "schema", p.Schema)
 	s.mu.Lock()
@@ -907,7 +911,7 @@ func (s *Server) busyControlWrites(principal string, wait time.Duration) *proto.
 	l := s.cfg.Limits
 	s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitControlWriteRate)
 	return proto.Errf(proto.CodeBusy,
-		fmt.Sprintf("wait %s and retry; the server's operator can raise control_write_rate and control_write_burst under limits: in ariesd's config", wait),
+		fmt.Sprintf("wait %s and retry; the server's operator can raise control_writes_per_second and control_write_burst under limits: in ariesd's config", wait),
 		fmt.Sprintf("%s is over the limit on access changes (%g a second, bursts of %d)", principal, l.ControlWriteRate, l.ControlWriteBurst))
 }
 
@@ -1073,7 +1077,7 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 		case errors.Is(err, errStoresFull):
 			s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitOpenStores)
 			return refuse(proto.Errf(proto.CodeBusy,
-				"retry in a minute; the server admin can raise open_stores under limits: in ariesd's config",
+				"retry in a minute; the server admin can raise open_stores_per_server under limits: in ariesd's config",
 				fmt.Sprintf("the server has its limit of %d projects open, each with a connection", s.cfg.Limits.OpenStores)))
 		case err != nil:
 			if ctx.Err() == nil {

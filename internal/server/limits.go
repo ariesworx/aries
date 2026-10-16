@@ -26,7 +26,7 @@ type Limits struct {
 
 	// Conns caps the daemon's connections past the handshake; twice it
 	// caps sockets still in the handshake.
-	Conns int `yaml:"conns"`
+	Conns int `yaml:"conns_per_server"`
 	// ConnsPerPrincipal caps one principal's connections. Its default,
 	// 64, is one person's sessions on several machines and a few
 	// unattended runs on their key: a fleet of agents should have
@@ -52,11 +52,11 @@ type Limits struct {
 	DBConnsPerProject int `yaml:"db_conns_per_project"`
 	// WriteRate is how many writes a second a principal's token bucket
 	// refills; WriteBurst how many it holds.
-	WriteRate  float64 `yaml:"write_rate"`
+	WriteRate  float64 `yaml:"writes_per_second"`
 	WriteBurst int     `yaml:"write_burst"`
 	// RefusalLogs caps the refusal lines logged per principal a minute;
 	// the rest are counted in one line when the minute ends.
-	RefusalLogs int `yaml:"refusal_logs"`
+	RefusalLogs int `yaml:"refusal_logs_per_minute"`
 	// AgentKeep is how long a registry row not seen is kept (a
 	// principal's latest is always kept); InboxKeep how long a read inbox
 	// item is.
@@ -67,12 +67,6 @@ type Limits struct {
 	// refused as stale. It is how long an outbox entry may wait and still
 	// be delivered without a person. From an hour to a year.
 	IdemWindow Duration `yaml:"idem_window"`
-	// ConflictAge is how long a conflict stays open before digest lists
-	// it (design §18.7).
-	ConflictAge Duration `yaml:"conflict_age"`
-	// DueSoon is how far ahead of its due date digest, dates and prime
-	// list an issue as due soon (design §20.3). Up to a year.
-	DueSoon Duration `yaml:"due_soon"`
 	// AwayMax is the longest a person's `aries away` may extend their
 	// claims (design §18.6): every claim of theirs, in every session,
 	// holds that long without renewals, and nobody else may take it.
@@ -88,7 +82,7 @@ type Limits struct {
 	// OpenStores caps the project stores open at once. At the cap, a
 	// handshake for another project closes the longest-idle store with
 	// no connection, and is refused when every store has one.
-	OpenStores int `yaml:"open_stores"`
+	OpenStores int `yaml:"open_stores_per_server"`
 	// StoreIdle closes a project's store once it has had no connection
 	// for this long. That gives back its connections to the database, and
 	// the memory of the server processes that held them.
@@ -99,13 +93,8 @@ type Limits struct {
 	// disabling and enabling principals, setting and removing members,
 	// and adding and removing keys. The bucket is the principal's on the whole server, apart
 	// from its write bucket in each project.
-	ControlWriteRate  float64 `yaml:"control_write_rate"`
+	ControlWriteRate  float64 `yaml:"control_writes_per_second"`
 	ControlWriteBurst int     `yaml:"control_write_burst"`
-
-	// TelemetryRequests caps the requests the telemetry listener
-	// (telemetry: listen:) serves at once; one more is answered 503.
-	// Twice it caps the connections the listener holds open.
-	TelemetryRequests int `yaml:"telemetry_requests"`
 }
 
 // DefaultLimits are the limits a zero field takes.
@@ -114,11 +103,9 @@ var DefaultLimits = Limits{
 	DBConns: store.DefaultConns, DBConnsPerProject: store.DefaultReaders,
 	WriteRate: 10, WriteBurst: 100, RefusalLogs: 20,
 	AgentKeep: Duration(store.MaxAgentWindow), InboxKeep: Duration(30 * 24 * time.Hour),
-	IdemWindow: Duration(store.DefaultIdemWindow), ConflictAge: Duration(store.DefaultConflictAge), AwayMax: Duration(store.MaxLease),
-	DueSoon: Duration(store.DefaultDueSoon),
+	IdemWindow: Duration(store.DefaultIdemWindow), AwayMax: Duration(store.MaxLease),
 	Control: store.DefaultControlLimits, OpenStores: 64, StoreIdle: Duration(10 * time.Minute),
 	ControlWriteRate: 1, ControlWriteBurst: 30,
-	TelemetryRequests: telemetry.DefaultRequests,
 }
 
 // Duration is a YAML duration such as 90s, 10m, 8h or 7d.
@@ -154,15 +141,14 @@ func (l Limits) WithDefaults() Limits {
 		{&l.Control.Projects, &d.Control.Projects}, {&l.Control.Principals, &d.Control.Principals},
 		{&l.Control.PrincipalsPerCreator, &d.Control.PrincipalsPerCreator},
 		{&l.Control.Keys, &d.Control.Keys}, {&l.Control.Members, &d.Control.Members}, {&l.OpenStores, &d.OpenStores},
-		{&l.ControlWriteBurst, &d.ControlWriteBurst}, {&l.TelemetryRequests, &d.TelemetryRequests},
+		{&l.ControlWriteBurst, &d.ControlWriteBurst},
 	} {
 		if *f.v == 0 {
 			*f.v = *f.d
 		}
 	}
 	for _, f := range []struct{ v, d *Duration }{{&l.IdleTimeout, &d.IdleTimeout}, {&l.AgentKeep, &d.AgentKeep}, {&l.InboxKeep, &d.InboxKeep},
-		{&l.StoreIdle, &d.StoreIdle}, {&l.IdemWindow, &d.IdemWindow}, {&l.ConflictAge, &d.ConflictAge},
-		{&l.AwayMax, &d.AwayMax}, {&l.DueSoon, &d.DueSoon}} {
+		{&l.StoreIdle, &d.StoreIdle}, {&l.IdemWindow, &d.IdemWindow}, {&l.AwayMax, &d.AwayMax}} {
 		if *f.v == 0 {
 			*f.v = *f.d
 		}
@@ -189,16 +175,15 @@ func (l Limits) Validate() error {
 		name string
 		bad  bool
 	}{
-		{"conns", l.Conns < 0}, {"conns_per_principal", l.ConnsPerPrincipal < 0}, {"handshakes_per_principal", l.Handshakes < 0},
+		{"conns_per_server", l.Conns < 0}, {"conns_per_principal", l.ConnsPerPrincipal < 0}, {"handshakes_per_principal", l.Handshakes < 0},
 		{"db_conns_per_server", l.DBConns < 0}, {"db_conns_per_project", l.DBConnsPerProject < 0},
 		{"idle_timeout", l.IdleTimeout < 0},
-		{"write_rate", l.WriteRate < 0 || math.IsNaN(l.WriteRate) || math.IsInf(l.WriteRate, 0)},
-		{"write_burst", l.WriteBurst < 0}, {"refusal_logs", l.RefusalLogs < 0},
-		{"agent_keep", l.AgentKeep < 0}, {"inbox_keep", l.InboxKeep < 0}, {"conflict_age", l.ConflictAge < 0},
-		{"due_soon", l.DueSoon < 0 || time.Duration(l.DueSoon) > store.MaxDueSoon},
-		{"open_stores", l.OpenStores < 0}, {"store_idle", l.StoreIdle < 0},
-		{"control_write_rate", l.ControlWriteRate < 0 || math.IsNaN(l.ControlWriteRate) || math.IsInf(l.ControlWriteRate, 0)},
-		{"control_write_burst", l.ControlWriteBurst < 0}, {"telemetry_requests", l.TelemetryRequests < 0},
+		{"writes_per_second", l.WriteRate < 0 || math.IsNaN(l.WriteRate) || math.IsInf(l.WriteRate, 0)},
+		{"write_burst", l.WriteBurst < 0}, {"refusal_logs_per_minute", l.RefusalLogs < 0},
+		{"agent_keep", l.AgentKeep < 0}, {"inbox_keep", l.InboxKeep < 0},
+		{"open_stores_per_server", l.OpenStores < 0}, {"store_idle", l.StoreIdle < 0},
+		{"control_writes_per_second", l.ControlWriteRate < 0 || math.IsNaN(l.ControlWriteRate) || math.IsInf(l.ControlWriteRate, 0)},
+		{"control_write_burst", l.ControlWriteBurst < 0},
 	} {
 		if f.bad {
 			return fmt.Errorf("limit %s must be zero or a positive number; fix: correct limits: in the config file, or leave it out for the default", f.name)

@@ -35,10 +35,10 @@ type served struct {
 	// counts none.
 	tel *telemetry.Telemetry
 	// conflictAge is how long a conflict is open before digest lists it
-	// (Limits.ConflictAge).
+	// (Config.ConflictAge).
 	conflictAge time.Duration
 	// dueSoon is how far ahead a due date makes an issue due soon
-	// (Limits.DueSoon).
+	// (Config.DueSoon).
 	dueSoon time.Duration
 }
 

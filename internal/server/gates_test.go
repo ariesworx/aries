@@ -123,7 +123,7 @@ func TestDatesOnTheWire(t *testing.T) {
 	t.Parallel()
 	start := time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC)
 	clk := &clock{t: start}
-	s, _ := newServerClock(t, Limits{DueSoon: Duration(48 * time.Hour)}, clk.now)
+	s, _ := newServerConfig(t, Config{DueSoon: 48 * time.Hour}, clk.now)
 	is := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate,
 		proto.CreateArgs{Title: "upgrade", DeferUntil: "2026-10-16", Due: "2026-10-16T18:00:00Z"})
 	sh := mustCall[proto.ShowResult](t, s, alice, proto.OpShow, proto.ShowArgs{ID: is.ID})

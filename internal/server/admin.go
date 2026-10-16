@@ -161,7 +161,7 @@ func (s *Server) open(ctx context.Context, op string, p store.Project) *proto.Er
 	case errors.Is(err, errStoresFull):
 		s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitOpenStores)
 		return proto.Errf(proto.CodeBusy,
-			"retry in a minute; the server admin can raise open_stores under limits: in ariesd's config",
+			"retry in a minute; the server admin can raise open_stores_per_server under limits: in ariesd's config",
 			fmt.Sprintf("the server has its limit of %d projects open, each with a connection", s.cfg.Limits.OpenStores))
 	case store.SchemaDenied(err):
 		return proto.Errf(proto.CodeUnavailable,
@@ -560,7 +560,7 @@ func principalEnable(ctx context.Context, s *Server, sess *session, in proto.Pri
 // decision 32): for server admins only, since it undoes what the
 // stand-in is for. It tries the key against every principal of the
 // control store and every server admin of the config file, which is at
-// most the principals limit of them; a principal that was never on this
+// most the principals_per_server limit of them; a principal that was never on this
 // server, and a stand-in made under a key that has since been deleted,
 // match nobody.
 func principalWhois(ctx context.Context, s *Server, sess *session, in proto.PrincipalWhoisArgs) (any, *proto.Error) {

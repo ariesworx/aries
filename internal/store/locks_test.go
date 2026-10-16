@@ -579,8 +579,8 @@ func TestLockLimits(t *testing.T) {
 		want  error
 	}{
 		{"a third name", alice, LockAcquire{Name: "c"}, "locks", ErrBusy},
-		{"a third waiter", erin, LockAcquire{Name: "a", Wait: true}, "lock_waiters", ErrBusy},
-		{"a capacity past the limit", alice, LockAcquire{Name: "a", Capacity: 4}, "lock_capacity", ErrInvalid},
+		{"a third waiter", erin, LockAcquire{Name: "a", Wait: true}, "waiters_per_lock", ErrBusy},
+		{"a capacity past the limit", alice, LockAcquire{Name: "a", Capacity: 4}, "holders_per_lock", ErrInvalid},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := s.AcquireLock(ctx, tc.actor, tc.in)
