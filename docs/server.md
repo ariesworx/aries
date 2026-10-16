@@ -905,7 +905,9 @@ login:
 - **Every endpoint is https**, or http to `localhost`, a name under
   `.localhost` or a loopback address, for a provider on the machine in
   testing. A provider's redirect is never followed, and each request is
-  bounded to 10 seconds and 64 KiB.
+  bounded to 10 seconds and 64 KiB. Requests to a provider go through
+  `HTTPS_PROXY` when ariesd's environment sets one (a drop-in's
+  `Environment=`), except for `NO_PROXY`'s hosts.
 - **What a token is held to**: RS256 or ES256 alone, never `none`, an
   HMAC or a `crit` header; the issuer exactly, the client id among its
   audiences (and `azp` when there are several), its times within `skew`

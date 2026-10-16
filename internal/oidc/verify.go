@@ -395,7 +395,9 @@ func noRedirects(tc *tls.Config) *http.Client {
 		tc = &tls.Config{MinVersion: tls.VersionTLS12}
 	}
 	tr.TLSClientConfig = tc
-	tr.Proxy = nil // a provider is reached as configured, not through the environment's proxy
+	// The environment's proxy, HTTPS_PROXY and NO_PROXY, is the
+	// operator's, for a site whose egress goes through one.
+	tr.Proxy = http.ProxyFromEnvironment
 	return &http.Client{Transport: tr, Timeout: FetchTimeout, CheckRedirect: func(*http.Request, []*http.Request) error {
 		return errors.New("a provider's redirect is not followed")
 	}}
