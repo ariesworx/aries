@@ -103,7 +103,7 @@ func (h *HTTPS) check() error {
 	case len(h.URLs) == 0:
 		return errors.New("the HTTPS listener has no URL; fix: set https: public_urls: to the URLs clients use")
 	case h.TLS == nil && len(h.Trusted) == 0:
-		return errors.New("an HTTPS listener without TLS, behind a proxy, needs the proxy's addresses; fix: set https: tls: proxy: trusted:")
+		return errors.New("an HTTPS listener without TLS, behind a proxy, needs the proxy's addresses; fix: list them under trusted in https: tls: proxy: in ariesd's config")
 	}
 	for i, u := range h.URLs {
 		n, err := keyproof.NormalizeURL(u)
