@@ -2,7 +2,10 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -216,14 +219,23 @@ func (s *Store) AddUsage(ctx context.Context, actor Actor, recs []UsageRecord, i
 				r.At.UTC().Truncate(time.Microsecond), string(r.Granularity), span,
 				r.Input, r.Output, r.CacheWrite, r.CacheWrite1h, r.CacheRead, w.now) + ")"
 		}
-		n, err := w.exec(ctx, `INSERT INTO token_usage (`+usageCols+`) VALUES `+strings.Join(rows, ", ")+
-			` ON CONFLICT DO NOTHING`, p.args...)
+		// RETURNING tells which rows are new: a record the store had is
+		// not counted, here or by the observer.
+		added, err := w.insertUsage(ctx, `INSERT INTO token_usage (`+usageCols+`) VALUES `+strings.Join(rows, ", ")+
+			` ON CONFLICT DO NOTHING RETURNING model, input, output, cache_write, cache_read`, p.args...)
 		if err != nil {
 			return fmt.Errorf("insert usage: %w", err)
 		}
-		out = UsageAdded{Added: int(n), Duplicates: len(recs) - int(n)}
+		n := len(added)
+		out = UsageAdded{Added: n, Duplicates: len(recs) - n}
 		if n == 0 {
 			return nil
+		}
+		w.mutated = true
+		if s.opts.Observer != nil {
+			if err := w.countUsage(ctx, added); err != nil {
+				return err
+			}
 		}
 		if err := w.checkUsageDay(ctx); err != nil {
 			return err
@@ -238,6 +250,93 @@ func (s *Store) AddUsage(ctx context.Context, actor Actor, recs []UsageRecord, i
 		return UsageAdded{}, err
 	}
 	return out, nil
+}
+
+// insertUsage runs the insert q and returns the rows it stored, with
+// their model and counts.
+func (w *wtx) insertUsage(ctx context.Context, q string, args ...any) ([]UsageRecord, error) {
+	rs, err := w.tx.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rs.Close() }()
+	var out []UsageRecord
+	for rs.Next() {
+		var r UsageRecord
+		var in, o, cw, cr sql.NullInt64
+		if err := rs.Scan(&r.Model, &in, &o, &cw, &cr); err != nil {
+			return nil, err
+		}
+		r.Input, r.Output, r.CacheWrite, r.CacheRead = nullInt(in), nullInt(o), nullInt(cw), nullInt(cr)
+		out = append(out, r)
+	}
+	return out, rs.Err()
+}
+
+func nullInt(n sql.NullInt64) *int64 {
+	if !n.Valid {
+		return nil
+	}
+	return &n.Int64
+}
+
+// countUsage notes, for the store's observer, the tokens of the rows
+// just stored, summed for each model. A model without a price in the
+// store is counted as [UsageOther]: the table is the server's, so the
+// models counted are bounded by it and not by what a client reports.
+func (w *wtx) countUsage(ctx context.Context, added []UsageRecord) error {
+	var p params
+	seen := map[string]bool{}
+	var holes []string
+	for _, r := range added {
+		if !seen[r.Model] {
+			seen[r.Model] = true
+			holes = append(holes, p.add(r.Model))
+		}
+	}
+	rs, err := w.tx.QueryContext(ctx, `SELECT DISTINCT model FROM prices WHERE model IN (`+strings.Join(holes, ", ")+`)`, p.args...)
+	if err != nil {
+		return fmt.Errorf("read priced models: %w", err)
+	}
+	defer func() { _ = rs.Close() }()
+	priced := map[string]bool{}
+	for rs.Next() {
+		var m string
+		if err := rs.Scan(&m); err != nil {
+			return fmt.Errorf("read priced models: %w", err)
+		}
+		priced[m] = true
+	}
+	if err := rs.Err(); err != nil {
+		return fmt.Errorf("read priced models: %w", err)
+	}
+	byModel := map[string]*UsageTokens{}
+	for _, r := range added {
+		m := r.Model
+		if !priced[m] {
+			m = UsageOther
+		}
+		u := byModel[m]
+		if u == nil {
+			u = &UsageTokens{Model: m}
+			byModel[m] = u
+		}
+		u.Input += val(r.Input)
+		u.Output += val(r.Output)
+		u.CacheWrite += val(r.CacheWrite)
+		u.CacheRead += val(r.CacheRead)
+	}
+	for _, m := range slices.Sorted(maps.Keys(byModel)) {
+		w.usage = append(w.usage, *byModel[m])
+	}
+	return nil
+}
+
+func val(p *int64) int64 {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
 
 // checkUsageDay refuses, with ErrBusy, a write that left w's principal

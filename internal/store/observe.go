@@ -33,6 +33,13 @@ type Observer interface {
 	// the request that made it: a report or a decision that changed
 	// nothing is not one.
 	GateChanged(ctx context.Context, actor Actor, g Gate, change GateChange)
+	// UsageAdded reports the tokens a usage write that committed added,
+	// summed for each model, under the context of the request that made
+	// it. A record the store already had adds nothing, and a write
+	// that stored no row is not reported. The model is [UsageOther]
+	// unless the model has a price in the store, so its values are
+	// bounded by the table and not by what clients report.
+	UsageAdded(ctx context.Context, actor Actor, u []UsageTokens)
 }
 
 // Tracer is told where a write's time goes, as it goes, under the
@@ -186,4 +193,18 @@ type gateChange struct {
 // gated notes a change of gate g for the store's observer.
 func (w *wtx) gated(g Gate, change GateChange) {
 	w.gates = append(w.gates, gateChange{g, change})
+}
+
+// UsageOther is the model of a usage record whose model has no price in
+// the store, as an [Observer] is told of it. No reported model can be
+// this, which starts with a letter or digit (proto.UsageModel).
+const UsageOther = "(other)"
+
+// UsageTokens are the tokens of a usage write's new rows for one model,
+// as an [Observer] is told of them. A count that a record did not
+// report adds nothing. CacheWrite includes the part written for an
+// hour.
+type UsageTokens struct {
+	Model                                string
+	Input, Output, CacheWrite, CacheRead int64
 }

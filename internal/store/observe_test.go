@@ -18,6 +18,7 @@ type seen struct {
 	claims  []string // "change" or "change:reason"
 	locks   []string // "change", or "grant:waited"
 	gates   []string // "change:kind:gate"
+	usage   []string // "model in= out= cw= cr="
 }
 
 func (o *seen) Wrote(took time.Duration) {
@@ -291,6 +292,100 @@ func TestObserverGates(t *testing.T) {
 		}
 		if got := obs.takeGates(); !slices.Equal(got, st.want) {
 			t.Errorf("gate changes of %s = %v, want %v", st.name, got, st.want)
+		}
+	}
+}
+
+// UsageAdded is the observer's: the tokens each model of a committed
+// usage write added, by kind.
+func (o *seen) UsageAdded(_ context.Context, _ Actor, u []UsageTokens) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	for _, t := range u {
+		o.usage = append(o.usage, fmt.Sprintf("%s in=%d out=%d cw=%d cr=%d", t.Model, t.Input, t.Output, t.CacheWrite, t.CacheRead))
+	}
+}
+
+// takeUsage returns the token counts seen since the last take.
+func (o *seen) takeUsage() []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	out := o.usage
+	o.usage = nil
+	return out
+}
+
+// The observer is told of the tokens a usage write added once it has
+// committed, by model: the name of a model with a price, UsageOther for
+// any other. A record the server already had, a batch sent again under
+// an idempotency key, a rerun write and a refusal count nothing, and
+// nothing counted twice.
+func TestObserverUsage(t *testing.T) {
+	t.Parallel()
+	obs := &seen{}
+	clk := &clock{t: time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)}
+	s := openStore(t, newDSN(t), Options{Now: clk.now, Observer: obs})
+	ctx := t.Context()
+	mustSetPrice(t, s, "claude-opus-4-1", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), Rates{Input: 1})
+	now := clk.now()
+	rec := func(id, model string, in, out int64) UsageRecord {
+		r := req(id, now, in, out)
+		r.Model = model
+		r.CacheWrite, r.CacheRead = n64(in*10), n64(in*100)
+		return r
+	}
+	batch := []UsageRecord{rec("r1", "claude-opus-4-1", 1, 2), rec("r2", "claude-opus-4-1", 3, 4), rec("r3", "made-up-model", 5, 6)}
+	attempts := 0
+	steps := []struct {
+		name string
+		do   func() error
+		want []string
+	}{
+		{"a batch of a priced and an unpriced model", func() error { _, err := s.AddUsage(ctx, alice, batch, ""); return err },
+			[]string{"claude-opus-4-1 in=4 out=6 cw=40 cr=400", "(other) in=5 out=6 cw=50 cr=500"}},
+		{"the same batch sent again", func() error { _, err := s.AddUsage(ctx, alice, batch, ""); return err }, nil},
+		{"one new record among old", func() error {
+			_, err := s.AddUsage(ctx, alice, []UsageRecord{batch[0], rec("r4", "claude-opus-4-1", 7, 8)}, "")
+			return err
+		}, []string{"claude-opus-4-1 in=7 out=8 cw=70 cr=700"}},
+		{"a batch under a key", func() error {
+			_, err := s.AddUsage(ctx, bob, []UsageRecord{rec("r5", "claude-opus-4-1", 1, 1)}, "k1")
+			return err
+		}, []string{"claude-opus-4-1 in=1 out=1 cw=10 cr=100"}},
+		{"the key again, from another session", func() error {
+			_, err := s.AddUsage(ctx, Actor{Principal: bob.Principal, Session: "other", Machine: bob.Machine}, []UsageRecord{rec("r5", "claude-opus-4-1", 1, 1)}, "k1")
+			return err
+		}, nil},
+		{"a write lost to a concurrent one and rerun", func() error {
+			s.beforeCommit = func(context.Context) error {
+				if attempts++; attempts == 1 {
+					return errRetry
+				}
+				return nil
+			}
+			defer func() { s.beforeCommit = nil }()
+			_, err := s.AddUsage(ctx, alice, []UsageRecord{rec("r6", "claude-opus-4-1", 2, 2)}, "")
+			return err
+		}, []string{"claude-opus-4-1 in=2 out=2 cw=20 cr=200"}},
+		{"a refused batch", func() error {
+			bad := rec("r7", "claude-opus-4-1", 1, 1)
+			bad.Harness = ""
+			if _, err := s.AddUsage(ctx, alice, []UsageRecord{bad}, ""); err == nil {
+				return errors.New("a record with no harness was stored")
+			}
+			return nil
+		}, nil},
+	}
+	for _, st := range steps {
+		if err := st.do(); err != nil {
+			t.Fatalf("%s: %v", st.name, err)
+		}
+		got := obs.takeUsage()
+		slices.Sort(got)
+		want := slices.Clone(st.want)
+		slices.Sort(want)
+		if !slices.Equal(got, want) {
+			t.Errorf("%s: observed %v, want %v", st.name, got, want)
 		}
 	}
 }

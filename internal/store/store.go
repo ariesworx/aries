@@ -441,6 +441,9 @@ type wtx struct {
 	// gates are the changes of a gate the attempt made, for the
 	// observer once it commits.
 	gates []gateChange
+	// usage are the tokens the attempt added, for the observer once it
+	// commits.
+	usage []UsageTokens
 }
 
 // exec runs a mutating statement.
@@ -852,6 +855,9 @@ func (s *Store) writeOnce(ctx context.Context, actor Actor, settle bool, fn func
 		}
 		for _, c := range w.gates {
 			o.GateChanged(ctx, actor, c.gate, c.change)
+		}
+		if len(w.usage) > 0 {
+			o.UsageAdded(ctx, actor, w.usage)
 		}
 	}
 	// Counted after the commit: every watch subscribed before it is

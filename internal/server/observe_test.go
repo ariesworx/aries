@@ -946,3 +946,46 @@ func TestStatusFromADaemonThatHangsUp(t *testing.T) {
 		})
 	}
 }
+
+// A usage record is counted once, when it is stored, as tokens by
+// project, kind and model: a model with a price keeps its name, and any
+// other, however many a client invents, is (other). A batch sent again,
+// under a key or without, counts nothing more (rule 2: a client's text
+// is no label).
+func TestMetricsOfUsageTokens(t *testing.T) {
+	t.Parallel()
+	tel, mr := measured(t, true)
+	s := newServerTel(t, Limits{}, tel)
+	mustCall[proto.PriceSetResult](t, s, dana, proto.OpPriceSet, proto.PriceSetArgs{Model: "example-large", From: "2026-01-01", Rates: testRates})
+	now := time.Now().UTC()
+	rec := func(id, model string, in int64) proto.UsageRecord {
+		r := usageRec(id, now, in)
+		r.Model = model
+		r.Output, r.CacheWrite, r.CacheRead = i64(in*2), i64(in*3), i64(in*4)
+		return r
+	}
+	batch := []proto.UsageRecord{rec("r1", "example-large", 10), rec("r2", "example-large", 1), rec("r3", "invented-1", 5), rec("r4", "invented-2", 7)}
+	for range 2 {
+		mustCall[proto.UsageResult](t, s, alice, proto.OpUsage, proto.UsageArgs{Records: batch})
+	}
+	keyed := proto.UsageArgs{Records: []proto.UsageRecord{rec("r5", "example-large", 100)}, Idem: "usage-1"}
+	for range 2 {
+		mustCall[proto.UsageResult](t, s, bob, proto.OpUsage, keyed)
+	}
+	snap := snapshot(t, mr)
+	wants := []want{
+		{"aries.usage.tokens", []string{"project", project, "kind", "input", "model", "example-large"}, 111},
+		{"aries.usage.tokens", []string{"project", project, "kind", "output", "model", "example-large"}, 222},
+		{"aries.usage.tokens", []string{"project", project, "kind", "cache_write", "model", "example-large"}, 333},
+		{"aries.usage.tokens", []string{"project", project, "kind", "cache_read", "model", "example-large"}, 444},
+		{"aries.usage.tokens", []string{"project", project, "kind", "input", "model", "(other)"}, 12},
+		{"aries.usage.tokens", []string{"project", project, "kind", "output", "model", "(other)"}, 24},
+		{"aries.usage.tokens", []string{"project", project, "kind", "input", "model", "invented-1"}, 0},
+	}
+	check(t, snap, wants)
+	for _, p := range snap {
+		if p.Name == "aries.usage.tokens" && strings.Contains(fmt.Sprint(p), "invented") {
+			t.Errorf("a model without a price is a label: %v", p)
+		}
+	}
+}
