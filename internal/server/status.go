@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/oidc"
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/store"
 )
@@ -192,22 +193,31 @@ func (s *Server) serverStatus() *proto.ServerStatus {
 		}
 	}
 	if a := s.auth; a != nil {
-		out.SignIn = &proto.SignInStatus{Live: counts.SignIns}
+		out.SignIn = &proto.SignInStatus{Live: counts.SignIns, Providers: []proto.ProviderStatus{}}
 		for _, name := range a.names {
-			st := a.providers[name].Status()
-			ps := proto.ProviderStatus{Name: st.Name, Kind: st.Kind, Issuer: st.Issuer, Discovery: st.Discovery, Discovered: st.Discovered,
-				Keys: st.Keys.Source, KeyIDs: st.Keys.KeyIDs, Error: st.Err}
-			if ps.Error == "" {
-				ps.Error = st.Keys.Err
+			out.SignIn.Providers = append(out.SignIn.Providers, providerStatus(a.providers[name].Status()))
+		}
+		if a.workload != nil {
+			for _, p := range a.workload.Providers {
+				out.SignIn.Workloads = append(out.SignIn.Workloads, providerStatus(p.Status()))
 			}
-			if !st.Keys.ReadAt.IsZero() {
-				at := st.Keys.ReadAt.UTC()
-				ps.KeysReadAt = &at
-			}
-			out.SignIn.Providers = append(out.SignIn.Providers, ps)
 		}
 	}
 	return out
+}
+
+// providerStatus is st on the wire.
+func providerStatus(st oidc.Status) proto.ProviderStatus {
+	ps := proto.ProviderStatus{Name: st.Name, Kind: st.Kind, Issuer: st.Issuer, Discovery: st.Discovery, Discovered: st.Discovered,
+		Keys: st.Keys.Source, KeyIDs: st.Keys.KeyIDs, Error: st.Err}
+	if ps.Error == "" {
+		ps.Error = st.Keys.Err
+	}
+	if !st.Keys.ReadAt.IsZero() {
+		at := st.Keys.ReadAt.UTC()
+		ps.KeysReadAt = &at
+	}
+	return ps
 }
 
 // transportsStatus is which transports the server serves, and how many

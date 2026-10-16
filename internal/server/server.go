@@ -109,6 +109,11 @@ type Config struct {
 	// Control and HTTPS. Nil signs no one in: a connection over HTTPS
 	// proves a key.
 	Login *Login
+	// Workload, when set, signs service principals in by the tokens of
+	// the workload providers it names, matched against the control
+	// store's trust rules, by token exchange at /oauth/token
+	// (transport.md §7). It needs Control and HTTPS.
+	Workload *Workload
 	// Clock is the process's clock, the one its stores were opened with
 	// (store.Options.Clock): the server reports its steps. Nil makes one
 	// of its own, which sees the steps but shares them with no store.
@@ -143,7 +148,8 @@ type Config struct {
 // Server serves the protocol. Create it with New.
 type Server struct {
 	cfg Config
-	// auth is the authorization server of Config.Login, or nil.
+	// auth is the authorization server of Config.Login and
+	// Config.Workload, or nil.
 	auth *authServer
 
 	mu sync.Mutex
@@ -295,10 +301,13 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Login != nil && (cfg.Control == nil || cfg.HTTPS == nil) {
 		return nil, errors.New("server: sign-in (login:) needs a server of many projects (control_schema), and HTTPS")
 	}
+	if cfg.Workload != nil && (cfg.Control == nil || cfg.HTTPS == nil) {
+		return nil, errors.New("server: service principals' sign-in (workload:) needs a server of many projects (control_schema), and HTTPS")
+	}
 	s := &Server{cfg: cfg, conns: map[net.Conn]owner{}, now: time.Now, started: time.Now(), unopened: map[string]store.Project{},
 		ends: keyEnds{wake: make(chan struct{}, 1), told: map[string]bool{}}}
-	if cfg.Login != nil {
-		a, err := newAuthServer(s, *cfg.Login)
+	if cfg.Login != nil || cfg.Workload != nil {
+		a, err := newAuthServer(s, cfg.Login, cfg.Workload)
 		if err != nil {
 			return nil, fmt.Errorf("server: %w", err)
 		}

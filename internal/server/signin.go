@@ -53,6 +53,9 @@ import (
 // The token is then presented on /v1/connect, with a DPoP proof, in
 // place of the key proof. POST /oauth/revoke ends it, and closes its
 // connections at once (decision 59).
+//
+// A service principal signs in at the same token endpoint by token
+// exchange (RFC 8693, transport.md §7): exchange.go.
 
 // Login is the server's sign-in: its providers and the life of what it
 // issues. It needs Control, whose identities say who signs in, and
@@ -115,6 +118,15 @@ type authServer struct {
 	names     []string // the providers' names, in the settings' order
 	proofs    *dpop.Verifier
 
+	// workload is Config.Workload, or nil; workloads its providers by
+	// issuer, which a token names; spent the workload tokens exchanged,
+	// each remembered for its window; started the store's time when the
+	// server started, before which a token bound to no key is refused.
+	workload  *Workload
+	workloads map[string]*oidc.Workload
+	spent     *spentTokens
+	started   time.Time
+
 	mu   sync.Mutex
 	held *signInHolds // guarded by mu
 }
@@ -143,14 +155,24 @@ type issuedCode struct {
 	until               time.Time
 }
 
-// newAuthServer makes the authorization server of login.
-func newAuthServer(s *Server, login Login) (*authServer, error) {
+// newAuthServer makes the authorization server of login, people's
+// sign-in, and workload, service principals'; either may be nil, not
+// both.
+func newAuthServer(s *Server, lp *Login, workload *Workload) (*authServer, error) {
+	var login Login
+	if lp != nil {
+		login = *lp
+	}
 	login.TokenLifetime = cmp.Or(login.TokenLifetime, DefaultTokenLifetime)
 	login.FreshAuth = cmp.Or(login.FreshAuth, DefaultFreshAuth)
 	login.PruneAfter = cmp.Or(login.PruneAfter, DefaultSignInKeep)
 	switch {
-	case len(login.Providers) == 0:
+	case lp != nil && len(login.Providers) == 0:
 		return nil, errors.New("login: no providers; fix: list the providers people sign in at under login: providers")
+	case workload != nil && len(workload.Providers) == 0:
+		return nil, errors.New("workload: no providers; fix: list the platforms service principals sign in from under workload: providers")
+	case lp == nil && workload == nil:
+		return nil, errors.New("neither login: nor workload: names a provider")
 	case login.TokenLifetime > MaxTokenLifetime:
 		return nil, fmt.Errorf("login: token_lifetime %s is over %s", proto.Span(login.TokenLifetime), proto.Span(MaxTokenLifetime))
 	}
@@ -159,7 +181,8 @@ func newAuthServer(s *Server, login Login) (*authServer, error) {
 		perAddr = 0 // behind a proxy, every request is the proxy's
 	}
 	a := &authServer{s: s, login: login, providers: map[string]*oidc.Provider{}, proofs: dpop.NewVerifier(s.cfg.Limits.DPoPProofs),
-		held: newSignInHolds(s.cfg.Limits.SignInsPending, perAddr)}
+		held: newSignInHolds(s.cfg.Limits.SignInsPending, perAddr), workload: workload, workloads: map[string]*oidc.Workload{},
+		spent: newSpentTokens(s.cfg.Limits.WorkloadTokens), started: s.cfg.Control.Now()}
 	for _, p := range login.Providers {
 		if _, dup := a.providers[p.Name()]; dup {
 			return nil, fmt.Errorf("login: two providers are named %s", p.Name())
@@ -167,14 +190,27 @@ func newAuthServer(s *Server, login Login) (*authServer, error) {
 		a.providers[p.Name()] = p
 		a.names = append(a.names, p.Name())
 	}
+	if workload != nil {
+		names := map[string]bool{}
+		for _, p := range workload.Providers {
+			if _, dup := a.workloads[p.Issuer()]; dup || names[p.Name()] {
+				return nil, fmt.Errorf("workload: two providers are named %s or have its issuer", p.Name())
+			}
+			a.workloads[p.Issuer()], names[p.Name()] = p, true
+		}
+	}
 	return a, nil
 }
+
+// signsInPeople reports whether the server signs people in at a
+// provider: whether login: names one.
+func (a *authServer) signsInPeople() bool { return len(a.providers) > 0 }
 
 // HasProvider reports whether the server signs people in at a provider
 // named name; with no login: providers, any name is allowed, since
 // nothing signs in.
 func (s *Server) hasProvider(name string) bool {
-	if s.auth == nil {
+	if s.auth == nil || !s.auth.signsInPeople() {
 		return true
 	}
 	_, ok := s.auth.providers[name]
@@ -184,8 +220,10 @@ func (s *Server) hasProvider(name string) bool {
 // routes adds the authorization server's paths to mux.
 func (a *authServer) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+pathASMeta, a.metadata)
-	mux.HandleFunc("GET "+pathAuthorize, a.authorize)
-	mux.HandleFunc("GET "+pathCallback, a.callback)
+	if a.signsInPeople() {
+		mux.HandleFunc("GET "+pathAuthorize, a.authorize)
+		mux.HandleFunc("GET "+pathCallback, a.callback)
+	}
 	mux.HandleFunc("POST "+pathToken, a.token)
 	mux.HandleFunc("POST "+pathRevoke, a.revoke)
 }
@@ -209,13 +247,23 @@ func (a *authServer) now() time.Time { return a.s.cfg.Control.Now() }
 // metadata answers RFC 8414's document.
 func (a *authServer) metadata(rw http.ResponseWriter, _ *http.Request) {
 	b := a.base()
-	writeJSON(rw, http.StatusOK, map[string]any{
-		"issuer": b, "authorization_endpoint": b + pathAuthorize, "token_endpoint": b + pathToken, "revocation_endpoint": b + pathRevoke,
-		"response_types_supported": []string{"code"}, "grant_types_supported": []string{"authorization_code"},
-		"code_challenge_methods_supported": []string{"S256"}, "token_endpoint_auth_methods_supported": []string{"none"},
-		"dpop_signing_alg_values_supported": []string{"ES256"}, "scopes_supported": []string{proto.ScopeCLI, proto.ScopeMCP},
-		"authorization_response_iss_parameter_supported": true,
-	})
+	meta := map[string]any{
+		"issuer": b, "token_endpoint": b + pathToken, "revocation_endpoint": b + pathRevoke,
+		"token_endpoint_auth_methods_supported": []string{"none"}, "dpop_signing_alg_values_supported": []string{"ES256"},
+	}
+	var grants, scopes []string
+	if a.signsInPeople() {
+		meta["authorization_endpoint"] = b + pathAuthorize
+		meta["response_types_supported"] = []string{"code"}
+		meta["code_challenge_methods_supported"] = []string{"S256"}
+		meta["authorization_response_iss_parameter_supported"] = true
+		grants, scopes = append(grants, "authorization_code"), append(scopes, proto.ScopeCLI, proto.ScopeMCP)
+	}
+	if a.workload != nil {
+		grants, scopes = append(grants, grantTokenExchange), append(scopes, proto.ScopeCI)
+	}
+	meta["grant_types_supported"], meta["scopes_supported"] = grants, scopes
+	writeJSON(rw, http.StatusOK, meta)
 }
 
 func writeJSON(rw http.ResponseWriter, status int, v any) {
@@ -377,6 +425,7 @@ func (a *authServer) prune(ctx context.Context) {
 	a.held.expire(now)
 	a.mu.Unlock()
 	a.proofs.Prune(now)
+	a.spent.prune(now)
 	if n, err := a.s.cfg.Control.PruneSignIns(ctx, now.Add(-a.login.PruneAfter)); err != nil {
 		a.s.cfg.Logger.ErrorContext(ctx, "prune sign-ins", "event", logs.ReaperPruneFailed, "err", err)
 	} else if n > 0 {
@@ -485,9 +534,18 @@ func (a *authServer) token(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f := r.PostForm
-	if f.Get("grant_type") != "authorization_code" {
+	switch gt := f.Get("grant_type"); {
+	case gt == grantTokenExchange && a.workload != nil:
+		a.exchange(rw, r)
+		return
+	case gt == grantTokenExchange:
+		oauthError(rw, http.StatusBadRequest, "unsupported_grant_type", proto.Errf(proto.CodeInvalid,
+			"ask the server's operator to set up the platform under workload: providers (docs/server.md, Service principals)",
+			"this server signs no service principal in by a workload's token"))
+		return
+	case gt != "authorization_code" || !a.signsInPeople():
 		oauthError(rw, http.StatusBadRequest, "unsupported_grant_type", proto.Errf(proto.CodeInvalid, proto.FixUpgrade+" aries",
-			"the server exchanges an authorization code alone"))
+			"the server does not exchange this grant"))
 		return
 	}
 	hash := hashOf(f.Get("code"))
@@ -755,7 +813,7 @@ func (s *Server) sweepSignIns(ctx context.Context) {
 
 // wireSignIn is g on the wire, at now.
 func wireSignIn(g store.Grant, now time.Time) proto.SignIn {
-	out := proto.SignIn{ID: g.ID, Principal: g.Principal, Provider: g.Provider, Client: g.ClientID, Scopes: g.Scopes, Flow: g.Flow,
+	out := proto.SignIn{ID: g.ID, Principal: g.Principal, Provider: g.Provider, TrustRule: g.TrustRule, Client: g.ClientID, Scopes: g.Scopes, Flow: g.Flow,
 		Machine: g.Machine, State: proto.SignInEnded, CreatedAt: g.CreatedAt, ExpiresAt: g.EndsAt, EndReason: g.EndReason}
 	if !g.RevokedAt.IsZero() {
 		at := g.RevokedAt

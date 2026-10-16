@@ -601,10 +601,12 @@ type ServerStatus struct {
 }
 
 // SignInStatus is the server's sign-in (transport.md §8.2): how many
-// sign-ins are live, and each provider, with where its keys come from.
+// sign-ins are live, and each provider and workload provider, with where
+// its keys come from.
 type SignInStatus struct {
 	Live      int              `json:"live"`
 	Providers []ProviderStatus `json:"providers"`
+	Workloads []ProviderStatus `json:"workloads,omitempty"`
 }
 
 // ProviderStatus is one provider: its name, kind and issuer; whether its

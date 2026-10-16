@@ -224,6 +224,11 @@ func (s *Server) identityErr(ctx context.Context, sess *session, op, name string
 	if ie, ok := errors.AsType[*store.IdentityError](err); ok {
 		return identityRuleErr(op, ie)
 	}
+	if te, ok := errors.AsType[*store.TrustError](err); ok && te.Reason == store.TrustRules {
+		return proto.Errf(proto.CodeInvalid,
+			fmt.Sprintf("remove its trust rules first: `aries admin trust list %s` lists them, and `aries admin trust remove NAME` removes one", te.Principal),
+			te.Error())
+	}
 	if le, ok := errors.AsType[*store.ControlLimitError](err); ok && le.Limit == "identities_per_principal" {
 		return proto.Errf(proto.CodeInvalid,
 			fmt.Sprintf("remove an identity or invitation %s no longer uses (`aries admin identity list %s`, then `aries admin identity remove ID`), or ask the server's operator to raise identities_per_principal under limits: in ariesd's config",

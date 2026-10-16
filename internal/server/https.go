@@ -227,12 +227,26 @@ func (w *web) handler() http.Handler {
 
 // WellKnown is what GET /.well-known/aries answers: the server's
 // version, the transports on, the ways to sign in ("key", the proof by
-// an SSH key, and "signin", a sign-in at a provider), and the providers.
+// an SSH key, "signin", a sign-in at a provider, and "workload", a
+// workload's token exchanged), the providers, and the workload
+// providers.
 type WellKnown struct {
 	Version    string         `json:"version"`
 	Transports []string       `json:"transports"`
 	Auth       []string       `json:"auth"`
 	Providers  []WellProvider `json:"providers,omitempty"`
+	Workloads  []WellWorkload `json:"workloads,omitempty"`
+}
+
+// WellWorkload is a workload provider a service principal may sign in
+// from: its name and kind, the audience a job asks its platform for,
+// and whether the audience is bound to the job's key, as
+// AUDIENCE/n/THUMBPRINT.
+type WellWorkload struct {
+	Name     string `json:"name"`
+	Kind     string `json:"kind"`
+	Audience string `json:"audience"`
+	Bound    bool   `json:"bound"`
 }
 
 // WellProvider is a provider a person may sign in at: its name in the
@@ -245,10 +259,16 @@ type WellProvider struct {
 // wellKnown answers GET /.well-known/aries.
 func (w *web) wellKnown(rw http.ResponseWriter, _ *http.Request) {
 	out := WellKnown{Version: w.s.cfg.Version, Transports: w.s.transports(), Auth: []string{"key"}}
-	if a := w.s.auth; a != nil {
+	if a := w.s.auth; a != nil && a.signsInPeople() {
 		out.Auth = append(out.Auth, "signin")
 		for _, name := range a.names {
 			out.Providers = append(out.Providers, WellProvider{Name: name, Kind: a.providers[name].Kind()})
+		}
+	}
+	if a := w.s.auth; a != nil && a.workload != nil {
+		out.Auth = append(out.Auth, "workload")
+		for _, p := range a.workload.Providers {
+			out.Workloads = append(out.Workloads, WellWorkload{Name: p.Name(), Kind: p.Kind(), Audience: p.Audience(), Bound: p.Bound()})
 		}
 	}
 	rw.Header().Set("Content-Type", "application/json")

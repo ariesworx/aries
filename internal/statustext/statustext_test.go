@@ -288,9 +288,13 @@ func TestSignInLines(t *testing.T) {
 				KeyIDs: []string{"k1"}, KeysReadAt: &read},
 			{Name: "cloud", Kind: "entra", Issuer: "https://login.example.com/t/v2.0", Discovery: "fetch", Keys: "fetch",
 				Error: "the discovery document could not be read"},
+		}, Workloads: []proto.ProviderStatus{
+			{Name: "github-actions", Kind: "github-actions", Issuer: "https://token.example.com", Discovery: "fetch", Discovered: true, Keys: "fetch",
+				KeyIDs: []string{"k1", "k2"}, KeysReadAt: &read},
 		}}}})
 	for _, want := range []string{
 		"sign-in: 3 live\n",
+		"  workload github-actions (github-actions) https://token.example.com: endpoints discovered; keys fetched from the provider, 2 keys, read 2026-10-16 12:00 UTC\n",
 		"  provider corp (oidc) https://sso.example.com/realms/example: endpoints written out; keys from a file, nothing fetched, 1 key, read 2026-10-16 12:00 UTC\n",
 		"  provider cloud (entra) https://login.example.com/t/v2.0: endpoints not discovered yet; keys fetched from the provider, not read yet\n",
 		"    failed: the discovery document could not be read\n",

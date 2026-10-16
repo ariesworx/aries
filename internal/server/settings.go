@@ -142,6 +142,9 @@ type Settings struct {
 	// Login is how people sign in (docs/design/identity.md §10.1), on a
 	// server of many projects.
 	Login LoginSettings `yaml:"login"`
+	// Workload is how service principals sign in with their platform's
+	// token (docs/design/identity.md §7), on a server of many projects.
+	Workload WorkloadSettings `yaml:"workload"`
 }
 
 // LoginSettings are the login: settings: invitations (slice N1), and
@@ -445,6 +448,9 @@ func (s Settings) CheckServe() error {
 			return errors.New("login: providers are set and HTTPS is off; a sign-in's tokens come over HTTPS; fix: add https to transports: and set https:, or remove login: providers")
 		}
 	}
+	if err := s.checkWorkload(); err != nil {
+		return err
+	}
 	if !s.HTTPSOn() {
 		return nil
 	}
@@ -636,6 +642,9 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 	}
 	out.Login, err = resolveLogin(file.Login)
 	if err != nil {
+		return Settings{}, err
+	}
+	if out.Workload, err = resolveWorkload(file.Workload); err != nil {
 		return Settings{}, err
 	}
 	out.Login.InviteTTL = cmp.Or(out.Login.InviteTTL, Duration(store.DefaultInviteTTL))

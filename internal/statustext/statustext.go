@@ -310,35 +310,44 @@ func plural(n int64, noun string) string {
 }
 
 // signInLines are the server's sign-in: how many are live, and a line
-// for each provider, with where its keys come from, and a failure's
-// line when the last read of its endpoints or keys failed.
+// for each provider and each workload provider, with where its keys
+// come from.
 func signInLines(s proto.SignInStatus) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "sign-in: %d live\n", s.Live)
 	for _, pr := range s.Providers {
-		keys := "keys fetched from the provider"
-		if pr.Keys == "file" {
-			keys = "keys from a file, nothing fetched"
-		}
-		switch n := len(pr.KeyIDs); {
-		case pr.KeysReadAt == nil:
-			keys += ", not read yet"
-		case n == 1:
-			keys += fmt.Sprintf(", 1 key, read %s", when(*pr.KeysReadAt))
-		default:
-			keys += fmt.Sprintf(", %d keys, read %s", n, when(*pr.KeysReadAt))
-		}
-		endpoints := "endpoints written out"
-		if pr.Discovery != "static" {
-			endpoints = "endpoints discovered"
-			if !pr.Discovered {
-				endpoints = "endpoints not discovered yet"
-			}
-		}
-		fmt.Fprintf(&b, "  provider %s (%s) %s: %s; %s\n", esc(pr.Name), esc(pr.Kind), esc(pr.Issuer), endpoints, keys)
-		if pr.Error != "" {
-			fmt.Fprintf(&b, "    failed: %s\n", esc(pr.Error))
-		}
+		providerLine(&b, "provider", pr)
+	}
+	for _, pr := range s.Workloads {
+		providerLine(&b, "workload", pr)
 	}
 	return b.String()
+}
+
+// providerLine writes pr's line, under what, and a failure's line when
+// the last read of its endpoints or keys failed.
+func providerLine(b *strings.Builder, what string, pr proto.ProviderStatus) {
+	keys := "keys fetched from the provider"
+	if pr.Keys == "file" {
+		keys = "keys from a file, nothing fetched"
+	}
+	switch n := len(pr.KeyIDs); {
+	case pr.KeysReadAt == nil:
+		keys += ", not read yet"
+	case n == 1:
+		keys += fmt.Sprintf(", 1 key, read %s", when(*pr.KeysReadAt))
+	default:
+		keys += fmt.Sprintf(", %d keys, read %s", n, when(*pr.KeysReadAt))
+	}
+	endpoints := "endpoints written out"
+	if pr.Discovery != "static" {
+		endpoints = "endpoints discovered"
+		if !pr.Discovered {
+			endpoints = "endpoints not discovered yet"
+		}
+	}
+	fmt.Fprintf(b, "  %s %s (%s) %s: %s; %s\n", what, esc(pr.Name), esc(pr.Kind), esc(pr.Issuer), endpoints, keys)
+	if pr.Error != "" {
+		fmt.Fprintf(b, "    failed: %s\n", esc(pr.Error))
+	}
 }
