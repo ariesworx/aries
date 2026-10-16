@@ -17,7 +17,7 @@ import (
 	"github.com/ariesworx/aries/internal/telemetry"
 )
 
-// Access management over the protocol (design §15.4, protocols 5 and 6):
+// Access management over the protocol (design §15.4):
 // what `aries admin` asks of a server of many projects. Each op rides the
 // caller's connection to a project it may reach, and acts on that
 // project unless it names another.

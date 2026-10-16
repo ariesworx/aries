@@ -205,10 +205,6 @@ func TestQueuedToolCalls(t *testing.T) {
 	}
 }
 
-// Proto says the fake speaks this build's protocol, as a server of this
-// build does.
-func (f *fakeConn) Proto() int { return proto.Proto }
-
 // A label call of several labels that cannot reach the server queues a
 // write for each, in order, each with a key of its own, and says so in
 // one line; an update without a rev is not queued, since only the

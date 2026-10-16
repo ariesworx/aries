@@ -2,8 +2,8 @@ package proto
 
 import "time"
 
-// Access management on a server of many projects (protocol 5, design
-// §15): projects, principals and memberships, for `aries admin`. Every op
+// Access management on a server of many projects (design §15):
+// projects, principals and memberships, for `aries admin`. Every op
 // rides an ordinary connection, which names a project the caller may
 // reach; an op that acts on a project takes Project, a project's UUID or
 // its name, and acts on the connection's project when it is empty. A
@@ -12,12 +12,11 @@ import "time"
 // Who may run each is the control store's to decide; a refusal is
 // forbidden, with a fix that says who can.
 //
-// The same protocol has a principal's public SSH keys, which the daemon
+// The protocol also has a principal's public SSH keys, which the daemon
 // writes to a file sshd reads (design §15.2): key.add, keys and
 // key.remove, and Keys on principal.add; and status, a read for an admin
 // watching the server; and principal.whois, which resolves the stand-in
-// a trace carries in place of a principal's name (design §16.4). They
-// joined protocol 5 before it shipped in a release (version.go).
+// a trace carries in place of a principal's name (design §16.4).
 const (
 	OpProjectAdd       = "project.add"       // ProjectAddArgs → ProjectAddResult; server admins
 	OpProjects         = "projects"          // AdminListArgs → ProjectsResult

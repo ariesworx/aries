@@ -300,7 +300,7 @@ func TestRefusedEntries(t *testing.T) {
 
 // What one session queued is sent by whichever connection of the same
 // principal comes next, and the server records that connection's session
-// on it: protocol 5 carries no other. Another principal's connection
+// on it: the protocol carries no other. Another principal's connection
 // sends none of it.
 func TestAnotherSessionDeliversTheOutbox(t *testing.T) {
 	t.Parallel()

@@ -1,9 +1,8 @@
 package e2e
 
-// Slice F2 (design §18.5, §18.10): protocol 6's keys on the ops an
-// outbox may queue, the idempotency window, and stale; through the CLI,
-// SSH and a real daemon. A client of 7 stepping down to a server of 6
-// is in conflicts_test.go; it no longer speaks 5.
+// Slice F2 (design §18.5, §18.10): the keys on the ops an outbox may
+// queue, the idempotency window, and stale; through the CLI, SSH and a
+// real daemon.
 
 import (
 	"strconv"
@@ -16,9 +15,9 @@ import (
 )
 
 // TestReplayAfterADayAppliesOnce is F2's gate, its first half: "A replay
-// after 24 hours applies once." Writes protocol 6 gives a key, queued
-// while the server is away, arrive once a day later, which protocol 5's
-// 24 hours would have refused; and one whose answer was lost after the
+// after 24 hours applies once." Writes with a key, queued while the server
+// is away, arrive once a day later, which a window of 24 hours would
+// have refused; and one whose answer was lost after the
 // server applied it, sent again a day later with its key, is not applied
 // again.
 func TestReplayAfterADayAppliesOnce(t *testing.T) {
@@ -140,21 +139,4 @@ func TestReplayPastTheWindowIsKept(t *testing.T) {
 	if s := decode[proto.ShowResult](t, bob.ok("show", id, "--json")); strings.Join(s.Issue.Labels, ",") != "never-sent" {
 		t.Errorf("labels = %v, want the retried one", s.Issue.Labels)
 	}
-}
-
-// firstRefused is the number of the first refused entry `aries outbox`
-// lists in out.
-func firstRefused(t *testing.T, out string) string {
-	t.Helper()
-	_, after, ok := strings.Cut(out, "refused:\n")
-	if !ok {
-		t.Fatalf("no refused entries in:\n%s", out)
-	}
-	for _, line := range strings.Split(after, "\n") {
-		if f := strings.Fields(line); len(f) > 0 && f[0] != "N" {
-			return f[0]
-		}
-	}
-	t.Fatalf("no refused entry in:\n%s", out)
-	return ""
 }

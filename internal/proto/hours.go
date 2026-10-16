@@ -9,7 +9,7 @@ import (
 	"github.com/ariesworx/aries/internal/lazyregexp"
 )
 
-// Human hours and subscription plans (protocol 4, design §12.1). A
+// Human hours and subscription plans (design §12.1). A
 // person logs their own time on an issue for a day (aries log); an admin
 // records what a flat-rate plan costs a month and whose usage it pays
 // for, and cost reports split that across the work beside the

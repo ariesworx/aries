@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -140,55 +139,36 @@ func inboxSays(items []proto.InboxItem, kind, issue, what string) bool {
 	return false
 }
 
-// A client of protocol 8 against a server of 7 speaks 7 (design §18.6):
-// a finish queued after its claim was taken goes there without park, and
-// is refused as before, and waits for a person; once the server is at 8,
-// a retry keeps it as a comment. A server of 6 alone is too old for this
-// client, and refuses it with version. It replaces F4's test of protocol
-// 6, which this client no longer speaks.
-func TestClientStepsDownToProtocol7(t *testing.T) {
+// A client speaks protocol 8 alone (decisions 78 and 88): against a
+// server of 7 alone it is refused at the handshake with exit code 3 and
+// a fix, rather than say hello again in 7, and what it queued while the
+// server was away waits, unsent and not refused, until a server of 8
+// takes it.
+func TestServerOfAnotherProtocol(t *testing.T) {
 	t.Parallel()
-	clk := &clock{t: time.Date(2026, 10, 14, 9, 0, 0, 0, time.UTC)}
-	w := newWorld(t, daemonOpts{now: clk.now, protoMin: 7, protoMax: 7})
-	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
-	alice.now, bob.now = clk.now, clk.now
-	id := strings.TrimSpace(alice.ok("create", "On a server of protocol 7"))
-	alice.ok("start", id, "--for", "1h")
-	rev := decode[proto.ShowResult](t, bob.ok("show", id, "--json")).Issue.Rev
+	w := newWorld(t, daemonOpts{})
+	alice := w.newUser("alice", "")
+	id := strings.TrimSpace(alice.ok("create", "Commented while away"))
 
 	w.stop()
-	if out := alice.ok("finish", id, "--reason", "done while away"); !strings.HasPrefix(out, "queued (") {
-		t.Fatalf("a finish with the server away printed %q, want it queued", out)
+	if out := alice.ok("comment", id, "written while away"); !strings.HasPrefix(out, "queued (") {
+		t.Fatalf("a comment with the server away printed %q, want it queued", out)
 	}
-	if out := alice.ok("update", id, "--rev", strconv.FormatInt(rev, 10), "--title", "Renamed while away"); !strings.HasPrefix(out, "queued (") {
-		t.Fatalf("an update with the server away printed %q, want it queued", out)
-	}
-	clk.add(2 * time.Hour)
+	w.opts.protoMin, w.opts.protoMax = 7, 7
 	w.start()
-	bob.ok("start", id)
-	if r := alice.run("v0.2.0", "ready"); r.stderr != "aries: outbox: refused 2 (see `aries outbox`)\n" {
-		t.Errorf("the replay to a server of 7 said %q, want the finish and the update refused", r.stderr)
+	r := alice.run("v0.2.0", "ready")
+	if r.code != cli.ExitVersion || !strings.Contains(r.stderr, "aries speaks protocol 8; the server (") ||
+		!strings.Contains(r.stderr, "is older and accepts protocol 7") || !strings.Contains(r.stderr, "\nfix: ") {
+		t.Errorf("against a server of 7 alone = exit %d, %q; want refused at the handshake with version and a fix", r.code, r.stderr)
 	}
-	out := alice.ok("outbox")
-	if !strings.Contains(out, "     forbidden: ") {
-		t.Errorf("aries outbox with the server at 7:\n%s", out)
+	if out := alice.ok("outbox"); !strings.Contains(out, "1 waiting, 0 refused") {
+		t.Errorf("aries outbox after the refusal:\n%s\nwant the comment waiting, not refused", out)
 	}
 
 	w.stop()
 	w.opts.protoMin, w.opts.protoMax = 0, 0
 	w.start()
-	alice.ok("outbox", "retry", firstRefused(t, out))
-	if r := alice.run("v0.2.0", "ready"); r.stderr != "aries: outbox: delivered 1 (1 kept as a comment, as the issue moved on while it waited: `aries inbox` says why)\n" {
-		t.Errorf("the retry at 8 said %q, want it kept as a comment", r.stderr)
-	}
-	if s := decode[proto.ShowResult](t, bob.ok("show", id, "--json")); s.Issue.Status != "in_progress" || s.Claim == nil || s.Claim.By != "bob" {
-		t.Errorf("after the retry the issue is %s with claim %+v; want bob's", s.Issue.Status, s.Claim)
-	}
-
-	w.stop()
-	w.opts.protoMin, w.opts.protoMax = 6, 6
-	w.start()
-	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitVersion || !strings.Contains(r.stderr, "the server (") {
-		t.Errorf("against a server of 6 alone = exit %d, %q; want refused with version", r.code, r.stderr)
+	if r := alice.run("v0.2.0", "ready"); r.code != cli.ExitOK || r.stderr != "aries: outbox: delivered 1\n" {
+		t.Errorf("against a server of 8 = exit %d, %q; want the comment delivered", r.code, r.stderr)
 	}
 }

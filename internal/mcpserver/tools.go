@@ -93,9 +93,9 @@ func (in *HandoffIn) prepare() error {
 	return nil
 }
 
-// The update, dep and label inputs take a key too (protocol 6), so that a
-// call that does not reach the server can be queued (design §18.5). A
-// label call's labels each go with the key and their place in the call.
+// The update, dep and label inputs take a key too, so that a call that
+// does not reach the server can be queued (design §18.5). A label
+// call's labels each go with the key and their place in the call.
 func (in *UpdateIn) prepare() error {
 	in.idem = proto.NewIdem("mcp")
 	return nil
@@ -680,7 +680,7 @@ func (s *Server) register() {
 			args := proto.DepArgs{From: in.ID, To: in.DependsOn, Type: in.Type, Idem: in.idem}
 			op := proto.OpDepAdd
 			if in.Action == "rm" {
-				op, args.Idem = proto.OpDepRm, ""
+				op = proto.OpDepRm
 			}
 			return Ref{ID: in.ID}, c.Call(ctx, op, args, nil)
 		})

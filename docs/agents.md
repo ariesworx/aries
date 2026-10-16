@@ -383,8 +383,7 @@ An `update` without a `rev` reads the issue's rev first, which needs the
 server: with the server away it fails, saying it was not queued and to
 give `rev`. A queued `update` is replayed so that what someone else
 changed meanwhile is parked as a [conflict](#conflicts) rather than
-refused; against a server that speaks only protocol 6 it is refused
-when stale, as before, and waits in `aries outbox` for the person.
+refused.
 
 **A late finish.** While the server is away `aries mcp` cannot renew the
 agent's leases, so a claim lapses 15 minutes after the last renewal and
@@ -398,11 +397,9 @@ tool result's `inbox: N new` line and in `prime`: a `conflict` item on
 the issue, `your finish made at epoch 3, delivered late, was kept as
 comment …: the claim was taken since, by bob/… at epoch 4`. Its next
 step is to leave that issue alone: the new holder got an item too,
-naming the comment, so the work done is not lost to them. Against a
-server that speaks only protocol 7, such a write is refused as before
-and waits in `aries outbox` for the person. A person can extend every
-claim of theirs ahead of a planned absence with `aries away`, which
-agents have no tool for.
+naming the comment, so the work done is not lost to them. A person can
+extend every claim of theirs ahead of a planned absence with `aries
+away`, which agents have no tool for.
 
 Nothing else is queued. `start` fails, and tells the agent that it was
 not queued and to go on with the work it holds: no claim is taken

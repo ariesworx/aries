@@ -36,9 +36,7 @@ type Entry struct {
 
 // queued are the ops the outbox queues: the ones whose replay cannot do
 // harm nobody asked for (design §18.3), each of which carries an
-// idempotency key. The first six have one in protocol 5, and the rest
-// from protocol 6 (proto.Keyed): the caller sends an entry only to a
-// server that takes its key.
+// idempotency key.
 var queued = map[string]bool{
 	proto.OpCreate:   true,
 	proto.OpComment:  true,

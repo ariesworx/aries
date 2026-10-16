@@ -424,7 +424,7 @@ func depAdd(ctx context.Context, pr *served, a store.Actor, in proto.DepArgs) (a
 }
 
 func depRm(ctx context.Context, pr *served, a store.Actor, in proto.DepArgs) (any, *proto.Error) {
-	if err := pr.store.RemoveDep(ctx, a, store.IssueID(in.From), store.IssueID(in.To), depType(in.Type)); err != nil {
+	if err := pr.store.RemoveDep(ctx, a, store.IssueID(in.From), store.IssueID(in.To), depType(in.Type), in.Idem); err != nil {
 		return nil, pr.mapErr(ctx, proto.OpDepRm, in.From, 0, err)
 	}
 	return proto.Empty{}, nil

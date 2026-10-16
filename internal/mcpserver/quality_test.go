@@ -67,6 +67,25 @@ func TestWritesRetryWithTheirKey(t *testing.T) {
 	}
 }
 
+// dep sends its idempotency key whichever way it goes: dep.rm honors one
+// as dep.add does (decision 88), so a remove that reaches the server
+// twice applies once.
+func TestDepSendsItsKey(t *testing.T) {
+	t.Parallel()
+	for _, action := range []string{"add", "rm"} {
+		t.Run(action, func(t *testing.T) {
+			f := &fakeConn{reply: func(string, any) (any, error) { return proto.Empty{}, nil }}
+			cs, _ := connect(t, f)
+			if res := callTool(t, cs, "dep", map[string]any{"action": action, "id": "ar-1", "depends_on": "ar-2"}); res.IsError {
+				t.Fatalf("dep %s: %s", action, text(t, res))
+			}
+			if a, ok := f.calls[0].args.(proto.DepArgs); !ok || !strings.HasPrefix(a.Idem, "mcp-") {
+				t.Errorf("dep %s sent %+v, want an idempotency key", action, f.calls[0].args)
+			}
+		})
+	}
+}
+
 // finish passes ticked and waived items; a waived key that is not an item
 // number is refused before anything is sent.
 func TestFinishAcceptance(t *testing.T) {

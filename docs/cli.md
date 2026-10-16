@@ -445,15 +445,11 @@ Only a write replayed from the outbox is treated so: a `finish` or
 `handoff` you run while the server answers is refused, as always, when
 another session has taken the issue since your epoch.
 
-**A server of protocol 7.** Late finishes are protocol 8's, and conflicts
-protocol 7's. Against a server that speaks only protocol 7, `aries`
-speaks 7, and a queued `finish` or `handoff` it replays there after
-the issue moved on is refused, as before: it moves to the refused list,
-and `aries outbox retry N` sends it again once the server is upgraded,
-when it is kept as a comment. This `aries` does not speak protocol 6:
-a server of 6 alone refuses it with `version` (exit code 3). A record
-of a server last seen at 5, from an older `aries`, still keeps an
-`update` from being queued for it, saying so.
+**A server of another protocol.** `aries` speaks protocol 8 alone. A
+server that does not accept it refuses the connection with `version`
+(exit code 3) and says which side to upgrade; what waits in the outbox
+stays there, unsent and not refused, until a server that speaks 8 is
+reached.
 
 **What counts as not reached.** The connection could not be made (the
 network, the tunnel, sshd, or `ariesd` not running), it was lost

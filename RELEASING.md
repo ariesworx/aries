@@ -40,11 +40,12 @@ that major version.
 
 They also say, first, when the release changes the protocol
 (`internal/proto/version.go`): the version it speaks and the range it
-accepts, and which earlier releases keep working. Normally all of the
-one before do, since `ProtoMin` stays one version behind. **v1.0.0 is
-the exception:** under decision 78 its protocol is settled at the
-release, to one version, and no number is given until then; it refuses
-every client and server of v0.4.x and earlier. Its notes
+accepts, and which earlier releases keep working. From v1.0.0 on, the
+one before always does, since a bump keeps `ProtoMin` at the version
+before (rule 10). **v1.0.0 is the exception:** under decisions 78 and
+88 its protocol is settled at 8, spoken alone, and it refuses every
+client and server of v0.4.x and earlier, and every build of 5 to 7,
+which no release spoke. Its notes
 ([docs/releases/v1.0.0.md](docs/releases/v1.0.0.md)) lead with that and
 link [Upgrading to 1.0](docs/upgrade-to-1.0.md).
 

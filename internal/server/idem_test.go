@@ -12,10 +12,9 @@ import (
 	"github.com/ariesworx/aries/internal/store"
 )
 
-// speaking opens a connection to s as alice, says hello speaking
-// protocol v, and returns what sends one request on it and reads its
-// answer.
-func speaking(t *testing.T, s *Server, v int) func(op string, args any) *proto.Frame {
+// wire opens a connection to s as alice, says hello, and returns what
+// sends one request on it and reads its answer, as the wire carries it.
+func wire(t *testing.T, s *Server) func(op string, args any) *proto.Frame {
 	t.Helper()
 	srv, cli := net.Pipe()
 	var wg sync.WaitGroup
@@ -39,13 +38,13 @@ func speaking(t *testing.T, s *Server, v int) func(op string, args any) *proto.F
 		}
 	}
 	for _, f := range []*proto.Frame{{T: proto.FrameBridge, Principal: alice.Principal},
-		{T: proto.FrameHello, Proto: v, Project: project, Session: alice.Session, Machine: alice.Machine}} {
+		{T: proto.FrameHello, Proto: proto.Proto, Project: project, Session: alice.Session, Machine: alice.Machine}} {
 		if err := enc.Encode(f); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if w := read(); w.T != proto.FrameWelcome || w.Err != nil {
-		t.Fatalf("hello speaking protocol %d = %+v, want a welcome", v, w)
+		t.Fatalf("hello = %+v, want a welcome", w)
 	}
 	var id uint64
 	return func(op string, args any) *proto.Frame {
@@ -62,9 +61,9 @@ func speaking(t *testing.T, s *Server, v int) func(op string, args any) *proto.F
 	}
 }
 
-// TestKeyedOpsReplayOnce: the six ops protocol 6 gives a key, sent twice
-// with it, are applied once, and the second answer is the first. A
-// client of protocol 5, which sends no key, is served as before.
+// TestKeyedOpsReplayOnce: the six ops the outbox queues besides those
+// that make something, sent twice with their key, are applied once, and
+// the second answer is the first.
 func TestKeyedOpsReplayOnce(t *testing.T) {
 	t.Parallel()
 	s := newServer(t)
@@ -105,13 +104,53 @@ func TestKeyedOpsReplayOnce(t *testing.T) {
 			}
 		})
 	}
-	// A client of protocol 5 sends no key, and is served by a server that
-	// still accepts 5, as one built before protocol 7 does.
-	s.cfg.ProtoMin = 5
-	send := speaking(t, s, 5)
-	cur := mustCall[proto.ShowResult](t, s, alice, proto.OpShow, proto.ShowArgs{ID: is.ID})
-	if f := send(proto.OpUpdate, proto.UpdateArgs{ID: is.ID, Rev: cur.Issue.Rev, Title: &title}); f.Err != nil {
-		t.Errorf("update from a client of protocol 5 = %v, want it applied", f.Err)
+}
+
+// TestDepRmReplaysOnce: dep.rm honors its idempotency key as dep.add
+// does (decision 88). A remove sent again with its key, after someone
+// put the edge back, answers as the first did and leaves the edge where
+// it is, rather than removing it a second time; the key sent for
+// another edge is a clash.
+func TestDepRmReplaysOnce(t *testing.T) {
+	t.Parallel()
+	s := newServer(t)
+	is := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work"})
+	blocker := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "blocker"})
+	other := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "another blocker"})
+	edge := proto.DepArgs{From: is.ID, To: blocker.ID}
+	add := func(key string) {
+		t.Helper()
+		in := edge
+		in.Idem = key
+		mustCall[proto.Empty](t, s, alice, proto.OpDepAdd, in)
+	}
+	add("k-add-1")
+	rm := edge
+	rm.Idem = "k-rm"
+	first, perr := call[json.RawMessage](t, s, alice, proto.OpDepRm, rm)
+	if perr != nil {
+		t.Fatalf("dep.rm: %v", perr)
+	}
+	add("k-add-2")
+	evs := eventCount(t, s)
+	again, perr := call[json.RawMessage](t, s, store.Actor{Principal: "alice", Session: "s-other", Machine: "laptop-b"}, proto.OpDepRm, rm)
+	if perr != nil {
+		t.Fatalf("dep.rm again: %v", perr)
+	}
+	if string(again) != string(first) {
+		t.Errorf("dep.rm again = %s, want the first answer %s", again, first)
+	}
+	if got := eventCount(t, s); got != evs {
+		t.Errorf("dep.rm again wrote events: %d, want %d", got, evs)
+	}
+	show := mustCall[proto.ShowResult](t, s, alice, proto.OpShow, proto.ShowArgs{ID: is.ID})
+	if len(show.Deps) != 1 || show.Deps[0].To != blocker.ID {
+		t.Errorf("after dep.rm was sent again with its key, %s depends on %+v; want the edge to %s put back after it, kept", is.ID, show.Deps, blocker.ID)
+	}
+	clash := rm
+	clash.To = other.ID
+	if _, perr := call[json.RawMessage](t, s, alice, proto.OpDepRm, clash); perr == nil || perr.Code != proto.CodeConflict {
+		t.Errorf("dep.rm with the key of another edge = %v, want conflict", perr)
 	}
 }
 
@@ -126,10 +165,9 @@ func eventCount(t *testing.T, s *Server) int {
 }
 
 // TestStaleKey: a key used longer ago than the server's window (limits:
-// idem_window) is refused as stale to a client of protocol 6, with a fix
-// that says the request was applied then and how to make the change
-// again; a client of protocol 5 is sent conflict, which it knows. Within
-// the window the same key replays; with other arguments it is conflict.
+// idem_window) is refused as stale, with a fix that says the request was
+// applied then and how to make the change again. Within the window the
+// same key replays; with other arguments it is conflict.
 func TestStaleKey(t *testing.T) {
 	t.Parallel()
 	clk := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
@@ -139,31 +177,27 @@ func TestStaleKey(t *testing.T) {
 	is := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work"})
 	comment := proto.CommentArgs{ID: is.ID, Body: "written once", Idem: "k-1"}
 	mustCall[proto.CommentResult](t, s, alice, proto.OpComment, comment)
-	s.cfg.ProtoMin = 5 // as a server built before protocol 7 accepts
-	v6, v5 := speaking(t, s, 6), speaking(t, s, 5)
+	send := wire(t, s)
 
 	mu.Lock()
 	clk = clk.Add(47 * time.Hour)
 	mu.Unlock()
-	if f := v6(proto.OpComment, comment); f.Err != nil {
+	if f := send(proto.OpComment, comment); f.Err != nil {
 		t.Errorf("the key within the window = %v, want its answer again", f.Err)
 	}
 	other := comment
 	other.Body = "written otherwise"
-	if f := v6(proto.OpComment, other); f.Err == nil || f.Err.Code != proto.CodeConflict {
+	if f := send(proto.OpComment, other); f.Err == nil || f.Err.Code != proto.CodeConflict {
 		t.Errorf("the key for another request = %+v, want conflict", f.Err)
 	}
 
 	mu.Lock()
 	clk = clk.Add(2 * time.Hour)
 	mu.Unlock()
-	f := v6(proto.OpComment, comment)
+	f := send(proto.OpComment, comment)
 	if f.Err == nil || f.Err.Code != proto.CodeStale ||
 		!strings.Contains(f.Err.Message, `idempotency key "k-1" was used at 2026-10-07T12:00:00Z, longer ago than the 2d a key's result is kept: its request was applied then`) ||
 		!strings.HasPrefix(f.Err.Fix, "nothing to do if that was this request") {
-		t.Errorf("the key past the window, to a client of protocol 6 = %+v; want stale, saying it was applied, with a fix", f.Err)
-	}
-	if f := v5(proto.OpComment, comment); f.Err == nil || f.Err.Code != proto.CodeConflict {
-		t.Errorf("the key past the window, to a client of protocol 5 = %+v; want conflict, which protocol 5 knows", f.Err)
+		t.Errorf("the key past the window = %+v; want stale, saying it was applied, with a fix", f.Err)
 	}
 }

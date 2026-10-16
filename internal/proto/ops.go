@@ -30,11 +30,11 @@ const (
 	OpFinish   = "finish"    // FinishArgs → FinishResult
 	OpHandoff  = "handoff"   // HandoffArgs → WriteResult
 	OpDigest   = "digest"    // DigestArgs → DigestResult
-	OpRenew    = "renew"     // RenewArgs → ClaimsResult (protocol 2)
-	OpWho      = "who"       // WhoArgs → WhoResult (protocol 2)
-	OpAccept   = "accept"    // AcceptArgs → AcceptResult (protocol 2)
-	OpUsage    = "usage"     // UsageArgs → UsageResult (protocol 3)
-	OpClaims   = "claims"    // LimitArgs → ClaimsResult (protocol 3)
+	OpRenew    = "renew"     // RenewArgs → ClaimsResult
+	OpWho      = "who"       // WhoArgs → WhoResult
+	OpAccept   = "accept"    // AcceptArgs → AcceptResult
+	OpUsage    = "usage"     // UsageArgs → UsageResult
+	OpClaims   = "claims"    // LimitArgs → ClaimsResult
 )
 
 // WhoArgs selects the agents seen within Since, a duration such as 5m,
@@ -165,15 +165,14 @@ type CreateArgs struct {
 	Owner      string   `json:"owner,omitempty"`
 	Labels     []string `json:"labels,omitempty"`
 	// Account is a code name for the issue's time and tokens; empty
-	// inherits the parent's, then the server's default (protocol 3).
+	// inherits the parent's, then the server's default.
 	Account string `json:"account,omitempty"`
 	// Paths are the files the work is expected to touch, each a path or a
-	// directory prefix ending in "/" ([CheckPath]); at most MaxPaths
-	// (protocol 3).
+	// directory prefix ending in "/" ([CheckPath]); at most MaxPaths.
 	Paths []string `json:"paths,omitempty"`
 	// DeferUntil keeps the issue out of ready until then, and Due is when
 	// it is due: each a date (2006-01-02) or a time (RFC 3339), as
-	// ParseDate reads them (protocol 8).
+	// ParseDate reads them.
 	DeferUntil string `json:"defer_until,omitempty"`
 	Due        string `json:"due,omitempty"`
 }
@@ -185,7 +184,7 @@ type WriteResult struct {
 }
 
 // CreateResult is create's WriteResult and up to three similar closed
-// issues, best first (protocol 2).
+// issues, best first.
 type CreateResult struct {
 	WriteResult
 	Similar []Summary `json:"similar,omitempty"`
@@ -201,34 +200,33 @@ type ShowArgs struct {
 type ShowResult struct {
 	Issue Issue `json:"issue"`
 	Deps  []Dep `json:"deps,omitempty"`
-	// Claim is the issue's active claim, if any (protocol 2).
+	// Claim is the issue's active claim, if any.
 	Claim *Claim `json:"claim,omitempty"`
 	// Handoff is the issue's latest handoff note and its fields, if any.
 	Handoff *Handoff `json:"handoff,omitempty"`
-	// Items are the acceptance criteria and their state (protocol 2).
+	// Items are the acceptance criteria and their state.
 	Items []AcceptanceItem `json:"items,omitempty"`
-	// Similar are up to three similar closed issues, best first
-	// (protocol 2).
+	// Similar are up to three similar closed issues, best first.
 	Similar []Summary `json:"similar,omitempty"`
 	// DepsMore counts the edges left out of Deps, which holds at most
-	// MaxShowDeps (protocol 2).
+	// MaxShowDeps.
 	DepsMore int `json:"deps_more,omitempty"`
 	// Usage is the time and tokens attributed to the issue and the account
-	// they report against (protocol 3).
+	// they report against.
 	Usage *IssueUsage `json:"usage,omitempty"`
 	// Files are the issue's likely files and the issues others hold that
-	// overlap them (protocol 3).
+	// overlap them.
 	Files *Files `json:"files,omitempty"`
 	// Conflicts are the issue's open conflicts, at most MaxShowConflicts,
-	// their sides cut as long text is without Full (protocol 7).
+	// their sides cut as long text is without Full.
 	Conflicts []Conflict `json:"conflicts,omitempty"`
 	// Gate is the issue's gate, when it is one; Gates are the open gates
-	// that hold it, directly or through a parent or a blocker (protocol 8).
+	// that hold it, directly or through a parent or a blocker.
 	Gate  *Gate  `json:"gate,omitempty"`
 	Gates []Gate `json:"gates,omitempty"`
 	// Checks are the ci gates whose subject the issue is, open or
 	// closed, by check: a closed issue whose landed check is open is
-	// closed and not landed (protocol 8, slice G1).
+	// closed and not landed (slice G1).
 	Checks []Gate `json:"checks,omitempty"`
 }
 
@@ -266,10 +264,10 @@ const (
 // Capped says more records matched than the server reads, so the tokens
 // are a lower bound. CostUSD is the tokens' list-price equivalent, an
 // exact decimal of US dollars, left out when there are no tokens;
-// Unpriced says some tokens had no price at their time (protocol 4).
+// Unpriced says some tokens had no price at their time.
 // LoggedSeconds is the time people logged on the issue by hand, and
 // Logged the same by principal, most first, at most MaxUsageModels with
-// the rest summed as OtherModels (protocol 4).
+// the rest summed as OtherModels.
 type IssueUsage struct {
 	Account       string        `json:"account"`
 	AccountFrom   string        `json:"account_from,omitempty"`
@@ -312,7 +310,7 @@ var (
 // UsageArgs reports usage records for the caller's session; the
 // principal, session and machine come from the connection. Idem, an
 // idempotency key, makes a repeat from any session of the principal
-// return the first result (protocol 6).
+// return the first result.
 type UsageArgs struct {
 	Records []UsageRecord `json:"records"`
 	Idem    string        `json:"idem,omitempty"`
@@ -345,7 +343,7 @@ type AcceptanceItem struct {
 
 // AcceptArgs ticks, unticks and waives an issue's acceptance items by
 // number; Waive maps a number to the reason it is waived. Idem, an
-// idempotency key, makes a repeat return the first result (protocol 6).
+// idempotency key, makes a repeat return the first result.
 type AcceptArgs struct {
 	ID     string         `json:"id"`
 	Tick   []int          `json:"tick,omitempty"`
@@ -392,12 +390,12 @@ type BlockedIssue struct {
 	BlockedBy []string `json:"blocked_by"`
 	Via       string   `json:"via,omitempty"`
 	// More counts the blockers left out of BlockedBy, which holds at most
-	// MaxBlockers (protocol 2).
+	// MaxBlockers.
 	More int `json:"more,omitempty"`
 }
 
 // BlockedResult lists blocked issues. Gates are the open gates among
-// their blockers, with who may pass each (protocol 8).
+// their blockers, with who may pass each.
 type BlockedResult struct {
 	Issues []BlockedIssue `json:"issues"`
 	Gates  []Gate         `json:"gates,omitempty"`
@@ -406,7 +404,7 @@ type BlockedResult struct {
 // UpdateArgs changes the fields that are set. Rev is the revision the
 // caller read; a stale one is a conflict. An empty string clears Assignee,
 // Owner and Parent. Idem, an idempotency key, makes a repeat return the
-// first result, whatever the issue's rev has become (protocol 6).
+// first result, whatever the issue's rev has become.
 type UpdateArgs struct {
 	ID         string  `json:"id"`
 	Rev        int64   `json:"rev"`
@@ -421,18 +419,16 @@ type UpdateArgs struct {
 	Assignee   *string `json:"assignee,omitempty"`
 	Owner      *string `json:"owner,omitempty"`
 	Parent     *string `json:"parent,omitempty"`
-	// Account sets the issue's account; empty clears it, to inherit
-	// (protocol 3).
+	// Account sets the issue's account; empty clears it, to inherit.
 	Account *string `json:"account,omitempty"`
-	// Paths replaces the issue's declared paths; empty clears them
-	// (protocol 3).
+	// Paths replaces the issue's declared paths; empty clears them.
 	Paths *[]string `json:"paths,omitempty"`
 	// DeferUntil and Due set the issue's dates, as CreateArgs's; empty
-	// clears one (protocol 8).
+	// clears one.
 	DeferUntil *string `json:"defer_until,omitempty"`
 	Due        *string `json:"due,omitempty"`
 	Idem       string  `json:"idem,omitempty"`
-	// Park, which a replayed update sends (protocol 7), asks the server
+	// Park, which a replayed update sends, asks the server
 	// to compare each field with the issue's state at Rev, rather than
 	// refuse a stale Rev: a field someone changed since is parked as a
 	// conflict, and the rest apply (design §18.7). The result is an
@@ -474,8 +470,8 @@ type ReopenArgs struct {
 }
 
 // DepArgs names an edge: From depends on To. Type defaults to "blocks".
-// Idem, an idempotency key, makes a repeat of dep.add return the first
-// result (protocol 6); dep.rm takes none.
+// Idem, an idempotency key, makes a repeat of dep.add or dep.rm return
+// the first result and write nothing more.
 type DepArgs struct {
 	From string `json:"from"`
 	To   string `json:"to"`
@@ -484,7 +480,7 @@ type DepArgs struct {
 }
 
 // LabelArgs names one label on one issue. Idem, an idempotency key,
-// makes a repeat return the first result (protocol 6).
+// makes a repeat return the first result.
 type LabelArgs struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
@@ -512,7 +508,7 @@ type IDArgs struct {
 // PageArgs reads an issue's comments or history a page at a time, newest
 // page first: at most Limit entries (0 takes the server's default, 100;
 // at most 500, and about 1 MiB of text) from before the cursor Before,
-// which is a result's Earlier; empty starts at the newest (protocol 2).
+// which is a result's Earlier; empty starts at the newest.
 type PageArgs struct {
 	ID     string `json:"id"`
 	Limit  int    `json:"limit,omitempty"`
@@ -521,7 +517,7 @@ type PageArgs struct {
 
 // CommentsResult lists one page of comments, oldest first. Earlier is
 // the cursor of the page before it, empty when there is none; Total
-// counts all the issue's comments (protocol 2).
+// counts all the issue's comments.
 type CommentsResult struct {
 	Comments []Comment `json:"comments"`
 	Earlier  string    `json:"earlier,omitempty"`
@@ -548,8 +544,8 @@ type StartArgs struct {
 }
 
 // StartResult is the issue taken, in full, its latest handoff note with
-// its fields, the claim and the acceptance items (protocol 2), and the
-// memories relevant to it, pinned first and then newest (protocol 4).
+// its fields, the claim and the acceptance items, and the
+// memories relevant to it, pinned first and then newest.
 type StartResult struct {
 	Issue    Issue            `json:"issue"`
 	Handoff  *Handoff         `json:"handoff,omitempty"`
@@ -560,7 +556,7 @@ type StartResult struct {
 
 // Claim is a lease on an issue. Epoch rises each time a new holder takes
 // it; finish and handoff may pass it to refuse acting on a claim since
-// lost. ClaimedAt is when this holder took it (protocol 3).
+// lost. ClaimedAt is when this holder took it.
 type Claim struct {
 	ID        string    `json:"id"`
 	By        string    `json:"by"`
@@ -578,7 +574,7 @@ type Claim struct {
 //
 // Paths maps an issue to the paths its work touched, as the client found
 // them in git, most recent first; the server records them only for the
-// claims it renews, at most MaxPaths in all (protocol 3).
+// claims it renews, at most MaxPaths in all.
 type RenewArgs struct {
 	Lease string              `json:"lease,omitempty"`
 	All   bool                `json:"all,omitempty"`
@@ -629,9 +625,9 @@ type FinishArgs struct {
 	Waived     map[int]string `json:"waived,omitempty"`
 	Idem       string         `json:"idem,omitempty"`
 	// Paths are the paths the issue's work touched, as the client found
-	// them in git, most recent first; at most MaxPaths (protocol 3).
+	// them in git, most recent first; at most MaxPaths.
 	Paths []string `json:"paths,omitempty"`
-	// Park, which a finish replayed from an outbox sends (protocol 8),
+	// Park, which a finish replayed from an outbox sends,
 	// asks the server to keep the finish as a comment where the issue
 	// moved on since Epoch, rather than refuse it (design §18.6).
 	Park bool `json:"park,omitempty"`
@@ -661,9 +657,9 @@ type HandoffArgs struct {
 	Note    string `json:"note"`
 	Release bool   `json:"release,omitempty"`
 	Idem    string `json:"idem,omitempty"`
-	// Paths are as FinishArgs' (protocol 3).
+	// Paths are as FinishArgs'.
 	Paths []string `json:"paths,omitempty"`
-	// Park is as FinishArgs' (protocol 8).
+	// Park is as FinishArgs'.
 	Park bool `json:"park,omitempty"`
 	HandoffFields
 }
@@ -713,10 +709,9 @@ type DigestTotals struct {
 	HandedOff  int `json:"handed_off"`
 	Created    int `json:"created"`
 	Discovered int `json:"discovered"`
-	// Conflicts counts the conflicts open past the server's conflict_age
-	// (protocol 7).
+	// Conflicts counts the conflicts open past the server's conflict_age.
 	Conflicts int `json:"conflicts,omitempty"`
-	// Ready, DueSoon and Overdue count the date sections (protocol 8).
+	// Ready, DueSoon and Overdue count the date sections.
 	Ready   int `json:"ready,omitempty"`
 	DueSoon int `json:"due_soon,omitempty"`
 	Overdue int `json:"overdue,omitempty"`
@@ -739,16 +734,15 @@ type DigestResult struct {
 	Discovered []DigestItem `json:"discovered,omitempty"`
 	// Conflicts lists the conflicts open past the server's conflict_age,
 	// oldest first: By parked it, At is when, Note names the field and
-	// the conflict (protocol 7).
+	// the conflict.
 	Conflicts []DigestItem `json:"conflicts,omitempty"`
 	// Ready lists the issues ready now whose defer_until passed in the
 	// window; DueSoon those due within the server's due_soon; Overdue
-	// those past their due date. At is the date, By the assignee
-	// (protocol 8).
+	// those past their due date. At is the date, By the assignee.
 	Ready   []DigestItem `json:"ready,omitempty"`
 	DueSoon []DigestItem `json:"due_soon,omitempty"`
 	Overdue []DigestItem `json:"overdue,omitempty"`
-	// Usage totals the window's time and tokens (protocol 3).
+	// Usage totals the window's time and tokens.
 	Usage *DigestUsage `json:"usage,omitempty"`
 	// Truncated: a total is a lower bound, or items were left out to fit
 	// a budget.
@@ -767,11 +761,11 @@ type DigestUsage struct {
 	// issues or with time none was held, so the parts are estimates.
 	Split bool `json:"split,omitempty"`
 	// CostUSD and Unpriced are Models' list-price equivalent, as
-	// IssueUsage's (protocol 4).
+	// IssueUsage's.
 	CostUSD  string `json:"cost_usd,omitempty"`
 	Unpriced bool   `json:"unpriced,omitempty"`
 	// LoggedSeconds is the time people logged by hand on the days the
-	// window overlaps, filtered as the rest (protocol 4).
+	// window overlaps, filtered as the rest.
 	LoggedSeconds int64 `json:"logged_seconds,omitempty"`
 }
 

@@ -15,8 +15,8 @@ import (
 
 // Idempotency (design §7, §8, §18.5): a write may carry a client key:
 // create, finish, comment, handoff, remember, forget, hours.log and
-// hours.delete, and since protocol 6 update, label.add, label.rm,
-// dep.add, accept and usage, so that the outbox can queue them. The
+// hours.delete, update, label.add, label.rm, dep.add, dep.rm, accept and
+// usage, so that a retry, or the outbox's replay, applies once. The
 // operation's last event records the key, a hash of the request and the
 // result. The same principal sending the same key again within the
 // store's window (Options.IdemWindow) gets that result back and nothing

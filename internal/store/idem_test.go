@@ -78,7 +78,7 @@ func TestIdempotentReplay(t *testing.T) {
 	}
 }
 
-// queuedOps are the ops protocol 6 gives a key, so that the outbox can
+// queuedOps are the ops given a key so that the outbox can
 // queue them (design §18.5): each runs once as a, with key, on the issue
 // id, which has two acceptance items and the label "old", and returns
 // its result.
@@ -154,7 +154,7 @@ func queuedTarget(t *testing.T, s *Store) IssueID {
 	return mustCreate(t, s, NewIssue{Title: "work", Labels: []string{"old"}, Acceptance: "- one\n- two"}).ID
 }
 
-// Each op protocol 6 gives a key, repeated with the same key by the same
+// Each of those ops, repeated with the same key by the same
 // principal, from another session, returns its first result and writes
 // nothing more: the event log, the issue and the usage rows are as the
 // first left them.

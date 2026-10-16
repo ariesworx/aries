@@ -113,9 +113,8 @@ type seen struct {
 	// ([Address]): what tells a server rebuilt with a new host key for
 	// the same one (Local.Rekeyed). Empty in a record from before it.
 	Addr string `json:"addr,omitempty"`
-	// Proto is the protocol the server spoke at the last handshake, which
-	// decides what is queued while it is away (proto.Keyed). Zero, in a
-	// record from before it, is taken for the oldest this build speaks.
+	// Proto is the protocol of the last handshake, kept as a record: since
+	// v1.0.0 settled the protocol at 8, nothing reads it.
 	Proto int `json:"proto,omitempty"`
 }
 
@@ -354,7 +353,7 @@ func (l *Local) replace(name string, data []byte) error {
 }
 
 // Reached notes that the server took the key with this fingerprint for
-// principal, at a handshake, and spoke protocol; configured says the key
+// principal, at a handshake; configured says the key
 // was the one ARIES_KEY_FILE or `key:` names, and not one of several
 // offered. It returns who the key was noted for before, when that was
 // someone else:
@@ -365,7 +364,7 @@ func (l *Local) replace(name string, data []byte) error {
 // ago, so a machine's many commands do not each write. A server that
 // names no principal, or a connection whose key is not known, is not
 // noted.
-func (l *Local) Reached(principal, fingerprint string, configured bool, protocol int) (was string, err error) {
+func (l *Local) Reached(principal, fingerprint string, configured bool) (was string, err error) {
 	if principal == "" || fingerprint == "" {
 		return "", nil
 	}
@@ -382,10 +381,10 @@ func (l *Local) Reached(principal, fingerprint string, configured bool, protocol
 	if !slices.Equal(l.pinned, []string{l.server}) {
 		pinned = l.pinned
 	}
-	if fresh && (configured || s.Unconfigured == fingerprint) && s.Addr == l.opts.Address && s.Proto == protocol && slices.Equal(s.HostKeys, pinned) {
+	if fresh && (configured || s.Unconfigured == fingerprint) && s.Addr == l.opts.Address && s.Proto == proto.Proto && slices.Equal(s.HostKeys, pinned) {
 		return "", nil
 	}
-	s.Addr, s.Proto, s.HostKeys = l.opts.Address, protocol, pinned
+	s.Addr, s.Proto, s.HostKeys = l.opts.Address, proto.Proto, pinned
 	if known && k.Principal != principal {
 		was = k.Principal
 	}
@@ -600,12 +599,6 @@ func (l *Local) Keep(principal string, e outbox.Entry, reach error) (Kept, error
 			rerun+"; a write is queued for later only once a command of yours has reached the server from this machine with this key",
 			"this machine has never reached the server with this key, so aries cannot tell whose write it is")
 	}
-	// A server that cannot apply the op once is never sent it later
-	// (design §18.5): what it spoke last is what it is taken to speak.
-	if spoke := cmp.Or(l.read().Proto, f1Proto); !proto.Keyed(e.Op, spoke) && outbox.Queueable(e.Op) {
-		return refuse(proto.CodeUnavailable, nil, rerun+"; the server's operator can run `ariesd upgrade` so that such writes are kept",
-			fmt.Sprintf("the server spoke protocol %d when last reached, which takes no idempotency key for %s, so it could apply it twice", spoke, e.Op))
-	}
 	ob, err := l.Outbox(principal)
 	var stored outbox.Entry
 	if err == nil {
@@ -679,30 +672,19 @@ func (l *Local) Replay(ctx context.Context, c Conn) (outbox.Report, error) {
 	if err != nil || !ok {
 		return outbox.Report{}, err
 	}
-	spoke := speaks(c)
 	return ob.Replay(ctx, func(ctx context.Context, e outbox.Entry) (outbox.Outcome, error) {
-		if !proto.Keyed(e.Op, spoke) {
-			// Sent at least once, it could apply twice (design §18.5).
-			return outbox.Outcome{Refused: true, Code: string(proto.CodeVersion),
-				Message: fmt.Sprintf("not sent: the server speaks protocol %d, which takes no idempotency key for %s, so it could apply it twice", spoke, e.Op),
-				Fix: fmt.Sprintf("once the server runs an ariesd of protocol %d or later, `aries outbox retry %d` sends it; or make the change by hand now, and `aries outbox drop %d`",
-					proto.ProtoKeys, e.Seq, e.Seq)}, nil
-		}
 		var merged proto.UpdateResult
 		var late proto.HandoffResult // a finish's comment decodes into it too
 		var out any
 		switch e.Op {
 		case proto.OpUpdate:
 			// The server compares it with the issue at its rev, and parks
-			// what someone else changed since (design §18.7). A server of
-			// 6 is sent it without park (proto.ForProtocol), and refuses
-			// it when it is stale, as before.
+			// what someone else changed since (design §18.7).
 			out = &merged
 		case proto.OpFinish, proto.OpHandoff:
 			// The server applies it if nobody took the issue since its
 			// claim, lapsed or not, and keeps it as a comment if somebody
-			// did (design §18.6). A server of 7 is sent it without park,
-			// and refuses it then, as before.
+			// did (design §18.6).
 			out = &late
 		}
 		park := func(args json.RawMessage) json.RawMessage {
@@ -866,19 +848,6 @@ func (l *Local) Ended(principal string, pe *proto.Error) (int, error) {
 		return 0, nil
 	}
 	return n, err
-}
-
-// f1Proto is the protocol of a server whose record names none: the aries
-// that wrote it, of slice F1, noted no protocol, and spoke 5.
-const f1Proto = 5
-
-// speaks is the protocol c speaks, when it says; otherwise the oldest
-// this build speaks, so that nothing is sent that it could not apply once.
-func speaks(c Conn) int {
-	if p, ok := c.(interface{ Proto() int }); ok {
-		return p.Proto()
-	}
-	return proto.ProtoMin
 }
 
 // withoutPaths returns the arguments of a finish or a handoff without

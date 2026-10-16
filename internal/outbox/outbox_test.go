@@ -130,16 +130,12 @@ func refusedSeqs(rs []outbox.Refusal) []uint64 {
 
 func TestQueueable(t *testing.T) {
 	t.Parallel()
-	// Design §18.3's table: the six keyed since protocol 5, and the six
-	// protocol 6 keys. Each takes a key in this build's protocol.
+	// Design §18.3.s table, each of which takes an idempotency key.
 	queued := []string{proto.OpCreate, proto.OpComment, proto.OpHandoff, proto.OpRemember, proto.OpHoursLog, proto.OpFinish,
 		proto.OpUpdate, proto.OpLabelAdd, proto.OpLabelRm, proto.OpDepAdd, proto.OpAccept, proto.OpUsage}
 	for _, op := range queued {
 		if !outbox.Queueable(op) {
 			t.Errorf("Queueable(%q) = false, want true", op)
-		}
-		if !proto.Keyed(op, proto.Proto) {
-			t.Errorf("Queueable(%q), but protocol %d gives it no key", op, proto.Proto)
 		}
 	}
 	never := []string{

@@ -665,15 +665,15 @@ func cmdDep(ctx context.Context, r *runner, args []string) error {
 	if op == "" {
 		return usagef(usage, "unknown dep action %q", pos[0])
 	}
-	in.From, in.To = pos[1], pos[2]
+	in.From, in.To, in.Idem = pos[1], pos[2], proto.NewIdem("cli")
 	if op == proto.OpDepRm {
+		// Never queued (outbox.never), though the server honors its key.
 		if err := r.call(ctx, op, in, nil); err != nil {
 			return err
 		}
 		r.done()
 		return nil
 	}
-	in.Idem = proto.NewIdem("cli")
 	kept, err := r.send(ctx, op, in, nil)
 	if err != nil {
 		return err

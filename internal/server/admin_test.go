@@ -1016,8 +1016,9 @@ func TestOpenProjectsRecovers(t *testing.T) {
 	}
 }
 
-// A released client is refused at the handshake, before any request: its
-// protocol is below ProtoMin (decision 25). What it reads is the server's
+// A released client, or a build of a protocol no release spoke, is
+// refused at the handshake, before any request: the protocol settled at
+// 8, spoken alone (decisions 78 and 88). What it reads is the server's
 // to choose, since a released client prints the welcome's error as it
 // is: that the client is the side to upgrade, and how.
 func TestReleasedClientsRefused(t *testing.T) {
@@ -1027,16 +1028,16 @@ func TestReleasedClientsRefused(t *testing.T) {
 	for _, tc := range []struct {
 		release string
 		proto   int
-	}{{"v0.2.x", 2}, {"v0.3.x", 3}, {"v0.4.x", 4}} {
+	}{{"v0.2.x", 2}, {"v0.3.x", 3}, {"v0.4.x", 4}, {"a build of protocol 5", 5}, {"a build of protocol 6", 6}, {"a build of protocol 7", 7}} {
 		t.Run(tc.release, func(t *testing.T) {
 			w, err := handshake(t, s, &proto.Frame{T: proto.FrameBridge, Principal: "alice"},
 				&proto.Frame{T: proto.FrameHello, Version: "v0.4.0", Proto: tc.proto, Project: project, Session: "s", Machine: "m"})
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := fmt.Sprintf("aries speaks protocol %d; the server (v0.2.0) needs protocols %d to %d", tc.proto, proto.ProtoMin, proto.ProtoMax)
+			want := fmt.Sprintf("aries speaks protocol %d; the server (v0.2.0) needs protocol 8", tc.proto)
 			if w.T != proto.FrameWelcome || w.Err == nil || w.Err.Code != proto.CodeVersion || w.Err.Message != want || w.Err.Fix != fix ||
-				w.Min != proto.ProtoMin || w.Max != proto.ProtoMax {
+				w.Min != 8 || w.Max != 8 {
 				t.Fatalf("a protocol %d hello = %+v (%+v)\nwant a welcome refusing it with code version, %q\nfix %q", tc.proto, w, w.Err, want, fix)
 			}
 		})

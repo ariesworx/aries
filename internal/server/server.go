@@ -842,7 +842,6 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 			// A copy: a refusal may be a value shared between requests.
 			named := *perr
 			named.Req = req
-			named.Code = codeFor(named.Code, sess.proto)
 			perr = &named
 		}
 		s.observeRequest(sess, f.Op, perr, start)

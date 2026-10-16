@@ -48,16 +48,6 @@ func command(op string) string {
 	return strings.ReplaceAll(op, ".", " ")
 }
 
-// codeFor returns code as a client speaking protocol v knows it: stale,
-// which protocol 6 added, is conflict to a client of 5, as a key past
-// its window was before.
-func codeFor(code proto.Code, v int) proto.Code {
-	if code == proto.CodeStale && v < proto.ProtoKeys {
-		return proto.CodeConflict
-	}
-	return code
-}
-
 // mapErr turns a store error into a typed protocol error whose message
 // names the cause and whose fix names the next action. id and rev are the
 // request's target and expected revision, when it has them.
@@ -162,7 +152,6 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 			fmt.Sprintf("stop work on it; keep anything useful as a comment (`aries comment %s`), or start it again if it is free", stale.ID), msg)
 
 	case errors.As(err, &idem) && idem.Expired:
-		// A client of protocol 5 is sent conflict instead (codeFor).
 		return proto.Errf(proto.CodeStale,
 			"nothing to do if that was this request; if the change is still wanted, make it again by hand, which sends a new key (`aries outbox` shows what a queued write was)",
 			text)

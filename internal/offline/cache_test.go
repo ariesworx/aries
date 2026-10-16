@@ -300,7 +300,7 @@ func TestCacheClear(t *testing.T) {
 	keep(t, l.Cache("alice"), proto.OpShow, proto.ShowArgs{ID: "ar-a"}, shown("ar-a", ""))
 	keep(t, l.Cache("alice"), proto.OpShow, proto.ShowArgs{ID: "ar-b"}, shown("ar-b", ""))
 	keep(t, l.Cache("bob"), proto.OpShow, proto.ShowArgs{ID: "ar-a"}, shown("ar-a", ""))
-	if _, err := l.Reached("alice", keyA, true, proto.Proto); err != nil {
+	if _, err := l.Reached("alice", keyA, true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := l.Keep("alice", entry(proto.OpComment, "ar-a"), errReach); err != nil {

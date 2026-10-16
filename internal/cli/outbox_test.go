@@ -98,7 +98,7 @@ func (a *away) local() *offline.Local {
 // handshake before the outage did.
 func (a *away) reachedAs(t *testing.T, principal string) {
 	t.Helper()
-	if _, err := a.local().Reached(principal, a.key, true, proto.Proto); err != nil {
+	if _, err := a.local().Reached(principal, a.key, true); err != nil {
 		t.Fatal(err)
 	}
 }

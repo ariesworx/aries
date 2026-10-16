@@ -80,8 +80,6 @@ type Conn struct {
 	// trace goes on every request whose call has none of its own
 	// (Options.Trace).
 	trace proto.TraceContext
-	// proto is the protocol the connection speaks (Proto).
-	proto int
 
 	res     chan *proto.Frame // responses, from the reader to Call
 	done    chan struct{}     // closed when the reader stops
@@ -98,7 +96,7 @@ type Conn struct {
 
 // newConn returns a Conn over enc and dec, before its handshake.
 func newConn(enc *proto.Encoder, dec *proto.Decoder, kill func() error, onPush func(proto.Push)) *Conn {
-	return &Conn{enc: enc, dec: dec, kill: kill, onPush: onPush, stderr: &capBuffer{max: 4096}, proto: proto.Proto,
+	return &Conn{enc: enc, dec: dec, kill: kill, onPush: onPush, stderr: &capBuffer{max: 4096},
 		res: make(chan *proto.Frame, 1), done: make(chan struct{}), closed: make(chan struct{}), closeWait: closeWait}
 }
 
@@ -225,10 +223,7 @@ func Dial(ctx context.Context, cfg *Config, opts Options) (*Conn, error) {
 			fmt.Sprintf("ssh handshake with %s failed: %v", addr, err))
 	}
 	client := ssh.NewClient(cc, chans, reqs)
-	c, err := start(ctx, client, tr, far, cfg, opts, proto.Proto)
-	if v, ok := stepDown(err); ok {
-		c, err = start(ctx, client, tr, far, cfg, opts, v)
-	}
+	c, err := start(ctx, client, tr, far, cfg, opts)
 	if err != nil {
 		// Why the start failed is the error; what closing says after it
 		// is nothing a caller can act on.
@@ -359,10 +354,10 @@ func (t *transport) opened() {
 // as far. On success the Conn's reader is running; on failure the
 // caller closes client.
 //
-// The hello speaks protocol p. A refusal of the hello leaves client open,
-// and closes its session, so that Dial can say hello again on another
-// session, speaking a protocol the refusal's range admits (stepDown).
-func start(ctx context.Context, client *ssh.Client, nc *transport, far string, cfg *Config, opts Options, p int) (*Conn, error) {
+// The hello speaks proto.Proto, the one version this build speaks: a
+// server that accepts another refuses it with code version, which is
+// returned as it is.
+func start(ctx context.Context, client *ssh.Client, nc *transport, far string, cfg *Config, opts Options) (*Conn, error) {
 	stop := context.AfterFunc(ctx, func() { _ = client.Close() })
 	defer stop()
 	sess, err := openSession(ctx, client, nc)
@@ -390,13 +385,13 @@ func start(ctx context.Context, client *ssh.Client, nc *transport, far string, c
 		return nil, proto.Errf(proto.CodeUnavailable, "check that this key's authorized_keys line forces `ariesd stdio --principal NAME`",
 			fmt.Sprintf("the server would not start ariesd: %v", err))
 	}
-	if err := c.enc.Encode(&proto.Frame{T: proto.FrameHello, Version: opts.Version, Proto: p,
+	if err := c.enc.Encode(&proto.Frame{T: proto.FrameHello, Version: opts.Version, Proto: proto.Proto,
 		Project: cfg.Project, Session: opts.Session, Machine: opts.Machine, Harness: opts.Harness}); err != nil {
 		// The bridge may have refused and closed before reading the hello;
 		// its refusal is still waiting to be read.
 		if w, rerr := c.next(); rerr == nil && w.T == proto.FrameWelcome && w.Err != nil {
 			_ = sess.Close()
-			return nil, &refusal{pe: w.Err, principal: w.Principal, min: w.Min, max: w.Max}
+			return nil, &refusal{pe: w.Err, principal: w.Principal}
 		}
 		if ctx.Err() != nil {
 			return nil, gaveUp(ctx, far, "answer the hello", opts.Timeout, c.stderr.String())
@@ -416,32 +411,15 @@ func start(ctx context.Context, client *ssh.Client, nc *transport, far string, c
 	}
 	if w.Err != nil {
 		_ = sess.Close()
-		return nil, &refusal{pe: w.Err, principal: w.Principal, min: w.Min, max: w.Max}
+		return nil, &refusal{pe: w.Err, principal: w.Principal}
 	}
-	if e := proto.CheckProto(p, w.Min, w.Max, w.Version); e != nil {
+	if e := proto.CheckProto(proto.Proto, w.Min, w.Max, w.Version); e != nil {
 		return nil, e
 	}
-	c.Welcome, c.proto = *w, p
+	c.Welcome = *w
 	c.run()
 	return c, nil
 }
-
-// stepDown reports the protocol to say hello again in, after err, the
-// refusal of a hello speaking Proto: one this build speaks that the
-// server's range admits, when the refusal is of the version and names
-// such a range (design §18.5, proto.Speak).
-func stepDown(err error) (int, bool) {
-	r, ok := errors.AsType[*refusal](err)
-	if !ok || r.pe.Code != proto.CodeVersion {
-		return 0, false
-	}
-	v, ok := proto.Speak(r.min, r.max)
-	return v, ok && v < proto.Proto
-}
-
-// Proto is the protocol the connection speaks: Proto, or an older one
-// this build speaks that the server accepts (Dial).
-func (c *Conn) Proto() int { return c.proto }
 
 // errClosedEarly is a connection that ended between the server's
 // accepting the key and the opening of the session.
@@ -609,7 +587,7 @@ func (c *Conn) Call(ctx context.Context, op string, args, result any) error {
 	}
 	c.nextID++
 	id := c.nextID
-	f, err := proto.Request(id, op, proto.ForProtocol(c.proto, op, args))
+	f, err := proto.Request(id, op, args)
 	if err != nil {
 		return err
 	}
