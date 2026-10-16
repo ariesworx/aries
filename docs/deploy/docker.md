@@ -479,6 +479,12 @@ server's URL and `.aries.yaml` do not change. Without `ARIES_PROXY=1`,
 nginx cannot bind the port, since ariesd keeps it: start the profile
 with the variable, or not at all.
 
+Like the rest of this directory, the profile is a test fixture, never
+production: the certificate is the test CA's, and nginx is configured
+for the checks above and nothing more. `ARIES_SMOKE_PROXY=1
+deploy/docker/smoke.sh` runs the whole smoke test through it (see
+[Behind the proxy](#behind-the-proxy) under the smoke test).
+
 ## Test a change
 
 After you change the code, rebuild the image and `aries`:
