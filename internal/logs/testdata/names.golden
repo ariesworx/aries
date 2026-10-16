@@ -35,6 +35,11 @@ event control.index_stale
 event control.reload_failed
 event daemon.serving
 event database.check_failed
+event gate.added
+event gate.failed
+event gate.passed
+event gate.rearmed
+event gate.waived
 event handshake.failed
 event keys_file.key_held_back
 event keys_file.key_left_out
@@ -78,7 +83,6 @@ field addr
 field admin
 field admins
 field after
-field after_failures
 field agents
 field at
 field audit
@@ -86,6 +90,7 @@ field backward_since_start
 field behind
 field by
 field cause
+field check
 field claims
 field clock
 field code
@@ -99,20 +104,20 @@ field effect
 field epoch
 field err
 field event
-field every
 field extended
 field failed
-field failures
 field failures_not_logged
 field fingerprint
 field fix
 field forward_since_start
 field from
+field gate
 field harness
 field history
 field inbox
 field issue
 field keys
+field kind
 field lines
 field lock
 field locks
@@ -140,6 +145,7 @@ field reason
 field req
 field resumed
 field role
+field run
 field sampler
 field schema
 field seq
@@ -157,7 +163,6 @@ field to
 field trace_headers
 field trace_id
 field traces
-field url
 field version
 field waiting
 field was_behind_since

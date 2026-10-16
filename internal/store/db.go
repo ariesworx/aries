@@ -88,6 +88,9 @@ func OpenDB(ctx context.Context, dsn string, opts DBOptions) (*DB, error) {
 	params["default_transaction_isolation"] = "repeatable read"
 	cfg.MaxConns = int32(min(opts.Conns, 1<<20)) //nolint:gosec // bounded just above
 	cfg.MinConns = 0
+	// pgxpool pings only a connection idle for more than a second; this
+	// drops one Postgres ended since, without a round trip (idle.go).
+	cfg.PrepareConn = usable
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("%w: the dsn does not parse as a postgres:// URL", ErrInvalid)

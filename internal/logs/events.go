@@ -56,8 +56,16 @@ const (
 	ClaimReleased Event = "claim.released"
 	// LockExpired is a hold or a place in a lock's queue the reaper ended
 	// for its lease, and LockReleased one that ended for lost access.
-	LockExpired       Event = "lock.expired"
-	LockReleased      Event = "lock.released"
+	LockExpired  Event = "lock.expired"
+	LockReleased Event = "lock.released"
+	// The gate events are a gate's changes: added, passed (by a person or
+	// a CI job's report), failed (a CI job's report), waived and
+	// rearmed (design §20.9).
+	GateAdded         Event = "gate.added"
+	GatePassed        Event = "gate.passed"
+	GateFailed        Event = "gate.failed"
+	GateWaived        Event = "gate.waived"
+	GateRearmed       Event = "gate.rearmed"
 	ReaperFailed      Event = "reaper.failed"
 	ReaperPruneFailed Event = "reaper.prune_failed"
 	ReaperPruned      Event = "reaper.pruned"
@@ -120,7 +128,7 @@ var events = []Event{
 	RequestDone, RequestRefused, RequestFailed, RequestPart,
 	ProjectAdded, ProjectOpened, ProjectOpenFailed, ProjectNotOpened, ProjectClosed, ProjectCloseFailed,
 	StoreSchemaTooNew, StoreUnsafeAccount, ControlReload, ControlIndexStale,
-	ClaimExpired, ClaimReleased, LockExpired, LockReleased, ReaperFailed, ReaperPruneFailed, ReaperPruned, SweepFailed,
+	ClaimExpired, ClaimReleased, LockExpired, LockReleased, GateAdded, GatePassed, GateFailed, GateWaived, GateRearmed, ReaperFailed, ReaperPruneFailed, ReaperPruned, SweepFailed,
 	KeysFileWritten, KeysFileWriteFailed, KeysFileHeldBack, KeysFileLeftOut,
 	ClockBehind, ClockCaughtUp, ClockStepped, ClockStepSettled, ClockSettleFailed,
 	DatabaseCheckFailed,

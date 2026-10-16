@@ -176,6 +176,7 @@ type Index interface {
 	Standing(principal string) (known, disabled bool)
 	IsServerAdmin(principal string) bool
 	Admins() []string
+	ProjectAdmins(project string) []string
 	AdministersProjectOf(actor, principal string) bool
 	ReachGained(principal, left string) []string
 	AuthorizedKey(fingerprint string) (principal, key string, ok bool)

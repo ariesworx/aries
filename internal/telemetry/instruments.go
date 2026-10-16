@@ -48,6 +48,9 @@ const (
 	// LockWaitDuration is how long a place in a lock's queue waited
 	// before its grant, on the store's clock.
 	LockWaitDuration
+	// Gates counts changes of a gate: kind, event (design §20.9). A
+	// gate's title and its check's name are text, and no attribute.
+	Gates
 	// ControlWrites counts writes to the control store: op, result.
 	ControlWrites
 	// KeysFileWrites counts writes of the keys file: result.
@@ -106,6 +109,7 @@ const (
 	KeyEvent       = "event"
 	KeySignal      = "signal"
 	KeyDirection   = "direction"
+	KeyKind        = "kind"
 )
 
 // Attribute values that are not a protocol code or an op.
@@ -154,6 +158,15 @@ const (
 	LockRelease = "release"
 	LockExpire  = "expire"
 	LockLeave   = "leave"
+
+	// The kinds of gate, and what happened to one: the gate events.
+	GateHuman   = "human"
+	GateCI      = "ci"
+	GateAdded   = "added"
+	GatePassed  = "passed"
+	GateFailed  = "failed"
+	GateWaived  = "waived"
+	GateRearmed = "rearmed"
 
 	// Why a claim was released, when the store's event gives a reason.
 	// ReasonNone is every other change of a claim.
@@ -236,6 +249,8 @@ var (
 	attrMigrated = attr{key: KeyMigrated, values: []string{"true", "false"}, fallback: Other}
 	attrEvent    = attr{key: KeyEvent, values: []string{ClaimTake, ClaimRenew, ClaimRelease, ClaimExpire}, fallback: Other}
 	attrLockEvt  = attr{key: KeyEvent, values: []string{LockAcquire, LockWait, LockGrant, LockRenew, LockRelease, LockExpire, LockLeave}, fallback: Other}
+	attrGateKind = attr{key: KeyKind, values: []string{GateHuman, GateCI}, fallback: Other}
+	attrGateEvt  = attr{key: KeyEvent, values: []string{GateAdded, GatePassed, GateFailed, GateWaived, GateRearmed}, fallback: Other}
 	attrWhy      = attr{key: KeyReason, values: []string{ReasonNone, ReasonMembership, ReasonDisabled, ReasonArchived}, fallback: Other}
 	attrWrote    = attr{key: KeyResult, values: []string{ResultOK, ResultFailed}, fallback: Other}
 	attrSignal   = attr{key: KeySignal, values: []string{SignalMetrics, SignalTraces, SignalLogs}, fallback: Other}
@@ -268,6 +283,7 @@ var specs = [numInstruments]spec{
 	Claims:             {name: "aries.claims", kind: Counter, attrs: []attr{attrEvent, attrWhy}, desc: "Changes of a claim."},
 	Locks:              {name: "aries.locks", kind: Counter, attrs: []attr{attrLockEvt}, desc: "Changes of a lock's holds and queue."},
 	LockWaitDuration:   {name: "aries.lock.wait.duration", unit: "s", kind: Histogram, desc: "Time a place in a lock's queue waited for its grant."},
+	Gates:              {name: "aries.gates", kind: Counter, attrs: []attr{attrGateKind, attrGateEvt}, desc: "Changes of a gate: added, passed, failed, waived and rearmed."},
 	ControlWrites:      {name: "aries.control.writes", kind: Counter, attrs: []attr{attrOp, attrResult}, desc: "Writes to the control store."},
 	KeysFileWrites:     {name: "aries.keys_file.writes", kind: Counter, attrs: []attr{attrWrote}, desc: "Writes of the keys file."},
 	KeysFileLastWrite:  {name: "aries.keys_file.last_write.time", unit: "s", kind: Gauge, desc: "When the keys file last took its content, in Unix seconds."},

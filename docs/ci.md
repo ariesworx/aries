@@ -96,6 +96,24 @@ server's `gate_evidence_bytes` (1,024 bytes) in all, a URL is `http` or
 is refused. `gate.fail` and every other gate command fail at once when
 the server cannot be reached; nothing is queued.
 
+## Runs that finish out of order
+
+Each report carries its run's number, which `aries` reads from
+`GITHUB_RUN_NUMBER` (GitHub Actions) or `CI_PIPELINE_IID` (GitLab CI),
+or from `--run N`: it rises with each run of the workflow, and stays
+the same when a run is retried, so the workflows below send it with no
+change. The server takes no report of a lower run than the gate's last
+one, so a slow run of an older commit that fails after a newer one
+passed does not hold the work back again, and one that passes after a
+newer one failed does not let it through. The one exception fails
+closed: a failure of the very commit that last passed (`--sha`, whole
+or abbreviated) reopens the gate whatever its run. A report that loses
+so exits 0, changes nothing, and says which run it lost to. Reports
+without a number are taken in the order they arrive, as before, and
+`aries gate rearm` starts the order again, for a workflow whose
+numbering started over. GitHub numbers each workflow's runs on their
+own, so report a check from one workflow only.
+
 ## GitHub Actions
 
 `.github/workflows/aries.yml`, beside your build. The `report` job runs

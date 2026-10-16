@@ -48,7 +48,7 @@ func gateReport(ctx context.Context, pr *served, a store.Actor, op string, in pr
 		return nil, perr
 	}
 	g, err := report(ctx, a, store.Report{Gate: store.IssueID(in.ID), Subject: subject, Check: in.Check,
-		SHA: in.SHA, URL: in.URL, Reason: in.Reason})
+		SHA: in.SHA, URL: in.URL, Reason: in.Reason, Run: in.Run})
 	if err != nil {
 		return nil, pr.mapErr(ctx, op, cmp.Or(in.ID, string(subject)), 0, err)
 	}
@@ -167,7 +167,7 @@ func wireGate(g store.Gate) proto.Gate {
 		out.Approvers = []string{}
 	}
 	if r := g.Report; r != nil {
-		out.Report = &proto.GateReport{Result: string(r.Result), By: r.By, At: r.At.UTC(), SHA: r.SHA, URL: r.URL, Reason: r.Reason}
+		out.Report = &proto.GateReport{Result: string(r.Result), By: r.By, At: r.At.UTC(), SHA: r.SHA, URL: r.URL, Reason: r.Reason, Run: r.Run}
 	}
 	for _, id := range g.Holds {
 		out.Holds = append(out.Holds, string(id))

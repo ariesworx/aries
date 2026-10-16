@@ -79,8 +79,9 @@ type Limits struct {
 	// refused, and nothing of it applies.
 	ConflictsPerIssue     int `yaml:"conflicts_per_issue"`
 	ConflictsPerPrincipal int `yaml:"conflicts_per_principal"`
-	// GateApprovers caps the principals one gate names (design §20.9);
-	// at most 100.
+	// GateApprovers caps the principals one gate names (design §20.9),
+	// and the admins a gate that names none tells it waits for them; at
+	// most 100.
 	GateApprovers int `yaml:"approvers_per_gate"`
 	// OpenGates caps the open gates in a project; an add past it is
 	// refused as busy until one is passed or waived.

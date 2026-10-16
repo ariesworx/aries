@@ -374,3 +374,62 @@ func TestReadOnlyStoreTakesNoLock(t *testing.T) {
 		t.Errorf("read-only CreateIssue = %v, want ErrReadOnly", err)
 	}
 }
+
+// endBackends ends every connection to dsn's database but the asker's
+// and the writers' locks', as a restart of Postgres ends the pool's,
+// and waits until they are gone.
+func endBackends(t *testing.T, dsn string) {
+	t.Helper()
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const others = `datname = current_database() AND pid <> pg_backend_pid() AND application_name <> $1`
+	_, err = db.ExecContext(t.Context(), `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE `+others,
+		FenceApplication)
+	_ = db.Close()
+	if err != nil {
+		t.Fatalf("end the pool's connections: %v", err)
+	}
+	waitFor(t, dsn, `SELECT NOT EXISTS (SELECT 1 FROM pg_stat_activity WHERE `+others+`)`, FenceApplication)
+}
+
+// A connection Postgres ended while it was idle in the pool, as a
+// restart ends them all, is not handed to a store: the first reads and
+// writes after it succeed, rather than failing with SQLSTATE 57P01. The
+// pool pings a connection idle for more than a second already, so this
+// is about those used just before.
+func TestPoolHandsOutNoConnectionPostgresEnded(t *testing.T) {
+	t.Parallel()
+	dsn := newDSN(t)
+	db := openDB(t, dsn, DBOptions{Conns: 4})
+	makeSchema(t, dsn, "web")
+	s := openIn(t, db, "web", Options{})
+	is := mustCreate(t, s, NewIssue{Title: "before the restart"})
+	// Every connection the pool may hold is in it, idle.
+	var held []interface{ Release() }
+	for range 4 {
+		c, err := db.pool.Acquire(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		held = append(held, c)
+	}
+	for _, c := range held {
+		c.Release()
+	}
+	endBackends(t, dsn)
+	ctx := t.Context()
+	if err := s.TouchAgent(ctx, alice, "claude-code"); err != nil {
+		t.Errorf("TouchAgent after Postgres ended the pool's connections: %v", err)
+	}
+	if _, err := s.GetIssue(ctx, is.ID); err != nil {
+		t.Errorf("GetIssue(%s) after Postgres ended the pool's connections: %v", is.ID, err)
+	}
+	if _, err := s.CreateIssue(ctx, alice, NewIssue{Title: "after the restart"}); err != nil {
+		t.Errorf("CreateIssue after Postgres ended the pool's connections: %v", err)
+	}
+	if _, err := s.List(ctx, Filter{}); err != nil {
+		t.Errorf("List after Postgres ended the pool's connections: %v", err)
+	}
+}

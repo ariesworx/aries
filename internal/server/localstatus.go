@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -88,24 +89,31 @@ func Status(ctx context.Context, socket, clientVersion string) (proto.StatusResu
 		return out, fmt.Errorf("connect to %s: %w; fix: run it on the server as the user ariesd runs as, and start the daemon if it is stopped (`systemctl start ariesd`)", socket, err)
 	}
 	defer func() { _ = c.Close() }()
+	return statusOn(ctx, c, clientVersion)
+}
+
+// statusOn is Status on c, a connection to the daemon's socket.
+func statusOn(ctx context.Context, c net.Conn, clientVersion string) (proto.StatusResult, error) {
+	var out proto.StatusResult
 	if dl, ok := ctx.Deadline(); ok {
 		_ = c.SetDeadline(dl)
 	}
 	enc, dec := proto.NewEncoder(c), proto.NewDecoder(c)
-	// A daemon that refuses the peer closes the connection unanswered,
-	// which may fail either write here or the read of the welcome. The
-	// first failure is the one reported: joined, two failed writes made
-	// an error of two lines, with the fix on the second.
-	err = enc.Encode(&proto.Frame{T: proto.FrameBridge, Principal: StatusPrincipal})
-	if err == nil {
-		err = enc.Encode(&proto.Frame{T: proto.FrameHello, Proto: proto.Proto, Version: clientVersion, Session: statusSession, Machine: "localhost"})
+	// A daemon may answer the bridge frame and hang up before the hello
+	// is written, which then fails; what it sent is still there to read,
+	// so the read is made whether the writes failed or not, and a frame
+	// read is answered as if they had not. A daemon that refuses the peer
+	// closes the connection unanswered, which may fail either write here
+	// and fails the read: the first failure is the one reported, since
+	// joined, two failed writes made an error of two lines, with the fix
+	// on the second.
+	werr := enc.Encode(&proto.Frame{T: proto.FrameBridge, Principal: StatusPrincipal})
+	if werr == nil {
+		werr = enc.Encode(&proto.Frame{T: proto.FrameHello, Proto: proto.Proto, Version: clientVersion, Session: statusSession, Machine: "localhost"})
 	}
-	var w *proto.Frame
-	if err == nil {
-		w, err = dec.Decode()
-	}
+	w, err := dec.Decode()
 	if err != nil {
-		return out, fmt.Errorf("handshake: %w; fix: run it as the user ariesd runs as, which is the only one the daemon answers on its socket", err)
+		return out, fmt.Errorf("handshake: %w; fix: run it as the user ariesd runs as, which is the only one the daemon answers on its socket", cmp.Or(werr, err))
 	}
 	if w.T != proto.FrameWelcome {
 		return out, fmt.Errorf("handshake: got a %q frame, not a welcome", w.T)

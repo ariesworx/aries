@@ -417,3 +417,14 @@ func TestHoursPastAMillionSeconds(t *testing.T) {
 		t.Errorf("Digest(%+v).Usage.Logged = %s, want %s", f, d.Usage.Logged, want)
 	}
 }
+
+// An undo of something that is no hours entry's id says which command
+// prints one: aries hours, as the command is named from 1.0.
+func TestDeleteHoursNamesTheCommand(t *testing.T) {
+	t.Parallel()
+	s := newStore(t)
+	_, err := s.DeleteHours(t.Context(), alice, "not-an-entry", "")
+	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "as aries hours prints it") {
+		t.Errorf("DeleteHours(not-an-entry) = %v, want ErrInvalid naming aries hours", err)
+	}
+}

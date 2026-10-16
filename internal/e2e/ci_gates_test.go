@@ -104,3 +104,36 @@ func TestCIGate(t *testing.T) {
 		t.Errorf("gate list --all lacks %s:\n%s", landed, out)
 	}
 }
+
+// A slow run of an older commit that fails after a newer run passed
+// does not hold the work back again: aries sends the run's number from
+// the CI system's variables, and the server takes no report older than
+// the gate's last.
+func TestCIGateLateFailure(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, daemonOpts{admins: []string{"dana"}})
+	alice, ci := w.newUser("alice", ""), w.newUser("ci-example", "")
+	impl := strings.TrimSpace(alice.ok("create", "Implement the lexer"))
+	next := strings.TrimSpace(alice.ok("create", "Use the lexer"))
+	gate := strings.TrimSpace(alice.ok("gate", "add", "--kind", "ci", "--check", "build", "--issue", impl,
+		"--approver", "ci-example", "--blocks", next))
+	ci.env["CI"], ci.env["GITHUB_HEAD_REF"] = "true", "feature/"+impl+"-implement-the-lexer"
+
+	ci.env["GITHUB_RUN_NUMBER"] = "12"
+	if out := ci.ok("gate", "pass", "--check", "build", "--from-branch", "--sha", "bbbbbbb"); !strings.Contains(out, gate+" passed") {
+		t.Fatalf("aries gate pass in run 12 = %q, want %s passed", out, gate)
+	}
+	ci.env["GITHUB_RUN_NUMBER"] = "11"
+	r := ci.run("v0.2.0", "gate", "fail", "--check", "build", "--from-branch", "--sha", "aaaaaaa")
+	if r.code != 0 || !strings.Contains(r.stdout, gate+" passed") || !strings.Contains(r.stderr, "run 11") {
+		t.Errorf("aries gate fail in run 11, after run 12 passed = exit %d\n%s%s\nwant exit 0, the gate still passed, and a note that run 11 is older",
+			r.code, r.stdout, r.stderr)
+	}
+	if out := alice.ok("ready"); !strings.Contains(out, next) {
+		t.Errorf("ready after a late failure of an older run = %s, want %s", out, next)
+	}
+	// The run given on the command line wins over the variable.
+	if out := ci.ok("gate", "fail", "--check", "build", "--from-branch", "--sha", "ccccccc", "--run", "13"); !strings.Contains(out, gate+" failed") {
+		t.Errorf("aries gate fail --run 13 = %q, want %s failed", out, gate)
+	}
+}

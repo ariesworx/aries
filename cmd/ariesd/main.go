@@ -463,7 +463,7 @@ func daemonOfOne(ctx context.Context, s server.Settings, db *store.DB, cfg serve
 		return nil, err
 	}
 	opts.Prefix, opts.Admins = s.Prefix, s.Admins
-	opts.Observer = server.StoreObserver(h.tel, s.Project)
+	opts.Observer = server.StoreObserver(h.tel, opts.Logger, s.Project)
 	opts.Tracer = server.StoreTracer(h.tel, s.Project)
 	st, err := db.Open(ctx, d.Schema, opts)
 	if err != nil {

@@ -271,3 +271,28 @@ func js(v any) string {
 	}
 	return string(b)
 }
+
+// A restart of Postgres between requests costs nothing a client or the
+// log sees: the next connection's session is noted, and its request
+// answered, on connections the pool makes anew rather than those the
+// restart ended.
+func TestPostgresRestartBetweenRequests(t *testing.T) {
+	t.Parallel()
+	m := adminWorld(t, Limits{})
+	c := mustDialTo(t, m.Server, alice, projA)
+	mustAsk[proto.CreateResult](c, proto.OpCreate, proto.CreateArgs{Title: "before the restart"})
+	waitUntil(t, "alice's session to be noted", func() bool { return seen(c, alice) })
+	if err := pgOf(t).Restart(t.Context()); err != nil {
+		t.Fatalf("restart postgres: %v", err)
+	}
+	d := mustDialTo(t, m.Server, bob, projA)
+	if _, perr := ask[proto.CreateResult](d, proto.OpCreate, proto.CreateArgs{Title: "after the restart"}); perr != nil {
+		t.Errorf("create after a restart of postgres = %v, want it made", perr)
+	}
+	if !seen(d, bob) {
+		t.Errorf("who after a restart of postgres does not list %s/%s", bob.Principal, bob.Session)
+	}
+	if log := m.log.String(); strings.Contains(log, "level=ERROR") {
+		t.Errorf("the log after a restart of postgres has errors:\n%s", log)
+	}
+}

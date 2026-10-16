@@ -349,6 +349,34 @@
           "legendFormat": "waits a second"
         }
       ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Gates: added, passed, failed, waived and rearmed",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (kind, event) (increase(aries_gates_total[5m]))",
+          "legendFormat": "{{kind}} {{event}}"
+        }
+      ]
     }
   ]
 }

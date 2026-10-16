@@ -344,7 +344,8 @@ func fileDiscovered(ctx context.Context, w *wtx, from, id IssueID, d NewIssue, m
 	if _, err := insertIssue(ctx, w, id, d, meta); err != nil {
 		return fmt.Errorf("discovered %q: %w", d.Title, err)
 	}
-	return insertDep(ctx, w, id, from, DepDiscoveredFrom)
+	_, err := insertDep(ctx, w, id, from, DepDiscoveredFrom)
+	return err
 }
 
 // HandoffIssue records a handoff note, with its fields, on an issue

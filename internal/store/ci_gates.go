@@ -28,8 +28,9 @@ import (
 // does, and a pass of a closed gate changes nothing, so a rerun is
 // harmless. A failure records its evidence, leaves the gate open, and
 // tells the subject's holder, or its assignee; a failure of a passed gate,
-// a later commit's, reopens it. A waived gate takes no failure until it
-// is rearmed.
+// a later commit's, reopens it. A report of an older CI run than the
+// gate's last changes nothing (Report.stale). A waived gate takes no
+// failure until it is rearmed.
 //
 // Landed (enterprise review E8, "closed is not landed") is a check like
 // any other: the job on the default branch after a merge reports it, and
@@ -46,7 +47,8 @@ const (
 
 // GateReport is the last report a ci gate took: the result, who made it
 // and when, and the evidence, each part optional: the commit checked, a
-// link to the run, a short reason.
+// link to the run, a short reason, and the run's number, by which reports
+// that arrive out of order are put back in it (see Report.Run).
 type GateReport struct {
 	Result CheckResult `json:"result"`
 	By     string      `json:"by"`
@@ -54,11 +56,18 @@ type GateReport struct {
 	SHA    string      `json:"sha,omitempty"`
 	URL    string      `json:"url,omitempty"`
 	Reason string      `json:"reason,omitempty"`
+	Run    int64       `json:"run,omitempty"`
 }
 
 // Report is a CI job's report of a check, the input to PassCheck and
 // FailCheck. It names the gate, or the subject and the check, which find
 // it; SHA, URL and Reason are the evidence.
+//
+// Run, when not 0, is the number of the CI run that made the report,
+// which rises with each run of the workflow and stays the same when a run
+// is retried: GitHub Actions' run_number, GitLab CI's pipeline IID. A
+// report of a lower run than the gate's last report is older than it,
+// and changes nothing (see stale).
 type Report struct {
 	Gate    IssueID
 	Subject IssueID
@@ -66,6 +75,7 @@ type Report struct {
 	SHA     string
 	URL     string
 	Reason  string
+	Run     int64
 }
 
 var (
@@ -141,6 +151,9 @@ func (r Report) validate(limit int) error {
 	}
 	if r.Check != "" && !checkPattern.MatchString(r.Check) {
 		return fmt.Errorf("%w: check %q is not a check's name: 1-64 lowercase letters, digits and ._-", ErrInvalid, r.Check)
+	}
+	if r.Run < 0 {
+		return fmt.Errorf("%w: run must be the CI run's number, 1 or more, or 0 for none", ErrInvalid)
 	}
 	return r.checkEvidence(limit)
 }
@@ -281,8 +294,10 @@ func (w *wtx) report(ctx context.Context, before Issue, g *gateRow, r Report, re
 	case result == CheckFailed && g.Outcome == GateWaived:
 		return Gate{}, fmt.Errorf("%w: gate %s was waived by %s; rearm it (`aries gate rearm %s`) for CI to report on it again",
 			ErrInvalid, g.ID, g.By, g.ID)
+	case r.stale(g.Report, result):
+		return g.Gate, nil
 	}
-	rep := GateReport{Result: result, By: w.actor.Principal, At: w.now, SHA: r.SHA, URL: r.URL, Reason: r.Reason}
+	rep := GateReport{Result: result, By: w.actor.Principal, At: w.now, SHA: r.SHA, URL: r.URL, Reason: r.Reason, Run: r.Run}
 	b, err := json.Marshal(rep)
 	if err != nil {
 		return Gate{}, fmt.Errorf("gate %s report: %w", g.ID, err)
@@ -292,6 +307,9 @@ func (w *wtx) report(ctx context.Context, before Issue, g *gateRow, r Report, re
 		return Gate{}, err
 	}
 	evidence := map[string]any{"check": g.Check, "subject": nullStr(g.Subject), "sha": r.SHA, "url": r.URL, "reason": r.Reason}
+	if r.Run != 0 {
+		evidence["run"] = r.Run
+	}
 	var told []InboxItem
 	if result == CheckPassed {
 		// Read before the close: once the gate is closed, the edges into
@@ -348,7 +366,39 @@ func (w *wtx) report(ctx context.Context, before Issue, g *gateRow, r Report, re
 	if err != nil {
 		return Gate{}, err
 	}
+	change := GateChangePassed
+	if result == CheckFailed {
+		change = GateChangeFailed
+	}
+	w.gated(after.Gate, change)
 	return after.Gate, nil
+}
+
+// stale reports whether r, reported as result, is older than last, the
+// gate's last report, and so changes nothing: both name their run, and
+// r's is lower. A slow run of an older commit then neither reopens a
+// gate a newer run passed nor passes one a newer run failed. One
+// exception fails closed: a failure of the commit last passed reopens
+// the gate whatever its run, since that commit has now failed too.
+//
+// Reports that do not both name a run are taken in the order they
+// arrive, as are those of one run, retried. A rearm forgets the last
+// report's run (RearmGate), so the order starts again after it, as it
+// must when a workflow's numbering does.
+func (r Report) stale(last *GateReport, result CheckResult) bool {
+	if last == nil || last.Run == 0 || r.Run == 0 || r.Run >= last.Run {
+		return false
+	}
+	return result != CheckFailed || last.Result != CheckPassed || !sameCommit(r.SHA, last.SHA)
+}
+
+// sameCommit reports whether two commits' hashes, either abbreviated,
+// name one commit.
+func sameCommit(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	return strings.HasPrefix(a, b) || strings.HasPrefix(b, a)
 }
 
 // subjectPeople are whom a report on subject tells: the holder of its

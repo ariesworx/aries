@@ -244,7 +244,7 @@ func TestRecord(t *testing.T) {
 // allKeys is every attribute key an instrument may have. A new key is a
 // new dimension of every series: add it here only with a fixed list of
 // values (AGENTS.md rule 18).
-var allKeys = []string{"op", "result", "result_class", "project", "reason", "limit", "migrated", "event", "signal", "direction"}
+var allKeys = []string{"op", "result", "result_class", "project", "reason", "limit", "migrated", "event", "signal", "direction", "kind"}
 
 // wantKeys is each instrument's attribute keys (design §16.4).
 var wantKeys = map[string][]string{
@@ -261,6 +261,7 @@ var wantKeys = map[string][]string{
 	"aries.claims":                    {"event", "reason"},
 	"aries.locks":                     {"event"},
 	"aries.lock.wait.duration":        nil,
+	"aries.gates":                     {"kind", "event"},
 	"aries.control.writes":            {"op", "result"},
 	"aries.keys_file.writes":          {"result"},
 	"aries.keys_file.last_write.time": nil,
@@ -522,6 +523,7 @@ func TestPrometheusNames(t *testing.T) {
 		"aries.claims":                    "aries_claims_total",
 		"aries.locks":                     "aries_locks_total",
 		"aries.lock.wait.duration":        "aries_lock_wait_duration_seconds",
+		"aries.gates":                     "aries_gates_total",
 		"aries.control.writes":            "aries_control_writes_total",
 		"aries.keys_file.writes":          "aries_keys_file_writes_total",
 		"aries.keys_file.last_write.time": "aries_keys_file_last_write_time_seconds",

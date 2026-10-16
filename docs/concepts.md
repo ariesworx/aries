@@ -89,8 +89,11 @@ for a person to approve before any of it starts.
   reopens a passed gate, by its approvers or an admin, so that it holds
   again; work already started on what it holds goes on.
 - **Who is told.** The approvers, in their inbox, when a gate is added
-  (`gate.pending`); the assignees of what it held when it passes
-  (`gate.passed`). Every change is an event, and a watching board
+  and when more work is put behind it (`gate.pending`); for a gate that
+  names none, the project's admins other than its creator, the
+  project's own before the server's, at most the server's
+  `approvers_per_gate` of them. The assignees of what it held, when it
+  passes (`gate.passed`). Every change is an event, and a watching board
   (`aries tui`) shows the pass as it happens.
 
 ### CI gates
@@ -125,6 +128,12 @@ hold nothing back, and then only records the check on its subject.
   and tells them too. A failure of a passed gate, from a later commit,
   reopens it, so what it held is held again; work already started goes
   on. A waived gate takes no report until it is rearmed.
+- **Runs out of order.** A report carries its CI run's number, and a
+  report of an older run than the gate's last changes nothing: a slow
+  run of an old commit neither reopens a gate a newer run passed nor
+  passes one a newer run failed. A failure of the commit that last
+  passed still reopens the gate, whatever its run
+  ([Runs that finish out of order](ci.md#runs-that-finish-out-of-order)).
 - **Closed is not landed.** Closing an issue is its worker's say-so.
   The check `landed` is reported by the job on the default branch after
   the merge; until then `aries show` says `closed, not landed`, and after

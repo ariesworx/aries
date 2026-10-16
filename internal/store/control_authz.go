@@ -147,6 +147,31 @@ func (c *Control) ConfigAdmin(principal string) bool { return c.s.IsAdmin(princi
 // (ControlOptions.Admins), whether or not each has a row.
 func (c *Control) Admins() []string { return slices.Clone(c.s.opts.Admins) }
 
+// ProjectAdmins lists those [Control.Access] makes admins of project:
+// the active principals whose role there is admin, by name, then the
+// server admins who are not disabled, by name, each once. A project
+// store tells them of a gate that names no approvers
+// ([Options.ListAdmins]). It reads memory only, as Access does.
+func (c *Control) ProjectAdmins(project string) []string {
+	c.ix.mu.RLock()
+	defer c.ix.mu.RUnlock()
+	var own []string
+	for m, r := range c.ix.roles {
+		if m.project == project && r == RoleAdmin && c.ix.active[m.principal] && !c.ConfigAdmin(m.principal) {
+			own = append(own, m.principal)
+		}
+	}
+	slices.Sort(own)
+	var server []string
+	for _, p := range c.s.opts.Admins {
+		if c.serverAdmin(p) {
+			server = append(server, p)
+		}
+	}
+	slices.Sort(server)
+	return slices.Concat(own, slices.Compact(server))
+}
+
 // serverAdmin is IsServerAdmin for a caller that holds ix.mu.
 func (c *Control) serverAdmin(principal string) bool {
 	return c.ConfigAdmin(principal) && !c.ix.disabled[principal]

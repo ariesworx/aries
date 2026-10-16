@@ -230,7 +230,7 @@ func newBenchWorld(b *testing.B, sd seeded, mode string, counted bool) *benchWor
 	tel, log := benchTel(b, mode)
 	var err error
 	w.st, err = store.Open(b.Context(), dsn, store.Options{Prefix: "ar", Admins: []string{dana.Principal}, Logger: log,
-		Observer: StoreObserver(tel, project), Tracer: StoreTracer(tel, project)})
+		Observer: StoreObserver(tel, nil, project), Tracer: StoreTracer(tel, project)})
 	if err != nil {
 		b.Fatal(err)
 	}

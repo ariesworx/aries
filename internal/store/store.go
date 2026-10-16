@@ -66,6 +66,12 @@ type Options struct {
 	// project admins ([Control.Access]). It must be fast, read no
 	// database, and be safe for concurrent use.
 	IsAdmin func(principal string) bool
+	// ListAdmins, when set, lists the principals IsAdmin answers for:
+	// the project's admins first, then the server's, each once. The
+	// store tells them of a gate that names no approvers, which they pass
+	// (decision 68), before those in Admins. Like IsAdmin it must be
+	// fast, read no database, and be safe for concurrent use.
+	ListAdmins func() []string
 	// AllowUnsafeAccount opens the store even when the database role is a
 	// superuser or holds rights beyond its database (account.go). Off,
 	// Open refuses such a role with an [*UnsafeAccountError]; ariesd turns
@@ -432,6 +438,9 @@ type wtx struct {
 	// locks are the changes of a lock the attempt made, told to the
 	// store's observer once it commits.
 	locks []lockChange
+	// gates are the changes of a gate the attempt made, for the
+	// observer once it commits.
+	gates []gateChange
 }
 
 // exec runs a mutating statement.
@@ -840,6 +849,9 @@ func (s *Store) writeOnce(ctx context.Context, actor Actor, settle bool, fn func
 		}
 		for _, c := range w.locks {
 			o.LockChanged(c.change, c.waited)
+		}
+		for _, c := range w.gates {
+			o.GateChanged(ctx, actor, c.gate, c.change)
 		}
 	}
 	// Counted after the commit: every watch subscribed before it is

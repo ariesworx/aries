@@ -5,6 +5,8 @@ attribute aries.connections project
 attribute aries.connections.dropped reason
 attribute aries.control.writes op
 attribute aries.control.writes result
+attribute aries.gates event
+attribute aries.gates kind
 attribute aries.handshakes result
 attribute aries.keys_file.writes result
 attribute aries.limit.refusals limit
@@ -26,6 +28,7 @@ instrument aries.control.writes aries_control_writes_total
 instrument aries.db.pool.conns aries_db_pool_conns
 instrument aries.db.pool.in_use aries_db_pool_in_use
 instrument aries.db.pool.waits aries_db_pool_waits_total
+instrument aries.gates aries_gates_total
 instrument aries.handshakes aries_handshakes_total
 instrument aries.keys_file.last_write.time aries_keys_file_last_write_time_seconds
 instrument aries.keys_file.writes aries_keys_file_writes_total
@@ -92,6 +95,13 @@ value aries.control.writes result ok
 value aries.control.writes result stale
 value aries.control.writes result unavailable
 value aries.control.writes result version
+value aries.gates event added
+value aries.gates event failed
+value aries.gates event passed
+value aries.gates event rearmed
+value aries.gates event waived
+value aries.gates kind ci
+value aries.gates kind human
 value aries.handshakes result acceptance
 value aries.handshakes result auth
 value aries.handshakes result busy
