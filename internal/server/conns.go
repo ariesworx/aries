@@ -11,7 +11,8 @@ import (
 	"github.com/ariesworx/aries/internal/telemetry"
 )
 
-// owner says whose a connection is, once its handshake is done: the
+// owner says whose a connection is, from just before its welcome is
+// written (track): the
 // principal, the project it connected to, and the fingerprint of the key
 // that authenticated it when sshd took the key's line from the keys file
 // (empty for a line of the hand-maintained authorized_keys file, which
@@ -25,7 +26,7 @@ type owner struct {
 	since     time.Time
 	hello     bool
 	// transport is how the connection came (TransportHTTPS or
-	// TransportSSH), once its handshake is done.
+	// TransportSSH), once it is recorded.
 	transport string
 	// grant and identity are the sign-in the connection presented, and
 	// the identity it was made by, for a connection a sign-in let in;
@@ -75,12 +76,16 @@ func (s *Server) greeted(c net.Conn) {
 }
 
 // track records whose c is, so that it can be found when that access
-// ends, and reports whether the access still holds. A server of many
-// projects asks the control store again here: a membership that ended,
-// or a key that was removed, while the handshake ran was not seen by
-// drop, which looks only at connections already recorded, so one of the
-// two always sees it.
-func (s *Server) track(c net.Conn, sess *session) bool {
+// ends, and returns the refusal when the access no longer holds. The
+// handshake calls it before it writes the welcome, so a client that has
+// read its welcome finds its connection counted by `key list` and
+// `status`, and closed by a change of its access, with no request sent.
+// A server of many projects asks the control store again here: a
+// membership that ended, or a key that was removed, while the handshake
+// ran was not seen by drop, which looks only at connections already
+// recorded, so one of the two always sees it. Whatever it returns, c is
+// recorded, and its handler untracks it (session.tracked).
+func (s *Server) track(c net.Conn, sess *session) *proto.Error {
 	s.mu.Lock()
 	o := owner{principal: sess.actor.Principal, project: sess.proj.id, key: sess.fingerprint, transport: sess.transport, sess: sess}
 	if in := sess.signedIn; in != nil {
@@ -88,20 +93,23 @@ func (s *Server) track(c net.Conn, sess *session) bool {
 	}
 	s.conns[c] = o
 	s.mu.Unlock()
+	sess.tracked = true
 	s.cfg.Telemetry.Record(telemetry.Connections, 1, sess.proj.id)
 	if s.stores == nil {
-		return true
+		return nil
 	}
 	if _, refused := s.admit(sess.actor.Principal, sess.proj.id); refused != nil {
-		return false
+		return refused
 	}
 	if in := sess.signedIn; in != nil {
 		// A sign-in ended while the handshake ran is not seen by
 		// endGrant, which looks only at connections already recorded.
-		g, ok := s.cfg.Control.TokenGrant(in.hash)
-		return ok && g.ID == in.grant && g.Live(s.cfg.Control.Now())
+		if g, ok := s.cfg.Control.TokenGrant(in.hash); !ok || g.ID != in.grant || !g.Live(s.cfg.Control.Now()) {
+			return proto.Errf(proto.CodeAuth, proto.FixSignIn+" to sign in again", "your sign-in ended")
+		}
+		return nil
 	}
-	return s.keyHolds(sess.actor.Principal, sess.fingerprint) == nil
+	return s.keyHolds(sess.actor.Principal, sess.fingerprint)
 }
 
 // keyHolds refuses a connection that says the control store's key

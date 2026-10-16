@@ -238,13 +238,13 @@ func TestKeyRemoveDrops(t *testing.T) {
 		t.Fatal(err)
 	}
 	sess := &session{actor: carol, proj: &served{id: projA}, fingerprint: carols}
-	if !m.track(byFile.nc, sess) {
+	if m.track(byFile.nc, sess) != nil {
 		t.Fatal("track refused a connection by a key the store holds")
 	}
 	if _, err := m.ctl.RemoveKey(t.Context(), dana, carols); err != nil {
 		t.Fatal(err)
 	}
-	if m.track(byFile.nc, sess) {
+	if m.track(byFile.nc, sess) == nil {
 		t.Error("track accepted a connection whose key was removed during the handshake")
 	}
 	m.untrack(byFile.nc)

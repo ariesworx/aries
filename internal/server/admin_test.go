@@ -808,13 +808,13 @@ func TestTrackRechecksAccess(t *testing.T) {
 	m := adminWorld(t, Limits{})
 	c := mustDialTo(t, m.Server, bob, projA)
 	sess := &session{actor: bob, proj: &served{id: projA}}
-	if !m.track(c.nc, sess) {
+	if m.track(c.nc, sess) != nil {
 		t.Fatal("track refused a member's connection")
 	}
 	if _, err := m.ctl.RemoveMember(t.Context(), dana, "bob", projA); err != nil {
 		t.Fatal(err)
 	}
-	if m.track(c.nc, sess) {
+	if m.track(c.nc, sess) == nil {
 		t.Error("track accepted a connection whose membership ended during the handshake")
 	}
 	m.untrack(c.nc)
