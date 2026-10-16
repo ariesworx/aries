@@ -66,11 +66,11 @@ func TestEveryOpHasScopes(t *testing.T) {
 	t.Parallel()
 	ops := protoOps(t)
 	for _, op := range ops {
-		if _, ok := opScopes[op]; !ok {
+		if _, ok := opScopes()[op]; !ok {
 			t.Errorf("op %q has no entry in opScopes; add it, with the scopes besides cli whose tokens may send it", op)
 		}
 	}
-	for op := range opScopes {
+	for op := range opScopes() {
 		if !slices.Contains(ops, op) {
 			t.Errorf("opScopes names %q, which is no op of internal/proto", op)
 		}
@@ -82,7 +82,7 @@ func TestEveryOpHasScopes(t *testing.T) {
 // locks are not an agent's (decision 70).
 func TestScopeRules(t *testing.T) {
 	t.Parallel()
-	for op, scopes := range opScopes {
+	for op, scopes := range opScopes() {
 		for _, sc := range scopes {
 			if sc != proto.ScopeMCP && sc != proto.ScopeCI {
 				t.Errorf("opScopes[%q] names scope %q; it lists only mcp and ci, cli allowing every op", op, sc)
