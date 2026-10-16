@@ -289,8 +289,8 @@ less, by design: ids, codes and numbers, and no text.
 ([docs/design/identity.md](../design/identity.md)) on your own machine,
 with no account at Google, Entra ID, Okta or GitHub and no internet:
 Keycloak stands in for them until a final check against the real
-providers. Sign-in itself is not built yet; this is the fixture it will
-be tested against.
+providers. With `ARIES_IDENTITY=1` the server signs people in at it
+([Sign in at it](#sign-in-at-it), below).
 
 **A test fixture, never production.** Keycloak runs in development mode
 over plain HTTP, its database is a file on a volume, and its realm is
@@ -313,7 +313,7 @@ took about half a minute on an Apple silicon Mac. `ARIES_IDENTITY_PORT` sets the
 | Admin console | `http://keycloak.localhost:8180/admin/`, user `admin` |
 | People | `alice@example.com` and `bob@example.com` (usernames `alice` and `bob`), addresses verified |
 | `aries-cli` | Public, for `aries login`: the code flow with PKCE (S256 required), redirects to `http://127.0.0.1/*` on any port and to Keycloak's own code page (`urn:ietf:wg:oauth:2.0:oob`), the device grant on for testing, ID tokens signed ES256, no refresh tokens |
-| `aries-server` | Confidential, standing for the server: the code flow with PKCE and the same redirects, for a code the server exchanges itself; its secret in `aries-server.secret` |
+| `aries-server` | Confidential, standing for the server: the code flow with PKCE, for a code the server exchanges itself, with the server's callback, `https://localhost:ARIES_HTTPS_PORT/auth/callback`, among its redirects; its secret in `aries-server.secret` |
 | `ci-example` | A service principal: the client-credentials grant only, its tokens for the audience `aries.example.com`, with made-up claims in the shape of a GitHub Actions token (`repository_id`, `repository`, `ref`, `workflow_ref`) for trust rules to match; its secret in `ci-example.secret` |
 | Claims | ID tokens carry `email`, `email_verified`, `nonce` (the one sent) and `auth_time`; the realm has an ES256 key beside the default RS256 one; tokens live five minutes |
 
@@ -352,9 +352,9 @@ docker compose --profile identity exec keycloak /opt/aries/identity.sh show
   on macOS did both; others were not tried. macOS's resolver, Go's and
   curl resolve the name too. A tool that does not can be given
   `keycloak.localhost:8180:127.0.0.1` (curl's `--resolve`).
-- **The server's container** reaches Keycloak by the same name. Nothing
-  in the server uses it yet, and the server's image is unchanged by the
-  profile.
+- **The server's container** reaches Keycloak by the same name, and
+  with `ARIES_IDENTITY=1` signs people in at it. The server's image is
+  unchanged by the profile.
 - **Air-gapped.** Nothing Keycloak does needs the internet once its
   image is pulled. To show that, put the compose network out of reach
   with an override file:
@@ -377,6 +377,27 @@ docker compose --profile identity exec keycloak /opt/aries/identity.sh show
   ([Run the smoke test](#with-the-identity-provider) has what was run).
   On a machine with no network at all, the default network and the
   loopback ports work as they do online.
+
+### Sign in at it
+
+```sh
+ARIES_KEYS="alice $(cat ~/.ssh/id_ed25519.pub)" ARIES_IDENTITY=1 docker compose --profile identity up -d --wait
+aries admin invite add bob bob@example.com --provider keycloak   # as alice, the server admin
+```
+
+With `ARIES_IDENTITY=1` the server's entrypoint waits for Keycloak's
+realm, copies the server's client secret from Keycloak's volume, which
+the server's container mounts read-only, to `/etc/aries/login`, mode
+0600, exports the realm's key set beside it, and writes the provider
+`keycloak` into the config ([Sign-in](../server.md#sign-in)), offline:
+its endpoints written out and its keys from the file, so that ariesd
+fetches nothing to check a token. Then, in a repository whose
+`.aries.yaml` names the server, `aries login` signs bob in at Keycloak
+through the server: his browser opens Keycloak's page, he signs in with
+`bob.pass`, and `aries whoami` says he is signed in. A volume of
+Keycloak's from before this release has the server's client without the
+server's callback: remove it (`docker compose --profile identity down
+-v`) to have it made again.
 
 ## Test a change
 
@@ -538,8 +559,9 @@ which pulls Keycloak, on `127.0.0.1:8181` (`ARIES_IDENTITY_PORT`) so
 that a Keycloak of your own on 8180 is left alone, and then checks it.
 It needs `curl` and `openssl` on your machine. It prints the claims of
 the tokens it gets and never a password, a secret, a code or a token,
-which go from Keycloak's volume to each request through pipes. 189
-checks passed on 15 October 2026, on Postgres, 34 of them Keycloak's:
+which go from Keycloak's volume to each request through pipes. 197
+checks passed on 16 October 2026, on Postgres, over HTTPS, 34 of them
+Keycloak's and 17 the sign-in's through the server:
 
 - **One issuer.** The discovery document from your machine and from
   the server's container, by name, names the same issuer, offers PKCE
@@ -562,6 +584,24 @@ checks passed on 15 October 2026, on Postgres, 34 of them Keycloak's:
   client-credentials grant, for `aries.example.com`, with `azp`
   `ci-example` and the made-up `repository` claim; a wrong secret is
   refused.
+- **A sign-in through the server, end to end** (`ARIES_IDENTITY=1`,
+  slice T2). `/.well-known/aries` names the provider `keycloak`; an
+  invitation at a provider the server does not have is refused, and
+  alice invites bob's address at `keycloak`. bob runs `aries login
+  --url`, and curl, as a browser on another machine, opens the URL it
+  prints: the server sends it to Keycloak with `prompt=login`, PKCE and
+  a nonce; it signs bob in with his password; Keycloak sends it to the
+  server's callback, which exchanges the code and sends it on to `aries`'s
+  loopback address, which curl does not open; the address is pasted
+  back, after a line that is not one. `aries login` says bob is signed
+  in, for the day; `whoami` shows the sign-in; bob creates an issue
+  signed in; his identity is bound; alice sees his sign-in live; the
+  status shows one live, and Keycloak's keys from a file, nothing
+  fetched; the token's file is 0600, and the token is in no line of
+  ariesd's log, which has `signin.granted`; `aries logout` ends it, bob
+  is back on his key, and the server lists it ended by logout. alice,
+  whom nobody invited at Keycloak, is refused with the fix to ask for an
+  invitation.
 
 Without `ARIES_SMOKE_IDENTITY` the smoke test is as before: 155 checks
 on 15 October 2026, and no Keycloak.

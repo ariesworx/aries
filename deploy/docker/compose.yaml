@@ -39,6 +39,9 @@
 # Its issuer is http://keycloak.localhost:PORT/realms/aries, the same
 # from a browser on the host and from the server's container;
 # ARIES_IDENTITY_PORT is that PORT, on 127.0.0.1, 8180 by default.
+# ARIES_IDENTITY=1 also has ariesd sign people in at it, as the provider
+# `keycloak` (docs/server.md, "Sign-in"), offline: its endpoints written
+# out, and its keys from a file the entrypoint exports at start.
 name: aries-dev
 services:
   aries:
@@ -57,12 +60,18 @@ services:
       ARIES_HTTPS_PORT: ${ARIES_HTTPS_PORT:-8443}
       ARIES_SSH: ${ARIES_SSH:-}
       ARIES_TELEMETRY: ${ARIES_TELEMETRY:-}
+      ARIES_IDENTITY: ${ARIES_IDENTITY:-}
+      ARIES_IDENTITY_PORT: ${ARIES_IDENTITY_PORT:-8180}
     ports:
       - 127.0.0.1:${ARIES_HTTPS_PORT:-8443}:8443
       - 127.0.0.1:${ARIES_PORT:-2222}:22
     volumes:
       - state:/state
       - dbsecret:/aries-db:ro
+      # Keycloak's, for its generated client secret, which the entrypoint
+      # copies for ariesd with ARIES_IDENTITY=1; empty without the
+      # identity profile.
+      - identity:/run/aries-identity:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -153,6 +162,7 @@ services:
     init: true
     environment:
       ARIES_IDENTITY_PORT: ${ARIES_IDENTITY_PORT:-8180}
+      ARIES_HTTPS_PORT: ${ARIES_HTTPS_PORT:-8443}
     ports:
       - 127.0.0.1:${ARIES_IDENTITY_PORT:-8180}:${ARIES_IDENTITY_PORT:-8180}
     networks:
