@@ -3319,6 +3319,7 @@ seconds and `_total` to a counter, and gives a histogram `_bucket`,
 | `aries.https.connections.refused` | `aries_https_connections_refused_total` | counter | `reason` |
 | `aries.https.upgrades` | `aries_https_upgrades_total` | counter | `result`, `reason` |
 | `aries.https.key_proofs` | `aries_https_key_proofs_total` | counter | `result` |
+| `aries.https.tokens` | `aries_https_tokens_total` | counter | `result` |
 | `aries.https.tls_handshakes.failed` | `aries_https_tls_handshakes_failed_total` | counter | none |
 | `aries.https.cert.reloads` | `aries_https_cert_reloads_total` | counter | `result` |
 
@@ -3353,6 +3354,7 @@ What each counts:
 | `https.connections.refused` | Each connection the listener closed unanswered: `untrusted`, from an address `trusted` does not name behind a proxy; `limit`, past `https_conns_per_server` or `https_conns_per_addr`, which `limit.refusals` names |
 | `https.upgrades` | Each request to `/v1/connect`: upgraded to a WebSocket, or refused before, and why. An address past `auth_failures_per_minute` is also counted in `limit.refusals` |
 | `https.key_proofs` | Each WebSocket's [key proof](#the-https-listener): accepted, refused and why, or `failed` when the client left, or did not finish within `upgrade_timeout`. A refused proof is counted before the refusal is written. What follows an accepted one is a handshake, counted in `handshakes` |
+| `https.tokens` | Each [sign-in](#sign-in)'s token presented to connect, with its DPoP proof: accepted, or refused and why; a refused one is also an upgrade refused with reason `token`. Counted before the refusal or the upgrade is answered. A connection that brought a token proves no key |
 | `https.tls_handshakes.failed` | With TLS at ariesd: each connection closed before its TLS handshake completed, whatever the cause: a client that does not trust the certificate, a scanner, plain HTTP sent to the port, a load balancer's TCP check. A steady rate is the internet's noise; a jump with complaints from clients is a certificate they do not trust |
 | `https.cert.reloads` | With `tls: mode: files`: each time the certificate's files changed and were read again, or could not be, once for each change. ACME's renewals are not counted |
 
@@ -3364,8 +3366,9 @@ number of series cannot grow with what clients send:
 | `op` | An operation of the protocol, such as `create`, `start` or `member.set`; `unknown` for any other |
 | `result` | `ok`, or the refusal's code: `not_found`, `conflict`, `exists`, `cycle`, `invalid`, `acceptance`, `forbidden`, `unavailable`, `version`, `auth`, `busy`, `stale`. For a handshake also `failed`: it ended without a refusal to name, as when a frame could not be read. For the keys file and the certificate's reloads: `ok` or `failed` |
 | `result` of an upgrade | `ok`, or `refused` |
-| `reason` of an upgrade | `none` for one upgraded; for one refused, `origin` (a browser's page, 403), `auth_failures` (the address past `auth_failures_per_minute`, 429) or `bad_request` (not a WebSocket upgrade, 400, or one that could not be completed) |
+| `reason` of an upgrade | `none` for one upgraded; for one refused, `origin` (a browser's page, 403), `auth_failures` (the address past `auth_failures_per_minute`, 429), `token` (a sign-in's token or its DPoP proof refused, 401, or 503 for `dpop_busy`) or `bad_request` (not a WebSocket upgrade, 400, or one that could not be completed) |
 | `result` of a key proof | `ok`; `invalid` (no key offer, or a malformed proof), `url` (a proof for a URL `public_urls` does not name), `unknown_key` (no key offered is known), `bad_proof` (the signature does not verify); `failed` (the client left, or said nothing within `upgrade_timeout`) |
+| `result` of a token | `ok`; the token: `token_scheme` (not presented as DPoP), `token_missing`, `token_unknown` (never issued, or its sign-in ended and was pruned), `token_ended`, `token_bearer` (bound to no key), `token_no_login` (the server has no `login:`); its DPoP proof: `dpop_missing`, `dpop_malformed`, `dpop_signature` (not signed by the key it carries), `dpop_request` (for another method or URL), `dpop_token` (for another token), `dpop_time` (too far from the server's time), `dpop_replayed`, `dpop_busy` (past `dpop_proofs_per_server`), `dpop_key` (signed by another key than the token's) |
 | `reason` of a connection the HTTPS listener refused | `untrusted`, `limit` |
 | `result_class` | `ok`; `error` for `unavailable`, which is the server's failure; `refused` for every other refusal, which is the request's |
 | `project` | The project's UUID, only for a project a connection was admitted to. At most as many as the `projects_per_server` limit, and `other` past that |

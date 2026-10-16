@@ -319,11 +319,15 @@ func (w *web) connect(rw http.ResponseWriter, r *http.Request) {
 		var reason string
 		if w.s.auth == nil {
 			perr, reason = proto.Errf(proto.CodeAuth, "sign in with a key: unset the sign-in with `aries logout`, or ask the server's operator to set up login:",
-				"this server signs no one in at a provider"), "token_no_login"
+				"this server signs no one in at a provider"), telemetry.TokenNoLogin
 		} else {
 			given, in, perr, reason = w.s.auth.admit(r)
 		}
+		// Counted before the refusal or the upgrade is answered, as a
+		// key proof is.
 		if perr != nil {
+			tel.Count(telemetry.HTTPSTokens, reason)
+			tel.Count(telemetry.HTTPSUpgrades, telemetry.UpgradeRefused, telemetry.UpgradeToken)
 			w.refused(r.Context(), addr, reason)
 			if !behind && perr.Code == proto.CodeAuth {
 				w.s.authFails.take(addr.String(), w.s.now())
@@ -336,6 +340,7 @@ func (w *web) connect(rw http.ResponseWriter, r *http.Request) {
 			writeRefusal(rw, status, perr)
 			return
 		}
+		tel.Count(telemetry.HTTPSTokens, telemetry.ResultOK)
 	}
 	lim := w.s.cfg.Limits
 	c, err := wsconn.Accept(rw, r, lim.WSMessageBytes)

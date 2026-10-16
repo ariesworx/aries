@@ -601,34 +601,34 @@ func (a *authServer) admit(r *http.Request) (*proto.Frame, *signedIn, *proto.Err
 	switch {
 	case !strings.EqualFold(scheme, "DPoP"):
 		return nil, nil, proto.Errf(proto.CodeAuth, proto.FixUpgrade+" aries, then "+again,
-			"a token here is presented as DPoP, with a proof by its key"), "token_scheme"
+			"a token here is presented as DPoP, with a proof by its key"), telemetry.TokenScheme
 	case tok == "" || len(tok) > 256:
-		return nil, nil, proto.Errf(proto.CodeAuth, again, "the sign-in's token is missing"), "token_missing"
+		return nil, nil, proto.Errf(proto.CodeAuth, again, "the sign-in's token is missing"), telemetry.TokenMissing
 	}
 	g, ok := a.s.cfg.Control.TokenGrant(hashOf(tok))
 	if !ok {
-		return nil, nil, proto.Errf(proto.CodeAuth, again, "the sign-in is unknown to this server, or was ended"), "token_unknown"
+		return nil, nil, proto.Errf(proto.CodeAuth, again, "the sign-in is unknown to this server, or was ended"), telemetry.TokenUnknown
 	}
 	now := a.now()
 	if !g.Live(now) {
-		return nil, nil, proto.Errf(proto.CodeAuth, again, fmt.Sprintf("your sign-in ended at %s", g.EndsAt.Format(time.RFC3339))), "token_ended"
+		return nil, nil, proto.Errf(proto.CodeAuth, again, fmt.Sprintf("your sign-in ended at %s", g.EndsAt.Format(time.RFC3339))), telemetry.TokenEnded
 	}
 	if g.JKT == "" {
-		return nil, nil, proto.Errf(proto.CodeAuth, again, "this sign-in's token is not for aries"), "token_bearer"
+		return nil, nil, proto.Errf(proto.CodeAuth, again, "this sign-in's token is not for aries"), telemetry.TokenBearer
 	}
 	jkt, err := a.proofs.Verify(r.Header.Get("DPoP"), http.MethodGet, a.at(keyproof.ConnectPath), tok, now)
 	if err != nil {
 		e, _ := errors.AsType[*dpop.Error](err)
 		if e.Reason == dpop.ReasonBusy {
 			a.s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitDPoPProofs)
-			return nil, nil, proto.Errf(proto.CodeBusy, "retry in a minute", err.Error()), "dpop_busy"
+			return nil, nil, proto.Errf(proto.CodeBusy, "retry in a minute", err.Error()), telemetry.DPoPBusy
 		}
 		return nil, nil, proto.Errf(proto.CodeAuth, again+"; the token and its key on this machine no longer match, or this machine's clock is off",
 			err.Error()), "dpop_" + string(e.Reason)
 	}
 	if jkt != g.JKT {
 		return nil, nil, proto.Errf(proto.CodeAuth, again+"; the token and its key on this machine no longer match",
-			"the DPoP proof is signed by another key than the sign-in's"), "dpop_key"
+			"the DPoP proof is signed by another key than the sign-in's"), telemetry.DPoPKey
 	}
 	return &proto.Frame{T: proto.FrameBridge, Principal: g.Principal},
 		&signedIn{grant: g.ID, hash: hashOf(tok), identity: g.Identity, provider: g.Provider, scopes: g.Scopes, ends: g.EndsAt}, nil, ""

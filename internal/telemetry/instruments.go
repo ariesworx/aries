@@ -93,6 +93,9 @@ const (
 	HTTPSUpgrades
 	// HTTPSKeyProofs counts key proofs on a WebSocket: result.
 	HTTPSKeyProofs
+	// HTTPSTokens counts sign-ins' tokens presented to connect, with
+	// their DPoP proofs: result.
+	HTTPSTokens
 	// HTTPSTLSFailures counts connections to the HTTPS listener closed
 	// before their TLS handshake completed.
 	HTTPSTLSFailures
@@ -217,6 +220,9 @@ const (
 	UpgradeOrigin       = "origin"
 	UpgradeAuthFailures = "auth_failures"
 	UpgradeBadRequest   = "bad_request"
+	// UpgradeToken is an upgrade refused for its sign-in's token, which
+	// HTTPSTokens counts by why.
+	UpgradeToken = "token"
 
 	// How a key proof was refused: no key proof at all, one for another
 	// server's URL, no key the server knows, and a signature that does
@@ -226,6 +232,28 @@ const (
 	ProofURL        = "url"
 	ProofUnknownKey = "unknown_key"
 	ProofBadProof   = "bad_proof"
+
+	// How a sign-in's token presented to connect was refused: by
+	// another scheme than DPoP, missing, unknown to the server, its
+	// sign-in ended, bound to no key, or by a server with no login:;
+	// and its DPoP proof missing, malformed, not signed by its key, for
+	// another request or token, out of time, replayed, past the proofs
+	// remembered, or signed by another key than the token's.
+	TokenScheme   = "token_scheme"
+	TokenMissing  = "token_missing"
+	TokenUnknown  = "token_unknown"
+	TokenEnded    = "token_ended"
+	TokenBearer   = "token_bearer"
+	TokenNoLogin  = "token_no_login"
+	DPoPMissing   = "dpop_missing"
+	DPoPMalformed = "dpop_malformed"
+	DPoPSignature = "dpop_signature"
+	DPoPRequest   = "dpop_request"
+	DPoPToken     = "dpop_token"
+	DPoPTime      = "dpop_time"
+	DPoPReplayed  = "dpop_replayed"
+	DPoPBusy      = "dpop_busy"
+	DPoPKey       = "dpop_key"
 )
 
 // The limits a refusal is counted under, by the name of the setting in
@@ -310,8 +338,10 @@ var (
 	attrStep     = attr{key: KeyDirection, values: []string{StepForward, StepBackward}, fallback: Other}
 	attrListener = attr{key: KeyReason, values: []string{ListenerUntrusted, ListenerLimit}, fallback: Other}
 	attrUpgraded = attr{key: KeyResult, values: []string{ResultOK, UpgradeRefused}, fallback: Other}
-	attrUpgrade  = attr{key: KeyReason, values: []string{ReasonNone, UpgradeOrigin, UpgradeAuthFailures, UpgradeBadRequest}, fallback: Other}
+	attrUpgrade  = attr{key: KeyReason, values: []string{ReasonNone, UpgradeOrigin, UpgradeAuthFailures, UpgradeBadRequest, UpgradeToken}, fallback: Other}
 	attrProof    = attr{key: KeyResult, values: []string{ResultOK, ResultFailed, ProofInvalid, ProofURL, ProofUnknownKey, ProofBadProof}, fallback: Other}
+	attrToken    = attr{key: KeyResult, values: []string{ResultOK, TokenScheme, TokenMissing, TokenUnknown, TokenEnded, TokenBearer, TokenNoLogin,
+		DPoPMissing, DPoPMalformed, DPoPSignature, DPoPRequest, DPoPToken, DPoPTime, DPoPReplayed, DPoPBusy, DPoPKey}, fallback: Other}
 )
 
 // spec declares one instrument.
@@ -357,6 +387,7 @@ var specs = [numInstruments]spec{
 	HTTPSConnectionsRefused: {name: "aries.https.connections.refused", kind: Counter, attrs: []attr{attrListener}, desc: "Connections the HTTPS listener closed unanswered."},
 	HTTPSUpgrades:           {name: "aries.https.upgrades", kind: Counter, attrs: []attr{attrUpgraded, attrUpgrade}, desc: "Requests to upgrade to a WebSocket, by how they ended."},
 	HTTPSKeyProofs:          {name: "aries.https.key_proofs", kind: Counter, attrs: []attr{attrProof}, desc: "Key proofs on a WebSocket, by how they ended."},
+	HTTPSTokens:             {name: "aries.https.tokens", kind: Counter, attrs: []attr{attrToken}, desc: "Sign-ins' tokens presented to connect, by how their check ended."},
 	HTTPSTLSFailures:        {name: "aries.https.tls_handshakes.failed", kind: Counter, desc: "Connections to the HTTPS listener closed before their TLS handshake completed."},
 	HTTPSCertReloads:        {name: "aries.https.cert.reloads", kind: Counter, attrs: []attr{attrWrote}, desc: "Reads of the TLS certificate's files after they changed."},
 }

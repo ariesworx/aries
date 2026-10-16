@@ -23,6 +23,7 @@ import (
 	"github.com/ariesworx/aries/internal/oidc/oidctest"
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/store"
+	"github.com/ariesworx/aries/internal/telemetry"
 	"github.com/ariesworx/aries/internal/wsconn"
 )
 
@@ -48,6 +49,13 @@ type signInWorld struct {
 // the provider's settings and the server's Login before it starts.
 func newSignInWorld(t *testing.T, edit func(*oidctest.Issuer, *oidc.Settings, *Login)) *signInWorld {
 	t.Helper()
+	return newMeasuredSignInWorld(t, edit, nil)
+}
+
+// newMeasuredSignInWorld is newSignInWorld with the server's telemetry
+// tel.
+func newMeasuredSignInWorld(t *testing.T, edit func(*oidctest.Issuer, *oidc.Settings, *Login), tel *telemetry.Telemetry) *signInWorld {
+	t.Helper()
 	iss := oidctest.New(t)
 	clk := newClock()
 	iss.Clock(clk.now)
@@ -69,6 +77,7 @@ func newSignInWorld(t *testing.T, edit func(*oidctest.Issuer, *oidc.Settings, *L
 	w.multi = newMultiWith(t, Limits{}, clk, nil, func(cfg *Config) {
 		w.url, w.pool = listenHTTPS(t, cfg, nil)
 		cfg.Login = &login
+		cfg.Telemetry = tel
 	}, dana.Principal)
 	serving(t, w.Server)
 	w.project(t, projA, "alice")
@@ -448,6 +457,48 @@ func TestConnectRefusals(t *testing.T) {
 	if err == nil || resp == nil || resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("a DPoP token presented as Bearer = %v, %v; want 401", c, err)
 	}
+}
+
+// TestMetricsOfTokens: every sign-in's token presented to /v1/connect
+// is counted by how its check ended, as a key proof is, and a refused
+// one as a refused upgrade; a connection that brought a token proves no
+// key.
+func TestMetricsOfTokens(t *testing.T) {
+	t.Parallel()
+	tel, m := measured(t, false)
+	w := newMeasuredSignInWorld(t, nil, tel)
+	a := newAttempt(t)
+	tok := w.mustSignIn(t, a).AccessToken
+	replayed := mustProof(t, a.key, w.url+keyproof.ConnectPath, tok)
+	c, perr := w.connectWith(t, a, tok, replayed)
+	if perr != nil {
+		t.Fatalf("connect with a sign-in = %v", perr)
+	}
+	_ = c.Close()
+	for _, tc := range []struct{ name, token, proof string }{
+		{"no proof", tok, "-"},
+		{"a proof replayed", tok, replayed},
+		{"a proof by another key", tok, mustProof(t, newAttempt(t).key, w.url+keyproof.ConnectPath, tok)},
+		{"a token never issued", rand.Text() + rand.Text(), ""},
+	} {
+		if _, perr := w.connectWith(t, a, tc.token, tc.proof); perr == nil {
+			t.Errorf("connect with %s was not refused", tc.name)
+		}
+	}
+	if _, resp, err := wsDial(t, w.url, w.pool, http.Header{"Authorization": {"Bearer " + tok}}); err == nil || resp == nil {
+		t.Errorf("a DPoP token presented as Bearer = %v; want a refusal", err)
+	}
+	checkSoon(t, m, []want{
+		{"aries.https.tokens", []string{"result", "ok"}, 1},
+		{"aries.https.tokens", []string{"result", "dpop_missing"}, 1},
+		{"aries.https.tokens", []string{"result", "dpop_replayed"}, 1},
+		{"aries.https.tokens", []string{"result", "dpop_key"}, 1},
+		{"aries.https.tokens", []string{"result", "token_unknown"}, 1},
+		{"aries.https.tokens", []string{"result", "token_scheme"}, 1},
+		{"aries.https.upgrades", []string{"result", "refused", "reason", "token"}, 5},
+		{"aries.https.upgrades", []string{"result", "ok", "reason", "none"}, 1},
+		{"aries.https.key_proofs", []string{"result", "ok"}, 0},
+	})
 }
 
 func mustProof(t *testing.T, k *ecdsa.PrivateKey, htu, token string) string {
