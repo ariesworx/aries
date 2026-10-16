@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Inbox operations (protocol 2, added before it shipped in a release).
+// Inbox operations.
 const (
 	OpInbox = "inbox" // InboxArgs → InboxResult
 	OpAck   = "ack"   // AckArgs → AckResult
@@ -22,15 +22,15 @@ const (
 	EvResync = "resync"
 	// EvEvent carries, to a watch that asked for events, one event
 	// committed on an issue: an Event with its Issue and without its
-	// before and after states (protocol 3).
+	// before and after states.
 	EvEvent = "event"
 )
 
-// InboxItem is one inbox item. Kind is claim.lost, assigned, mention,
-// handoff, conflict, one of the gate kinds, or lock.granted or lock.lost,
-// which name no issue. Session is set when the item concerns one session
-// of the principal (a lost claim, a lock granted or lost), and empty
-// when any of its sessions may read it.
+// InboxItem is one inbox item. Kind is claim.lost, issue.assigned,
+// issue.mentioned, issue.handoff, conflict.parked, one of the gate kinds,
+// or lock.granted or lock.lost, which name no issue. Session is set when
+// the item concerns one session of the principal (a lost claim, a lock
+// granted or lost), and empty when any of its sessions may read it.
 type InboxItem struct {
 	ID      int64      `json:"id"`
 	Session string     `json:"session,omitempty"`
@@ -73,7 +73,7 @@ type AckResult struct {
 // WatchArgs asks the server to push this connection's new inbox items:
 // its principal's and its own session's, as evt frames, from now until
 // the connection closes or a resync. With Events it also pushes every
-// event committed on an issue (protocol 3), for a live board. Watching
+// event committed on an issue, for a live board. Watching
 // again after a resync resumes; watching while watched changes nothing,
 // unless Events differs, which starts the watch afresh.
 type WatchArgs struct {

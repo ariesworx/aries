@@ -11,10 +11,10 @@ import (
 type ControlLimits struct {
 	// Projects caps the projects on the server, in every state: an
 	// archived project keeps its schema.
-	Projects int `yaml:"projects"`
+	Projects int `yaml:"projects_per_server"`
 	// Principals caps the principals on the server, disabled ones
 	// included.
-	Principals int `yaml:"principals"`
+	Principals int `yaml:"principals_per_server"`
 	// PrincipalsPerCreator caps the principals one principal who is no
 	// server admin may create, disabled ones included. Principals are
 	// never deleted and their names are the whole server's, so without it
@@ -31,8 +31,8 @@ var DefaultControlLimits = ControlLimits{Projects: 500, Principals: 5000, Princi
 
 // The limits' names, as a [*ControlLimitError] gives them.
 const (
-	limitProjects   = "projects"
-	limitPrincipals = "principals"
+	limitProjects   = "projects_per_server"
+	limitPrincipals = "principals_per_server"
 	limitPerCreator = "principals_per_creator"
 	limitKeys       = "keys_per_principal"
 	limitMembers    = "members_per_project"
@@ -81,6 +81,10 @@ type ControlLimitError struct {
 
 func (e *ControlLimitError) Error() string {
 	switch e.Limit {
+	case limitProjects:
+		return fmt.Sprintf("%v: the server keeps at most %d projects", ErrInvalid, e.Max)
+	case limitPrincipals:
+		return fmt.Sprintf("%v: the server keeps at most %d principals", ErrInvalid, e.Max)
 	case limitPerCreator:
 		return fmt.Sprintf("%v: a principal who is no server admin creates at most %d principals", ErrInvalid, e.Max)
 	case limitKeys:
@@ -88,7 +92,7 @@ func (e *ControlLimitError) Error() string {
 	case limitMembers:
 		return fmt.Sprintf("%v: a project keeps at most %d members", ErrInvalid, e.Max)
 	}
-	return fmt.Sprintf("%v: the server keeps at most %d %s", ErrInvalid, e.Max, e.Limit)
+	return fmt.Sprintf("%v: past the limit %s, %d", ErrInvalid, e.Limit, e.Max)
 }
 
 // Unwrap makes errors.Is(err, ErrInvalid) hold.

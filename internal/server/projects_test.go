@@ -600,9 +600,9 @@ func TestRegistryCap(t *testing.T) {
 	b := mustDialTo(t, m.Server, alice, projB)
 
 	w, refused := dialTo(t, m.Server, alice, projC)
-	if w.Err == nil || w.Err.Code != proto.CodeBusy || !strings.Contains(w.Err.Fix, "open_stores") ||
+	if w.Err == nil || w.Err.Code != proto.CodeBusy || !strings.Contains(w.Err.Fix, "open_stores_per_server") ||
 		!strings.Contains(w.Err.Message, "limit of 2 projects open") {
-		t.Fatalf("a third project with two in use = %+v, want busy naming open_stores", w.Err)
+		t.Fatalf("a third project with two in use = %+v, want busy naming open_stores_per_server", w.Err)
 	}
 	// The refusal gave back its connection slot.
 	refused.hangUp()
@@ -939,31 +939,31 @@ func TestResolveSettingsControl(t *testing.T) {
 		{name: "limits default", body: dsn, check: func(l Settings) bool {
 			return l.Limits.Control == store.DefaultControlLimits && l.Limits.OpenStores == 64 && l.Limits.StoreIdle == Duration(10*time.Minute)
 		}},
-		{name: "limits set", body: "limits:\n  projects: 9\n  principals: 99\n  principals_per_creator: 7\n  keys_per_principal: 3\n  members_per_project: 12\n  open_stores: 5\n  store_idle: 90s\n",
+		{name: "limits set", body: "limits:\n  projects_per_server: 9\n  principals_per_server: 99\n  principals_per_creator: 7\n  keys_per_principal: 3\n  members_per_project: 12\n  open_stores_per_server: 5\n  store_idle: 90s\n",
 			check: func(l Settings) bool {
 				return l.Limits.Control == store.ControlLimits{Projects: 9, Principals: 99, PrincipalsPerCreator: 7, Keys: 3, Members: 12} &&
 					l.Limits.OpenStores == 5 && l.Limits.StoreIdle == Duration(90*time.Second) && l.Limits.Conns == DefaultLimits.Conns
 			}},
-		{name: "zero takes the default", body: "limits:\n  projects: 0\n  open_stores: 0\n",
+		{name: "zero takes the default", body: "limits:\n  projects_per_server: 0\n  open_stores_per_server: 0\n",
 			check: func(l Settings) bool { return l.Limits == DefaultLimits }},
-		{name: "negative projects", body: "limits:\n  projects: -1\n", err: "limit projects is -1"},
-		{name: "negative principals", body: "limits:\n  principals: -1\n", err: "limit principals is -1"},
+		{name: "negative projects", body: "limits:\n  projects_per_server: -1\n", err: "limit projects_per_server is -1"},
+		{name: "negative principals", body: "limits:\n  principals_per_server: -1\n", err: "limit principals_per_server is -1"},
 		{name: "principals_per_creator default", body: dsn, check: func(l Settings) bool { return l.Limits.Control.PrincipalsPerCreator == 500 }},
 		{name: "negative principals_per_creator", body: "limits:\n  principals_per_creator: -1\n", err: "limit principals_per_creator is -1"},
 		{name: "negative keys_per_principal", body: "limits:\n  keys_per_principal: -1\n", err: "limit keys_per_principal is -1"},
 		{name: "negative members_per_project", body: "limits:\n  members_per_project: -1\n", err: "limit members_per_project is -1"},
-		{name: "negative open_stores", body: "limits:\n  open_stores: -1\n", err: "limit open_stores must be zero or a positive number; fix:"},
+		{name: "negative open_stores_per_server", body: "limits:\n  open_stores_per_server: -1\n", err: "limit open_stores_per_server must be zero or a positive number; fix:"},
 		{name: "control write limits default", body: dsn, check: func(l Settings) bool {
 			return l.Limits.ControlWriteRate == 1 && l.Limits.ControlWriteBurst == 30
 		}},
-		{name: "control write limits set", body: "limits:\n  control_write_rate: 0.5\n  control_write_burst: 7\n",
+		{name: "control write limits set", body: "limits:\n  control_writes_per_second: 0.5\n  control_write_burst: 7\n",
 			check: func(l Settings) bool {
 				return l.Limits.ControlWriteRate == 0.5 && l.Limits.ControlWriteBurst == 7 && l.Limits.WriteRate == DefaultLimits.WriteRate
 			}},
-		{name: "control write limits zero take the default", body: "limits:\n  control_write_rate: 0\n  control_write_burst: 0\n",
+		{name: "control write limits zero take the default", body: "limits:\n  control_writes_per_second: 0\n  control_write_burst: 0\n",
 			check: func(l Settings) bool { return l.Limits == DefaultLimits }},
-		{name: "negative control_write_rate", body: "limits:\n  control_write_rate: -1\n", err: "limit control_write_rate must be zero or a positive number; fix:"},
-		{name: "control_write_rate not a number", body: "limits:\n  control_write_rate: .nan\n", err: "limit control_write_rate must be zero or a positive number; fix:"},
+		{name: "negative control_writes_per_second", body: "limits:\n  control_writes_per_second: -1\n", err: "limit control_writes_per_second must be zero or a positive number; fix:"},
+		{name: "control_writes_per_second not a number", body: "limits:\n  control_writes_per_second: .nan\n", err: "limit control_writes_per_second must be zero or a positive number; fix:"},
 		{name: "negative control_write_burst", body: "limits:\n  control_write_burst: -1\n", err: "limit control_write_burst must be zero or a positive number; fix:"},
 		{name: "the keys file, the hand-maintained file and the bridge by default", body: dsn + "control_schema: aries_control\n",
 			check: func(s Settings) bool {

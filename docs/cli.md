@@ -229,7 +229,7 @@ waiting in the outbox
 
 The branch `start` names is `TYPE/ID-SLUG`: the issue's id, then its
 title in lowercase letters and digits joined by hyphens, at most 40
-characters, as in `fix/sf-a1b2c3d4-fix-the-login-redirect`. TYPE comes
+characters, as in `fix/ar-a1b2c3d4-fix-the-login-redirect`. TYPE comes
 from the issue's type:
 
 | Issue type | Branch prefix |
@@ -259,7 +259,7 @@ which works for a project whose prefix has no hyphen of its own.
 | `gate add --blocks ID` | Hold ID back behind a new human [gate](concepts.md#gates) and print the gate's id: `--approver P` (repeatable) names who may pass it, none leaves it to the project's admins; `--title T` (default `Approve ID`). The approvers get a `gate.pending` inbox item |
 | `gate add --kind ci --check NAME --issue ID --approver P` | Add a [ci gate](concepts.md#ci-gates): it waits for CI principal P (repeatable) to report check NAME passed on ID, the issue whose branch the check runs on. `--blocks ID` holds an issue back behind it; without it the gate only records the check, as for `landed`. An issue has one ci gate for each check |
 | `gate pass ID`, `gate rearm ID` | Pass a gate, which lets what it held become ready and tells its assignees, or reopen a passed one so that it holds again; `--reason TEXT`. Only an approver (or, when the gate names none, an admin other than its maker) passes a human gate, and only from your own terminal: run from an agent's session it is refused |
-| `gate pass\|fail --check NAME` | Report a ci gate's check passed or failed, as a [CI job](ci.md) does, naming the issue it ran on one way: `--issue ID`, `--branch NAME`, `--from-branch` (the CI system's variables, else git's branch) or `--from-commit` (HEAD's `Aries:` trailer, else the branch a merge commit merged). `--sha SHA`, `--url URL` (http or https, no user or password) and `--reason TEXT` are the evidence, at most the server's `gate_evidence` in all. `--optional` exits 0, saying nothing was reported, when the branch or commit names no issue or the issue has no gate for the check. `gate pass ID` and `gate fail ID` report on a gate by its id. Only a principal the gate names reports, from a CI job (`CI=true`) or its own terminal. A failure tells the issue's holder, or its assignee |
+| `gate pass\|fail --check NAME` | Report a ci gate's check passed or failed, as a [CI job](ci.md) does, naming the issue it ran on one way: `--issue ID`, `--branch NAME`, `--from-branch` (the CI system's variables, else git's branch) or `--from-commit` (HEAD's `Aries:` trailer, else the branch a merge commit merged). `--sha SHA`, `--url URL` (http or https, no user or password) and `--reason TEXT` are the evidence, at most the server's `gate_evidence_bytes` in all. `--optional` exits 0, saying nothing was reported, when the branch or commit names no issue or the issue has no gate for the check. `gate pass ID` and `gate fail ID` report on a gate by its id. Only a principal the gate names reports, from a CI job (`CI=true`) or its own terminal. A failure tells the issue's holder, or its assignee |
 | `gate waive ID --reason TEXT` | Pass a gate as an admin, whoever it names, on the record |
 | `gate list` | List the open gates: approvers, what each holds and its title, and a ci gate's failed check; `--all` adds passed and waived ones with who and when, `-n N` |
 | `label add\|remove ID LABEL...` | Add or remove labels. `rm` is accepted for `remove` |
@@ -278,7 +278,7 @@ does, mostly through `lock run`.
 | Command | Does |
 |---|---|
 | `lock run NAME -- CMD [ARG]...` | Take the lock, run CMD with `ARIES_LOCK_EPOCH` set to the hold's epoch, renew the hold while CMD runs (at a third of its lease), release it when CMD exits, and exit with CMD's exit code. `--wait` waits in the lock's queue, keeping its place every 30 seconds, rather than fail when the lock is held; `--capacity N` and `--for DURATION` as for `acquire`. CMD's output is its own, not `aries`'s, so `--json` is refused |
-| `lock acquire NAME` | Take the lock and print its epoch, on its own line; stderr says how to renew and release it. `--capacity N` makes it a semaphore of N holders, at its first acquire (default 1, at most the server's `lock_capacity`); a later acquire naming another capacity is refused. `--for DURATION` is the hold's lease (default 15m, from 1m to 24h). Without `--wait`, a lock that is held is refused with `busy`, naming its holders and when their leases end; with it, `aries` waits in the queue until the lock is granted, and gives its place up if interrupted |
+| `lock acquire NAME` | Take the lock and print its epoch, on its own line; stderr says how to renew and release it. `--capacity N` makes it a semaphore of N holders, at its first acquire (default 1, at most the server's `holders_per_lock`); a later acquire naming another capacity is refused. `--for DURATION` is the hold's lease (default 15m, from 1m to 24h). Without `--wait`, a lock that is held is refused with `busy`, naming its holders and when their leases end; with it, `aries` waits in the queue until the lock is granted, and gives its place up if interrupted |
 | `lock renew NAME EPOCH` | Extend your hold to its lease from now, or `--for DURATION` from now. A hold that ended, or lapsed, is refused with `conflict`: stop what it guards |
 | `lock release NAME EPOCH` | Release your hold; the next in the queue is granted it at once. Any session of your principal may release it, with its epoch |
 | `lock leave NAME` | Give up your place in the queue; says so when you hold the lock instead |
@@ -445,15 +445,11 @@ Only a write replayed from the outbox is treated so: a `finish` or
 `handoff` you run while the server answers is refused, as always, when
 another session has taken the issue since your epoch.
 
-**A server of protocol 7.** Late finishes are protocol 8's, and conflicts
-protocol 7's. Against a server that speaks only protocol 7, `aries`
-speaks 7, and a queued `finish` or `handoff` it replays there after
-the issue moved on is refused, as before: it moves to the refused list,
-and `aries outbox retry N` sends it again once the server is upgraded,
-when it is kept as a comment. This `aries` does not speak protocol 6:
-a server of 6 alone refuses it with `version` (exit code 3). A record
-of a server last seen at 5, from an older `aries`, still keeps an
-`update` from being queued for it, saying so.
+**A server of another protocol.** `aries` speaks protocol 8 alone. A
+server that does not accept it refuses the connection with `version`
+(exit code 3) and says which side to upgrade; what waits in the outbox
+stays there, unsent and not refused, until a server that speaks 8 is
+reached.
 
 **What counts as not reached.** The connection could not be made (the
 network, the tunnel, sshd, or `ariesd` not running), it was lost
@@ -474,15 +470,15 @@ server's rate limit (`busy`).
 accepted for delivery:
 
 ```text
-$ aries handoff sf-a1b2c3d4 "half done" --next "the tests"
-queued (server unreachable since 2026-10-13 14:02 UTC): entry 3, handoff sf-a1b2c3d4; aries sends it when the server answers (`aries outbox` lists what waits)
+$ aries handoff ar-a1b2c3d4 "half done" --next "the tests"
+queued (server unreachable since 2026-10-13 14:02 UTC): entry 3, handoff ar-a1b2c3d4; aries sends it when the server answers (`aries outbox` lists what waits)
 ```
 
 With `--json` it is one document, which never has the `id` and `rev` of
 a write that was made:
 
 ```json
-{"queued":true,"entry":3,"op":"handoff","issue":"sf-a1b2c3d4","since":"2026-10-13T14:02:00Z"}
+{"queued":true,"entry":3,"op":"handoff","issue":"ar-a1b2c3d4","since":"2026-10-13T14:02:00Z"}
 ```
 
 `issue` is the issue the write is about, and a `remember` has `key`
@@ -586,11 +582,11 @@ alice's outbox: 2 waiting, 1 refused
 server unreachable since 2026-10-13 14:12 UTC; last tried 2026-10-13 14:32 UTC
 waiting:
   N  OP       ON           AGE  FROM
-  2  handoff  sf-a1b2c3d4  25m  cli on laptop
+  2  handoff  ar-a1b2c3d4  25m  cli on laptop
   3  create   -            5m   cli on laptop
 refused:
-  1  comment  sf-9z8y7x6w  35m  cli on laptop
-     not_found: issue sf-9z8y7x6w not found
+  1  comment  ar-9z8y7x6w  35m  cli on laptop
+     not_found: issue ar-9z8y7x6w not found
      fix: find the id with `aries list`
 `aries outbox retry N` sends a refused entry again; `aries outbox drop N` removes an entry for good
 ```
@@ -659,15 +655,15 @@ on your work. `aries outbox stats` counts parked entries among the
 delivered ones.
 
 ```text
-$ aries conflicts sf-a1
-#3 sf-a1 title: alice's update from rev 4, parked 2h ago, against bob's of 3h ago
+$ aries conflicts ar-a1
+#3 ar-a1 title: alice's update from rev 4, parked 2h ago, against bob's of 3h ago
   base:   Fix login
   mine:   Fix the login redirect
   theirs: Fix login and logout
   advice: theirs is from bob, who holds the issue; take theirs
   proposed by agent-7: text: Fix the login and logout redirects (keeps both)
 $ aries resolve 3 --accept
-sf-a1 rev 9
+ar-a1 rev 9
 ```
 
 The advice is worked out when you read it, from who holds the issue
@@ -701,9 +697,9 @@ and `digest` print what was kept, exit 0, and say on stderr, in one line,
 that it is this machine's copy and how old:
 
 ```text
-$ aries show sf-a1b2c3d4
+$ aries show ar-a1b2c3d4
 aries: cached: aries cannot reach its server, so this is this machine's copy from 2026-10-13 14:02 UTC (3h old), and may be out of date
-sf-a1b2c3d4  P1  in_progress  task  rev 4
+ar-a1b2c3d4  P1  in_progress  task  rev 4
 ...
 ```
 
@@ -822,7 +818,7 @@ With `--json`, a failure prints one document on standard output and
 nothing on standard error, in the shape the MCP server gives an agent:
 
 ```text
-$ aries --json -C /tmp show sf-a1b2c3d4
+$ aries --json -C /tmp show ar-a1b2c3d4
 {"error":{"code":"invalid","message":".aries.yaml not found here or in any parent directory","fix":"run aries inside a repository that has one, or pass -C DIR; the search stops at the repository's top level and at your home directory"}}
 ```
 

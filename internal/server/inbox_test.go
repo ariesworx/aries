@@ -21,7 +21,7 @@ func TestDispatchInbox(t *testing.T) {
 	mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "yours", Assignee: "bob"})
 
 	in := mustCall[proto.InboxResult](t, s, bob, proto.OpInbox, proto.InboxArgs{})
-	if in.Unread != 2 || len(in.Items) != 2 || in.Items[0].Kind != "assigned" || in.Items[1].Kind != "mention" ||
+	if in.Unread != 2 || len(in.Items) != 2 || in.Items[0].Kind != "issue.assigned" || in.Items[1].Kind != "issue.mentioned" ||
 		in.Items[1].Issue != a.ID || in.Items[1].From != "alice" || in.Items[1].Body != "@bob have a look" {
 		t.Fatalf("inbox = %+v, want an assignment then a mention, newest first", in)
 	}
@@ -63,7 +63,7 @@ func TestDispatchStructuredHandoff(t *testing.T) {
 	s := newServer(t)
 	a := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work"})
 	mustCall[proto.StartResult](t, s, alice, proto.OpStart, proto.StartArgs{ID: a.ID})
-	f := proto.HandoffFields{State: "partial", Next: "wire the CLI", Branch: "feature/sf-1-work", Worktree: "/src/work", To: "bob"}
+	f := proto.HandoffFields{State: "partial", Next: "wire the CLI", Branch: "feature/ar-1-work", Worktree: "/src/work", To: "bob"}
 	mustCall[proto.WriteResult](t, s, alice, proto.OpHandoff, proto.HandoffArgs{ID: a.ID, Note: "half done", Release: true, HandoffFields: f})
 
 	own := mustCall[proto.ShowResult](t, s, alice, proto.OpShow, proto.ShowArgs{ID: a.ID})
@@ -80,7 +80,7 @@ func TestDispatchStructuredHandoff(t *testing.T) {
 		t.Fatalf("start handoff = %+v, want %+v", st.Handoff, f)
 	}
 	in := mustCall[proto.InboxResult](t, s, bob, proto.OpInbox, proto.InboxArgs{})
-	if len(in.Items) != 1 || in.Items[0].Kind != "handoff" || in.Items[0].Body != "wire the CLI" {
+	if len(in.Items) != 1 || in.Items[0].Kind != "issue.handoff" || in.Items[0].Body != "wire the CLI" {
 		t.Fatalf("bob's inbox = %+v, want the handoff, quoting next", in)
 	}
 	_, perr := call[proto.Empty](t, s, bob, proto.OpFinish, proto.FinishArgs{ID: a.ID, HandoffFields: proto.HandoffFields{State: "done"}})
@@ -89,7 +89,7 @@ func TestDispatchStructuredHandoff(t *testing.T) {
 	}
 	mustCall[proto.FinishResult](t, s, bob, proto.OpFinish, proto.FinishArgs{ID: a.ID, Handoff: "shipped",
 		HandoffFields: proto.HandoffFields{State: "done", To: "alice"}})
-	if in := mustCall[proto.InboxResult](t, s, alice, proto.OpInbox, proto.InboxArgs{}); len(in.Items) != 1 || in.Items[0].Kind != "handoff" {
+	if in := mustCall[proto.InboxResult](t, s, alice, proto.OpInbox, proto.InboxArgs{}); len(in.Items) != 1 || in.Items[0].Kind != "issue.handoff" {
 		t.Fatalf("alice's inbox after finish = %+v", in)
 	}
 }
@@ -200,7 +200,7 @@ func TestPushFanOut(t *testing.T) {
 	mustStart(store.Actor{Principal: "bob", Session: "s-b2", Machine: "m"}) // takes over bob's claim
 
 	got := b.until(b.send(proto.OpWho, proto.WhoArgs{}))
-	if want := []string{"inbox:mention", "inbox:claim.lost"}; !slices.Equal(kinds(got), want) {
+	if want := []string{"inbox:issue.mentioned", "inbox:claim.lost"}; !slices.Equal(kinds(got), want) {
 		t.Fatalf("bob's pushes before his next response = %v, want %v", kinds(got), want)
 	}
 	if it := got[1].Item; it.Session != bob.Session || it.Issue != a.ID || it.ID == 0 {
@@ -262,7 +262,7 @@ func TestPushOverflowResyncs(t *testing.T) {
 		t.Fatalf("rewatch pushed %v", kinds(w))
 	}
 	mustCall[proto.CommentResult](t, s, alice, proto.OpComment, proto.CommentArgs{ID: a.ID, Body: "@bob back"})
-	if got := b.until(b.send(proto.OpWho, proto.WhoArgs{})); !slices.Equal(kinds(got), []string{"inbox:mention"}) {
+	if got := b.until(b.send(proto.OpWho, proto.WhoArgs{})); !slices.Equal(kinds(got), []string{"inbox:issue.mentioned"}) {
 		t.Fatalf("after rewatching, pushes = %v, want one mention", kinds(got))
 	}
 }

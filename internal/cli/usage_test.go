@@ -22,7 +22,7 @@ func TestPrintUsage(t *testing.T) {
 		want string
 	}{
 		{"own account, never held", "acme", proto.IssueUsage{Account: "acme"}, "account: acme\n"},
-		{"inherited", "", proto.IssueUsage{Account: "acme", AccountFrom: "sf-epic"}, "account: acme (from sf-epic)\n"},
+		{"inherited", "", proto.IssueUsage{Account: "acme", AccountFrom: "ar-epic"}, "account: acme (from ar-epic)\n"},
 		{"server default", "", proto.IssueUsage{Account: "internal"}, "account: internal (default)\n"},
 		{"held, no tokens", "", proto.IssueUsage{Account: "internal", HeldSeconds: 4500},
 			"account: internal (default)\nheld 1h\n"},

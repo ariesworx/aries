@@ -53,7 +53,7 @@ func round(t *testing.T, c *conn, i int) {
 	mustAsk[proto.ShowResult](c, proto.OpShow, proto.ShowArgs{ID: is.ID})
 	mustAsk[proto.ListResult](c, proto.OpList, proto.ListArgs{})
 	mustAsk[proto.ListResult](c, proto.OpReady, proto.LimitArgs{})
-	if _, perr := ask[proto.ShowResult](c, proto.OpShow, proto.ShowArgs{ID: "sf-none"}); perr == nil {
+	if _, perr := ask[proto.ShowResult](c, proto.OpShow, proto.ShowArgs{ID: "ar-none"}); perr == nil {
 		t.Fatal("show of an unknown issue succeeded")
 	}
 	if _, perr := ask[proto.WriteResult](c, "no.such.op", struct{}{}); perr == nil {

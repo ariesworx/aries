@@ -75,255 +75,255 @@ func TestReplayCatches(t *testing.T) {
 		{
 			name: "a clean story",
 			log: func(b *logBuilder) *logBuilder {
-				return b.create(alice, "sf-1").
-					take(alice, "sf-1", 1, 15*time.Minute, "").
-					add(0, alice, "issue.update", "sf-1", `{"status": "open"}`, `{"status": "in_progress", "assignee": "alice"}`).
-					add(time.Minute, bob, "comment.add", "sf-1", "", `{"body": "note bob-1", "kind": "note"}`).
-					add(time.Minute, alice, "claim.release", "sf-1", b.claimOf(alice, 1, 17*time.Minute), "").
-					add(0, alice, "issue.close", "sf-1", `{"status": "in_progress"}`, `{"status": "closed", "close_reason": "done alice-2"}`)
+				return b.create(alice, "ar-1").
+					take(alice, "ar-1", 1, 15*time.Minute, "").
+					add(0, alice, "issue.update", "ar-1", `{"status": "open"}`, `{"status": "in_progress", "assignee": "alice"}`).
+					add(time.Minute, bob, "comment.add", "ar-1", "", `{"body": "note bob-1", "kind": "note"}`).
+					add(time.Minute, alice, "claim.release", "ar-1", b.claimOf(alice, 1, 17*time.Minute), "").
+					add(0, alice, "issue.close", "ar-1", `{"status": "in_progress"}`, `{"status": "closed", "close_reason": "done alice-2"}`)
 			},
 		},
 		{
 			name: "a close of an issue still held",
 			log: func(b *logBuilder) *logBuilder {
-				return b.create(alice, "sf-1").take(alice, "sf-1", 1, 15*time.Minute, "").
-					add(time.Minute, alice, "issue.close", "sf-1", `{"status": "in_progress"}`, `{"status": "closed", "close_reason": "done alice-2"}`)
+				return b.create(alice, "ar-1").take(alice, "ar-1", 1, 15*time.Minute, "").
+					add(time.Minute, alice, "issue.close", "ar-1", `{"status": "in_progress"}`, `{"status": "closed", "close_reason": "done alice-2"}`)
 			},
-			want: "closes sf-1 while alice/s1 holds epoch 1",
+			want: "closes ar-1 while alice/s1 holds epoch 1",
 		},
 		{
 			name: "an update out of progress of an issue still held",
 			log: func(b *logBuilder) *logBuilder {
-				return b.create(alice, "sf-1").take(alice, "sf-1", 1, 15*time.Minute, "").
-					add(0, alice, "issue.update", "sf-1", `{"status": "open"}`, `{"status": "in_progress", "assignee": "alice"}`).
-					add(time.Minute, alice, "issue.update", "sf-1", `{"status": "in_progress"}`, `{"status": "blocked"}`)
+				return b.create(alice, "ar-1").take(alice, "ar-1", 1, 15*time.Minute, "").
+					add(0, alice, "issue.update", "ar-1", `{"status": "open"}`, `{"status": "in_progress", "assignee": "alice"}`).
+					add(time.Minute, alice, "issue.update", "ar-1", `{"status": "in_progress"}`, `{"status": "blocked"}`)
 			},
-			want: "changes sf-1's status or assignee while alice/s1 holds epoch 1, with no claim.release",
+			want: "changes ar-1's status or assignee while alice/s1 holds epoch 1, with no claim.release",
 		},
 		{
 			name: "an update after the lease lapsed that ends the claim first",
 			log: func(b *logBuilder) *logBuilder {
-				b.create(alice, "sf-1").take(alice, "sf-1", 1, time.Minute, "").
-					add(0, alice, "issue.update", "sf-1", `{"status": "open"}`, `{"status": "in_progress", "assignee": "alice"}`)
+				b.create(alice, "ar-1").take(alice, "ar-1", 1, time.Minute, "").
+					add(0, alice, "issue.update", "ar-1", `{"status": "open"}`, `{"status": "in_progress", "assignee": "alice"}`)
 				b.at += 5 * time.Minute // the lease ran out at 3m; the reaper has not run
-				return b.add(time.Minute, bob, "claim.release", "sf-1", b.claimOf(alice, 1, 3*time.Minute), "").
-					add(0, bob, "issue.update", "sf-1", `{"status": "in_progress"}`, `{"status": "blocked"}`)
+				return b.add(time.Minute, bob, "claim.release", "ar-1", b.claimOf(alice, 1, 3*time.Minute), "").
+					add(0, bob, "issue.update", "ar-1", `{"status": "in_progress"}`, `{"status": "blocked"}`)
 			},
 			guards: 1,
 		},
 		{
 			name: "a release, then another principal's take",
 			log: func(b *logBuilder) *logBuilder {
-				b.create(alice, "sf-1").take(alice, "sf-1", 1, 15*time.Minute, "")
-				b.add(time.Minute, alice, "claim.release", "sf-1", b.claimOf(alice, 1, 17*time.Minute), "").
-					add(0, alice, "comment.add", "sf-1", "", `{"body": "handoff alice-2", "kind": "handoff"}`)
-				return b.take(bob, "sf-1", 2, 15*time.Minute, "")
+				b.create(alice, "ar-1").take(alice, "ar-1", 1, 15*time.Minute, "")
+				b.add(time.Minute, alice, "claim.release", "ar-1", b.claimOf(alice, 1, 17*time.Minute), "").
+					add(0, alice, "comment.add", "ar-1", "", `{"body": "handoff alice-2", "kind": "handoff"}`)
+				return b.take(bob, "ar-1", 2, 15*time.Minute, "")
 			},
 		},
 		{
 			name: "a release of a claim no one held",
 			log: func(b *logBuilder) *logBuilder {
-				b.create(alice, "sf-1")
-				return b.add(time.Minute, alice, "claim.release", "sf-1", b.claimOf(alice, 1, 17*time.Minute), "")
+				b.create(alice, "ar-1")
+				return b.add(time.Minute, alice, "claim.release", "ar-1", b.claimOf(alice, 1, 17*time.Minute), "")
 			},
 			want: "releases alice/s1 at epoch 1, but no one held epoch 1",
 		},
 		{
 			name: "a release naming the wrong claim",
 			log: func(b *logBuilder) *logBuilder {
-				b.create(alice, "sf-1").take(alice, "sf-1", 1, 15*time.Minute, "")
-				return b.add(time.Minute, alice2, "claim.release", "sf-1", b.claimOf(alice2, 1, 17*time.Minute), "")
+				b.create(alice, "ar-1").take(alice, "ar-1", 1, 15*time.Minute, "")
+				return b.add(time.Minute, alice2, "claim.release", "ar-1", b.claimOf(alice2, 1, 17*time.Minute), "")
 			},
 			want: "releases alice/s2 at epoch 1, but alice/s1 held epoch 1",
 		},
 		{
 			name: "a gap in seq",
 			log: func(b *logBuilder) *logBuilder {
-				b.create(alice, "sf-1")
+				b.create(alice, "ar-1")
 				b.seq++
-				return b.add(time.Minute, alice, "comment.add", "sf-1", "", `{"body": "x"}`)
+				return b.add(time.Minute, alice, "comment.add", "ar-1", "", `{"body": "x"}`)
 			},
 			want: "the log has a gap",
 		},
 		{
 			name: "time running backward",
 			log: func(b *logBuilder) *logBuilder {
-				return b.create(alice, "sf-1").add(-2*time.Minute, bob, "comment.add", "sf-1", "", `{"body": "x"}`)
+				return b.create(alice, "ar-1").add(-2*time.Minute, bob, "comment.add", "ar-1", "", `{"body": "x"}`)
 			},
 			want: "is earlier than event",
 		},
 		{
 			name: "an event on an issue never created",
 			log: func(b *logBuilder) *logBuilder {
-				return b.add(time.Minute, alice, "comment.add", "sf-9", "", `{"body": "x"}`)
+				return b.add(time.Minute, alice, "comment.add", "ar-9", "", `{"body": "x"}`)
 			},
 			want: "which no event created",
 		},
 		{
 			name: "an issue created twice",
 			log: func(b *logBuilder) *logBuilder {
-				return b.create(alice, "sf-1").create(bob, "sf-1")
+				return b.create(alice, "ar-1").create(bob, "ar-1")
 			},
-			want: "creates issue sf-1 again",
+			want: "creates issue ar-1 again",
 		},
 		{
 			name: "another principal takes a live claim",
 			log: func(b *logBuilder) *logBuilder {
-				b.create(alice, "sf-1").take(alice, "sf-1", 1, 15*time.Minute, "")
-				return b.take(bob, "sf-1", 2, 15*time.Minute, b.claimOf(alice, 1, 17*time.Minute))
+				b.create(alice, "ar-1").take(alice, "ar-1", 1, 15*time.Minute, "")
+				return b.take(bob, "ar-1", 2, 15*time.Minute, b.claimOf(alice, 1, 17*time.Minute))
 			},
 			want: "bob/s1 took epoch 2 while alice/s1's claim ran to",
 		},
 		{
 			name: "another principal takes a lapsed claim",
 			log: func(b *logBuilder) *logBuilder {
-				b.create(alice, "sf-1").take(alice, "sf-1", 1, time.Minute, "")
+				b.create(alice, "ar-1").take(alice, "ar-1", 1, time.Minute, "")
 				b.at += 5 * time.Minute
-				return b.take(bob, "sf-1", 2, 15*time.Minute, b.claimOf(alice, 1, 3*time.Minute))
+				return b.take(bob, "ar-1", 2, 15*time.Minute, b.claimOf(alice, 1, 3*time.Minute))
 			},
 		},
 		{
 			name: "a session of the same principal takes a live claim",
 			log: func(b *logBuilder) *logBuilder {
-				b.create(alice, "sf-1").take(alice, "sf-1", 1, 15*time.Minute, "")
-				return b.take(alice2, "sf-1", 2, 15*time.Minute, b.claimOf(alice, 1, 17*time.Minute))
+				b.create(alice, "ar-1").take(alice, "ar-1", 1, 15*time.Minute, "")
+				return b.take(alice2, "ar-1", 2, 15*time.Minute, b.claimOf(alice, 1, 17*time.Minute))
 			},
 			overs: 1,
 		},
 		{
 			name: "an epoch skipped",
 			log: func(b *logBuilder) *logBuilder {
-				return b.create(alice, "sf-1").take(alice, "sf-1", 2, 15*time.Minute, "")
+				return b.create(alice, "ar-1").take(alice, "ar-1", 2, 15*time.Minute, "")
 			},
 			want: "takes epoch 2 after epoch 0",
 		},
 		{
 			name: "a take that does not name the holder it replaced",
 			log: func(b *logBuilder) *logBuilder {
-				return b.create(alice, "sf-1").take(alice, "sf-1", 1, time.Minute, "").take(bob, "sf-1", 2, time.Minute, "")
+				return b.create(alice, "ar-1").take(alice, "ar-1", 1, time.Minute, "").take(bob, "ar-1", 2, time.Minute, "")
 			},
 			want: "without naming alice/s1",
 		},
 		{
 			name: "a take that names the wrong holder",
 			log: func(b *logBuilder) *logBuilder {
-				b.create(alice, "sf-1").take(alice, "sf-1", 1, time.Minute, "")
+				b.create(alice, "ar-1").take(alice, "ar-1", 1, time.Minute, "")
 				b.at += 5 * time.Minute
-				return b.take(bob, "sf-1", 2, time.Minute, b.claimOf(alice2, 1, 3*time.Minute))
+				return b.take(bob, "ar-1", 2, time.Minute, b.claimOf(alice2, 1, 3*time.Minute))
 			},
 			want: "replaces alice/s2 at epoch 1, but alice/s1 held epoch 1",
 		},
 		{
 			name: "a claim expired by someone other than the reaper",
 			log: func(b *logBuilder) *logBuilder {
-				b.create(alice, "sf-1").take(alice, "sf-1", 1, time.Minute, "")
-				return b.add(5*time.Minute, bob, "claim.expire", "sf-1", b.claimOf(alice, 1, 3*time.Minute), "")
+				b.create(alice, "ar-1").take(alice, "ar-1", 1, time.Minute, "")
+				return b.add(5*time.Minute, bob, "claim.expire", "ar-1", b.claimOf(alice, 1, 3*time.Minute), "")
 			},
 			want: "claim.expire by bob/s1, not the reaper",
 		},
 		{
 			name: "the reaper ends a lease early",
 			log: func(b *logBuilder) *logBuilder {
-				b.create(alice, "sf-1").take(alice, "sf-1", 1, 15*time.Minute, "")
-				return b.add(time.Minute, reaper, "claim.expire", "sf-1", b.claimOf(alice, 1, 17*time.Minute), "")
+				b.create(alice, "ar-1").take(alice, "ar-1", 1, 15*time.Minute, "")
+				return b.add(time.Minute, reaper, "claim.expire", "ar-1", b.claimOf(alice, 1, 17*time.Minute), "")
 			},
 			want: "before its lease ran out",
 		},
 		{
 			name: "an edge added twice",
 			log: func(b *logBuilder) *logBuilder {
-				edge := `{"from": "sf-1", "to": "sf-2", "type": "blocks"}`
-				return b.create(alice, "sf-1").create(alice, "sf-2").
-					add(time.Minute, bob, "dep.add", "sf-1", "", edge).
-					add(time.Minute, bob, "dep.add", "sf-1", "", edge)
+				edge := `{"from": "ar-1", "to": "ar-2", "type": "blocks"}`
+				return b.create(alice, "ar-1").create(alice, "ar-2").
+					add(time.Minute, bob, "dep.add", "ar-1", "", edge).
+					add(time.Minute, bob, "dep.add", "ar-1", "", edge)
 			},
 			want: "which exists",
 		},
 		{
 			name: "an override by someone not an admin",
 			log: func(b *logBuilder) *logBuilder {
-				b.create(alice, "sf-1").take(alice, "sf-1", 1, 15*time.Minute, "")
-				return b.add(time.Minute, bob, "admin.override", "sf-1", "", `{"holder": {"principal": "alice", "session": "s1"}, "epoch": 1}`)
+				b.create(alice, "ar-1").take(alice, "ar-1", 1, 15*time.Minute, "")
+				return b.add(time.Minute, bob, "admin.override", "ar-1", "", `{"holder": {"principal": "alice", "session": "s1"}, "epoch": 1}`)
 			},
 			want: "who is not an admin",
 		},
 		{
 			name: "a change by another principal under a claim",
 			log: func(b *logBuilder) *logBuilder {
-				b.create(alice, "sf-1").take(alice, "sf-1", 1, 15*time.Minute, "")
-				return b.add(time.Minute, bob, "issue.update", "sf-1", `{"title": "a"}`, `{"title": "retitled bob-1"}`)
+				b.create(alice, "ar-1").take(alice, "ar-1", 1, 15*time.Minute, "")
+				return b.add(time.Minute, bob, "issue.update", "ar-1", `{"title": "a"}`, `{"title": "retitled bob-1"}`)
 			},
 			guards: 1,
 		},
 		{
 			name: "a close by another principal under a claim, after its release",
 			log: func(b *logBuilder) *logBuilder {
-				b.create(alice, "sf-1").take(alice, "sf-1", 1, 15*time.Minute, "")
-				b.add(time.Minute, bob, "claim.release", "sf-1", b.claimOf(alice, 1, 17*time.Minute), "")
-				return b.add(0, bob, "issue.close", "sf-1", `{"status": "in_progress"}`, `{"status": "closed", "close_reason": "closed bob-1"}`)
+				b.create(alice, "ar-1").take(alice, "ar-1", 1, 15*time.Minute, "")
+				b.add(time.Minute, bob, "claim.release", "ar-1", b.claimOf(alice, 1, 17*time.Minute), "")
+				return b.add(0, bob, "issue.close", "ar-1", `{"status": "in_progress"}`, `{"status": "closed", "close_reason": "closed bob-1"}`)
 			},
 			guards: 1, // the close, made under alice's claim, which its release ended
 		},
 		{
 			name: "a change by an admin under a claim, with its override",
 			log: func(b *logBuilder) *logBuilder {
-				b.create(alice, "sf-1").take(alice, "sf-1", 1, 15*time.Minute, "")
-				b.add(time.Minute, sessKey{"dave", "s1"}, "admin.override", "sf-1", "", `{"holder": {"principal": "alice", "session": "s1"}, "epoch": 1}`)
-				return b.add(0, sessKey{"dave", "s1"}, "issue.update", "sf-1", `{"title": "a"}`, `{"title": "retitled dave-1"}`)
+				b.create(alice, "ar-1").take(alice, "ar-1", 1, 15*time.Minute, "")
+				b.add(time.Minute, sessKey{"dave", "s1"}, "admin.override", "ar-1", "", `{"holder": {"principal": "alice", "session": "s1"}, "epoch": 1}`)
+				return b.add(0, sessKey{"dave", "s1"}, "issue.update", "ar-1", `{"title": "a"}`, `{"title": "retitled dave-1"}`)
 			},
 		},
 		{
 			name: "a late finish after the reaper, nobody having taken the issue",
 			log: func(b *logBuilder) *logBuilder {
-				b.create(alice, "sf-1").take(alice, "sf-1", 1, time.Minute, "")
-				b.add(3*time.Minute, reaper, "claim.expire", "sf-1", b.claimOf(alice, 1, 3*time.Minute), "")
-				return b.add(time.Minute, alice2, "claim.lapsed", "sf-1", `{"epoch": 1}`, `{"op": "finish"}`).
-					add(0, alice2, "issue.close", "sf-1", `{"status": "open"}`, `{"status": "closed", "close_reason": "done alice-3"}`)
+				b.create(alice, "ar-1").take(alice, "ar-1", 1, time.Minute, "")
+				b.add(3*time.Minute, reaper, "claim.expire", "ar-1", b.claimOf(alice, 1, 3*time.Minute), "")
+				return b.add(time.Minute, alice2, "claim.lapsed", "ar-1", `{"epoch": 1}`, `{"op": "finish"}`).
+					add(0, alice2, "issue.close", "ar-1", `{"status": "open"}`, `{"status": "closed", "close_reason": "done alice-3"}`)
 			},
 		},
 		{
 			name: "a late finish applied though the issue was taken since",
 			log: func(b *logBuilder) *logBuilder {
-				b.create(alice, "sf-1").take(alice, "sf-1", 1, time.Minute, "")
-				b.add(3*time.Minute, reaper, "claim.expire", "sf-1", b.claimOf(alice, 1, 3*time.Minute), "")
-				b.take(bob, "sf-1", 2, 15*time.Minute, "")
-				return b.add(time.Minute, alice, "claim.lapsed", "sf-1", `{"epoch": 1}`, `{"op": "finish"}`)
+				b.create(alice, "ar-1").take(alice, "ar-1", 1, time.Minute, "")
+				b.add(3*time.Minute, reaper, "claim.expire", "ar-1", b.claimOf(alice, 1, 3*time.Minute), "")
+				b.take(bob, "ar-1", 2, 15*time.Minute, "")
+				return b.add(time.Minute, alice, "claim.lapsed", "ar-1", `{"epoch": 1}`, `{"op": "finish"}`)
 			},
 			want: "late write under epoch 1 applied, but epoch 2 was taken since",
 		},
 		{
 			name: "a lapse recorded before the lease ran out",
 			log: func(b *logBuilder) *logBuilder {
-				b.create(alice, "sf-1").take(alice, "sf-1", 1, 15*time.Minute, "")
-				return b.add(time.Minute, alice, "claim.lapsed", "sf-1", b.claimOf(alice, 1, 17*time.Minute), `{"op": "handoff"}`)
+				b.create(alice, "ar-1").take(alice, "ar-1", 1, 15*time.Minute, "")
+				return b.add(time.Minute, alice, "claim.lapsed", "ar-1", b.claimOf(alice, 1, 17*time.Minute), `{"op": "handoff"}`)
 			},
 			want: "claim.lapsed at",
 		},
 		{
 			name: "a late finish kept as a comment, the issue taken since",
 			log: func(b *logBuilder) *logBuilder {
-				b.create(alice, "sf-1").take(alice, "sf-1", 1, time.Minute, "")
-				b.add(3*time.Minute, reaper, "claim.expire", "sf-1", b.claimOf(alice, 1, 3*time.Minute), "")
-				b.take(bob, "sf-1", 2, 15*time.Minute, "")
-				return b.add(time.Minute, alice, "comment.add", "sf-1", "", `{"id": "c1", "body": "Finish made at epoch 1, delivered late, kept"}`).
-					add(0, alice, "issue.kept", "sf-1", "", `{"op": "finish", "epoch": 1, "comment": "c1", "reason": "done alice-3"}`)
+				b.create(alice, "ar-1").take(alice, "ar-1", 1, time.Minute, "")
+				b.add(3*time.Minute, reaper, "claim.expire", "ar-1", b.claimOf(alice, 1, 3*time.Minute), "")
+				b.take(bob, "ar-1", 2, 15*time.Minute, "")
+				return b.add(time.Minute, alice, "comment.add", "ar-1", "", `{"id": "c1", "body": "Finish made at epoch 1, delivered late, kept"}`).
+					add(0, alice, "issue.kept", "ar-1", "", `{"op": "finish", "epoch": 1, "comment": "c1", "reason": "done alice-3"}`)
 			},
 		},
 		{
 			name: "a late finish kept as a comment though nobody took the issue",
 			log: func(b *logBuilder) *logBuilder {
-				b.create(alice, "sf-1").take(alice, "sf-1", 1, time.Minute, "")
-				return b.add(3*time.Minute, alice, "comment.add", "sf-1", "", `{"id": "c1", "body": "kept"}`).
-					add(0, alice, "issue.kept", "sf-1", "", `{"op": "finish", "epoch": 1, "comment": "c1", "reason": "done alice-3"}`)
+				b.create(alice, "ar-1").take(alice, "ar-1", 1, time.Minute, "")
+				return b.add(3*time.Minute, alice, "comment.add", "ar-1", "", `{"id": "c1", "body": "kept"}`).
+					add(0, alice, "issue.kept", "ar-1", "", `{"op": "finish", "epoch": 1, "comment": "c1", "reason": "done alice-3"}`)
 			},
 			want: "but the issue had not moved on",
 		},
 		{
 			name: "a replayed update kept as a comment, the issue closed since",
 			log: func(b *logBuilder) *logBuilder {
-				return b.create(alice, "sf-1").
-					add(time.Minute, bob, "issue.close", "sf-1", `{"status": "open"}`, `{"status": "closed", "close_reason": "done bob-1"}`).
-					add(time.Minute, alice, "comment.add", "sf-1", "",
+				return b.create(alice, "ar-1").
+					add(time.Minute, bob, "issue.close", "ar-1", `{"status": "open"}`, `{"status": "closed", "close_reason": "done bob-1"}`).
+					add(time.Minute, alice, "comment.add", "ar-1", "",
 						`{"id": "c1", "body": "Update from rev 1, kept as a comment: the issue was closed since.\ntitle: retitled alice-2"}`)
 			},
 			markers: map[string]int{"retitled alice-2": 1},
@@ -331,15 +331,15 @@ func TestReplayCatches(t *testing.T) {
 		{
 			name: "an away that cut a lease short",
 			log: func(b *logBuilder) *logBuilder {
-				b.create(alice, "sf-1").take(alice, "sf-1", 1, time.Hour, "")
-				return b.add(time.Minute, alice, "claim.away", "sf-1", b.claimOf(alice, 1, 2*time.Hour), `{"expires_at": `+b.ts(time.Hour)+`}`)
+				b.create(alice, "ar-1").take(alice, "ar-1", 1, time.Hour, "")
+				return b.add(time.Minute, alice, "claim.away", "ar-1", b.claimOf(alice, 1, 2*time.Hour), `{"expires_at": `+b.ts(time.Hour)+`}`)
 			},
 			want: "claim.away cut a lease",
 		},
 		{
 			name: "an op the soak does not expect",
 			log: func(b *logBuilder) *logBuilder {
-				return b.create(alice, "sf-1").add(time.Minute, alice, "issue.vanish", "sf-1", "", "")
+				return b.create(alice, "ar-1").add(time.Minute, alice, "issue.vanish", "ar-1", "", "")
 			},
 			want: `op "issue.vanish"`,
 		},
@@ -372,7 +372,7 @@ func TestReplayCompare(t *testing.T) {
 	t.Parallel()
 	base := func() tables {
 		return tables{
-			issues: map[string]tIssue{"sf-1": {title: "task sf-1", status: "open", typ: "task", priority: 2, rev: 1}},
+			issues: map[string]tIssue{"ar-1": {title: "task ar-1", status: "open", typ: "task", priority: 2, rev: 1}},
 			labels: map[string]map[string]bool{}, deps: map[depKey]bool{}, claims: map[string]rClaim{},
 		}
 	}
@@ -383,28 +383,28 @@ func TestReplayCompare(t *testing.T) {
 	}{
 		{name: "the same", change: func(*tables) {}},
 		{name: "a lost update", change: func(tb *tables) {
-			is := tb.issues["sf-1"]
+			is := tb.issues["ar-1"]
 			is.rev = 2
-			tb.issues["sf-1"] = is
+			tb.issues["ar-1"] = is
 		}, want: "the table has"},
 		{name: "a row no event made", change: func(tb *tables) {
-			tb.issues["sf-2"] = tIssue{title: "ghost"}
+			tb.issues["ar-2"] = tIssue{title: "ghost"}
 		}, want: "no event created it"},
 		{name: "a label no event added", change: func(tb *tables) {
-			tb.labels["sf-1"] = map[string]bool{"ui": true}
+			tb.labels["ar-1"] = map[string]bool{"ui": true}
 		}, want: "labels [ui] in the table"},
 		{name: "an edge no event added", change: func(tb *tables) {
-			tb.deps[depKey{"sf-1", "sf-2", "blocks"}] = true
+			tb.deps[depKey{"ar-1", "ar-2", "blocks"}] = true
 		}, want: "in the deps table but not in the event log"},
 		{name: "a claim no event took", change: func(tb *tables) {
-			tb.claims["sf-1"] = rClaim{holder: sessKey{"bob", "s1"}, epoch: 1}
+			tb.claims["ar-1"] = rClaim{holder: sessKey{"bob", "s1"}, epoch: 1}
 		}, want: "no event took it"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var got []string
 			r := newReplay(func(_, format string, args ...any) { got = append(got, fmt.Sprintf(format, args...)) }, nil)
-			r.feed(newLog().create(sessKey{"alice", "s1"}, "sf-1").evs)
+			r.feed(newLog().create(sessKey{"alice", "s1"}, "ar-1").evs)
 			r.flush()
 			tb := base()
 			tc.change(&tb)
@@ -424,12 +424,12 @@ func TestMonitorCatches(t *testing.T) {
 	alice, alice2 := sessKey{"alice", "s1"}, sessKey{"alice", "s2"}
 	exp := time.Date(2026, 1, 2, 3, 15, 0, 0, time.UTC)
 	start := func(who sessKey, epoch int64) call {
-		return call{who: who, op: proto.OpStart, out: acked, args: proto.StartArgs{ID: "sf-1"},
-			res: proto.StartResult{Issue: proto.Issue{ID: "sf-1"}, Claim: &proto.Claim{ID: "sf-1", By: who.principal, Session: who.session, Epoch: epoch, ExpiresAt: exp}}}
+		return call{who: who, op: proto.OpStart, out: acked, args: proto.StartArgs{ID: "ar-1"},
+			res: proto.StartResult{Issue: proto.Issue{ID: "ar-1"}, Claim: &proto.Claim{Issue: "ar-1", By: who.principal, Session: who.session, Epoch: epoch, ExpiresAt: exp}}}
 	}
 	update := func(who sessKey, rev, got int64, title string) call {
-		return call{who: who, op: proto.OpUpdate, out: acked, args: proto.UpdateArgs{ID: "sf-1", Rev: rev, Title: &title},
-			res: proto.WriteResult{ID: "sf-1", Rev: got}}
+		return call{who: who, op: proto.OpUpdate, out: acked, args: proto.UpdateArgs{ID: "ar-1", Rev: rev, Title: &title},
+			res: proto.WriteResult{ID: "ar-1", Rev: got}}
 	}
 	tests := []struct {
 		name  string
@@ -439,12 +439,12 @@ func TestMonitorCatches(t *testing.T) {
 		{name: "one epoch each", calls: []call{start(alice, 1), start(alice2, 2), start(alice2, 2)}},
 		{name: "one epoch acknowledged to two sessions", calls: []call{start(alice, 1), start(alice2, 1)}, want: "acknowledged to two sessions"},
 		{name: "a start answered with another's claim", calls: []call{{who: alice, op: proto.OpStart, out: acked, args: proto.StartArgs{},
-			res: proto.StartResult{Claim: &proto.Claim{ID: "sf-1", By: "bob", Session: "s1", Epoch: 1, ExpiresAt: exp}}}}, want: "answered a claim held by bob/s1"},
+			res: proto.StartResult{Claim: &proto.Claim{Issue: "ar-1", By: "bob", Session: "s1", Epoch: 1, ExpiresAt: exp}}}}, want: "answered a claim held by bob/s1"},
 		{name: "updates in turn", calls: []call{update(alice, 1, 2, "a"), update(alice2, 2, 3, "b")}},
 		{name: "an update answered a rev it skipped", calls: []call{update(alice, 1, 3, "a")}, want: "update at rev 1 answered rev 3"},
 		{name: "two updates acknowledged one rev", calls: []call{update(alice, 1, 2, "a"), update(alice2, 1, 2, "b")}, want: "a lost update"},
 		{name: "a refused update is not checked", calls: []call{update(alice, 1, 2, "a"), {who: alice2, op: proto.OpUpdate, out: refused,
-			args: proto.UpdateArgs{ID: "sf-1", Rev: 1}}}},
+			args: proto.UpdateArgs{ID: "ar-1", Rev: 1}}}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -467,7 +467,7 @@ func TestCheckMarkers(t *testing.T) {
 	t.Parallel()
 	alice := sessKey{"alice", "s1"}
 	comment := func(out outcome) call {
-		return call{who: alice, op: proto.OpComment, out: out, args: proto.CommentArgs{ID: "sf-1", Body: "note alice-1"}}
+		return call{who: alice, op: proto.OpComment, out: out, args: proto.CommentArgs{ID: "ar-1", Body: "note alice-1"}}
 	}
 	tests := []struct {
 		name  string
@@ -505,7 +505,7 @@ func TestCheckFencing(t *testing.T) {
 	t.Parallel()
 	alice, bob := sessKey{"alice", "s1"}, sessKey{"bob", "s1"}
 	finish := func(out outcome, epoch int64) call {
-		return call{who: alice, op: proto.OpFinish, out: out, args: proto.FinishArgs{ID: "sf-1", Epoch: epoch, Reason: "done alice-1"}}
+		return call{who: alice, op: proto.OpFinish, out: out, args: proto.FinishArgs{ID: "ar-1", Epoch: epoch, Reason: "done alice-1"}}
 	}
 	tests := []struct {
 		name string
@@ -523,7 +523,7 @@ func TestCheckFencing(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			s, p := &soak{mon: newMonitor()}, &sproj{rep: newReplay(func(string, string, ...any) {}, nil)}
-			tc.at.issue = "sf-1"
+			tc.at.issue = "ar-1"
 			p.rep.closedAt["done alice-1"] = tc.at
 			s.checkFencing(p, []call{tc.call})
 			got := s.mon.violations()
@@ -545,17 +545,17 @@ func TestCheckFencing(t *testing.T) {
 func TestReplaySilentRelease(t *testing.T) {
 	t.Parallel()
 	alice, bob := sessKey{"alice", "s1"}, sessKey{"bob", "s1"}
-	b := newLog().create(alice, "sf-1").take(alice, "sf-1", 1, time.Minute, "")
-	b.add(0, alice, "issue.update", "sf-1", `{"status": "open"}`, `{"status": "in_progress", "assignee": "alice"}`)
+	b := newLog().create(alice, "ar-1").take(alice, "ar-1", 1, time.Minute, "")
+	b.add(0, alice, "issue.update", "ar-1", `{"status": "open"}`, `{"status": "in_progress", "assignee": "alice"}`)
 	b.at += 5 * time.Minute // the lease lapsed; the reaper has not run
-	b.add(time.Minute, bob, "issue.update", "sf-1", `{"status": "in_progress", "assignee": "alice"}`, `{"status": "blocked", "assignee": null}`)
-	b.add(time.Minute, alice, "comment.add", "sf-1", "", `{"body": "handoff alice-2", "kind": "handoff"}`) // no claim.release
-	b.take(bob, "sf-1", 2, time.Minute, "")
+	b.add(time.Minute, bob, "issue.update", "ar-1", `{"status": "in_progress", "assignee": "alice"}`, `{"status": "blocked", "assignee": null}`)
+	b.add(time.Minute, alice, "comment.add", "ar-1", "", `{"body": "handoff alice-2", "kind": "handoff"}`) // no claim.release
+	b.take(bob, "ar-1", 2, time.Minute, "")
 	var got []string
 	r := newReplay(func(_, format string, args ...any) { got = append(got, fmt.Sprintf(format, args...)) }, nil)
 	r.feed(b.evs)
 	r.flush()
-	want := []string{"changes sf-1's status or assignee while alice/s1 holds epoch 1", "without naming alice/s1"}
+	want := []string{"changes ar-1's status or assignee while alice/s1 holds epoch 1", "without naming alice/s1"}
 	if len(got) != len(want) || !strings.Contains(got[0], want[0]) || !strings.Contains(got[1], want[1]) {
 		t.Errorf("replay of a silent release found %q, want violations containing %q", got, want)
 	}

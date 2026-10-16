@@ -335,7 +335,7 @@ func read(ctx context.Context, conn Conn) (*Snapshot, error) {
 		snap.ServerNow = local
 	}
 	for _, c := range claims.Claims {
-		x := byID[c.ID]
+		x := byID[c.Issue]
 		snap.Held = append(snap.Held, Held{Claim: c, Title: x.Title, Priority: x.Priority})
 	}
 	return snap, nil

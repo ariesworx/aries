@@ -62,7 +62,7 @@ func (c *benchConn) Notices(string) []string { return nil }
 func benchIssues(n int) []proto.Summary {
 	out := make([]proto.Summary, n)
 	for i := range out {
-		out[i] = proto.Summary{ID: fmt.Sprintf("sf-%08d", i), Status: "open", Priority: i % 5,
+		out[i] = proto.Summary{ID: fmt.Sprintf("ar-%08d", i), Status: "open", Priority: i % 5,
 			Title: fmt.Sprintf("Reconciler loses the first of two overlapping writes (case %d)", i)}
 	}
 	return out
@@ -165,7 +165,7 @@ func BenchmarkClientCommentsFit(b *testing.B) {
 			ctx := b.Context()
 			b.ReportAllocs()
 			for b.Loop() {
-				if _, err := comments(ctx, c, PageIn{ID: "sf-1", Limit: limit}); err != nil {
+				if _, err := comments(ctx, c, PageIn{ID: "ar-1", Limit: limit}); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -180,8 +180,8 @@ func BenchmarkClientDigestFit(b *testing.B) {
 	items := func(n int) []DigestItem {
 		out := make([]DigestItem, n)
 		for i := range out {
-			out[i] = DigestItem{ID: fmt.Sprintf("sf-%08d", i), Title: strings.Repeat("t", primeTitleLen), Priority: 1,
-				By: "alice", At: "2026-10-13T09:00Z", Note: strings.Repeat("n", 200), BlockedBy: []string{"sf-1", "sf-2"}}
+			out[i] = DigestItem{ID: fmt.Sprintf("ar-%08d", i), Title: strings.Repeat("t", primeTitleLen), Priority: 1,
+				By: "alice", At: "2026-10-13T09:00Z", Note: strings.Repeat("n", 200), BlockedBy: []string{"ar-1", "ar-2"}}
 		}
 		return out
 	}

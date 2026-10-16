@@ -14,10 +14,10 @@ func TestBranchFromEnv(t *testing.T) {
 		want string
 	}{
 		{"none", nil, ""},
-		{"a GitHub pull request", map[string]string{"GITHUB_HEAD_REF": "feature/sf-a1b2-x", "GITHUB_REF_NAME": "12/merge", "GITHUB_REF_TYPE": "branch"}, "feature/sf-a1b2-x"},
-		{"a GitHub push", map[string]string{"GITHUB_HEAD_REF": "", "GITHUB_REF_NAME": "fix/sf-c3d4", "GITHUB_REF_TYPE": "branch"}, "fix/sf-c3d4"},
+		{"a GitHub pull request", map[string]string{"GITHUB_HEAD_REF": "feature/ar-a1b2-x", "GITHUB_REF_NAME": "12/merge", "GITHUB_REF_TYPE": "branch"}, "feature/ar-a1b2-x"},
+		{"a GitHub push", map[string]string{"GITHUB_HEAD_REF": "", "GITHUB_REF_NAME": "fix/ar-c3d4", "GITHUB_REF_TYPE": "branch"}, "fix/ar-c3d4"},
 		{"a GitHub tag", map[string]string{"GITHUB_REF_NAME": "v1.2.0", "GITHUB_REF_TYPE": "tag"}, ""},
-		{"a GitLab merge request", map[string]string{"CI_MERGE_REQUEST_SOURCE_BRANCH_NAME": "feature/sf-e5f6", "CI_COMMIT_REF_NAME": "feature/sf-e5f6"}, "feature/sf-e5f6"},
+		{"a GitLab merge request", map[string]string{"CI_MERGE_REQUEST_SOURCE_BRANCH_NAME": "feature/ar-e5f6", "CI_COMMIT_REF_NAME": "feature/ar-e5f6"}, "feature/ar-e5f6"},
 		{"a GitLab branch pipeline", map[string]string{"CI_COMMIT_BRANCH": "main"}, "main"},
 	}
 	for _, tc := range tests {
@@ -36,10 +36,10 @@ func TestBranchFromMerge(t *testing.T) {
 	tests := []struct {
 		msg, want string
 	}{
-		{"Merge pull request #12 from example/feature/sf-a1b2-thing\n\nThe thing", "example/feature/sf-a1b2-thing"},
-		{"Merge branch 'fix/sf-c3d4' into 'main'\n\nSee merge request example/repo!7", "fix/sf-c3d4"},
-		{"Merge branch 'fix/sf-c3d4'", "fix/sf-c3d4"},
-		{"Merge remote-tracking branch 'origin/fix/sf-c3d4'", "origin/fix/sf-c3d4"},
+		{"Merge pull request #12 from example/feature/ar-a1b2-thing\n\nThe thing", "example/feature/ar-a1b2-thing"},
+		{"Merge branch 'fix/ar-c3d4' into 'main'\n\nSee merge request example/repo!7", "fix/ar-c3d4"},
+		{"Merge branch 'fix/ar-c3d4'", "fix/ar-c3d4"},
+		{"Merge remote-tracking branch 'origin/fix/ar-c3d4'", "origin/fix/ar-c3d4"},
 		{"Fix the login redirect (#12)", ""},
 		{"", ""},
 	}
@@ -60,12 +60,12 @@ func TestCurrentBranchAndHeadMessage(t *testing.T) {
 		t.Errorf("CurrentBranch = %q, %v; want main", got, err)
 	}
 	if _, err := git(ctx, dir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-q", "--allow-empty",
-		"-m", "Do the thing", "-m", "Aries: sf-a1b2"); err != nil {
+		"-m", "Do the thing", "-m", "Aries: ar-a1b2"); err != nil {
 		t.Fatal(err)
 	}
 	msg, err := HeadMessage(ctx, dir)
-	if id, ok := IDFromMessage(msg); err != nil || !ok || id != "sf-a1b2" {
-		t.Errorf("HeadMessage = %q, %v; want a message naming sf-a1b2", msg, err)
+	if id, ok := IDFromMessage(msg); err != nil || !ok || id != "ar-a1b2" {
+		t.Errorf("HeadMessage = %q, %v; want a message naming ar-a1b2", msg, err)
 	}
 	if _, err := git(ctx, dir, "switch", "-q", "--detach", "HEAD"); err != nil {
 		t.Fatal(err)

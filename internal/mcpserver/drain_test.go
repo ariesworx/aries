@@ -175,7 +175,7 @@ func (s *served) queue(t *testing.T, n int, per time.Duration) (want []string) {
 	}
 	s.w.set(true, 0)
 	for i := range n {
-		id := fmt.Sprintf("sf-%d", i+1)
+		id := fmt.Sprintf("ar-%d", i+1)
 		if res := callTool(t, s.cs, "comment", map[string]any{"id": id, "body": "hi"}); res.IsError {
 			t.Fatalf("comment while away: %s", text(t, res))
 		}
@@ -293,7 +293,7 @@ func TestQueuedForTheConnectionsPrincipal(t *testing.T) {
 	first.key = "" // nothing for the record
 	callTool(t, a.cs, "ready", nil)
 	a.net.set(true)
-	res := callTool(t, a.cs, "comment", map[string]any{"id": "sf-1", "body": "hi"})
+	res := callTool(t, a.cs, "comment", map[string]any{"id": "ar-1", "body": "hi"})
 	if res.IsError || len(a.list(t).Pending) != 1 {
 		t.Errorf("comment lost with alice's connection = %q (error %v), with %d entries in her outbox; want it queued there", text(t, res), res.IsError, len(a.list(t).Pending))
 	}

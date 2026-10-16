@@ -63,7 +63,7 @@ func TestLateFinishAndHandoff(t *testing.T) {
 		t.Errorf("issue after a kept finish = %s, claim %+v; want bob's, in progress", sh.Issue.Status, sh.Claim)
 	}
 	inbox := mustCall[proto.InboxResult](t, s, bob, proto.OpInbox, proto.InboxArgs{})
-	if !hasItem(inbox, "conflict", taken.ID, got.Comment) {
+	if !hasItem(inbox, "conflict.parked", taken.ID, got.Comment) {
 		t.Errorf("bob's inbox = %+v, want a conflict item naming comment %s", inbox.Items, got.Comment)
 	}
 
@@ -73,7 +73,7 @@ func TestLateFinishAndHandoff(t *testing.T) {
 		t.Errorf("replayed handoff of an issue bob took = %+v, want it kept as a comment", h)
 	}
 	inbox = mustCall[proto.InboxResult](t, s, alice, proto.OpInbox, proto.InboxArgs{})
-	if !hasItem(inbox, "conflict", handed.ID, h.Comment) {
+	if !hasItem(inbox, "conflict.parked", handed.ID, h.Comment) {
 		t.Errorf("alice's inbox = %+v, want a conflict item naming comment %s", inbox.Items, h.Comment)
 	}
 }

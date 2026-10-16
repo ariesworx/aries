@@ -1,0 +1,158 @@
+attribute aries.claims event
+attribute aries.claims reason
+attribute aries.clock.steps direction
+attribute aries.connections project
+attribute aries.connections.dropped reason
+attribute aries.control.writes op
+attribute aries.control.writes result
+attribute aries.handshakes result
+attribute aries.keys_file.writes result
+attribute aries.limit.refusals limit
+attribute aries.locks event
+attribute aries.project.requests project
+attribute aries.project.requests result_class
+attribute aries.request.duration op
+attribute aries.request.duration result
+attribute aries.store.open.duration migrated
+attribute aries.store.write.duration project
+attribute aries.store.write.retries project
+attribute aries.telemetry.dropped signal
+instrument aries.claims aries_claims_total
+instrument aries.clock.behind aries_clock_behind_seconds
+instrument aries.clock.steps aries_clock_steps_total
+instrument aries.connections aries_connections
+instrument aries.connections.dropped aries_connections_dropped_total
+instrument aries.control.writes aries_control_writes_total
+instrument aries.db.pool.conns aries_db_pool_conns
+instrument aries.db.pool.in_use aries_db_pool_in_use
+instrument aries.db.pool.waits aries_db_pool_waits_total
+instrument aries.handshakes aries_handshakes_total
+instrument aries.keys_file.last_write.time aries_keys_file_last_write_time_seconds
+instrument aries.keys_file.writes aries_keys_file_writes_total
+instrument aries.limit.refusals aries_limit_refusals_total
+instrument aries.lock.wait.duration aries_lock_wait_duration_seconds
+instrument aries.locks aries_locks_total
+instrument aries.project.requests aries_project_requests_total
+instrument aries.reaper.duration aries_reaper_duration_seconds
+instrument aries.reaper.last_run.time aries_reaper_last_run_time_seconds
+instrument aries.request.duration aries_request_duration_seconds
+instrument aries.store.open.duration aries_store_open_duration_seconds
+instrument aries.store.write.duration aries_store_write_duration_seconds
+instrument aries.store.write.retries aries_store_write_retries_total
+instrument aries.stores.open aries_stores_open
+instrument aries.telemetry.dropped aries_telemetry_dropped_total
+span access.sweep
+span clock.check
+span control.reload
+span handshake
+span keys_file.write
+span reaper
+span store.migrate
+span store.open
+span store.write.attempt
+span store.write.wait
+span-key attempt
+span-key changed
+span-key migrated
+span-key op
+span-key outcome
+span-key principal
+span-key project
+span-key protocol
+span-key result
+span-key session
+value aries.claims event expire
+value aries.claims event release
+value aries.claims event renew
+value aries.claims event take
+value aries.claims reason archived
+value aries.claims reason disabled
+value aries.claims reason membership
+value aries.claims reason none
+value aries.clock.steps direction backward
+value aries.clock.steps direction forward
+value aries.connections.dropped reason access
+value aries.connections.dropped reason archived
+value aries.connections.dropped reason disabled
+value aries.connections.dropped reason idle
+value aries.connections.dropped reason key
+value aries.connections.dropped reason limit
+value aries.connections.dropped reason membership
+value aries.control.writes result acceptance
+value aries.control.writes result auth
+value aries.control.writes result busy
+value aries.control.writes result conflict
+value aries.control.writes result cycle
+value aries.control.writes result exists
+value aries.control.writes result failed
+value aries.control.writes result forbidden
+value aries.control.writes result invalid
+value aries.control.writes result not_found
+value aries.control.writes result ok
+value aries.control.writes result stale
+value aries.control.writes result unavailable
+value aries.control.writes result version
+value aries.handshakes result acceptance
+value aries.handshakes result auth
+value aries.handshakes result busy
+value aries.handshakes result conflict
+value aries.handshakes result cycle
+value aries.handshakes result exists
+value aries.handshakes result failed
+value aries.handshakes result forbidden
+value aries.handshakes result invalid
+value aries.handshakes result not_found
+value aries.handshakes result ok
+value aries.handshakes result stale
+value aries.handshakes result unavailable
+value aries.handshakes result version
+value aries.keys_file.writes result failed
+value aries.keys_file.writes result ok
+value aries.limit.refusals limit conns_per_principal
+value aries.limit.refusals limit conns_per_server
+value aries.limit.refusals limit control_writes_per_second
+value aries.limit.refusals limit handshake_sockets
+value aries.limit.refusals limit handshakes_per_principal
+value aries.limit.refusals limit hours_per_day
+value aries.limit.refusals limit keys_per_principal
+value aries.limit.refusals limit lock_waits_per_principal
+value aries.limit.refusals limit locks_per_project
+value aries.limit.refusals limit members_per_project
+value aries.limit.refusals limit open_stores_per_server
+value aries.limit.refusals limit plans_per_project
+value aries.limit.refusals limit prices_per_project
+value aries.limit.refusals limit principals_per_server
+value aries.limit.refusals limit projects_per_server
+value aries.limit.refusals limit telemetry.max_requests
+value aries.limit.refusals limit usage_per_day
+value aries.limit.refusals limit waiters_per_lock
+value aries.limit.refusals limit writes_per_second
+value aries.locks event acquire
+value aries.locks event expire
+value aries.locks event grant
+value aries.locks event leave
+value aries.locks event release
+value aries.locks event renew
+value aries.locks event wait
+value aries.project.requests result_class error
+value aries.project.requests result_class ok
+value aries.project.requests result_class refused
+value aries.request.duration result acceptance
+value aries.request.duration result auth
+value aries.request.duration result busy
+value aries.request.duration result conflict
+value aries.request.duration result cycle
+value aries.request.duration result exists
+value aries.request.duration result failed
+value aries.request.duration result forbidden
+value aries.request.duration result invalid
+value aries.request.duration result not_found
+value aries.request.duration result ok
+value aries.request.duration result stale
+value aries.request.duration result unavailable
+value aries.request.duration result version
+value aries.store.open.duration migrated false
+value aries.store.open.duration migrated true
+value aries.telemetry.dropped signal logs
+value aries.telemetry.dropped signal metrics
+value aries.telemetry.dropped signal traces

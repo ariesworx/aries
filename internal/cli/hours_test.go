@@ -19,12 +19,12 @@ func TestPrintHours(t *testing.T) {
 	}{
 		{"none", proto.HoursResult{}, "no hours logged\n"},
 		{"some", proto.HoursResult{Entries: []proto.HoursEntry{
-			{ID: "aaaaaaaaaaaaaaaa", Issue: "sf-a1", Principal: "alice", On: "2026-10-09", Seconds: 5400, Note: "pairing\x1b[2J", At: at},
-			{ID: "bbbbbbbbbbbbbbbb", Issue: "sf-b2", Principal: "bob", On: "2026-10-08", Seconds: 28800, At: at},
+			{ID: "aaaaaaaaaaaaaaaa", Issue: "ar-a1", Principal: "alice", On: "2026-10-09", Seconds: 5400, Note: "pairing\x1b[2J", At: at},
+			{ID: "bbbbbbbbbbbbbbbb", Issue: "ar-b2", Principal: "bob", On: "2026-10-08", Seconds: 28800, At: at},
 		}, More: 3},
 			"ON          WHO    ISSUE  HOURS  ENTRY             NOTE\n" +
-				"2026-10-09  alice  sf-a1  1.5h   aaaaaaaaaaaaaaaa  pairing\\x1b[2J\n" +
-				"2026-10-08  bob    sf-b2  8h     bbbbbbbbbbbbbbbb\n" +
+				"2026-10-09  alice  ar-a1  1.5h   aaaaaaaaaaaaaaaa  pairing\\x1b[2J\n" +
+				"2026-10-08  bob    ar-b2  8h     bbbbbbbbbbbbbbbb\n" +
 				"and 3 more; raise -n, or narrow with --issue or --by\n"},
 	}
 	for _, tc := range tests {
@@ -73,14 +73,14 @@ func TestPrintCostAmortizedAndLogged(t *testing.T) {
 	t.Parallel()
 	since := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	res := proto.CostResult{By: "issue", Since: since, Until: since.Add(24 * time.Hour), Groups: []proto.CostGroup{
-		{Key: "sf-a1", Title: "one", Tokens: proto.Tokens{Input: n(1_200_000)}, CostUSD: "12.345", AmortizedUSD: "20", LoggedSeconds: 5400},
+		{Key: "ar-a1", Title: "one", Tokens: proto.Tokens{Input: n(1_200_000)}, CostUSD: "12.345", AmortizedUSD: "20", LoggedSeconds: 5400},
 		{Key: proto.CostUnattributed, Tokens: proto.Tokens{Input: n(500)}, CostUSD: "0.5", AmortizedUSD: "10"},
-		{Key: "sf-b2", Title: "two", CostUSD: "0", AmortizedUSD: "0", LoggedSeconds: 900},
+		{Key: "ar-b2", Title: "two", CostUSD: "0", AmortizedUSD: "0", LoggedSeconds: 900},
 	}, Total: proto.CostGroup{Tokens: proto.Tokens{Input: n(1_200_500)}, CostUSD: "12.845", AmortizedUSD: "30", LoggedSeconds: 6300}}
 	want := "cost by issue, 2026-10-01 00:00 UTC to 2026-10-02 00:00 UTC (1d), list price and amortized\n" +
-		"  sf-a1           one  $12.35  $20.00 amortized  1.2M tokens  1.5h logged\n" +
+		"  ar-a1           one  $12.35  $20.00 amortized  1.2M tokens  1.5h logged\n" +
 		"  (unattributed)       $0.50   $10.00 amortized  500 tokens\n" +
-		"  sf-b2           two  $0.00   $0.00 amortized   0 tokens     0.25h logged\n" +
+		"  ar-b2           two  $0.00   $0.00 amortized   0 tokens     0.25h logged\n" +
 		"total $12.85, $30.00 amortized, 1.2M tokens, 1.75h logged\n"
 	var b bytes.Buffer
 	printCost(&b, res)
@@ -130,14 +130,14 @@ func TestHoursUsage(t *testing.T) {
 		stderr string
 	}{
 		{"one argument", []string{"-C", empty, "hours", "1h"}, "hours needs a time and an issue id"},
-		{"three arguments", []string{"-C", empty, "hours", "1h", "sf-a1", "sf-b2"}, "hours needs a time and an issue id"},
-		{"bad time", []string{"-C", empty, "hours", "1", "sf-a1"}, `"1": not a time from 1m to 24h`},
-		{"too long", []string{"-C", empty, "hours", "25h", "sf-a1"}, `"25h": not a time`},
-		{"bad day", []string{"-C", empty, "hours", "1h", "sf-a1", "--on", "yesterday"}, `--on "yesterday" must be a date`},
-		{"undo with arguments", []string{"-C", empty, "hours", "--undo", "aaaa", "1h", "sf-a1"}, "--undo takes no other arguments"},
+		{"three arguments", []string{"-C", empty, "hours", "1h", "ar-a1", "ar-b2"}, "hours needs a time and an issue id"},
+		{"bad time", []string{"-C", empty, "hours", "1", "ar-a1"}, `"1": not a time from 1m to 24h`},
+		{"too long", []string{"-C", empty, "hours", "25h", "ar-a1"}, `"25h": not a time`},
+		{"bad day", []string{"-C", empty, "hours", "1h", "ar-a1", "--on", "yesterday"}, `--on "yesterday" must be a date`},
+		{"undo with arguments", []string{"-C", empty, "hours", "--undo", "aaaa", "1h", "ar-a1"}, "--undo takes no other arguments"},
 		{"undo with on", []string{"-C", empty, "hours", "--undo", "aaaa", "--on", "2026-10-01"}, "--undo takes no other arguments"},
 		{"list with note", []string{"-C", empty, "hours", "--note", "x"}, "--on and --note are for logging"},
-		{"hours with issue", []string{"-C", empty, "hours", "1h", "sf-a1", "--issue", "sf-a1"}, "--issue, --by and -n are for listing"},
+		{"hours with issue", []string{"-C", empty, "hours", "1h", "ar-a1", "--issue", "ar-a1"}, "--issue, --by and -n are for listing"},
 		{"plan unknown action", []string{"-C", empty, "admin", "plan", "rm", "team"}, `unknown plan action "rm"`},
 		{"plan list takes no terms", []string{"-C", empty, "admin", "plan", "list", "--fee", "1"}, "only plan set takes terms"},
 		{"set needs a name", append([]string{"-C", empty, "admin", "plan", "set"}, plan...), "plan set needs one name"},

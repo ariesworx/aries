@@ -83,7 +83,7 @@ func TestDispatchActiveClaims(t *testing.T) {
 	ids := func(cs []proto.Claim) []string {
 		var out []string
 		for _, c := range cs {
-			out = append(out, c.ID+" "+c.By+"/"+c.Session)
+			out = append(out, c.Issue+" "+c.By+"/"+c.Session)
 		}
 		return out
 	}

@@ -16,16 +16,16 @@ func TestBranchFor(t *testing.T) {
 		branch, id string
 		want       bool
 	}{
-		{"feature/sf-a1b2-add-paths", "sf-a1b2", true},
-		{"fix/sf-a1b2", "sf-a1b2", true},
-		{"sf-a1b2-no-type", "sf-a1b2", true},
+		{"feature/ar-a1b2-add-paths", "ar-a1b2", true},
+		{"fix/ar-a1b2", "ar-a1b2", true},
+		{"ar-a1b2-no-type", "ar-a1b2", true},
 		{"feature/my-proj-a1b2-slug", "my-proj-a1b2", true},
-		{"feature/sf-a1b2.1-child", "sf-a1b2.1", true},
-		{"feature/sf-a1b2.1-child", "sf-a1b2", false},
-		{"feature/sf-a1b2c3-other", "sf-a1b2", false},
-		{"feature/sf-a1-slug", "sf-a1b2", false},
-		{"main", "sf-a1b2", false},
-		{"feature/sf-a1b2-x", "", false},
+		{"feature/ar-a1b2.1-child", "ar-a1b2.1", true},
+		{"feature/ar-a1b2.1-child", "ar-a1b2", false},
+		{"feature/ar-a1b2c3-other", "ar-a1b2", false},
+		{"feature/ar-a1-slug", "ar-a1b2", false},
+		{"main", "ar-a1b2", false},
+		{"feature/ar-a1b2-x", "", false},
 	}
 	for _, tc := range tests {
 		if got := BranchFor(tc.branch, tc.id); got != tc.want {
@@ -73,9 +73,9 @@ func TestReadChanges(t *testing.T) {
 	t.Parallel()
 	dir := newRepo(t)
 	commit(t, dir, "on main, before the branch", "main.go")
-	repoGit(t, dir, "switch", "-q", "-c", "feature/sf-a1b2-paths")
+	repoGit(t, dir, "switch", "-q", "-c", "feature/ar-a1b2-paths")
 	commit(t, dir, "first", "docs/design notes/a b.md", "internal/x.go")
-	commit(t, dir, "second\n\nAries: sf-c3d4\n", "café/naïve.go", "internal/x.go")
+	commit(t, dir, "second\n\nAries: ar-c3d4\n", "café/naïve.go", "internal/x.go")
 	commit(t, dir, "third", "internal/y.go")
 	write(t, dir, ".gitignore", "*.log\n")
 	repoGit(t, dir, "add", ".gitignore")
@@ -89,17 +89,17 @@ func TestReadChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ch.Branch != "feature/sf-a1b2-paths" {
-		t.Errorf("Branch = %q, want feature/sf-a1b2-paths", ch.Branch)
+	if ch.Branch != "feature/ar-a1b2-paths" {
+		t.Errorf("Branch = %q, want feature/ar-a1b2-paths", ch.Branch)
 	}
 	tests := []struct {
 		id   string
 		want []string
 	}{
-		{"sf-a1b2", []string{".gitignore", "internal/y.go", "new dir/untracked.go", "staged.go",
+		{"ar-a1b2", []string{".gitignore", "internal/y.go", "new dir/untracked.go", "staged.go",
 			"café/naïve.go", "internal/x.go", "docs/design notes/a b.md"}},
-		{"sf-c3d4", []string{"café/naïve.go", "internal/x.go"}},
-		{"sf-e5f6", nil},
+		{"ar-c3d4", []string{"café/naïve.go", "internal/x.go"}},
+		{"ar-e5f6", nil},
 	}
 	for _, tc := range tests {
 		if got := ch.Paths(tc.id); !slices.Equal(got, tc.want) {
@@ -114,7 +114,7 @@ func TestReadChangesTrailerOnly(t *testing.T) {
 	t.Parallel()
 	dir := newRepo(t)
 	repoGit(t, dir, "switch", "-q", "-c", "feature/refactor")
-	commit(t, dir, "part of it\n\nAries: sf-a1b2", "a.go")
+	commit(t, dir, "part of it\n\nAries: ar-a1b2", "a.go")
 	commit(t, dir, "unrelated", "b.go")
 	write(t, dir, "c.go", "uncommitted")
 
@@ -122,8 +122,8 @@ func TestReadChangesTrailerOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := ch.Paths("sf-a1b2"), []string{"a.go"}; !slices.Equal(got, want) {
-		t.Errorf("Paths(sf-a1b2) = %q, want %q", got, want)
+	if got, want := ch.Paths("ar-a1b2"), []string{"a.go"}; !slices.Equal(got, want) {
+		t.Errorf("Paths(ar-a1b2) = %q, want %q", got, want)
 	}
 }
 
@@ -136,15 +136,15 @@ func TestReadChangesOriginHead(t *testing.T) {
 	commit(t, upstream, "on trunk", "trunk.go")
 	dir := filepath.Join(t.TempDir(), "clone")
 	repoGit(t, upstream, "clone", "-q", upstream, dir)
-	repoGit(t, dir, "switch", "-q", "-c", "fix/sf-a1b2")
+	repoGit(t, dir, "switch", "-q", "-c", "fix/ar-a1b2")
 	commit(t, dir, "fix", "fix.go")
 
 	ch, err := ReadChanges(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := ch.Paths("sf-a1b2"), []string{"fix.go"}; !slices.Equal(got, want) {
-		t.Errorf("Paths(sf-a1b2) = %q, want %q", got, want)
+	if got, want := ch.Paths("ar-a1b2"), []string{"fix.go"}; !slices.Equal(got, want) {
+		t.Errorf("Paths(ar-a1b2) = %q, want %q", got, want)
 	}
 }
 
@@ -163,7 +163,7 @@ func TestReadChangesMerged(t *testing.T) {
 			repoGit(t, dir, "switch", "-q", "-c", "other")
 			commit(t, dir, "other work", "other.go")
 			repoGit(t, dir, "switch", "-q", "main")
-			repoGit(t, dir, "switch", "-q", "-c", "feature/sf-a1b2")
+			repoGit(t, dir, "switch", "-q", "-c", "feature/ar-a1b2")
 			commit(t, dir, "mine", "mine.go")
 			repoGit(t, dir, "merge", "-q", "--no-edit", "other")
 			return dir
@@ -175,7 +175,7 @@ func TestReadChangesMerged(t *testing.T) {
 			commit(t, upstream, "main moved on", "main.go")
 			repoGit(t, dir, "fetch", "-q")
 			repoGit(t, dir, "remote", "set-head", "origin", "-d")
-			repoGit(t, dir, "switch", "-q", "-c", "feature/sf-a1b2", "origin/main")
+			repoGit(t, dir, "switch", "-q", "-c", "feature/ar-a1b2", "origin/main")
 			commit(t, dir, "mine", "mine.go")
 			return dir
 		}},
@@ -186,8 +186,8 @@ func TestReadChangesMerged(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got, want := ch.Paths("sf-a1b2"), []string{"mine.go"}; !slices.Equal(got, want) {
-				t.Errorf("Paths(sf-a1b2) = %q, want %q", got, want)
+			if got, want := ch.Paths("ar-a1b2"), []string{"mine.go"}; !slices.Equal(got, want) {
+				t.Errorf("Paths(ar-a1b2) = %q, want %q", got, want)
 			}
 		})
 	}
@@ -199,7 +199,7 @@ func TestIssuePaths(t *testing.T) {
 	t.Parallel()
 	long := strings.Repeat("d/", proto.MaxPathLen/2) + "x.go"
 	dir := newRepo(t)
-	repoGit(t, dir, "switch", "-q", "-c", "feature/sf-a1b2-thing")
+	repoGit(t, dir, "switch", "-q", "-c", "feature/ar-a1b2-thing")
 	for _, f := range []string{"a b.go", "dir/c.go"} {
 		write(t, dir, f, "x")
 	}
@@ -217,9 +217,9 @@ func TestIssuePaths(t *testing.T) {
 		ids  []string
 		want map[string][]string
 	}{
-		{"the branch's issue", dir, []string{"sf-a1b2"}, map[string][]string{"sf-a1b2": {"a b.go", "dir/c.go"}}},
-		{"another issue", dir, []string{"sf-zzzz"}, nil},
-		{"not a repository", t.TempDir(), []string{"sf-a1b2"}, nil},
+		{"the branch's issue", dir, []string{"ar-a1b2"}, map[string][]string{"ar-a1b2": {"a b.go", "dir/c.go"}}},
+		{"another issue", dir, []string{"ar-zzzz"}, nil},
+		{"not a repository", t.TempDir(), []string{"ar-a1b2"}, nil},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -278,13 +278,13 @@ func TestReadChangesNoBase(t *testing.T) {
 		{"no default branch", func(t *testing.T) string {
 			dir := newRepo(t)
 			repoGit(t, dir, "branch", "-q", "-m", "dev")
-			repoGit(t, dir, "switch", "-q", "-c", "feature/sf-a1b2")
+			repoGit(t, dir, "switch", "-q", "-c", "feature/ar-a1b2")
 			commit(t, dir, "committed", "old.go")
 			return dir
 		}},
 		{"unborn branch", func(t *testing.T) string {
 			dir := newRepo(t)
-			repoGit(t, dir, "switch", "-q", "--orphan", "feature/sf-a1b2")
+			repoGit(t, dir, "switch", "-q", "--orphan", "feature/ar-a1b2")
 			return dir
 		}},
 	} {
@@ -295,8 +295,8 @@ func TestReadChangesNoBase(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got, want := ch.Paths("sf-a1b2"), []string{"new.go"}; !slices.Equal(got, want) {
-				t.Errorf("Paths(sf-a1b2) = %q, want %q", got, want)
+			if got, want := ch.Paths("ar-a1b2"), []string{"new.go"}; !slices.Equal(got, want) {
+				t.Errorf("Paths(ar-a1b2) = %q, want %q", got, want)
 			}
 		})
 	}
@@ -307,12 +307,12 @@ func TestReadChangesNoBase(t *testing.T) {
 func TestReadChangesNothing(t *testing.T) {
 	// Serial: sets the process's environment (t.Setenv).
 	dir := newRepo(t)
-	repoGit(t, dir, "switch", "-q", "-c", "feature/sf-a1b2")
+	repoGit(t, dir, "switch", "-q", "-c", "feature/ar-a1b2")
 	commit(t, dir, "work", "a.go")
 	repoGit(t, dir, "switch", "-q", "--detach")
 	write(t, dir, "b.go", "uncommitted")
 	ch, err := ReadChanges(t.Context(), dir)
-	if err != nil || ch.Branch != "" || len(ch.Paths("sf-a1b2")) != 0 {
+	if err != nil || ch.Branch != "" || len(ch.Paths("ar-a1b2")) != 0 {
 		t.Errorf("detached HEAD: %+v, %v; want no changes and no error", ch, err)
 	}
 

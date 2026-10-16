@@ -30,7 +30,7 @@ func printFiles(w io.Writer, f *proto.Files) {
 		}
 	}
 	for _, o := range f.Overlaps {
-		p("overlaps %s, held by %s (%s)\n", esc(o.ID), esc(o.By), esc(o.Session))
+		p("overlaps %s, held by %s (%s)\n", esc(o.Issue), esc(o.By), esc(o.Session))
 	}
 }
 

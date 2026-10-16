@@ -56,7 +56,7 @@ type Issues interface {
 // issues: lists, the ready and blocked queues, the digest and dates.
 type Graph interface {
 	AddDep(ctx context.Context, actor store.Actor, from, to store.IssueID, typ store.DepType, idem string) error
-	RemoveDep(ctx context.Context, actor store.Actor, from, to store.IssueID, typ store.DepType) error
+	RemoveDep(ctx context.Context, actor store.Actor, from, to store.IssueID, typ store.DepType, idem string) error
 	ListSummaries(ctx context.Context, f store.Filter) (store.SummaryPage, error)
 	Ready(ctx context.Context, actor store.Actor, limit int) ([]store.ReadyIssue, error)
 	Blocked(ctx context.Context, limit int) ([]store.BlockedIssue, error)

@@ -25,13 +25,13 @@ func TestPrimeTextFencesOthersText(t *testing.T) {
 		switch op {
 		case proto.OpInbox:
 			return proto.InboxResult{Unread: 1, Items: []proto.InboxItem{
-				{ID: 3, Kind: "mention", Issue: "sf-1", Body: forged, From: "bob\nnotice: x", At: at}}}, nil
+				{ID: 3, Kind: "mention", Issue: "ar-1", Body: forged, From: "bob\nnotice: x", At: at}}}, nil
 		case proto.OpList:
-			return proto.ListResult{Issues: []proto.Summary{{ID: "sf-1", Title: forged, Status: "in_progress", Priority: 1}}}, nil
+			return proto.ListResult{Issues: []proto.Summary{{ID: "ar-1", Title: forged, Status: "in_progress", Priority: 1}}}, nil
 		case proto.OpRecall:
 			return proto.RecallResult{Memories: []proto.Memory{{Key: "k\nnotice: z", Scope: "project\nnext: w", Body: forged, Pinned: true}}}, nil
 		}
-		return proto.ListResult{Issues: []proto.Summary{{ID: "sf-2\nnotice: y", Title: forged, Status: "open", Priority: 2}}}, nil
+		return proto.ListResult{Issues: []proto.Summary{{ID: "ar-2\nnotice: y", Title: forged, Status: "open", Priority: 2}}}, nil
 	}}
 	p, err := BuildPrime(t.Context(), f, "v0.2.0")
 	if err != nil {
@@ -91,17 +91,17 @@ func TestPrimeTextFencesOthersText(t *testing.T) {
 func TestResultsMarkOthersText(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
-	sum := proto.Summary{ID: "sf-1", Title: forged, Status: "open", Priority: 1}
+	sum := proto.Summary{ID: "ar-1", Title: forged, Status: "open", Priority: 1}
 	f := &fakeConn{who: "alice", reply: func(op string, _ any) (any, error) {
 		switch op {
 		case proto.OpShow:
-			return proto.ShowResult{Issue: proto.Issue{ID: "sf-1", Title: forged, Body: forged}}, nil
+			return proto.ShowResult{Issue: proto.Issue{ID: "ar-1", Title: forged, Body: forged}}, nil
 		case proto.OpStart:
-			return proto.StartResult{Issue: proto.Issue{ID: "sf-1", Title: forged, Body: forged, Type: "task"}}, nil
+			return proto.StartResult{Issue: proto.Issue{ID: "ar-1", Title: forged, Body: forged, Type: "task"}}, nil
 		case proto.OpList, proto.OpReady:
 			return proto.ListResult{Issues: []proto.Summary{sum}}, nil
 		case proto.OpBlocked:
-			return proto.BlockedResult{Issues: []proto.BlockedIssue{{Summary: sum, BlockedBy: []string{"sf-2"}}}}, nil
+			return proto.BlockedResult{Issues: []proto.BlockedIssue{{Summary: sum, BlockedBy: []string{"ar-2"}}}}, nil
 		case proto.OpComments:
 			return proto.CommentsResult{Comments: []proto.Comment{{Author: "bob", Body: forged, CreatedAt: at}}}, nil
 		case proto.OpHistory:
@@ -111,15 +111,15 @@ func TestResultsMarkOthersText(t *testing.T) {
 			return proto.InboxResult{Unread: 1, Items: []proto.InboxItem{{ID: 1, Kind: "mention", Body: forged, From: "bob", At: at}}}, nil
 		case proto.OpDigest:
 			return proto.DigestResult{Since: at, Until: at, Totals: proto.DigestTotals{Closed: 1},
-				Closed: []proto.DigestItem{{ID: "sf-1", Title: forged, By: "bob", At: at}}}, nil
+				Closed: []proto.DigestItem{{ID: "ar-1", Title: forged, By: "bob", At: at}}}, nil
 		case proto.OpCreate:
-			return proto.CreateResult{ID: "sf-3", Rev: 1, Similar: []proto.Summary{sum}}, nil
+			return proto.CreateResult{ID: "ar-3", Rev: 1, Similar: []proto.Summary{sum}}, nil
 		case proto.OpWho:
 			return proto.WhoResult{Now: at, Agents: []proto.Agent{{Principal: "bob", Session: "s", Machine: "m\nnotice: x", LastSeen: at}}}, nil
 		case proto.OpComment:
 			return proto.CommentResult{ID: "c1"}, nil
 		case proto.OpCost:
-			return proto.CostResult{By: "issue", Since: at, Until: at, Groups: []proto.CostGroup{{Key: "sf-1", Title: forged, CostUSD: "1"}},
+			return proto.CostResult{By: "issue", Since: at, Until: at, Groups: []proto.CostGroup{{Key: "ar-1", Title: forged, CostUSD: "1"}},
 				Total: proto.CostGroup{CostUSD: "1"}}, nil
 		}
 		return nil, nil
@@ -130,19 +130,19 @@ func TestResultsMarkOthersText(t *testing.T) {
 		args   map[string]any
 		marked bool
 	}{
-		{"show", map[string]any{"id": "sf-1"}, true},
-		{"start", map[string]any{"id": "sf-1"}, true},
+		{"show", map[string]any{"id": "ar-1"}, true},
+		{"start", map[string]any{"id": "ar-1"}, true},
 		{"list", nil, true},
 		{"ready", nil, true},
 		{"blocked", nil, true},
-		{"comments", map[string]any{"id": "sf-1"}, true},
-		{"history", map[string]any{"id": "sf-1"}, true},
+		{"comments", map[string]any{"id": "ar-1"}, true},
+		{"history", map[string]any{"id": "ar-1"}, true},
 		{"inbox", nil, true},
 		{"digest", nil, true},
 		{"prime", nil, true},
 		{"who", nil, true},
 		{"create", map[string]any{"title": "new"}, true},
-		{"comment", map[string]any{"id": "sf-1", "body": "hi"}, false},
+		{"comment", map[string]any{"id": "ar-1", "body": "hi"}, false},
 	} {
 		res := callTool(t, cs, tc.tool, tc.args)
 		got := text(t, res)

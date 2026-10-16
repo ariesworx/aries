@@ -83,9 +83,9 @@ func (s *Server) administers(actor, project string) bool {
 // failure to read it is logged and says nothing: the principal is
 // disabled.
 func (s *Server) left(ctx context.Context, sess *session, out *proto.PrincipalResult) {
-	t, perr, err := s.trailOf(ctx, sess.actor.Principal, out.ID, "")
+	t, perr, err := s.trailOf(ctx, sess.actor.Principal, out.Name, "")
 	if err != nil {
-		s.cfg.Logger.ErrorContext(ctx, "read what a disabled principal added", "event", logs.RequestPart, "subject", out.ID, "err", err)
+		s.cfg.Logger.ErrorContext(ctx, "read what a disabled principal added", "event", logs.RequestPart, "subject", out.Name, "err", err)
 		return
 	}
 	if perr != nil {
@@ -97,8 +97,8 @@ func (s *Server) left(ctx context.Context, sess *session, out *proto.PrincipalRe
 	}
 	warning := fmt.Sprintf("%s added %s that %s still in the store, created %s and added %s, and disabling %s undoes none of them: "+
 		"review them with `aries admin key list --added-by %s`, `aries admin principal list --created-by %s` and `aries admin member list --added-by %s`",
-		out.ID, plural(out.KeysAdded, "key"), isAre(out.KeysAdded), plural(out.PrincipalsCreated, "principal"), plural(out.MembersAdded, "membership"),
-		out.ID, out.ID, out.ID, out.ID)
+		out.Name, plural(out.KeysAdded, "key"), isAre(out.KeysAdded), plural(out.PrincipalsCreated, "principal"), plural(out.MembersAdded, "membership"),
+		out.Name, out.Name, out.Name, out.Name)
 	// One line: a warning is printed as one.
 	if out.Warning != "" {
 		warning += "; and " + out.Warning

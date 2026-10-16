@@ -29,7 +29,6 @@
 //	s       session id: the client's (hello), the effective one (welcome)
 //	m       machine name (hello)
 //	h       agent harness, such as claude-code (hello; may be empty)
-//	latest  latest release the server knows of (welcome; may be empty)
 //	pr      principal: the bridge's claim, and the welcome's echo of it
 //	k       the SHA-256 fingerprint of the key that authenticated (bridge)
 //	e       payload of an evt frame, such as a pushed inbox item
@@ -40,9 +39,9 @@
 // # Sequence
 //
 //	bridge → daemon:  {"t":"bridge","pr":"alice"}
-//	client → daemon:  {"t":"hello","v":"v0.5.0","p":5,"proj":"…","s":"…","m":"laptop"}
-//	daemon → client:  {"t":"welcome","v":"v0.5.0","min":5,"max":5,"s":"…","pr":"alice"}
-//	client → daemon:  {"t":"req","id":1,"op":"show","a":{"id":"sf-a1b2c3d4"}}
+//	client → daemon:  {"t":"hello","v":"v1.0.0","p":8,"proj":"…","s":"…","m":"laptop"}
+//	daemon → client:  {"t":"welcome","v":"v1.0.0","min":8,"max":8,"s":"…","pr":"alice"}
+//	client → daemon:  {"t":"req","id":1,"op":"show","a":{"id":"ar-a1b2c3d4"}}
 //	daemon → client:  {"t":"res","id":1,"ok":{…}}
 //
 // A request may carry the caller's trace context in tp and ts, so that
@@ -56,9 +55,10 @@
 // §16.4), and takes the ids and the flags of the context and nothing
 // else: the tracestate is never put on a span or a log line.
 //
-// A client whose protocol version is outside [min,max] gets a welcome
-// carrying err with code "version", whose fix says which side to upgrade
-// (CheckProto), and the connection closes. The health check of `ariesd
+// v1.0.0 speaks protocol 8 alone (Proto). A client whose protocol
+// version is outside [min,max] gets a welcome carrying err with code
+// "version", whose fix says which side to upgrade (CheckProto), and the
+// connection closes; a client refused so says hello in no other version. The health check of `ariesd
 // upgrade`, which only the daemon's own user can send, is welcomed
 // whatever version it speaks.
 //
@@ -83,9 +83,24 @@
 //	daemon → client:  {"t":"evt","op":"inbox","e":{"id":9,"kind":"claim.lost",…}}
 //	client → daemon:  {"t":"req","id":3,"op":"watch","a":{"events":true}}
 //	daemon → client:  {"t":"res","id":3,"ok":{"unread":0}}
-//	daemon → client:  {"t":"evt","op":"event","e":{"seq":41,"op":"claim.take","issue":"sf-a1b2c3d4",…}}
+//	daemon → client:  {"t":"evt","op":"event","e":{"seq":41,"op":"claim.take","issue":"ar-a1b2c3d4",…}}
 //
 // A client ignores frame types, and event ops, it does not know, so the
 // server can add them without a protocol bump; the server refuses unknown
 // types from clients.
+//
+// # Names
+//
+// v1.0.0 settled the names of ops, fields and inbox kinds (decision 88);
+// a later one follows the same rules. Writes are noun.verb (dep.add,
+// conflict.resolve) and lists a bare plural (gates, keys). An issue is
+// id in the arguments and results of an op about that one issue, and
+// issue where the record is something else: a claim, an overlap, an
+// hours entry, a memory, a conflict, an inbox item or an event; a gate
+// names its issues by their part, blocks and subject. A record that is a
+// principal names it name, and one that is a key fingerprint; another
+// record names a principal principal. Who did something is by for an
+// act, author for text, and X_by for a record's audit columns. An inbox
+// kind, like an event's op, is noun.verb (issue.mentioned,
+// conflict.parked).
 package proto

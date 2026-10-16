@@ -36,7 +36,7 @@ func BenchmarkRequest(b *testing.B) {
 		dsn := newDatabase(b)
 		// The metrics stay off in every mode, so that the difference is
 		// the spans'.
-		st, err := store.Open(b.Context(), dsn, store.Options{Prefix: "sf", Tracer: StoreTracer(tel, project)})
+		st, err := store.Open(b.Context(), dsn, store.Options{Prefix: "ar", Tracer: StoreTracer(tel, project)})
 		if err != nil {
 			b.Fatal(err)
 		}

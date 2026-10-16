@@ -13,7 +13,7 @@ import (
 func TestPrintConflicts(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
-	c := proto.Conflict{ID: 3, Issue: "sf-a1", Field: "title", BaseRev: 4, Base: "Fix login", Mine: "Fix the login redirect",
+	c := proto.Conflict{ID: 3, Issue: "ar-a1", Field: "title", BaseRev: 4, Base: "Fix login", Mine: "Fix the login redirect",
 		Theirs: "Fix login\nand logout", By: "alice", TheirsBy: "bob", TheirsAt: now.Add(-3 * time.Hour),
 		ParkedAt: now.Add(-2 * time.Hour), Advice: "theirs is from bob, who holds the issue; take theirs"}
 	proposed := c
@@ -25,14 +25,14 @@ func TestPrintConflicts(t *testing.T) {
 		want string
 	}{
 		{"none", nil, 0, "no open conflicts\n"},
-		{"one", []proto.Conflict{c}, 0, `#3 sf-a1 title: alice's update from rev 4, parked 2h ago, against bob's of 3h ago
+		{"one", []proto.Conflict{c}, 0, `#3 ar-a1 title: alice's update from rev 4, parked 2h ago, against bob's of 3h ago
   base:   Fix login
   mine:   Fix the login redirect
   theirs: Fix login\nand logout
   advice: theirs is from bob, who holds the issue; take theirs
 resolve with ` + "`aries resolve N --mine|--theirs|--text TEXT|--accept`; `aries conflicts N` shows one whole" + `
 `},
-		{"a proposal, and more", []proto.Conflict{proposed}, 3, `#3 sf-a1 title: alice's update from rev 4, parked 2h ago, against bob's of 3h ago
+		{"a proposal, and more", []proto.Conflict{proposed}, 3, `#3 ar-a1 title: alice's update from rev 4, parked 2h ago, against bob's of 3h ago
   base:   Fix login
   mine:   Fix the login redirect
   theirs: Fix login\nand logout
@@ -59,12 +59,12 @@ func TestPrintConflict(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
 	resolved := now.Add(-time.Hour)
-	c := proto.Conflict{ID: 3, Issue: "sf-a1", Field: "body", BaseRev: 4, Base: "one\ntwo", Mine: "one\ntwo, mine",
+	c := proto.Conflict{ID: 3, Issue: "ar-a1", Field: "body", BaseRev: 4, Base: "one\ntwo", Mine: "one\ntwo, mine",
 		Theirs: "one, theirs\ntwo", By: "alice", TheirsBy: "bob", TheirsAt: now.Add(-3 * time.Hour),
 		ParkedAt: now.Add(-2 * time.Hour), Resolution: "theirs", ResolvedBy: "carol", ResolvedAt: &resolved}
 	var b bytes.Buffer
 	printConflict(&b, c, now)
-	want := `#3 sf-a1 body: alice's update from rev 4, parked 2h ago, against bob's of 3h ago
+	want := `#3 ar-a1 body: alice's update from rev 4, parked 2h ago, against bob's of 3h ago
 resolved: theirs, by carol 1h ago
 --- base (rev 4)
 one
@@ -86,9 +86,9 @@ two
 func TestShowSaysConflicts(t *testing.T) {
 	t.Parallel()
 	var b bytes.Buffer
-	printIssue(&b, proto.ShowResult{Issue: proto.Issue{ID: "sf-a1", Title: "t", Status: "open", Type: "task", Rev: 3},
+	printIssue(&b, proto.ShowResult{Issue: proto.Issue{ID: "ar-a1", Title: "t", Status: "open", Type: "task", Rev: 3},
 		Conflicts: []proto.Conflict{{ID: 3, Field: "title"}, {ID: 4, Field: "body"}}})
-	if want := "conflicts: 2 open (title, body): `aries conflicts sf-a1`\n"; !strings.Contains(b.String(), want) {
+	if want := "conflicts: 2 open (title, body): `aries conflicts ar-a1`\n"; !strings.Contains(b.String(), want) {
 		t.Errorf("printIssue:\n%s\nwant a line %q", b.String(), want)
 	}
 }

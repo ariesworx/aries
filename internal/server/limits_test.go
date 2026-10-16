@@ -39,12 +39,12 @@ func TestResolveSettingsLimits(t *testing.T) {
 		err  string
 	}{
 		{name: "defaults", body: "", want: func(l Limits) bool { return l == DefaultLimits }},
-		{name: "set", body: "limits:\n  labels_per_issue: 9\n  conns_per_principal: 4\n  idle_timeout: 90s\n  write_rate: 2.5\n  agent_keep: 14d\n",
+		{name: "set", body: "limits:\n  labels_per_issue: 9\n  conns_per_principal: 4\n  idle_timeout: 90s\n  writes_per_second: 2.5\n  agent_keep: 14d\n",
 			want: func(l Limits) bool {
 				return l.Labels == 9 && l.ConnsPerPrincipal == 4 && l.IdleTimeout == Duration(90*time.Second) &&
 					l.WriteRate == 2.5 && l.AgentKeep == Duration(14*24*time.Hour) && l.Conns == DefaultLimits.Conns
 			}},
-		{name: "zero takes the default", body: "limits:\n  labels_per_issue: 0\n  write_burst: 0\n  write_rate: 0\n",
+		{name: "zero takes the default", body: "limits:\n  labels_per_issue: 0\n  write_burst: 0\n  writes_per_second: 0\n",
 			want: func(l Limits) bool { return l == DefaultLimits }},
 		{name: "handshakes default", body: "limits:\n  handshakes_per_principal: 0\n", want: func(l Limits) bool { return l.Handshakes == 16 }},
 		{name: "conns per principal default", body: "limits:\n  conns_per_principal: 0\n", want: func(l Limits) bool { return l.ConnsPerPrincipal == 64 }},
@@ -61,82 +61,72 @@ func TestResolveSettingsLimits(t *testing.T) {
 		{name: "negative db_conns_per_project", body: "limits:\n  db_conns_per_project: -1\n", err: "limit db_conns_per_project must be zero or a positive number"},
 		{name: "a project's connections past the server's", body: "limits:\n  db_conns_per_server: 4\n  db_conns_per_project: 5\n",
 			err: "limit db_conns_per_project, 5, is more than db_conns_per_server, 4; fix:"},
-		{name: "usage limits", body: "limits:\n  usage_records: 50\n  usage_per_day: 900\n",
+		{name: "usage limits", body: "limits:\n  records_per_usage_call: 50\n  usage_per_day: 900\n",
 			want: func(l Limits) bool {
 				return l.UsageRecords == 50 && l.UsagePerDay == 900 && l.Labels == DefaultLimits.Labels
 			}},
-		{name: "negative store limit", body: "limits:\n  acceptance_items: -1\n", err: "acceptance_items"},
+		{name: "negative store limit", body: "limits:\n  acceptance_items_per_issue: -1\n", err: "acceptance_items_per_issue"},
 		{name: "negative usage limit", body: "limits:\n  usage_per_day: -1\n", err: "usage_per_day"},
 		{name: "paths limit", body: "limits:\n  paths_per_issue: 50\n",
 			want: func(l Limits) bool { return l.Paths == 50 && l.Labels == DefaultLimits.Labels }},
 		{name: "negative paths limit", body: "limits:\n  paths_per_issue: -1\n", err: "paths_per_issue"},
-		{name: "memory limits", body: "limits:\n  memory_body: 2048\n  memory_tags: 5\n  memory_tag_length: 32\n  memories_per_scope: 50\n  memory_key_length: 64\n",
+		{name: "memory limits", body: "limits:\n  memory_body_bytes: 2048\n  tags_per_memory: 5\n  memory_tag_bytes: 32\n  memories_per_scope: 50\n  memory_key_bytes: 64\n",
 			want: func(l Limits) bool {
 				return l.MemoryBody == 2048 && l.MemoryTags == 5 && l.MemoryTagLength == 32 && l.Memories == 50 &&
 					l.MemoryKeyLength == 64 && l.Labels == DefaultLimits.Labels
 			}},
-		{name: "memory limits default", body: "limits:\n  memory_body: 0\n",
+		{name: "memory limits default", body: "limits:\n  memory_body_bytes: 0\n",
 			want: func(l Limits) bool {
 				return l.MemoryBody == 4096 && l.MemoryTags == 20 && l.MemoryTagLength == 64 && l.Memories == 1000 && l.MemoryKeyLength == 128
 			}},
 		{name: "negative memory limit", body: "limits:\n  memories_per_scope: -1\n", err: "memories_per_scope"},
-		{name: "prices limit", body: "limits:\n  prices: 20\n",
+		{name: "prices limit", body: "limits:\n  prices_per_project: 20\n",
 			want: func(l Limits) bool { return l.Prices == 20 && l.Labels == DefaultLimits.Labels }},
-		{name: "prices limit default", body: "limits:\n  prices: 0\n", want: func(l Limits) bool { return l.Prices == 1000 }},
-		{name: "negative prices limit", body: "limits:\n  prices: -1\n", err: "prices"},
-		{name: "prices past the most", body: "limits:\n  prices: 10001\n", err: "prices is 10001; it can be at most 10000"},
-		{name: "hours limits", body: "limits:\n  hours_per_day: 5\n  hours_note: 80\n",
+		{name: "prices limit default", body: "limits:\n  prices_per_project: 0\n", want: func(l Limits) bool { return l.Prices == 1000 }},
+		{name: "negative prices limit", body: "limits:\n  prices_per_project: -1\n", err: "prices_per_project"},
+		{name: "prices past the most", body: "limits:\n  prices_per_project: 10001\n", err: "prices_per_project is 10001; it can be at most 10000"},
+		{name: "hours limits", body: "limits:\n  hours_per_day: 5\n  hours_note_bytes: 80\n",
 			want: func(l Limits) bool {
 				return l.HoursPerDay == 5 && l.HoursNote == 80 && l.Prices == DefaultLimits.Prices
 			}},
 		{name: "hours limits default", body: "limits:\n  hours_per_day: 0\n",
 			want: func(l Limits) bool { return l.HoursPerDay == 50 && l.HoursNote == 500 }},
 		{name: "negative hours_per_day", body: "limits:\n  hours_per_day: -1\n", err: "hours_per_day"},
-		{name: "hours_note past its column", body: "limits:\n  hours_note: 65536\n", err: "hours_note is 65536; it can be at most 65535"},
-		{name: "plan limits", body: "limits:\n  plans: 20\n  plan_principals: 7\n",
+		{name: "hours_note_bytes past its column", body: "limits:\n  hours_note_bytes: 65536\n", err: "hours_note_bytes is 65536; it can be at most 65535"},
+		{name: "plan limits", body: "limits:\n  plans_per_project: 20\n  principals_per_plan: 7\n",
 			want: func(l Limits) bool { return l.Plans == 20 && l.PlanPrincipals == 7 }},
-		{name: "plan limits default", body: "limits:\n  plans: 0\n",
+		{name: "plan limits default", body: "limits:\n  plans_per_project: 0\n",
 			want: func(l Limits) bool { return l.Plans == 1000 && l.PlanPrincipals == 100 }},
-		{name: "plans past the most", body: "limits:\n  plans: 10001\n", err: "plans is 10001; it can be at most 10000"},
-		{name: "plan_principals past the most", body: "limits:\n  plan_principals: 1001\n", err: "plan_principals is 1001; it can be at most 1000"},
-		{name: "conflict limits", body: "limits:\n  conflicts_per_issue: 3\n  conflicts_per_principal: 9\n  conflict_age: 3d\n",
-			want: func(l Limits) bool {
-				return l.ConflictsPerIssue == 3 && l.ConflictsPerPrincipal == 9 && l.ConflictAge == Duration(3*24*time.Hour)
-			}},
+		{name: "plans past the most", body: "limits:\n  plans_per_project: 10001\n", err: "plans_per_project is 10001; it can be at most 10000"},
+		{name: "principals_per_plan past the most", body: "limits:\n  principals_per_plan: 1001\n", err: "principals_per_plan is 1001; it can be at most 1000"},
+		{name: "conflict limits", body: "limits:\n  conflicts_per_issue: 3\n  conflicts_per_principal: 9\n",
+			want: func(l Limits) bool { return l.ConflictsPerIssue == 3 && l.ConflictsPerPrincipal == 9 }},
 		{name: "conflict limits default", body: "limits:\n  conflicts_per_issue: 0\n",
-			want: func(l Limits) bool {
-				return l.ConflictsPerIssue == 20 && l.ConflictsPerPrincipal == 100 && l.ConflictAge == Duration(24*time.Hour)
-			}},
+			want: func(l Limits) bool { return l.ConflictsPerIssue == 20 && l.ConflictsPerPrincipal == 100 }},
 		{name: "negative conflicts_per_issue", body: "limits:\n  conflicts_per_issue: -1\n", err: "conflicts_per_issue"},
 		{name: "negative conflicts_per_principal", body: "limits:\n  conflicts_per_principal: -1\n", err: "conflicts_per_principal"},
-		{name: "negative conflict_age", body: "limits:\n  conflict_age: -1h\n", err: "conflict_age"},
-		{name: "gate limits", body: "limits:\n  gate_approvers: 3\n  open_gates: 40\n  due_soon: 3d\n",
-			want: func(l Limits) bool {
-				return l.GateApprovers == 3 && l.OpenGates == 40 && l.DueSoon == Duration(3*24*time.Hour)
-			}},
-		{name: "gate limits default", body: "limits:\n  gate_approvers: 0\n",
-			want: func(l Limits) bool {
-				return l.GateApprovers == 10 && l.OpenGates == 1000 && l.DueSoon == Duration(24*time.Hour)
-			}},
-		{name: "negative gate_approvers", body: "limits:\n  gate_approvers: -1\n", err: "gate_approvers"},
-		{name: "gate_approvers past the most", body: "limits:\n  gate_approvers: 101\n", err: "gate_approvers is 101; it can be at most 100"},
-		{name: "negative open_gates", body: "limits:\n  open_gates: -1\n", err: "open_gates"},
-		{name: "lock limits", body: "limits:\n  locks: 30\n  lock_capacity: 5\n  lock_waiters: 7\n  lock_waits_per_principal: 2\n",
+		{name: "gate limits", body: "limits:\n  approvers_per_gate: 3\n  open_gates_per_project: 40\n",
+			want: func(l Limits) bool { return l.GateApprovers == 3 && l.OpenGates == 40 }},
+		{name: "gate limits default", body: "limits:\n  approvers_per_gate: 0\n",
+			want: func(l Limits) bool { return l.GateApprovers == 10 && l.OpenGates == 1000 }},
+		{name: "negative approvers_per_gate", body: "limits:\n  approvers_per_gate: -1\n", err: "approvers_per_gate"},
+		{name: "approvers_per_gate past the most", body: "limits:\n  approvers_per_gate: 101\n", err: "approvers_per_gate is 101; it can be at most 100"},
+		{name: "negative open_gates_per_project", body: "limits:\n  open_gates_per_project: -1\n", err: "open_gates_per_project"},
+		{name: "lock limits", body: "limits:\n  locks_per_project: 30\n  holders_per_lock: 5\n  waiters_per_lock: 7\n  lock_waits_per_principal: 2\n",
 			want: func(l Limits) bool {
 				return l.Locks == 30 && l.LockCapacity == 5 && l.LockWaiters == 7 && l.LockWaits == 2
 			}},
-		{name: "lock limits default", body: "limits:\n  locks: 0\n",
+		{name: "lock limits default", body: "limits:\n  locks_per_project: 0\n",
 			want: func(l Limits) bool {
 				return l.Locks == 200 && l.LockCapacity == 64 && l.LockWaiters == 100 && l.LockWaits == 20
 			}},
-		{name: "negative lock_waiters", body: "limits:\n  lock_waiters: -1\n", err: "lock_waiters"},
-		{name: "lock_capacity past the most", body: "limits:\n  lock_capacity: 1001\n", err: "lock_capacity is 1001; it can be at most 1000"},
-		{name: "due_soon past a year", body: "limits:\n  due_soon: 367d\n", err: "due_soon"},
-		{name: "memory body past the column", body: "limits:\n  memory_body: 70000\n", err: "memory_body"},
+		{name: "negative waiters_per_lock", body: "limits:\n  waiters_per_lock: -1\n", err: "waiters_per_lock"},
+		{name: "holders_per_lock past the most", body: "limits:\n  holders_per_lock: 1001\n", err: "holders_per_lock is 1001; it can be at most 1000"},
+		{name: "memory body past the column", body: "limits:\n  memory_body_bytes: 70000\n", err: "memory_body_bytes"},
 		{name: "negative server limit", body: "limits:\n  write_burst: -1\n", err: "limit write_burst must be zero or a positive number"},
-		{name: "write rate not a number", body: "limits:\n  write_rate: .nan\n", err: "limit write_rate must be zero or a positive number"},
-		{name: "infinite write rate", body: "limits:\n  write_rate: .inf\n", err: "limit write_rate must be zero or a positive number"},
-		{name: "idem window default", body: "limits:\n  conns: 5\n",
+		{name: "write rate not a number", body: "limits:\n  writes_per_second: .nan\n", err: "limit writes_per_second must be zero or a positive number"},
+		{name: "infinite write rate", body: "limits:\n  writes_per_second: .inf\n", err: "limit writes_per_second must be zero or a positive number"},
+		{name: "idem window default", body: "limits:\n  conns_per_server: 5\n",
 			want: func(l Limits) bool { return l.IdemWindow == Duration(7*24*time.Hour) }},
 		{name: "idem window set", body: "limits:\n  idem_window: 30d\n",
 			want: func(l Limits) bool {
@@ -147,7 +137,7 @@ func TestResolveSettingsLimits(t *testing.T) {
 		{name: "idem window below an hour", body: "limits:\n  idem_window: 59m\n", err: "limit idem_window is 59m; it must be from 1h to 365d"},
 		{name: "idem window past a year", body: "limits:\n  idem_window: 366d\n", err: "limit idem_window is 366d; it must be from 1h to 365d"},
 		{name: "negative idem window", body: "limits:\n  idem_window: -1h\n", err: "not a duration"},
-		{name: "away max default", body: "limits:\n  conns: 5\n",
+		{name: "away max default", body: "limits:\n  conns_per_server: 5\n",
 			want: func(l Limits) bool { return l.AwayMax == Duration(7*24*time.Hour) }},
 		{name: "away max set", body: "limits:\n  away_max: 30d\n",
 			want: func(l Limits) bool { return l.AwayMax == Duration(30*24*time.Hour) && l.Conns == DefaultLimits.Conns }},
@@ -155,11 +145,6 @@ func TestResolveSettingsLimits(t *testing.T) {
 			want: func(l Limits) bool { return l.AwayMax == Duration(time.Hour) }},
 		{name: "away max below an hour", body: "limits:\n  away_max: 59m\n", err: "limit away_max is 59m; it must be from 1h to 30d"},
 		{name: "away max past 30 days", body: "limits:\n  away_max: 31d\n", err: "limit away_max is 31d; it must be from 1h to 30d"},
-		{name: "telemetry requests", body: "limits:\n  telemetry_requests: 3\n",
-			want: func(l Limits) bool { return l.TelemetryRequests == 3 && l.Conns == DefaultLimits.Conns }},
-		{name: "telemetry requests default", body: "limits:\n  telemetry_requests: 0\n",
-			want: func(l Limits) bool { return l.TelemetryRequests == 8 }},
-		{name: "negative telemetry requests", body: "limits:\n  telemetry_requests: -1\n", err: "limit telemetry_requests must be zero or a positive number"},
 		{name: "bad duration", body: "limits:\n  idle_timeout: soon\n", err: "soon"},
 		{name: "unknown limit", body: "limits:\n  lables: 3\n", err: "lables"},
 	}

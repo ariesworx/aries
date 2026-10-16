@@ -136,7 +136,7 @@ func TestFilesToIssues(t *testing.T) {
 		t.Errorf("paths after aries handoff = %q, want cmd/handoff.go among them", got)
 	}
 	// A branch naming an id the server refuses costs the renewal nothing.
-	gitIn(t, alice.repo, "switch", "-q", "-c", "feature/sf-"+strings.Repeat("a", 70))
+	gitIn(t, alice.repo, "switch", "-q", "-c", "feature/ar-"+strings.Repeat("a", 70))
 	if out := alice.ok("away", "1h"); !strings.Contains(out, other+" held until") {
 		t.Errorf("aries away on a branch with a hostile id = %q, want %s renewed", out, other)
 	}

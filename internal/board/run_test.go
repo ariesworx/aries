@@ -80,7 +80,7 @@ func TestRunDrawsAndQuits(t *testing.T) {
 		srv, sc := &fakeServer{}, newScreen(80, 12)
 		wait := runBoard(t, srv, sc, sc.terminal())
 		synctest.Wait()
-		if out := sc.output(); !strings.Contains(out, "> sf-r1 P0 ready") || !strings.Contains(out, "Held 1") {
+		if out := sc.output(); !strings.Contains(out, "> ar-r1 P0 ready") || !strings.Contains(out, "Held 1") {
 			t.Fatalf("first frames lack the lists:\n%s", out)
 		}
 		srv.took()
@@ -209,7 +209,7 @@ func TestRunCoalescesActions(t *testing.T) {
 		close(gate)
 		synctest.Wait()
 
-		want := append(append(slices.Clone(refresh), refresh...), "show sf-r1")
+		want := append(append(slices.Clone(refresh), refresh...), "show ar-r1")
 		if got := srv.took(); !slices.Equal(got, want) {
 			t.Errorf("after 50 r and three opens and two closes during a slow read, calls = %v, want %v", got, want)
 		}

@@ -210,7 +210,7 @@ func TestRunDaemonWithTelemetry(t *testing.T) {
 
 	s := newSite(t, "")
 	addr := freeAddr(t)
-	rewrite(t, s, "project: "+adopted+"\nadmins: [dana]\ntelemetry:\n  listen: "+addr+"\nlimits:\n  telemetry_requests: 4\n")
+	rewrite(t, s, "project: "+adopted+"\nadmins: [dana]\ntelemetry:\n  listen: "+addr+"\n  max_requests: 4\n")
 	d := runSite(t, s, map[string]string{
 		"OTEL_EXPORTER_OTLP_ENDPOINT": col.URL, "OTEL_METRIC_EXPORT_INTERVAL": "50", "OTEL_BSP_SCHEDULE_DELAY": "50",
 		"OTEL_EXPORTER_OTLP_HEADERS": "Authorization=" + secretToken,

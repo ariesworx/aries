@@ -269,13 +269,13 @@ func TestAdminRoles(t *testing.T) {
 	t.Run("project admin in their project", func(t *testing.T) {
 		a := conns["alice"]
 		hal := mustAsk[proto.PrincipalResult](a, proto.OpPrincipalAdd, proto.PrincipalAddArgs{Name: "hal"})
-		if hal != (proto.PrincipalResult{ID: "hal", Rev: 1, State: "active", Project: projA, ProjectName: "proj-a"}) {
+		if hal != (proto.PrincipalResult{Name: "hal", Rev: 1, State: "active", Project: projA, ProjectName: "proj-a"}) {
 			t.Errorf("principal.add hal = %+v", hal)
 		}
 		// carol already belongs to a project, so an admin of b could add
 		// her; alice changes a role in a, and reaches bob, who is in a only.
 		set := mustAsk[proto.MemberSetResult](a, proto.OpMemberSet, proto.MemberSetArgs{Name: "hal", Role: "admin"})
-		if set.Change != "changed" || set.Role != "admin" || set.Rev != 2 || set.ID != "hal" || set.Project != projA {
+		if set.Change != "changed" || set.Role != "admin" || set.Rev != 2 || set.Name != "hal" || set.Project != projA {
 			t.Errorf("member.set hal admin = %+v, want the role changed at rev 2", set)
 		}
 		if again := mustAsk[proto.MemberSetResult](a, proto.OpMemberSet, proto.MemberSetArgs{Name: "hal", Role: "admin"}); again.Change != "unchanged" {
@@ -295,7 +295,7 @@ func TestAdminRoles(t *testing.T) {
 			}
 		}
 		rm := mustAsk[proto.MemberRemoveResult](a, proto.OpMemberRemove, proto.MemberArgs{Name: "hal"})
-		if rm.ID != "hal" || rm.Project != projA || rm.Warning != "" {
+		if rm.Name != "hal" || rm.Project != projA || rm.Warning != "" {
 			t.Errorf("member.remove hal = %+v", rm)
 		}
 	})
@@ -337,7 +337,7 @@ func TestAdminRoles(t *testing.T) {
 		mustAsk[proto.PrincipalResult](d, proto.OpPrincipalDisable, proto.PrincipalArgs{Name: "carol"})
 		mustAsk[proto.PrincipalResult](d, proto.OpPrincipalEnable, proto.PrincipalArgs{Name: "carol"})
 		none := mustAsk[proto.PrincipalResult](d, proto.OpPrincipalAdd, proto.PrincipalAddArgs{Name: "ivy", Unassigned: true})
-		if none.Project != "" || none.ID != "ivy" {
+		if none.Project != "" || none.Name != "ivy" {
 			t.Errorf("principal.add ivy to no project = %+v", none)
 		}
 		if of, err := m.ctl.ProjectsOf(t.Context(), "ivy"); err != nil || len(of) != 0 {
@@ -680,7 +680,7 @@ func TestAdminDrops(t *testing.T) {
 			t.Fatalf("carol has %d connections to a, want 2", got)
 		}
 		res := mustAsk[proto.MemberRemoveResult](d, proto.OpMemberRemove, proto.MemberArgs{Name: "carol"})
-		if res.ID != "carol" || res.Project != projA {
+		if res.Name != "carol" || res.Project != projA {
 			t.Errorf("member.remove = %+v", res)
 		}
 		if !c1.dropped() || !c2.dropped() {
@@ -706,7 +706,7 @@ func TestAdminDrops(t *testing.T) {
 	t.Run("an admin removes themselves", func(t *testing.T) {
 		m := adminWorld(t, Limits{})
 		a := mustDialTo(t, m.Server, alice, projA)
-		if res := mustAsk[proto.MemberRemoveResult](a, proto.OpMemberRemove, proto.MemberArgs{Name: "alice"}); res.ID != "alice" {
+		if res := mustAsk[proto.MemberRemoveResult](a, proto.OpMemberRemove, proto.MemberArgs{Name: "alice"}); res.Name != "alice" {
 			t.Errorf("member.remove of oneself = %+v, want the answer before the connection closes", res)
 		}
 		if !a.dropped() {
@@ -735,7 +735,7 @@ func TestAdminDrops(t *testing.T) {
 		inA, inB := mustDialTo(t, m.Server, carol, projA), mustDialTo(t, m.Server, carol, projB)
 		other := mustDialTo(t, m.Server, bob, projA)
 		res := mustAsk[proto.PrincipalResult](d, proto.OpPrincipalDisable, proto.PrincipalArgs{Name: "carol"})
-		if res.ID != "carol" || res.State != "disabled" || res.Rev != 2 {
+		if res.Name != "carol" || res.State != "disabled" || res.Rev != 2 {
 			t.Errorf("principal.disable = %+v", res)
 		}
 		if !inA.dropped() || !inB.dropped() {
@@ -868,7 +868,7 @@ func TestControlWriteRateLimit(t *testing.T) {
 	for name, c := range map[string]*conn{"a": inA, "b": inB} {
 		_, perr := ask[proto.MemberRemoveResult](c, proto.OpMemberRemove, proto.MemberArgs{Name: "frank"})
 		if perr == nil || perr.Code != proto.CodeBusy || !strings.HasPrefix(perr.Fix, "wait ") ||
-			!strings.Contains(perr.Fix, "control_write_rate and control_write_burst under limits:") ||
+			!strings.Contains(perr.Fix, "control_writes_per_second and control_write_burst under limits:") ||
 			!strings.Contains(perr.Message, "dana is over the limit on access changes (0.001 a second, bursts of 2)") {
 			t.Errorf("a third control write, on the connection to %s = %+v; want busy, a wait and the limits named", name, perr)
 		}
@@ -1016,8 +1016,9 @@ func TestOpenProjectsRecovers(t *testing.T) {
 	}
 }
 
-// A released client is refused at the handshake, before any request: its
-// protocol is below ProtoMin (decision 25). What it reads is the server's
+// A released client, or a build of a protocol no release spoke, is
+// refused at the handshake, before any request: the protocol settled at
+// 8, spoken alone (decisions 78 and 88). What it reads is the server's
 // to choose, since a released client prints the welcome's error as it
 // is: that the client is the side to upgrade, and how.
 func TestReleasedClientsRefused(t *testing.T) {
@@ -1027,16 +1028,16 @@ func TestReleasedClientsRefused(t *testing.T) {
 	for _, tc := range []struct {
 		release string
 		proto   int
-	}{{"v0.2.x", 2}, {"v0.3.x", 3}, {"v0.4.x", 4}} {
+	}{{"v0.2.x", 2}, {"v0.3.x", 3}, {"v0.4.x", 4}, {"a build of protocol 5", 5}, {"a build of protocol 6", 6}, {"a build of protocol 7", 7}} {
 		t.Run(tc.release, func(t *testing.T) {
 			w, err := handshake(t, s, &proto.Frame{T: proto.FrameBridge, Principal: "alice"},
 				&proto.Frame{T: proto.FrameHello, Version: "v0.4.0", Proto: tc.proto, Project: project, Session: "s", Machine: "m"})
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := fmt.Sprintf("aries speaks protocol %d; the server (v0.2.0) needs protocols %d to %d", tc.proto, proto.ProtoMin, proto.ProtoMax)
+			want := fmt.Sprintf("aries speaks protocol %d; the server (v0.2.0) needs protocol 8", tc.proto)
 			if w.T != proto.FrameWelcome || w.Err == nil || w.Err.Code != proto.CodeVersion || w.Err.Message != want || w.Err.Fix != fix ||
-				w.Min != proto.ProtoMin || w.Max != proto.ProtoMax {
+				w.Min != 8 || w.Max != 8 {
 				t.Fatalf("a protocol %d hello = %+v (%+v)\nwant a welcome refusing it with code version, %q\nfix %q", tc.proto, w, w.Err, want, fix)
 			}
 		})

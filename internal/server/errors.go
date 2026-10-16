@@ -41,21 +41,13 @@ func command(op string) string {
 		return "admin key list"
 	case proto.OpPropose:
 		return "conflicts" // proposing is an agent's, over MCP; aries conflicts shows them
+	case proto.OpResolve:
+		return "resolve"
 	}
 	if adminOp(op) {
 		return "admin " + strings.ReplaceAll(op, ".", " ")
 	}
 	return strings.ReplaceAll(op, ".", " ")
-}
-
-// codeFor returns code as a client speaking protocol v knows it: stale,
-// which protocol 6 added, is conflict to a client of 5, as a key past
-// its window was before.
-func codeFor(code proto.Code, v int) proto.Code {
-	if code == proto.CodeStale && v < proto.ProtoKeys {
-		return proto.CodeConflict
-	}
-	return code
 }
 
 // mapErr turns a store error into a typed protocol error whose message
@@ -162,7 +154,6 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 			fmt.Sprintf("stop work on it; keep anything useful as a comment (`aries comment %s`), or start it again if it is free", stale.ID), msg)
 
 	case errors.As(err, &idem) && idem.Expired:
-		// A client of protocol 5 is sent conflict instead (codeFor).
 		return proto.Errf(proto.CodeStale,
 			"nothing to do if that was this request; if the change is still wanted, make it again by hand, which sends a new key (`aries outbox` shows what a queued write was)",
 			text)
@@ -193,7 +184,7 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 		fix := "retry later"
 		switch op {
 		case proto.OpGateAdd:
-			fix = "pass or waive an open gate first (`aries gate list`), or ask the server admin to raise open_gates under limits: in ariesd's config"
+			fix = "pass or waive an open gate first (`aries gate list`), or ask the server admin to raise open_gates_per_project under limits: in ariesd's config"
 		case proto.OpUsage:
 			fix = "retry later: the cap counts the last 24 hours; the server admin can raise usage_per_day under limits: in ariesd's config"
 		}
@@ -205,12 +196,12 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 
 	case errors.As(err, &priceCap):
 		return proto.Errf(proto.CodeInvalid,
-			"replace an existing price (the same model and --from) instead, or ask the server admin to raise prices under limits: in ariesd's config",
+			"replace an existing price (the same model and --from) instead, or ask the server admin to raise prices_per_project under limits: in ariesd's config",
 			strings.TrimPrefix(text, store.ErrInvalid.Error()+": "))
 
 	case errors.As(err, &planCap):
 		return proto.Errf(proto.CodeInvalid,
-			"replace an existing plan row (the same name and --from) instead, or ask the server admin to raise plans under limits: in ariesd's config",
+			"replace an existing plan row (the same name and --from) instead, or ask the server admin to raise plans_per_project under limits: in ariesd's config",
 			strings.TrimPrefix(text, store.ErrInvalid.Error()+": "))
 
 	case errors.As(err, &hoursCap):

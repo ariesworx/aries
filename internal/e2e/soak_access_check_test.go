@@ -212,8 +212,8 @@ func TestReplayLostAccess(t *testing.T) {
 	t.Parallel()
 	alice, carol := sessKey{"alice", "s1"}, sessKey{"carol", "s1"}
 	held := func(b *logBuilder) *logBuilder {
-		return b.create(alice, "sf-1").take(alice, "sf-1", 1, 15*time.Minute, "").
-			add(0, alice, "issue.update", "sf-1", `{"status": "open"}`, `{"status": "in_progress", "assignee": "alice"}`)
+		return b.create(alice, "ar-1").take(alice, "ar-1", 1, 15*time.Minute, "").
+			add(0, alice, "issue.update", "ar-1", `{"status": "open"}`, `{"status": "in_progress", "assignee": "alice"}`)
 	}
 	tests := []struct {
 		name            string
@@ -222,24 +222,24 @@ func TestReplayLostAccess(t *testing.T) {
 		lost, overrides int
 	}{
 		{name: "released, and the issue open again", log: func(b *logBuilder) *logBuilder {
-			return held(b).add(time.Minute, root, "claim.release", "sf-1", b.claimOf(alice, 1, 17*time.Minute), `{"reason": "membership removed"}`).
-				add(0, root, "issue.update", "sf-1", `{"status": "in_progress", "assignee": "alice"}`, `{"status": "open", "assignee": null}`)
+			return held(b).add(time.Minute, root, "claim.release", "ar-1", b.claimOf(alice, 1, 17*time.Minute), `{"reason": "membership removed"}`).
+				add(0, root, "issue.update", "ar-1", `{"status": "in_progress", "assignee": "alice"}`, `{"status": "open", "assignee": null}`)
 		}, lost: 1},
 		{name: "released, and the issue left in progress", log: func(b *logBuilder) *logBuilder {
-			return held(b).add(time.Minute, root, "claim.release", "sf-1", b.claimOf(alice, 1, 17*time.Minute), `{"reason": "principal disabled"}`)
+			return held(b).add(time.Minute, root, "claim.release", "ar-1", b.claimOf(alice, 1, 17*time.Minute), `{"reason": "principal disabled"}`)
 		}, want: "left the issue in_progress, assigned to \"alice\"; want it open and unassigned", lost: 1},
 		{name: "released, and an issue that had moved on is changed", log: func(b *logBuilder) *logBuilder {
-			b.create(alice, "sf-1").take(alice, "sf-1", 1, 15*time.Minute, "")
-			return b.add(time.Minute, root, "claim.release", "sf-1", b.claimOf(alice, 1, 17*time.Minute), `{"reason": "project archived"}`).
-				add(0, root, "issue.update", "sf-1", `{"status": "open"}`, `{"status": "blocked"}`)
+			b.create(alice, "ar-1").take(alice, "ar-1", 1, 15*time.Minute, "")
+			return b.add(time.Minute, root, "claim.release", "ar-1", b.claimOf(alice, 1, 17*time.Minute), `{"reason": "project archived"}`).
+				add(0, root, "issue.update", "ar-1", `{"status": "open"}`, `{"status": "blocked"}`)
 		}, want: "though it was not in progress under the holder", lost: 1},
 		{name: "a release with no reason is not one for lost access", log: func(b *logBuilder) *logBuilder {
-			return held(b).add(time.Minute, alice, "claim.release", "sf-1", b.claimOf(alice, 1, 17*time.Minute), "").
-				add(0, alice, "issue.update", "sf-1", `{"status": "in_progress", "assignee": "alice"}`, `{"status": "open", "assignee": null}`)
+			return held(b).add(time.Minute, alice, "claim.release", "ar-1", b.claimOf(alice, 1, 17*time.Minute), "").
+				add(0, alice, "issue.update", "ar-1", `{"status": "in_progress", "assignee": "alice"}`, `{"status": "open", "assignee": null}`)
 		}},
 		{name: "a project admin's override is kept for the control log", log: func(b *logBuilder) *logBuilder {
-			return held(b).add(time.Minute, carol, "admin.override", "sf-1", "", `{"holder": {"principal": "alice", "session": "s1"}, "epoch": 1}`).
-				add(0, carol, "issue.update", "sf-1", `{"title": "a"}`, `{"title": "retitled carol-1"}`)
+			return held(b).add(time.Minute, carol, "admin.override", "ar-1", "", `{"holder": {"principal": "alice", "session": "s1"}, "epoch": 1}`).
+				add(0, carol, "issue.update", "ar-1", `{"title": "a"}`, `{"title": "retitled carol-1"}`)
 		}, overrides: 1},
 	}
 	for _, tc := range tests {
@@ -320,50 +320,50 @@ func TestCheckLost(t *testing.T) {
 		// jump it finds once it holds the writer, so the release is dated
 		// after the removal, and one dated before it has no cause.
 		{name: "released after a jump, for a removal dated after the jump", log: removedAfter(),
-			lost: []lostClaim{{seq: 51, issue: "sf-1", holder: alice, reason: lostMembership, by: sweep, took: before(-3 * time.Minute), at: after(16 * time.Second)}}},
+			lost: []lostClaim{{seq: 51, issue: "ar-1", holder: alice, reason: lostMembership, by: sweep, took: before(-3 * time.Minute), at: after(16 * time.Second)}}},
 		{name: "released after a jump by the admin who removed the member after it", log: removedAfter(),
-			lost: []lostClaim{{seq: 51, issue: "sf-1", holder: alice, reason: lostMembership, by: carol, took: before(-3 * time.Minute), at: after(15*time.Second + time.Millisecond)}}},
+			lost: []lostClaim{{seq: 51, issue: "ar-1", holder: alice, reason: lostMembership, by: carol, took: before(-3 * time.Minute), at: after(15*time.Second + time.Millisecond)}}},
 		{name: "released on the time before a jump, for a removal dated after it", log: removedAfter(),
-			lost: []lostClaim{{seq: 48, issue: "sf-1", holder: alice, reason: lostMembership, by: sweep, took: before(-3 * time.Minute), at: before(25 * time.Second)}},
+			lost: []lostClaim{{seq: 48, issue: "ar-1", holder: alice, reason: lostMembership, by: sweep, took: before(-3 * time.Minute), at: before(25 * time.Second)}},
 			want: "shows no such loss of access"},
 		{name: "released after a jump, for a membership that was never removed", log: jumped(func(*logBuilder) {}),
-			lost: []lostClaim{{seq: 51, issue: "sf-1", holder: alice, reason: lostMembership, by: sweep, took: before(-3 * time.Minute), at: after(16 * time.Second)}},
+			lost: []lostClaim{{seq: 51, issue: "ar-1", holder: alice, reason: lostMembership, by: sweep, took: before(-3 * time.Minute), at: after(16 * time.Second)}},
 			want: "shows no such loss of access"},
 		{name: "an override after a jump by an admin promoted after it", log: jumped(func(b *logBuilder) {
 			b.add(10*time.Second, root, "member.set", projA+"/alice", memberState("alice", projA, "member", 1), memberState("alice", projA, "admin", 2))
-		}), over: []override{{seq: 51, issue: "sf-1", by: alice, at: after(20 * time.Second)}}},
+		}), over: []override{{seq: 51, issue: "ar-1", by: alice, at: after(20 * time.Second)}}},
 		{name: "an override on the time before a jump by an admin promoted after it", log: jumped(func(b *logBuilder) {
 			b.add(10*time.Second, root, "member.set", projA+"/alice", memberState("alice", projA, "member", 1), memberState("alice", projA, "admin", 2))
-		}), over: []override{{seq: 48, issue: "sf-1", by: alice, at: before(20 * time.Second)}}, want: "admin.override by alice/s1"},
+		}), over: []override{{seq: 48, issue: "ar-1", by: alice, at: before(20 * time.Second)}}, want: "admin.override by alice/s1"},
 		{name: "released by the admin who removed the member", log: removed(),
-			lost: []lostClaim{{issue: "sf-1", holder: alice, reason: lostMembership, by: carol, took: at(30 * time.Minute), at: at(time.Hour + time.Millisecond)}}},
+			lost: []lostClaim{{issue: "ar-1", holder: alice, reason: lostMembership, by: carol, took: at(30 * time.Minute), at: at(time.Hour + time.Millisecond)}}},
 		{name: "released by the server's sweep", log: removed(),
-			lost: []lostClaim{{issue: "sf-1", holder: alice, reason: lostMembership, by: sweep, took: at(30 * time.Minute), at: at(2 * time.Hour)}}},
+			lost: []lostClaim{{issue: "ar-1", holder: alice, reason: lostMembership, by: sweep, took: at(30 * time.Minute), at: at(2 * time.Hour)}}},
 		{name: "released in the transaction before the removal's own time", log: removed(),
-			lost: []lostClaim{{issue: "sf-1", holder: alice, reason: lostMembership, by: sweep, took: at(30 * time.Minute), at: at(time.Hour - 500*time.Millisecond)}}},
+			lost: []lostClaim{{issue: "ar-1", holder: alice, reason: lostMembership, by: sweep, took: at(30 * time.Minute), at: at(time.Hour - 500*time.Millisecond)}}},
 		{name: "released for a membership that was never removed", log: ctlWorld(),
-			lost: []lostClaim{{issue: "sf-1", holder: alice, reason: lostMembership, by: sweep, took: at(30 * time.Minute), at: at(time.Hour)}},
+			lost: []lostClaim{{issue: "ar-1", holder: alice, reason: lostMembership, by: sweep, took: at(30 * time.Minute), at: at(time.Hour)}},
 			want: `for "membership removed", but the control log shows no such loss of access`},
 		{name: "released long before the removal", log: removed(),
-			lost: []lostClaim{{issue: "sf-1", holder: alice, reason: lostMembership, by: sweep, took: at(30 * time.Minute), at: at(45 * time.Minute)}},
+			lost: []lostClaim{{issue: "ar-1", holder: alice, reason: lostMembership, by: sweep, took: at(30 * time.Minute), at: at(45 * time.Minute)}},
 			want: "shows no such loss of access"},
 		{name: "released for a reason that is not the one", log: removed(),
-			lost: []lostClaim{{issue: "sf-1", holder: alice, reason: lostDisabled, by: sweep, took: at(30 * time.Minute), at: at(2 * time.Hour)}},
+			lost: []lostClaim{{issue: "ar-1", holder: alice, reason: lostDisabled, by: sweep, took: at(30 * time.Minute), at: at(2 * time.Hour)}},
 			want: `for "principal disabled", but the control log shows no such loss`},
 		{name: "released by someone who did not end the access", log: removed(),
-			lost: []lostClaim{{issue: "sf-1", holder: alice, reason: lostMembership, by: root, took: at(30 * time.Minute), at: at(time.Hour + time.Millisecond)}},
-			want: `root/s1 released alice/s1's claim on sf-1 for "membership removed", but the control log says the access was last ended by "carol"`},
+			lost: []lostClaim{{issue: "ar-1", holder: alice, reason: lostMembership, by: root, took: at(30 * time.Minute), at: at(time.Hour + time.Millisecond)}},
+			want: `root/s1 released alice/s1's claim on ar-1 for "membership removed", but the control log says the access was last ended by "carol"`},
 		{name: "a server admin's claim is never lost with a membership", log: ctlWorld(),
-			lost: []lostClaim{{issue: "sf-1", holder: root, reason: lostMembership, by: sweep, took: at(30 * time.Minute), at: at(time.Hour)}},
+			lost: []lostClaim{{issue: "ar-1", holder: root, reason: lostMembership, by: sweep, took: at(30 * time.Minute), at: at(time.Hour)}},
 			want: "shows no such loss of access"},
-		{name: "an override by the project's admin", log: ctlWorld(), over: []override{{issue: "sf-1", by: carol, at: at(time.Hour)}}},
-		{name: "an override by a member", log: ctlWorld(), over: []override{{issue: "sf-1", by: alice, at: at(time.Hour)}},
+		{name: "an override by the project's admin", log: ctlWorld(), over: []override{{issue: "ar-1", by: carol, at: at(time.Hour)}}},
+		{name: "an override by a member", log: ctlWorld(), over: []override{{issue: "ar-1", by: alice, at: at(time.Hour)}},
 			want: "admin.override by alice/s1"},
 		{name: "an override by the admin of another project", log: ctlWorld().member(root, "erin", projB, "admin"),
-			over: []override{{issue: "sf-1", by: sessKey{"erin", "s1"}, at: at(time.Hour)}}, want: "admin.override by erin/s1"},
+			over: []override{{issue: "ar-1", by: sessKey{"erin", "s1"}, at: at(time.Hour)}}, want: "admin.override by erin/s1"},
 		{name: "an override by an admin who was demoted an hour before", log: ctlWorld().
 			add(time.Minute, root, "member.set", projA+"/carol", memberState("carol", projA, "admin", 1), memberState("carol", projA, "member", 2)),
-			over: []override{{issue: "sf-1", by: carol, at: at(2 * time.Hour)}}, want: "admin.override by carol/s1"},
+			over: []override{{issue: "ar-1", by: carol, at: at(2 * time.Hour)}}, want: "admin.override by carol/s1"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -471,9 +471,9 @@ func TestCheckDials(t *testing.T) {
 // answer or a push that names another project's issue fails the run.
 func TestCheckForeign(t *testing.T) {
 	t.Parallel()
-	p := &sproj{name: "first", prefix: "sf", foreign: regexp.MustCompile(`\b(sb|sq)-[a-z2-7]{8}\b`)}
+	p := &sproj{name: "first", prefix: "ar", foreign: regexp.MustCompile(`\b(sb|sq)-[a-z2-7]{8}\b`)}
 	alice := sessKey{"alice", "s1"}
-	const mine, theirs = "sf-abcdefgh", "sb-abcdefgh"
+	const mine, theirs = "ar-abcdefgh", "sb-abcdefgh"
 	answers := []struct {
 		name string
 		cl   call
@@ -484,7 +484,7 @@ func TestCheckForeign(t *testing.T) {
 			want: "was answered show naming sb-abcdefgh, an issue of another project"},
 		{name: "another project's issue in a list", cl: call{out: acked, op: proto.OpReady, res: proto.ListResult{Issues: []proto.Summary{{ID: mine}, {ID: "sq-abcdefgh"}}}},
 			want: "naming sq-abcdefgh"},
-		{name: "another project's claim", cl: call{out: acked, op: proto.OpClaims, res: proto.ClaimsResult{Claims: []proto.Claim{{ID: theirs, By: "bob"}}}},
+		{name: "another project's claim", cl: call{out: acked, op: proto.OpClaims, res: proto.ClaimsResult{Claims: []proto.Claim{{Issue: theirs, By: "bob"}}}},
 			want: "was answered claims naming sb-abcdefgh"},
 		{name: "another project's issue in text", cl: call{out: acked, op: proto.OpInbox, res: proto.InboxResult{Items: []proto.InboxItem{{Issue: mine, Body: "see " + theirs + " too"}}}},
 			want: "naming sb-abcdefgh"},

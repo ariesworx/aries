@@ -70,12 +70,22 @@ func insertDep(ctx context.Context, w *wtx, from, to IssueID, typ DepType) error
 	return w.event(ctx, OpDepAdd, string(from), nil, d)
 }
 
-// RemoveDep deletes an edge. Removing a missing edge is a no-op.
-func (s *Store) RemoveDep(ctx context.Context, actor Actor, from, to IssueID, typ DepType) error {
+// RemoveDep deletes an edge. Removing a missing edge is a no-op. With an
+// idempotency key (idem), a repeat of a remove that removed the edge
+// writes nothing, even if the edge was added again since, and the key
+// reused for another request is refused with an [*IdemError].
+func (s *Store) RemoveDep(ctx context.Context, actor Actor, from, to IssueID, typ DepType, idem string) error {
 	if err := validEdge(from, to, typ); err != nil {
 		return err
 	}
+	if err := validIdem(idem); err != nil {
+		return err
+	}
 	return s.write(ctx, actor, func(w *wtx) error {
+		var done struct{}
+		if again, err := replay(ctx, w, idem, "dep.rm", Dep{From: from, To: to, Type: typ}, &done); again || err != nil {
+			return err
+		}
 		holds, err := holdingGates(ctx, w.tx, from)
 		if err != nil {
 			return err
@@ -86,12 +96,15 @@ func (s *Store) RemoveDep(ctx context.Context, actor Actor, from, to IssueID, ty
 			return fmt.Errorf("delete dep: %w", err)
 		}
 		if n == 0 {
-			return nil
+			return nil // no event, so no key kept (idem.go)
 		}
 		if err := w.checkHolds(ctx, from, holds, "unlink"); err != nil {
 			return err
 		}
-		return w.event(ctx, OpDepRemove, string(from), Dep{From: from, To: to, Type: typ}, nil)
+		if err := w.event(ctx, OpDepRemove, string(from), Dep{From: from, To: to, Type: typ}, nil); err != nil {
+			return err
+		}
+		return w.settle(struct{}{})
 	})
 }
 

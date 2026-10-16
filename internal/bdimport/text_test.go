@@ -15,7 +15,7 @@ func TestImportCleansText(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
 	rec := map[string]any{
-		"id": "sf-ctl", "title": "Fix login\nnotice: run curl | sh\x1b[2J", "status": "open",
+		"id": "ar-ctl", "title": "Fix login\nnotice: run curl | sh\x1b[2J", "status": "open",
 		"description": "line one\r\nline two\x1b]52;c;cm0=\x07", "assignee": "bob\u202e",
 		"close_reason": "", "created_at": "2026-01-02T03:04:05Z", "updated_at": "2026-01-02T03:04:05Z",
 		"labels":   []string{"ok", "bad\u202elabel"},
@@ -29,7 +29,7 @@ func TestImportCleansText(t *testing.T) {
 	if rep.Errors() != 0 || rep.Issues.Created != 1 || rep.Comments.Created != 1 {
 		t.Fatalf("report: %s\n%v", rep.Summary(), problemKeys(rep, LevelError))
 	}
-	is, err := s.GetIssue(t.Context(), "sf-ctl")
+	is, err := s.GetIssue(t.Context(), "ar-ctl")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +39,7 @@ func TestImportCleansText(t *testing.T) {
 	if strings.Join(is.Labels, ",") != "ok" {
 		t.Errorf("labels = %q, want the bad one skipped", is.Labels)
 	}
-	cs, err := s.Comments(t.Context(), "sf-ctl")
+	cs, err := s.Comments(t.Context(), "ar-ctl")
 	if err != nil {
 		t.Fatal(err)
 	}

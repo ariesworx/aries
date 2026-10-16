@@ -12,12 +12,12 @@ import (
 // hoursLog logs the caller's own time on an issue; the principal is the
 // connection's.
 func hoursLog(ctx context.Context, pr *served, a store.Actor, in proto.HoursLogArgs) (any, *proto.Error) {
-	fail := func(err error) (any, *proto.Error) { return nil, pr.mapErr(ctx, proto.OpHoursLog, in.ID, 0, err) }
+	fail := func(err error) (any, *proto.Error) { return nil, pr.mapErr(ctx, proto.OpHoursLog, in.Issue, 0, err) }
 	// A count past a day would overflow a Duration on its way to the store.
 	if most := int64(store.MaxHoursEntry / time.Second); in.Seconds < 0 || in.Seconds > most {
 		return fail(fmt.Errorf("%w: seconds must be from 60 to %d", store.ErrInvalid, most))
 	}
-	nh := store.NewHours{Issue: store.IssueID(in.ID), Duration: time.Duration(in.Seconds) * time.Second, Note: in.Note, Idem: in.Idem}
+	nh := store.NewHours{Issue: store.IssueID(in.Issue), Duration: time.Duration(in.Seconds) * time.Second, Note: in.Note, Idem: in.Idem}
 	if in.On != "" {
 		on, err := time.Parse(time.DateOnly, in.On)
 		if err != nil {

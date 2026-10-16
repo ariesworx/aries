@@ -108,8 +108,8 @@ func workServer(t *testing.T, dir string, refusePaths bool) (*mcp.ClientSession,
 		switch op {
 		case proto.OpStart:
 			id := args.(proto.StartArgs).ID
-			held = append(held, proto.Claim{ID: id, Epoch: 1})
-			return proto.StartResult{Issue: proto.Issue{ID: id, Type: "task"}, Claim: &proto.Claim{ID: id, Epoch: 1}}, nil
+			held = append(held, proto.Claim{Issue: id, Epoch: 1})
+			return proto.StartResult{Issue: proto.Issue{ID: id, Type: "task"}, Claim: &proto.Claim{Issue: id, Epoch: 1}}, nil
 		case proto.OpRenew:
 			if refusePaths && args.(proto.RenewArgs).Paths != nil {
 				return nil, refused
@@ -125,7 +125,7 @@ func workServer(t *testing.T, dir string, refusePaths bool) (*mcp.ClientSession,
 				return nil, refused
 			}
 		}
-		return proto.WriteResult{ID: "sf-a1b2", Rev: 2}, nil
+		return proto.WriteResult{ID: "ar-a1b2", Rev: 2}, nil
 	}}
 	d := &dialer{conns: []*fakeConn{f}}
 	clk := &clock{t: time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)}
@@ -148,9 +148,9 @@ func workServer(t *testing.T, dir string, refusePaths bool) (*mcp.ClientSession,
 // at most once every DefaultPathsEvery per issue.
 func TestRenewSendsPaths(t *testing.T) {
 	t.Parallel()
-	dir := gitRepo(t, "feature/sf-a1b2-thing", "a.go")
+	dir := gitRepo(t, "feature/ar-a1b2-thing", "a.go")
 	cs, s, f, clk := workServer(t, dir, false)
-	callTool(t, cs, "start", map[string]any{"id": "sf-a1b2"})
+	callTool(t, cs, "start", map[string]any{"id": "ar-a1b2"})
 
 	s.Renew(t.Context())
 	clk.add(time.Minute)
@@ -158,13 +158,13 @@ func TestRenewSendsPaths(t *testing.T) {
 	clk.add(DefaultPathsEvery)
 	s.Renew(t.Context())
 
-	want := []map[string][]string{{"sf-a1b2": {"a.go"}}, nil, {"sf-a1b2": {"a.go"}}}
+	want := []map[string][]string{{"ar-a1b2": {"a.go"}}, nil, {"ar-a1b2": {"a.go"}}}
 	got := renewPaths(f)
 	if len(got) != len(want) {
 		t.Fatalf("renewals carried %v, want %v", got, want)
 	}
 	for i := range want {
-		if !slices.Equal(got[i]["sf-a1b2"], want[i]["sf-a1b2"]) || (got[i] == nil) != (want[i] == nil) {
+		if !slices.Equal(got[i]["ar-a1b2"], want[i]["ar-a1b2"]) || (got[i] == nil) != (want[i] == nil) {
 			t.Errorf("renewal %d carried %v, want %v", i+1, got[i], want[i])
 		}
 	}
@@ -174,16 +174,16 @@ func TestRenewSendsPaths(t *testing.T) {
 // the renewal goes again without them.
 func TestRenewRefusedPaths(t *testing.T) {
 	t.Parallel()
-	dir := gitRepo(t, "feature/sf-a1b2-thing", "a.go")
+	dir := gitRepo(t, "feature/ar-a1b2-thing", "a.go")
 	cs, s, f, _ := workServer(t, dir, true)
-	callTool(t, cs, "start", map[string]any{"id": "sf-a1b2"})
+	callTool(t, cs, "start", map[string]any{"id": "ar-a1b2"})
 	s.Renew(t.Context())
 	got := renewPaths(f)
 	if len(got) != 2 || got[0] == nil || got[1] != nil {
 		t.Fatalf("renewals carried %v, want paths, then none", got)
 	}
-	if s.claims.epoch("sf-a1b2") != 1 {
-		t.Errorf("the session lost its claim on sf-a1b2 over refused paths")
+	if s.claims.epoch("ar-a1b2") != 1 {
+		t.Errorf("the session lost its claim on ar-a1b2 over refused paths")
 	}
 }
 
@@ -215,11 +215,11 @@ func TestFinishAndHandoffSendPaths(t *testing.T) {
 	want := []string{"a.go", "b/c.go"}
 	for _, refuse := range []bool{false, true} {
 		t.Run(fmt.Sprintf("refused %v", refuse), func(t *testing.T) {
-			dir := gitRepo(t, "feature/sf-a1b2-thing", "a.go", "b/c.go")
+			dir := gitRepo(t, "feature/ar-a1b2-thing", "a.go", "b/c.go")
 			cs, _, f, _ := workServer(t, dir, refuse)
 			for tool, args := range map[string]map[string]any{
-				"handoff": {"id": "sf-a1b2", "note": "halfway"},
-				"finish":  {"id": "sf-a1b2"},
+				"handoff": {"id": "ar-a1b2", "note": "halfway"},
+				"finish":  {"id": "ar-a1b2"},
 			} {
 				if res := callTool(t, cs, tool, args); res.IsError {
 					t.Errorf("%s: %s", tool, text(t, res))
@@ -257,7 +257,7 @@ func TestRenewPathIssuesCap(t *testing.T) {
 	cs, s, f, clk := workServer(t, dir, false)
 	n := proto.MaxPathIssues + 1
 	for i := range n {
-		id := fmt.Sprintf("sf-a%03d", i)
+		id := fmt.Sprintf("ar-a%03d", i)
 		gitCommit(t, dir, "work\n\nAries: "+id, id+".go")
 		callTool(t, cs, "start", map[string]any{"id": id})
 	}
@@ -285,26 +285,26 @@ func TestShowAndReadyFiles(t *testing.T) {
 	f := &fakeConn{who: "bob", reply: func(op string, _ any) (any, error) {
 		switch op {
 		case proto.OpShow:
-			return proto.ShowResult{Issue: proto.Issue{ID: "sf-c3d4", Title: "t", Status: "open", Type: "task"},
+			return proto.ShowResult{Issue: proto.Issue{ID: "ar-c3d4", Title: "t", Status: "open", Type: "task"},
 				Files: &proto.Files{Paths: []proto.FilePath{{Path: "internal/", Source: proto.PathDeclared},
 					{Path: "a.go", Source: proto.PathCommit}}, More: 3,
-					Overlaps: []proto.Overlap{{ID: "sf-a1b2", By: "alice", Session: "s1"}}}}, nil
+					Overlaps: []proto.Overlap{{Issue: "ar-a1b2", By: "alice", Session: "s1"}}}}, nil
 		case proto.OpReady:
-			return proto.ListResult{Issues: []proto.Summary{{ID: "sf-c3d4", Title: "t", Status: "open",
-				Overlaps: []string{"sf-a1b2"}}}}, nil
+			return proto.ListResult{Issues: []proto.Summary{{ID: "ar-c3d4", Title: "t", Status: "open",
+				Overlaps: []string{"ar-a1b2"}}}}, nil
 		}
 		return nil, nil
 	}}
 	cs, _ := connect(t, f)
 	var is Issue
-	if err := json.Unmarshal([]byte(text(t, callTool(t, cs, "show", map[string]any{"id": "sf-c3d4"}))), &is); err != nil {
+	if err := json.Unmarshal([]byte(text(t, callTool(t, cs, "show", map[string]any{"id": "ar-c3d4"}))), &is); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(is.Files, []string{"internal/", "a.go"}) || is.FilesMore != 3 ||
-		!slices.Equal(is.Overlaps, []string{"sf-a1b2 by alice/s1"}) {
-		t.Errorf("show files %q (+%d), overlaps %q; want the two paths, 3 more, and sf-a1b2 by alice/s1", is.Files, is.FilesMore, is.Overlaps)
+		!slices.Equal(is.Overlaps, []string{"ar-a1b2 by alice/s1"}) {
+		t.Errorf("show files %q (+%d), overlaps %q; want the two paths, 3 more, and ar-a1b2 by alice/s1", is.Files, is.FilesMore, is.Overlaps)
 	}
-	if got := text(t, callTool(t, cs, "ready", nil)); !strings.Contains(got, `"overlaps":["sf-a1b2"]`) {
-		t.Errorf("ready = %s, want sf-c3d4's overlaps", got)
+	if got := text(t, callTool(t, cs, "ready", nil)); !strings.Contains(got, `"overlaps":["ar-a1b2"]`) {
+		t.Errorf("ready = %s, want ar-c3d4's overlaps", got)
 	}
 }

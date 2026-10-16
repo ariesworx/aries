@@ -140,33 +140,23 @@
 //
 // A replayed entry is a request like any other, with the arguments and
 // the idempotency key it had when it was first sent, but for an update,
-// which is sent with park (protocol 7): the server compares it with the
-// issue at the rev it was based on and parks what someone else changed
-// since, rather than refusing it as stale (design §18.7). One that
-// parked is delivered, and counted as parked. A server of 6 is sent it
-// without park (proto.ForProtocol), and refuses it when stale, as
-// before. A finish or handoff is sent with park too (protocol 8): made
-// under a claim whose lease ran out before it arrived, it applies if
-// nobody took the issue since, and is kept as a comment if somebody did
-// (design §18.6); one kept is delivered, and counted as kept. A server
-// of 7 is sent them without park, and refuses them then. Its session and machine are those of the connection that
+// which is sent with park: the server compares it with the issue at the
+// rev it was based on and parks what someone else changed since, rather
+// than refusing it as stale (design §18.7). One that parked is
+// delivered, and counted as parked. A finish or handoff is sent with
+// park too: made under a claim whose lease ran out before it arrived, it
+// applies if nobody took the issue since, and is kept as a comment if
+// somebody did (design §18.6); one kept is delivered, and counted as
+// kept. Its session and machine are those of the connection that
 // delivers it, not of the one that made it: no protocol has a field for
 // the latter, and the entry keeps them only on this machine.
 //
 // # Which protocol
 //
-// Protocol 6 gave update, label.add, label.rm, dep.add, accept and usage
-// a key; a server of 5 takes none for them, and so could apply one of
-// them twice. At each handshake seen.json notes the protocol the
-// connection speaks ([Local.Reached]), and while the server is away a
-// write is queued only when that protocol takes its op's key
-// ([Local.Keep]; a record that names none is taken for 5, which the aries
-// of slice F1 that wrote it spoke). This build does not speak 5 (its
-// ProtoMin is 6), so it is never sent such an entry either way. A replay
-// sends an entry only on a connection whose protocol takes its key
-// ([Local.Replay]): one queued for a server of 6 that comes back at 5 is
-// refused with code version, unsent, for a person to retry once the
-// server is upgraded.
+// The protocol settled at 8 for v1.0.0, spoken alone, and every op the
+// outbox queues takes an idempotency key in it. A server of another
+// version refuses the handshake with code version, so an entry waits in
+// the outbox, unsent, until a server that speaks 8 is reached.
 //
 // # Windows
 //

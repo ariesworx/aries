@@ -289,7 +289,7 @@ A queued update that arrives after someone else changed the same field
 is parked as a conflict for a person to resolve
 ([Conflicts](cli.md#conflicts)). An agent hears of one through
 `prime`, which counts the open conflicts on its principal's work, and
-`inbox`, whose `conflict` items name the issue. `show` gives the
+`inbox`, whose `conflict.parked` items name the issue. `show` gives the
 issue's open `conflicts`: each one's `id`, `field`, `base`, `mine` and
 `theirs` (cut to fit the result), who made each side, the server's
 `advice`, and any proposal waiting.
@@ -383,8 +383,7 @@ An `update` without a `rev` reads the issue's rev first, which needs the
 server: with the server away it fails, saying it was not queued and to
 give `rev`. A queued `update` is replayed so that what someone else
 changed meanwhile is parked as a [conflict](#conflicts) rather than
-refused; against a server that speaks only protocol 6 it is refused
-when stale, as before, and waits in `aries outbox` for the person.
+refused.
 
 **A late finish.** While the server is away `aries mcp` cannot renew the
 agent's leases, so a claim lapses 15 minutes after the last renewal and
@@ -394,15 +393,13 @@ issue meanwhile, and the issue's history says the lease had lapsed. If
 somebody did, or the issue was closed, it is kept as a comment on the
 issue, a `finish`'s `discovered` issues are still filed, and nothing
 else of it applies. The agent learns of it in its inbox, in the next
-tool result's `inbox: N new` line and in `prime`: a `conflict` item on
+tool result's `inbox: N new` line and in `prime`: a `conflict.parked` item on
 the issue, `your finish made at epoch 3, delivered late, was kept as
 comment …: the claim was taken since, by bob/… at epoch 4`. Its next
 step is to leave that issue alone: the new holder got an item too,
-naming the comment, so the work done is not lost to them. Against a
-server that speaks only protocol 7, such a write is refused as before
-and waits in `aries outbox` for the person. A person can extend every
-claim of theirs ahead of a planned absence with `aries away`, which
-agents have no tool for.
+naming the comment, so the work done is not lost to them. A person can
+extend every claim of theirs ahead of a planned absence with `aries
+away`, which agents have no tool for.
 
 Nothing else is queued. `start` fails, and tells the agent that it was
 not queued and to go on with the work it holds: no claim is taken

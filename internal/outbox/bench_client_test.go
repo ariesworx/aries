@@ -20,7 +20,7 @@ import (
 // benchEntry is a comment of ordinary length, queued.
 func benchEntry(b *testing.B, i int) Entry {
 	b.Helper()
-	args, err := json.Marshal(proto.CommentArgs{ID: "sf-00000042", Idem: fmt.Sprintf("bench-%d", i),
+	args, err := json.Marshal(proto.CommentArgs{ID: "ar-00000042", Idem: fmt.Sprintf("bench-%d", i),
 		Body: strings.Repeat("The second write wins, which loses the first controller's change. ", 4)})
 	if err != nil {
 		b.Fatal(err)

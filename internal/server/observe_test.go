@@ -50,7 +50,7 @@ func snapshot(t *testing.T, m *telemetry.Manual) telemetry.Snapshot {
 func newServerTel(t *testing.T, lim Limits, tel *telemetry.Telemetry) *Server {
 	t.Helper()
 	dsn := newDatabase(t)
-	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "sf", Admins: []string{dana.Principal},
+	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "ar", Admins: []string{dana.Principal},
 		Limits: lim.Limits, Observer: StoreObserver(tel, project), Tracer: StoreTracer(tel, project)})
 	if err != nil {
 		t.Fatal(err)
@@ -110,7 +110,7 @@ func TestMetricsOfRequests(t *testing.T) {
 	a := mustAsk[proto.CreateResult](c, proto.OpCreate, proto.CreateArgs{Title: "first"})
 	mustAsk[proto.CreateResult](c, proto.OpCreate, proto.CreateArgs{Title: "second"})
 	mustAsk[proto.ListResult](c, proto.OpList, proto.ListArgs{})
-	if _, perr := ask[proto.ShowResult](c, proto.OpShow, proto.ShowArgs{ID: "sf-none"}); perr == nil || perr.Code != proto.CodeNotFound {
+	if _, perr := ask[proto.ShowResult](c, proto.OpShow, proto.ShowArgs{ID: "ar-none"}); perr == nil || perr.Code != proto.CodeNotFound {
 		t.Fatalf("show of an unknown issue = %v, want not_found", perr)
 	}
 	if _, perr := ask[proto.WriteResult](c, proto.OpCreate, proto.CreateArgs{}); perr == nil || perr.Code != proto.CodeInvalid {
@@ -213,7 +213,7 @@ func TestMetricsOfHandshakes(t *testing.T) {
 		{"aries.handshakes", []string{"result", "invalid"}, 1},
 		{"aries.handshakes", []string{"result", "failed"}, 2},
 		{"aries.limit.refusals", []string{"limit", "conns_per_principal"}, 1},
-		{"aries.limit.refusals", []string{"limit", "conns"}, 0},
+		{"aries.limit.refusals", []string{"limit", "conns_per_server"}, 0},
 	})
 	if got := snap.Sum("aries.handshakes"); got != 8 {
 		t.Errorf("aries.handshakes counts %v in all, want the 8 handshakes", got)
@@ -269,7 +269,7 @@ func TestMetricsStayBounded(t *testing.T) {
 			if k == "project" && v != project {
 				t.Errorf("%s names project %q, which the server does not serve", p.Name, v)
 			}
-			if slices.Contains(hostile, v) || strings.Contains(v, "alice") || strings.Contains(v, "laptop") || strings.HasPrefix(v, "s-") || strings.HasPrefix(v, "sf-") {
+			if slices.Contains(hostile, v) || strings.Contains(v, "alice") || strings.Contains(v, "laptop") || strings.HasPrefix(v, "s-") || strings.HasPrefix(v, "ar-") {
 				t.Errorf("%s has %s=%q, which a client chose", p.Name, k, v)
 			}
 		}
@@ -302,8 +302,8 @@ func TestMetricsOfLimits(t *testing.T) {
 	// which the client may read first: wait for the handler.
 	refused.hangUp()
 	check(t, snapshot(t, m), []want{
-		{"aries.limit.refusals", []string{"limit", "write_rate"}, 3},
-		{"aries.limit.refusals", []string{"limit", "conns"}, 1},
+		{"aries.limit.refusals", []string{"limit", "writes_per_second"}, 3},
+		{"aries.limit.refusals", []string{"limit", "conns_per_server"}, 1},
 		{"aries.request.duration", []string{"op", "create", "result", "busy"}, 3},
 		{"aries.request.duration", []string{"op", "create", "result", "ok"}, 2},
 		{"aries.handshakes", []string{"result", "busy"}, 1},

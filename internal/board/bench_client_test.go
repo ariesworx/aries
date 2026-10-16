@@ -23,12 +23,12 @@ func benchSnapshot(gen int) *Snapshot {
 		return fmt.Sprintf("Reconciler loses the first of two overlapping writes (case %d, read %d)", i, gen)
 	}
 	for i := range listLimit {
-		s.Ready = append(s.Ready, proto.Summary{ID: fmt.Sprintf("sf-r%07d", i), Title: title(i), Status: "open", Priority: i % 5})
-		s.Blocked = append(s.Blocked, proto.BlockedIssue{Summary: proto.Summary{ID: fmt.Sprintf("sf-b%07d", i), Title: title(i), Status: "blocked"},
-			BlockedBy: []string{"sf-r0000001", "sf-r0000002"}})
+		s.Ready = append(s.Ready, proto.Summary{ID: fmt.Sprintf("ar-r%07d", i), Title: title(i), Status: "open", Priority: i % 5})
+		s.Blocked = append(s.Blocked, proto.BlockedIssue{Summary: proto.Summary{ID: fmt.Sprintf("ar-b%07d", i), Title: title(i), Status: "blocked"},
+			BlockedBy: []string{"ar-r0000001", "ar-r0000002"}})
 	}
 	for i := range heldLimit {
-		s.Held = append(s.Held, Held{Title: title(i), Priority: i % 5, Claim: proto.Claim{ID: fmt.Sprintf("sf-h%07d", i), By: "alice",
+		s.Held = append(s.Held, Held{Title: title(i), Priority: i % 5, Claim: proto.Claim{Issue: fmt.Sprintf("ar-h%07d", i), By: "alice",
 			Session: "20000000-0000-4000-8000-000000000001", Machine: "laptop", Epoch: 3, ClaimedAt: at, ExpiresAt: at.Add(15 * time.Minute)}})
 	}
 	return s
@@ -36,7 +36,7 @@ func benchSnapshot(gen int) *Snapshot {
 
 func benchEvent(seq int64) proto.Event {
 	return proto.Event{Seq: seq, At: time.Date(2026, 10, 13, 9, 0, 0, 0, time.UTC), Principal: "alice", Op: "issue.update",
-		Issue: "sf-r0000001", After: json.RawMessage(`{"title":"Reconciler loses the first of two overlapping writes","priority":2}`)}
+		Issue: "ar-r0000001", After: json.RawMessage(`{"title":"Reconciler loses the first of two overlapping writes","priority":2}`)}
 }
 
 // BenchmarkClientModelRefresh is one reread applied to the board: the

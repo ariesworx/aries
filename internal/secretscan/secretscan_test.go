@@ -130,7 +130,7 @@ func TestFindNothing(t *testing.T) {
 		{"ssh public key", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI" + fake(22, 43, base64) + " alice@example.com"},
 		{"ssh rsa public key", "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQ" + fake(23, 300, base64)},
 		{"aws key id prefix only", "AKIA is the prefix of an access key id"},
-		{"issue ids", "blocked by sf-a1b2c3d4 and sf-q4m7x2k9; see bd-a3f.2"},
+		{"issue ids", "blocked by ar-a1b2c3d4 and ar-q4m7x2k9; see bd-a3f.2"},
 		{"stripe publishable key", "pk" + "_live_" + fake(21, 24, base62)},
 		{"url without password", "ssh://git@git.example.com:22/repo.git and https://alice@example.com/"},
 		{"url with a port", "https://db.example.com:5432/app"},

@@ -374,7 +374,7 @@ func TestNoSessionIsOpenedOnAConnectionThatEnded(t *testing.T) {
 			// Held in the transport's write, this keeps ssh from noting
 			// that the connection is over.
 			_, _, _ = client.SendRequest("keepalive@example.com", false, nil)
-			_, err := start(t.Context(), client, nc, "the server", &Config{Project: testProject}, Options{}, proto.Proto)
+			_, err := start(t.Context(), client, nc, "the server", &Config{Project: testProject}, Options{})
 			result <- err
 		}()
 		await(t, stall.held, "ssh had not written the request")

@@ -22,7 +22,7 @@ type Limits struct {
 	Labels int `yaml:"labels_per_issue"`
 	// AcceptanceItems caps the items an issue's acceptance text may hold,
 	// and the item numbers one accept or finish may name.
-	AcceptanceItems int `yaml:"acceptance_items"`
+	AcceptanceItems int `yaml:"acceptance_items_per_issue"`
 	// Deps caps the edges out of one issue.
 	Deps int `yaml:"deps_per_issue"`
 	// Sessions caps one principal's rows in the agents registry; a new
@@ -30,13 +30,13 @@ type Limits struct {
 	Sessions int `yaml:"sessions_per_principal"`
 	// InboxUnread caps one principal's unread items; past it the oldest
 	// are marked read, so they stay under `inbox --all` until purged.
-	InboxUnread int `yaml:"inbox_unread"`
+	InboxUnread int `yaml:"unread_per_principal"`
 	// Notices caps the mentions, assignments and handoffs one principal
 	// can send another in a minute; the rest are not delivered. Lost
 	// claims are not counted.
 	Notices int `yaml:"notices_per_minute"`
 	// UsageRecords caps the records one AddUsage call may send.
-	UsageRecords int `yaml:"usage_records"`
+	UsageRecords int `yaml:"records_per_usage_call"`
 	// UsagePerDay caps the usage records one principal may add in 24
 	// hours, counted by when the server stored them. Per principal, not
 	// per session: sessions are the client's to name, so a cap per
@@ -48,31 +48,31 @@ type Limits struct {
 	// the commit paths one request records.
 	Paths int `yaml:"paths_per_issue"`
 	// MemoryBody caps a memory's body, in bytes; at most 65,535.
-	MemoryBody int `yaml:"memory_body"`
+	MemoryBody int `yaml:"memory_body_bytes"`
 	// MemoryTags caps the distinct tags on one memory.
-	MemoryTags int `yaml:"memory_tags"`
+	MemoryTags int `yaml:"tags_per_memory"`
 	// MemoryTagLength caps one tag, in bytes; at most 255.
-	MemoryTagLength int `yaml:"memory_tag_length"`
+	MemoryTagLength int `yaml:"memory_tag_bytes"`
 	// Memories caps the memories one principal has created in one scope;
 	// replacing one of them is no new memory.
 	Memories int `yaml:"memories_per_scope"`
 	// MemoryKeyLength caps a memory's key, in bytes; at most 255.
-	MemoryKeyLength int `yaml:"memory_key_length"`
+	MemoryKeyLength int `yaml:"memory_key_bytes"`
 	// Prices caps the rows of the prices table: a model's rates from one
 	// effective time are one row, and replacing them is no new row; at
 	// most 10,000.
-	Prices int `yaml:"prices"`
+	Prices int `yaml:"prices_per_project"`
 	// HoursPerDay caps one principal's hours entries on one day.
 	HoursPerDay int `yaml:"hours_per_day"`
 	// HoursNote caps an hours entry's note, in bytes; at most 65,535.
-	HoursNote int `yaml:"hours_note"`
+	HoursNote int `yaml:"hours_note_bytes"`
 	// Plans caps the rows of the plans table: a plan's terms from one
 	// month are one row, and replacing them is no new row; at most
 	// 10,000.
-	Plans int `yaml:"plans"`
+	Plans int `yaml:"plans_per_project"`
 	// PlanPrincipals caps the principals one plan row names; at most
 	// 1,000.
-	PlanPrincipals int `yaml:"plan_principals"`
+	PlanPrincipals int `yaml:"principals_per_plan"`
 	// ConflictsPerIssue caps the open conflicts on one issue, and
 	// ConflictsPerPrincipal those one principal's replayed updates
 	// parked (design §18.7); an update that would park past either is
@@ -81,28 +81,28 @@ type Limits struct {
 	ConflictsPerPrincipal int `yaml:"conflicts_per_principal"`
 	// GateApprovers caps the principals one gate names (design §20.9);
 	// at most 100.
-	GateApprovers int `yaml:"gate_approvers"`
+	GateApprovers int `yaml:"approvers_per_gate"`
 	// OpenGates caps the open gates in a project; an add past it is
 	// refused as busy until one is passed or waived.
-	OpenGates int `yaml:"open_gates"`
+	OpenGates int `yaml:"open_gates_per_project"`
 	// GateChecks caps the ci gates whose subject is one issue, which is
 	// the checks it has, one gate each (design §20.3); at most 100.
-	GateChecks int `yaml:"gate_checks"`
+	GateChecks int `yaml:"checks_per_issue"`
 	// GateEvidence caps a CI report's evidence, its commit, link and
 	// reason together, in bytes; at most 4,096.
-	GateEvidence int `yaml:"gate_evidence"`
+	GateEvidence int `yaml:"gate_evidence_bytes"`
 	// Locks caps the locks in use in a project, each a name someone
 	// holds or waits for (design §20.9); an acquire of another is refused
 	// as busy. At most 10,000.
-	Locks int `yaml:"locks"`
+	Locks int `yaml:"locks_per_project"`
 	// LockCapacity caps the capacity a lock may be given; at most 1,000.
-	LockCapacity int `yaml:"lock_capacity"`
+	LockCapacity int `yaml:"holders_per_lock"`
 	// LockWaiters caps the places in one lock's queue, and LockWaits the
 	// places one principal has in all of a project's queues; a place past
 	// either is refused as busy. Each at most 1,000. A principal's holds
-	// need no cap of their own: they are bounded by locks times
-	// lock_capacity.
-	LockWaiters int `yaml:"lock_waiters"`
+	// need no cap of their own: they are bounded by locks_per_project
+	// times holders_per_lock.
+	LockWaiters int `yaml:"waiters_per_lock"`
 	LockWaits   int `yaml:"lock_waits_per_principal"`
 }
 
@@ -128,15 +128,15 @@ const (
 	maxMemoryName = 255
 )
 
-// maxGateApprovers bounds the gate_approvers limit: a gate's approvers
+// maxGateApprovers bounds the approvers_per_gate limit: a gate's approvers
 // are one JSON column, read whole with the gate.
 const maxGateApprovers = 100
 
-// maxPrices bounds the prices limit: every cost report, show and digest
+// maxPrices bounds the prices_per_project limit: every cost report, show and digest
 // reads the whole prices table into memory.
 const maxPrices = 10000
 
-// maxPlans and maxPlanPrincipals bound the plans limits: every cost
+// maxPlans and maxPlanPrincipals bound the plans_per_project and principals_per_plan limits: every cost
 // report reads every plan and its principals into memory, so their
 // product is bounded too, by maxPlanRows.
 const (
@@ -178,16 +178,16 @@ func (l Limits) Validate() error {
 		name string
 		v    int
 	}{
-		{"labels_per_issue", l.Labels}, {"acceptance_items", l.AcceptanceItems}, {"deps_per_issue", l.Deps},
-		{"sessions_per_principal", l.Sessions}, {"inbox_unread", l.InboxUnread}, {"notices_per_minute", l.Notices},
-		{"usage_records", l.UsageRecords}, {"usage_per_day", l.UsagePerDay}, {"paths_per_issue", l.Paths},
-		{"memory_body", l.MemoryBody}, {"memory_tags", l.MemoryTags}, {"memory_tag_length", l.MemoryTagLength},
-		{"memories_per_scope", l.Memories}, {"memory_key_length", l.MemoryKeyLength}, {"prices", l.Prices},
-		{"hours_per_day", l.HoursPerDay}, {"hours_note", l.HoursNote}, {"plans", l.Plans},
-		{"plan_principals", l.PlanPrincipals}, {"conflicts_per_issue", l.ConflictsPerIssue},
-		{"conflicts_per_principal", l.ConflictsPerPrincipal}, {"gate_approvers", l.GateApprovers}, {"open_gates", l.OpenGates},
-		{"gate_checks", l.GateChecks}, {"gate_evidence", l.GateEvidence}, {"locks", l.Locks}, {"lock_capacity", l.LockCapacity},
-		{"lock_waiters", l.LockWaiters}, {"lock_waits_per_principal", l.LockWaits},
+		{"labels_per_issue", l.Labels}, {"acceptance_items_per_issue", l.AcceptanceItems}, {"deps_per_issue", l.Deps},
+		{"sessions_per_principal", l.Sessions}, {"unread_per_principal", l.InboxUnread}, {"notices_per_minute", l.Notices},
+		{"records_per_usage_call", l.UsageRecords}, {"usage_per_day", l.UsagePerDay}, {"paths_per_issue", l.Paths},
+		{"memory_body_bytes", l.MemoryBody}, {"tags_per_memory", l.MemoryTags}, {"memory_tag_bytes", l.MemoryTagLength},
+		{"memories_per_scope", l.Memories}, {"memory_key_bytes", l.MemoryKeyLength}, {"prices_per_project", l.Prices},
+		{"hours_per_day", l.HoursPerDay}, {"hours_note_bytes", l.HoursNote}, {"plans_per_project", l.Plans},
+		{"principals_per_plan", l.PlanPrincipals}, {"conflicts_per_issue", l.ConflictsPerIssue},
+		{"conflicts_per_principal", l.ConflictsPerPrincipal}, {"approvers_per_gate", l.GateApprovers}, {"open_gates_per_project", l.OpenGates},
+		{"checks_per_issue", l.GateChecks}, {"gate_evidence_bytes", l.GateEvidence}, {"locks_per_project", l.Locks}, {"holders_per_lock", l.LockCapacity},
+		{"waiters_per_lock", l.LockWaiters}, {"lock_waits_per_principal", l.LockWaits},
 	} {
 		if f.v < 0 {
 			return fmt.Errorf("%w: limit %s is %d; give a positive number, or leave it out for the default", ErrInvalid, f.name, f.v)
@@ -197,13 +197,13 @@ func (l Limits) Validate() error {
 		name    string
 		v, most int
 	}{
-		{"memory_body", l.MemoryBody, maxMemoryBody}, {"memory_tag_length", l.MemoryTagLength, maxMemoryName},
-		{"memory_key_length", l.MemoryKeyLength, maxMemoryName}, {"prices", l.Prices, maxPrices},
-		{"hours_note", l.HoursNote, maxText}, {"plans", l.Plans, maxPlans},
-		{"plan_principals", l.PlanPrincipals, maxPlanPrincipals}, {"gate_approvers", l.GateApprovers, maxGateApprovers},
-		{"gate_checks", l.GateChecks, maxGateChecks}, {"gate_evidence", l.GateEvidence, maxGateEvidence},
-		{"locks", l.Locks, maxLocks}, {"lock_capacity", l.LockCapacity, maxLockCapacity},
-		{"lock_waiters", l.LockWaiters, maxLockQueue}, {"lock_waits_per_principal", l.LockWaits, maxLockQueue},
+		{"memory_body_bytes", l.MemoryBody, maxMemoryBody}, {"memory_tag_bytes", l.MemoryTagLength, maxMemoryName},
+		{"memory_key_bytes", l.MemoryKeyLength, maxMemoryName}, {"prices_per_project", l.Prices, maxPrices},
+		{"hours_note_bytes", l.HoursNote, maxText}, {"plans_per_project", l.Plans, maxPlans},
+		{"principals_per_plan", l.PlanPrincipals, maxPlanPrincipals}, {"approvers_per_gate", l.GateApprovers, maxGateApprovers},
+		{"checks_per_issue", l.GateChecks, maxGateChecks}, {"gate_evidence_bytes", l.GateEvidence, maxGateEvidence},
+		{"locks_per_project", l.Locks, maxLocks}, {"holders_per_lock", l.LockCapacity, maxLockCapacity},
+		{"waiters_per_lock", l.LockWaiters, maxLockQueue}, {"lock_waits_per_principal", l.LockWaits, maxLockQueue},
 	} {
 		if f.v > f.most {
 			return fmt.Errorf("%w: limit %s is %d; it can be at most %d", ErrInvalid, f.name, f.v, f.most)
@@ -211,7 +211,7 @@ func (l Limits) Validate() error {
 	}
 	plans, per := cmp.Or(l.Plans, DefaultLimits.Plans), cmp.Or(l.PlanPrincipals, DefaultLimits.PlanPrincipals)
 	if plans*per > maxPlanRows {
-		return fmt.Errorf("%w: limits plans times plan_principals is %d × %d; it can be at most %d, so lower one to raise the other",
+		return fmt.Errorf("%w: limits plans_per_project times principals_per_plan is %d × %d; it can be at most %d, so lower one to raise the other",
 			ErrInvalid, plans, per, maxPlanRows)
 	}
 	return nil

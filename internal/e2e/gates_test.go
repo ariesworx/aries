@@ -61,7 +61,7 @@ func TestHumanGate(t *testing.T) {
 		{"close the gate", "close", map[string]any{"id": gate}},
 		{"finish the gate", "finish", map[string]any{"id": gate}},
 		{"set the gate's status", "update", map[string]any{"id": gate, "status": "deferred"}},
-		{"remove the edge", "dep", map[string]any{"action": "rm", "id": epic, "depends_on": gate}},
+		{"remove the edge", "dep", map[string]any{"action": "remove", "id": epic, "depends_on": gate}},
 		{"close the epic", "close", map[string]any{"id": epic}},
 		{"move the step out", "update", map[string]any{"id": step, "parent": ""}},
 	}

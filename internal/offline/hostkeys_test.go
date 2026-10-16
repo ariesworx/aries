@@ -45,10 +45,10 @@ func TestFindAcrossARotation(t *testing.T) {
 	find := func(pinned ...string) *Local { return Find(root, pinned, project, o) }
 
 	before := find(oldKey)
-	if _, err := before.Reached("alice", keyA, true, proto.Proto); err != nil {
+	if _, err := before.Reached("alice", keyA, true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := before.Keep("alice", entry(proto.OpComment, "sf-a"), errReach); err != nil {
+	if _, err := before.Keep("alice", entry(proto.OpComment, "ar-a"), errReach); err != nil {
 		t.Fatal(err)
 	}
 
@@ -58,7 +58,7 @@ func TestFindAcrossARotation(t *testing.T) {
 	if both.Dir() != before.Dir() {
 		t.Fatalf("Find(old, new).Dir() = %s, want the old key's %s", both.Dir(), before.Dir())
 	}
-	if _, err := both.Reached("alice", keyA, true, proto.Proto); err != nil {
+	if _, err := both.Reached("alice", keyA, true); err != nil {
 		t.Fatal(err)
 	}
 	// The order of the list is the config's, and changes nothing.
@@ -86,7 +86,7 @@ func TestFindAcrossARotation(t *testing.T) {
 		t.Errorf("after the rotation, Rekeyed() = %v, %v; want nothing under another key", f, err)
 	}
 	// The next handshake, with the new key alone, keeps it found.
-	if _, err := after.Reached("alice", keyA, true, proto.Proto); err != nil {
+	if _, err := after.Reached("alice", keyA, true); err != nil {
 		t.Fatal(err)
 	}
 	if d := find(newKey).Dir(); d != before.Dir() {
@@ -111,7 +111,7 @@ func TestClientAcrossARotation(t *testing.T) {
 		}
 	}
 	alice := func() *keyedConn { return &keyedConn{fakeConn: fakeConn{who: "alice"}, key: r.mine} }
-	args := proto.CommentArgs{ID: "sf-a", Body: "a note", Idem: proto.NewIdem("cli")}
+	args := proto.CommentArgs{ID: "ar-a", Body: "a note", Idem: proto.NewIdem("cli")}
 
 	c.Connected(alice()) // newRepo pins hostKey
 	if _, err := c.Keep("", proto.OpComment, args, errReach); err != nil {
@@ -151,7 +151,7 @@ func TestFindKeepsAChangedKeyApart(t *testing.T) {
 			Find(root, []string{oldKey, newKey}, project, o).Missed()
 		}},
 		{"both were pinned with another key, which replaced them", func(t *testing.T, root string, o Options) {
-			if _, err := Find(root, []string{oldKey, keyX}, project, o).Reached("alice", keyA, true, proto.Proto); err != nil {
+			if _, err := Find(root, []string{oldKey, keyX}, project, o).Reached("alice", keyA, true); err != nil {
 				t.Fatal(err)
 			}
 		}},

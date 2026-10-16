@@ -119,7 +119,7 @@ func TestAdminCommands(t *testing.T) {
 		t.Errorf("principal add: %q", got)
 	}
 	if got := decode[proto.PrincipalResult](t, dana.ok("admin", "principal", "add", "bob", "--json")); got !=
-		(proto.PrincipalResult{ID: "bob", Rev: 1, State: "active", Project: project, ProjectName: "first"}) {
+		(proto.PrincipalResult{Name: "bob", Rev: 1, State: "active", Project: project, ProjectName: "first"}) {
 		t.Errorf("principal add --json: %+v", got)
 	}
 	if got := dana.ok("admin", "principal", "add", "ci-bot", "--no-project"); got != "principal ci-bot added, in no project\n" {
@@ -142,7 +142,7 @@ func TestAdminCommands(t *testing.T) {
 	if got := dana.ok("admin", "principal", "disable", "bob"); got != "bob: disabled\n" {
 		t.Errorf("principal disable: %q", got)
 	}
-	if got := decode[proto.PrincipalResult](t, dana.ok("--json", "admin", "principal", "enable", "bob")); got != (proto.PrincipalResult{ID: "bob", Rev: 3, State: "active"}) {
+	if got := decode[proto.PrincipalResult](t, dana.ok("--json", "admin", "principal", "enable", "bob")); got != (proto.PrincipalResult{Name: "bob", Rev: 3, State: "active"}) {
 		t.Errorf("principal enable --json: %+v", got)
 	}
 
@@ -154,7 +154,7 @@ func TestAdminCommands(t *testing.T) {
 		t.Errorf("member add again: %q", got)
 	}
 	set := decode[proto.MemberSetResult](t, dana.ok("admin", "member", "add", "ci-bot", "--project", "first", "--json"))
-	if set.ID != "ci-bot" || set.Rev != 1 || set.Project != project || set.ProjectName != "first" || set.Role != "member" || set.Change != "added" ||
+	if set.Name != "ci-bot" || set.Rev != 1 || set.Project != project || set.ProjectName != "first" || set.Role != "member" || set.Change != "added" ||
 		set.Projects != 1 || set.Carried != nil {
 		t.Errorf("member add --json: %+v", set)
 	}
@@ -177,7 +177,7 @@ func TestAdminCommands(t *testing.T) {
 		t.Errorf("member remove: %q", got)
 	}
 	if got := decode[proto.MemberRemoveResult](t, alice.ok("admin", "member", "remove", "ci-bot", "--json")); got !=
-		(proto.MemberRemoveResult{ID: "ci-bot", Project: project, ProjectName: "first"}) {
+		(proto.MemberRemoveResult{Name: "ci-bot", Project: project, ProjectName: "first"}) {
 		t.Errorf("member remove --json: %+v", got)
 	}
 	// The new member works at once.
@@ -186,11 +186,11 @@ func TestAdminCommands(t *testing.T) {
 	// Projects: a server admin sees every one with its database, anyone
 	// else the active ones they belong to.
 	plist := dana.ok("admin", "project", "list")
-	if !strings.Contains(plist, "NAME   ID") || !strings.Contains(plist, "SCHEMA") || !strings.Contains(plist, "first  "+project+"  sf      internal  active") {
+	if !strings.Contains(plist, "NAME   ID") || !strings.Contains(plist, "SCHEMA") || !strings.Contains(plist, "first  "+project+"  ar      internal  active") {
 		t.Errorf("project list for a server admin:\n%s", plist)
 	}
 	mine := decode[proto.ProjectsResult](t, alice.ok("admin", "project", "list", "--json"))
-	if len(mine.Projects) != 1 || mine.Projects[0] != (proto.Project{ID: project, Name: "first", Prefix: "sf", Account: "internal", State: "active", Role: "admin"}) {
+	if len(mine.Projects) != 1 || mine.Projects[0] != (proto.Project{ID: project, Name: "first", Prefix: "ar", Account: "internal", State: "active", Role: "admin"}) {
 		t.Errorf("project list --json for a project admin: %+v", mine)
 	}
 	if got := alice.ok("admin", "project", "list"); !strings.Contains(got, "ROLE") || strings.Contains(got, "SCHEMA") {
@@ -663,7 +663,7 @@ func TestAdminControlWriteRate(t *testing.T) {
 	d.ok("admin", "principal", "add", "bob")
 	e := d.refused(proto.CodeBusy, "admin", "principal", "add", "carol")
 	if e.Message != "dana is over the limit on access changes (0.001 a second, bursts of 2)" || !strings.HasPrefix(e.Fix, "wait ") ||
-		!strings.Contains(e.Fix, "raise control_write_rate and control_write_burst under limits: in ariesd's config") {
+		!strings.Contains(e.Fix, "raise control_writes_per_second and control_write_burst under limits: in ariesd's config") {
 		t.Errorf("a third control write: %+v", e)
 	}
 	// Reads, and the project's own writes, go on.

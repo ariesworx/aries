@@ -23,7 +23,7 @@ var (
 	setStatuses = []any{"open", "blocked", "deferred"}
 	allStatuses = append(append([]any{}, openStatuses...), "closed")
 	depTypes    = []any{"blocks", "conditional-blocks", "waits-for", "related", "discovered-from", "duplicates", "supersedes"}
-	actions     = []any{"add", "rm"}
+	actions     = []any{"add", "remove"}
 	states      = []any{"done", "partial", "blocked"}
 )
 
@@ -93,9 +93,9 @@ func (in *HandoffIn) prepare() error {
 	return nil
 }
 
-// The update, dep and label inputs take a key too (protocol 6), so that a
-// call that does not reach the server can be queued (design §18.5). A
-// label call's labels each go with the key and their place in the call.
+// The update, dep and label inputs take a key too, so that a call that
+// does not reach the server can be queued (design §18.5). A label
+// call's labels each go with the key and their place in the call.
 func (in *UpdateIn) prepare() error {
 	in.idem = proto.NewIdem("mcp")
 	return nil
@@ -679,8 +679,8 @@ func (s *Server) register() {
 		func(ctx context.Context, c Conn, in DepIn) (Ref, error) {
 			args := proto.DepArgs{From: in.ID, To: in.DependsOn, Type: in.Type, Idem: in.idem}
 			op := proto.OpDepAdd
-			if in.Action == "rm" {
-				op, args.Idem = proto.OpDepRm, ""
+			if in.Action == "remove" {
+				op = proto.OpDepRm
 			}
 			return Ref{ID: in.ID}, c.Call(ctx, op, args, nil)
 		})
@@ -690,7 +690,7 @@ func (s *Server) register() {
 				return Ref{}, proto.Errf(proto.CodeInvalid, "", "labels is empty")
 			}
 			op := proto.OpLabelAdd
-			if in.Action == "rm" {
+			if in.Action == "remove" {
 				op = proto.OpLabelRm
 			}
 			// Once one label does not reach the server, the rest are still
@@ -825,7 +825,7 @@ func show(ctx context.Context, c Conn, in ShowIn) (Issue, error) {
 	}
 	is := r.Issue
 	out := Issue{ID: is.ID, Title: is.Title, Status: is.Status, Priority: is.Priority, Type: is.Type, Rev: is.Rev,
-		Parent: is.ParentID, Assignee: is.Assignee, Owner: is.Owner, Labels: is.Labels, Body: is.Body,
+		Parent: is.Parent, Assignee: is.Assignee, Owner: is.Owner, Labels: is.Labels, Body: is.Body,
 		Design: is.Design, Acceptance: is.Acceptance, Notes: is.Notes, CloseReason: is.CloseReason, Truncated: is.Truncated,
 		Items: itemLines(r.Items), Similar: similarLine(r.Similar), DepsMore: r.DepsMore}
 	if u := r.Usage; u != nil {
@@ -838,7 +838,7 @@ func show(ctx context.Context, c Conn, in ShowIn) (Issue, error) {
 		}
 		out.FilesMore = f.More
 		for _, o := range f.Overlaps {
-			out.Overlaps = append(out.Overlaps, o.ID+" by "+o.By+"/"+o.Session)
+			out.Overlaps = append(out.Overlaps, o.Issue+" by "+o.By+"/"+o.Session)
 		}
 	}
 	if len(out.Items) > 0 {
@@ -886,7 +886,7 @@ func show(ctx context.Context, c Conn, in ShowIn) (Issue, error) {
 	for size(out) > MaxResultTokens && len(out.Files) > 0 {
 		out.Files, out.FilesMore = out.Files[:len(out.Files)-1], out.FilesMore+1
 	}
-	// A check's link may be long (gate_evidence); the last checks go
+	// A check's link may be long (gate_evidence_bytes); the last checks go
 	// last of all.
 	for size(out) > MaxResultTokens && len(out.Checks) > 0 {
 		out.Checks, out.Truncated = out.Checks[:len(out.Checks)-1], true

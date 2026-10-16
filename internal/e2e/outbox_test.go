@@ -257,7 +257,7 @@ func TestRefusedEntries(t *testing.T) {
 
 	w.stop()
 	alice.ok("finish", id, "--reason", "done")
-	alice.ok("comment", "sf-zzzzzzzz", "on an issue that is not there")
+	alice.ok("comment", "ar-zzzzzzzz", "on an issue that is not there")
 	w.start()
 
 	r := alice.run("v0.2.0", "ready")
@@ -269,8 +269,8 @@ func TestRefusedEntries(t *testing.T) {
 		"alice's outbox: 0 waiting, 2 refused\n",
 		"  1  finish   " + id,
 		"     acceptance: ",
-		"  2  comment  sf-zzzzzzzz",
-		"     not_found: issue sf-zzzzzzzz not found\n     fix: find the id with `aries list`\n",
+		"  2  comment  ar-zzzzzzzz",
+		"     not_found: issue ar-zzzzzzzz not found\n     fix: find the id with `aries list`\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("aries outbox lacks %q:\n%s", want, out)
@@ -300,7 +300,7 @@ func TestRefusedEntries(t *testing.T) {
 
 // What one session queued is sent by whichever connection of the same
 // principal comes next, and the server records that connection's session
-// on it: protocol 5 carries no other. Another principal's connection
+// on it: the protocol carries no other. Another principal's connection
 // sends none of it.
 func TestAnotherSessionDeliversTheOutbox(t *testing.T) {
 	t.Parallel()

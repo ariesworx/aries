@@ -20,11 +20,11 @@ func TestPrintMemories(t *testing.T) {
 		{"none", proto.RecallResult{}, "no memories\n"},
 		{"some", proto.RecallResult{Memories: []proto.Memory{
 			{Key: "deploy", Scope: "project", Body: "weekday mornings\nnever Fridays", Tags: []string{"ops", "release"},
-				Issue: "sf-a1b2", Pinned: true, UpdatedBy: "alice", UpdatedAt: at, Rev: 2},
+				Issue: "ar-a1b2", Pinned: true, UpdatedBy: "alice", UpdatedAt: at, Rev: 2},
 			{Key: "style", Scope: "user", Body: "tabs", UpdatedBy: "bob", UpdatedAt: at, Rev: 1, Relevant: true},
 		}, More: 3},
 			"deploy (project, pinned) rev 2, alice, 2026-10-09 08:00 UTC\n" +
-				"  tags: ops, release; issue: sf-a1b2\n" +
+				"  tags: ops, release; issue: ar-a1b2\n" +
 				"  weekday mornings\n  never Fridays\n" +
 				"style (user, relevant) rev 1, bob, 2026-10-09 08:00 UTC\n" +
 				"  tabs\n" +

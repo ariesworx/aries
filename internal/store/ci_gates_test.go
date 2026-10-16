@@ -277,7 +277,7 @@ func TestCIGateAdd(t *testing.T) {
 	}
 }
 
-// Evidence is bounded (gate_evidence) and holds no secret (rule 2): a URL
+// Evidence is bounded (gate_evidence_bytes) and holds no secret (rule 2): a URL
 // is http or https with no user or password, a commit is hex, and the
 // reason is one line.
 func TestCheckEvidence(t *testing.T) {

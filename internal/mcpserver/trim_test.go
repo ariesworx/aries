@@ -98,7 +98,7 @@ var trimSites = []trimSite{
 		build: func(texts []string, _ int) any {
 			out := &Blocked{}
 			for i, s := range trimSummaries(texts) {
-				out.Issues = append(out.Issues, proto.BlockedIssue{Summary: s, BlockedBy: []string{fmt.Sprint("sf-b", i)}})
+				out.Issues = append(out.Issues, proto.BlockedIssue{Summary: s, BlockedBy: []string{fmt.Sprint("ar-b", i)}})
 			}
 			return out
 		},
@@ -113,7 +113,7 @@ var trimSites = []trimSite{
 	{
 		name: "start memories",
 		build: func(texts []string, extra int) any {
-			return &Started{ID: "sf-1", Title: "t", Type: "task", Body: strings.Repeat("b", extra%1000), Memories: trimMemories(texts)}
+			return &Started{ID: "ar-1", Title: "t", Type: "task", Body: strings.Repeat("b", extra%1000), Memories: trimMemories(texts)}
 		},
 		fit: func(v any) { v.(*Started).fitMemories() },
 		old: func(v any) {
@@ -126,7 +126,7 @@ var trimSites = []trimSite{
 	{
 		name: "show needed by",
 		build: func(texts []string, extra int) any {
-			return &Issue{ID: "sf-1", Title: "t", Status: "open", Type: "task", Truncated: extra%2 == 0,
+			return &Issue{ID: "ar-1", Title: "t", Status: "open", Type: "task", Truncated: extra%2 == 0,
 				Body: strings.Repeat("b", extra%1000), NeededBy: append([]string(nil), texts...), Files: []string{"a.go"}}
 		},
 		fit: func(v any) { v.(*Issue).fitNeededBy() },
@@ -217,7 +217,7 @@ var trimSites = []trimSite{
 			stride := extra%5 + 1
 			for i, s := range texts {
 				sec := sections[(i*stride+extra)%len(sections)]
-				*sec = append(*sec, DigestItem{ID: fmt.Sprint("sf-", i), Title: s, Priority: i % 5})
+				*sec = append(*sec, DigestItem{ID: fmt.Sprint("ar-", i), Title: s, Priority: i % 5})
 			}
 			return out
 		},
@@ -246,7 +246,7 @@ var trimSites = []trimSite{
 func trimSummaries(texts []string) []proto.Summary {
 	out := []proto.Summary{}
 	for i, s := range texts {
-		out = append(out, proto.Summary{ID: fmt.Sprint("sf-", i), Title: s, Status: "open", Priority: i % 5})
+		out = append(out, proto.Summary{ID: fmt.Sprint("ar-", i), Title: s, Status: "open", Priority: i % 5})
 	}
 	return out
 }

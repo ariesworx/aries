@@ -19,7 +19,7 @@ import (
 )
 
 // MaxBatch is the most records one usage call sends: the server's
-// default usage_records limit.
+// default records_per_usage_call limit.
 const MaxBatch = 500
 
 // StateFile is the offsets file in the state directory.

@@ -41,7 +41,7 @@ func newStore(t *testing.T) *store.Store {
 	if err != nil {
 		t.Fatalf("postgres: %v", err)
 	}
-	s, err := store.Open(t.Context(), dsn, store.Options{Prefix: "sf"})
+	s, err := store.Open(t.Context(), dsn, store.Options{Prefix: "ar"})
 	if err != nil {
 		t.Fatal(err)
 	}

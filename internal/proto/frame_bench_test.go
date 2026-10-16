@@ -54,7 +54,7 @@ func BenchmarkFrameDecode(b *testing.B) {
 		name string
 		line []byte
 	}{
-		{"show", benchLine(b, OpShow, ShowArgs{ID: "sf-abcd2345"})},
+		{"show", benchLine(b, OpShow, ShowArgs{ID: "ar-abcd2345"})},
 		{"create-4KiB", benchLine(b, OpCreate, CreateArgs{Title: "The parser drops the lease", Body: text[:4096]})},
 		{"create-4x64KiB", benchLine(b, OpCreate, CreateArgs{Title: "The parser drops the lease", Body: text, Design: text, Acceptance: text, Notes: text})},
 	} {
@@ -79,16 +79,16 @@ func BenchmarkFrameEncode(b *testing.B) {
 	text := strings.Repeat("A line of the report, as a person writes one.\n", 1500)[:65535]
 	list := ListResult{}
 	for i := range 50 {
-		list.Issues = append(list.Issues, Summary{ID: fmt.Sprintf("sf-abcd%04d", i), Status: "open", Priority: i % 4,
+		list.Issues = append(list.Issues, Summary{ID: fmt.Sprintf("ar-abcd%04d", i), Status: "open", Priority: i % 4,
 			Title: fmt.Sprintf("The parser drops the lease after the socket restarts, case %d", i)})
 	}
 	for _, bm := range []struct {
 		name   string
 		result any
 	}{
-		{"write", WriteResult{ID: "sf-abcd2345", Rev: 7}},
+		{"write", WriteResult{ID: "ar-abcd2345", Rev: 7}},
 		{"list-50", list},
-		{"show-4x64KiB", ShowResult{Issue: Issue{ID: "sf-abcd2345", Title: "The parser drops the lease", Body: text, Design: text,
+		{"show-4x64KiB", ShowResult{Issue: Issue{ID: "ar-abcd2345", Title: "The parser drops the lease", Body: text, Design: text,
 			Acceptance: text, Notes: text, Status: "open", Type: "task"}}},
 	} {
 		b.Run(bm.name, func(b *testing.B) {

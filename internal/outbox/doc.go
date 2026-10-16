@@ -12,17 +12,14 @@
 //
 // # What is queued
 //
-// Twelve ops, design §18.3's table ([Queueable]): create, comment,
-// handoff, remember, hours.log and finish, which carry an idempotency
-// key in protocol 5, and update, label.add, label.rm, dep.add, accept and
-// usage, which carry one from protocol 6 (stage 5, slice F2). Their
-// replay cannot do harm nobody asked for. Every other op is refused with
-// [ErrNotQueueable] and why: start takes a claim, and no claim is made
-// without the server (decision 39); close, reopen, forget, dep.rm and
-// hours.delete undo or end something on a state the client cannot see.
-// Which protocol the server speaks is the caller's to know: it queues,
-// and sends, an entry only for a server that takes its op's key
-// (proto.Keyed; internal/offline).
+// Twelve ops, design §18.3.s table ([Queueable]): create, comment,
+// handoff, remember, hours.log, finish, update, label.add, label.rm,
+// dep.add, accept and usage, each of which carries an idempotency key.
+// Their replay cannot do harm nobody asked for. Every other op is
+// refused with [ErrNotQueueable] and why: start takes a claim, and no
+// claim is made without the server (decision 39); close, reopen, forget,
+// dep.rm and hours.delete undo or end something on a state the client
+// cannot see.
 //
 // An entry is refused before it is written when its arguments carry no
 // key ([ErrNoKey]), when any string in them looks like a credential to

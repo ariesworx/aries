@@ -17,7 +17,7 @@ import (
 	"github.com/ariesworx/aries/internal/telemetry"
 )
 
-// Access management over the protocol (design §15.4, protocols 5 and 6):
+// Access management over the protocol (design §15.4):
 // what `aries admin` asks of a server of many projects. Each op rides the
 // caller's connection to a project it may reach, and acts on that
 // project unless it names another.
@@ -161,7 +161,7 @@ func (s *Server) open(ctx context.Context, op string, p store.Project) *proto.Er
 	case errors.Is(err, errStoresFull):
 		s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitOpenStores)
 		return proto.Errf(proto.CodeBusy,
-			"retry in a minute; the server admin can raise open_stores under limits: in ariesd's config",
+			"retry in a minute; the server admin can raise open_stores_per_server under limits: in ariesd's config",
 			fmt.Sprintf("the server has its limit of %d projects open, each with a connection", s.cfg.Limits.OpenStores))
 	case store.SchemaDenied(err):
 		return proto.Errf(proto.CodeUnavailable,
@@ -490,7 +490,7 @@ func principalAdd(ctx context.Context, s *Server, sess *session, in proto.Princi
 	if err != nil {
 		return nil, s.keyErr(ctx, sess, op, err)
 	}
-	out := proto.PrincipalAddResult{PrincipalResult: proto.PrincipalResult{ID: p.Name, Rev: int64(p.Rev), State: string(p.State),
+	out := proto.PrincipalAddResult{PrincipalResult: proto.PrincipalResult{Name: p.Name, Rev: int64(p.Rev), State: string(p.State),
 		Project: proj.ID, ProjectName: proj.Name}}
 	if len(in.Keys) > 0 {
 		out.Warning = s.syncKeys(ctx)
@@ -540,7 +540,7 @@ func principalDisable(ctx context.Context, s *Server, sess *session, in proto.Pr
 	warning := s.syncKeys(ctx)
 	s.drop(sess, "principal disabled", func(o owner) bool { return o.principal == p.Name })
 	released := s.release(ctx, sess.actor, "", p.Name, lostDisabled)
-	out := proto.PrincipalResult{ID: p.Name, Rev: int64(p.Rev), State: string(p.State), Released: released, Warning: warning}
+	out := proto.PrincipalResult{Name: p.Name, Rev: int64(p.Rev), State: string(p.State), Released: released, Warning: warning}
 	// Disabling ends the account's own access, and nothing it set up.
 	s.left(ctx, sess, &out)
 	return out, nil
@@ -553,14 +553,14 @@ func principalEnable(ctx context.Context, s *Server, sess *session, in proto.Pri
 	if err != nil {
 		return nil, s.ctlErr(ctx, sess, proto.OpPrincipalEnable, err)
 	}
-	return proto.PrincipalResult{ID: p.Name, Rev: int64(p.Rev), State: string(p.State), Warning: s.syncKeys(ctx)}, nil
+	return proto.PrincipalResult{Name: p.Name, Rev: int64(p.Rev), State: string(p.State), Warning: s.syncKeys(ctx)}, nil
 }
 
 // principalWhois says whose stand-in a span carries (design §16.4,
 // decision 32): for server admins only, since it undoes what the
 // stand-in is for. It tries the key against every principal of the
 // control store and every server admin of the config file, which is at
-// most the principals limit of them; a principal that was never on this
+// most the principals_per_server limit of them; a principal that was never on this
 // server, and a stand-in made under a key that has since been deleted,
 // match nobody.
 func principalWhois(ctx context.Context, s *Server, sess *session, in proto.PrincipalWhoisArgs) (any, *proto.Error) {
@@ -628,7 +628,7 @@ func memberSet(ctx context.Context, s *Server, sess *session, in proto.MemberSet
 	}
 	m, err := set(ctx, a, in.Name, p.ID, role)
 	if unseen, ok := errors.AsType[*store.CarriedKeysError](err); ok {
-		out := proto.MemberSetResult{ID: in.Name, Project: p.ID, ProjectName: p.Name, Role: string(role), Change: proto.MemberPending,
+		out := proto.MemberSetResult{Name: in.Name, Project: p.ID, ProjectName: p.Name, Role: string(role), Change: proto.MemberPending,
 			Carried: s.wireCarried(unseen.Keys, p.ID)}
 		out.Projects, _ = s.carried(ctx, in.Name, "")
 		return out, nil
@@ -636,7 +636,7 @@ func memberSet(ctx context.Context, s *Server, sess *session, in proto.MemberSet
 	if err != nil {
 		return nil, s.ctlErr(ctx, sess, op, err)
 	}
-	out := proto.MemberSetResult{ID: m.Principal, Rev: int64(m.Rev), Project: p.ID, ProjectName: p.Name, Role: string(m.Role), Change: "unchanged"}
+	out := proto.MemberSetResult{Name: m.Principal, Rev: int64(m.Rev), Project: p.ID, ProjectName: p.Name, Role: string(m.Role), Change: "unchanged"}
 	switch {
 	case !was:
 		out.Change = "added"
@@ -726,7 +726,7 @@ func memberRemove(ctx context.Context, s *Server, sess *session, in proto.Member
 	if err != nil {
 		return nil, s.ctlErr(ctx, sess, op, err)
 	}
-	out := proto.MemberRemoveResult{ID: m.Principal, Project: p.ID, ProjectName: p.Name}
+	out := proto.MemberRemoveResult{Name: m.Principal, Project: p.ID, ProjectName: p.Name}
 	if !ctl.IsServerAdmin(m.Principal) {
 		s.drop(sess, "membership removed", func(o owner) bool { return o.principal == m.Principal && o.project == p.ID })
 		out.Released = s.release(ctx, sess.actor, p.ID, m.Principal, lostMembership)
@@ -788,7 +788,7 @@ func (s *Server) keyErr(ctx context.Context, sess *session, op string, err error
 // wireKeyResult is a key after a write. The type is the first word of
 // the stored key.
 func wireKeyResult(k store.PrincipalKey) proto.KeyResult {
-	return proto.KeyResult{ID: k.Fingerprint, Principal: k.Principal, Type: keyType(k.Key), Comment: k.Comment}
+	return proto.KeyResult{Fingerprint: k.Fingerprint, Principal: k.Principal, Type: keyType(k.Key), Comment: k.Comment}
 }
 
 // keyType is the type of a key in authorized_keys form: its first word.

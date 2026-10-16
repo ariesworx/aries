@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net"
 	"slices"
-	"strings"
 	"sync"
 	"testing"
 
@@ -151,74 +150,44 @@ func server(lo, hi int) func(*proto.Frame) *proto.Frame {
 	}
 }
 
-// TestDialStepsDown pins the version a client of this build speaks
-// (design §18.5, §18.6): protocol 8 to a server that accepts it; to a
-// server of 7 alone, 7, saying hello again on the same SSH connection
-// once the server's refusal has named its range; and nothing to a server
-// that accepts neither, a server of 6 among them, which refuses it with
-// code version as before.
-func TestDialStepsDown(t *testing.T) {
+// TestDialSpeaksOneVersion pins the one version a client of this build
+// speaks, 8, settled for v1.0.0 (decisions 78 and 88): a server whose
+// range holds it welcomes it, a later one of 1.x among them; any other,
+// a build of 7 alone among them, refuses it with code version, and the
+// client takes that refusal as it is, after one hello, rather than say
+// hello again in another version.
+func TestDialSpeaksOneVersion(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
-		name   string
-		lo, hi int
-		want   int   // the protocol spoken, 0 when refused
-		hellos []int // the hellos' protocols
+		name    string
+		lo, hi  int
+		welcome bool
 	}{
-		{"a server of 7 and 8", 7, 8, 8, []int{8}},
-		{"a server of 8 and 9", 8, 9, 8, []int{8}},
-		{"a server of 7", 7, 7, 7, []int{8, 7}},
-		{"a server of 6 and 7", 6, 7, 7, []int{8, 7}},
-		{"a server of 6", 6, 6, 0, []int{8}},
-		{"a server of 9 and 10", 9, 10, 0, []int{8}},
-		{"a server of 3 and 4", 3, 4, 0, []int{8}},
+		{"a server of 8", 8, 8, true},
+		{"a server of 8 and 9", 8, 9, true},
+		{"a server of 7 and 8", 7, 8, true},
+		{"a server of 7", 7, 7, false},
+		{"a server of 6 and 7", 6, 7, false},
+		{"a server of 9 and 10", 9, 10, false},
+		{"a server of 3 and 4", 3, 4, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			w := newWelcomer(t, server(tc.lo, tc.hi))
-			c, err := w.dial(t)
+			_, err := w.dial(t)
 			hellos, conns := w.protos()
 			switch {
-			case tc.want == 0:
+			case !tc.welcome:
 				if pe, ok := errors.AsType[*proto.Error](err); !ok || pe.Code != proto.CodeVersion {
 					t.Errorf("Dial to %s = %v, want refused with code version", tc.name, err)
 				}
 			case err != nil:
 				t.Fatalf("Dial to %s = %v, want it welcomed", tc.name, err)
-			case c.Proto() != tc.want:
-				t.Errorf("Dial to %s speaks protocol %d, want %d", tc.name, c.Proto(), tc.want)
 			}
-			if !slices.Equal(hellos, tc.hellos) || conns != 1 {
-				t.Errorf("Dial to %s said hello speaking %v on %d SSH connections; want %v on 1", tc.name, hellos, conns, tc.hellos)
+			if !slices.Equal(hellos, []int{8}) || conns != 1 {
+				t.Errorf("Dial to %s said hello speaking %v on %d SSH connections; want [8] on 1", tc.name, hellos, conns)
 			}
 		})
-	}
-}
-
-// TestCallSpeaksTheConnectionsProtocol: on a connection of protocol 5,
-// an op whose key protocol 6 added goes without it, which a server of 5
-// would refuse as an unknown argument; on 6 it goes with it.
-func TestCallSpeaksTheConnectionsProtocol(t *testing.T) {
-	t.Parallel()
-	for _, v := range []int{5, 6} {
-		c, srv := pipeConn(t, nil)
-		c.proto = v
-		sent := make(chan string, 1)
-		go func() {
-			f := srv.req()
-			if f == nil {
-				sent <- ""
-				return
-			}
-			sent <- string(f.Args)
-			srv.send(&proto.Frame{T: proto.FrameRes, ID: f.ID, OK: []byte(`{"id":"sf-1","rev":2}`)})
-		}()
-		if err := c.Call(t.Context(), proto.OpUpdate, proto.UpdateArgs{ID: "sf-1", Rev: 1, Idem: "cli-1"}, nil); err != nil {
-			t.Fatalf("Call at protocol %d = %v", v, err)
-		}
-		if got := <-sent; strings.Contains(got, `"idem"`) != (v >= 6) || !strings.Contains(got, `"rev":1`) {
-			t.Errorf("update at protocol %d was sent as %s; want it whole, and its key sent only at 6", v, got)
-		}
 	}
 }
 
@@ -278,7 +247,7 @@ func TestAccessEnded(t *testing.T) {
 	}
 	t.Run("a request refused as forbidden", func(t *testing.T) {
 		t.Parallel()
-		err := proto.Errf(proto.CodeForbidden, "ask the holder", "sf-1 is held by bob")
+		err := proto.Errf(proto.CodeForbidden, "ask the holder", "ar-1 is held by bob")
 		if who, ended := AccessEnded(err); ended {
 			t.Errorf("AccessEnded(%v) = %q, true; want false: it refuses one request", err, who)
 		}

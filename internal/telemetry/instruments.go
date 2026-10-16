@@ -172,31 +172,31 @@ const (
 	SignalLogs    = "logs"
 )
 
-// The limits a refusal is counted under, by the name of the setting
-// under limits: in ariesd's config, apart from LimitSockets, which is
-// twice conns.
+// The limits a refusal is counted under, by the name of the setting in
+// ariesd's config (under limits:, but for LimitTelemetryRequests), apart
+// from LimitSockets, which is twice conns_per_server.
 const (
-	LimitConns             = "conns"
+	LimitConns             = "conns_per_server"
 	LimitConnsPerPrincipal = "conns_per_principal"
 	// LimitHandshakes is the cap on one principal's connections that
 	// have not yet said hello.
 	LimitHandshakes = "handshakes_per_principal"
 	// LimitSockets is the cap on sockets still in their handshake.
 	LimitSockets           = "handshake_sockets"
-	LimitWriteRate         = "write_rate"
-	LimitControlWriteRate  = "control_write_rate"
-	LimitOpenStores        = "open_stores"
-	LimitTelemetryRequests = "telemetry_requests"
-	LimitProjects          = "projects"
-	LimitPrincipals        = "principals"
+	LimitWriteRate         = "writes_per_second"
+	LimitControlWriteRate  = "control_writes_per_second"
+	LimitOpenStores        = "open_stores_per_server"
+	LimitTelemetryRequests = "telemetry.max_requests"
+	LimitProjects          = "projects_per_server"
+	LimitPrincipals        = "principals_per_server"
 	LimitKeys              = "keys_per_principal"
 	LimitMembers           = "members_per_project"
-	LimitPrices            = "prices"
-	LimitPlans             = "plans"
+	LimitPrices            = "prices_per_project"
+	LimitPlans             = "plans_per_project"
 	LimitHoursPerDay       = "hours_per_day"
 	LimitUsagePerDay       = "usage_per_day"
-	LimitLocks             = "locks"
-	LimitLockWaiters       = "lock_waiters"
+	LimitLocks             = "locks_per_project"
+	LimitLockWaiters       = "waiters_per_lock"
 	LimitLockWaits         = "lock_waits_per_principal"
 )
 

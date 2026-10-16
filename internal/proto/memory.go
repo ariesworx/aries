@@ -2,7 +2,7 @@ package proto
 
 import "time"
 
-// Memory operations (protocol 4, design §6). A memory is a scoped record
+// Memory operations (design §6). A memory is a scoped record
 // that agents and people keep across sessions: a key, a body, tags, an
 // optional issue link and a pin. Scope is team, project or user; user
 // scope is the caller's alone. An empty scope is project.

@@ -37,7 +37,7 @@ func TestLockOps(t *testing.T) {
 	if r := mustCall[proto.LockResult](t, s, bob, proto.OpLockRenew, proto.LockRenewArgs{Name: "deploy/prod"}); r.Held || r.Position != 1 {
 		t.Errorf("lock.renew of bob's place = %+v, want position 1", r)
 	}
-	if r := mustCall[proto.LockReleaseResult](t, s, alice, proto.OpLockRelease, proto.LockReleaseArgs{Name: "deploy/prod", Epoch: 1}); r.Released != 1 {
+	if r := mustCall[proto.LockReleaseResult](t, s, alice, proto.OpLockRelease, proto.LockReleaseArgs{Name: "deploy/prod", Epoch: 1}); r.Epoch != 1 {
 		t.Errorf("lock.release = %+v, want epoch 1 released", r)
 	}
 	r := mustCall[proto.LockResult](t, s, bob, proto.OpLockRenew, proto.LockRenewArgs{Name: "deploy/prod"})
@@ -73,9 +73,9 @@ func TestLockRefusals(t *testing.T) {
 		{"a bad name", alice, proto.OpLockAcquire, proto.LockAcquireArgs{Name: "Deploy Prod"}, proto.CodeInvalid, "lock name", "lowercase"},
 		{"a bad lease", alice, proto.OpLockAcquire, proto.LockAcquireArgs{Name: "x", Lease: "soon"}, proto.CodeInvalid, "lease", "1m to 24h"},
 		{"another capacity", carol, proto.OpLockAcquire, proto.LockAcquireArgs{Name: "api", Capacity: 3}, proto.CodeInvalid, "capacity 2", "--capacity"},
-		{"a capacity past the limit", carol, proto.OpLockAcquire, proto.LockAcquireArgs{Name: "x", Capacity: 65}, proto.CodeInvalid, "lock_capacity", "lock_capacity"},
+		{"a capacity past the limit", carol, proto.OpLockAcquire, proto.LockAcquireArgs{Name: "x", Capacity: 65}, proto.CodeInvalid, "holders_per_lock", "holders_per_lock"},
 		{"a third lock", carol, proto.OpLockAcquire, proto.LockAcquireArgs{Name: "third"}, proto.CodeBusy, "locks", "aries lock list"},
-		{"a full queue", carol, proto.OpLockAcquire, proto.LockAcquireArgs{Name: "deploy", Wait: true}, proto.CodeBusy, "lock_waiters", "lock_waiters"},
+		{"a full queue", carol, proto.OpLockAcquire, proto.LockAcquireArgs{Name: "deploy", Wait: true}, proto.CodeBusy, "waiters_per_lock", "waiters_per_lock"},
 		{"a stale epoch", alice, proto.OpLockRelease, proto.LockReleaseArgs{Name: "deploy", Epoch: 9}, proto.CodeConflict, "epoch 9", "ARIES_LOCK_EPOCH"},
 		{"someone else's epoch", bob, proto.OpLockRenew, proto.LockRenewArgs{Name: "deploy", Epoch: 1}, proto.CodeConflict, "held by alice", "stop"},
 		{"no place", carol, proto.OpLockRenew, proto.LockRenewArgs{Name: "deploy"}, proto.CodeConflict, "no place", "acquire"},

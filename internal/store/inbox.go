@@ -38,18 +38,18 @@ const (
 	InboxClaimLost InboxKind = "claim.lost"
 	// InboxAssigned tells a principal someone else made it an issue's
 	// assignee.
-	InboxAssigned InboxKind = "assigned"
+	InboxAssigned InboxKind = "issue.assigned"
 	// InboxMention tells a principal someone else wrote @principal in a
 	// comment or a handoff note.
-	InboxMention InboxKind = "mention"
+	InboxMention InboxKind = "issue.mentioned"
 	// InboxHandoff tells a principal someone else handed it an issue.
-	InboxHandoff InboxKind = "handoff"
+	InboxHandoff InboxKind = "issue.handoff"
 	// InboxConflict tells a principal its replayed update parked a
 	// conflict, or was kept as a comment, and tells the holder of the
 	// issue another principal's parked. The author's own item is for
 	// every session of it: the session that replays an update is not
 	// always the one that made it.
-	InboxConflict InboxKind = "conflict"
+	InboxConflict InboxKind = "conflict.parked"
 )
 
 // Inbox bounds.

@@ -202,7 +202,7 @@ func (r *runner) withPaths(ctx context.Context, id string, paths *[]string, call
 func (r *runner) sendClaimPaths(ctx context.Context, lease string, claims []proto.Claim) error {
 	ids := make([]string, len(claims))
 	for i, c := range claims {
-		ids[i] = c.ID
+		ids[i] = c.Issue
 	}
 	paths := gitx.IssuePaths(ctx, r.dir, ids)
 	for _, id := range ids {
@@ -357,7 +357,7 @@ func cmdAway(ctx context.Context, r *runner, args []string) error {
 		return nil
 	}
 	for _, c := range out.Claims {
-		_, _ = fmt.Fprintf(r.env.Stdout, "%s held until %s (%s)\n", esc(c.ID), when(c.ExpiresAt), esc(c.Session))
+		_, _ = fmt.Fprintf(r.env.Stdout, "%s held until %s (%s)\n", esc(c.Issue), when(c.ExpiresAt), esc(c.Session))
 	}
 	return nil
 }

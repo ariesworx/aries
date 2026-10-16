@@ -159,7 +159,7 @@ func (s *Snapshot) apply(m *Model) {
 		m.rows = append(m.rows, row{secReady, x.ID})
 	}
 	for _, x := range s.Held {
-		m.rows = append(m.rows, row{secHeld, x.Claim.ID})
+		m.rows = append(m.rows, row{secHeld, x.Claim.Issue})
 	}
 	for _, x := range s.Blocked {
 		m.rows = append(m.rows, row{secBlocked, x.ID})

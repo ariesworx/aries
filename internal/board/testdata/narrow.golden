@@ -1,17 +1,17 @@
 aries demo                                    live
 Ready 2
-> sf-r1 P1 Write the parser
-  sf-r2 P2 [overlaps sf-h1] Tidy the logs
+> ar-r1 P1 Write the parser
+  ar-r2 P2 [overlaps ar-h1] Tidy the logs
 
 Held 1
-  sf-h1 P0 alice/cc-1234 42m Fix the lexer
+  ar-h1 P0 alice/cc-1234 42m Fix the lexer
 
 Blocked 1
-  sf-b1 P2 [by sf-r1 +1] Ship it
+  ar-b1 P2 [by ar-r1 +1] Ship it
 
 Events
-  12:00:01 bob/cli claim.take sf-h1
-  12:00:02 bob/cli issue.close sf-x9
+  12:00:01 bob/cli claim.take ar-h1
+  12:00:02 bob/cli issue.close ar-x9
 
 
 

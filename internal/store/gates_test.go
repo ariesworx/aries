@@ -173,7 +173,7 @@ func TestGateGuards(t *testing.T) {
 			_, err := s.CreateIssue(ctx, bob, NewIssue{Title: "sneaky", Type: TypeGate})
 			return err
 		}, GateIsGate},
-		{"remove the edge to the gate", func() error { return s.RemoveDep(ctx, bob, epic.ID, g.ID, DepBlocks) }, GateHeld},
+		{"remove the edge to the gate", func() error { return s.RemoveDep(ctx, bob, epic.ID, g.ID, DepBlocks, "") }, GateHeld},
 		{"move the child out from under the epic", func() error {
 			_, err := s.UpdateIssue(ctx, bob, child.ID, child.Rev, IssuePatch{ParentID: ptr(IssueID(""))})
 			return err
@@ -201,7 +201,7 @@ func TestGateGuards(t *testing.T) {
 		t.Errorf("Ready after setting the held child open = %v, want it still held", got)
 	}
 	// An approver at their terminal may remove the edge: they could pass.
-	if err := s.RemoveDep(ctx, carolCLI, epic.ID, g.ID, DepBlocks); err != nil {
+	if err := s.RemoveDep(ctx, carolCLI, epic.ID, g.ID, DepBlocks, ""); err != nil {
 		t.Errorf("RemoveDep by carol from cli = %v, want it allowed", err)
 	}
 	// And the gate is still open: only its ops close it.

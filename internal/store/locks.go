@@ -43,7 +43,7 @@ const (
 	// MaxLockName is the longest name a lock may have: an event's target
 	// is "lock:" and the name, in 64 bytes.
 	MaxLockName = 64 - len(lockTargetPrefix)
-	// maxLockCapacity bounds the lock_capacity limit.
+	// maxLockCapacity bounds the holders_per_lock limit.
 	maxLockCapacity = 1000
 )
 
@@ -195,8 +195,8 @@ func (e *LockEpochError) Error() string {
 // Unwrap makes errors.Is(err, ErrConflict) hold.
 func (e *LockEpochError) Unwrap() error { return ErrConflict }
 
-// LockLimitError refuses an acquire past Limit (locks, lock_waiters or
-// lock_waits_per_principal), which is Max. It wraps ErrBusy.
+// LockLimitError refuses an acquire past Limit (locks_per_project,
+// waiters_per_lock or lock_waits_per_principal), which is Max. It wraps ErrBusy.
 type LockLimitError struct {
 	Name  string
 	Limit string
@@ -205,10 +205,10 @@ type LockLimitError struct {
 
 func (e *LockLimitError) Error() string {
 	switch e.Limit {
-	case "locks":
-		return fmt.Sprintf("%v: the project has %d locks in use, its limit (locks)", ErrBusy, e.Max)
-	case "lock_waiters":
-		return fmt.Sprintf("%v: lock %s has %d waiting, its limit (lock_waiters)", ErrBusy, e.Name, e.Max)
+	case "locks_per_project":
+		return fmt.Sprintf("%v: the project has %d locks in use, its limit (locks_per_project)", ErrBusy, e.Max)
+	case "waiters_per_lock":
+		return fmt.Sprintf("%v: lock %s has %d waiting, its limit (waiters_per_lock)", ErrBusy, e.Name, e.Max)
 	}
 	return fmt.Sprintf("%v: you wait for %d locks already, the limit (lock_waits_per_principal)", ErrBusy, e.Max)
 }
@@ -218,7 +218,7 @@ func (e *LockLimitError) Unwrap() error { return ErrBusy }
 
 // LockCapacityError refuses an acquire whose capacity is not the lock's
 // (Capacity, which its first acquire set), or with Capacity 0 one past
-// the lock_capacity limit, which is Max. It wraps ErrInvalid.
+// the holders_per_lock limit, which is Max. It wraps ErrInvalid.
 type LockCapacityError struct {
 	Name     string
 	Asked    int
@@ -228,7 +228,7 @@ type LockCapacityError struct {
 
 func (e *LockCapacityError) Error() string {
 	if e.Capacity == 0 {
-		return fmt.Sprintf("%v: capacity %d: a lock holds 1 to %d at once (lock_capacity)", ErrInvalid, e.Asked, e.Max)
+		return fmt.Sprintf("%v: capacity %d: a lock holds 1 to %d at once (holders_per_lock)", ErrInvalid, e.Asked, e.Max)
 	}
 	return fmt.Sprintf("%v: lock %s has capacity %d, which its first acquire set, not %d", ErrInvalid, e.Name, e.Capacity, e.Asked)
 }
@@ -512,7 +512,7 @@ func (v *lockView) stateOf(a Actor) LockState {
 // already gets that hold, extended to in.Lease from now if that is
 // later, or that place, renewed: a retry of an acquire whose answer was
 // lost takes nothing twice. Past a limit it is refused with a
-// [*LockLimitError], and a capacity past lock_capacity with ErrInvalid.
+// [*LockLimitError], and a capacity past holders_per_lock with ErrInvalid.
 func (s *Store) AcquireLock(ctx context.Context, actor Actor, in LockAcquire) (LockState, error) {
 	if err := checkLockName(in.Name); err != nil {
 		return LockState{}, err
@@ -539,7 +539,7 @@ func (s *Store) AcquireLock(ctx context.Context, actor Actor, in LockAcquire) (L
 				return fmt.Errorf("count locks: %w", err)
 			}
 			if n >= w.lim.Locks {
-				refused = &LockLimitError{Name: in.Name, Limit: "locks", Max: w.lim.Locks}
+				refused = &LockLimitError{Name: in.Name, Limit: "locks_per_project", Max: w.lim.Locks}
 				return nil
 			}
 			v.capacity, v.exists = cmp.Or(in.Capacity, 1), true
@@ -581,7 +581,7 @@ func (s *Store) AcquireLock(ctx context.Context, actor Actor, in LockAcquire) (L
 			return nil
 		}
 		if len(v.places) >= w.lim.LockWaiters {
-			refused = &LockLimitError{Name: in.Name, Limit: "lock_waiters", Max: w.lim.LockWaiters}
+			refused = &LockLimitError{Name: in.Name, Limit: "waiters_per_lock", Max: w.lim.LockWaiters}
 			return nil
 		}
 		var mine int

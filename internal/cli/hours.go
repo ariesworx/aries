@@ -59,7 +59,7 @@ func cmdHours(ctx context.Context, r *runner, args []string) error {
 		printHours(r.env.Stdout, out)
 		return nil
 	case len(pos) != 2:
-		return usagef(usage, "hours needs a time and an issue id, such as aries hours 1.5h sf-a1b2")
+		return usagef(usage, "hours needs a time and an issue id, such as aries hours 1.5h ar-a1b2")
 	case listing:
 		return usagef(usage, "--issue, --by and -n are for listing; aries hours DURATION ID logs")
 	}
@@ -74,7 +74,7 @@ func cmdHours(ctx context.Context, r *runner, args []string) error {
 	if _, err := time.Parse(time.DateOnly, *on); err != nil {
 		return usagef(usage, "--on %q must be a date such as 2026-10-08", *on)
 	}
-	in := proto.HoursLogArgs{ID: pos[1], Seconds: int64(d / time.Second), On: *on, Note: *note, Idem: proto.NewIdem("cli")}
+	in := proto.HoursLogArgs{Issue: pos[1], Seconds: int64(d / time.Second), On: *on, Note: *note, Idem: proto.NewIdem("cli")}
 	var out proto.HoursLogResult
 	kept, err := r.send(ctx, proto.OpHoursLog, in, &out)
 	if err != nil {
@@ -88,7 +88,7 @@ func cmdHours(ctx context.Context, r *runner, args []string) error {
 		r.emit(out)
 		return nil
 	}
-	_, _ = fmt.Fprintf(r.env.Stdout, "logged %s on %s for %s: entry %s", proto.Hours(in.Seconds), esc(in.ID), esc(out.On), esc(out.ID))
+	_, _ = fmt.Fprintf(r.env.Stdout, "logged %s on %s for %s: entry %s", proto.Hours(in.Seconds), esc(in.Issue), esc(out.On), esc(out.ID))
 	if out.Undone {
 		_, _ = fmt.Fprint(r.env.Stdout, ", since undone")
 	}

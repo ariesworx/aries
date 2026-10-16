@@ -306,7 +306,7 @@ func TestKeysFileWriteFails(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) }) //nolint:gosec // back to what it was
 	const warning = "the change is recorded, but ariesd could not write the keys file sshd reads, so sshd may still be reading the old one: "
 	rm := mustAsk[proto.KeyResult](d, proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: carols})
-	if rm.ID != carols || !strings.HasPrefix(rm.Warning, warning) || !strings.Contains(rm.Warning, "`aries admin status`") {
+	if rm.Fingerprint != carols || !strings.HasPrefix(rm.Warning, warning) || !strings.Contains(rm.Warning, "`aries admin status`") {
 		t.Errorf("key.remove with the keys file unwritable = %+v; want the key removed, and a warning that sshd may read the old file", rm)
 	}
 	if _, _, ok := m.ctl.AuthorizedKey(carols); ok {

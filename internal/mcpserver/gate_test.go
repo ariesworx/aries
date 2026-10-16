@@ -32,24 +32,24 @@ func TestGateTool(t *testing.T) {
 		switch op {
 		case proto.OpGateAdd:
 			a := args.(proto.GateAddArgs)
-			return proto.Gate{ID: "sf-g1", Kind: "human", Approvers: a.Approvers, Holds: []string{a.Blocks}}, nil
+			return proto.Gate{ID: "ar-g1", Kind: "human", Approvers: a.Approvers, Holds: []string{a.Blocks}}, nil
 		case proto.OpGates:
-			return proto.GatesResult{Gates: []proto.Gate{{ID: "sf-g1", Title: "Approve the plan", Kind: "human",
-				Approvers: []string{"carol"}, Holds: []string{"sf-e1"}}}}, nil
+			return proto.GatesResult{Gates: []proto.Gate{{ID: "ar-g1", Title: "Approve the plan", Kind: "human",
+				Approvers: []string{"carol"}, Holds: []string{"ar-e1"}}}}, nil
 		}
 		return nil, nil
 	}}
 	cs, _, _ := connectServer(t, f)
-	res := callTool(t, cs, "gate", map[string]any{"action": "add", "blocks": "sf-e1", "approvers": []string{"carol"}})
-	if res.IsError || text(t, res) != `{"id":"sf-g1","approvers":["carol"],"holds":["sf-e1"],"next":"a person passes it; until then sf-e1 is not ready"}` {
+	res := callTool(t, cs, "gate", map[string]any{"action": "add", "blocks": "ar-e1", "approvers": []string{"carol"}})
+	if res.IsError || text(t, res) != `{"id":"ar-g1","approvers":["carol"],"holds":["ar-e1"],"next":"a person passes it; until then ar-e1 is not ready"}` {
 		t.Errorf("gate add = %s", text(t, res))
 	}
 	calls := f.callsOf(proto.OpGateAdd)
 	if len(calls) != 1 {
 		t.Fatalf("gate.add calls = %d, want 1", len(calls))
 	}
-	if a := calls[0].(proto.GateAddArgs); a.Blocks != "sf-e1" || !slices.Equal(a.Approvers, []string{"carol"}) || a.Idem == "" {
-		t.Errorf("gate.add args = %+v, want sf-e1 for carol with a key", a)
+	if a := calls[0].(proto.GateAddArgs); a.Blocks != "ar-e1" || !slices.Equal(a.Approvers, []string{"carol"}) || a.Idem == "" {
+		t.Errorf("gate.add args = %+v, want ar-e1 for carol with a key", a)
 	}
 	res = callTool(t, cs, "gate", map[string]any{"action": "list"})
 	if res.IsError || !strings.Contains(text(t, res), `"approvers":["carol"]`) {
@@ -65,9 +65,9 @@ func TestToolDates(t *testing.T) {
 	t.Parallel()
 	f := &fakeConn{reply: func(op string, _ any) (any, error) {
 		if op == proto.OpShow {
-			return proto.ShowResult{Issue: proto.Issue{ID: "sf-a1", Rev: 3}}, nil
+			return proto.ShowResult{Issue: proto.Issue{ID: "ar-a1", Rev: 3}}, nil
 		}
-		return proto.WriteResult{ID: "sf-a1", Rev: 4}, nil
+		return proto.WriteResult{ID: "ar-a1", Rev: 4}, nil
 	}}
 	cs, _, _ := connectServer(t, f)
 	if res := callTool(t, cs, "create", map[string]any{"title": "upgrade", "defer_until": "2026-11-02", "due": "2026-11-03T18:00:00Z"}); res.IsError {
@@ -76,7 +76,7 @@ func TestToolDates(t *testing.T) {
 	if a := f.callsOf(proto.OpCreate)[0].(proto.CreateArgs); a.DeferUntil != "2026-11-02" || a.Due != "2026-11-03T18:00:00Z" {
 		t.Errorf("create args = %+v, want both dates", a)
 	}
-	if res := callTool(t, cs, "update", map[string]any{"id": "sf-a1", "due": ""}); res.IsError {
+	if res := callTool(t, cs, "update", map[string]any{"id": "ar-a1", "due": ""}); res.IsError {
 		t.Fatalf("update = %s", text(t, res))
 	}
 	if a := f.callsOf(proto.OpUpdate)[0].(proto.UpdateArgs); a.Due == nil || *a.Due != "" || a.DeferUntil != nil {
@@ -91,9 +91,9 @@ func TestPrimeDates(t *testing.T) {
 	f := &fakeConn{who: "alice", reply: func(op string, _ any) (any, error) {
 		if op == proto.OpDates {
 			return proto.DatesResult{Until: due.Add(time.Hour),
-				Overdue: []proto.DigestItem{{ID: "sf-o1", Title: "late", Priority: 1, At: due}},
-				DueSoon: []proto.DigestItem{{ID: "sf-s1", Title: "soon", Priority: 2, At: due.Add(5 * time.Hour)}},
-				Ready:   []proto.DigestItem{{ID: "sf-r1", Title: "window open", Priority: 2, At: due}},
+				Overdue: []proto.DigestItem{{ID: "ar-o1", Title: "late", Priority: 1, At: due}},
+				DueSoon: []proto.DigestItem{{ID: "ar-s1", Title: "soon", Priority: 2, At: due.Add(5 * time.Hour)}},
+				Ready:   []proto.DigestItem{{ID: "ar-r1", Title: "window open", Priority: 2, At: due}},
 				Totals:  proto.DateTotals{Overdue: 1, DueSoon: 1, Ready: 1}}, nil
 		}
 		return proto.ListResult{Issues: []proto.Summary{}}, nil
@@ -104,16 +104,16 @@ func TestPrimeDates(t *testing.T) {
 	}
 	txt := p.Text()
 	for _, want := range []string{
-		"overdue:\n  sf-o1 P1 \"late\" due 2026-10-15T08:00Z\n",
-		"due soon:\n  sf-s1 P2 \"soon\" due 2026-10-15T13:00Z\n",
-		"ready by date:\n  sf-r1 P2 \"window open\" from 2026-10-15T08:00Z\n",
+		"overdue:\n  ar-o1 P1 \"late\" due 2026-10-15T08:00Z\n",
+		"due soon:\n  ar-s1 P2 \"soon\" due 2026-10-15T13:00Z\n",
+		"ready by date:\n  ar-r1 P2 \"window open\" from 2026-10-15T08:00Z\n",
 	} {
 		if !strings.Contains(txt, want) {
 			t.Errorf("prime text:\n%s\nwant %q", txt, want)
 		}
 	}
 	b, _ := json.Marshal(p)
-	if !strings.Contains(string(b), `"overdue":[{"id":"sf-o1"`) {
+	if !strings.Contains(string(b), `"overdue":[{"id":"ar-o1"`) {
 		t.Errorf("prime JSON = %s, want its overdue", b)
 	}
 }
@@ -128,24 +128,24 @@ func TestCIGateResults(t *testing.T) {
 	f := &fakeConn{reply: func(op string, _ any) (any, error) {
 		switch op {
 		case proto.OpGates:
-			return proto.GatesResult{Gates: []proto.Gate{{ID: "sf-g1", Title: "build of sf-a1", Kind: "ci", Approvers: []string{"ci-example"},
-				Check: "build", Subject: "sf-a1", Holds: []string{"sf-b1"}, Report: failed}}}, nil
+			return proto.GatesResult{Gates: []proto.Gate{{ID: "ar-g1", Title: "build of ar-a1", Kind: "ci", Approvers: []string{"ci-example"},
+				Check: "build", Subject: "ar-a1", Holds: []string{"ar-b1"}, Report: failed}}}, nil
 		case proto.OpShow:
-			return proto.ShowResult{Issue: proto.Issue{ID: "sf-a1", Title: "Do it", Status: "closed", Rev: 4}, Checks: []proto.Gate{
-				{ID: "sf-g1", Kind: "ci", Check: "build", Approvers: []string{"ci-example"}, Report: failed},
-				{ID: "sf-g2", Kind: "ci", Check: "landed", Approvers: []string{"ci-example"}},
+			return proto.ShowResult{Issue: proto.Issue{ID: "ar-a1", Title: "Do it", Status: "closed", Rev: 4}, Checks: []proto.Gate{
+				{ID: "ar-g1", Kind: "ci", Check: "build", Approvers: []string{"ci-example"}, Report: failed},
+				{ID: "ar-g2", Kind: "ci", Check: "landed", Approvers: []string{"ci-example"}},
 			}}, nil
 		}
 		return nil, nil
 	}}
 	cs, _, _ := connectServer(t, f)
 	res := callTool(t, cs, "gate", map[string]any{"action": "list"})
-	if want := `{"id":"sf-g1","title":"build of sf-a1","approvers":["ci-example"],"holds":["sf-b1"],"check":"build","subject":"sf-a1",` +
+	if want := `{"id":"ar-g1","title":"build of ar-a1","approvers":["ci-example"],"holds":["ar-b1"],"check":"build","subject":"ar-a1",` +
 		`"report":"failed at 0123456789ab: https://ci.example.com/runs/7 2 tests failed"}`; res.IsError || !strings.Contains(text(t, res), want) {
 		t.Errorf("gate list = %s\nwant it to hold %s", text(t, res), want)
 	}
-	res = callTool(t, cs, "show", map[string]any{"id": "sf-a1"})
-	if want := `"checks":["build failed at 0123456789ab: https://ci.example.com/runs/7 2 tests failed (sf-g1)","landed waits for ci-example (sf-g2)"]`; res.IsError || !strings.Contains(text(t, res), want) {
+	res = callTool(t, cs, "show", map[string]any{"id": "ar-a1"})
+	if want := `"checks":["build failed at 0123456789ab: https://ci.example.com/runs/7 2 tests failed (ar-g1)","landed waits for ci-example (ar-g2)"]`; res.IsError || !strings.Contains(text(t, res), want) {
 		t.Errorf("show = %s\nwant it to hold %s", text(t, res), want)
 	}
 }
@@ -156,13 +156,13 @@ func TestShowChecksFit(t *testing.T) {
 	long := &proto.GateReport{Result: "failed", By: "ci-example", URL: "https://ci.example.com/" + strings.Repeat("r", 1000)}
 	var checks []proto.Gate
 	for i := range 20 {
-		checks = append(checks, proto.Gate{ID: fmt.Sprintf("sf-g%d", i), Kind: "ci", Check: fmt.Sprintf("c%d", i), Report: long})
+		checks = append(checks, proto.Gate{ID: fmt.Sprintf("ar-g%d", i), Kind: "ci", Check: fmt.Sprintf("c%d", i), Report: long})
 	}
 	f := &fakeConn{reply: func(string, any) (any, error) {
-		return proto.ShowResult{Issue: proto.Issue{ID: "sf-a1", Title: "Do it", Status: "open", Rev: 1}, Checks: checks}, nil
+		return proto.ShowResult{Issue: proto.Issue{ID: "ar-a1", Title: "Do it", Status: "open", Rev: 1}, Checks: checks}, nil
 	}}
 	cs, _, _ := connectServer(t, f)
-	out := text(t, callTool(t, cs, "show", map[string]any{"id": "sf-a1"}))
+	out := text(t, callTool(t, cs, "show", map[string]any{"id": "ar-a1"}))
 	var got Issue
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatal(err)

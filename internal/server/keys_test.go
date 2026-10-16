@@ -212,7 +212,7 @@ func TestKeyRemoveDrops(t *testing.T) {
 	res := mustAsk[proto.KeyResult](d, proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: carols})
 	// carol's connection by the hand-maintained file stays. Nothing warns:
 	// that file does not hold this key.
-	if want := (proto.KeyResult{ID: carols, Principal: "carol", Type: "ssh-ed25519", Comment: "carol@example.com", Dropped: 2}); res != want {
+	if want := (proto.KeyResult{Fingerprint: carols, Principal: "carol", Type: "ssh-ed25519", Comment: "carol@example.com", Dropped: 2}); res != want {
 		t.Errorf("key.remove = %+v\nwant %+v: carol's key, and 2 connections dropped", res, want)
 	}
 	if !byKeyA.dropped() || !byKeyB.dropped() {
@@ -348,10 +348,10 @@ func TestKeyOps(t *testing.T) {
 	// changes nothing.
 	bobs := fingerprintOf(t, "bob")
 	add := mustAsk[proto.KeyResult](conns["alice"], proto.OpKeyAdd, proto.KeyAddArgs{Name: "bob", Key: keyLine(t, "bob")})
-	if add != (proto.KeyResult{ID: bobs, Principal: "bob", Type: "ssh-ed25519", Comment: "bob@example.com", Change: "added"}) {
+	if add != (proto.KeyResult{Fingerprint: bobs, Principal: "bob", Type: "ssh-ed25519", Comment: "bob@example.com", Change: "added"}) {
 		t.Errorf("key.add bob by alice = %+v", add)
 	}
-	if again := mustAsk[proto.KeyResult](conns["dana"], proto.OpKeyAdd, proto.KeyAddArgs{Name: "bob", Key: keyLine(t, "bob")}); again.Change != "unchanged" || again.ID != bobs {
+	if again := mustAsk[proto.KeyResult](conns["dana"], proto.OpKeyAdd, proto.KeyAddArgs{Name: "bob", Key: keyLine(t, "bob")}); again.Change != "unchanged" || again.Fingerprint != bobs {
 		t.Errorf("key.add of a key bob has = %+v, want unchanged", again)
 	}
 	mustAsk[proto.KeyResult](conns["dana"], proto.OpKeyAdd, proto.KeyAddArgs{Name: "bob", Key: keyLine(t, "bob 2")})
@@ -381,14 +381,14 @@ func TestKeyOps(t *testing.T) {
 		t.Errorf("alice's own keys = %+v, want an empty list", own.Keys)
 	}
 	rm := mustAsk[proto.KeyResult](conns["alice"], proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: bobs})
-	if rm.ID != bobs || rm.Principal != "bob" || rm.Dropped != 0 {
+	if rm.Fingerprint != bobs || rm.Principal != "bob" || rm.Dropped != 0 {
 		t.Errorf("key.remove of bob's key by alice = %+v", rm)
 	}
 
 	// principal.add with keys: the principal and its keys together.
 	hal := mustAsk[proto.PrincipalAddResult](conns["alice"], proto.OpPrincipalAdd,
 		proto.PrincipalAddArgs{Name: "hal", Keys: []string{keyLine(t, "hal"), keyLine(t, "hal 2")}})
-	if hal.ID != "hal" || hal.Project != projA || !slices.Equal(hal.Keys, []string{fingerprintOf(t, "hal"), fingerprintOf(t, "hal 2")}) {
+	if hal.Name != "hal" || hal.Project != projA || !slices.Equal(hal.Keys, []string{fingerprintOf(t, "hal"), fingerprintOf(t, "hal 2")}) {
 		t.Errorf("principal.add hal with two keys = %+v", hal)
 	}
 	if got := m.sshd(t, fingerprintOf(t, "hal")); got != "hal" {

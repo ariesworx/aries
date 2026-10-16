@@ -32,13 +32,13 @@ func TestLimitsDefaultsAndValidate(t *testing.T) {
 		l    Limits
 		name string
 	}{
-		{Limits{MemoryBody: 65536}, "memory_body"}, {Limits{MemoryTagLength: 256}, "memory_tag_length"},
-		{Limits{MemoryKeyLength: 256}, "memory_key_length"},
-		{Limits{Prices: 10001}, "prices"}, {Limits{HoursNote: 65536}, "hours_note"},
-		{Limits{Plans: 10001}, "plans"}, {Limits{PlanPrincipals: 1001}, "plan_principals"},
-		{Limits{GateChecks: 101}, "gate_checks"}, {Limits{GateEvidence: 4097}, "gate_evidence"},
-		{Limits{Locks: 10001}, "locks"}, {Limits{LockCapacity: 1001}, "lock_capacity"},
-		{Limits{LockWaiters: 1001}, "lock_waiters"}, {Limits{LockWaits: 1001}, "lock_waits_per_principal"},
+		{Limits{MemoryBody: 65536}, "memory_body_bytes"}, {Limits{MemoryTagLength: 256}, "memory_tag_bytes"},
+		{Limits{MemoryKeyLength: 256}, "memory_key_bytes"},
+		{Limits{Prices: 10001}, "prices_per_project"}, {Limits{HoursNote: 65536}, "hours_note_bytes"},
+		{Limits{Plans: 10001}, "plans_per_project"}, {Limits{PlanPrincipals: 1001}, "principals_per_plan"},
+		{Limits{GateChecks: 101}, "checks_per_issue"}, {Limits{GateEvidence: 4097}, "gate_evidence_bytes"},
+		{Limits{Locks: 10001}, "locks_per_project"}, {Limits{LockCapacity: 1001}, "holders_per_lock"},
+		{Limits{LockWaiters: 1001}, "waiters_per_lock"}, {Limits{LockWaits: 1001}, "lock_waits_per_principal"},
 	} {
 		if err := tc.l.Validate(); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), tc.name) {
 			t.Errorf("%+v.Validate() = %v, want ErrInvalid naming %s", tc.l, err, tc.name)
@@ -65,8 +65,8 @@ func TestLimitsDefaultsAndValidate(t *testing.T) {
 		if tc.ok && err != nil {
 			t.Errorf("%+v.Validate() = %v, want nil", tc.l, err)
 		}
-		if !tc.ok && (!errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "plans times plan_principals")) {
-			t.Errorf("%+v.Validate() = %v, want ErrInvalid naming plans times plan_principals", tc.l, err)
+		if !tc.ok && (!errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "plans_per_project times principals_per_plan")) {
+			t.Errorf("%+v.Validate() = %v, want ErrInvalid naming plans_per_project times principals_per_plan", tc.l, err)
 		}
 	}
 	if err := (Limits{}).Validate(); err != nil {

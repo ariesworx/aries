@@ -105,6 +105,8 @@ func cmdCreate(ctx context.Context, r *runner, args []string) error {
 	fs.Var(&labels, "label", "label (repeatable, or comma-separated)")
 	fs.Var(&paths, "paths", "files the work will touch, relative to here; a directory ends in / (repeatable, or comma-separated)")
 	fs.Var(&labels, "l", "label")
+	// Hidden: no usage line or guide names --id, which only a script that
+	// imports issues needs; it is not part of 1.0's surface (decision 88).
 	fs.StringVar(&id, "id", "", "issue id (default: generated)")
 	pos, err := parse(fs, args, usage)
 	if err != nil {
@@ -241,7 +243,7 @@ func printIssue(w io.Writer, s proto.ShowResult) {
 	p := func(format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }
 	p("%s  P%d  %s  %s  rev %d\n%s\n", esc(is.ID), is.Priority, esc(is.Status), esc(is.Type), is.Rev, esc(is.Title))
 	var who []string
-	for _, kv := range [][2]string{{"parent", is.ParentID}, {"assignee", is.Assignee}, {"owner", is.Owner}} {
+	for _, kv := range [][2]string{{"parent", is.Parent}, {"assignee", is.Assignee}, {"owner", is.Owner}} {
 		if kv[1] != "" {
 			who = append(who, kv[0]+": "+esc(kv[1]))
 		}
@@ -266,8 +268,8 @@ func printIssue(w io.Writer, s proto.ShowResult) {
 	if is.DeferUntil != nil {
 		dates = append(dates, "not before "+when(*is.DeferUntil))
 	}
-	if is.DueAt != nil {
-		dates = append(dates, "due "+when(*is.DueAt))
+	if is.Due != nil {
+		dates = append(dates, "due "+when(*is.Due))
 	}
 	if len(dates) > 0 {
 		p("%s\n", strings.Join(dates, "; "))
@@ -415,7 +417,7 @@ func printList(w io.Writer, issues []proto.Summary) {
 		if t := issues[i].DeferUntil; t != nil {
 			ds = append(ds, "not before "+when(*t))
 		}
-		if t := issues[i].DueAt; t != nil {
+		if t := issues[i].Due; t != nil {
 			ds = append(ds, "due "+when(*t))
 		}
 		if len(ds) == 0 {
@@ -665,15 +667,15 @@ func cmdDep(ctx context.Context, r *runner, args []string) error {
 	if op == "" {
 		return usagef(usage, "unknown dep action %q", pos[0])
 	}
-	in.From, in.To = pos[1], pos[2]
+	in.From, in.To, in.Idem = pos[1], pos[2], proto.NewIdem("cli")
 	if op == proto.OpDepRm {
+		// Never queued (outbox.never), though the server honors its key.
 		if err := r.call(ctx, op, in, nil); err != nil {
 			return err
 		}
 		r.done()
 		return nil
 	}
-	in.Idem = proto.NewIdem("cli")
 	kept, err := r.send(ctx, op, in, nil)
 	if err != nil {
 		return err

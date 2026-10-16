@@ -66,18 +66,18 @@ func TestPrintCost(t *testing.T) {
 		{"empty", proto.CostResult{By: "account", Since: since, Until: since.Add(7 * 24 * time.Hour), Total: proto.CostGroup{CostUSD: "0"}},
 			"cost by account, 2026-10-01 00:00 UTC to 2026-10-08 00:00 UTC (7d): no tokens\n"},
 		{"groups", proto.CostResult{By: "issue", Since: since, Until: since.Add(24 * time.Hour), Groups: []proto.CostGroup{
-			{Key: "sf-a1", Title: "a long title " + strings.Repeat("x", 60), Tokens: proto.Tokens{Input: n(1_200_000), Output: n(34_000)},
+			{Key: "ar-a1", Title: "a long title " + strings.Repeat("x", 60), Tokens: proto.Tokens{Input: n(1_200_000), Output: n(34_000)},
 				CostUSD: "12.345", Split: true},
 			{Key: proto.CostUnattributed, Tokens: proto.Tokens{Input: n(500)}, CostUSD: "0.0001"},
-			{Key: "sf-b2", Title: "odd", Tokens: proto.Tokens{Input: n(50)}, CostUSD: "0", Unpriced: true},
-			{Key: "sf-c3", Tokens: proto.Tokens{Input: n(9)}, CostUSD: "1", Unpriced: true}, // partly priced
+			{Key: "ar-b2", Title: "odd", Tokens: proto.Tokens{Input: n(50)}, CostUSD: "0", Unpriced: true},
+			{Key: "ar-c3", Tokens: proto.Tokens{Input: n(9)}, CostUSD: "1", Unpriced: true}, // partly priced
 		}, Total: proto.CostGroup{Tokens: proto.Tokens{Input: n(1_200_559), Output: n(34_000)}, CostUSD: "13.3451", Unpriced: true, Split: true},
 			Unpriced: []string{"mystery"}, UnpricedMore: 3, Truncated: true},
 			"cost by issue, 2026-10-01 00:00 UTC to 2026-10-02 00:00 UTC (1d), list price\n" +
-				"  sf-a1           a long title xxxxxxxxxxxxxxxxxxxxxxxxxxx…  $12.35    1.2M tokens  split\n" +
+				"  ar-a1           a long title xxxxxxxxxxxxxxxxxxxxxxxxxxx…  $12.35    1.2M tokens  split\n" +
 				"  (unattributed)                                             <$0.01    500 tokens\n" +
-				"  sf-b2           odd                                        unpriced  50 tokens\n" +
-				"  sf-c3                                                      $1.00     9 tokens     unpriced\n" +
+				"  ar-b2           odd                                        unpriced  50 tokens\n" +
+				"  ar-c3                                                      $1.00     9 tokens     unpriced\n" +
 				"total $13.35, 1.2M tokens\n" +
 				"split: shared by time with other work, so an estimate\n" +
 				"unpriced: no price for mystery and 3 more; an admin sets one with `aries admin price set`\n" +

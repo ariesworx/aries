@@ -78,7 +78,7 @@ var benchLimits = Limits{Conns: 4096, ConnsPerPrincipal: 4096, Handshakes: 4096,
 func seedProject(b *testing.B) seeded {
 	b.Helper()
 	dsn := newDatabase(b)
-	st, err := store.Open(b.Context(), dsn, store.Options{Prefix: "sf", Admins: []string{dana.Principal}})
+	st, err := store.Open(b.Context(), dsn, store.Options{Prefix: "ar", Admins: []string{dana.Principal}})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -229,7 +229,7 @@ func newBenchWorld(b *testing.B, sd seeded, mode string, counted bool) *benchWor
 	}
 	tel, log := benchTel(b, mode)
 	var err error
-	w.st, err = store.Open(b.Context(), dsn, store.Options{Prefix: "sf", Admins: []string{dana.Principal}, Logger: log,
+	w.st, err = store.Open(b.Context(), dsn, store.Options{Prefix: "ar", Admins: []string{dana.Principal}, Logger: log,
 		Observer: StoreObserver(tel, project), Tracer: StoreTracer(tel, project)})
 	if err != nil {
 		b.Fatal(err)
@@ -504,7 +504,7 @@ var benchOps = []struct {
 	{"refused", func(r *benchRun) {
 		// A request the store refuses: the error's mapping and its line
 		// in the log, which is sampled.
-		req := r.c.frame(proto.OpShow, proto.ShowArgs{ID: "sf-aaaaaaaa"})
+		req := r.c.frame(proto.OpShow, proto.ShowArgs{ID: "ar-aaaaaaaa"})
 		r.each(func() {
 			var before sqlCount
 			if r.w.sql != nil {

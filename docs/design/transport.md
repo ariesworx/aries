@@ -143,7 +143,7 @@ Each a `server.Limits` field with a default, a `limits:` key, a table-driven tes
 | `token_exchanges_per_rule` | 120 an hour | Workload exchanges per trust rule |
 | `grants_per_principal` | 64 | Live sign-ins (machines and connectors); identity.md's `login_keys_per_principal` becomes this |
 
-The existing per-principal limits (`conns_per_principal`, `handshakes_per_principal`, `write_rate`) apply unchanged behind the handshake.
+The existing per-principal limits (`conns_per_principal`, `handshakes_per_principal`, `writes_per_second`) apply unchanged behind the handshake.
 
 ### 4.7 AppArmor, systemd and the installer
 

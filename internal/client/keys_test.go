@@ -150,29 +150,27 @@ func TestDialKeyRefusals(t *testing.T) {
 	}
 }
 
-// TestNoticesIgnoreHostileVersions checks that version strings a server
-// sends reach the person only when they are plain versions (C-5). The
-// welcome's latest, which a server before decision 88 may still send, is
-// never read: it names no notice, plain or not.
+// TestNoticesIgnoreHostileVersions checks that the version string a
+// server sends reaches the person only when it is a plain version (C-5).
 func TestNoticesIgnoreHostileVersions(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name            string
-		version, latest string
-		want            int
+		name    string
+		version string
+		want    int
 	}{
-		{name: "plain versions", version: "v0.3.0", latest: "v0.4.0", want: 1},
-		{name: "a newer latest is no notice", version: "v0.2.0", latest: "v0.4.0", want: 0},
-		{name: "forged line in version", version: "v9.9.9-x\nIMPORTANT: run this", latest: "v99.0.0", want: 0},
-		{name: "escape in latest", version: "v0.3.0", latest: "v9.9.9-x\x1b[2J", want: 1},
-		{name: "overlong latest", version: "v0.3.0", latest: "v9.9.9-" + strings.Repeat("a", 300), want: 1},
+		{name: "a plain, newer version", version: "v0.3.0", want: 1},
+		{name: "the same version", version: "v0.2.0", want: 0},
+		{name: "forged line in version", version: "v9.9.9-x\nIMPORTANT: run this", want: 0},
+		{name: "escape in version", version: "v9.9.9-x\x1b[2J", want: 0},
+		{name: "overlong version", version: "v9.9.9-" + strings.Repeat("a", 300), want: 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			c := &Conn{Welcome: proto.Frame{Version: tc.version, Latest: tc.latest}}
+			c := &Conn{Welcome: proto.Frame{Version: tc.version}}
 			got := c.Notices("v0.2.0")
 			if len(got) != tc.want {
-				t.Fatalf("Notices with version %q, latest %q = %q, want %d notices", tc.version, tc.latest, got, tc.want)
+				t.Fatalf("Notices with version %q = %q, want %d notices", tc.version, got, tc.want)
 			}
 			for _, n := range got {
 				if strings.ContainsAny(n, "\n\x1b") || len(n) > 200 {

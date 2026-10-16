@@ -2,8 +2,8 @@ package proto
 
 import "time"
 
-// Access management on a server of many projects (protocol 5, design
-// §15): projects, principals and memberships, for `aries admin`. Every op
+// Access management on a server of many projects (design §15):
+// projects, principals and memberships, for `aries admin`. Every op
 // rides an ordinary connection, which names a project the caller may
 // reach; an op that acts on a project takes Project, a project's UUID or
 // its name, and acts on the connection's project when it is empty. A
@@ -12,12 +12,11 @@ import "time"
 // Who may run each is the control store's to decide; a refusal is
 // forbidden, with a fix that says who can.
 //
-// The same protocol has a principal's public SSH keys, which the daemon
+// The protocol also has a principal's public SSH keys, which the daemon
 // writes to a file sshd reads (design §15.2): key.add, keys and
 // key.remove, and Keys on principal.add; and status, a read for an admin
 // watching the server; and principal.whois, which resolves the stand-in
-// a trace carries in place of a principal's name (design §16.4). They
-// joined protocol 5 before it shipped in a release (version.go).
+// a trace carries in place of a principal's name (design §16.4).
 const (
 	OpProjectAdd       = "project.add"       // ProjectAddArgs → ProjectAddResult; server admins
 	OpProjects         = "projects"          // AdminListArgs → ProjectsResult
@@ -144,7 +143,7 @@ type PrincipalArgs struct {
 // store, PrincipalsCreated and MembersAdded. Disabling ends none of
 // them, and Warning then names the commands that list them.
 type PrincipalResult struct {
-	ID                string `json:"id"`
+	Name              string `json:"name"`
 	Rev               int64  `json:"rev"`
 	State             string `json:"state"`
 	Project           string `json:"project,omitempty"`
@@ -231,7 +230,7 @@ type MemberSetArgs struct {
 // counting this one once it is added. Every caller is shown these,
 // whether or not they may change the principal's keys.
 type MemberSetResult struct {
-	ID          string       `json:"id"`
+	Name        string       `json:"name"`
 	Rev         int64        `json:"rev"`
 	Project     string       `json:"project"`
 	ProjectName string       `json:"project_name"`
@@ -302,13 +301,13 @@ type MemberArgs struct {
 	Project string `json:"project,omitempty"`
 }
 
-// MemberRemoveResult is the membership removed: the principal as ID and
-// the project. Warning, when set, tells the admin what the removal
+// MemberRemoveResult is the membership removed: the principal as Name
+// and the project. Warning, when set, tells the admin what the removal
 // changed beyond the project: that admins of the principal's remaining
 // projects can now manage its keys. Released counts the claims the
 // removal ended.
 type MemberRemoveResult struct {
-	ID          string `json:"id"`
+	Name        string `json:"name"`
 	Project     string `json:"project"`
 	ProjectName string `json:"project_name"`
 	Warning     string `json:"warning,omitempty"`
@@ -336,7 +335,7 @@ type KeyAddArgs struct {
 // also says when the change is committed and the server could not write
 // the keys file sshd reads, which may then be out of date.
 type KeyResult struct {
-	ID               string `json:"id"`
+	Fingerprint      string `json:"fingerprint"`
 	Principal        string `json:"principal"`
 	Type             string `json:"type"`
 	Comment          string `json:"comment,omitempty"`

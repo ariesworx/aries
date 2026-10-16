@@ -11,7 +11,7 @@ import (
 )
 
 // keptAs seeds principal's cache as connected reads would have, at the
-// checkout's clock: a show of sf-a1b2, the inbox, a digest and prime.
+// checkout's clock: a show of ar-a1b2, the inbox, a digest and prime.
 func (a *away) keptAs(t *testing.T, principal string) {
 	t.Helper()
 	c := a.local().Cache(principal)
@@ -19,17 +19,17 @@ func (a *away) keptAs(t *testing.T, principal string) {
 		op           string
 		args, result any
 	}{
-		{proto.OpShow, proto.ShowArgs{ID: "sf-a1b2", Full: true}, proto.ShowResult{Issue: proto.Issue{ID: "sf-a1b2", Title: "Held work",
+		{proto.OpShow, proto.ShowArgs{ID: "ar-a1b2", Full: true}, proto.ShowResult{Issue: proto.Issue{ID: "ar-a1b2", Title: "Held work",
 			Status: "in_progress", Type: "task", Rev: 4, Body: "the plan"}}},
-		{proto.OpInbox, proto.InboxArgs{}, proto.InboxResult{Unread: 1, Items: []proto.InboxItem{{ID: 7, Kind: "handoff", Issue: "sf-a1b2", From: "bob", Body: "over to you"}}}},
+		{proto.OpInbox, proto.InboxArgs{}, proto.InboxResult{Unread: 1, Items: []proto.InboxItem{{ID: 7, Kind: "issue.handoff", Issue: "ar-a1b2", From: "bob", Body: "over to you"}}}},
 		{proto.OpDigest, proto.DigestArgs{}, proto.DigestResult{Totals: proto.DigestTotals{Closed: 3}}},
 	} {
 		if err := c.Keep(k.op, k.args, k.result); err != nil {
 			t.Fatal(err)
 		}
 	}
-	p := &mcpserver.Prime{Project: "demo", You: principal, Session: "old", Working: []proto.Summary{{ID: "sf-a1b2", Title: "Held work", Status: "in_progress"}},
-		Ready: []proto.Summary{{ID: "sf-c3d4", Title: "Up next"}}}
+	p := &mcpserver.Prime{Project: "demo", You: principal, Session: "old", Working: []proto.Summary{{ID: "ar-a1b2", Title: "Held work", Status: "in_progress"}},
+		Ready: []proto.Summary{{ID: "ar-c3d4", Title: "Up next"}}}
 	if err := mcpserver.KeepPrime(c, p); err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestCachedReads(t *testing.T) {
 		args []string
 		want string // in stdout
 	}{
-		{[]string{"show", "sf-a1b2"}, "sf-a1b2  P0  in_progress  task  rev 4\nHeld work\n"},
+		{[]string{"show", "ar-a1b2"}, "ar-a1b2  P0  in_progress  task  rev 4\nHeld work\n"},
 		{[]string{"inbox"}, "over to you"},
 		{[]string{"digest"}, "closed"},
 	} {
@@ -63,7 +63,7 @@ func TestCachedReads(t *testing.T) {
 		}
 	}
 
-	code, out, errb := a.run(t, "show", "sf-a1b2", "--json")
+	code, out, errb := a.run(t, "show", "ar-a1b2", "--json")
 	var doc struct {
 		Cached   bool      `json:"cached"`
 		CachedAt time.Time `json:"cached_at"`
@@ -79,19 +79,19 @@ func TestCachedReads(t *testing.T) {
 		"aries: project demo, you are alice, session cli\n",
 		"notice: " + strings.TrimPrefix(strings.TrimSuffix(cachedLine, "\n"), "aries: ") + "\n",
 		"next: carry on with the work in progress; nothing can be started until the server answers",
-		"in progress:\n  sf-a1b2 P0 \"Held work\"\n",
+		"in progress:\n  ar-a1b2 P0 \"Held work\"\n",
 		"ready:\n  (not shown while the server cannot be reached)\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("aries prime with the server away lacks %q:\n%s", want, out)
 		}
 	}
-	if code != ExitOK || errb != cachedLine || strings.Contains(out, "sf-c3d4") {
+	if code != ExitOK || errb != cachedLine || strings.Contains(out, "ar-c3d4") {
 		t.Errorf("aries prime with the server away = exit %d, stderr %q; want the cached prime without its ready issues, and the line on stderr", code, errb)
 	}
 
 	// What was never read fails as it did.
-	if code, _, errb := a.run(t, "show", "sf-zzzz"); code != ExitFailure || !strings.HasPrefix(errb, "aries: ") || strings.Contains(errb, "cached") {
+	if code, _, errb := a.run(t, "show", "ar-zzzz"); code != ExitFailure || !strings.HasPrefix(errb, "aries: ") || strings.Contains(errb, "cached") {
 		t.Errorf("aries show of an issue never read = exit %d, %q; want the failure as before", code, errb)
 	}
 	if code, _, errb := a.run(t, "inbox", "--all"); code != ExitFailure || strings.Contains(errb, "cached") {
@@ -107,7 +107,7 @@ func TestPrimeHookFromCache(t *testing.T) {
 	a.reachedAs(t, "alice")
 	a.keptAs(t, "alice")
 	a.now = a.now.Add(3 * time.Hour)
-	a.run(t, "comment", "sf-a1b2", "queued meanwhile")
+	a.run(t, "comment", "ar-a1b2", "queued meanwhile")
 	code, out, errb := a.run(t, "prime", "--hook")
 	var doc struct {
 		HookSpecificOutput struct {
@@ -118,7 +118,7 @@ func TestPrimeHookFromCache(t *testing.T) {
 		t.Fatalf("aries prime --hook with the server away = exit %d, %q (%v), stderr %q; want one JSON document and nothing else", code, out, err, errb)
 	}
 	ctx := doc.HookSpecificOutput.AdditionalContext
-	if !strings.Contains(ctx, "notice: cached: aries cannot reach its server") || !strings.Contains(ctx, `sf-a1b2 P0 "Held work"`) ||
+	if !strings.Contains(ctx, "notice: cached: aries cannot reach its server") || !strings.Contains(ctx, `ar-a1b2 P0 "Held work"`) ||
 		!strings.Contains(ctx, "notice: outbox: 1 write made while the server was away waits to be sent") {
 		t.Errorf("the hook's context with the server away:\n%s\nwant the cached prime, saying it is cached, with the outbox's notice", ctx)
 	}
@@ -150,7 +150,7 @@ func TestCacheRefusals(t *testing.T) {
 	// The server took this machine's key for bob since: alice's copy is
 	// not his.
 	a.reachedAs(t, "bob")
-	for _, args := range [][]string{{"show", "sf-a1b2"}, {"prime"}, {"inbox"}} {
+	for _, args := range [][]string{{"show", "ar-a1b2"}, {"prime"}, {"inbox"}} {
 		if code, out, errb := a.run(t, args...); code != ExitFailure || strings.Contains(out, "Held work") || strings.Contains(errb, "cached") {
 			t.Errorf("aries %s as bob = exit %d, %q, %q; want alice's copy kept from him", strings.Join(args, " "), code, out, errb)
 		}
@@ -165,7 +165,7 @@ func TestCacheCommand(t *testing.T) {
 	a.reachedAs(t, "alice")
 	a.keptAs(t, "alice")
 	a.keptAs(t, "bob")
-	a.run(t, "comment", "sf-a1b2", "kept for later")
+	a.run(t, "comment", "ar-a1b2", "kept for later")
 	code, out, _ := a.run(t, "cache")
 	for _, want := range []string{
 		"alice's cache: 4 answers, ",

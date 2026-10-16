@@ -10,7 +10,7 @@ import (
 	"github.com/ariesworx/aries/internal/lazyregexp"
 )
 
-// Prices and cost reports (protocol 4, design §12.1). Rates are integer
+// Prices and cost reports (design §12.1). Rates are integer
 // micro-dollars (10⁻⁶ USD) per million tokens, so a cost is exact: the
 // server sums rate × tokens in picodollars (10⁻¹² USD) and sends the sum
 // as a decimal string of US dollars, which no JSON reader rounds through
@@ -99,7 +99,7 @@ type CostArgs struct {
 // the time people logged by hand on the days the window overlaps.
 // AmortizedUSD is the group's part of the subscription plans' monthly
 // totals, an exact decimal, sent in every group once the server has a
-// plan (protocol 4).
+// plan.
 type CostGroup struct {
 	Key   string `json:"key"`
 	Title string `json:"title,omitempty"`

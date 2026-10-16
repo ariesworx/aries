@@ -13,11 +13,11 @@ import (
 
 func TestFrameRoundTrip(t *testing.T) {
 	t.Parallel()
-	req, err := Request(7, OpShow, ShowArgs{ID: "sf-abcd1234", Full: true})
+	req, err := Request(7, OpShow, ShowArgs{ID: "ar-abcd1234", Full: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ok, err := Response(7, WriteResult{ID: "sf-abcd1234", Rev: 3}, nil)
+	ok, err := Response(7, WriteResult{ID: "ar-abcd1234", Rev: 3}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func TestFrameRoundTrip(t *testing.T) {
 	frames := []*Frame{
 		{T: FrameBridge, Principal: "alice"},
 		{T: FrameHello, Version: "v0.1.0", Proto: 1, Project: "p", Session: "s", Machine: "m"},
-		{T: FrameWelcome, Version: "v0.1.0", Min: 1, Max: 2, Session: "s", Latest: "v0.2.0"},
+		{T: FrameWelcome, Version: "v0.1.0", Min: 1, Max: 2, Session: "s"},
 		{T: FrameWelcome, Err: Errf(CodeVersion, "upgrade", "too old")},
 		req, ok, refused,
 		{T: FrameEvent},
@@ -160,16 +160,16 @@ func TestCheckProto(t *testing.T) {
 	}
 }
 
-// TestReleasedClients pins what this server tells each released client.
-// Every release so far is refused: v0.2.x speaks protocol 2, v0.3.x
-// speaks 3 and v0.4.x speaks 4, and ProtoMin was raised past them all,
-// once, while nobody ran Aries in production (design §14, decision
-// 25). A released client prints the message and the fix the server sends
-// as they are, so these are the words its user reads, with exit code 3:
-// which side is too old, the version the server needs, and that the
-// client is the one to upgrade. After this, ProtoMin moves only one
-// version behind Proto, and a release that is then refused must be added
-// here deliberately.
+// TestReleasedClients pins what this server tells each client of
+// another protocol. The protocol settled at 8 for v1.0.0 (design §14,
+// decisions 78 and 88), spoken alone: every release before it (v0.2.x
+// spoke 2, v0.3.x 3 and v0.4.x 4) is refused, and so is a build of 5
+// to 7, which no release spoke. A refused client prints the message and
+// the fix the server sends as they are, so these are the words its user
+// reads, with exit code 3: which side is too old, the version the server
+// needs, and that the client is the one to upgrade. From v1.0.0 on, rule
+// 10's bump keeps ProtoMin at the version before, and a client that is
+// then refused must be added here deliberately.
 func TestReleasedClients(t *testing.T) {
 	t.Parallel()
 	const fix = "upgrade this client: run `aries upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `aries mcp`"
@@ -178,28 +178,28 @@ func TestReleasedClients(t *testing.T) {
 		proto   int
 		want    string // the refusal's message, or "" when the client is served
 	}{
-		{"v0.1.x", 1, "aries speaks protocol 1; the server (v0.5.0) needs protocols 7 to 8"},
-		{"v0.2.x", 2, "aries speaks protocol 2; the server (v0.5.0) needs protocols 7 to 8"},
-		{"v0.3.x", 3, "aries speaks protocol 3; the server (v0.5.0) needs protocols 7 to 8"},
-		{"v0.4.x", 4, "aries speaks protocol 4; the server (v0.5.0) needs protocols 7 to 8"},
-		{"a build of protocol 5, from before protocol 6", 5, "aries speaks protocol 5; the server (v0.5.0) needs protocols 7 to 8"},
-		{"a build of protocol 6, from before protocol 7", 6, "aries speaks protocol 6; the server (v0.5.0) needs protocols 7 to 8"},
-		{"a build of protocol 7, from before protocol 8", 7, ""},
+		{"a v0.1.x client", 1, "aries speaks protocol 1; the server (v1.0.0) needs protocol 8"},
+		{"a v0.2.x client", 2, "aries speaks protocol 2; the server (v1.0.0) needs protocol 8"},
+		{"a v0.3.x client", 3, "aries speaks protocol 3; the server (v1.0.0) needs protocol 8"},
+		{"a v0.4.x client", 4, "aries speaks protocol 4; the server (v1.0.0) needs protocol 8"},
+		{"a build of protocol 5", 5, "aries speaks protocol 5; the server (v1.0.0) needs protocol 8"},
+		{"a build of protocol 6", 6, "aries speaks protocol 6; the server (v1.0.0) needs protocol 8"},
+		{"a build of protocol 7", 7, "aries speaks protocol 7; the server (v1.0.0) needs protocol 8"},
 		{"this build", Proto, ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.release, func(t *testing.T) {
-			e := CheckProto(tc.proto, ProtoMin, ProtoMax, "v0.5.0")
+			e := CheckProto(tc.proto, ProtoMin, ProtoMax, "v1.0.0")
 			switch {
 			case tc.want == "" && e != nil:
-				t.Errorf("CheckProto(%d, %d, %d) for a %s client = %v, want it served", tc.proto, ProtoMin, ProtoMax, tc.release, e)
+				t.Errorf("CheckProto(%d, %d, %d) for %s = %v, want it served", tc.proto, ProtoMin, ProtoMax, tc.release, e)
 			case tc.want != "" && (e == nil || e.Code != CodeVersion || e.Message != tc.want || e.Fix != fix):
-				t.Errorf("CheckProto(%d, %d, %d) for a %s client = %+v\nwant code version, %q\nfix %q", tc.proto, ProtoMin, ProtoMax, tc.release, e, tc.want, fix)
+				t.Errorf("CheckProto(%d, %d, %d) for %s = %+v\nwant code version, %q\nfix %q", tc.proto, ProtoMin, ProtoMax, tc.release, e, tc.want, fix)
 			}
 		})
 	}
-	if Proto != 8 || ProtoMin != 7 || ProtoMax != 8 {
-		t.Errorf("Proto, ProtoMin, ProtoMax = %d, %d, %d; want 8, 7, 8. A bump raises Proto and ProtoMax and leaves ProtoMin one behind: update this test with it", Proto, ProtoMin, ProtoMax)
+	if Proto != 8 || ProtoMin != 8 || ProtoMax != 8 {
+		t.Errorf("Proto, ProtoMin, ProtoMax = %d, %d, %d; want 8, 8, 8, settled for v1.0.0. A bump after it raises Proto and ProtoMax and keeps ProtoMin at the version before: update this test with it", Proto, ProtoMin, ProtoMax)
 	}
 }
 
@@ -209,9 +209,9 @@ func TestReleasedClients(t *testing.T) {
 // is what a v0.4.x server, which accepts 2 to 4, makes this client say.
 func TestCheckProtoBothDirections(t *testing.T) {
 	t.Parallel()
-	old := CheckProto(ProtoMin-1, ProtoMin, ProtoMax, "v0.5.0")
+	old := CheckProto(ProtoMin-1, ProtoMin, ProtoMax, "v1.0.0")
 	if old == nil || old.Code != CodeVersion || !strings.HasPrefix(old.Fix, "upgrade this client: run `aries upgrade`") ||
-		strings.Contains(old.Fix, "ariesd upgrade") || !strings.Contains(old.Message, "needs protocols 7 to 8") {
+		strings.Contains(old.Fix, "ariesd upgrade") || !strings.Contains(old.Message, "needs protocol 8") {
 		t.Errorf("an older client against this server = %+v; want it told to upgrade the client, and the version the server needs", old)
 	}
 	const want = "aries speaks protocol 8; the server (v0.4.0) is older and accepts protocols 2 to 4"
@@ -219,36 +219,9 @@ func TestCheckProtoBothDirections(t *testing.T) {
 	if e := CheckProto(Proto, 2, 4, "v0.4.0"); e == nil || e.Code != CodeVersion || e.Message != want || e.Fix != fix {
 		t.Errorf("this client against a v0.4.0 server = %+v\nwant %q\nfix %q", e, want, fix)
 	}
-}
-
-// TestSpeak pins which protocol this build speaks to a server that
-// accepts lo to hi: the newest both have, from ProtoMin to Proto (design
-// §18.5: a client of protocol 8 steps down to a server of 7), and none
-// when they share none: a server of 6 alone is too old for this build.
-func TestSpeak(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name   string
-		lo, hi int
-		want   int // 0 is none
-	}{
-		{"a server of this build", ProtoMin, ProtoMax, Proto},
-		{"a server of protocol 7 alone", 7, 7, 7},
-		{"a server of 6 and 7", 6, 7, 7},
-		{"a newer server, which still accepts this build", 8, 9, 8},
-		{"a server that overlaps from below", 4, 7, 7},
-		{"a server of protocol 6 alone, too old", 6, 6, 0},
-		{"a server too new", 9, 10, 0},
-		{"a server too old", 2, 4, 0},
-		{"an empty range", 8, 7, 0},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got, ok := Speak(tc.lo, tc.hi)
-			if got != tc.want || ok != (tc.want != 0) {
-				t.Errorf("Speak(%d, %d) = %d, %v; want %d, %v", tc.lo, tc.hi, got, ok, tc.want, tc.want != 0)
-			}
-		})
+	const want7 = "aries speaks protocol 8; the server (dev) is older and accepts protocol 7"
+	if e := CheckProto(Proto, 7, 7, "dev"); e == nil || e.Code != CodeVersion || e.Message != want7 || e.Fix != fix {
+		t.Errorf("this client against a server of protocol 7 alone = %+v\nwant %q\nfix %q", e, want7, fix)
 	}
 }
 
@@ -338,12 +311,6 @@ func TestHostileServerVersion(t *testing.T) {
 		if got := OlderClientWarning("v0.1.0", v); got != "" {
 			t.Errorf("OlderClientWarning(v0.1.0, %q) = %q, want \"\"", v, got)
 		}
-		if got := OlderServerWarning("v0.1.0", v); got != "" {
-			t.Errorf("OlderServerWarning(v0.1.0, %q) = %q, want \"\"", v, got)
-		}
-		if got := OlderServerWarning(v, "v99.0.0"); got != "" {
-			t.Errorf("OlderServerWarning(%q, v99.0.0) = %q, want \"\"", v, got)
-		}
 		e := CheckProto(1, 2, 3, v)
 		if e == nil || strings.Contains(e.Message, v) || !strings.Contains(e.Message, "unknown version") {
 			t.Errorf("CheckProto(1, 2, 3, %q) = %v, want a refusal naming \"unknown version\"", v, e)
@@ -418,21 +385,6 @@ func TestErrorReq(t *testing.T) {
 	}
 }
 
-func TestOlderServerWarning(t *testing.T) {
-	t.Parallel()
-	tests := []struct{ server, latest, want string }{
-		{"v0.1.0", "v0.2.0", "the server runs ariesd v0.1.0; v0.2.0 is out: ask the admin to run `ariesd upgrade`"},
-		{"v0.2.0", "v0.2.0", ""},
-		{"v0.2.0", "", ""},
-		{"dev", "v0.2.0", ""},
-	}
-	for _, tc := range tests {
-		if got := OlderServerWarning(tc.server, tc.latest); got != tc.want {
-			t.Errorf("(%s, %s) = %q, want %q", tc.server, tc.latest, got, tc.want)
-		}
-	}
-}
-
 func TestEventChanged(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -441,7 +393,7 @@ func TestEventChanged(t *testing.T) {
 	}{
 		{Event{Op: "issue.update", Before: json.RawMessage(`{"title":"a"}`), After: json.RawMessage(`{"title":"b","assignee":"x"}`)}, "assignee, title"},
 		{Event{Op: "label.add", After: json.RawMessage(`{"label":"docs"}`)}, "docs"},
-		{Event{Op: "dep.remove", Before: json.RawMessage(`{"type":"blocks","to":"sf-b"}`)}, "blocks sf-b"},
+		{Event{Op: "dep.remove", Before: json.RawMessage(`{"type":"blocks","to":"ar-b"}`)}, "blocks ar-b"},
 		{Event{Op: "issue.create", After: json.RawMessage(`{"title":"Ship"}`)}, `"Ship"`},
 		{Event{Op: "comment.add"}, ""},
 		{Event{Op: "issue.paths", After: json.RawMessage(`{"source":"commit","added":["a","b"]}`)}, "commit +2"},

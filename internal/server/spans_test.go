@@ -48,7 +48,7 @@ func spanned(t *testing.T, cfg telemetry.Config) (*telemetry.Telemetry, *telemet
 func newServerLogged(t *testing.T, tel *telemetry.Telemetry) (*Server, *syncBuffer) {
 	t.Helper()
 	dsn := newDatabase(t)
-	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "sf", Admins: []string{dana.Principal},
+	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "ar", Admins: []string{dana.Principal},
 		Observer: StoreObserver(tel, project), Tracer: StoreTracer(tel, project)})
 	if err != nil {
 		t.Fatal(err)
@@ -193,7 +193,7 @@ func TestRequestSpans(t *testing.T) {
 			parent: sampledTP, state: "vendor=opaque-STATE",
 			span: "create", tree: "create(store.write.attempt(store.write.wait))", remote: true, result: "ok"},
 		{name: "a read with no trace context", op: proto.OpList, args: proto.ListArgs{}, span: "list", tree: "list", result: "ok"},
-		{name: "a refusal is the request's, and no failure of the span", op: proto.OpShow, args: proto.ShowArgs{ID: "sf-none"},
+		{name: "a refusal is the request's, and no failure of the span", op: proto.OpShow, args: proto.ShowArgs{ID: "ar-none"},
 			parent: sampledTP, refused: proto.CodeNotFound, span: "show", tree: "show", remote: true, result: "not_found"},
 		{name: "an op the server does not know", op: "no.such.op", args: struct{}{}, refused: proto.CodeInvalid,
 			span: "unknown", tree: "unknown", result: "invalid"},

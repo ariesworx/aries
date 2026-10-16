@@ -21,14 +21,14 @@ func TestDispatchHours(t *testing.T) {
 	t.Parallel()
 	s, _ := newServerClock(t, Limits{}, fixedNow)
 	is := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work"})
-	mine := mustCall[proto.HoursLogResult](t, s, alice, proto.OpHoursLog, proto.HoursLogArgs{ID: is.ID, Seconds: 5400, Note: "pairing", Idem: "cli-1"})
+	mine := mustCall[proto.HoursLogResult](t, s, alice, proto.OpHoursLog, proto.HoursLogArgs{Issue: is.ID, Seconds: 5400, Note: "pairing", Idem: "cli-1"})
 	if mine.ID == "" || mine.On != "2026-10-07" {
 		t.Errorf("hours.log(today) = %+v, want an entry on 2026-10-07", mine)
 	}
-	if again := mustCall[proto.HoursLogResult](t, s, alice, proto.OpHoursLog, proto.HoursLogArgs{ID: is.ID, Seconds: 5400, Note: "pairing", Idem: "cli-1"}); again != mine {
+	if again := mustCall[proto.HoursLogResult](t, s, alice, proto.OpHoursLog, proto.HoursLogArgs{Issue: is.ID, Seconds: 5400, Note: "pairing", Idem: "cli-1"}); again != mine {
 		t.Errorf("hours.log retried = %+v, want the first entry %+v", again, mine)
 	}
-	mustCall[proto.HoursLogResult](t, s, bob, proto.OpHoursLog, proto.HoursLogArgs{ID: is.ID, Seconds: 7200, On: "2026-10-06"})
+	mustCall[proto.HoursLogResult](t, s, bob, proto.OpHoursLog, proto.HoursLogArgs{Issue: is.ID, Seconds: 7200, On: "2026-10-06"})
 
 	list := mustCall[proto.HoursResult](t, s, bob, proto.OpHours, proto.HoursArgs{Issue: is.ID})
 	if len(list.Entries) != 2 || list.Entries[0] != (proto.HoursEntry{ID: mine.ID, Issue: is.ID, Principal: "alice", On: "2026-10-07",
@@ -61,11 +61,11 @@ func TestDispatchHours(t *testing.T) {
 		msg   string
 		fix   string
 	}{
-		{"under a minute", alice, proto.OpHoursLog, `{"id":"` + is.ID + `","seconds":30}`, proto.CodeInvalid, "duration", "aries hours -h"},
-		{"over a day", alice, proto.OpHoursLog, `{"id":"` + is.ID + `","seconds":9223372036854775807}`, proto.CodeInvalid, "seconds", "aries hours -h"},
-		{"bad day", alice, proto.OpHoursLog, `{"id":"` + is.ID + `","seconds":60,"on":"tomorrow"}`, proto.CodeInvalid, `on "tomorrow"`, "aries hours -h"},
-		{"no issue", alice, proto.OpHoursLog, `{"id":"sf-none","seconds":60}`, proto.CodeNotFound, "sf-none", "aries list"},
-		{"unknown field", alice, proto.OpHoursLog, `{"id":"` + is.ID + `","seconds":60,"rate":300}`, proto.CodeInvalid, "unknown field", proto.FixUpgrade},
+		{"under a minute", alice, proto.OpHoursLog, `{"issue":"` + is.ID + `","seconds":30}`, proto.CodeInvalid, "duration", "aries hours -h"},
+		{"over a day", alice, proto.OpHoursLog, `{"issue":"` + is.ID + `","seconds":9223372036854775807}`, proto.CodeInvalid, "seconds", "aries hours -h"},
+		{"bad day", alice, proto.OpHoursLog, `{"issue":"` + is.ID + `","seconds":60,"on":"tomorrow"}`, proto.CodeInvalid, `on "tomorrow"`, "aries hours -h"},
+		{"no issue", alice, proto.OpHoursLog, `{"issue":"ar-none","seconds":60}`, proto.CodeNotFound, "ar-none", "aries list"},
+		{"unknown field", alice, proto.OpHoursLog, `{"issue":"` + is.ID + `","seconds":60,"rate":300}`, proto.CodeInvalid, "unknown field", proto.FixUpgrade},
 		{"another's entry", bob, proto.OpHoursDelete, `{"id":"` + mine.ID + `"}`, proto.CodeForbidden,
 			"undoing another person's hours is for aries admins", "ask an aries admin"},
 		{"no entry", alice, proto.OpHoursDelete, `{"id":"nosuchentry"}`, proto.CodeNotFound, "hours entry nosuchentry not found", "aries hours --issue"},
@@ -91,7 +91,7 @@ func TestDispatchHoursLogRetriedAfterUndo(t *testing.T) {
 	t.Parallel()
 	s, _ := newServerClock(t, Limits{}, fixedNow)
 	is := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work"})
-	in := proto.HoursLogArgs{ID: is.ID, Seconds: 3600, Idem: "cli-log"}
+	in := proto.HoursLogArgs{Issue: is.ID, Seconds: 3600, Idem: "cli-log"}
 	e := mustCall[proto.HoursLogResult](t, s, alice, proto.OpHoursLog, in)
 	if e.Undone {
 		t.Errorf("hours.log(%+v) = %+v, want it live", in, e)
@@ -108,8 +108,8 @@ func TestDispatchHoursLimit(t *testing.T) {
 	t.Parallel()
 	s, _ := newServerClock(t, Limits{Limits: store.Limits{HoursPerDay: 1}}, fixedNow)
 	is := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work"})
-	mustCall[proto.HoursLogResult](t, s, alice, proto.OpHoursLog, proto.HoursLogArgs{ID: is.ID, Seconds: 60})
-	_, perr := call[proto.HoursLogResult](t, s, alice, proto.OpHoursLog, proto.HoursLogArgs{ID: is.ID, Seconds: 60})
+	mustCall[proto.HoursLogResult](t, s, alice, proto.OpHoursLog, proto.HoursLogArgs{Issue: is.ID, Seconds: 60})
+	_, perr := call[proto.HoursLogResult](t, s, alice, proto.OpHoursLog, proto.HoursLogArgs{Issue: is.ID, Seconds: 60})
 	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Message, "alice has 1 entries on 2026-10-07") ||
 		!strings.Contains(perr.Fix, "aries hours --undo") || !strings.Contains(perr.Fix, "hours_per_day under limits:") {
 		t.Fatalf("a second entry with hours_per_day 1: %+v, want invalid naming the limit", perr)
@@ -122,8 +122,8 @@ func TestDispatchHoursDayFull(t *testing.T) {
 	t.Parallel()
 	s, _ := newServerClock(t, Limits{}, fixedNow)
 	is := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work"})
-	mustCall[proto.HoursLogResult](t, s, alice, proto.OpHoursLog, proto.HoursLogArgs{ID: is.ID, Seconds: 22*3600 + 1800})
-	_, perr := call[proto.HoursLogResult](t, s, alice, proto.OpHoursLog, proto.HoursLogArgs{ID: is.ID, Seconds: 2 * 3600})
+	mustCall[proto.HoursLogResult](t, s, alice, proto.OpHoursLog, proto.HoursLogArgs{Issue: is.ID, Seconds: 22*3600 + 1800})
+	_, perr := call[proto.HoursLogResult](t, s, alice, proto.OpHoursLog, proto.HoursLogArgs{Issue: is.ID, Seconds: 2 * 3600})
 	const fix = "you can log at most 1.5h more on 2026-10-07; undo an entry with `aries hours --undo ID` to change it"
 	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Message, "at most 24h") || perr.Fix != fix {
 		t.Fatalf("2h on a day with 22.5h logged: %+v, want invalid with fix %q", perr, fix)
@@ -168,14 +168,14 @@ func TestDispatchPlans(t *testing.T) {
 	}
 }
 
-// Rule 18: past limits: plans a new plan row is refused, naming the limit.
+// Rule 18: past limits: plans_per_project a new plan row is refused, naming the limit.
 func TestDispatchPlansLimit(t *testing.T) {
 	t.Parallel()
 	s, _ := newServerClock(t, Limits{Limits: store.Limits{Plans: 1}}, fixedNow)
 	mustCall[proto.PlanSetResult](t, s, dana, proto.OpPlanSet, proto.PlanSetArgs{Name: "a", From: "2026-09", Fee: 1, Seats: 1})
 	_, perr := call[proto.PlanSetResult](t, s, dana, proto.OpPlanSet, proto.PlanSetArgs{Name: "b", From: "2026-09", Fee: 1, Seats: 1})
 	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Message, "at most 1 plan rows") ||
-		!strings.Contains(perr.Fix, "plans under limits:") {
+		!strings.Contains(perr.Fix, "plans_per_project under limits:") {
 		t.Fatalf("a second plan with plans 1: %+v, want invalid naming the limit", perr)
 	}
 }

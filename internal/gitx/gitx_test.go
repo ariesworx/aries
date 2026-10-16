@@ -26,12 +26,12 @@ func TestBranch(t *testing.T) {
 	tests := []struct {
 		typ, id, title, want string
 	}{
-		{"bug", "sf-a1b2c3d4", "Fix the login redirect", "fix/sf-a1b2c3d4-fix-the-login-redirect"},
-		{"task", "sf-a1b2", "  Update   deps (Go 1.27)!  ", "maintenance/sf-a1b2-update-deps-go-1-27"},
-		{"feature", "sf-a1b2.3", "Café au lait", "feature/sf-a1b2.3-caf-au-lait"},
-		{"chore", "sf-a1b2", "!!!", "maintenance/sf-a1b2"},
+		{"bug", "ar-a1b2c3d4", "Fix the login redirect", "fix/ar-a1b2c3d4-fix-the-login-redirect"},
+		{"task", "ar-a1b2", "  Update   deps (Go 1.27)!  ", "maintenance/ar-a1b2-update-deps-go-1-27"},
+		{"feature", "ar-a1b2.3", "Café au lait", "feature/ar-a1b2.3-caf-au-lait"},
+		{"chore", "ar-a1b2", "!!!", "maintenance/ar-a1b2"},
 		{"epic", "bd-x9", "Ship the whole thing to everyone everywhere at once", "feature/bd-x9-ship-the-whole-thing-to-everyone"},
-		{"bug", "sf-a1b2", strings.Repeat("a", 60), "fix/sf-a1b2-" + strings.Repeat("a", 40)},
+		{"bug", "ar-a1b2", strings.Repeat("a", 60), "fix/ar-a1b2-" + strings.Repeat("a", 40)},
 	}
 	for _, tc := range tests {
 		if got := Branch(tc.typ, tc.id, tc.title); got != tc.want {
@@ -49,10 +49,10 @@ func TestIDFromBranch(t *testing.T) {
 		branch, prefix, want string
 		ok                   bool
 	}{
-		{"fix/sf-a1b2c3d4-fix-the-login", "", "sf-a1b2c3d4", true},
-		{"feature/sf-a1b2.3-caf-au-lait", "", "sf-a1b2.3", true},
-		{"maintenance/sf-a1b2", "", "sf-a1b2", true},
-		{"sf-a1b2-no-type", "", "sf-a1b2", true},
+		{"fix/ar-a1b2c3d4-fix-the-login", "", "ar-a1b2c3d4", true},
+		{"feature/ar-a1b2.3-caf-au-lait", "", "ar-a1b2.3", true},
+		{"maintenance/ar-a1b2", "", "ar-a1b2", true},
+		{"ar-a1b2-no-type", "", "ar-a1b2", true},
 		{"feature/my-proj-a1b2-slug", "my-proj", "my-proj-a1b2", true},
 		{"feature/other-a1b2-slug", "my-proj", "", false},
 		{"main", "", "", false},
@@ -66,7 +66,7 @@ func TestIDFromBranch(t *testing.T) {
 		}
 	}
 	// A branch Branch made parses back to its ID.
-	if got, ok := IDFromBranch(Branch("bug", "sf-a1b2c3d4", "Fix it"), ""); !ok || got != "sf-a1b2c3d4" {
+	if got, ok := IDFromBranch(Branch("bug", "ar-a1b2c3d4", "Fix it"), ""); !ok || got != "ar-a1b2c3d4" {
 		t.Errorf("round trip: %q", got)
 	}
 }
@@ -77,12 +77,12 @@ func TestIDFromMessage(t *testing.T) {
 		msg, want string
 		ok        bool
 	}{
-		{"feature: add start\n\nWhy.\n\nAries: sf-a1b2c3d4\n", "sf-a1b2c3d4", true},
-		{"subject\n\nAries: sf-old\nAries: sf-new\r\n", "sf-new", true},
-		{"subject\n\nAries:sf-a1b2", "sf-a1b2", true},
+		{"feature: add start\n\nWhy.\n\nAries: ar-a1b2c3d4\n", "ar-a1b2c3d4", true},
+		{"subject\n\nAries: ar-old\nAries: ar-new\r\n", "ar-new", true},
+		{"subject\n\nAries:ar-a1b2", "ar-a1b2", true},
 		{"subject\n\nAries: not an id", "", false},
-		{"subject\n\naries: sf-a1b2", "", false},
-		{"Aries: sf-a1b2 trailing words", "", false},
+		{"subject\n\naries: ar-a1b2", "", false},
+		{"Aries: ar-a1b2 trailing words", "", false},
 		{"", "", false},
 	}
 	for _, tc := range tests {
@@ -124,7 +124,7 @@ func current(t *testing.T, dir string) string {
 func TestSwitch(t *testing.T) {
 	t.Parallel()
 	dir := newRepo(t)
-	const br = "fix/sf-a1b2-thing"
+	const br = "fix/ar-a1b2-thing"
 	for range 2 { // creates, then switches to the existing branch
 		if err := Switch(t.Context(), dir, br); err != nil {
 			t.Fatal(err)
@@ -145,7 +145,7 @@ func TestSwitch(t *testing.T) {
 func TestAddWorktree(t *testing.T) {
 	t.Parallel()
 	dir := newRepo(t)
-	const br = "feature/sf-a1b2-thing"
+	const br = "feature/ar-a1b2-thing"
 	wt := filepath.Join(t.TempDir(), "wt")
 	if err := AddWorktree(t.Context(), dir, wt, br); err != nil {
 		t.Fatal(err)
@@ -160,11 +160,11 @@ func TestAddWorktree(t *testing.T) {
 		t.Fatalf("second worktree: %v", err)
 	}
 	// An existing branch that is not checked out gets a worktree.
-	if _, err := git(t.Context(), dir, "branch", "fix/sf-c3d4"); err != nil {
+	if _, err := git(t.Context(), dir, "branch", "fix/ar-c3d4"); err != nil {
 		t.Fatal(err)
 	}
 	wt3 := filepath.Join(t.TempDir(), "wt3")
-	if err := AddWorktree(t.Context(), dir, wt3, "fix/sf-c3d4"); err != nil || current(t, wt3) != "fix/sf-c3d4" {
+	if err := AddWorktree(t.Context(), dir, wt3, "fix/ar-c3d4"); err != nil || current(t, wt3) != "fix/ar-c3d4" {
 		t.Fatalf("existing branch: %v", err)
 	}
 }
@@ -192,7 +192,7 @@ func TestGitErrors(t *testing.T) {
 			is: context.DeadlineExceeded, msg: "git status: context deadline exceeded"},
 		{name: "git refuses", run: func() error { _, err := git(t.Context(), dir, "rev-parse", "--verify", "refs/heads/none"); return err },
 			exit: 128, msg: "git rev-parse: fatal: "},
-		{name: "switch outside a repository", run: func() error { return Switch(t.Context(), t.TempDir(), "fix/sf-a1b2") },
+		{name: "switch outside a repository", run: func() error { return Switch(t.Context(), t.TempDir(), "fix/ar-a1b2") },
 			exit: 128, msg: "git rev-parse: fatal: not a git repository"},
 	}
 	for _, tc := range tests {

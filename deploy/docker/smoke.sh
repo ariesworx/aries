@@ -455,7 +455,7 @@ telemetry_checks() {
   echo "smoke: telemetry: a trace from the test's own TRACEPARENT"
   expect "status says people are named by stand-ins" '^traces: people are named by stand-ins' alice admin status
   new_traceparent
-  TRACEPARENT=$traceparent expect "a request with a trace context" '^sf-[a-z0-9]+$' alice create "Traced by the smoke test" -p 3 -t task
+  TRACEPARENT=$traceparent expect "a request with a trace context" '^ar-[a-z0-9]+$' alice create "Traced by the smoke test" -p 3 -t task
   traced=$last
   # The server's span is a child of the test's, in the test's trace; the
   # attempt of the write is beneath it, and the wait for the writer
@@ -490,7 +490,7 @@ telemetry_checks() {
   # own span for the request.
   echo "smoke: telemetry: log records, with their trace, and the audit stream"
   new_traceparent
-  TRACEPARENT=$traceparent refuse "a traced request that is refused" 'not found' alice show sf-nosuchid
+  TRACEPARENT=$traceparent refuse "a traced request that is refused" 'not found' alice show ar-nosuchid
   await 30 "the refused request's span arrives" span_arrived "^span trace=$trace_id parent=$parent_id id=[0-9a-f]{16} name=show op=show result=not_found "
   server_span=$(sed -n 's/.* id=\([0-9a-f]*\) name=show .*/\1/p' <<<"$last")
   await 30 "its log record arrives, in the test's trace and under the server's span" record_arrived \
@@ -597,7 +597,7 @@ telemetry_checks() {
   dead=$(batch refused)
   refused_took=$((SECONDS - t0))
   # A line at info, so that there is a record to lose.
-  refuse "a refused request, for its log line" 'not found' alice show sf-nosuchid
+  refuse "a refused request, for its log line" 'not found' alice show ar-nosuchid
   ((refused_took <= alive_took + 5)) ||
     fail "with the collector stopped, the requests took ${refused_took}s, and ${alive_took}s with it running"
   [[ $dead == "$alive" ]] || fail "with the collector stopped, the requests answered something else" "$(diff <(printf '%s\n' "$alive") <(printf '%s\n' "$dead"))"
@@ -646,7 +646,7 @@ telemetry_checks() {
   TRACEPARENT=$traceparent expect "a request after the restart" "^$traced " alice show "$traced"
   await 60 "its span arrives at the collector" span_arrived "^span trace=$trace_id parent=$parent_id id=[0-9a-f]{16} name=show .* principal=$stand_in "
   new_traceparent
-  TRACEPARENT=$traceparent refuse "a refused request after the restart" 'not found' alice show sf-nosuchid
+  TRACEPARENT=$traceparent refuse "a refused request after the restart" 'not found' alice show ar-nosuchid
   await 30 "its log record arrives at the collector" record_arrived "^record event=request.refused trace=$trace_id "
 }
 
@@ -944,9 +944,9 @@ smoke_old=$old_value expect "ARIES_KEY beside ARIES_KEY_FILE changes nothing" '^
 absent "a set ARIES_KEY is not mentioned when sign-in works" 'ARIES_KEY is set'
 
 echo "smoke: driving aries"
-expect "create" '^sf-[a-z0-9]+$' alice create "Fix the login redirect" -p 1 -t bug
+expect "create" '^ar-[a-z0-9]+$' alice create "Fix the login redirect" -p 1 -t bug
 a=$last
-expect "create" '^sf-[a-z0-9]+$' alice create "Add a sign-out button" -p 2 -t feature
+expect "create" '^ar-[a-z0-9]+$' alice create "Add a sign-out button" -p 2 -t feature
 b=$last
 expect "dep add" '' alice dep add "$b" "$a"
 expect "blocked" "^$b .*blocked by $a" alice blocked
@@ -960,7 +960,7 @@ expect "remember" '^smoke-note \(project\) rev 1$' alice remember smoke-note "Th
 expect "recall" '^smoke-note ' alice recall redirect
 expect "forget" '^forgot smoke-note' alice forget smoke-note
 expect "recall after forget" '^no memories$' alice recall --key smoke-note
-expect "finish" '^created sf-[a-z0-9]+$' alice finish "$a" --reason "Fixed the redirect" \
+expect "finish" '^created ar-[a-z0-9]+$' alice finish "$a" --reason "Fixed the redirect" \
   --handoff "The redirect now honors ?next=" --discovered "Add a test for ?next= redirects"
 d=$(sed -n 's/^created //p' <<<"$last")
 expect "ready after finish" "^$d " alice ready
@@ -1002,7 +1002,7 @@ refuse "plans set as bob" '"code":"forbidden"' bob --json admin plan set team --
 # Many projects, and keys from the control database. alice is the server
 # admin; `ariesd control init` made bob a member of the first project.
 echo "smoke: a second project, and a key the control database holds"
-expect "project list" '^first +[0-9a-f-]{36} +sf +internal +active +public$' alice admin project list
+expect "project list" '^first +[0-9a-f-]{36} +ar +internal +active +public$' alice admin project list
 expect "project add" '^project web \([0-9a-f-]{36}\) created in schema project_web: active$' alice admin project add web
 web=$(sed -n 's/^project: //p' <<<"$last")
 [[ $web =~ ^[0-9a-f-]{36}$ && $web != "$project" ]] || fail "project add printed no .aries.yaml for the new project" "$last"

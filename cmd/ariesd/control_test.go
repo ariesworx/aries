@@ -371,7 +371,7 @@ func TestControlInit(t *testing.T) {
 // control store: a line past a cap is skipped, and says which.
 func TestControlInitLimits(t *testing.T) {
 	t.Parallel()
-	s := newSite(t, "limits:\n  principals: 2\n  keys_per_principal: 1\n")
+	s := newSite(t, "limits:\n  principals_per_server: 2\n  keys_per_principal: 1\n")
 	keys := writeKeys(t,
 		forced(t, "alice", "alice-1"),
 		forced(t, "alice", "alice-2"), // 2: her second key, past keys_per_principal

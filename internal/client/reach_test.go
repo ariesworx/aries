@@ -134,7 +134,7 @@ func TestUnreachableWhenTheConnectionDrops(t *testing.T) {
 		srv.req()
 		_ = srv.nc.Close()
 	}()
-	err := c.Call(t.Context(), proto.OpComment, proto.CommentArgs{ID: "sf-a", Body: "x", Idem: "k"}, nil)
+	err := c.Call(t.Context(), proto.OpComment, proto.CommentArgs{ID: "ar-a", Body: "x", Idem: "k"}, nil)
 	if err == nil || c.Err() == nil {
 		t.Fatalf("Call on a dropped connection = %v, Err() = %v; want both set", err, c.Err())
 	}

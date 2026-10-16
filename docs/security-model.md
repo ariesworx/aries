@@ -601,7 +601,7 @@ read the databases.
   The audit stream's records are no exception, so by default a backend
   sees who changed whose access only as stand-ins.
 - **A client cannot make the server hold log records without bound.**
-  Refusal lines are capped per principal a minute (`refusal_logs`), and
+  Refusal lines are capped per principal a minute (`refusal_logs_per_minute`), and
   records wait for export in a queue of a fixed size; one more is
   dropped and counted. A collector that is down never slows a request.
 

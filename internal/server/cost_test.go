@@ -59,14 +59,14 @@ func TestDispatchPrices(t *testing.T) {
 	}
 }
 
-// Rule 18: past limits: prices a new price is refused, naming the limit.
+// Rule 18: past limits: prices_per_project a new price is refused, naming the limit.
 func TestDispatchPricesLimit(t *testing.T) {
 	t.Parallel()
 	s := newServerWith(t, Limits{Limits: store.Limits{Prices: 1}})
 	mustCall[proto.PriceSetResult](t, s, dana, proto.OpPriceSet, proto.PriceSetArgs{Model: "example-large", From: "2026-01-01", Rates: testRates})
 	_, perr := call[proto.PriceSetResult](t, s, dana, proto.OpPriceSet, proto.PriceSetArgs{Model: "example-small", From: "2026-01-01", Rates: testRates})
 	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Message, "at most 1 prices") ||
-		!strings.Contains(perr.Fix, "prices under limits:") {
+		!strings.Contains(perr.Fix, "prices_per_project under limits:") {
 		t.Fatalf("a second price with prices 1: %+v, want invalid naming the limit", perr)
 	}
 }

@@ -98,7 +98,7 @@ func TestConnectedSaysWhenAKeyMoved(t *testing.T) {
 	if got := c.Connected(&keyedConn{fakeConn: fakeConn{who: "alice"}, key: r.mine}); got != "" {
 		t.Errorf("Connected at the first handshake = %q, want nothing to say", got)
 	}
-	args := proto.CommentArgs{ID: "sf-a", Body: "a note", Idem: proto.NewIdem("cli")}
+	args := proto.CommentArgs{ID: "ar-a", Body: "a note", Idem: proto.NewIdem("cli")}
 	if _, err := c.Keep("", proto.OpComment, args, errReach); err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestConnectedSaysWhenAKeyMoved(t *testing.T) {
 func TestClientKeepsForWhoeverTheKeyWas(t *testing.T) {
 	t.Parallel()
 	r := newRepo(t)
-	args := proto.CommentArgs{ID: "sf-a", Body: "a note", Idem: proto.NewIdem("cli")}
+	args := proto.CommentArgs{ID: "ar-a", Body: "a note", Idem: proto.NewIdem("cli")}
 
 	c := r.newClient(t, nil)
 	_, err := c.Keep("", proto.OpComment, args, errReach)
@@ -191,13 +191,13 @@ func TestClientCacheIsWhoeverTheKeyWas(t *testing.T) {
 	if got := c.LastReached(); !got.Equal(t0) {
 		t.Errorf("LastReached after a handshake = %v, want %v", got, t0)
 	}
-	if err := c.CacheOf("alice").Keep(proto.OpShow, proto.ShowArgs{ID: "sf-a"}, shown("sf-a", "Alice's")); err != nil {
+	if err := c.CacheOf("alice").Keep(proto.OpShow, proto.ShowArgs{ID: "ar-a"}, shown("ar-a", "Alice's")); err != nil {
 		t.Fatal(err)
 	}
 	var s proto.ShowResult
 	if cache := c.Cached(); cache == nil {
 		t.Fatal("Cached with alice's key = nil, want alice's cache")
-	} else if _, ok := cache.Answer(proto.OpShow, proto.ShowArgs{ID: "sf-a"}, &s); !ok || s.Issue.Title != "Alice's" {
+	} else if _, ok := cache.Answer(proto.OpShow, proto.ShowArgs{ID: "ar-a"}, &s); !ok || s.Issue.Title != "Alice's" {
 		t.Errorf("alice's cache answered %+v, %v; want her copy", s, ok)
 	}
 
@@ -210,7 +210,7 @@ func TestClientCacheIsWhoeverTheKeyWas(t *testing.T) {
 	other.Connected(&keyedConn{fakeConn: fakeConn{who: "bob"}, key: r.also})
 	if cache := other.Cached(); cache == nil {
 		t.Fatal("Cached with bob's key = nil, want bob's cache")
-	} else if _, ok := cache.Answer(proto.OpShow, proto.ShowArgs{ID: "sf-a"}, &s); ok {
+	} else if _, ok := cache.Answer(proto.OpShow, proto.ShowArgs{ID: "ar-a"}, &s); ok {
 		t.Error("bob's cache answered with alice's copy")
 	}
 }
@@ -220,7 +220,7 @@ func TestClientCacheIsWhoeverTheKeyWas(t *testing.T) {
 func TestClientKeepsForTheConnectionsPrincipal(t *testing.T) {
 	t.Parallel()
 	c := newRepo(t).newClient(t, nil)
-	kept, err := c.Keep("bob", proto.OpHandoff, proto.HandoffArgs{ID: "sf-a", Note: "n", Idem: proto.NewIdem("cli")}, errReach)
+	kept, err := c.Keep("bob", proto.OpHandoff, proto.HandoffArgs{ID: "ar-a", Note: "n", Idem: proto.NewIdem("cli")}, errReach)
 	if err != nil || kept.Principal != "bob" || kept.Entry.Seq != 1 {
 		t.Errorf("Keep(bob) = %+v, %v; want entry 1 of bob's outbox", kept, err)
 	}
@@ -229,7 +229,7 @@ func TestClientKeepsForTheConnectionsPrincipal(t *testing.T) {
 func TestClientKeepWithoutADataDirectory(t *testing.T) {
 	t.Parallel()
 	c := newRepo(t).newClient(t, map[string]string{EnvDataDir: "relative"})
-	_, err := c.Keep("alice", proto.OpComment, proto.CommentArgs{ID: "sf-a", Body: "b", Idem: "cli-1"}, errReach)
+	_, err := c.Keep("alice", proto.OpComment, proto.CommentArgs{ID: "ar-a", Body: "b", Idem: "cli-1"}, errReach)
 	pe, ok := errors.AsType[*proto.Error](err)
 	if !ok || !errors.Is(err, ErrNotQueued) || pe.Code != proto.CodeUnavailable || !strings.Contains(pe.Fix, EnvDataDir) ||
 		!strings.Contains(pe.Message, "was not queued") {
@@ -242,8 +242,8 @@ func TestNotice(t *testing.T) {
 	c := newRepo(t).newClient(t, nil)
 	c.Outbox = outbox.Options{}
 	conn := &fakeConn{who: "alice", answers: map[string]error{
-		"sf-gone": proto.Errf(proto.CodeNotFound, "find the id with `aries list`", "issue sf-gone not found"),
-		"sf-slow": proto.Errf(proto.CodeUnavailable, "retry", "the server could not complete comment"),
+		"ar-gone": proto.Errf(proto.CodeNotFound, "find the id with `aries list`", "issue ar-gone not found"),
+		"ar-slow": proto.Errf(proto.CodeUnavailable, "retry", "the server could not complete comment"),
 	}}
 	if got := c.Notice(conn); got != "" {
 		t.Errorf("Notice with nothing queued = %q, want none", got)
@@ -254,12 +254,12 @@ func TestNotice(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	keep("sf-gone")
+	keep("ar-gone")
 	if got, want := c.Notice(conn), "outbox: 1 write made while the server was away waits to be sent, which aries does by itself"; got != want {
 		t.Errorf("Notice = %q, want %q", got, want)
 	}
-	keep("sf-slow")
-	keep("sf-b")
+	keep("ar-slow")
+	keep("ar-b")
 	if _, err := c.Replay(t.Context(), conn); err != nil {
 		t.Fatal(err)
 	}

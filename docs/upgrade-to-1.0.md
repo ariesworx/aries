@@ -305,7 +305,12 @@ Settings carry over by meaning, not by file: write them again in
 `ARIESD_CONFIG`, `ARIESD_DSN`, `ARIESD_SOCKET`, `ARIESD_PROJECT`,
 `ARIESD_ADMINS`, `ARIESD_LOG_LEVEL` and `ARIESD_LOG_FORMAT` replace the
 `[FORMER]D_` ones of the same suffix. Prices and plans are set again
-with `aries admin price set` and `aries admin plan set`.
+with `aries admin price set` and `aries admin plan set`. Most keys of
+`limits:` have new names, and `conflict_age`, `due_soon` and
+`telemetry_requests` moved out of it; the
+[release notes](releases/v1.0.0.md#breaking-changes) list each, and a
+former name is refused. A new project's issue ids start `ar-` unless
+`prefix:` says otherwise.
 
 If you ran a build from `main` between v0.4.0 and the rename, with
 telemetry on, its metrics were named under the former name: take

@@ -303,7 +303,7 @@ func wireFiles(f store.Files) *proto.Files {
 		out.Paths = append(out.Paths, proto.FilePath{Path: p.Path, Source: string(p.Source)})
 	}
 	for _, o := range f.Overlaps {
-		out.Overlaps = append(out.Overlaps, proto.Overlap{ID: string(o.Issue), By: o.Holder.Principal, Session: o.Holder.Session})
+		out.Overlaps = append(out.Overlaps, proto.Overlap{Issue: string(o.Issue), By: o.Holder.Principal, Session: o.Holder.Session})
 	}
 	return out
 }
@@ -424,7 +424,7 @@ func depAdd(ctx context.Context, pr *served, a store.Actor, in proto.DepArgs) (a
 }
 
 func depRm(ctx context.Context, pr *served, a store.Actor, in proto.DepArgs) (any, *proto.Error) {
-	if err := pr.store.RemoveDep(ctx, a, store.IssueID(in.From), store.IssueID(in.To), depType(in.Type)); err != nil {
+	if err := pr.store.RemoveDep(ctx, a, store.IssueID(in.From), store.IssueID(in.To), depType(in.Type), in.Idem); err != nil {
 		return nil, pr.mapErr(ctx, proto.OpDepRm, in.From, 0, err)
 	}
 	return proto.Empty{}, nil
@@ -663,7 +663,7 @@ func claims(ctx context.Context, pr *served, _ store.Actor, in proto.LimitArgs) 
 }
 
 func wireClaim(c store.Claim) proto.Claim {
-	return proto.Claim{ID: string(c.Issue), By: c.Holder.Principal, Session: c.Holder.Session,
+	return proto.Claim{Issue: string(c.Issue), By: c.Holder.Principal, Session: c.Holder.Session,
 		Machine: c.Holder.Machine, Epoch: c.Epoch, ClaimedAt: c.ClaimedAt.UTC(), ExpiresAt: c.ExpiresAt.UTC()}
 }
 
@@ -674,7 +674,7 @@ func wireComment(c store.Comment) proto.Comment {
 
 func summary(sm store.Summary) proto.Summary {
 	return proto.Summary{ID: string(sm.ID), Title: sm.Title, Status: string(sm.Status), Priority: int(sm.Priority),
-		DueAt: timeOrNil(sm.DueAt), DeferUntil: timeOrNil(sm.DeferUntil)}
+		Due: timeOrNil(sm.DueAt), DeferUntil: timeOrNil(sm.DeferUntil)}
 }
 
 // timeOrNil is t, or nil for the zero time.
@@ -695,11 +695,10 @@ func summaries(sms []store.Summary) []proto.Summary {
 
 func wireIssue(is store.Issue) proto.Issue {
 	return proto.Issue{
-		ID: string(is.ID), ParentID: string(is.ParentID), Title: is.Title, Body: is.Body, Design: is.Design,
+		ID: string(is.ID), Parent: string(is.ParentID), Title: is.Title, Body: is.Body, Design: is.Design,
 		Acceptance: is.Acceptance, Notes: is.Notes, Status: string(is.Status), Priority: int(is.Priority),
-		Type: string(is.Type), Assignee: is.Assignee, Owner: is.Owner, DueAt: is.DueAt, DeferUntil: is.DeferUntil,
-		ExpiresAt: is.ExpiresAt, Ephemeral: is.Ephemeral, Pinned: is.Pinned, Template: is.Template,
-		Metadata: is.Metadata, CloseReason: is.CloseReason, CreatedBy: is.CreatedBy, CreatedAt: is.CreatedAt.UTC(),
+		Type: string(is.Type), Assignee: is.Assignee, Owner: is.Owner, Due: is.DueAt, DeferUntil: is.DeferUntil,
+		CloseReason: is.CloseReason, CreatedBy: is.CreatedBy, CreatedAt: is.CreatedAt.UTC(),
 		UpdatedAt: is.UpdatedAt.UTC(), ClosedAt: is.ClosedAt, Rev: int64(is.Rev), Labels: is.Labels,
 		Account: is.Account,
 	}

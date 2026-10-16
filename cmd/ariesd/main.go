@@ -307,7 +307,7 @@ func runDaemon(ctx context.Context, s server.Settings, log *slog.Logger, getenv 
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			err := tel.Serve(tctx, tl, telemetry.ServeOptions{Requests: s.Limits.TelemetryRequests, Logger: log,
+			err := tel.Serve(tctx, tl, telemetry.ServeOptions{Requests: s.Telemetry.MaxRequests, Logger: log,
 				Ready: func(ctx context.Context) string {
 					if p := srv.Load(); p != nil {
 						return p.Ready(ctx)
@@ -419,6 +419,7 @@ func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h 
 	// of a step whichever noticed it, and the server reports them.
 	clk := store.NewClock(store.ClockOptions{StepTolerance: time.Duration(s.ClockStepTolerance)})
 	cfg := server.Config{Version: version.Version, Logger: log, Limits: s.Limits, Account: s.Account,
+		ConflictAge: time.Duration(s.ConflictAge), DueSoon: time.Duration(s.DueSoon),
 		Telemetry: h.tel, Heartbeat: h.heartbeat, HeartbeatEvery: h.heartbeatEvery, NoAudit: !s.Telemetry.Audit(),
 		Clock: clk, ClockBehind: s.ClockBehind, BehindTolerance: time.Duration(s.ClockBehindTolerance), AcceptHistory: s.AcceptClockBehind}
 	opts := store.Options{Logger: log, AllowUnsafeAccount: s.AllowUnsafeAccount, Limits: s.Limits.Limits, Readers: s.Limits.DBConnsPerProject,
