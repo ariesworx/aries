@@ -22,6 +22,16 @@
 # The config file (`--config`, ARIESD_CONFIG).
 @{ariesd_config}=/etc/aries/ariesd.yaml
 
+# The directory of Postgres's unix socket on this machine, as the DSN's
+# host= names it, with the link resolved: Ubuntu's /var/run/postgresql
+# is /run/postgresql.
+@{ariesd_pg_socket}=/run/postgresql
+
+# The directory of the database's client files a DSN may name: its
+# password file (passfile=) and the certificate authority of its TLS
+# (sslrootcert=), for a Postgres on another machine or a managed service.
+@{ariesd_db_files}=/etc/aries/postgres
+
 # The directory of the daemon's unix socket (`socket`; the unit's
 # RuntimeDirectory).
 @{ariesd_run}=/run/aries
