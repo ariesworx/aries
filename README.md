@@ -41,9 +41,11 @@ command line. One small Go server keeps the data in
 > decision 79); the soaks have yet to run on it on Linux (slice P5).
 > HTTPS is the transport a fresh server serves, with SSH off until an
 > operator turns it on (slice T1 of decision 86); a principal's kind,
-> identities and invitations are recorded (slice N1); and people sign
+> identities and invitations are recorded (slice N1); people sign
 > in at their company's identity provider with `aries login`, the server
-> issuing its own tokens, bound to the machine's key (slice T2).
+> issuing its own tokens, bound to the machine's key (slice T2); and a
+> CI job or a cloud workload signs in as a service principal with its
+> platform's token, by a trust rule, holding no stored key (slice N5).
 > Not ready for production use yet; see the [roadmap](#roadmap).
 
 ## Why Aries

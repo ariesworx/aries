@@ -971,9 +971,10 @@ login:
   that is not fresh (`auth`); a token unknown, ended or presented without
   its key's proof (`auth`, 401, naming `aries login`); the providers'
   keys not to be had (`unavailable`).
-- **`aries admin status`** shows each provider: where its endpoints and
-  keys come from, the key ids and when they were read, and the last
-  failure; and how many sign-ins are live.
+- **`aries admin status`** shows each provider, and each workload
+  provider ([Service principals](#service-principals)): where its
+  endpoints and keys come from, the key ids and when they were read, and
+  the last failure; and how many sign-ins are live.
 
 The server's paths for sign-in, with `login:` providers:
 
@@ -982,8 +983,123 @@ The server's paths for sign-in, with `login:` providers:
 | `GET /.well-known/oauth-authorization-server` | The authorization server's metadata (RFC 8414): its endpoints, PKCE S256, DPoP ES256, `iss` in the response |
 | `GET /oauth/authorize` | Where `aries login` opens the browser: checks `aries`'s request (its client, its loopback redirect, PKCE, state), and sends the browser on to the provider with the server's own PKCE, state, nonce and `prompt=login` |
 | `GET /auth/callback` | Where the provider sends the browser back; the server exchanges the code and sends the browser to `aries`'s loopback address with a code of its own, good for a minute and once, and as `iss` the one of `public_urls` that `aries` named |
-| `POST /oauth/token` | Where `aries` spends that code, with its PKCE verifier and a DPoP proof, for the token |
+| `POST /oauth/token` | Where `aries` spends that code, with its PKCE verifier and a DPoP proof, for the token; and, with `workload:` providers, where a workload's token is exchanged ([Service principals](#service-principals)) |
 | `POST /oauth/revoke` | Ends the sign-in a token is of, and closes its connections (RFC 7009); `aries logout` calls it |
+
+With `workload:` providers and no `login:` providers, the server serves
+the metadata, `/oauth/token` and `/oauth/revoke` alone.
+
+### Service principals
+
+A CI job, an unattended agent or a cloud workload signs in as a
+principal of kind `service` with the token its platform already gives
+it, and holds no stored key or secret: `aries login --workload KIND`
+([cli.md](cli.md#sign-in), [CI gates](ci.md)). A trust rule in the
+control store says which tokens sign in as which service (design:
+[identity.md §7](design/identity.md#7-service-principals),
+[transport.md §7](design/transport.md#7-service-principals-over-https)).
+It needs a server of many projects and HTTPS; `ariesd serve` refuses
+`workload:` providers without either.
+
+```yaml
+workload:
+  audience: https://aries.example.com   # what a job asks its platform for; default the first of https: public_urls
+  token_lifetime: 1h              # a sign-in's life when a rule names none
+  max_token_lifetime: 6h          # the most any rule gives; at most 1d
+  fresh: 2m                       # a platform's token is exchanged within this of its iat; 30s to 10m
+  providers:
+    - name: github-actions        # what trust rules name
+      kind: github-actions
+      issuer: https://token.actions.githubusercontent.com   # GHES, or an enterprise's customized issuer: its own
+    - name: gcp
+      kind: google
+      issuer: https://accounts.google.com
+    - name: azure
+      kind: azure
+      issuer: https://login.microsoftonline.com/00000000-0000-4000-8000-000000000000/v2.0
+      audience: api://aries.example.com   # the Application ID URI of the app registration that stands for the server
+    - name: gha-offline
+      kind: github-actions
+      issuer: https://ghes.example.com/_services/token
+      discovery: static           # nothing discovered (or jwks_url:)
+      jwks_file: /etc/aries/ghes-jwks.json
+```
+
+A provider's `discovery`, `jwks_url`, `jwks_file` and `ca_file` work as
+a `login:` provider's do, and it shares `login:`'s `skew` and
+`jwks_refetch`. `ariesd serve` refuses two providers with one issuer,
+since a token goes to the provider its issuer names.
+
+- **A service and its rules.** A server admin adds the principal and
+  a rule; a trust rule names a service, a provider, and claims the
+  platform's token must carry, each with exactly that value:
+
+  ```sh
+  aries admin principal add ci-example --kind service --owner alice
+  aries admin trust add ci-example-ci --principal ci-example --provider github-actions \
+      --claim repository_owner_id=111111111 --claim repository_id=123456789 [--token-lifetime 1h]
+  aries admin trust list [SERVICE] | show NAME | set NAME [--claim NAME=VALUE…] [--token-lifetime D] | disable NAME | enable NAME | remove NAME
+  ```
+
+  A rule must pin the platform's immutable ids, which `trust add`
+  checks by the provider's kind: `repository_owner_id` and
+  `repository_id` for `github-actions`; `sub` (the account's numeric
+  id) and `email` for `google`; `tid` and `oid` for `azure`. A value is
+  matched exactly, as a string: no pattern, no empty value, never `sub`
+  alone. More claims narrow it (`ref`, `event_name`, `environment`,
+  `job_workflow_ref`; Google's nested
+  `google.compute_engine.project_id`, written with dots). 1 to 16
+  claims. `set --claim` replaces every claim.
+- **Who signs in.** A token signs in as the one service whose active
+  rules at its provider it satisfies, by the rule with the most claims;
+  rules of two principals that both match it are refused, naming both,
+  since the server does not choose. No rule: refused `forbidden`,
+  naming the claims of the job's own token that a rule would pin, with
+  the `aries admin trust add` to run. A disabled service, or a person,
+  signs in by none.
+- **The exchange** is OAuth 2.0 Token Exchange (RFC 8693) at
+  `/oauth/token`, with a DPoP proof by a key `aries` makes for the job.
+  The token is held to its provider's issuer and keys, to the server's
+  audience, and to an `iat` within `fresh`. Where the platform lets the
+  job choose its token's audience (GitHub Actions, Google), `aries` asks
+  for `AUDIENCE/n/THUMBPRINT`, the thumbprint of its DPoP key's, and the
+  server takes no other, so a token copied from a job is good for
+  nothing without the job's key. Every exchanged token is remembered,
+  by its hash, for `fresh` and five minutes more, and taken once
+  (`workload_tokens_per_server`); Azure's, which no key binds, is also
+  refused when it was issued before the server started, since a restart
+  forgot what was spent.
+- **The sign-in** is of scope `ci` ([Scopes](#scopes)): a member's ops
+  and a ci gate's report from the session `ci`, never an admin op, a
+  waive or a person's gate. It lasts the rule's lifetime, at most
+  `max_token_lifetime`, is bound to the job's key, has no refresh token,
+  and ends at `aries logout`, at `aries admin signin end`, when the
+  service is disabled, and when its rule's claims change, or the rule
+  is disabled or removed: its connections close at once. A rule gives at
+  most `grants_per_trust_rule` live sign-ins, and a service
+  `grants_per_principal`. `aries admin signin list SERVICE` names each
+  one's rule.
+- **Who may.** Adding, changing and removing rules is a server admin's,
+  never for their own principal; a service's owner lists and shows its
+  rules. A service never becomes a person while it has rules.
+- **The record.** `trust.add`, `trust.set` and `trust.remove` are events
+  of the control store, with the rule, its claims and who changed it,
+  and lines of the audit stream (`audit.trust.*`, the rule as `target`
+  and its service as `subject`). Each sign-in's `signin.grant` names
+  the rule and the claims that say which run it was: for GitHub
+  `run_id`, `run_attempt`, `workflow_ref`, `actor_id`, `event_name` and
+  `ref`; for Google the project and the instance; for Azure the
+  resource id. A workload's sign-in is not announced in an inbox.
+- **Azure** needs an app registration that stands for the server: its
+  Application ID URI is the provider's `audience`, for which the
+  workload's managed identity asks its token. The issuer is the
+  tenant's v2.0 one, or for an app that issues version 1 tokens
+  `https://sts.windows.net/TENANT/`, with `discovery: static` and
+  `jwks_url` set to the tenant's keys.
+- **Not tested against the real platforms.** GitHub Actions, Google
+  Cloud and Azure are from their documentation; the tests run against a
+  stand-in issuer. Kubernetes service account tokens are not a kind of
+  1.0.
 
 ### Scopes
 
@@ -991,7 +1107,7 @@ The server's paths for sign-in, with `login:` providers:
 |---|---|
 | `cli` | Every op the principal's role allows, the session `cli` among them: admin ops, deciding a gate, locks |
 | `mcp` | The ops behind the MCP tools: never an admin op, never deciding a gate, never a lock, never the session `cli` |
-| `ci` | A member's ops from a CI job, and reporting a ci gate's check from the session `ci`; never a waive or an admin op. Issued by the token exchange of a later slice |
+| `ci` | A member's ops from a CI job, and reporting a ci gate's check from the session `ci`; never a waive or an admin op. Issued by a workload's token exchange ([Service principals](#service-principals)) |
 
 `aries login` asks for `cli mcp`. A connection that proved a key is held
 to its principal's role alone, as over SSH.
@@ -1748,6 +1864,8 @@ person.
 | `aries admin principal add NAME --kind`, `--owner`, `--display-name` | As `principal add` |
 | `aries admin principal set NAME`, `invite add`, `invite list`, `invite remove ID`, `identity remove ID`, `principal add NAME --invite` | Server admins. Never an invitation onto one's own principal ([Identities and invitations](#identities-and-invitations)) |
 | `aries admin identity list NAME`, `principal show NAME` | Server admins; NAME themselves |
+| `aries admin trust add`, `set`, `disable`, `enable`, `remove` | Server admins. Never a rule of one's own principal ([Service principals](#service-principals)) |
+| `aries admin trust list SERVICE`, `trust show NAME` | Server admins; the service's owner. `trust list` with no service: server admins |
 | `aries admin status` | Server admins, for the server and every project; a project admin, for the active projects they administer ([Watching a server](#watching-a-server)) |
 
 - **A server admin** is a principal named under `admins:`. They are let
@@ -2540,6 +2658,7 @@ the config file (`/etc/aries/ariesd.yaml`, or `--config FILE`, or
 | `conflict_age` | How long a conflict is open before `digest` lists it, under old conflicts. It bounds nothing, so it is not under `limits:` | `1d` | |
 | `due_soon` | How far ahead of its due date `digest` and `prime` list an issue as due soon ([Dates](concepts.md#dates)). Up to a year. It bounds nothing, so it is not under `limits:` | `1d` | |
 | `login.invite_ttl` | With `control_schema`: how long an [invitation](#identities-and-invitations) stays open unused, from `1h` to `90d`. The rest of `login:`, the providers people sign in at, comes with sign-in itself | `7d` | |
+| `workload` | With `control_schema` and HTTPS: the platforms whose tokens [service principals](#service-principals) sign in with (`providers`), the audience a job asks for, a sign-in's `token_lifetime` and `max_token_lifetime`, and `fresh`, how recent a platform's token must be | none: no service principal signs in by a token | |
 | `telemetry.listen` | The loopback address, `HOST:PORT`, of the listener for `/metrics`, `/healthz` and `/readyz` ([Observability](#observability)). An address that is not loopback is refused | none: no listener | `ARIESD_TELEMETRY_LISTEN` |
 | `telemetry.max_requests` | With `telemetry.listen`: requests the listener serves at once. One more is answered `503`; twice as many connections may be open, and one more is closed | 8 | |
 | `telemetry.per_project` | Whether metrics name the project. `false` leaves it off every instrument | `true` | |

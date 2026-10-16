@@ -16,8 +16,11 @@ The [CLI reference](cli.md) and the [agent guide](agents.md) build on it.
   ([Principals](server.md#principals)).
 - A principal is a **person** or a **service**. A service, such as a
   CI job or an unattended agent, answers to an owner, a person, and
-  signs in by a key, never as a person does. Either may have a
-  **display name**, what people see beside its name.
+  signs in with its platform's token by a **trust rule**, which names
+  the repository or the cloud account whose jobs it admits, or by a key;
+  never as a person does
+  ([Service principals](server.md#service-principals)). Either may have
+  a **display name**, what people see beside its name.
 - A person's **identities** are their accounts at the company's identity
   provider: an address at a provider, such as `bob@example.com` at
   `google`. Nobody becomes a principal by signing in: a server admin
