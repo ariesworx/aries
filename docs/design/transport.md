@@ -674,7 +674,7 @@ mcp:
 
 After P1 and P2. Each slice leaves `main` working and off until configured. Estimates are one engineer's weeks, from the size of comparable slices and the spikes' code (spike/https: about 2,900 lines of commands, and 780 of packages with 540 of tests), not from a breakdown. **Air-gapped SSO is in the first identity slices, not the last**: T2's gate is a sign-in on an internal network with Keycloak and a key set file.
 
-*Narrowed 16 Oct 2026 by [decision 90](aries.md#14-decisions): v1.0.0 holds N1, T1, T2, S1, N5, N8 and N0 against one real provider; T3, N6, N7 and N0's other providers come in 1.x. The table is kept as it was decided.*
+*Narrowed 16 Oct 2026 by [decision 90](aries.md#14-decisions): v1.0.0 holds N1, T1, T2, S1, N5, N8 and N0 against one real provider; T3, N6, N7 and N0's other providers come in 1.x. Narrowed again on the same day by [decision 91](aries.md#14-decisions): v1.0.0 authenticates by keys alone, over HTTPS or SSH; T2 and N5 stay on `main`, off unless configured and unreviewed, and N0, the security review of sign-in and the provider guides come in 1.x. The table is kept as it was decided.*
 
 | Slice | Delivers | Was | Gate | Estimate |
 |---|---|---|---|---|
