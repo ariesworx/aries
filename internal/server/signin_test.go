@@ -919,10 +919,7 @@ func TestTokenResponseNotStored(t *testing.T) {
 	w := newSignInWorld(t, nil)
 	a := newAttempt(t)
 	code := w.browse(t, w.authorizeURL(a)).Get("code")
-	proof, err := dpop.Proof(a.key, http.MethodPost, w.url+pathToken, "", time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
+	proof := w.proof(t, a.key, http.MethodPost, w.url+pathToken, "")
 	form := url.Values{"grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {loopbackRedirect}, "client_id": {ClientCLI},
 		"code_verifier": {a.verifier}}
 	req, _ := http.NewRequest(http.MethodPost, w.url+pathToken, strings.NewReader(form.Encode()))
