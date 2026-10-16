@@ -171,11 +171,15 @@ func TestMetricsOfHandshakes(t *testing.T) {
 	tel, m := measured(t, true)
 	s := newServerTel(t, Limits{ConnsPerPrincipal: 1}, tel)
 	other := "99999999-9999-4999-8999-999999999999"
+	list, err := proto.Request(1, proto.OpList, proto.ListArgs{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range []struct {
 		name   string
 		frames []*proto.Frame
 	}{
-		{"ok", []*proto.Frame{{T: proto.FrameBridge, Principal: "alice"}, {T: proto.FrameHello, Proto: proto.Proto, Project: project, Session: "s1", Machine: "m"}}},
+		{"ok", []*proto.Frame{{T: proto.FrameBridge, Principal: "alice"}, {T: proto.FrameHello, Proto: proto.Proto, Project: project, Session: "s1", Machine: "m"}, list}},
 		{"at the principal's cap", []*proto.Frame{{T: proto.FrameBridge, Principal: "alice"}, {T: proto.FrameHello, Proto: proto.Proto, Project: project, Session: "s2", Machine: "m"}}},
 		{"another project", []*proto.Frame{{T: proto.FrameBridge, Principal: "bob"}, {T: proto.FrameHello, Proto: proto.Proto, Project: other}}},
 		{"a hostile project", []*proto.Frame{{T: proto.FrameBridge, Principal: "bob"}, {T: proto.FrameHello, Proto: proto.Proto, Project: "x\n\u202e" + strings.Repeat("y", 300)}}},
@@ -199,6 +203,12 @@ func TestMetricsOfHandshakes(t *testing.T) {
 		_, _ = dec.Decode() // the welcome, a refusal, or the close
 		if tc.name == "ok" {
 			t.Cleanup(func() { _ = cli.Close(); wg.Wait() }) // held, so the next is at the cap
+			// The server counts a handshake after writing its welcome,
+			// which the client may read first, and serves the first
+			// request only after counting: an answer means it is counted.
+			if f, err := dec.Decode(); err != nil || f.T != proto.FrameRes {
+				t.Fatalf("the answer to a list after the welcome = %+v, %v; want a res frame", f, err)
+			}
 			continue
 		}
 		_ = cli.Close()
