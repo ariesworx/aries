@@ -704,6 +704,31 @@ func (s *Server) endGrant(ctx context.Context, id, reason string) {
 	s.cfg.Logger.InfoContext(ctx, "sign-in ended", "event", logs.SignInEnded, "grant", id, "reason", reason, "connections", n)
 }
 
+// sweepSignIns closes the connections whose sign-in is no longer live
+// in the control store's index, each with a last frame that says so, as
+// the reaper does on each tick. A logout, signin.end or identity.remove
+// closes them at once when its write succeeds; one whose write failed
+// after it committed has ended the sign-in all the same, the index read
+// again, and its connections close here.
+func (s *Server) sweepSignIns(ctx context.Context) {
+	ctl := s.cfg.Control
+	if ctl == nil {
+		return
+	}
+	now := ctl.Now()
+	e := proto.Errf(proto.CodeAuth, proto.FixSignIn+" to sign in again", "your sign-in ended")
+	n := s.closeSessions(func(o owner) bool {
+		if o.grant == "" {
+			return false
+		}
+		g, ok := ctl.TokenGrant(o.sess.signedIn.hash)
+		return !ok || g.ID != o.grant || !g.Live(now)
+	}, e)
+	if n > 0 {
+		s.cfg.Logger.InfoContext(ctx, "sign-in ended", "event", logs.SignInEnded, "reason", "swept", "connections", n)
+	}
+}
+
 // wireSignIn is g on the wire, at now.
 func wireSignIn(g store.Grant, now time.Time) proto.SignIn {
 	out := proto.SignIn{ID: g.ID, Principal: g.Principal, Provider: g.Provider, Client: g.ClientID, Scopes: g.Scopes, Flow: g.Flow,

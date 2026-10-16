@@ -288,6 +288,42 @@ func TestRemoveIdentityEndsSignIns(t *testing.T) {
 	}
 }
 
+// TestDisablePrincipalEndsSignIns: disabling a principal ends its live
+// sign-ins in the same write, so that enabling it again does not bring
+// back a token from before.
+func TestDisablePrincipalEndsSignIns(t *testing.T) {
+	t.Parallel()
+	c, _ := clockControl(t, ControlOptions{})
+	ctx := t.Context()
+	mustPrincipal(t, c, "alice")
+	mustInvite(t, c, "alice", "corp", "alice@example.com")
+	g, err := c.SignIn(ctx, aliceSignIn("tok-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seq := controlSeq(t, c)
+	if _, err := c.DisablePrincipal(ctx, dana, "alice"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.EnablePrincipal(ctx, dana, "alice"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := c.TokenGrant(tokenHash("tok-1")); ok {
+		t.Error("TokenGrant(a sign-in from before its principal was disabled) found it after the principal was enabled again")
+	}
+	gs, err := c.Grants(ctx, "alice")
+	if err != nil || len(gs) != 1 || gs[0].ID != g.ID || gs[0].EndReason != EndPrincipalDisabled {
+		t.Errorf("Grants(alice) after disable and enable = %+v, %v; want the sign-in ended, reason %s", gs, err, EndPrincipalDisabled)
+	}
+	var ops []Op
+	for _, e := range eventsSince(t, c, seq) {
+		ops = append(ops, e.Op)
+	}
+	if want := strings.Join([]string{string(OpSignInEnd), string(OpPrincipalDisable), string(OpPrincipalEnable)}, " "); joinOps(ops) != want {
+		t.Errorf("events of disable and enable = %v, want %s", ops, want)
+	}
+}
+
 func joinOps(ops []Op) string {
 	s := make([]string, len(ops))
 	for i, o := range ops {

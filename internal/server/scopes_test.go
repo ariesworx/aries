@@ -102,35 +102,47 @@ func TestScopeRules(t *testing.T) {
 	}
 }
 
+// signedInWith is the sign-in a table's connection presents: none, a
+// key's connection, when byKey is set, and otherwise one holding
+// scopes, nil included.
+func signedInWith(byKey bool, scopes []string) *signedIn {
+	if byKey {
+		return nil
+	}
+	return &signedIn{scopes: scopes}
+}
+
 func TestMayCall(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name   string
+		byKey  bool
 		scopes []string
 		op     string
 		ok     bool
 	}{
-		{"a key's connection, any op", nil, proto.OpPrincipalAdd, true},
-		{"cli, an admin op", []string{proto.ScopeCLI}, proto.OpPrincipalAdd, true},
-		{"cli and mcp, a gate pass", []string{proto.ScopeCLI, proto.ScopeMCP}, proto.OpGatePass, true},
-		{"mcp, a tool's op", []string{proto.ScopeMCP}, proto.OpReady, true},
-		{"mcp, a gate pass", []string{proto.ScopeMCP}, proto.OpGatePass, false},
-		{"mcp, an admin op", []string{proto.ScopeMCP}, proto.OpKeyAdd, false},
-		{"mcp, a lock", []string{proto.ScopeMCP}, proto.OpLockAcquire, false},
-		{"ci, a report", []string{proto.ScopeCI}, proto.OpGatePass, true},
-		{"ci, a waive", []string{proto.ScopeCI}, proto.OpGateWaive, false},
-		{"ci, an admin op", []string{proto.ScopeCI}, proto.OpStatus, false},
-		{"no scope at all", []string{}, proto.OpShow, false},
-		{"an op no table names", []string{proto.ScopeMCP}, "made.up", false},
+		{"a key's connection, any op", true, nil, proto.OpPrincipalAdd, true},
+		{"cli, an admin op", false, []string{proto.ScopeCLI}, proto.OpPrincipalAdd, true},
+		{"cli and mcp, a gate pass", false, []string{proto.ScopeCLI, proto.ScopeMCP}, proto.OpGatePass, true},
+		{"mcp, a tool's op", false, []string{proto.ScopeMCP}, proto.OpReady, true},
+		{"mcp, a gate pass", false, []string{proto.ScopeMCP}, proto.OpGatePass, false},
+		{"mcp, an admin op", false, []string{proto.ScopeMCP}, proto.OpKeyAdd, false},
+		{"mcp, a lock", false, []string{proto.ScopeMCP}, proto.OpLockAcquire, false},
+		{"ci, a report", false, []string{proto.ScopeCI}, proto.OpGatePass, true},
+		{"ci, a waive", false, []string{proto.ScopeCI}, proto.OpGateWaive, false},
+		{"ci, an admin op", false, []string{proto.ScopeCI}, proto.OpStatus, false},
+		{"no scope at all", false, []string{}, proto.OpShow, false},
+		{"a sign-in with nil scopes, an admin op", false, nil, proto.OpPrincipalAdd, false},
+		{"an op no table names", false, []string{proto.ScopeMCP}, "made.up", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			e := mayCall(tc.scopes, tc.op)
+			e := mayCall(signedInWith(tc.byKey, tc.scopes), tc.op)
 			if (e == nil) != tc.ok {
-				t.Fatalf("mayCall(%v, %s) = %v, want ok %t", tc.scopes, tc.op, e, tc.ok)
+				t.Fatalf("mayCall(by key %t, scopes %#v, %s) = %v, want ok %t", tc.byKey, tc.scopes, tc.op, e, tc.ok)
 			}
 			if e != nil && (e.Code != proto.CodeForbidden || e.Fix == "" || !strings.Contains(e.Message, tc.op)) {
-				t.Errorf("mayCall(%v, %s) = %+v, want forbidden, naming the op, with a fix", tc.scopes, tc.op, e)
+				t.Errorf("mayCall(by key %t, scopes %#v, %s) = %+v, want forbidden, naming the op, with a fix", tc.byKey, tc.scopes, tc.op, e)
 			}
 		})
 	}
@@ -140,23 +152,26 @@ func TestMayTakeSession(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name    string
+		byKey   bool
 		scopes  []string
 		session string
 		ok      bool
 	}{
-		{"a key's connection, cli", nil, proto.CLISession, true},
-		{"cli, cli", []string{proto.ScopeCLI}, proto.CLISession, true},
-		{"mcp, cli", []string{proto.ScopeMCP}, proto.CLISession, false},
-		{"mcp, an agent's", []string{proto.ScopeMCP}, "claude-0000", true},
-		{"ci, ci", []string{proto.ScopeCI}, proto.CISession, true},
-		{"ci, cli", []string{proto.ScopeCI}, proto.CLISession, false},
-		{"mcp, ci", []string{proto.ScopeMCP}, proto.CISession, false},
-		{"cli, ci", []string{proto.ScopeCLI}, proto.CISession, true},
+		{"a key's connection, cli", true, nil, proto.CLISession, true},
+		{"cli, cli", false, []string{proto.ScopeCLI}, proto.CLISession, true},
+		{"mcp, cli", false, []string{proto.ScopeMCP}, proto.CLISession, false},
+		{"mcp, an agent's", false, []string{proto.ScopeMCP}, "claude-0000", true},
+		{"ci, ci", false, []string{proto.ScopeCI}, proto.CISession, true},
+		{"ci, cli", false, []string{proto.ScopeCI}, proto.CLISession, false},
+		{"mcp, ci", false, []string{proto.ScopeMCP}, proto.CISession, false},
+		{"cli, ci", false, []string{proto.ScopeCLI}, proto.CISession, true},
+		{"a sign-in with nil scopes, cli", false, nil, proto.CLISession, false},
+		{"a sign-in with nil scopes, ci", false, nil, proto.CISession, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if e := mayTakeSession(tc.scopes, tc.session); (e == nil) != tc.ok {
-				t.Errorf("mayTakeSession(%v, %s) = %v, want ok %t", tc.scopes, tc.session, e, tc.ok)
+			if e := mayTakeSession(signedInWith(tc.byKey, tc.scopes), tc.session); (e == nil) != tc.ok {
+				t.Errorf("mayTakeSession(by key %t, scopes %#v, %s) = %v, want ok %t", tc.byKey, tc.scopes, tc.session, e, tc.ok)
 			}
 		})
 	}

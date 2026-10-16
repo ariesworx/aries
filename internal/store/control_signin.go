@@ -23,7 +23,8 @@ import (
 // made a principal by signing in (decision 57).
 //
 // A grant ends at its end, at a logout or an admin's word
-// ([Control.EndSignIn]), or when the identity it was made by is removed.
+// ([Control.EndSignIn]), when the identity it was made by is removed, or
+// when its principal is disabled.
 // The index holds the live grants by their tokens' hashes, so that a
 // connection presenting a token costs no database read.
 
@@ -54,6 +55,9 @@ const (
 	EndLogout          = "logout"
 	EndRevoked         = "revoked"
 	EndIdentityRemoved = "identity_removed"
+	// EndPrincipalDisabled is a sign-in of a principal that was
+	// disabled: enabling it again does not bring the sign-in back.
+	EndPrincipalDisabled = "principal_disabled"
 )
 
 // The scopes a grant may hold (proto's ScopeCLI, ScopeMCP and ScopeCI).
@@ -429,6 +433,21 @@ func (w *cwtx) endIdentityGrants(ctx context.Context, id int64) error {
 	}
 	if _, err := w.exec(ctx, `UPDATE grants SET identity = NULL WHERE identity = $1`, id); err != nil {
 		return fmt.Errorf("forget identity %d in its sign-ins: %w", id, err)
+	}
+	return nil
+}
+
+// endPrincipalGrants ends the live sign-ins of principal name, which is
+// being disabled.
+func (w *cwtx) endPrincipalGrants(ctx context.Context, name string) error {
+	gs, err := queryGrants(ctx, w.tx, ` WHERE principal = $1 AND revoked_at IS NULL ORDER BY created_at, id`, name)
+	if err != nil {
+		return err
+	}
+	for _, g := range gs {
+		if _, err := w.endGrant(ctx, g, EndPrincipalDisabled); err != nil {
+			return err
+		}
 	}
 	return nil
 }

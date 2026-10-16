@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -53,15 +54,15 @@ func newSignInWorld(t *testing.T, edit func(*oidctest.Issuer, *oidc.Settings, *L
 }
 
 // newMeasuredSignInWorld is newSignInWorld with the server's telemetry
-// tel.
-func newMeasuredSignInWorld(t *testing.T, edit func(*oidctest.Issuer, *oidc.Settings, *Login), tel *telemetry.Telemetry) *signInWorld {
+// tel, and admins as server admins beside dana.
+func newMeasuredSignInWorld(t *testing.T, edit func(*oidctest.Issuer, *oidc.Settings, *Login), tel *telemetry.Telemetry, admins ...string) *signInWorld {
 	t.Helper()
-	return newLimitedSignInWorld(t, Limits{}, edit, tel)
+	return newLimitedSignInWorld(t, Limits{}, edit, tel, admins...)
 }
 
 // newLimitedSignInWorld is newMeasuredSignInWorld with the server's
 // limits lim.
-func newLimitedSignInWorld(t *testing.T, lim Limits, edit func(*oidctest.Issuer, *oidc.Settings, *Login), tel *telemetry.Telemetry) *signInWorld {
+func newLimitedSignInWorld(t *testing.T, lim Limits, edit func(*oidctest.Issuer, *oidc.Settings, *Login), tel *telemetry.Telemetry, admins ...string) *signInWorld {
 	t.Helper()
 	iss := oidctest.New(t)
 	// The world's time is not the wall clock's (rule 19): what it dates
@@ -88,7 +89,7 @@ func newLimitedSignInWorld(t *testing.T, lim Limits, edit func(*oidctest.Issuer,
 		w.url, w.pool = listenHTTPS(t, cfg, nil)
 		cfg.Login = &login
 		cfg.Telemetry = tel
-	}, dana.Principal)
+	}, append([]string{dana.Principal}, admins...)...)
 	serving(t, w.Server)
 	w.project(t, projA, "alice")
 	if _, _, err := w.ctl.Invite(t.Context(), dana, "alice", store.Invitation{Provider: "corp", Address: "alice@example.com"}); err != nil {
@@ -767,6 +768,101 @@ func TestIdentityRemoveEndsSignIns(t *testing.T) {
 	expectEnded(t, c, "identity removed")
 	if _, perr := w.connectWith(t, a, tok, ""); perr == nil {
 		t.Error("connect with a sign-in of a removed identity = nil error")
+	}
+}
+
+// expectClosed reads c until the server closes it, and fails if it is
+// still open after patience.
+func expectClosed(t *testing.T, c *wsconn.Conn) {
+	t.Helper()
+	_ = c.SetReadDeadline(time.Now().Add(patience))
+	for {
+		_, err := c.Read()
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			t.Fatal("the connection is still open")
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+// signedInConn signs a in, connects with its token and says hello in
+// the session cli, and returns the connection and the token endpoint's
+// answer.
+func (w *signInWorld) signedInConn(t *testing.T, a *attempt) (*wsconn.Conn, tokenAnswer) {
+	t.Helper()
+	ans := w.mustSignIn(t, a)
+	c, perr := w.connectWith(t, a, ans.AccessToken, "")
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	if wel := helloAs(t, c, proto.CLISession); wel.Err != nil {
+		t.Fatal(wel.Err)
+	}
+	return c, ans
+}
+
+// TestIdentityRemoveOwnClosesOwn: a server admin who removes the
+// identity behind their own sign-in is answered, and then their own
+// connection closes, as signin.end's does.
+func TestIdentityRemoveOwnClosesOwn(t *testing.T) {
+	t.Parallel()
+	w := newMeasuredSignInWorld(t, nil, nil, "alice")
+	c, _ := w.signedInConn(t, newAttempt(t))
+	ids, err := w.ctl.Identities(t.Context(), "alice")
+	if err != nil || len(ids) != 1 {
+		t.Fatalf("alice's identities = %+v, %v; want one", ids, err)
+	}
+	if f := wsCall(t, c, 1, proto.OpIdentityRemove, proto.IdentityArgs{ID: ids[0].ID}); f.Err != nil {
+		t.Fatalf("identity.remove of alice's own identity, by alice = %v", f.Err)
+	}
+	expectClosed(t, c)
+}
+
+// TestDisableEndsSignIns: disabling a principal ends its sign-ins, so
+// that a token from before is refused once it is enabled again.
+func TestDisableEndsSignIns(t *testing.T) {
+	t.Parallel()
+	w := newSignInWorld(t, nil)
+	a := newAttempt(t)
+	c, ans := w.signedInConn(t, a)
+	admin := mustDialTo(t, w.Server, dana, projA)
+	mustAsk[proto.PrincipalResult](admin, proto.OpPrincipalDisable, proto.PrincipalArgs{Name: "alice"})
+	expectClosed(t, c)
+	mustAsk[proto.PrincipalResult](admin, proto.OpPrincipalEnable, proto.PrincipalArgs{Name: "alice"})
+	if c, perr := w.connectWith(t, a, ans.AccessToken, ""); perr == nil || perr.Code != proto.CodeAuth {
+		if c != nil {
+			_ = c.Close()
+		}
+		t.Errorf("connect, once alice is enabled again, with her token from before she was disabled = %v, want auth", perr)
+	}
+	gs := mustAsk[proto.SignInsResult](admin, proto.OpSignIns, proto.SignInsArgs{Name: "alice"})
+	if len(gs.SignIns) != 1 || gs.SignIns[0].State != proto.SignInEnded || gs.SignIns[0].EndReason != store.EndPrincipalDisabled {
+		t.Errorf("alice's sign-ins after disable and enable = %+v, want hers ended, reason %s", gs.SignIns, store.EndPrincipalDisabled)
+	}
+}
+
+// TestSweepClosesEndedSignIns: a sign-in the control store ended
+// without the server closing its connections, as when the write that
+// ended it failed after it committed and the index was read again, is
+// closed by the reaper's sweep.
+func TestSweepClosesEndedSignIns(t *testing.T) {
+	t.Parallel()
+	w := newSignInWorld(t, nil)
+	c, ans := w.signedInConn(t, newAttempt(t))
+	byKey := mustDialTo(t, w.Server, alice, projA)
+	// The store alone: the server is told nothing.
+	if _, _, err := w.ctl.EndSignIn(t.Context(), dana, ans.Grant, store.EndRevoked); err != nil {
+		t.Fatal(err)
+	}
+	if f := wsCall(t, c, 1, proto.OpSignIns, proto.SignInsArgs{Name: "alice"}); f.Err != nil {
+		t.Fatalf("a request before the sweep = %v", f.Err)
+	}
+	w.sweepSignIns(t.Context())
+	expectEnded(t, c, "sign-in ended")
+	if _, perr := ask[proto.SignInsResult](byKey, proto.OpSignIns, proto.SignInsArgs{Name: "alice"}); perr != nil {
+		t.Errorf("a request on alice's connection by a key after the sweep = %v, want an answer", perr)
 	}
 }
 

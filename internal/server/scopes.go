@@ -58,39 +58,39 @@ var opScopes = sync.OnceValue(func() map[string][]string {
 	}
 })
 
-// mayCall refuses op to a connection holding scopes, unless one of them
-// allows it. Nil scopes, a connection that came by a key, allow every
-// op.
-func mayCall(scopes []string, op string) *proto.Error {
-	if scopes == nil || slices.Contains(scopes, proto.ScopeCLI) {
+// mayCall refuses op to a connection that signed in with in, unless
+// one of its scopes allows it. A nil in, a connection that came by a
+// key, may send every op.
+func mayCall(in *signedIn, op string) *proto.Error {
+	if in == nil || slices.Contains(in.scopes, proto.ScopeCLI) {
 		return nil
 	}
 	allowed, known := opScopes()[op]
-	for _, s := range scopes {
+	for _, s := range in.scopes {
 		if known && slices.Contains(allowed, s) {
 			return nil
 		}
 	}
 	return proto.Errf(proto.CodeForbidden,
 		"ask a person to run it with `aries` at their terminal, signed in with `aries login`",
-		fmt.Sprintf("%s is not allowed to a sign-in of scope %s", op, strings.Join(scopes, " ")))
+		fmt.Sprintf("%s is not allowed to a sign-in of scope %s", op, strings.Join(in.scopes, " ")))
 }
 
-// mayTakeSession refuses a session a connection holding scopes may not
-// take: the session cli, a person's terminal, only with the scope cli,
-// and the session ci, a CI job's, only with cli or ci. Nil scopes, a
-// connection that came by a key, take any.
-func mayTakeSession(scopes []string, session string) *proto.Error {
-	if scopes == nil || slices.Contains(scopes, proto.ScopeCLI) {
+// mayTakeSession refuses a session a connection that signed in with in
+// may not take: the session cli, a person's terminal, only with the
+// scope cli, and the session ci, a CI job's, only with cli or ci. A nil
+// in, a connection that came by a key, takes any.
+func mayTakeSession(in *signedIn, session string) *proto.Error {
+	if in == nil || slices.Contains(in.scopes, proto.ScopeCLI) {
 		return nil
 	}
 	switch {
 	case session == proto.CLISession:
-	case session == proto.CISession && !slices.Contains(scopes, proto.ScopeCI):
+	case session == proto.CISession && !slices.Contains(in.scopes, proto.ScopeCI):
 	default:
 		return nil
 	}
 	return proto.Errf(proto.CodeForbidden,
 		"run aries with a session of its own (ARIES_SESSION, or the harness's), or sign in at a terminal with `aries login` for the session cli",
-		fmt.Sprintf("the session %s is not open to a sign-in of scope %s", session, strings.Join(scopes, " ")))
+		fmt.Sprintf("the session %s is not open to a sign-in of scope %s", session, strings.Join(in.scopes, " ")))
 }
