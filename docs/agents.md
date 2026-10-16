@@ -594,6 +594,46 @@ on, `prime` shows your own name: then use setup's `--key-file`, or put
 the key inside the agent's checkout and name it with `key:` in that
 checkout's `.aries.yaml`, uncommitted.
 
+## Connect an agent over HTTPS
+
+An agent reaches the server the way you do: over HTTPS when the
+repository's `.aries.yaml` names a `server.url`, and over SSH when it
+names only a host. Both use the same key. Over HTTPS there is no password
+and no token to set up: `aries` proves it holds the agent's key by
+signing a challenge that names the server's URL, so the key never leaves
+the machine and the proof cannot be replayed on another connection.
+
+From a repository with a `.aries.yaml` that names the server:
+
+1. Set up the agent once, as above: `aries setup claude-code --write`
+   (or the agent you use), and commit the files it writes.
+2. Make the agent's key and give it to an admin, as in
+   [Give an agent its own identity](#give-an-agent-its-own-identity). The
+   admin adds the principal with the public half, which is the only part
+   the server keeps.
+3. Start the agent with `ARIES_KEY_FILE` holding the private key's path,
+   so that `aries` offers that key and no other
+   ([Which key aries offers](security-model.md#which-key-aries-offers)).
+4. Check from the agent's environment: `aries whoami` names the principal,
+   the server, the transport (HTTPS) and the key it signed with. The first
+   two lines of `prime` say the same.
+
+If the server's certificate is issued by a company's or a site's own
+authority, the repository's `.aries.yaml` names it with `server.ca`, a PEM
+certificate or a file in the repository. The authority is added to the
+system's roots for that server and replaces none of them
+([The HTTPS listener](server.md#the-https-listener)). A certificate that
+does not verify is refused with a fix that names `server.ca`.
+
+To use SSH where both are named, set `ARIES_TRANSPORT=ssh` in the agent's
+environment. `ARIES_TRANSPORT=https` insists on the URL and refuses to
+fall back.
+
+`aries login` is optional for an agent. It signs a person in through a
+company identity provider, and an agent that holds its own key does not
+need it. The provider's setup is in
+[Sign-in](server.md#sign-in).
+
 ## Sessions and hooks in harnesses other than Claude Code
 
 One limitation affects every harness except Claude Code. The session-start
