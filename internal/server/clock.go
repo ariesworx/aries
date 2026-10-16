@@ -280,20 +280,20 @@ func (s *Server) CheckClock(ctx context.Context) {
 	s.reportBehind(ctx, worst)
 }
 
-// ControlLog names the control database's history in a report.
-const ControlLog = "the control database"
+// ControlLog names the control store's history in a report.
+const ControlLog = "the control store"
 
 // ProjectLog names a project's history in a report: its id, and its
-// database's name where that is known.
-func ProjectLog(id, db string) string {
-	if db == "" {
+// schema where that is known.
+func ProjectLog(id, schema string) string {
+	if schema == "" {
 		return "project " + id
 	}
-	return fmt.Sprintf("project %s (database %s)", id, db)
+	return fmt.Sprintf("project %s (schema %s)", id, schema)
 }
 
 // logName names the project's history in a report.
-func (pr *served) logName() string { return ProjectLog(pr.id, pr.db) }
+func (pr *served) logName() string { return ProjectLog(pr.id, pr.schema) }
 
 // BehindHistory returns, as the refusal serve would give, that the
 // clock is behind the latest event of the database st was read from,

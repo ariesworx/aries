@@ -11,21 +11,21 @@ import (
 // answers an admin (which project a name means, who is within whose
 // reach).
 
-// CreateDatabase creates the schema of a project still being created,
+// CreateSchema creates the schema of a project still being created,
 // the step between [Control.AddProject] and [Control.ActivateProject]
 // (design §15.5, 1), in the control store's database, owned by its role.
 // Only a server admin may. It is safe to repeat: a schema that exists is
-// left as it is. (The name is from when each project had a database of
-// its own.)
+// left as it is, so the caller checks first that a new project's schema
+// is not one already there ([Control.SchemaExists]).
 //
 // The role needs the right to make schemas in its database, which owning
-// the database gives it; refused, the error is one [DatabaseDenied]
+// the database gives it; refused, the error is one [SchemaDenied]
 // recognizes. That it can then use a schema that already existed is
 // another matter, which [Open] finds out.
 //
 // It refuses a project that does not exist with ErrNotFound, and one
 // that is not being created with ErrInvalid.
-func (c *Control) CreateDatabase(ctx context.Context, actor Actor, project string) error {
+func (c *Control) CreateSchema(ctx context.Context, actor Actor, project string) error {
 	if err := actor.validate(); err != nil {
 		return err
 	}
@@ -44,20 +44,32 @@ func (c *Control) CreateDatabase(ctx context.Context, actor Actor, project strin
 	}
 	// The row's name passed this check when it was written; it is
 	// checked again here because the statement takes no placeholder.
-	if !ValidDBName(p.DBName) {
-		return fmt.Errorf("%w: schema name %q of project %s", ErrInvalid, p.DBName, project)
+	if !ValidSchemaName(p.Schema) {
+		return fmt.Errorf("%w: schema name %q of project %s", ErrInvalid, p.Schema, project)
 	}
 	// Outside Store.write: it changes no table of the control store, so
 	// there is no event to record. The project's own events say that it
 	// was added and activated.
-	if _, err := c.s.w.ExecContext(ctx, "CREATE SCHEMA IF NOT EXISTS "+quoteIdent(p.DBName)); err != nil {
-		return fmt.Errorf("create schema %s: %w", p.DBName, err)
+	if _, err := c.s.w.ExecContext(ctx, "CREATE SCHEMA IF NOT EXISTS "+quoteIdent(p.Schema)); err != nil {
+		return fmt.Errorf("create schema %s: %w", p.Schema, err)
 	}
 	return nil
 }
 
+// SchemaExists reports whether the control store's database holds a
+// schema named name, whoever made it: a project's schema must be a new
+// one, never one another daemon, an earlier project or a person left
+// there.
+func (c *Control) SchemaExists(ctx context.Context, name string) (bool, error) {
+	var ok bool
+	if err := c.s.r.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = $1)`, name).Scan(&ok); err != nil {
+		return false, fmt.Errorf("look for schema %s: %w", name, err)
+	}
+	return ok, nil
+}
+
 // HeldClaims returns how many claims are held in the project schema
-// named db, with the holds and places in its locks' queues, which end
+// named schema, with the holds and places in its locks' queues, which end
 // with access as claims do, by one read through the control store's own
 // connection: the schemas are in one database, and no store is opened
 // for it. ariesd asks it of each archived project at start, so that one
@@ -67,16 +79,16 @@ func (c *Control) CreateDatabase(ctx context.Context, actor Actor, project strin
 // the schema's version. An error therefore says only that the caller
 // must open the schema to learn more: it may not exist, may not be the
 // role's, or may hold another version's tables.
-func (c *Control) HeldClaims(ctx context.Context, db string) (int, error) {
+func (c *Control) HeldClaims(ctx context.Context, schema string) (int, error) {
 	// The statement takes no placeholder for a schema name.
-	if !ValidDBName(db) {
-		return 0, fmt.Errorf("%w: schema name %q", ErrInvalid, db)
+	if !ValidSchemaName(schema) {
+		return 0, fmt.Errorf("%w: schema name %q", ErrInvalid, schema)
 	}
-	s := quoteIdent(db)
+	s := quoteIdent(schema)
 	var n int
 	if err := c.s.r.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM `+s+`.claims WHERE principal IS NOT NULL)
   + (SELECT COUNT(*) FROM `+s+`.lock_holders) + (SELECT COUNT(*) FROM `+s+`.lock_waiters)`).Scan(&n); err != nil {
-		return 0, fmt.Errorf("count the claims and locks held in %s: %w", db, err)
+		return 0, fmt.Errorf("count the claims and locks held in %s: %w", schema, err)
 	}
 	return n, nil
 }

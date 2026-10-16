@@ -15,7 +15,7 @@ import (
 // three lists it names show it.
 func TestAdminTrail(t *testing.T) {
 	t.Parallel()
-	w := adminWorld(t, 0, 0)
+	w := adminWorld(t)
 	w.member("alice", project, store.RoleAdmin)
 	dana, alice := w.newUser("dana", ""), w.newUser("alice", "")
 	ginas := w.newUser("", "") // a key the server has not seen

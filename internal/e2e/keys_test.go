@@ -528,7 +528,7 @@ func TestAdminKeyOnAServerOfOneProject(t *testing.T) {
 		{"admin", "key", "remove", "SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5TqvU"},
 	} {
 		if e := d.refused(proto.CodeInvalid, args...); !strings.Contains(e.Message, "this server holds one project") ||
-			!strings.Contains(e.Fix, "setting control_db (docs/server.md, Serving many projects, Opt in)") {
+			!strings.Contains(e.Fix, "setting control_schema (docs/server.md, Serving many projects, Opt in)") {
 			t.Errorf("aries %s on a server of one project: %+v", strings.Join(args, " "), e)
 		}
 	}

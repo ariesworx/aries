@@ -278,12 +278,12 @@ func upgradeRollback(ctx context.Context, env adminEnv, d upgradeDeps, s server.
 // want ("" accepts any version) or healthWait passes.
 //
 // A server of one project answers once it has opened and migrated its
-// store. A server of many (control_db) opens every active project's
+// store. A server of many (control_schema) opens every active project's
 // database before it listens, and refuses the probe while any of them
 // has failed to open; it answers for the server, whatever project the
 // probe names, so the config file's project need not be active, or set.
 func restartHealthy(ctx context.Context, d upgradeDeps, s server.Settings, unit, want string) error {
-	if s.Project == "" && s.ControlDB == "" {
+	if s.Project == "" && s.ControlSchema == "" {
 		return errors.New("no project configured, so the daemon cannot be health-checked; fix: set project: in the config file")
 	}
 	if err := d.restart(ctx, unit); err != nil {

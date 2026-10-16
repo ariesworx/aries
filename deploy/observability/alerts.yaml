@@ -15,8 +15,9 @@
 #   - One ariesd. For several, add `by (instance)` to each sum.
 #
 # The thresholds are starting points: round numbers to be set against a
-# server's own history. Rules over Postgres's own figures are not here
-# yet; the port's status slice adds them.
+# server's own history. Postgres's own figures (connections, deadlocks,
+# sizes) are in `aries admin status`, not in ariesd's metrics: watch them
+# with Postgres's own exporter, such as postgres_exporter, beside these.
 #
 # A counter of ariesd's has no series until it first counts, and
 # Prometheus sees no increase in a series' first sample. So a rule on a
@@ -194,6 +195,22 @@ groups:
             Every project with a connection holds a store open, and
             `open_stores` caps them. Raise it under `limits:` with the
             database's connections in mind (docs/server.md, Limits).
+
+      - alert: AriesDatabasePoolExhausted
+        expr: >-
+          increase(aries_db_pool_waits_total[5m]) > 0
+          or (aries_db_pool_waits_total > 0 unless aries_db_pool_waits_total offset 5m)
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Requests wait for a connection to Postgres, every one of ariesd's pool being in use.
+          description: >-
+            Every project's store shares one pool, of at most
+            `db_conns_per_server` connections. `aries admin status`
+            shows the pool and Postgres's own connections. Raise the
+            limit under `limits:`, with Postgres's `max_connections`
+            above it (docs/server.md, Limits).
 
       - alert: AriesTelemetryMetricsExportFailing
         expr: >-

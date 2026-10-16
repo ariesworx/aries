@@ -10,7 +10,7 @@ import (
 // a [*ControlLimitError].
 type ControlLimits struct {
 	// Projects caps the projects on the server, in every state: an
-	// archived project keeps its database.
+	// archived project keeps its schema.
 	Projects int `yaml:"projects"`
 	// Principals caps the principals on the server, disabled ones
 	// included.
@@ -116,8 +116,8 @@ const (
 	TakenProjectID TakenKind = "project id"
 	// TakenProjectName: another project has the name.
 	TakenProjectName TakenKind = "project name"
-	// TakenDBName: another project has the database.
-	TakenDBName TakenKind = "database name"
+	// TakenSchema: another project has the schema.
+	TakenSchema TakenKind = "schema"
 	// TakenPrincipal: a principal has the name.
 	TakenPrincipal TakenKind = "principal name"
 	// TakenKey: another principal has the key.

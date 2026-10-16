@@ -156,13 +156,13 @@ func projectAdd(ctx context.Context, r *runner, in proto.ProjectAddArgs) error {
 		how = "created, finishing an earlier attempt,"
 	}
 	p := func(format string, a ...any) { _, _ = fmt.Fprintf(r.env.Stdout, format, a...) }
-	p("project %s (%s) %s in schema %s: %s\n", esc(out.Name), esc(out.ID), how, esc(out.Database), esc(out.State))
+	p("project %s (%s) %s in schema %s: %s\n", esc(out.Name), esc(out.ID), how, esc(out.Schema), esc(out.State))
 	p("commit this as %s in the project's repository:\n\n%s", client.ConfigFile, yaml)
 	return nil
 }
 
-// printProjects renders a project list. The role and database columns
-// show when a row has one: a role is the caller's own, and the database
+// printProjects renders a project list. The role and schema columns
+// show when a row has one: a role is the caller's own, and the schema
 // is shown to server admins.
 func printProjects(w io.Writer, res proto.ProjectsResult) {
 	if len(res.Projects) == 0 {
@@ -170,13 +170,13 @@ func printProjects(w io.Writer, res proto.ProjectsResult) {
 		return
 	}
 	roles := slices.ContainsFunc(res.Projects, func(p proto.Project) bool { return p.Role != "" })
-	dbs := slices.ContainsFunc(res.Projects, func(p proto.Project) bool { return p.Database != "" })
+	schemas := slices.ContainsFunc(res.Projects, func(p proto.Project) bool { return p.Schema != "" })
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	head := "NAME\tID\tPREFIX\tACCOUNT\tSTATE"
 	if roles {
 		head += "\tROLE"
 	}
-	if dbs {
+	if schemas {
 		head += "\tSCHEMA"
 	}
 	_, _ = fmt.Fprintln(tw, head)
@@ -185,8 +185,8 @@ func printProjects(w io.Writer, res proto.ProjectsResult) {
 		if roles {
 			_, _ = fmt.Fprintf(tw, "\t%s", esc(p.Role))
 		}
-		if dbs {
-			_, _ = fmt.Fprintf(tw, "\t%s", esc(p.Database))
+		if schemas {
+			_, _ = fmt.Fprintf(tw, "\t%s", esc(p.Schema))
 		}
 		_, _ = fmt.Fprintln(tw)
 	}

@@ -48,6 +48,9 @@ func Print(w io.Writer, res proto.StatusResult) {
 			p("%s", tracesLine(*tr))
 		}
 		p("ariesd's memory %d MiB in use, %d MiB from the system; %d goroutines\n", mib(s.HeapBytes), mib(s.SysBytes), s.Goroutines)
+		if pg := s.Postgres; pg != nil {
+			p("%s", postgresLines(*pg))
+		}
 		p("projects: %s; principals: %s\n\n", byState(s.Projects), byState(s.Principals))
 	}
 	if len(res.Projects) == 0 {
@@ -55,7 +58,13 @@ func Print(w io.Writer, res proto.StatusResult) {
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "PROJECT\tSTATE\tSTORE\tCONNS\tBY HAND\tSESSIONS\tWRITES/MIN\tP50\tP99\tLAST USED")
+	// A schema's size shows when the server sent one.
+	sizes := slices.ContainsFunc(res.Projects, func(pr proto.ProjectStatus) bool { return pr.SchemaBytes != nil })
+	head := "PROJECT\tSTATE\tSTORE"
+	if sizes {
+		head += "\tSIZE"
+	}
+	_, _ = fmt.Fprintln(tw, head+"\tCONNS\tBY HAND\tSESSIONS\tWRITES/MIN\tP50\tP99\tLAST USED")
 	byFile := false
 	// Why sessions are unknown, in the order met, and for how many
 	// projects each.
@@ -86,7 +95,15 @@ func Print(w io.Writer, res proto.StatusResult) {
 		if pr.LastUsed != nil {
 			used = when(*pr.LastUsed)
 		}
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\t%s\n", esc(pr.Name), esc(pr.State), store, pr.Conns, file, sessions, writes, p50, p99, used)
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s", esc(pr.Name), esc(pr.State), store)
+		if sizes {
+			sz := "-"
+			if pr.SchemaBytes != nil {
+				sz = size(*pr.SchemaBytes)
+			}
+			_, _ = fmt.Fprintf(tw, "\t%s", sz)
+		}
+		_, _ = fmt.Fprintf(tw, "\t%d\t%s\t%s\t%s\t%s\t%s\t%s\n", pr.Conns, file, sessions, writes, p50, p99, used)
 	}
 	_ = tw.Flush()
 	if res.More > 0 {
@@ -121,6 +138,30 @@ func keysFile(k proto.KeysFile) string {
 
 // mib is n bytes in mebibytes, to the nearest one.
 func mib(n uint64) uint64 { return (n + 1<<19) >> 20 }
+
+// size prints n bytes as kibibytes below a mebibyte, and as mebibytes or
+// gibibytes to a tenth from there.
+func size(n int64) string {
+	switch {
+	case n >= 1<<30:
+		return fmt.Sprintf("%.1f GiB", float64(n)/(1<<30))
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
+	}
+	return fmt.Sprintf("%d KiB", (n+1<<9)>>10)
+}
+
+// postgresLines says what Postgres says of itself, and what ariesd's
+// pool of connections to it holds, or why Postgres could not be read.
+func postgresLines(pg proto.PostgresStatus) string {
+	pool := fmt.Sprintf("ariesd's pool %d in use of %d held, at most %d, waited for %s", pg.PoolInUse, pg.PoolConns, pg.PoolMax, plural(pg.PoolWaits, "time"))
+	if pg.Unknown != "" {
+		return fmt.Sprintf("postgres: unknown (%s); %s. Check Postgres on the server (docs/server.md, Troubleshooting)\n", esc(pg.Unknown), pool)
+	}
+	return fmt.Sprintf("postgres %s: connections %d of %d, %d in this database; %s\n", esc(pg.Version), pg.Conns, pg.ConnsMax, pg.DatabaseConns, pool) +
+		fmt.Sprintf("postgres's database %s; since its statistics were reset, %d commits, %s, %s, %s, %s in temporary files\n",
+			size(pg.DatabaseBytes), pg.Commits, plural(pg.Rollbacks, "rollback"), plural(pg.Deadlocks, "deadlock"), plural(pg.Conflicts, "conflict"), size(pg.TempBytes))
+}
 
 // latency prints a latency given in microseconds: to a tenth of a
 // millisecond below a second, and to a hundredth of a second from there.

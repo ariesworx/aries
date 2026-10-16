@@ -247,9 +247,9 @@ func readCtlTables(ctx context.Context, q querier) (ctlTables, error) {
 		query string
 		row   func(*sql.Rows) error
 	}{
-		{`SELECT id, name, prefix, account, db_name, state, rev FROM projects`, func(rows *sql.Rows) error {
+		{`SELECT id, name, prefix, account, schema_name, state, rev FROM projects`, func(rows *sql.Rows) error {
 			var p store.Project
-			err := rows.Scan(&p.ID, &p.Name, &p.Prefix, &p.Account, &p.DBName, &p.State, &p.Rev)
+			err := rows.Scan(&p.ID, &p.Name, &p.Prefix, &p.Account, &p.Schema, &p.State, &p.Rev)
 			tb.projects[p.ID] = p
 			return err
 		}},
@@ -286,7 +286,7 @@ func readCtlTables(ctx context.Context, q querier) (ctlTables, error) {
 func (c *ctlReplay) compare(tb ctlTables) {
 	for id, want := range c.projects {
 		got, ok := tb.projects[id]
-		w := store.Project{ID: want.ID, Name: want.Name, Prefix: want.Prefix, Account: want.Account, DBName: want.DBName, State: want.State, Rev: want.Rev}
+		w := store.Project{ID: want.ID, Name: want.Name, Prefix: want.Prefix, Account: want.Account, Schema: want.Schema, State: want.State, Rev: want.Rev}
 		if !ok || got != w {
 			c.fail("", "project %s: the control table has %+v (there: %t), its event log rebuilds %+v", id, got, ok, w)
 		}

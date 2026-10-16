@@ -243,7 +243,7 @@ func TestSweep(t *testing.T) {
 // asIs opens a project's database without migrating it, as a daemon
 // opens an archived project's at its start.
 func (m *multi) asIs() func(context.Context, store.Project) (Store, error) {
-	return ProjectOpener(m.dsn, m.ctl, store.Options{NoMigrate: true}, m.tel)
+	return ProjectOpener(m.db, m.ctl, store.Options{NoMigrate: true}, m.tel)
 }
 
 // inStore opens the database of the project named name directly, as the
@@ -309,7 +309,7 @@ func TestReleaseArchived(t *testing.T) {
 	// does not stop the others. It sorts before proj-b.
 	const projC = "00000000-0000-4000-8000-00000000000c"
 	if _, err := m.ctl.AddProject(t.Context(), dana, store.NewProject{ID: projC, Name: "proj-0", Prefix: "pc",
-		Account: "internal", DBName: "never_granted"}); err != nil {
+		Account: "internal", Schema: "never_granted"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := m.ctl.ArchiveProject(t.Context(), dana, projC); err != nil {
@@ -399,7 +399,7 @@ func TestReleaseArchivedDoesNotMigrate(t *testing.T) {
 	// One migration behind, as an older binary left it. Deleting the
 	// record leaves the tables, so the claim can still be read.
 	p, _ := m.ctl.ProjectNamed("proj-b")
-	dsn, err := SchemaDSN(m.dsn, p.DBName)
+	dsn, err := store.SchemaDSN(m.dsn, p.Schema)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,7 +433,7 @@ func TestReleaseArchivedDoesNotMigrate(t *testing.T) {
 	if claims != 1 {
 		t.Errorf("%d claims in the database ReleaseArchived must not touch, want erin's 1 (%s)", claims, erins)
 	}
-	if !strings.Contains(m.log.String(), `msg="archived project not opened at start: its database awaits this ariesd's migrations, and any claim in it ends when the project is activated" event=project.not_opened project=`+projB) {
+	if !strings.Contains(m.log.String(), `msg="archived project not opened at start: its schema awaits this ariesd's migrations, and any claim in it ends when the project is activated" event=project.not_opened project=`+projB) {
 		t.Errorf("no log line saying the archived project was left alone:\n%s", m.log.String())
 	}
 }

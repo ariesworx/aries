@@ -85,6 +85,38 @@ func TestPrint(t *testing.T) {
 				"\n" +
 				"PROJECT              STATE   STORE   CONNS  BY HAND  SESSIONS  WRITES/MIN  P50  P99  LAST USED\n" +
 				"acme\\nfix: run this  active  closed  0      -        -         -           -    -    -\n"},
+		// Postgres's own figures, and each project's schema's size.
+		{"with Postgres's figures", proto.StatusResult{
+			Server: &proto.ServerStatus{Version: "v1.0.0", UptimeSeconds: 60, OpenStores: 1, OpenStoresMax: 64, ConnsMax: 1024,
+				Postgres: &proto.PostgresStatus{Version: "18.6", Conns: 14, ConnsMax: 100, DatabaseConns: 9,
+					PoolConns: 5, PoolInUse: 2, PoolMax: 32, PoolWaits: 3,
+					Commits: 52340, Rollbacks: 12, Deadlocks: 1, Conflicts: 0, TempBytes: 3 << 20, DatabaseBytes: 41 << 20}},
+			Projects: []proto.ProjectStatus{
+				{ID: a, Name: "acme", State: "active", Open: true, Sessions: n(1), Writes: &proto.WriteStatus{}, LastUsed: &at, SchemaBytes: ptr(int64(9<<20 + 300<<10))},
+				{ID: b, Name: "web", State: "archived", SchemaBytes: ptr(int64(600 << 10))},
+				{ID: b, Name: "zed", State: "archived"}}},
+			"ariesd v1.0.0, up 1m\n" +
+				"stores 1 of 64, connections 0 of 1024\n" +
+				"ariesd's memory 0 MiB in use, 0 MiB from the system; 0 goroutines\n" +
+				"postgres 18.6: connections 14 of 100, 9 in this database; ariesd's pool 2 in use of 5 held, at most 32, waited for 3 times\n" +
+				"postgres's database 41.0 MiB; since its statistics were reset, 52340 commits, 12 rollbacks, 1 deadlock, 0 conflicts, 3.0 MiB in temporary files\n" +
+				"projects: none; principals: none\n" +
+				"\n" +
+				"PROJECT  STATE     STORE   SIZE     CONNS  BY HAND  SESSIONS  WRITES/MIN  P50  P99  LAST USED\n" +
+				"acme     active    open    9.3 MiB  0      0        1         0           -    -    2026-10-11 09:30 UTC\n" +
+				"web      archived  closed  600 KiB  0      -        -         -           -    -    -\n" +
+				"zed      archived  closed  -        0      -        -         -           -    -    -\n"},
+		// Postgres did not answer: the pool, from memory, stands.
+		{"Postgres's figures unknown", proto.StatusResult{
+			Server: &proto.ServerStatus{Version: "v1.0.0", UptimeSeconds: 60, OpenStoresMax: 64, ConnsMax: 1024,
+				Postgres: &proto.PostgresStatus{PoolConns: 1, PoolInUse: 1, PoolMax: 32, Unknown: "database did not answer in 2s"}}},
+			"ariesd v1.0.0, up 1m\n" +
+				"stores 0 of 64, connections 0 of 1024\n" +
+				"ariesd's memory 0 MiB in use, 0 MiB from the system; 0 goroutines\n" +
+				"postgres: unknown (database did not answer in 2s); ariesd's pool 1 in use of 1 held, at most 32, waited for 0 times. Check Postgres on the server (docs/server.md, Troubleshooting)\n" +
+				"projects: none; principals: none\n" +
+				"\n" +
+				"no projects\n"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -94,6 +126,23 @@ func TestPrint(t *testing.T) {
 				t.Errorf("printed\n%s\nwant\n%s", got, tc.want)
 			}
 		})
+	}
+}
+
+func ptr[T any](v T) *T { return &v }
+
+func TestSize(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		n    int64
+		want string
+	}{
+		{0, "0 KiB"}, {512, "1 KiB"}, {600 << 10, "600 KiB"}, {1 << 20, "1.0 MiB"}, {9<<20 + 300<<10, "9.3 MiB"},
+		{1023 << 20, "1023.0 MiB"}, {1 << 30, "1.0 GiB"}, {5<<30 + 512<<20, "5.5 GiB"},
+	} {
+		if got := size(tc.n); got != tc.want {
+			t.Errorf("size(%d) = %q, want %q", tc.n, got, tc.want)
+		}
 	}
 }
 

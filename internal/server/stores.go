@@ -191,12 +191,13 @@ type Index interface {
 // schemas.
 type ProjectAdmin interface {
 	AddProject(ctx context.Context, actor store.Actor, in store.NewProject) (store.Project, error)
-	CreateDatabase(ctx context.Context, actor store.Actor, project string) error
+	CreateSchema(ctx context.Context, actor store.Actor, project string) error
 	ActivateProject(ctx context.Context, actor store.Actor, id string) (store.Project, error)
 	ArchiveProject(ctx context.Context, actor store.Actor, id string) (store.Project, error)
 	Project(ctx context.Context, id string) (store.Project, error)
 	Projects(ctx context.Context) ([]store.Project, error)
-	HeldClaims(ctx context.Context, db string) (int, error)
+	SchemaExists(ctx context.Context, name string) (bool, error)
+	HeldClaims(ctx context.Context, schema string) (int, error)
 	Account(ctx context.Context) (string, error)
 	Database(ctx context.Context) (string, error)
 }
@@ -235,7 +236,18 @@ type ControlUpkeep interface {
 	SettleClock(ctx context.Context) error
 }
 
+// Postgres is what the status report reads of the database server
+// itself, beside the stores: its own figures, and the size of each
+// project's schema; and what the daemon's pool of connections to it
+// holds, which the metrics watch.
+type Postgres interface {
+	Stats(ctx context.Context) (store.DBStats, error)
+	Pool() store.PoolStats
+	SchemaBytes(ctx context.Context, schemas []string) (map[string]int64, error)
+}
+
 var (
-	_ Store   = (*store.Store)(nil)
-	_ Control = (*store.Control)(nil)
+	_ Store    = (*store.Store)(nil)
+	_ Control  = (*store.Control)(nil)
+	_ Postgres = (*store.DB)(nil)
 )

@@ -84,7 +84,7 @@ func decodeArgs[A any](raw json.RawMessage) (A, *proto.Error) {
 // no control store to change.
 func oneProject() *proto.Error {
 	return proto.Errf(proto.CodeInvalid,
-		"the server's operator opts in by setting control_db (docs/server.md, Serving many projects, Opt in); until then people are added as lines of authorized_keys",
+		"the server's operator opts in by setting control_schema (docs/server.md, Serving many projects, Opt in); until then people are added as lines of authorized_keys",
 		"this server holds one project, so it has no projects, principals or members to manage")
 }
 
@@ -163,18 +163,21 @@ func (s *Server) open(ctx context.Context, op string, p store.Project) *proto.Er
 		return proto.Errf(proto.CodeBusy,
 			"retry in a minute; the server admin can raise open_stores under limits: in ariesd's config",
 			fmt.Sprintf("the server has its limit of %d projects open, each with a connection", s.cfg.Limits.OpenStores))
-	case store.DatabaseDenied(err):
+	case store.SchemaDenied(err):
 		return proto.Errf(proto.CodeUnavailable,
 			fmt.Sprintf("ask the server's operator to run this as the schema's owner or a superuser, then run `aries %s %s` again: %s (docs/server.md, Serving many projects)",
-				command(op), p.Name, store.GrantSQL(p.DBName, s.role(ctx))),
-			fmt.Sprintf("another role made schema %s, and ariesd's role may not use it, so project %s cannot", p.DBName, p.Name))
+				command(op), p.Name, store.GrantSQL(p.Schema, s.role(ctx))),
+			fmt.Sprintf("another role made schema %s, and ariesd's role may not use it, so project %s cannot", p.Schema, p.Name))
 	}
 	if ctx.Err() == nil {
-		s.cfg.Logger.ErrorContext(ctx, "open project store", "event", logs.ProjectOpenFailed, "project", p.ID, "database", p.DBName, "err", err)
+		s.cfg.Logger.ErrorContext(ctx, "open project store", "event", logs.ProjectOpenFailed, "project", p.ID, "schema", p.Schema, "err", err)
+	}
+	if e := servedElsewhere(err, p); e != nil {
+		return e
 	}
 	return proto.Errf(proto.CodeUnavailable,
 		fmt.Sprintf("run `aries %s %s` again; if it persists, the server admin should check the ariesd log", command(op), p.Name),
-		fmt.Sprintf("the server could not open the database of project %s", p.Name))
+		fmt.Sprintf("the server could not open the schema of project %s", p.Name))
 }
 
 // role is the database role ariesd connects as, for a fix that grants it
@@ -207,10 +210,11 @@ func newProjectID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
-// projectAdd creates a project: its row, its database from the block of
-// names the operator granted, its schema, and then its activation. Every
-// step is safe to repeat, so a request for a project still being created
-// picks up where the last one stopped (design §15.5, 1).
+// projectAdd creates a project: its row, its schema, which the daemon
+// names from the project's name (store.ProjectSchema), the schema's
+// tables, and then its activation. Every step is safe to repeat, so a
+// request for a project still being created picks up where the last one
+// stopped (design §15.5, 1).
 func projectAdd(ctx context.Context, s *Server, sess *session, in proto.ProjectAddArgs) (any, *proto.Error) {
 	const op = proto.OpProjectAdd
 	ctl, a := s.cfg.Control, sess.actor
@@ -223,11 +227,9 @@ func projectAdd(ctx context.Context, s *Server, sess *session, in proto.ProjectA
 	if err != nil {
 		return nil, s.ctlErr(ctx, sess, op, err)
 	}
-	used := map[string]bool{}
 	var np store.NewProject
 	resumed := false
 	for _, p := range all {
-		used[p.DBName] = true
 		if p.Name != in.Name {
 			continue
 		}
@@ -239,29 +241,20 @@ func projectAdd(ctx context.Context, s *Server, sess *session, in proto.ProjectA
 				fmt.Sprintf("run `aries admin project add %s` without --prefix and --account to finish creating it", p.Name),
 				fmt.Sprintf("project %s is being created with prefix %s and account %s, which cannot change", p.Name, p.Prefix, p.Account))
 		}
-		np, resumed = store.NewProject{ID: p.ID, Name: p.Name, Prefix: p.Prefix, Account: p.Account, DBName: p.DBName}, true
+		np, resumed = store.NewProject{ID: p.ID, Name: p.Name, Prefix: p.Prefix, Account: p.Account, Schema: p.Schema}, true
 	}
 	if !resumed {
-		b := s.cfg.ProjectDBs
-		if b.Count == 0 {
-			return nil, proto.Errf(proto.CodeInvalid,
-				"ask the server's operator to set project_dbs: in ariesd's config, a block of schema names for new projects (docs/server.md, Serving many projects)",
-				"the server has no schema names for new projects")
+		schema, perr := s.newSchema(ctx, sess, in.Name, all)
+		if perr != nil {
+			return nil, perr
 		}
-		name, ok := b.free(used)
-		if !ok {
-			return nil, proto.Errf(proto.CodeInvalid,
-				fmt.Sprintf("ask the server's operator to raise count under project_dbs: in ariesd's config, which gives names from %s on (docs/server.md, Serving many projects)",
-					b.Name(b.Count+1)),
-				fmt.Sprintf("every schema name for new projects is in use (%s to %s)", b.Name(1), b.Name(b.Count)))
-		}
-		np = store.NewProject{ID: newProjectID(), Name: in.Name, Prefix: cmp.Or(in.Prefix, in.Name), Account: cmp.Or(in.Account, DefaultAccount), DBName: name}
+		np = store.NewProject{ID: newProjectID(), Name: in.Name, Prefix: cmp.Or(in.Prefix, in.Name), Account: cmp.Or(in.Account, DefaultAccount), Schema: schema}
 	}
 	p, err := ctl.AddProject(ctx, a, np)
 	if err != nil {
 		return nil, s.ctlErr(ctx, sess, op, err)
 	}
-	if err := ctl.CreateDatabase(ctx, a, p.ID); store.DatabaseDenied(err) {
+	if err := ctl.CreateSchema(ctx, a, p.ID); store.SchemaDenied(err) {
 		return nil, proto.Errf(proto.CodeUnavailable,
 			fmt.Sprintf("ask the server's operator to run this as the database's owner or a superuser, then run `aries admin project add %s` again: %s (docs/server.md, Serving many projects)",
 				p.Name, store.CreateSchemaGrantSQL(s.database(ctx), s.role(ctx))),
@@ -275,8 +268,38 @@ func projectAdd(ctx context.Context, s *Server, sess *session, in proto.ProjectA
 	if p, err = ctl.ActivateProject(ctx, a, p.ID); err != nil {
 		return nil, s.ctlErr(ctx, sess, op, err)
 	}
-	s.cfg.Logger.InfoContext(ctx, "project added", "event", logs.ProjectAdded, "project", p.ID, "name", p.Name, "database", p.DBName, "by", a.Principal, "resumed", resumed)
-	return proto.ProjectAddResult{ProjectResult: wireProjectResult(p), Database: p.DBName, Resumed: resumed}, nil
+	s.cfg.Logger.InfoContext(ctx, "project added", "event", logs.ProjectAdded, "project", p.ID, "name", p.Name, "schema", p.Schema, "by", a.Principal, "resumed", resumed)
+	return proto.ProjectAddResult{ProjectResult: wireProjectResult(p), Schema: p.Schema, Resumed: resumed}, nil
+}
+
+// newSchema names the schema of a new project called name, by the
+// daemon's one rule (store.ProjectSchema), and refuses one that is taken:
+// by another of all, the server's projects (the one adopted keeps the
+// schema its data was in, whatever its name), or by a schema already in
+// the database, which another daemon, an earlier project or a person
+// left there and which no new project may take over.
+func (s *Server) newSchema(ctx context.Context, sess *session, name string, all []store.Project) (string, *proto.Error) {
+	const op = proto.OpProjectAdd
+	schema, err := store.ProjectSchema(name)
+	if err != nil {
+		return "", proto.Errf(proto.CodeInvalid,
+			fmt.Sprintf("choose a name of at most %d lowercase letters, digits and inner hyphens", store.MaxProjectNameForSchema),
+			fmt.Sprintf("project name %s cannot name a schema", name))
+	}
+	taken := slices.ContainsFunc(all, func(p store.Project) bool { return p.Schema == schema })
+	if !taken {
+		exists, err := s.cfg.Control.SchemaExists(ctx, schema)
+		if err != nil {
+			return "", s.ctlErr(ctx, sess, op, err)
+		}
+		taken = exists
+	}
+	if taken {
+		return "", proto.Errf(proto.CodeExists,
+			fmt.Sprintf("choose another name; or, if nothing uses schema %s, ask the server's operator to drop or rename it as its owner (docs/server.md, Serving many projects)", schema),
+			fmt.Sprintf("schema %s, which project %s would have, is already in the database", schema, name))
+	}
+	return schema, nil
 }
 
 func wireProjectResult(p store.Project) proto.ProjectResult {
@@ -316,7 +339,7 @@ func projects(ctx context.Context, s *Server, sess *session, in proto.AdminListA
 		}
 		for _, p := range all {
 			rows = append(rows, proto.Project{ID: p.ID, Name: p.Name, Prefix: p.Prefix, Account: p.Account, State: string(p.State),
-				Database: p.DBName, CreatedBy: p.CreatedBy})
+				Schema: p.Schema, CreatedBy: p.CreatedBy})
 		}
 	} else {
 		of, err := ctl.ProjectsOf(ctx, actor)
@@ -395,7 +418,7 @@ func projectArchive(ctx context.Context, s *Server, sess *session, in proto.Proj
 	defer cancel()
 	held, err := s.stores.acquire(rctx, p)
 	if err != nil {
-		s.cfg.Logger.ErrorContext(ctx, "open the store of an archived project to end its claims", "event", logs.ProjectOpenFailed, "project", p.ID, "database", p.DBName, "err", err)
+		s.cfg.Logger.ErrorContext(ctx, "open the store of an archived project to end its claims", "event", logs.ProjectOpenFailed, "project", p.ID, "schema", p.Schema, "err", err)
 	}
 	out.Released = s.release(rctx, sess.actor, p.ID, "", lostArchived)
 	s.stores.retire(p.ID)
@@ -905,14 +928,14 @@ func (s *Server) OpenProjects(ctx context.Context) error {
 		// and traced as any opening is.
 		st, err := s.openStore(ctx, p)
 		if err == nil {
-			behind = append(behind, s.startBehind(ProjectLog(p.ID, p.DBName), st.ClockState()))
+			behind = append(behind, s.startBehind(ProjectLog(p.ID, p.Schema), st.ClockState()))
 			err = st.Close()
 		}
 		if err != nil {
 			if ctx.Err() != nil {
 				return fmt.Errorf("open projects: %w", ctx.Err())
 			}
-			s.cfg.Logger.ErrorContext(ctx, "open project store at start", "event", logs.ProjectOpenFailed, "project", p.ID, "name", p.Name, "database", p.DBName, "err", err)
+			s.cfg.Logger.ErrorContext(ctx, "open project store at start", "event", logs.ProjectOpenFailed, "project", p.ID, "name", p.Name, "schema", p.Schema, "err", err)
 			s.mu.Lock()
 			s.unopened[p.ID] = p
 			s.mu.Unlock()
@@ -966,10 +989,10 @@ func (s *Server) ReleaseArchived(ctx context.Context, open func(context.Context,
 		case ctx.Err() != nil:
 			return fmt.Errorf("release the claims of archived projects: %w", ctx.Err())
 		case errors.Is(err, store.ErrSchemaOld):
-			s.cfg.Logger.InfoContext(ctx, "archived project not opened at start: its database awaits this ariesd's migrations, and any claim in it ends when the project is activated",
-				"event", logs.ProjectNotOpened, "project", p.ID, "name", p.Name, "database", p.DBName)
+			s.cfg.Logger.InfoContext(ctx, "archived project not opened at start: its schema awaits this ariesd's migrations, and any claim in it ends when the project is activated",
+				"event", logs.ProjectNotOpened, "project", p.ID, "name", p.Name, "schema", p.Schema)
 		default:
-			s.cfg.Logger.ErrorContext(ctx, "end the claims of an archived project at start", "event", logs.SweepFailed, "project", p.ID, "name", p.Name, "database", p.DBName, "err", err)
+			s.cfg.Logger.ErrorContext(ctx, "end the claims of an archived project at start", "event", logs.SweepFailed, "project", p.ID, "name", p.Name, "schema", p.Schema, "err", err)
 		}
 	}
 	return nil
@@ -982,7 +1005,7 @@ func (s *Server) releaseArchived(ctx context.Context, p store.Project, open func
 	defer cancel()
 	// Nearly every archived project holds no claim, and one read says
 	// so without a store. When the read fails, opening says why.
-	if n, err := s.cfg.Control.HeldClaims(octx, p.DBName); err == nil && n == 0 {
+	if n, err := s.cfg.Control.HeldClaims(octx, p.Schema); err == nil && n == 0 {
 		return nil
 	}
 	st, err := open(octx, p)
@@ -1013,11 +1036,11 @@ func (s *Server) unopenedErr() *proto.Error {
 	slices.SortFunc(bad, func(a, b store.Project) int { return strings.Compare(a.Name, b.Name) })
 	names := make([]string, 0, 5)
 	for _, p := range bad[:min(len(bad), 5)] {
-		names = append(names, fmt.Sprintf("%s (database %s)", p.Name, p.DBName))
+		names = append(names, fmt.Sprintf("%s (schema %s)", p.Name, p.Schema))
 	}
-	msg := fmt.Sprintf("ariesd could not open the database of %d active projects: %s", len(bad), strings.Join(names, ", "))
+	msg := fmt.Sprintf("ariesd could not open the schema of %d active projects: %s", len(bad), strings.Join(names, ", "))
 	if len(bad) == 1 {
-		msg = "ariesd could not open the database of an active project: " + names[0]
+		msg = "ariesd could not open the schema of an active project: " + names[0]
 	}
 	if len(bad) > len(names) {
 		msg += fmt.Sprintf(" and %d more", len(bad)-len(names))

@@ -98,7 +98,7 @@ func (c *fakeControl) Access(principal, project string) store.Access {
 	acc := store.Access{}
 	if project == projA {
 		acc.Active = true
-		acc.Project = store.Project{ID: projA, Name: "proj-a", Prefix: "pa", Account: "acct-a", DBName: "aries_pa", State: store.ProjectActive}
+		acc.Project = store.Project{ID: projA, Name: "proj-a", Prefix: "pa", Account: "acct-a", Schema: "aries_pa", State: store.ProjectActive}
 	}
 	if c.members[principal] {
 		acc.Role = store.RoleMember
@@ -131,6 +131,9 @@ func TestStoreErrorsOnTheWire(t *testing.T) {
 	}{
 		{name: "not found", err: fmt.Errorf("issue sf-x: %w", store.ErrNotFound),
 			code: proto.CodeNotFound, msg: "issue sf-x not found", fix: "find the id with `aries list`"},
+		{name: "the writer's lock lost to another process", err: &store.ServedError{Schema: "project_web"},
+			code: proto.CodeUnavailable, msg: "another process on the same database now serves this project's schema, project_web",
+			fix: "ask the server's operator to stop whichever ariesd should not serve it"},
 		{name: "exists", err: fmt.Errorf("issue sf-x: %w", store.ErrExists),
 			code: proto.CodeExists, msg: "issue sf-x already exists", fix: "omit --id"},
 		{name: "cycle", err: fmt.Errorf("sf-x already depends on sf-y: %w", store.ErrCycle),
@@ -240,7 +243,7 @@ func TestProjectStoreFailsToOpen(t *testing.T) {
 		defer mu.Unlock()
 		opens++
 		if opens == 1 {
-			return nil, fmt.Errorf("open %s: %w", p.DBName, store.ErrSchemaTooNew)
+			return nil, fmt.Errorf("open %s: %w", p.Schema, store.ErrSchemaTooNew)
 		}
 		return opened, nil
 	}
@@ -279,3 +282,70 @@ func TestProjectStoreFailsToOpen(t *testing.T) {
 // anyPeer passes every connection's peer check: a test's net.Pipe has
 // no peer to check, and on Linux the server's own check refuses it.
 func anyPeer(net.Conn) error { return nil }
+
+// fakePostgres is a Postgres whose reads fail with err, or, when slow,
+// wait for their deadline. Either way the pool's figures, which are the
+// daemon's own, come back with the failure.
+type fakePostgres struct {
+	err  error
+	slow bool
+}
+
+func (f fakePostgres) Stats(ctx context.Context) (store.DBStats, error) {
+	if f.slow {
+		<-ctx.Done()
+		return store.DBStats{Pool: f.Pool()}, ctx.Err()
+	}
+	return store.DBStats{Pool: f.Pool()}, f.err
+}
+
+func (f fakePostgres) Pool() store.PoolStats {
+	if f.slow {
+		return store.PoolStats{Conns: 4, InUse: 4, Max: 4, Waits: 9}
+	}
+	return store.PoolStats{Conns: 2, InUse: 1, Max: 32}
+}
+
+func (f fakePostgres) SchemaBytes(ctx context.Context, _ []string) (map[string]int64, error) {
+	if f.slow {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	return nil, f.err
+}
+
+// When Postgres does not answer, or fails, the status report says its
+// figures are unknown and why, never zero, and keeps the pool's.
+func TestStatusWithoutPostgres(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name       string
+		pg         fakePostgres
+		unknown    string
+		pool, wait int
+	}{
+		{"a failed read", fakePostgres{err: errors.New("connection refused")}, sessionsFailed, 2, 0},
+		{"no answer by the deadline", fakePostgres{slow: true}, sessionsUnanswered, 4, 9},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s, err := New(Config{Store: &fakeStore{}, Project: project, Version: "v0.2.0", ReapInterval: -1, PeerCheck: anyPeer, Postgres: tc.pg})
+			if err != nil {
+				t.Fatal(err)
+			}
+			rows := []store.Project{{ID: project, Name: project, Schema: "public", State: store.ProjectActive}}
+			res, perr := s.report(t.Context(), rows, true, proto.StatusArgs{}, time.Now().Add(50*time.Millisecond))
+			if perr != nil {
+				t.Fatal(perr)
+			}
+			st := res.(proto.StatusResult)
+			pg := st.Server.Postgres
+			if pg == nil || pg.Unknown != tc.unknown || pg.PoolConns != tc.pool || pg.PoolWaits != int64(tc.wait) || pg.Commits != 0 || pg.Version != "" {
+				t.Errorf("status of Postgres = %+v; want unknown (%s), with the pool's figures alone", pg, tc.unknown)
+			}
+			if n := st.Projects[0].SchemaBytes; n != nil {
+				t.Errorf("the schema's size = %d; want it left out", *n)
+			}
+		})
+	}
+}

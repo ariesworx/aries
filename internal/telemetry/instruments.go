@@ -71,6 +71,14 @@ const (
 	// export carries; for SignalTraces it counts spans, which are lost;
 	// for SignalLogs it counts log records, which the journal still has.
 	Dropped
+	// DBPoolConns is how many connections to Postgres the daemon's pool
+	// holds, and DBPoolInUse how many of them a request is using; both
+	// are watched ([Telemetry.Watch]).
+	DBPoolConns
+	DBPoolInUse
+	// DBPoolWaits counts the times a request waited for a connection of
+	// the pool because every one was in use; it is watched.
+	DBPoolWaits
 
 	numInstruments
 )
@@ -268,6 +276,9 @@ var specs = [numInstruments]spec{
 	ClockBehind:        {name: "aries.clock.behind", unit: "s", kind: Gauge, desc: "How far the server's clock is behind its own history; zero when it is not."},
 	ClockSteps:         {name: "aries.clock.steps", kind: Counter, attrs: []attr{attrStep}, desc: "Steps of the server's clock detected."},
 	Dropped:            {name: "aries.telemetry.dropped", kind: Counter, attrs: []attr{attrSignal}, desc: "Telemetry that could not be exported: failed exports of metrics, and spans and log records lost."},
+	DBPoolConns:        {name: "aries.db.pool.conns", kind: Gauge, watched: true, desc: "Connections to Postgres the daemon's pool holds."},
+	DBPoolInUse:        {name: "aries.db.pool.in_use", kind: Gauge, watched: true, desc: "Connections of the pool a request is using."},
+	DBPoolWaits:        {name: "aries.db.pool.waits", kind: Counter, watched: true, desc: "Times a request waited for a connection of the pool, every one being in use."},
 }
 
 // Description is one instrument as the documentation and the tests list

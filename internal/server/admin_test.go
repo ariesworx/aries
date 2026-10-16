@@ -20,19 +20,6 @@ import (
 // carol is one more person for the admin tests.
 var carol = store.Actor{Principal: "carol", Session: "s-c", Machine: "laptop-c"}
 
-// block gives m a block of n schema names for new projects. The first
-// usable are free; the superuser makes each name after them a schema
-// first, which ariesd's role may then not use.
-func (m *multi) block(t *testing.T, n, usable int) ProjectDBs {
-	t.Helper()
-	b := ProjectDBs{Prefix: "aries_p", Count: n}
-	for i := usable + 1; i <= n; i++ {
-		m.asSuperuser(t, "CREATE SCHEMA "+b.Name(i))
-	}
-	m.cfg.ProjectDBs = b
-	return b
-}
-
 // asSuperuser runs each statement on m's database as the server's
 // superuser.
 func (m *multi) asSuperuser(t *testing.T, stmts ...string) {
@@ -128,8 +115,8 @@ func adminWorld(t *testing.T, lim Limits) *multi {
 
 // adminRequests lists every admin op with arguments that a server admin's
 // request would succeed with in adminWorld, apart from project.add,
-// which needs a block of names, and principal.whois, which needs a
-// server that has made stand-ins (TestWhois).
+// which makes a project each time it succeeds, and principal.whois,
+// which needs a server that has made stand-ins (TestWhois).
 func adminRequests() []struct {
 	op   string
 	args any
@@ -176,8 +163,8 @@ func TestAdminNeedsManyProjects(t *testing.T) {
 			"Dispatch":   func() *proto.Error { _, e := call[json.RawMessage](t, s, dana, r.op, r.args); return e }(),
 		} {
 			if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Message, "this server holds one project") ||
-				!strings.Contains(perr.Fix, "control_db") || !strings.Contains(perr.Fix, "docs/server.md, Serving many projects, Opt in") {
-				t.Errorf("%s on a server of one project, by %s = %+v; want invalid, with a fix naming control_db and the opt-in section", r.op, name, perr)
+				!strings.Contains(perr.Fix, "control_schema") || !strings.Contains(perr.Fix, "docs/server.md, Serving many projects, Opt in") {
+				t.Errorf("%s on a server of one project, by %s = %+v; want invalid, with a fix naming control_schema and the opt-in section", r.op, name, perr)
 			}
 		}
 	}
@@ -323,7 +310,7 @@ func TestAdminRoles(t *testing.T) {
 			var got []string
 			for _, p := range ps.Projects {
 				got = append(got, p.Name+"="+p.Role)
-				if p.Database != "" || p.CreatedBy != "" {
+				if p.Schema != "" || p.CreatedBy != "" {
 					t.Errorf("projects for %s shows the database or creator of %s: %+v", tc.who, p.Name, p)
 				}
 			}
@@ -335,7 +322,7 @@ func TestAdminRoles(t *testing.T) {
 	t.Run("server admin", func(t *testing.T) {
 		d := mustDialTo(t, m.Server, dana, projA)
 		ps := mustAsk[proto.ProjectsResult](d, proto.OpProjects, proto.AdminListArgs{})
-		if len(ps.Projects) != 2 || ps.Projects[0].Name != "proj-a" || ps.Projects[0].Database == "" || ps.Projects[0].CreatedBy != "dana" {
+		if len(ps.Projects) != 2 || ps.Projects[0].Name != "proj-a" || ps.Projects[0].Schema == "" || ps.Projects[0].CreatedBy != "dana" {
 			t.Errorf("projects for dana = %+v, want both with their databases", ps.Projects)
 		}
 		all := mustAsk[proto.PrincipalsResult](d, proto.OpPrincipals, proto.AdminListArgs{})
@@ -446,8 +433,8 @@ func TestAdminListsPage(t *testing.T) {
 	}
 }
 
-// TestAdminProjectAdd creates projects from a block of four names of
-// which three are granted.
+// TestAdminProjectAdd creates projects in schemas the daemon names from
+// their names, and refuses a name whose schema is taken.
 func TestAdminProjectAdd(t *testing.T) {
 	t.Parallel()
 	m := adminWorld(t, Limits{})
@@ -461,17 +448,9 @@ func TestAdminProjectAdd(t *testing.T) {
 		return p.State
 	}
 
-	// No block of names: nothing can be created, and nothing is written.
-	_, perr := ask[proto.ProjectAddResult](d, proto.OpProjectAdd, proto.ProjectAddArgs{Name: "one"})
-	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Message, "no schema names for new projects") ||
-		!strings.Contains(perr.Fix, "project_dbs:") || state("one") != "" {
-		t.Fatalf("project.add with no block = %+v (state %q); want invalid with a fix naming project_dbs, and no row", perr, state("one"))
-	}
-
-	b := m.block(t, 3, 2)
 	one := mustAsk[proto.ProjectAddResult](d, proto.OpProjectAdd, proto.ProjectAddArgs{Name: "one"})
-	if !uuidPattern.MatchString(one.ID) || one.Name != "one" || one.State != "active" || one.Database != b.Name(1) || one.Resumed {
-		t.Fatalf("project.add one = %+v; want an active project with a new UUID in %s", one, b.Name(1))
+	if !uuidPattern.MatchString(one.ID) || one.Name != "one" || one.State != "active" || one.Schema != "project_one" || one.Resumed {
+		t.Fatalf("project.add one = %+v; want an active project with a new UUID in project_one", one)
 	}
 	// It is served at once to the admin who made it, and to a member
 	// once added, with the name as its issue prefix and the default
@@ -489,80 +468,116 @@ func TestAdminProjectAdd(t *testing.T) {
 		t.Errorf("project one's default account: usage %+v, want %s", sh.Usage, DefaultAccount)
 	}
 
-	// An active project's name is taken.
-	_, perr = ask[proto.ProjectAddResult](d, proto.OpProjectAdd, proto.ProjectAddArgs{Name: "one"})
-	if perr == nil || perr.Code != proto.CodeExists || !strings.Contains(perr.Message, `a project named "one" already exists`) || perr.Fix == "" {
-		t.Errorf("project.add of an active project = %+v, want exists with a fix", perr)
+	two := mustAsk[proto.ProjectAddResult](d, proto.OpProjectAdd, proto.ProjectAddArgs{Name: "web-two", Prefix: "tw", Account: "acme"})
+	if two.Schema != "project_web_two" {
+		t.Errorf("project web-two is in schema %s, want project_web_two", two.Schema)
 	}
-	// So is an adopted one's, which no block holds.
-	if _, perr = ask[proto.ProjectAddResult](d, proto.OpProjectAdd, proto.ProjectAddArgs{Name: "proj-a"}); perr == nil || perr.Code != proto.CodeExists {
-		t.Errorf("project.add of an adopted project's name = %+v, want exists", perr)
-	}
-	// A name that is no code name is refused before anything is made.
-	if _, perr = ask[proto.ProjectAddResult](d, proto.OpProjectAdd, proto.ProjectAddArgs{Name: "Not A Name"}); perr == nil || perr.Code != proto.CodeInvalid {
-		t.Errorf("project.add of a bad name = %+v, want invalid", perr)
+	if p, _ := m.ctl.ProjectNamed("web-two"); p.Prefix != "tw" || p.Account != "acme" {
+		t.Errorf("project web-two = %+v, want prefix tw and account acme", p)
 	}
 
-	two := mustAsk[proto.ProjectAddResult](d, proto.OpProjectAdd, proto.ProjectAddArgs{Name: "two", Prefix: "tw", Account: "acme"})
-	if two.Database != b.Name(2) {
-		t.Errorf("the second project is in %s, want the lowest free name %s", two.Database, b.Name(2))
+	for _, tc := range []struct {
+		name, project  string
+		code           proto.Code
+		message, fix   string
+		schemaBefore   string // made in the database first, by the superuser
+		ownSchemaFirst string // made first by ariesd's own role
+	}{
+		{name: "an active project's name", project: "one", code: proto.CodeExists, message: `a project named "one" already exists`},
+		{name: "the adopted project's name", project: "proj-a", code: proto.CodeExists, message: `a project named "proj-a" already exists`},
+		{name: "no code name", project: "Not A Name", code: proto.CodeInvalid, message: "cannot name a schema", fix: "at most 55"},
+		{name: "a name too long for a schema", project: strings.Repeat("n", 56), code: proto.CodeInvalid, message: "cannot name a schema", fix: "at most 55"},
+		{name: "a schema another role made", project: "three", schemaBefore: "project_three", code: proto.CodeExists,
+			message: "schema project_three, which project three would have, is already in the database", fix: "drop or rename it"},
+		{name: "a schema ariesd's role left", project: "four", ownSchemaFirst: "project_four", code: proto.CodeExists,
+			message: "schema project_four, which project four would have, is already in the database"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.schemaBefore != "" {
+				m.asSuperuser(t, "CREATE SCHEMA "+tc.schemaBefore)
+			}
+			if tc.ownSchemaFirst != "" {
+				m.asOwnRole(t, "CREATE SCHEMA "+tc.ownSchemaFirst)
+			}
+			_, perr := ask[proto.ProjectAddResult](d, proto.OpProjectAdd, proto.ProjectAddArgs{Name: tc.project})
+			if perr == nil || perr.Code != tc.code || !strings.Contains(perr.Message, tc.message) || perr.Fix == "" || !strings.Contains(perr.Fix, tc.fix) {
+				t.Fatalf("project.add %s = %+v; want %s saying %q, with a fix containing %q", tc.project, perr, tc.code, tc.message, tc.fix)
+			}
+			if tc.schemaBefore != "" || tc.ownSchemaFirst != "" {
+				if got := state(tc.project); got != "" {
+					t.Errorf("project %s is %q after the refusal, want no row", tc.project, got)
+				}
+			}
+		})
 	}
-	if p, _ := m.ctl.ProjectNamed("two"); p.Prefix != "tw" || p.Account != "acme" {
-		t.Errorf("project two = %+v, want prefix tw and account acme", p)
+	if all, err := m.ctl.Projects(t.Context()); err != nil || len(all) != 4 {
+		t.Errorf("the server holds %d projects (%v), want the 2 adopted and the 2 added", len(all), err)
 	}
+}
 
-	// Another role made the third name's schema: ariesd's cannot use
-	// it. The refusal gives the SQL, and the row stays.
-	_, perr = ask[proto.ProjectAddResult](d, proto.OpProjectAdd, proto.ProjectAddArgs{Name: "three"})
-	wantSQL := store.GrantSQL(b.Name(3), "aries")
-	if perr == nil || perr.Code != proto.CodeUnavailable || !strings.Contains(perr.Message, "another role made schema "+b.Name(3)) ||
-		!strings.Contains(perr.Fix, wantSQL) || !strings.Contains(perr.Fix, "as the schema's owner or a superuser") || !strings.Contains(perr.Fix, "`aries admin project add three` again") {
+// A project left being created resumes where it stopped. Its schema is
+// one another role made after its row was written, between the two
+// steps, which ariesd's role may not use: the refusal names the SQL, and
+// the same command finishes once it has run.
+func TestAdminProjectAddResumes(t *testing.T) {
+	t.Parallel()
+	m := adminWorld(t, Limits{})
+	d := mustDialTo(t, m.Server, dana, projA)
+	const id = "00000000-0000-4000-8000-0000000000f5"
+	if _, err := m.ctl.AddProject(t.Context(), dana, store.NewProject{ID: id, Name: "five", Prefix: "five", Account: DefaultAccount, Schema: "project_five"}); err != nil {
+		t.Fatal(err)
+	}
+	m.asSuperuser(t, "CREATE SCHEMA project_five")
+	_, perr := ask[proto.ProjectAddResult](d, proto.OpProjectAdd, proto.ProjectAddArgs{Name: "five"})
+	wantSQL := store.GrantSQL("project_five", "aries")
+	if perr == nil || perr.Code != proto.CodeUnavailable || !strings.Contains(perr.Message, "another role made schema project_five") ||
+		!strings.Contains(perr.Fix, wantSQL) || !strings.Contains(perr.Fix, "`aries admin project add five` again") {
 		t.Fatalf("project.add of a schema another role made = %+v\nwant unavailable, with a fix giving %q and the command to run again", perr, wantSQL)
 	}
-	if got := state("three"); got != store.ProjectCreating {
-		t.Fatalf("project three is %q after the refusal, want it left creating", got)
+	if p, _ := m.ctl.ProjectNamed("five"); p.State != store.ProjectCreating {
+		t.Fatalf("project five is %q after the refusal, want it left creating", p.State)
 	}
 	// Not served meanwhile, and not activated by hand.
-	three, _ := m.ctl.ProjectNamed("three")
-	if w, _ := dialTo(t, m.Server, dana, three.ID); w.Err == nil || w.Err.Code != proto.CodeNotFound {
+	if w, _ := dialTo(t, m.Server, dana, id); w.Err == nil || w.Err.Code != proto.CodeNotFound {
 		t.Errorf("a handshake for a project still being created = %+v, want not found", w.Err)
 	}
-	_, perr = ask[proto.ProjectResult](d, proto.OpProjectActivate, proto.ProjectArgs{Project: "three"})
-	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Fix, "`aries admin project add three` again") {
+	_, perr = ask[proto.ProjectResult](d, proto.OpProjectActivate, proto.ProjectArgs{Project: "five"})
+	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Fix, "`aries admin project add five` again") {
 		t.Errorf("project.activate of a project still being created = %+v, want invalid with a fix naming project add", perr)
 	}
 	// A rerun with other settings is refused: they cannot change.
-	_, perr = ask[proto.ProjectAddResult](d, proto.OpProjectAdd, proto.ProjectAddArgs{Name: "three", Prefix: "other"})
-	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Message, "is being created with prefix three") {
+	_, perr = ask[proto.ProjectAddResult](d, proto.OpProjectAdd, proto.ProjectAddArgs{Name: "five", Prefix: "other"})
+	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Message, "is being created with prefix five") {
 		t.Errorf("project.add resumed with another prefix = %+v, want invalid", perr)
 	}
-	// Still not granted: the same refusal, and still no second row.
-	if _, perr = ask[proto.ProjectAddResult](d, proto.OpProjectAdd, proto.ProjectAddArgs{Name: "three"}); perr == nil || !strings.Contains(perr.Fix, wantSQL) {
-		t.Errorf("project.add again before the grant = %+v, want the same fix", perr)
-	}
-	// The block is full while three holds its name.
-	_, perr = ask[proto.ProjectAddResult](d, proto.OpProjectAdd, proto.ProjectAddArgs{Name: "four"})
-	if perr == nil || perr.Code != proto.CodeInvalid || !strings.Contains(perr.Message, "every schema name for new projects is in use") ||
-		!strings.Contains(perr.Fix, "raise count under project_dbs:") || !strings.Contains(perr.Fix, b.Name(4)) || state("four") != "" {
-		t.Errorf("project.add past the block = %+v (state %q)\nwant invalid, with a fix saying to raise count, which gives names from %s, and no row",
-			perr, state("four"), b.Name(4))
-	}
-
-	// After the grant, the same command resumes and finishes.
 	m.asSuperuser(t, wantSQL)
-	done := mustAsk[proto.ProjectAddResult](d, proto.OpProjectAdd, proto.ProjectAddArgs{Name: "three"})
-	if done.ID != three.ID || done.State != "active" || !done.Resumed || done.Database != b.Name(3) {
-		t.Errorf("project.add after the grant = %+v; want project %s resumed and active in %s", done, three.ID, b.Name(3))
+	done := mustAsk[proto.ProjectAddResult](d, proto.OpProjectAdd, proto.ProjectAddArgs{Name: "five"})
+	if done.ID != id || done.State != "active" || !done.Resumed || done.Schema != "project_five" {
+		t.Errorf("project.add after the grant = %+v; want project %s resumed and active in project_five", done, id)
 	}
-	mustDialTo(t, m.Server, dana, three.ID)
-	if all, err := m.ctl.Projects(t.Context()); err != nil || len(all) != 5 {
-		t.Errorf("the server holds %d projects (%v), want the 2 adopted and the 3 added", len(all), err)
+	mustDialTo(t, m.Server, dana, id)
+}
+
+// asOwnRole runs each statement on m's database as ariesd's own role.
+func (m *multi) asOwnRole(t *testing.T, stmts ...string) {
+	t.Helper()
+	db, err := sql.Open("pgx", m.dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	for _, q := range stmts {
+		if _, err := db.ExecContext(t.Context(), q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
 	}
 }
 
 // TestAdminArchive archives a project in use: its connections are
 // closed and its store with them, while the admin, connected elsewhere,
-// gets the answer. Activated again, it is served from the same database.
+// gets the answer. Activated again, it is served from the same schema,
+// which the archive kept with everything in it, and gave up the writer's
+// lock of while it was archived.
 func TestAdminArchive(t *testing.T) {
 	t.Parallel()
 	m := adminWorld(t, Limits{})
@@ -598,6 +613,23 @@ func TestAdminArchive(t *testing.T) {
 	// Archiving again changes nothing.
 	if again := mustAsk[proto.ProjectResult](d, proto.OpProjectArchive, proto.ProjectArgs{Project: projA}); again.Rev != res.Rev {
 		t.Errorf("project.archive again = %+v, want rev %d unchanged", again, res.Rev)
+	}
+	// The schema is kept, with what was in it, and the daemon serves it
+	// no longer: another process may open it to write, as an operator's
+	// import would.
+	p, err := m.ctl.Project(t.Context(), projA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := openDB(t, m.dsn, Limits{}).Open(t.Context(), p.Schema, store.Options{Prefix: p.Prefix})
+	if err != nil {
+		t.Fatalf("open the archived project's schema from another pool = %v; want its writer's lock given up", err)
+	}
+	if l, err := other.ListSummaries(t.Context(), store.Filter{}); err != nil || len(l.Issues) != 1 {
+		t.Errorf("the archived project's schema lists %+v (%v), want the 1 issue written before", l, err)
+	}
+	if err := other.Close(); err != nil {
+		t.Fatal(err)
 	}
 
 	back := mustAsk[proto.ProjectResult](d, proto.OpProjectActivate, proto.ProjectArgs{Project: "proj-a"})
@@ -934,7 +966,7 @@ func TestOpenProjects(t *testing.T) {
 	// A project whose database ariesd cannot open: never created.
 	const broken = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
 	if _, err := m.ctl.AddProject(t.Context(), dana, store.NewProject{ID: broken, Name: "proj-d", Prefix: "pd", Account: "internal",
-		DBName: "not_made_yet"}); err != nil {
+		Schema: "not_made_yet"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := m.ctl.ActivateProject(t.Context(), dana, broken); err != nil {
@@ -948,8 +980,8 @@ func TestOpenProjects(t *testing.T) {
 	}
 	w := probe()
 	if w.Err == nil || w.Err.Code != proto.CodeUnavailable || w.Err.Fix == "" ||
-		!strings.Contains(w.Err.Message, "could not open the database of an active project: proj-d (database not_made_yet)") {
-		t.Errorf("the probe with a project unopened = %+v; want unavailable, naming the project and its database", w.Err)
+		!strings.Contains(w.Err.Message, "could not open the schema of an active project: proj-d (schema not_made_yet)") {
+		t.Errorf("the probe with a project unopened = %+v; want unavailable, naming the project and its schema", w.Err)
 	}
 	if !strings.Contains(m.log.String(), "open project store at start") {
 		t.Errorf("the log does not name the project that failed:\n%s", m.log)
@@ -1054,54 +1086,5 @@ func TestHandshakeOlderServerRefusesThisClient(t *testing.T) {
 					proto.Proto, tc.release, f.Err, tc.accepts)
 			}
 		})
-	}
-}
-
-func TestProjectDBs(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		b    ProjectDBs
-		err  string
-	}{
-		{"none", ProjectDBs{}, ""},
-		{"a block", ProjectDBs{Prefix: "aries_p", Count: 100}, ""},
-		{"the most", ProjectDBs{Prefix: "p", Count: MaxProjectDBs}, ""},
-		{"the longest prefix", ProjectDBs{Prefix: strings.Repeat("p", 60), Count: 10}, ""},
-		{"no prefix", ProjectDBs{Count: 10}, "does not start a schema name"},
-		{"prefix with a capital", ProjectDBs{Prefix: "Aries", Count: 10}, "does not start a schema name"},
-		{"prefix with a quote", ProjectDBs{Prefix: "p\"; DROP", Count: 10}, "does not start a schema name"},
-		{"prefix Postgres keeps", ProjectDBs{Prefix: "pg_p", Count: 10}, "does not start a schema name"},
-		{"prefix too long", ProjectDBs{Prefix: strings.Repeat("p", 61), Count: 10}, "does not start a schema name"},
-		{"no count", ProjectDBs{Prefix: "aries_p"}, "count 0 must be 1 to 999"},
-		{"negative count", ProjectDBs{Prefix: "aries_p", Count: -1}, "count -1 must be 1 to 999"},
-		{"too many", ProjectDBs{Prefix: "aries_p", Count: 1000}, "count 1000 must be 1 to 999"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			err := tc.b.Validate()
-			if tc.err == "" && err != nil || tc.err != "" && (err == nil || !strings.Contains(err.Error(), tc.err) || !strings.Contains(err.Error(), "fix: ")) {
-				t.Errorf("%+v.Validate() = %v, want an error containing %q and a fix", tc.b, err, tc.err)
-			}
-		})
-	}
-	b := ProjectDBs{Prefix: "aries_p", Count: 3}
-	if got := []string{b.Name(1), b.Name(3)}; !slices.Equal(got, []string{"aries_p001", "aries_p003"}) {
-		t.Errorf("names = %v", got)
-	}
-	for name, want := range map[string]bool{"aries_p001": true, "aries_p003": true, "aries_p004": false, "aries_p000": false,
-		"aries_p01": false, "aries_p0001": false, "aries_p00a": false, "aries_control": false, "other001": false} {
-		if got := b.holds(name); got != want {
-			t.Errorf("holds(%q) = %t, want %t", name, got, want)
-		}
-	}
-	if n, ok := b.free(map[string]bool{"aries_p001": true, "aries_p003": true}); !ok || n != "aries_p002" {
-		t.Errorf("free = %q, %t; want the lowest unused, aries_p002", n, ok)
-	}
-	if n, ok := b.free(map[string]bool{"aries_p001": true, "aries_p002": true, "aries_p003": true}); ok {
-		t.Errorf("free of a full block = %q, want none", n)
-	}
-	if _, err := New(Config{Control: nil, Store: newServer(t).cfg.Store, Project: project, ProjectDBs: ProjectDBs{Prefix: "X", Count: 1}}); err == nil {
-		t.Error("New accepted an invalid block of project database names")
 	}
 }

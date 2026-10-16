@@ -48,11 +48,11 @@ func serverVersion(num int, name string) error {
 // errDenied marks a schema the role may not use, or not make.
 var errDenied = errors.New("permission denied")
 
-// DatabaseDenied reports whether err is Postgres refusing the role a
+// SchemaDenied reports whether err is Postgres refusing the role a
 // project's schema: one another role made and did not give it, or, when
-// creating one ([Control.CreateDatabase]), a database in which the role
+// creating one ([Control.CreateSchema]), a database in which the role
 // may not make schemas.
-func DatabaseDenied(err error) bool {
+func SchemaDenied(err error) bool {
 	return errors.Is(err, errDenied) || sqlState(err) == codePrivilege
 }
 

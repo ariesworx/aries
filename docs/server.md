@@ -954,7 +954,7 @@ its own writer, so a busy project does not queue another's writes. They
 share the one Dolt, the one ariesd and the machine. A second database,
 the control database, records the projects, the principals and their
 keys, and which principal is a member of which project. You opt in: a
-server with no `control_db` setting is the server of one project it was.
+server with no `control_schema` setting is the server of one project it was.
 
 What works today:
 
@@ -1014,7 +1014,7 @@ and what was not.
    adopt:
 
    ```yaml
-   control_db: aries_control
+   control_schema: aries_control
    ```
 
 3. Adopt the existing database as the first project, and import the
@@ -1025,7 +1025,7 @@ and what was not.
    ```
 
    ```text
-   project acme (6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f) adopted from database aries: active
+   project acme (6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f) adopted from schema public: active
    principals: 2 added, 0 already there; keys: 3 added, 0 already there; members: 1 added, 0 already there; 0 lines skipped
    3 keys in the store are also lines of /var/lib/aries/.ssh/authorized_keys: sshd reads that file too, so `aries admin key remove` does not keep such a key out until its line is deleted too
    ```
@@ -1034,31 +1034,15 @@ and what was not.
    reminder, and `control init` never edits `authorized_keys`: see
    [Keys from the store](#keys-from-the-store), step 5.
 
-4. To let admins create further projects, grant ariesd's account a
-   block of database names now, and name the block in the config file.
-   Dolt honors a grant on a database that does not exist yet, and only on
-   an exact name, so the names are listed one by one:
-
-   ```sh
-   cd /var/lib/dolt/data/aries
-   for i in $(seq 1 100); do
-     printf "GRANT ALL ON aries_p%03d.* TO 'aries'@'localhost';\n" "$i"
-   done | sudo -u dolt -H dolt sql
-   ```
-
-   ```yaml
-   project_dbs:
-     prefix: aries_p
-     count: 100
-   ```
-
-   The names are the prefix and a number of three digits, here
-   `aries_p001` to `aries_p100`; `count` is at most 999, and the
-   prefix a lowercase letter, then lowercase letters, digits and
-   underscores. `aries admin project add` takes the lowest name no project
-   has. To add more later, grant them the same way (`seq 101 200`)
-   and raise `count`. Without `project_dbs` the server serves the
-   projects it has and refuses to create one.
+4. Nothing more is needed for admins to create further projects. Each
+   project is a schema of the DSN's database, which ariesd's role owns
+   and so may make schemas in, and ariesd names each one itself:
+   `project_` and the project's name, with each hyphen an underscore
+   (`aries admin project add web-app` makes `project_web_app`). A
+   project's name is then at most 55 characters. A schema of that name
+   already in the database is never taken over: the add is refused,
+   and nothing is written, until the name is changed or the schema
+   dropped. `control_schema` may not start with `project_`.
 
 5. Let ariesd write its keys file and have sshd read it, which is
    also what lets you add people from anywhere, with no line in
@@ -1128,7 +1112,7 @@ text.
   under the reserved principal `import`.
 - **`serve` refuses to start** while the control database holds no active
   project, and says to run `control init`.
-- **To go back,** remove `control_db` and restart. The project's database
+- **To go back,** remove `control_schema` and restart. The project's database
   was never changed, and the control database is left unused.
 
 ### Keys from the store
@@ -1517,22 +1501,26 @@ person.
   given more than once. Someone the server already knows joins another
   project with `member add NAME`.
 - **A new project.** `aries admin project add NAME` records the project,
-  creates its database under the next free name of `project_dbs`, applies
-  the schema and marks it active, then prints the `.aries.yaml` for its
-  repository. If a step fails, run the same command again: it finishes
-  the same project. If the name was never granted, the refusal gives the
-  `GRANT` statement to run as Dolt's root, and the command then resumes.
-  The project is served at once to server admins; add its members with
+  makes its schema, `project_` and the name with hyphens as underscores
+  ([Opt in](#opt-in), step 4), migrates it and marks it active, then
+  prints the `.aries.yaml` for its repository. If a step fails, run the
+  same command again: it finishes the same project. If another role
+  made the schema meanwhile, the refusal gives the statement to run as
+  its owner, and the command then resumes. The project is served at
+  once to server admins; add its members with
   `aries admin member add NAME --project NAME`.
-- **Archiving** keeps the project's database, members and name, and
+- **No project is removed**, and ariesd never drops a schema. A project
+  you no longer want is archived.
+- **Archiving** keeps the project's schema, members and name, and
   serves it to no one: its connections are closed, its claims end, and
   its store closes with them, after one more sweep for a claim that a
-  request in flight took meanwhile. An ariesd that stopped before it
-  had released them ends them when it starts, before it listens. The
-  server's last active project cannot be archived, since
-  `aries admin` needs a project to connect to. `activate` opens the
-  database, which applies any migration it missed while archived, and
-  serves it again.
+  request in flight took meanwhile, which gives up the schema's
+  writer's lock (see [One writer for each project](#one-writer-for-each-project)).
+  An ariesd that stopped before it had released them ends them when it
+  starts, before it listens. The server's last active project cannot be
+  archived, since `aries admin` needs a project to connect to.
+  `activate` opens the schema, which applies any migration it missed
+  while archived, and serves it again.
 - **Everything is on the record** in the control database's event log,
   under the principal who ran the command.
 
@@ -1556,6 +1544,46 @@ runs for archived projects on the 30-second tick: a running ariesd
 leaves a claim in one only if the release itself failed, which it logs,
 and the next start or the activation ends it.
 
+### One writer for each project
+
+Every project is a schema of the one database in `dsn`, and ariesd
+reaches all of them, and the control store, through one pool of
+connections, at most `db_conns_per_server` ([Limits](#limits)). A store
+holds no connection of its own: each write and each read takes one from
+the pool and gives it back, so a project nobody is using costs Postgres
+nothing. One project's reads hold at most `db_conns_per_project` of
+them at once, and its writes one more, one write at a time. Beside the
+pool ariesd holds one more connection, named `ariesd writer locks` in
+`pg_stat_activity`. Postgres's `max_connections` must leave room for
+all of these, and for anything else that connects.
+
+That last connection makes ariesd the only writer of each schema it
+serves, however many processes share the database. While ariesd has a
+project's store open, and the control store always, it holds a Postgres
+advisory lock on a key made from the schema's name, and every write
+checks that it still does. Postgres gives the locks up when that
+connection ends, so a daemon that dies frees its projects for another.
+
+- **A second ariesd on the same control store** refuses to start:
+  `the control store … is served by another ariesd on this database`.
+  Stop the first, or give the second a `control_schema` of its own.
+- **A second ariesd whose control store names a project the first
+  serves** refuses that project's connections, as `unavailable`, and
+  serves its others.
+- **An operator's command that writes a project the daemon serves**,
+  `ariesd import-bd`, is refused with what to do: stop ariesd, import,
+  and start it again. `import-bd --dry-run`, `export-bd`, and the clock
+  check of `ariesd upgrade` only read, and run beside the daemon.
+  `ariesd control init` writes the control store beside the daemon, as
+  before, and takes no lock.
+- **When the lock's connection is lost**, the next write connects
+  again and takes back every lock. A write in flight finishes before
+  another process that took the project over writes anything; a
+  project another process took meanwhile refuses this ariesd's writes,
+  and its reads go on, until its store is closed.
+- **Archiving** a project closes its store and gives its lock up; the
+  schema stays as it is.
+
 ### Watching a server
 
 `aries admin status` reports what ariesd knows of itself and of its
@@ -1571,14 +1599,14 @@ ariesd v0.5.0, up 3d 4h
 stores 2 of 64, connections 14 of 1024
 keys file /var/lib/aries/.ssh/aries_keys: 31 keys, written 2026-10-11 09:12 UTC
 ariesd's memory 42 MiB in use, 78 MiB from the system; 112 goroutines
-Dolt 2.4.2, up 3d 4h, 9 connections, 1234 MiB resident, memory limit 1500 MiB
-Dolt's collector: 37 cycles for 2051 writes in 10m, 1.8 for each 100 writes: under 3, as with a memory limit that had room in the measurements (over 14 was one too low)
+postgres 18.6: connections 14 of 100, 9 in this database; ariesd's pool 2 in use of 5 held, at most 32, waited for 0 times
+postgres's database 41.0 MiB; since its statistics were reset, 52340 commits, 12 rollbacks, 0 deadlocks, 0 conflicts, 0 KiB in temporary files
 projects: 2 active, 1 archived; principals: 12 active, 1 disabled
 
-PROJECT  STATE     STORE   CONNS  BY HAND  SESSIONS  WRITES/MIN  P50    P99    LAST USED
-acme     active    open    9      2        14        212         4.2ms  31ms   2026-10-11 09:30 UTC
-web      active    open    5      0        6         40          3.9ms  18ms   2026-10-11 09:29 UTC
-old      archived  closed  0      -        -         -           -      -      -
+PROJECT  STATE     STORE   SIZE      CONNS  BY HAND  SESSIONS  WRITES/MIN  P50    P99    LAST USED
+acme     active    open    21.3 MiB  9      2        14        212         4.2ms  31ms   2026-10-11 09:30 UTC
+web      active    open    9.3 MiB   5      0        6         40          3.9ms  18ms   2026-10-11 09:29 UTC
+old      archived  closed  600 KiB   0      -        -         -           -      -      -
 ```
 
 | Figure | What it is |
@@ -1588,9 +1616,10 @@ old      archived  closed  0      -        -         -           -      -      -
 | `clock:` | Shown once the clock has been set while ariesd ran: how many times, in which direction, and the last step's size and time. Each is a `clock stepped` line in the log ([The server's clock](#the-servers-clock)) |
 | `CLOCK BEHIND HISTORY` | The clock is behind the latest event of the database named, by how much and since when. ariesd's time runs on from the history at half speed until the clock has caught up. With `clock_behind: stop` it adds that ariesd will not start again until the clock is corrected: check `timedatectl` on the server before any restart |
 | ariesd's memory | The Go heap in use and all the memory ariesd has from the operating system (`HeapAlloc` and `Sys`). Not Dolt's |
-| `Dolt`, `Dolt's collector:` | With `telemetry: dolt_metrics_url:` set: what ariesd last read from Dolt's own metrics, and how often Dolt's garbage collector ran against ariesd's writes ([Dolt's figures](#dolts-figures)). `Dolt: unknown` means the last read failed. Without the setting neither line is shown |
+| `postgres` | What Postgres says of itself, read with ariesd's own role, which needs no `pg_monitor`: its version; the client connections on the whole server against its `max_connections`, and those in ariesd's database; ariesd's [pool](#one-writer-for-each-project), its connections in use and held against `db_conns_per_server`, and how often a request waited for one; the database's size; and, since Postgres last reset its statistics, its commits, rollbacks, deadlocks, conflicts (queries a standby canceled) and what its queries wrote to temporary files. `postgres: unknown` says why Postgres did not answer, with the pool's figures alone |
 | projects, principals | The control database's rows, by state |
-| STORE | Whether the project's store is open. The figures after it exist only while it is, and start from zero each time it opens |
+| STORE | Whether the project's store is open. The figures after SIZE exist only while it is, and start from zero each time it opens |
+| SIZE | The project's schema on disk, its tables and indexes, whether its store is open or not; 0 KiB for one made and never migrated. Shown by a server that reads it |
 | CONNS, BY HAND | Connections past their handshake, and those among them that named no key of the store, which sshd let in by the hand-maintained `authorized_keys` |
 | SESSIONS | Sessions seen in the last five minutes, as `aries who` lists them. `unknown` when the database did not give the count ([below](#when-dolt-does-not-answer)) |
 | WRITES/MIN | Transactions that changed something and committed in the last 60 seconds. A refused request is not one; a lease renewal is |
@@ -2140,12 +2169,11 @@ the config file (`/etc/aries/ariesd.yaml`, or `--config FILE`, or
 | Key | Holds | Default | Flag and variable |
 |---|---|---|---|
 | `dsn` | Dolt's address and account, in [go-sql-driver/mysql](https://github.com/go-sql-driver/mysql#dsn-data-source-name) form | required | `--dsn`, `ARIESD_DSN` |
-| `project` | The project's UUID, in lowercase. A client naming another project is refused. With `control_db`: the project `control init` adopts, and the one `import-bd`, `export-bd` and the health check of `upgrade` use by default | required | `--project`, `ARIESD_PROJECT` |
-| `control_db` | The name of the control database, on the same Dolt server and account as `dsn`. Setting it makes this a server of [many projects](#serving-many-projects). A lowercase letter, then lowercase letters, digits and underscores; not the database in `dsn` | none: one project | `ARIESD_CONTROL_DB` |
-| `project_dbs` | With `control_db`: the block of database names granted for new projects, as `prefix` and `count` ([Opt in](#opt-in), step 4). The names are `prefix` and three digits, `001` to `count` (at most 999) | none: no project can be added | |
-| `keys_file` | With `control_db`: the file ariesd writes the control database's keys to, for sshd ([Keys from the store](#keys-from-the-store)). A relative path is under the home directory of the user ariesd runs as | `.ssh/aries_keys` | `ARIESD_KEYS_FILE` |
-| `authorized_keys` | With `control_db`: the hand-maintained file sshd reads beside it. ariesd only reads it, to say which keys are in both. Never the same file as `keys_file` | `.ssh/authorized_keys` | `ARIESD_AUTHORIZED_KEYS` |
-| `bridge` | With `control_db`: the path of ariesd in the forced command of each line of `keys_file`. Absolute, of letters, digits and `._+-` | `/usr/local/bin/ariesd` | `ARIESD_BRIDGE` |
+| `project` | The project's UUID, in lowercase. A client naming another project is refused. With `control_schema`: the project `control init` adopts, and the one `import-bd`, `export-bd` and the health check of `upgrade` use by default | required | `--project`, `ARIESD_PROJECT` |
+| `control_schema` | The schema of the control store, in the database `dsn` names and as its role. Setting it makes this a server of [many projects](#serving-many-projects), each in a schema ariesd names `project_NAME` ([Opt in](#opt-in), step 4). A lowercase letter, then lowercase letters, digits and underscores; not the schema `dsn` names, and not starting `project_` | none: one project | `ARIESD_CONTROL_SCHEMA` |
+| `keys_file` | With `control_schema`: the file ariesd writes the control database's keys to, for sshd ([Keys from the store](#keys-from-the-store)). A relative path is under the home directory of the user ariesd runs as | `.ssh/aries_keys` | `ARIESD_KEYS_FILE` |
+| `authorized_keys` | With `control_schema`: the hand-maintained file sshd reads beside it. ariesd only reads it, to say which keys are in both. Never the same file as `keys_file` | `.ssh/authorized_keys` | `ARIESD_AUTHORIZED_KEYS` |
+| `bridge` | With `control_schema`: the path of ariesd in the forced command of each line of `keys_file`. Absolute, of letters, digits and `._+-` | `/usr/local/bin/ariesd` | `ARIESD_BRIDGE` |
 | `socket` | The daemon's unix socket | `/run/aries/ariesd.sock` | `--socket`, `ARIESD_SOCKET` |
 | `prefix` | The prefix of new issue ids | `sf` | `--prefix` |
 | `admins` | [Admins](#admins) | none | `ARIESD_ADMINS` |
@@ -2212,6 +2240,8 @@ limits:
 | `conns_per_principal` | 64 | One principal's connections: one person's sessions on several machines, and a few unattended runs on their key. Agents that run unattended in numbers should have principals of their own, and meet `conns` instead. Each connection costs the server about 5 MiB, most of it the bridge and sshd outside ariesd ([What a server needs](#what-a-server-needs)): 64 connections about 320 MiB, and `conns`' 1,024 about 5 GiB (550 MiB and 8.6 GiB with transparent huge pages `always`). Past it, every new connection of the principal is refused with `busy`, `alice is at its connection limit (64)`, until one of its sessions closes: an `aries` command fails, saying to close some sessions or have this limit raised; an `aries mcp` session that is refused cannot reach the server at all, tells its agent so, and tries again at most every 5 seconds. Its claims lapse if it stays refused for their 15-minute lease, and its writes are not queued |
 | `handshakes_per_principal` | 16 | One principal's connections that sshd has let in and that have not yet sent their hello, on the whole server. A connection has 10 seconds to send it. Past the cap the next is refused with `busy` at once, so one key holder cannot use up the sockets everyone else connects through. The upgrade's health probe is not counted |
 | `idle_timeout` | `10m` | A connection that sends nothing this long is closed with a note, unless it watches its inbox (`aries mcp`, `aries watch` and `aries tui` do) |
+| `db_conns_per_server` | 32 | Connections to Postgres in ariesd's one pool, which every project's store and the control store share ([One writer for each project](#one-writer-for-each-project)); ariesd holds one more for the writers' locks. A request that finds every one in use waits for one, which the status report and `aries.db.pool.waits` count. Postgres's `max_connections` must leave room for them |
+| `db_conns_per_project` | 8 | Connections one project's reads hold at once, so that a busy project leaves the pool to the others; its writes hold one more. At most `db_conns_per_server` |
 | `write_rate`, `write_burst` | 10, 100 | Each principal's write token bucket: writes a second, and how many at once. Reads are not counted |
 | `refusal_logs` | 20 | Refusal log lines per principal a minute |
 | `usage_records` | 500 | Token usage records in one `usage` call |
@@ -2240,15 +2270,15 @@ limits:
 | `lock_waits_per_principal` | 20 | Places one principal has in all of a project's queues, from every session (at most 1000). One more is refused with `busy`, and its fix says to leave a queue (`aries lock leave NAME`) or raise the limit. A principal's holds need no cap of their own: `locks` times `lock_capacity` bounds them |
 | `due_soon` | `1d` | How far ahead of its due date `digest` and `prime` list an issue as due soon ([Dates](concepts.md#dates)). Up to a year. It bounds nothing |
 | `away_max` | `7d` | The longest `aries away` may extend a person's claims, in every session, ahead of an absence; asking for longer is refused with `invalid`, its fix naming the cap. A claim so extended holds its issue against everyone else until then, so this bounds how long work can be held by someone who is not doing it. From `1h` to `30d` |
-| `open_stores` | 64 | With `control_db`: project stores open at once. Each holds one connection to Dolt when idle and up to nine under load. At the cap, a connection to another project closes the store that has been without connections longest; when every open store has one, it is refused with `busy` |
-| `store_idle` | `10m` | With `control_db`: how long a project's store stays open with no connection. Closing it gives back its connections to Dolt, not Dolt's memory |
-| `projects` | 500 | With `control_db`: projects on the server, archived ones included |
-| `principals` | 5000 | With `control_db`: principals in the control database, disabled ones included |
-| `principals_per_creator` | 500 | With `control_db`: principals one principal who is no server admin may create, disabled ones included. No command deletes a principal and names are the whole server's, so this keeps one project admin from using up `principals`. Past it `principal add` is refused with `invalid`, and its fix says to ask a server admin, who has no such cap, or to raise the limit |
-| `keys_per_principal` | 20 | With `control_db`: public keys of one principal |
-| `members_per_project` | 1000 | With `control_db`: principals with a role in one project |
+| `open_stores` | 64 | With `control_schema`: project stores open at once. An open store holds no connection to Postgres of its own, only its writer's lock, and takes connections from the pool while it answers ([One writer for each project](#one-writer-for-each-project)). At the cap, a connection to another project closes the store that has been without connections longest; when every open store has one, it is refused with `busy` |
+| `store_idle` | `10m` | With `control_schema`: how long a project's store stays open with no connection. Closing it gives up its writer's lock and what ariesd holds of it in memory |
+| `projects` | 500 | With `control_schema`: projects on the server, archived ones included |
+| `principals` | 5000 | With `control_schema`: principals in the control database, disabled ones included |
+| `principals_per_creator` | 500 | With `control_schema`: principals one principal who is no server admin may create, disabled ones included. No command deletes a principal and names are the whole server's, so this keeps one project admin from using up `principals`. Past it `principal add` is refused with `invalid`, and its fix says to ask a server admin, who has no such cap, or to raise the limit |
+| `keys_per_principal` | 20 | With `control_schema`: public keys of one principal |
+| `members_per_project` | 1000 | With `control_schema`: principals with a role in one project |
 | `telemetry_requests` | 8 | With `telemetry: listen:`: requests the listener serves at once. One more is answered `503`; twice as many connections may be open, and one more is closed |
-| `control_write_rate`, `control_write_burst` | 1, 30 | With `control_db`: each principal's token bucket for `aries admin` changes to projects, principals, members and keys: changes a second, and how many at once. It is the principal's on the whole server, apart from its write bucket in each project; the lists are not counted |
+| `control_write_rate`, `control_write_burst` | 1, 30 | With `control_schema`: each principal's token bucket for `aries admin` changes to projects, principals, members and keys: changes a second, and how many at once. It is the principal's on the whole server, apart from its write bucket in each project; the lists are not counted |
 
 On a server of [many projects](#serving-many-projects), every limit above
 that is per principal is per principal in each project: `conns_per_principal`,
@@ -2592,7 +2622,7 @@ time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-
 |---|---|
 | `time`, `level`, `msg` | When, `DEBUG`, `INFO`, `WARN` or `ERROR`, and a sentence for a person |
 | `event` | The line's stable name, from [Events](#events) |
-| `project` | A project's UUID. With `control_db`, on every line about one project |
+| `project` | A project's UUID. With `control_schema`, on every line about one project |
 | `principal`, `session` | Whose connection or request the line is about; on a claim's line, the holder; on an audit line, who made the change |
 | `machine`, `harness` | What the client called its machine and its agent harness |
 | `op`, `code`, `dur_ms` | A request's operation, a refusal's code, and how long the request took in milliseconds |
@@ -2601,14 +2631,14 @@ time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-
 | `by`, `admin`, `created_by`, `added_by` | A principal other than the line's own: whose change caused it, a configured server admin, and who made that admin's row or added its key |
 | `err`, `detail`, `cause`, `fix`, `effect` | An error's text; what the database driver, the SDK or the HTTP server said; why something is wrong, what to do about it, and what follows meanwhile |
 | `issue`, `epoch`, `reason` | A claim's issue and number, and a few fixed words for why (`membership removed`, `principal disabled`, `project archived`, `key removed`, `idle`, `to make room`, `archived`, `connection limit`) |
-| `name`, `database`, `account`, `problems`, `resumed` | A project's name and database; the Dolt account and what is unsafe about it; whether a `project add` resumed one begun before |
+| `name`, `schema`, `account`, `problems`, `resumed` | A project's name and schema; the database role and what is unsafe about it; whether a `project add` resumed one begun before |
 | `after`, `oldest`, `connections`, `own`, `lines`, `per_minute` | Connections: how long one idled or how long before a retry, whether the one closed was the oldest waiting, how many were dropped and whether the admin's own was one, and how many refusal lines the cap left out of how many allowed |
 | `agents`, `inbox`, `claims`, `locks`, `extended` | How many registry rows and inbox items a prune removed; how many claims' leases, and locks' holds and places, a clock step extended, and by how much |
 | `lock`, `waiting` | A [lock](concepts.md#locks)'s name, and whether what ended was a place in its queue rather than a hold. A lock's name is text a person chose, so it stays in the journal and is never exported ([Logs over OTLP](#logs-over-otlp)) |
 | `path`, `keys` | The keys file, or the stand-in key's file, and how many keys were written |
 | `log`, `clock`, `history`, `behind`, `since`, `was_behind_since`, `direction`, `step`, `steps`, `from`, `to`, `forward_since_start`, `backward_since_start` | [The server's clock](#the-servers-clock): which history, the two times, how far behind and since when, and a step's direction, size and count |
 | `url`, `failures`, `after_failures`, `every` | [Dolt's figures](#dolts-figures): the URL read, how many reads have failed, and how often it is read |
-| `version`, `socket`, `control_db`, `projects`, `admins`, `addr` | The start: the build, the socket, the control database, how many active projects, the configured admins, and the listener's address |
+| `version`, `socket`, `control_schema`, `projects`, `admins`, `addr` | The start: the build, the socket, the control database, how many active projects, the configured admins, and the listener's address |
 | `push`, `push_interval`, `push_headers`, `pull`, `per_project`, `traces`, `trace_headers`, `sampler`, `logs`, `log_headers`, `principals`, `service` | What telemetry is on ([Observability](#observability)). Header counts, never their names or values |
 | `signal`, `failed`, `failures_not_logged` | An export that failed or recovered: `metrics`, `traces` or `logs`, and how many failures |
 
@@ -2662,7 +2692,7 @@ time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-
 | `clock.stepped` | warn | The clock was set, or the machine suspended: the direction, the size and what ariesd did about it |
 | `clock.step_settled` | warn | For each database, a forward step was added to every live lease |
 | `clock.settle_failed` | error | A step could not be settled in the control store |
-| `database.check_failed` | error | A check of the database failed: the one for `/readyz`, or the one made before a connection's project store is opened, which is then not opened (`project`, `database`) |
+| `database.check_failed` | error | A check of the database failed: the one for `/readyz`, or the one made before a connection's project store is opened, which is then not opened (`project`, `schema`) |
 | `telemetry.on`, `telemetry.off` | info | At start: what is exported and where, or that `OTEL_SDK_DISABLED` turned it off |
 | `telemetry.listening` | info | The loopback listener serves |
 | `telemetry.listener_error` | warn | The listener's HTTP server reported an error |
@@ -2683,7 +2713,7 @@ the cause and then each `fix:`, not as a log line.
 
 ### The audit stream
 
-With `control_db`, every change to who has access to what is an event
+With `control_schema`, every change to who has access to what is an event
 in the control database's log: a project added, archived or activated;
 a principal added, disabled or enabled; a key added or removed; a
 membership set or removed. ariesd also writes each as a log line with
@@ -2928,7 +2958,7 @@ that does not:
 | `ariesd is starting` | The store is not open yet, or the socket not yet listening |
 | `ariesd is not listening on its socket` | The daemon is stopping, or could no longer accept connections |
 | `the last check of Dolt failed` | Dolt did not answer a ping within 2 seconds: it hangs, or cannot be reached. The ping is on a pooled connection to the control database, or to the one project's; it is made at most every 5 seconds, however often `/readyz` is asked, and its answer stands until the next. ariesd's log has the error. A Dolt whose unit stops or restarts takes ariesd down with it ([step 5](#5-run-ariesd-under-systemd)), so then nothing answers on the listener at all until both are back |
-| `the last write of the keys file failed` | With `control_db`: sshd may be reading an older list of keys ([Keys from the store](#keys-from-the-store)) |
+| `the last write of the keys file failed` | With `control_schema`: sshd may be reading an older list of keys ([Keys from the store](#keys-from-the-store)) |
 
 `/healthz` says only that the process answers. A daemon that is healthy
 and not ready is usually waiting for Dolt.
@@ -2972,6 +3002,9 @@ seconds and `_total` to a counter, and gives a histogram `_bucket`,
 | `aries.clock.behind` | `aries_clock_behind_seconds` | gauge, seconds | none |
 | `aries.clock.steps` | `aries_clock_steps_total` | counter | `direction` |
 | `aries.telemetry.dropped` | `aries_telemetry_dropped_total` | counter | `signal` |
+| `aries.db.pool.conns` | `aries_db_pool_conns` | gauge | none |
+| `aries.db.pool.in_use` | `aries_db_pool_in_use` | gauge | none |
+| `aries.db.pool.waits` | `aries_db_pool_waits_total` | counter | none |
 
 What each counts:
 
@@ -2986,17 +3019,19 @@ What each counts:
 | `store.write.duration` | A write that changed a row and committed: the same measurement as P50 and P99 in the status report, the wait for the project's one writer and any retry included |
 | `store.write.retries` | Each attempt of a write that lost to a concurrent transaction and was tried again |
 | `stores.open` | Project stores open, opening or closing; always 1 on a server of one project |
-| `store.open.duration` | With `control_db`: opening a project's store, migrations included: once for each active project before the daemon listens, which is where an upgrade's migrations run, then whenever a connection or an archive opens one that was closed |
+| `store.open.duration` | With `control_schema`: opening a project's store, migrations included: once for each active project before the daemon listens, which is where an upgrade's migrations run, then whenever a connection or an archive opens one that was closed |
 | `claims` | Changes of a claim, as the event log records them, and renewals |
 | `locks` | Changes of a [lock](concepts.md#locks)'s holds and queue, as the event log records them, and renewals of a hold or a place. A lock's name is no attribute: it is a person's text |
 | `lock.wait.duration` | Each grant to a place in a lock's queue: how long the place waited, on the server's time. The buckets end at 10 seconds, so most waits for a deploy or a merge fall past the last |
-| `control.writes` | With `control_db`: each `aries admin` change, refused ones included |
-| `keys_file.writes` | With `control_db`: each time the keys file was written, or could not be. A file that already held the right keys is not a write |
+| `control.writes` | With `control_schema`: each `aries admin` change, refused ones included |
+| `keys_file.writes` | With `control_schema`: each time the keys file was written, or could not be. A file that already held the right keys is not a write |
 | `keys_file.last_write.time` | When the keys file took its current content |
 | `reaper.duration`, `reaper.last_run.time` | Each 30-second tick that ends expired claims, closes idle stores and rereads the control database, and when the last one ended. A time that stops advancing means the reaper is stuck |
 | `clock.behind` | How far the server's clock is behind the history its time is held against, as of the reaper's last tick; 0 when it is not behind. Above 0 the daemon serves, with its time running on from the history at half speed, and with `clock_behind: stop` it will not start again: alert on it ([The server's clock](#the-servers-clock)) |
 | `clock.steps` | Each time the daemon found the clock set, or the machine suspended and resumed, by more than `clock_step_tolerance`, counted at the reaper's next tick |
 | `telemetry.dropped` | For `signal="metrics"`, each OTLP export that failed; nothing is lost for good, since totals are cumulative and the next export carries them. For `signal="traces"`, each span that was lost: one the full queue had no room for, or one of an export that failed. For `signal="logs"`, each log record that was not exported, the same way; the journal still has its line ([When the collector is down](#when-the-collector-is-down)) |
+| `db.pool.conns`, `db.pool.in_use` | The connections to Postgres ariesd's one pool holds, which every project's store shares, and those a request is using now; at most `db_conns_per_server`. The connection that holds the writers' locks is not counted |
+| `db.pool.waits` | Each time a request waited for a connection of the pool because every one was in use. A rate that stays above zero is a pool too small for the load: raise `db_conns_per_server`, and Postgres's `max_connections` with it |
 
 Every attribute's values come from a fixed list in the code, so the
 number of series cannot grow with what clients send:
@@ -3057,13 +3092,13 @@ ends at ariesd's span around the work it asked of Dolt.
 | `handshake` | server | A connection's handshake, from its first frame to its welcome, with the opening of the project's store when this connection caused it. The note of its session in the registry is beneath it and may end after it: it is written beside the wait for the first request. The root of a trace of its own, since a hello brings no trace context | `result`, `project`, `protocol`, `principal`, `session` |
 | `store.write.attempt` | internal | One attempt of a write: the wait for the writer, the SQL transaction and its commit. A write that loses to a concurrent transaction is attempted again, in a new span, so a retried write shows as several | `project`, `attempt`, `outcome` |
 | `store.write.wait` | internal | Within an attempt: the wait for the project's one writer connection, and the start of its transaction | `project`, `outcome` |
-| `store.open` | internal | With `control_db`: opening a project's store, as `aries.store.open.duration` measures it | `project`, `migrated` |
+| `store.open` | internal | With `control_schema`: opening a project's store, as `aries.store.open.duration` measures it | `project`, `migrated` |
 | `store.migrate` | internal | Within the opening of a store, a project's or the control database's: the check of its schema, and the migrations applied | `project`, `outcome` |
 | `reaper` | internal | One 30-second tick, with the four below and the store's writes beneath it, so a slow tick shows which part was slow | none |
 | `clock.check` | internal | The look at the server's clock | none |
-| `control.reload` | internal | With `control_db`: the reread of the control database's index | none |
-| `keys_file.write` | internal | With `control_db`: the check of the keys file, and its write when it was out of date | `result`, `changed` |
-| `access.sweep` | internal | With `control_db`: ending the claims of holders who lost their access, in every open store, or in one as it opens | `project`, when it sweeps one store |
+| `control.reload` | internal | With `control_schema`: the reread of the control database's index | none |
+| `keys_file.write` | internal | With `control_schema`: the check of the keys file, and its write when it was out of date | `result`, `changed` |
+| `access.sweep` | internal | With `control_schema`: ending the claims of holders who lost their access, in every open store, or in one as it opens | `project`, when it sweeps one store |
 
 - **The last four are also roots or children elsewhere.** Each is the
   root of a trace when it runs outside a tick, as the keys file's write
@@ -3181,9 +3216,9 @@ all the same.
 |---|---|
 | A read | 1 |
 | A write | 3: the request, one attempt and its wait. 2 more for each retry |
-| A handshake | 3; with `control_db`, 12 when it is the one that opens the project's store |
+| A handshake | 3; with `control_schema`, 12 when it is the one that opens the project's store |
 | A Dolt commit | 1, at most one a second for each database being written to |
-| The reaper's tick, every 30 seconds | 4 on a server of one project; with `control_db`, 5 and 4 for each open store. 2 more for each store every 10 minutes, when it prunes |
+| The reaper's tick, every 30 seconds | 4 on a server of one project; with `control_schema`, 5 and 4 for each open store. 2 more for each store every 10 minutes, when it prunes |
 
 A tracker's traffic is small, which is why the default records
 everything: ten requests a second, a third of them writes, is about 17
@@ -3230,7 +3265,7 @@ the rule of [Traces](#traces):
 | `project`, `op`, `code`, `req`, `issue`, `fingerprint` | The attribute, when the value has that id's shape: a UUID, an op ariesd knows (any other is `unknown`), a code, 16 hex digits, an issue's id, a key's fingerprint |
 | Numbers, booleans, times, durations and the fixed words (`dur_ms`, `audit`, `seq`, `at`, `reason`, `role`, `connections` and the like) | The attribute |
 | `principal`, `session`, `by`, `subject`, `admin`, `created_by`, `added_by` | The attribute as `telemetry: principals:` allows, exactly as a span's (People, above): a stand-in by default, the name with `name`, nothing with `omit`, and nothing, never the name, while the key of the stand-ins is unavailable. A session is treated as a principal is |
-| `err`, `detail`, `cause`, `fix`, `effect`, `target`, `machine`, `harness`, `name`, `database`, `path`, `url` and every other field | **Nothing.** An error's text can quote what it refused or name a person, so it stays in the journal, under every setting |
+| `err`, `detail`, `cause`, `fix`, `effect`, `target`, `machine`, `harness`, `name`, `schema`, `path`, `url` and every other field | **Nothing.** An error's text can quote what it refused or name a person, so it stays in the journal, under every setting |
 
 - **To read the rest, go to the journal.** A record's `req`, its trace
   id, or its time and `event` find the line, which has the `err`.
@@ -3514,7 +3549,7 @@ sudo -u aries -H ariesd upgrade
    check of step 5 and be taken for a bad release. `upgrade --check`
    prints the same finding on a line starting `clock:`.
 3. Commits the database and tags it `aries-<old version>`, a point to go
-   back to. With `control_db`, it does so in the control database and in
+   back to. With `control_schema`, it does so in the control database and in
    every project's database, and stops, changing nothing, if one cannot
    be reached.
 4. Swaps the binary.
@@ -3533,7 +3568,7 @@ sudo -u aries -H ariesd upgrade
    answers `a password is required`, nothing is restarted, and upgrade
    reports the daemon as not healthy (seen with `--rollback --restart`).
 
-With `control_db`, ariesd opens the database of every active project
+With `control_schema`, ariesd opens the database of every active project
 once before it listens, which applies the new version's migrations to
 each (a few milliseconds for a database already current), and the check
 answers for all of them: it does not depend on the config file's
@@ -3707,9 +3742,9 @@ Back up three things:
 
 | What | Holds | How |
 |---|---|---|
-| The database | Every issue, comment and event | A daily `dolt dump`, below. With `control_db`: one dump for the control database and one for each project's, each from its own directory under `/var/lib/dolt/data` |
+| The database | Every issue, comment and event | A daily `dolt dump`, below. With `control_schema`: one dump for the control database and one for each project's, each from its own directory under `/var/lib/dolt/data` |
 | `/etc/aries/ariesd.yaml` | The project UUID and Dolt's password | With your other secrets |
-| `~aries/.ssh/authorized_keys` and `/etc/ssh/ssh_host_ed25519_key*` | Who may connect, and the host key every `.aries.yaml` pins. With `control_db`, the control database's dump also holds principals, their keys and their memberships | With your other secrets |
+| `~aries/.ssh/authorized_keys` and `/etc/ssh/ssh_host_ed25519_key*` | Who may connect, and the host key every `.aries.yaml` pins. With `control_schema`, the control database's dump also holds principals, their keys and their memberships | With your other secrets |
 
 A dump writes the database's current rows, the event log included, as SQL.
 It runs while ariesd serves. This cron entry keeps a week of dumps,
@@ -3907,7 +3942,7 @@ Dolt's collector: 1762 cycles for 12000 writes in 10m, 15 for each 100 writes: O
 |---|---|
 | `serve` | Run the daemon. Flags: `--config`, `--dsn`, `--socket`, `--project`, `--prefix`, `--log-level`, `--log-format`, `--dev`, `--allow-unsafe-dolt`, and `--accept-clock-behind TIME`, which starts once although the clock is behind a history no later than TIME ([The server's clock](#the-servers-clock)). Exits 75 when it refuses to start for the clock, and 1 for any other failure |
 | `stdio --principal NAME [--key FINGERPRINT]` | The sshd forced command: bridge one SSH session to the daemon. `--key` is written by ariesd, into each line of its keys file, never by hand: it names the key that signed in, so ariesd refuses the session unless the control database holds that key for NAME, and closes it when the key is removed |
-| `control init --name NAME [--authorized-keys FILE]` | Once, after setting `control_db`: adopt the server's database as the first project and import principals and keys from `authorized_keys` ([Serving many projects](#serving-many-projects)). Safe to run again |
+| `control init --name NAME [--authorized-keys FILE]` | Once, after setting `control_schema`: adopt the server's database as the first project and import principals and keys from `authorized_keys` ([Serving many projects](#serving-many-projects)). Safe to run again |
 | `import-bd [--project UUID] [--principal NAME] [--dry-run] [--json] FILE` | Import a bd export (`-` for stdin); see [Moving from bd](migrate-from-bd.md). `--project` picks a project on a server of many |
 | `export-bd [--project UUID] [-o FILE]` | Write the store in bd's JSONL format |
 | `upgrade [--check] [--to vX.Y.Z] [--rollback] [--restart]` | Replace the binary with a verified release ([Upgrades](#upgrades)) |
@@ -3932,12 +3967,12 @@ Dolt's collector: 1762 cycles for 12000 writes in 10m, 15 for each 100 writes: O
 | `aries: timed out after 15s waiting for … to open an ssh session`, `to start ariesd` or `to answer the hello` | The server accepted the key and then did not answer within the 15 seconds `aries` gives a connection: sshd, or something on the path to it, went quiet (the first two), or `ariesd stdio` or the daemon did not answer (the last) | Run it again. If it persists: `journalctl -u ssh` for the first two, and `ariesd status` and `journalctl -u ariesd` for the last |
 | `aries: HOST:PORT closed the connection before the ssh handshake (…)`, often for everyone behind one address at once; from an older `aries`, `ssh handshake with HOST:PORT failed: ssh: handshake failed: EOF` | The server accepted the TCP connection and hung up before the handshake. Usually sshd turned the address away for a while: on OpenSSH 9.8 and later, Ubuntu 26.04's among them, after failed logins or connections that ended before logging in from it, such as a removed key or a pin of an old host key retried ([step 6](#6-let-the-first-principal-in)). Also sshd past `MaxStartups`, or a firewall or proxy in front of it | Wait a minute and try once, not in a loop: each attempt can lengthen the penalty. Check that `aries whoami` signs in with the key the server knows. A penalty ends within 10 minutes. On the server, `journalctl -u ssh -g 'penalty|MaxStartups'` names the address and the cause; stop the client that fails, and list shared addresses in `PerSourcePenaltyExemptList`. Writes made meanwhile are queued, and `aries mcp` waits 30 seconds before it dials again |
 | `aries: open ssh session: the server closed the connection once it had accepted the key` | sshd took the key and hung up before a session was open: it was restarting, or something between the two machines cut the connection | Run it again. If it persists, `journalctl -u ssh` on the server |
-| `project "…" is not served by this server` | `.aries.yaml` and the config file name different projects; with `control_db`, the project is unknown or archived | Make the two `project` values match |
-| `… is not a member of project "…"` | With `control_db`: the principal has no row in the control database, or is in other projects only | An admin runs `aries admin member add NAME` in the project's repository (`principal add NAME` for someone new) |
-| `… is disabled on this server` | With `control_db`: the principal was disabled, whatever `admins:` says | An admin with reach over it runs `aries admin principal enable NAME` |
+| `project "…" is not served by this server` | `.aries.yaml` and the config file name different projects; with `control_schema`, the project is unknown or archived | Make the two `project` values match |
+| `… is not a member of project "…"` | With `control_schema`: the principal has no row in the control database, or is in other projects only | An admin runs `aries admin member add NAME` in the project's repository (`principal add NAME` for someone new) |
+| `… is disabled on this server` | With `control_schema`: the principal was disabled, whatever `admins:` says | An admin with reach over it runs `aries admin principal enable NAME` |
 | `aries: … accepted no key`, for a key added with `aries admin` | sshd is not reading ariesd's keys file, or the file has no line for the key | On the server: `sshd -T -C user=aries \| grep -i authorizedkeysfile` must name `.ssh/aries_keys`; `grep -c NAME /var/lib/aries/.ssh/aries_keys` shows whether the line is there; `journalctl -u ssh` says when sshd would not read the file for its owner or mode |
 | `aries admin` warns that ariesd `could not write the keys file sshd reads`, or `aries admin status` says `THE LAST WRITE FAILED` | ariesd cannot replace its keys file. The change itself is recorded | `journalctl -u ariesd` has `the keys file is out of date` with the cause and a fix: usually the unit's `ReadWritePaths` ([Keys from the store](#keys-from-the-store), step 1), or the owner or mode of `.ssh`. ariesd tries again every 30 seconds |
-| ariesd does not start: `write the keys file …` | With `control_db`: it cannot write its keys file | The error's `fix:` names the change; see [Keys from the store](#keys-from-the-store), step 1 |
+| ariesd does not start: `write the keys file …` | With `control_schema`: it cannot write its keys file | The error's `fix:` names the change; see [Keys from the store](#keys-from-the-store), step 1 |
 | The log has `telemetry: spans say nothing about who: the key for principals' stand-ins is unavailable`, or the status report says `TRACES SAY NOTHING ABOUT WHO` | ariesd exports traces, or logs, and cannot make or read the key it names people with. It serves as before; its spans and exported log records carry no principal and no session. The line with `cause=` says which: `it cannot be made: no such file or directory` (no directory), `read-only file system` (the unit's `ReadWritePaths`), `permission denied` (the directory's owner, or the AppArmor profile) | The lines with `fix=` beside it: make the directory and add the drop-in ([Send metrics to a collector on the machine](#send-metrics-to-a-collector-on-the-machine)). ariesd looks again every 30 seconds; a new drop-in needs a restart. Or set `telemetry: principals: omit` to leave people out on purpose |
 | The same, with `cause="its file is mode 0644: others can read it"`, or `its file does not hold a key`; the status report says the key `CANNOT BE TRUSTED` | The key's file is there and is not safe to use: someone else may have read it, or it was cut short or changed | If someone may have read it, delete it: ariesd makes a new one within 30 seconds, and stand-ins made with the old key can no longer be resolved. If nobody can have, `chmod 600` it ([Traces](#traces), People) |
 | `aries admin principal whois` answers `this server has no key for stand-ins: …` | What follows the colon says why: the key is unavailable, as in the two rows above; or the server exports no traces, or names people by `name` or `omit`, and has no key file from before | For an unavailable key, the rows above. Nothing resolves a stand-in made under a key that is gone |
@@ -3947,14 +3982,15 @@ Dolt's collector: 1762 cycles for 12000 writes in 10m, 15 for each 100 writes: O
 | `key … is the key this connection signed in with` | `aries admin key remove` of your own key, on a connection that key signed in | Sign in with another of your keys (`ARIES_KEY_FILE=PATH`) and remove it from there, or ask an admin |
 | `… is the last server admin who is not disabled` | `aries admin principal disable` of the only enabled server admin | Enable another first, or name another under `admins:` and restart |
 | `the key that signed in is no longer one the server holds for …` | The key was removed, and sshd read a keys file from before that: one ariesd could not rewrite, or one restored from a backup; or an `authorized_keys` line was given `--key` by hand, which only ariesd writes | Use another key, or have the key added again; check `aries admin status` for a failed write; remove `--key` from a hand-written line |
-| `this server holds one project, so it has no projects, principals or members to manage` | `aries admin project`, `principal`, `member` or `key` on a server with no `control_db` | [Opt in](#opt-in), or add people as lines of `authorized_keys` |
-| `the server has no database names for new projects` | `aries admin project add` on a server with no `project_dbs` | Grant a block of names and set `project_dbs` ([Opt in](#opt-in), step 4) |
-| `ariesd's Dolt account was never granted database …` | `project add` took a name in `project_dbs` that was never granted | As Dolt's root, run the `GRANT` statement in the fix, then run the same `aries admin project add NAME` again |
-| `every database name for new projects is in use` | Every name in `project_dbs` has a project, archived ones included | Grant more names and raise `count` |
+| `this server holds one project, so it has no projects, principals or members to manage` | `aries admin project`, `principal`, `member` or `key` on a server with no `control_schema` | [Opt in](#opt-in), or add people as lines of `authorized_keys` |
+| `schema project_… , which project … would have, is already in the database` | `aries admin project add` named a project whose schema ([Opt in](#opt-in), step 4) something else made: another ariesd's project, an earlier one, or a person | Choose another name; or, if nothing uses that schema, drop or rename it as its owner and run the same command |
+| `another role made schema …` | A project being created found its schema made by another role, which ariesd's may not use | As the schema's owner or a superuser, run the statement in the fix, then run the same `aries admin project add NAME` again |
+| `project … is served by another process on the same database` | Another ariesd, or an operator's command, holds the project's writer's lock ([One writer for each project](#one-writer-for-each-project)) | Stop the other process; `pg_stat_activity` shows its `ariesd writer locks` connection |
+| `the control store … is served by another ariesd on this database` | ariesd does not start: another holds the control store's writer's lock | Stop the other ariesd, or give this one a `control_schema` of its own |
 | `… may not …: it is for …` | An `aries admin` command by someone who may not run it ([Managing access](#managing-access)) | Ask the admin the fix names |
 | `ariesd upgrade` restores or installs the binary, then `sudo -n systemctl restart …: fork/exec /usr/bin/sudo: permission denied` | On Ubuntu 26.04, AppArmor profiles from before 14 October 2026: `sudo` is sudo-rs there, at a path the old operator's profile does not name | Install this release's profiles ([Confine ariesd with AppArmor](#confine-ariesd-with-apparmor)), then `sudo systemctl restart ariesd` |
 | `ariesd could not open the database of an active project` from `ariesd upgrade` | A project's database is gone, not granted, or failed to migrate | `journalctl -u ariesd` names it and why; fix it or archive the project, then restart |
-| `the control database … holds no active project` at start | `control_db` is set and `control init` has not run | `sudo -u aries -H ariesd control init --name NAME` |
+| `the control database … holds no active project` at start | `control_schema` is set and `control init` has not run | `sudo -u aries -H ariesd control init --name NAME` |
 | ariesd does not start, and `systemctl status ariesd` shows `status=75/TEMPFAIL` under `not starting: the server's clock is behind its own history` | The clock is behind the latest event of the database named, by more than `clock_behind_tolerance`: the clock was reset or set back, the machine booted without its time, or the database was written by a clock that ran ahead | `timedatectl`; correct the clock and `systemctl start ariesd`. If the history is what is wrong, start once with the `--accept-clock-behind` the refusal prints, or set `clock_behind: warn` ([The server's clock](#the-servers-clock)). systemd does not retry this exit |
 | After a boot, ariesd and every timer wait for good; `systemctl list-jobs` shows `time-sync.target start waiting` | `systemd-time-wait-sync` is enabled with its shipped `TimeoutStartSec=infinity`, and no time server answers | Add the drop-in of [Start ariesd after the clock is set](#start-ariesd-after-the-clock-is-set), which bounds the wait at 90 seconds; `systemctl stop systemd-time-wait-sync` lets this boot go on |
 | `clock behind history` in the log, or `CLOCK BEHIND HISTORY` in `aries admin status` | The clock went back under a running ariesd, or it started with `clock_behind: warn` or `--accept-clock-behind` | Correct the clock. Until it has caught up, timestamps are ahead of it and leases run at half speed; with `clock_behind: stop`, ariesd will not start again while this lasts |

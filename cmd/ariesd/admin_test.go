@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/ariesworx/aries/internal/pgtest"
+	"github.com/ariesworx/aries/internal/store"
 )
 
 // pgs are the package's Postgres servers: a test has one to itself while
@@ -212,5 +214,74 @@ func TestExportBDCommand(t *testing.T) {
 
 	if r := admin(t, src, "", exportBD, "extra"); r.err == nil {
 		t.Error("export-bd accepted an argument")
+	}
+}
+
+// Two daemons on one database: the second refuses to start, saying
+// another process writes the project's schema, until the first stops.
+func TestSecondDaemonRefusedToStart(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, config string
+	}{
+		{"one project", "project: " + adopted + "\nadmins: [dana]\n"},
+		{"many projects", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := newSite(t, "")
+			if tc.config != "" {
+				rewrite(t, s, tc.config)
+			} else if got := s.run(t, "", controlCmd, "init", "--name", "acme", "--authorized-keys", writeKeys(t)); got.err != nil {
+				t.Fatalf("control init: %v\n%s", got.err, got.stderr)
+			}
+			first, err := openDaemon(t.Context(), s.settings(t), slog.New(slog.DiscardHandler))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = openDaemon(t.Context(), s.settings(t), slog.New(slog.DiscardHandler))
+			if err == nil || !strings.Contains(err.Error(), "served by another") {
+				t.Fatalf("a second daemon on the database = %v, want it refused because the first writes the project's schema", err)
+			}
+			if err := first.Close(); err != nil {
+				t.Fatal(err)
+			}
+			second, err := openDaemon(t.Context(), s.settings(t), slog.New(slog.DiscardHandler))
+			if err != nil {
+				t.Fatalf("a daemon once the first has stopped = %v", err)
+			}
+			if err := second.Close(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// import-bd writes, and so is refused while a daemon serves the project,
+// with what to do; its dry run and export-bd only read, and run beside
+// it.
+func TestImportBesideTheDaemon(t *testing.T) {
+	t.Parallel()
+	dsn := newDSN(t)
+	daemon, err := store.Open(t.Context(), dsn, store.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := admin(t, dsn, "", importBD, backlog)
+	if got.err == nil || !strings.Contains(got.err.Error(), "is being written by another process, most likely the running ariesd") ||
+		!strings.Contains(got.err.Error(), "fix: stop ariesd") {
+		t.Fatalf("import beside the daemon = %+v, want it refused with a fix that says to stop ariesd", got)
+	}
+	if dry := admin(t, dsn, "", importBD, "--dry-run", backlog); dry.err != nil || !strings.HasPrefix(dry.stdout, "would import 10 issues") {
+		t.Errorf("a dry run beside the daemon = %+v, want the report", dry)
+	}
+	if exp := admin(t, dsn, "", exportBD); exp.err != nil {
+		t.Errorf("export beside the daemon = %+v, want it to run", exp)
+	}
+	if err := daemon.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got := admin(t, dsn, "", importBD, backlog); got.err != nil {
+		t.Errorf("import once the daemon has stopped = %v\n%s", got.err, got.stderr)
 	}
 }

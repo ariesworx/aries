@@ -964,7 +964,7 @@ func TestForwardStepWhileStoreOpensIsSettledOnce(t *testing.T) {
 	// starts no committer. Holding the store's time stops the opening just
 	// after its reading, which no sleep could do on a loaded machine.
 	clk.mu.Lock()
-	delete(clk.settled, s.db)
+	delete(clk.settled, s.clockName)
 	clk.mu.Unlock()
 	s.tm.mu.Lock()
 	armed.Store(true)

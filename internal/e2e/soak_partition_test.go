@@ -16,6 +16,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/ariesworx/aries/internal/outbox"
 	"github.com/ariesworx/aries/internal/proto"
 )
 
@@ -66,6 +67,9 @@ type partition struct {
 	cutFor  time.Duration
 	cached  int
 	refused int // starts and other writes refused while cut
+	// locks keep a sibling's replay from delivering an entry before the
+	// session that queued it has read its key.
+	locks outboxLocks
 }
 
 // queuedWrite is a write a session was told it queued: entry is its
@@ -86,10 +90,20 @@ type queuedWrite struct {
 type refusal struct{ code, message string }
 
 // answer is the server's answer to one replay of an entry: kept is
-// whether an applied one said it was kept as a comment.
+// whether an applied one said it was kept as a comment, and code a
+// refused one's code.
 type answer struct {
 	out  outcome
 	kept bool
+	code proto.Code
+}
+
+// settledRefusal reports whether a is a refusal that settles its entry,
+// which the outbox keeps as refused and never sends again by itself: any
+// but busy, which tells it to wait, and unavailable, which says the
+// write did not reach a store. After those it stays pending.
+func settledRefusal(a answer) bool {
+	return a.out == refused && a.code != proto.CodeBusy && a.code != proto.CodeUnavailable
 }
 
 // stampRec is an event stamped with an idempotency key: the last of the
@@ -159,9 +173,12 @@ func partitionFaults(queued []queuedWrite, end partitionEnd) []violation {
 			// and the outbox then refused unsent, as when the
 			// principal's access ended (design §18.3): the person retries
 			// it, and is given the first answer. The server refusing a
-			// key it applied is another matter.
+			// key it applied is another matter; but busy and unavailable
+			// settle nothing: the outbox keeps the entry and sends it
+			// again (offline.Local.Replay), and that attempt may be the
+			// one that applied it.
 			switch {
-			case slices.ContainsFunc(end.answers[w.idem], func(a answer) bool { return a.out == refused }):
+			case slices.ContainsFunc(end.answers[w.idem], settledRefusal):
 				fail(w, "refused (%s) when replayed, but the log applied it (event %d, %s)", r.code, stamps[0].seq, stamps[0].op)
 			case !end.lost[w.idem]:
 				fail(w, "refused (%s), but the log applied it, and no attempt of it went unanswered (event %d, %s)", r.code, stamps[0].seq, stamps[0].op)
@@ -171,10 +188,10 @@ func partitionFaults(queued []queuedWrite, end partitionEnd) []violation {
 		var last *answer
 		refusedOnce := false
 		for i, a := range end.answers[w.idem] {
-			switch a.out {
-			case acked:
+			switch {
+			case a.out == acked:
 				last = &end.answers[w.idem][i]
-			case refused:
+			case settledRefusal(a):
 				refusedOnce = true
 			}
 		}
@@ -293,6 +310,12 @@ func (ms *mcpSession) isCut() bool { return ms.cut.Load() }
 // queued, with its entry's key read from the outbox, and the markers the
 // log shows wherever it takes effect.
 func (ms *mcpSession) write(name string, args map[string]any, markers ...string) (string, bool) {
+	if ms.s.part != nil && ms.isCut() {
+		// A cut session sends nothing, so it waits on no replay of its
+		// own while it holds the lock; only the session's goroutine
+		// lets it back.
+		defer ms.s.part.locks.forQueue(ms.key.principal)()
+	}
 	res := ms.toolResult(name, args)
 	text, isErr := firstText(res)
 	if ms.s.part == nil || res == nil {
@@ -324,6 +347,50 @@ func (ms *mcpSession) write(name string, args map[string]any, markers ...string)
 	return text, isErr
 }
 
+// outboxLocks holds, for each principal, the lock that keeps a sibling
+// session's replay from delivering, and so dropping from the outbox, an
+// entry another session has just queued before that session has read
+// the entry's key back (TestOutboxKeyReadBeforeASiblingDelivers). The
+// sessions of a principal share its outbox, and a replay sends what is
+// queued while it runs. A replay never waits for another
+// (outbox.Outbox.Replay), so a replayer that waits here holds nothing a
+// queuer waits for.
+type outboxLocks struct {
+	mu sync.Mutex
+	m  map[string]*sync.RWMutex
+}
+
+// of returns principal's lock.
+func (o *outboxLocks) of(principal string) *sync.RWMutex {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.m == nil {
+		o.m = map[string]*sync.RWMutex{}
+	}
+	l := o.m[principal]
+	if l == nil {
+		l = &sync.RWMutex{}
+		o.m[principal] = l
+	}
+	return l
+}
+
+// forReplay holds principal's lock while one replayed request is sent,
+// and returns what lets it go.
+func (o *outboxLocks) forReplay(principal string) func() {
+	l := o.of(principal)
+	l.RLock()
+	return l.RUnlock
+}
+
+// forQueue holds principal's lock from a write a cut session may queue
+// to the read of its entry's key, and returns what lets it go.
+func (o *outboxLocks) forQueue(principal string) func() {
+	l := o.of(principal)
+	l.Lock()
+	return l.Unlock
+}
+
 // entryKey returns the idempotency key of entry seq of this session's
 // principal's outbox, or "" when it holds no such entry.
 func (ms *mcpSession) entryKey(seq uint64) string {
@@ -335,6 +402,12 @@ func (ms *mcpSession) entryKey(seq uint64) string {
 	if err != nil || !ok {
 		return ""
 	}
+	return entryKeyIn(ob, seq)
+}
+
+// entryKeyIn returns the idempotency key of entry seq of ob, pending or
+// refused, or "" when it holds no such entry.
+func entryKeyIn(ob *outbox.Outbox, seq uint64) string {
 	list, err := ob.List()
 	if err != nil {
 		return ""
@@ -597,6 +670,9 @@ func (s *soak) checkPartition(p *sproj, calls []call) {
 			continue
 		}
 		a := answer{out: c.out}
+		if c.err != nil {
+			a.code = c.err.Code
+		}
 		switch r := c.res.(type) {
 		case proto.HandoffResult:
 			a.kept = r.Comment != ""

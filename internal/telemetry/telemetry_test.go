@@ -193,6 +193,9 @@ func TestRecord(t *testing.T) {
 	tel.Count(Claims, ClaimRelease, ReasonArchived)
 	open := 3.0
 	tel.Watch(StoresOpen, func() float64 { return open })
+	tel.Watch(DBPoolConns, func() float64 { return 5 })
+	tel.Watch(DBPoolInUse, func() float64 { return 2 })
+	tel.Watch(DBPoolWaits, func() float64 { return 7 })
 	snap := collect(t, m)
 
 	for _, tc := range []struct {
@@ -208,6 +211,9 @@ func TestRecord(t *testing.T) {
 		{"aries.project.requests", []string{"project", projB, "result_class", "refused"}, 1},
 		{"aries.claims", []string{"event", "release", "reason", "archived"}, 1},
 		{"aries.stores.open", nil, 3},
+		{"aries.db.pool.conns", nil, 5},
+		{"aries.db.pool.in_use", nil, 2},
+		{"aries.db.pool.waits", nil, 7},
 		{"aries.request.duration", []string{"op", "show", "result", "ok"}, 2.004},
 	} {
 		p, ok := snap.Find(tc.name, tc.attrs...)
@@ -263,6 +269,9 @@ var wantKeys = map[string][]string{
 	"aries.clock.behind":              nil,
 	"aries.clock.steps":               {"direction"},
 	"aries.telemetry.dropped":         {"signal"},
+	"aries.db.pool.conns":             nil,
+	"aries.db.pool.in_use":            nil,
+	"aries.db.pool.waits":             nil,
 }
 
 // hostile are strings a client might choose, none of them a value any
@@ -282,7 +291,11 @@ func recordAll(tel *Telemetry, values []string) {
 			tel.Record(i, 1)
 		}
 	}
-	tel.Watch(StoresOpen, func() float64 { return 0 })
+	for i := range numInstruments {
+		if specs[i].watched {
+			tel.Watch(i, func() float64 { return 0 })
+		}
+	}
 }
 
 // No instrument has an attribute key that is not on its list, whatever
@@ -517,6 +530,9 @@ func TestPrometheusNames(t *testing.T) {
 		"aries.clock.behind":              "aries_clock_behind_seconds",
 		"aries.clock.steps":               "aries_clock_steps_total",
 		"aries.telemetry.dropped":         "aries_telemetry_dropped_total",
+		"aries.db.pool.conns":             "aries_db_pool_conns",
+		"aries.db.pool.in_use":            "aries_db_pool_in_use",
+		"aries.db.pool.waits":             "aries_db_pool_waits_total",
 	}
 	promType := map[Kind]string{Counter: "counter", UpDownCounter: "gauge", Gauge: "gauge", Histogram: "histogram"}
 	for _, d := range Instruments() {

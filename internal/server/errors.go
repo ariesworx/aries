@@ -83,6 +83,14 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 	if perr := lockErr(err); perr != nil {
 		return perr
 	}
+	if served, ok := errors.AsType[*store.ServedError](err); ok {
+		// The writer's lock was lost while its connection was down, and
+		// another process took the schema: this daemon writes nothing to
+		// it until its store is closed.
+		return proto.Errf(proto.CodeUnavailable,
+			fmt.Sprintf("ask the server's operator to stop whichever ariesd should not serve it (Postgres's pg_stat_activity shows each one's %q connection), then retry", store.FenceApplication),
+			fmt.Sprintf("another process on the same database now serves this project's schema, %s, so this server writes nothing to it", served.Schema))
+	}
 	switch {
 	case errors.As(err, &gate):
 		return gateErr(gate)

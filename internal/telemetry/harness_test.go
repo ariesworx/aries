@@ -393,7 +393,7 @@ func selects(rules []alertRule, name, key, value string) bool {
 // The rules cover what the design says an operator is told of (§16.7,
 // and the notes of slices O2 and O4): each signal's drops, the reaper,
 // the keys file, the clock, write latency and retries, the connection
-// and store caps.
+// and store caps, and the pool of database connections.
 func TestAlertRulesCover(t *testing.T) {
 	t.Parallel()
 	rules := readAlerts(t)
@@ -410,6 +410,7 @@ func TestAlertRulesCover(t *testing.T) {
 		{"the connection cap", "aries_limit_refusals_total", KeyLimit, LimitConns},
 		{"the cap on one principal's connections", "aries_limit_refusals_total", KeyLimit, LimitConnsPerPrincipal},
 		{"the store cap", "aries_limit_refusals_total", KeyLimit, LimitOpenStores},
+		{"requests waiting for a database connection", "aries_db_pool_waits_total", "", ""},
 	}
 	// Every signal ariesd can drop has its rule: one added to
 	// attrSignal's values needs one here.

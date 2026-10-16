@@ -111,6 +111,21 @@ func TestStatus(t *testing.T) {
 		if ps["proj-b"].State != "active" || ps["proj-c"].State != "archived" {
 			t.Errorf("states = %s and %s, want proj-b active and proj-c archived", ps["proj-b"].State, ps["proj-c"].State)
 		}
+		// Postgres's own figures, read with ariesd's locked-down role,
+		// and every project's size, open or not.
+		pg := sv.Postgres
+		if pg == nil || pg.Unknown != "" || pg.Version == "" || pg.Conns < 1 || pg.Conns > pg.ConnsMax || pg.DatabaseConns < 1 ||
+			pg.PoolMax != DefaultLimits.DBConns || pg.PoolConns < 1 || pg.PoolInUse > pg.PoolConns || pg.Commits < 1 || pg.DatabaseBytes <= 0 {
+			t.Errorf("status of Postgres = %+v; want its figures, and the pool's", pg)
+		}
+		// proj-a's is migrated; the others' schemas were made and never
+		// opened, so they hold nothing yet.
+		for name, migrated := range map[string]bool{"proj-a": true, "proj-b": false, "proj-c": false} {
+			n := ps[name].SchemaBytes
+			if n == nil || (*n > 0) != migrated || pg != nil && *n > pg.DatabaseBytes {
+				t.Errorf("%s's schema size = %v; want its size on disk (more than nothing: %t), within the database's", name, n, migrated)
+			}
+		}
 		if m.opened(projB) != 0 || m.opened(projC) != 0 {
 			t.Errorf("status opened the store of a project to report on it: b %d times, c %d", m.opened(projB), m.opened(projC))
 		}

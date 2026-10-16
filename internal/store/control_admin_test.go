@@ -47,30 +47,30 @@ func TestControlCreateDatabase(t *testing.T) {
 	}
 	mustPrincipal(t, c, "alice")
 
-	if err := c.CreateDatabase(ctx, alice, projA); !errors.Is(err, ErrForbidden) {
-		t.Errorf("CreateDatabase by alice, no admin = %v, want ErrForbidden", err)
+	if err := c.CreateSchema(ctx, alice, projA); !errors.Is(err, ErrForbidden) {
+		t.Errorf("CreateSchema by alice, no admin = %v, want ErrForbidden", err)
 	} else if ae, ok := errors.AsType[*AccessError](err); !ok || ae.Reason != AccessServerAdmin {
-		t.Errorf("CreateDatabase by alice = %v, want an AccessError for server admins", err)
+		t.Errorf("CreateSchema by alice = %v, want an AccessError for server admins", err)
 	}
-	if err := c.CreateDatabase(ctx, dana, projB); !errors.Is(err, ErrNotFound) {
-		t.Errorf("CreateDatabase of an unknown project = %v, want ErrNotFound", err)
+	if err := c.CreateSchema(ctx, dana, projB); !errors.Is(err, ErrNotFound) {
+		t.Errorf("CreateSchema of an unknown project = %v, want ErrNotFound", err)
 	}
-	if err := c.CreateDatabase(ctx, dana, "nonsense"); !errors.Is(err, ErrInvalid) {
-		t.Errorf("CreateDatabase(nonsense) = %v, want ErrInvalid", err)
+	if err := c.CreateSchema(ctx, dana, "nonsense"); !errors.Is(err, ErrInvalid) {
+		t.Errorf("CreateSchema(nonsense) = %v, want ErrInvalid", err)
 	}
 	// Before it is created, the project's schema does not open.
-	if _, err := Open(ctx, schemaDSN(t, dsn, p.DBName), Options{Prefix: p.Prefix}); !errors.Is(err, ErrInvalid) {
+	if _, err := Open(ctx, schemaDSN(t, dsn, p.Schema), Options{Prefix: p.Prefix}); !errors.Is(err, ErrInvalid) {
 		t.Errorf("Open of a schema not yet created = %v, want ErrInvalid", err)
 	}
 	// Safe to repeat: the second run finds the schema there.
 	for i := range 2 {
-		if err := c.CreateDatabase(ctx, dana, projA); err != nil {
-			t.Fatalf("CreateDatabase, run %d: %v", i+1, err)
+		if err := c.CreateSchema(ctx, dana, projA); err != nil {
+			t.Fatalf("CreateSchema, run %d: %v", i+1, err)
 		}
 	}
-	st, err := Open(ctx, schemaDSN(t, dsn, p.DBName), Options{Prefix: p.Prefix})
+	st, err := Open(ctx, schemaDSN(t, dsn, p.Schema), Options{Prefix: p.Prefix})
 	if err != nil {
-		t.Fatalf("open the created schema %s: %v", p.DBName, err)
+		t.Fatalf("open the created schema %s: %v", p.Schema, err)
 	}
 	if err := st.Close(); err != nil {
 		t.Error(err)
@@ -79,13 +79,13 @@ func TestControlCreateDatabase(t *testing.T) {
 	if _, err := c.ActivateProject(ctx, dana, projA); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.CreateDatabase(ctx, dana, projA); !errors.Is(err, ErrInvalid) {
-		t.Errorf("CreateDatabase of an active project = %v, want ErrInvalid", err)
+	if err := c.CreateSchema(ctx, dana, projA); !errors.Is(err, ErrInvalid) {
+		t.Errorf("CreateSchema of an active project = %v, want ErrInvalid", err)
 	}
 }
 
 // A schema the role may not make, or that another role made and did not
-// give it, is refused with an error DatabaseDenied knows, so the daemon
+// give it, is refused with an error SchemaDenied knows, so the daemon
 // can name the grant; given the grant GrantSQL or CreateSchemaGrantSQL
 // names, the same schema opens.
 func TestDatabaseDenied(t *testing.T) {
@@ -99,22 +99,22 @@ func TestDatabaseDenied(t *testing.T) {
 		if _, err := c.AddProject(ctx, dana, p); err != nil {
 			t.Fatal(err)
 		}
-		asSuperuser(t, dsn, "CREATE SCHEMA "+p.DBName)
-		if err := c.CreateDatabase(ctx, dana, projA); err != nil {
-			t.Fatalf("CreateDatabase of a schema another role made: %v", err)
+		asSuperuser(t, dsn, "CREATE SCHEMA "+p.Schema)
+		if err := c.CreateSchema(ctx, dana, projA); err != nil {
+			t.Fatalf("CreateSchema of a schema another role made: %v", err)
 		}
-		_, err := Open(ctx, schemaDSN(t, dsn, p.DBName), Options{Prefix: p.Prefix})
-		if err == nil || !DatabaseDenied(err) {
-			t.Fatalf("Open of a schema another role made = %v, want an error DatabaseDenied reports", err)
+		_, err := Open(ctx, schemaDSN(t, dsn, p.Schema), Options{Prefix: p.Prefix})
+		if err == nil || !SchemaDenied(err) {
+			t.Fatalf("Open of a schema another role made = %v, want an error SchemaDenied reports", err)
 		}
 		role, err := c.Account(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
-		asSuperuser(t, dsn, GrantSQL(p.DBName, role))
-		st, err := Open(ctx, schemaDSN(t, dsn, p.DBName), Options{Prefix: p.Prefix})
+		asSuperuser(t, dsn, GrantSQL(p.Schema, role))
+		st, err := Open(ctx, schemaDSN(t, dsn, p.Schema), Options{Prefix: p.Prefix})
 		if err != nil {
-			t.Fatalf("open after %s: %v", GrantSQL(p.DBName, role), err)
+			t.Fatalf("open after %s: %v", GrantSQL(p.Schema, role), err)
 		}
 		if err := st.Close(); err != nil {
 			t.Error(err)
@@ -133,18 +133,18 @@ func TestDatabaseDenied(t *testing.T) {
 			t.Fatal(err)
 		}
 		asSuperuser(t, dsn, "REVOKE CREATE ON DATABASE "+d.Database+" FROM "+d.User)
-		err = c.CreateDatabase(ctx, dana, projA)
-		if err == nil || !DatabaseDenied(err) {
-			t.Fatalf("CreateDatabase without the right to make schemas = %v, want an error DatabaseDenied reports", err)
+		err = c.CreateSchema(ctx, dana, projA)
+		if err == nil || !SchemaDenied(err) {
+			t.Fatalf("CreateSchema without the right to make schemas = %v, want an error SchemaDenied reports", err)
 		}
 		asSuperuser(t, dsn, CreateSchemaGrantSQL(d.Database, d.User))
-		if err := c.CreateDatabase(ctx, dana, projA); err != nil {
-			t.Fatalf("CreateDatabase after %s: %v", CreateSchemaGrantSQL(d.Database, d.User), err)
+		if err := c.CreateSchema(ctx, dana, projA); err != nil {
+			t.Fatalf("CreateSchema after %s: %v", CreateSchemaGrantSQL(d.Database, d.User), err)
 		}
 	})
 
-	if DatabaseDenied(ErrNotFound) || DatabaseDenied(nil) {
-		t.Error("DatabaseDenied reports an error that is no refusal of a schema")
+	if SchemaDenied(ErrNotFound) || SchemaDenied(nil) {
+		t.Error("SchemaDenied reports an error that is no refusal of a schema")
 	}
 }
 

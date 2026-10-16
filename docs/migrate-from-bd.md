@@ -26,10 +26,15 @@ time.
    would import 10 issues (10 created), 8 deps (8 created), 3 comments (3 created), 1 memory (1 created); 0 errors, 16 warnings
    ```
 
-3. Import it:
+3. Import it, with ariesd stopped: a project has one writer, and while
+   ariesd serves it the import is refused and says so
+   ([One writer for each project](server.md#one-writer-for-each-project)).
+   The dry run above reads only, and runs beside ariesd.
 
    ```sh
+   sudo systemctl stop ariesd
    ariesd import-bd bd.jsonl
+   sudo systemctl start ariesd
    ```
 
 4. Connect each repository ([`.aries.yaml`](cli.md#connect-a-repository))

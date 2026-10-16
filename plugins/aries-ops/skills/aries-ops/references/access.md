@@ -7,7 +7,7 @@ run them on the workstation, signed in as the operator, who must be a
 server admin or the project's admin. A command acts on the repository's
 project unless `--project` names another.
 
-On a server of one project (no `control_db`), these commands are refused
+On a server of one project (no `control_schema`), these commands are refused
 (`this server holds one project`); access there is lines of
 `authorized_keys` (docs/server.md#principals). Ask before you change
 such a server, and prefer opting in to many projects

@@ -14,7 +14,7 @@
 // key's authorized_keys line; it bridges the SSH session to that socket.
 // import-bd and export-bd are admin commands run on the server: they open
 // the store directly with the daemon's DSN settings and move a backlog in
-// and out as bd's JSONL. With control_db set the server holds many
+// and out as bd's JSONL. With control_schema set the server holds many
 // projects, each in a schema of its own: control init adopts the
 // existing schema as the first and imports authorized_keys, import-bd
 // and export-bd take --project, and serve writes the keys the control
@@ -80,12 +80,12 @@ Admins, who may change issues others hold and force a close, are listed
 under admins: in the config file or in $ARIESD_ADMINS (comma-separated);
 serve reads them at start.
 
-With control_db: (or $ARIESD_CONTROL_DB) set, the server holds many
+With control_schema: (or $ARIESD_CONTROL_SCHEMA) set, the server holds many
 projects, each a schema of the DSN's database, and who may reach each is
-in the control_db: schema, which control init makes. Run control init
+in the control_schema: schema, which control init makes. Run control init
 once to adopt the DSN's schema as the first project; admins then
-manage projects, principals, members and keys from anywhere with aries admin.
-project_dbs: names the schemas for new projects. serve writes
+manage projects, principals, members and keys from anywhere with aries admin;
+each new project gets the schema project_NAME. serve writes
 the keys the control store holds to keys_file: (default
 ~/.ssh/aries_keys of the user it runs as), which sshd reads with
 AuthorizedKeysFile before the authorized_keys you maintain by hand.
@@ -343,7 +343,7 @@ func runDaemon(ctx context.Context, s server.Settings, log *slog.Logger, getenv 
 	}
 	srv.Store(d.srv)
 	if d.ctl != nil {
-		log.Info("ariesd serving", "event", logs.DaemonServing, "version", version.Version, "socket", s.Socket, "control_db", s.ControlDB,
+		log.Info("ariesd serving", "event", logs.DaemonServing, "version", version.Version, "socket", s.Socket, "control_schema", s.ControlSchema,
 			"projects", d.ctl.ActiveProjects(), "admins", s.Admins)
 	} else {
 		log.Info("ariesd serving", "event", logs.DaemonServing, "version", version.Version, "socket", s.Socket, "project", s.Project, "admins", s.Admins)
@@ -384,23 +384,28 @@ type hooks struct {
 // the server has stopped.
 type daemon struct {
 	srv *server.Server
-	// st is the store of a server of one project, and ctl the control
-	// store of a server of many (control_db). Exactly one is set.
+	// db is the pool every store is opened from. st is the store of a
+	// server of one project, and ctl the control store of a server of
+	// many (control_schema). Exactly one is set.
+	db  *store.DB
 	st  *store.Store
 	ctl *store.Control
 }
 
-// Close closes the daemon's store or control store. The server closes
-// the project stores it opened itself.
+// Close closes the daemon's store or control store, and then its pool.
+// The server closes the project stores it opened itself.
 func (d *daemon) Close() error {
+	var err error
 	if d.ctl != nil {
-		return d.ctl.Close()
+		err = d.ctl.Close()
+	} else {
+		err = d.st.Close()
 	}
-	return d.st.Close()
+	return errors.Join(err, d.db.Close())
 }
 
 // openDaemon opens what s configures: the store of the one project in
-// the DSN, or, with control_db set, the control store of a server of
+// the DSN, or, with control_schema set, the control store of a server of
 // many projects, whose stores the server opens as they are asked for,
 // after opening each active project's once to migrate it. A server of
 // one project opens no control store.
@@ -416,51 +421,84 @@ func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h 
 	cfg := server.Config{Version: version.Version, Logger: log, Limits: s.Limits, Account: s.Account,
 		Telemetry: h.tel, Heartbeat: h.heartbeat, HeartbeatEvery: h.heartbeatEvery, NoAudit: !s.Telemetry.Audit(),
 		Clock: clk, ClockBehind: s.ClockBehind, BehindTolerance: time.Duration(s.ClockBehindTolerance), AcceptHistory: s.AcceptClockBehind}
-	opts := store.Options{Logger: log, AllowUnsafeAccount: s.AllowUnsafeAccount, Limits: s.Limits.Limits,
+	opts := store.Options{Logger: log, AllowUnsafeAccount: s.AllowUnsafeAccount, Limits: s.Limits.Limits, Readers: s.Limits.DBConnsPerProject,
 		Clock: clk, ClientAhead: time.Duration(s.ClockClientTolerance), IdemWindow: time.Duration(s.Limits.IdemWindow), AwayMax: time.Duration(s.Limits.AwayMax)}
 	if s.DSN == "" {
 		return nil, errors.New("no database DSN; fix: set $ARIESD_DSN or dsn: in the config file")
 	}
-	if s.ControlDB == "" {
-		if s.Project == "" {
-			return nil, errors.New("no project; fix: set --project, $ARIESD_PROJECT or project: in the config file")
-		}
-		opts.Prefix, opts.Admins = s.Prefix, s.Admins
-		opts.Observer = server.StoreObserver(h.tel, s.Project)
-		opts.Tracer = server.StoreTracer(h.tel, s.Project)
-		st, err := store.Open(ctx, s.DSN, opts)
-		if err != nil {
-			return nil, fmt.Errorf("open store: %w", err)
-		}
-		cfg.Store, cfg.Project = st, s.Project
-		srv, err := server.New(cfg)
-		if err != nil {
-			return nil, errors.Join(err, st.Close())
-		}
-		return &daemon{srv: srv, st: st}, nil
+	if s.ControlSchema == "" && s.Project == "" {
+		return nil, errors.New("no project; fix: set --project, $ARIESD_PROJECT or project: in the config file")
 	}
-	ctl, err := openControl(ctx, s, store.ControlOptions{Logger: log, Clock: clk, Tracer: server.StoreTracer(h.tel, "")})
+	// One pool for the server, which every store shares (store.DB).
+	db, err := store.OpenDB(ctx, s.DSN, store.DBOptions{Conns: s.Limits.DBConns})
+	if err != nil {
+		return nil, fmt.Errorf("open the database: %w; fix: check the DSN and that Postgres is running", err)
+	}
+	cfg.Postgres = db
+	if s.ControlSchema == "" {
+		d, err := daemonOfOne(ctx, s, db, cfg, opts, h)
+		if err != nil {
+			return nil, errors.Join(err, db.Close())
+		}
+		return d, nil
+	}
+	ctl, err := openControl(ctx, s, db, store.ControlOptions{Logger: log, Clock: clk, Tracer: server.StoreTracer(h.tel, ""),
+		Readers: s.Limits.DBConnsPerProject})
+	if err != nil {
+		return nil, errors.Join(err, db.Close())
+	}
+	srv, err := daemonOfMany(ctx, s, db, ctl, cfg, opts, h, log)
+	if err != nil {
+		return nil, errors.Join(err, ctl.Close(), db.Close())
+	}
+	return &daemon{srv: srv, db: db, ctl: ctl}, nil
+}
+
+// daemonOfOne opens the store of the one project in s's DSN, from db,
+// and the server of it.
+func daemonOfOne(ctx context.Context, s server.Settings, db *store.DB, cfg server.Config, opts store.Options, h hooks) (*daemon, error) {
+	d, err := store.ParseDSN(s.DSN)
 	if err != nil {
 		return nil, err
 	}
+	opts.Prefix, opts.Admins = s.Prefix, s.Admins
+	opts.Observer = server.StoreObserver(h.tel, s.Project)
+	opts.Tracer = server.StoreTracer(h.tel, s.Project)
+	st, err := db.Open(ctx, d.Schema, opts)
+	if err != nil {
+		return nil, fmt.Errorf("open store: %w", err)
+	}
+	cfg.Store, cfg.Project = st, s.Project
+	srv, err := server.New(cfg)
+	if err != nil {
+		return nil, errors.Join(err, st.Close())
+	}
+	return &daemon{srv: srv, db: db, st: st}, nil
+}
+
+// daemonOfMany makes the server of the projects ctl holds, whose stores
+// it opens from db, and readies it: the keys file written, every active
+// project's schema opened, and the claims of the archived ones ended.
+func daemonOfMany(ctx context.Context, s server.Settings, db *store.DB, ctl *store.Control, cfg server.Config, opts store.Options, h hooks, log *slog.Logger) (*server.Server, error) {
 	if ctl.ActiveProjects() == 0 {
-		return nil, errors.Join(fmt.Errorf("the control store %s holds no active project; fix: adopt this server's project as the first with `ariesd control init --name NAME`",
-			s.ControlDB), ctl.Close())
+		return nil, fmt.Errorf("the control store %s holds no active project; fix: adopt this server's project as the first with `ariesd control init --name NAME`",
+			s.ControlSchema)
 	}
 	warnOfAdmins(ctx, ctl, s.Admins, log)
-	cfg.Control, cfg.Open, cfg.ProjectDBs = ctl, server.ProjectOpener(s.DSN, ctl, opts, h.tel), s.ProjectDBs
+	cfg.Control, cfg.Open = ctl, server.ProjectOpener(db, ctl, opts, h.tel)
 	cfg.Bridge = s.Bridge
+	var err error
 	if cfg.KeysFile, cfg.AuthorizedKeys, err = keyFiles(s); err != nil {
-		return nil, errors.Join(err, ctl.Close())
+		return nil, err
 	}
 	srv, err := server.New(cfg)
 	if err != nil {
-		return nil, errors.Join(err, ctl.Close())
+		return nil, err
 	}
 	// sshd reads the keys from this file, so it holds what the store
 	// does before anyone can connect, or the daemon does not start.
 	if err := srv.WriteKeys(); err != nil {
-		return nil, errors.Join(err, ctl.Close())
+		return nil, err
 	}
 	// Every active project's schema is opened, and so migrated,
 	// before the daemon listens: after an upgrade, the health check
@@ -468,9 +506,9 @@ func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h 
 	// against that check; the others are served.
 	if err := srv.OpenProjects(ctx); err != nil {
 		if _, ok := errors.AsType[*server.ClockBehindError](err); ok {
-			return nil, errors.Join(err, ctl.Close()) // it names its own fix
+			return nil, err // it names its own fix
 		}
-		return nil, errors.Join(fmt.Errorf("%w; fix: check that Postgres is running", err), ctl.Close())
+		return nil, fmt.Errorf("%w; fix: check that Postgres is running", err)
 	}
 	// Every claim in an archived project ends before the daemon listens
 	// (decision 24): one left by a daemon that stopped between an
@@ -479,10 +517,10 @@ func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h 
 	// and never migrated here; activating the project does that.
 	asIs := opts
 	asIs.NoMigrate = true
-	if err := srv.ReleaseArchived(ctx, server.ProjectOpener(s.DSN, ctl, asIs, h.tel)); err != nil {
-		return nil, errors.Join(fmt.Errorf("%w; fix: check that Postgres is running", err), ctl.Close())
+	if err := srv.ReleaseArchived(ctx, server.ProjectOpener(db, ctl, asIs, h.tel)); err != nil {
+		return nil, fmt.Errorf("%w; fix: check that Postgres is running", err)
 	}
-	return &daemon{srv: srv, ctl: ctl}, nil
+	return srv, nil
 }
 
 // keyFiles returns the absolute paths of the keys file a server of many

@@ -41,7 +41,11 @@ func openControl(t *testing.T, dsn string, opts ControlOptions) *Control {
 	if opts.Admins == nil {
 		opts.Admins = []string{"dana", "sam"}
 	}
-	c, err := OpenControl(t.Context(), dsn, opts)
+	d, err := ParseDSN(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := testDB(t, dsn).OpenControl(t.Context(), d.Schema, opts)
 	if err != nil {
 		t.Fatalf("open control: %v", err)
 	}
@@ -95,7 +99,7 @@ func testCertificate(t *testing.T) string {
 // character, as project a, b or c.
 func newProject(id string) NewProject {
 	n := id[len(id)-1:]
-	return NewProject{ID: id, Name: "proj-" + n, Prefix: "p" + n, Account: "internal", DBName: "aries_p" + n}
+	return NewProject{ID: id, Name: "proj-" + n, Prefix: "p" + n, Account: "internal", Schema: "aries_p" + n}
 }
 
 func mustProject(t *testing.T, c *Control, id string) Project {
@@ -190,11 +194,11 @@ func TestControlProjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddProject(%+v): %v", in, err)
 	}
-	if p.ID != in.ID || p.Name != in.Name || p.Prefix != in.Prefix || p.Account != in.Account || p.DBName != in.DBName ||
+	if p.ID != in.ID || p.Name != in.Name || p.Prefix != in.Prefix || p.Account != in.Account || p.Schema != in.Schema ||
 		p.State != ProjectCreating || p.CreatedBy != "dana" || p.Rev != 1 || p.CreatedAt.IsZero() {
 		t.Errorf("AddProject(%+v) = %+v, want those fields, state creating, by dana, rev 1", in, p)
 	}
-	wantEvents(t, c, seq, ev{OpProjectAdd, projA, dana, `"db_name":"aries_pa"`})
+	wantEvents(t, c, seq, ev{OpProjectAdd, projA, dana, `"schema":"aries_pa"`})
 
 	// A creation that failed halfway is run again: the same request, by
 	// any server admin, returns the row and records nothing.
@@ -210,12 +214,12 @@ func TestControlProjects(t *testing.T) {
 		in   NewProject
 		kind TakenKind
 	}{
-		{"same id, other name", NewProject{projA, "other", in.Prefix, in.Account, in.DBName}, TakenProjectID},
-		{"same id, other prefix", NewProject{projA, in.Name, "zz", in.Account, in.DBName}, TakenProjectID},
-		{"same id, other account", NewProject{projA, in.Name, in.Prefix, "acme", in.DBName}, TakenProjectID},
+		{"same id, other name", NewProject{projA, "other", in.Prefix, in.Account, in.Schema}, TakenProjectID},
+		{"same id, other prefix", NewProject{projA, in.Name, "zz", in.Account, in.Schema}, TakenProjectID},
+		{"same id, other account", NewProject{projA, in.Name, in.Prefix, "acme", in.Schema}, TakenProjectID},
 		{"same id, other database", NewProject{projA, in.Name, in.Prefix, in.Account, "aries_other"}, TakenProjectID},
 		{"other id, same name", NewProject{projB, in.Name, "pb", "internal", "aries_pb"}, TakenProjectName},
-		{"other id, same database", NewProject{projB, "proj-b", "pb", "internal", in.DBName}, TakenDBName},
+		{"other id, same schema", NewProject{projB, "proj-b", "pb", "internal", in.Schema}, TakenSchema},
 	}
 	for _, tc := range taken {
 		t.Run(tc.name, func(t *testing.T) {
@@ -321,13 +325,13 @@ func TestControlProjectValidation(t *testing.T) {
 		{"prefix too long", with(func(p *NewProject) { p.Prefix = strings.Repeat("p", 33) })},
 		{"empty account", with(func(p *NewProject) { p.Account = "" })},
 		{"account with an underscore", with(func(p *NewProject) { p.Account = "a_b" })},
-		{"empty database", with(func(p *NewProject) { p.DBName = "" })},
-		{"database starts with a digit", with(func(p *NewProject) { p.DBName = "1db" })},
-		{"database with a hyphen", with(func(p *NewProject) { p.DBName = "aries-p1" })},
-		{"database with a backtick", with(func(p *NewProject) { p.DBName = "a`; DROP DATABASE x; --" })},
-		{"uppercase database", with(func(p *NewProject) { p.DBName = "Aries" })},
-		{"database too long", with(func(p *NewProject) { p.DBName = strings.Repeat("d", 64) })},
-		{"database Postgres keeps for its own", with(func(p *NewProject) { p.DBName = "pg_aries" })},
+		{"empty database", with(func(p *NewProject) { p.Schema = "" })},
+		{"database starts with a digit", with(func(p *NewProject) { p.Schema = "1db" })},
+		{"database with a hyphen", with(func(p *NewProject) { p.Schema = "aries-p1" })},
+		{"database with a backtick", with(func(p *NewProject) { p.Schema = "a`; DROP DATABASE x; --" })},
+		{"uppercase database", with(func(p *NewProject) { p.Schema = "Aries" })},
+		{"database too long", with(func(p *NewProject) { p.Schema = strings.Repeat("d", 64) })},
+		{"database Postgres keeps for its own", with(func(p *NewProject) { p.Schema = "pg_aries" })},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -338,7 +342,7 @@ func TestControlProjectValidation(t *testing.T) {
 	}
 	wantEvents(t, c, 0)
 	longest := NewProject{ID: projA, Name: strings.Repeat("n", 64), Prefix: strings.Repeat("p", 32),
-		Account: strings.Repeat("a", 64), DBName: "d" + strings.Repeat("_", 62)}
+		Account: strings.Repeat("a", 64), Schema: "d" + strings.Repeat("_", 62)}
 	if _, err := c.AddProject(t.Context(), dana, longest); err != nil {
 		t.Errorf("AddProject with every field at its longest: %v", err)
 	}
@@ -905,7 +909,7 @@ func TestOpenControl(t *testing.T) {
 		if _, err := c.s.w.ExecContext(t.Context(), `INSERT INTO control_migrations VALUES (99, 'future', NOW())`); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := OpenControl(t.Context(), dsn, ControlOptions{}); !errors.Is(err, ErrSchemaTooNew) {
+		if _, err := testDB(t, dsn).OpenControl(t.Context(), DefaultSchema, ControlOptions{}); !errors.Is(err, ErrSchemaTooNew) {
 			t.Errorf("OpenControl of a newer schema = %v, want ErrSchemaTooNew", err)
 		}
 	})
@@ -948,7 +952,7 @@ func TestControlAndProjectDatabases(t *testing.T) {
 		c := openControl(t, dsn, ControlOptions{})
 		mustPrincipal(t, c, "alice")
 		before := tables(t, dsn)
-		_, err := Open(t.Context(), dsn, Options{})
+		_, err := testDB(t, dsn).Open(t.Context(), DefaultSchema, Options{})
 		if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "control_migrations") {
 			t.Errorf("Open on the control database = %v, want ErrInvalid naming control_migrations", err)
 		}
@@ -965,7 +969,7 @@ func TestControlAndProjectDatabases(t *testing.T) {
 		s := openStore(t, dsn, Options{})
 		mustCreate(t, s, NewIssue{})
 		before := tables(t, dsn)
-		_, err := OpenControl(t.Context(), dsn, ControlOptions{})
+		_, err := testDB(t, dsn).OpenControl(t.Context(), DefaultSchema, ControlOptions{})
 		if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "schema_migrations") {
 			t.Errorf("OpenControl on a project database = %v, want ErrInvalid naming schema_migrations", err)
 		}

@@ -113,7 +113,7 @@ func TestControlReload(t *testing.T) {
 	if err := daemon.Reload(t.Context()); err != nil {
 		t.Fatalf("Reload: %v", err)
 	}
-	if got := daemon.Access("alice", projA); !got.Active || got.Role != RoleMember || got.Project.DBName != "aries_pa" {
+	if got := daemon.Access("alice", projA); !got.Active || got.Role != RoleMember || got.Project.Schema != "aries_pa" {
 		t.Errorf("after Reload: Access(alice, a) = %+v, want an active project and a member", got)
 	}
 	if who, _, ok := daemon.AuthorizedKey(k.Fingerprint); !ok || who != "alice" {

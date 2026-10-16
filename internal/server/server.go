@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/base32"
@@ -70,10 +71,10 @@ type Config struct {
 	// neither sets one nor inherits one. Empty takes DefaultAccount. With
 	// Control each project's own account is used instead.
 	Account string
-	// ProjectDBs is the block of database names a new project's database
-	// is taken from (Control only). The zero value has none, and adding
-	// a project is refused.
-	ProjectDBs ProjectDBs
+	// Postgres is the database server the stores are in, whose own
+	// figures, and each project's schema's size, the status report
+	// shows. Nil shows none.
+	Postgres Postgres
 	// KeysFile is the absolute path of the file the server writes the
 	// control store's keys to, in authorized_keys form, for sshd to read
 	// (Control only; see [Server.WriteKeys]). Empty writes none.
@@ -141,7 +142,7 @@ type Server struct {
 	// keys is the state of the keys file (Config.KeysFile).
 	keys keysFile
 	// adding serializes `project add`, so that two do not take the same
-	// database name.
+	// schema.
 	adding sync.Mutex
 	// archiving serializes `project archive` from its check that the
 	// project is not the last active one to its control write, so that
@@ -230,9 +231,6 @@ func New(cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("server: account %q is not a code name", cfg.Account)
 	}
 	cfg.Limits = cfg.Limits.WithDefaults()
-	if err := cfg.ProjectDBs.Validate(); err != nil {
-		return nil, fmt.Errorf("server: %w", err)
-	}
 	if cfg.Bridge == "" {
 		cfg.Bridge = DefaultBridge
 	}
@@ -262,6 +260,11 @@ func New(cfg Config) (*Server, error) {
 	s.ctlWrites = buckets{rate: cfg.Limits.ControlWriteRate, burst: float64(cfg.Limits.ControlWriteBurst)}
 	s.refusals = sampler{n: cfg.Limits.RefusalLogs}
 	s.slots.tel = cfg.Telemetry
+	if pg := cfg.Postgres; pg != nil {
+		cfg.Telemetry.Watch(telemetry.DBPoolConns, func() float64 { return float64(pg.Pool().Conns) })
+		cfg.Telemetry.Watch(telemetry.DBPoolInUse, func() float64 { return float64(pg.Pool().InUse) })
+		cfg.Telemetry.Watch(telemetry.DBPoolWaits, func() float64 { return float64(pg.Pool().Waits) })
+	}
 	if !multi {
 		s.single = &served{id: cfg.Project, store: cfg.Store, account: cfg.Account, log: cfg.Logger, timeout: cfg.RequestTimeout, tel: cfg.Telemetry,
 			conflictAge: time.Duration(cfg.Limits.ConflictAge), dueSoon: time.Duration(cfg.Limits.DueSoon)}
@@ -295,10 +298,10 @@ func (s *Server) openProject(ctx context.Context, p store.Project) (*served, err
 	if err != nil {
 		return nil, err
 	}
-	pr := &served{id: p.ID, db: p.DBName, store: st, account: p.Account, log: s.cfg.Logger.With("project", p.ID), timeout: s.cfg.RequestTimeout,
+	pr := &served{id: p.ID, schema: p.Schema, store: st, account: p.Account, log: s.cfg.Logger.With("project", p.ID), timeout: s.cfg.RequestTimeout,
 		tel: s.cfg.Telemetry, conflictAge: time.Duration(s.cfg.Limits.ConflictAge), dueSoon: time.Duration(s.cfg.Limits.DueSoon)}
 	pr.used.Store(s.now().UnixNano())
-	pr.log.InfoContext(ctx, "project store opened", "event", logs.ProjectOpened, "name", p.Name, "database", p.DBName)
+	pr.log.InfoContext(ctx, "project store opened", "event", logs.ProjectOpened, "name", p.Name, "schema", p.Schema)
 	s.mu.Lock()
 	delete(s.unopened, p.ID)
 	s.mu.Unlock()
@@ -1075,7 +1078,10 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 				fmt.Sprintf("the server has its limit of %d projects open, each with a connection", s.cfg.Limits.OpenStores)))
 		case err != nil:
 			if ctx.Err() == nil {
-				s.cfg.Logger.ErrorContext(ctx, "open project store", "event", logs.ProjectOpenFailed, "project", row.ID, "database", row.DBName, "err", err)
+				s.cfg.Logger.ErrorContext(ctx, "open project store", "event", logs.ProjectOpenFailed, "project", row.ID, "schema", row.Schema, "err", err)
+			}
+			if e := servedElsewhere(err, row); e != nil {
+				return refuse(e)
 			}
 			return refuse(proto.Errf(proto.CodeUnavailable, "retry; if it persists, the server admin should check the ariesd log",
 				fmt.Sprintf("the server could not open project %q", row.ID)))
@@ -1111,10 +1117,24 @@ func (s *Server) silentDatabase(ctx context.Context, key string, p store.Project
 		return nil // the database answers, or the daemon is stopping, which the opening says
 	}
 	s.refusals.line(ctx, s.cfg.Logger, key, s.now(), slog.LevelError, logs.DatabaseCheckFailed, "the check of the database failed; project store not opened",
-		"project", p.ID, "database", p.DBName, "err", err)
+		"project", p.ID, "schema", p.Schema, "err", err)
 	return proto.Errf(proto.CodeUnavailable,
 		"retry in a minute; if it persists, the server's operator should run `ariesd status` on the server, which answers without the database, and see to Postgres (docs/server.md, Troubleshooting)",
 		fmt.Sprintf("the server's database does not answer, so project %q was not opened", p.ID))
+}
+
+// servedElsewhere refuses p, whose store could not be opened with err,
+// when err says another process holds the writer's lock of p's schema
+// (store.ServedError): another ariesd on the same database, or an
+// operator's command. It returns nil for any other error.
+func servedElsewhere(err error, p store.Project) *proto.Error {
+	if _, ok := errors.AsType[*store.ServedError](err); !ok {
+		return nil
+	}
+	return proto.Errf(proto.CodeUnavailable,
+		fmt.Sprintf("ask the server's operator to stop the other process that writes schema %s (Postgres's pg_stat_activity shows its connection as %q), then retry (docs/server.md, Serving many projects)",
+			p.Schema, store.FenceApplication),
+		fmt.Sprintf("project %s is served by another process on the same database", cmp.Or(p.Name, p.ID)))
 }
 
 // notServed refuses a hello for a project the server does not serve.
