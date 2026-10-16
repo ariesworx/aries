@@ -117,6 +117,7 @@ on the volume.
 | `ARIES_PORT` | `2222` | sshd's port on 127.0.0.1, with SSH on, also printed in `.aries.yaml` |
 | `ARIES_TELEMETRY` | unset | `1` turns ariesd's telemetry on ([Telemetry](#telemetry)). Unset, ariesd exports nothing and opens no port, as on a server where nothing is configured |
 | `ARIES_TZ` | unset, UTC | The zone sshd and ariesd run in, as `TZ`: a POSIX zone such as `ARIES-14`, fourteen hours east of UTC, since the image holds no zone files. sshd reads a key's `expiry-time` without its `Z` in this zone; the smoke test runs the server at UTC+14 to show the `Z` is written ([Keys that end](../server.md#keys-that-end)) |
+| `ARIES_GRAFANA_PORT` | `3000` | Grafana's port on 127.0.0.1, with the `observe` profile ([Observe](#observe)) |
 
 Both ports are published on 127.0.0.1 alone, so nothing beyond your
 machine can reach them.
@@ -286,6 +287,47 @@ docker compose --profile telemetry logs -f collector
 ariesd's log still goes to the container's output, whole, as before:
 `docker compose logs aries`. What the collector receives of it is
 less, by design: ids, codes and numbers, and no text.
+
+### Observe
+
+To look at what ariesd reports over time, in Grafana, run the `observe`
+profile instead of the two above:
+
+```sh
+export ARIES_TELEMETRY=1
+docker compose --profile observe up -d --build --wait
+```
+
+Then open <http://127.0.0.1:3000>.
+
+It runs Grafana's all-in-one OpenTelemetry backend, `grafana/otel-lgtm`
+(pinned by tag and digest): a Collector that receives what ariesd
+pushes, Prometheus for the metrics, Tempo for the traces, Loki for the
+log records, and Grafana, with the dashboard of
+[deploy/observability](../../deploy/observability) under Dashboards,
+**Aries server**. Explore has each signal: a trace by its id in Tempo
+(the `TRACEPARENT` example above works here too), the log records in
+Loki by `service_name`, and any `aries_*` series in Prometheus.
+
+- **For developing Aries as much as for running it.** A change to an
+  instrument, a span or a log line can be looked at, not only tested:
+  start the profile from your branch, use `aries`, and find it.
+- **It keeps its data on the volume `observe`**, so a restart or a
+  rebuild keeps the history; `docker compose down -v` wipes it with the
+  rest.
+- **It takes the ports the `telemetry` and `prometheus` profiles take**
+  in the server's namespace, so run one or the other, not both.
+- **Anyone who reaches Grafana is an admin**, as the image has it. It is
+  published on 127.0.0.1 alone (`ARIES_GRAFANA_PORT`, 3000 by default),
+  so that is anyone on your machine. Grafana downloads no plugin at
+  start, so it reaches nothing outside the machine.
+- **The alert rules are not loaded here.** They stay with the
+  `prometheus` profile and the smoke test.
+- **After restarting the server, restart it too**, as for the
+  collector: `docker compose --profile observe restart observe`.
+- A counter appears in Prometheus once it has counted: a series of the
+  dashboard that nothing has caused yet, such as refused upgrades, shows
+  no data rather than 0.
 
 ## Sign-in with a local identity provider
 

@@ -1,6 +1,6 @@
 # Observability examples
 
-Four files to start from when wiring an Aries server into what you
+Five files to start from when wiring an Aries server into what you
 already monitor with. **They are examples that are tested, not a
 product.** [Running a server](../../docs/server.md#a-collector-alert-rules-and-a-dashboard)
 says how to use each, and lists the alerts.
@@ -11,6 +11,7 @@ says how to use each, and lists the alerts.
 | [alerts.yaml](alerts.yaml) | Alert rules in Prometheus's rule format |
 | [prometheus.yaml](prometheus.yaml) | A Prometheus configuration that scrapes ariesd and loads the rules |
 | [dashboard.json](dashboard.json) | One dashboard, in Grafana's format |
+| [grafana-dashboards.yaml](grafana-dashboards.yaml) | Grafana's provisioning of that dashboard, as the Docker test server's `observe` profile loads it |
 
 Nothing here names a vendor or a host: a backend is
 `https://otlp.example.com`, and its token comes from the collector's
@@ -34,7 +35,7 @@ environment.
   each without error and runs every query of the dashboard. CI does not
   run it.
 
-Not tested: the dashboard in Grafana itself; a hosted backend; the
+Not tested automatically: the dashboard in Grafana itself, which was run by hand in the Docker test server's `observe` profile (16 Oct 2026: every series it reads arrived under its name once its counter had counted); a hosted backend; the
 thresholds against a real server's traffic; and the two parts of
 `collector.yaml` that are comments, the backend's exporter and the
 filter for the audit stream, which the Collector's own `validate`

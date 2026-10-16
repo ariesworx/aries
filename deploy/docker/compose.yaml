@@ -67,6 +67,8 @@ services:
     ports:
       - 127.0.0.1:${ARIES_HTTPS_PORT:-8443}:8443
       - 127.0.0.1:${ARIES_PORT:-2222}:22
+      # Grafana, with the observe profile; nothing answers here without it.
+      - 127.0.0.1:${ARIES_GRAFANA_PORT:-3000}:3000
     volumes:
       - state:/state
       - dbsecret:/aries-db:ro
@@ -148,6 +150,40 @@ services:
       - ../observability/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
       - ../observability/alerts.yaml:/etc/prometheus/alerts.yaml:ro
 
+  # Grafana's all-in-one OpenTelemetry backend, to look at what ariesd
+  # reports over time: a Collector that receives what ariesd pushes,
+  # Prometheus, Tempo for traces, Loki for logs, and Grafana with
+  # deploy/observability's dashboard, at http://127.0.0.1:3000 (the
+  # port is ARIES_GRAFANA_PORT, published by the server's service). Its
+  # data stays on the volume `observe`. It runs in the server's network
+  # namespace, as the collector does, and takes the same ports, so run
+  # it instead of the telemetry and prometheus profiles, not beside
+  # them. Grafana lets anyone who reaches it in as an admin, as the
+  # image does by default; it is published on 127.0.0.1 alone.
+  observe:
+    profiles: [observe]
+    image: grafana/otel-lgtm:0.35.0@sha256:2de1094c593c671cbfca878a28ffcd7e46ff5e32f2ce966c0cf33003f6cf4266
+    network_mode: service:aries
+    depends_on:
+      aries:
+        condition: service_started
+    environment:
+      # Grafana downloads no plugin at start, so it reaches nothing
+      # outside the machine.
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - observe:/data
+      - ../observability/grafana-dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/aries.yaml:ro
+      - ../observability/dashboard.json:/etc/aries/dashboards/aries.json:ro
+    healthcheck:
+      test: ["CMD", "test", "-e", "/tmp/ready"]
+      start_period: 120s
+      start_interval: 2s
+      interval: 30s
+
   # Keycloak, with the realm `aries` that identity.sh makes on every
   # start where it lacks one: two people, a public client for `aries
   # login`, a confidential one standing for the server and a
@@ -181,6 +217,7 @@ services:
       interval: 30s
 volumes:
   state:
+  observe:
   postgres:
   dbsecret:
   identity:

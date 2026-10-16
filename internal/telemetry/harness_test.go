@@ -595,7 +595,7 @@ func TestHarnessImagesArePinned(t *testing.T) {
 			t.Errorf("%s:%d: %q is not pinned by version and digest (name:1.2.3@sha256:…)", composeFile, i+1, line)
 		}
 	}
-	if n != 4 {
-		t.Errorf("%s runs %d images besides the one it builds, want 4: Postgres, the collector, Prometheus and Keycloak", composeFile, n)
+	if n != 5 {
+		t.Errorf("%s runs %d images besides the one it builds, want 5: Postgres, the collector, Prometheus, Keycloak and the observe profile's otel-lgtm", composeFile, n)
 	}
 }
