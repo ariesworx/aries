@@ -109,7 +109,7 @@ func (a *authServer) exchange(rw http.ResponseWriter, r *http.Request) {
 		oauthError(rw, http.StatusBadRequest, "invalid_dpop_proof", proto.Errf(proto.CodeAuth, "run `aries login --workload` again; check this machine's clock", err.Error()))
 		return
 	}
-	p, claims, perr := a.verifyWorkload(r.Context(), subject, proof.JKT, now)
+	p, claims, perr := a.verifyWorkload(r.Context(), subject, proof.JKT)
 	if perr != nil {
 		name := ""
 		if p != nil {
@@ -160,7 +160,7 @@ func (a *authServer) exchange(rw http.ResponseWriter, r *http.Request) {
 // names, and the provider's verifier. It returns the provider, once
 // known, and the token's claims, or a refusal. Nothing is remembered of
 // it here.
-func (a *authServer) verifyWorkload(ctx context.Context, subject, jkt string, now time.Time) (*oidc.Workload, *oidc.Claims, *proto.Error) {
+func (a *authServer) verifyWorkload(ctx context.Context, subject, jkt string) (*oidc.Workload, *oidc.Claims, *proto.Error) {
 	again := "run `aries login --workload` again; if it recurs, ask the server's admin to check the provider under workload: providers"
 	iss, err := oidc.PeekIssuer(subject)
 	if err != nil {
