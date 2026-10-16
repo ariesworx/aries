@@ -89,11 +89,11 @@ func (s *Server) track(c net.Conn, sess *session) bool {
 
 // keyHolds refuses a connection that says the control store's key
 // fingerprint let principal in when the store, now, holds no such key
-// for an active principal of that name: the key was removed, or its
-// principal disabled, and sshd read a keys file from before that; or
-// the forced command was written by hand. It is what makes the keys
-// file a cache: whatever a stale file lets past sshd, the store decides
-// here. A connection that names no key came in by the hand-maintained
+// for an active principal of that name: the key was removed or reached
+// its end, or its principal was disabled, and sshd read a keys file from
+// before that; or the forced command was written by hand. It is what
+// makes the keys file a cache: whatever a stale file lets past sshd, the
+// store decides here. A connection that names no key came in by the hand-maintained
 // authorized_keys file, and is not checked.
 func (s *Server) keyHolds(principal, fingerprint string) *proto.Error {
 	if fingerprint == "" {
@@ -105,6 +105,9 @@ func (s *Server) keyHolds(principal, fingerprint string) *proto.Error {
 	owner, byHand := s.handOwner(fingerprint)
 	if p, _, ok := s.cfg.Control.AuthorizedKey(fingerprint); ok && p == principal && (!byHand || owner == principal) {
 		return nil
+	}
+	if p, end, ok := s.cfg.Control.EndedKey(fingerprint); ok && p == principal {
+		return keyEnded(principal, end)
 	}
 	return proto.Errf(proto.CodeAuth,
 		fmt.Sprintf("use another of your keys, or ask an admin to add this one again: `aries admin key add %s FILE.pub`", principal),

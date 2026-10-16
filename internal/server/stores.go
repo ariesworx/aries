@@ -181,6 +181,8 @@ type Index interface {
 	ReachGained(principal, left string) []string
 	AuthorizedKey(fingerprint string) (principal, key string, ok bool)
 	AuthorizedKeys() []store.PrincipalKey
+	EndedKey(fingerprint string) (principal string, end time.Time, ok bool)
+	KeyEnds() (ended []store.PrincipalKey, next time.Time)
 	KeysElsewhere(owner func(fingerprint string) (principal string, ok bool))
 	ProjectNamed(name string) (store.Project, bool)
 	KnownProjects() []store.Project
@@ -214,6 +216,7 @@ type PrincipalAdmin interface {
 	Principals(ctx context.Context) ([]store.Principal, error)
 	PrincipalsCreatedBy(ctx context.Context, creator string) ([]store.Principal, error)
 	AddKey(ctx context.Context, actor store.Actor, principal, line string) (store.PrincipalKey, error)
+	AddKeyEnding(ctx context.Context, actor store.Actor, principal, line string, end store.KeyEnd) (store.PrincipalKey, error)
 	RemoveKey(ctx context.Context, actor store.Actor, fingerprint string) (store.PrincipalKey, error)
 	Keys(ctx context.Context, principal string) ([]store.PrincipalKey, error)
 	KeysAddedBy(ctx context.Context, adder string) ([]store.PrincipalKey, error)
@@ -250,6 +253,7 @@ type ControlUpkeep interface {
 	LastEventSeq(ctx context.Context) (int64, error)
 	ClockState() store.ClockState
 	SettleClock(ctx context.Context) error
+	PruneKeys(ctx context.Context) (int, error)
 }
 
 // Postgres is what the status report reads of the database server

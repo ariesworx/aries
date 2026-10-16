@@ -137,8 +137,9 @@ func (s *Server) keysAddedBy(ctx context.Context, sess *session, in proto.KeysAr
 	out := proto.KeysResult{AddedBy: in.AddedBy, Keys: []proto.Key{}, More: more}
 	hand := s.byHand()
 	for _, k := range rows {
-		out.Keys = append(out.Keys, proto.Key{Fingerprint: k.Fingerprint, Type: keyType(k.Key), Comment: k.Comment, AddedBy: k.AddedBy, AddedAt: k.AddedAt,
-			InAuthorizedKeys: hand[k.Fingerprint], Principal: k.Principal})
+		wk := wireKey(k, hand)
+		wk.Principal = k.Principal
+		out.Keys = append(out.Keys, wk)
 	}
 	return out, nil
 }

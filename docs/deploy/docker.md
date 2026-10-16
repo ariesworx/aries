@@ -116,6 +116,7 @@ on the volume.
 | `ARIES_SSH` | unset | `1` serves SSH beside HTTPS: sshd runs, and ariesd writes the keys file it reads. Unset, sshd does not run, ariesd refuses the bridge and writes no keys file, as on a fresh server |
 | `ARIES_PORT` | `2222` | sshd's port on 127.0.0.1, with SSH on, also printed in `.aries.yaml` |
 | `ARIES_TELEMETRY` | unset | `1` turns ariesd's telemetry on ([Telemetry](#telemetry)). Unset, ariesd exports nothing and opens no port, as on a server where nothing is configured |
+| `ARIES_TZ` | unset, UTC | The zone sshd and ariesd run in, as `TZ`: a POSIX zone such as `ARIES-14`, fourteen hours east of UTC, since the image holds no zone files. sshd reads a key's `expiry-time` without its `Z` in this zone; the smoke test runs the server at UTC+14 to show the `Z` is written ([Keys that end](../server.md#keys-that-end)) |
 
 Both ports are published on 127.0.0.1 alone, so nothing beyond your
 machine can reach them.
@@ -453,8 +454,14 @@ else; that the server's container reaches Postgres and this machine
 does not; and that the config file holds no password, and the password
 file its DSN names is mode 0600 and the `aries` user's; and that the
 status report names the transports, and with SSH off shows no keys
-file. It removes its server and volumes, prints one line (on 16
-October 2026: 146 checks over HTTPS, 156 with SSH on), and exits
+file. It runs the server fourteen hours east of UTC (`ARIES_TZ`), and
+gives a key an end a minute away ([Keys that end](../server.md#keys-that-end)):
+the keys file's line carries it in UTC with its `Z`, which sshd honors
+there where it refuses a line whose digits lack the `Z`; at the end the
+line goes, the connection the key signed in is closed and logged, and
+the key is refused, by sshd with SSH on and saying when it ended over
+HTTPS. It removes its server and volumes, prints one line (on 16
+October 2026: 156 checks over HTTPS, 169 with SSH on), and exits
 non-zero on the first failure. CI
 does not run it; `scripts/gate.sh --smoke` runs it after the gate. It
 hides ssh-agent from `aries`, so the keys you hold play no part. Arguments

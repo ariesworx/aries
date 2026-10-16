@@ -1,11 +1,13 @@
 # Where an Aries server keeps its files, for the AppArmor profiles of
-# ariesd (/etc/apparmor.d/ariesd). Install this file as
+# ariesd (/etc/apparmor.d/ariesd, and with SSH on
+# /etc/apparmor.d/ariesd-stdio). Install this file as
 # /etc/apparmor.d/tunables/ariesd.
 #
 # The values are those of docs/server.md. If you moved something, change
 # it here and nowhere else, then reload the profiles:
 #
 #   apparmor_parser -r /etc/apparmor.d/ariesd
+#   apparmor_parser -r /etc/apparmor.d/ariesd-stdio    # with SSH on
 #
 # AppArmor matches the path a file really has, with symbolic links
 # resolved, so name the real directory, not a link to it.

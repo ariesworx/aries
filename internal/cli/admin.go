@@ -29,7 +29,7 @@ var adminGroups = []string{"price", "plan", "project", "principal", "member", "k
 const adminUsage = "admin project add NAME [--prefix P] [--account A] | list | archive PROJECT | activate PROJECT" +
 	" | " + principalUsage +
 	" | admin member add NAME [--project P] [--role admin] [--accept-keys] | list [--project P] [--added-by NAME] | remove NAME [--project P]" +
-	" | admin key add NAME FILE|- | list NAME | list --added-by NAME | remove FINGERPRINT" +
+	" | admin key add NAME FILE|- [--expires DURATION|TIME] | list NAME | list --added-by NAME | remove FINGERPRINT" +
 	" | admin invite add NAME ADDRESS --provider P | list [--pending] | remove ID" +
 	" | " + identityUsage +
 	" | admin status [-n N] [--after NAME]"
