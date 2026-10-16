@@ -595,6 +595,32 @@ type ServerStatus struct {
 	// Transports is which transports the server serves; nil from a
 	// server from before them.
 	Transports *Transports `json:"transports,omitempty"`
+	// SignIn is the server's sign-in at providers; nil when it signs no
+	// one in.
+	SignIn *SignInStatus `json:"signin,omitempty"`
+}
+
+// SignInStatus is the server's sign-in (transport.md §8.2): how many
+// sign-ins are live, and each provider, with where its keys come from.
+type SignInStatus struct {
+	Live      int              `json:"live"`
+	Providers []ProviderStatus `json:"providers"`
+}
+
+// ProviderStatus is one provider: its name, kind and issuer; whether its
+// endpoints are discovered (fetch) or written out (static); where its
+// keys come from (fetch, or file, with nothing fetched), their ids, and
+// when they were last read; and why discovery or the keys last failed.
+type ProviderStatus struct {
+	Name       string     `json:"name"`
+	Kind       string     `json:"kind"`
+	Issuer     string     `json:"issuer"`
+	Discovery  string     `json:"discovery"`
+	Discovered bool       `json:"discovered"`
+	Keys       string     `json:"keys"`
+	KeyIDs     []string   `json:"key_ids,omitempty"`
+	KeysReadAt *time.Time `json:"keys_read_at,omitempty"`
+	Error      string     `json:"error,omitempty"`
 }
 
 // Transports is which transports the daemon serves (transport.md

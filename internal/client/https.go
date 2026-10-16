@@ -12,9 +12,11 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/ariesworx/aries/internal/dpop"
 	"github.com/ariesworx/aries/internal/keyproof"
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/wsconn"
@@ -33,16 +35,11 @@ import (
 // verify, a key the server does not know, and the server's own refusal
 // are not, and neither is a 4xx a proxy answers the upgrade with.
 func dialHTTPS(ctx context.Context, cfg *Config, opts Options, id *identity) (*Conn, error) {
-	roots, err := cfg.Roots()
-	if err != nil {
-		return nil, err
-	}
 	u := cfg.Server.URL
 	far := hostOf(u)
-	ws, resp, err := wsconn.Dial(ctx, keyproof.ConnectURL(u), &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12},
-		http.Header{"User-Agent": {"aries/" + opts.Version}}, 0)
+	ws, err := openWS(ctx, cfg, opts, nil)
 	if err != nil {
-		return nil, upgradeFailed(ctx, u, far, resp, err, opts)
+		return nil, err
 	}
 	stop := context.AfterFunc(ctx, func() { _ = ws.Close() })
 	defer stop()
@@ -50,23 +47,16 @@ func dialHTTPS(ctx context.Context, cfg *Config, opts Options, id *identity) (*C
 		_ = ws.Close()
 		return nil, err
 	}
-	gone := func(step string, err error) (*Conn, error) {
-		if ctx.Err() != nil {
-			return fail(httpsGaveUp(ctx, far, step, opts))
-		}
-		return fail(proto.Errf(proto.CodeUnavailable, "retry; if it persists, ask the server's operator to check ariesd, and any proxy in front of it",
-			fmt.Sprintf("the connection to %s ended while it was to %s: %v", far, step, err)))
-	}
 	keys := make([]ssh.PublicKey, len(id.signers))
 	for i, s := range id.signers {
 		keys[i] = s.PublicKey()
 	}
 	if err := ws.Write(keyproof.NewOffer(u, keys)); err != nil {
-		return gone("take the key offer", err)
+		return fail(gone(ctx, far, "take the key offer", err, opts))
 	}
 	m, err := ws.Read()
 	if err != nil {
-		return gone("answer the key offer", err)
+		return fail(gone(ctx, far, "answer the key offer", err, opts))
 	}
 	if w := welcomeIn(m); w != nil {
 		if w.Err.Code == proto.CodeAuth && strings.HasPrefix(w.Err.Message, noKeyKnown) {
@@ -83,7 +73,76 @@ func dialHTTPS(ctx context.Context, cfg *Config, opts Options, id *identity) (*C
 		return fail(proto.Errf(proto.CodeAuth, fmt.Sprintf("name another key with %s", EnvKeyFile), fmt.Sprintf("the key %s could not sign the server's challenge: %v", id.keys[ch.Key].Fingerprint, err)))
 	}
 	if err := ws.Write(keyproof.NewProof(sig)); err != nil {
-		return gone("take the key proof", err)
+		return fail(gone(ctx, far, "take the key proof", err, opts))
+	}
+	return greet(ctx, ws, cfg, opts)
+}
+
+// dialSignedIn is Dial over HTTPS with a sign-in (transport.md §5.4):
+// the token and a DPoP proof by its key go on the upgrade, in place of
+// the key proof, and the hello follows at once. The proof names the
+// server's URL as .aries.yaml has it, which the server checks against
+// its own, never against Host.
+func dialSignedIn(ctx context.Context, cfg *Config, opts Options, s *SignIn) (*Conn, error) {
+	base, err := serverURL(cfg)
+	if err != nil {
+		return nil, err
+	}
+	proof, err := dpop.Proof(s.Key, http.MethodGet, base+keyproof.ConnectPath, s.Token, opts.Now())
+	if err != nil {
+		return nil, err
+	}
+	ws, err := openWS(ctx, cfg, opts, http.Header{"Authorization": {"DPoP " + s.Token}, "DPoP": {proof}})
+	if err != nil {
+		return nil, err
+	}
+	stop := context.AfterFunc(ctx, func() { _ = ws.Close() })
+	defer stop()
+	c, err := greet(ctx, ws, cfg, opts)
+	if err != nil {
+		return nil, err
+	}
+	shown := *s
+	shown.Token, shown.Key = "", nil
+	c.signIn = &shown
+	return c, nil
+}
+
+// openWS opens the WebSocket to cfg's server with header added to the
+// upgrade, verified by the system's roots and server.ca.
+func openWS(ctx context.Context, cfg *Config, opts Options, header http.Header) (*wsconn.Conn, error) {
+	roots, err := cfg.Roots()
+	if err != nil {
+		return nil, err
+	}
+	u := cfg.Server.URL
+	h := http.Header{"User-Agent": {"aries/" + opts.Version}}
+	for k, v := range header {
+		h[k] = v
+	}
+	ws, resp, err := wsconn.Dial(ctx, keyproof.ConnectURL(u), &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}, h, 0)
+	if err != nil {
+		return nil, upgradeFailed(ctx, u, hostOf(u), resp, err, opts)
+	}
+	return ws, nil
+}
+
+// gone words a WebSocket that ended while the server was to do step.
+func gone(ctx context.Context, far, step string, err error, opts Options) error {
+	if ctx.Err() != nil {
+		return httpsGaveUp(ctx, far, step, opts)
+	}
+	return proto.Errf(proto.CodeUnavailable, "retry; if it persists, ask the server's operator to check ariesd, and any proxy in front of it",
+		fmt.Sprintf("the connection to %s ended while it was to %s: %v", far, step, err))
+}
+
+// greet sends the hello on ws and reads the welcome, as over SSH. The
+// frames from the hello on are the protocol's, unchanged.
+func greet(ctx context.Context, ws *wsconn.Conn, cfg *Config, opts Options) (*Conn, error) {
+	far := hostOf(cfg.Server.URL)
+	fail := func(err error) (*Conn, error) {
+		_ = ws.Close()
+		return nil, err
 	}
 	s := wsconn.Stream(ws)
 	c := newConn(proto.NewEncoder(s), proto.NewDecoder(s), ws.Close, opts.OnPush)
@@ -96,11 +155,11 @@ func dialHTTPS(ctx context.Context, cfg *Config, opts Options, id *identity) (*C
 		if w, rerr := c.next(); rerr == nil && w.T == proto.FrameWelcome && w.Err != nil {
 			return fail(&refusal{pe: w.Err, principal: w.Principal})
 		}
-		return gone("take the hello", err)
+		return fail(gone(ctx, far, "take the hello", err, opts))
 	}
 	w, err := c.next()
 	if err != nil {
-		return gone("answer the hello", err)
+		return fail(gone(ctx, far, "answer the hello", err, opts))
 	}
 	switch {
 	case w.T != proto.FrameWelcome:
@@ -114,6 +173,23 @@ func dialHTTPS(ctx context.Context, cfg *Config, opts Options, id *identity) (*C
 	c.Welcome = *w
 	c.run()
 	return c, nil
+}
+
+// signInHint adds to a refusal of every key offered over HTTPS that
+// signing in is the other way in, and when the sign-in kept here ended.
+func signInHint(err error, via string, ended *SignIn) error {
+	pe, ok := errors.AsType[*proto.Error](err)
+	if via != TransportHTTPS || !ok || pe.Code != proto.CodeAuth {
+		return err
+	}
+	out := *pe
+	if ended != nil {
+		out.Message = fmt.Sprintf("your sign-in as %s ended at %s, and %s", ended.Principal, ended.ExpiresAt.Format(time.RFC3339), out.Message)
+		out.Fix = proto.FixSignIn + " to sign in again; or " + out.Fix
+		return &out
+	}
+	out.Fix += "; or, where the server signs people in at a provider, run `aries login`"
+	return &out
 }
 
 // noKeyKnown is the message of the server's refusal of every key a

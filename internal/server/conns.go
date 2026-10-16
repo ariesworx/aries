@@ -27,6 +27,13 @@ type owner struct {
 	// transport is how the connection came (TransportHTTPS or
 	// TransportSSH), once its handshake is done.
 	transport string
+	// grant and identity are the sign-in the connection presented, and
+	// the identity it was made by, for a connection a sign-in let in;
+	// sess is its session, which a sign-in's end closes with a last
+	// frame.
+	grant    string
+	identity int64
+	sess     *session
 }
 
 // connsBy counts the connections past their handshake that came by each
@@ -75,7 +82,11 @@ func (s *Server) greeted(c net.Conn) {
 // two always sees it.
 func (s *Server) track(c net.Conn, sess *session) bool {
 	s.mu.Lock()
-	s.conns[c] = owner{principal: sess.actor.Principal, project: sess.proj.id, key: sess.fingerprint, transport: sess.transport}
+	o := owner{principal: sess.actor.Principal, project: sess.proj.id, key: sess.fingerprint, transport: sess.transport, sess: sess}
+	if in := sess.signedIn; in != nil {
+		o.grant, o.identity = in.grant, in.identity
+	}
+	s.conns[c] = o
 	s.mu.Unlock()
 	s.cfg.Telemetry.Record(telemetry.Connections, 1, sess.proj.id)
 	if s.stores == nil {
@@ -83,6 +94,12 @@ func (s *Server) track(c net.Conn, sess *session) bool {
 	}
 	if _, refused := s.admit(sess.actor.Principal, sess.proj.id); refused != nil {
 		return false
+	}
+	if in := sess.signedIn; in != nil {
+		// A sign-in ended while the handshake ran is not seen by
+		// endGrant, which looks only at connections already recorded.
+		g, ok := s.cfg.Control.TokenGrant(in.hash)
+		return ok && g.ID == in.grant && g.Live(s.cfg.Control.Now())
 	}
 	return s.keyHolds(sess.actor.Principal, sess.fingerprint) == nil
 }
@@ -162,6 +179,35 @@ func (s *Server) drop(from *session, why string, match func(owner) bool) int {
 	return len(closing)
 }
 
+// closeSessions ends the connections past their handshake that match
+// selects, each with e as its last frame, and returns how many.
+func (s *Server) closeSessions(match func(owner) bool, e *proto.Error) int {
+	s.mu.Lock()
+	var sessions []*session
+	for _, o := range s.conns {
+		if o.principal != "" && o.sess != nil && match(o) {
+			sessions = append(sessions, o.sess)
+		}
+	}
+	s.mu.Unlock()
+	for _, sess := range sessions {
+		s.endSession(sess, e)
+	}
+	if n := len(sessions); n > 0 {
+		s.cfg.Telemetry.Record(telemetry.ConnectionsDropped, float64(n), telemetry.DropSignIn)
+	}
+	return len(sessions)
+}
+
+// endSession closes sess's connection with e as its last frame: an
+// answer to no request, which aries takes for why the connection ended.
+// The frame waits at most a second for a client that reads nothing.
+func (s *Server) endSession(sess *session, e *proto.Error) {
+	_ = sess.conn.SetWriteDeadline(time.Now().Add(time.Second))
+	_ = s.send(sess, 0, nil, e)
+	_ = sess.conn.Close()
+}
+
 // fileConns returns how many of principal's connections past the
 // handshake named no key of the store: sshd let them in by a line of the
 // hand-maintained authorized_keys file.
@@ -170,7 +216,7 @@ func (s *Server) fileConns(principal string) int {
 	defer s.mu.Unlock()
 	n := 0
 	for _, o := range s.conns {
-		if o.principal == principal && o.key == "" {
+		if o.principal == principal && o.key == "" && o.grant == "" {
 			n++
 		}
 	}

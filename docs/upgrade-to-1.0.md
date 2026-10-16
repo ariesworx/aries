@@ -84,9 +84,9 @@ install script trusts the new key; check a download by hand as
 How you sign in depends on the transport your server uses. On the new
 server you are a new principal either way.
 
-**Over HTTPS (planned, decision 86), the default.** Your admin invites
-you by the address your company's identity provider knows you by. Then,
-in the repository:
+**Over HTTPS, the default (decision 86).** Where your server signs
+people in at your company's identity provider, your admin invites you
+by the address the provider knows you by. Then, in the repository:
 
 ```sh
 aries login
@@ -96,7 +96,9 @@ It opens the browser at your provider; where there is no browser,
 `aries login --url` prints a URL to open on any machine. The sign-in
 lasts a day by default, and the token it leaves is bound to a key on
 this machine and useless anywhere else. `aries logout` ends it. There
-is no SSH key to send.
+is no SSH key to send ([Sign in](cli.md#sign-in)). Where your server
+signs no one in, `aries` proves a key over HTTPS, the key it would
+offer over SSH, as below; send your admin its `.pub`.
 
 **Over SSH,** where your operator turned SSH on: `aries` signs in with
 the key `ssh` would use, a default file in `~/.ssh` and then
@@ -244,8 +246,8 @@ writes:
 | Profile | For |
 |---|---|
 | `internet` (the default) | A team on any network: HTTPS, with a certificate from ACME. **(planned, decision 87)** Claude's connectors, and any identity provider |
-| `private` | A company network or VPN: HTTPS with your company CA's certificate, or behind your proxy. **(planned)** An internal or a cloud identity provider |
-| `airgapped` | A site with no route out: HTTPS with the site CA's certificate, releases from a directory. **(planned)** An identity provider inside the network |
+| `private` | A company network or VPN: HTTPS with your company CA's certificate, or behind your proxy; an internal or a cloud identity provider |
+| `airgapped` | A site with no route out: HTTPS with the site CA's certificate, releases from a directory; an identity provider inside the network, its keys from a file ([Sign-in](server.md#sign-in)) |
 | `ssh-only` | The server of before 1.0: SSH alone, HTTPS off, keys and no sign-in |
 
 **SSH is off unless you turn it on (decision 86).** Add `--enable-ssh`
@@ -253,8 +255,8 @@ to any of the first three profiles for teams that reach the server
 through IAP, or that keep SSH. On a server already set up, run the
 installer again with `--enable-ssh`, then set `transports: [https, ssh]`
 and restart `ariesd` ([SSH on and off](server.md#ssh-on-and-off)).
-Until sign-in lands, the keys an admin adds sign in over HTTPS too
-([How aries signs in over HTTPS](server.md#how-aries-signs-in-over-https)),
+The keys an admin adds sign in over HTTPS too, beside sign-in at a
+provider ([How aries signs in over HTTPS](server.md#how-aries-signs-in-over-https)),
 so every client can move to `server.url`.
 
 Or follow

@@ -158,6 +158,20 @@ func TestResolveSettingsLimits(t *testing.T) {
 					l.HTTPSBodyBytes == 64<<10 && l.UpgradeTimeout == Duration(10*time.Second) && l.WSMessageBytes == 4<<20 &&
 					l.AuthFailureRate == 30 && l.AuthFailureBurst == 60
 			}},
+		{name: "sign-in limits", body: "limits:\n  signins_pending_per_server: 50\n  signins_pending_per_addr: 4\n  dpop_proofs_per_server: 500\n",
+			want: func(l Limits) bool {
+				return l.SignInsPending == 50 && l.SignInsPendingPerAddr == 4 && l.DPoPProofs == 500 && l.Conns == DefaultLimits.Conns
+			}},
+		{name: "sign-in limits default", body: "limits:\n  signins_pending_per_server: 0\n",
+			want: func(l Limits) bool {
+				return l.SignInsPending == 10000 && l.SignInsPendingPerAddr == 16 && l.DPoPProofs == 100000
+			}},
+		{name: "negative signins_pending_per_server", body: "limits:\n  signins_pending_per_server: -1\n",
+			err: "limit signins_pending_per_server must be zero or a positive number"},
+		{name: "negative signins_pending_per_addr", body: "limits:\n  signins_pending_per_addr: -1\n",
+			err: "limit signins_pending_per_addr must be zero or a positive number"},
+		{name: "negative dpop_proofs_per_server", body: "limits:\n  dpop_proofs_per_server: -5\n",
+			err: "limit dpop_proofs_per_server must be zero or a positive number"},
 		{name: "negative https_conns_per_addr", body: "limits:\n  https_conns_per_addr: -1\n", err: "limit https_conns_per_addr must be zero or a positive number"},
 		{name: "ws_message_bytes past a frame", body: "limits:\n  ws_message_bytes: 4194305\n", err: "limit ws_message_bytes must be zero or a positive number"},
 		{name: "auth failures not a number", body: "limits:\n  auth_failures_per_minute: .nan\n", err: "limit auth_failures_per_minute"},

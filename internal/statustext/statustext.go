@@ -58,6 +58,9 @@ func Print(w io.Writer, res proto.StatusResult) {
 		if len(s.Identities) > 0 {
 			ids = "; identities: " + byState(s.Identities)
 		}
+		if si := s.SignIn; si != nil {
+			p("%s", signInLines(*si))
+		}
 		p("projects: %s; principals: %s%s\n\n", byState(s.Projects), byState(s.Principals), ids)
 	}
 	if len(res.Projects) == 0 {
@@ -304,4 +307,38 @@ func plural(n int64, noun string) string {
 		return "1 " + noun
 	}
 	return strconv.FormatInt(n, 10) + " " + noun + "s"
+}
+
+// signInLines are the server's sign-in: how many are live, and a line
+// for each provider, with where its keys come from, and a failure's
+// line when the last read of its endpoints or keys failed.
+func signInLines(s proto.SignInStatus) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "sign-in: %d live\n", s.Live)
+	for _, pr := range s.Providers {
+		keys := "keys fetched from the provider"
+		if pr.Keys == "file" {
+			keys = "keys from a file, nothing fetched"
+		}
+		switch n := len(pr.KeyIDs); {
+		case pr.KeysReadAt == nil:
+			keys += ", not read yet"
+		case n == 1:
+			keys += fmt.Sprintf(", 1 key, read %s", when(*pr.KeysReadAt))
+		default:
+			keys += fmt.Sprintf(", %d keys, read %s", n, when(*pr.KeysReadAt))
+		}
+		endpoints := "endpoints written out"
+		if pr.Discovery != "static" {
+			endpoints = "endpoints discovered"
+			if !pr.Discovered {
+				endpoints = "endpoints not discovered yet"
+			}
+		}
+		fmt.Fprintf(&b, "  provider %s (%s) %s: %s; %s\n", esc(pr.Name), esc(pr.Kind), esc(pr.Issuer), endpoints, keys)
+		if pr.Error != "" {
+			fmt.Fprintf(&b, "    failed: %s\n", esc(pr.Error))
+		}
+	}
+	return b.String()
 }

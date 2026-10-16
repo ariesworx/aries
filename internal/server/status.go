@@ -191,6 +191,22 @@ func (s *Server) serverStatus() *proto.ServerStatus {
 			out.Identities[string(state)] = n
 		}
 	}
+	if a := s.auth; a != nil {
+		out.SignIn = &proto.SignInStatus{Live: counts.SignIns}
+		for _, name := range a.names {
+			st := a.providers[name].Status()
+			ps := proto.ProviderStatus{Name: st.Name, Kind: st.Kind, Issuer: st.Issuer, Discovery: st.Discovery, Discovered: st.Discovered,
+				Keys: st.Keys.Source, KeyIDs: st.Keys.KeyIDs, Error: st.Err}
+			if ps.Error == "" {
+				ps.Error = st.Keys.Err
+			}
+			if !st.Keys.ReadAt.IsZero() {
+				at := st.Keys.ReadAt.UTC()
+				ps.KeysReadAt = &at
+			}
+			out.SignIn.Providers = append(out.SignIn.Providers, ps)
+		}
+	}
 	return out
 }
 

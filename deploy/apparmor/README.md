@@ -262,6 +262,7 @@ an enforcing kernel.
 | Reads its certificate and key, `tls: mode: files` | `@{ariesd_tls}/ r,` and `@{ariesd_tls}/** r,`, with the tunable at `/etc/aries/tls` |
 | Keeps ACME's account key and certificates, `tls: mode: acme` | `owner @{ariesd_acme}/ rw,` and `owner @{ariesd_acme}/** rw,`, with the tunable at `/var/lib/aries/acme`. Reaching the ACME server is `network inet stream`, DNS and `abstractions/ssl_certs`, all there since Postgres |
 | Removes the keys file with SSH off | Nothing new: the rule that writes it lets it be removed |
+| Signs people in at providers, `login: providers:` (slice T2) | `@{ariesd_login}/ r,` and `@{ariesd_login}/** r,` in `ariesd-serve`, with the tunable at `/etc/aries/login`, for each provider's `client_secret_file`, `ca_file` and `jwks_file`, which the guide puts there. Reaching a provider is `network inet stream`, DNS and `abstractions/ssl_certs`, there since Postgres |
 | `control init` reads the first admin's key from `/etc/aries/admin.keys` with SSH off | `@{ariesd_admin_keys} r,` in `ariesd-admin` |
 
 The bridge's profile, `ariesd`, is unchanged; with SSH off nothing runs

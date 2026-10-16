@@ -70,6 +70,11 @@ func explain(err error) toolErr {
 		e.Fix = "the user's other aries sessions hold every connection the server allows them, so this session cannot reach it until one closes. " +
 			"Tell the user now: they can close some, or ask the server's operator to raise conns_per_principal. " +
 			"Until then, issues you hold go back to open unless renewed within their " + Lease + " lease, and writes are not kept for later; never run an admin command yourself"
+	case pe != nil && pe.Code == proto.CodeAuth && strings.HasPrefix(pe.Fix, proto.FixSignIn):
+		// The user's sign-in ended, or never was. prompt=login has the
+		// provider ask the person again, which an agent driving their
+		// browser must not do for them (identity.md §6.7).
+		e.Fix = signInFix
 	case errors.As(err, &dial) && pe != nil && pe.Code == proto.CodeForbidden:
 		// The principal is no member of the project, or was removed or
 		// disabled while connected. The server's fix names the admin's
@@ -89,6 +94,10 @@ func explain(err error) toolErr {
 	}
 	return e
 }
+
+// signInFix is the agent's next step when the user's sign-in at the
+// server has ended: the person signs in again, at a terminal.
+const signInFix = "the user's sign-in at the server has ended: tell the user to run `aries login` in a terminal; never run it yourself, since signing in is the person's act"
 
 // hangUpFix is the agent's next step when the server closed the
 // connection before the SSH handshake.

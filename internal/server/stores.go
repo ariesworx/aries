@@ -81,6 +81,7 @@ type Work interface {
 	SessionsSeen(ctx context.Context, since time.Duration) (int, error)
 	Inbox(ctx context.Context, actor store.Actor, all bool, limit int) (store.InboxPage, error)
 	AckInbox(ctx context.Context, actor store.Actor, ids []int64, all bool) (int, error)
+	AnnounceSignIn(ctx context.Context, n store.SignInNotice) error
 	Watch(principal, session string) *store.Watch
 	WatchEvents(principal, session string) *store.Watch
 }
@@ -167,6 +168,18 @@ type Control interface {
 	ProjectAdmin
 	PrincipalAdmin
 	ControlUpkeep
+	SignIns
+}
+
+// SignIns is the sign-ins of the authorization server (transport.md §6,
+// signin.go).
+type SignIns interface {
+	SignIn(ctx context.Context, in store.SignIn) (store.Grant, error)
+	EndSignIn(ctx context.Context, actor store.Actor, id, reason string) (store.Grant, bool, error)
+	TokenGrant(hash string) (store.Grant, bool)
+	Grant(ctx context.Context, id string) (store.Grant, error)
+	Grants(ctx context.Context, principal string) ([]store.Grant, error)
+	PruneSignIns(ctx context.Context, before time.Time) (int, error)
 }
 
 // Index is what the control store answers from memory: who may reach
@@ -180,6 +193,7 @@ type Index interface {
 	AdministersProjectOf(actor, principal string) bool
 	ReachGained(principal, left string) []string
 	AuthorizedKey(fingerprint string) (principal, key string, ok bool)
+	DisabledKey(fingerprint string) (principal, key string, ok bool)
 	AuthorizedKeys() []store.PrincipalKey
 	EndedKey(fingerprint string) (principal string, end time.Time, ok bool)
 	KeyEnds() (ended []store.PrincipalKey, next time.Time)

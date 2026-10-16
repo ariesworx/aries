@@ -115,8 +115,12 @@ func TestKeysFromTheStore(t *testing.T) {
 	bw = bob.watch()
 	dana.ok("admin", "principal", "disable", "bob")
 	bw.closedByServer(t, "bob, disabled,")
-	if r := bob.run("v0.2.0", "list"); r.code != cli.ExitFailure || !strings.Contains(r.stderr, "send your public key") {
-		t.Errorf("a disabled principal's key: exit %d, stderr %q; want an auth refusal: the keys file has no line for it", r.code, r.stderr)
+	// Over SSH the keys file has no line for it; over HTTPS the key proof
+	// finds it, and refuses it as a disabled principal's.
+	if r, https := bob.run("v0.2.0", "list"), w.overHTTPS(); r.code != cli.ExitFailure ||
+		!https && !strings.Contains(r.stderr, "send your public key") ||
+		https && !strings.Contains(r.stderr, "bob is disabled on this server") {
+		t.Errorf("a disabled principal's key (over HTTPS %t): exit %d, stderr %q; want it refused", https, r.code, r.stderr)
 	}
 	dana.ok("admin", "principal", "enable", "bob")
 	bob.ok("list")

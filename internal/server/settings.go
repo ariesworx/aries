@@ -20,6 +20,7 @@ import (
 	"github.com/ariesworx/aries/internal/keyproof"
 	"github.com/ariesworx/aries/internal/lazyregexp"
 	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/oidc"
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/store"
 	"github.com/ariesworx/aries/internal/telemetry"
@@ -143,13 +144,121 @@ type Settings struct {
 	Login LoginSettings `yaml:"login"`
 }
 
-// LoginSettings are the login: settings. Slice N1 has the invitations';
-// the providers and the sign-in come with slice T2.
+// LoginSettings are the login: settings: invitations (slice N1), and
+// the providers people sign in at and what a sign-in gives (slice T2,
+// transport.md §6 and §8).
 type LoginSettings struct {
 	// InviteTTL is how long an invitation stays open unused, from
 	// store.MinInviteTTL to store.MaxInviteTTL. Default
 	// store.DefaultInviteTTL.
 	InviteTTL Duration `yaml:"invite_ttl"`
+	// TokenLifetime is how long a sign-in lasts (decision 58), from a
+	// minute to MaxTokenLifetime, which is at most a week. Defaults
+	// DefaultTokenLifetime and MaxTokenLifetime.
+	TokenLifetime    Duration `yaml:"token_lifetime"`
+	MaxTokenLifetime Duration `yaml:"max_token_lifetime"`
+	// FreshAuth bounds how long before a sign-in the person last
+	// authenticated at the provider (auth_time), and is sent as max_age;
+	// from a minute to an hour. Default DefaultFreshAuth.
+	FreshAuth Duration `yaml:"fresh_auth"`
+	// MaxTokenAge bounds how old a provider's ID token may be, from its
+	// iat. Default 10 minutes.
+	MaxTokenAge Duration `yaml:"max_token_age"`
+	// Skew is allowed between a provider's clock and the server's, at
+	// most five minutes. Default 30 seconds.
+	Skew Duration `yaml:"skew"`
+	// JWKSRefetch is the least time between two reads of a provider's
+	// keys, from its URL or its file. Default a minute.
+	JWKSRefetch Duration `yaml:"jwks_refetch"`
+	// PruneAfter is how long a sign-in that ended is kept, for `aries
+	// admin signin list`, before it is deleted. Default DefaultSignInKeep.
+	PruneAfter Duration `yaml:"prune_after"`
+	// Providers are where people sign in. None signs no one in; a
+	// connection over HTTPS then proves a key.
+	Providers []oidc.Settings `yaml:"providers"`
+}
+
+// The defaults and bounds of login:'s times.
+const (
+	defaultMaxTokenAge = 10 * time.Minute
+	defaultSkew        = 30 * time.Second
+	maxSkew            = 5 * time.Minute
+	defaultRefetch     = time.Minute
+	minTokenLifetime   = time.Minute
+)
+
+// resolveLogin fills l's defaults and refuses a time out of its bounds,
+// or two providers of one name. The providers are opened, and their
+// files read, by OpenLogin.
+func resolveLogin(l LoginSettings) (LoginSettings, error) {
+	l.TokenLifetime = cmp.Or(l.TokenLifetime, Duration(DefaultTokenLifetime))
+	l.MaxTokenLifetime = cmp.Or(l.MaxTokenLifetime, Duration(MaxTokenLifetime))
+	l.FreshAuth = cmp.Or(l.FreshAuth, Duration(DefaultFreshAuth))
+	l.MaxTokenAge = cmp.Or(l.MaxTokenAge, Duration(defaultMaxTokenAge))
+	l.Skew = cmp.Or(l.Skew, Duration(defaultSkew))
+	l.JWKSRefetch = cmp.Or(l.JWKSRefetch, Duration(defaultRefetch))
+	l.PruneAfter = cmp.Or(l.PruneAfter, Duration(DefaultSignInKeep))
+	const fix = "; fix: set it within that under login: in the config file, or leave it out for the default"
+	span := func(d Duration) string {
+		if time.Duration(d) < time.Minute {
+			return time.Duration(d).String()
+		}
+		return proto.Span(time.Duration(d))
+	}
+	switch {
+	case time.Duration(l.MaxTokenLifetime) > MaxTokenLifetime:
+		return l, fmt.Errorf("login: max_token_lifetime is %s; it can be at most %s%s", span(l.MaxTokenLifetime), proto.Span(MaxTokenLifetime), fix)
+	case l.TokenLifetime > l.MaxTokenLifetime:
+		return l, fmt.Errorf("login: token_lifetime is %s; it can be at most max_token_lifetime, %s%s", span(l.TokenLifetime), span(l.MaxTokenLifetime), fix)
+	case time.Duration(l.TokenLifetime) < minTokenLifetime:
+		return l, fmt.Errorf("login: token_lifetime is %s; it must be at least %s%s", span(l.TokenLifetime), proto.Span(minTokenLifetime), fix)
+	case time.Duration(l.FreshAuth) < time.Minute || time.Duration(l.FreshAuth) > time.Hour:
+		return l, fmt.Errorf("login: fresh_auth is %s; it must be from 1m to 1h%s", span(l.FreshAuth), fix)
+	case time.Duration(l.MaxTokenAge) < time.Minute || time.Duration(l.MaxTokenAge) > time.Hour:
+		return l, fmt.Errorf("login: max_token_age is %s; it must be from 1m to 1h%s", span(l.MaxTokenAge), fix)
+	case time.Duration(l.Skew) > maxSkew:
+		return l, fmt.Errorf("login: skew is %s; it can be at most %s%s", span(l.Skew), proto.Span(maxSkew), fix)
+	case time.Duration(l.JWKSRefetch) < 10*time.Second:
+		return l, fmt.Errorf("login: jwks_refetch is %s; it must be at least 10s%s", span(l.JWKSRefetch), fix)
+	case time.Duration(l.PruneAfter) < time.Minute || time.Duration(l.PruneAfter) > 30*24*time.Hour:
+		return l, fmt.Errorf("login: prune_after is %s; it must be from 1m to 30d%s", span(l.PruneAfter), fix)
+	}
+	seen := map[string]bool{}
+	for _, p := range l.Providers {
+		if seen[p.Name] {
+			return l, fmt.Errorf("login: two providers are named %s; fix: give each provider a name of its own under login: providers", p.Name)
+		}
+		seen[p.Name] = true
+	}
+	return l, nil
+}
+
+// OpenLogin opens the providers of l, which ResolveSettings has read,
+// reading their files (a client secret, a CA, a key set) and fetching
+// nothing, and returns what the server signs people in with; nil when l
+// names no provider. now is the store's clock (rule 19).
+func OpenLogin(l LoginSettings, now func() time.Time) (*Login, error) {
+	if len(l.Providers) == 0 {
+		return nil, nil
+	}
+	out := &Login{TokenLifetime: time.Duration(l.TokenLifetime), FreshAuth: time.Duration(l.FreshAuth), PruneAfter: time.Duration(l.PruneAfter)}
+	for _, ps := range l.Providers {
+		p, err := oidc.Open(ps, oidc.Options{Now: now, Skew: time.Duration(l.Skew), MaxAge: time.Duration(l.MaxTokenAge),
+			Refetch: time.Duration(l.JWKSRefetch)})
+		if err != nil {
+			return nil, fmt.Errorf("%w; fix: correct the provider under login: providers in the config file (docs/server.md, Sign-in)", err)
+		}
+		// A bound identity is matched by (issuer, subject) alone, one
+		// person per account at an issuer, so a second provider of an
+		// issuer would sign in the first's people, past its own require
+		// and domains.
+		if i := slices.IndexFunc(out.Providers, func(o *oidc.Provider) bool { return o.Issuer() == p.Issuer() }); i >= 0 {
+			return nil, fmt.Errorf("login: providers %s and %s have one issuer, %s; fix: keep one provider for each issuer under login: providers",
+				out.Providers[i].Name(), p.Name(), p.Issuer())
+		}
+		out.Providers = append(out.Providers, p)
+	}
+	return out, nil
 }
 
 // HTTPSSettings are the https: settings (transport.md §4.2).
@@ -328,6 +437,14 @@ var hostPattern = lazyregexp.New(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][
 // a listen address, a URL or a TLS mode. ResolveSettings has checked the
 // shape of what is set.
 func (s Settings) CheckServe() error {
+	if len(s.Login.Providers) > 0 {
+		switch {
+		case s.ControlSchema == "":
+			return errors.New("login: providers are set on a server of one project; sign-in needs a server of many (control_schema), whose identities say who signs in; fix: set control_schema (docs/server.md, Serving many projects), or remove login: providers")
+		case !s.HTTPSOn():
+			return errors.New("login: providers are set and HTTPS is off; a sign-in's tokens come over HTTPS; fix: add https to transports: and set https:, or remove login: providers")
+		}
+	}
 	if !s.HTTPSOn() {
 		return nil
 	}
@@ -517,7 +634,10 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 		return Settings{}, fmt.Errorf("due_soon is %s; it can be at most %s; fix: set it within that in the config file, or leave it out for the default, %s",
 			proto.Span(d), proto.Span(store.MaxDueSoon), proto.Span(store.DefaultDueSoon))
 	}
-	out.Login = file.Login
+	out.Login, err = resolveLogin(file.Login)
+	if err != nil {
+		return Settings{}, err
+	}
 	out.Login.InviteTTL = cmp.Or(out.Login.InviteTTL, Duration(store.DefaultInviteTTL))
 	if d := time.Duration(out.Login.InviteTTL); d < store.MinInviteTTL || d > store.MaxInviteTTL {
 		return Settings{}, fmt.Errorf("login: invite_ttl is %s; it must be from %s to %s; fix: set it within that in the config file, or leave it out for the default, %s",

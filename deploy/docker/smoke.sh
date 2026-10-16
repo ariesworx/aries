@@ -42,9 +42,13 @@
 # container, the realm and its clients, a sign-in with PKCE and a nonce
 # as a browser would make it, the device grant, and a token for the
 # service principal. It prints claims, never a password, a secret or a
-# token. Keycloak is on 127.0.0.1:ARIES_IDENTITY_PORT, 8181 by default,
-# so a dev Keycloak on 8180 is left alone. It needs curl and openssl,
-# and pulls one more image.
+# token. Then the server signs people in at it (ARIES_IDENTITY=1), with
+# its keys from a file, and bob, invited there, signs in end to end by
+# `aries login --url`, works signed in, and signs out; and alice, whom
+# nobody invited, is refused (signin_checks). Keycloak is on
+# 127.0.0.1:ARIES_IDENTITY_PORT, 8181 by default, so a dev Keycloak on
+# 8180 is left alone. It needs curl and openssl, and pulls one more
+# image.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -134,7 +138,9 @@ fail() {
 # that for the checks of the rule itself: smoke_key names another key
 # file, or none when it is empty; smoke_agent is an ssh-agent socket of
 # the test's own; smoke_home is another home directory; and smoke_old is
-# a value for ARIES_KEY, the variable aries never reads. smoke_session
+# a value for ARIES_KEY, the variable aries never reads. smoke_data is a
+# data directory of the user's own (ARIES_DATA_DIR), for a sign-in, which
+# is kept there; unset, it is the shared home's. smoke_session
 # is another session, or none when it is empty, as in a CI job, where
 # aries takes the session ci from CI=true. The session variables of an
 # agent harness the test may run under are cleared, so they name none.
@@ -144,6 +150,7 @@ aries_as() {
   local key=${smoke_key-$work/keys/${who%-web}}
   (cd "$work/$who" && HOME="${smoke_home-$work/home}" XDG_CACHE_HOME="$work/home/.cache" SSH_AUTH_SOCK="${smoke_agent-}" \
     ARIES_KEY_FILE="$key" ARIES_KEY="${smoke_old-}" ARIES_SESSION="${smoke_session-smoke-$who}" ARIES_TRANSPORT="${ssh:+ssh}" \
+    ARIES_DATA_DIR="${smoke_data-}" \
     CLAUDE_CODE_SESSION_ID='' CLAUDE_SESSION_ID='' "$aries" "$@")
 }
 
@@ -281,7 +288,7 @@ no_ssh_path() {
 
 up() {
   ARIES_IMAGE=$image ARIES_KEYS=$keys ARIES_ADMINS=alice ARIES_PORT=$port ARIES_HTTPS_PORT=$https_port ARIES_SSH=$ssh ARIES_TELEMETRY=$telemetry ARIES_TZ=$tz \
-    "${compose[@]}" up -d --no-build --wait --wait-timeout 120 >/dev/null 2>&1 ||
+    ARIES_IDENTITY=$identity "${compose[@]}" up -d --no-build --wait --wait-timeout 300 >/dev/null 2>&1 ||
     fail "the server did not become healthy" "$("${compose[@]}" logs --no-log-prefix 2>&1 | tail -n 40)"
 }
 
@@ -903,6 +910,106 @@ identity_checks() {
   answer=
 }
 
+# login_by_url WHO PERSON runs `aries login --url` as WHO, signs PERSON
+# in at Keycloak with curl as the browser on another machine, which
+# stops at the loopback address it cannot open, and pastes that address
+# back, as a person would. It sets last to what aries printed, and
+# returns aries's status. PERSON's password goes from Keycloak's volume
+# to the login form through a pipe; the URLs carry no secret.
+login_by_url() {
+  local who=$1 person=$2 fifo=$work/login-$1.fifo errf=$work/login-$1.err outf=$work/login-$1.out
+  local authorize='' location page action jar pid status=0 i
+  rm -f "$fifo"
+  mkfifo "$fifo"
+  aries_as "$who" login --url <"$fifo" >"$outf" 2>"$errf" &
+  pid=$!
+  # Held open so that aries waits for the address on it.
+  exec 4>"$fifo"
+  for ((i = 0; i < 150; i++)); do
+    authorize=$(grep -Eo "https://localhost:$https_port/oauth/authorize[?][^ ]+" "$errf" | head -n 1 || true)
+    [[ -n $authorize ]] && break
+    sleep 0.2
+  done
+  [[ -n $authorize ]] || fail "aries login --url printed no URL" "$(cat "$errf")"
+  location=$(curl -sS --max-time 20 --cacert "$work/ca.pem" -o /dev/null -w '%{redirect_url}' "$authorize") ||
+    fail "the server's authorization endpoint did not answer"
+  [[ $location == "$issuer/protocol/openid-connect/auth?"* ]] || fail "the server did not send the browser to Keycloak" "${location:-(no redirect)}"
+  [[ $location == *"prompt=login"* && $location == *"code_challenge_method=S256"* && $location == *"nonce="* ]] ||
+    fail "the server's request to Keycloak has no prompt=login, PKCE or nonce" "$location"
+  jar=$(mktemp "$work/kc-jar.XXXXXX")
+  page=$(kc_curl -D "$jar" "$location") || fail "Keycloak's sign-in page did not load"
+  printf 'Cookie: %s\n' "$(sed -n 's/^[Ss]et-[Cc]ookie: \([^;]*\);.*/\1/p' "$jar" | paste -sd ';' -)" >"$jar.cookie"
+  action=$(grep -o 'action="[^"]*"' <<<"$page" | head -n 1 | sed 's/^action="//; s/"$//; s/&amp;/\&/g')
+  [[ $action == "$issuer/login-actions/authenticate?"* ]] || fail "Keycloak's sign-in page has no login form" "$(head -c 400 <<<"$page")"
+  location=$(kc_secret "$person.pass" | kc_curl -H @"$jar.cookie" -o /dev/null -w '%{redirect_url}' \
+    --data-urlencode "username=$person" --data-urlencode 'password@-' "$action") || fail "Keycloak did not take the login form"
+  rm -f "$jar" "$jar.cookie"
+  [[ $location == "https://localhost:$https_port/auth/callback?"* ]] || fail "Keycloak did not send the browser back to the server" "${location:-(no redirect)}"
+  location=$(curl -sS --max-time 20 --cacert "$work/ca.pem" -o /dev/null -w '%{redirect_url}' "$location") ||
+    fail "the server's callback did not answer"
+  [[ $location =~ ^http://127[.]0[.]0[.]1:[0-9]+/callback[?] ]] || fail "the server did not send the browser back to aries" "${location:-(no redirect)}"
+  printf 'not an address\n%s\n' "$location" >&4
+  exec 4>&-
+  wait "$pid" || status=$?
+  last=$(cat "$outf" "$errf")
+  rm -f "$fifo" "$outf" "$errf"
+  return "$status"
+}
+
+# signin_checks signs bob in end to end through the server at Keycloak
+# (docs/server.md, "Sign-in"), with ARIES_SMOKE_IDENTITY=1: the server
+# signs people in at Keycloak offline, its keys from a file; bob, invited
+# there, signs in by URL; his commands then connect with the sign-in; and
+# aries logout ends it. alice, whom nobody invited, is refused.
+signin_checks() {
+  local issuer=http://keycloak.localhost:$ARIES_IDENTITY_PORT/realms/aries token tokenfile
+  echo "smoke: sign-in: bob, invited at the server's provider, signs in by URL through the server"
+  last=$(curl -sS --max-time 20 --cacert "$work/ca.pem" "https://localhost:$https_port/.well-known/aries") || fail "no /.well-known/aries"
+  grep -q '"auth":\["key","signin"\],"providers":\[{"name":"keycloak","kind":"oidc"}\]' <<<"$last" ||
+    fail "/.well-known/aries does not name the sign-in and its provider" "$last"
+  passed=$((passed + 1))
+  refuse "an invitation at a provider the server does not have" 'this server signs no one in at google' alice admin invite add bob bob@example.com --provider google
+  expect "an invitation at the server's provider" '^invitation [0-9]+ for bob: bob@example.com at keycloak' alice admin invite add bob bob@example.com --provider keycloak
+  # bob's sign-in is kept in a data directory of his own: the users here
+  # share a home, and a sign-in is the machine's user's for the server.
+  install -d -m 0700 "$work/data-bob" "$work/data-alice"
+  smoke_data=$work/data-bob login_by_url bob bob || fail "aries login --url as bob failed" "$last"
+  grep -Eq '^signed in as bob at keycloak, until [0-9-]+ [0-9:]+ UTC [(]sign-in g-[a-z2-7]{16}[)]$' <<<"$last" || fail "aries login printed no sign-in" "$last"
+  passed=$((passed + 1))
+  smoke_data=$work/data-bob expect "whoami shows the sign-in" '^signed in +at keycloak, until .* scopes cli mcp' bob whoami
+  smoke_data=$work/data-bob expect "bob works, signed in" '^ar-[a-z0-9]+$' bob create "Signed in at Keycloak" -p 3 -t task
+  expect "his identity is bound" '^[0-9]+ +keycloak +bob@example[.]com +bound ' alice admin identity list bob
+  expect "an admin sees his sign-in" 'live' alice admin signin list bob
+  expect "the status counts it, and the provider's keys are a file's" '^sign-in: 1 live$' alice admin status
+  grep -Eq '^  provider keycloak [(]oidc[)] http://keycloak[.]localhost:[0-9]+/realms/aries: endpoints written out; keys from a file, nothing fetched, [0-9]+ keys?, read ' <<<"$last" ||
+    fail "the status does not show Keycloak's keys from a file" "$last"
+  passed=$((passed + 1))
+  # The token is bob's alone, and in no output and no log line.
+  tokenfile=$(find "$work/data-bob" -path '*/signin/*' -name token.json | head -n 1)
+  [[ -n $tokenfile ]] || fail "no sign-in kept in bob's data directory"
+  [[ $(stat -f '%Lp' "$tokenfile" 2>/dev/null || stat -c '%a' "$tokenfile") == 600 ]] || fail "the token's file is not 0600"
+  token=$(sed -n 's/.*"token": "\([^"]*\)".*/\1/p' "$tokenfile")
+  [[ -n $token ]] || fail "the token's file holds no token"
+  if "${compose[@]}" logs --no-log-prefix aries 2>&1 | grep -Fq -- "$token"; then
+    fail "ariesd's log holds a token"
+  fi
+  "${compose[@]}" logs --no-log-prefix aries 2>&1 | grep -Eq ' event=signin[.]granted principal=bob provider=keycloak grant=g-' ||
+    fail "ariesd logged no signin.granted for bob" "$("${compose[@]}" logs --no-log-prefix aries 2>&1 | grep signin | tail -n 5)"
+  token=
+  passed=$((passed + 2))
+  smoke_data=$work/data-bob expect "logout ends it" '^signed out of https://localhost:[0-9]+ [(]sign-in g-' bob logout
+  smoke_data=$work/data-bob expect "and bob is back on his key" '^key +SHA256:' bob whoami
+  expect "and the server ended it" 'ended [(]logout[)]' alice admin signin list bob
+
+  echo "smoke: sign-in: alice, whom nobody invited at Keycloak, is refused"
+  if smoke_data=$work/data-alice login_by_url alice alice; then
+    fail "aries login as alice, uninvited, succeeded" "$last"
+  fi
+  grep -q 'no invitation for alice@example.com at keycloak' <<<"$last" || fail "alice's refusal does not say she is not invited" "$last"
+  grep -q 'aries admin invite add' <<<"$last" || fail "alice's refusal names no fix" "$last"
+  passed=$((passed + 2))
+}
+
 image=${ARIES_IMAGE:-aries-dev:local}
 if [[ -n ${ARIES_IMAGE:-} ]]; then
   echo "smoke: testing the image $image, and building aries"
@@ -1418,6 +1525,7 @@ fi
 
 if [[ -n $identity ]]; then
   identity_checks
+  signin_checks
 fi
 
 echo "smoke: ok, $passed checks passed"

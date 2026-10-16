@@ -47,7 +47,7 @@ func (s *Server) connections(principal, project string) int {
 	defer s.mu.Unlock()
 	n := 0
 	for _, o := range s.conns {
-		o.transport = "" // either transport's
+		o.transport, o.sess = "", nil // either transport's, and whichever session
 		if o == (owner{principal: principal, project: project}) {
 			n++
 		}
@@ -155,6 +155,8 @@ func adminRequests() []struct {
 		{proto.OpInviteRemove, proto.IdentityArgs{ID: 1}},
 		{proto.OpIdentities, proto.IdentitiesArgs{Name: "bob"}},
 		{proto.OpIdentityRemove, proto.IdentityArgs{ID: 1}},
+		{proto.OpSignIns, proto.SignInsArgs{Name: "bob"}},
+		{proto.OpSignInEnd, proto.SignInEndArgs{ID: "g-0000000000000000"}},
 	}
 }
 
@@ -908,7 +910,7 @@ func TestAdminOpsClassified(t *testing.T) {
 			t.Errorf("adminOp(%s) = false for an op with a handler", op)
 		}
 		read := op == proto.OpProjects || op == proto.OpPrincipals || op == proto.OpMembers || op == proto.OpKeys || op == proto.OpStatus ||
-			op == proto.OpPrincipalWhois || op == proto.OpPrincipalShow || op == proto.OpInvites || op == proto.OpIdentities
+			op == proto.OpPrincipalWhois || op == proto.OpPrincipalShow || op == proto.OpInvites || op == proto.OpIdentities || op == proto.OpSignIns
 		if readOps[op] != read || controlWrites[op] == read {
 			t.Errorf("%s: read op %t, control write %t; a list, a principal shown, the status and a stand-in's lookup are reads and everything else a control write", op, readOps[op], controlWrites[op])
 		}

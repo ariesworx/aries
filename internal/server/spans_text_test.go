@@ -51,7 +51,7 @@ var opArgs = map[string]any{
 	proto.OpKeyRemove: proto.KeyRemoveArgs{}, proto.OpStatus: proto.StatusArgs{},
 	proto.OpPrincipalSet: proto.PrincipalSetArgs{}, proto.OpPrincipalShow: proto.PrincipalArgs{}, proto.OpInviteAdd: proto.InviteAddArgs{},
 	proto.OpInvites: proto.InvitesArgs{}, proto.OpInviteRemove: proto.IdentityArgs{}, proto.OpIdentities: proto.IdentitiesArgs{},
-	proto.OpIdentityRemove: proto.IdentityArgs{},
+	proto.OpIdentityRemove: proto.IdentityArgs{}, proto.OpSignIns: proto.SignInsArgs{}, proto.OpSignInEnd: proto.SignInEndArgs{},
 }
 
 // soaked returns a copy of args, a struct, with plantedText and the

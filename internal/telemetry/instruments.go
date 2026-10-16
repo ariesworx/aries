@@ -93,6 +93,9 @@ const (
 	HTTPSUpgrades
 	// HTTPSKeyProofs counts key proofs on a WebSocket: result.
 	HTTPSKeyProofs
+	// HTTPSTokens counts sign-ins' tokens presented to connect, with
+	// their DPoP proofs: result.
+	HTTPSTokens
 	// HTTPSTLSFailures counts connections to the HTTPS listener closed
 	// before their TLS handshake completed.
 	HTTPSTLSFailures
@@ -161,6 +164,9 @@ const (
 	// DropAccess is a connection whose access ended while its handshake
 	// ran.
 	DropAccess = "access"
+	// DropSignIn is a connection whose sign-in ended: at its end, by a
+	// logout, or by an admin (transport.md §6.7).
+	DropSignIn = "signin"
 
 	// What happened to a claim.
 	ClaimTake    = "take"
@@ -216,16 +222,43 @@ const (
 	UpgradeOrigin       = "origin"
 	UpgradeAuthFailures = "auth_failures"
 	UpgradeBadRequest   = "bad_request"
+	// UpgradeToken is an upgrade refused for its sign-in's token, which
+	// HTTPSTokens counts by why.
+	UpgradeToken = "token"
 
 	// How a key proof was refused: no key proof at all, one for another
 	// server's URL, no key the server knows, a key of the server's past
-	// its end, and a signature that does not verify. A proof the client
-	// left, or did not finish within upgrade_timeout, is ResultFailed.
+	// its end, a signature that does not verify, and a key proved whose
+	// principal is disabled. A proof the client left, or did not finish
+	// within upgrade_timeout, is ResultFailed.
 	ProofInvalid    = "invalid"
 	ProofURL        = "url"
 	ProofUnknownKey = "unknown_key"
 	ProofKeyEnded   = "key_ended"
 	ProofBadProof   = "bad_proof"
+	ProofDisabled   = "disabled"
+
+	// How a sign-in's token presented to connect was refused: by
+	// another scheme than DPoP, missing, unknown to the server, its
+	// sign-in ended, bound to no key, or by a server with no login:;
+	// and its DPoP proof missing, malformed, not signed by its key, for
+	// another request or token, out of time, replayed, past the proofs
+	// remembered, or signed by another key than the token's.
+	TokenScheme   = "token_scheme"
+	TokenMissing  = "token_missing"
+	TokenUnknown  = "token_unknown"
+	TokenEnded    = "token_ended"
+	TokenBearer   = "token_bearer"
+	TokenNoLogin  = "token_no_login"
+	DPoPMissing   = "dpop_missing"
+	DPoPMalformed = "dpop_malformed"
+	DPoPSignature = "dpop_signature"
+	DPoPRequest   = "dpop_request"
+	DPoPToken     = "dpop_token"
+	DPoPTime      = "dpop_time"
+	DPoPReplayed  = "dpop_replayed"
+	DPoPBusy      = "dpop_busy"
+	DPoPKey       = "dpop_key"
 )
 
 // The limits a refusal is counted under, by the name of the setting in
@@ -238,27 +271,31 @@ const (
 	// have not yet said hello.
 	LimitHandshakes = "handshakes_per_principal"
 	// LimitSockets is the cap on sockets still in their handshake.
-	LimitSockets           = "handshake_sockets"
-	LimitWriteRate         = "writes_per_second"
-	LimitControlWriteRate  = "control_writes_per_second"
-	LimitOpenStores        = "open_stores_per_server"
-	LimitTelemetryRequests = "telemetry.max_requests"
-	LimitProjects          = "projects_per_server"
-	LimitPrincipals        = "principals_per_server"
-	LimitKeys              = "keys_per_principal"
-	LimitMembers           = "members_per_project"
-	LimitIdentities        = "identities_per_principal"
-	LimitInvites           = "invites_per_server"
-	LimitPrices            = "prices_per_project"
-	LimitPlans             = "plans_per_project"
-	LimitHoursPerDay       = "hours_per_day"
-	LimitUsagePerDay       = "usage_per_day"
-	LimitLocks             = "locks_per_project"
-	LimitLockWaiters       = "waiters_per_lock"
-	LimitLockWaits         = "lock_waits_per_principal"
-	LimitHTTPSConns        = "https_conns_per_server"
-	LimitHTTPSConnsPerAddr = "https_conns_per_addr"
-	LimitAuthFailures      = "auth_failures_per_minute"
+	LimitSockets               = "handshake_sockets"
+	LimitWriteRate             = "writes_per_second"
+	LimitControlWriteRate      = "control_writes_per_second"
+	LimitOpenStores            = "open_stores_per_server"
+	LimitTelemetryRequests     = "telemetry.max_requests"
+	LimitProjects              = "projects_per_server"
+	LimitPrincipals            = "principals_per_server"
+	LimitKeys                  = "keys_per_principal"
+	LimitMembers               = "members_per_project"
+	LimitIdentities            = "identities_per_principal"
+	LimitInvites               = "invites_per_server"
+	LimitPrices                = "prices_per_project"
+	LimitPlans                 = "plans_per_project"
+	LimitHoursPerDay           = "hours_per_day"
+	LimitUsagePerDay           = "usage_per_day"
+	LimitLocks                 = "locks_per_project"
+	LimitLockWaiters           = "waiters_per_lock"
+	LimitLockWaits             = "lock_waits_per_principal"
+	LimitHTTPSConns            = "https_conns_per_server"
+	LimitHTTPSConnsPerAddr     = "https_conns_per_addr"
+	LimitAuthFailures          = "auth_failures_per_minute"
+	LimitGrants                = "grants_per_principal"
+	LimitSignInsPending        = "signins_pending_per_server"
+	LimitSignInsPendingPerAddr = "signins_pending_per_addr"
+	LimitDPoPProofs            = "dpop_proofs_per_server"
 )
 
 // Buckets are the upper bounds, in seconds, of every histogram's
@@ -276,7 +313,8 @@ var results = []string{ResultOK, ResultFailed,
 var limits = []string{LimitConns, LimitConnsPerPrincipal, LimitHandshakes, LimitSockets, LimitWriteRate, LimitControlWriteRate,
 	LimitOpenStores, LimitTelemetryRequests, LimitProjects, LimitPrincipals, LimitKeys, LimitMembers, LimitIdentities, LimitInvites,
 	LimitPrices, LimitPlans, LimitHoursPerDay, LimitUsagePerDay, LimitLocks, LimitLockWaiters, LimitLockWaits,
-	LimitHTTPSConns, LimitHTTPSConnsPerAddr, LimitAuthFailures}
+	LimitHTTPSConns, LimitHTTPSConnsPerAddr, LimitAuthFailures,
+	LimitGrants, LimitSignInsPending, LimitSignInsPendingPerAddr, LimitDPoPProofs}
 
 // attr is one attribute of an instrument: its key and the values it may
 // take. A value not among them is recorded as fallback. The values of
@@ -293,7 +331,7 @@ var (
 	attrProject  = attr{key: KeyProject, fallback: Other}
 	attrResult   = attr{key: KeyResult, values: results, fallback: Other}
 	attrClass    = attr{key: KeyResultClass, values: []string{ClassOK, ClassRefused, ClassError}, fallback: Other}
-	attrDrop     = attr{key: KeyReason, values: []string{DropMembership, DropDisabled, DropArchived, DropKey, DropExpired, DropIdle, DropLimit, DropAccess}, fallback: Other}
+	attrDrop     = attr{key: KeyReason, values: []string{DropMembership, DropDisabled, DropArchived, DropKey, DropExpired, DropIdle, DropLimit, DropAccess, DropSignIn}, fallback: Other}
 	attrLimit    = attr{key: KeyLimit, values: limits, fallback: Other}
 	attrMigrated = attr{key: KeyMigrated, values: []string{"true", "false"}, fallback: Other}
 	attrEvent    = attr{key: KeyEvent, values: []string{ClaimTake, ClaimRenew, ClaimRelease, ClaimExpire}, fallback: Other}
@@ -306,8 +344,10 @@ var (
 	attrStep     = attr{key: KeyDirection, values: []string{StepForward, StepBackward}, fallback: Other}
 	attrListener = attr{key: KeyReason, values: []string{ListenerUntrusted, ListenerLimit}, fallback: Other}
 	attrUpgraded = attr{key: KeyResult, values: []string{ResultOK, UpgradeRefused}, fallback: Other}
-	attrUpgrade  = attr{key: KeyReason, values: []string{ReasonNone, UpgradeOrigin, UpgradeAuthFailures, UpgradeBadRequest}, fallback: Other}
-	attrProof    = attr{key: KeyResult, values: []string{ResultOK, ResultFailed, ProofInvalid, ProofURL, ProofUnknownKey, ProofKeyEnded, ProofBadProof}, fallback: Other}
+	attrUpgrade  = attr{key: KeyReason, values: []string{ReasonNone, UpgradeOrigin, UpgradeAuthFailures, UpgradeBadRequest, UpgradeToken}, fallback: Other}
+	attrProof    = attr{key: KeyResult, values: []string{ResultOK, ResultFailed, ProofInvalid, ProofURL, ProofUnknownKey, ProofKeyEnded, ProofBadProof, ProofDisabled}, fallback: Other}
+	attrToken    = attr{key: KeyResult, values: []string{ResultOK, TokenScheme, TokenMissing, TokenUnknown, TokenEnded, TokenBearer, TokenNoLogin,
+		DPoPMissing, DPoPMalformed, DPoPSignature, DPoPRequest, DPoPToken, DPoPTime, DPoPReplayed, DPoPBusy, DPoPKey}, fallback: Other}
 )
 
 // spec declares one instrument.
@@ -353,6 +393,7 @@ var specs = [numInstruments]spec{
 	HTTPSConnectionsRefused: {name: "aries.https.connections.refused", kind: Counter, attrs: []attr{attrListener}, desc: "Connections the HTTPS listener closed unanswered."},
 	HTTPSUpgrades:           {name: "aries.https.upgrades", kind: Counter, attrs: []attr{attrUpgraded, attrUpgrade}, desc: "Requests to upgrade to a WebSocket, by how they ended."},
 	HTTPSKeyProofs:          {name: "aries.https.key_proofs", kind: Counter, attrs: []attr{attrProof}, desc: "Key proofs on a WebSocket, by how they ended."},
+	HTTPSTokens:             {name: "aries.https.tokens", kind: Counter, attrs: []attr{attrToken}, desc: "Sign-ins' tokens presented to connect, by how their check ended."},
 	HTTPSTLSFailures:        {name: "aries.https.tls_handshakes.failed", kind: Counter, desc: "Connections to the HTTPS listener closed before their TLS handshake completed."},
 	HTTPSCertReloads:        {name: "aries.https.cert.reloads", kind: Counter, attrs: []attr{attrWrote}, desc: "Reads of the TLS certificate's files after they changed."},
 }

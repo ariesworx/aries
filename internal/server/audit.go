@@ -135,9 +135,9 @@ func (s *Server) auditLine(e store.Event) {
 	case store.OpProjectAdd, store.OpProjectActivate, store.OpProjectArchive:
 		attrs = append(attrs, logs.KeyProject, e.Target)
 	case store.OpPrincipalAdd, store.OpPrincipalDisable, store.OpPrincipalEnable, store.OpPrincipalSet,
-		store.OpIdentityInvite, store.OpIdentityRemove:
-		// An identity's event is the principal's: its address is never in
-		// the event, nor so in the line.
+		store.OpIdentityInvite, store.OpIdentityRemove, store.OpIdentityBind, store.OpSignInGrant, store.OpSignInEnd:
+		// An identity's and a sign-in's event is the principal's: no
+		// address, subject or token is in the event, nor so in the line.
 		attrs = append(attrs, logs.KeySubject, e.Target)
 	case store.OpKeyAdd, store.OpKeyRemove:
 		attrs = append(attrs, logs.KeyFingerprint, e.Target)

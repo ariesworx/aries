@@ -104,6 +104,11 @@ type Config struct {
 	// HTTPS, when set, is the HTTPS listener Serve serves beside the
 	// socket (transport.md §4). Nil opens none.
 	HTTPS *HTTPS
+	// Login, when set, signs people in at the providers it names, and
+	// issues the tokens /v1/connect takes (transport.md §6). It needs
+	// Control and HTTPS. Nil signs no one in: a connection over HTTPS
+	// proves a key.
+	Login *Login
 	// Clock is the process's clock, the one its stores were opened with
 	// (store.Options.Clock): the server reports its steps. Nil makes one
 	// of its own, which sees the steps but shares them with no store.
@@ -138,6 +143,8 @@ type Config struct {
 // Server serves the protocol. Create it with New.
 type Server struct {
 	cfg Config
+	// auth is the authorization server of Config.Login, or nil.
+	auth *authServer
 
 	mu sync.Mutex
 	// conns holds the open connections, and for each one past its
@@ -285,8 +292,18 @@ func New(cfg Config) (*Server, error) {
 		}
 		cfg.HTTPS = &h
 	}
+	if cfg.Login != nil && (cfg.Control == nil || cfg.HTTPS == nil) {
+		return nil, errors.New("server: sign-in (login:) needs a server of many projects (control_schema), and HTTPS")
+	}
 	s := &Server{cfg: cfg, conns: map[net.Conn]owner{}, now: time.Now, started: time.Now(), unopened: map[string]store.Project{},
 		ends: keyEnds{wake: make(chan struct{}, 1), told: map[string]bool{}}}
+	if cfg.Login != nil {
+		a, err := newAuthServer(s, *cfg.Login)
+		if err != nil {
+			return nil, fmt.Errorf("server: %w", err)
+		}
+		s.auth = a
+	}
 	s.writes = buckets{rate: cfg.Limits.WriteRate, burst: float64(cfg.Limits.WriteBurst)}
 	s.ctlWrites = buckets{rate: cfg.Limits.ControlWriteRate, burst: float64(cfg.Limits.ControlWriteBurst)}
 	s.refusals = sampler{n: cfg.Limits.RefusalLogs}
@@ -567,8 +584,9 @@ const pruneEvery = 10 * time.Minute
 // reapLoop ends expired claims every ReapInterval until ctx is done. It
 // prunes on the first tick, then every pruneEvery. A server of many
 // projects also closes its idle stores, rereads the control store,
-// writes the keys file if it is out of date, and ends the claims of
-// holders who lost their access (Sweep), on each tick.
+// writes the keys file if it is out of date, ends the claims of holders
+// who lost their access (Sweep), and closes the connections of sign-ins
+// no longer live, on each tick.
 func (s *Server) reapLoop(ctx context.Context) {
 	t := time.NewTicker(s.cfg.ReapInterval)
 	defer t.Stop()
@@ -599,7 +617,8 @@ func (s *Server) reapLoop(ctx context.Context) {
 // tick is one tick of the reaper: it looks at the clock, rereads the
 // control store and writes the keys file if it is out of date, closes
 // idle stores, ends expired claims and those of holders who lost their
-// access, and with prune set also prunes. The tick is one trace: the
+// access, closes the connections of sign-ins no longer live
+// (sweepSignIns), and with prune set also prunes. The tick is one trace: the
 // reaper's span, with the parts that have a span of their own beneath
 // it, so a slow tick shows which part was slow.
 func (s *Server) tick(ctx context.Context, prune bool) {
@@ -616,6 +635,7 @@ func (s *Server) tick(ctx context.Context, prune bool) {
 	s.CloseIdleStores()
 	s.Reap(ctx)
 	s.Sweep(ctx)
+	s.sweepSignIns(ctx)
 	if prune {
 		s.Prune(ctx)
 	}
@@ -631,6 +651,9 @@ func (s *Server) tick(ctx context.Context, prune bool) {
 func (s *Server) Prune(ctx context.Context) {
 	s.each(func(pr *served) { pr.prune(ctx, s.cfg.Limits) })
 	s.pruneKeys(ctx)
+	if s.auth != nil {
+		s.auth.prune(ctx)
+	}
 	now := s.now()
 	s.writes.prune(now)
 	s.ctlWrites.prune(now)
@@ -719,6 +742,9 @@ type session struct {
 	// and the bridge (or the daemon's own, on the socket), or
 	// TransportHTTPS.
 	transport string
+	// signedIn is the sign-in the connection presented, or nil for one a
+	// key let in; the ops it sends are held to its scopes (mayCall).
+	signedIn *signedIn
 }
 
 // The transports a connection comes by, as transports: names them.
@@ -750,14 +776,16 @@ func (sess *session) watching() bool {
 // leaves, the connection idles out, a read or write fails, or ctx is
 // done. The connection's pusher, if it watched, has ended when handle
 // returns. The caller closes c.
-func (s *Server) handle(ctx context.Context, c net.Conn) { s.serveConn(ctx, c, nil) }
+func (s *Server) handle(ctx context.Context, c net.Conn) { s.serveConn(ctx, c, nil, nil) }
 
 // serveConn is handle for a connection from either transport. given is
 // the bridge frame a transport in this process made, in place of one
 // read from c: the HTTPS listener's, naming the principal and key its
-// key proof found (https.go). Such a connection has no socket peer to
-// check, and its frames from the hello on are as any other's.
-func (s *Server) serveConn(ctx context.Context, c net.Conn, given *proto.Frame) {
+// key proof found (https.go), or a sign-in's principal, with the
+// sign-in (signin.go). Such a connection has no socket peer to check,
+// and its frames from the hello on are as any other's, held to the
+// sign-in's scopes.
+func (s *Server) serveConn(ctx context.Context, c net.Conn, given *proto.Frame, in *signedIn) {
 	log := s.cfg.Logger
 	if given == nil {
 		if err := s.cfg.PeerCheck(c); err != nil {
@@ -774,7 +802,7 @@ func (s *Server) serveConn(ctx context.Context, c net.Conn, given *proto.Frame) 
 	// once the span has ended.
 	hctx, hspan := s.cfg.Telemetry.StartServer(ctx, telemetry.SpanHandshake)
 	defer hspan.End()
-	sess, err := s.handshake(hctx, c, given)
+	sess, err := s.handshake(hctx, c, given, in)
 	s.observeHandshake(hspan, sess, err)
 	if sess != nil && sess.slot {
 		defer s.slots.release(sess.key)
@@ -815,6 +843,16 @@ func (s *Server) serveConn(ctx context.Context, c net.Conn, given *proto.Frame) 
 		log.InfoContext(hctx, "connection closed: access ended during the handshake", "event", logs.ConnAccessEnded)
 		s.cfg.Telemetry.Count(telemetry.ConnectionsDropped, telemetry.DropAccess)
 		return
+	}
+	if in := sess.signedIn; in != nil {
+		// The sign-in's end closes the connection (decision 59), on the
+		// server's own timer, from the store's time now.
+		end := time.AfterFunc(in.ends.Sub(s.cfg.Control.Now()), func() {
+			s.endSession(sess, proto.Errf(proto.CodeAuth, proto.FixSignIn+" to sign in again",
+				fmt.Sprintf("your sign-in ended at %s", in.ends.Format(time.RFC3339))))
+			s.cfg.Telemetry.Record(telemetry.ConnectionsDropped, 1, telemetry.DropSignIn)
+		})
+		defer end.Stop()
 	}
 	// The session is noted for who beside the read of the first request,
 	// not before it: the note waits on the database for as long as a request
@@ -876,7 +914,13 @@ func (s *Server) serveConn(ctx context.Context, c net.Conn, given *proto.Frame) 
 		var res any
 		var perr *proto.Error
 		ok, wait := true, time.Duration(0)
+		// A sign-in's scopes say which ops it may send (transport.md
+		// §6.8); a key's connection is held to its principal's role alone.
+		if e := mayCall(sess.signedIn, f.Op); e != nil {
+			ok, perr = false, e
+		}
 		switch {
+		case !ok:
 		case controlWrites[f.Op]:
 			// The control store is the whole server's, so its bucket is
 			// the principal's, whichever project the connection is to.
@@ -1010,8 +1054,8 @@ func (s *Server) busyControlWrites(principal string, wait time.Duration) *proto.
 // refuses one with too many connections that have not said hello. What
 // depends on the project, membership and the key that signed in, is
 // decided at the hello (admit, keyHolds).
-func (s *Server) handshake(ctx context.Context, c net.Conn, given *proto.Frame) (*session, error) {
-	sess := &session{conn: c, enc: proto.NewEncoder(c), dec: proto.NewDecoder(c), transport: TransportSSH}
+func (s *Server) handshake(ctx context.Context, c net.Conn, given *proto.Frame, in *signedIn) (*session, error) {
+	sess := &session{conn: c, enc: proto.NewEncoder(c), dec: proto.NewDecoder(c), transport: TransportSSH, signedIn: in}
 	f := given
 	if given == nil {
 		_ = c.SetReadDeadline(time.Now().Add(bridgeTimeout))
@@ -1152,6 +1196,9 @@ func (s *Server) handshake(ctx context.Context, c net.Conn, given *proto.Frame) 
 	if !validActorPart(sess.actor.Session) || !validActorPart(sess.actor.Machine) {
 		return refuse(proto.Errf(proto.CodeInvalid, "set ARIES_SESSION to 1-255 printable characters",
 			"session and machine must be 1-255 printable characters, without control or bidirectional characters"))
+	}
+	if e := mayTakeSession(sess.signedIn, sess.actor.Session); e != nil {
+		return refuse(e)
 	}
 	sess.harness = f.Harness
 	if e := s.slots.acquire(sess.key, s.cfg.Limits.Conns, s.cfg.Limits.ConnsPerPrincipal); e != nil {

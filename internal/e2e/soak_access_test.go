@@ -123,7 +123,8 @@ func (s *soak) setup() {
 		users := map[*sproj]*user{first: u}
 		for i := 1; i < len(in); i++ {
 			p := byLetter[in[i]]
-			v := u.in(fmt.Sprintf("project: %s\nserver:\n  host: 127.0.0.1\n  port: %d\n  user: aries\n  host_key: %s\n", p.id, s.w.addr.Port, s.w.hostFpr))
+			// The world's transport, as the first project's config has it.
+			v := u.in(fmt.Sprintf("project: %s\nserver:\n%s  host: 127.0.0.1\n  port: %d\n  user: aries\n  host_key: %s\n", p.id, s.w.httpsConfig(), s.w.addr.Port, s.w.hostFpr))
 			v.pubFile = u.pubFile
 			users[p] = v
 		}
@@ -696,9 +697,10 @@ func (cd *conductor) disable(principal string) {
 	in := slices.DeleteFunc([]*sproj{s.a, s.b}, func(p *sproj) bool { return s.user(principal, p) == nil })
 	for _, p := range in {
 		// The keys file has no line for a key of the store whose principal
-		// is disabled; a key in authorized_keys reaches the daemon's refusal.
+		// is disabled; a key in authorized_keys reaches the daemon's
+		// refusal, as over HTTPS a key of the store does, once proved.
 		want := proto.CodeForbidden
-		if s.storeKey[principal] != "" {
+		if s.storeKey[principal] != "" && !s.w.overHTTPS() {
 			want = proto.CodeAuth
 		}
 		cd.dial(principal, p, want, why)

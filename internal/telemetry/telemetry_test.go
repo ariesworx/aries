@@ -277,6 +277,7 @@ var wantKeys = map[string][]string{
 	"aries.https.connections.refused":   {"reason"},
 	"aries.https.upgrades":              {"result", "reason"},
 	"aries.https.key_proofs":            {"result"},
+	"aries.https.tokens":                {"result"},
 	"aries.https.tls_handshakes.failed": nil,
 	"aries.https.cert.reloads":          {"result"},
 }
@@ -515,6 +516,7 @@ func TestPrometheusNames(t *testing.T) {
 	text := promText(t, tel)
 	types, samples := parseProm(t, text)
 
+	//nolint:gosec // G101: metric names; aries.https.tokens counts tokens and holds none
 	want := map[string]string{
 		"aries.request.duration":            "aries_request_duration_seconds",
 		"aries.project.requests":            "aries_project_requests_total",
@@ -545,6 +547,7 @@ func TestPrometheusNames(t *testing.T) {
 		"aries.https.connections.refused":   "aries_https_connections_refused_total",
 		"aries.https.upgrades":              "aries_https_upgrades_total",
 		"aries.https.key_proofs":            "aries_https_key_proofs_total",
+		"aries.https.tokens":                "aries_https_tokens_total",
 		"aries.https.tls_handshakes.failed": "aries_https_tls_handshakes_failed_total",
 		"aries.https.cert.reloads":          "aries_https_cert_reloads_total",
 	}

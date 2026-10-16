@@ -249,7 +249,9 @@ func (c *Control) AddNewPrincipal(ctx context.Context, actor Actor, in NewPrinci
 // DisablePrincipal stops a principal's keys and roles from working,
 // keeping them: [Control.AuthorizedKey] no longer answers for its keys,
 // and it administers nothing, even when the config file names it a
-// server admin (decision 20). A server admin may disable any principal;
+// server admin (decision 20). Its live sign-ins end, each with a
+// signin.end event, and do not come back with [Control.EnablePrincipal].
+// A server admin may disable any principal;
 // a project admin only one within their reach, as for its keys
 // ([Control.AddKey]). One already disabled is returned as it is.
 //
@@ -292,6 +294,13 @@ func (c *Control) setPrincipalState(ctx context.Context, actor Actor, name strin
 		}
 		if to == PrincipalDisabled && w.admins(name) {
 			if err := w.anotherAdmin(ctx, name); err != nil {
+				return err
+			}
+		}
+		if to == PrincipalDisabled {
+			// Its sign-ins end with it, so that enabling it again
+			// brings back its keys and roles but no token from before.
+			if err := w.endPrincipalGrants(ctx, name); err != nil {
 				return err
 			}
 		}

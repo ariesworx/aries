@@ -60,6 +60,11 @@
 @{ariesd_tls}=/etc/aries/tls
 @{ariesd_acme}=@{ariesd_home}/acme
 
+# The files of the providers people sign in at (`login: providers:`):
+# each one's client secret, the CA of its certificate, and its key set
+# for a site with no route out.
+@{ariesd_login}=/etc/aries/login
+
 # With SSH off, the file the installer writes the first admin's key
 # line to, which `control init` reads and no sshd does.
 @{ariesd_admin_keys}=/etc/aries/admin.keys

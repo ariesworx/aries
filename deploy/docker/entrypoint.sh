@@ -182,11 +182,60 @@ write_config() {
     if telemetry_on; then
       printf 'telemetry:\n  listen: %s\n  principals_key: %s\n' "$telemetry_listen" "$telemetry_key"
     fi
+    if identity_on; then
+      local iss
+      iss=$(kc_issuer)
+      printf 'login:\n  providers:\n    - name: keycloak\n      kind: oidc\n      issuer: %s\n      client_id: aries-server\n' "$iss"
+      printf '      client_secret_file: %s/keycloak.secret\n      discovery: static\n' "$login_dir"
+      printf '      authorization_endpoint: %s/protocol/openid-connect/auth\n      token_endpoint: %s/protocol/openid-connect/token\n' "$iss" "$iss"
+      printf '      jwks_file: %s/keycloak-jwks.json\n' "$login_dir"
+    fi
   } | install -o aries -g aries -m 0600 /dev/stdin "$config"
 }
 
 telemetry_on() { [[ ${ARIES_TELEMETRY:-} == 1 ]]; }
 ssh_on() { [[ ${ARIES_SSH:-} == 1 ]]; }
+identity_on() { [[ ${ARIES_IDENTITY:-} == 1 ]]; }
+
+# With ARIES_IDENTITY=1, ariesd signs people in at the identity
+# profile's Keycloak, as the provider keycloak (docs/server.md,
+# "Sign-in"), offline: its endpoints written out, and its keys from a
+# file, so that ariesd fetches nothing to check a token. The client
+# secret Keycloak generated is on its volume, read-only here; ariesd
+# reads a 0600 copy.
+identity_port=${ARIES_IDENTITY_PORT:-8180}
+identity_secrets=/run/aries-identity/aries
+login_dir=/etc/aries/login
+kc_issuer() { printf 'http://keycloak.localhost:%s/realms/aries' "$identity_port"; }
+
+# kc_get PATH prints the body of what Keycloak answers to GET PATH, by
+# the issuer's name. The image has no curl, so bash asks.
+kc_get() {
+  (
+    exec 3<>"/dev/tcp/keycloak.localhost/$identity_port" &&
+      printf 'GET %s HTTP/1.0\r\nHost: keycloak.localhost:%s\r\n\r\n' "$1" "$identity_port" >&3 &&
+      sed '1,/^\r$/d' <&3
+  ) 2>/dev/null
+}
+
+# setup_login waits for Keycloak's realm and its client secret, and
+# keeps for ariesd the secret, mode 0600, and the realm's key set.
+setup_login() {
+  identity_on || return 0
+  [[ $identity_port =~ ^[1-9][0-9]{0,4}$ ]] || die "ARIES_IDENTITY_PORT is '$identity_port'" "set it to Keycloak's port, as the identity profile publishes it"
+  install -d -o root -g aries -m 0750 "$login_dir"
+  local i jwks
+  for ((i = 0; i < 240; i++)); do
+    if [[ -s $identity_secrets/aries-server.secret ]] && jwks=$(kc_get /realms/aries/protocol/openid-connect/certs) && [[ $jwks == *'"keys"'*'"ES256"'* ]]; then
+      install -o aries -g aries -m 0600 "$identity_secrets/aries-server.secret" "$login_dir/keycloak.secret"
+      printf '%s\n' "$jwks" | install -o aries -g aries -m 0644 /dev/stdin "$login_dir/keycloak-jwks.json"
+      log "sign-in at Keycloak ($(kc_issuer)): its client secret and key set are in $login_dir"
+      return 0
+    fi
+    sleep 1
+  done
+  die "Keycloak's realm and client secret did not appear within 240s" "start the identity profile beside the server: docker compose --profile identity up -d"
+}
 
 # make_tls makes, on the first start, a CA and a certificate it signs
 # for localhost and 127.0.0.1, which the listener serves: a test CA,
@@ -385,6 +434,9 @@ main() {
   if [[ -n ${ARIES_TELEMETRY:-} ]] && ! telemetry_on; then
     die "ARIES_TELEMETRY is '${ARIES_TELEMETRY}'" "set it to 1 for ariesd's telemetry, or leave it unset for none"
   fi
+  if [[ -n ${ARIES_IDENTITY:-} ]] && ! identity_on; then
+    die "ARIES_IDENTITY is '${ARIES_IDENTITY}'" "set it to 1 to sign people in at the identity profile's Keycloak, or leave it unset"
+  fi
   if [[ -n ${ARIES_SSH:-} ]] && ! ssh_on; then
     die "ARIES_SSH is '${ARIES_SSH}'" "set it to 1 to serve SSH beside HTTPS, or leave it unset for HTTPS alone"
   fi
@@ -409,8 +461,10 @@ main() {
   fi
   watch_self
   install_principals
-  # The transports and the URL follow ARIES_SSH and ARIES_HTTPS_PORT on
-  # every start, which may differ from the start that wrote the file.
+  # The transports, the URL and the sign-in follow ARIES_SSH,
+  # ARIES_HTTPS_PORT and ARIES_IDENTITY on every start, which may differ
+  # from the start that wrote the file.
+  setup_login
   write_config "$(setting project)" "$(setting admins | tr -d '[]')"
   make_tls
   adopt

@@ -181,7 +181,7 @@ func (m *multi) has(o owner) bool {
 	m.Server.mu.Lock()
 	defer m.Server.mu.Unlock()
 	for _, got := range m.conns {
-		got.transport = "" // either transport's
+		got.transport, got.sess = "", nil // either transport's, and whichever session
 		if got == o {
 			return true
 		}

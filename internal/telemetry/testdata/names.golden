@@ -11,6 +11,7 @@ attribute aries.handshakes result
 attribute aries.https.cert.reloads result
 attribute aries.https.connections.refused reason
 attribute aries.https.key_proofs result
+attribute aries.https.tokens result
 attribute aries.https.upgrades reason
 attribute aries.https.upgrades result
 attribute aries.keys_file.writes result
@@ -40,6 +41,7 @@ instrument aries.https.connections aries_https_connections
 instrument aries.https.connections.refused aries_https_connections_refused_total
 instrument aries.https.key_proofs aries_https_key_proofs_total
 instrument aries.https.tls_handshakes.failed aries_https_tls_handshakes_failed_total
+instrument aries.https.tokens aries_https_tokens_total
 instrument aries.https.upgrades aries_https_upgrades_total
 instrument aries.keys_file.last_write.time aries_keys_file_last_write_time_seconds
 instrument aries.keys_file.writes aries_keys_file_writes_total
@@ -93,6 +95,7 @@ value aries.connections.dropped reason idle
 value aries.connections.dropped reason key
 value aries.connections.dropped reason limit
 value aries.connections.dropped reason membership
+value aries.connections.dropped reason signin
 value aries.control.writes result acceptance
 value aries.control.writes result auth
 value aries.control.writes result busy
@@ -133,16 +136,34 @@ value aries.https.cert.reloads result ok
 value aries.https.connections.refused reason limit
 value aries.https.connections.refused reason untrusted
 value aries.https.key_proofs result bad_proof
+value aries.https.key_proofs result disabled
 value aries.https.key_proofs result failed
 value aries.https.key_proofs result invalid
 value aries.https.key_proofs result key_ended
 value aries.https.key_proofs result ok
 value aries.https.key_proofs result unknown_key
 value aries.https.key_proofs result url
+value aries.https.tokens result dpop_busy
+value aries.https.tokens result dpop_key
+value aries.https.tokens result dpop_malformed
+value aries.https.tokens result dpop_missing
+value aries.https.tokens result dpop_replayed
+value aries.https.tokens result dpop_request
+value aries.https.tokens result dpop_signature
+value aries.https.tokens result dpop_time
+value aries.https.tokens result dpop_token
+value aries.https.tokens result ok
+value aries.https.tokens result token_bearer
+value aries.https.tokens result token_ended
+value aries.https.tokens result token_missing
+value aries.https.tokens result token_no_login
+value aries.https.tokens result token_scheme
+value aries.https.tokens result token_unknown
 value aries.https.upgrades reason auth_failures
 value aries.https.upgrades reason bad_request
 value aries.https.upgrades reason none
 value aries.https.upgrades reason origin
+value aries.https.upgrades reason token
 value aries.https.upgrades result ok
 value aries.https.upgrades result refused
 value aries.keys_file.writes result failed
@@ -151,6 +172,8 @@ value aries.limit.refusals limit auth_failures_per_minute
 value aries.limit.refusals limit conns_per_principal
 value aries.limit.refusals limit conns_per_server
 value aries.limit.refusals limit control_writes_per_second
+value aries.limit.refusals limit dpop_proofs_per_server
+value aries.limit.refusals limit grants_per_principal
 value aries.limit.refusals limit handshake_sockets
 value aries.limit.refusals limit handshakes_per_principal
 value aries.limit.refusals limit hours_per_day
@@ -167,6 +190,8 @@ value aries.limit.refusals limit plans_per_project
 value aries.limit.refusals limit prices_per_project
 value aries.limit.refusals limit principals_per_server
 value aries.limit.refusals limit projects_per_server
+value aries.limit.refusals limit signins_pending_per_addr
+value aries.limit.refusals limit signins_pending_per_server
 value aries.limit.refusals limit telemetry.max_requests
 value aries.limit.refusals limit usage_per_day
 value aries.limit.refusals limit waiters_per_lock

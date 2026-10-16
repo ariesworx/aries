@@ -301,6 +301,12 @@ when a test asks and none is free, up to one for every two processors
 and four at most (`pgtest.PoolLimit`), and hands it on when the test
 ends. So a test may stop its Postgres, restart it, stop its processes
 (`Server.Signal`) or drop a database in it without disturbing another.
+A test that takes a server and then runs subtests runs them in turn,
+never with `t.Parallel()`: a parallel subtest waits for a free slot
+after its test's function returns, still holding the server, and when
+every slot is a test waiting for a server the run hangs until `go
+test` times out. CI's four processors give two servers and four slots,
+so two such tests were enough.
 Postgres itself could serve the tests from one server; they hold one
 each so that a test that stops its server stops no other test.
 

@@ -64,6 +64,19 @@ func (c *Client) Local() (*Local, *client.Config, error) {
 // server cannot say ([Local.Principal], by the keys it would offer and
 // whether one is configured), or "" when this machine does not know.
 func (c *Client) Whose(l *Local, cfg *client.Config) string {
+	// Over HTTPS a live sign-in is presented in place of a key, so its
+	// principal is whose the writes are.
+	if t, err := cfg.Transport(c.Getenv); err == nil && t == client.TransportHTTPS {
+		if root, err := DataDir(c.GOOS, c.Getenv, c.UserHomeDir); err == nil {
+			now := time.Now
+			if c.Now != nil {
+				now = c.Now
+			}
+			if s, err := client.LoadSignIn(root, cfg.Server.URL); err == nil && s != nil && s.Live(now()) {
+				return s.Principal
+			}
+		}
+	}
 	path, _, err := cfg.KeyFile(c.Getenv, c.UserHomeDir)
 	if err != nil {
 		return ""

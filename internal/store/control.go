@@ -339,6 +339,10 @@ type index struct {
 	roles map[membership]Role
 	// identities holds every identity, for the status report's counts.
 	identities map[int64]indexedIdentity
+	// tokens holds the access tokens of the sign-ins not ended, by hash,
+	// with their grants: what a connection that presents a token is
+	// checked against.
+	tokens map[string]Grant
 }
 
 // membership names one principal in one project.
@@ -383,6 +387,21 @@ func (c *Control) AuthorizedKey(fingerprint string) (principal, key string, ok b
 	defer c.ix.mu.RUnlock()
 	k, found := c.ix.byFingerprint[fingerprint]
 	if !found || !c.ix.active[k.principal] || k.ended(now) {
+		return "", "", false
+	}
+	return k.principal, k.key, true
+}
+
+// DisabledKey is [Control.AuthorizedKey] for the keys it does not
+// answer for because their principal is disabled: it returns the
+// principal and the key only then. The daemon refuses a key it proves
+// as its principal's being disabled, rather than as a key it does not
+// know. It reads memory only.
+func (c *Control) DisabledKey(fingerprint string) (principal, key string, ok bool) {
+	c.ix.mu.RLock()
+	defer c.ix.mu.RUnlock()
+	k, found := c.ix.byFingerprint[fingerprint]
+	if !found || !c.ix.disabled[k.principal] {
 		return "", "", false
 	}
 	return k.principal, k.key, true
@@ -573,9 +592,13 @@ func (c *Control) load(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("load index: %w", err)
 	}
+	tokens, err := loadTokens(ctx, q)
+	if err != nil {
+		return fmt.Errorf("load index: %w", err)
+	}
 	c.ix.mu.Lock()
 	c.ix.byFingerprint, c.ix.active, c.ix.disabled, c.ix.projects, c.ix.roles = keys, active, disabled, projects, roles
-	c.ix.identities = identities
+	c.ix.identities, c.ix.tokens = identities, tokens
 	c.ix.mu.Unlock()
 	return nil
 }

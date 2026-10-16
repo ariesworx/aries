@@ -58,11 +58,13 @@ where both are named, for a server reached through IAP, say;
 `ARIES_TRANSPORT=https` insists on the URL. A transport the file does
 not name the server for is refused, with what to set. Over HTTPS
 `aries` opens one WebSocket to the server and speaks the same frames as
-over SSH. Until sign-in through an identity provider lands, it proves
-it holds one of the keys below by signing a challenge of the server's
-and the server's URL ([How aries signs in over
+over SSH. With a sign-in kept on the machine ([Sign in](#sign-in)), it
+presents the sign-in's token with a proof by its key; without one, it
+proves it holds one of the keys below by signing a challenge of the
+server's and the server's URL ([How aries signs in over
 HTTPS](server.md#how-aries-signs-in-over-https)): the same keys, chosen
-the same way, as over SSH. `aries whoami` says which transport and key.
+the same way, as over SSH. `aries whoami` says which transport, and
+which sign-in or key.
 
 What fails over HTTPS, and what is kept to send later
 ([When the server cannot be reached](#when-the-server-cannot-be-reached)):
@@ -71,13 +73,81 @@ What fails over HTTPS, and what is kept to send later
 |---|---|---|
 | The name does not resolve, nothing answers, the connection is reset, TLS does not finish in time, or a proxy answers 502, 503 or 504 | `cannot reach HOST:PORT`, or `HOST:PORT answered 503 …` | Yes |
 | The server's certificate does not verify | `the TLS certificate of HOST:PORT does not verify`, with a fix naming `server.ca` | No: it is a setting to correct, or something between you and the server |
-| The server knows none of your keys | `HOST:PORT accepted no key: aries offered …`, as over SSH | No |
+| The server knows none of your keys | `HOST:PORT accepted no key: aries offered …`, as over SSH, with `aries login` named as the other way in | No |
+| Your sign-in ended, was ended, or its key on this machine is not its own | `your sign-in ended at …`, or why the server refused it, with a fix naming `aries login` | No |
 | A proxy refuses the WebSocket upgrade | `HOST:PORT answered the WebSocket upgrade with 400 …`, with a fix naming the proxy | No |
 | The server refuses you (disabled, not a member) | Its refusal, as over SSH | No |
 
 A server with SSH off refuses every key over SSH, since sshd has none
 for the account; when the file also has `server.url`, the refusal says
 to unset `ARIES_TRANSPORT`.
+
+### Sign in
+
+Where the server signs people in at the company's identity provider
+([Sign-in](server.md#sign-in)), `aries login` does it, over HTTPS, and
+every `aries` and `aries mcp` you run that reaches that server uses the
+sign-in, whatever the repository, until it ends:
+
+```console
+$ aries login
+aries: opened your browser to sign in at corp; finish there (waiting up to 10 minutes)
+signed in as alice at corp, until 2026-10-17 09:00 UTC (sign-in g-7f3a2c9d1e4b5a60)
+$ aries whoami
+principal  alice
+…
+signed in  at corp, until 2026-10-17 09:00 UTC (sign-in g-7f3a2c9d1e4b5a60, scopes cli mcp); `aries logout` ends it
+$ aries logout
+signed out of https://aries.example.com (sign-in g-7f3a2c9d1e4b5a60)
+```
+
+- **The browser.** `aries login` listens on a port of `127.0.0.1` and
+  opens your browser at the server, which sends it on to the provider;
+  you sign in there, and the browser comes back to `aries`, which says
+  how it went. The provider asks you to sign in again each time
+  (`prompt=login`), even with a session open: that is what keeps a
+  day's sign-in from renewing with nobody there.
+- **No browser here** (over SSH, in a container), or **`--url`**:
+  `aries login` prints the URL. Open it in a browser on any machine and
+  sign in; the browser then fails to open a page at
+  `http://127.0.0.1:…`, which is expected. Copy that whole address from
+  its address bar and paste it where `aries login` waits. If the
+  browser is on this machine, or the port is forwarded, it finishes by
+  itself.
+- **`--provider NAME`** chooses where the server has several; with one,
+  it is that.
+- **Who you are** is the principal an admin invited your address for at
+  that provider ([Identities and
+  invitations](server.md#identities-and-invitations)); nobody else can
+  sign in. The first sign-in binds the invitation to your account at the
+  provider, and from then on that account is you, whatever its address
+  becomes.
+- **What is kept.** The token the server issued and a key made for it,
+  in your data directory (`ARIES_DATA_DIR`, or the system's: on Linux
+  `~/.local/share/aries`, on macOS `~/Library/Application Support/aries`,
+  on Windows `%LocalAppData%\aries`), under `signin/`, each file 0600
+  in a 0700 directory; a sign-in in a directory others can read is
+  refused, never used. The token is useless without the key: each
+  connection proves it holds it. Neither is ever printed.
+- **A day.** A sign-in lasts the server's `token_lifetime`, 24 hours by
+  default, and nothing renews it: when it ends, its connections close
+  and the next command says to run `aries login`. A new `aries login`
+  replaces this machine's last sign-in, and ends it at the server.
+- **Each sign-in is announced** in your inbox in every project you are
+  a member of, as a `signin.granted` item from `ariesd` with the
+  provider, the machine and when it ends
+  ([The inbox](concepts.md#the-inbox)). One you did not make is someone
+  else working as you: end it with the `aries admin signin end ID` the
+  item names.
+- **`aries logout`** ends the sign-in at the server, which closes its
+  connections at once, and removes it from this machine. With the
+  server out of reach, it removes it here and says that an admin can
+  end it (`aries admin signin end ID`).
+- **Without a sign-in**, `aries` proves a key over HTTPS as before
+  ([Your key is your identity](#your-key-is-your-identity)), and a
+  refusal of every key says that `aries login` is the other way in.
+- **Agents.** `aries mcp` uses the sign-in too; when it ends, the agent
+  is told to ask you to run `aries login`, and never to run it itself.
 
 ### The host key is pinned
 
@@ -351,7 +421,9 @@ second gets the first's epoch.
 | `inbox` | List your unread inbox, newest first: 20 items, or `-n N` (at most 100). `--all` includes read items; `--ack ID` (repeatable or comma-separated) or `--ack-all` marks items read |
 | `watch` | Print inbox items as they arrive, until ctrl-c (exit 0). With `--json`, one object per line: `{"op":"inbox","item":{…}}`, or `{"op":"resync"}` when it missed items (`aries inbox` lists them) |
 | `tui` | Show the [live board](#the-live-board) until `q` |
-| `whoami` | Say who the server takes you for: your principal, the project and server, the session id, and the fingerprint of the key that signed in, with whether it came from a key file or from ssh-agent. `--json` gives the same as one document. Run it when a command acts as someone you did not expect |
+| `whoami` | Say who the server takes you for: your principal, the project and server, the session id, and your sign-in (its provider, its end and its id) or the fingerprint of the key that signed in, with whether it came from a key file or from ssh-agent. `--json` gives the same as one document, never a token. Run it when a command acts as someone you did not expect |
+| `login` | Sign in at the server's identity provider, for the day ([Sign in](#sign-in)). `--provider NAME` where the server has several; `--url` prints the URL to open in any browser and takes back the address it lands on. `--json` prints the principal, provider, server, end, sign-in id and scopes |
+| `logout` | End your sign-in at the server, closing its connections, and remove it from this machine. Says so when there is none |
 | `who` | List the sessions seen in the last 5 minutes (`--since 2h`, up to 7d) and the issues each holds; at most 100 (`-n N`, up to 500), then a count of the rest |
 | `digest` | Summarize a window: `--since 24h` (default), `7d`, a date or a time; filter with `--by PRINCIPAL` or `--label L`. Its sections include the issues that became ready in the window because their `defer_until` came (`ready since its date`), those due within the server's `due_soon` (`due soon`) and those past their due date (`overdue`) ([Dates](concepts.md#dates)). Under its header it prints the time issues were held (saying when some tokens were split by time), their cost at list price, the hours logged on the days the window overlaps, the tokens reported by model, and those no issue was held for |
 | `cost` | Report the list-price cost of the tokens reported in a window, their amortized cost once an admin has recorded a plan, and the hours logged ([Cost](concepts.md#cost)): `--since 7d`, a date or a time (required), `--until` a date or a time (not included; default now), grouped `--group-by account` (default), `issue`, `epic`, `person` or `model`. It lists 50 groups, largest first, or `-n N` (at most 500), the rest summed as `(other)`, then the total. `split` marks a group whose tokens came partly from records shared by time with other work, and `unpriced` one with tokens no price covers; a group with no priced token shows `unpriced` for its cost, never $0.00. With plans, each group shows `$X amortized` after its list price; with hours, `1.5h logged` after its tokens (by `model`, people's hours are the group `(human)`) |
@@ -386,7 +458,8 @@ Memories are notes kept across sessions, in `project` (the default),
 | `admin principal` | `admin principal add NAME [--key FILE]... [--project P]` adds a principal as a member of this repository's project, or of `--project` (a UUID or a name); `--no-project`, for server admins, adds it to none. Each `--key` is a public key file to add with it, as `admin key add` takes one; the principal and its keys are added together or not at all. `--kind service --owner NAME` adds a service, which answers to NAME, a person; `--kind person`, the default, a person. `--display-name D` gives it what people see beside its name. `--invite ADDRESS --provider P`, for server admins, invites an address for it as `admin invite add` does, in the same write. `admin principal set NAME [--display-name D] [--kind person|service] [--owner NAME]`, for server admins, changes those, and prints what the principal now is, or that it already was; `--display-name ""` clears the display name. `admin principal show NAME` shows a principal's state, kind, owner and display name, its identities and its keys, to server admins and to NAME. `admin principal list` lists them all, for server admins, with a kind, an owner and a display name where a principal has one; `--created-by NAME` lists those NAME created, which a project admin may also ask, and is shown the ones in their projects. `admin principal disable NAME` stops a principal's access everywhere, closes its connections and releases its claims, and says how many; a disabled principal is refused even if it is a server admin, and the last enabled server admin cannot be disabled. Disabling undoes nothing the principal did: when NAME added keys that are still in the store, created principals or added memberships, a warning on stderr counts them and names the lists that show them (`key list --added-by`, `principal list --created-by`, `member list --added-by`), and `--json` carries the counts as `keys_added`, `principals_created` and `members_added`. `admin principal enable NAME` restores it. A project admin may add a principal to a project they administer, and disable or enable one that belongs only to projects they administer. `admin principal whois STAND-IN`, for server admins, prints whose stand-in `p_…` is: the one a server's traces carry in place of a principal's name ([Traces](server.md#traces)), as `p_0123456789abcdef is alice`, with `(disabled)` after a disabled principal's; `--json` gives `stand_in`, `name` and `state`. It is refused for a stand-in that is nobody's, and on a server that has no key for them, with what that means |
 | `admin key` | A principal's public SSH keys, on a server whose sshd reads the keys file ariesd writes ([Keys from the store](server.md#keys-from-the-store)). `admin key add NAME FILE` adds the key in FILE, a `.pub` file such as `~/.ssh/id_ed25519.pub`, or `-` to read it from standard input, and prints its fingerprint. `--expires DURATION|TIME` gives the key an end, after which it signs in over neither SSH nor HTTPS and the connections it signed in are closed: a duration such as `12h` or `30d`, counted on the server's clock, or a time such as `2026-12-31T17:00:00Z`, at most ten years away; the end is printed in UTC, to the second ([Keys that end](server.md#keys-that-end)). `aries` reads the file here and sends the public key alone: a file that holds a private key, more than one line, or anything that is not one public key is refused before anything is sent. A key the principal already has changes nothing, unless `--expires` asks another end than it has, which is refused (`exists`): remove the key and add it again; one another principal has is refused, and so is one that the server's hand-maintained `authorized_keys` gives to another principal. `admin key list NAME` lists a principal's keys by fingerprint, type and comment, and when any has an end, each one's (`ENDS`), an ended key for an hour before the server prunes it: for server admins, an admin of any active project NAME belongs to (they may see the keys even where they may not change them), and NAME themselves. `admin key list` marks a key that is also a line of the server's hand-maintained `authorized_keys` file, and says how many of NAME's open connections came in by that file. `admin key list --added-by NAME` lists instead the keys NAME added, whoever each belongs to, by fingerprint (`-n N`, `--after FINGERPRINT`): everything for a server admin, and for a project admin the keys of their projects' members. `admin key remove FINGERPRINT` removes the key with that `SHA256:…` fingerprint and closes the connections it had signed in; it warns on stderr when the key is also a line of the server's `authorized_keys`: its connections were closed, and sshd, which reads that file after the server's own, still accepts the key by that line until the line is deleted on the server. Any of these commands that changes which keys sign in also warns when the server recorded the change and could not write its keys file, so that sshd may still be reading the old one. Adding is for server admins and for a project admin with reach over the principal, and never for your own account: another admin adds your keys. Removing is for the same admins, and for yourself: you may remove any key of your own except the one this connection signed in with, which is refused by fingerprint (`aries whoami` shows it; `admin key list YOU` shows the rest, with who added each). On a connection that came in by the server's `authorized_keys`, which names no key, the removal goes ahead with a warning that it could not be checked |
 | `admin invite` | On a server of [many projects](server.md#serving-many-projects), the invitations through which a person's sign-in at the company's identity provider becomes a principal ([Identities and invitations](server.md#identities-and-invitations)); for server admins. `admin invite add NAME ADDRESS --provider P` invites ADDRESS at provider P for the person NAME and prints the invitation's id and when it lapses unused (`login: invite_ttl`, 7 days by default); the same address for the same principal again renews it, and an address another principal is invited as is refused, naming that invitation. Nobody invites onto their own principal. `admin invite list [--pending]` lists the invitations no sign-in has bound, by id, with their state, `pending` or `lapsed`, and `--pending` only those still open (`-n N`, `--after ID`). `admin invite remove ID` removes one; a bound identity is refused, naming `admin identity remove` |
-| `admin identity` | A principal's identities, invited and bound. `admin identity list NAME` lists them by id, with provider, address, state (`pending`, `lapsed` or `bound`), when each was invited or bound and when an invitation lapses: for server admins, and for NAME. `admin identity remove ID`, for server admins, removes one, bound or not |
+| `admin identity` | A principal's identities, invited and bound. `admin identity list NAME` lists them by id, with provider, address, state (`pending`, `lapsed` or `bound`), when each was invited or bound and when an invitation lapses: for server admins, and for NAME. `admin identity remove ID`, for server admins, removes one, bound or not, and ends the sign-ins made with it, closing their connections |
+| `admin signin` | A person's [sign-ins](#sign-in). `admin signin list NAME` lists them by id, with provider, machine, scopes, state (`live`, or `ended` and why: `logout`, `revoked`, `identity removed`, `principal disabled`) and when each began and ends: for server admins, and for NAME. `admin signin end ID` ends one now and closes its connections: for server admins, and for its holder. Never a token |
 | `admin member` | `admin member add NAME [--project P] [--role admin] [--accept-keys]` makes a principal a member of the project, or changes its role (`member`, the default, or `admin`), and prints `added`, the new role, or that nothing changed. A key signs in to every project its principal is in, so when NAME has any key and is not yet a member, nothing is added at first: `aries` lists every key NAME has, with who added it, when, and whether that was an admin of this project, and on a terminal asks before it adds. Without a terminal it exits 1 with a fix naming `--accept-keys`, which adds without asking; with `--json` the one document holds the refusal under `error` and the keys under `member`. Someone with no key is added at once, and a change of role asks nothing. `admin member list [--project P]` lists the project's members; with `--added-by NAME` it lists the memberships NAME added, in every project you may list the members of, or in `--project`, by project and principal (`--after PROJECT/PRINCIPAL` continues). `admin member remove NAME [--project P]` ends a membership, closes that principal's connections to the project and releases the claims it held there, saying how many; it warns on stderr when that leaves the principal within reach of project admins who could not manage it before. For the project's admins and server admins. Each `admin` list of projects, principals or members is by name, 200 rows or `-n N` (at most 1000), then a count of the rest, which `--after NAME` lists |
 | `admin status` | What the server knows of itself and its projects now ([Watching a server](server.md#watching-a-server)). A server admin sees the server (version and protocol range, uptime, open stores and connections beside their limits, the keys file it writes for sshd and whether its last write failed, the times its clock was set and whether it is behind the server's own history ([The server's clock](server.md#the-servers-clock)), ariesd's own memory and goroutines, Postgres's own figures and ariesd's pool of connections to it, projects and principals by state, and identities as bound, pending or lapsed once there are any) and a row for every project; a project admin sees the rows of the active projects they administer; anyone else is refused. A row gives the project's state, whether its store is open, its schema's size on disk, its connections and how many of them came in by the hand-maintained `authorized_keys`, the sessions seen in five minutes, the writes of the last minute, and the median and 99th percentile latency of its latest 256 writes. `-n N` and `--after NAME` page the projects. It changes nothing |
 | `upgrade` | Replace `aries` with the latest release after checking its signature and checksum. `--check` reports and changes nothing; `--rollback` restores the binary the last upgrade replaced. It never runs on its own |

@@ -8,14 +8,15 @@
 // except that `aries lock run` exits with its command's code once the
 // command has run, and 130 when an interrupt ended it.
 // The work is all in [cli.Run]; main only hands it the process's streams,
-// environment and version, and a context that ends on an interrupt or
-// SIGTERM.
+// environment and version, the system's browser for `aries login`, and
+// a context that ends on an interrupt or SIGTERM.
 package main
 
 import (
 	"context"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 
 	"github.com/ariesworx/aries/internal/cli"
@@ -27,6 +28,7 @@ func main() {
 	code := cli.Run(ctx, os.Args[1:], cli.Env{
 		Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
 		Getenv: os.Getenv, Hostname: os.Hostname, Version: version.Version,
+		OpenBrowser: cli.OpenBrowser(runtime.GOOS),
 	})
 	stop() // not deferred: os.Exit skips deferred calls
 	os.Exit(code)

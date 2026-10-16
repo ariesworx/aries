@@ -118,6 +118,14 @@ profile ariesd-serve flags=(attach_disconnected) {
   owner @{ariesd_acme}/ rw,
   owner @{ariesd_acme}/** rw,
 
+  # Sign-in (docs/server.md, Sign-in): each provider's client secret,
+  # the CA of its certificate and, offline, its key set, read at start
+  # and the key set again when a token names a key it lacks. Reaching
+  # a provider is network inet stream, DNS and abstractions/ssl_certs,
+  # above.
+  @{ariesd_login}/ r,
+  @{ariesd_login}/** r,
+
   # The keys file: a temporary file beside it, written, synced and
   # renamed over it, and removed when SSH is off. authorized_keys is
   # only ever read.

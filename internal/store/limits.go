@@ -33,7 +33,7 @@ type Limits struct {
 	InboxUnread int `yaml:"unread_per_principal"`
 	// Notices caps the mentions, assignments and handoffs one principal
 	// can send another in a minute; the rest are not delivered. Lost
-	// claims are not counted.
+	// claims, locks granted or lost, and sign-ins are not counted.
 	Notices int `yaml:"notices_per_minute"`
 	// UsageRecords caps the records one AddUsage call may send.
 	UsageRecords int `yaml:"records_per_usage_call"`

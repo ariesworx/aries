@@ -412,6 +412,12 @@ func TestErrorsNameTheNextStep(t *testing.T) {
 			"busy: alice is over the write limit (10 a second, bursts of 100)\nfix: the server is limiting your requests: wait a few seconds, then retry once; if it is refused again, tell the user, quoting the server: \"wait 3s and retry\""},
 		{"nothing ready", proto.Errf(proto.CodeNotFound, "see what holds work back with `aries blocked`, or create an issue", "nothing is ready to start"),
 			"not_found: nothing is ready to start\nfix: nothing is ready: call blocked to see why, or create an issue"},
+		// A sign-in that ended, at the dial or on a connection the server
+		// closed: signing in is the person's act, never the agent's.
+		{"dial, signed out", &dialError{err: proto.Errf(proto.CodeAuth, "run `aries login`", "your sign-in ended at 2026-10-17T12:00:00Z")},
+			"auth: your sign-in ended at 2026-10-17T12:00:00Z\nfix: " + signInFix},
+		{"sign-in ended on the connection", proto.Errf(proto.CodeAuth, "run `aries login` to sign in again", "your sign-in ended (logout)"),
+			"auth: your sign-in ended (logout)\nfix: " + signInFix},
 		{"dial", &dialError{err: proto.Errf(proto.CodeAuth, "send your public key to the aries admin", "refused your SSH key")},
 			"auth: refused your SSH key\nfix: tell the user aries cannot connect, quoting the server: \"send your public key to the aries admin\""},
 		// An `aries mcp` older than the server's protocol: the refusal is

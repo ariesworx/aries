@@ -23,7 +23,9 @@ such a server, and prefer opting in to many projects
 | A project's members | `aries -C REPO admin member list --project P` |
 | A principal's keys | `aries -C REPO admin key list NAME` |
 | What someone added | `aries -C REPO admin key list --added-by NAME`, `aries -C REPO admin principal list --created-by NAME`, `aries -C REPO admin member list --added-by NAME` |
-| The server | `aries -C REPO admin status` |
+| A person's identities, and the open invitations | `aries -C REPO admin identity list NAME`, `aries -C REPO admin invite list --pending` |
+| A person's sign-ins | `aries -C REPO admin signin list NAME` |
+| The server | `aries -C REPO admin status` (with sign-in, each provider and the live sign-ins) |
 
 ## Changes
 
@@ -42,6 +44,9 @@ target named in the operator's reply, as SKILL.md's rule 5 says.
 | Remove from a project (destructive) | `aries -C REPO admin member remove NAME --project P` | Ends their claims there |
 | Disable a principal (destructive) | `aries -C REPO admin principal disable NAME` | Everywhere, at once; ends every claim. Undo with `aries -C REPO admin principal enable NAME` |
 | Archive a project (destructive) | `aries -C REPO admin project archive PROJECT` | Keeps its data; `aries -C REPO admin project activate PROJECT` serves it again. There is no command that deletes a project |
+| Invite a person to sign in | `aries -C REPO admin invite add NAME ADDRESS --provider P` | P is one of the server's `login: providers`; the address is the one the provider names. Never onto the operator's own principal: another server admin does that (docs/server.md#identities-and-invitations) |
+| End a sign-in (destructive) | `aries -C REPO admin signin end ID` | Closes its connections at once. List them first with `admin signin list NAME`, and confirm the id |
+| Remove an identity (destructive) | `aries -C REPO admin identity remove ID` | No sign-in is that person by it again, and its sign-ins end |
 
 Run each with `--json` when you need to read the result, and report what
 it printed: the counts of claims released, and every warning on stderr.
@@ -68,6 +73,17 @@ password, so the operator edits it themselves (`sudoedit
 /etc/aries/ariesd.yaml`); then check it with `sudo -n grep -vi dsn
 /etc/aries/ariesd.yaml` and `stat`, and restart ariesd with
 approval. Name only admins who can sign in.
+
+**Sign-in at the company's provider** is set up by the operator, in
+`/etc/aries/ariesd.yaml` under `login: providers`, with the provider's
+client secret in a file of its own, mode 0600, under `/etc/aries/login`
+(docs/server.md#sign-in). Both are root changes, and the secret is the
+operator's to write: never ask for it, print it or pass it in a
+command. Give them the guide's section and the redirect to register at
+the provider, the first of `public_urls` and `/auth/callback`. After
+their restart, with approval, check that `aries -C REPO admin status`
+shows the provider, and for a site with no route out that its keys come
+from a file.
 
 ## Offboarding
 

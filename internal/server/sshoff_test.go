@@ -107,7 +107,7 @@ func mustHandOff(t *testing.T, s *Server, a store.Actor, proj string) *conn {
 	t.Cleanup(c.hangUp)
 	c.wg.Go(func() {
 		defer func() { _ = srv.Close() }()
-		s.serveConn(t.Context(), srv, &proto.Frame{T: proto.FrameBridge, Principal: a.Principal})
+		s.serveConn(t.Context(), srv, &proto.Frame{T: proto.FrameBridge, Principal: a.Principal}, nil)
 	})
 	c.wg.Go(func() {
 		_ = c.enc.Encode(&proto.Frame{T: proto.FrameHello, Proto: proto.Proto, Project: proj, Session: a.Session, Machine: a.Machine})

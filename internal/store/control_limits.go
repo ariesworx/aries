@@ -30,11 +30,15 @@ type ControlLimits struct {
 	// Invites caps the open invitations on the server: those no sign-in
 	// has bound and that have not lapsed.
 	Invites int `yaml:"invites_per_server"`
+	// Grants caps the live sign-ins of one principal: those neither
+	// ended nor past their end, one for each machine and client it signed
+	// in on.
+	Grants int `yaml:"grants_per_principal"`
 }
 
 // DefaultControlLimits are the limits a zero field takes.
 var DefaultControlLimits = ControlLimits{Projects: 500, Principals: 5000, PrincipalsPerCreator: 500, Keys: 20, Members: 1000,
-	Identities: 8, Invites: 1000}
+	Identities: 8, Invites: 1000, Grants: 64}
 
 // The limits' names, as a [*ControlLimitError] gives them.
 const (
@@ -45,6 +49,7 @@ const (
 	limitMembers    = "members_per_project"
 	limitIdentities = "identities_per_principal"
 	limitInvites    = "invites_per_server"
+	limitGrants     = "grants_per_principal"
 )
 
 // withDefaults returns l with each zero field set from
@@ -54,6 +59,7 @@ func (l ControlLimits) withDefaults() ControlLimits {
 	for _, f := range []struct{ v, d *int }{
 		{&l.Projects, &d.Projects}, {&l.Principals, &d.Principals}, {&l.PrincipalsPerCreator, &d.PrincipalsPerCreator},
 		{&l.Keys, &d.Keys}, {&l.Members, &d.Members}, {&l.Identities, &d.Identities}, {&l.Invites, &d.Invites},
+		{&l.Grants, &d.Grants},
 	} {
 		if *f.v == 0 {
 			*f.v = *f.d
@@ -71,6 +77,7 @@ func (l ControlLimits) Validate() error {
 	}{
 		{limitProjects, l.Projects}, {limitPrincipals, l.Principals}, {limitPerCreator, l.PrincipalsPerCreator},
 		{limitKeys, l.Keys}, {limitMembers, l.Members}, {limitIdentities, l.Identities}, {limitInvites, l.Invites},
+		{limitGrants, l.Grants},
 	} {
 		if f.v < 0 {
 			return fmt.Errorf("%w: limit %s is %d; give a positive number, or leave it out for the default", ErrInvalid, f.name, f.v)
@@ -83,7 +90,7 @@ func (l ControlLimits) Validate() error {
 // of them already. Limit names the limit as ariesd's settings do
 // (projects_per_server, principals_per_server, principals_per_creator,
 // keys_per_principal, members_per_project, identities_per_principal,
-// invites_per_server). It wraps ErrInvalid.
+// invites_per_server, grants_per_principal). It wraps ErrInvalid.
 type ControlLimitError struct {
 	Limit string
 	Max   int
@@ -105,6 +112,8 @@ func (e *ControlLimitError) Error() string {
 		return fmt.Sprintf("%v: a principal keeps at most %d identities, bound, open or lapsed", ErrInvalid, e.Max)
 	case limitInvites:
 		return fmt.Sprintf("%v: the server keeps at most %d open invitations", ErrInvalid, e.Max)
+	case limitGrants:
+		return fmt.Sprintf("%v: a principal keeps at most %d live sign-ins", ErrInvalid, e.Max)
 	}
 	return fmt.Sprintf("%v: past the limit %s, %d", ErrInvalid, e.Limit, e.Max)
 }

@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/ariesworx/aries/internal/client"
 )
 
 // whoami is what `aries whoami` reports: who the server takes this
-// connection for, and which key signed it in.
+// connection for, and which sign-in or key let it in.
 type whoami struct {
 	// Principal is the name the server has for the key that signed in.
 	Principal string `json:"principal"`
@@ -18,11 +19,22 @@ type whoami struct {
 	Project string       `json:"project"`
 	Server  whoamiServer `json:"server"`
 	Session string       `json:"session"`
+	// SignIn is the sign-in the connection presented, never its token;
+	// nil when a key let it in.
+	SignIn *whoamiSignIn `json:"signin,omitempty"`
 	// Key is the key that signed in: a fingerprint, never the key.
 	Key client.KeyInfo `json:"key"`
 	// Skipped names each default identity file that was found and could
 	// not be used, with the reason.
 	Skipped []string `json:"skipped,omitempty"`
+}
+
+// whoamiSignIn is a sign-in as whoami shows it.
+type whoamiSignIn struct {
+	ID        string    `json:"id"`
+	Provider  string    `json:"provider"`
+	ExpiresAt time.Time `json:"expires_at"`
+	Scopes    []string  `json:"scopes"`
 }
 
 // whoamiServer is the server as the config names it, and the transport
@@ -67,6 +79,9 @@ func cmdWhoami(ctx context.Context, r *runner, args []string) error {
 	}
 	out := whoami{Principal: c.Principal(), Project: cfg.Project, Session: c.Session(), Key: c.Key(), Skipped: c.SkippedKeys(),
 		Server: whoamiServer{Transport: via, URL: cfg.Server.URL, Host: cfg.Server.Host, Port: cfg.Server.Port, User: cfg.Server.User}}
+	if s := c.SignIn(); s != nil {
+		out.SignIn = &whoamiSignIn{ID: s.Grant, Provider: s.Provider, ExpiresAt: s.ExpiresAt, Scopes: s.Scopes}
+	}
 	if cfg.Server.Host != "" {
 		if pinned := cfg.Pinned(); len(pinned) == 1 {
 			out.Server.HostKey = pinned[0]
@@ -102,6 +117,11 @@ func printWhoami(w io.Writer, me whoami) {
 		p("server", "%s@%s:%d, %s", esc(me.Server.User), esc(me.Server.Host), me.Server.Port, keys)
 	}
 	p("session", "%s", esc(me.Session))
+	if s := me.SignIn; s != nil {
+		p("signed in", "at %s, until %s (sign-in %s, scopes %s); `aries logout` ends it", esc(s.Provider), when(s.ExpiresAt), esc(s.ID),
+			esc(strings.Join(s.Scopes, " ")))
+		return
+	}
 	// How the key was chosen: named, and so the only one offered, or
 	// found, among the default identities and ssh-agent's keys.
 	chosen := ", which " + esc(me.Key.By) + " names"

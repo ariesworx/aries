@@ -23,6 +23,9 @@ set -euo pipefail
 umask 077
 
 port=${ARIES_IDENTITY_PORT:-8180}
+# The Aries server's HTTPS port on the host, whose callback the server's
+# client redirects to.
+https_port=${ARIES_HTTPS_PORT:-8443}
 # One issuer for everyone: a browser on the host reaches it on loopback,
 # where *.localhost resolves, and the server's container by the
 # compose network's alias of the same name.
@@ -160,12 +163,14 @@ ensure_clients() {
    "id.token.signed.response.alg": "ES256", "use.refresh.tokens": "false"}}
 EOF
   # The server: confidential, for a code exchanged by the server rather
-  # than by aries. Its secret is in aries-server.secret.
+  # than by aries, with its one callback, the test server's
+  # (docs/server.md, "Sign-in"). Its secret is in aries-server.secret.
   ensure_client aries-server <<EOF
 {"clientId": "aries-server", "name": "The Aries server (test)", "protocol": "openid-connect", "publicClient": false,
  "clientAuthenticatorType": "client-secret", "secret": "$(secret aries-server.secret)",
  "standardFlowEnabled": true, "implicitFlowEnabled": false, "directAccessGrantsEnabled": false,
- "serviceAccountsEnabled": false, "consentRequired": false, "redirectUris": $redirects,
+ "serviceAccountsEnabled": false, "consentRequired": false,
+ "redirectUris": ["https://localhost:$https_port/auth/callback", "http://127.0.0.1/*", "urn:ietf:wg:oauth:2.0:oob"],
  "attributes": {"pkce.code.challenge.method": "S256", "id.token.signed.response.alg": "ES256",
    "use.refresh.tokens": "false"}}
 EOF
