@@ -112,6 +112,7 @@ says how to change that key later without refusing every client.
 | `--host HOST` | The server's DNS name or address, for the URL and `.aries.yaml`, and the name ACME gets a certificate for. Default `hostname -f` |
 | `--profile P` | `internet`, the default, `private`, `airgapped` or `ssh-only` ([Profiles](#profiles)) |
 | `--enable-ssh` | Serve SSH beside HTTPS ([SSH on and off](#ssh-on-and-off)) |
+| `--disable-ssh` | Turn SSH off on a server that served it: remove every SSH path an earlier run set up ([SSH on and off](#ssh-on-and-off)). Set `transports:` without `ssh`, and restart ariesd, first |
 | `--url URL` | The `https://` URL clients use, `server.url` and `public_urls:`. Default `https://HOST`, with the port when clients reach the listener on another than 443 |
 | `--listen ADDR` | The listener's `HOST:PORT`. Default `:443`, or `127.0.0.1:8443` behind a proxy |
 | `--tls MODE` | `acme`, `files` or `proxy`, in place of the profile's ([Certificates](#certificates)) |
@@ -142,9 +143,10 @@ Its steps, and the sections of this guide each one follows:
 | 8 | Let the first admin in | With SSH, [6. Let the first principal in](#6-let-the-first-principal-in); without, the line in `/etc/aries/admin.keys` ([SSH on and off](#ssh-on-and-off)) |
 | 9 | Have sshd read the keys file | With SSH, [Keys from the store](#keys-from-the-store) step 2, and step 6's drop-in; skipped without ([SSH on and off](#ssh-on-and-off)) |
 | 10 | Confine ariesd with AppArmor | [Confine ariesd with AppArmor](#confine-ariesd-with-apparmor), with `--apparmor` |
-| 11 | Adopt the database as the first project | [Opt in](#opt-in) step 2, with the first admin's key from step 8's file |
-| 12 | Start ariesd | [5. Run ariesd under systemd](#5-run-ariesd-under-systemd), and with SSH [Keys from the store](#keys-from-the-store) step 3 |
-| 13 | Connect a repository | [7. Connect a repository](#7-connect-a-repository) |
+| 11 | Adopt the database as the first project | [Opt in](#opt-in) step 2, with the first admin's key from step 8's file; with `--disable-ssh`, also the keys of the `aries` account's `authorized_keys` |
+| 12 | Remove what served SSH | With `--disable-ssh`, [SSH on and off](#ssh-on-and-off): sshd's drop-in, `authorized_keys`, the keys file and its drop-in, and the bridge's AppArmor profile; skipped without |
+| 13 | Start ariesd | [5. Run ariesd under systemd](#5-run-ariesd-under-systemd), and with SSH [Keys from the store](#keys-from-the-store) step 3 |
+| 14 | Connect a repository | [7. Connect a repository](#7-connect-a-repository) |
 
 - **Run it again at any time.** Each step checks before it acts, so a
   second run changes nothing and ends `Nothing to change`, and a run
@@ -155,14 +157,16 @@ Its steps, and the sections of this guide each one follows:
   already exists with other text, it shows the difference and stops,
   and you choose: make it the guide's, or move it aside and run again.
   Of the files it did not create, it only appends the admin's line to
-  `authorized_keys`, and prints the line. It changes no role or database
+  `authorized_keys`, and prints the line; `--disable-ssh` removes that
+  file once its keys are in the control store. It changes no role or database
   it did not make: a role `aries` with more rights than step 2 gives, or
   a database `aries` that another role owns or whose collation is not
   `C`, stops it with the fix.
 - **A default install exposes no SSH path.** Without `--enable-ssh` or
   `ssh-only` it writes nothing sshd reads for the `aries` account, and
   ariesd refuses the bridge; `--plan` lists what each profile writes,
-  and a test holds each profile to it.
+  and a test holds each profile to it. `--disable-ssh` takes a server
+  that had SSH on back to that, and `--plan` lists what it removes.
 - **sshd is checked before it is reloaded.** With SSH on, the drop-in is
   checked with `sshd -t`; if that fails, the new file is removed again
   and sshd is not reloaded.
@@ -919,7 +923,7 @@ at least one.
 
 | | SSH off (the default) | SSH on |
 |---|---|---|
-| The installer | Writes no sshd drop-in, no `.ssh` for the `aries` account and no forced command; the first admin's key goes to `/etc/aries/admin.keys`, which no sshd reads, for `control init` | `--enable-ssh`, or `--profile ssh-only`: does [Keys from the store](#keys-from-the-store) and step 6, and checks `sshd -t` |
+| The installer | Writes no sshd drop-in, no `.ssh` for the `aries` account, no forced command and no `ariesd-stdio` AppArmor profile; the first admin's key goes to `/etc/aries/admin.keys`, which no sshd reads, for `control init`. `--disable-ssh` removes what a run with SSH on wrote | `--enable-ssh`, or `--profile ssh-only`: does [Keys from the store](#keys-from-the-store) and step 6, and checks `sshd -t` |
 | ariesd | Writes no keys file, and removes one it wrote (`keys_file.removed`); refuses a bridge from `ariesd stdio` with `unavailable`, `SSH is off on this server`, and a fix naming `transports: [https, ssh]` and `--enable-ssh`. `ariesd status` and the upgrade's health check use the socket as before | Writes the keys file; serves the bridge |
 | `aries admin key …` | Works, with a notice: the key signs in over HTTPS, and sshd takes it once SSH is on | As before |
 | `aries admin status`, `ariesd status` | `transports: https on :443 for https://aries.example.com (files, certificate ends 2027-01-13), 3 connections; ssh off` | `…; ssh on, 2 connections` |
@@ -929,11 +933,32 @@ first run with and `--enable-ssh`, which checks before it acts and sets
 up sshd; then set `transports: [https, ssh]` in `/etc/aries/ariesd.yaml`
 and `systemctl restart ariesd`, which writes the keys file. The
 installer leaves the config file as it is, and says what to set.
-**Turning it off**: `transports: [https]` and a restart, which removes
-the keys file and refuses bridges from then; remove
-`/etc/ssh/sshd_config.d/00-aries.conf` and the `aries` account's
-`authorized_keys`, and reload sshd, to keep sshd from letting keys in
-for the account at all.
+**Turning it off**: set `transports: [https]` in
+`/etc/aries/ariesd.yaml` and `systemctl restart ariesd`, which removes
+the keys file and refuses bridges from then. Then run the installer
+again with the options it was first run with and `--disable-ssh` in
+place of `--enable-ssh`, first with `--plan` and `--dry-run`; it
+refuses to run while the config file still serves SSH, since ariesd
+could then no longer write its keys file. Its step 11 takes the keys of
+the `aries` account's `authorized_keys` into the control store, as a
+run with SSH on does, so that each still signs in over HTTPS; then
+`install-server.sh --disable-ssh` removes, each only where it is:
+
+- `/etc/ssh/sshd_config.d/00-aries.conf`, if it is this guide's; then
+  it checks `sshd -t` and reloads sshd
+- `/var/lib/aries/.ssh/authorized_keys`, and with it the forced command
+  of each of its lines
+- `/var/lib/aries/.ssh/aries_keys`, if ariesd wrote it
+- `/var/lib/aries/.ssh/`, when nothing else is in it
+- `/etc/systemd/system/ariesd.service.d/keys.conf`, if it is this
+  guide's; then it restarts ariesd
+- `/etc/apparmor.d/ariesd-stdio`, unloaded first: with SSH off nothing
+  runs as sshd's forced command
+
+So sshd lets no key in for the account, and nothing on the machine
+forces the bridge: no SSH path is left. It changes nothing else of
+sshd's, which other accounts may use. A file it would remove that holds
+other text than this guide's stops it, with the difference shown.
 
 `aries` configured for SSH against a server with SSH off is refused by
 sshd, which has no key for the account; when `.aries.yaml` also has
@@ -2470,15 +2495,17 @@ Ubuntu runs AppArmor, and out of the box it confines neither sshd
 nor a program it has no profile for: on the machines above, `aa-status`
 listed no profile for sshd, sshd and its children ran `unconfined`, and
 so did ariesd. Aries ships three profiles for ariesd
-([deploy/apparmor](../deploy/apparmor/README.md)). They matter most for
-the bridge, `ariesd stdio`: sshd starts it for every connection,
+([deploy/apparmor](../deploy/apparmor/README.md)), in two files: the
+daemon's and the operator's in `ariesd`, and the bridge's in
+`ariesd-stdio`, which only a server with SSH on installs. With SSH on
+they matter most for the bridge, `ariesd stdio`: sshd starts it for every connection,
 outside the systemd unit and so with none of the unit's protections,
 as a user that owns its own binary, its config file and its
 `authorized_keys`.
 
 | Profile | Runs | May |
 |---|---|---|
-| `ariesd` | `ariesd stdio`, `ariesd status`, and anything else run from the binary's path with no profile asked for | Read the config file and connect to the daemon's socket. No network, no other file, no program |
+| `ariesd-stdio`, with SSH on | `ariesd stdio`, `ariesd status`, and anything else run from the binary's path with no profile asked for | Read the config file and connect to the daemon's socket. No network, no other file, no program |
 | `ariesd-serve` | `ariesd serve`, because the unit asks for it | Read the config file, listen on the socket, reach Postgres by its unix socket or over TCP and read the database's client files in `/etc/aries/postgres`, write the keys file and read `authorized_keys`; resolve names and read the machine's certificate authorities, for a managed Postgres or a hosted backend; listen on the loopback port for metrics and health, post metrics and traces to a collector, make and read the key of the stand-ins its traces name people by, and write to systemd's notify socket ([Observability](#observability)). No program |
 | `ariesd-admin` | `control init`, `import-bd`, `export-bd` and `upgrade`, when the operator asks for it | Open the store as the daemon does, read and write files in the top of `/var/lib/aries`, read `authorized_keys`, reach the network, replace the binary in `/opt/aries/bin`, and run `sudo` |
 
@@ -2486,7 +2513,11 @@ AppArmor picks a profile by the program's path and never by its
 arguments, so one path can carry one profile by itself. It carries the
 smallest, since sshd has no way to ask for another. None of the three
 may write the config file or `authorized_keys`, and only the operator's
-may write the binary.
+may write the binary. With SSH off nothing runs as sshd's forced
+command, so the bridge's profile is not installed, and the path carries
+none: `ariesd status`, and anything else run from it with no profile
+asked for, runs unconfined, as it would with no profiles at all
+([SSH on and off](#ssh-on-and-off)).
 
 **Install them**, as root:
 
@@ -2512,6 +2543,24 @@ To watch before you enforce, load them with `apparmor_parser -r -C`
 instead: AppArmor then logs what it would have refused and refuses
 nothing.
 
+**Only with SSH on**, install the bridge's profile too:
+
+```sh
+curl -fsSL -o stdio https://raw.githubusercontent.com/ariesworx/aries/main/deploy/apparmor/ariesd-stdio
+install -m 0644 stdio /etc/apparmor.d/ariesd-stdio
+apparmor_parser -r /etc/apparmor.d/ariesd-stdio
+```
+
+The installer's `--apparmor` installs it with SSH on, and not without;
+`--disable-ssh` unloads and removes it. Profiles from before 16 October
+2026 held the bridge's in `/etc/apparmor.d/ariesd`, named `ariesd`:
+install this release's files as above, and move rules of your own for
+the bridge from `local/ariesd` to `local/ariesd-stdio`. The installer
+shows how the installed file differs, and leaves it to you. A profile
+`ariesd` the old file loaded stays loaded until the next boot, and
+attached to the binary's path as before: `apparmor_parser -R` on the
+old file, before you replace it, unloads it.
+
 **On Ubuntu 26.04 a profile changed to is stacked.** There
 `kernel.apparmor_restrict_unprivileged_unconfined` is 1 (on 24.04 it
 is 0), so when a process that is not root changes to a profile, as
@@ -2521,7 +2570,7 @@ systemd does for the unit's `User=aries` and `aa-exec` does for the
 profile still decides, since a stack allows only what each of its
 profiles allows: under the operator's, `export-bd -o` into `.ssh` was
 still refused and logged. The bridge, which its path
-attaches, is a plain `ariesd`. What the stack changed, each in this
+attaches, is a plain `ariesd-stdio`. What the stack changed, each in this
 release's profiles:
 
 - **A process could not signal its own threads.** Go preempts a
@@ -2553,8 +2602,8 @@ sudo -u aries -H aa-exec -p ariesd-admin -- ariesd import-bd bd.jsonl
 sudo -u aries -H aa-exec -p ariesd-admin -- ariesd export-bd -o back.jsonl
 ```
 
-- Without `aa-exec` such a command runs under the bridge's profile and
-  is refused with `permission denied`: `control init` on
+- With SSH on, without `aa-exec` such a command runs under the
+  bridge's profile and is refused with `permission denied`: `control init` on
   `authorized_keys`, anything that opens the store on Postgres's
   socket (`/var/run/postgresql/.s.PGSQL.5432`), and `upgrade` on its
   lookup of the release host (`api.github.com`, unless `releases:` names
@@ -2571,10 +2620,10 @@ sudo -u aries -H aa-exec -p ariesd-admin -- ariesd export-bd -o back.jsonl
   export-bd > FILE`, or a pipe.
 - `aa-exec` is in Ubuntu's `apparmor` package, which is installed.
 - **`ariesd status` needs no `aa-exec`**: `sudo -u aries -H ariesd
-  status` runs under the bridge's profile, which allows the two things
-  it does. root cannot run it directly here, because that profile gives
-  root no way past the config file's mode; the refusal says to run it
-  as `aries`.
+  status` runs under the bridge's profile with SSH on, which allows the
+  two things it does, and under none with SSH off. With SSH on root
+  cannot run it directly, because that profile gives root no way past
+  the config file's mode; the refusal says to run it as `aries`.
 
 **If you moved a path** (the binary, the config file, the socket, the
 home directory, `keys_file`, `authorized_keys`,
@@ -2582,9 +2631,10 @@ home directory, `keys_file`, `authorized_keys`,
 files), change it in
 `/etc/apparmor.d/tunables/ariesd`, which names each one once, and
 load the profiles again with `apparmor_parser -r
-/etc/apparmor.d/ariesd`. Rules of your own go in
-`/etc/apparmor.d/local/ariesd`, `local/ariesd-serve` and
-`local/ariesd-admin`.
+/etc/apparmor.d/ariesd`, and with SSH on `apparmor_parser -r
+/etc/apparmor.d/ariesd-stdio`. Rules of your own go in
+`/etc/apparmor.d/local/ariesd-serve`, `local/ariesd-admin` and
+`local/ariesd-stdio`.
 
 **A Postgres on another machine, a managed service, and a hosted
 backend need nothing added.** The daemon's profile allows DNS
@@ -2614,7 +2664,8 @@ kernel logged some at boot (`who`, `systemd-detect-virt`).
 
 ```sh
 apparmor_parser -R /etc/apparmor.d/ariesd
-rm /etc/apparmor.d/ariesd /etc/apparmor.d/tunables/ariesd
+[ ! -e /etc/apparmor.d/ariesd-stdio ] || apparmor_parser -R /etc/apparmor.d/ariesd-stdio
+rm -f /etc/apparmor.d/ariesd /etc/apparmor.d/ariesd-stdio /etc/apparmor.d/tunables/ariesd
 rm /etc/systemd/system/ariesd.service.d/apparmor.conf
 systemctl daemon-reload
 systemctl restart ariesd
@@ -2623,7 +2674,8 @@ systemctl restart ariesd
 Unload the profiles and remove the unit's line together. With the line
 and no profile, ariesd does not start (`Failed to prepare AppArmor
 profile change to ariesd-serve`). With the profiles and no line, the
-daemon gets the bridge's profile and cannot reach Postgres.
+daemon gets the bridge's profile, with SSH on, and cannot reach
+Postgres.
 
 What they do not do:
 
@@ -3659,9 +3711,9 @@ document: the report, or `{"error": …}` and exit code 1.
   **the user ariesd runs as**: the config file and the socket's
   directory are that user's alone, and on Linux the daemon also checks
   that whoever connects runs as its own user. Anyone else gets a refusal
-  with a `fix:`. So does root where the
-  [AppArmor profiles](#confine-ariesd-with-apparmor) are loaded: run
-  it with `sudo -u aries -H`, as above. It needs no `aa-exec`.
+  with a `fix:`. So does root where the bridge's
+  [AppArmor profile](#confine-ariesd-with-apparmor) is loaded, with SSH
+  on: run it with `sudo -u aries -H`, as above. It needs no `aa-exec`.
 - It must be the same build as the daemon, since it speaks the daemon's
   protocol: one of another protocol version is refused with `version`.
 - It connects under the reserved principal `ariesd-status`, which no
@@ -4381,7 +4433,7 @@ outside it.
 | `busy` | A [limit](#limits) | Wait as the fix says, or raise the limit |
 | `permission denied` on a file or socket the `aries` user owns, after you moved a path; or from `control init`, `import-bd`, `export-bd` or `upgrade` | With the [AppArmor profiles](#confine-ariesd-with-apparmor): the path is not the one the profiles name, or the command ran without `aa-exec` | `journalctl -k -g 'apparmor="DENIED"'` names the profile and the path. Change the path in `/etc/apparmor.d/tunables/ariesd` and run `apparmor_parser -r /etc/apparmor.d/ariesd`; run an operator's command through `aa-exec -p ariesd-admin --` |
 | ariesd does not start: `Failed to prepare AppArmor profile change to ariesd-serve` | The unit asks for a profile that is not loaded | `apparmor_parser -r /etc/apparmor.d/ariesd`, or remove the unit's `apparmor.conf` ([Confine ariesd with AppArmor](#confine-ariesd-with-apparmor)) |
-| ariesd does not start: `connect: permission denied` on `/var/run/postgresql/.s.PGSQL.5432`, or a refused connection to another machine's Postgres | The AppArmor profiles are loaded and the unit does not ask for `ariesd-serve`, so the daemon has the bridge's profile; or the profiles are from before Postgres | Add the unit's `AppArmorProfile=ariesd-serve` line, `systemctl daemon-reload`, and restart; install this release's profiles |
+| ariesd does not start: `connect: permission denied` on `/var/run/postgresql/.s.PGSQL.5432`, or a refused connection to another machine's Postgres | The AppArmor profiles are loaded and the unit does not ask for `ariesd-serve`, so the daemon has the bridge's profile (with SSH on); or the profiles are from before Postgres | Add the unit's `AppArmorProfile=ariesd-serve` line, `systemctl daemon-reload`, and restart; install this release's profiles |
 | ariesd does not start at boot: `connect: no such file or directory` on `/var/run/postgresql/.s.PGSQL.5432` | Postgres was not running: its cluster failed, or the unit lacks `postgresql.service` in `After=` and `Wants=` | `systemctl status postgresql@18-main`, `journalctl -u postgresql@18-main`; the unit of [step 5](#5-run-ariesd-under-systemd). systemd starts ariesd again five seconds later |
 | ariesd answers `aries`, yet `systemctl status ariesd` says `activating`, and every ten minutes `start operation timed out` restarts it; its log has `could not tell systemd the daemon is ready` | The unit has `Type=notify` and the daemon cannot write to systemd's socket: the AppArmor profiles loaded are from before the unit had that line | Install this release's profiles and `apparmor_parser -r /etc/apparmor.d/ariesd` ([Confine ariesd with AppArmor](#confine-ariesd-with-apparmor)); `journalctl -k -g 'apparmor="DENIED"'` names `/run/systemd/notify` |
 | `Watchdog timeout (limit 2min)!` in the journal, then goroutine stacks and a restart | ariesd did not tell systemd it was alive for `WatchdogSec`: it hung, or one tick of its reaper took that long, as it can when Postgres stops answering | Read the stacks, which say where it was; check Postgres. If the machine is merely slow, raise `WatchdogSec` |

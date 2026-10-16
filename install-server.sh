@@ -22,13 +22,15 @@
 # the server. --profile chooses the transports and where the TLS
 # certificate comes from (steps 5 to 7); SSH's steps (sshd, the keys
 # file, the forced command) run only with --enable-ssh or the profile
-# ssh-only, so a default install exposes no SSH path.
+# ssh-only, so a default install exposes no SSH path, and --disable-ssh
+# removes them from a server that had SSH on (step 12).
 set -eu
 
 usage() {
 	cat <<'EOF'
 usage: install-server.sh --admin NAME --admin-key FILE [--host HOST]
-                         [--profile internet|private|airgapped|ssh-only] [--enable-ssh]
+                         [--profile internet|private|airgapped|ssh-only]
+                         [--enable-ssh | --disable-ssh]
                          [--url URL] [--listen ADDR] [--tls acme|files|proxy]
                          [--cert FILE --key FILE] [--acme-email ADDR] [--acme-directory URL]
                          [--trusted ADDRS] [--port PORT]
@@ -54,6 +56,12 @@ commits.
                      ssh-only: SSH alone, as servers were before HTTPS
   --enable-ssh       serve SSH beside HTTPS: sshd, its drop-in and the
                      keys file
+  --disable-ssh      turn SSH off on a server that served it: import the
+                     keys of the aries account's authorized_keys, then
+                     remove it, sshd's drop-in, the keys file and its
+                     unit drop-in, and the bridge's AppArmor profile.
+                     Set transports: without ssh in the config file, and
+                     restart ariesd, first
   --url URL          the https:// URL clients use, server.url
                      (default: https://HOST)
   --listen ADDR      the HTTPS listener's HOST:PORT (default :443, or
@@ -159,7 +167,7 @@ have() { _have=$(command -v "$1" 2>&1) && [ -n "$_have" ]; }
 
 admin='' admin_key='' host='' port='' project=first version='' dry=0 apparmor=0
 dsn_opt='' db_password_file=''
-profile=internet enable_ssh=0 plan=0 url='' listen='' tls='' cert_opt='' key_opt='' acme_email='' acme_directory='' trusted=''
+profile=internet enable_ssh=0 disable_ssh=0 plan=0 url='' listen='' tls='' cert_opt='' key_opt='' acme_email='' acme_directory='' trusted=''
 releases=${ARIES_RELEASES:-}
 while [ $# -gt 0 ]; do
 	case $1 in
@@ -171,7 +179,7 @@ while [ $# -gt 0 ]; do
 	--admin=* | --admin-key=* | --host=* | --port=* | --project=* | --version=* | --releases=* | --dsn=* | --db-password-file=* | \
 		--profile=* | --url=* | --listen=* | --tls=* | --cert=* | --key=* | --acme-email=* | --acme-directory=* | --trusted=*)
 		_opt=${1%%=*} _val=${1#*=} ;;
-	--apparmor | --dry-run | --enable-ssh | --plan) _opt=$1 ;;
+	--apparmor | --dry-run | --enable-ssh | --disable-ssh | --plan) _opt=$1 ;;
 	-h | --help) usage; exit 0 ;;
 	*) usage >&2; usage_die "unknown option $1" "run with -h for the options" ;;
 	esac
@@ -197,6 +205,7 @@ while [ $# -gt 0 ]; do
 	--apparmor) apparmor=1 ;;
 	--dry-run) dry=1 ;;
 	--enable-ssh) enable_ssh=1 ;;
+	--disable-ssh) disable_ssh=1 ;;
 	--plan) plan=1 ;;
 	esac
 	shift
@@ -294,6 +303,11 @@ private | airgapped) ssh_on=$enable_ssh https_on=1 tls=${tls:-files} ;;
 ssh-only) ssh_on=1 https_on=0 ;;
 *) usage_die "--profile $profile is not internet, private, airgapped or ssh-only" "see docs/server.md, Profiles" ;;
 esac
+if [ "$disable_ssh" = 1 ]; then
+	[ "$enable_ssh" = 0 ] || usage_die "--enable-ssh and --disable-ssh say opposite things" "give the one you mean"
+	[ "$https_on" = 1 ] || usage_die "--profile ssh-only serves SSH alone, so with SSH off the server would serve nothing" \
+		"give the profile the server serves HTTPS by, such as --profile private, with its options (docs/server.md, Profiles)"
+fi
 if [ "$https_on" = 0 ]; then
 	[ -z "$url$listen$tls$cert_opt$key_opt$acme_email$acme_directory$trusted" ] ||
 		usage_die "--url, --listen, --tls, --cert, --key, --acme-email, --acme-directory and --trusted are HTTPS's, and --profile ssh-only serves none" \
@@ -439,11 +453,21 @@ print_plan() {
 	fi
 	if [ "$apparmor" = 1 ]; then
 		say "  /etc/apparmor.d/ariesd"
+		[ "$ssh_on" = 0 ] || say "  /etc/apparmor.d/ariesd-stdio"
 		say "  /etc/apparmor.d/tunables/ariesd"
 		say "  /etc/systemd/system/ariesd.service.d/apparmor.conf"
 	fi
 	if [ "$https_on" = 1 ] && [ "$tls" != proxy ]; then
 		say "opens, if ufw is active: ${listen##*:}/tcp"
+	fi
+	if [ "$disable_ssh" = 1 ]; then
+		say "removes, where they are:"
+		say "  /etc/ssh/sshd_config.d/00-aries.conf"
+		say "  $authorized (its keys imported into the control store first)"
+		say "  $keys_file"
+		say "  $home/.ssh/ (when nothing else is in it)"
+		say "  /etc/systemd/system/ariesd.service.d/keys.conf"
+		say "  /etc/apparmor.d/ariesd-stdio"
 	fi
 }
 
@@ -686,6 +710,7 @@ EOF
 # The profiles come from beside this script or from the repository, and
 # are the guide's because they are deploy/apparmor's.
 apparmor_profile() { cat "$tmp/apparmor/ariesd"; }
+apparmor_stdio() { cat "$tmp/apparmor/ariesd-stdio"; }
 apparmor_tunables() { cat "$tmp/apparmor/tunables"; }
 
 # The apt source of step 2: PGDG's suite for this release of Ubuntu,
@@ -1104,6 +1129,15 @@ write_config() {
 		# The config is the operator's from here: turning a transport on
 		# or off is theirs to set (docs/server.md, SSH on and off).
 		_have=$(setting transports)
+		# Turning SSH off removes the drop-in that lets ariesd write the
+		# keys file, so ariesd must have stopped serving SSH first: it
+		# would otherwise fail to write the file, and so to start.
+		if [ "$disable_ssh" = 1 ]; then
+			case ${_have:-[https]} in *ssh*)
+				die "$config still serves SSH (transports: $_have), and --disable-ssh removes what ariesd needs for it; nothing was changed" \
+					"set transports: $(the_transports) in $config, run systemctl restart ariesd, then run this again (docs/server.md, SSH on and off)" ;;
+			esac
+		fi
 		if [ "${_have:-[https]}" != "$(the_transports)" ]; then
 			note "$config has transports: ${_have:-[https], its default}, and these options serve $(the_transports); this run sets up what they need, and leaves the config file as it is"
 			note "to serve them, set transports: $(the_transports) in $config, then: systemctl restart ariesd"
@@ -1315,8 +1349,11 @@ serve_ssh() {
 	step 9 'Have sshd read the keys file'
 	if [ "$ssh_on" = 0 ]; then
 		note "skipped: SSH is off; --enable-ssh turns it on (docs/server.md, SSH on and off)"
-		[ ! -e /etc/ssh/sshd_config.d/00-aries.conf ] ||
-			note "warning: /etc/ssh/sshd_config.d/00-aries.conf, from an earlier run, is left as it is: remove it, and $authorized, to keep sshd from letting keys in for aries"
+		if [ "$disable_ssh" = 1 ]; then
+			note "step 12 removes what an earlier run set up for it"
+		elif [ -e /etc/ssh/sshd_config.d/00-aries.conf ]; then
+			note "warning: /etc/ssh/sshd_config.d/00-aries.conf, from an earlier run, is left as it is: --disable-ssh removes it, and $authorized, to keep sshd from letting keys in for aries"
+		fi
 		return 0
 	fi
 	put /etc/ssh/sshd_config.d/00-aries.conf 644 root root sshd_dropin
@@ -1349,12 +1386,18 @@ confine() {
 	if [ -e /etc/systemd/system/ariesd.service.d/apparmor.conf ]; then
 		aa_exec="aa-exec -p ariesd-admin --"
 	fi
+	# The bridge's profile is SSH's: with SSH off, nothing runs as sshd's
+	# forced command.
+	_stdio=/etc/apparmor.d/ariesd-stdio
 	if [ "$apparmor" = 0 ]; then
 		if [ -n "$aa_exec" ]; then
 			ok "installed by an earlier run; left as they are"
+			[ "$ssh_on" = 0 ] || [ -e "$_stdio" ] || note "the bridge's profile, $_stdio, is not installed: --apparmor installs it"
 		else
 			note "skipped: --apparmor installs them"
 		fi
+		[ "$ssh_on" = 1 ] || [ "$disable_ssh" = 1 ] || [ ! -e "$_stdio" ] ||
+			note "warning: $_stdio, from an earlier run with SSH on, is left as it is: --disable-ssh removes it"
 		return 0
 	fi
 	mkdir "$tmp/apparmor"
@@ -1368,6 +1411,17 @@ confine() {
 		ok "the profiles are loaded"
 	else
 		act apparmor_parser -r /etc/apparmor.d/ariesd
+	fi
+	if [ "$ssh_on" = 1 ]; then
+		fetch deploy/apparmor/ariesd-stdio "$tmp/apparmor/ariesd-stdio" || die "cannot read deploy/apparmor/ariesd-stdio from $from" "check the network"
+		put "$_stdio" 644 root root apparmor_stdio "deploy/apparmor/ariesd-stdio from $from"
+		if [ "$wrote" = 0 ] && [ "$_aa_new" = 0 ] && grep -q '^ariesd-stdio ' /sys/kernel/security/apparmor/profiles 2>/dev/null; then
+			ok "the bridge's profile is loaded"
+		else
+			act apparmor_parser -r "$_stdio"
+		fi
+	elif [ "$disable_ssh" = 0 ] && [ -e "$_stdio" ]; then
+		note "warning: $_stdio, from an earlier run with SSH on, is left as it is: --disable-ssh removes it"
 	fi
 	ensure_dir /etc/systemd/system/ariesd.service.d root root 755
 	put /etc/systemd/system/ariesd.service.d/apparmor.conf 644 root root apparmor_dropin
@@ -1383,18 +1437,111 @@ adopt() {
 	# the first admin's key from the file step 8 wrote it to.
 	_keys=$authorized
 	[ "$ssh_on" = 1 ] || _keys=$admin_keys
-	# shellcheck disable=SC2086 # aa_exec is words or none
-	set -- sudo -u aries -H $aa_exec ariesd control init --name "$project" --authorized-keys "$_keys"
-	if [ "$dry" = 1 ]; then
-		say "   would run, in $home, which adds only what is new: $(quote "$@")"
+	# Turning SSH off removes authorized_keys (step 12): the keys it holds
+	# are taken into the control store first, so that they still sign in
+	# over HTTPS.
+	if [ "$disable_ssh" = 1 ] && [ -f "$authorized" ]; then
+		_keys="$_keys $authorized"
+	fi
+	for _k in $_keys; do
+		# shellcheck disable=SC2086 # aa_exec is words or none
+		set -- sudo -u aries -H $aa_exec ariesd control init --name "$project" --authorized-keys "$_k"
+		if [ "$dry" = 1 ]; then
+			say "   would run, in $home, which adds only what is new: $(quote "$@")"
+			continue
+		fi
+		say "   run, in $home: $(quote "$@")"
+		(cd "$home" && "$@") || die "ariesd control init failed" "read its error above, and run this again"
+	done
+}
+
+# drop PATH GENERATOR removes the file GENERATOR prints, or says it is
+# not there. A file there that holds anything else is not removed: its
+# difference is shown, and the run stops. Sets dropped=1 when it
+# removes.
+drop() {
+	dropped=0
+	if [ ! -e "$1" ] && [ ! -L "$1" ]; then
+		ok "$1: not there"
 		return 0
 	fi
-	say "   run, in $home: $(quote "$@")"
-	(cd "$home" && "$@") || die "ariesd control init failed" "read its error above, and run this again"
+	"$2" >"$tmp/new" || die "cannot make the text of $1" "report it at https://github.com/ariesworx/aries/issues"
+	if [ ! -f "$1" ] || [ -L "$1" ] || ! cmp -s "$tmp/new" "$1"; then
+		say "   $1 is not what this installer writes:"
+		diff -u "$tmp/new" "$1" | sed 's/^/     /' || true
+		die "$1 differs from docs/server.md's; nothing in it was removed" \
+			"remove it by hand if nothing else needs it, and run this again"
+	fi
+	act rm -f "$1"
+	dropped=1
+}
+
+turn_ssh_off() {
+	step 12 'Remove what served SSH'
+	if [ "$disable_ssh" = 0 ]; then
+		note "skipped: --disable-ssh removes it, from a server that served SSH (docs/server.md, SSH on and off)"
+		return 0
+	fi
+	# sshd first: from its reload on, it lets no key in for aries.
+	drop /etc/ssh/sshd_config.d/00-aries.conf sshd_dropin
+	if [ "$dropped" = 1 ]; then
+		if [ "$dry" = 1 ]; then
+			say "   would run: sshd -t, and only if it passes: systemctl try-reload-or-restart ssh"
+		else
+			/usr/sbin/sshd -t || die "sshd -t refuses the configuration without 00-aries.conf; sshd was not reloaded" \
+				"correct what sshd says above, then: systemctl try-reload-or-restart ssh"
+			ok "sshd -t"
+			act systemctl try-reload-or-restart ssh
+		fi
+	fi
+	# The forced command's lines, whose keys step 11 imported.
+	if [ -e "$authorized" ]; then
+		act rm -f "$authorized"
+	else
+		ok "$authorized: not there"
+	fi
+	# ariesd removes its keys file when SSH is off; one left from before
+	# is removed here, but only if ariesd wrote it.
+	if [ -e "$keys_file" ]; then
+		head -n 1 "$keys_file" | grep -q '^# Generated by ariesd' ||
+			die "$keys_file was not written by ariesd; nothing in it was removed" "remove it by hand if nothing else needs it, and run this again"
+		act rm -f "$keys_file"
+	else
+		ok "$keys_file: not there"
+	fi
+	if [ ! -d "$home/.ssh" ]; then
+		ok "$home/.ssh: not there"
+	else
+		# What is left once the two files above are gone, as a dry run
+		# leaves them.
+		_rest=
+		for _f in "$home/.ssh"/* "$home/.ssh"/.[!.]* "$home/.ssh"/..?*; do
+			case ${_f##*/} in authorized_keys | aries_keys) continue ;; esac
+			[ -e "$_f" ] || [ -L "$_f" ] || continue # a glob that matched nothing
+			_rest="$_rest ${_f##*/}"
+		done
+		if [ -z "$_rest" ]; then
+			act rmdir "$home/.ssh"
+		else
+			note "$home/.ssh is left: it holds$_rest"
+		fi
+	fi
+	drop /etc/systemd/system/ariesd.service.d/keys.conf keys_dropin
+	[ "$dropped" = 0 ] || { daemon_reload=1; restart_ariesd=1; }
+	reload_units
+	_stdio=/etc/apparmor.d/ariesd-stdio
+	if [ -e "$_stdio" ]; then
+		if grep -q '^ariesd-stdio ' /sys/kernel/security/apparmor/profiles 2>/dev/null; then
+			act apparmor_parser -R "$_stdio"
+		fi
+		act rm -f "$_stdio"
+	else
+		ok "$_stdio: not there"
+	fi
 }
 
 start_ariesd() {
-	step 12 'Start ariesd'
+	step 13 'Start ariesd'
 	if systemctl is-enabled --quiet ariesd 2>/dev/null; then
 		ok "ariesd.service enabled"
 	else
@@ -1422,7 +1569,7 @@ start_ariesd() {
 }
 
 connect() {
-	step 13 'Connect a repository'
+	step 14 'Connect a repository'
 	if [ -e "$config" ]; then _project=$(setting project); else _project='<made by step 5>'; fi
 	say "   Commit this as .aries.yaml in the project's repository:"
 	say
@@ -1457,6 +1604,7 @@ first_admin
 serve_ssh
 confine
 adopt
+turn_ssh_off
 start_ariesd
 connect
 

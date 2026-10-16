@@ -306,6 +306,9 @@ func TestInstallServerOptions(t *testing.T) {
 		{"bad listen", append(slices.Clone(ok), "--listen", "443"), "--listen 443 is not HOST:PORT"},
 		{"bad url", append(slices.Clone(ok), "--url", "http://aries.example.com"), "is not an https:// URL of the server"},
 		{"sshd's port with SSH off", append(slices.Clone(ok), "--port", "2222"), "--port is sshd's, and SSH is off"},
+		{"SSH on and off at once", append(slices.Clone(ok), "--enable-ssh", "--disable-ssh"), "--enable-ssh and --disable-ssh"},
+		{"SSH off with SSH alone", append(slices.Clone(ok), "--profile", "ssh-only", "--disable-ssh"), "--profile ssh-only serves SSH alone"},
+		{"sshd's port while turning SSH off", append(slices.Clone(ok), "--disable-ssh", "--port", "2222"), "--port is sshd's, and SSH is off"},
 		{"an IPv6 host without a URL", append(slices.Clone(ok), "--host", "2001:db8::5"), "needs in brackets"},
 	}
 	for _, tc := range tests {
@@ -394,6 +397,20 @@ func TestInstallServerProfiles(t *testing.T) {
 		{name: "SSH alone", args: []string{"--profile", "ssh-only"},
 			want:    []string{"profile: ssh-only", "transports: [ssh]", "  /etc/ssh/sshd_config.d/00-aries.conf", "  /var/lib/aries/.ssh/authorized_keys"},
 			without: []string{"https", "ufw", "admin.keys", "acme", "/etc/aries/tls"}},
+		// The bridge's AppArmor profile is SSH's: with SSH off nothing runs
+		// as sshd's forced command.
+		{name: "AppArmor without SSH", args: []string{"--apparmor"},
+			want:    []string{"  /etc/apparmor.d/ariesd", "  /etc/apparmor.d/tunables/ariesd", "  /etc/systemd/system/ariesd.service.d/apparmor.conf"},
+			without: append([]string{"ariesd-stdio"}, sshFiles...)},
+		{name: "AppArmor with SSH", args: []string{"--apparmor", "--enable-ssh"},
+			want: []string{"  /etc/apparmor.d/ariesd", "  /etc/apparmor.d/ariesd-stdio"}},
+		// --disable-ssh writes what SSH off writes, and removes what SSH on
+		// wrote: every SSH path.
+		{name: "turning SSH off", args: []string{"--disable-ssh", "--apparmor"},
+			want: []string{"transports: [https]", "  /etc/aries/admin.keys", "removes, where they are:", "  /etc/ssh/sshd_config.d/00-aries.conf",
+				"  /var/lib/aries/.ssh/authorized_keys", "  /var/lib/aries/.ssh/aries_keys", "  /var/lib/aries/.ssh/", "  /etc/systemd/system/ariesd.service.d/keys.conf",
+				"  /etc/apparmor.d/ariesd-stdio"},
+			without: append([]string{"ariesd-stdio"}, sshFiles...)},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -405,12 +422,86 @@ func TestInstallServerProfiles(t *testing.T) {
 					t.Errorf("the plan of %s lacks %q:\n%s", tc.name, w, out)
 				}
 			}
+			// What the plan removes may name SSH's files; what it writes and
+			// serves may not.
+			writes, _, _ := strings.Cut(out, "removes, where they are:")
 			for _, w := range tc.without {
-				if strings.Contains(out, w) {
-					t.Errorf("the plan of %s names %q, which it must not:\n%s", tc.name, w, out)
+				if strings.Contains(writes, w) {
+					t.Errorf("the plan of %s writes or serves %q, which it must not:\n%s", tc.name, w, out)
 				}
 			}
+			if removes := strings.Contains(out, "removes"); removes != slices.Contains(tc.args, "--disable-ssh") {
+				t.Errorf("the plan of %s removes files: %t; want that only of --disable-ssh:\n%s", tc.name, removes, out)
+			}
 		})
+	}
+}
+
+// TestInstallServerDisableSSHMatchesGuide holds what `--disable-ssh`
+// removes to the list docs/server.md's "SSH on and off" gives, in the
+// same order: every SSH path a server with SSH on has.
+func TestInstallServerDisableSSHMatchesGuide(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("install-server.sh is for Linux")
+	}
+	_, removes, ok := strings.Cut(plan(t, "--disable-ssh", "--apparmor"), "removes, where they are:\n")
+	if !ok {
+		t.Fatal("the plan of --disable-ssh has no list of what it removes")
+	}
+	var got []string
+	for line := range strings.Lines(removes) {
+		if p, ok := strings.CutPrefix(strings.TrimSuffix(line, "\n"), "  "); ok {
+			got = append(got, strings.Fields(p)[0])
+		}
+	}
+	list := match(t, guideSection(t, "### SSH on and off"), "the list of what --disable-ssh removes",
+		"(?s)`install-server.sh --disable-ssh` removes, each only where it is[^\n]*\n\n(.*?)\n\n")
+	var want []string
+	for _, m := range regexp.MustCompile("(?m)^- `([^`]+)`").FindAllStringSubmatch(list, -1) {
+		want = append(want, m[1])
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("install-server.sh --disable-ssh removes\n  %s\n%s's \"SSH on and off\" lists\n  %s\nchange both together",
+			strings.Join(got, "\n  "), serverGuide, strings.Join(want, "\n  "))
+	}
+}
+
+// TestAppArmorProfilesInstalledAndParsed holds the AppArmor profiles to
+// what installs and checks them: every file of deploy/apparmor but its
+// README and tunables is one the installer fetches, the guide's
+// commands install and CI's parser checks, in each of its jobs; and
+// the bridge's is SSH's alone.
+func TestAppArmorProfilesInstalledAndParsed(t *testing.T) {
+	t.Parallel()
+	entries, err := os.ReadDir(filepath.Join("..", "deploy", "apparmor"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var profiles []string
+	for _, e := range entries {
+		if !e.IsDir() && e.Name() != "README.md" {
+			profiles = append(profiles, e.Name())
+		}
+	}
+	if !slices.Equal(profiles, []string{"ariesd", "ariesd-stdio"}) {
+		t.Errorf("deploy/apparmor holds the profile files %v; want ariesd and ariesd-stdio, or change this test with what installs them", profiles)
+	}
+	script, ci, section := read(t, installServer), read(t, ".github/workflows/ci.yml"), guideSection(t, "## Confine ariesd with AppArmor")
+	parse := "apparmor_parser -Q -K -I deploy/apparmor deploy/apparmor/" + strings.Join(profiles, " deploy/apparmor/") + "\n"
+	if n := strings.Count(ci, parse); n != 2 {
+		t.Errorf("ci.yml runs %q in %d jobs; want both, lint's and apparmor-26-04's", strings.TrimSpace(parse), n)
+	}
+	for _, p := range profiles {
+		if !strings.Contains(script, "fetch deploy/apparmor/"+p+" ") {
+			t.Errorf("%s does not fetch deploy/apparmor/%s", installServer, p)
+		}
+		if !strings.Contains(section, "deploy/apparmor/"+p+"\n") || !strings.Contains(section, "/etc/apparmor.d/"+p+"\n") {
+			t.Errorf("%s's \"Confine ariesd with AppArmor\" does not download deploy/apparmor/%s and install it as /etc/apparmor.d/%s", serverGuide, p, p)
+		}
+	}
+	if !strings.Contains(section, "Only with SSH on") {
+		t.Errorf("%s's \"Confine ariesd with AppArmor\" does not say the bridge's profile is installed only with SSH on", serverGuide)
 	}
 }
 
