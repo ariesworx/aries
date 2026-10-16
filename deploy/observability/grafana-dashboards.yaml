@@ -1,0 +1,10 @@
+# Grafana's provisioning of the Aries dashboard, for the Docker test
+# server's observe profile (docs/deploy/docker.md, "Observe"). The
+# dashboard's datasource variable picks the image's Prometheus.
+apiVersion: 1
+providers:
+  - name: Aries
+    type: file
+    options:
+      path: /etc/aries/dashboards
+      foldersFromFilesStructure: false

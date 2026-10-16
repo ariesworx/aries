@@ -424,6 +424,9 @@ func (s *soak) checkReady(ctx context.Context, p *sproj, eve *mcpserver.RepoConn
 		if !slices.Equal(b.BlockedBy, want) {
 			s.mon.fail(b.ID, "blocked says %s is blocked by %v; the event log says %v", b.ID, b.BlockedBy, want)
 		}
+		if b.Children != blocked.waiting[b.ID] {
+			s.mon.fail(b.ID, "blocked says %s waits on %d open children; the event log says %d", b.ID, b.Children, blocked.waiting[b.ID])
+		}
 	}
 	if want := blocked.order[:min(len(blocked.order), 500)]; !slices.Equal(bids, want) {
 		s.mon.fail(firstDiff(bids, want), "blocked is %d issues %v…; the event log says %d issues %v…", len(bids), head(bids), len(want), head(want))
@@ -453,16 +456,18 @@ type blockedState struct {
 	direct     map[string][]string // an issue's own unclosed blockers, sorted
 	by         map[string][]string // as direct, for blocked issues that have their own
 	blockedSet map[string]bool     // blocked directly or through an ancestor
-	order      []string            // unclosed blocked issues, by priority, age and id
+	waiting    map[string]int      // an unclosed issue's unclosed children, where it has any
+	order      []string            // unclosed blocked or waiting issues, by priority, age and id
 }
 
 // derive computes ready and blocked from the replayed issues and edges,
 // as design §4 defines them: an issue is blocked while it or an ancestor
 // has an unclosed blocking target and is itself unclosed, deferred while
-// it or an ancestor is deferred, and ready when open, neither blocked nor
-// deferred.
+// it or an ancestor is deferred, waiting while it is unclosed and has an
+// unclosed child, and ready when open, neither blocked, deferred nor
+// waiting.
 func (r *replay) derive() ([]string, blockedState) {
-	b := blockedState{direct: map[string][]string{}, by: map[string][]string{}, blockedSet: map[string]bool{}}
+	b := blockedState{direct: map[string][]string{}, by: map[string][]string{}, blockedSet: map[string]bool{}, waiting: map[string]int{}}
 	for k := range r.deps {
 		if k.typ != "blocks" && k.typ != "conditional-blocks" {
 			continue
@@ -480,6 +485,9 @@ func (r *replay) derive() ([]string, blockedState) {
 	for id, is := range r.issues {
 		if is.parent != "" {
 			children[is.parent] = append(children[is.parent], id)
+			if p := r.issues[is.parent]; p != nil && p.status != "closed" && is.status != "closed" {
+				b.waiting[is.parent]++
+			}
 		}
 	}
 	descend := func(seeds []string, into map[string]bool) {
@@ -508,10 +516,10 @@ func (r *replay) derive() ([]string, blockedState) {
 	}
 	var ready []string
 	for id, is := range r.issues {
-		if is.status == "open" && !b.blockedSet[id] && !deferred[id] {
+		if is.status == "open" && !b.blockedSet[id] && !deferred[id] && b.waiting[id] == 0 {
 			ready = append(ready, id)
 		}
-		if b.blockedSet[id] && is.status != "closed" {
+		if (b.blockedSet[id] || b.waiting[id] > 0) && is.status != "closed" {
 			b.order = append(b.order, id)
 		}
 	}

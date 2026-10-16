@@ -97,6 +97,7 @@ func (q *digestQuery) dates(ctx context.Context, d *Dates) error {
 		{"ready", &d.Ready, blockedCTE + cols + `i.defer_until FROM issues i
 WHERE i.status = 'open' AND i.template = FALSE AND i.type <> 'gate'
   AND i.id NOT IN (SELECT id FROM blocked) AND i.id NOT IN (SELECT id FROM deferred)
+  AND i.id NOT IN (SELECT id FROM waiting)
   AND i.defer_until > $2 AND i.defer_until <= $1`, []any{q.now, q.f.Since}, ` ORDER BY i.defer_until, i.id`},
 		{"due soon", &d.DueSoon, cols + `i.due_at FROM issues i
 WHERE i.status <> 'closed' AND i.due_at > $1 AND i.due_at <= $2`, []any{q.now, q.now.Add(soon)}, ` ORDER BY i.due_at, i.id`},

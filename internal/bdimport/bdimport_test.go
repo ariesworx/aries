@@ -325,7 +325,8 @@ func TestImportBacklog(t *testing.T) {
 	}
 
 	// Ready and blocked see the imported graph: acme-7k2.1 waits on a
-	// closed bug, so it is not blocked by it.
+	// closed bug, so it is not blocked by it, and the epic acme-7k2 waits
+	// on its open children.
 	ready, err := s.Ready(ctx, store.Actor{}, 50)
 	if err != nil {
 		t.Fatal(err)
@@ -334,7 +335,7 @@ func TestImportBacklog(t *testing.T) {
 	for _, is := range ready {
 		readyIDs = append(readyIDs, is.ID)
 	}
-	if want := []store.IssueID{"acme-7k2", "acme-p1n", "acme-7k2.2"}; !slices.Equal(readyIDs, want) {
+	if want := []store.IssueID{"acme-p1n", "acme-7k2.2"}; !slices.Equal(readyIDs, want) {
 		t.Errorf("ready = %v, want %v", readyIDs, want)
 	}
 }

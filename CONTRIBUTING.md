@@ -173,7 +173,7 @@ up in a Linux VM you can throw away.
 | A cap on what a client can grow (rule 18) | The [Limits](docs/server.md#limits) table in docs/server.md |
 | A metric: an instrument, an attribute or a value an attribute may take | `internal/telemetry/instruments.go` and the tables of [What is measured](docs/server.md#what-is-measured) together; tests in `internal/telemetry` fail until they agree, and until every attribute's values come from a list in the code (rule 18) |
 | A span: its name, an attribute or what a span may carry | `internal/telemetry/trace.go`, whose rule is that a span carries ids, codes and small numbers and never text, and the tables of [Traces](docs/server.md#traces) together; tests in `internal/telemetry` hold the two to each other, and `TestSpansCarryNoText` in `internal/server` needs a new op's arguments listed. [Traces](docs/security-model.md#traces) in the security model says what leaves the machine |
-| A metric's name, an attribute or one of its values that an alert rule or the dashboard reads; a scrape job's name or address | `deploy/observability`, whose files tests in `internal/telemetry` hold to the instruments (`harness_test.go`), and [A collector, alert rules and a dashboard](docs/server.md#a-collector-alert-rules-and-a-dashboard) in docs/server.md. A new value of the `signal` attribute needs a rule on `aries_telemetry_dropped_total` for it. Then the smoke test with `ARIES_SMOKE_TELEMETRY=1`, and the soak with `ARIES_SOAK_TELEMETRY=check` |
+| A metric's name, an attribute or one of its values that an alert rule or the dashboard reads; a scrape job's name or address | `deploy/observability`, whose files tests in `internal/telemetry` hold to the instruments (`harness_test.go`), and [A collector, alert rules and a dashboard](docs/server.md#a-collector-alert-rules-and-a-dashboard) in docs/server.md. A new value of the `signal` attribute needs a rule on `aries_telemetry_dropped_total` for it. Then the smoke test with `ARIES_SMOKE_TELEMETRY=1`, and the soak with `ARIES_SOAK_TELEMETRY=check`; to look at it in Grafana, the Docker test server's `observe` profile ([Observe](docs/deploy/docker.md#observe)) |
 | A log line: its event, a field, or what of it is exported | `internal/logs` (`events.go`, `schema.go`) and the tables of [Logs](docs/server.md#logs) together; tests in `internal/logs` read every log call of the daemon's packages and fail until each names a listed event first, under a message that is a string literal, with fields the schema lists, and until the guide lists every event and field. A field's kind there decides whether a record exported over OTLP may carry it ([Logs over OTLP](docs/server.md#logs-over-otlp), and [Logs](docs/security-model.md#logs) in the security model); `TestLogLinesCarryNoText` and `TestExportedLogsCarryNoText` in `internal/server` search both for marked text |
 | The telemetry listener, a health check, an `OTEL_*` variable ariesd reads, or `ariesd status` | [Observability](docs/server.md#observability) in docs/server.md, and [The telemetry listener](docs/security-model.md#the-telemetry-listener) for what it reveals |
 | What the store checks of Postgres when it opens (its version, the role's rights, the schema), or which SQLSTATEs a write retries | `internal/store` (`postgres.go`, `account.go`, `errors.go`), rules 6 and 8 in [AGENTS.md](AGENTS.md#rules), and the [design's As built note for the port](docs/design/aries.md) |
@@ -208,7 +208,7 @@ Each tier includes the ones above it.
 | Code | The touched packages' tests with `-race`, then `scripts/gate.sh --quick` | the whole suite, lint, govulncheck, the builds for other systems |
 | Concurrency: claims, locks, leases, the outbox and its replay, the clock, the database pool and retries | Also `-count=3` on the touched tests, and one short soak (`go test -race -run 'TestSoak$' ./internal/e2e`); with the outbox or replay, one run in partition mode too | |
 | `deploy/docker`, `install-server.sh`, AppArmor, `ariesd`'s start, or the transport | Also one run of `deploy/docker/smoke.sh`, in the modes the change touches (`ARIES_SMOKE_TELEMETRY=1`, `ARIES_SMOKE_IDENTITY=1`) | |
-| A release candidate | The whole gate, the long soak and its partition and telemetry modes, `smoke.sh` in every mode, and `install-server.sh` on a real machine of each supported release ([RELEASING.md](RELEASING.md)) | |
+| A release candidate | The whole gate, the long soak and its partition and telemetry modes (the [`soak` workflow](#run-the-soaks-on-github)), `smoke.sh` in every mode, and `install-server.sh` on a real machine of each supported release ([RELEASING.md](RELEASING.md)) | |
 
 A test that is new or changed is still seen failing before its fix, in
 every tier. After a rebase whose conflicts were in docs alone, don't
@@ -496,6 +496,26 @@ With `ARIES_E2E_TRANSPORT=https` the run, like the rest of
 `internal/e2e`, connects over the daemon's HTTPS listener in place of
 the in-process SSH server. Run it so once before changing the listener,
 `internal/wsconn` or the key proof.
+
+### Run the soaks on GitHub
+
+The `soak` workflow (`.github/workflows/soak.yml`) runs the long soaks
+on GitHub's Linux runners, on amd64 (`ubuntu-24.04`) and arm64
+(`ubuntu-24.04-arm`): over SSH, over HTTPS, in partition mode and with
+telemetry checked (below), eight jobs in all, each under `-race`,
+`ARIES_REQUIRE_POSTGRES=1` and `scripts/leftovers.sh`, with Postgres and
+Go installed as CI installs them (`.github/actions`). It runs only when
+a person starts it, never on a pull request or a push. Start it from
+the Actions tab, or:
+
+```sh
+gh workflow run soak.yml --ref BRANCH -f duration=10m
+```
+
+`-f seed=N` replays a seed in every job. Each job's summary has its
+seed, its request count and its result. A release candidate runs it on
+the commit to be tagged ([RELEASING.md](RELEASING.md)). A runner has 4
+processors and 16 GiB, enough for one long soak at a time, and runs one.
 
 ### What it does
 

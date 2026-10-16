@@ -295,6 +295,16 @@ parent. It stops at the repository's top level (the first directory that
 holds `.git`) and never looks above your home directory. `-C DIR` starts
 the search in DIR instead.
 
+A linked worktree (`git worktree add`), where agents' parallel sessions
+often run, is its own top level. When the search reaches one without
+finding the file, `aries` reads the one at the top of the repository's
+main worktree, and only there, so a `.aries.yaml` you keep untracked in
+your main checkout serves every worktree. A file in the worktree itself
+still wins. A key or CA path in the file is relative to the directory
+that holds it, the main worktree, while `aries setup` writes its files
+in the worktree you ran it in. A bare repository has no main worktree,
+so its worktrees need a file of their own.
+
 On macOS and Linux the file must be yours and writable by no one else.
 `chmod go-w .aries.yaml` fixes a checkout made under a umask of 002.
 Windows has no owner check, so there the search boundary is the only
@@ -381,13 +391,13 @@ which works for a project whose prefix has no hyphen of its own.
 | `create TITLE` | Create an issue and print its id: `-p N` priority, `-t TYPE`, `--body TEXT` (or `-` for stdin), `--parent ID`, `--account NAME`, `--label L`, `--paths P,P` for the files the work will touch, relative to the current directory (a directory ends in `/`), and `--defer-until DATE` and `--due DATE` ([Dates](concepts.md#dates): a date, `2026-11-02`, or an RFC 3339 time). Similar closed issues, if any, are listed on stderr |
 | `show ID` | Show an issue with its dates, the gates that hold it (with who may pass each), its CI checks with their last reports and, once closed, whether it landed ([CI gates](concepts.md#ci-gates)), dependencies, claim, open [conflicts](#conflicts), account, time held, cost at list price, hours people logged (by whom) and tokens by model ([Accounts, time and tokens](concepts.md#accounts-time-and-tokens)), acceptance checklist, latest handoff, likely files (declared first, then the most recent 20) with the issues others hold that overlap them, and similar closed issues. `--compact` is shorter |
 | `list` | List issues that are not closed, oldest first, 50 at a time, with each one's dates after its title. `-n N` sets the page size (up to 500); `--cursor C` continues, as the `more:` line on stderr shows. Filters: `--status S,S`, `--all` (closed too), `-t TYPE`, `-p N,N`, `--assignee A`, `--parent ID`, `--label L` |
-| `ready` | List issues nothing holds back, best first. An issue whose files overlap work another session holds comes last, with `overlaps ID` ([Files](concepts.md#files-what-an-issue-touches)) |
-| `blocked` | List issues held back by open blockers, then each [gate](concepts.md#gates) among them with who may pass it |
+| `ready` | List issues nothing holds back, best first. An issue with a child that is not closed is left out ([Parents and their children](concepts.md#parents-and-their-children)). An issue whose files overlap work another session holds comes last, with `overlaps ID` ([Files](concepts.md#files-what-an-issue-touches)) |
+| `blocked` | List issues held back by open blockers (`blocked by ID`, with `via ID` when a parent's blockers hold it), or waiting on their own open children (`waiting on N open children`), then each [gate](concepts.md#gates) among them with who may pass it. `--json` gives `children`, the count of open children, when there are any |
 | `update ID` | Change fields (`--title`, `--body`, `--status`, `-p`, `-t`, `--assignee`, `--parent`, `--account`, …). `--account NAME` sets the account the issue's time and tokens report against; `--account ""` clears it, to inherit the parent's. `--paths P,P` replaces the declared paths and `--paths ""` clears them. `--defer-until DATE` and `--due DATE` set the dates, and `""` clears one. `--rev N` applies the change only if the issue is still at revision N. It cannot set `in_progress` (claim with `start`), change the status or assignee of a claimed issue (once the claim's lease has run out, such a change ends the claim and tells its holder), or drop an acceptance item that is still open |
 | `conflicts [ISSUE]` | List the open [conflicts](#conflicts), of one issue or all, oldest first: each with its base, mine and theirs on a line each (cut at 500 bytes), the server's advice, and any proposal; 20, or `-n N` (at most 100), and `--after N` for the next page. `conflicts N` shows conflict N whole, open or resolved, each side on lines of its own |
 | `resolve N` | Resolve conflict N: `--mine` takes the replayed update's value, `--theirs` keeps the server's, `--text TEXT` (or `-` for stdin) sets new text, and `--accept` does what its proposal says. It changes the issue as `update` does, so it is refused on an issue another principal holds, unless you are an admin. It is never queued |
 | `close ID`, `reopen ID` | Close (with `--reason`) or reopen an issue. Close is refused while an acceptance item is open; `--force`, for admins only, closes anyway |
-| `dep add\|remove FROM TO` | Add or remove a dependency: FROM depends on TO. `--type T` (default `blocks`). `rm` is accepted for `remove`. Removing an edge that a gate holds FROM through is refused unless you could pass the gate |
+| `dep add\|remove FROM TO` | Add or remove a dependency: FROM depends on TO. `--type T` (default `blocks`). `rm` is accepted for `remove`. A parent already waits on its children, so an edge from an issue to one under it, or from a child to its parent, is refused as a cycle ([Parents and their children](concepts.md#parents-and-their-children)). Removing an edge that a gate holds FROM through is refused unless you could pass the gate |
 | `gate add --blocks ID` | Hold ID back behind a new human [gate](concepts.md#gates) and print the gate's id: `--approver P` (repeatable) names who may pass it, none leaves it to the project's admins; `--title T` (default `Approve ID`). The approvers get a `gate.pending` inbox item |
 | `gate add --kind ci --check NAME --issue ID --approver P` | Add a [ci gate](concepts.md#ci-gates): it waits for CI principal P (repeatable) to report check NAME passed on ID, the issue whose branch the check runs on. `--blocks ID` holds an issue back behind it; without it the gate only records the check, as for `landed`. An issue has one ci gate for each check |
 | `gate pass ID`, `gate rearm ID` | Pass a gate, which lets what it held become ready and tells its assignees, or reopen a passed one so that it holds again; `--reason TEXT`. Only an approver (or, when the gate names none, an admin other than its maker) passes a human gate, and only from your own terminal: run from an agent's session it is refused |
@@ -495,7 +505,8 @@ Memories are notes kept across sessions, in `project` (the default),
   `principal/session` and how long they have held it, on the server's
   clock. `[lapsed]` marks a lease that ran out before the reaper freed
   the issue.
-- **Blocked**: the issues held back by open blockers, `[by ID +N]`.
+- **Blocked**: the issues held back by open blockers, `[by ID +N]`, and
+  parents waiting on their children, `[N open children]`.
 - **Events**: every change to an issue since the board opened, newest at
   the bottom, with its time, who made it and what it was.
 
@@ -957,7 +968,7 @@ nothing on standard error, in the shape the MCP server gives an agent:
 
 ```text
 $ aries --json -C /tmp show ar-a1b2c3d4
-{"error":{"code":"invalid","message":".aries.yaml not found here or in any parent directory","fix":"run aries inside a repository that has one, or pass -C DIR; the search stops at the repository's top level and at your home directory"}}
+{"error":{"code":"invalid","message":".aries.yaml not found here or in any parent directory","fix":"run aries inside a repository that has one, or pass -C DIR; the search stops at the repository's top level and at your home directory, and a linked worktree reads the main worktree's"}}
 ```
 
 `code` is one of the codes named in this guide (`invalid`, `not_found`,

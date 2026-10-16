@@ -79,6 +79,7 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 	var lastAdmin *store.LastAdminError
 	var conflictCap *store.ConflictLimitError
 	var gate *store.GateError
+	var parentWait *store.ParentWaitError
 	if perr := lockErr(err); perr != nil {
 		return perr
 	}
@@ -187,6 +188,11 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 	case errors.Is(err, store.ErrExists):
 		return proto.Errf(proto.CodeExists, "omit --id to have one generated, or read it with `aries show "+id+"`",
 			strings.Replace(text, ": "+store.ErrExists.Error(), " already exists", 1))
+
+	case errors.As(err, &parentWait):
+		return proto.Errf(proto.CodeCycle,
+			fmt.Sprintf(proto.FixNothing+": %s waits on its open children by itself, and is not ready until they close; `aries blocked` shows it", parentWait.Parent),
+			fmt.Sprintf("%s is under %s, which waits on it already, so this would make a cycle", parentWait.Child, parentWait.Parent))
 
 	case errors.Is(err, store.ErrCycle):
 		return proto.Errf(proto.CodeCycle, "remove an edge with `aries dep remove`, or choose another parent",

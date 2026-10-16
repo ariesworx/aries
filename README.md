@@ -38,7 +38,8 @@ command line. One small Go server keeps the data in
 > `aries away` holds a person's claims through a planned absence. None of
 > it has run on Windows. The store, the server guide, the installer
 > and the Docker test server run on Postgres (slices P1, P2 and P4 of
-> decision 79); the soaks have yet to run on it on Linux (slice P5).
+> decision 79), and the long soaks pass on it on Linux, on GitHub's
+> amd64 and arm64 runners (slice P5).
 > HTTPS is the transport a fresh server serves, with SSH off until an
 > operator turns it on (slice T1 of decision 86); a principal's kind,
 > identities and invitations are recorded (slice N1); people sign
@@ -228,10 +229,11 @@ by a URL, beside keys; service principals that sign in with their
 platform's workload identity; and a hardening pass: a review of every
 public name, flag, variable and setting, the protocol settled at one
 version (decision 78), and a security review of sign-in. Built: all of
-it, service principals (slice N5) on its branch, but P5 (the soaks on Linux, the
-installer on amd64, a machine with the AppArmor profiles enforced, ACME
-against a real CA), that security review and a check against a real
-provider. A remote MCP endpoint, GitHub's sign-in and the device grant,
+it, service principals (slice N5) on its branch, but the rest of P5
+(the installer on amd64, a machine with the AppArmor profiles enforced,
+ACME against a real CA), that security review and a check against a
+real provider. Of P5, the soaks pass on Linux, on GitHub's amd64 and
+arm64 runners. A remote MCP endpoint, GitHub's sign-in and the device grant,
 a Claude Desktop extension, and stage 6's G3 to G5 come in 1.x releases
 as compatible additions.
 

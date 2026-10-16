@@ -270,6 +270,9 @@ func (m *Model) blockedLines() []line {
 		if len(b.BlockedBy) > 0 {
 			l.spans = append(l.spans, styled("[by "+ids(b.BlockedBy[:1])+plus(len(b.BlockedBy)-1+b.More)+"]", dim), plainSpan(" "))
 		}
+		if b.Children > 0 {
+			l.spans = append(l.spans, styled(fmt.Sprintf("[%d open children]", b.Children), dim), plainSpan(" "))
+		}
 		l.spans = append(l.spans, plainSpan(esc(b.Title)))
 		out = append(out, l)
 	}

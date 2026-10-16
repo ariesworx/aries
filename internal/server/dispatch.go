@@ -326,7 +326,7 @@ func blocked(ctx context.Context, pr *served, _ store.Actor, in proto.LimitArgs)
 		out.Gates = gs
 	}
 	for _, b := range bs {
-		bi := proto.BlockedIssue{Summary: summary(b.Summary), Via: string(b.Via), BlockedBy: []string{}}
+		bi := proto.BlockedIssue{Summary: summary(b.Summary), Via: string(b.Via), BlockedBy: []string{}, Children: b.Children}
 		if len(b.BlockedBy) > proto.MaxBlockers {
 			b.BlockedBy, bi.More = b.BlockedBy[:proto.MaxBlockers], len(b.BlockedBy)-proto.MaxBlockers
 		}

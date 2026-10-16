@@ -3939,7 +3939,10 @@ them names a vendor.
 | `collector.yaml` | An OpenTelemetry Collector's configuration: it receives what ariesd pushes on `127.0.0.1:4318` (metrics, traces and, when asked, log records), scrapes ariesd's `/metrics`, and sends all of it on |
 | `alerts.yaml` | Alert rules in Prometheus's rule format, which most monitoring systems read or translate |
 | `prometheus.yaml` | A Prometheus configuration that scrapes ariesd and loads the rules, for a server that runs Prometheus and no collector |
-| `dashboard.json` | One dashboard, in Grafana's format: requests, latency, writes, connections, claims, the server's own health, ariesd's memory, and its pool of connections to Postgres |
+| `dashboard.json` | The server's dashboard, in Grafana's format: headline numbers, then requests, latency, writes, connections, claims, the server's own health, ariesd's memory, and its pool of connections to Postgres |
+| `dashboard-requests.json` | Requests by op: traffic, latency, refusals and failures by code, by project, handshakes, and write latency by project |
+| `dashboard-traces-logs.json` | Traces and logs, for a Grafana with Tempo and Loki: recent and slow traces, log events by name, warnings and errors, and the audit stream |
+| `grafana-dashboards.yaml` | Grafana's provisioning of the three, as the Docker test server's `observe` profile loads them |
 
 **Wire a collector.** It runs on the server itself: ariesd's listener
 answers on loopback only and has no authentication, and ariesd pushes to
@@ -4047,9 +4050,10 @@ against your server's own history.
 - **For several ariesd servers in one Prometheus,** add `by (instance)`
   to the rules' sums.
 
-**The dashboard** is imported into Grafana as it is and asks which
-Prometheus data source to read. No test loads it into Grafana: tests
-check its queries, as they do the rules', and the test server runs each
+**The dashboards** are imported into Grafana as they are and ask which
+data source to read: Prometheus for the first two, Tempo and Loki for
+the third. No test loads them into Grafana: tests
+check their Prometheus queries, as they do the rules', and the test server runs each
 query against a real Prometheus.
 
 **What was run.** All of it in the Docker test server, on Docker

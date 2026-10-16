@@ -141,6 +141,9 @@ func nextStep(pe *proto.Error) string {
 	case proto.CodeExists:
 		return "omit id to have one generated, or call show on the existing issue"
 	case proto.CodeCycle:
+		if strings.HasPrefix(pe.Fix, proto.FixNothing) {
+			return "nothing to do: a parent waits on its open children, and is not ready until they close"
+		}
 		return "remove an edge with dep (action rm), or choose another parent"
 	case proto.CodeInvalid:
 		switch {
