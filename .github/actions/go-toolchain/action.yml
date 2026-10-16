@@ -1,0 +1,18 @@
+name: Go at go.mod's toolchain line
+description: >
+  Fails unless the go that setup-go installed is go.mod's toolchain line,
+  with GOTOOLCHAIN=local, so that no other toolchain is downloaded. Used by
+  ci.yml and soak.yml after setup-go.
+runs:
+  using: composite
+  steps:
+    - name: Go at go.mod's toolchain line
+      # What setup-go installed, with no other toolchain to download.
+      # bash -e, as a workflow's own run steps have it.
+      shell: bash -e {0}
+      run: |
+        want=$(sed -n 's/^toolchain //p' go.mod)
+        if [ "$(go env GOVERSION)" != "$want" ] || [ "$(go env GOTOOLCHAIN)" != local ]; then
+          echo "::error::go is $(go env GOVERSION) with GOTOOLCHAIN=$(go env GOTOOLCHAIN); want go.mod's toolchain line, $want, with GOTOOLCHAIN=local"
+          exit 1
+        fi

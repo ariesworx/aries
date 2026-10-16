@@ -1,0 +1,42 @@
+name: Install Postgres
+description: >
+  Installs Postgres's programs from the PostgreSQL project's apt
+  repository, at the major version the tests run on, with the
+  repository's key checked against its fingerprint, and puts them on
+  PATH. Used by ci.yml and soak.yml, which pass their POSTGRES_MAJOR and
+  PGDG_KEY_FINGERPRINT.
+inputs:
+  major:
+    description: The major version of Postgres (version.PostgresMajor).
+    required: true
+  key-fingerprint:
+    description: The fingerprint of the apt repository's signing key.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Install Postgres
+      # Its programs only: no cluster is made or started, since each
+      # test package starts its own servers (internal/pgtest). The key is
+      # checked against its fingerprint before apt is told to trust it.
+      shell: bash -e {0}
+      env:
+        POSTGRES_MAJOR: ${{ inputs.major }}
+        PGDG_KEY_FINGERPRINT: ${{ inputs.key-fingerprint }}
+      run: |
+        key=$RUNNER_TEMP/pgdg.asc
+        curl -fsSL -o "$key" https://www.postgresql.org/media/keys/ACCC4CF8.asc
+        got=$(gpg --show-keys --with-colons "$key" | awk -F: '$1 == "fpr" { print $10; exit }')
+        if [ "$got" != "$PGDG_KEY_FINGERPRINT" ]; then
+          echo "::error::the apt repository's key has fingerprint ${got:-none}, want $PGDG_KEY_FINGERPRINT"
+          exit 1
+        fi
+        sudo install -D -m 0644 "$key" /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+        echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" |
+          sudo tee /etc/apt/sources.list.d/pgdg.list
+        sudo install -d /etc/postgresql-common/createcluster.d
+        echo "create_main_cluster = false" | sudo tee /etc/postgresql-common/createcluster.d/aries-ci.conf
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends "postgresql-$POSTGRES_MAJOR"
+        echo "/usr/lib/postgresql/$POSTGRES_MAJOR/bin" >>"$GITHUB_PATH"
+        "/usr/lib/postgresql/$POSTGRES_MAJOR/bin/postgres" --version
