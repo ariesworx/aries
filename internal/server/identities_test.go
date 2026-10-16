@@ -32,7 +32,8 @@ func TestIdentityOps(t *testing.T) {
 	d := mustDialTo(t, m.Server, dana, projA)
 
 	inv := mustAsk[proto.IdentityResult](d, proto.OpInviteAdd, proto.InviteAddArgs{Name: "bob", Provider: "google", Address: "Bob@example.com"})
-	until := ck.now().Add(store.DefaultInviteTTL)
+	// The store keeps microseconds (rule 19); Linux's clock has nanoseconds.
+	until := ck.now().Add(store.DefaultInviteTTL).Truncate(time.Microsecond)
 	if inv.Change != "added" || inv.Principal != "bob" || inv.Provider != "google" || inv.Address != "Bob@example.com" ||
 		inv.State != proto.IdentityPending || inv.InvitedBy != "dana" || inv.ExpiresAt == nil || !inv.ExpiresAt.Equal(until) || inv.ID < 1 {
 		t.Errorf("invite.add = %+v, want bob's invitation, pending until %v", inv, until)
