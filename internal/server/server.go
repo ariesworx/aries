@@ -192,6 +192,12 @@ type Server struct {
 	// now is the clock for the limits above, and for how long a project
 	// store has been idle; tests replace it.
 	now func() time.Time
+	// wall is the clock a connection's idle deadline is set by. A
+	// deadline is the socket's, on the real clock, so it is apart from
+	// now: a test that sets now to a fixed time would otherwise idle
+	// out its connections once real time passes it. Tests replace it to
+	// make every deadline already gone.
+	wall func() time.Time
 	// started is when the server was made, for its uptime.
 	started time.Time
 	// clock is what the server has seen of Config.Clock (clock.go).
@@ -304,7 +310,7 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Workload != nil && (cfg.Control == nil || cfg.HTTPS == nil) {
 		return nil, errors.New("server: service principals' sign-in (workload:) needs a server of many projects (control_schema), and HTTPS")
 	}
-	s := &Server{cfg: cfg, conns: map[net.Conn]owner{}, now: time.Now, started: time.Now(), unopened: map[string]store.Project{},
+	s := &Server{cfg: cfg, conns: map[net.Conn]owner{}, now: time.Now, wall: time.Now, started: time.Now(), unopened: map[string]store.Project{},
 		ends: keyEnds{wake: make(chan struct{}, 1), told: map[string]bool{}}}
 	if cfg.Login != nil || cfg.Workload != nil {
 		a, err := newAuthServer(s, cfg.Login, cfg.Workload)
@@ -874,7 +880,7 @@ func (s *Server) serveConn(ctx context.Context, c net.Conn, given *proto.Frame, 
 		if sess.watching() {
 			_ = c.SetReadDeadline(time.Time{})
 		} else {
-			_ = c.SetReadDeadline(s.now().Add(idle))
+			_ = c.SetReadDeadline(s.wall().Add(idle))
 		}
 		f, err := sess.dec.Decode()
 		if err != nil {
