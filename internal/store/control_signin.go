@@ -188,8 +188,9 @@ const (
 	SignInUninvited SignInReason = "uninvited"
 	// SignInLapsed: the invitation of the address lapsed at Until.
 	SignInLapsed SignInReason = "lapsed"
-	// SignInUnverified: an invitation is open for the address, and the
-	// provider does not say the address is verified.
+	// SignInUnverified: no identity is bound to the subject, and the
+	// provider does not say the address is verified. It is given before
+	// anything is looked up by the address, whatever its state.
 	SignInUnverified SignInReason = "unverified"
 	// SignInRebound: the address is bound to another account at the
 	// provider; the account signing in is not the one bound.
@@ -311,7 +312,8 @@ type signInMatch struct {
 
 // matchSignIn finds the identity in names, at now: bound to its issuer
 // and subject, or else an open invitation of its verified address at its
-// provider; or it says, with a *SignInError, why there is none.
+// provider; or it says, with a *SignInError, why there is none. An
+// unverified address is refused before its invitations are read.
 func (c *Control) matchSignIn(ctx context.Context, q querier, in SignIn, now time.Time) (signInMatch, error) {
 	refuse := func(r SignInReason, until time.Time) (signInMatch, error) {
 		return signInMatch{}, &SignInError{Reason: r, Provider: in.Provider, Address: in.Address, Until: until}
@@ -323,15 +325,19 @@ func (c *Control) matchSignIn(ctx context.Context, q querier, in SignIn, now tim
 	case !errors.Is(err, sql.ErrNoRows):
 		return signInMatch{}, fmt.Errorf("find the identity of a sign-in at %s: %w", in.Provider, err)
 	}
+	// Past a bound identity, only the address can match, and an address
+	// the provider does not vouch for may be anyone's: it is refused
+	// before anything is read by it, so that the refusal says nothing of
+	// the address's invitations.
+	if !in.Verified {
+		return refuse(SignInUnverified, time.Time{})
+	}
 	inv, err := scanIdentity(q.QueryRowContext(ctx, identitySelect+` WHERE subject IS NULL AND provider = $1 AND lower(invited_as) = lower($2::text COLLATE "C")`,
 		in.Provider, in.Address))
 	switch {
 	case err == nil:
 		if inv.State(now) == IdentityLapsed {
 			return refuse(SignInLapsed, inv.InviteUntil)
-		}
-		if !in.Verified {
-			return refuse(SignInUnverified, time.Time{})
 		}
 		return signInMatch{identity: inv, bind: true}, nil
 	case !errors.Is(err, sql.ErrNoRows):

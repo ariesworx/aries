@@ -159,6 +159,52 @@ func TestSignInRefusals(t *testing.T) {
 	}
 }
 
+// TestSignInUnverifiedRevealsNothing: a sign-in whose address the
+// provider does not say is verified, and whose subject is bound to no
+// identity, is refused alike whatever the address's state, so that
+// someone who sets another's address on an account of theirs learns
+// nothing of it.
+func TestSignInUnverifiedRevealsNothing(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		setup func(t *testing.T, c *Control, clk *clock)
+	}{
+		{"nobody invited", func(*testing.T, *Control, *clock) {}},
+		{"an open invitation", func(t *testing.T, c *Control, _ *clock) {
+			mustInvite(t, c, "alice", "corp", "alice@example.com")
+		}},
+		{"a lapsed invitation", func(t *testing.T, c *Control, clk *clock) {
+			mustInvite(t, c, "alice", "corp", "alice@example.com")
+			clk.add(DefaultInviteTTL + time.Second)
+		}},
+		{"an address bound to another subject", func(t *testing.T, c *Control, _ *clock) {
+			inv := mustInvite(t, c, "alice", "corp", "alice@example.com")
+			if err := bind(t, c, inv.ID, corpIssuer, "another-subject"); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			c, clk := clockControl(t, ControlOptions{})
+			mustPrincipal(t, c, "alice")
+			tc.setup(t, c, clk)
+			in := aliceSignIn("tok")
+			in.Verified = false
+			_, err := c.SignIn(t.Context(), in)
+			se, ok := errors.AsType[*SignInError](err)
+			if !ok || se.Reason != SignInUnverified || !se.Until.IsZero() {
+				t.Fatalf("SignIn(unverified, %s) = %#v, want a *SignInError of reason %s with no time", tc.name, err, SignInUnverified)
+			}
+			want := (&SignInError{Reason: SignInUnverified, Provider: in.Provider, Address: in.Address}).Error()
+			if err.Error() != want {
+				t.Errorf("SignIn(unverified, %s) = %q, want %q", tc.name, err, want)
+			}
+		})
+	}
+}
+
 func TestSignInChecks(t *testing.T) {
 	t.Parallel()
 	c, _ := clockControl(t, ControlOptions{})

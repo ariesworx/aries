@@ -868,7 +868,7 @@ login:
       client_id: aries
       client_secret_file: /etc/aries/corp-secret   # 0600; the secret is never in this file
       ca_file: /etc/aries/corp-ca.pem              # the internal CA of the provider's certificate, in place of the system's
-      domains: [example.com]      # the token's address must be at one of these
+      domains: [example.com]      # the token's address must be at one of these, and verified
       require: {hd: example.com}  # claims that must have these values
     - name: corp-offline
       kind: oidc
@@ -921,12 +921,18 @@ login:
   the provider each time, and a token of an older sign-in is refused.
   Entra's is held to `tid` (the tenant), `ver` (the version), and its
   subject is `oid`; its address counts as verified only with `xms_edov`.
+  With `domains`, an address the provider does not say is verified is
+  refused, since it may be anyone's. An `iss` on the provider's answer
+  (RFC 9207), which most providers do not send, must be the provider's
+  issuer; another is refused before its code is spent.
 - **Who signs in.** The token's issuer and subject name an identity
   bound before, whatever address the token says; or else its address,
   which the provider says is verified, binds the open invitation of that
   address at that provider ([Identities and
   invitations](#identities-and-invitations)), once. Nobody else signs
-  in.
+  in. Since a bound identity is matched by issuer and subject alone,
+  `ariesd serve` refuses two providers with one issuer, which would each
+  sign in the other's people past its own `require` and `domains`.
 - **The token** is 256 random bits and more, of which only the SHA-256
   is kept, bound to a P-256 key `aries` makes at each sign-in (DPoP, RFC
   9449): presented without a proof by that key it is refused, so a token
@@ -971,7 +977,7 @@ The server's paths for sign-in, with `login:` providers:
 |---|---|
 | `GET /.well-known/oauth-authorization-server` | The authorization server's metadata (RFC 8414): its endpoints, PKCE S256, DPoP ES256, `iss` in the response |
 | `GET /oauth/authorize` | Where `aries login` opens the browser: checks `aries`'s request (its client, its loopback redirect, PKCE, state), and sends the browser on to the provider with the server's own PKCE, state, nonce and `prompt=login` |
-| `GET /auth/callback` | Where the provider sends the browser back; the server exchanges the code and sends the browser to `aries`'s loopback address with a code of its own, good for a minute and once |
+| `GET /auth/callback` | Where the provider sends the browser back; the server exchanges the code and sends the browser to `aries`'s loopback address with a code of its own, good for a minute and once, and as `iss` the one of `public_urls` that `aries` named |
 | `POST /oauth/token` | Where `aries` spends that code, with its PKCE verifier and a DPoP proof, for the token |
 | `POST /oauth/revoke` | Ends the sign-in a token is of, and closes its connections (RFC 7009); `aries logout` calls it |
 

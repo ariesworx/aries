@@ -64,6 +64,13 @@ func newMeasuredSignInWorld(t *testing.T, edit func(*oidctest.Issuer, *oidc.Sett
 // limits lim.
 func newLimitedSignInWorld(t *testing.T, lim Limits, edit func(*oidctest.Issuer, *oidc.Settings, *Login), tel *telemetry.Telemetry, admins ...string) *signInWorld {
 	t.Helper()
+	return newSignInWorldWith(t, lim, edit, tel, nil, admins...)
+}
+
+// newSignInWorldWith is newLimitedSignInWorld whose HTTPS settings
+// https, when it is not nil, changes before the server starts.
+func newSignInWorldWith(t *testing.T, lim Limits, edit func(*oidctest.Issuer, *oidc.Settings, *Login), tel *telemetry.Telemetry, https func(*HTTPS), admins ...string) *signInWorld {
+	t.Helper()
 	iss := oidctest.New(t)
 	// The world's time is not the wall clock's (rule 19): what it dates
 	// by the wall clock is refused on every run, not only on a slow one.
@@ -86,7 +93,7 @@ func newLimitedSignInWorld(t *testing.T, lim Limits, edit func(*oidctest.Issuer,
 	login.Providers = []*oidc.Provider{p}
 	w := &signInWorld{iss: iss, clk: clk}
 	w.multi = newMultiWith(t, lim, clk, nil, func(cfg *Config) {
-		w.url, w.pool = listenHTTPS(t, cfg, nil)
+		w.url, w.pool = listenHTTPS(t, cfg, https)
 		cfg.Login = &login
 		cfg.Telemetry = tel
 	}, append([]string{dana.Principal}, admins...)...)
@@ -894,6 +901,7 @@ func TestAuthorizeRefusals(t *testing.T) {
 	for _, tc := range []struct{ u, err string }{
 		{with("code_challenge_method", "plain"), "invalid_request"},
 		{with("scope", "cli ci"), "invalid_scope"},
+		{with("scope", " "), "invalid_scope"},
 		{with("provider", "nonesuch"), "invalid_request"},
 		{with("resource", "https://aries.example.com"), "invalid_target"},
 	} {
@@ -901,6 +909,88 @@ func TestAuthorizeRefusals(t *testing.T) {
 		if back.Get("error") != tc.err || back.Get("state") != a.state || back.Get("iss") != w.url || back.Get("code") != "" {
 			t.Errorf("GET %s = %v, want error %s with the state and iss", tc.u, back, tc.err)
 		}
+	}
+}
+
+// TestTokenResponseNotStored: the token endpoint's answers, a token's
+// above all, are kept by no cache (RFC 6749 §5.1).
+func TestTokenResponseNotStored(t *testing.T) {
+	t.Parallel()
+	w := newSignInWorld(t, nil)
+	a := newAttempt(t)
+	code := w.browse(t, w.authorizeURL(a)).Get("code")
+	proof := w.proof(t, a.key, http.MethodPost, w.url+pathToken, "")
+	form := url.Values{"grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {loopbackRedirect}, "client_id": {ClientCLI},
+		"code_verifier": {a.verifier}}
+	req, _ := http.NewRequest(http.MethodPost, w.url+pathToken, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("DPoP", proof)
+	resp, err := w.browser.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("Cache-Control") != "no-store" || resp.Header.Get("Pragma") != "no-cache" {
+		t.Errorf("POST %s = %s, Cache-Control %q, Pragma %q; want 200, no-store and no-cache", pathToken, resp.Status,
+			resp.Header.Get("Cache-Control"), resp.Header.Get("Pragma"))
+	}
+}
+
+// TestProviderAnswerIssuer: an iss on the provider's answer (RFC 9207)
+// must be the provider's; another is a mix-up of providers, and the
+// server neither spends its code nor signs anyone in. A provider that
+// sends none is taken, as most do.
+func TestProviderAnswerIssuer(t *testing.T) {
+	t.Parallel()
+	w := newSignInWorld(t, nil)
+	w.iss.AnswerIssuer(w.iss.URL)
+	w.mustSignIn(t, newAttempt(t))
+	for _, other := range []string{"https://sso.example.com", w.iss.URL + "/"} {
+		w.iss.AnswerIssuer(other)
+		before := w.iss.Tokens.Load()
+		ans := w.signIn(t, newAttempt(t))
+		if ans.AccessToken != "" || ans.Error != "access_denied" || proto.Code(ans.Code) != proto.CodeAuth ||
+			!strings.Contains(ans.Description, "iss") || ans.Fix == "" {
+			t.Errorf("a sign-in answered with iss %s = %+v, want access_denied, auth naming iss, with a fix", other, ans)
+		}
+		if n := w.iss.Tokens.Load() - before; n != 0 {
+			t.Errorf("a sign-in answered with iss %s spent its code at the provider %d times, want none", other, n)
+		}
+	}
+}
+
+// TestSignInAtAnotherPublicURL: aries configured with any of the
+// server's public URLs names it as the resource, and is answered with it
+// as iss, which it requires to be its own URL (RFC 9207); the sign-in is
+// for that URL.
+func TestSignInAtAnotherPublicURL(t *testing.T) {
+	t.Parallel()
+	var second string
+	w := newSignInWorldWith(t, Limits{}, nil, nil, func(h *HTTPS) {
+		second = strings.Replace(h.URLs[0], "127.0.0.1", "localhost", 1)
+		h.URLs = append(h.URLs, second)
+	})
+	a := newAttempt(t)
+	u, _ := url.Parse(w.authorizeURL(a))
+	q := u.Query()
+	q.Set("resource", second)
+	u.RawQuery = q.Encode()
+	back := w.browse(t, u.String())
+	if back.Get("iss") != second || back.Get("code") == "" {
+		t.Fatalf("sign-in for resource %s = %v, want a code with iss %s", second, back, second)
+	}
+	if ans := w.exchange(t, a, back.Get("code"), ""); ans.AccessToken == "" {
+		t.Fatalf("the exchange = %+v, want a token", ans)
+	}
+	gs, err := w.ctl.Grants(t.Context(), "alice")
+	if err != nil || len(gs) != 1 || gs[0].Resource != second {
+		t.Errorf("alice's sign-ins = %+v, %v; want one for %s", gs, err, second)
+	}
+	// A refusal goes back with the requested URL as iss too.
+	q.Set("scope", "root")
+	u.RawQuery = q.Encode()
+	if back := w.browse(t, u.String()); back.Get("error") != "invalid_scope" || back.Get("iss") != second {
+		t.Errorf("a refused sign-in for resource %s = %v, want invalid_scope with iss %s", second, back, second)
 	}
 }
 

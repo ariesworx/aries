@@ -3,6 +3,7 @@ package server
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -115,6 +116,16 @@ func TestOpenLogin(t *testing.T) {
 	}
 	if l, err := OpenLogin(LoginSettings{}, time.Now); l != nil || err != nil {
 		t.Errorf("OpenLogin(no providers) = %+v, %v; want nil: nobody signs in", l, err)
+	}
+	// An identity is bound to (issuer, subject) alone, so two providers
+	// of one issuer would each sign in the other's people.
+	twice := s.Login
+	other := twice.Providers[0]
+	other.Name = "corp-b"
+	twice.Providers = append(slices.Clone(twice.Providers), other)
+	if _, err := OpenLogin(twice, time.Now); err == nil || !strings.Contains(err.Error(), "corp and corp-b") || !strings.Contains(err.Error(), iss.URL) ||
+		!strings.Contains(err.Error(), "fix:") {
+		t.Errorf("OpenLogin(two providers of issuer %s) = %v, want a refusal naming both and the issuer, with a fix", iss.URL, err)
 	}
 	if err := os.Chmod(secret, 0o644); err != nil { //nolint:gosec // too open, on purpose
 		t.Fatal(err)
