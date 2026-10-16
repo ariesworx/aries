@@ -858,3 +858,66 @@ func TestMetricsAndLogsOfGates(t *testing.T) {
 		t.Errorf("the log has %d gate lines, want 7, one for each change:\n%s", n, lines)
 	}
 }
+
+// lateHello is a client's end of a connection whose second write, the
+// hello, waits until the daemon has hung up.
+type lateHello struct {
+	net.Conn
+	hungUp <-chan struct{}
+	writes int
+}
+
+func (c *lateHello) Write(p []byte) (int, error) {
+	if c.writes++; c.writes == 2 {
+		<-c.hungUp
+	}
+	return c.Conn.Write(p)
+}
+
+// A daemon that welcomes and then hangs up gets one refusal, that it did
+// not answer, whether the client wrote its hello before the hang-up or
+// after it, when the write fails: the welcome is read either way.
+func TestStatusFromADaemonThatHangsUp(t *testing.T) {
+	t.Parallel()
+	for _, late := range []bool{false, true} {
+		t.Run(fmt.Sprintf("hello after the hang-up %t", late), func(t *testing.T) {
+			dir, err := os.MkdirTemp("", "sfh")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.RemoveAll(dir) })
+			l, err := net.Listen("unix", filepath.Join(dir, "d.sock"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = l.Close() }()
+			hungUp := make(chan struct{})
+			var wg sync.WaitGroup
+			defer wg.Wait()
+			wg.Go(func() {
+				defer close(hungUp)
+				c, err := l.Accept()
+				if err != nil {
+					return
+				}
+				defer func() { _ = c.Close() }()
+				if _, err := proto.NewDecoder(c).Decode(); err != nil {
+					return
+				}
+				_ = proto.NewEncoder(c).Encode(&proto.Frame{T: proto.FrameWelcome, Principal: StatusPrincipal})
+			})
+			c, err := net.Dial("unix", l.Addr().String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = c.Close() }()
+			if late {
+				c = &lateHello{Conn: c, hungUp: hungUp}
+			}
+			_, err = statusOn(t.Context(), c, "v0.2.0")
+			if err == nil || !strings.Contains(err.Error(), "the daemon did not answer") || !strings.Contains(err.Error(), "fix: see ariesd's log") {
+				t.Errorf("Status() from a daemon that welcomed and hung up = %v, want an error that it did not answer, with a fix", err)
+			}
+		})
+	}
+}
