@@ -357,9 +357,9 @@ func readUpTo(path string, n int64) ([]byte, error) {
 }
 
 // keysStatus is the keys file as `aries admin status` shows it, or nil for
-// a server that writes none.
+// a server that writes none, SSH being off among them.
 func (s *Server) keysStatus() *proto.KeysFile {
-	if s.cfg.KeysFile == "" {
+	if s.cfg.KeysFile == "" || s.cfg.NoSSH {
 		return nil
 	}
 	k := &s.keys

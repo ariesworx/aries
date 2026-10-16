@@ -49,7 +49,8 @@ Each profile ends with explicit `audit deny` rules for what ariesd
 must never do: write its config file or `authorized_keys`, write its
 binary (but for the operator's profile), read under `/home` or `/root`,
 trace another process, or mount. The bridge and the daemon are denied
-every capability; the operator's profile has one, so that root can read
+every capability, but the daemon's net_bind_service, for the HTTPS
+listener's port; the operator's profile has one, so that root can read
 the config file for `upgrade --check`. Unix permissions allow the first
 three, since the `aries` user owns those files.
 
@@ -240,6 +241,25 @@ would refuse, as the server guide says, before you enforce them.
 What changed besides: the comments no longer name the database ariesd
 used before, and the bridge's comment says what its config file may
 hold, a DSN with a password, which it has no way to use.
+
+## What the HTTPS listener needed
+
+HTTPS became the transport a fresh server serves (design decision 86,
+slice T1 of [transport.md](../../docs/design/transport.md)). On 16
+October 2026 the profiles changed for it; how they were checked is in
+the release notes of T1, and as for Postgres they were not loaded into
+an enforcing kernel.
+
+| What ariesd does | The rule |
+|---|---|
+| Listens on TCP, on port 443 by default | Nothing new for the listening: `network inet stream` was there. `ariesd-serve` gains `capability net_bind_service`, which the unit's drop-in (`AmbientCapabilities`) gives it for a port below 1024. Its blanket `audit deny capability` would win over that allow, so it now names the capabilities it denies with an audit line; any other is refused as before, since no rule allows it |
+| Reads its certificate and key, `tls: mode: files` | `@{ariesd_tls}/ r,` and `@{ariesd_tls}/** r,`, with the tunable at `/etc/aries/tls` |
+| Keeps ACME's account key and certificates, `tls: mode: acme` | `owner @{ariesd_acme}/ rw,` and `owner @{ariesd_acme}/** rw,`, with the tunable at `/var/lib/aries/acme`. Reaching the ACME server is `network inet stream`, DNS and `abstractions/ssl_certs`, all there since Postgres |
+| Removes the keys file with SSH off | Nothing new: the rule that writes it lets it be removed |
+| `control init` reads the first admin's key from `/etc/aries/admin.keys` with SSH off | `@{ariesd_admin_keys} r,` in `ariesd-admin` |
+
+The bridge's profile, `ariesd`, is unchanged; with SSH off nothing runs
+under it but `ariesd status`.
 
 ## Checking a change
 

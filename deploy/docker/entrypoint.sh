@@ -21,6 +21,13 @@
 # the .aries.yaml a client needs. When one of the two exits, it stops
 # the other and exits 1.
 #
+# It serves HTTPS, as a fresh server does (docs/server.md, The HTTPS
+# listener), on port 8443 inside the container, with a certificate for
+# localhost and 127.0.0.1 from a CA of its own that it makes on the
+# first start and keeps on the volume. SSH is off unless ARIES_SSH=1:
+# then sshd runs and ariesd writes the keys file it reads, as with
+# install-server.sh --enable-ssh.
+#
 # With ARIES_TELEMETRY=1 ariesd also reports on itself, set up as
 # docs/server.md's Observability sets a server up: it serves /metrics,
 # /healthz and /readyz on loopback, and pushes metrics, traces and logs over
@@ -37,6 +44,12 @@ hostkey=$state/hostkeys/ssh_host_ed25519_key
 keys_file=/etc/aries-keys
 ready=/run/aries-ready
 port=${ARIES_PORT:-2222}
+# HTTPS: the listener inside the container, the port of this machine it
+# is published on, which the URL names, and the certificate's files,
+# with the CA that signed it beside them for clients' server.ca.
+https_port=${ARIES_HTTPS_PORT:-8443}
+tls_dir=/etc/aries/tls
+tls_ca=$tls_dir/ca.pem
 # The server of many projects: its control schema, and the name the
 # project it starts with is adopted under.
 control_schema=aries_control
@@ -159,6 +172,13 @@ setting() { sed -n "s/^$1: //p" "$config"; }
 write_config() {
   {
     printf 'dsn: %s\nproject: %s\nadmins: [%s]\ncontrol_schema: %s\n' "$dsn" "$1" "$2" "$control_schema"
+    if ssh_on; then
+      printf 'transports: [https, ssh]\n'
+    else
+      printf 'transports: [https]\n'
+    fi
+    printf 'https:\n  listen: ":8443"\n  public_urls: [https://localhost:%s]\n  tls:\n    mode: files\n    files:\n      cert: %s/cert.pem\n      key: %s/key.pem\n' \
+      "$https_port" "$tls_dir" "$tls_dir"
     if telemetry_on; then
       printf 'telemetry:\n  listen: %s\n  principals_key: %s\n' "$telemetry_listen" "$telemetry_key"
     fi
@@ -166,6 +186,34 @@ write_config() {
 }
 
 telemetry_on() { [[ ${ARIES_TELEMETRY:-} == 1 ]]; }
+ssh_on() { [[ ${ARIES_SSH:-} == 1 ]]; }
+
+# make_tls makes, on the first start, a CA and a certificate it signs
+# for localhost and 127.0.0.1, which the listener serves: a test CA,
+# never a real one, whose key stays on the volume, mode 0600. Clients
+# trust it by server.ca, which report prints.
+make_tls() {
+  install -d -o root -g aries -m 0750 "$tls_dir"
+  if [[ -s $tls_dir/cert.pem && -s $tls_dir/key.pem && -s $tls_ca ]]; then
+    return 0
+  fi
+  local tmp
+  tmp=$(mktemp -d)
+  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 3650 -subj '/CN=Aries test CA' \
+    -addext 'basicConstraints=critical,CA:TRUE' -addext 'keyUsage=critical,keyCertSign' \
+    -keyout "$tmp/ca.key" -out "$tmp/ca.pem" 2>/dev/null || die "could not make the test CA" "read openssl's error: run the entrypoint by hand"
+  openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj '/CN=localhost' \
+    -keyout "$tmp/key.pem" -out "$tmp/req.pem" 2>/dev/null || die "could not make the certificate's key" "read openssl's error"
+  printf 'subjectAltName=DNS:localhost,IP:127.0.0.1\nextendedKeyUsage=serverAuth\n' >"$tmp/ext"
+  openssl x509 -req -in "$tmp/req.pem" -CA "$tmp/ca.pem" -CAkey "$tmp/ca.key" -CAcreateserial -days 825 \
+    -extfile "$tmp/ext" -out "$tmp/cert.pem" 2>/dev/null || die "could not sign the certificate" "read openssl's error"
+  install -o root -g aries -m 0644 "$tmp/ca.pem" "$tls_ca"
+  install -o root -g aries -m 0644 "$tmp/cert.pem" "$tls_dir/cert.pem"
+  install -o aries -g aries -m 0600 "$tmp/key.pem" "$tls_dir/key.pem"
+  install -o root -g root -m 0600 "$tmp/ca.key" "$state/tls-ca.key"
+  rm -rf "$tmp"
+  log "made a test CA and a certificate for localhost and 127.0.0.1 in $tls_dir"
+}
 
 # watch_self brings the config in step with ARIES_TELEMETRY, which may
 # differ from the start that wrote it: on, ariesd's listener and the
@@ -300,9 +348,16 @@ report() {
     log "no principals in authorized_keys, so only those an admin added with aries admin can connect"
     log "fix: set ARIES_KEYS to \"alice \$(cat ~/.ssh/id_ed25519.pub)\" and start again"
   fi
+  local transports=https ssh_lines=''
+  if ssh_on; then
+    transports='https, ssh'
+    ssh_lines=$(printf '  host: localhost\n  port: %s\n  host_key: %s' "$port" "$fpr")
+  fi
   cat <<EOF
 
 Aries test server ready (not for production)
+  transports  $transports
+  url         https://localhost:$https_port
   host key    $fpr
   project     $project
   principals  ${principals:-none}
@@ -313,9 +368,10 @@ Save this as .aries.yaml in a scratch repository:
 
 project: $project
 server:
-  host: localhost
-  port: $port
-  host_key: $fpr
+  url: https://localhost:$https_port
+  ca: |
+$(sed 's/^/    /' "$tls_ca")
+${ssh_lines}
 
 EOF
 }
@@ -329,6 +385,10 @@ main() {
   if [[ -n ${ARIES_TELEMETRY:-} ]] && ! telemetry_on; then
     die "ARIES_TELEMETRY is '${ARIES_TELEMETRY}'" "set it to 1 for ariesd's telemetry, or leave it unset for none"
   fi
+  if [[ -n ${ARIES_SSH:-} ]] && ! ssh_on; then
+    die "ARIES_SSH is '${ARIES_SSH}'" "set it to 1 to serve SSH beside HTTPS, or leave it unset for HTTPS alone"
+  fi
+  [[ $https_port =~ ^[1-9][0-9]{0,4}$ ]] || die "ARIES_HTTPS_PORT is '$https_port'" "set it to the port of this machine the HTTPS listener is published on"
   prepare
   install_pgpass
   wait_db
@@ -343,6 +403,10 @@ main() {
   fi
   watch_self
   install_principals
+  # The transports and the URL follow ARIES_SSH and ARIES_HTTPS_PORT on
+  # every start, which may differ from the start that wrote the file.
+  write_config "$(setting project)" "$(setting admins | tr -d '[]')"
+  make_tls
   adopt
 
   if telemetry_on; then
@@ -351,12 +415,17 @@ main() {
     start ariesd run_as aries /var/lib/aries ariesd serve
   fi
   wait_for ariesd test -S /run/aries/ariesd.sock
+  wait_for ariesd port_open 127.0.0.1 8443
 
-  /usr/sbin/sshd -t || die "sshd refuses its config" "read the error above"
-  start sshd env -i PATH=/usr/sbin:/usr/bin:/bin /usr/sbin/sshd -D -e
-  # sshd writes its pid file once it listens; probing the port would log a
-  # dropped connection.
-  wait_for sshd test -s /run/sshd.pid
+  if ssh_on; then
+    /usr/sbin/sshd -t || die "sshd refuses its config" "read the error above"
+    start sshd env -i PATH=/usr/sbin:/usr/bin:/bin /usr/sbin/sshd -D -e
+    # sshd writes its pid file once it listens; probing the port would
+    # log a dropped connection.
+    wait_for sshd test -s /run/sshd.pid
+  else
+    log "SSH is off: sshd does not run; ARIES_SSH=1 turns it on"
+  fi
 
   report
   touch "$ready"

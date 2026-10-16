@@ -13,8 +13,12 @@
 #
 # Flags go to `docker build`, for example --secret id=ca,src=FILE behind a
 # TLS-intercepting proxy. ARIES names an aries binary to use instead of
-# building one. ARIES_PORT is the port on 127.0.0.1, 2223 by default, so
-# a dev server on 2222 is left alone. ARIES_IMAGE names an image to test
+# building one. The server serves HTTPS alone, as a fresh server does,
+# on 127.0.0.1:ARIES_HTTPS_PORT, 8444 by default, and aries reaches it
+# there. ARIES_SMOKE_SSH=1 runs all of it with SSH on beside HTTPS, and
+# aries over SSH (ARIES_TRANSPORT=ssh), on 127.0.0.1:ARIES_PORT, 2223 by
+# default; the checks of the keys file sshd reads run only then. The
+# ports default so that a dev server on 8443 and 2222 is left alone. ARIES_IMAGE names an image to test
 # instead of building aries-dev:local: a variant of it, built FROM it,
 # such as those docs/deploy/docker.md describes. ARIES_SMOKE_LOG names
 # a file to save the server's log to (sshd's and ariesd's, then
@@ -43,6 +47,16 @@ set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 port=${ARIES_PORT:-2223}
+https_port=${ARIES_HTTPS_PORT:-8444}
+ssh=
+case ${ARIES_SMOKE_SSH:-} in
+'') ;;
+1) ssh=1 ;;
+*)
+  printf 'smoke: ARIES_SMOKE_SSH is %s\nfix: set it to 1, or leave it unset\n' "$ARIES_SMOKE_SSH" >&2
+  exit 2
+  ;;
+esac
 work=$(mktemp -d)
 compose=(docker compose -p "${ARIES_SMOKE_PROJECT:-aries-smoke}" -f "$root/deploy/docker/compose.yaml")
 telemetry=
@@ -120,8 +134,19 @@ aries_as() {
   shift
   local key=${smoke_key-$work/keys/${who%-web}}
   (cd "$work/$who" && HOME="${smoke_home-$work/home}" XDG_CACHE_HOME="$work/home/.cache" SSH_AUTH_SOCK="${smoke_agent-}" \
-    ARIES_KEY_FILE="$key" ARIES_KEY="${smoke_old-}" ARIES_SESSION="${smoke_session-smoke-$who}" \
+    ARIES_KEY_FILE="$key" ARIES_KEY="${smoke_old-}" ARIES_SESSION="${smoke_session-smoke-$who}" ARIES_TRANSPORT="${ssh:+ssh}" \
     CLAUDE_CODE_SESSION_ID='' CLAUDE_SESSION_ID='' "$aries" "$@")
+}
+
+# yaml_for PROJECT prints the .aries.yaml of a checkout of PROJECT, as
+# the server printed it: its URL and its test CA, and with SSH on its
+# address and host key.
+yaml_for() {
+  printf 'project: %s\nserver:\n  url: %s\n  ca: |\n' "$1" "$url"
+  sed 's/^/    /' "$work/ca.pem"
+  if [[ -n $ssh ]]; then
+    printf '  host: localhost\n  port: %s\n  host_key: %s\n' "$port" "$host_key"
+  fi
 }
 
 # start_agent runs an ssh-agent of the test's own on agent_sock, and
@@ -183,9 +208,12 @@ in_server() { "${compose[@]}" exec -T aries "$@"; }
 
 # keys_file checks the file ariesd writes for sshd: there, a regular
 # file of mode 0600 that aries owns, starting with the comment that
-# says who writes it.
+# says who writes it. With SSH off there is no such file, which
+# no_ssh_path checks, and these checks of it and the next three do
+# nothing.
 keys_file=/var/lib/aries/.ssh/aries_keys
 check_keys_file() {
+  [[ -n $ssh ]] || return 0
   local got
   got=$(in_server stat -L -c '%F %a %U:%G' "$keys_file" 2>&1) || fail "$1: no keys file at $keys_file" "$got"
   [[ $got == "regular file 600 aries:aries" ]] || fail "$1: the keys file is '$got', want a regular file, 600, aries:aries"
@@ -197,11 +225,13 @@ check_keys_file() {
 # in_keys_file NAME PATTERN / not_in_keys_file NAME PATTERN check the
 # keys file for a line matching the extended regexp PATTERN.
 in_keys_file() {
+  [[ -n $ssh ]] || return 0
   in_server grep -Eq -- "$2" "$keys_file" || fail "$1: the keys file has no line matching /$2/" "$(in_server cut -c1-120 "$keys_file")"
   passed=$((passed + 1))
 }
 
 not_in_keys_file() {
+  [[ -n $ssh ]] || return 0
   if in_server grep -Eq -- "$2" "$keys_file"; then
     fail "$1: the keys file has a line matching /$2/" "$(in_server cut -c1-120 "$keys_file")"
   fi
@@ -211,6 +241,7 @@ not_in_keys_file() {
 # no_failed_write fails if ariesd logged that it could not write the
 # keys file, or never logged writing it.
 no_failed_write() {
+  [[ -n $ssh ]] || return 0
   local log
   log=$("${compose[@]}" logs --no-log-prefix aries 2>&1)
   if grep -q 'keys file is out of date' <<<"$log"; then
@@ -220,8 +251,27 @@ no_failed_write() {
   passed=$((passed + 1))
 }
 
+# no_ssh_path checks, with SSH off, that the server exposes no SSH path
+# (docs/server.md, SSH on and off): sshd does not run, ariesd wrote no
+# keys file, and the bridge sshd would run is refused by ariesd.
+no_ssh_path() {
+  [[ -z $ssh ]] || return 0
+  if in_server test -e /run/sshd.pid; then
+    fail "$1: sshd runs with SSH off"
+  fi
+  if in_server test -e "$keys_file"; then
+    fail "$1: ariesd wrote $keys_file with SSH off"
+  fi
+  local got
+  got=$("${compose[@]}" exec -T -u aries -w /var/lib/aries aries ariesd stdio --principal alice </dev/null 2>&1) || true
+  if ! grep -q '"c":"unavailable"' <<<"$got" || ! grep -q 'SSH is off on this server' <<<"$got"; then
+    fail "$1: the bridge with SSH off was not refused unavailable, SSH is off" "$got"
+  fi
+  passed=$((passed + 3))
+}
+
 up() {
-  ARIES_IMAGE=$image ARIES_KEYS=$keys ARIES_ADMINS=alice ARIES_PORT=$port ARIES_TELEMETRY=$telemetry \
+  ARIES_IMAGE=$image ARIES_KEYS=$keys ARIES_ADMINS=alice ARIES_PORT=$port ARIES_HTTPS_PORT=$https_port ARIES_SSH=$ssh ARIES_TELEMETRY=$telemetry \
     "${compose[@]}" up -d --no-build --wait --wait-timeout 120 >/dev/null 2>&1 ||
     fail "the server did not become healthy" "$("${compose[@]}" logs --no-log-prefix 2>&1 | tail -n 40)"
 }
@@ -866,17 +916,23 @@ for who in alice bob; do
   keys+="$who $(cat "$work/keys/$who.pub")"$'\n'
 done
 
-echo "smoke: starting the server on 127.0.0.1:$port"
+if [[ -n $ssh ]]; then
+  echo "smoke: starting the server, HTTPS on 127.0.0.1:$https_port and SSH on 127.0.0.1:$port; aries over SSH"
+else
+  echo "smoke: starting the server, HTTPS alone on 127.0.0.1:$https_port; aries over HTTPS"
+fi
 "${compose[@]}" down -v >/dev/null 2>&1 || true
 up
 project=$(server_setting project)
+url=$(server_setting url)
 host_key=$(server_setting host_key)
-[[ $project =~ ^[0-9a-f-]{36}$ && $host_key == SHA256:* ]] ||
+[[ $project =~ ^[0-9a-f-]{36}$ && $url == "https://localhost:$https_port" && (-z $ssh || $host_key == SHA256:*) ]] ||
   fail "the server printed no .aries.yaml" "$("${compose[@]}" logs --no-log-prefix 2>&1 | tail -n 20)"
+in_server cat /etc/aries/tls/ca.pem >"$work/ca.pem" || fail "the server has no test CA at /etc/aries/tls/ca.pem"
 for who in alice bob; do
-  printf 'project: %s\nserver:\n  host: localhost\n  port: %s\n  host_key: %s\n' \
-    "$project" "$port" "$host_key" >"$work/$who/.aries.yaml"
+  yaml_for "$project" >"$work/$who/.aries.yaml"
 done
+no_ssh_path "at the start"
 
 # Which key aries offers. alice is the server admin and bob a member; an
 # agent that holds alice's key behind six the server does not know is in
@@ -1007,8 +1063,7 @@ expect "project add" '^project web \([0-9a-f-]{36}\) created in schema project_w
 web=$(sed -n 's/^project: //p' <<<"$last")
 [[ $web =~ ^[0-9a-f-]{36}$ && $web != "$project" ]] || fail "project add printed no .aries.yaml for the new project" "$last"
 for who in alice bob; do
-  printf 'project: %s\nserver:\n  host: localhost\n  port: %s\n  host_key: %s\n' \
-    "$web" "$port" "$host_key" >"$work/$who-web/.aries.yaml"
+  yaml_for "$web" >"$work/$who-web/.aries.yaml"
 done
 expect "create in the second project" '^web-[a-z0-9]+$' alice-web create "First in web" -p 2 -t task
 w=$last
@@ -1056,8 +1111,7 @@ ssh-keygen -q -t ed25519 -N '' -C carol@example.com -f "$work/keys/carol"
 carol_fp=$(ssh-keygen -lf "$work/keys/carol.pub" | cut -d' ' -f2)
 # A fingerprint is base64, whose + and / mean something in a pattern.
 carol_re=$(sed 's/[+/.]/[&]/g' <<<"$carol_fp")
-printf 'project: %s\nserver:\n  host: localhost\n  port: %s\n  host_key: %s\n' \
-  "$project" "$port" "$host_key" >"$work/carol/.aries.yaml"
+yaml_for "$project" >"$work/carol/.aries.yaml"
 refuse "a key nobody added" 'accepted no key: aries offered SHA256:' carol ready
 expect "principal add --key" "^key $carol_re added to carol\$" alice admin principal add carol --key "$work/keys/carol.pub"
 if "${compose[@]}" exec -T aries grep -q carol /state/ssh/authorized_keys; then
@@ -1084,15 +1138,20 @@ expect "the key added again" "^$b " carol ready
 expect "principal disable" '^carol: disabled$' alice admin principal disable carol
 not_in_keys_file "a disabled principal's key" 'stdio --principal carol '
 refuse "a disabled principal's key" 'accepted no key' carol ready
-expect "status shows the keys file" "^keys file $keys_file: 2 keys, written " alice admin status
+if [[ -n $ssh ]]; then
+  expect "status shows the transports" "^transports: https on [^ ]*:8443 for https://localhost:$https_port \(files, certificate ends [0-9-]+\), [0-9]+ connections?; ssh on, [0-9]+ connections?$" alice admin status
+  expect "status shows the keys file" "^keys file $keys_file: 2 keys, written " alice admin status
+else
+  expect "status shows the transports" "^transports: https on [^ ]*:8443 for https://localhost:$https_port \(files, certificate ends [0-9-]+\), [0-9]+ connections?; ssh off$" alice admin status
+  absent "status shows no keys file with SSH off" '^keys file '
+fi
 # A CI job reports a check, as the workflows of docs/ci.md run it: its
 # own principal, CI=true and the branch in GITHUB_HEAD_REF, with no
 # session named, so aries takes the session ci.
 echo "smoke: a CI job reports a check on the issue its branch names"
 mkdir -p "$work/ci-example"
 ssh-keygen -q -t ed25519 -N '' -C ci-example@example.com -f "$work/keys/ci-example"
-printf 'project: %s\nserver:\n  host: localhost\n  port: %s\n  host_key: %s\n' \
-  "$project" "$port" "$host_key" >"$work/ci-example/.aries.yaml"
+yaml_for "$project" >"$work/ci-example/.aries.yaml"
 expect "a principal for CI" ' added to ci-example$' alice admin principal add ci-example --key "$work/keys/ci-example.pub"
 ci_subject=$(aries_as alice create "Parse the config" 2>/dev/null) || fail "aries create of the CI subject exited $?"
 ci_next=$(aries_as alice create "Use the parsed config" 2>/dev/null) || fail "aries create of the dependent exited $?"
@@ -1169,6 +1228,8 @@ echo "smoke: restarting the server"
 restart_server
 [[ $(server_setting project) == "$project" ]] || fail "restart: the project changed" "$(server_setting project)"
 [[ $(server_setting host_key) == "$host_key" ]] || fail "restart: the host key changed" "$(server_setting host_key)"
+in_server cat /etc/aries/tls/ca.pem | cmp -s - "$work/ca.pem" || fail "restart: the test CA changed"
+no_ssh_path "after the restart"
 passed=$((passed + 2))
 expect "show after restart" "^$a .*closed" alice show "$a"
 expect "admins after restart" ': unchanged$' alice admin price set "${price[@]}"
@@ -1211,8 +1272,7 @@ expect "the restored member" "^$b " bob ready
 echo "smoke: a key of authorized_keys keeps its principal"
 mkdir -p "$work/dave"
 ssh-keygen -q -t ed25519 -N '' -C dave@example.com -f "$work/keys/dave"
-printf 'project: %s\nserver:\n  host: localhost\n  port: %s\n  host_key: %s\n' \
-  "$project" "$port" "$host_key" >"$work/dave/.aries.yaml"
+yaml_for "$project" >"$work/dave/.aries.yaml"
 by_hand() {
   printf 'restrict,command="/usr/local/bin/ariesd stdio --principal %s" %s\n' "$1" "$(cat "$2")" |
     in_server sh -c 'cat >> /state/ssh/authorized_keys'
@@ -1230,16 +1290,21 @@ expect "and it still signs its owner in as themselves" '^alice +active' dave adm
 
 # The other order: the control database holds carol's key, for carol, and
 # then the operator gives the same key to alice by hand. ariesd holds
-# carol's line back from its file, so sshd reaches the operator's.
+# carol's line back from its file, so sshd reaches the operator's; over
+# HTTPS ariesd takes the operator's line itself, as sshd would.
 refuse "carol's key signs in as carol, who is no server admin" 'for server admins' carol admin principal list
 by_hand alice "$work/keys/carol.pub"
-for _ in $(seq 1 45); do
-  in_server grep -Eq 'stdio --principal carol ' "$keys_file" || break
-  sleep 1
-done
+if [[ -n $ssh ]]; then
+  for _ in $(seq 1 45); do
+    in_server grep -Eq 'stdio --principal carol ' "$keys_file" || break
+    sleep 1
+  done
+fi
 not_in_keys_file "a key the operator's file gives to another principal" 'stdio --principal carol '
 expect "that key signs in as the principal the operator's line names" '^alice +active' carol admin principal list
-expect "status counts the key held back" '^keys held back from it: 1,' alice admin status
+if [[ -n $ssh ]]; then
+  expect "status counts the key held back" '^keys held back from it: 1,' alice admin status
+fi
 no_failed_write "at the end"
 
 # ariesd's log follows its schema (docs/server.md, Logs): every line it

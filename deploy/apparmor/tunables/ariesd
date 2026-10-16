@@ -51,3 +51,13 @@
 # with (`telemetry: principals_key`). ariesd makes it, in a directory
 # the operator made for it, when it first exports traces.
 @{ariesd_principals_key}=@{ariesd_home}/telemetry/principals.key
+
+# The HTTPS listener's certificate and its key (`https: tls: files:`),
+# and the directory ACME keeps its account's key and the certificates
+# in (`https: tls: acme: cache:`).
+@{ariesd_tls}=/etc/aries/tls
+@{ariesd_acme}=@{ariesd_home}/acme
+
+# With SSH off, the file the installer writes the first admin's key
+# line to, which `control init` reads and no sshd does.
+@{ariesd_admin_keys}=/etc/aries/admin.keys

@@ -95,6 +95,14 @@ func TestGateMatchesCI(t *testing.T) {
 			t.Errorf("ci.yml does not run %q, which is scripts/gate.sh's %q with a coverage profile; change both together", want, cmds[i])
 		}
 	}
+	// The end-to-end suite runs a second time with its users on HTTPS
+	// (transport.md §15, T1's gate), as its own step in CI.
+	const https = require + "ARIES_E2E_TRANSPORT=https "
+	if i := slices.IndexFunc(cmds, func(c string) bool { return strings.HasPrefix(c, https) }); i < 0 {
+		t.Errorf("scripts/gate.sh runs no command starting %q: the end-to-end suite over HTTPS", https)
+	} else if want := strings.TrimPrefix(cmds[i], require); !strings.Contains(ci, "run: "+want+"\n") {
+		t.Errorf("ci.yml does not run %q, which is scripts/gate.sh's %q; change both together", want, cmds[i])
+	}
 	for _, prefix := range []string{"go mod verify", "git ls-files", "go run golang.org/x/vuln/cmd/govulncheck@"} {
 		i := slices.IndexFunc(cmds, func(c string) bool { return strings.HasPrefix(c, prefix) })
 		if i < 0 {
@@ -327,10 +335,11 @@ func TestGateScript(t *testing.T) {
 		vuln   = "go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./..."
 		build  = "go build ./cmd/..."
 		test   = "go test -race -shuffle=on ./..."
+		e2e    = "go test -race -shuffle=on ./internal/e2e/"
 	)
 	// The fakes record arguments, not environment, so the commands for
 	// another system look like the native ones.
-	full := []string{"gofmt -l .", vet, lint, verify, "git ls-files -co --exclude-standard -z *.sh", shell, vuln, vet, build, vet, build, test}
+	full := []string{"gofmt -l .", vet, lint, verify, "git ls-files -co --exclude-standard -z *.sh", shell, vuln, vet, build, vet, build, test, e2e}
 	tests := []struct {
 		name   string
 		args   []string
@@ -342,33 +351,33 @@ func TestGateScript(t *testing.T) {
 	}{
 		{name: "everything passes", calls: full,
 			want: []string{"gate: go1.27.1 linux/amd64, golangci-lint 2.14.0, Postgres 9.3 (on PATH)",
-				"gofmt -l . ... ok (", "gate: passed in ", ": 11 of 11 commands",
+				"gofmt -l . ... ok (", "gate: passed in ", ": 12 of 12 commands",
 				"Not covered by this run:", "TestCheckPeerOtherUID", "deploy/docker/smoke.sh", "The soak test ran its short form",
 				// The command for the tests that need root, as a shell takes it.
 				`go test -race -c -o server.test ./internal/server && (cd internal/server && sudo env "PATH=$PATH" ARIES_REQUIRE_POSTGRES=1 ../../scripts/leftovers.sh ../../server.test -test.run '^TestCheckPeer' -test.v); rm server.test`},
 			not: []string{"FAILED", "golangci-lint here is", "govulncheck:", "CI runs them on linux/amd64"}},
 		{name: "as root", files: map[string]string{"uid": "0\n"}, calls: full,
-			want: []string{"gate: passed in ", ": 11 of 11 commands"}, not: []string{"TestCheckPeerOtherUID"}},
+			want: []string{"gate: passed in ", ": 12 of 12 commands"}, not: []string{"TestCheckPeerOtherUID"}},
 		{name: "stops at the first failure", files: map[string]string{"unformatted": "cmd/aries/main.go\n"}, status: 1,
 			calls: []string{"gofmt -l ."},
 			want: []string{"gofmt -l . ... FAILED (", "    cmd/aries/main.go", "fix: these files are not formatted",
-				"gate: FAILED in ", ": 0 of 11 commands passed", "  failed:  gofmt -l .", "  not run: go vet ./...",
+				"gate: FAILED in ", ": 0 of 12 commands passed", "  failed:  gofmt -l .", "  not run: go vet ./...",
 				"  not run: ARIES_REQUIRE_POSTGRES=1 scripts/leftovers.sh go test -race -shuffle=on ./...", "--keep-going runs every command"},
 			not: []string{"gate: passed"}},
 		{name: "keep going runs the rest", args: []string{"--keep-going"}, files: map[string]string{"fail": "golangci-lint run"}, status: 1,
 			calls: full,
-			want:  []string{"golangci-lint run ./... ... FAILED (", "    it broke", ": 10 of 11 commands passed", "  failed:  golangci-lint run ./..."},
+			want:  []string{"golangci-lint run ./... ... FAILED (", "    it broke", ": 11 of 12 commands passed", "  failed:  golangci-lint run ./..."},
 			not:   []string{"not run:"}},
 		{name: "a failing test fails the gate", files: map[string]string{"fail": "go test"}, status: 1,
-			want: []string{"ARIES_REQUIRE_POSTGRES=1 scripts/leftovers.sh go test -race -shuffle=on ./... ... FAILED (", ": 10 of 11 commands passed"}},
-		{name: "a test run that leaves something fails the gate", files: map[string]string{"leak": "TestLeaky42"}, status: 1, calls: full,
+			want: []string{"ARIES_REQUIRE_POSTGRES=1 scripts/leftovers.sh go test -race -shuffle=on ./... ... FAILED (", ": 10 of 12 commands passed"}},
+		{name: "a test run that leaves something fails the gate", files: map[string]string{"leak": "TestLeaky42"}, status: 1, calls: full[:len(full)-1], // it stops before the run over HTTPS
 			want: []string{"ARIES_REQUIRE_POSTGRES=1 scripts/leftovers.sh go test -race -shuffle=on ./... ... FAILED (",
 				"    leftovers.sh: the command left 1 entry under its temporary directory:", "    TestLeaky42 (", " KB): t.TempDir of TestLeaky\n",
-				": 10 of 11 commands passed", "  failed:  ARIES_REQUIRE_POSTGRES=1 scripts/leftovers.sh go test"}},
+				": 10 of 12 commands passed", "  failed:  ARIES_REQUIRE_POSTGRES=1 scripts/leftovers.sh go test"}},
 		{name: "quick fails on a leftover too", args: []string{"--quick"}, files: map[string]string{"leak": "TestLeaky43"}, status: 1,
 			want: []string{"ARIES_REQUIRE_POSTGRES=1 scripts/leftovers.sh go test ./... ... FAILED (", "    TestLeaky43 ("}},
 		{name: "standard library findings a newer Go fixes", files: map[string]string{"vuln": vulnStdlib}, calls: full,
-			want: []string{vuln + " ... needs Go 1.27.3 (", "gate: passed in ", "except govulncheck, which needs a newer Go: 10 of 11 commands passed",
+			want: []string{vuln + " ... needs Go 1.27.3 (", "gate: passed in ", "except govulncheck, which needs a newer Go: 11 of 12 commands passed",
 				"govulncheck: every finding is in the standard library of go1.27.1 and is fixed by Go 1.27.3",
 				"not the change", "nothing was found in the module's dependencies"},
 			not: []string{"FAILED"}},
@@ -383,7 +392,7 @@ func TestGateScript(t *testing.T) {
 			calls: []string{"gofmt -l .", vet, lint, "git ls-files -co --exclude-standard -z *.sh", shell, "go test ./..."},
 			want: []string{"quick (not the gate): go1.27.1", "quick (not the gate): passed in ", ": 5 of 5 commands",
 				"--quick skipped these commands of the gate", "go mod verify; go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...; GOOS=darwin",
-				"ARIES_REQUIRE_POSTGRES=1 scripts/leftovers.sh go test -race -shuffle=on ./.... Run scripts/gate.sh before you open a pull request"},
+				"ARIES_REQUIRE_POSTGRES=1 ARIES_E2E_TRANSPORT=https scripts/leftovers.sh go test -race -shuffle=on ./internal/e2e/. Run scripts/gate.sh before you open a pull request"},
 			not: []string{"\ngate: "}},
 		{name: "another postgres on PATH", files: map[string]string{"postgres": "1.2\n"},
 			calls: append([]string{"install-postgres.sh"}, full...),
@@ -394,12 +403,12 @@ func TestGateScript(t *testing.T) {
 		{name: "another golangci-lint", files: map[string]string{"lint": "2.13.2\n"}, calls: full,
 			want: []string{"golangci-lint 2.13.2,", "gate: passed", "golangci-lint here is 2.13.2 and CI pins 2.14.0"}},
 		{name: "not on Linux", files: map[string]string{"goos": "darwin\n"},
-			calls: slices.Concat(full[:11], []string{vet, build, lint, test}),
-			want: []string{"GOOS=linux GOARCH=amd64 golangci-lint run ./... ... ok", ": 14 of 14 commands",
+			calls: slices.Concat(full[:11], []string{vet, build, lint, test, e2e}),
+			want: []string{"GOOS=linux GOARCH=amd64 golangci-lint run ./... ... ok", ": 15 of 15 commands",
 				"Tests ran on darwin/amd64; CI runs them on linux/amd64", "TestCheckPeer*"},
 			not: []string{"TestCheckPeerOtherUID"}},
 		{name: "smoke", args: []string{"--smoke"}, files: map[string]string{"deploy/docker/smoke.sh": "#!/bin/sh\necho smoke ok\n"},
-			want: []string{"deploy/docker/smoke.sh ... ok (", ": 12 of 12 commands"}, not: []string{"was not run; CI does not run it either"}},
+			want: []string{"deploy/docker/smoke.sh ... ok (", ": 13 of 13 commands"}, not: []string{"was not run; CI does not run it either"}},
 		{name: "unknown option", args: []string{"--nope"}, status: 2, calls: []string{},
 			want: []string{"gate.sh: unknown option --nope", "fix: "}},
 	}

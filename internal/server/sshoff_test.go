@@ -73,8 +73,8 @@ func TestNoSSHKeysFile(t *testing.T) {
 			case tc.after != "" && string(b) != tc.after:
 				t.Errorf("the keys file with SSH off, from %s: %q, %v; want %q", tc.name, b, err, tc.after)
 			}
-			if k := m.keysStatus(); k == nil || k.Keys != 0 || k.Failed {
-				t.Errorf("the keys file's status with SSH off = %+v, want no keys and no failure", k)
+			if k := m.keysStatus(); k != nil {
+				t.Errorf("the keys file's status with SSH off = %+v, want none: there is no keys file to show", k)
 			}
 		})
 	}

@@ -209,6 +209,9 @@ fi
 # Under scripts/leftovers.sh, which fails a run that leaves a file in its
 # temporary directory or a process running.
 gate 'ARIES_REQUIRE_POSTGRES=1 scripts/leftovers.sh go test -race -shuffle=on ./...'
+# The end-to-end suite again, its users on HTTPS where the run above has
+# them on SSH: the same tests on both transports (transport.md §15).
+gate 'ARIES_REQUIRE_POSTGRES=1 ARIES_E2E_TRANSPORT=https scripts/leftovers.sh go test -race -shuffle=on ./internal/e2e/'
 if [ "$quick" = 1 ]; then
 	also 'ARIES_REQUIRE_POSTGRES=1 scripts/leftovers.sh go test ./...'
 fi

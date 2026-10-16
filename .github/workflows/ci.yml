@@ -258,6 +258,14 @@ jobs:
           TMPDIR: ${{ steps.tmp.outputs.dir }}
           GOTMPDIR: /tmp
         run: scripts/leftovers.sh go test -race -shuffle=on -coverprofile=coverage.out ./...
+      - name: end-to-end over HTTPS
+        # The end-to-end suite again, its users on HTTPS where the run
+        # above has them on SSH: the same tests on both transports
+        # (docs/design/transport.md, §15, T1's gate).
+        env:
+          TMPDIR: ${{ steps.tmp.outputs.dir }}
+          GOTMPDIR: /tmp
+        run: ARIES_E2E_TRANSPORT=https scripts/leftovers.sh go test -race -shuffle=on ./internal/e2e/
       - name: temporary directory after the tests
         # What the tests left there, and the machine's memory, whether
         # they passed or not.

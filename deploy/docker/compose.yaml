@@ -2,7 +2,7 @@
 #
 #   ARIES_KEYS="alice $(cat ~/.ssh/id_ed25519.pub)" docker compose -f deploy/docker/compose.yaml up -d --build
 #
-# Two containers: `aries`, which runs sshd and ariesd, and `postgres`,
+# Two containers: `aries`, which runs ariesd, and sshd with SSH on, and `postgres`,
 # the official Postgres image, which ariesd reaches over the compose
 # network as a Postgres on another machine, with a password for its
 # role (docs/server.md, "Managed services"). The password is generated
@@ -12,7 +12,10 @@
 # ARIES_KEYS holds "NAME TYPE KEY" lines, one principal key each;
 # ARIES_ADMINS (comma-separated) defaults to the first name;
 # ARIES_PROJECT fixes the project UUID on the first start;
-# ARIES_PORT is the port on 127.0.0.1, 2222 by default;
+# ARIES_HTTPS_PORT is the HTTPS listener's port on 127.0.0.1, 8443 by
+# default, which the server's URL names;
+# ARIES_SSH=1 serves SSH beside HTTPS, which is off by default, as on a
+# fresh server; ARIES_PORT is sshd's port on 127.0.0.1, 2222 by default;
 # ARIES_IMAGE is the image to run, aries-dev:local by default.
 #
 # Telemetry is off unless asked for (docs/deploy/docker.md, "Telemetry"):
@@ -51,8 +54,11 @@ services:
       ARIES_ADMINS: ${ARIES_ADMINS:-}
       ARIES_PROJECT: ${ARIES_PROJECT:-}
       ARIES_PORT: ${ARIES_PORT:-2222}
+      ARIES_HTTPS_PORT: ${ARIES_HTTPS_PORT:-8443}
+      ARIES_SSH: ${ARIES_SSH:-}
       ARIES_TELEMETRY: ${ARIES_TELEMETRY:-}
     ports:
+      - 127.0.0.1:${ARIES_HTTPS_PORT:-8443}:8443
       - 127.0.0.1:${ARIES_PORT:-2222}:22
     volumes:
       - state:/state
