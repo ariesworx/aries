@@ -835,7 +835,11 @@ does an SSH connection. `aries whoami` says which key signed in.
 
 A key the server does not know is refused as sshd refuses one, with
 the keys offered; past `auth_failures_per_minute`, an address is
-refused `busy` until its bucket refills ([Limits](#limits)).
+refused `busy` until its bucket refills ([Limits](#limits)). A key of
+a disabled principal, once proved, is refused as that principal's
+(`forbidden`, with the fix to enable it) and is not counted against
+the address, so that a disabled person's agents, still trying, do not
+shut out everyone else behind the same address.
 
 ### Sign-in
 
@@ -2536,7 +2540,7 @@ limits:
 | `https_body_bytes` | 65536 | With HTTPS on: bytes of a request's body |
 | `upgrade_timeout` | `10s` | With HTTPS on: how long a WebSocket has from its upgrade to the end of its key proof; the hello then has 10 seconds, as over SSH |
 | `ws_message_bytes` | 4194304 | With HTTPS on: bytes of one WebSocket message, which carries one frame (at most 4 MiB, a frame's own bound). A larger one closes the connection |
-| `auth_failures_per_minute`, `auth_failure_burst` | 30, 60 | With HTTPS on: each client address's token bucket of refused key proofs (a key the server does not know, a proof that does not verify): refusals a minute, and how many at once. With none left an upgrade from the address is refused `busy`, 429, saying how long to wait. Behind a proxy it does not apply, as `https_conns_per_addr` does not |
+| `auth_failures_per_minute`, `auth_failure_burst` | 30, 60 | With HTTPS on: each client address's token bucket of refused key proofs (a key the server does not know, a proof that does not verify; not a disabled principal's key, proved): refusals a minute, and how many at once. With none left an upgrade from the address is refused `busy`, 429, saying how long to wait. Behind a proxy it does not apply, as `https_conns_per_addr` does not |
 | `signins_pending_per_server` | 10000 | With `login:` providers: [sign-ins](#sign-in) in the daemon's memory started and not finished, sent to the provider (10 minutes each at most) or with a code `aries` has not spent (a minute). Past it a sign-in is refused, back at `aries`, `temporarily_unavailable` |
 | `dpop_proofs_per_server` | 100000 | With `login:` providers: the DPoP proofs the daemon remembers, each for two minutes, so that none is used twice. Past it a proof is refused `busy` until the oldest age out |
 
@@ -2959,7 +2963,7 @@ time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-
 | `keys_file.removed` | info | SSH is off, so the keys file ariesd wrote was removed |
 | `https.listening` | info | The HTTPS listener serves: its address, TLS mode and URLs |
 | `https.listener_stopped` | error | The HTTPS listener stopped on an error; nothing is served over HTTPS until a restart |
-| `https.refused` | info | A connection to `/v1/connect` was refused before its hello (`reason`: a key the server does not know, a proof that does not verify, a browser's origin, the limit on failures), sampled per address |
+| `https.refused` | info | A connection to `/v1/connect` was refused before its hello (`reason`: a key the server does not know, a proof that does not verify, a disabled principal's key, a browser's origin, the limit on failures), sampled per address |
 | `signin.granted` | info | A person signed in (`principal`, `provider`, `grant`, `flow`) |
 | `signin.refused` | info | A step of a sign-in was refused (`reason`, `provider`): before the provider, sampled per address; after it, by the refusal's code |
 | `signin.ended` | info | A sign-in ended before its end (`grant`, `reason`: `logout`, `revoked`, `identity_removed`), with the `connections` it closed |
@@ -3367,7 +3371,7 @@ number of series cannot grow with what clients send:
 | `result` | `ok`, or the refusal's code: `not_found`, `conflict`, `exists`, `cycle`, `invalid`, `acceptance`, `forbidden`, `unavailable`, `version`, `auth`, `busy`, `stale`. For a handshake also `failed`: it ended without a refusal to name, as when a frame could not be read. For the keys file and the certificate's reloads: `ok` or `failed` |
 | `result` of an upgrade | `ok`, or `refused` |
 | `reason` of an upgrade | `none` for one upgraded; for one refused, `origin` (a browser's page, 403), `auth_failures` (the address past `auth_failures_per_minute`, 429), `token` (a sign-in's token or its DPoP proof refused, 401, or 503 for `dpop_busy`) or `bad_request` (not a WebSocket upgrade, 400, or one that could not be completed) |
-| `result` of a key proof | `ok`; `invalid` (no key offer, or a malformed proof), `url` (a proof for a URL `public_urls` does not name), `unknown_key` (no key offered is known), `bad_proof` (the signature does not verify); `failed` (the client left, or said nothing within `upgrade_timeout`) |
+| `result` of a key proof | `ok`; `invalid` (no key offer, or a malformed proof), `url` (a proof for a URL `public_urls` does not name), `unknown_key` (no key offered is known), `bad_proof` (the signature does not verify), `disabled` (a disabled principal's key, proved); `failed` (the client left, or said nothing within `upgrade_timeout`) |
 | `result` of a token | `ok`; the token: `token_scheme` (not presented as DPoP), `token_missing`, `token_unknown` (never issued, or its sign-in ended and was pruned), `token_ended`, `token_bearer` (bound to no key), `token_no_login` (the server has no `login:`); its DPoP proof: `dpop_missing`, `dpop_malformed`, `dpop_signature` (not signed by the key it carries), `dpop_request` (for another method or URL), `dpop_token` (for another token), `dpop_time` (too far from the server's time), `dpop_replayed`, `dpop_busy` (past `dpop_proofs_per_server`), `dpop_key` (signed by another key than the token's) |
 | `reason` of a connection the HTTPS listener refused | `untrusted`, `limit` |
 | `result_class` | `ok`; `error` for `unavailable`, which is the server's failure; `refused` for every other refusal, which is the request's |

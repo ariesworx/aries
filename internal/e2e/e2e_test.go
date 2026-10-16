@@ -965,9 +965,18 @@ func (u *user) runTo(ctx context.Context, stdout, stderr io.Writer, version stri
 		u.w.t.Error(err)
 		return -1
 	}
+	// No SSH_AUTH_SOCK: the key file is used. On Linux aries opens a
+	// browser only on a display, which CI's runners do not have; a user
+	// with a browser has one.
+	getenv := func(k string) string {
+		if k == "DISPLAY" && u.browser != nil {
+			return cmp.Or(u.env[k], ":0")
+		}
+		return u.env[k]
+	}
 	return cli.Run(ctx, append([]string{"-C", sub}, args...), cli.Env{
 		Stdin: u.stdinReader(), Stdout: stdout, Stderr: stderr, OpenBrowser: u.browser,
-		Getenv:   func(k string) string { return u.env[k] }, // no SSH_AUTH_SOCK: the key file is used
+		Getenv:   getenv,
 		Hostname: func() (string, error) { return "laptop-test", nil },
 		Version:  version,
 		Now:      u.now,

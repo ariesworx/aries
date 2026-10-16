@@ -130,6 +130,13 @@ func soakConfigFrom(getenv func(string) string) (soakConfig, error) {
 			Limits: store.Limits{Labels: 6, AcceptanceItems: 5, Deps: 6, Sessions: 10, InboxUnread: 40,
 				UsageRecords: 20, UsagePerDay: 4000, Paths: 12},
 			WriteRate: 100, WriteBurst: 100, ControlWriteRate: 100, ControlWriteBurst: 100,
+			// Not met: every principal of the run connects from loopback,
+			// whose one bucket of refused sign-ins stands for one
+			// machine's. A removed key's sessions, still trying, would
+			// empty it and shut out every other principal, the probe
+			// that checks the key is refused among them. TestHTTPSLimits
+			// holds the bucket to its limit.
+			AuthFailureRate: 100_000, AuthFailureBurst: 100_000,
 			// A store with no connection closes soon, so the quiet
 			// project's does, and every store does once the run is over.
 			StoreIdle: server.Duration(300 * time.Millisecond),

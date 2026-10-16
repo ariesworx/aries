@@ -192,6 +192,7 @@ type Index interface {
 	AdministersProjectOf(actor, principal string) bool
 	ReachGained(principal, left string) []string
 	AuthorizedKey(fingerprint string) (principal, key string, ok bool)
+	DisabledKey(fingerprint string) (principal, key string, ok bool)
 	AuthorizedKeys() []store.PrincipalKey
 	KeysElsewhere(owner func(fingerprint string) (principal string, ok bool))
 	ProjectNamed(name string) (store.Project, bool)
