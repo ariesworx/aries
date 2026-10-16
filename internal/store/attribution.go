@@ -79,7 +79,7 @@ type UsageSummary struct {
 	// Cost is the tokens' list-price equivalent, or nil when the server
 	// has no prices at all, so there is no cost to give.
 	Cost *Cost
-	// Logged is the time people logged by hand (aries log).
+	// Logged is the time people logged by hand (aries hours).
 	Logged time.Duration
 }
 

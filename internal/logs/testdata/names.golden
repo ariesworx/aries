@@ -83,7 +83,6 @@ field addr
 field admin
 field admins
 field after
-field after_failures
 field agents
 field at
 field audit
@@ -105,10 +104,8 @@ field effect
 field epoch
 field err
 field event
-field every
 field extended
 field failed
-field failures
 field failures_not_logged
 field fingerprint
 field fix
@@ -166,7 +163,6 @@ field to
 field trace_headers
 field trace_id
 field traces
-field url
 field version
 field waiting
 field was_behind_since

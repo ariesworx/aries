@@ -291,3 +291,74 @@ func TestGuideListsEventsAndFields(t *testing.T) {
 		}
 	}
 }
+
+// Every field of the schema is one some line of the daemon has: a field
+// that nothing logs is a name kept for nothing (decision 88's promise
+// keeps a name once it ships). It reads the fields where the code gives
+// them: in a log call, in With, in an slog.Attr, and in a slice of
+// fields built with []any{…} or append for a call to spread; and the ids
+// this package's handler puts on a line.
+func TestEveryFieldIsLogged(t *testing.T) {
+	t.Parallel()
+	_, keyConsts := declared(t)
+	used := map[string]bool{}
+	note := func(e ast.Expr) {
+		switch k := e.(type) {
+		case *ast.BasicLit:
+			if k.Kind == token.STRING {
+				v, _ := strconv.Unquote(k.Value)
+				used[v] = true
+			}
+		case *ast.SelectorExpr:
+			if pkg, ok := k.X.(*ast.Ident); ok && pkg.Name == "logs" {
+				used[keyConsts[k.Sel.Name]] = true
+			}
+		case *ast.Ident:
+			used[keyConsts[k.Name]] = true // this package's own
+		}
+	}
+	// gives reports whether a call to name may give a field among its
+	// arguments.
+	gives := func(name string) bool {
+		_, logCall := slogCalls[name]
+		_, wrapper := wrappers[name]
+		return logCall || wrapper || slices.Contains([]string{"With", "append", "String", "Int", "Int64", "Uint64", "Float64",
+			"Bool", "Time", "Duration", "Any", "Group"}, name)
+	}
+	fset := token.NewFileSet()
+	for _, dir := range append(slices.Clone(logged), "internal/logs") {
+		for _, f := range parseDir(t, fset, dir) {
+			ast.Inspect(f, func(n ast.Node) bool {
+				switch n := n.(type) {
+				case *ast.CallExpr:
+					name := ""
+					switch fn := n.Fun.(type) {
+					case *ast.SelectorExpr:
+						name = fn.Sel.Name
+					case *ast.Ident:
+						name = fn.Name
+					}
+					if gives(name) {
+						for _, a := range n.Args {
+							note(a)
+						}
+					}
+				case *ast.CompositeLit:
+					if arr, ok := n.Type.(*ast.ArrayType); ok {
+						if id, ok := arr.Elt.(*ast.Ident); ok && id.Name == "any" {
+							for _, e := range n.Elts {
+								note(e)
+							}
+						}
+					}
+				}
+				return true
+			})
+		}
+	}
+	for _, k := range Keys() {
+		if !used[k] {
+			t.Errorf("field %q is in the schema (schema.go) and no line of %v gives it: remove it, with its row in docs/server.md", k, logged)
+		}
+	}
+}

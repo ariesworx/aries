@@ -2454,7 +2454,6 @@ time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-
 | `lock`, `waiting` | A [lock](concepts.md#locks)'s name, and whether what ended was a place in its queue rather than a hold. A lock's name is text a person chose, so it stays in the journal and is never exported ([Logs over OTLP](#logs-over-otlp)) |
 | `path`, `keys` | The keys file, or the stand-in key's file, and how many keys were written |
 | `log`, `clock`, `history`, `behind`, `since`, `was_behind_since`, `direction`, `step`, `steps`, `from`, `to`, `forward_since_start`, `backward_since_start` | [The server's clock](#the-servers-clock): which history, the two times, how far behind and since when, and a step's direction, size and count |
-| `url`, `failures`, `after_failures`, `every` | In the schema, for a reader of another program's figures that the daemon had before Postgres; no line of this release carries them |
 | `version`, `socket`, `control_schema`, `projects`, `admins`, `addr` | The start: the build, the socket, the control store, how many active projects, the configured admins, and the listener's address |
 | `push`, `push_interval`, `push_headers`, `pull`, `per_project`, `traces`, `trace_headers`, `sampler`, `logs`, `log_headers`, `principals`, `service` | What telemetry is on ([Observability](#observability)). Header counts, never their names or values |
 | `signal`, `failed`, `failures_not_logged` | An export that failed or recovered: `metrics`, `traces` or `logs`, and how many failures |
