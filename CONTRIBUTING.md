@@ -474,6 +474,11 @@ refusals by code, each project's events and claims, the control log, what
 the admin changed, and what the chaos did. Latency is reported, not
 asserted: only a request with no answer in 60 seconds fails the run.
 
+With `ARIES_E2E_TRANSPORT=https` the run, like the rest of
+`internal/e2e`, connects over the daemon's HTTPS listener in place of
+the in-process SSH server. Run it so once before changing the listener,
+`internal/wsconn` or the key proof.
+
 ### What it does
 
 Five principals with five sessions each work the backlogs of two

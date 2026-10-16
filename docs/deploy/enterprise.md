@@ -60,7 +60,8 @@ Google Cloud IAP ──▶ VM with no public address ──▶ sshd ─▶ aries
 3. **The server.** Format the data disk and mount it at
    `/var/lib/postgresql` (in `/etc/fstab`) before
    [Running a server](../server.md#set-up-a-server), steps 1 to 6, or
-   the installer. Postgres's cluster unit already waits for the mount
+   the installer with `--profile ssh-only`, since everyone arrives over
+   SSH through IAP ([Profiles](../server.md#profiles)). Postgres's cluster unit already waits for the mount
    (`RequiresMountsFor=` in `postgresql@.service`, as PGDG's package
    ships it). To use Cloud SQL in place of Postgres on the VM, see
    [Managed services](../server.md#managed-services) (not run). Skip the

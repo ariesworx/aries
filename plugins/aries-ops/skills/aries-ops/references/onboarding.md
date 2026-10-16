@@ -26,8 +26,10 @@ they are the operator.
 
 ## The repository
 
-- **`.aries.yaml`** holds the project's UUID and the server's host and
-  pinned host key; no secret, committed (docs/cli.md#connect-a-repository).
+- **`.aries.yaml`** holds the project's UUID and the server's URL, with
+  the site's CA where the system's store lacks it, and with SSH on the
+  host and pinned host key; no secret, committed
+  (docs/cli.md#connect-a-repository).
   `aries admin project add` prints it for a new project, and the installer
   for the first. Writing it into a repository and committing it are
   changes: show the file and wait for a yes.

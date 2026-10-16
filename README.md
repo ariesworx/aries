@@ -39,6 +39,9 @@ command line. One small Go server keeps the data in
 > it has run on Windows. The store, the server guide, the installer
 > and the Docker test server run on Postgres (slices P1, P2 and P4 of
 > decision 79); the soaks have yet to run on it on Linux (slice P5).
+> HTTPS is the transport a fresh server serves, with SSH off until an
+> operator turns it on (slice T1 of decision 86); sign-in through an
+> identity provider (T2) is next.
 > Not ready for production use yet; see the [roadmap](#roadmap).
 
 ## Why Aries
@@ -52,8 +55,10 @@ what. Aries makes that safe:
   since taken.
 - **One authority.** All changes go through one server, which puts them
   in order. There are no database merges and no conflicts to resolve.
-- **Identity comes from SSH keys.** The server's sshd decides who you are.
-  A client cannot claim to be someone else.
+- **Identity comes from keys the server knows.** Over HTTPS, the default,
+  ariesd checks a proof by your SSH key; over SSH, when an operator
+  turns it on, sshd checks the key. A client cannot claim to be someone
+  else.
 - **Built for context windows.** Results are compact: a write returns
   only the issue's id and new revision (`{id, rev}`), and no result passes
   about 2,000 tokens.
@@ -90,19 +95,22 @@ and supervises many agents on top of Aries
 ## How it works
 
 ```text
- agent ──MCP──┐                             the server
-              ├─▶ aries ══ SSH ══▶ sshd ─▶ ariesd stdio --principal NAME
- person ─CLI──┘   (pinned host key)            │ unix socket, 0700
-                                               ▼
-                                         ariesd serve ─▶ Postgres
+ agent ──MCP──┐                                      the server
+              ├─▶ aries ══ HTTPS (WebSocket) ═══════▶ ariesd serve ─▶ Postgres
+ person ─CLI──┘     ╚═══ SSH, when turned on ══▶ sshd ─▶ ariesd stdio ─┘
+                                                        (unix socket, 0700)
 ```
 
 - **`aries`** is the client: a command line for people, and an MCP server
   for agents. It runs on Linux, macOS and Windows. The name is short for
   Aries.
-- **sshd** checks the key. Each key's line in `authorized_keys` runs one
-  fixed command, `ariesd stdio --principal NAME`, so the key, not the
-  client, decides your principal: the name the server knows you by.
+- **Over HTTPS**, the default, `aries` proves it holds a key the server
+  knows, and the server takes the key's principal, the name it knows
+  you by; nothing on the connection reaches the protocol before that.
+  **Over SSH**, which an operator turns on, sshd checks the key, and
+  each key's line in `authorized_keys` runs one fixed command, `ariesd
+  stdio --principal NAME`. Either way the key, not the client, decides
+  your principal.
 - **`ariesd serve`** owns the data. It applies every change in order,
   records each as an event in the same transaction, and stores it in Postgres.
   It runs on Linux.
