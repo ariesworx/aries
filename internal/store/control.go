@@ -334,6 +334,10 @@ type index struct {
 	roles map[membership]Role
 	// identities holds every identity, for the status report's counts.
 	identities map[int64]indexedIdentity
+	// tokens holds the access tokens of the sign-ins not ended, by hash,
+	// with their grants: what a connection that presents a token is
+	// checked against.
+	tokens map[string]Grant
 }
 
 // membership names one principal in one project.
@@ -505,9 +509,13 @@ func (c *Control) load(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("load index: %w", err)
 	}
+	tokens, err := loadTokens(ctx, q)
+	if err != nil {
+		return fmt.Errorf("load index: %w", err)
+	}
 	c.ix.mu.Lock()
 	c.ix.byFingerprint, c.ix.active, c.ix.disabled, c.ix.projects, c.ix.roles = keys, active, disabled, projects, roles
-	c.ix.identities = identities
+	c.ix.identities, c.ix.tokens = identities, tokens
 	c.ix.mu.Unlock()
 	return nil
 }

@@ -459,6 +459,11 @@ func (c *Control) removeIdentity(ctx context.Context, actor Actor, id int64, inv
 		if invite && cur.Bound() {
 			return &IdentityError{Principal: cur.Principal, Rule: IdentityRuleBound, ID: id}
 		}
+		// What sign-ins made with the identity ends with it (transport.md
+		// §6.7), before it goes.
+		if err := w.endIdentityGrants(ctx, id); err != nil {
+			return err
+		}
 		if _, err := w.exec(ctx, `DELETE FROM identities WHERE id = $1`, id); err != nil {
 			return fmt.Errorf("remove identity %d: %w", id, err)
 		}

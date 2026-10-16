@@ -97,11 +97,12 @@ func (ws *writeStats) snapshot(now time.Time) WriteStats {
 }
 
 // ControlCounts is how many projects, principals and identities a
-// control store holds, by state.
+// control store holds, by state, and how many sign-ins are live.
 type ControlCounts struct {
 	Projects   map[ProjectState]int
 	Principals map[PrincipalState]int
 	Identities map[IdentityState]int
+	SignIns    int
 }
 
 // Counts returns how many projects, principals and identities the store
@@ -126,6 +127,13 @@ func (c *Control) Counts() ControlCounts {
 			out.Identities[IdentityLapsed]++
 		}
 	}
+	live := map[string]bool{}
+	for _, g := range c.ix.tokens {
+		if g.Live(now) {
+			live[g.ID] = true
+		}
+	}
+	out.SignIns = len(live)
 	if n := len(c.ix.active); n > 0 {
 		out.Principals[PrincipalActive] = n
 	}
