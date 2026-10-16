@@ -24,7 +24,9 @@
 # It serves HTTPS, as a fresh server does (docs/server.md, The HTTPS
 # listener), on port 8443 inside the container, with a certificate for
 # localhost and 127.0.0.1 from a CA of its own that it makes on the
-# first start and keeps on the volume. SSH is off unless ARIES_SSH=1:
+# first start and keeps on the volume. With ARIES_PROXY=1 it serves
+# plain HTTP on loopback instead, for nginx to serve TLS in front of
+# (compose.yaml's proxy profile). SSH is off unless ARIES_SSH=1:
 # then sshd runs and ariesd writes the keys file it reads, as with
 # install-server.sh --enable-ssh.
 #
@@ -177,8 +179,13 @@ write_config() {
     else
       printf 'transports: [https]\n'
     fi
-    printf 'https:\n  listen: ":8443"\n  public_urls: [https://localhost:%s]\n  tls:\n    mode: files\n    files:\n      cert: %s/cert.pem\n      key: %s/key.pem\n' \
-      "$https_port" "$tls_dir" "$tls_dir"
+    if proxy_on; then
+      printf 'https:\n  listen: "127.0.0.1:%s"\n  public_urls: [https://localhost:%s]\n  tls:\n    mode: proxy\n    proxy:\n      trusted: [127.0.0.1]\n' \
+        "$proxy_listen" "$https_port"
+    else
+      printf 'https:\n  listen: ":8443"\n  public_urls: [https://localhost:%s]\n  tls:\n    mode: files\n    files:\n      cert: %s/cert.pem\n      key: %s/key.pem\n' \
+        "$https_port" "$tls_dir" "$tls_dir"
+    fi
     if telemetry_on; then
       printf 'telemetry:\n  listen: %s\n  principals_key: %s\n' "$telemetry_listen" "$telemetry_key"
     fi
@@ -195,6 +202,11 @@ write_config() {
 
 telemetry_on() { [[ ${ARIES_TELEMETRY:-} == 1 ]]; }
 ssh_on() { [[ ${ARIES_SSH:-} == 1 ]]; }
+# With ARIES_PROXY=1, the listener is plain HTTP on loopback, and nginx
+# (the proxy profile) serves TLS on the HTTPS port and passes each request
+# to it. A container cannot see its compose profiles, so the flag says so.
+proxy_on() { [[ ${ARIES_PROXY:-} == 1 ]]; }
+proxy_listen=8080
 identity_on() { [[ ${ARIES_IDENTITY:-} == 1 ]]; }
 
 # With ARIES_IDENTITY=1, ariesd signs people in at the identity
@@ -440,6 +452,9 @@ main() {
   if [[ -n ${ARIES_SSH:-} ]] && ! ssh_on; then
     die "ARIES_SSH is '${ARIES_SSH}'" "set it to 1 to serve SSH beside HTTPS, or leave it unset for HTTPS alone"
   fi
+  if [[ -n ${ARIES_PROXY:-} ]] && ! proxy_on; then
+    die "ARIES_PROXY is '${ARIES_PROXY}'" "set it to 1 to serve plain HTTP behind the proxy profile's nginx, or leave it unset"
+  fi
   [[ $https_port =~ ^[1-9][0-9]{0,4}$ ]] || die "ARIES_HTTPS_PORT is '$https_port'" "set it to the port of this machine the HTTPS listener is published on"
   # The zone sshd and ariesd run in: sshd reads an expiry-time without
   # its Z in it, so a zone far from UTC shows that ariesd writes the Z.
@@ -475,7 +490,11 @@ main() {
     start ariesd run_as aries /var/lib/aries ariesd serve
   fi
   wait_for ariesd test -S /run/aries/ariesd.sock
-  wait_for ariesd port_open 127.0.0.1 8443
+  if proxy_on; then
+    wait_for ariesd port_open 127.0.0.1 "$proxy_listen"
+  else
+    wait_for ariesd port_open 127.0.0.1 8443
+  fi
 
   if ssh_on; then
     /usr/sbin/sshd -t || die "sshd refuses its config" "read the error above"

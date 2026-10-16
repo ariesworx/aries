@@ -118,6 +118,7 @@ on the volume.
 | `ARIES_TELEMETRY` | unset | `1` turns ariesd's telemetry on ([Telemetry](#telemetry)). Unset, ariesd exports nothing and opens no port, as on a server where nothing is configured |
 | `ARIES_TZ` | unset, UTC | The zone sshd and ariesd run in, as `TZ`: a POSIX zone such as `ARIES-14`, fourteen hours east of UTC, since the image holds no zone files. sshd reads a key's `expiry-time` without its `Z` in this zone; the smoke test runs the server at UTC+14 to show the `Z` is written ([Keys that end](../server.md#keys-that-end)) |
 | `ARIES_GRAFANA_PORT` | `3000` | Grafana's port on 127.0.0.1, with the `observe` profile ([Observe](#observe)) |
+| `ARIES_PROXY` | unset | `1` makes ariesd serve plain HTTP on loopback, for the `proxy` profile's nginx to pass requests to ([Behind a proxy](#behind-a-proxy)). Unset, ariesd serves TLS itself, as before |
 
 Both ports are published on 127.0.0.1 alone, so nothing beyond your
 machine can reach them.
@@ -447,6 +448,28 @@ through the server: his browser opens Keycloak's page, he signs in with
 Keycloak's from before this release has the server's client without the
 server's callback: remove it (`docker compose --profile identity down
 -v`) to have it made again.
+
+## Behind a proxy
+
+The `proxy` profile puts nginx in front of ariesd, as a load balancer
+that terminates TLS would be, to test what docs/server.md's
+[Behind a proxy](../server.md#behind-a-proxy) asks of one: the WebSocket
+upgrade on `/v1/connect`, and an idle connection kept for at least 60
+seconds. Start it with `ARIES_PROXY=1` as well, since a container cannot
+see its compose profiles:
+
+```bash
+ARIES_PROXY=1 docker compose --profile proxy up -d --build --wait
+```
+
+nginx ([nginx.conf](../../deploy/docker/nginx.conf)) serves HTTPS on the
+port `ARIES_HTTPS_PORT` publishes, with the test CA's certificate, and
+passes each request to ariesd's listener on 127.0.0.1:8080, which trusts
+127.0.0.1 alone. nginx shares the server's network namespace, as the
+telemetry profiles do, so it publishes no port of its own and the
+server's URL and `.aries.yaml` do not change. Without `ARIES_PROXY=1`,
+nginx cannot bind the port, since ariesd keeps it: start the profile
+with the variable, or not at all.
 
 ## Test a change
 
