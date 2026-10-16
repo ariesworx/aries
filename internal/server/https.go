@@ -447,6 +447,10 @@ func (w *web) prove(c *wsconn.Conn) (*proto.Frame, *proto.Error, string) {
 		}
 	}
 	if key < 0 {
+		// A key past its end proves nothing (decision 89), and is told so.
+		if perr := w.s.endedOffer(offer.Keys); perr != nil {
+			return nil, perr, telemetry.ProofKeyEnded
+		}
 		return nil, proto.Errf(proto.CodeAuth,
 			"send your public key to the aries admin, who adds it with `aries admin key add NAME FILE.pub`; `aries whoami` lists the keys aries offers",
 			fmt.Sprintf("the server knows none of the keys offered (%d)", len(offer.Keys))), "unknown_key"

@@ -50,6 +50,7 @@ event handshake.failed
 event https.listener_stopped
 event https.listening
 event https.refused
+event key.expired
 event keys_file.key_held_back
 event keys_file.key_left_out
 event keys_file.removed

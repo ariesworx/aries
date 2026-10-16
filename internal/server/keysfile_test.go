@@ -46,11 +46,20 @@ func (m *multi) keysFileOf(t *testing.T) string {
 // sshd reads the keys file as sshd does, and returns the principal the
 // line for the key with the given fingerprint lets in, or "" when the
 // file has no line for it. It fails the test for a line that does more
-// than force the bridge for that principal and that key.
+// than force the bridge for that principal and that key, and for one
+// whose expiry-time is not UTC's fourteen digits marked Z, which sshd
+// would read in the server's own zone (identity.md §4.1).
 func (m *multi) sshd(t *testing.T, fingerprint string) string {
 	t.Helper()
 	for line := range strings.Lines(m.keysFileOf(t)) {
 		pub, comment, options, rest, err := ssh.ParseAuthorizedKey([]byte(line))
+		if err == nil && len(options) == 3 {
+			end, ok := strings.CutPrefix(options[1], `expiry-time="`)
+			if _, perr := time.Parse("20060102150405Z\"", end); !ok || perr != nil {
+				t.Fatalf("the keys file's line holds %s; want expiry-time=\"YYYYMMDDHHMMSSZ\", in UTC", options[1])
+			}
+			options = []string{options[0], options[2]}
+		}
 		if err != nil || comment != "" || len(rest) != 0 || len(options) != 2 || options[0] != "restrict" {
 			t.Fatalf("the keys file holds a line sshd would not read as one restricted key and nothing else: %q (%v)", line, err)
 		}

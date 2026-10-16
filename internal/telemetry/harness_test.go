@@ -573,16 +573,16 @@ func readYAML(t *testing.T, file string, into any) {
 }
 
 // Every image the compose file runs, but the one it builds, is pinned
-// by digest, under a comment giving the version the digest is of:
-// three parts, or two for an image tagged so, as Postgres's are.
+// by tag and digest (name:tag@sha256:…): the tag a version of three
+// parts, or two for an image tagged so, as Postgres's are, and in the
+// reference, where Dependabot reads and updates it.
 func TestHarnessImagesArePinned(t *testing.T) {
 	t.Parallel()
 	b, err := os.ReadFile(composeFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pinned := regexp.MustCompile(`^image: [a-z0-9./-]+@sha256:[0-9a-f]{64}$`)
-	versioned := regexp.MustCompile(`^# [a-z0-9./-]+:v?[0-9]+\.[0-9]+(\.[0-9]+)?\b`)
+	pinned := regexp.MustCompile(`^image: [a-z0-9./-]+:v?[0-9]+\.[0-9]+(\.[0-9]+)?@sha256:[0-9a-f]{64}$`)
 	lines := strings.Split(string(b), "\n")
 	n := 0
 	for i, line := range lines {
@@ -592,10 +592,7 @@ func TestHarnessImagesArePinned(t *testing.T) {
 		}
 		n++
 		if !pinned.MatchString(line) {
-			t.Errorf("%s:%d: %q is not pinned by digest (name@sha256:…)", composeFile, i+1, line)
-		}
-		if i == 0 || !versioned.MatchString(strings.TrimSpace(lines[i-1])) {
-			t.Errorf("%s:%d: the line above %q does not give the image's version, as in `# name:1.2.3`", composeFile, i+1, line)
+			t.Errorf("%s:%d: %q is not pinned by version and digest (name:1.2.3@sha256:…)", composeFile, i+1, line)
 		}
 	}
 	if n != 4 {

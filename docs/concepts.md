@@ -24,8 +24,8 @@ The [CLI reference](cli.md) and the [agent guide](agents.md) build on it.
   adds the principal and invites the address, and the person's first
   sign-in binds the invitation, which lapses unused after 7 days
   ([Identities and invitations](server.md#identities-and-invitations)).
-  The sign-in itself comes in a later release slice; until then an
-  identity is recorded and matches nothing.
+  A person signs in with `aries login`, through ariesd, at a provider
+  the server's `login:` setting names ([Sign-in](server.md#sign-in)).
 - A **session** is one run of an agent, or a person's terminal on one
   machine. Its id comes from the environment
   ([Sessions](agents.md#sessions)).

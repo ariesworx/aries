@@ -1,15 +1,18 @@
 # AppArmor profiles for ariesd, the Aries server (docs/server.md,
 # "Confine ariesd with AppArmor"). Install this file as
 # /etc/apparmor.d/ariesd and tunables/ariesd beside it as
-# /etc/apparmor.d/tunables/ariesd. README.md says how they were tested.
+# /etc/apparmor.d/tunables/ariesd; with SSH on, ariesd-stdio beside them
+# as /etc/apparmor.d/ariesd-stdio. README.md says how they were tested.
 #
 # One binary does three jobs, and each gets the profile that fits it:
 #
-#   ariesd          the bridge, `ariesd stdio`, which sshd runs for
-#                     every connection. Attached to the binary's path, so
-#                     it is also what any run gets that asks for nothing
-#                     else: `ariesd status`, which needs the same two
-#                     things, runs under it as the aries user.
+#   ariesd-stdio    the bridge, `ariesd stdio`, which sshd runs for
+#                     every connection, in a file of its own,
+#                     ariesd-stdio, which only a server with SSH on
+#                     installs. Attached to the binary's path, so it is
+#                     also what any run gets that asks for nothing else:
+#                     `ariesd status`, which needs the same two things,
+#                     runs under it as the aries user.
 #   ariesd-serve    the daemon, `ariesd serve`. The systemd unit asks
 #                     for it with AppArmorProfile=ariesd-serve.
 #   ariesd-admin    the operator's commands: control init, import-bd,
@@ -19,75 +22,24 @@
 # AppArmor chooses a profile by the path of the program, never by its
 # arguments, so the one path can carry only one profile by itself. It
 # carries the smallest, because sshd starts the bridge with no way to
-# ask for another, outside the systemd unit and its sandbox. The daemon
+# ask for another, outside the systemd unit and its sandbox. With SSH
+# off nothing runs as sshd's forced command, and the path carries no
+# profile. The daemon
 # and the operator's commands may reach Postgres; the daemon alone may
 # write the keys file; the operator's profile alone may replace the
 # binary and run sudo. No
-# profile may change to another, and the first two run no program at
-# all.
+# profile may change to another, and the bridge and the daemon run no
+# program at all.
 #
 # The paths are tunables/ariesd's. Rules of your own go in
-# /etc/apparmor.d/local/ariesd, local/ariesd-serve and
-# local/ariesd-admin, which upgrades of this file leave alone. A deny
-# rule here wins over anything those files allow.
+# /etc/apparmor.d/local/ariesd-serve and local/ariesd-admin, and in
+# local/ariesd-stdio for the bridge, which upgrades of these files leave
+# alone. A deny rule here wins over anything those files allow.
 
 abi <abi/4.0>,
 
 include <tunables/global>
 include <tunables/ariesd>
-
-# The bridge: sshd's forced command for the aries account. It reads
-# the config file to find the socket, connects, and copies bytes between
-# the SSH session and the daemon. `ariesd version` and `help` need no
-# more, and neither does `ariesd status`, which asks the daemon for its
-# report over the same socket (sudo -u aries -H ariesd status). root
-# gets no capability here, so root runs it as the aries user too.
-#
-# attach_disconnected: the daemon binds its socket inside the mount
-# namespace systemd gives the unit (ProtectSystem, PrivateTmp), so from
-# out here the socket's path does not start at the root, and AppArmor
-# refuses such a path, in complain mode too, unless this flag has it
-# looked up from the root.
-profile ariesd @{ariesd_bin}/ariesd flags=(attach_disconnected) {
-  include <abstractions/base>
-
-  @{ariesd_bin}/ariesd mr,
-
-  # The config file, read only. It holds the socket's path, and the
-  # database's DSN, which may hold a password, and which this profile
-  # gives no way to use: it has no network rule, and no rule for
-  # Postgres's socket or for the database's files.
-  @{ariesd_config} r,
-
-  # The daemon's socket: connect, send and receive.
-  @{ariesd_run}/ariesd.sock rw,
-
-  # The Go runtime sizes itself from the cgroup's CPU limit.
-  owner @{PROC}/@{pid}/cgroup r,
-  owner @{PROC}/@{pid}/mountinfo r,
-  @{sys}/fs/cgroup/** r,
-
-  # What it must never do. An explicit deny documents the intent,
-  # outlasts a careless rule in local/, and with `audit` is still logged.
-  audit deny @{ariesd_bin}/** w,
-  audit deny @{ariesd_config} w,
-  audit deny @{ariesd_keys_dir}/** w,
-  audit deny @{HOMEDIRS}/** mrwklx,
-  audit deny /root/** mrwklx,
-  audit deny /** x,
-  audit deny capability,
-  audit deny ptrace (trace),
-  audit deny mount,
-  audit deny umount,
-  audit deny pivot_root,
-  audit deny network inet,
-  audit deny network inet6,
-  audit deny network netlink,
-  audit deny network packet,
-  audit deny network raw,
-
-  include if exists <local/ariesd>
-}
 
 # The daemon. It reads the config file, listens on its socket and, with
 # HTTPS on, on its HTTPS listener, talks to Postgres, by its unix socket
@@ -236,7 +188,8 @@ profile ariesd-serve flags=(attach_disconnected) {
 # The operator's commands, run as the aries user through aa-exec:
 # control init, import-bd, export-bd, and upgrade with --check, --to and
 # --rollback. (`ariesd status` is not one of them: it runs under the
-# bridge's profile, and would also run under this one.) They open the store as the daemon does; upgrade also
+# bridge's profile, with SSH on, or none, and would also run under this
+# one.) They open the store as the daemon does; upgrade also
 # downloads a release, replaces the binary, asks systemd for a restart
 # through sudo, and asks the daemon whether it is healthy.
 profile ariesd-admin flags=(attach_disconnected) {

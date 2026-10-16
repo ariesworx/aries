@@ -279,14 +279,40 @@ func controlInit(ctx context.Context, env adminEnv, args []string) (err error) {
 			count(r.keys, "key"), count(r.members, "membership"), count(r.principals, "principal"))
 	}
 	// Every key this run added or found is a line of the file it read,
-	// and sshd still reads that file. Nothing here edits it.
+	// which still lets it in if anything reads that file. Nothing here
+	// edits it.
+	reader := fileReader(s, keysFile)
 	switch n := keys.added + keys.already; {
+	case reader == "":
 	case n == 1:
-		_, _ = fmt.Fprintf(env.stdout, "1 key in the store is also a line of %s: sshd reads that file too, so `aries admin key remove` does not keep the key out until its line is deleted too\n", keysFile)
+		_, _ = fmt.Fprintf(env.stdout, "1 key in the store is also a line of %s: %s, so `aries admin key remove` does not keep the key out until its line is deleted too\n", keysFile, reader)
 	case n > 1:
-		_, _ = fmt.Fprintf(env.stdout, "%d keys in the store are also lines of %s: sshd reads that file too, so `aries admin key remove` does not keep such a key out until its line is deleted too\n", n, keysFile)
+		_, _ = fmt.Fprintf(env.stdout, "%d keys in the store are also lines of %s: %s, so `aries admin key remove` does not keep such a key out until its line is deleted too\n", n, keysFile, reader)
 	}
 	return nil
+}
+
+// fileReader says what still lets a key in by a line of file, the
+// authorized_keys control init read: sshd, when SSH is on (the file is
+// the one sshd reads for the aries account, as the flag's fix says);
+// with SSH off, ariesd itself, when file is its hand-maintained
+// authorized_keys, whose keys prove themselves over HTTPS; and
+// otherwise nothing, as for the file the installer writes the first
+// admin's key to with SSH off, which no process reads but this one.
+func fileReader(s server.Settings, file string) string {
+	if s.SSH() {
+		return "sshd reads that file too"
+	}
+	_, hand, err := keyFiles(s)
+	if err != nil {
+		return ""
+	}
+	a, errA := os.Stat(file)
+	b, errB := os.Stat(hand)
+	if errA != nil || errB != nil || !os.SameFile(a, b) {
+		return ""
+	}
+	return "ariesd reads that file too, for a key that signs in over HTTPS"
 }
 
 // importer adds authorized_keys lines to the control store.

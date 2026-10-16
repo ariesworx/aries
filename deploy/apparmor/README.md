@@ -7,7 +7,8 @@ and remove them:
 
 | File | Installed as | Holds |
 |---|---|---|
-| `ariesd` | `/etc/apparmor.d/ariesd` | Three profiles: `ariesd`, `ariesd-serve` and `ariesd-admin` |
+| `ariesd` | `/etc/apparmor.d/ariesd` | Two profiles: `ariesd-serve` and `ariesd-admin` |
+| `ariesd-stdio` | `/etc/apparmor.d/ariesd-stdio`, only with SSH on | The bridge's profile, `ariesd-stdio` |
 | `tunables/ariesd` | `/etc/apparmor.d/tunables/ariesd` | The paths the profiles name, each in one place, for a server that moved one |
 
 ## Why three profiles
@@ -18,7 +19,7 @@ arguments.
 
 | Profile | Chosen by | For |
 |---|---|---|
-| `ariesd` | The binary's path, `/opt/aries/bin/ariesd`, which `/usr/local/bin/ariesd` links to: AppArmor resolves the link | `ariesd stdio`, the bridge sshd runs for every connection, and `ariesd status` |
+| `ariesd-stdio` | The binary's path, `/opt/aries/bin/ariesd`, which `/usr/local/bin/ariesd` links to: AppArmor resolves the link | `ariesd stdio`, the bridge sshd runs for every connection, and `ariesd status`. Installed only with SSH on |
 | `ariesd-serve` | The unit's `AppArmorProfile=ariesd-serve` | `ariesd serve`, the daemon |
 | `ariesd-admin` | The operator: `aa-exec -p ariesd-admin -- ariesd …` | `control init`, `import-bd`, `export-bd`, `upgrade` |
 
@@ -26,13 +27,18 @@ arguments.
   bridge with no way to ask for another, and outside the systemd unit:
   the unit's `ProtectSystem` and the rest do not reach it. The bridge
   may read the config file and connect to the daemon's socket.
+- **With SSH off the path carries none.** Nothing runs as sshd's forced
+  command, so the bridge's profile, in a file of its own, is not
+  installed (transport.md §11.1), and `install-server.sh --disable-ssh`
+  unloads and removes it. `ariesd status`, and a command run without
+  `aa-exec`, then run unconfined, as with no profiles.
 - **The daemon gets its own**, because it reaches Postgres and alone
   writes the keys file. With one profile for both, the bridge could do
   both.
   It is also what listens on the loopback port for metrics and health,
   posts metrics to a collector, and writes to systemd's notify socket
   ([Observability](../../docs/server.md#observability)).
-- **`ariesd status` runs under the bridge's**, by the path alone: it
+- **`ariesd status` runs under the bridge's** with SSH on, by the path alone: it
   reads the config file and connects to the daemon's socket, which is
   all the bridge may do, so it needs no rule and no `aa-exec`. It is run
   as the `aries` user (`sudo -u aries -H ariesd status`). root
@@ -40,8 +46,8 @@ arguments.
   0600, and the bridge's profile gives root no capability to read it.
 - **The operator's commands get the widest**, because `upgrade` reaches
   the network, replaces the binary and runs `sudo`, which nothing that
-  listens should be able to do. A command run without `aa-exec` gets the
-  bridge's profile and is refused.
+  listens should be able to do. With SSH on, a command run without
+  `aa-exec` gets the bridge's profile and is refused.
 - No profile may change to another, and neither the bridge nor the
   daemon may run a program.
 
@@ -262,10 +268,22 @@ an enforcing kernel.
 The bridge's profile, `ariesd`, is unchanged; with SSH off nothing runs
 under it but `ariesd status`.
 
+## The bridge's profile, with SSH alone
+
+On 16 October 2026 (slice S1 of
+[transport.md](../../docs/design/transport.md)) the bridge's profile
+moved to a file of its own, `ariesd-stdio`, and was renamed
+`ariesd-stdio`, with its rules unchanged: a server with SSH off installs
+no profile for sshd's forced command (transport.md §11.1), and
+`install-server.sh --disable-ssh` unloads and removes it. Its local
+file is `local/ariesd-stdio`; rules of your own in `local/ariesd` for
+the bridge move there. The two files were parsed as CI parses them;
+neither was loaded into an enforcing kernel for this change.
+
 ## Checking a change
 
 ```sh
-apparmor_parser -Q -K -I deploy/apparmor deploy/apparmor/ariesd
+apparmor_parser -Q -K -I deploy/apparmor deploy/apparmor/ariesd deploy/apparmor/ariesd-stdio
 ```
 
 checks the syntax without loading anything, and needs no root; CI runs

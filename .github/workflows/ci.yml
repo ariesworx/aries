@@ -89,7 +89,7 @@ jobs:
         # no root and changes nothing; -I finds this checkout's tunables.
         # It checks syntax only, not that ariesd works when confined
         # (deploy/apparmor/README.md).
-        run: /usr/sbin/apparmor_parser -Q -K -I deploy/apparmor deploy/apparmor/ariesd
+        run: /usr/sbin/apparmor_parser -Q -K -I deploy/apparmor deploy/apparmor/ariesd deploy/apparmor/ariesd-stdio
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
       - name: cross-platform build
@@ -125,7 +125,7 @@ jobs:
         with:
           persist-credentials: false
       - name: AppArmor profile syntax
-        run: /usr/sbin/apparmor_parser -Q -K -I deploy/apparmor deploy/apparmor/ariesd
+        run: /usr/sbin/apparmor_parser -Q -K -I deploy/apparmor deploy/apparmor/ariesd deploy/apparmor/ariesd-stdio
 
   # The store tests run against a real Postgres, from the PostgreSQL
   # project's apt repository, whose key is checked.

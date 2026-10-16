@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/ariesworx/aries/internal/logs"
 	"github.com/ariesworx/aries/internal/proto"
@@ -797,12 +798,19 @@ func keyAdd(ctx context.Context, s *Server, sess *session, in proto.KeyAddArgs) 
 	if err != nil {
 		return nil, s.ctlErr(ctx, sess, op, err)
 	}
-	k, err := ctl.AddKey(ctx, sess.actor, in.Name, in.Key)
+	end, perr := keyEnd(in)
+	if perr != nil {
+		return nil, perr
+	}
+	k, err := ctl.AddKeyEnding(ctx, sess.actor, in.Name, in.Key, end)
 	if err != nil {
 		return nil, s.keyErr(ctx, sess, op, err)
 	}
 	out := wireKeyResult(k)
 	out.Change, out.Warning = "added", s.syncKeys(ctx)
+	if k.ExpiresAt != nil {
+		s.keysChanged()
+	}
 	if slices.ContainsFunc(before, func(b store.PrincipalKey) bool { return b.Fingerprint == k.Fingerprint }) {
 		out.Change = "unchanged"
 	}
@@ -811,6 +819,31 @@ func keyAdd(ctx context.Context, s *Server, sess *session, in proto.KeyAddArgs) 
 	}
 	return out, nil
 }
+
+// keyEnd is the end key.add asks for: expires_at, or expires_in counted
+// on the store's clock as the write runs, or none.
+func keyEnd(in proto.KeyAddArgs) (store.KeyEnd, *proto.Error) {
+	refuse := func(msg string) *proto.Error {
+		return proto.Errf(proto.CodeInvalid, keyEndFix, msg)
+	}
+	switch {
+	case in.ExpiresAt != nil && in.ExpiresIn != "":
+		return store.KeyEnd{}, refuse("a key's end is a time or a duration, not both")
+	case in.ExpiresAt != nil:
+		return store.KeyEnd{At: *in.ExpiresAt}, nil
+	case in.ExpiresIn != "":
+		d, err := proto.ParseDuration(in.ExpiresIn)
+		if err != nil {
+			return store.KeyEnd{}, refuse(fmt.Sprintf("a key's end %q is %v", in.ExpiresIn, err))
+		}
+		return store.KeyEnd{In: d}, nil
+	}
+	return store.KeyEnd{}, nil
+}
+
+// keyEndFix is the fix of a refused end.
+var keyEndFix = fmt.Sprintf("give --expires a duration such as 12h or 30d, or a time such as 2026-12-31T17:00:00Z, at most %d days away; or no --expires for a key with no end",
+	store.MaxKeyLifetime/(24*time.Hour))
 
 // sshOffNotice is what an admin who adds a key while SSH is off is told
 // (transport.md §11.1, decision 87): the key is recorded and signs in
@@ -824,6 +857,14 @@ const sshOffNotice = "SSH is off on this server: the key signs in over HTTPS (se
 // A server admin, who can read the file on the server, is told where the
 // key is, and what to do about it there.
 func (s *Server) keyErr(ctx context.Context, sess *session, op string, err error) *proto.Error {
+	if ke, ok := errors.AsType[*store.KeyEndError](err); ok {
+		if ke.Fingerprint != "" {
+			return proto.Errf(proto.CodeExists,
+				fmt.Sprintf("remove it first with `aries admin key remove %s`, which closes the connections it signed in, then add it again with the end wanted", ke.Fingerprint),
+				ke.Reason)
+		}
+		return proto.Errf(proto.CodeInvalid, keyEndFix, ke.Reason)
+	}
 	if te, ok := errors.AsType[*store.TakenError](err); ok && te.Elsewhere && s.cfg.Control.IsServerAdmin(sess.actor.Principal) {
 		return proto.Errf(proto.CodeExists,
 			"add it to the principal that line names, or have the line deleted on the server first (docs/server.md, Keys from the store): sshd reads ariesd's keys before that file, so the key would otherwise sign its owner in as someone else",
@@ -835,7 +876,14 @@ func (s *Server) keyErr(ctx context.Context, sess *session, op string, err error
 // wireKeyResult is a key after a write. The type is the first word of
 // the stored key.
 func wireKeyResult(k store.PrincipalKey) proto.KeyResult {
-	return proto.KeyResult{Fingerprint: k.Fingerprint, Principal: k.Principal, Type: keyType(k.Key), Comment: k.Comment}
+	return proto.KeyResult{Fingerprint: k.Fingerprint, Principal: k.Principal, Type: keyType(k.Key), Comment: k.Comment, ExpiresAt: k.ExpiresAt}
+}
+
+// wireKey is a key in a list; hand holds the fingerprints of the
+// hand-maintained authorized_keys file (byHand).
+func wireKey(k store.PrincipalKey, hand map[string]bool) proto.Key {
+	return proto.Key{Fingerprint: k.Fingerprint, Type: keyType(k.Key), Comment: k.Comment, AddedBy: k.AddedBy, AddedAt: k.AddedAt,
+		InAuthorizedKeys: hand[k.Fingerprint], ExpiresAt: k.ExpiresAt, Origin: k.Origin, Machine: k.Machine}
 }
 
 // keyType is the type of a key in authorized_keys form: its first word.
@@ -877,8 +925,7 @@ func keys(ctx context.Context, s *Server, sess *session, in proto.KeysArgs) (any
 	out := proto.KeysResult{Principal: in.Name, Keys: []proto.Key{}, FileConns: s.fileConns(in.Name)}
 	hand := s.byHand()
 	for _, k := range all {
-		out.Keys = append(out.Keys, proto.Key{Fingerprint: k.Fingerprint, Type: keyType(k.Key), Comment: k.Comment, AddedBy: k.AddedBy, AddedAt: k.AddedAt,
-			InAuthorizedKeys: hand[k.Fingerprint]})
+		out.Keys = append(out.Keys, wireKey(k, hand))
 	}
 	return out, nil
 }

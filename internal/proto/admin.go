@@ -447,9 +447,17 @@ type MemberRemoveResult struct {
 // KeyAddArgs adds a public SSH key to the principal Name. Key is one
 // line in authorized_keys form, TYPE BASE64 [COMMENT], with no options:
 // what a .pub file holds. Only public keys are ever sent.
+//
+// ExpiresAt, or ExpiresIn, gives the key an end, after which it
+// authenticates no one: a time, or a duration in ParseDuration's form
+// that the server counts from its own time, so that the client's clock
+// does not decide it. At most one is set; with neither, the key has no
+// end. Both joined protocol 8 (decision 78).
 type KeyAddArgs struct {
-	Name string `json:"name"`
-	Key  string `json:"key"`
+	Name      string     `json:"name"`
+	Key       string     `json:"key"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	ExpiresIn string     `json:"expires_in,omitempty"`
 }
 
 // KeyResult is a key after a write: its SHA-256 fingerprint as ID, the
@@ -464,15 +472,18 @@ type KeyAddArgs struct {
 // line until the line is deleted. Warning then says so, and what to do. It
 // also says when the change is committed and the server could not write
 // the keys file sshd reads, which may then be out of date.
+//
+// ExpiresAt is the key's end, in UTC to the second, when it has one.
 type KeyResult struct {
-	Fingerprint      string `json:"fingerprint"`
-	Principal        string `json:"principal"`
-	Type             string `json:"type"`
-	Comment          string `json:"comment,omitempty"`
-	Change           string `json:"change,omitempty"`
-	Dropped          int    `json:"dropped,omitempty"`
-	InAuthorizedKeys bool   `json:"in_authorized_keys,omitempty"`
-	Warning          string `json:"warning,omitempty"`
+	Fingerprint      string     `json:"fingerprint"`
+	Principal        string     `json:"principal"`
+	Type             string     `json:"type"`
+	Comment          string     `json:"comment,omitempty"`
+	Change           string     `json:"change,omitempty"`
+	Dropped          int        `json:"dropped,omitempty"`
+	InAuthorizedKeys bool       `json:"in_authorized_keys,omitempty"`
+	Warning          string     `json:"warning,omitempty"`
+	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
 }
 
 // KeysArgs lists the keys of the principal Name. With AddedBy, and no
@@ -492,14 +503,22 @@ type KeysArgs struct {
 // store holds it; removing it from the store closes its connections
 // and does not keep it out, since sshd then takes the other line.
 // Principal is whose key it is, in a list of the keys someone added.
+//
+// ExpiresAt is the key's end, when it has one: a key past it is listed
+// until the server prunes it, an hour later. Origin says who put the key
+// there (admin, import, and later login or workload), and Machine, for a
+// key a sign-in made, what the client said it is.
 type Key struct {
-	Fingerprint      string    `json:"fingerprint"`
-	Type             string    `json:"type"`
-	Comment          string    `json:"comment,omitempty"`
-	AddedBy          string    `json:"added_by"`
-	AddedAt          time.Time `json:"added_at"`
-	InAuthorizedKeys bool      `json:"in_authorized_keys,omitempty"`
-	Principal        string    `json:"principal,omitempty"`
+	Fingerprint      string     `json:"fingerprint"`
+	Type             string     `json:"type"`
+	Comment          string     `json:"comment,omitempty"`
+	AddedBy          string     `json:"added_by"`
+	AddedAt          time.Time  `json:"added_at"`
+	InAuthorizedKeys bool       `json:"in_authorized_keys,omitempty"`
+	Principal        string     `json:"principal,omitempty"`
+	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
+	Origin           string     `json:"origin,omitempty"`
+	Machine          string     `json:"machine,omitempty"`
 }
 
 // KeysResult lists a principal's keys, oldest first. FileConns counts

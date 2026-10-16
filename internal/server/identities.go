@@ -212,8 +212,7 @@ func principalShow(ctx context.Context, s *Server, sess *session, in proto.Princ
 	out := proto.PrincipalShowResult{Principal: wirePrincipal(p), Identities: wireIdentities(ids, ctl.Now()), Keys: []proto.Key{}}
 	hand := s.byHand()
 	for _, k := range ks {
-		out.Keys = append(out.Keys, proto.Key{Fingerprint: k.Fingerprint, Type: keyType(k.Key), Comment: k.Comment, AddedBy: k.AddedBy,
-			AddedAt: k.AddedAt, InAuthorizedKeys: hand[k.Fingerprint]})
+		out.Keys = append(out.Keys, wireKey(k, hand))
 	}
 	return out, nil
 }

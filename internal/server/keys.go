@@ -100,13 +100,15 @@ type keysFile struct {
 
 // WriteKeys writes the keys file from the control store's memory, unless
 // the file already holds exactly that: a first line that says ariesd
-// generates the file, then one line for each key of an active principal,
+// generates the file, then one line for each key of an active principal
+// that has not ended,
 //
 //	restrict,command="BRIDGE stdio --principal NAME --key FINGERPRINT" TYPE BASE64
 //
-// by principal and then fingerprint, so an unchanged store gives the
-// same bytes. The file is replaced whole, by a rename, so sshd never
-// reads part of one (replaceFile).
+// with expiry-time="YYYYMMDDHHMMSSZ", the key's end in UTC, after
+// restrict for a key that has one; by principal and then fingerprint,
+// so an unchanged store gives the same bytes. The file is replaced
+// whole, by a rename, so sshd never reads part of one (replaceFile).
 //
 // A daemon calls it once before it listens, and fails to start on its
 // error, which names a fix. From then on the server calls it itself:
@@ -232,11 +234,24 @@ func (s *Server) keyLines() (lines []byte, n int, held []store.PrincipalKey) {
 			s.cfg.Logger.Error("a key of the control store is left out of the keys file", "event", logs.KeysFileLeftOut, "fingerprint", k.Fingerprint, "err", err)
 			continue
 		}
-		fmt.Fprintf(&b, "restrict,command=\"%s stdio --principal %s --key %s\" %s\n",
+		b.WriteString("restrict,")
+		if k.ExpiresAt != nil {
+			b.WriteString(expiryTime(*k.ExpiresAt))
+		}
+		fmt.Fprintf(&b, "command=\"%s stdio --principal %s --key %s\" %s\n",
 			s.cfg.Bridge, k.Principal, k.Fingerprint, strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pub))))
 		n++
 	}
 	return b.Bytes(), n, held
+}
+
+// expiryTime is the option of a keys file's line that has sshd refuse
+// the key from end on, with its comma: UTC's digits to the second,
+// marked Z. sshd reads digits without the Z in the server's own zone,
+// which on a server west of UTC would let an ended key in for hours
+// (identity.md §4.1, measured on OpenSSH 9.6p1 and 10.2p1).
+func expiryTime(end time.Time) string {
+	return `expiry-time="` + end.UTC().Format("20060102150405") + `Z",`
 }
 
 // publicKey parses line as one public key, TYPE BASE64, with no options

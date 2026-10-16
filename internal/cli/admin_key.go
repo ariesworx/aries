@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 
@@ -114,9 +115,10 @@ func readUpTo(path string, n int64) ([]byte, error) {
 }
 
 func adminKey(ctx context.Context, r *runner, args []string) error {
-	const usage = "admin key add NAME FILE|- | list NAME | list --added-by NAME [-n N] [--after FINGERPRINT] | remove FINGERPRINT"
+	const usage = "admin key add NAME FILE|- [--expires DURATION|TIME] | list NAME | list --added-by NAME [-n N] [--after FINGERPRINT] | remove FINGERPRINT"
 	fs := r.newFlags("admin key")
 	addedBy := fs.String("added-by", "", "list the keys this principal added, whoever each belongs to")
+	expires := fs.String("expires", "", "end the key after a duration (12h, 30d) counted on the server's clock, or at a time (2026-12-31T17:00:00Z)")
 	list := listFlags(fs)
 	pos, err := parse(fs, args, usage)
 	if err != nil {
@@ -125,23 +127,34 @@ func adminKey(ctx context.Context, r *runner, args []string) error {
 	if len(pos) == 0 {
 		return usagef(usage, "admin key needs add, list or remove")
 	}
-	if pos[0] != "list" || *addedBy == "" {
-		if err := only(fs, usage, "key "+pos[0]+", without --added-by,"); err != nil {
-			return err
-		}
+	switch {
+	case pos[0] == "list" && *addedBy != "":
+		err = only(fs, usage, "key list --added-by", "added-by", "n", "after")
+	case pos[0] == "add":
+		err = only(fs, usage, "key add, without --added-by,", "expires")
+	default:
+		err = only(fs, usage, "key "+pos[0]+", without --added-by,")
+	}
+	if err != nil {
+		return err
 	}
 	switch pos[0] {
 	case "add":
 		if len(pos) != 3 {
 			return usagef(usage, "key add needs a principal and a public key file, such as bob ~/.ssh/id_ed25519.pub; - reads the key from standard input")
 		}
+		in := proto.KeyAddArgs{Name: pos[1]}
+		if *expires != "" {
+			if in.ExpiresIn, in.ExpiresAt, err = keyExpires(*expires); err != nil {
+				return usagef(usage, "%v", err)
+			}
+		}
 		// Read and checked before anything is sent.
-		line, err := r.publicKey(pos[2])
-		if err != nil {
+		if in.Key, err = r.publicKey(pos[2]); err != nil {
 			return err
 		}
 		var out proto.KeyResult
-		if err := r.call(ctx, proto.OpKeyAdd, proto.KeyAddArgs{Name: pos[1], Key: line}, &out); err != nil {
+		if err := r.call(ctx, proto.OpKeyAdd, in, &out); err != nil {
 			return err
 		}
 		if r.json {
@@ -197,6 +210,32 @@ func adminKey(ctx context.Context, r *runner, args []string) error {
 	return usagef(usage, "unknown key action %q", pos[0])
 }
 
+// keyExpires reads --expires: a duration, which is sent as it is for
+// the server to count from its own time, or a time in RFC 3339 with its
+// zone.
+func keyExpires(s string) (in string, at *time.Time, err error) {
+	if _, err := proto.ParseDuration(s); err == nil {
+		return s, nil, nil
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return "", nil, fmt.Errorf("--expires takes a duration such as 12h or 30d, or a time such as 2026-12-31T17:00:00Z, not %q", s)
+	}
+	return "", &t, nil
+}
+
+// ending is ", ending TIME" for a key with an end, and "" for one with
+// none.
+func ending(end *time.Time) string {
+	if end == nil {
+		return ""
+	}
+	return ", ending " + endWhen(*end)
+}
+
+// endWhen is a key's end, to the second, as sshd holds it.
+func endWhen(t time.Time) string { return t.UTC().Format("2006-01-02 15:04:05 UTC") }
+
 // keyLabel is a key's type and comment, in parentheses.
 func keyLabel(k proto.KeyResult) string {
 	if k.Comment == "" {
@@ -207,10 +246,10 @@ func keyLabel(k proto.KeyResult) string {
 
 func printKeyAdded(w io.Writer, k proto.KeyResult) {
 	if k.Change == "unchanged" {
-		_, _ = fmt.Fprintf(w, "%s already has key %s %s\n", esc(k.Principal), esc(k.Fingerprint), keyLabel(k))
+		_, _ = fmt.Fprintf(w, "%s already has key %s %s%s\n", esc(k.Principal), esc(k.Fingerprint), keyLabel(k), ending(k.ExpiresAt))
 		return
 	}
-	_, _ = fmt.Fprintf(w, "key %s %s added to %s\n", esc(k.Fingerprint), keyLabel(k), esc(k.Principal))
+	_, _ = fmt.Fprintf(w, "key %s %s added to %s%s\n", esc(k.Fingerprint), keyLabel(k), esc(k.Principal), ending(k.ExpiresAt))
 }
 
 // printKeyRemoved says a key is gone from the store, and how many
@@ -246,9 +285,11 @@ func printKeysAddedBy(w io.Writer, res proto.KeysResult) {
 	more(w, res.More, res.Keys[len(res.Keys)-1].Fingerprint)
 }
 
-// printKeys lists a principal's keys. When any of them is also a line of
-// the server's hand-maintained authorized_keys file, a last column marks
-// those, and a line after the table says what the mark means.
+// printKeys lists a principal's keys. When any of them has an end, a
+// column says each one's; a key past its end is listed until the server
+// prunes it. When any of them is also a line of the server's
+// hand-maintained authorized_keys file, a last column marks those, and a
+// line after the table says what the mark means.
 func printKeys(w io.Writer, res proto.KeysResult) {
 	defer printFileConns(w, res.Principal, res.FileConns)
 	if len(res.Keys) == 0 {
@@ -256,15 +297,25 @@ func printKeys(w io.Writer, res proto.KeysResult) {
 		return
 	}
 	byHand := slices.ContainsFunc(res.Keys, func(k proto.Key) bool { return k.InAuthorizedKeys })
+	ends := slices.ContainsFunc(res.Keys, func(k proto.Key) bool { return k.ExpiresAt != nil })
 	_, _ = fmt.Fprintf(w, "keys of %s\n", esc(res.Principal))
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	header := "FINGERPRINT\tTYPE\tCOMMENT\tADDED BY\tADDED"
+	if ends {
+		header += "\tENDS"
+	}
 	if byHand {
 		header += "\tALSO IN"
 	}
 	_, _ = fmt.Fprintln(tw, header)
 	for _, k := range res.Keys {
 		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s", esc(k.Fingerprint), esc(k.Type), esc(k.Comment), esc(k.AddedBy), when(k.AddedAt))
+		switch {
+		case k.ExpiresAt != nil:
+			_, _ = fmt.Fprint(tw, "\t"+endWhen(*k.ExpiresAt))
+		case ends:
+			_, _ = fmt.Fprint(tw, "\t-")
+		}
 		switch {
 		case k.InAuthorizedKeys:
 			_, _ = fmt.Fprint(tw, "\tauthorized_keys")

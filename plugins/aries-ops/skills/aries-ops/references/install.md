@@ -40,6 +40,7 @@ Agree each with the operator, and write them into the record:
 | `--host HOST` | The server's DNS name, for its URL and the certificate |
 | `--profile P` | `internet` (the default), `private`, `airgapped` or `ssh-only` (docs/server.md#profiles) |
 | `--enable-ssh` | Only if the team reaches the server over SSH, IAP included (docs/server.md#ssh-on-and-off) |
+| `--disable-ssh` | Only to turn SSH off on a server that served it, once `transports:` no longer names `ssh` and ariesd was restarted (docs/server.md#ssh-on-and-off) |
 | `--url URL`, `--listen ADDR` | Only where clients use another URL than `https://HOST`, or the listener another port than 443 |
 | `--tls MODE` | `acme`, `files` or `proxy`, in place of the profile's (docs/server.md#certificates) |
 | `--cert FILE`, `--key FILE` | With `files`: the certificate and its key, files on the server the operator put there. The key is a secret: you never read, copy or print it; the installer copies it to a 0600 file and never shows it |
