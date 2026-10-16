@@ -319,6 +319,9 @@ type Expect struct {
 	// authenticated at the provider (auth_time), which prompt=login
 	// makes the time of this sign-in.
 	AuthAge time.Duration
+	// Audience, when set, is what aud must include in place of the
+	// verifier's: a workload's audience bound to its key.
+	Audience string
 }
 
 // Verify checks raw: its form, its signature under the issuer's key, the
@@ -357,8 +360,12 @@ func (v *Verifier) check(c *Claims, want Expect) error {
 	if c.Iss != v.cfg.Issuer {
 		return bad("issuer %q, not %q", c.Iss, v.cfg.Issuer)
 	}
-	if !slices.Contains(c.Aud, v.cfg.Audience) {
-		return bad("audience %q does not include %q", []string(c.Aud), v.cfg.Audience)
+	aud := v.cfg.Audience
+	if want.Audience != "" {
+		aud = want.Audience
+	}
+	if !slices.Contains(c.Aud, aud) {
+		return bad("audience %q does not include %q", []string(c.Aud), aud)
 	}
 	// With several audiences, the party it was issued to must be ours
 	// (OpenID Connect Core §3.1.3.7, 4 and 5).
