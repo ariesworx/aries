@@ -438,6 +438,14 @@ func (w *web) prove(c *wsconn.Conn) (*proto.Frame, *proto.Error, string) {
 			break
 		}
 	}
+	// A disabled principal's key is known, and refused as theirs once
+	// proved: not as an unknown key, which the address is charged for.
+	disabled := false
+	for i := 0; key < 0 && i < len(offer.Keys); i++ {
+		if p, ok := w.s.disabledOwner(offer.Keys[i]); ok {
+			key, principal, disabled = i, p, true
+		}
+	}
 	if key < 0 {
 		return nil, proto.Errf(proto.CodeAuth,
 			"send your public key to the aries admin, who adds it with `aries admin key add NAME FILE.pub`; `aries whoami` lists the keys aries offers",
@@ -457,6 +465,9 @@ func (w *web) prove(c *wsconn.Conn) (*proto.Frame, *proto.Error, string) {
 	if err := keyproof.Verify(offer.Keys[key], offer.URL, nonce, sig); err != nil {
 		return nil, proto.Errf(proto.CodeAuth, "check that the key file aries reads is the private half of the key it offers; `aries whoami` names it",
 			"the key proof does not verify"), "bad_proof"
+	}
+	if disabled {
+		return nil, disabledErr(principal), telemetry.ProofDisabled
 	}
 	_ = c.SetDeadline(time.Time{})
 	return &proto.Frame{T: proto.FrameBridge, Principal: principal, Key: fingerprint}, nil, ""
@@ -487,6 +498,29 @@ func (s *Server) keyOwner(pub ssh.PublicKey) (principal, fingerprint string, ok 
 		return p, "", true
 	}
 	return "", "", false
+}
+
+// disabledOwner finds the disabled principal whose key of the control
+// store pub is, as keyOwner finds an active one: unless the
+// hand-maintained authorized_keys file gives the key to another
+// principal. It asks the control store whether or not HTTPS.Keys is
+// set: sshd, which that mirrors, has no line for such a key at all.
+func (s *Server) disabledOwner(pub ssh.PublicKey) (principal string, ok bool) {
+	if s.cfg.Control == nil {
+		return "", false
+	}
+	fp := ssh.FingerprintSHA256(pub)
+	p, key, ok := s.cfg.Control.DisabledKey(fp)
+	if !ok {
+		return "", false
+	}
+	if owner, byHand := s.handOwner(fp); byHand && owner != p {
+		return "", false
+	}
+	if stored, err := publicKey(key); err != nil || !bytes.Equal(stored.Marshal(), pub.Marshal()) {
+		return "", false
+	}
+	return p, true
 }
 
 // refused logs a connection refused before its hello, sampled per

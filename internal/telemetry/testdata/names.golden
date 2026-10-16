@@ -135,6 +135,7 @@ value aries.https.cert.reloads result ok
 value aries.https.connections.refused reason limit
 value aries.https.connections.refused reason untrusted
 value aries.https.key_proofs result bad_proof
+value aries.https.key_proofs result disabled
 value aries.https.key_proofs result failed
 value aries.https.key_proofs result invalid
 value aries.https.key_proofs result ok

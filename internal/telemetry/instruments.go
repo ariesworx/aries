@@ -225,13 +225,15 @@ const (
 	UpgradeToken = "token"
 
 	// How a key proof was refused: no key proof at all, one for another
-	// server's URL, no key the server knows, and a signature that does
-	// not verify. A proof the client left, or did not finish within
+	// server's URL, no key the server knows, a signature that does not
+	// verify, and a key proved whose principal is disabled. A proof the
+	// client left, or did not finish within
 	// upgrade_timeout, is ResultFailed.
 	ProofInvalid    = "invalid"
 	ProofURL        = "url"
 	ProofUnknownKey = "unknown_key"
 	ProofBadProof   = "bad_proof"
+	ProofDisabled   = "disabled"
 
 	// How a sign-in's token presented to connect was refused: by
 	// another scheme than DPoP, missing, unknown to the server, its
@@ -339,7 +341,7 @@ var (
 	attrListener = attr{key: KeyReason, values: []string{ListenerUntrusted, ListenerLimit}, fallback: Other}
 	attrUpgraded = attr{key: KeyResult, values: []string{ResultOK, UpgradeRefused}, fallback: Other}
 	attrUpgrade  = attr{key: KeyReason, values: []string{ReasonNone, UpgradeOrigin, UpgradeAuthFailures, UpgradeBadRequest, UpgradeToken}, fallback: Other}
-	attrProof    = attr{key: KeyResult, values: []string{ResultOK, ResultFailed, ProofInvalid, ProofURL, ProofUnknownKey, ProofBadProof}, fallback: Other}
+	attrProof    = attr{key: KeyResult, values: []string{ResultOK, ResultFailed, ProofInvalid, ProofURL, ProofUnknownKey, ProofBadProof, ProofDisabled}, fallback: Other}
 	attrToken    = attr{key: KeyResult, values: []string{ResultOK, TokenScheme, TokenMissing, TokenUnknown, TokenEnded, TokenBearer, TokenNoLogin,
 		DPoPMissing, DPoPMalformed, DPoPSignature, DPoPRequest, DPoPToken, DPoPTime, DPoPReplayed, DPoPBusy, DPoPKey}, fallback: Other}
 )

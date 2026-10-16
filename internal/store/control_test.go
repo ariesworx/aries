@@ -593,7 +593,17 @@ func TestAuthorizedKey(t *testing.T) {
 			t.Errorf("%s: AuthorizedKey(%s) = %q, %q, %v; want %q, %q, %v", when, fingerprint, p, k, ok, wantPrincipal, wantKey, wantPrincipal != "")
 		}
 	}
+	// disabled checks DisabledKey, which answers only for a key whose
+	// principal is disabled.
+	disabled := func(c *Control, when, fingerprint, wantPrincipal, wantKey string) {
+		t.Helper()
+		p, k, ok := c.DisabledKey(fingerprint)
+		if p != wantPrincipal || k != wantKey || ok != (wantPrincipal != "") {
+			t.Errorf("%s: DisabledKey(%s) = %q, %q, %v; want %q, %q, %v", when, fingerprint, p, k, ok, wantPrincipal, wantKey, wantPrincipal != "")
+		}
+	}
 	check(c, "before any key", fp, "", "")
+	disabled(c, "before any key", fp, "", "")
 	if _, err := c.AddKey(ctx, dana, "alice", line+" a comment"); err != nil {
 		t.Fatal(err)
 	}
@@ -609,18 +619,30 @@ func TestAuthorizedKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	check(c, "principal disabled", fp, "", "")
+	disabled(c, "principal disabled", fp, "alice", line)
 	check(c, "another principal disabled", bobFP, "bob", bobLine)
+	disabled(c, "an active principal", bobFP, "", "")
+	disabled(c, "unknown key", unknown, "", "")
 
 	// A second store on the database loads the same answers.
 	c2 := openControl(t, dsn, ControlOptions{})
 	check(c2, "reopened, disabled", fp, "", "")
+	disabled(c2, "reopened, disabled", fp, "alice", line)
 	check(c2, "reopened", bobFP, "bob", bobLine)
 
 	if _, err := c.EnablePrincipal(ctx, dana, "alice"); err != nil {
 		t.Fatal(err)
 	}
 	check(c, "principal enabled", fp, "alice", line)
+	disabled(c, "principal enabled", fp, "", "")
+	if _, err := c.DisablePrincipal(ctx, dana, "alice"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := c.RemoveKey(ctx, dana, fp); err != nil {
+		t.Fatal(err)
+	}
+	disabled(c, "removed while disabled", fp, "", "")
+	if _, err := c.EnablePrincipal(ctx, dana, "alice"); err != nil {
 		t.Fatal(err)
 	}
 	check(c, "removed", fp, "", "")

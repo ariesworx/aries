@@ -710,6 +710,49 @@ func TestHTTPSStoreKey(t *testing.T) {
 	}
 }
 
+// A disabled principal's key of the store, proved, is refused as
+// disabled, and is not a refused sign-in of its address: its agents,
+// still trying, do not shut out everyone else at that address. A proof
+// of it that does not verify still is one.
+func TestHTTPSDisabledKey(t *testing.T) {
+	t.Parallel()
+	const burst = 2
+	m, u, pool := httpsMulti(t, func(c *Config) { c.Limits.AuthFailureRate, c.Limits.AuthFailureBurst = 1, burst })
+	if _, err := m.ctl.DisablePrincipal(t.Context(), dana, "carol"); err != nil {
+		t.Fatal(err)
+	}
+	// refusal runs carol's key proof, signed by sign, and returns the
+	// server's refusal.
+	refusal := func(sign ssh.Signer) *proto.Error {
+		t.Helper()
+		c, resp, err := wsDial(t, u, pool, nil)
+		if err != nil {
+			t.Fatalf("upgrade: %v (%v)", err, resp)
+		}
+		f := prove(t, c, u, signerOf(t, "carol"), sign)
+		if f == nil {
+			m, err := c.Read()
+			if f = refusalIn(m); f == nil {
+				t.Fatalf("after carol's proof: read %q, %v; want a refusal", m, err)
+			}
+		}
+		return f.Err
+	}
+	for i := range burst + 2 {
+		if e := refusal(nil); e.Code != proto.CodeForbidden || !strings.Contains(e.Message, "carol is disabled") || !strings.Contains(e.Fix, "principal enable carol") {
+			t.Fatalf("disabled carol's proof %d of %d = %+v; want forbidden, naming her disabled, with a fix to enable her", i+1, burst+2, e)
+		}
+	}
+	for i := range burst {
+		if e := refusal(signerOf(t, "mallory")); e.Code != proto.CodeAuth || !strings.Contains(e.Message, "does not verify") {
+			t.Fatalf("carol's key proved by another's, %d of %d = %+v; want auth, not verified", i+1, burst, e)
+		}
+	}
+	if _, resp, err := wsDial(t, u, pool, nil); err == nil || resp == nil || resp.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("an upgrade after %d proofs that did not verify, at a burst of %d = %v, %v; want 429", burst, burst, resp, err)
+	}
+}
+
 // The status report names the transports, with the connections that
 // came over each.
 func TestHTTPSStatus(t *testing.T) {

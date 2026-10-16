@@ -367,6 +367,21 @@ func (c *Control) AuthorizedKey(fingerprint string) (principal, key string, ok b
 	return k.principal, k.key, true
 }
 
+// DisabledKey is [Control.AuthorizedKey] for the keys it does not
+// answer for because their principal is disabled: it returns the
+// principal and the key only then. The daemon refuses a key it proves
+// as its principal's being disabled, rather than as a key it does not
+// know. It reads memory only.
+func (c *Control) DisabledKey(fingerprint string) (principal, key string, ok bool) {
+	c.ix.mu.RLock()
+	defer c.ix.mu.RUnlock()
+	k, found := c.ix.byFingerprint[fingerprint]
+	if !found || !c.ix.disabled[k.principal] {
+		return "", "", false
+	}
+	return k.principal, k.key, true
+}
+
 // AuthorizedKeys returns every key [Control.AuthorizedKey] answers for,
 // the keys of the active principals, by principal and then fingerprint:
 // what the daemon writes sshd's keys file from. Only Fingerprint,
