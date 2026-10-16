@@ -112,6 +112,10 @@ type Verifier struct {
 	readAt  time.Time
 	tried   time.Time // the last read, whether or not it succeeded
 	lastErr error
+	// reading is closed when the read under way ends, and nil when none
+	// is: a read is not made under mu, which would hold every token and
+	// the status report behind a provider for up to FetchTimeout.
+	reading chan struct{}
 }
 
 // NewFetchVerifier returns a verifier whose keys are fetched from
@@ -201,10 +205,25 @@ func (v *Verifier) Status() KeyStatus {
 }
 
 // key returns the signing key kid names, reading the set again when kid
-// is not known and the last read is at least Refetch ago.
+// is not known and the last read is at least Refetch ago. A token that
+// comes during a read waits for it, so that a rotated key is read once.
 func (v *Verifier) key(ctx context.Context, kid string) (crypto.PublicKey, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
+	for v.reading != nil {
+		if k, ok := v.keys[kid]; ok {
+			return k, nil
+		}
+		reading := v.reading
+		v.mu.Unlock()
+		select {
+		case <-reading:
+		case <-ctx.Done():
+			v.mu.Lock()
+			return nil, fmt.Errorf("%w: waiting for the key set: %v", ErrUnavailable, ctx.Err())
+		}
+		v.mu.Lock()
+	}
 	if k, ok := v.keys[kid]; ok {
 		return k, nil
 	}
@@ -217,6 +236,9 @@ func (v *Verifier) key(ctx context.Context, kid string) (crypto.PublicKey, error
 		return nil, fmt.Errorf("%w: no key %q in %s, read %s ago", ErrUnavailable, kid, where, now.Sub(v.tried).Round(time.Second))
 	}
 	v.tried = now
+	reading := make(chan struct{})
+	v.reading = reading
+	v.mu.Unlock()
 	var keys map[string]crypto.PublicKey
 	var err error
 	if v.file != "" {
@@ -224,6 +246,9 @@ func (v *Verifier) key(ctx context.Context, kid string) (crypto.PublicKey, error
 	} else {
 		keys, err = v.fetch(ctx)
 	}
+	v.mu.Lock()
+	v.reading = nil
+	close(reading)
 	v.lastErr = err
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrUnavailable, err)

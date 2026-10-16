@@ -88,7 +88,8 @@ type Settings struct {
 	// Require are claims a token must carry with exactly these values:
 	// hd for a Google Workspace domain, for instance.
 	Require map[string]string `yaml:"require"`
-	// Domains, when set, are the domains a token's address must be at.
+	// Domains, when set, are the domains a token's address must be at,
+	// an address the provider says is verified.
 	Domains []string `yaml:"domains"`
 	// PromptLogin sends prompt=login, so that the provider asks the
 	// person to sign in again whatever session the browser holds. The
@@ -285,6 +286,18 @@ func (p *Provider) Kind() string { return p.s.Kind }
 // Issuer is the exact iss of the provider's tokens.
 func (p *Provider) Issuer() string { return p.issuer }
 
+// AnswerIssuer is the issuer of the provider's authorization server: what
+// its discovery document names, and the iss its authorization responses
+// carry when it sends one (RFC 9207). It is Issuer, except for Entra's
+// version 1 tokens, whose issuer is not the v2.0 endpoint's that signs
+// the person in.
+func (p *Provider) AnswerIssuer() string {
+	if p.s.Kind == KindEntra && p.s.TokenVersion == 1 {
+		return strings.TrimSuffix(p.s.Authority, "/") + "/" + p.s.Tenant + "/v2.0"
+	}
+	return p.issuer
+}
+
 // discoveryURL is where the discovery document is read: the issuer's,
 // or for Entra the v2.0 endpoint's of the tenant.
 func (p *Provider) discoveryURL() string {
@@ -331,11 +344,7 @@ func (p *Provider) fetchDiscovery(ctx context.Context) (*endpoints, error) {
 	// The document must name the issuer it was read from (OpenID Connect
 	// Discovery §4.3). Entra's v1.0 tokens carry another issuer than its
 	// v2.0 document, which is read for the endpoints alone.
-	want := p.issuer
-	if p.s.Kind == KindEntra && p.s.TokenVersion == 1 {
-		want = strings.TrimSuffix(p.s.Authority, "/") + "/" + p.s.Tenant + "/v2.0"
-	}
-	if e.Issuer != want {
+	if want := p.AnswerIssuer(); e.Issuer != want {
 		return nil, fmt.Errorf("the discovery document names issuer %q, not %q", e.Issuer, want)
 	}
 	for _, u := range []string{e.AuthorizationEndpoint, e.TokenEndpoint, e.JWKSURI} {
@@ -501,6 +510,10 @@ func (p *Provider) Check(ctx context.Context, raw string, want Expect) (*Identit
 		}
 	}
 	if len(p.s.Domains) > 0 {
+		// An address the provider does not vouch for may be any domain's.
+		if !id.Verified {
+			return nil, fmt.Errorf("%w: the address is not verified, and domains takes only a verified one", ErrNotAllowed)
+		}
 		_, domain, _ := strings.Cut(id.Address, "@")
 		if domain == "" || !slices.ContainsFunc(p.s.Domains, func(d string) bool { return strings.EqualFold(d, domain) }) {
 			return nil, fmt.Errorf("%w: the address is not at %s", ErrNotAllowed, strings.Join(p.s.Domains, " or "))

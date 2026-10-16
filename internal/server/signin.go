@@ -122,9 +122,10 @@ type authServer struct {
 // pendingSignIn is a sign-in sent to the provider and not yet back.
 type pendingSignIn struct {
 	provider *oidc.Provider
-	// The client's request.
-	redirect, challenge, state string
-	scopes                     []string
+	// The client's request. resource is the public URL it named, which
+	// is iss on the way back and what the sign-in is for.
+	redirect, challenge, state, resource string
+	scopes                               []string
 	// The server's own request to the provider.
 	verifier, nonce string
 	until           time.Time
@@ -134,6 +135,7 @@ type pendingSignIn struct {
 // the provider said signed in, or why the sign-in was refused.
 type issuedCode struct {
 	redirect, challenge string
+	resource            string
 	scopes              []string
 	provider            string
 	id                  *oidc.Identity
@@ -245,10 +247,11 @@ func loopback(raw string) bool {
 	return err == nil && ip.IsLoopback()
 }
 
-// redirectWith sends the browser to redirect with v and the server's
-// issuer, as RFC 6749 §4.1.2 and RFC 9207 have it.
-func (a *authServer) redirectWith(rw http.ResponseWriter, r *http.Request, redirect string, v url.Values) {
-	v.Set("iss", a.base())
+// redirectWith sends the browser to redirect with v and iss, the
+// server's public URL the client named, as RFC 6749 §4.1.2 and RFC 9207
+// have it: the client holds iss to its own URL.
+func (a *authServer) redirectWith(rw http.ResponseWriter, r *http.Request, redirect, iss string, v url.Values) {
+	v.Set("iss", iss)
 	http.Redirect(rw, r, redirect+"?"+v.Encode(), http.StatusFound) //nolint:gosec // redirect is a loopback address authorize checked, or the one a sign-in in progress holds
 }
 
@@ -265,9 +268,13 @@ func (a *authServer) authorize(rw http.ResponseWriter, r *http.Request) {
 		signInPage(rw, http.StatusBadRequest, "This sign-in was not started by aries: the client or its redirect is not one this server knows. Run `aries login` again.")
 		return
 	}
+	resource := a.base()
+	if res := q.Get("resource"); slices.Contains(a.s.cfg.HTTPS.URLs, res) {
+		resource = res
+	}
 	back := func(code, why string) {
 		a.refused(r, "", code)
-		a.redirectWith(rw, r, redirect, url.Values{"error": {code}, "error_description": {why}, "state": {q.Get("state")}})
+		a.redirectWith(rw, r, redirect, resource, url.Values{"error": {code}, "error_description": {why}, "state": {q.Get("state")}})
 	}
 	// Anyone may start a sign-in, and each is held for a while, so an
 	// address is held to its share, and one that keeps asking past it
@@ -293,7 +300,7 @@ func (a *authServer) authorize(rw http.ResponseWriter, r *http.Request) {
 	case state == "" || len(state) > 512 || !safetext.ValidLine(state):
 		back("invalid_request", "a state of at most 512 printable characters is required")
 		return
-	case slices.ContainsFunc(scopes, func(s string) bool { return s != proto.ScopeCLI && s != proto.ScopeMCP }):
+	case len(scopes) == 0 || slices.ContainsFunc(scopes, func(s string) bool { return s != proto.ScopeCLI && s != proto.ScopeMCP }):
 		back("invalid_scope", "aries signs in for the scopes cli and mcp")
 		return
 	case q.Get("resource") != "" && !slices.Contains(a.s.cfg.HTTPS.URLs, q.Get("resource")):
@@ -309,7 +316,7 @@ func (a *authServer) authorize(rw http.ResponseWriter, r *http.Request) {
 		back("invalid_request", fmt.Sprintf("this server signs people in at %s; choose one with `aries login --provider NAME`", strings.Join(a.names, ", ")))
 		return
 	}
-	ps := &pendingSignIn{provider: p, redirect: redirect, challenge: q.Get("code_challenge"), state: state, scopes: scopes,
+	ps := &pendingSignIn{provider: p, redirect: redirect, challenge: q.Get("code_challenge"), state: state, resource: resource, scopes: scopes,
 		verifier: rand.Text() + rand.Text(), nonce: rand.Text()}
 	up := rand.Text()
 	if !a.holdPending(addr, up, ps) {
@@ -392,8 +399,13 @@ func (a *authServer) callback(rw http.ResponseWriter, r *http.Request) {
 			"or the server let it go to make room for newer ones. Run `aries login` again.")
 		return
 	}
-	ic := &issuedCode{redirect: ps.redirect, challenge: ps.challenge, scopes: ps.scopes, provider: ps.provider.Name()}
-	if e := q.Get("error"); e != "" {
+	ic := &issuedCode{redirect: ps.redirect, challenge: ps.challenge, resource: ps.resource, scopes: ps.scopes, provider: ps.provider.Name()}
+	if iss, sent := q["iss"]; sent && (len(iss) != 1 || iss[0] != ps.provider.AnswerIssuer()) {
+		// RFC 9207: an answer from another issuer is a mix-up of
+		// providers, and its code is not spent.
+		ic.refused = proto.Errf(proto.CodeAuth, "run `aries login` again; if it recurs, tell the server's admin",
+			fmt.Sprintf("the answer said to be from %s names another issuer (iss)", ps.provider.Name()))
+	} else if e := q.Get("error"); e != "" {
 		ic.refused = proto.Errf(proto.CodeForbidden, "run `aries login` again; if the provider refuses you again, ask its administrator",
 			fmt.Sprintf("the provider %s refused the sign-in (%s)", ps.provider.Name(), safeWord(e)))
 	} else {
@@ -404,7 +416,7 @@ func (a *authServer) callback(rw http.ResponseWriter, r *http.Request) {
 	}
 	code := rand.Text() + rand.Text()
 	a.holdCode(addr, hashOf(code), ic)
-	a.redirectWith(rw, r, ps.redirect, url.Values{"code": {code}, "state": {ps.state}})
+	a.redirectWith(rw, r, ps.redirect, ps.resource, url.Values{"code": {code}, "state": {ps.state}})
 }
 
 // verify exchanges the provider's code and checks its ID token, or says
@@ -458,6 +470,8 @@ func oauthError(rw http.ResponseWriter, status int, oauthCode string, e *proto.E
 // token is the token endpoint: the server's code spent, with aries's
 // PKCE verifier and a DPoP proof, for a token bound to the proof's key.
 func (a *authServer) token(rw http.ResponseWriter, r *http.Request) {
+	// RFC 6749 §5.1, whatever the listener sets on every response.
+	rw.Header().Set("Cache-Control", "no-store")
 	rw.Header().Set("Pragma", "no-cache")
 	if ok, wait := a.heard(r); !ok {
 		a.s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitAuthFailures)
@@ -539,10 +553,10 @@ func (a *authServer) grant(rw http.ResponseWriter, r *http.Request, ic *issuedCo
 	}
 	tok := rand.Text() + rand.Text() // 256 random bits and more, base32
 	g, err := a.s.cfg.Control.SignIn(r.Context(), store.SignIn{Provider: ic.provider, Issuer: ic.id.Issuer, Subject: ic.id.Subject,
-		Address: ic.id.Address, Verified: ic.id.Verified, ClientID: ClientCLI, Scopes: ic.scopes, JKT: jkt, Resource: a.base(),
+		Address: ic.id.Address, Verified: ic.id.Verified, ClientID: ClientCLI, Scopes: ic.scopes, JKT: jkt, Resource: ic.resource,
 		Flow: flow, Machine: machine, Lifetime: a.login.TokenLifetime, TokenHash: hashOf(tok)})
 	if err != nil {
-		e := a.signInErr(ic.provider, err)
+		e := a.signInErr(r.Context(), ic.provider, err)
 		a.refusedSignIn(r.Context(), ic.provider, e)
 		status := http.StatusForbidden
 		if e.Code == proto.CodeUnavailable || e.Code == proto.CodeBusy {
@@ -564,7 +578,7 @@ func (a *authServer) grant(rw http.ResponseWriter, r *http.Request, ic *issuedCo
 
 // signInErr words the store's refusal of a sign-in at provider, for the
 // person signing in: their own address, which no log line holds.
-func (a *authServer) signInErr(provider string, err error) *proto.Error {
+func (a *authServer) signInErr(ctx context.Context, provider string, err error) *proto.Error {
 	if se, ok := errors.AsType[*store.SignInError](err); ok {
 		switch se.Reason {
 		case store.SignInLapsed:
@@ -585,7 +599,7 @@ func (a *authServer) signInErr(provider string, err error) *proto.Error {
 		return proto.Errf(proto.CodeBusy, "run `aries logout` on a machine you no longer use, or ask an admin to end a sign-in with `aries admin signin end ID`",
 			strings.TrimPrefix(ce.Error(), store.ErrInvalid.Error()+": "))
 	}
-	a.s.cfg.Logger.Error("record a sign-in", "event", logs.RequestFailed, "provider", provider, "err", err)
+	a.s.cfg.Logger.ErrorContext(ctx, "record a sign-in", "event", logs.RequestFailed, "provider", provider, "err", err)
 	return proto.Errf(proto.CodeUnavailable, "retry; if it persists, the server's admin should check the ariesd log", "the server could not record the sign-in")
 }
 

@@ -248,6 +248,14 @@ func OpenLogin(l LoginSettings, now func() time.Time) (*Login, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%w; fix: correct the provider under login: providers in the config file (docs/server.md, Sign-in)", err)
 		}
+		// A bound identity is matched by (issuer, subject) alone, one
+		// person per account at an issuer, so a second provider of an
+		// issuer would sign in the first's people, past its own require
+		// and domains.
+		if i := slices.IndexFunc(out.Providers, func(o *oidc.Provider) bool { return o.Issuer() == p.Issuer() }); i >= 0 {
+			return nil, fmt.Errorf("login: providers %s and %s have one issuer, %s; fix: keep one provider for each issuer under login: providers",
+				out.Providers[i].Name(), p.Name(), p.Issuer())
+		}
 		out.Providers = append(out.Providers, p)
 	}
 	return out, nil
