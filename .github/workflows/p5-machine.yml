@@ -1,0 +1,173 @@
+name: p5-machine
+# Slice P5's two machine checks (docs/server.md, With the installer and
+# Confine ariesd with AppArmor) on GitHub's Ubuntu runners, amd64 and
+# arm64, which are fresh virtual machines with root, systemd and
+# AppArmor: install-server.sh runs as root with --profile private and a
+# certificate from a throwaway CA, loads deploy/apparmor's profiles in
+# enforce mode, ariesd runs under systemd, and aries drives it over
+# HTTPS. The run fails on any line in the journal that says an ariesd
+# profile denied something. A person starts it by hand, from main, after
+# a change to the installer, the profiles or what ariesd reads, writes,
+# connects to or runs; it never runs on a pull request or a push.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+
+env:
+  # As ci.yml has them; tests in internal/version and scripts hold the
+  # files to the same values.
+  GOFLAGS: -mod=readonly
+
+jobs:
+  machine:
+    name: installer and AppArmor (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    # The build takes a few minutes, Postgres's install and the
+    # installer a few more, and the checks under a minute.
+    timeout-minutes: 30
+    strategy:
+      # One architecture failing leaves the other to finish: each says
+      # something.
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    env:
+      WORK: ${{ github.workspace }}/../p5-work
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Go at go.mod's toolchain line
+        uses: ./.github/actions/go-toolchain
+      - name: Build the binaries
+        # As the release builds them, for this machine. They go where the
+        # installer looks first, so it installs no release: this is the
+        # change under test, not the last one published.
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORK/bin"
+          CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o "$WORK/bin/" ./cmd/aries ./cmd/ariesd
+          sudo install -d -m 0755 /opt/aries/bin
+          sudo install -m 0755 "$WORK/bin/ariesd" /opt/aries/bin/ariesd
+          sudo install -m 0755 "$WORK/bin/aries" /usr/local/bin/aries
+          aries version
+      - name: Clear the runner's own Postgres
+        # The image ships a Postgres of its own, which the installer would
+        # use as it is. A fresh server has none, so the installer's own
+        # step 2 installs Postgres from the PostgreSQL project's apt
+        # repository, as the guide says.
+        run: |
+          set -euo pipefail
+          sudo systemctl stop postgresql || true
+          sudo apt-get purge -y 'postgresql*'
+          sudo rm -rf /var/lib/postgresql /etc/postgresql
+          ! command -v pg_lsclusters >/dev/null || [ -z "$(pg_lsclusters -h)" ]
+      - name: AppArmor is running
+        run: |
+          set -euo pipefail
+          test -d /sys/kernel/security/apparmor
+          sudo aa-status --enabled
+          sudo apt-get install -y --no-install-recommends apparmor-utils
+          uname -r
+          apparmor_parser --version | head -n 1
+          sudo sysctl kernel.apparmor_restrict_unprivileged_unconfined 2>/dev/null || true
+      - name: A throwaway CA, a certificate for localhost and the admin's key
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORK/tls" "$WORK/keys"
+          cd "$WORK/tls"
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 2 \
+            -keyout ca.key -out ca.pem -subj /CN=p5-throwaway-ca \
+            -addext basicConstraints=critical,CA:TRUE -addext keyUsage=critical,keyCertSign
+          openssl req -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
+            -keyout key.pem -out leaf.csr -subj /CN=localhost
+          printf 'subjectAltName=DNS:localhost,IP:127.0.0.1\nextendedKeyUsage=serverAuth\n' >ext.cnf
+          openssl x509 -req -in leaf.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 2 \
+            -extfile ext.cnf -out cert.pem
+          openssl verify -CAfile ca.pem cert.pem
+          ssh-keygen -q -t ed25519 -N '' -C alice -f "$WORK/keys/alice"
+      - name: install-server.sh, as root
+        run: |
+          set -euo pipefail
+          sudo sh install-server.sh --admin alice --admin-key "$WORK/keys/alice.pub" \
+            --profile private --host localhost --cert "$WORK/tls/cert.pem" --key "$WORK/tls/key.pem" \
+            --apparmor
+      - name: The installer changes nothing the second time
+        run: |
+          set -euo pipefail
+          out=$(sudo sh install-server.sh --admin alice --admin-key "$WORK/keys/alice.pub" \
+            --profile private --host localhost --cert "$WORK/tls/cert.pem" --key "$WORK/tls/key.pem" \
+            --apparmor)
+          printf '%s\n' "$out" | tail -n 5
+          printf '%s\n' "$out" | grep -q '^Nothing to change'
+      - name: ariesd runs under systemd, confined, in enforce mode
+        run: |
+          set -euo pipefail
+          systemctl is-active ariesd
+          sudo cat /sys/kernel/security/apparmor/profiles | grep -E '^ariesd-(serve|admin) '
+          for p in ariesd-serve ariesd-admin; do
+            sudo cat /sys/kernel/security/apparmor/profiles | grep -qx "$p (enforce)"
+          done
+          pid=$(systemctl show -p MainPID --value ariesd)
+          test "$pid" -gt 0
+          label=$(sudo cat "/proc/$pid/attr/current")
+          echo "ariesd's label: $label"
+          case $label in ariesd-serve*"(enforce)") ;; *) echo "::error::ariesd is not confined by ariesd-serve in enforce mode"; exit 1 ;; esac
+      - name: Drive it with aries over HTTPS
+        run: |
+          set -euo pipefail
+          repo=$WORK/repo
+          mkdir -p "$repo" "$WORK/home"
+          git -C "$repo" init -q
+          {
+            printf 'project: first\nserver:\n  url: https://localhost\n  ca: |\n'
+            sed 's/^/    /' "$WORK/tls/ca.pem"
+          } >"$repo/.aries.yaml"
+          a() {
+            (cd "$repo" && env -u CLAUDE_CODE_SESSION_ID -u CLAUDE_SESSION_ID HOME="$WORK/home" \
+              XDG_CACHE_HOME="$WORK/home/.cache" SSH_AUTH_SOCK= ARIES_TRANSPORT= \
+              ARIES_KEY_FILE="$WORK/keys/alice" ARIES_SESSION=p5-machine ARIES_DATA_DIR="$WORK/data" aries "$@")
+          }
+          a whoami
+          id=$(a create "Installed by install-server.sh" -p 2 -t task)
+          echo "created $id"
+          a start "$id"
+          a comment "$id" "driven over HTTPS on ${{ matrix.runner }}"
+          a finish "$id" --reason "The server answers" --handoff "Nothing left"
+          a show "$id" | tee "$WORK/show.txt"
+          grep -q closed "$WORK/show.txt"
+          a admin status | tee "$WORK/status.txt"
+          test -s "$WORK/status.txt"
+          # A restart under the profile, then the server answers again.
+          sudo systemctl restart ariesd
+          for _ in $(seq 30); do systemctl is-active --quiet ariesd && a whoami >/dev/null 2>&1 && break; sleep 1; done
+          a admin status >/dev/null
+      - name: ariesd status and an operator's command under ariesd-admin
+        run: |
+          set -euo pipefail
+          sudo -u aries -H aa-exec -p ariesd-admin -- ariesd upgrade --check || true
+          sudo -u aries -H aa-exec -p ariesd-admin -- ariesd version
+      - name: No AppArmor denial of an ariesd profile
+        run: |
+          set -euo pipefail
+          sudo journalctl --no-pager -b -k -o cat >"$WORK/kernel.log"
+          sudo journalctl --no-pager -b -o cat >"$WORK/journal.log"
+          grep -h 'apparmor="DENIED"' "$WORK/kernel.log" "$WORK/journal.log" | sort -u >"$WORK/denied.log" || true
+          echo "denials in the journal, all profiles: $(wc -l <"$WORK/denied.log")"
+          # The runner's own programs may be denied by their profiles;
+          # those are shown, and ariesd's fail the run.
+          grep -v 'profile="ariesd' "$WORK/denied.log" | sed 's/^/other: /' || true
+          if grep 'profile="ariesd' "$WORK/denied.log"; then
+            echo "::error::AppArmor denied ariesd, above: change deploy/apparmor with what ariesd does"
+            exit 1
+          fi
+      - name: The journal, on failure
+        if: ${{ failure() }}
+        run: |
+          sudo journalctl --no-pager -u ariesd -n 100 -o cat || true
+          sudo journalctl --no-pager -b -k -o cat | grep -i apparmor | tail -n 50 || true

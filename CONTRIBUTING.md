@@ -517,6 +517,18 @@ seed, its request count and its result. A release candidate runs it on
 the commit to be tagged ([RELEASING.md](RELEASING.md)). A runner has 4
 processors and 16 GiB, enough for one long soak at a time, and runs one.
 
+The `p5-machine` workflow (`.github/workflows/p5-machine.yml`) is
+the other check that needs a real machine: on the same two runners,
+which are fresh virtual machines with systemd and AppArmor, it builds
+the binaries, runs `install-server.sh --profile private --apparmor` as
+root with a certificate from a throwaway CA (and again, to see it
+change nothing), checks that `ariesd` runs under `ariesd-serve` in
+enforce mode, drives it with `aries` over HTTPS, and fails on any
+AppArmor denial of an `ariesd` profile in the journal. It also runs
+only by hand, from `main`: `gh workflow run p5-machine.yml`. Run it
+after a change to the installer, to `deploy/apparmor` or to what
+`ariesd` reads, writes, connects to or runs.
+
 ### What it does
 
 Five principals with five sessions each work the backlogs of two
