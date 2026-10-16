@@ -147,9 +147,11 @@ up in a Linux VM you can throw away.
    as `fix/lease-renewal`, a title such as `fix: …`.
 2. Write the test first, and see it fail
    ([go-engineer](.claude/agents/go-engineer.md) describes the loop).
-3. Run `scripts/gate.sh`. Copy what its summary says the run did not
-   cover into the pull request: a check that was not run is reported as
-   not run, never as passing.
+3. Run what the change calls for ([What to run before a pull
+   request](#what-to-run-before-a-pull-request)). CI runs the whole gate
+   on the pull request, and the merge queue requires it. Say in the pull
+   request what you ran and what you left to CI: a check that was not
+   run is reported as not run, never as passing.
 4. Update the docs the change makes untrue, in the same pull request
    (the table below).
 5. Fill in the [template](.github/pull_request_template.md): why, what,
@@ -189,6 +191,24 @@ up in a Linux VM you can throw away.
 | The layout of the code, a rule, or how agents should work | [AGENTS.md](AGENTS.md); the three [agent specifications](AGENTS.md#agent-specifications) together |
 | The stage a feature is at | The status line and roadmap in [README.md](README.md) |
 | Something that departs from a design | A dated **As built** note in [docs/design](docs/design/README.md) |
+
+### What to run before a pull request
+
+The full gate takes minutes and CI runs it on every pull request, so on
+your machine run what the change can break, and leave the rest to CI.
+Each tier includes the ones above it.
+
+| The change touches | Run | Leave to CI |
+|---|---|---|
+| Docs, design or comments | `go test ./scripts/` (it holds the docs to the code and the guides to the scripts) | everything else |
+| Code | The touched packages' tests with `-race`, then `scripts/gate.sh --quick` | the whole suite, lint, govulncheck, the builds for other systems |
+| Concurrency: claims, locks, leases, the outbox and its replay, the clock, the database pool and retries | Also `-count=3` on the touched tests, and one short soak (`go test -race -run 'TestSoak$' ./internal/e2e`); with the outbox or replay, one run in partition mode too | |
+| `deploy/docker`, `install-server.sh`, AppArmor, `ariesd`'s start, or the transport | Also one run of `deploy/docker/smoke.sh`, in the modes the change touches (`ARIES_SMOKE_TELEMETRY=1`, `ARIES_SMOKE_IDENTITY=1`) | |
+| A release candidate | The whole gate, the long soak and its partition and telemetry modes, `smoke.sh` in every mode, and `install-server.sh` on a real machine of each supported release ([RELEASING.md](RELEASING.md)) | |
+
+A test that is new or changed is still seen failing before its fix, in
+every tier. After a rebase whose conflicts were in docs alone, don't
+rerun the suite: CI and the merge queue run it on the result.
 
 ### Stacked pull requests
 

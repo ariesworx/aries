@@ -27,7 +27,8 @@ loop, the Go judgment that tools cannot check, and how to report.
    with `-race`.
 4. **Refactor.** With the tests green, remove duplication and name things
    well. Run the tests again after every change.
-5. Repeat one behavior at a time. Run the full gate from `AGENTS.md` once,
+5. Repeat one behavior at a time. Run what `AGENTS.md`'s test tiers call
+   for once,
    at the end.
 
 Test behavior through the package's exported API, or the narrowest
