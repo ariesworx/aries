@@ -549,25 +549,44 @@ names (decision 35); an epic whose intent came through a lead's assistant
 (§3.19) keeps a human plan gate; and `sandbox.mode = "container"` for
 the server `bearingsd` (finding 3).
 
-**Hard limits: never autonomous** (proposed; each needs the maintainer's
-confirmation, §8 Q6). A person's act from the CLI, a policy pull request
-or a tier-2 confirmation (§3.18); never a worker's, the wingman's or a
-lead's assistant's alone:
+**Hard limits: never autonomous** (decision 37). A person's act from the
+CLI, a policy pull request or a tier-2 confirmation (§3.18); never a
+worker's, the wingman's or a lead's assistant's alone:
 
-1. Access and membership: principals, keys, trust rules, roles at any
-   scope (`aries admin`; no leads' tool in the first slices, §8 Q4).
-2. Raising a budget beyond the scope's envelope.
-3. Release signing (AGENTS.md rule 3).
-4. Deploying to production, unless policy names the environment and a
-   gate.
-5. Changing structural policy, the bounds and these limits included.
-6. Deleting data: a project, a principal, events, memories, usage.
-7. Anything outside the organization: another server, another company's
-   repository, a provider or model not allowed, a payment.
+1. **Access and membership:** principals, keys, trust rules, roles at
+   any scope (`aries admin`; no leads' tool in the first slices, §8 Q4).
+   Not an access change: the short-lived grant Bearings mints for each
+   worker it launches (§3.23), within a role a person set up.
+2. **Raising a budget beyond the scope's envelope.** Reallocation within
+   an envelope, and an extension within the override policy allows,
+   stay autonomous (§3.22).
+3. **Release signing** (AGENTS.md rule 3), with no exception.
+4. **Bearings never triggers or approves a production deploy.** A merge
+   to `main` is not a deploy (decision 35); where the organization's own
+   pipeline deploys on merge, a deploy gate the organization owns stands
+   between `main` and production, and level D requires it.
+5. **Changing structural policy:** the bounds, these limits, separation
+   of duties, protected paths, breaker thresholds, retention and the
+   rest of §3.18's structural column.
+6. **Deleting data:** a project, a principal, events, memories, usage.
+   Not a deletion in this sense: pruning on a retention schedule people
+   approved (§3.21), whose approval was the person's act; and code a
+   change removes, which review and protected paths cover.
+7. **Anything outside the organization.** Writes outside are never
+   autonomous: another server, another company's repository (an
+   upstream pull request, an issue on an outside tracker), a provider or
+   model not allowed, a payment. Reads outside (package registries,
+   documentation) only through an allowlist in policy, since a sandboxed
+   worker's egress is otherwise the gateway's alone (§3.24).
+8. **Changes to protected paths:** build, test and CI definitions,
+   deploy files, dependency manifests and the policy files (the list
+   above). A change touching one parks for a person at every level, and
+   no project's policy may relax it.
 
 ariesd enforces 1, 2, 5 and 6 by scope and role (§3.23); Bearings
 enforces 3, 4 and 7 by holding no such credential and refusing at config
-load (principle 6).
+load (principle 6), and 8 by parking before the merge train takes the
+change, with ariesd refusing a `policy.apply` that shortens the list.
 
 **Threat model: a compromised `bearingsd`** (finding 3). Assume an
 attacker runs as `bearingsd`'s user on the server. What they get: the
@@ -1470,8 +1489,9 @@ words are quoted.
 | 32 | "Local clients first." The leads' MCP serves local clients on private networks first; claude.ai and Desktop connectors wait for the `internet` profile with separate listeners (§3.19, §8 Q2). |
 | 33 | On shell-capable lead clients: "Ok with the recommendation." They get reads and tier 1 only until ariesd checks the re-authenticated confirmation (M1) (§3.18, §8 Q3). |
 | 34 | "Split custody and execute least privilege with security in mind." A compromised `bearingsd` is not game over: the gateway and keys, the merger and its push credential, and the reviewer's App each sit apart from it under a user of their own, no leads' host tokens are held, and ariesd re-checks the acts §3.23 lists. Each principal and process holds the least it needs (§3.16, §8 Q5). |
-| 35 | "Merging to main does not deploy. It depends on the user's own CI/CD pipeline configuration." Bearings never deploys and treats a merge to `main` as not a deploy. Since an organization's own pipeline may deploy on merge, level D requires the organization's policy to state whether it does; where it does, a deploy gate the organization owns is required (§3.16, §8 Q6). Which of the seven hard limits stand stays open in Q6. |
+| 35 | "Merging to main does not deploy. It depends on the user's own CI/CD pipeline configuration." Bearings never deploys and treats a merge to `main` as not a deploy. Since an organization's own pipeline may deploy on merge, level D requires the organization's policy to state whether it does; where it does, a deploy gate the organization owns is required (§3.16, §8 Q6). |
 | 36 | On narrowing Aries decisions 12, 42, 68 and 85 and amending AGENTS.md rule 12: "Yes", "in one separate pull request once the design is accepted." Until then aries.md and AGENTS.md stand as written, and the table below is the list that pull request works from (§8 Q7). |
+| 37 | On the hard limits: "Confirm the seven hard limits with your clarifications and rewording of limit 4, and add protected paths as the eighth." Eight limits never become autonomous (§3.16): access and membership, but not the per-worker grants Bearings mints within a role; a budget beyond its envelope; release signing; Bearings never triggers or approves a production deploy; structural policy; deleting data, but not pruning on an approved schedule or code a change removes; anything outside the organization, with outside reads through an allowlist; and changes to protected paths, which no project may relax (§8 Q6). |
 
 **Aries decisions and AGENTS.md rules this design narrows** (review
 finding 8). Neither aries.md nor AGENTS.md is edited here: decision 36
@@ -1506,13 +1526,10 @@ marked "(review, round 1)" came from the architecture review.
    wingman and gateway principals and their trust rules?** Recommended:
    server admins only (§3.16).
 5. *Answered (decision 34).* Split custody, least privilege.
-6. *Deploys answered (decision 35):* a merge to `main` is not a deploy;
-   the organization's pipeline decides, so D requires its policy to say
-   whether that pipeline deploys on merge, and a deploy gate where it
-   does. **Still open: which hard limits** of §3.16's seven does the
-   maintainer confirm? Bearings itself never deploys, which makes the
-   fourth (production deploys) a limit on what policy may let Bearings
-   trigger, not on what it holds.
+6. *Answered (decisions 35 and 37).* A merge to `main` is not a deploy,
+   and the eight hard limits stand as §3.16 has them. **Still open:**
+   whether aries.md decision 8's autonomy window folds into an envelope
+   plus an expiry that pauses the scope, as §7's table proposes.
 7. *Answered (decision 36).* Yes, in one separate pull request once
    the design is accepted.
 8. **Do the Bearings prerequisites go into v1.0.0 (protocol 8, delaying
