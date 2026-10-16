@@ -96,9 +96,11 @@ jobs:
       - name: install-server.sh, as root
         run: |
           set -euo pipefail
+          # Kept: it prints the .aries.yaml to commit, whose project is the
+          # first project's UUID, which the step that drives aries reads.
           sudo sh install-server.sh --admin alice --admin-key "$WORK/keys/alice.pub" \
             --profile private --host localhost --cert "$WORK/tls/cert.pem" --key "$WORK/tls/key.pem" \
-            --apparmor
+            --apparmor | tee "$WORK/install.txt"
       - name: The installer changes nothing the second time
         run: |
           set -euo pipefail
@@ -126,8 +128,14 @@ jobs:
           repo=$WORK/repo
           mkdir -p "$repo" "$WORK/home"
           git -C "$repo" init -q
+          # .aries.yaml names the project by its UUID, never its name.
+          project=$(sed -n -E 's/^[[:space:]]*project: ([0-9a-f-]{36})[[:space:]]*$/\1/p' "$WORK/install.txt" | tail -n 1)
+          if [ -z "$project" ]; then
+            echo "::error::the installer printed no project UUID"
+            exit 1
+          fi
           {
-            printf 'project: first\nserver:\n  url: https://localhost\n  ca: |\n'
+            printf 'project: %s\nserver:\n  url: https://localhost\n  ca: |\n' "$project"
             sed 's/^/    /' "$WORK/tls/ca.pem"
           } >"$repo/.aries.yaml"
           a() {
