@@ -47,6 +47,9 @@ command line. One small Go server keeps the data in
 > issuing its own tokens, bound to the machine's key (slice T2); and a
 > CI job or a cloud workload signs in as a service principal with its
 > platform's token, by a trust rule, holding no stored key (slice N5).
+> Both are off unless configured, not yet security-reviewed and not
+> tested against a real provider; v1.0.0 authenticates by keys
+> ([decision 91](docs/design/aries.md#14-decisions)).
 > Not ready for production use yet; see the [roadmap](#roadmap).
 
 ## Why Aries
@@ -219,20 +222,23 @@ on Ubuntu 24.04 LTS or 26.04 LTS is set up by one script, `install-server.sh`
 | 7 | Scheduled digests, GitHub sync, compaction, vectors | |
 
 **v1.0.0.** The next release is v1.0.0, cut back so that Aries can be
-used to build Aries sooner ([decision 90](docs/design/aries.md#14-decisions)).
+used to build Aries sooner ([decision 90](docs/design/aries.md#14-decisions)),
+and cut back again to authenticate by keys alone
+([decision 91](docs/design/aries.md#14-decisions)).
 It holds the rename to Aries; the move from Dolt to Postgres, slices P0
 to P5 of decision 79; stage 6's slices G0 to G2; HTTPS as the primary
-transport, with SSH off unless an operator turns it on; sign-in through
-your company's identity provider (any OpenID Connect provider: Google
-Workspace, Microsoft Entra ID, Okta, Keycloak, AD FS), in the browser or
-by a URL, beside keys; service principals that sign in with their
-platform's workload identity; and a hardening pass: a review of every
-public name, flag, variable and setting, the protocol settled at one
-version (decision 78), and a security review of sign-in. Built: all of
-it, service principals (slice N5) on its branch, but the rest of P5
-(the installer on amd64, a machine with the AppArmor profiles enforced,
-ACME against a real CA), that security review and a check against a
-real provider. Of P5, the soaks pass on Linux, on GitHub's amd64 and
+transport, with SSH off unless an operator turns it on, people and
+services authenticating by keys, over HTTPS by the key proof or over
+SSH; and a hardening pass: a review of every public name, flag,
+variable and setting, the protocol settled at one version
+(decision 78), and a security review of the HTTPS listener. Sign-in
+through your company's identity provider (T2) and service principals
+by workload identity (N5) are on `main` but off unless configured, and
+neither is security-reviewed or tested against a real provider; those
+checks, the provider guides and N0 come in 1.x. Built: all of it, but
+the rest of P5 (the installer on amd64, a machine with the AppArmor
+profiles enforced, ACME against a real CA) and the listener's review.
+Of P5, the soaks pass on Linux, on GitHub's amd64 and
 arm64 runners. A remote MCP endpoint, GitHub's sign-in and the device grant,
 a Claude Desktop extension, and stage 6's G3 to G5 come in 1.x releases
 as compatible additions.
