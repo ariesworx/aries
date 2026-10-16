@@ -27,6 +27,12 @@ against a key in `internal/release/keys.go` and the archive's sha256 is in
 `checksums.txt`. The signing step refuses a key that `keys.go` at the tag
 does not list, so a release clients would refuse is never published.
 
+Before the tag is pushed, the long soaks run on the commit to be tagged
+on Linux, amd64 and arm64: the `soak` workflow, started by hand
+([Run the soaks on GitHub](CONTRIBUTING.md#run-the-soaks-on-github)).
+Its eight jobs must pass, and the release notes name their seeds. It is
+not part of the `release` workflow, which runs the gate alone.
+
 That check is all a release is trusted on. Where its files are read from
 is not: GitHub today, and a static file host once the repository is
 private ([Publishing to a static host](#publishing-to-a-static-host),
@@ -71,6 +77,7 @@ they agree:
 | `internal/version/version.go` | `Postgres`, and `PostgresMajor` when the major version changes |
 | `internal/version/postgres.sha256` | The one line: the SHA-256 of the source archive, named `vVERSION/postgresql-VERSION.tar.gz` |
 | `.github/workflows/ci.yml` | `POSTGRES_MAJOR`, when the major version changes |
+| `.github/workflows/soak.yml` | `POSTGRES_MAJOR`, with ci.yml's |
 | `CONTRIBUTING.md` | The release `scripts/install-postgres.sh` builds, and the major version under "What you need" |
 | `install-server.sh` | `pg_major`, the package the installer installs from the PostgreSQL project's apt repository, when the major version changes; and `pg_min` with `PostgresMin` |
 | `docs/server.md` | Step 1's `apt-get install -y postgresql-MAJOR`, and the cluster's name (`postgresql@MAJOR-main`) where the guide gives it, when the major version changes |

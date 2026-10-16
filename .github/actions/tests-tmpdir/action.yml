@@ -1,0 +1,70 @@
+name: Temporary directory for the tests
+description: >
+  Picks the directory the tests' temporary files go in: one on the memory
+  file system TESTS_TMPFS names when it is fit for them, or else /tmp,
+  with a warning that says why. Used by ci.yml and soak.yml.
+inputs:
+  tmpfs:
+    description: The memory file system to try, or "" for the runner's disk.
+    required: false
+    default: ""
+outputs:
+  dir:
+    description: The directory chosen.
+    value: ${{ steps.tmp.outputs.dir }}
+runs:
+  using: composite
+  steps:
+    - name: temporary directory for the tests
+      id: tmp
+      # Each package's Postgres servers keep their data under the
+      # temporary directory, and on disk much of the suite's time was the
+      # database waiting for it (docs/design/ci-analysis.md, §4.5, which
+      # measured Dolt). This picks a directory in memory for the next
+      # step, or /tmp, where they have always been, with a warning that
+      # says why.
+      #
+      # The files count as memory. A run's were a quarter of a gigabyte
+      # at their most when measured on Dolt, and every database server
+      # and test binary together 2 GB more, of the runner's 16 GB; the mount must have
+      # 4 GB free and the machine 8 GB, or the files stay on disk. A
+      # mount that fills fails the tests' writes, and the tests with
+      # them; it does not block them.
+      shell: bash -e {0}
+      env:
+        TESTS_TMPFS: ${{ inputs.tmpfs }}
+      run: |
+        dir=/tmp
+        if [ -z "$TESTS_TMPFS" ]; then
+          echo "TESTS_TMPFS is empty: the tests' temporary files are on disk"
+        else
+          kind=$(stat -f -c %T "$TESTS_TMPFS" 2>/dev/null) || kind=missing
+          free_mb=$(df -Pm "$TESTS_TMPFS" 2>/dev/null | awk 'NR == 2 { print $4 }')
+          mem_mb=$(awk '$1 == "MemAvailable:" { print int($2 / 1024) }' /proc/meminfo)
+          try=$TESTS_TMPFS/aries-tests
+          # The tests run programs they write there: stand-ins for the
+          # tools scripts/gate.sh calls, and a binary to upgrade to.
+          probe() {
+            mkdir -p "$try" && printf '#!/bin/sh\nexit 0\n' >"$try/probe" &&
+              chmod +x "$try/probe" && "$try/probe" && rm "$try/probe"
+          }
+          if [ "$kind" != tmpfs ]; then
+            why="it is $kind, not a memory file system"
+          elif [ "${free_mb:-0}" -lt 4096 ]; then
+            why="it has ${free_mb:-0} MB free, and the tests are given 4096"
+          elif [ "${mem_mb:-0}" -lt 8192 ]; then
+            why="the machine has ${mem_mb:-0} MB of memory available, under 8192"
+          elif ! probe; then
+            why="a program written there does not run"
+          else
+            why=
+            dir=$try
+          fi
+          if [ -n "$why" ]; then
+            echo "::warning::The tests' temporary files are on disk, not on $TESTS_TMPFS: $why."
+          fi
+        fi
+        echo "dir=$dir" >>"$GITHUB_OUTPUT"
+        echo "The tests' temporary files go in $dir"
+        df -h "$dir"
+        free -m

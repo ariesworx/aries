@@ -1,0 +1,108 @@
+name: soak
+# The long soaks (CONTRIBUTING.md, The soak test) on GitHub's Linux
+# runners, amd64 and arm64: over SSH, over HTTPS, with the network cut
+# (stage 5's gate) and with the daemon's telemetry checked. A person
+# starts it by hand, before a release and after a change the soak
+# guards; it never runs on a pull request or a push, so it costs normal
+# CI nothing.
+on:
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: How long each soak works (ARIES_SOAK), such as 10m
+        default: 10m
+        required: true
+      seed:
+        description: The seed to replay (ARIES_SOAK_SEED); empty picks one for each run
+        default: ""
+        required: false
+permissions:
+  contents: read
+
+env:
+  # As ci.yml has them; tests in internal/version and scripts hold the
+  # two files to the same values.
+  GOFLAGS: -mod=readonly
+  POSTGRES_MAJOR: "18"
+  PGDG_KEY_FINGERPRINT: B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8
+
+# No Go cache is restored or saved, as for any run of ci.yml that is not
+# a pull request's, the merge queue's or main's: a soak downloads every
+# module and compiles what it runs.
+jobs:
+  soak:
+    name: ${{ matrix.soak }} (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    # A 10-minute soak takes about 13 minutes under -race, and go test
+    # gives up at 45, printing every goroutine's stack; this is past both,
+    # with the build and Postgres's install.
+    timeout-minutes: 60
+    strategy:
+      # One failure leaves the others to finish: each says something.
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        soak: [ssh, https, partition, telemetry]
+        include:
+          - soak: https
+            transport: https
+          - soak: partition
+            partition: "1"
+          - soak: telemetry
+            telemetry: check
+    env:
+      ARIES_REQUIRE_POSTGRES: "1"
+      TESTS_TMPFS: /dev/shm
+      ARIES_SOAK: ${{ inputs.duration || '10m' }}
+      ARIES_SOAK_SEED: ${{ inputs.seed }}
+      ARIES_E2E_TRANSPORT: ${{ matrix.transport }}
+      ARIES_SOAK_PARTITION: ${{ matrix.partition }}
+      ARIES_SOAK_TELEMETRY: ${{ matrix.telemetry }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Go at go.mod's toolchain line
+        uses: ./.github/actions/go-toolchain
+      - name: Install Postgres
+        uses: ./.github/actions/postgres
+        with:
+          major: ${{ env.POSTGRES_MAJOR }}
+          key-fingerprint: ${{ env.PGDG_KEY_FINGERPRINT }}
+      - name: temporary directory for the tests
+        id: tmp
+        uses: ./.github/actions/tests-tmpdir
+        with:
+          tmpfs: ${{ env.TESTS_TMPFS }}
+      - name: soak
+        # As CONTRIBUTING.md runs it, under scripts/leftovers.sh as the
+        # gate's tests run. The seed is the log's first line of the run,
+        # and is copied with the report's totals to the job's summary;
+        # ARIES_SOAK_SEED replays a run's choices.
+        env:
+          TMPDIR: ${{ steps.tmp.outputs.dir }}
+          GOTMPDIR: /tmp
+        run: |
+          set -o pipefail
+          log=$RUNNER_TEMP/soak.log
+          status=0
+          scripts/leftovers.sh go test -race -timeout 45m -run 'TestSoak$' -v ./internal/e2e/ 2>&1 | tee "$log" || status=$?
+          {
+            echo "### ${{ matrix.soak }} on ${{ matrix.runner }}: $([ "$status" = 0 ] && echo passed || echo "failed ($status)")"
+            echo '```'
+            grep -E 'soak: seed [0-9]+' "$log" | sed 's/^ *//' | sort -u
+            grep -E '^--- (PASS|FAIL): TestSoak ' "$log" || true
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+          exit "$status"
+      - name: memory after the soak
+        if: ${{ !cancelled() }}
+        env:
+          DIR: ${{ steps.tmp.outputs.dir }}
+        run: |
+          df -h "$DIR"
+          free -m

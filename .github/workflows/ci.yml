@@ -65,13 +65,7 @@ jobs:
           go-version-file: go.mod
           cache: false
       - name: Go at go.mod's toolchain line
-        # What setup-go installed, with no other toolchain to download.
-        run: |
-          want=$(sed -n 's/^toolchain //p' go.mod)
-          if [ "$(go env GOVERSION)" != "$want" ] || [ "$(go env GOTOOLCHAIN)" != local ]; then
-            echo "::error::go is $(go env GOVERSION) with GOTOOLCHAIN=$(go env GOTOOLCHAIN); want go.mod's toolchain line, $want, with GOTOOLCHAIN=local"
-            exit 1
-          fi
+        uses: ./.github/actions/go-toolchain
       - name: restore the module cache
         id: mod-cache
         if: github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.ref == 'refs/heads/main'
@@ -176,13 +170,7 @@ jobs:
           go-version-file: go.mod
           cache: false
       - name: Go at go.mod's toolchain line
-        # What setup-go installed, with no other toolchain to download.
-        run: |
-          want=$(sed -n 's/^toolchain //p' go.mod)
-          if [ "$(go env GOVERSION)" != "$want" ] || [ "$(go env GOTOOLCHAIN)" != local ]; then
-            echo "::error::go is $(go env GOVERSION) with GOTOOLCHAIN=$(go env GOTOOLCHAIN); want go.mod's toolchain line, $want, with GOTOOLCHAIN=local"
-            exit 1
-          fi
+        uses: ./.github/actions/go-toolchain
       - name: restore the module cache
         # The lint job saves it.
         if: github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.ref == 'refs/heads/main'
@@ -198,76 +186,19 @@ jobs:
           path: ~/.cache/go-build
           key: go-build-test-${{ runner.os }}-${{ runner.arch }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum', 'internal/tools/pin/go.sum') }}
       - name: Install Postgres
-        # Its programs only: no cluster is made or started, since each
-        # test package starts its own servers (internal/pgtest). The key is
-        # checked against its fingerprint before apt is told to trust it.
-        run: |
-          key=$RUNNER_TEMP/pgdg.asc
-          curl -fsSL -o "$key" https://www.postgresql.org/media/keys/ACCC4CF8.asc
-          got=$(gpg --show-keys --with-colons "$key" | awk -F: '$1 == "fpr" { print $10; exit }')
-          if [ "$got" != "$PGDG_KEY_FINGERPRINT" ]; then
-            echo "::error::the apt repository's key has fingerprint ${got:-none}, want $PGDG_KEY_FINGERPRINT"
-            exit 1
-          fi
-          sudo install -D -m 0644 "$key" /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
-          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" |
-            sudo tee /etc/apt/sources.list.d/pgdg.list
-          sudo install -d /etc/postgresql-common/createcluster.d
-          echo "create_main_cluster = false" | sudo tee /etc/postgresql-common/createcluster.d/aries-ci.conf
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends "postgresql-$POSTGRES_MAJOR"
-          echo "/usr/lib/postgresql/$POSTGRES_MAJOR/bin" >>"$GITHUB_PATH"
-          "/usr/lib/postgresql/$POSTGRES_MAJOR/bin/postgres" --version
+        # From the PostgreSQL project's apt repository, its key checked
+        # (.github/actions/postgres; soak.yml installs it the same way).
+        uses: ./.github/actions/postgres
+        with:
+          major: ${{ env.POSTGRES_MAJOR }}
+          key-fingerprint: ${{ env.PGDG_KEY_FINGERPRINT }}
       - name: temporary directory for the tests
         id: tmp
-        # Each package's Postgres servers keep their data under the
-        # temporary directory, and on disk much of the suite's time was the
-        # database waiting for it (docs/design/ci-analysis.md, §4.5, which
-        # measured Dolt). This picks a directory in memory for the next
-        # step, or /tmp, where they have always been, with a warning that
-        # says why.
-        #
-        # The files count as memory. A run's were a quarter of a gigabyte
-        # at their most when measured on Dolt, and every database server
-        # and test binary together 2 GB more, of the runner's 16 GB; the mount must have
-        # 4 GB free and the machine 8 GB, or the files stay on disk. A
-        # mount that fills fails the tests' writes, and the tests with
-        # them; it does not block them.
-        run: |
-          dir=/tmp
-          if [ -z "$TESTS_TMPFS" ]; then
-            echo "TESTS_TMPFS is empty: the tests' temporary files are on disk"
-          else
-            kind=$(stat -f -c %T "$TESTS_TMPFS" 2>/dev/null) || kind=missing
-            free_mb=$(df -Pm "$TESTS_TMPFS" 2>/dev/null | awk 'NR == 2 { print $4 }')
-            mem_mb=$(awk '$1 == "MemAvailable:" { print int($2 / 1024) }' /proc/meminfo)
-            try=$TESTS_TMPFS/aries-tests
-            # The tests run programs they write there: stand-ins for the
-            # tools scripts/gate.sh calls, and a binary to upgrade to.
-            probe() {
-              mkdir -p "$try" && printf '#!/bin/sh\nexit 0\n' >"$try/probe" &&
-                chmod +x "$try/probe" && "$try/probe" && rm "$try/probe"
-            }
-            if [ "$kind" != tmpfs ]; then
-              why="it is $kind, not a memory file system"
-            elif [ "${free_mb:-0}" -lt 4096 ]; then
-              why="it has ${free_mb:-0} MB free, and the tests are given 4096"
-            elif [ "${mem_mb:-0}" -lt 8192 ]; then
-              why="the machine has ${mem_mb:-0} MB of memory available, under 8192"
-            elif ! probe; then
-              why="a program written there does not run"
-            else
-              why=
-              dir=$try
-            fi
-            if [ -n "$why" ]; then
-              echo "::warning::The tests' temporary files are on disk, not on $TESTS_TMPFS: $why."
-            fi
-          fi
-          echo "dir=$dir" >>"$GITHUB_OUTPUT"
-          echo "The tests' temporary files go in $dir"
-          df -h "$dir"
-          free -m
+        # A directory in memory when TESTS_TMPFS is fit for the tests'
+        # files, or /tmp with a warning (.github/actions/tests-tmpdir).
+        uses: ./.github/actions/tests-tmpdir
+        with:
+          tmpfs: ${{ env.TESTS_TMPFS }}
       - name: go test
         # -shuffle=on randomizes test order; the seed is in the log, and
         # -shuffle=SEED replays a failure. go builds and runs the test

@@ -25,6 +25,7 @@ func setting(t *testing.T, path, pattern string) string {
 
 const (
 	ciFile           = "../../.github/workflows/ci.yml"
+	soakFile         = "../../.github/workflows/soak.yml"
 	contributingFile = "../../CONTRIBUTING.md"
 	goModFile        = "../../go.mod"
 	miseFile         = "../../mise.toml"
@@ -47,12 +48,19 @@ func TestPostgresMajor(t *testing.T) {
 	}
 }
 
-// TestPostgresMatchesCI keeps the major version CI installs from the
-// PostgreSQL project's apt repository at the pin's.
+// TestPostgresMatchesCI keeps the major version CI and the soak
+// workflow install from the PostgreSQL project's apt repository at the
+// pin's, and the soak workflow's key fingerprint at CI's.
 func TestPostgresMatchesCI(t *testing.T) {
 	t.Parallel()
-	if got := setting(t, ciFile, `(?m)^\s*POSTGRES_MAJOR:\s*"?(\d+)"?\s*$`); got != PostgresMajor {
-		t.Errorf("ci.yml POSTGRES_MAJOR is %s, version.PostgresMajor is %s; change both together", got, PostgresMajor)
+	for _, path := range []string{ciFile, soakFile} {
+		if got := setting(t, path, `(?m)^\s*POSTGRES_MAJOR:\s*"?(\d+)"?\s*$`); got != PostgresMajor {
+			t.Errorf("%s POSTGRES_MAJOR is %s, version.PostgresMajor is %s; change them together", path, got, PostgresMajor)
+		}
+	}
+	const fingerprint = `(?m)^\s*PGDG_KEY_FINGERPRINT:\s*"?([0-9A-F]{40})"?\s*$`
+	if ci, soak := setting(t, ciFile, fingerprint), setting(t, soakFile, fingerprint); soak != ci {
+		t.Errorf("soak.yml PGDG_KEY_FINGERPRINT is %s, ci.yml's is %s; change both together", soak, ci)
 	}
 }
 
@@ -134,7 +142,7 @@ func TestToolchainPin(t *testing.T) {
 	}
 	// setup-go reads go.mod's go line, not its toolchain line, when
 	// GOTOOLCHAIN=local is set before it runs; it sets it itself, after.
-	for _, path := range []string{ciFile, releaseFile, vulnFile} {
+	for _, path := range []string{ciFile, soakFile, releaseFile, vulnFile} {
 		b, err := os.ReadFile(path) //nolint:gosec // a file of this repository, named by the test
 		if err != nil {
 			t.Fatal(err)
