@@ -69,6 +69,9 @@ func TestSoak(t *testing.T) {
 	if cfg.partition {
 		t.Logf("soak: partition mode on (ARIES_SOAK_PARTITION): agents are cut off from the server for %s to %s at a time", cutMin, cutMax)
 	}
+	if cfg.flood.on {
+		t.Logf("soak: flood on (%s): %d attacks a second at the HTTPS listener, at most %d open at once", envFlood, cfg.flood.rate, cfg.flood.conns)
+	}
 	s := newSoak(t, cfg)
 	s.run()
 	s.verify()
@@ -115,6 +118,9 @@ type soakConfig struct {
 	// partition cuts agents off from the server now and then, as they
 	// go on working (soak_partition_test.go).
 	partition bool
+	// flood sends the HTTPS listener unauthenticated traffic beside the
+	// sessions (soak_flood_test.go).
+	flood floodConfig
 }
 
 // soakConfigFrom reads ARIES_SOAK (a duration; empty runs the short
@@ -166,6 +172,12 @@ func soakConfigFrom(getenv func(string) string) (soakConfig, error) {
 		cfg.telemetry = v
 	default:
 		return soakConfig{}, fmt.Errorf("ARIES_SOAK_TELEMETRY=%q: want %s, %s or %s, or nothing for no telemetry", v, telCheck, telRefused, telHang)
+	}
+	if cfg.flood, err = floodConfigFrom(getenv); err != nil {
+		return soakConfig{}, err
+	}
+	if cfg.flood.on && cfg.telemetry == telCheck {
+		return soakConfig{}, fmt.Errorf("%s=1 with ARIES_SOAK_TELEMETRY=%s: the flood's requests are not the sessions', which that check compares to the event logs", envFlood, telCheck)
 	}
 	return cfg, nil
 }
@@ -248,6 +260,8 @@ type soak struct {
 	// tel is the daemon's telemetry, which is off unless the run asks
 	// for it (soak_telemetry_test.go).
 	tel *soakTel
+	// flood is the flood beside the sessions; nil when the run has none.
+	flood *flood
 	// users holds each principal's repository for each project it may
 	// reach, all with the principal's one key; storeKey is the
 	// fingerprint of a key that only the control store holds.
@@ -320,9 +334,26 @@ func newSoak(t *testing.T, cfg soakConfig) *soak {
 	s.tel.people = func(v string) bool {
 		return slices.Contains(names, v) || strings.HasPrefix(v, "lib-") || strings.HasPrefix(v, "mcp-") || strings.HasPrefix(v, "lock-")
 	}
-	s.w = newWorld(t, daemonOpts{now: clock.now, clock: clock.read, reap: 100 * time.Millisecond,
+	opts := daemonOpts{now: clock.now, clock: clock.read, reap: 100 * time.Millisecond,
 		admins: []string{cfg.admin, cfg.root}, limits: cfg.limits, logger: slog.New(s.logs), telemetry: s.tel.tel,
-		many: true, keys: true})
+		many: true, keys: true}
+	if cfg.flood.on {
+		// The sessions go over HTTPS, as with ARIES_E2E_TRANSPORT=https,
+		// and the daemon has a sign-in provider, so that /oauth/* exists.
+		opts.https, opts.signin = true, true
+		s.flood = &flood{cfg: cfg.flood}
+		if opts.telemetry == nil {
+			opts.telemetry, s.flood.manual = newFloodTel(t, slog.New(s.logs))
+		}
+		if cfg.flood.from == "" {
+			// Every address is loopback's: see soak_flood_test.go.
+			opts.limits.HTTPSConnsPerAddr = 4096
+		}
+	}
+	s.w = newWorld(t, opts)
+	if s.flood != nil {
+		s.flood.w = s.w
+	}
 	// Before anything connects: the stores the setup opens close again.
 	s.baseline, s.connBase = runtime.NumGoroutine(), connGoroutines()
 	s.setup()
@@ -380,6 +411,9 @@ func (s *soak) run() {
 	side.Go(func() { s.chaos(ctx) })
 	side.Go(func() { s.sample(ctx) })
 	side.Go(func() { s.conduct(ctx) })
+	if s.flood != nil {
+		side.Go(func() { s.flood.run(ctx) })
+	}
 	wg.Wait()
 	side.Wait()
 	s.ended = time.Since(s.started)
@@ -664,6 +698,7 @@ func (s *soak) report() {
 	s.reportAccess(&b)
 	s.reportPartition(&b, calls)
 	s.reportLocks(&b)
+	s.reportFlood(&b)
 	m := s.mon
 	m.mu.Lock()
 	fmt.Fprintf(&b, "  chaos: %d dropped answers, %d connection drops, %d daemon restarts; %d sessions vanished, %d stalled; %d dial failures; retries %v\n",
