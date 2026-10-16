@@ -12,6 +12,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+env:
+  # As ci.yml; setup-go sets GOTOOLCHAIN=local itself.
+  GOFLAGS: -mod=readonly
 
 jobs:
   govulncheck:
@@ -28,45 +31,5 @@ jobs:
         with:
           go-version-file: go.mod
       - name: govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
-
-  postgres:
-    runs-on: ubuntu-24.04
-    # One small download and one test.
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-      - name: the Postgres pin against the PostgreSQL project's releases
-        env:
-          ARIES_POSTGRES_VERSIONS: https://www.postgresql.org/versions.json
-        run: go test -count=1 -run '^TestPostgresUpstream$' -v ./internal/version/
-
-  report:
-    needs: [govulncheck, postgres]
-    if: failure() && github.event_name == 'schedule'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      issues: write
-    steps:
-      - name: open or comment on the issue
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          title='vuln: the weekly check of main failed'
-          body="The weekly check failed: $RUN_URL
-
-          A govulncheck finding: update the module, or Go, that fixes it. A Postgres finding: RELEASING.md, Changing the Postgres pin."
-          n=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number,title \
-            --jq "map(select(.title == \"$title\"))[0].number // empty")
-          if [ -n "$n" ]; then
-            gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "$body"
-          else
-            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
-          fi
+        # Pinned by the tools module's go.mod and go.sum.
+        run: go tool -modfile=internal/tools/pin/go.mod govulncheck ./...

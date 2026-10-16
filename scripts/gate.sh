@@ -26,15 +26,16 @@ built into the per-user cache.
   --quick       NOT the gate; for the loop between edits. Runs gofmt,
                 go vet, golangci-lint, shellcheck and the tests, but the
                 tests without -race or -shuffle, so unchanged packages
-                come from Go's test cache. Skips go mod verify,
-                govulncheck and the builds for other systems
+                come from Go's test cache. Skips go mod verify, go mod
+                tidy -diff, govulncheck and the builds for other systems
   -h, --help    show this help
 
 The exit status is 1 when a command failed and 2 when the gate could not
 start. One result is neither a pass nor a failure: govulncheck findings
-that are all in the standard library, and all fixed by a newer patch
-release of Go, come from the Go installed here and not from the change.
-The summary then says which Go to install, and the exit status is 0.
+that are all in the standard library, and all fixed by the Go of
+go.mod's toolchain line, which CI installs, come from an older Go
+installed here and not from the change. The summary then says which Go
+to install, and the exit status is 0.
 EOF
 }
 
@@ -62,6 +63,13 @@ done
 root=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
 cd "$root"
 
+# As CI: the Go installed here and no other (no toolchain download), and
+# go.mod and go.sum as they are, whatever GOFLAGS the environment sets
+# (docs/design/supply-chain.md, §7.4).
+GOTOOLCHAIN=local
+GOFLAGS=-mod=readonly
+export GOTOOLCHAIN GOFLAGS
+
 for tool in go gofmt golangci-lint shellcheck git awk; do
 	have "$tool" || die "$tool is not installed, or not on PATH" \
 		"install it at the version in CONTRIBUTING.md (\"What you need\"); with mise, run: mise install"
@@ -70,8 +78,10 @@ goversion=$(go env GOVERSION) ||
 	die "go does not run in $root" "install Go at the go line in go.mod; with mise, run: mise install"
 goos=$(go env GOOS)
 goarch=$(go env GOARCH)
-# go.mod's go line, as MAJOR.MINOR: CI installs its newest patch release.
+# go.mod's go line, as MAJOR.MINOR, and its toolchain line, the Go CI
+# installs and the release is built with.
 gomod=$(sed -n 's/^go \([0-9]*\.[0-9]*\).*/\1/p' go.mod)
+gotoolchain=$(sed -n 's/^toolchain \(go[0-9.]*\)$/\1/p' go.mod)
 
 # With a template: mktemp -d alone ignores TMPDIR on macOS.
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/aries-gate.XXXXXX" 2>&1) || die "cannot make a temporary directory: $tmp" "set TMPDIR to a writable directory"
@@ -89,6 +99,10 @@ lint_pin=$(sed -n '/golangci-lint-action@/,/version:/s/^ *version: v//p' .github
 lint_here=$(golangci-lint version --short 2>/dev/null) || lint_here=unknown
 if [ "$lint_here" != "$lint_pin" ]; then
 	note "golangci-lint here is $lint_here and CI pins $lint_pin, so CI's lint may find what this one did not, or the reverse. Install $lint_pin (with mise: mise install)."
+fi
+
+if [ "$goversion" != "$gotoolchain" ]; then
+	note "Go here is $goversion and go.mod's toolchain line names $gotoolchain, which CI installs and the release is built with. Install $gotoolchain (with mise: mise install)."
 fi
 
 # Postgres at the pinned major version: the one on PATH, or else the one
@@ -117,8 +131,9 @@ printf '%s: %s %s/%s, golangci-lint %s, Postgres %s (%s)\n' \
 
 # stale_go reports whether a failed govulncheck's findings are all in the
 # standard library and all fixed in a patch release of go.mod's Go: a
-# newer Go clears them, and CI has it. A finding in a dependency, or one
-# with no fix, is a failure like any other.
+# newer Go clears them. run then checks that CI's, the toolchain line's,
+# is new enough. A finding in a dependency, or one with no fix, is a
+# failure like any other.
 stale_go() { # log
 	awk -v fix="@go$gomod." '
 		/Found in:/ { found++; if ($NF !~ /@go[0-9]/) other++ }
@@ -155,12 +170,17 @@ run() {
 		printf 'ok (%ss)\n' "$secs"
 		return 0
 	fi
+	newer=
 	if [ "$kind" = vuln ] && stale_go "$log"; then
 		newer=$(sed -n 's/.*Fixed in: .*@go\([0-9.]*\)$/\1/p' "$log" | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
-		printf 'needs Go %s (%ss)\n' "$newer" "$secs"
-		note "govulncheck: every finding is in the standard library of $goversion and is fixed by Go $newer, so this is the Go installed here, not the change; nothing was found in the module's dependencies. CI installs the newest Go $gomod. Install Go $newer or later and run this again (with mise: mise upgrade go)."
-		stale=1
-		return 0
+		# Only a Go older than CI's: CI installs the toolchain line, and
+		# has every finding it does not fix.
+		if [ "$(printf '%s\n%s\n' "$newer" "${gotoolchain#go}" | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)" = "${gotoolchain#go}" ]; then
+			printf 'needs Go %s (%ss)\n' "$newer" "$secs"
+			note "govulncheck: every finding is in the standard library of $goversion and is fixed by Go $newer, so this is the Go installed here, not the change; nothing was found in the module's dependencies. CI installs go.mod's toolchain line, $gotoolchain. Install it and run this again (with mise: mise install)."
+			stale=1
+			return 0
+		fi
 	fi
 	printf 'FAILED (%ss)\n' "$secs"
 	printf '%s\n' "$cmd" >>"$tmp/failed"
@@ -170,6 +190,7 @@ run() {
 	case $kind:$rc in
 	empty:*) printf '    fix: these files are not formatted; run gofmt -w on them\n' ;;
 	*:127) printf '    fix: a tool is missing; see CONTRIBUTING.md, "What you need"\n' ;;
+	vuln:*) [ -z "$newer" ] || printf "    fix: every finding is in the standard library and fixed by Go %s: move go.mod's toolchain line to go%s, with mise.toml, internal/tools/pin/go.mod and the Docker image (internal/version holds them together)\n" "$newer" "$newer" ;;
 	esac
 	[ "$keep_going" = 1 ] || stopped=1
 }
@@ -192,9 +213,10 @@ also() { run plain "$1"; }
 both 'gofmt -l .' empty
 both 'go vet ./...'
 both 'golangci-lint run ./...'
-gate 'go mod verify'
+gate 'go mod verify && go -C internal/tools/pin mod verify'
+gate 'go mod tidy -diff && go -C internal/tools/pin mod tidy -diff'
 both 'git ls-files -co --exclude-standard -z "*.sh" | xargs -0 shellcheck'
-gate 'go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...' vuln
+gate 'go tool -modfile=internal/tools/pin/go.mod govulncheck ./...' vuln
 gate 'GOOS=darwin GOARCH=amd64 go vet ./...'
 gate 'GOOS=darwin GOARCH=amd64 go build ./cmd/...'
 gate 'GOOS=windows GOARCH=amd64 go vet ./...'

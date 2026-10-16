@@ -25,4 +25,8 @@ section that does not apply says so in a word. -->
 
 <!-- The pages updated (CONTRIBUTING.md lists which), or "No change in behavior." -->
 
-No new dependencies. <!-- Or: the dependency added, and why the standard library would not do. -->
+## Dependencies
+
+<!-- "None", or for each module, tool or Action added or moved to a new major version: why the standard library would not do and what was tried, its line in deps.allow (scope, license, date, reason), where its name was checked, and that the version is at least 14 days old or the advisory it fixes (AGENTS.md, rule 4). -->
+
+None.

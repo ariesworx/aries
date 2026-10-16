@@ -48,6 +48,9 @@ jobs:
       attestations: write  # actions/attest-build-provenance
     env:
       TAG: ${{ github.ref_name }}
+      # As ci.yml: go.mod and go.sum as they are. setup-go installs go.mod's
+      # toolchain line and sets GOTOOLCHAIN=local for the steps after it.
+      GOFLAGS: -mod=readonly
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -56,6 +59,15 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false     # a release builds from a clean module cache
+      - name: Go at go.mod's toolchain line
+        # The Go the archives are built with, which go version -m of each
+        # names, and no other toolchain to download.
+        run: |
+          want=$(sed -n 's/^toolchain //p' go.mod)
+          if [ "$(go env GOVERSION)" != "$want" ] || [ "$(go env GOTOOLCHAIN)" != local ]; then
+            echo "::error::go is $(go env GOVERSION) with GOTOOLCHAIN=$(go env GOTOOLCHAIN); want go.mod's toolchain line, $want, with GOTOOLCHAIN=local"
+            exit 1
+          fi
 
       - name: Check the tag
         # The same pattern as internal/release.TagPattern.
@@ -67,12 +79,15 @@ jobs:
 
       - name: Verify modules
         # Download checks each module against go.sum and the checksum
-        # database; verify checks the cache has not changed since.
-        run: go mod download && go mod verify
+        # database; verify checks the cache has not changed since. The
+        # tools module's too, for govulncheck.
+        run: |
+          go mod download && go -C internal/tools/pin mod download
+          go mod verify && go -C internal/tools/pin mod verify
 
       - name: govulncheck
         # A release never ships with a known-vulnerable dependency.
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+        run: go tool -modfile=internal/tools/pin/go.mod govulncheck ./...
 
       - name: Build
         # A plain loop: eight static builds and an archive each. CGO off,

@@ -2,14 +2,14 @@
 # `mise install` in this directory installs them. mise is optional;
 # CONTRIBUTING.md lists the same tools for installing by hand.
 #
-# Tests in internal/version keep go at go.mod's go line, so that a fresh
-# install takes its newest patch release, as CI does (`mise upgrade go`
-# moves an older one up), and golangci-lint at the version CI pins.
+# Tests in internal/version keep go at go.mod's toolchain line, the Go
+# CI installs and the release is built with, and golangci-lint at the
+# version CI pins.
 # shellcheck was the newest release when this was written; CI uses the
 # one on its runner. Postgres is not here:
 # scripts/install-postgres.sh installs the pinned release, verified.
 
 [tools]
-go = "1.27"
+go = "1.27.2"
 golangci-lint = "2.14.0"
 shellcheck = "0.11.0"

@@ -51,6 +51,8 @@ stage is in progress.
 | `internal/gitx` | Branch names from issues, issue ids from branches and `Aries:` trailers |
 | `internal/bdimport` | bd JSONL import and export, over the `Source` and `Target` it needs of a project's store |
 | `internal/release` | Release download, signature and checksum checks, binary swap. A release is read from one of two sources behind one interface: GitHub's API (`release.go`), or a static tree on any HTTPS file host or in a directory (`static.go`, with `index.json` in `index.go`), chosen by `DefaultSource`, `ARIES_RELEASES` and `release.Open`. The source is transport and is never trusted: `Fetch` accepts a release on its signature and checksum alone, a static tree's tags are checked before they reach a URL, and no redirect from one is followed. `releasetest` serves a fake of each source |
+| `internal/depcheck` | Tests only, of the dependency policy (rule 4) against `deps.allow` at the root: `go.mod`'s and the tools module's direct modules both ways, each binary's linked modules on the systems the release builds against `testdata/links-aries.golden` and `links-ariesd.golden` (`-update`) and each module's scope, every workflow's `uses:` (by owner/repo, pinned by commit with a version comment; `./` is exempt), and no `go run` or `go install` of `pkg@version` in a workflow or script |
+| `internal/tools/pin` | A module of its own, never built into anything, whose `go.mod` and `go.sum` pin the gate's Go tools: govulncheck, as a `tool` line. Not `internal/tools/go.mod`, which would take `releasekey` and `releaseindex` out of the main module. golangci-lint is not here: its Action installs it by version |
 | `internal/tools/releasekey`, `internal/tools/releaseindex` | The signing tool; and the tool that lays a release's files out as a static tree and writes its `index.json`, which signs nothing and needs no secret ([RELEASING.md](RELEASING.md#publishing-to-a-static-host)) |
 | `internal/version` | Build version, and `Postgres`, the pinned Postgres release, its major version and the oldest the store opens, with the SHA-256 of its source archive (`postgres.sha256`); its tests keep every copy of a tool pin in step |
 | `internal/pgtest` | Starts a throwaway Postgres for tests, in a temporary directory with a unix socket and no TCP port, with a superuser only it uses and the locked-down role `aries` the tests connect as, and drops a test's database when the test is done with it. `Pool` is a test binary's servers: each test holds one alone while it runs, so tests run in parallel |
@@ -87,9 +89,10 @@ when the script and the block differ, so change them together, and
 gofmt -l .                       # must print nothing
 go vet ./...
 golangci-lint run ./...          # CI pins v2.14.0; config in .golangci.yml
-go mod verify                    # module cache still matches go.sum
+go mod verify && go -C internal/tools/pin mod verify      # module cache still matches go.sum
+go mod tidy -diff && go -C internal/tools/pin mod tidy -diff  # go.mod and go.sum are tidy
 git ls-files -co --exclude-standard -z "*.sh" | xargs -0 shellcheck
-go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+go tool -modfile=internal/tools/pin/go.mod govulncheck ./...  # pinned by go.sum
 GOOS=darwin GOARCH=amd64 go vet ./...          # aries must build and vet
 GOOS=darwin GOARCH=amd64 go build ./cmd/...    # on every developer OS
 GOOS=windows GOARCH=amd64 go vet ./...
@@ -105,8 +108,10 @@ that passed but left a file in its temporary directory (or in
 `GOTMPDIR`, where `go test` makes each `t.TempDir` when it is set) or a
 process running, and names the test that probably did.
 `scripts/gate.sh --quick` is for the loop between edits and is
-not the gate: it skips `go mod verify`, govulncheck and the builds for
-other systems, and runs the tests without `-race` or `-shuffle`.
+not the gate: it skips `go mod verify`, `go mod tidy -diff` (which may
+download modules), govulncheck and the builds for other systems, and
+runs the tests without `-race` or `-shuffle`. The script sets
+`GOTOOLCHAIN=local` and `GOFLAGS=-mod=readonly`, as CI has them.
 
 **Test tiers.** Before a pull request, run what the change touches;
 CI does the rest ([CONTRIBUTING.md](CONTRIBUTING.md#what-to-run-before-a-pull-request)
@@ -128,12 +133,16 @@ has the table):
 Don't rerun a whole suite after a rebase whose conflicts were in docs
 only: CI and the merge queue run it.
 
-**Tools.** Go is at the `go` line in `go.mod`, at its newest patch
-release, as CI installs it: on an older one govulncheck reports standard
-library findings that are not the change's, which the script says.
-golangci-lint is at the version CI pins. `mise.toml` pins both for
-contributors who use mise, and tests in `internal/version` keep it equal
-to `go.mod` and `ci.yml`.
+**Tools.** Go is at the `toolchain` line in `go.mod`, which CI installs
+and the release is built with: on an older one govulncheck reports
+standard library findings that are not the change's, which the script
+says. A Go patch release moves that line, `mise.toml`, the tools
+module's `go.mod` and the Docker image's together, and tests in
+`internal/version` keep them equal. golangci-lint is at the version CI
+pins, which `mise.toml` pins too. govulncheck is pinned by the tools
+module, `internal/tools/pin`, whose `go.mod` and `go.sum` hold it and
+nothing else; the gate runs it with `go tool -modfile=`. No tool is run
+as `go run …@version` (`internal/depcheck`).
 
 CI also runs the tests named `TestCheckPeer…` (`internal/server`) under
 `sudo`, because `TestCheckPeerOtherUID` and
@@ -150,7 +159,7 @@ runs: every job of every workflow has a `timeout-minutes` (a job that
 calls a workflow cannot, so `release.yml`'s `gate` relies on those of
 `ci.yml`). `lint` and `test` each restore a Go build cache of their
 own, and one module cache between them, keyed by the Go version and the
-hash of `go.sum` with no fallback; only a push to `main` saves one, a
+hashes of `go.sum` and the tools module's with no fallback; only a push to `main` saves one, a
 pull request and the merge queue's run of one only read them, and any
 other run, the release's gate among them, uses none. The tests' temporary files, Postgres's data
 among them, are in memory when the runner's `/dev/shm` is fit for them
@@ -255,6 +264,28 @@ and what a test that passes there does not do.
    28): only `internal/telemetry` imports it, its exporters or the
    Prometheus client, `aries` links none of it, and tests enforce both. Use
    that package's interface from anywhere else.
+
+   **Admitting a dependency.** Every module `go.mod` requires directly,
+   every tool the gate runs and every Action has a line in `deps.allow`:
+   its scope (`aries`, `ariesd`, `both`, `tools` or `actions`), license,
+   date and reason. A Go module is added only when the standard library
+   would not do (the pull request says what was tried); its line is in
+   the same pull request; its license is Apache-2.0, BSD, ISC, MIT or
+   MPL-2.0 if a binary links it; it comes through the default `GOPROXY`
+   and `GOSUMDB`; its name is the one its documentation gives, checked by
+   a person; and a person reviews it. A tool is pinned by a `go.sum` (the
+   tools module), an Action by commit. An agent may propose a dependency,
+   saying where it learned the name, and never adds one, nor its
+   `deps.allow` line. `internal/depcheck` holds `go.mod`, the tools
+   module, the workflows and what each binary links
+   (`testdata/links-*.golden`) to the file. **Cooldown:** a version is
+   taken no sooner than 14 days after it was published (30 for a new
+   major version, which `.github/dependabot.yml` waits for Go modules and
+   a reviewer for Actions and images), for modules, tools
+   and Actions alike, unless it fixes a vulnerability govulncheck or an
+   advisory names; a security fix skips the wait, never the review. Go's
+   own patch releases are taken within the week (docs/design/supply-chain.md,
+   §7.2, §7.3).
 5. **Store writes go through `Store.write`**, on the store's single writer,
    one SQL transaction per operation, on a connection it takes from the
    daemon's one pool (`store.DB`). There is one store, and so one writer,

@@ -103,6 +103,10 @@ own step.
 - **Simplicity.** Solve the stated problem. Add no option, abstraction,
   layer or defensive check for a case that cannot happen. Three similar
   lines beat a premature helper.
+- **Dependencies.** The standard library first. You may propose a new
+  module, tool or Action, saying what the standard library lacks and
+  where you learned its name; you never add one to `go.mod`, a workflow
+  or `deps.allow` yourself. A person admits it (`AGENTS.md`, rule 4).
 - **Comments.** Doc comments on exported names are full sentences that
   begin with the name. Comments in code say why, not what.
 - **Modern standard library.** Prefer `slices`, `maps`, `cmp.Compare`,

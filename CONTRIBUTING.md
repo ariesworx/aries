@@ -38,7 +38,7 @@ run `scripts/gate.sh`.
 
 | Tool | Version | Used for |
 |---|---|---|
-| Go | the newest patch release of the `go` line in [go.mod](go.mod) | everything |
+| Go | the release the `toolchain` line in [go.mod](go.mod) names; the gate runs the Go on your `PATH` (`GOTOOLCHAIN=local`) and says when it is another | everything |
 | golangci-lint | the `version:` CI pins in [ci.yml](.github/workflows/ci.yml), and mise.toml with it | lint, with the config in `.golangci.yml` |
 | shellcheck | any recent; mise.toml names one | every `*.sh` in the repository |
 | git | any recent | the gate, and tests of branch and worktree creation |
@@ -87,7 +87,7 @@ gate command by command.
 | `scripts/gate.sh` | The gate. Stops at the first failure, prints one line for each command, and ends with what the run did not cover |
 | `scripts/gate.sh --keep-going` | The same, running every command whatever fails |
 | `scripts/gate.sh --smoke` | The gate, then the [Docker smoke test](#try-your-change-against-a-real-server) |
-| `scripts/gate.sh --quick` | Not the gate; for the loop between edits. Format, vet, lint, shellcheck and the tests without the race detector, so unchanged packages come from Go's test cache. It skips `go mod verify`, govulncheck and the builds for other systems |
+| `scripts/gate.sh --quick` | Not the gate; for the loop between edits. Format, vet, lint, shellcheck and the tests without the race detector, so unchanged packages come from Go's test cache. It skips `go mod verify`, `go mod tidy -diff`, govulncheck and the builds for other systems |
 
 **On Windows,** build and test `aries` natively with Go (`go build
 ./cmd/aries`, `go test ./...`). The scripts are for a POSIX shell, and
@@ -155,8 +155,12 @@ up in a Linux VM you can throw away.
 4. Update the docs the change makes untrue, in the same pull request
    (the table below).
 5. Fill in the [template](.github/pull_request_template.md): why, what,
-   tests, the gate, docs, and "No new dependencies" or the reason for
-   the one you added.
+   tests, the gate, docs, and dependencies: "None", or for each one
+   added its reason and its line in [deps.allow](deps.allow). A
+   dependency is admitted as [rule 4](AGENTS.md#rules) says, and a
+   person reviews it; `go test ./internal/depcheck/` fails until
+   `deps.allow` lists it, and asks for `-update` when what `aries` or
+   `ariesd` links changes.
 
 | You changed | Update |
 |---|---|
@@ -352,7 +356,7 @@ tests on linux/amd64 alone; for macOS and Windows it vets and builds
 | Linux | `TestCheckPeerOtherUID` and `TestCheckPeerKeepsStatusFromOtherUsers` (`internal/server`), which start a socket peer as another user and so need root. CI builds the package's test binary and runs that under `sudo`, so that `go` never runs as root; the gate's summary prints the command |
 | macOS | Anything about the tests on Linux. The code only Linux builds, the socket peer check behind `ariesd serve` (`internal/server/peer_linux.go`), is vetted, built and linted there but its tests, `TestCheckPeer*`, cannot run. A test that depends on the platform can pass on one system and fail on the other. On Apple silicon the amd64 builds are compiled and vetted, never run |
 | Windows, natively | The scripts, which need a POSIX shell, and the tests marked for Unix: those of the Google Cloud IAP transport, and of refusing a transcript that is a FIFO. Use WSL for the gate |
-| Any | The Docker smoke test, unless you pass `--smoke`; the long soak test, below; and, with a Go older than the newest patch release, govulncheck's verdict on the standard library, which the gate reports apart from failures |
+| Any | The Docker smoke test, unless you pass `--smoke`; the long soak test, below; and, with a Go older than go.mod's `toolchain` line, govulncheck's verdict on the standard library, which the gate reports apart from failures |
 
 So a pull request says where its gate ran, and CI's run is the one that
 counts for Linux.
@@ -447,8 +451,8 @@ took the time it took before, 198 s against 205.
 | `install-postgres.sh: building Postgres … failed` | It names its build log, kept in the cache directory. Most often a tool is missing: `make`, a C compiler, or zlib's headers (`zlib1g-dev` on Debian and Ubuntu) |
 | `could not create shared memory segment: No space left on device`, on macOS | Test servers killed with no chance to clean up left System V shared memory behind, and macOS allows 32 segments. `ipcs -m` lists them; remove those that are yours and whose creator (`CPID`) is gone with `ipcrm -m ID`. `pgtest` frees what it can find |
 | The gate's summary says `golangci-lint here is 2.13.2 and CI pins 2.14.0` | Your linter is another version, so CI may find what yours did not. Install the pinned one: `mise install`, or from [golangci-lint's releases](https://github.com/golangci/golangci-lint/releases) |
-| govulncheck: `Your code is affected by 9 vulnerabilities from the Go standard library`; the gate prints `needs Go 1.27.2` | Your Go is an older patch release than CI's. The findings are not your change's. Install the newest patch release (`mise upgrade go`) and run the gate again |
-| govulncheck fails and the gate prints `FAILED` | A finding in a dependency, or one no Go release fixes yet: a real failure, which CI will report too. Read the finding's `Fixed in:` line and update the module |
+| govulncheck: `Your code is affected by 9 vulnerabilities from the Go standard library`; the gate prints `needs Go 1.27.2` | Your Go is older than go.mod's `toolchain` line, which CI installs. The findings are not your change's. Install that release (`mise install`) and run the gate again |
+| govulncheck fails and the gate prints `FAILED` | A finding in a dependency, one no Go release fixes yet, or one fixed only by a Go newer than the `toolchain` line (the gate's `fix:` line says so): a real failure, which CI will report too. Read the finding's `Fixed in:` line and update the module, or move the `toolchain` line with `mise.toml`, `internal/tools/pin/go.mod` and the Docker image |
 | `docker build`: `exec: "docker-credential-desktop": executable file not found in $PATH` | Docker Desktop's helper programs are not on your `PATH`: `export PATH="$HOME/.docker/bin:$PATH"` ([Docker test server](docs/deploy/docker.md#troubleshooting)) |
 | A test passes here and fails in CI, or the reverse | [What a local run cannot tell you](#what-a-local-run-cannot-tell-you). `-shuffle=on` prints its seed; `go test -shuffle=SEED` repeats the order. One that fails only where the machine is slow: [Tests on a slow machine](#tests-on-a-slow-machine) |
 | A pull request closed when its base branch was deleted | It cannot be retargeted or reopened onto `main`. Open a new one from the same branch, and next time follow [Stacked pull requests](#stacked-pull-requests) |
