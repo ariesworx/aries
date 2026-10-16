@@ -236,10 +236,10 @@ through your company's identity provider (T2) and service principals
 by workload identity (N5) are on `main` but off unless configured, and
 neither is security-reviewed or tested against a real provider; those
 checks, the provider guides and N0 come in 1.x. Built: all of it, but
-the rest of P5 (the installer on amd64, a machine with the AppArmor
-profiles enforced, ACME against a real CA) and the listener's review.
+the rest of P5 (ACME against a real CA) and the listener's review.
 Of P5, the soaks pass on Linux, on GitHub's amd64 and
-arm64 runners. A remote MCP endpoint, GitHub's sign-in and the device grant,
+arm64 runners, and so do the installer and the AppArmor profiles
+enforced under systemd. A remote MCP endpoint, GitHub's sign-in and the device grant,
 a Claude Desktop extension, and stage 6's G3 to G5 come in 1.x releases
 as compatible additions.
 

@@ -26,8 +26,8 @@ troubleshooting. For complete deployments with costs, see the
   user connects to its socket.
 - **Ubuntu 24.04 LTS and 26.04 LTS are the supported platforms.** The
   steps below are written for both and were run on both
-  ([What was run, and where](#what-was-run-and-where)). amd64 and cloud
-  providers' images were not. Other distributions, and Ubuntu's releases
+  ([What was run, and where](#what-was-run-and-where)). amd64 was run on
+  GitHub's runners, and cloud providers' images were not. Other distributions, and Ubuntu's releases
   between the two, may work and are untested. One text serves both; where
   26.04 behaves differently the guide says so: its `sudo` is sudo-rs, its
   sshd turns away for a while an address that fails to log in
@@ -645,6 +645,31 @@ ar-aukz3rip  P1  open  Fix the login redirect
 and the [agent guide](agents.md) sets agents up in the repository.
 
 ### What was run, and where
+
+**On GitHub's runners**, on 16 October 2026, from `main` at c4b311d: the
+[`p5-machine` workflow](../.github/workflows/p5-machine.yml), run
+38978641331, on `ubuntu-24.04` (amd64) and `ubuntu-24.04-arm` (arm64).
+Each job is a fresh virtual machine with root, systemd and AppArmor, on
+Ubuntu 24.04 with Postgres from PGDG, installed by the installer; Ubuntu
+26.04 was not run there.
+
+| | |
+|---|---|
+| Machines | GitHub's `ubuntu-24.04` and `ubuntu-24.04-arm` runners |
+| ariesd | Built from the source tree at c4b311d for each machine, with the release's flags, and put where the installer looks first |
+| Clients | `aries` on the same machine, over HTTPS to `ariesd`, with a certificate from a throwaway CA |
+
+- **The installer**, `install-server.sh --profile private` as root, on
+  both. A second run changed nothing.
+- **AppArmor**: the profiles `ariesd-serve` and `ariesd-admin` loaded in
+  enforce mode, and `ariesd` ran under systemd labeled `ariesd-serve
+  (enforce)`. The job's check of the journal found no line that says an
+  ariesd profile denied anything.
+- **aries over HTTPS**, before and after a restart of `ariesd` under its
+  profile.
+
+Not run there: a cloud provider's own image, which the runners are not,
+and a managed Postgres.
 
 **On Postgres**, on 15 October 2026 (slice P4 of decision 79):
 
@@ -2848,8 +2873,9 @@ Fixed caps that no setting changes:
 This step is optional. It was tested on Ubuntu 24.04, on arm64, in a
 virtual machine, on 12 October 2026, and on Ubuntu 26.04 the same way
 on 14 October 2026
-([What was run, and where](#what-was-run-and-where)); amd64 was not
-tested.
+([What was run, and where](#what-was-run-and-where)). On amd64 and arm64
+GitHub's runners it was run with the profiles in enforce mode on 16
+October 2026, with no denial in the journal.
 
 Ubuntu runs AppArmor, and out of the box it confines neither sshd
 nor a program it has no profile for: on the machines above, `aa-status`
