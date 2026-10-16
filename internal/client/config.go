@@ -67,6 +67,11 @@ type Config struct {
 
 	// Root is the directory holding the config file (not read from YAML).
 	Root string `yaml:"-"`
+	// Checkout is the directory the project's files belong in, such as
+	// those aries setup writes: Root, unless the config was found in the
+	// main worktree from a linked one, when it is the linked worktree's
+	// top level (not read from YAML).
+	Checkout string `yaml:"-"`
 	// Unknown are the keys of the file this aries does not know, as
 	// dotted paths in the file's order, which ParseConfig ignored.
 	Unknown []string `yaml:"-"`
@@ -155,7 +160,11 @@ func (noConfigError) Is(target error) bool { return target == ErrNoConfig }
 // directory holding .git, a directory or a worktree's file) and at the
 // home directory, never above them: a config in a shared parent such as
 // /tmp, or a drive root on Windows, must not capture a checkout that has
-// none of its own. The file found must be a regular file; on Unix it
+// none of its own. A linked worktree (git worktree add) is its own top
+// level; when the search ends at one, it reads the config at the top of
+// the repository's main worktree, if there is one (mainWorktree), and
+// only there, so a config kept untracked in the main checkout serves
+// every worktree. The file found must be a regular file; on Unix it
 // must also be the user's own and writable by no one else, since it
 // names the server every command and hook connects to. Windows has no
 // owner or mode check here (its ACLs are not Unix bits), so there the
@@ -176,35 +185,134 @@ func loadConfig(dir, home string) (*Config, error) {
 	if home != "" {
 		homeInfo, _ = os.Stat(home) // a missing home bounds nothing
 	}
+	notFound := noConfigError{proto.Errf(proto.CodeInvalid,
+		"run aries inside a repository that has one, or pass -C DIR; the search stops at the repository's top level and at your home directory, and a linked worktree reads the main worktree's",
+		ConfigFile+" not found here or in any parent directory")}
 	for {
-		path := filepath.Join(dir, ConfigFile)
-		fi, err := os.Stat(path)
-		if err == nil {
-			if err := checkConfigFile(path, fi); err != nil {
-				return nil, err
-			}
-			b, err := os.ReadFile(path) //nolint:gosec // the repository's own config, checked above
-			if err != nil {
-				return nil, fmt.Errorf("config: %w", err)
-			}
-			c, err := ParseConfig(b)
-			if err != nil {
-				return nil, fmt.Errorf("%s: %w", path, err)
-			}
-			c.Root = dir
-			return c, nil
-		}
-		if !errors.Is(err, fs.ErrNotExist) {
-			return nil, fmt.Errorf("config: %w", err)
+		c, err := readConfigIn(dir)
+		if c != nil || err != nil {
+			return c, err
 		}
 		parent := filepath.Dir(dir)
-		if parent == dir || isRepoTop(dir) || sameDir(dir, homeInfo) {
-			return nil, noConfigError{proto.Errf(proto.CodeInvalid,
-				"run aries inside a repository that has one, or pass -C DIR; the search stops at the repository's top level and at your home directory",
-				ConfigFile+" not found here or in any parent directory")}
+		if sameDir(dir, homeInfo) || parent == dir {
+			return nil, notFound
+		}
+		if isRepoTop(dir) {
+			main := mainWorktree(dir)
+			if main == "" || sameDir(main, homeInfo) {
+				return nil, notFound
+			}
+			c, err := readConfigIn(main)
+			if c == nil && err == nil {
+				return nil, notFound
+			}
+			if c != nil {
+				c.Checkout = dir
+			}
+			return c, err
 		}
 		dir = parent
 	}
+}
+
+// readConfigIn reads and checks dir's config, returning nil and no
+// error when dir has none.
+func readConfigIn(dir string) (*Config, error) {
+	path := filepath.Join(dir, ConfigFile)
+	fi, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("config: %w", err)
+	}
+	if err := checkConfigFile(path, fi); err != nil {
+		return nil, err
+	}
+	b, err := os.ReadFile(path) //nolint:gosec // the repository's own config, checked above
+	if err != nil {
+		return nil, fmt.Errorf("config: %w", err)
+	}
+	c, err := ParseConfig(b)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	c.Root, c.Checkout = dir, dir
+	return c, nil
+}
+
+// mainWorktree returns the top level of the main worktree of the
+// repository whose linked worktree's top is dir, or "" when dir is not a
+// linked worktree's top or the repository has no main worktree. It reads
+// git's files rather than running git: dir/.git is a file naming the
+// worktree's git directory ("gitdir: PATH"), whose commondir file names
+// the repository's common directory, the main worktree's .git. A
+// submodule's .git file names a git directory with no commondir, and a
+// bare repository's common directory is no worktree's .git (core.bare),
+// so neither has one.
+func mainWorktree(dir string) string {
+	gitdir, ok := readGitPath(filepath.Join(dir, ".git"), "gitdir: ", dir)
+	if !ok {
+		return ""
+	}
+	common, ok := readGitPath(filepath.Join(gitdir, "commondir"), "", gitdir)
+	if !ok || filepath.Base(common) != ".git" {
+		return ""
+	}
+	main := filepath.Dir(common)
+	// The common directory must be main's own .git, a directory.
+	cfi, err := os.Stat(common)
+	if err != nil || !cfi.IsDir() {
+		return ""
+	}
+	gfi, err := os.Lstat(filepath.Join(main, ".git"))
+	if err != nil || !os.SameFile(cfi, gfi) || isBare(common) {
+		return ""
+	}
+	return main
+}
+
+// readGitPath reads a one-line file of git's holding a path after
+// prefix, resolving a relative path against base.
+func readGitPath(path, prefix, base string) (string, bool) {
+	b, err := os.ReadFile(path) //nolint:gosec // git's own file in the user's checkout
+	if err != nil || len(b) > 4096 {
+		return "", false
+	}
+	line, _, _ := strings.Cut(string(b), "\n")
+	p, ok := strings.CutPrefix(strings.TrimRight(line, "\r"), prefix)
+	if !ok || p == "" {
+		return "", false
+	}
+	p = filepath.FromSlash(p)
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(base, p)
+	}
+	return filepath.Clean(p), true
+}
+
+// isBare reports whether the git directory's config sets core.bare.
+func isBare(gitDir string) bool {
+	b, err := os.ReadFile(filepath.Join(gitDir, "config")) //nolint:gosec // git's own file in the user's checkout
+	if err != nil {
+		return false
+	}
+	section := ""
+	for line := range strings.Lines(string(b)) {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "[") {
+			section = strings.ToLower(strings.Trim(line, "[] \t"))
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if ok && section == "core" && strings.EqualFold(strings.TrimSpace(k), "bare") {
+			switch strings.ToLower(strings.TrimSpace(v)) {
+			case "true", "yes", "on", "1":
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // isRepoTop reports whether dir holds .git: a directory, or the file a

@@ -36,7 +36,7 @@ func gateErr(err error, r GateReason) bool {
 // A gate on an epic holds its whole plan: neither the epic, its child,
 // a task waiting on the child, nor the gate itself is ready, and none
 // can be started, until an approver passes the gate; then all of them
-// are ready.
+// are ready but the epic, which waits on its open child.
 func TestGateHoldsThePlanUntilPassed(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
@@ -74,10 +74,13 @@ func TestGateHoldsThePlanUntilPassed(t *testing.T) {
 		t.Errorf("gate after pass is %s, want closed", is.Status)
 	}
 	got := readyIDs(t, s)
-	for _, id := range []IssueID{epic.ID, child.ID, other.ID} {
+	for _, id := range []IssueID{child.ID, other.ID} {
 		if !slices.Contains(got, id) {
 			t.Errorf("Ready after the pass = %v, want %s in it", got, id)
 		}
+	}
+	if slices.Contains(got, epic.ID) {
+		t.Errorf("Ready after the pass = %v, want the epic %s left out while its child is open", got, epic.ID)
 	}
 	if _, _, err := s.StartIssue(ctx, bob, child.ID, 0, false); err != nil {
 		t.Errorf("StartIssue(child) after the pass: %v", err)

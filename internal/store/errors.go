@@ -116,6 +116,22 @@ func (e *HeldError) Error() string {
 // Unwrap makes errors.Is(err, ErrConflict) hold.
 func (e *HeldError) Unwrap() error { return ErrConflict }
 
+// ParentWaitError refuses a blocking edge from an issue to one under it
+// (Child, a child of Parent's or a descendant). A parent already waits on
+// its unclosed children, and is not ready while one is open; the edge
+// would also hold Child behind its own parent, so neither would ever be
+// ready. It wraps ErrCycle.
+type ParentWaitError struct {
+	Parent, Child IssueID
+}
+
+func (e *ParentWaitError) Error() string {
+	return fmt.Sprintf("%s is under %s, which waits on it already: %v", e.Child, e.Parent, ErrCycle)
+}
+
+// Unwrap makes errors.Is(err, ErrCycle) hold.
+func (e *ParentWaitError) Unwrap() error { return ErrCycle }
+
 // IdemError refuses an idempotency key the principal already used for a
 // different request, or used longer ago than the store's window
 // (Expired): the request it was used for was applied then, at Used, and

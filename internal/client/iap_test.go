@@ -27,9 +27,12 @@ import (
 
 func TestMain(m *testing.M) {
 	iaptest.Main()
-	// No test here reads the real ~/.ssh or ssh-agent.
+	// No test here reads the real ~/.ssh or ssh-agent, and the git the
+	// tests start does not read the user's git configuration.
 	restore := clienttest.Isolate()
+	restoreGit := clienttest.IsolateGit()
 	code := m.Run()
+	restoreGit()
 	restore()
 	os.Exit(code)
 }

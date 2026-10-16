@@ -57,15 +57,39 @@ closed. The other types (`related`, `discovered-from`, `duplicates`,
 `supersedes`, `waits-for`) only link issues.
 
 - **Ready** issues are open, and nothing holds them back: no open blocker
-  on the issue or on any parent, and nothing deferred. They come out
-  highest priority first, then oldest first, except that an issue whose
-  files overlap work another session holds comes after the rest
+  on the issue or on any parent, nothing deferred, and no child of its
+  own that is not closed. They come out highest priority first, then
+  oldest first, except that an issue whose files overlap work another
+  session holds comes after the rest
   ([Files](#files-what-an-issue-touches)).
 - **Blocked** issues are not closed and have at least one open blocker,
-  their own or a parent's.
+  their own or a parent's, or are waiting on open children of their own:
+  `blocked` says `waiting on 3 open children`.
+
+### Parents and their children
+
+An issue made with `--parent ID` (or given one with `update --parent`)
+is a child of that issue. The two wait on each other in different ways:
+
+- A child is held back by whatever holds its parent back: an open
+  blocker of the parent's, or a deferral, holds every issue under it.
+- A parent, of any type, waits on its children. While any child is not
+  closed (open, in progress, blocked or deferred), the parent is not
+  ready, so `ready` and `start` never offer an epic beside its own
+  work; `blocked` lists it with how many children are open. Its
+  children are not held by that.
+- Once its last child closes, the parent is ready again: what is left
+  is to check the whole and close it.
+
+So an epic waits on its children with no dependency to add, and
+`aries dep add EPIC CHILD` is refused as a cycle, saying so: the child
+would be held behind its own parent, and neither would ever be ready.
+For the same reason a child cannot depend on its own parent, or on
+anything under it. Order children among themselves with dependencies
+between siblings.
 
 A `blocks`, `conditional-blocks` or `waits-for` dependency that would form
-a cycle is refused.
+a cycle is refused, counting parents' waits as above.
 
 A status of `blocked` or `deferred` is a note anyone may change back to
 `open`, an agent included. To hold work back so that it stays held, use

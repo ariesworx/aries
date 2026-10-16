@@ -109,13 +109,13 @@ func TestHumanGate(t *testing.T) {
 	board.until("the pass, pushed", "carol/cli gate.pass "+gate)
 
 	got := agent.readyIDs()
-	for _, id := range []string{epic, step, other} {
+	for _, id := range []string{step, other} {
 		if !slices.Contains(got, id) {
 			t.Errorf("ready after the pass = %v, want %s", got, id)
 		}
 	}
-	if slices.Contains(got, gate) {
-		t.Errorf("ready after the pass = %v, want no gate", got)
+	if slices.Contains(got, gate) || slices.Contains(got, epic) {
+		t.Errorf("ready after the pass = %v, want no gate, and not the epic, which waits on its step", got)
 	}
 	if out, isErr := agent.call("reopen", map[string]any{"id": gate}); !isErr || !strings.Contains(out, "carol") {
 		t.Errorf("MCP reopen of the passed gate = %q, want a refusal naming carol", out)
