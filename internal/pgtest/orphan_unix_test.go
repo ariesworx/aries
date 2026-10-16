@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -206,7 +207,8 @@ func waitGone(t *testing.T, dir string) []string {
 
 // TestServerDiesWithItsProcess checks that a server does not outlive the
 // process that started it, however that process ends without calling
-// Stop, and that its directory goes with it. A test binary that is killed
+// Stop, and that its directory, its shared memory and its semaphores go
+// with it. A test binary that is killed
 // runs no deferred Stop: servers started by internal/e2e's TestMain were
 // found running hours after their tests, each holding hundreds of
 // megabytes, with their data left in the temporary directory.
@@ -235,6 +237,10 @@ func TestServerDiesWithItsProcess(t *testing.T) {
 			if !ok || !segmentExists(t, shm) {
 				t.Fatalf("the running server names no shared memory segment that exists (%q), so this test would see nothing", shm)
 			}
+			sems := semaphoreSets(filepath.Join(dir, "data"), pgPID)
+			if runtime.GOOS == "darwin" && len(sems) == 0 {
+				t.Fatal("the running server has no System V semaphore set, so this test would see nothing")
+			}
 			if err := tc.end(helper); err != nil {
 				t.Fatal(err)
 			}
@@ -257,6 +263,72 @@ func TestServerDiesWithItsProcess(t *testing.T) {
 			}
 			if segmentExists(t, shm) {
 				t.Errorf("the server's shared memory segment %s is still there after it was killed", shm)
+			}
+			// macOS allows 87,381 semaphores in all (kern.sysv.semmns),
+			// and a server takes about 400.
+			for _, set := range sems {
+				if semaphoreSetExists(set) {
+					t.Errorf("the server's semaphore set %d (key %#x) is still there after it was killed", set.id, set.key)
+				}
+			}
+		})
+	}
+}
+
+// TestKilledServerFreesItsSemaphores checks that a postmaster killed
+// outright, which frees none of its System V semaphores and shared
+// memory, leaves none behind: freed by the process that started it
+// while that lives, and by the watcher once it is gone. Postgres on
+// Linux uses no System V semaphores, so there the test skips.
+func TestKilledServerFreesItsSemaphores(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		end  func(helper *exec.Cmd, pgPID int) error
+	}{
+		{name: "postmaster killed", end: func(_ *exec.Cmd, pg int) error { return syscall.Kill(pg, syscall.SIGKILL) }},
+		// The process that started it is frozen, so it frees nothing,
+		// and then killed: what the watcher finds is a killed server.
+		{name: "postmaster and its process killed", end: func(h *exec.Cmd, pg int) error {
+			return errors.Join(
+				h.Process.Signal(syscall.SIGSTOP),
+				syscall.Kill(pg, syscall.SIGKILL),
+				h.Process.Kill(),
+			)
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			helper, dir, pgPID := startOrphanHelper(t, "")
+			sems := semaphoreSets(filepath.Join(dir, "data"), pgPID)
+			if len(sems) == 0 {
+				if runtime.GOOS == "darwin" {
+					t.Fatal("the running server has no System V semaphore set, so this test would see nothing")
+				}
+				t.Skip("Postgres here uses no System V semaphores")
+			}
+			shm, ok := segment(filepath.Join(dir, "data"))
+			if !ok || !segmentExists(t, shm) {
+				t.Fatalf("the running server names no shared memory segment that exists (%q), so this test would see nothing", shm)
+			}
+			if err := tc.end(helper, pgPID); err != nil {
+				t.Fatal(err)
+			}
+			for end := time.Now().Add(patience); ; time.Sleep(100 * time.Millisecond) {
+				var left []semSet
+				for _, set := range sems {
+					if semaphoreSetExists(set) {
+						left = append(left, set)
+					}
+				}
+				segLeft := segmentExists(t, shm)
+				if len(left) == 0 && !segLeft {
+					return
+				}
+				if time.Now().After(end) {
+					t.Fatalf("a minute after the postmaster (pid %d) was killed, %d of its %d semaphore sets are still there (%v), and its shared memory segment: %t", pgPID, len(left), len(sems), left, segLeft)
+				}
 			}
 		})
 	}

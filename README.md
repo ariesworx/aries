@@ -217,21 +217,23 @@ on Ubuntu 24.04 LTS or 26.04 LTS is set up by one script, `install-server.sh`
 | 6 | Locks, gates, formulas, swarm, cross-project | In progress: slices G0, G1 and G2 are built: human gates (`aries gate`; agents may add one, a person passes it), dates on an issue (`--defer-until`, `--due`, listed by `digest` and `prime`), CI gates, which a CI job's `aries gate pass` or `fail` reports by its branch, with `landed` telling closed from landed ([CI gates](docs/ci.md)), and locks: leased, fenced, first-in-first-out mutexes and semaphores that a script holds around a command with `aries lock run` ([Locks](docs/concepts.md#locks); [§20](docs/design/aries.md#20-coordination-across-agents-and-projects-the-stage-6-design)) |
 | 7 | Scheduled digests, GitHub sync, compaction, vectors | |
 
-**v1.0.0.** The next release is v1.0.0. It holds the rename to Aries;
-the move from Dolt to Postgres, slices P0, P1, P2, P4 and P5 of
-[decision 79](docs/design/aries.md#14-decisions); stage 6's slices G0
-to G2; sign-in through your identity provider (Google Workspace,
-Microsoft Entra ID, Okta, Keycloak or GitHub), in the browser or by a
-URL, beside SSH keys; service principals that sign in with their
-platform's workload identity; a Claude Desktop extension (decision 83);
-and a hardening pass: a review of every public name, flag, variable and
-setting, the protocol settled at one version (decision
-78), and the open follow-ups. Stage 6's G3 to G5 come in 1.x releases
-as compatible additions. Of the move, P0, P1, P2 and P4 are built:
-the store, the daemon and every test run on Postgres alone, a schema for
-each project, and the server guide, the installer, the AppArmor profile,
-backups and the Docker test server are Postgres's. P5, the soaks rerun
-on Linux, remains.
+**v1.0.0.** The next release is v1.0.0, cut back so that Aries can be
+used to build Aries sooner ([decision 90](docs/design/aries.md#14-decisions)).
+It holds the rename to Aries; the move from Dolt to Postgres, slices P0
+to P5 of decision 79; stage 6's slices G0 to G2; HTTPS as the primary
+transport, with SSH off unless an operator turns it on; sign-in through
+your company's identity provider (any OpenID Connect provider: Google
+Workspace, Microsoft Entra ID, Okta, Keycloak, AD FS), in the browser or
+by a URL, beside keys; service principals that sign in with their
+platform's workload identity; and a hardening pass: a review of every
+public name, flag, variable and setting, the protocol settled at one
+version (decision 78), and a security review of sign-in. Built: all of
+it, service principals (slice N5) on its branch, but P5 (the soaks on Linux, the
+installer on amd64, a machine with the AppArmor profiles enforced, ACME
+against a real CA), that security review and a check against a real
+provider. A remote MCP endpoint, GitHub's sign-in and the device grant,
+a Claude Desktop extension, and stage 6's G3 to G5 come in 1.x releases
+as compatible additions.
 
 The Bearings stages (B0 to B5) start once Aries stage 3 lands; see the
 [Bearings plan](docs/design/bearings.md#6-plan).
