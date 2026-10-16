@@ -1,0 +1,27 @@
+# The AppArmor profile that a server with SSH off puts on the binary's
+# path (docs/server.md, "Confine ariesd with AppArmor"). Install it as
+# /etc/apparmor.d/ariesd-default only with SSH off, beside the file
+# ariesd and abstractions/ariesd-admin and tunables/ariesd; with SSH on
+# the path carries the bridge's profile, ariesd-stdio, instead, and the
+# two cannot both be loaded: AppArmor attaches one profile to a path.
+# `install-server.sh` swaps them when SSH is turned on or off.
+# README.md says how they were tested.
+#
+# With SSH off nothing runs as sshd's forced command, so nothing needs
+# the bridge's profile, and a command run from the binary's path with no
+# profile asked for (`ariesd status`, `ariesd control init`, `ariesd
+# upgrade`, a run without aa-exec) would be unconfined. This profile
+# confines it to the operator's rules, which are those of ariesd-admin
+# (abstractions/ariesd-admin). The daemon is not affected: the unit asks
+# for ariesd-serve by name.
+#
+# Rules of your own go in /etc/apparmor.d/local/ariesd-admin.
+
+abi <abi/4.0>,
+
+include <tunables/global>
+include <tunables/ariesd>
+
+profile ariesd-default @{ariesd_bin}/ariesd flags=(attach_disconnected) {
+  include <abstractions/ariesd-admin>
+}

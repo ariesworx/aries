@@ -2857,7 +2857,9 @@ listed no profile for sshd, sshd and its children ran `unconfined`, and
 so did ariesd. Aries ships three profiles for ariesd
 ([deploy/apparmor](../deploy/apparmor/README.md)), in two files: the
 daemon's and the operator's in `ariesd`, and the bridge's in
-`ariesd-stdio`, which only a server with SSH on installs. With SSH on
+`ariesd-stdio`, which only a server with SSH on installs. A fourth,
+`ariesd-default` in a file of its own, is what a server with SSH off
+installs in the bridge's place. With SSH on
 they matter most for the bridge, `ariesd stdio`: sshd starts it for every connection,
 outside the systemd unit and so with none of the unit's protections,
 as a user that owns its own binary, its config file and its
@@ -2866,18 +2868,23 @@ as a user that owns its own binary, its config file and its
 | Profile | Runs | May |
 |---|---|---|
 | `ariesd-stdio`, with SSH on | `ariesd stdio`, `ariesd status`, and anything else run from the binary's path with no profile asked for | Read the config file and connect to the daemon's socket. No network, no other file, no program |
+| `ariesd-default`, with SSH off | `ariesd status`, `control init`, `import-bd`, `export-bd`, `upgrade`, and anything else run from the binary's path with no profile asked for | The operator's rules, below, so a command run without `aa-exec` is confined as one run with it |
 | `ariesd-serve` | `ariesd serve`, because the unit asks for it | Read the config file, listen on the socket, reach Postgres by its unix socket or over TCP and read the database's client files in `/etc/aries/postgres`, write the keys file and read `authorized_keys`; resolve names and read the machine's certificate authorities, for a managed Postgres or a hosted backend; listen on the loopback port for metrics and health, post metrics and traces to a collector, make and read the key of the stand-ins its traces name people by, and write to systemd's notify socket ([Observability](#observability)). No program |
-| `ariesd-admin` | `control init`, `import-bd`, `export-bd` and `upgrade`, when the operator asks for it | Open the store as the daemon does, read and write files in the top of `/var/lib/aries`, read `authorized_keys`, reach the network, replace the binary in `/opt/aries/bin`, and run `sudo` |
+| `ariesd-admin` | `control init`, `import-bd`, `export-bd` and `upgrade`, when the operator asks for it with `aa-exec` | Open the store as the daemon does, read and write files in the top of `/var/lib/aries`, read `authorized_keys`, reach the network, replace the binary in `/opt/aries/bin`, and run `sudo` |
 
 AppArmor picks a profile by the program's path and never by its
-arguments, so one path can carry one profile by itself. It carries the
-smallest, since sshd has no way to ask for another. None of the three
-may write the config file or `authorized_keys`, and only the operator's
-may write the binary. With SSH off nothing runs as sshd's forced
-command, so the bridge's profile is not installed, and the path carries
-none: `ariesd status`, and anything else run from it with no profile
-asked for, runs unconfined, as it would with no profiles at all
-([SSH on and off](#ssh-on-and-off)).
+arguments, so one path can carry one profile by itself. With SSH on it
+carries the smallest, since sshd has no way to ask for another. None of
+the profiles may write the config file or `authorized_keys`, and only
+the operator's may write the binary. With SSH off nothing runs as
+sshd's forced command, so the bridge's profile is not installed and the
+path carries `ariesd-default` instead, which has the operator's rules
+(they are one file, `abstractions/ariesd-admin`, that it and
+`ariesd-admin` both include): `ariesd status`, and anything else run
+from the path with no profile asked for, is confined, and the
+operator's commands need no `aa-exec`
+([SSH on and off](#ssh-on-and-off)). The two are never loaded
+together; `install-server.sh` swaps them when SSH is turned on or off.
 
 **Install them**, as root:
 
@@ -2885,8 +2892,11 @@ asked for, runs unconfined, as it would with no profiles at all
 cd "$(mktemp -d)"
 curl -fsSL -o profile https://raw.githubusercontent.com/ariesworx/aries/main/deploy/apparmor/ariesd
 curl -fsSL -o tunables https://raw.githubusercontent.com/ariesworx/aries/main/deploy/apparmor/tunables/ariesd
+curl -fsSL -o admin https://raw.githubusercontent.com/ariesworx/aries/main/deploy/apparmor/abstractions/ariesd-admin
 install -m 0644 profile /etc/apparmor.d/ariesd
 install -m 0644 tunables /etc/apparmor.d/tunables/ariesd
+install -d -m 0755 /etc/apparmor.d/abstractions
+install -m 0644 admin /etc/apparmor.d/abstractions/ariesd-admin
 apparmor_parser -r /etc/apparmor.d/ariesd
 mkdir -p /etc/systemd/system/ariesd.service.d
 printf '[Service]\nAppArmorProfile=ariesd-serve\n' > /etc/systemd/system/ariesd.service.d/apparmor.conf
@@ -2912,7 +2922,21 @@ apparmor_parser -r /etc/apparmor.d/ariesd-stdio
 ```
 
 The installer's `--apparmor` installs it with SSH on, and not without;
-`--disable-ssh` unloads and removes it. Profiles from before 16 October
+`--disable-ssh` unloads and removes it. If `ariesd-default` is loaded,
+unload it first (below): both attach to the binary's path.
+
+**Only with SSH off**, install the default profile instead, which holds
+the binary's path with the operator's rules:
+
+```sh
+curl -fsSL -o default https://raw.githubusercontent.com/ariesworx/aries/main/deploy/apparmor/ariesd-default
+install -m 0644 default /etc/apparmor.d/ariesd-default
+apparmor_parser -r /etc/apparmor.d/ariesd-default
+```
+
+Turning SSH on or off later swaps the two: `apparmor_parser -R` and
+`rm` the one, then install the other. The installer's `--apparmor` does
+it. Profiles from before 16 October
 2026 held the bridge's in `/etc/apparmor.d/ariesd`, named `ariesd`:
 install this release's files as above, and move rules of your own for
 the bridge from `local/ariesd` to `local/ariesd-stdio`. The installer
@@ -2962,6 +2986,9 @@ sudo -u aries -H aa-exec -p ariesd-admin -- ariesd import-bd bd.jsonl
 sudo -u aries -H aa-exec -p ariesd-admin -- ariesd export-bd -o back.jsonl
 ```
 
+- With SSH off, `aa-exec` is not needed: the path carries
+  `ariesd-default`, which has the same rules, so such a command is
+  confined as it is, and `aa-exec -p ariesd-admin` gives the same result.
 - With SSH on, without `aa-exec` such a command runs under the
   bridge's profile and is refused with `permission denied`: `control init` on
   `authorized_keys`, anything that opens the store on Postgres's
@@ -2981,7 +3008,7 @@ sudo -u aries -H aa-exec -p ariesd-admin -- ariesd export-bd -o back.jsonl
 - `aa-exec` is in Ubuntu's `apparmor` package, which is installed.
 - **`ariesd status` needs no `aa-exec`**: `sudo -u aries -H ariesd
   status` runs under the bridge's profile with SSH on, which allows the
-  two things it does, and under none with SSH off. With SSH on root
+  two things it does, and under `ariesd-default` with SSH off. With SSH on root
   cannot run it directly, because that profile gives root no way past
   the config file's mode; the refusal says to run it as `aries`.
 
@@ -2991,8 +3018,9 @@ home directory, `keys_file`, `authorized_keys`,
 files), change it in
 `/etc/apparmor.d/tunables/ariesd`, which names each one once, and
 load the profiles again with `apparmor_parser -r
-/etc/apparmor.d/ariesd`, and with SSH on `apparmor_parser -r
-/etc/apparmor.d/ariesd-stdio`. Rules of your own go in
+/etc/apparmor.d/ariesd`, with SSH on `apparmor_parser -r
+/etc/apparmor.d/ariesd-stdio`, and with SSH off `apparmor_parser -r
+/etc/apparmor.d/ariesd-default`. Rules of your own go in
 `/etc/apparmor.d/local/ariesd-serve`, `local/ariesd-admin` and
 `local/ariesd-stdio`.
 
@@ -3025,7 +3053,8 @@ kernel logged some at boot (`who`, `systemd-detect-virt`).
 ```sh
 apparmor_parser -R /etc/apparmor.d/ariesd
 [ ! -e /etc/apparmor.d/ariesd-stdio ] || apparmor_parser -R /etc/apparmor.d/ariesd-stdio
-rm -f /etc/apparmor.d/ariesd /etc/apparmor.d/ariesd-stdio /etc/apparmor.d/tunables/ariesd
+[ ! -e /etc/apparmor.d/ariesd-default ] || apparmor_parser -R /etc/apparmor.d/ariesd-default
+rm -f /etc/apparmor.d/ariesd /etc/apparmor.d/ariesd-stdio /etc/apparmor.d/ariesd-default /etc/apparmor.d/tunables/ariesd /etc/apparmor.d/abstractions/ariesd-admin
 rm /etc/systemd/system/ariesd.service.d/apparmor.conf
 systemctl daemon-reload
 systemctl restart ariesd

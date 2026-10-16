@@ -453,7 +453,12 @@ print_plan() {
 	fi
 	if [ "$apparmor" = 1 ]; then
 		say "  /etc/apparmor.d/ariesd"
-		[ "$ssh_on" = 0 ] || say "  /etc/apparmor.d/ariesd-stdio"
+		if [ "$ssh_on" = 1 ]; then
+			say "  /etc/apparmor.d/ariesd-stdio"
+		else
+			say "  /etc/apparmor.d/ariesd-default"
+		fi
+		say "  /etc/apparmor.d/abstractions/ariesd-admin"
 		say "  /etc/apparmor.d/tunables/ariesd"
 		say "  /etc/systemd/system/ariesd.service.d/apparmor.conf"
 	fi
@@ -711,6 +716,8 @@ EOF
 # are the guide's because they are deploy/apparmor's.
 apparmor_profile() { cat "$tmp/apparmor/ariesd"; }
 apparmor_stdio() { cat "$tmp/apparmor/ariesd-stdio"; }
+apparmor_default() { cat "$tmp/apparmor/ariesd-default"; }
+apparmor_admin() { cat "$tmp/apparmor/admin"; }
 apparmor_tunables() { cat "$tmp/apparmor/tunables"; }
 
 # The apt source of step 2: PGDG's suite for this release of Ubuntu,
@@ -1381,30 +1388,54 @@ serve_ssh() {
 	fi
 }
 
+# unload_profile NAME removes the profile NAME from the kernel, if it is
+# loaded, and its file. Two profiles are never loaded together, the
+# bridge's and the default: AppArmor attaches one profile to a path.
+unload_profile() {
+	if [ -e "/etc/apparmor.d/$1" ]; then
+		if grep -q "^$1 " /sys/kernel/security/apparmor/profiles 2>/dev/null; then
+			act apparmor_parser -R "/etc/apparmor.d/$1"
+		fi
+		act rm -f "/etc/apparmor.d/$1"
+	fi
+}
+
 confine() {
 	step 10 'Confine ariesd with AppArmor'
 	if [ -e /etc/systemd/system/ariesd.service.d/apparmor.conf ]; then
 		aa_exec="aa-exec -p ariesd-admin --"
 	fi
-	# The bridge's profile is SSH's: with SSH off, nothing runs as sshd's
-	# forced command.
+	# The path carries the bridge's profile with SSH on, whose sshd cannot
+	# ask for another, and the operator's rules, ariesd-default, with SSH
+	# off, so that no command runs unconfined.
 	_stdio=/etc/apparmor.d/ariesd-stdio
+	_default=/etc/apparmor.d/ariesd-default
 	if [ "$apparmor" = 0 ]; then
 		if [ -n "$aa_exec" ]; then
 			ok "installed by an earlier run; left as they are"
-			[ "$ssh_on" = 0 ] || [ -e "$_stdio" ] || note "the bridge's profile, $_stdio, is not installed: --apparmor installs it"
+			if [ "$ssh_on" = 1 ]; then
+				[ -e "$_stdio" ] || note "the bridge's profile, $_stdio, is not installed: --apparmor installs it"
+			else
+				[ -e "$_default" ] || note "the default profile, $_default, is not installed: --apparmor installs it"
+			fi
 		else
 			note "skipped: --apparmor installs them"
 		fi
 		[ "$ssh_on" = 1 ] || [ "$disable_ssh" = 1 ] || [ ! -e "$_stdio" ] ||
 			note "warning: $_stdio, from an earlier run with SSH on, is left as it is: --disable-ssh removes it"
+		[ "$ssh_on" = 0 ] || [ ! -e "$_default" ] ||
+			note "warning: $_default, from an earlier run with SSH off, is left as it is, and holds the path the bridge's profile needs: --apparmor swaps them"
 		return 0
 	fi
 	mkdir "$tmp/apparmor"
 	fetch deploy/apparmor/ariesd "$tmp/apparmor/ariesd" || die "cannot read deploy/apparmor/ariesd from $from" "check the network"
+	fetch deploy/apparmor/abstractions/ariesd-admin "$tmp/apparmor/admin" || die "cannot read deploy/apparmor/abstractions/ariesd-admin from $from" "check the network"
 	fetch deploy/apparmor/tunables/ariesd "$tmp/apparmor/tunables" || die "cannot read deploy/apparmor/tunables/ariesd from $from" "check the network"
 	put /etc/apparmor.d/tunables/ariesd 644 root root apparmor_tunables "deploy/apparmor/tunables/ariesd from $from"
 	_aa_new=$wrote
+	ensure_dir /etc/apparmor.d/abstractions root root 755
+	put /etc/apparmor.d/abstractions/ariesd-admin 644 root root apparmor_admin "deploy/apparmor/abstractions/ariesd-admin from $from"
+	[ "$wrote" = 0 ] || _aa_new=1
 	put /etc/apparmor.d/ariesd 644 root root apparmor_profile "deploy/apparmor/ariesd from $from"
 	[ "$wrote" = 0 ] || _aa_new=1
 	if [ "$_aa_new" = 0 ] && grep -q '^ariesd-serve ' /sys/kernel/security/apparmor/profiles 2>/dev/null; then
@@ -1413,6 +1444,7 @@ confine() {
 		act apparmor_parser -r /etc/apparmor.d/ariesd
 	fi
 	if [ "$ssh_on" = 1 ]; then
+		unload_profile ariesd-default
 		fetch deploy/apparmor/ariesd-stdio "$tmp/apparmor/ariesd-stdio" || die "cannot read deploy/apparmor/ariesd-stdio from $from" "check the network"
 		put "$_stdio" 644 root root apparmor_stdio "deploy/apparmor/ariesd-stdio from $from"
 		if [ "$wrote" = 0 ] && [ "$_aa_new" = 0 ] && grep -q '^ariesd-stdio ' /sys/kernel/security/apparmor/profiles 2>/dev/null; then
@@ -1420,8 +1452,16 @@ confine() {
 		else
 			act apparmor_parser -r "$_stdio"
 		fi
-	elif [ "$disable_ssh" = 0 ] && [ -e "$_stdio" ]; then
-		note "warning: $_stdio, from an earlier run with SSH on, is left as it is: --disable-ssh removes it"
+	else
+		# Turning SSH off: the bridge's profile goes first, for the path.
+		unload_profile ariesd-stdio
+		fetch deploy/apparmor/ariesd-default "$tmp/apparmor/ariesd-default" || die "cannot read deploy/apparmor/ariesd-default from $from" "check the network"
+		put "$_default" 644 root root apparmor_default "deploy/apparmor/ariesd-default from $from"
+		if [ "$wrote" = 0 ] && [ "$_aa_new" = 0 ] && grep -q '^ariesd-default ' /sys/kernel/security/apparmor/profiles 2>/dev/null; then
+			ok "the default profile is loaded"
+		else
+			act apparmor_parser -r "$_default"
+		fi
 	fi
 	ensure_dir /etc/systemd/system/ariesd.service.d root root 755
 	put /etc/systemd/system/ariesd.service.d/apparmor.conf 644 root root apparmor_dropin

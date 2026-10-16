@@ -517,6 +517,18 @@ seed, its request count and its result. A release candidate runs it on
 the commit to be tagged ([RELEASING.md](RELEASING.md)). A runner has 4
 processors and 16 GiB, enough for one long soak at a time, and runs one.
 
+The `p5-machine` workflow (`.github/workflows/p5-machine.yml`) is
+the other check that needs a real machine: on the same two runners,
+which are fresh virtual machines with systemd and AppArmor, it builds
+the binaries, runs `install-server.sh --profile private --apparmor` as
+root with a certificate from a throwaway CA (and again, to see it
+change nothing), checks that `ariesd` runs under `ariesd-serve` in
+enforce mode, drives it with `aries` over HTTPS, and fails on any
+AppArmor denial of an `ariesd` profile in the journal. It also runs
+only by hand, from `main`: `gh workflow run p5-machine.yml`. Run it
+after a change to the installer, to `deploy/apparmor` or to what
+`ariesd` reads, writes, connects to or runs.
+
 ### What it does
 
 Five principals with five sessions each work the backlogs of two
@@ -697,6 +709,37 @@ for each second of work, so a long run costs no more memory than one
 without it. With `-v` it prints what it compared. The latency of a run
 with a dead collector is in the same report as any run's, to set beside
 a run with telemetry off: it is reported, not asserted.
+
+### With a flood
+
+`ARIES_SOAK_FLOOD=1` sends the HTTPS listener unauthenticated traffic
+beside the sessions (`soak_flood_test.go`), to see what it costs them
+(transport.md §12.4): TCP connections and TLS handshakes abandoned,
+upgrades that never prove a key, junk to `/oauth/token` and
+`/oauth/authorize`, and connections that send their headers or body a
+byte a second. It puts the run's sessions on HTTPS, as
+`ARIES_E2E_TRANSPORT=https` does, and gives the daemon a sign-in
+provider so that `/oauth/*` exists. Every check of the soak holds as
+without it, and none is made of the flood: the report says what was
+sent, how each kind ended at the client, and what the daemon counted
+(including the sessions' own upgrades and key proofs), for a person to
+judge by the sessions' latencies beside a run without it.
+
+```sh
+ARIES_REQUIRE_POSTGRES=1 ARIES_SOAK_FLOOD=1 go test -race -run 'TestSoak$' -v ./internal/e2e/
+```
+
+| Variable | |
+|---|---|
+| `ARIES_SOAK_FLOOD_RATE` | Attacks begun each second, 20 by default |
+| `ARIES_SOAK_FLOOD_CONNS` | Most open at once, 100 by default; one past it is counted, not sent |
+| `ARIES_SOAK_FLOOD_FROM` | A loopback address to send from, such as `127.0.0.2` (macOS: `sudo ifconfig lo0 alias 127.0.0.2`) |
+
+From 127.0.0.1 the flood and the sessions are one address to the
+listener, so the run raises `https_conns_per_addr`, which would shut the
+sessions out; with `ARIES_SOAK_FLOOD_FROM` that cap keeps its default and
+the flood is an address of its own. It cannot be combined with
+`ARIES_SOAK_TELEMETRY=check`.
 
 ## Working with an AI agent
 

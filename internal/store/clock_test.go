@@ -1177,3 +1177,43 @@ func TestWindowsDoNotReopenOnBackwardStep(t *testing.T) {
 		}
 	}
 }
+
+// The time a store's leases gained while it ran slow behind a clock set
+// back is forgiven once the clock has caught up with it, whether or not
+// anything read the store's time at that moment. An idle store, as a
+// project's is while its agents are cut off, may not be read between
+// the catching up and a later jump forward, which then took the slack
+// back from every lease: the soak's partition mode ended a claim 0.6s
+// short of its lease that way (seed 7307281696249292707).
+func TestSlackIsForgivenWithoutAReadOnceCaughtUp(t *testing.T) {
+	t.Parallel()
+	c := newTwoClocks()
+	s, _ := steppedStore(t, "", c, Options{})
+	ctx := t.Context()
+	is := mustCreate(t, s, NewIssue{})
+	_, cl, err := s.StartIssue(ctx, alice, is.ID, time.Hour, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.step(-20 * time.Second)
+	s.Now()
+	c.run(2 * time.Second) // the store's time advances 1s: 1s of slack
+	s.Now()
+	c.run(time.Minute) // the clock catches up, and nothing reads the store's time
+	const jump = 14 * time.Minute
+	c.step(jump)
+	if _, err := s.ReapClaims(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ClaimOf(ctx, is.ID)
+	if err != nil || got == nil {
+		t.Fatalf("ClaimOf = %v, %v", got, err)
+	}
+	if want := cl.ExpiresAt.Add(jump); !got.ExpiresAt.Equal(want) {
+		t.Errorf("lease after the clock caught up and then jumped %s expires %s, want %s: extended by the whole jump",
+			jump, got.ExpiresAt, want)
+	}
+	if now := s.Now(); !now.Equal(c.now()) {
+		t.Errorf("Now() = %s, want the clock's %s", now, c.now())
+	}
+}

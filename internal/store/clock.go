@@ -343,10 +343,14 @@ func (s *Store) readTime() view {
 		t.slack += max(0, elapsed-slow.Sub(t.high))
 		t.high, v.at = slow, slow
 	} else {
+		// The clock, less any jump not yet settled, has caught up with
+		// the store's time: the store follows it again, and what its
+		// leases gained while it ran slow is forgiven. A jump pending
+		// does not keep the slack, or a store that nothing read as the
+		// clock caught up would take it back from every lease when it
+		// settles.
 		t.high = v.at
-		if v.pending == 0 {
-			t.held, t.slack = false, 0
-		}
+		t.held, t.slack = false, 0
 	}
 	t.lastMono, v.slack = r.mono, t.slack
 	// Only a time given out raises the floor: a jump this store has not
