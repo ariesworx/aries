@@ -1262,11 +1262,13 @@ database holds to a file, and sshd reads that file before
 anywhere, and nobody edits a file on the server. The file is
 `~aries/.ssh/aries_keys`, in the format of `authorized_keys`: a
 first line that says ariesd generates it, then one line for each key
-of each active principal, the line you would have written by hand with
-the key's fingerprint added:
+of each active principal that has not ended, the line you would have
+written by hand with the key's fingerprint added, and for a key with an
+end ([Keys that end](#keys-that-end)) that end as `expiry-time`:
 
 ```text
 restrict,command="/usr/local/bin/ariesd stdio --principal alice --key SHA256:…" ssh-ed25519 AAAA…
+restrict,expiry-time="20261116170000Z",command="/usr/local/bin/ariesd stdio --principal bob --key SHA256:…" ssh-ed25519 AAAA…
 ```
 
 sshd asks ariesd nothing. It reads two files, ariesd's first, and
@@ -1507,6 +1509,56 @@ Not checked:
   does not get that label on its `.ssh` by default. That is as true of
   `authorized_keys` as of the keys file.
 
+#### Keys that end
+
+A key may be given an end, for a contractor's key or a stopgap CI key
+(design decision 87):
+
+```sh
+aries admin key add bob bob.pub --expires 30d
+aries admin key add ci-deploy deploy.pub --expires 2026-12-31T17:00:00Z
+```
+
+A duration (`12h`, `30d`, `2w`) is counted on the server's clock, not
+the machine's that runs `aries`; a time is RFC 3339 with its zone. The
+end is kept to the second, and may be at most ten years away: give a
+key meant to last longer no end. `aries admin key add` and
+`aries admin key list` print each key's end, in UTC; a key with none
+lasts until it is removed, as before. To give a key another end, remove
+it and add it again: adding a key the principal has with another end is
+refused, `exists`, naming the removal.
+
+From its end the key signs in over neither transport (decisions 59 and
+89):
+
+- **sshd** refuses it by its line's `expiry-time`, which ariesd writes
+  in UTC, fourteen digits marked `Z`. Without the `Z` sshd reads the
+  digits in the server's own zone, and on a server set west of UTC
+  would let an ended key in for hours (measured on OpenSSH 9.6p1 and
+  10.2p1). sshd checks once, when a connection authenticates, on the
+  wall clock.
+- **ariesd** refuses it at the handshake, and in the proof over HTTPS,
+  on [its own clock](#the-servers-clock), which is never behind the
+  wall clock, with `auth` and the time it ended. So ariesd refuses at
+  or before the moment sshd would, and a clock set back, which revives
+  the line at sshd, does not revive the key.
+- **The connections it signed in close at its end**, over SSH and over
+  HTTPS, since sshd never looks at an open connection again. ariesd
+  sets a timer for the earliest end of any key, and looks at least
+  every 30 seconds besides; at the end it writes the keys file without
+  the key's line, closes its connections, and logs `key.expired` once
+  for the key and `conn.dropped` with `reason="key expired"`
+  ([Events](#events)). Claims are left as they are: a lease the client
+  no longer renews ends as leases do.
+- **An ended key is listed** by `aries admin key list` for an hour
+  after its end, so that its refusals can be traced, and is then
+  deleted on the reaper's tick. That is pruning, not history: the
+  control store's event log has the `key.add` that set the end, and
+  no event for the deletion.
+
+With SSH off the key's end holds for the proof over HTTPS alike; the
+keys file is not written.
+
 ### Managing access
 
 Admins manage a server of many projects with `aries admin`, from any
@@ -1593,7 +1645,8 @@ person.
   prints, and closes the connections that key had signed in. It warns
   when the key is also a line of `authorized_keys` on the server, where
   sshd still accepts it
-  ([Keys from the store](#keys-from-the-store), step 5).
+  ([Keys from the store](#keys-from-the-store), step 5). `key add
+  --expires` gives a key an end ([Keys that end](#keys-that-end)).
 - **Losing access releases claims.** When a membership is removed, the
   principal's claims in that project end; when a principal is disabled,
   its claims in every project; when a project is archived, every claim
@@ -4408,6 +4461,7 @@ outside it.
 | `key … is the key this connection signed in with` | `aries admin key remove` of your own key, on a connection that key signed in | Sign in with another of your keys (`ARIES_KEY_FILE=PATH`) and remove it from there, or ask an admin |
 | `… is the last server admin who is not disabled` | `aries admin principal disable` of the only enabled server admin | Enable another first, or name another under `admins:` and restart |
 | `the key that signed in is no longer one the server holds for …` | The key was removed, and sshd read a keys file from before that: one ariesd could not rewrite, or one restored from a backup; or an `authorized_keys` line was given `--key` by hand, which only ariesd writes | Use another key, or have the key added again; check `aries admin status` for a failed write; remove `--key` from a hand-written line |
+| `the key that signed in ended at …` | The key was added with `--expires`, and its end has passed ([Keys that end](#keys-that-end)) | Ask an admin for a key that has not ended: `aries admin key add NAME FILE.pub`, with `--expires` for another end |
 | `this server holds one project, so it has no projects, principals or members to manage` | `aries admin project`, `principal`, `member` or `key` on a server with no `control_schema` | [Opt in](#opt-in), or add people as lines of `authorized_keys` |
 | `schema project_… , which project … would have, is already in the database` | `aries admin project add` named a project whose schema ([Opt in](#opt-in), step 3) something else made: another ariesd's project, an earlier one, or a person | Choose another name; or, if nothing uses that schema, drop or rename it as its owner and run the same command |
 | `another role made schema …` | A project being created found its schema made by another role, which ariesd's may not use | As the schema's owner or a superuser, run the statement in the fix, then run the same `aries admin project add NAME` again |

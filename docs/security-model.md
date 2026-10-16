@@ -141,6 +141,38 @@ change it notices by the file's size or time.
 Either way the key only names a principal. What that principal reaches
 is decided afterward, by its memberships.
 
+**A key may have an end** (`aries admin key add --expires`;
+[Keys that end](server.md#keys-that-end)), and from it the key signs in
+over neither transport. Three things enforce it, each on its own clock:
+
+- **sshd**, by the `expiry-time` of the key's line, when a connection
+  authenticates, on the wall clock. ariesd writes it in UTC, marked
+  `Z`. sshd reads fourteen digits without the `Z` in the server's own
+  zone, so on a server set west of UTC such a line admitted a key that
+  had ended, for as long as the zone's offset: measured on OpenSSH
+  9.6p1 and 10.2p1, in three zones (`spike/identity/RESULTS.md`,
+  section 4). A test pins the `Z`.
+- **ariesd**, at the handshake and in the proof over HTTPS, on the
+  store's clock, which is the later of the wall clock and the latest
+  time it has used (decision 37): never behind the wall clock, so ariesd
+  refuses at or before the moment sshd would. A clock set back revives
+  the line at sshd, and ariesd still refuses.
+- **ariesd again, for open connections**, which sshd never checks a
+  second time: a connection admitted a minute before its line's end
+  was still served after it (Measured). At a key's end ariesd closes
+  every connection it signed in, over SSH and HTTPS (decision 59), and
+  takes its line out of the keys file. A timer is set for the earliest
+  end, and set again after each key added and each tick of the reaper,
+  which reads the control store again: a key `ariesd control init`
+  added beside the daemon is seen there, so its open connections may
+  outlive its end by up to that half minute, though no new one is
+  admitted.
+
+A key that has ended is deleted an hour later, quietly: its end was
+recorded with its `key.add` event. So a replay of the control store's
+event log must take a key whose end is over an hour past as possibly
+gone.
+
 **Who may add a key.** Server admins, and a project admin for a principal
 whose every project they administer; a principal in no project, and a
 server admin, are beyond a project admin's reach. Nobody adds a key to
@@ -498,7 +530,8 @@ it:
   that file that forces the bridge; a line that runs another command,
   or names a reserved principal, is no one's. The connection carries the
   store's key's fingerprint, as one by the keys file does, so removing
-  the key closes it.
+  the key closes it, and so does the key's end. A key past its end
+  proves nothing (decision 89), and is refused saying when it ended.
 - **Offering keys tells the server which you hold**, and a server tells
   anyone who offers a key whether it knows it, as sshd does. Proving a
   key needs its private half.

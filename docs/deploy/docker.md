@@ -116,6 +116,7 @@ on the volume.
 | `ARIES_SSH` | unset | `1` serves SSH beside HTTPS: sshd runs, and ariesd writes the keys file it reads. Unset, sshd does not run, ariesd refuses the bridge and writes no keys file, as on a fresh server |
 | `ARIES_PORT` | `2222` | sshd's port on 127.0.0.1, with SSH on, also printed in `.aries.yaml` |
 | `ARIES_TELEMETRY` | unset | `1` turns ariesd's telemetry on ([Telemetry](#telemetry)). Unset, ariesd exports nothing and opens no port, as on a server where nothing is configured |
+| `ARIES_TZ` | unset, UTC | The zone sshd and ariesd run in, as `TZ`: a POSIX zone such as `ARIES-14`, fourteen hours east of UTC, since the image holds no zone files. sshd reads a key's `expiry-time` without its `Z` in this zone; the smoke test runs the server at UTC+14 to show the `Z` is written ([Keys that end](../server.md#keys-that-end)) |
 
 Both ports are published on 127.0.0.1 alone, so nothing beyond your
 machine can reach them.

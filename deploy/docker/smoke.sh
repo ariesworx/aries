@@ -6,8 +6,10 @@
 # whose key only the control database holds, which sshd reads from the
 # keys file ariesd writes), runs the commands of docs/ci.md's workflows
 # as a CI job would, holds a lock around a command, restarts the server to check that its state
-# persists, then removes the server and its volume. It exits non-zero on
-# the first failure.
+# persists, gives a key an end and sees it end, then removes the server
+# and its volume. It exits non-zero on the first failure. The server runs
+# fourteen hours east of UTC (ARIES_TZ), where sshd would end a key early
+# if its expiry-time lacked the Z.
 #
 #   deploy/docker/smoke.sh [DOCKER BUILD FLAGS...]
 #
@@ -95,6 +97,10 @@ last=
 # its pid.
 agent_sock=/tmp/aries-smoke-$$.sock
 agent_pid=
+# The zone the server runs in, and the pid of a watch held open on a key
+# with an end.
+tz='ARIES-14'
+key_watch=
 
 cleanup() {
   if [[ -n ${ARIES_SMOKE_LOG:-} ]]; then
@@ -103,6 +109,9 @@ cleanup() {
   "${compose[@]}" down -v >/dev/null 2>&1 || true
   if [[ -n $agent_pid ]]; then
     kill "$agent_pid" 2>/dev/null || true
+  fi
+  if [[ -n $key_watch ]]; then
+    kill "$key_watch" 2>/dev/null || true
   fi
   rm -f "$agent_sock"
   rm -rf "$work"
@@ -271,7 +280,7 @@ no_ssh_path() {
 }
 
 up() {
-  ARIES_IMAGE=$image ARIES_KEYS=$keys ARIES_ADMINS=alice ARIES_PORT=$port ARIES_HTTPS_PORT=$https_port ARIES_SSH=$ssh ARIES_TELEMETRY=$telemetry \
+  ARIES_IMAGE=$image ARIES_KEYS=$keys ARIES_ADMINS=alice ARIES_PORT=$port ARIES_HTTPS_PORT=$https_port ARIES_SSH=$ssh ARIES_TELEMETRY=$telemetry ARIES_TZ=$tz \
     "${compose[@]}" up -d --no-build --wait --wait-timeout 120 >/dev/null 2>&1 ||
     fail "the server did not become healthy" "$("${compose[@]}" logs --no-log-prefix 2>&1 | tail -n 40)"
 }
@@ -1306,6 +1315,81 @@ if [[ -n $ssh ]]; then
   expect "status counts the key held back" '^keys held back from it: 1,' alice admin status
 fi
 no_failed_write "at the end"
+
+# A key that ends (docs/server.md, Keys that end). The server runs at
+# UTC+14: sshd reads expiry-time digits without a Z in its own zone,
+# which would end the key fourteen hours early there, so its signing in
+# over SSH before its end shows that ariesd writes the Z. At the end
+# ariesd takes the key's line out, closes the connection it signed in,
+# and refuses it, saying when it ended.
+echo "smoke: a key that ends"
+last=$(in_server env TZ="$tz" date +%z)
+[[ $last == +1400 ]] || fail "the zone $tz is $last, want +1400"
+# The daemon runs in it: its environment is read as its own user, since
+# the container's root may not read another's.
+# shellcheck disable=SC2016 # the server's shell expands it
+daemon=$(in_server sh -c 'for p in $(pidof ariesd); do tr "\0" " " </proc/$p/cmdline | grep -q "^ariesd serve" && echo $p; done') || true
+last=$("${compose[@]}" exec -T -u aries aries sh -c "tr '\\0' '\\n' </proc/$daemon/environ" 2>&1) || true
+grep -qx "TZ=$tz" <<<"$last" || fail "ariesd serve (process $daemon) does not run in the zone $tz" "$last"
+passed=$((passed + 1))
+# So does sshd, whose title hides its environment: digits without the Z,
+# five minutes ahead in UTC, are fourteen hours past at UTC+14, and it
+# refuses the key of a line that has them.
+if [[ -n $ssh ]]; then
+  mkdir -p "$work/probe"
+  ssh-keygen -q -t ed25519 -N '' -C probe@example.com -f "$work/keys/probe"
+  yaml_for "$project" >"$work/probe/.aries.yaml"
+  ahead=$(date -u -v+5M +%Y%m%d%H%M%S 2>/dev/null || date -u -d '+5 minutes' +%Y%m%d%H%M%S)
+  printf 'restrict,expiry-time="%s",command="/usr/local/bin/ariesd stdio --principal alice" %s\n' "$ahead" "$(cat "$work/keys/probe.pub")" |
+    in_server sh -c 'cat >> /state/ssh/authorized_keys'
+  refuse "sshd reads digits without the Z in its own zone" 'accepted no key' probe whoami
+fi
+mkdir -p "$work/erin"
+ssh-keygen -q -t ed25519 -N '' -C erin@example.com -f "$work/keys/erin"
+yaml_for "$project" >"$work/erin/.aries.yaml"
+erin_fp=$(ssh-keygen -lf "$work/keys/erin.pub" | cut -d' ' -f2)
+erin_re=$(sed 's/[+/.]/[&]/g' <<<"$erin_fp")
+expect "a principal for the key" '^principal erin added' alice admin principal add erin
+expect "key add --expires" "^key $erin_re \(ssh-ed25519, erin@example.com\) added to erin, ending [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:]{8} UTC\$" \
+  alice admin key add erin "$work/keys/erin.pub" --expires 60s
+erin_end=$(sed -n 's/.*, ending \(.*\) UTC$/\1/p' <<<"$last")
+in_keys_file "the key's end, in UTC with its Z" \
+  "^restrict,expiry-time=\"$(tr -d ' :-' <<<"$erin_end")Z\",command=\"/usr/local/bin/ariesd stdio --principal erin --key $erin_re\" ssh-ed25519 "
+expect "the list gives its end" "^$erin_re .* $erin_end UTC\$" alice admin key list erin
+expect "the key signs in before its end" '^principal +erin$' erin whoami
+aries_as erin watch >"$work/erin-watch.out" 2>&1 &
+key_watch=$!
+for ((i = 0; i < 60; i++)); do
+  grep -q 'watching your inbox' "$work/erin-watch.out" && break
+  sleep 0.5
+done
+grep -q 'watching your inbox' "$work/erin-watch.out" || fail "erin's watch did not start" "$(cat "$work/erin-watch.out")"
+for ((i = 0; i < 120; i++)); do
+  last=$("${compose[@]}" logs --no-log-prefix aries 2>&1)
+  grep -q " event=key.expired fingerprint=$erin_fp " <<<"$last" && break
+  sleep 1
+done
+grep -Eq " event=key[.]expired fingerprint=$erin_re subject=erin at=[^ ]+ connections=1\$" <<<"$last" ||
+  fail "ariesd did not log the key's end, with the one connection it closed" "$(grep -E 'key[.]expired|conn[.]dropped' <<<"$last" | tail -n 5)"
+grep -Eq ' event=conn[.]dropped reason="key expired" by=ariesd connections=1 ' <<<"$last" ||
+  fail "ariesd did not log the connection it closed at the key's end" "$(grep -E 'conn[.]dropped' <<<"$last" | tail -n 5)"
+passed=$((passed + 2))
+for ((i = 0; i < 30; i++)); do
+  kill -0 "$key_watch" 2>/dev/null || break
+  sleep 0.5
+done
+watch_code=0
+wait "$key_watch" || watch_code=$?
+key_watch=
+((watch_code == 1)) || fail "erin's watch exited $watch_code at the key's end, want 1: the server closes the connection" "$(cat "$work/erin-watch.out")"
+passed=$((passed + 1))
+not_in_keys_file "an ended key" 'stdio --principal erin '
+if [[ -n $ssh ]]; then
+  refuse "an ended key, at sshd" 'accepted no key' erin whoami
+else
+  refuse "an ended key, in the proof over HTTPS" "the key that signed in ended at $(tr ' ' T <<<"$erin_end")Z" erin whoami
+fi
+expect "an ended key is listed until it is pruned" "^$erin_re .* $erin_end UTC\$" alice admin key list erin
 
 # ariesd's log follows its schema (docs/server.md, Logs): every line it
 # wrote names an event, and an access change made with `aries admin` is a

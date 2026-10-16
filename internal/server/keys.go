@@ -106,9 +106,9 @@ type keysFile struct {
 //	restrict,command="BRIDGE stdio --principal NAME --key FINGERPRINT" TYPE BASE64
 //
 // with expiry-time="YYYYMMDDHHMMSSZ", the key's end in UTC, after
-// restrict for a key that has one; by principal and then fingerprint, so an unchanged store gives the
-// same bytes. The file is replaced whole, by a rename, so sshd never
-// reads part of one (replaceFile).
+// restrict for a key that has one; by principal and then fingerprint,
+// so an unchanged store gives the same bytes. The file is replaced
+// whole, by a rename, so sshd never reads part of one (replaceFile).
 //
 // A daemon calls it once before it listens, and fails to start on its
 // error, which names a fix. From then on the server calls it itself:

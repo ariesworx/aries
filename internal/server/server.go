@@ -422,6 +422,8 @@ func (s *Server) refresh(ctx context.Context) {
 	}
 	span.End()
 	s.syncKeys(ctx)
+	// A key with an end may have come with the reload.
+	s.keysChanged()
 }
 
 // Serve accepts connections on l until ctx is done, then closes l and every

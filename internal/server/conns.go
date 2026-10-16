@@ -91,9 +91,9 @@ func (s *Server) track(c net.Conn, sess *session) bool {
 // fingerprint let principal in when the store, now, holds no such key
 // for an active principal of that name: the key was removed or reached
 // its end, or its principal was disabled, and sshd read a keys file from
-// before that; or the forced command was written by hand. It is what makes the keys
-// file a cache: whatever a stale file lets past sshd, the store decides
-// here. A connection that names no key came in by the hand-maintained
+// before that; or the forced command was written by hand. It is what
+// makes the keys file a cache: whatever a stale file lets past sshd, the
+// store decides here. A connection that names no key came in by the hand-maintained
 // authorized_keys file, and is not checked.
 func (s *Server) keyHolds(principal, fingerprint string) *proto.Error {
 	if fingerprint == "" {

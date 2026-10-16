@@ -28,17 +28,18 @@ import (
 //     looks at twice: at the key's end it takes the line out of the keys
 //     file and closes the connections the key signed in (decision 59).
 //
-// The last runs on a timer set for the earliest end, and at least once
-// per ReapInterval, so that a key added by `ariesd control init` beside
-// the daemon is seen too.
+// The last runs on a timer set for the earliest end, after each key
+// added and each reload of the control store's index, which is how a key
+// added by `ariesd control init` beside the daemon is seen, and at least
+// once per ReapInterval.
 
 // keyExpired is why connections are closed at their key's end.
 const keyExpired = "key expired"
 
 // keyEnds is what the daemon knows of keys' ends.
 type keyEnds struct {
-	// wake tells expireLoop that a key was added, which may end before
-	// the end it waits for.
+	// wake tells expireLoop that a key was added, or the index read
+	// again, and so that a key may end before the end it waits for.
 	wake chan struct{}
 	// told holds the keys whose end has been logged, until they are
 	// pruned; guarded by mu.
@@ -46,7 +47,8 @@ type keyEnds struct {
 	told map[string]bool
 }
 
-// keysChanged wakes the timer of keys' ends, after a key was added.
+// keysChanged wakes the timer of keys' ends, after a key was added or
+// the index read again.
 func (s *Server) keysChanged() {
 	select {
 	case s.ends.wake <- struct{}{}:
@@ -56,8 +58,9 @@ func (s *Server) keysChanged() {
 
 // expireLoop closes the connections of each key at its end until ctx
 // is done: at once, then at the earliest end still to come, at a key
-// added (keysChanged), and every ReapInterval at most. Its timer runs on
-// the monotonic clock; how long it waits comes from the store's.
+// added or a reload (keysChanged), and every ReapInterval at most. Its
+// timer runs on the monotonic clock; how long it waits comes from the
+// store's.
 func (s *Server) expireLoop(ctx context.Context) {
 	t := time.NewTimer(0)
 	defer t.Stop()
