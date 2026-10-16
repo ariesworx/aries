@@ -1503,6 +1503,9 @@ person.
 | `aries admin member list` | Server admins; the project's admins |
 | `aries admin principal add NAME --key FILE`, `key add NAME FILE`, `key remove FINGERPRINT` | Server admins; a project admin, for a principal within their reach. Never for one's own account |
 | `aries admin key list NAME` | Server admins; an admin of an active project NAME belongs to, with or without reach over NAME; NAME themselves |
+| `aries admin principal add NAME --kind`, `--owner`, `--display-name` | As `principal add` |
+| `aries admin principal set NAME`, `invite add`, `invite list`, `invite remove ID`, `identity remove ID`, `principal add NAME --invite` | Server admins. Never an invitation onto one's own principal ([Identities and invitations](#identities-and-invitations)) |
+| `aries admin identity list NAME`, `principal show NAME` | Server admins; NAME themselves |
 | `aries admin status` | Server admins, for the server and every project; a project admin, for the active projects they administer ([Watching a server](#watching-a-server)) |
 
 - **A server admin** is a principal named under `admins:`. They are let
@@ -1658,6 +1661,72 @@ runs for archived projects on the 30-second tick: a running ariesd
 leaves a claim in one only if the release itself failed, which it logs,
 and the next start or the activation ends it.
 
+### Identities and invitations
+
+A person will sign in at the company's identity provider
+([docs/design/identity.md](design/identity.md)). Which principal a
+sign-in is, is one of that principal's identities: the provider, and
+the issuer and subject the provider's token names. Nobody becomes a
+principal by signing in (decision 57): an admin adds the principal, and
+invites an address for it at a provider; the person's first sign-in
+whose verified address matches binds the invitation. This release
+records principals' kinds, identities and invitations; the sign-in that
+binds them comes with the providers, in a later slice, and until then an
+identity matches nothing and grants nothing.
+
+```console
+$ aries admin principal add bob --display-name "Bob Example" --invite bob@example.com --provider google
+principal bob added, a member of project acme
+invitation 7 for bob: bob@example.com at google, open until 2026-10-23 09:00 UTC
+$ aries admin principal add ci-bot --kind service --owner alice
+$ aries admin invite list --pending
+$ aries admin identity list bob
+$ aries admin invite remove 7
+```
+
+- **Only a server admin** invites, removes an invitation or an
+  identity, or sets a principal's kind, owner or display name. **Nobody
+  invites an identity onto their own principal**, a server admin
+  included: an agent holding a person's key could otherwise point their
+  principal at an address it controls. Another server admin does it.
+  A principal may list its own identities (`aries admin identity list
+  YOU`) and show itself (`principal show YOU`).
+- **A person or a service.** A principal is a `person` unless added or
+  set as a `service`. A service answers to an owner, a person other
+  than itself, and has no identities: it signs in by a key, and later
+  by a trust rule. A person has no owner. A person with identities, or
+  who owns a service, cannot become a service until they are removed
+  or the services given another owner. Every principal from before this
+  release is a person.
+- **The display name** is what people see beside the name, at most 128
+  characters of one line; `principal set NAME --display-name ""`
+  clears it. It is not unique.
+- **An invitation** is an address at a provider, as the provider will
+  name it in its token, such as `bob@example.com`. The address is
+  compared without the case of ASCII letters. One address has one open
+  invitation at a provider: inviting it again for the same principal
+  renews it, from now, and inviting it for another is refused, naming
+  the invitation to remove first. Two providers are never joined by
+  address. The provider is the name the server's `login:` settings will
+  give it; ariesd does not check the name against them yet.
+- **An invitation lapses** unused after `login.invite_ttl`, 7 days by
+  default ([Settings](#settings)), since until it is used it is a match
+  by address. A lapsed one shows as `lapsed`, matches nothing, and stays
+  until it is removed or renewed. It counts against its principal's
+  `identities_per_principal` and not against `invites_per_server`
+  ([Limits](#limits)).
+- **Removing an identity** removes the match: no sign-in is that
+  principal by it from then on. `invite remove` removes an invitation
+  no sign-in has bound, and refuses a bound identity, naming `identity
+  remove`.
+- **On the record, and personal data kept out.** Each change is an
+  event in the control store's log (`principal.set`, `identity.invite`,
+  `identity.remove`) and a line of [the audit stream](#the-audit-stream).
+  Neither holds an invited address, a provider's subject or a display
+  name's value: the log is kept for good.
+- **`aries admin status`** counts the identities, bound, pending and
+  lapsed.
+
 ### One writer for each project
 
 Every project is a schema of the one database in `dsn`, and ariesd
@@ -1716,7 +1785,7 @@ keys file /var/lib/aries/.ssh/aries_keys: 31 keys, written 2026-10-11 09:12 UTC
 ariesd's memory 42 MiB in use, 78 MiB from the system; 112 goroutines
 postgres 18.6: connections 14 of 100, 9 in this database; ariesd's pool 2 in use of 5 held, at most 32, waited for 0 times
 postgres's database 41.0 MiB; since its statistics were reset, 52340 commits, 12 rollbacks, 0 deadlocks, 0 conflicts, 0 KiB in temporary files
-projects: 2 active, 1 archived; principals: 12 active, 1 disabled
+projects: 2 active, 1 archived; principals: 12 active, 1 disabled; identities: 1 lapsed, 3 pending
 
 PROJECT  STATE     STORE   SIZE      CONNS  BY HAND  SESSIONS  WRITES/MIN  P50    P99    LAST USED
 acme     active    open    21.3 MiB  9      2        14        212         4.2ms  31ms   2026-10-11 09:30 UTC
@@ -1732,7 +1801,7 @@ old      archived  closed  600 KiB   0      -        -         -           -    
 | `CLOCK BEHIND HISTORY` | The clock is behind the latest event of the database named, by how much and since when. ariesd's time runs on from the history at half speed until the clock has caught up. With `clock_behind: stop` it adds that ariesd will not start again until the clock is corrected: check `timedatectl` on the server before any restart |
 | ariesd's memory | The Go heap in use and all the memory ariesd has from the operating system (`HeapAlloc` and `Sys`). Not Postgres's |
 | `postgres` | What Postgres says of itself, read with ariesd's own role, which needs no `pg_monitor`: its version; the client connections on the whole server against its `max_connections`, and those in ariesd's database; ariesd's [pool](#one-writer-for-each-project), its connections in use and held against `db_conns_per_server`, and how often a request waited for one; the database's size; and, since Postgres last reset its statistics, its commits, rollbacks, deadlocks, conflicts (queries a standby canceled) and what its queries wrote to temporary files. `postgres: unknown` says why Postgres did not answer, with the pool's figures alone |
-| projects, principals | The control store's rows, by state |
+| projects, principals, identities | The control store's rows, by state; identities, shown once there are any, as `bound`, and invitations `pending` or `lapsed` ([Identities and invitations](#identities-and-invitations)) |
 | STORE | Whether the project's store is open. The figures after SIZE exist only while it is, and start from zero each time it opens |
 | SIZE | The project's schema on disk, its tables and indexes, whether its store is open or not; 0 KiB for one made and never migrated. Shown by a server that reads it |
 | CONNS, BY HAND | Connections past their handshake, and those among them that named no key of the store, which sshd let in by the hand-maintained `authorized_keys` |

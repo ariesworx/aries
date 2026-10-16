@@ -40,8 +40,9 @@ command line. One small Go server keeps the data in
 > and the Docker test server run on Postgres (slices P1, P2 and P4 of
 > decision 79); the soaks have yet to run on it on Linux (slice P5).
 > HTTPS is the transport a fresh server serves, with SSH off until an
-> operator turns it on (slice T1 of decision 86); sign-in through an
-> identity provider (T2) is next.
+> operator turns it on (slice T1 of decision 86); a principal's kind
+> and the identities and invitations a sign-in will bind are recorded
+> (slice N1); sign-in through an identity provider (T2) is next.
 > Not ready for production use yet; see the [roadmap](#roadmap).
 
 ## Why Aries

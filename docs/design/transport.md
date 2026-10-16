@@ -705,6 +705,10 @@ T1 is on its branch, in the order of its row; where it departs from §3 to §11,
 - **The gate**: the e2e suite runs on both transports (`ARIES_E2E_TRANSPORT=https`, in the gate and CI), through a front in the test that stands where an operator's proxy would and relays each WebSocket message to the daemon's own TLS listener; tests of SSH itself are pinned to SSH. The soak ran once over HTTPS, 10 minutes of work: 198,510 requests in 600.5 seconds, every check passed. The Docker test server serves HTTPS with a test CA; its smoke test passed over HTTPS (146 checks) and over SSH with SSH on (156). `TestDefaultInstallExposes` (`cmd/ariesd`) holds a default install to §12.4 item 10, and to no unauthenticated path.
 - **Not built in T1**, as planned: tokens, DPoP, sign-in, `/oauth/*`, `/mcp`, `/v1/p/PROJECT/connect`, HTTP metrics (none was added to `internal/telemetry`), and the review of §12.4. Not measured: the listener under thousands of connections or an unauthenticated flood; ACME against any ACME server; AppArmor under an enforcing kernel (parsed with 4.0.1 only).
 
+### As built, 16 Oct 2026: slice N1
+
+N1, the identity tables, invitations and their admin commands, is on its branch; [identity.md §14, As built](identity.md#as-built-16-oct-2026-slice-n1) says what it built and what T2 inherits of it.
+
 ## 16. Decisions for the maintainer
 
 **Decided 15 Oct 2026** (aries.md §14, decision 87): the maintainer accepted all eighteen recommendations below as written, and kept the whole plan in v1.0.0.
