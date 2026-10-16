@@ -182,21 +182,27 @@ func (pr *served) observeLimit(op string, err error) {
 }
 
 // storeObserver is a project store's [store.Observer]: it records the
-// store's writes, retries and changes of a claim or a lock.
+// store's writes, retries and changes of a claim, a lock or a gate, and
+// logs the changes of a gate.
 type storeObserver struct {
 	tel     *telemetry.Telemetry
+	log     *slog.Logger
 	project string
 }
 
 // StoreObserver returns the observer to open project's store with
-// (store.Options.Observer), so that its writes, retries, claims and
-// locks are measured by tel. A nil tel returns nil: the store then
-// calls nothing.
-func StoreObserver(tel *telemetry.Telemetry, project string) store.Observer {
-	if !tel.Enabled() {
+// (store.Options.Observer), so that its writes, retries, claims, locks
+// and gates are measured by tel, and the changes of its gates logged to
+// log. tel and log may each be nil; with both, it returns nil, and the
+// store then calls nothing.
+func StoreObserver(tel *telemetry.Telemetry, log *slog.Logger, project string) store.Observer {
+	if !tel.Enabled() && log == nil {
 		return nil
 	}
-	return storeObserver{tel: tel, project: project}
+	if log == nil {
+		log = slog.New(slog.DiscardHandler)
+	}
+	return storeObserver{tel: tel, log: log, project: project}
 }
 
 func (o storeObserver) Wrote(took time.Duration) {
@@ -213,6 +219,32 @@ func (o storeObserver) LockChanged(change store.LockChange, waited time.Duration
 	o.tel.Count(telemetry.Locks, string(change))
 	if change == store.LockGranted {
 		o.tel.Record(telemetry.LockWaitDuration, waited.Seconds())
+	}
+}
+
+func (o storeObserver) GateChanged(ctx context.Context, actor store.Actor, g store.Gate, change store.GateChange) {
+	o.tel.Count(telemetry.Gates, string(g.Kind), string(change))
+	// The fields beside the gate's id and kind: a ci gate's subject and
+	// check, and the run of the report that changed it.
+	fields := []any{"gate", string(g.ID), "kind", string(g.Kind), logs.KeyBy, actor.Principal}
+	if g.Kind == store.GateCI {
+		fields = append(fields, logs.KeyIssue, string(g.Subject), "check", g.Check)
+		if r := g.Report; r != nil && r.Run != 0 && (change == store.GateChangePassed || change == store.GateChangeFailed) {
+			fields = append(fields, "run", r.Run)
+		}
+	}
+	fields = append(fields, logs.KeyProject, o.project)
+	switch change {
+	case store.GateChangeAdded:
+		o.log.InfoContext(ctx, "gate added", append([]any{"event", logs.GateAdded}, fields...)...)
+	case store.GateChangePassed:
+		o.log.InfoContext(ctx, "gate passed", append([]any{"event", logs.GatePassed}, fields...)...)
+	case store.GateChangeFailed:
+		o.log.InfoContext(ctx, "gate failed", append([]any{"event", logs.GateFailed}, fields...)...)
+	case store.GateChangeWaived:
+		o.log.InfoContext(ctx, "gate waived", append([]any{"event", logs.GateWaived}, fields...)...)
+	case store.GateChangeRearmed:
+		o.log.InfoContext(ctx, "gate rearmed", append([]any{"event", logs.GateRearmed}, fields...)...)
 	}
 }
 

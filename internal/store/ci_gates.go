@@ -366,6 +366,11 @@ func (w *wtx) report(ctx context.Context, before Issue, g *gateRow, r Report, re
 	if err != nil {
 		return Gate{}, err
 	}
+	change := GateChangePassed
+	if result == CheckFailed {
+		change = GateChangeFailed
+	}
+	w.gated(after.Gate, change)
 	return after.Gate, nil
 }
 

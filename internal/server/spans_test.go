@@ -49,7 +49,7 @@ func newServerLogged(t *testing.T, tel *telemetry.Telemetry) (*Server, *syncBuff
 	t.Helper()
 	dsn := newDatabase(t)
 	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "ar", Admins: []string{dana.Principal},
-		Observer: StoreObserver(tel, project), Tracer: StoreTracer(tel, project)})
+		Observer: StoreObserver(tel, nil, project), Tracer: StoreTracer(tel, project)})
 	if err != nil {
 		t.Fatal(err)
 	}

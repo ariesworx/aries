@@ -2450,6 +2450,7 @@ time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-
 | `name`, `schema`, `account`, `problems`, `resumed` | A project's name and schema; the database role and what is unsafe about it; whether a `project add` resumed one begun before |
 | `after`, `oldest`, `connections`, `own`, `lines`, `per_minute` | Connections: how long one idled or how long before a retry, whether the one closed was the oldest waiting, how many were dropped and whether the admin's own was one, and how many refusal lines the cap left out of how many allowed |
 | `agents`, `inbox`, `claims`, `locks`, `extended` | How many registry rows and inbox items a prune removed; how many claims' leases, and locks' holds and places, a clock step extended, and by how much |
+| `gate`, `kind`, `check`, `run` | A [gate](concepts.md#gates)'s id and kind (`human` or `ci`), a ci gate's check and the number of the CI run whose report changed it. A check's name is text a person chose, so it stays in the journal and is never exported ([Logs over OTLP](#logs-over-otlp)); `issue` is a ci gate's subject |
 | `lock`, `waiting` | A [lock](concepts.md#locks)'s name, and whether what ended was a place in its queue rather than a hold. A lock's name is text a person chose, so it stays in the journal and is never exported ([Logs over OTLP](#logs-over-otlp)) |
 | `path`, `keys` | The keys file, or the stand-in key's file, and how many keys were written |
 | `log`, `clock`, `history`, `behind`, `since`, `was_behind_since`, `direction`, `step`, `steps`, `from`, `to`, `forward_since_start`, `backward_since_start` | [The server's clock](#the-servers-clock): which history, the two times, how far behind and since when, and a step's direction, size and count |
@@ -2496,6 +2497,11 @@ time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-
 | `claim.released` | info | A claim ended because its holder lost access; `reason` says how |
 | `lock.expired` | info | A lock's hold, or a place in its queue (`waiting=true`), ran out of lease and the reaper ended it, granting the next waiter |
 | `lock.released` | info | A lock's hold or place ended because its holder lost access; `reason` says how |
+| `gate.added` | info | A [gate](concepts.md#gates) was added; `by` added it |
+| `gate.passed` | info | A gate was passed: by a person it names or an admin, or by a CI job's report of its check (`run`) |
+| `gate.failed` | info | A CI job reported a ci gate's check failed, leaving the gate open or reopening it |
+| `gate.waived` | info | An admin waived a gate |
+| `gate.rearmed` | info | A passed or waived gate was reopened |
 | `reaper.failed`, `reaper.prune_failed` | error | The reaper could not end expired claims, or prune, in a project |
 | `reaper.pruned` | info | The reaper removed old registry rows or read inbox items |
 | `access.sweep_failed` | error | The claims of holders without access could not be ended in a project |
@@ -2834,6 +2840,7 @@ seconds and `_total` to a counter, and gives a histogram `_bucket`,
 | `aries.claims` | `aries_claims_total` | counter | `event`, `reason` |
 | `aries.locks` | `aries_locks_total` | counter | `event` |
 | `aries.lock.wait.duration` | `aries_lock_wait_duration_seconds` | histogram, seconds | none |
+| `aries.gates` | `aries_gates_total` | counter | `kind`, `event` |
 | `aries.control.writes` | `aries_control_writes_total` | counter | `op`, `result` |
 | `aries.keys_file.writes` | `aries_keys_file_writes_total` | counter | `result` |
 | `aries.keys_file.last_write.time` | `aries_keys_file_last_write_time_seconds` | gauge, Unix seconds | none |
@@ -2862,6 +2869,7 @@ What each counts:
 | `store.open.duration` | With `control_schema`: opening a project's store, migrations included: once for each active project before the daemon listens, which is where an upgrade's migrations run, then whenever a connection or an archive opens one that was closed |
 | `claims` | Changes of a claim, as the event log records them, and renewals |
 | `locks` | Changes of a [lock](concepts.md#locks)'s holds and queue, as the event log records them, and renewals of a hold or a place. A lock's name is no attribute: it is a person's text |
+| `gates` | Changes of a [gate](concepts.md#gates), as the event log records them: added, passed (by a person or a CI job's report), failed (a CI job's report), waived, rearmed. A report or a decision that changed nothing, such as a pass of a passed gate or a report of an older run, is not counted |
 | `lock.wait.duration` | Each grant to a place in a lock's queue: how long the place waited, on the server's time. The buckets end at 10 seconds, so most waits for a deploy or a merge fall past the last |
 | `control.writes` | With `control_schema`: each `aries admin` change, refused ones included |
 | `keys_file.writes` | With `control_schema`: each time the keys file was written, or could not be. A file that already held the right keys is not a write |
@@ -2887,6 +2895,8 @@ number of series cannot grow with what clients send:
 | `migrated` | `true` when opening the store applied a migration |
 | `event` of a claim | `take`, `renew`, `release`, `expire` |
 | `event` of a lock | `acquire`, `wait`, `grant`, `renew`, `release`, `expire`, `leave` |
+| `kind` of a gate | `human`, `ci` |
+| `event` of a gate | `added`, `passed`, `failed`, `waived`, `rearmed` |
 | `reason` of a claim | `membership`, `disabled` or `archived` for a release that ended with the holder's access; `none` for every other change |
 | `signal` | `metrics`, `traces`, `logs` |
 | `direction` | `forward`, `backward` |

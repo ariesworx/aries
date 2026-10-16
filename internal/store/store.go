@@ -438,6 +438,9 @@ type wtx struct {
 	// locks are the changes of a lock the attempt made, told to the
 	// store's observer once it commits.
 	locks []lockChange
+	// gates are the changes of a gate the attempt made, for the
+	// observer once it commits.
+	gates []gateChange
 }
 
 // exec runs a mutating statement.
@@ -846,6 +849,9 @@ func (s *Store) writeOnce(ctx context.Context, actor Actor, settle bool, fn func
 		}
 		for _, c := range w.locks {
 			o.LockChanged(c.change, c.waited)
+		}
+		for _, c := range w.gates {
+			o.GateChanged(ctx, actor, c.gate, c.change)
 		}
 	}
 	// Counted after the commit: every watch subscribed before it is

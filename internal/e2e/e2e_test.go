@@ -284,7 +284,7 @@ func (w *world) startDaemon() error {
 	}
 	st, err := db.Open(ctx, d.Schema, store.Options{Prefix: "ar", Now: o.now, Clock: clk, Admins: o.admins,
 		Limits: o.limits.Limits, Logger: o.logger, IdemWindow: time.Duration(o.limits.IdemWindow), AwayMax: time.Duration(o.limits.AwayMax),
-		Observer: server.StoreObserver(o.telemetry, project), Tracer: server.StoreTracer(o.telemetry, project)})
+		Observer: server.StoreObserver(o.telemetry, o.logger, project), Tracer: server.StoreTracer(o.telemetry, project)})
 	if err != nil {
 		cancel()
 		return errors.Join(err, db.Close())

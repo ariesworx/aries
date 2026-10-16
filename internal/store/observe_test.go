@@ -17,6 +17,7 @@ type seen struct {
 	retried int
 	claims  []string // "change" or "change:reason"
 	locks   []string // "change", or "grant:waited"
+	gates   []string // "change:kind:gate"
 }
 
 func (o *seen) Wrote(took time.Duration) {
@@ -230,6 +231,66 @@ func TestObserverLocks(t *testing.T) {
 		}
 		if got := obs.takeLocks(); !slices.Equal(got, st.want) {
 			t.Errorf("%s: observed %v, want %v", st.name, got, st.want)
+		}
+	}
+}
+
+func (o *seen) GateChanged(_ context.Context, _ Actor, g Gate, change GateChange) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.gates = append(o.gates, fmt.Sprintf("%s:%s:%s", change, g.Kind, g.ID))
+}
+
+// takeGates returns the changes of a gate seen since the last take.
+func (o *seen) takeGates() []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	out := o.gates
+	o.gates = nil
+	return out
+}
+
+// The observer is told of each change of a gate once it has committed,
+// with the gate as it left it, and of nothing a report or a decision
+// that changed nothing made.
+func TestObserverGates(t *testing.T) {
+	t.Parallel()
+	obs := &seen{}
+	s := openStore(t, newDSN(t), Options{Observer: obs, Admins: []string{"dana"}})
+	ctx := t.Context()
+	is := mustCreate(t, s, NewIssue{Title: "release"})
+	human := mustGate(t, s, alice, NewGate{Blocks: is.ID, Approvers: []string{"carol"}})
+	ci := ciGate(t, s, is.ID, "", "build")
+	hg, cg := string(human.ID), string(ci.ID)
+	if got, want := obs.takeGates(), []string{"added:human:" + hg, "added:ci:" + cg}; !slices.Equal(got, want) {
+		t.Fatalf("gate changes of two adds = %v, want %v", got, want)
+	}
+	steps := []struct {
+		name string
+		do   func() error
+		want []string
+	}{
+		{"a pass", func() error { _, err := s.PassGate(ctx, carolCLI, human.ID, ""); return err }, []string{"passed:human:" + hg}},
+		{"a refused pass", func() error {
+			if _, err := s.PassGate(ctx, carolCLI, human.ID, ""); err == nil {
+				return errors.New("a passed gate was passed again")
+			}
+			return nil
+		}, nil},
+		{"a rearm", func() error { _, err := s.RearmGate(ctx, carolCLI, human.ID, ""); return err }, []string{"rearmed:human:" + hg}},
+		{"a waive", func() error { _, err := s.WaiveGate(ctx, danaCLI, human.ID, "ship it"); return err }, []string{"waived:human:" + hg}},
+		{"a failed check", func() error { _, err := s.FailCheck(ctx, ciJob, Report{Gate: ci.ID, Run: 5}); return err }, []string{"failed:ci:" + cg}},
+		{"a passed check", func() error { _, err := s.PassCheck(ctx, ciJob, Report{Gate: ci.ID, Run: 6}); return err }, []string{"passed:ci:" + cg}},
+		{"a pass of a passed check", func() error { _, err := s.PassCheck(ctx, ciJob, Report{Gate: ci.ID, Run: 7}); return err }, nil},
+		{"an older run's failure", func() error { _, err := s.FailCheck(ctx, ciJob, Report{Gate: ci.ID, Run: 4}); return err }, nil},
+		{"a failure that reopens", func() error { _, err := s.FailCheck(ctx, ciJob, Report{Gate: ci.ID, Run: 8}); return err }, []string{"failed:ci:" + cg}},
+	}
+	for _, st := range steps {
+		if err := st.do(); err != nil {
+			t.Fatalf("%s: %v", st.name, err)
+		}
+		if got := obs.takeGates(); !slices.Equal(got, st.want) {
+			t.Errorf("gate changes of %s = %v, want %v", st.name, got, st.want)
 		}
 	}
 }

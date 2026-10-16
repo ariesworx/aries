@@ -51,7 +51,7 @@ func newServerTel(t *testing.T, lim Limits, tel *telemetry.Telemetry) *Server {
 	t.Helper()
 	dsn := newDatabase(t)
 	st, err := store.Open(t.Context(), dsn, store.Options{Prefix: "ar", Admins: []string{dana.Principal},
-		Limits: lim.Limits, Observer: StoreObserver(tel, project), Tracer: StoreTracer(tel, project)})
+		Limits: lim.Limits, Observer: StoreObserver(tel, nil, project), Tracer: StoreTracer(tel, project)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -794,5 +794,67 @@ func TestOps(t *testing.T) {
 		if !slices.Contains(ops, op) {
 			t.Errorf("Ops() lacks the control write %q", op)
 		}
+	}
+}
+
+// Each change of a gate is counted under its kind and event, and logged
+// under its own event with the gate's id and kind (design §20.9); a
+// report that changes nothing is neither. A line names the check only in
+// a field that stays in the journal.
+func TestMetricsAndLogsOfGates(t *testing.T) {
+	t.Parallel()
+	tel, mr := measured(t, false)
+	buf := &syncBuffer{}
+	log := slogTo(buf)
+	st, err := store.Open(t.Context(), newDatabase(t), store.Options{Prefix: "ar", Admins: []string{dana.Principal},
+		Observer: StoreObserver(tel, log, project)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	s, err := New(Config{Store: st, Project: project, Version: "v0.2.0", PeerCheck: func(net.Conn) error { return nil },
+		Telemetry: tel, Logger: log, ReapInterval: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	is := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "release"})
+	human := mustCall[proto.Gate](t, s, alice, proto.OpGateAdd, proto.GateAddArgs{Blocks: is.ID, Approvers: []string{"carol"}})
+	ci := mustCall[proto.Gate](t, s, alice, proto.OpGateAdd, proto.GateAddArgs{Kind: proto.GateCI, Check: "build", Subject: is.ID,
+		Approvers: []string{ciJob.Principal}})
+	mustCall[proto.Gate](t, s, carolCLI, proto.OpGatePass, proto.GateArgs{ID: human.ID})
+	mustCall[proto.Gate](t, s, carolCLI, proto.OpGateRearm, proto.GateArgs{ID: human.ID})
+	mustCall[proto.Gate](t, s, danaCLI, proto.OpGateWaive, proto.GateArgs{ID: human.ID, Reason: "ship it"})
+	mustCall[proto.Gate](t, s, ciJob, proto.OpGateFail, proto.GateArgs{ID: ci.ID, Run: 2})
+	mustCall[proto.Gate](t, s, ciJob, proto.OpGatePass, proto.GateArgs{ID: ci.ID, Run: 3})
+	// Neither changes anything: the gate passed already, and run 1 is
+	// older than run 3.
+	mustCall[proto.Gate](t, s, ciJob, proto.OpGatePass, proto.GateArgs{ID: ci.ID, Run: 4})
+	mustCall[proto.Gate](t, s, ciJob, proto.OpGateFail, proto.GateArgs{ID: ci.ID, Run: 1})
+
+	check(t, snapshot(t, mr), []want{
+		{"aries.gates", []string{"kind", "human", "event", "added"}, 1},
+		{"aries.gates", []string{"kind", "human", "event", "passed"}, 1},
+		{"aries.gates", []string{"kind", "human", "event", "rearmed"}, 1},
+		{"aries.gates", []string{"kind", "human", "event", "waived"}, 1},
+		{"aries.gates", []string{"kind", "ci", "event", "added"}, 1},
+		{"aries.gates", []string{"kind", "ci", "event", "failed"}, 1},
+		{"aries.gates", []string{"kind", "ci", "event", "passed"}, 1},
+	})
+	lines := buf.String()
+	for _, l := range []string{
+		"event=gate.added gate=" + human.ID + " kind=human by=alice",
+		"event=gate.passed gate=" + human.ID + " kind=human by=carol",
+		"event=gate.rearmed gate=" + human.ID + " kind=human by=carol",
+		"event=gate.waived gate=" + human.ID + " kind=human by=dana",
+		"event=gate.added gate=" + ci.ID + " kind=ci by=alice issue=" + is.ID + " check=build",
+		"event=gate.failed gate=" + ci.ID + " kind=ci by=ci-example issue=" + is.ID + " check=build run=2",
+		"event=gate.passed gate=" + ci.ID + " kind=ci by=ci-example issue=" + is.ID + " check=build run=3",
+	} {
+		if strings.Count(lines, l) != 1 {
+			t.Errorf("the log has %d lines with %q, want 1:\n%s", strings.Count(lines, l), l, lines)
+		}
+	}
+	if n := strings.Count(lines, "event=gate."); n != 7 {
+		t.Errorf("the log has %d gate lines, want 7, one for each change:\n%s", n, lines)
 	}
 }

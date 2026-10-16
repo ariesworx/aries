@@ -587,6 +587,7 @@ func (s *Store) AddGate(ctx context.Context, actor Actor, in NewGate) (Gate, err
 			return err
 		}
 		out = g.Gate
+		w.gated(out, GateChangeAdded)
 		return w.settle(out)
 	})
 	if err != nil {
@@ -688,12 +689,12 @@ func (s *Store) decide(ctx context.Context, actor Actor, id IssueID, reason stri
 	if err := checkLine("reason", reason, maxReason, false); err != nil {
 		return Gate{}, err
 	}
-	op, verb := OpGateRearm, "rearm"
+	op, verb, change := OpGateRearm, "rearm", GateChangeRearmed
 	switch outcome {
 	case GatePassed:
-		op, verb = OpGatePass, "pass"
+		op, verb, change = OpGatePass, "pass", GateChangePassed
 	case GateWaived:
-		op, verb = OpGateWaive, "waive"
+		op, verb, change = OpGateWaive, "waive", GateChangeWaived
 	}
 	var out Gate
 	err := s.write(ctx, actor, func(w *wtx) error {
@@ -769,6 +770,7 @@ func (s *Store) decide(ctx context.Context, actor Actor, id IssueID, reason stri
 			return err
 		}
 		out = after.Gate
+		w.gated(out, change)
 		return nil
 	})
 	if err != nil {

@@ -28,6 +28,11 @@ type Observer interface {
 	// committed. waited is, for LockGranted, how long the place waited
 	// on the store's clock, and zero otherwise.
 	LockChanged(change LockChange, waited time.Duration)
+	// GateChanged reports a change of a gate that committed, made by
+	// actor, with the gate as the change left it, under the context of
+	// the request that made it: a report or a decision that changed
+	// nothing is not one.
+	GateChanged(ctx context.Context, actor Actor, g Gate, change GateChange)
 }
 
 // Tracer is told where a write's time goes, as it goes, under the
@@ -154,4 +159,31 @@ type lockChange struct {
 // locked notes a change of a lock for the store's observer.
 func (w *wtx) locked(change LockChange, waited time.Duration) {
 	w.locks = append(w.locks, lockChange{change, waited})
+}
+
+// GateChange is what happened to a gate, as an [Observer] is told: its
+// gate events (OpGateAdd, OpGatePass, OpGateFail, OpGateWaive,
+// OpGateRearm). A pass is a person's or a CI job's; a failure, a CI
+// job's report of its check.
+type GateChange string
+
+// The changes of a gate.
+const (
+	GateChangeAdded   GateChange = "added"
+	GateChangePassed  GateChange = "passed"
+	GateChangeFailed  GateChange = "failed"
+	GateChangeWaived  GateChange = "waived"
+	GateChangeRearmed GateChange = "rearmed"
+)
+
+// gateChange is one change of a gate an attempt made, reported once the
+// attempt commits.
+type gateChange struct {
+	gate   Gate
+	change GateChange
+}
+
+// gated notes a change of gate g for the store's observer.
+func (w *wtx) gated(g Gate, change GateChange) {
+	w.gates = append(w.gates, gateChange{g, change})
 }
