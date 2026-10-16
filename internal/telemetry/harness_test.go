@@ -456,7 +456,7 @@ func dashboardFiles(t *testing.T) []string {
 
 func readDashboard(t *testing.T, file string) []dashboardPanel {
 	t.Helper()
-	b, err := os.ReadFile(file)
+	b, err := os.ReadFile(file) //nolint:gosec // a dashboard of deploy/observability, from dashboardFiles
 	if err != nil {
 		t.Fatal(err)
 	}
