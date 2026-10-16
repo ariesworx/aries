@@ -53,6 +53,16 @@ func TestWireNames(t *testing.T) {
 		{"InviteAddArgs", InviteAddArgs{Name: "bob", Provider: "google", Address: "b@example.com"},
 			`{"name":"bob","provider":"google","address":"b@example.com"}`},
 		{"IdentityArgs", IdentityArgs{ID: 7}, `{"id":7}`},
+		// A key's end (S1, identity.md §12): expires_at, or expires_in for
+		// a duration the server counts from its own time.
+		{"KeyAddArgs", KeyAddArgs{Name: "bob", Key: "ssh-ed25519 AAAA", ExpiresAt: &at},
+			`{"name":"bob","key":"ssh-ed25519 AAAA","expires_at":"2026-10-15T12:00:00Z"}`},
+		{"KeyAddArgs in", KeyAddArgs{Name: "bob", Key: "ssh-ed25519 AAAA", ExpiresIn: "30d"},
+			`{"name":"bob","key":"ssh-ed25519 AAAA","expires_in":"30d"}`},
+		{"KeyResult with an end", KeyResult{Fingerprint: "SHA256:x", Principal: "bob", Type: "ssh-ed25519", ExpiresAt: &at},
+			`{"fingerprint":"SHA256:x","principal":"bob","type":"ssh-ed25519","expires_at":"2026-10-15T12:00:00Z"}`},
+		{"Key", Key{Fingerprint: "SHA256:x", Type: "ssh-ed25519", AddedBy: "dana", AddedAt: at, ExpiresAt: &at, Origin: "admin", Machine: "laptop"},
+			`{"fingerprint":"SHA256:x","type":"ssh-ed25519","added_by":"dana","added_at":"2026-10-15T12:00:00Z","expires_at":"2026-10-15T12:00:00Z","origin":"admin","machine":"laptop"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

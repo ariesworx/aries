@@ -74,7 +74,7 @@ they agree:
 | `CONTRIBUTING.md` | The release `scripts/install-postgres.sh` builds, and the major version under "What you need" |
 | `install-server.sh` | `pg_major`, the package the installer installs from the PostgreSQL project's apt repository, when the major version changes; and `pg_min` with `PostgresMin` |
 | `docs/server.md` | Step 1's `apt-get install -y postgresql-MAJOR`, and the cluster's name (`postgresql@MAJOR-main`) where the guide gives it, when the major version changes |
-| `deploy/docker/compose.yaml` | The `postgres` image: its digest, from Docker's official image of the new release, and the comment above it that names the release |
+| `deploy/docker/compose.yaml` | The `postgres` image: its tag, the new release, and its digest, from Docker's official image of that release. Dependabot proposes this one for a new minor release |
 
 The PostgreSQL project publishes each archive's SHA-256 beside it, as
 `postgresql-VERSION.tar.gz.sha256` in the release's directory of
@@ -92,6 +92,13 @@ docker buildx imagetools inspect postgres:18
 The last command prints the official image's index digest, which the
 compose file pins (the line `Digest:`); its annotations name the release
 the image holds.
+
+Nothing needs remembering to start this. The weekly `vuln` workflow
+(`TestPostgresUpstream`, against the PostgreSQL project's
+`versions.json`) fails when a newer minor release of the pinned major
+version is out, which is how the project ships its security fixes, or
+when a major version from `PostgresMin` to the pin's has reached its end
+of life, and its failure opens an issue.
 
 The digest comes from the same place as the archive, so the pin protects
 against an archive that changes after it was pinned, not against a

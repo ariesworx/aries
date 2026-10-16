@@ -16,7 +16,8 @@
 # default, which the server's URL names;
 # ARIES_SSH=1 serves SSH beside HTTPS, which is off by default, as on a
 # fresh server; ARIES_PORT is sshd's port on 127.0.0.1, 2222 by default;
-# ARIES_IMAGE is the image to run, aries-dev:local by default.
+# ARIES_IMAGE is the image to run, aries-dev:local by default;
+# ARIES_TZ is the zone the server's processes run in, as TZ, UTC unset.
 #
 # Telemetry is off unless asked for (docs/deploy/docker.md, "Telemetry"):
 #
@@ -57,6 +58,7 @@ services:
       ARIES_HTTPS_PORT: ${ARIES_HTTPS_PORT:-8443}
       ARIES_SSH: ${ARIES_SSH:-}
       ARIES_TELEMETRY: ${ARIES_TELEMETRY:-}
+      ARIES_TZ: ${ARIES_TZ:-}
     ports:
       - 127.0.0.1:${ARIES_HTTPS_PORT:-8443}:8443
       - 127.0.0.1:${ARIES_PORT:-2222}:22
@@ -73,8 +75,8 @@ services:
   # step 2 does. It publishes no port: only the server's container
   # reaches it, on the compose network.
   postgres:
-    # postgres:18.6 (Debian trixie), Docker's official image
-    image: postgres@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
+    # Docker's official image (Debian trixie)
+    image: postgres:18.6@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
     entrypoint: ["bash", "/opt/aries/postgres.sh"]
     command: ["postgres"]
     volumes:
@@ -93,8 +95,8 @@ services:
   # `docker compose logs collector`.
   collector:
     profiles: [telemetry]
-    # otel/opentelemetry-collector:0.162.0, the core distribution
-    image: otel/opentelemetry-collector@sha256:310a800ad69ee430e7c541796852a242c9c7db97aaad4daa5ccf843c525fbdb2
+    # The core distribution
+    image: otel/opentelemetry-collector:0.162.0@sha256:310a800ad69ee430e7c541796852a242c9c7db97aaad4daa5ccf843c525fbdb2
     command: ["--config", "/etc/otelcol/config.yaml"]
     network_mode: service:aries
     depends_on:
@@ -118,8 +120,7 @@ services:
   # docs/deploy/docker.md says how to ask it a question.
   prometheus:
     profiles: [prometheus]
-    # prom/prometheus:v3.15.0
-    image: prom/prometheus@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
+    image: prom/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
     command:
       - --config.file=/etc/prometheus/prometheus.yaml
       - --storage.tsdb.path=/prometheus
@@ -147,8 +148,8 @@ services:
   # its one issuer URL works from both.
   keycloak:
     profiles: [identity]
-    # quay.io/keycloak/keycloak:26.8.1, the release spike/identity ran against
-    image: quay.io/keycloak/keycloak@sha256:79c623a22abacf3fe6c00a5fb30f5b7843d717b234033b80995891c06116d244
+    # spike/identity ran against this release
+    image: quay.io/keycloak/keycloak:26.8.1@sha256:79c623a22abacf3fe6c00a5fb30f5b7843d717b234033b80995891c06116d244
     entrypoint: ["bash", "/opt/aries/identity.sh"]
     init: true
     environment:

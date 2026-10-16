@@ -34,6 +34,13 @@ func TestAdminKeyUsage(t *testing.T) {
 		{"key remove takes a fingerprint, not a name", []string{"admin", "key", "remove", "bob"}, "key remove takes a key's SHA256: fingerprint"},
 		{"key remove takes a fingerprint, not a file", []string{"admin", "key", "remove", "id_ed25519.pub"}, "key remove takes a key's SHA256: fingerprint"},
 		{"key add takes no project", []string{"admin", "key", "add", "bob", "a.pub", "--project", "acme"}, "flag provided but not defined: -project"},
+		{"--expires is a duration or a time", []string{"admin", "key", "add", "bob", "a.pub", "--expires", "soon"},
+			"--expires takes a duration such as 12h or 30d, or a time such as 2026-12-31T17:00:00Z"},
+		{"--expires is a time with its zone", []string{"admin", "key", "add", "bob", "a.pub", "--expires", "2026-12-31"},
+			"--expires takes a duration such as 12h or 30d, or a time such as 2026-12-31T17:00:00Z"},
+		{"key list takes no --expires", []string{"admin", "key", "list", "bob", "--expires", "1h"}, "key list, without --added-by, does not take --expires"},
+		{"key list --added-by takes no --expires", []string{"admin", "key", "list", "--added-by", "dana", "--expires", "1h"}, "key list --added-by does not take --expires"},
+		{"key remove takes no --expires", []string{"admin", "key", "remove", "SHA256:x", "--expires", "1h"}, "key remove, without --added-by, does not take --expires"},
 		{"principal list takes no key", []string{"admin", "principal", "list", "--key", "a.pub"}, "principal list does not take --key"},
 		{"principal disable takes no key", []string{"admin", "principal", "disable", "bob", "--key", "a.pub"}, "principal disable does not take --key"},
 	}
@@ -47,7 +54,7 @@ func TestAdminKeyUsage(t *testing.T) {
 		})
 	}
 	_, help, _ := runCLI(t, "help", "admin")
-	for _, want := range []string{"admin key add NAME FILE|- | list NAME | list --added-by NAME | remove FINGERPRINT",
+	for _, want := range []string{"admin key add NAME FILE|- [--expires DURATION|TIME] | list NAME | list --added-by NAME | remove FINGERPRINT",
 		"admin principal add NAME [--key FILE]... [--project P | --no-project]"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("aries help admin lacks %q:\n%s", want, help)
@@ -192,6 +199,7 @@ func TestAdminKeyAddSendsNoPrivateKey(t *testing.T) {
 func TestPrintKeys(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 10, 11, 9, 30, 0, 0, time.UTC)
+	end := time.Date(2026, 10, 16, 22, 0, 5, 0, time.UTC)
 	const fp1, fp2 = "SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5TqvU", "SHA256:WeXpogacdCqvmaxuNZFUpT1Te6ZU/j7aPAocB0T2i8o"
 	tests := []struct {
 		name  string
@@ -221,6 +229,21 @@ func TestPrintKeys(t *testing.T) {
 		{"key added", func(w *bytes.Buffer) {
 			printKeyAdded(w, proto.KeyResult{Fingerprint: fp1, Principal: "bob", Type: "ssh-ed25519", Comment: "bob@laptop", Change: "added"})
 		}, "key " + fp1 + " (ssh-ed25519, bob@laptop) added to bob\n"},
+		{"key added with an end", func(w *bytes.Buffer) {
+			printKeyAdded(w, proto.KeyResult{Fingerprint: fp1, Principal: "bob", Type: "ssh-ed25519", Change: "added", ExpiresAt: &end})
+		}, "key " + fp1 + " (ssh-ed25519) added to bob, ending 2026-10-16 22:00:05 UTC\n"},
+		{"key already there, with its end", func(w *bytes.Buffer) {
+			printKeyAdded(w, proto.KeyResult{Fingerprint: fp1, Principal: "bob", Type: "ssh-ed25519", Change: "unchanged", ExpiresAt: &end})
+		}, "bob already has key " + fp1 + " (ssh-ed25519), ending 2026-10-16 22:00:05 UTC\n"},
+		// A column of ends when any key has one.
+		{"keys with an end", func(w *bytes.Buffer) {
+			printKeys(w, proto.KeysResult{Principal: "bob", Keys: []proto.Key{
+				{Fingerprint: fp1, Type: "ssh-ed25519", Comment: "bob@laptop", AddedBy: "dana", AddedAt: at, ExpiresAt: &end},
+				{Fingerprint: fp2, Type: "ssh-rsa", AddedBy: "import", AddedAt: at}}})
+		}, "keys of bob\n" +
+			"FINGERPRINT                                         TYPE         COMMENT     ADDED BY  ADDED                 ENDS\n" +
+			fp1 + "  ssh-ed25519  bob@laptop  dana      2026-10-11 09:30 UTC  2026-10-16 22:00:05 UTC\n" +
+			fp2 + "  ssh-rsa                  import    2026-10-11 09:30 UTC  -\n"},
 		{"key already there", func(w *bytes.Buffer) {
 			printKeyAdded(w, proto.KeyResult{Fingerprint: fp1, Principal: "bob", Type: "ssh-ed25519", Change: "unchanged"})
 		}, "bob already has key " + fp1 + " (ssh-ed25519)\n"},

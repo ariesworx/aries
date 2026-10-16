@@ -35,6 +35,7 @@ target named in the operator's reply, as SKILL.md's rule 5 says.
 | Add a project | `aries -C REPO admin project add NAME` | Prints the new project's `.aries.yaml`, and makes its schema, `project_NAME`. A failed run is finished by running it again. If it is refused because that schema is already in the database, or with a `GRANT` to run, that is a database step for the operator: stop and read references/database.md and docs/server.md#opt-in |
 | Add a person or an agent | `aries -C REPO admin principal add NAME --key FILE --project P` | FILE is the `.pub` they sent (references/onboarding.md). `--no-project` adds them to none (server admins) |
 | Add a key | `aries -C REPO admin key add NAME FILE` | Never to the operator's own account: another admin adds those |
+| Add a key that ends | `aries -C REPO admin key add NAME FILE --expires 30d` | For a contractor's or a stopgap CI key; `--expires` also takes a time, such as `2026-12-31T17:00:00Z`. From its end it signs in nowhere and its connections close (docs/server.md#keys-that-end) |
 | Add someone to a project | `aries -C REPO admin member add NAME --project P` | See "A new member's keys", below |
 | Make a project admin | `aries -C REPO admin member add NAME --project P --role admin` | |
 | Remove a key (destructive) | `aries -C REPO admin key remove FINGERPRINT` | Closes the connections it signed in. List the keys first, and confirm the fingerprint |

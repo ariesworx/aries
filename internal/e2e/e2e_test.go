@@ -623,12 +623,26 @@ func (w *world) fileLine(key ssh.PublicKey) *ssh.Permissions {
 			continue
 		}
 		named, comment, options, rest, err := ssh.ParseAuthorizedKey(line)
+		var end time.Time
+		if err == nil && len(options) == 3 {
+			// sshd takes fourteen digits marked Z as UTC, and without the
+			// Z in its own zone; the daemon writes the first only.
+			v, ok := strings.CutPrefix(options[1], `expiry-time="`)
+			if end, err = time.Parse(`20060102150405Z"`, v); !ok || err != nil {
+				w.t.Errorf("the keys file holds %s; want expiry-time=\"YYYYMMDDHHMMSSZ\"", options[1])
+				continue
+			}
+			options = []string{options[0], options[2]}
+		}
 		if err != nil || comment != "" || len(rest) != 0 || len(options) != 2 || options[0] != "restrict" {
 			w.t.Errorf("the keys file holds a line sshd would not take as one restricted key: %q (%v)", line, err)
 			continue
 		}
 		if !bytes.Equal(named.Marshal(), key.Marshal()) {
 			continue
+		}
+		if !end.IsZero() && !time.Now().Before(end) {
+			return nil // sshd refuses the key by its options, on the wall clock
 		}
 		cmd, ok := strings.CutPrefix(options[1], `command="`)
 		f := strings.Fields(strings.TrimSuffix(cmd, `"`))

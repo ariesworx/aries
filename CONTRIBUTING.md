@@ -478,6 +478,13 @@ refusals by code, each project's events and claims, the control log, what
 the admin changed, and what the chaos did. Latency is reported, not
 asserted: only a request with no answer in 60 seconds fails the run.
 
+A 10-minute run under `-race` holds about 4.5 GiB at its peak, 3 GiB of
+it the test binary's, and wants its four processors to itself: in a
+container, give it 6 GiB and run long soaks one at a time. Three at
+once in 8 GiB were killed for memory or starved past the locks' bound
+of real time ([design §14](docs/design/aries.md#14-decisions), As built
+for P5).
+
 With `ARIES_E2E_TRANSPORT=https` the run, like the rest of
 `internal/e2e`, connects over the daemon's HTTPS listener in place of
 the in-process SSH server. Run it so once before changing the listener,

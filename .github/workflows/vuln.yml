@@ -1,7 +1,11 @@
 name: vuln
-# A weekly govulncheck of main, so a new advisory against a dependency or
-# the Go standard library fails a run without waiting for a code change.
-# CI and the release build run the same check.
+# A weekly check of main for what changes without a code change: a new
+# advisory against a dependency or the Go standard library (govulncheck,
+# which CI and the release build also run), and a Postgres minor release
+# newer than the pin, or a major version the store opens reaching its end
+# of life (postgres). A scheduled run that fails opens an issue, or
+# comments on the one still open, so a finding does not wait on whoever
+# reads the failure email.
 on:
   schedule:
     - cron: '0 6 * * 1'  # Mondays 06:00 UTC

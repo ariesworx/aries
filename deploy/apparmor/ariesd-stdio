@@ -1,0 +1,68 @@
+# The AppArmor profile of the bridge, `ariesd stdio`, which sshd runs
+# for every connection to the aries account (docs/server.md, "Confine
+# ariesd with AppArmor"). Install it as /etc/apparmor.d/ariesd-stdio
+# only on a server with SSH on, beside the file ariesd, which holds the
+# daemon's and the operator's profiles, and tunables/ariesd: with SSH
+# off nothing runs as sshd's forced command, and `install-server.sh
+# --disable-ssh` removes it. README.md says how it was tested.
+#
+# Rules of your own go in /etc/apparmor.d/local/ariesd-stdio. A deny
+# rule here wins over anything that file allows.
+
+abi <abi/4.0>,
+
+include <tunables/global>
+include <tunables/ariesd>
+
+# The bridge: sshd's forced command for the aries account. It reads
+# the config file to find the socket, connects, and copies bytes between
+# the SSH session and the daemon. `ariesd version` and `help` need no
+# more, and neither does `ariesd status`, which asks the daemon for its
+# report over the same socket (sudo -u aries -H ariesd status). root
+# gets no capability here, so root runs it as the aries user too.
+#
+# attach_disconnected: the daemon binds its socket inside the mount
+# namespace systemd gives the unit (ProtectSystem, PrivateTmp), so from
+# out here the socket's path does not start at the root, and AppArmor
+# refuses such a path, in complain mode too, unless this flag has it
+# looked up from the root.
+profile ariesd-stdio @{ariesd_bin}/ariesd flags=(attach_disconnected) {
+  include <abstractions/base>
+
+  @{ariesd_bin}/ariesd mr,
+
+  # The config file, read only. It holds the socket's path, and the
+  # database's DSN, which may hold a password, and which this profile
+  # gives no way to use: it has no network rule, and no rule for
+  # Postgres's socket or for the database's files.
+  @{ariesd_config} r,
+
+  # The daemon's socket: connect, send and receive.
+  @{ariesd_run}/ariesd.sock rw,
+
+  # The Go runtime sizes itself from the cgroup's CPU limit.
+  owner @{PROC}/@{pid}/cgroup r,
+  owner @{PROC}/@{pid}/mountinfo r,
+  @{sys}/fs/cgroup/** r,
+
+  # What it must never do. An explicit deny documents the intent,
+  # outlasts a careless rule in local/, and with `audit` is still logged.
+  audit deny @{ariesd_bin}/** w,
+  audit deny @{ariesd_config} w,
+  audit deny @{ariesd_keys_dir}/** w,
+  audit deny @{HOMEDIRS}/** mrwklx,
+  audit deny /root/** mrwklx,
+  audit deny /** x,
+  audit deny capability,
+  audit deny ptrace (trace),
+  audit deny mount,
+  audit deny umount,
+  audit deny pivot_root,
+  audit deny network inet,
+  audit deny network inet6,
+  audit deny network netlink,
+  audit deny network packet,
+  audit deny network raw,
+
+  include if exists <local/ariesd-stdio>
+}

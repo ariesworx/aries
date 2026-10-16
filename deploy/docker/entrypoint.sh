@@ -109,14 +109,14 @@ die() {
 }
 
 # run_as USER DIR CMD... replaces the shell with CMD, run as USER in DIR
-# with a bare environment and no way to gain privileges, as the systemd
+# with a bare environment, but for TZ (ARIES_TZ), and no way to gain privileges, as the systemd
 # unit in docs/server.md does. Call it in a subshell or in the background,
 # so the child's pid is the program's own.
 run_as() {
   local user=$1 dir=$2
   shift 2
   cd "$dir" || exit 1
-  exec env -i PATH=/usr/local/bin:/usr/bin:/bin HOME="$(getent passwd "$user" | cut -d: -f6)" \
+  exec env -i PATH=/usr/local/bin:/usr/bin:/bin HOME="$(getent passwd "$user" | cut -d: -f6)" ${TZ:+TZ=$TZ} \
     setpriv --reuid="$user" --regid="$user" --init-groups --no-new-privs "$@"
 }
 
@@ -389,6 +389,12 @@ main() {
     die "ARIES_SSH is '${ARIES_SSH}'" "set it to 1 to serve SSH beside HTTPS, or leave it unset for HTTPS alone"
   fi
   [[ $https_port =~ ^[1-9][0-9]{0,4}$ ]] || die "ARIES_HTTPS_PORT is '$https_port'" "set it to the port of this machine the HTTPS listener is published on"
+  # The zone sshd and ariesd run in: sshd reads an expiry-time without
+  # its Z in it, so a zone far from UTC shows that ariesd writes the Z.
+  if [[ -n ${ARIES_TZ:-} ]]; then
+    [[ $ARIES_TZ =~ ^[A-Za-z0-9:+_/-]{1,64}$ ]] || die "ARIES_TZ is '$ARIES_TZ'" "give a POSIX TZ such as ARIES-14 (UTC+14), or leave it unset for UTC"
+    export TZ=$ARIES_TZ
+  fi
   prepare
   install_pgpass
   wait_db
@@ -419,7 +425,7 @@ main() {
 
   if ssh_on; then
     /usr/sbin/sshd -t || die "sshd refuses its config" "read the error above"
-    start sshd env -i PATH=/usr/sbin:/usr/bin:/bin /usr/sbin/sshd -D -e
+    start sshd env -i PATH=/usr/sbin:/usr/bin:/bin ${TZ:+TZ=$TZ} /usr/sbin/sshd -D -e
     # sshd writes its pid file once it listens; probing the port would
     # log a dropped connection.
     wait_for sshd test -s /run/sshd.pid
