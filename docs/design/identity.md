@@ -44,7 +44,7 @@ A service principal (a CI job, an unattended agent, a cloud workload) does the s
 
 **Slices** ([§14](#14-plan)), after P1 and P2, about 11 to 12 weeks of one engineer in all:
 
-*Replaced by [transport.md §15](transport.md#15-plan), about 16.5 weeks for transport and identity together. The table is kept as it was decided.*
+*Replaced by [transport.md §15](transport.md#15-plan), about 16.5 weeks for transport and identity together. The table is kept as it was decided; [decision 90](aries.md#14-decisions) then moved N6, N7 and the remote MCP endpoint to 1.x.*
 
 | Slice | Delivers | Estimate |
 |---|---|---|

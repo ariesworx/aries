@@ -97,7 +97,7 @@ func TestMetricsOfIdleConnections(t *testing.T) {
 	// Once past is set, every read deadline the server sets is already
 	// gone.
 	var past atomic.Bool
-	s.now = func() time.Time {
+	s.wall = func() time.Time {
 		if past.Load() {
 			return time.Now().Add(-time.Hour)
 		}

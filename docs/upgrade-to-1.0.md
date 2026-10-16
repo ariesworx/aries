@@ -178,22 +178,8 @@ approve the project's MCP server in Claude Code, trust it in Codex,
 Gemini CLI or VS Code, turn Aries on in Cursor
 ([Set up an agent](agents.md#set-up-an-agent)). For Claude Desktop, run
 `aries setup claude-desktop --write` in the repository and reopen the
-app. **(planned, decision 87)** Or install the Aries extension for
-Claude Desktop, which carries `aries` and signs you in.
-
-**(planned, decision 87)** On an internet-facing server, Claude's
-custom connectors (claude.ai, Claude Desktop, mobile) and Claude Code
-can instead add Aries as a remote MCP server by its URL, one per
-project, with no binary on the machine:
-
-```sh
-claude mcp add --transport http aries https://aries.example.com/mcp/p/PROJECT
-```
-
-A connector reaches the server from Anthropic's cloud, so it cannot
-reach a private or air-gapped server; use `aries mcp` or the extension
-there. Long work belongs in an agent with `aries mcp`, which renews its
-claims; a connector's claim lapses a lease after its last tool call.
+app. An extension for Claude Desktop, and Aries as a remote MCP
+server that Claude's connectors add by URL, come in 1.x (decision 90).
 
 Restart every agent: an agent's MCP server is the binary the harness
 started, and it stays the former one until the harness starts it again.

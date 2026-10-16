@@ -574,7 +574,7 @@ func TestIdleTimeout(t *testing.T) {
 	t.Parallel()
 	s := newServer(t)
 	var past atomic.Bool
-	s.now = func() time.Time {
+	s.wall = func() time.Time {
 		if past.Load() {
 			return time.Now().Add(-time.Hour) // every deadline is already gone
 		}
@@ -599,6 +599,22 @@ func TestIdleTimeout(t *testing.T) {
 	past.Store(true)
 	c.until(c.send(proto.OpReady, proto.LimitArgs{}))
 	c.until(c.send(proto.OpReady, proto.LimitArgs{})) // read with the old clock's deadline, had it one
+}
+
+// A server whose clock is behind the real one, as a test's fixed clock
+// falls behind once real time passes it, does not idle out its
+// connections: the idle deadline is the socket's, on the real clock.
+func TestIdleDeadlineIsOnTheRealClock(t *testing.T) {
+	t.Parallel()
+	s := newServer(t)
+	s.now = func() time.Time { return time.Now().Add(-time.Hour) }
+	w, c := handshakeAs(t, s, alice)
+	if w.Err != nil {
+		t.Fatal(w.Err)
+	}
+	for range 3 {
+		c.until(c.send(proto.OpReady, proto.LimitArgs{}))
+	}
 }
 
 // The write rate limit: a principal's writes past its bucket are refused
