@@ -212,9 +212,9 @@ server is upgraded.
 **Coming from v0.4.x or earlier.** An upgrade in place is not possible.
 A v0.4.x `aries` looks for releases under the project's former names
 and trusts only the former release key, so `aries upgrade` finds
-nothing it would install, and a v1.0.0 server refuses it anyway.
+nothing it would install, and a v0.5.0 server refuses it anyway.
 Install `aries` again with the script above, and follow
-[Upgrading to 1.0](upgrade-to-1.0.md).
+[Upgrading to 0.5](upgrade-to-0.5.md).
 
 ## Uninstall
 

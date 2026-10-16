@@ -56,7 +56,7 @@ type GateAddArgs struct {
 // rises with each run of the workflow and is kept when a run is retried
 // (GitHub Actions' run_number, GitLab CI's pipeline IID): the server takes
 // no report of a lower run than the gate's last, but a failure of the
-// commit that last passed (protocol 8, before v1.0.0; decision 78). The
+// commit that last passed (protocol 8, before v0.5.0; decision 78). The
 // server takes a report from a principal the gate names, in CISession or
 // CLISession.
 type GateArgs struct {
