@@ -30,6 +30,9 @@ const (
 	miseFile         = "../../mise.toml"
 	sumsFile         = "postgres.sha256"
 	releaseFile      = "../../.github/workflows/release.yml"
+	vulnFile         = "../../.github/workflows/vuln.yml"
+	toolsModFile     = "../../internal/tools/pin/go.mod"
+	dockerFile       = "../../deploy/docker/Dockerfile"
 )
 
 // TestPostgresMajor keeps PostgresMajor the major version of the pinned
@@ -106,13 +109,39 @@ func TestPostgresChecksum(t *testing.T) {
 	}
 }
 
-// TestMiseMatchesGoMod keeps the Go that mise installs at go.mod's go
-// line, which is also what CI's setup-go reads.
-func TestMiseMatchesGoMod(t *testing.T) {
+// TestToolchainPin keeps one Go in every place that names it: go.mod's
+// toolchain line, which setup-go installs in CI and the release is built
+// with, at a patch release of go.mod's go line; the tools module's two
+// lines, the same as go.mod's; mise.toml's go; and the Docker image's.
+func TestToolchainPin(t *testing.T) {
 	t.Parallel()
-	want := setting(t, goModFile, `(?m)^go (\S+)$`)
-	if got := setting(t, miseFile, `(?m)^go = "([^"]+)"$`); got != want {
-		t.Errorf("mise.toml go is %s, go.mod's go line is %s; change both together", got, want)
+	goLine := setting(t, goModFile, `(?m)^go (\S+)$`)
+	want := setting(t, goModFile, `(?m)^toolchain go(\S+)$`)
+	if !strings.HasPrefix(want, goLine+".") {
+		t.Errorf("go.mod's toolchain line is go%s, not a patch release of its go line, %s", want, goLine)
+	}
+	if got := setting(t, toolsModFile, `(?m)^go (\S+)$`); got != goLine {
+		t.Errorf("%s's go line is %s, go.mod's is %s; change both together", toolsModFile, got, goLine)
+	}
+	for _, c := range []struct{ path, pattern string }{
+		{toolsModFile, `(?m)^toolchain go(\S+)$`},
+		{miseFile, `(?m)^go = "([^"]+)"$`},
+		{dockerFile, `(?m)^# golang:([0-9.]+)-`},
+	} {
+		if got := setting(t, c.path, c.pattern); got != want {
+			t.Errorf("%s names Go %s, go.mod's toolchain line go%s; change them together", c.path, got, want)
+		}
+	}
+	// setup-go reads go.mod's go line, not its toolchain line, when
+	// GOTOOLCHAIN=local is set before it runs; it sets it itself, after.
+	for _, path := range []string{ciFile, releaseFile, vulnFile} {
+		b, err := os.ReadFile(path) //nolint:gosec // a file of this repository, named by the test
+		if err != nil {
+			t.Fatal(err)
+		}
+		if regexp.MustCompile(`(?m)^\s*GOTOOLCHAIN:`).Match(b) {
+			t.Errorf("%s sets GOTOOLCHAIN in an env, which has setup-go install go.mod's go line rather than its toolchain line; setup-go sets GOTOOLCHAIN=local itself", path)
+		}
 	}
 }
 

@@ -8,6 +8,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+env:
+  # As ci.yml; setup-go sets GOTOOLCHAIN=local itself.
+  GOFLAGS: -mod=readonly
 
 jobs:
   govulncheck:
@@ -24,4 +27,5 @@ jobs:
         with:
           go-version-file: go.mod
       - name: govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+        # Pinned by the tools module's go.mod and go.sum.
+        run: go tool -modfile=internal/tools/pin/go.mod govulncheck ./...

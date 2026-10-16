@@ -1,10 +1,16 @@
 version: 2
+# Each ecosystem waits 14 days after a release before it proposes it, and
+# 30 for a new major version (AGENTS.md, rule 4: the cooldown;
+# docs/design/supply-chain.md, §7.3). A security update does not wait.
 updates:
   - package-ecosystem: gomod
     directory: /
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 14
+      semver-major-days: 30
     open-pull-requests-limit: 5
     commit-message:
       prefix: maintenance  # PR titles read "maintenance: bump …"
@@ -12,11 +18,30 @@ updates:
       go-minor-patch:
         update-types: [minor, patch]
 
+  # The gate's tools (govulncheck), pinned by a module of their own.
+  - package-ecosystem: gomod
+    directory: /internal/tools/pin
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 14
+      semver-major-days: 30
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: maintenance
+    groups:
+      tools-minor-patch:
+        update-types: [minor, patch]
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 14
+      semver-major-days: 30
     open-pull-requests-limit: 5
     commit-message:
       prefix: maintenance

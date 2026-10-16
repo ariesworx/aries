@@ -1,0 +1,78 @@
+# What Aries may depend on: every module go.mod requires directly, every
+# tool the gate runs, and every GitHub Action a workflow uses (AGENTS.md,
+# rule 4; docs/design/supply-chain.md, §7.2). internal/depcheck fails
+# when go.mod, internal/tools/pin/go.mod, the link sets of aries and
+# ariesd or the workflows name something this file does not, or this
+# file names something they do not.
+#
+# One line each, fields separated by spaces:
+#
+#   path  scope  license  since  reason
+#
+# path     a module's path, or an Action's owner/repo (a subpath, such as
+#          actions/cache/restore, is the same repository at the same commit)
+# scope    which may link or run it: aries, ariesd, both (the binaries),
+#          tools (the gate's tools and tests only) or actions (workflows)
+# license  the SPDX identifier of the license its files carry; several,
+#          separated by commas, when each covers some of its files. What
+#          aries or ariesd links is Apache-2.0, BSD-2-Clause, BSD-3-Clause,
+#          ISC, MIT or MPL-2.0 (decision 82)
+# since    the day it was first taken, YYYY-MM-DD
+# reason   why the standard library would not do, to the end of the line
+#
+# A person adds a line, in the pull request that adds the dependency; an
+# agent may propose one and never adds it. An indirect module needs no
+# line: it is held to the link sets in internal/depcheck/testdata.
+#
+# Programs that are not Go modules (shellcheck and apparmor_parser from
+# the runner's Ubuntu, Postgres from its project's apt repository, whose
+# key ci.yml checks) are not listed here; mise.toml and internal/version
+# pin what they can.
+
+# The agent interface.
+github.com/modelcontextprotocol/go-sdk  aries  Apache-2.0,MIT  2026-10-06  the MCP server aries mcp speaks; the protocol's own SDK
+github.com/google/jsonschema-go  aries  MIT  2026-10-06  the JSON schemas of the MCP tools, as the MCP SDK takes them
+
+# The store.
+github.com/jackc/pgx/v5  ariesd  MIT  2026-10-15  the Postgres driver; the standard library has none (decision 79)
+
+# Telemetry, ariesd's alone (design §16.2, decision 28).
+go.opentelemetry.io/otel  ariesd  Apache-2.0  2026-10-12  OpenTelemetry's API: spans and attributes (design §16)
+go.opentelemetry.io/otel/trace  ariesd  Apache-2.0  2026-10-12  OpenTelemetry's trace API
+go.opentelemetry.io/otel/metric  ariesd  Apache-2.0  2026-10-12  OpenTelemetry's metric API
+go.opentelemetry.io/otel/log  ariesd  Apache-2.0  2026-10-12  OpenTelemetry's log API, for log records over OTLP
+go.opentelemetry.io/otel/sdk  ariesd  Apache-2.0  2026-10-12  OpenTelemetry's SDK: the tracer provider and its batching
+go.opentelemetry.io/otel/sdk/metric  ariesd  Apache-2.0  2026-10-12  the SDK's meter provider and readers
+go.opentelemetry.io/otel/sdk/log  ariesd  Apache-2.0  2026-10-12  the SDK's logger provider
+go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp  ariesd  Apache-2.0  2026-10-12  OTLP/HTTP push of spans
+go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp  ariesd  Apache-2.0  2026-10-12  OTLP/HTTP push of metrics
+go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp  ariesd  Apache-2.0  2026-10-12  OTLP/HTTP push of log records
+go.opentelemetry.io/otel/exporters/prometheus  ariesd  Apache-2.0  2026-10-12  the instruments in Prometheus's format on /metrics
+go.opentelemetry.io/contrib/instrumentation/runtime  ariesd  Apache-2.0  2026-10-12  the Go runtime's metrics (memory, goroutines, GC)
+github.com/prometheus/client_golang  ariesd  Apache-2.0  2026-10-12  the /metrics handler and registry the Prometheus exporter writes to
+github.com/go-logr/logr  ariesd  Apache-2.0  2026-10-12  otel.SetLogger takes a logr.Logger: how the SDK's own errors reach ariesd's log
+
+# Both binaries.
+go.yaml.in/yaml/v3  both  MIT,Apache-2.0  2026-10-06  .aries.yaml and ariesd's config; the standard library parses no YAML
+golang.org/x/crypto  both  BSD-3-Clause  2026-10-06  SSH, client and server; the standard library has Ed25519 but no SSH
+golang.org/x/sys  both  BSD-3-Clause  2026-10-06  the Windows console's modes for aries tui (internal/board), which syscall lacks; x/crypto and others link it in both
+golang.org/x/term  aries  BSD-3-Clause  2026-10-08  raw mode and the terminal's size, for aries tui and prompts
+
+# Tools the gate runs.
+golang.org/x/vuln  tools  BSD-3-Clause  2026-10-06  govulncheck, pinned by internal/tools/pin/go.mod and its go.sum
+# The one tool go.sum does not cover: golangci-lint/golangci-lint-action
+# installs its binary by the version string ci.yml pins (docs/design/
+# supply-chain.md, §11), and mise.toml the same version for contributors.
+github.com/golangci/golangci-lint/v2  tools  GPL-3.0  2026-10-06  the linters the gate runs (.golangci.yml); run, never linked
+
+# GitHub Actions, each pinned by a 40-character commit with its version
+# in a comment.
+actions/checkout  actions  MIT  2026-10-06  checks the repository out in every job
+actions/setup-go  actions  MIT  2026-10-06  installs the Go of go.mod's toolchain line
+actions/cache  actions  MIT  2026-10-13  restores and saves the module and build caches (ci.yml)
+actions/attest-build-provenance  actions  MIT  2026-10-07  the release archives' build provenance
+actions/upload-artifact  actions  MIT  2026-10-07  hands the release's archives from build to sign-and-publish
+actions/download-artifact  actions  MIT  2026-10-07  takes them in sign-and-publish
+golangci/golangci-lint-action  actions  MIT  2026-10-06  installs and runs golangci-lint at its pinned version
+github/codeql-action  actions  MIT  2026-10-07  CodeQL's analysis (codeql.yml)
+contributor-assistant/github-action  actions  Apache-2.0  2026-10-15  the contributor license agreement check (cla.yml)

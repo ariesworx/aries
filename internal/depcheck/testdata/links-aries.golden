@@ -1,0 +1,12 @@
+github.com/google/jsonschema-go
+github.com/modelcontextprotocol/go-sdk
+github.com/segmentio/asm
+github.com/segmentio/encoding
+github.com/yosida95/uritemplate/v3
+go.yaml.in/yaml/v3
+golang.org/x/crypto
+golang.org/x/oauth2
+golang.org/x/sync
+golang.org/x/sys
+golang.org/x/term
+golang.org/x/time

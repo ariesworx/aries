@@ -103,7 +103,7 @@ func TestGateMatchesCI(t *testing.T) {
 	} else if want := strings.TrimPrefix(cmds[i], require); !strings.Contains(ci, "run: "+want+"\n") {
 		t.Errorf("ci.yml does not run %q, which is scripts/gate.sh's %q; change both together", want, cmds[i])
 	}
-	for _, prefix := range []string{"go mod verify", "git ls-files", "go run golang.org/x/vuln/cmd/govulncheck@"} {
+	for _, prefix := range []string{"go mod verify", "go mod tidy -diff", "git ls-files", govulncheck} {
 		i := slices.IndexFunc(cmds, func(c string) bool { return strings.HasPrefix(c, prefix) })
 		if i < 0 {
 			t.Errorf("scripts/gate.sh has no command starting %q", prefix)
@@ -145,29 +145,47 @@ func TestPeerCheckMatchesCI(t *testing.T) {
 	}
 }
 
-// TestGovulncheckPin keeps every govulncheck in the repository at one
-// version: the gate's, CI's, the weekly scan's and the release build's.
+// govulncheck is how the gate runs govulncheck: pinned by the tools
+// module's go.mod and go.sum, over the main module's packages.
+const govulncheck = "go tool -modfile=internal/tools/pin/go.mod govulncheck ./..."
+
+// TestGovulncheckPin keeps every govulncheck in the repository the one
+// the tools module pins (internal/tools/pin/go.mod): the gate's, CI's,
+// the weekly scan's and the release build's, and AGENTS.md's.
 func TestGovulncheckPin(t *testing.T) {
 	t.Parallel()
-	pin := regexp.MustCompile(`golang\.org/x/vuln/cmd/govulncheck@(v[0-9.]+)`)
-	var want, first string
+	mod := read(t, "internal/tools/pin/go.mod")
+	if !regexp.MustCompile(`(?m)^tool golang\.org/x/vuln/cmd/govulncheck$`).MatchString(mod) ||
+		!regexp.MustCompile(`(?m)^\s+golang\.org/x/vuln v[0-9]+\.[0-9]+\.[0-9]+\b`).MatchString(mod) {
+		t.Errorf("internal/tools/pin/go.mod does not pin golang.org/x/vuln at a release with a tool line for its govulncheck:\n%s", mod)
+	}
 	for _, path := range []string{
 		".github/workflows/ci.yml", ".github/workflows/vuln.yml", ".github/workflows/release.yml",
 		"AGENTS.md", "scripts/gate.sh",
 	} {
-		ms := pin.FindAllStringSubmatch(read(t, path), -1)
-		if len(ms) == 0 {
-			t.Errorf("%s runs no pinned govulncheck", path)
+		body := read(t, path)
+		if !strings.Contains(body, govulncheck) {
+			t.Errorf("%s does not run %q, the pinned govulncheck", path, govulncheck)
 		}
-		for _, m := range ms {
-			if want == "" {
-				want, first = m[1], path
-			}
-			if m[1] != want {
-				t.Errorf("%s pins govulncheck %s, %s pins %s; change them together", path, m[1], first, want)
-			}
+		if strings.Contains(body, "govulncheck@") {
+			t.Errorf("%s runs govulncheck by a version string; run %q", path, govulncheck)
 		}
 	}
+}
+
+// TestAgentsListsPolicy keeps the dependency policy where every agent
+// reads it at the start of a session: AGENTS.md's rule 4 names the
+// allowlist, and the allowlist exists.
+func TestAgentsListsPolicy(t *testing.T) {
+	t.Parallel()
+	_, rule, _ := strings.Cut(read(t, "AGENTS.md"), "\n4. **Keep the binaries small and auditable.**")
+	rule, _, _ = strings.Cut(rule, "\n5. ")
+	for _, want := range []string{"`deps.allow`", "14 days", "never adds"} {
+		if !strings.Contains(rule, want) {
+			t.Errorf("AGENTS.md's rule 4 does not say %q", want)
+		}
+	}
+	read(t, "deps.allow")
 }
 
 // Canned govulncheck reports, in the format of v1.8.0.
@@ -208,6 +226,11 @@ Vulnerability #3: GO-2026-0003
 `
 )
 
+// toolchain returns a stand-in go.mod whose toolchain line names v.
+func toolchain(v string) string {
+	return "module example.com/m\n\ngo 1.27\n\ntoolchain " + v + "\n"
+}
+
 // gateTree is a stand-in checkout holding gate.sh and the files it
 // reads, with every tool it runs replaced by a fake that records its
 // arguments.
@@ -231,13 +254,14 @@ echo "$(basename "$0") $*" >>"$root/calls"
 	files := map[string]string{
 		"scripts/gate.sh":                  gate,
 		"scripts/leftovers.sh":             read(t, "scripts/leftovers.sh"),
-		"go.mod":                           "module example.com/m\n\ngo 1.27\n",
+		"go.mod":                           toolchain("go1.27.1"),
 		".github/workflows/ci.yml":         "      - uses: golangci/golangci-lint-action@0000 # v9\n        with:\n          version: v2.14.0\n",
 		"internal/version/postgres.sha256": "# pins\n" + strings.Repeat("0", 64) + "  v9.8/postgresql-9.8.tar.gz\n",
 		// The Postgres the fake install-postgres.sh supplies when PATH's is
 		// another major version.
 		"scripts/install-postgres.sh": record + `mkdir -p "$root/cache" && printf '#!/bin/sh\necho "postgres (PostgreSQL) 9.8"\n' >"$root/cache/postgres" && chmod +x "$root/cache/postgres" && (cd "$root/cache" && pwd)` + "\n",
-		"fakebin/go": record + `case "$*" in
+		"fakebin/go": record + `if [ "$GOTOOLCHAIN" != local ] || [ "$GOFLAGS" != -mod=readonly ]; then echo "GOTOOLCHAIN=$GOTOOLCHAIN GOFLAGS=$GOFLAGS" >&2; exit 1; fi
+case "$*" in
 "env GOVERSION") echo go1.27.1 ;;
 "env GOOS") cat "$root/goos" ;;
 "env GOARCH") echo amd64 ;;
@@ -287,6 +311,8 @@ func (g gateTree) run(t *testing.T, args ...string) (out string, status int, cal
 	tmp := t.TempDir()
 	cmd.Env = []string{
 		"PATH=" + g.bin + string(os.PathListSeparator) + os.Getenv("PATH"),
+		// Not the gate's: it sets its own.
+		"GOTOOLCHAIN=auto", "GOFLAGS=-mod=mod",
 		"HOME=" + g.root,
 		"TMPDIR=" + tmp,
 	}
@@ -331,15 +357,18 @@ func TestGateScript(t *testing.T) {
 		vet    = "go vet ./..."
 		lint   = "golangci-lint run ./..."
 		verify = "go mod verify"
+		tidy   = "go mod tidy -diff"
+		tools  = "go -C internal/tools/pin mod "
 		shell  = "shellcheck install.sh"
-		vuln   = "go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./..."
+		vuln   = govulncheck
 		build  = "go build ./cmd/..."
 		test   = "go test -race -shuffle=on ./..."
 		e2e    = "go test -race -shuffle=on ./internal/e2e/"
 	)
 	// The fakes record arguments, not environment, so the commands for
 	// another system look like the native ones.
-	full := []string{"gofmt -l .", vet, lint, verify, "git ls-files -co --exclude-standard -z *.sh", shell, vuln, vet, build, vet, build, test, e2e}
+	full := []string{"gofmt -l .", vet, lint, verify, tools + "verify", tidy, tools + "tidy -diff",
+		"git ls-files -co --exclude-standard -z *.sh", shell, vuln, vet, build, vet, build, test, e2e}
 	tests := []struct {
 		name   string
 		args   []string
@@ -351,36 +380,40 @@ func TestGateScript(t *testing.T) {
 	}{
 		{name: "everything passes", calls: full,
 			want: []string{"gate: go1.27.1 linux/amd64, golangci-lint 2.14.0, Postgres 9.3 (on PATH)",
-				"gofmt -l . ... ok (", "gate: passed in ", ": 12 of 12 commands",
+				"gofmt -l . ... ok (", "gate: passed in ", ": 13 of 13 commands",
 				"Not covered by this run:", "TestCheckPeerOtherUID", "deploy/docker/smoke.sh", "The soak test ran its short form",
 				// The command for the tests that need root, as a shell takes it.
 				`go test -race -c -o server.test ./internal/server && (cd internal/server && sudo env "PATH=$PATH" ARIES_REQUIRE_POSTGRES=1 ../../scripts/leftovers.sh ../../server.test -test.run '^TestCheckPeer' -test.v); rm server.test`},
-			not: []string{"FAILED", "golangci-lint here is", "govulncheck:", "CI runs them on linux/amd64"}},
+			not: []string{"FAILED", "golangci-lint here is", "Go here is", "govulncheck:", "CI runs them on linux/amd64"}},
 		{name: "as root", files: map[string]string{"uid": "0\n"}, calls: full,
-			want: []string{"gate: passed in ", ": 12 of 12 commands"}, not: []string{"TestCheckPeerOtherUID"}},
+			want: []string{"gate: passed in ", ": 13 of 13 commands"}, not: []string{"TestCheckPeerOtherUID"}},
 		{name: "stops at the first failure", files: map[string]string{"unformatted": "cmd/aries/main.go\n"}, status: 1,
 			calls: []string{"gofmt -l ."},
 			want: []string{"gofmt -l . ... FAILED (", "    cmd/aries/main.go", "fix: these files are not formatted",
-				"gate: FAILED in ", ": 0 of 12 commands passed", "  failed:  gofmt -l .", "  not run: go vet ./...",
+				"gate: FAILED in ", ": 0 of 13 commands passed", "  failed:  gofmt -l .", "  not run: go vet ./...",
 				"  not run: ARIES_REQUIRE_POSTGRES=1 scripts/leftovers.sh go test -race -shuffle=on ./...", "--keep-going runs every command"},
 			not: []string{"gate: passed"}},
 		{name: "keep going runs the rest", args: []string{"--keep-going"}, files: map[string]string{"fail": "golangci-lint run"}, status: 1,
 			calls: full,
-			want:  []string{"golangci-lint run ./... ... FAILED (", "    it broke", ": 11 of 12 commands passed", "  failed:  golangci-lint run ./..."},
+			want:  []string{"golangci-lint run ./... ... FAILED (", "    it broke", ": 12 of 13 commands passed", "  failed:  golangci-lint run ./..."},
 			not:   []string{"not run:"}},
 		{name: "a failing test fails the gate", files: map[string]string{"fail": "go test"}, status: 1,
-			want: []string{"ARIES_REQUIRE_POSTGRES=1 scripts/leftovers.sh go test -race -shuffle=on ./... ... FAILED (", ": 10 of 12 commands passed"}},
+			want: []string{"ARIES_REQUIRE_POSTGRES=1 scripts/leftovers.sh go test -race -shuffle=on ./... ... FAILED (", ": 11 of 13 commands passed"}},
 		{name: "a test run that leaves something fails the gate", files: map[string]string{"leak": "TestLeaky42"}, status: 1, calls: full[:len(full)-1], // it stops before the run over HTTPS
 			want: []string{"ARIES_REQUIRE_POSTGRES=1 scripts/leftovers.sh go test -race -shuffle=on ./... ... FAILED (",
 				"    leftovers.sh: the command left 1 entry under its temporary directory:", "    TestLeaky42 (", " KB): t.TempDir of TestLeaky\n",
-				": 10 of 12 commands passed", "  failed:  ARIES_REQUIRE_POSTGRES=1 scripts/leftovers.sh go test"}},
+				": 11 of 13 commands passed", "  failed:  ARIES_REQUIRE_POSTGRES=1 scripts/leftovers.sh go test"}},
 		{name: "quick fails on a leftover too", args: []string{"--quick"}, files: map[string]string{"leak": "TestLeaky43"}, status: 1,
 			want: []string{"ARIES_REQUIRE_POSTGRES=1 scripts/leftovers.sh go test ./... ... FAILED (", "    TestLeaky43 ("}},
-		{name: "standard library findings a newer Go fixes", files: map[string]string{"vuln": vulnStdlib}, calls: full,
-			want: []string{vuln + " ... needs Go 1.27.3 (", "gate: passed in ", "except govulncheck, which needs a newer Go: 11 of 12 commands passed",
+		{name: "standard library findings CI's Go fixes", files: map[string]string{"vuln": vulnStdlib, "go.mod": toolchain("go1.27.3")}, calls: full,
+			want: []string{vuln + " ... needs Go 1.27.3 (", "gate: passed in ", "except govulncheck, which needs a newer Go: 12 of 13 commands passed",
 				"govulncheck: every finding is in the standard library of go1.27.1 and is fixed by Go 1.27.3",
-				"not the change", "nothing was found in the module's dependencies"},
+				"not the change", "nothing was found in the module's dependencies", "CI installs go.mod's toolchain line, go1.27.3"},
 			not: []string{"FAILED"}},
+		// CI installs the toolchain line, and has the same findings.
+		{name: "standard library findings only a newer toolchain line fixes", files: map[string]string{"vuln": vulnStdlib, "go.mod": toolchain("go1.27.2")}, status: 1,
+			want: []string{vuln + " ... FAILED (", "fix: every finding is in the standard library and fixed by Go 1.27.3: move go.mod's toolchain line to go1.27.3"},
+			not:  []string{"needs Go"}},
 		{name: "a finding in a dependency fails", files: map[string]string{"vuln": vulnModule}, status: 1,
 			want: []string{vuln + " ... FAILED (", "Found in: example.com/dep@v1.0.0", "gate: FAILED"},
 			not:  []string{"needs Go", "not the change"}},
@@ -391,7 +424,7 @@ func TestGateScript(t *testing.T) {
 		{name: "quick is not the gate", args: []string{"--quick"},
 			calls: []string{"gofmt -l .", vet, lint, "git ls-files -co --exclude-standard -z *.sh", shell, "go test ./..."},
 			want: []string{"quick (not the gate): go1.27.1", "quick (not the gate): passed in ", ": 5 of 5 commands",
-				"--quick skipped these commands of the gate", "go mod verify; go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...; GOOS=darwin",
+				"--quick skipped these commands of the gate", "go mod verify && go -C internal/tools/pin mod verify; go mod tidy -diff && go -C internal/tools/pin mod tidy -diff; " + govulncheck + "; GOOS=darwin",
 				"ARIES_REQUIRE_POSTGRES=1 ARIES_E2E_TRANSPORT=https scripts/leftovers.sh go test -race -shuffle=on ./internal/e2e/. Run scripts/gate.sh before you open a pull request"},
 			not: []string{"\ngate: "}},
 		{name: "another postgres on PATH", files: map[string]string{"postgres": "1.2\n"},
@@ -402,13 +435,15 @@ func TestGateScript(t *testing.T) {
 			want:  []string{", Postgres 9.8 (from ", "/cache; on PATH: none)", "gate: passed"}},
 		{name: "another golangci-lint", files: map[string]string{"lint": "2.13.2\n"}, calls: full,
 			want: []string{"golangci-lint 2.13.2,", "gate: passed", "golangci-lint here is 2.13.2 and CI pins 2.14.0"}},
+		{name: "another Go", files: map[string]string{"go.mod": toolchain("go1.27.2")}, calls: full,
+			want: []string{"gate: passed", "Go here is go1.27.1 and go.mod's toolchain line names go1.27.2"}},
 		{name: "not on Linux", files: map[string]string{"goos": "darwin\n"},
-			calls: slices.Concat(full[:11], []string{vet, build, lint, test, e2e}),
-			want: []string{"GOOS=linux GOARCH=amd64 golangci-lint run ./... ... ok", ": 15 of 15 commands",
+			calls: slices.Concat(full[:14], []string{vet, build, lint, test, e2e}),
+			want: []string{"GOOS=linux GOARCH=amd64 golangci-lint run ./... ... ok", ": 16 of 16 commands",
 				"Tests ran on darwin/amd64; CI runs them on linux/amd64", "TestCheckPeer*"},
 			not: []string{"TestCheckPeerOtherUID"}},
 		{name: "smoke", args: []string{"--smoke"}, files: map[string]string{"deploy/docker/smoke.sh": "#!/bin/sh\necho smoke ok\n"},
-			want: []string{"deploy/docker/smoke.sh ... ok (", ": 13 of 13 commands"}, not: []string{"was not run; CI does not run it either"}},
+			want: []string{"deploy/docker/smoke.sh ... ok (", ": 14 of 14 commands"}, not: []string{"was not run; CI does not run it either"}},
 		{name: "unknown option", args: []string{"--nope"}, status: 2, calls: []string{},
 			want: []string{"gate.sh: unknown option --nope", "fix: "}},
 	}

@@ -2,6 +2,8 @@ module github.com/ariesworx/aries
 
 go 1.27
 
+toolchain go1.27.2
+
 require (
 	github.com/go-logr/logr v1.4.4
 	github.com/google/jsonschema-go v0.4.3

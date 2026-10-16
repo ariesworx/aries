@@ -16,6 +16,11 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
+  # go.mod and go.sum as they are, whatever a GOFLAGS elsewhere says
+  # (docs/design/supply-chain.md, §7.4). GOTOOLCHAIN is not set here:
+  # setup-go reads go.mod's go line instead of its toolchain line when it
+  # is, and sets GOTOOLCHAIN=local itself for the steps after it.
+  GOFLAGS: -mod=readonly
   # The major version of Postgres the tests run on (version.PostgresMajor,
   # internal/version), from the PostgreSQL project's apt repository.
   POSTGRES_MAJOR: "18"
@@ -32,12 +37,12 @@ env:
 # detector for test, and those for macOS and Windows for lint. The module
 # cache is one more, which both read. setup-go's own cache is off, because
 # it is one key for every job and the first job to finish fills it.
-# - A key names the Go version and the hash of go.sum, and there are no
-#   restore keys: a cache is used by the Go and the modules that made it,
-#   or not at all.
-# - Only a push to main saves, and only when the key is new, which is once
-#   for each go.sum. A pull request, and the merge queue's run of one,
-#   reads main's caches and writes none.
+# - A key names the Go version and the hash of go.sum and the tools
+#   module's (internal/tools/pin), and there are no restore keys: a cache
+#   is used by the Go and the modules that made it, or not at all.
+# - Only a push to main saves, and only when the key is new, which is
+#   once for each pair of go.sum files. A pull request, and the merge
+#   queue's run of one, reads main's caches and writes none.
 # - Any other run, the release's gate on a tag among them (workflow_call
 #   keeps the caller's github context), neither restores nor saves: it
 #   downloads every module and compiles everything.
@@ -59,26 +64,40 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - name: Go at go.mod's toolchain line
+        # What setup-go installed, with no other toolchain to download.
+        run: |
+          want=$(sed -n 's/^toolchain //p' go.mod)
+          if [ "$(go env GOVERSION)" != "$want" ] || [ "$(go env GOTOOLCHAIN)" != local ]; then
+            echo "::error::go is $(go env GOVERSION) with GOTOOLCHAIN=$(go env GOTOOLCHAIN); want go.mod's toolchain line, $want, with GOTOOLCHAIN=local"
+            exit 1
+          fi
       - name: restore the module cache
         id: mod-cache
         if: github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.ref == 'refs/heads/main'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/go/pkg/mod
-          key: go-mod-${{ runner.os }}-${{ runner.arch }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}
+          key: go-mod-${{ runner.os }}-${{ runner.arch }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum', 'internal/tools/pin/go.sum') }}
       - name: restore the build cache
         id: build-cache
         if: github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.ref == 'refs/heads/main'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/go-build
-          key: go-build-lint-${{ runner.os }}-${{ runner.arch }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}
+          key: go-build-lint-${{ runner.os }}-${{ runner.arch }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum', 'internal/tools/pin/go.sum') }}
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.14.0
       - name: go mod verify
-        # The module cache still matches go.sum.
-        run: go mod download && go mod verify
+        # The module cache still matches go.sum, the main module's and the
+        # tools module's.
+        run: |
+          go mod download && go -C internal/tools/pin mod download
+          go mod verify && go -C internal/tools/pin mod verify
+      - name: go mod tidy
+        # go.mod and go.sum are what go mod tidy would make them.
+        run: go mod tidy -diff && go -C internal/tools/pin mod tidy -diff
       - name: shellcheck
         # Every shell script in the repository. shellcheck is preinstalled
         # on GitHub's Ubuntu runners.
@@ -91,7 +110,8 @@ jobs:
         # (deploy/apparmor/README.md).
         run: /usr/sbin/apparmor_parser -Q -K -I deploy/apparmor deploy/apparmor/ariesd
       - name: govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+        # Pinned by the tools module's go.mod and go.sum.
+        run: go tool -modfile=internal/tools/pin/go.mod govulncheck ./...
       - name: cross-platform build
         # The client must build and vet on every developer OS, not only Linux.
         run: |
@@ -155,20 +175,28 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - name: Go at go.mod's toolchain line
+        # What setup-go installed, with no other toolchain to download.
+        run: |
+          want=$(sed -n 's/^toolchain //p' go.mod)
+          if [ "$(go env GOVERSION)" != "$want" ] || [ "$(go env GOTOOLCHAIN)" != local ]; then
+            echo "::error::go is $(go env GOVERSION) with GOTOOLCHAIN=$(go env GOTOOLCHAIN); want go.mod's toolchain line, $want, with GOTOOLCHAIN=local"
+            exit 1
+          fi
       - name: restore the module cache
         # The lint job saves it.
         if: github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.ref == 'refs/heads/main'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/go/pkg/mod
-          key: go-mod-${{ runner.os }}-${{ runner.arch }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}
+          key: go-mod-${{ runner.os }}-${{ runner.arch }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum', 'internal/tools/pin/go.sum') }}
       - name: restore the build cache
         id: build-cache
         if: github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.ref == 'refs/heads/main'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/go-build
-          key: go-build-test-${{ runner.os }}-${{ runner.arch }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}
+          key: go-build-test-${{ runner.os }}-${{ runner.arch }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum', 'internal/tools/pin/go.sum') }}
       - name: Install Postgres
         # Its programs only: no cluster is made or started, since each
         # test package starts its own servers (internal/pgtest). The key is
