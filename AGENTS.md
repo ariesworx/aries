@@ -210,8 +210,11 @@ with `fsync` off, which loses nothing a test needs, since its data is
 thrown away. It does not outlive the process that started it, on Linux
 and macOS: a test binary that is killed (a `go test` timeout, a canceled
 run, a stopped agent) runs no deferred `Stop`, so each launch has a
-watcher, a `/bin/sh` that kills the server, removes its files and frees
-its shared memory once that process is gone. Postgres refuses to run as
+watcher, a `/bin/sh` that shuts the server down (an immediate shutdown,
+which frees its semaphores and shared memory, and a kill if that does
+not end it), removes its files and frees what a killed server left of
+its semaphores and shared memory once that process is gone; while it
+lives, the process frees them itself if the server is killed. Postgres refuses to run as
 root, and so does `pgtest`. Start Postgres for a test through
 `pgtest`, never directly. A package's tests take their servers from a
 `pgtest.Pool`: a test holds one, alone, while it runs, and the pool runs
