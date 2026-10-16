@@ -455,7 +455,7 @@ portfolios share is a cross-project edge (aries.md §20.7, decision 74),
 not dual membership. A portfolio is owned by its leads and their wingman
 (decision 22); the organization by its leads and the org-level wingman.
 
-**One organization per server (proposed, §8 Q1).** The control store, its
+**One organization per server (decision 31).** The control store, its
 log, the audit stream and `admins:` are a server's; making the server the
 organization gives the top of the tree for nothing: server admins are the
 organization's admins and the control log its audit trail. Coordination
@@ -545,7 +545,7 @@ Bearings verifies at policy apply and the compliance report shows);
 "weakens a test" defined deterministically as the test count or the
 coverage of changed packages falling; a policy statement that **a merge
 to `main` does not deploy**, or a `ci` deploy gate a person or policy
-names (§8 Q6); an epic whose intent came through a lead's assistant
+names (decision 35); an epic whose intent came through a lead's assistant
 (§3.19) keeps a human plan gate; and `sandbox.mode = "container"` for
 the server `bearingsd` (finding 3).
 
@@ -583,8 +583,9 @@ confirmation itself, §3.18); a change to the bounds (`policy.apply`
 validated by ariesd under its own scope and second signer, §3.18); an
 act outside the pause (ariesd enforces it). Agents never run as
 `bearingsd`'s user: containers at the server (§3.12), which also stops a
-same-uid agent reading its files. Whether that is enough, or the core's
-own grant must also be split, is §8 Q5.
+same-uid agent reading its files. The core's own grant is held to least
+privilege as well (decision 34): what dispatch and supervision need, and
+no more.
 
 **Safety machinery.** Deterministic Go on the event stream (principle 1);
 no model is in the loop that stops things.
@@ -833,7 +834,7 @@ enforces it** (finding 1, 19): a tier-2 op is refused unless a
 In the UI a tier-1 control is the person's click, tier 2 a dialog and the
 fresh sign-in. Shell-capable assistants (Claude Code) are **unsupported
 for tier 2** until this is built and measured, since they could run
-`aries confirm` with the person's `cli` token (§8 Q3). MCP elicitation may
+`aries confirm` with the person's `cli` token (decision 33). MCP elicitation may
 accompany a confirmation and never replaces it.
 
 **Operational controls and structural policy** (§8 Q14):
@@ -893,8 +894,7 @@ an hour. **Local clients** (Claude Code, a desktop client speaking MCP
 over the user's network) work on the `private` and `airgapped` profiles;
 **connectors only on the `internet` profile**, with `/mcp` and the UI on
 separate listeners so the secret input (§3.24) is never on the
-internet-facing one. Which the maintainer wants is §8 Q2, with the cost
-stated there.
+internet-facing one. Local clients come first (decision 32).
 
 **Tiers** are §3.18's. The model never sees a completable secret.
 `"untrusted": true` on text fields is guidance to the model, not a
@@ -1121,7 +1121,7 @@ bind agents Bearings did not launch, or must survive a compromised
 `bearingsd`.** Everything else lives in a **Bearings schema** in the same
 Postgres, written by `bearingsd`'s single writer with its own event log
 (rules 5 and 7 by analogy, with the writer's lock of `store/fence.go`;
-§8 Q1). Nothing here is written into aries.md.
+decision 31). Nothing here is written into aries.md.
 
 **In ariesd** (each op a protocol change under rule 10, in 1.x, §6):
 
@@ -1461,6 +1461,17 @@ row says what the design makes of them.
 | 29 | "I would prefer to give human leads the option to control, authenticated and authorized of course, the ability to control bearings through the MCP and UI in that order of preference." One Go control API behind both surfaces; control roles `lead`, `budget_owner`, `policy_owner`, `auditor`; operational controls direct as events, structural policy by a pull request a bot opens naming the lead; confirmation tiers on both surfaces (§3.18). Supersedes the observe-only reading of decision 27. |
 | 30 | A requirement, not yet a decision: "Are we able to do AI API key management in bearings so we can ensure we use the right models and allocate the correct costs?" Answered with custody in a secret store by reference, in a gateway process of its own, and a model gateway that mints lease-bound session tokens, checks every call against the allowlist, meters it and enforces envelopes mid-session (§3.24); §3.7.2 amended. The decision is §8 Q16. |
 
+**Maintainer, 16 Oct 2026, on the questions marked first in §8.** His
+words are quoted.
+
+| # | Decision |
+|---|---|
+| 31 | "Keep ariesd light and move Bearings into a separate schema in the same database, one server per organization but with the capability to shard that server if necessary for write/read-only replicas." Bearings keeps its state in a `bearings` schema of the server's Postgres, with its own single writer and event log, and ariesd keeps only §3.23's rows (§8 Q1). One organization per server (§3.15). The deployment may scale out: read-only replicas serve reads that tolerate lag (boards, digests, the UI's views, the wingman's fan-out reads, reports), while every read a write depends on (a compare-and-swap's rev, the claim guard, envelopes at `start`, confirmations, policy validation) stays on the primary; and schemas may be placed on more than one Postgres primary, each schema with one writer still (rule 5). Neither is designed yet: §8 Q25. |
+| 32 | "Local clients first." The leads' MCP serves local clients on private networks first; claude.ai and Desktop connectors wait for the `internet` profile with separate listeners (§3.19, §8 Q2). |
+| 33 | On shell-capable lead clients: "Ok with the recommendation." They get reads and tier 1 only until ariesd checks the re-authenticated confirmation (M1) (§3.18, §8 Q3). |
+| 34 | "Split custody and execute least privilege with security in mind." A compromised `bearingsd` is not game over: the gateway and keys, the merger and its push credential, and the reviewer's App each sit apart from it under a user of their own, no leads' host tokens are held, and ariesd re-checks the acts §3.23 lists. Each principal and process holds the least it needs (§3.16, §8 Q5). |
+| 35 | "Merging to main does not deploy. It depends on the user's own CI/CD pipeline configuration." Bearings never deploys and treats a merge to `main` as not a deploy. Since an organization's own pipeline may deploy on merge, level D requires the organization's policy to state whether it does; where it does, a deploy gate the organization owns is required (§3.16, §8 Q6). Which of the seven hard limits stand stays open in Q6. |
+
 **Aries decisions and AGENTS.md rules this design narrows** (review
 finding 8). Neither aries.md nor AGENTS.md is edited here; each row is a
 question in §8, and the rule 12 amendment is planned as its own pull
@@ -1484,38 +1495,24 @@ Added 16 Oct 2026, each with the recommendation and what it costs.
 Those marked **first** are what the rest of the design waits on; those
 marked "(review, round 1)" came from the architecture review.
 
-1. **first** **One organization per server, or an `organizations` table?**
-   Recommended: one per server (§3.15). Cost: several organizations are
-   several servers. *(Review, round 1, Q1 merged here:)* **may Bearings
-   keep state in its own Postgres schema, with its own single writer
-   and event log?** Recommended: yes (§3.23); it is what keeps ariesd
-   small.
-2. **first** **Is the leads' MCP for claude.ai and Desktop connectors,
-   which makes the control plane internet-reachable, or only for local
-   clients on private networks?** (review, round 1) Recommended: local
-   clients first; connectors on the `internet` profile with separate
-   listeners (§3.19). Cost: Desktop and claude.ai users wait for the
-   profile.
-3. **first** **Are shell-capable assistants (Claude Code) acceptable lead
-   clients,** given that they could complete a confirmation with the
-   person's `cli` token? (review, round 1) Recommended: reads and tier 1
-   only until ariesd checks the re-authenticated confirmation (M1).
+1. *Answered (decision 31).* One organization per server, with
+   Bearings in a schema of its own, and replicas or more than one
+   primary when needed (Q25).
+2. *Answered (decision 32).* Local clients first.
+3. *Answered (decision 33).* Reads and tier 1 only until M1.
 4. **Access and membership changes:** CLI only in the first slices, or
    tier-2 tools on the leads' surfaces too? Recommended: CLI only.
    *(Review, round 1, Q14 merged:)* **who may create reviewer, merger,
    wingman and gateway principals and their trust rules?** Recommended:
    server admins only (§3.16).
-5. **first** **Is a compromised `bearingsd` "game over"? If not, which
-   credentials must live outside it?** (review, round 1) Recommended:
-   the split of §3.16's threat model (gateway and keys, merger and push
-   credential, reviewer's App, no host tokens, ariesd's own checks), and
-   the core's grant left as is. Cost: three processes and users on the
-   server.
-6. **first** **In the target organizations, does a merge to `main`
-   deploy? Is level D acceptable without a deploy gate?** (review, round
-   1) Recommended: D requires the policy statement or the gate (§3.16).
-   Also: **which hard limits** of §3.16's seven does the maintainer
-   confirm, and are production deploys in scope at all?
+5. *Answered (decision 34).* Split custody, least privilege.
+6. *Deploys answered (decision 35):* a merge to `main` is not a deploy;
+   the organization's pipeline decides, so D requires its policy to say
+   whether that pipeline deploys on merge, and a deploy gate where it
+   does. **Still open: which hard limits** of §3.16's seven does the
+   maintainer confirm? Bearings itself never deploys, which makes the
+   fourth (production deploys) a limit on what policy may let Bearings
+   trigger, not on what it holds.
 7. **first** **Should Aries decisions 12, 42, 68 and 85 be narrowed, and
    AGENTS.md rule 12 edited** as §7's table has it? (review, round 1)
    Recommended: yes, in one pull request to aries.md and AGENTS.md after
@@ -1581,3 +1578,14 @@ marked "(review, round 1)" came from the architecture review.
     harness session with tools? Recommended: Go; a harness session would
     give the most privileged host a shell and the largest injection
     surface. Cost: judgments are bounded to fixed questions.
+25. **Replicas and more than one primary** (decision 31). Which store
+    reads move to a replica, and how a reader there knows its lag;
+    whether `store.DB` becomes one pool per Postgres primary, with the
+    control schema on one and project and `bearings` schemas placed
+    across them; how a project's schema moves between primaries with
+    the writer's lock (`store/fence.go`) held; and what `pgtest` and the
+    soak need to run it. Recommended: replicas first, for the UI and the
+    wingman's reads, since aries.md §14's standby (decision 79) already
+    replicates; more than one primary only once one is measured to be
+    the limit. Cost: an ariesd change, so it is an Aries design and a
+    1.x release, not Bearings'.
