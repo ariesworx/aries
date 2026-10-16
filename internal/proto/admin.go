@@ -441,6 +441,36 @@ type ServerStatus struct {
 	// Postgres is the database server's own figures; nil from a server
 	// from before them.
 	Postgres *PostgresStatus `json:"postgres,omitempty"`
+	// Transports is which transports the server serves; nil from a
+	// server from before them.
+	Transports *Transports `json:"transports,omitempty"`
+}
+
+// Transports is which transports the daemon serves (transport.md
+// §11.1): HTTPS when HTTPS is set, and SSH on or off.
+type Transports struct {
+	HTTPS *HTTPSStatus `json:"https,omitempty"`
+	SSH   SSHStatus    `json:"ssh"`
+}
+
+// HTTPSStatus is the HTTPS listener: the address it listens on, its TLS
+// mode (acme, files or proxy), the server's URLs, when the certificate
+// served ends when that is known, and how many connections past their
+// handshake came over it.
+type HTTPSStatus struct {
+	Addr         string     `json:"addr"`
+	Mode         string     `json:"mode"`
+	URLs         []string   `json:"urls"`
+	CertNotAfter *time.Time `json:"cert_not_after,omitempty"`
+	Conns        int        `json:"conns"`
+}
+
+// SSHStatus is SSH: whether the daemon serves the bridge, and how many
+// connections past their handshake came through it. The keys file is
+// ServerStatus.KeysFile.
+type SSHStatus struct {
+	On    bool `json:"on"`
+	Conns int  `json:"conns"`
 }
 
 // PostgresStatus is what Postgres says of itself and of the database the

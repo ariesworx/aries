@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -91,6 +92,18 @@ type Config struct {
 	// Bridge is the path of ariesd in the forced command of each line
 	// of KeysFile ([ValidBridge]). Empty takes DefaultBridge.
 	Bridge string
+	// NoSSH turns SSH off (transport.md §11.1): a bridge frame from
+	// `ariesd stdio` is refused unavailable, with a fix that names the
+	// setting, and the keys file is not written, and removed if ariesd
+	// wrote one. The daemon's own connections to the socket, `ariesd
+	// status` and the upgrade's probe, are served still. Keys stay the
+	// store's to manage: they sign in over HTTPS too ([HTTPS]). The zero
+	// value serves SSH; `ariesd serve` sets it unless transports: names
+	// ssh.
+	NoSSH bool
+	// HTTPS, when set, is the HTTPS listener Serve serves beside the
+	// socket (transport.md §4). Nil opens none.
+	HTTPS *HTTPS
 	// Clock is the process's clock, the one its stores were opened with
 	// (store.Options.Clock): the server reports its steps. Nil makes one
 	// of its own, which sees the steps but shares them with no store.
@@ -143,6 +156,9 @@ type Server struct {
 	writes    buckets
 	ctlWrites buckets
 	refusals  sampler
+	// authFails is each address's refused key proofs over HTTPS
+	// (Limits.AuthFailureRate), a minute's rate in a second's bucket.
+	authFails buckets
 	// keys is the state of the keys file (Config.KeysFile).
 	keys keysFile
 	// adding serializes `project add`, so that two do not take the same
@@ -259,10 +275,19 @@ func New(cfg Config) (*Server, error) {
 	case cfg.KeysFile != "" && filepath.Clean(cfg.KeysFile) == filepath.Clean(cfg.AuthorizedKeys):
 		return nil, fmt.Errorf("server: the keys file %s is the authorized_keys file, which ariesd never writes", cfg.KeysFile)
 	}
+	if cfg.HTTPS != nil {
+		h := *cfg.HTTPS
+		h.URLs = slices.Clone(h.URLs)
+		if err := h.check(); err != nil {
+			return nil, fmt.Errorf("server: %w", err)
+		}
+		cfg.HTTPS = &h
+	}
 	s := &Server{cfg: cfg, conns: map[net.Conn]owner{}, now: time.Now, started: time.Now(), unopened: map[string]store.Project{}}
 	s.writes = buckets{rate: cfg.Limits.WriteRate, burst: float64(cfg.Limits.WriteBurst)}
 	s.ctlWrites = buckets{rate: cfg.Limits.ControlWriteRate, burst: float64(cfg.Limits.ControlWriteBurst)}
 	s.refusals = sampler{n: cfg.Limits.RefusalLogs}
+	s.authFails = buckets{rate: cfg.Limits.AuthFailureRate / 60, burst: float64(cfg.Limits.AuthFailureBurst)}
 	s.slots.tel = cfg.Telemetry
 	if pg := cfg.Postgres; pg != nil {
 		cfg.Telemetry.Watch(telemetry.DBPoolConns, func() float64 { return float64(pg.Pool().Conns) })
@@ -402,8 +427,15 @@ func (s *Server) refresh(ctx context.Context) {
 // descriptors, is logged at warn and retried after a pause that doubles
 // from 5ms to at most a second. Any other Accept error ends Serve the same
 // way, and Serve returns it.
-func (s *Server) Serve(ctx context.Context, l net.Listener) error {
+//
+// With Config.HTTPS it serves the HTTPS listener too, beside l, and stops
+// it the same way; a listener that fails ends Serve, which returns its
+// error.
+func (s *Server) Serve(ctx context.Context, l net.Listener) (err error) {
 	ctx, cancel := context.WithCancel(ctx)
+	// webErr is the HTTPS listener's failure, read once its goroutine
+	// has been waited for.
+	var webErr error
 	closed := make(chan struct{})
 	context.AfterFunc(ctx, func() {
 		defer close(closed)
@@ -424,9 +456,19 @@ func (s *Server) Serve(ctx context.Context, l net.Listener) error {
 		if s.stores != nil {
 			s.stores.closeAll()
 		}
+		if err == nil {
+			err = webErr
+		}
 	}()
 	if s.cfg.ReapInterval > 0 {
 		s.wg.Go(func() { s.reapLoop(ctx) })
+	}
+	if s.cfg.HTTPS != nil {
+		s.wg.Go(func() {
+			if webErr = s.serveHTTPS(ctx); webErr != nil {
+				cancel()
+			}
+		})
 	}
 	s.listening.Store(true)
 	defer s.listening.Store(false)
@@ -582,6 +624,7 @@ func (s *Server) Prune(ctx context.Context) {
 	now := s.now()
 	s.writes.prune(now)
 	s.ctlWrites.prune(now)
+	s.authFails.prune(now)
 }
 
 // Reap ends expired claims now, in every open store, and logs each.
@@ -662,7 +705,23 @@ type session struct {
 	// on the database: the request loop sets it before each status
 	// request.
 	statusBy time.Time
+	// transport is how the connection came: TransportSSH, through sshd
+	// and the bridge (or the daemon's own, on the socket), or
+	// TransportHTTPS.
+	transport string
 }
+
+// The transports a connection comes by, as transports: names them.
+const (
+	TransportHTTPS = "https"
+	TransportSSH   = "ssh"
+)
+
+// sshOff refuses a bridge frame while SSH is off (Config.NoSSH).
+// `ariesd stdio` relays it to the client as it relays every refusal.
+var sshOff = proto.Errf(proto.CodeUnavailable,
+	"connect over HTTPS: set server.url in .aries.yaml to the server's URL; or ask the server's operator to turn SSH on: transports: [https, ssh] in ariesd's config, and install-server.sh --enable-ssh",
+	"SSH is off on this server")
 
 // watching reports whether sess's watch is running, which exempts it
 // from the idle timeout.
@@ -676,16 +735,25 @@ func (sess *session) watching() bool {
 	return !p.ended
 }
 
-// handle serves one connection: it checks the peer and runs the
-// handshake, then answers requests in order until the client leaves, the
-// connection idles out, a read or write fails, or ctx is done. The
-// connection's pusher, if it watched, has ended when handle returns. The
-// caller closes c.
-func (s *Server) handle(ctx context.Context, c net.Conn) {
+// handle serves one connection to the socket: it checks the peer and
+// runs the handshake, then answers requests in order until the client
+// leaves, the connection idles out, a read or write fails, or ctx is
+// done. The connection's pusher, if it watched, has ended when handle
+// returns. The caller closes c.
+func (s *Server) handle(ctx context.Context, c net.Conn) { s.serveConn(ctx, c, nil) }
+
+// serveConn is handle for a connection from either transport. given is
+// the bridge frame a transport in this process made, in place of one
+// read from c: the HTTPS listener's, naming the principal and key its
+// key proof found (https.go). Such a connection has no socket peer to
+// check, and its frames from the hello on are as any other's.
+func (s *Server) serveConn(ctx context.Context, c net.Conn, given *proto.Frame) {
 	log := s.cfg.Logger
-	if err := s.cfg.PeerCheck(c); err != nil {
-		s.refusals.line(ctx, log, "", s.now(), slog.LevelWarn, logs.ConnPeerRefused, "refused socket peer", "err", err)
-		return
+	if given == nil {
+		if err := s.cfg.PeerCheck(c); err != nil {
+			s.refusals.line(ctx, log, "", s.now(), slog.LevelWarn, logs.ConnPeerRefused, "refused socket peer", "err", err)
+			return
+		}
 	}
 	// The handshake is a trace of its own: a hello brings no trace
 	// context. Opening the project's store, when this connection is the
@@ -696,7 +764,7 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 	// once the span has ended.
 	hctx, hspan := s.cfg.Telemetry.StartServer(ctx, telemetry.SpanHandshake)
 	defer hspan.End()
-	sess, err := s.handshake(hctx, c)
+	sess, err := s.handshake(hctx, c, given)
 	s.observeHandshake(hspan, sess, err)
 	if sess != nil && sess.slot {
 		defer s.slots.release(sess.key)
@@ -932,22 +1000,27 @@ func (s *Server) busyControlWrites(principal string, wait time.Duration) *proto.
 // refuses one with too many connections that have not said hello. What
 // depends on the project, membership and the key that signed in, is
 // decided at the hello (admit, keyHolds).
-func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
-	sess := &session{conn: c, enc: proto.NewEncoder(c), dec: proto.NewDecoder(c)}
-	_ = c.SetReadDeadline(time.Now().Add(bridgeTimeout))
-	f, err := sess.dec.Decode()
-	if err != nil {
-		return nil, fmt.Errorf("bridge frame: %w", err)
-	}
-	if f.T == staleKeysFrame {
-		s.cfg.Logger.DebugContext(ctx, "key lookup closed unanswered: keys reach sshd by the keys file now", "event", logs.ConnKeyLookup)
-		return nil, nil
+func (s *Server) handshake(ctx context.Context, c net.Conn, given *proto.Frame) (*session, error) {
+	sess := &session{conn: c, enc: proto.NewEncoder(c), dec: proto.NewDecoder(c), transport: TransportSSH}
+	f := given
+	if given == nil {
+		_ = c.SetReadDeadline(time.Now().Add(bridgeTimeout))
+		var err error
+		if f, err = sess.dec.Decode(); err != nil {
+			return nil, fmt.Errorf("bridge frame: %w", err)
+		}
+		if f.T == staleKeysFrame {
+			s.cfg.Logger.DebugContext(ctx, "key lookup closed unanswered: keys reach sshd by the keys file now", "event", logs.ConnKeyLookup)
+			return nil, nil
+		}
+	} else {
+		sess.transport = TransportHTTPS
 	}
 	// The upgrade's probe and `ariesd status`, alone of the reserved
 	// names, are welcomed: they connect here directly, and Bridge refuses
-	// their names to every key.
+	// their names to every key. Neither comes over HTTPS.
 	if f.T != proto.FrameBridge || !PrincipalPattern.MatchString(f.Principal) ||
-		(store.Reserved(f.Principal) && f.Principal != ProbePrincipal && f.Principal != StatusPrincipal) {
+		(store.Reserved(f.Principal) && (given != nil || f.Principal != ProbePrincipal && f.Principal != StatusPrincipal)) {
 		return nil, fmt.Errorf("first frame is %q, not a bridge frame with a valid, unreserved principal", f.T)
 	}
 	// A line of the hand-maintained authorized_keys file names none.
@@ -959,6 +1032,14 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 	sess.fingerprint = f.Key
 
 	w := &proto.Frame{T: proto.FrameWelcome, Version: s.cfg.Version, Min: s.cfg.ProtoMin, Max: s.cfg.ProtoMax}
+	// The upgrade's probe and `ariesd status` are the daemon's own, and
+	// connect to the socket directly; anyone else on the socket came
+	// through sshd and `ariesd stdio`.
+	own := f.Principal == ProbePrincipal || f.Principal == StatusPrincipal
+	if given == nil && !own && s.cfg.NoSSH {
+		w.Err = sshOff
+		return sess, errors.Join(sshOff, sess.enc.Encode(w))
+	}
 	// A refusal past the bridge frame returns sess, so the caller knows
 	// whose it is.
 	refuse := func(e *proto.Error) (*session, error) {
@@ -976,7 +1057,6 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 	// From here the connection is somebody's, so it is refused or
 	// counted as theirs before it is waited on. The upgrade's probe and
 	// `ariesd status` are the daemon's own, and neither.
-	own := f.Principal == ProbePrincipal || f.Principal == StatusPrincipal
 	if !own {
 		if e := s.standing(f.Principal); e != nil {
 			return refuse(e)
@@ -989,7 +1069,7 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) (*session, error) {
 		}
 	}
 	_ = c.SetReadDeadline(time.Now().Add(helloTimeout))
-	f, err = sess.dec.Decode()
+	f, err := sess.dec.Decode()
 	if !own {
 		s.hellos.leave(sess.actor.Principal)
 	}

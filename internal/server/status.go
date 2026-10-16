@@ -169,9 +169,10 @@ func (s *Server) serverStatus() *proto.ServerStatus {
 		Conns: conns, ConnsMax: lim.Conns,
 		HeapBytes: ms.HeapAlloc, SysBytes: ms.Sys, Goroutines: runtime.NumGoroutine(),
 		Projects: map[string]int{}, Principals: map[string]int{},
-		KeysFile: s.keysStatus(),
-		Clock:    s.clockStatus(),
-		Traces:   s.tracesStatus(),
+		KeysFile:   s.keysStatus(),
+		Clock:      s.clockStatus(),
+		Traces:     s.tracesStatus(),
+		Transports: s.transportsStatus(),
 	}
 	if s.cfg.Control == nil {
 		out.OpenStoresMax = 1
@@ -183,6 +184,23 @@ func (s *Server) serverStatus() *proto.ServerStatus {
 	}
 	for state, n := range counts.Principals {
 		out.Principals[string(state)] = n
+	}
+	return out
+}
+
+// transportsStatus is which transports the server serves, and how many
+// connections came by each.
+func (s *Server) transportsStatus() *proto.Transports {
+	by := s.connsBy()
+	out := &proto.Transports{SSH: proto.SSHStatus{On: !s.cfg.NoSSH, Conns: by[TransportSSH]}}
+	if h := s.cfg.HTTPS; h != nil {
+		out.HTTPS = &proto.HTTPSStatus{Addr: h.Listener.Addr().String(), Mode: h.Mode, URLs: h.URLs, Conns: by[TransportHTTPS]}
+		if h.NotAfter != nil {
+			if t := h.NotAfter(); !t.IsZero() {
+				t = t.UTC()
+				out.HTTPS.CertNotAfter = &t
+			}
+		}
 	}
 	return out
 }

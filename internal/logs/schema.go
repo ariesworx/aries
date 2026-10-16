@@ -125,6 +125,8 @@ var keys = map[string]Kind{
 	"name": KindLocal, "schema": KindLocal, "resumed": KindWord, "agents": KindWord, "inbox": KindWord, "account": KindLocal, "problems": KindLocal,
 	// The keys file.
 	"path": KindLocal, "keys": KindWord,
+	// The HTTPS listener: its TLS mode, and the server's URLs.
+	"mode": KindWord, "urls": KindLocal,
 	// The clock.
 	"log": KindLocal, "clock": KindWord, "history": KindWord, "behind": KindWord, "since": KindWord, "was_behind_since": KindWord, "direction": KindWord,
 	"step": KindWord, "from": KindWord, "to": KindWord, "steps": KindWord, "extended": KindWord, "claims": KindWord, "forward_since_start": KindWord, "backward_since_start": KindWord,

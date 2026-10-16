@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/tls"
+	"encoding/binary"
 	"errors"
 	"io"
 	"net"
@@ -170,12 +171,10 @@ func frame(fin bool, op byte, mask bool, payload []byte) []byte {
 		b.WriteByte(m | byte(n))
 	case n < 1<<16:
 		b.WriteByte(m | 126)
-		b.Write([]byte{byte(n >> 8), byte(n)})
+		b.Write(binary.BigEndian.AppendUint16(nil, uint16(n)))
 	default:
 		b.WriteByte(m | 127)
-		for i := 7; i >= 0; i-- {
-			b.WriteByte(byte(n >> (8 * i)))
-		}
+		b.Write(binary.BigEndian.AppendUint64(nil, uint64(n)))
 	}
 	p := append([]byte(nil), payload...)
 	if mask {

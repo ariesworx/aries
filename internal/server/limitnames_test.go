@@ -30,6 +30,9 @@ var limitNames = []string{
 	"db_conns_per_server", "db_conns_per_project", "writes_per_second", "write_burst",
 	"refusal_logs_per_minute", "agent_keep", "inbox_keep", "idem_window", "away_max",
 	"open_stores_per_server", "store_idle", "control_writes_per_second", "control_write_burst",
+	// server.Limits, the HTTPS listener's
+	"https_conns_per_server", "https_conns_per_addr", "https_header_bytes", "https_header_timeout", "https_body_bytes",
+	"upgrade_timeout", "ws_message_bytes", "auth_failures_per_minute", "auth_failure_burst",
 }
 
 // yamlKeys returns the YAML keys of t's fields, inlined structs' among
@@ -61,7 +64,7 @@ func TestLimitNames(t *testing.T) {
 		t.Errorf("the keys of limits: are\n%q\nwant\n%q", got, want)
 	}
 	durations := map[string]bool{"idle_timeout": true, "agent_keep": true, "inbox_keep": true, "idem_window": true,
-		"away_max": true, "store_idle": true}
+		"away_max": true, "store_idle": true, "https_header_timeout": true, "upgrade_timeout": true}
 	for _, k := range got {
 		switch {
 		case durations[k], strings.HasSuffix(k, "_bytes"), strings.HasSuffix(k, "_burst"):

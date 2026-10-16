@@ -100,13 +100,13 @@ type Conn struct {
 	once   sync.Once // closes nc once
 }
 
-// newConn is a Conn over r and w, the stream of nc; max zero takes
-// DefaultMax.
-func newConn(nc net.Conn, r *bufio.Reader, w io.Writer, server bool, max int) *Conn {
-	if max <= 0 {
-		max = DefaultMax
+// newConn is a Conn over r and w, the stream of nc, whose messages are
+// bounded by maxBytes; zero takes DefaultMax.
+func newConn(nc net.Conn, r *bufio.Reader, w io.Writer, server bool, maxBytes int) *Conn {
+	if maxBytes <= 0 {
+		maxBytes = DefaultMax
 	}
-	return &Conn{nc: nc, r: r, w: w, server: server, max: max, maskKey: randomKey}
+	return &Conn{nc: nc, r: r, w: w, server: server, max: maxBytes, maskKey: randomKey}
 }
 
 // randomKey is a client's masking key: random, as RFC 6455 §5.3 asks,
@@ -126,9 +126,9 @@ func acceptKey(key string) string {
 // Accept completes the opening handshake of r, an HTTP/1.1 GET with
 // Upgrade: websocket, version 13 and a key of 16 bytes, and takes over
 // its connection, with no deadline. A request that is not one is
-// answered 400 and refused with an error. max bounds a message; zero
+// answered 400 and refused with an error. maxBytes bounds a message; zero
 // takes DefaultMax.
-func Accept(w http.ResponseWriter, r *http.Request, max int) (*Conn, error) {
+func Accept(w http.ResponseWriter, r *http.Request, maxBytes int) (*Conn, error) {
 	key := r.Header.Get("Sec-WebSocket-Key")
 	raw, kerr := base64.StdEncoding.DecodeString(key)
 	if r.ProtoMajor != 1 || !r.ProtoAtLeast(1, 1) || r.Method != http.MethodGet ||
@@ -153,7 +153,7 @@ func Accept(w http.ResponseWriter, r *http.Request, max int) (*Conn, error) {
 		_ = nc.Close()
 		return nil, fmt.Errorf("upgrade: %w", err)
 	}
-	return newConn(nc, brw.Reader, nc, true, max), nil
+	return newConn(nc, brw.Reader, nc, true, maxBytes), nil
 }
 
 // headerHas reports whether the comma-separated header name holds token,
@@ -177,9 +177,9 @@ const maxRefusal = 16 << 10
 // returns the server's answer to the upgrade too. A refused upgrade is
 // an error, and the answer, with up to 16 KiB of its body, is returned
 // for the caller to report. cfg is the TLS configuration for wss; nil
-// takes the system's roots. max bounds a message; zero takes
+// takes the system's roots. maxBytes bounds a message; zero takes
 // DefaultMax. ctx bounds the dial and the upgrade, not the connection.
-func Dial(ctx context.Context, rawURL string, cfg *tls.Config, header http.Header, max int) (*Conn, *http.Response, error) {
+func Dial(ctx context.Context, rawURL string, cfg *tls.Config, header http.Header, maxBytes int) (*Conn, *http.Response, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, nil, err
@@ -270,7 +270,7 @@ func Dial(ctx context.Context, rawURL string, cfg *tls.Config, header http.Heade
 		_ = nc.Close()
 		return nil, resp, fmt.Errorf("upgrade answered %s", why)
 	}
-	return newConn(nc, br, nc, false, max), resp, nil
+	return newConn(nc, br, nc, false, maxBytes), resp, nil
 }
 
 // TLSError is a TLS handshake that failed in Dial: a certificate that
@@ -560,15 +560,22 @@ func (c *Conn) Close() error {
 	return err
 }
 
-// SetReadDeadline, SetWriteDeadline and SetDeadline are the underlying
-// connection's. A read that times out inside a frame leaves the stream
-// out of step, so Read fails from then on.
-func (c *Conn) SetReadDeadline(t time.Time) error  { return c.nc.SetReadDeadline(t) }
-func (c *Conn) SetWriteDeadline(t time.Time) error { return c.nc.SetWriteDeadline(t) }
-func (c *Conn) SetDeadline(t time.Time) error      { return c.nc.SetDeadline(t) }
+// SetReadDeadline is the underlying connection's. A read that times out
+// inside a frame leaves the stream out of step, so Read fails from then
+// on.
+func (c *Conn) SetReadDeadline(t time.Time) error { return c.nc.SetReadDeadline(t) }
 
-// LocalAddr and RemoteAddr are the underlying connection's.
-func (c *Conn) LocalAddr() net.Addr  { return c.nc.LocalAddr() }
+// SetWriteDeadline is the underlying connection's.
+func (c *Conn) SetWriteDeadline(t time.Time) error { return c.nc.SetWriteDeadline(t) }
+
+// SetDeadline is the underlying connection's: SetReadDeadline and
+// SetWriteDeadline at once.
+func (c *Conn) SetDeadline(t time.Time) error { return c.nc.SetDeadline(t) }
+
+// LocalAddr is the underlying connection's.
+func (c *Conn) LocalAddr() net.Addr { return c.nc.LocalAddr() }
+
+// RemoteAddr is the underlying connection's.
 func (c *Conn) RemoteAddr() net.Addr { return c.nc.RemoteAddr() }
 
 // Stream is c as a byte stream: what is written is sent as one message

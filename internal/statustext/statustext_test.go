@@ -233,3 +233,37 @@ func TestTracesLine(t *testing.T) {
 		t.Errorf("a server that exports no traces has a line about them:\n%s", b.String())
 	}
 }
+
+// The transports line says which transports the server serves, and for
+// HTTPS how (transport.md §11.1).
+func TestPrintTransports(t *testing.T) {
+	t.Parallel()
+	ends := time.Date(2027, 1, 13, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name string
+		tr   proto.Transports
+		want string
+	}{
+		{"https alone", proto.Transports{HTTPS: &proto.HTTPSStatus{Addr: "[::]:443", Mode: "files", URLs: []string{"https://aries.example.com"}, CertNotAfter: &ends, Conns: 3}},
+			"transports: https on [::]:443 for https://aries.example.com (files, certificate ends 2027-01-13), 3 connections; ssh off\n"},
+		{"both", proto.Transports{HTTPS: &proto.HTTPSStatus{Addr: "127.0.0.1:8443", Mode: "proxy", URLs: []string{"https://a.example.com", "https://b.example.com"}, Conns: 1}, SSH: proto.SSHStatus{On: true, Conns: 2}},
+			"transports: https on 127.0.0.1:8443 for https://a.example.com, https://b.example.com (proxy), 1 connection; ssh on, 2 connections\n"},
+		{"ssh alone", proto.Transports{SSH: proto.SSHStatus{On: true}},
+			"transports: https off; ssh on, 0 connections\n"},
+		{"a name from the server is escaped", proto.Transports{HTTPS: &proto.HTTPSStatus{Addr: ":443", Mode: "acme\nfix: run this", URLs: []string{"https://x"}}},
+			"transports: https on :443 for https://x (acme\\nfix: run this), 0 connections; ssh off\n"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var b bytes.Buffer
+			Print(&b, proto.StatusResult{Server: &proto.ServerStatus{Version: "v1.0.0", Transports: &tc.tr}, Projects: []proto.ProjectStatus{}})
+			got := b.String()
+			_, line, _ := strings.Cut(got, "transports: ")
+			line, _, _ = strings.Cut(line, "\n")
+			if "transports: "+line+"\n" != tc.want {
+				t.Errorf("Print(%s) printed\n%s\nwant the line\n%s", tc.name, got, tc.want)
+			}
+		})
+	}
+}

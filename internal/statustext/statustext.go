@@ -35,6 +35,9 @@ func Print(w io.Writer, res proto.StatusResult) {
 	if s := res.Server; s != nil {
 		p("ariesd %s, up %s\n", esc(s.Version), uptime(s.UptimeSeconds))
 		p("stores %d of %d, connections %d of %d\n", s.OpenStores, s.OpenStoresMax, s.Conns, s.ConnsMax)
+		if tr := s.Transports; tr != nil {
+			p("%s", transportsLine(*tr))
+		}
 		if k := s.KeysFile; k != nil {
 			p("keys file %s: %s\n", esc(k.Path), keysFile(*k))
 			if k.HeldBack > 0 {
@@ -115,6 +118,28 @@ func Print(w io.Writer, res proto.StatusResult) {
 	if byFile {
 		p("BY HAND: connections sshd let in by the server's hand-maintained authorized_keys file, not by a key from the store; `aries admin key remove` does not close them\n")
 	}
+}
+
+// transportsLine says which transports the server serves: HTTPS with
+// its address, URLs, TLS mode and the certificate's end when known, and
+// SSH on or off, each with its connections.
+func transportsLine(tr proto.Transports) string {
+	out := "transports: https off"
+	if h := tr.HTTPS; h != nil {
+		urls := make([]string, len(h.URLs))
+		for i, u := range h.URLs {
+			urls[i] = esc(u)
+		}
+		how := esc(h.Mode)
+		if h.CertNotAfter != nil {
+			how += ", certificate ends " + h.CertNotAfter.UTC().Format(time.DateOnly)
+		}
+		out = fmt.Sprintf("transports: https on %s for %s (%s), %s", esc(h.Addr), strings.Join(urls, ", "), how, plural(int64(h.Conns), "connection"))
+	}
+	if !tr.SSH.On {
+		return out + "; ssh off\n"
+	}
+	return out + "; ssh on, " + plural(int64(tr.SSH.Conns), "connection") + "\n"
 }
 
 // keysFile says what the server last did with the file of keys it

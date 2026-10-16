@@ -2094,6 +2094,14 @@ limits:
 | `keys_per_principal` | 20 | With `control_schema`: public keys of one principal |
 | `members_per_project` | 1000 | With `control_schema`: principals with a role in one project |
 | `control_writes_per_second`, `control_write_burst` | 1, 30 | With `control_schema`: each principal's token bucket for `aries admin` changes to projects, principals, members and keys: changes a second, and how many at once. It is the principal's on the whole server, apart from its write bucket in each project; the lists are not counted |
+| `https_conns_per_server` | 4096 | With HTTPS on: open TCP connections to the [HTTPS listener](#the-https-listener). One more is closed unanswered |
+| `https_conns_per_addr` | 64 | With HTTPS on: open connections from one client address; one more is closed unanswered. Behind a proxy that terminates TLS every connection is the proxy's, so this is the proxy's to keep, and does not apply |
+| `https_header_bytes` | 16384 | With HTTPS on: bytes of a request's headers; more is answered 431 |
+| `https_header_timeout` | `10s` | With HTTPS on: how long a request's headers may take to arrive, the slow client's bound |
+| `https_body_bytes` | 65536 | With HTTPS on: bytes of a request's body |
+| `upgrade_timeout` | `10s` | With HTTPS on: how long a WebSocket has from its upgrade to the end of its key proof; the hello then has 10 seconds, as over SSH |
+| `ws_message_bytes` | 4194304 | With HTTPS on: bytes of one WebSocket message, which carries one frame (at most 4 MiB, a frame's own bound). A larger one closes the connection |
+| `auth_failures_per_minute`, `auth_failure_burst` | 30, 60 | With HTTPS on: each client address's token bucket of refused key proofs (a key the server does not know, a proof that does not verify): refusals a minute, and how many at once. With none left an upgrade from the address is refused `busy`, 429, saying how long to wait. Behind a proxy it does not apply, as `https_conns_per_addr` does not |
 
 On a server of [many projects](#serving-many-projects), every limit above
 that is per principal is per principal in each project: `conns_per_principal`,
@@ -2453,6 +2461,7 @@ time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-
 | `gate`, `kind`, `check`, `run` | A [gate](concepts.md#gates)'s id and kind (`human` or `ci`), a ci gate's check and the number of the CI run whose report changed it. A check's name is text a person chose, so it stays in the journal and is never exported ([Logs over OTLP](#logs-over-otlp)); `issue` is a ci gate's subject |
 | `lock`, `waiting` | A [lock](concepts.md#locks)'s name, and whether what ended was a place in its queue rather than a hold. A lock's name is text a person chose, so it stays in the journal and is never exported ([Logs over OTLP](#logs-over-otlp)) |
 | `path`, `keys` | The keys file, or the stand-in key's file, and how many keys were written |
+| `mode`, `urls` | The HTTPS listener's TLS mode (`acme`, `files` or `proxy`) and the server's URLs |
 | `log`, `clock`, `history`, `behind`, `since`, `was_behind_since`, `direction`, `step`, `steps`, `from`, `to`, `forward_since_start`, `backward_since_start` | [The server's clock](#the-servers-clock): which history, the two times, how far behind and since when, and a step's direction, size and count |
 | `version`, `socket`, `control_schema`, `projects`, `admins`, `addr` | The start: the build, the socket, the control store, how many active projects, the configured admins, and the listener's address |
 | `push`, `push_interval`, `push_headers`, `pull`, `per_project`, `traces`, `trace_headers`, `sampler`, `logs`, `log_headers`, `principals`, `service` | What telemetry is on ([Observability](#observability)). Header counts, never their names or values |
@@ -2508,6 +2517,12 @@ time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-
 | `keys_file.write_failed` | error | The keys file could not be written: sshd reads the old one. Every 30 seconds until a write succeeds. Alert on it |
 | `keys_file.key_held_back` | warn | A key of the store is left out of the keys file because `authorized_keys` gives it to another principal |
 | `keys_file.key_left_out` | error | A key's row in the store does not check out, and is left out of the keys file |
+| `keys_file.removed` | info | SSH is off, so the keys file ariesd wrote was removed |
+| `https.listening` | info | The HTTPS listener serves: its address, TLS mode and URLs |
+| `https.listener_stopped` | error | The HTTPS listener stopped on an error; nothing is served over HTTPS until a restart |
+| `https.refused` | info | A connection to `/v1/connect` was refused before its hello (`reason`: a key the server does not know, a proof that does not verify, a browser's origin, the limit on failures), sampled per address |
+| `tls.cert_reloaded` | info | The certificate files changed and were read again |
+| `tls.cert_reload_failed` | error | The certificate files changed and could not be read; the listener keeps the certificate it had. Alert on it |
 | `clock.behind` | error | The clock is behind the latest event of the database named, at start and every ten minutes while it lasts, with the fix ([The server's clock](#the-servers-clock)) |
 | `clock.caught_up` | info | A clock that was behind has passed its history |
 | `clock.stepped` | warn | The clock was set, or the machine suspended: the direction, the size and what ariesd did about it |

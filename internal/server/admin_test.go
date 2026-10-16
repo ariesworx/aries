@@ -47,6 +47,7 @@ func (s *Server) connections(principal, project string) int {
 	defer s.mu.Unlock()
 	n := 0
 	for _, o := range s.conns {
+		o.transport = "" // either transport's
 		if o == (owner{principal: principal, project: project}) {
 			n++
 		}

@@ -24,6 +24,23 @@ type owner struct {
 	key       string
 	since     time.Time
 	hello     bool
+	// transport is how the connection came (TransportHTTPS or
+	// TransportSSH), once its handshake is done.
+	transport string
+}
+
+// connsBy counts the connections past their handshake that came by each
+// transport.
+func (s *Server) connsBy() map[string]int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := map[string]int{}
+	for _, o := range s.conns {
+		if o.principal != "" {
+			out[o.transport]++
+		}
+	}
+	return out
 }
 
 // oldestWaiting returns the connection accepted longest ago whose hello
@@ -58,7 +75,7 @@ func (s *Server) greeted(c net.Conn) {
 // two always sees it.
 func (s *Server) track(c net.Conn, sess *session) bool {
 	s.mu.Lock()
-	s.conns[c] = owner{principal: sess.actor.Principal, project: sess.proj.id, key: sess.fingerprint}
+	s.conns[c] = owner{principal: sess.actor.Principal, project: sess.proj.id, key: sess.fingerprint, transport: sess.transport}
 	s.mu.Unlock()
 	s.cfg.Telemetry.Record(telemetry.Connections, 1, sess.proj.id)
 	if s.stores == nil {
