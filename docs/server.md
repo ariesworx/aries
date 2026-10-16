@@ -1,11 +1,12 @@
 # Running a server
 
-An Aries server is one Linux machine running three programs:
+An Aries server is one Linux machine running two programs, and a third
+when SSH is on:
 
 | Program | Role |
 |---|---|
-| sshd | The front door. It checks each person's or agent's key and runs `ariesd stdio` for them |
-| `ariesd serve` | The daemon. It owns the data and applies every change in order |
+| `ariesd serve` | The daemon. It owns the data and applies every change in order, and its [HTTPS listener](#the-https-listener) is the front door: it checks each person's or agent's key, and serves them |
+| sshd | With SSH on ([SSH on and off](#ssh-on-and-off)): a second front door. It checks each key and runs `ariesd stdio` for it |
 | Postgres | The database: on the same machine, where ariesd reaches it by its unix socket, or on another machine or a managed service ([Managed services](#managed-services)) |
 
 A server holds one project, as the steps below set it up. It can be
@@ -81,30 +82,44 @@ it does and why.
 ### With the installer
 
 `install-server.sh`, beside `install.sh` at the top of the repository,
-does the steps of this section, and those of [Opt in](#opt-in) and
+does the steps of this section, and those of [Opt in](#opt-in),
+[The HTTPS listener](#the-https-listener) and, with SSH on,
 [Keys from the store](#keys-from-the-store), on a fresh Ubuntu 24.04 LTS
 or 26.04 LTS machine. It sets up a server of [many projects](#serving-many-projects)
 from the start: admins add people and projects with `aries admin`, from
-anywhere. Copy the first admin's public key to the machine, read the
-script, and run it as root, first with `--dry-run`:
+anywhere. By default it serves HTTPS alone, with a certificate from
+Let's Encrypt, and no SSH ([Profiles](#profiles)). Copy the first
+admin's public key to the machine, read the script, and run it as root,
+first with `--plan` and `--dry-run`:
 
 ```sh
 curl -fsSLO https://raw.githubusercontent.com/ariesworx/aries/main/install-server.sh
+sudo sh install-server.sh --admin alice --admin-key alice.pub --host aries.example.com --plan
 sudo sh install-server.sh --admin alice --admin-key alice.pub --host aries.example.com --dry-run
 sudo sh install-server.sh --admin alice --admin-key alice.pub --host aries.example.com
 ```
 
 It prints each step as it goes, each thing it finds already done, and
 each command it runs; it ends with the `.aries.yaml` to commit
-([step 7](#7-connect-a-repository)), which pins the host key sshd
-presents now. [Rotating the host key](#rotating-the-host-key) says how
-to change that key later without refusing every client.
+([step 7](#7-connect-a-repository)): the server's URL and, with SSH on,
+the host key sshd presents now. [Rotating the host key](#rotating-the-host-key)
+says how to change that key later without refusing every client.
 
 | Option | Does |
 |---|---|
-| `--admin NAME` | The first server admin: named under `admins:`, and given a line of `authorized_keys` |
-| `--admin-key FILE` | That admin's public key, a `.pub` file |
-| `--host HOST`, `--port PORT` | The address clients reach sshd at, for `.aries.yaml`. The host defaults to `hostname -f`, the port to 22 |
+| `--admin NAME` | The first server admin: named under `admins:`, and given its key in the control store |
+| `--admin-key FILE` | That admin's public key, a `.pub` file. It signs in over HTTPS ([How aries signs in over HTTPS](#how-aries-signs-in-over-https)), and over SSH when SSH is on |
+| `--host HOST` | The server's DNS name or address, for the URL and `.aries.yaml`, and the name ACME gets a certificate for. Default `hostname -f` |
+| `--profile P` | `internet`, the default, `private`, `airgapped` or `ssh-only` ([Profiles](#profiles)) |
+| `--enable-ssh` | Serve SSH beside HTTPS ([SSH on and off](#ssh-on-and-off)) |
+| `--url URL` | The `https://` URL clients use, `server.url` and `public_urls:`. Default `https://HOST`, with the port when clients reach the listener on another than 443 |
+| `--listen ADDR` | The listener's `HOST:PORT`. Default `:443`, or `127.0.0.1:8443` behind a proxy |
+| `--tls MODE` | `acme`, `files` or `proxy`, in place of the profile's ([Certificates](#certificates)) |
+| `--cert FILE`, `--key FILE` | With `files`: the certificate chain and its key, in PEM. Copied to `/etc/aries/tls/cert.pem` and `/etc/aries/tls/key.pem`, the key mode 0600 and never shown |
+| `--acme-email ADDR`, `--acme-directory URL` | With `acme`: an address the ACME server may write to, and an internal ACME server's directory URL in place of Let's Encrypt's |
+| `--trusted ADDRS` | With `proxy`: the proxy's addresses or networks, comma-separated, which alone may connect. Default `127.0.0.1` |
+| `--port PORT` | With SSH on: sshd's port, for `.aries.yaml`, if not 22 |
+| `--plan` | Print what the options serve and which files the run would write, and stop: before it checks the machine, so it runs anywhere |
 | `--project NAME` | The name the first project is adopted under (`control init --name`). Default `first` |
 | `--version vX.Y.Z` | The release of `ariesd` and `aries` to install. Default the latest |
 | `--releases SOURCE` | Where releases are read from ([Install](install.md#where-releases-are-read-from)), also written to the config file as `releases:` for `ariesd upgrade`. Default `$ARIES_RELEASES`, or GitHub |
@@ -121,13 +136,15 @@ Its steps, and the sections of this guide each one follows:
 | 2 | Install Postgres | [1. Install Postgres](#1-install-postgres), with the key of the apt repository checked against its fingerprint for you. A Postgres 16 or newer that already runs on the machine is used as it is. With `--dsn`, only Postgres's client programs, for the checks and the [backups](#backups-and-restore) |
 | 3 | Create the role and the database | [2. Create the role and the database](#2-create-the-role-and-the-database). With `--dsn`, it prints the statements for the database's administrator to run ([Managed services](#managed-services)) |
 | 4 | Install ariesd | [3. Install ariesd](#3-install-ariesd), by `install.sh`, which checks the signature and the checksum; and `aries` in `/usr/local/bin` |
-| 5 | Write the config file | [4. Write the config file](#4-write-the-config-file), and [Opt in](#opt-in) step 1: the control schema. It then signs in to the database as ariesd will, and checks its version and `max_connections` |
-| 6 | Run ariesd under systemd | [5. Run ariesd under systemd](#5-run-ariesd-under-systemd), and [Keys from the store](#keys-from-the-store) step 1 |
-| 7 | Let the first admin in, and have sshd read the keys file | [6. Let the first principal in](#6-let-the-first-principal-in), and [Keys from the store](#keys-from-the-store) step 2 |
-| 8 | Confine ariesd with AppArmor | [Confine ariesd with AppArmor](#confine-ariesd-with-apparmor), with `--apparmor` |
-| 9 | Adopt the database as the first project | [Opt in](#opt-in) step 2 |
-| 10 | Start ariesd | [5. Run ariesd under systemd](#5-run-ariesd-under-systemd), and [Keys from the store](#keys-from-the-store) step 3 |
-| 11 | Connect a repository | [7. Connect a repository](#7-connect-a-repository) |
+| 5 | Write the config file | [4. Write the config file](#4-write-the-config-file), [Opt in](#opt-in) step 1: the control schema, and the profile's `transports:` and `https:` ([The HTTPS listener](#the-https-listener)). It then signs in to the database as ariesd will, and checks its version and `max_connections`. On a rerun it leaves the file as it is, and says what to set when the options serve other transports |
+| 6 | Set up TLS | [Certificates](#certificates): the files of `--cert` and `--key`, or ACME's cache; behind a proxy, nothing ([Behind a proxy](#behind-a-proxy)). Skipped with `ssh-only` |
+| 7 | Run ariesd under systemd | [5. Run ariesd under systemd](#5-run-ariesd-under-systemd); the drop-ins of [Certificates](#certificates) for a port below 1024 and for ACME; with SSH, [Keys from the store](#keys-from-the-store) step 1. It lets the HTTPS port through `ufw` when `ufw` is active, and says so |
+| 8 | Let the first admin in | With SSH, [6. Let the first principal in](#6-let-the-first-principal-in); without, the line in `/etc/aries/admin.keys` ([SSH on and off](#ssh-on-and-off)) |
+| 9 | Have sshd read the keys file | With SSH, [Keys from the store](#keys-from-the-store) step 2, and step 6's drop-in; skipped without ([SSH on and off](#ssh-on-and-off)) |
+| 10 | Confine ariesd with AppArmor | [Confine ariesd with AppArmor](#confine-ariesd-with-apparmor), with `--apparmor` |
+| 11 | Adopt the database as the first project | [Opt in](#opt-in) step 2, with the first admin's key from step 8's file |
+| 12 | Start ariesd | [5. Run ariesd under systemd](#5-run-ariesd-under-systemd), and with SSH [Keys from the store](#keys-from-the-store) step 3 |
+| 13 | Connect a repository | [7. Connect a repository](#7-connect-a-repository) |
 
 - **Run it again at any time.** Each step checks before it acts, so a
   second run changes nothing and ends `Nothing to change`, and a run
@@ -142,9 +159,13 @@ Its steps, and the sections of this guide each one follows:
   it did not make: a role `aries` with more rights than step 2 gives, or
   a database `aries` that another role owns or whose collation is not
   `C`, stops it with the fix.
-- **sshd is checked before it is reloaded.** The drop-in is checked with
-  `sshd -t`; if that fails, the new file is removed again and sshd is
-  not reloaded.
+- **A default install exposes no SSH path.** Without `--enable-ssh` or
+  `ssh-only` it writes nothing sshd reads for the `aries` account, and
+  ariesd refuses the bridge; `--plan` lists what each profile writes,
+  and a test holds each profile to it.
+- **sshd is checked before it is reloaded.** With SSH on, the drop-in is
+  checked with `sshd -t`; if that fails, the new file is removed again
+  and sshd is not reloaded.
 - **No secret is on a command line or in its output.** With Postgres on
   the machine there is no password at all: ariesd's user signs in over
   the unix socket as the role of its own name. With `--dsn`, the only
@@ -154,23 +175,30 @@ Its steps, and the sections of this guide each one follows:
   difference from what is there. The SQL travels on stdin, as the
   `postgres` user.
 - **The files it writes are this guide's,** byte for byte: ariesd's unit
-  and its two drop-ins, the sudo rule and sshd's drop-in; and the SQL it
+  and its drop-ins, the sudo rule and sshd's drop-in; and the SQL it
   runs is step 2's. A test (`scripts/installserver_test.go`) fails when
   they differ from the blocks below, or when its steps and this table
-  do. The one file whose text it makes is the apt source of step 1, which
-  names this release of Ubuntu.
+  do. The files whose text it makes are the apt source of step 1, which
+  names this release of Ubuntu, and the config file, from the options;
+  it copies the certificate and the key of `--cert` and `--key`, and
+  never shows the key or a difference from what is there.
 - **Where its parts come from.** `install.sh` and the AppArmor profiles
   are read from beside it when it runs from a checkout of Aries, and
   otherwise from `raw.githubusercontent.com`, as the steps download
   them. It forwards `ARIES_RELEASES` (or `--releases`) to `install.sh`.
   Postgres comes from `apt.postgresql.org`, whose key is checked against
   the fingerprint the installer holds, which a test keeps equal to CI's.
-- **What it leaves to you:** the firewall (`ufw limit 22/tcp`, step 6),
-  `PasswordAuthentication no` and, on 26.04, `PerSourcePenaltyExemptList`,
+- **What it leaves to you:** a DNS name that leads to the machine, for
+  ACME; the proxy, behind one ([Behind a proxy](#behind-a-proxy)); the
+  firewall beyond the HTTPS port it opens in an active `ufw`; with SSH,
+  `ufw limit 22/tcp` (step 6), `PasswordAuthentication no` and, on
+  26.04, `PerSourcePenaltyExemptList`,
   [telemetry](#observability), [backups](#backups-and-restore),
   [tuning Postgres](#sizing-postgres), and upgrades (`ariesd upgrade`).
-  Keep the admin's line in `authorized_keys`: it is the way in when
-  nothing else is ([Keys from the store](#keys-from-the-store), step 5).
+  With SSH, keep the admin's line in `authorized_keys`: it is the way in
+  when nothing else is ([Keys from the store](#keys-from-the-store),
+  step 5). Without, `/etc/aries/admin.keys` is what `control init`
+  takes the admin's key from again, should it be removed from the store.
 - **It refuses** another system, a machine without systemd, a user other
   than root (`--dry-run` included, since it reads root's files), and a
   machine set up some other way: more than one Postgres cluster, one
@@ -345,7 +373,7 @@ will:
   set -e
   umask 077
   install -d -o root -g aries -m 0750 /etc/aries
-  printf 'dsn: postgres://aries@/aries?host=/var/run/postgresql\nproject: %s\nsystemd_unit: ariesd.service\nadmins: [alice]\n' "$(cat /proc/sys/kernel/random/uuid)" |
+  printf 'dsn: postgres://aries@/aries?host=/var/run/postgresql\nproject: %s\nsystemd_unit: ariesd.service\nadmins: [alice]\ntransports: [ssh]\n' "$(cat /proc/sys/kernel/random/uuid)" |
     install -o aries -g aries -m 0600 /dev/stdin /etc/aries/ariesd.yaml
 )
 grep project /etc/aries/ariesd.yaml
@@ -362,6 +390,12 @@ sudo -u aries -H psql -d 'postgres://aries@/aries?host=/var/run/postgresql' -c '
   names it.
 - **`admins`** lists the first principal, `alice`, who you let in at step
   6. [Settings](#settings) lists every other key.
+- **`transports: [ssh]`** serves SSH alone, which these steps set up.
+  Without it a server serves HTTPS alone, the default, and needs
+  `https:` ([The HTTPS listener](#the-https-listener)); the
+  [installer](#with-the-installer) sets that up. With HTTPS on, the
+  keys of step 6's file sign in over HTTPS too
+  ([How aries signs in over HTTPS](#how-aries-signs-in-over-https)).
 - **The file is mode 0600**, owned by `aries`, although it holds no
   secret here: a `dsn` may hold a password, or name a file that does
   ([Managed services](#managed-services)).
@@ -724,6 +758,187 @@ clock: a machine with a real-time clock of its own, working or dead (a
 guest's comes from the hypervisor at every boot and was always right);
 a boot with the clock wrong; a virtual machine paused and resumed, or
 restored from a snapshot; a provider's time service.
+
+## The HTTPS listener
+
+HTTPS is the transport a fresh server serves; SSH is a second one, off
+until an operator turns it on ([SSH on and off](#ssh-on-and-off);
+design: [transport.md](design/transport.md)). The listener is part of
+`ariesd serve`, beside its unix socket. It serves two paths and answers
+404 for every other:
+
+| Path | Serves |
+|---|---|
+| `GET /.well-known/aries` | What a client may know before it signs in: the server's version, the transports on, and how one signs in (`key`, below). No principal and no secret |
+| `GET /v1/connect` | A WebSocket that carries the same frames `aries` sends over SSH. Nothing on it reaches the protocol until a key the server knows has proved itself |
+
+The loopback listener's paths (`/metrics`, `/healthz`, `/readyz`), the
+status socket and the unix socket the SSH bridge connects to stay where
+they were; none is served over HTTPS. Every response says to use HTTPS
+alone (`Strict-Transport-Security`), HTTP/2 is offered for everything
+but the WebSocket, which is HTTP/1.1's, and a request from a browser's
+page (one that says its `Origin`) is refused.
+
+```yaml
+transports: [https]                 # the default; [https, ssh] or [ssh]
+https:
+  listen: ":443"
+  public_urls: [https://aries.example.com]
+  tls:
+    mode: acme                      # acme, files or proxy
+    min_version: "1.2"              # or "1.3"
+    acme:
+      domains: [aries.example.com]
+      email: ops@example.com
+      cache: /var/lib/aries/acme
+      directory: ""                 # empty: Let's Encrypt
+    files:
+      cert: /etc/aries/tls/cert.pem
+      key: /etc/aries/tls/key.pem
+    proxy:
+      trusted: [127.0.0.1]
+```
+
+- **`listen`** is `HOST:PORT`; `:443` listens on every address. A port
+  below 1024 needs the capability below.
+- **`public_urls`** are the URLs clients have in `server.url`. ariesd
+  checks what a client proves against them, never against the request's
+  `Host` or an `X-Forwarded-*` header: a proxy may rewrite those (it was
+  seen to, [spike/https](../spike/https/RESULTS.md)).
+- **Only the `tls:` block of the mode is read.** `ariesd serve` refuses
+  to start with HTTPS on and `https:` unset, naming both fixes: set it,
+  or `transports: [ssh]`.
+
+### How aries signs in over HTTPS
+
+Until sign-in through the company's identity provider comes (slice T2
+of [transport.md](design/transport.md#15-plan)), a connection over HTTPS
+proves it holds one of the SSH keys the server already knows: the keys
+`aries admin key add` records, and on a server of one project the lines
+of `authorized_keys` that force `ariesd stdio --principal NAME`. After
+the upgrade `aries` offers the keys it would offer sshd (the one key
+`ARIES_KEY_FILE` or `key:` names, or else the default identities and
+ssh-agent's), the server challenges the first it knows with 32 random
+bytes, and the key signs them with the server's URL; the server checks
+the signature, and that the URL is one of `public_urls`. A proof cannot
+be replayed on another connection, since the challenge is that
+connection's, nor relayed to another server, since its URL is signed.
+The connection is then the key's principal's, with the key's
+fingerprint as a connection through the keys file has it: removing the
+key, disabling the principal or ending its membership closes it, as it
+does an SSH connection. `aries whoami` says which key signed in.
+
+A key the server does not know is refused as sshd refuses one, with
+the keys offered; past `auth_failures_per_minute`, an address is
+refused `busy` until its bucket refills ([Limits](#limits)).
+
+### Certificates
+
+| `mode` | The certificate | Needs |
+|---|---|---|
+| `acme` | From an ACME server: Let's Encrypt, or an internal one's `directory` (step-ca, say), with which ACME needs no internet. ariesd answers the TLS-ALPN-01 challenge on the listener itself, so nothing else listens; the ACME server reaches port 443 | A DNS name that leads to the machine; the `cache` directory, mode 0700, which ariesd makes and which holds the account's key and the certificates; under systemd, `ReadWritePaths` for it (below) |
+| `files` | The operator's: a certificate chain, leaf first, and its key, in PEM, from the company's or the site's CA. ariesd reads them again at the first handshake after either changes, with no restart; a pair that does not read is logged once (`tls.cert_reload_failed`) and the certificate served is kept | The key file mode 0600 (ariesd refuses one others may read), owned by the user ariesd runs as |
+| `proxy` | None at ariesd: plain HTTP behind a proxy or load balancer that terminates TLS ([Behind a proxy](#behind-a-proxy)) | `trusted`: the proxy's addresses, or networks in CIDR form |
+
+TLS is 1.2 or 1.3 with Go's own cipher suites, which are not
+configurable; `min_version: "1.3"` refuses 1.2. Clients check the
+certificate against their system's roots and, where those lack the
+site's CA, against the CA `server.ca` names in `.aries.yaml`
+([Connect a repository](cli.md#connect-a-repository)); pinning a
+certificate is not offered, since renewals would break it. `aries admin
+status` shows when a certificate from files ends.
+
+Under systemd the unit of [step 5](#5-run-ariesd-under-systemd) needs,
+for a port below 1024, the capability to bind it, and nothing else:
+
+```sh
+printf '[Service]\nAmbientCapabilities=CAP_NET_BIND_SERVICE\nCapabilityBoundingSet=CAP_NET_BIND_SERVICE\n' > /etc/systemd/system/ariesd.service.d/https.conf
+```
+
+and for `acme`, its cache, which `ProtectSystem=strict` otherwise keeps
+read-only:
+
+```sh
+install -d -o aries -g aries -m 0700 /var/lib/aries/acme
+printf '[Service]\nReadWritePaths=/var/lib/aries/acme\n' > /etc/systemd/system/ariesd.service.d/acme.conf
+systemctl daemon-reload
+```
+
+`RestrictAddressFamilies` already allows `AF_INET` and `AF_INET6`. The
+[AppArmor profiles](#confine-ariesd-with-apparmor) allow the listener,
+the capability, `/etc/aries/tls` and the ACME cache.
+
+### Behind a proxy
+
+With `mode: proxy`, ariesd serves plain HTTP, and only to `trusted`:
+a connection from any other address is closed unanswered. What must
+then be true, and what ariesd cannot check:
+
+- **The proxy is the only way in.** Bind `listen` to loopback or a
+  private address the proxy alone reaches (the installer binds
+  `127.0.0.1:8443`), so that nothing else can claim to be the proxy.
+- **It passes WebSocket upgrades** on `/v1/connect`, with HTTP/1.1 to
+  ariesd. nginx needs, in that `location`, `proxy_http_version 1.1;`,
+  `proxy_set_header Upgrade $http_upgrade;` and `proxy_set_header
+  Connection "upgrade";`. A proxy that refuses the upgrade shows in
+  `aries` as `answered the WebSocket upgrade with 400`, with a fix that
+  names this section.
+- **It keeps an idle connection at least 60 seconds.** ariesd pings
+  every WebSocket every 25 seconds, so a proxy that closes connections
+  idle for 60 keeps them; `idle_timeout` counts frames, not pings.
+- **`public_urls` names what clients use,** the proxy's URL. A proxy
+  that serves Aries under a path strips it.
+- **The limits per address are the proxy's.** Every connection comes
+  from it, so `https_conns_per_addr` and `auth_failures_per_minute` do
+  not apply behind one; keep the proxy's own.
+
+Client certificates do not pass a proxy, so smart cards checked by
+ariesd itself (1.x) need TLS at ariesd.
+
+### Profiles
+
+`install-server.sh --profile` chooses one of these, and its `--plan`
+prints what it would serve and write without touching the machine. Each
+is a set of defaults, not a different build.
+
+| Profile | Transports | TLS | For |
+|---|---|---|---|
+| `internet`, the default | `[https]` | `acme`, on `:443`, for `--host`'s DNS name | A team on any network: the server's port 443 must reach it, and the ACME server must reach port 443 |
+| `private` | `[https]` | `files` (`--cert`, `--key`, the company CA's), or `proxy` (`--tls proxy`, `--trusted`) | A company network or VPN |
+| `airgapped` | `[https]` | `files`, the site CA's; or `acme` with an internal ACME server (`--acme-directory`), never Let's Encrypt | A site with no route out |
+| `ssh-only` | `[ssh]` | none | The servers of before HTTPS, IAP, a site that allows only SSH |
+
+`--enable-ssh` adds SSH to any of the first three. Nothing in
+`internet` reaches outside but the ACME server; nothing in `private` or
+`airgapped` does, unless its `--acme-directory` is outside.
+
+### SSH on and off
+
+`transports:` says which transports `ariesd serve` serves, and must name
+at least one.
+
+| | SSH off (the default) | SSH on |
+|---|---|---|
+| The installer | Writes no sshd drop-in, no `.ssh` for the `aries` account and no forced command; the first admin's key goes to `/etc/aries/admin.keys`, which no sshd reads, for `control init` | `--enable-ssh`, or `--profile ssh-only`: does [Keys from the store](#keys-from-the-store) and step 6, and checks `sshd -t` |
+| ariesd | Writes no keys file, and removes one it wrote (`keys_file.removed`); refuses a bridge from `ariesd stdio` with `unavailable`, `SSH is off on this server`, and a fix naming `transports: [https, ssh]` and `--enable-ssh`. `ariesd status` and the upgrade's health check use the socket as before | Writes the keys file; serves the bridge |
+| `aries admin key …` | Works, with a notice: the key signs in over HTTPS, and sshd takes it once SSH is on | As before |
+| `aries admin status`, `ariesd status` | `transports: https on :443 for https://aries.example.com (files, certificate ends 2027-01-13), 3 connections; ssh off` | `…; ssh on, 2 connections` |
+
+**Turning SSH on**: run the installer again with the options it was
+first run with and `--enable-ssh`, which checks before it acts and sets
+up sshd; then set `transports: [https, ssh]` in `/etc/aries/ariesd.yaml`
+and `systemctl restart ariesd`, which writes the keys file. The
+installer leaves the config file as it is, and says what to set.
+**Turning it off**: `transports: [https]` and a restart, which removes
+the keys file and refuses bridges from then; remove
+`/etc/ssh/sshd_config.d/00-aries.conf` and the `aries` account's
+`authorized_keys`, and reload sshd, to keep sshd from letting keys in
+for the account at all.
+
+`aries` configured for SSH against a server with SSH off is refused by
+sshd, which has no key for the account; when `.aries.yaml` also has
+`server.url`, the refusal says to use it (`ARIES_TRANSPORT`,
+[Connect a repository](cli.md#connect-a-repository)).
 
 ## Operate a server with Claude Code
 
@@ -1985,7 +2200,9 @@ the config file (`/etc/aries/ariesd.yaml`, or `--config FILE`, or
 | `dsn` | The database: a `postgres://` URL, as Postgres's own clients read it, of the role, the host and port, and the database, `postgres://ROLE@HOST:PORT/DATABASE?PARAMS`. With no host, `host=` names the directory of a unix socket, as [step 4](#4-write-the-config-file)'s does. `search_path=` names the schema of the one project, `public` when it names none. Other parameters are Postgres's: `sslmode=` and `sslrootcert=` for TLS, and `passfile=` for a file that holds the role's password ([Managed services](#managed-services)). A password in the URL itself works, in a config file of mode 0600, and never on the command line | required | `--dsn`, `ARIESD_DSN` |
 | `project` | The project's UUID, in lowercase. A client naming another project is refused. With `control_schema`: the project `control init` adopts, and the one `import-bd`, `export-bd` and the health check of `upgrade` use by default | required | `--project`, `ARIESD_PROJECT` |
 | `control_schema` | The schema of the control store, in the database `dsn` names and as its role. Setting it makes this a server of [many projects](#serving-many-projects), each in a schema ariesd names `project_NAME` ([Opt in](#opt-in), step 3). A lowercase letter, then lowercase letters, digits and underscores; not the schema `dsn` names, and not starting `project_` | none: one project | `ARIESD_CONTROL_SCHEMA` |
-| `keys_file` | With `control_schema`: the file ariesd writes the control store's keys to, for sshd ([Keys from the store](#keys-from-the-store)). A relative path is under the home directory of the user ariesd runs as | `.ssh/aries_keys` | `ARIESD_KEYS_FILE` |
+| `transports` | What `serve` serves: `[https]`, `[https, ssh]` or `[ssh]` ([SSH on and off](#ssh-on-and-off)). With SSH off, ariesd writes no keys file and refuses the bridge | `[https]` | |
+| `https` | The HTTPS listener: `listen`, `public_urls` and `tls` ([The HTTPS listener](#the-https-listener)). Required when `transports` names `https` | none | |
+| `keys_file` | With `control_schema` and SSH on: the file ariesd writes the control store's keys to, for sshd ([Keys from the store](#keys-from-the-store)). A relative path is under the home directory of the user ariesd runs as | `.ssh/aries_keys` | `ARIESD_KEYS_FILE` |
 | `authorized_keys` | With `control_schema`: the hand-maintained file sshd reads beside it. ariesd only reads it, to say which keys are in both. Never the same file as `keys_file` | `.ssh/authorized_keys` | `ARIESD_AUTHORIZED_KEYS` |
 | `bridge` | With `control_schema`: the path of ariesd in the forced command of each line of `keys_file`. Absolute, of letters, digits and `._+-` | `/usr/local/bin/ariesd` | `ARIESD_BRIDGE` |
 | `socket` | The daemon's unix socket | `/run/aries/ariesd.sock` | `--socket`, `ARIESD_SOCKET` |
@@ -4006,6 +4223,12 @@ outside it.
 
 | What you see | Cause | Fix |
 |---|---|---|
+| `ariesd serve` refuses to start: `transports: names https, and https: is not set` | A fresh config serves HTTPS, and says nothing of the listener | Set `https:` ([The HTTPS listener](#the-https-listener)), or `transports: [ssh]` for a server of SSH alone |
+| `aries: the TLS certificate of HOST:443 does not verify` | The server's certificate is from a CA the machine's system store lacks (a company's or a site's), or something stands between | Ask the operator for the CA's certificate and put it in `server.ca`. If the certificate should verify as it is, do not connect. Nothing is queued |
+| `aries: HOST:443 answered the WebSocket upgrade with 400 Bad Request` | A proxy on the way does not pass WebSocket upgrades | Configure the proxy ([Behind a proxy](#behind-a-proxy)), or use SSH where the server has it (`ARIES_TRANSPORT=ssh`) |
+| `aries: HOST:443 answered 502 Bad Gateway` | ariesd does not run behind the proxy, or does not answer it | Start ariesd; check `journalctl -u ariesd` and the proxy's log. Writes are queued meanwhile |
+| `aries: … SSH is off on this server` | The server serves HTTPS alone, and this checkout reaches it by SSH | Set `server.url` in `.aries.yaml` (and unset `ARIES_TRANSPORT`), or have the operator turn SSH on ([SSH on and off](#ssh-on-and-off)) |
+| `tls.cert_reload_failed` in the log | The certificate's files changed and do not make a pair: a key that is not the certificate's, or one others may read | Put the matching pair in place, the key mode 0600; ariesd keeps serving the old certificate meanwhile, and reads the files again when they change |
 | `aries: host key mismatch` | The server's key is not the pinned one | Check the new key with the admin, out of band, before you change `host_key` |
 | `aries: … accepted no key: aries offered SHA256:…, the one key ARIES_KEY_FILE names` | A key is configured, so `aries` offered it alone, and the server does not know it | Have an admin add that key's `.pub`, or unset the variable to offer your default identities and ssh-agent's keys |
 | `aries: … accepted none of the N keys aries offered: …` | No key is configured, and the server knows none of your default identities or ssh-agent's keys. The refusal lists each by fingerprint and file | Send the admin the `.pub` of the key you mean, or name your key file with `ARIES_KEY_FILE` |

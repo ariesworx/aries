@@ -2,7 +2,9 @@
 # Set up an Aries server on a fresh Ubuntu 24.04 LTS or 26.04 LTS
 # machine: what the steps of docs/server.md do by hand, for a server of
 # many projects, with Postgres on the machine or a Postgres the operator
-# names, and sshd reading the keys ariesd writes from its control store.
+# names; serving HTTPS by the deployment profile chosen
+# (docs/design/transport.md, section 3), and SSH only when asked for,
+# with sshd reading the keys ariesd writes from its control store.
 #
 #   curl -fsSLO https://raw.githubusercontent.com/ariesworx/aries/main/install-server.sh
 #   sudo sh install-server.sh --admin alice --admin-key alice.pub --host aries.example.com
@@ -17,28 +19,54 @@
 # install.sh, which holds the release key; this script holds none.
 #
 # The database steps (2, 3 and 5) do not depend on how clients reach
-# the server. Step 7 is the SSH transport's: sshd and the keys file. The
-# deployment profiles of docs/design/transport.md, section 3, will
-# choose the transports with --profile, beside --dsn, and leave the
-# database steps as they are.
+# the server. --profile chooses the transports and where the TLS
+# certificate comes from (steps 5 to 7); SSH's steps (sshd, the keys
+# file, the forced command) run only with --enable-ssh or the profile
+# ssh-only, so a default install exposes no SSH path.
 set -eu
 
 usage() {
 	cat <<'EOF'
-usage: install-server.sh --admin NAME --admin-key FILE [--host HOST] [--port PORT]
+usage: install-server.sh --admin NAME --admin-key FILE [--host HOST]
+                         [--profile internet|private|airgapped|ssh-only] [--enable-ssh]
+                         [--url URL] [--listen ADDR] [--tls acme|files|proxy]
+                         [--cert FILE --key FILE] [--acme-email ADDR] [--acme-directory URL]
+                         [--trusted ADDRS] [--port PORT]
                          [--project NAME] [--version vX.Y.Z] [--releases SOURCE]
                          [--dsn URL [--db-password-file FILE]]
                          [--apparmor] [--dry-run]
 
 Sets up an Aries server on Ubuntu 24.04 LTS or 26.04 LTS, as root,
 following docs/server.md: Postgres, its role and database for ariesd,
-ariesd and aries, the config file, the systemd unit, sshd, and the first
-admin. Prints the .aries.yaml a repository commits.
+ariesd and aries, the config file, TLS, the systemd unit, the first
+admin, and sshd when SSH is on. Prints the .aries.yaml a repository
+commits.
 
   --admin NAME       the first server admin's principal name
-  --admin-key FILE   that admin's SSH public key (a .pub file)
-  --host HOST        the address clients connect to, for .aries.yaml
+  --admin-key FILE   that admin's SSH public key (a .pub file): it signs
+                     in over HTTPS, and over SSH when SSH is on
+  --host HOST        the server's DNS name or address, for .aries.yaml
                      (default: this machine's hostname -f)
+  --profile P        internet (the default): HTTPS with a certificate
+                     from ACME; private: HTTPS with the company CA's
+                     certificate (--cert, --key) or behind a proxy;
+                     airgapped: HTTPS with the site CA's certificate;
+                     ssh-only: SSH alone, as servers were before HTTPS
+  --enable-ssh       serve SSH beside HTTPS: sshd, its drop-in and the
+                     keys file
+  --url URL          the https:// URL clients use, server.url
+                     (default: https://HOST)
+  --listen ADDR      the HTTPS listener's HOST:PORT (default :443, or
+                     127.0.0.1:8443 behind a proxy)
+  --tls MODE         acme, files or proxy, in place of the profile's
+  --cert FILE        files: the certificate chain, PEM, leaf first
+  --key FILE         files: its private key, PEM, copied to a 0600 file
+  --acme-email ADDR  acme: an address the ACME server may write to
+  --acme-directory URL
+                     acme: an internal ACME server's directory URL
+                     (default: Let's Encrypt)
+  --trusted ADDRS    proxy: the proxy's addresses or networks, comma-
+                     separated, which alone may connect (default 127.0.0.1)
   --port PORT        sshd's port, if not 22, for .aries.yaml
   --project NAME     the code name of the first project (default: first)
   --version V        the aries release to install (default: the latest)
@@ -92,6 +120,14 @@ config=/etc/aries/ariesd.yaml
 home=/var/lib/aries
 authorized=$home/.ssh/authorized_keys
 keys_file=$home/.ssh/aries_keys
+# With SSH off, the first admin's key line is in a file of ariesd's own,
+# which no sshd reads, for control init to take into the control store.
+admin_keys=/etc/aries/admin.keys
+# HTTPS: the certificate's files, and ACME's cache.
+tls_dir=/etc/aries/tls
+tls_cert=$tls_dir/cert.pem
+tls_key=$tls_dir/key.pem
+acme_cache=$home/acme
 control_schema=aries_control
 pg_socket=/var/run/postgresql
 db_files=/etc/aries/postgres
@@ -123,16 +159,19 @@ have() { _have=$(command -v "$1" 2>&1) && [ -n "$_have" ]; }
 
 admin='' admin_key='' host='' port='' project=first version='' dry=0 apparmor=0
 dsn_opt='' db_password_file=''
+profile=internet enable_ssh=0 plan=0 url='' listen='' tls='' cert_opt='' key_opt='' acme_email='' acme_directory='' trusted=''
 releases=${ARIES_RELEASES:-}
 while [ $# -gt 0 ]; do
 	case $1 in
-	--admin | --admin-key | --host | --port | --project | --version | --releases | --dsn | --db-password-file)
+	--admin | --admin-key | --host | --port | --project | --version | --releases | --dsn | --db-password-file | \
+		--profile | --url | --listen | --tls | --cert | --key | --acme-email | --acme-directory | --trusted)
 		[ $# -ge 2 ] || usage_die "$1 needs a value" "run with -h for the options"
 		_opt=$1 _val=$2
 		shift ;;
-	--admin=* | --admin-key=* | --host=* | --port=* | --project=* | --version=* | --releases=* | --dsn=* | --db-password-file=*)
+	--admin=* | --admin-key=* | --host=* | --port=* | --project=* | --version=* | --releases=* | --dsn=* | --db-password-file=* | \
+		--profile=* | --url=* | --listen=* | --tls=* | --cert=* | --key=* | --acme-email=* | --acme-directory=* | --trusted=*)
 		_opt=${1%%=*} _val=${1#*=} ;;
-	--apparmor | --dry-run) _opt=$1 ;;
+	--apparmor | --dry-run | --enable-ssh | --plan) _opt=$1 ;;
 	-h | --help) usage; exit 0 ;;
 	*) usage >&2; usage_die "unknown option $1" "run with -h for the options" ;;
 	esac
@@ -146,8 +185,19 @@ while [ $# -gt 0 ]; do
 	--releases) releases=$_val ;;
 	--dsn) dsn_opt=$_val ;;
 	--db-password-file) db_password_file=$_val ;;
+	--profile) profile=$_val ;;
+	--url) url=$_val ;;
+	--listen) listen=$_val ;;
+	--tls) tls=$_val ;;
+	--cert) cert_opt=$_val ;;
+	--key) key_opt=$_val ;;
+	--acme-email) acme_email=$_val ;;
+	--acme-directory) acme_directory=$_val ;;
+	--trusted) trusted=$_val ;;
 	--apparmor) apparmor=1 ;;
 	--dry-run) dry=1 ;;
+	--enable-ssh) enable_ssh=1 ;;
+	--plan) plan=1 ;;
 	esac
 	shift
 done
@@ -233,6 +283,171 @@ if [ -n "$db_password_file" ]; then
 	fi
 	[ -n "$(sed -n 1p "$db_password_file")" ] ||
 		usage_die "--db-password-file $db_password_file is empty" "put the role's password alone on its one line"
+fi
+
+# The profile (docs/server.md, Profiles): the transports, and where the
+# TLS certificate comes from unless --tls says. SSH is on only with
+# --enable-ssh, or alone with ssh-only.
+case $profile in
+internet) ssh_on=$enable_ssh https_on=1 tls=${tls:-acme} ;;
+private | airgapped) ssh_on=$enable_ssh https_on=1 tls=${tls:-files} ;;
+ssh-only) ssh_on=1 https_on=0 ;;
+*) usage_die "--profile $profile is not internet, private, airgapped or ssh-only" "see docs/server.md, Profiles" ;;
+esac
+if [ "$https_on" = 0 ]; then
+	[ -z "$url$listen$tls$cert_opt$key_opt$acme_email$acme_directory$trusted" ] ||
+		usage_die "--url, --listen, --tls, --cert, --key, --acme-email, --acme-directory and --trusted are HTTPS's, and --profile ssh-only serves none" \
+			"leave them out, or choose another profile"
+else
+	case $tls in
+	acme | files | proxy) ;;
+	*) usage_die "--tls $tls is not acme, files or proxy" "see docs/server.md, Certificates" ;;
+	esac
+	if [ "$tls" != files ] && [ -n "$cert_opt$key_opt" ]; then
+		usage_die "--cert and --key are for --tls files, and TLS is $tls here" "leave them out, or give --tls files"
+	fi
+	if [ "$tls" != acme ] && [ -n "$acme_email$acme_directory" ]; then
+		usage_die "--acme-email and --acme-directory are for --tls acme, and TLS is $tls here" "leave them out, or give --tls acme"
+	fi
+	if [ "$tls" != proxy ] && [ -n "$trusted" ]; then
+		usage_die "--trusted is for --tls proxy, and TLS is $tls here" "leave it out, or give --tls proxy"
+	fi
+	if [ "$profile" = airgapped ] && [ "$tls" = acme ] && [ -z "$acme_directory" ]; then
+		usage_die "--profile airgapped reaches nothing outside, and ACME without --acme-directory is Let's Encrypt's, on the internet" \
+			"give the site CA's certificate with --cert and --key, or an internal ACME server with --acme-directory"
+	fi
+	case $tls in
+	files)
+		[ -n "$cert_opt" ] && [ -n "$key_opt" ] ||
+			usage_die "--tls files needs --cert and --key" "give the certificate chain and its key, in PEM, from the company's or the site's CA"
+		for _f in "$cert_opt" "$key_opt"; do
+			if [ ! -f "$_f" ] || [ ! -r "$_f" ]; then
+				usage_die "cannot read $_f" "name the PEM files of the certificate and its key"
+			fi
+		done
+		if ! grep -q 'BEGIN CERTIFICATE' "$cert_opt" || grep -q 'PRIVATE KEY' "$cert_opt"; then
+			usage_die "--cert $cert_opt is not a certificate in PEM" "name the certificate chain, leaf first, and give its key with --key"
+		fi
+		grep -q 'PRIVATE KEY' "$key_opt" ||
+			usage_die "--key $key_opt is not a private key in PEM" "name the certificate's key"
+		;;
+	acme)
+		if [ -n "$acme_email" ]; then
+			printf '%s\n' "$acme_email" | grep -Eq '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$' ||
+				usage_die "--acme-email $acme_email is not an address" "give an address such as ops@example.com"
+		fi
+		if [ -n "$acme_directory" ]; then
+			printf '%s\n' "$acme_directory" | grep -Eq '^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$' ||
+				usage_die "--acme-directory $acme_directory is not an https:// URL" "give the ACME server's directory URL"
+		fi
+		;;
+	proxy)
+		trusted=${trusted:-127.0.0.1}
+		for _t in $(printf '%s\n' "$trusted" | tr ',' ' '); do
+			printf '%s\n' "$_t" | grep -Eq '^[0-9A-Fa-f:.]+(/[0-9]{1,3})?$' ||
+				usage_die "--trusted $_t is not an address or a network" "give the proxy's addresses, comma-separated, such as 10.0.0.5,10.0.1.0/24"
+		done
+		;;
+	esac
+	if [ -z "$listen" ]; then
+		listen=:443
+		[ "$tls" != proxy ] || listen=127.0.0.1:8443
+	fi
+	printf '%s\n' "$listen" | grep -Eq '^(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]*):[1-9][0-9]{0,4}$' && [ "${listen##*:}" -le 65535 ] ||
+		usage_die "--listen $listen is not HOST:PORT" "give the listener's address, such as :443 or 127.0.0.1:8443"
+	if [ -n "$url" ]; then
+		printf '%s\n' "$url" | grep -Eq '^https://([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(:[0-9]{1,5})?(/[A-Za-z0-9._~-]+)*$' ||
+			usage_die "--url $url is not an https:// URL of the server" "give the URL clients use, such as https://aries.example.com"
+	fi
+fi
+if [ "$ssh_on" = 0 ] && [ -n "$port" ]; then
+	usage_die "--port is sshd's, and SSH is off" "leave it out, or give --enable-ssh"
+fi
+if [ "$https_on" = 1 ] && [ -z "$url" ]; then
+	case $host in *:*)
+		usage_die "--host $host is an IPv6 address, which a URL needs in brackets" "give the server's URL with --url, such as https://[2001:db8::5]" ;;
+	esac
+fi
+
+# the_host prints the server's name or address, as clients have it.
+the_host() { printf '%s\n' "${host:-$(hostname -f 2>/dev/null || hostname)}"; }
+
+# the_url prints the URL clients use: --url, or https://HOST, with the
+# listener's port where clients reach it directly on another than 443.
+the_url() {
+	if [ -n "$url" ]; then
+		printf '%s\n' "$url"
+	elif [ "$tls" = proxy ] || [ "${listen##*:}" = 443 ]; then
+		printf 'https://%s\n' "$(the_host)"
+	else
+		printf 'https://%s:%s\n' "$(the_host)" "${listen##*:}"
+	fi
+}
+
+# the_domain prints the host of the URL: the name ACME gets a
+# certificate for.
+the_domain() {
+	_d=$(the_url)
+	_d=${_d#https://}
+	printf '%s\n' "${_d%%[:/]*}"
+}
+
+# the_transports prints transports: as the profile has it.
+the_transports() {
+	if [ "$https_on" = 0 ]; then
+		printf '[ssh]\n'
+	elif [ "$ssh_on" = 1 ]; then
+		printf '[https, ssh]\n'
+	else
+		printf '[https]\n'
+	fi
+}
+
+# print_plan says what the options serve and which files the run would
+# write, from the options alone: what --dry-run then shows step by
+# step, on the machine. Files ariesd writes itself are in parentheses.
+print_plan() {
+	say "profile: $profile"
+	say "transports: $(the_transports)"
+	if [ "$https_on" = 1 ]; then
+		say "https: $(the_url), listening on $listen, TLS by $tls"
+	fi
+	say "writes:"
+	say "  /etc/aries/ariesd.yaml"
+	say "  /etc/systemd/system/ariesd.service"
+	say "  /etc/sudoers.d/aries"
+	if [ "$https_on" = 1 ]; then
+		case $tls in
+		files)
+			say "  $tls_cert"
+			say "  $tls_key"
+			;;
+		acme) say "  $acme_cache/ (and ariesd: the account's key and the certificates in it)" ;;
+		esac
+		[ "${listen##*:}" -ge 1024 ] || say "  /etc/systemd/system/ariesd.service.d/https.conf"
+		[ "$tls" != acme ] || say "  /etc/systemd/system/ariesd.service.d/acme.conf"
+	fi
+	if [ "$ssh_on" = 1 ]; then
+		say "  $authorized"
+		say "  /etc/systemd/system/ariesd.service.d/keys.conf"
+		say "  /etc/ssh/sshd_config.d/00-aries.conf"
+		say "  ($keys_file)"
+	else
+		say "  $admin_keys"
+	fi
+	if [ "$apparmor" = 1 ]; then
+		say "  /etc/apparmor.d/ariesd"
+		say "  /etc/apparmor.d/tunables/ariesd"
+		say "  /etc/systemd/system/ariesd.service.d/apparmor.conf"
+	fi
+	if [ "$https_on" = 1 ] && [ "$tls" != proxy ]; then
+		say "opens, if ufw is active: ${listen##*:}/tcp"
+	fi
+}
+
+if [ "$plan" = 1 ]; then
+	print_plan
+	exit 0
 fi
 
 # The machine: an Ubuntu LTS release docs/server.md was run on, which
@@ -356,7 +571,7 @@ put() {
 	changes=$((changes + 1))
 	wrote=1
 	if [ "$dry" = 1 ] && [ -n "${6:-}" ]; then
-		say "   would write $1, mode $2, owner $3:$4: $6 from $from, $(wc -l <"$tmp/new" | tr -d ' ') lines"
+		say "   would write $1, mode $2, owner $3:$4: $6, $(wc -l <"$tmp/new" | tr -d ' ') lines"
 		return 0
 	fi
 	if [ "$dry" = 1 ]; then
@@ -415,6 +630,23 @@ keys_dropin() {
 	cat <<'EOF'
 [Service]
 ReadWritePaths=/var/lib/aries/.ssh
+EOF
+}
+
+# file: /etc/systemd/system/ariesd.service.d/https.conf
+https_dropin() {
+	cat <<'EOF'
+[Service]
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+EOF
+}
+
+# file: /etc/systemd/system/ariesd.service.d/acme.conf
+acme_dropin() {
+	cat <<'EOF'
+[Service]
+ReadWritePaths=/var/lib/aries/acme
 EOF
 }
 
@@ -791,11 +1023,26 @@ run_installer() {
 # setting KEY prints a top-level key's value from the config file.
 setting() { sed -n "s/^$1: *//p" "$config"; }
 
+# the_https prints the https: setting of the profile.
+the_https() {
+	printf 'https:\n  listen: "%s"\n  public_urls: [%s]\n  tls:\n    mode: %s\n' "$listen" "$(the_url)" "$tls"
+	case $tls in
+	acme)
+		printf '    acme:\n      domains: [%s]\n      cache: %s\n' "$(the_domain)" "$acme_cache"
+		[ -z "$acme_email" ] || printf '      email: %s\n' "$acme_email"
+		[ -z "$acme_directory" ] || printf '      directory: %s\n' "$acme_directory"
+		;;
+	files) printf '    files:\n      cert: %s\n      key: %s\n' "$tls_cert" "$tls_key" ;;
+	proxy) printf '    proxy:\n      trusted: [%s]\n' "$(printf '%s' "$trusted" | sed 's/,/, /g')" ;;
+	esac
+}
+
 # the_config prints the config file, with PROJECT.
 the_config() {
-	printf 'dsn: %s\nproject: %s\nsystemd_unit: ariesd.service\nadmins: [%s]\ncontrol_schema: %s\n' \
-		"$(the_dsn)" "$1" "$admin" "$control_schema"
+	printf 'dsn: %s\nproject: %s\nsystemd_unit: ariesd.service\nadmins: [%s]\ncontrol_schema: %s\ntransports: %s\n' \
+		"$(the_dsn)" "$1" "$admin" "$control_schema" "$(the_transports)"
 	[ -z "$releases" ] || printf 'releases: %s\n' "$releases"
+	[ "$https_on" = 0 ] || the_https
 }
 
 # the_pgpass prints the password file of --db-password-file, as Postgres
@@ -833,6 +1080,10 @@ write_pgpass() {
 
 write_config() {
 	step 5 'Write the config file'
+	if [ "$https_on" = 1 ] && [ "$tls" = acme ] && printf '%s\n' "$(the_domain)" | grep -Eq '^[0-9.]*$'; then
+		die "ACME issues certificates for DNS names, and the server's URL names the address $(the_domain)" \
+			"give --host, or --url, with the server's DNS name; or the certificate's files with --tls files --cert FILE --key FILE"
+	fi
 	ensure_dir /etc/aries root aries 750
 	[ -z "$db_password_file" ] || write_pgpass
 	_dsn=$(the_dsn)
@@ -848,6 +1099,13 @@ write_config() {
 			"run again with --admin set to an admin it names ($(setting admins)), or add $admin there and restart ariesd" ;;
 		esac
 		ok "$config, project $(setting project)"
+		# The config is the operator's from here: turning a transport on
+		# or off is theirs to set (docs/server.md, SSH on and off).
+		_have=$(setting transports)
+		if [ "${_have:-[https]}" != "$(the_transports)" ]; then
+			note "$config has transports: ${_have:-[https], its default}, and these options serve $(the_transports); this run sets up what they need, and leaves the config file as it is"
+			note "to serve them, set transports: $(the_transports) in $config, then: systemctl restart ariesd"
+		fi
 	else
 		_project=$(cat /proc/sys/kernel/random/uuid)
 		changes=$((changes + 1))
@@ -892,13 +1150,76 @@ check_connection() {
 	fi
 }
 
+setup_tls() {
+	step 6 'Set up TLS'
+	if [ "$https_on" = 0 ]; then
+		note "skipped: --profile ssh-only serves no HTTPS"
+		return 0
+	fi
+	case $tls in
+	files)
+		ensure_dir "$tls_dir" root aries 750
+		put "$tls_cert" 644 root root cert_text "the certificate of --cert $cert_opt"
+		write_tls_key
+		;;
+	acme)
+		ensure_dir "$acme_cache" aries aries 700
+		_ca=$acme_directory
+		[ -n "$_ca" ] || _ca="Let's Encrypt"
+		note "ariesd gets the certificate for $(the_domain) from $_ca at its first TLS handshake, by the challenge TLS-ALPN-01 to port 443"
+		[ "${listen##*:}" = 443 ] || note "warning: the listener is on port ${listen##*:}, and the ACME server reaches port 443, which must lead to it"
+		;;
+	proxy)
+		note "TLS is the proxy's: ariesd serves plain HTTP on $listen to $trusted alone; the proxy passes WebSocket upgrades on /v1/connect and keeps an idle connection at least 60 seconds (docs/server.md, Behind a proxy)"
+		;;
+	esac
+}
+
+# cert_text prints the certificate of --cert, which is public.
+cert_text() { cat "$cert_opt"; }
+
+# write_tls_key copies the key of --key to the 0600 file ariesd reads,
+# or leaves it if it is already that key. Neither it nor a difference
+# from what is there is ever shown.
+write_tls_key() {
+	if [ -e "$tls_key" ]; then
+		cmp -s "$key_opt" "$tls_key" || die "$tls_key exists and holds another key; nothing in it was changed, and nothing of it is shown" \
+			"to renew the certificate, replace both files by hand: ariesd reads them again when they change (docs/server.md, Certificates)"
+		ok "$tls_key, the key of --key"
+		meta "$tls_key" 600 aries aries
+		return 0
+	fi
+	changes=$((changes + 1))
+	if [ "$dry" = 1 ]; then
+		say "   would write $tls_key, mode 600, owner aries:aries, with the key of --key"
+		return 0
+	fi
+	say "   write $tls_key, mode 600, owner aries:aries, with the key of --key"
+	pending=$tls_dir/.key.pem.install-server
+	install -o aries -g aries -m 0600 "$key_opt" "$pending" || die "cannot write $tls_key" "read the error above"
+	mv -f "$pending" "$tls_key" || die "cannot write $tls_key" "read the error above"
+	pending=
+}
+
 run_ariesd_unit() {
-	step 6 'Run ariesd under systemd'
+	step 7 'Run ariesd under systemd'
 	put /etc/systemd/system/ariesd.service 644 root root ariesd_unit
 	[ "$wrote" = 0 ] || { daemon_reload=1; restart_ariesd=1; }
 	ensure_dir /etc/systemd/system/ariesd.service.d root root 755
-	put /etc/systemd/system/ariesd.service.d/keys.conf 644 root root keys_dropin
-	[ "$wrote" = 0 ] || { daemon_reload=1; restart_ariesd=1; }
+	# The keys file is SSH's; the capability to bind a port below 1024,
+	# and ACME's cache, are HTTPS's.
+	if [ "$ssh_on" = 1 ]; then
+		put /etc/systemd/system/ariesd.service.d/keys.conf 644 root root keys_dropin
+		[ "$wrote" = 0 ] || { daemon_reload=1; restart_ariesd=1; }
+	fi
+	if [ "$https_on" = 1 ] && [ "${listen##*:}" -lt 1024 ]; then
+		put /etc/systemd/system/ariesd.service.d/https.conf 644 root root https_dropin
+		[ "$wrote" = 0 ] || { daemon_reload=1; restart_ariesd=1; }
+	fi
+	if [ "$https_on" = 1 ] && [ "$tls" = acme ]; then
+		put /etc/systemd/system/ariesd.service.d/acme.conf 644 root root acme_dropin
+		[ "$wrote" = 0 ] || { daemon_reload=1; restart_ariesd=1; }
+	fi
 	# The sudo rule, checked by visudo before it is in place. sudo-rs's
 	# visudo, Ubuntu 26.04's, says "parsed OK" despite -q; its errors go
 	# to stderr.
@@ -908,6 +1229,24 @@ run_ariesd_unit() {
 	fi
 	put /etc/sudoers.d/aries 440 root root sudoers
 	reload_units
+	open_port
+}
+
+# open_port lets the HTTPS listener's port through ufw when ufw is
+# active, and says so. Behind a proxy the listener is the proxy's to
+# reach, and nothing is opened.
+open_port() {
+	[ "$https_on" = 1 ] && [ "$tls" != proxy ] || return 0
+	_p=${listen##*:}
+	if ! have ufw || ! ufw status 2>/dev/null | head -n 1 | grep -q 'Status: active'; then
+		note "ufw is not active: nothing opened; the HTTPS port, $_p/tcp, must reach this machine"
+		return 0
+	fi
+	if ufw status 2>/dev/null | grep -Eq "^$_p/tcp[[:space:]]+ALLOW"; then
+		ok "ufw allows $_p/tcp"
+	else
+		act ufw allow "$_p/tcp"
+	fi
 }
 
 # reload_units has systemd read the unit files again when this run wrote
@@ -923,10 +1262,22 @@ reload_units() {
 	fi
 }
 
+# admin_line is the first admin's key as a line of authorized_keys that
+# forces the bridge for the admin.
+admin_line() {
+	printf 'restrict,command="/usr/local/bin/ariesd stdio --principal %s" %s %s%s\n' "$admin" "$admin_key_type" "$admin_key_blob" "${admin_key_comment:+ $admin_key_comment}"
+}
+
 first_admin() {
-	step 7 'Let the first admin in, and have sshd read the keys file'
+	step 8 'Let the first admin in'
+	if [ "$ssh_on" = 0 ]; then
+		# No sshd reads this file: control init (step 11) takes the key
+		# into the control store, and it signs in over HTTPS.
+		put "$admin_keys" 640 root aries admin_line
+		return 0
+	fi
 	ensure_dir "$home/.ssh" aries aries 700
-	_line="restrict,command=\"/usr/local/bin/ariesd stdio --principal $admin\" $admin_key_type $admin_key_blob${admin_key_comment:+ $admin_key_comment}"
+	_line=$(admin_line)
 	_found=
 	if [ -f "$authorized" ]; then
 		_found=$(awk -v t="$admin_key_type" -v b="$admin_key_blob" '{ for (i = 1; i < NF; i++) if ($i == t && $(i + 1) == b) { print; exit } }' "$authorized")
@@ -956,7 +1307,16 @@ first_admin() {
 		fi
 	fi
 	meta "$authorized" 600 aries aries
+}
 
+serve_ssh() {
+	step 9 'Have sshd read the keys file'
+	if [ "$ssh_on" = 0 ]; then
+		note "skipped: SSH is off; --enable-ssh turns it on (docs/server.md, SSH on and off)"
+		[ ! -e /etc/ssh/sshd_config.d/00-aries.conf ] ||
+			note "warning: /etc/ssh/sshd_config.d/00-aries.conf, from an earlier run, is left as it is: remove it, and $authorized, to keep sshd from letting keys in for aries"
+		return 0
+	fi
 	put /etc/ssh/sshd_config.d/00-aries.conf 644 root root sshd_dropin
 	_sshd_new=$wrote
 	if [ -d /run/sshd ]; then
@@ -983,7 +1343,7 @@ first_admin() {
 }
 
 confine() {
-	step 8 'Confine ariesd with AppArmor'
+	step 10 'Confine ariesd with AppArmor'
 	if [ -e /etc/systemd/system/ariesd.service.d/apparmor.conf ]; then
 		aa_exec="aa-exec -p ariesd-admin --"
 	fi
@@ -998,9 +1358,9 @@ confine() {
 	mkdir "$tmp/apparmor"
 	fetch deploy/apparmor/ariesd "$tmp/apparmor/ariesd" || die "cannot read deploy/apparmor/ariesd from $from" "check the network"
 	fetch deploy/apparmor/tunables/ariesd "$tmp/apparmor/tunables" || die "cannot read deploy/apparmor/tunables/ariesd from $from" "check the network"
-	put /etc/apparmor.d/tunables/ariesd 644 root root apparmor_tunables deploy/apparmor/tunables/ariesd
+	put /etc/apparmor.d/tunables/ariesd 644 root root apparmor_tunables "deploy/apparmor/tunables/ariesd from $from"
 	_aa_new=$wrote
-	put /etc/apparmor.d/ariesd 644 root root apparmor_profile deploy/apparmor/ariesd
+	put /etc/apparmor.d/ariesd 644 root root apparmor_profile "deploy/apparmor/ariesd from $from"
 	[ "$wrote" = 0 ] || _aa_new=1
 	if [ "$_aa_new" = 0 ] && grep -q '^ariesd-serve ' /sys/kernel/security/apparmor/profiles 2>/dev/null; then
 		ok "the profiles are loaded"
@@ -1015,11 +1375,14 @@ confine() {
 }
 
 adopt() {
-	step 9 'Adopt the database as the first project'
+	step 11 'Adopt the database as the first project'
 	# control init makes the control schema, adds what is new and leaves
-	# the rest, so it is run every time; it says what it found.
+	# the rest, so it is run every time; it says what it found. It takes
+	# the first admin's key from the file step 8 wrote it to.
+	_keys=$authorized
+	[ "$ssh_on" = 1 ] || _keys=$admin_keys
 	# shellcheck disable=SC2086 # aa_exec is words or none
-	set -- sudo -u aries -H $aa_exec ariesd control init --name "$project"
+	set -- sudo -u aries -H $aa_exec ariesd control init --name "$project" --authorized-keys "$_keys"
 	if [ "$dry" = 1 ]; then
 		say "   would run, in $home, which adds only what is new: $(quote "$@")"
 		return 0
@@ -1029,7 +1392,7 @@ adopt() {
 }
 
 start_ariesd() {
-	step 10 'Start ariesd'
+	step 12 'Start ariesd'
 	if systemctl is-enabled --quiet ariesd 2>/dev/null; then
 		ok "ariesd.service enabled"
 	else
@@ -1045,29 +1408,39 @@ start_ariesd() {
 		act systemctl start ariesd
 	fi
 	[ "$dry" = 0 ] || return 0
-	[ -f "$keys_file" ] || die "ariesd runs but wrote no $keys_file" "read journalctl -u ariesd"
-	_m=$(stat -c '%a %U' "$keys_file")
-	[ "$_m" = "600 aries" ] || die "$keys_file is $_m, not 600 aries" "read journalctl -u ariesd"
-	ok "$keys_file, keys: $(grep -c '^restrict' "$keys_file")"
+	if [ "$ssh_on" = 1 ]; then
+		[ -f "$keys_file" ] || die "ariesd runs but wrote no $keys_file" "read journalctl -u ariesd"
+		_m=$(stat -c '%a %U' "$keys_file")
+		[ "$_m" = "600 aries" ] || die "$keys_file is $_m, not 600 aries" "read journalctl -u ariesd"
+		ok "$keys_file, keys: $(grep -c '^restrict' "$keys_file")"
+	elif [ -e "$keys_file" ]; then
+		die "SSH is off, and ariesd left $keys_file" "read journalctl -u ariesd, and check transports: in $config"
+	fi
 	journalctl -u ariesd -n 3 --no-pager -o cat 2>/dev/null | sed 's/^/   | /' || true
 }
 
 connect() {
-	step 11 'Connect a repository'
-	_fpr=$(ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub | cut -d' ' -f2)
-	_host=${host:-$(hostname -f 2>/dev/null || hostname)}
+	step 13 'Connect a repository'
 	if [ -e "$config" ]; then _project=$(setting project); else _project='<made by step 5>'; fi
 	say "   Commit this as .aries.yaml in the project's repository:"
 	say
 	say "project: $_project"
 	say "server:"
-	say "  host: $_host"
-	[ -z "$port" ] || [ "$port" = 22 ] || say "  port: $port"
-	say "  host_key: $_fpr"
+	[ "$https_on" = 0 ] || say "  url: $(the_url)"
+	if [ "$ssh_on" = 1 ]; then
+		say "  host: $(the_host)"
+		[ -z "$port" ] || [ "$port" = 22 ] || say "  port: $port"
+		say "  host_key: $(ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub | cut -d' ' -f2)"
+	fi
 	say
+	if [ "$https_on" = 1 ] && [ "$tls" = files ]; then
+		say "   If machines do not trust the certificate's CA, add server.ca: the CA's certificate in PEM (docs/cli.md)."
+	fi
 	say "   Then, as $admin, in that repository: aries whoami"
 	say "   Add someone: aries admin principal add NAME --key FILE --project $project"
-	say "   Keep $admin's line in $authorized: it is the way in when nothing else is."
+	if [ "$ssh_on" = 1 ]; then
+		say "   Keep $admin's line in $authorized: it is the way in when nothing else is."
+	fi
 	say "   Back up the database: docs/server.md, Backups and restore."
 }
 
@@ -1076,8 +1449,10 @@ install_postgres
 create_database
 install_ariesd
 write_config
+setup_tls
 run_ariesd_unit
 first_admin
+serve_ssh
 confine
 adopt
 start_ariesd
