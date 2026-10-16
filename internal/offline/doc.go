@@ -153,7 +153,7 @@
 //
 // # Which protocol
 //
-// The protocol settled at 8 for v1.0.0, spoken alone, and every op the
+// The protocol settled at 8 for v0.5.0, spoken alone, and every op the
 // outbox queues takes an idempotency key in it. A server of another
 // version refuses the handshake with code version, so an entry waits in
 // the outbox, unsent, until a server that speaks 8 is reached.

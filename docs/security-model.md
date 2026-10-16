@@ -575,7 +575,7 @@ it:
   logged with its reason and the address, sampled per address, never
   with the key's text.
 
-v1.0.0 authenticates by keys: the key proof here, or SSH (decision 91
+v0.5.0 authenticates by keys: the key proof here, or SSH (decision 91
 of [the design](design/aries.md#14-decisions)). Sign-in at an identity
 provider and service principals' token exchange
 ([below](#sign-in-and-tokens)) are in the build but off unless
@@ -583,7 +583,7 @@ provider and service principals' token exchange
 in 1.x.
 
 What it does not yet have: the security review of the listener and the
-key proof before 1.0 ([§12.4](design/transport.md#124-what-a-security-review-must-look-at-before-10)),
+key proof before v0.5.0 ([§12.4](design/transport.md#124-what-a-security-review-must-look-at-before-10)),
 and a measure of what a flood of unauthenticated requests costs while
 sessions work (its item 6): the limits above bound it, but nobody has
 yet run one against them.

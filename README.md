@@ -48,8 +48,12 @@ command line. One small Go server keeps the data in
 > CI job or a cloud workload signs in as a service principal with its
 > platform's token, by a trust rule, holding no stored key (slice N5).
 > Both are off unless configured, not yet security-reviewed and not
-> tested against a real provider; v1.0.0 authenticates by keys
+> tested against a real provider; v0.5.0, the next release,
+> authenticates by keys
 > ([decision 91](docs/design/aries.md#14-decisions)).
+> Releases are minor versions (v0.5.0, v0.6.0, …) until v1.0.0, which
+> is held as long as possible
+> ([decision 93](docs/design/aries.md#14-decisions)).
 > Not ready for production use yet; see the [roadmap](#roadmap).
 
 ## Why Aries
@@ -198,8 +202,8 @@ on Ubuntu 24.04 LTS or 26.04 LTS is set up by one script, `install-server.sh`
 | [Operating with Claude Code](docs/server.md#operate-a-server-with-claude-code) | The `aries-ops` plugin: deploy and run a server by talking to Claude, with every change shown and approved first |
 | [Deployment examples](docs/deploy/README.md) | Local, team and enterprise deployments, with costs, and a Docker test server |
 | [Installing Aries](docs/install.md) | Install options, manual downloads, verifying releases, upgrades |
-| [Upgrading to 1.0](docs/upgrade-to-1.0.md) | From v0.4.0 to v1.0.0: reinstalling `aries`, what to remove, and setting up a new server (a draft until v1.0.0 ships) |
-| [Release notes](docs/releases/v1.0.0.md) | What v1.0.0 adds, breaks, removes and supports, with what is still planned marked (a draft until it ships) |
+| [Upgrading to 0.5](docs/upgrade-to-0.5.md) | From v0.4.0 to v0.5.0: reinstalling `aries`, what to remove, and setting up a new server (a draft until v0.5.0 ships) |
+| [Release notes](docs/releases/v0.5.0.md) | What v0.5.0 adds, breaks, removes and supports, with what is still planned marked (a draft until it ships) |
 | [Moving from bd](docs/migrate-from-bd.md) | Importing a beads backlog, and exporting it back |
 | [Security model](docs/security-model.md) | Identity, host keys, the database role, untrusted text, releases, CI checks |
 | [Design documents](docs/design/README.md) | Principles, architecture, data model, the Dolt spike, Bearings |
@@ -221,7 +225,15 @@ on Ubuntu 24.04 LTS or 26.04 LTS is set up by one script, `install-server.sh`
 | 6 | Locks, gates, formulas, swarm, cross-project | In progress: slices G0, G1 and G2 are built: human gates (`aries gate`; agents may add one, a person passes it), dates on an issue (`--defer-until`, `--due`, listed by `digest` and `prime`), CI gates, which a CI job's `aries gate pass` or `fail` reports by its branch, with `landed` telling closed from landed ([CI gates](docs/ci.md)), and locks: leased, fenced, first-in-first-out mutexes and semaphores that a script holds around a command with `aries lock run` ([Locks](docs/concepts.md#locks); [§20](docs/design/aries.md#20-coordination-across-agents-and-projects-the-stage-6-design)) |
 | 7 | Scheduled digests, GitHub sync, compaction, vectors | |
 
-**v1.0.0.** The next release is v1.0.0, cut back so that Aries can be
+**v0.5.0, and v1.0.0 held.** The next release is v0.5.0, the release
+decisions 81, 90 and 91 called v1.0.0: the production release, v1.0.0,
+is held as long as possible, and until then releases are minor
+versions, v0.5.0, v0.6.0 and on, which `aries upgrade` installs
+([decision 93](docs/design/aries.md#14-decisions)). From v0.5.0 on, a
+release that changes the protocol keeps accepting the one before it.
+The releases before 1.0 carry the features pulled forward: the project
+workflow setting and organization memory. v1.0.0 is when the names and
+settings are frozen for 1.x. v0.5.0 is cut back so that Aries can be
 used to build Aries sooner ([decision 90](docs/design/aries.md#14-decisions)),
 and cut back again to authenticate by keys alone
 ([decision 91](docs/design/aries.md#14-decisions)).
@@ -240,8 +252,8 @@ the rest of P5 (the installer on amd64, a machine with the AppArmor
 profiles enforced, ACME against a real CA) and the listener's review.
 Of P5, the soaks pass on Linux, on GitHub's amd64 and
 arm64 runners. A remote MCP endpoint, GitHub's sign-in and the device grant,
-a Claude Desktop extension, and stage 6's G3 to G5 come in 1.x releases
-as compatible additions.
+a Claude Desktop extension, and stage 6's G3 to G5 come in 1.x releases,
+after v1.0.0, as compatible additions.
 
 The Bearings stages (B0 to B5) start once Aries stage 3 lands; see the
 [Bearings plan](docs/design/bearings.md#6-plan).

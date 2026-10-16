@@ -114,7 +114,7 @@ type seen struct {
 	// the same one (Local.Rekeyed). Empty in a record from before it.
 	Addr string `json:"addr,omitempty"`
 	// Proto is the protocol of the last handshake, kept as a record: since
-	// v1.0.0 settled the protocol at 8, nothing reads it.
+	// v0.5.0 settled the protocol at 8, nothing reads it.
 	Proto int `json:"proto,omitempty"`
 }
 

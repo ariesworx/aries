@@ -381,9 +381,12 @@ and what a test that passes there does not do.
     and told to have the server upgraded, rather than failing on its
     first request. Clients ignore unknown result fields and frame
     types, so adding those needs no bump. The protocol is settled at 8
-    for v1.0.0, spoken alone (`Proto = ProtoMin = ProtoMax = 8`; design
-    decisions 78 and 88): until v1.0.0 ships, a change joins 8 without a
-    bump, and from v1.0.0 on the bump above applies to every change.
+    for v0.5.0, spoken alone (`Proto = ProtoMin = ProtoMax = 8`; design
+    decisions 78 and 88): until v0.5.0 ships, a change joins 8 without a
+    bump, and from v0.5.0 on the bump above applies to every change,
+    since `aries upgrade` installs v0.5.0 and a released client must
+    keep working against a newer server (decision 93). v1.0.0 is held
+    as long as possible, and the releases before it are minor versions.
     There is no step-down: a client or server of another version is
     refused at the handshake. Keep the protocol number out of routine
     output.

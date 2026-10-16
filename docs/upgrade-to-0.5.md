@@ -1,15 +1,15 @@
-# Upgrading to 1.0
+# Upgrading to 0.5
 
-From v0.4.0 to v1.0.0, for a developer who uses `aries` and for an
-operator who runs a server. [The release notes](releases/v1.0.0.md) say
+From v0.4.0 to v0.5.0, for a developer who uses `aries` and for an
+operator who runs a server. [The release notes](releases/v0.5.0.md) say
 what changed and why.
 
-> **Draft.** v1.0.0 is not released, and this guide is kept current as
+> **Draft.** v0.5.0 is not released, and this guide is kept current as
 > its work lands. A part marked **(planned)** describes work not yet on
 > `main`, with the decision that puts it in the release. Names may still
 > change in the release's review of public names (decision 81).
 
-v1.0.0 is not an upgrade in place. The project has a new name, every
+v0.5.0 is not an upgrade in place. The project has a new name, every
 binary, file, variable and path is named to match, releases are signed
 by a new key, and the server keeps its data in a new database. So:
 
@@ -74,7 +74,7 @@ On Windows, download the zip from the
 **Why `aries upgrade` cannot do this.** A v0.4.0 client looks for
 releases under the project's former repository path, by the former
 asset names, and accepts only a release signed by the former key.
-v1.0.0's assets are named `aries_<version>_<os>_<arch>` and are signed
+v0.5.0's assets are named `aries_<version>_<os>_<arch>` and are signed
 by a new key, so the former client finds nothing it would install. The
 install script trusts the new key; check a download by hand as
 [Verify a download by hand](install.md#verify-a-download-by-hand) says.
@@ -115,7 +115,7 @@ identity](cli.md#your-key-is-your-identity)). **(planned, decision
 Every variable `aries` reads begins `ARIES_`. Rename any you set, in
 your shell's profile, an IDE's settings or a CI job:
 
-| v0.4.0 | v1.0.0 |
+| v0.4.0 | v0.5.0 |
 |---|---|
 | `[FORMER]_SESSION` | `ARIES_SESSION` |
 | `[FORMER]_HARNESS` | `ARIES_HARNESS`, which `aries setup` writes into each agent's MCP entry |
@@ -201,7 +201,7 @@ cannot be reached is now queued and sent later
 
 ### 1. Decide what to keep
 
-v1.0.0 does not read a v0.4.0 server's data: there is no migration from
+v0.5.0 does not read a v0.4.0 server's data: there is no migration from
 Dolt, because no server ran on it in production (decision 79). Choose
 one:
 
@@ -234,7 +234,7 @@ writes:
 | `internet` (the default) | A team on any network: HTTPS, with a certificate from ACME. **(planned, decision 87)** Claude's connectors, and any identity provider |
 | `private` | A company network or VPN: HTTPS with your company CA's certificate, or behind your proxy; an internal or a cloud identity provider |
 | `airgapped` | A site with no route out: HTTPS with the site CA's certificate, releases from a directory; an identity provider inside the network, its keys from a file ([Sign-in](server.md#sign-in)) |
-| `ssh-only` | The server of before 1.0: SSH alone, HTTPS off, keys and no sign-in |
+| `ssh-only` | The server of before 0.5: SSH alone, HTTPS off, keys and no sign-in |
 
 **SSH is off unless you turn it on (decision 86).** Add `--enable-ssh`
 to any of the first three profiles for teams that reach the server
@@ -250,7 +250,7 @@ Or follow
 Claude Code do it with the `aries-ops` plugin
 ([Operate a server with Claude Code](server.md#operate-a-server-with-claude-code)).
 
-**The database.** v1.0.0 keeps its data in Postgres 16 or newer, with
+**The database.** v0.5.0 keeps its data in Postgres 16 or newer, with
 each project a schema in one database. The installer installs Postgres
 18 from the PostgreSQL project's apt repository, or uses a Postgres 16
 or newer the machine already runs, or one on another machine or a
@@ -300,7 +300,7 @@ Settings carry over by meaning, not by file: write them again in
 with `aries admin price set` and `aries admin plan set`. Most keys of
 `limits:` have new names, and `conflict_age`, `due_soon` and
 `telemetry_requests` moved out of it; the
-[release notes](releases/v1.0.0.md#breaking-changes) list each, and a
+[release notes](releases/v0.5.0.md#breaking-changes) list each, and a
 former name is refused. A new project's issue ids start `ar-` unless
 `prefix:` says otherwise.
 
@@ -373,15 +373,15 @@ former daemon for its principal. Remove them before you leave the
 machine running. Each person's `.ssh/known_hosts` is not touched by
 Aries: `aries` pins the host key from `.aries.yaml`.
 
-**(planned, decision 79)** On a v1.0.0 server that you later retire,
+**(planned, decision 79)** On a v0.5.0 server that you later retire,
 the database is Postgres; [Running a server](server.md) will say what
 to remove.
 
 ## Carrying issues across (optional)
 
-v0.4.0's daemon writes its store in bd's JSONL format, and v1.0.0's
+v0.4.0's daemon writes its store in bd's JSONL format, and v0.5.0's
 reads that format, so issues can cross through a file. This path has
-not been run from v0.4.0 to v1.0.0.
+not been run from v0.4.0 to v0.5.0.
 
 1. On the former server, before you remove it, as its account, run the
    former daemon's `export-bd -o issues.jsonl`, as v0.4.0's

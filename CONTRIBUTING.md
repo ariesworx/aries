@@ -189,7 +189,7 @@ up in a Linux VM you can throw away.
 | A security property, or a check CI makes | [docs/security-model.md](docs/security-model.md) |
 | The protocol (rule 10) | The version in `internal/proto`, and what the change is in the pull request |
 | The release process, or the Postgres pin | [RELEASING.md](RELEASING.md) |
-| Anything a user or an operator of the next release will notice: a feature, a break, a removal, a security property, a supported platform | The next release's notes in [docs/releases](docs/releases/v1.0.0.md); a planned item that lands drops its **(planned)** mark there and in [Upgrading to 1.0](docs/upgrade-to-1.0.md) |
+| Anything a user or an operator of the next release will notice: a feature, a break, a removal, a security property, a supported platform | The next release's notes in [docs/releases](docs/releases/v0.5.0.md); a planned item that lands drops its **(planned)** mark there and in [Upgrading to 0.5](docs/upgrade-to-0.5.md) |
 | A command of the gate | `scripts/gate.sh`, [Commands](AGENTS.md#commands) and `ci.yml` together; a test fails until the first two agree |
 | A tool's version | [Changing the Postgres pin](RELEASING.md#changing-the-postgres-pin) for Postgres; `ci.yml` and `mise.toml` for golangci-lint; `go.mod` and `mise.toml` for Go. Tests in `internal/version` fail until they agree |
 | The layout of the code, a rule, or how agents should work | [AGENTS.md](AGENTS.md); the three [agent specifications](AGENTS.md#agent-specifications) together |
