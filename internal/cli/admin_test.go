@@ -29,7 +29,7 @@ func TestAdminAccessUsage(t *testing.T) {
 		{"project archive needs a project", []string{"admin", "project", "archive"}, "project archive needs one project"},
 		{"project activate needs a project", []string{"admin", "project", "activate"}, "project activate needs one project"},
 		{"project archive takes no flags", []string{"admin", "project", "archive", "acme", "--account", "x"}, "project archive does not take --account"},
-		{"principal needs an action", []string{"admin", "principal"}, "admin principal needs add, list, disable, enable or whois"},
+		{"principal needs an action", []string{"admin", "principal"}, "admin principal needs add, list, set, show, disable, enable or whois"},
 		{"principal whois needs a stand-in", []string{"admin", "principal", "whois"}, "principal whois needs one stand-in, such as p_0123456789abcdef"},
 		{"principal whois takes one stand-in", []string{"admin", "principal", "whois", "p_0123456789abcdef", "p_fedcba9876543210"}, "principal whois needs one stand-in"},
 		{"principal whois takes no flags", []string{"admin", "principal", "whois", "p_0123456789abcdef", "--project", "acme"}, "principal whois does not take --project"},
@@ -63,7 +63,7 @@ func TestAdminAccessUsage(t *testing.T) {
 	// Every group is in the command's help.
 	_, help, _ := runCLI(t, "help", "admin")
 	for _, want := range []string{"admin price list | set MODEL", "admin plan list | set NAME", "admin project add NAME [--prefix P] [--account A] | list | archive PROJECT | activate PROJECT",
-		"admin principal add NAME [--key FILE]... [--project P | --no-project] | list [--created-by NAME] | disable NAME | enable NAME | whois STAND-IN",
+		"admin principal add NAME [--key FILE]... [--project P | --no-project] [--kind person|service]", "| show NAME | disable NAME | enable NAME | whois STAND-IN",
 		"admin member add NAME [--project P] [--role admin] [--accept-keys] | list [--project P] [--added-by NAME] | remove NAME [--project P]"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("aries help admin lacks %q:\n%s", want, help)

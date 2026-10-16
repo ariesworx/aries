@@ -119,14 +119,14 @@ func TestAdminCommands(t *testing.T) {
 		t.Errorf("principal add: %q", got)
 	}
 	if got := decode[proto.PrincipalResult](t, dana.ok("admin", "principal", "add", "bob", "--json")); got !=
-		(proto.PrincipalResult{Name: "bob", Rev: 1, State: "active", Project: project, ProjectName: "first"}) {
+		(proto.PrincipalResult{Name: "bob", Rev: 1, State: "active", Kind: proto.KindPerson, Project: project, ProjectName: "first"}) {
 		t.Errorf("principal add --json: %+v", got)
 	}
 	if got := dana.ok("admin", "principal", "add", "ci-bot", "--no-project"); got != "principal ci-bot added, in no project\n" {
 		t.Errorf("principal add --no-project: %q", got)
 	}
 	list := dana.ok("admin", "principal", "list")
-	for _, want := range []string{"NAME", "ADDED BY", "alice   active  dana", "bob     active  dana", "ci-bot  active  dana"} {
+	for _, want := range []string{"NAME", "ADDED BY", "KIND", "alice   active  person  dana", "bob     active  person  dana", "ci-bot  active  person  dana"} {
 		if !strings.Contains(list, want) {
 			t.Errorf("principal list lacks %q:\n%s", want, list)
 		}
