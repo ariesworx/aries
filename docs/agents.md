@@ -246,6 +246,12 @@ window's in `digest`.
   last), and `show` gives the likely `files`, `files_more` and the
   `overlaps` with who holds them ([Files](concepts.md#files-what-an-issue-touches)).
   People declare files with `aries create --paths` or `aries update --paths`.
+- **A parent waits on its children.** An issue with a child that is not
+  closed, an epic most often, is left out of `ready` and `start`, and
+  `blocked` gives it `children`, how many are open; it is ready again
+  once they close. Plan an epic as children made with `parent`, ordered
+  among themselves with `dep`; no `dep` from the epic to its children is
+  needed, and one is refused ([Parents and their children](concepts.md#parents-and-their-children)).
 - **Agents propose, people resolve conflicts.** See [Conflicts](#conflicts).
 - **Agents hold work back; people let it go.** See [Gates](#gates).
 - **Dates.** `create` and `update` take `defer_until` (not ready before)

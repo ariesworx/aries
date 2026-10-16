@@ -32,6 +32,10 @@ func TestDates(t *testing.T) {
 	if err := s.AddDep(ctx, alice, waiting.ID, blocker.ID, DepBlocks, ""); err != nil {
 		t.Fatal(err)
 	}
+	// An epic whose deferral passes is not newly ready while a child of
+	// it is open: it waits on its children.
+	epic := mustCreate(t, s, NewIssue{Title: "deferred epic", Type: TypeEpic, DeferUntil: ptr(start.Add(time.Hour))})
+	mustCreate(t, s, NewIssue{Title: "child of the epic", ParentID: epic.ID})
 	done := mustCreate(t, s, NewIssue{Title: "done long ago", DueAt: ptr(start.Add(time.Hour))})
 	if _, err := s.CloseIssue(ctx, alice, done.ID, 0, ""); err != nil {
 		t.Fatal(err)

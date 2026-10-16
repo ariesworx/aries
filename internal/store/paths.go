@@ -595,10 +595,11 @@ func readyIDList(ctx context.Context, q querier, now time.Time, limit int) ([]Is
 }
 
 // readyNow reports whether issue id is ready at now as readyFilter has
-// it: open, not a template, and neither blocked nor deferred, on itself
-// or an ancestor, as blockedCTE defines both. Where that query reads the
-// whole project, this reads the issue and its ancestors, each with
-// whether it has an unclosed blocker, and decides in Go.
+// it: open, not a template, neither blocked nor deferred, on itself or an
+// ancestor, and not waiting on a child, as blockedCTE defines them. Where
+// that query reads the whole project, this reads the issue and its
+// ancestors, each with whether it has an unclosed blocker, and whether
+// the issue has an unclosed child, and decides in Go.
 func readyNow(ctx context.Context, q querier, id IssueID, now time.Time) (bool, error) {
 	rows, err := q.QueryContext(ctx, `WITH RECURSIVE
 anc (id, parent_id, status, template, type, defer_until) AS (
@@ -607,7 +608,9 @@ anc (id, parent_id, status, template, type, defer_until) AS (
   SELECT i.id, i.parent_id, i.status, i.template, i.type, i.defer_until FROM issues i JOIN anc a ON i.id = a.parent_id
 )
 SELECT a.id, a.status, a.template, a.type, a.defer_until, EXISTS (SELECT 1 FROM deps d JOIN issues t ON t.id = d.to_id
-  WHERE d.from_id = a.id AND d.type IN (`+readyBlocking+`) AND t.status <> 'closed')
+  WHERE d.from_id = a.id AND d.type IN (`+readyBlocking+`) AND t.status <> 'closed'),
+  a.id = $1 AND EXISTS (SELECT 1 FROM issues c
+  WHERE c.parent_id = a.id AND c.status <> 'closed' AND c.template = FALSE)
 FROM anc a`, string(id))
 	if err != nil {
 		return false, fmt.Errorf("ready check of %s: %w", id, err)
@@ -616,18 +619,18 @@ FROM anc a`, string(id))
 	found, ready := false, true
 	for rows.Next() {
 		var (
-			at                IssueID
-			status            Status
-			template, blocked bool
-			typ               IssueType
-			deferUntil        sql.NullTime
+			at                         IssueID
+			status                     Status
+			template, blocked, waiting bool
+			typ                        IssueType
+			deferUntil                 sql.NullTime
 		)
-		if err := rows.Scan(&at, &status, &template, &typ, &deferUntil, &blocked); err != nil {
+		if err := rows.Scan(&at, &status, &template, &typ, &deferUntil, &blocked, &waiting); err != nil {
 			return false, fmt.Errorf("ready check of %s: %w", id, err)
 		}
 		if at == id {
 			found = true
-			ready = ready && status == StatusOpen && !template && typ != TypeGate
+			ready = ready && status == StatusOpen && !template && typ != TypeGate && !waiting
 		}
 		deferred := status == StatusDeferred || deferUntil.Valid && deferUntil.Time.After(now)
 		ready = ready && !deferred && (!blocked || status == StatusClosed)

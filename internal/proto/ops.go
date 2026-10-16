@@ -379,7 +379,8 @@ type LimitArgs struct {
 }
 
 // BlockedIssue is an issue held back by unclosed blockers, its own or an
-// ancestor's (Via).
+// ancestor's (Via), or waiting on its own unclosed children (Children),
+// or both.
 type BlockedIssue struct {
 	Summary
 	BlockedBy []string `json:"blocked_by"`
@@ -387,6 +388,9 @@ type BlockedIssue struct {
 	// More counts the blockers left out of BlockedBy, which holds at most
 	// MaxBlockers.
 	More int `json:"more,omitempty"`
+	// Children counts the issue's unclosed children, which a parent waits
+	// on before it is ready.
+	Children int `json:"children,omitempty"`
 }
 
 // BlockedResult lists blocked issues. Gates are the open gates among
