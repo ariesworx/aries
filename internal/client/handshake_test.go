@@ -151,8 +151,8 @@ func server(lo, hi int) func(*proto.Frame) *proto.Frame {
 }
 
 // TestDialSpeaksOneVersion pins the one version a client of this build
-// speaks, 8, settled for v1.0.0 (decisions 78 and 88): a server whose
-// range holds it welcomes it, a later one of 1.x among them; any other,
+// speaks, 8, settled for v0.5.0 (decisions 78, 88 and 93): a server whose
+// range holds it welcomes it, a later release among them; any other,
 // a build of 7 alone among them, refuses it with code version, and the
 // client takes that refusal as it is, after one hello, rather than say
 // hello again in another version.

@@ -46,18 +46,18 @@ that major version.
 
 They also say, first, when the release changes the protocol
 (`internal/proto/version.go`): the version it speaks and the range it
-accepts, and which earlier releases keep working. From v1.0.0 on, the
+accepts, and which earlier releases keep working. After v0.5.0, the
 one before always does, since a bump keeps `ProtoMin` at the version
-before (rule 10). **v1.0.0 is the exception:** under decisions 78 and
-88 its protocol is settled at 8, spoken alone, and it refuses every
-client and server of v0.4.x and earlier, and every build of 5 to 7,
-which no release spoke. Its notes
-([docs/releases/v1.0.0.md](docs/releases/v1.0.0.md)) lead with that and
-link [Upgrading to 1.0](docs/upgrade-to-1.0.md).
+before (rule 10, decision 93). **v0.5.0 is the exception:** under
+decisions 78 and 88 its protocol is settled at 8, spoken alone, and it
+refuses every client and server of v0.4.x and earlier, and every build
+of 5 to 7, which no release spoke. Its notes
+([docs/releases/v0.5.0.md](docs/releases/v0.5.0.md)) lead with that and
+link [Upgrading to 0.5](docs/upgrade-to-0.5.md).
 
 What this section once required of the first release after v0.4.0
 (the key `aries` signs in with, and the refusal to start with the clock
-behind) concerned upgrading a v0.4.0 server in place, which v1.0.0 does
+behind) concerned upgrading a v0.4.0 server in place, which v0.5.0 does
 not allow; its notes give both as breaking changes.
 
 ## Changing the Postgres pin
@@ -123,14 +123,19 @@ test](docs/deploy/docker.md#run-the-smoke-test) against the new image.
 
 When to cut the first one is the maintainer's call.
 
+Until v1.0.0, which is held as long as possible, every release is a
+plain minor version: v0.5.0 next, then v0.6.0 and on, not
+`v1.0.0-beta.N` or `-rc.N` (decision 93). `aries upgrade` installs
+each, as it does any release that is not a prerelease.
+
 1. Update the release notes, `docs/releases/vX.Y.Z.md`
-   ([v1.0.0's](docs/releases/v1.0.0.md) is the model), by pull request:
+   ([v0.5.0's](docs/releases/v0.5.0.md) is the model), by pull request:
    what is new, breaking changes, security changes, removals, the
    supported platforms, and what was not verified. Nothing may still be
    marked **(planned)**: an item has landed, or it leaves the notes. A
    release that needs more than `aries upgrade` and `ariesd upgrade`
    also gets an upgrade guide beside them, as
-   [Upgrading to 1.0](docs/upgrade-to-1.0.md) is for v1.0.0; take its
+   [Upgrading to 0.5](docs/upgrade-to-0.5.md) is for v0.5.0; take its
    draft mark off too.
 2. Make sure the commit to tag is on `main` and its CI is green. The
    `gate` job runs the same checks again on the tag, so a red commit

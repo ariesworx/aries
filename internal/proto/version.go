@@ -11,12 +11,12 @@ import (
 // Protocol versions. A client speaks Proto; a server accepts any client in
 // [ProtoMin, ProtoMax].
 //
-// v1.0.0 settled the protocol at 8, spoken alone (design §11, decisions
+// v0.5.0 settled the protocol at 8, spoken alone (design §11, decisions
 // 78 and 88): every release before it spoke at most 4, and no release
 // spoke 5 to 7, so a client or server of any other version is refused at
 // the handshake with code version, and no code steps down to another.
 //
-// From v1.0.0 on, principle 9 holds: a change to the protocol raises
+// From v0.5.0 on (decision 93), principle 9 holds: a change raises
 // Proto and ProtoMax and keeps ProtoMin at the version before, so that
 // a new server still serves the clients people already have (AGENTS.md, rule
 // 10). TestReleasedClients pins which clients are refused, and what each

@@ -4137,12 +4137,12 @@ document: the report, or `{"error": …}` and exit code 1.
 
 ## Upgrades
 
-**From v0.4.x or earlier, there is no upgrade in place.** v1.0.0 has
+**From v0.4.x or earlier, there is no upgrade in place.** v0.5.0 has
 new names for every binary, file, variable and path, a new release
 key, and a new database, and its server refuses every earlier client.
 A v0.4.x `ariesd upgrade` cannot find or verify it. Set up a new server
-and remove the former one, as [Upgrading to 1.0](upgrade-to-1.0.md)
-says. What follows is for upgrades between releases from v1.0.0 on.
+and remove the former one, as [Upgrading to 0.5](upgrade-to-0.5.md)
+says. What follows is for upgrades between releases from v0.5.0 on.
 
 **The protocol.** Each release's notes say whether it changes the
 protocol. One that does still accepts the version before it (design
