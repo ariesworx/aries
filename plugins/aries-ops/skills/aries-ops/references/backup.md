@@ -1,32 +1,31 @@
 # Backups and a rehearsed restore
 
 What to back up, and how, is docs/server.md#backups-and-restore. This
-file is the workflow around it. The database's own commands (the dump,
-the restore) change with the move to Postgres, so this skill does not
-restate them: read the guide's section at the server's release, and
-references/database.md, before you run one.
+file is the workflow around it; the database's commands, the dump and
+the restore, are in references/database.md, from the guide's sections
+docs/server.md#the-daily-dump and docs/server.md#restore.
 
 ## What to back up
 
 | What | How | Guide |
 |---|---|---|
-| Every database: on a server of many projects, the control database and each project's | A daily dump of each, on the server, carried off the machine every day | docs/server.md#backups-and-restore |
-| `/etc/aries/ariesd.yaml` | With the operator's other secrets, by their own tool. You never copy or print it | references/remote.md |
+| The database: the control store and every project, in one dump | A daily `pg_dump` of the whole database, by a systemd timer on the server, carried off the machine every day | docs/server.md#the-daily-dump |
+| `/etc/aries/ariesd.yaml`, and `/etc/aries/postgres` where it exists | With the operator's other secrets, by their own tool. You never copy or print them | references/remote.md |
 | `/etc/ssh/ssh_host_ed25519_key*` and `~aries/.ssh/authorized_keys` | The same | docs/server.md#backups-and-restore |
-| The disks | Snapshots, which also hold the database's own history | docs/deploy/team.md#choices-this-example-makes |
+| The disks | Snapshots. Restore from a dump: a snapshot of a running Postgres holds its files as a crash leaves them | docs/deploy/team.md#choices-this-example-makes |
 
 ## Set up the daily dump
 
-1. **Look**: the projects (`aries -C REPO admin project list`, whose
-   DATABASE column names each one's database), `ls -l /etc/cron.d/`, and
-   `sudo -n test -d /var/backups/aries; echo $?`.
-2. **Show** the schedule you would write, built from the guide's
-   section, covering every database, and where it writes. A project added later needs its own line: say so, and
-   add it to the record's "left to do".
-3. **With a yes**, make the directory and write the file
-   (references/remote.md, "Write a file on the server").
-4. **Run one dump now**, with a yes, and check its file is there and
-   not empty (`sudo -n ls -l /var/backups/aries`).
+1. **Look**: `systemctl list-timers aries-backup.timer --no-pager`,
+   `ls -l /etc/cron.d/`, and `sudo -n test -d /var/backups/aries; echo $?`.
+2. **Show** the service and the timer you would write, the guide's text
+   as it is, and where they write. One dump holds every project, those
+   added later too.
+3. **With a yes**, make the directory and write the files
+   (references/remote.md, "Write a file on the server"), as
+   references/database.md, "The daily dump", lists.
+4. **Run one dump now**, with a yes, and check its file is there, mode
+   0600 and not empty (`sudo -n ls -l /var/backups/aries`).
 5. **Off the machine:** a dump on the server's own disk is lost with
    it. Agree with the operator where copies go (a bucket with a
    retention policy the machine cannot override, the backup tool they
@@ -36,14 +35,17 @@ references/database.md, before you run one.
 
 ## Restore
 
-A restore replaces a database with a dump's rows and loses what changed
-since. It is destructive: the operator names the database and the dump
-file in their reply.
+A restore replaces the database, or one project's schema, with a dump's
+rows and loses what changed since. It is destructive: the operator
+names the database or the project, and the dump file, in their
+reply.
 
 1. **Take a fresh dump first** of what is there now, and keep it apart
    from the daily rotation, so the restore itself can be undone.
 2. **Stop ariesd**: `sudo -n systemctl stop ariesd`.
-3. **Restore** as the guide's section says, each command shown first (references/database.md).
+3. **Restore** as docs/server.md#restore says, each command shown first
+   (references/database.md, "Restore"): the whole database, or one
+   project's schema, made again before `pg_restore --schema`.
 4. **Start it**: `sudo -n systemctl start ariesd`. ariesd compares
    the clock with the restored history; a dump from a clock that ran
    ahead is refused, with the flag that starts it once
@@ -63,9 +65,9 @@ must change (docs/server.md#rotating-the-host-key).
 
 ## Rehearse it
 
-The guide has not run a restore from a dump (docs/server.md#what-was-run-and-where,
-"Not run"), so rehearse before you need it, and never on the production
-server:
+The guide's restore was run on a test machine, not on a server like
+the operator's (docs/server.md#restore), so rehearse before you need
+it, and never on the production server:
 
 - On a scratch machine or VM the operator names, set up with the
   installer at the same release, or on the Docker test server

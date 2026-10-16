@@ -386,35 +386,60 @@ which keys `aries` offers decides who you are.
   `team` and `project` memories, like issues, anyone may read and change
   ([Memory](concepts.md#memory)).
 
-## The Dolt account
+## The database role
 
-A `dolt sql-server` started without a config lets `root` in from localhost
-with no password, grants it `FILE`, and leaves `secure_file_priv` empty.
-Any user on the machine could then skip ariesd, rewrite the event log as
-anyone, and read or write files as Dolt's user.
+ariesd signs in to Postgres as a role of its own, and the rows of its
+schemas are the history: the event log is the truth, and everything
+else is derived from it. Whoever can sign in as that role can change
+the history behind ariesd's back, which is why only ariesd's own user
+can (below). A role with more rights than its own database would reach
+further: other databases, other roles, the server's files.
 
-So every command that opens the store first checks the account it connects
-as. It refuses to continue, with the SQL to fix it, when the account:
+So every command that opens the store first checks the role it
+connects as, in `pg_roles`, and refuses to continue, with the SQL that
+fixes it, when the role:
 
-- is `root`;
-- holds any privilege on `*.*`, or `GRANT OPTION`;
-- is on a server whose `secure_file_priv` is empty.
+- is a superuser;
+- has `CREATEROLE`, `CREATEDB`, `REPLICATION` or `BYPASSRLS`;
+- is a member of `pg_read_all_data`, `pg_write_all_data`,
+  `pg_read_server_files`, `pg_write_server_files` or
+  `pg_execute_server_program`.
 
-On a server of [many projects](server.md#serving-many-projects) the
-account holds every right on the control database, on each project's
-database and on each name of `project_dbs`, all granted by exact name,
-and still nothing on `*.*`. It can create a database, because Dolt checks
-`CREATE DATABASE` against the connection's current database; it can use
-one only where root granted that name, so `aries admin project add` cannot
-reach a database outside the block
-([measurements](https://github.com/ariesworx/aries/blob/fbbbf4655665845db81a72d2bbd1845472fd1c5a/spike/multidb/RESULTS.md)).
+It also refuses a Postgres older than 16.
 
-A passwordless `root` cannot be seen from a least-privileged account, so
-ariesd cannot check for it. [Step
-4](server.md#4-create-the-database-and-the-config-file) gives `root` a
-random password. On a developer's own machine, `--dev --allow-unsafe-dolt`
-lets a default Dolt through with a warning. No config file or environment
-variable can set it.
+The guide's role ([step 2](server.md#2-create-the-role-and-the-database))
+may log in and owns one database, made for it, in which it makes its
+schemas: the control store's, and one for each project. Every other
+role is kept from connecting to that database (`REVOKE ALL … FROM
+PUBLIC`). Rights in other databases are not checked: every role may
+connect to every database through `PUBLIC` by default, and what it may
+do there rests on what was granted in it.
+
+- **On the machine, there is no password.** Over Postgres's unix socket,
+  peer authentication signs the Unix user `aries` in as the role
+  `aries`, and no other user as it but root. Whoever can act as the
+  `aries` user already owns ariesd's config file and binary.
+- **On another machine, or a managed service,** the role has a password,
+  kept in a file of mode 0600 that the `aries` user owns,
+  `/etc/aries/postgres/pgpass`, which the DSN names. `ariesd` refuses a
+  `--dsn` that holds a password, and the installer a `--dsn` that does;
+  a config file whose `dsn` holds one must be mode 0600. With
+  `sslmode=verify-full` the connection is encrypted and the server's
+  name checked ([Managed services](server.md#managed-services)).
+- **A schema ariesd did not make is never taken over.** `aries admin
+  project add` refuses a name whose schema is already in the database,
+  whoever made it, and ariesd never drops a schema.
+- **One writer for each schema.** A Postgres advisory lock, held on one
+  connection of each ariesd, keeps two daemons from writing one project
+  at once, however many share the database
+  ([One writer for each project](server.md#one-writer-for-each-project)).
+- **The status report's figures** are read with the role's own rights,
+  from `pg_stat_activity`, `pg_stat_database` and the sizes of its
+  schemas. The role has no `pg_monitor`: it sees how many sessions other
+  roles hold, not what they run.
+- On a developer's own machine, `--dev --allow-unsafe-account` lets an
+  unsafe role through with a warning. No config file or environment
+  variable can set it.
 
 ## The daemon's socket
 
@@ -448,7 +473,7 @@ off by default.
   the UUIDs of the projects it serves and how busy each is
   (`telemetry: per_project: false` leaves the projects out); how many
   connections, handshakes, refusals, claims and access changes there
-  were; when the keys file was last written and whether Dolt answers;
+  were; when the keys file was last written and whether the database answers;
   the ariesd version; and the Go runtime's memory and goroutines.
 - **What it does not:** no principal, session, machine or key, no issue
   id, title or text, no memory, no project's name, no setting and no
@@ -580,61 +605,6 @@ read the databases.
   records wait for export in a queue of a fixed size; one more is
   dropped and counted. A collector that is down never slows a request.
 
-## Dolt's metrics endpoint
-
-The server guide turns on Dolt's own Prometheus endpoint
-([step 2](server.md#2-run-dolt-under-its-own-account)), so that
-ariesd can show Dolt's memory, connections and uptime in its status
-report and a collector on the machine can scrape Dolt. It is Dolt's
-listener, not ariesd's, and the `metrics:` block of Dolt's config is
-all that governs it.
-
-- **No authentication, so loopback only.** As the guide configures it,
-  Dolt answers anyone who can connect, over plain HTTP. The guide binds
-  it to `127.0.0.1`, where any user on the server can read it and no
-  other machine can. That `host` line is what keeps it there: with
-  `host: 0.0.0.0` Dolt listened on every address, and no AppArmor
-  profile confines Dolt. Dolt's unit, as the guide writes it, lets Dolt
-  exchange packets with loopback addresses only (`IPAddressDeny=any`,
-  `IPAddressAllow=localhost`), and with it a request to the machine's
-  other address, made from the machine itself, got no answer; a request
-  from another machine was not tried. Do not forward the port. Dolt 2.4.2's
-  configuration also has TLS and token settings for this endpoint
-  (`tls_cert`, `tls_key`, `tls_ca`, `jwt_required_for_localhost`);
-  Aries does not use them and has not tested them, and ariesd reads
-  the endpoint over plain HTTP only.
-- **What it reveals** (Dolt 2.4.2): how many connections and queries
-  Dolt has now and has had, a histogram of how long queries took, its
-  version, the Go runtime's version, memory and garbage collection, the
-  process's CPU time, memory, start time and open files, and how much of
-  the machine's CPU, memory and disk is in use.
-- **What it does not:** no database's or table's name, no query's text,
-  no account, no row and no setting. Nothing in it is per database, so
-  it does not tell one project from another.
-- **It serves its metrics at `/metrics`** and answers any other path
-  with 404.
-- **ariesd reads it only from loopback.** `telemetry:
-  dolt_metrics_url:` is refused at start unless it is `http://` to a
-  loopback address, or to a name whose every address is loopback, and
-  each connection is checked again against the address it actually
-  reaches, so a name that changes later leads nowhere else. The URL may
-  hold no user, password or query, so no secret can be put in it, and
-  it is logged whole. ariesd uses no proxy for it and follows no
-  redirect.
-- **ariesd does not trust the answer.** Whatever listens on that port
-  is another process, and any local user could listen there while Dolt
-  is stopped. ariesd gives a read 5 seconds, takes at most 1 MiB, and
-  reads six numbers out of it with a parser of its own that passes over
-  every other line; a number that cannot be the figure is left out. So
-  the most a process answering in Dolt's place can do is make the
-  status report's two lines about Dolt wrong, or `unknown`. It cannot
-  make ariesd unready, slow a request or put text of its own on an
-  admin's terminal: the version is printed from a number, and the rest
-  are numbers.
-- **It is read on a timer**, every 15 seconds, never because a client
-  asked: no request waits for it, and a client cannot make ariesd
-  fetch.
-
 ## Confinement on the server
 
 Three things limit what ariesd can do on its machine, and they cover
@@ -643,7 +613,7 @@ different processes.
 - **Its own user.** ariesd runs as `aries`, which is not root and
   cannot use `sudo` but for one command, the restart of its own unit.
   That user owns the binary (so that `ariesd upgrade` can replace
-  it), the config file, which holds Dolt's password, and the account's
+  it), the config file, which holds the database's DSN, and the account's
   `.ssh`. So Unix permissions alone let any ariesd process rewrite
   all three.
 - **The systemd unit**, for the daemon only: a read-only file system
@@ -655,10 +625,11 @@ different processes.
   ([Confine ariesd with AppArmor](server.md#confine-ariesd-with-apparmor)).
   The bridge may read the config file and connect to the daemon's
   socket, and nothing else: no network, no other file, no program. The
-  daemon may also reach Dolt and write the keys file. Neither may write
+  daemon may also reach Postgres, read the database's client files and
+  write the keys file. Neither may write
   the binary, the config file or `authorized_keys`. The operator's
   commands run under a third profile, which the operator asks for; it
-  alone may reach the network, replace the binary and run `sudo`.
+  alone may replace the binary and run `sudo`.
 
 What the profiles do not change:
 
@@ -668,8 +639,8 @@ What the profiles do not change:
   keeps the bridge and the operator's commands away from it.
 - **The daemon may open TCP connections to any address**, unless the
   unit holds it to loopback.
-- **sshd and Dolt are not confined** by AppArmor: Ubuntu ships no
-  profile for sshd, and Aries none for Dolt.
+- **sshd and Postgres are not confined** by AppArmor: Ubuntu ships no
+  profile for either. Postgres runs as its own user under its own unit.
 
 The profiles were tested on Ubuntu 24.04 on arm64, in a virtual machine,
 on 12 October 2026, and on Ubuntu 26.04 the same way on 14 October,
@@ -993,14 +964,16 @@ GitHub build provenance as well.
 
 The server installer, `install-server.sh`, holds no release key: it
 installs `ariesd` and `aries` through `install.sh` with
-`--require-signature`, and checks Dolt's archive against the SHA-256
-pinned in it, which tests keep equal to `internal/version`. Run outside
+`--require-signature`, and has apt trust the PostgreSQL project's
+repository only after checking that its key has the fingerprint pinned
+in the installer, which a test keeps equal to CI's. Run outside
 a checkout, it downloads `install.sh` and the AppArmor profiles from the
 repository over HTTPS, as the server guide's steps do, so it trusts that
 source as far as the guide does. It puts no secret on a command line or
-in its output: the database password is generated into the 0600 config
-file, and Dolt's `root` password is generated and forgotten
-([With the installer](server.md#with-the-installer)).
+in its output: with Postgres on the machine there is no password at
+all, and with `--dsn` the role's password is read from the file
+`--db-password-file` names, written to a file of mode 0600, and never
+shown ([With the installer](server.md#with-the-installer)).
 
 Where a release is downloaded from is not trusted: GitHub, a static
 file host or a mirror named by `ARIES_RELEASES`

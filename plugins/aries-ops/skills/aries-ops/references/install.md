@@ -2,7 +2,7 @@
 
 The installer, `install-server.sh`, does the guide's setup on a fresh
 Ubuntu 24.04 LTS or 26.04 LTS machine, for a server of many projects:
-the database and its least-privileged account, ariesd under systemd, sshd and
+Postgres with ariesd's role and database, ariesd under systemd, sshd and
 the forced command, optionally AppArmor, and the first project and admin
 (docs/server.md#with-the-installer; its table maps each of its eleven
 steps to the section it follows). You drive it; you do not redo its
@@ -15,7 +15,8 @@ steps by hand. Read references/remote.md first.
 | Reachable, host key verified | `ssh -o BatchMode=yes HOST true`, on the workstation | exit 0 | docs/cli.md#the-host-key-is-pinned |
 | Root without a prompt | `sudo -n true` | exit 0, or hand root steps to the operator | references/remote.md |
 | The system | `cat /etc/os-release`, `uname -m`, `test -d /run/systemd/system` | Ubuntu 24.04 or 26.04, `x86_64` or `aarch64`, systemd | docs/server.md#what-a-server-needs |
-| Resources | `nproc`, `free -m`, `df -h / /var/lib` | 2 GB of memory or more, room for the data | docs/server.md#dolts-memory |
+| Resources | `nproc`, `free -m`, `df -h / /var/lib` | 2 GB of memory or more, room for the data | docs/server.md#sizing-postgres |
+| No Postgres in the way | `pg_lsclusters` (absent on a fresh machine is fine) | None, or one cluster of 16 or newer, which the installer uses as it is | docs/server.md#1-install-postgres |
 | The clock | `timedatectl` | `System clock synchronized: yes` | docs/server.md#keep-the-clock-synchronized |
 | DNS | `getent hosts aries.example.com` on the workstation; `hostname -f` on the server | The name clients will use resolves to this machine | docs/server.md#7-connect-a-repository |
 | Ports | `ss -ltn` | sshd on the client port, and nothing else of Aries's yet | docs/server.md#what-a-server-needs |
@@ -37,6 +38,8 @@ Agree each with the operator, and write them into the record:
 | `--project NAME` | The first project's code name; default `first` |
 | `--version vX.Y.Z` | The release; pin it rather than take the latest |
 | `--releases SOURCE` | A mirror, only if the server reads releases from one (docs/install.md#where-releases-are-read-from) |
+| `--dsn URL` | Only for a Postgres on another machine or a managed service, whose role and database are made first (references/database.md, docs/server.md#managed-services). No password in it: the installer refuses one |
+| `--db-password-file FILE` | With `--dsn`: a file on the server the operator wrote, holding the role's password alone (references/database.md). You never read or copy it |
 | `--apparmor` | Confine ariesd (docs/server.md#confine-ariesd-with-apparmor) |
 
 Check the key is public before it leaves the workstation:
@@ -59,7 +62,8 @@ ssh -o BatchMode=yes HOST -- sudo -n sh install-server.sh --admin alice --admin-
 
 Show the output. Check: steps 1 to 11 as the guide's table lists them;
 no refusal; for each file it would write, either "would write" or "already
-the guide's"; `<generated>` wherever a password would be. A difference
+the guide's"; no password anywhere (with `--dsn`, "with the password of
+--db-password-file" in its place). A difference
 in a file it writes, or a refusal, means stop and ask: the fix line says
 what to do.
 
@@ -90,7 +94,7 @@ Each is a change: show it, and wait for a yes (docs/server.md#with-the-installer
 - **Any sshd change:** `sudo -n sshd -t` first; reload with `sudo -n
   systemctl try-reload-or-restart ssh`; keep the current session open
   and check a new `ssh` works before you close it.
-- **Backups** (references/backup.md), **telemetry**
+- **Backups** (references/backup.md, the daily dump), **telemetry**
   (references/telemetry.md), and **upgrades** (references/upgrade.md).
 - **Keep the admin's line in `authorized_keys`.** It is the way in when
   nothing else is (docs/server.md#keys-from-the-store, step 5).
@@ -100,7 +104,8 @@ Each is a change: show it, and wait for a yes (docs/server.md#with-the-installer
 | Check | Command | Expect |
 |---|---|---|
 | The daemon active | `systemctl is-active ariesd` | `active` |
-| The daemon's report | `sudo -n -u aries -H ariesd status` | The version, `keys file …: 1 key`, the first project `active` |
+| The daemon's report | `sudo -n -u aries -H ariesd status` | The version, `keys file …: 1 key`, a `postgres` line with its version, the first project `active` |
+| Postgres | `systemctl is-active postgresql@18-main` (Postgres on the machine) | `active` (references/database.md, "Look") |
 | The keys file | `sudo -n stat -c '%a %U' /var/lib/aries/.ssh/aries_keys` | `600 aries` |
 | sshd reads it | `sudo -n sshd -T -C user=aries \| grep -i authorizedkeysfile` | `.ssh/aries_keys .ssh/authorized_keys` |
 | Confined, with `--apparmor` | `sudo -n cat /proc/"$(systemctl show ariesd -p MainPID --value)"/attr/current` | `ariesd-serve (enforce)`, or `ariesd-serve//&unconfined (enforce)` on 26.04 |

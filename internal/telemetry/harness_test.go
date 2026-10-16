@@ -570,7 +570,8 @@ func readYAML(t *testing.T, file string, into any) {
 }
 
 // Every image the compose file runs, but the one it builds, is pinned
-// by digest, under a comment giving the version the digest is of.
+// by digest, under a comment giving the version the digest is of:
+// three parts, or two for an image tagged so, as Postgres's are.
 func TestHarnessImagesArePinned(t *testing.T) {
 	t.Parallel()
 	b, err := os.ReadFile(composeFile)
@@ -578,7 +579,7 @@ func TestHarnessImagesArePinned(t *testing.T) {
 		t.Fatal(err)
 	}
 	pinned := regexp.MustCompile(`^image: [a-z0-9./-]+@sha256:[0-9a-f]{64}$`)
-	versioned := regexp.MustCompile(`^# [a-z0-9./-]+:v?[0-9]+\.[0-9]+\.[0-9]+\b`)
+	versioned := regexp.MustCompile(`^# [a-z0-9./-]+:v?[0-9]+\.[0-9]+(\.[0-9]+)?\b`)
 	lines := strings.Split(string(b), "\n")
 	n := 0
 	for i, line := range lines {
@@ -594,7 +595,7 @@ func TestHarnessImagesArePinned(t *testing.T) {
 			t.Errorf("%s:%d: the line above %q does not give the image's version, as in `# name:1.2.3`", composeFile, i+1, line)
 		}
 	}
-	if n != 3 {
-		t.Errorf("%s runs %d images besides the one it builds, want 3: the collector, Prometheus and Keycloak", composeFile, n)
+	if n != 4 {
+		t.Errorf("%s runs %d images besides the one it builds, want 4: Postgres, the collector, Prometheus and Keycloak", composeFile, n)
 	}
 }

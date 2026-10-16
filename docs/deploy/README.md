@@ -29,28 +29,27 @@ To try Aries, or test a branch, on any machine with Docker, use the
 ## What every deployment shares
 
 - **One server holds one project** as these examples set it up. You can
-  switch a server to hold many, each in its own database, with access by
+  switch a server to hold many, each in its own schema, with access by
   membership and admins who add projects and people from anywhere
   ([Serving many projects](../server.md#serving-many-projects)). Read
   what that section says is not yet checked on real machines before you
   rely on it.
-- **Size the machine by what is written between restarts of Dolt.** Dolt's
-  memory grows as it writes and a restart gives most of it back; a
-  project that merely exists or sits idle adds nothing measurable. In
-  [the measurements](https://github.com/ariesworx/aries/blob/fbbbf4655665845db81a72d2bbd1845472fd1c5a/spike/multidb/RESULTS.md), on macOS and then
-  on Linux in a container, one project took about 1.1 GB by 3,000 issues
-  and 2.1 GB by 30,000, and each further small project that was written
-  to added 100 to 180 MB; after a restart Dolt took 14 to 42% of that.
-  So 2 GB suits one project of a few thousand issues, and 4 GB a larger
-  one or ten in regular use
-  ([Dolt's memory](../server.md#dolts-memory) has the detail, a memory
-  limit and the limits of the evidence). `aries admin status` shows
-  ariesd's side, and Dolt's memory as Dolt's own metrics give it
-  ([Dolt's figures](../server.md#dolts-figures)).
+- **Size the machine by its connections more than its data.** Each
+  connection costs about 5 MiB, most of it sshd and the bridge outside
+  ariesd, so 64 take about 320 MiB. Postgres took about 50 MiB idle and
+  about 2.5 MiB more for each project in use, through ariesd's one pool
+  of connections, and gives back what a project held once the pool
+  retires its connections ([Sizing Postgres](../server.md#sizing-postgres)
+  has the measurements, which are a development machine's). 2 GB suits
+  a team with a few projects. `aries admin status` shows ariesd's memory
+  and Postgres's own figures
+  ([Watching a server](../server.md#watching-a-server)).
 - **No high availability.** While the server is down, agents keep working
   on code but cannot claim or finish issues. Recovery is a restart, or a
   [restore](../server.md#backups-and-restore) that loses what changed
-  since the last backup.
+  since the last backup. A standby Postgres, or a managed one, makes the
+  database survive a machine; ariesd is still one server
+  ([Standby and failover](../server.md#standby-and-failover)).
 - **Keys are identity.** There is no single sign-on: you manage key lines
   like any other access list ([Principals](../server.md#principals)).
 - **Pre-1.0.** Aries is not ready for production use yet; see the status

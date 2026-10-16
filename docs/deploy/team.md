@@ -10,7 +10,7 @@ DigitalOcean droplet ([Costs](#costs)).
 ```text
 laptops: people and their agents ──┐
 cloud sandboxes: agents ───────────┼──SSH, host key pinned──▶ aries.example.com:22
-CI runners: ci-bot ────────────────┘                          sshd ─▶ ariesd ─▶ Dolt
+CI runners: ci-bot ────────────────┘                          sshd ─▶ ariesd ─▶ Postgres
 ```
 
 ## Choices this example makes
@@ -22,7 +22,7 @@ CI runners: ci-bot ────────────────┘          
 | Port | 22, open to the internet, keys only, rate-limited | sshd refuses everything but the listed keys |
 | Identity | One principal per person, and one per automated agent (`ci-bot`, `cloud-agent`) | A leaked CI key is revoked without touching anyone else |
 | Admins | Two people | Someone can always override a stuck claim |
-| Backups | The daily dump from [Running a server](../server.md#backups-and-restore), and daily disk snapshots kept a week | The snapshots carry the dumps and Dolt's own history off the machine; either one restores the tracker |
+| Backups | The daily dump from [Running a server](../server.md#backups-and-restore), and daily disk snapshots kept a week | The snapshots carry the dumps off the machine. Restore from a dump: a snapshot taken while Postgres runs holds its files as a crash would leave them, which Postgres recovers from, and was not tried here |
 
 ## Build it
 
@@ -163,11 +163,11 @@ CI runners: ci-bot ────────────────┘          
   memory and disk, and `journalctl -u ariesd` shows refusals and errors
   ([Logs](../server.md#logs)). If the server holds several projects,
   `aries admin status` shows each one's connections and writes
-  ([Watching a server](../server.md#watching-a-server)), and the memory
-  to watch is Dolt's, on the VM: it grows with what every project writes
-  until Dolt is restarted, so a second project on the same 2 GB shares
-  what the first has left ([Dolt's memory](../server.md#dolts-memory)
-  says how much to expect and how to get it back).
+  ([Watching a server](../server.md#watching-a-server)), with Postgres's
+  connections and the size of each project's schema. A project in use
+  costs Postgres a few MiB of memory
+  ([Sizing Postgres](../server.md#sizing-postgres)), so a second project
+  fits on the same 2 GB.
 - **Upgrades:** the server first, then each person runs `aries upgrade`
   ([Upgrades](../server.md#upgrades)).
 
@@ -188,8 +188,8 @@ Google Cloud list prices, us-central1, on demand, read on 7 October 2026:
   years 55%.
 - **The free tier fits a trial.** One e2-micro (1 GB) a month is free in
   us-central1, us-west1 or us-east1, with 30 GB of standard disk, but its
-  IPv4 address still costs $3.65. Dolt reached 1.4 GB in the load test, so
-  give a busy team 2 GB.
+  IPv4 address still costs $3.65. Each connection costs about 5 MiB,
+  mostly outside ariesd, so give a busy team of agents 2 GB.
 - **Elsewhere:** a 2 GB DigitalOcean droplet is $12 a month, plus backups
   if you turn them on.
 

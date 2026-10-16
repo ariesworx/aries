@@ -38,8 +38,9 @@ prometheus.yaml, dashboard.json). Each step is a change, shown first:
    wants people left out, `telemetry: principals: omit`.
 4. **The listener**, for the collector to scrape, `telemetry: listen:
    127.0.0.1:9464` (docs/server.md#the-listener-metrics-to-scrape-and-health).
-   That is a line under the config file's `telemetry:` block, which
-   holds the database password: the operator adds it
+   That is a line under the config file's `telemetry:` block, in a
+   file that holds the database's DSN, which you never print: the
+   operator adds it
    (`sudoedit /etc/aries/ariesd.yaml`); a key given twice stops
    ariesd. Then check the file's mode is still `600 aries:aries`.
 5. **Apply**: `sudo -n systemctl daemon-reload`, then `sudo -n systemctl

@@ -8,7 +8,7 @@ own issue, with nothing leaving the machine.
 
 ```text
 your machine
-  agents ──MCP──▶ aries ──SSH──▶ sshd on localhost ──▶ ariesd ──▶ Dolt
+  agents ──MCP──▶ aries ──SSH──▶ sshd on localhost ──▶ ariesd ──▶ Postgres
   you ────CLI───▶ aries
 ```
 
@@ -24,10 +24,10 @@ your machine
   address. To try Aries or test a change on a Mac, the
   [Docker test server](docker.md) runs a server in a container instead.
 - **An SSH server**: `apt install openssh-server` on Ubuntu.
-- **About 200 MB of free memory** to start with. Dolt's share grows as
-  it writes, to about 1 GB for a project of a few thousand issues, and a
-  restart of Dolt gives most of it back
-  ([Dolt's memory](../server.md#dolts-memory)).
+- **About 200 MB of free memory.** Postgres took about 50 MiB idle, and
+  ariesd about 20 MB ([Sizing Postgres](../server.md#sizing-postgres)).
+  A Postgres the machine already runs, 16 or newer, serves as well: run
+  step 2 on it.
 
 ## Build it
 

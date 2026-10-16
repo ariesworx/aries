@@ -71,6 +71,9 @@ they agree:
 | `internal/version/postgres.sha256` | The one line: the SHA-256 of the source archive, named `vVERSION/postgresql-VERSION.tar.gz` |
 | `.github/workflows/ci.yml` | `POSTGRES_MAJOR`, when the major version changes |
 | `CONTRIBUTING.md` | The release `scripts/install-postgres.sh` builds, and the major version under "What you need" |
+| `install-server.sh` | `pg_major`, the package the installer installs from the PostgreSQL project's apt repository, when the major version changes; and `pg_min` with `PostgresMin` |
+| `docs/server.md` | Step 1's `apt-get install -y postgresql-MAJOR`, and the cluster's name (`postgresql@MAJOR-main`) where the guide gives it, when the major version changes |
+| `deploy/docker/compose.yaml` | The `postgres` image: its digest, from Docker's official image of the new release, and the comment above it that names the release |
 
 The PostgreSQL project publishes each archive's SHA-256 beside it, as
 `postgresql-VERSION.tar.gz.sha256` in the release's directory of
@@ -82,7 +85,12 @@ new release:
 ```sh
 go test ./internal/version ./scripts
 scripts/install-postgres.sh
+docker buildx imagetools inspect postgres:18
 ```
+
+The last command prints the official image's index digest, which the
+compose file pins (the line `Digest:`); its annotations name the release
+the image holds.
 
 The digest comes from the same place as the archive, so the pin protects
 against an archive that changes after it was pinned, not against a
@@ -90,9 +98,11 @@ release that was bad when it was pinned. Run the whole gate against the
 new release before merging: a new major version can change what the
 store depends on, such as which SQLSTATE a lost race reports.
 
-The server guide, `install-server.sh` and the Docker test server still
-install Dolt until the port's operations slice lands (decision 79); they
-take the Postgres pin then.
+Tests in `scripts` keep the installer's `pg_major` and `pg_min`, the
+compose file's image and the guide's step 1 at `PostgresMajor` and
+`PostgresMin`, and the installer's key fingerprint at CI's
+`PGDG_KEY_FINGERPRINT`. Run the [Docker smoke
+test](docs/deploy/docker.md#run-the-smoke-test) against the new image.
 
 ## Cutting a release
 

@@ -11,8 +11,11 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/ariesworx/aries/internal/version"
 )
 
 // The server installer sits beside install.sh, at the repository's root,
@@ -181,8 +184,6 @@ func guideFiles(t *testing.T) map[string]string {
 	block := match(t, g, "Keys from the store's Match block", "(?s)\n   ```text\n(   Match User aries\n.*?\n)   ```\n")
 	block = regexp.MustCompile(`(?m)^   `).ReplaceAllString(block, "")
 	return map[string]string{
-		"/etc/dolt/config.yaml":                              match(t, g, "/etc/dolt/config.yaml", "(?s)cat > /etc/dolt/config\\.yaml <<'EOF'\n(.*?\n)EOF\n"),
-		"/etc/systemd/system/dolt.service":                   saved("/etc/systemd/system/dolt.service", "ini"),
 		"/etc/systemd/system/ariesd.service":                 saved("/etc/systemd/system/ariesd.service", "ini"),
 		"/etc/systemd/system/ariesd.service.d/keys.conf":     printed("/etc/systemd/system/ariesd.service.d/keys.conf"),
 		"/etc/systemd/system/ariesd.service.d/apparmor.conf": printed("/etc/systemd/system/ariesd.service.d/apparmor.conf"),
@@ -221,6 +222,7 @@ func runInstallServer(t *testing.T, args ...string) (int, string) {
 		"two.pub":   testKey + testKey,
 		"alice":     "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----\n",
 		"junk.pub":  "not a key\n",
+		"db.pass":   "an invented password\n",
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
@@ -253,6 +255,7 @@ func TestInstallServerOptions(t *testing.T) {
 		t.Skip("install-server.sh is for Linux")
 	}
 	ok := []string{"--admin", "alice", "--admin-key", "alice.pub"}
+	remote := append(slices.Clone(ok), "--dsn", "postgres://aries@db.example.com/aries?sslmode=verify-full")
 	tests := []struct {
 		name string
 		args []string
@@ -274,6 +277,13 @@ func TestInstallServerOptions(t *testing.T) {
 		{"unknown option", append(slices.Clone(ok), "--yes"), "unknown option --yes"},
 		{"flag with a value", append(slices.Clone(ok), "--dry-run=no"), "unknown option --dry-run=no"},
 		{"no value", []string{"--admin"}, "--admin needs a value"},
+		{"dsn not postgres", append(slices.Clone(ok), "--dsn", "mysql://aries@db.example.com/aries"), "--dsn is not a postgres:// URL"},
+		{"dsn with a password", append(slices.Clone(ok), "--dsn", "postgres://aries:hunter2@db.example.com/aries"), "--dsn holds a password"},
+		{"dsn with a password parameter", append(slices.Clone(ok), "--dsn", "postgres://aries@db.example.com/aries?password=hunter2"), "--dsn holds a password"},
+		{"dsn with a space", append(slices.Clone(ok), "--dsn", "postgres://aries@db.example.com/aries?application_name=a b"), "--dsn holds a space or a quote"},
+		{"password file without dsn", append(slices.Clone(ok), "--db-password-file", "db.pass"), "--db-password-file is for the Postgres --dsn names"},
+		{"missing password file", append(slices.Clone(remote), "--db-password-file", "nobody.pass"), "cannot read --db-password-file"},
+		{"password file of two lines", append(slices.Clone(remote), "--db-password-file", "two.pub"), "holds more than one line"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -281,6 +291,10 @@ func TestInstallServerOptions(t *testing.T) {
 			code, stderr := runInstallServer(t, tc.args...)
 			if code != 2 || !strings.Contains(stderr, tc.want) || !strings.Contains(stderr, "\nfix: ") {
 				t.Errorf("install-server.sh %s = exit %d, stderr:\n%s\nwant exit 2, %q and a fix: line", strings.Join(tc.args, " "), code, stderr, tc.want)
+			}
+			// A refused --dsn may hold a password: it is never repeated.
+			if strings.Contains(stderr, "hunter2") {
+				t.Errorf("install-server.sh %s printed the password it was given:\n%s", strings.Join(tc.args, " "), stderr)
 			}
 		})
 	}
@@ -358,5 +372,93 @@ func TestInstallServerRefusesMachine(t *testing.T) {
 	code, stderr := runInstallServer(t, "--admin", "alice", "--admin-key", "alice.pub", "--dry-run")
 	if code != 1 || !strings.Contains(stderr, want) || !strings.Contains(stderr, "\nfix: ") {
 		t.Errorf("install-server.sh, not as root on %s = exit %d, stderr:\n%s\nwant exit 1, %q and a fix: line", runtime.GOOS, code, stderr, want)
+	}
+}
+
+// TestInstallServerSQLIsTheGuides holds every statement the installer
+// runs on Postgres to step 2 of docs/server.md, which an operator runs by
+// hand, or has run on a managed service: each is a line of that step's
+// block, so the installer makes no role or database the guide does not.
+func TestInstallServerSQLIsTheGuides(t *testing.T) {
+	t.Parallel()
+	stmts := regexp.MustCompile(`(?m)^sql_[a-z]+="((?:CREATE|REVOKE|GRANT|ALTER) [^"]+;)"$`).FindAllStringSubmatch(read(t, installServer), -1)
+	if len(stmts) < 3 {
+		t.Fatalf(`%s has %d sql_NAME="STATEMENT;" lines; want the role, the database and the revoke`, installServer, len(stmts))
+	}
+	step := guideSection(t, "### 2. Create the role and the database")
+	block := match(t, step, "step 2's SQL", "(?s)psql[^\n]*<<'EOF'\n(.*?\n)EOF\n")
+	lines := strings.Split(block, "\n")
+	for _, m := range stmts {
+		if !slices.Contains(lines, m[1]) {
+			t.Errorf("%s runs %q, which is no line of step 2's block in %s:\n%s\nchange both together", installServer, m[1], serverGuide, block)
+		}
+	}
+}
+
+// TestOperationsPostgresPins keeps the Postgres the installer installs,
+// the oldest it accepts and the key it trusts PGDG's packages by at
+// what the code and CI say: version.PostgresMajor, version.PostgresMin
+// and ci.yml's PGDG_KEY_FINGERPRINT. And it keeps the Docker test
+// server's Postgres, and the package the guide installs, at the same
+// major version.
+func TestOperationsPostgresPins(t *testing.T) {
+	t.Parallel()
+	script := read(t, installServer)
+	fingerprint := regexp.MustCompile(`(?m)^\s*PGDG_KEY_FINGERPRINT:\s*"?([0-9A-F]{40})"?\s*$`).FindStringSubmatch(read(t, ".github/workflows/ci.yml"))
+	if fingerprint == nil {
+		t.Fatal("ci.yml has no PGDG_KEY_FINGERPRINT: line")
+	}
+	for _, c := range []struct{ what, pattern, want string }{
+		{"pg_major", `(?m)^pg_major=([0-9]+)$`, version.PostgresMajor},
+		{"pg_min", `(?m)^pg_min=([0-9]+)$`, strconv.Itoa(version.PostgresMin)},
+		{"pgdg_key_fingerprint", `(?m)^pgdg_key_fingerprint=([0-9A-F]{40})$`, fingerprint[1]},
+	} {
+		m := regexp.MustCompile(c.pattern).FindStringSubmatch(script)
+		switch {
+		case m == nil:
+			t.Errorf("%s has no line matching %s", installServer, c.pattern)
+		case m[1] != c.want:
+			t.Errorf("%s has %s=%s, want %s (internal/version and ci.yml); change them together", installServer, c.what, m[1], c.want)
+		}
+	}
+	const compose = "deploy/docker/compose.yaml"
+	if m := regexp.MustCompile(`(?m)^ *# postgres:([0-9]+)\.[0-9]+[^\n]*\n *image: postgres@sha256:[0-9a-f]{64}$`).FindStringSubmatch(read(t, compose)); m == nil {
+		t.Errorf("%s has no postgres image pinned by digest under a comment naming its release (# postgres:MAJOR.MINOR)", compose)
+	} else if m[1] != version.PostgresMajor {
+		t.Errorf("%s runs Postgres %s, version.PostgresMajor is %s; change them together", compose, m[1], version.PostgresMajor)
+	}
+	if want := "apt-get install -y postgresql-" + version.PostgresMajor + "\n"; !strings.Contains(guideSection(t, "### 1. Install Postgres"), want) {
+		t.Errorf("%s's step 1 does not run %q", serverGuide, strings.TrimSpace(want))
+	}
+}
+
+// TestOperationsNameNoDolt keeps the database Aries left (decision 79)
+// out of what sets a server up and runs it: the installer, the Docker
+// test server, the AppArmor profiles, the operations skill and the
+// guides for operators.
+func TestOperationsNameNoDolt(t *testing.T) {
+	t.Parallel()
+	files := []string{installServer, serverGuide, "docs/security-model.md", "RELEASING.md"}
+	for _, dir := range []string{"deploy/docker", "deploy/apparmor", "docs/deploy", "plugins/aries-ops"} {
+		err := filepath.WalkDir(filepath.Join("..", filepath.FromSlash(dir)), func(path string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			rel, err := filepath.Rel("..", path)
+			files = append(files, filepath.ToSlash(rel))
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	dolt := regexp.MustCompile(`(?i)dolt`)
+	for _, f := range files {
+		for i, line := range strings.Split(read(t, f), "\n") {
+			if dolt.MatchString(line) {
+				t.Errorf("%s:%d names Dolt, which Aries no longer uses: %s", f, i+1, strings.TrimSpace(line))
+				break
+			}
+		}
 	}
 }

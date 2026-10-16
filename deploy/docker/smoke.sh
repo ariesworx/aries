@@ -17,8 +17,8 @@
 # a dev server on 2222 is left alone. ARIES_IMAGE names an image to test
 # instead of building aries-dev:local: a variant of it, built FROM it,
 # such as those docs/deploy/docker.md describes. ARIES_SMOKE_LOG names
-# a file to save the server's log to (sshd's, ariesd's and Dolt's)
-# before the server is removed. ARIES_SMOKE_PROJECT names the Compose
+# a file to save the server's log to (sshd's and ariesd's, then
+# Postgres's) before the server is removed. ARIES_SMOKE_PROJECT names the Compose
 # project, aries-smoke by default, so that two runs on one machine,
 # each with its own ARIES_PORT, do not remove each other's server.
 #
@@ -26,7 +26,8 @@
 # and the compose file's `telemetry` and `prometheus` profiles, and then
 # checks the harness of deploy/observability (telemetry_checks, below):
 # what reaches the collector, the alert rules in a real Prometheus,
-# /readyz, and that a collector that is down or hangs changes nothing.
+# /readyz, with Postgres frozen too, and that a collector that is down
+# or hangs changes nothing.
 # It pulls two more images.
 #
 # ARIES_SMOKE_IDENTITY=1 also runs the compose file's `identity`
@@ -83,7 +84,7 @@ agent_pid=
 
 cleanup() {
   if [[ -n ${ARIES_SMOKE_LOG:-} ]]; then
-    "${compose[@]}" logs --no-log-prefix aries >"$ARIES_SMOKE_LOG" 2>&1 || true
+    "${compose[@]}" logs --no-log-prefix aries postgres >"$ARIES_SMOKE_LOG" 2>&1 || true
   fi
   "${compose[@]}" down -v >/dev/null 2>&1 || true
   if [[ -n $agent_pid ]]; then
@@ -228,8 +229,9 @@ up() {
 # restart_server restarts the server's container and waits for it. The
 # collector and Prometheus live in its network namespace, which a
 # restart replaces, so they are restarted after it: at once, so that
-# the collector listens again before ariesd, which starts after Dolt,
-# has anything to send.
+# the collector listens again before ariesd, which starts after
+# `ariesd control init`, has anything to send. Postgres's container is
+# left running, as a machine's Postgres outlives a restart of ariesd.
 restart_server() {
   local t0=$SECONDS
   "${compose[@]}" restart aries >/dev/null 2>&1
@@ -434,24 +436,19 @@ new_traceparent() {
   traceparent=00-$trace_id-$parent_id-01
 }
 
-# The series the harness's rules and dashboard read from Dolt, by the
-# names its endpoint serves; a test in internal/telemetry holds its own
-# list of them to this one.
-dolt_series=(dss_concurrent_connections dss_query_duration process_resident_memory_bytes process_cpu_seconds_total go_gc_duration_seconds go_gc_gomemlimit_bytes go_goroutines sys_cpu_usage sys_mem_usage sys_disk_usage)
-
 # telemetry_checks checks the harness of deploy/observability against
 # the server the checks above have used, which has run since the
 # restart with its telemetry on.
 telemetry_checks() {
   local pushed=(aries.request.duration aries.project.requests aries.connections aries.handshakes
-    aries.store.write.duration aries.store.commit.duration aries.stores.open aries.store.open.duration
+    aries.store.write.duration aries.stores.open aries.store.open.duration
     aries.claims aries.control.writes aries.keys_file.writes aries.keys_file.last_write.time
-    aries.reaper.duration aries.reaper.last_run.time aries.clock.behind)
+    aries.reaper.duration aries.reaper.last_run.time aries.clock.behind aries.db.pool.conns aries.db.pool.waits)
   local scraped=(aries_request_duration_seconds aries_project_requests_total aries_connections aries_handshakes_total
-    aries_store_write_duration_seconds aries_store_commit_duration_seconds aries_stores_open aries_store_open_duration_seconds
+    aries_store_write_duration_seconds aries_stores_open aries_store_open_duration_seconds
     aries_claims_total aries_control_writes_total aries_keys_file_writes_total aries_keys_file_last_write_time_seconds
-    aries_reaper_duration_seconds aries_reaper_last_run_time_seconds aries_clock_behind_seconds)
-  local name='     -> Name: ' traced server_span attempt_span stand_in rules log all bad job t0 alive_took alive dead
+    aries_reaper_duration_seconds aries_reaper_last_run_time_seconds aries_clock_behind_seconds aries_db_pool_conns aries_db_pool_waits_total)
+  local name='     -> Name: ' traced server_span attempt_span stand_in rules log all bad t0 alive_took alive dead
   local metrics0 traces0 logs0 warned_metrics warned_traces warned_logs recovered queries query refused_took frozen_took frozen_restart
   local req seq subject
 
@@ -538,14 +535,11 @@ telemetry_checks() {
   fi
   passed=$((passed + 1))
 
-  echo "smoke: telemetry: metrics from ariesd, pushed and scraped, and from Dolt"
+  echo "smoke: telemetry: metrics from ariesd, pushed and scraped"
   await 90 "ariesd's metrics arrive over OTLP" arrived "$name" "${pushed[@]}"
   await 60 "ariesd's metrics arrive by a scrape of /metrics" arrived "$name" "${scraped[@]}"
-  await 60 "Dolt's metrics arrive by a scrape" arrived "$name" "${dolt_series[@]}"
   log=$(collector_log)
-  for job in ariesd dolt; do
-    grep -Fq -- "     -> service.name: Str($job)" <<<"$log" || fail "the collector received nothing whose resource is the service $job"
-  done
+  grep -Fq -- "     -> service.name: Str(ariesd)" <<<"$log" || fail "the collector received nothing whose resource is the service ariesd"
   passed=$((passed + 1))
 
   echo "smoke: telemetry: the alert rules in Prometheus, and /readyz"
@@ -562,15 +556,21 @@ telemetry_checks() {
   ((queries >= 20)) || fail "found only $queries queries in the dashboard"
   passed=$((passed + 1))
   await 10 "/readyz says ready" readyz_says '^ready$'
-  # Dolt frozen whole, as a hang would leave it: it holds its port and
-  # answers nothing.
-  in_server pkill -STOP -x dolt || fail "could not freeze Dolt"
-  if ! (await 30 "/readyz says why not, with Dolt frozen" readyz_says '^not ready: the last check of Dolt failed$'); then
-    in_server pkill -CONT -x dolt || true
+  # Postgres frozen whole, as a hang would leave it: it holds its port
+  # and answers nothing. The status report answers all the same, from
+  # what ariesd holds in memory, and says why.
+  "${compose[@]}" pause postgres >/dev/null 2>&1 || fail "could not freeze Postgres"
+  if ! (await 30 "/readyz says why not, with Postgres frozen" readyz_says '^not ready: the last check of the database failed$'); then
+    "${compose[@]}" unpause postgres >/dev/null 2>&1 || true
     exit 1
   fi
   passed=$((passed + 1))
-  in_server pkill -CONT -x dolt || fail "could not thaw Dolt"
+  if ! (expect "status answers with Postgres frozen" '^postgres: unknown \(' alice admin status); then
+    "${compose[@]}" unpause postgres >/dev/null 2>&1 || true
+    exit 1
+  fi
+  passed=$((passed + 1))
+  "${compose[@]}" unpause postgres >/dev/null 2>&1 || fail "could not thaw Postgres"
   await 30 "/readyz says ready again" readyz_says '^ready$'
   grep -q '^HTTP/1.0 200' <<<"$(http_get 9464 /healthz)" || fail "/healthz does not answer 200"
   passed=$((passed + 1))
@@ -1002,8 +1002,8 @@ refuse "plans set as bob" '"code":"forbidden"' bob --json admin plan set team --
 # Many projects, and keys from the control database. alice is the server
 # admin; `ariesd control init` made bob a member of the first project.
 echo "smoke: a second project, and a key the control database holds"
-expect "project list" '^first +[0-9a-f-]{36} +sf +internal +active +aries$' alice admin project list
-expect "project add" '^project web \([0-9a-f-]{36}\) created in database aries_p001: active$' alice admin project add web
+expect "project list" '^first +[0-9a-f-]{36} +sf +internal +active +public$' alice admin project list
+expect "project add" '^project web \([0-9a-f-]{36}\) created in schema project_web: active$' alice admin project add web
 web=$(sed -n 's/^project: //p' <<<"$last")
 [[ $web =~ ^[0-9a-f-]{36}$ && $web != "$project" ]] || fail "project add printed no .aries.yaml for the new project" "$last"
 for who in alice bob; do
@@ -1130,37 +1130,35 @@ expect "no lock held" '^no locks held$' bob lock list
 
 no_failed_write "before the restart"
 
-# Dolt's own metrics (docs/server.md, step 2): the endpoint answers on
-# loopback in the container and on no other address, and ariesd reads
-# it for the status report. The image has no curl, so bash asks.
-echo "smoke: Dolt's metrics, and its figures in the status"
-last=$(in_server bash -c 'exec 3<>/dev/tcp/127.0.0.1/11228 && printf "GET /metrics HTTP/1.0\r\n\r\n" >&3 && cat <&3' 2>&1) ||
-  fail "Dolt's metrics endpoint does not answer on 127.0.0.1:11228 in the server" "$last"
-for series in dss_concurrent_connections process_resident_memory_bytes go_gc_duration_seconds_count; do
-  grep -q "^$series " <<<"$last" || fail "Dolt's metrics endpoint did not serve $series" "$(head -n 20 <<<"$last")"
-done
+# Postgres's own figures (docs/server.md, Watching a server), read with
+# ariesd's role: the server's version and connections, ariesd's pool,
+# the database's transactions and size, and each project's schema's
+# size. They are the server's, so a project admin is shown none of them.
+echo "smoke: Postgres's figures in the status"
+expect "status shows Postgres's figures" "^postgres 18[.][0-9]+[^:]*: connections [0-9]+ of [0-9]+, [0-9]+ in this database; ariesd's pool [0-9]+ in use of [0-9]+ held, at most 32, waited for [0-9]+ times?$" alice admin status
+grep -Eq "^postgres's database [0-9.]+ [KMG]iB; since its statistics were reset, [0-9]+ commits, [0-9]+ rollbacks?, 0 deadlocks, 0 conflicts, [0-9.]+ [KMG]iB in temporary files$" <<<"$last" ||
+  fail "status does not show the database's transactions and size" "$last"
+grep -Eq '^web +active +open +[0-9.]+ [KM]iB +[0-9]+ ' <<<"$last" || fail "status does not show the size of web's schema" "$last"
+passed=$((passed + 2))
+expect "status --json carries them" '"postgres":\{"version":"18[.][0-9]+[^"]*","conns":[0-9]+,"conns_max":[0-9]+,"database_conns":[0-9]+,"pool_conns":[0-9]+' alice --json admin status
+grep -Eq '"schema_bytes":[0-9]+' <<<"$last" || fail "status --json gives no project's schema_bytes" "$last"
 passed=$((passed + 1))
-# sshd listens on every address, so its port shows that the probe works.
-addr=$(in_server hostname -i | cut -d' ' -f1)
-[[ $addr =~ ^[0-9.]+$ && $addr != 127.* ]] || fail "could not find the container's own address" "$addr"
-in_server bash -c "exec 3<>/dev/tcp/$addr/22" 2>/dev/null || fail "sshd does not answer on the container's own address, $addr"
-if in_server bash -c "exec 3<>/dev/tcp/$addr/11228" 2>/dev/null; then
-  fail "Dolt's metrics endpoint answers on the container's own address, $addr, not on loopback alone"
-fi
+# bob is no server admin: Postgres is the server's, and he is shown none of it.
+refuse "Postgres's figures are for server admins" 'may not see the server.s status' bob admin status
+# Postgres answers on the compose network alone: the server's container
+# reaches it, and no port of this machine does.
+in_server bash -c "exec 3<>/dev/tcp/postgres/5432" 2>/dev/null || fail "the server's container does not reach Postgres at postgres:5432"
+last=$(docker port "$("${compose[@]}" ps -q postgres)" 2>&1) || fail "could not list the ports of Postgres's container" "$last"
+[[ -z $last ]] || fail "Postgres's container publishes a port on this machine" "$last"
 passed=$((passed + 1))
-expect "status shows Dolt's figures" '^Dolt 2\.[0-9]+\.[0-9]+, up [0-9a-z ]+, [0-9]+ connections?, [0-9]+ MiB resident, no memory limit$' alice admin status
-expect "status --json carries them" '"dolt":\{"read_at":"[^"]+","version":"2\.[0-9.]+","started_at":"[^"]+","uptime_seconds":[0-9]+,"resident_bytes":[0-9]+,"conns":[0-9]+,"mem_limit_bytes":0' alice --json admin status
-# The collector's cycles are set against ariesd's writes once it has
-# read twice, 15 seconds apart.
-for ((i = 0; i < 60; i++)); do
-  if aries_as alice admin status 2>/dev/null | grep -q "^Dolt's collector: "; then
-    break
-  fi
-  sleep 0.5
-done
-expect "status shows Dolt's collector against the writes" "^Dolt's collector: [0-9]+ cycles? for [0-9]+ writes? in [0-9a-z ]+" alice admin status
-# bob is no server admin: Dolt is the server's, and he is shown none of it.
-refuse "Dolt's figures are for server admins" 'may not see the server.s status' bob admin status
+# The config file holds no password, and the password file the DSN
+# names is the aries user's alone.
+last=$(in_server stat -L -c '%a %U:%G' /etc/aries/postgres/pgpass 2>&1) || fail "no password file at /etc/aries/postgres/pgpass" "$last"
+[[ $last == "600 aries:aries" ]] || fail "the password file is '$last', want 600 aries:aries"
+last=$(in_server sed -n 's/^dsn: //p' /etc/aries/ariesd.yaml)
+[[ $last == postgres://aries@postgres:5432/aries?*passfile=/etc/aries/postgres/pgpass* && $last != *password=* && $last != *:*:*@* ]] ||
+  fail "the config's dsn is not the password-free URL that names the password file"
+passed=$((passed + 2))
 
 # What a restart must not undo. The container runs `ariesd control
 # init` at every start, and bob's line is still in ARIES_KEYS.
@@ -1248,7 +1246,7 @@ no_failed_write "at the end"
 # wrote names an event, and an access change made with `aries admin` is a
 # line of the audit stream, read back from the control database's log.
 # Only ariesd writes lines that start with time= and have level=;
-# sshd's and Dolt's are theirs.
+# sshd's are its own.
 echo "smoke: the log's schema and the audit stream"
 last=$("${compose[@]}" logs --no-log-prefix aries 2>&1 | grep -E '^time=[^ ]+ level=[A-Z]+ msg=' || true)
 [[ -n $last ]] || fail "ariesd logged no line"

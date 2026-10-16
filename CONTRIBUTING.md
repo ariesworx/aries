@@ -96,11 +96,9 @@ the server in WSL, where everything on this page works as on Linux.
 
 ## Try your change against a real server
 
-**Not until the Postgres port's operations slice lands:** the Docker
-test server still runs Dolt, which this `ariesd` no longer opens.
-
-The [Docker test server](docs/deploy/docker.md) runs sshd, `ariesd`
-and Dolt in one container, built from your checkout and set up as
+The [Docker test server](docs/deploy/docker.md) runs sshd and `ariesd`
+in one container, built from your checkout, beside Postgres in another,
+set up as
 [Running a server](docs/server.md) sets up a machine. From the
 repository root, with an SSH key in ssh-agent:
 

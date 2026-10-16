@@ -26,8 +26,9 @@ arguments.
   bridge with no way to ask for another, and outside the systemd unit:
   the unit's `ProtectSystem` and the rest do not reach it. The bridge
   may read the config file and connect to the daemon's socket.
-- **The daemon gets its own**, because only it reaches Dolt and writes
-  the keys file. With one profile for both, the bridge could do both.
+- **The daemon gets its own**, because it reaches Postgres and alone
+  writes the keys file. With one profile for both, the bridge could do
+  both.
   It is also what listens on the loopback port for metrics and health,
   posts metrics to a collector, and writes to systemd's notify socket
   ([Observability](../../docs/server.md#observability)).
@@ -75,7 +76,7 @@ by following the server guide. amd64 was not tested.
    file at another path; `/etc/shadow` as root; the keys file and the
    socket at other paths; appending to the config file and to
    `authorized_keys`, and running a program, from a shell inside each
-   profile; the bridge reaching Dolt or the network; the daemon
+   profile; the bridge reaching the database or the network; the daemon
    replacing the binary; the operator's profile writing into `.ssh` or
    outside the top of the home directory; one profile changing to
    another.
@@ -115,8 +116,8 @@ a throwaway OTLP receiver (Python's `http.server`) on the machine.
 | Tells systemd it is ready, stopping and alive | **A new rule**, `@{run}/systemd/notify w,` in `ariesd-serve`. Without it the daemon serves, logs `could not tell systemd the daemon is ready … permission denied`, and the unit stays `activating` until `TimeoutStartSec`, when systemd stops it and starts it again. The kernel log has `operation="sendmsg" … name="/run/systemd/notify"` |
 | Listens on a loopback TCP port | Nothing new: `network inet stream` already covered it |
 | Posts metrics to a collector at an address, or at a name `/etc/hosts` holds | Nothing new |
-| Posts metrics to a collector whose name needs DNS | The two UDP lines in `local/ariesd-serve`, as for a `dsn` that names Dolt's host. Without them the export fails (`lookup … dial udp 127.0.0.53:53: socket: permission denied`), is logged once, and nothing else is affected |
-| Posts metrics over HTTPS | `include <abstractions/ssl_certs>` in `local/ariesd-serve`, so that it can read the machine's certificate authorities. Without it the export fails (`x509: failed to load system roots and no roots provided; open /etc/ssl/certs/ca-certificates.crt: permission denied`), and the kernel log has the denied read |
+| Posts metrics to a collector whose name needs DNS | Then, the two UDP lines in `local/ariesd-serve`; since Postgres, the profile has them ([below](#what-postgres-needed)). Without them the export fails (`lookup … dial udp 127.0.0.53:53: socket: permission denied`), is logged once, and nothing else is affected |
+| Posts metrics over HTTPS | Then, `include <abstractions/ssl_certs>` in `local/ariesd-serve`, so that it can read the machine's certificate authorities; since Postgres, the profile has it. Without it the export fails (`x509: failed to load system roots and no roots provided; open /etc/ssl/certs/ca-certificates.crt: permission denied`), and the kernel log has the denied read |
 | `ariesd status` | Nothing new, under the bridge's profile |
 
 The 76 checks of the run above passed again with all of this on, across
@@ -124,17 +125,9 @@ a cold boot, with no line in the kernel log; the two refusals that are
 logged are root, and another user with a config file of her own, running
 `ariesd status`.
 
-Reading Dolt's own metrics (`telemetry: dolt_metrics_url:`, slice O4,
-run on the same machine the same day) needed nothing new either: it is
-an HTTP GET to `127.0.0.1:11228` every 15 seconds, which `network inet
-stream` covers, at an address, so no name is resolved. The 76 checks
-passed with it on and no line in the kernel log, and with the unit also
-held to loopback (`IPAddressDeny=any`, `IPAddressAllow=localhost`) the
-reads went on. Dolt, which listens on that port, is not confined.
-
-So metrics sent **straight to a hosted backend** need three lines the
-shipped profile leaves out, since the daemon otherwise speaks to no
-machine by name and reads no certificate:
+So metrics sent **straight to a hosted backend** then needed three
+lines the profile left out, since the daemon otherwise spoke to no
+machine by name and read no certificate:
 
 ```text
 # /etc/apparmor.d/local/ariesd-serve
@@ -145,7 +138,8 @@ include <abstractions/ssl_certs>
 
 then `apparmor_parser -r /etc/apparmor.d/ariesd` and a restart. A
 collector on the machine, which the guide gives first, needs none of
-them. HTTPS was run against a receiver on the machine with a
+them. The profile has all three since Postgres
+([below](#what-postgres-needed)); the lines may stay in `local/`. HTTPS was run against a receiver on the machine with a
 certificate from a private authority added to the machine's trust
 store, not against a real backend.
 
@@ -219,15 +213,33 @@ this machine); look for ariesd's with
   do not rely on it. `IPAddressDeny=any` with `IPAddressAllow=localhost`
   in the unit was run and holds the daemon to loopback.
 - **sshd**, which Ubuntu does not confine.
-- **Dolt.** A profile for it would be attached to `/usr/local/bin/dolt`
-  and need: its config file, read; its data directory, `cfg_dir` and
-  the account's own `.dolt` directory under `/var/lib/dolt`, read,
-  write and lock; its private `/tmp`; its TCP listeners, for SQL and
-  for its metrics; and what the Go runtime reads. The same path is also the operator's tool (`dolt sql`,
-  `dolt dump`, `dolt gc`), which reads the data directory it is run in
-  and writes dumps to `/var/backups/aries`, so it would need the same
-  split as ariesd's, or a profile the unit alone asks for. None of
-  this was written or run.
+- **Postgres**, which runs as its own user, `postgres`, under its own
+  unit, and which Ubuntu and the PostgreSQL project ship no profile
+  for. None was written here.
+- **The rules for Postgres under an enforcing kernel**
+  ([below](#what-postgres-needed)).
+
+## What Postgres needed
+
+Aries moved its data to Postgres (design decision 79). On 15 October
+2026 the profiles changed for it, and were checked with
+`apparmor_parser -Q -K` under Ubuntu 24.04's parser (AppArmor 4.0.1)
+and 26.04's (5.0.2), in containers. They were not loaded into an
+enforcing kernel: Docker Desktop's has no AppArmor, and no virtual
+machine was run for this change. Load them in complain mode first
+(`apparmor_parser -r -C /etc/apparmor.d/ariesd`) and look for what they
+would refuse, as the server guide says, before you enforce them.
+
+| What ariesd does | The rule, in `ariesd-serve` and `ariesd-admin` |
+|---|---|
+| Reaches Postgres on the machine by its unix socket, `/var/run/postgresql/.s.PGSQL.5432`, as the guide's DSN names it | `@{ariesd_pg_socket}/.s.PGSQL.* rw,`, with the tunable at `/run/postgresql`, where `/var/run` leads. A socket with a path is a file to AppArmor, as the daemon's own is to the bridge |
+| Reads the password file and the certificate authority a DSN names (`passfile=`, `sslrootcert=`), for a Postgres on another machine | `@{ariesd_db_files}/ r,` and `@{ariesd_db_files}/** r,`, with the tunable at `/etc/aries/postgres`. The bridge has no rule for them, though it reads the config file, so it has no way to the database |
+| Reaches a Postgres on another machine, by name and over TLS | TCP was there (`network inet stream`). DNS (`network inet dgram`, `network inet6 dgram`) and the certificate authorities (`abstractions/ssl_certs`), which a managed Postgres's name and `sslmode=verify-full` need, are now in `ariesd-serve` always, as decision 85 chose for sign-in; `ariesd-admin` had them |
+| Reads the database's figures for the status report | Nothing more: they come over the same connections |
+
+What changed besides: the comments no longer name the database ariesd
+used before, and the bridge's comment says what its config file may
+hold, a DSN with a password, which it has no way to use.
 
 ## Checking a change
 

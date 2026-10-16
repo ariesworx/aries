@@ -1,19 +1,25 @@
 #!/usr/bin/env bash
 # The Aries test server's entrypoint (deploy/docker/Dockerfile), doing
-# what docs/server.md's steps 2 to 6 do on a machine, and then what its
+# what docs/server.md's steps 3 to 6 do on a machine, and then what its
 # "Serving many projects" does: the server holds many projects, and sshd
-# reads the keys of its control database from a file ariesd writes,
+# reads the keys of its control store from a file ariesd writes,
 # /state/ssh/aries_keys, beside authorized_keys.
 #
-# On the first start it makes the sshd host key, gives Dolt's aries
-# account a random password, which only the 0600 config file holds, and
-# writes the config. Then, once, it creates the control database, grants
-# a block of database names for new projects, and names both in the
-# config. On every start it installs the principals given in
-# ARIES_KEYS or /etc/aries-keys, runs `ariesd control init`, which
-# adopts the project and imports those principals and keys, runs dolt,
-# ariesd and sshd, and prints the .aries.yaml a client needs. When
-# one of the three exits, it stops the other two and exits 1.
+# The database is the compose file's `postgres` container, which made
+# ariesd's role and database on its first start, as an administrator
+# makes them on a Postgres ariesd reaches over the network
+# (docs/server.md, "Managed services"), and left the role's generated
+# password in a 0600 file on the dbsecret volume. On every start this
+# copies the password into the password file ariesd's DSN names, 0600
+# and the aries user's, so that the config file holds no password.
+#
+# On the first start it makes the sshd host key and writes the config,
+# a server of many projects from the start. On every start it installs
+# the principals given in ARIES_KEYS or /etc/aries-keys, runs `ariesd
+# control init`, which makes the control schema, adopts the project and
+# imports those principals and keys, runs ariesd and sshd, and prints
+# the .aries.yaml a client needs. When one of the two exits, it stops
+# the other and exits 1.
 #
 # With ARIES_TELEMETRY=1 ariesd also reports on itself, set up as
 # docs/server.md's Observability sets a server up: it serves /metrics,
@@ -31,16 +37,20 @@ hostkey=$state/hostkeys/ssh_host_ed25519_key
 keys_file=/etc/aries-keys
 ready=/run/aries-ready
 port=${ARIES_PORT:-2222}
-# The server of many projects: its control database, the name the
-# project it starts with is adopted under, and the block of database
-# names `aries admin project add` takes from.
-control_db=aries_control
+# The server of many projects: its control schema, and the name the
+# project it starts with is adopted under.
+control_schema=aries_control
 first_project=first
-project_dbs_prefix=aries_p
-project_dbs_count=8
-# Dolt's metrics endpoint, as /etc/dolt/config.yaml sets it: loopback
-# only, since it has no authentication.
-dolt_metrics_url=http://127.0.0.1:11228/metrics
+# The database: the postgres container, by its name on the compose
+# network, with the password file this entrypoint writes. The network
+# is the containers' own, so the DSN asks for no TLS; a real Postgres on
+# another machine gets sslmode=verify-full (docs/server.md, "Managed
+# services").
+db_host=postgres
+db_secret=/aries-db/password
+db_files=/etc/aries/postgres
+pgpass=$db_files/pgpass
+dsn="postgres://aries@$db_host:5432/aries?sslmode=disable&passfile=$pgpass"
 # ariesd's telemetry, with ARIES_TELEMETRY=1: its loopback listener,
 # the collector it pushes to, and the key its stand-ins for people are
 # made with, which is on the volume so that a person keeps one stand-in
@@ -66,8 +76,8 @@ names=()  # their names, for the log
 
 log() { printf 'aries-docker: %s\n' "$*" >&2; }
 
-# stop ends the children, last started first, so ariesd closes the store
-# before Dolt goes away.
+# stop ends the children, last started first, so sshd stops taking
+# connections before ariesd closes its stores.
 stop() {
   trap - TERM INT
   local i
@@ -87,7 +97,7 @@ die() {
 
 # run_as USER DIR CMD... replaces the shell with CMD, run as USER in DIR
 # with a bare environment and no way to gain privileges, as the systemd
-# units in docs/server.md do. Call it in a subshell or in the background,
+# unit in docs/server.md does. Call it in a subshell or in the background,
 # so the child's pid is the program's own.
 run_as() {
   local user=$1 dir=$2
@@ -121,48 +131,38 @@ wait_for() {
   die "$name did not start within 30s" "read its log above"
 }
 
-# Called through wait_for, which shellcheck cannot see: 0.11 reports
-# that as SC2329, and the 0.9 on CI's runner as SC2317.
+# Called through wait_for or wait_db, which shellcheck cannot see: 0.11
+# reports that as SC2329, and the 0.9 on CI's runner as SC2317.
 # shellcheck disable=SC2317,SC2329
-port_open() { (: <"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+port_open() { (: <"/dev/tcp/$1/$2") 2>/dev/null; }
 
-random_hex() { od -An -N24 -tx1 /dev/urandom | tr -d ' \n'; }
+# wait_db waits up to 60s for Postgres to take connections. The compose
+# file starts this container once Postgres is healthy; a restart of this
+# container alone, or of Postgres's, may still find it on its way up.
+wait_db() {
+  local i
+  for ((i = 0; i < 600; i++)); do
+    if port_open "$db_host" 5432; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  die "Postgres does not answer at $db_host:5432" "docker compose logs postgres; and docker compose up -d starts it"
+}
 
 setting() { sed -n "s/^$1: //p" "$config"; }
 
-# write_config DSN PROJECT ADMINS [many] writes the config file, mode
-# 0600, from stdin so the password is never an argument. With many, or
-# when the config it replaces names a control database, it also names
-# the control database and the block of project databases (opt_in). It
-# always names Dolt's metrics endpoint, which the image's Dolt config
-# turns on, so that `aries admin status` shows Dolt's figures; and, with
-# ARIES_TELEMETRY=1, ariesd's own listener and the stand-ins' key.
+# write_config PROJECT ADMINS writes the config file, mode 0600: the DSN,
+# which holds no password, the project, the admins and the control
+# schema; and, with ARIES_TELEMETRY=1, ariesd's own listener and the
+# stand-ins' key.
 write_config() {
-  local many=${4:-}
-  if [[ -f $config && -n $(setting control_db) ]]; then
-    many=many
-  fi
   {
-    printf 'dsn: %s\nproject: %s\nadmins: [%s]\n' "$1" "$2" "$3"
-    if [[ -n $many ]]; then
-      printf 'control_db: %s\nproject_dbs:\n  prefix: %s\n  count: %s\n' "$control_db" "$project_dbs_prefix" "$project_dbs_count"
-    fi
-    printf 'telemetry:\n  dolt_metrics_url: %s\n' "$dolt_metrics_url"
+    printf 'dsn: %s\nproject: %s\nadmins: [%s]\ncontrol_schema: %s\n' "$dsn" "$1" "$2" "$control_schema"
     if telemetry_on; then
-      printf '  listen: %s\n  principals_key: %s\n' "$telemetry_listen" "$telemetry_key"
+      printf 'telemetry:\n  listen: %s\n  principals_key: %s\n' "$telemetry_listen" "$telemetry_key"
     fi
   } | install -o aries -g aries -m 0600 /dev/stdin "$config"
-}
-
-# watch_dolt moves a volume that an image from before Dolt's metrics
-# made: its config does not say where ariesd reads them. Dolt's own
-# config is the image's, so Dolt serves them from this start on.
-watch_dolt() {
-  if grep -q '^  dolt_metrics_url: ' "$config"; then
-    return 0
-  fi
-  write_config "$(setting dsn)" "$(setting project)" "$(setting admins | tr -d '[]')"
-  log "ariesd now reads Dolt's metrics at $dolt_metrics_url, for aries admin status"
 }
 
 telemetry_on() { [[ ${ARIES_TELEMETRY:-} == 1 ]]; }
@@ -186,7 +186,7 @@ watch_self() {
   elif ((!has)); then
     return 0
   fi
-  write_config "$(setting dsn)" "$(setting project)" "$(setting admins | tr -d '[]')"
+  write_config "$(setting project)" "$(setting admins | tr -d '[]')"
   if telemetry_on; then
     log "ariesd serves /metrics, /healthz and /readyz on $telemetry_listen, and pushes metrics, traces and log records to $telemetry_endpoint"
   else
@@ -196,8 +196,13 @@ watch_self() {
 
 prepare() {
   rm -f "$ready" /run/sshd.pid
-  install -d -o dolt -g dolt -m 0700 "$state/dolt" "$state/dolt/data" "$state/dolt/cfg"
-  install -d -o root -g aries -m 0750 "$state/aries"
+  # A volume an image from before Postgres made holds that database's
+  # files, and a config whose dsn this ariesd refuses.
+  if [[ -f $config && $(setting dsn) != postgres://* ]]; then
+    die "this volume was made by an image from before Postgres, whose data this server cannot read" \
+      "remove the volume (docker compose down -v) and start again"
+  fi
+  install -d -o root -g aries -m 0750 "$state/aries" "$db_files"
   install -d -o aries -g aries -m 0700 "$state/ssh" /run/aries
   install -d -o root -g root -m 0700 "$state/hostkeys"
   install -d -m 0755 /run/sshd
@@ -206,67 +211,30 @@ prepare() {
   fi
 }
 
-# many_sql prints the SQL of "Serving many projects, Opt in", steps 1 and
-# 4: the control database, and a block of database names for the
-# projects `aries admin project add` creates, each granted to ariesd's
-# account by its exact name, since Dolt ignores a grant on a pattern.
-many_sql() {
-  local i
-  printf "CREATE DATABASE IF NOT EXISTS %s;\nGRANT ALL ON %s.* TO 'aries'@'localhost';\n" "$control_db" "$control_db"
-  for ((i = 1; i <= project_dbs_count; i++)); do
-    printf "GRANT ALL ON %s%03d.* TO 'aries'@'localhost';\n" "$project_dbs_prefix" "$i"
-  done
-}
-
-# init_store is step 4: the database, an account with rights on it alone,
-# a random password for Dolt's root that nobody keeps, and the config.
-# The control database and the block of project databases are made in
-# the same pass, before root's password is set and forgotten.
-init_store() {
-  if [[ -d $state/dolt/data/aries ]]; then
-    die "the volume holds a database but no config, from a first start that failed" \
-      "remove the volume (docker compose down -v) and start again"
-  fi
-  local dbpw rootpw project=${ARIES_PROJECT:-$(cat /proc/sys/kernel/random/uuid)}
-  dbpw=$(random_hex)
-  rootpw=$(random_hex)
+# install_pgpass writes the password file ariesd's DSN names, from the
+# password the postgres container generated, as Postgres reads one: for
+# any host, port, database and role, with \ and : escaped. The password
+# goes from file to file and is never an argument or printed.
+install_pgpass() {
+  [[ -s $db_secret ]] || die "the postgres container left no password for ariesd's role in $db_secret" \
+    "docker compose logs postgres; a postgres volume made by an earlier failed start is removed with docker compose down -v"
   {
-    printf "CREATE DATABASE aries;\nCREATE USER 'aries'@'localhost' IDENTIFIED BY '%s';\nGRANT ALL ON aries.* TO 'aries'@'localhost';\n" "$dbpw"
-    many_sql
-    printf "ALTER USER 'root'@'localhost' IDENTIFIED BY '%s';\n" "$rootpw"
-  } |
-    (run_as dolt /var/lib/dolt env DOLT_CLI_PASSWORD= dolt --host 127.0.0.1 --port 3306 --no-tls -u root sql >/dev/null) ||
-    die "could not create the databases and the account" "read Dolt's log above"
-  write_config "aries:$dbpw@tcp(127.0.0.1:3306)/aries" "$project" "" many
-  log "created project $project, the control database $control_db and $project_dbs_count database names for new projects"
+    printf '*:*:*:*:'
+    sed -n '1{s/\\/\\\\/g;s/:/\\:/g;p;}' "$db_secret"
+  } | install -o aries -g aries -m 0600 /dev/stdin "$pgpass"
 }
 
-# opt_in moves a volume that an image from before many projects made: its
-# config names no control database. Nobody kept the password of Dolt's
-# root, so the SQL is run as the server guide runs it on a machine: by
-# Dolt's own user, from the data directory. A new volume never comes
-# here: init_store did the same as root.
-opt_in() {
-  if [[ -n $(setting control_db) ]]; then
-    return 0
-  fi
-  many_sql | (run_as dolt /var/lib/dolt/data/aries dolt sql >/dev/null) ||
-    die "could not create the control database on a volume from an older image" \
-      "read Dolt's log above, or remove the volume (docker compose down -v) and start again"
-  write_config "$(setting dsn)" "$(setting project)" "$(setting admins | tr -d '[]')" many
-  log "this volume now serves many projects: control database $control_db, $project_dbs_count database names for new projects"
-}
-
-# adopt is "Opt in" step 3, run on every start because it is safe to run
-# again: it records the database as the first project and imports the
-# principals and keys of authorized_keys, adding what is new. It removes
-# nothing: a principal dropped from ARIES_KEYS keeps its row and keys
-# in the control database, and is removed with aries admin. And it undoes
-# nothing an admin did with aries admin: a member removed from the first
-# project, a key removed and a principal disabled stay so across a
-# start, each named in this log, though their lines are still in
-# ARIES_KEYS. It is never run here with --restore-removed-access,
-# which overrides those admins; docs/deploy/docker.md says how to.
+# adopt is "Opt in" step 2, run on every start because it is safe to run
+# again: it makes the control schema, records the DSN's schema as the
+# first project and imports the principals and keys of authorized_keys,
+# adding what is new. It removes nothing: a principal dropped from
+# ARIES_KEYS keeps its row and keys in the control store, and is removed
+# with aries admin. And it undoes nothing an admin did with aries admin:
+# a member removed from the first project, a key removed and a principal
+# disabled stay so across a start, each named in this log, though their
+# lines are still in ARIES_KEYS. It is never run here with
+# --restore-removed-access, which overrides those admins;
+# docs/deploy/docker.md says how to.
 adopt() {
   if [[ ! -f $authorized ]]; then
     install -o aries -g aries -m 0600 /dev/null "$authorized"
@@ -319,7 +287,7 @@ install_principals() {
   printf '%s\n' "${key_lines[@]}" | install -o aries -g aries -m 0600 /dev/stdin "$authorized"
   local quoted
   quoted=$(printf '"%s", ' "${admins[@]}")
-  write_config "$(setting dsn)" "$(setting project)" "${quoted%, }"
+  write_config "$(setting project)" "${quoted%, }"
 }
 
 report() {
@@ -339,7 +307,7 @@ Aries test server ready (not for production)
   project     $project
   principals  ${principals:-none}
   admins      ${admins}
-  more        aries admin project add NAME ($project_dbs_count database names granted); aries admin principal add NAME --key FILE
+  more        aries admin project add NAME; aries admin principal add NAME --key FILE
 
 Save this as .aries.yaml in a scratch repository:
 
@@ -362,24 +330,17 @@ main() {
     die "ARIES_TELEMETRY is '${ARIES_TELEMETRY}'" "set it to 1 for ariesd's telemetry, or leave it unset for none"
   fi
   prepare
+  install_pgpass
+  wait_db
 
-  local first=0
-  [[ -f $config ]] || first=1
-  if ((first)); then
-    (run_as dolt /var/lib/dolt sh -c 'dolt config --global --add user.name "aries server" &&
-      dolt config --global --add user.email aries@localhost &&
-      dolt config --global --add metrics.disabled true' >/dev/null)
-  fi
-  start dolt run_as dolt /var/lib/dolt/data dolt sql-server --config /etc/dolt/config.yaml
-  wait_for dolt port_open 3306
-  if ((first)); then
-    init_store
+  if [[ ! -f $config ]]; then
+    local project=${ARIES_PROJECT:-$(cat /proc/sys/kernel/random/uuid)}
+    write_config "$project" ""
+    log "created project $project, served from schema public of the database aries, with the control schema $control_schema"
   elif [[ -n ${ARIES_PROJECT:-} && ${ARIES_PROJECT} != "$(setting project)" ]]; then
     die "ARIES_PROJECT is not the project this volume holds, $(setting project)" \
-      "unset ARIES_PROJECT, or remove the volume (docker compose down -v) for a new project"
+      "unset ARIES_PROJECT, or remove the volumes (docker compose down -v) for a new project"
   fi
-  opt_in
-  watch_dolt
   watch_self
   install_principals
   adopt

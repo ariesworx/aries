@@ -20,7 +20,7 @@ its size and region, and the guide's cost figure where it has one
 | Who connects, from where | Laptops only; also cloud sandboxes and CI | docs/deploy/README.md |
 | The path to sshd | A public address with port 22 rate-limited; Google Cloud IAP (the one private path `aries` supports natively); a VPN such as WireGuard, with `host` the private address | docs/deploy/enterprise.md#on-other-clouds, docs/cli.md#servers-without-a-public-ip-google-cloud-iap |
 | One project or many | The installer sets up a server of many projects | docs/server.md#serving-many-projects |
-| Size | 2 GB for one project of a few thousand issues; 4 GB for more, or ten projects in use | docs/server.md#dolts-memory |
+| Size | 2 GB for a team with a few projects; more for many agents, each connection costing about 5 MiB | docs/server.md#sizing-postgres |
 | Data disk | A separate disk for the database's data, so the boot disk can be rebuilt | docs/deploy/enterprise.md#choices-this-example-makes |
 | Backups | Disk snapshots, and dumps carried off the machine | docs/server.md#backups-and-restore |
 
@@ -43,9 +43,9 @@ its size and region, and the guide's cost figure where it has one
 
 - **Inbound: SSH only**, on the one port clients use. Nothing else: the
   database and ariesd's listener (9464) answer on loopback alone and
-  must stay so. A managed database, once the port to Postgres lands, is
-  reached on the provider's private network, never the internet
-  (references/database.md).
+  must stay so. A managed Postgres is reached on the provider's private
+  network, never the internet, and with TLS (references/database.md,
+  docs/server.md#managed-services).
 - **Behind IAP**, admit only IAP's range, `35.235.240.0/20`, on port 22
   (docs/deploy/enterprise.md#build-it, step 1).
 - **On a public address**, rate-limit new connections on the machine

@@ -36,11 +36,10 @@ command line. One small Go server keeps the data in
 > is away, saying so; a write that arrives after others changed the
 > issue is parked as a conflict for a person, or kept as a comment; and
 > `aries away` holds a person's claims through a planned absence. None of
-> it has run on Windows. The store now runs on Postgres (slice P1 of
-> the move from Dolt); the server guide, the installer and the Docker
-> test server still set up Dolt until slice P4, so no server can be set
-> up from them meanwhile. Not ready for production use
-> yet; see the [roadmap](#roadmap).
+> it has run on Windows. The store, the server guide, the installer
+> and the Docker test server run on Postgres (slices P1, P2 and P4 of
+> decision 79); the soaks have yet to run on it on Linux (slice P5).
+> Not ready for production use yet; see the [roadmap](#roadmap).
 
 ## Why Aries
 
@@ -186,7 +185,7 @@ on Ubuntu 24.04 LTS or 26.04 LTS is set up by one script, `install-server.sh`
 | [Upgrading to 1.0](docs/upgrade-to-1.0.md) | From v0.4.0 to v1.0.0: reinstalling `aries`, what to remove, and setting up a new server (a draft until v1.0.0 ships) |
 | [Release notes](docs/releases/v1.0.0.md) | What v1.0.0 adds, breaks, removes and supports, with what is still planned marked (a draft until it ships) |
 | [Moving from bd](docs/migrate-from-bd.md) | Importing a beads backlog, and exporting it back |
-| [Security model](docs/security-model.md) | Identity, host keys, the Dolt account, untrusted text, releases, CI checks |
+| [Security model](docs/security-model.md) | Identity, host keys, the database role, untrusted text, releases, CI checks |
 | [Design documents](docs/design/README.md) | Principles, architecture, data model, the Dolt spike, Bearings |
 | [Contributing](CONTRIBUTING.md) | From a clone to a passing gate, trying a change against a real server, opening a pull request, troubleshooting |
 | [Releasing](RELEASING.md) | How releases are built, signed and published |
@@ -216,11 +215,11 @@ platform's workload identity; a Claude Desktop extension (decision 83);
 and a hardening pass: a review of every public name, flag, variable and
 setting, the protocol settled at one version (decision
 78), and the open follow-ups. Stage 6's G3 to G5 come in 1.x releases
-as compatible additions. Of the move, P0 and P1 are built: the store,
-the daemon and every test run on Postgres alone, a schema for each
-project. Until P2 and P4 land, the status report has no figures of the
-database's own, and the server guide, the installer, the AppArmor
-profile and the Docker test server still describe Dolt.
+as compatible additions. Of the move, P0, P1, P2 and P4 are built:
+the store, the daemon and every test run on Postgres alone, a schema for
+each project, and the server guide, the installer, the AppArmor profile,
+backups and the Docker test server are Postgres's. P5, the soaks rerun
+on Linux, remains.
 
 The Bearings stages (B0 to B5) start once Aries stage 3 lands; see the
 [Bearings plan](docs/design/bearings.md#6-plan).

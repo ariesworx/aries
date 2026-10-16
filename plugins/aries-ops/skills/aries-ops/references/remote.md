@@ -52,11 +52,12 @@ These hold secrets. Never `cat`, `less`, `head`, `tail`, `grep` without
 
 | File | Holds |
 |---|---|
-| `/etc/aries/ariesd.yaml` | The database password, in `dsn:`. To read its other settings: `sudo -n grep -vi dsn /etc/aries/ariesd.yaml` |
+| `/etc/aries/ariesd.yaml` | The DSN, which may hold a password if someone put one there. To read its other settings: `sudo -n grep -vi dsn /etc/aries/ariesd.yaml` |
 | `/etc/aries/telemetry.env`, and any `EnvironmentFile` of the unit | A backend's token (docs/server.md#send-metrics-straight-to-a-hosted-backend) |
 | `/var/lib/aries/telemetry/principals.key` | The key of the stand-ins in traces (docs/server.md#traces) |
 | `/etc/ssh/ssh_host_*_key` (no `.pub`) | sshd's private host keys. Fingerprints: `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` |
-| The database's own account files (`/var/lib/dolt/cfg` today) | Its accounts |
+| `/etc/aries/postgres/pgpass` | With a Postgres elsewhere, the role's password (docs/server.md#managed-services) |
+| `/var/lib/postgresql` | Postgres's own files, every project's data. Read the data through Postgres (references/database.md), never the files |
 | Any private key, on either machine | Never read. Check a file is a public key with `ssh-keygen -lf FILE.pub` and `grep -c 'PRIVATE KEY' FILE.pub` (must print 0) |
 
 To learn about such a file, ask about its shape: `stat -c '%a %U:%G %s'

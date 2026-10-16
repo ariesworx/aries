@@ -8,21 +8,26 @@ from a Mac or any machine with Docker, without touching a real server.
 
 ```text
 your machine
-  aries ──SSH──▶ 127.0.0.1:2222 ──▶ container: sshd ──▶ ariesd ──▶ Dolt
-                                     └── volume: Dolt's data, the host key, the config
+  aries ──SSH──▶ 127.0.0.1:2222 ──▶ container aries: sshd ──▶ ariesd ──▶ container postgres
+                                     └── volume: the host key, the config    └── volume: the database
 ```
 
-One container runs the three programs, set up as in
-[Running a server](../server.md#set-up-a-server): Dolt under its own
-account with the same locked-down grants, ariesd as `aries`, and
-sshd with a forced command per key. ariesd runs without `--dev`, so it
-makes every check it makes on a real server. The files are in
+Two containers. One runs sshd and ariesd, set up as in
+[Running a server](../server.md#set-up-a-server): ariesd as `aries`,
+and sshd with a forced command per key. The other runs Postgres, from
+Docker's official `postgres:18` image, which ariesd reaches over the
+compose network as a Postgres on another machine: its role and database
+are made with step 2's statements, the role with a generated password
+that only 0600 files hold, as for
+[a managed service](../server.md#managed-services). ariesd runs
+without `--dev`, so it makes every check it makes on a real server,
+its database role's included. The files are in
 [deploy/docker](../../deploy/docker).
 
 It is a server of [many projects](../server.md#serving-many-projects):
-it has a control database and eight database names granted for new
-projects, the project it starts with is adopted under the name `first`,
-and sshd reads the keys file ariesd writes
+it has a control store, ariesd makes each new project's schema, the
+project it starts with is adopted under the name `first`, and sshd
+reads the keys file ariesd writes
 ([Keys from the store](../server.md#keys-from-the-store)). So you can
 try `aries admin project add`, and add a person with `aries admin principal
 add NAME --key FILE` and no restart.
@@ -54,12 +59,15 @@ docker compose up -d --build --wait
 docker compose logs --no-log-prefix aries | grep -A 13 'test server ready' | tail -n 14
 ```
 
-The build compiles `ariesd` and `aries` from your checkout and downloads
-Dolt at the release Aries pins, checking its SHA-256. The first start
-makes the host key, the project, the control database and Dolt's
-password, which only the config file holds (mode 0600) and nothing
-prints. Every start then runs `ariesd control init`, which records the
-project and the principals and keys you gave. The log ends with what a
+The build compiles `ariesd` and `aries` from your checkout, and the
+first start pulls Postgres's image, pinned by digest. On that start the
+Postgres container makes ariesd's role, with a generated password, and
+its database, with collation `C`; the server's container makes the host
+key and the project, and writes the password into the file its DSN
+names, `/etc/aries/postgres/pgpass` (mode 0600), so the config file
+holds none and nothing prints it. Every start then runs `ariesd control
+init`, which makes the control store and records the project and the
+principals and keys you gave. The log ends with what a
 client needs (these values are invented):
 
 ```text
@@ -68,7 +76,7 @@ Aries test server ready (not for production)
   project     6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f
   principals  alice
   admins      alice
-  more        aries admin project add NAME (8 database names granted); aries admin principal add NAME --key FILE
+  more        aries admin project add NAME; aries admin principal add NAME --key FILE
 
 Save this as .aries.yaml in a scratch repository:
 
@@ -138,7 +146,7 @@ with your own key, alice's, in `~/.ssh` and in ssh-agent
 `aries whoami` says which principal the server took you for and which key
 signed. bob is a member of the first project and no admin: `aries admin
 project list` shows bob his `ROLE` in each project, and alice each
-project's `DATABASE`. `./aries admin key remove FINGERPRINT` takes his key
+project's `SCHEMA`. `./aries admin key remove FINGERPRINT` takes his key
 away again, and `./aries admin key list bob` shows the fingerprint.
 
 **To try a second project**, run `./aries admin project add web` as alice.
@@ -149,14 +157,11 @@ project too, so `aries` lists it and asks before it adds him
 ([Managing access](../server.md#managing-access)). `aries admin status`
 then shows the server and a row for each project.
 
-**Dolt's own metrics are on**, as the guide's setup has them: Dolt
-serves them at `http://127.0.0.1:11228/metrics` inside the container,
-on loopback only, since the endpoint has no authentication, and the
-compose file publishes no port but sshd's. ariesd reads them every 15
-seconds, so `aries admin status` has a `Dolt` line with its memory,
-connections and uptime, and a `Dolt's collector:` line
-([Dolt's figures](../server.md#dolts-figures)). A volume made by an
-older image gains the setting at its next start.
+**Postgres's own figures** are in `aries admin status`, as on any
+server: its version, its connections and ariesd's pool, the database's
+transactions and size, and each project's schema's size
+([Watching a server](../server.md#watching-a-server)). Postgres
+publishes no port: only the server's container reaches it.
 
 Giving a second key in `ARIES_KEYS` and starting again still works,
 as before, and puts the key in `authorized_keys` as well.
@@ -198,13 +203,13 @@ docker compose --profile telemetry logs -f collector
 | You set | It does |
 |---|---|
 | `ARIES_TELEMETRY=1` | ariesd serves `/metrics`, `/healthz` and `/readyz` on `127.0.0.1:9464` inside the container, pushes metrics, traces and the records of its log lines ([Logs over OTLP](../server.md#logs-over-otlp)) to `http://127.0.0.1:4318`, and keeps the key for people's stand-ins on the volume (`/state/telemetry/principals.key`), so a rebuild keeps them |
-| `--profile telemetry` | Runs an OpenTelemetry Collector with [deploy/observability/collector.yaml](../../deploy/observability/collector.yaml): it receives what ariesd pushes, scrapes ariesd's `/metrics` and Dolt's, and prints every metric, span and log record in full |
-| `--profile prometheus` | Runs a Prometheus with [prometheus.yaml](../../deploy/observability/prometheus.yaml) and the alert rules of [alerts.yaml](../../deploy/observability/alerts.yaml), scraping the same two endpoints |
+| `--profile telemetry` | Runs an OpenTelemetry Collector with [deploy/observability/collector.yaml](../../deploy/observability/collector.yaml): it receives what ariesd pushes, scrapes ariesd's `/metrics`, and prints every metric, span and log record in full |
+| `--profile prometheus` | Runs a Prometheus with [prometheus.yaml](../../deploy/observability/prometheus.yaml) and the alert rules of [alerts.yaml](../../deploy/observability/alerts.yaml), scraping ariesd |
 
 - **Both run in the server's network namespace** (`network_mode:
-  service:aries`). ariesd's listener and Dolt's metrics answer on
-  loopback alone and have no authentication, and ariesd pushes to
-  loopback; a collector in a container of its own could reach neither.
+  service:aries`). ariesd's listener answers on loopback alone and has
+  no authentication, and ariesd pushes to loopback; a collector in a
+  container of its own could reach neither.
   On a real server the collector runs on the machine, for the same
   reason.
 - **Neither publishes a port or keeps a volume.** Prometheus keeps its
@@ -365,9 +370,32 @@ docker compose up -d --build --wait
 go build -o ~/aries-scratch/aries ./cmd/aries
 ```
 
-The volume keeps its data, and a new migration runs on it when ariesd
-starts. An image older than the volume's schema refuses to open it
-(migrations only go forward): wipe the volume, below, to go back.
+The volumes keep their data, and a new migration runs on it when ariesd
+starts. An image older than the database's schema refuses to open it
+(migrations only go forward): wipe the volumes, below, to go back. A
+volume made before the move to Postgres holds data this server cannot
+read: its first start says so, and `docker compose down -v` clears it.
+
+## Back up and restore
+
+The [guide's dump and restore](../server.md#backups-and-restore) work
+here, with the Postgres container standing for the server's Postgres
+and `docker compose stop aries` for `systemctl stop ariesd`:
+
+```sh
+docker compose exec -u postgres postgres pg_dump --format=custom --file=/var/lib/postgresql/aries.dump aries
+docker compose stop aries
+docker compose exec -u postgres postgres dropdb aries
+docker compose exec -u postgres postgres pg_restore --create --dbname postgres /var/lib/postgresql/aries.dump
+docker compose start aries
+```
+
+The dump stays on Postgres's volume, which `down -v` removes; copy it
+out with `docker compose cp postgres:/var/lib/postgresql/aries.dump .`
+to keep it. Run on 15 October 2026: a dump of the whole database and
+one of `project_web`, a restore of each after a wipe, with what was
+written after the dump gone, the rest there, and `aries admin status`
+reporting no fault.
 
 ## Run the smoke test
 
@@ -396,12 +424,14 @@ comes in by `authorized_keys`; that a key added to `authorized_keys`
 by hand keeps its principal, whoever tries to add it to the control
 database and whichever was there first; and that ariesd's log has no
 failed write, names an event on every line, has the audit stream's line
-for a key an admin added, and holds no key's text. It checks that Dolt's metrics endpoint answers on
-loopback in the container and not on the container's own address, and
-that `aries admin status` shows Dolt's figures and its collector's cycles
-against the writes, as text and as JSON, to a server admin and not to
-anyone else. It removes its server and volume, prints one line (137
-checks on 12 October 2026), and exits non-zero on the first failure. CI
+for a key an admin added, and holds no key's text. It checks that
+`aries admin status` shows Postgres's figures and each project's
+schema's size, as text and as JSON, to a server admin and not to anyone
+else; that the server's container reaches Postgres and this machine
+does not; and that the config file holds no password, and the password
+file its DSN names is mode 0600 and the `aries` user's. It removes its
+server and volumes, prints one line (155 checks on 15 October 2026, in
+77 seconds), and exits non-zero on the first failure. CI
 does not run it; `scripts/gate.sh --smoke` runs it after the gate. It
 hides ssh-agent from `aries`, so the keys you hold play no part. Arguments
 go to `docker build`; behind a proxy that
@@ -424,8 +454,8 @@ This runs the same checks with ariesd's telemetry on and both
 profiles of [Telemetry](#telemetry), which pulls two more images, and
 then checks the harness of
 [deploy/observability](../../deploy/observability) against the server
-it has just used (194 checks in all on 12 October 2026, in about two
-and a half minutes):
+it has just used (212 checks in all on 15 October 2026, in about two
+minutes):
 
 - **A trace.** A request sent with a `TRACEPARENT` of the test's own
   arrives at the collector as a span in that trace, under the test's
@@ -449,14 +479,16 @@ and a half minutes):
 - **No text in a record.** Every field of a record that names a person
   holds a stand-in, and no record has a field that holds text: an
   error, a target, a machine's name, a path.
-- **Metrics.** Fifteen of ariesd's instruments arrive pushed over
-  OTLP, the same fifteen by a scrape of `/metrics`, and ten of Dolt's
-  series by a scrape of its endpoint: every one a rule or the dashboard
+- **Metrics.** Sixteen of ariesd's instruments arrive pushed over
+  OTLP, and the same sixteen by a scrape of `/metrics`, its pool of
+  connections to Postgres among them: every one a rule or the dashboard
   reads.
 - **The alert rules and the dashboard.** Prometheus loads every rule and
   evaluates each without error, and runs every query of the dashboard.
-- **`/readyz`** says `ready`; with Dolt frozen (`SIGSTOP`), `not ready:
-  the last check of Dolt failed`; and `ready` again once it runs.
+- **`/readyz`** says `ready`; with Postgres's container frozen
+  (`docker compose pause postgres`), `not ready: the last check of the
+  database failed`, while `aries admin status` still answers, with
+  `postgres: unknown`; and `ready` again once it runs.
 - **A collector that is down.** The same 18 requests are sent with the
   collector running, with it stopped, so that its port refuses, and with
   it frozen, so that its port accepts and never answers. They answer
@@ -482,8 +514,8 @@ which pulls Keycloak, on `127.0.0.1:8181` (`ARIES_IDENTITY_PORT`) so
 that a Keycloak of your own on 8180 is left alone, and then checks it.
 It needs `curl` and `openssl` on your machine. It prints the claims of
 the tokens it gets and never a password, a secret, a code or a token,
-which go from Keycloak's volume to each request through pipes. 186
-checks passed on 15 October 2026, 34 of them Keycloak's:
+which go from Keycloak's volume to each request through pipes. 189
+checks passed on 15 October 2026, on Postgres, 34 of them Keycloak's:
 
 - **One issuer.** The discovery document from your machine and from
   the server's container, by name, names the same issuer, offers PKCE
@@ -507,7 +539,7 @@ checks passed on 15 October 2026, 34 of them Keycloak's:
   `ci-example` and the made-up `repository` claim; a wrong secret is
   refused.
 
-Without `ARIES_SMOKE_IDENTITY` the smoke test is as before: 152 checks
+Without `ARIES_SMOKE_IDENTITY` the smoke test is as before: 155 checks
 on 15 October 2026, and no Keycloak.
 
 **On an internal network** (`internal: true`, the override above), run
@@ -572,15 +604,15 @@ covers what `aries` and ariesd say. These are the test server's own:
 
 | To | Run |
 |---|---|
-| Follow the logs of all three programs | `docker compose logs -f` |
+| Follow the logs of sshd, ariesd and Postgres | `docker compose logs -f` |
 | Open a shell | `docker compose exec aries bash` |
-| Query Dolt as its own user | `docker compose exec -u dolt -w /var/lib/dolt/data/aries aries dolt sql` |
-| Read Dolt's own metrics | `docker compose exec aries bash -c 'exec 3<>/dev/tcp/127.0.0.1/11228; printf "GET /metrics HTTP/1.0\r\n\r\n" >&3; cat <&3'` (the image has no `curl`) |
+| Query the database as Postgres's superuser | `docker compose exec -u postgres postgres psql aries` |
+| See ariesd's role and database as Postgres has them | `docker compose exec -u postgres postgres psql -c '\du aries' -c '\l aries'` |
 | Read ariesd's own metrics, with [telemetry](#telemetry) on | `docker compose exec aries bash -c 'exec 3<>/dev/tcp/127.0.0.1/9464; printf "GET /metrics HTTP/1.0\r\n\r\n" >&3; cat <&3'`; `/readyz` and `/healthz` the same way |
 | See what the collector received | `docker compose --profile telemetry logs collector` |
 | Read the keys file ariesd writes for sshd | `docker compose exec aries cat /var/lib/aries/.ssh/aries_keys` (public keys only) |
 | See which files sshd reads for the account | `docker compose exec aries sshd -T -C user=aries \| grep -i authorizedkeys` |
-| Read the config | `docker compose exec aries cat /etc/aries/ariesd.yaml` (it holds the password) |
+| Read the config | `docker compose exec aries cat /etc/aries/ariesd.yaml` (it holds no password: that is in `/etc/aries/postgres/pgpass`, which this does not print) |
 | See Keycloak's realm, clients and people, with the [identity profile](#sign-in-with-a-local-identity-provider) | `docker compose --profile identity exec keycloak /opt/aries/identity.sh show` (no secret) |
 
 ## Stop and wipe
@@ -588,7 +620,7 @@ covers what `aries` and ariesd say. These are the test server's own:
 ```sh
 docker compose stop              # stop; docker compose start resumes
 docker compose down              # remove the container, keep the volume
-docker compose down -v           # remove the volume too: data, host key and project
+docker compose down -v           # remove the volumes too: the database, its password, the host key and the project
 docker image rm aries-dev:local
 ```
 
@@ -603,12 +635,13 @@ update `.aries.yaml`.
 
 | Running a server | Here | Why |
 |---|---|---|
-| Ubuntu 24.04 or 26.04 with systemd units for Dolt and ariesd | Ubuntu 24.04; the entrypoint starts the three programs and stops all of them when one exits | A container has no systemd. Each program still runs as its own user with a bare environment, `umask 077` and no way to gain privileges. The image stays on 24.04: 26.04 was run with the [installer](../server.md#with-the-installer) instead, and its OpenSSH turns away for a while an address that fails to log in, which here is Docker's one address for every client, so the smoke test's refused keys would lock out its next steps ([step 6](../server.md#6-let-the-first-principal-in)) |
+| Ubuntu 24.04 or 26.04 with systemd units for Postgres and ariesd | Ubuntu 24.04 for sshd and ariesd; the entrypoint starts the two and stops both when one exits. Postgres in a container of its own, Docker's official image | A container has no systemd. Each program still runs as its own user with a bare environment, `umask 077` and no way to gain privileges. The image stays on 24.04: 26.04 was run with the [installer](../server.md#with-the-installer) instead, and its OpenSSH turns away for a while an address that fails to log in, which here is Docker's one address for every client, so the smoke test's refused keys would lock out its next steps ([step 6](../server.md#6-let-the-first-principal-in)) |
 | ariesd installed from a signed release into `/opt/aries/bin` | Built from the checkout into `/usr/local/bin`; no `systemd_unit` and no sudo rule | It tests what is checked out. Rebuild the image instead of running `ariesd upgrade` |
 | ariesd may write to `~aries/.ssh` by a `ReadWritePaths` line in its unit | Nothing confines it | A container has no systemd. sshd's `AuthorizedKeysFile` line is the guide's |
-| You opt in to many projects, grant 100 database names and run `control init` once | Opted in from the first start, with 8 names; `control init` runs at every start | So there is nothing to set up. A volume made by an older image is moved at its next start |
-| The host key in `/etc/ssh`; `/var/lib/dolt`, `/etc/aries` and `~aries/.ssh` on the disk | The same paths, linked into the `/state` volume, with the host key in `/state/hostkeys` | Everything survives a rebuild, and `down -v` wipes it |
+| You opt in to many projects and run `control init` once | Opted in from the first start; `control init` runs at every start | So there is nothing to set up |
+| Postgres on the machine, reached by its unix socket with no password | Postgres in the other container, reached over the compose network with a password in a 0600 file, without TLS on that private network | It tests the path a Postgres on another machine, or a managed service, takes |
+| The host key in `/etc/ssh`; `/var/lib/postgresql`, `/etc/aries` and `~aries/.ssh` on the disk | The server's paths linked into the `/state` volume, with the host key in `/state/hostkeys`; the database on Postgres's own volume | Everything survives a rebuild, and `down -v` wipes it |
 | sshd serves every account | `AllowUsers aries`, with passwords off | Nobody else signs in |
-| A daily dump | No backups | It is for testing |
+| A daily dump | No backups, but the guide's dump and restore work ([Back up and restore](#back-up-and-restore)) | It is for testing |
 | Telemetry is set in ariesd's unit and config, and a collector runs on the machine | `ARIES_TELEMETRY=1` sets both, and the collector runs in a container that shares the server's network namespace; metrics are exported every 5 seconds and spans within 1, and the log is exported too, which a real server does only when asked | One variable to try it, and something to look at soon after |
 | Sign-in, once built, is at the organization's identity provider, over HTTPS | Keycloak in development mode, over HTTP on `keycloak.localhost`, with a realm made by a script and generated passwords, with the `identity` profile | To develop and test sign-in with no account and no internet; never for production |

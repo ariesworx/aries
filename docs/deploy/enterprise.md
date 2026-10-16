@@ -14,7 +14,7 @@ laptops ───┐  gcloud: IAP TCP forwarding,
 CI runners ┘  for members of aries-users@example.com only
      │
      ▼
-Google Cloud IAP ──▶ VM with no public address ──▶ sshd ─▶ ariesd ─▶ Dolt (data disk)
+Google Cloud IAP ──▶ VM with no public address ──▶ sshd ─▶ ariesd ─▶ Postgres (data disk)
                       ├─ Cloud NAT, outbound only: releases and OS updates
                       ├─ daily disk snapshots, kept 14 days
                       └─ daily dumps ─▶ Cloud Storage, under a retention policy
@@ -28,8 +28,8 @@ Google Cloud IAP ──▶ VM with no public address ──▶ sshd ─▶ aries
 | Access | IAP TCP forwarding. The IAP-secured Tunnel User role goes to a Google group | Leaving the group cuts a person off at the network, even before their key line is removed |
 | Identity | One principal per person, with keys in ssh-agent; service principals for CI | Every change names a person or a known automation |
 | CI | Workload Identity Federation, so no service account key exists, and an SSH key from the CI's secret store | Nothing long-lived to leak from CI but the SSH key, which is revoked alone |
-| Server | e2-standard-4 (4 vCPUs, 16 GB), the machine the load test used, with Ubuntu 24.04 LTS, a supported platform; e2-standard-2 for a smaller company | Headroom for many agents. If the server holds [several projects](../server.md#serving-many-projects), size it by what all of them write between restarts of Dolt, which is what Dolt's memory follows: about 100 to 180 MB for each small project in use and 1 to 2 GB for a large one in [the measurements](https://github.com/ariesworx/aries/blob/fbbbf4655665845db81a72d2bbd1845472fd1c5a/spike/multidb/RESULTS.md) ([Dolt's memory](../server.md#dolts-memory)) |
-| Disks | A 20 GB boot disk, and a 50 GB data disk mounted at `/var/lib/dolt` | The boot disk can be rebuilt without touching the data |
+| Server | e2-standard-4 (4 vCPUs, 16 GB), the machine the load test used, with Ubuntu 24.04 LTS, a supported platform; e2-standard-2 for a smaller company | Headroom for many agents: each connection costs about 5 MiB, mostly sshd and the bridge. A project in use costs Postgres a few MiB more, through ariesd's one pool ([Sizing Postgres](../server.md#sizing-postgres)) |
+| Disks | A 20 GB boot disk, and a 50 GB data disk mounted at `/var/lib/postgresql` | The boot disk can be rebuilt without touching the data |
 | Outbound | Cloud NAT | Upgrades download releases from GitHub, and the OS needs updates |
 | Backups | Daily snapshots kept 14 days, and daily dumps to a bucket with a retention policy. The VM may create objects there and do nothing else | A compromised VM cannot delete or overwrite a backup |
 | Monitoring | Alerts on the VM stopping, on disk use over 80% (reported by the Ops Agent), and on `level=ERROR` lines in ariesd's journal; a budget with alerts | Problems surface before people notice |
@@ -57,10 +57,14 @@ Google Cloud IAP ──▶ VM with no public address ──▶ sshd ─▶ aries
    Add a 14-day snapshot schedule for both disks, as in the
    [Team](team.md#build-it) example.
 
-3. **The server.** Format the data disk and mount it at `/var/lib/dolt`
-   (in `/etc/fstab`) before [Running a server](../server.md#set-up-a-server),
-   steps 1 to 6. Add `RequiresMountsFor=/var/lib/dolt` to the `[Unit]`
-   section of `dolt.service`. Skip the firewall rate limit: everyone
+3. **The server.** Format the data disk and mount it at
+   `/var/lib/postgresql` (in `/etc/fstab`) before
+   [Running a server](../server.md#set-up-a-server), steps 1 to 6, or
+   the installer. Postgres's cluster unit already waits for the mount
+   (`RequiresMountsFor=` in `postgresql@.service`, as PGDG's package
+   ships it). To use Cloud SQL in place of Postgres on the VM, see
+   [Managed services](../server.md#managed-services) (not run). Skip the
+   firewall rate limit: everyone
    arrives from IAP's few addresses, so it would throttle the whole
    company. For the same reason, on OpenSSH 9.8 or later, add
    `PerSourcePenaltyExemptList 35.235.240.0/20` above the `Match` line.

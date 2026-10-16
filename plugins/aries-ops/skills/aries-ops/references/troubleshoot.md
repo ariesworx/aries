@@ -43,7 +43,7 @@ and fix: read it at the server's release and quote the row you act on.
 | `closed the connection before the ssh handshake` (older clients: `handshake failed: EOF`) for everyone behind one address | `journalctl -u ssh -g penalty` | docs/server.md#6-let-the-first-principal-in |
 | ariesd does not start, status 75 | `timedatectl` | docs/server.md#when-the-clock-is-behind-the-servers-history |
 | `permission denied` under AppArmor | The kernel's denial names the profile and path | docs/server.md#confine-ariesd-with-apparmor |
-| Anything about the database | The status report's lines about it; then references/database.md | docs/server.md#when-dolt-does-not-answer |
+| Anything about the database | The status report's `postgres` lines; then references/database.md, "Troubleshooting" | docs/server.md#when-postgres-does-not-answer |
 
 ## Fixing
 

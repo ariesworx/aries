@@ -258,10 +258,14 @@ Or follow
 Claude Code do it with the `aries-ops` plugin
 ([Operate a server with Claude Code](server.md#operate-a-server-with-claude-code)).
 
-**The database.** **(planned, decision 79)** v1.0.0 keeps its data in
-Postgres 16 or newer, from the PGDG apt repository, with each project a
-schema in one database. Until that work lands, the installer and the
-guide set up Dolt, and this section will be rewritten with them.
+**The database.** v1.0.0 keeps its data in Postgres 16 or newer, with
+each project a schema in one database. The installer installs Postgres
+18 from the PostgreSQL project's apt repository, or uses a Postgres 16
+or newer the machine already runs, or one on another machine or a
+managed service that `--dsn` names
+([Managed services](server.md#managed-services)). Set up the daily dump
+too ([Backups and restore](server.md#backups-and-restore)): the former
+database's tag before each upgrade is gone, and the dump replaces it.
 
 A fresh machine is simpler than reusing the former server's. To reuse
 it, remove the former server first ([On the former

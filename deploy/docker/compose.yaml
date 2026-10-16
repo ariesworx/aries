@@ -2,6 +2,13 @@
 #
 #   ARIES_KEYS="alice $(cat ~/.ssh/id_ed25519.pub)" docker compose -f deploy/docker/compose.yaml up -d --build
 #
+# Two containers: `aries`, which runs sshd and ariesd, and `postgres`,
+# the official Postgres image, which ariesd reaches over the compose
+# network as a Postgres on another machine, with a password for its
+# role (docs/server.md, "Managed services"). The password is generated
+# on the first start, kept in 0600 files on the volumes, and never
+# printed.
+#
 # ARIES_KEYS holds "NAME TYPE KEY" lines, one principal key each;
 # ARIES_ADMINS (comma-separated) defaults to the first name;
 # ARIES_PROJECT fixes the project UUID on the first start;
@@ -16,8 +23,8 @@
 # traces to a collector on loopback; the `telemetry` profile runs that
 # collector, and the `prometheus` profile a Prometheus with the alert
 # rules. Both run in the server's network namespace, because ariesd's
-# listener and Dolt's metrics answer on loopback alone. Neither
-# publishes a port or keeps a volume.
+# listener answers on loopback alone. Neither publishes a port or keeps
+# a volume.
 #
 # The `identity` profile runs Keycloak, a local identity provider for
 # developing and testing sign-in with no external account and no
@@ -49,9 +56,34 @@ services:
       - 127.0.0.1:${ARIES_PORT:-2222}:22
     volumes:
       - state:/state
+      - dbsecret:/aries-db:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # The database. Its entrypoint gives the official image a superuser
+  # password nobody keeps, and init/aries.sh makes ariesd's role and
+  # database on the first start, with collation C, as docs/server.md's
+  # step 2 does. It publishes no port: only the server's container
+  # reaches it, on the compose network.
+  postgres:
+    # postgres:18.6 (Debian trixie), Docker's official image
+    image: postgres@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
+    entrypoint: ["bash", "/opt/aries/postgres.sh"]
+    command: ["postgres"]
+    volumes:
+      - postgres:/var/lib/postgresql
+      - dbsecret:/aries-db
+      - ./postgres/postgres.sh:/opt/aries/postgres.sh:ro
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -q -h 127.0.0.1 -U postgres -d postgres && test -s /aries-db/password"]
+      start_period: 60s
+      start_interval: 1s
+      interval: 10s
 
   # An OpenTelemetry Collector that receives what ariesd pushes,
-  # scrapes ariesd and Dolt, and prints all of it:
+  # scrapes ariesd, and prints all of it:
   # `docker compose logs collector`.
   collector:
     profiles: [telemetry]
@@ -74,7 +106,7 @@ services:
         max-size: 20m
         max-file: "2"
 
-  # A Prometheus that scrapes ariesd and Dolt and evaluates the alert
+  # A Prometheus that scrapes ariesd and evaluates the alert
   # rules. Its data is in memory and goes with the container. It
   # listens on loopback in the server's namespace and publishes no port:
   # docs/deploy/docker.md says how to ask it a question.
@@ -132,4 +164,6 @@ services:
       interval: 30s
 volumes:
   state:
+  postgres:
+  dbsecret:
   identity:
