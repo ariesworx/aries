@@ -2077,7 +2077,7 @@ limits:
 | `hours_note_bytes` | 500 | Bytes in an hours entry's note (at most 65535) |
 | `conflicts_per_issue` | 20 | Open conflicts on one issue: fields of replayed updates parked against others' changes ([Conflicts](cli.md#conflicts)). An update that would park past it is refused with `invalid`, and nothing of it applies; its fix says to resolve the open ones (`aries conflicts`, `aries resolve`) and `aries outbox retry` it, or to raise the limit. A resolved conflict no longer counts |
 | `conflicts_per_principal` | 100 | Open conflicts one principal's replayed updates have parked, on every issue; past it, refused as `conflicts_per_issue` is |
-| `approvers_per_gate` | 10 | Principals one [gate](concepts.md#gates) names (at most 100). More are refused with `invalid` |
+| `approvers_per_gate` | 10 | Principals one [gate](concepts.md#gates) names (at most 100). More are refused with `invalid`. A gate that names none tells at most this many of the project's admins that it waits for them, the project's own before the server's |
 | `open_gates_per_project` | 1000 | Open gates in a project. One more is refused with `busy`, and its fix says to pass or waive an open one (`aries gate list`) or raise the limit. The gates on one issue are its dependencies, so `deps_per_issue` bounds them |
 | `checks_per_issue` | 20 | [CI gates](ci.md) whose subject is one issue, which is its checks, one gate each (at most 100). One more is refused with `invalid` |
 | `gate_evidence_bytes` | 1024 | Bytes of a CI report's evidence, its commit, link and reason together (at most 4096). More is refused with `invalid`, as is a link with a user or password, or evidence that looks like a secret |

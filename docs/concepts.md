@@ -89,8 +89,11 @@ for a person to approve before any of it starts.
   reopens a passed gate, by its approvers or an admin, so that it holds
   again; work already started on what it holds goes on.
 - **Who is told.** The approvers, in their inbox, when a gate is added
-  (`gate.pending`); the assignees of what it held when it passes
-  (`gate.passed`). Every change is an event, and a watching board
+  and when more work is put behind it (`gate.pending`); for a gate that
+  names none, the project's admins other than its creator, the
+  project's own before the server's, at most the server's
+  `approvers_per_gate` of them. The assignees of what it held, when it
+  passes (`gate.passed`). Every change is an event, and a watching board
   (`aries tui`) shows the pass as it happens.
 
 ### CI gates

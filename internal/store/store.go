@@ -66,6 +66,12 @@ type Options struct {
 	// project admins ([Control.Access]). It must be fast, read no
 	// database, and be safe for concurrent use.
 	IsAdmin func(principal string) bool
+	// ListAdmins, when set, lists the principals IsAdmin answers for:
+	// the project's admins first, then the server's, each once. The
+	// store tells them of a gate that names no approvers, which they pass
+	// (decision 68), before those in Admins. Like IsAdmin it must be
+	// fast, read no database, and be safe for concurrent use.
+	ListAdmins func() []string
 	// AllowUnsafeAccount opens the store even when the database role is a
 	// superuser or holds rights beyond its database (account.go). Off,
 	// Open refuses such a role with an [*UnsafeAccountError]; ariesd turns

@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -539,5 +540,32 @@ func TestControlLimitsDefaults(t *testing.T) {
 	}
 	if err := (ControlLimits{}).Validate(); err != nil {
 		t.Errorf("ControlLimits{}.Validate() = %v, want nil", err)
+	}
+}
+
+// A project's admins are listed from memory, as a project store asks of
+// a gate that names no approvers: its own admins, then the server's,
+// each active and listed once.
+func TestControlProjectAdmins(t *testing.T) {
+	t.Parallel()
+	c := accessWorld(t)
+	tests := []struct {
+		project string
+		want    []string
+	}{
+		{projA, []string{"alice", "ivy", "dana", "sam"}},
+		{projB, []string{"erin", "ivy", "dana", "sam"}},
+		{projC, []string{"dana", "sam"}},
+	}
+	for _, tc := range tests {
+		if got := c.ProjectAdmins(tc.project); !slices.Equal(got, tc.want) {
+			t.Errorf("ProjectAdmins(%s) = %v, want %v", tc.project, got, tc.want)
+		}
+	}
+	if _, err := c.DisablePrincipal(t.Context(), Actor{Principal: "dana", Session: "s", Machine: "m"}, "ivy"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := c.ProjectAdmins(projA), []string{"alice", "dana", "sam"}; !slices.Equal(got, want) {
+		t.Errorf("ProjectAdmins(%s) once ivy is disabled = %v, want %v", projA, got, want)
 	}
 }

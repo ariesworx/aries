@@ -2,7 +2,9 @@ package store
 
 import (
 	"errors"
+	"maps"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/ariesworx/aries/internal/proto"
@@ -351,5 +353,74 @@ func TestGateLimits(t *testing.T) {
 		if tc.want == nil && err != nil || tc.want != nil && !errors.Is(err, tc.want) {
 			t.Errorf("%s: AddGate = %v, want %v", tc.name, err, tc.want)
 		}
+	}
+}
+
+// pendingFor returns principal p's unread gate.pending items, newest
+// first.
+func pendingFor(t *testing.T, s *Store, p string) []InboxItem {
+	t.Helper()
+	return inboxOf(t, s, Actor{Principal: p, Session: "sess-" + p, Machine: "m"}, InboxGatePending)
+}
+
+// A gate that names no approvers waits for the project's admins, and
+// tells them so (decision 68): when it is added, and when more work is
+// put behind it. Its creator, who may not pass it, is not told, and no
+// more admins are told than a gate may name (approvers_per_gate). A gate
+// that names its approvers tells them when more work is put behind it
+// too.
+func TestGatePendingTellsWhoPasses(t *testing.T) {
+	t.Parallel()
+	admins := []string{"erin", "frank", "alice", "gail"}
+	s := openStore(t, newDSN(t), Options{Admins: []string{"dana"}, Limits: Limits{GateApprovers: 3},
+		IsAdmin:    func(p string) bool { return slices.Contains(admins, p) },
+		ListAdmins: func() []string { return admins }})
+	ctx := t.Context()
+	release := mustCreate(t, s, NewIssue{Title: "release"})
+	g := mustGate(t, s, alice, NewGate{Blocks: release.ID})
+	told := func() map[string]int {
+		out := map[string]int{}
+		for _, p := range []string{"alice", "dana", "erin", "frank", "gail"} {
+			for _, it := range pendingFor(t, s, p) {
+				if it.Issue == g.ID {
+					out[p]++
+				}
+			}
+		}
+		return out
+	}
+	// The project's admins in the order listed, then the configured ones,
+	// past the creator, three in all.
+	if got, want := told(), map[string]int{"erin": 1, "frank": 1, "gail": 1}; !maps.Equal(got, want) {
+		t.Errorf("gate.pending items for a gate with no approvers = %v, want %v", got, want)
+	}
+	notes := mustCreate(t, s, NewIssue{Title: "release notes"})
+	if err := s.AddDep(ctx, bob, notes.ID, g.ID, DepBlocks, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := told(), map[string]int{"erin": 2, "frank": 2, "gail": 2}; !maps.Equal(got, want) {
+		t.Errorf("gate.pending items once more work is behind it = %v, want %v", got, want)
+	}
+	if items := pendingFor(t, s, "erin"); len(items) == 0 || !strings.Contains(items[0].Body, string(notes.ID)) {
+		t.Errorf("erin's latest gate.pending = %+v, want one naming %s", items, notes.ID)
+	}
+	// An edge that is there already tells nobody again.
+	if err := s.AddDep(ctx, bob, notes.ID, g.ID, DepBlocks, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := told()["erin"]; got != 2 {
+		t.Errorf("gate.pending items for erin after the same edge again = %d, want 2", got)
+	}
+
+	named := mustGate(t, s, alice, NewGate{Blocks: release.ID, Approvers: []string{"carol"}})
+	later := mustCreate(t, s, NewIssue{Title: "announce"})
+	if err := s.AddDep(ctx, bob, later.ID, named.ID, DepBlocks, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(pendingFor(t, s, "carol")); got != 2 {
+		t.Errorf("carol's gate.pending items = %d, want 2: the add, and the work put behind it", got)
+	}
+	if got := len(pendingFor(t, s, "erin")); got != 2 {
+		t.Errorf("erin's gate.pending items = %d, want 2: a gate that names carol is not the admins'", got)
 	}
 }

@@ -33,41 +33,48 @@ func (s *Store) AddDep(ctx context.Context, actor Actor, from, to IssueID, typ D
 				return err
 			}
 		}
-		if err := insertDep(ctx, w, from, to, typ); err != nil {
+		added, err := insertDep(ctx, w, from, to, typ)
+		if err != nil {
 			return err
+		}
+		if added && typ.Blocking() {
+			if err := s.tellHeld(ctx, w, to, from); err != nil {
+				return err
+			}
 		}
 		return w.settleChanged(struct{}{})
 	})
 }
 
 // insertDep adds the edge from→to, recording an event, unless it is
-// already there. Both issues must exist.
-func insertDep(ctx context.Context, w *wtx, from, to IssueID, typ DepType) error {
+// already there, and reports whether it added it. Both issues must
+// exist.
+func insertDep(ctx context.Context, w *wtx, from, to IssueID, typ DepType) (bool, error) {
 	var n int
 	if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM deps WHERE from_id = $1 AND to_id = $2 AND type = $3`,
 		string(from), string(to), string(typ)).Scan(&n); err != nil {
-		return fmt.Errorf("lookup dep: %w", err)
+		return false, fmt.Errorf("lookup dep: %w", err)
 	}
 	if n > 0 {
-		return nil
+		return false, nil
 	}
 	if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM deps WHERE from_id = $1`, string(from)).Scan(&n); err != nil {
-		return fmt.Errorf("count deps: %w", err)
+		return false, fmt.Errorf("count deps: %w", err)
 	}
 	if n >= w.lim.Deps {
-		return fmt.Errorf("%w: issue %s has %d dependencies; an issue has at most %d dependencies", ErrInvalid, from, n, w.lim.Deps)
+		return false, fmt.Errorf("%w: issue %s has %d dependencies; an issue has at most %d dependencies", ErrInvalid, from, n, w.lim.Deps)
 	}
 	if typ.Blocking() {
 		if err := checkEdge(ctx, w.tx, from, to); err != nil {
-			return err
+			return false, err
 		}
 	}
 	if _, err := w.exec(ctx, `INSERT INTO deps (from_id, to_id, type, created_by, created_at, rev)
   VALUES ($1, $2, $3, $4, $5, 1)`, string(from), string(to), string(typ), w.actor.Principal, w.now); err != nil {
-		return fmt.Errorf("insert dep: %w", err)
+		return false, fmt.Errorf("insert dep: %w", err)
 	}
 	d := Dep{From: from, To: to, Type: typ, CreatedBy: w.actor.Principal, CreatedAt: w.now}
-	return w.event(ctx, OpDepAdd, string(from), nil, d)
+	return true, w.event(ctx, OpDepAdd, string(from), nil, d)
 }
 
 // RemoveDep deletes an edge. Removing a missing edge is a no-op. With an

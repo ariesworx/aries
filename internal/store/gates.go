@@ -575,23 +575,15 @@ func (s *Store) AddGate(ctx context.Context, actor Actor, in NewGate) (Gate, err
 			return err
 		}
 		if in.Blocks != "" {
-			if err := insertDep(ctx, w, in.Blocks, id, DepBlocks); err != nil {
-				return err
-			}
-		}
-		// A ci gate's principals are CI jobs, which read no inbox.
-		var pending []string
-		if in.Kind == GateHuman {
-			pending = in.Approvers
-		}
-		for _, a := range pending {
-			if err := w.notify(ctx, InboxItem{To: a, Kind: InboxGatePending, Issue: id,
-				Body: fmt.Sprintf("holds %s %s: pass it with `aries gate pass %s`", held.ID, held.Title, id)}); err != nil {
+			if _, err := insertDep(ctx, w, in.Blocks, id, DepBlocks); err != nil {
 				return err
 			}
 		}
 		g, err := loadGate(ctx, w.tx, id)
 		if err != nil {
+			return err
+		}
+		if err := w.tellPending(ctx, s.waitsFor(g.Gate), id, held); err != nil {
 			return err
 		}
 		out = g.Gate
@@ -601,6 +593,62 @@ func (s *Store) AddGate(ctx context.Context, actor Actor, in NewGate) (Gate, err
 		return Gate{}, err
 	}
 	return out, nil
+}
+
+// waitsFor returns whom gate g waits for, to be told of the work it
+// holds: the principals a human gate names, or when it names none the
+// project's admins other than its creator, who may not pass it (decision
+// 68), at most approvers_per_gate of them, as many as it could have
+// named, so that a server of many admins tells a bounded few. The
+// project's own admins come first (Options.ListAdmins), then the
+// configured ones. A ci gate's principals are CI jobs, which read no
+// inbox: none.
+func (s *Store) waitsFor(g Gate) []string {
+	if g.Kind != GateHuman {
+		return nil
+	}
+	if len(g.Approvers) > 0 {
+		return g.Approvers
+	}
+	var listed []string
+	if s.opts.ListAdmins != nil {
+		listed = s.opts.ListAdmins()
+	}
+	var out []string
+	for _, p := range slices.Concat(listed, s.opts.Admins) {
+		if p == g.CreatedBy || slices.Contains(out, p) || !s.IsAdmin(p) {
+			continue
+		}
+		if out = append(out, p); len(out) == s.opts.Limits.GateApprovers {
+			break
+		}
+	}
+	return out
+}
+
+// tellPending tells each of to that gate id holds held (gate.pending).
+func (w *wtx) tellPending(ctx context.Context, to []string, id IssueID, held Issue) error {
+	for _, a := range to {
+		if err := w.notify(ctx, InboxItem{To: a, Kind: InboxGatePending, Issue: id,
+			Body: fmt.Sprintf("holds %s %s: pass it with `aries gate pass %s`", held.ID, held.Title, id)}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// tellHeld tells whom gate id waits for that it now holds issue from
+// too, when id is an open gate: the work behind it grew.
+func (s *Store) tellHeld(ctx context.Context, w *wtx, id, from IssueID) error {
+	g, err := loadGate(ctx, w.tx, id)
+	if err != nil || g == nil || !g.open {
+		return err
+	}
+	held, err := loadIssue(ctx, w.tx, from)
+	if err != nil {
+		return err
+	}
+	return w.tellPending(ctx, s.waitsFor(g.Gate), id, held)
 }
 
 // PassGate passes an open human gate: it closes the gate's issue, which

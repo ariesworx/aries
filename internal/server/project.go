@@ -90,6 +90,7 @@ func ProjectOpener(db *store.DB, ctl Index, opts store.Options, tel *telemetry.T
 		o := opts
 		o.Prefix = p.Prefix
 		o.IsAdmin = func(principal string) bool { return ctl.Access(principal, p.ID).Role == store.RoleAdmin }
+		o.ListAdmins = func() []string { return ctl.ProjectAdmins(p.ID) }
 		o.Observer = StoreObserver(tel, p.ID)
 		o.Tracer = StoreTracer(tel, p.ID)
 		st, err := db.Open(ctx, p.Schema, o)

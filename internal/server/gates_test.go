@@ -156,3 +156,27 @@ func TestDatesOnTheWire(t *testing.T) {
 		t.Errorf("show after clearing = due %v, defer %v; want neither", sh.Issue.Due, sh.Issue.DeferUntil)
 	}
 }
+
+// A gate that names no approvers, in a server of many projects, tells
+// the project's admins and the server's that it waits for them, from the
+// control store's roles; a member it does not make an admin hears
+// nothing.
+func TestGateWithoutApproversTellsAdmins(t *testing.T) {
+	t.Parallel()
+	m := adminWorld(t, Limits{})
+	b := mustDialTo(t, m.Server, bob, projA)
+	is := mustAsk[proto.CreateResult](b, proto.OpCreate, proto.CreateArgs{Title: "release"})
+	g := mustAsk[proto.Gate](b, proto.OpGateAdd, proto.GateAddArgs{Blocks: is.ID})
+	pending := func(a store.Actor) bool {
+		in := mustAsk[proto.InboxResult](mustDialTo(t, m.Server, a, projA), proto.OpInbox, proto.InboxArgs{})
+		return slices.ContainsFunc(in.Items, func(it proto.InboxItem) bool { return it.Kind == "gate.pending" && it.Issue == g.ID })
+	}
+	for _, a := range []store.Actor{alice, dana} {
+		if !pending(a) {
+			t.Errorf("%s, an admin of %s, has no gate.pending item for %s, which names no approvers", a.Principal, projA, g.ID)
+		}
+	}
+	if carol := (store.Actor{Principal: "carol", Session: "s-c", Machine: "laptop-c"}); pending(carol) {
+		t.Errorf("carol, a member of %s, has a gate.pending item for %s; only admins pass it", projA, g.ID)
+	}
+}
