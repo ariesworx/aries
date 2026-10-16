@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 	"testing"
 	"time"
@@ -608,5 +609,81 @@ func TestCheckLeaksBaseline(t *testing.T) {
 	s.checkLeaks(2 * time.Second)
 	if vs := s.mon.violations(); len(vs) != 1 || !strings.Contains(vs[0].msg, "after every session closed") {
 		t.Errorf("checkLeaks with the run's own connection left open = %v, want one leak", vs)
+	}
+
+	// A connection of another world open at the baseline that closes
+	// during the run, as an earlier test's may still be closing, does
+	// not hide the run's own: its goroutines end as the leak's begin.
+	before := connGoroutines()
+	closing := dial(other.newUser("bob", ""), "closing")
+	theirs := goroutineIDs(connGoroutines())
+	for id := range goroutineIDs(before) {
+		delete(theirs, id)
+	}
+	s = newSoak(t, cfg)
+	if !hasAny(goroutineIDs(s.connBase), theirs) {
+		t.Fatal("the closing connection's goroutines are not in the baseline")
+	}
+	_ = closing.Close()
+	for deadline := time.Now().Add(5 * time.Second); hasAny(goroutineIDs(connGoroutines()), theirs); {
+		if time.Now().After(deadline) {
+			t.Fatal("the closed connection's goroutines are still running")
+		}
+		pause(t.Context(), 20*time.Millisecond)
+	}
+	dial(s.user("alice", s.a), "leaked")
+	s.checkLeaks(2 * time.Second)
+	if vs := s.mon.violations(); len(vs) != 1 || !strings.Contains(vs[0].msg, "after every session closed") {
+		t.Errorf("checkLeaks with another world's connection closed during the run and the run's own left open = %v, want one leak", vs)
+	}
+}
+
+// goroutineIDs is the ids of connGoroutines' result, whatever pattern
+// each matched.
+func goroutineIDs(byPattern map[string]map[uint64]bool) map[uint64]bool {
+	all := map[uint64]bool{}
+	for _, ids := range byPattern {
+		maps.Copy(all, ids)
+	}
+	return all
+}
+
+// hasAny reports whether ids holds any of want.
+func hasAny(ids, want map[uint64]bool) bool {
+	for id := range want {
+		if ids[id] {
+			return true
+		}
+	}
+	return false
+}
+
+// newGoroutines counts by id: a goroutine of the baseline that ended
+// does not offset one that began.
+func TestNewGoroutines(t *testing.T) {
+	t.Parallel()
+	const p = "server.(*Server).handle("
+	ids := func(id ...uint64) map[uint64]bool {
+		m := map[uint64]bool{}
+		for _, i := range id {
+			m[i] = true
+		}
+		return m
+	}
+	tests := []struct {
+		name      string
+		base, now map[string]map[uint64]bool
+		want      map[string]int
+	}{
+		{"none", nil, nil, map[string]int{}},
+		{"the same", map[string]map[uint64]bool{p: ids(1, 2)}, map[string]map[uint64]bool{p: ids(1, 2)}, map[string]int{}},
+		{"one ended", map[string]map[uint64]bool{p: ids(1, 2)}, map[string]map[uint64]bool{p: ids(2)}, map[string]int{}},
+		{"one began", map[string]map[uint64]bool{p: ids(1)}, map[string]map[uint64]bool{p: ids(1, 3)}, map[string]int{p: 1}},
+		{"one ended, one began", map[string]map[uint64]bool{p: ids(1, 2)}, map[string]map[uint64]bool{p: ids(2, 3)}, map[string]int{p: 1}},
+	}
+	for _, tc := range tests {
+		if got := newGoroutines(tc.base, tc.now); !maps.Equal(got, tc.want) {
+			t.Errorf("%s: newGoroutines = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }

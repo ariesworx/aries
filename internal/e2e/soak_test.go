@@ -285,8 +285,8 @@ type soak struct {
 	part *partition
 	// locks counts what the lock sessions did (soak_locks_test.go).
 	locks    lockStats
-	baseline int            // goroutines before any session started
-	connBase map[string]int // connGoroutines then
+	baseline int                        // goroutines before any session started
+	connBase map[string]map[uint64]bool // connGoroutines then
 	started  time.Time
 	ended    time.Duration // real length of the work
 }

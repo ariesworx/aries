@@ -10,6 +10,7 @@ import (
 	"maps"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -843,20 +844,48 @@ func (s *soak) eveOptions(session string) client.Options {
 var leakPatterns = []string{"server.(*Server).handle(", "server.(*Server).watch.func", "server.Bridge(",
 	"client.(*Conn).read(", "e2e.(*world).serveSSH("}
 
-// connGoroutines counts the running goroutines that match each of
-// leakPatterns.
-func connGoroutines() map[string]int {
+// connGoroutines returns the ids of the running goroutines that match
+// each of leakPatterns. Go never reuses a goroutine's id.
+func connGoroutines() map[string]map[uint64]bool {
 	buf := make([]byte, 16<<20)
 	buf = buf[:runtime.Stack(buf, true)]
-	counts := map[string]int{}
+	ids := map[string]map[uint64]bool{}
 	for g := range bytes.SplitSeq(buf, []byte("\n\n")) {
+		// Each begins "goroutine N [state]:".
+		f := bytes.Fields(g)
+		if len(f) < 2 {
+			continue
+		}
+		id, err := strconv.ParseUint(string(f[1]), 10, 64)
+		if err != nil {
+			continue
+		}
 		for _, p := range leakPatterns {
 			if bytes.Contains(g, []byte(p)) {
-				counts[p]++
+				if ids[p] == nil {
+					ids[p] = map[uint64]bool{}
+				}
+				ids[p][id] = true
 			}
 		}
 	}
-	return counts
+	return ids
+}
+
+// newGoroutines counts, for each pattern, the goroutines of now that
+// were not in base. Comparing ids, not counts, keeps a goroutine of
+// base that ends meanwhile, such as an earlier test's connection still
+// closing at the baseline, from hiding a new one.
+func newGoroutines(base, now map[string]map[uint64]bool) map[string]int {
+	grown := map[string]int{}
+	for p, ids := range now {
+		for id := range ids {
+			if !base[p][id] {
+				grown[p]++
+			}
+		}
+	}
+	return grown
 }
 
 // checkLeaks: once every session has closed, within wait, the daemon
@@ -866,12 +895,7 @@ func connGoroutines() map[string]int {
 func (s *soak) checkLeaks(wait time.Duration) {
 	deadline := time.Now().Add(wait)
 	for {
-		grown := map[string]int{}
-		for p, n := range connGoroutines() {
-			if d := n - s.connBase[p]; d > 0 {
-				grown[p] = d
-			}
-		}
+		grown := newGoroutines(s.connBase, connGoroutines())
 		s.w.connsMu.Lock()
 		conns := len(s.w.conns)
 		s.w.connsMu.Unlock()
