@@ -20,6 +20,23 @@ the guides in `docs/`, and [docs/design/aries.md](docs/design/aries.md)
 for the principles and architecture. The README's status line says which
 stage is in progress.
 
+<!-- aries:begin -->
+## Issue tracking: aries
+Track work with the `aries` MCP tools; never shell out to `aries` for it.
+Call `prime` when a session starts, unless its output is already in context; then `start` takes an issue and `finish` closes it with a handoff note.
+<!-- aries:end -->
+
+This repository is tracked in Aries by those who run a server for it.
+`.mcp.json`, `.claude/settings.json` and the block above are what
+`aries setup claude-code` writes, with the block here rather than in
+`CLAUDE.md`, which imports this file: `aries setup claude-code --check`
+therefore reports `CLAUDE.md`'s pointer missing, and `--write` would add
+a second. They need `aries` on `PATH` and a `.aries.yaml`, which this
+repository does not commit: each contributor keeps their own, untracked,
+at the top of their checkout, and a worktree reads the main worktree's.
+Without one, the hooks print nothing and the `aries` tools refuse,
+saying that no `.aries.yaml` was found: work without them.
+
 ## Layout
 
 | Path | Holds |

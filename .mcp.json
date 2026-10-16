@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "aries": {
+      "type": "stdio",
+      "command": "aries",
+      "args": [
+        "mcp"
+      ],
+      "env": {
+        "ARIES_HARNESS": "claude-code"
+      }
+    }
+  }
+}
