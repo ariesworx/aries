@@ -555,6 +555,15 @@ aries: alice is not a member of project "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
 aries: outbox: 2 writes queued as alice were refused with it, and kept: `aries outbox` lists them, to retry once access is back or drop
 ```
 
+One of those entries may already have been applied. A replay the server
+answered `busy` is sent again, and if that attempt reached the server but
+its answer was lost before your access ended, the server holds the write
+while your outbox lists it as refused. `aries` cannot ask once you are
+no longer let in. Retrying it is safe once your access is back: the
+write keeps its idempotency key, so a retry of one already applied gets
+its first answer within the server's `idem_window`, and is refused as
+`stale` after it, saying it was applied; a key is never applied twice.
+
 Only that refusal does this, and only when the server names you in it.
 A project that is archived is refused as not served, which the
 project's activation mends, so what you queued for it goes on waiting.
