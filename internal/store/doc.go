@@ -24,10 +24,11 @@
 // [OpenControl] returns a [Control], the store of what belongs to the
 // server rather than to one project, in a schema of its own: projects
 // ([Project]), principals ([Principal]), their public SSH keys
-// ([PrincipalKey]) and memberships with roles ([Member]). It is built on
-// a Store, so everything below about errors and concurrency holds for
-// it; its own migrations are in controlmigrations, and design
-// §15 describes it.
+// ([PrincipalKey]), memberships with roles ([Member]), and the
+// identities people sign in with and invitations to them ([Identity]).
+// It is built on a Store, so everything below about errors and
+// concurrency holds for it; its own migrations are in controlmigrations,
+// and design §15 and docs/design/identity.md §3 describe it.
 //
 // The design is docs/design/aries.md: §3 for the data model, §6 for
 // memory, §7 for claims, the registry, inboxes, handoffs, idempotency and authorization,
@@ -45,8 +46,9 @@
 // [ErrForbidden], and [*AcceptanceError], [*SecretError] and
 // [*MemoryLimitError] wrap ErrInvalid; read their fields with
 // [errors.As]. The control store adds [*AccessError], which wraps
-// ErrForbidden, [*TakenError], which wraps ErrConflict, and
-// [*ControlLimitError], which wraps ErrInvalid. [Open] refuses an unsafe database role with an
+// ErrForbidden, [*TakenError] and [*InvitedError], which wrap
+// ErrConflict, and [*ControlLimitError] and [*IdentityError], which wrap
+// ErrInvalid. [Open] refuses an unsafe database role with an
 // [*UnsafeAccountError], and a server older than Postgres 16 with a
 // [*ServerVersionError].
 //

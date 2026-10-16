@@ -863,6 +863,8 @@ func TestOpenControl(t *testing.T) {
 			"admin no name":   {Admins: []string{"Dana"}},
 			"negative limit":  {Limits: ControlLimits{Projects: -1}},
 			"negative limit2": {Limits: ControlLimits{Keys: -1}},
+			"short invites":   {InviteTTL: MinInviteTTL - time.Second},
+			"long invites":    {InviteTTL: MaxInviteTTL + time.Second},
 		} {
 			if _, err := OpenControl(t.Context(), dsn, opts); !errors.Is(err, ErrInvalid) {
 				t.Errorf("OpenControl with %s = %v, want ErrInvalid", name, err)

@@ -398,7 +398,7 @@ func TestAccessErrorMessages(t *testing.T) {
 // changing a row already there is still allowed.
 func TestControlLimits(t *testing.T) {
 	t.Parallel()
-	lim := ControlLimits{Projects: 2, Principals: 4, PrincipalsPerCreator: 9, Keys: 2, Members: 2}
+	lim := ControlLimits{Projects: 2, Principals: 4, PrincipalsPerCreator: 9, Keys: 2, Members: 2, Identities: 8, Invites: 9}
 	c := openControl(t, newDSN(t), ControlOptions{Limits: lim})
 	ctx := t.Context()
 	if got := c.Limits(); got != lim {
@@ -514,7 +514,7 @@ func TestControlPrincipalsPerCreator(t *testing.T) {
 
 func TestControlLimitsDefaults(t *testing.T) {
 	t.Parallel()
-	want := ControlLimits{Projects: 500, Principals: 5000, PrincipalsPerCreator: 500, Keys: 20, Members: 1000}
+	want := ControlLimits{Projects: 500, Principals: 5000, PrincipalsPerCreator: 500, Keys: 20, Members: 1000, Identities: 8, Invites: 1000}
 	if DefaultControlLimits != want {
 		t.Errorf("DefaultControlLimits = %+v, want %+v", DefaultControlLimits, want)
 	}
@@ -533,6 +533,8 @@ func TestControlLimitsDefaults(t *testing.T) {
 		{ControlLimits{PrincipalsPerCreator: -1}, "principals_per_creator"},
 		{ControlLimits{Keys: -1}, "keys_per_principal"},
 		{ControlLimits{Members: -1}, "members_per_project"},
+		{ControlLimits{Identities: -1}, "identities_per_principal"},
+		{ControlLimits{Invites: -1}, "invites_per_server"},
 	} {
 		if err := tc.l.Validate(); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), tc.name) {
 			t.Errorf("%+v.Validate() = %v, want ErrInvalid naming %s", tc.l, err, tc.name)

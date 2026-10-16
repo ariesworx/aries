@@ -1,6 +1,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -20,22 +21,42 @@ const (
 )
 
 // Event operations on principals. Each one's target is the principal's
-// name and its after state the principal.
+// name and its after state the principal. principal.set's after state
+// also names the fields it set, in "fields".
 const (
 	OpPrincipalAdd     Op = "principal.add"
 	OpPrincipalDisable Op = "principal.disable"
 	OpPrincipalEnable  Op = "principal.enable"
+	OpPrincipalSet     Op = "principal.set"
+)
+
+// PrincipalKind says what a principal is (docs/design/identity.md
+// §3.1).
+type PrincipalKind string
+
+// Principal kinds. A person may have identities to sign in with; a
+// service never does, and answers to an owner, a person.
+const (
+	KindPerson  PrincipalKind = "person"
+	KindService PrincipalKind = "service"
 )
 
 // Principal is one identity on the server: a person, or an agent or
 // service with keys of its own. Names are one namespace for the server.
+//
+// DisplayName is what people see beside the name. It is never in an
+// event (no JSON): the log is kept for good, and a name is personal, so
+// an event that changes it says only that it changed.
 type Principal struct {
-	Name      string         `json:"name"`
-	State     PrincipalState `json:"state"`
-	CreatedBy string         `json:"created_by"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-	Rev       Rev            `json:"rev"`
+	Name        string         `json:"name"`
+	State       PrincipalState `json:"state"`
+	Kind        PrincipalKind  `json:"kind"`
+	Owner       string         `json:"owner,omitempty"`
+	DisplayName string         `json:"-"`
+	CreatedBy   string         `json:"created_by"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	Rev         Rev            `json:"rev"`
 }
 
 // validPrincipal refuses, with ErrInvalid, a name that does not match
@@ -50,22 +71,53 @@ func validPrincipal(name string) error {
 	return nil
 }
 
-// AddPrincipal adds an active principal. With a project it also makes
-// the principal a member of it (role member), and with keys, each one
-// line as [Control.AddKey] takes it, it adds those too, all in the same
-// write: all of it happens, or none. A key given twice is added once.
+// NewPrincipal is a principal to add, with what is added with it.
+type NewPrincipal struct {
+	Name string
+	// Project, when set, is the project the principal joins as a member.
+	Project string
+	// Keys are its first public keys, each one line as [Control.AddKey]
+	// takes it.
+	Keys []string
+	// Kind is a person when empty. A service needs an Owner, who is a
+	// person; a person has none.
+	Kind  PrincipalKind
+	Owner string
+	// DisplayName is what people see beside the name; empty for none.
+	DisplayName string
+	// Invite, when set, invites an address for the principal, as
+	// [Control.Invite] does, which only a server admin may.
+	Invite *Invitation
+}
+
+// AddPrincipal adds an active person, as [Control.AddNewPrincipal] does,
+// with only a name, a project and keys.
+func (c *Control) AddPrincipal(ctx context.Context, actor Actor, name, project string, keys ...string) (Principal, error) {
+	return c.AddNewPrincipal(ctx, actor, NewPrincipal{Name: name, Project: project, Keys: keys})
+}
+
+// AddNewPrincipal adds an active principal. With a project it also makes
+// the principal a member of it (role member), with keys, each one line
+// as [Control.AddKey] takes it, it adds those too, and with an
+// invitation it invites that address for it, all in the same write: all
+// of it happens, or none. A key given twice is added once.
 //
 // A server admin may add any, in a project or in none. A project admin
-// must name a project they administer, and may not take a server
-// admin's name. A name in use is refused with a [*TakenError], which
-// tells the caller that it exists; a project that does not exist with
-// ErrNotFound; and a row past ControlLimits.Principals,
-// ControlLimits.Members or ControlLimits.Keys, or, for an actor who is
-// no server admin, past ControlLimits.PrincipalsPerCreator, with a
-// [*ControlLimitError]. Keys are refused as AddKey refuses them, and an
-// actor who names themselves with keys is refused too (decision 19): a
-// server admin the config file names may have no row yet.
-func (c *Control) AddPrincipal(ctx context.Context, actor Actor, name, project string, keys ...string) (Principal, error) {
+// must name a project they administer, may not take a server admin's
+// name, and may not invite. A name in use is refused with a
+// [*TakenError], which tells the caller that it exists; a project or an
+// owner that does not exist with ErrNotFound; and a row past
+// ControlLimits.Principals, ControlLimits.Members, ControlLimits.Keys or
+// ControlLimits.Invites, or, for an actor who is no server admin, past
+// ControlLimits.PrincipalsPerCreator, with a [*ControlLimitError]. Keys
+// are refused as AddKey refuses them and the invitation as Invite
+// refuses it, and an actor who names themselves with keys or an
+// invitation is refused too (decision 19): a server admin the config
+// file names may have no row yet. A service whose owner is no person, a
+// person with an owner, and a service with an invitation are refused
+// with an [*IdentityError].
+func (c *Control) AddNewPrincipal(ctx context.Context, actor Actor, in NewPrincipal) (Principal, error) {
+	name, project := in.Name, in.Project
 	if err := validPrincipal(name); err != nil {
 		return Principal{}, err
 	}
@@ -74,8 +126,25 @@ func (c *Control) AddPrincipal(ctx context.Context, actor Actor, name, project s
 			return Principal{}, err
 		}
 	}
-	parsed := make([]parsedKey, 0, len(keys))
-	for _, line := range keys {
+	kind := cmp.Or(in.Kind, KindPerson)
+	if err := validKind(kind); err != nil {
+		return Principal{}, err
+	}
+	if err := checkDisplayName(in.DisplayName); err != nil {
+		return Principal{}, err
+	}
+	if in.Owner != "" {
+		if err := validPrincipal(in.Owner); err != nil {
+			return Principal{}, err
+		}
+	}
+	if in.Invite != nil {
+		if err := in.Invite.validate(); err != nil {
+			return Principal{}, err
+		}
+	}
+	parsed := make([]parsedKey, 0, len(in.Keys))
+	for _, line := range in.Keys {
 		fp, key, comment, err := parseKey(line)
 		if err != nil {
 			return Principal{}, err
@@ -86,6 +155,14 @@ func (c *Control) AddPrincipal(ctx context.Context, actor Actor, name, project s
 	err := c.write(ctx, actor, func(w *cwtx) error {
 		if len(parsed) > 0 {
 			if err := w.ownKeys(OpKeyAdd, name); err != nil {
+				return err
+			}
+		}
+		if in.Invite != nil {
+			if err := w.ownIdentities(name); err != nil {
+				return err
+			}
+			if err := w.serverOnly(OpIdentityInvite, name, ""); err != nil {
 				return err
 			}
 		}
@@ -106,6 +183,9 @@ func (c *Control) AddPrincipal(ctx context.Context, actor Actor, name, project s
 		case err == nil:
 			return &TakenError{Kind: TakenPrincipal, Value: name}
 		case !errors.Is(err, ErrNotFound):
+			return err
+		}
+		if err := w.kindRules(ctx, name, kind, in.Owner, in.Invite != nil); err != nil {
 			return err
 		}
 		if project != "" {
@@ -129,9 +209,11 @@ func (c *Control) AddPrincipal(ctx context.Context, actor Actor, name, project s
 				return err
 			}
 		}
-		out = Principal{Name: name, State: PrincipalActive, CreatedBy: w.actor.Principal, CreatedAt: w.now, UpdatedAt: w.now, Rev: 1}
-		if _, err := w.exec(ctx, `INSERT INTO principals (name, state, created_by, created_at, updated_at, rev)
-  VALUES ($1, $2, $3, $4, $5, 1)`, name, string(out.State), out.CreatedBy, w.now, w.now); err != nil {
+		out = Principal{Name: name, State: PrincipalActive, Kind: kind, Owner: in.Owner, DisplayName: in.DisplayName,
+			CreatedBy: w.actor.Principal, CreatedAt: w.now, UpdatedAt: w.now, Rev: 1}
+		if _, err := w.exec(ctx, `INSERT INTO principals (name, state, kind, owner, display_name, created_by, created_at, updated_at, rev)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1)`, name, string(out.State), string(kind), nullStr(in.Owner), nullStr(in.DisplayName),
+			out.CreatedBy, w.now, w.now); err != nil {
 			return fmt.Errorf("add principal %s: %w", name, err)
 		}
 		if err := w.event(ctx, OpPrincipalAdd, name, nil, out); err != nil {
@@ -148,6 +230,11 @@ func (c *Control) AddPrincipal(ctx context.Context, actor Actor, name, project s
 		// the creator's reach.
 		for _, k := range parsed {
 			if _, err := w.addKey(ctx, name, k); err != nil {
+				return err
+			}
+		}
+		if in.Invite != nil {
+			if _, _, err := w.invite(ctx, name, *in.Invite); err != nil {
 				return err
 			}
 		}
@@ -309,11 +396,12 @@ func (c *Control) principals(ctx context.Context, where string, args ...any) ([]
 	return out, nil
 }
 
-const principalSelect = `SELECT name, state, created_by, created_at, updated_at, rev FROM principals`
+const principalSelect = `SELECT name, state, kind, COALESCE(owner, ''), COALESCE(display_name, ''), created_by, created_at, updated_at, rev
+  FROM principals`
 
 func scanPrincipal(r scanner) (Principal, error) {
 	var p Principal
-	if err := r.Scan(&p.Name, &p.State, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt, &p.Rev); err != nil {
+	if err := r.Scan(&p.Name, &p.State, &p.Kind, &p.Owner, &p.DisplayName, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt, &p.Rev); err != nil {
 		return Principal{}, err
 	}
 	p.CreatedAt, p.UpdatedAt = p.CreatedAt.UTC(), p.UpdatedAt.UTC()

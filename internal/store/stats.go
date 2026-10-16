@@ -96,22 +96,35 @@ func (ws *writeStats) snapshot(now time.Time) WriteStats {
 	return out
 }
 
-// ControlCounts is how many projects and principals a control store
-// holds, by state.
+// ControlCounts is how many projects, principals and identities a
+// control store holds, by state.
 type ControlCounts struct {
 	Projects   map[ProjectState]int
 	Principals map[PrincipalState]int
+	Identities map[IdentityState]int
 }
 
-// Counts returns how many projects and principals the store holds, by
-// state, from memory as [Control.Access] reads it. A state that nothing
-// is in has no entry.
+// Counts returns how many projects, principals and identities the store
+// holds, by state, from memory as [Control.Access] reads it: an
+// invitation is pending or lapsed by the store's clock now. A state that
+// nothing is in has no entry.
 func (c *Control) Counts() ControlCounts {
+	now := c.Now()
 	c.ix.mu.RLock()
 	defer c.ix.mu.RUnlock()
-	out := ControlCounts{Projects: map[ProjectState]int{}, Principals: map[PrincipalState]int{}}
+	out := ControlCounts{Projects: map[ProjectState]int{}, Principals: map[PrincipalState]int{}, Identities: map[IdentityState]int{}}
 	for _, p := range c.ix.projects {
 		out.Projects[p.State]++
+	}
+	for _, i := range c.ix.identities {
+		switch {
+		case i.bound:
+			out.Identities[IdentityBound]++
+		case now.Before(i.until):
+			out.Identities[IdentityPending]++
+		default:
+			out.Identities[IdentityLapsed]++
+		}
 	}
 	if n := len(c.ix.active); n > 0 {
 		out.Principals[PrincipalActive] = n

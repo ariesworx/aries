@@ -37,6 +37,10 @@ type ControlOptions struct {
 	// Limits bound the rows the store holds. Zero fields take
 	// [DefaultControlLimits].
 	Limits ControlLimits
+	// InviteTTL is how long an invitation stays open unused
+	// ([Control.Invite]), from [MinInviteTTL] to [MaxInviteTTL]. Zero
+	// takes [DefaultInviteTTL].
+	InviteTTL time.Duration
 	// Now is the server clock. Default time.Now.
 	Now func() time.Time
 	// Clock, when set, is the server clock in place of Now, as
@@ -82,7 +86,9 @@ type Control struct {
 	// pool and event log. None of its issue methods apply.
 	s   *Store
 	lim ControlLimits
-	log *slog.Logger
+	// inviteTTL is ControlOptions.InviteTTL, or its default.
+	inviteTTL time.Duration
+	log       *slog.Logger
 	// operator is ControlOptions.Operator.
 	operator bool
 
@@ -131,7 +137,7 @@ func (c *Control) KeysElsewhere(owner func(fingerprint string) (principal string
 // [*UnsafeAccountError] unless opts.AllowUnsafeAccount is set, and a
 // schema a newer binary migrated with [ErrSchemaTooNew].
 func OpenControl(ctx context.Context, dsn string, opts ControlOptions) (*Control, error) {
-	if err := opts.Limits.Validate(); err != nil {
+	if err := opts.validate(); err != nil {
 		return nil, err
 	}
 	var c *Control
@@ -153,13 +159,25 @@ func OpenControl(ctx context.Context, dsn string, opts ControlOptions) (*Control
 // the package's OpenControl does for the schema of a DSN, and refuses
 // what that refuses. The caller must Close it before db.
 func (db *DB) OpenControl(ctx context.Context, schema string, opts ControlOptions) (*Control, error) {
-	if err := opts.Limits.Validate(); err != nil {
+	if err := opts.validate(); err != nil {
 		return nil, err
 	}
 	return db.openControl(ctx, schema, opts)
 }
 
-// openControl is DB.OpenControl, with opts' limits checked.
+// validate refuses, with ErrInvalid, a negative limit and an invitation
+// lifetime out of its bounds.
+func (opts ControlOptions) validate() error {
+	if err := opts.Limits.Validate(); err != nil {
+		return err
+	}
+	if ttl := opts.InviteTTL; ttl != 0 && (ttl < MinInviteTTL || ttl > MaxInviteTTL) {
+		return fmt.Errorf("%w: invite_ttl %s must be from %s to %s", ErrInvalid, ttl, MinInviteTTL, MaxInviteTTL)
+	}
+	return nil
+}
+
+// openControl is DB.OpenControl, with opts checked.
 func (db *DB) openControl(ctx context.Context, schema string, opts ControlOptions) (*Control, error) {
 	s, err := db.open(ctx, schema, Options{
 		Admins: opts.Admins, Now: opts.Now, Clock: opts.Clock, Logger: opts.Logger, AllowUnsafeAccount: opts.AllowUnsafeAccount,
@@ -168,7 +186,8 @@ func (db *DB) openControl(ctx context.Context, schema string, opts ControlOption
 	if err != nil {
 		return nil, err
 	}
-	c := &Control{s: s, lim: opts.Limits.withDefaults(), log: s.opts.Logger, operator: opts.Operator}
+	c := &Control{s: s, lim: opts.Limits.withDefaults(), inviteTTL: cmp.Or(opts.InviteTTL, DefaultInviteTTL), log: s.opts.Logger,
+		operator: opts.Operator}
 	if err := c.load(ctx); err != nil {
 		return nil, errors.Join(err, s.Close())
 	}
@@ -203,6 +222,8 @@ func (c *Control) Events(ctx context.Context, after int64, limit int) ([]Event, 
 type cwtx struct {
 	*wtx
 	lim ControlLimits
+	// inviteTTL is how long an invitation stays open.
+	inviteTTL time.Duration
 	// admins reports whether the config file names a principal a server
 	// admin (Control.ConfigAdmin): what protects it as a target.
 	admins func(string) bool
@@ -251,7 +272,7 @@ func (c *Control) write(ctx context.Context, actor Actor, fn func(*cwtx) error) 
 				w.admin = p.State == PrincipalActive
 			}
 		}
-		cw := &cwtx{wtx: w, lim: c.lim, admins: c.ConfigAdmin, configAdmins: c.s.opts.Admins}
+		cw := &cwtx{wtx: w, lim: c.lim, inviteTTL: c.inviteTTL, admins: c.ConfigAdmin, configAdmins: c.s.opts.Admins}
 		if fn := c.elsewhere.Load(); fn != nil {
 			cw.elsewhere = *fn
 		}
@@ -311,6 +332,8 @@ type index struct {
 	// roles holds every membership, of disabled principals and of
 	// projects in every state too.
 	roles map[membership]Role
+	// identities holds every identity, for the status report's counts.
+	identities map[int64]indexedIdentity
 }
 
 // membership names one principal in one project.
@@ -478,8 +501,13 @@ func (c *Control) load(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("load index: %w", err)
 	}
+	identities, err := loadIdentities(ctx, q)
+	if err != nil {
+		return fmt.Errorf("load index: %w", err)
+	}
 	c.ix.mu.Lock()
 	c.ix.byFingerprint, c.ix.active, c.ix.disabled, c.ix.projects, c.ix.roles = keys, active, disabled, projects, roles
+	c.ix.identities = identities
 	c.ix.mu.Unlock()
 	return nil
 }
