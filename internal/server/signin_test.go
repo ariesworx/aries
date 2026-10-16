@@ -56,6 +56,13 @@ func newSignInWorld(t *testing.T, edit func(*oidctest.Issuer, *oidc.Settings, *L
 // tel.
 func newMeasuredSignInWorld(t *testing.T, edit func(*oidctest.Issuer, *oidc.Settings, *Login), tel *telemetry.Telemetry) *signInWorld {
 	t.Helper()
+	return newLimitedSignInWorld(t, Limits{}, edit, tel)
+}
+
+// newLimitedSignInWorld is newMeasuredSignInWorld with the server's
+// limits lim.
+func newLimitedSignInWorld(t *testing.T, lim Limits, edit func(*oidctest.Issuer, *oidc.Settings, *Login), tel *telemetry.Telemetry) *signInWorld {
+	t.Helper()
 	iss := oidctest.New(t)
 	// The world's time is not the wall clock's (rule 19): what it dates
 	// by the wall clock is refused on every run, not only on a slow one.
@@ -77,7 +84,7 @@ func newMeasuredSignInWorld(t *testing.T, edit func(*oidctest.Issuer, *oidc.Sett
 	}
 	login.Providers = []*oidc.Provider{p}
 	w := &signInWorld{iss: iss, clk: clk}
-	w.multi = newMultiWith(t, Limits{}, clk, nil, func(cfg *Config) {
+	w.multi = newMultiWith(t, lim, clk, nil, func(cfg *Config) {
 		w.url, w.pool = listenHTTPS(t, cfg, nil)
 		cfg.Login = &login
 		cfg.Telemetry = tel

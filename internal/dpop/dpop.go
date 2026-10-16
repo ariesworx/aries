@@ -145,15 +145,86 @@ func Proof(key *ecdsa.PrivateKey, method, htu, token string, at time.Time) (stri
 	return jose.Sign(key, jose.Header{Typ: typ, JWK: &j}, claims{JTI: rand.Text(), HTM: method, HTU: htu, IAT: at.Unix(), ATH: ath(token)})
 }
 
-// Verifier checks proofs, and remembers each one's jti for Window so
-// that a proof is used once. It holds at most a bounded number; past
-// that a proof is refused, busy, until the oldest age out. It is safe
-// for concurrent use.
+// Verified is a proof that passed Check: the thumbprint of the key that
+// signed it, which the caller compares with the token's, and its jti,
+// for Spend.
+type Verified struct {
+	JKT string
+	jti string
+}
+
+// Check checks proof for a request of method to one of htus (each a URL
+// without query: the server's own URLs and the path, never the request's
+// Host), presenting token, at the server's time now. A refusal is an
+// *Error. Check remembers nothing: anyone may sign a proof with a key of
+// their own, so a proof is remembered (Verifier.Spend) only once the
+// request it came with has shown it is owed a token or holds one.
+func Check(proof, method string, htus []string, token string, now time.Time) (Verified, error) {
+	switch {
+	case proof == "":
+		return Verified{}, refuse(ReasonMissing, "none was sent")
+	case len(proof) > MaxProof:
+		return Verified{}, refuse(ReasonMalformed, "over %d bytes", MaxProof)
+	}
+	j, err := jose.Parse(proof)
+	if err != nil {
+		return Verified{}, refuse(ReasonMalformed, "%v", err)
+	}
+	h := j.Header
+	if h.Typ != typ || h.Alg != jose.AlgES256 || h.JWK == nil || h.JWK.Kty != "EC" {
+		return Verified{}, refuse(ReasonMalformed, "typ, alg or key not accepted: dpop+jwt, ES256 and a P-256 key")
+	}
+	pub, err := h.JWK.PublicKey()
+	if err != nil {
+		return Verified{}, refuse(ReasonMalformed, "its key: %v", err)
+	}
+	if err := j.Verify(pub); err != nil {
+		return Verified{}, refuse(ReasonSignature, "%v", err)
+	}
+	var c claims
+	if err := json.Unmarshal(j.Payload, &c); err != nil {
+		return Verified{}, refuse(ReasonMalformed, "claims: %v", err)
+	}
+	if c.JTI == "" || len(c.JTI) > maxJTI {
+		return Verified{}, refuse(ReasonMalformed, "jti missing or over %d bytes", maxJTI)
+	}
+	if c.HTM != method {
+		return Verified{}, refuse(ReasonRequest, "for %q, not %s", c.HTM, method)
+	}
+	if u, ok := normalize(c.HTU); !ok || !slices.Contains(htus, u) {
+		return Verified{}, refuse(ReasonRequest, "for another URL than this server's %s", strings.Join(htus, " or "))
+	}
+	if c.ATH != ath(token) {
+		return Verified{}, refuse(ReasonToken, "not made for the token it comes with")
+	}
+	iat := time.Unix(c.IAT, 0)
+	if iat.Before(now.Add(-Skew)) || iat.After(now.Add(Skew)) {
+		return Verified{}, refuse(ReasonTime, "made at %s, more than %s from the server's time %s; check this machine's clock",
+			iat.UTC().Format(time.RFC3339), Skew, now.UTC().Format(time.RFC3339))
+	}
+	return Verified{JKT: h.JWK.Thumbprint(), jti: c.JTI}, nil
+}
+
+// Verifier remembers each proof spent for Window, so that a proof is
+// used once. It holds at most a bounded number; past that a proof is
+// refused, busy, until the oldest age out. It is safe for concurrent
+// use.
 type Verifier struct {
 	max int
 
 	mu   sync.Mutex
 	seen map[string]time.Time // jti → when it may be forgotten
+	// order is the proofs remembered in the order they were spent, which
+	// is the order they may be forgotten in while now does not go
+	// backward (the store's time does not, rule 19); so forgetting is
+	// from the front, and costs nothing for a proof still remembered.
+	order []spent
+}
+
+// spent is one proof remembered.
+type spent struct {
+	jti   string
+	until time.Time
 }
 
 // NewVerifier returns a Verifier that remembers at most most proofs.
@@ -168,78 +239,36 @@ func (v *Verifier) Len() int {
 	return len(v.seen)
 }
 
-// Verify checks proof for a request of method to one of htus (each a URL
-// without query: the server's own URLs and the path, never the request's
-// Host), presenting token, at the server's time now, and returns the
-// thumbprint of the key that signed it, which the caller compares with
-// the token's. A refusal is an *Error. Only a proof that passes every
-// other check is remembered.
-func (v *Verifier) Verify(proof, method string, htus []string, token string, now time.Time) (string, error) {
-	switch {
-	case proof == "":
-		return "", refuse(ReasonMissing, "none was sent")
-	case len(proof) > MaxProof:
-		return "", refuse(ReasonMalformed, "over %d bytes", MaxProof)
-	}
-	j, err := jose.Parse(proof)
+// Verify is Check, for a token bound to the key whose thumbprint is
+// jkt, and Spend: a proof by another key is refused (ReasonKey) before
+// it is remembered, so that a token without its key fills nothing.
+func (v *Verifier) Verify(proof, method string, htus []string, token, jkt string, now time.Time) error {
+	p, err := Check(proof, method, htus, token, now)
 	if err != nil {
-		return "", refuse(ReasonMalformed, "%v", err)
+		return err
 	}
-	h := j.Header
-	if h.Typ != typ || h.Alg != jose.AlgES256 || h.JWK == nil || h.JWK.Kty != "EC" {
-		return "", refuse(ReasonMalformed, "typ, alg or key not accepted: dpop+jwt, ES256 and a P-256 key")
+	if p.JKT != jkt {
+		return refuse(ReasonKey, "signed by another key than the token is bound to")
 	}
-	pub, err := h.JWK.PublicKey()
-	if err != nil {
-		return "", refuse(ReasonMalformed, "its key: %v", err)
-	}
-	if err := j.Verify(pub); err != nil {
-		return "", refuse(ReasonSignature, "%v", err)
-	}
-	var c claims
-	if err := json.Unmarshal(j.Payload, &c); err != nil {
-		return "", refuse(ReasonMalformed, "claims: %v", err)
-	}
-	if c.JTI == "" || len(c.JTI) > maxJTI {
-		return "", refuse(ReasonMalformed, "jti missing or over %d bytes", maxJTI)
-	}
-	if c.HTM != method {
-		return "", refuse(ReasonRequest, "for %q, not %s", c.HTM, method)
-	}
-	if u, ok := normalize(c.HTU); !ok || !slices.Contains(htus, u) {
-		return "", refuse(ReasonRequest, "for another URL than this server's %s", strings.Join(htus, " or "))
-	}
-	if c.ATH != ath(token) {
-		return "", refuse(ReasonToken, "not made for the token it comes with")
-	}
-	iat := time.Unix(c.IAT, 0)
-	if iat.Before(now.Add(-Skew)) || iat.After(now.Add(Skew)) {
-		return "", refuse(ReasonTime, "made at %s, more than %s from the server's time %s; check this machine's clock",
-			iat.UTC().Format(time.RFC3339), Skew, now.UTC().Format(time.RFC3339))
-	}
-	if err := v.spend(c.JTI, now); err != nil {
-		return "", err
-	}
-	return h.JWK.Thumbprint(), nil
+	return v.Spend(p, now)
 }
 
-func (v *Verifier) spend(jti string, now time.Time) error {
+// Spend remembers p, which Check passed, for Window from now: a proof
+// remembered already is refused (ReasonReplayed), and one past the
+// bound (ReasonBusy).
+func (v *Verifier) Spend(p Verified, now time.Time) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if until, ok := v.seen[jti]; ok && now.Before(until) {
+	v.forget(now)
+	if until, ok := v.seen[p.jti]; ok && now.Before(until) {
 		return refuse(ReasonReplayed, "used already")
 	}
-	if len(v.seen) >= v.max {
-		for k, until := range v.seen {
-			if !now.Before(until) {
-				delete(v.seen, k)
-			}
-		}
-		if len(v.seen) >= v.max {
-			return refuse(ReasonBusy, "the server holds %d proofs from the last %s, the most it may", v.max, Window)
-		}
+	if len(v.order) >= v.max {
+		return refuse(ReasonBusy, "the server holds %d proofs from the last %s, the most it may", v.max, Window)
 	}
-	v.seen[jti] = now.Add(Window)
+	until := now.Add(Window)
+	v.seen[p.jti] = until
+	v.order = append(v.order, spent{jti: p.jti, until: until})
 	return nil
 }
 
@@ -247,11 +276,23 @@ func (v *Verifier) spend(jti string, now time.Time) error {
 func (v *Verifier) Prune(now time.Time) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	for k, until := range v.seen {
-		if !now.Before(until) {
-			delete(v.seen, k)
+	v.forget(now)
+}
+
+// forget drops the proofs at the front of order whose window has passed
+// at now; v.mu is held.
+func (v *Verifier) forget(now time.Time) {
+	i := 0
+	for ; i < len(v.order) && !now.Before(v.order[i].until); i++ {
+		// Were now ever to go backward, a jti forgotten could be spent
+		// again before its first entry reached the front; that entry
+		// must not forget the second.
+		if e := v.order[i]; v.seen[e.jti].Equal(e.until) {
+			delete(v.seen, e.jti)
 		}
 	}
+	clear(v.order[:i]) // let go of the jtis before append reuses the array
+	v.order = v.order[i:]
 }
 
 // normalize is htu as the server's URLs are written: https, the host in
