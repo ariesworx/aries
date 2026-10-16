@@ -82,6 +82,23 @@ const (
 	// DBPoolWaits counts the times a request waited for a connection of
 	// the pool because every one was in use; it is watched.
 	DBPoolWaits
+	// HTTPSConnections is how many TCP connections the HTTPS listener
+	// holds: in their TLS handshake, plain requests and WebSockets.
+	HTTPSConnections
+	// HTTPSConnectionsRefused counts connections the HTTPS listener
+	// closed unanswered: reason.
+	HTTPSConnectionsRefused
+	// HTTPSUpgrades counts requests to upgrade to a WebSocket: result,
+	// reason.
+	HTTPSUpgrades
+	// HTTPSKeyProofs counts key proofs on a WebSocket: result.
+	HTTPSKeyProofs
+	// HTTPSTLSFailures counts connections to the HTTPS listener closed
+	// before their TLS handshake completed.
+	HTTPSTLSFailures
+	// HTTPSCertReloads counts reads of the TLS certificate's files after
+	// they changed: result.
+	HTTPSCertReloads
 
 	numInstruments
 )
@@ -183,6 +200,29 @@ const (
 	SignalMetrics = "metrics"
 	SignalTraces  = "traces"
 	SignalLogs    = "logs"
+
+	// Why the HTTPS listener closed a connection unanswered: from an
+	// address it does not trust behind a proxy, or past one of its
+	// limits, which LimitRefusals names.
+	ListenerUntrusted = "untrusted"
+	ListenerLimit     = "limit"
+
+	// How an upgrade to a WebSocket ended: ResultOK with ReasonNone, or
+	// UpgradeRefused with why: a browser's Origin, an address past its
+	// refused key proofs, or a request that is no WebSocket upgrade.
+	UpgradeRefused      = "refused"
+	UpgradeOrigin       = "origin"
+	UpgradeAuthFailures = "auth_failures"
+	UpgradeBadRequest   = "bad_request"
+
+	// How a key proof was refused: no key proof at all, one for another
+	// server's URL, no key the server knows, and a signature that does
+	// not verify. A proof the client left, or did not finish within
+	// upgrade_timeout, is ResultFailed.
+	ProofInvalid    = "invalid"
+	ProofURL        = "url"
+	ProofUnknownKey = "unknown_key"
+	ProofBadProof   = "bad_proof"
 )
 
 // The limits a refusal is counted under, by the name of the setting in
@@ -213,6 +253,9 @@ const (
 	LimitLocks             = "locks_per_project"
 	LimitLockWaiters       = "waiters_per_lock"
 	LimitLockWaits         = "lock_waits_per_principal"
+	LimitHTTPSConns        = "https_conns_per_server"
+	LimitHTTPSConnsPerAddr = "https_conns_per_addr"
+	LimitAuthFailures      = "auth_failures_per_minute"
 )
 
 // Buckets are the upper bounds, in seconds, of every histogram's
@@ -229,7 +272,8 @@ var results = []string{ResultOK, ResultFailed,
 // limits are the values of KeyLimit.
 var limits = []string{LimitConns, LimitConnsPerPrincipal, LimitHandshakes, LimitSockets, LimitWriteRate, LimitControlWriteRate,
 	LimitOpenStores, LimitTelemetryRequests, LimitProjects, LimitPrincipals, LimitKeys, LimitMembers, LimitIdentities, LimitInvites,
-	LimitPrices, LimitPlans, LimitHoursPerDay, LimitUsagePerDay, LimitLocks, LimitLockWaiters, LimitLockWaits}
+	LimitPrices, LimitPlans, LimitHoursPerDay, LimitUsagePerDay, LimitLocks, LimitLockWaiters, LimitLockWaits,
+	LimitHTTPSConns, LimitHTTPSConnsPerAddr, LimitAuthFailures}
 
 // attr is one attribute of an instrument: its key and the values it may
 // take. A value not among them is recorded as fallback. The values of
@@ -257,6 +301,10 @@ var (
 	attrWrote    = attr{key: KeyResult, values: []string{ResultOK, ResultFailed}, fallback: Other}
 	attrSignal   = attr{key: KeySignal, values: []string{SignalMetrics, SignalTraces, SignalLogs}, fallback: Other}
 	attrStep     = attr{key: KeyDirection, values: []string{StepForward, StepBackward}, fallback: Other}
+	attrListener = attr{key: KeyReason, values: []string{ListenerUntrusted, ListenerLimit}, fallback: Other}
+	attrUpgraded = attr{key: KeyResult, values: []string{ResultOK, UpgradeRefused}, fallback: Other}
+	attrUpgrade  = attr{key: KeyReason, values: []string{ReasonNone, UpgradeOrigin, UpgradeAuthFailures, UpgradeBadRequest}, fallback: Other}
+	attrProof    = attr{key: KeyResult, values: []string{ResultOK, ResultFailed, ProofInvalid, ProofURL, ProofUnknownKey, ProofBadProof}, fallback: Other}
 )
 
 // spec declares one instrument.
@@ -297,6 +345,13 @@ var specs = [numInstruments]spec{
 	DBPoolConns:        {name: "aries.db.pool.conns", kind: Gauge, watched: true, desc: "Connections to Postgres the daemon's pool holds."},
 	DBPoolInUse:        {name: "aries.db.pool.in_use", kind: Gauge, watched: true, desc: "Connections of the pool a request is using."},
 	DBPoolWaits:        {name: "aries.db.pool.waits", kind: Counter, watched: true, desc: "Times a request waited for a connection of the pool, every one being in use."},
+
+	HTTPSConnections:        {name: "aries.https.connections", kind: UpDownCounter, desc: "TCP connections the HTTPS listener holds."},
+	HTTPSConnectionsRefused: {name: "aries.https.connections.refused", kind: Counter, attrs: []attr{attrListener}, desc: "Connections the HTTPS listener closed unanswered."},
+	HTTPSUpgrades:           {name: "aries.https.upgrades", kind: Counter, attrs: []attr{attrUpgraded, attrUpgrade}, desc: "Requests to upgrade to a WebSocket, by how they ended."},
+	HTTPSKeyProofs:          {name: "aries.https.key_proofs", kind: Counter, attrs: []attr{attrProof}, desc: "Key proofs on a WebSocket, by how they ended."},
+	HTTPSTLSFailures:        {name: "aries.https.tls_handshakes.failed", kind: Counter, desc: "Connections to the HTTPS listener closed before their TLS handshake completed."},
+	HTTPSCertReloads:        {name: "aries.https.cert.reloads", kind: Counter, attrs: []attr{attrWrote}, desc: "Reads of the TLS certificate's files after they changed."},
 }
 
 // Description is one instrument as the documentation and the tests list

@@ -3162,6 +3162,12 @@ seconds and `_total` to a counter, and gives a histogram `_bucket`,
 | `aries.db.pool.conns` | `aries_db_pool_conns` | gauge | none |
 | `aries.db.pool.in_use` | `aries_db_pool_in_use` | gauge | none |
 | `aries.db.pool.waits` | `aries_db_pool_waits_total` | counter | none |
+| `aries.https.connections` | `aries_https_connections` | up-down counter (a gauge on `/metrics`) | none |
+| `aries.https.connections.refused` | `aries_https_connections_refused_total` | counter | `reason` |
+| `aries.https.upgrades` | `aries_https_upgrades_total` | counter | `result`, `reason` |
+| `aries.https.key_proofs` | `aries_https_key_proofs_total` | counter | `result` |
+| `aries.https.tls_handshakes.failed` | `aries_https_tls_handshakes_failed_total` | counter | none |
+| `aries.https.cert.reloads` | `aries_https_cert_reloads_total` | counter | `result` |
 
 What each counts:
 
@@ -3190,6 +3196,12 @@ What each counts:
 | `telemetry.dropped` | For `signal="metrics"`, each OTLP export that failed; nothing is lost for good, since totals are cumulative and the next export carries them. For `signal="traces"`, each span that was lost: one the full queue had no room for, or one of an export that failed. For `signal="logs"`, each log record that was not exported, the same way; the journal still has its line ([When the collector is down](#when-the-collector-is-down)) |
 | `db.pool.conns`, `db.pool.in_use` | The connections to Postgres ariesd's one pool holds, which every project's store shares, and those a request is using now; at most `db_conns_per_server`. The connection that holds the writers' locks is not counted |
 | `db.pool.waits` | Each time a request waited for a connection of the pool because every one was in use. A rate that stays above zero is a pool too small for the load: raise `db_conns_per_server`, and Postgres's `max_connections` with it |
+| `https.connections` | With HTTPS on: the TCP connections the [HTTPS listener](#the-https-listener) holds, at most `https_conns_per_server`: those in their TLS handshake, plain requests and WebSockets. A WebSocket past its hello is also one of `connections` |
+| `https.connections.refused` | Each connection the listener closed unanswered: `untrusted`, from an address `trusted` does not name behind a proxy; `limit`, past `https_conns_per_server` or `https_conns_per_addr`, which `limit.refusals` names |
+| `https.upgrades` | Each request to `/v1/connect`: upgraded to a WebSocket, or refused before, and why. An address past `auth_failures_per_minute` is also counted in `limit.refusals` |
+| `https.key_proofs` | Each WebSocket's [key proof](#the-https-listener): accepted, refused and why, or `failed` when the client left, or did not finish within `upgrade_timeout`. A refused proof is counted before the refusal is written. What follows an accepted one is a handshake, counted in `handshakes` |
+| `https.tls_handshakes.failed` | With TLS at ariesd: each connection closed before its TLS handshake completed, whatever the cause: a client that does not trust the certificate, a scanner, plain HTTP sent to the port, a load balancer's TCP check. A steady rate is the internet's noise; a jump with complaints from clients is a certificate they do not trust |
+| `https.cert.reloads` | With `tls: mode: files`: each time the certificate's files changed and were read again, or could not be, once for each change. ACME's renewals are not counted |
 
 Every attribute's values come from a fixed list in the code, so the
 number of series cannot grow with what clients send:
@@ -3197,11 +3209,15 @@ number of series cannot grow with what clients send:
 | Attribute | Values |
 |---|---|
 | `op` | An operation of the protocol, such as `create`, `start` or `member.set`; `unknown` for any other |
-| `result` | `ok`, or the refusal's code: `not_found`, `conflict`, `exists`, `cycle`, `invalid`, `acceptance`, `forbidden`, `unavailable`, `version`, `auth`, `busy`, `stale`. For a handshake also `failed`: it ended without a refusal to name, as when a frame could not be read. For the keys file: `ok` or `failed` |
+| `result` | `ok`, or the refusal's code: `not_found`, `conflict`, `exists`, `cycle`, `invalid`, `acceptance`, `forbidden`, `unavailable`, `version`, `auth`, `busy`, `stale`. For a handshake also `failed`: it ended without a refusal to name, as when a frame could not be read. For the keys file and the certificate's reloads: `ok` or `failed` |
+| `result` of an upgrade | `ok`, or `refused` |
+| `reason` of an upgrade | `none` for one upgraded; for one refused, `origin` (a browser's page, 403), `auth_failures` (the address past `auth_failures_per_minute`, 429) or `bad_request` (not a WebSocket upgrade, 400, or one that could not be completed) |
+| `result` of a key proof | `ok`; `invalid` (no key offer, or a malformed proof), `url` (a proof for a URL `public_urls` does not name), `unknown_key` (no key offered is known), `bad_proof` (the signature does not verify); `failed` (the client left, or said nothing within `upgrade_timeout`) |
+| `reason` of a connection the HTTPS listener refused | `untrusted`, `limit` |
 | `result_class` | `ok`; `error` for `unavailable`, which is the server's failure; `refused` for every other refusal, which is the request's |
 | `project` | The project's UUID, only for a project a connection was admitted to. At most as many as the `projects_per_server` limit, and `other` past that |
 | `reason` of a dropped connection | `membership`, `disabled`, `archived`, `key` (the access that let it in ended), `idle` (`idle_timeout`), `limit` (a socket past twice `conns_per_server`), `access` (the access ended while the handshake ran) |
-| `limit` | `conns_per_server`, `conns_per_principal`, `handshakes_per_principal`, `handshake_sockets` (twice `conns_per_server`), `writes_per_second`, `control_writes_per_second`, `open_stores_per_server`, `telemetry.max_requests`, `projects_per_server`, `principals_per_server`, `keys_per_principal`, `members_per_project`, `identities_per_principal`, `invites_per_server`, `prices_per_project`, `plans_per_project`, `hours_per_day`, `usage_per_day`, `locks_per_project`, `waiters_per_lock`, `lock_waits_per_principal` |
+| `limit` | `conns_per_server`, `conns_per_principal`, `handshakes_per_principal`, `handshake_sockets` (twice `conns_per_server`), `writes_per_second`, `control_writes_per_second`, `open_stores_per_server`, `telemetry.max_requests`, `projects_per_server`, `principals_per_server`, `keys_per_principal`, `members_per_project`, `identities_per_principal`, `invites_per_server`, `prices_per_project`, `plans_per_project`, `hours_per_day`, `usage_per_day`, `locks_per_project`, `waiters_per_lock`, `lock_waits_per_principal`; with HTTPS on, `https_conns_per_server`, `https_conns_per_addr`, `auth_failures_per_minute` |
 | `migrated` | `true` when opening the store applied a migration |
 | `event` of a claim | `take`, `renew`, `release`, `expire` |
 | `event` of a lock | `acquire`, `wait`, `grant`, `renew`, `release`, `expire`, `leave` |
@@ -3212,7 +3228,8 @@ number of series cannot grow with what clients send:
 | `direction` | `forward`, `backward` |
 
 - **Nothing a client chooses is an attribute:** no principal, session,
-  machine or issue id, and no project the server does not serve.
+  machine or issue id, no project the server does not serve, and over
+  HTTPS no address, URL, header or key.
 - **`project` is never beside `op`.** One instrument has the operation
   and its result; separate, coarser ones have the project.
 - **`telemetry: per_project: false`** removes `project` from every
@@ -3576,10 +3593,11 @@ against your server's own history.
 | `AriesdDown` | ariesd's endpoint has not answered a scrape for 2 minutes |
 | `AriesReaperStalled` | The reaper has not finished a tick for 2 minutes: expired claims are not ended, and systemd's watchdog is about to restart ariesd |
 | `AriesKeysFileWriteFailing` | A write of the keys file failed: sshd reads an older list of keys ([Keys from the store](#keys-from-the-store)) |
+| `AriesTLSCertReloadFailing` | The HTTPS listener's certificate files changed and could not be read: it keeps serving the certificate it had, which still ends on its date ([The HTTPS listener](#the-https-listener)) |
 | `AriesClockBehind`, `AriesClockStepped` | The clock is behind Aries's own history, or was set ([The server's clock](#the-servers-clock)) |
 | `AriesProjectUnavailable`, `AriesRequestsFailing` | Handshakes or requests are answered `unavailable`: the server's failure, most often a database that cannot be reached |
 | `AriesWriteLatencyHigh`, `AriesWritesQueueing` | One write in a hundred takes over a second; more than one in five is retried |
-| `AriesWritesRateLimited`, `AriesConnectionCapReached`, `AriesStoreCapReached` | Requests are refused at `writes_per_second`, at a connection limit, or at `open_stores_per_server` ([Limits](#limits)) |
+| `AriesWritesRateLimited`, `AriesConnectionCapReached`, `AriesStoreCapReached` | Requests are refused at `writes_per_second`, at a connection limit (`https_conns_per_server` among them), or at `open_stores_per_server` ([Limits](#limits)) |
 | `AriesTelemetryMetricsExportFailing`, `AriesTelemetrySpansDropped`, `AriesTelemetryLogRecordsDropped` | ariesd counts failed pushes of metrics, spans it lost, or log records it lost from the export, whose lines the journal still has ([When the collector is down](#when-the-collector-is-down)) |
 | `AriesDatabasePoolExhausted` | Requests waited for a connection of ariesd's pool, every one in use, for 10 minutes: raise `db_conns_per_server`, with Postgres's `max_connections` above it ([Sizing Postgres](#sizing-postgres)) |
 
@@ -3591,9 +3609,10 @@ against your server's own history.
   and replication are its own exporter's, and in `aries admin status`.
 - **No rule matches a log line's `event`.** These are rules over
   metrics, and nothing in the examples turns a log record into one.
-  Match [`event`](#events) where your logs are read. Three of the events
+  Match [`event`](#events) where your logs are read. Four of the events
   worth an alert have a rule here from the metric that counts the same
-  thing: `keys_file.write_failed`, `project.open_failed` at a handshake
+  thing: `keys_file.write_failed`, `tls.cert_reload_failed`
+  (`AriesTLSCertReloadFailing`), `project.open_failed` at a handshake
   (`AriesProjectUnavailable`) and `telemetry.export_failed`.
 - **No metric gives the wait for a project's writer alone.** A write's
   latency includes it, and a trace shows it, in each attempt's

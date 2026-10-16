@@ -16,6 +16,7 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 
 	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/telemetry"
 )
 
 // ListenerTLS is the HTTPS listener's TLS as the settings make it: the
@@ -34,8 +35,8 @@ type ListenerTLS struct {
 // TLS 1.2 at least, or 1.3, with Go's own cipher suites. It refuses
 // files that cannot be served, a key file others may read, and an ACME
 // cache others may read, each with its fix; log is told when files are
-// read again, or cannot be.
-func (h HTTPSSettings) TLSConfig(log *slog.Logger) (ListenerTLS, error) {
+// read again, or cannot be, and tel counts it.
+func (h HTTPSSettings) TLSConfig(log *slog.Logger, tel *telemetry.Telemetry) (ListenerTLS, error) {
 	minVersion := uint16(tls.VersionTLS12)
 	if h.TLS.MinVersion == "1.3" {
 		minVersion = tls.VersionTLS13
@@ -43,7 +44,7 @@ func (h HTTPSSettings) TLSConfig(log *slog.Logger) (ListenerTLS, error) {
 	none := func() time.Time { return time.Time{} }
 	switch h.TLS.Mode {
 	case TLSModeFiles:
-		cf := &certFiles{cert: h.TLS.Files.Cert, key: h.TLS.Files.Key, log: log}
+		cf := &certFiles{cert: h.TLS.Files.Cert, key: h.TLS.Files.Key, log: log, tel: tel}
 		if err := cf.load(); err != nil {
 			return ListenerTLS{}, err
 		}
@@ -95,6 +96,7 @@ func privateDir(dir string) error {
 type certFiles struct {
 	cert, key string
 	log       *slog.Logger
+	tel       *telemetry.Telemetry
 
 	mu       sync.Mutex
 	cur      *tls.Certificate
@@ -176,10 +178,12 @@ func (c *certFiles) get(*tls.ClientHelloInfo) (*tls.Certificate, error) {
 	cert, end, err := c.readPair()
 	if err != nil {
 		c.failed = st
+		c.tel.Count(telemetry.HTTPSCertReloads, telemetry.ResultFailed)
 		c.log.Error("the TLS certificate's files changed and could not be read; the listener keeps the certificate it had", "event", logs.TLSCertReloadFailed, "err", err)
 		return c.cur, nil
 	}
 	c.cur, c.notAfter, c.read, c.failed = cert, end, st, filesState{}
+	c.tel.Count(telemetry.HTTPSCertReloads, telemetry.ResultOK)
 	c.log.Info("the TLS certificate's files changed and were read again", "event", logs.TLSCertReloaded, "path", c.cert)
 	return c.cur, nil
 }

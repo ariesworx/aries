@@ -71,7 +71,8 @@ func TestTLSFiles(t *testing.T) {
 	end := time.Now().Add(48 * time.Hour).Truncate(time.Second)
 	cert, key := writeCert(t, dir, "aries.example.com", end)
 	log := &syncBuffer{}
-	cfg, err := HTTPSSettings{TLS: TLSSettings{Mode: TLSModeFiles, MinVersion: "1.2", Files: TLSFiles{Cert: cert, Key: key}}}.TLSConfig(slogTo(log))
+	tel, m := measured(t, false)
+	cfg, err := HTTPSSettings{TLS: TLSSettings{Mode: TLSModeFiles, MinVersion: "1.2", Files: TLSFiles{Cert: cert, Key: key}}}.TLSConfig(slogTo(log), tel)
 	if err != nil {
 		t.Fatalf("TLSConfig(files) = %v", err)
 	}
@@ -104,6 +105,13 @@ func TestTLSFiles(t *testing.T) {
 		certServed(t, cfg.TLS, "renewed.example.com")
 		t.Errorf("a bad key logged %d times; want once, until the files change again", n)
 	}
+	// Each change of the files is counted once, however many handshakes
+	// see it.
+	certServed(t, cfg.TLS, "renewed.example.com")
+	check(t, snapshot(t, m), []want{
+		{"aries.https.cert.reloads", []string{"result", "ok"}, 1},
+		{"aries.https.cert.reloads", []string{"result", "failed"}, 1},
+	})
 }
 
 // Files that cannot be served, and a key others may read, are refused
@@ -129,7 +137,7 @@ func TestTLSFilesRefused(t *testing.T) {
 		{"a key others may read", cert, open, "chmod 600"},
 		{"a key that is not the certificate's", cert, cert, "fix:"},
 	} {
-		_, err := HTTPSSettings{TLS: TLSSettings{Mode: TLSModeFiles, Files: TLSFiles{Cert: tc.cert, Key: tc.key}}}.TLSConfig(slogTo(&syncBuffer{}))
+		_, err := HTTPSSettings{TLS: TLSSettings{Mode: TLSModeFiles, Files: TLSFiles{Cert: tc.cert, Key: tc.key}}}.TLSConfig(slogTo(&syncBuffer{}), nil)
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("TLSConfig with %s = %v, want an error naming %q", tc.name, err, tc.want)
 		}
@@ -143,7 +151,7 @@ func TestTLSACME(t *testing.T) {
 	t.Parallel()
 	cache := filepath.Join(t.TempDir(), "acme")
 	h := HTTPSSettings{TLS: TLSSettings{Mode: TLSModeACME, MinVersion: "1.3", ACME: ACMESettings{Domains: []string{"aries.example.com"}, Cache: cache}}}
-	cfg, err := h.TLSConfig(slogTo(&syncBuffer{}))
+	cfg, err := h.TLSConfig(slogTo(&syncBuffer{}), nil)
 	if err != nil {
 		t.Fatalf("TLSConfig(acme) = %v", err)
 	}
@@ -159,7 +167,7 @@ func TestTLSACME(t *testing.T) {
 	if err := os.Chmod(cache, 0o755); err != nil { //nolint:gosec // the mode under test
 		t.Fatal(err)
 	}
-	if _, err := h.TLSConfig(slogTo(&syncBuffer{})); err == nil || !strings.Contains(err.Error(), "chmod 700") {
+	if _, err := h.TLSConfig(slogTo(&syncBuffer{}), nil); err == nil || !strings.Contains(err.Error(), "chmod 700") {
 		t.Errorf("TLSConfig(acme) with a cache others may read = %v, want a refusal naming chmod 700", err)
 	}
 }
@@ -167,7 +175,7 @@ func TestTLSACME(t *testing.T) {
 // Behind a proxy the listener has no TLS of its own.
 func TestTLSProxy(t *testing.T) {
 	t.Parallel()
-	cfg, err := HTTPSSettings{TLS: TLSSettings{Mode: TLSModeProxy, Proxy: ProxySettings{Trusted: []string{"127.0.0.1"}}}}.TLSConfig(slogTo(&syncBuffer{}))
+	cfg, err := HTTPSSettings{TLS: TLSSettings{Mode: TLSModeProxy, Proxy: ProxySettings{Trusted: []string{"127.0.0.1"}}}}.TLSConfig(slogTo(&syncBuffer{}), nil)
 	if err != nil || cfg.TLS != nil || cfg.Mode != TLSModeProxy {
 		t.Errorf("TLSConfig(proxy) = %+v, %v; want no TLS", cfg, err)
 	}

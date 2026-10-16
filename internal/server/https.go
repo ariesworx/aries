@@ -24,6 +24,7 @@ import (
 	"github.com/ariesworx/aries/internal/logs"
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/store"
+	"github.com/ariesworx/aries/internal/telemetry"
 	"github.com/ariesworx/aries/internal/wsconn"
 )
 
@@ -142,7 +143,7 @@ func (s *Server) serveHTTPS(ctx context.Context) error {
 	h := s.cfg.HTTPS
 	lim := s.cfg.Limits
 	w := &web{s: s, h: h, ctx: ctx, conns: map[*wsconn.Conn]struct{}{}}
-	l := &limitedListener{Listener: h.Listener, total: lim.HTTPSConns, perAddr: lim.HTTPSConnsPerAddr, trusted: h.Trusted,
+	l := &limitedListener{Listener: h.Listener, total: lim.HTTPSConns, perAddr: lim.HTTPSConnsPerAddr, trusted: h.Trusted, tel: s.cfg.Telemetry,
 		refused: func(addr netip.Addr, reason string) { w.refused(ctx, addr, reason) }}
 	srv := &http.Server{
 		Handler:           w.handler(),
@@ -155,6 +156,7 @@ func (s *Server) serveHTTPS(ctx context.Context) error {
 		// peer's, so none of it reaches the log.
 		ErrorLog:    log.New(io.Discard, "", 0),
 		BaseContext: func(net.Listener) context.Context { return ctx },
+		ConnState:   func(c net.Conn, st http.ConnState) { countTLSFailure(s.cfg.Telemetry, c, st) },
 	}
 	errc := make(chan error, 1)
 	go func() {
@@ -186,6 +188,17 @@ func (s *Server) serveHTTPS(ctx context.Context) error {
 	_ = h.Listener.Close()
 	w.closeAll()
 	return failed
+}
+
+// countTLSFailure counts a connection net/http closed before its TLS
+// handshake completed: a client that does not trust the certificate, a
+// scanner, plain HTTP to the port. Nothing of the peer's is recorded,
+// as nothing of it is logged (ErrorLog). A connection net/http hands
+// over (a WebSocket) completed its handshake, and is never closed here.
+func countTLSFailure(tel *telemetry.Telemetry, c net.Conn, st http.ConnState) {
+	if tc, ok := c.(*tls.Conn); ok && st == http.StateClosed && !tc.ConnectionState().HandshakeComplete {
+		tel.Count(telemetry.HTTPSTLSFailures)
+	}
 }
 
 // handler routes the listener's two paths, and answers 404 for every
@@ -254,11 +267,13 @@ func writeRefusal(rw http.ResponseWriter, status int, e *proto.Error) {
 func (w *web) connect(rw http.ResponseWriter, r *http.Request) {
 	addr := peerAddr(r.RemoteAddr)
 	behind := w.h.TLS == nil
+	tel := w.s.cfg.Telemetry
 	// A page in a person's browser could open this WebSocket; a browser
 	// always says the page's origin, and aries never sends one. No
 	// cookie or header a browser holds signs in here, so this is
 	// defense in depth.
 	if r.Header.Get("Origin") != "" {
+		tel.Count(telemetry.HTTPSUpgrades, telemetry.UpgradeRefused, telemetry.UpgradeOrigin)
 		w.refused(r.Context(), addr, "origin")
 		writeRefusal(rw, http.StatusForbidden, proto.Errf(proto.CodeForbidden,
 			"connect with aries, which sends no Origin; a browser cannot connect here",
@@ -267,6 +282,8 @@ func (w *web) connect(rw http.ResponseWriter, r *http.Request) {
 	}
 	if !behind {
 		if ok, wait := w.s.authFails.has(addr.String(), w.s.now()); !ok {
+			tel.Count(telemetry.HTTPSUpgrades, telemetry.UpgradeRefused, telemetry.UpgradeAuthFailures)
+			tel.Count(telemetry.LimitRefusals, telemetry.LimitAuthFailures)
 			w.refused(r.Context(), addr, "auth_failures")
 			writeRefusal(rw, http.StatusTooManyRequests, proto.Errf(proto.CodeBusy,
 				fmt.Sprintf("wait %s and retry with a key the server knows; `aries whoami` says which key aries offers", wait),
@@ -277,14 +294,26 @@ func (w *web) connect(rw http.ResponseWriter, r *http.Request) {
 	lim := w.s.cfg.Limits
 	c, err := wsconn.Accept(rw, r, lim.WSMessageBytes)
 	if err != nil {
+		tel.Count(telemetry.HTTPSUpgrades, telemetry.UpgradeRefused, telemetry.UpgradeBadRequest)
 		return // Accept answered 400
 	}
+	tel.Count(telemetry.HTTPSUpgrades, telemetry.ResultOK, telemetry.ReasonNone)
 	if !w.track(c) {
 		_ = c.Close()
 		return
 	}
 	defer w.untrack(c)
 	given, perr, reason := w.prove(c)
+	// Counted before the refusal or the welcome is written, so that a
+	// client that has read either finds it counted.
+	switch {
+	case perr != nil:
+		tel.Count(telemetry.HTTPSKeyProofs, reason)
+	case given == nil:
+		tel.Count(telemetry.HTTPSKeyProofs, telemetry.ResultFailed)
+	default:
+		tel.Count(telemetry.HTTPSKeyProofs, telemetry.ResultOK)
+	}
 	if perr != nil {
 		w.refused(r.Context(), addr, reason)
 		if reason == "unknown_key" || reason == "bad_proof" || reason == "url" {
@@ -456,12 +485,14 @@ func peerAddr(remote string) netip.Addr {
 
 // limitedListener is the HTTPS listener's own: it closes, unanswered, a
 // connection past the total or its address's share, and, behind a
-// proxy, one from an address it does not trust.
+// proxy, one from an address it does not trust. tel counts the
+// connections it holds, and those it refuses.
 type limitedListener struct {
 	net.Listener
 	total, perAddr int
 	trusted        []netip.Prefix
 	refused        func(addr netip.Addr, reason string)
+	tel            *telemetry.Telemetry
 
 	mu sync.Mutex
 	n  int
@@ -477,11 +508,28 @@ func (l *limitedListener) Accept() (net.Conn, error) {
 		addr := peerAddr(c.RemoteAddr().String())
 		if reason := l.enter(addr); reason != "" {
 			_ = c.Close()
+			l.count(reason)
 			l.refused(addr, reason)
 			continue
 		}
+		l.tel.Record(telemetry.HTTPSConnections, 1)
 		return &limitedConn{Conn: c, l: l, addr: addr}, nil
 	}
+}
+
+// count counts a connection enter refused for reason, and the limit it
+// was past by name.
+func (l *limitedListener) count(reason string) {
+	switch reason {
+	case "untrusted":
+		l.tel.Count(telemetry.HTTPSConnectionsRefused, telemetry.ListenerUntrusted)
+		return
+	case "conns":
+		l.tel.Count(telemetry.LimitRefusals, telemetry.LimitHTTPSConns)
+	case "conns_per_addr":
+		l.tel.Count(telemetry.LimitRefusals, telemetry.LimitHTTPSConnsPerAddr)
+	}
+	l.tel.Count(telemetry.HTTPSConnectionsRefused, telemetry.ListenerLimit)
 }
 
 // enter counts a connection from addr, or says why it is refused.
@@ -508,6 +556,7 @@ func (l *limitedListener) enter(addr netip.Addr) string {
 
 // leave uncounts a connection enter counted.
 func (l *limitedListener) leave(addr netip.Addr) {
+	l.tel.Record(telemetry.HTTPSConnections, -1)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.n--

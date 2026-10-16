@@ -75,24 +75,39 @@ type want struct {
 func check(t *testing.T, snap telemetry.Snapshot, wants []want) {
 	t.Helper()
 	for _, w := range wants {
-		p, ok := snap.Find(w.name, w.attrs...)
-		got := p.Value
-		if strings.HasSuffix(w.name, ".duration") {
-			got = float64(p.Count)
-		}
-		if w.value == 0 {
-			if ok && got != 0 {
-				t.Errorf("%s%v = %v, want no such series, or zero", w.name, w.attrs, got)
-			}
-			continue
-		}
-		if !ok || got != w.value {
+		got, ok, held := w.in(snap)
+		switch {
+		case held:
+		case w.value == 0:
+			t.Errorf("%s%v = %v, want no such series, or zero", w.name, w.attrs, got)
+		default:
 			t.Errorf("%s%v = %v (series found: %t), want %v", w.name, w.attrs, got, ok, w.value)
 		}
 	}
 	if t.Failed() {
 		t.Logf("collected:\n%s", ariesOnly(snap))
 	}
+}
+
+// in is w's series in snap, whether it was found, and whether it is
+// what w wants: a value of zero holds for a series not found.
+func (w want) in(snap telemetry.Snapshot) (got float64, ok, held bool) {
+	p, ok := snap.Find(w.name, w.attrs...)
+	got = p.Value
+	if strings.HasSuffix(w.name, ".duration") {
+		got = float64(p.Count)
+	}
+	return got, ok, got == w.value && (ok || w.value == 0)
+}
+
+// allHold reports whether every one of wants is in snap.
+func allHold(snap telemetry.Snapshot, wants []want) bool {
+	for _, w := range wants {
+		if _, _, held := w.in(snap); !held {
+			return false
+		}
+	}
+	return true
 }
 
 // ariesOnly is snap without the Go runtime's metrics.

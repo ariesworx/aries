@@ -393,7 +393,8 @@ func selects(rules []alertRule, name, key, value string) bool {
 // The rules cover what the design says an operator is told of (§16.7,
 // and the notes of slices O2 and O4): each signal's drops, the reaper,
 // the keys file, the clock, write latency and retries, the connection
-// and store caps, and the pool of database connections.
+// and store caps, and the pool of database connections; and the HTTPS
+// listener's certificate files and its connection cap.
 func TestAlertRulesCover(t *testing.T) {
 	t.Parallel()
 	rules := readAlerts(t)
@@ -401,6 +402,7 @@ func TestAlertRulesCover(t *testing.T) {
 		{"the listener answering", "up", "job", jobAriesd},
 		{"the reaper, which feeds the watchdog", "aries_reaper_last_run_time_seconds", "", ""},
 		{"a keys file write failing", "aries_keys_file_writes_total", KeyResult, ResultFailed},
+		{"a certificate's files that cannot be read", "aries_https_cert_reloads_total", KeyResult, ResultFailed},
 		{"the clock behind history", "aries_clock_behind_seconds", "", ""},
 		{"a step of the clock", "aries_clock_steps_total", "", ""},
 		{"a project that cannot be opened", "aries_handshakes_total", KeyResult, "unavailable"},
@@ -409,6 +411,7 @@ func TestAlertRulesCover(t *testing.T) {
 		{"writes retried", "aries_store_write_retries_total", "", ""},
 		{"the connection cap", "aries_limit_refusals_total", KeyLimit, LimitConns},
 		{"the cap on one principal's connections", "aries_limit_refusals_total", KeyLimit, LimitConnsPerPrincipal},
+		{"the HTTPS listener's connection cap", "aries_limit_refusals_total", KeyLimit, LimitHTTPSConns},
 		{"the store cap", "aries_limit_refusals_total", KeyLimit, LimitOpenStores},
 		{"requests waiting for a database connection", "aries_db_pool_waits_total", "", ""},
 	}

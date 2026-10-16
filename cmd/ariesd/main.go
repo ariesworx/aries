@@ -335,7 +335,7 @@ func runDaemon(ctx context.Context, s server.Settings, log *slog.Logger, getenv 
 	// The HTTPS listener is bound before the database is opened: a port
 	// that is taken, or a certificate that cannot be served, fails the
 	// start at once. The server closes it from here on.
-	web, err := listenHTTPS(ctx, s, log)
+	web, err := listenHTTPS(ctx, s, log, tel)
 	if err != nil {
 		return err
 	}
@@ -389,12 +389,13 @@ func refusalLines(err error) []string {
 }
 
 // listenHTTPS binds the HTTPS listener s configures, with its TLS, or
-// returns nil when s serves no HTTPS. CheckServe has passed.
-func listenHTTPS(ctx context.Context, s server.Settings, log *slog.Logger) (*server.HTTPS, error) {
+// returns nil when s serves no HTTPS. CheckServe has passed. tel counts
+// the certificate's reloads.
+func listenHTTPS(ctx context.Context, s server.Settings, log *slog.Logger, tel *telemetry.Telemetry) (*server.HTTPS, error) {
 	if !s.HTTPSOn() {
 		return nil, nil
 	}
-	lt, err := s.HTTPS.TLSConfig(log)
+	lt, err := s.HTTPS.TLSConfig(log, tel)
 	if err != nil {
 		return nil, err
 	}
