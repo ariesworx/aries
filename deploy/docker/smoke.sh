@@ -65,6 +65,10 @@ case ${ARIES_SMOKE_SSH:-} in
 esac
 work=$(mktemp -d)
 compose=(docker compose -p "${ARIES_SMOKE_PROJECT:-aries-smoke}" -f "$root/deploy/docker/compose.yaml")
+# With SSH on, the override publishes sshd's port (compose.ssh.yaml).
+if [[ ${ssh:-} == 1 ]]; then
+  compose+=(-f "$root/deploy/docker/compose.ssh.yaml")
+fi
 telemetry=
 sidecars=()
 case ${ARIES_SMOKE_TELEMETRY:-} in
