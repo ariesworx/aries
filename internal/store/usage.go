@@ -294,7 +294,8 @@ func (w *wtx) countUsage(ctx context.Context, added []UsageRecord) error {
 			holes = append(holes, p.add(r.Model))
 		}
 	}
-	rs, err := w.tx.QueryContext(ctx, `SELECT DISTINCT model FROM prices WHERE model IN (`+strings.Join(holes, ", ")+`)`, p.args...)
+	rs, err := w.tx.QueryContext(ctx, `SELECT DISTINCT model FROM prices WHERE model IN (`+strings.Join(holes, ", ")+`)`, //nolint:gosec // holes are $n placeholders
+		p.args...)
 	if err != nil {
 		return fmt.Errorf("read priced models: %w", err)
 	}

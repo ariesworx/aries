@@ -1105,8 +1105,10 @@ func TestUsageTokensModelsAreAdmitted(t *testing.T) {
 			t.Errorf("AdmitModel(%q) = true, want false", bad)
 		}
 	}
-	if !tel.AdmitModel("example-large") || !tel.AdmitModel("example-large") {
-		t.Fatal("AdmitModel(example-large) = false, want true, twice")
+	for range 2 {
+		if !tel.AdmitModel("example-large") {
+			t.Fatal("AdmitModel(example-large) = false, want true, twice")
+		}
 	}
 	tel.Record(UsageTokens, 5, "", TokenInput, "example-large")
 	tel.Record(UsageTokens, 7, "", TokenInput, "not-admitted")
