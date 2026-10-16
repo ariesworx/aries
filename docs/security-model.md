@@ -552,13 +552,41 @@ it:
   key file ariesd refuses to read if others may. Behind a proxy that
   terminates TLS, ariesd speaks plain HTTP to the addresses it trusts
   alone; the proxy then sees every frame, as the operator's own
-  component.
+  component. A smart card checked by ariesd itself would need TLS at
+  ariesd, since a client certificate does not pass a proxy; ariesd
+  checks none in 1.0, so a card is the identity provider's to check.
+- **The certificate is what names the server.** `aries` verifies it
+  against the system's roots and the CA in `server.ca`, which is added
+  to them for that server, never in their place
+  ([cli.md](cli.md#connect-a-repository)); nothing pins the
+  certificate itself, since every renewal would break a pin. A
+  certificate that does not
+  verify stops `aries`, with a fix that says something may stand
+  between you and the server. The key proof is bound to the server's
+  URL and the connection's nonce, not to the TLS session, so the
+  certificate check is what stands between a client and a relay:
+  whoever holds a certificate the client trusts for the server's name
+  (a certificate issued in error, a CA in `server.ca` whose key leaked,
+  or a proxy that terminates TLS) can pass a client's proof on to the
+  server and act as that client for that connection. Keep `server.ca`
+  to the CA that issues the server's certificate. Over SSH, the pinned
+  host key ([below](#the-servers-host-key-is-pinned)) does this job.
 - **Nothing on the line is secret to ariesd's log.** A refused proof is
   logged with its reason and the address, sampled per address, never
   with the key's text.
 
-What it does not yet have: a security review of the listener and the
-authorization server before 1.0 ([§12.4](design/transport.md#124-what-a-security-review-must-look-at-before-10)).
+v1.0.0 authenticates by keys: the key proof here, or SSH (decision 91
+of [the design](design/aries.md#14-decisions)). Sign-in at an identity
+provider and service principals' token exchange
+([below](#sign-in-and-tokens)) are in the build but off unless
+`login:` or `workload:` is configured, and their security review comes
+in 1.x.
+
+What it does not yet have: the security review of the listener and the
+key proof before 1.0 ([§12.4](design/transport.md#124-what-a-security-review-must-look-at-before-10)),
+and a measure of what a flood of unauthenticated requests costs while
+sessions work (its item 6): the limits above bound it, but nobody has
+yet run one against them.
 
 ## Sign-in and tokens
 
