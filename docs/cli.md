@@ -277,6 +277,16 @@ parent. It stops at the repository's top level (the first directory that
 holds `.git`) and never looks above your home directory. `-C DIR` starts
 the search in DIR instead.
 
+A linked worktree (`git worktree add`), where agents' parallel sessions
+often run, is its own top level. When the search reaches one without
+finding the file, `aries` reads the one at the top of the repository's
+main worktree, and only there, so a `.aries.yaml` you keep untracked in
+your main checkout serves every worktree. A file in the worktree itself
+still wins. A key or CA path in the file is relative to the directory
+that holds it, the main worktree, while `aries setup` writes its files
+in the worktree you ran it in. A bare repository has no main worktree,
+so its worktrees need a file of their own.
+
 On macOS and Linux the file must be yours and writable by no one else.
 `chmod go-w .aries.yaml` fixes a checkout made under a umask of 002.
 Windows has no owner check, so there the search boundary is the only
@@ -939,7 +949,7 @@ nothing on standard error, in the shape the MCP server gives an agent:
 
 ```text
 $ aries --json -C /tmp show ar-a1b2c3d4
-{"error":{"code":"invalid","message":".aries.yaml not found here or in any parent directory","fix":"run aries inside a repository that has one, or pass -C DIR; the search stops at the repository's top level and at your home directory"}}
+{"error":{"code":"invalid","message":".aries.yaml not found here or in any parent directory","fix":"run aries inside a repository that has one, or pass -C DIR; the search stops at the repository's top level and at your home directory, and a linked worktree reads the main worktree's"}}
 ```
 
 `code` is one of the codes named in this guide (`invalid`, `not_found`,
