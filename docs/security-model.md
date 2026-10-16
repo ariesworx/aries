@@ -1100,7 +1100,9 @@ hand](install.md#verify-a-download-by-hand) the commands.
 | `go mod download && go mod verify` | Every pull request and push, and before every release build |
 | shellcheck, on every shell script in the repository | Every pull request and push, and before every release build |
 | CodeQL, with the `security-extended` queries | Every pull request and push, and weekly |
-| Dependabot, for Go modules and GitHub Actions | Weekly; minor and patch updates grouped |
+| The Postgres pin against the PostgreSQL project's releases: a newer minor release of its major version, or a major version the store opens past its end of life | Weekly on `main` (Mondays) |
+| A failed weekly run of `govulncheck` or of the Postgres check opens an issue, or comments on the one still open | Weekly on `main` (Mondays) |
+| Dependabot, for Go modules, GitHub Actions and the Docker test server's images, each version proposed only 14 days after its release (30 for a major version); a security update does not wait | Weekly; updates grouped |
 
 ## Dependencies
 

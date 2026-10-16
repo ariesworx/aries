@@ -1,10 +1,17 @@
 version: 2
+# Every ecosystem waits out a cooldown before proposing a version: 14
+# days, 30 for a new major version, so that a malicious release is likely
+# caught by others before it is taken. Security updates, which answer an
+# advisory, skip it.
 updates:
   - package-ecosystem: gomod
     directory: /
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 14
+      semver-major-days: 30
     open-pull-requests-limit: 5
     commit-message:
       prefix: maintenance  # PR titles read "maintenance: bump …"
@@ -17,9 +24,57 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 14
+      semver-major-days: 30
     open-pull-requests-limit: 5
     commit-message:
       prefix: maintenance
     groups:
       actions-minor-patch:
         update-types: [minor, patch]
+
+  # The images of the Docker test server (deploy/docker), pinned by tag
+  # and digest: a new digest for a rebuilt tag, which is how an image
+  # takes its base's security fixes, and a new tag for a new release.
+  - package-ecosystem: docker-compose
+    directory: /deploy/docker
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 14
+      semver-major-days: 30
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: maintenance
+    ignore:
+      # Postgres's major version moves with version.PostgresMajor, by
+      # hand (RELEASING.md, Changing the Postgres pin).
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
+    groups:
+      compose-images:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /deploy/docker
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 14
+      semver-major-days: 30
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: maintenance
+    ignore:
+      # Go's minor version moves with go.mod's go line, and Ubuntu's
+      # release with the installer's, by hand; their digests still move.
+      - dependency-name: golang
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: ubuntu
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+    groups:
+      dockerfile-images:
+        patterns: ["*"]
