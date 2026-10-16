@@ -207,7 +207,7 @@ Each tier includes the ones above it.
 | Docs, design or comments | `go test ./scripts/` (it holds the docs to the code and the guides to the scripts) | everything else |
 | Code | The touched packages' tests with `-race`, then `scripts/gate.sh --quick` | the whole suite, lint, govulncheck, the builds for other systems |
 | Concurrency: claims, locks, leases, the outbox and its replay, the clock, the database pool and retries | Also `-count=3` on the touched tests, and one short soak (`go test -race -run 'TestSoak$' ./internal/e2e`); with the outbox or replay, one run in partition mode too | |
-| `deploy/docker`, `install-server.sh`, AppArmor, `ariesd`'s start, or the transport | Also one run of `deploy/docker/smoke.sh`, in the modes the change touches (`ARIES_SMOKE_TELEMETRY=1`, `ARIES_SMOKE_IDENTITY=1`) | |
+| `deploy/docker`, `install-server.sh`, AppArmor, `ariesd`'s start, or the transport | Also one run of `deploy/docker/smoke.sh`, in the modes the change touches (`ARIES_SMOKE_TELEMETRY=1`, `ARIES_SMOKE_IDENTITY=1`, `ARIES_SMOKE_PROXY=1`) | |
 | A release candidate | The whole gate, the long soak and its partition and telemetry modes (the [`soak` workflow](#run-the-soaks-on-github)), `smoke.sh` in every mode, and `install-server.sh` on a real machine of each supported release ([RELEASING.md](RELEASING.md)) | |
 
 A test that is new or changed is still seen failing before its fix, in

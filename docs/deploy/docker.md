@@ -575,6 +575,26 @@ before the server is removed. `ARIES_SMOKE_PROJECT=NAME` names the
 Compose project, `aries-smoke` by default: give each of two runs on
 one machine its own, and its own `ARIES_HTTPS_PORT` and `ARIES_PORT`.
 
+### Behind the proxy
+
+```sh
+ARIES_SMOKE_PROXY=1 deploy/docker/smoke.sh
+```
+
+This runs the same checks through the `proxy` profile
+([Behind a proxy](#behind-a-proxy)): ariesd serves plain HTTP on
+loopback, nginx serves TLS on the HTTPS port, and everything the test
+does, `aries` and its WebSocket, the CI commands, the restart and the
+keys that end, reaches the server through nginx (156 checks on 16
+October 2026, as direct). The checks of what `aries admin status` says
+of the listener expect the proxy mode. It pulls one more image, and
+combines with `ARIES_SMOKE_IDENTITY=1`, where bob's sign-in through
+Keycloak also passes through nginx (207 checks). The server's
+container is restarted by the test, so nginx, which shares its network
+namespace, is restarted after it. The smoke test publishes Grafana's
+port 3000 as the server does: set `ARIES_GRAFANA_PORT` if something else
+holds it.
+
 ### With the telemetry harness
 
 ```sh
