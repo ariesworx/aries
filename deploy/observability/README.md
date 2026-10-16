@@ -1,6 +1,6 @@
 # Observability examples
 
-Five files to start from when wiring an Aries server into what you
+Seven files to start from when wiring an Aries server into what you
 already monitor with. **They are examples that are tested, not a
 product.** [Running a server](../../docs/server.md#a-collector-alert-rules-and-a-dashboard)
 says how to use each, and lists the alerts.
@@ -10,8 +10,10 @@ says how to use each, and lists the alerts.
 | [collector.yaml](collector.yaml) | An OpenTelemetry Collector's configuration: OTLP in from ariesd, a scrape of ariesd's `/metrics`, and one exporter to replace with your backend's |
 | [alerts.yaml](alerts.yaml) | Alert rules in Prometheus's rule format |
 | [prometheus.yaml](prometheus.yaml) | A Prometheus configuration that scrapes ariesd and loads the rules |
-| [dashboard.json](dashboard.json) | One dashboard, in Grafana's format |
-| [grafana-dashboards.yaml](grafana-dashboards.yaml) | Grafana's provisioning of that dashboard, as the Docker test server's `observe` profile loads it |
+| [dashboard.json](dashboard.json) | The server's dashboard, in Grafana's format |
+| [dashboard-requests.json](dashboard-requests.json) | Requests by op, in Grafana's format |
+| [dashboard-traces-logs.json](dashboard-traces-logs.json) | Traces and logs, for a Grafana with Tempo and Loki |
+| [grafana-dashboards.yaml](grafana-dashboards.yaml) | Grafana's provisioning of the three dashboards, as the Docker test server's `observe` profile loads it |
 
 Nothing here names a vendor or a host: a backend is
 `https://otlp.example.com`, and its token comes from the collector's
@@ -20,7 +22,7 @@ environment.
 ## How they are tested
 
 - **By `go test`** (`internal/telemetry/harness_test.go`): every alert
-  rule and every query of the dashboard names only series, labels and
+  rule and every Prometheus query of the dashboards names only series, labels and
   label values that ariesd's instruments have, so renaming an
   instrument fails the build; the rules cover what the design says an
   operator is told of, each signal ariesd can drop among them; the
@@ -35,7 +37,7 @@ environment.
   each without error and runs every query of the dashboard. CI does not
   run it.
 
-Not tested automatically: the dashboard in Grafana itself, which was run by hand in the Docker test server's `observe` profile (16 Oct 2026: every series it reads arrived under its name once its counter had counted); a hosted backend; the
+Not tested automatically: the dashboards in Grafana itself, and the trace and log queries of the third, which were run by hand in the Docker test server's `observe` profile (16 Oct 2026: every series they read arrived under its name once its counter had counted, and each trace and log panel showed the server's own); a hosted backend; the
 thresholds against a real server's traffic; and the two parts of
 `collector.yaml` that are comments, the backend's exporter and the
 filter for the audit stream, which the Collector's own `validate`

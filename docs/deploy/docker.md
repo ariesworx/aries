@@ -303,9 +303,12 @@ Then open <http://127.0.0.1:3000>.
 It runs Grafana's all-in-one OpenTelemetry backend, `grafana/otel-lgtm`
 (pinned by tag and digest): a Collector that receives what ariesd
 pushes, Prometheus for the metrics, Tempo for the traces, Loki for the
-log records, and Grafana, with the dashboard of
-[deploy/observability](../../deploy/observability) under Dashboards,
-**Aries server**. Explore has each signal: a trace by its id in Tempo
+log records, and Grafana, with the dashboards of
+[deploy/observability](../../deploy/observability): it opens on
+**Aries server**, headline numbers above the server's health, and links
+to **Aries requests**, each op's traffic, latency and refusals, and
+**Aries traces and logs**, recent and slow traces, log events, warnings
+and errors, and the audit stream. Explore has each signal: a trace by its id in Tempo
 (the `TRACEPARENT` example above works here too), the log records in
 Loki by `service_name`, and any `aries_*` series in Prometheus.
 

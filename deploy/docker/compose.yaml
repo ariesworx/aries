@@ -171,6 +171,8 @@ services:
       # Grafana downloads no plugin at start, so it reaches nothing
       # outside the machine.
       GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      # Grafana opens on the Aries server dashboard, not its own welcome.
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/aries/dashboards/aries.json
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
     security_opt: [no-new-privileges:true]
@@ -178,6 +180,8 @@ services:
       - observe:/data
       - ../observability/grafana-dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/aries.yaml:ro
       - ../observability/dashboard.json:/etc/aries/dashboards/aries.json:ro
+      - ../observability/dashboard-requests.json:/etc/aries/dashboards/aries-requests.json:ro
+      - ../observability/dashboard-traces-logs.json:/etc/aries/dashboards/aries-traces-logs.json:ro
     healthcheck:
       test: ["CMD", "test", "-e", "/tmp/ready"]
       start_period: 120s

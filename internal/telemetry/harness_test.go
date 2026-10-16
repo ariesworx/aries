@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -432,16 +433,30 @@ type dashboardPanel struct {
 	ID         int    `json:"id"`
 	Title      string `json:"title"`
 	Datasource struct {
-		UID string `json:"uid"`
+		Type string `json:"type"`
+		UID  string `json:"uid"`
 	} `json:"datasource"`
 	Targets []struct {
-		Expr string `json:"expr"`
+		Expr  string `json:"expr"`
+		Query string `json:"query"`
 	} `json:"targets"`
 }
 
-func readDashboard(t *testing.T) []dashboardPanel {
+// dashboardFiles are the dashboards of deploy/observability: the
+// server's, and those the Docker test server's observe profile loads
+// beside it.
+func dashboardFiles(t *testing.T) []string {
 	t.Helper()
-	b, err := os.ReadFile(dashboardFile)
+	files, err := filepath.Glob(filepath.Join(filepath.Dir(dashboardFile), "dashboard*.json"))
+	if err != nil || !slices.Contains(files, filepath.Clean(dashboardFile)) {
+		t.Fatalf("dashboards: %v, %v; want %s among them", files, err, dashboardFile)
+	}
+	return files
+}
+
+func readDashboard(t *testing.T, file string) []dashboardPanel {
+	t.Helper()
+	b, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -449,34 +464,48 @@ func readDashboard(t *testing.T) []dashboardPanel {
 		Panels []dashboardPanel `json:"panels"`
 	}
 	if err := json.Unmarshal(b, &d); err != nil {
-		t.Fatalf("%s: %v", dashboardFile, err)
+		t.Fatalf("%s: %v", file, err)
 	}
 	if len(d.Panels) == 0 {
-		t.Fatalf("%s has no panels", dashboardFile)
+		t.Fatalf("%s has no panels", file)
 	}
 	return d.Panels
 }
 
-// Every query of the dashboard names series, labels and values that
+// The variable each kind of data source is read through, so that no
+// panel is tied to one installation's data source.
+var dashboardSources = map[string]string{"prometheus": "${datasource}", "tempo": "${traces}", "loki": "${logs}"}
+
+// Every query of every dashboard names series, labels and values that
 // exist, as every alert rule does, and no panel is tied to one
-// installation's data source.
+// installation's data source. A panel of traces or logs is held to its
+// variable; its query names no metric.
 func TestDashboardQueriesNameWhatExists(t *testing.T) {
 	t.Parallel()
-	ids := map[int]bool{}
-	for _, p := range readDashboard(t) {
-		if ids[p.ID] || p.Title == "" {
-			t.Errorf("%s: panel %d (%q) has no title, or an id used twice", dashboardFile, p.ID, p.Title)
-		}
-		ids[p.ID] = true
-		if p.Datasource.UID != "${datasource}" {
-			t.Errorf("%s: panel %q reads the data source %q, want the dashboard's variable, ${datasource}", dashboardFile, p.Title, p.Datasource.UID)
-		}
-		if len(p.Targets) == 0 {
-			t.Errorf("%s: panel %q has no query", dashboardFile, p.Title)
-		}
-		for _, q := range p.Targets {
-			for _, problem := range checkExpr(q.Expr) {
-				t.Errorf("%s: panel %q: %s\n%s", dashboardFile, p.Title, problem, q.Expr)
+	for _, file := range dashboardFiles(t) {
+		ids := map[int]bool{}
+		for _, p := range readDashboard(t, file) {
+			if ids[p.ID] || p.Title == "" {
+				t.Errorf("%s: panel %d (%q) has no title, or an id used twice", file, p.ID, p.Title)
+			}
+			ids[p.ID] = true
+			want, known := dashboardSources[p.Datasource.Type]
+			if !known || p.Datasource.UID != want {
+				t.Errorf("%s: panel %q reads the data source %q of type %q, want a dashboard variable: %v", file, p.Title, p.Datasource.UID, p.Datasource.Type, dashboardSources)
+			}
+			if len(p.Targets) == 0 {
+				t.Errorf("%s: panel %q has no query", file, p.Title)
+			}
+			for _, q := range p.Targets {
+				if p.Datasource.Type != "prometheus" {
+					if q.Expr == "" && q.Query == "" {
+						t.Errorf("%s: panel %q has an empty query", file, p.Title)
+					}
+					continue
+				}
+				for _, problem := range checkExpr(q.Expr) {
+					t.Errorf("%s: panel %q: %s\n%s", file, p.Title, problem, q.Expr)
+				}
 			}
 		}
 	}
