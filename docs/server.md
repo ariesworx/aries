@@ -1,24 +1,21 @@
 # Running a server
 
-> **This guide still describes Dolt.** Aries now stores its data in
-> Postgres, and this guide is rewritten for it when the port's
-> operations slice lands; until then its setup, backups and tuning are
-> Dolt's ([design, decision 79](design/aries.md)).
-
 An Aries server is one Linux machine running three programs:
 
 | Program | Role |
 |---|---|
 | sshd | The front door. It checks each person's or agent's key and runs `ariesd stdio` for them |
 | `ariesd serve` | The daemon. It owns the data and applies every change in order |
-| Dolt | The database, listening on loopback for ariesd alone |
+| Postgres | The database: on the same machine, where ariesd reaches it by its unix socket, or on another machine or a managed service ([Managed services](#managed-services)) |
 
 A server holds one project, as the steps below set it up. It can be
-switched to hold many, each in its own database ([Serving many
-projects](#serving-many-projects)). This page sets a server up step by
-step, then covers principals, settings, limits, logs, metrics and health
-([Observability](#observability)), upgrades, backups and troubleshooting.
-For complete deployments with costs, see the
+switched to hold many, each in a schema of its own in the one database
+([Serving many projects](#serving-many-projects)). This page sets a
+server up step by step, then covers principals, settings, limits, logs,
+metrics and health ([Observability](#observability)), Postgres
+([sizing](#sizing-postgres), [managed services](#managed-services),
+[standby and failover](#standby-and-failover)), upgrades, backups and
+troubleshooting. For complete deployments with costs, see the
 [deployment examples](deploy/README.md).
 
 ## What a server needs
@@ -27,13 +24,12 @@ For complete deployments with costs, see the
   refuses to run on other systems, because only Linux lets it check which
   user connects to its socket.
 - **Ubuntu 24.04 LTS and 26.04 LTS are the supported platforms.** The
-  steps below are written for both and were run on both, under systemd,
-  in virtual machines on arm64 ([What was run, and
-  where](#what-was-run-and-where)). amd64 and cloud providers' images
-  were not. Other distributions, and Ubuntu's releases between the two,
-  may work and are untested. One text serves both; where 26.04 behaves
-  differently the guide says so: its `sudo` is sudo-rs, its sshd turns
-  away for a while an address that fails to log in
+  steps below are written for both and were run on both
+  ([What was run, and where](#what-was-run-and-where)). amd64 and cloud
+  providers' images were not. Other distributions, and Ubuntu's releases
+  between the two, may work and are untested. One text serves both; where
+  26.04 behaves differently the guide says so: its `sudo` is sudo-rs, its
+  sshd turns away for a while an address that fails to log in
   ([step 6](#6-let-the-first-principal-in)), its clock is kept by chrony
   ([Keep the clock synchronized](#keep-the-clock-synchronized)), and its
   AppArmor stacks a profile a service changes to
@@ -50,27 +46,29 @@ For complete deployments with costs, see the
   it; ariesd detects a clock that jumps or goes back and, by default,
   refuses to start when the clock is behind its own history
   ([The server's clock](#the-servers-clock)).
-- **Dolt**, at the release Aries is tested with: `Dolt` in
-  [internal/version](../internal/version/version.go), 2.4.2 for Aries
-  v0.2.0. Each release's notes name it.
-- **Little hardware.** Idle, Dolt used about 90 MB of memory and ariesd
-  about 20 MB, or 22 MB with metrics pushed and scraped (resident
-  memory on arm64, a minute after its start; about 14 MB of either is
-  the program itself, mapped from its file). Each connection adds about
-  5 MiB more: 2.5 MiB for its bridge (`ariesd stdio`), 2 MiB for
-  sshd's two processes, half a MiB in the kernel and under 0.1 MiB in
-  ariesd, so 64 connections take about 320 MiB and 1,024 about
-  5 GiB. That is with transparent huge pages in `madvise` mode, Ubuntu's
-  default; with them `always` (`cat
+- **Postgres 16 or newer.** ariesd refuses an older one. Aries is tested
+  with Postgres 18, at the release in `Postgres` in
+  [internal/version](../internal/version/version.go), and each release's
+  notes name it. The steps install Postgres 18 from the PostgreSQL
+  project's own apt repository; a Postgres 16 or newer that the machine
+  already runs, another machine's, or a managed service's serves as
+  well ([Managed services](#managed-services)).
+- **Little hardware.** Idle, ariesd used about 20 MB of memory, or 22 MB
+  with metrics pushed and scraped (resident memory on arm64, a minute
+  after its start; about 14 MB of either is the program itself, mapped
+  from its file). Each connection adds about 5 MiB more: 2.5 MiB for its
+  bridge (`ariesd stdio`), 2 MiB for sshd's two processes, half a MiB
+  in the kernel and under 0.1 MiB in ariesd, so 64 connections take about
+  320 MiB and 1,024 about 5 GiB. That is with transparent huge pages in
+  `madvise` mode, Ubuntu's default; with them `always` (`cat
   /sys/kernel/mm/transparent_hugepage/enabled`) the bridge takes about
   6 MiB, and a connection about 9 (measured on Linux, arm64, OpenSSH 9.6,
   14 October 2026; [the profile](design/profile-ariesd.md#2-a-bridge-that-is-not-the-whole-of-ariesd)
-  has how). Under the stage 0 load test Dolt reached 1.4 GB and about
-  250 writes a second on 4 vCPUs
-  ([results](https://github.com/ariesworx/aries/blob/fbbbf4655665845db81a72d2bbd1845472fd1c5a/spike/dolt/RESULTS.md)), roughly ten times what a busy
-  team of agents needs. 2 GB of memory suits a team with one project of
-  a few thousand issues; [Dolt's memory](#dolts-memory) says how it grows
-  and how to get it back. The data starts at under 1 MB.
+  has how). Postgres took about 50 MiB idle, and about 2.5 MiB more for
+  each project in use up to 20 and 0.6 MiB for each after, through
+  ariesd's one pool of connections ([Sizing Postgres](#sizing-postgres)
+  has the measurements). 2 GB of memory suits a team with a few projects
+  of a few thousand issues each.
 
 ## Set up a server
 
@@ -110,6 +108,8 @@ to change that key later without refusing every client.
 | `--project NAME` | The name the first project is adopted under (`control init --name`). Default `first` |
 | `--version vX.Y.Z` | The release of `ariesd` and `aries` to install. Default the latest |
 | `--releases SOURCE` | Where releases are read from ([Install](install.md#where-releases-are-read-from)), also written to the config file as `releases:` for `ariesd upgrade`. Default `$ARIES_RELEASES`, or GitHub |
+| `--dsn URL` | Use the Postgres this `postgres://` URL names, on another machine or a managed service, in place of installing one: [Managed services](#managed-services). Its role and database are made beforehand. No password in it: the installer refuses one |
+| `--db-password-file FILE` | With `--dsn`: a file holding the role's password alone on one line. The installer copies it to `/etc/aries/postgres/pgpass`, mode 0600, which the DSN it writes names |
 | `--apparmor` | Also confine ariesd ([Confine ariesd with AppArmor](#confine-ariesd-with-apparmor)). Off unless given |
 | `--dry-run` | Print every action, and change nothing |
 
@@ -118,14 +118,14 @@ Its steps, and the sections of this guide each one follows:
 | Step | | Follows |
 |---|---|---|
 | 1 | Check the machine | [What a server needs](#what-a-server-needs): Ubuntu 24.04 or 26.04, amd64 or arm64, systemd, OpenSSH |
-| 2 | Install Dolt | [1. Install Dolt](#1-install-dolt), with the checksum compared for you |
-| 3 | Run Dolt under its own account | [2. Run Dolt under its own account](#2-run-dolt-under-its-own-account) |
+| 2 | Install Postgres | [1. Install Postgres](#1-install-postgres), with the key of the apt repository checked against its fingerprint for you. A Postgres 16 or newer that already runs on the machine is used as it is. With `--dsn`, only Postgres's client programs, for the checks and the [backups](#backups-and-restore) |
+| 3 | Create the role and the database | [2. Create the role and the database](#2-create-the-role-and-the-database). With `--dsn`, it prints the statements for the database's administrator to run ([Managed services](#managed-services)) |
 | 4 | Install ariesd | [3. Install ariesd](#3-install-ariesd), by `install.sh`, which checks the signature and the checksum; and `aries` in `/usr/local/bin` |
-| 5 | Create the databases and the config file | [4. Create the database and the config file](#4-create-the-database-and-the-config-file), and [Opt in](#opt-in) steps 1, 2 and 4: the control database and 100 database names for new projects |
+| 5 | Write the config file | [4. Write the config file](#4-write-the-config-file), and [Opt in](#opt-in) step 1: the control schema. It then signs in to the database as ariesd will, and checks its version and `max_connections` |
 | 6 | Run ariesd under systemd | [5. Run ariesd under systemd](#5-run-ariesd-under-systemd), and [Keys from the store](#keys-from-the-store) step 1 |
 | 7 | Let the first admin in, and have sshd read the keys file | [6. Let the first principal in](#6-let-the-first-principal-in), and [Keys from the store](#keys-from-the-store) step 2 |
 | 8 | Confine ariesd with AppArmor | [Confine ariesd with AppArmor](#confine-ariesd-with-apparmor), with `--apparmor` |
-| 9 | Adopt the database as the first project | [Opt in](#opt-in) step 3 |
+| 9 | Adopt the database as the first project | [Opt in](#opt-in) step 2 |
 | 10 | Start ariesd | [5. Run ariesd under systemd](#5-run-ariesd-under-systemd), and [Keys from the store](#keys-from-the-store) step 3 |
 | 11 | Connect a repository | [7. Connect a repository](#7-connect-a-repository) |
 
@@ -138,229 +138,176 @@ Its steps, and the sections of this guide each one follows:
   already exists with other text, it shows the difference and stops,
   and you choose: make it the guide's, or move it aside and run again.
   Of the files it did not create, it only appends the admin's line to
-  `authorized_keys`, and prints the line.
+  `authorized_keys`, and prints the line. It changes no role or database
+  it did not make: a role `aries` with more rights than step 2 gives, or
+  a database `aries` that another role owns or whose collation is not
+  `C`, stops it with the fix.
 - **sshd is checked before it is reloaded.** The drop-in is checked with
   `sshd -t`; if that fails, the new file is removed again and sshd is
   not reloaded.
-- **No secret is on a command line or in its output.** The database
-  password is generated into the config file, mode 0600, before Dolt is
-  given it, so a run interrupted between the two reads it back. Dolt's
-  `root` gets a generated password nobody keeps. The SQL travels on
-  stdin, run as Dolt's own user from its data directory, and is printed
-  with `<generated>` in place of each password. `--dry-run` prints the
-  config file the same way.
-- **The files it writes are this guide's,** byte for byte: Dolt's config
-  and unit, ariesd's unit and its two drop-ins, the sudo rule and
-  sshd's drop-in. A test (`scripts/installserver_test.go`) fails when
-  they differ from the blocks above, or when its steps and this table
-  do.
+- **No secret is on a command line or in its output.** With Postgres on
+  the machine there is no password at all: ariesd's user signs in over
+  the unix socket as the role of its own name. With `--dsn`, the only
+  password is the one `--db-password-file` holds: the installer refuses
+  a `--dsn` that holds one, reads the file, writes its line to a file of
+  mode 0600 that the `aries` user owns, and never prints it or a
+  difference from what is there. The SQL travels on stdin, as the
+  `postgres` user.
+- **The files it writes are this guide's,** byte for byte: ariesd's unit
+  and its two drop-ins, the sudo rule and sshd's drop-in; and the SQL it
+  runs is step 2's. A test (`scripts/installserver_test.go`) fails when
+  they differ from the blocks below, or when its steps and this table
+  do. The one file whose text it makes is the apt source of step 1, which
+  names this release of Ubuntu.
 - **Where its parts come from.** `install.sh` and the AppArmor profiles
   are read from beside it when it runs from a checkout of Aries, and
   otherwise from `raw.githubusercontent.com`, as the steps download
   them. It forwards `ARIES_RELEASES` (or `--releases`) to `install.sh`.
-  Dolt comes from Dolt's GitHub releases, or from
-  `ARIES_DOLT_BASE_URL`, and is checked against the pinned checksum
-  either way.
+  Postgres comes from `apt.postgresql.org`, whose key is checked against
+  the fingerprint the installer holds, which a test keeps equal to CI's.
 - **What it leaves to you:** the firewall (`ufw limit 22/tcp`, step 6),
   `PasswordAuthentication no` and, on 26.04, `PerSourcePenaltyExemptList`,
-  [telemetry](#observability), [backups](#backups-and-restore), and
-  upgrades (`ariesd upgrade`). Keep the admin's line in
-  `authorized_keys`: it is the way in when nothing else is
-  ([Keys from the store](#keys-from-the-store), step 5).
+  [telemetry](#observability), [backups](#backups-and-restore),
+  [tuning Postgres](#sizing-postgres), and upgrades (`ariesd upgrade`).
+  Keep the admin's line in `authorized_keys`: it is the way in when
+  nothing else is ([Keys from the store](#keys-from-the-store), step 5).
 - **It refuses** another system, a machine without systemd, a user other
   than root (`--dry-run` included, since it reads root's files), and a
-  machine set up some other way: a `dolt` that is not the pinned
-  release, accounts with other homes or shells, a config file it did not
-  write. Each refusal says what to do.
+  machine set up some other way: more than one Postgres cluster, one
+  older than 16, accounts with other homes or shells, a config file it
+  did not write or whose `dsn` is not the one it would write. Each
+  refusal says what to do.
 
-What was run, on 14 October 2026, with `ariesd` and `aries` built from
+What was run, on 15 October 2026, with `ariesd` and `aries` built from
 the source tree for linux/arm64 and installed by `install.sh` from a
 release tree in a directory, signed with a test key, since the
-installer is newer than any release. That run set the key with
-`ARIES_PUBKEY_PEM`, which `install.sh` no longer reads (decision 88);
-to repeat it, run the installer from a checkout whose `install.sh`
-holds the test key in place of the release key:
+installer is newer than any release: to repeat it, run the installer
+from a checkout whose `install.sh` holds the test key in place of the
+release key.
 
 - **In Docker** (Docker Desktop on an Apple silicon Mac), Ubuntu 24.04.5
-  with systemd 255 as its first process: a dry run that changed
-  nothing; a run; a second run and a dry run, which found nothing to
-  change and modified no file; runs stopped by a signal in step 3,
-  between the config file and the SQL of step 5, and in step 6, each
-  finished by the next run; a drop-in that differed, shown and left; an
-  `sshd -t` that failed, with the new drop-in removed and sshd not
-  reloaded; `--apparmor` refused where AppArmor does not run. Then, from
-  the host, through the container's sshd: the first admin connected,
-  added a project and a member with a key, the member connected and was
-  refused the first project, and once the key was removed it was
-  refused at sshd. During one run every process's arguments were
-  sampled about 100,000 times, and neither they nor the output held the
-  generated passwords.
-- **In a virtual machine** (Lima 2.2.1, the cloud image of
-  [What was run, and where](#what-was-run-and-where), freshly made):
-  a run with `--apparmor`, after which `ariesd serve` ran as
-  `ariesd-serve (enforce)`, `systemd-analyze verify` accepted both
-  units, and the kernel's log held no denial; the same admin and member
-  checks with `aries` from the host; a second run, with and without
-  `--apparmor`, that changed nothing; a reboot, after which both units
-  were active, with no failed start and no denial, and a run changed
-  nothing.
-- **On Ubuntu 26.04**, the same day, the same way: in Docker, Ubuntu
-  26.04.1 with systemd 259, sudo-rs and Rust coreutils, as the release
-  ships them: a dry run, a run (34 changes), a second run that changed
-  nothing, runs stopped by a signal in step 3, between the config file
-  and the SQL of step 5, and in step 6, each finished by the next, and
-  the three refusals above; then the same `aries` checks from the host,
-  against the server of the full run and that of the stopped ones. In a
-  fresh virtual machine (Lima 2.2.1, Ubuntu's cloud image of 26.04.1,
-  kernel 7.0, OpenSSH 10.2p1, AppArmor 5.0.2, enforced): a run with
-  `--apparmor`, the `aries` checks from the host, reruns with and without
-  `--apparmor` that changed nothing, and cold boots, after two of which
-  both units were checked and active, with no failed start and nothing
-  of ariesd's denied, and a run changed nothing.
-  `systemd-analyze verify` accepted both units, and `systemd-analyze
-  security` scores them as on 24.04. What differed is in the steps it
-  concerns: the profiles needed two changes
-  ([Confine ariesd with AppArmor](#confine-ariesd-with-apparmor)),
-  sshd's penalties ([step 6](#6-let-the-first-principal-in)), and the
-  time service ([Keep the clock synchronized](#keep-the-clock-synchronized)).
-  The installer itself changed only to accept 26.04, and to keep
-  sudo-rs's `visudo` from printing `parsed OK`. Then on 24.04 again, in
-  Docker and in a fresh virtual machine with `--apparmor`, a run, a
-  rerun that changed nothing and the `aries` checks, with the changed
-  profiles, and a cold boot with no denial.
+  with systemd 255 as its first process, and Ubuntu 26.04.1 with
+  systemd 259, each a fresh container with what a cloud image has
+  (openssh-server, curl, openssl, sudo, gnupg): a dry run that changed
+  nothing; a run, which checked the repository's key, installed PGDG's
+  `postgresql-18` (18.6), made the role and the database, and did the
+  rest (24 changes); then a rerun and a dry run that found nothing to
+  change. On 24.04 the base image's `policy-rc.d` kept the package from
+  starting its cluster, and the installer started it. That run stopped
+  at step 3 on a fault of the installer's, since fixed, and the next run
+  finished it, finding and adding the `REVOKE` of step 2 that a second
+  fault had left out. Then, from the Mac, through the container's sshd:
+  the first admin connected, created an issue, added a project and a
+  member with a key only the control store holds; the member was
+  refused the second project, and once the key was removed, refused at
+  sshd. `systemd-analyze verify` accepted the unit, and `systemd-analyze
+  security` scored it 7.2, as before. A restart of Postgres under
+  systemd left ariesd running, with the same process and no restart;
+  after a restart of the container, the three units were active, with
+  no failed start.
+- **With `--dsn`**, on Ubuntu 26.04.1 the same way, against the official
+  `postgres:18` image in another container on the same network, its
+  role and database made with a password as
+  [Managed services](#managed-services) says: the installer installed
+  only `postgresql-client-18`, printed step 2's statements for the
+  administrator, wrote the password file, mode 0600 and owned by
+  `aries`, and a DSN that names it, and signed in with it; a rerun
+  changed nothing; a run with another `--dsn` was refused; the password
+  was in neither the installer's output nor the journal. The same
+  `aries` checks passed.
+- **Before Postgres**, on 14 October 2026, the installer of that time
+  was run the same way in Docker, and in virtual machines of 24.04 and
+  26.04 with `--apparmor`, across cold boots
+  ([What was run, and where](#what-was-run-and-where)).
 
 Not run: amd64; a real release downloaded from GitHub, and
 `raw.githubusercontent.com` as the source of `install.sh` and the
-profiles (both runs read them from a checkout); a cloud provider's image;
-a machine set up by hand beforehand.
+profiles (each run read them from a checkout); a virtual machine or a
+cloud provider's image with this installer, and so AppArmor enforced
+and a reboot; `--dsn` against a managed service.
 
-### 1. Install Dolt
+### 1. Install Postgres
 
-Use `arm64` in place of `amd64` on an Arm machine:
+From the PostgreSQL project's apt repository (PGDG), which publishes
+every supported release of Postgres for every Ubuntu LTS. Check the
+repository's key before apt trusts it:
 
 ```sh
-curl -fsSLO https://github.com/dolthub/dolt/releases/download/v2.4.2/dolt-linux-amd64.tar.gz
-sha256sum dolt-linux-amd64.tar.gz
-tar -xzf dolt-linux-amd64.tar.gz
-install -m 0755 dolt-linux-amd64/bin/dolt /usr/local/bin/dolt
-dolt version
+apt-get install -y curl gnupg
+curl -fsSL -o /tmp/pgdg.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+gpg --show-keys --with-colons /tmp/pgdg.asc | awk -F: '$1 == "fpr" { print $10; exit }'
 ```
 
-Before you unpack it, compare the checksum with the one Aries's own
-tests download Dolt 2.4.2 by
-([deploy/docker/Dockerfile](../deploy/docker/Dockerfile)):
-
-| File | SHA-256 |
-|---|---|
-| `dolt-linux-amd64.tar.gz` | `5d95a271149dc6ea97f47157af7ba9a0df5e8d4e9bbac4d79c169f2faa3cfb9e` |
-| `dolt-linux-arm64.tar.gz` | `c1c610e22c6bacd4c5b2fbf5697a0f453d759d075c4abff380c6e646553e22d8` |
-
-### 2. Run Dolt under its own account
-
-Dolt gets its own Unix user and listens on loopback only:
+The last command must print `B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8`,
+the fingerprint the PostgreSQL project publishes, which Aries's CI and
+the installer check too. Then:
 
 ```sh
-useradd --system --home-dir /var/lib/dolt --shell /usr/sbin/nologin dolt
-install -d -o dolt -g dolt -m 0700 /var/lib/dolt /var/lib/dolt/data /var/lib/dolt/cfg
-install -d -m 0755 /etc/dolt
-cat > /etc/dolt/config.yaml <<'EOF'
-log_level: info
-listener:
-  host: 127.0.0.1
-  port: 3306
-metrics:
-  host: 127.0.0.1
-  port: 11228
-  labels: {}
-data_dir: /var/lib/dolt/data
-cfg_dir: /var/lib/dolt/cfg
-system_variables:
-  secure_file_priv: /var/lib/dolt/no-files
+install -D -m 0644 /tmp/pgdg.asc /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+. /etc/os-release
+echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $VERSION_CODENAME-pgdg main" > /etc/apt/sources.list.d/pgdg.list
+apt-get update
+apt-get install -y postgresql-18
+pg_lsclusters
+```
+
+`pg_lsclusters` shows the cluster the package made and started,
+`18 main 5432 online`. Its configuration is in `/etc/postgresql/18/main`
+and its data in `/var/lib/postgresql/18/main`.
+
+- **It listens on loopback and on its unix socket**,
+  `/var/run/postgresql`, and nowhere else (`listen_addresses` is
+  `localhost`). Leave it so: ariesd uses the socket.
+- **A local user signs in as the role of its own name**, over the
+  socket and with no password (`peer` in `pg_hba.conf`, as the package
+  writes it). That is how ariesd signs in, as the `aries` user, and how
+  root administers Postgres, as the `postgres` user: `sudo -u postgres
+  psql`.
+- **`signed-by`** has apt trust that key for that repository alone.
+- **A Postgres 16 or newer that the machine already runs** serves too,
+  as it is, and Ubuntu's own packages of one would (not run here). Skip
+  this step, and run step 2 on it.
+- **Upgrades of Postgres** within 18 come with `apt-get upgrade`, and
+  restart the cluster; ariesd connects again by itself
+  ([step 5](#5-run-ariesd-under-systemd)). A new major version is
+  `pg_upgradecluster`, after a [backup](#backups-and-restore).
+
+### 2. Create the role and the database
+
+ariesd's role may log in and nothing more, and owns one database, made
+with the collation `C`:
+
+```sh
+cd /
+sudo -u postgres psql -v ON_ERROR_STOP=1 <<'EOF'
+CREATE ROLE aries LOGIN;
+CREATE DATABASE aries OWNER aries TEMPLATE template0 ENCODING 'UTF8' LOCALE_PROVIDER libc LOCALE 'C';
+REVOKE ALL ON DATABASE aries FROM PUBLIC;
 EOF
-cd /var/lib/dolt
-sudo -u dolt -H dolt config --global --add user.name "aries server"
-sudo -u dolt -H dolt config --global --add user.email aries@localhost
-sudo -u dolt -H dolt config --global --add metrics.disabled true
+sudo -u postgres psql -c '\l aries'
 ```
 
-- `secure_file_priv` names a directory that does not exist, so no account
-  can read or write files through Dolt, whatever its grants. ariesd
-  refuses to start when it is empty ([why](security-model.md#the-dolt-account)).
-- `cfg_dir` keeps Dolt's accounts outside the data directory.
-- **`metrics:` turns on Dolt's own metrics**, in Prometheus's text
-  format, at `http://127.0.0.1:11228/metrics`. ariesd reads them for
-  [the status report](#watching-a-server), and a collector on the
-  machine can scrape them. **Set up this way the endpoint has no
-  authentication, so `host` must stay a loopback address:** any user on
-  the machine can read it, and with any other address so could the
-  network. It says how
-  much memory and CPU Dolt uses, how many connections and queries it
-  has, how long queries take, its version and the Go runtime's figures,
-  and the machine's CPU, memory and disk in use; no database's name, no
-  query's text, no account and no row
-  ([security model](security-model.md#dolts-metrics-endpoint)). The port
-  is one this guide chose: Dolt has no default, 11228 is free on stock
-  Ubuntu, and it is neither Dolt's SQL port nor the 9464 the guide gives
-  [ariesd's own listener](#the-listener-metrics-to-scrape-and-health).
-  Leave the block out to run without it; the status report then says
-  nothing of Dolt.
-- Run `dolt` commands from a directory the `dolt` user can read, such as
-  `/var/lib/dolt`, or it fails to load its config.
+- **The role is not a superuser and has no other right**: no
+  `CREATEROLE`, `CREATEDB`, `REPLICATION` or `BYPASSRLS`, and no
+  membership of the roles that reach the server's files. ariesd checks
+  this every time it opens the store, and refuses a role with any of
+  them ([The database role](security-model.md#the-database-role)).
+- **It owns the database**, and so may make schemas in it: the control
+  schema, which `ariesd control init` makes, and a schema for each
+  project, which `aries admin project add` makes. It has no right in any
+  other database.
+- **The collation is `C`,** so lists order ids and titles byte by byte,
+  as the tests do, whatever the machine's locale. A database made with
+  another collation works, and may order lists differently.
+- **`REVOKE … FROM PUBLIC`** keeps every other role from connecting to
+  it. Superusers still may.
+- **There is no password.** The role signs in by the unix socket as the
+  user of its name, which step 3 makes. With Postgres on another machine,
+  or a managed service, the role has one: [Managed
+  services](#managed-services).
 
-Then run it under systemd. Save this as `/etc/systemd/system/dolt.service`:
-
-```ini
-[Unit]
-Description=Dolt SQL server for aries
-After=network.target
-
-[Service]
-User=dolt
-Group=dolt
-Environment=HOME=/var/lib/dolt
-WorkingDirectory=/var/lib/dolt/data
-ExecStart=/usr/local/bin/dolt sql-server --config /etc/dolt/config.yaml
-ExecStartPost=/bin/bash -c 'for _ in {1..300}; do (exec 3<>/dev/tcp/127.0.0.1/3306) 2>/dev/null && exit 0; sleep 0.2; done; echo "Dolt is not listening on 127.0.0.1:3306" >&2; exit 1'
-Restart=on-failure
-RestartSec=5
-UMask=0077
-NoNewPrivileges=yes
-ProtectSystem=strict
-ProtectHome=yes
-ReadWritePaths=/var/lib/dolt
-PrivateTmp=yes
-PrivateDevices=yes
-IPAddressDeny=any
-IPAddressAllow=localhost
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```sh
-systemctl daemon-reload
-systemctl enable --now dolt
-journalctl -u dolt -n 3
-curl -s --retry 5 --retry-connrefused http://127.0.0.1:11228/metrics | grep -c '^dss_'
-```
-
-**`ExecStartPost` makes the unit started only once Dolt listens.** Dolt
-tells systemd nothing, so without the line systemd counts the unit as
-started the moment its process exists, before Dolt accepts a
-connection, and whatever is ordered after it, ariesd first, starts
-against a port that refuses. The line tries the port five times a
-second and returns at the first connection; until then the unit is
-`activating` and nothing ordered after it starts. If Dolt does not
-listen within a minute the start fails with `Dolt is not listening on
-127.0.0.1:3306`, and `Restart=on-failure` tries again. It needs only
-bash, and runs as the `dolt` user under the unit's own restrictions. If
-you change `listener.port` in Dolt's config, change it here too.
-
-The log ends with `Server ready. Accepting connections.`, and the last
-command counts the lines of Dolt's metrics about its SQL server: 14 at
-Dolt 2.4.2. A 0 means the endpoint does not answer: check the `metrics:`
-block and `journalctl -u dolt`.
+The last command lists the database, owned by `aries`, with `C` in its
+`Collate` and `Ctype` columns.
 
 ### 3. Install ariesd
 
@@ -388,46 +335,41 @@ ariesd version
 - The installer checks the release's signature and checksum
   ([Install](install.md)).
 
-### 4. Create the database and the config file
+### 4. Write the config file
 
-This creates Aries's database and an account with rights on it alone,
-gives Dolt's `root` a random password, and writes the config file. Both
-passwords travel on stdin:
+This writes the config file, and signs in to the database as ariesd
+will:
 
 ```sh
-cd /var/lib/dolt
 (
   set -e
   umask 077
-  dbpw=$(openssl rand -hex 24)
-  rootpw=$(openssl rand -hex 24)
-  printf "CREATE DATABASE aries;\nCREATE USER 'aries'@'localhost' IDENTIFIED BY '%s';\nGRANT ALL ON aries.* TO 'aries'@'localhost';\nALTER USER 'root'@'localhost' IDENTIFIED BY '%s';\n" "$dbpw" "$rootpw" |
-    sudo -u dolt -H env DOLT_CLI_PASSWORD= dolt --host 127.0.0.1 --port 3306 --no-tls -u root sql
   install -d -o root -g aries -m 0750 /etc/aries
-  printf 'dsn: aries:%s@tcp(127.0.0.1:3306)/aries\nproject: %s\nsystemd_unit: ariesd.service\nadmins: [alice]\ntelemetry:\n  dolt_metrics_url: http://127.0.0.1:11228/metrics\n' "$dbpw" "$(cat /proc/sys/kernel/random/uuid)" |
+  printf 'dsn: postgres://aries@/aries?host=/var/run/postgresql\nproject: %s\nsystemd_unit: ariesd.service\nadmins: [alice]\n' "$(cat /proc/sys/kernel/random/uuid)" |
     install -o aries -g aries -m 0600 /dev/stdin /etc/aries/ariesd.yaml
 )
 grep project /etc/aries/ariesd.yaml
+cd /var/lib/aries
+sudo -u aries -H psql -d 'postgres://aries@/aries?host=/var/run/postgresql' -c 'SELECT current_user, version()'
 ```
 
-- **The account can do anything to its one database and nothing else**:
-  no global privilege, no `FILE`, no `GRANT OPTION` (`ALL` does not include
-  it). ariesd checks this every time it opens the store.
-- **Nobody needs `root`'s password**, so the step forgets it. Dolt's own
-  user can still administer the server from the data directory:
-  `cd /var/lib/dolt/data/aries && sudo -u dolt -H dolt sql`. You may
-  drop `root` instead (`DROP USER 'root'@'localhost';`); Dolt does not
-  bring it back on restart.
+- **`dsn`** is a `postgres://` URL: the role, no host, the database,
+  and `host=` naming the directory of Postgres's unix socket. It holds
+  no password and needs none. A `search_path=` would name the schema
+  that holds this project; with none it is `public`, which the owner of
+  the database owns. [Settings](#settings) has the rest of the form.
 - **`project`** is the project's UUID. Every repository's `.aries.yaml`
   names it.
 - **`admins`** lists the first principal, `alice`, who you let in at step
   6. [Settings](#settings) lists every other key.
-- **`telemetry: dolt_metrics_url:`** is where ariesd reads Dolt's own
-  metrics, which step 2 turned on, for
-  [the status report](#watching-a-server). Leave the two lines out if
-  you left `metrics:` out of Dolt's config.
+- **The file is mode 0600**, owned by `aries`, although it holds no
+  secret here: a `dsn` may hold a password, or name a file that does
+  ([Managed services](#managed-services)).
 
-The step runs once: a second run finds `root` protected and stops.
+The last command answers with `aries` and the server's version: ariesd's
+user can sign in. `role "aries" does not exist` means step 2 has not
+run; `Peer authentication failed` means the command did not run as the
+`aries` user.
 
 ### 5. Run ariesd under systemd
 
@@ -436,9 +378,8 @@ Save this as `/etc/systemd/system/ariesd.service`:
 ```ini
 [Unit]
 Description=Aries server
-After=network.target dolt.service time-sync.target
-Wants=time-sync.target
-Requires=dolt.service
+After=network.target postgresql.service time-sync.target
+Wants=postgresql.service time-sync.target
 
 [Service]
 Type=notify
@@ -473,14 +414,15 @@ WantedBy=multi-user.target
 | `Type=notify` | systemd counts the unit as started when ariesd says it is ready, which it does once it listens on its socket: after the database is open and, on a server of many projects, every project migrated. Until then `systemctl start` waits, and units ordered after this one do not start |
 | `NotifyAccess=main` | Only ariesd's own process may send those notifications |
 | `TimeoutStartSec=600` | How long systemd waits for that. Its default is 90 seconds, after which it fails the start and `Restart=on-failure` tries again; an upgrade that migrates many projects can take longer than that, so the unit gives it 10 minutes |
-| `WatchdogSec=120` | ariesd must say it is alive at least every 120 seconds, or systemd kills it and `Restart=on-failure` starts it again. ariesd says so every 60, half the interval, from the goroutine that runs its 30-second reaper, so a daemon whose reaper hangs is restarted. One tick of the reaper that takes longer than `WatchdogSec` is a hang too, and a Dolt that has stopped answering can cause one: each of the reaper's writes waits up to a minute |
+| `WatchdogSec=120` | ariesd must say it is alive at least every 120 seconds, or systemd kills it and `Restart=on-failure` starts it again. ariesd says so every 60, half the interval, from the goroutine that runs its 30-second reaper, so a daemon whose reaper hangs is restarted. One tick of the reaper that takes longer than `WatchdogSec` is a hang too, and a database that has stopped answering can cause one: each of the reaper's writes waits up to a minute |
+| `postgresql.service` in `After=` and `Wants=` | Start Postgres with ariesd, and ariesd after it. On Ubuntu that unit is reached once each cluster's own unit (`postgresql@18-main.service`) has started, and that one only once the cluster accepts connections. Where Postgres is on another machine there is no such unit, and the two do nothing |
 | `Wants=time-sync.target` and `time-sync.target` in `After=` | Order ariesd after the clock is synchronized, on a machine where something provides that target. Stock Ubuntu, 24.04 or 26.04, reaches it at once, so there the lines wait for nothing ([Start ariesd after the clock is set](#start-ariesd-after-the-clock-is-set)) |
 | `RestartPreventExitStatus=75` | Leaves ariesd stopped when it refuses to start because the clock is behind its own history, which no restart can correct ([The server's clock](#the-servers-clock)). It exits with that status 0.13 seconds after systemd starts it, before it would tell systemd it is ready, so the start fails then and not when `TimeoutStartSec` runs out. Every other failure is still restarted |
 
 Without the first four lines ariesd runs as before: it sends a
 notification only when systemd asks for one.
 
-The lines were run on the machine of
+What the lines showed on the machines of
 [What was run, and where](#what-was-run-and-where); what the two for
 the clock showed is in [The server's clock](#the-servers-clock):
 
@@ -501,7 +443,8 @@ the clock showed is in [The server's clock](#the-servers-clock):
   the daemon then serves, logs `could not tell systemd the daemon is
   ready`, and the unit stays `activating` until `TimeoutStartSec` runs
   out, when systemd stops it and starts it again
-  ([Troubleshooting](#troubleshooting)).
+  ([Troubleshooting](#troubleshooting)). Profiles from before Postgres
+  do not let it reach Postgres's socket.
 
 Then let `ariesd upgrade` restart the unit, and start it:
 
@@ -517,29 +460,18 @@ journalctl -u ariesd -n 3
 The log shows `ariesd serving` with the socket, the project and the
 admins. If it shows a refusal instead, its `fix:` says what to change.
 
-**ariesd starts once Dolt listens,** at boot and whenever Dolt's unit
-restarts. `After=dolt.service` orders it after Dolt's unit, and that
-unit is started only when Dolt accepts connections (its `ExecStartPost`,
-[step 2](#2-run-dolt-under-its-own-account)). `Requires=dolt.service`
-has systemd stop ariesd with Dolt, on `systemctl restart dolt` or
-after a crash, and start both again in that order.
-
-**A server set up from this guide before 13 October 2026 has no such
-line,** and there ariesd's first start fails at every boot and at
-every restart of Dolt: ariesd finds no database (`dial tcp
-127.0.0.1:3306: connect: connection refused`) and exits, and
-`Restart=on-failure` starts it again five seconds later, which works.
-The journal holds one failed start each time (`Failed to start
-ariesd.service`), and `aries` answers `ariesd is not running on the
-server` for those seconds. `Type=notify` does not remove that race,
-since it is Dolt's unit that is counted as started too early. To remove
-it, add the `ExecStartPost` line of step 2 to `dolt.service` and run
-`systemctl daemon-reload`; it takes effect when Dolt next starts.
-
-The line is in Dolt's unit, and not an `ExecStartPre` in ariesd's,
-because the [AppArmor profile](#confine-ariesd-with-apparmor) the
-daemon's unit may ask for confines every command of that unit, and it
-allows the daemon to run nothing.
+**ariesd outlives a restart of Postgres,** and the unit does not stop
+it with Postgres (it has no `Requires=`). While Postgres is down,
+requests fail with `unavailable` and [`/readyz`](#the-listener-metrics-to-scrape-and-health)
+says why; when it is back, ariesd's pool connects again, and its next
+write takes back the [writers' locks](#one-writer-for-each-project), with
+no restart of ariesd. Run on Ubuntu 24.04 and 26.04 booted by systemd
+in containers, on 15 October 2026: `systemctl restart
+postgresql@18-main` under a running ariesd left it running, with the
+same process and no restart, and a write made at once after succeeded.
+In the [Docker test server](deploy/docker.md) the same held, and
+ariesd's log had one `agent.register_failed` for a pooled connection
+the restart had ended ([Troubleshooting](#troubleshooting)).
 
 ### 6. Let the first principal in
 
@@ -600,8 +532,8 @@ ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
   start sshd on the first connection have not made yet.
 - The unit is `sshd` rather than `ssh` on some distributions; Ubuntu
   26.04 answers to both.
-- `DisableForwarding` means no tunnel to Dolt, even from a key line that
-  lacks `restrict`.
+- `DisableForwarding` means no tunnel to Postgres, or anywhere else,
+  even from a key line that lacks `restrict`.
 - `MaxStartups` drops floods of unauthenticated connections early.
 - `ClientAliveInterval` keeps an agent's long session alive through
   tunnels that drop idle connections.
@@ -672,159 +604,122 @@ and the [agent guide](agents.md) sets agents up in the repository.
 
 ### What was run, and where
 
-Steps 1 to 7, then [Serving many projects](#serving-many-projects) with
-its keys file and `aries admin`, were run in order as written on 12
-October 2026, on one machine:
+**On Postgres**, on 15 October 2026 (slice P4 of decision 79):
 
 | | |
 |---|---|
-| Machine | A virtual machine on an Apple silicon Mac (Lima 2.2.1), arm64, 2 CPUs and 4 GiB, from Ubuntu's cloud image for 24.04 |
-| System | Ubuntu 24.04.5, kernel 6.8.0-142, systemd 255, OpenSSH 9.6p1, sudo 1.9.15p5, AppArmor 4.0.1, Dolt 2.4.2 |
-| ariesd | Built from the source tree for linux/arm64 with the release's flags, and put where step 3's installer puts a release: `/opt/aries/bin/ariesd`, owned by `aries`, mode 0755. The installer itself was not run |
-| Clients | `aries` inside the same machine, against `localhost`, as three Unix users with a key each |
+| Machines | Containers booted by systemd, on Docker Desktop on an Apple silicon Mac (arm64): Ubuntu 24.04.5 (systemd 255, OpenSSH 9.6p1, sudo 1.9.15p5) and Ubuntu 26.04.1 (systemd 259, OpenSSH 10.2p1, the original sudo as `sudo.ws`), with Postgres 18.6 from PGDG |
+| ariesd | Built from the source tree for linux/arm64, and installed by the installer from a release tree signed with a test key |
+| Clients | `aries` on the Mac, through the port Docker forwards to sshd |
 
-What that showed:
+- **The installer**, on both, with Postgres on the machine and with
+  `--dsn` ([With the installer](#with-the-installer)). It writes
+  steps 4 to 6's files as they are written here, byte for byte, and runs
+  step 2's statements, so those steps ran as written.
+- **ariesd's unit**: `systemd-analyze verify` accepted it; Postgres
+  restarted under it ([step 5](#5-run-ariesd-under-systemd)); the
+  container restarted, with every unit active after.
+- **[Backups and restore](#backups-and-restore)**, as written, on 24.04:
+  the timer and the service, a dump, a restore of the whole database
+  and of one project.
+- **The [Docker test server](deploy/docker.md#run-the-smoke-test)**, whose
+  Postgres is another container's: its smoke test, plain (155 checks),
+  with the telemetry harness (212) and with the identity provider (189).
 
-- **The units work as written.** `systemd-analyze verify` accepts both.
-  `systemd-analyze security` scores ariesd's 7.2 and Dolt's 7.1
-  ("medium"; lower is tighter): they run as their own users with a
-  read-only file system, and nothing limits their system calls,
-  capabilities or namespaces.
+Not run on Postgres: a virtual machine, so neither a real boot nor
+AppArmor enforced (Docker Desktop's kernel has no AppArmor; the profiles
+were only parsed, [Confine ariesd with AppArmor](#confine-ariesd-with-apparmor));
+the clock's checks below; amd64; a cloud image; a managed service.
+
+**Before Postgres**, the steps were run in order as they were then
+written, with the database Aries used until decision 79, on virtual
+machines on an Apple silicon Mac (Lima 2.2.1, arm64, 2 CPUs and 4 GiB,
+from Ubuntu's cloud images), and the installer on both:
+
+| | |
+|---|---|
+| Ubuntu 24.04, 12 to 14 October 2026 | Ubuntu 24.04.5, kernel 6.8.0-142, systemd 255, OpenSSH 9.6p1, sudo 1.9.15p5, AppArmor 4.0.1 |
+| Ubuntu 26.04, 14 October 2026 | Ubuntu 26.04.1, kernel 7.0.0-34, systemd 259, OpenSSH 10.2p1, sudo-rs 0.2.13 as `sudo` (the original, 1.9.17p2, installed as `sudo.ws`), Rust coreutils 0.10, chrony with NTS, AppArmor 5.0.2 |
+| ariesd | Built from the source tree for linux/arm64 with the release's flags, and put where step 3's installer puts a release, or installed by the installer from a release tree signed with a test key |
+| Clients | `aries` inside the machine, against `localhost`, as three Unix users with a key each; and `aries` on the Mac, through the port Lima forwards to sshd |
+
+What they showed does not depend on the database, and holds for these
+steps, which changed only in what they say of it:
+
+- **ariesd's unit works as written.** `systemd-analyze verify` accepts
+  it, and `systemd-analyze security` scores it 7.2 ("medium"; lower is
+  tighter): it runs as its own user with a read-only file system, and
+  nothing limits its system calls, capabilities or namespaces. Its
+  `Type=notify`, start timeout and watchdog worked as
+  [step 5](#5-run-ariesd-under-systemd) says, with the AppArmor
+  profiles enforced, across a cold boot.
 - **sshd's `Match` block works on stock Ubuntu.** The forced command
   runs in place of whatever command the client asks for, a terminal is
-  refused
-  (`PTY allocation request failed`), and a tunnel to Dolt is refused
-  (`open failed: administratively prohibited`).
-- **The first start after a boot fails**, and the next one works
-  ([step 5](#5-run-ariesd-under-systemd)). That was with Dolt's unit
-  as it then was, without its `ExecStartPost`.
-- **Dolt's unit with `ExecStartPost` is started only once Dolt
-  listens.** This was run on 13 October 2026, and not on the machine
-  above: in a container (Docker Desktop on an Apple silicon Mac, arm64)
-  of Ubuntu 24.04 with systemd 255.4 as its first process and Dolt
-  2.4.2 set up by steps 1 and 2, with a stand-in for ariesd: a unit
-  with ariesd's `After=dolt.service` and `Requires=dolt.service` that
-  tries the port once. Started from stopped five times each way,
-  without the line every attempt was refused, and with it every attempt
-  connected; the start took 0.28 seconds in place of 0.03. A connection
-  made at once after `systemctl restart dolt` succeeded three times of
-  three with the line. With a process in Dolt's place that never
-  listens, the start failed after 63 seconds and systemd tried again.
-  `systemd-analyze verify` accepts the unit. Not run: ariesd itself
-  ordered after the unit, a real boot, and the machine above.
-- **The unit's `Type=notify`, start timeout and watchdog work**
-  ([step 5](#5-run-ariesd-under-systemd)), on the same machine with
-  the AppArmor profiles enforced, across a cold boot. So do the
-  loopback listener, `/readyz` when Dolt stops answering, metrics
-  pushed to a receiver on the machine, and `ariesd status`
-  ([Observability](#observability)).
-- **Traces work as written** ([Traces](#traces)), on the same machine
-  on the same day with the profiles enforced. With the guide's one
-  variable and nothing else ariesd starts and serves, posts spans to
-  a receiver on the machine that hold no stand-in and no name, and says
-  why at error level, in its status report and in `whois`: `it cannot
-  be made: no such file or directory`. With the directory made and no
-  restart, half a minute later: `read-only file system`. With the
-  drop-in and a restart, under a profile without the rule for the file:
-  `permission denied`, with the denial in the kernel's log. With the
-  rule loaded and no restart, half a minute later: `made the key`,
-  mode 0600, `spans name people by stand-ins from now on`, and spans
-  with a stand-in. `aries admin principal whois` then resolves it for a
-  server admin. With the file made readable by others and a restart:
-  no stand-in again, `CANNOT BE TRUSTED` in the status; after `chmod
-  600` and no restart, the same stand-in as before. An earlier build of
-  the same day, which still refused to start without the key, showed
-  that a restart keeps the key, that deleting the file gives the same
-  person another stand-in and leaves the old one resolving to nobody,
-  that `principals: name` and `OTEL_TRACES_EXPORTER=none` need no key,
-  and that neither another user, nor the `aries` user under the
-  bridge's or the operator's profile, can read the key. The 76 checks
-  of the earlier runs passed with traces on, with no denial.
-- **The clock's unit lines and settings work** ([The server's
-  clock](#the-servers-clock)), on the same machine on the same day with
-  the profiles enforced and no denial in the kernel's log: the refusal
-  to start and exit status 75 under `Type=notify`, with and without
-  `RestartPreventExitStatus=75`; each way on from it; the clock set
-  back and forward under a running daemon with claims held; boots with
-  and without `systemd-time-wait-sync`, and with no time server
-  answering; `upgrade --check`'s `clock:` line and the query of
-  [Upgrades](#upgrades). The 76 checks of the earlier runs passed
-  afterwards.
-- **Dolt's metrics and the status report's lines about Dolt work**
-  ([Dolt's figures](#dolts-figures)), on the same machine on the same
-  day, set up by the block for a server set up before, with the
-  profiles enforced and no denial in the kernel's log. The endpoint
-  answered on 127.0.0.1 and not on the machine's other address. `MiB
-  resident` was within a mebibyte of `VmRSS` in `/proc`, the start time was
-  `ps`'s, and the connections were ariesd's own, counted with `ss`.
-  The collector's line gave the same cycles and writes as Dolt's counter
-  and ariesd's own metric did over a burst. With the port refused by
-  a firewall rule for 50 seconds the report said `Dolt: unknown` with
-  the last read, `/readyz` stayed ready and `aries` worked, with one
-  warning in the log and one line when the reads came back; a URL with
-  the wrong port, one that is not loopback and one with `https://` did
-  what [Dolt's figures](#dolts-figures) says. [Dolt's
-  memory](#dolts-memory) has what the line showed under a memory limit
-  too low and one with room. The 76 checks passed afterwards, once
-  their script was brought up to date with this release in three
-  places: each user's
-  key is named by `ARIES_KEY_FILE` in place of a `key:` line outside
-  the repository, `member add` for someone with a key takes
-  `--accept-keys`, and the refusal to add a key to one's own account
-  has new words.
-- **`ariesd upgrade --rollback` works for the `aries` user**: it
-  renames the binaries in `/opt/aries/bin`, restarts the unit through
-  the sudo rule and finds the daemon healthy. `upgrade --check` reaches
-  GitHub and compares versions.
-- **The daily dump** of [Backups and restore](#backups-and-restore)
-  writes its file.
-
-Not run: amd64; a cloud provider's image or network; a real
-OpenTelemetry Collector on this machine, or a hosted backend, in place
-of which a few lines of Python received the pushes (an OpenTelemetry
-Collector, 0.162.0, did receive and decode the spans of an ariesd run
-by hand on a developer's machine); `install.sh` on the server; an upgrade to a newer release, which a build from source refuses
-(`a development build … never upgrades itself`), so the download, the
-signature check and the swap to a new binary were not run here; a
-restore from a dump. For the clock: a machine with a real-time clock of
-its own, working or dead (this guest's comes from the hypervisor at
-every boot and was always right); a boot with the clock wrong; a
-virtual machine paused and resumed, or restored from a snapshot; a
-provider's time service; `chrony`.
-
-**On Ubuntu 26.04**, on 14 October 2026, the installer did steps 1 to 7
-and the many-projects sections
-([With the installer](#with-the-installer)) on a second machine:
-
-| | |
-|---|---|
-| Machine | A virtual machine on an Apple silicon Mac (Lima 2.2.1), arm64, 2 CPUs and 4 GiB, from Ubuntu's cloud image for 26.04 |
-| System | Ubuntu 26.04.1, kernel 7.0.0-34, systemd 259, OpenSSH 10.2p1, sudo-rs 0.2.13 as `sudo` (the original, 1.9.17p2, installed as `sudo.ws`), Rust coreutils 0.10, chrony with NTS, AppArmor 5.0.2, Dolt 2.4.2 |
-| ariesd | Built from the source tree for linux/arm64 and installed by the installer, which ran `install.sh` against a release tree signed with a test key |
-| Clients | `aries` on the Mac, through the port Lima forwards to sshd; and `aries` inside the machine, against `127.0.0.1` |
-
-What that showed, beyond what the installer's run says:
-
+  refused (`PTY allocation request failed`), a tunnel is refused
+  (`open failed: administratively prohibited`), and a certificate from
+  an authority trusted for every account is refused for `aries`
+  ([step 6](#6-let-the-first-principal-in)). sshd listens through
+  `ssh.socket` on both; systemd 259 also makes it answer on `AF_VSOCK`
+  in a virtual machine (`sshd-vsock.socket`), with the same
+  configuration.
 - **Every command the steps and the installer use works under sudo-rs
   and Rust coreutils as under sudo and GNU coreutils**: `sudo -u USER -H`
   with `env` and standard input, `visudo -c -f` (sudo-rs's prints
   `parsed OK` even with `-q`), the sudo rule for `systemctl restart`
   from the `aries` user, and refusing anything else; `install` with
   `-o`, `-g`, `-m` and `-d`, and from `/dev/stdin` and `/dev/null`;
-  `stat -c`, `mktemp -d`, `cut -s`, `tail -c`, `sha256sum`, `readlink`,
-  `ln -sfn`. Ubuntu keeps GNU's `mv` (and `cp` and `rm`).
-- **The units, sshd's `Match` block** and its refusals of a terminal, a
-  tunnel and a certificate, as on 24.04
-  ([step 6](#6-let-the-first-principal-in)). sshd listens through
-  `ssh.socket`, as on 24.04, and systemd 259 also makes it answer on
-  `AF_VSOCK` in a virtual machine (`sshd-vsock.socket`), with the same
-  configuration.
-- **`ariesd upgrade --rollback --restart`** under the operator's
-  profile, with sudo-rs and with `sudo.ws` as `sudo`, once the profile
-  names both ([Confine ariesd with
-  AppArmor](#confine-ariesd-with-apparmor)).
-- **The time service**: `time-sync.target` and `chrony-wait.service`
+  `stat -c`, `mktemp -d`, `cut -s`, `tail -c`, `readlink`, `ln -sfn`.
+  Ubuntu keeps GNU's `mv` (and `cp` and `rm`).
+- **The loopback listener, metrics pushed to a receiver on the machine,
+  and `ariesd status`** work ([Observability](#observability)).
+- **Traces work as written** ([Traces](#traces)), with the profiles
+  enforced. With the guide's one variable and nothing else ariesd
+  starts and serves, posts spans to a receiver on the machine that hold
+  no stand-in and no name, and says why at error level, in its status
+  report and in `whois`: `it cannot be made: no such file or
+  directory`. With the directory made and no restart, half a minute
+  later: `read-only file system`. With the drop-in and a restart, under
+  a profile without the rule for the file: `permission denied`, with the
+  denial in the kernel's log. With the rule loaded and no restart, half
+  a minute later: `made the key`, mode 0600, `spans name people by
+  stand-ins from now on`, and spans with a stand-in. `aries admin
+  principal whois` then resolves it for a server admin. With the file
+  made readable by others and a restart: no stand-in again, `CANNOT BE
+  TRUSTED` in the status; after `chmod 600` and no restart, the same
+  stand-in as before. A restart keeps the key, deleting the file gives
+  the same person another stand-in and leaves the old one resolving to
+  nobody, `principals: name` and `OTEL_TRACES_EXPORTER=none` need no
+  key, and neither another user, nor the `aries` user under the bridge's
+  or the operator's profile, can read the key.
+- **The clock's unit lines and settings work** ([The server's
+  clock](#the-servers-clock)), with the profiles enforced and no denial
+  in the kernel's log: the refusal to start and exit status 75 under
+  `Type=notify`, with and without `RestartPreventExitStatus=75`; each
+  way on from it; the clock set back and forward under a running daemon
+  with claims held; boots with and without `systemd-time-wait-sync`, and
+  with no time server answering; `upgrade --check`'s `clock:` line; and,
+  on 26.04, `time-sync.target` and `chrony-wait.service`
   ([Start ariesd after the clock is set](#start-ariesd-after-the-clock-is-set)).
+- **`ariesd upgrade --rollback` works for the `aries` user**: it
+  renames the binaries in `/opt/aries/bin`, restarts the unit through
+  the sudo rule and finds the daemon healthy, under the operator's
+  profile, with sudo-rs and with `sudo.ws` as `sudo` on 26.04 once the
+  profile names both ([Confine ariesd with
+  AppArmor](#confine-ariesd-with-apparmor)). `upgrade --check` reaches
+  GitHub and compares versions.
+
+Not run, before or on Postgres: amd64; a cloud provider's image or
+network; a real OpenTelemetry Collector on a machine of the guide, or a
+hosted backend, in place of which a few lines of Python received the
+pushes (an OpenTelemetry Collector, 0.162.0, receives and decodes the
+spans of the [Docker test server](deploy/docker.md#telemetry)); an
+upgrade to a newer release, which a build from source refuses (`a
+development build … never upgrades itself`), so the download, the
+signature check and the swap to a new binary were not run. For the
+clock: a machine with a real-time clock of its own, working or dead (a
+guest's comes from the hypervisor at every boot and was always right);
+a boot with the clock wrong; a virtual machine paused and resumed, or
+restored from a snapshot; a provider's time service.
 
 ## Operate a server with Claude Code
 
@@ -870,8 +765,8 @@ How it works, and what it will not do:
   the command, the host, the user, and what it changes, after a dry run
   where one exists. Read-only checks run freely. Offboarding, a restore,
   archiving a project, removing a key or a member, and an upgrade need
-  you to name the target in your reply, and the backup or tag this guide
-  has for them is taken first. It stops and asks when what it finds
+  you to name the target in your reply, and the dump this guide has for
+  them is taken first. It stops and asks when what it finds
   differs from what it expected.
 - **No secret passes through it.** Passwords are generated on the
   server into 0600 files and never printed or put on a command line; it
@@ -889,12 +784,14 @@ Its files are under
 `scripts/opsskill_test.go` fails when a command or flag it names is not
 one `aries` or `ariesd` has, when a section it cites is no heading of
 these guides, or when its manifests or frontmatter are not what Claude
-Code reads. It has no database steps of its own: Aries's backend is
-moving to Postgres, and until that lands its `references/database.md`
-sends Claude to this guide's current sections and has it stop and ask
-before any database command. What was run: its read-only and admin commands against the
-[Docker test server](deploy/docker.md), on 15 October 2026; not on a
-virtual machine or a cloud provider's, and not a restore.
+Code reads. Its database steps, in `references/database.md`, follow
+this guide's sections on Postgres: the role and the database, sizing,
+managed services, backups and restore. What was run: its read-only and
+admin commands against the [Docker test server](deploy/docker.md), on
+15 October 2026, before it had database steps; not on a virtual machine
+or a cloud provider's. Its database steps were not run through Claude;
+the guide's commands they follow were
+([Backups and restore](#backups-and-restore)).
 
 ## Principals
 
@@ -918,7 +815,7 @@ Where the key and its principal are recorded depends on the server:
 
 | | A server of one project | A server of [many projects](#serving-many-projects) |
 |---|---|---|
-| A key is | A line of `~aries/.ssh/authorized_keys` whose forced command names the principal ([step 6](#6-let-the-first-principal-in)) | A row of the control database, which ariesd writes to a file sshd reads ([Keys from the store](#keys-from-the-store)). A line of `authorized_keys` still works too |
+| A key is | A line of `~aries/.ssh/authorized_keys` whose forced command names the principal ([step 6](#6-let-the-first-principal-in)) | A row of the control store, which ariesd writes to a file sshd reads ([Keys from the store](#keys-from-the-store)). A line of `authorized_keys` still works too |
 | Add someone | Append a line, on the server. A principal may have several, one per key | `aries admin principal add NAME --key FILE`, from anywhere |
 | Add a key | Append a line | `aries admin key add NAME FILE` |
 | Remove a key | Delete its line. That stops new connections; to end open sessions too, stop the bridges: `pkill -f -- 'stdio --principal bob$'` | `aries admin key remove FINGERPRINT`, which also closes the connections that key signed in |
@@ -949,12 +846,13 @@ as long as it is, though the config file still names it
 
 ## Serving many projects
 
-A server can hold many projects, each in a Dolt database of its own with
-its own writer, so a busy project does not queue another's writes. They
-share the one Dolt, the one ariesd and the machine. A second database,
-the control database, records the projects, the principals and their
-keys, and which principal is a member of which project. You opt in: a
-server with no `control_schema` setting is the server of one project it was.
+A server can hold many projects, each in a schema of its own in the one
+database, with its own writer, so a busy project does not queue
+another's writes. They share the one Postgres, the one ariesd and the
+machine. Another schema beside them, the control store, records the
+projects, the principals and their keys, and which principal is a member
+of which project. You opt in: a server with no `control_schema` setting
+is the server of one project it was.
 
 What works today:
 
@@ -970,7 +868,7 @@ What works today:
 - **Projects, principals, members and keys are managed from anywhere**
   with `aries admin`, over the same SSH connection as every other command
   ([Managing access](#managing-access)). A new project needs no shell on
-  the server: its database comes from a block of names you grant once.
+  the server: ariesd makes its schema.
   Nor does a new person: an admin adds them and their public key, and
   ariesd writes the key to a file sshd reads
   ([Keys from the store](#keys-from-the-store)).
@@ -985,7 +883,7 @@ What works today:
 - **`import-bd` and `export-bd`** act on the config file's `project`, or
   on another with `--project UUID`.
 
-Everything above is built and tested against a real Dolt and Aries's
+Everything above is built and tested against a real Postgres and Aries's
 own stand-in for sshd, including a soak test across two projects
 ([CONTRIBUTING.md](../CONTRIBUTING.md#the-soak-test)). The sshd setup of
 [Keys from the store](#keys-from-the-store) was also run with a real
@@ -998,27 +896,20 @@ and what was not.
 
 ### Opt in
 
-1. Create the control database and grant it to ariesd's account, as
-   Dolt's own user, the way step 4 says to administer Dolt:
-
-   ```sh
-   cd /var/lib/dolt/data/aries
-   sudo -u dolt -H dolt sql -q "CREATE DATABASE IF NOT EXISTS aries_control; GRANT ALL ON aries_control.* TO 'aries'@'localhost';"
-   ```
-
-   The grant names the database exactly. Dolt ignores a grant on a name
-   pattern.
-
-2. Name it in `/etc/aries/ariesd.yaml`, leaving `dsn`, `project`,
-   `prefix` and `account` as they are. They now describe the project to
-   adopt:
+1. Name the control store's schema in `/etc/aries/ariesd.yaml`,
+   leaving `dsn`, `project`, `prefix` and `account` as they are. They now
+   describe the project to adopt:
 
    ```yaml
    control_schema: aries_control
    ```
 
-3. Adopt the existing database as the first project, and import the
-   principals and keys of `authorized_keys`:
+   Nothing is made yet. ariesd's role owns the database
+   ([step 2](#2-create-the-role-and-the-database)), so `control init`
+   makes the schema in the next step.
+
+2. Make the control store, adopt the existing project as the first
+   one, and import the principals and keys of `authorized_keys`:
 
    ```sh
    sudo -u aries -H ariesd control init --name acme
@@ -1034,7 +925,7 @@ and what was not.
    reminder, and `control init` never edits `authorized_keys`: see
    [Keys from the store](#keys-from-the-store), step 5.
 
-4. Nothing more is needed for admins to create further projects. Each
+3. Nothing more is needed for admins to create further projects. Each
    project is a schema of the DSN's database, which ariesd's role owns
    and so may make schemas in, and ariesd names each one itself:
    `project_` and the project's name, with each hyphen an underscore
@@ -1042,19 +933,23 @@ and what was not.
    project's name is then at most 55 characters. A schema of that name
    already in the database is never taken over: the add is refused,
    and nothing is written, until the name is changed or the schema
-   dropped. `control_schema` may not start with `project_`.
+   dropped. `control_schema` may not start with `project_`. Where the
+   role does not own the database, as on some managed services, see
+   [Managed services](#managed-services).
 
-5. Let ariesd write its keys file and have sshd read it, which is
+4. Let ariesd write its keys file and have sshd read it, which is
    also what lets you add people from anywhere, with no line in
    `authorized_keys`: [Keys from the store](#keys-from-the-store), steps
    1 and 2. ariesd does not start on a server of many projects until
    it can write that file.
 
-6. Restart ariesd: `systemctl restart ariesd`.
+5. Restart ariesd: `systemctl restart ariesd`.
 
-`control init` records the database in `dsn` as a project, with the
-config file's `project` UUID, `prefix` and `account` and the name you
-give, and changes nothing in that database. Then, for each line of
+`control init` makes the control store's schema if it is not there,
+then records the schema `dsn` names (`public`, unless its `search_path`
+names another) as a project, with the config file's `project` UUID,
+`prefix` and `account` and the name you give, and changes nothing in
+that schema. Then, for each line of
 `/var/lib/aries/.ssh/authorized_keys` (or `--authorized-keys FILE`)
 whose forced command is `ariesd stdio --principal NAME`, it adds the
 principal if it is new, adds the key, and makes the principal a member
@@ -1066,13 +961,13 @@ text.
 - **Run it again whenever `authorized_keys` gains a line.** It adds what
   is new and leaves the rest: it does not demote an admin, re-activate an
   archived project, or remove anyone. A running ariesd reads the
-  control database again every 30 seconds, so the new member can connect
+  control store again every 30 seconds, so the new member can connect
   within the minute.
 - **Run again, it does not undo what an admin did.** The file is not
   edited when an admin removes someone with `aries admin`, so its lines
-  still name them. `control init` reads the control database's event log
+  still name them. `control init` reads the control store's event log
   before it adds anything: a key whose newest event is its removal stays
-  out of the control database, a principal whose newest event on the
+  out of the control store, a principal whose newest event on the
   adopted project is its removal stays removed, and a disabled principal
   stays disabled, with nothing of its lines imported. Each is reported on
   stderr with its line number, who did it and when, and counted in a
@@ -1093,7 +988,7 @@ text.
   project removed with `aries admin member remove`, and the principals
   disabled with `aries admin principal disable`. Each restoration is an
   event under `import`, and is reported. Use it when the file is what
-  you mean, for example after restoring a control database from an old
+  you mean, for example after restoring a control store from an old
   backup. It is an operator's command like `control init` itself: where
   the AppArmor profiles are installed, run it through `aa-exec -p
   ariesd-admin` ([Confine ariesd with AppArmor](#confine-ariesd-with-apparmor)). It reads the control
@@ -1108,12 +1003,12 @@ text.
   ([Keys from the store](#keys-from-the-store)) the key therefore still
   signs in, until `aries admin key remove` takes it out; where sshd does
   not, deleting the line stops the key, as before.
-- **Its changes are on the record** in the control database's event log,
+- **Its changes are on the record** in the control store's event log,
   under the reserved principal `import`.
-- **`serve` refuses to start** while the control database holds no active
+- **`serve` refuses to start** while the control store holds no active
   project, and says to run `control init`.
-- **To go back,** remove `control_schema` and restart. The project's database
-  was never changed, and the control database is left unused.
+- **To go back,** remove `control_schema` and restart. The project's schema
+  was never changed, and the control store is left unused.
 
 ### Keys from the store
 
@@ -1133,14 +1028,14 @@ restrict,command="/usr/local/bin/ariesd stdio --principal alice --key SHA256:…
 sshd asks ariesd nothing. It reads two files, ariesd's first, and
 nothing of Aries runs before sshd has authenticated a key.
 `authorized_keys`, which you maintain by hand, stays the way in for a
-key the control database does not hold: the first admin's before
+key the control store does not hold: the first admin's before
 `control init`, and a server admin's own new key.
 
 - **When it is written.** At start, before ariesd listens; after every
   `aries admin` change that alters which keys sign in (a key added or
   removed, a principal added with keys, disabled or enabled), before
   the admin is answered; and every 30 seconds if it no longer holds
-  what the control database does, which is how an `ariesd control
+  what the control store does, which is how an `ariesd control
   init` run beside the daemon reaches it, and how an edit to the file
   is undone. A key added with `aries admin` signs in at once, with no
   restart of anything. When nothing changed, nothing is written.
@@ -1148,7 +1043,7 @@ key the control database does not hold: the first admin's before
   renamed over it, so sshd never reads half a file and a crash leaves
   the old one or the new one. The lines are in a fixed order, so the
   same keys give the same bytes.
-- **The file is a cache, and the control database decides.** Each line
+- **The file is a cache, and the control store decides.** Each line
   names its key's fingerprint, and ariesd refuses a connection whose
   key the database no longer holds for that principal, and one whose
   principal is disabled. So a key that was removed, in a file that
@@ -1204,7 +1099,7 @@ key the control database does not hold: the first admin's before
    sshd takes the first line that matches the key, in the order the
    files are named, so the order matters: ariesd's file comes first.
    A key in both files is then let in by ariesd's line, which names
-   its fingerprint and the principal the control database gives it, so
+   its fingerprint and the principal the control store gives it, so
    `aries admin key remove` closes its connections and ariesd can
    refuse it. With the files the other way round, such a key would come
    in by its line of `authorized_keys`, which names no fingerprint, and
@@ -1235,13 +1130,13 @@ key the control database does not hold: the first admin's before
    how many keys it holds and when it was written.
 
 5. **Move the keys.** `control init` has already copied every key of
-   `authorized_keys` into the control database
+   `authorized_keys` into the control store
    ([Opt in](#opt-in)), so each is now in both files. Remove the lines
    from `authorized_keys` that you want `aries admin` to govern, and keep
    the first admin's:
 
    - **A key whose line is still in `authorized_keys` is not kept out
-     by `aries admin key remove`.** While the control database holds the
+     by `aries admin key remove`.** While the control store holds the
      key, sshd lets it in by ariesd's line, so the removal closes the
      connections it had signed in. But the removal also takes that line
      out of ariesd's file, and sshd then finds the key's line of
@@ -1262,16 +1157,16 @@ key the control database does not hold: the first admin's before
      mebibyte of the file is read.
    - **It also counts who comes in that way.** A connection whose
      forced command named no fingerprint came in by `authorized_keys`:
-     its key is not in the control database, or was removed from it.
+     its key is not in the control store, or was removed from it.
      `aries admin status` counts those for each project (BY HAND), and
      `aries admin key list NAME` for NAME. `aries admin key remove` does not
      close them.
-   - **The control database's line wins for a key in both.** The key
-     signs in as the principal the control database gives it, whatever
+   - **The control store's line wins for a key in both.** The key
+     signs in as the principal the control store gives it, whatever
      principal its line of `authorized_keys` names, and a disabled
      principal's key has no line in ariesd's file, so it reaches its
      line of `authorized_keys` and is refused by ariesd as disabled.
-     `authorized_keys` cannot override the control database; it only
+     `authorized_keys` cannot override the control store; it only
      lets in a key the database does not hold.
    - **Keep one line for a server admin.** It is how a server admin's
      own key is replaced, since nobody adds a key to their own account
@@ -1279,8 +1174,8 @@ key the control database does not hold: the first admin's before
      principal its line names: `aries admin key add` and `principal add
      --key` refuse it for anyone else, as they refuse a key another
      principal has, so nobody can take a server admin's key by adding
-     it to the control database under another name. And a line you add
-     for a key the control database already holds under another name
+     it to the control store under another name. And a line you add
+     for a key the control store already holds under another name
      wins: ariesd leaves that key out of its file, so that sshd
      reaches your line, says so in its log, and counts it in `aries admin
      status` as a key held back. It takes effect at the next key change
@@ -1338,11 +1233,11 @@ in the [Docker test server](deploy/docker.md), which has no systemd:
 
 | Checked | Result |
 |---|---|
-| ariesd installed as [step 3](#3-install-ariesd) installs it: owned by `aries` in `/opt/aries/bin`, linked from `/usr/local/bin`, and no copy that root owns | Keys from the control database sign in. sshd runs no program of Aries's before authentication, so who owns the binary does not matter to it |
+| ariesd installed as [step 3](#3-install-ariesd) installs it: owned by `aries` in `/opt/aries/bin`, linked from `/usr/local/bin`, and no copy that root owns | Keys from the control store sign in. sshd runs no program of Aries's before authentication, so who owns the binary does not matter to it |
 | A global `AuthorizedKeysCommand`, outside any `Match` block, set to a root-owned script that prints nothing, with `AuthorizedKeysCommandUser nobody` | Keys from both files sign in, with no override. sshd ran the script twice for each sign-in by `aries`. With `AuthorizedKeysCommand none` in the `Match` block it did not run it |
 | ariesd killed, sshd left running | sshd accepts a key from either file, and the client gets `ariesd is not running on the server` |
 | A key in both files, with `authorized_keys` named first, as this guide had it until that day | sshd let it in by its line of `authorized_keys`, which names no fingerprint |
-| A key in both files, with ariesd's file named first, as above | sshd lets it in by ariesd's line: ariesd counts no connection of that key as let in by `authorized_keys`. With the key removed from the control database, the same key signs in by `authorized_keys`, and its connection is counted so |
+| A key in both files, with ariesd's file named first, as above | sshd lets it in by ariesd's line: ariesd counts no connection of that key as let in by `authorized_keys`. With the key removed from the control store, the same key signs in by `authorized_keys`, and its connection is counted so |
 
 Checked under systemd 255, on 12 October 2026, on the Ubuntu 24.04
 virtual machine of [What was run, and where](#what-was-run-and-where):
@@ -1351,7 +1246,7 @@ virtual machine of [What was run, and where](#what-was-run-and-where):
 |---|---|
 | The unit of step 5 as written, on a server of many projects, without step 1's `ReadWritePaths` | ariesd does not start: `write the keys file …: read-only file system`, and its `fix:` names `ReadWritePaths=/var/lib/aries/.ssh` |
 | The same with step 1's drop-in | ariesd starts and writes the file, mode 0600, owned by `aries`. `ProtectHome=yes` does not get in the way |
-| Step 2 on stock Ubuntu's sshd, which listens through `ssh.socket` | `sshd -t` passes and `systemctl try-reload-or-restart ssh` applies it. A key the control database alone holds signs in with no restart of anything; removing it, or disabling its principal, locks it out |
+| Step 2 on stock Ubuntu's sshd, which listens through `ssh.socket` | `sshd -t` passes and `systemctl try-reload-or-restart ssh` applies it. A key the control store alone holds signs in with no restart of anything; removing it, or disabling its principal, locks it out |
 | A global setting in a later drop-in file (`PasswordAuthentication no` in Ubuntu's `60-cloudimg-settings.conf`) | Still applies to every account: the `Match` block of `00-aries.conf` ends with its file |
 
 Not checked:
@@ -1380,7 +1275,7 @@ person.
 | Command | Who may |
 |---|---|
 | `aries admin project add NAME`, `archive`, `activate` | Server admins |
-| `aries admin project list` | Anyone the server lets in: a server admin sees every project and its database, anyone else the active projects they belong to |
+| `aries admin project list` | Anyone the server lets in: a server admin sees every project and its schema, anyone else the active projects they belong to |
 | `aries admin principal add NAME` | Server admins; a project admin, into a project they administer |
 | `aries admin principal add NAME --no-project`, `principal list` | Server admins |
 | `aries admin key list --added-by NAME`, `principal list --created-by NAME`, `member list --added-by NAME` | Server admins, for all of it; a project admin, for the keys and principals of their projects' members and for their projects' memberships |
@@ -1395,9 +1290,9 @@ person.
   into every active project and may do everything above. Nothing over
   the protocol makes one.
 - **Disabled wins.** A principal that is disabled is refused everywhere
-  and has no admin rights, in the control database or in any project,
+  and has no admin rights, in the control store or in any project,
   even when `admins:` names it. An admin named there who has no row in
-  the control database is not disabled. Only a server admin disables or
+  the control store is not disabled. Only a server admin disables or
   enables a server admin, and the last server admin who is not disabled
   cannot be disabled: nobody could then enable anyone without a shell
   on the server. That rule counts every name under `admins:`, whether or
@@ -1439,8 +1334,8 @@ person.
   ask an admin. And when your connection came in by a line of
   `authorized_keys`, which names no key, ariesd cannot tell which key
   you used: it removes the key and warns that it could not check. That
-  connection's key is not one the control database can take away in any
-  case. Removing the last key the control database holds for you is
+  connection's key is not one the control store can take away in any
+  case. Removing the last key the control store holds for you is
   allowed, a server admin's included: you keep the way in you are
   using. Someone else's key still needs reach.
 - **Keys.** `key add NAME FILE` takes a public key file, such as
@@ -1502,7 +1397,7 @@ person.
   project with `member add NAME`.
 - **A new project.** `aries admin project add NAME` records the project,
   makes its schema, `project_` and the name with hyphens as underscores
-  ([Opt in](#opt-in), step 4), migrates it and marks it active, then
+  ([Opt in](#opt-in), step 3), migrates it and marks it active, then
   prints the `.aries.yaml` for its repository. If a step fails, run the
   same command again: it finishes the same project. If another role
   made the schema meanwhile, the refusal gives the statement to run as
@@ -1521,22 +1416,22 @@ person.
   archived, since `aries admin` needs a project to connect to.
   `activate` opens the schema, which applies any migration it missed
   while archived, and serves it again.
-- **Everything is on the record** in the control database's event log,
+- **Everything is on the record** in the control store's event log,
   under the principal who ran the command.
 
 One case in the above is slower than "at once". A project whose store is
 closed has nothing running in it: when its member is removed or disabled,
-the claims stay in its database until the store next opens. Nobody can
+the claims stay in its schema until the store next opens. Nobody can
 use them meanwhile, and they end before the first request is answered.
 
 An archived project's store never opens for a connection, so ariesd
 does not leave its claims to that. The archive opens a closed store to
 end them, and at every start, before it listens, ariesd asks each
-archived project's database whether it holds a claim, and opens the ones
+archived project's schema whether it holds a claim, and opens the ones
 that do, ends every claim, recorded under `ariesd` for `project
 archived`, and closes them. A project with nothing to end costs that one
 read, a fraction of a millisecond, and nothing is written. It does not
-migrate: a database that an older ariesd last migrated is left as it
+migrate: a schema that an older ariesd last migrated is left as it
 is, with a line in the log at `info`, and a claim in it ends when the
 project is activated, as before. One that cannot be opened is logged at
 `error` and does not stop the server or the other projects. Nothing
@@ -1589,10 +1484,11 @@ connection ends, so a daemon that dies frees its projects for another.
 `aries admin status` reports what ariesd knows of itself and of its
 projects now. A server admin sees the server and every project; a project
 admin sees the active projects they administer and nothing of the
-server; anyone else is refused. It reads memory, plus one count on an
-index for each open project listed, opens no store and writes nothing.
-It does not wait for a database that does not answer
-([When Dolt does not answer](#when-dolt-does-not-answer)).
+server; anyone else is refused. It reads memory, a count on an index
+for each open project listed, Postgres's own figures and each project's
+schema's size; it opens no store and writes nothing. It does not wait
+for a database that does not answer
+([When Postgres does not answer](#when-postgres-does-not-answer)).
 
 ```text
 ariesd v0.5.0, up 3d 4h
@@ -1612,16 +1508,16 @@ old      archived  closed  600 KiB   0      -        -         -           -    
 | Figure | What it is |
 |---|---|
 | stores, connections | How many are open, beside the limit that caps each (`open_stores`, `conns`) |
-| keys file | The file ariesd writes for sshd ([Keys from the store](#keys-from-the-store)): its path, how many keys ariesd last put in it, and when it was last written. `THE LAST WRITE FAILED` means sshd may be reading an older list than the control database holds; ariesd's log says why |
+| keys file | The file ariesd writes for sshd ([Keys from the store](#keys-from-the-store)): its path, how many keys ariesd last put in it, and when it was last written. `THE LAST WRITE FAILED` means sshd may be reading an older list than the control store holds; ariesd's log says why |
 | `clock:` | Shown once the clock has been set while ariesd ran: how many times, in which direction, and the last step's size and time. Each is a `clock stepped` line in the log ([The server's clock](#the-servers-clock)) |
 | `CLOCK BEHIND HISTORY` | The clock is behind the latest event of the database named, by how much and since when. ariesd's time runs on from the history at half speed until the clock has caught up. With `clock_behind: stop` it adds that ariesd will not start again until the clock is corrected: check `timedatectl` on the server before any restart |
-| ariesd's memory | The Go heap in use and all the memory ariesd has from the operating system (`HeapAlloc` and `Sys`). Not Dolt's |
+| ariesd's memory | The Go heap in use and all the memory ariesd has from the operating system (`HeapAlloc` and `Sys`). Not Postgres's |
 | `postgres` | What Postgres says of itself, read with ariesd's own role, which needs no `pg_monitor`: its version; the client connections on the whole server against its `max_connections`, and those in ariesd's database; ariesd's [pool](#one-writer-for-each-project), its connections in use and held against `db_conns_per_server`, and how often a request waited for one; the database's size; and, since Postgres last reset its statistics, its commits, rollbacks, deadlocks, conflicts (queries a standby canceled) and what its queries wrote to temporary files. `postgres: unknown` says why Postgres did not answer, with the pool's figures alone |
-| projects, principals | The control database's rows, by state |
+| projects, principals | The control store's rows, by state |
 | STORE | Whether the project's store is open. The figures after SIZE exist only while it is, and start from zero each time it opens |
 | SIZE | The project's schema on disk, its tables and indexes, whether its store is open or not; 0 KiB for one made and never migrated. Shown by a server that reads it |
 | CONNS, BY HAND | Connections past their handshake, and those among them that named no key of the store, which sshd let in by the hand-maintained `authorized_keys` |
-| SESSIONS | Sessions seen in the last five minutes, as `aries who` lists them. `unknown` when the database did not give the count ([below](#when-dolt-does-not-answer)) |
+| SESSIONS | Sessions seen in the last five minutes, as `aries who` lists them. `unknown` when the database did not give the count ([below](#when-postgres-does-not-answer)) |
 | WRITES/MIN | Transactions that changed something and committed in the last 60 seconds. A refused request is not one; a lease renewal is |
 | P50, P99 | The median and 99th percentile of the latest 256 writes' latency, however old they are: from the request reaching the project's store to its commit, the wait for the one writer included |
 | LAST USED | When the project last answered a request, or was opened |
@@ -1633,156 +1529,70 @@ On the server itself, [`ariesd status`](#ariesd-status) prints the
 same report with no admin key, and the same measurements are exported as
 metrics ([Observability](#observability)).
 
-#### When Dolt does not answer
+#### When Postgres does not answer
 
 The report is there to be read when the database is in trouble, so it
-does not wait for the database. Its one read, the count of each open
-project's sessions, is made for every project at once and given 2
-seconds in all, the bound `/readyz` gives its own check of Dolt: the
-count is on an index and takes milliseconds when Dolt answers at all.
-What did not come back is `unknown`, never 0, and a line under the
-projects says why:
+does not wait for the database. Its reads of Postgres, the count of each
+open project's sessions and Postgres's own figures, are made at once and
+given 2 seconds in all, the bound `/readyz` gives its own check of
+Postgres: each takes milliseconds when Postgres answers at all. What did
+not come back is `unknown`, never 0, and a line says why:
 
 ```text
+postgres: unknown (database did not answer in 2s); ariesd's pool 1 in use of 1 held, at most 32, waited for 0 times. Check Postgres on the server (docs/server.md, Troubleshooting)
+…
 PROJECT  STATE   STORE  CONNS  BY HAND  SESSIONS  WRITES/MIN  P50    P99   LAST USED
 acme     active  open   9      2        unknown   0           4.2ms  31ms  2026-10-11 09:30 UTC
 web      active  open   5      0        unknown   0           3.9ms  18ms  2026-10-11 09:29 UTC
-sessions: unknown for 2 projects (database did not answer in 2s); the rest is what ariesd holds in memory. Check Dolt on the server (docs/server.md, Troubleshooting)
+sessions: unknown for 2 projects (database did not answer in 2s); the rest is what ariesd holds in memory. Check Postgres on the server (docs/server.md, Troubleshooting)
 ```
 
 - **Everything else is still there**, since ariesd holds it in memory:
   the server's lines, the stores and connections, the clock, the
-  writes and their latency as they last were, and
-  [Dolt's line](#dolts-figures), which says `unknown` by itself once a
-  read of Dolt's metrics has failed.
+  writes and their latency as they last were, and the pool's figures.
+  The SIZE column is left out when no project's size came back.
 - **`--json`** leaves `sessions` out for such a project and gives
   `sessions_unknown`, the cause as text: `database did not answer in 2s`,
   or `the read failed; see ariesd's log` for any other failure, which
   the log has as `count the sessions seen, for status`. A project whose
-  store is closed has neither.
-- **One project's database that does not answer** costs that project's
-  figure and no other's.
+  store is closed has neither. `postgres` then has `unknown` and the
+  pool's figures alone.
 - **`aries admin status` answers in about 2 seconds too, from a repository
   whose project's store is open.** `aries` connects anew for each command,
-  and a new connection is welcomed without waiting on Dolt: its session
-  is noted for `aries who` beside the wait for its first request. The
-  report counts its asker's session, so it waits for that note, but
+  and a new connection is welcomed without waiting on Postgres: its
+  session is noted for `aries who` beside the wait for its first request.
+  The report counts its asker's session, so it waits for that note, but
   within the same 2 seconds as its own reads: when the note does not
-  come, the sessions are `unknown` and the rest is there.
+  come, the sessions are `unknown` and the rest is there. Run in the
+  [Docker test server](deploy/docker.md#with-the-telemetry-harness)
+  with Postgres's container frozen (15 October 2026).
 - **From a repository whose project's store is closed, it is refused
   in about 2 seconds:** `the server's database does not answer, so
   project "…" was not opened`, with `ariesd status` on the server as
   what to do. A connection is to a project, opening the project's store
-  waits on Dolt for up to a minute, and the report itself opens no
-  store; so before a store is opened for a connection, Dolt is given 2
-  seconds to answer a ping. Run `aries admin status` from the repository
-  of a project in use, or `ariesd status` on the server.
-- **Every other command waits for Dolt**, for the request timeout of a
-  minute and no longer, and then ends with `the server timed out on …`.
-  It waits for its session to be noted first, within that same minute,
-  so nothing reads or writes a project for a session `aries who` cannot
-  list. A session whose note failed is noted by its next request that
-  Dolt answers.
+  waits on Postgres for up to a minute, and the report itself opens no
+  store; so before a store is opened for a connection, Postgres is given
+  2 seconds to answer a ping. Run `aries admin status` from the
+  repository of a project in use, or `ariesd status` on the server.
+- **Every other command waits for Postgres**, for the request timeout
+  of a minute and no longer, and then ends with `the server timed out on
+  …`. It waits for its session to be noted first, within that same
+  minute, so nothing reads or writes a project for a session `aries who`
+  cannot list. A session whose note failed is noted by its next request
+  that Postgres answers.
 - **`ariesd status` on the server** answers in about 2 seconds
   whichever stores are open, and needs no admin key.
 
-#### Dolt's figures
-
-Dolt is another process under another user, so what the report says of
-it is what Dolt says of itself: ariesd reads Dolt's own metrics
-endpoint ([step 2](#2-run-dolt-under-its-own-account)) every 15 seconds
-and shows the last answer. A server admin sees the two lines; a project
-admin does not, since they are the server's and not a project's.
-
-| Figure | From Dolt's | Why it is there |
-|---|---|---|
-| Version | `dss_dolt_version` | Which Dolt is running, which after an upgrade of Dolt is not always the one on the disk |
-| `up` | `process_start_time_seconds` | When Dolt last restarted. Its memory grows from then ([Dolt's memory](#dolts-memory)), and so does what a restart would give back |
-| connections | `dss_concurrent_connections` | Clients connected to Dolt now: ariesd's own, a few for each open store, and anyone else's, such as a `dolt sql` session or a dump |
-| `MiB resident` | `process_resident_memory_bytes` | The memory of Dolt's process, which is what the machine must hold. It is the figure `ps` gives, not a container's or a unit's total, which adds the page cache of Dolt's files |
-| `memory limit` | `go_gc_gomemlimit_bytes` | The Go memory limit Dolt runs under (`GOMEMLIMIT`), or `no memory limit` |
-| `Dolt's collector:` | `go_gc_duration_seconds_count`, and ariesd's own count of writes | The cycles of Dolt's garbage collector, the writes ariesd's project stores committed, and the first for each 100 of the second, over the last ten minutes or since either started. It is what tells whether a memory limit has room ([Dolt's memory](#dolts-memory)) |
-
-- **`Dolt: unknown`** means the latest read failed: nothing answers
-  there, the
-  port or the path is wrong, the answer took more than 5 seconds, was
-  more than 1 MiB or was not Dolt's metrics, or it was a redirect, which
-  ariesd does not follow. The line gives the last read that worked,
-  and ariesd's log has `could not read Dolt's metrics` with the cause:
-  once when it starts, then every 10 minutes while it lasts, and
-  `reading Dolt's metrics again` when it ends. Nothing else changes:
-  ariesd serves as before, and `/readyz` still answers from its own
-  query of Dolt, not from this.
-- **A figure Dolt did not give is `unknown` by itself**, as a newer Dolt
-  that renamed a metric would make it.
-- **The collector line needs two reads** of the same Dolt process, so it
-  is missing for the first 15 seconds after ariesd or Dolt starts, and
-  its window is shorter than ten minutes until both have run that long.
-- **The ratio is shown from 500 writes in the window**, and judged
-  against the measurements only when a memory limit is set. An idle Dolt
-  still collects about every two minutes, so against a few writes the
-  ratio would be large and say nothing. With fewer writes the line says
-  `too few writes to judge the memory limit by`, unless the cycles are
-  past 14 for each 100 even when counted against 500 writes, more than
-  70 in the window: a limit far too low has Dolt collecting without
-  pause whether or not anything is written, and the line then says so.
-- **A Dolt that hangs whole** stops more than this, though not the
-  report: each open project's sessions are then `unknown`
-  ([When Dolt does not answer](#when-dolt-does-not-answer)), and
-  `/readyz` says `the last check of Dolt failed` within a few seconds.
-- **The writes are those of the project stores**, as `WRITES/MIN` counts
-  them, summed at each read. A store that closes between two reads takes
-  with it the writes it made since the earlier one, and writes to the
-  control database are not counted.
-- **`--json`** has the same under `server.dolt`: `read_at`, `version`,
-  `started_at`, `uptime_seconds`, `resident_bytes`, `conns`,
-  `mem_limit_bytes` (0 for no limit) and `gc` with `window_seconds`,
-  `cycles`, `writes` and `cycles_per_100_writes`; or `unknown: true`
-  with `read_at`, when there was a read that worked.
-- **Query latency is not shown.** Dolt's histogram of it
-  (`dss_query_duration`) has buckets at 10 ms, 100 ms, 1 s and upward,
-  which is too coarse to say more than the report's own P50 and P99 of
-  each project's writes do.
-- **ariesd does not export Dolt's metrics again.** Have your collector
-  scrape `http://127.0.0.1:11228/metrics` beside ariesd's
-  ([Observability](#observability)).
-
-**On a server set up before this**, turn Dolt's endpoint on and tell
-ariesd where it is. Restarting Dolt restarts ariesd with it and
-drops every connection for a few seconds, so pick a quiet moment:
-
-```sh
-printf 'metrics:\n  host: 127.0.0.1\n  port: 11228\n  labels: {}\n' >> /etc/dolt/config.yaml
-systemctl restart dolt
-curl -s --retry 5 --retry-connrefused http://127.0.0.1:11228/metrics | grep -c '^dss_'
-printf 'telemetry:\n  dolt_metrics_url: http://127.0.0.1:11228/metrics\n' >> /etc/aries/ariesd.yaml
-systemctl restart ariesd
-sleep 20
-sudo -u aries -H ariesd status | grep '^Dolt'
-```
-
-- If `/etc/aries/ariesd.yaml` already has a `telemetry:` block, add
-  the `dolt_metrics_url:` line under it with an editor instead of the
-  second `printf`: a key given twice stops ariesd at start.
-- The `curl` line prints 14 at Dolt 2.4.2, and the last line prints the
-  two lines above, the second only once ariesd has read twice.
-- A URL that is not `http://` on a loopback address stops ariesd at
-  start with a `fix:`. The endpoint has no authentication, and ariesd
-  will not read it from another machine.
-
-A database's size on disk is not in the report: Dolt offers its
-least-privileged account no table or function
-for it, and the files belong to Dolt's user. Read it with `du -sh
-/var/lib/dolt/data/aries/*` as root or `dolt`
-([Storage growth](#storage-growth)).
-
 Each project's store is opened by its first connection and closed after
-`store_idle` without one ([Limits](#limits)). Closing gives back the
-store's connections to Dolt. It does not give back Dolt's memory
-([Dolt's memory](#dolts-memory)), so size the machine by what all its
-projects write, not by how many are open. A store that reopens ends the claims
-that expired while it was closed, and those of anyone who lost their
-access meanwhile, before it serves its first request.
+`store_idle` without one ([Limits](#limits)). An open store holds no
+connection to Postgres of its own: it takes one from the pool for each
+read or write and gives it back. Closing it gives up its writer's lock
+and what ariesd holds of it in memory. Postgres keeps, in each pooled
+connection, its caches of every schema that connection has worked in,
+until the pool retires the connection, idle for 30 minutes or an hour
+old ([Sizing Postgres](#sizing-postgres)). A store that reopens ends the
+claims that expired while it was closed, and those of anyone who lost
+their access meanwhile, before it serves its first request.
 
 ## Prices
 
@@ -1864,7 +1674,7 @@ have without the jump; every lease still live is extended. The
 locks and places in their queues, which are leases too.
 
 **No write that begins after a jump is dated before it,** in any
-database of the server: the control database's and every project's. A
+database of the server: the control store's and every project's. A
 write looks for a jump when it arrives and again when its turn at its
 database's one writer comes, and settles the jump before it goes on, so
 a write that was waiting its turn when the clock jumped is dated after
@@ -1974,7 +1784,7 @@ cold boot each time:
 
 | Machine | `time-sync.target` reached | ariesd serving | Boot |
 |---|---|---|---|
-| Stock Ubuntu 24.04 | 1.7 s after the kernel started, 37 microseconds after `time-set.target`, before the network was up or any time server heard from | 9.7 s (its first start loses the race with Dolt, as before) | 4.6 s |
+| Stock Ubuntu 24.04 | 1.7 s after the kernel started, 37 microseconds after `time-set.target`, before the network was up or any time server heard from | 9.7 s (its first start then lost a race with the database of that time, which the unit's ordering after Postgres does not have) | 4.6 s |
 | `systemd-time-wait-sync` enabled, a time server reachable | 33.4 s, as `systemd-timesyncd` logged `Initial clock synchronization` | 33.5 s | 33.7 s |
 | The same, no time server answering | 91.5 s, when the wait unit's 90 second timeout failed it (`Failed with result 'timeout'`) | 91.6 s | 1 min 32 s |
 | Stock Ubuntu 26.04 (the 26.04 machine of [What was run, and where](#what-was-run-and-where)) | 1.5 s, with `time-set.target`, before `chrony` had started | 3.6 s, with `chrony` not yet synchronized | 3.9 s |
@@ -2039,7 +1849,7 @@ What each boot does, with the defaults:
 ### When the clock is behind the server's history
 
 At start, ariesd compares the clock with the latest event of every
-database it will write to: the control database's and each active
+database it will write to: the control store's and each active
 project's, which it opens once at start anyway, so the check costs no
 extra query. A database with no events has nothing to be behind. If the
 clock is behind any by more than `clock_behind_tolerance`:
@@ -2168,10 +1978,10 @@ the config file (`/etc/aries/ariesd.yaml`, or `--config FILE`, or
 
 | Key | Holds | Default | Flag and variable |
 |---|---|---|---|
-| `dsn` | Dolt's address and account, in [go-sql-driver/mysql](https://github.com/go-sql-driver/mysql#dsn-data-source-name) form | required | `--dsn`, `ARIESD_DSN` |
+| `dsn` | The database: a `postgres://` URL, as Postgres's own clients read it, of the role, the host and port, and the database, `postgres://ROLE@HOST:PORT/DATABASE?PARAMS`. With no host, `host=` names the directory of a unix socket, as [step 4](#4-write-the-config-file)'s does. `search_path=` names the schema of the one project, `public` when it names none. Other parameters are Postgres's: `sslmode=` and `sslrootcert=` for TLS, and `passfile=` for a file that holds the role's password ([Managed services](#managed-services)). A password in the URL itself works, in a config file of mode 0600, and never on the command line | required | `--dsn`, `ARIESD_DSN` |
 | `project` | The project's UUID, in lowercase. A client naming another project is refused. With `control_schema`: the project `control init` adopts, and the one `import-bd`, `export-bd` and the health check of `upgrade` use by default | required | `--project`, `ARIESD_PROJECT` |
-| `control_schema` | The schema of the control store, in the database `dsn` names and as its role. Setting it makes this a server of [many projects](#serving-many-projects), each in a schema ariesd names `project_NAME` ([Opt in](#opt-in), step 4). A lowercase letter, then lowercase letters, digits and underscores; not the schema `dsn` names, and not starting `project_` | none: one project | `ARIESD_CONTROL_SCHEMA` |
-| `keys_file` | With `control_schema`: the file ariesd writes the control database's keys to, for sshd ([Keys from the store](#keys-from-the-store)). A relative path is under the home directory of the user ariesd runs as | `.ssh/aries_keys` | `ARIESD_KEYS_FILE` |
+| `control_schema` | The schema of the control store, in the database `dsn` names and as its role. Setting it makes this a server of [many projects](#serving-many-projects), each in a schema ariesd names `project_NAME` ([Opt in](#opt-in), step 3). A lowercase letter, then lowercase letters, digits and underscores; not the schema `dsn` names, and not starting `project_` | none: one project | `ARIESD_CONTROL_SCHEMA` |
+| `keys_file` | With `control_schema`: the file ariesd writes the control store's keys to, for sshd ([Keys from the store](#keys-from-the-store)). A relative path is under the home directory of the user ariesd runs as | `.ssh/aries_keys` | `ARIESD_KEYS_FILE` |
 | `authorized_keys` | With `control_schema`: the hand-maintained file sshd reads beside it. ariesd only reads it, to say which keys are in both. Never the same file as `keys_file` | `.ssh/authorized_keys` | `ARIESD_AUTHORIZED_KEYS` |
 | `bridge` | With `control_schema`: the path of ariesd in the forced command of each line of `keys_file`. Absolute, of letters, digits and `._+-` | `/usr/local/bin/ariesd` | `ARIESD_BRIDGE` |
 | `socket` | The daemon's unix socket | `/run/aries/ariesd.sock` | `--socket`, `ARIESD_SOCKET` |
@@ -2190,9 +2000,8 @@ the config file (`/etc/aries/ariesd.yaml`, or `--config FILE`, or
 | `telemetry.listen` | The loopback address, `HOST:PORT`, of the listener for `/metrics`, `/healthz` and `/readyz` ([Observability](#observability)). An address that is not loopback is refused | none: no listener | `ARIESD_TELEMETRY_LISTEN` |
 | `telemetry.per_project` | Whether metrics name the project. `false` leaves it off every instrument | `true` | |
 | `telemetry.principals` | How a person appears on a span and on a log record exported over OTLP ([Traces](#traces), People): `pseudonym`, a stable stand-in; `name`; or `omit`, nothing. It does not change the log on stderr, nor the audit stream there. Any other value is refused | `pseudonym` | |
-| `telemetry.audit_log` | Whether each access change in the control database's log is also written as a log line with `audit=true` ([The audit stream](#the-audit-stream)). `false` writes none; the event log is the record either way | `true` | |
+| `telemetry.audit_log` | Whether each access change in the control store's log is also written as a log line with `audit=true` ([The audit stream](#the-audit-stream)). `false` writes none; the event log is the record either way | `true` | |
 | `telemetry.principals_key` | The file that holds the key the stand-ins are made with. ariesd makes it, mode 0600, when it exports traces with stand-ins. A relative path is under the home directory of the user ariesd runs as. A file that cannot be read or made does not stop ariesd, whether the path is this default or one you set: its spans then say nothing about who, and its log and status say why ([Traces](#traces), People) | `telemetry/principals.key` | |
-| `telemetry.dolt_metrics_url` | The URL of Dolt's own metrics endpoint, which ariesd reads every 15 seconds for the status report ([Dolt's figures](#dolts-figures)): `http://`, a loopback address or a name whose every address is loopback, a port and a path, such as `http://127.0.0.1:11228/metrics`. Anything else is refused at start | none: nothing is read, and the report says nothing of Dolt | `ARIESD_TELEMETRY_DOLT_METRICS_URL` |
 
 - **A clock tolerance is more than zero, and has a ceiling.** Zero, a
   negative duration and a value past the range are refused at start
@@ -2206,12 +2015,14 @@ the config file (`/etc/aries/ariesd.yaml`, or `--config FILE`, or
   comes from the standard `OTEL_*` environment variables
   ([Observability](#observability)), and a token for a hosted backend
   from the environment only.
-- **The Dolt account is checked** by every command that opens the store:
-  `serve`, `control init`, `import-bd`, `export-bd` and `upgrade`. [The Dolt
-  account](security-model.md#the-dolt-account) lists what they refuse.
+- **The database role is checked** by every command that opens the
+  store: `serve`, `control init`, `import-bd`, `export-bd` and `upgrade`.
+  [The database role](security-model.md#the-database-role) lists what
+  they refuse. So is the server: Postgres 16 or newer.
 - **`--dev`** is for a developer's own machine. It lets `serve` run off
   Linux. With `--dev`, the commands that open the store also accept
-  `--allow-unsafe-dolt`, which lets a default Dolt through with a warning.
+  `--allow-unsafe-account`, which lets a role with too many rights, such
+  as a superuser, through with a warning.
   No config file or variable can set either.
 
 ## Limits
@@ -2273,7 +2084,7 @@ limits:
 | `open_stores` | 64 | With `control_schema`: project stores open at once. An open store holds no connection to Postgres of its own, only its writer's lock, and takes connections from the pool while it answers ([One writer for each project](#one-writer-for-each-project)). At the cap, a connection to another project closes the store that has been without connections longest; when every open store has one, it is refused with `busy` |
 | `store_idle` | `10m` | With `control_schema`: how long a project's store stays open with no connection. Closing it gives up its writer's lock and what ariesd holds of it in memory |
 | `projects` | 500 | With `control_schema`: projects on the server, archived ones included |
-| `principals` | 5000 | With `control_schema`: principals in the control database, disabled ones included |
+| `principals` | 5000 | With `control_schema`: principals in the control store, disabled ones included |
 | `principals_per_creator` | 500 | With `control_schema`: principals one principal who is no server admin may create, disabled ones included. No command deletes a principal and names are the whole server's, so this keeps one project admin from using up `principals`. Past it `principal add` is refused with `invalid`, and its fix says to ask a server admin, who has no such cap, or to raise the limit |
 | `keys_per_principal` | 20 | With `control_schema`: public keys of one principal |
 | `members_per_project` | 1000 | With `control_schema`: principals with a role in one project |
@@ -2293,7 +2104,7 @@ the same way. `principals_per_creator` applies to a principal who is no
 server admin, and never to `control init`.
 
 Before the hello, a server of many projects also refuses at once a
-principal that is disabled, or that the control database does not know
+principal that is disabled, or that the control store does not know
 and `admins:` does not name: its key may still be one sshd accepts, and
 it would otherwise hold a connection until the hello's deadline.
 Membership of the project, and whether the key that signed in is still
@@ -2367,8 +2178,8 @@ as a user that owns its own binary, its config file and its
 | Profile | Runs | May |
 |---|---|---|
 | `ariesd` | `ariesd stdio`, `ariesd status`, and anything else run from the binary's path with no profile asked for | Read the config file and connect to the daemon's socket. No network, no other file, no program |
-| `ariesd-serve` | `ariesd serve`, because the unit asks for it | Read the config file, listen on the socket, reach Dolt over TCP, for SQL and for [its metrics](#dolts-figures), write the keys file and read `authorized_keys`; listen on the loopback port for metrics and health, post metrics and traces to a collector over TCP, make and read the key of the stand-ins its traces name people by, and write to systemd's notify socket ([Observability](#observability)). No program |
-| `ariesd-admin` | `control init`, `import-bd`, `export-bd` and `upgrade`, when the operator asks for it | Open the store, read and write files in the top of `/var/lib/aries`, read `authorized_keys`, reach the network, replace the binary in `/opt/aries/bin`, and run `sudo` |
+| `ariesd-serve` | `ariesd serve`, because the unit asks for it | Read the config file, listen on the socket, reach Postgres by its unix socket or over TCP and read the database's client files in `/etc/aries/postgres`, write the keys file and read `authorized_keys`; resolve names and read the machine's certificate authorities, for a managed Postgres or a hosted backend; listen on the loopback port for metrics and health, post metrics and traces to a collector, make and read the key of the stand-ins its traces name people by, and write to systemd's notify socket ([Observability](#observability)). No program |
+| `ariesd-admin` | `control init`, `import-bd`, `export-bd` and `upgrade`, when the operator asks for it | Open the store as the daemon does, read and write files in the top of `/var/lib/aries`, read `authorized_keys`, reach the network, replace the binary in `/opt/aries/bin`, and run `sudo` |
 
 AppArmor picks a profile by the program's path and never by its
 arguments, so one path can carry one profile by itself. It carries the
@@ -2443,9 +2254,10 @@ sudo -u aries -H aa-exec -p ariesd-admin -- ariesd export-bd -o back.jsonl
 
 - Without `aa-exec` such a command runs under the bridge's profile and
   is refused with `permission denied`: `control init` on
-  `authorized_keys`, anything that opens the store on `dial tcp
-  127.0.0.1:3306: socket`, and `upgrade` on its lookup of the release
-  host (`api.github.com`, unless `releases:` names another).
+  `authorized_keys`, anything that opens the store on Postgres's
+  socket (`/var/run/postgresql/.s.PGSQL.5432`), and `upgrade` on its
+  lookup of the release host (`api.github.com`, unless `releases:` names
+  another).
 - A `releases:` that is a directory on the server, as the installer's
   `--releases DIR` writes it, is refused under the operator's profile
   too (`open DIR: permission denied`). Allow it in
@@ -2464,33 +2276,26 @@ sudo -u aries -H aa-exec -p ariesd-admin -- ariesd export-bd -o back.jsonl
   as `aries`.
 
 **If you moved a path** (the binary, the config file, the socket, the
-home directory, `keys_file`, `authorized_keys` or
-`telemetry: principals_key`), change it in
+home directory, `keys_file`, `authorized_keys`,
+`telemetry: principals_key`, Postgres's socket or the database's client
+files), change it in
 `/etc/apparmor.d/tunables/ariesd`, which names each one once, and
 load the profiles again with `apparmor_parser -r
 /etc/apparmor.d/ariesd`. Rules of your own go in
 `/etc/apparmor.d/local/ariesd`, `local/ariesd-serve` and
-`local/ariesd-admin`. A `dsn` that names Dolt's host by a name that
-needs DNS, where the guide's has an address, needs UDP allowed in
-`local/ariesd-serve`; the profile's comments give the two lines.
+`local/ariesd-admin`.
 
-**Metrics and traces sent straight to a hosted backend need three lines** in
-`/etc/apparmor.d/local/ariesd-serve`, then `apparmor_parser -r
-/etc/apparmor.d/ariesd` and a restart. The daemon otherwise speaks to
-no machine by name and reads no certificate, so the profile as shipped
-has neither DNS nor the certificate authorities:
-
-```text
-network inet dgram,
-network inet6 dgram,
-include <abstractions/ssl_certs>
-```
-
-A collector on the machine, at an address or at a name `/etc/hosts`
-holds, needs none of them, and neither does the listener. Without the
-first two, the export fails on `lookup … dial udp …: socket: permission
-denied`; without the third, on `x509: failed to load system roots`. Each
-is logged once and changes nothing else.
+**A Postgres on another machine, a managed service, and a hosted
+backend need nothing added.** The daemon's profile allows DNS
+(`network inet dgram`) and the machine's certificate authorities
+(`abstractions/ssl_certs`), which a DSN with a host name and
+`sslmode=verify-full` needs, and so does a collector or a backend named
+through DNS or behind TLS (design decision 85). Profiles from before
+Postgres left both to three lines in `local/ariesd-serve`, which may
+stay: they allow nothing more. A certificate authority of the database's
+own, which `sslrootcert=` names, belongs in `/etc/aries/postgres`, which
+the daemon's and the operator's profiles read
+([Managed services](#managed-services)).
 
 **To see what was refused:**
 
@@ -2517,7 +2322,7 @@ systemctl restart ariesd
 Unload the profiles and remove the unit's line together. With the line
 and no profile, ariesd does not start (`Failed to prepare AppArmor
 profile change to ariesd-serve`). With the profiles and no line, the
-daemon gets the bridge's profile and cannot reach Dolt.
+daemon gets the bridge's profile and cannot reach Postgres.
 
 What they do not do:
 
@@ -2525,40 +2330,35 @@ What they do not do:
   keys file.** `ariesd-serve` must write the file sshd reads keys
   from, and sshd accepts any line in it. The bridge and the operator's
   commands cannot write it.
-- **They do not name Dolt's address.** `ariesd-serve` may open TCP
+- **They do not name Postgres's address.** `ariesd-serve` may open TCP
   connections anywhere: rules that name an address or a port were not
-  tested, and the profile does not rely on them. The unit can hold the
-  daemon to this machine instead: `IPAddressDeny=any` and
-  `IPAddressAllow=localhost` in a drop-in, as Dolt's unit has, were run
-  on the machine above with the guide's Dolt on 127.0.0.1, and ariesd
-  still read Dolt's metrics there. Leave them
-  out if `dsn` names another machine.
+  tested, and the profile does not rely on them. With Postgres on the
+  machine, which the daemon reaches by its unix socket, the unit can
+  hold the daemon to this machine instead: `IPAddressDeny=any` and
+  `IPAddressAllow=localhost` in a drop-in (run on the machine above
+  before Postgres, against a database on 127.0.0.1). Leave them out if
+  `dsn` names another machine, or telemetry goes to one.
 - **They do not hold the listener to loopback.** ariesd does that
   itself, refusing any other address at start; to AppArmor the listener
   is one more TCP socket.
-- **They confine neither sshd nor Dolt.** Ubuntu ships no profile for
-  sshd, and both of its keys files worked with the bridge confined.
-  [deploy/apparmor](../deploy/apparmor/README.md) says what a profile
-  for Dolt would need. Dolt's metrics endpoint is one more socket Dolt
-  listens on, kept on loopback by Dolt's own config
-  ([security model](security-model.md#dolts-metrics-endpoint)).
+- **They confine neither sshd nor Postgres.** Ubuntu ships no profile
+  for either, and both of sshd's keys files worked with the bridge
+  confined. Postgres runs as its own user, `postgres`, under its own
+  unit.
 
 What was tested, with the profiles enforced: a sequence taken from the
 [Docker smoke test](deploy/docker.md#run-the-smoke-test) (issues, a
-second project, keys from the control database, a key removed and a
+second project, keys from the control store, a key removed and a
 principal disabled, restarts) and the operator's commands above, 76
 checks, before and after a reboot, with no line in the kernel log; then
 attempts to do what the profiles forbid, each refused and logged. The
 76 checks were run again, and passed with no line in the kernel log,
 with the unit's `Type=notify` and watchdog, the listener and metrics
-pushed to a receiver on the machine; each of the three lines above was
-shown to be needed, and to be enough, against a receiver named through
-DNS and one behind TLS on the same machine. They were run a third time,
-and passed with no line in the kernel log, with Dolt's metrics on and
-ariesd reading them every 15 seconds, which needed no rule added:
-to AppArmor it is one more TCP connection. What
-was not: an upgrade to a newer release (its `--check` and `--rollback`
-were run), and amd64.
+pushed to a receiver on the machine; each of the three lines that
+DNS and the certificate authorities then needed was shown to be needed,
+and to be enough, against a receiver named through DNS and one behind
+TLS on the same machine. What was not: an upgrade to a newer release
+(its `--check` and `--rollback` were run), and amd64.
 
 On Ubuntu 26.04 (14 October 2026), with this release's profiles
 enforced: the installer's run with `--apparmor`, the `aries` checks of
@@ -2577,6 +2377,18 @@ under load with either profile, so the daemon's own run shows the rule
 needed, not that it suffices. The 24.04 machine ran the installer with
 these profiles too: `ariesd-serve (enforce)`, the `aries` checks,
 `upgrade --rollback --restart`, and a cold boot, with no denial.
+
+**The runs above were made before Postgres**, with the database Aries
+used until decision 79, which the daemon reached over TCP on loopback.
+The rules for Postgres (its unix socket, the database's client files,
+and DNS and the certificate authorities, now in the profile itself)
+were checked with `apparmor_parser -Q -K` under 24.04's parser (4.0.1)
+and 26.04's (5.0.2), as CI checks them, on 15 October 2026, and were
+not run under an enforcing kernel: Docker Desktop's has no AppArmor.
+Until they are, load them with `apparmor_parser -r -C` first, use
+`ariesd`, `aries` and the operator's commands, and look for denials as
+below before you enforce them. The installer's `--apparmor` loads them
+enforced: after it, look for denials the same way.
 
 ## Logs
 
@@ -2637,8 +2449,8 @@ time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-
 | `lock`, `waiting` | A [lock](concepts.md#locks)'s name, and whether what ended was a place in its queue rather than a hold. A lock's name is text a person chose, so it stays in the journal and is never exported ([Logs over OTLP](#logs-over-otlp)) |
 | `path`, `keys` | The keys file, or the stand-in key's file, and how many keys were written |
 | `log`, `clock`, `history`, `behind`, `since`, `was_behind_since`, `direction`, `step`, `steps`, `from`, `to`, `forward_since_start`, `backward_since_start` | [The server's clock](#the-servers-clock): which history, the two times, how far behind and since when, and a step's direction, size and count |
-| `url`, `failures`, `after_failures`, `every` | [Dolt's figures](#dolts-figures): the URL read, how many reads have failed, and how often it is read |
-| `version`, `socket`, `control_schema`, `projects`, `admins`, `addr` | The start: the build, the socket, the control database, how many active projects, the configured admins, and the listener's address |
+| `url`, `failures`, `after_failures`, `every` | In the schema, for a reader of another program's figures that the daemon had before Postgres; no line of this release carries them |
+| `version`, `socket`, `control_schema`, `projects`, `admins`, `addr` | The start: the build, the socket, the control store, how many active projects, the configured admins, and the listener's address |
 | `push`, `push_interval`, `push_headers`, `pull`, `per_project`, `traces`, `trace_headers`, `sampler`, `logs`, `log_headers`, `principals`, `service` | What telemetry is on ([Observability](#observability)). Header counts, never their names or values |
 | `signal`, `failed`, `failures_not_logged` | An export that failed or recovered: `metrics`, `traces` or `logs`, and how many failures |
 
@@ -2673,7 +2485,7 @@ time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-
 | `project.not_opened` | info | At start: an archived project's database awaits this ariesd's migrations and was left alone |
 | `project.close_failed` | error | Closing a project's store failed |
 | `store.schema_too_new` | error | A database was migrated by a newer ariesd |
-| `store.unsafe_account` | warn | `--allow-unsafe-dolt` let an unsafe Dolt account through |
+| `store.unsafe_account` | warn | `--allow-unsafe-account` let a database role with too many rights through, on a developer's machine |
 | `control.reload_failed` | error | The reaper could not reread the control store |
 | `control.index_stale` | error | A control write failed and the reread after it failed too: what ariesd holds in memory of keys and members may be stale until a restart |
 | `claim.expired` | info | A claim's lease ran out and the reaper ended it |
@@ -2714,7 +2526,7 @@ the cause and then each `fix:`, not as a log line.
 ### The audit stream
 
 With `control_schema`, every change to who has access to what is an event
-in the control database's log: a project added, archived or activated;
+in the control store's log: a project added, archived or activated;
 a principal added, disabled or enabled; a key added or removed; a
 membership set or removed. ariesd also writes each as a log line with
 `audit=true`, for a SIEM that reads the journal:
@@ -2726,7 +2538,7 @@ level=INFO msg=audit event=audit.member.set audit=true seq=42 at=2026-10-12T09:3
 
 | Field | Holds |
 |---|---|
-| `seq`, `at` | The event's number in the control database's log, and its time there. `seq` is what to deduplicate on, and what finds the event |
+| `seq`, `at` | The event's number in the control store's log, and its time there. `seq` is what to deduplicate on, and what finds the event |
 | `principal`, `session` | Who made the change |
 | `op` | What it was: `project.add`, `key.remove` and so on |
 | `target` | What it changed, as the event log names it: a project's UUID, a principal's name, a key's fingerprint, or `PROJECT/PRINCIPAL` for a membership |
@@ -2743,7 +2555,7 @@ level=INFO msg=audit event=audit.member.set audit=true seq=42 at=2026-10-12T09:3
   starts at the newest event there is when ariesd starts. What was
   written while it was stopped (by `ariesd control init`) is in the
   event log and not in the journal, and the journal is not a substitute
-  for backing the control database up.
+  for backing the control store up.
 - **A line is no request's.** It carries the event's `seq` and no `req`.
 - **`telemetry: audit_log: false`** writes no audit line. The event log
   is unchanged.
@@ -2767,8 +2579,8 @@ configured, ariesd exports nothing and opens no port.
 | `/healthz` and `/readyz` | The same listener |
 | Readiness and a watchdog under systemd | `Type=notify` and `WatchdogSec` in the unit ([step 5](#5-run-ariesd-under-systemd)), which the guide's unit has |
 | `ariesd status` | Always there, for the user ariesd runs as |
-| Dolt's own figures in the status report | `metrics:` in Dolt's config and `telemetry: dolt_metrics_url:` in ariesd's ([Dolt's figures](#dolts-figures)); the guide's setup has both |
-| Dolt's own metrics, for a scraper | The same `metrics:` block: `http://127.0.0.1:11228/metrics`. ariesd does not export them again |
+| Postgres's own figures in the status report | Always there, read with ariesd's own role ([Watching a server](#watching-a-server)) |
+| Postgres's own metrics, for a scraper | Not ariesd's: run Postgres's own exporter, such as `postgres_exporter`, beside it. ariesd's pool is in its own metrics (`aries.db.pool.*`) |
 
 Push and pull are independent: turn on either, both or neither. The
 instruments are the same either way.
@@ -2957,11 +2769,11 @@ that does not:
 |---|---|
 | `ariesd is starting` | The store is not open yet, or the socket not yet listening |
 | `ariesd is not listening on its socket` | The daemon is stopping, or could no longer accept connections |
-| `the last check of Dolt failed` | Dolt did not answer a ping within 2 seconds: it hangs, or cannot be reached. The ping is on a pooled connection to the control database, or to the one project's; it is made at most every 5 seconds, however often `/readyz` is asked, and its answer stands until the next. ariesd's log has the error. A Dolt whose unit stops or restarts takes ariesd down with it ([step 5](#5-run-ariesd-under-systemd)), so then nothing answers on the listener at all until both are back |
+| `the last check of the database failed` | Postgres did not answer a ping within 2 seconds: it hangs, is stopped or restarting, or cannot be reached. The ping is on a pooled connection; it is made at most every 5 seconds, however often `/readyz` is asked, and its answer stands until the next. ariesd's log has `database.check_failed` with the error. ariesd outlives a restart of Postgres ([step 5](#5-run-ariesd-under-systemd)), so this line clears by itself once Postgres answers |
 | `the last write of the keys file failed` | With `control_schema`: sshd may be reading an older list of keys ([Keys from the store](#keys-from-the-store)) |
 
 `/healthz` says only that the process answers. A daemon that is healthy
-and not ready is usually waiting for Dolt.
+and not ready is usually waiting for Postgres.
 
 To have Prometheus scrape it:
 
@@ -3026,7 +2838,7 @@ What each counts:
 | `control.writes` | With `control_schema`: each `aries admin` change, refused ones included |
 | `keys_file.writes` | With `control_schema`: each time the keys file was written, or could not be. A file that already held the right keys is not a write |
 | `keys_file.last_write.time` | When the keys file took its current content |
-| `reaper.duration`, `reaper.last_run.time` | Each 30-second tick that ends expired claims, closes idle stores and rereads the control database, and when the last one ended. A time that stops advancing means the reaper is stuck |
+| `reaper.duration`, `reaper.last_run.time` | Each 30-second tick that ends expired claims, closes idle stores and rereads the control store, and when the last one ended. A time that stops advancing means the reaper is stuck |
 | `clock.behind` | How far the server's clock is behind the history its time is held against, as of the reaper's last tick; 0 when it is not behind. Above 0 the daemon serves, with its time running on from the history at half speed, and with `clock_behind: stop` it will not start again: alert on it ([The server's clock](#the-servers-clock)) |
 | `clock.steps` | Each time the daemon found the clock set, or the machine suspended and resumed, by more than `clock_step_tolerance`, counted at the reaper's next tick |
 | `telemetry.dropped` | For `signal="metrics"`, each OTLP export that failed; nothing is lost for good, since totals are cumulative and the next export carries them. For `signal="traces"`, each span that was lost: one the full queue had no room for, or one of an export that failed. For `signal="logs"`, each log record that was not exported, the same way; the journal still has its line ([When the collector is down](#when-the-collector-is-down)) |
@@ -3083,8 +2895,8 @@ Without one it starts no span: a request costs nothing for them.
 tool call brought ([agent guide](agents.md#trace-context)), and
 ariesd's span for the request is a child of the caller's span. A
 request that brings none, or one that is not valid, starts a trace of
-its own; it is never refused for it. Dolt has no tracing, so a trace
-ends at ariesd's span around the work it asked of Dolt.
+its own; it is never refused for it. Postgres is not traced: a trace
+ends at ariesd's span around the work it asked of Postgres.
 
 | Span | Kind | Covers | Attributes |
 |---|---|---|---|
@@ -3093,10 +2905,10 @@ ends at ariesd's span around the work it asked of Dolt.
 | `store.write.attempt` | internal | One attempt of a write: the wait for the writer, the SQL transaction and its commit. A write that loses to a concurrent transaction is attempted again, in a new span, so a retried write shows as several | `project`, `attempt`, `outcome` |
 | `store.write.wait` | internal | Within an attempt: the wait for the project's one writer connection, and the start of its transaction | `project`, `outcome` |
 | `store.open` | internal | With `control_schema`: opening a project's store, as `aries.store.open.duration` measures it | `project`, `migrated` |
-| `store.migrate` | internal | Within the opening of a store, a project's or the control database's: the check of its schema, and the migrations applied | `project`, `outcome` |
+| `store.migrate` | internal | Within the opening of a store, a project's or the control store's: the check of its schema, and the migrations applied | `project`, `outcome` |
 | `reaper` | internal | One 30-second tick, with the four below and the store's writes beneath it, so a slow tick shows which part was slow | none |
 | `clock.check` | internal | The look at the server's clock | none |
-| `control.reload` | internal | With `control_schema`: the reread of the control database's index | none |
+| `control.reload` | internal | With `control_schema`: the reread of the control store's index | none |
 | `keys_file.write` | internal | With `control_schema`: the check of the keys file, and its write when it was out of date | `result`, `changed` |
 | `access.sweep` | internal | With `control_schema`: ending the claims of holders who lost their access, in every open store, or in one as it opens | `project`, when it sweeps one store |
 
@@ -3104,10 +2916,10 @@ ends at ariesd's span around the work it asked of Dolt.
   root of a trace when it runs outside a tick, as the keys file's write
   does when ariesd starts; the keys file's write after an `aries admin`
   change is beneath that request's span.
-- **A span of the control database's store names no project.**
+- **A span of the control store's store names no project.**
 - **A span is marked failed only for the server's own failures:** a
   request answered `unavailable`; a handshake that ended `failed` or
-  `unavailable`; a Dolt commit, a migration, a wait for the writer, an
+  `unavailable`; a migration, a wait for the writer, an
   opening, a reread or a keys file write that returned an error. Its
   status description is that code and nothing more. A refusal is the
   request's doing: its code is the span's `result`, and the span is not
@@ -3200,7 +3012,7 @@ is exported.
 
 | `OTEL_TRACES_SAMPLER` | Records |
 |---|---|
-| `parentbased_always_on` (default) | What the caller decided, when the request brought a trace context; every trace that starts in ariesd: a request with no trace context, a handshake, the reaper's tick, a Dolt commit |
+| `parentbased_always_on` (default) | What the caller decided, when the request brought a trace context; every trace that starts in ariesd: a request with no trace context, a handshake, the reaper's tick |
 | `parentbased_always_off` | Only requests whose caller sampled them |
 | `parentbased_traceidratio` | What the caller decided; of the traces that start in ariesd, the share `OTEL_TRACES_SAMPLER_ARG` gives, from `0` to `1` |
 | `always_on`, `always_off` | Everything, or nothing, whatever the caller decided |
@@ -3217,12 +3029,11 @@ all the same.
 | A read | 1 |
 | A write | 3: the request, one attempt and its wait. 2 more for each retry |
 | A handshake | 3; with `control_schema`, 12 when it is the one that opens the project's store |
-| A Dolt commit | 1, at most one a second for each database being written to |
 | The reaper's tick, every 30 seconds | 4 on a server of one project; with `control_schema`, 5 and 4 for each open store. 2 more for each store every 10 minutes, when it prunes |
 
 A tracker's traffic is small, which is why the default records
 everything: ten requests a second, a third of them writes, is about 17
-spans a second, and one more for the Dolt commit. An idle server of 100 open projects sends about 400
+spans a second. An idle server of 100 open projects sends about 400
 spans every 30 seconds for its reaper alone, so on a server with many
 open projects, or one where the count matters to the backend's bill,
 set `parentbased_traceidratio` and a share: requests whose caller
@@ -3332,26 +3143,25 @@ ending a span change memory only; exports run on their own goroutines.
 start from. **They are examples that are tested, not a product:** tests
 hold every metric, label and value they name to what ariesd has, and
 the [Docker test server](deploy/docker.md#telemetry) runs them against a
-real ariesd, Dolt, OpenTelemetry Collector and Prometheus. Nothing in
+real ariesd, Postgres, OpenTelemetry Collector and Prometheus. Nothing in
 them names a vendor.
 
 | File | Is |
 |---|---|
-| `collector.yaml` | An OpenTelemetry Collector's configuration: it receives what ariesd pushes on `127.0.0.1:4318` (metrics, traces and, when asked, log records), scrapes ariesd's `/metrics` and Dolt's, and sends all of it on |
+| `collector.yaml` | An OpenTelemetry Collector's configuration: it receives what ariesd pushes on `127.0.0.1:4318` (metrics, traces and, when asked, log records), scrapes ariesd's `/metrics`, and sends all of it on |
 | `alerts.yaml` | Alert rules in Prometheus's rule format, which most monitoring systems read or translate |
-| `prometheus.yaml` | A Prometheus configuration that scrapes the two endpoints and loads the rules, for a server that runs Prometheus and no collector |
-| `dashboard.json` | One dashboard, in Grafana's format: requests, latency, writes, connections, claims, the server's own health, and Dolt's memory and collector |
+| `prometheus.yaml` | A Prometheus configuration that scrapes ariesd and loads the rules, for a server that runs Prometheus and no collector |
+| `dashboard.json` | One dashboard, in Grafana's format: requests, latency, writes, connections, claims, the server's own health, ariesd's memory, and its pool of connections to Postgres |
 
 **Wire a collector.** It runs on the server itself: ariesd's listener
-and Dolt's metrics answer on loopback only and have no authentication,
-and ariesd pushes to loopback with no credential.
+answers on loopback only and has no authentication, and ariesd pushes to
+loopback with no credential.
 
 1. Install the OpenTelemetry Collector as its own documentation says.
    The core distribution has every component the file uses; it was
    tested at 0.162.0.
-2. Turn on what it reads, if it is not on already: `metrics:` in Dolt's
-   config ([step 2](#2-run-dolt-under-its-own-account)),
-   `telemetry: listen: 127.0.0.1:9464` in ariesd's
+2. Turn on what it reads, if it is not on already:
+   `telemetry: listen: 127.0.0.1:9464` in ariesd's config
    ([The listener](#the-listener-metrics-to-scrape-and-health)) and
    `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318` in its unit
    ([above](#send-metrics-to-a-collector-on-the-machine)).
@@ -3375,7 +3185,8 @@ and ariesd pushes to loopback with no credential.
    twice, pushed and scraped, because the test server checks both. On a
    real server take `prometheus/ariesd` out of the `metrics` pipeline,
    or set `OTEL_METRICS_EXPORTER=none` for ariesd and keep the scrape.
-   Dolt's metrics can only be scraped.
+   Postgres's own metrics come from its own exporter, if you run one:
+   add a scrape of it beside ariesd's.
 5. **Logs, if you want them there.** The file has a `logs` pipeline,
    which carries nothing until ariesd is asked to export its log
    (`OTEL_LOGS_EXPORTER=otlp`, [Logs over OTLP](#logs-over-otlp)). The
@@ -3408,13 +3219,13 @@ what most backends store the first as.
 
 **Load the rules.** With Prometheus, name the file under `rule_files:`,
 as `prometheus.yaml` does; other systems import the same format. The
-rules select by the scrape jobs `ariesd` and `dolt`, so keep those
-names or change both. Their thresholds are starting points to set
+rules select by the scrape job `ariesd`, so keep that name or change
+both. Their thresholds are starting points to set
 against your server's own history.
 
 | Alert | Fires when |
 |---|---|
-| `AriesdDown`, `DoltDown` | The endpoint has not answered a scrape for 2 minutes |
+| `AriesdDown` | ariesd's endpoint has not answered a scrape for 2 minutes |
 | `AriesReaperStalled` | The reaper has not finished a tick for 2 minutes: expired claims are not ended, and systemd's watchdog is about to restart ariesd |
 | `AriesKeysFileWriteFailing` | A write of the keys file failed: sshd reads an older list of keys ([Keys from the store](#keys-from-the-store)) |
 | `AriesClockBehind`, `AriesClockStepped` | The clock is behind Aries's own history, or was set ([The server's clock](#the-servers-clock)) |
@@ -3422,14 +3233,14 @@ against your server's own history.
 | `AriesWriteLatencyHigh`, `AriesWritesQueueing` | One write in a hundred takes over a second; more than one in five is retried |
 | `AriesWritesRateLimited`, `AriesConnectionCapReached`, `AriesStoreCapReached` | Requests are refused at `write_rate`, at a connection limit, or at `open_stores` ([Limits](#limits)) |
 | `AriesTelemetryMetricsExportFailing`, `AriesTelemetrySpansDropped`, `AriesTelemetryLogRecordsDropped` | ariesd counts failed pushes of metrics, spans it lost, or log records it lost from the export, whose lines the journal still has ([When the collector is down](#when-the-collector-is-down)) |
-| `DoltCollectorPastTheCliff`, `DoltCollectorBusy` | With a memory limit set, Dolt's garbage collector ran more than 14 times for each 100 writes, or 3 or more: the thresholds of [Dolt's memory](#dolts-memory) and of the status report |
-| `DoltMemoryOverItsLimit`, `DoltMachineMemoryHigh`, `DoltDiskFilling` | Dolt's resident memory is over its `GOMEMLIMIT`; the machine's memory is over 90% in use, or its disk over 85%, as Dolt reads them |
+| `AriesDatabasePoolExhausted` | Requests waited for a connection of ariesd's pool, every one in use, for 10 minutes: raise `db_conns_per_server`, with Postgres's `max_connections` above it ([Sizing Postgres](#sizing-postgres)) |
 
 - **No rule asks `/readyz`,** because no metric says what it answers.
   Probe `http://127.0.0.1:9464/readyz` from the machine with whatever
-  probes HTTP for you. `AriesdDown`, `AriesReaperStalled`,
-  `AriesKeysFileWriteFailing` and `DoltDown` cover the same ground
-  from the metrics.
+  probes HTTP for you. `AriesdDown`, `AriesReaperStalled` and
+  `AriesKeysFileWriteFailing` cover the same ground from the metrics.
+- **No rule watches Postgres itself**: its connections, deadlocks, disk
+  and replication are its own exporter's, and in `aries admin status`.
 - **No rule matches a log line's `event`.** These are rules over
   metrics, and nothing in the examples turns a log record into one.
   Match [`event`](#events) where your logs are read. Three of the events
@@ -3455,7 +3266,9 @@ query against a real Prometheus.
 Desktop on a Mac (arm64), on 12 October 2026: the Collector at 0.162.0
 and Prometheus at 3.15.0, with every rule loaded and evaluated, every
 query of the dashboard run, and ariesd's metrics, traces and log
-records received, the audit stream among them. The `filter/audit`
+records received, the audit stream among them; and again on Postgres,
+on 15 October 2026, with the same results, 16 rules loaded and every
+query of the dashboard run. The `filter/audit`
 example and the backend's exporter were only checked by the Collector's
 `validate`: no record was sent through either. Not run: the Collector as a systemd unit on
 a server, beside the [AppArmor profiles](#confine-ariesd-with-apparmor),
@@ -3487,11 +3300,11 @@ document: the report, or `{"error": …}` and exit code 1.
   key can sign in as. The connection is in no project, is not listed by
   `aries who`, and is answered nothing but the report.
 - On a server of one project it lists that project by its UUID, since
-  only a control database gives projects names, and counts no projects
+  only a control store gives projects names, and counts no projects
   or principals.
-- It answers in about 2 seconds when Dolt does not answer at all, with
+- It answers in about 2 seconds when Postgres does not answer at all, with
   each open project's sessions as `unknown`
-  ([When Dolt does not answer](#when-dolt-does-not-answer)), whichever
+  ([When Postgres does not answer](#when-postgres-does-not-answer)), whichever
   stores are open: `aries admin status` is as prompt only from a
   repository whose project's store is open, and is refused from any
   other. It waits 30
@@ -3531,7 +3344,21 @@ with exit code 3:
 | An agent on such an `aries mcp` | Every tool call fails with code `version` and that message, and the fix `tell the user aries cannot connect, quoting the server:` followed by the line above. The session's start says the same in one line. The agent cannot fix it: the person upgrades `aries` and restarts the agent |
 | An `aries` newer than the server | A message that the server is older, and `fix: ask the server admin to run `ariesd upgrade`, or install the aries release that matches the server` |
 
-On the server, as the `aries` user:
+**Take a dump first.** A release may migrate the database when the new
+ariesd starts, and migrations only go forward: the old binary refuses a
+schema the new one migrated. A migration runs in one transaction with
+the row that records it, so one that fails leaves its schema as it was;
+but a migration that succeeds and a release you then want to leave can
+only be undone from a backup. So before each upgrade, run the daily dump
+once more, and keep its file apart from the rotation
+([Backups and restore](#backups-and-restore)):
+
+```sh
+systemctl start aries-backup.service
+cp /var/backups/aries/aries-"$(date -u +%a)".dump /var/backups/aries/before-upgrade.dump
+```
+
+Then, on the server, as the `aries` user:
 
 ```sh
 cd /var/lib/aries
@@ -3546,14 +3373,10 @@ sudo -u aries -H ariesd upgrade
    start. If the restarted daemon would refuse to start for it
    (`clock_behind: stop`), the upgrade stops here with that refusal and
    changes nothing: otherwise the daemon's refusal would fail the health
-   check of step 5 and be taken for a bad release. `upgrade --check`
+   check of step 4 and be taken for a bad release. `upgrade --check`
    prints the same finding on a line starting `clock:`.
-3. Commits the database and tags it `aries-<old version>`, a point to go
-   back to. With `control_schema`, it does so in the control database and in
-   every project's database, and stops, changing nothing, if one cannot
-   be reached.
-4. Swaps the binary.
-5. With `systemd_unit:` set, or `--restart`, restarts the unit through the
+3. Swaps the binary.
+4. With `systemd_unit:` set, or `--restart`, restarts the unit through the
    sudo rule from [step 5](#5-run-ariesd-under-systemd). It then checks
    that the new version answers on the socket within 30 seconds. If it does
    not, upgrade puts the old binary back and restarts it. The check is
@@ -3568,25 +3391,27 @@ sudo -u aries -H ariesd upgrade
    answers `a password is required`, nothing is restarted, and upgrade
    reports the daemon as not healthy (seen with `--rollback --restart`).
 
-With `control_schema`, ariesd opens the database of every active project
+With `control_schema`, ariesd opens the schema of every active project
 once before it listens, which applies the new version's migrations to
-each (a few milliseconds for a database already current), and the check
+each (a few milliseconds for a schema already current), and the check
 answers for all of them: it does not depend on the config file's
-`project` being active. If a project's database cannot be opened, the
+`project` being active. If a project's schema cannot be opened, the
 check is refused and names the project, so upgrade puts the old binary
-back; the log says why. An archived project's database is migrated when
+back; the log says why. An archived project's schema is migrated when
 the project is activated, and not at start: ariesd opens it then only
 as it is, to end a claim left in it
 ([Managing access](#managing-access)).
 
-The same happens at every start. A project whose database cannot be
+The same happens at every start. A project whose schema cannot be
 opened does not stop the others from being served: it is logged at
 `error`, its connections are refused with `unavailable`, and each new
-connection tries it again. Fix its database, or archive the project.
-As on a server of one project, the old binary refuses a database the new
+connection tries it again. Fix its schema, or archive the project.
+As on a server of one project, the old binary refuses a schema the new
 one has already migrated, since migrations only go forward. So after an
 upgrade that failed partway, the restored version may not serve the
-databases the new one reached; the tag of step 3 marks each as it was.
+schemas the new one reached. To go back all the way, stop ariesd,
+restore the dump you took before the upgrade
+([Restore](#restore)), and run `ariesd upgrade --rollback --restart`.
 
 **Keys and the upgrade.** sshd runs nothing of Aries's to find a key
 ([Keys from the store](#keys-from-the-store)), so an upgrade has no
@@ -3598,8 +3423,8 @@ installed, run each of these through `aa-exec -p ariesd-admin --`.
 
 It refuses to run as root, except with `--check`. `--to vX.Y.Z` installs a given release, but
 never an older one, because migrations only go forward. `--rollback`
-restores the binary the last upgrade replaced. Take a
-[dump](#backups-and-restore) first if you want a copy outside Dolt.
+restores the binary the last upgrade replaced; it does not touch the
+database, so a release that migrated it needs the dump as well.
 
 **Where the release is read from.** GitHub, unless the server is told
 otherwise, in one of two ways. Both take what `aries upgrade` and
@@ -3657,8 +3482,12 @@ not sign, nor a release older than the one running.
 Each person runs `aries upgrade` on their own machine. It never runs by
 itself ([Install](install.md#upgrade-and-roll-back)).
 
-Keep Dolt at the release Aries names, and change it only with an Aries
-release that does.
+**Postgres's own upgrades** are its packages': `apt-get upgrade` brings
+the newest release of its major version and restarts the cluster, which
+ariesd outlives ([step 5](#5-run-ariesd-under-systemd)). A new major
+version is `pg_upgradecluster`, with ariesd stopped and after a dump; any
+release of 16 or newer serves. Each Aries release's notes name the
+Postgres it was tested with.
 
 ## Rotating the host key
 
@@ -3742,56 +3571,171 @@ Back up three things:
 
 | What | Holds | How |
 |---|---|---|
-| The database | Every issue, comment and event | A daily `dolt dump`, below. With `control_schema`: one dump for the control database and one for each project's, each from its own directory under `/var/lib/dolt/data` |
-| `/etc/aries/ariesd.yaml` | The project UUID and Dolt's password | With your other secrets |
-| `~aries/.ssh/authorized_keys` and `/etc/ssh/ssh_host_ed25519_key*` | Who may connect, and the host key every `.aries.yaml` pins. With `control_schema`, the control database's dump also holds principals, their keys and their memberships | With your other secrets |
+| The database | Every project's issues, comments and events, and, with `control_schema`, the control store's projects, principals, keys and memberships | A daily dump of the whole database, below, carried off the machine |
+| `/etc/aries/ariesd.yaml`, and `/etc/aries/postgres` where it exists | The project UUID; with a Postgres on another machine, the role's password | With your other secrets |
+| `~aries/.ssh/authorized_keys` and `/etc/ssh/ssh_host_ed25519_key*` | Who may connect by a line of their own, and the host key every `.aries.yaml` pins | With your other secrets |
 
-A dump writes the database's current rows, the event log included, as SQL.
-It runs while ariesd serves. This cron entry keeps a week of dumps,
-one file per weekday. Save it as `/etc/cron.d/aries-backup`:
+### The daily dump
 
-```text
-15 3 * * * root cd /var/lib/dolt/data/aries && sudo -u dolt -H dolt dump -f -r sql -fn /var/backups/aries/aries-$(date -u +\%a).sql
+`pg_dump` writes the database's rows as they stand at one moment: it
+reads every schema in one transaction, so the control store and every
+project agree with each other. It runs while ariesd serves, and holds
+no lock that stops a write; a migration, which changes tables, waits
+for it. Its custom format is compressed, and `pg_restore` takes from it
+the whole database or one schema.
+
+Save this as `/etc/systemd/system/aries-backup.service`:
+
+```ini
+[Unit]
+Description=Dump the Aries database
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+UMask=0077
+ExecStart=/bin/sh -c 'exec pg_dump --format=custom --file="/var/backups/aries/aries-$$(date -u +%%a).dump" aries'
+```
+
+and this as `/etc/systemd/system/aries-backup.timer`:
+
+```ini
+[Unit]
+Description=Dump the Aries database every day
+
+[Timer]
+OnCalendar=*-*-* 03:15:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
 ```
 
 ```sh
-install -d -o dolt -g dolt -m 0700 /var/backups/aries
+install -d -o postgres -g postgres -m 0700 /var/backups/aries
+systemctl daemon-reload
+systemctl enable --now aries-backup.timer
+systemctl start aries-backup.service
+ls -l /var/backups/aries
 ```
 
-Copy the files off the machine every day: to object storage with
-versioning, or with your backup tool. A dump does not hold Dolt's own
-commit history. Disk snapshots do, so take both if you can.
+- **It keeps a week**, one file a weekday, each written over seven days
+  later. `$$` and `%%` are systemd's way of writing `$` and `%`.
+- **It runs as `postgres`**, the superuser, by the unix socket with no
+  password, and reads every schema whoever owns it. The files are
+  `postgres`'s alone, mode 0600.
+- **`Persistent=true`** runs a dump the machine slept or was off
+  through, when it is next up.
+- **Copy the files off the machine every day**: to object storage with
+  versioning and a retention the machine cannot shorten, or with your
+  backup tool. A dump on the server's own disk goes with it.
+- **One project alone**, to hand to another server or keep apart:
+  `sudo -u postgres pg_dump --format=custom --schema=project_web
+  --file=web.dump aries`. A project's schema holds its issues and their
+  history, not who may reach it: that is the control store's.
+- **A cron line does the same**, if you prefer cron: `15 3 * * *
+  postgres pg_dump --format=custom
+  --file=/var/backups/aries/aries-$(date -u +\%a).dump aries` in
+  `/etc/cron.d/aries-backup`.
+- **With Postgres on another machine**, dump from the server with the
+  client programs the installer installs, as ariesd's role, which owns
+  everything in its database: `cd /var/lib/aries && sudo -u aries -H
+  pg_dump --format=custom --file=aries.dump "$DSN"`, where `DSN` is the
+  config file's. A managed service also keeps its own snapshots
+  ([Managed services](#managed-services)).
 
-**To restore**, stop ariesd: a dump recreates the `aries` database it
-came from, dropping each table first.
+### Restore
+
+A restore replaces the database with the dump's rows and loses what
+was written since. Stop ariesd first, so that nothing writes meanwhile.
+
+**The whole database:**
 
 ```sh
 systemctl stop ariesd
-cd /var/lib/dolt/data
-sudo -u dolt -H dolt sql -q "DROP DATABASE aries"
-sudo -u dolt -H dolt sql < /var/backups/aries/aries-Mon.sql
+cd /
+sudo -u postgres dropdb aries
+sudo -u postgres pg_restore --create --dbname postgres /var/backups/aries/aries-Mon.dump
+systemctl start ariesd
+sudo -u aries -H ariesd status
+```
+
+`--create` makes the database again as it was dumped: its owner, its
+encoding and collation `C`, and the `REVOKE` of step 2. Every schema in
+it comes back owned by `aries`.
+
+**One project**, from the whole dump or from one of its own; the other
+projects lose nothing:
+
+```sh
+systemctl stop ariesd
+cd /
+sudo -u postgres psql -d aries -c 'DROP SCHEMA project_web CASCADE' -c 'CREATE SCHEMA project_web AUTHORIZATION aries'
+sudo -u postgres pg_restore --dbname aries --schema project_web /var/backups/aries/aries-Mon.dump
 systemctl start ariesd
 ```
 
-After a restore ariesd compares the clock with the restored
-history, like at every start. A dump from this server's own past is
-behind the clock and starts as usual. One written by a machine whose
-clock ran ahead is refused, with the flag that starts it once
-([When the clock is behind the server's
-history](#when-the-clock-is-behind-the-servers-history)).
+`pg_restore --schema` restores what is in the schema and not the schema
+itself, which the second statement makes again, owned by `aries`.
+Without it, every statement of the restore fails on `schema
+"project_web" does not exist`.
 
-On a new machine, follow steps 1 to 6 first. Then put back the config
-file's `project`, the host keys and `authorized_keys`, and restore the
-dump. If the host key changed, everyone must update `host_key`. `aries`
-refuses the new key until they do.
+- **After a restore ariesd compares the clock with the restored
+  history**, like at every start. A dump from this server's own past is
+  behind the clock and starts as usual. One written by a machine whose
+  clock ran ahead is refused, with the flag that starts it once
+  ([When the clock is behind the server's
+  history](#when-the-clock-is-behind-the-servers-history)).
+- **After restoring the control store,** access is as it was then: a
+  key removed or a person offboarded since is back. Check `aries admin
+  principal list` and redo what was undone.
+- **On a new machine**, run the installer, or steps 1 to 6, then put
+  back the config file's `project`, the host keys and `authorized_keys`,
+  and restore the whole database as above. If the host key changed,
+  everyone must update `host_key`: `aries` refuses the new key until
+  they do.
+
+What was run, on 15 October 2026: these commands as written, on Ubuntu
+24.04 booted by systemd in a container, set up by the installer, with
+two projects. `systemd-analyze verify` accepted the service and the
+timer; the timer was scheduled; the service wrote the day's dump, mode
+0600. A restore of the whole database brought back what was written
+before the dump and nothing after, with the database's owner,
+collation `C` and `REVOKE` as they were, and `ariesd status` and `aries
+admin status` reported no fault. A restore of `web` alone from the
+whole dump brought `web` back to the dump and left `first` as it was.
+The same, from dumps of the whole database and of one schema, was run
+in the [Docker test server](deploy/docker.md). Not run: a restore on a
+new machine, and one on a confined server.
+
+### Point-in-time recovery
+
+A daily dump can lose up to a day of writes. For less, Postgres archives
+its write-ahead log continuously and restores to any moment: a base
+backup, every WAL segment since, and recovery to a time you name
+(`archive_mode`, `archive_command` or `archive_library`, and
+`recovery_target_time`, in Postgres's own documentation, "Continuous
+Archiving and Point-in-Time Recovery"). pgBackRest, Barman and WAL-G
+run it for you, with retention and checks. A managed service does it
+itself, within a window it calls point-in-time restore.
+
+- **It restores the whole cluster**, every database in it, to the same
+  moment. Where ariesd's database shares the cluster with others,
+  recover into a cluster of its own and `pg_dump` ariesd's database
+  from there.
+- **Keep the dumps too.** They are what restores one project alone, and
+  they are readable by any Postgres of the same major version or newer.
+- Not run for this guide, with any tool.
 
 ## Storage growth
 
-The event log is never pruned. It is the history, and Dolt keeps every
-version of it. An event keeps a text over 8 KiB as its first 512 bytes,
-its length and its SHA-256, so an edit loop over long fields grows the log
-by about a kilobyte a write, not by the text. The write rate limit bounds
-how fast one principal can grow it.
+The event log is never pruned. It is the history. An event keeps a text
+over 8 KiB as its first 512 bytes, its length and its SHA-256, so an
+edit loop over long fields grows the log by about a kilobyte a write,
+not by the text. The write rate limit bounds how fast one principal can
+grow it.
 
 Token usage is one row per harness request in `token_usage`, about 200
 bytes each, also never pruned; a `usage` call adds one summary event, not
@@ -3809,140 +3753,196 @@ records nothing. A request carries at most 200 paths for an issue, and a
 `renew` paths for at most 50 issues, whatever `paths_per_issue` is;
 past either it is refused with `invalid`.
 
-Watch the size of `/var/lib/dolt/data`. If it grows, run `dolt gc` in a
-quiet hour: `cd /var/lib/dolt/data/aries && sudo -u dolt -H dolt gc`.
-It grows faster than the rows suggest: in
-[the measurements](https://github.com/ariesworx/aries/blob/fbbbf4655665845db81a72d2bbd1845472fd1c5a/spike/multidb/RESULTS.md) Dolt's files took 28 to
-56 KiB for each write, 6.5 GiB for a project of 30,000 small issues, and
-its garbage collection made them 7 to 47 times smaller. It is also how
-to get Dolt's memory back ([Dolt's memory](#dolts-memory)).
+**Watch the database's size.** `aries admin status` gives the
+database's and each project's schema's (`postgres's database` and
+`SIZE`); on the machine, `sudo -u postgres psql -c '\l+ aries'` and
+`df -h /var/lib/postgresql`. A new project's schema took 792 KiB in the
+Docker test server. Postgres reuses the space of rows it no longer
+needs by itself (autovacuum, on by default), and Aries deletes little,
+so a schema grows with what is written to it and shrinks only by
+`VACUUM FULL`, which locks its tables: run it, if ever, with ariesd
+stopped.
 
-## Dolt's memory
+## Postgres
 
-Dolt, not ariesd, is what the machine's memory goes to. These figures
-are from [one set of measurements](https://github.com/ariesworx/aries/blob/fbbbf4655665845db81a72d2bbd1845472fd1c5a/spike/multidb/RESULTS.md): Linux
-on arm64, in a container on a laptop, with synthetic issues of one shape
-written as fast as a writer can. Take the shape from them, and check the
-sizes on your own server.
+### Sizing Postgres
 
-- **It grows as Dolt writes, not with what it holds.** An empty Dolt
-  took about 80 MiB. With no restart, one project took 300 MiB after
-  300 issues, 1.1 GiB after 3,000, 1.4 GiB after 10,000 and 2.1 GiB
-  after 30,000. Each further project of 300 issues that was written to
-  added 95 to 180 MiB, up to 5.1 GiB for fifty. A project that is only
-  opened and read costs far less: about 15 MiB each, for twenty of them
-  after a restart.
-- **A restart gives most of it back.** Restarted on the same data, Dolt
-  took 14 to 42% of what it had before, and a fifth to a half once
-  every project was open, read and written to again. `systemctl restart
-  dolt` restarts ariesd with it, since ariesd's unit requires
-  Dolt's, so connections drop: pick a quiet hour.
-- **`dolt gc` and then a restart give back nearly all of it:** 110 to
-  200 MiB at rest in every case measured, up to the project of 30,000
-  issues, which a restart alone left at 895 MiB. The collection took
-  from under a second to 13 seconds a project. It was measured as
-  `CALL DOLT_GC()` in each database, as root, with ariesd's
-  connections closed; stop ariesd first if you want to match that.
-- **So size the machine for what is written between restarts.** 2 GB
-  holds one project of a few thousand issues. Give it 4 GB for a
-  project past about 10,000 issues or for ten or more projects in
-  regular use, or restart Dolt on a schedule, weekly say, and after a
-  bulk import.
-- **Read Dolt's own figure.** The `Dolt` line of
-  [`aries admin status`](#dolts-figures) gives it as `MiB resident`, with
-  how long Dolt has been up; `ps -o rss= -C dolt` and
-  `process_resident_memory_bytes` in Dolt's metrics are the same number.
-  A container's or a
-  unit's total also counts the page cache of Dolt's files, which the
-  kernel drops when it must: one measured Dolt of 2.1 GiB sat in a
-  container showing 5.7 GiB.
+- **Connections.** ariesd holds at most `db_conns_per_server` (32)
+  connections in its pool, and one more for its writers' locks
+  ([One writer for each project](#one-writer-for-each-project)). An
+  operator's command that opens the store (`control init`, `import-bd`,
+  `export-bd`, the clock check of `ariesd upgrade`) holds a few of its
+  own while it runs, and so does each `pg_dump` and `psql`. Postgres
+  allows 100 by default (`max_connections`), 3 of them kept for
+  superusers, which leaves room. The installer warns when there is not
+  room for ariesd's 33 and ten more. A Postgres that two ariesd
+  processes share, each with its control schema of its own, needs room
+  for both. `aries admin status` shows the server's connections against
+  `max_connections`, and how often a request waited for one of the
+  pool's; the alert `AriesDatabasePoolExhausted` fires on that wait.
+  Raising `max_connections` costs memory for each connection that is
+  used, so raise `db_conns_per_server` only when requests wait.
+- **Memory.** Measured on a development machine (Apple M4 Max, macOS,
+  Postgres 18.6, 15 October 2026; design §14, the As built note of
+  slice P2), Postgres's processes together took about 50 MiB idle, about
+  2.5 MiB more for each project in use up to 20, and 0.6 MiB more for
+  each after: 108 MiB at 20 projects and 228 MiB at 200. The most it
+  took was 949 MiB, with every connection of the pool having worked in
+  each of 200 projects: a connection keeps its caches of every schema it
+  has touched, until the pool retires it, idle for 30 minutes or an hour
+  old. Not measured on Linux.
+- **Settings.** The package's defaults serve a team: `shared_buffers`
+  of 128 MB, `max_connections` of 100, `fsync` and `synchronous_commit`
+  on. On a machine of its own, Postgres's documentation suggests
+  `shared_buffers` at a quarter of the memory; Aries has measured no
+  other setting. Keep `fsync` on: a write ariesd acknowledged is then on
+  disk.
+- **Disk.** A new project's schema is under a megabyte, and grows with
+  what is written ([Storage growth](#storage-growth)). Put
+  `/var/lib/postgresql` on a disk of its own where you can, so that the
+  system's disk can be rebuilt without it.
 
-**A Go memory limit** is optional. `Environment=GOMEMLIMIT=1500MiB` in
-`dolt.service` makes Dolt collect its garbage sooner. It is a target,
-not a cap: Dolt went past it in every run where it was too low, and
-nothing was refused or killed.
+### Managed services
 
-- **Set it from the running server:** no lower than 0.6 of the memory
-  Dolt reaches without a limit by the time you would restart it (its
-  resident memory, or `go_memstats_next_gc_bytes` from its metrics), and
-  0.75 for room. At 0.6 Dolt used up to twice the CPU for the same
-  writes and kept to about 60% of the memory.
-- **Too low is expensive.** At 0.5, Dolt's CPU for the same writes went
-  up 1.5 to 25 times, and at 0.2, 100 times: 7 to 8 of the machine's
-  16 cores, the collector running without pause, with writes still
-  served, more slowly. The step from costing nothing to costing nine times was
-  between 0.59 and 0.52.
-- **It moves.** What Dolt holds grows as it writes, so a limit with room
-  after a restart is too low later. Watch Dolt's CPU, and its collector
-  against ariesd's writes.
-- **Not measured:** a limit together with systemd's `MemoryMax`, which
-  is the way to a hard cap, and a limit on a server that mostly reads.
+A Postgres 16 or newer that a cloud runs, such as Amazon RDS or Aurora,
+Google Cloud SQL or AlloyDB, or Azure Database for PostgreSQL, serves
+as well as one on the machine: ariesd uses nothing but Postgres's
+protocol and SQL. Give the installer its URL (`--dsn`), or follow the
+steps with the changes below. None of these services was run for this
+guide; the steps were run against a Postgres container that ariesd
+reached over the network with a password.
 
-**The line to read** is `Dolt's collector:` in
-[`aries admin status`](#dolts-figures), which sets the cycles of Dolt's
-garbage collector against ariesd's writes over the last ten minutes:
+1. **The service's administrator makes the role and the database.**
+   The administrator a service gives is not a superuser: it has
+   `CREATEROLE` and `CREATEDB`, and since Postgres 16 it must hold a
+   role to make a database that role owns. In `psql`, as that
+   administrator:
 
-```text
-Dolt 2.4.2, up 12d 3h, 9 connections, 891 MiB resident, memory limit 850 MiB
-Dolt's collector: 1762 cycles for 12000 writes in 10m, 15 for each 100 writes: OVER 14, AS WITH A MEMORY LIMIT TOO LOW in the measurements: Dolt is spending its CPU collecting. Raise GOMEMLIMIT or restart Dolt (docs/server.md, Dolt's memory)
-```
+   ```sql
+   CREATE ROLE aries LOGIN;
+   \password aries
+   GRANT aries TO CURRENT_USER;
+   CREATE DATABASE aries OWNER aries TEMPLATE template0 ENCODING 'UTF8' LOCALE_PROVIDER libc LOCALE 'C';
+   REVOKE ALL ON DATABASE aries FROM PUBLIC;
+   REVOKE aries FROM CURRENT_USER;
+   ```
 
-| For each 100 writes | In the measurements | Do |
-|---|---|---|
-| Under 3 | Every run without a limit, and every run whose limit cost at most twice the CPU | Nothing |
-| 3 to 14 | No run fell here: the step from one to the other was narrow | Watch it and Dolt's CPU. If it climbs, act as below before it is past 14 |
-| Over 14 | Every run past the cliff: 9 to about 100 times the CPU for the same writes, with the writes still served, more slowly | Raise the limit, or restart Dolt, or run `dolt gc` and then restart it |
+   `\password` asks for the password and sends it hashed, so it is in no
+   statement, history or log. Without the `GRANT`, `CREATE DATABASE`
+   is refused with `must be able to SET ROLE "aries"` (run on Postgres 18
+   as an administrator with `CREATEROLE` and `CREATEDB`). A service
+   that refuses `TEMPLATE template0` or `LOCALE 'C'` makes the database
+   with its own defaults; ariesd works on it, and orders lists by its
+   collation.
+2. **The password, in a file.** Put the password, alone on one line,
+   in a file only root can read, and give it to the installer with
+   `--db-password-file`. It writes `/etc/aries/postgres/pgpass`, mode
+   0600, owned by `aries`, in the form Postgres reads (`*:*:*:*:` and the
+   password, with `\` and `:` escaped), and adds `passfile=` to the DSN.
+   ariesd reads the file when it opens its database, at start: after the
+   password changes, change the file and restart ariesd. A service's
+   sign-in by a token that expires (an IAM database authentication) is
+   not supported.
+3. **TLS to the database.** Ask for it, and check the server's name:
+   `sslmode=verify-full`, with `sslrootcert=` naming the certificate
+   authority the service publishes, saved in `/etc/aries/postgres`, or
+   `sslrootcert=system` where the machine's own authorities vouch for
+   it. The AppArmor profiles read both
+   ([Confine ariesd with AppArmor](#confine-ariesd-with-apparmor)).
 
-- **Raise the limit** (`Environment=GOMEMLIMIT=…` in `dolt.service`,
-  then `systemctl daemon-reload` and `systemctl restart dolt`) when the
-  machine has the memory: to no less than 0.6 of what Dolt reaches
-  without a limit, as above. If you never measured that, raise it by
-  half, and read the line again once it shows ten minutes of writes;
-  the limits past the cliff were half of that figure or less. The
-  restart it takes also empties Dolt, so the line improves either way;
-  the higher limit is what keeps it from coming back as soon.
-- **Restart Dolt** (`systemctl restart dolt`) when it does not: Dolt
-  then holds a fifth to a half of what it did, and the same limit has
-  room again for a while.
-- **`dolt gc` and then a restart** when a restart alone does not bring
-  `MiB resident` far enough below the limit
-  ([Storage growth](#storage-growth) has the command).
-- **Resident memory against the limit is a weaker sign.** Dolt was up to
-  4% over its limit in runs that cost little, and from 4.8% over in runs
-  that cost nine times the CPU or more, and one run 8% over cost only
-  1.5 times. Read the collector line.
-- **What the thresholds rest on:** one machine (Linux on arm64, in a
-  container on a laptop), one shape of load (small synthetic issues,
-  written as fast as one writer can, into 5, 10 and 20 projects), with
-  Dolt 2.4.2. No run mixed reads with writes, and none wrote at the few
-  writes a second of a real server. So the line judges only a window
-  with at least 500 writes, since an idle Dolt collects about every two
-  minutes whatever is written: on a quiet server it says `too few
-  writes to judge the memory limit by`, and Dolt's CPU
-  (`process_cpu_seconds_total` in its metrics, or `top`) is then what
-  to watch.
-- **What the line showed on this guide's machine**
-  ([What was run, and where](#what-was-run-and-where)), with fourteen
-  small projects and a burst of writes at about twenty a second: with no
-  limit, 4 cycles for 342 writes, and with a limit of 2 GiB, 7 for 562,
-  which is 1.2 for each 100 both times, at 4.2 ms of Dolt's CPU a write;
-  with a limit of 120 MiB, under half of the 265 MiB Dolt held at rest,
-  3441 cycles for 562 writes, 612 for each 100, at 55 ms of CPU a write,
-  and a median write of 20 ms where it had been 5 to 8 ms. Under that
-  limit Dolt also made 500 cycles in 15 seconds with nothing written,
-  which is why the line judges a window of few writes when its cycles
-  are past what 500 writes would excuse.
-- **Without a limit** the line gives the figures and no verdict: there
-  is no limit to be too low, and every run without one made fewer than
-  3 for each 100 writes.
+   ```yaml
+   dsn: postgres://aries@db.example.com:5432/aries?sslmode=verify-full&sslrootcert=/etc/aries/postgres/root.crt&passfile=/etc/aries/postgres/pgpass
+   ```
+
+4. **No `CREATE` on the database: a schema made beforehand.** Where the
+   role may not have a database of its own, the database's owner makes
+   the control store's schema and the first project's, owned by the
+   role:
+
+   ```sql
+   GRANT aries TO CURRENT_USER;
+   CREATE SCHEMA aries_control AUTHORIZATION aries;
+   CREATE SCHEMA project_first AUTHORIZATION aries;
+   REVOKE aries FROM CURRENT_USER;
+   GRANT CONNECT ON DATABASE app TO aries;
+   ```
+
+   The DSN then names the first with `search_path=project_first`, and
+   `control init --name first` uses both schemas as they are.
+   `aries admin project add` is refused, with the `GRANT CREATE ON
+   DATABASE` that would let it make the new project's schema: ariesd
+   never takes over a schema it did not make
+   ([Opt in](#opt-in), step 3), so such a server serves its first
+   project until the role may make schemas. Run on Postgres 18 with an administrator that had
+   `CREATEROLE` and `CREATEDB`, on 15 October 2026: `control init`
+   made the control store's tables in `aries_control` and adopted
+   `project_first`, and the role's own `CREATE SCHEMA` was refused with
+   `permission denied for database app`. `aries admin project add` was
+   not run on it.
+5. **Connect directly, or through a pooler in session mode.** ariesd's
+   writers' locks are held by one connection for as long as it lives,
+   and each pooled connection keeps the `search_path` ariesd sets on
+   it; a pooler in transaction mode (PgBouncer's, or a service's proxy
+   set so) hands them to other clients. Not run.
+6. **Connections** are capped by the instance's size on most services:
+   leave room for ariesd's 33 ([Sizing Postgres](#sizing-postgres)).
+7. **Backups** are the service's snapshots and point-in-time restore,
+   and the daily dump from the server ([The daily dump](#the-daily-dump)).
+
+### Standby and failover
+
+Postgres keeps a standby in step by streaming replication: the standby
+replays the primary's write-ahead log, and holds the whole cluster,
+every schema, role and grant, byte for byte. Promoting it after the
+primary is lost is a step that core Postgres leaves to something
+outside it.
+
+- **Who promotes.** Patroni (with etcd or Consul) or pg_auto_failover
+  on machines of your own; a managed service's high availability
+  (RDS Multi-AZ, Cloud SQL's, AlloyDB's, Azure's zone-redundant) as a
+  setting. Each also fences the old primary, so that two never take
+  writes.
+- **What a failover may lose.** Replication is asynchronous by default,
+  so a promotion can lose the last writes ariesd was told were
+  committed. With `synchronous_standby_names` set and
+  `synchronous_commit = on` (or `remote_apply`), a commit returns only
+  once the standby has it, and a promotion loses nothing acknowledged,
+  at the cost of the standby's round trip on every write. A write lost
+  this way had already been answered, and no client sends it again.
+- **Point ariesd at whatever follows the primary**: the service's
+  endpoint, a virtual address Patroni moves, or every host, with the
+  primary chosen by its role:
+  `postgres://aries@db1.example.com,db2.example.com/aries?target_session_attrs=read-write`.
+  When the primary goes, ariesd's connections end and its requests fail
+  with `unavailable` until the new primary answers; then its pool
+  connects again, its next write takes back the writers' locks, and it
+  serves, with no restart. That is what a restart of Postgres under a
+  running ariesd showed ([step 5](#5-run-ariesd-under-systemd)); a
+  failover itself was not run.
+- **ariesd's writer's lock fences ariesd, not the database.** Its locks
+  are held in the primary's memory and are not replicated, so after a
+  promotion they are free, and the first ariesd that writes takes them.
+  While one ariesd holds a project's lock no other writes that project,
+  however many share the database
+  ([One writer for each project](#one-writer-for-each-project)).
+  Keeping an old primary from taking writes is Patroni's or the
+  service's.
+- **A second ariesd, ready to take over**, on another machine, needs
+  the same config file and the same SSH host key, since every
+  `.aries.yaml` pins it ([Rotating the host key](#rotating-the-host-key)),
+  and starts only when the first has stopped: the control store's lock
+  refuses it while the first holds it. Moving clients to it (a DNS name,
+  an address that moves) is yours. Not run.
+- **A standby is not a backup.** A mistake replicates at once. Keep
+  the daily dumps.
 
 ## ariesd commands
 
 | Command | Does |
 |---|---|
-| `serve` | Run the daemon. Flags: `--config`, `--dsn`, `--socket`, `--project`, `--prefix`, `--log-level`, `--log-format`, `--dev`, `--allow-unsafe-dolt`, and `--accept-clock-behind TIME`, which starts once although the clock is behind a history no later than TIME ([The server's clock](#the-servers-clock)). Exits 75 when it refuses to start for the clock, and 1 for any other failure |
-| `stdio --principal NAME [--key FINGERPRINT]` | The sshd forced command: bridge one SSH session to the daemon. `--key` is written by ariesd, into each line of its keys file, never by hand: it names the key that signed in, so ariesd refuses the session unless the control database holds that key for NAME, and closes it when the key is removed |
-| `control init --name NAME [--authorized-keys FILE]` | Once, after setting `control_schema`: adopt the server's database as the first project and import principals and keys from `authorized_keys` ([Serving many projects](#serving-many-projects)). Safe to run again |
+| `serve` | Run the daemon. Flags: `--config`, `--dsn`, `--socket`, `--project`, `--prefix`, `--log-level`, `--log-format`, `--dev`, `--allow-unsafe-account`, and `--accept-clock-behind TIME`, which starts once although the clock is behind a history no later than TIME ([The server's clock](#the-servers-clock)). Exits 75 when it refuses to start for the clock, and 1 for any other failure |
+| `stdio --principal NAME [--key FINGERPRINT]` | The sshd forced command: bridge one SSH session to the daemon. `--key` is written by ariesd, into each line of its keys file, never by hand: it names the key that signed in, so ariesd refuses the session unless the control store holds that key for NAME, and closes it when the key is removed |
+| `control init --name NAME [--authorized-keys FILE]` | Once, after setting `control_schema`: make the control store, adopt the schema `dsn` names as the first project and import principals and keys from `authorized_keys` ([Serving many projects](#serving-many-projects)). Safe to run again |
 | `import-bd [--project UUID] [--principal NAME] [--dry-run] [--json] FILE` | Import a bd export (`-` for stdin); see [Moving from bd](migrate-from-bd.md). `--project` picks a project on a server of many |
 | `export-bd [--project UUID] [-o FILE]` | Write the store in bd's JSONL format |
 | `upgrade [--check] [--to vX.Y.Z] [--rollback] [--restart]` | Replace the binary with a verified release ([Upgrades](#upgrades)) |
@@ -3968,7 +3968,7 @@ Dolt's collector: 1762 cycles for 12000 writes in 10m, 15 for each 100 writes: O
 | `aries: HOST:PORT closed the connection before the ssh handshake (…)`, often for everyone behind one address at once; from an older `aries`, `ssh handshake with HOST:PORT failed: ssh: handshake failed: EOF` | The server accepted the TCP connection and hung up before the handshake. Usually sshd turned the address away for a while: on OpenSSH 9.8 and later, Ubuntu 26.04's among them, after failed logins or connections that ended before logging in from it, such as a removed key or a pin of an old host key retried ([step 6](#6-let-the-first-principal-in)). Also sshd past `MaxStartups`, or a firewall or proxy in front of it | Wait a minute and try once, not in a loop: each attempt can lengthen the penalty. Check that `aries whoami` signs in with the key the server knows. A penalty ends within 10 minutes. On the server, `journalctl -u ssh -g 'penalty|MaxStartups'` names the address and the cause; stop the client that fails, and list shared addresses in `PerSourcePenaltyExemptList`. Writes made meanwhile are queued, and `aries mcp` waits 30 seconds before it dials again |
 | `aries: open ssh session: the server closed the connection once it had accepted the key` | sshd took the key and hung up before a session was open: it was restarting, or something between the two machines cut the connection | Run it again. If it persists, `journalctl -u ssh` on the server |
 | `project "…" is not served by this server` | `.aries.yaml` and the config file name different projects; with `control_schema`, the project is unknown or archived | Make the two `project` values match |
-| `… is not a member of project "…"` | With `control_schema`: the principal has no row in the control database, or is in other projects only | An admin runs `aries admin member add NAME` in the project's repository (`principal add NAME` for someone new) |
+| `… is not a member of project "…"` | With `control_schema`: the principal has no row in the control store, or is in other projects only | An admin runs `aries admin member add NAME` in the project's repository (`principal add NAME` for someone new) |
 | `… is disabled on this server` | With `control_schema`: the principal was disabled, whatever `admins:` says | An admin with reach over it runs `aries admin principal enable NAME` |
 | `aries: … accepted no key`, for a key added with `aries admin` | sshd is not reading ariesd's keys file, or the file has no line for the key | On the server: `sshd -T -C user=aries \| grep -i authorizedkeysfile` must name `.ssh/aries_keys`; `grep -c NAME /var/lib/aries/.ssh/aries_keys` shows whether the line is there; `journalctl -u ssh` says when sshd would not read the file for its owner or mode |
 | `aries admin` warns that ariesd `could not write the keys file sshd reads`, or `aries admin status` says `THE LAST WRITE FAILED` | ariesd cannot replace its keys file. The change itself is recorded | `journalctl -u ariesd` has `the keys file is out of date` with the cause and a fix: usually the unit's `ReadWritePaths` ([Keys from the store](#keys-from-the-store), step 1), or the owner or mode of `.ssh`. ariesd tries again every 30 seconds |
@@ -3983,36 +3983,39 @@ Dolt's collector: 1762 cycles for 12000 writes in 10m, 15 for each 100 writes: O
 | `… is the last server admin who is not disabled` | `aries admin principal disable` of the only enabled server admin | Enable another first, or name another under `admins:` and restart |
 | `the key that signed in is no longer one the server holds for …` | The key was removed, and sshd read a keys file from before that: one ariesd could not rewrite, or one restored from a backup; or an `authorized_keys` line was given `--key` by hand, which only ariesd writes | Use another key, or have the key added again; check `aries admin status` for a failed write; remove `--key` from a hand-written line |
 | `this server holds one project, so it has no projects, principals or members to manage` | `aries admin project`, `principal`, `member` or `key` on a server with no `control_schema` | [Opt in](#opt-in), or add people as lines of `authorized_keys` |
-| `schema project_… , which project … would have, is already in the database` | `aries admin project add` named a project whose schema ([Opt in](#opt-in), step 4) something else made: another ariesd's project, an earlier one, or a person | Choose another name; or, if nothing uses that schema, drop or rename it as its owner and run the same command |
+| `schema project_… , which project … would have, is already in the database` | `aries admin project add` named a project whose schema ([Opt in](#opt-in), step 3) something else made: another ariesd's project, an earlier one, or a person | Choose another name; or, if nothing uses that schema, drop or rename it as its owner and run the same command |
 | `another role made schema …` | A project being created found its schema made by another role, which ariesd's may not use | As the schema's owner or a superuser, run the statement in the fix, then run the same `aries admin project add NAME` again |
 | `project … is served by another process on the same database` | Another ariesd, or an operator's command, holds the project's writer's lock ([One writer for each project](#one-writer-for-each-project)) | Stop the other process; `pg_stat_activity` shows its `ariesd writer locks` connection |
 | `the control store … is served by another ariesd on this database` | ariesd does not start: another holds the control store's writer's lock | Stop the other ariesd, or give this one a `control_schema` of its own |
 | `… may not …: it is for …` | An `aries admin` command by someone who may not run it ([Managing access](#managing-access)) | Ask the admin the fix names |
 | `ariesd upgrade` restores or installs the binary, then `sudo -n systemctl restart …: fork/exec /usr/bin/sudo: permission denied` | On Ubuntu 26.04, AppArmor profiles from before 14 October 2026: `sudo` is sudo-rs there, at a path the old operator's profile does not name | Install this release's profiles ([Confine ariesd with AppArmor](#confine-ariesd-with-apparmor)), then `sudo systemctl restart ariesd` |
 | `ariesd could not open the database of an active project` from `ariesd upgrade` | A project's database is gone, not granted, or failed to migrate | `journalctl -u ariesd` names it and why; fix it or archive the project, then restart |
-| `the control database … holds no active project` at start | `control_schema` is set and `control init` has not run | `sudo -u aries -H ariesd control init --name NAME` |
+| `the control store … holds no active project` at start | `control_schema` is set and `control init` has not run | `sudo -u aries -H ariesd control init --name NAME` |
 | ariesd does not start, and `systemctl status ariesd` shows `status=75/TEMPFAIL` under `not starting: the server's clock is behind its own history` | The clock is behind the latest event of the database named, by more than `clock_behind_tolerance`: the clock was reset or set back, the machine booted without its time, or the database was written by a clock that ran ahead | `timedatectl`; correct the clock and `systemctl start ariesd`. If the history is what is wrong, start once with the `--accept-clock-behind` the refusal prints, or set `clock_behind: warn` ([The server's clock](#the-servers-clock)). systemd does not retry this exit |
 | After a boot, ariesd and every timer wait for good; `systemctl list-jobs` shows `time-sync.target start waiting` | `systemd-time-wait-sync` is enabled with its shipped `TimeoutStartSec=infinity`, and no time server answers | Add the drop-in of [Start ariesd after the clock is set](#start-ariesd-after-the-clock-is-set), which bounds the wait at 90 seconds; `systemctl stop systemd-time-wait-sync` lets this boot go on |
 | `clock behind history` in the log, or `CLOCK BEHIND HISTORY` in `aries admin status` | The clock went back under a running ariesd, or it started with `clock_behind: warn` or `--accept-clock-behind` | Correct the clock. Until it has caught up, timestamps are ahead of it and leases run at half speed; with `clock_behind: stop`, ariesd will not start again while this lasts |
 | `clock stepped` in the log, or a `clock:` line in `aries admin status` | The clock was set while ariesd ran, or the machine was suspended and resumed | Nothing for the data: leases were extended by a jump forward, and time did not go back for a step back. Find what set the clock, and whether the time service is synchronized |
 | `ariesd upgrade` stops with `nothing was changed: ariesd would not start again after this upgrade` | The clock is behind the server's history, so the restarted daemon would refuse to start | As for exit status 75 above; then run the upgrade again |
 | `usage record …: at … is more than 5m0s past the server's clock` | The machine that recorded the usage runs ahead of the server, or the server runs behind | Check both clocks; `clock_client_tolerance` widens the bound. `aries usage --hook` drops such a record and says how many |
-| ariesd refuses the Dolt account | The account is `root` or has too many rights, or `secure_file_priv` is empty | Run the SQL its fix names, or redo [step 4](#4-create-the-database-and-the-config-file) |
+| ariesd refuses the database role: `… is unsafe` | The role is a superuser, or has `CREATEROLE`, `CREATEDB`, `REPLICATION` or `BYPASSRLS`, or is a member of a role that reaches the server's files | Run, as `postgres`, the SQL its fix names, or make the role as [step 2](#2-create-the-role-and-the-database) does |
+| `the database server is Postgres …, older than 16` | ariesd opens Postgres 16 or newer | Upgrade Postgres (`pg_upgradecluster`, after a [dump](#backups-and-restore)), or point `dsn` at a newer one |
+| `role "aries" does not exist`, or `Peer authentication failed for user "aries"` | Step 2 has not run on this Postgres; or ariesd, or the command, runs as a Unix user other than `aries`, whom the unix socket signs in as the role of that name | Run [step 2](#2-create-the-role-and-the-database); run operators' commands as `sudo -u aries -H ariesd …` |
+| `password authentication failed for user "aries"` | With a Postgres on another machine: the password in `/etc/aries/postgres/pgpass` is not the role's, the DSN names no `passfile=`, or the password changed and ariesd still has the old one | Correct the file (it is `*:*:*:*:PASSWORD`, with `\` and `:` escaped) and restart ariesd ([Managed services](#managed-services)) |
+| `sorry, too many clients already`, or `remaining connection slots are reserved` | Postgres is at its `max_connections` | Find who holds them: `sudo -u postgres psql -c 'SELECT usename, application_name, count(*) FROM pg_stat_activity GROUP BY 1, 2'`; raise `max_connections` or lower what others hold ([Sizing Postgres](#sizing-postgres)) |
+| `aries admin project add` is refused with a fix that says `GRANT CREATE ON DATABASE …` | ariesd's role may not make schemas in its database: it does not own it, as where schemas were made beforehand ([Managed services](#managed-services), step 4) | Run the statement as the database's owner, then the same `aries admin project add` again |
 | `aries` exits with code 3 | Client and server speak incompatible protocols | Upgrade the server, then the client |
 | `busy` | A [limit](#limits) | Wait as the fix says, or raise the limit |
 | `permission denied` on a file or socket the `aries` user owns, after you moved a path; or from `control init`, `import-bd`, `export-bd` or `upgrade` | With the [AppArmor profiles](#confine-ariesd-with-apparmor): the path is not the one the profiles name, or the command ran without `aa-exec` | `journalctl -k -g 'apparmor="DENIED"'` names the profile and the path. Change the path in `/etc/apparmor.d/tunables/ariesd` and run `apparmor_parser -r /etc/apparmor.d/ariesd`; run an operator's command through `aa-exec -p ariesd-admin --` |
 | ariesd does not start: `Failed to prepare AppArmor profile change to ariesd-serve` | The unit asks for a profile that is not loaded | `apparmor_parser -r /etc/apparmor.d/ariesd`, or remove the unit's `apparmor.conf` ([Confine ariesd with AppArmor](#confine-ariesd-with-apparmor)) |
-| ariesd does not start: `dial tcp 127.0.0.1:3306: socket: permission denied` | The AppArmor profiles are loaded and the unit does not ask for `ariesd-serve`, so the daemon has the bridge's profile | Add the unit's `AppArmorProfile=ariesd-serve` line, `systemctl daemon-reload`, and restart |
-| One failed start of ariesd in the journal of every boot, `connect: connection refused` | Dolt was not listening yet: `dolt.service` has no `ExecStartPost` that waits for its port | Nothing has to be done, since systemd starts ariesd again five seconds later. To remove the failed start, add the line to Dolt's unit ([step 5](#5-run-ariesd-under-systemd)) |
+| ariesd does not start: `connect: permission denied` on `/var/run/postgresql/.s.PGSQL.5432`, or a refused connection to another machine's Postgres | The AppArmor profiles are loaded and the unit does not ask for `ariesd-serve`, so the daemon has the bridge's profile; or the profiles are from before Postgres | Add the unit's `AppArmorProfile=ariesd-serve` line, `systemctl daemon-reload`, and restart; install this release's profiles |
+| ariesd does not start at boot: `connect: no such file or directory` on `/var/run/postgresql/.s.PGSQL.5432` | Postgres was not running: its cluster failed, or the unit lacks `postgresql.service` in `After=` and `Wants=` | `systemctl status postgresql@18-main`, `journalctl -u postgresql@18-main`; the unit of [step 5](#5-run-ariesd-under-systemd). systemd starts ariesd again five seconds later |
 | ariesd answers `aries`, yet `systemctl status ariesd` says `activating`, and every ten minutes `start operation timed out` restarts it; its log has `could not tell systemd the daemon is ready` | The unit has `Type=notify` and the daemon cannot write to systemd's socket: the AppArmor profiles loaded are from before the unit had that line | Install this release's profiles and `apparmor_parser -r /etc/apparmor.d/ariesd` ([Confine ariesd with AppArmor](#confine-ariesd-with-apparmor)); `journalctl -k -g 'apparmor="DENIED"'` names `/run/systemd/notify` |
-| `Watchdog timeout (limit 2min)!` in the journal, then goroutine stacks and a restart | ariesd did not tell systemd it was alive for `WatchdogSec`: it hung, or one tick of its reaper took that long, as it can when Dolt stops answering | Read the stacks, which say where it was; check Dolt. If the machine is merely slow, raise `WatchdogSec` |
+| `Watchdog timeout (limit 2min)!` in the journal, then goroutine stacks and a restart | ariesd did not tell systemd it was alive for `WatchdogSec`: it hung, or one tick of its reaper took that long, as it can when Postgres stops answering | Read the stacks, which say where it was; check Postgres. If the machine is merely slow, raise `WatchdogSec` |
 | `ariesd status`: `config: open /etc/aries/ariesd.yaml: permission denied` | It was run as a user who cannot read the config file, or as root with the AppArmor profiles loaded | `sudo -u aries -H ariesd status` |
 | `telemetry: a metrics export failed` with `socket: permission denied` or `failed to load system roots` | With the AppArmor profiles: the collector's endpoint is a name that needs DNS, or is HTTPS, and the daemon's profile allows neither as shipped | Add the three lines of [Confine ariesd with AppArmor](#confine-ariesd-with-apparmor) to `local/ariesd-serve`, or send to a collector on the machine |
-| `Dolt: unknown` in `aries admin status`, and `could not read Dolt's metrics` in the log | ariesd cannot read Dolt's own metrics: Dolt is stopped, its config has no `metrics:` block, or `telemetry: dolt_metrics_url:` names another port or path. Nothing else is affected | The log line has the URL and the cause. `curl -s http://127.0.0.1:11228/metrics \| head -3` on the server shows whether Dolt answers; then [Dolt's figures](#dolts-figures) |
-| ariesd does not start: `telemetry dolt_metrics_url … is not a loopback address`, `is not an http:// URL` or `has no path` | The setting names something other than Dolt's endpoint on this machine | Set it to `http://127.0.0.1:11228/metrics`, or remove it |
-| `Dolt's collector: … OVER 14, AS WITH A MEMORY LIMIT TOO LOW` in `aries admin status` | Dolt's garbage collector runs far more often than its writes explain, as it did in the measurements under a `GOMEMLIMIT` that was too low | Raise the limit, or restart Dolt, or `dolt gc` and restart it ([Dolt's memory](#dolts-memory)) |
-| `SESSIONS` is `unknown` in `aries admin status` or `ariesd status`, with `sessions: unknown for … (database did not answer in 2s)` | Dolt did not answer a count within 2 seconds: it hangs, is stopped (`SIGSTOP`), swaps, or is collecting without pause under a memory limit too low. The rest of the report is ariesd's own memory and stands | On the server: `systemctl status dolt`, `journalctl -u dolt`, and the report's `Dolt` lines ([Dolt's memory](#dolts-memory)). With `(the read failed; see ariesd's log)` instead, the log's `count the sessions seen, for status` has the error |
-| `aries`: `the server's database does not answer, so project "…" was not opened`, from `aries admin status` too | Dolt did not answer a ping within 2 seconds, and the project's store is closed: ariesd does not open a store on a Dolt that hangs, and a connection is to a project ([When Dolt does not answer](#when-dolt-does-not-answer)). The log has `dolt.check_failed` with the ping's error | Run `sudo -u aries -H ariesd status` on the server, or `aries admin status` from the repository of a project in use; then see to Dolt: `systemctl status dolt`, `journalctl -u dolt` |
-| `aries`: `the server timed out on …` after a minute, while `aries admin status` answers | Dolt does not answer. The status report does not wait for it; every other request does, for the request timeout | `aries admin status`, or `ariesd status` on the server, for what ariesd knows; then see to Dolt |
-| `ariesd status`: `status: the daemon did not answer` | ariesd welcomed the connection and then sent no report for 30 seconds, or closed it: the daemon itself is stuck or stopping, since the report does not wait on Dolt | `journalctl -u ariesd` for what it waits on; `systemctl restart ariesd` if that does not end |
-| `/readyz` answers `not ready: the last check of Dolt failed` | Dolt hangs or cannot be reached | `systemctl status dolt`, `journalctl -u dolt`; ariesd's log has the ping's error |
+| `SESSIONS` is `unknown` in `aries admin status` or `ariesd status`, with `sessions: unknown for … (database did not answer in 2s)`, or `postgres: unknown` | Postgres did not answer within 2 seconds: it hangs, is stopped, restarting or frozen, swaps, or a lock holds its catalog. The rest of the report is ariesd's own memory and stands | On the server: `systemctl status postgresql@18-main`, `journalctl -u postgresql@18-main`, and what waits: `sudo -u postgres psql -c 'SELECT pid, state, wait_event, query_start, left(query, 60) FROM pg_stat_activity WHERE datname = '\''aries'\'''`. With `(the read failed; see ariesd's log)` instead, the log's `count the sessions seen, for status` has the error |
+| `aries`: `the server's database does not answer, so project "…" was not opened`, from `aries admin status` too | Postgres did not answer a ping within 2 seconds, and the project's store is closed: ariesd does not open a store on a Postgres that hangs, and a connection is to a project ([When Postgres does not answer](#when-postgres-does-not-answer)). The log has `database.check_failed` with the ping's error | Run `sudo -u aries -H ariesd status` on the server, or `aries admin status` from the repository of a project in use; then see to Postgres: `systemctl status postgresql@18-main` |
+| `aries`: `the server timed out on …` after a minute, while `aries admin status` answers | Postgres does not answer. The status report does not wait for it; every other request does, for the request timeout | `aries admin status`, or `ariesd status` on the server, for what ariesd knows; then see to Postgres |
+| `ariesd status`: `status: the daemon did not answer` | ariesd welcomed the connection and then sent no report for 30 seconds, or closed it: the daemon itself is stuck or stopping, since the report does not wait on Postgres | `journalctl -u ariesd` for what it waits on; `systemctl restart ariesd` if that does not end |
+| `/readyz` answers `not ready: the last check of the database failed` | Postgres hangs, is restarting, or cannot be reached | `systemctl status postgresql@18-main`, `journalctl -u postgresql@18-main`; ariesd's log has `database.check_failed` with the ping's error. It clears by itself once Postgres answers |
+| One `agent.register_failed` in the log, with `terminating connection due to administrator command (SQLSTATE 57P01)`, after Postgres restarted | A request took a pooled connection that the restart had ended. The request itself is answered; the session is noted at its next one | Nothing. It was seen once in a restart of Postgres under a running ariesd (15 October 2026) |
