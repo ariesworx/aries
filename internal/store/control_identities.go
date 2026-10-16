@@ -505,20 +505,32 @@ func (c *Control) Invites(ctx context.Context, q InviteQuery) ([]Identity, int, 
 	if q.Limit < 0 {
 		return nil, 0, fmt.Errorf("%w: limit %d", ErrInvalid, q.Limit)
 	}
-	where := ` WHERE subject IS NULL AND id > $1 AND invite_until > $2 ORDER BY id`
+	// A page is read in one transaction with the count of the rest, and no
+	// more rows than it holds: the invitations of a whole server may be
+	// tens of thousands, lapsed ones included.
+	r, end, err := c.s.beginRead(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("invitations: %w", err)
+	}
+	defer end()
+	const where = ` WHERE subject IS NULL AND id > $1 AND invite_until > $2`
 	since := time.Time{}
 	if q.Pending {
 		since = c.Now()
 	}
-	all, err := queryIdentities(ctx, c.s.r, "invitations", where, q.After, since)
+	limit := any(nil) // LIMIT NULL is no limit
+	if q.Limit > 0 {
+		limit = q.Limit
+	}
+	rows, err := queryIdentities(ctx, r, "invitations", where+` ORDER BY id LIMIT $3`, q.After, since, limit)
 	if err != nil {
 		return nil, 0, err
 	}
-	n := len(all)
-	if q.Limit > 0 {
-		n = min(n, q.Limit)
+	var total int
+	if err := r.QueryRowContext(ctx, `SELECT COUNT(*) FROM identities`+where, q.After, since).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count invitations: %w", err)
 	}
-	return all[:n], len(all) - n, nil
+	return rows, max(total-len(rows), 0), nil
 }
 
 // PrincipalChange is what [Control.SetPrincipal] sets. A field left at
