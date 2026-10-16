@@ -43,6 +43,16 @@
 # ARIES_IDENTITY=1 also has ariesd sign people in at it, as the provider
 # `keycloak` (docs/server.md, "Sign-in"), offline: its endpoints written
 # out, and its keys from a file the entrypoint exports at start.
+#
+# The `proxy` profile runs nginx in front of ariesd, which then serves
+# plain HTTP on loopback, as behind a load balancer (docs/server.md,
+# "Behind a proxy"). It needs ARIES_PROXY=1 as well, which the entrypoint
+# reads, since a container cannot see its compose profiles:
+#
+#   ARIES_PROXY=1 docker compose --profile proxy up -d --build --wait
+#
+# nginx shares the server's network namespace, as the telemetry profiles
+# do, and listens on the HTTPS port in its place.
 name: aries-dev
 services:
   aries:
@@ -63,6 +73,7 @@ services:
       ARIES_TELEMETRY: ${ARIES_TELEMETRY:-}
       ARIES_IDENTITY: ${ARIES_IDENTITY:-}
       ARIES_IDENTITY_PORT: ${ARIES_IDENTITY_PORT:-8180}
+      ARIES_PROXY: ${ARIES_PROXY:-}
       ARIES_TZ: ${ARIES_TZ:-}
     ports:
       - 127.0.0.1:${ARIES_HTTPS_PORT:-8443}:8443
@@ -72,6 +83,9 @@ services:
     volumes:
       - state:/state
       - dbsecret:/aries-db:ro
+      # The test CA and the certificate, which nginx serves with the
+      # proxy profile; the entrypoint makes them on the first start.
+      - tls:/etc/aries/tls
       # Keycloak's, for its generated client secret, which the entrypoint
       # copies for ariesd with ARIES_IDENTITY=1; empty without the
       # identity profile.
@@ -79,6 +93,32 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  # nginx in front of ariesd, with the proxy profile and ARIES_PROXY=1
+  # (deploy/docker/nginx.conf). It shares the server's network namespace,
+  # so ariesd's loopback listener is all it needs, and it serves HTTPS on
+  # the port the server publishes. Digest and tag: a release at least 14
+  # days old (AGENTS.md, rule 4).
+  nginx:
+    profiles: [proxy]
+    # Mainline 1.31.6, released 15 September 2026
+    image: nginx:1.31.6@sha256:60f0d4e986561e08804f75c211dcaf7fc5455699eada29f42cbe8a0a7253dd86
+    network_mode: service:aries
+    depends_on:
+      aries:
+        condition: service_started
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, SETGID, SETUID]
+    security_opt: [no-new-privileges:true]
+    # nginx makes its default temporary directories at start, under
+    # /var/cache/nginx, even the ones this configuration does not use.
+    tmpfs:
+      - /tmp:mode=1777
+      - /var/cache/nginx:uid=101,gid=101,mode=0700
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - tls:/etc/nginx/tls:ro
 
   # The database. Its entrypoint gives the official image a superuser
   # password nobody keeps, and init/aries.sh makes ariesd's role and
@@ -221,6 +261,7 @@ services:
       interval: 30s
 volumes:
   state:
+  tls:
   observe:
   postgres:
   dbsecret:
