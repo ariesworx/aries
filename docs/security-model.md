@@ -563,10 +563,11 @@ What holds, and what bounds it:
   It is bound to a P-256 key aries makes at each sign-in (DPoP, RFC
   9449): each connection proves the key, by a proof for `/v1/connect` at
   the server's configured URL, never the request's `Host`, made within a
-  minute, for this token (`ath`), and used once. A token copied out of a
-  log, a proxy or a backup is useless without the key. What DPoP does
-  not do: whoever has the user's files has both, for the rest of the
-  day; the keystore that would close that is 1.x.
+  minute, for this token (`ath`), and used once. A token leaked alone,
+  into a log or through a proxy, is useless without the key. What DPoP
+  does not do: the key is kept beside the token, so whoever has the
+  user's data directory, or a backup of it, has both, for the rest of
+  the day; the keystore that would close that is 1.x.
 - **A day, then nothing** (decision 58): no refresh token, and nothing
   renews a sign-in. Its end, `aries logout`, `aries admin signin end`
   and removing its identity close its connections at once, each told

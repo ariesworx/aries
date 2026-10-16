@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os/exec"
 	"strings"
 	"time"
@@ -79,11 +80,17 @@ func cmdLogin(ctx context.Context, r *runner, args []string) error {
 		_ = l.Close()
 		return err
 	}
+	// The authorization URL carries the state the browser brings back.
+	authorize, err := url.Parse(login.URL)
+	if err != nil {
+		_ = l.Close()
+		return fmt.Errorf("parse the sign-in's URL: %w", err)
+	}
 	ctx, cancel := context.WithTimeout(ctx, loginWait)
 	defer cancel()
 	addresses := make(chan string, 2)
 	results := make(chan error, 1)
-	srv := &http.Server{Handler: loopbackHandler(addresses, results), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: loopbackHandler(authorize.Query().Get("state"), addresses, results), ReadHeaderTimeout: 10 * time.Second}
 	served := make(chan struct{})
 	go func() {
 		defer close(served)
@@ -161,13 +168,19 @@ func chooseProvider(info *client.ServerInfo, named string) (string, error) {
 
 // loopbackHandler takes the browser's return on callbackPath, once:
 // it hands the address to the waiting login, and answers the browser
-// with how it went, in plain text.
-func loopbackHandler(addresses chan<- string, results <-chan error) http.Handler {
+// with how it went, in plain text. Anything on this machine can reach
+// the port, so a request without the sign-in's state is refused and
+// leaves the login waiting, rather than spoiling it.
+func loopbackHandler(state string, addresses chan<- string, results <-chan error) http.Handler {
 	mux := http.NewServeMux()
 	taken := make(chan struct{}, 1)
 	mux.HandleFunc("GET "+callbackPath, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
+		if r.URL.Query().Get("state") != state {
+			http.Error(w, "This is not the return of aries's sign-in; aries is still waiting for it.", http.StatusBadRequest)
+			return
+		}
 		select {
 		case taken <- struct{}{}:
 		default:
