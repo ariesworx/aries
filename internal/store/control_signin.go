@@ -142,7 +142,10 @@ type Grant struct {
 	Provider string
 	// Identity is the identity it was made by, or 0 once that is
 	// removed.
-	Identity  int64
+	Identity int64
+	// TrustRule is the trust rule a workload's sign-in matched, or empty
+	// once that is removed.
+	TrustRule string
 	Machine   string
 	CreatedAt time.Time
 	EndsAt    time.Time
@@ -160,6 +163,7 @@ type grantState struct {
 	Kind      string     `json:"kind"`
 	Provider  string     `json:"provider,omitempty"`
 	Identity  int64      `json:"identity,omitempty"`
+	TrustRule string     `json:"trust_rule,omitempty"`
 	ClientID  string     `json:"client_id"`
 	Scopes    []string   `json:"scopes"`
 	Flow      string     `json:"flow"`
@@ -167,10 +171,13 @@ type grantState struct {
 	EndsAt    time.Time  `json:"ends_at"`
 	RevokedAt *time.Time `json:"revoked_at,omitempty"`
 	EndReason string     `json:"end_reason,omitempty"`
+	// Launch is a workload sign-in's: the claims of its token that say
+	// which run of which job it was (identity.md §7.5).
+	Launch map[string]string `json:"launch,omitempty"`
 }
 
 func (g Grant) state() grantState {
-	s := grantState{ID: g.ID, Kind: string(g.Kind), Provider: g.Provider, Identity: g.Identity, ClientID: g.ClientID, Scopes: g.Scopes,
+	s := grantState{ID: g.ID, Kind: string(g.Kind), Provider: g.Provider, Identity: g.Identity, TrustRule: g.TrustRule, ClientID: g.ClientID, Scopes: g.Scopes,
 		Flow: g.Flow, Machine: g.Machine, EndsAt: g.EndsAt, EndReason: g.EndReason}
 	if !g.RevokedAt.IsZero() {
 		at := g.RevokedAt
@@ -519,13 +526,13 @@ func (ix *index) dropGrant(id string) {
 }
 
 const grantSelect = `SELECT id, principal, kind, client_id, scopes, COALESCE(jkt, ''), resource, flow, COALESCE(provider, ''),
-  COALESCE(identity, 0), machine, created_at, ends_at, revoked_at, COALESCE(end_reason, '') FROM grants`
+  COALESCE(identity, 0), COALESCE(trust_rule, ''), machine, created_at, ends_at, revoked_at, COALESCE(end_reason, '') FROM grants`
 
 func scanGrant(r scanner) (Grant, error) {
 	var g Grant
 	var kind, scopes string
 	var revoked sql.NullTime
-	if err := r.Scan(&g.ID, &g.Principal, &kind, &g.ClientID, &scopes, &g.JKT, &g.Resource, &g.Flow, &g.Provider, &g.Identity, &g.Machine,
+	if err := r.Scan(&g.ID, &g.Principal, &kind, &g.ClientID, &scopes, &g.JKT, &g.Resource, &g.Flow, &g.Provider, &g.Identity, &g.TrustRule, &g.Machine,
 		&g.CreatedAt, &g.EndsAt, &revoked, &g.EndReason); err != nil {
 		return Grant{}, err
 	}
@@ -568,7 +575,7 @@ func queryGrants(ctx context.Context, q querier, where string, args ...any) ([]G
 // ended, for the index.
 func loadTokens(ctx context.Context, q querier) (map[string]Grant, error) {
 	rows, err := q.QueryContext(ctx, `SELECT t.hash, g.id, g.principal, g.kind, g.client_id, g.scopes, COALESCE(g.jkt, ''), g.resource, g.flow,
-  COALESCE(g.provider, ''), COALESCE(g.identity, 0), g.machine, g.created_at, g.ends_at, g.revoked_at, COALESCE(g.end_reason, '')
+  COALESCE(g.provider, ''), COALESCE(g.identity, 0), COALESCE(g.trust_rule, ''), g.machine, g.created_at, g.ends_at, g.revoked_at, COALESCE(g.end_reason, '')
   FROM tokens t JOIN grants g ON g.id = t.grant_id WHERE t.kind = 'access' AND g.revoked_at IS NULL`)
 	if err != nil {
 		return nil, err

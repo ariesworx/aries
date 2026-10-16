@@ -24,8 +24,10 @@
 // [OpenControl] returns a [Control], the store of what belongs to the
 // server rather than to one project, in a schema of its own: projects
 // ([Project]), principals ([Principal]), their public SSH keys
-// ([PrincipalKey]), memberships with roles ([Member]), and the
-// identities people sign in with and invitations to them ([Identity]).
+// ([PrincipalKey]), memberships with roles ([Member]), the identities
+// people sign in with and invitations to them ([Identity]), sign-ins
+// ([Grant]), and the trust rules by which a service principal signs in
+// with its platform's token ([TrustRule]).
 // It is built on a Store, so everything below about errors and
 // concurrency holds for it; its own migrations are in controlmigrations,
 // and design §15 and docs/design/identity.md §3 describe it.

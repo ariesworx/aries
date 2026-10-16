@@ -78,6 +78,10 @@ const (
 	// identity onto their own principal, whatever their rights
 	// (decision 19's reasoning, docs/design/identity.md §6.5).
 	AccessOwnIdentity AccessReason = "own identity"
+	// AccessOwnTrust: the actor is Principal, and nobody adds, changes or
+	// removes a trust rule of their own principal (decision 19's
+	// reasoning, docs/design/identity.md §7.1).
+	AccessOwnTrust AccessReason = "own trust rule"
 )
 
 // AccessError refuses a change to the control store that Actor, the
@@ -127,6 +131,8 @@ func (e *AccessError) Error() string {
 		why = "nobody adds a key to their own account, so it is for another admin"
 	case AccessOwnIdentity:
 		why = "nobody invites an identity onto their own principal, so it is for another server admin"
+	case AccessOwnTrust:
+		why = "nobody manages a trust rule of their own principal, so it is for another server admin"
 	}
 	return fmt.Sprintf("%s may not %s: %s", e.Actor, what, why)
 }
