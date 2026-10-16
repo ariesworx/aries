@@ -471,7 +471,11 @@ postgresql@18-main` under a running ariesd left it running, with the
 same process and no restart, and a write made at once after succeeded.
 In the [Docker test server](deploy/docker.md) the same held, and
 ariesd's log had one `agent.register_failed` for a pooled connection
-the restart had ended ([Troubleshooting](#troubleshooting)).
+the restart had ended. Since 16 October 2026 the pool looks at each
+connection before it hands it out, without a round trip, and makes
+another in place of one Postgres has ended, so a restart between
+requests logs nothing; a request in flight at the moment of the restart
+still fails ([Troubleshooting](#troubleshooting)).
 
 ### 6. Let the first principal in
 
@@ -4042,4 +4046,4 @@ outside it.
 | `aries`: `the server timed out on …` after a minute, while `aries admin status` answers | Postgres does not answer. The status report does not wait for it; every other request does, for the request timeout | `aries admin status`, or `ariesd status` on the server, for what ariesd knows; then see to Postgres |
 | `ariesd status`: `status: the daemon did not answer` | ariesd welcomed the connection and then sent no report for 30 seconds, or closed it: the daemon itself is stuck or stopping, since the report does not wait on Postgres | `journalctl -u ariesd` for what it waits on; `systemctl restart ariesd` if that does not end |
 | `/readyz` answers `not ready: the last check of the database failed` | Postgres hangs, is restarting, or cannot be reached | `systemctl status postgresql@18-main`, `journalctl -u postgresql@18-main`; ariesd's log has `database.check_failed` with the ping's error. It clears by itself once Postgres answers |
-| One `agent.register_failed` in the log, with `terminating connection due to administrator command (SQLSTATE 57P01)`, after Postgres restarted | A request took a pooled connection that the restart had ended. The request itself is answered; the session is noted at its next one | Nothing. It was seen once in a restart of Postgres under a running ariesd (15 October 2026) |
+| One `agent.register_failed` in the log, with `terminating connection due to administrator command (SQLSTATE 57P01)`, after Postgres restarted | The restart ended a connection in the middle of a session's note. The pool hands out no connection Postgres ended while it was idle, so this is only for what was in flight at the moment of the restart. The request itself is answered; the session is noted at its next one | Nothing |
