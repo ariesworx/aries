@@ -268,30 +268,31 @@ const (
 	// have not yet said hello.
 	LimitHandshakes = "handshakes_per_principal"
 	// LimitSockets is the cap on sockets still in their handshake.
-	LimitSockets           = "handshake_sockets"
-	LimitWriteRate         = "writes_per_second"
-	LimitControlWriteRate  = "control_writes_per_second"
-	LimitOpenStores        = "open_stores_per_server"
-	LimitTelemetryRequests = "telemetry.max_requests"
-	LimitProjects          = "projects_per_server"
-	LimitPrincipals        = "principals_per_server"
-	LimitKeys              = "keys_per_principal"
-	LimitMembers           = "members_per_project"
-	LimitIdentities        = "identities_per_principal"
-	LimitInvites           = "invites_per_server"
-	LimitPrices            = "prices_per_project"
-	LimitPlans             = "plans_per_project"
-	LimitHoursPerDay       = "hours_per_day"
-	LimitUsagePerDay       = "usage_per_day"
-	LimitLocks             = "locks_per_project"
-	LimitLockWaiters       = "waiters_per_lock"
-	LimitLockWaits         = "lock_waits_per_principal"
-	LimitHTTPSConns        = "https_conns_per_server"
-	LimitHTTPSConnsPerAddr = "https_conns_per_addr"
-	LimitAuthFailures      = "auth_failures_per_minute"
-	LimitGrants            = "grants_per_principal"
-	LimitSignInsPending    = "signins_pending_per_server"
-	LimitDPoPProofs        = "dpop_proofs_per_server"
+	LimitSockets               = "handshake_sockets"
+	LimitWriteRate             = "writes_per_second"
+	LimitControlWriteRate      = "control_writes_per_second"
+	LimitOpenStores            = "open_stores_per_server"
+	LimitTelemetryRequests     = "telemetry.max_requests"
+	LimitProjects              = "projects_per_server"
+	LimitPrincipals            = "principals_per_server"
+	LimitKeys                  = "keys_per_principal"
+	LimitMembers               = "members_per_project"
+	LimitIdentities            = "identities_per_principal"
+	LimitInvites               = "invites_per_server"
+	LimitPrices                = "prices_per_project"
+	LimitPlans                 = "plans_per_project"
+	LimitHoursPerDay           = "hours_per_day"
+	LimitUsagePerDay           = "usage_per_day"
+	LimitLocks                 = "locks_per_project"
+	LimitLockWaiters           = "waiters_per_lock"
+	LimitLockWaits             = "lock_waits_per_principal"
+	LimitHTTPSConns            = "https_conns_per_server"
+	LimitHTTPSConnsPerAddr     = "https_conns_per_addr"
+	LimitAuthFailures          = "auth_failures_per_minute"
+	LimitGrants                = "grants_per_principal"
+	LimitSignInsPending        = "signins_pending_per_server"
+	LimitSignInsPendingPerAddr = "signins_pending_per_addr"
+	LimitDPoPProofs            = "dpop_proofs_per_server"
 )
 
 // Buckets are the upper bounds, in seconds, of every histogram's
@@ -310,7 +311,7 @@ var limits = []string{LimitConns, LimitConnsPerPrincipal, LimitHandshakes, Limit
 	LimitOpenStores, LimitTelemetryRequests, LimitProjects, LimitPrincipals, LimitKeys, LimitMembers, LimitIdentities, LimitInvites,
 	LimitPrices, LimitPlans, LimitHoursPerDay, LimitUsagePerDay, LimitLocks, LimitLockWaiters, LimitLockWaits,
 	LimitHTTPSConns, LimitHTTPSConnsPerAddr, LimitAuthFailures,
-	LimitGrants, LimitSignInsPending, LimitDPoPProofs}
+	LimitGrants, LimitSignInsPending, LimitSignInsPendingPerAddr, LimitDPoPProofs}
 
 // attr is one attribute of an instrument: its key and the values it may
 // take. A value not among them is recorded as fallback. The values of

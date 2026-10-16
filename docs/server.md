@@ -1043,8 +1043,9 @@ then be true, and what ariesd cannot check:
 - **`public_urls` names what clients use,** the proxy's URL. A proxy
   that serves Aries under a path strips it.
 - **The limits per address are the proxy's.** Every connection comes
-  from it, so `https_conns_per_addr` and `auth_failures_per_minute` do
-  not apply behind one; keep the proxy's own.
+  from it, so `https_conns_per_addr`, `auth_failures_per_minute` and
+  `signins_pending_per_addr` do not apply behind one; keep the proxy's
+  own.
 
 Client certificates do not pass a proxy, so smart cards checked by
 ariesd itself (1.x) need TLS at ariesd.
@@ -2552,8 +2553,9 @@ limits:
 | `https_body_bytes` | 65536 | With HTTPS on: bytes of a request's body |
 | `upgrade_timeout` | `10s` | With HTTPS on: how long a WebSocket has from its upgrade to the end of its key proof; the hello then has 10 seconds, as over SSH |
 | `ws_message_bytes` | 4194304 | With HTTPS on: bytes of one WebSocket message, which carries one frame (at most 4 MiB, a frame's own bound). A larger one closes the connection |
-| `auth_failures_per_minute`, `auth_failure_burst` | 30, 60 | With HTTPS on: each client address's token bucket of refused key proofs (a key the server does not know, a proof that does not verify; not a disabled principal's key, proved), refused sign-in tokens at `/v1/connect`, and, with `login:` providers, refused requests to `/oauth/token` (a DPoP proof, a code or a PKCE verifier refused): refusals a minute, and how many at once. With none left an upgrade or a token request from the address is refused `busy`, 429, saying how long to wait. Behind a proxy it does not apply, as `https_conns_per_addr` does not |
-| `signins_pending_per_server` | 10000 | With `login:` providers: [sign-ins](#sign-in) in the daemon's memory started and not finished, sent to the provider (10 minutes each at most) or with a code `aries` has not spent (a minute). Past it a sign-in is refused, back at `aries`, `temporarily_unavailable` |
+| `auth_failures_per_minute`, `auth_failure_burst` | 30, 60 | With HTTPS on: each client address's token bucket of refused key proofs (a key the server does not know, a proof that does not verify; not a disabled principal's key, proved), refused sign-in tokens at `/v1/connect`, and, with `login:` providers, refused requests to `/oauth/token` (a DPoP proof, a code or a PKCE verifier refused), and sign-ins refused past `signins_pending_per_addr`: refusals a minute, and how many at once. With none left an upgrade, a token request or a sign-in begun from the address is refused `busy`, 429, saying how long to wait. Behind a proxy it does not apply, as `https_conns_per_addr` does not |
+| `signins_pending_per_server` | 10000 | With `login:` providers: [sign-ins](#sign-in) in the daemon's memory started and not finished, sent to the provider (10 minutes each at most) or with a code `aries` has not spent (a minute). Past it the oldest is let go of, and counted, so that sign-ins never meant to finish cannot refuse a person's; one let go of tells `aries login` to run again |
+| `signins_pending_per_addr` | 16 | With `login:` providers: of those, the ones started from one client address. One more is refused, back at `aries`, `temporarily_unavailable`, and counts against the address's `auth_failures_per_minute`; an address with none left is refused sign-ins too, saying how long to wait. Behind a proxy it does not apply, as `https_conns_per_addr` does not |
 | `dpop_proofs_per_server` | 100000 | With `login:` providers: the DPoP proofs the daemon remembers, each for two minutes, so that none is used twice. Only a proof whose request has earned it is remembered: at `/oauth/token`, one that comes with a live code and its PKCE verifier; at `/v1/connect`, one by the key of a live sign-in's token. Past it a proof is refused `busy` until the oldest age out |
 
 On a server of [many projects](#serving-many-projects), every limit above
@@ -3390,7 +3392,7 @@ number of series cannot grow with what clients send:
 | `result_class` | `ok`; `error` for `unavailable`, which is the server's failure; `refused` for every other refusal, which is the request's |
 | `project` | The project's UUID, only for a project a connection was admitted to. At most as many as the `projects_per_server` limit, and `other` past that |
 | `reason` of a dropped connection | `membership`, `disabled`, `archived`, `key` (the access that let it in ended), `idle` (`idle_timeout`), `limit` (a socket past twice `conns_per_server`), `access` (the access ended while the handshake ran), `signin` (its sign-in ended: at its end, a logout, or an admin's word) |
-| `limit` | `conns_per_server`, `conns_per_principal`, `handshakes_per_principal`, `handshake_sockets` (twice `conns_per_server`), `writes_per_second`, `control_writes_per_second`, `open_stores_per_server`, `telemetry.max_requests`, `projects_per_server`, `principals_per_server`, `keys_per_principal`, `members_per_project`, `identities_per_principal`, `invites_per_server`, `prices_per_project`, `plans_per_project`, `hours_per_day`, `usage_per_day`, `locks_per_project`, `waiters_per_lock`, `lock_waits_per_principal`; with HTTPS on, `https_conns_per_server`, `https_conns_per_addr`, `auth_failures_per_minute`; with `login:` providers, `grants_per_principal`, `signins_pending_per_server`, `dpop_proofs_per_server` |
+| `limit` | `conns_per_server`, `conns_per_principal`, `handshakes_per_principal`, `handshake_sockets` (twice `conns_per_server`), `writes_per_second`, `control_writes_per_second`, `open_stores_per_server`, `telemetry.max_requests`, `projects_per_server`, `principals_per_server`, `keys_per_principal`, `members_per_project`, `identities_per_principal`, `invites_per_server`, `prices_per_project`, `plans_per_project`, `hours_per_day`, `usage_per_day`, `locks_per_project`, `waiters_per_lock`, `lock_waits_per_principal`; with HTTPS on, `https_conns_per_server`, `https_conns_per_addr`, `auth_failures_per_minute`; with `login:` providers, `grants_per_principal`, `signins_pending_per_server`, `signins_pending_per_addr`, `dpop_proofs_per_server` |
 | `migrated` | `true` when opening the store applied a migration |
 | `event` of a claim | `take`, `renew`, `release`, `expire` |
 | `event` of a lock | `acquire`, `wait`, `grant`, `renew`, `release`, `expire`, `leave` |
